@@ -8,6 +8,9 @@ use crate::pac::rcc::vals::{Pllrge, Pllvcosel, Timpre};
 use crate::pac::{FLASH, PWR, RCC};
 use crate::time::Hertz;
 
+#[cfg(stm32h7rs)]
+use stm32_metapac::rcc::vals::Plldivst;
+
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(64_000_000);
 
@@ -78,6 +81,12 @@ pub struct Pll {
     pub divq: Option<PllDiv>,
     /// PLL R division factor. If None, PLL R output is disabled.
     pub divr: Option<PllDiv>,
+    #[cfg(stm32h7rs)]
+    /// PLL S division factor. If None, PLL S output is disabled.
+    pub divs: Option<Plldivst>,
+    #[cfg(stm32h7rs)]
+    /// PLL T division factor. If None, PLL T output is disabled.
+    pub divt: Option<Plldivst>,
 }
 
 fn apb_div_tim(apb: &APBPrescaler, clk: Hertz, tim: TimerPrescaler) -> Hertz {
