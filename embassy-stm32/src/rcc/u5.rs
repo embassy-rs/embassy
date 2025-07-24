@@ -191,9 +191,8 @@ pub(crate) unsafe fn init(config: Config) {
                         // MSIK is active and using LSE for auto-calibration
                         Some(lse_config.frequency)
                     }
-                    // improper configuration, no LSE calibration
-                    _ => None,
-                }
+                    // improper configuration
+                    _ => panic!("MSIx auto-calibration is enabled for a source that has not been configured.")                }
             } else {
                 None
             }
