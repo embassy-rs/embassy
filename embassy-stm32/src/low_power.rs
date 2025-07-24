@@ -92,11 +92,6 @@ foreach_interrupt! {
     };
 }
 
-#[allow(dead_code)]
-pub(crate) unsafe fn on_wakeup_irq() {
-    EXECUTOR.as_mut().unwrap().on_wakeup_irq();
-}
-
 /// Configure STOP mode with RTC.
 pub fn stop_with_rtc(rtc: &'static Rtc) {
     unsafe { EXECUTOR.as_mut().unwrap() }.stop_with_rtc(rtc)

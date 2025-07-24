@@ -69,9 +69,6 @@ unsafe fn on_irq() {
         EXTI.rpr(0).write_value(Lines(bits));
         EXTI.fpr(0).write_value(Lines(bits));
     }
-
-    #[cfg(feature = "low-power")]
-    crate::low_power::on_wakeup_irq();
 }
 
 struct BitIter(u32);

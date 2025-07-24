@@ -337,9 +337,6 @@ pub struct UpdateInterruptHandler<T: CoreInstance> {
 
 impl<T: CoreInstance> interrupt::typelevel::Handler<T::UpdateInterrupt> for UpdateInterruptHandler<T> {
     unsafe fn on_interrupt() {
-        #[cfg(feature = "low-power")]
-        crate::low_power::on_wakeup_irq();
-
         let regs = crate::pac::timer::TimCore::from_ptr(T::regs());
 
         // Read TIM interrupt flags.
@@ -367,9 +364,6 @@ impl<T: GeneralInstance1Channel> interrupt::typelevel::Handler<T::CaptureCompare
     for CaptureCompareInterruptHandler<T>
 {
     unsafe fn on_interrupt() {
-        #[cfg(feature = "low-power")]
-        crate::low_power::on_wakeup_irq();
-
         let regs = crate::pac::timer::TimGp16::from_ptr(T::regs());
 
         // Read TIM interrupt flags.
