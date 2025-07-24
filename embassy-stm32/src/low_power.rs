@@ -145,11 +145,6 @@ impl Executor {
         })
     }
 
-    unsafe fn on_wakeup_irq(&mut self) {
-        self.time_driver.resume_time();
-        trace!("low power: resume");
-    }
-
     pub(self) fn stop_with_rtc(&mut self, rtc: &'static Rtc) {
         self.time_driver.set_rtc(rtc);
 
@@ -185,27 +180,31 @@ impl Executor {
 
         compiler_fence(Ordering::SeqCst);
 
-        let stop_mode = self.stop_mode();
-
-        if stop_mode.is_none() {
-            trace!("low power: not ready to stop");
+        let Some(stop_mode) = self.stop_mode() else {
+            trace!("low power: not ready to stop (peripherals busy)");
             return;
-        }
+        };
 
         if self.time_driver.pause_time().is_err() {
-            trace!("low power: failed to pause time");
+            trace!("low power: not ready to stop (alarm in near future)");
             return;
         }
 
-        let stop_mode = stop_mode.unwrap();
         match stop_mode {
-            StopMode::Stop1 => trace!("low power: stop 1"),
-            StopMode::Stop2 => trace!("low power: stop 2"),
+            StopMode::Stop1 => trace!("low power: time paused for stop 1"),
+            StopMode::Stop2 => trace!("low power: time paused for stop 2"),
         }
         self.configure_stop(stop_mode);
 
         #[cfg(not(feature = "low-power-debug-with-sleep"))]
         self.scb.set_sleepdeep();
+    }
+
+    unsafe fn on_wakeup(&mut self) {
+        match self.time_driver.resume_time() {
+            Ok(()) => trace!("low power: time resumed"),
+            Err(()) => trace!("low power: time already running"),
+        }
     }
 
     /// Run the executor.
@@ -248,7 +247,7 @@ impl Executor {
                 // As a workaround, we call `on_wakeup_irq` manually here. If the interrupt
                 // handler has been called before and the `time_driver` is already running, this
                 // does nothing.
-                self.on_wakeup_irq();
+                self.on_wakeup();
             };
         }
     }

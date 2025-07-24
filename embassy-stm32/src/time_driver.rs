@@ -405,6 +405,7 @@ impl RtcDriver {
     /// Pause the timer if ready; return err if not
     pub(crate) fn pause_time(&self) -> Result<(), ()> {
         critical_section::with(|cs| {
+            // TODO The RTC timer should not be running here, so can this be removed?
             /*
                 If the wakeup timer is currently running, then we need to stop it and
                 add the elapsed time to the current time, as this will impact the result
@@ -431,17 +432,19 @@ impl RtcDriver {
 
     #[cfg(feature = "low-power")]
     /// Resume the timer with the given offset
-    pub(crate) fn resume_time(&self) {
+    pub(crate) fn resume_time(&self) -> Result<(), ()> {
         if regs_gp16().cr1().read().cen() {
             // Time isn't currently stopped
 
-            return;
+            return Err(());
         }
 
         critical_section::with(|cs| {
             self.stop_wakeup_alarm(cs);
 
             regs_gp16().cr1().modify(|w| w.set_cen(true));
+
+            Ok(())
         })
     }
 
