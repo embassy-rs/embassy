@@ -384,11 +384,6 @@ impl RtcDriver {
         }
     }
 
-    #[cfg(feature = "low-power")]
-    pub(crate) fn unpend_wakeup_alarm(&self) {
-        critical_section::with(|cs| self.rtc.borrow(cs).get().unwrap().unpend_wakeup_alarm());
-    }
-
     /*
         Low-power public functions: all create a critical section
     */

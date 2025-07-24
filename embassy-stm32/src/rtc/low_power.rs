@@ -1,6 +1,45 @@
 use super::{bcd2_to_byte, DateTimeError, Rtc, RtcError};
+use crate::interrupt;
 use crate::peripherals::RTC;
 use crate::rtc::SealedInstance;
+
+#[cfg(not(stm32u0))]
+foreach_interrupt! {
+    (RTC, rtc, $block:ident, WKUP, $irq:ident) => {
+        #[interrupt]
+        #[allow(non_snake_case)]
+        unsafe fn $irq() {
+            unpend_wakeup_alarm();
+        }
+    };
+}
+
+#[cfg(stm32u0)]
+foreach_interrupt! {
+    (RTC, rtc, $block:ident, TAMP, $irq:ident) => {
+        #[interrupt]
+        #[allow(non_snake_case)]
+        unsafe fn $irq() {
+            unpend_wakeup_alarm();
+        }
+    };
+}
+
+fn unpend_wakeup_alarm() {
+    critical_section::with(|_| {
+        // Check RM for EXTI and/or NVIC section, "Event event input mapping" or "EXTI interrupt/event mapping" or something similar,
+        // there is a table for every "Event input" / "EXTI Line".
+        // If you find the EXTI line related to "RTC wakeup" marks as "Configurable" (not "Direct"),
+        // then write 1 to related field of Pending Register, to clean it's pending state.
+        #[cfg(any(exti_v1, stm32h7, stm32wb))]
+        crate::pac::EXTI
+            .pr(0)
+            .modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
+
+        use crate::interrupt::typelevel::Interrupt;
+        <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::unpend();
+    });
+}
 
 /// Represents an instant in time that can be substracted to compute a duration
 pub(super) struct RtcInstant {
@@ -219,20 +258,6 @@ impl Rtc {
         }
 
         self.stop_time.borrow(cs).take().map(|stop_time| instant - stop_time)
-    }
-
-    pub(crate) fn unpend_wakeup_alarm(&self) {
-        // Check RM for EXTI and/or NVIC section, "Event event input mapping" or "EXTI interrupt/event mapping" or something similar,
-        // there is a table for every "Event input" / "EXTI Line".
-        // If you find the EXTI line related to "RTC wakeup" marks as "Configurable" (not "Direct"),
-        // then write 1 to related field of Pending Register, to clean it's pending state.
-        #[cfg(any(exti_v1, stm32h7, stm32wb))]
-        crate::pac::EXTI
-            .pr(0)
-            .modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
-
-        use crate::interrupt::typelevel::Interrupt;
-        <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::unpend();
     }
 
     pub(crate) fn enable_wakeup_line(&self) {

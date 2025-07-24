@@ -61,7 +61,6 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use cortex_m::peripheral::SCB;
 use embassy_executor::*;
 
-use crate::interrupt;
 use crate::time_driver::{get_driver, RtcDriver};
 
 const THREAD_PENDER: usize = usize::MAX;
@@ -69,28 +68,6 @@ const THREAD_PENDER: usize = usize::MAX;
 use crate::rtc::Rtc;
 
 static mut EXECUTOR: Option<Executor> = None;
-
-#[cfg(not(stm32u0))]
-foreach_interrupt! {
-    (RTC, rtc, $block:ident, WKUP, $irq:ident) => {
-        #[interrupt]
-        #[allow(non_snake_case)]
-        unsafe fn $irq() {
-            EXECUTOR.as_mut().unwrap().time_driver.unpend_wakeup_alarm();
-        }
-    };
-}
-
-#[cfg(stm32u0)]
-foreach_interrupt! {
-    (RTC, rtc, $block:ident, TAMP, $irq:ident) => {
-        #[interrupt]
-        #[allow(non_snake_case)]
-        unsafe fn $irq() {
-            EXECUTOR.as_mut().unwrap().time_driver.unpend_wakeup_alarm();
-        }
-    };
-}
 
 /// Configure STOP mode with RTC.
 pub fn stop_with_rtc(rtc: &'static Rtc) {
