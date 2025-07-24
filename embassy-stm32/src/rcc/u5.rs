@@ -5,7 +5,7 @@ pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Msirange, Msirange as MSIRange, Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul,
     Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
 };
-use crate::pac::rcc::vals::{Hseext, Msipllsel, Msirgsel, Pllmboost, Pllrge};
+use crate::pac::rcc::vals::{Hseext, Msipllfast, Msipllsel, Msirgsel, Pllmboost, Pllrge};
 #[cfg(all(peri_usb_otg_hs))]
 pub use crate::pac::{syscfg::vals::Usbrefcksel, SYSCFG};
 use crate::pac::{FLASH, PWR, RCC};
@@ -72,11 +72,29 @@ pub enum MsiAutoCalibration {
     MSIS,
     /// MSIK is given priority for auto-calibration
     MSIK,
+    /// MSIS with fast mode (always on)
+    MsisFast,
+    /// MSIK with fast mode (always on)
+    MsikFast,
 }
 
 impl MsiAutoCalibration {
     const fn default() -> Self {
         MsiAutoCalibration::Disabled
+    }
+
+    fn base_mode(&self) -> Self {
+        match self {
+            MsiAutoCalibration::Disabled => MsiAutoCalibration::Disabled,
+            MsiAutoCalibration::MSIS => MsiAutoCalibration::MSIS,
+            MsiAutoCalibration::MSIK => MsiAutoCalibration::MSIK,
+            MsiAutoCalibration::MsisFast => MsiAutoCalibration::MSIS,
+            MsiAutoCalibration::MsikFast => MsiAutoCalibration::MSIK,
+        }
+    }
+
+    fn is_fast(&self) -> bool {
+        matches!(self, MsiAutoCalibration::MsisFast | MsiAutoCalibration::MsikFast)
     }
 }
 
@@ -159,7 +177,23 @@ pub(crate) unsafe fn init(config: Config) {
         Some(lse_config) => {
             // Allow +/- 5% tolerance for LSE frequency
             if lse_config.peripherals_clocked && (31_100..=34_400).contains(&lse_config.frequency.0) {
-                Some(lse_config.frequency)
+                // Check that the calibration is applied to an active clock
+                match (
+                    config.auto_calibration.base_mode(),
+                    config.msis.is_some(),
+                    config.msik.is_some(),
+                ) {
+                    (MsiAutoCalibration::MSIS, true, _) => {
+                        // MSIS is active and using LSE for auto-calibration
+                        Some(lse_config.frequency)
+                    }
+                    (MsiAutoCalibration::MSIK, _, true) => {
+                        // MSIK is active and using LSE for auto-calibration
+                        Some(lse_config.frequency)
+                    }
+                    // improper configuration, no LSE calibration
+                    _ => None,
+                }
             } else {
                 None
             }
@@ -192,7 +226,9 @@ pub(crate) unsafe fn init(config: Config) {
             w.set_msipllen(false);
             w.set_msison(true);
         });
-        let msis = if let (Some(freq), MsiAutoCalibration::MSIS) = (lse_calibration_freq, config.auto_calibration) {
+        let msis = if let (Some(freq), MsiAutoCalibration::MSIS) =
+            (lse_calibration_freq, config.auto_calibration.base_mode())
+        {
             // Enable the MSIS auto-calibration feature
             RCC.cr().modify(|w| w.set_msipllsel(Msipllsel::MSIS));
             RCC.cr().modify(|w| w.set_msipllen(true));
@@ -228,7 +264,9 @@ pub(crate) unsafe fn init(config: Config) {
         RCC.cr().modify(|w| {
             w.set_msikon(true);
         });
-        let msik = if let (Some(freq), MsiAutoCalibration::MSIK) = (lse_calibration_freq, config.auto_calibration) {
+        let msik = if let (Some(freq), MsiAutoCalibration::MSIK) =
+            (lse_calibration_freq, config.auto_calibration.base_mode())
+        {
             // Enable the MSIK auto-calibration feature
             RCC.cr().modify(|w| w.set_msipllsel(Msipllsel::MSIK));
             RCC.cr().modify(|w| w.set_msipllen(true));
@@ -242,10 +280,16 @@ pub(crate) unsafe fn init(config: Config) {
 
     // If both MSIS and MSIK are enabled, we need to check if they are using the same internal source.
     if let Some(lse_freq) = lse_calibration_freq {
+        // Check if Fast mode should be used
+        if config.auto_calibration.is_fast() {
+            RCC.cr().modify(|w| {
+                w.set_msipllfast(Msipllfast::FAST);
+            });
+        }
         if let (Some(msis_range), Some(msik_range)) = (config.msis, config.msik) {
             if (msis_range as u8 >> 2) == (msik_range as u8 >> 2) {
                 // Clock source is shared, both will be auto calibrated.
-                match config.auto_calibration {
+                match config.auto_calibration.base_mode() {
                     MsiAutoCalibration::MSIS => {
                         // MSIS and MSIK are using the same clock source, recalibrate
                         msik = Some(calculate_calibrated_msi_frequency(msik_range, lse_freq));
