@@ -76,7 +76,7 @@ foreach_interrupt! {
         #[interrupt]
         #[allow(non_snake_case)]
         unsafe fn $irq() {
-            EXECUTOR.as_mut().unwrap().on_wakeup_irq();
+            EXECUTOR.as_mut().unwrap().time_driver.unpend_wakeup_alarm();
         }
     };
 }
@@ -87,7 +87,7 @@ foreach_interrupt! {
         #[interrupt]
         #[allow(non_snake_case)]
         unsafe fn $irq() {
-            EXECUTOR.as_mut().unwrap().on_wakeup_irq();
+            EXECUTOR.as_mut().unwrap().time_driver.unpend_wakeup_alarm();
         }
     };
 }

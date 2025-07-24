@@ -221,6 +221,20 @@ impl Rtc {
         self.stop_time.borrow(cs).take().map(|stop_time| instant - stop_time)
     }
 
+    pub(crate) fn unpend_wakeup_alarm(&self) {
+        // Check RM for EXTI and/or NVIC section, "Event event input mapping" or "EXTI interrupt/event mapping" or something similar,
+        // there is a table for every "Event input" / "EXTI Line".
+        // If you find the EXTI line related to "RTC wakeup" marks as "Configurable" (not "Direct"),
+        // then write 1 to related field of Pending Register, to clean it's pending state.
+        #[cfg(any(exti_v1, stm32h7, stm32wb))]
+        crate::pac::EXTI
+            .pr(0)
+            .modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
+
+        use crate::interrupt::typelevel::Interrupt;
+        <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::unpend();
+    }
+
     pub(crate) fn enable_wakeup_line(&self) {
         use crate::interrupt::typelevel::Interrupt;
 
