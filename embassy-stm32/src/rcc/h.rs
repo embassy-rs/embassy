@@ -1,5 +1,8 @@
 use core::ops::RangeInclusive;
 
+#[cfg(stm32h7rs)]
+use stm32_metapac::rcc::vals::Plldivst;
+
 use crate::pac;
 pub use crate::pac::rcc::vals::{
     Hsidiv as HSIPrescaler, Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul, Pllsrc as PllSource, Sw as Sysclk,
@@ -7,9 +10,6 @@ pub use crate::pac::rcc::vals::{
 use crate::pac::rcc::vals::{Pllrge, Pllvcosel, Timpre};
 use crate::pac::{FLASH, PWR, RCC};
 use crate::time::Hertz;
-
-#[cfg(stm32h7rs)]
-use stm32_metapac::rcc::vals::Plldivst;
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(64_000_000);
