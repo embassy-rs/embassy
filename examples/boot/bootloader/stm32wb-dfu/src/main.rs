@@ -48,7 +48,7 @@ fn main() -> ! {
 
     let config = BootLoaderConfig::from_linkerfile_blocking(&flash, &flash, &flash);
     let active_offset = config.active.offset();
-    let bl = BootLoader::prepare::<_, _, _, 2048>(config);
+    let bl = BootLoader::prepare::<_, _, _, _, 2048>(config);
     if bl.state == State::DfuDetach {
         let driver = Driver::new(p.USB, Irqs, p.PA12, p.PA11);
         let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
