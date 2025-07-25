@@ -257,8 +257,8 @@ impl<'d, T: Instance> Adc<'d, T> {
             #[cfg(any(adc_h5, adc_h7rs))]
             reg.set_ovsr(samples.into());
             #[cfg(not(any(adc_h5, adc_h7rs)))]
-            reg.set_ovsr(samples);
-            reg.set_ovss(right_shift);
+            reg.set_ovsr(samples.into());
+            reg.set_ovss(right_shift.into());
         })
     }
     /*
