@@ -6,9 +6,9 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embedded_storage::nor_flash::NorFlash;
 
 use super::FirmwareUpdaterConfig;
-use crate::{FirmwareUpdaterError, State, BOOT_MAGIC, DFU_DETACH_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
 #[cfg(feature = "safe")]
 use crate::SAFE_MAGIC;
+use crate::{FirmwareUpdaterError, State, BOOT_MAGIC, DFU_DETACH_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
 #[cfg(feature = "restore")]
 use crate::{BACKUP_MAGIC, RESTORE_MAGIC};
 
