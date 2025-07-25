@@ -130,16 +130,16 @@ fn main() -> ! {
     // High-priority executor: EGU1_SWI1, priority level 6
     interrupt::EGU1_SWI1.set_priority(Priority::P6);
     let spawner = EXECUTOR_HIGH.start(interrupt::EGU1_SWI1);
-    unwrap!(spawner.spawn(run_high()));
+    spawner.spawn(unwrap!(run_high()));
 
     // Medium-priority executor: EGU0_SWI0, priority level 7
     interrupt::EGU0_SWI0.set_priority(Priority::P7);
     let spawner = EXECUTOR_MED.start(interrupt::EGU0_SWI0);
-    unwrap!(spawner.spawn(run_med()));
+    spawner.spawn(unwrap!(run_med()));
 
     // Low priority executor: runs in thread mode, using WFE/SEV
     let executor = EXECUTOR_LOW.init(Executor::new());
     executor.run(|spawner| {
-        unwrap!(spawner.spawn(run_low()));
+        spawner.spawn(unwrap!(run_low()));
     });
 }

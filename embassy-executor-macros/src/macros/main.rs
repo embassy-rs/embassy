@@ -181,7 +181,7 @@ For example: `#[embassy_executor::main(entry = ..., executor = \"some_crate::Exe
                 let mut executor = #executor::new();
                 let executor = unsafe { __make_static(&mut executor) };
                 executor.run(|spawner| {
-                    spawner.must_spawn(__embassy_main(spawner));
+                    spawner.spawn(__embassy_main(spawner).unwrap());
                 })
             },
         ),
@@ -191,7 +191,7 @@ For example: `#[embassy_executor::main(entry = ..., executor = \"some_crate::Exe
                 let executor = ::std::boxed::Box::leak(::std::boxed::Box::new(#executor::new()));
 
                 executor.start(|spawner| {
-                    spawner.must_spawn(__embassy_main(spawner));
+                    spawner.spawn(__embassy_main(spawner).unwrap());
                 });
 
                 Ok(())

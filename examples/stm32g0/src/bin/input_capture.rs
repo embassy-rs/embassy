@@ -44,7 +44,7 @@ async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    unwrap!(spawner.spawn(blinky(p.PB1)));
+    spawner.spawn(unwrap!(blinky(p.PB1)));
 
     // Connect PB1 and PA8 with a 1k Ohm resistor
     let ch1_pin = PwmPin::new(p.PA8, OutputType::PushPull);

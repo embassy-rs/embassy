@@ -64,7 +64,7 @@ async fn main(spawner: Spawner) {
 
     static CAN_TX: StaticCell<CanTx<'static>> = StaticCell::new();
     let tx = CAN_TX.init(tx);
-    spawner.spawn(send_can_message(tx)).unwrap();
+    spawner.spawn(send_can_message(tx).unwrap());
 
     loop {
         let envelope = rx.read().await.unwrap();
