@@ -1,5 +1,7 @@
 #!/bin/bash
 ## on push branch=main
+## priority -9
+## dedup dequeue
 
 set -euxo pipefail
 
