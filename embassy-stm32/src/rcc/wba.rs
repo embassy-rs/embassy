@@ -1,8 +1,9 @@
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
 use crate::pac::rcc::regs::Cfgr1;
+use core::ops::Div;
 pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Hsepre as HsePrescaler, Ppre as APBPrescaler, Sw as Sysclk, Pllsrc as PllSource,
-    Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul,
+    Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul, Hpre5 as AHB5Prescaler, Hdiv5,
 };
 use crate::pac::rcc::vals::Pllrge;
 use crate::pac::{FLASH, RCC};
@@ -19,6 +20,23 @@ pub use crate::pac::{syscfg::vals::Usbrefcksel, SYSCFG};
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 // HSE speed
 pub const HSE_FREQ: Hertz = Hertz(32_000_000);
+
+// Allow dividing a Hertz value by an AHB5 prescaler directly
+impl Div<AHB5Prescaler> for Hertz {
+    type Output = Hertz;
+    fn div(self, rhs: AHB5Prescaler) -> Hertz {
+        // Map the prescaler enum to its integer divisor
+        let divisor = match rhs {
+            AHB5Prescaler::DIV1 => 1,
+            AHB5Prescaler::DIV2 => 2,
+            AHB5Prescaler::DIV3 => 3,
+            AHB5Prescaler::DIV4 => 4,
+            AHB5Prescaler::DIV6 => 6,
+            _ => unreachable!("Invalid AHB5 prescaler: {:?}", rhs),
+        };
+        Hertz(self.0 / divisor)
+    }
+}
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub struct Hse {
@@ -71,6 +89,7 @@ pub struct Config {
     // sysclk, buses.
     pub sys: Sysclk,
     pub ahb_pre: AHBPrescaler,
+    pub ahb5_pre: AHB5Prescaler,
     pub apb1_pre: APBPrescaler,
     pub apb2_pre: APBPrescaler,
     pub apb7_pre: APBPrescaler,
@@ -93,6 +112,7 @@ impl Config {
             pll1: None,
             sys: Sysclk::HSI,
             ahb_pre: AHBPrescaler::DIV1,
+            ahb5_pre: AHB5Prescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
             apb7_pre: APBPrescaler::DIV1,
@@ -165,7 +185,6 @@ pub(crate) unsafe fn init(config: Config) {
     let hclk1 = sys_clk / config.ahb_pre;
     let hclk2 = hclk1;
     let hclk4 = hclk1;
-    // TODO: hclk5
     let (pclk1, pclk1_tim) = super::util::calc_pclk(hclk1, config.apb1_pre);
     let (pclk2, pclk2_tim) = super::util::calc_pclk(hclk1, config.apb2_pre);
     let (pclk7, _) = super::util::calc_pclk(hclk1, config.apb7_pre);
@@ -211,6 +230,27 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_ppre2(config.apb2_pre);
     });
 
+    // Set AHB5 prescaler depending on sysclk source
+    RCC.cfgr4().modify(|w| match config.sys {
+        // When using HSI or HSE, use HDIV5 bit (0 = div1, 1 = div2)
+        Sysclk::HSI | Sysclk::HSE => {
+            // Only Div1 and Div2 are valid for HDIV5, enforce this
+            match config.ahb5_pre {
+                AHB5Prescaler::DIV1 => w.set_hdiv5(Hdiv5::DIV1),
+                AHB5Prescaler::DIV2 => w.set_hdiv5(Hdiv5::DIV2),
+                _ => panic!("Invalid ahb5_pre for HSI/HSE sysclk: only DIV1 and DIV2 are allowed"),
+            };
+        }
+        // When using PLL1, use HPRE5 bits [2:0]
+        Sysclk::PLL1_R => {
+            w.set_hpre5(config.ahb5_pre);
+        }
+        _ => {}
+    });
+
+    let hclk5 = sys_clk / config.ahb5_pre;
+
+
     #[cfg(all(stm32wba, peri_usb_otg_hs))]
     let usb_refck = match config.mux.otghssel {
         Otghssel::HSE => hse,
@@ -245,6 +285,7 @@ pub(crate) unsafe fn init(config: Config) {
         hclk1: Some(hclk1),
         hclk2: Some(hclk2),
         hclk4: Some(hclk4),
+        hclk5: Some(hclk5),
         pclk1: Some(pclk1),
         pclk2: Some(pclk2),
         pclk7: Some(pclk7),
@@ -294,8 +335,15 @@ fn init_pll(config: Option<Pll>, input: &PllInput, voltage_range: VoltageScale) 
         PllSource::_RESERVED_1 => panic!("must not select RESERVED_1 source as DISABLE"),
     };
 
-    let hse_div = RCC.cr().read().hsepre();
-    let src_freq = pre_src_freq / hse_div;
+    // Only divide by the HSE prescaler when the PLL source is HSE
+    let src_freq = match pll.source {
+        PllSource::HSE => {
+            // read the prescaler bits and divide
+            let hsepre = RCC.cr().read().hsepre();
+            pre_src_freq / hsepre
+        }
+        _ => pre_src_freq,
+    };
 
     // Calculate the reference clock, which is the source divided by m
     let ref_freq = src_freq / pll.prediv;
@@ -309,7 +357,11 @@ fn init_pll(config: Option<Pll>, input: &PllInput, voltage_range: VoltageScale) 
     };
 
     // Calculate the PLL VCO clock
-    let vco_freq = ref_freq * pll.mul;
+    // let vco_freq = ref_freq * pll.mul;
+    // Calculate VCO frequency including fractional part: FVCO = Fref_ck × (N + FRAC/2^13)
+    let numerator = (ref_freq.0 as u64) * (((pll.mul as u64) + 1 << 13) + pll.frac.unwrap_or(0) as u64);
+    let vco_hz   = (numerator >> 13) as u32;
+    let vco_freq = Hertz(vco_hz);
     assert!(vco_freq >= vco_min && vco_freq <= vco_max);
 
     // Calculate output clocks.
@@ -329,7 +381,7 @@ fn init_pll(config: Option<Pll>, input: &PllInput, voltage_range: VoltageScale) 
         w.set_pllq(pll.divq.unwrap_or(PllDiv::DIV1));
         w.set_pllr(pll.divr.unwrap_or(PllDiv::DIV1));
     });
-    RCC.pll1fracr().write(|w| {w.set_pllfracn(pll.frac.unwrap_or(1));});
+    RCC.pll1fracr().write(|w| {w.set_pllfracn(pll.frac.unwrap_or(0));});
 
     let input_range = match ref_freq.0 {
         ..=8_000_000 => Pllrge::FREQ_4TO8MHZ,

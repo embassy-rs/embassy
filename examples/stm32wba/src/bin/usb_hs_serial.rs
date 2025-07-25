@@ -6,7 +6,7 @@ use defmt_rtt as _; // global logger
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::rcc::{PllSource, PllPreDiv, PllMul, PllDiv};
-use embassy_stm32::rcc::{mux, AHBPrescaler, APBPrescaler, Hse, HsePrescaler, Sysclk, VoltageScale};
+use embassy_stm32::rcc::{mux, AHBPrescaler, AHB5Prescaler, APBPrescaler, Hse, HsePrescaler, Sysclk, VoltageScale};
 use embassy_stm32::usb::{Driver, Instance};
 use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
@@ -25,26 +25,28 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::default();
 
     // External HSE (32 MHz) setup
-    config.rcc.hse = Some(Hse {
-        prescaler: HsePrescaler::DIV2,
-    });
+    // config.rcc.hse = Some(Hse {
+    //     prescaler: HsePrescaler::DIV2,
+    // });
 
 
     // Fine-tune PLL1 dividers/multipliers
     config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
-        source: PllSource::HSE,
-        prediv: PllPreDiv::DIV2,     // PLLM = 2 → HSE / 2 = 8 MHz
-        mul: PllMul::MUL60,          // PLLN = 60 → 8 MHz * 60 = 480 MHz VCO
-        divr: Some(PllDiv::DIV5),    // PLLR = 5 → 96 MHz (Sysclk)
-        divq: Some(PllDiv::DIV10),    // PLLQ = 10 → 48 MHz (USB)
-        divp: Some(PllDiv::DIV15),    // PLLP = 15 → 32 MHz (USBOTG)
-        frac: Some(4096), // Fractional part (enabled)
+        source: PllSource::HSI,
+        prediv: PllPreDiv::DIV1,      // PLLM = 1 → HSI / 1 = 16 MHz
+        mul: PllMul::MUL30,           // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
+        divr: Some(PllDiv::DIV5),     // PLLR = 5 → 96 MHz (Sysclk)
+        // divq: Some(PllDiv::DIV10), // PLLQ = 10 → 48 MHz (NOT USED)
+        divq: None,
+        divp: Some(PllDiv::DIV30),    // PLLP = 30 → 16 MHz (USBOTG)
+        frac: Some(0), // Fractional part (enabled)
     });
 
     config.rcc.ahb_pre = AHBPrescaler::DIV1;
     config.rcc.apb1_pre = APBPrescaler::DIV1;
     config.rcc.apb2_pre = APBPrescaler::DIV1;
     config.rcc.apb7_pre = APBPrescaler::DIV1;
+    config.rcc.ahb5_pre = AHB5Prescaler::DIV4;
 
     // voltage scale for max performance
     config.rcc.voltage_scale = VoltageScale::RANGE1;
