@@ -110,6 +110,7 @@ impl<const N: usize> AsMut<[u8]> for AlignedBuffer<N> {
 /// Dummy error struct for `DummySafe` struct
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum Error {
+    /// The requested operation exceeded flash boundaries
     OutOfBounds,
 }
 

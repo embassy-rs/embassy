@@ -5,7 +5,9 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
 use embedded_storage::nor_flash::{NorFlash, NorFlashError, NorFlashErrorKind};
 
-use crate::{DummySafe, State, BOOT_MAGIC, REVERT_MAGIC, STATE_ERASE_VALUE};
+#[cfg(any(feature = "safe", feature = "restore"))]
+use crate::BOOT_MAGIC;
+use crate::{DummySafe, State, REVERT_MAGIC, STATE_ERASE_VALUE};
 
 /// Errors returned by bootloader
 #[derive(PartialEq, Eq, Debug)]
@@ -221,6 +223,10 @@ pub struct BootLoader<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, SAFE> {
     /// | 1..2     | Progress validity. ERASE_VALUE means valid, !ERASE_VALUE means invalid.          |
     /// | 2..2 + N | Progress index used while swapping or reverting      
     state: STATE,
+
+    // This field is used only when the "safe" feature is enabled.
+    // Marked as #[allow(dead_code)] to satisfy CI checks when unused.
+    #[allow(dead_code)]
     safe: SAFE,
 }
 
@@ -588,6 +594,7 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash, SAFE: NorFlash> BootLoade
         Ok(())
     }
 
+    #[cfg(any(feature = "safe", feature = "restore"))]
     fn finalize(&mut self, magic: u8, aligned_buf: &mut [u8]) -> Result<(), BootError> {
         let state_word = &mut aligned_buf[..STATE::WRITE_SIZE];
 
