@@ -28,7 +28,7 @@ fn main() -> ! {
 
     let config = BootLoaderConfig::from_linkerfile_blocking(&flash_bank1, &flash_bank2, &flash_bank1);
     let active_offset = config.active.offset();
-    let bl = BootLoader::prepare::<_, _, _, 2048>(config);
+    let bl = BootLoader::prepare::<_, _, _, _, 2048>(config);
 
     unsafe { bl.load(BANK1_REGION.base + active_offset) }
 }
