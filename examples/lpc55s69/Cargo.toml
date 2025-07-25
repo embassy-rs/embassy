@@ -6,10 +6,10 @@ license = "MIT OR Apache-2.0"
 
 
 [dependencies]
-embassy-nxp = { version = "0.1.0", path = "../../embassy-nxp", features = ["lpc55", "rt", "defmt"] }
+embassy-nxp = { version = "0.1.0", path = "../../embassy-nxp", features = ["lpc55", "rt", "defmt", "time-driver-rtc"] }
 embassy-executor = { version = "0.8.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt"] }
 embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = ["defmt"] }
-embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["defmt"] }
+embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["defmt", "tick-hz-32_768"] }
 panic-halt = "1.0.0"
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = { version = "0.7.0"}
