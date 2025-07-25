@@ -1,12 +1,16 @@
 //! PWM Input driver.
 
 use super::low_level::{CountingMode, InputCaptureMode, InputTISelection, SlaveMode, Timer, TriggerSource};
-use super::{Channel, Channel1Pin, Channel2Pin, GeneralInstance4Channel};
+use super::{Ch1, Ch2, Channel, GeneralInstance4Channel, TimerPin};
 use crate::gpio::{AfType, Pull};
 use crate::time::Hertz;
 use crate::Peri;
 
 /// PWM Input driver.
+///
+/// Only works with CH1 or CH2
+/// Note: Not all timer peripherals are supported
+/// Double check your chips reference manual
 pub struct PwmInput<'d, T: GeneralInstance4Channel> {
     channel: Channel,
     inner: Timer<'d, T>,
@@ -14,14 +18,14 @@ pub struct PwmInput<'d, T: GeneralInstance4Channel> {
 
 impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
     /// Create a new PWM input driver.
-    pub fn new(tim: Peri<'d, T>, pin: Peri<'d, impl Channel1Pin<T>>, pull: Pull, freq: Hertz) -> Self {
+    pub fn new_ch1(tim: Peri<'d, T>, pin: Peri<'d, impl TimerPin<T, Ch1>>, pull: Pull, freq: Hertz) -> Self {
         pin.set_as_af(pin.af_num(), AfType::input(pull));
 
         Self::new_inner(tim, freq, Channel::Ch1, Channel::Ch2)
     }
 
     /// Create a new PWM input driver.
-    pub fn new_alt(tim: Peri<'d, T>, pin: Peri<'d, impl Channel2Pin<T>>, pull: Pull, freq: Hertz) -> Self {
+    pub fn new_ch2(tim: Peri<'d, T>, pin: Peri<'d, impl TimerPin<T, Ch2>>, pull: Pull, freq: Hertz) -> Self {
         pin.set_as_af(pin.af_num(), AfType::input(pull));
 
         Self::new_inner(tim, freq, Channel::Ch2, Channel::Ch1)
@@ -37,6 +41,7 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
 
         // Configuration steps from ST RM0390 (STM32F446) chapter 17.3.6
         // or ST RM0008 (STM32F103) chapter 15.3.6 Input capture mode
+        // or ST RM0440 (STM32G4) chapter 30.4.8 PWM input mode
         inner.set_input_ti_selection(ch1, InputTISelection::Normal);
         inner.set_input_capture_mode(ch1, InputCaptureMode::Rising);
 

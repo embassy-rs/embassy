@@ -26,6 +26,7 @@ static QSPI_WAKERS: [AtomicWaker; QSPI_PIN_COUNT] = [const { AtomicWaker::new() 
 
 /// Represents a digital input or output level.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Level {
     /// Logical low.
     Low,
@@ -53,6 +54,7 @@ impl From<Level> for bool {
 
 /// Represents a pull setting for an input.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Pull {
     /// No pull.
     None,
@@ -64,6 +66,7 @@ pub enum Pull {
 
 /// Drive strength of an output
 #[derive(Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Drive {
     /// 2 mA drive.
     _2mA,
@@ -76,6 +79,7 @@ pub enum Drive {
 }
 /// Slew rate of an output
 #[derive(Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SlewRate {
     /// Fast slew rate.
     Fast,
@@ -85,6 +89,7 @@ pub enum SlewRate {
 
 /// A GPIO bank with up to 32 pins.
 #[derive(Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Bank {
     /// Bank 0.
     Bank0 = 0,
@@ -108,6 +113,8 @@ pub struct DormantWakeConfig {
 }
 
 /// GPIO input driver.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Input<'d> {
     pin: Flex<'d>,
 }
@@ -358,6 +365,8 @@ impl<'d> Future for InputFuture<'d> {
 }
 
 /// GPIO output driver.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Output<'d> {
     pin: Flex<'d>,
 }
@@ -445,6 +454,8 @@ impl<'d> Output<'d> {
 }
 
 /// GPIO output open-drain.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct OutputOpenDrain<'d> {
     pin: Flex<'d>,
 }
@@ -592,6 +603,8 @@ impl<'d> OutputOpenDrain<'d> {
 /// This pin can be either an input or output pin. The output level register bit will remain
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Flex<'d> {
     pin: Peri<'d, AnyPin>,
 }
@@ -864,6 +877,8 @@ impl<'d> Drop for Flex<'d> {
 }
 
 /// Dormant wake driver.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DormantWake<'w> {
     pin: Peri<'w, AnyPin>,
     cfg: DormantWakeConfig,

@@ -176,6 +176,7 @@ pub(crate) unsafe fn init(config: Config) {
         // TODO
         lse: None,
         lsi: None,
+        pll1_p: None,
         pll1_q: None,
     );
 }

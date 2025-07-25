@@ -7,9 +7,8 @@ use core::task::{Context, Poll};
 use critical_section::Mutex;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::{self, AnyPin, Level, SealedPin};
+use crate::gpio::{self, inputmux_reg, pint_reg, syscon_reg, AnyPin, Level, SealedPin};
 use crate::pac::interrupt;
-use crate::pac_utils::*;
 use crate::Peri;
 
 struct PinInterrupt {
@@ -102,6 +101,8 @@ pub(crate) fn init() {
         crate::pac::NVIC::unmask(crate::pac::Interrupt::PIN_INT6);
         crate::pac::NVIC::unmask(crate::pac::Interrupt::PIN_INT7);
     };
+
+    info!("Pin interrupts initialized");
 }
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]

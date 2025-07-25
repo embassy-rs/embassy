@@ -5,7 +5,7 @@ pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Msirange, Msirange as MSIRange, Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul,
     Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
 };
-use crate::pac::rcc::vals::{Hseext, Msirgsel, Pllmboost, Pllrge};
+use crate::pac::rcc::vals::{Hseext, Msipllfast, Msipllsel, Msirgsel, Pllmboost, Pllrge};
 #[cfg(all(peri_usb_otg_hs))]
 pub use crate::pac::{syscfg::vals::Usbrefcksel, SYSCFG};
 use crate::pac::{FLASH, PWR, RCC};
@@ -64,6 +64,46 @@ pub struct Pll {
     pub divr: Option<PllDiv>,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum MsiAutoCalibration {
+    /// MSI auto-calibration is disabled
+    Disabled,
+    /// MSIS is given priority for auto-calibration
+    MSIS,
+    /// MSIK is given priority for auto-calibration
+    MSIK,
+    /// MSIS with fast mode (always on)
+    MsisFast,
+    /// MSIK with fast mode (always on)
+    MsikFast,
+}
+
+impl MsiAutoCalibration {
+    const fn default() -> Self {
+        MsiAutoCalibration::Disabled
+    }
+
+    fn base_mode(&self) -> Self {
+        match self {
+            MsiAutoCalibration::Disabled => MsiAutoCalibration::Disabled,
+            MsiAutoCalibration::MSIS => MsiAutoCalibration::MSIS,
+            MsiAutoCalibration::MSIK => MsiAutoCalibration::MSIK,
+            MsiAutoCalibration::MsisFast => MsiAutoCalibration::MSIS,
+            MsiAutoCalibration::MsikFast => MsiAutoCalibration::MSIK,
+        }
+    }
+
+    fn is_fast(&self) -> bool {
+        matches!(self, MsiAutoCalibration::MsisFast | MsiAutoCalibration::MsikFast)
+    }
+}
+
+impl Default for MsiAutoCalibration {
+    fn default() -> Self {
+        Self::default()
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct Config {
     // base clock sources
@@ -95,6 +135,7 @@ pub struct Config {
 
     /// Per-peripheral kernel clock selection muxes
     pub mux: super::mux::ClockMux,
+    pub auto_calibration: MsiAutoCalibration,
 }
 
 impl Config {
@@ -116,6 +157,7 @@ impl Config {
             voltage_range: VoltageScale::RANGE1,
             ls: crate::rcc::LsConfig::new(),
             mux: super::mux::ClockMux::default(),
+            auto_calibration: MsiAutoCalibration::default(),
         }
     }
 }
@@ -131,7 +173,42 @@ pub(crate) unsafe fn init(config: Config) {
     PWR.vosr().modify(|w| w.set_vos(config.voltage_range));
     while !PWR.vosr().read().vosrdy() {}
 
-    let msis = config.msis.map(|range| {
+    let lse_calibration_freq = if config.auto_calibration != MsiAutoCalibration::Disabled {
+        // LSE must be configured and peripherals clocked for MSI auto-calibration
+        let lse_config = config
+            .ls
+            .lse
+            .clone()
+            .expect("LSE must be configured for MSI auto-calibration");
+        assert!(lse_config.peripherals_clocked);
+
+        // Expect less than +/- 5% deviation for LSE frequency
+        if (31_100..=34_400).contains(&lse_config.frequency.0) {
+            // Check that the calibration is applied to an active clock
+            match (
+                config.auto_calibration.base_mode(),
+                config.msis.is_some(),
+                config.msik.is_some(),
+            ) {
+                (MsiAutoCalibration::MSIS, true, _) => {
+                    // MSIS is active and using LSE for auto-calibration
+                    Some(lse_config.frequency)
+                }
+                (MsiAutoCalibration::MSIK, _, true) => {
+                    // MSIK is active and using LSE for auto-calibration
+                    Some(lse_config.frequency)
+                }
+                // improper configuration
+                _ => panic!("MSIx auto-calibration is enabled for a source that has not been configured."),
+            }
+        } else {
+            panic!("LSE frequency more than 5% off from 32.768 kHz, cannot use for MSI auto-calibration");
+        }
+    } else {
+        None
+    };
+
+    let mut msis = config.msis.map(|range| {
         // Check MSI output per RM0456 § 11.4.10
         match config.voltage_range {
             VoltageScale::RANGE4 => {
@@ -156,11 +233,21 @@ pub(crate) unsafe fn init(config: Config) {
             w.set_msipllen(false);
             w.set_msison(true);
         });
+        let msis = if let (Some(freq), MsiAutoCalibration::MSIS) =
+            (lse_calibration_freq, config.auto_calibration.base_mode())
+        {
+            // Enable the MSIS auto-calibration feature
+            RCC.cr().modify(|w| w.set_msipllsel(Msipllsel::MSIS));
+            RCC.cr().modify(|w| w.set_msipllen(true));
+            calculate_calibrated_msi_frequency(range, freq)
+        } else {
+            msirange_to_hertz(range)
+        };
         while !RCC.cr().read().msisrdy() {}
-        msirange_to_hertz(range)
+        msis
     });
 
-    let msik = config.msik.map(|range| {
+    let mut msik = config.msik.map(|range| {
         // Check MSI output per RM0456 § 11.4.10
         match config.voltage_range {
             VoltageScale::RANGE4 => {
@@ -184,9 +271,43 @@ pub(crate) unsafe fn init(config: Config) {
         RCC.cr().modify(|w| {
             w.set_msikon(true);
         });
+        let msik = if let (Some(freq), MsiAutoCalibration::MSIK) =
+            (lse_calibration_freq, config.auto_calibration.base_mode())
+        {
+            // Enable the MSIK auto-calibration feature
+            RCC.cr().modify(|w| w.set_msipllsel(Msipllsel::MSIK));
+            RCC.cr().modify(|w| w.set_msipllen(true));
+            calculate_calibrated_msi_frequency(range, freq)
+        } else {
+            msirange_to_hertz(range)
+        };
         while !RCC.cr().read().msikrdy() {}
-        msirange_to_hertz(range)
+        msik
     });
+
+    if let Some(lse_freq) = lse_calibration_freq {
+        // If both MSIS and MSIK are enabled, we need to check if they are using the same internal source.
+        if let (Some(msis_range), Some(msik_range)) = (config.msis, config.msik) {
+            if (msis_range as u8 >> 2) == (msik_range as u8 >> 2) {
+                // Clock source is shared, both will be auto calibrated, recalculate other frequency
+                match config.auto_calibration.base_mode() {
+                    MsiAutoCalibration::MSIS => {
+                        msik = Some(calculate_calibrated_msi_frequency(msik_range, lse_freq));
+                    }
+                    MsiAutoCalibration::MSIK => {
+                        msis = Some(calculate_calibrated_msi_frequency(msis_range, lse_freq));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        // Check if Fast mode should be used
+        if config.auto_calibration.is_fast() {
+            RCC.cr().modify(|w| {
+                w.set_msipllfast(Msipllfast::FAST);
+            });
+        }
+    }
 
     let hsi = config.hsi.then(|| {
         RCC.cr().modify(|w| w.set_hsion(true));
@@ -513,4 +634,38 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput, voltag
     pll_enable(instance, true);
 
     PllOutput { p, q, r }
+}
+
+/// Fraction structure for MSI auto-calibration
+/// Represents the multiplier as numerator/denominator that LSE frequency is multiplied by
+#[derive(Debug, Clone, Copy)]
+struct MsiFraction {
+    numerator: u32,
+    denominator: u32,
+}
+
+impl MsiFraction {
+    const fn new(numerator: u32, denominator: u32) -> Self {
+        Self { numerator, denominator }
+    }
+
+    /// Calculate the calibrated frequency given an LSE frequency
+    fn calculate_frequency(&self, lse_freq: Hertz) -> Hertz {
+        Hertz(lse_freq.0 * self.numerator / self.denominator)
+    }
+}
+
+fn get_msi_calibration_fraction(range: Msirange) -> MsiFraction {
+    // Exploiting the MSIx internals to make calculations compact
+    let denominator = (range as u32 & 0x03) + 1;
+    // Base multipliers are deduced from Table 82: MSI oscillator characteristics in data sheet
+    let numerator = [1465, 122, 94, 12][range as usize >> 2];
+
+    MsiFraction::new(numerator, denominator)
+}
+
+/// Calculate the calibrated MSI frequency for a given range and LSE frequency
+fn calculate_calibrated_msi_frequency(range: Msirange, lse_freq: Hertz) -> Hertz {
+    let fraction = get_msi_calibration_fraction(range);
+    fraction.calculate_frequency(lse_freq)
 }

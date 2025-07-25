@@ -48,7 +48,7 @@ impl<T: Instance> SealedAdcChannel<T> for Temperature {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum Prescaler {
     NotDivided,
     DividedBy2,
@@ -138,6 +138,7 @@ impl<'a> defmt::Format for Prescaler {
 /// Number of samples used for averaging.
 /// TODO: Implement hardware averaging setting.
 #[allow(unused)]
+#[derive(Copy, Clone)]
 pub enum Averaging {
     Disabled,
     Samples2,

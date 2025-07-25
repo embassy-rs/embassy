@@ -121,10 +121,11 @@ impl<'d, T: Instance, V: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, T, V
     fn alloc_endpoint_in(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
-        let index = self.alloc_in.allocate(ep_type)?;
+        let index = self.alloc_in.allocate(ep_type, ep_addr)?;
         let ep_addr = EndpointAddress::from_parts(index, Direction::In);
         Ok(Endpoint::new(EndpointInfo {
             addr: ep_addr,
@@ -137,10 +138,11 @@ impl<'d, T: Instance, V: VbusDetect + 'd> driver::Driver<'d> for Driver<'d, T, V
     fn alloc_endpoint_out(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
-        let index = self.alloc_out.allocate(ep_type)?;
+        let index = self.alloc_out.allocate(ep_type, ep_addr)?;
         let ep_addr = EndpointAddress::from_parts(index, Direction::Out);
         Ok(Endpoint::new(EndpointInfo {
             addr: ep_addr,
@@ -734,7 +736,11 @@ impl Allocator {
         Self { used: 0 }
     }
 
-    fn allocate(&mut self, ep_type: EndpointType) -> Result<usize, driver::EndpointAllocError> {
+    fn allocate(
+        &mut self,
+        ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
+    ) -> Result<usize, driver::EndpointAllocError> {
         // Endpoint addresses are fixed in hardware:
         // - 0x80 / 0x00 - Control        EP0
         // - 0x81 / 0x01 - Bulk/Interrupt EP1
@@ -748,16 +754,37 @@ impl Allocator {
 
         // Endpoint directions are allocated individually.
 
-        let alloc_index = match ep_type {
-            EndpointType::Isochronous => 8,
-            EndpointType::Control => return Err(driver::EndpointAllocError),
-            EndpointType::Interrupt | EndpointType::Bulk => {
-                // Find rightmost zero bit in 1..=7
-                let ones = (self.used >> 1).trailing_ones() as usize;
-                if ones >= 7 {
-                    return Err(driver::EndpointAllocError);
+        let alloc_index = if let Some(addr) = ep_addr {
+            // Use the specified endpoint address
+            let requested_index = addr.index();
+            // Validate the requested index based on endpoint type
+            match ep_type {
+                EndpointType::Isochronous => {
+                    if requested_index != 8 {
+                        return Err(driver::EndpointAllocError);
+                    }
                 }
-                ones + 1
+                EndpointType::Control => return Err(driver::EndpointAllocError),
+                EndpointType::Interrupt | EndpointType::Bulk => {
+                    if requested_index < 1 || requested_index > 7 {
+                        return Err(driver::EndpointAllocError);
+                    }
+                }
+            }
+            requested_index
+        } else {
+            // Allocate any available endpoint
+            match ep_type {
+                EndpointType::Isochronous => 8,
+                EndpointType::Control => return Err(driver::EndpointAllocError),
+                EndpointType::Interrupt | EndpointType::Bulk => {
+                    // Find rightmost zero bit in 1..=7
+                    let ones = (self.used >> 1).trailing_ones() as usize;
+                    if ones >= 7 {
+                        return Err(driver::EndpointAllocError);
+                    }
+                    ones + 1
+                }
             }
         };
 

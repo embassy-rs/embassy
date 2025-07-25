@@ -50,7 +50,7 @@ async fn main(_spawner: Spawner) {
 
     let mut ws2812_pwm = SimplePwm::new(
         dp.TIM3,
-        Some(PwmPin::new_ch1(dp.PB4, OutputType::PushPull)),
+        Some(PwmPin::new(dp.PB4, OutputType::PushPull)),
         None,
         None,
         None,

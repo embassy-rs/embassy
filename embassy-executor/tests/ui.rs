@@ -17,6 +17,17 @@ fn ui() {
     t.compile_fail("tests/ui/nonstatic_struct_elided.rs");
     t.compile_fail("tests/ui/nonstatic_struct_generic.rs");
     t.compile_fail("tests/ui/not_async.rs");
+    t.compile_fail("tests/ui/spawn_nonsend.rs");
+    t.compile_fail("tests/ui/return_impl_future_nonsend.rs");
+    if rustversion::cfg!(stable) {
+        // output is slightly different on nightly
+        t.compile_fail("tests/ui/bad_return_impl_future.rs");
+        t.compile_fail("tests/ui/return_impl_send.rs");
+    }
+    if cfg!(feature = "nightly") {
+        t.compile_fail("tests/ui/bad_return_impl_future_nightly.rs");
+        t.compile_fail("tests/ui/return_impl_send_nightly.rs");
+    }
     t.compile_fail("tests/ui/self_ref.rs");
     t.compile_fail("tests/ui/self.rs");
     t.compile_fail("tests/ui/type_error.rs");

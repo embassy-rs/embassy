@@ -1,7 +1,7 @@
 //! A queue for sending values between asynchronous tasks.
 //!
 //! Similar to a [`Channel`](crate::channel::Channel), however [`PriorityChannel`] sifts higher priority items to the front of the queue.
-//! Priority is determined by the `Ord` trait. Priority behavior is determined by the [`Kind`](heapless::binary_heap::Kind) parameter of the channel.
+//! Priority is determined by the `Ord` trait. Priority behavior is determined by the [`Kind`] parameter of the channel.
 
 use core::cell::RefCell;
 use core::future::Future;
@@ -473,7 +473,7 @@ where
 /// received from the channel.
 ///
 /// Sent data may be reordered based on their priority within the channel.
-/// For example, in a [`Max`](heapless::binary_heap::Max) [`PriorityChannel`]
+/// For example, in a [`Max`] [`PriorityChannel`]
 /// containing `u32`'s, data sent in the following order `[1, 2, 3]` will be received as `[3, 2, 1]`.
 pub struct PriorityChannel<M, T, K, const N: usize>
 where
