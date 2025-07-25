@@ -212,6 +212,15 @@ pub trait SpawnerTraceExt {
     /// # Returns
     /// Result indicating whether the spawn was successful
     fn spawn_named<S>(&self, name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError>;
+
+    /// Spawns a new task with a specified name and panics if the task cannot be spawned.
+    ///
+    /// # Arguments
+    /// * `name` - Static string name to associate with the task
+    /// * `token` - Token representing the task to spawn
+    fn must_spawn_named<S>(&self, name: &'static str, token: SpawnToken<S>) {
+        unwrap!(self.spawn_named(name, token));
+    }
 }
 
 /// Implementation of the SpawnerTraceExt trait for Spawner when trace is enabled
