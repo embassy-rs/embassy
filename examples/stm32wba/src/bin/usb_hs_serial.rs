@@ -5,8 +5,8 @@ use defmt::{panic, *};
 use defmt_rtt as _; // global logger
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_stm32::rcc::{PllSource, PllPreDiv, PllMul, PllDiv};
-use embassy_stm32::rcc::{mux, AHBPrescaler, AHB5Prescaler, APBPrescaler, Hse, HsePrescaler, Sysclk, VoltageScale};
+use embassy_stm32::rcc::{mux, AHB5Prescaler, AHBPrescaler, APBPrescaler, Hse, HsePrescaler, Sysclk, VoltageScale};
+use embassy_stm32::rcc::{PllDiv, PllMul, PllPreDiv, PllSource};
 use embassy_stm32::usb::{Driver, Instance};
 use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
@@ -29,17 +29,16 @@ async fn main(_spawner: Spawner) {
     //     prescaler: HsePrescaler::DIV2,
     // });
 
-
     // Fine-tune PLL1 dividers/multipliers
     config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
         source: PllSource::HSI,
-        prediv: PllPreDiv::DIV1,      // PLLM = 1 → HSI / 1 = 16 MHz
-        mul: PllMul::MUL30,           // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
-        divr: Some(PllDiv::DIV5),     // PLLR = 5 → 96 MHz (Sysclk)
+        prediv: PllPreDiv::DIV1,  // PLLM = 1 → HSI / 1 = 16 MHz
+        mul: PllMul::MUL30,       // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
+        divr: Some(PllDiv::DIV5), // PLLR = 5 → 96 MHz (Sysclk)
         // divq: Some(PllDiv::DIV10), // PLLQ = 10 → 48 MHz (NOT USED)
         divq: None,
-        divp: Some(PllDiv::DIV30),    // PLLP = 30 → 16 MHz (USBOTG)
-        frac: Some(0), // Fractional part (enabled)
+        divp: Some(PllDiv::DIV30), // PLLP = 30 → 16 MHz (USBOTG)
+        frac: Some(0),             // Fractional part (enabled)
     });
 
     config.rcc.ahb_pre = AHBPrescaler::DIV1;
