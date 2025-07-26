@@ -13,11 +13,18 @@ use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
-pub use pac::spim::vals::{Frequency, Order as BitOrder};
+#[cfg(not(feature = "_nrf54l"))]
+pub use pac::spim::vals::Frequency;
+pub use pac::spim::vals::Order as BitOrder;
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
+#[cfg(feature = "_nrf54l")]
+pub use crate::compat_nrf54l::SpiFrequencyVals as Frequency;
+#[cfg(feature = "_nrf54l")]
+use crate::compat_nrf54l::*;
 use crate::gpio::{self, convert_drive, AnyPin, OutputDrive, Pin as GpioPin, PselBits, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt;
+#[cfg(not(feature = "_nrf54l"))]
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::spim::vals;
 use crate::util::slice_in_ram_or;
