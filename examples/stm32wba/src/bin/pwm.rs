@@ -5,7 +5,7 @@ use defmt::*;
 use defmt_rtt as _; // global logger
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::OutputType;
-use embassy_stm32::rcc::{mux, AHB5Prescaler, AHBPrescaler, APBPrescaler, Sysclk, VoltageScale};
+use embassy_stm32::rcc::{AHB5Prescaler, AHBPrescaler, APBPrescaler, Sysclk, VoltageScale};
 use embassy_stm32::rcc::{PllDiv, PllMul, PllPreDiv, PllSource};
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
@@ -38,8 +38,6 @@ async fn main(_spawner: Spawner) {
 
     // voltage scale for max performance
     config.rcc.voltage_scale = VoltageScale::RANGE1;
-    // route PLL1_P into the USB‐OTG‐HS block
-    config.rcc.mux.otghssel = mux::Otghssel::PLL1_P;
     config.rcc.sys = Sysclk::PLL1_R;
 
     let p = embassy_stm32::init(config);
