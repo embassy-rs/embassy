@@ -5,7 +5,7 @@ use darling::FromMeta;
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::visit::{self, Visit};
-use syn::{Expr, ExprLit, Lit, LitInt, ReturnType, Type};
+use syn::{Expr, ExprLit, Lit, LitInt, ReturnType, Type, Visibility};
 
 use crate::util::*;
 
@@ -112,13 +112,11 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
         }
     }
 
-    let task_ident = f.sig.ident.clone();
-    let task_inner_ident = format_ident!("__{}_task", task_ident);
-
-    let mut task_inner = f.clone();
-    let visibility = task_inner.vis.clone();
-    task_inner.vis = syn::Visibility::Inherited;
-    task_inner.sig.ident = task_inner_ident.clone();
+    // Copy the generics + where clause to avoid more spurious errors.
+    let generics = &f.sig.generics;
+    let where_clause = &f.sig.generics.where_clause;
+    let unsafety = &f.sig.unsafety;
+    let visibility = &f.vis;
 
     // assemble the original input arguments,
     // including any attributes that may have
@@ -130,6 +128,64 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
             #arg
         ));
     }
+
+    let task_ident = f.sig.ident.clone();
+    let task_inner_ident = format_ident!("__{}_task", task_ident);
+
+    let task_inner_future_output = match &f.sig.output {
+        ReturnType::Default => quote! {-> impl ::core::future::Future<Output = ()>},
+        // Special case the never type since we can't stuff it into a `impl Future<Output = !>`
+        ReturnType::Type(arrow, maybe_never)
+            if f.sig.asyncness.is_some() && matches!(**maybe_never, Type::Never(_)) =>
+        {
+            quote! {
+                #arrow impl ::core::future::Future<Output=#embassy_executor::_export::Never>
+            }
+        }
+        ReturnType::Type(arrow, maybe_never) if matches!(**maybe_never, Type::Never(_)) => quote! {
+            #arrow #maybe_never
+        },
+        // Grab the arrow span, why not
+        ReturnType::Type(arrow, typ) if f.sig.asyncness.is_some() => quote! {
+            #arrow impl ::core::future::Future<Output = #typ>
+        },
+        // We assume that if `f` isn't async, it must return `-> impl Future<...>`
+        // This is checked using traits later
+        ReturnType::Type(arrow, typ) => quote! {
+            #arrow #typ
+        },
+    };
+
+    // We have to rename the function since it might be recursive;
+    let mut task_inner_function = f.clone();
+    let task_inner_function_ident = format_ident!("__{}_task_inner_function", task_ident);
+    task_inner_function.sig.ident = task_inner_function_ident.clone();
+    task_inner_function.vis = Visibility::Inherited;
+
+    let task_inner_body = if errors.is_empty() {
+        quote! {
+            #task_inner_function
+
+            // SAFETY: All the preconditions to `#task_ident` apply to
+            //         all contexts `#task_inner_ident` is called in
+            #unsafety {
+                #task_inner_function_ident(#(#full_args,)*)
+            }
+        }
+    } else {
+        quote! {
+            async {::core::todo!()}
+        }
+    };
+
+    let task_inner = quote! {
+        #visibility fn #task_inner_ident #generics (#fargs)
+        #task_inner_future_output
+        #where_clause
+        {
+            #task_inner_body
+        }
+    };
 
     let spawn = if returns_impl_trait {
         quote!(spawn)
@@ -173,7 +229,7 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
         unsafe { __task_pool_get(#task_inner_ident).#spawn(move || #task_inner_ident(#(#full_args,)*)) }
     };
 
-    let task_outer_attrs = task_inner.attrs.clone();
+    let task_outer_attrs = &f.attrs;
 
     if !errors.is_empty() {
         task_outer_body = quote! {
@@ -182,10 +238,6 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
             _x
         };
     }
-
-    // Copy the generics + where clause to avoid more spurious errors.
-    let generics = &f.sig.generics;
-    let where_clause = &f.sig.generics.where_clause;
 
     let result = quote! {
         // This is the user's task function, renamed.
@@ -196,7 +248,7 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
         #task_inner
 
         #(#task_outer_attrs)*
-        #visibility fn #task_ident #generics (#fargs) -> #embassy_executor::SpawnToken<impl Sized> #where_clause{
+        #visibility #unsafety fn #task_ident #generics (#fargs) -> #embassy_executor::SpawnToken<impl Sized> #where_clause{
             #task_outer_body
         }
 
@@ -213,7 +265,7 @@ fn check_arg_ty(errors: &mut TokenStream, ty: &Type) {
 
     impl<'a, 'ast> Visit<'ast> for Visitor<'a> {
         fn visit_type_reference(&mut self, i: &'ast syn::TypeReference) {
-            // only check for elided lifetime here. If not elided, it's checked by `visit_lifetime`.
+            // Only check for elided lifetime here. If not elided, it's checked by `visit_lifetime`.
             if i.lifetime.is_none() {
                 error(
                     self.errors,

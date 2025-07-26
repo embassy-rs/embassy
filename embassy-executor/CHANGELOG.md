@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added support for `-> impl Future<Output = ()>` in `#[task]`
 - Fixed `Send` unsoundness with `-> impl Future` tasks
 - Marked `Spawner::for_current_executor` as `unsafe`
+- `#[task]` now properly marks the generated function as unsafe if the task is marked unsafe
 
 ## 0.7.0 - 2025-01-02
 
