@@ -258,6 +258,8 @@ pub trait Bus {
 }
 
 /// Endpoint trait, common for OUT and IN.
+/// Endpoint is a buffer on a device that stores rx/tx data.
+/// Endpoint can be thought of as one end of a pipe/channel.
 pub trait Endpoint {
     /// Get the endpoint address
     fn info(&self) -> &EndpointInfo;
