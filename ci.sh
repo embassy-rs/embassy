@@ -106,6 +106,8 @@ cargo batch \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,single-bank,defmt \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32c071rb,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32c051f6,defmt,exti,time-driver-any,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32c091gb,defmt,exti,time-driver-any,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32c092rc,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32f038f6,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32f030c6,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32f058t8,defmt,exti,time-driver-any,time \
