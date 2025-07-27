@@ -21,24 +21,16 @@ async fn main(_spawner: Spawner) {
 
     let mut config = Config::default();
 
-
     {
         use embassy_stm32::rcc::*;
-        // External HSE (32 MHz) setup
-        // config.rcc.hse = Some(Hse {
-        //     prescaler: HsePrescaler::DIV2,
-        // });
-
-        // Fine-tune PLL1 dividers/multipliers
         config.rcc.pll1 = Some(Pll {
             source: PllSource::HSI,
-            prediv: PllPreDiv::DIV1,  // PLLM = 1 → HSI / 1 = 16 MHz
-            mul: PllMul::MUL30,       // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
-            divr: Some(PllDiv::DIV5), // PLLR = 5 → 96 MHz (Sysclk)
-            divq: Some(PllDiv::DIV10), // PLLQ = 10 → 48 MHz (NOT USED)
-            // divq: None,
-            divp: Some(PllDiv::DIV30), // PLLP = 30 → 16 MHz (USBOTG)
-            frac: Some(0),             // Fractional part (enabled)
+            prediv: PllPreDiv::DIV1,   // PLLM = 1 → HSI / 1 = 16 MHz
+            mul: PllMul::MUL30,        // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
+            divr: Some(PllDiv::DIV5),  // PLLR = 5 → 96 MHz (Sysclk)
+            divq: Some(PllDiv::DIV10), // PLLQ = 10 → 48 MHz
+            divp: Some(PllDiv::DIV30), // PLLP = 30 → 16 MHz (USB_OTG_HS)
+            frac: Some(0),             // Fractional part (disabled)
         });
 
         config.rcc.ahb_pre = AHBPrescaler::DIV1;
@@ -53,11 +45,6 @@ async fn main(_spawner: Spawner) {
     }
 
     let p = embassy_stm32::init(config);
-
-    // TRDT set to 5
-    // ASVLD set to 1
-    // BSVLD set to 1
-    
 
     // Create the driver, from the HAL.
     let mut ep_out_buffer = [0u8; 256];

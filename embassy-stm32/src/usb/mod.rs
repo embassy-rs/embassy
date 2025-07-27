@@ -111,10 +111,8 @@ fn common_init<T: Instance>() {
             });
             crate::pac::PWR.vosr().modify(|w| {
                 w.set_vdd11usbdis(false);
-            });
-            crate::pac::PWR.vosr().modify(|w| {
                 w.set_usbpwren(true);
-            })
+            });
         });
 
         // Wait for USB power to stabilize
