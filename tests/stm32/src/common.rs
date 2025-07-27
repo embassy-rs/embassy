@@ -681,6 +681,8 @@ pub fn config() -> Config {
             divp: Some(PllDiv::DIV2),  // 600Mhz
             divq: Some(PllDiv::DIV25), // 48Mhz
             divr: None,
+            divs: None,
+            divt: None,
         });
         config.rcc.sys = Sysclk::PLL1_P; // 600 Mhz
         config.rcc.ahb_pre = AHBPrescaler::DIV2; // 300 Mhz
