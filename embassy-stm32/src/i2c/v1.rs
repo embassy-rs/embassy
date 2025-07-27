@@ -6,6 +6,7 @@
 
 use core::future::poll_fn;
 use core::task::Poll;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::select::{select, Either};
@@ -22,12 +23,14 @@ use embassy_sync::waitqueue::AtomicWaker;
 /// I2C v2 peripheral state  
 pub(crate) struct State {
     pub(crate) waker: AtomicWaker,
+    pub use_new_interrupt_pattern: AtomicBool,
 }
 
 impl State {
     pub(crate) const fn new() -> Self {
         Self {
             waker: AtomicWaker::new(),
+            use_new_interrupt_pattern: AtomicBool::new(false),
         }
     }
 }
@@ -44,17 +47,25 @@ impl State {
 // There's some more details there, and we might have a fix for you. But please let us know if you
 // hit a case like this!
 pub unsafe fn on_interrupt<T: Instance>() {
-    let regs = T::info().regs;
     // i2c v2 only woke the task on transfer complete interrupts. v1 uses interrupts for a bunch of
     // other stuff, so we wake the task on every interrupt.
-    T::state().waker.wake();
-    critical_section::with(|_| {
-        // Clear event interrupt flag.
-        regs.cr2().modify(|w| {
-            w.set_itevten(false);
-            w.set_iterren(false);
+
+    let regs = T::info().regs;
+    let state = T::state();
+
+    if state.use_new_interrupt_pattern.load(Ordering::Relaxed) {
+        
+    } else {
+        critical_section::with(|_| {
+            // Clear event interrupt flag.
+            regs.cr2().modify(|w| {
+                w.set_itevten(false);
+                w.set_iterren(false);
+            });
         });
-    });
+    }
+
+    state.waker.wake();
 }
 
 impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
@@ -716,6 +727,17 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     }
 }
 
+impl<'d> VersionSpecificInit for I2c<'d, Blocking, Master> {
+    fn version_specific_init(&mut self) {
+        self.state.use_new_interrupt_pattern.store(false, Ordering::Relaxed);
+    }
+}
+
+impl<'d> VersionSpecificInit for I2c<'d, Async, Master> {
+    fn version_specific_init(&mut self) {
+        self.state.use_new_interrupt_pattern.store(true, Ordering::Relaxed);
+    }
+}
 
 /// Timing configuration for I2C v1 hardware
 /// 

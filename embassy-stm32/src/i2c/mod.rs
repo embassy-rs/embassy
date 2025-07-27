@@ -29,6 +29,21 @@ use crate::rcc::{RccInfo, SealedRccPeripheral};
 use crate::time::Hertz;
 use crate::{interrupt, peripherals};
 
+/// Temporary trait for version-specific initialization during I2C v1 async rework.
+/// 
+/// This trait allows the shared constructor in mod.rs to call version-specific 
+/// initialization while we incrementally migrate v1 async operations to use 
+/// the new event-driven interrupt pattern. Will be removed once the rework 
+/// is complete and both blocking/async modes use unified initialization.
+pub trait VersionSpecificInit {
+    /// Performs version and mode-specific initialization.
+    /// 
+    /// For v1: Sets interrupt pattern flag based on blocking vs async mode.
+    /// For v2: No-op, does nothing.
+    fn version_specific_init(&mut self);
+}
+
+
 /// I2C error.
 #[derive(Debug, PartialEq, Eq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -192,7 +207,10 @@ impl<'d> I2c<'d, Blocking, Master> {
     }
 }
 
-impl<'d, M: Mode> I2c<'d, M, Master> {
+impl<'d, M: Mode> I2c<'d, M, Master>
+where 
+    Self: VersionSpecificInit
+{
     /// Create a new I2C driver.
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
@@ -221,7 +239,9 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
                 sda,
             },
         };
+
         this.enable_and_init(config);
+        this.version_specific_init();
 
         this
     }
