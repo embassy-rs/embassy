@@ -5,8 +5,9 @@ use defmt::*;
 use defmt_rtt as _; // global logger
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::OutputType;
-use embassy_stm32::rcc::{AHB5Prescaler, AHBPrescaler, APBPrescaler, Sysclk, VoltageScale};
-use embassy_stm32::rcc::{PllDiv, PllMul, PllPreDiv, PllSource};
+use embassy_stm32::rcc::{
+    AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale,
+};
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::Config;
@@ -38,12 +39,13 @@ async fn main(_spawner: Spawner) {
 
     // voltage scale for max performance
     config.rcc.voltage_scale = VoltageScale::RANGE1;
+    // route PLL1_P into the USB‐OTG‐HS block
     config.rcc.sys = Sysclk::PLL1_R;
 
     let p = embassy_stm32::init(config);
 
-    let ch1_pin = PwmPin::new(p.PA2, OutputType::PushPull);
-    let mut pwm = SimplePwm::new(p.TIM3, Some(ch1_pin), None, None, None, khz(10), Default::default());
+    let ch1_pin = PwmPin::new(p.PB8, OutputType::PushPull);
+    let mut pwm = SimplePwm::new(p.TIM1, Some(ch1_pin), None, None, None, khz(10), Default::default());
     let mut ch1 = pwm.ch1();
     ch1.enable();
 

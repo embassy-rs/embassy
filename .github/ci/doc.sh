@@ -2,6 +2,7 @@
 ## on push branch=main
 ## priority -100
 ## dedup dequeue
+## cooldown 15m
 
 set -euxo pipefail
 
