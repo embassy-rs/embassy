@@ -12,6 +12,21 @@ use stm32_metapac::i2c::vals::{Addmode, Oamsk};
 use super::*;
 use crate::pac::i2c;
 
+use embassy_sync::waitqueue::AtomicWaker;
+
+/// I2C v2 peripheral state  
+pub(crate) struct State {
+    pub(crate) waker: AtomicWaker,
+}
+
+impl State {
+    pub(crate) const fn new() -> Self {
+        Self {
+            waker: AtomicWaker::new(),
+        }
+    }
+}
+
 impl From<AddrMask> for Oamsk {
     fn from(value: AddrMask) -> Self {
         match value {

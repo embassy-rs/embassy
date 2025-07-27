@@ -17,6 +17,21 @@ use super::*;
 use crate::mode::Mode;
 use crate::pac::i2c;
 
+use embassy_sync::waitqueue::AtomicWaker;
+
+/// I2C v2 peripheral state  
+pub(crate) struct State {
+    pub(crate) waker: AtomicWaker,
+}
+
+impl State {
+    pub(crate) const fn new() -> Self {
+        Self {
+            waker: AtomicWaker::new(),
+        }
+    }
+}
+
 // /!\                      /!\
 // /!\ Implementation note! /!\
 // /!\                      /!\
