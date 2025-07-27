@@ -151,7 +151,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         Ok(sr1)
     }
 
-    fn write_bytes(&mut self, addr: u8, bytes: &[u8], timeout: Timeout, frame: FrameOptions) -> Result<(), Error> {
+    fn write_bytes(&mut self, addr: u8, bytes: &[u8], timeout: Timeout, frame: OperationFraming) -> Result<(), Error> {
         if frame.send_start() {
             // Send a START condition
 
@@ -239,7 +239,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         addr: u8,
         buffer: &mut [u8],
         timeout: Timeout,
-        frame: FrameOptions,
+        frame: OperationFraming,
     ) -> Result<(), Error> {
         let Some((last, buffer)) = buffer.split_last_mut() else {
             return Err(Error::Overrun);
@@ -299,12 +299,12 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
     /// Blocking read.
     pub fn blocking_read(&mut self, addr: u8, read: &mut [u8]) -> Result<(), Error> {
-        self.blocking_read_timeout(addr, read, self.timeout(), FrameOptions::FirstAndLastFrame)
+        self.blocking_read_timeout(addr, read, self.timeout(), OperationFraming::FirstAndLast)
     }
 
     /// Blocking write.
     pub fn blocking_write(&mut self, addr: u8, write: &[u8]) -> Result<(), Error> {
-        self.write_bytes(addr, write, self.timeout(), FrameOptions::FirstAndLastFrame)?;
+        self.write_bytes(addr, write, self.timeout(), OperationFraming::FirstAndLast)?;
 
         // Fallthrough is success
         Ok(())
@@ -320,8 +320,8 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
         let timeout = self.timeout();
 
-        self.write_bytes(addr, write, timeout, FrameOptions::FirstFrame)?;
-        self.blocking_read_timeout(addr, read, timeout, FrameOptions::FirstAndLastFrame)?;
+        self.write_bytes(addr, write, timeout, OperationFraming::First)?;
+        self.blocking_read_timeout(addr, read, timeout, OperationFraming::FirstAndLast)?;
 
         Ok(())
     }
@@ -334,7 +334,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     pub fn blocking_transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
         let timeout = self.timeout();
 
-        for (op, frame) in operation_frames(operations)? {
+        for (op, frame) in assign_operation_framing(operations)? {
             match op {
                 Operation::Read(read) => self.blocking_read_timeout(addr, read, timeout, frame)?,
                 Operation::Write(write) => self.write_bytes(addr, write, timeout, frame)?,
@@ -356,7 +356,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 }
 
 impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
-    async fn write_frame(&mut self, address: u8, write: &[u8], frame: FrameOptions) -> Result<(), Error> {
+    async fn write_frame(&mut self, address: u8, write: &[u8], frame: OperationFraming) -> Result<(), Error> {
         self.info.regs.cr2().modify(|w| {
             // Note: Do not enable the ITBUFEN bit in the I2C_CR2 register if DMA is used for
             // reception.
@@ -502,7 +502,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
     /// Write.
     pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
-        self.write_frame(address, write, FrameOptions::FirstAndLastFrame)
+        self.write_frame(address, write, OperationFraming::FirstAndLast)
             .await?;
 
         Ok(())
@@ -510,13 +510,13 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
     /// Read.
     pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
-        self.read_frame(address, buffer, FrameOptions::FirstAndLastFrame)
+        self.read_frame(address, buffer, OperationFraming::FirstAndLast)
             .await?;
 
         Ok(())
     }
 
-    async fn read_frame(&mut self, address: u8, buffer: &mut [u8], frame: FrameOptions) -> Result<(), Error> {
+    async fn read_frame(&mut self, address: u8, buffer: &mut [u8], frame: OperationFraming) -> Result<(), Error> {
         if buffer.is_empty() {
             return Err(Error::Overrun);
         }
@@ -680,8 +680,8 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             return Err(Error::Overrun);
         }
 
-        self.write_frame(address, write, FrameOptions::FirstFrame).await?;
-        self.read_frame(address, read, FrameOptions::FirstAndLastFrame).await
+        self.write_frame(address, write, OperationFraming::First).await?;
+        self.read_frame(address, read, OperationFraming::FirstAndLast).await
     }
 
     /// Transaction with operations.
@@ -690,7 +690,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
     pub async fn transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
-        for (op, frame) in operation_frames(operations)? {
+        for (op, frame) in assign_operation_framing(operations)? {
             match op {
                 Operation::Read(read) => self.read_frame(addr, read, frame).await?,
                 Operation::Write(write) => self.write_frame(addr, write, frame).await?,
