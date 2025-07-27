@@ -1599,7 +1599,7 @@ fn main() {
     for e in rcc_registers.ir.enums {
         fn is_rcc_name(e: &str) -> bool {
             match e {
-                "Pllp" | "Pllq" | "Pllr" | "Pllm" | "Plln" | "Prediv1" | "Prediv2" => true,
+                "Pllp" | "Pllq" | "Pllr" | "Pllm" | "Plln" | "Prediv1" | "Prediv2" | "Hpre5" => true,
                 "Timpre" | "Pllrclkpre" => false,
                 e if e.ends_with("pre") || e.ends_with("pres") || e.ends_with("div") || e.ends_with("mul") => true,
                 _ => false,

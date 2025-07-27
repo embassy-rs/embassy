@@ -1,6 +1,5 @@
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
 use crate::pac::rcc::regs::Cfgr1;
-use core::ops::Div;
 pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Hsepre as HsePrescaler, Ppre as APBPrescaler, Sw as Sysclk, Pllsrc as PllSource,
     Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul, Hpre5 as AHB5Prescaler, Hdiv5,
@@ -20,23 +19,6 @@ pub use crate::pac::{syscfg::vals::Usbrefcksel, SYSCFG};
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 // HSE speed
 pub const HSE_FREQ: Hertz = Hertz(32_000_000);
-
-// Allow dividing a Hertz value by an AHB5 prescaler directly
-impl Div<AHB5Prescaler> for Hertz {
-    type Output = Hertz;
-    fn div(self, rhs: AHB5Prescaler) -> Hertz {
-        // Map the prescaler enum to its integer divisor
-        let divisor = match rhs {
-            AHB5Prescaler::DIV1 => 1,
-            AHB5Prescaler::DIV2 => 2,
-            AHB5Prescaler::DIV3 => 3,
-            AHB5Prescaler::DIV4 => 4,
-            AHB5Prescaler::DIV6 => 6,
-            _ => unreachable!("Invalid AHB5 prescaler: {:?}", rhs),
-        };
-        Hertz(self.0 / divisor)
-    }
-}
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub struct Hse {
@@ -95,8 +77,7 @@ pub struct Config {
     pub apb7_pre: APBPrescaler,
 
     // low speed LSI/LSE/RTC
-    pub lsi: super::LsConfig,
-    // pub lsi2: super::LsConfig,
+    pub ls: super::LsConfig,
 
     pub voltage_scale: VoltageScale,
 
@@ -116,7 +97,7 @@ impl Config {
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
             apb7_pre: APBPrescaler::DIV1,
-            lsi: crate::rcc::LsConfig::new(),
+            ls: crate::rcc::LsConfig::new(),
             // lsi2: crate::rcc::LsConfig::new(),
             voltage_scale: VoltageScale::RANGE2,
             mux: super::mux::ClockMux::default(),
@@ -151,7 +132,7 @@ pub(crate) unsafe fn init(config: Config) {
     crate::pac::PWR.vosr().write(|w| w.set_vos(config.voltage_scale));
     while !crate::pac::PWR.vosr().read().vosrdy() {}
 
-    let rtc = config.lsi.init();
+    let rtc = config.ls.init();
 
     let hsi = config.hsi.then(|| {
         hsi_enable();
@@ -276,7 +257,7 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_clksel(usb_refck_sel);
     });
 
-    let lsi = config.lsi.lsi.then_some(LSI_FREQ);
+    let lsi = config.ls.lsi.then_some(LSI_FREQ);
 
     config.mux.init();
 

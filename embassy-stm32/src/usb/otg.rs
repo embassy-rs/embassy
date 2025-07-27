@@ -336,7 +336,7 @@ impl<'d, T: Instance> Bus<'d, T> {
             critical_section::with(|_| {
                 crate::pac::RCC.ahb2enr().modify(|w| {
                     w.set_usb_otg_hsen(true);
-                    w.set_otghsphyen(true);
+                    w.set_usb_otg_hs_phyen(true);
                 });
             });
         }
