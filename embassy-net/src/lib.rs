@@ -171,7 +171,7 @@ impl Default for DhcpConfig {
 }
 
 /// Network stack configuration.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub struct Config {
@@ -223,7 +223,7 @@ impl Config {
 
 /// Network stack IPv4 configuration.
 #[cfg(feature = "proto-ipv4")]
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ConfigV4 {
     /// Do not configure IPv4.
@@ -238,7 +238,7 @@ pub enum ConfigV4 {
 
 /// Network stack IPv6 configuration.
 #[cfg(feature = "proto-ipv6")]
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ConfigV6 {
     /// Do not configure IPv6.
