@@ -2,17 +2,14 @@
 #![no_main]
 
 use defmt::{panic, *};
-use defmt_rtt as _; // global logger
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_stm32::rcc::{mux, AHB5Prescaler, AHBPrescaler, APBPrescaler, Hse, HsePrescaler, Sysclk, VoltageScale};
-use embassy_stm32::rcc::{PllDiv, PllMul, PllPreDiv, PllSource};
 use embassy_stm32::usb::{Driver, Instance};
 use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
 use embassy_usb::Builder;
-use panic_probe as _;
+use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     USB_OTG_HS => usb::InterruptHandler<peripherals::USB_OTG_HS>;
@@ -24,36 +21,43 @@ async fn main(_spawner: Spawner) {
 
     let mut config = Config::default();
 
-    // External HSE (32 MHz) setup
-    // config.rcc.hse = Some(Hse {
-    //     prescaler: HsePrescaler::DIV2,
-    // });
 
-    // Fine-tune PLL1 dividers/multipliers
-    config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
-        source: PllSource::HSI,
-        prediv: PllPreDiv::DIV1,  // PLLM = 1 → HSI / 1 = 16 MHz
-        mul: PllMul::MUL30,       // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
-        divr: Some(PllDiv::DIV5), // PLLR = 5 → 96 MHz (Sysclk)
-        // divq: Some(PllDiv::DIV10), // PLLQ = 10 → 48 MHz (NOT USED)
-        divq: None,
-        divp: Some(PllDiv::DIV30), // PLLP = 30 → 16 MHz (USBOTG)
-        frac: Some(0),             // Fractional part (enabled)
-    });
+    {
+        use embassy_stm32::rcc::*;
+        // External HSE (32 MHz) setup
+        // config.rcc.hse = Some(Hse {
+        //     prescaler: HsePrescaler::DIV2,
+        // });
 
-    config.rcc.ahb_pre = AHBPrescaler::DIV1;
-    config.rcc.apb1_pre = APBPrescaler::DIV1;
-    config.rcc.apb2_pre = APBPrescaler::DIV1;
-    config.rcc.apb7_pre = APBPrescaler::DIV1;
-    config.rcc.ahb5_pre = AHB5Prescaler::DIV4;
+        // Fine-tune PLL1 dividers/multipliers
+        config.rcc.pll1 = Some(Pll {
+            source: PllSource::HSI,
+            prediv: PllPreDiv::DIV1,  // PLLM = 1 → HSI / 1 = 16 MHz
+            mul: PllMul::MUL30,       // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
+            divr: Some(PllDiv::DIV5), // PLLR = 5 → 96 MHz (Sysclk)
+            divq: Some(PllDiv::DIV10), // PLLQ = 10 → 48 MHz (NOT USED)
+            // divq: None,
+            divp: Some(PllDiv::DIV30), // PLLP = 30 → 16 MHz (USBOTG)
+            frac: Some(0),             // Fractional part (enabled)
+        });
 
-    // voltage scale for max performance
-    config.rcc.voltage_scale = VoltageScale::RANGE1;
-    // route PLL1_P into the USB‐OTG‐HS block
-    config.rcc.mux.otghssel = mux::Otghssel::PLL1_P;
-    config.rcc.sys = Sysclk::PLL1_R;
+        config.rcc.ahb_pre = AHBPrescaler::DIV1;
+        config.rcc.apb1_pre = APBPrescaler::DIV1;
+        config.rcc.apb2_pre = APBPrescaler::DIV1;
+        config.rcc.apb7_pre = APBPrescaler::DIV1;
+        config.rcc.ahb5_pre = AHB5Prescaler::DIV4;
+
+        config.rcc.voltage_scale = VoltageScale::RANGE1;
+        config.rcc.mux.otghssel = mux::Otghssel::PLL1_P;
+        config.rcc.sys = Sysclk::PLL1_R;
+    }
 
     let p = embassy_stm32::init(config);
+
+    // TRDT set to 5
+    // ASVLD set to 1
+    // BSVLD set to 1
+    
 
     // Create the driver, from the HAL.
     let mut ep_out_buffer = [0u8; 256];

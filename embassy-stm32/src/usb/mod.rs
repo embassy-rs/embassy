@@ -110,7 +110,7 @@ fn common_init<T: Instance>() {
                 w.set_usv(crate::pac::pwr::vals::Usv::B_0X1);
             });
             crate::pac::PWR.vosr().modify(|w| {
-                w.set_vdd11usbdis(true);
+                w.set_vdd11usbdis(false);
             });
             crate::pac::PWR.vosr().modify(|w| {
                 w.set_usbpwren(true);

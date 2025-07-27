@@ -1,42 +1,22 @@
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
 use crate::pac::rcc::regs::Cfgr1;
-use core::ops::Div;
-pub use crate::pac::rcc::vals::{
-    Hpre as AHBPrescaler, Hsepre as HsePrescaler, Ppre as APBPrescaler, Sw as Sysclk, Pllsrc as PllSource,
-    Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul, Hpre5 as AHB5Prescaler, Hdiv5,
-};
+#[cfg(all(peri_usb_otg_hs))]
+pub use crate::pac::rcc::vals::Otghssel;
 use crate::pac::rcc::vals::Pllrge;
+pub use crate::pac::rcc::vals::{
+    Hdiv5, Hpre as AHBPrescaler, Hpre5 as AHB5Prescaler, Hsepre as HsePrescaler, Plldiv as PllDiv, Pllm as PllPreDiv,
+    Plln as PllMul, Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
+};
+#[cfg(all(peri_usb_otg_hs))]
+pub use crate::pac::{syscfg::vals::Usbrefcksel, SYSCFG};
 use crate::pac::{FLASH, RCC};
 use crate::rcc::LSI_FREQ;
 use crate::time::Hertz;
-
-#[cfg(all(peri_usb_otg_hs))]
-pub use crate::pac::rcc::vals::Otghssel;
-
-#[cfg(all(peri_usb_otg_hs))]
-pub use crate::pac::{syscfg::vals::Usbrefcksel, SYSCFG};
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
 // HSE speed
 pub const HSE_FREQ: Hertz = Hertz(32_000_000);
-
-// Allow dividing a Hertz value by an AHB5 prescaler directly
-impl Div<AHB5Prescaler> for Hertz {
-    type Output = Hertz;
-    fn div(self, rhs: AHB5Prescaler) -> Hertz {
-        // Map the prescaler enum to its integer divisor
-        let divisor = match rhs {
-            AHB5Prescaler::DIV1 => 1,
-            AHB5Prescaler::DIV2 => 2,
-            AHB5Prescaler::DIV3 => 3,
-            AHB5Prescaler::DIV4 => 4,
-            AHB5Prescaler::DIV6 => 6,
-            _ => unreachable!("Invalid AHB5 prescaler: {:?}", rhs),
-        };
-        Hertz(self.0 / divisor)
-    }
-}
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub struct Hse {
@@ -95,8 +75,7 @@ pub struct Config {
     pub apb7_pre: APBPrescaler,
 
     // low speed LSI/LSE/RTC
-    pub lsi: super::LsConfig,
-    // pub lsi2: super::LsConfig,
+    pub ls: super::LsConfig,
 
     pub voltage_scale: VoltageScale,
 
@@ -116,7 +95,7 @@ impl Config {
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
             apb7_pre: APBPrescaler::DIV1,
-            lsi: crate::rcc::LsConfig::new(),
+            ls: crate::rcc::LsConfig::new(),
             // lsi2: crate::rcc::LsConfig::new(),
             voltage_scale: VoltageScale::RANGE2,
             mux: super::mux::ClockMux::default(),
@@ -151,7 +130,7 @@ pub(crate) unsafe fn init(config: Config) {
     crate::pac::PWR.vosr().write(|w| w.set_vos(config.voltage_scale));
     while !crate::pac::PWR.vosr().read().vosrdy() {}
 
-    let rtc = config.lsi.init();
+    let rtc = config.ls.init();
 
     let hsi = config.hsi.then(|| {
         hsi_enable();
@@ -169,7 +148,7 @@ pub(crate) unsafe fn init(config: Config) {
         HSE_FREQ
     });
 
-    let pll_input = PllInput {hse, hsi };
+    let pll_input = PllInput { hse, hsi };
 
     let pll1 = init_pll(config.pll1, &pll_input, config.voltage_scale);
 
@@ -250,7 +229,6 @@ pub(crate) unsafe fn init(config: Config) {
 
     let hclk5 = sys_clk / config.ahb5_pre;
 
-
     #[cfg(all(stm32wba, peri_usb_otg_hs))]
     let usb_refck = match config.mux.otghssel {
         Otghssel::HSE => hse,
@@ -276,7 +254,7 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_clksel(usb_refck_sel);
     });
 
-    let lsi = config.lsi.lsi.then_some(LSI_FREQ);
+    let lsi = config.ls.lsi.then_some(LSI_FREQ);
 
     config.mux.init();
 
@@ -360,7 +338,7 @@ fn init_pll(config: Option<Pll>, input: &PllInput, voltage_range: VoltageScale) 
     // let vco_freq = ref_freq * pll.mul;
     // Calculate VCO frequency including fractional part: FVCO = Fref_ck × (N + FRAC/2^13)
     let numerator = (ref_freq.0 as u64) * (((pll.mul as u64) + 1 << 13) + pll.frac.unwrap_or(0) as u64);
-    let vco_hz   = (numerator >> 13) as u32;
+    let vco_hz = (numerator >> 13) as u32;
     let vco_freq = Hertz(vco_hz);
     assert!(vco_freq >= vco_min && vco_freq <= vco_max);
 
@@ -381,7 +359,9 @@ fn init_pll(config: Option<Pll>, input: &PllInput, voltage_range: VoltageScale) 
         w.set_pllq(pll.divq.unwrap_or(PllDiv::DIV1));
         w.set_pllr(pll.divr.unwrap_or(PllDiv::DIV1));
     });
-    RCC.pll1fracr().write(|w| {w.set_pllfracn(pll.frac.unwrap_or(0));});
+    RCC.pll1fracr().write(|w| {
+        w.set_pllfracn(pll.frac.unwrap_or(0));
+    });
 
     let input_range = match ref_freq.0 {
         ..=8_000_000 => Pllrge::FREQ_4TO8MHZ,
@@ -400,10 +380,12 @@ fn init_pll(config: Option<Pll>, input: &PllInput, voltage_range: VoltageScale) 
         };
     }
 
-    RCC.pll1cfgr().write(|w| {write_fields!(w);});
+    RCC.pll1cfgr().write(|w| {
+        write_fields!(w);
+    });
 
     // Enable PLL
     pll_enable(true);
 
-    PllOutput{ p, q, r }
+    PllOutput { p, q, r }
 }

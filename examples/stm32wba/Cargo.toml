@@ -9,7 +9,6 @@ embassy-stm32 = { version = "0.2.0", path = "../../embassy-stm32", features = [ 
 embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
-embassy-net = { version = "0.7.0", path = "../../embassy-net", features = ["defmt", "udp", "proto-ipv6", "medium-ieee802154", ], optional = true }
 embassy-usb = { version = "0.5.0", path = "../../embassy-usb", features = ["defmt"] }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 
@@ -18,7 +17,7 @@ defmt-rtt = "1.0.0"
 
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
-embedded-hal = "1.0.0"
+embedded-hal = "0.2.6"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.8", default-features = false }
 static_cell = "2"
