@@ -159,7 +159,7 @@ pub enum Averaging {
 
 impl<'d, T: Instance> Adc<'d, T> {
     /// Create a new ADC driver.
-    pub fn new(adc: Peri<'d, T>) -> Self {
+    pub fn new_with(adc: Peri<'d, T>, init: impl FnOnce(&mut Self)) -> Self {
         rcc::enable_and_reset::<T>();
 
         let prescaler = Prescaler::from_ker_ck(T::frequency());
@@ -196,10 +196,17 @@ impl<'d, T: Instance> Adc<'d, T> {
         s.calibrate();
         blocking_delay_us(1);
 
+        // Complete initialization that needs to be done before enabling the ADC.
+        init(&mut s);
+
         s.enable();
         s.configure();
 
         s
+    }
+
+    pub fn new(adc: Peri<'d, T>) -> Self {
+        Self::new_with(adc, |_adc| {})
     }
 
     fn power_up(&mut self) {
