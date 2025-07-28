@@ -268,6 +268,7 @@ cargo batch \
     --- build --release --manifest-path examples/stm32u5/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/stm32u5 \
     --- build --release --manifest-path examples/stm32wb/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32wb \
     --- build --release --manifest-path examples/stm32wba/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/stm32wba \
+    --- build --release --manifest-path examples/stm32wba6/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/stm32wba6 \
     --- build --release --manifest-path examples/stm32wl/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32wl \
     --- build --release --manifest-path examples/lpc55s69/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/lpc55s69 \
     --- build --release --manifest-path examples/mimxrt1011/Cargo.toml --target thumbv7em-none-eabihf --artifact-dir out/examples/mimxrt1011 \
