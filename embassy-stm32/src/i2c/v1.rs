@@ -177,8 +177,8 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         Ok(sr1)
     }
 
-    fn write_bytes(&mut self, addr: u8, bytes: &[u8], timeout: Timeout, frame: OperationFraming) -> Result<(), Error> {
-        if frame.send_start() {
+    fn write_bytes(&mut self, address: u8, write_buffer: &[u8], timeout: Timeout, framing: OperationFraming) -> Result<(), Error> {
+        if framing.send_start() {
             // Send a START condition
 
             self.info.regs.cr1().modify(|reg| {
@@ -196,7 +196,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             }
 
             // Set up current address we're trying to talk to
-            self.info.regs.dr().write(|reg| reg.set_dr(addr << 1));
+            self.info.regs.dr().write(|reg| reg.set_dr(address << 1));
 
             // Wait until address was sent
             // Wait for the address to be acknowledged
@@ -210,11 +210,11 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         }
 
         // Send bytes
-        for c in bytes {
+        for c in write_buffer {
             self.send_byte(*c, timeout)?;
         }
 
-        if frame.send_stop() {
+        if framing.send_stop() {
             // Send a STOP condition
             self.info.regs.cr1().modify(|reg| reg.set_stop(true));
         }
@@ -262,16 +262,16 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
     fn blocking_read_timeout(
         &mut self,
-        addr: u8,
-        buffer: &mut [u8],
+        address: u8,
+        read_buffer: &mut [u8],
         timeout: Timeout,
-        frame: OperationFraming,
+        framing: OperationFraming,
     ) -> Result<(), Error> {
-        let Some((last, buffer)) = buffer.split_last_mut() else {
+        let Some((last_byte, read_buffer)) = read_buffer.split_last_mut() else {
             return Err(Error::Overrun);
         };
 
-        if frame.send_start() {
+        if framing.send_start() {
             // Send a START condition and set ACK bit
             self.info.regs.cr1().modify(|reg| {
                 reg.set_start(true);
@@ -289,7 +289,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             }
 
             // Set up current address we're trying to talk to
-            self.info.regs.dr().write(|reg| reg.set_dr((addr << 1) + 1));
+            self.info.regs.dr().write(|reg| reg.set_dr((address << 1) + 1));
 
             // Wait until address was sent
             // Wait for the address to be acknowledged
@@ -302,52 +302,52 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         }
 
         // Receive bytes into buffer
-        for c in buffer {
+        for c in read_buffer {
             *c = self.recv_byte(timeout)?;
         }
 
         // Prepare to send NACK then STOP after next byte
         self.info.regs.cr1().modify(|reg| {
-            if frame.send_nack() {
+            if framing.send_nack() {
                 reg.set_ack(false);
             }
-            if frame.send_stop() {
+            if framing.send_stop() {
                 reg.set_stop(true);
             }
         });
 
         // Receive last byte
-        *last = self.recv_byte(timeout)?;
+        *last_byte = self.recv_byte(timeout)?;
 
         // Fallthrough is success
         Ok(())
     }
 
     /// Blocking read.
-    pub fn blocking_read(&mut self, addr: u8, read: &mut [u8]) -> Result<(), Error> {
-        self.blocking_read_timeout(addr, read, self.timeout(), OperationFraming::FirstAndLast)
+    pub fn blocking_read(&mut self, address: u8, read_buffer: &mut [u8]) -> Result<(), Error> {
+        self.blocking_read_timeout(address, read_buffer, self.timeout(), OperationFraming::FirstAndLast)
     }
 
     /// Blocking write.
-    pub fn blocking_write(&mut self, addr: u8, write: &[u8]) -> Result<(), Error> {
-        self.write_bytes(addr, write, self.timeout(), OperationFraming::FirstAndLast)?;
+    pub fn blocking_write(&mut self, address: u8, write_buffer: &[u8]) -> Result<(), Error> {
+        self.write_bytes(address, write_buffer, self.timeout(), OperationFraming::FirstAndLast)?;
 
         // Fallthrough is success
         Ok(())
     }
 
     /// Blocking write, restart, read.
-    pub fn blocking_write_read(&mut self, addr: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_write_read(&mut self, address: u8, write_buffer: &[u8], read_buffer: &mut [u8]) -> Result<(), Error> {
         // Check empty read buffer before starting transaction. Otherwise, we would not generate the
         // stop condition below.
-        if read.is_empty() {
+        if read_buffer.is_empty() {
             return Err(Error::Overrun);
         }
 
         let timeout = self.timeout();
 
-        self.write_bytes(addr, write, timeout, OperationFraming::First)?;
-        self.blocking_read_timeout(addr, read, timeout, OperationFraming::FirstAndLast)?;
+        self.write_bytes(address, write_buffer, timeout, OperationFraming::First)?;
+        self.blocking_read_timeout(address, read_buffer, timeout, OperationFraming::FirstAndLast)?;
 
         Ok(())
     }
@@ -357,13 +357,13 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     /// Consecutive operations of same type are merged. See [transaction contract] for details.
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
-    pub fn blocking_transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
+    pub fn blocking_transaction(&mut self, address: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
         let timeout = self.timeout();
 
-        for (op, frame) in assign_operation_framing(operations)? {
+        for (op, framing) in assign_operation_framing(operations)? {
             match op {
-                Operation::Read(read) => self.blocking_read_timeout(addr, read, timeout, frame)?,
-                Operation::Write(write) => self.write_bytes(addr, write, timeout, frame)?,
+                Operation::Read(read_buffer) => self.blocking_read_timeout(address, read_buffer, timeout, framing)?,
+                Operation::Write(write_buffer) => self.write_bytes(address, write_buffer, timeout, framing)?,
             }
         }
 
@@ -382,7 +382,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 }
 
 impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
-    async fn write_frame(&mut self, address: u8, write: &[u8], frame: OperationFraming) -> Result<(), Error> {
+    async fn write_with_framing(&mut self, address: u8, write_buffer: &[u8], framing: OperationFraming) -> Result<(), Error> {
         self.info.regs.cr2().modify(|w| {
             // Note: Do not enable the ITBUFEN bit in the I2C_CR2 register if DMA is used for
             // reception.
@@ -404,7 +404,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             })
         });
 
-        if frame.send_start() {
+        if framing.send_start() {
             // Send a START condition
             self.info.regs.cr1().modify(|reg| {
                 reg.set_start(true);
@@ -465,7 +465,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             // this address from the memory after each TxE event.
             let dst = self.info.regs.dr().as_ptr() as *mut u8;
 
-            self.tx_dma.as_mut().unwrap().write(write, dst, Default::default())
+            self.tx_dma.as_mut().unwrap().write(write_buffer, dst, Default::default())
         };
 
         // Wait for bytes to be sent, or an error to occur.
@@ -492,7 +492,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             w.set_dmaen(false);
         });
 
-        if frame.send_stop() {
+        if framing.send_stop() {
             // The I2C transfer itself will take longer than the DMA transfer, so wait for that to finish too.
 
             // 18.3.8 “Master transmitter: In the interrupt routine after the EOT interrupt, disable DMA
@@ -527,28 +527,28 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     }
 
     /// Write.
-    pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
-        self.write_frame(address, write, OperationFraming::FirstAndLast)
+    pub async fn write(&mut self, address: u8, write_buffer: &[u8]) -> Result<(), Error> {
+        self.write_with_framing(address, write_buffer, OperationFraming::FirstAndLast)
             .await?;
 
         Ok(())
     }
 
     /// Read.
-    pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
-        self.read_frame(address, buffer, OperationFraming::FirstAndLast)
+    pub async fn read(&mut self, address: u8, read_buffer: &mut [u8]) -> Result<(), Error> {
+        self.read_with_framing(address, read_buffer, OperationFraming::FirstAndLast)
             .await?;
 
         Ok(())
     }
 
-    async fn read_frame(&mut self, address: u8, buffer: &mut [u8], frame: OperationFraming) -> Result<(), Error> {
-        if buffer.is_empty() {
+    async fn read_with_framing(&mut self, address: u8, read_buffer: &mut [u8], framing: OperationFraming) -> Result<(), Error> {
+        if read_buffer.is_empty() {
             return Err(Error::Overrun);
         }
 
         // Some branches below depend on whether the buffer contains only a single byte.
-        let single_byte = buffer.len() == 1;
+        let single_byte = read_buffer.len() == 1;
 
         self.info.regs.cr2().modify(|w| {
             // Note: Do not enable the ITBUFEN bit in the I2C_CR2 register if DMA is used for
@@ -560,7 +560,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             // If, in the I2C_CR2 register, the LAST bit is set, I2C automatically sends a NACK
             // after the next byte following EOT_1. The user can generate a Stop condition in
             // the DMA Transfer Complete interrupt routine if enabled.
-            w.set_last(frame.send_nack() && !single_byte);
+            w.set_last(framing.send_nack() && !single_byte);
         });
 
         // Sentinel to disable transfer when an error occurs or future is canceled.
@@ -573,7 +573,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             })
         });
 
-        if frame.send_start() {
+        if framing.send_start() {
             // Send a START condition and set ACK bit
             self.info.regs.cr1().modify(|reg| {
                 reg.set_start(true);
@@ -628,7 +628,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
             // 18.3.8: When a single byte must be received: the NACK must be programmed during EV6
             // event, i.e. program ACK=0 when ADDR=1, before clearing ADDR flag.
-            if frame.send_nack() && single_byte {
+            if framing.send_nack() && single_byte {
                 self.info.regs.cr1().modify(|w| {
                     w.set_ack(false);
                 });
@@ -638,8 +638,8 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             self.info.regs.sr2().read();
         } else {
             // Before starting reception of single byte (but without START condition, i.e. in case
-            // of continued frame), program NACK to emit at end of this byte.
-            if frame.send_nack() && single_byte {
+            // of merged operations), program NACK to emit at end of this byte.
+            if framing.send_nack() && single_byte {
                 self.info.regs.cr1().modify(|w| {
                     w.set_ack(false);
                 });
@@ -649,7 +649,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         // 18.3.8: When a single byte must be received: [snip] Then the user can program the STOP
         // condition either after clearing ADDR flag, or in the DMA Transfer Complete interrupt
         // routine.
-        if frame.send_stop() && single_byte {
+        if framing.send_stop() && single_byte {
             self.info.regs.cr1().modify(|w| {
                 w.set_stop(true);
             });
@@ -660,7 +660,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             // from this address from the memory after each RxE event.
             let src = self.info.regs.dr().as_ptr() as *mut u8;
 
-            self.rx_dma.as_mut().unwrap().read(src, buffer, Default::default())
+            self.rx_dma.as_mut().unwrap().read(src, read_buffer, Default::default())
         };
 
         // Wait for bytes to be received, or an error to occur.
@@ -686,7 +686,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             w.set_dmaen(false);
         });
 
-        if frame.send_stop() && !single_byte {
+        if framing.send_stop() && !single_byte {
             self.info.regs.cr1().modify(|w| {
                 w.set_stop(true);
             });
@@ -699,15 +699,15 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     }
 
     /// Write, restart, read.
-    pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+    pub async fn write_read(&mut self, address: u8, write_buffer: &[u8], read_buffer: &mut [u8]) -> Result<(), Error> {
         // Check empty read buffer before starting transaction. Otherwise, we would not generate the
         // stop condition below.
-        if read.is_empty() {
+        if read_buffer.is_empty() {
             return Err(Error::Overrun);
         }
 
-        self.write_frame(address, write, OperationFraming::First).await?;
-        self.read_frame(address, read, OperationFraming::FirstAndLast).await
+        self.write_with_framing(address, write_buffer, OperationFraming::First).await?;
+        self.read_with_framing(address, read_buffer, OperationFraming::FirstAndLast).await
     }
 
     /// Transaction with operations.
@@ -715,11 +715,11 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     /// Consecutive operations of same type are merged. See [transaction contract] for details.
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
-    pub async fn transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
-        for (op, frame) in assign_operation_framing(operations)? {
+    pub async fn transaction(&mut self, address: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
+        for (op, framing) in assign_operation_framing(operations)? {
             match op {
-                Operation::Read(read) => self.read_frame(addr, read, frame).await?,
-                Operation::Write(write) => self.write_frame(addr, write, frame).await?,
+                Operation::Read(read_buffer) => self.read_with_framing(address, read_buffer, framing).await?,
+                Operation::Write(write_buffer) => self.write_with_framing(address, write_buffer, framing).await?,
             }
         }
 
