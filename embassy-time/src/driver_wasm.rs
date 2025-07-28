@@ -5,6 +5,8 @@ use embassy_time_queue_utils::Queue;
 use wasm_bindgen::prelude::*;
 use wasm_timer::Instant as StdInstant;
 
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct AlarmState {
     token: Option<f64>,
 }
@@ -21,10 +23,14 @@ extern "C" {
     fn clearTimeout(token: f64);
 }
 
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct TimeDriver {
     inner: Mutex<Inner>,
 }
 
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct Inner {
     alarm: AlarmState,
     zero_instant: Option<StdInstant>,
