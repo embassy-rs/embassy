@@ -1,6 +1,7 @@
 #![no_std]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
+#![deny(missing_debug_implementations)]
 
 #[cfg(feature = "_generic-queue")]
 pub mod queue_generic;

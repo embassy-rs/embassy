@@ -66,6 +66,8 @@ impl<F: Future> WithTimeout for F {
 
 /// Future for the [`with_timeout`] and [`with_deadline`] functions.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TimeoutFuture<F> {
     timer: Timer,
     fut: F,
@@ -92,6 +94,8 @@ impl<F: Future> Future for TimeoutFuture<F> {
 
 /// A future that completes at a specified [Instant](struct.Instant.html).
 #[must_use = "futures do nothing unless you `.await` or poll them"]
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Timer {
     expires_at: Instant,
     yielded_once: bool,
@@ -227,6 +231,8 @@ impl Future for Timer {
 /// ## Cancel safety
 /// It is safe to cancel waiting for the next tick,
 /// meaning no tick is lost if the Future is dropped.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Ticker {
     expires_at: Instant,
     duration: Duration,
