@@ -6,14 +6,12 @@ use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 
 #[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct TimeDriver {
     signaler: Signaler,
     inner: Mutex<Inner>,
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct Inner {
     zero_instant: Option<StdInstant>,
     queue: Queue,
@@ -69,7 +67,6 @@ fn alarm_thread() {
 }
 
 #[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct Signaler {
     mutex: Mutex<bool>,
     condvar: Condvar,
