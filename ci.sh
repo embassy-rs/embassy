@@ -294,6 +294,7 @@ cargo batch \
     --- build --release --manifest-path examples/boot/application/stm32l4/Cargo.toml --target thumbv7em-none-eabi --features skip-include --artifact-dir out/examples/boot/stm32l4 \
     --- build --release --manifest-path examples/boot/application/stm32wl/Cargo.toml --target thumbv7em-none-eabi --features skip-include --artifact-dir out/examples/boot/stm32wl \
     --- build --release --manifest-path examples/boot/application/stm32wb-dfu/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/boot/stm32wb-dfu \
+    --- build --release --manifest-path examples/boot/application/stm32wba-dfu/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/boot/stm32wba-dfu \
     --- build --release --manifest-path examples/boot/bootloader/nrf/Cargo.toml --target thumbv7em-none-eabi --features embassy-nrf/nrf52840 \
     --- build --release --manifest-path examples/boot/bootloader/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9160-ns \
     --- build --release --manifest-path examples/boot/bootloader/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9120-ns \
@@ -303,6 +304,7 @@ cargo batch \
     --- build --release --manifest-path examples/boot/bootloader/stm32/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32l496zg \
     --- build --release --manifest-path examples/boot/bootloader/stm32wb-dfu/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32wb55rg \
     --- build --release --manifest-path examples/boot/bootloader/stm32wb-dfu/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32wb55rg,verify \
+    --- build --release --manifest-path examples/boot/bootloader/stm32wba-dfu/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-stm32/stm32wba65ri,verify \
     --- build --release --manifest-path examples/boot/bootloader/stm32-dual-bank/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32h743zi \
     --- build --release --manifest-path examples/wasm/Cargo.toml --target wasm32-unknown-unknown --artifact-dir out/examples/wasm \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32f103c8 --artifact-dir out/tests/stm32f103c8 \
