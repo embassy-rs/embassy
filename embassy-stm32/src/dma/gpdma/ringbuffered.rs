@@ -137,7 +137,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn request_pause(&mut self) {
-        self.channel.request_suspend()
+        self.channel.request_pause()
     }
 
     /// Request the DMA to resume transfers after being suspended.
@@ -148,7 +148,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// Request the DMA to reset.
     ///
     /// The configuration for this channel will **not be preserved**. If you need to restart the transfer
-    /// at a later point with the same configuration, see [`request_suspend`](Self::request_suspend) instead.
+    /// at a later point with the same configuration, see [`request_pause`](Self::request_pause) instead.
     pub fn request_reset(&mut self) {
         self.channel.request_reset()
     }
@@ -280,7 +280,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn request_pause(&mut self) {
-        self.channel.request_suspend()
+        self.channel.request_pause()
     }
 
     /// Request the DMA to resume transfers after being suspended.
@@ -291,7 +291,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// Request the DMA to reset.
     ///
     /// The configuration for this channel will **not be preserved**. If you need to restart the transfer
-    /// at a later point with the same configuration, see [`request_suspend`](Self::request_suspend) instead.
+    /// at a later point with the same configuration, see [`request_pause`](Self::request_pause) instead.
     pub fn request_reset(&mut self) {
         self.channel.request_reset()
     }
@@ -325,7 +325,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
 impl<'a, W: Word> Drop for WritableRingBuffer<'a, W> {
     fn drop(&mut self) {
-        self.request_suspend();
+        self.request_pause();
         while self.is_running() {}
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
