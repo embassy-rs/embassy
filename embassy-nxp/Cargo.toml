@@ -50,6 +50,9 @@ log = ["dep:log"]
 ## Use Periodic Interrupt Timer (PIT) as the time driver for `embassy-time`, with a tick rate of 1 MHz
 time-driver-pit = ["_time_driver", "embassy-time?/tick-hz-1_000_000"]
 
+## Use Real Time Clock (RTC) as the time driver for `embassy-time`, with a tick rate of 32768 Hz
+time-driver-rtc = ["_time_driver", "embassy-time?/tick-hz-32_768"]
+
 ## Reexport the PAC for the currently enabled chip at `embassy_nxp::pac` (unstable)
 unstable-pac = []
 # This is unstable because semver-minor (non-breaking) releases of embassy-nxp may major-bump (breaking) the PAC version.
