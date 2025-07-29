@@ -44,6 +44,7 @@ cargo batch \
     --- build --release --manifest-path embassy-embedded-hal/Cargo.toml --target thumbv7em-none-eabi --features time \
     --- build --release --manifest-path embassy-sync/Cargo.toml --target thumbv6m-none-eabi --features defmt \
     --- build --release --manifest-path embassy-time/Cargo.toml --target thumbv6m-none-eabi --features defmt,defmt-timestamp-uptime,mock-driver \
+    --- build --release --manifest-path embassy-time/Cargo.toml --features defmt,std \
     --- build --release --manifest-path embassy-time-queue-utils/Cargo.toml --target thumbv6m-none-eabi \
     --- build --release --manifest-path embassy-time-queue-utils/Cargo.toml --target thumbv6m-none-eabi --features generic-queue-8 \
     --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv4,medium-ethernet,packet-trace \
