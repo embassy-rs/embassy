@@ -4,7 +4,6 @@
 use stm32_metapac::gpdma::regs;
 use stm32_metapac::gpdma::vals::Dreq;
 
-use super::TransferOptions;
 use crate::dma::word::{Word, WordSize};
 use crate::dma::{Dir, Request};
 
@@ -42,12 +41,7 @@ pub struct LinearItem {
 
 impl LinearItem {
     /// Create a new read DMA transfer (peripheral to memory).
-    pub unsafe fn new_read<'d, W: Word>(
-        request: Request,
-        peri_addr: *mut W,
-        buf: &'d mut [W],
-        options: TransferOptions,
-    ) -> Self {
+    pub unsafe fn new_read<'d, W: Word>(request: Request, peri_addr: *mut W, buf: &'d mut [W]) -> Self {
         Self::new_inner(
             request,
             Dir::PeripheralToMemory,
@@ -57,17 +51,11 @@ impl LinearItem {
             true,
             W::size(),
             W::size(),
-            options,
         )
     }
 
     /// Create a new write DMA transfer (memory to peripheral).
-    pub unsafe fn new_write<'d, MW: Word, PW: Word>(
-        request: Request,
-        buf: &'d [MW],
-        peri_addr: *mut PW,
-        options: TransferOptions,
-    ) -> Self {
+    pub unsafe fn new_write<'d, MW: Word, PW: Word>(request: Request, buf: &'d [MW], peri_addr: *mut PW) -> Self {
         Self::new_inner(
             request,
             Dir::MemoryToPeripheral,
@@ -77,7 +65,6 @@ impl LinearItem {
             true,
             MW::size(),
             PW::size(),
-            options,
         )
     }
 
@@ -90,7 +77,6 @@ impl LinearItem {
         incr_mem: bool,
         data_size: WordSize,
         dst_size: WordSize,
-        _options: TransferOptions,
     ) -> Self {
         // BNDT is specified as bytes, not as number of transfers.
         let Ok(bndt) = (mem_len * data_size.bytes()).try_into() else {
