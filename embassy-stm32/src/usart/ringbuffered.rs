@@ -103,6 +103,7 @@ impl<'d> UartRx<'d, Async> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
 
         let opts = Default::default();
+        let updaters = Default::default();
 
         // Safety: we forget the struct before this function returns.
         let rx_dma = self.rx_dma.as_mut().unwrap();
@@ -112,7 +113,7 @@ impl<'d> UartRx<'d, Async> {
         let info = self.info;
         let state = self.state;
         let kernel_clock = self.kernel_clock;
-        let ring_buf = unsafe { ReadableRingBuffer::new(rx_dma, request, rdr(info.regs), dma_buf, opts) };
+        let ring_buf = unsafe { ReadableRingBuffer::new(rx_dma, request, rdr(info.regs), dma_buf, opts, updaters) };
         let rx = unsafe { self.rx.as_ref().map(|x| x.clone_unchecked()) };
         let rts = unsafe { self.rts.as_ref().map(|x| x.clone_unchecked()) };
 
