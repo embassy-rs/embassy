@@ -46,29 +46,11 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
     }
 }
 
-/// The current buffer half (e.g. for DMA or the user application).
-#[derive(Debug, PartialEq, PartialOrd)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-enum BufferHalf {
-    First,
-    Second,
-}
-
-impl BufferHalf {
-    fn toggle(&mut self) {
-        *self = match *self {
-            Self::First => Self::Second,
-            Self::Second => Self::First,
-        };
-    }
-}
-
 /// Ringbuffer for receiving data using GPDMA linked-list mode.
 pub struct ReadableRingBuffer<'a, W: Word> {
     channel: PeripheralRef<'a, AnyChannel>,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
     table: Table<2>,
-    user_buffer_half: BufferHalf,
 }
 
 impl<'a, W: Word> ReadableRingBuffer<'a, W> {
@@ -99,7 +81,6 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
             channel,
             ringbuf: ReadableDmaRingBuffer::new(buffer),
             table,
-            user_buffer_half: BufferHalf::First,
         }
     }
 
@@ -217,7 +198,6 @@ pub struct WritableRingBuffer<'a, W: Word> {
     channel: PeripheralRef<'a, AnyChannel>,
     ringbuf: WritableDmaRingBuffer<'a, W>,
     table: Table<2>,
-    user_buffer_half: BufferHalf,
 }
 
 impl<'a, W: Word> WritableRingBuffer<'a, W> {
@@ -246,7 +226,6 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
             channel,
             ringbuf: WritableDmaRingBuffer::new(buffer),
             table,
-            user_buffer_half: BufferHalf::First,
         };
 
         this
@@ -280,62 +259,21 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
     /// Write an exact number of elements to the ringbuffer.
     pub async fn write_exact(&mut self, buffer: &[W]) -> Result<usize, Error> {
-        return self
-            .ringbuf
-            .write_exact(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
-            .await;
-
-        let mut written_len = 0;
-        let len = buffer.len();
+        // return self
+        //     .ringbuf
+        //     .write_exact(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
+        //     .await;
 
         let mut remaining_cap = 0;
-        let cap = self.ringbuf.cap();
+        let mut written_len = 0;
 
-        let dma = &mut DmaCtrlImpl(self.channel.reborrow());
-        let user_buffer_half = &mut self.user_buffer_half;
-        let ringbuf = &mut self.ringbuf;
-        let table = &mut self.table;
-
-        while written_len != len {
-            // info!(
-            //     "read {}, write {}, cap {}",
-            //     ringbuf.read_index(0),
-            //     ringbuf.write_index(0),
-            //     ringbuf.cap()
-            // );
-
-            let dma_buffer_half = if ringbuf.read_index(0) < ringbuf.cap() / 2 {
-                BufferHalf::First
-            } else {
-                BufferHalf::Second
-            };
-
-            // if dma_buffer_half == *user_buffer_half {
-            //     info!("swap user from {}", user_buffer_half);
-            //     table.unlink();
-
-            //     match user_buffer_half {
-            //         BufferHalf::First => table.link_indices(1, 0),
-            //         BufferHalf::Second => table.link_indices(0, 1),
-            //     }
-
-            //     user_buffer_half.toggle();
-            // }
-
-            let index = match dma_buffer_half {
-                BufferHalf::First => {
-                    // Fill up second buffer half when DMA reads the first.
-                    cap - 1
-                }
-                BufferHalf::Second => {
-                    // Fill up first buffer half when DMA reads the second.
-                    cap / 2 - 1
-                }
-            };
-
-            (written_len, remaining_cap) = ringbuf.write_until(dma, &buffer, index).await?;
+        while written_len < buffer.len() {
+            (written_len, remaining_cap) = self
+                .ringbuf
+                .write_half(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
+                .await?;
+            // info!("Written: {}/{}", written_len, buffer.len());
         }
-        info!("done");
 
         Ok(remaining_cap)
     }
