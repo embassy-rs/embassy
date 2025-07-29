@@ -82,7 +82,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         let half_len = buffer.len() / 2;
         assert_eq!(half_len * 2, buffer.len());
 
-        options.half_transfer_ir = true;
+        options.half_transfer_ir = false;
         options.complete_transfer_ir = true;
 
         let items = [
@@ -233,7 +233,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         let half_len = buffer.len() / 2;
         assert_eq!(half_len * 2, buffer.len());
 
-        options.half_transfer_ir = true;
+        options.half_transfer_ir = false;
         options.complete_transfer_ir = true;
 
         let items = [
