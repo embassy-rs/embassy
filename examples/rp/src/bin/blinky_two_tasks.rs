@@ -30,8 +30,8 @@ async fn main(spawner: Spawner) {
     let dt = 100 * 1_000_000;
     let k = 1.003;
 
-    unwrap!(spawner.spawn(toggle_led(&LED, Duration::from_nanos(dt))));
-    unwrap!(spawner.spawn(toggle_led(&LED, Duration::from_nanos((dt as f64 * k) as u64))));
+    spawner.spawn(unwrap!(toggle_led(&LED, Duration::from_nanos(dt))));
+    spawner.spawn(unwrap!(toggle_led(&LED, Duration::from_nanos((dt as f64 * k) as u64))));
 }
 
 #[embassy_executor::task(pool_size = 2)]

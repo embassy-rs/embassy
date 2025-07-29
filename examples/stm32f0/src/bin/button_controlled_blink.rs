@@ -46,7 +46,7 @@ async fn main(spawner: Spawner) {
     BLINK_MS.store(del_var, Ordering::Relaxed);
 
     // Spawn LED blinking task
-    spawner.spawn(led_task(p.PA5.into())).unwrap();
+    spawner.spawn(led_task(p.PA5.into()).unwrap());
 
     loop {
         // Check if button got pressed
