@@ -1,4 +1,5 @@
-//! Example of using blocking I2C
+//! This example uses FIFO with polling, and the maximum FIFO size is 8.
+//! Refer to async example to handle larger packets.
 //!
 //! This uses the virtual COM port provided on the LP-MSPM0G3507 board.
 
