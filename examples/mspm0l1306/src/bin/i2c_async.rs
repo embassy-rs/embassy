@@ -1,4 +1,4 @@
-//! Example of using async I2C
+//! The example uses FIFO and interrupts, wrapped in async API.
 //!
 //! This uses the virtual COM port provided on the LP-MSPM0L1306 board.
 
@@ -28,10 +28,10 @@ async fn main(_spawner: Spawner) -> ! {
 
     let mut i2c = unwrap!(I2c::new_async(instance, scl, sda, Irqs, Config::default()));
 
-    let mut to_read = [0u8; 1];
-    let to_write: u8 = 0x0F;
+    let mut to_read = [1u8; 17];
+    let to_write = [0u8; 17];
 
-    match i2c.async_write_read(ADDRESS, &[to_write], &mut to_read).await {
+    match i2c.async_write_read(ADDRESS, &to_write, &mut to_read).await {
         Ok(()) => info!("Register {}: {}", to_write, to_read[0]),
         Err(e) => error!("I2c Error: {:?}", e),
     }
