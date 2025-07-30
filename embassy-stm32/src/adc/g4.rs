@@ -19,6 +19,8 @@ pub const VREF_DEFAULT_MV: u32 = 3300;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 pub const VREF_CALIB_MV: u32 = 3300;
 
+const NR_INJECTED_RANKS: usize = 4;
+
 /// Max single ADC operation clock frequency
 #[cfg(stm32g4)]
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(60);
