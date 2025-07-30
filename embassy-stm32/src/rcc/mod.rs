@@ -95,8 +95,19 @@ pub(crate) unsafe fn get_freqs() -> &'static Clocks {
     unwrap!(CLOCK_FREQS_PTR.load(core::sync::atomic::Ordering::SeqCst).as_ref()).assume_init_ref()
 }
 
+/// Get the current clock configuration of the chip.
+pub fn clocks<'a>(_rcc: &'a crate::Peri<'a, crate::peripherals::RCC>) -> &'a Clocks {
+    // Safety: the existence of a `Peri<RCC>` means that `rcc::init()`
+    // has already been called, so `CLOCK_FREQS` must be initialized.
+    // The clocks could be modified again by `reinit()`, but reinit
+    // (for this reason) requires an exclusive reference to `Peri<RCC>`.
+    unsafe { get_freqs() }
+}
+
 pub(crate) trait SealedRccPeripheral {
     fn frequency() -> Hertz;
+    #[allow(dead_code)]
+    fn bus_frequency() -> Hertz;
     const RCC_INFO: RccInfo;
 }
 
@@ -368,4 +379,33 @@ pub fn enable_and_reset<T: RccPeripheral>() {
 // TODO: should this be `unsafe`?
 pub fn disable<T: RccPeripheral>() {
     T::RCC_INFO.disable();
+}
+
+/// Re-initialize the `embassy-stm32` clock configuration with the provided configuration.
+///
+/// This is useful when you need to alter the CPU clock after configuring peripherals.
+/// For instance, configure an external clock via spi or i2c.
+///
+/// Please not this only re-configures the rcc and the time driver (not GPIO, EXTI, etc).
+///
+/// This should only be called after `init`.
+#[cfg(not(feature = "_dual-core"))]
+pub fn reinit<'a>(config: Config, _rcc: &'a mut crate::Peri<'a, crate::peripherals::RCC>) {
+    critical_section::with(|cs| init_rcc(cs, config))
+}
+
+pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
+    unsafe {
+        init(config);
+
+        // must be after rcc init
+        #[cfg(feature = "_time-driver")]
+        crate::time_driver::init(_cs);
+
+        #[cfg(feature = "low-power")]
+        {
+            REFCOUNT_STOP2 = 0;
+            REFCOUNT_STOP1 = 0;
+        }
+    }
 }

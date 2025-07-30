@@ -76,6 +76,7 @@ impl Default for Config {
 pub const FIFO_SIZE: u8 = 16;
 
 /// I2C driver.
+#[derive(Debug)]
 pub struct I2c<'d, T: Instance, M: Mode> {
     phantom: PhantomData<(&'d mut T, M)>,
 }

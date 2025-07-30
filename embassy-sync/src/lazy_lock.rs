@@ -31,7 +31,12 @@ union Data<T, F> {
     f: ManuallyDrop<F>,
 }
 
-unsafe impl<T, F> Sync for LazyLock<T, F> {}
+unsafe impl<T, F> Sync for LazyLock<T, F>
+where
+    T: Sync,
+    F: Sync,
+{
+}
 
 impl<T, F: FnOnce() -> T> LazyLock<T, F> {
     /// Create a new uninitialized `StaticLock`.

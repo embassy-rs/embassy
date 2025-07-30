@@ -5,19 +5,22 @@
 #[cfg_attr(any(i2c_v2, i2c_v3), path = "v2.rs")]
 mod _version;
 
+mod config;
+
 use core::future::Future;
 use core::iter;
 use core::marker::PhantomData;
 
+pub use config::*;
 use embassy_hal_internal::Peri;
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
+use mode::MasterMode;
+pub use mode::{Master, MultiMaster};
 
 use crate::dma::ChannelAndRequest;
-#[cfg(gpio_v2)]
-use crate::gpio::Pull;
-use crate::gpio::{AfType, AnyPin, OutputType, SealedPin as _, Speed};
+use crate::gpio::{AnyPin, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt;
 use crate::mode::{Async, Blocking, Mode};
 use crate::rcc::{RccInfo, SealedRccPeripheral};
@@ -62,85 +65,89 @@ impl core::fmt::Display for Error {
 
 impl core::error::Error for Error {}
 
-/// I2C config
-#[non_exhaustive]
-#[derive(Copy, Clone)]
-pub struct Config {
-    /// Enable internal pullup on SDA.
-    ///
-    /// Using external pullup resistors is recommended for I2C. If you do
-    /// have external pullups you should not enable this.
-    #[cfg(gpio_v2)]
-    pub sda_pullup: bool,
-    /// Enable internal pullup on SCL.
-    ///
-    /// Using external pullup resistors is recommended for I2C. If you do
-    /// have external pullups you should not enable this.
-    #[cfg(gpio_v2)]
-    pub scl_pullup: bool,
-    /// Timeout.
-    #[cfg(feature = "time")]
-    pub timeout: embassy_time::Duration,
+/// I2C modes
+pub mod mode {
+    trait SealedMode {}
+
+    /// Trait for I2C master operations.
+    #[allow(private_bounds)]
+    pub trait MasterMode: SealedMode {}
+
+    /// Mode allowing for I2C master operations.
+    pub struct Master;
+    /// Mode allowing for I2C master and slave operations.
+    pub struct MultiMaster;
+
+    impl SealedMode for Master {}
+    impl MasterMode for Master {}
+
+    impl SealedMode for MultiMaster {}
+    impl MasterMode for MultiMaster {}
 }
 
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            #[cfg(gpio_v2)]
-            sda_pullup: false,
-            #[cfg(gpio_v2)]
-            scl_pullup: false,
-            #[cfg(feature = "time")]
-            timeout: embassy_time::Duration::from_millis(1000),
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// The command kind to the slave from the master
+pub enum SlaveCommandKind {
+    /// Write to the slave
+    Write,
+    /// Read from the slave
+    Read,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// The command kind to the slave from the master and the address that the slave matched
+pub struct SlaveCommand {
+    /// The kind of command
+    pub kind: SlaveCommandKind,
+    /// The address that the slave matched
+    pub address: Address,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// The status of the slave send operation
+pub enum SendStatus {
+    /// The slave send operation is done, all bytes have been sent and the master is not requesting more
+    Done,
+    /// The slave send operation is done, but there are leftover bytes that the master did not read
+    LeftoverBytes(usize),
+}
+
+struct I2CDropGuard<'d> {
+    info: &'static Info,
+    scl: Option<Peri<'d, AnyPin>>,
+    sda: Option<Peri<'d, AnyPin>>,
+}
+impl<'d> Drop for I2CDropGuard<'d> {
+    fn drop(&mut self) {
+        if let Some(x) = self.scl.as_ref() {
+            x.set_as_disconnected()
         }
-    }
-}
+        if let Some(x) = self.sda.as_ref() {
+            x.set_as_disconnected()
+        }
 
-impl Config {
-    fn scl_af(&self) -> AfType {
-        #[cfg(gpio_v1)]
-        return AfType::output(OutputType::OpenDrain, Speed::Medium);
-        #[cfg(gpio_v2)]
-        return AfType::output_pull(
-            OutputType::OpenDrain,
-            Speed::Medium,
-            match self.scl_pullup {
-                true => Pull::Up,
-                false => Pull::None,
-            },
-        );
-    }
-
-    fn sda_af(&self) -> AfType {
-        #[cfg(gpio_v1)]
-        return AfType::output(OutputType::OpenDrain, Speed::Medium);
-        #[cfg(gpio_v2)]
-        return AfType::output_pull(
-            OutputType::OpenDrain,
-            Speed::Medium,
-            match self.sda_pullup {
-                true => Pull::Up,
-                false => Pull::None,
-            },
-        );
+        self.info.rcc.disable();
     }
 }
 
 /// I2C driver.
-pub struct I2c<'d, M: Mode> {
+pub struct I2c<'d, M: Mode, IM: MasterMode> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    scl: Option<Peri<'d, AnyPin>>,
-    sda: Option<Peri<'d, AnyPin>>,
     tx_dma: Option<ChannelAndRequest<'d>>,
     rx_dma: Option<ChannelAndRequest<'d>>,
     #[cfg(feature = "time")]
     timeout: Duration,
     _phantom: PhantomData<M>,
+    _phantom2: PhantomData<IM>,
+    _drop_guard: I2CDropGuard<'d>,
 }
 
-impl<'d> I2c<'d, Async> {
+impl<'d> I2c<'d, Async, Master> {
     /// Create a new I2C driver.
     pub fn new<T: Instance>(
         peri: Peri<'d, T>,
@@ -166,7 +173,7 @@ impl<'d> I2c<'d, Async> {
     }
 }
 
-impl<'d> I2c<'d, Blocking> {
+impl<'d> I2c<'d, Blocking, Master> {
     /// Create a new blocking I2C driver.
     pub fn new_blocking<T: Instance>(
         peri: Peri<'d, T>,
@@ -187,7 +194,7 @@ impl<'d> I2c<'d, Blocking> {
     }
 }
 
-impl<'d, M: Mode> I2c<'d, M> {
+impl<'d, M: Mode> I2c<'d, M, Master> {
     /// Create a new I2C driver.
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
@@ -205,15 +212,20 @@ impl<'d, M: Mode> I2c<'d, M> {
             info: T::info(),
             state: T::state(),
             kernel_clock: T::frequency(),
-            scl,
-            sda,
             tx_dma,
             rx_dma,
             #[cfg(feature = "time")]
             timeout: config.timeout,
             _phantom: PhantomData,
+            _phantom2: PhantomData,
+            _drop_guard: I2CDropGuard {
+                info: T::info(),
+                scl,
+                sda,
+            },
         };
         this.enable_and_init(freq, config);
+
         this
     }
 
@@ -221,21 +233,14 @@ impl<'d, M: Mode> I2c<'d, M> {
         self.info.rcc.enable_and_reset();
         self.init(freq, config);
     }
+}
 
+impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     fn timeout(&self) -> Timeout {
         Timeout {
             #[cfg(feature = "time")]
             deadline: Instant::now() + self.timeout,
         }
-    }
-}
-
-impl<'d, M: Mode> Drop for I2c<'d, M> {
-    fn drop(&mut self) {
-        self.scl.as_ref().map(|x| x.set_as_disconnected());
-        self.sda.as_ref().map(|x| x.set_as_disconnected());
-
-        self.info.rcc.disable()
     }
 }
 
@@ -347,7 +352,7 @@ foreach_peripheral!(
     };
 );
 
-impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Read for I2c<'d, M> {
+impl<'d, M: Mode, IM: MasterMode> embedded_hal_02::blocking::i2c::Read for I2c<'d, M, IM> {
     type Error = Error;
 
     fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
@@ -355,7 +360,7 @@ impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Read for I2c<'d, M> {
     }
 }
 
-impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Write for I2c<'d, M> {
+impl<'d, M: Mode, IM: MasterMode> embedded_hal_02::blocking::i2c::Write for I2c<'d, M, IM> {
     type Error = Error;
 
     fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Self::Error> {
@@ -363,7 +368,7 @@ impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Write for I2c<'d, M> {
     }
 }
 
-impl<'d, M: Mode> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, M> {
+impl<'d, M: Mode, IM: MasterMode> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, M, IM> {
     type Error = Error;
 
     fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
@@ -387,11 +392,11 @@ impl embedded_hal_1::i2c::Error for Error {
     }
 }
 
-impl<'d, M: Mode> embedded_hal_1::i2c::ErrorType for I2c<'d, M> {
+impl<'d, M: Mode, IM: MasterMode> embedded_hal_1::i2c::ErrorType for I2c<'d, M, IM> {
     type Error = Error;
 }
 
-impl<'d, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, M> {
+impl<'d, M: Mode, IM: MasterMode> embedded_hal_1::i2c::I2c for I2c<'d, M, IM> {
     fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
         self.blocking_read(address, read)
     }
@@ -413,7 +418,7 @@ impl<'d, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, M> {
     }
 }
 
-impl<'d> embedded_hal_async::i2c::I2c for I2c<'d, Async> {
+impl<'d, IM: MasterMode> embedded_hal_async::i2c::I2c for I2c<'d, Async, IM> {
     async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
         self.read(address, read).await
     }
@@ -529,9 +534,7 @@ fn operation_frames<'a, 'b: 'a>(
     let mut next_first_frame = true;
 
     Ok(iter::from_fn(move || {
-        let Some(op) = operations.next() else {
-            return None;
-        };
+        let op = operations.next()?;
 
         // Is `op` first frame of its type?
         let first_frame = next_first_frame;

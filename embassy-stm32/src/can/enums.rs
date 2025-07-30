@@ -72,7 +72,7 @@ pub enum TryReadError {
 /// Internal Operation
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum InternalOperation {
+pub enum RefCountOp {
     /// Notify receiver created
     NotifyReceiverCreated,
     /// Notify receiver destroyed

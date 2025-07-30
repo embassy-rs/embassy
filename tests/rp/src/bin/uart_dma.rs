@@ -10,7 +10,7 @@ use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::UART0;
-use embassy_rp::uart::{Async, Config, Error, Instance, InterruptHandler, Parity, Uart, UartRx};
+use embassy_rp::uart::{Async, Config, Error, InterruptHandler, Parity, Uart, UartRx};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -18,13 +18,13 @@ bind_interrupts!(struct Irqs {
     UART0_IRQ => InterruptHandler<UART0>;
 });
 
-async fn read<const N: usize>(uart: &mut Uart<'_, impl Instance, Async>) -> Result<[u8; N], Error> {
+async fn read<const N: usize>(uart: &mut Uart<'_, Async>) -> Result<[u8; N], Error> {
     let mut buf = [255; N];
     uart.read(&mut buf).await?;
     Ok(buf)
 }
 
-async fn read1<const N: usize>(uart: &mut UartRx<'_, impl Instance, Async>) -> Result<[u8; N], Error> {
+async fn read1<const N: usize>(uart: &mut UartRx<'_, Async>) -> Result<[u8; N], Error> {
     let mut buf = [255; N];
     uart.read(&mut buf).await?;
     Ok(buf)

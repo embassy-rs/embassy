@@ -42,12 +42,12 @@ async fn main(spawner: Spawner) {
 
     unwrap!(spawner.spawn(blinky(p.PB1)));
     // Connect PA8 and PA6 with a 1k Ohm resistor
-    let ch1_pin = PwmPin::new_ch1(p.PA8, OutputType::PushPull);
+    let ch1_pin = PwmPin::new(p.PA8, OutputType::PushPull);
     let mut pwm = SimplePwm::new(p.TIM1, Some(ch1_pin), None, None, None, khz(1), Default::default());
     pwm.ch1().set_duty_cycle_fraction(1, 4);
     pwm.ch1().enable();
 
-    let mut pwm_input = PwmInput::new(p.TIM2, p.PA0, Pull::None, khz(1000));
+    let mut pwm_input = PwmInput::new_ch1(p.TIM2, p.PA0, Pull::None, khz(1000));
     pwm_input.enable();
 
     loop {

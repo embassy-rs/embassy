@@ -1,5 +1,8 @@
 use core::ops::RangeInclusive;
 
+#[cfg(stm32h7rs)]
+use stm32_metapac::rcc::vals::Plldivst;
+
 use crate::pac;
 pub use crate::pac::rcc::vals::{
     Hsidiv as HSIPrescaler, Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul, Pllsrc as PllSource, Sw as Sysclk,
@@ -78,6 +81,12 @@ pub struct Pll {
     pub divq: Option<PllDiv>,
     /// PLL R division factor. If None, PLL R output is disabled.
     pub divr: Option<PllDiv>,
+    #[cfg(stm32h7rs)]
+    /// PLL S division factor. If None, PLL S output is disabled.
+    pub divs: Option<Plldivst>,
+    #[cfg(stm32h7rs)]
+    /// PLL T division factor. If None, PLL T output is disabled.
+    pub divt: Option<Plldivst>,
 }
 
 fn apb_div_tim(apb: &APBPrescaler, clk: Hertz, tim: TimerPrescaler) -> Hertz {
@@ -218,13 +227,13 @@ pub struct Config {
     pub mux: super::mux::ClockMux,
 }
 
-impl Default for Config {
-    fn default() -> Self {
+impl Config {
+    pub const fn new() -> Self {
         Self {
             hsi: Some(HSIPrescaler::DIV1),
             hse: None,
             csi: false,
-            hsi48: Some(Default::default()),
+            hsi48: Some(crate::rcc::Hsi48Config::new()),
             sys: Sysclk::HSI,
             pll1: None,
             pll2: None,
@@ -248,13 +257,19 @@ impl Default for Config {
             voltage_scale: VoltageScale::Scale0,
             #[cfg(rcc_h7rs)]
             voltage_scale: VoltageScale::HIGH,
-            ls: Default::default(),
+            ls: crate::rcc::LsConfig::new(),
 
             #[cfg(any(pwr_h7rm0399, pwr_h7rm0455, pwr_h7rm0468, pwr_h7rs))]
             supply_config: SupplyConfig::LDO,
 
-            mux: Default::default(),
+            mux: super::mux::ClockMux::default(),
         }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -743,6 +758,12 @@ struct PllOutput {
     q: Option<Hertz>,
     #[allow(dead_code)]
     r: Option<Hertz>,
+    #[cfg(stm32h7rs)]
+    #[allow(dead_code)]
+    s: Option<Hertz>,
+    #[cfg(stm32h7rs)]
+    #[allow(dead_code)]
+    t: Option<Hertz>,
 }
 
 fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
@@ -761,6 +782,10 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
             p: None,
             q: None,
             r: None,
+            #[cfg(stm32h7rs)]
+            s: None,
+            #[cfg(stm32h7rs)]
+            t: None,
         };
     };
 
@@ -808,6 +833,10 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
     });
     let q = config.divq.map(|div| vco_clk / div);
     let r = config.divr.map(|div| vco_clk / div);
+    #[cfg(stm32h7rs)]
+    let s = config.divs.map(|div| vco_clk / div);
+    #[cfg(stm32h7rs)]
+    let t = config.divt.map(|div| vco_clk / div);
 
     #[cfg(stm32h5)]
     RCC.pllcfgr(num).write(|w| {
@@ -834,6 +863,10 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
             w.set_divpen(num, p.is_some());
             w.set_divqen(num, q.is_some());
             w.set_divren(num, r.is_some());
+            #[cfg(stm32h7rs)]
+            w.set_divsen(num, s.is_some());
+            #[cfg(stm32h7rs)]
+            w.set_divten(num, t.is_some());
         });
     }
 
@@ -844,10 +877,24 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
         w.set_pllr(config.divr.unwrap_or(PllDiv::DIV2));
     });
 
+    #[cfg(stm32h7rs)]
+    RCC.plldivr2(num).write(|w| {
+        w.set_plls(config.divs.unwrap_or(Plldivst::DIV2));
+        w.set_pllt(config.divt.unwrap_or(Plldivst::DIV2));
+    });
+
     RCC.cr().modify(|w| w.set_pllon(num, true));
     while !RCC.cr().read().pllrdy(num) {}
 
-    PllOutput { p, q, r }
+    PllOutput {
+        p,
+        q,
+        r,
+        #[cfg(stm32h7rs)]
+        s,
+        #[cfg(stm32h7rs)]
+        t,
+    }
 }
 
 fn flash_setup(clk: Hertz, vos: VoltageScale) {

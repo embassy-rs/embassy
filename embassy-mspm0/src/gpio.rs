@@ -10,7 +10,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::pac::gpio::vals::*;
 use crate::pac::gpio::{self};
-#[cfg(all(feature = "rt", feature = "mspm0c110x"))]
+#[cfg(all(feature = "rt", any(mspm0c110x, mspm0l110x)))]
 use crate::pac::interrupt;
 use crate::pac::{self};
 
@@ -223,13 +223,13 @@ impl<'d> Flex<'d> {
     /// Get whether the pin input level is high.
     #[inline]
     pub fn is_high(&self) -> bool {
-        !self.is_low()
+        self.pin.block().din31_0().read().dio(self.pin.bit_index())
     }
 
     /// Get whether the pin input level is low.
     #[inline]
     pub fn is_low(&self) -> bool {
-        self.pin.block().din31_0().read().dio(self.pin.bit_index())
+        !self.is_high()
     }
 
     /// Returns current pin level
@@ -271,22 +271,22 @@ impl<'d> Flex<'d> {
         }
     }
 
-    /// Get the current pin input level.
+    /// Get the current pin output level.
     #[inline]
     pub fn get_output_level(&self) -> Level {
-        self.is_high().into()
+        self.is_set_high().into()
     }
 
     /// Is the output level high?
     #[inline]
     pub fn is_set_high(&self) -> bool {
-        !self.is_set_low()
+        self.pin.block().dout31_0().read().dio(self.pin.bit_index())
     }
 
     /// Is the output level low?
     #[inline]
     pub fn is_set_low(&self) -> bool {
-        (self.pin.block().dout31_0().read().0 & self.pin.bit_index() as u32) == 0
+        !self.is_set_high()
     }
 
     /// Wait until the pin is high. If it is already high, return immediately.
@@ -1090,7 +1090,9 @@ pub(crate) fn init(gpio: gpio::Gpio) {
 
 #[cfg(feature = "rt")]
 fn irq_handler(gpio: gpio::Gpio, wakers: &[AtomicWaker; 32]) {
+    use crate::BitIter;
     // Only consider pins which have interrupts unmasked.
+
     let bits = gpio.cpu_int().mis().read().0;
 
     for i in BitIter(bits) {
@@ -1103,40 +1105,36 @@ fn irq_handler(gpio: gpio::Gpio, wakers: &[AtomicWaker; 32]) {
     }
 }
 
-struct BitIter(u32);
-
-impl Iterator for BitIter {
-    type Item = u32;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.0.trailing_zeros() {
-            32 => None,
-            b => {
-                self.0 &= !(1 << b);
-                Some(b)
-            }
-        }
-    }
-}
-
-// C110x has a dedicated interrupt just for GPIOA, as it does not have a GROUP1 interrupt.
-#[cfg(all(feature = "rt", feature = "mspm0c110x"))]
+// C110x and L110x have a dedicated interrupts just for GPIOA.
+//
+// These chips do not have a GROUP1 interrupt.
+#[cfg(all(feature = "rt", any(mspm0c110x, mspm0l110x)))]
 #[interrupt]
 fn GPIOA() {
-    gpioa_interrupt();
+    irq_handler(pac::GPIOA, &PORTA_WAKERS);
 }
 
-#[cfg(feature = "rt")]
-pub(crate) fn gpioa_interrupt() {
+// These symbols are weakly defined as DefaultHandler and are called by the interrupt group implementation.
+//
+// Defining these as no_mangle is required so that the linker will pick these over the default handler.
+
+#[cfg(all(feature = "rt", not(any(mspm0c110x, mspm0l110x))))]
+#[no_mangle]
+#[allow(non_snake_case)]
+fn GPIOA() {
     irq_handler(pac::GPIOA, &PORTA_WAKERS);
 }
 
 #[cfg(all(feature = "rt", gpio_pb))]
-pub(crate) fn gpiob_interrupt() {
+#[no_mangle]
+#[allow(non_snake_case)]
+fn GPIOB() {
     irq_handler(pac::GPIOB, &PORTB_WAKERS);
 }
 
 #[cfg(all(feature = "rt", gpio_pc))]
-pub(crate) fn gpioc_interrupt() {
+#[allow(non_snake_case)]
+#[no_mangle]
+fn GPIOC() {
     irq_handler(pac::GPIOC, &PORTC_WAKERS);
 }

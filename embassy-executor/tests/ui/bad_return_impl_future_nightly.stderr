@@ -1,0 +1,10 @@
+error[E0277]: task futures must resolve to `()` or `!`
+ --> tests/ui/bad_return_impl_future_nightly.rs:4:1
+  |
+4 | #[embassy_executor::task]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `TaskReturnValue` is not implemented for `u32`
+  |
+  = note: use `async fn` or change the return type to `impl Future<Output = ()>`
+  = help: the following other types implement trait `TaskReturnValue`:
+            ()
+            <fn() -> ! as _export::HasOutput>::Output

@@ -136,6 +136,7 @@ pub trait Driver<'a> {
     fn alloc_endpoint_out(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointOut, EndpointAllocError>;
@@ -153,6 +154,7 @@ pub trait Driver<'a> {
     fn alloc_endpoint_in(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointIn, EndpointAllocError>;
@@ -394,4 +396,13 @@ pub enum EndpointError {
 
     /// The endpoint is disabled.
     Disabled,
+}
+
+impl embedded_io_async::Error for EndpointError {
+    fn kind(&self) -> embedded_io_async::ErrorKind {
+        match self {
+            Self::BufferOverflow => embedded_io_async::ErrorKind::OutOfMemory,
+            Self::Disabled => embedded_io_async::ErrorKind::NotConnected,
+        }
+    }
 }

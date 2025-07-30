@@ -1,6 +1,6 @@
 [package]
 name = "embassy-embedded-hal"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Collection of utilities to use `embedded-hal` and `embedded-storage` traits with Embassy."
@@ -19,12 +19,11 @@ target = "x86_64-unknown-linux-gnu"
 
 [features]
 time = ["dep:embassy-time"]
-default = ["time"]
 
 [dependencies]
-embassy-hal-internal = { version = "0.2.0", path = "../embassy-hal-internal" }
+embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
-embassy-sync = { version = "0.6.2", path = "../embassy-sync" }
+embassy-sync = { version = "0.7.0", path = "../embassy-sync" }
 embassy-time = { version = "0.4.0", path = "../embassy-time", optional = true }
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = [
     "unproven",
@@ -35,7 +34,7 @@ embedded-storage = "0.3.1"
 embedded-storage-async = { version = "0.4.1" }
 nb = "1.0.0"
 
-defmt = { version = "0.3", optional = true }
+defmt = { version = "1.0.1", optional = true }
 
 [dev-dependencies]
 critical-section = { version = "1.1.1", features = ["std"] }

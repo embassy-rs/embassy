@@ -50,6 +50,44 @@ fn main() {
     }
 
     // ========
+    // Select the memory variant to use
+    let memory = {
+        let single_bank_selected = env::var("CARGO_FEATURE_SINGLE_BANK").is_ok();
+        let dual_bank_selected = env::var("CARGO_FEATURE_DUAL_BANK").is_ok();
+
+        let single_bank_memory = METADATA.memory.iter().find(|mem| {
+            mem.iter().any(|region| region.name.contains("BANK_1"))
+                && !mem.iter().any(|region| region.name.contains("BANK_2"))
+        });
+
+        let dual_bank_memory = METADATA.memory.iter().find(|mem| {
+            mem.iter().any(|region| region.name.contains("BANK_1"))
+                && mem.iter().any(|region| region.name.contains("BANK_2"))
+        });
+
+        cfgs.set(
+            "bank_setup_configurable",
+            single_bank_memory.is_some() && dual_bank_memory.is_some(),
+        );
+
+        match (single_bank_selected, dual_bank_selected) {
+            (true, true) => panic!("Both 'single-bank' and 'dual-bank' features enabled"),
+            (true, false) => {
+                single_bank_memory.expect("The 'single-bank' feature is not supported on this dual bank chip")
+            }
+            (false, true) => {
+                dual_bank_memory.expect("The 'dual-bank' feature is not supported on this single bank chip")
+            }
+            (false, false) => {
+                if METADATA.memory.len() != 1 {
+                    panic!("Chip supports single and dual bank configuration. No Cargo feature to select one is enabled. Use the 'single-bank' or 'dual-bank' feature to make your selection")
+                }
+                METADATA.memory[0]
+            }
+        }
+    };
+
+    // ========
     // Generate singletons
 
     let mut singletons: Vec<String> = Vec::new();
@@ -290,8 +328,7 @@ fn main() {
     // ========
     // Generate FLASH regions
     let mut flash_regions = TokenStream::new();
-    let flash_memory_regions: Vec<_> = METADATA
-        .memory
+    let flash_memory_regions: Vec<_> = memory
         .iter()
         .filter(|x| x.kind == MemoryRegionKind::Flash && x.settings.is_some())
         .collect();
@@ -466,6 +503,13 @@ fn main() {
             &PeripheralRccRegister {
                 register: "CCIPR",
                 field: "CLK48SEL",
+            },
+        );
+        clock_gen.chained_muxes.insert(
+            "RFWKP",
+            &PeripheralRccRegister {
+                register: "CSR",
+                field: "RFWKPSEL",
             },
         );
     }
@@ -647,6 +691,8 @@ fn main() {
                 PeripheralRccKernelClock::Clock(clock) => clock_gen.gen_clock(p.name, clock),
             };
 
+            let bus_clock_frequency = clock_gen.gen_clock(p.name, &rcc.bus_clock);
+
             // A refcount leak can result if the same field is shared by peripherals with different stop modes
             // This condition should be checked in stm32-data
             let stop_mode = match rcc.stop_mode {
@@ -659,6 +705,9 @@ fn main() {
                 impl crate::rcc::SealedRccPeripheral for peripherals::#pname {
                     fn frequency() -> crate::time::Hertz {
                         #clock_frequency
+                    }
+                    fn bus_frequency() -> crate::time::Hertz {
+                        #bus_clock_frequency
                     }
 
                     const RCC_INFO: crate::rcc::RccInfo = unsafe {
@@ -1048,21 +1097,21 @@ fn main() {
         (("fmc", "CLK"), quote!(crate::fmc::ClkPin)),
         (("fmc", "BA0"), quote!(crate::fmc::BA0Pin)),
         (("fmc", "BA1"), quote!(crate::fmc::BA1Pin)),
-        (("timer", "CH1"), quote!(crate::timer::Channel1Pin)),
-        (("timer", "CH1N"), quote!(crate::timer::Channel1ComplementaryPin)),
-        (("timer", "CH2"), quote!(crate::timer::Channel2Pin)),
-        (("timer", "CH2N"), quote!(crate::timer::Channel2ComplementaryPin)),
-        (("timer", "CH3"), quote!(crate::timer::Channel3Pin)),
-        (("timer", "CH3N"), quote!(crate::timer::Channel3ComplementaryPin)),
-        (("timer", "CH4"), quote!(crate::timer::Channel4Pin)),
-        (("timer", "CH4N"), quote!(crate::timer::Channel4ComplementaryPin)),
+        (("timer", "CH1"), quote!(crate::timer::TimerPin<Ch1>)),
+        (("timer", "CH1N"), quote!(crate::timer::TimerComplementaryPin<Ch1>)),
+        (("timer", "CH2"), quote!(crate::timer::TimerPin<Ch2>)),
+        (("timer", "CH2N"), quote!(crate::timer::TimerComplementaryPin<Ch2>)),
+        (("timer", "CH3"), quote!(crate::timer::TimerPin<Ch3>)),
+        (("timer", "CH3N"), quote!(crate::timer::TimerComplementaryPin<Ch3>)),
+        (("timer", "CH4"), quote!(crate::timer::TimerPin<Ch4>)),
+        (("timer", "CH4N"), quote!(crate::timer::TimerComplementaryPin<Ch4>)),
         (("timer", "ETR"), quote!(crate::timer::ExternalTriggerPin)),
-        (("timer", "BKIN"), quote!(crate::timer::BreakInputPin)),
-        (("timer", "BKIN_COMP1"), quote!(crate::timer::BreakInputComparator1Pin)),
-        (("timer", "BKIN_COMP2"), quote!(crate::timer::BreakInputComparator2Pin)),
-        (("timer", "BKIN2"), quote!(crate::timer::BreakInput2Pin)),
-        (("timer", "BKIN2_COMP1"), quote!(crate::timer::BreakInput2Comparator1Pin)),
-        (("timer", "BKIN2_COMP2"), quote!(crate::timer::BreakInput2Comparator2Pin)),
+        (("timer", "BKIN"), quote!(crate::timer::BreakInputPin<BkIn1>)),
+        (("timer", "BKIN_COMP1"), quote!(crate::timer::BreakInputComparator1Pin<BkIn1>)),
+        (("timer", "BKIN_COMP2"), quote!(crate::timer::BreakInputComparator2Pin<BkIn1>)),
+        (("timer", "BKIN2"), quote!(crate::timer::BreakInputPin<BkIn2>)),
+        (("timer", "BKIN2_COMP1"), quote!(crate::timer::BreakInputComparator1Pin<BkIn2>)),
+        (("timer", "BKIN2_COMP2"), quote!(crate::timer::BreakInputComparator2Pin<BkIn2>)),
         (("hrtim", "CHA1"), quote!(crate::hrtim::ChannelAPin)),
         (("hrtim", "CHA2"), quote!(crate::hrtim::ChannelAComplementaryPin)),
         (("hrtim", "CHB1"), quote!(crate::hrtim::ChannelBPin)),
@@ -1360,31 +1409,24 @@ fn main() {
                 }
 
                 if regs.kind == "opamp" {
-                    if pin.signal.starts_with("VP") {
-                        // Impl NonInvertingPin for the VP* signals (VP0, VP1, VP2, etc)
-                        let peri = format_ident!("{}", p.name);
-                        let pin_name = format_ident!("{}", pin.pin);
-                        let ch: u8 = pin.signal.strip_prefix("VP").unwrap().parse().unwrap();
-
-                        g.extend(quote! {
-                            impl_opamp_vp_pin!( #peri, #pin_name, #ch);
-                        })
-                    } else if pin.signal.starts_with("VINM") {
-                        // Impl NonInvertingPin for the VINM* signals ( VINM0, VINM1, etc)
-                        // STM32G4
-                        let peri = format_ident!("{}", p.name);
-                        let pin_name = format_ident!("{}", pin.pin);
-                        let ch: Result<u8, _> = pin.signal.strip_prefix("VINM").unwrap().parse();
-
-                        if let Ok(ch) = ch {
+                    let peri = format_ident!("{}", p.name);
+                    let pin_name = format_ident!("{}", pin.pin);
+                    if let Some(ch_str) = pin.signal.strip_prefix("VINP") {
+                        // Impl NonInvertingPin for VINP0, VINP1 etc.
+                        if let Ok(ch) = ch_str.parse::<u8>() {
+                            g.extend(quote! {
+                                impl_opamp_vp_pin!( #peri, #pin_name, #ch );
+                            });
+                        }
+                    } else if let Some(ch_str) = pin.signal.strip_prefix("VINM") {
+                        // Impl InvertingPin for VINM0, VINM1 etc.
+                        if let Ok(ch) = ch_str.parse::<u8>() {
                             g.extend(quote! {
                                 impl_opamp_vn_pin!( #peri, #pin_name, #ch);
-                            })
+                            });
                         }
                     } else if pin.signal == "VOUT" {
                         // Impl OutputPin for the VOUT pin
-                        let peri = format_ident!("{}", p.name);
-                        let pin_name = format_ident!("{}", pin.pin);
                         g.extend(quote! {
                             impl_opamp_vout_pin!( #peri, #pin_name );
                         })
@@ -1440,10 +1482,10 @@ fn main() {
         (("hash", "IN"), quote!(crate::hash::Dma)),
         (("cryp", "IN"), quote!(crate::cryp::DmaIn)),
         (("cryp", "OUT"), quote!(crate::cryp::DmaOut)),
-        (("timer", "CH1"), quote!(crate::timer::Ch1Dma)),
-        (("timer", "CH2"), quote!(crate::timer::Ch2Dma)),
-        (("timer", "CH3"), quote!(crate::timer::Ch3Dma)),
-        (("timer", "CH4"), quote!(crate::timer::Ch4Dma)),
+        (("timer", "CH1"), quote!(crate::timer::Dma<Ch1>)),
+        (("timer", "CH2"), quote!(crate::timer::Dma<Ch2>)),
+        (("timer", "CH3"), quote!(crate::timer::Dma<Ch3>)),
+        (("timer", "CH4"), quote!(crate::timer::Dma<Ch4>)),
         (("cordic", "WRITE"), quote!(crate::cordic::WriteDma)), // FIXME: stm32u5a crash on Cordic driver
         (("cordic", "READ"), quote!(crate::cordic::ReadDma)),   // FIXME: stm32u5a crash on Cordic driver
     ]
@@ -1453,6 +1495,10 @@ fn main() {
         signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma4));
     } else {
         signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
+    }
+
+    if chip_name.starts_with("stm32wba") {
+        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma4));
     }
 
     if chip_name.starts_with("stm32g4") {
@@ -1512,9 +1558,35 @@ fn main() {
                             quote!(())
                         };
 
+                        let mut remap = quote!();
+                        for remap_info in ch.remap {
+                            let register = format_ident!("{}", remap_info.register.to_lowercase());
+                            let setter = format_ident!("set_{}", remap_info.field.to_lowercase());
+
+                            let field_metadata = METADATA
+                                .peripherals
+                                .iter()
+                                .filter(|p| p.name == "SYSCFG")
+                                .flat_map(|p| p.registers.as_ref().unwrap().ir.fieldsets.iter())
+                                .filter(|f| f.name.eq_ignore_ascii_case(remap_info.register))
+                                .flat_map(|f| f.fields.iter())
+                                .find(|f| f.name.eq_ignore_ascii_case(remap_info.field))
+                                .unwrap();
+
+                            let value = if field_metadata.bit_size == 1 {
+                                let bool_value = format_ident!("{}", remap_info.value > 0);
+                                quote!(#bool_value)
+                            } else {
+                                let value = remap_info.value;
+                                quote!(#value.into())
+                            };
+
+                            remap.extend(quote!(crate::pac::SYSCFG.#register().modify(|w| w.#setter(#value));));
+                        }
+
                         let channel = format_ident!("{}", channel);
                         g.extend(quote! {
-                            dma_trait_impl!(#tr, #peri, #channel, #request);
+                            dma_trait_impl!(#tr, #peri, #channel, #request, {#remap});
                         });
                     }
                 }
@@ -1527,7 +1599,7 @@ fn main() {
     for e in rcc_registers.ir.enums {
         fn is_rcc_name(e: &str) -> bool {
             match e {
-                "Pllp" | "Pllq" | "Pllr" | "Pllm" | "Plln" | "Prediv1" | "Prediv2" => true,
+                "Pllp" | "Pllq" | "Pllr" | "Plldivst" | "Pllm" | "Plln" | "Prediv1" | "Prediv2" | "Hpre5" => true,
                 "Timpre" | "Pllrclkpre" => false,
                 e if e.ends_with("pre") || e.ends_with("pres") || e.ends_with("div") || e.ends_with("mul") => true,
                 _ => false,
@@ -1616,8 +1688,7 @@ fn main() {
     let mut pins_table: Vec<Vec<String>> = Vec::new();
     let mut adc_table: Vec<Vec<String>> = Vec::new();
 
-    for m in METADATA
-        .memory
+    for m in memory
         .iter()
         .filter(|m| m.kind == MemoryRegionKind::Flash && m.settings.is_some())
     {
@@ -1847,16 +1918,15 @@ fn main() {
     }
 
     g.extend(quote!(
-        pub fn gpio_block(n: usize) -> crate::pac::gpio::Gpio {{
-            unsafe {{ crate::pac::gpio::Gpio::from_ptr((#gpio_base + #gpio_stride*n) as _) }}
-        }}
+        pub fn gpio_block(n: usize) -> crate::pac::gpio::Gpio {
+            unsafe { crate::pac::gpio::Gpio::from_ptr((#gpio_base + #gpio_stride*n) as _) }
+        }
     ));
 
     // ========
     // Generate flash constants
 
-    let flash_regions: Vec<&MemoryRegion> = METADATA
-        .memory
+    let flash_regions: Vec<&MemoryRegion> = memory
         .iter()
         .filter(|x| x.kind == MemoryRegionKind::Flash && x.name.starts_with("BANK_"))
         .collect();
@@ -1881,6 +1951,48 @@ fn main() {
         pub const FLASH_SIZE: usize = #total_flash_size;
         pub const WRITE_SIZE: usize = #write_size;
     ));
+
+    // ========
+    // Generate EEPROM constants
+
+    cfgs.declare("eeprom");
+
+    let eeprom_memory_regions: Vec<&MemoryRegion> =
+        memory.iter().filter(|x| x.kind == MemoryRegionKind::Eeprom).collect();
+
+    if !eeprom_memory_regions.is_empty() {
+        cfgs.enable("eeprom");
+
+        let mut sorted_eeprom_regions = eeprom_memory_regions.clone();
+        sorted_eeprom_regions.sort_by_key(|r| r.address);
+
+        let first_eeprom_address = sorted_eeprom_regions[0].address;
+        let mut total_eeprom_size = 0;
+        let mut current_expected_address = first_eeprom_address;
+
+        for region in sorted_eeprom_regions.iter() {
+            if region.address != current_expected_address {
+                // For STM32L0 and STM32L1, EEPROM regions (if multiple) are expected to be contiguous.
+                // If they are not, this indicates an issue with the chip metadata or an unsupported configuration.
+                panic!(
+                    "EEPROM regions for chip {} are not contiguous, which is unexpected for L0/L1 series. \
+                    First region: '{}' at {:#X}. Found next non-contiguous region: '{}' at {:#X}. \
+                    Please verify chip metadata. Embassy currently assumes contiguous EEPROM for these series.",
+                    chip_name, sorted_eeprom_regions[0].name, first_eeprom_address, region.name, region.address
+                );
+            }
+            total_eeprom_size += region.size;
+            current_expected_address += region.size;
+        }
+
+        let eeprom_base_usize = first_eeprom_address as usize;
+        let total_eeprom_size_usize = total_eeprom_size as usize;
+
+        g.extend(quote! {
+            pub const EEPROM_BASE: usize = #eeprom_base_usize;
+            pub const EEPROM_SIZE: usize = #total_eeprom_size_usize;
+        });
+    }
 
     // ========
     // Generate macro-tables
@@ -1981,7 +2093,7 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
     if cfg!(feature = "memory-x") {
-        gen_memory_x(out_dir);
+        gen_memory_x(memory, out_dir);
         println!("cargo:rustc-link-search={}", out_dir.display());
     }
 }
@@ -2070,11 +2182,11 @@ fn rustfmt(path: impl AsRef<Path>) {
     }
 }
 
-fn gen_memory_x(out_dir: &Path) {
+fn gen_memory_x(memory: &[MemoryRegion], out_dir: &Path) {
     let mut memory_x = String::new();
 
-    let flash = get_memory_range(MemoryRegionKind::Flash);
-    let ram = get_memory_range(MemoryRegionKind::Ram);
+    let flash = get_memory_range(memory, MemoryRegionKind::Flash);
+    let ram = get_memory_range(memory, MemoryRegionKind::Ram);
 
     write!(memory_x, "MEMORY\n{{\n").unwrap();
     writeln!(
@@ -2098,12 +2210,8 @@ fn gen_memory_x(out_dir: &Path) {
     std::fs::write(out_dir.join("memory.x"), memory_x.as_bytes()).unwrap();
 }
 
-fn get_memory_range(kind: MemoryRegionKind) -> (u32, u32, String) {
-    let mut mems: Vec<_> = METADATA
-        .memory
-        .iter()
-        .filter(|m| m.kind == kind && m.size != 0)
-        .collect();
+fn get_memory_range(memory: &[MemoryRegion], kind: MemoryRegionKind) -> (u32, u32, String) {
+    let mut mems: Vec<_> = memory.iter().filter(|m| m.kind == kind && m.size != 0).collect();
     mems.sort_by_key(|m| m.address);
 
     let mut start = u32::MAX;

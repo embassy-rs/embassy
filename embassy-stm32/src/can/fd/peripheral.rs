@@ -71,6 +71,23 @@ impl Registers {
         }
     }
 
+    #[cfg(feature = "time")]
+    pub fn calc_timestamp(&self, ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
+        let now_embassy = embassy_time::Instant::now();
+        if ns_per_timer_tick == 0 {
+            return now_embassy;
+        }
+        let cantime = { self.regs.tscv().read().tsc() };
+        let delta = cantime.overflowing_sub(ts_val).0 as u64;
+        let ns = ns_per_timer_tick * delta as u64;
+        now_embassy - embassy_time::Duration::from_nanos(ns)
+    }
+
+    #[cfg(not(feature = "time"))]
+    pub fn calc_timestamp(&self, _ns_per_timer_tick: u64, ts_val: u16) -> Timestamp {
+        ts_val
+    }
+
     pub fn put_tx_frame(&self, bufidx: usize, header: &Header, buffer: &[u8]) {
         let mailbox = self.tx_buffer_element(bufidx);
         mailbox.reset();

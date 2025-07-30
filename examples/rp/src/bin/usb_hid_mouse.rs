@@ -85,8 +85,8 @@ async fn main(_spawner: Spawner) {
             _ = Timer::after_secs(1).await;
             let report = MouseReport {
                 buttons: 0,
-                x: rng.gen_range(-100..100), // random small x movement
-                y: rng.gen_range(-100..100), // random small y movement
+                x: rng.random_range(-100..100), // random small x movement
+                y: rng.random_range(-100..100), // random small y movement
                 wheel: 0,
                 pan: 0,
             };

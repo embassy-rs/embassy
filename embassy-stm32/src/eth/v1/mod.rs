@@ -122,7 +122,10 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
 
             // Select RMII (Reduced Media Independent Interface)
             // Must be done prior to enabling peripheral clock
-            AFIO.mapr().modify(|w| w.set_mii_rmii_sel(true));
+            AFIO.mapr().modify(|w| {
+                w.set_mii_rmii_sel(true);
+                w.set_swj_cfg(crate::pac::afio::vals::SwjCfg::NO_OP);
+            });
 
             RCC.ahbenr().modify(|w| {
                 w.set_ethen(true);
@@ -316,7 +319,10 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
 
             // Select MII (Media Independent Interface)
             // Must be done prior to enabling peripheral clock
-            AFIO.mapr().modify(|w| w.set_mii_rmii_sel(false));
+            AFIO.mapr().modify(|w| {
+                w.set_mii_rmii_sel(false);
+                w.set_swj_cfg(crate::pac::afio::vals::SwjCfg::NO_OP);
+            });
 
             RCC.ahbenr().modify(|w| {
                 w.set_ethen(true);

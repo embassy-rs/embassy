@@ -8,6 +8,8 @@ macro_rules! peripherals_definition {
                 $(#[$cfg])?
                 #[allow(non_camel_case_types)]
                 #[doc = concat!(stringify!($name), " peripheral")]
+                #[derive(Debug)]
+                #[cfg_attr(feature = "defmt", derive(defmt::Format))]
                 pub struct $name { _private: () }
 
                 $(#[$cfg])?

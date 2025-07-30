@@ -87,6 +87,8 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
 
         r.cr1().modify(|w| {
             w.set_tcie(false);
+            // Reenable receiver for half-duplex if it was disabled
+            w.set_re(true);
         });
 
         state.tx_done.store(true, Ordering::Release);
@@ -457,8 +459,10 @@ impl<'d> BufferedUart<'d> {
 
         info.rcc.enable_and_reset();
 
+        assert!(!tx_buffer.is_empty());
         let len = tx_buffer.len();
         unsafe { state.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
+        assert!(!rx_buffer.is_empty());
         let len = rx_buffer.len();
         unsafe { state.rx_buf.init(rx_buffer.as_mut_ptr(), len) };
 

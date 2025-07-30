@@ -245,7 +245,7 @@ impl<'d, T: Instance> Uarte<'d, T> {
     }
 
     /// Return the endtx event for use with PPI
-    pub fn event_endtx(&self) -> Event {
+    pub fn event_endtx(&self) -> Event<'_> {
         let r = T::regs();
         Event::from_reg(r.events_endtx())
     }

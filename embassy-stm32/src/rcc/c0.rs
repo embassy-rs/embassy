@@ -59,9 +59,8 @@ pub struct Config {
     pub mux: super::mux::ClockMux,
 }
 
-impl Default for Config {
-    #[inline]
-    fn default() -> Config {
+impl Config {
+    pub const fn new() -> Self {
         Config {
             hsi: Some(Hsi {
                 sys_div: HsiSysDiv::DIV4,
@@ -71,9 +70,15 @@ impl Default for Config {
             sys: Sysclk::HSISYS,
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
-            ls: Default::default(),
-            mux: Default::default(),
+            ls: crate::rcc::LsConfig::new(),
+            mux: super::mux::ClockMux::default(),
         }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Config {
+        Self::new()
     }
 }
 
@@ -185,6 +190,8 @@ pub(crate) unsafe fn init(config: Config) {
         // TODO
         lsi: None,
         lse: None,
+        #[cfg(crs)]
+        hsi48: None,
     );
 
     RCC.ccipr()

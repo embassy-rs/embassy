@@ -11,14 +11,14 @@
 #[cfg_attr(not(target_has_atomic = "ptr"), path = "run_queue_critical_section.rs")]
 mod run_queue;
 
-#[cfg_attr(all(cortex_m, target_has_atomic = "8"), path = "state_atomics_arm.rs")]
+#[cfg_attr(all(cortex_m, target_has_atomic = "32"), path = "state_atomics_arm.rs")]
 #[cfg_attr(all(not(cortex_m), target_has_atomic = "8"), path = "state_atomics.rs")]
 #[cfg_attr(not(target_has_atomic = "8"), path = "state_critical_section.rs")]
 mod state;
 
 pub mod timer_queue;
 #[cfg(feature = "trace")]
-mod trace;
+pub mod trace;
 pub(crate) mod util;
 #[cfg_attr(feature = "turbowakers", path = "waker_turbo.rs")]
 mod waker;
@@ -89,10 +89,16 @@ pub(crate) struct TaskHeader {
 
     /// Integrated timer queue storage. This field should not be accessed outside of the timer queue.
     pub(crate) timer_queue_item: timer_queue::TimerQueueItem,
+    #[cfg(feature = "trace")]
+    pub(crate) name: Option<&'static str>,
+    #[cfg(feature = "trace")]
+    pub(crate) id: u32,
+    #[cfg(feature = "trace")]
+    all_tasks_next: AtomicPtr<TaskHeader>,
 }
 
 /// This is essentially a `&'static TaskStorage<F>` where the type of the future has been erased.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TaskRef {
     ptr: NonNull<TaskHeader>,
 }
@@ -143,12 +149,6 @@ impl TaskRef {
     pub(crate) fn as_ptr(self) -> *const TaskHeader {
         self.ptr.as_ptr()
     }
-
-    /// Get the ID for a task
-    #[cfg(feature = "trace")]
-    pub fn as_id(self) -> u32 {
-        self.ptr.as_ptr() as u32
-    }
 }
 
 /// Raw storage in which a task can be spawned.
@@ -190,6 +190,12 @@ impl<F: Future + 'static> TaskStorage<F> {
                 poll_fn: SyncUnsafeCell::new(None),
 
                 timer_queue_item: timer_queue::TimerQueueItem::new(),
+                #[cfg(feature = "trace")]
+                name: None,
+                #[cfg(feature = "trace")]
+                id: 0,
+                #[cfg(feature = "trace")]
+                all_tasks_next: AtomicPtr::new(core::ptr::null_mut()),
             },
             future: UninitCell::uninit(),
         }

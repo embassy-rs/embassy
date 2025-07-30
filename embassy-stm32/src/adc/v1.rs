@@ -11,6 +11,9 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::ADC1;
 use crate::{interrupt, rcc, Peri};
 
+mod watchdog_v1;
+pub use watchdog_v1::WatchdogChannels;
+
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const VREF_INT: u32 = 1230;
 
@@ -21,8 +24,15 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        if T::regs().isr().read().eoc() {
+        let isr = T::regs().isr().read();
+        let ier = T::regs().ier().read();
+        if ier.eocie() && isr.eoc() {
+            // eocie is set during adc.read()
             T::regs().ier().modify(|w| w.set_eocie(false));
+        } else if ier.awdie() && isr.awd() {
+            // awdie is set during adc.monitor_watchdog()
+            T::regs().cr().read().set_adstp(true);
+            T::regs().ier().modify(|w| w.set_awdie(false));
         } else {
             return;
         }
@@ -186,16 +196,21 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         T::regs().dr().read().data()
     }
-}
 
-impl<'d, T: Instance> Drop for Adc<'d, T> {
-    fn drop(&mut self) {
+    fn teardown_adc() {
         // A.7.3 ADC disable code example
         T::regs().cr().modify(|reg| reg.set_adstp(true));
         while T::regs().cr().read().adstp() {}
 
         T::regs().cr().modify(|reg| reg.set_addis(true));
         while T::regs().cr().read().aden() {}
+    }
+}
+
+impl<'d, T: Instance> Drop for Adc<'d, T> {
+    fn drop(&mut self) {
+        Self::teardown_adc();
+        Self::teardown_awd();
 
         rcc::disable::<T>();
     }

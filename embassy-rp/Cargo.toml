@@ -1,6 +1,6 @@
 [package]
 name = "embassy-rp"
-version = "0.4.0"
+version = "0.6.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Embassy Hardware Abstraction Layer (HAL) for the Raspberry Pi RP2040 or RP235x microcontroller"
@@ -26,7 +26,10 @@ features = ["defmt", "unstable-pac", "time-driver", "rp2040"]
 
 [features]
 default = [ "rt" ]
-## Enable the rt feature of [`rp-pac`](https://docs.rs/rp-pac). This brings in the [`cortex-m-rt`](https://docs.rs/cortex-m-rt) crate, which adds startup code and minimal runtime initialization.
+
+## Enable the `rt` feature of [`rp-pac`](https://docs.rs/rp-pac).
+## With `rt` enabled the PAC provides interrupt vectors instead of letting [`cortex-m-rt`](https://docs.rs/cortex-m-rt) do that.
+## See <https://docs.rs/cortex-m-rt/latest/cortex_m_rt/#device> for more info.
 rt = [ "rp-pac/rt" ]
 
 ## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
@@ -133,16 +136,16 @@ _test = []
 binary-info = ["rt", "dep:rp-binary-info", "rp-binary-info?/binary-info"]
 
 [dependencies]
-embassy-sync = { version = "0.6.2", path = "../embassy-sync" }
+embassy-sync = { version = "0.7.0", path = "../embassy-sync" }
 embassy-time-driver = { version = "0.2", path = "../embassy-time-driver", optional = true }
 embassy-time-queue-utils = { version = "0.1", path = "../embassy-time-queue-utils", optional = true }
 embassy-time = { version = "0.4.0", path = "../embassy-time" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
-embassy-hal-internal = { version = "0.2.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
-embassy-embedded-hal = { version = "0.3.0", path = "../embassy-embedded-hal" }
-embassy-usb-driver = { version = "0.1.0", path = "../embassy-usb-driver" }
+embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
+embassy-embedded-hal = { version = "0.3.1", path = "../embassy-embedded-hal" }
+embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
 atomic-polyfill = "1.0.1"
-defmt = { version = "0.3", optional = true }
+defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 nb = "1.1.0"
 cfg-if = "1.0.0"
@@ -154,7 +157,6 @@ embedded-io = { version = "0.6.1" }
 embedded-io-async = { version = "0.6.1" }
 embedded-storage = { version = "0.3" }
 embedded-storage-async = { version = "0.4.1" }
-rand_core = "0.6.4"
 fixed = "1.28.0"
 
 rp-pac = { version = "7.0.0" }
@@ -163,6 +165,9 @@ embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["un
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 embedded-hal-nb = { version = "1.0" }
+
+rand-core-06 = { package = "rand_core", version = "0.6" }
+rand-core-09 = { package = "rand_core", version = "0.9" }
 
 pio = { version = "0.3" }
 rp2040-boot2 = "0.3"
