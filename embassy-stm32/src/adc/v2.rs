@@ -1,5 +1,7 @@
 use super::blocking_delay_us;
-use crate::adc::{Adc, AdcChannel, Instance, Resolution, SampleTime};
+use crate::adc::{Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel};
+use crate::dma::Transfer;
+use crate::pac::adc::vals;
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
 use crate::{rcc, Peri};
@@ -112,6 +114,14 @@ where
         }
     }
 
+    fn turn(&mut self, on: bool) {
+        T::regs().cr2().modify(|reg| reg.set_adon(on));
+    }
+
+    fn is_on(&self) -> bool {
+        T::regs().cr2().read().adon()
+    }
+
     pub fn set_sample_time(&mut self, sample_time: SampleTime) {
         self.sample_time = sample_time;
     }
@@ -188,6 +198,114 @@ where
         Self::set_channel_sample_time(channel, self.sample_time);
 
         self.convert()
+    }
+
+    pub async fn read_seq(
+        &mut self,
+        rx_dma: Peri<'_, impl RxDma<T>>,
+        sequence: impl ExactSizeIterator<Item = (&mut AnyAdcChannel<T>, SampleTime)>,
+        readings: &mut [u16],
+    ) -> Result<(), ()> {
+        if !self.is_on() {
+            self.turn(true);
+        }
+
+        let len = sequence.len();
+
+        if len > 16 || len != readings.len() {
+            return Err(());
+        }
+
+        let r = T::regs();
+
+        r.sqr1().modify(|w| {
+            w.set_l(len as u8);
+        });
+
+        // Configure channels and ranks
+        for (i, (channel, sample_time)) in sequence.enumerate() {
+            Self::set_channel_sample_time(channel.channel(), sample_time);
+            let ch = channel.channel();
+            match i {
+                0 => r.sqr3().modify(|w| w.set_sq(0, ch)),
+                1 => r.sqr3().modify(|w| w.set_sq(1, ch)),
+                2 => r.sqr3().modify(|w| w.set_sq(2, ch)),
+                3 => r.sqr3().modify(|w| w.set_sq(3, ch)),
+                4 => r.sqr3().modify(|w| w.set_sq(4, ch)),
+                5 => r.sqr3().modify(|w| w.set_sq(5, ch)),
+                6 => r.sqr2().modify(|w| w.set_sq(0, ch)),
+                7 => r.sqr2().modify(|w| w.set_sq(1, ch)),
+                8 => r.sqr2().modify(|w| w.set_sq(2, ch)),
+                9 => r.sqr2().modify(|w| w.set_sq(3, ch)),
+                10 => r.sqr2().modify(|w| w.set_sq(4, ch)),
+                11 => r.sqr2().modify(|w| w.set_sq(5, ch)),
+                12 => r.sqr1().modify(|w| w.set_sq(0, ch)),
+                13 => r.sqr1().modify(|w| w.set_sq(1, ch)),
+                14 => r.sqr1().modify(|w| w.set_sq(2, ch)),
+                15 => r.sqr1().modify(|w| w.set_sq(3, ch)),
+                _ => unreachable!(),
+            };
+        }
+
+        r.sr().modify(|reg| {
+            reg.set_eoc(false);
+            reg.set_ovr(false);
+            reg.set_strt(false);
+        });
+
+        r.cr1().modify(|w| {
+            // Enable interrupt for end of conversion
+            // w.set_eocie(true);
+            // Enable interrupt for overrun
+            // w.set_ovrie(true);
+            // Scanning converisons of multiple channels
+            w.set_scan(true);
+            // Continuous conversion mode
+            w.set_discen(false);
+        });
+
+        r.cr2().modify(|w| {
+            // Enable DMA mode
+            w.set_dma(true);
+            // Disable continuous conversions
+            w.set_cont(false);
+            w.set_dds(vals::Dds::SINGLE);
+            // EOC flag is set at the end of each conversion.
+            w.set_eocs(vals::Eocs::EACH_CONVERSION);
+        });
+
+        let request = rx_dma.request();
+        let transfer = unsafe {
+            Transfer::new_read(
+                rx_dma,
+                request,
+                r.dr().as_ptr() as *mut u16,
+                readings,
+                Default::default(),
+            )
+        };
+
+        r.cr2().modify(|w| w.set_swstart(true));
+
+        transfer.await;
+
+        // Clean up: disable DMA
+        r.cr2().modify(|w| {
+            w.set_dma(false);
+        });
+
+        r.cr1().modify(|w| {
+            w.set_scan(false);
+        });
+
+        // Clear any remaining status flags
+        r.sr().modify(|reg| {
+            reg.set_eoc(false);
+            reg.set_ovr(false);
+            reg.set_strt(false);
+        });
+
+        Ok(())
     }
 
     fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
