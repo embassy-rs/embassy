@@ -50,8 +50,8 @@ where
 
 impl<M, BUS> i2c::I2c for I2cDevice<'_, M, BUS>
 where
-    M: RawMutex + 'static,
-    BUS: i2c::I2c + 'static,
+    M: RawMutex,
+    BUS: i2c::I2c,
 {
     async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), I2cDeviceError<BUS::Error>> {
         let mut bus = self.bus.lock().await;
@@ -124,8 +124,8 @@ where
 
 impl<M, BUS> i2c::I2c for I2cDeviceWithConfig<'_, M, BUS>
 where
-    M: RawMutex + 'static,
-    BUS: i2c::I2c + SetConfig + 'static,
+    M: RawMutex,
+    BUS: i2c::I2c + SetConfig,
 {
     async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), I2cDeviceError<BUS::Error>> {
         let mut bus = self.bus.lock().await;
