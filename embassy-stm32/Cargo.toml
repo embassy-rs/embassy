@@ -58,7 +58,7 @@ embassy-embedded-hal = { version = "0.3.1", path = "../embassy-embedded-hal", de
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
 embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
 embassy-usb-synopsys-otg = { version = "0.3.0", path = "../embassy-usb-synopsys-otg" }
-embassy-executor = { version = "0.7.0", path = "../embassy-executor", optional = true }
+embassy-executor = { version = "0.8.0", path = "../embassy-executor", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }

@@ -17,7 +17,7 @@ embassy-stm32 = { version = "0.2.0", path = "../../embassy-stm32", features = [
 embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = [
     "defmt",
 ] }
-embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = [
+embassy-executor = { version = "0.8.0", path = "../../embassy-executor", features = [
     "arch-cortex-m",
     "executor-thread",
     "defmt",
