@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 embassy-embedded-hal = { version = "0.3.1", path = "../../embassy-embedded-hal", features = ["defmt"] }
 embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-executor = { version = "0.8.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-rp = { version = "0.6.0", path = "../../embassy-rp", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp2040"] }
 embassy-usb = { version = "0.5.0", path = "../../embassy-usb", features = ["defmt"] }

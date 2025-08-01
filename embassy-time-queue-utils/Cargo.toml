@@ -22,7 +22,7 @@ links = "embassy-time-queue"
 
 [dependencies]
 heapless = "0.8"
-embassy-executor = { version = "0.7.0", path = "../embassy-executor" }
+embassy-executor = { version = "0.8.0", path = "../embassy-executor" }
 
 [features]
 #! ### Generic Queue

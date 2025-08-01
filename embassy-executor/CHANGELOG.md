@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.8.0 - 2025-07-31
+
 - Added `SpawnToken::id`
 - Task pools are now statically allocated on stable rust. All `task-arena-size-*` features have been removed and are no longer necessary.
 - New trace hooks: `_embassy_trace_poll_start` & `_embassy_trace_task_end`

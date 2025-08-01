@@ -177,5 +177,5 @@ rp-binary-info = { version = "0.1.0", optional = true }
 smart-leds = "0.4.0"
 
 [dev-dependencies]
-embassy-executor = { version = "0.7.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }
+embassy-executor = { version = "0.8.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }
 static_cell = { version = "2" }

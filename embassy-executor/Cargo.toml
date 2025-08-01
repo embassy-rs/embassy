@@ -1,6 +1,6 @@
 [package]
 name = "embassy-executor"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "async/await executor designed for embedded usage"
@@ -33,7 +33,7 @@ defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 rtos-trace = { version = "0.1.3", optional = true }
 
-embassy-executor-macros = { version = "0.6.2", path = "../embassy-executor-macros" }
+embassy-executor-macros = { version = "0.7.0", path = "../embassy-executor-macros" }
 embassy-time-driver = { version = "0.2", path = "../embassy-time-driver", optional = true }
 critical-section = "1.1"
 

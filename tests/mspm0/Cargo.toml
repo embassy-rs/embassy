@@ -12,7 +12,7 @@ mspm0g3519 = [ "embassy-mspm0/mspm0g3519pz" ]
 teleprobe-meta = "1.1"
 
 embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = [ "defmt" ] }
-embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = [ "arch-cortex-m", "executor-thread", "defmt" ] }
+embassy-executor = { version = "0.8.0", path = "../../embassy-executor", features = [ "arch-cortex-m", "executor-thread", "defmt" ] }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 embassy-time = { version = "0.4.0", path = "../../embassy-time", features = [ "defmt" ] }
 embassy-mspm0 = { version = "0.1.0", path = "../../embassy-mspm0", features = [ "rt", "defmt", "unstable-pac", "time-driver-any" ]  }
