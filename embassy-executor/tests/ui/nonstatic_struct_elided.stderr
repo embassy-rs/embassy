@@ -8,3 +8,17 @@ help: indicate the anonymous lifetime
   |
 6 | async fn task(_x: Foo<'_>) {}
   |                      ++++
+
+error[E0700]: hidden type for `impl Sized` captures lifetime that does not appear in bounds
+ --> tests/ui/nonstatic_struct_elided.rs:5:1
+  |
+5 | #[embassy_executor::task]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^ opaque type defined here
+6 | async fn task(_x: Foo) {}
+  |                   --- hidden type `impl Sized` captures the anonymous lifetime defined here
+  |
+  = note: this error originates in the attribute macro `embassy_executor::task` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: add a `use<...>` bound to explicitly capture `'_`
+  |
+5 | #[embassy_executor::task] + use<'_>
+  |                           +++++++++
