@@ -65,7 +65,7 @@ mimxrt633s = ["mimxrt633s-pac", "_mimxrt633s"]
 [dependencies]
 embassy-sync = { version = "0.7.0", path = "../embassy-sync" }
 embassy-time-driver = { version = "0.2", path = "../embassy-time-driver", optional = true }
-embassy-time-queue-utils = { version = "0.1", path = "../embassy-time-queue-utils", optional = true }
+embassy-time-queue-utils = { version = "0.2", path = "../embassy-time-queue-utils", optional = true }
 embassy-time = { version = "0.4", path = "../embassy-time", optional = true }
 embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
 embassy-embedded-hal = { version = "0.3.1", path = "../embassy-embedded-hal", default-features = false }
