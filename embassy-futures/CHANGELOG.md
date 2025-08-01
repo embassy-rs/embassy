@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.2.0 - 2025-08-01
+
 - Preserve location information for `defmt` in `fmt` calls ([#3085](https://github.com/embassy-rs/embassy/pull/3085))
 - Fixed soundness issue in `select_slice` ([#3328](https://github.com/embassy-rs/embassy/pull/3328))
 - Added `select5` and `select6` ([#3430](https://github.com/embassy-rs/embassy/pull/3430))
