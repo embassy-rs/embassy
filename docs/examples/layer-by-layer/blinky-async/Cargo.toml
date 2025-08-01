@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7"
 embassy-stm32 = { version = "0.2.0", path = "../../../../embassy-stm32", features = ["stm32l475vg", "memory-x", "exti"]  }
-embassy-executor = { version = "0.7.0", path = "../../../../embassy-executor", features = ["arch-cortex-m", "executor-thread"] }
+embassy-executor = { version = "0.8.0", path = "../../../../embassy-executor", features = ["arch-cortex-m", "executor-thread"] }
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
