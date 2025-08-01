@@ -18,7 +18,7 @@ embedded-hal-async = { version = "1.0" }
 embedded-hal-bus = { version = "0.1", features = ["async"] }
 embassy-net-driver-channel = { version = "0.3.1", path = "../embassy-net-driver-channel" }
 embassy-time = { version = "0.4.0", path = "../embassy-time" }
-embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
+embassy-futures = { version = "0.2.0", path = "../embassy-futures" }
 bitfield = "0.14.0"
 
 [dev-dependencies]
