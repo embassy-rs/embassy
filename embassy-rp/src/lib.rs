@@ -43,6 +43,10 @@ pub mod rtc;
 pub mod spi;
 mod spinlock;
 pub mod spinlock_mutex;
+#[cfg(feature = "_rp235x")]
+pub mod qmi_cs1;
+#[cfg(feature = "_rp235x")]
+pub mod psram;
 #[cfg(feature = "time-driver")]
 pub mod time_driver;
 #[cfg(feature = "_rp235x")]
@@ -380,6 +384,8 @@ embassy_hal_internal::peripherals! {
 
     SPI0,
     SPI1,
+
+    QMI_CS1,
 
     I2C0,
     I2C1,
