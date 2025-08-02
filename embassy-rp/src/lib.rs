@@ -35,7 +35,11 @@ pub mod multicore;
 #[cfg(feature = "_rp235x")]
 pub mod otp;
 pub mod pio_programs;
+#[cfg(feature = "_rp235x")]
+pub mod psram;
 pub mod pwm;
+#[cfg(feature = "_rp235x")]
+pub mod qmi_cs1;
 mod reset;
 pub mod rom_data;
 #[cfg(feature = "rp2040")]
@@ -43,10 +47,6 @@ pub mod rtc;
 pub mod spi;
 mod spinlock;
 pub mod spinlock_mutex;
-#[cfg(feature = "_rp235x")]
-pub mod qmi_cs1;
-#[cfg(feature = "_rp235x")]
-pub mod psram;
 #[cfg(feature = "time-driver")]
 pub mod time_driver;
 #[cfg(feature = "_rp235x")]

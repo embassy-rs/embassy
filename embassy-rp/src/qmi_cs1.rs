@@ -1,5 +1,5 @@
 //! QMI CS1 peripheral for RP235x
-//! 
+//!
 //! This module provides access to the QMI CS1 functionality for use with external memory devices
 //! such as PSRAM. The QMI (Quad SPI) controller supports CS1 as a second chip select signal.
 //!
@@ -19,14 +19,11 @@ pub struct QmiCs1<'d> {
 
 impl<'d> QmiCs1<'d> {
     /// Create a new QMI CS1 instance.
-    pub fn new(
-        qmi_cs1: Peri<'d, peripherals::QMI_CS1>,
-        cs1: Peri<'d, impl QmiCs1Pin>,
-    ) -> Self {
+    pub fn new(qmi_cs1: Peri<'d, peripherals::QMI_CS1>, cs1: Peri<'d, impl QmiCs1Pin>) -> Self {
         // Configure CS1 pin for QMI function (funcsel = 9)
         cs1.gpio().ctrl().write(|w| w.set_funcsel(9));
-        
-        // Configure pad settings for high-speed operation  
+
+        // Configure pad settings for high-speed operation
         cs1.pad_ctrl().write(|w| {
             #[cfg(feature = "_rp235x")]
             w.set_iso(false);
@@ -39,7 +36,7 @@ impl<'d> QmiCs1<'d> {
     }
 
     /// Get access to the QMI peripheral registers.
-    /// 
+    ///
     /// This allows low-level access to configure the QMI controller for specific memory devices.
     pub fn regs(&self) -> pac::qmi::Qmi {
         pac::QMI
@@ -70,4 +67,4 @@ impl QmiCs1Pin for peripherals::PIN_0 {}
 impl QmiCs1Pin for peripherals::PIN_8 {}
 impl QmiCs1Pin for peripherals::PIN_19 {}
 #[cfg(feature = "rp235xb")]
-impl QmiCs1Pin for peripherals::PIN_47 {} 
+impl QmiCs1Pin for peripherals::PIN_47 {}
