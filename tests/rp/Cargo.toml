@@ -19,7 +19,7 @@ embassy-rp = { version = "0.6.0", path = "../../embassy-rp", features = [ "defmt
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 embassy-net = { version = "0.7.0", path = "../../embassy-net", features = ["defmt",  "tcp", "udp", "dhcpv4", "medium-ethernet"] }
 embassy-net-wiznet = { version = "0.2.0", path = "../../embassy-net-wiznet", features = ["defmt"] }
-embassy-embedded-hal = { version = "0.3.1", path = "../../embassy-embedded-hal/"}
+embassy-embedded-hal = { version = "0.4.0", path = "../../embassy-embedded-hal/"}
 cyw43 = { path = "../../cyw43", features = ["defmt", "firmware-logs"] }
 cyw43-pio = { path = "../../cyw43-pio", features = ["defmt"] }
 perf-client = { path = "../perf-client" }
