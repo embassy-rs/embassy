@@ -10,7 +10,7 @@ embassy-executor = { version = "0.8.0", path = "../../../../embassy-executor", f
 embassy-time = { version = "0.4.0", path = "../../../../embassy-time", features = [ "tick-hz-32_768"] }
 embassy-stm32 = { version = "0.2.0", path = "../../../../embassy-stm32", features = ["stm32f767zi", "time-driver-any", "exti", "single-bank"]  }
 embassy-boot-stm32 = { version = "0.4.0", path = "../../../../embassy-boot-stm32", features = [] }
-embassy-embedded-hal = { version = "0.3.1", path = "../../../../embassy-embedded-hal" }
+embassy-embedded-hal = { version = "0.4.0", path = "../../../../embassy-embedded-hal" }
 
 defmt = { version = "1.0.1", optional = true }
 defmt-rtt = { version = "1.0.0", optional = true }

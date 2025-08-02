@@ -142,7 +142,7 @@ embassy-time-queue-utils = { version = "0.2", path = "../embassy-time-queue-util
 embassy-time = { version = "0.4.0", path = "../embassy-time" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
-embassy-embedded-hal = { version = "0.3.1", path = "../embassy-embedded-hal" }
+embassy-embedded-hal = { version = "0.4.0", path = "../embassy-embedded-hal" }
 embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
 atomic-polyfill = "1.0.1"
 defmt = { version = "1.0.1", optional = true }
