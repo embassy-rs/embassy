@@ -6,6 +6,8 @@ pub(crate) mod fmt;
 pub mod gpio;
 #[cfg(feature = "lpc55")]
 pub mod pint;
+#[cfg(feature = "lpc55")]
+pub mod usart;
 
 #[cfg(feature = "_time_driver")]
 #[cfg_attr(feature = "time-driver-pit", path = "time_driver/pit.rs")]
