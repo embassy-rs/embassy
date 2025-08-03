@@ -3,13 +3,23 @@ use core::cell::Cell;
 use core::cmp::min;
 use core::task::Waker;
 
-use embassy_executor::raw::TaskRef;
+extern "Rust" {
+    // Waker -> TimerQueueItem, validates that Waker is an embassy Waker.
+    fn __embassy_time_queue_item_from_waker(waker: &Waker) -> &'static super::TimerQueueItem;
+    // Waker data -> TimerQueueItem, only call after the pointer has been validated.
+    fn __embassy_time_queue_item_from_waker_data(data: *const ()) -> &'static super::TimerQueueItem;
+    // To avoid storing a Waker & dynamic dispatch via Waker.
+    fn __embassy_time_queue_wake_task_from_data(data: *const ());
+}
 
 /// A timer queue, with items integrated into tasks.
 #[derive(Debug)]
 pub struct Queue {
-    head: Cell<Option<TaskRef>>,
+    head: Cell<Option<*const ()>>,
 }
+
+unsafe impl Send for Queue {}
+unsafe impl Sync for Queue {}
 
 impl Queue {
     /// Creates a new timer queue.
@@ -22,13 +32,12 @@ impl Queue {
     /// If this function returns `true`, the called should find the next expiration time and set
     /// a new alarm for that time.
     pub fn schedule_wake(&mut self, at: u64, waker: &Waker) -> bool {
-        let task = embassy_executor::raw::task_from_waker(waker);
-        let item = task.timer_queue_item();
+        let item = unsafe { __embassy_time_queue_item_from_waker(waker) };
         if item.next.get().is_none() {
             // If not in the queue, add it and update.
-            let prev = self.head.replace(Some(task));
+            let prev = self.head.replace(Some(waker.data()));
             item.next.set(if prev.is_none() {
-                Some(unsafe { TaskRef::dangling() })
+                Some(core::ptr::dangling())
             } else {
                 prev
             });
@@ -52,12 +61,12 @@ impl Queue {
         let mut next_expiration = u64::MAX;
 
         self.retain(|p| {
-            let item = p.timer_queue_item();
+            let item = unsafe { __embassy_time_queue_item_from_waker_data(p) };
             let expires = item.expires_at.get();
 
             if expires <= now {
                 // Timer expired, process task.
-                embassy_executor::raw::wake_task(p);
+                unsafe { __embassy_time_queue_wake_task_from_data(p) };
                 false
             } else {
                 // Timer didn't yet expire, or never expires.
@@ -69,14 +78,14 @@ impl Queue {
         next_expiration
     }
 
-    fn retain(&self, mut f: impl FnMut(TaskRef) -> bool) {
+    fn retain(&self, mut f: impl FnMut(*const ()) -> bool) {
         let mut prev = &self.head;
         while let Some(p) = prev.get() {
-            if unsafe { p == TaskRef::dangling() } {
+            if p == core::ptr::dangling() {
                 // prev was the last item, stop
                 break;
             }
-            let item = p.timer_queue_item();
+            let item = unsafe { __embassy_time_queue_item_from_waker_data(p) };
             if f(p) {
                 // Skip to next
                 prev = &item.next;

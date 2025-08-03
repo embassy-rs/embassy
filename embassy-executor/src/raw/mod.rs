@@ -16,7 +16,6 @@ mod run_queue;
 #[cfg_attr(not(target_has_atomic = "8"), path = "state_critical_section.rs")]
 mod state;
 
-pub mod timer_queue;
 #[cfg(feature = "trace")]
 pub mod trace;
 pub(crate) mod util;
@@ -31,6 +30,7 @@ use core::ptr::NonNull;
 #[cfg(not(feature = "arch-avr"))]
 use core::sync::atomic::AtomicPtr;
 use core::sync::atomic::Ordering;
+use core::task::Waker;
 use core::task::{Context, Poll};
 
 #[cfg(feature = "arch-avr")]
@@ -41,6 +41,22 @@ use self::state::State;
 use self::util::{SyncUnsafeCell, UninitCell};
 pub use self::waker::task_from_waker;
 use super::SpawnToken;
+use embassy_time_queue_utils::TimerQueueItem;
+
+#[no_mangle]
+extern "Rust" fn __embassy_time_queue_item_from_waker(waker: &Waker) -> &'static TimerQueueItem {
+    task_from_waker(waker).timer_queue_item()
+}
+#[no_mangle]
+extern "Rust" fn __embassy_time_queue_item_from_waker_data(data: *const ()) -> &'static TimerQueueItem {
+    let task_ref = unsafe { TaskRef::from_ptr(data as *const TaskHeader) };
+    task_ref.timer_queue_item()
+}
+#[no_mangle]
+extern "Rust" fn __embassy_time_queue_wake_task_from_data(data: *const ()) {
+    let task_ref = unsafe { TaskRef::from_ptr(data as *const TaskHeader) };
+    wake_task(task_ref);
+}
 
 /// Raw task header for use in task pointers.
 ///
@@ -88,7 +104,7 @@ pub(crate) struct TaskHeader {
     poll_fn: SyncUnsafeCell<Option<unsafe fn(TaskRef)>>,
 
     /// Integrated timer queue storage. This field should not be accessed outside of the timer queue.
-    pub(crate) timer_queue_item: timer_queue::TimerQueueItem,
+    pub(crate) timer_queue_item: TimerQueueItem,
     #[cfg(feature = "trace")]
     pub(crate) name: Option<&'static str>,
     #[cfg(feature = "trace")]
@@ -141,7 +157,7 @@ impl TaskRef {
     }
 
     /// Returns a reference to the timer queue item.
-    pub fn timer_queue_item(&self) -> &'static timer_queue::TimerQueueItem {
+    pub fn timer_queue_item(&self) -> &'static TimerQueueItem {
         &self.header().timer_queue_item
     }
 
@@ -189,7 +205,7 @@ impl<F: Future + 'static> TaskStorage<F> {
                 // Note: this is lazily initialized so that a static `TaskStorage` will go in `.bss`
                 poll_fn: SyncUnsafeCell::new(None),
 
-                timer_queue_item: timer_queue::TimerQueueItem::new(),
+                timer_queue_item: TimerQueueItem::new(),
                 #[cfg(feature = "trace")]
                 name: None,
                 #[cfg(feature = "trace")]

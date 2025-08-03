@@ -22,7 +22,6 @@ links = "embassy-time-queue"
 
 [dependencies]
 heapless = "0.8"
-embassy-executor = { version = "0.8", path = "../embassy-executor" }
 
 [features]
 #! ### Generic Queue
@@ -51,6 +50,22 @@ generic-queue-64 = ["_generic-queue"]
 generic-queue-128 = ["_generic-queue"]
 
 _generic-queue = []
+
+#! ### Timer Item Payload Size
+#! Sets the size of the payload for timer items, allowing integrated timer implementors to store
+#! additional data in the timer item. The payload field will be aligned to this value as well.
+#! If these features are not defined, the timer item will contain no payload field.
+
+_timer-item-payload = [] # A size was picked
+
+## 1 bytes
+timer-item-payload-size-1 = ["_timer-item-payload"]
+## 2 bytes
+timer-item-payload-size-2 = ["_timer-item-payload"]
+## 4 bytes
+timer-item-payload-size-4 = ["_timer-item-payload"]
+## 8 bytes
+timer-item-payload-size-8 = ["_timer-item-payload"]
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-time-queue-utils-v$VERSION/embassy-time-queue-utils/src/"
