@@ -63,7 +63,6 @@
 //! // Set other parameters as needed...
 //! ```
 
-#[cfg(feature = "rp2040")]
 use core::arch::asm;
 use core::marker::PhantomData;
 #[cfg(feature = "rp2040")]
@@ -73,7 +72,6 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use pac::clocks::vals::*;
 
 use crate::gpio::{AnyPin, SealedPin};
-#[cfg(feature = "rp2040")]
 use crate::pac::common::{Reg, RW};
 use crate::{pac, reset, Peri};
 
@@ -1844,7 +1842,7 @@ impl rand_core_09::CryptoRng for RoscRng {}
 /// and can only be exited through resets, dormant-wake GPIO interrupts,
 /// and RTC interrupts. If RTC is clocked from an internal clock source
 /// it will be stopped and not function as a wakeup source.
-#[cfg(all(target_arch = "arm", feature = "rp2040"))]
+#[cfg(all(target_arch = "arm"))]
 pub fn dormant_sleep() {
     struct Set<T: Copy, F: Fn()>(Reg<T, RW>, T, F);
 
