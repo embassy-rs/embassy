@@ -1,0 +1,35 @@
+[package]
+name = "embassy-executor-timer-queue"
+version = "0.1.0"
+edition = "2021"
+description = "Timer queue item and interface between embassy-executor and timer queues"
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-executor-timer-queue"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+categories = [
+    "embedded",
+    "no-std",
+    "concurrency",
+    "asynchronous",
+]
+
+[dependencies]
+
+[features]
+#! ### Timer Queue Item Size
+#! Sets the size of the timer items.
+
+## 4 words
+timer-item-size-4-words = []
+
+## 6 words
+timer-item-size-6-words = []
+
+## 8 words
+timer-item-size-8-words = []
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-executor-timer-queue-v$VERSION/embassy-executor-timer-queue/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-executor-timer-queue/src/"
+target = "x86_64-unknown-linux-gnu"
