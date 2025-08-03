@@ -4,21 +4,12 @@ use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 
 use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, Timer};
-use super::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance4Channel, TimerBits};
+use super::{Ch1, Ch2, Ch3, Ch4, Channel, GeneralInstance4Channel, TimerBits, TimerChannel, TimerPin};
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::time::Hertz;
 use crate::Peri;
-
-/// Channel 1 marker type.
-pub enum Ch1 {}
-/// Channel 2 marker type.
-pub enum Ch2 {}
-/// Channel 3 marker type.
-pub enum Ch3 {}
-/// Channel 4 marker type.
-pub enum Ch4 {}
 
 /// PWM pin wrapper.
 ///
@@ -43,46 +34,37 @@ pub struct PwmPinConfig {
     pub pull: Pull,
 }
 
-macro_rules! channel_impl {
-    ($new_chx:ident, $new_chx_with_config:ident, $channel:ident, $pin_trait:ident) => {
-        impl<'d, T: GeneralInstance4Channel> PwmPin<'d, T, $channel> {
-            #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance.")]
-            pub fn $new_chx(pin: Peri<'d, impl $pin_trait<T>>, output_type: OutputType) -> Self {
-                critical_section::with(|_| {
-                    pin.set_low();
-                    pin.set_as_af(pin.af_num(), AfType::output(output_type, Speed::VeryHigh));
-                });
-                PwmPin {
-                    _pin: pin.into(),
-                    phantom: PhantomData,
-                }
-            }
-
-            #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance with config.")]
-            pub fn $new_chx_with_config(pin: Peri<'d, impl $pin_trait<T>>, pin_config: PwmPinConfig) -> Self {
-                critical_section::with(|_| {
-                    pin.set_low();
-                    pin.set_as_af(
-                        pin.af_num(),
-                        #[cfg(gpio_v1)]
-                        AfType::output(pin_config.output_type, pin_config.speed),
-                        #[cfg(gpio_v2)]
-                        AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull),
-                    );
-                });
-                PwmPin {
-                    _pin: pin.into(),
-                    phantom: PhantomData,
-                }
-            }
+impl<'d, T: GeneralInstance4Channel, C: TimerChannel> PwmPin<'d, T, C> {
+    /// Create a new PWM pin instance.
+    pub fn new(pin: Peri<'d, impl TimerPin<T, C>>, output_type: OutputType) -> Self {
+        critical_section::with(|_| {
+            pin.set_low();
+            pin.set_as_af(pin.af_num(), AfType::output(output_type, Speed::VeryHigh));
+        });
+        PwmPin {
+            _pin: pin.into(),
+            phantom: PhantomData,
         }
-    };
-}
+    }
 
-channel_impl!(new_ch1, new_ch1_with_config, Ch1, Channel1Pin);
-channel_impl!(new_ch2, new_ch2_with_config, Ch2, Channel2Pin);
-channel_impl!(new_ch3, new_ch3_with_config, Ch3, Channel3Pin);
-channel_impl!(new_ch4, new_ch4_with_config, Ch4, Channel4Pin);
+    /// Create a new PWM pin instance with config.
+    pub fn new_with_config(pin: Peri<'d, impl TimerPin<T, C>>, pin_config: PwmPinConfig) -> Self {
+        critical_section::with(|_| {
+            pin.set_low();
+            pin.set_as_af(
+                pin.af_num(),
+                #[cfg(gpio_v1)]
+                AfType::output(pin_config.output_type, pin_config.speed),
+                #[cfg(gpio_v2)]
+                AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull),
+            );
+        });
+        PwmPin {
+            _pin: pin.into(),
+            phantom: PhantomData,
+        }
+    }
+}
 
 /// A single channel of a pwm, obtained from [`SimplePwm::split`],
 /// [`SimplePwm::channel`], [`SimplePwm::ch1`], etc.
@@ -466,106 +448,97 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     }
 }
 
-macro_rules! impl_waveform_chx {
-    ($fn_name:ident, $dma_ch:ident, $cc_ch:ident) => {
-        impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
-            /// Generate a sequence of PWM waveform
-            pub async fn $fn_name(&mut self, dma: Peri<'_, impl super::$dma_ch<T>>, duty: &[u16]) {
-                use crate::pac::timer::vals::Ccds;
+impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
+    /// Generate a sequence of PWM waveform
+    pub async fn waveform<C: TimerChannel>(&mut self, dma: Peri<'_, impl super::Dma<T, C>>, duty: &[u16]) {
+        use crate::pac::timer::vals::Ccds;
 
-                #[allow(clippy::let_unit_value)] // eg. stm32f334
-                let req = dma.request();
+        #[allow(clippy::let_unit_value)] // eg. stm32f334
+        let req = dma.request();
 
-                let cc_channel = Channel::$cc_ch;
+        let cc_channel = C::CHANNEL;
 
-                let original_duty_state = self.channel(cc_channel).current_duty_cycle();
-                let original_enable_state = self.channel(cc_channel).is_enabled();
-                let original_cc_dma_on_update = self.inner.get_cc_dma_selection() == Ccds::ON_UPDATE;
-                let original_cc_dma_enabled = self.inner.get_cc_dma_enable_state(cc_channel);
+        let original_duty_state = self.channel(cc_channel).current_duty_cycle();
+        let original_enable_state = self.channel(cc_channel).is_enabled();
+        let original_cc_dma_on_update = self.inner.get_cc_dma_selection() == Ccds::ON_UPDATE;
+        let original_cc_dma_enabled = self.inner.get_cc_dma_enable_state(cc_channel);
 
-                // redirect CC DMA request onto Update Event
-                if !original_cc_dma_on_update {
-                    self.inner.set_cc_dma_selection(Ccds::ON_UPDATE)
-                }
-
-                if !original_cc_dma_enabled {
-                    self.inner.set_cc_dma_enable_state(cc_channel, true);
-                }
-
-                if !original_enable_state {
-                    self.channel(cc_channel).enable();
-                }
-
-                unsafe {
-                    #[cfg(not(any(bdma, gpdma)))]
-                    use crate::dma::{Burst, FifoThreshold};
-                    use crate::dma::{Transfer, TransferOptions};
-
-                    let dma_transfer_option = TransferOptions {
-                        #[cfg(not(any(bdma, gpdma)))]
-                        fifo_threshold: Some(FifoThreshold::Full),
-                        #[cfg(not(any(bdma, gpdma)))]
-                        mburst: Burst::Incr8,
-                        ..Default::default()
-                    };
-
-                    match self.inner.bits() {
-                        TimerBits::Bits16 => {
-                            Transfer::new_write(
-                                dma,
-                                req,
-                                duty,
-                                self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut u16,
-                                dma_transfer_option,
-                            )
-                            .await
-                        }
-                        #[cfg(not(any(stm32l0)))]
-                        TimerBits::Bits32 => {
-                            #[cfg(not(any(bdma, gpdma)))]
-                            panic!("unsupported timer bits");
-
-                            #[cfg(any(bdma, gpdma))]
-                            Transfer::new_write(
-                                dma,
-                                req,
-                                duty,
-                                self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut u32,
-                                dma_transfer_option,
-                            )
-                            .await
-                        }
-                    };
-                };
-
-                // restore output compare state
-                if !original_enable_state {
-                    self.channel(cc_channel).disable();
-                }
-
-                self.channel(cc_channel).set_duty_cycle(original_duty_state);
-
-                // Since DMA is closed before timer Capture Compare Event trigger DMA is turn off,
-                // this can almost always trigger a DMA FIFO error.
-                //
-                // optional TODO:
-                // clean FEIF after disable UDE
-                if !original_cc_dma_enabled {
-                    self.inner.set_cc_dma_enable_state(cc_channel, false);
-                }
-
-                if !original_cc_dma_on_update {
-                    self.inner.set_cc_dma_selection(Ccds::ON_COMPARE)
-                }
-            }
+        // redirect CC DMA request onto Update Event
+        if !original_cc_dma_on_update {
+            self.inner.set_cc_dma_selection(Ccds::ON_UPDATE)
         }
-    };
-}
 
-impl_waveform_chx!(waveform_ch1, Ch1Dma, Ch1);
-impl_waveform_chx!(waveform_ch2, Ch2Dma, Ch2);
-impl_waveform_chx!(waveform_ch3, Ch3Dma, Ch3);
-impl_waveform_chx!(waveform_ch4, Ch4Dma, Ch4);
+        if !original_cc_dma_enabled {
+            self.inner.set_cc_dma_enable_state(cc_channel, true);
+        }
+
+        if !original_enable_state {
+            self.channel(cc_channel).enable();
+        }
+
+        unsafe {
+            #[cfg(not(any(bdma, gpdma)))]
+            use crate::dma::{Burst, FifoThreshold};
+            use crate::dma::{Transfer, TransferOptions};
+
+            let dma_transfer_option = TransferOptions {
+                #[cfg(not(any(bdma, gpdma)))]
+                fifo_threshold: Some(FifoThreshold::Full),
+                #[cfg(not(any(bdma, gpdma)))]
+                mburst: Burst::Incr8,
+                ..Default::default()
+            };
+
+            match self.inner.bits() {
+                TimerBits::Bits16 => {
+                    Transfer::new_write(
+                        dma,
+                        req,
+                        duty,
+                        self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut u16,
+                        dma_transfer_option,
+                    )
+                    .await
+                }
+                #[cfg(not(any(stm32l0)))]
+                TimerBits::Bits32 => {
+                    #[cfg(not(any(bdma, gpdma)))]
+                    panic!("unsupported timer bits");
+
+                    #[cfg(any(bdma, gpdma))]
+                    Transfer::new_write(
+                        dma,
+                        req,
+                        duty,
+                        self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut u32,
+                        dma_transfer_option,
+                    )
+                    .await
+                }
+            };
+        };
+
+        // restore output compare state
+        if !original_enable_state {
+            self.channel(cc_channel).disable();
+        }
+
+        self.channel(cc_channel).set_duty_cycle(original_duty_state);
+
+        // Since DMA is closed before timer Capture Compare Event trigger DMA is turn off,
+        // this can almost always trigger a DMA FIFO error.
+        //
+        // optional TODO:
+        // clean FEIF after disable UDE
+        if !original_cc_dma_enabled {
+            self.inner.set_cc_dma_enable_state(cc_channel, false);
+        }
+
+        if !original_cc_dma_on_update {
+            self.inner.set_cc_dma_selection(Ccds::ON_COMPARE)
+        }
+    }
+}
 
 impl<'d, T: GeneralInstance4Channel> embedded_hal_1::pwm::ErrorType for SimplePwmChannel<'d, T> {
     type Error = core::convert::Infallible;

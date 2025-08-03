@@ -105,7 +105,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         config: Config,
     ) -> Self {
         // For STM32U5 High speed pins need to be left in analog mode
-        #[cfg(not(all(stm32u5, peri_usb_otg_hs)))]
+        #[cfg(not(any(all(stm32u5, peri_usb_otg_hs), all(stm32wba, peri_usb_otg_hs))))]
         {
             _dp.set_as_af(_dp.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
             _dm.set_as_af(_dm.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
@@ -231,19 +231,23 @@ impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
     fn alloc_endpoint_in(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointIn, EndpointAllocError> {
-        self.inner.alloc_endpoint_in(ep_type, max_packet_size, interval_ms)
+        self.inner
+            .alloc_endpoint_in(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
     fn alloc_endpoint_out(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointOut, EndpointAllocError> {
-        self.inner.alloc_endpoint_out(ep_type, max_packet_size, interval_ms)
+        self.inner
+            .alloc_endpoint_out(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
     fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
@@ -311,15 +315,34 @@ impl<'d, T: Instance> Bus<'d, T> {
 
         #[cfg(all(stm32u5, peri_usb_otg_hs))]
         {
-            crate::pac::SYSCFG.otghsphycr().modify(|w| {
-                w.set_en(true);
-            });
-
             critical_section::with(|_| {
                 crate::pac::RCC.ahb2enr1().modify(|w| {
                     w.set_usb_otg_hsen(true);
                     w.set_usb_otg_hs_phyen(true);
                 });
+            });
+
+            crate::pac::SYSCFG.otghsphycr().modify(|w| {
+                w.set_en(true);
+            });
+        }
+
+        #[cfg(all(stm32wba, peri_usb_otg_hs))]
+        {
+            critical_section::with(|_| {
+                crate::pac::RCC.ahb2enr().modify(|w| {
+                    w.set_usb_otg_hsen(true);
+                    w.set_usb_otg_hs_phyen(true);
+                });
+            });
+
+            crate::pac::SYSCFG.otghsphytuner2().modify(|w| {
+                w.set_compdistune(0b010);
+                w.set_sqrxtune(0b000);
+            });
+
+            crate::pac::SYSCFG.otghsphycr().modify(|w| {
+                w.set_en(true);
             });
         }
 
@@ -337,7 +360,7 @@ impl<'d, T: Instance> Bus<'d, T> {
         match core_id {
             0x0000_1200 | 0x0000_1100 | 0x0000_1000 => self.inner.config_v1(),
             0x0000_2000 | 0x0000_2100 | 0x0000_2300 | 0x0000_3000 | 0x0000_3100 => self.inner.config_v2v3(),
-            0x0000_5000 => self.inner.config_v5(),
+            0x0000_5000 | 0x0000_6100 => self.inner.config_v5(),
             _ => unimplemented!("Unknown USB core id {:X}", core_id),
         }
     }
@@ -464,6 +487,7 @@ foreach_interrupt!(
                     stm32f7,
                     stm32l4,
                     stm32u5,
+                    stm32wba,
                 ))] {
                     const FIFO_DEPTH_WORDS: u16 = 320;
                     const ENDPOINT_COUNT: usize = 6;
@@ -473,7 +497,7 @@ foreach_interrupt!(
                 } else if #[cfg(any(stm32h7, stm32h7rs))] {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
                     const ENDPOINT_COUNT: usize = 9;
-                } else if #[cfg(stm32u5)] {
+                } else if #[cfg(any(stm32wba, stm32u5))] {
                     const FIFO_DEPTH_WORDS: u16 = 320;
                     const ENDPOINT_COUNT: usize = 6;
                 } else {
@@ -523,7 +547,7 @@ foreach_interrupt!(
                 ))] {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
                     const ENDPOINT_COUNT: usize = 9;
-                } else if #[cfg(stm32u5)] {
+                } else if #[cfg(any(stm32u5, stm32wba))] {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
                     const ENDPOINT_COUNT: usize = 9;
                 } else {

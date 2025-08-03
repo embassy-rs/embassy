@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 embassy-mspm0 = { version = "0.1.0", path = "../../embassy-mspm0", features = ["mspm0g3519pz", "defmt", "rt", "time-driver-any"] }
-embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt"] }
+embassy-executor = { version = "0.8.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt"] }
 embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["defmt"] }
 panic-halt = "1.0.0"

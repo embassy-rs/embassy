@@ -505,6 +505,13 @@ fn main() {
                 field: "CLK48SEL",
             },
         );
+        clock_gen.chained_muxes.insert(
+            "RFWKP",
+            &PeripheralRccRegister {
+                register: "CSR",
+                field: "RFWKPSEL",
+            },
+        );
     }
     if chip_name.starts_with("stm32f7") {
         clock_gen.chained_muxes.insert(
@@ -1090,21 +1097,21 @@ fn main() {
         (("fmc", "CLK"), quote!(crate::fmc::ClkPin)),
         (("fmc", "BA0"), quote!(crate::fmc::BA0Pin)),
         (("fmc", "BA1"), quote!(crate::fmc::BA1Pin)),
-        (("timer", "CH1"), quote!(crate::timer::Channel1Pin)),
-        (("timer", "CH1N"), quote!(crate::timer::Channel1ComplementaryPin)),
-        (("timer", "CH2"), quote!(crate::timer::Channel2Pin)),
-        (("timer", "CH2N"), quote!(crate::timer::Channel2ComplementaryPin)),
-        (("timer", "CH3"), quote!(crate::timer::Channel3Pin)),
-        (("timer", "CH3N"), quote!(crate::timer::Channel3ComplementaryPin)),
-        (("timer", "CH4"), quote!(crate::timer::Channel4Pin)),
-        (("timer", "CH4N"), quote!(crate::timer::Channel4ComplementaryPin)),
+        (("timer", "CH1"), quote!(crate::timer::TimerPin<Ch1>)),
+        (("timer", "CH1N"), quote!(crate::timer::TimerComplementaryPin<Ch1>)),
+        (("timer", "CH2"), quote!(crate::timer::TimerPin<Ch2>)),
+        (("timer", "CH2N"), quote!(crate::timer::TimerComplementaryPin<Ch2>)),
+        (("timer", "CH3"), quote!(crate::timer::TimerPin<Ch3>)),
+        (("timer", "CH3N"), quote!(crate::timer::TimerComplementaryPin<Ch3>)),
+        (("timer", "CH4"), quote!(crate::timer::TimerPin<Ch4>)),
+        (("timer", "CH4N"), quote!(crate::timer::TimerComplementaryPin<Ch4>)),
         (("timer", "ETR"), quote!(crate::timer::ExternalTriggerPin)),
-        (("timer", "BKIN"), quote!(crate::timer::BreakInputPin)),
-        (("timer", "BKIN_COMP1"), quote!(crate::timer::BreakInputComparator1Pin)),
-        (("timer", "BKIN_COMP2"), quote!(crate::timer::BreakInputComparator2Pin)),
-        (("timer", "BKIN2"), quote!(crate::timer::BreakInput2Pin)),
-        (("timer", "BKIN2_COMP1"), quote!(crate::timer::BreakInput2Comparator1Pin)),
-        (("timer", "BKIN2_COMP2"), quote!(crate::timer::BreakInput2Comparator2Pin)),
+        (("timer", "BKIN"), quote!(crate::timer::BreakInputPin<BkIn1>)),
+        (("timer", "BKIN_COMP1"), quote!(crate::timer::BreakInputComparator1Pin<BkIn1>)),
+        (("timer", "BKIN_COMP2"), quote!(crate::timer::BreakInputComparator2Pin<BkIn1>)),
+        (("timer", "BKIN2"), quote!(crate::timer::BreakInputPin<BkIn2>)),
+        (("timer", "BKIN2_COMP1"), quote!(crate::timer::BreakInputComparator1Pin<BkIn2>)),
+        (("timer", "BKIN2_COMP2"), quote!(crate::timer::BreakInputComparator2Pin<BkIn2>)),
         (("hrtim", "CHA1"), quote!(crate::hrtim::ChannelAPin)),
         (("hrtim", "CHA2"), quote!(crate::hrtim::ChannelAComplementaryPin)),
         (("hrtim", "CHB1"), quote!(crate::hrtim::ChannelBPin)),
@@ -1402,31 +1409,24 @@ fn main() {
                 }
 
                 if regs.kind == "opamp" {
-                    if pin.signal.starts_with("VP") {
-                        // Impl NonInvertingPin for the VP* signals (VP0, VP1, VP2, etc)
-                        let peri = format_ident!("{}", p.name);
-                        let pin_name = format_ident!("{}", pin.pin);
-                        let ch: u8 = pin.signal.strip_prefix("VP").unwrap().parse().unwrap();
-
-                        g.extend(quote! {
-                            impl_opamp_vp_pin!( #peri, #pin_name, #ch);
-                        })
-                    } else if pin.signal.starts_with("VINM") {
-                        // Impl NonInvertingPin for the VINM* signals ( VINM0, VINM1, etc)
-                        // STM32G4
-                        let peri = format_ident!("{}", p.name);
-                        let pin_name = format_ident!("{}", pin.pin);
-                        let ch: Result<u8, _> = pin.signal.strip_prefix("VINM").unwrap().parse();
-
-                        if let Ok(ch) = ch {
+                    let peri = format_ident!("{}", p.name);
+                    let pin_name = format_ident!("{}", pin.pin);
+                    if let Some(ch_str) = pin.signal.strip_prefix("VINP") {
+                        // Impl NonInvertingPin for VINP0, VINP1 etc.
+                        if let Ok(ch) = ch_str.parse::<u8>() {
+                            g.extend(quote! {
+                                impl_opamp_vp_pin!( #peri, #pin_name, #ch );
+                            });
+                        }
+                    } else if let Some(ch_str) = pin.signal.strip_prefix("VINM") {
+                        // Impl InvertingPin for VINM0, VINM1 etc.
+                        if let Ok(ch) = ch_str.parse::<u8>() {
                             g.extend(quote! {
                                 impl_opamp_vn_pin!( #peri, #pin_name, #ch);
-                            })
+                            });
                         }
                     } else if pin.signal == "VOUT" {
                         // Impl OutputPin for the VOUT pin
-                        let peri = format_ident!("{}", p.name);
-                        let pin_name = format_ident!("{}", pin.pin);
                         g.extend(quote! {
                             impl_opamp_vout_pin!( #peri, #pin_name );
                         })
@@ -1482,10 +1482,10 @@ fn main() {
         (("hash", "IN"), quote!(crate::hash::Dma)),
         (("cryp", "IN"), quote!(crate::cryp::DmaIn)),
         (("cryp", "OUT"), quote!(crate::cryp::DmaOut)),
-        (("timer", "CH1"), quote!(crate::timer::Ch1Dma)),
-        (("timer", "CH2"), quote!(crate::timer::Ch2Dma)),
-        (("timer", "CH3"), quote!(crate::timer::Ch3Dma)),
-        (("timer", "CH4"), quote!(crate::timer::Ch4Dma)),
+        (("timer", "CH1"), quote!(crate::timer::Dma<Ch1>)),
+        (("timer", "CH2"), quote!(crate::timer::Dma<Ch2>)),
+        (("timer", "CH3"), quote!(crate::timer::Dma<Ch3>)),
+        (("timer", "CH4"), quote!(crate::timer::Dma<Ch4>)),
         (("cordic", "WRITE"), quote!(crate::cordic::WriteDma)), // FIXME: stm32u5a crash on Cordic driver
         (("cordic", "READ"), quote!(crate::cordic::ReadDma)),   // FIXME: stm32u5a crash on Cordic driver
     ]
@@ -1495,6 +1495,10 @@ fn main() {
         signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma4));
     } else {
         signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
+    }
+
+    if chip_name.starts_with("stm32wba") {
+        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma4));
     }
 
     if chip_name.starts_with("stm32g4") {
@@ -1554,9 +1558,35 @@ fn main() {
                             quote!(())
                         };
 
+                        let mut remap = quote!();
+                        for remap_info in ch.remap {
+                            let register = format_ident!("{}", remap_info.register.to_lowercase());
+                            let setter = format_ident!("set_{}", remap_info.field.to_lowercase());
+
+                            let field_metadata = METADATA
+                                .peripherals
+                                .iter()
+                                .filter(|p| p.name == "SYSCFG")
+                                .flat_map(|p| p.registers.as_ref().unwrap().ir.fieldsets.iter())
+                                .filter(|f| f.name.eq_ignore_ascii_case(remap_info.register))
+                                .flat_map(|f| f.fields.iter())
+                                .find(|f| f.name.eq_ignore_ascii_case(remap_info.field))
+                                .unwrap();
+
+                            let value = if field_metadata.bit_size == 1 {
+                                let bool_value = format_ident!("{}", remap_info.value > 0);
+                                quote!(#bool_value)
+                            } else {
+                                let value = remap_info.value;
+                                quote!(#value.into())
+                            };
+
+                            remap.extend(quote!(crate::pac::SYSCFG.#register().modify(|w| w.#setter(#value));));
+                        }
+
                         let channel = format_ident!("{}", channel);
                         g.extend(quote! {
-                            dma_trait_impl!(#tr, #peri, #channel, #request);
+                            dma_trait_impl!(#tr, #peri, #channel, #request, {#remap});
                         });
                     }
                 }
@@ -1569,7 +1599,7 @@ fn main() {
     for e in rcc_registers.ir.enums {
         fn is_rcc_name(e: &str) -> bool {
             match e {
-                "Pllp" | "Pllq" | "Pllr" | "Pllm" | "Plln" | "Prediv1" | "Prediv2" => true,
+                "Pllp" | "Pllq" | "Pllr" | "Plldivst" | "Pllm" | "Plln" | "Prediv1" | "Prediv2" | "Hpre5" => true,
                 "Timpre" | "Pllrclkpre" => false,
                 e if e.ends_with("pre") || e.ends_with("pres") || e.ends_with("div") || e.ends_with("mul") => true,
                 _ => false,
@@ -1888,9 +1918,9 @@ fn main() {
     }
 
     g.extend(quote!(
-        pub fn gpio_block(n: usize) -> crate::pac::gpio::Gpio {{
-            unsafe {{ crate::pac::gpio::Gpio::from_ptr((#gpio_base + #gpio_stride*n) as _) }}
-        }}
+        pub fn gpio_block(n: usize) -> crate::pac::gpio::Gpio {
+            unsafe { crate::pac::gpio::Gpio::from_ptr((#gpio_base + #gpio_stride*n) as _) }
+        }
     ));
 
     // ========

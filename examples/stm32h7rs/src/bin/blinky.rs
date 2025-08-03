@@ -25,6 +25,8 @@ async fn main(_spawner: Spawner) {
             divp: Some(PllDiv::DIV2),
             divq: None,
             divr: None,
+            divs: None,
+            divt: None,
         });
         config.rcc.sys = Sysclk::PLL1_P; // 600 Mhz
         config.rcc.ahb_pre = AHBPrescaler::DIV2; // 300 Mhz

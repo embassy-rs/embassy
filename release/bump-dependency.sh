@@ -8,4 +8,4 @@
 #
 CRATE=$1
 TARGET_VER=$2
-find . -name "Cargo.toml" | xargs sed -rie "s/($CRATE = \{.*version = \")[0-9]+.[0-9]+.?[0-9]*(\".*)/\1$TARGET_VER\2/g"
+find . -name "Cargo.toml" | xargs sed -ri "s/($CRATE = \{.*version = \")[0-9]+.[0-9]+.?[0-9]*(\".*)/\1$TARGET_VER\2/g"

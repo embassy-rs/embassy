@@ -6,14 +6,12 @@ use core::pin::Pin;
 use core::task::{Context, Poll};
 
 use super::low_level::{CountingMode, FilterValue, InputCaptureMode, InputTISelection, Timer};
-use super::{
-    CaptureCompareInterruptHandler, Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin,
-    GeneralInstance4Channel,
-};
+use super::{CaptureCompareInterruptHandler, Channel, GeneralInstance4Channel, TimerPin};
 pub use super::{Ch1, Ch2, Ch3, Ch4};
 use crate::gpio::{AfType, AnyPin, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::time::Hertz;
+use crate::timer::TimerChannel;
 use crate::Peri;
 
 /// Capture pin wrapper.
@@ -23,26 +21,16 @@ pub struct CapturePin<'d, T, C> {
     _pin: Peri<'d, AnyPin>,
     phantom: PhantomData<(T, C)>,
 }
-
-macro_rules! channel_impl {
-    ($new_chx:ident, $channel:ident, $pin_trait:ident) => {
-        impl<'d, T: GeneralInstance4Channel> CapturePin<'d, T, $channel> {
-            #[doc = concat!("Create a new ", stringify!($channel), " capture pin instance.")]
-            pub fn $new_chx(pin: Peri<'d, impl $pin_trait<T>>, pull: Pull) -> Self {
-                pin.set_as_af(pin.af_num(), AfType::input(pull));
-                CapturePin {
-                    _pin: pin.into(),
-                    phantom: PhantomData,
-                }
-            }
+impl<'d, T: GeneralInstance4Channel, C: TimerChannel> CapturePin<'d, T, C> {
+    /// Create a new capture pin instance.
+    pub fn new(pin: Peri<'d, impl TimerPin<T, C>>, pull: Pull) -> Self {
+        pin.set_as_af(pin.af_num(), AfType::input(pull));
+        CapturePin {
+            _pin: pin.into(),
+            phantom: PhantomData,
         }
-    };
+    }
 }
-
-channel_impl!(new_ch1, Ch1, Channel1Pin);
-channel_impl!(new_ch2, Ch2, Channel2Pin);
-channel_impl!(new_ch3, Ch3, Channel3Pin);
-channel_impl!(new_ch4, Ch4, Channel4Pin);
 
 /// Input capture driver.
 pub struct InputCapture<'d, T: GeneralInstance4Channel> {

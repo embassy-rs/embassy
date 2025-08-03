@@ -403,6 +403,46 @@ impl<'d, T: Instance> Dac<'d, T, Async> {
             Mode::NormalExternalBuffered,
         )
     }
+    /// Create a new `Dac` instance with external output pins and unbuffered mode.
+    ///
+    /// This function consumes the underlying DAC peripheral and allows access to both channels.
+    /// The channels are configured for external output with the buffer disabled.
+    ///
+    /// The channels are enabled on creation and begin to drive their output pins.
+    /// Note that some methods, such as `set_trigger()` and `set_mode()`, will
+    /// disable the channel; you must re-enable them with `enable()`.
+    ///
+    /// By default, triggering is disabled, but it can be enabled using the `set_trigger()`
+    /// method on the underlying channels.
+    ///
+    /// # Arguments
+    ///
+    /// * `peri` - The DAC peripheral instance.
+    /// * `dma_ch1` - The DMA channel for DAC channel 1.
+    /// * `dma_ch2` - The DMA channel for DAC channel 2.
+    /// * `pin_ch1` - The GPIO pin for DAC channel 1 output.
+    /// * `pin_ch2` - The GPIO pin for DAC channel 2 output.
+    ///
+    /// # Returns
+    ///
+    /// A new `Dac` instance in unbuffered mode.
+    pub fn new_unbuffered(
+        peri: Peri<'d, T>,
+        dma_ch1: Peri<'d, impl Dma<T, Ch1>>,
+        dma_ch2: Peri<'d, impl Dma<T, Ch2>>,
+        pin_ch1: Peri<'d, impl DacPin<T, Ch1> + crate::gpio::Pin>,
+        pin_ch2: Peri<'d, impl DacPin<T, Ch2> + crate::gpio::Pin>,
+    ) -> Self {
+        pin_ch1.set_as_analog();
+        pin_ch2.set_as_analog();
+        Self::new_inner(
+            peri,
+            new_dma!(dma_ch1),
+            new_dma!(dma_ch2),
+            #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
+            Mode::NormalExternalUnbuffered,
+        )
+    }
 
     /// Create a new `Dac` instance where the external output pins are not used,
     /// so the DAC can only be used to generate internal signals but the GPIO

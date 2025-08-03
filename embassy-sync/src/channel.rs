@@ -17,6 +17,31 @@
 //! messages that it can store, and if this limit is reached, trying to send
 //! another message will result in an error being returned.
 //!
+//! # Example: Message passing between task and interrupt handler
+//!
+//! ```rust
+//! use embassy_sync::channel::Channel;
+//! use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+//!
+//! static SHARED_CHANNEL: Channel<CriticalSectionRawMutex, u32, 8> = Channel::new();
+//!
+//! fn my_interrupt_handler() {
+//!     // Do some work..
+//!     // ...
+//!     if let Err(e) = SHARED_CHANNEL.sender().try_send(42) {
+//!         // Channel is full..
+//!     }
+//! }
+//!
+//! async fn my_async_task() {
+//!     // ...
+//!     let receiver = SHARED_CHANNEL.receiver();
+//!     loop {
+//!         let data_from_interrupt = receiver.receive().await;
+//!         // Do something with the data.
+//!     }
+//! }
+//! ```
 
 use core::cell::RefCell;
 use core::future::Future;
@@ -443,7 +468,7 @@ where
     }
 }
 
-impl<'ch, M, T, const N: usize> futures_util::Stream for Receiver<'ch, M, T, N>
+impl<'ch, M, T, const N: usize> futures_core::Stream for Receiver<'ch, M, T, N>
 where
     M: RawMutex,
 {
@@ -962,7 +987,7 @@ where
     }
 }
 
-impl<M, T, const N: usize> futures_util::Stream for Channel<M, T, N>
+impl<M, T, const N: usize> futures_core::Stream for Channel<M, T, N>
 where
     M: RawMutex,
 {

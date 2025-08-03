@@ -39,7 +39,7 @@ async fn main(spawner: Spawner) {
 
     unwrap!(spawner.spawn(blinky(p.PC13)));
 
-    let ch3 = CapturePin::new_ch3(p.PA2, Pull::None);
+    let ch3 = CapturePin::new(p.PA2, Pull::None);
     let mut ic = InputCapture::new(p.TIM2, None, None, Some(ch3), None, Irqs, khz(1000), Default::default());
 
     loop {
