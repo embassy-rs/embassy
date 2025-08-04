@@ -9,7 +9,7 @@ embassy-sync = { version = "0.7.0", path = "../../../../embassy-sync" }
 embassy-executor = { version = "0.8.0", path = "../../../../embassy-executor", features = ["arch-cortex-m", "executor-thread"] }
 embassy-time = { version = "0.4.0", path = "../../../../embassy-time", features = [] }
 embassy-rp = { version = "0.7.0", path = "../../../../embassy-rp", features = ["time-driver", "rp2040"] }
-embassy-boot-rp = { version = "0.6.0", path = "../../../../embassy-boot-rp", features = [] }
+embassy-boot-rp = { version = "0.7.0", path = "../../../../embassy-boot-rp", features = [] }
 embassy-embedded-hal = { version = "0.4.0", path = "../../../../embassy-embedded-hal" }
 
 defmt = "1.0.1"
