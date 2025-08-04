@@ -1,6 +1,6 @@
 //! The example uses FIFO and interrupts, wrapped in async API.
 //!
-//! This uses the virtual COM port provided on the LP-MSPM0L1306 board.
+//! This example controls AD5171 digital potentiometer via I2C with the LP-MSPM0L1306 board.
 
 #![no_std]
 #![no_main]
@@ -10,6 +10,7 @@ use embassy_executor::Spawner;
 use embassy_mspm0::bind_interrupts;
 use embassy_mspm0::i2c::{Config, I2c, InterruptHandler};
 use embassy_mspm0::peripherals::I2C0;
+use embassy_time::Timer;
 use {defmt_rtt as _, panic_halt as _};
 
 const ADDRESS: u8 = 0x6a;
@@ -28,13 +29,22 @@ async fn main(_spawner: Spawner) -> ! {
 
     let mut i2c = unwrap!(I2c::new_async(instance, scl, sda, Irqs, Config::default()));
 
-    let mut to_read = [1u8; 17];
-    let to_write = [0u8; 17];
+    let mut pot_value: u8 = 0;
 
-    match i2c.async_write_read(ADDRESS, &to_write, &mut to_read).await {
-        Ok(()) => info!("Register {}: {}", to_write, to_read[0]),
-        Err(e) => error!("I2c Error: {:?}", e),
+    loop {
+        let to_write = [0u8, pot_value];
+
+        match i2c.async_write(ADDRESS, &to_write).await {
+            Ok(()) => info!("New potentioemter value: {}", pot_value),
+            Err(e) => error!("I2c Error: {:?}", e),
+        }
+
+        pot_value += 1;
+        // if reached 64th position (max)
+        // start over from lowest value
+        if pot_value == 64 {
+            pot_value = 0;
+        }
+        Timer::after_millis(500).await;
     }
-
-    loop {}
 }
