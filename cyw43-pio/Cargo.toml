@@ -1,6 +1,6 @@
 [package]
 name = "cyw43-pio"
-version = "0.5.1"
+version = "0.6.0"
 edition = "2021"
 description = "RP2040 PIO SPI implementation for cyw43"
 keywords = ["embedded", "cyw43", "embassy-net", "embedded-hal-async", "wifi"]
