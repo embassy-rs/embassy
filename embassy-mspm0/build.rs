@@ -549,10 +549,11 @@ fn generate_peripheral_instances() -> TokenStream {
 
     for peripheral in METADATA.peripherals {
         let peri = format_ident!("{}", peripheral.name);
+        let fifo_size = peripheral.sys_fentries;
 
         let tokens = match peripheral.kind {
             "uart" => Some(quote! { impl_uart_instance!(#peri); }),
-            "i2c" => Some(quote! { impl_i2c_instance!(#peri); }),
+            "i2c" => Some(quote! { impl_i2c_instance!(#peri, #fifo_size); }),
             _ => None,
         };
 

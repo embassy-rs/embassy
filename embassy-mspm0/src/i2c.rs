@@ -287,6 +287,9 @@ pub enum Error {
 
     /// Zero-length transfers are not allowed.
     ZeroLengthTransfer,
+
+    /// Transfer length is over limit.
+    TransferLengthIsOverLimit,
 }
 
 impl core::fmt::Display for Error {
@@ -299,6 +302,7 @@ impl core::fmt::Display for Error {
             Self::Crc => "CRC Mismatch",
             Self::Overrun => "Buffer Overrun",
             Self::ZeroLengthTransfer => "Zero-Length Transfers are not allowed",
+            Self::TransferLengthIsOverLimit => "Transfer length is over limit",
         };
 
         write!(f, "{}", message)
@@ -306,9 +310,6 @@ impl core::fmt::Display for Error {
 }
 
 impl core::error::Error for Error {}
-
-/// mspm0g, mspm0c, mspm0l, msps00 have 8-bytes FIFO
-pub const FIFO_SIZE: usize = 8;
 
 /// I2C Driver.
 pub struct I2c<'d, M: Mode> {
@@ -461,8 +462,6 @@ impl<'d, M: Mode> I2c<'d, M> {
     }
 
     fn master_continue(&mut self, length: usize, send_ack_nack: bool, send_stop: bool) -> Result<(), Error> {
-        assert!(length <= FIFO_SIZE && length > 0);
-
         // delay between ongoing transactions, 1000 cycles
         cortex_m::asm::delay(1000);
 
@@ -515,8 +514,6 @@ impl<'d, M: Mode> I2c<'d, M> {
     }
 
     fn master_write(&mut self, address: u8, length: usize, send_stop: bool) -> Result<(), Error> {
-        assert!(length <= FIFO_SIZE && length > 0);
-
         // Start transfer of length amount of bytes
         self.info.regs.controller(0).csa().modify(|w| {
             w.set_taddr(address as u16);
@@ -565,8 +562,6 @@ impl<'d> I2c<'d, Blocking> {
         send_ack_nack: bool,
         send_stop: bool,
     ) -> Result<(), Error> {
-        assert!(length <= FIFO_SIZE && length > 0);
-
         // unless restart, Wait for the controller to be idle,
         if !restart {
             while !self.info.regs.controller(0).csr().read().idle() {}
@@ -600,10 +595,16 @@ impl<'d> I2c<'d, Blocking> {
         restart: bool,
         end_w_stop: bool,
     ) -> Result<(), Error> {
-        let read_len = read.len();
+        if read.is_empty() {
+            return Err(Error::ZeroLengthTransfer);
+        }
+        if read.len() > self.info.fifo_size {
+            return Err(Error::TransferLengthIsOverLimit);
+        }
 
+        let read_len = read.len();
         let mut bytes_to_read = read_len;
-        for (number, chunk) in read.chunks_mut(FIFO_SIZE).enumerate() {
+        for (number, chunk) in read.chunks_mut(self.info.fifo_size).enumerate() {
             bytes_to_read -= chunk.len();
             // if the current transaction is the last & end_w_stop, send stop
             let send_stop = bytes_to_read == 0 && end_w_stop;
@@ -611,7 +612,13 @@ impl<'d> I2c<'d, Blocking> {
             let send_ack_nack = bytes_to_read != 0;
 
             if number == 0 {
-                self.master_blocking_read(address, chunk.len().min(FIFO_SIZE), restart, send_ack_nack, send_stop)?
+                self.master_blocking_read(
+                    address,
+                    chunk.len().min(self.info.fifo_size),
+                    restart,
+                    send_ack_nack,
+                    send_stop,
+                )?
             } else {
                 self.master_blocking_continue(chunk.len(), send_ack_nack, send_stop)?;
             }
@@ -633,9 +640,12 @@ impl<'d> I2c<'d, Blocking> {
         if write.is_empty() {
             return Err(Error::ZeroLengthTransfer);
         }
+        if write.len() > self.info.fifo_size {
+            return Err(Error::TransferLengthIsOverLimit);
+        }
 
         let mut bytes_to_send = write.len();
-        for (number, chunk) in write.chunks(FIFO_SIZE).enumerate() {
+        for (number, chunk) in write.chunks(self.info.fifo_size).enumerate() {
             for byte in chunk {
                 let ctrl0 = self.info.regs.controller(0).ctxdata();
                 ctrl0.write(|w| w.set_value(*byte));
@@ -694,7 +704,7 @@ impl<'d> I2c<'d, Async> {
         let ctrl = self.info.regs.controller(0);
 
         let mut bytes_to_send = write.len();
-        for (number, chunk) in write.chunks(FIFO_SIZE).enumerate() {
+        for (number, chunk) in write.chunks(self.info.fifo_size).enumerate() {
             self.info.regs.cpu_int(0).imask().modify(|w| {
                 w.set_carblost(true);
                 w.set_cnack(true);
@@ -757,7 +767,7 @@ impl<'d> I2c<'d, Async> {
         let read_len = read.len();
 
         let mut bytes_to_read = read_len;
-        for (number, chunk) in read.chunks_mut(FIFO_SIZE).enumerate() {
+        for (number, chunk) in read.chunks_mut(self.info.fifo_size).enumerate() {
             bytes_to_read -= chunk.len();
             // if the current transaction is the last & end_w_stop, send stop
             let send_stop = bytes_to_read == 0 && end_w_stop;
@@ -898,6 +908,7 @@ impl embedded_hal::i2c::Error for Error {
             Self::Crc => embedded_hal::i2c::ErrorKind::Other,
             Self::Overrun => embedded_hal::i2c::ErrorKind::Overrun,
             Self::ZeroLengthTransfer => embedded_hal::i2c::ErrorKind::Other,
+            Self::TransferLengthIsOverLimit => embedded_hal::i2c::ErrorKind::Other,
         }
     }
 }
@@ -1003,6 +1014,7 @@ pub trait SclPin<T: Instance>: crate::gpio::Pin {
 pub(crate) struct Info {
     pub(crate) regs: Regs,
     pub(crate) interrupt: Interrupt,
+    pub fifo_size: usize,
 }
 
 pub(crate) struct State {
@@ -1070,7 +1082,7 @@ pub(crate) trait SealedInstance {
 }
 
 macro_rules! impl_i2c_instance {
-    ($instance: ident) => {
+    ($instance: ident, $fifo_size: expr) => {
         impl crate::i2c::SealedInstance for crate::peripherals::$instance {
             fn info() -> &'static crate::i2c::Info {
                 use crate::i2c::Info;
@@ -1079,6 +1091,7 @@ macro_rules! impl_i2c_instance {
                 const INFO: Info = Info {
                     regs: crate::pac::$instance,
                     interrupt: crate::interrupt::typelevel::$instance::IRQ,
+                    fifo_size: $fifo_size,
                 };
                 &INFO
             }
