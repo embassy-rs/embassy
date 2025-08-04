@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 embassy-sync = { version = "0.7.0", path = "../../../../embassy-sync" }
 embassy-executor = { version = "0.8.0", path = "../../../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "arch-cortex-m", "executor-thread"] }
 embassy-time = { version = "0.4.0", path = "../../../../embassy-time", features = [] }
-embassy-nrf = { version = "0.5.0", path = "../../../../embassy-nrf", features = ["time-driver-rtc1", "gpiote", ] }
+embassy-nrf = { version = "0.6.0", path = "../../../../embassy-nrf", features = ["time-driver-rtc1", "gpiote", ] }
 embassy-boot = { version = "0.5.0", path = "../../../../embassy-boot", features = [] }
 embassy-boot-nrf = { version = "0.6.0", path = "../../../../embassy-boot-nrf", features = [] }
 embassy-embedded-hal = { version = "0.4.0", path = "../../../../embassy-embedded-hal" }
