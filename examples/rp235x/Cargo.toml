@@ -10,7 +10,7 @@ embassy-embedded-hal = { version = "0.4.0", path = "../../embassy-embedded-hal",
 embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.8.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-rp = { version = "0.6.0", path = "../../embassy-rp", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xa", "binary-info"] }
+embassy-rp = { version = "0.7.0", path = "../../embassy-rp", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp235xa", "binary-info"] }
 embassy-usb = { version = "0.5.0", path = "../../embassy-usb", features = ["defmt"] }
 embassy-net = { version = "0.7.0", path = "../../embassy-net", features = ["defmt", "tcp", "udp", "raw", "dhcpv4", "medium-ethernet", "dns"] }
 embassy-net-wiznet = { version = "0.2.0", path = "../../embassy-net-wiznet", features = ["defmt"] }
