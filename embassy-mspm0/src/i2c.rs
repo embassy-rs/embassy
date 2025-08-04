@@ -16,7 +16,6 @@ use crate::interrupt::{Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
 use crate::pac::i2c::{vals, I2c as Regs};
 use crate::pac::{self};
-use crate::time::Hertz;
 use crate::Peri;
 
 /// The clock source for the I2C.
@@ -106,15 +105,15 @@ pub enum BusSpeed {
     /// Custom mode.
     ///
     /// The custom mode frequency (in Hz) can be set manually.
-    Custom(Hertz),
+    Custom(u32),
 }
 
 impl BusSpeed {
-    fn hertz(self) -> Hertz {
+    fn hertz(self) -> u32 {
         match self {
-            Self::Standard => Hertz::khz(100),
-            Self::FastMode => Hertz::khz(400),
-            Self::FastModePlus => Hertz::mhz(1),
+            Self::Standard => 100_000,
+            Self::FastMode => 400_000,
+            Self::FastModePlus => 1_000_000,
             Self::Custom(s) => s,
         }
     }
@@ -197,12 +196,12 @@ impl Config {
     }
 
     #[cfg(any(mspm0c110x))]
-    fn calculate_clock_source(&self) -> Hertz {
+    fn calculate_clock_source(&self) -> u32 {
         // Assume that BusClk has default value.
         // TODO: calculate BusClk more precisely.
         match self.clock_source {
-            ClockSel::MfClk => Hertz::mhz(4),
-            ClockSel::BusClk => Hertz::mhz(24),
+            ClockSel::MfClk => 4_000_000,
+            ClockSel::BusClk => 24_000_000,
         }
     }
 
@@ -210,18 +209,18 @@ impl Config {
         mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x, mspm0l110x, mspm0l122x, mspm0l130x,
         mspm0l134x, mspm0l222x
     ))]
-    fn calculate_clock_source(&self) -> Hertz {
+    fn calculate_clock_source(&self) -> u32 {
         // Assume that BusClk has default value.
         // TODO: calculate BusClk more precisely.
         match self.clock_source {
-            ClockSel::MfClk => Hertz::mhz(4),
-            ClockSel::BusClk => Hertz::mhz(32),
+            ClockSel::MfClk => 4_000_000,
+            ClockSel::BusClk => 24_000_000,
         }
     }
 
     fn check_clock_i2c(&self) -> bool {
         // make sure source clock is ~20 faster than i2c clock
-        let clk_ratio = 20u8;
+        let clk_ratio = 20;
 
         let i2c_clk = self.bus_speed.hertz() / self.clock_div.divider();
         let src_clk = self.calculate_clock_source();
@@ -233,7 +232,7 @@ impl Config {
     fn define_clock_source(&mut self) -> bool {
         // decide which clock source to choose based on i2c clock.
         // If i2c speed <= 200kHz, use MfClk, otherwise use BusClk
-        if self.bus_speed.hertz() / self.clock_div.divider() > Hertz::khz(200) {
+        if self.bus_speed.hertz() / self.clock_div.divider() > 200_000 {
             // TODO: check if BUSCLK enabled
             self.clock_source = ClockSel::BusClk;
         } else {
@@ -419,7 +418,7 @@ impl<'d, M: Mode> I2c<'d, M> {
 
         self.state
             .clock
-            .store(config.calculate_clock_source().0, Ordering::Relaxed);
+            .store(config.calculate_clock_source(), Ordering::Relaxed);
 
         self.info
             .regs
