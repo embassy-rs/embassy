@@ -11,10 +11,9 @@
 #![cfg(feature = "_rp235x")]
 
 use critical_section::{acquire, release, CriticalSection, RestoreState};
-use embassy_hal_internal::Peri;
 
 use crate::qmi_cs1::QmiCs1;
-use crate::{pac, peripherals};
+use crate::pac;
 
 /// PSRAM errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -215,11 +214,9 @@ impl<'d> Psram<'d> {
     ///
     /// This will detect the PSRAM device and configure it for memory-mapped access.
     pub fn new(
-        qmi_cs1_peripheral: Peri<'d, peripherals::QMI_CS1>,
-        cs1: Peri<'d, impl crate::qmi_cs1::QmiCs1Pin>,
+        qmi_cs1: QmiCs1<'d>,
         config: Config,
     ) -> Result<Self, Error> {
-        let qmi_cs1 = QmiCs1::new(qmi_cs1_peripheral, cs1);
         let qmi = pac::QMI;
         let xip = pac::XIP_CTRL;
 
