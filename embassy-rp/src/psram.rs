@@ -255,8 +255,6 @@ impl<'d> Psram<'d> {
     #[inline(never)]
     fn verify_aps6404l(qmi: &pac::qmi::Qmi, expected_size: usize) -> Result<(), Error> {
         // APS6404L-specific constants
-        const RESET_ENABLE_CMD: u8 = 0xf5;
-        const READ_ID_CMD: u8 = 0x9f;
         const EXPECTED_KGD: u8 = 0x5D;
         crate::multicore::pause_core1();
         core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
@@ -279,126 +277,7 @@ impl<'d> Psram<'d> {
 
             let _cs = unsafe { CriticalSection::new() };
 
-            let qmi_base = qmi.as_ptr() as usize;
-
-            #[allow(unused_assignments)]
-            let mut kgd: u32 = 0;
-            #[allow(unused_assignments)]
-            let mut eid: u32 = 0;
-
-            unsafe {
-                core::arch::asm!(
-                    // Configure DIRECT_CSR: shift clkdiv (30) to bits 29:22 and set EN (bit 0)
-                    "movs {temp}, #30",
-                    "lsls {temp}, {temp}, #22",
-                    "orr {temp}, {temp}, #1",        // Set EN bit
-                    "str {temp}, [{qmi_base}]",
-
-                    // Poll for BUSY to clear before first operation
-                    "1:",
-                    "ldr {temp}, [{qmi_base}]",
-                    "lsls {temp}, {temp}, #30",      // Shift BUSY bit to sign position
-                    "bmi 1b",                        // Branch if negative (BUSY = 1)
-
-                    // Assert CS1N (bit 3)
-                    "ldr {temp}, [{qmi_base}]",
-                    "orr {temp}, {temp}, #8",        // Set ASSERT_CS1N bit (bit 3)
-                    "str {temp}, [{qmi_base}]",
-
-                    // Transmit RESET_ENABLE_CMD as quad
-                    // DIRECT_TX: OE=1 (bit 19), IWIDTH=2 (bits 17:16), DATA=RESET_ENABLE_CMD
-                    "movs {temp}, {reset_enable_cmd}",
-                    "orr {temp}, {temp}, #0x80000",  // Set OE (bit 19)
-                    "orr {temp}, {temp}, #0x20000",  // Set IWIDTH=2 (quad, bits 17:16)
-                    "str {temp}, [{qmi_base}, #4]",  // Store to DIRECT_TX
-
-                    // Wait for BUSY to clear
-                    "2:",
-                    "ldr {temp}, [{qmi_base}]",
-                    "lsls {temp}, {temp}, #30",
-                    "bmi 2b",
-
-                    // Read and discard RX data
-                    "ldr {temp}, [{qmi_base}, #8]",
-
-                    // Deassert CS1N
-                    "ldr {temp}, [{qmi_base}]",
-                    "bic {temp}, {temp}, #8",        // Clear ASSERT_CS1N bit
-                    "str {temp}, [{qmi_base}]",
-
-                    // Assert CS1N again
-                    "ldr {temp}, [{qmi_base}]",
-                    "orr {temp}, {temp}, #8",        // Set ASSERT_CS1N bit
-                    "str {temp}, [{qmi_base}]",
-
-                    // Read ID loop (7 iterations)
-                    "movs {counter}, #0",            // Initialize counter
-
-                    "3:",                            // Loop start
-                    "cmp {counter}, #0",
-                    "bne 4f",                        // If not first iteration, send 0xFF
-
-                    // First iteration: send READ_ID_CMD
-                    "movs {temp}, {read_id_cmd}",
-                    "b 5f",
-
-                    "4:",                            // Other iterations: send 0xFF
-                    "movs {temp}, #0xFF",
-
-                    "5:",
-                    "str {temp}, [{qmi_base}, #4]",  // Store to DIRECT_TX
-
-                    // Wait for TXEMPTY
-                    "6:",
-                    "ldr {temp}, [{qmi_base}]",
-                    "lsls {temp}, {temp}, #20",      // Shift TXEMPTY (bit 11) to bit 31
-                    "bpl 6b",                        // Branch if positive (TXEMPTY = 0)
-
-                    // Wait for BUSY to clear
-                    "7:",
-                    "ldr {temp}, [{qmi_base}]",
-                    "lsls {temp}, {temp}, #30",      // Shift BUSY bit to sign position
-                    "bmi 7b",                        // Branch if negative (BUSY = 1)
-
-                    // Read RX data
-                    "ldr {temp}, [{qmi_base}, #8]",
-                    "uxth {temp}, {temp}",           // Extract lower 16 bits
-
-                    // Store KGD or EID based on iteration
-                    "cmp {counter}, #5",
-                    "bne 8f",
-                    "mov {kgd}, {temp}",             // Store KGD
-                    "b 9f",
-
-                    "8:",
-                    "cmp {counter}, #6",
-                    "bne 9f",
-                    "mov {eid}, {temp}",             // Store EID
-
-                    "9:",
-                    "adds {counter}, #1",
-                    "cmp {counter}, #7",
-                    "blt 3b",                        // Continue loop if counter < 7
-
-                    // Disable direct mode: clear EN and ASSERT_CS1N
-                    "movs {temp}, #0",
-                    "str {temp}, [{qmi_base}]",
-
-                    // Memory barriers
-                    "dmb",
-                    "dsb",
-                    "isb",
-
-                    qmi_base = in(reg) qmi_base,
-                    temp = out(reg) _,
-                    counter = out(reg) _,
-                    kgd = out(reg) kgd,
-                    eid = out(reg) eid,
-                    reset_enable_cmd = const RESET_ENABLE_CMD as u32,
-                    read_id_cmd = const READ_ID_CMD as u32,
-                    options(nostack),
-                );
-            }
+            let (kgd, eid) = unsafe { Self::read_aps6404l_kgd_eid(qmi) };
 
             let mut detected_size: u32 = 0;
             if kgd == EXPECTED_KGD as u32 {
@@ -425,6 +304,134 @@ impl<'d> Psram<'d> {
         crate::multicore::resume_core1();
 
         Ok(())
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(never)]
+    unsafe fn read_aps6404l_kgd_eid(qmi: &pac::qmi::Qmi) -> (u32, u32) {
+        const RESET_ENABLE_CMD: u8 = 0xf5;
+        const READ_ID_CMD: u8 = 0x9f;
+
+        #[allow(unused_assignments)]
+        let mut kgd: u32 = 0;
+        #[allow(unused_assignments)]
+        let mut eid: u32 = 0;
+
+        let qmi_base = qmi.as_ptr() as usize;
+
+        #[cfg(target_arch = "arm")]
+        core::arch::asm!(
+        // Configure DIRECT_CSR: shift clkdiv (30) to bits 29:22 and set EN (bit 0)
+        "movs {temp}, #30",
+        "lsls {temp}, {temp}, #22",
+        "orr {temp}, {temp}, #1",        // Set EN bit
+        "str {temp}, [{qmi_base}]",
+
+        // Poll for BUSY to clear before first operation
+        "1:",
+        "ldr {temp}, [{qmi_base}]",
+        "lsls {temp}, {temp}, #30",      // Shift BUSY bit to sign position
+        "bmi 1b",                        // Branch if negative (BUSY = 1)
+
+        // Assert CS1N (bit 3)
+        "ldr {temp}, [{qmi_base}]",
+        "orr {temp}, {temp}, #8",        // Set ASSERT_CS1N bit (bit 3)
+        "str {temp}, [{qmi_base}]",
+
+        // Transmit RESET_ENABLE_CMD as quad
+        // DIRECT_TX: OE=1 (bit 19), IWIDTH=2 (bits 17:16), DATA=RESET_ENABLE_CMD
+        "movs {temp}, {reset_enable_cmd}",
+        "orr {temp}, {temp}, #0x80000",  // Set OE (bit 19)
+        "orr {temp}, {temp}, #0x20000",  // Set IWIDTH=2 (quad, bits 17:16)
+        "str {temp}, [{qmi_base}, #4]",  // Store to DIRECT_TX
+
+        // Wait for BUSY to clear
+        "2:",
+        "ldr {temp}, [{qmi_base}]",
+        "lsls {temp}, {temp}, #30",
+        "bmi 2b",
+
+        // Read and discard RX data
+        "ldr {temp}, [{qmi_base}, #8]",
+
+        // Deassert CS1N
+        "ldr {temp}, [{qmi_base}]",
+        "bic {temp}, {temp}, #8",        // Clear ASSERT_CS1N bit
+        "str {temp}, [{qmi_base}]",
+
+        // Assert CS1N again
+        "ldr {temp}, [{qmi_base}]",
+        "orr {temp}, {temp}, #8",        // Set ASSERT_CS1N bit
+        "str {temp}, [{qmi_base}]",
+
+        // Read ID loop (7 iterations)
+        "movs {counter}, #0",            // Initialize counter
+
+        "3:",                            // Loop start
+        "cmp {counter}, #0",
+        "bne 4f",                        // If not first iteration, send 0xFF
+
+        // First iteration: send READ_ID_CMD
+        "movs {temp}, {read_id_cmd}",
+        "b 5f",
+        "4:",                            // Other iterations: send 0xFF
+        "movs {temp}, #0xFF",
+        "5:",
+        "str {temp}, [{qmi_base}, #4]",  // Store to DIRECT_TX
+
+        // Wait for TXEMPTY
+        "6:",
+        "ldr {temp}, [{qmi_base}]",
+        "lsls {temp}, {temp}, #20",      // Shift TXEMPTY (bit 11) to bit 31
+        "bpl 6b",                        // Branch if positive (TXEMPTY = 0)
+
+        // Wait for BUSY to clear
+        "7:",
+        "ldr {temp}, [{qmi_base}]",
+        "lsls {temp}, {temp}, #30",      // Shift BUSY bit to sign position
+        "bmi 7b",                        // Branch if negative (BUSY = 1)
+
+        // Read RX data
+        "ldr {temp}, [{qmi_base}, #8]",
+        "uxth {temp}, {temp}",           // Extract lower 16 bits
+
+        // Store KGD or EID based on iteration
+        "cmp {counter}, #5",
+        "bne 8f",
+        "mov {kgd}, {temp}",             // Store KGD
+        "b 9f",
+        "8:",
+        "cmp {counter}, #6",
+        "bne 9f",
+        "mov {eid}, {temp}",             // Store EID
+
+        "9:",
+        "adds {counter}, #1",
+        "cmp {counter}, #7",
+        "blt 3b",                        // Continue loop if counter < 7
+
+        // Disable direct mode: clear EN and ASSERT_CS1N
+        "movs {temp}, #0",
+        "str {temp}, [{qmi_base}]",
+
+        // Memory barriers
+        "dmb",
+        "dsb",
+        "isb",
+        qmi_base = in(reg) qmi_base,
+        temp = out(reg) _,
+        counter = out(reg) _,
+        kgd = out(reg) kgd,
+        eid = out(reg) eid,
+        reset_enable_cmd = const RESET_ENABLE_CMD as u32,
+        read_id_cmd = const READ_ID_CMD as u32,
+        options(nostack),
+        );
+
+        #[cfg(target_arch = "riscv32")]
+        unimplemented!("APS6404L PSRAM verification not implemented for RISC-V");
+
+        (kgd, eid)
     }
 
     /// Initialize PSRAM with proper timing.
@@ -476,70 +483,7 @@ impl<'d> Psram<'d> {
 
             let _cs = unsafe { CriticalSection::new() };
 
-            unsafe {
-                core::arch::asm!(
-                    // Full memory barrier
-                    "dmb",
-                    "dsb",
-                    "isb",
-
-                    // Configure QMI Direct CSR register
-                    // Load base address of QMI (0x400D0000)
-                    "movw {base}, #0x0000",
-                    "movt {base}, #0x400D",
-
-                    // Load init_clkdiv and shift to bits 29:22
-                    "lsl {temp}, {clkdiv}, #22",
-
-                    // OR with EN (bit 0) and AUTO_CS1N (bit 7)
-                    "orr {temp}, {temp}, #0x81",
-
-                    // Store to DIRECT_CSR register
-                    "str {temp}, [{base}, #0]",
-
-                    // Memory barrier
-                    "dmb",
-
-                    // First busy wait loop
-                    "1:",
-                    "ldr {temp}, [{base}, #0]",      // Load DIRECT_CSR
-                    "tst {temp}, #0x2",              // Test BUSY bit (bit 1)
-                    "bne 1b",                        // Branch if busy
-
-                    // Write to Direct TX register
-                    "mov {temp}, {enter_quad_cmd}",
-
-                    // OR with NOPUSH (bit 20)
-                    "orr {temp}, {temp}, #0x100000",
-
-                    // Store to DIRECT_TX register (offset 0x4)
-                    "str {temp}, [{base}, #4]",
-
-                    // Memory barrier
-                    "dmb",
-
-                    // Second busy wait loop
-                    "2:",
-                    "ldr {temp}, [{base}, #0]",      // Load DIRECT_CSR
-                    "tst {temp}, #0x2",              // Test BUSY bit (bit 1)
-                    "bne 2b",                        // Branch if busy
-
-                    // Disable Direct CSR
-                    "mov {temp}, #0",
-                    "str {temp}, [{base}, #0]",      // Clear DIRECT_CSR register
-
-                    // Full memory barrier to ensure no prefetching
-                    "dmb",
-                    "dsb",
-                    "isb",
-
-                    base = out(reg) _,
-                    temp = out(reg) _,
-                    clkdiv = in(reg) config.init_clkdiv as u32,
-                    enter_quad_cmd = in(reg) u32::from(enter_quad_cmd),
-                    options(nostack),
-                );
-            }
+            unsafe { Self::direct_csr_send_init_command(config, enter_quad_cmd) };
 
             qmi.mem(1).timing().write(|w| {
                 w.set_cooldown(config.cooldown);
@@ -664,5 +608,75 @@ impl<'d> Psram<'d> {
         crate::multicore::resume_core1();
 
         Ok(())
+    }
+
+    #[link_section = ".data.ram_func"]
+    #[inline(never)]
+    unsafe fn direct_csr_send_init_command(config: &Config, init_cmd: u8) {
+        #[cfg(target_arch = "arm")]
+        core::arch::asm!(
+        // Full memory barrier
+        "dmb",
+        "dsb",
+        "isb",
+
+        // Configure QMI Direct CSR register
+        // Load base address of QMI (0x400D0000)
+        "movw {base}, #0x0000",
+        "movt {base}, #0x400D",
+
+        // Load init_clkdiv and shift to bits 29:22
+        "lsl {temp}, {clkdiv}, #22",
+
+        // OR with EN (bit 0) and AUTO_CS1N (bit 7)
+        "orr {temp}, {temp}, #0x81",
+
+        // Store to DIRECT_CSR register
+        "str {temp}, [{base}, #0]",
+
+        // Memory barrier
+        "dmb",
+
+        // First busy wait loop
+        "1:",
+        "ldr {temp}, [{base}, #0]",      // Load DIRECT_CSR
+        "tst {temp}, #0x2",              // Test BUSY bit (bit 1)
+        "bne 1b",                        // Branch if busy
+
+        // Write to Direct TX register
+        "mov {temp}, {enter_quad_cmd}",
+
+        // OR with NOPUSH (bit 20)
+        "orr {temp}, {temp}, #0x100000",
+
+        // Store to DIRECT_TX register (offset 0x4)
+        "str {temp}, [{base}, #4]",
+
+        // Memory barrier
+        "dmb",
+
+        // Second busy wait loop
+        "2:",
+        "ldr {temp}, [{base}, #0]",      // Load DIRECT_CSR
+        "tst {temp}, #0x2",              // Test BUSY bit (bit 1)
+        "bne 2b",                        // Branch if busy
+
+        // Disable Direct CSR
+        "mov {temp}, #0",
+        "str {temp}, [{base}, #0]",      // Clear DIRECT_CSR register
+
+        // Full memory barrier to ensure no prefetching
+        "dmb",
+        "dsb",
+        "isb",
+        base = out(reg) _,
+        temp = out(reg) _,
+        clkdiv = in(reg) config.init_clkdiv as u32,
+        enter_quad_cmd = in(reg) u32::from(init_cmd),
+        options(nostack),
+        );
+
+        #[cfg(target_arch = "riscv32")]
+        unimplemented!("Direct CSR command sending is not implemented for RISC-V yet");
     }
 }
