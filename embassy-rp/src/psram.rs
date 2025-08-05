@@ -12,8 +12,8 @@
 
 use critical_section::{acquire, release, CriticalSection, RestoreState};
 
-use crate::qmi_cs1::QmiCs1;
 use crate::pac;
+use crate::qmi_cs1::QmiCs1;
 
 /// PSRAM errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -213,10 +213,7 @@ impl<'d> Psram<'d> {
     /// Create a new PSRAM driver instance.
     ///
     /// This will detect the PSRAM device and configure it for memory-mapped access.
-    pub fn new(
-        qmi_cs1: QmiCs1<'d>,
-        config: Config,
-    ) -> Result<Self, Error> {
+    pub fn new(qmi_cs1: QmiCs1<'d>, config: Config) -> Result<Self, Error> {
         let qmi = pac::QMI;
         let xip = pac::XIP_CTRL;
 

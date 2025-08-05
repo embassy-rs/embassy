@@ -6,11 +6,11 @@
 #![no_std]
 #![no_main]
 
+use core::slice;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
-use core::slice;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -23,13 +23,12 @@ async fn main(_spawner: Spawner) {
         error!("PSRAM not found");
         loop {
             Timer::after_secs(1).await;
-        };
+        }
     };
 
     let psram_slice = unsafe {
         let psram_ptr = psram.base_address();
-        let slice: &'static mut [u8] =
-            slice::from_raw_parts_mut(psram_ptr, psram.size() as usize);
+        let slice: &'static mut [u8] = slice::from_raw_parts_mut(psram_ptr, psram.size() as usize);
         slice
     };
 

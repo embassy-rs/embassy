@@ -36,17 +36,13 @@ impl<'d> QmiCs1<'d> {
     }
 }
 
-trait SealedInstance {
-
-}
+trait SealedInstance {}
 
 /// QMI CS1 instance trait.
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + PeripheralType {}
 
-impl SealedInstance for peripherals::QMI_CS1 {
-
-}
+impl SealedInstance for peripherals::QMI_CS1 {}
 
 impl Instance for peripherals::QMI_CS1 {}
 
