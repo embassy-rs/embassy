@@ -142,9 +142,9 @@ macro_rules! float_impl {
 float_impl!(f32, u32, 32, 23);
 float_impl!(f64, u64, 64, 52);
 
-mod add_sub;
-mod cmp;
-mod conv;
-mod div;
-mod functions;
-mod mul;
+pub mod add_sub;
+pub mod cmp;
+pub mod conv;
+pub mod div;
+pub mod functions;
+pub mod mul;
