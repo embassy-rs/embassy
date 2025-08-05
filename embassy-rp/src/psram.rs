@@ -10,10 +10,11 @@
 
 #![cfg(feature = "_rp235x")]
 
-use crate::qmi_cs1::QmiCs1;
-use crate::{pac, peripherals};
 use critical_section::{acquire, release, CriticalSection, RestoreState};
 use embassy_hal_internal::Peri;
+
+use crate::qmi_cs1::QmiCs1;
+use crate::{pac, peripherals};
 
 /// PSRAM errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -204,6 +205,7 @@ impl Config {
 
 /// PSRAM driver.
 pub struct Psram<'d> {
+    #[allow(dead_code)]
     qmi_cs1: QmiCs1<'d>,
     size: usize,
 }
@@ -218,8 +220,7 @@ impl<'d> Psram<'d> {
         config: Config,
     ) -> Result<Self, Error> {
         let qmi_cs1 = QmiCs1::new(qmi_cs1_peripheral, cs1);
-        let qmi = qmi_cs1.regs();
-
+        let qmi = pac::QMI;
         let xip = pac::XIP_CTRL;
 
         // Verify PSRAM device if requested

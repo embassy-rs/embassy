@@ -34,17 +34,10 @@ impl<'d> QmiCs1<'d> {
 
         Self { _inner: qmi_cs1 }
     }
-
-    /// Get access to the QMI peripheral registers.
-    ///
-    /// This allows low-level access to configure the QMI controller for specific memory devices.
-    pub fn regs(&self) -> pac::qmi::Qmi {
-        pac::QMI
-    }
 }
 
 trait SealedInstance {
-    fn regs(&self) -> pac::qmi::Qmi;
+
 }
 
 /// QMI CS1 instance trait.
@@ -52,9 +45,7 @@ trait SealedInstance {
 pub trait Instance: SealedInstance + PeripheralType {}
 
 impl SealedInstance for peripherals::QMI_CS1 {
-    fn regs(&self) -> pac::qmi::Qmi {
-        pac::QMI
-    }
+
 }
 
 impl Instance for peripherals::QMI_CS1 {}
