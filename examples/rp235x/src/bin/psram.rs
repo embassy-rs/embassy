@@ -7,6 +7,7 @@
 #![no_main]
 
 use core::slice;
+
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_time::Timer;
