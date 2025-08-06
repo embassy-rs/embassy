@@ -100,9 +100,19 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.set_ossi(val);
     }
 
+    /// Get state of OSSR-bit in BDTR register
+    pub fn get_off_state_selection_idle(&self) -> Ossi {
+        self.inner.get_ossi()
+    }
+
     /// Set state of OSSR-bit in BDTR register
     pub fn set_off_state_selection_run(&self, val: Ossr) {
         self.inner.set_ossr(val);
+    }
+
+    /// Get state of OSSR-bit in BDTR register
+    pub fn get_off_state_selection_run(&self) -> Ossr {
+        self.inner.get_ossr()
     }
 
     /// Trigger break input from software
@@ -113,6 +123,11 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Set Master Output Enable
     pub fn set_master_output_enable(&mut self, enable: bool) {
         self.inner.set_moe(enable);
+    }
+
+    /// Get Master Output Enable
+    pub fn get_master_output_enable(&mut self) -> bool {
+        self.inner.get_moe()
     }
 
     /// Set Master Slave Mode 2
