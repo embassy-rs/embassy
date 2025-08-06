@@ -9,6 +9,7 @@ pub mod pint;
 
 #[cfg(feature = "_time_driver")]
 #[cfg_attr(feature = "time-driver-pit", path = "time_driver/pit.rs")]
+#[cfg_attr(feature = "time-driver-rtc", path = "time_driver/rtc.rs")]
 mod time_driver;
 
 // This mod MUST go last, so that it sees all the `impl_foo!` macros
