@@ -2,7 +2,7 @@
 
 use core::marker::PhantomData;
 
-use stm32_metapac::timer::vals::Ckd;
+pub use stm32_metapac::timer::vals::{Ckd, Ossi, Ossr};
 
 use super::low_level::{CountingMode, OutputPolarity, Timer};
 use super::simple_pwm::PwmPin;
@@ -80,6 +80,49 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         this.inner.set_autoreload_preload(true);
 
         this
+    }
+
+    /// Set output idle state for all channels
+    /// - `output_high_when_idle` - true if the output for the normal channels should
+    /// be high when idle, which means that the complementary channels are low. Opposite
+    /// for `false`.
+    pub fn set_output_idle_state(&self, output_high_when_idle: bool) {
+        [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
+            .iter()
+            .for_each(|&channel| {
+                self.inner.set_ois(channel, output_high_when_idle);
+                self.inner.set_oisn(channel, !output_high_when_idle);
+            });
+    }
+
+    /// Set state of OSSI-bit in BDTR register
+    pub fn set_off_state_selection_idle(&self, val: Ossi) {
+        self.inner.set_ossi(val);
+    }
+
+    /// Set state of OSSR-bit in BDTR register
+    pub fn set_off_state_selection_run(&self, val: Ossr) {
+        self.inner.set_ossr(val);
+    }
+
+    /// Trigger break input from software
+    pub fn trigger_software_break(&self, n: usize) {
+        self.inner.trigger_software_break(n);
+    }
+
+    /// Set Master Output Enable
+    pub fn set_master_output_enable(&mut self, enable: bool) {
+        self.inner.set_moe(enable);
+    }
+
+    /// Set Master Slave Mode 2
+    pub fn set_mms2(&mut self, mms2: Mms2) {
+        self.inner.set_mms2_selection(mms2);
+    }
+
+    /// Set Repetition Counter
+    pub fn set_repetition_counter(&mut self, val: u16) {
+        self.inner.set_repetition_counter(val);
     }
 
     /// Enable the given channel.
