@@ -100,7 +100,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.set_ossi(val);
     }
 
-    /// Get state of OSSR-bit in BDTR register
+    /// Get state of OSSI-bit in BDTR register
     pub fn get_off_state_selection_idle(&self) -> Ossi {
         self.inner.get_ossi()
     }
@@ -121,12 +121,12 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     }
 
     /// Set Master Output Enable
-    pub fn set_master_output_enable(&mut self, enable: bool) {
+    pub fn set_master_output_enable(&self, enable: bool) {
         self.inner.set_moe(enable);
     }
 
     /// Get Master Output Enable
-    pub fn get_master_output_enable(&mut self) -> bool {
+    pub fn get_master_output_enable(&self) -> bool {
         self.inner.get_moe()
     }
 
@@ -136,18 +136,18 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     }
 
     /// Set Repetition Counter
-    pub fn set_repetition_counter(&mut self, val: u16) {
+    pub fn set_repetition_counter(&self, val: u16) {
         self.inner.set_repetition_counter(val);
     }
 
     /// Enable the given channel.
-    pub fn enable(&mut self, channel: Channel) {
+    pub fn enable(&self, channel: Channel) {
         self.inner.enable_channel(channel, true);
         self.inner.enable_complementary_channel(channel, true);
     }
 
     /// Disable the given channel.
-    pub fn disable(&mut self, channel: Channel) {
+    pub fn disable(&self, channel: Channel) {
         self.inner.enable_complementary_channel(channel, false);
         self.inner.enable_channel(channel, false);
     }
