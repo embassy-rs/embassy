@@ -381,7 +381,7 @@ impl ReadReady for RingBufferedUartRx<'_> {
             crate::dma::ringbuffer::Error::Overrun => Self::Error::Overrun,
             crate::dma::ringbuffer::Error::DmaUnsynced => {
                 error!(
-                    "Ringbuffer error: DmaUNsynced, driver implementation is 
+                    "Ringbuffer error: DmaUNsynced, driver implementation is
                     probably bugged please open an issue"
                 );
                 // we report this as overrun since its recoverable in the same way
