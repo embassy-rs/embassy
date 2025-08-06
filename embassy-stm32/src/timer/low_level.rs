@@ -691,14 +691,29 @@ impl<'d, T: AdvancedInstance1Channel> Timer<'d, T> {
         self.regs_1ch_cmp().bdtr().modify(|w| w.set_ossi(val));
     }
 
+    /// Get state of OSSI-bit in BDTR register
+    pub fn get_ossi(&self) -> vals::Ossi {
+        self.regs_1ch_cmp().bdtr().read().ossi()
+    }
+
     /// Set state of OSSR-bit in BDTR register
     pub fn set_ossr(&self, val: vals::Ossr) {
         self.regs_1ch_cmp().bdtr().modify(|w| w.set_ossr(val));
     }
 
+    /// Get state of OSSR-bit in BDTR register
+    pub fn get_ossr(&self) -> vals::Ossr {
+        self.regs_1ch_cmp().bdtr().read().ossr()
+    }
+
     /// Set state of MOE-bit in BDTR register to en-/disable output
     pub fn set_moe(&self, enable: bool) {
         self.regs_1ch_cmp().bdtr().modify(|w| w.set_moe(enable));
+    }
+
+    /// Get state of MOE-bit in BDTR register
+    pub fn get_moe(&self) -> bool {
+        self.regs_1ch_cmp().bdtr().read().moe()
     }
 }
 
