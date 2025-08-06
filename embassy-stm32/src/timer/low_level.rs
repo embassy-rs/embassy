@@ -9,6 +9,8 @@
 use core::mem::ManuallyDrop;
 
 use embassy_hal_internal::Peri;
+#[cfg(not(stm32l0))]
+use embassy_sync::channel;
 // Re-export useful enums
 pub use stm32_metapac::timer::vals::{FilterValue, Sms as SlaveMode, Ts as TriggerSource};
 
@@ -686,6 +688,16 @@ impl<'d, T: AdvancedInstance1Channel> Timer<'d, T> {
         self.regs_1ch_cmp().bdtr().modify(|w| w.set_dtg(value));
     }
 
+    /// Set state of OSSI-bit in BDTR register
+    pub fn set_ossi(&self, val: vals::Ossi) {
+        self.regs_1ch_cmp().bdtr().modify(|w| w.set_ossi(val));
+    }
+
+    /// Set state of OSSR-bit in BDTR register
+    pub fn set_ossr(&self, val: vals::Ossr) {
+        self.regs_1ch_cmp().bdtr().modify(|w| w.set_ossr(val));
+    }
+
     /// Set state of MOE-bit in BDTR register to en-/disable output
     pub fn set_moe(&self, enable: bool) {
         self.regs_1ch_cmp().bdtr().modify(|w| w.set_moe(enable));
@@ -726,6 +738,15 @@ impl<'d, T: AdvancedInstance4Channel> Timer<'d, T> {
             .modify(|w| w.set_ccne(channel.index(), enable));
     }
 
+    /// Set Output Idle State
+    pub fn set_ois(&self, channel: Channel, val: bool) {
+        self.regs_advanced().cr2().modify(|w| w.set_ois(channel.index(), val));
+    }
+    /// Set Output Idle State Complementary Channel
+    pub fn set_oisn(&self, channel: Channel, val: bool) {
+        self.regs_advanced().cr2().modify(|w| w.set_oisn(channel.index(), val));
+    }
+
     /// Set master mode selection 2
     pub fn set_mms2_selection(&self, mms2: vals::Mms2) {
         self.regs_advanced().cr2().modify(|w| w.set_mms2(mms2));
@@ -734,5 +755,11 @@ impl<'d, T: AdvancedInstance4Channel> Timer<'d, T> {
     /// Set repetition counter
     pub fn set_repetition_counter(&self, val: u16) {
         self.regs_advanced().rcr().modify(|w| w.set_rep(val));
+    }
+
+    /// Trigger software break 1 or 2
+    /// Setting this bit generates a break event. This bit is automatically cleared by the hardware.
+    pub fn trigger_software_break(&self, n: usize) {
+        self.regs_advanced().egr().write(|r| r.set_bg(n, true));
     }
 }
