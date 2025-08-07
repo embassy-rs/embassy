@@ -107,10 +107,6 @@ pub(crate) unsafe fn on_interrupt<T: Instance>() {
     });
 }
 
-impl<'d, M: Mode> VersionSpecificInit for I2c<'d, M, Master> {
-    fn version_specific_init(&mut self) {}
-}
-
 impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     pub(crate) fn init(&mut self, config: Config) {
         self.info.regs.cr1().modify(|reg| {
