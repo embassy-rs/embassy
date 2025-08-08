@@ -174,7 +174,6 @@ pub mod uarte;
     feature = "nrf52840"
 ))]
 pub mod usb;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod wdt;
 
 // This mod MUST go last, so that it sees all the `impl_foo!` macros
