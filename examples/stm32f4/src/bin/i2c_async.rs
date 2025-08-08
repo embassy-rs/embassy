@@ -7,7 +7,6 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::I2c;
-use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, i2c, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -30,7 +29,6 @@ async fn main(_spawner: Spawner) {
         Irqs,
         p.DMA1_CH6,
         p.DMA1_CH0,
-        Hertz(100_000),
         Default::default(),
     );
 

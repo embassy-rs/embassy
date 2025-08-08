@@ -10,7 +10,6 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::I2c;
-use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, i2c, peripherals};
 use embassy_time::Instant;
 use futures_util::future::try_join3;
@@ -55,7 +54,6 @@ async fn main(_spawner: Spawner) {
         Irqs,
         p.DMA1_CH6,
         p.DMA1_CH0,
-        Hertz(100_000),
         Default::default(),
     );
 
@@ -66,7 +64,6 @@ async fn main(_spawner: Spawner) {
         Irqs,
         p.DMA1_CH7,
         p.DMA1_CH3,
-        Hertz(100_000),
         Default::default(),
     );
 
@@ -77,7 +74,6 @@ async fn main(_spawner: Spawner) {
         Irqs,
         p.DMA1_CH4,
         p.DMA1_CH2,
-        Hertz(100_000),
         Default::default(),
     );
 

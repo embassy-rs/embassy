@@ -6,7 +6,6 @@ use embassy_stm32::dcmi::{self, *};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::i2c::I2c;
 use embassy_stm32::rcc::{Mco, Mco1Source, McoPrescaler};
-use embassy_stm32::time::khz;
 use embassy_stm32::{bind_interrupts, i2c, peripherals, Config};
 use embassy_time::Timer;
 use ov7725::*;
@@ -59,7 +58,6 @@ async fn main(_spawner: Spawner) {
         Irqs,
         p.DMA1_CH1,
         p.DMA1_CH2,
-        khz(100),
         Default::default(),
     );
 

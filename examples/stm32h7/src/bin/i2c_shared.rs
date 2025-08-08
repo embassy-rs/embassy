@@ -8,7 +8,6 @@ use embassy_embedded_hal::shared_bus::blocking::i2c::I2cDevice;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::{self, I2c};
 use embassy_stm32::mode::Async;
-use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::NoopMutex;
@@ -97,7 +96,6 @@ async fn main(spawner: Spawner) {
         Irqs,
         p.DMA1_CH4,
         p.DMA1_CH5,
-        Hertz(100_000),
         Default::default(),
     );
     let i2c_bus = NoopMutex::new(RefCell::new(i2c));

@@ -6,7 +6,6 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::{Address, OwnAddresses, SlaveCommandKind};
 use embassy_stm32::mode::Async;
-use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, i2c, peripherals};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
@@ -127,8 +126,8 @@ async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    let speed = Hertz::khz(400);
-    let config = i2c::Config::default();
+    let mut config = i2c::Config::default();
+    config.frequency = Hertz::khz(400);
 
     let d_addr_config = i2c::SlaveAddrConfig {
         addr: OwnAddresses::OA1(Address::SevenBit(DEV_ADDR)),
@@ -136,14 +135,14 @@ async fn main(spawner: Spawner) {
     };
     let d_sda = p.PA8;
     let d_scl = p.PA9;
-    let device = i2c::I2c::new(p.I2C2, d_scl, d_sda, Irqs, p.DMA1_CH1, p.DMA1_CH2, speed, config)
+    let device = i2c::I2c::new(p.I2C2, d_scl, d_sda, Irqs, p.DMA1_CH1, p.DMA1_CH2, config)
         .into_slave_multimaster(d_addr_config);
 
     unwrap!(spawner.spawn(device_task(device)));
 
     let c_sda = p.PB8;
     let c_scl = p.PB7;
-    let controller = i2c::I2c::new(p.I2C1, c_sda, c_scl, Irqs, p.DMA1_CH3, p.DMA1_CH4, speed, config);
+    let controller = i2c::I2c::new(p.I2C1, c_sda, c_scl, Irqs, p.DMA1_CH3, p.DMA1_CH4, config);
 
     unwrap!(spawner.spawn(controller_task(controller)));
 }
