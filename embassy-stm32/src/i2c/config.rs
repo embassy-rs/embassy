@@ -1,6 +1,7 @@
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
 use crate::gpio::{AfType, OutputType, Speed};
+use crate::time::Hertz;
 
 #[repr(u8)]
 #[derive(Copy, Clone)]
