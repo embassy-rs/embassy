@@ -201,9 +201,15 @@ pub mod pac {
 pub const EASY_DMA_SIZE: usize = (1 << 16) - 1;
 //pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 
-//pub const FLASH_SIZE: usize = 1024 * 1024;
+// 1.5 MB NVM
+#[allow(unused)]
+pub const FLASH_SIZE: usize = 1536 * 1024;
 
 embassy_hal_internal::peripherals! {
+    #[cfg(feature = "_s")]
+    // RRAMC
+    RRAMC,
+
     // GPIO port 0
     P0_00,
     P0_01,
