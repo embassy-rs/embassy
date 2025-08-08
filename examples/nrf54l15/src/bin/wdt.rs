@@ -21,8 +21,9 @@ async fn main(_spawner: Spawner) {
     // in the WDT interrupt. The core resets 2 ticks after firing the interrupt.
     config.action_during_debug_halt = HaltConfig::PAUSE;
 
-    // The nrf54l15 has two watchdogs. Only WDT0 is available in non-secure (ns) mode, as WDT1 is
-    // reserved for the secure (s) environment. In secure mode, both WDT0 and WDT1 are available.
+    // The nrf54l15 has two watchdogs. Only one (WDT) is available in non-secure (ns) mode, as the
+    // other is reserved for the secure (s) environment. In secure mode, both are available as WDT0
+    // and WDT1.
     info!("Watchdog launched with {} s timeout", TIMEOUT_S);
     let (_wdt, [mut handle]) = match Watchdog::try_new(p.WDT1, config) {
         Ok(x) => x,
