@@ -88,7 +88,7 @@ nrf5340-app-ns = ["_nrf5340-app", "_ns"]
 ## nRF5340 network core
 nrf5340-net = ["_nrf5340-net"]
 ## nRF54L15 application core in Secure mode
-nrf54l15-app-s = ["_nrf54l15-app", "_s"]
+nrf54l15-app-s = ["_nrf54l15-app", "_s", "_multi_wdt"]
 ## nRF54L15 application core in Non-Secure mode
 nrf54l15-app-ns = ["_nrf54l15-app", "_ns"]
 
