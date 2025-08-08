@@ -98,8 +98,12 @@ pub mod ipc;
     feature = "_nrf5340-app"
 ))]
 pub mod nfct;
-#[cfg(not(feature = "_nrf54l"))] // TODO
+#[cfg(not(feature = "_nrf54l"))]
 pub mod nvmc;
+#[cfg(feature = "nrf54l15-app-s")]
+pub mod rramc;
+#[cfg(feature = "nrf54l15-app-s")]
+pub use rramc as nvmc;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(
     feature = "nrf52810",
