@@ -43,6 +43,15 @@ pub struct ComplementaryPwm<'d, T: AdvancedInstance4Channel> {
     inner: Timer<'d, T>,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+/// Determines which outputs are active when PWM is in idle mode
+pub enum IdlePolarity {
+    /// Normal channels are forced active and complementary channels are forced inactive
+    OisActive,
+    /// Normal channels are forced inactive and complementary channels are forced active
+    OisnActive,
+}
+
 impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Create a new complementary PWM driver.
     #[allow(clippy::too_many_arguments)]
@@ -82,16 +91,17 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         this
     }
 
-    /// Set output idle state for all channels
-    /// - `output_high_when_idle` - true if the output for the normal channels should
-    /// be high when idle, which means that the complementary channels are low. Opposite
-    /// for `false`.
-    pub fn set_output_idle_state(&self, output_high_when_idle: bool) {
+    /// Sets the idle output state for all channels.
+    pub fn set_output_idle_state(&self, polarity: IdlePolarity) {
+        let ois_active = match polarity {
+            IdlePolarity::OisActive => true,
+            IdlePolarity::OisnActive => false,
+        };
         [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
             .iter()
             .for_each(|&channel| {
-                self.inner.set_ois(channel, output_high_when_idle);
-                self.inner.set_oisn(channel, !output_high_when_idle);
+                self.inner.set_ois(channel, ois_active);
+                self.inner.set_oisn(channel, !ois_active);
             });
     }
 
