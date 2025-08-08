@@ -135,8 +135,8 @@ async fn main(spawner: Spawner) {
     };
     let d_sda = p.PA8;
     let d_scl = p.PA9;
-    let device = i2c::I2c::new(p.I2C2, d_scl, d_sda, Irqs, p.DMA1_CH1, p.DMA1_CH2, config)
-        .into_slave_multimaster(d_addr_config);
+    let device =
+        i2c::I2c::new(p.I2C2, d_scl, d_sda, Irqs, p.DMA1_CH1, p.DMA1_CH2, config).into_slave_multimaster(d_addr_config);
 
     unwrap!(spawner.spawn(device_task(device)));
 

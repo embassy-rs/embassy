@@ -22,15 +22,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
 
     let mut data = [0u8; 2];
-    let mut i2c = I2c::new(
-        p.I2C1,
-        p.PB8,
-        p.PB9,
-        Irqs,
-        p.DMA1_CH1,
-        p.DMA1_CH2,
-        Default::default(),
-    );
+    let mut i2c = I2c::new(p.I2C1, p.PB8, p.PB9, Irqs, p.DMA1_CH1, p.DMA1_CH2, Default::default());
 
     loop {
         match i2c.write_read(TMP117_ADDR, &[TMP117_TEMP_RESULT], &mut data).await {

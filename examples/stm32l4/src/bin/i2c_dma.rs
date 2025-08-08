@@ -18,15 +18,7 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
-    let mut i2c = I2c::new(
-        p.I2C2,
-        p.PB10,
-        p.PB11,
-        Irqs,
-        p.DMA1_CH4,
-        p.DMA1_CH5,
-        Default::default(),
-    );
+    let mut i2c = I2c::new(p.I2C2, p.PB10, p.PB11, Irqs, p.DMA1_CH4, p.DMA1_CH5, Default::default());
 
     let mut data = [0u8; 1];
     unwrap!(i2c.write_read(ADDRESS, &[WHOAMI], &mut data).await);

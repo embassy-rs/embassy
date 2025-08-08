@@ -22,15 +22,7 @@ async fn main(_spawner: Spawner) {
     info!("Hello world!");
     let p = embassy_stm32::init(Default::default());
 
-    let mut i2c = I2c::new(
-        p.I2C1,
-        p.PB8,
-        p.PB7,
-        Irqs,
-        p.DMA1_CH6,
-        p.DMA1_CH0,
-        Default::default(),
-    );
+    let mut i2c = I2c::new(p.I2C1, p.PB8, p.PB7, Irqs, p.DMA1_CH6, p.DMA1_CH0, Default::default());
 
     loop {
         let a1454_read_sensor_command = [0x1F];
