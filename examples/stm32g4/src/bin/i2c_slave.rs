@@ -6,6 +6,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::{Address, OwnAddresses, SlaveCommandKind};
 use embassy_stm32::mode::Async;
+use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, i2c, peripherals};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
