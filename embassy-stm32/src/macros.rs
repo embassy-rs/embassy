@@ -46,15 +46,22 @@ macro_rules! pin_trait {
         pub trait $signal<T: $instance $(, M: $mode)?>: crate::gpio::Pin {
             #[doc = concat!("Get the AF number needed to use this pin as ", stringify!($signal))]
             fn af_num(&self) -> u8;
+
+            #[doc = concat!("Configures AFIO_MAPR/AFIO_MAPR2 on STM32F1 to use this pin as ", stringify!($signal))]
+            fn afio_remap(&self);
         }
     };
 }
 
 macro_rules! pin_trait_impl {
-    (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $pin:ident, $af:expr) => {
+    (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $pin:ident, $af:expr, $remap:expr) => {
         impl crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)?> for crate::peripherals::$pin {
             fn af_num(&self) -> u8 {
                 $af
+            }
+
+            fn afio_remap(&self) {
+                $remap;
             }
         }
     };
@@ -134,6 +141,7 @@ macro_rules! new_dma {
 macro_rules! new_pin {
     ($name:ident, $af_type:expr) => {{
         let pin = $name;
+        pin.afio_remap();
         pin.set_as_af(pin.af_num(), $af_type);
         Some(pin.into())
     }};
