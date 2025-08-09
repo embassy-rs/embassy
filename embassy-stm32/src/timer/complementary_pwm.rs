@@ -91,22 +91,21 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         this
     }
 
-    /// Sets the idle output state for all channels.
-    pub fn set_output_idle_state(&self, polarity: IdlePolarity) {
-        let ois_active = match polarity {
-            IdlePolarity::OisActive => true,
-            IdlePolarity::OisnActive => false,
-        };
-        [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
-            .iter()
-            .for_each(|&channel| {
-                self.inner.set_ois(channel, ois_active);
-                self.inner.set_oisn(channel, !ois_active);
-            });
+    /// Sets the idle output state for the given channels.
+    pub fn set_output_idle_state(
+        &mut self,
+        channels: &[Channel],
+        polarity: IdlePolarity,
+    ) {
+        let ois_active = matches!(polarity, IdlePolarity::OisActive);
+        for &channel in channels {
+            self.inner.set_ois(channel, ois_active);
+            self.inner.set_oisn(channel, !ois_active);
+        }
     }
 
     /// Set state of OSSI-bit in BDTR register
-    pub fn set_off_state_selection_idle(&self, val: Ossi) {
+    pub fn set_off_state_selection_idle(&mut self, val: Ossi) {
         self.inner.set_ossi(val);
     }
 
@@ -116,7 +115,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     }
 
     /// Set state of OSSR-bit in BDTR register
-    pub fn set_off_state_selection_run(&self, val: Ossr) {
+    pub fn set_off_state_selection_run(&mut self, val: Ossr) {
         self.inner.set_ossr(val);
     }
 
@@ -126,12 +125,12 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     }
 
     /// Trigger break input from software
-    pub fn trigger_software_break(&self, n: usize) {
+    pub fn trigger_software_break(&mut self, n: usize) {
         self.inner.trigger_software_break(n);
     }
 
     /// Set Master Output Enable
-    pub fn set_master_output_enable(&self, enable: bool) {
+    pub fn set_master_output_enable(&mut self, enable: bool) {
         self.inner.set_moe(enable);
     }
 
@@ -146,18 +145,18 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     }
 
     /// Set Repetition Counter
-    pub fn set_repetition_counter(&self, val: u16) {
+    pub fn set_repetition_counter(&mut self, val: u16) {
         self.inner.set_repetition_counter(val);
     }
 
     /// Enable the given channel.
-    pub fn enable(&self, channel: Channel) {
+    pub fn enable(&mut self, channel: Channel) {
         self.inner.enable_channel(channel, true);
         self.inner.enable_complementary_channel(channel, true);
     }
 
     /// Disable the given channel.
-    pub fn disable(&self, channel: Channel) {
+    pub fn disable(&mut self, channel: Channel) {
         self.inner.enable_complementary_channel(channel, false);
         self.inner.enable_channel(channel, false);
     }
