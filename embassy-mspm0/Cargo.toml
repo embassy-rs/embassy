@@ -35,6 +35,7 @@ embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal", fe
 embassy-embedded-hal = { version = "0.4.0", path = "../embassy-embedded-hal", default-features = false }
 embassy-executor = { version = "0.8.0", path = "../embassy-executor", optional = true }
 
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal = { version = "1.0" }
 embedded-hal-nb = { version = "1.0" }
 embedded-hal-async = { version = "1.0" }
@@ -49,7 +50,7 @@ cortex-m = "0.7.6"
 critical-section = "1.2.0"
 
 # mspm0-metapac = { version = "" }
-mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-235158ac2865d8aac3a1eceb2d62026eb12bf38f" }
+mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-df572e257eabf06e6e0ae6c9077e0a2fec1fb5e1" }
 
 [build-dependencies]
 proc-macro2 = "1.0.94"
@@ -57,7 +58,7 @@ quote = "1.0.40"
 cfg_aliases = "0.2.1"
 
 # mspm0-metapac = { version = "", default-features = false, features = ["metadata"] }
-mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-235158ac2865d8aac3a1eceb2d62026eb12bf38f", default-features = false, features = ["metadata"] }
+mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-df572e257eabf06e6e0ae6c9077e0a2fec1fb5e1", default-features = false, features = ["metadata"] }
 
 [features]
 default = ["rt"]
