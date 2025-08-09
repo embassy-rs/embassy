@@ -67,4 +67,13 @@ embassy_hal_internal::peripherals! {
     PIO1_29,
     PIO1_30,
     PIO1_31,
+
+    USART0,
+    USART1,
+    USART2,
+    USART3,
+    USART4,
+    USART5,
+    USART6,
+    USART7
 }
