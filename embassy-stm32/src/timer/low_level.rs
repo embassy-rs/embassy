@@ -9,8 +9,6 @@
 use core::mem::ManuallyDrop;
 
 use embassy_hal_internal::Peri;
-#[cfg(not(stm32l0))]
-use embassy_sync::channel;
 // Re-export useful enums
 pub use stm32_metapac::timer::vals::{FilterValue, Sms as SlaveMode, Ts as TriggerSource};
 
