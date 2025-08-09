@@ -18,34 +18,34 @@ async fn main(_spawner: Spawner) {
 
     let button1 = InputChannel::new(
         p.GPIOTE_CH0,
-        Input::new(p.P0_11, Pull::Up),
+        Input::new(p.P0_11, Pull::Up).into(),
         InputChannelPolarity::HiToLo,
     );
     let button2 = InputChannel::new(
         p.GPIOTE_CH1,
-        Input::new(p.P0_12, Pull::Up),
+        Input::new(p.P0_12, Pull::Up).into(),
         InputChannelPolarity::HiToLo,
     );
     let button3 = InputChannel::new(
         p.GPIOTE_CH2,
-        Input::new(p.P0_24, Pull::Up),
+        Input::new(p.P0_24, Pull::Up).into(),
         InputChannelPolarity::HiToLo,
     );
     let button4 = InputChannel::new(
         p.GPIOTE_CH3,
-        Input::new(p.P0_25, Pull::Up),
+        Input::new(p.P0_25, Pull::Up).into(),
         InputChannelPolarity::HiToLo,
     );
 
     let led1 = OutputChannel::new(
         p.GPIOTE_CH4,
-        Output::new(p.P0_13, Level::Low, OutputDrive::Standard),
+        Output::new(p.P0_13, Level::Low, OutputDrive::Standard).into(),
         OutputChannelPolarity::Toggle,
     );
 
     let led2 = OutputChannel::new(
         p.GPIOTE_CH5,
-        Output::new(p.P0_14, Level::Low, OutputDrive::Standard),
+        Output::new(p.P0_14, Level::Low, OutputDrive::Standard).into(),
         OutputChannelPolarity::Toggle,
     );
 
