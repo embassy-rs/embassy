@@ -5,7 +5,6 @@ use core::marker::PhantomData;
 use embassy_hal_internal::PeripheralType;
 use stm32_metapac::vrefbuf::vals::*;
 
-use crate::pac::RCC;
 use crate::Peri;
 
 /// Voltage Reference (VREFBUF) driver.
@@ -20,14 +19,17 @@ impl<'d, T: Instance> VoltageReferenceBuffer<'d, T> {
     pub fn new(_instance: Peri<'d, T>, voltage_scale: Vrs, impedance_mode: Hiz) -> Self {
         #[cfg(rcc_wba)]
         {
+            use crate::pac::RCC;
             RCC.apb7enr().modify(|w| w.set_vrefen(true));
         }
         #[cfg(any(rcc_u5, rcc_h50, rcc_h5))]
         {
+            use crate::pac::RCC;
             RCC.apb3enr().modify(|w| w.set_vrefen(true));
         }
         #[cfg(any(rcc_h7rs, rcc_h7rm0433, rcc_h7ab, rcc_h7))]
         {
+            use crate::pac::RCC;
             RCC.apb4enr().modify(|w| w.set_vrefen(true));
         }
         let vrefbuf = T::regs();
