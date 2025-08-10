@@ -60,6 +60,7 @@ enum SlaveReceiveResult {
 // hit a case like this!
 pub unsafe fn on_interrupt<T: Instance>() {
     let regs = T::info().regs;
+    trace!("i2c v1 interrupt triggered");
     // i2c v2 only woke the task on transfer complete interrupts. v1 uses interrupts for a bunch of
     // other stuff, so we wake the task on every interrupt.
     T::state().waker.wake();
@@ -122,6 +123,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         self.info.regs.cr1().modify(|reg| {
             reg.set_pe(true);
         });
+        trace!("i2c v1 init complete");
     }
 
     fn check_and_clear_error_flags(info: &'static Info) -> Result<i2c::regs::Sr1, Error> {
@@ -407,6 +409,7 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
 
 impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     pub(crate) fn init_slave(&mut self, config: SlaveAddrConfig) {
+        trace!("i2c v1 slave init: config={:?}", config);
         // Disable peripheral for configuration
         self.info.regs.cr1().modify(|reg| {
             reg.set_pe(false);
@@ -425,6 +428,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         self.info.regs.cr1().modify(|reg| {
             reg.set_pe(true);
         });
+        trace!("i2c v1 slave init complete");
     }
 
     fn configure_oa1(&mut self, addr: Address) {
@@ -471,7 +475,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                 if !matches!(oa2.mask, AddrMask::NOMASK) {
                     // Could log a warning here that masking is ignored in v1
                     #[cfg(feature = "defmt")]
-                    defmt::warn!("I2C v1 does not support OA2 address masking, ignoring mask setting");
+                    warn!("I2C v1 does not support OA2 address masking, ignoring mask setting");
                 }
                 
                 // Must have a default OA1 when using OA2-only mode
@@ -506,24 +510,34 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     /// Listen for incoming I2C address match and return the command type
     pub fn blocking_listen(&mut self) -> Result<SlaveCommand, Error> {
+        trace!("i2c v1 slave: blocking_listen start");
         let timeout = self.timeout(); // Get timeout internally
-        self.blocking_listen_timeout(timeout)
+        let result = self.blocking_listen_timeout(timeout);
+        trace!("i2c v1 slave: blocking_listen result={:?}", result);
+        result
     }
     
     /// Respond to master read request (master wants to read from us)
     pub fn blocking_respond_to_read(&mut self, data: &[u8]) -> Result<usize, Error> {
+        trace!("i2c v1 slave: blocking_respond_to_read start, data_len={}", data.len());
         let timeout = self.timeout(); // Get timeout internally  
-        self.blocking_respond_to_read_timeout(data, timeout)
+        let result = self.blocking_respond_to_read_timeout(data, timeout);
+        trace!("i2c v1 slave: blocking_respond_to_read result={:?}", result);
+        result
     }
     
     /// Respond to master write request (master wants to write to us)
     pub fn blocking_respond_to_write(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        trace!("i2c v1 slave: blocking_respond_to_write start, buffer_len={}", buffer.len());
         let timeout = self.timeout(); // Get timeout internally
-        self.blocking_respond_to_write_timeout(buffer, timeout)
+        let result = self.blocking_respond_to_write_timeout(buffer, timeout);
+        trace!("i2c v1 slave: blocking_respond_to_write result={:?}", result);
+        result
     }
     
     // Private implementation methods with Timeout parameter
     fn blocking_listen_timeout(&mut self, timeout: Timeout) -> Result<SlaveCommand, Error> {
+        trace!("i2c v1 slave: listen_timeout start");
         // Enable address match interrupt for slave mode
         self.info.regs.cr2().modify(|w| {
             w.set_itevten(true);  // Enable event interrupts
@@ -537,13 +551,16 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
                 // Address matched! Read SR2 to get direction and clear ADDR
                 let sr2 = self.info.regs.sr2().read();
                 let direction = if sr2.tra() {
+                    trace!("i2c v1 slave: address match - READ direction (master wants to read from us)");
                     SlaveCommandKind::Read  // Master wants to read from us (we transmit)
                 } else {
+                    trace!("i2c v1 slave: address match - WRITE direction (master wants to write to us)");
                     SlaveCommandKind::Write // Master wants to write to us (we receive)
                 };
                 
                 // Determine which address was matched
                 let matched_address = self.determine_matched_address(sr2)?;
+                trace!("i2c v1 slave: matched address={:?}", matched_address);
                 
                 // ADDR is automatically cleared by reading SR1 then SR2
                 return Ok(SlaveCommand {
@@ -557,62 +574,86 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     }
     
     fn blocking_respond_to_read_timeout(&mut self, data: &[u8], timeout: Timeout) -> Result<usize, Error> {
+        trace!("i2c v1 slave: respond_to_read_timeout start, data_len={}", data.len());
         let mut bytes_sent = 0;
         
         for &byte in data {
+            trace!("i2c v1 slave: sending byte={:#x} ({})", byte, bytes_sent);
             match self.send_byte_or_nack(byte, timeout)? {
                 SlaveSendResult::Acked => {
                     bytes_sent += 1;
+                    trace!("i2c v1 slave: byte acked, total_sent={}", bytes_sent);
                     // Continue sending
                 },
-                SlaveSendResult::Nacked | SlaveSendResult::Stopped => {
-                    // Master finished reading or sent STOP
+                SlaveSendResult::Nacked => {
+                    trace!("i2c v1 slave: byte nacked, stopping transmission");
+                    break;
+                },
+                SlaveSendResult::Stopped => {
+                    trace!("i2c v1 slave: stop condition detected, stopping transmission");
                     break;
                 }
                 SlaveSendResult::Restart => {
-                    // Master wants to change direction (rare but possible)
+                    trace!("i2c v1 slave: restart detected, stopping transmission");
                     break;
                 }
             }
         }
         
+        trace!("i2c v1 slave: respond_to_read_timeout complete, bytes_sent={}", bytes_sent);
         Ok(bytes_sent)
     }
     
     fn blocking_respond_to_write_timeout(&mut self, buffer: &mut [u8], timeout: Timeout) -> Result<usize, Error> {
+        trace!("i2c v1 slave: respond_to_write_timeout start, buffer_len={}", buffer.len());
         let mut bytes_received = 0;
         while bytes_received < buffer.len() {
             match self.recv_byte_or_stop(timeout)? {
                 SlaveReceiveResult::Byte(b) => {
+                    trace!("i2c v1 slave: received byte={:#x} ({})", b, bytes_received);
                     buffer[bytes_received] = b;
                     bytes_received += 1;
                 },
-                SlaveReceiveResult::Stop => break,
-                SlaveReceiveResult::Restart => break,
+                SlaveReceiveResult::Stop => {
+                    trace!("i2c v1 slave: stop condition detected, stopping reception");
+                    break;
+                },
+                SlaveReceiveResult::Restart => {
+                    trace!("i2c v1 slave: restart detected, stopping reception");
+                    break;
+                },
             }
         }
+        trace!("i2c v1 slave: respond_to_write_timeout complete, bytes_received={}", bytes_received);
         Ok(bytes_received)
     }
     
     fn determine_matched_address(&self, sr2: stm32_metapac::i2c::regs::Sr2) -> Result<Address, Error> {
+        trace!("i2c v1 slave: determine_matched_address, sr2={:#x}", sr2.0);
         // Check for general call first
         if sr2.gencall() {
+            trace!("i2c v1 slave: general call address matched");
             Ok(Address::SevenBit(0x00))
         } else if sr2.dualf() {
             // OA2 was matched - verify it's actually enabled
             let oar2 = self.info.regs.oar2().read();
             if oar2.endual() != i2c::vals::Endual::DUAL {
+                error!("i2c v1 slave: OA2 matched but not enabled - hardware inconsistency");
                 return Err(Error::Bus); // Hardware inconsistency
             }
+            trace!("i2c v1 slave: OA2 address matched: {:#x}", oar2.add2());
             Ok(Address::SevenBit(oar2.add2()))
         } else {
             // OA1 was matched
             let oar1 = self.info.regs.oar1().read();
             match oar1.addmode() {
                 i2c::vals::Addmode::BIT7 => {
-                    Ok(Address::SevenBit((oar1.add() >> 1) as u8))
+                    let addr = (oar1.add() >> 1) as u8;
+                    trace!("i2c v1 slave: OA1 7-bit address matched: {:#x}", addr);
+                    Ok(Address::SevenBit(addr))
                 },
                 i2c::vals::Addmode::BIT10 => {
+                    trace!("i2c v1 slave: OA1 10-bit address matched: {:#x}", oar1.add());
                     Ok(Address::TenBit(oar1.add()))
                 },
             }
@@ -621,30 +662,35 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
 
     /// Send a byte in slave transmitter mode and check for ACK/NACK/STOP
     fn send_byte_or_nack(&mut self, byte: u8, timeout: Timeout) -> Result<SlaveSendResult, Error> {
+        trace!("i2c v1 slave: send_byte_or_nack start, byte={:#x}", byte);
         // Wait until we're ready for sending (TXE flag set)
         loop {
             let sr1 = Self::check_and_clear_error_flags(self.info)?;
             
             // Check for STOP condition first
             if sr1.stopf() {
+                trace!("i2c v1 slave: STOP detected before send");
                 self.info.regs.cr1().modify(|_w| {});
                 return Ok(SlaveSendResult::Stopped);
             }
             
             // Check for RESTART (new ADDR)
             if sr1.addr() {
+                trace!("i2c v1 slave: RESTART detected before send");
                 // Don't clear ADDR here - let next blocking_listen() handle it
                 return Ok(SlaveSendResult::Restart);
             }
             
             // Check for NACK (AF flag)
             if sr1.af() {
+                trace!("i2c v1 slave: NACK detected before send");
                 self.info.regs.sr1().modify(|w| w.set_af(false));
                 return Ok(SlaveSendResult::Nacked);
             }
             
             // Check if we can send data
             if sr1.txe() {
+                trace!("i2c v1 slave: TXE ready, sending byte");
                 break; // Ready to send
             }
             
@@ -653,6 +699,7 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
         
         // Send the byte
         self.info.regs.dr().write(|w| w.set_dr(byte));
+        trace!("i2c v1 slave: byte written to DR, waiting for BTF");
         
         // Wait for byte transfer to complete (BTF flag or error)
         loop {
@@ -660,23 +707,27 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
             
             // Check for STOP condition
             if sr1.stopf() {
+                trace!("i2c v1 slave: STOP detected after send");
                 self.info.regs.cr1().modify(|_w| {});
                 return Ok(SlaveSendResult::Stopped);
             }
             
             // Check for RESTART (new ADDR)  
             if sr1.addr() {
+                trace!("i2c v1 slave: RESTART detected after send");
                 return Ok(SlaveSendResult::Restart);
             }
             
             // Check for NACK (AF flag)
             if sr1.af() {
+                trace!("i2c v1 slave: NACK detected after send");
                 self.info.regs.sr1().modify(|w| w.set_af(false));
                 return Ok(SlaveSendResult::Nacked);
             }
             
             // Check for byte transfer finished
             if sr1.btf() {
+                trace!("i2c v1 slave: BTF set, byte transfer complete");
                 return Ok(SlaveSendResult::Acked);
             }
             
@@ -686,23 +737,27 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     
     /// Receive a byte in slave receiver mode or detect STOP condition
     fn recv_byte_or_stop(&mut self, timeout: Timeout) -> Result<SlaveReceiveResult, Error> {
+        trace!("i2c v1 slave: recv_byte_or_stop start");
         loop {
             let sr1 = Self::check_and_clear_error_flags(self.info)?;
             
             // Check for STOP condition first
             if sr1.stopf() {
+                trace!("i2c v1 slave: STOP detected during receive");
                 self.info.regs.cr1().modify(|_w| {});
                 return Ok(SlaveReceiveResult::Stop);
             }
             
             // Check for RESTART (new ADDR)
             if sr1.addr() {
+                trace!("i2c v1 slave: RESTART detected during receive");
                 // Don't clear ADDR here - let next blocking_listen() handle it
                 return Ok(SlaveReceiveResult::Restart);
             }
             
             if sr1.rxne() {
                 let byte = self.info.regs.dr().read().dr();
+                trace!("i2c v1 slave: received byte={:#x}", byte);
                 return Ok(SlaveReceiveResult::Byte(byte));
             }
             
