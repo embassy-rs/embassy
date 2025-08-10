@@ -32,6 +32,21 @@ impl State {
     }
 }
 
+#[derive(Debug, PartialEq)]
+enum SlaveSendResult {
+    Acked,    // Byte sent and ACK received from master
+    Nacked,   // Byte sent but NACK received (normal end of transmission)
+    Stopped,  // STOP condition detected
+    Restart,  // RESTART condition detected
+}
+
+#[derive(Debug, PartialEq)]
+enum SlaveReceiveResult {
+    Byte(u8),     // Data byte received
+    Stop,         // STOP condition detected  
+    Restart,      // RESTART condition (new ADDR) detected
+}
+
 // /!\                      /!\
 // /!\ Implementation note! /!\
 // /!\                      /!\
@@ -367,6 +382,332 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             w.set_iterren(true);
             w.set_itevten(true);
         });
+    }
+}
+
+impl<'d, M: Mode> I2c<'d, M, Master> {
+    /// Configure the I2C driver for slave operations, allowing for the driver to be used as a slave and a master (multimaster)
+    pub fn into_slave_multimaster(mut self, slave_addr_config: SlaveAddrConfig) -> I2c<'d, M, MultiMaster> {
+        let mut slave = I2c {
+            info: self.info,
+            state: self.state,
+            kernel_clock: self.kernel_clock,
+            tx_dma: self.tx_dma.take(),  // Use take() to move ownership
+            rx_dma: self.rx_dma.take(),  // Use take() to move ownership
+            #[cfg(feature = "time")]
+            timeout: self.timeout,
+            _phantom: PhantomData,
+            _phantom2: PhantomData,
+            _drop_guard: self._drop_guard,  // Move the drop guard
+        };
+        slave.init_slave(slave_addr_config);
+        slave
+    }
+}
+
+impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
+    pub(crate) fn init_slave(&mut self, config: SlaveAddrConfig) {
+        // Disable peripheral for configuration
+        self.info.regs.cr1().modify(|reg| {
+            reg.set_pe(false);
+        });
+
+        // Configure v1-specific slave settings
+        self.configure_addresses(config);
+        
+        // Enable slave mode interrupts and settings
+        self.info.regs.cr2().modify(|w| {
+            w.set_itevten(true);  // Event interrupts
+            w.set_iterren(true);  // Error interrupts  
+        });
+
+        // Re-enable peripheral
+        self.info.regs.cr1().modify(|reg| {
+            reg.set_pe(true);
+        });
+    }
+
+    fn configure_oa1(&mut self, addr: Address) {
+        match addr {
+            Address::SevenBit(addr) => {
+                self.info.regs.oar1().write(|reg| {
+                    // v1 uses left-shifted 7-bit address in bits [7:1]
+                    // STM32 reference manual says bits 7:1 for address, bit 0 don't care for 7-bit
+                    reg.set_add((addr as u16) << 1);
+                    reg.set_addmode(i2c::vals::Addmode::BIT7);
+                });
+            },
+            Address::TenBit(addr) => {
+                self.info.regs.oar1().modify(|reg| {
+                    reg.set_add(addr);  // Set address bits [9:0]
+                    reg.set_addmode(i2c::vals::Addmode::BIT10);
+                    // Manually set bit 14 as required by reference manual
+                    reg.0 |= 1 << 14;
+                });
+            }
+        }
+    }
+
+    fn configure_oa2_simple(&mut self, addr: u8) {
+        self.info.regs.oar2().write(|reg| {
+            // v1 OA2: 7-bit address only, no masking support
+            // Address goes in bits [7:1], enable dual addressing
+            reg.set_add2(addr);
+            reg.set_endual(i2c::vals::Endual::DUAL);
+        });
+    }
+
+    fn configure_addresses(&mut self, config: SlaveAddrConfig) {
+        match config.addr {
+            OwnAddresses::OA1(addr) => {
+                self.configure_oa1(addr);
+                // Disable OA2 if not needed
+                self.info.regs.oar2().write(|reg| {
+                    reg.set_endual(i2c::vals::Endual::SINGLE);
+                });
+            },
+            OwnAddresses::OA2(oa2) => {
+                // v1 limitation: ignore mask, only support simple OA2
+                if !matches!(oa2.mask, AddrMask::NOMASK) {
+                    // Could log a warning here that masking is ignored in v1
+                    #[cfg(feature = "defmt")]
+                    defmt::warn!("I2C v1 does not support OA2 address masking, ignoring mask setting");
+                }
+                
+                // Must have a default OA1 when using OA2-only mode
+                // Set OA1 to a reserved address that won't conflict
+                self.info.regs.oar1().write(|reg| {
+                    reg.set_add(0);  // Address 0x00 is reserved, safe to use
+                    reg.set_addmode(i2c::vals::Addmode::BIT7);
+                });
+                
+                self.configure_oa2_simple(oa2.addr);
+            },
+            OwnAddresses::Both { oa1, oa2 } => {
+                self.configure_oa1(oa1);
+                
+                // Same masking limitation applies
+                if !matches!(oa2.mask, AddrMask::NOMASK) {
+                    #[cfg(feature = "defmt")]
+                    defmt::warn!("I2C v1 does not support OA2 address masking, ignoring mask setting");
+                }
+                
+                self.configure_oa2_simple(oa2.addr);
+            }
+        }
+        
+        // Configure general call if requested
+        if config.general_call {
+            self.info.regs.cr1().modify(|w| w.set_engc(true));
+        }
+    }
+}
+
+impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
+    /// Listen for incoming I2C address match and return the command type
+    pub fn blocking_listen(&mut self) -> Result<SlaveCommand, Error> {
+        let timeout = self.timeout(); // Get timeout internally
+        self.blocking_listen_timeout(timeout)
+    }
+    
+    /// Respond to master read request (master wants to read from us)
+    pub fn blocking_respond_to_read(&mut self, data: &[u8]) -> Result<usize, Error> {
+        let timeout = self.timeout(); // Get timeout internally  
+        self.blocking_respond_to_read_timeout(data, timeout)
+    }
+    
+    /// Respond to master write request (master wants to write to us)
+    pub fn blocking_respond_to_write(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        let timeout = self.timeout(); // Get timeout internally
+        self.blocking_respond_to_write_timeout(buffer, timeout)
+    }
+    
+    // Private implementation methods with Timeout parameter
+    fn blocking_listen_timeout(&mut self, timeout: Timeout) -> Result<SlaveCommand, Error> {
+        // Enable address match interrupt for slave mode
+        self.info.regs.cr2().modify(|w| {
+            w.set_itevten(true);  // Enable event interrupts
+        });
+        
+        // Wait for address match (ADDR flag)
+        loop {
+            let sr1 = Self::check_and_clear_error_flags(self.info)?;
+            
+            if sr1.addr() {
+                // Address matched! Read SR2 to get direction and clear ADDR
+                let sr2 = self.info.regs.sr2().read();
+                let direction = if sr2.tra() {
+                    SlaveCommandKind::Read  // Master wants to read from us (we transmit)
+                } else {
+                    SlaveCommandKind::Write // Master wants to write to us (we receive)
+                };
+                
+                // Determine which address was matched
+                let matched_address = self.determine_matched_address(sr2)?;
+                
+                // ADDR is automatically cleared by reading SR1 then SR2
+                return Ok(SlaveCommand {
+                    kind: direction,
+                    address: matched_address,
+                });
+            }
+            
+            timeout.check()?;
+        }
+    }
+    
+    fn blocking_respond_to_read_timeout(&mut self, data: &[u8], timeout: Timeout) -> Result<usize, Error> {
+        let mut bytes_sent = 0;
+        
+        for &byte in data {
+            match self.send_byte_or_nack(byte, timeout)? {
+                SlaveSendResult::Acked => {
+                    bytes_sent += 1;
+                    // Continue sending
+                },
+                SlaveSendResult::Nacked | SlaveSendResult::Stopped => {
+                    // Master finished reading or sent STOP
+                    break;
+                }
+                SlaveSendResult::Restart => {
+                    // Master wants to change direction (rare but possible)
+                    break;
+                }
+            }
+        }
+        
+        Ok(bytes_sent)
+    }
+    
+    fn blocking_respond_to_write_timeout(&mut self, buffer: &mut [u8], timeout: Timeout) -> Result<usize, Error> {
+        let mut bytes_received = 0;
+        while bytes_received < buffer.len() {
+            match self.recv_byte_or_stop(timeout)? {
+                SlaveReceiveResult::Byte(b) => {
+                    buffer[bytes_received] = b;
+                    bytes_received += 1;
+                },
+                SlaveReceiveResult::Stop => break,
+                SlaveReceiveResult::Restart => break,
+            }
+        }
+        Ok(bytes_received)
+    }
+    
+    fn determine_matched_address(&self, sr2: stm32_metapac::i2c::regs::Sr2) -> Result<Address, Error> {
+        // Check for general call first
+        if sr2.gencall() {
+            Ok(Address::SevenBit(0x00))
+        } else if sr2.dualf() {
+            // OA2 was matched - verify it's actually enabled
+            let oar2 = self.info.regs.oar2().read();
+            if oar2.endual() != i2c::vals::Endual::DUAL {
+                return Err(Error::Bus); // Hardware inconsistency
+            }
+            Ok(Address::SevenBit(oar2.add2()))
+        } else {
+            // OA1 was matched
+            let oar1 = self.info.regs.oar1().read();
+            match oar1.addmode() {
+                i2c::vals::Addmode::BIT7 => {
+                    Ok(Address::SevenBit((oar1.add() >> 1) as u8))
+                },
+                i2c::vals::Addmode::BIT10 => {
+                    Ok(Address::TenBit(oar1.add()))
+                },
+            }
+        }
+    }
+
+    /// Send a byte in slave transmitter mode and check for ACK/NACK/STOP
+    fn send_byte_or_nack(&mut self, byte: u8, timeout: Timeout) -> Result<SlaveSendResult, Error> {
+        // Wait until we're ready for sending (TXE flag set)
+        loop {
+            let sr1 = Self::check_and_clear_error_flags(self.info)?;
+            
+            // Check for STOP condition first
+            if sr1.stopf() {
+                self.info.regs.cr1().modify(|_w| {});
+                return Ok(SlaveSendResult::Stopped);
+            }
+            
+            // Check for RESTART (new ADDR)
+            if sr1.addr() {
+                // Don't clear ADDR here - let next blocking_listen() handle it
+                return Ok(SlaveSendResult::Restart);
+            }
+            
+            // Check for NACK (AF flag)
+            if sr1.af() {
+                self.info.regs.sr1().modify(|w| w.set_af(false));
+                return Ok(SlaveSendResult::Nacked);
+            }
+            
+            // Check if we can send data
+            if sr1.txe() {
+                break; // Ready to send
+            }
+            
+            timeout.check()?;
+        }
+        
+        // Send the byte
+        self.info.regs.dr().write(|w| w.set_dr(byte));
+        
+        // Wait for byte transfer to complete (BTF flag or error)
+        loop {
+            let sr1 = Self::check_and_clear_error_flags(self.info)?;
+            
+            // Check for STOP condition
+            if sr1.stopf() {
+                self.info.regs.cr1().modify(|_w| {});
+                return Ok(SlaveSendResult::Stopped);
+            }
+            
+            // Check for RESTART (new ADDR)  
+            if sr1.addr() {
+                return Ok(SlaveSendResult::Restart);
+            }
+            
+            // Check for NACK (AF flag)
+            if sr1.af() {
+                self.info.regs.sr1().modify(|w| w.set_af(false));
+                return Ok(SlaveSendResult::Nacked);
+            }
+            
+            // Check for byte transfer finished
+            if sr1.btf() {
+                return Ok(SlaveSendResult::Acked);
+            }
+            
+            timeout.check()?;
+        }
+    }
+    
+    /// Receive a byte in slave receiver mode or detect STOP condition
+    fn recv_byte_or_stop(&mut self, timeout: Timeout) -> Result<SlaveReceiveResult, Error> {
+        loop {
+            let sr1 = Self::check_and_clear_error_flags(self.info)?;
+            
+            // Check for STOP condition first
+            if sr1.stopf() {
+                self.info.regs.cr1().modify(|_w| {});
+                return Ok(SlaveReceiveResult::Stop);
+            }
+            
+            // Check for RESTART (new ADDR)
+            if sr1.addr() {
+                // Don't clear ADDR here - let next blocking_listen() handle it
+                return Ok(SlaveReceiveResult::Restart);
+            }
+            
+            if sr1.rxne() {
+                let byte = self.info.regs.dr().read().dr();
+                return Ok(SlaveReceiveResult::Byte(byte));
+            }
+            
+            timeout.check()?;
+        }
     }
 }
 
