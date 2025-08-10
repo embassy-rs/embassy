@@ -43,7 +43,7 @@ pub unsafe fn on_interrupt<T: Instance>() {
 }
 
 impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
-    pub(crate) fn init(&mut self, freq: Hertz, _config: Config) {
+    pub(crate) fn init(&mut self, config: Config) {
         self.info.regs.cr1().modify(|reg| {
             reg.set_pe(false);
             //reg.set_anfoff(false);
@@ -75,7 +75,7 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
             reg.set_swrst(false);
         });
 
-        let timings = Timings::new(self.kernel_clock, freq);
+        let timings = Timings::new(self.kernel_clock, config.frequency);
 
         self.info.regs.cr2().modify(|reg| {
             reg.set_freq(timings.freq);
@@ -738,15 +738,15 @@ struct Timings {
 }
 
 impl Timings {
-    fn new(i2cclk: Hertz, speed: Hertz) -> Self {
+    fn new(i2cclk: Hertz, frequency: Hertz) -> Self {
         // Calculate settings for I2C speed modes
-        let speed = speed.0;
+        let frequency = frequency.0;
         let clock = i2cclk.0;
         let freq = clock / 1_000_000;
         assert!((2..=50).contains(&freq));
 
         // Configure bus frequency into I2C peripheral
-        let trise = if speed <= 100_000 {
+        let trise = if frequency <= 100_000 {
             freq + 1
         } else {
             (freq * 300) / 1000 + 1
@@ -757,11 +757,11 @@ impl Timings {
         let mode;
 
         // I2C clock control calculation
-        if speed <= 100_000 {
+        if frequency <= 100_000 {
             duty = Duty::Duty2_1;
             mode = Mode::Standard;
             ccr = {
-                let ccr = clock / (speed * 2);
+                let ccr = clock / (frequency * 2);
                 if ccr < 4 {
                     4
                 } else {
@@ -773,13 +773,13 @@ impl Timings {
             mode = Mode::Fast;
             if DUTYCYCLE == 0 {
                 duty = Duty::Duty2_1;
-                ccr = clock / (speed * 3);
+                ccr = clock / (frequency * 3);
                 ccr = if ccr < 1 { 1 } else { ccr };
 
                 // Set clock to fast mode with appropriate parameters for selected speed (2:1 duty cycle)
             } else {
                 duty = Duty::Duty16_9;
-                ccr = clock / (speed * 25);
+                ccr = clock / (frequency * 25);
                 ccr = if ccr < 1 { 1 } else { ccr };
 
                 // Set clock to fast mode with appropriate parameters for selected speed (16:9 duty cycle)

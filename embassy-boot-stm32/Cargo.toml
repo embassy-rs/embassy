@@ -26,7 +26,7 @@ log = { version = "0.4", optional = true }
 
 embassy-sync = { version = "0.7.0", path = "../embassy-sync" }
 embassy-stm32 = { version = "0.2.0", path = "../embassy-stm32", default-features = false }
-embassy-boot = { version = "0.5.0", path = "../embassy-boot" }
+embassy-boot = { version = "0.6.0", path = "../embassy-boot" }
 cortex-m = { version = "0.7.6" }
 cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.1"
