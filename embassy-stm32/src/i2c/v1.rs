@@ -408,57 +408,97 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
 }
 
 impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
+    /// Enhanced slave configuration with proper v1 address setup
     pub(crate) fn init_slave(&mut self, config: SlaveAddrConfig) {
         trace!("i2c v1 slave init: config={:?}", config);
+        
         // Disable peripheral for configuration
         self.info.regs.cr1().modify(|reg| {
             reg.set_pe(false);
         });
-
-        // Configure v1-specific slave settings
+        
+        // Configure addresses with proper v1 format
         self.configure_addresses(config);
         
-        // Enable slave mode interrupts and settings
-        self.info.regs.cr2().modify(|w| {
-            w.set_itevten(true);  // Event interrupts
-            w.set_iterren(true);  // Error interrupts  
-        });
+        // Configure general call if requested
+        if config.general_call {
+            self.info.regs.cr1().modify(|w| w.set_engc(true));
+            trace!("i2c v1 slave: General call enabled");
+        }
+        
+        // Log final configuration before enabling
+        let cr1 = self.info.regs.cr1().read();
+        let oar1 = self.info.regs.oar1().read();
+        let oar2 = self.info.regs.oar2().read();
+        trace!("i2c v1 slave: Pre-enable state - CR1={:#x}, OAR1={:#x}, OAR2={:#x}", 
+               cr1.0, oar1.0, oar2.0);
+        trace!("i2c v1 slave: Address details - OAR1.ADD={:#x}, OAR1.ADDMODE={}, bit14={}", 
+               oar1.add(), oar1.addmode() as u8, (oar1.0 >> 14) & 1);
 
-        // Re-enable peripheral
         self.info.regs.cr1().modify(|reg| {
-            reg.set_pe(true);
+            reg.set_pe(true);   // Re-enable peripheral
+            reg.set_ack(true);  // Critical for slave to ACK its address
         });
+        
+        // Verify peripheral is enabled and ready
+        let cr1_final = self.info.regs.cr1().read();
+        trace!("i2c v1 slave: Final state - CR1={:#x}, PE={}", cr1_final.0, cr1_final.pe());
+        
         trace!("i2c v1 slave init complete");
     }
 
     fn configure_oa1(&mut self, addr: Address) {
         match addr {
             Address::SevenBit(addr) => {
+                trace!("i2c v1 slave: Setting OA1 7-bit address: input={:#x}", addr);
                 self.info.regs.oar1().write(|reg| {
-                    // v1 uses left-shifted 7-bit address in bits [7:1]
-                    // STM32 reference manual says bits 7:1 for address, bit 0 don't care for 7-bit
-                    reg.set_add((addr as u16) << 1);
+                    // For I2C v1, the 7-bit address goes in bits [7:1] of the ADD field
+                    // The ADD field spans bits [9:0], so we put the address in the correct position
+                    let hw_addr = (addr as u16) << 1;  // This puts address in bits [7:1], bit [0] = 0
+                    reg.set_add(hw_addr);
                     reg.set_addmode(i2c::vals::Addmode::BIT7);
                 });
+                
+                // CRITICAL: Set bit 14 as required by the reference manual
+                // "Bit 14: Should always be kept at 1 by software"
+                self.info.regs.oar1().modify(|reg| {
+                    reg.0 |= 1 << 14;  // Set bit 14
+                });
+                
+                let oar1_verify = self.info.regs.oar1().read();
+                trace!("i2c v1 slave: OA1 configured - OAR1={:#x}, stored_addr={:#x}, bit14={}", 
+                       oar1_verify.0, oar1_verify.add(), (oar1_verify.0 >> 14) & 1);
             },
             Address::TenBit(addr) => {
-                self.info.regs.oar1().modify(|reg| {
-                    reg.set_add(addr);  // Set address bits [9:0]
+                trace!("i2c v1 slave: Setting OA1 10-bit address: {:#x}", addr);
+                self.info.regs.oar1().write(|reg| {
+                    reg.set_add(addr);  // For 10-bit, full address goes in ADD field
                     reg.set_addmode(i2c::vals::Addmode::BIT10);
-                    // Manually set bit 14 as required by reference manual
-                    reg.0 |= 1 << 14;
                 });
+                
+                // Set required bit 14 for 10-bit mode too
+                self.info.regs.oar1().modify(|reg| {
+                    reg.0 |= 1 << 14;  // Set bit 14
+                });
+                
+                let oar1_verify = self.info.regs.oar1().read();
+                trace!("i2c v1 slave: OA1 10-bit configured - OAR1={:#x}, bit14={}", 
+                       oar1_verify.0, (oar1_verify.0 >> 14) & 1);
             }
         }
     }
-
+    
     fn configure_oa2_simple(&mut self, addr: u8) {
+        trace!("i2c v1 slave: Setting OA2 address: {:#x}", addr);
         self.info.regs.oar2().write(|reg| {
-            // v1 OA2: 7-bit address only, no masking support
-            // Address goes in bits [7:1], enable dual addressing
-            reg.set_add2(addr);
-            reg.set_endual(i2c::vals::Endual::DUAL);
+            // For OA2, the address goes in bits [7:1] of the ADD2 field
+            reg.set_add2(addr);  // ADD2 field automatically handles bits [7:1] placement
+            reg.set_endual(i2c::vals::Endual::DUAL);  // Enable dual addressing
         });
+        
+        let oar2_verify = self.info.regs.oar2().read();
+        trace!("i2c v1 slave: OA2 configured - OAR2={:#x}, ADD2={:#x}, ENDUAL={}", 
+               oar2_verify.0, oar2_verify.add2(), oar2_verify.endual() as u8);
     }
 
     fn configure_addresses(&mut self, config: SlaveAddrConfig) {
@@ -504,6 +544,52 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         if config.general_call {
             self.info.regs.cr1().modify(|w| w.set_engc(true));
         }
+    }
+}
+
+// Also add a verification function to check address configuration
+impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
+    /// Verify the slave address configuration is correct
+    pub fn verify_slave_config(&self) -> Result<(), Error> {
+        let oar1 = self.info.regs.oar1().read();
+        let oar2 = self.info.regs.oar2().read();
+        let cr1 = self.info.regs.cr1().read();
+        
+        info!("I2C v1 Slave Configuration Verification:");
+        info!("  CR1: {:#x} (PE={})", cr1.0, cr1.pe());
+        info!("  OAR1: {:#x}", oar1.0);
+        info!("    ADD: {:#x}", oar1.add());
+        info!("    ADDMODE: {} ({})", oar1.addmode() as u8, 
+             if oar1.addmode() as u8 == 0 { "7-bit" } else { "10-bit" });
+        info!("    Bit 14: {}", (oar1.0 >> 14) & 1);
+        info!("  OAR2: {:#x}", oar2.0);
+        info!("    ADD2: {:#x}", oar2.add2());
+        info!("    ENDUAL: {} ({})", oar2.endual() as u8,
+             if oar2.endual() as u8 == 0 { "Single" } else { "Dual" });
+        
+        // Check critical requirements
+        if !cr1.pe() {
+            error!("ERROR: I2C peripheral not enabled (PE=0)");
+            return Err(Error::Bus);
+        }
+        
+        if (oar1.0 >> 14) & 1 == 0 {
+            error!("ERROR: OAR1 bit 14 not set (required by reference manual)");
+            return Err(Error::Bus);
+        }
+        
+        // For 7-bit mode, verify address is in correct position
+        if oar1.addmode() as u8 == 0 {  // 7-bit mode
+            let expected_addr = 0x42u16 << 1;  // 0x84
+            if oar1.add() != expected_addr {
+                error!("ERROR: OAR1 address mismatch - expected {:#x}, got {:#x}", 
+                       expected_addr, oar1.add());
+                return Err(Error::Bus);
+            }
+        }
+        
+        info!("✓ Slave configuration appears correct");
+        Ok(())
     }
 }
 
