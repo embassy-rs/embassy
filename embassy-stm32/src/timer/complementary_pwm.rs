@@ -92,11 +92,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     }
 
     /// Sets the idle output state for the given channels.
-    pub fn set_output_idle_state(
-        &mut self,
-        channels: &[Channel],
-        polarity: IdlePolarity,
-    ) {
+    pub fn set_output_idle_state(&mut self, channels: &[Channel], polarity: IdlePolarity) {
         let ois_active = matches!(polarity, IdlePolarity::OisActive);
         for &channel in channels {
             self.inner.set_ois(channel, ois_active);
@@ -137,16 +133,6 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Get Master Output Enable
     pub fn get_master_output_enable(&self) -> bool {
         self.inner.get_moe()
-    }
-
-    /// Set Master Slave Mode 2
-    pub fn set_mms2(&mut self, mms2: Mms2) {
-        self.inner.set_mms2_selection(mms2);
-    }
-
-    /// Set Repetition Counter
-    pub fn set_repetition_counter(&mut self, val: u16) {
-        self.inner.set_repetition_counter(val);
     }
 
     /// Enable the given channel.
