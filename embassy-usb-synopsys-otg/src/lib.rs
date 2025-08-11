@@ -76,10 +76,16 @@ pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(r: Otg, state: &State<MAX_
                     let buf =
                         unsafe { core::slice::from_raw_parts_mut(*state.ep_states[ep_num].out_buffer.get(), len) };
 
-                    for chunk in buf.chunks_mut(4) {
+                    let mut chunks = buf.chunks_exact_mut(4);
+                    for chunk in &mut chunks {
                         // RX FIFO is shared so always read from fifo(0)
                         let data = r.fifo(0).read().0;
-                        chunk.copy_from_slice(&data.to_ne_bytes()[0..chunk.len()]);
+                        chunk.copy_from_slice(&data.to_ne_bytes());
+                    }
+                    let rem = chunks.into_remainder();
+                    if !rem.is_empty() {
+                        let data = r.fifo(0).read().0;
+                        rem.copy_from_slice(&data.to_ne_bytes()[0..rem.len()]);
                     }
 
                     state.ep_states[ep_num].out_size.store(len as u16, Ordering::Release);
