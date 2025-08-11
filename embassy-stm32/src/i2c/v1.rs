@@ -618,14 +618,28 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     fn blocking_respond_to_read_timeout(&mut self, data: &[u8], timeout: Timeout) -> Result<usize, Error> {
         trace!("i2c v1 slave: respond_to_read_timeout start, data_len={}", data.len());
         let mut bytes_sent = 0;
+        let mut data_exhausted = false;
         
-        for &byte in data {
-            trace!("i2c v1 slave: sending byte={:#x} ({})", byte, bytes_sent);
-            match self.send_byte_or_nack(byte, timeout)? {
+        loop {
+            // Determine what byte to send
+            let byte_to_send = if bytes_sent < data.len() {
+                // Send real data
+                data[bytes_sent]
+            } else {
+                // Data exhausted - send padding bytes
+                if !data_exhausted {
+                    trace!("i2c v1 slave: real data exhausted, sending padding bytes");
+                    data_exhausted = true;
+                }
+                0x00  // Send zeros as padding (or 0xFF, or last byte repeated)
+            };
+            
+            trace!("i2c v1 slave: sending byte={:#x} ({})", byte_to_send, bytes_sent);
+            match self.send_byte_or_nack(byte_to_send, timeout)? {
                 SlaveSendResult::Acked => {
                     bytes_sent += 1;
                     trace!("i2c v1 slave: byte acked, total_sent={}", bytes_sent);
-                    // Continue sending
+                    // Continue sending more bytes
                 },
                 SlaveSendResult::Nacked => {
                     bytes_sent += 1; // Count the NACKed byte as sent
@@ -644,13 +658,16 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
         }
         
         trace!("i2c v1 slave: respond_to_read_timeout complete, bytes_sent={}", bytes_sent);
-        Ok(bytes_sent) // Always return success with byte count
+        Ok(bytes_sent) // Return total bytes sent (including padding)
     }
     
     fn blocking_respond_to_write_timeout(&mut self, buffer: &mut [u8], timeout: Timeout) -> Result<usize, Error> {
         trace!("i2c v1 slave: respond_to_write_timeout start, buffer_len={}", buffer.len());
         let mut bytes_received = 0;
-        while bytes_received < buffer.len() {
+        let buffer_capacity = buffer.len();
+        let mut overflow_detected = false;
+        
+        while bytes_received < buffer_capacity {
             match self.recv_byte_or_stop(timeout)? {
                 SlaveReceiveResult::Byte(b) => {
                     trace!("i2c v1 slave: received byte={:#x} ({})", b, bytes_received);
@@ -667,8 +684,39 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
                 },
             }
         }
-        trace!("i2c v1 slave: respond_to_write_timeout complete, bytes_received={}", bytes_received);
-        Ok(bytes_received)
+        
+        // Handle buffer overflow - continue receiving but discard bytes
+        if bytes_received >= buffer_capacity {
+            loop {
+                match self.recv_byte_or_stop(timeout)? {
+                    SlaveReceiveResult::Byte(b) => {
+                        if !overflow_detected {
+                            trace!("i2c v1 slave: buffer full, discarding excess bytes");
+                            overflow_detected = true;
+                        }
+                        trace!("i2c v1 slave: discarding overflow byte={:#x}", b);
+                        // Byte is discarded but we still ACK it
+                    },
+                    SlaveReceiveResult::Stop => {
+                        trace!("i2c v1 slave: stop condition detected after overflow");
+                        break;
+                    },
+                    SlaveReceiveResult::Restart => {
+                        trace!("i2c v1 slave: restart detected after overflow");
+                        break;
+                    },
+                }
+            }
+        }
+        
+        if overflow_detected {
+            trace!("i2c v1 slave: transaction complete with overflow - received {} bytes, buffer held {}", 
+                bytes_received, buffer_capacity);
+        } else {
+            trace!("i2c v1 slave: respond_to_write_timeout complete, bytes_received={}", bytes_received);
+        }
+        
+        Ok(bytes_received.min(buffer_capacity)) // Return stored bytes, not total received
     }
     
     fn determine_matched_address(&self, sr2: stm32_metapac::i2c::regs::Sr2) -> Result<Address, Error> {
