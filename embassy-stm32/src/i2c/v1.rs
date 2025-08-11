@@ -408,7 +408,7 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
 }
 
 impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
-    /// Enhanced slave configuration with proper v1 address setup
+    /// Slave configuration with v1 address setup
     pub(crate) fn init_slave(&mut self, config: SlaveAddrConfig) {
         trace!("i2c v1 slave init: config={:?}", config);
         
@@ -547,52 +547,6 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     }
 }
 
-// Also add a verification function to check address configuration
-impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
-    /// Verify the slave address configuration is correct
-    pub fn verify_slave_config(&self) -> Result<(), Error> {
-        let oar1 = self.info.regs.oar1().read();
-        let oar2 = self.info.regs.oar2().read();
-        let cr1 = self.info.regs.cr1().read();
-        
-        info!("I2C v1 Slave Configuration Verification:");
-        info!("  CR1: {:#x} (PE={})", cr1.0, cr1.pe());
-        info!("  OAR1: {:#x}", oar1.0);
-        info!("    ADD: {:#x}", oar1.add());
-        info!("    ADDMODE: {} ({})", oar1.addmode() as u8, 
-             if oar1.addmode() as u8 == 0 { "7-bit" } else { "10-bit" });
-        info!("    Bit 14: {}", (oar1.0 >> 14) & 1);
-        info!("  OAR2: {:#x}", oar2.0);
-        info!("    ADD2: {:#x}", oar2.add2());
-        info!("    ENDUAL: {} ({})", oar2.endual() as u8,
-             if oar2.endual() as u8 == 0 { "Single" } else { "Dual" });
-        
-        // Check critical requirements
-        if !cr1.pe() {
-            error!("ERROR: I2C peripheral not enabled (PE=0)");
-            return Err(Error::Bus);
-        }
-        
-        if (oar1.0 >> 14) & 1 == 0 {
-            error!("ERROR: OAR1 bit 14 not set (required by reference manual)");
-            return Err(Error::Bus);
-        }
-        
-        // For 7-bit mode, verify address is in correct position
-        if oar1.addmode() as u8 == 0 {  // 7-bit mode
-            let expected_addr = 0x42u16 << 1;  // 0x84
-            if oar1.add() != expected_addr {
-                error!("ERROR: OAR1 address mismatch - expected {:#x}, got {:#x}", 
-                       expected_addr, oar1.add());
-                return Err(Error::Bus);
-            }
-        }
-        
-        info!("✓ Slave configuration appears correct");
-        Ok(())
-    }
-}
-
 impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     /// Listen for incoming I2C address match and return the command type
     pub fn blocking_listen(&mut self) -> Result<SlaveCommand, Error> {
@@ -624,24 +578,26 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     // Private implementation methods with Timeout parameter
     fn blocking_listen_timeout(&mut self, timeout: Timeout) -> Result<SlaveCommand, Error> {
         trace!("i2c v1 slave: listen_timeout start");
-        // Enable address match interrupt for slave mode
+        
+        // Disable interrupts for blocking operation
         self.info.regs.cr2().modify(|w| {
-            w.set_itevten(true);  // Enable event interrupts
+            w.set_itevten(false);
+            w.set_iterren(false);
         });
         
         // Wait for address match (ADDR flag)
         loop {
-            let sr1 = Self::check_and_clear_error_flags(self.info)?;
+            let sr1 = Self::check_slave_error_flags_and_get_sr1(self.info)?;
             
             if sr1.addr() {
                 // Address matched! Read SR2 to get direction and clear ADDR
                 let sr2 = self.info.regs.sr2().read();
                 let direction = if sr2.tra() {
-                    trace!("i2c v1 slave: address match - READ direction (master wants to read from us)");
-                    SlaveCommandKind::Read  // Master wants to read from us (we transmit)
+                    trace!("i2c v1 slave: address match - READ direction");
+                    SlaveCommandKind::Read
                 } else {
-                    trace!("i2c v1 slave: address match - WRITE direction (master wants to write to us)");
-                    SlaveCommandKind::Write // Master wants to write to us (we receive)
+                    trace!("i2c v1 slave: address match - WRITE direction");
+                    SlaveCommandKind::Write
                 };
                 
                 // Determine which address was matched
@@ -672,22 +628,23 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
                     // Continue sending
                 },
                 SlaveSendResult::Nacked => {
-                    trace!("i2c v1 slave: byte nacked, stopping transmission");
-                    break;
+                    bytes_sent += 1; // Count the NACKed byte as sent
+                    trace!("i2c v1 slave: byte nacked by master (normal completion), total_sent={}", bytes_sent);
+                    break; // Normal end of transmission
                 },
                 SlaveSendResult::Stopped => {
                     trace!("i2c v1 slave: stop condition detected, stopping transmission");
-                    break;
+                    break; // Master sent STOP
                 }
                 SlaveSendResult::Restart => {
                     trace!("i2c v1 slave: restart detected, stopping transmission");
-                    break;
+                    break; // Master sent RESTART
                 }
             }
         }
         
         trace!("i2c v1 slave: respond_to_read_timeout complete, bytes_sent={}", bytes_sent);
-        Ok(bytes_sent)
+        Ok(bytes_sent) // Always return success with byte count
     }
     
     fn blocking_respond_to_write_timeout(&mut self, buffer: &mut [u8], timeout: Timeout) -> Result<usize, Error> {
@@ -749,9 +706,10 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     /// Send a byte in slave transmitter mode and check for ACK/NACK/STOP
     fn send_byte_or_nack(&mut self, byte: u8, timeout: Timeout) -> Result<SlaveSendResult, Error> {
         trace!("i2c v1 slave: send_byte_or_nack start, byte={:#x}", byte);
+        
         // Wait until we're ready for sending (TXE flag set)
         loop {
-            let sr1 = Self::check_and_clear_error_flags(self.info)?;
+            let sr1 = Self::check_slave_error_flags_and_get_sr1(self.info)?;
             
             // Check for STOP condition first
             if sr1.stopf() {
@@ -763,14 +721,17 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
             // Check for RESTART (new ADDR)
             if sr1.addr() {
                 trace!("i2c v1 slave: RESTART detected before send");
-                // Don't clear ADDR here - let next blocking_listen() handle it
                 return Ok(SlaveSendResult::Restart);
             }
             
-            // Check for NACK (AF flag)
-            if sr1.af() {
+            // Check for NACK (AF flag) before writing
+            let sr1_current = self.info.regs.sr1().read();
+            if sr1_current.af() {
                 trace!("i2c v1 slave: NACK detected before send");
-                self.info.regs.sr1().modify(|w| w.set_af(false));
+                self.info.regs.sr1().write(|reg| {
+                    reg.0 = !0;
+                    reg.set_af(false);
+                });
                 return Ok(SlaveSendResult::Nacked);
             }
             
@@ -785,11 +746,28 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
         
         // Send the byte
         self.info.regs.dr().write(|w| w.set_dr(byte));
-        trace!("i2c v1 slave: byte written to DR, waiting for BTF");
+        trace!("i2c v1 slave: byte written to DR, waiting for completion");
         
-        // Wait for byte transfer to complete (BTF flag or error)
+        // Wait for completion - but be more flexible about what constitutes "completion"
+        // In slave transmitter mode, we need to detect:
+        // 1. BTF - byte transfer finished (normal case)
+        // 2. AF (NACK) - master signals end of transaction
+        // 3. STOP - master terminates transaction
+        // 4. ADDR - master starts new transaction (restart)
         loop {
-            let sr1 = Self::check_and_clear_error_flags(self.info)?;
+            // Get current flags without error handling that clears AF
+            let sr1 = self.info.regs.sr1().read();
+            
+            // Check for NACK FIRST - this is the most likely end condition
+            if sr1.af() {
+                trace!("i2c v1 slave: NACK detected after send");
+                // Clear the AF flag
+                self.info.regs.sr1().write(|reg| {
+                    reg.0 = !0;
+                    reg.set_af(false);
+                });
+                return Ok(SlaveSendResult::Nacked);
+            }
             
             // Check for STOP condition
             if sr1.stopf() {
@@ -804,17 +782,19 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
                 return Ok(SlaveSendResult::Restart);
             }
             
-            // Check for NACK (AF flag)
-            if sr1.af() {
-                trace!("i2c v1 slave: NACK detected after send");
-                self.info.regs.sr1().modify(|w| w.set_af(false));
-                return Ok(SlaveSendResult::Nacked);
+            // Check for byte transfer finished (normal ACK case)
+            if sr1.btf() {
+                trace!("i2c v1 slave: BTF set, byte transfer complete (ACK)");
+                return Ok(SlaveSendResult::Acked);
             }
             
-            // Check for byte transfer finished
-            if sr1.btf() {
-                trace!("i2c v1 slave: BTF set, byte transfer complete");
-                return Ok(SlaveSendResult::Acked);
+            // Check for other error conditions that should be propagated
+            if sr1.timeout() || sr1.ovr() || sr1.arlo() || sr1.berr() {
+                // Use the error handling function for these
+                match Self::check_and_clear_error_flags(self.info) {
+                    Ok(_) => {}, // Shouldn't happen given the flags we checked
+                    Err(e) => return Err(e),
+                }
             }
             
             timeout.check()?;
@@ -825,29 +805,43 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     fn recv_byte_or_stop(&mut self, timeout: Timeout) -> Result<SlaveReceiveResult, Error> {
         trace!("i2c v1 slave: recv_byte_or_stop start");
         loop {
-            let sr1 = Self::check_and_clear_error_flags(self.info)?;
+            let sr1 = Self::check_slave_error_flags_and_get_sr1(self.info)?;
             
-            // Check for STOP condition first
-            if sr1.stopf() {
-                trace!("i2c v1 slave: STOP detected during receive");
-                self.info.regs.cr1().modify(|_w| {});
-                return Ok(SlaveReceiveResult::Stop);
-            }
-            
-            // Check for RESTART (new ADDR)
-            if sr1.addr() {
-                trace!("i2c v1 slave: RESTART detected during receive");
-                // Don't clear ADDR here - let next blocking_listen() handle it
-                return Ok(SlaveReceiveResult::Restart);
-            }
-            
+            // Check for received data FIRST (handles race condition)
             if sr1.rxne() {
                 let byte = self.info.regs.dr().read().dr();
                 trace!("i2c v1 slave: received byte={:#x}", byte);
                 return Ok(SlaveReceiveResult::Byte(byte));
             }
             
+            // Check for RESTART (new ADDR) before STOP
+            if sr1.addr() {
+                trace!("i2c v1 slave: RESTART detected during receive");
+                return Ok(SlaveReceiveResult::Restart);
+            }
+            
+            // Check for STOP condition LAST
+            if sr1.stopf() {
+                trace!("i2c v1 slave: STOP detected during receive");
+                self.info.regs.cr1().modify(|_w| {});
+                return Ok(SlaveReceiveResult::Stop);
+            }
+            
             timeout.check()?;
+        }
+    }
+
+    /// Wrapper that treats AF (NACK) as normal protocol behavior in slave mode
+    fn check_slave_error_flags_and_get_sr1(info: &'static Info) -> Result<i2c::regs::Sr1, Error> {
+        match Self::check_and_clear_error_flags(info) {
+            Ok(sr1) => Ok(sr1),
+            Err(Error::Nack) => {
+                // AF flag was set and cleared by check_and_clear_error_flags
+                // In slave mode, this is normal protocol behavior, not an error
+                // Read SR1 again to get current state (AF should now be cleared)
+                Ok(info.regs.sr1().read())
+            },
+            Err(other_error) => Err(other_error), // Propagate real errors
         }
     }
 }
