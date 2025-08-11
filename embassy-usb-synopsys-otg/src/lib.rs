@@ -1229,23 +1229,19 @@ impl<'d> embassy_usb_driver::EndpointIn for Endpoint<'d, In> {
             });
 
             // Write data to FIFO
-            let chunks = buf.chunks_exact(4);
-            // Stash the last partial chunk
-            let rem = chunks.remainder();
-            let last_chunk = (!rem.is_empty()).then(|| {
-                let mut tmp = [0u8; 4];
-                tmp[0..rem.len()].copy_from_slice(rem);
-                u32::from_ne_bytes(tmp)
-            });
-
             let fifo = self.regs.fifo(index);
-            for chunk in chunks {
+            let mut chunks = buf.chunks_exact(4);
+            for chunk in &mut chunks {
                 let val = u32::from_ne_bytes(chunk.try_into().unwrap());
                 fifo.write_value(regs::Fifo(val));
             }
             // Write any last chunk
-            if let Some(val) = last_chunk {
-                fifo.write_value(regs::Fifo(val));
+            let rem = chunks.remainder();
+            if !rem.is_empty() {
+                let mut tmp = [0u8; 4];
+                tmp[0..rem.len()].copy_from_slice(rem);
+                let tmp = u32::from_ne_bytes(tmp);
+                fifo.write_value(regs::Fifo(tmp));
             }
         });
 
