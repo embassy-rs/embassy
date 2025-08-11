@@ -32,21 +32,6 @@ impl State {
     }
 }
 
-#[derive(Debug, PartialEq)]
-enum SlaveSendResult {
-    Acked,    // Byte sent and ACK received from master
-    Nacked,   // Byte sent but NACK received (normal end of transmission)
-    Stopped,  // STOP condition detected
-    Restart,  // RESTART condition detected
-}
-
-#[derive(Debug, PartialEq)]
-enum SlaveReceiveResult {
-    Byte(u8),     // Data byte received
-    Stop,         // STOP condition detected  
-    Restart,      // RESTART condition (new ADDR) detected
-}
-
 // /!\                      /!\
 // /!\ Implementation note! /!\
 // /!\                      /!\
@@ -384,513 +369,6 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             w.set_iterren(true);
             w.set_itevten(true);
         });
-    }
-}
-
-impl<'d, M: Mode> I2c<'d, M, Master> {
-    /// Configure the I2C driver for slave operations, allowing for the driver to be used as a slave and a master (multimaster)
-    pub fn into_slave_multimaster(mut self, slave_addr_config: SlaveAddrConfig) -> I2c<'d, M, MultiMaster> {
-        let mut slave = I2c {
-            info: self.info,
-            state: self.state,
-            kernel_clock: self.kernel_clock,
-            tx_dma: self.tx_dma.take(),  // Use take() to move ownership
-            rx_dma: self.rx_dma.take(),  // Use take() to move ownership
-            #[cfg(feature = "time")]
-            timeout: self.timeout,
-            _phantom: PhantomData,
-            _phantom2: PhantomData,
-            _drop_guard: self._drop_guard,  // Move the drop guard
-        };
-        slave.init_slave(slave_addr_config);
-        slave
-    }
-}
-
-impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
-    /// Slave configuration with v1 address setup
-    pub(crate) fn init_slave(&mut self, config: SlaveAddrConfig) {
-        trace!("i2c v1 slave init: config={:?}", config);
-        
-        // Disable peripheral for configuration
-        self.info.regs.cr1().modify(|reg| {
-            reg.set_pe(false);
-        });
-        
-        // Configure addresses with proper v1 format
-        self.configure_addresses(config);
-        
-        // Configure general call if requested
-        if config.general_call {
-            self.info.regs.cr1().modify(|w| w.set_engc(true));
-            trace!("i2c v1 slave: General call enabled");
-        }
-        
-        // Log final configuration before enabling
-        let cr1 = self.info.regs.cr1().read();
-        let oar1 = self.info.regs.oar1().read();
-        let oar2 = self.info.regs.oar2().read();
-        trace!("i2c v1 slave: Pre-enable state - CR1={:#x}, OAR1={:#x}, OAR2={:#x}", 
-               cr1.0, oar1.0, oar2.0);
-        trace!("i2c v1 slave: Address details - OAR1.ADD={:#x}, OAR1.ADDMODE={}, bit14={}", 
-               oar1.add(), oar1.addmode() as u8, (oar1.0 >> 14) & 1);
-
-        self.info.regs.cr1().modify(|reg| {
-            reg.set_pe(true);   // Re-enable peripheral
-            reg.set_ack(true);  // Critical for slave to ACK its address
-        });
-        
-        // Verify peripheral is enabled and ready
-        let cr1_final = self.info.regs.cr1().read();
-        trace!("i2c v1 slave: Final state - CR1={:#x}, PE={}", cr1_final.0, cr1_final.pe());
-        
-        trace!("i2c v1 slave init complete");
-    }
-
-    fn configure_oa1(&mut self, addr: Address) {
-        match addr {
-            Address::SevenBit(addr) => {
-                trace!("i2c v1 slave: Setting OA1 7-bit address: input={:#x}", addr);
-                self.info.regs.oar1().write(|reg| {
-                    // For I2C v1, the 7-bit address goes in bits [7:1] of the ADD field
-                    // The ADD field spans bits [9:0], so we put the address in the correct position
-                    let hw_addr = (addr as u16) << 1;  // This puts address in bits [7:1], bit [0] = 0
-                    reg.set_add(hw_addr);
-                    reg.set_addmode(i2c::vals::Addmode::BIT7);
-                });
-                
-                // CRITICAL: Set bit 14 as required by the reference manual
-                // "Bit 14: Should always be kept at 1 by software"
-                self.info.regs.oar1().modify(|reg| {
-                    reg.0 |= 1 << 14;  // Set bit 14
-                });
-                
-                let oar1_verify = self.info.regs.oar1().read();
-                trace!("i2c v1 slave: OA1 configured - OAR1={:#x}, stored_addr={:#x}, bit14={}", 
-                       oar1_verify.0, oar1_verify.add(), (oar1_verify.0 >> 14) & 1);
-            },
-            Address::TenBit(addr) => {
-                trace!("i2c v1 slave: Setting OA1 10-bit address: {:#x}", addr);
-                self.info.regs.oar1().write(|reg| {
-                    reg.set_add(addr);  // For 10-bit, full address goes in ADD field
-                    reg.set_addmode(i2c::vals::Addmode::BIT10);
-                });
-                
-                // Set required bit 14 for 10-bit mode too
-                self.info.regs.oar1().modify(|reg| {
-                    reg.0 |= 1 << 14;  // Set bit 14
-                });
-                
-                let oar1_verify = self.info.regs.oar1().read();
-                trace!("i2c v1 slave: OA1 10-bit configured - OAR1={:#x}, bit14={}", 
-                       oar1_verify.0, (oar1_verify.0 >> 14) & 1);
-            }
-        }
-    }
-    
-    fn configure_oa2_simple(&mut self, addr: u8) {
-        trace!("i2c v1 slave: Setting OA2 address: {:#x}", addr);
-        self.info.regs.oar2().write(|reg| {
-            // For OA2, the address goes in bits [7:1] of the ADD2 field
-            reg.set_add2(addr);  // ADD2 field automatically handles bits [7:1] placement
-            reg.set_endual(i2c::vals::Endual::DUAL);  // Enable dual addressing
-        });
-        
-        let oar2_verify = self.info.regs.oar2().read();
-        trace!("i2c v1 slave: OA2 configured - OAR2={:#x}, ADD2={:#x}, ENDUAL={}", 
-               oar2_verify.0, oar2_verify.add2(), oar2_verify.endual() as u8);
-    }
-
-    fn configure_addresses(&mut self, config: SlaveAddrConfig) {
-        match config.addr {
-            OwnAddresses::OA1(addr) => {
-                self.configure_oa1(addr);
-                // Disable OA2 if not needed
-                self.info.regs.oar2().write(|reg| {
-                    reg.set_endual(i2c::vals::Endual::SINGLE);
-                });
-            },
-            OwnAddresses::OA2(oa2) => {
-                // v1 limitation: ignore mask, only support simple OA2
-                if !matches!(oa2.mask, AddrMask::NOMASK) {
-                    // Could log a warning here that masking is ignored in v1
-                    #[cfg(feature = "defmt")]
-                    warn!("I2C v1 does not support OA2 address masking, ignoring mask setting");
-                }
-                
-                // Must have a default OA1 when using OA2-only mode
-                // Set OA1 to a reserved address that won't conflict
-                self.info.regs.oar1().write(|reg| {
-                    reg.set_add(0);  // Address 0x00 is reserved, safe to use
-                    reg.set_addmode(i2c::vals::Addmode::BIT7);
-                });
-                
-                self.configure_oa2_simple(oa2.addr);
-            },
-            OwnAddresses::Both { oa1, oa2 } => {
-                self.configure_oa1(oa1);
-                
-                // Same masking limitation applies
-                if !matches!(oa2.mask, AddrMask::NOMASK) {
-                    #[cfg(feature = "defmt")]
-                    defmt::warn!("I2C v1 does not support OA2 address masking, ignoring mask setting");
-                }
-                
-                self.configure_oa2_simple(oa2.addr);
-            }
-        }
-        
-        // Configure general call if requested
-        if config.general_call {
-            self.info.regs.cr1().modify(|w| w.set_engc(true));
-        }
-    }
-}
-
-impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
-    /// Listen for incoming I2C address match and return the command type
-    pub fn blocking_listen(&mut self) -> Result<SlaveCommand, Error> {
-        trace!("i2c v1 slave: blocking_listen start");
-        let timeout = self.timeout(); // Get timeout internally
-        let result = self.blocking_listen_timeout(timeout);
-        trace!("i2c v1 slave: blocking_listen result={:?}", result);
-        result
-    }
-    
-    /// Respond to master read request (master wants to read from us)
-    pub fn blocking_respond_to_read(&mut self, data: &[u8]) -> Result<usize, Error> {
-        trace!("i2c v1 slave: blocking_respond_to_read start, data_len={}", data.len());
-        let timeout = self.timeout(); // Get timeout internally  
-        let result = self.blocking_respond_to_read_timeout(data, timeout);
-        trace!("i2c v1 slave: blocking_respond_to_read result={:?}", result);
-        result
-    }
-    
-    /// Respond to master write request (master wants to write to us)
-    pub fn blocking_respond_to_write(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
-        trace!("i2c v1 slave: blocking_respond_to_write start, buffer_len={}", buffer.len());
-        let timeout = self.timeout(); // Get timeout internally
-        let result = self.blocking_respond_to_write_timeout(buffer, timeout);
-        trace!("i2c v1 slave: blocking_respond_to_write result={:?}", result);
-        result
-    }
-    
-    // Private implementation methods with Timeout parameter
-    fn blocking_listen_timeout(&mut self, timeout: Timeout) -> Result<SlaveCommand, Error> {
-        trace!("i2c v1 slave: listen_timeout start");
-        
-        // Disable interrupts for blocking operation
-        self.info.regs.cr2().modify(|w| {
-            w.set_itevten(false);
-            w.set_iterren(false);
-        });
-        
-        // Wait for address match (ADDR flag)
-        loop {
-            let sr1 = Self::check_slave_error_flags_and_get_sr1(self.info)?;
-            
-            if sr1.addr() {
-                // Address matched! Read SR2 to get direction and clear ADDR
-                let sr2 = self.info.regs.sr2().read();
-                let direction = if sr2.tra() {
-                    trace!("i2c v1 slave: address match - READ direction");
-                    SlaveCommandKind::Read
-                } else {
-                    trace!("i2c v1 slave: address match - WRITE direction");
-                    SlaveCommandKind::Write
-                };
-                
-                // Determine which address was matched
-                let matched_address = self.determine_matched_address(sr2)?;
-                trace!("i2c v1 slave: matched address={:?}", matched_address);
-                
-                // ADDR is automatically cleared by reading SR1 then SR2
-                return Ok(SlaveCommand {
-                    kind: direction,
-                    address: matched_address,
-                });
-            }
-            
-            timeout.check()?;
-        }
-    }
-    
-    fn blocking_respond_to_read_timeout(&mut self, data: &[u8], timeout: Timeout) -> Result<usize, Error> {
-        trace!("i2c v1 slave: respond_to_read_timeout start, data_len={}", data.len());
-        let mut bytes_sent = 0;
-        let mut data_exhausted = false;
-        
-        loop {
-            // Determine what byte to send
-            let byte_to_send = if bytes_sent < data.len() {
-                // Send real data
-                data[bytes_sent]
-            } else {
-                // Data exhausted - send padding bytes
-                if !data_exhausted {
-                    trace!("i2c v1 slave: real data exhausted, sending padding bytes");
-                    data_exhausted = true;
-                }
-                0x00  // Send zeros as padding (or 0xFF, or last byte repeated)
-            };
-            
-            trace!("i2c v1 slave: sending byte={:#x} ({})", byte_to_send, bytes_sent);
-            match self.send_byte_or_nack(byte_to_send, timeout)? {
-                SlaveSendResult::Acked => {
-                    bytes_sent += 1;
-                    trace!("i2c v1 slave: byte acked, total_sent={}", bytes_sent);
-                    // Continue sending more bytes
-                },
-                SlaveSendResult::Nacked => {
-                    bytes_sent += 1; // Count the NACKed byte as sent
-                    trace!("i2c v1 slave: byte nacked by master (normal completion), total_sent={}", bytes_sent);
-                    break; // Normal end of transmission
-                },
-                SlaveSendResult::Stopped => {
-                    trace!("i2c v1 slave: stop condition detected, stopping transmission");
-                    break; // Master sent STOP
-                }
-                SlaveSendResult::Restart => {
-                    trace!("i2c v1 slave: restart detected, stopping transmission");
-                    break; // Master sent RESTART
-                }
-            }
-        }
-        
-        trace!("i2c v1 slave: respond_to_read_timeout complete, bytes_sent={}", bytes_sent);
-        Ok(bytes_sent) // Return total bytes sent (including padding)
-    }
-    
-    fn blocking_respond_to_write_timeout(&mut self, buffer: &mut [u8], timeout: Timeout) -> Result<usize, Error> {
-        trace!("i2c v1 slave: respond_to_write_timeout start, buffer_len={}", buffer.len());
-        let mut bytes_received = 0;
-        let buffer_capacity = buffer.len();
-        let mut overflow_detected = false;
-        
-        while bytes_received < buffer_capacity {
-            match self.recv_byte_or_stop(timeout)? {
-                SlaveReceiveResult::Byte(b) => {
-                    trace!("i2c v1 slave: received byte={:#x} ({})", b, bytes_received);
-                    buffer[bytes_received] = b;
-                    bytes_received += 1;
-                },
-                SlaveReceiveResult::Stop => {
-                    trace!("i2c v1 slave: stop condition detected, stopping reception");
-                    break;
-                },
-                SlaveReceiveResult::Restart => {
-                    trace!("i2c v1 slave: restart detected, stopping reception");
-                    break;
-                },
-            }
-        }
-        
-        // Handle buffer overflow - continue receiving but discard bytes
-        if bytes_received >= buffer_capacity {
-            loop {
-                match self.recv_byte_or_stop(timeout)? {
-                    SlaveReceiveResult::Byte(b) => {
-                        if !overflow_detected {
-                            trace!("i2c v1 slave: buffer full, discarding excess bytes");
-                            overflow_detected = true;
-                        }
-                        trace!("i2c v1 slave: discarding overflow byte={:#x}", b);
-                        // Byte is discarded but we still ACK it
-                    },
-                    SlaveReceiveResult::Stop => {
-                        trace!("i2c v1 slave: stop condition detected after overflow");
-                        break;
-                    },
-                    SlaveReceiveResult::Restart => {
-                        trace!("i2c v1 slave: restart detected after overflow");
-                        break;
-                    },
-                }
-            }
-        }
-        
-        if overflow_detected {
-            trace!("i2c v1 slave: transaction complete with overflow - received {} bytes, buffer held {}", 
-                bytes_received, buffer_capacity);
-        } else {
-            trace!("i2c v1 slave: respond_to_write_timeout complete, bytes_received={}", bytes_received);
-        }
-        
-        Ok(bytes_received.min(buffer_capacity)) // Return stored bytes, not total received
-    }
-    
-    fn determine_matched_address(&self, sr2: stm32_metapac::i2c::regs::Sr2) -> Result<Address, Error> {
-        trace!("i2c v1 slave: determine_matched_address, sr2={:#x}", sr2.0);
-        // Check for general call first
-        if sr2.gencall() {
-            trace!("i2c v1 slave: general call address matched");
-            Ok(Address::SevenBit(0x00))
-        } else if sr2.dualf() {
-            // OA2 was matched - verify it's actually enabled
-            let oar2 = self.info.regs.oar2().read();
-            if oar2.endual() != i2c::vals::Endual::DUAL {
-                error!("i2c v1 slave: OA2 matched but not enabled - hardware inconsistency");
-                return Err(Error::Bus); // Hardware inconsistency
-            }
-            trace!("i2c v1 slave: OA2 address matched: {:#x}", oar2.add2());
-            Ok(Address::SevenBit(oar2.add2()))
-        } else {
-            // OA1 was matched
-            let oar1 = self.info.regs.oar1().read();
-            match oar1.addmode() {
-                i2c::vals::Addmode::BIT7 => {
-                    let addr = (oar1.add() >> 1) as u8;
-                    trace!("i2c v1 slave: OA1 7-bit address matched: {:#x}", addr);
-                    Ok(Address::SevenBit(addr))
-                },
-                i2c::vals::Addmode::BIT10 => {
-                    trace!("i2c v1 slave: OA1 10-bit address matched: {:#x}", oar1.add());
-                    Ok(Address::TenBit(oar1.add()))
-                },
-            }
-        }
-    }
-
-    /// Send a byte in slave transmitter mode and check for ACK/NACK/STOP
-    fn send_byte_or_nack(&mut self, byte: u8, timeout: Timeout) -> Result<SlaveSendResult, Error> {
-        trace!("i2c v1 slave: send_byte_or_nack start, byte={:#x}", byte);
-        
-        // Wait until we're ready for sending (TXE flag set)
-        loop {
-            let sr1 = Self::check_slave_error_flags_and_get_sr1(self.info)?;
-            
-            // Check for STOP condition first
-            if sr1.stopf() {
-                trace!("i2c v1 slave: STOP detected before send");
-                self.info.regs.cr1().modify(|_w| {});
-                return Ok(SlaveSendResult::Stopped);
-            }
-            
-            // Check for RESTART (new ADDR)
-            if sr1.addr() {
-                trace!("i2c v1 slave: RESTART detected before send");
-                return Ok(SlaveSendResult::Restart);
-            }
-            
-            // Check for NACK (AF flag) before writing
-            let sr1_current = self.info.regs.sr1().read();
-            if sr1_current.af() {
-                trace!("i2c v1 slave: NACK detected before send");
-                self.info.regs.sr1().write(|reg| {
-                    reg.0 = !0;
-                    reg.set_af(false);
-                });
-                return Ok(SlaveSendResult::Nacked);
-            }
-            
-            // Check if we can send data
-            if sr1.txe() {
-                trace!("i2c v1 slave: TXE ready, sending byte");
-                break; // Ready to send
-            }
-            
-            timeout.check()?;
-        }
-        
-        // Send the byte
-        self.info.regs.dr().write(|w| w.set_dr(byte));
-        trace!("i2c v1 slave: byte written to DR, waiting for completion");
-        
-        // Wait for completion - but be more flexible about what constitutes "completion"
-        // In slave transmitter mode, we need to detect:
-        // 1. BTF - byte transfer finished (normal case)
-        // 2. AF (NACK) - master signals end of transaction
-        // 3. STOP - master terminates transaction
-        // 4. ADDR - master starts new transaction (restart)
-        loop {
-            // Get current flags without error handling that clears AF
-            let sr1 = self.info.regs.sr1().read();
-            
-            // Check for NACK FIRST - this is the most likely end condition
-            if sr1.af() {
-                trace!("i2c v1 slave: NACK detected after send");
-                // Clear the AF flag
-                self.info.regs.sr1().write(|reg| {
-                    reg.0 = !0;
-                    reg.set_af(false);
-                });
-                return Ok(SlaveSendResult::Nacked);
-            }
-            
-            // Check for STOP condition
-            if sr1.stopf() {
-                trace!("i2c v1 slave: STOP detected after send");
-                self.info.regs.cr1().modify(|_w| {});
-                return Ok(SlaveSendResult::Stopped);
-            }
-            
-            // Check for RESTART (new ADDR)  
-            if sr1.addr() {
-                trace!("i2c v1 slave: RESTART detected after send");
-                return Ok(SlaveSendResult::Restart);
-            }
-            
-            // Check for byte transfer finished (normal ACK case)
-            if sr1.btf() {
-                trace!("i2c v1 slave: BTF set, byte transfer complete (ACK)");
-                return Ok(SlaveSendResult::Acked);
-            }
-            
-            // Check for other error conditions that should be propagated
-            if sr1.timeout() || sr1.ovr() || sr1.arlo() || sr1.berr() {
-                // Use the error handling function for these
-                match Self::check_and_clear_error_flags(self.info) {
-                    Ok(_) => {}, // Shouldn't happen given the flags we checked
-                    Err(e) => return Err(e),
-                }
-            }
-            
-            timeout.check()?;
-        }
-    }
-    
-    /// Receive a byte in slave receiver mode or detect STOP condition
-    fn recv_byte_or_stop(&mut self, timeout: Timeout) -> Result<SlaveReceiveResult, Error> {
-        trace!("i2c v1 slave: recv_byte_or_stop start");
-        loop {
-            let sr1 = Self::check_slave_error_flags_and_get_sr1(self.info)?;
-            
-            // Check for received data FIRST (handles race condition)
-            if sr1.rxne() {
-                let byte = self.info.regs.dr().read().dr();
-                trace!("i2c v1 slave: received byte={:#x}", byte);
-                return Ok(SlaveReceiveResult::Byte(byte));
-            }
-            
-            // Check for RESTART (new ADDR) before STOP
-            if sr1.addr() {
-                trace!("i2c v1 slave: RESTART detected during receive");
-                return Ok(SlaveReceiveResult::Restart);
-            }
-            
-            // Check for STOP condition LAST
-            if sr1.stopf() {
-                trace!("i2c v1 slave: STOP detected during receive");
-                self.info.regs.cr1().modify(|_w| {});
-                return Ok(SlaveReceiveResult::Stop);
-            }
-            
-            timeout.check()?;
-        }
-    }
-
-    /// Wrapper that treats AF (NACK) as normal protocol behavior in slave mode
-    fn check_slave_error_flags_and_get_sr1(info: &'static Info) -> Result<i2c::regs::Sr1, Error> {
-        match Self::check_and_clear_error_flags(info) {
-            Ok(sr1) => Ok(sr1),
-            Err(Error::Nack) => {
-                // AF flag was set and cleared by check_and_clear_error_flags
-                // In slave mode, this is normal protocol behavior, not an error
-                // Read SR1 again to get current state (AF should now be cleared)
-                Ok(info.regs.sr1().read())
-            },
-            Err(other_error) => Err(other_error), // Propagate real errors
-        }
     }
 }
 
@@ -1240,6 +718,476 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     }
 }
 
+/// Result of attempting to send a byte in slave transmitter mode
+#[derive(Debug, PartialEq)]
+enum TransmitResult {
+    /// Byte sent and ACKed by master - continue transmission
+    Acknowledged,
+    /// Byte sent but NACKed by master - normal end of read transaction
+    NotAcknowledged,
+    /// STOP condition detected - master terminated transaction
+    Stopped,
+    /// RESTART condition detected - master starting new transaction
+    Restarted,
+}
+
+/// Result of attempting to receive a byte in slave receiver mode
+#[derive(Debug, PartialEq)]
+enum ReceiveResult {
+    /// Data byte successfully received
+    Data(u8),
+    /// STOP condition detected - end of write transaction
+    Stopped,
+    /// RESTART condition detected - master starting new transaction
+    Restarted,
+}
+
+impl<'d, M: Mode> I2c<'d, M, Master> {
+    /// Configure the I2C driver for slave operations, allowing for the driver to be used as a slave and a master (multimaster)
+    pub fn into_slave_multimaster(mut self, slave_addr_config: SlaveAddrConfig) -> I2c<'d, M, MultiMaster> {
+        let mut slave = I2c {
+            info: self.info,
+            state: self.state,
+            kernel_clock: self.kernel_clock,
+            tx_dma: self.tx_dma.take(),  // Use take() to move ownership
+            rx_dma: self.rx_dma.take(),  // Use take() to move ownership
+            #[cfg(feature = "time")]
+            timeout: self.timeout,
+            _phantom: PhantomData,
+            _phantom2: PhantomData,
+            _drop_guard: self._drop_guard,  // Move the drop guard
+        };
+        slave.init_slave(slave_addr_config);
+        slave
+    }
+}
+
+impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
+    /// Listen for incoming I2C address match and return the command type
+    /// 
+    /// This method blocks until the slave address is matched by a master.
+    /// Returns the command type (Read/Write) and the matched address.
+    pub fn blocking_listen(&mut self) -> Result<SlaveCommand, Error> {
+        trace!("I2C slave: listening for address match");
+        let result = self.blocking_listen_with_timeout(self.timeout());
+        trace!("I2C slave: listen result={:?}", result);
+        result
+    }
+    
+    /// Respond to a master read request by transmitting data
+    ///
+    /// Sends the provided data to the master. If the master requests more bytes
+    /// than available, padding bytes (0x00) are sent until the master terminates
+    /// the transaction with NACK.
+    ///
+    /// Returns the total number of bytes transmitted (including padding).
+    pub fn blocking_respond_to_read(&mut self, data: &[u8]) -> Result<usize, Error> {
+        trace!("I2C slave: responding to read, data_len={}", data.len());
+        let result = self.transmit_to_master(data, self.timeout());
+        trace!("I2C slave: read response complete, result={:?}", result);
+        result
+    }
+    
+    /// Respond to a master write request by receiving data
+    ///
+    /// Receives data from the master into the provided buffer. If the master
+    /// sends more bytes than the buffer can hold, excess bytes are acknowledged
+    /// but discarded.
+    ///
+    /// Returns the number of bytes stored in the buffer (not total received).
+    pub fn blocking_respond_to_write(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        trace!("I2C slave: responding to write, buffer_len={}", buffer.len());
+        let result = self.receive_from_master(buffer, self.timeout());
+        trace!("I2C slave: write response complete, result={:?}", result);
+        result
+    }
+    
+    // Private implementation methods
+    
+    /// Wait for address match and determine transaction type
+    fn blocking_listen_with_timeout(&mut self, timeout: Timeout) -> Result<SlaveCommand, Error> {
+        // Ensure interrupts are disabled for blocking operation
+        self.disable_i2c_interrupts();
+        
+        // Wait for address match (ADDR flag)
+        loop {
+            let sr1 = Self::read_status_and_handle_errors(self.info)?;
+            
+            if sr1.addr() {
+                // Address matched - read SR2 to get direction and clear ADDR flag
+                let sr2 = self.info.regs.sr2().read();
+                let direction = if sr2.tra() {
+                    SlaveCommandKind::Read
+                } else {
+                    SlaveCommandKind::Write
+                };
+                
+                let matched_address = self.decode_matched_address(sr2)?;
+                trace!("I2C slave: address matched, direction={:?}, addr={:?}", direction, matched_address);
+                
+                return Ok(SlaveCommand {
+                    kind: direction,
+                    address: matched_address,
+                });
+            }
+            
+            timeout.check()?;
+        }
+    }
+    
+    /// Transmit data to master in response to read request
+    fn transmit_to_master(&mut self, data: &[u8], timeout: Timeout) -> Result<usize, Error> {
+        let mut bytes_transmitted = 0;
+        
+        loop {
+            // Determine next byte to send
+            let byte_to_send = if bytes_transmitted < data.len() {
+                data[bytes_transmitted]
+            } else {
+                0x00 // Send padding bytes when data is exhausted
+            };
+            
+            // Attempt to send the byte
+            match self.transmit_byte(byte_to_send, timeout)? {
+                TransmitResult::Acknowledged => {
+                    bytes_transmitted += 1;
+                    // Continue transmission
+                },
+                TransmitResult::NotAcknowledged => {
+                    bytes_transmitted += 1; // Count the NACKed byte
+                    break; // Normal end of read transaction
+                },
+                TransmitResult::Stopped | TransmitResult::Restarted => {
+                    break; // Transaction terminated by master
+                }
+            }
+        }
+        
+        Ok(bytes_transmitted)
+    }
+    
+    /// Receive data from master during write request
+    fn receive_from_master(&mut self, buffer: &mut [u8], timeout: Timeout) -> Result<usize, Error> {
+        let mut bytes_stored = 0;
+        
+        // Receive bytes that fit in buffer
+        while bytes_stored < buffer.len() {
+            match self.receive_byte(timeout)? {
+                ReceiveResult::Data(byte) => {
+                    buffer[bytes_stored] = byte;
+                    bytes_stored += 1;
+                },
+                ReceiveResult::Stopped | ReceiveResult::Restarted => {
+                    return Ok(bytes_stored);
+                },
+            }
+        }
+        
+        // Handle buffer overflow by discarding excess bytes
+        if bytes_stored == buffer.len() {
+            trace!("I2C slave: buffer full, discarding excess bytes");
+            self.discard_excess_bytes(timeout)?;
+        }
+        
+        Ok(bytes_stored)
+    }
+    
+    /// Discard excess bytes when buffer is full
+    fn discard_excess_bytes(&mut self, timeout: Timeout) -> Result<(), Error> {
+        loop {
+            match self.receive_byte(timeout)? {
+                ReceiveResult::Data(_) => {
+                    // Byte received and ACKed, but discarded
+                    continue;
+                },
+                ReceiveResult::Stopped | ReceiveResult::Restarted => {
+                    break; // Transaction completed
+                },
+            }
+        }
+        Ok(())
+    }
+    
+    /// Send a single byte and wait for master's response
+    fn transmit_byte(&mut self, byte: u8, timeout: Timeout) -> Result<TransmitResult, Error> {
+        // Wait for transmit buffer ready
+        self.wait_for_transmit_ready(timeout)?;
+        
+        // Send the byte
+        self.info.regs.dr().write(|w| w.set_dr(byte));
+        
+        // Wait for transmission completion or master response
+        self.wait_for_transmit_completion(timeout)
+    }
+    
+    /// Wait until transmit buffer is ready (TXE flag set)
+    fn wait_for_transmit_ready(&mut self, timeout: Timeout) -> Result<(), Error> {
+        loop {
+            let sr1 = Self::read_status_and_handle_errors(self.info)?;
+            
+            // Check for early termination conditions
+            if let Some(result) = Self::check_early_termination(sr1) {
+                return Err(self.handle_early_termination(result));
+            }
+            
+            if sr1.txe() {
+                return Ok(()); // Ready to transmit
+            }
+            
+            timeout.check()?;
+        }
+    }
+    
+    /// Wait for byte transmission completion or master response
+    fn wait_for_transmit_completion(&mut self, timeout: Timeout) -> Result<TransmitResult, Error> {
+        loop {
+            let sr1 = self.info.regs.sr1().read();
+            
+            // Check flags in priority order
+            if sr1.af() {
+                self.clear_acknowledge_failure();
+                return Ok(TransmitResult::NotAcknowledged);
+            }
+            
+            if sr1.btf() {
+                return Ok(TransmitResult::Acknowledged);
+            }
+            
+            if sr1.stopf() {
+                self.clear_stop_flag();
+                return Ok(TransmitResult::Stopped);
+            }
+            
+            if sr1.addr() {
+                return Ok(TransmitResult::Restarted);
+            }
+            
+            // Check for other error conditions
+            self.check_for_hardware_errors(sr1)?;
+            
+            timeout.check()?;
+        }
+    }
+    
+    /// Receive a single byte or detect transaction termination
+    fn receive_byte(&mut self, timeout: Timeout) -> Result<ReceiveResult, Error> {
+        loop {
+            let sr1 = Self::read_status_and_handle_errors(self.info)?;
+            
+            // Check for received data first (prioritize data over control signals)
+            if sr1.rxne() {
+                let byte = self.info.regs.dr().read().dr();
+                return Ok(ReceiveResult::Data(byte));
+            }
+            
+            // Check for transaction termination
+            if sr1.addr() {
+                return Ok(ReceiveResult::Restarted);
+            }
+            
+            if sr1.stopf() {
+                self.clear_stop_flag();
+                return Ok(ReceiveResult::Stopped);
+            }
+            
+            timeout.check()?;
+        }
+    }
+    
+    /// Determine which slave address was matched based on SR2 flags
+    fn decode_matched_address(&self, sr2: i2c::regs::Sr2) -> Result<Address, Error> {
+        if sr2.gencall() {
+            Ok(Address::SevenBit(0x00)) // General call address
+        } else if sr2.dualf() {
+            // OA2 (secondary address) was matched
+            let oar2 = self.info.regs.oar2().read();
+            if oar2.endual() != i2c::vals::Endual::DUAL {
+                return Err(Error::Bus); // Hardware inconsistency
+            }
+            Ok(Address::SevenBit(oar2.add2()))
+        } else {
+            // OA1 (primary address) was matched
+            let oar1 = self.info.regs.oar1().read();
+            match oar1.addmode() {
+                i2c::vals::Addmode::BIT7 => {
+                    let addr = (oar1.add() >> 1) as u8;
+                    Ok(Address::SevenBit(addr))
+                },
+                i2c::vals::Addmode::BIT10 => {
+                    Ok(Address::TenBit(oar1.add()))
+                },
+            }
+        }
+    }
+    
+    // Helper methods for hardware interaction
+    
+    /// Read status register and handle I2C errors (except NACK in slave mode)
+    fn read_status_and_handle_errors(info: &'static Info) -> Result<i2c::regs::Sr1, Error> {
+        match Self::check_and_clear_error_flags(info) {
+            Ok(sr1) => Ok(sr1),
+            Err(Error::Nack) => {
+                // In slave mode, NACK is normal protocol behavior, not an error
+                Ok(info.regs.sr1().read())
+            },
+            Err(other_error) => Err(other_error),
+        }
+    }
+    
+    /// Check for conditions that cause early termination of operations
+    fn check_early_termination(sr1: i2c::regs::Sr1) -> Option<TransmitResult> {
+        if sr1.stopf() {
+            Some(TransmitResult::Stopped)
+        } else if sr1.addr() {
+            Some(TransmitResult::Restarted)
+        } else if sr1.af() {
+            Some(TransmitResult::NotAcknowledged)
+        } else {
+            None
+        }
+    }
+    
+    /// Convert early termination to appropriate error
+    fn handle_early_termination(&mut self, result: TransmitResult) -> Error {
+        match result {
+            TransmitResult::Stopped => {
+                self.clear_stop_flag();
+                Error::Bus // Unexpected STOP during setup
+            },
+            TransmitResult::Restarted => {
+                Error::Bus // Unexpected RESTART during setup
+            },
+            TransmitResult::NotAcknowledged => {
+                self.clear_acknowledge_failure();
+                Error::Bus // Unexpected NACK during setup
+            },
+            TransmitResult::Acknowledged => {
+                unreachable!() // This should never be passed to this function
+            }
+        }
+    }
+    
+    /// Check for hardware-level I2C errors during transmission
+    fn check_for_hardware_errors(&self, sr1: i2c::regs::Sr1) -> Result<(), Error> {
+        if sr1.timeout() || sr1.ovr() || sr1.arlo() || sr1.berr() {
+            // Delegate to existing error handling
+            Self::check_and_clear_error_flags(self.info)?;
+        }
+        Ok(())
+    }
+    
+    /// Disable I2C event and error interrupts for blocking operations
+    fn disable_i2c_interrupts(&mut self) {
+        self.info.regs.cr2().modify(|w| {
+            w.set_itevten(false);
+            w.set_iterren(false);
+        });
+    }
+    
+    /// Clear the acknowledge failure flag
+    fn clear_acknowledge_failure(&mut self) {
+        self.info.regs.sr1().write(|reg| {
+            reg.0 = !0;
+            reg.set_af(false);
+        });
+    }
+    
+    /// Clear the stop condition flag  
+    fn clear_stop_flag(&mut self) {
+        self.info.regs.cr1().modify(|_w| {});
+    }
+}
+
+// Address configuration methods
+impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
+    /// Initialize slave mode with address configuration
+    pub(crate) fn init_slave(&mut self, config: SlaveAddrConfig) {
+        trace!("I2C slave: initializing with config={:?}", config);
+        
+        // Disable peripheral for configuration
+        self.info.regs.cr1().modify(|reg| reg.set_pe(false));
+        
+        // Configure slave addresses
+        self.apply_address_configuration(config);
+        
+        // Enable peripheral with slave settings
+        self.info.regs.cr1().modify(|reg| {
+            reg.set_pe(true);
+            reg.set_ack(true); // Enable acknowledgment for slave mode
+        });
+        
+        trace!("I2C slave: initialization complete");
+    }
+    
+    /// Apply the complete address configuration for slave mode
+    fn apply_address_configuration(&mut self, config: SlaveAddrConfig) {
+        match config.addr {
+            OwnAddresses::OA1(addr) => {
+                self.configure_primary_address(addr);
+                self.disable_secondary_address();
+            },
+            OwnAddresses::OA2(oa2) => {
+                self.configure_default_primary_address();
+                self.configure_secondary_address(oa2.addr); // v1 ignores mask
+            },
+            OwnAddresses::Both { oa1, oa2 } => {
+                self.configure_primary_address(oa1);
+                self.configure_secondary_address(oa2.addr); // v1 ignores mask
+            }
+        }
+        
+        // Configure general call detection
+        if config.general_call {
+            self.info.regs.cr1().modify(|w| w.set_engc(true));
+        }
+    }
+    
+    /// Configure the primary address (OA1) register
+    fn configure_primary_address(&mut self, addr: Address) {
+        match addr {
+            Address::SevenBit(addr) => {
+                self.info.regs.oar1().write(|reg| {
+                    let hw_addr = (addr as u16) << 1; // Address in bits [7:1]
+                    reg.set_add(hw_addr);
+                    reg.set_addmode(i2c::vals::Addmode::BIT7);
+                });
+            },
+            Address::TenBit(addr) => {
+                self.info.regs.oar1().write(|reg| {
+                    reg.set_add(addr);
+                    reg.set_addmode(i2c::vals::Addmode::BIT10);
+                });
+            }
+        }
+        
+        // Set required bit 14 as per reference manual
+        self.info.regs.oar1().modify(|reg| reg.0 |= 1 << 14);
+    }
+    
+    /// Configure the secondary address (OA2) register  
+    fn configure_secondary_address(&mut self, addr: u8) {
+        self.info.regs.oar2().write(|reg| {
+            reg.set_add2(addr);
+            reg.set_endual(i2c::vals::Endual::DUAL);
+        });
+    }
+    
+    /// Set a default primary address when using OA2-only mode
+    fn configure_default_primary_address(&mut self) {
+        self.info.regs.oar1().write(|reg| {
+            reg.set_add(0); // Reserved address, safe to use
+            reg.set_addmode(i2c::vals::Addmode::BIT7);
+        });
+        self.info.regs.oar1().modify(|reg| reg.0 |= 1 << 14);
+    }
+    
+    /// Disable secondary address when not needed
+    fn disable_secondary_address(&mut self) {
+        self.info.regs.oar2().write(|reg| {
+            reg.set_endual(i2c::vals::Endual::SINGLE);
+        });
+    }
+}
 
 /// Timing configuration for I2C v1 hardware
 /// 
