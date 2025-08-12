@@ -44,7 +44,7 @@ flavors = [
 ]
 
 [package.metadata.docs.rs]
-features = ["defmt", "unstable-pac", "exti", "time-driver-any", "time", "stm32h755zi-cm7", "single-bank"]
+features = ["defmt", "unstable-pac", "exti", "time-driver-any", "time", "stm32h755zi-cm7", "dual-bank"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
