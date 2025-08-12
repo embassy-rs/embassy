@@ -8,6 +8,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Added VREFBUF voltage reference buffer driver
+- Added ADC4 support for STM32WBA devices  
+- Added USB OTG HS support for STM32WBA devices
+- Added STM32C071 and STM32C051 RCC support
+- Added hardware oversampling support for ADC v3
+- Added PWM pin configuration options for different GPIO modes
+- Added RTC low-power support for STM32WBA65
+- Added eMMC support for SDMMC
+- Added I2C slave blocking read/write support
+- Added auto-calibration for MSI frequencies on U5 devices
+- Fixed buffered UART half-duplex receive functionality
+- Fixed STM32WBA VDDIO2 configuration
+- Fixed timer break input 2 trait naming
+- Fixed dead-time computation in complementary PWM
+- Improve error handling for I2C v2 NACK conditions
+- Renamed frequency parameters for consistency (freq -> frequency)
 - Modify BufferedUart initialization to take pins before interrupts ([#3983](https://github.com/embassy-rs/embassy/pull/3983))
 - Added a 'single-bank' and a 'dual-bank' feature so chips with configurable flash bank setups are be supported in embassy ([#4125](https://github.com/embassy-rs/embassy/pull/4125))
 - Add automatic setting of remap bits when using alternate DMA channels on STM32F0 and STM32F3 devices ([#3653](https://github.com/embassy-rs/embassy/pull/3653))
