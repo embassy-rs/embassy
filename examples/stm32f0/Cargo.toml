@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 # Change stm32f091rc to your chip name, if necessary.
-embassy-stm32 = { version = "0.2.0", path = "../../embassy-stm32", features = [ "defmt", "memory-x", "stm32f091rc", "time-driver-tim2", "exti", "unstable-pac"] }
+embassy-stm32 = { version = "0.3.0", path = "../../embassy-stm32", features = [ "defmt", "memory-x", "stm32f091rc", "time-driver-tim2", "exti", "unstable-pac"] }
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 defmt = "1.0.1"
