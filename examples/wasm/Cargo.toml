@@ -8,7 +8,7 @@ license = "MIT OR Apache-2.0"
 crate-type = ["cdylib"]
 
 [dependencies]
-embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = ["log"] }
+embassy-sync = { version = "0.7.1", path = "../../embassy-sync", features = ["log"] }
 embassy-executor = { version = "0.8.0", path = "../../embassy-executor", features = ["arch-wasm", "executor-thread", "log"] }
 embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["log", "wasm", ] }
 

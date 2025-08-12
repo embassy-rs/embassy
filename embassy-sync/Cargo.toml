@@ -1,6 +1,6 @@
 [package]
 name = "embassy-sync"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2021"
 description = "no-std, no-alloc synchronization primitives with async support"
 repository = "https://github.com/embassy-rs/embassy"
