@@ -6,7 +6,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::{Context, Poll};
 
 use atomic_polyfill::{AtomicU64, AtomicU8};
-use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use fixed::types::extra::U8;
 use fixed::FixedU32;
@@ -18,7 +18,10 @@ use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::relocate::RelocatedProgram;
 use crate::{pac, peripherals, RegExt};
 
-pub mod instr;
+mod instr;
+
+#[doc(inline)]
+pub use pio as program;
 
 /// Wakers for interrupts and FIFOs.
 pub struct Wakers([AtomicWaker; 12]);
@@ -95,6 +98,9 @@ pub enum StatusSource {
     TxFifoLevel = 0,
     /// All-ones if RX FIFO level < N, otherwise all-zeroes.
     RxFifoLevel = 1,
+    /// All-ones if the indexed IRQ flag is raised, otherwise all-zeroes
+    #[cfg(feature = "_rp235x")]
+    Irq = 2,
 }
 
 const RXNEMPTY_MASK: u32 = 1 << 0;
@@ -232,7 +238,7 @@ impl<'a, 'd, PIO: Instance> Drop for IrqFuture<'a, 'd, PIO> {
 
 /// Type representing a PIO pin.
 pub struct Pin<'l, PIO: Instance> {
-    pin: PeripheralRef<'l, AnyPin>,
+    pin: Peri<'l, AnyPin>,
     pio: PhantomData<PIO>,
 }
 
@@ -357,8 +363,9 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
     /// Prepare DMA transfer from RX FIFO.
     pub fn dma_pull<'a, C: Channel, W: Word>(
         &'a mut self,
-        ch: PeripheralRef<'a, C>,
+        ch: Peri<'a, C>,
         data: &'a mut [W],
+        bswap: bool,
     ) -> Transfer<'a, C> {
         let pio_no = PIO::PIO_NO;
         let p = ch.regs();
@@ -376,6 +383,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
             w.set_chain_to(ch.number());
             w.set_incr_read(false);
             w.set_incr_write(true);
+            w.set_bswap(bswap);
             w.set_en(true);
         });
         compiler_fence(Ordering::SeqCst);
@@ -444,7 +452,12 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
     }
 
     /// Prepare a DMA transfer to TX FIFO.
-    pub fn dma_push<'a, C: Channel, W: Word>(&'a mut self, ch: PeripheralRef<'a, C>, data: &'a [W]) -> Transfer<'a, C> {
+    pub fn dma_push<'a, C: Channel, W: Word>(
+        &'a mut self,
+        ch: Peri<'a, C>,
+        data: &'a [W],
+        bswap: bool,
+    ) -> Transfer<'a, C> {
         let pio_no = PIO::PIO_NO;
         let p = ch.regs();
         p.read_addr().write_value(data.as_ptr() as u32);
@@ -461,6 +474,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
             w.set_chain_to(ch.number());
             w.set_incr_read(true);
             w.set_incr_write(false);
+            w.set_bswap(bswap);
             w.set_en(true);
         });
         compiler_fence(Ordering::SeqCst);
@@ -651,7 +665,7 @@ impl<'d, PIO: Instance> Config<'d, PIO> {
     /// of the program. The state machine is not started.
     ///
     /// `side_set` sets the range of pins affected by side-sets. The range must be consecutive.
-    /// Side-set pins must configured as outputs using [`StateMachine::set_pin_dirs`] to be
+    /// Sideset pins must configured as outputs using [`StateMachine::set_pin_dirs`] to be
     /// effective.
     pub fn use_program(&mut self, prog: &LoadedProgram<'d, PIO>, side_set: &[&Pin<'d, PIO>]) {
         assert!((prog.side_set.bits() - prog.side_set.optional() as u8) as usize == side_set.len());
@@ -725,6 +739,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
             w.set_status_sel(match config.status_sel {
                 StatusSource::TxFifoLevel => pac::pio::vals::ExecctrlStatusSel::TXLEVEL,
                 StatusSource::RxFifoLevel => pac::pio::vals::ExecctrlStatusSel::RXLEVEL,
+                StatusSource::Irq => pac::pio::vals::ExecctrlStatusSel::IRQ,
             });
             #[cfg(feature = "rp2040")]
             w.set_status_sel(match config.status_sel {
@@ -812,8 +827,53 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         }
 
         if let Some(origin) = config.origin {
-            unsafe { instr::exec_jmp(self, origin) }
+            unsafe { self.exec_jmp(origin) }
         }
+    }
+
+    /// Read current instruction address for this state machine
+    pub fn get_addr(&self) -> u8 {
+        let addr = Self::this_sm().addr();
+        addr.read().addr()
+    }
+
+    /// Read TX FIFO threshold for this state machine.
+    pub fn get_tx_threshold(&self) -> u8 {
+        let shiftctrl = Self::this_sm().shiftctrl();
+        shiftctrl.read().pull_thresh()
+    }
+
+    /// Set/change the TX FIFO threshold for this state machine.
+    pub fn set_tx_threshold(&mut self, threshold: u8) {
+        assert!(threshold <= 31);
+        let shiftctrl = Self::this_sm().shiftctrl();
+        shiftctrl.modify(|w| {
+            w.set_pull_thresh(threshold);
+        });
+    }
+
+    /// Read TX FIFO threshold for this state machine.
+    pub fn get_rx_threshold(&self) -> u8 {
+        Self::this_sm().shiftctrl().read().push_thresh()
+    }
+
+    /// Set/change the RX FIFO threshold for this state machine.
+    pub fn set_rx_threshold(&mut self, threshold: u8) {
+        assert!(threshold <= 31);
+        let shiftctrl = Self::this_sm().shiftctrl();
+        shiftctrl.modify(|w| {
+            w.set_push_thresh(threshold);
+        });
+    }
+
+    /// Set/change both TX and RX FIFO thresholds for this state machine.
+    pub fn set_thresholds(&mut self, threshold: u8) {
+        assert!(threshold <= 31);
+        let shiftctrl = Self::this_sm().shiftctrl();
+        shiftctrl.modify(|w| {
+            w.set_push_thresh(threshold);
+            w.set_pull_thresh(threshold);
+        });
     }
 
     /// Set the clock divider for this state machine.
@@ -1091,9 +1151,7 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
     /// (i.e., have their `FUNCSEL` reset to `NULL`) when the [`Common`] *and*
     /// all [`StateMachine`]s for this block have been dropped. **Other members
     /// of [`Pio`] do not keep pin registrations alive.**
-    pub fn make_pio_pin(&mut self, pin: impl Peripheral<P = impl PioPin + 'd> + 'd) -> Pin<'d, PIO> {
-        into_ref!(pin);
-
+    pub fn make_pio_pin(&mut self, pin: Peri<'d, impl PioPin + 'd>) -> Pin<'d, PIO> {
         // enable the outputs
         pin.pad_ctrl().write(|w| w.set_od(false));
         // especially important on the 235x, where IE defaults to 0
@@ -1115,7 +1173,7 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
         // we can be relaxed about this because we're &mut here and nothing is cached
         PIO::state().used_pins.fetch_or(1 << pin.pin_bank(), Ordering::Relaxed);
         Pin {
-            pin: pin.into_ref().map_into(),
+            pin: pin.into(),
             pio: PhantomData::default(),
         }
     }
@@ -1248,7 +1306,7 @@ pub struct Pio<'d, PIO: Instance> {
 
 impl<'d, PIO: Instance> Pio<'d, PIO> {
     /// Create a new instance of a PIO peripheral.
-    pub fn new(_pio: impl Peripheral<P = PIO> + 'd, _irq: impl Binding<PIO::Interrupt, InterruptHandler<PIO>>) -> Self {
+    pub fn new(_pio: Peri<'d, PIO>, _irq: impl Binding<PIO::Interrupt, InterruptHandler<PIO>>) -> Self {
         PIO::state().users.store(5, Ordering::Release);
         PIO::state().used_pins.store(0, Ordering::Release);
         PIO::Interrupt::unpend();
@@ -1333,7 +1391,7 @@ trait SealedInstance {
 
 /// PIO instance.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + Sized + Unpin {
+pub trait Instance: SealedInstance + PeripheralType + Sized + Unpin {
     /// Interrupt for this peripheral.
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }

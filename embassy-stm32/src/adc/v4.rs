@@ -9,7 +9,7 @@ use super::{
 };
 use crate::dma::Transfer;
 use crate::time::Hertz;
-use crate::{pac, rcc, Peripheral};
+use crate::{pac, rcc, Peri};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -142,6 +142,7 @@ impl Prescaler {
 }
 
 /// Number of samples used for averaging.
+#[derive(Copy, Clone)]
 pub enum Averaging {
     Disabled,
     Samples2,
@@ -158,8 +159,7 @@ pub enum Averaging {
 
 impl<'d, T: Instance> Adc<'d, T> {
     /// Create a new ADC driver.
-    pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
-        embassy_hal_internal::into_ref!(adc);
+    pub fn new(adc: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
 
         let prescaler = Prescaler::from_ker_ck(T::frequency());
@@ -167,7 +167,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::common_regs().ccr().modify(|w| w.set_presc(prescaler.presc()));
 
         let frequency = Hertz(T::frequency().0 / prescaler.divisor());
-        info!("ADC frequency set to {} Hz", frequency.0);
+        info!("ADC frequency set to {}", frequency);
 
         if frequency > MAX_ADC_CLK_FREQ {
             panic!("Maximal allowed frequency for the ADC is {} MHz and it varies with different packages, refer to ST docs for more information.", MAX_ADC_CLK_FREQ.0 /  1_000_000 );
@@ -306,7 +306,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         T::regs().cfgr2().modify(|reg| {
             reg.set_rovse(enable);
-            reg.set_osvr(samples);
+            reg.set_ovsr(samples);
             reg.set_ovss(right_shift);
         })
     }
@@ -344,12 +344,12 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// use embassy_stm32::adc::{Adc, AdcChannel}
     ///
     /// let mut adc = Adc::new(p.ADC1);
-    /// let mut adc_pin0 = p.PA0.degrade_adc();
-    /// let mut adc_pin2 = p.PA2.degrade_adc();
+    /// let mut adc_pin0 = p.PA0.into();
+    /// let mut adc_pin2 = p.PA2.into();
     /// let mut measurements = [0u16; 2];
     ///
-    /// adc.read_async(
-    ///     p.DMA2_CH0,
+    /// adc.read(
+    ///     p.DMA2_CH0.reborrow(),
     ///     [
     ///         (&mut *adc_pin0, SampleTime::CYCLES112),
     ///         (&mut *adc_pin2, SampleTime::CYCLES112),
@@ -362,7 +362,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// ```
     pub async fn read(
         &mut self,
-        rx_dma: &mut impl RxDma<T>,
+        rx_dma: Peri<'_, impl RxDma<T>>,
         sequence: impl ExactSizeIterator<Item = (&mut AnyAdcChannel<T>, SampleTime)>,
         readings: &mut [u16],
     ) {

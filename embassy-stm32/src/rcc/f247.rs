@@ -1,5 +1,7 @@
 use stm32_metapac::flash::vals::Latency;
 
+#[cfg(any(stm32f413, stm32f423, stm32f412))]
+pub use crate::pac::rcc::vals::Plli2ssrc as Plli2sSource;
 pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Pllm as PllPreDiv, Plln as PllMul, Pllp as PllPDiv, Pllq as PllQDiv, Pllr as PllRDiv,
     Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
@@ -84,6 +86,8 @@ pub struct Config {
     pub sys: Sysclk,
 
     pub pll_src: PllSource,
+    #[cfg(any(stm32f412, stm32f413, stm32f423))]
+    pub external_i2s_clock: Option<Hertz>,
 
     pub pll: Option<Pll>,
     #[cfg(any(stm32f2, all(stm32f4, not(stm32f410)), stm32f7))]
@@ -104,13 +108,15 @@ pub struct Config {
     pub voltage: VoltageScale,
 }
 
-impl Default for Config {
-    fn default() -> Self {
+impl Config {
+    pub const fn new() -> Self {
         Self {
             hsi: true,
             hse: None,
             sys: Sysclk::HSI,
             pll_src: PllSource::HSI,
+            #[cfg(any(stm32f412, stm32f413, stm32f423))]
+            external_i2s_clock: None,
             pll: None,
             #[cfg(any(stm32f2, all(stm32f4, not(stm32f410)), stm32f7))]
             plli2s: None,
@@ -121,12 +127,18 @@ impl Default for Config {
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
 
-            ls: Default::default(),
+            ls: crate::rcc::LsConfig::new(),
 
             #[cfg(stm32f2)]
             voltage: VoltageScale::Range3,
-            mux: Default::default(),
+            mux: super::mux::ClockMux::default(),
         }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -185,6 +197,8 @@ pub(crate) unsafe fn init(config: Config) {
     let pll_input = PllInput {
         hse,
         hsi,
+        #[cfg(any(stm32f412, stm32f413, stm32f423))]
+        external: config.external_i2s_clock,
         source: config.pll_src,
     };
     let pll = init_pll(PllInstance::Pll, config.pll, &pll_input);
@@ -308,7 +322,6 @@ pub(crate) unsafe fn init(config: Config) {
         #[cfg(dsihost)]
         dsi_phy: None, // DSI PLL clock not supported, don't call `RccPeripheral::frequency()` in the drivers
 
-        hsi_div488: hsi.map(|hsi| hsi/488u32),
         hsi_hse: None,
         afif: None,
     );
@@ -318,6 +331,8 @@ struct PllInput {
     source: PllSource,
     hsi: Option<Hertz>,
     hse: Option<Hertz>,
+    #[cfg(any(stm32f412, stm32f413, stm32f423))]
+    external: Option<Hertz>,
 }
 
 #[derive(Default)]
@@ -362,9 +377,16 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
 
     let Some(pll) = config else { return PllOutput::default() };
 
+    #[cfg(not(any(stm32f412, stm32f413, stm32f423)))]
     let pll_src = match input.source {
         PllSource::HSE => input.hse,
         PllSource::HSI => input.hsi,
+    };
+    #[cfg(any(stm32f412, stm32f413, stm32f423))]
+    let pll_src = match (input.source, input.external) {
+        (PllSource::HSE, None) => input.hse,
+        (PllSource::HSI, None) => input.hsi,
+        (_, Some(ext)) => Some(ext),
     };
 
     let pll_src = pll_src.unwrap();
@@ -414,6 +436,17 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
         }),
         #[cfg(any(all(stm32f4, not(stm32f410)), stm32f7))]
         PllInstance::Plli2s => RCC.plli2scfgr().write(|w| {
+            #[cfg(any(stm32f411, stm32f412, stm32f413, stm32f423, stm32f446))]
+            w.set_pllm(pll.prediv);
+            #[cfg(any(stm32f412, stm32f413, stm32f423))]
+            {
+                let plli2ssource = match input.external {
+                    Some(_) => Plli2sSource::EXTERNAL,
+                    None => Plli2sSource::HSE_HSI,
+                };
+                w.set_plli2ssrc(plli2ssource);
+            }
+
             write_fields!(w);
         }),
         #[cfg(stm32f2)]

@@ -6,7 +6,7 @@ pub mod enums;
 
 use core::marker::PhantomData;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::PeripheralType;
 use enums::*;
 
 use crate::dma::ChannelAndRequest;
@@ -14,7 +14,7 @@ use crate::gpio::{AfType, AnyPin, OutputType, Pull, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::quadspi::Quadspi as Regs;
 use crate::rcc::{self, RccPeripheral};
-use crate::{peripherals, Peripheral};
+use crate::{peripherals, Peri};
 
 /// QSPI transfer configuration.
 pub struct TransferConfig {
@@ -58,6 +58,8 @@ pub struct Config {
     pub fifo_threshold: FIFOThresholdLevel,
     /// Minimum number of cycles that chip select must be high between issued commands
     pub cs_high_time: ChipSelectHighTime,
+    /// Shift sampling point of input data (none, or half-cycle)
+    pub sample_shifting: SampleShifting,
 }
 
 impl Default for Config {
@@ -68,6 +70,7 @@ impl Default for Config {
             prescaler: 128,
             fifo_threshold: FIFOThresholdLevel::_17Bytes,
             cs_high_time: ChipSelectHighTime::_5Cycle,
+            sample_shifting: SampleShifting::None,
         }
     }
 }
@@ -75,13 +78,13 @@ impl Default for Config {
 /// QSPI driver.
 #[allow(dead_code)]
 pub struct Qspi<'d, T: Instance, M: PeriMode> {
-    _peri: PeripheralRef<'d, T>,
-    sck: Option<PeripheralRef<'d, AnyPin>>,
-    d0: Option<PeripheralRef<'d, AnyPin>>,
-    d1: Option<PeripheralRef<'d, AnyPin>>,
-    d2: Option<PeripheralRef<'d, AnyPin>>,
-    d3: Option<PeripheralRef<'d, AnyPin>>,
-    nss: Option<PeripheralRef<'d, AnyPin>>,
+    _peri: Peri<'d, T>,
+    sck: Option<Peri<'d, AnyPin>>,
+    d0: Option<Peri<'d, AnyPin>>,
+    d1: Option<Peri<'d, AnyPin>>,
+    d2: Option<Peri<'d, AnyPin>>,
+    d3: Option<Peri<'d, AnyPin>>,
+    nss: Option<Peri<'d, AnyPin>>,
     dma: Option<ChannelAndRequest<'d>>,
     _phantom: PhantomData<M>,
     config: Config,
@@ -89,19 +92,17 @@ pub struct Qspi<'d, T: Instance, M: PeriMode> {
 
 impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
     fn new_inner(
-        peri: impl Peripheral<P = T> + 'd,
-        d0: Option<PeripheralRef<'d, AnyPin>>,
-        d1: Option<PeripheralRef<'d, AnyPin>>,
-        d2: Option<PeripheralRef<'d, AnyPin>>,
-        d3: Option<PeripheralRef<'d, AnyPin>>,
-        sck: Option<PeripheralRef<'d, AnyPin>>,
-        nss: Option<PeripheralRef<'d, AnyPin>>,
+        peri: Peri<'d, T>,
+        d0: Option<Peri<'d, AnyPin>>,
+        d1: Option<Peri<'d, AnyPin>>,
+        d2: Option<Peri<'d, AnyPin>>,
+        d3: Option<Peri<'d, AnyPin>>,
+        sck: Option<Peri<'d, AnyPin>>,
+        nss: Option<Peri<'d, AnyPin>>,
         dma: Option<ChannelAndRequest<'d>>,
         config: Config,
         fsel: FlashSelection,
     ) -> Self {
-        into_ref!(peri);
-
         rcc::enable_and_reset::<T>();
 
         while T::REGS.sr().read().busy() {}
@@ -122,7 +123,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
         T::REGS.cr().modify(|w| {
             w.set_en(true);
             //w.set_tcen(false);
-            w.set_sshift(false);
+            w.set_sshift(config.sample_shifting.into());
             w.set_fthres(config.fifo_threshold.into());
             w.set_prescaler(config.prescaler);
             w.set_fsel(fsel.into());
@@ -272,13 +273,13 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
 impl<'d, T: Instance> Qspi<'d, T, Blocking> {
     /// Create a new QSPI driver for bank 1, in blocking mode.
     pub fn new_blocking_bank1(
-        peri: impl Peripheral<P = T> + 'd,
-        d0: impl Peripheral<P = impl BK1D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl BK1D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl BK1D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl BK1D3Pin<T>> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        nss: impl Peripheral<P = impl BK1NSSPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        d0: Peri<'d, impl BK1D0Pin<T>>,
+        d1: Peri<'d, impl BK1D1Pin<T>>,
+        d2: Peri<'d, impl BK1D2Pin<T>>,
+        d3: Peri<'d, impl BK1D3Pin<T>>,
+        sck: Peri<'d, impl SckPin<T>>,
+        nss: Peri<'d, impl BK1NSSPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -300,13 +301,13 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
 
     /// Create a new QSPI driver for bank 2, in blocking mode.
     pub fn new_blocking_bank2(
-        peri: impl Peripheral<P = T> + 'd,
-        d0: impl Peripheral<P = impl BK2D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl BK2D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl BK2D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl BK2D3Pin<T>> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        nss: impl Peripheral<P = impl BK2NSSPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        d0: Peri<'d, impl BK2D0Pin<T>>,
+        d1: Peri<'d, impl BK2D1Pin<T>>,
+        d2: Peri<'d, impl BK2D2Pin<T>>,
+        d3: Peri<'d, impl BK2D3Pin<T>>,
+        sck: Peri<'d, impl SckPin<T>>,
+        nss: Peri<'d, impl BK2NSSPin<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -330,14 +331,14 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
 impl<'d, T: Instance> Qspi<'d, T, Async> {
     /// Create a new QSPI driver for bank 1.
     pub fn new_bank1(
-        peri: impl Peripheral<P = T> + 'd,
-        d0: impl Peripheral<P = impl BK1D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl BK1D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl BK1D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl BK1D3Pin<T>> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        nss: impl Peripheral<P = impl BK1NSSPin<T>> + 'd,
-        dma: impl Peripheral<P = impl QuadDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        d0: Peri<'d, impl BK1D0Pin<T>>,
+        d1: Peri<'d, impl BK1D1Pin<T>>,
+        d2: Peri<'d, impl BK1D2Pin<T>>,
+        d3: Peri<'d, impl BK1D3Pin<T>>,
+        sck: Peri<'d, impl SckPin<T>>,
+        nss: Peri<'d, impl BK1NSSPin<T>>,
+        dma: Peri<'d, impl QuadDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -359,14 +360,14 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
 
     /// Create a new QSPI driver for bank 2.
     pub fn new_bank2(
-        peri: impl Peripheral<P = T> + 'd,
-        d0: impl Peripheral<P = impl BK2D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl BK2D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl BK2D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl BK2D3Pin<T>> + 'd,
-        sck: impl Peripheral<P = impl SckPin<T>> + 'd,
-        nss: impl Peripheral<P = impl BK2NSSPin<T>> + 'd,
-        dma: impl Peripheral<P = impl QuadDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        d0: Peri<'d, impl BK2D0Pin<T>>,
+        d1: Peri<'d, impl BK2D1Pin<T>>,
+        d2: Peri<'d, impl BK2D2Pin<T>>,
+        d3: Peri<'d, impl BK2D3Pin<T>>,
+        sck: Peri<'d, impl SckPin<T>>,
+        nss: Peri<'d, impl BK2NSSPin<T>>,
+        dma: Peri<'d, impl QuadDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -465,7 +466,7 @@ trait SealedInstance {
 
 /// QSPI instance trait.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {}
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral {}
 
 pin_trait!(SckPin, Instance);
 pin_trait!(BK1D0Pin, Instance);

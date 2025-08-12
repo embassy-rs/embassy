@@ -1,13 +1,14 @@
 //! Hardware Semaphore (HSEM)
 
+use embassy_hal_internal::PeripheralType;
+
+use crate::pac;
+use crate::rcc::{self, RccPeripheral};
 // TODO: This code works for all HSEM implemenations except for the STM32WBA52/4/5xx MCUs.
 // Those MCUs have a different HSEM implementation (Secure semaphore lock support,
 // Privileged / unprivileged semaphore lock support, Semaphore lock protection via semaphore attribute),
 // which is not yet supported by this code.
-use embassy_hal_internal::{into_ref, PeripheralRef};
-
-use crate::rcc::RccPeripheral;
-use crate::{pac, Peripheral};
+use crate::Peri;
 
 /// HSEM error.
 #[derive(Debug)]
@@ -45,7 +46,7 @@ pub enum CoreId {
 #[inline(always)]
 pub fn get_current_coreid() -> CoreId {
     let cpuid = unsafe { cortex_m::peripheral::CPUID::PTR.read_volatile().base.read() };
-    match cpuid & 0x000000F0 {
+    match (cpuid & 0x000000F0) >> 4 {
         #[cfg(any(stm32wb, stm32wl))]
         0x0 => CoreId::Core1,
 
@@ -73,13 +74,14 @@ fn core_id_to_index(core: CoreId) -> usize {
 
 /// HSEM driver
 pub struct HardwareSemaphore<'d, T: Instance> {
-    _peri: PeripheralRef<'d, T>,
+    _peri: Peri<'d, T>,
 }
 
 impl<'d, T: Instance> HardwareSemaphore<'d, T> {
     /// Creates a new HardwareSemaphore instance.
-    pub fn new(peripheral: impl Peripheral<P = T> + 'd) -> Self {
-        into_ref!(peripheral);
+    pub fn new(peripheral: Peri<'d, T>) -> Self {
+        rcc::enable_and_reset::<T>();
+
         HardwareSemaphore { _peri: peripheral }
     }
 
@@ -177,7 +179,7 @@ trait SealedInstance {
 
 /// HSEM instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + RccPeripheral + Send + 'static {}
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral + Send + 'static {}
 
 impl SealedInstance for crate::peripherals::HSEM {
     fn regs() -> crate::pac::hsem::Hsem {

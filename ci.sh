@@ -19,8 +19,8 @@ fi
 TARGET=$(rustc -vV | sed -n 's|host: ||p')
 
 BUILD_EXTRA=""
-if [ $TARGET = "x86_64-unknown-linux-gnu" ]; then
-    BUILD_EXTRA="--- build --release --manifest-path examples/std/Cargo.toml --target $TARGET --out-dir out/examples/std"
+if [ $TARGET = "x86_64-unknown-linux-gnu" ] || [ $TARGET = "aarch64-unknown-linux-gnu" ]; then
+    BUILD_EXTRA="--- build --release --manifest-path examples/std/Cargo.toml --target $TARGET --artifact-dir out/examples/std"
 fi
 
 # CI intentionally does not use -eabihf on thumbv7em to minimize dep compile time.
@@ -35,10 +35,16 @@ cargo batch \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m,executor-thread \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m,executor-interrupt \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m,executor-thread,executor-interrupt \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target armv7a-none-eabi --features arch-cortex-ar,executor-thread \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target armv7r-none-eabi --features arch-cortex-ar,executor-thread \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target armv7r-none-eabihf --features arch-cortex-ar,executor-thread \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target riscv32imac-unknown-none-elf --features arch-riscv32 \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target riscv32imac-unknown-none-elf --features arch-riscv32,executor-thread \
+    --- build --release --manifest-path embassy-embedded-hal/Cargo.toml --target thumbv7em-none-eabi \
+    --- build --release --manifest-path embassy-embedded-hal/Cargo.toml --target thumbv7em-none-eabi --features time \
     --- build --release --manifest-path embassy-sync/Cargo.toml --target thumbv6m-none-eabi --features defmt \
     --- build --release --manifest-path embassy-time/Cargo.toml --target thumbv6m-none-eabi --features defmt,defmt-timestamp-uptime,mock-driver \
+    --- build --release --manifest-path embassy-time/Cargo.toml --features defmt,std \
     --- build --release --manifest-path embassy-time-queue-utils/Cargo.toml --target thumbv6m-none-eabi \
     --- build --release --manifest-path embassy-time-queue-utils/Cargo.toml --target thumbv6m-none-eabi --features generic-queue-8 \
     --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv4,medium-ethernet,packet-trace \
@@ -53,6 +59,8 @@ cargo batch \
     --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv4,proto-ipv6,medium-ip \
     --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv4,proto-ipv6,medium-ip,medium-ethernet \
     --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv4,proto-ipv6,medium-ip,medium-ethernet,medium-ieee802154 \
+    --- build --release --manifest-path embassy-imxrt/Cargo.toml --target thumbv8m.main-none-eabihf --features mimxrt633s,defmt,unstable-pac,time,time-driver-rtc \
+    --- build --release --manifest-path embassy-imxrt/Cargo.toml --target thumbv8m.main-none-eabihf --features mimxrt685s,defmt,unstable-pac,time,time-driver-rtc \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv6m-none-eabi --features nrf51,gpiote,time,time-driver-rtc1 \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv7em-none-eabi --features nrf52805,gpiote,time,time-driver-rtc1 \
     --- build --release --manifest-path embassy-nrf/Cargo.toml --target thumbv7em-none-eabi --features nrf52810,gpiote,time,time-driver-rtc1 \
@@ -86,16 +94,21 @@ cargo batch \
     --- build --release --manifest-path embassy-rp/Cargo.toml --target thumbv8m.main-none-eabihf --features time-driver,defmt,rp235xa \
     --- build --release --manifest-path embassy-rp/Cargo.toml --target thumbv8m.main-none-eabihf --features time-driver,log,rp235xa \
     --- build --release --manifest-path embassy-rp/Cargo.toml --target thumbv8m.main-none-eabihf --features time-driver,rp235xa,binary-info \
-    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,defmt,exti,time-driver-any,time \
-    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,defmt,time-driver-any,time \
-    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,defmt,exti,time \
-    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,defmt,time \
-    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,defmt,exti,time-driver-any,time \
-    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,defmt,time-driver-any,time \
-    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,defmt,exti,time \
-    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,defmt,time \
-    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,defmt,exti \
-    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,defmt \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,dual-bank,defmt,exti,time-driver-any,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,dual-bank,defmt,time-driver-any,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,dual-bank,defmt,exti,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,dual-bank,defmt,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,dual-bank,defmt,exti,time-driver-any,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,dual-bank,defmt,time-driver-any,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,dual-bank,defmt,exti,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,dual-bank,defmt,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,dual-bank,defmt,exti \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,dual-bank,defmt \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,single-bank,defmt \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32c071rb,defmt,exti,time-driver-any,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32c051f6,defmt,exti,time-driver-any,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32c091gb,defmt,exti,time-driver-any,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32c092rc,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32f038f6,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32f030c6,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32f058t8,defmt,exti,time-driver-any,time \
@@ -149,12 +162,14 @@ cargo batch \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f303c8,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f398ve,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f378cc,defmt,exti,time-driver-any,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32g0b0ce,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32g0c1ve,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32f217zg,defmt,exti,time-driver-any,time \
-    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,defmt,exti,time-driver-any,low-power,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,dual-bank,defmt,exti,time-driver-any,low-power,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32wl54jc-cm0p,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32wle5jb,defmt,exti,time-driver-any,time \
-    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32g474pe,defmt,exti,time-driver-any,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32g431kb,defmt,exti,time-driver-any,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32g474pe,dual-bank,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32f107vc,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32f103re,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32f100c4,defmt,exti,time-driver-any,time \
@@ -163,13 +178,30 @@ cargo batch \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32h562ag,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32wba50ke,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32wba55ug,defmt,exti,time-driver-any,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32wba62cg,defmt,exti,time-driver-any,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32wba65ri,defmt,exti,time-driver-any,low-power,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32u5f9zj,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32u5g9nj,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32wb35ce,defmt,exti,time-driver-any,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32wb55rg,defmt,exti,time-driver-any,low-power,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32u031r8,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32u073mb,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32u083rc,defmt,exti,time-driver-any,time \
-    --- build --release --manifest-path embassy-nxp/Cargo.toml --target thumbv8m.main-none-eabihf \
+    --- build --release --manifest-path embassy-nxp/Cargo.toml --target thumbv8m.main-none-eabihf --features lpc55,defmt \
+    --- build --release --manifest-path embassy-nxp/Cargo.toml --target thumbv7em-none-eabihf --features mimxrt1011,rt,defmt,time-driver-pit \
+    --- build --release --manifest-path embassy-nxp/Cargo.toml --target thumbv7em-none-eabihf --features mimxrt1062,rt,defmt,time-driver-pit \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0c1104dgs20,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g3507pm,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g3519pz,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0l1306rhb,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0l2228pn,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0l1345dgs28,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0l1106dgs28,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0l1228pm,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g1107ycj,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g3105rhb,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g1505pt,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g1519rhb,defmt,time-driver-any \
     --- build --release --manifest-path cyw43/Cargo.toml --target thumbv6m-none-eabi --features ''\
     --- build --release --manifest-path cyw43/Cargo.toml --target thumbv6m-none-eabi --features 'log' \
     --- build --release --manifest-path cyw43/Cargo.toml --target thumbv6m-none-eabi --features 'defmt' \
@@ -180,6 +212,7 @@ cargo batch \
     --- build --release --manifest-path cyw43-pio/Cargo.toml --target thumbv6m-none-eabi --features 'embassy-rp/rp2040' \
     --- build --release --manifest-path cyw43-pio/Cargo.toml --target thumbv6m-none-eabi --features 'embassy-rp/rp2040' \
     --- build --release --manifest-path embassy-boot-nrf/Cargo.toml --target thumbv7em-none-eabi --features embassy-nrf/nrf52840 \
+    --- build --release --manifest-path embassy-boot-nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf5340-app-s \
     --- build --release --manifest-path embassy-boot-nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9160-ns \
     --- build --release --manifest-path embassy-boot-nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9120-ns \
     --- build --release --manifest-path embassy-boot-nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9151-ns \
@@ -200,59 +233,68 @@ cargo batch \
     --- build --release --manifest-path docs/examples/layer-by-layer/blinky-hal/Cargo.toml --target thumbv7em-none-eabi \
     --- build --release --manifest-path docs/examples/layer-by-layer/blinky-irq/Cargo.toml --target thumbv7em-none-eabi \
     --- build --release --manifest-path docs/examples/layer-by-layer/blinky-async/Cargo.toml --target thumbv7em-none-eabi \
-    --- build --release --manifest-path examples/nrf52810/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/nrf52810 \
-    --- build --release --manifest-path examples/nrf52840/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/nrf52840 \
-    --- build --release --manifest-path examples/nrf5340/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/nrf5340 \
-    --- build --release --manifest-path examples/nrf54l15/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/nrf54l15 \
-    --- build --release --manifest-path examples/nrf9160/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/nrf9160 \
-    --- build --release --manifest-path examples/nrf9151/s/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/nrf9151/s \
-    --- build --release --manifest-path examples/nrf9151/ns/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/nrf9151/ns \
-    --- build --release --manifest-path examples/nrf51/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/nrf51 \
-    --- build --release --manifest-path examples/rp/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/rp \
-    --- build --release --manifest-path examples/rp23/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/rp23 \
-    --- build --release --manifest-path examples/stm32f0/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/stm32f0 \
-    --- build --release --manifest-path examples/stm32f1/Cargo.toml --target thumbv7m-none-eabi --out-dir out/examples/stm32f1 \
-    --- build --release --manifest-path examples/stm32f2/Cargo.toml --target thumbv7m-none-eabi --out-dir out/examples/stm32f2 \
-    --- build --release --manifest-path examples/stm32f3/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32f3 \
-    --- build --release --manifest-path examples/stm32f334/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32f334 \
-    --- build --release --manifest-path examples/stm32f4/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32f4 \
-    --- build --release --manifest-path examples/stm32f469/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32f469 \
-    --- build --release --manifest-path examples/stm32f7/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32f7 \
-    --- build --release --manifest-path examples/stm32c0/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/stm32c0 \
-    --- build --release --manifest-path examples/stm32g0/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/stm32g0 \
-    --- build --release --manifest-path examples/stm32g4/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32g4 \
-    --- build --release --manifest-path examples/stm32h5/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/stm32h5 \
-    --- build --release --manifest-path examples/stm32h7/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32h7 \
-    --- build --release --manifest-path examples/stm32h7b0/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32h7b0 \
-    --- build --release --manifest-path examples/stm32h735/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32h735 \
-    --- build --release --manifest-path examples/stm32h755cm4/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32h755cm4 \
-    --- build --release --manifest-path examples/stm32h755cm7/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32h755cm7 \
-    --- build --release --manifest-path examples/stm32h7rs/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32h7rs \
-    --- build --release --manifest-path examples/stm32l0/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/stm32l0 \
-    --- build --release --manifest-path examples/stm32l1/Cargo.toml --target thumbv7m-none-eabi --out-dir out/examples/stm32l1 \
-    --- build --release --manifest-path examples/stm32l4/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32l4 \
-    --- build --release --manifest-path examples/stm32l432/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32l432 \
-    --- build --release --manifest-path examples/stm32l5/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/stm32l5 \
-    --- build --release --manifest-path examples/stm32u0/Cargo.toml --target thumbv6m-none-eabi --out-dir out/examples/stm32u0 \
-    --- build --release --manifest-path examples/stm32u5/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/stm32u5 \
-    --- build --release --manifest-path examples/stm32wb/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32wb \
-    --- build --release --manifest-path examples/stm32wba/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/stm32wba \
-    --- build --release --manifest-path examples/stm32wl/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/stm32wl \
-    --- build --release --manifest-path examples/lpc55s69/Cargo.toml --target thumbv8m.main-none-eabihf --out-dir out/examples/lpc55s69 \
-    --- build --release --manifest-path examples/boot/application/nrf/Cargo.toml --target thumbv7em-none-eabi --features embassy-nrf/nrf52840,skip-include --out-dir out/examples/boot/nrf52840 \
-    --- build --release --manifest-path examples/boot/application/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9160-ns,skip-include --out-dir out/examples/boot/nrf9160 \
-    --- build --release --manifest-path examples/boot/application/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9120-ns,skip-include --out-dir out/examples/boot/nrf9120 \
-    --- build --release --manifest-path examples/boot/application/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9151-ns,skip-include --out-dir out/examples/boot/nrf9151 \
-    --- build --release --manifest-path examples/boot/application/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9161-ns,skip-include --out-dir out/examples/boot/nrf9161 \
-    --- build --release --manifest-path examples/boot/application/rp/Cargo.toml --target thumbv6m-none-eabi --features skip-include --out-dir out/examples/boot/rp \
-    --- build --release --manifest-path examples/boot/application/stm32f3/Cargo.toml --target thumbv7em-none-eabi --features skip-include --out-dir out/examples/boot/stm32f3 \
-    --- build --release --manifest-path examples/boot/application/stm32f7/Cargo.toml --target thumbv7em-none-eabi --features skip-include --out-dir out/examples/boot/stm32f7 \
-    --- build --release --manifest-path examples/boot/application/stm32h7/Cargo.toml --target thumbv7em-none-eabi --features skip-include --out-dir out/examples/boot/stm32h7 \
-    --- build --release --manifest-path examples/boot/application/stm32l0/Cargo.toml --target thumbv6m-none-eabi --features skip-include --out-dir out/examples/boot/stm32l0 \
-    --- build --release --manifest-path examples/boot/application/stm32l1/Cargo.toml --target thumbv7m-none-eabi --features skip-include --out-dir out/examples/boot/stm32l1 \
-    --- build --release --manifest-path examples/boot/application/stm32l4/Cargo.toml --target thumbv7em-none-eabi --features skip-include --out-dir out/examples/boot/stm32l4 \
-    --- build --release --manifest-path examples/boot/application/stm32wl/Cargo.toml --target thumbv7em-none-eabi --features skip-include --out-dir out/examples/boot/stm32wl \
-    --- build --release --manifest-path examples/boot/application/stm32wb-dfu/Cargo.toml --target thumbv7em-none-eabi --out-dir out/examples/boot/stm32wb-dfu \
+    --- build --release --manifest-path examples/nrf52810/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/nrf52810 \
+    --- build --release --manifest-path examples/nrf52840/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/nrf52840 \
+    --- build --release --manifest-path examples/nrf5340/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/nrf5340 \
+    --- build --release --manifest-path examples/nrf54l15/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/nrf54l15 \
+    --- build --release --manifest-path examples/nrf9160/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/nrf9160 \
+    --- build --release --manifest-path examples/nrf9151/s/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/nrf9151/s \
+    --- build --release --manifest-path examples/nrf9151/ns/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/nrf9151/ns \
+    --- build --release --manifest-path examples/nrf51/Cargo.toml --target thumbv6m-none-eabi --artifact-dir out/examples/nrf51 \
+    --- build --release --manifest-path examples/rp/Cargo.toml --target thumbv6m-none-eabi --artifact-dir out/examples/rp \
+    --- build --release --manifest-path examples/rp235x/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/rp235x \
+    --- build --release --manifest-path examples/stm32f0/Cargo.toml --target thumbv6m-none-eabi --artifact-dir out/examples/stm32f0 \
+    --- build --release --manifest-path examples/stm32f1/Cargo.toml --target thumbv7m-none-eabi --artifact-dir out/examples/stm32f1 \
+    --- build --release --manifest-path examples/stm32f2/Cargo.toml --target thumbv7m-none-eabi --artifact-dir out/examples/stm32f2 \
+    --- build --release --manifest-path examples/stm32f3/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32f3 \
+    --- build --release --manifest-path examples/stm32f334/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32f334 \
+    --- build --release --manifest-path examples/stm32f4/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32f4 \
+    --- build --release --manifest-path examples/stm32f469/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32f469 \
+    --- build --release --manifest-path examples/stm32f7/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32f7 \
+    --- build --release --manifest-path examples/stm32c0/Cargo.toml --target thumbv6m-none-eabi --artifact-dir out/examples/stm32c0 \
+    --- build --release --manifest-path examples/stm32g0/Cargo.toml --target thumbv6m-none-eabi --artifact-dir out/examples/stm32g0 \
+    --- build --release --manifest-path examples/stm32g4/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32g4 \
+    --- build --release --manifest-path examples/stm32h5/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/stm32h5 \
+    --- build --release --manifest-path examples/stm32h7/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32h7 \
+    --- build --release --manifest-path examples/stm32h7b0/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32h7b0 \
+    --- build --release --manifest-path examples/stm32h723/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32h723 \
+    --- build --release --manifest-path examples/stm32h735/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32h735 \
+    --- build --release --manifest-path examples/stm32h755cm4/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32h755cm4 \
+    --- build --release --manifest-path examples/stm32h755cm7/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32h755cm7 \
+    --- build --release --manifest-path examples/stm32h7rs/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32h7rs \
+    --- build --release --manifest-path examples/stm32l0/Cargo.toml --target thumbv6m-none-eabi --artifact-dir out/examples/stm32l0 \
+    --- build --release --manifest-path examples/stm32l1/Cargo.toml --target thumbv7m-none-eabi --artifact-dir out/examples/stm32l1 \
+    --- build --release --manifest-path examples/stm32l4/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32l4 \
+    --- build --release --manifest-path examples/stm32l432/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32l432 \
+    --- build --release --manifest-path examples/stm32l5/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/stm32l5 \
+    --- build --release --manifest-path examples/stm32u0/Cargo.toml --target thumbv6m-none-eabi --artifact-dir out/examples/stm32u0 \
+    --- build --release --manifest-path examples/stm32u5/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/stm32u5 \
+    --- build --release --manifest-path examples/stm32wb/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32wb \
+    --- build --release --manifest-path examples/stm32wba/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/stm32wba \
+    --- build --release --manifest-path examples/stm32wba6/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/stm32wba6 \
+    --- build --release --manifest-path examples/stm32wl/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32wl \
+    --- build --release --manifest-path examples/lpc55s69/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/lpc55s69 \
+    --- build --release --manifest-path examples/mimxrt1011/Cargo.toml --target thumbv7em-none-eabihf --artifact-dir out/examples/mimxrt1011 \
+    --- build --release --manifest-path examples/mimxrt1062-evk/Cargo.toml --target thumbv7em-none-eabihf --artifact-dir out/examples/mimxrt1062-evk \
+    --- build --release --manifest-path examples/mspm0g3507/Cargo.toml --target thumbv6m-none-eabi --artifact-dir out/examples/mspm0g3507 \
+    --- build --release --manifest-path examples/mspm0g3519/Cargo.toml --target thumbv6m-none-eabi --artifact-dir out/examples/mspm0g3519 \
+    --- build --release --manifest-path examples/mspm0l1306/Cargo.toml --target thumbv6m-none-eabi --artifact-dir out/examples/mspm0l1306 \
+    --- build --release --manifest-path examples/mspm0l2228/Cargo.toml --target thumbv6m-none-eabi --artifact-dir out/examples/mspm0l2228 \
+    --- build --release --manifest-path examples/boot/application/nrf/Cargo.toml --target thumbv7em-none-eabi --features embassy-nrf/nrf52840,skip-include --artifact-dir out/examples/boot/nrf52840 \
+    --- build --release --manifest-path examples/boot/application/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9160-ns,skip-include --artifact-dir out/examples/boot/nrf9160 \
+    --- build --release --manifest-path examples/boot/application/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9120-ns,skip-include --artifact-dir out/examples/boot/nrf9120 \
+    --- build --release --manifest-path examples/boot/application/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9151-ns,skip-include --artifact-dir out/examples/boot/nrf9151 \
+    --- build --release --manifest-path examples/boot/application/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9161-ns,skip-include --artifact-dir out/examples/boot/nrf9161 \
+    --- build --release --manifest-path examples/boot/application/rp/Cargo.toml --target thumbv6m-none-eabi --features skip-include --artifact-dir out/examples/boot/rp \
+    --- build --release --manifest-path examples/boot/application/stm32f3/Cargo.toml --target thumbv7em-none-eabi --features skip-include --artifact-dir out/examples/boot/stm32f3 \
+    --- build --release --manifest-path examples/boot/application/stm32f7/Cargo.toml --target thumbv7em-none-eabi --features skip-include --artifact-dir out/examples/boot/stm32f7 \
+    --- build --release --manifest-path examples/boot/application/stm32h7/Cargo.toml --target thumbv7em-none-eabi --features skip-include --artifact-dir out/examples/boot/stm32h7 \
+    --- build --release --manifest-path examples/boot/application/stm32l0/Cargo.toml --target thumbv6m-none-eabi --features skip-include --artifact-dir out/examples/boot/stm32l0 \
+    --- build --release --manifest-path examples/boot/application/stm32l1/Cargo.toml --target thumbv7m-none-eabi --features skip-include --artifact-dir out/examples/boot/stm32l1 \
+    --- build --release --manifest-path examples/boot/application/stm32l4/Cargo.toml --target thumbv7em-none-eabi --features skip-include --artifact-dir out/examples/boot/stm32l4 \
+    --- build --release --manifest-path examples/boot/application/stm32wl/Cargo.toml --target thumbv7em-none-eabi --features skip-include --artifact-dir out/examples/boot/stm32wl \
+    --- build --release --manifest-path examples/boot/application/stm32wb-dfu/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/boot/stm32wb-dfu \
+    --- build --release --manifest-path examples/boot/application/stm32wba-dfu/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/boot/stm32wba-dfu \
     --- build --release --manifest-path examples/boot/bootloader/nrf/Cargo.toml --target thumbv7em-none-eabi --features embassy-nrf/nrf52840 \
     --- build --release --manifest-path examples/boot/bootloader/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9160-ns \
     --- build --release --manifest-path examples/boot/bootloader/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9120-ns \
@@ -261,51 +303,64 @@ cargo batch \
     --- build --release --manifest-path examples/boot/bootloader/rp/Cargo.toml --target thumbv6m-none-eabi \
     --- build --release --manifest-path examples/boot/bootloader/stm32/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32l496zg \
     --- build --release --manifest-path examples/boot/bootloader/stm32wb-dfu/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32wb55rg \
+    --- build --release --manifest-path examples/boot/bootloader/stm32wb-dfu/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32wb55rg,verify \
+    --- build --release --manifest-path examples/boot/bootloader/stm32wba-dfu/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-stm32/stm32wba65ri,verify \
     --- build --release --manifest-path examples/boot/bootloader/stm32-dual-bank/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32h743zi \
-    --- build --release --manifest-path examples/wasm/Cargo.toml --target wasm32-unknown-unknown --out-dir out/examples/wasm \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32f103c8 --out-dir out/tests/stm32f103c8 \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f429zi --out-dir out/tests/stm32f429zi \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f446re --out-dir out/tests/stm32f446re \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32g491re --out-dir out/tests/stm32g491re \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32g071rb --out-dir out/tests/stm32g071rb \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32c031c6 --out-dir out/tests/stm32c031c6 \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32h755zi --out-dir out/tests/stm32h755zi \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32h753zi --out-dir out/tests/stm32h753zi \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32h7a3zi --out-dir out/tests/stm32h7a3zi \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32wb55rg --out-dir out/tests/stm32wb55rg \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32h563zi --out-dir out/tests/stm32h563zi \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32u585ai --out-dir out/tests/stm32u585ai \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32u5a5zj --out-dir out/tests/stm32u5a5zj \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32wba52cg --out-dir out/tests/stm32wba52cg \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32l073rz --out-dir out/tests/stm32l073rz \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32l152re --out-dir out/tests/stm32l152re \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32l4a6zg --out-dir out/tests/stm32l4a6zg \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32l4r5zi --out-dir out/tests/stm32l4r5zi \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze --out-dir out/tests/stm32l552ze \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f767zi --out-dir out/tests/stm32f767zi \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32f207zg --out-dir out/tests/stm32f207zg \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f303ze --out-dir out/tests/stm32f303ze \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32l496zg --out-dir out/tests/stm32l496zg \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32wl55jc --out-dir out/tests/stm32wl55jc \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32h7s3l8 --out-dir out/tests/stm32h7s3l8 \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32f091rc --out-dir out/tests/stm32f091rc \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32h503rb --out-dir out/tests/stm32h503rb \
-    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32u083rc --out-dir out/tests/stm32u083rc \
-    --- build --release --manifest-path tests/rp/Cargo.toml --target thumbv6m-none-eabi --out-dir out/tests/rpi-pico \
-    --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv6m-none-eabi --features nrf51422 --out-dir out/tests/nrf51422-dk \
-    --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv7em-none-eabi --features nrf52832 --out-dir out/tests/nrf52832-dk \
-    --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv7em-none-eabi --features nrf52833 --out-dir out/tests/nrf52833-dk \
-    --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv7em-none-eabi --features nrf52840 --out-dir out/tests/nrf52840-dk \
-    --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features nrf5340 --out-dir out/tests/nrf5340-dk \
-    --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features nrf9160 --out-dir out/tests/nrf9160-dk \
+    --- build --release --manifest-path examples/wasm/Cargo.toml --target wasm32-unknown-unknown --artifact-dir out/examples/wasm \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32f103c8 --artifact-dir out/tests/stm32f103c8 \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f429zi --artifact-dir out/tests/stm32f429zi \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f446re --artifact-dir out/tests/stm32f446re \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32g491re --artifact-dir out/tests/stm32g491re \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32g071rb --artifact-dir out/tests/stm32g071rb \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32c031c6 --artifact-dir out/tests/stm32c031c6 \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32c071rb --artifact-dir out/tests/stm32c071rb \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32h755zi --artifact-dir out/tests/stm32h755zi \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32h753zi --artifact-dir out/tests/stm32h753zi \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32h7a3zi --artifact-dir out/tests/stm32h7a3zi \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32wb55rg --artifact-dir out/tests/stm32wb55rg \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32h563zi --artifact-dir out/tests/stm32h563zi \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32u585ai --artifact-dir out/tests/stm32u585ai \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32u5a5zj --artifact-dir out/tests/stm32u5a5zj \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32wba52cg --artifact-dir out/tests/stm32wba52cg \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32l073rz --artifact-dir out/tests/stm32l073rz \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32l152re --artifact-dir out/tests/stm32l152re \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32l4a6zg --artifact-dir out/tests/stm32l4a6zg \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32l4r5zi --artifact-dir out/tests/stm32l4r5zi \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze --artifact-dir out/tests/stm32l552ze \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f767zi --artifact-dir out/tests/stm32f767zi \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32f207zg --artifact-dir out/tests/stm32f207zg \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f303ze --artifact-dir out/tests/stm32f303ze \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32l496zg --artifact-dir out/tests/stm32l496zg \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32wl55jc --artifact-dir out/tests/stm32wl55jc \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32h7s3l8 --artifact-dir out/tests/stm32h7s3l8 \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32f091rc --artifact-dir out/tests/stm32f091rc \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32h503rb --artifact-dir out/tests/stm32h503rb \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32u083rc --artifact-dir out/tests/stm32u083rc \
+    --- build --release --manifest-path tests/rp/Cargo.toml --target thumbv6m-none-eabi --features rp2040 --artifact-dir out/tests/rpi-pico \
+    --- build --release --manifest-path tests/rp/Cargo.toml --target thumbv8m.main-none-eabihf --features rp235xb --artifact-dir out/tests/pimoroni-pico-plus-2 \
+    --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv6m-none-eabi --features nrf51422 --artifact-dir out/tests/nrf51422-dk \
+    --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv7em-none-eabi --features nrf52832 --artifact-dir out/tests/nrf52832-dk \
+    --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv7em-none-eabi --features nrf52833 --artifact-dir out/tests/nrf52833-dk \
+    --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv7em-none-eabi --features nrf52840 --artifact-dir out/tests/nrf52840-dk \
+    --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features nrf5340 --artifact-dir out/tests/nrf5340-dk \
+    --- build --release --manifest-path tests/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features nrf9160 --artifact-dir out/tests/nrf9160-dk \
+    --- build --release --manifest-path tests/mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g3507 --artifact-dir out/tests/mspm0g3507 \
     --- build --release --manifest-path tests/riscv32/Cargo.toml --target riscv32imac-unknown-none-elf \
     $BUILD_EXTRA
 
+
+# MSPM0C1104 must be built seperately since cargo batch does not consider env vars set in `.cargo/config.toml`.
+# Since the target has 1KB of ram, we need to limit defmt's buffer size.
+DEFMT_RTT_BUFFER_SIZE="72" cargo batch \
+    --- build --release --manifest-path examples/mspm0c1104/Cargo.toml --target thumbv6m-none-eabi --artifact-dir out/examples/mspm0c1104 \
 
 # temporarily disabled, these boards are dead.
 rm -rf out/tests/stm32f103c8
 rm -rf out/tests/nrf52840-dk
 rm -rf out/tests/nrf52833-dk
+
+# disabled because these boards are not on the shelf
+rm -rf out/tests/mspm0g3507
 
 rm out/tests/stm32wb55rg/wpan_mac
 rm out/tests/stm32wb55rg/wpan_ble
@@ -313,11 +368,33 @@ rm out/tests/stm32wb55rg/wpan_ble
 # unstable, I think it's running out of RAM?
 rm out/tests/stm32f207zg/eth
 
-# temporarily disabled, hard faults for unknown reasons
+# temporarily disabled, flaky.
 rm out/tests/stm32f207zg/usart_rx_ringbuffered
+rm out/tests/stm32l152re/usart_rx_ringbuffered
 
 # doesn't work, gives "noise error", no idea why. usart_dma does pass.
 rm out/tests/stm32u5a5zj/usart
+
+# probe-rs error: "multi-core ram flash start not implemented yet"
+# As of 2025-02-17 these tests work when run from flash
+rm out/tests/pimoroni-pico-plus-2/multicore
+rm out/tests/pimoroni-pico-plus-2/gpio_multicore
+rm out/tests/pimoroni-pico-plus-2/spinlock_mutex_multicore
+# Doesn't work when run from ram on the 2350
+rm out/tests/pimoroni-pico-plus-2/flash
+# This test passes locally but fails on the HIL, no idea why
+rm out/tests/pimoroni-pico-plus-2/i2c
+# The pico2 plus doesn't have the adcs hooked up like the picoW does.
+rm out/tests/pimoroni-pico-plus-2/adc
+# temporarily disabled
+rm out/tests/pimoroni-pico-plus-2/pwm
+
+# flaky
+rm out/tests/rpi-pico/pwm
+rm out/tests/rpi-pico/cyw43-perf
+
+# tests are implemented but the HIL test farm doesn't actually have this board yet
+rm -rf out/tests/stm32c071rb
 
 if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
     echo No teleprobe token found, skipping running HIL tests

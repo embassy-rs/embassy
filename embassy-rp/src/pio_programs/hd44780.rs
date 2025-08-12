@@ -5,7 +5,8 @@ use crate::pio::{
     Common, Config, Direction, FifoJoin, Instance, Irq, LoadedProgram, PioPin, ShiftConfig, ShiftDirection,
     StateMachine,
 };
-use crate::{into_ref, Peripheral, PeripheralRef};
+use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
+use crate::Peri;
 
 /// This struct represents a HD44780 program that takes command words (<wait:24> <command:4> <0:4>)
 pub struct PioHD44780CommandWordProgram<'a, PIO: Instance> {
@@ -15,7 +16,7 @@ pub struct PioHD44780CommandWordProgram<'a, PIO: Instance> {
 impl<'a, PIO: Instance> PioHD44780CommandWordProgram<'a, PIO> {
     /// Load the program into the given pio
     pub fn new(common: &mut Common<'a, PIO>) -> Self {
-        let prg = pio_proc::pio_asm!(
+        let prg = pio::pio_asm!(
             r#"
                 .side_set 1 opt
                 .origin 20
@@ -46,7 +47,7 @@ impl<'a, PIO: Instance> PioHD44780CommandSequenceProgram<'a, PIO> {
     /// Load the program into the given pio
     pub fn new(common: &mut Common<'a, PIO>) -> Self {
         // many side sets are only there to free up a delay bit!
-        let prg = pio_proc::pio_asm!(
+        let prg = pio::pio_asm!(
             r#"
                 .origin 27
                 .side_set 1
@@ -99,7 +100,7 @@ impl<'a, PIO: Instance> PioHD44780CommandSequenceProgram<'a, PIO> {
 
 /// Pio backed HD44780 driver
 pub struct PioHD44780<'l, P: Instance, const S: usize> {
-    dma: PeripheralRef<'l, AnyChannel>,
+    dma: Peri<'l, AnyChannel>,
     sm: StateMachine<'l, P, S>,
 
     buf: [u8; 40],
@@ -111,19 +112,17 @@ impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
         common: &mut Common<'l, P>,
         mut sm: StateMachine<'l, P, S>,
         mut irq: Irq<'l, P, S>,
-        dma: impl Peripheral<P = impl Channel> + 'l,
-        rs: impl PioPin,
-        rw: impl PioPin,
-        e: impl PioPin,
-        db4: impl PioPin,
-        db5: impl PioPin,
-        db6: impl PioPin,
-        db7: impl PioPin,
+        mut dma: Peri<'l, impl Channel>,
+        rs: Peri<'l, impl PioPin>,
+        rw: Peri<'l, impl PioPin>,
+        e: Peri<'l, impl PioPin>,
+        db4: Peri<'l, impl PioPin>,
+        db5: Peri<'l, impl PioPin>,
+        db6: Peri<'l, impl PioPin>,
+        db7: Peri<'l, impl PioPin>,
         word_prg: &PioHD44780CommandWordProgram<'l, P>,
         seq_prg: &PioHD44780CommandSequenceProgram<'l, P>,
     ) -> PioHD44780<'l, P, S> {
-        into_ref!(dma);
-
         let rs = common.make_pio_pin(rs);
         let rw = common.make_pio_pin(rw);
         let e = common.make_pio_pin(e);
@@ -136,7 +135,10 @@ impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
 
         let mut cfg = Config::default();
         cfg.use_program(&word_prg.prg, &[&e]);
-        cfg.clock_divider = 125u8.into();
+
+        // Target 1 MHz PIO clock (each cycle is 1µs)
+        cfg.clock_divider = calculate_pio_clock_divider(1_000_000);
+
         cfg.set_out_pins(&[&db4, &db5, &db6, &db7]);
         cfg.shift_out = ShiftConfig {
             auto_fill: true,
@@ -162,7 +164,10 @@ impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
 
         let mut cfg = Config::default();
         cfg.use_program(&seq_prg.prg, &[&e]);
-        cfg.clock_divider = 8u8.into(); // ~64ns/insn
+
+        // Target ~15.6 MHz PIO clock (~64ns/insn)
+        cfg.clock_divider = calculate_pio_clock_divider(15_600_000);
+
         cfg.set_jmp_pin(&db7);
         cfg.set_set_pins(&[&rs, &rw]);
         cfg.set_out_pins(&[&db4, &db5, &db6, &db7]);
@@ -173,10 +178,10 @@ impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
         sm.set_enable(true);
 
         // display on and cursor on and blinking, reset display
-        sm.tx().dma_push(dma.reborrow(), &[0x81u8, 0x0f, 1]).await;
+        sm.tx().dma_push(dma.reborrow(), &[0x81u8, 0x0f, 1], false).await;
 
         Self {
-            dma: dma.map_into(),
+            dma: dma.into(),
             sm,
             buf: [0x20; 40],
         }
@@ -198,6 +203,6 @@ impl<'l, P: Instance, const S: usize> PioHD44780<'l, P, S> {
         // set cursor to 1:15
         self.buf[38..].copy_from_slice(&[0x80, 0xcf]);
 
-        self.sm.tx().dma_push(self.dma.reborrow(), &self.buf).await;
+        self.sm.tx().dma_push(self.dma.reborrow(), &self.buf, false).await;
     }
 }

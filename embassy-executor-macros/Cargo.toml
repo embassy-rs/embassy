@@ -1,6 +1,6 @@
 [package]
 name = "embassy-executor-macros"
-version = "0.6.2"
+version = "0.7.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "macros for creating the entry point and tasks for embassy-executor"

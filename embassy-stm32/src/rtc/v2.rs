@@ -173,3 +173,39 @@ impl SealedInstance for crate::peripherals::RTC {
         result
     }
 }
+
+impl SealedInstance for crate::peripherals::RTC {
+    const BACKUP_REGISTER_COUNT: usize = 20;
+
+    #[cfg(all(feature = "low-power", stm32f4))]
+    const EXTI_WAKEUP_LINE: usize = 22;
+
+    #[cfg(all(feature = "low-power", stm32l4))]
+    const EXTI_WAKEUP_LINE: usize = 20;
+
+    #[cfg(all(feature = "low-power", stm32l0))]
+    const EXTI_WAKEUP_LINE: usize = 20;
+
+    #[cfg(all(feature = "low-power", stm32wb))]
+    const EXTI_WAKEUP_LINE: usize = 19;
+
+    #[cfg(all(feature = "low-power", any(stm32f4, stm32l4, stm32wb)))]
+    type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
+
+    #[cfg(all(feature = "low-power", stm32l0))]
+    type WakeupInterrupt = crate::interrupt::typelevel::RTC;
+
+    fn read_backup_register(rtc: Rtc, register: usize) -> Option<u32> {
+        if register < Self::BACKUP_REGISTER_COUNT {
+            Some(rtc.bkpr(register).read().bkp())
+        } else {
+            None
+        }
+    }
+
+    fn write_backup_register(rtc: Rtc, register: usize, value: u32) {
+        if register < Self::BACKUP_REGISTER_COUNT {
+            rtc.bkpr(register).write(|w| w.set_bkp(value));
+        }
+    }
+}

@@ -1,6 +1,6 @@
 [package]
 name = "embassy-sync"
-version = "0.6.2"
+version = "0.7.0"
 edition = "2021"
 description = "no-std, no-alloc synchronization primitives with async support"
 repository = "https://github.com/embassy-rs/embassy"
@@ -20,15 +20,15 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-sync/
 target = "thumbv7em-none-eabi"
 
 [features]
-std = ["critical-section/std"]
+std = []
 turbowakers = []
 
 [dependencies]
-defmt = { version = "0.3", optional = true }
+defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
 futures-sink = { version = "0.3", default-features = false, features = [] }
-futures-util = { version = "0.3.17", default-features = false }
+futures-core = { version = "0.3.31", default-features = false }
 critical-section = "1.1"
 heapless = "0.8"
 cfg-if = "1.0.0"
@@ -43,3 +43,4 @@ futures-util = { version = "0.3.17", features = [ "channel", "sink" ] }
 # Enable critical-section implementation for std, for tests
 critical-section = { version = "1.1", features = ["std"] }
 static_cell = { version = "2" }
+trybuild = "1.0.105"

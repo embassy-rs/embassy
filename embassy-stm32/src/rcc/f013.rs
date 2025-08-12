@@ -126,13 +126,13 @@ pub struct Config {
     pub ls: super::LsConfig,
 }
 
-impl Default for Config {
-    fn default() -> Self {
+impl Config {
+    pub const fn new() -> Self {
         Self {
             hsi: true,
             hse: None,
             #[cfg(crs)]
-            hsi48: Some(Default::default()),
+            hsi48: Some(crate::rcc::Hsi48Config::new()),
             sys: Sysclk::HSI,
             pll: None,
 
@@ -147,7 +147,7 @@ impl Default for Config {
             apb1_pre: APBPrescaler::DIV1,
             #[cfg(not(stm32f0))]
             apb2_pre: APBPrescaler::DIV1,
-            ls: Default::default(),
+            ls: crate::rcc::LsConfig::new(),
 
             #[cfg(stm32f1)]
             // ensure ADC is not out of range by default even if APB2 is maxxed out (36mhz)
@@ -163,8 +163,14 @@ impl Default for Config {
             #[cfg(stm32f107)]
             i2s3_src: I2s2src::SYS,
 
-            mux: Default::default(),
+            mux: super::mux::ClockMux::default(),
         }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -288,9 +294,6 @@ pub(crate) unsafe fn init(config: Config) {
 
         out_freq
     });
-
-    #[cfg(stm32f3)]
-    let pll_mul_2 = pll.map(|pll| pll * 2u32);
 
     #[cfg(any(rcc_f1, rcc_f1cl, stm32f3, stm32f107))]
     let usb = match pll {
@@ -483,9 +486,6 @@ pub(crate) unsafe fn init(config: Config) {
         hsi: hsi,
         hse: hse,
         pll1_p: pll,
-        #[cfg(stm32f3)]
-        pll1_p_mul_2: pll_mul_2,
-        hsi_div_244: hsi.map(|h| h / 244u32),
         sys: Some(sys),
         pclk1: Some(pclk1),
         pclk2: Some(pclk2),

@@ -6,24 +6,28 @@ use crate::dma::{AnyChannel, Channel, Transfer};
 use crate::pio::{
     Common, Config, Direction, FifoJoin, Instance, LoadedProgram, PioPin, ShiftConfig, ShiftDirection, StateMachine,
 };
-use crate::{into_ref, Peripheral, PeripheralRef};
+use crate::Peri;
 
 /// This struct represents an i2s output driver program
-pub struct PioI2sOutProgram<'a, PIO: Instance> {
-    prg: LoadedProgram<'a, PIO>,
+///
+/// The sample bit-depth is set through scratch register `Y`.
+/// `Y` has to be set to sample bit-depth - 2.
+/// (14 = 16bit, 22 = 24bit, 30 = 32bit)
+pub struct PioI2sOutProgram<'d, PIO: Instance> {
+    prg: LoadedProgram<'d, PIO>,
 }
 
-impl<'a, PIO: Instance> PioI2sOutProgram<'a, PIO> {
+impl<'d, PIO: Instance> PioI2sOutProgram<'d, PIO> {
     /// Load the program into the given pio
-    pub fn new(common: &mut Common<'a, PIO>) -> Self {
-        let prg = pio_proc::pio_asm!(
-            ".side_set 2",
-            "    set x, 14          side 0b01", // side 0bWB - W = Word Clock, B = Bit Clock
+    pub fn new(common: &mut Common<'d, PIO>) -> Self {
+        let prg = pio::pio_asm!(
+            ".side_set 2",                      // side 0bWB - W = Word Clock, B = Bit Clock
+            "    mov x, y           side 0b01", // y stores sample depth - 2 (14 = 16bit, 22 = 24bit, 30 = 32bit)
             "left_data:",
             "    out pins, 1        side 0b00",
             "    jmp x-- left_data  side 0b01",
             "    out pins 1         side 0b10",
-            "    set x, 14          side 0b11",
+            "    mov x, y           side 0b11",
             "right_data:",
             "    out pins 1         side 0b10",
             "    jmp x-- right_data side 0b11",
@@ -37,27 +41,24 @@ impl<'a, PIO: Instance> PioI2sOutProgram<'a, PIO> {
 }
 
 /// Pio backed I2s output driver
-pub struct PioI2sOut<'a, P: Instance, const S: usize> {
-    dma: PeripheralRef<'a, AnyChannel>,
-    sm: StateMachine<'a, P, S>,
+pub struct PioI2sOut<'d, P: Instance, const S: usize> {
+    dma: Peri<'d, AnyChannel>,
+    sm: StateMachine<'d, P, S>,
 }
 
-impl<'a, P: Instance, const S: usize> PioI2sOut<'a, P, S> {
+impl<'d, P: Instance, const S: usize> PioI2sOut<'d, P, S> {
     /// Configure a state machine to output I2s
     pub fn new(
-        common: &mut Common<'a, P>,
-        mut sm: StateMachine<'a, P, S>,
-        dma: impl Peripheral<P = impl Channel> + 'a,
-        data_pin: impl PioPin,
-        bit_clock_pin: impl PioPin,
-        lr_clock_pin: impl PioPin,
+        common: &mut Common<'d, P>,
+        mut sm: StateMachine<'d, P, S>,
+        dma: Peri<'d, impl Channel>,
+        data_pin: Peri<'d, impl PioPin>,
+        bit_clock_pin: Peri<'d, impl PioPin>,
+        lr_clock_pin: Peri<'d, impl PioPin>,
         sample_rate: u32,
         bit_depth: u32,
-        channels: u32,
-        program: &PioI2sOutProgram<'a, P>,
+        program: &PioI2sOutProgram<'d, P>,
     ) -> Self {
-        into_ref!(dma);
-
         let data_pin = common.make_pio_pin(data_pin);
         let bit_clock_pin = common.make_pio_pin(bit_clock_pin);
         let left_right_clock_pin = common.make_pio_pin(lr_clock_pin);
@@ -66,7 +67,7 @@ impl<'a, P: Instance, const S: usize> PioI2sOut<'a, P, S> {
             let mut cfg = Config::default();
             cfg.use_program(&program.prg, &[&bit_clock_pin, &left_right_clock_pin]);
             cfg.set_out_pins(&[&data_pin]);
-            let clock_frequency = sample_rate * bit_depth * channels;
+            let clock_frequency = sample_rate * bit_depth * 2;
             cfg.clock_divider = (crate::clocks::clk_sys_freq() as f64 / clock_frequency as f64 / 2.).to_fixed();
             cfg.shift_out = ShiftConfig {
                 threshold: 32,
@@ -80,16 +81,18 @@ impl<'a, P: Instance, const S: usize> PioI2sOut<'a, P, S> {
         sm.set_config(&cfg);
         sm.set_pin_dirs(Direction::Out, &[&data_pin, &left_right_clock_pin, &bit_clock_pin]);
 
+        // Set the `y` register up to configure the sample depth
+        // The SM counts down to 0 and uses one clock cycle to set up the counter,
+        // which results in bit_depth - 2 as register value.
+        unsafe { sm.set_y(bit_depth - 2) };
+
         sm.set_enable(true);
 
-        Self {
-            dma: dma.map_into(),
-            sm,
-        }
+        Self { dma: dma.into(), sm }
     }
 
     /// Return an in-prograss dma transfer future. Awaiting it will guarentee a complete transfer.
     pub fn write<'b>(&'b mut self, buff: &'b [u32]) -> Transfer<'b, AnyChannel> {
-        self.sm.tx().dma_push(self.dma.reborrow(), buff)
+        self.sm.tx().dma_push(self.dma.reborrow(), buff, false)
     }
 }

@@ -6,17 +6,17 @@ use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
-use embassy_hal_internal::{Peripheral, PeripheralRef};
+use embassy_hal_internal::Peri;
 use embassy_sync::waitqueue::AtomicWaker;
 
 #[cfg(not(any(usart_v1, usart_v2)))]
 use super::DePin;
 use super::{
     clear_interrupt_flags, configure, half_duplex_set_rx_tx_before_write, rdr, reconfigure, send_break, set_baudrate,
-    sr, tdr, Config, ConfigError, CtsPin, Duplex, Error, HalfDuplexConfig, HalfDuplexReadback, Info, Instance, Regs,
-    RtsPin, RxPin, TxPin,
+    sr, tdr, Config, ConfigError, CtsPin, Duplex, Error, HalfDuplexReadback, Info, Instance, Regs, RtsPin, RxPin,
+    TxPin,
 };
-use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
+use crate::gpio::{AfType, AnyPin, Pull, SealedPin as _};
 use crate::interrupt::{self, InterruptExt};
 use crate::time::Hertz;
 
@@ -87,6 +87,8 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
 
         r.cr1().modify(|w| {
             w.set_tcie(false);
+            // Reenable receiver for half-duplex if it was disabled
+            w.set_re(true);
         });
 
         state.tx_done.store(true, Ordering::Release);
@@ -159,9 +161,9 @@ pub struct BufferedUartTx<'d> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    tx: Option<PeripheralRef<'d, AnyPin>>,
-    cts: Option<PeripheralRef<'d, AnyPin>>,
-    de: Option<PeripheralRef<'d, AnyPin>>,
+    tx: Option<Peri<'d, AnyPin>>,
+    cts: Option<Peri<'d, AnyPin>>,
+    de: Option<Peri<'d, AnyPin>>,
     is_borrowed: bool,
 }
 
@@ -172,8 +174,8 @@ pub struct BufferedUartRx<'d> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    rx: Option<PeripheralRef<'d, AnyPin>>,
-    rts: Option<PeripheralRef<'d, AnyPin>>,
+    rx: Option<Peri<'d, AnyPin>>,
+    rts: Option<Peri<'d, AnyPin>>,
     is_borrowed: bool,
 }
 
@@ -207,18 +209,18 @@ impl<'d> SetConfig for BufferedUartTx<'d> {
 impl<'d> BufferedUart<'d> {
     /// Create a new bidirectional buffered UART driver
     pub fn new<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        rx: Peri<'d, impl RxPin<T>>,
+        tx: Peri<'d, impl TxPin<T>>,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(config.rx_pull)),
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
             None,
             None,
             None,
@@ -230,22 +232,22 @@ impl<'d> BufferedUart<'d> {
 
     /// Create a new bidirectional buffered UART driver with request-to-send and clear-to-send pins
     pub fn new_with_rtscts<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
+        peri: Peri<'d, T>,
+        rx: Peri<'d, impl RxPin<T>>,
+        tx: Peri<'d, impl TxPin<T>>,
+        rts: Peri<'d, impl RtsPin<T>>,
+        cts: Peri<'d, impl CtsPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
-        cts: impl Peripheral<P = impl CtsPin<T>> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(Pull::None)),
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
-            new_pin!(rts, AfType::output(OutputType::PushPull, Speed::Medium)),
-            new_pin!(cts, AfType::input(Pull::None)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
+            new_pin!(rts, config.rts_config.af_type()),
+            new_pin!(cts, AfType::input(config.cts_pull)),
             None,
             tx_buffer,
             rx_buffer,
@@ -255,19 +257,19 @@ impl<'d> BufferedUart<'d> {
 
     /// Create a new bidirectional buffered UART driver with only the RTS pin as the DE pin
     pub fn new_with_rts_as_de<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
+        peri: Peri<'d, T>,
+        rx: Peri<'d, impl RxPin<T>>,
+        tx: Peri<'d, impl TxPin<T>>,
+        rts: Peri<'d, impl RtsPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(Pull::None)),
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
             None,
             None,
             new_pin!(rts, AfType::input(Pull::None)), // RTS mapped used as DE
@@ -279,19 +281,19 @@ impl<'d> BufferedUart<'d> {
 
     /// Create a new bidirectional buffered UART driver with only the request-to-send pin
     pub fn new_with_rts<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
+        peri: Peri<'d, T>,
+        rx: Peri<'d, impl RxPin<T>>,
+        tx: Peri<'d, impl TxPin<T>>,
+        rts: Peri<'d, impl RtsPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        rts: impl Peripheral<P = impl RtsPin<T>> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(Pull::None)),
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
             new_pin!(rts, AfType::input(Pull::None)),
             None, // no CTS
             None, // no DE
@@ -304,22 +306,22 @@ impl<'d> BufferedUart<'d> {
     /// Create a new bidirectional buffered UART driver with a driver-enable pin
     #[cfg(not(any(usart_v1, usart_v2)))]
     pub fn new_with_de<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
+        peri: Peri<'d, T>,
+        rx: Peri<'d, impl RxPin<T>>,
+        tx: Peri<'d, impl TxPin<T>>,
+        de: Peri<'d, impl DePin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
-        de: impl Peripheral<P = impl DePin<T>> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
             peri,
-            new_pin!(rx, AfType::input(config.rx_pull)),
-            new_pin!(tx, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(rx, config.rx_af()),
+            new_pin!(tx, config.tx_af()),
             None,
             None,
-            new_pin!(de, AfType::output(OutputType::PushPull, Speed::Medium)),
+            new_pin!(de, config.de_config.af_type()),
             tx_buffer,
             rx_buffer,
             config,
@@ -339,14 +341,13 @@ impl<'d> BufferedUart<'d> {
     /// on the line must be managed by software (for instance by using a centralized arbiter).
     #[doc(alias("HDSEL"))]
     pub fn new_half_duplex<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        tx: impl Peripheral<P = impl TxPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        tx: Peri<'d, impl TxPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         mut config: Config,
         readback: HalfDuplexReadback,
-        half_duplex: HalfDuplexConfig,
     ) -> Result<Self, ConfigError> {
         #[cfg(not(any(usart_v1, usart_v2)))]
         {
@@ -357,7 +358,7 @@ impl<'d> BufferedUart<'d> {
         Self::new_inner(
             peri,
             None,
-            new_pin!(tx, half_duplex.af_type()),
+            new_pin!(tx, config.tx_af()),
             None,
             None,
             None,
@@ -379,21 +380,20 @@ impl<'d> BufferedUart<'d> {
     #[cfg(not(any(usart_v1, usart_v2)))]
     #[doc(alias("HDSEL"))]
     pub fn new_half_duplex_on_rx<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        rx: impl Peripheral<P = impl RxPin<T>> + 'd,
+        peri: Peri<'d, T>,
+        rx: Peri<'d, impl RxPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         mut config: Config,
         readback: HalfDuplexReadback,
-        half_duplex: HalfDuplexConfig,
     ) -> Result<Self, ConfigError> {
         config.swap_rx_tx = true;
         config.duplex = Duplex::Half(readback);
 
         Self::new_inner(
             peri,
-            new_pin!(rx, half_duplex.af_type()),
+            new_pin!(rx, config.rx_af()),
             None,
             None,
             None,
@@ -405,12 +405,12 @@ impl<'d> BufferedUart<'d> {
     }
 
     fn new_inner<T: Instance>(
-        _peri: impl Peripheral<P = T> + 'd,
-        rx: Option<PeripheralRef<'d, AnyPin>>,
-        tx: Option<PeripheralRef<'d, AnyPin>>,
-        rts: Option<PeripheralRef<'d, AnyPin>>,
-        cts: Option<PeripheralRef<'d, AnyPin>>,
-        de: Option<PeripheralRef<'d, AnyPin>>,
+        _peri: Peri<'d, T>,
+        rx: Option<Peri<'d, AnyPin>>,
+        tx: Option<Peri<'d, AnyPin>>,
+        rts: Option<Peri<'d, AnyPin>>,
+        cts: Option<Peri<'d, AnyPin>>,
+        de: Option<Peri<'d, AnyPin>>,
         tx_buffer: &'d mut [u8],
         rx_buffer: &'d mut [u8],
         config: Config,
@@ -459,8 +459,10 @@ impl<'d> BufferedUart<'d> {
 
         info.rcc.enable_and_reset();
 
+        assert!(!tx_buffer.is_empty());
         let len = tx_buffer.len();
         unsafe { state.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
+        assert!(!rx_buffer.is_empty());
         let len = rx_buffer.len();
         unsafe { state.rx_buf.init(rx_buffer.as_mut_ptr(), len) };
 
@@ -505,17 +507,17 @@ impl<'d> BufferedUart<'d> {
                 info: self.tx.info,
                 state: self.tx.state,
                 kernel_clock: self.tx.kernel_clock,
-                tx: self.tx.tx.as_mut().map(PeripheralRef::reborrow),
-                cts: self.tx.cts.as_mut().map(PeripheralRef::reborrow),
-                de: self.tx.de.as_mut().map(PeripheralRef::reborrow),
+                tx: self.tx.tx.as_mut().map(Peri::reborrow),
+                cts: self.tx.cts.as_mut().map(Peri::reborrow),
+                de: self.tx.de.as_mut().map(Peri::reborrow),
                 is_borrowed: true,
             },
             BufferedUartRx {
                 info: self.rx.info,
                 state: self.rx.state,
                 kernel_clock: self.rx.kernel_clock,
-                rx: self.rx.rx.as_mut().map(PeripheralRef::reborrow),
-                rts: self.rx.rts.as_mut().map(PeripheralRef::reborrow),
+                rx: self.rx.rx.as_mut().map(Peri::reborrow),
+                rts: self.rx.rts.as_mut().map(Peri::reborrow),
                 is_borrowed: true,
             },
         )
@@ -747,7 +749,7 @@ impl<'d> Drop for BufferedUartRx<'d> {
             unsafe {
                 state.rx_buf.deinit();
 
-                // TX is inactive if the the buffer is not available.
+                // TX is inactive if the buffer is not available.
                 // We can now unregister the interrupt handler
                 if state.tx_buf.len() == 0 {
                     self.info.interrupt.disable();
@@ -768,7 +770,7 @@ impl<'d> Drop for BufferedUartTx<'d> {
             unsafe {
                 state.tx_buf.deinit();
 
-                // RX is inactive if the the buffer is not available.
+                // RX is inactive if the buffer is not available.
                 // We can now unregister the interrupt handler
                 if state.rx_buf.len() == 0 {
                     self.info.interrupt.disable();
@@ -908,26 +910,17 @@ impl<'d> embedded_hal_02::serial::Read<u8> for BufferedUartRx<'d> {
     type Error = Error;
 
     fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
-        let r = self.info.regs;
-        unsafe {
-            let sr = sr(r).read();
-            if sr.pe() {
-                rdr(r).read_volatile();
-                Err(nb::Error::Other(Error::Parity))
-            } else if sr.fe() {
-                rdr(r).read_volatile();
-                Err(nb::Error::Other(Error::Framing))
-            } else if sr.ne() {
-                rdr(r).read_volatile();
-                Err(nb::Error::Other(Error::Noise))
-            } else if sr.ore() {
-                rdr(r).read_volatile();
-                Err(nb::Error::Other(Error::Overrun))
-            } else if sr.rxne() {
-                Ok(rdr(r).read_volatile())
-            } else {
-                Err(nb::Error::WouldBlock)
+        let state = self.state;
+        let mut rx_reader = unsafe { state.rx_buf.reader() };
+
+        let do_pend = state.rx_buf.is_full();
+        if let Some(data) = rx_reader.pop_one() {
+            if do_pend {
+                self.info.interrupt.pend();
             }
+            Ok(data)
+        } else {
+            Err(nb::Error::WouldBlock)
         }
     }
 }

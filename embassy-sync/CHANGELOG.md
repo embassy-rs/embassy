@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- Add `get_mut` to `LazyLock`
+
+## 0.7.0 - 2025-05-28
+
+- Add `remove_if` to `priority_channel::{Receiver, PriorityChannel}`.
+- impl `Stream` for `channel::{Receiver, Channel}`.
+- Fix channels to wake senders on `clear()`.
+  For `Channel`, `PriorityChannel`, `PubSub`, `zerocopy_channel::Channel`.
+- Allow `zerocopy_channel::Channel` to auto-implement `Sync`/`Send`.
+- Add `must_use` to `MutexGuard`.
+- Add a `RwLock`.
+- Add `lock_mut` to `blocking_mutex::Mutex`.
+- Don't select a critical-section implementation when `std` feature is enabled.
+- Improve waker documentation.
+- Improve `Signal` and `Watch` documentation.
+- Update to defmt 1.0. This remains compatible with latest defmt 0.3.
+- Add `peek` method on `channel` and `priority_channel`.
+- Add dynamic sender and receiver that are Send + Sync for `channel`.
+
 ## 0.6.2 - 2025-01-15
 
 - Add dynamic dispatch variant of `Pipe`.

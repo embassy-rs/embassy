@@ -6,6 +6,7 @@ use core::task::Waker;
 use embassy_executor::raw::TaskRef;
 
 /// A timer queue, with items integrated into tasks.
+#[derive(Debug)]
 pub struct Queue {
     head: Cell<Option<TaskRef>>,
 }

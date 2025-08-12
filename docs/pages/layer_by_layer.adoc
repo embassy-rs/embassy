@@ -8,7 +8,7 @@ The application we'll write is a simple 'push button, blink led' application, wh
 
 == PAC version
 
-The PAC is the lowest API for accessing peripherals and registers, if you don't count reading/writing directly to memory addresses. It provides distinct types to make accessing peripheral registers easier, but it does not prevent you from writing unsafe code.
+The PAC is the lowest API for accessing peripherals and registers, if you don't count reading/writing directly to memory addresses. It provides distinct types to make accessing peripheral registers easier, but it does little to prevent you from configuring or coordinating those registers incorrectly.
 
 Writing an application using the PAC directly is therefore not recommended, but if the functionality you want to use is not exposed in the upper layers, that's what you need to use.
 
@@ -76,7 +76,7 @@ The async version looks very similar to the HAL version, apart from a few minor 
 * The peripheral initialization is done by the main macro, and is handed to the main task.
 * Before checking the button state, the application is awaiting a transition in the pin state (low -> high or high -> low).
 
-When `button.await_for_any_edge().await` is called, the executor will pause the main task and put the microcontroller in sleep mode, unless there are other tasks that can run. Internally, the Embassy HAL has configured the interrupt handler for the button (in `ExtiInput`), so that whenever an interrupt is raised, the task awaiting the button will be woken up.
+When `button.wait_for_any_edge().await` is called, the executor will pause the main task and put the microcontroller in sleep mode, unless there are other tasks that can run. Internally, the Embassy HAL has configured the interrupt handler for the button (in `ExtiInput`), so that whenever an interrupt is raised, the task awaiting the button will be woken up.
 
 The minimal overhead of the executor and the ability to run multiple tasks "concurrently" combined with the enormous simplification of the application, makes `async` a great fit for embedded.
 

@@ -4,28 +4,30 @@
 #![allow(missing_docs)] // TODO
 #![cfg_attr(adc_f3_v2, allow(unused))]
 
-#[cfg(not(any(adc_f3_v2)))]
+#[cfg(not(any(adc_f3_v2, adc_wba)))]
 #[cfg_attr(adc_f1, path = "f1.rs")]
 #[cfg_attr(adc_f3, path = "f3.rs")]
 #[cfg_attr(adc_f3_v1_1, path = "f3_v1_1.rs")]
 #[cfg_attr(adc_v1, path = "v1.rs")]
 #[cfg_attr(adc_l0, path = "v1.rs")]
 #[cfg_attr(adc_v2, path = "v2.rs")]
-#[cfg_attr(any(adc_v3, adc_g0, adc_h5, adc_u0), path = "v3.rs")]
+#[cfg_attr(any(adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0), path = "v3.rs")]
 #[cfg_attr(any(adc_v4, adc_u5), path = "v4.rs")]
 #[cfg_attr(adc_g4, path = "g4.rs")]
+#[cfg_attr(adc_c0, path = "c0.rs")]
 mod _version;
 
 use core::marker::PhantomData;
 
 #[allow(unused)]
-#[cfg(not(any(adc_f3_v2)))]
+#[cfg(not(any(adc_f3_v2, adc_wba)))]
 pub use _version::*;
+use embassy_hal_internal::{impl_peripheral, PeripheralType};
 #[cfg(any(adc_f1, adc_f3, adc_v1, adc_l0, adc_f3_v1_1))]
 use embassy_sync::waitqueue::AtomicWaker;
 
-#[cfg(adc_u5)]
-#[path = "u5_adc4.rs"]
+#[cfg(any(adc_u5, adc_wba))]
+#[path = "adc4.rs"]
 pub mod adc4;
 
 pub use crate::pac::adc::vals;
@@ -34,15 +36,18 @@ pub use crate::pac::adc::vals::Res as Resolution;
 pub use crate::pac::adc::vals::SampleTime;
 use crate::peripherals;
 
+#[cfg(not(adc_wba))]
 dma_trait!(RxDma, Instance);
 #[cfg(adc_u5)]
+dma_trait!(RxDma4, adc4::Instance);
+#[cfg(adc_wba)]
 dma_trait!(RxDma4, adc4::Instance);
 
 /// Analog to Digital driver.
 pub struct Adc<'d, T: Instance> {
     #[allow(unused)]
-    adc: crate::PeripheralRef<'d, T>,
-    #[cfg(not(any(adc_f3_v2, adc_f3_v1_1)))]
+    adc: crate::Peri<'d, T>,
+    #[cfg(not(any(adc_f3_v2, adc_f3_v1_1, adc_wba)))]
     sample_time: SampleTime,
 }
 
@@ -61,6 +66,7 @@ impl State {
 }
 
 trait SealedInstance {
+    #[cfg(not(adc_wba))]
     #[allow(unused)]
     fn regs() -> crate::pac::adc::Adc;
     #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3_v2, adc_f3_v1_1, adc_g0)))]
@@ -71,7 +77,7 @@ trait SealedInstance {
 }
 
 pub(crate) trait SealedAdcChannel<T> {
-    #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5))]
+    #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5, adc_wba))]
     fn setup(&mut self) {}
 
     #[allow(unused)]
@@ -106,10 +112,13 @@ pub(crate) fn blocking_delay_us(us: u32) {
     adc_g0,
     adc_u0,
     adc_h5,
-    adc_u5
+    adc_h7rs,
+    adc_u5,
+    adc_c0,
+    adc_wba,
 )))]
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + crate::Peripheral<P = Self> {
+pub trait Instance: SealedInstance + crate::PeripheralType {
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 /// ADC instance.
@@ -126,10 +135,13 @@ pub trait Instance: SealedInstance + crate::Peripheral<P = Self> {
     adc_g0,
     adc_u0,
     adc_h5,
-    adc_u5
+    adc_h7rs,
+    adc_u5,
+    adc_c0,
+    adc_wba,
 ))]
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + crate::Peripheral<P = Self> + crate::rcc::RccPeripheral {
+pub trait Instance: SealedInstance + crate::PeripheralType + crate::rcc::RccPeripheral {
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 
@@ -138,7 +150,7 @@ pub trait Instance: SealedInstance + crate::Peripheral<P = Self> + crate::rcc::R
 pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
     #[allow(unused_mut)]
     fn degrade_adc(mut self) -> AnyAdcChannel<T> {
-        #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5))]
+        #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5, adc_wba))]
         self.setup();
 
         AnyAdcChannel {
@@ -156,13 +168,50 @@ pub struct AnyAdcChannel<T> {
     channel: u8,
     _phantom: PhantomData<T>,
 }
-
+impl_peripheral!(AnyAdcChannel<T: Instance>);
 impl<T: Instance> AdcChannel<T> for AnyAdcChannel<T> {}
 impl<T: Instance> SealedAdcChannel<T> for AnyAdcChannel<T> {
     fn channel(&self) -> u8 {
         self.channel
     }
 }
+
+impl<T> AnyAdcChannel<T> {
+    #[allow(unused)]
+    pub fn get_hw_channel(&self) -> u8 {
+        self.channel
+    }
+}
+#[cfg(adc_wba)]
+foreach_adc!(
+    (ADC4, $common_inst:ident, $clock:ident) => {
+        impl crate::adc::adc4::SealedInstance for peripherals::ADC4 {
+            fn regs() -> crate::pac::adc::Adc4 {
+                crate::pac::ADC4
+            }
+        }
+
+        impl crate::adc::adc4::Instance for peripherals::ADC4 {
+            type Interrupt = crate::_generated::peripheral_interrupts::ADC4::GLOBAL;
+        }
+    };
+
+    ($inst:ident, $common_inst:ident, $clock:ident) => {
+        impl crate::adc::SealedInstance for peripherals::$inst {
+            fn regs() -> crate::pac::adc::Adc {
+                crate::pac::$inst
+            }
+
+            fn common_regs() -> crate::pac::adccommon::AdcCommon {
+                return crate::pac::$common_inst
+            }
+        }
+
+        impl crate::adc::Instance for peripherals::$inst {
+            type Interrupt = crate::_generated::peripheral_interrupts::$inst::GLOBAL;
+        }
+    };
+);
 
 #[cfg(adc_u5)]
 foreach_adc!(
@@ -195,15 +244,21 @@ foreach_adc!(
     };
 );
 
-#[cfg(not(adc_u5))]
+#[cfg(not(any(adc_u5, adc_wba)))]
 foreach_adc!(
     ($inst:ident, $common_inst:ident, $clock:ident) => {
         impl crate::adc::SealedInstance for peripherals::$inst {
+            #[cfg(not(adc_wba))]
             fn regs() -> crate::pac::adc::Adc {
                 crate::pac::$inst
             }
 
-            #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3_v2, adc_f3_v1_1, adc_g0)))]
+            #[cfg(adc_wba)]
+            fn regs() -> crate::pac::adc::Adc4 {
+                crate::pac::$inst
+            }
+
+            #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3_v2, adc_f3_v1_1, adc_g0, adc_u5, adc_wba)))]
             fn common_regs() -> crate::pac::adccommon::AdcCommon {
                 return crate::pac::$common_inst
             }
@@ -223,11 +278,11 @@ foreach_adc!(
 
 macro_rules! impl_adc_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {
-        impl crate::adc::AdcChannel<peripherals::$inst> for crate::peripherals::$pin {}
-        impl crate::adc::SealedAdcChannel<peripherals::$inst> for crate::peripherals::$pin {
-            #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5))]
+        impl crate::adc::AdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {}
+        impl crate::adc::SealedAdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {
+            #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5, adc_wba))]
             fn setup(&mut self) {
-                <Self as crate::gpio::SealedPin>::set_as_analog(self);
+                <crate::peripherals::$pin as crate::gpio::SealedPin>::set_as_analog(self);
             }
 
             fn channel(&self) -> u8 {
@@ -254,7 +309,7 @@ pub const fn resolution_to_max_count(res: Resolution) -> u32 {
         Resolution::BITS12 => (1 << 12) - 1,
         Resolution::BITS10 => (1 << 10) - 1,
         Resolution::BITS8 => (1 << 8) - 1,
-        #[cfg(any(adc_v1, adc_v2, adc_v3, adc_l0, adc_g0, adc_f3, adc_f3_v1_1, adc_h5))]
+        #[cfg(any(adc_v1, adc_v2, adc_v3, adc_l0, adc_c0, adc_g0, adc_f3, adc_f3_v1_1, adc_h5))]
         Resolution::BITS6 => (1 << 6) - 1,
         #[allow(unreachable_patterns)]
         _ => core::unreachable!(),

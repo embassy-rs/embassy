@@ -171,7 +171,8 @@ embassy_hal_internal::peripherals! {
     RTC1,
 
     // WDT
-    WDT,
+    WDT0,
+    WDT1,
 
     // NVMC
     NVMC,
@@ -261,8 +262,13 @@ embassy_hal_internal::peripherals! {
     PPI_GROUP4,
     PPI_GROUP5,
 
+    // IPC
+    IPC,
+
     // GPIO port 0
+    #[cfg(feature = "lfxo-pins-as-gpio")]
     P0_00,
+    #[cfg(feature = "lfxo-pins-as-gpio")]
     P0_01,
     #[cfg(feature = "nfc-pins-as-gpio")]
     P0_02,
@@ -324,6 +330,8 @@ embassy_hal_internal::peripherals! {
     EGU5,
 }
 
+impl_ipc!(IPC, IPC, IPC);
+
 impl_usb!(USBD, USBD, USBD);
 
 impl_uarte!(SERIAL0, UARTE0, SERIAL0);
@@ -368,7 +376,9 @@ impl_pdm!(PDM0, PDM0, PDM0);
 impl_qdec!(QDEC0, QDEC0, QDEC0);
 impl_qdec!(QDEC1, QDEC1, QDEC1);
 
+#[cfg(feature = "lfxo-pins-as-gpio")]
 impl_pin!(P0_00, 0, 0);
+#[cfg(feature = "lfxo-pins-as-gpio")]
 impl_pin!(P0_01, 0, 1);
 #[cfg(feature = "nfc-pins-as-gpio")]
 impl_pin!(P0_02, 0, 2);
@@ -468,6 +478,9 @@ impl_egu!(EGU2, EGU2, EGU2);
 impl_egu!(EGU3, EGU3, EGU3);
 impl_egu!(EGU4, EGU4, EGU4);
 impl_egu!(EGU5, EGU5, EGU5);
+
+impl_wdt!(WDT0, WDT0, WDT0, 0);
+impl_wdt!(WDT1, WDT1, WDT1, 1);
 
 embassy_hal_internal::interrupt_mod!(
     FPU,

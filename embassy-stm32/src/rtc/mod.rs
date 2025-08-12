@@ -27,13 +27,13 @@ use crate::time::Hertz;
     ),
     path = "v2.rs"
 )]
-#[cfg_attr(any(rtc_v3, rtc_v3u5, rtc_v3l5), path = "v3.rs")]
+#[cfg_attr(any(rtc_v3, rtc_v3u5, rtc_v3l5, rtc_v3h7rs, rtc_v3c0), path = "v3.rs")]
 mod _version;
 #[allow(unused_imports)]
 pub use _version::*;
-use embassy_hal_internal::Peripheral;
 
 use crate::peripherals::RTC;
+use crate::Peri;
 
 /// Errors that can occur on methods on [RtcClock]
 #[non_exhaustive]
@@ -62,7 +62,7 @@ impl RtcTimeProvider {
     ///
     /// Will return an `RtcError::InvalidDateTime` if the stored value in the system is not a valid [`DayOfWeek`].
     pub fn now(&self) -> Result<DateTime, RtcError> {
-        self.read(|dr, tr, _| {
+        self.read(|dr, tr, _ss| {
             let second = bcd2_to_byte((tr.st(), tr.su()));
             let minute = bcd2_to_byte((tr.mnt(), tr.mnu()));
             let hour = bcd2_to_byte((tr.ht(), tr.hu()));
@@ -72,7 +72,17 @@ impl RtcTimeProvider {
             let month = bcd2_to_byte((dr.mt() as u8, dr.mu()));
             let year = bcd2_to_byte((dr.yt(), dr.yu())) as u16 + 2000_u16;
 
-            DateTime::from(year, month, day, weekday, hour, minute, second).map_err(RtcError::InvalidDateTime)
+            // Calculate second fraction and multiply to microseconds
+            // Formula from RM0410
+            #[cfg(not(rtc_v2f2))]
+            let us = {
+                let prediv = RTC::regs().prer().read().prediv_s() as f32;
+                (((prediv - _ss as f32) / (prediv + 1.0)) * 1e6).min(999_999.0) as u32
+            };
+            #[cfg(rtc_v2f2)]
+            let us = 0;
+
+            DateTime::from(year, month, day, weekday, hour, minute, second, us).map_err(RtcError::InvalidDateTime)
         })
     }
 
@@ -143,7 +153,7 @@ pub enum RtcCalibrationCyclePeriod {
 
 impl Rtc {
     /// Create a new RTC instance.
-    pub fn new(_rtc: impl Peripheral<P = RTC>, rtc_config: RtcConfig) -> Self {
+    pub fn new(_rtc: Peri<'static, RTC>, rtc_config: RtcConfig) -> Self {
         #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
         crate::rcc::enable_and_reset::<RTC>();
 
@@ -294,7 +304,7 @@ trait SealedInstance {
     const BACKUP_REGISTER_COUNT: usize;
 
     #[cfg(feature = "low-power")]
-    #[cfg(not(any(stm32u5, stm32u0)))]
+    #[cfg(not(any(stm32wba, stm32u5, stm32u0)))]
     const EXTI_WAKEUP_LINE: usize;
 
     #[cfg(feature = "low-power")]

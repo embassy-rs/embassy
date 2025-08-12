@@ -1,12 +1,13 @@
 use cfg_if::cfg_if;
-use embassy_hal_internal::into_ref;
 use pac::adc::vals::Dmacfg;
+#[cfg(adc_v3)]
+use pac::adc::vals::{OversamplingRatio, OversamplingShift, Rovsm, Trovs};
 
 use super::{
     blocking_delay_us, Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel,
 };
 use crate::dma::Transfer;
-use crate::{pac, rcc, Peripheral};
+use crate::{pac, rcc, Peri};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -20,7 +21,7 @@ impl<T: Instance> SealedAdcChannel<T> for VrefInt {
         cfg_if! {
             if #[cfg(adc_g0)] {
                 let val = 13;
-            } else if #[cfg(adc_h5)] {
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
                 let val = 17;
             } else if #[cfg(adc_u0)] {
                 let val = 12;
@@ -39,7 +40,7 @@ impl<T: Instance> SealedAdcChannel<T> for Temperature {
         cfg_if! {
             if #[cfg(adc_g0)] {
                 let val = 12;
-            } else if #[cfg(adc_h5)] {
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
                 let val = 16;
             } else if #[cfg(adc_u0)] {
                 let val = 11;
@@ -58,9 +59,9 @@ impl<T: Instance> SealedAdcChannel<T> for Vbat {
         cfg_if! {
             if #[cfg(adc_g0)] {
                 let val = 14;
-            } else if #[cfg(adc_h5)] {
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
                 let val = 2;
-            } else if #[cfg(adc_h5)] {
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
                 let val = 13;
             } else {
                 let val = 18;
@@ -71,7 +72,7 @@ impl<T: Instance> SealedAdcChannel<T> for Vbat {
 }
 
 cfg_if! {
-    if #[cfg(adc_h5)] {
+    if #[cfg(any(adc_h5, adc_h7rs))] {
         pub struct VddCore;
         impl<T: Instance> AdcChannel<T> for VddCore {}
         impl<T: Instance> super::SealedAdcChannel<T> for VddCore {
@@ -94,9 +95,20 @@ cfg_if! {
     }
 }
 
+/// Number of samples used for averaging.
+pub enum Averaging {
+    Disabled,
+    Samples2,
+    Samples4,
+    Samples8,
+    Samples16,
+    Samples32,
+    Samples64,
+    Samples128,
+    Samples256,
+}
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
-        into_ref!(adc);
+    pub fn new(adc: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
         T::regs().cr().modify(|reg| {
             #[cfg(not(any(adc_g0, adc_u0)))]
@@ -173,7 +185,7 @@ impl<'d, T: Instance> Adc<'d, T> {
                 T::regs().ccr().modify(|reg| {
                     reg.set_tsen(true);
                 });
-            } else if #[cfg(adc_h5)] {
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
                 T::common_regs().ccr().modify(|reg| {
                     reg.set_tsen(true);
                 });
@@ -193,7 +205,7 @@ impl<'d, T: Instance> Adc<'d, T> {
                 T::regs().ccr().modify(|reg| {
                     reg.set_vbaten(true);
                 });
-            } else if #[cfg(adc_h5)] {
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
                 T::common_regs().ccr().modify(|reg| {
                     reg.set_vbaten(true);
                 });
@@ -225,6 +237,30 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
     }
 
+    pub fn set_averaging(&mut self, averaging: Averaging) {
+        let (enable, samples, right_shift) = match averaging {
+            Averaging::Disabled => (false, 0, 0),
+            Averaging::Samples2 => (true, 0, 1),
+            Averaging::Samples4 => (true, 1, 2),
+            Averaging::Samples8 => (true, 2, 3),
+            Averaging::Samples16 => (true, 3, 4),
+            Averaging::Samples32 => (true, 4, 5),
+            Averaging::Samples64 => (true, 5, 6),
+            Averaging::Samples128 => (true, 6, 7),
+            Averaging::Samples256 => (true, 7, 8),
+        };
+        T::regs().cfgr2().modify(|reg| {
+            #[cfg(not(any(adc_g0, adc_u0)))]
+            reg.set_rovse(enable);
+            #[cfg(any(adc_g0, adc_u0))]
+            reg.set_ovse(enable);
+            #[cfg(any(adc_h5, adc_h7rs))]
+            reg.set_ovsr(samples.into());
+            #[cfg(not(any(adc_h5, adc_h7rs)))]
+            reg.set_ovsr(samples.into());
+            reg.set_ovss(right_shift.into());
+        })
+    }
     /*
     /// Convert a raw sample from the `Temperature` to deg C
     pub fn to_degrees_centigrade(sample: u16) -> f32 {
@@ -262,6 +298,9 @@ impl<'d, T: Instance> Adc<'d, T> {
     ///
     /// `sequence` iterator and `readings` must have the same length.
     ///
+    /// Note: The order of values in `readings` is defined by the pin ADC
+    /// channel number and not the pin order in `sequence`.
+    ///
     /// Example
     /// ```rust,ignore
     /// use embassy_stm32::adc::{Adc, AdcChannel}
@@ -271,8 +310,8 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// let mut adc_pin1 = p.PA1.degrade_adc();
     /// let mut measurements = [0u16; 2];
     ///
-    /// adc.read_async(
-    ///     p.DMA1_CH2,
+    /// adc.read(
+    ///     p.DMA1_CH2.reborrow(),
     ///     [
     ///         (&mut *adc_pin0, SampleTime::CYCLES160_5),
     ///         (&mut *adc_pin1, SampleTime::CYCLES160_5),
@@ -285,7 +324,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// ```
     pub async fn read(
         &mut self,
-        rx_dma: &mut impl RxDma<T>,
+        rx_dma: Peri<'_, impl RxDma<T>>,
         sequence: impl ExactSizeIterator<Item = (&mut AnyAdcChannel<T>, SampleTime)>,
         readings: &mut [u16],
     ) {
@@ -413,7 +452,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     fn configure_channel(channel: &mut impl AdcChannel<T>, sample_time: SampleTime) {
         // RM0492, RM0481, etc.
         // "This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected."
-        #[cfg(adc_h5)]
+        #[cfg(any(adc_h5, adc_h7rs))]
         if channel.channel() == 0 {
             T::regs().or().modify(|reg| reg.set_op0(true));
         }
@@ -446,7 +485,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         // RM0492, RM0481, etc.
         // "This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected."
-        #[cfg(adc_h5)]
+        #[cfg(any(adc_h5, adc_h7rs))]
         if channel.channel() == 0 {
             T::regs().or().modify(|reg| reg.set_op0(false));
         }
@@ -469,12 +508,29 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr2().modify(|reg| reg.set_ovse(enable));
     }
 
+    #[cfg(adc_v3)]
+    pub fn enable_regular_oversampling_mode(&mut self, mode: Rovsm, trig_mode: Trovs, enable: bool) {
+        T::regs().cfgr2().modify(|reg| reg.set_trovs(trig_mode));
+        T::regs().cfgr2().modify(|reg| reg.set_rovsm(mode));
+        T::regs().cfgr2().modify(|reg| reg.set_rovse(enable));
+    }
+
+    #[cfg(adc_v3)]
+    pub fn set_oversampling_ratio(&mut self, ratio: OversamplingRatio) {
+        T::regs().cfgr2().modify(|reg| reg.set_ovsr(ratio));
+    }
+
+    #[cfg(adc_v3)]
+    pub fn set_oversampling_shift(&mut self, shift: OversamplingShift) {
+        T::regs().cfgr2().modify(|reg| reg.set_ovss(shift));
+    }
+
     fn set_channel_sample_time(_ch: u8, sample_time: SampleTime) {
         cfg_if! {
             if #[cfg(any(adc_g0, adc_u0))] {
                 // On G0 and U6 all channels use the same sampling time.
                 T::regs().smpr().modify(|reg| reg.set_smp1(sample_time.into()));
-            } else if #[cfg(adc_h5)] {
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
                 match _ch {
                     0..=9 => T::regs().smpr1().modify(|w| w.set_smp(_ch as usize % 10, sample_time.into())),
                     _ => T::regs().smpr2().modify(|w| w.set_smp(_ch as usize % 10, sample_time.into())),

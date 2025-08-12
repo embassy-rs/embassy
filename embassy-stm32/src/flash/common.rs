@@ -2,26 +2,27 @@ use core::marker::PhantomData;
 use core::sync::atomic::{fence, Ordering};
 
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{into_ref, PeripheralRef};
 
 use super::{
-    family, Async, Blocking, Error, FlashBank, FlashLayout, FlashRegion, FlashSector, FLASH_SIZE, MAX_ERASE_SIZE,
-    READ_SIZE, WRITE_SIZE,
+    family, get_flash_regions, Async, Blocking, Error, FlashBank, FlashLayout, FlashRegion, FlashSector, FLASH_SIZE,
+    MAX_ERASE_SIZE, READ_SIZE, WRITE_SIZE,
 };
+use crate::Peri;
 use crate::_generated::FLASH_BASE;
 use crate::peripherals::FLASH;
-use crate::Peripheral;
 
 /// Internal flash memory driver.
 pub struct Flash<'d, MODE = Async> {
-    pub(crate) inner: PeripheralRef<'d, FLASH>,
+    pub(crate) inner: Peri<'d, FLASH>,
     pub(crate) _mode: PhantomData<MODE>,
 }
 
 impl<'d> Flash<'d, Blocking> {
     /// Create a new flash driver, usable in blocking mode.
-    pub fn new_blocking(p: impl Peripheral<P = FLASH> + 'd) -> Self {
-        into_ref!(p);
+    pub fn new_blocking(p: Peri<'d, FLASH>) -> Self {
+        #[cfg(bank_setup_configurable)]
+        // Check if the configuration matches the embassy setup
+        super::check_bank_setup();
 
         Self {
             inner: p,
@@ -35,7 +36,6 @@ impl<'d, MODE> Flash<'d, MODE> {
     ///
     /// See module-level documentation for details on how memory regions work.
     pub fn into_blocking_regions(self) -> FlashLayout<'d, Blocking> {
-        assert!(family::is_default_layout());
         FlashLayout::new(self.inner)
     }
 
@@ -140,7 +140,7 @@ pub(super) unsafe fn blocking_erase(
 ) -> Result<(), Error> {
     let start_address = base + from;
     let end_address = base + to;
-    let regions = family::get_flash_regions();
+    let regions = get_flash_regions();
 
     ensure_sector_aligned(start_address, end_address, regions)?;
 

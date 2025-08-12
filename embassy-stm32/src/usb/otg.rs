@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use embassy_hal_internal::{into_ref, Peripheral};
+use embassy_hal_internal::PeripheralType;
 use embassy_usb_driver::{EndpointAddress, EndpointAllocError, EndpointType, Event, Unsupported};
 use embassy_usb_synopsys_otg::otg_v1::vals::Dspd;
 use embassy_usb_synopsys_otg::otg_v1::Otg;
@@ -11,9 +11,9 @@ use embassy_usb_synopsys_otg::{
 };
 
 use crate::gpio::{AfType, OutputType, Speed};
-use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::{self, RccPeripheral};
+use crate::{interrupt, Peri};
 
 const MAX_EP_COUNT: usize = 9;
 
@@ -32,8 +32,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
 macro_rules! config_ulpi_pins {
     ($($pin:ident),*) => {
-        into_ref!($($pin),*);
-        critical_section::with(|_| {
+                critical_section::with(|_| {
             $(
                 $pin.set_as_af($pin.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
             )*
@@ -62,15 +61,13 @@ impl<'d, T: Instance> Driver<'d, T> {
     /// Must be large enough to fit all OUT endpoint max packet sizes.
     /// Endpoint allocation will fail if it is too small.
     pub fn new_fs(
-        _peri: impl Peripheral<P = T> + 'd,
+        _peri: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        dp: impl Peripheral<P = impl DpPin<T>> + 'd,
-        dm: impl Peripheral<P = impl DmPin<T>> + 'd,
+        dp: Peri<'d, impl DpPin<T>>,
+        dm: Peri<'d, impl DmPin<T>>,
         ep_out_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        into_ref!(dp, dm);
-
         dp.set_as_af(dp.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
         dm.set_as_af(dm.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
@@ -100,17 +97,16 @@ impl<'d, T: Instance> Driver<'d, T> {
     /// Must be large enough to fit all OUT endpoint max packet sizes.
     /// Endpoint allocation will fail if it is too small.
     pub fn new_hs(
-        _peri: impl Peripheral<P = T> + 'd,
+        _peri: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        _dp: impl Peripheral<P = impl DpPin<T>> + 'd,
-        _dm: impl Peripheral<P = impl DmPin<T>> + 'd,
+        _dp: Peri<'d, impl DpPin<T>>,
+        _dm: Peri<'d, impl DmPin<T>>,
         ep_out_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
         // For STM32U5 High speed pins need to be left in analog mode
-        #[cfg(not(all(stm32u5, peri_usb_otg_hs)))]
+        #[cfg(not(any(all(stm32u5, peri_usb_otg_hs), all(stm32wba, peri_usb_otg_hs))))]
         {
-            into_ref!(_dp, _dm);
             _dp.set_as_af(_dp.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
             _dm.set_as_af(_dm.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
         }
@@ -139,20 +135,20 @@ impl<'d, T: Instance> Driver<'d, T> {
     /// Must be large enough to fit all OUT endpoint max packet sizes.
     /// Endpoint allocation will fail if it is too small.
     pub fn new_fs_ulpi(
-        _peri: impl Peripheral<P = T> + 'd,
+        _peri: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        ulpi_clk: impl Peripheral<P = impl UlpiClkPin<T>> + 'd,
-        ulpi_dir: impl Peripheral<P = impl UlpiDirPin<T>> + 'd,
-        ulpi_nxt: impl Peripheral<P = impl UlpiNxtPin<T>> + 'd,
-        ulpi_stp: impl Peripheral<P = impl UlpiStpPin<T>> + 'd,
-        ulpi_d0: impl Peripheral<P = impl UlpiD0Pin<T>> + 'd,
-        ulpi_d1: impl Peripheral<P = impl UlpiD1Pin<T>> + 'd,
-        ulpi_d2: impl Peripheral<P = impl UlpiD2Pin<T>> + 'd,
-        ulpi_d3: impl Peripheral<P = impl UlpiD3Pin<T>> + 'd,
-        ulpi_d4: impl Peripheral<P = impl UlpiD4Pin<T>> + 'd,
-        ulpi_d5: impl Peripheral<P = impl UlpiD5Pin<T>> + 'd,
-        ulpi_d6: impl Peripheral<P = impl UlpiD6Pin<T>> + 'd,
-        ulpi_d7: impl Peripheral<P = impl UlpiD7Pin<T>> + 'd,
+        ulpi_clk: Peri<'d, impl UlpiClkPin<T>>,
+        ulpi_dir: Peri<'d, impl UlpiDirPin<T>>,
+        ulpi_nxt: Peri<'d, impl UlpiNxtPin<T>>,
+        ulpi_stp: Peri<'d, impl UlpiStpPin<T>>,
+        ulpi_d0: Peri<'d, impl UlpiD0Pin<T>>,
+        ulpi_d1: Peri<'d, impl UlpiD1Pin<T>>,
+        ulpi_d2: Peri<'d, impl UlpiD2Pin<T>>,
+        ulpi_d3: Peri<'d, impl UlpiD3Pin<T>>,
+        ulpi_d4: Peri<'d, impl UlpiD4Pin<T>>,
+        ulpi_d5: Peri<'d, impl UlpiD5Pin<T>>,
+        ulpi_d6: Peri<'d, impl UlpiD6Pin<T>>,
+        ulpi_d7: Peri<'d, impl UlpiD7Pin<T>>,
         ep_out_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -185,20 +181,20 @@ impl<'d, T: Instance> Driver<'d, T> {
     /// Must be large enough to fit all OUT endpoint max packet sizes.
     /// Endpoint allocation will fail if it is too small.
     pub fn new_hs_ulpi(
-        _peri: impl Peripheral<P = T> + 'd,
+        _peri: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        ulpi_clk: impl Peripheral<P = impl UlpiClkPin<T>> + 'd,
-        ulpi_dir: impl Peripheral<P = impl UlpiDirPin<T>> + 'd,
-        ulpi_nxt: impl Peripheral<P = impl UlpiNxtPin<T>> + 'd,
-        ulpi_stp: impl Peripheral<P = impl UlpiStpPin<T>> + 'd,
-        ulpi_d0: impl Peripheral<P = impl UlpiD0Pin<T>> + 'd,
-        ulpi_d1: impl Peripheral<P = impl UlpiD1Pin<T>> + 'd,
-        ulpi_d2: impl Peripheral<P = impl UlpiD2Pin<T>> + 'd,
-        ulpi_d3: impl Peripheral<P = impl UlpiD3Pin<T>> + 'd,
-        ulpi_d4: impl Peripheral<P = impl UlpiD4Pin<T>> + 'd,
-        ulpi_d5: impl Peripheral<P = impl UlpiD5Pin<T>> + 'd,
-        ulpi_d6: impl Peripheral<P = impl UlpiD6Pin<T>> + 'd,
-        ulpi_d7: impl Peripheral<P = impl UlpiD7Pin<T>> + 'd,
+        ulpi_clk: Peri<'d, impl UlpiClkPin<T>>,
+        ulpi_dir: Peri<'d, impl UlpiDirPin<T>>,
+        ulpi_nxt: Peri<'d, impl UlpiNxtPin<T>>,
+        ulpi_stp: Peri<'d, impl UlpiStpPin<T>>,
+        ulpi_d0: Peri<'d, impl UlpiD0Pin<T>>,
+        ulpi_d1: Peri<'d, impl UlpiD1Pin<T>>,
+        ulpi_d2: Peri<'d, impl UlpiD2Pin<T>>,
+        ulpi_d3: Peri<'d, impl UlpiD3Pin<T>>,
+        ulpi_d4: Peri<'d, impl UlpiD4Pin<T>>,
+        ulpi_d5: Peri<'d, impl UlpiD5Pin<T>>,
+        ulpi_d6: Peri<'d, impl UlpiD6Pin<T>>,
+        ulpi_d7: Peri<'d, impl UlpiD7Pin<T>>,
         ep_out_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
@@ -235,19 +231,23 @@ impl<'d, T: Instance> embassy_usb_driver::Driver<'d> for Driver<'d, T> {
     fn alloc_endpoint_in(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointIn, EndpointAllocError> {
-        self.inner.alloc_endpoint_in(ep_type, max_packet_size, interval_ms)
+        self.inner
+            .alloc_endpoint_in(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
     fn alloc_endpoint_out(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointOut, EndpointAllocError> {
-        self.inner.alloc_endpoint_out(ep_type, max_packet_size, interval_ms)
+        self.inner
+            .alloc_endpoint_out(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
     fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
@@ -315,15 +315,34 @@ impl<'d, T: Instance> Bus<'d, T> {
 
         #[cfg(all(stm32u5, peri_usb_otg_hs))]
         {
-            crate::pac::SYSCFG.otghsphycr().modify(|w| {
-                w.set_en(true);
-            });
-
             critical_section::with(|_| {
                 crate::pac::RCC.ahb2enr1().modify(|w| {
                     w.set_usb_otg_hsen(true);
                     w.set_usb_otg_hs_phyen(true);
                 });
+            });
+
+            crate::pac::SYSCFG.otghsphycr().modify(|w| {
+                w.set_en(true);
+            });
+        }
+
+        #[cfg(all(stm32wba, peri_usb_otg_hs))]
+        {
+            critical_section::with(|_| {
+                crate::pac::RCC.ahb2enr().modify(|w| {
+                    w.set_usb_otg_hsen(true);
+                    w.set_usb_otg_hs_phyen(true);
+                });
+            });
+
+            crate::pac::SYSCFG.otghsphytuner2().modify(|w| {
+                w.set_compdistune(0b010);
+                w.set_sqrxtune(0b000);
+            });
+
+            crate::pac::SYSCFG.otghsphycr().modify(|w| {
+                w.set_en(true);
             });
         }
 
@@ -339,9 +358,9 @@ impl<'d, T: Instance> Bus<'d, T> {
 
         // Configuring Vbus sense and SOF output
         match core_id {
-            0x0000_1200 | 0x0000_1100 => self.inner.config_v1(),
+            0x0000_1200 | 0x0000_1100 | 0x0000_1000 => self.inner.config_v1(),
             0x0000_2000 | 0x0000_2100 | 0x0000_2300 | 0x0000_3000 | 0x0000_3100 => self.inner.config_v2v3(),
-            0x0000_5000 => self.inner.config_v5(),
+            0x0000_5000 | 0x0000_6100 => self.inner.config_v5(),
             _ => unimplemented!("Unknown USB core id {:X}", core_id),
         }
     }
@@ -411,7 +430,7 @@ trait SealedInstance {
 
 /// USB instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + RccPeripheral + 'static {
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral + 'static {
     /// Interrupt for this USB instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
@@ -468,6 +487,7 @@ foreach_interrupt!(
                     stm32f7,
                     stm32l4,
                     stm32u5,
+                    stm32wba,
                 ))] {
                     const FIFO_DEPTH_WORDS: u16 = 320;
                     const ENDPOINT_COUNT: usize = 6;
@@ -477,7 +497,7 @@ foreach_interrupt!(
                 } else if #[cfg(any(stm32h7, stm32h7rs))] {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
                     const ENDPOINT_COUNT: usize = 9;
-                } else if #[cfg(stm32u5)] {
+                } else if #[cfg(any(stm32wba, stm32u5))] {
                     const FIFO_DEPTH_WORDS: u16 = 320;
                     const ENDPOINT_COUNT: usize = 6;
                 } else {
@@ -527,7 +547,7 @@ foreach_interrupt!(
                 ))] {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
                     const ENDPOINT_COUNT: usize = 9;
-                } else if #[cfg(stm32u5)] {
+                } else if #[cfg(any(stm32u5, stm32wba))] {
                     const FIFO_DEPTH_WORDS: u16 = 1024;
                     const ENDPOINT_COUNT: usize = 9;
                 } else {
@@ -553,7 +573,7 @@ foreach_interrupt!(
 );
 
 fn calculate_trdt<T: Instance>(speed: Dspd) -> u8 {
-    let ahb_freq = T::frequency().0;
+    let ahb_freq = T::bus_frequency().0;
     match speed {
         Dspd::HIGH_SPEED => {
             // From RM0431 (F72xx), RM0090 (F429), RM0390 (F446)

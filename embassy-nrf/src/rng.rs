@@ -10,11 +10,12 @@ use core::task::Poll;
 
 use critical_section::{CriticalSection, Mutex};
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::WakerRegistration;
 
 use crate::interrupt::typelevel::Interrupt;
-use crate::{interrupt, pac, Peripheral};
+use crate::mode::{Async, Blocking, Mode};
+use crate::{interrupt, pac};
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
@@ -55,11 +56,31 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 /// A wrapper around an nRF RNG peripheral.
 ///
 /// It has a non-blocking API, and a blocking api through `rand`.
-pub struct Rng<'d, T: Instance> {
-    _peri: PeripheralRef<'d, T>,
+pub struct Rng<'d, T: Instance, M: Mode> {
+    _peri: Peri<'d, T>,
+    _phantom: PhantomData<M>,
 }
 
-impl<'d, T: Instance> Rng<'d, T> {
+impl<'d, T: Instance> Rng<'d, T, Blocking> {
+    /// Creates a new RNG driver from the `RNG` peripheral and interrupt.
+    ///
+    /// SAFETY: The future returned from `fill_bytes` must not have its lifetime end without running its destructor,
+    /// e.g. using `mem::forget`.
+    ///
+    /// The synchronous API is safe.
+    pub fn new_blocking(rng: Peri<'d, T>) -> Self {
+        let this = Self {
+            _peri: rng,
+            _phantom: PhantomData,
+        };
+
+        this.stop();
+
+        this
+    }
+}
+
+impl<'d, T: Instance> Rng<'d, T, Async> {
     /// Creates a new RNG driver from the `RNG` peripheral and interrupt.
     ///
     /// SAFETY: The future returned from `fill_bytes` must not have its lifetime end without running its destructor,
@@ -67,12 +88,13 @@ impl<'d, T: Instance> Rng<'d, T> {
     ///
     /// The synchronous API is safe.
     pub fn new(
-        rng: impl Peripheral<P = T> + 'd,
+        rng: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
-        into_ref!(rng);
-
-        let this = Self { _peri: rng };
+        let this = Self {
+            _peri: rng,
+            _phantom: PhantomData,
+        };
 
         this.stop();
         this.disable_irq();
@@ -83,30 +105,12 @@ impl<'d, T: Instance> Rng<'d, T> {
         this
     }
 
-    fn stop(&self) {
-        T::regs().tasks_stop().write_value(1)
-    }
-
-    fn start(&self) {
-        T::regs().tasks_start().write_value(1)
-    }
-
     fn enable_irq(&self) {
         T::regs().intenset().write(|w| w.set_valrdy(true));
     }
 
     fn disable_irq(&self) {
         T::regs().intenclr().write(|w| w.set_valrdy(true));
-    }
-
-    /// Enable or disable the RNG's bias correction.
-    ///
-    /// Bias correction removes any bias towards a '1' or a '0' in the bits generated.
-    /// However, this makes the generation of numbers slower.
-    ///
-    /// Defaults to disabled.
-    pub fn set_bias_correction(&self, enable: bool) {
-        T::regs().config().write(|w| w.set_dercen(enable))
     }
 
     /// Fill the buffer with random bytes.
@@ -155,6 +159,26 @@ impl<'d, T: Instance> Rng<'d, T> {
         // Trigger the teardown
         drop(on_drop);
     }
+}
+
+impl<'d, T: Instance, M: Mode> Rng<'d, T, M> {
+    fn stop(&self) {
+        T::regs().tasks_stop().write_value(1)
+    }
+
+    fn start(&self) {
+        T::regs().tasks_start().write_value(1)
+    }
+
+    /// Enable or disable the RNG's bias correction.
+    ///
+    /// Bias correction removes any bias towards a '1' or a '0' in the bits generated.
+    /// However, this makes the generation of numbers slower.
+    ///
+    /// Defaults to disabled.
+    pub fn set_bias_correction(&self, enable: bool) {
+        T::regs().config().write(|w| w.set_dercen(enable))
+    }
 
     /// Fill the buffer with random bytes, blocking version.
     pub fn blocking_fill_bytes(&mut self, dest: &mut [u8]) {
@@ -169,9 +193,24 @@ impl<'d, T: Instance> Rng<'d, T> {
 
         self.stop();
     }
+
+    /// Generate a random u32
+    pub fn blocking_next_u32(&mut self) -> u32 {
+        let mut bytes = [0; 4];
+        self.blocking_fill_bytes(&mut bytes);
+        // We don't care about the endianness, so just use the native one.
+        u32::from_ne_bytes(bytes)
+    }
+
+    /// Generate a random u64
+    pub fn blocking_next_u64(&mut self) -> u64 {
+        let mut bytes = [0; 8];
+        self.blocking_fill_bytes(&mut bytes);
+        u64::from_ne_bytes(bytes)
+    }
 }
 
-impl<'d, T: Instance> Drop for Rng<'d, T> {
+impl<'d, T: Instance, M: Mode> Drop for Rng<'d, T, M> {
     fn drop(&mut self) {
         self.stop();
         critical_section::with(|cs| {
@@ -182,31 +221,37 @@ impl<'d, T: Instance> Drop for Rng<'d, T> {
     }
 }
 
-impl<'d, T: Instance> rand_core::RngCore for Rng<'d, T> {
+impl<'d, T: Instance, M: Mode> rand_core_06::RngCore for Rng<'d, T, M> {
     fn fill_bytes(&mut self, dest: &mut [u8]) {
         self.blocking_fill_bytes(dest);
     }
-
     fn next_u32(&mut self) -> u32 {
-        let mut bytes = [0; 4];
-        self.blocking_fill_bytes(&mut bytes);
-        // We don't care about the endianness, so just use the native one.
-        u32::from_ne_bytes(bytes)
+        self.blocking_next_u32()
     }
-
     fn next_u64(&mut self) -> u64 {
-        let mut bytes = [0; 8];
-        self.blocking_fill_bytes(&mut bytes);
-        u64::from_ne_bytes(bytes)
+        self.blocking_next_u64()
     }
-
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core_06::Error> {
         self.blocking_fill_bytes(dest);
         Ok(())
     }
 }
 
-impl<'d, T: Instance> rand_core::CryptoRng for Rng<'d, T> {}
+impl<'d, T: Instance, M: Mode> rand_core_06::CryptoRng for Rng<'d, T, M> {}
+
+impl<'d, T: Instance, M: Mode> rand_core_09::RngCore for Rng<'d, T, M> {
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.blocking_fill_bytes(dest);
+    }
+    fn next_u32(&mut self) -> u32 {
+        self.blocking_next_u32()
+    }
+    fn next_u64(&mut self) -> u64 {
+        self.blocking_next_u64()
+    }
+}
+
+impl<'d, T: Instance, M: Mode> rand_core_09::CryptoRng for Rng<'d, T, M> {}
 
 /// Peripheral static state
 pub(crate) struct State {
@@ -250,7 +295,7 @@ pub(crate) trait SealedInstance {
 
 /// RNG peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

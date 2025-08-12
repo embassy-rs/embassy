@@ -8,12 +8,12 @@ license = "MIT OR Apache-2.0"
 teleprobe-meta = "1"
 
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
-embassy-sync = { version = "0.6.2", path = "../../embassy-sync", features = ["defmt", ] }
-embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
+embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = ["defmt", ] }
+embassy-executor = { version = "0.8.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["defmt",  "defmt-timestamp-uptime"] }
-embassy-nrf = { version = "0.3.1", path = "../../embassy-nrf", features = ["defmt",  "time-driver-rtc1", "gpiote", "unstable-pac"] }
+embassy-nrf = { version = "0.6.0", path = "../../embassy-nrf", features = ["defmt",  "time-driver-rtc1", "gpiote", "unstable-pac"] }
 embedded-io-async = { version = "0.6.1", features = ["defmt-03"] }
-embassy-net = { version = "0.6.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", ] }
+embassy-net = { version = "0.7.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", ] }
 embassy-net-esp-hosted = { version = "0.2.0", path = "../../embassy-net-esp-hosted", features = ["defmt"] }
 embassy-net-enc28j60 = { version = "0.2.0", path = "../../embassy-net-enc28j60", features = ["defmt"] }
 embedded-hal-async = { version = "1.0" }
@@ -21,19 +21,19 @@ embedded-hal-bus = { version = "0.1", features = ["async"] }
 static_cell = "2"
 perf-client = { path = "../perf-client" }
 
-defmt = "0.3"
-defmt-rtt = "0.4"
+defmt = "1.0.1"
+defmt-rtt = "1.0.0"
 
 cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
-panic-probe = { version = "0.3", features = ["print-defmt"] }
+panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 portable-atomic = { version = "1.6.0" }
 
 [features]
 nrf51422 = ["embassy-nrf/nrf51",         "portable-atomic/unsafe-assume-single-core"]
 nrf52832 = ["embassy-nrf/nrf52832",      "easydma"]
 nrf52833 = ["embassy-nrf/nrf52833",      "easydma", "two-uarts"]
-nrf52840 = ["embassy-nrf/nrf52840",      "easydma", "two-uarts", "embassy-executor/task-arena-size-16384"]
+nrf52840 = ["embassy-nrf/nrf52840",      "easydma", "two-uarts"]
 nrf5340  = ["embassy-nrf/nrf5340-app-s", "easydma", "two-uarts"]
 nrf9160  = ["embassy-nrf/nrf9160-s",     "easydma", "two-uarts"]
 

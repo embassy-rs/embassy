@@ -4,7 +4,7 @@
 
 use core::marker::PhantomData;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::PeripheralType;
 
 pub use crate::dma::word;
 #[cfg(not(gpdma))]
@@ -12,7 +12,7 @@ use crate::dma::{ringbuffer, Channel, ReadableRingBuffer, Request, TransferOptio
 use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::pac::sai::{vals, Sai as Regs};
 use crate::rcc::{self, RccPeripheral};
-use crate::{peripherals, Peripheral};
+use crate::{peripherals, Peri};
 
 /// SAI error
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -679,7 +679,7 @@ fn get_af_types(mode: Mode, tx_rx: TxRx) -> (AfType, AfType) {
 
 #[cfg(not(gpdma))]
 fn get_ring_buffer<'d, T: Instance, W: word::Word>(
-    dma: impl Peripheral<P = impl Channel> + 'd,
+    dma: Peri<'d, impl Channel>,
     dma_buf: &'d mut [W],
     request: Request,
     sub_block: WhichSubBlock,
@@ -718,16 +718,15 @@ fn update_synchronous_config(config: &mut Config) {
 }
 
 /// SAI subblock instance.
-pub struct SubBlock<'d, T, S: SubBlockInstance> {
-    peri: PeripheralRef<'d, T>,
+pub struct SubBlock<'d, T: Instance, S: SubBlockInstance> {
+    peri: Peri<'d, T>,
     _phantom: PhantomData<S>,
 }
 
 /// Split the main SAIx peripheral into the two subblocks.
 ///
 /// You can then create a [`Sai`] driver for each each half.
-pub fn split_subblocks<'d, T: Instance>(peri: impl Peripheral<P = T> + 'd) -> (SubBlock<'d, T, A>, SubBlock<'d, T, B>) {
-    into_ref!(peri);
+pub fn split_subblocks<'d, T: Instance>(peri: Peri<'d, T>) -> (SubBlock<'d, T, A>, SubBlock<'d, T, B>) {
     rcc::enable_and_reset::<T>();
 
     (
@@ -744,11 +743,11 @@ pub fn split_subblocks<'d, T: Instance>(peri: impl Peripheral<P = T> + 'd) -> (S
 
 /// SAI sub-block driver.
 pub struct Sai<'d, T: Instance, W: word::Word> {
-    _peri: PeripheralRef<'d, T>,
-    sd: Option<PeripheralRef<'d, AnyPin>>,
-    fs: Option<PeripheralRef<'d, AnyPin>>,
-    sck: Option<PeripheralRef<'d, AnyPin>>,
-    mclk: Option<PeripheralRef<'d, AnyPin>>,
+    _peri: Peri<'d, T>,
+    sd: Option<Peri<'d, AnyPin>>,
+    fs: Option<Peri<'d, AnyPin>>,
+    sck: Option<Peri<'d, AnyPin>>,
+    mclk: Option<Peri<'d, AnyPin>>,
     #[cfg(gpdma)]
     ring_buffer: PhantomData<W>,
     #[cfg(not(gpdma))]
@@ -763,16 +762,14 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     /// You can obtain the [`SubBlock`] with [`split_subblocks`].
     pub fn new_asynchronous_with_mclk<S: SubBlockInstance>(
         peri: SubBlock<'d, T, S>,
-        sck: impl Peripheral<P = impl SckPin<T, S>> + 'd,
-        sd: impl Peripheral<P = impl SdPin<T, S>> + 'd,
-        fs: impl Peripheral<P = impl FsPin<T, S>> + 'd,
-        mclk: impl Peripheral<P = impl MclkPin<T, S>> + 'd,
-        dma: impl Peripheral<P = impl Channel + Dma<T, S>> + 'd,
+        sck: Peri<'d, impl SckPin<T, S>>,
+        sd: Peri<'d, impl SdPin<T, S>>,
+        fs: Peri<'d, impl FsPin<T, S>>,
+        mclk: Peri<'d, impl MclkPin<T, S>>,
+        dma: Peri<'d, impl Channel + Dma<T, S>>,
         dma_buf: &'d mut [W],
         mut config: Config,
     ) -> Self {
-        into_ref!(mclk);
-
         let (_sd_af_type, ck_af_type) = get_af_types(config.mode, config.tx_rx);
         mclk.set_as_af(mclk.af_num(), ck_af_type);
 
@@ -788,15 +785,14 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     /// You can obtain the [`SubBlock`] with [`split_subblocks`].
     pub fn new_asynchronous<S: SubBlockInstance>(
         peri: SubBlock<'d, T, S>,
-        sck: impl Peripheral<P = impl SckPin<T, S>> + 'd,
-        sd: impl Peripheral<P = impl SdPin<T, S>> + 'd,
-        fs: impl Peripheral<P = impl FsPin<T, S>> + 'd,
-        dma: impl Peripheral<P = impl Channel + Dma<T, S>> + 'd,
+        sck: Peri<'d, impl SckPin<T, S>>,
+        sd: Peri<'d, impl SdPin<T, S>>,
+        fs: Peri<'d, impl FsPin<T, S>>,
+        dma: Peri<'d, impl Channel + Dma<T, S>>,
         dma_buf: &'d mut [W],
         config: Config,
     ) -> Self {
         let peri = peri.peri;
-        into_ref!(peri, dma, sck, sd, fs);
 
         let (sd_af_type, ck_af_type) = get_af_types(config.mode, config.tx_rx);
         sd.set_as_af(sd.af_num(), sd_af_type);
@@ -809,10 +805,10 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         Self::new_inner(
             peri,
             sub_block,
-            Some(sck.map_into()),
+            Some(sck.into()),
             None,
-            Some(sd.map_into()),
-            Some(fs.map_into()),
+            Some(sd.into()),
+            Some(fs.into()),
             get_ring_buffer::<T, W>(dma, dma_buf, request, sub_block, config.tx_rx),
             config,
         )
@@ -823,15 +819,14 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     /// You can obtain the [`SubBlock`] with [`split_subblocks`].
     pub fn new_synchronous<S: SubBlockInstance>(
         peri: SubBlock<'d, T, S>,
-        sd: impl Peripheral<P = impl SdPin<T, S>> + 'd,
-        dma: impl Peripheral<P = impl Channel + Dma<T, S>> + 'd,
+        sd: Peri<'d, impl SdPin<T, S>>,
+        dma: Peri<'d, impl Channel + Dma<T, S>>,
         dma_buf: &'d mut [W],
         mut config: Config,
     ) -> Self {
         update_synchronous_config(&mut config);
 
         let peri = peri.peri;
-        into_ref!(dma, peri, sd);
 
         let (sd_af_type, _ck_af_type) = get_af_types(config.mode, config.tx_rx);
         sd.set_as_af(sd.af_num(), sd_af_type);
@@ -844,7 +839,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
             sub_block,
             None,
             None,
-            Some(sd.map_into()),
+            Some(sd.into()),
             None,
             get_ring_buffer::<T, W>(dma, dma_buf, request, sub_block, config.tx_rx),
             config,
@@ -852,12 +847,12 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     }
 
     fn new_inner(
-        peri: impl Peripheral<P = T> + 'd,
+        peri: Peri<'d, T>,
         sub_block: WhichSubBlock,
-        sck: Option<PeripheralRef<'d, AnyPin>>,
-        mclk: Option<PeripheralRef<'d, AnyPin>>,
-        sd: Option<PeripheralRef<'d, AnyPin>>,
-        fs: Option<PeripheralRef<'d, AnyPin>>,
+        sck: Option<Peri<'d, AnyPin>>,
+        mclk: Option<Peri<'d, AnyPin>>,
+        sd: Option<Peri<'d, AnyPin>>,
+        fs: Option<Peri<'d, AnyPin>>,
         ring_buffer: RingBuffer<'d, W>,
         config: Config,
     ) -> Self {
@@ -936,7 +931,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
                 w.set_nbslot(config.slot_count.0 as u8 - 1);
                 w.set_slotsz(config.slot_size.slotsz());
                 w.set_fboff(config.first_bit_offset.0 as u8);
-                w.set_sloten(vals::Sloten(config.slot_enable as u16));
+                w.set_sloten(vals::Sloten::from_bits(config.slot_enable as u16));
             });
 
             ch.cr1().modify(|w| w.set_saien(true));
@@ -947,7 +942,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         }
 
         Self {
-            _peri: peri.into_ref(),
+            _peri: peri,
             sub_block,
             sck,
             mclk,
@@ -1106,7 +1101,7 @@ impl SubBlockInstance for B {}
 
 /// SAI instance trait.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + RccPeripheral {}
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral {}
 
 pin_trait!(SckPin, Instance, SubBlockInstance);
 pin_trait!(FsPin, Instance, SubBlockInstance);

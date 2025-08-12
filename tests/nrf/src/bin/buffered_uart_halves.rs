@@ -27,21 +27,21 @@ async fn main(_spawner: Spawner) {
         const COUNT: usize = 40_000;
 
         let mut tx = BufferedUarteTx::new(
-            &mut peri!(p, UART1),
+            peri!(p, UART1).reborrow(),
+            peri!(p, PIN_A).reborrow(),
             irqs!(UART1_BUFFERED),
-            &mut peri!(p, PIN_A),
             config.clone(),
             &mut tx_buffer,
         );
 
         let mut rx = BufferedUarteRx::new(
-            &mut peri!(p, UART0),
-            &mut p.TIMER0,
-            &mut p.PPI_CH0,
-            &mut p.PPI_CH1,
-            &mut p.PPI_GROUP0,
+            peri!(p, UART0).reborrow(),
+            p.TIMER0.reborrow(),
+            p.PPI_CH0.reborrow(),
+            p.PPI_CH1.reborrow(),
+            p.PPI_GROUP0.reborrow(),
             irqs!(UART0_BUFFERED),
-            &mut peri!(p, PIN_B),
+            peri!(p, PIN_B).reborrow(),
             config.clone(),
             &mut rx_buffer,
         );

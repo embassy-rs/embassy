@@ -125,8 +125,12 @@ pub mod uid;
 pub mod usart;
 #[cfg(any(usb, otg))]
 pub mod usb;
+#[cfg(vrefbuf)]
+pub mod vrefbuf;
 #[cfg(iwdg)]
 pub mod wdg;
+#[cfg(xspi)]
+pub mod xspi;
 
 // This must go last, so that it sees all the impl_foo! macros defined earlier.
 pub(crate) mod _generated {
@@ -161,18 +165,22 @@ pub use crate::_generated::interrupt;
 /// ```rust,ignore
 /// use embassy_stm32::{bind_interrupts, i2c, peripherals};
 ///
-/// bind_interrupts!(struct Irqs {
-///     I2C1 => i2c::EventInterruptHandler<peripherals::I2C1>, i2c::ErrorInterruptHandler<peripherals::I2C1>;
-///     I2C2_3 => i2c::EventInterruptHandler<peripherals::I2C2>, i2c::ErrorInterruptHandler<peripherals::I2C2>,
-///         i2c::EventInterruptHandler<peripherals::I2C3>, i2c::ErrorInterruptHandler<peripherals::I2C3>;
-/// });
+/// bind_interrupts!(
+///     /// Binds the I2C interrupts.
+///     struct Irqs {
+///         I2C1 => i2c::EventInterruptHandler<peripherals::I2C1>, i2c::ErrorInterruptHandler<peripherals::I2C1>;
+///         I2C2_3 => i2c::EventInterruptHandler<peripherals::I2C2>, i2c::ErrorInterruptHandler<peripherals::I2C2>,
+///             i2c::EventInterruptHandler<peripherals::I2C3>, i2c::ErrorInterruptHandler<peripherals::I2C3>;
+///     }
+/// );
 /// ```
 
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {
-    ($vis:vis struct $name:ident {
+    ($(#[$outer:meta])* $vis:vis struct $name:ident {
         $(
+            $(#[doc = $doc:literal])*
             $(#[cfg($cond_irq:meta)])?
             $irq:ident => $(
                 $(#[cfg($cond_handler:meta)])?
@@ -181,18 +189,22 @@ macro_rules! bind_interrupts {
         )*
     }) => {
         #[derive(Copy, Clone)]
+        $(#[$outer])*
         $vis struct $name;
 
         $(
             #[allow(non_snake_case)]
             #[no_mangle]
             $(#[cfg($cond_irq)])?
+            $(#[doc = $doc])*
             unsafe extern "C" fn $irq() {
-                $(
-                    $(#[cfg($cond_handler)])?
-                    <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
+                unsafe {
+                    $(
+                        $(#[cfg($cond_handler)])?
+                        <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
 
-                )*
+                    )*
+                }
             }
 
             $(#[cfg($cond_irq)])?
@@ -211,7 +223,7 @@ macro_rules! bind_interrupts {
 
 // Reexports
 pub use _generated::{peripherals, Peripherals};
-pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+pub use embassy_hal_internal::{Peri, PeripheralType};
 #[cfg(feature = "unstable-pac")]
 pub use stm32_metapac as pac;
 #[cfg(not(feature = "unstable-pac"))]
@@ -234,12 +246,12 @@ pub struct Config {
     #[cfg(dbgmcu)]
     pub enable_debug_during_sleep: bool,
 
-    /// On low-power boards (eg. `stm32l4`, `stm32l5` and `stm32u5`),
+    /// On low-power boards (eg. `stm32l4`, `stm32l5`, `stm32wba` and `stm32u5`),
     /// some GPIO pins are powered by an auxiliary, independent power supply (`VDDIO2`),
     /// which needs to be enabled before these pins can be used.
     ///
     /// May increase power consumption. Defaults to true.
-    #[cfg(any(stm32l4, stm32l5, stm32u5))]
+    #[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba))]
     pub enable_independent_io_supply: bool,
 
     /// On the U5 series all analog peripherals are powered by a separate supply.
@@ -283,7 +295,7 @@ impl Default for Config {
             rcc: Default::default(),
             #[cfg(dbgmcu)]
             enable_debug_during_sleep: true,
-            #[cfg(any(stm32l4, stm32l5, stm32u5))]
+            #[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba))]
             enable_independent_io_supply: true,
             #[cfg(stm32u5)]
             enable_independent_analog_supply: true,
@@ -532,6 +544,17 @@ fn init_hw(config: Config) -> Peripherals {
                 w.set_iosv(config.enable_independent_io_supply);
             });
         }
+        #[cfg(stm32wba)]
+        {
+            use crate::pac::pwr::vals;
+            crate::pac::PWR.svmcr().modify(|w| {
+                w.set_io2sv(if config.enable_independent_io_supply {
+                    vals::Io2sv::B_0X1
+                } else {
+                    vals::Io2sv::B_0X0
+                });
+            });
+        }
         #[cfg(stm32u5)]
         {
             crate::pac::PWR.svmcr().modify(|w| {
@@ -598,17 +621,7 @@ fn init_hw(config: Config) -> Peripherals {
             #[cfg(feature = "exti")]
             exti::init(cs);
 
-            rcc::init(config.rcc);
-
-            // must be after rcc init
-            #[cfg(feature = "_time-driver")]
-            time_driver::init(cs);
-
-            #[cfg(feature = "low-power")]
-            {
-                crate::rcc::REFCOUNT_STOP2 = 0;
-                crate::rcc::REFCOUNT_STOP1 = 0;
-            }
+            rcc::init_rcc(cs, config.rcc);
         }
 
         p

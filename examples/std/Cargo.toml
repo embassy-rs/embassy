@@ -5,10 +5,10 @@ version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-embassy-sync = { version = "0.6.2", path = "../../embassy-sync", features = ["log"] }
-embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["task-arena-size-32768", "arch-std", "executor-thread", "log"] }
+embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = ["log"] }
+embassy-executor = { version = "0.8.0", path = "../../embassy-executor", features = ["arch-std", "executor-thread", "log"] }
 embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["log", "std", ] }
-embassy-net = { version = "0.6.0", path = "../../embassy-net", features=[ "log", "medium-ethernet", "medium-ip", "tcp", "udp", "dns", "dhcpv4", "proto-ipv6"] }
+embassy-net = { version = "0.7.0", path = "../../embassy-net", features=[ "log", "medium-ethernet", "medium-ip", "tcp", "udp", "dns", "dhcpv4", "proto-ipv6"] }
 embassy-net-tuntap = { version = "0.1.0", path = "../../embassy-net-tuntap" }
 embassy-net-ppp = { version = "0.2.0", path = "../../embassy-net-ppp", features = ["log"]}
 embedded-io-async = { version = "0.6.1" }
@@ -21,7 +21,7 @@ futures = { version = "0.3.17" }
 log = "0.4.14"
 nix = "0.26.2"
 clap = { version = "3.0.0-beta.5", features = ["derive"] }
-rand_core = { version = "0.6.3", features = ["std"] }
+rand_core = { version = "0.9.1", features = ["std", "os_rng"] }
 heapless = { version = "0.8", default-features = false }
 static_cell = "2"
 

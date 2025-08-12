@@ -3,13 +3,13 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::Transfer;
 use crate::gpio::{AfType, Pull};
 use crate::interrupt::typelevel::Interrupt;
-use crate::{interrupt, rcc, Peripheral};
+use crate::{interrupt, rcc, Peri};
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
@@ -106,8 +106,7 @@ impl Default for Config {
 
 macro_rules! config_pins {
     ($($pin:ident),*) => {
-        into_ref!($($pin),*);
-        critical_section::with(|_| {
+                critical_section::with(|_| {
             $(
                 $pin.set_as_af($pin.af_num(), AfType::input(Pull::None));
             )*
@@ -117,8 +116,8 @@ macro_rules! config_pins {
 
 /// DCMI driver.
 pub struct Dcmi<'d, T: Instance, Dma: FrameDma<T>> {
-    inner: PeripheralRef<'d, T>,
-    dma: PeripheralRef<'d, Dma>,
+    inner: Peri<'d, T>,
+    dma: Peri<'d, Dma>,
 }
 
 impl<'d, T, Dma> Dcmi<'d, T, Dma>
@@ -128,23 +127,22 @@ where
 {
     /// Create a new DCMI driver with 8 data bits.
     pub fn new_8bit(
-        peri: impl Peripheral<P = T> + 'd,
-        dma: impl Peripheral<P = Dma> + 'd,
+        peri: Peri<'d, T>,
+        dma: Peri<'d, Dma>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        d4: impl Peripheral<P = impl D4Pin<T>> + 'd,
-        d5: impl Peripheral<P = impl D5Pin<T>> + 'd,
-        d6: impl Peripheral<P = impl D6Pin<T>> + 'd,
-        d7: impl Peripheral<P = impl D7Pin<T>> + 'd,
-        v_sync: impl Peripheral<P = impl VSyncPin<T>> + 'd,
-        h_sync: impl Peripheral<P = impl HSyncPin<T>> + 'd,
-        pixclk: impl Peripheral<P = impl PixClkPin<T>> + 'd,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        v_sync: Peri<'d, impl VSyncPin<T>>,
+        h_sync: Peri<'d, impl HSyncPin<T>>,
+        pixclk: Peri<'d, impl PixClkPin<T>>,
         config: Config,
     ) -> Self {
-        into_ref!(peri, dma);
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7);
         config_pins!(v_sync, h_sync, pixclk);
 
@@ -153,25 +151,24 @@ where
 
     /// Create a new DCMI driver with 10 data bits.
     pub fn new_10bit(
-        peri: impl Peripheral<P = T> + 'd,
-        dma: impl Peripheral<P = Dma> + 'd,
+        peri: Peri<'d, T>,
+        dma: Peri<'d, Dma>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        d4: impl Peripheral<P = impl D4Pin<T>> + 'd,
-        d5: impl Peripheral<P = impl D5Pin<T>> + 'd,
-        d6: impl Peripheral<P = impl D6Pin<T>> + 'd,
-        d7: impl Peripheral<P = impl D7Pin<T>> + 'd,
-        d8: impl Peripheral<P = impl D8Pin<T>> + 'd,
-        d9: impl Peripheral<P = impl D9Pin<T>> + 'd,
-        v_sync: impl Peripheral<P = impl VSyncPin<T>> + 'd,
-        h_sync: impl Peripheral<P = impl HSyncPin<T>> + 'd,
-        pixclk: impl Peripheral<P = impl PixClkPin<T>> + 'd,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        d8: Peri<'d, impl D8Pin<T>>,
+        d9: Peri<'d, impl D9Pin<T>>,
+        v_sync: Peri<'d, impl VSyncPin<T>>,
+        h_sync: Peri<'d, impl HSyncPin<T>>,
+        pixclk: Peri<'d, impl PixClkPin<T>>,
         config: Config,
     ) -> Self {
-        into_ref!(peri, dma);
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9);
         config_pins!(v_sync, h_sync, pixclk);
 
@@ -180,27 +177,26 @@ where
 
     /// Create a new DCMI driver with 12 data bits.
     pub fn new_12bit(
-        peri: impl Peripheral<P = T> + 'd,
-        dma: impl Peripheral<P = Dma> + 'd,
+        peri: Peri<'d, T>,
+        dma: Peri<'d, Dma>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        d4: impl Peripheral<P = impl D4Pin<T>> + 'd,
-        d5: impl Peripheral<P = impl D5Pin<T>> + 'd,
-        d6: impl Peripheral<P = impl D6Pin<T>> + 'd,
-        d7: impl Peripheral<P = impl D7Pin<T>> + 'd,
-        d8: impl Peripheral<P = impl D8Pin<T>> + 'd,
-        d9: impl Peripheral<P = impl D9Pin<T>> + 'd,
-        d10: impl Peripheral<P = impl D10Pin<T>> + 'd,
-        d11: impl Peripheral<P = impl D11Pin<T>> + 'd,
-        v_sync: impl Peripheral<P = impl VSyncPin<T>> + 'd,
-        h_sync: impl Peripheral<P = impl HSyncPin<T>> + 'd,
-        pixclk: impl Peripheral<P = impl PixClkPin<T>> + 'd,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        d8: Peri<'d, impl D8Pin<T>>,
+        d9: Peri<'d, impl D9Pin<T>>,
+        d10: Peri<'d, impl D10Pin<T>>,
+        d11: Peri<'d, impl D11Pin<T>>,
+        v_sync: Peri<'d, impl VSyncPin<T>>,
+        h_sync: Peri<'d, impl HSyncPin<T>>,
+        pixclk: Peri<'d, impl PixClkPin<T>>,
         config: Config,
     ) -> Self {
-        into_ref!(peri, dma);
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11);
         config_pins!(v_sync, h_sync, pixclk);
 
@@ -209,29 +205,28 @@ where
 
     /// Create a new DCMI driver with 14 data bits.
     pub fn new_14bit(
-        peri: impl Peripheral<P = T> + 'd,
-        dma: impl Peripheral<P = Dma> + 'd,
+        peri: Peri<'d, T>,
+        dma: Peri<'d, Dma>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        d4: impl Peripheral<P = impl D4Pin<T>> + 'd,
-        d5: impl Peripheral<P = impl D5Pin<T>> + 'd,
-        d6: impl Peripheral<P = impl D6Pin<T>> + 'd,
-        d7: impl Peripheral<P = impl D7Pin<T>> + 'd,
-        d8: impl Peripheral<P = impl D8Pin<T>> + 'd,
-        d9: impl Peripheral<P = impl D9Pin<T>> + 'd,
-        d10: impl Peripheral<P = impl D10Pin<T>> + 'd,
-        d11: impl Peripheral<P = impl D11Pin<T>> + 'd,
-        d12: impl Peripheral<P = impl D12Pin<T>> + 'd,
-        d13: impl Peripheral<P = impl D13Pin<T>> + 'd,
-        v_sync: impl Peripheral<P = impl VSyncPin<T>> + 'd,
-        h_sync: impl Peripheral<P = impl HSyncPin<T>> + 'd,
-        pixclk: impl Peripheral<P = impl PixClkPin<T>> + 'd,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        d8: Peri<'d, impl D8Pin<T>>,
+        d9: Peri<'d, impl D9Pin<T>>,
+        d10: Peri<'d, impl D10Pin<T>>,
+        d11: Peri<'d, impl D11Pin<T>>,
+        d12: Peri<'d, impl D12Pin<T>>,
+        d13: Peri<'d, impl D13Pin<T>>,
+        v_sync: Peri<'d, impl VSyncPin<T>>,
+        h_sync: Peri<'d, impl HSyncPin<T>>,
+        pixclk: Peri<'d, impl PixClkPin<T>>,
         config: Config,
     ) -> Self {
-        into_ref!(peri, dma);
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12, d13);
         config_pins!(v_sync, h_sync, pixclk);
 
@@ -240,21 +235,20 @@ where
 
     /// Create a new DCMI driver with 8 data bits, with embedded synchronization.
     pub fn new_es_8bit(
-        peri: impl Peripheral<P = T> + 'd,
-        dma: impl Peripheral<P = Dma> + 'd,
+        peri: Peri<'d, T>,
+        dma: Peri<'d, Dma>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        d4: impl Peripheral<P = impl D4Pin<T>> + 'd,
-        d5: impl Peripheral<P = impl D5Pin<T>> + 'd,
-        d6: impl Peripheral<P = impl D6Pin<T>> + 'd,
-        d7: impl Peripheral<P = impl D7Pin<T>> + 'd,
-        pixclk: impl Peripheral<P = impl PixClkPin<T>> + 'd,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        pixclk: Peri<'d, impl PixClkPin<T>>,
         config: Config,
     ) -> Self {
-        into_ref!(peri, dma);
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7);
         config_pins!(pixclk);
 
@@ -263,23 +257,22 @@ where
 
     /// Create a new DCMI driver with 10 data bits, with embedded synchronization.
     pub fn new_es_10bit(
-        peri: impl Peripheral<P = T> + 'd,
-        dma: impl Peripheral<P = Dma> + 'd,
+        peri: Peri<'d, T>,
+        dma: Peri<'d, Dma>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        d4: impl Peripheral<P = impl D4Pin<T>> + 'd,
-        d5: impl Peripheral<P = impl D5Pin<T>> + 'd,
-        d6: impl Peripheral<P = impl D6Pin<T>> + 'd,
-        d7: impl Peripheral<P = impl D7Pin<T>> + 'd,
-        d8: impl Peripheral<P = impl D8Pin<T>> + 'd,
-        d9: impl Peripheral<P = impl D9Pin<T>> + 'd,
-        pixclk: impl Peripheral<P = impl PixClkPin<T>> + 'd,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        d8: Peri<'d, impl D8Pin<T>>,
+        d9: Peri<'d, impl D9Pin<T>>,
+        pixclk: Peri<'d, impl PixClkPin<T>>,
         config: Config,
     ) -> Self {
-        into_ref!(peri, dma);
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9);
         config_pins!(pixclk);
 
@@ -288,25 +281,24 @@ where
 
     /// Create a new DCMI driver with 12 data bits, with embedded synchronization.
     pub fn new_es_12bit(
-        peri: impl Peripheral<P = T> + 'd,
-        dma: impl Peripheral<P = Dma> + 'd,
+        peri: Peri<'d, T>,
+        dma: Peri<'d, Dma>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        d4: impl Peripheral<P = impl D4Pin<T>> + 'd,
-        d5: impl Peripheral<P = impl D5Pin<T>> + 'd,
-        d6: impl Peripheral<P = impl D6Pin<T>> + 'd,
-        d7: impl Peripheral<P = impl D7Pin<T>> + 'd,
-        d8: impl Peripheral<P = impl D8Pin<T>> + 'd,
-        d9: impl Peripheral<P = impl D9Pin<T>> + 'd,
-        d10: impl Peripheral<P = impl D10Pin<T>> + 'd,
-        d11: impl Peripheral<P = impl D11Pin<T>> + 'd,
-        pixclk: impl Peripheral<P = impl PixClkPin<T>> + 'd,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        d8: Peri<'d, impl D8Pin<T>>,
+        d9: Peri<'d, impl D9Pin<T>>,
+        d10: Peri<'d, impl D10Pin<T>>,
+        d11: Peri<'d, impl D11Pin<T>>,
+        pixclk: Peri<'d, impl PixClkPin<T>>,
         config: Config,
     ) -> Self {
-        into_ref!(peri, dma);
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11);
         config_pins!(pixclk);
 
@@ -315,27 +307,26 @@ where
 
     /// Create a new DCMI driver with 14 data bits, with embedded synchronization.
     pub fn new_es_14bit(
-        peri: impl Peripheral<P = T> + 'd,
-        dma: impl Peripheral<P = Dma> + 'd,
+        peri: Peri<'d, T>,
+        dma: Peri<'d, Dma>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        d0: impl Peripheral<P = impl D0Pin<T>> + 'd,
-        d1: impl Peripheral<P = impl D1Pin<T>> + 'd,
-        d2: impl Peripheral<P = impl D2Pin<T>> + 'd,
-        d3: impl Peripheral<P = impl D3Pin<T>> + 'd,
-        d4: impl Peripheral<P = impl D4Pin<T>> + 'd,
-        d5: impl Peripheral<P = impl D5Pin<T>> + 'd,
-        d6: impl Peripheral<P = impl D6Pin<T>> + 'd,
-        d7: impl Peripheral<P = impl D7Pin<T>> + 'd,
-        d8: impl Peripheral<P = impl D8Pin<T>> + 'd,
-        d9: impl Peripheral<P = impl D9Pin<T>> + 'd,
-        d10: impl Peripheral<P = impl D10Pin<T>> + 'd,
-        d11: impl Peripheral<P = impl D11Pin<T>> + 'd,
-        d12: impl Peripheral<P = impl D12Pin<T>> + 'd,
-        d13: impl Peripheral<P = impl D13Pin<T>> + 'd,
-        pixclk: impl Peripheral<P = impl PixClkPin<T>> + 'd,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        d8: Peri<'d, impl D8Pin<T>>,
+        d9: Peri<'d, impl D9Pin<T>>,
+        d10: Peri<'d, impl D10Pin<T>>,
+        d11: Peri<'d, impl D11Pin<T>>,
+        d12: Peri<'d, impl D12Pin<T>>,
+        d13: Peri<'d, impl D13Pin<T>>,
+        pixclk: Peri<'d, impl PixClkPin<T>>,
         config: Config,
     ) -> Self {
-        into_ref!(peri, dma);
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12, d13);
         config_pins!(pixclk);
 
@@ -343,8 +334,8 @@ where
     }
 
     fn new_inner(
-        peri: PeripheralRef<'d, T>,
-        dma: PeripheralRef<'d, Dma>,
+        peri: Peri<'d, T>,
+        dma: Peri<'d, Dma>,
         config: Config,
         use_embedded_synchronization: bool,
         edm: u8,
@@ -396,7 +387,7 @@ where
         let r = self.inner.regs();
         let src = r.dr().as_ptr() as *mut u32;
         let request = self.dma.request();
-        let dma_read = unsafe { Transfer::new_read(&mut self.dma, request, src, buffer, Default::default()) };
+        let dma_read = unsafe { Transfer::new_read(self.dma.reborrow(), request, src, buffer, Default::default()) };
 
         Self::clear_interrupt_flags();
         Self::enable_irqs();
@@ -435,7 +426,7 @@ trait SealedInstance: crate::rcc::RccPeripheral {
 
 /// DCMI instance.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + 'static {
+pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Interrupt for this instance.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

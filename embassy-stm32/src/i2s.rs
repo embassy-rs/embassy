@@ -1,7 +1,6 @@
 //! Inter-IC Sound (I2S)
 
 use embassy_futures::join::join;
-use embassy_hal_internal::into_ref;
 use stm32_metapac::spi::vals;
 
 use crate::dma::{ringbuffer, ChannelAndRequest, ReadableRingBuffer, TransferOptions, WritableRingBuffer};
@@ -9,7 +8,7 @@ use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
 use crate::mode::Async;
 use crate::spi::{Config as SpiConfig, RegsExt as _, *};
 use crate::time::Hertz;
-use crate::{Peripheral, PeripheralRef};
+use crate::Peri;
 
 /// I2S mode
 #[derive(Copy, Clone)]
@@ -156,6 +155,10 @@ impl ClockPolarity {
 #[non_exhaustive]
 #[derive(Copy, Clone)]
 pub struct Config {
+    /// Frequency
+    pub frequency: Hertz,
+    /// GPIO Speed
+    pub gpio_speed: Speed,
     /// Mode
     pub mode: Mode,
     /// Which I2S standard to use.
@@ -171,6 +174,8 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            frequency: Hertz::khz(48),
+            gpio_speed: Speed::VeryHigh,
             mode: Mode::Master,
             standard: Standard::Philips,
             format: Format::Data16Channel16,
@@ -225,11 +230,11 @@ pub struct I2S<'d, W: Word> {
     #[allow(dead_code)]
     mode: Mode,
     spi: Spi<'d, Async>,
-    txsd: Option<PeripheralRef<'d, AnyPin>>,
-    rxsd: Option<PeripheralRef<'d, AnyPin>>,
-    ws: Option<PeripheralRef<'d, AnyPin>>,
-    ck: Option<PeripheralRef<'d, AnyPin>>,
-    mck: Option<PeripheralRef<'d, AnyPin>>,
+    txsd: Option<Peri<'d, AnyPin>>,
+    rxsd: Option<Peri<'d, AnyPin>>,
+    ws: Option<Peri<'d, AnyPin>>,
+    ck: Option<Peri<'d, AnyPin>>,
+    mck: Option<Peri<'d, AnyPin>>,
     tx_ring_buffer: Option<WritableRingBuffer<'d, W>>,
     rx_ring_buffer: Option<ReadableRingBuffer<'d, W>>,
 }
@@ -237,14 +242,13 @@ pub struct I2S<'d, W: Word> {
 impl<'d, W: Word> I2S<'d, W> {
     /// Create a transmitter driver.
     pub fn new_txonly<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        sd: impl Peripheral<P = impl MosiPin<T>> + 'd,
-        ws: impl Peripheral<P = impl WsPin<T>> + 'd,
-        ck: impl Peripheral<P = impl CkPin<T>> + 'd,
-        mck: impl Peripheral<P = impl MckPin<T>> + 'd,
-        txdma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        sd: Peri<'d, impl MosiPin<T>>,
+        ws: Peri<'d, impl WsPin<T>>,
+        ck: Peri<'d, impl CkPin<T>>,
+        mck: Peri<'d, impl MckPin<T>>,
+        txdma: Peri<'d, impl TxDma<T>>,
         txdma_buf: &'d mut [W],
-        freq: Hertz,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -256,7 +260,6 @@ impl<'d, W: Word> I2S<'d, W> {
             new_pin!(mck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             new_dma!(txdma).map(|d| (d, txdma_buf)),
             None,
-            freq,
             config,
             Function::Transmit,
         )
@@ -264,13 +267,12 @@ impl<'d, W: Word> I2S<'d, W> {
 
     /// Create a transmitter driver without a master clock pin.
     pub fn new_txonly_nomck<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        sd: impl Peripheral<P = impl MosiPin<T>> + 'd,
-        ws: impl Peripheral<P = impl WsPin<T>> + 'd,
-        ck: impl Peripheral<P = impl CkPin<T>> + 'd,
-        txdma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        sd: Peri<'d, impl MosiPin<T>>,
+        ws: Peri<'d, impl WsPin<T>>,
+        ck: Peri<'d, impl CkPin<T>>,
+        txdma: Peri<'d, impl TxDma<T>>,
         txdma_buf: &'d mut [W],
-        freq: Hertz,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -282,7 +284,6 @@ impl<'d, W: Word> I2S<'d, W> {
             None,
             new_dma!(txdma).map(|d| (d, txdma_buf)),
             None,
-            freq,
             config,
             Function::Transmit,
         )
@@ -290,14 +291,13 @@ impl<'d, W: Word> I2S<'d, W> {
 
     /// Create a receiver driver.
     pub fn new_rxonly<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        sd: impl Peripheral<P = impl MisoPin<T>> + 'd,
-        ws: impl Peripheral<P = impl WsPin<T>> + 'd,
-        ck: impl Peripheral<P = impl CkPin<T>> + 'd,
-        mck: impl Peripheral<P = impl MckPin<T>> + 'd,
-        rxdma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        sd: Peri<'d, impl MisoPin<T>>,
+        ws: Peri<'d, impl WsPin<T>>,
+        ck: Peri<'d, impl CkPin<T>>,
+        mck: Peri<'d, impl MckPin<T>>,
+        rxdma: Peri<'d, impl RxDma<T>>,
         rxdma_buf: &'d mut [W],
-        freq: Hertz,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -309,7 +309,6 @@ impl<'d, W: Word> I2S<'d, W> {
             new_pin!(mck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             None,
             new_dma!(rxdma).map(|d| (d, rxdma_buf)),
-            freq,
             config,
             Function::Receive,
         )
@@ -318,17 +317,16 @@ impl<'d, W: Word> I2S<'d, W> {
     #[cfg(spi_v3)]
     /// Create a full duplex driver.
     pub fn new_full_duplex<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        txsd: impl Peripheral<P = impl MosiPin<T>> + 'd,
-        rxsd: impl Peripheral<P = impl MisoPin<T>> + 'd,
-        ws: impl Peripheral<P = impl WsPin<T>> + 'd,
-        ck: impl Peripheral<P = impl CkPin<T>> + 'd,
-        mck: impl Peripheral<P = impl MckPin<T>> + 'd,
-        txdma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        peri: Peri<'d, T>,
+        txsd: Peri<'d, impl MosiPin<T>>,
+        rxsd: Peri<'d, impl MisoPin<T>>,
+        ws: Peri<'d, impl WsPin<T>>,
+        ck: Peri<'d, impl CkPin<T>>,
+        mck: Peri<'d, impl MckPin<T>>,
+        txdma: Peri<'d, impl TxDma<T>>,
         txdma_buf: &'d mut [W],
-        rxdma: impl Peripheral<P = impl RxDma<T>> + 'd,
+        rxdma: Peri<'d, impl RxDma<T>>,
         rxdma_buf: &'d mut [W],
-        freq: Hertz,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -340,7 +338,6 @@ impl<'d, W: Word> I2S<'d, W> {
             new_pin!(mck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             new_dma!(txdma).map(|d| (d, txdma_buf)),
             new_dma!(rxdma).map(|d| (d, rxdma_buf)),
-            freq,
             config,
             Function::FullDuplex,
         )
@@ -466,27 +463,24 @@ impl<'d, W: Word> I2S<'d, W> {
     }
 
     fn new_inner<T: Instance>(
-        peri: impl Peripheral<P = T> + 'd,
-        txsd: Option<PeripheralRef<'d, AnyPin>>,
-        rxsd: Option<PeripheralRef<'d, AnyPin>>,
-        ws: impl Peripheral<P = impl WsPin<T>> + 'd,
-        ck: impl Peripheral<P = impl CkPin<T>> + 'd,
-        mck: Option<PeripheralRef<'d, AnyPin>>,
+        peri: Peri<'d, T>,
+        txsd: Option<Peri<'d, AnyPin>>,
+        rxsd: Option<Peri<'d, AnyPin>>,
+        ws: Peri<'d, impl WsPin<T>>,
+        ck: Peri<'d, impl CkPin<T>>,
+        mck: Option<Peri<'d, AnyPin>>,
         txdma: Option<(ChannelAndRequest<'d>, &'d mut [W])>,
         rxdma: Option<(ChannelAndRequest<'d>, &'d mut [W])>,
-        freq: Hertz,
         config: Config,
         function: Function,
     ) -> Self {
-        into_ref!(ws, ck);
-
-        ws.set_as_af(ws.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        ck.set_as_af(ck.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        ws.set_as_af(ws.af_num(), AfType::output(OutputType::PushPull, config.gpio_speed));
+        ck.set_as_af(ck.af_num(), AfType::output(OutputType::PushPull, config.gpio_speed));
 
         let spi = Spi::new_internal(peri, None, None, {
-            let mut config = SpiConfig::default();
-            config.frequency = freq;
-            config
+            let mut spi_config = SpiConfig::default();
+            spi_config.frequency = config.frequency;
+            spi_config
         });
 
         let regs = T::info().regs;
@@ -496,7 +490,7 @@ impl<'d, W: Word> I2S<'d, W> {
         #[cfg(not(all(rcc_f4, not(stm32f410))))]
         let pclk = T::frequency();
 
-        let (odd, div) = compute_baud_rate(pclk, freq, config.master_clock, config.format);
+        let (odd, div) = compute_baud_rate(pclk, config.frequency, config.master_clock, config.format);
 
         #[cfg(any(spi_v1, spi_v3, spi_f1))]
         {
@@ -583,11 +577,11 @@ impl<'d, W: Word> I2S<'d, W> {
             Self {
                 mode: config.mode,
                 spi,
-                txsd: txsd.map(|w| w.map_into()),
-                rxsd: rxsd.map(|w| w.map_into()),
-                ws: Some(ws.map_into()),
-                ck: Some(ck.map_into()),
-                mck: mck.map(|w| w.map_into()),
+                txsd: txsd.map(|w| w.into()),
+                rxsd: rxsd.map(|w| w.into()),
+                ws: Some(ws.into()),
+                ck: Some(ck.into()),
+                mck: mck.map(|w| w.into()),
                 tx_ring_buffer: txdma.map(|(ch, buf)| unsafe {
                     WritableRingBuffer::new(ch.channel, ch.request, regs.tx_ptr(), buf, opts)
                 }),

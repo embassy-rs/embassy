@@ -1,6 +1,6 @@
 [package]
 name = "embassy-nrf"
-version = "0.3.1"
+version = "0.6.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Embassy Hardware Abstraction Layer (HAL) for nRF series microcontrollers"
@@ -57,6 +57,9 @@ nfc-pins-as-gpio = []
 ##  * nRF52820, nRF52833, nRF52840: P0_18
 reset-pin-as-gpio = []
 
+## Allow using the LFXO pins as regular GPIO pins (P0_00/P0_01 on nRF53)
+lfxo-pins-as-gpio = []
+
 ## Implements the MultiwriteNorFlash trait for QSPI. Should only be enabled if your external
 ## flash supports the semantics described [here](https://docs.rs/embedded-storage/0.3.1/embedded_storage/nor_flash/trait.MultiwriteNorFlash.html)
 qspi-multiwrite-flash = []
@@ -85,7 +88,7 @@ nrf5340-app-ns = ["_nrf5340-app", "_ns"]
 ## nRF5340 network core
 nrf5340-net = ["_nrf5340-net"]
 ## nRF54L15 application core in Secure mode
-nrf54l15-app-s = ["_nrf54l15-app", "_s"]
+nrf54l15-app-s = ["_nrf54l15-app", "_s", "_multi_wdt"]
 ## nRF54L15 application core in Non-Secure mode
 nrf54l15-app-ns = ["_nrf54l15-app", "_ns"]
 
@@ -106,7 +109,7 @@ nrf9161-ns = ["nrf9120-ns"]
 # Features starting with `_` are for internal use only. They're not intended
 # to be enabled by other crates, and are not covered by semver guarantees.
 
-_nrf5340-app = ["_nrf5340", "nrf-pac/nrf5340-app"]
+_nrf5340-app = ["_nrf5340", "_multi_wdt", "nrf-pac/nrf5340-app"]
 _nrf5340-net = ["_nrf5340", "nrf-pac/nrf5340-net"]
 _nrf5340 = ["_gpio-p1", "_dppi"]
 _nrf54l15-app = ["_nrf54l15", "nrf-pac/nrf54l15-app"]
@@ -133,14 +136,17 @@ _gpio-p2 = []
 # Errata workarounds
 _nrf52832_anomaly_109 = []
 
+# watchdog timer
+_multi_wdt = []
+
 [dependencies]
 embassy-time-driver = { version = "0.2", path = "../embassy-time-driver", optional = true }
-embassy-time-queue-utils = { version = "0.1", path = "../embassy-time-queue-utils", optional = true }
+embassy-time-queue-utils = { version = "0.2", path = "../embassy-time-queue-utils", optional = true }
 embassy-time = { version = "0.4.0", path = "../embassy-time", optional = true }
-embassy-sync = { version = "0.6.2", path = "../embassy-sync" }
-embassy-hal-internal = { version = "0.2.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
-embassy-embedded-hal = { version = "0.3.0", path = "../embassy-embedded-hal", default-features = false }
-embassy-usb-driver = { version = "0.1.0", path = "../embassy-usb-driver" }
+embassy-sync = { version = "0.7.0", path = "../embassy-sync" }
+embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
+embassy-embedded-hal = { version = "0.4.0", path = "../embassy-embedded-hal", default-features = false }
+embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
@@ -148,15 +154,17 @@ embedded-hal-async = { version = "1.0" }
 embedded-io = { version = "0.6.0" }
 embedded-io-async = { version = "0.6.1" }
 
+rand-core-06 = { package = "rand_core", version = "0.6" }
+rand-core-09 = { package = "rand_core", version = "0.9" }
+
 nrf-pac = "0.1.0"
 
-defmt = { version = "0.3", optional = true }
+defmt = { version = "1.0.1", optional = true }
 bitflags = "2.4.2"
 log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
 critical-section = "1.1"
-rand_core = "0.6.3"
 fixed = "1.10.0"
 embedded-storage = "0.3.1"
 embedded-storage-async = "0.4.1"

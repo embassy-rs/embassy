@@ -1,12 +1,13 @@
 #![cfg_attr(feature = "nightly", feature(impl_trait_in_assoc_type))]
+#![cfg_attr(feature = "nightly", feature(never_type))]
 
 use std::boxed::Box;
-use std::future::poll_fn;
+use std::future::{poll_fn, Future};
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 
 use embassy_executor::raw::Executor;
-use embassy_executor::task;
+use embassy_executor::{task, Spawner};
 
 #[export_name = "__pender"]
 fn __pender(context: *mut ()) {
@@ -56,6 +57,39 @@ fn executor_task() {
     #[task]
     async fn task1(trace: Trace) {
         trace.push("poll task1")
+    }
+
+    #[task]
+    async fn task2() -> ! {
+        panic!()
+    }
+
+    let (executor, trace) = setup();
+    executor.spawner().spawn(task1(trace.clone())).unwrap();
+
+    unsafe { executor.poll() };
+    unsafe { executor.poll() };
+
+    assert_eq!(
+        trace.get(),
+        &[
+            "pend",       // spawning a task pends the executor
+            "poll task1", // poll only once.
+        ]
+    )
+}
+
+#[test]
+fn executor_task_rpit() {
+    #[task]
+    fn task1(trace: Trace) -> impl Future<Output = ()> {
+        async move { trace.push("poll task1") }
+    }
+
+    #[cfg(feature = "nightly")]
+    #[task]
+    fn task2() -> impl Future<Output = !> {
+        async { panic!() }
     }
 
     let (executor, trace) = setup();
@@ -281,5 +315,14 @@ fn executor_task_cfg_args() {
     #[task]
     async fn task2(a: u32, b: u32, #[cfg(all())] c: u32) {
         let (_, _, _) = (a, b, c);
+    }
+}
+
+#[test]
+fn recursive_task() {
+    #[embassy_executor::task(pool_size = 2)]
+    async fn task1() {
+        let spawner = unsafe { Spawner::for_current_executor().await };
+        spawner.spawn(task1());
     }
 }

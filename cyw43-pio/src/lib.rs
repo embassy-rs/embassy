@@ -8,18 +8,18 @@ use core::slice;
 use cyw43::SpiBusCyw43;
 use embassy_rp::dma::Channel;
 use embassy_rp::gpio::{Drive, Level, Output, Pull, SlewRate};
-use embassy_rp::pio::{instr, Common, Config, Direction, Instance, Irq, PioPin, ShiftDirection, StateMachine};
-use embassy_rp::{Peripheral, PeripheralRef};
+use embassy_rp::pio::program::pio_asm;
+use embassy_rp::pio::{Common, Config, Direction, Instance, Irq, PioPin, ShiftDirection, StateMachine};
+use embassy_rp::Peri;
 use fixed::types::extra::U8;
 use fixed::FixedU32;
-use pio_proc::pio_asm;
 
 /// SPI comms driven by PIO.
-pub struct PioSpi<'d, PIO: Instance, const SM: usize, DMA> {
+pub struct PioSpi<'d, PIO: Instance, const SM: usize, DMA: Channel> {
     cs: Output<'d>,
     sm: StateMachine<'d, PIO, SM>,
     irq: Irq<'d, PIO, 0>,
-    dma: PeripheralRef<'d, DMA>,
+    dma: Peri<'d, DMA>,
     wrap_target: u8,
 }
 
@@ -48,20 +48,16 @@ where
     PIO: Instance,
 {
     /// Create a new instance of PioSpi.
-    pub fn new<DIO, CLK>(
+    pub fn new(
         common: &mut Common<'d, PIO>,
         mut sm: StateMachine<'d, PIO, SM>,
         clock_divider: FixedU32<U8>,
         irq: Irq<'d, PIO, 0>,
         cs: Output<'d>,
-        dio: DIO,
-        clk: CLK,
-        dma: impl Peripheral<P = DMA> + 'd,
-    ) -> Self
-    where
-        DIO: PioPin,
-        CLK: PioPin,
-    {
+        dio: Peri<'d, impl PioPin>,
+        clk: Peri<'d, impl PioPin>,
+        dma: Peri<'d, DMA>,
+    ) -> Self {
         let loaded_program = if clock_divider < DEFAULT_CLOCK_DIVIDER {
             let overclock_program = pio_asm!(
                 ".side_set 1"
@@ -146,7 +142,7 @@ where
             cs,
             sm,
             irq,
-            dma: dma.into_ref(),
+            dma: dma,
             wrap_target: loaded_program.wrap.target,
         }
     }
@@ -161,20 +157,20 @@ where
         defmt::trace!("write={} read={}", write_bits, read_bits);
 
         unsafe {
-            instr::set_x(&mut self.sm, write_bits as u32);
-            instr::set_y(&mut self.sm, read_bits as u32);
-            instr::set_pindir(&mut self.sm, 0b1);
-            instr::exec_jmp(&mut self.sm, self.wrap_target);
+            self.sm.set_x(write_bits as u32);
+            self.sm.set_y(read_bits as u32);
+            self.sm.set_pindir(0b1);
+            self.sm.exec_jmp(self.wrap_target);
         }
 
         self.sm.set_enable(true);
 
-        self.sm.tx().dma_push(self.dma.reborrow(), write).await;
+        self.sm.tx().dma_push(self.dma.reborrow(), write, false).await;
 
         let mut status = 0;
         self.sm
             .rx()
-            .dma_pull(self.dma.reborrow(), slice::from_mut(&mut status))
+            .dma_pull(self.dma.reborrow(), slice::from_mut(&mut status), false)
             .await;
         status
     }
@@ -192,22 +188,25 @@ where
         defmt::trace!("cmd_read cmd = {:02x} len = {}", cmd, read.len());
 
         unsafe {
-            instr::set_y(&mut self.sm, read_bits as u32);
-            instr::set_x(&mut self.sm, write_bits as u32);
-            instr::set_pindir(&mut self.sm, 0b1);
-            instr::exec_jmp(&mut self.sm, self.wrap_target);
+            self.sm.set_y(read_bits as u32);
+            self.sm.set_x(write_bits as u32);
+            self.sm.set_pindir(0b1);
+            self.sm.exec_jmp(self.wrap_target);
         }
 
         // self.cs.set_low();
         self.sm.set_enable(true);
 
-        self.sm.tx().dma_push(self.dma.reborrow(), slice::from_ref(&cmd)).await;
-        self.sm.rx().dma_pull(self.dma.reborrow(), read).await;
+        self.sm
+            .tx()
+            .dma_push(self.dma.reborrow(), slice::from_ref(&cmd), false)
+            .await;
+        self.sm.rx().dma_pull(self.dma.reborrow(), read, false).await;
 
         let mut status = 0;
         self.sm
             .rx()
-            .dma_pull(self.dma.reborrow(), slice::from_mut(&mut status))
+            .dma_pull(self.dma.reborrow(), slice::from_mut(&mut status), false)
             .await;
 
         #[cfg(feature = "defmt")]

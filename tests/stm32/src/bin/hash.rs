@@ -6,7 +6,6 @@
 mod common;
 use common::*;
 use embassy_executor::Spawner;
-use embassy_stm32::dma::NoDma;
 use embassy_stm32::hash::*;
 use embassy_stm32::{bind_interrupts, hash, peripherals};
 use hmac::{Hmac, Mac};
@@ -36,7 +35,7 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p: embassy_stm32::Peripherals = init();
-    let mut hw_hasher = Hash::new(p.HASH, NoDma, Irqs);
+    let mut hw_hasher = Hash::new_blocking(p.HASH, Irqs);
 
     let test_1: &[u8] = b"as;dfhaslfhas;oifvnasd;nifvnhasd;nifvhndlkfghsd;nvfnahssdfgsdafgsasdfasdfasdfasdfasdfghjklmnbvcalskdjghalskdjgfbaslkdjfgbalskdjgbalskdjbdfhsdfhsfghsfghfgh";
     let test_2: &[u8] = b"fdhalksdjfhlasdjkfhalskdjfhgal;skdjfgalskdhfjgalskdjfglafgadfgdfgdafgaadsfgfgdfgadrgsyfthxfgjfhklhjkfgukhulkvhlvhukgfhfsrghzdhxyfufynufyuszeradrtydyytserr";

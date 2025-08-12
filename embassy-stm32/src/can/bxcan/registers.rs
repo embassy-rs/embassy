@@ -299,9 +299,9 @@ impl Registers {
         mb.tdtr().write(|w| w.set_dlc(frame.header().len() as u8));
 
         mb.tdlr()
-            .write(|w| w.0 = u32::from_ne_bytes(unwrap!(frame.data()[0..4].try_into())));
+            .write(|w| w.0 = u32::from_ne_bytes(unwrap!(frame.raw_data()[0..4].try_into())));
         mb.tdhr()
-            .write(|w| w.0 = u32::from_ne_bytes(unwrap!(frame.data()[4..8].try_into())));
+            .write(|w| w.0 = u32::from_ne_bytes(unwrap!(frame.raw_data()[4..8].try_into())));
         let id: IdReg = frame.id().into();
         mb.tir().write(|w| {
             w.0 = id.0;
