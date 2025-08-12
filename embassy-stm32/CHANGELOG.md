@@ -6,27 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 <!-- next-header -->
-## Unreleased - ReleaseDate
+## 0.3.0 - 2025-08-12
 
-- Added VREFBUF voltage reference buffer driver
-- Added ADC4 support for STM32WBA devices  
-- Added USB OTG HS support for STM32WBA devices
-- Added STM32C071 and STM32C051 RCC support
-- Added hardware oversampling support for ADC v3
-- Added PWM pin configuration options for different GPIO modes
-- Added RTC low-power support for STM32WBA65
-- Added eMMC support for SDMMC
-- Added I2C slave blocking read/write support
-- Added auto-calibration for MSI frequencies on U5 devices
-- Fixed buffered UART half-duplex receive functionality
-- Fixed STM32WBA VDDIO2 configuration
-- Fixed timer break input 2 trait naming
-- Fixed dead-time computation in complementary PWM
-- Improve error handling for I2C v2 NACK conditions
-- Renamed frequency parameters for consistency (freq -> frequency)
-- Modify BufferedUart initialization to take pins before interrupts ([#3983](https://github.com/embassy-rs/embassy/pull/3983))
-- Added a 'single-bank' and a 'dual-bank' feature so chips with configurable flash bank setups are be supported in embassy ([#4125](https://github.com/embassy-rs/embassy/pull/4125))
-- Add automatic setting of remap bits when using alternate DMA channels on STM32F0 and STM32F3 devices ([#3653](https://github.com/embassy-rs/embassy/pull/3653))
+- feat: Added VREFBUF voltage reference buffer driver ([#4524](https://github.com/embassy-rs/embassy/pull/4524))
+- feat: Added complementary PWM idle-state control methods ([#4522](https://github.com/embassy-rs/embassy/pull/4522))
+- feat: Added hardware oversampling support for ADC v3 ([#4279](https://github.com/embassy-rs/embassy/pull/4279))
+- feat: Added ADC4 support for STM32WBA devices
+- feat: Added USB OTG HS support for STM32WBA devices
+- feat: Added STM32C071 and STM32C051 RCC support
+- feat: Added PWM pin configuration options for different GPIO modes
+- feat: Added RTC low-power support for STM32WBA65 ([#4418](https://github.com/embassy-rs/embassy/pull/4418))
+- feat: Added eMMC support for SDMMC
+- feat: Added auto-calibration for MSI frequencies on U5 devices ([#4313](https://github.com/embassy-rs/embassy/pull/4313))
+- feat: Added DAC::new_unbuffered method ([#4183](https://github.com/embassy-rs/embassy/pull/4183))
+- feat: Added helper methods for low-power interrupt timer ([#4305](https://github.com/embassy-rs/embassy/pull/4305))
+- feat: Added ADC v1 analog watchdog implementation ([#4330](https://github.com/embassy-rs/embassy/pull/4330))
+- feat: Added OPAMP RCC initialization ([#4358](https://github.com/embassy-rs/embassy/pull/4358))
+- feat: Added const constructors for RCC Config structs ([#4231](https://github.com/embassy-rs/embassy/pull/4231))
+- feat: Added FDCAN/BXCAN RAII instance counters ([#4272](https://github.com/embassy-rs/embassy/pull/4272))
+- fix: Fixed I2C slave blocking read/write support ([#4454](https://github.com/embassy-rs/embassy/pull/4454))
+- fix: Fixed STM32WBA VDDIO2 configuration ([#4424](https://github.com/embassy-rs/embassy/pull/4424))
+- fix: Fixed timer break input 2 trait naming
+- fix: Fixed dead-time computation in complementary PWM
+- fix: Fixed get_max_duty off-by-one error for center-aligned mode ([#4302](https://github.com/embassy-rs/embassy/pull/4302))
+- fix: Fixed STM32C09x build issues
+- fix: Fixed STM32G0B0 build issues
+- fix: Fixed HSEM CPUID detection and added missing RCC initialization ([#4324](https://github.com/embassy-rs/embassy/pull/4324))
+- fix: Enable autoreload preload for complementary PWM ([#4303](https://github.com/embassy-rs/embassy/pull/4303))
+- fix: Fixed DMA packing/unpacking functionality
+- fix: Added missing fence on BDMA start operations
+- fix: Improve error handling for I2C v2 NACK conditions
+- fix: Renamed frequency parameters for consistency (freq -> frequency)
+- chore: Updated stm32-metapac and stm32-data dependencies
+- chore: Modify BufferedUart initialization to take pins before interrupts ([#3983](https://github.com/embassy-rs/embassy/pull/3983))
+- feat: Added a 'single-bank' and a 'dual-bank' feature so chips with configurable flash bank setups are be supported in embassy ([#4125](https://github.com/embassy-rs/embassy/pull/4125))
+- feat: Add automatic setting of remap bits when using alternate DMA channels on STM32F0 and STM32F3 devices ([#3653](https://github.com/embassy-rs/embassy/pull/3653))
 
 ## 0.2.0 - 2025-01-10
 
