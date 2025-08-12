@@ -783,6 +783,13 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     /// Returns the total number of bytes transmitted (including padding).
     pub fn blocking_respond_to_read(&mut self, data: &[u8]) -> Result<usize, Error> {
         trace!("I2C slave: responding to read, data_len={}", data.len());
+        
+        // Check for zero-length read BEFORE any transmission setup
+        if let Some(zero_length_result) = self.detect_zero_length_read(self.timeout())? {
+            trace!("I2C slave: zero-length read detected");
+            return Ok(zero_length_result);
+        }
+        
         let result = self.transmit_to_master(data, self.timeout());
         trace!("I2C slave: read response complete, result={:?}", result);
         result
@@ -890,6 +897,61 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
         }
         
         Ok(bytes_stored)
+    }
+
+    /// Detect zero-length read pattern early
+    /// 
+    /// Zero-length reads occur when a master sends START+ADDR+R followed immediately
+    /// by NACK+STOP without wanting any data. This must be detected before attempting
+    /// to transmit any bytes to avoid SDA line issues.
+    fn detect_zero_length_read(&mut self, _timeout: Timeout) -> Result<Option<usize>, Error> {
+        // Quick check for immediate termination signals
+        let sr1 = self.info.regs.sr1().read();
+        
+        // Check for immediate NACK (fastest zero-length pattern)
+        if sr1.af() {
+            self.clear_acknowledge_failure();
+            return Ok(Some(0));
+        }
+        
+        // Check for immediate STOP (alternative zero-length pattern)
+        if sr1.stopf() {
+            self.clear_stop_flag();
+            return Ok(Some(0));
+        }
+        
+        // Give a brief window for master to send termination signals
+        // This handles masters that have slight delays between address ACK and NACK
+        const ZERO_LENGTH_DETECTION_CYCLES: u32 = 100; // ~5-10µs window
+        
+        for _ in 0..ZERO_LENGTH_DETECTION_CYCLES {
+            let sr1 = self.info.regs.sr1().read();
+            
+            // Immediate NACK indicates zero-length read
+            if sr1.af() {
+                self.clear_acknowledge_failure();
+                return Ok(Some(0));
+            }
+            
+            // Immediate STOP indicates zero-length read
+            if sr1.stopf() {
+                self.clear_stop_flag();
+                return Ok(Some(0));
+            }
+            
+            // If TXE becomes ready, master is waiting for data - not zero-length
+            if sr1.txe() {
+                return Ok(None); // Proceed with normal transmission
+            }
+            
+            // If RESTART detected, handle as zero-length
+            if sr1.addr() {
+                return Ok(Some(0));
+            }
+        }
+        
+        // No zero-length pattern detected within the window
+        Ok(None)
     }
     
     /// Discard excess bytes when buffer is full
