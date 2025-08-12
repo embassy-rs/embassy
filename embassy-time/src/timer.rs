@@ -103,6 +103,7 @@ pub struct Timer {
 
 impl Timer {
     /// Expire at specified [Instant](struct.Instant.html)
+    /// Will expire immediately if the Instant is in the past.
     pub fn at(expires_at: Instant) -> Self {
         Self {
             expires_at,
