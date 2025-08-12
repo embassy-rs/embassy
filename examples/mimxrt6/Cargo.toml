@@ -14,7 +14,7 @@ embassy-executor = { version = "0.8.0", path = "../../embassy-executor", feature
 embassy-futures = { version = "0.1.1", path = "../../embassy-futures" }
 embassy-imxrt = { version = "0.1.0", path = "../../embassy-imxrt", features = ["defmt", "mimxrt685s", "unstable-pac", "time", "time-driver-os-timer"] }
 embassy-time = { version = "0.4", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = ["defmt"] }
+embassy-sync = { version = "0.7.1", path = "../../embassy-sync", features = ["defmt"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = "1.0.0"
 

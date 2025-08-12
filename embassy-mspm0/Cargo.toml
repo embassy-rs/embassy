@@ -25,7 +25,7 @@ features = ["defmt", "unstable-pac", "time-driver-any", "time", "mspm0g3507"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-embassy-sync = { version = "0.7.0", path = "../embassy-sync" }
+embassy-sync = { version = "0.7.1", path = "../embassy-sync" }
 embassy-time = { version = "0.4.0", path = "../embassy-time", optional = true }
 # TODO: Support other tick rates
 embassy-time-driver = { version = "0.2", path = "../embassy-time-driver", optional = true, features = ["tick-hz-32_768"] }

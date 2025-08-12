@@ -12,7 +12,7 @@ cortex-m-rt = "0.7.0"
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
-embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = ["defmt"] }
+embassy-sync = { version = "0.7.1", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.8.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 static_cell = "2"
