@@ -6,16 +6,16 @@ Please feel free to add items to link:https://github.com/embassy-rs/embassy/edit
 
 == How to deploy to RP2040 or RP235x without a debugging probe.
 
-Install link:https://github.com/JoNil/elf2uf2-rs[elf2uf2-rs] for converting the generated elf binary into a uf2 file.
+Install link:https://github.com/raspberrypi/pico-sdk-tools/releases[Picotool] for uploading the binary.
 
 Configure the runner to use this tool, add this to `.cargo/config.toml`:
 [source,toml]
 ----
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-runner = "elf2uf2-rs --deploy --serial --verbose"
+runner = "picotool load --update --verify --execute -t elf"
 ----
 
-The command-line parameters `--deploy` will detect your device and upload the binary, `--serial` starts a serial connection. See the documentation for more info.
+Picotool will detect your device and upload the binary, skipping identical flash sectors (the `--update` command-line flag), verify that the binary was written correctly (`--verify`), and then run your new code (`--execute`). Run `picotool help load` for more information.
 
 == Missing main macro
 
@@ -209,7 +209,7 @@ MEMORY
 _stack_start = ORIGIN(RAM) + LENGTH(RAM);
 ```
 
-Please refer to the STM32 documentation for the specific values suitable for your board and setup. The STM32 Cube examples often contain a linker script `.ld` file. 
+Please refer to the STM32 documentation for the specific values suitable for your board and setup. The STM32 Cube examples often contain a linker script `.ld` file.
 Look for the `MEMORY` section and try to determine the FLASH and RAM sizes and section start.
 
 If you find a case where the memory.x is wrong, please report it on link:https://github.com/embassy-rs/stm32-data/issues/301[this Github issue] so other users are not caught by surprise.
@@ -334,7 +334,7 @@ There are two main ways to handle concurrency in Embassy:
 
 In general, either of these approaches will work. The main differences of these approaches are:
 
-When using **separate tasks**, each task needs its own RAM allocation, so there's a little overhead for each task, so one task that does three things will likely be a little bit smaller than three tasks that do one thing (not a lot, probably a couple dozen bytes). In contrast, with **multiple futures in one task**, you don't need multiple task allocations, and it will generally be easier to share data, or use borrowed resources, inside of a single task. 
+When using **separate tasks**, each task needs its own RAM allocation, so there's a little overhead for each task, so one task that does three things will likely be a little bit smaller than three tasks that do one thing (not a lot, probably a couple dozen bytes). In contrast, with **multiple futures in one task**, you don't need multiple task allocations, and it will generally be easier to share data, or use borrowed resources, inside of a single task.
 An example showcasing some methods for sharing things between tasks link:https://github.com/embassy-rs/embassy/blob/main/examples/rp/src/bin/sharing.rs[can be found here].
 
 But when it comes to "waking" tasks, for example when a data transfer is complete or a button is pressed, it's faster to wake a dedicated task, because that task does not need to check which future is actually ready. `join` and `select` must check ALL of the futures they are managing to see which one (or which ones) are ready to do more work. This is because all Rust executors (like Embassy or Tokio) only have the ability to wake tasks, not specific futures. This means you will use slightly less CPU time juggling futures when using dedicated tasks.
