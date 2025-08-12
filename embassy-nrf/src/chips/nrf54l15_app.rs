@@ -206,18 +206,6 @@ pub const EASY_DMA_SIZE: usize = (1 << 16) - 1;
 pub const FLASH_SIZE: usize = 1536 * 1024;
 
 embassy_hal_internal::peripherals! {
-    // WDT
-    #[cfg(feature = "_ns")]
-    WDT,
-    #[cfg(feature = "_s")]
-    WDT0,
-    #[cfg(feature = "_s")]
-    WDT1,
-
-    #[cfg(feature = "_s")]
-    // RRAMC
-    RRAMC,
-
     // GPIO port 0
     P0_00,
     P0_01,
@@ -259,6 +247,21 @@ embassy_hal_internal::peripherals! {
     P2_08,
     P2_09,
     P2_10,
+
+    #[cfg(feature = "_s")]
+    // RRAMC
+    RRAMC,
+
+    // TEMP
+    TEMP,
+
+    // WDT
+    #[cfg(feature = "_ns")]
+    WDT,
+    #[cfg(feature = "_s")]
+    WDT0,
+    #[cfg(feature = "_s")]
+    WDT1,
 }
 
 impl_pin!(P0_00, 0, 0);
