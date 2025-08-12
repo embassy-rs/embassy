@@ -198,6 +198,8 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
             if key.len() > 64 {
                 T::regs().cr().modify(|w| w.set_lkey(true));
             }
+        } else {
+            T::regs().cr().modify(|w| w.set_mode(false));
         }
 
         T::regs().cr().modify(|w| w.set_init(true));

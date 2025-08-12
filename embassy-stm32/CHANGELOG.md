@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - fix: Fix vrefbuf building with log feature
+- fix: Fix performing a hash after performing a hmac
 
 ## 0.3.0 - 2025-08-12
 

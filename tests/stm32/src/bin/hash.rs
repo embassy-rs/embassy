@@ -7,6 +7,7 @@ mod common;
 use common::*;
 use embassy_executor::Spawner;
 use embassy_stm32::hash::*;
+use embassy_stm32::mode::Blocking;
 use embassy_stm32::{bind_interrupts, hash, peripherals};
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha224, Sha256};
@@ -32,11 +33,7 @@ bind_interrupts!(struct Irqs {
     HASH => hash::InterruptHandler<peripherals::HASH>;
 });
 
-#[embassy_executor::main]
-async fn main(_spawner: Spawner) {
-    let p: embassy_stm32::Peripherals = init();
-    let mut hw_hasher = Hash::new_blocking(p.HASH, Irqs);
-
+fn test_interrupt(hw_hasher: &mut Hash<'_, peripherals::HASH, Blocking>) {
     let test_1: &[u8] = b"as;dfhaslfhas;oifvnasd;nifvnhasd;nifvhndlkfghsd;nvfnahssdfgsdafgsasdfasdfasdfasdfasdfghjklmnbvcalskdjghalskdjgfbaslkdjfgbalskdjgbalskdjbdfhsdfhsfghsfghfgh";
     let test_2: &[u8] = b"fdhalksdjfhlasdjkfhalskdjfhgal;skdjfgalskdhfjgalskdjfglafgadfgdfgdafgaadsfgfgdfgadrgsyfthxfgjfhklhjkfgukhulkvhlvhukgfhfsrghzdhxyfufynufyuszeradrtydyytserr";
     let test_3: &[u8] = b"a.ewtkluGWEBR.KAJRBTA,RMNRBG,FDMGB.kger.tkasjrbt.akrjtba.krjtba.ktmyna,nmbvtyliasd;gdrtba,sfvs.kgjzshd.gkbsr.tksejb.SDkfBSE.gkfgb>ESkfbSE>gkJSBESE>kbSE>fk";
@@ -95,6 +92,16 @@ async fn main(_spawner: Spawner) {
     info!("Hardware HMAC: {:?}", hw_hmac);
     info!("Software HMAC: {:?}", sw_hmac[..]);
     defmt::assert!(hw_hmac == sw_hmac[..]);
+}
+
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let p: embassy_stm32::Peripherals = init();
+    let mut hw_hasher = Hash::new_blocking(p.HASH, Irqs);
+
+    test_interrupt(&mut hw_hasher);
+    // Run it a second time to check hash-after-hmac
+    test_interrupt(&mut hw_hasher);
 
     info!("Test OK");
     cortex_m::asm::bkpt();
