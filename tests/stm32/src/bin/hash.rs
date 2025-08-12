@@ -94,6 +94,34 @@ fn test_interrupt(hw_hasher: &mut Hash<'_, peripherals::HASH, Blocking>) {
     defmt::assert!(hw_hmac == sw_hmac[..]);
 }
 
+// This uses sha512, so only supported on hash_v3 and up
+#[cfg(feature = "hash-v34")]
+fn test_sizes(hw_hasher: &mut Hash<'_, peripherals::HASH, Blocking>) {
+    let in1 = b"4BPuGudaDK";
+    let in2 = b"cfFIGf0XSNhFBQ5LaIqzjnRKDRkoWweJI06HLUcicIUGjpuDNfOTQNSrRxDoveDPlazeZtt06SIYO5CvHvsJ98XSfO9yJEMHoDpDAmNQtwZOPlKmdiagRXsJ7w7IjdKpQH6I2t";
+
+    for i in 1..10 {
+        // sha512 block size is 128, so test around there
+        for j in [1, 1, 2, 3, 4, 5, 123, 124, 125, 126, 127, 128, 129, 130, 131, 132, 133] {
+            info!("test_sizes i {} j {}", i, j);
+            let mut sw = sha2::Sha512::new();
+            let mut ctx = hw_hasher.start(Algorithm::SHA512, DataType::Width8, None);
+
+            sw.update(&in1[..i]);
+            sw.update(&in2[..j]);
+            hw_hasher.update_blocking(&mut ctx, &in1[..i]);
+            hw_hasher.update_blocking(&mut ctx, &in2[..j]);
+
+            let sw_digest = sw.finalize();
+            let mut hw_digest = [0u8; 64];
+            hw_hasher.finish_blocking(ctx, &mut hw_digest);
+            info!("Hardware: {:?}", hw_digest);
+            info!("Software: {:?}", sw_digest[..]);
+            defmt::assert!(hw_digest == *sw_digest);
+        }
+    }
+}
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p: embassy_stm32::Peripherals = init();
@@ -102,6 +130,9 @@ async fn main(_spawner: Spawner) {
     test_interrupt(&mut hw_hasher);
     // Run it a second time to check hash-after-hmac
     test_interrupt(&mut hw_hasher);
+
+    #[cfg(feature = "hash-v34")]
+    test_sizes(&mut hw_hasher);
 
     info!("Test OK");
     cortex_m::asm::bkpt();
