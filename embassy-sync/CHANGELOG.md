@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased
 
 - Add `get_mut` to `LazyLock`
+- Rename `SendableDynamic` to `SendDynamic` for consistency.
 
 ## 0.7.0 - 2025-05-28
 
