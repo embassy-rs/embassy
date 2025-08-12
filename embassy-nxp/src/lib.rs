@@ -6,6 +6,8 @@ pub(crate) mod fmt;
 pub mod gpio;
 #[cfg(feature = "lpc55")]
 pub mod pint;
+#[cfg(feature = "lpc55")]
+pub mod usart;
 
 #[cfg(feature = "_time_driver")]
 #[cfg_attr(feature = "time-driver-pit", path = "time_driver/pit.rs")]
@@ -115,3 +117,21 @@ impl Iterator for BitIter {
         }
     }
 }
+
+trait SealedMode {}
+
+/// UART mode.
+#[allow(private_bounds)]
+pub trait Mode: SealedMode {}
+
+macro_rules! impl_mode {
+    ($name:ident) => {
+        impl SealedMode for $name {}
+        impl Mode for $name {}
+    };
+}
+
+/// Blocking mode.
+pub struct Blocking;
+
+impl_mode!(Blocking);
