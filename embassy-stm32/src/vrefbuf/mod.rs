@@ -12,21 +12,12 @@ pub struct VoltageReferenceBuffer<'d, T: Instance> {
 }
 
 #[cfg(rcc_wba)]
-#[repr(usize)]
-enum VRefBufTrim {
-    VRefBuf3Trim = 0x0BFA_07A8,
-    VRefBuf2Trim = 0x0BFA_07A9,
-    VRefBuf1Trim = 0x0BFA_07AA,
-    VRefBuf0Trim = 0x0BFA_07AB,
-}
-
-#[cfg(rcc_wba)]
-fn get_refbuf_trim(voltage_scale: Vrs) -> VRefBufTrim {
+fn get_refbuf_trim(voltage_scale: Vrs) -> usize {
     match voltage_scale {
-        Vrs::VREF0 => VRefBufTrim::VRefBuf0Trim,
-        Vrs::VREF1 => VRefBufTrim::VRefBuf1Trim,
-        Vrs::VREF2 => VRefBufTrim::VRefBuf2Trim,
-        Vrs::VREF3 => VRefBufTrim::VRefBuf3Trim,
+        Vrs::VREF0 => 0x0BFA_07A8usize,
+        Vrs::VREF1 => 0x0BFA_07A9usize,
+        Vrs::VREF2 => 0x0BFA_07AAusize,
+        Vrs::VREF3 => 0x0BFA_07ABusize,
         _ => panic!("Incorrect Vrs setting!"),
     }
 }
@@ -44,10 +35,10 @@ impl<'d, T: Instance> VoltageReferenceBuffer<'d, T> {
             // [Link explaining it](https://www.st.com/resource/en/errata_sheet/es0644-stm32wba6xxx-device-errata-stmicroelectronics.pdf)
             unsafe {
                 use crate::pac::VREFBUF;
-                let addr = get_refbuf_trim(voltage_scale) as usize;
+                let addr = get_refbuf_trim(voltage_scale);
                 let buf_trim_ptr = core::ptr::with_exposed_provenance::<u32>(addr);
                 let trim_val = core::ptr::read_volatile(buf_trim_ptr);
-                VREFBUF.ccr().write(|w| w.set_trim((trim_val & 0xFF) as u8));
+                VREFBUF.ccr().write(|w| w.set_trim((trim_val & 0x3F) as u8));
             }
         }
         #[cfg(any(rcc_u5, rcc_h50, rcc_h5))]
