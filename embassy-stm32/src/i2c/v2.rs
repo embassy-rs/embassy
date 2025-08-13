@@ -464,11 +464,13 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             }
         }
         // Wait until the write finishes
-        let result = self.wait_tc(timeout);
+        self.wait_tc(timeout)?;
         if send_stop {
             self.master_stop();
+            self.wait_stop(timeout)?;
         }
-        result
+
+        Ok(())
     }
 
     // =========================
