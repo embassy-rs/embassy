@@ -408,6 +408,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                 *byte = self.info.regs.rxdr().read().rxdata();
             }
         }
+        self.wait_stop(timeout)?;
         Ok(())
     }
 
