@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- feat: Added I²S for STM32F1 ([#4544](https://github.com/embassy-rs/embassy/pull/4544))
+
 ## 0.3.0 - 2025-08-12
 
 - feat: Added VREFBUF voltage reference buffer driver ([#4524](https://github.com/embassy-rs/embassy/pull/4524))
