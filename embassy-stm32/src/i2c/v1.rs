@@ -362,14 +362,30 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     }
 
     // Async
-
+    
+    /// Can be used by both blocking and async implementations  
     #[inline] // pretty sure this should always be inlined
-    fn enable_interrupts(info: &'static Info) -> () {
-        info.regs.cr2().modify(|w| {
-            w.set_iterren(true);
-            w.set_itevten(true);
+    fn enable_interrupts(info: &'static Info) {
+        // The interrupt handler disables interrupts globally, so we need to re-enable them
+        // This must be done in a critical section to avoid races
+        critical_section::with(|_| {
+            info.regs.cr2().modify(|w| {
+                w.set_iterren(true);
+                w.set_itevten(true);
+            });
         });
+        trace!("I2C slave: safely enabled interrupts");
     }
+
+    /// Can be used by both blocking and async implementations
+    fn clear_stop_flag(info: &'static Info) {
+        trace!("I2C slave: clearing STOPF flag (v1 sequence)");
+        // v1 requires: READ SR1 then WRITE CR1 to clear STOPF
+        let _ = info.regs.sr1().read();
+        info.regs.cr1().modify(|_| {}); // Dummy write to clear STOPF
+        trace!("I2C slave: STOPF flag cleared");
+    }
+    
 }
 
 impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
@@ -829,7 +845,8 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
                     SlaveCommandKind::Write
                 };
                 
-                let matched_address = self.decode_matched_address(sr2)?;
+                // Use the static method instead of the instance method
+                let matched_address = Self::decode_matched_address(sr2, self.info)?;
                 trace!("I2C slave: address matched, direction={:?}, addr={:?}", direction, matched_address);
                 
                 return Ok(SlaveCommand {
@@ -916,13 +933,13 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
         
         // Check for immediate STOP (alternative zero-length pattern)
         if sr1.stopf() {
-            self.clear_stop_flag();
+            Self::clear_stop_flag(self.info);
             return Ok(Some(0));
         }
         
         // Give a brief window for master to send termination signals
         // This handles masters that have slight delays between address ACK and NACK
-        const ZERO_LENGTH_DETECTION_CYCLES: u32 = 100; // ~5-10µs window
+        const ZERO_LENGTH_DETECTION_CYCLES: u32 = 20; // ~5-10µs window
         
         for _ in 0..ZERO_LENGTH_DETECTION_CYCLES {
             let sr1 = self.info.regs.sr1().read();
@@ -935,7 +952,7 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
             
             // Immediate STOP indicates zero-length read
             if sr1.stopf() {
-                self.clear_stop_flag();
+                Self::clear_stop_flag(self.info);
                 return Ok(Some(0));
             }
             
@@ -1016,7 +1033,7 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
             }
             
             if sr1.stopf() {
-                self.clear_stop_flag();
+                Self::clear_stop_flag(self.info);
                 return Ok(TransmitResult::Stopped);
             }
             
@@ -1048,7 +1065,7 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
             }
             
             if sr1.stopf() {
-                self.clear_stop_flag();
+                Self::clear_stop_flag(self.info);
                 return Ok(ReceiveResult::Stopped);
             }
             
@@ -1057,19 +1074,19 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     }
     
     /// Determine which slave address was matched based on SR2 flags
-    fn decode_matched_address(&self, sr2: i2c::regs::Sr2) -> Result<Address, Error> {
+    fn decode_matched_address(sr2: i2c::regs::Sr2, info: &'static Info) -> Result<Address, Error> {
         if sr2.gencall() {
             Ok(Address::SevenBit(0x00)) // General call address
         } else if sr2.dualf() {
             // OA2 (secondary address) was matched
-            let oar2 = self.info.regs.oar2().read();
+            let oar2 = info.regs.oar2().read();
             if oar2.endual() != i2c::vals::Endual::DUAL {
                 return Err(Error::Bus); // Hardware inconsistency
             }
             Ok(Address::SevenBit(oar2.add2()))
         } else {
             // OA1 (primary address) was matched
-            let oar1 = self.info.regs.oar1().read();
+            let oar1 = info.regs.oar1().read();
             match oar1.addmode() {
                 i2c::vals::Addmode::BIT7 => {
                     let addr = (oar1.add() >> 1) as u8;
@@ -1113,7 +1130,7 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     fn handle_early_termination(&mut self, result: TransmitResult) -> Error {
         match result {
             TransmitResult::Stopped => {
-                self.clear_stop_flag();
+                Self::clear_stop_flag(self.info);
                 Error::Bus // Unexpected STOP during setup
             },
             TransmitResult::Restarted => {
@@ -1153,11 +1170,6 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
             reg.set_af(false);
         });
     }
-    
-    /// Clear the stop condition flag  
-    fn clear_stop_flag(&mut self) {
-        self.info.regs.cr1().modify(|_w| {});
-    }
 }
 
 // Address configuration methods
@@ -1176,6 +1188,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         self.info.regs.cr1().modify(|reg| {
             reg.set_pe(true);
             reg.set_ack(true); // Enable acknowledgment for slave mode
+            reg.set_nostretch(false); // Allow clock stretching for processing time
         });
         
         trace!("I2C slave: initialization complete");
@@ -1248,6 +1261,312 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         self.info.regs.oar2().write(|reg| {
             reg.set_endual(i2c::vals::Endual::SINGLE);
         });
+    }
+}
+
+impl<'d> I2c<'d, Async, MultiMaster> {
+    /// Async listen for incoming I2C messages using interrupts
+    pub async fn listen(&mut self) -> Result<SlaveCommand, Error> {
+        trace!("I2C slave: starting listen for address match");
+        
+        // Extract references needed by the closure
+        let state = self.state;
+        let info = self.info;
+        
+        Self::enable_interrupts(info);
+        trace!("I2C slave: enabled event and error interrupts");
+
+        // Sentinel to clean up interrupts on drop
+        let on_drop = OnDrop::new(|| {
+            critical_section::with(|_| {
+                info.regs.cr2().modify(|w| {
+                    w.set_iterren(false);
+                    w.set_itevten(false);
+                });
+            });
+            trace!("I2C slave: disabled interrupts on drop");
+        });
+
+        let result = poll_fn(|cx| {
+            state.waker.register(cx.waker());
+
+            match Self::check_and_clear_error_flags(info) {
+                Err(e) => {
+                    error!("I2C slave: error during listen: {:?}", e);
+                    Poll::Ready(Err(e))
+                },
+                Ok(sr1) => {
+                    if sr1.addr() {
+                        trace!("I2C slave: ADDR flag detected - address matched");
+                        
+                        // Address matched - determine direction
+                        let sr2 = info.regs.sr2().read();
+                        let direction = if sr2.tra() {
+                            trace!("I2C slave: direction = READ (master wants to read from us)");
+                            SlaveCommandKind::Read
+                        } else {
+                            trace!("I2C slave: direction = WRITE (master wants to write to us)");
+                            SlaveCommandKind::Write
+                        };
+                        
+                        let matched_address = match Self::decode_matched_address(sr2, info) {
+                            Ok(addr) => {
+                                trace!("I2C slave: matched address decoded: {:?}", addr);
+                                addr
+                            },
+                            Err(e) => {
+                                error!("I2C slave: failed to decode matched address: {:?}", e);
+                                return Poll::Ready(Err(e));
+                            }
+                        };
+                        
+                        trace!("I2C slave: listen complete - returning command");
+                        // Don't clear ADDR here - leave it for DMA setup
+                        Poll::Ready(Ok(SlaveCommand {
+                            kind: direction,
+                            address: matched_address,
+                        }))
+                    } else {
+                        // Re-enable interrupts and continue waiting
+                        // Use safe method since handler disables them globally
+                        Self::enable_interrupts(info);
+                        Poll::Pending
+                    }
+                }
+            }
+        }).await;
+
+        drop(on_drop);
+        trace!("I2C slave: listen result: {:?}", result);
+        result
+    }
+
+    /// Async respond to write command using RX DMA
+    pub async fn respond_to_write(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        trace!("I2C slave: starting respond_to_write, buffer_len={}", buffer.len());
+        
+        if buffer.is_empty() {
+            warn!("I2C slave: respond_to_write called with empty buffer");
+            return Err(Error::Overrun);
+        }
+
+        // Extract references needed by closures
+        let state = self.state;
+        let info = self.info;
+
+        trace!("I2C slave: configuring registers for RX DMA");
+        info.regs.cr2().modify(|w| {
+            w.set_itbufen(false); // Disable buffer interrupts for DMA
+            w.set_dmaen(true);    // Enable DMA
+            w.set_last(false);    // Not needed for slave writes
+        });
+
+        // Sentinel to clean up DMA on drop
+        let on_drop = OnDrop::new(|| {
+            critical_section::with(|_| {
+                info.regs.cr2().modify(|w| {
+                    w.set_dmaen(false);
+                    w.set_iterren(false);
+                    w.set_itevten(false);
+                });
+            });
+            trace!("I2C slave: DMA and interrupts disabled on drop (respond_to_write)");
+        });
+
+        // Clear ADDR flag to release clock stretching - DMA is now ready
+        trace!("I2C slave: clearing ADDR flag to release clock stretching");
+        info.regs.sr2().read(); // Clear ADDR by reading SR2
+
+        // Set up RX DMA transfer (I2C DR -> buffer)
+        trace!("I2C slave: setting up RX DMA transfer");
+        let dma_transfer = unsafe {
+            let src = info.regs.dr().as_ptr() as *mut u8;
+            self.rx_dma.as_mut().unwrap().read(src, buffer, Default::default())
+        };
+
+        // Poll for I2C errors while DMA runs
+        let poll_error = poll_fn(|cx| {
+            state.waker.register(cx.waker());
+
+            match Self::check_and_clear_error_flags(info) {
+                Err(e) => {
+                    error!("I2C slave: error during write operation: {:?}", e);
+                    Poll::Ready(Err::<(), Error>(e))
+                },
+                Ok(sr1) => {
+                    // Check for STOP condition (normal end of write)
+                    if sr1.stopf() {
+                        trace!("I2C slave: STOP condition detected - write transaction complete");
+                        Self::clear_stop_flag(info);
+                        Poll::Ready(Ok(()))
+                    } else if sr1.addr() {
+                        trace!("I2C slave: RESTART condition detected - transitioning to read phase");
+                        Poll::Ready(Ok(()))
+                    } else {
+                        // Re-enable interrupts and continue monitoring
+                        // Use safe method since handler disables them globally
+                        Self::enable_interrupts(info);
+                        Poll::Pending
+                    }
+                }
+            }
+        });
+
+        trace!("I2C slave: starting select between DMA completion and I2C events");
+        // Wait for either DMA completion or I2C termination condition (using master pattern)
+        match select(dma_transfer, poll_error).await {
+            Either::Second(Err(e)) => {
+                error!("I2C slave: I2C error occurred during write: {:?}", e);
+                critical_section::with(|_| {
+                    info.regs.cr2().modify(|w| w.set_dmaen(false));
+                });
+                drop(on_drop);
+                Err(e)
+            }
+            Either::First(_) => {
+                trace!("I2C slave: DMA transfer completed first");
+                critical_section::with(|_| {
+                    info.regs.cr2().modify(|w| w.set_dmaen(false));
+                });
+                drop(on_drop);
+                
+                // For v1 hardware, determining exact bytes received is complex
+                // Return the buffer length as an approximation
+                let bytes_received = buffer.len();
+                trace!("I2C slave: write complete, returning {} bytes (buffer length)", bytes_received);
+                Ok(bytes_received)
+            }
+            Either::Second(Ok(())) => {
+                trace!("I2C slave: I2C event (STOP/RESTART) occurred first");
+                critical_section::with(|_| {
+                    info.regs.cr2().modify(|w| w.set_dmaen(false));
+                });
+                drop(on_drop);
+                
+                // Transaction ended normally, return buffer length
+                let bytes_received = buffer.len();
+                trace!("I2C slave: write complete via I2C event, returning {} bytes", bytes_received);
+                Ok(bytes_received)
+            }
+        }
+    }
+
+    /// Async respond to read command using TX DMA
+    pub async fn respond_to_read(&mut self, data: &[u8]) -> Result<usize, Error> {
+        trace!("I2C slave: starting respond_to_read, data_len={}", data.len());
+        
+        if data.is_empty() {
+            warn!("I2C slave: respond_to_read called with empty data");
+            return Err(Error::Overrun);
+        }
+
+        // Extract references needed by closures
+        let state = self.state;
+        let info = self.info;
+
+        trace!("I2C slave: configuring registers for TX DMA");
+        info.regs.cr2().modify(|w| {
+            w.set_itbufen(false); // Disable buffer interrupts for DMA
+            w.set_dmaen(true);    // Enable DMA
+            w.set_last(false);    // Not applicable for slave transmit
+        });
+
+        // Sentinel to clean up DMA on drop
+        let on_drop = OnDrop::new(|| {
+            critical_section::with(|_| {
+                info.regs.cr2().modify(|w| {
+                    w.set_dmaen(false);
+                    w.set_iterren(false);
+                    w.set_itevten(false);
+                });
+            });
+            trace!("I2C slave: DMA and interrupts disabled on drop (respond_to_read)");
+        });
+
+        // Clear ADDR flag to release clock stretching
+        trace!("I2C slave: clearing ADDR flag to release clock stretching");
+        info.regs.sr2().read();
+
+        // Set up TX DMA transfer (data -> I2C DR)
+        trace!("I2C slave: setting up TX DMA transfer");
+        let dma_transfer = unsafe {
+            let dst = info.regs.dr().as_ptr() as *mut u8;
+            self.tx_dma.as_mut().unwrap().write(data, dst, Default::default())
+        };
+
+        // Monitor for I2C events while DMA runs
+        let poll_completion = poll_fn(|cx| {
+            state.waker.register(cx.waker());
+
+            match Self::check_and_clear_error_flags(info) {
+                Err(Error::Nack) => {
+                    trace!("I2C slave: NACK received - master stopped reading (normal)");
+                    Poll::Ready(Ok(()))
+                }
+                Err(e) => {
+                    error!("I2C slave: error during read operation: {:?}", e);
+                    Poll::Ready(Err(e))
+                },
+                Ok(sr1) => {
+                    if sr1.stopf() {
+                        trace!("I2C slave: STOP condition detected - read transaction complete");
+                        Self::clear_stop_flag(info);
+                        Poll::Ready(Ok(()))
+                    } else if sr1.addr() {
+                        trace!("I2C slave: RESTART condition detected during read");
+                        Poll::Ready(Ok(()))
+                    } else if sr1.af() {
+                        trace!("I2C slave: acknowledge failure (NACK) - normal end of read");
+                        // Acknowledge failure (NACK) - normal end of read
+                        info.regs.sr1().write(|reg| {
+                            reg.0 = !0;
+                            reg.set_af(false);
+                        });
+                        Poll::Ready(Ok(()))
+                    } else {
+                        Self::enable_interrupts(info);
+                        Poll::Pending
+                    }
+                }
+            }
+        });
+
+        trace!("I2C slave: starting select between DMA completion and I2C events");
+        // Wait for either DMA completion or I2C termination (using master pattern)
+        match select(dma_transfer, poll_completion).await {
+            Either::Second(Err(e)) => {
+                error!("I2C slave: I2C error occurred during read: {:?}", e);
+                critical_section::with(|_| {
+                    info.regs.cr2().modify(|w| w.set_dmaen(false));
+                });
+                drop(on_drop);
+                Err(e)
+            }
+            Either::First(_) => {
+                trace!("I2C slave: DMA transfer completed first - all data sent");
+                critical_section::with(|_| {
+                    info.regs.cr2().modify(|w| w.set_dmaen(false));
+                });
+                drop(on_drop);
+                
+                let bytes_sent = data.len();
+                trace!("I2C slave: read complete via DMA, sent {} bytes", bytes_sent);
+                Ok(bytes_sent)
+            }
+            Either::Second(Ok(())) => {
+                trace!("I2C slave: I2C event (STOP/NACK/RESTART) occurred first");
+                critical_section::with(|_| {
+                    info.regs.cr2().modify(|w| w.set_dmaen(false));
+                });
+                drop(on_drop);
+                
+                // For slave read, we can't easily determine exact bytes sent in v1
+                // Return the full data length if no error occurred
+                let bytes_sent = data.len();
+                trace!("I2C slave: read complete via I2C event, reporting {} bytes sent", bytes_sent);
+                Ok(bytes_sent)
+            }
+        }
     }
 }
 
