@@ -1,1 +1,46 @@
+
+embassy-stm32 = { features = ["defmt", "unstable-pac", "exti", "time-driver-any", "time", "stm32h755zi-cm7", "dual-bank"], target = "thumbv7em-none-eabi" }
+embassy-nrf = { features = ["nrf52840", "time", "defmt", "unstable-pac", "gpiote", "time-driver-rtc1"], target = "thumbv7em-none-eabihf" }
+
 embassy-rp = { features = ["defmt", "unstable-pac", "time-driver", "rp2040"], target = "thumbv6m-none-eabi" }
+cyw43 = { features = ["defmt", "firmware-logs"], target = "thumbv6m-none-eabi" }
+#cyw43-pio = { features = ["defmt", "embassy-rp/rp2040"], target = "thumbv6m-none-eabi" }
+
+embassy-boot = { features = ["defmt"] }
+#embassy-boot-nrf = { features = ["defmt", "embassy-nrf/nrf52840"], target = "thumbv7em-none-eabihf" }
+#embassy-boot-rp = { features = ["defmt", "embassy-rp/rp2040"], target = "thumbv6m-none-eabi" }
+#embassy-boot-stm32 = { features = ["defmt", "embassy-stm32/stm32f429zi"], target = "thumbv7em-none-eabi" }
+
+embassy-time = { features = ["defmt", "std"] }
+embassy-time-driver = { }
+embassy-time-queue-utils = { features = ["defmt"] }
+
+embassy-futures = { }
+embassy-embedded-hal = { features = ["time"] }
+embassy-hal-internal = { }
+embassy-executor = { features = ["defmt", "arch-cortex-m", "executor-thread", "executor-interrupt"], target = "thumbv7em-none-eabi" }
+embassy-executor-macros = { }
+embassy-sync = { }
+
+embassy-net = { features = ["defmt", "tcp", "udp", "raw", "dns", "icmp", "dhcpv4", "proto-ipv6", "medium-ethernet", "medium-ip", "medium-ieee802154", "multicast", "dhcpv4-hostname"] }
+embassy-net-ppp = { }
+embassy-net-esp-hosted = {}
+embassy-net-driver-channel = {}
+embassy-net-wiznet = {}
+embassy-net-nrf91 = { features = ["defmt", "nrf9160"] }
+embassy-net-driver = {}
+embassy-net-tuntap = {}
+embassy-net-adin1110 = {}
+embassy-net-enc28j60 = {}
+
+embassy-usb-driver = { }
+embassy-usb-dfu = { features = ["dfu"] }
+embassy-usb-synopsys-otg = { }
+embassy-usb = { features = ["defmt", "usbd-hid"] }
+embassy-usb-logger = { }
+
+# Unreleased
+# embassy-stm32-wpan = {}
+# embassy-imxrt = {}
+# embassy-nxp = {}
+# embassy-mspm0 = {}
