@@ -1,5 +1,4 @@
 //! Voltage Reference Buffer (VREFBUF)
-// use core::ptr::{read_volatile, write_volatile};
 use core::marker::PhantomData;
 
 use embassy_hal_internal::PeripheralType;
@@ -12,6 +11,17 @@ pub struct VoltageReferenceBuffer<'d, T: Instance> {
     vrefbuf: PhantomData<&'d mut T>,
 }
 
+#[cfg(rcc_wba)]
+fn get_refbuf_trim(voltage_scale: Vrs) -> usize {
+    match voltage_scale {
+        Vrs::VREF0 => 0x0BFA_07A8usize,
+        Vrs::VREF1 => 0x0BFA_07A9usize,
+        Vrs::VREF2 => 0x0BFA_07AAusize,
+        Vrs::VREF3 => 0x0BFA_07ABusize,
+        _ => panic!("Incorrect Vrs setting!"),
+    }
+}
+
 impl<'d, T: Instance> VoltageReferenceBuffer<'d, T> {
     /// Creates an VREFBUF (Voltage Reference) instance with a voltage scale and impedance mode.
     ///
@@ -21,6 +31,15 @@ impl<'d, T: Instance> VoltageReferenceBuffer<'d, T> {
         {
             use crate::pac::RCC;
             RCC.apb7enr().modify(|w| w.set_vrefen(true));
+            // This is an errata for WBA6 devices. VREFBUF_TRIM value isn't set correctly
+            // [Link explaining it](https://www.st.com/resource/en/errata_sheet/es0644-stm32wba6xxx-device-errata-stmicroelectronics.pdf)
+            unsafe {
+                use crate::pac::VREFBUF;
+                let addr = get_refbuf_trim(voltage_scale);
+                let buf_trim_ptr = core::ptr::with_exposed_provenance::<u32>(addr);
+                let trim_val = core::ptr::read_volatile(buf_trim_ptr);
+                VREFBUF.ccr().write(|w| w.set_trim((trim_val & 0x3F) as u8));
+            }
         }
         #[cfg(any(rcc_u5, rcc_h50, rcc_h5))]
         {
