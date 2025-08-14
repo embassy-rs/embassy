@@ -1,4 +1,9 @@
 //! Serial Peripheral Interface (SPI)
+//!
+//! ## Examples
+//!
+//! - [STM32F4](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/spi.rs)
+//! - [STM32F4 DMA](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/spi_dma.rs)
 #![macro_use]
 
 use core::marker::PhantomData;
