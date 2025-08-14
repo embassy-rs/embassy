@@ -61,7 +61,6 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use cortex_m::peripheral::SCB;
 use embassy_executor::*;
 
-use crate::interrupt;
 use crate::time_driver::{get_driver, RtcDriver};
 
 const THREAD_PENDER: usize = usize::MAX;
@@ -69,33 +68,6 @@ const THREAD_PENDER: usize = usize::MAX;
 use crate::rtc::Rtc;
 
 static mut EXECUTOR: Option<Executor> = None;
-
-#[cfg(not(stm32u0))]
-foreach_interrupt! {
-    (RTC, rtc, $block:ident, WKUP, $irq:ident) => {
-        #[interrupt]
-        #[allow(non_snake_case)]
-        unsafe fn $irq() {
-            EXECUTOR.as_mut().unwrap().on_wakeup_irq();
-        }
-    };
-}
-
-#[cfg(stm32u0)]
-foreach_interrupt! {
-    (RTC, rtc, $block:ident, TAMP, $irq:ident) => {
-        #[interrupt]
-        #[allow(non_snake_case)]
-        unsafe fn $irq() {
-            EXECUTOR.as_mut().unwrap().on_wakeup_irq();
-        }
-    };
-}
-
-#[allow(dead_code)]
-pub(crate) unsafe fn on_wakeup_irq() {
-    EXECUTOR.as_mut().unwrap().on_wakeup_irq();
-}
 
 /// Configure STOP mode with RTC.
 pub fn stop_with_rtc(rtc: &'static Rtc) {
@@ -176,11 +148,6 @@ impl Executor {
         })
     }
 
-    unsafe fn on_wakeup_irq(&mut self) {
-        self.time_driver.resume_time();
-        trace!("low power: resume");
-    }
-
     pub(self) fn stop_with_rtc(&mut self, rtc: &'static Rtc) {
         self.time_driver.set_rtc(rtc);
 
@@ -216,27 +183,31 @@ impl Executor {
 
         compiler_fence(Ordering::SeqCst);
 
-        let stop_mode = self.stop_mode();
-
-        if stop_mode.is_none() {
-            trace!("low power: not ready to stop");
+        let Some(stop_mode) = self.stop_mode() else {
+            trace!("low power: not ready to stop (peripherals busy)");
             return;
-        }
+        };
 
         if self.time_driver.pause_time().is_err() {
-            trace!("low power: failed to pause time");
+            trace!("low power: not ready to stop (alarm in near future)");
             return;
         }
 
-        let stop_mode = stop_mode.unwrap();
         match stop_mode {
-            StopMode::Stop1 => trace!("low power: stop 1"),
-            StopMode::Stop2 => trace!("low power: stop 2"),
+            StopMode::Stop1 => trace!("low power: time paused for stop 1"),
+            StopMode::Stop2 => trace!("low power: time paused for stop 2"),
         }
         self.configure_stop(stop_mode);
 
         #[cfg(not(feature = "low-power-debug-with-sleep"))]
         self.scb.set_sleepdeep();
+    }
+
+    unsafe fn on_wakeup(&mut self) {
+        match self.time_driver.resume_time() {
+            Ok(()) => trace!("low power: time resumed"),
+            Err(()) => trace!("low power: time already running"),
+        }
     }
 
     /// Run the executor.
@@ -266,6 +237,7 @@ impl Executor {
                 executor.inner.poll();
                 self.configure_pwr();
                 asm!("wfe");
+                self.on_wakeup();
             };
         }
     }
