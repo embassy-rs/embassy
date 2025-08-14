@@ -190,7 +190,7 @@ impl Config {
         // - SCL_LP is the SCL Low period (fixed at 6)
         // - SCL_HP is the SCL High period (fixed at 4)
         // - I2C_CLK is functional clock frequency
-        return (((self.calculate_clock_source() * self.clock_div.divider()) / (self.bus_speed.hertz() * 10u32)) - 1)
+        return ((self.calculate_clock_source() / (self.bus_speed.hertz() * 10u32)) - 1)
             .try_into()
             .unwrap();
     }
@@ -200,8 +200,8 @@ impl Config {
         // Assume that BusClk has default value.
         // TODO: calculate BusClk more precisely.
         match self.clock_source {
-            ClockSel::MfClk => 4_000_000,
-            ClockSel::BusClk => 24_000_000,
+            ClockSel::MfClk => 4_000_000 / self.clock_div.divider(),
+            ClockSel::BusClk => 24_000_000 / self.clock_div.divider(),
         }
     }
 
@@ -213,8 +213,8 @@ impl Config {
         // Assume that BusClk has default value.
         // TODO: calculate BusClk more precisely.
         match self.clock_source {
-            ClockSel::MfClk => 4_000_000,
-            ClockSel::BusClk => 24_000_000,
+            ClockSel::MfClk => 4_000_000 / self.clock_div.divider(),
+            ClockSel::BusClk => 32_000_000 / self.clock_div.divider(),
         }
     }
 
@@ -1144,7 +1144,7 @@ mod tests {
         config.clock_div = ClockDiv::DivBy1;
         config.bus_speed = BusSpeed::FastMode;
         config.clock_source = ClockSel::BusClk;
-        assert!(matches!(config.calculate_timer_period(), 7));
+        assert_eq!(config.calculate_timer_period(), 7u8);
     }
 
     #[test]
@@ -1153,7 +1153,7 @@ mod tests {
         config.clock_div = ClockDiv::DivBy2;
         config.bus_speed = BusSpeed::FastMode;
         config.clock_source = ClockSel::BusClk;
-        assert!(matches!(config.calculate_timer_period(), 3));
+        assert_eq!(config.calculate_timer_period(), 3u8);
     }
 
     #[test]
@@ -1162,7 +1162,7 @@ mod tests {
         config.clock_div = ClockDiv::DivBy2;
         config.bus_speed = BusSpeed::Standard;
         config.clock_source = ClockSel::BusClk;
-        assert!(matches!(config.calculate_timer_period(), 15));
+        assert_eq!(config.calculate_timer_period(), 15u8);
     }
 
     #[test]
@@ -1171,7 +1171,7 @@ mod tests {
         config.clock_div = ClockDiv::DivBy2;
         config.bus_speed = BusSpeed::Custom(100_000);
         config.clock_source = ClockSel::BusClk;
-        assert!(matches!(config.calculate_timer_period(), 15));
+        assert_eq!(config.calculate_timer_period(), 15u8);
     }
 
     #[test]
