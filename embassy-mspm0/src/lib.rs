@@ -15,6 +15,7 @@ mod macros;
 
 pub mod dma;
 pub mod gpio;
+pub mod i2c;
 pub mod timer;
 pub mod uart;
 
