@@ -41,10 +41,6 @@ mod types;
 #[derive(Parser, Debug)]
 #[command(author, version, about)]
 struct Args {
-    /// Path to embassy repository
-    #[arg(short, long)]
-    repo: PathBuf,
-
     /// Command to perform on each crate
     #[command(subcommand)]
     command: Command,
@@ -247,8 +243,29 @@ struct Context {
     indices: HashMap<String, NodeIndex>,
 }
 
-fn load_context(args: &Args) -> Result<Context> {
-    let root = args.repo.canonicalize()?;
+fn find_repo_root() -> Result<PathBuf> {
+    let mut path = std::env::current_dir()?.canonicalize()?;
+
+    loop {
+        // Check if this directory contains a .git directory
+        if path.join(".git").exists() {
+            return Ok(path);
+        }
+
+        // Move to parent directory
+        match path.parent() {
+            Some(parent) => path = parent.to_path_buf(),
+            None => break,
+        }
+    }
+
+    Err(anyhow!(
+        "Could not find repository root. Make sure you're running this tool from within the embassy repository."
+    ))
+}
+
+fn load_context() -> Result<Context> {
+    let root = find_repo_root()?;
     let crates = list_crates(&root)?;
     let (graph, indices) = build_graph(&crates);
 
@@ -268,7 +285,7 @@ fn load_context(args: &Args) -> Result<Context> {
 fn main() -> Result<()> {
     SimpleLogger::new().init().unwrap();
     let args = Args::parse();
-    let mut ctx = load_context(&args)?;
+    let mut ctx = load_context()?;
 
     match args.command {
         Command::List => {
