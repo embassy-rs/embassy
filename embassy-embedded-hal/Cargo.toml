@@ -12,6 +12,13 @@ categories = [
     "asynchronous",
 ]
 
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabi", features = []},
+    {target = "thumbv7em-none-eabi", features = ["time"]},
+]
+
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-embedded-hal-v$VERSION/embassy-embedded-hal/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-embedded-hal/src/"

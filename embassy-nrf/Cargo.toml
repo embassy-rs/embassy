@@ -9,6 +9,36 @@ categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-nrf"
 
+[package.metadata.embassy]
+build = [
+    {target = "thumbv6m-none-eabi", features = ["gpiote", "nrf51", "time", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52805", "time", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52810", "time", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52811", "time", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52820", "time", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52832", "reset-pin-as-gpio", "time", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["gpiote", "nfc-pins-as-gpio", "nrf52833", "time", "time-driver-rtc1"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf9160-s", "time", "time-driver-rtc1"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf9160-ns", "time", "time-driver-rtc1"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf5340-app-s", "time", "time-driver-rtc1"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf5340-app-ns", "time", "time-driver-rtc1"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf5340-net", "time", "time-driver-rtc1"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l15-app-s", "time", "time-driver-rtc1"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l15-app-ns", "time", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52840", "time"]},
+    {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52840", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52840", "time", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["gpiote", "log", "nrf52840", "time"]},
+    {target = "thumbv7em-none-eabi", features = ["gpiote", "log", "nrf52840", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["gpiote", "log", "nrf52840", "time", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "gpiote", "nrf52840", "time"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "gpiote", "nrf52840", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "gpiote", "nrf52840", "time", "time-driver-rtc1"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "nrf51", "time", "time-driver-rtc1"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "nrf51", "time"]},
+    {target = "thumbv6m-none-eabi", features = ["nrf51", "time"]},
+]
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-nrf-v$VERSION/embassy-nrf/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-nrf/src/"

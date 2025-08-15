@@ -9,6 +9,17 @@ categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-usb"
 
+[package.metadata.embassy]
+build = [
+    {target = "thumbv6m-none-eabi", features = []},
+    {target = "thumbv6m-none-eabi", features = ["log"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt"]},
+    {target = "thumbv6m-none-eabi", features = ["usbd-hid"]},
+    {target = "thumbv6m-none-eabi", features = ["max-interface-count-1"]},
+    {target = "thumbv6m-none-eabi", features = ["max-interface-count-8"]},
+    {target = "thumbv6m-none-eabi", features = ["max-handler-count-8"]},
+]
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-usb-v$VERSION/embassy-usb/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-usb/src/"

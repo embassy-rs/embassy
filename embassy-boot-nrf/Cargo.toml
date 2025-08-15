@@ -12,6 +12,17 @@ categories = [
     "asynchronous",
 ]
 
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabi", features = ["embassy-nrf/nrf52840"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf5340-app-s"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9160-ns"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9120-ns"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9151-ns"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9161-ns"]},
+]
+
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-boot-nrf-v$VERSION/embassy-boot-nrf/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-boot-nrf/src/"

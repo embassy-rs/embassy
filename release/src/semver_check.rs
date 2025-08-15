@@ -23,11 +23,9 @@ pub fn minimum_update(krate: &Crate) -> Result<ReleaseType, anyhow::Error> {
     semver_check.with_default_features();
     semver_check.set_baseline(baseline);
     semver_check.set_packages(vec![package_name]);
-    if let Some(features) = &krate.config.features {
-        let extra_current_features = features.clone();
-        let extra_baseline_features = features.clone();
-        semver_check.set_extra_features(extra_current_features, extra_baseline_features);
-    }
+    let extra_current_features = krate.config.features.clone();
+    let extra_baseline_features = krate.config.features.clone();
+    semver_check.set_extra_features(extra_current_features, extra_baseline_features);
     if let Some(target) = &krate.config.target {
         semver_check.set_build_target(target.clone());
     }
@@ -70,11 +68,7 @@ pub(crate) fn build_doc_json(krate: &Crate) -> Result<PathBuf, anyhow::Error> {
         .join(format!("{}.json", krate.name.to_string().replace("-", "_")));
 
     std::fs::remove_file(&current_path).ok();
-    let features = if let Some(features) = &krate.config.features {
-        features.clone()
-    } else {
-        vec![]
-    };
+    let features = krate.config.features.clone();
 
     log::info!("Building doc json for {} with features: {:?}", krate.name, features);
 
