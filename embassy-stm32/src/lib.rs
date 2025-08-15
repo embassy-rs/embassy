@@ -125,6 +125,8 @@ pub mod uid;
 pub mod usart;
 #[cfg(any(usb, otg))]
 pub mod usb;
+#[cfg(vrefbuf)]
+pub mod vrefbuf;
 #[cfg(iwdg)]
 pub mod wdg;
 #[cfg(xspi)]

@@ -5,7 +5,7 @@ pub use crate::pac::rcc::vals::Otghssel;
 use crate::pac::rcc::vals::Pllrge;
 pub use crate::pac::rcc::vals::{
     Hdiv5, Hpre as AHBPrescaler, Hpre5 as AHB5Prescaler, Hsepre as HsePrescaler, Plldiv as PllDiv, Pllm as PllPreDiv,
-    Plln as PllMul, Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
+    Plln as PllMul, Pllsrc as PllSource, Ppre as APBPrescaler, Sai1sel, Sw as Sysclk,
 };
 #[cfg(all(peri_usb_otg_hs))]
 pub use crate::pac::{syscfg::vals::Usbrefcksel, SYSCFG};
@@ -254,6 +254,16 @@ pub(crate) unsafe fn init(config: Config) {
         w.set_clksel(usb_refck_sel);
     });
 
+    #[cfg(sai_v4_2pdm)]
+    let audioclk = match config.mux.sai1sel {
+        Sai1sel::HSI => Some(HSI_FREQ),
+        Sai1sel::PLL1_Q => Some(pll1.q.expect("PLL1.Q not configured")),
+        Sai1sel::PLL1_P => Some(pll1.p.expect("PLL1.P not configured")),
+        Sai1sel::SYS => panic!("SYS not supported yet"),
+        Sai1sel::AUDIOCLK => panic!("AUDIOCLK not supported yet"),
+        _ => None,
+    };
+
     let lsi = config.ls.lsi.then_some(LSI_FREQ);
 
     config.mux.init();
@@ -279,6 +289,8 @@ pub(crate) unsafe fn init(config: Config) {
 
         // TODO
         lse: None,
+        #[cfg(sai_v4_2pdm)]
+        audioclk: audioclk,
     );
 }
 

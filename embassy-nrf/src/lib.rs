@@ -98,8 +98,12 @@ pub mod ipc;
     feature = "_nrf5340-app"
 ))]
 pub mod nfct;
-#[cfg(not(feature = "_nrf54l"))] // TODO
+#[cfg(not(feature = "_nrf54l"))]
 pub mod nvmc;
+#[cfg(feature = "nrf54l15-app-s")]
+pub mod rramc;
+#[cfg(feature = "nrf54l15-app-s")]
+pub use rramc as nvmc;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(
     feature = "nrf52810",
@@ -148,7 +152,6 @@ pub mod spim;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod spis;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod temp;
 #[cfg(not(feature = "_nrf54l"))] // TODO
@@ -170,7 +173,6 @@ pub mod uarte;
     feature = "nrf52840"
 ))]
 pub mod usb;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod wdt;
 
 // This mod MUST go last, so that it sees all the `impl_foo!` macros

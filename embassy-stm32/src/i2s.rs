@@ -155,6 +155,10 @@ impl ClockPolarity {
 #[non_exhaustive]
 #[derive(Copy, Clone)]
 pub struct Config {
+    /// Frequency
+    pub frequency: Hertz,
+    /// GPIO Speed
+    pub gpio_speed: Speed,
     /// Mode
     pub mode: Mode,
     /// Which I2S standard to use.
@@ -170,6 +174,8 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            frequency: Hertz::khz(48),
+            gpio_speed: Speed::VeryHigh,
             mode: Mode::Master,
             standard: Standard::Philips,
             format: Format::Data16Channel16,
@@ -243,7 +249,6 @@ impl<'d, W: Word> I2S<'d, W> {
         mck: Peri<'d, impl MckPin<T>>,
         txdma: Peri<'d, impl TxDma<T>>,
         txdma_buf: &'d mut [W],
-        freq: Hertz,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -255,7 +260,6 @@ impl<'d, W: Word> I2S<'d, W> {
             new_pin!(mck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             new_dma!(txdma).map(|d| (d, txdma_buf)),
             None,
-            freq,
             config,
             Function::Transmit,
         )
@@ -269,7 +273,6 @@ impl<'d, W: Word> I2S<'d, W> {
         ck: Peri<'d, impl CkPin<T>>,
         txdma: Peri<'d, impl TxDma<T>>,
         txdma_buf: &'d mut [W],
-        freq: Hertz,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -281,7 +284,6 @@ impl<'d, W: Word> I2S<'d, W> {
             None,
             new_dma!(txdma).map(|d| (d, txdma_buf)),
             None,
-            freq,
             config,
             Function::Transmit,
         )
@@ -296,7 +298,6 @@ impl<'d, W: Word> I2S<'d, W> {
         mck: Peri<'d, impl MckPin<T>>,
         rxdma: Peri<'d, impl RxDma<T>>,
         rxdma_buf: &'d mut [W],
-        freq: Hertz,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -308,7 +309,6 @@ impl<'d, W: Word> I2S<'d, W> {
             new_pin!(mck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             None,
             new_dma!(rxdma).map(|d| (d, rxdma_buf)),
-            freq,
             config,
             Function::Receive,
         )
@@ -327,7 +327,6 @@ impl<'d, W: Word> I2S<'d, W> {
         txdma_buf: &'d mut [W],
         rxdma: Peri<'d, impl RxDma<T>>,
         rxdma_buf: &'d mut [W],
-        freq: Hertz,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -339,7 +338,6 @@ impl<'d, W: Word> I2S<'d, W> {
             new_pin!(mck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             new_dma!(txdma).map(|d| (d, txdma_buf)),
             new_dma!(rxdma).map(|d| (d, rxdma_buf)),
-            freq,
             config,
             Function::FullDuplex,
         )
@@ -473,17 +471,16 @@ impl<'d, W: Word> I2S<'d, W> {
         mck: Option<Peri<'d, AnyPin>>,
         txdma: Option<(ChannelAndRequest<'d>, &'d mut [W])>,
         rxdma: Option<(ChannelAndRequest<'d>, &'d mut [W])>,
-        freq: Hertz,
         config: Config,
         function: Function,
     ) -> Self {
-        ws.set_as_af(ws.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        ck.set_as_af(ck.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        ws.set_as_af(ws.af_num(), AfType::output(OutputType::PushPull, config.gpio_speed));
+        ck.set_as_af(ck.af_num(), AfType::output(OutputType::PushPull, config.gpio_speed));
 
         let spi = Spi::new_internal(peri, None, None, {
-            let mut config = SpiConfig::default();
-            config.frequency = freq;
-            config
+            let mut spi_config = SpiConfig::default();
+            spi_config.frequency = config.frequency;
+            spi_config
         });
 
         let regs = T::info().regs;
@@ -493,7 +490,7 @@ impl<'d, W: Word> I2S<'d, W> {
         #[cfg(not(all(rcc_f4, not(stm32f410))))]
         let pclk = T::frequency();
 
-        let (odd, div) = compute_baud_rate(pclk, freq, config.master_clock, config.format);
+        let (odd, div) = compute_baud_rate(pclk, config.frequency, config.master_clock, config.format);
 
         #[cfg(any(spi_v1, spi_v3, spi_f1))]
         {

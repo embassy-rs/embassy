@@ -419,6 +419,11 @@ pub struct SendDynamicReceiver<'ch, T> {
     pub(crate) channel: &'ch dyn DynamicChannel<T>,
 }
 
+/// Receive-only access to a [`Channel`] without knowing channel size.
+/// This version can be sent between threads but can only be created if the underlying mutex is Sync.
+#[deprecated(since = "0.7.1", note = "please use `SendDynamicReceiver` instead")]
+pub type SendableDynamicReceiver<'ch, T> = SendDynamicReceiver<'ch, T>;
+
 impl<'ch, T> Clone for SendDynamicReceiver<'ch, T> {
     fn clone(&self) -> Self {
         *self

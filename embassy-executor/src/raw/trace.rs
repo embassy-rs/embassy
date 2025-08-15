@@ -84,6 +84,7 @@
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
+#[cfg(feature = "rtos-trace")]
 use rtos_trace::TaskInfo;
 
 use crate::raw::{SyncExecutor, TaskHeader, TaskRef};
