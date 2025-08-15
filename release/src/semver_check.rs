@@ -18,7 +18,7 @@ pub fn minimum_update(krate: &Crate) -> Result<ReleaseType, anyhow::Error> {
     let current_path = build_doc_json(krate)?;
 
     let baseline = Rustdoc::from_registry_latest_crate_version();
-    let doc = Rustdoc::from_path(&current_path);
+    let doc = Rustdoc::from_root(&package_path);
     let mut semver_check = Check::new(doc);
     semver_check.with_default_features();
     semver_check.set_baseline(baseline);
