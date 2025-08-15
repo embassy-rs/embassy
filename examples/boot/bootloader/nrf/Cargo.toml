@@ -4,6 +4,7 @@ name = "nrf-bootloader-example"
 version = "0.1.0"
 description = "Bootloader for nRF chips"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
@@ -57,3 +58,12 @@ debug = false
 debug-assertions = false
 opt-level = 0
 overflow-checks = false
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7em-none-eabi", features = ["embassy-nrf/nrf52840"] },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9160-ns"] },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9120-ns"] },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9151-ns"] },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9161-ns"] }
+]

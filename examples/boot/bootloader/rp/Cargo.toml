@@ -4,6 +4,7 @@ name = "rp-bootloader-example"
 version = "0.1.0"
 description = "Example bootloader for RP2040 chips"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
@@ -31,3 +32,8 @@ defmt = [
 [profile.release]
 debug = true
 opt-level = 's'
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv6m-none-eabi" }
+]

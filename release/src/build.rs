@@ -34,6 +34,10 @@ pub(crate) fn build(ctx: &crate::Context, crate_name: Option<&str>) -> Result<()
                 args_builder = args_builder.features(&config.features);
             }
 
+            if let Some(ref artifact_dir) = config.artifact_dir {
+                args_builder = args_builder.artifact_dir(artifact_dir);
+            }
+
             batch_builder.add_command(args_builder.build());
         }
     }

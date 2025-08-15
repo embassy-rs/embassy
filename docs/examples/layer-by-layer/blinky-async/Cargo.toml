@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
+publish = false
 [dependencies]
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7"
@@ -13,3 +14,8 @@ embassy-executor = { version = "0.8.0", path = "../../../../embassy-executor", f
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7em-none-eabi" }
+]

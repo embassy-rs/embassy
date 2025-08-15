@@ -3,7 +3,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, bail, Result};
 use clap::{Parser, Subcommand};
 use log::info;
 use petgraph::graph::{Graph, NodeIndex};
@@ -12,6 +12,25 @@ use petgraph::{Directed, Direction};
 use simple_logger::SimpleLogger;
 use toml_edit::{DocumentMut, Item, Value};
 use types::*;
+
+fn check_publish_dependencies(ctx: &Context) -> Result<()> {
+    for krate in ctx.crates.values() {
+        if krate.publish {
+            for dep_name in &krate.dependencies {
+                if let Some(dep_crate) = ctx.crates.get(dep_name) {
+                    if !dep_crate.publish {
+                        return Err(anyhow!(
+                            "Publishable crate '{}' depends on non-publishable crate '{}'. This is not allowed.",
+                            krate.name,
+                            dep_name
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
 
 mod build;
 mod cargo;
@@ -56,7 +75,7 @@ enum Command {
     },
     /// SemverCheck
     SemverCheck {
-        /// Crate to check. Will traverse that crate an it's dependents. If not specified checks all crates.
+        /// Specific crate name to check
         #[arg(value_name = "CRATE")]
         crate_name: String,
     },
@@ -120,53 +139,72 @@ fn update_versions(to_update: &Crate, dep: &CrateId, new_version: &str) -> Resul
 }
 
 fn list_crates(root: &PathBuf) -> Result<BTreeMap<CrateId, Crate>> {
-    let d = std::fs::read_dir(root)?;
     let mut crates = BTreeMap::new();
+    discover_crates(root, &mut crates)?;
+    Ok(crates)
+}
+
+fn discover_crates(dir: &PathBuf, crates: &mut BTreeMap<CrateId, Crate>) -> Result<()> {
+    let d = std::fs::read_dir(dir)?;
     for c in d {
         let entry = c?;
         if entry.file_type()?.is_dir() {
-            let path = root.join(entry.path());
-            let entry = path.join("Cargo.toml");
-            if entry.exists() {
-                let content = fs::read_to_string(&entry)?;
-                let parsed: ParsedCrate = toml::from_str(&content)?;
-                let id = parsed.package.name;
+            let path = dir.join(entry.path());
+            let cargo_toml = path.join("Cargo.toml");
 
-                let metadata = &parsed.package.metadata.embassy;
+            if cargo_toml.exists() {
+                let content = fs::read_to_string(&cargo_toml)?;
 
-                if metadata.skip {
-                    continue;
-                }
+                // Try to parse as a crate, skip if it's a workspace
+                let parsed: Result<ParsedCrate, _> = toml::from_str(&content);
+                if let Ok(parsed) = parsed {
+                    let id = parsed.package.name;
 
-                let mut dependencies = Vec::new();
-                for (k, _) in parsed.dependencies {
-                    if k.starts_with("embassy-") {
-                        dependencies.push(k);
+                    let metadata = &parsed.package.metadata.embassy;
+
+                    if metadata.skip {
+                        continue;
                     }
-                }
 
-                let mut configs = metadata.build.clone();
-                if configs.is_empty() {
-                    configs.push(BuildConfig {
-                        features: vec![],
-                        target: None,
-                    })
-                }
+                    let mut dependencies = Vec::new();
+                    for (k, _) in parsed.dependencies {
+                        if k.starts_with("embassy-") {
+                            dependencies.push(k);
+                        }
+                    }
 
-                crates.insert(
-                    id.clone(),
-                    Crate {
-                        name: id,
-                        version: parsed.package.version,
-                        path,
-                        dependencies,
-                        configs,
-                    },
-                );
+                    let mut configs = metadata.build.clone();
+                    if configs.is_empty() {
+                        configs.push(BuildConfig {
+                            features: vec![],
+                            target: None,
+                            artifact_dir: None,
+                        })
+                    }
+
+                    crates.insert(
+                        id.clone(),
+                        Crate {
+                            name: id,
+                            version: parsed.package.version,
+                            path,
+                            dependencies,
+                            configs,
+                            publish: parsed.package.publish,
+                        },
+                    );
+                }
+            } else {
+                // Recursively search subdirectories, but only for examples, tests, and docs
+                let file_name = entry.file_name();
+                let dir_name = file_name.to_string_lossy();
+                if dir_name == "examples" || dir_name == "tests" || dir_name == "docs" {
+                    discover_crates(&path, crates)?;
+                }
             }
         }
     }
-    Ok(crates)
+    Ok(())
 }
 
 fn build_graph(crates: &BTreeMap<CrateId, Crate>) -> (Graph<CrateId, ()>, HashMap<CrateId, NodeIndex>) {
@@ -214,12 +252,17 @@ fn load_context(args: &Args) -> Result<Context> {
     let crates = list_crates(&root)?;
     let (graph, indices) = build_graph(&crates);
 
-    Ok(Context {
+    let ctx = Context {
         root,
         crates,
         graph,
         indices,
-    })
+    };
+
+    // Check for publish dependency conflicts
+    check_publish_dependencies(&ctx)?;
+
+    Ok(ctx)
 }
 
 fn main() -> Result<()> {
@@ -274,10 +317,21 @@ fn main() -> Result<()> {
         }
         Command::SemverCheck { crate_name } => {
             let c = ctx.crates.get(&crate_name).unwrap();
+            if !c.publish {
+                bail!("Cannot run semver-check on non-publishable crate '{}'", crate_name);
+            }
             check_semver(&c)?;
         }
         Command::PrepareRelease { crate_name } => {
             let start = ctx.indices.get(&crate_name).expect("unable to find crate in tree");
+
+            // Check if the target crate is publishable
+            let start_weight = ctx.graph.node_weight(*start).unwrap();
+            let start_crate = ctx.crates.get(start_weight).unwrap();
+            if !start_crate.publish {
+                bail!("Cannot prepare release for non-publishable crate '{}'", crate_name);
+            }
+
             let mut rgraph = ctx.graph.clone();
             rgraph.reverse();
 

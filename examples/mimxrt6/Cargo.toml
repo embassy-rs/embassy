@@ -3,6 +3,7 @@ name = "embassy-imxrt-examples"
 version = "0.1.0"
 edition = "2021"
 license = "MIT or Apache-2.0"
+publish = false
 
 [dependencies]
 cortex-m = { version = "0.7.7", features = ["inline-asm", "critical-section-single-core"] }
@@ -58,3 +59,8 @@ incremental = false
 lto = 'fat'
 opt-level = 3 # <-
 overflow-checks = false # <-
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/mimxrt6" }
+]

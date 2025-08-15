@@ -4,6 +4,7 @@ name = "stm32wba6-dfu-bootloader-example"
 version = "0.1.0"
 description = "Example USB DFUbootloader for the STM32WBA series of chips"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
@@ -62,3 +63,8 @@ debug = false
 debug-assertions = false
 opt-level = 0
 overflow-checks = false
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-stm32/stm32wba65ri", "verify"] }
+]

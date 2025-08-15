@@ -3,6 +3,7 @@ edition = "2021"
 name = "embassy-rp-tests"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [features]
 rp2040 = ["embassy-rp/rp2040"]
@@ -92,3 +93,9 @@ debug = false
 debug-assertions = false
 opt-level = 0
 overflow-checks = false
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv6m-none-eabi", features = ["rp2040"], artifact-dir = "out/tests/rpi-pico" },
+  { target = "thumbv8m.main-none-eabihf", features = ["rp235xb"], artifact-dir = "out/tests/pimoroni-pico-plus-2" }
+]

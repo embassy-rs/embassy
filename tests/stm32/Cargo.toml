@@ -4,6 +4,7 @@ name = "embassy-stm32-tests"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
 autobins = false
+publish = false
 
 [features]
 stm32c031c6 = ["embassy-stm32/stm32c031c6", "cm0", "not-gpdma"]
@@ -243,3 +244,36 @@ debug = false
 debug-assertions = false
 opt-level = 0
 overflow-checks = false
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7m-none-eabi", features = ["stm32f103c8"], artifact-dir = "out/tests/stm32f103c8" },
+  { target = "thumbv7em-none-eabi", features = ["stm32f429zi"], artifact-dir = "out/tests/stm32f429zi" },
+  { target = "thumbv7em-none-eabi", features = ["stm32f446re"], artifact-dir = "out/tests/stm32f446re" },
+  { target = "thumbv7em-none-eabi", features = ["stm32g491re"], artifact-dir = "out/tests/stm32g491re" },
+  { target = "thumbv6m-none-eabi", features = ["stm32g071rb"], artifact-dir = "out/tests/stm32g071rb" },
+  { target = "thumbv6m-none-eabi", features = ["stm32c031c6"], artifact-dir = "out/tests/stm32c031c6" },
+  { target = "thumbv6m-none-eabi", features = ["stm32c071rb"], artifact-dir = "out/tests/stm32c071rb" },
+  { target = "thumbv7em-none-eabi", features = ["stm32h755zi"], artifact-dir = "out/tests/stm32h755zi" },
+  { target = "thumbv7em-none-eabi", features = ["stm32h753zi"], artifact-dir = "out/tests/stm32h753zi" },
+  { target = "thumbv7em-none-eabi", features = ["stm32h7a3zi"], artifact-dir = "out/tests/stm32h7a3zi" },
+  { target = "thumbv7em-none-eabi", features = ["stm32wb55rg"], artifact-dir = "out/tests/stm32wb55rg" },
+  { target = "thumbv8m.main-none-eabihf", features = ["stm32h563zi"], artifact-dir = "out/tests/stm32h563zi" },
+  { target = "thumbv8m.main-none-eabihf", features = ["stm32u585ai"], artifact-dir = "out/tests/stm32u585ai" },
+  { target = "thumbv8m.main-none-eabihf", features = ["stm32u5a5zj"], artifact-dir = "out/tests/stm32u5a5zj" },
+  { target = "thumbv8m.main-none-eabihf", features = ["stm32wba52cg"], artifact-dir = "out/tests/stm32wba52cg" },
+  { target = "thumbv6m-none-eabi", features = ["stm32l073rz"], artifact-dir = "out/tests/stm32l073rz" },
+  { target = "thumbv7m-none-eabi", features = ["stm32l152re"], artifact-dir = "out/tests/stm32l152re" },
+  { target = "thumbv7em-none-eabi", features = ["stm32l4a6zg"], artifact-dir = "out/tests/stm32l4a6zg" },
+  { target = "thumbv7em-none-eabi", features = ["stm32l4r5zi"], artifact-dir = "out/tests/stm32l4r5zi" },
+  { target = "thumbv8m.main-none-eabihf", features = ["stm32l552ze"], artifact-dir = "out/tests/stm32l552ze" },
+  { target = "thumbv7em-none-eabi", features = ["stm32f767zi"], artifact-dir = "out/tests/stm32f767zi" },
+  { target = "thumbv7m-none-eabi", features = ["stm32f207zg"], artifact-dir = "out/tests/stm32f207zg" },
+  { target = "thumbv7em-none-eabi", features = ["stm32f303ze"], artifact-dir = "out/tests/stm32f303ze" },
+  { target = "thumbv7em-none-eabi", features = ["stm32l496zg"], artifact-dir = "out/tests/stm32l496zg" },
+  { target = "thumbv7em-none-eabi", features = ["stm32wl55jc"], artifact-dir = "out/tests/stm32wl55jc" },
+  { target = "thumbv7em-none-eabi", features = ["stm32h7s3l8"], artifact-dir = "out/tests/stm32h7s3l8" },
+  { target = "thumbv6m-none-eabi", features = ["stm32f091rc"], artifact-dir = "out/tests/stm32f091rc" },
+  { target = "thumbv8m.main-none-eabihf", features = ["stm32h503rb"], artifact-dir = "out/tests/stm32h503rb" },
+  { target = "thumbv6m-none-eabi", features = ["stm32u083rc"], artifact-dir = "out/tests/stm32u083rc" }
+]

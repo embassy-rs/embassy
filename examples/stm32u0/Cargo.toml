@@ -3,6 +3,7 @@ edition = "2021"
 name = "embassy-stm32u0-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 # Change stm32u083rc to your chip name, if necessary.
@@ -27,3 +28,8 @@ chrono = { version = "0.4.38", default-features = false }
 
 [profile.release]
 debug = 2
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv6m-none-eabi", artifact-dir = "out/examples/stm32u0" }
+]

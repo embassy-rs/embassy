@@ -3,6 +3,7 @@ edition = "2021"
 name = "embassy-stm32u5-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 # Change stm32u5g9zj to your chip name, if necessary.
@@ -32,3 +33,8 @@ trustzone-secure = ["embassy-stm32/trustzone-secure"]
 
 [profile.release]
 debug = 2
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/stm32u5" }
+]
