@@ -41,29 +41,51 @@ macro_rules! peri_trait_impl {
 }
 
 macro_rules! pin_trait {
-    ($signal:ident, $instance:path $(, $mode:path)?) => {
+    ($signal:ident, $instance:path $(, $mode:path)? $(, @$afio:ident)?) => {
         #[doc = concat!(stringify!($signal), " pin trait")]
-        pub trait $signal<T: $instance $(, M: $mode)?>: crate::gpio::Pin {
+        pub trait $signal<T: $instance $(, M: $mode)? $(, $afio)?>: crate::gpio::Pin {
             #[doc = concat!("Get the AF number needed to use this pin as ", stringify!($signal))]
             fn af_num(&self) -> u8;
 
-            #[doc = concat!("Configures AFIO_MAPR/AFIO_MAPR2 on STM32F1 to use this pin as ", stringify!($signal))]
+            #[cfg(afio)]
+            #[doc = concat!("Configures AFIO_MAPR to use this pin as ", stringify!($signal))]
             fn afio_remap(&self);
         }
     };
 }
 
 macro_rules! pin_trait_impl {
-    (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $pin:ident, $af:expr, $remap:expr) => {
-        impl crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)?> for crate::peripherals::$pin {
+    (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $pin:ident, $af:expr $(, $afio:path)?) => {
+        impl crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)? $(, $afio)?> for crate::peripherals::$pin {
             fn af_num(&self) -> u8 {
                 $af
             }
 
+            #[cfg(afio)]
             fn afio_remap(&self) {
-                $remap;
+                // nothing
             }
         }
+    };
+}
+
+#[cfg(afio)]
+macro_rules! pin_trait_afio_impl {
+    (crate::$mod:ident::$trait:ident, $instance:ident, $pin:ident, {$setter:ident, $type:ident, [$($val:expr),+]}) => {
+        $(
+            impl crate::$mod::$trait<crate::peripherals::$instance, crate::gpio::$type<$val>> for crate::peripherals::$pin {
+                fn af_num(&self) -> u8 {
+                    0
+                }
+
+                fn afio_remap(&self) {
+                    crate::pac::AFIO.mapr().modify(|w| {
+                        w.set_swj_cfg(crate::pac::afio::vals::SwjCfg::NO_OP);
+                        w.$setter($val);
+                    });
+                }
+            }
+        )+
     };
 }
 
@@ -73,6 +95,30 @@ macro_rules! sel_trait_impl {
         impl crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)?> for crate::peripherals::$pin {
             fn sel(&self) -> u8 {
                 $sel
+            }
+        }
+    };
+}
+
+// ====================
+
+macro_rules! timer_afio_impl {
+    ($instance:ident $(, $set_afio:expr)? $(,{$mapr_value:literal, [$($pin:literal),*]})*) => {
+        impl crate::timer::Afio for crate::peripherals::$instance {
+            fn afio_mappings() -> &'static [crate::timer::AfioMapping] {
+                &[
+                    $(
+                        crate::timer::AfioMapping {
+                            value: $mapr_value,
+                            pins: &[$($pin),*],
+                        }
+                    ),*
+                ]
+            }
+
+            #[allow(unused)]
+            fn set_afio(value: u8) {
+                $($set_afio(value);)?
             }
         }
     };
@@ -141,6 +187,7 @@ macro_rules! new_dma {
 macro_rules! new_pin {
     ($name:ident, $af_type:expr) => {{
         let pin = $name;
+        #[cfg(afio)]
         pin.afio_remap();
         pin.set_as_af(pin.af_num(), $af_type);
         Some(pin.into())
