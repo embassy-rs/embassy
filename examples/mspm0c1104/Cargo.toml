@@ -3,6 +3,7 @@ edition = "2021"
 name = "embassy-mspm0-c1104-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 embassy-mspm0 = { version = "0.1.0", path = "../../embassy-mspm0", features = ["mspm0c1104dgs20", "defmt", "rt", "time-driver-any"] }
@@ -30,3 +31,9 @@ debug = 0
 opt-level = "z"
 lto = true
 codegen-units = 1
+
+[package.metadata.embassy]
+skip = true # TODO: remove when we find a way to decrease the defmt buffer size in ci.
+build = [
+  { target = "thumbv6m-none-eabi", artifact-dir = "out/examples/mspm0c1104" }
+]

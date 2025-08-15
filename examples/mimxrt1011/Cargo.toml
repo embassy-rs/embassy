@@ -3,6 +3,7 @@ name = "embassy-imxrt1011-examples"
 version = "0.1.0"
 edition = "2021"
 license = "MIT or Apache-2.0"
+publish = false
 
 [dependencies]
 cortex-m = { version = "0.7.7", features = ["inline-asm", "critical-section-single-core"] }
@@ -27,3 +28,8 @@ imxrt-rt = { version = "0.1.7", features = ["device"] }
 
 [profile.release]
 debug = 2
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7em-none-eabihf", artifact-dir = "out/examples/mimxrt1011" }
+]

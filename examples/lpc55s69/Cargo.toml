@@ -4,6 +4,7 @@ name = "embassy-nxp-lpc55s69-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
+publish = false
 
 [dependencies]
 embassy-nxp = { version = "0.1.0", path = "../../embassy-nxp", features = ["lpc55", "rt", "defmt", "time-driver-rtc"] }
@@ -20,3 +21,8 @@ panic-semihosting = "0.6.0"
 
 [profile.release]
 debug = 2
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/lpc55s69" }
+]

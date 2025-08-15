@@ -3,6 +3,7 @@ edition = "2021"
 name = "embassy-nrf9160-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 embassy-executor = { version = "0.8.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
@@ -24,3 +25,8 @@ embedded-io-async = { version = "0.6.1", features = ["defmt-03"] }
 
 [profile.release]
 debug = 2
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/nrf9160" }
+]

@@ -149,6 +149,15 @@ impl CargoArgsBuilder {
     }
 
     #[must_use]
+    pub fn artifact_dir<S>(mut self, artifact_dir: S) -> Self
+    where
+        S: Into<String>,
+    {
+        self.args.push(format!("--artifact-dir={}", artifact_dir.into()));
+        self
+    }
+
+    #[must_use]
     pub fn arg<S>(mut self, arg: S) -> Self
     where
         S: Into<String>,

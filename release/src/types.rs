@@ -13,8 +13,14 @@ pub struct ParsedCrate {
 pub struct ParsedPackage {
     pub name: String,
     pub version: String,
+    #[serde(default = "default_publish")]
+    pub publish: bool,
     #[serde(default)]
     pub metadata: Metadata,
+}
+
+fn default_publish() -> bool {
+    true
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -36,6 +42,8 @@ pub struct BuildConfig {
     #[serde(default)]
     pub features: Vec<String>,
     pub target: Option<String>,
+    #[serde(rename = "artifact-dir")]
+    pub artifact_dir: Option<String>,
 }
 
 pub type CrateId = String;
@@ -47,4 +55,5 @@ pub struct Crate {
     pub path: PathBuf,
     pub dependencies: Vec<CrateId>,
     pub configs: Vec<BuildConfig>,
+    pub publish: bool,
 }
