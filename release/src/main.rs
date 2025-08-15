@@ -141,6 +141,14 @@ fn list_crates(root: &PathBuf) -> Result<BTreeMap<CrateId, Crate>> {
                     }
                 }
 
+                let mut configs = metadata.build.clone();
+                if configs.is_empty() {
+                    configs.push(BuildConfig {
+                        features: vec![],
+                        target: None,
+                    })
+                }
+
                 crates.insert(
                     id.clone(),
                     Crate {
@@ -148,10 +156,7 @@ fn list_crates(root: &PathBuf) -> Result<BTreeMap<CrateId, Crate>> {
                         version: parsed.package.version,
                         path,
                         dependencies,
-                        config: metadata.build.first().cloned().unwrap_or_else(|| BuildConfig {
-                            features: vec![],
-                            target: None,
-                        }),
+                        configs,
                     },
                 );
             }
@@ -332,10 +337,11 @@ fn main() -> Result<()> {
                     c.path.join("Cargo.toml").display().to_string(),
                 ];
 
+                let config = c.configs.first().unwrap(); // TODO
                 args.push("--features".into());
-                args.push(c.config.features.join(","));
+                args.push(config.features.join(","));
 
-                if let Some(target) = &c.config.target {
+                if let Some(target) = &config.target {
                     args.push("--target".into());
                     args.push(target.clone());
                 }
@@ -387,6 +393,8 @@ fn update_changelog(repo: &Path, c: &Crate) -> Result<()> {
 }
 
 fn publish_release(_repo: &Path, c: &Crate, push: bool) -> Result<()> {
+    let config = c.configs.first().unwrap(); // TODO
+
     let mut args: Vec<String> = vec![
         "publish".to_string(),
         "--manifest-path".to_string(),
@@ -394,9 +402,9 @@ fn publish_release(_repo: &Path, c: &Crate, push: bool) -> Result<()> {
     ];
 
     args.push("--features".into());
-    args.push(c.config.features.join(","));
+    args.push(config.features.join(","));
 
-    if let Some(target) = &c.config.target {
+    if let Some(target) = &config.target {
         args.push("--target".into());
         args.push(target.clone());
     }
