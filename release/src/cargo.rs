@@ -1,10 +1,8 @@
 //! Tools for working with Cargo.
 
-use std::{
-    ffi::OsStr,
-    path::{Path, PathBuf},
-    process::{Command, Stdio},
-};
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
 
 use anyhow::{bail, Context as _, Result};
 use clap::ValueEnum as _;
@@ -107,6 +105,17 @@ pub struct CargoArgsBuilder {
 
 impl CargoArgsBuilder {
     #[must_use]
+    pub fn new() -> Self {
+        Self {
+            toolchain: None,
+            subcommand: String::new(),
+            target: None,
+            features: vec![],
+            args: vec![],
+        }
+    }
+
+    #[must_use]
     pub fn toolchain<S>(mut self, toolchain: S) -> Self
     where
         S: Into<String>,
@@ -187,6 +196,41 @@ impl CargoArgsBuilder {
 
         for arg in self.args.iter() {
             args.push(arg.clone());
+        }
+
+        args
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct CargoBatchBuilder {
+    commands: Vec<Vec<String>>,
+}
+
+impl CargoBatchBuilder {
+    #[must_use]
+    pub fn new() -> Self {
+        Self { commands: vec![] }
+    }
+
+    #[must_use]
+    pub fn command(mut self, args: Vec<String>) -> Self {
+        self.commands.push(args);
+        self
+    }
+
+    pub fn add_command(&mut self, args: Vec<String>) -> &mut Self {
+        self.commands.push(args);
+        self
+    }
+
+    #[must_use]
+    pub fn build(&self) -> Vec<String> {
+        let mut args = vec!["batch".to_string()];
+
+        for command in &self.commands {
+            args.push("---".to_string());
+            args.extend(command.clone());
         }
 
         args
