@@ -46,5 +46,5 @@ pub struct Crate {
     pub version: String,
     pub path: PathBuf,
     pub dependencies: Vec<CrateId>,
-    pub config: BuildConfig, // TODO make this a vec.
+    pub configs: Vec<BuildConfig>,
 }

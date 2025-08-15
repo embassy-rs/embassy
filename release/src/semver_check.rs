@@ -1,21 +1,20 @@
-use std::fs;
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use cargo_semver_checks::{Check, GlobalConfig, ReleaseType, Rustdoc};
 
 use crate::cargo::CargoArgsBuilder;
-use crate::types::Crate;
-use crate::windows_safe_path;
+use crate::types::{BuildConfig, Crate};
 
 /// Return the minimum required bump for the next release.
 /// Even if nothing changed this will be [ReleaseType::Patch]
 pub fn minimum_update(krate: &Crate) -> Result<ReleaseType, anyhow::Error> {
     println!("Crate = {:?}", krate);
 
+    let config = krate.configs.first().unwrap(); // TODO
+
     let package_name = krate.name.clone();
     let package_path = krate.path.clone();
-    let current_path = build_doc_json(krate)?;
+    let current_path = build_doc_json(krate, config)?;
 
     let baseline = Rustdoc::from_registry_latest_crate_version();
     let doc = Rustdoc::from_path(&current_path);
@@ -23,10 +22,10 @@ pub fn minimum_update(krate: &Crate) -> Result<ReleaseType, anyhow::Error> {
     semver_check.with_default_features();
     semver_check.set_baseline(baseline);
     semver_check.set_packages(vec![package_name]);
-    let extra_current_features = krate.config.features.clone();
-    let extra_baseline_features = krate.config.features.clone();
+    let extra_current_features = config.features.clone();
+    let extra_baseline_features = config.features.clone();
     semver_check.set_extra_features(extra_current_features, extra_baseline_features);
-    if let Some(target) = &krate.config.target {
+    if let Some(target) = &config.target {
         semver_check.set_build_target(target.clone());
     }
     let mut cfg = GlobalConfig::new();
@@ -48,7 +47,7 @@ pub fn minimum_update(krate: &Crate) -> Result<ReleaseType, anyhow::Error> {
     Ok(min_required_update)
 }
 
-pub(crate) fn build_doc_json(krate: &Crate) -> Result<PathBuf, anyhow::Error> {
+pub(crate) fn build_doc_json(krate: &Crate, config: &BuildConfig) -> Result<PathBuf, anyhow::Error> {
     let target_dir = std::env::var("CARGO_TARGET_DIR");
 
     let target_path = if let Ok(target) = target_dir {
@@ -58,7 +57,7 @@ pub(crate) fn build_doc_json(krate: &Crate) -> Result<PathBuf, anyhow::Error> {
     };
 
     let current_path = target_path;
-    let current_path = if let Some(target) = &krate.config.target {
+    let current_path = if let Some(target) = &config.target {
         current_path.join(target.clone())
     } else {
         current_path
@@ -68,7 +67,7 @@ pub(crate) fn build_doc_json(krate: &Crate) -> Result<PathBuf, anyhow::Error> {
         .join(format!("{}.json", krate.name.to_string().replace("-", "_")));
 
     std::fs::remove_file(&current_path).ok();
-    let features = krate.config.features.clone();
+    let features = config.features.clone();
 
     log::info!("Building doc json for {} with features: {:?}", krate.name, features);
 
@@ -83,7 +82,7 @@ pub(crate) fn build_doc_json(krate: &Crate) -> Result<PathBuf, anyhow::Error> {
         .toolchain("nightly-2025-06-29")
         .subcommand("rustdoc")
         .features(&features);
-    let cargo_builder = if let Some(target) = &krate.config.target {
+    let cargo_builder = if let Some(target) = &config.target {
         cargo_builder.target(target.clone())
     } else {
         cargo_builder
