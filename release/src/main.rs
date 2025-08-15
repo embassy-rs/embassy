@@ -1,3 +1,4 @@
+use simple_logger::SimpleLogger;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,6 +12,8 @@ use petgraph::{Directed, Direction};
 use toml_edit::{DocumentMut, Item, Value};
 use types::*;
 
+mod cargo;
+mod semver_check;
 mod types;
 
 /// Tool to traverse and operate on intra-repo Rust crate dependencies
@@ -70,7 +73,7 @@ fn load_release_config(repo: &Path) -> ReleaseConfig {
 }
 
 fn update_version(c: &mut Crate, new_version: &str) -> Result<()> {
-    let path = &c.path;
+    let path = c.path.join("Cargo.toml");
     c.version = new_version.to_string();
     let content = fs::read_to_string(&path)?;
     let mut doc: DocumentMut = content.parse()?;
@@ -84,7 +87,7 @@ fn update_version(c: &mut Crate, new_version: &str) -> Result<()> {
 }
 
 fn update_versions(to_update: &Crate, dep: &CrateId, new_version: &str) -> Result<()> {
-    let path = &to_update.path;
+    let path = to_update.path.join("Cargo.toml");
     let content = fs::read_to_string(&path)?;
     let mut doc: DocumentMut = content.parse()?;
     let mut changed = false;
@@ -117,15 +120,16 @@ fn update_versions(to_update: &Crate, dep: &CrateId, new_version: &str) -> Resul
     Ok(())
 }
 
-fn list_crates(path: &PathBuf) -> Result<BTreeMap<CrateId, Crate>> {
-    let d = std::fs::read_dir(path)?;
-    let release_config = load_release_config(path);
+fn list_crates(root: &PathBuf) -> Result<BTreeMap<CrateId, Crate>> {
+    let d = std::fs::read_dir(root)?;
+    let release_config = load_release_config(root);
     let mut crates = BTreeMap::new();
     for c in d {
         let entry = c?;
         let name = entry.file_name().to_str().unwrap().to_string();
         if entry.file_type()?.is_dir() && name.starts_with("embassy-") {
-            let entry = entry.path().join("Cargo.toml");
+            let path = root.join(entry.path());
+            let entry = path.join("Cargo.toml");
             if entry.exists() {
                 let content = fs::read_to_string(&entry)?;
                 let parsed: ParsedCrate = toml::from_str(&content)?;
@@ -138,7 +142,6 @@ fn list_crates(path: &PathBuf) -> Result<BTreeMap<CrateId, Crate>> {
                     }
                 }
 
-                let path = path.join(entry);
                 if let Some(config) = release_config.get(&id) {
                     crates.insert(
                         id.clone(),
@@ -191,6 +194,7 @@ fn build_graph(crates: &BTreeMap<CrateId, Crate>) -> (Graph<CrateId, ()>, HashMa
 }
 
 fn main() -> Result<()> {
+    SimpleLogger::new().init().unwrap();
     let args = Args::parse();
 
     let root = args.repo.canonicalize()?;
@@ -306,7 +310,7 @@ fn main() -> Result<()> {
                 let mut args: Vec<String> = vec![
                     "publish".to_string(),
                     "--manifest-path".to_string(),
-                    c.path.display().to_string(),
+                    c.path.join("Cargo.toml").display().to_string(),
                 ];
 
                 if let Some(features) = &c.config.features {
@@ -337,26 +341,9 @@ fn main() -> Result<()> {
 }
 
 fn check_semver(c: &Crate) -> Result<()> {
-    let mut args: Vec<String> = vec![
-        "semver-checks".to_string(),
-        "--manifest-path".to_string(),
-        c.path.display().to_string(),
-        "--default-features".to_string(),
-    ];
-    if let Some(features) = &c.config.features {
-        args.push("--features".into());
-        args.push(features.join(","));
-    }
-
-    let status = ProcessCommand::new("cargo").args(&args).output()?;
-
-    println!("{}", core::str::from_utf8(&status.stdout).unwrap());
-    eprintln!("{}", core::str::from_utf8(&status.stderr).unwrap());
-    if !status.status.success() {
-        return Err(anyhow!("semver check failed"));
-    } else {
-        Ok(())
-    }
+    let min_version = semver_check::minimum_update(c)?;
+    println!("Version should be bumped to {:?}", min_version);
+    Ok(())
 }
 
 fn update_changelog(repo: &Path, c: &Crate) -> Result<()> {
@@ -366,7 +353,7 @@ fn update_changelog(repo: &Path, c: &Crate) -> Result<()> {
         "--config".to_string(),
         repo.join("release").join("release.toml").display().to_string(),
         "--manifest-path".to_string(),
-        c.path.display().to_string(),
+        c.path.join("Cargo.toml").display().to_string(),
         "--execute".to_string(),
         "--no-confirm".to_string(),
     ];
@@ -386,7 +373,7 @@ fn publish_release(_repo: &Path, c: &Crate, push: bool) -> Result<()> {
     let mut args: Vec<String> = vec![
         "publish".to_string(),
         "--manifest-path".to_string(),
-        c.path.display().to_string(),
+        c.path.join("Cargo.toml").display().to_string(),
     ];
 
     if let Some(features) = &c.config.features {
@@ -414,4 +401,9 @@ fn publish_release(_repo: &Path, c: &Crate, push: bool) -> Result<()> {
     } else {
         Ok(())
     }
+}
+
+/// Make the path "Windows"-safe
+pub fn windows_safe_path(path: &Path) -> PathBuf {
+    PathBuf::from(path.to_str().unwrap().to_string().replace("\\\\?\\", ""))
 }

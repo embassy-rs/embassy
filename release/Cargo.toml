@@ -14,3 +14,10 @@ anyhow = "1"
 petgraph = "0.8.2"
 semver = "1.0.26"
 cargo-semver-checks = "0.43.0"
+log = "0.4"
+simple_logger = "5.0.0"
+temp-file = "0.1.9"
+flate2 = "1.1.1"
+
+[patch.crates-io]
+cargo-semver-checks = { path = "../../cargo-semver-checks" }
