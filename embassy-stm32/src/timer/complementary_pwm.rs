@@ -94,6 +94,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Set Master Slave Mode 2
     pub fn set_mms2(&mut self, mms2: Mms2) {
         self.inner.set_mms2_selection(mms2);
+    }
 
     /// Sets the idle output state for the given channels.
     pub fn set_output_idle_state(&mut self, channels: &[Channel], polarity: IdlePolarity) {
