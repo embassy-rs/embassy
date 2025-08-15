@@ -1337,7 +1337,7 @@ fn main() {
                         if METADATA.peripherals.iter().any(|p| p.name == "OCTOSPI2") {
                             peri = format_ident!("{}", "OCTOSPI2");
                             g.extend(quote! {
-                                pin_trait_impl!(#tr, #peri, #pin_name, #af, {});
+                                pin_trait_impl!(#tr, #peri, #pin_name, #af);
                             });
                         }
                         peri = format_ident!("{}", "OCTOSPI1");
@@ -1366,20 +1366,60 @@ fn main() {
                         })
                     }
 
-                    // Add AFIO remap for STM32F1
-                    // AFIO_MAPR.SWJ_CFG needs to be set to NO_OP to leave it unchanged
-                    let swj_cfg = pin
+                    let pin_trait_impl = p
                         .afio
                         .as_ref()
-                        .filter(|afio| afio.register == "MAPR")
-                        .map(|_| quote!(w.set_swj_cfg(crate::pac::afio::vals::SwjCfg::NO_OP);))
-                        .unwrap_or_else(|| quote!());
+                        .and_then(|afio| {
+                            if p.name.starts_with("TIM") {
+                                // timers are handled by timer_afio_impl!()
+                                return None;
+                            }
 
-                    let remap = generate_remap(pin.afio.as_ref().into_iter(), "AFIO", swj_cfg);
+                            let values = afio
+                                .values
+                                .iter()
+                                .filter(|v| v.pins.contains(&pin.pin))
+                                .map(|v| v.value)
+                                .collect::<Vec<_>>();
 
-                    g.extend(quote! {
-                        pin_trait_impl!(#tr, #peri, #pin_name, #af, {#remap});
-                    })
+                            if values.is_empty() {
+                                None
+                            } else {
+                                let setter = format_ident!("set_{}", afio.field.to_lowercase());
+                                let type_and_values = if is_bool_field("AFIO", afio.register, afio.field) {
+                                    let values = values.iter().map(|&v| v > 0);
+                                    quote!(AfioRemapBool, [#(#values),*])
+                                } else {
+                                    quote!(AfioRemap, [#(#values),*])
+                                };
+
+                                Some(quote! {
+                                    pin_trait_afio_impl!(#tr, #peri, #pin_name, {#setter, #type_and_values});
+                                })
+                            }
+                        })
+                        .unwrap_or_else(|| {
+                            let peripherals_with_afio = [
+                                "CAN",
+                                "CEC",
+                                "ETH",
+                                "I2C",
+                                "SPI",
+                                "SUBGHZSPI",
+                                "USART",
+                                "UART",
+                                "LPUART",
+                            ];
+                            let af_or_not_applicable = if peripherals_with_afio.iter().any(|&x| p.name.starts_with(x)) {
+                                quote!(0, crate::gpio::AfioRemapNotApplicable)
+                            } else {
+                                quote!(#af)
+                            };
+
+                            quote!(pin_trait_impl!(#tr, #peri, #pin_name, #af_or_not_applicable);)
+                        });
+
+                    g.extend(pin_trait_impl);
                 }
 
                 // ADC is special
@@ -1569,8 +1609,21 @@ fn main() {
                             quote!(())
                         };
 
-                        // Add remap for some STM32F0 and STM32F3
-                        let remap = generate_remap(ch.remap.iter(), "SYSCFG", quote!());
+                        let mut remap = quote!();
+                        for remap_info in ch.remap {
+                            let register = format_ident!("{}", remap_info.register.to_lowercase());
+                            let setter = format_ident!("set_{}", remap_info.field.to_lowercase());
+
+                            let value = if is_bool_field("SYSCFG", &remap_info.register, &remap_info.field) {
+                                let bool_value = format_ident!("{}", remap_info.value > 0);
+                                quote!(#bool_value)
+                            } else {
+                                let value = remap_info.value;
+                                quote!(#value.into())
+                            };
+
+                            remap.extend(quote!(crate::pac::SYSCFG.#register().modify(|w| w.#setter(#value));));
+                        }
 
                         let channel = format_ident!("{}", channel);
                         g.extend(quote! {
@@ -1890,6 +1943,48 @@ fn main() {
     g.extend(quote! {
         pub(crate) const DMA_CHANNELS: &[crate::dma::ChannelInfo] = &[#dmas];
     });
+
+    // ========
+    // Generate timer AFIO impls
+
+    for p in METADATA.peripherals {
+        if p.name.starts_with("TIM") {
+            let pname = format_ident!("{}", p.name);
+            let afio = if let Some(afio) = &p.afio {
+                let register = format_ident!("{}", afio.register.to_lowercase());
+                let setter = format_ident!("set_{}", afio.field.to_lowercase());
+
+                let swj_cfg = if afio.register == "MAPR" {
+                    quote!(w.set_swj_cfg(crate::pac::afio::vals::SwjCfg::NO_OP);)
+                } else {
+                    quote!()
+                };
+                let bool_eval = if is_bool_field("AFIO", &afio.register, &afio.field) {
+                    quote!(> 0)
+                } else {
+                    quote!()
+                };
+
+                let values = afio.values.iter().map(|v| {
+                    let mapr_value = v.value;
+                    let pin = v.pins.iter().map(|p| {
+                        let port_num = p.chars().nth(1).unwrap() as u8 - b'A';
+                        let pin_num = p[2..].parse::<u8>().unwrap();
+                        port_num * 16 + pin_num
+                    });
+                    quote!(#mapr_value, [#(#pin),*])
+                });
+
+                quote! {
+                    , |v| crate::pac::AFIO.#register().modify(|w| { #swj_cfg w.#setter(v #bool_eval); }), #({#values}),*
+                }
+            } else {
+                quote!()
+            };
+
+            g.extend(quote!(timer_afio_impl!(#pname #afio);));
+        }
+    }
 
     // ========
     // Generate gpio_block() function
@@ -2264,42 +2359,16 @@ fn gcd(a: u32, b: u32) -> u32 {
     gcd(b, a % b)
 }
 
-fn generate_remap(
-    remap_info: impl Iterator<Item = &'static stm32_metapac::metadata::RemapInfo>,
-    peripheral_name: &str,
-    additional_op: TokenStream,
-) -> TokenStream {
-    let peripheral = format_ident!("{}", peripheral_name);
-    let mut remap_tokens = quote!();
-    for remap in remap_info {
-        let register = format_ident!("{}", remap.register.to_lowercase());
-        let setter = format_ident!("set_{}", remap.field.to_lowercase());
+fn is_bool_field(peripheral: &str, register: &str, field: &str) -> bool {
+    let field_metadata = METADATA
+        .peripherals
+        .iter()
+        .filter(|p| p.name == peripheral)
+        .flat_map(|p| p.registers.as_ref().unwrap().ir.fieldsets.iter())
+        .filter(|f| f.name.eq_ignore_ascii_case(register))
+        .flat_map(|f| f.fields.iter())
+        .find(|f| f.name.eq_ignore_ascii_case(field))
+        .unwrap();
 
-        let field_metadata = METADATA
-            .peripherals
-            .iter()
-            .filter(|p| p.name == peripheral_name)
-            .flat_map(|p| p.registers.as_ref().unwrap().ir.fieldsets.iter())
-            .filter(|f| f.name.eq_ignore_ascii_case(remap.register))
-            .flat_map(|f| f.fields.iter())
-            .find(|f| f.name.eq_ignore_ascii_case(remap.field))
-            .unwrap();
-
-        let value = if field_metadata.bit_size == 1 {
-            let bool_value = format_ident!("{}", remap.value > 0);
-            quote!(#bool_value)
-        } else {
-            let number_value = remap.value;
-            quote!(#number_value.into())
-        };
-
-        remap_tokens.extend(quote! {
-            crate::pac::#peripheral.#register().modify(|w| {
-                w.#setter(#value);
-                #additional_op
-            });
-        });
-    }
-
-    remap_tokens
+    field_metadata.bit_size == 1
 }

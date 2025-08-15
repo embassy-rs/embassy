@@ -14,6 +14,8 @@ pub mod pwm_input;
 pub mod qei;
 pub mod simple_pwm;
 
+#[cfg(afio)]
+use crate::gpio::SealedPin;
 use crate::interrupt;
 use crate::rcc::RccPeripheral;
 
@@ -155,9 +157,15 @@ trait SealedInstance: RccPeripheral + PeripheralType {
     fn state() -> &'static State;
 }
 
+#[allow(unused)]
+pub(crate) trait Afio {
+    fn afio_mappings() -> &'static [AfioMapping];
+    fn set_afio(value: u8);
+}
+
 /// Core timer instance.
 #[allow(private_bounds)]
-pub trait CoreInstance: SealedInstance + 'static {
+pub trait CoreInstance: SealedInstance + Afio + 'static {
     /// Update Interrupt for this timer.
     type UpdateInterrupt: interrupt::typelevel::Interrupt;
 
@@ -449,4 +457,25 @@ impl<T: GeneralInstance1Channel> interrupt::typelevel::Handler<T::CaptureCompare
             }
         }
     }
+}
+
+#[allow(unused)]
+pub(crate) struct AfioMapping {
+    pub(crate) value: u8,
+    pub(crate) pins: &'static [u8],
+}
+
+#[cfg(afio)]
+fn set_afio<'d, T: Afio>(pins: &[Option<embassy_hal_internal::Peri<'d, crate::gpio::AnyPin>>]) {
+    let mapping = T::afio_mappings()
+        .iter()
+        .find(|m| {
+            pins.iter()
+                .flatten()
+                .map(|p| (*p).pin_port())
+                .all(|p| m.pins.contains(&p))
+        })
+        .expect("Should be called with a combination of timer pins supported by the hardware");
+
+    T::set_afio(mapping.value);
 }
