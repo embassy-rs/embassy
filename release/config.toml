@@ -27,7 +27,7 @@ embassy-net-ppp = { }
 embassy-net-esp-hosted = {}
 embassy-net-driver-channel = {}
 embassy-net-wiznet = {}
-embassy-net-nrf91 = { features = ["defmt", "nrf9160"] }
+embassy-net-nrf91 = { features = ["defmt", "nrf-pac/nrf9160"] }
 embassy-net-driver = {}
 embassy-net-tuntap = {}
 embassy-net-adin1110 = {}
