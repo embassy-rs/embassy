@@ -13,6 +13,21 @@ categories = [
     "network-programming",
 ]
 
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "packet-trace", "proto-ipv4", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "multicast", "proto-ipv4", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dns", "medium-ethernet", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dhcpv4-hostname", "dns", "medium-ethernet", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "proto-ipv6", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ieee802154", "proto-ipv6", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ieee802154", "proto-ipv6", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "proto-ipv4", "proto-ipv6", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ip", "proto-ipv4", "proto-ipv6", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ip", "proto-ipv4", "proto-ipv6", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ieee802154", "medium-ip", "proto-ipv4", "proto-ipv6", "tcp", "udp"]},
+]
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-v$VERSION/embassy-net/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net/src/"

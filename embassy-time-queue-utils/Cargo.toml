@@ -52,6 +52,12 @@ generic-queue-128 = ["_generic-queue"]
 
 _generic-queue = []
 
+[package.metadata.embassy]
+build = [
+    {target = "thumbv6m-none-eabi", features = []},
+    {target = "thumbv6m-none-eabi", features = ["generic-queue-8"]},
+]
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-time-queue-utils-v$VERSION/embassy-time-queue-utils/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-time-queue-utils/src/"

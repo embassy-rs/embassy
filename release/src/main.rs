@@ -1,4 +1,3 @@
-use simple_logger::SimpleLogger;
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,9 +5,11 @@ use std::process::Command as ProcessCommand;
 
 use anyhow::{anyhow, Result};
 use clap::{Parser, Subcommand};
+use log::info;
 use petgraph::graph::{Graph, NodeIndex};
 use petgraph::visit::Bfs;
 use petgraph::{Directed, Direction};
+use simple_logger::SimpleLogger;
 use toml_edit::{DocumentMut, Item, Value};
 use types::*;
 
@@ -63,15 +64,6 @@ enum Command {
     },
 }
 
-fn load_release_config(repo: &Path) -> ReleaseConfig {
-    let config_path = repo.join("release/config.toml");
-    if !config_path.exists() {
-        return HashMap::new();
-    }
-    let content = fs::read_to_string(&config_path).expect("Failed to read release/config.toml");
-    toml::from_str(&content).expect("Invalid TOML format in release/config.toml")
-}
-
 fn update_version(c: &mut Crate, new_version: &str) -> Result<()> {
     let path = c.path.join("Cargo.toml");
     c.version = new_version.to_string();
@@ -122,18 +114,18 @@ fn update_versions(to_update: &Crate, dep: &CrateId, new_version: &str) -> Resul
 
 fn list_crates(root: &PathBuf) -> Result<BTreeMap<CrateId, Crate>> {
     let d = std::fs::read_dir(root)?;
-    let release_config = load_release_config(root);
     let mut crates = BTreeMap::new();
     for c in d {
         let entry = c?;
-        let name = entry.file_name().to_str().unwrap().to_string();
-        if entry.file_type()?.is_dir() && name.starts_with("embassy-") {
+        if entry.file_type()?.is_dir() {
             let path = root.join(entry.path());
             let entry = path.join("Cargo.toml");
             if entry.exists() {
                 let content = fs::read_to_string(&entry)?;
                 let parsed: ParsedCrate = toml::from_str(&content)?;
                 let id = parsed.package.name;
+
+                let metadata = &parsed.package.metadata.embassy;
 
                 let mut dependencies = Vec::new();
                 for (k, _) in parsed.dependencies {
@@ -142,18 +134,19 @@ fn list_crates(root: &PathBuf) -> Result<BTreeMap<CrateId, Crate>> {
                     }
                 }
 
-                if let Some(config) = release_config.get(&id) {
-                    crates.insert(
-                        id.clone(),
-                        Crate {
-                            name: id,
-                            version: parsed.package.version,
-                            path,
-                            dependencies,
-                            config: config.clone(),
-                        },
-                    );
-                }
+                crates.insert(
+                    id.clone(),
+                    Crate {
+                        name: id,
+                        version: parsed.package.version,
+                        path,
+                        dependencies,
+                        config: metadata.build.first().cloned().unwrap_or_else(|| BuildConfig {
+                            features: vec![],
+                            target: None,
+                        }),
+                    },
+                );
             }
         }
     }
@@ -313,10 +306,8 @@ fn main() -> Result<()> {
                     c.path.join("Cargo.toml").display().to_string(),
                 ];
 
-                if let Some(features) = &c.config.features {
-                    args.push("--features".into());
-                    args.push(features.join(","));
-                }
+                args.push("--features".into());
+                args.push(c.config.features.join(","));
 
                 if let Some(target) = &c.config.target {
                     args.push("--target".into());
@@ -376,10 +367,8 @@ fn publish_release(_repo: &Path, c: &Crate, push: bool) -> Result<()> {
         c.path.join("Cargo.toml").display().to_string(),
     ];
 
-    if let Some(features) = &c.config.features {
-        args.push("--features".into());
-        args.push(features.join(","));
-    }
+    args.push("--features".into());
+    args.push(c.config.features.join(","));
 
     if let Some(target) = &c.config.target {
         args.push("--target".into());
