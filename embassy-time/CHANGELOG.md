@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `saturating_add` and `saturating_sub` to `Instant`
 - Add `Instant::try_from_*` constructor functions
 - Add `Duration::try_from_*` constructor functions
+- Add `Ticker::now_and_every` constructor function
 - Don't select `critical-section` impl for `std`
 - Manually implement the future for `with_timeout`
 - Add 133MHz tick rate to support PR2040 @ 133MHz when `TIMERx`'s `SOURCE` is set to `SYSCLK`
