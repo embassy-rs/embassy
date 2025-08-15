@@ -134,6 +134,10 @@ fn list_crates(root: &PathBuf) -> Result<BTreeMap<CrateId, Crate>> {
 
                 let metadata = &parsed.package.metadata.embassy;
 
+                if metadata.skip {
+                    continue;
+                }
+
                 let mut dependencies = Vec::new();
                 for (k, _) in parsed.dependencies {
                     if k.starts_with("embassy-") {
@@ -266,7 +270,7 @@ fn main() -> Result<()> {
             }
         }
         Command::Build { crate_name } => {
-            build::build(&ctx)?;
+            build::build(&ctx, crate_name.as_deref())?;
         }
         Command::SemverCheck { crate_name } => {
             let c = ctx.crates.get(&crate_name).unwrap();
