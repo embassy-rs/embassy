@@ -3,6 +3,7 @@ edition = "2021"
 name = "embassy-stm32l4-examples"
 version = "0.1.1"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 # Change stm32l4s5vi to your chip name, if necessary.
@@ -36,3 +37,8 @@ micromath = "2.0.0"
 
 [profile.release]
 debug = 2
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7em-none-eabi", artifact-dir = "out/examples/stm32l4" }
+]

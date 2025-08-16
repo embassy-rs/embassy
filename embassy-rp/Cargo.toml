@@ -9,6 +9,17 @@ categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-rp"
 
+[package.metadata.embassy]
+build = [
+    {target = "thumbv6m-none-eabi", features = ["defmt", "rp2040", "time-driver"]},
+    {target = "thumbv6m-none-eabi", features = ["log", "rp2040", "time-driver"]},
+    {target = "thumbv6m-none-eabi", features = ["intrinsics", "rp2040", "time-driver"]},
+    {target = "thumbv6m-none-eabi", features = ["qspi-as-gpio", "rp2040", "time-driver"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "rp235xa", "time-driver"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["log", "rp235xa", "time-driver"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["binary-info", "rp235xa", "time-driver"]},
+]
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-rp-v$VERSION/embassy-rp/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-rp/src/"

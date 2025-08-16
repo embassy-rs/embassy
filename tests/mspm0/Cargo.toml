@@ -3,6 +3,7 @@ edition = "2021"
 name = "embassy-mspm0-tests"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [features]
 mspm0g3507 = [ "embassy-mspm0/mspm0g3507pm" ]
@@ -60,3 +61,8 @@ debug = false
 debug-assertions = false
 opt-level = 0
 overflow-checks = false
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv6m-none-eabi", features = ["mspm0g3507"], artifact-dir = "out/tests/mspm0g3507" }
+]

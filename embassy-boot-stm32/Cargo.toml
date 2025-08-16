@@ -12,6 +12,12 @@ categories = [
     "asynchronous",
 ]
 
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabi", features = ["embassy-stm32/stm32l496zg"]},
+]
+
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-boot-stm32-v$VERSION/embassy-boot-stm32/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-boot-stm32/src/"

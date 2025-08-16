@@ -1,1 +1,0 @@
-embassy-rp = { features = ["defmt", "unstable-pac", "time-driver", "rp2040"], target = "thumbv6m-none-eabi" }

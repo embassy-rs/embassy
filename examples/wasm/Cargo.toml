@@ -3,6 +3,7 @@ edition = "2021"
 name = "embassy-wasm-example"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [lib]
 crate-type = ["cdylib"]
@@ -19,3 +20,8 @@ log = "0.4.11"
 
 [profile.release]
 debug = 2
+
+[package.metadata.embassy]
+build = [
+  { target = "wasm32-unknown-unknown", artifact-dir = "out/examples/wasm" }
+]
