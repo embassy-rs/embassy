@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use cargo_semver_checks::{Check, GlobalConfig, ReleaseType, Rustdoc};
+use cargo_semver_checks::{Check, GlobalConfig, LintConfig, LintLevel, ReleaseType, RequiredSemverUpdate, Rustdoc};
 
 use crate::cargo::CargoArgsBuilder;
 use crate::types::{BuildConfig, Crate};
@@ -8,12 +8,9 @@ use crate::types::{BuildConfig, Crate};
 /// Return the minimum required bump for the next release.
 /// Even if nothing changed this will be [ReleaseType::Patch]
 pub fn minimum_update(krate: &Crate) -> Result<ReleaseType, anyhow::Error> {
-    println!("Crate = {:?}", krate);
-
     let config = krate.configs.first().unwrap(); // TODO
 
     let package_name = krate.name.clone();
-    let package_path = krate.path.clone();
     let current_path = build_doc_json(krate, config)?;
 
     let baseline = Rustdoc::from_registry_latest_crate_version();
@@ -30,8 +27,12 @@ pub fn minimum_update(krate: &Crate) -> Result<ReleaseType, anyhow::Error> {
     }
     let mut cfg = GlobalConfig::new();
     cfg.set_log_level(Some(log::Level::Trace));
+
+    let mut lint_cfg = LintConfig::new();
+    // Disable this lint because we provide the rustdoc json only, so it can't do feature comparison.
+    lint_cfg.set("feature_missing", LintLevel::Allow, RequiredSemverUpdate::Minor, 0);
+    cfg.set_lint_config(lint_cfg);
     let result = semver_check.check_release(&mut cfg)?;
-    log::info!("Result {:?}", result);
 
     let mut min_required_update = ReleaseType::Patch;
     for (_, report) in result.crate_reports() {

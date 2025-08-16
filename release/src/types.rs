@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use serde::Deserialize;
@@ -29,6 +29,7 @@ pub struct Metadata {
     pub embassy: MetadataEmbassy,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize, Default)]
 pub struct MetadataEmbassy {
     #[serde(default)]

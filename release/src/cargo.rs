@@ -4,28 +4,14 @@ use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use anyhow::{bail, Context as _, Result};
-use clap::ValueEnum as _;
+use anyhow::{bail, Result};
 use serde::{Deserialize, Serialize};
-use toml_edit::{DocumentMut, Formatted, Item, Value};
 
-use crate::{windows_safe_path, Crate};
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum CargoAction {
-    Build(PathBuf),
-    Run,
-}
+use crate::windows_safe_path;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Artifact {
     pub executable: PathBuf,
-}
-
-/// Execute cargo with the given arguments and from the specified directory.
-pub fn run(args: &[String], cwd: &Path) -> Result<()> {
-    run_with_env::<[(&str, &str); 0], _, _>(args, cwd, [], false)?;
-    Ok(())
 }
 
 /// Execute cargo with the given arguments and from the specified directory.
@@ -159,25 +145,6 @@ impl CargoArgsBuilder {
 
     #[must_use]
     pub fn arg<S>(mut self, arg: S) -> Self
-    where
-        S: Into<String>,
-    {
-        self.args.push(arg.into());
-        self
-    }
-
-    #[must_use]
-    pub fn args<S>(mut self, args: &[S]) -> Self
-    where
-        S: Clone + Into<String>,
-    {
-        for arg in args {
-            self.args.push(arg.clone().into());
-        }
-        self
-    }
-
-    pub fn add_arg<S>(&mut self, arg: S) -> &mut Self
     where
         S: Into<String>,
     {

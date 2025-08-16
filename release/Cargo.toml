@@ -19,8 +19,8 @@ simple_logger = "5.0.0"
 temp-file = "0.1.9"
 flate2 = "1.1.1"
 
-#[patch.crates-io]
-#cargo-semver-checks = { path = "../../cargo-semver-checks" }
+[patch.crates-io]
+cargo-semver-checks = { git = "https://github.com/lulf/cargo-semver-checks.git", rev="385f274edcbb6bf5156e30a94315852b27a527e6" }
 
 [package.metadata.embassy]
 skip = true
