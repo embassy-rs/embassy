@@ -9,6 +9,9 @@ categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-mspm0"
 
+# TODO: Remove to publish initial version
+publish = false
+
 [package.metadata.embassy]
 build = [
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0c1104dgs20", "time-driver-any"]},
