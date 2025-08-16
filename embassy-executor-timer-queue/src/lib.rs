@@ -22,7 +22,7 @@
 
 use core::task::Waker;
 
-const ITEM_SIZE: usize = if cfg!(feature = "timer-item-size-8-words") {
+const ITEM_WORDS: usize = if cfg!(feature = "timer-item-size-8-words") {
     8
 } else if cfg!(feature = "timer-item-size-6-words") {
     6
@@ -39,13 +39,13 @@ const ITEM_SIZE: usize = if cfg!(feature = "timer-item-size-8-words") {
 /// [`TimerQueueItem::as_mut`].
 #[repr(align(8))]
 pub struct TimerQueueItem {
-    data: [usize; ITEM_SIZE],
+    data: [usize; ITEM_WORDS],
 }
 
 impl TimerQueueItem {
     /// Creates a new, zero-initialized `TimerQueueItem`.
     pub const fn new() -> Self {
-        Self { data: [0; ITEM_SIZE] }
+        Self { data: [0; ITEM_WORDS] }
     }
 
     /// Retrieves the `TimerQueueItem` reference that belongs to the task of the waker.
@@ -74,10 +74,7 @@ impl TimerQueueItem {
     /// - The type must be valid when zero-initialized.
     /// - The timer queue should only be interpreted as a single type `T` during its lifetime.
     pub unsafe fn as_ref<T>(&self) -> &T {
-        const {
-            assert!(core::mem::size_of::<Self>() >= core::mem::size_of::<T>());
-            assert!(core::mem::align_of::<Self>() >= core::mem::align_of::<T>());
-        }
+        const { validate::<T>() }
         unsafe { &*(self.data.as_ptr() as *const T) }
     }
 
@@ -88,10 +85,20 @@ impl TimerQueueItem {
     /// - The type must be valid when zero-initialized.
     /// - The timer queue should only be interpreted as a single type `T` during its lifetime.
     pub unsafe fn as_mut<T>(&self) -> &mut T {
-        const {
-            assert!(core::mem::size_of::<Self>() >= core::mem::size_of::<T>());
-            assert!(core::mem::align_of::<Self>() >= core::mem::align_of::<T>());
-        }
+        const { validate::<T>() }
         unsafe { &mut *(self.data.as_ptr() as *mut T) }
+    }
+}
+
+const fn validate<T>() {
+    const {
+        assert!(
+            core::mem::size_of::<TimerQueueItem>() >= core::mem::size_of::<T>(),
+            "embassy-executor-timer-queue item size is smaller than the requested type. Select a larger timer-item-size-N-words feature."
+        );
+        assert!(
+            core::mem::align_of::<TimerQueueItem>() >= core::mem::align_of::<T>(),
+            "the alignment of the requested type is greater than 8"
+        );
     }
 }
