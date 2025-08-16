@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command as ProcessCommand;
 
 use anyhow::{anyhow, bail, Result};
+use cargo_semver_checks::ReleaseType;
 use clap::{Parser, Subcommand};
 use petgraph::graph::{Graph, NodeIndex};
 use petgraph::visit::Bfs;
@@ -359,11 +360,10 @@ fn main() -> Result<()> {
                 let mut c = ctx.crates.get_mut(weight).unwrap();
                 if c.publish {
                     let ver = semver::Version::parse(&c.version)?;
-                    let newver = if let Err(_) = check_semver(&c) {
-                        println!("Semver check failed, bumping minor!");
-                        semver::Version::new(ver.major, ver.minor + 1, 0)
-                    } else {
-                        semver::Version::new(ver.major, ver.minor, ver.patch + 1)
+                    let newver = match check_semver(&c)? {
+                        ReleaseType::Major | ReleaseType::Minor => semver::Version::new(ver.major, ver.minor + 1, 0),
+                        ReleaseType::Patch => semver::Version::new(ver.major, ver.minor, ver.patch + 1),
+                        _ => unreachable!(),
                     };
 
                     println!("Updating {} from {} -> {}", weight, c.version, newver.to_string());
@@ -439,10 +439,10 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn check_semver(c: &Crate) -> Result<()> {
+fn check_semver(c: &Crate) -> Result<ReleaseType> {
     let min_version = semver_check::minimum_update(c)?;
     println!("Version should be bumped to {:?}", min_version);
-    Ok(())
+    Ok(min_version)
 }
 
 fn update_changelog(repo: &Path, c: &Crate) -> Result<()> {
