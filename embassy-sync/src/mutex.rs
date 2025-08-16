@@ -1,7 +1,7 @@
 //! Async mutex.
 //!
 //! This module provides a mutex that can be used to synchronize data between asynchronous tasks.
-use core::cell::{RefCell, UnsafeCell};
+use core::cell::{Cell, UnsafeCell};
 use core::future::{poll_fn, Future};
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
@@ -9,7 +9,7 @@ use core::{fmt, mem};
 
 use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex as BlockingMutex;
-use crate::waitqueue::WakerRegistration;
+use crate::waitqueue::NonSyncWakerRegistration;
 
 /// Error returned by [`Mutex::try_lock`]
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -17,8 +17,39 @@ use crate::waitqueue::WakerRegistration;
 pub struct TryLockError;
 
 struct State {
-    locked: bool,
-    waker: WakerRegistration,
+    locked: Cell<bool>,
+    waker: NonSyncWakerRegistration,
+}
+
+impl State {
+    const fn new() -> Self {
+        Self {
+            locked: Cell::new(false),
+            waker: NonSyncWakerRegistration::new(),
+        }
+    }
+
+    fn lock(&self, waker: &core::task::Waker) -> bool {
+        if self.locked.replace(true) {
+            self.waker.register(waker);
+            false
+        } else {
+            true
+        }
+    }
+
+    fn try_lock(&self) -> Result<(), TryLockError> {
+        if self.locked.replace(true) {
+            Err(TryLockError)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn unlock(&self) {
+        self.waker.wake();
+        self.locked.set(false);
+    }
 }
 
 /// Async mutex.
@@ -41,7 +72,7 @@ where
     M: RawMutex,
     T: ?Sized,
 {
-    state: BlockingMutex<M, RefCell<State>>,
+    state: BlockingMutex<M, State>,
     inner: UnsafeCell<T>,
 }
 
@@ -57,10 +88,7 @@ where
     pub const fn new(value: T) -> Self {
         Self {
             inner: UnsafeCell::new(value),
-            state: BlockingMutex::new(RefCell::new(State {
-                locked: false,
-                waker: WakerRegistration::new(),
-            })),
+            state: BlockingMutex::new(State::new()),
         }
     }
 }
@@ -75,16 +103,7 @@ where
     /// This will wait for the mutex to be unlocked if it's already locked.
     pub fn lock(&self) -> impl Future<Output = MutexGuard<'_, M, T>> {
         poll_fn(|cx| {
-            let ready = self.state.lock(|s| {
-                let mut s = s.borrow_mut();
-                if s.locked {
-                    s.waker.register(cx.waker());
-                    false
-                } else {
-                    s.locked = true;
-                    true
-                }
-            });
+            let ready = self.state.lock(|s| s.lock(cx.waker()));
 
             if ready {
                 Poll::Ready(MutexGuard { mutex: self })
@@ -98,15 +117,7 @@ where
     ///
     /// If the mutex is already locked, this will return an error instead of waiting.
     pub fn try_lock(&self) -> Result<MutexGuard<'_, M, T>, TryLockError> {
-        self.state.lock(|s| {
-            let mut s = s.borrow_mut();
-            if s.locked {
-                Err(TryLockError)
-            } else {
-                s.locked = true;
-                Ok(())
-            }
-        })?;
+        self.state.lock(|s| s.try_lock())?;
 
         Ok(MutexGuard { mutex: self })
     }
@@ -205,11 +216,7 @@ where
     T: ?Sized,
 {
     fn drop(&mut self) {
-        self.mutex.state.lock(|s| {
-            let mut s = unwrap!(s.try_borrow_mut());
-            s.locked = false;
-            s.waker.wake();
-        })
+        self.mutex.state.lock(|s| s.unlock())
     }
 }
 
@@ -268,7 +275,7 @@ where
     M: RawMutex,
     T: ?Sized,
 {
-    state: &'a BlockingMutex<M, RefCell<State>>,
+    state: &'a BlockingMutex<M, State>,
     value: *mut T,
 }
 
@@ -319,11 +326,7 @@ where
     T: ?Sized,
 {
     fn drop(&mut self) {
-        self.state.lock(|s| {
-            let mut s = unwrap!(s.try_borrow_mut());
-            s.locked = false;
-            s.waker.wake();
-        })
+        self.state.lock(|s| s.unlock())
     }
 }
 
@@ -363,8 +366,55 @@ where
 
 #[cfg(test)]
 mod tests {
+    use futures_util::future::join;
+    use futures_util::FutureExt;
+
     use crate::blocking_mutex::raw::NoopRawMutex;
     use crate::mutex::{Mutex, MutexGuard};
+
+    async fn increment_once(mutex: &Mutex<NoopRawMutex, i32>) {
+        use core::future::poll_fn;
+        use core::task::Poll;
+
+        let mut guard = mutex.lock().await;
+        let value = &mut *guard;
+
+        // yield once to allow the other future to run while
+        // we are holding an exclusive borrow
+        let mut called = false;
+        poll_fn(|cx| {
+            if called {
+                return Poll::Ready(());
+            }
+            called = true;
+            cx.waker().wake_by_ref();
+            Poll::Pending
+        })
+        .await;
+
+        *value += 1;
+    }
+
+    #[futures_test::test]
+    async fn mutex_actually_provides_exclusive_access() {
+        let mutex: Mutex<NoopRawMutex, i32> = Mutex::new(0);
+
+        let fut1 = async {
+            for _ in 0..5 {
+                increment_once(&mutex).await;
+            }
+        };
+
+        let fut2 = async {
+            for _ in 0..5 {
+                increment_once(&mutex).await;
+            }
+        };
+
+        join(fut1, fut2).await;
+
+        assert_eq!(*mutex.lock().await, 10);
+    }
 
     #[futures_test::test]
     async fn mapped_guard_releases_lock_when_dropped() {
@@ -387,5 +437,67 @@ mod tests {
         }
 
         assert_eq!(*mutex.lock().await, [0, 3]);
+    }
+
+    /// Test that user code does not cause UB.
+    #[cfg(miri)]
+    #[test]
+    fn locking_in_a_waker_is_not_ub() {
+        use core::future::Future;
+        use core::pin::Pin;
+        use core::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+
+        // Set up the same test as in `mutex_actually_provides_exclusive_access` but with a custom
+        // evil block_on implementation that tries to lock the mutex inside a waker.
+        let mutex: Mutex<NoopRawMutex, i32> = Mutex::new(0);
+
+        let fut1 = async {
+            for _ in 0..5 {
+                increment_once(&mutex).await;
+            }
+        };
+
+        let fut2 = async {
+            for _ in 0..5 {
+                increment_once(&mutex).await;
+            }
+        };
+
+        let mut fut = join(fut1, fut2);
+
+        // block_on impl
+
+        unsafe fn wake(ctx: *const ()) {
+            static NOOP_VTABLE: RawWakerVTable = RawWakerVTable::new(
+                |_| RawWaker::new(core::ptr::null(), &NOOP_VTABLE),
+                |_| {},
+                |_| {},
+                |_| {},
+            );
+            static NOOP_WAKER: Waker = unsafe { Waker::from_raw(RawWaker::new(core::ptr::null(), &NOOP_VTABLE)) };
+
+            let mutex = ctx.cast::<Mutex<NoopRawMutex, i32>>().as_ref().unwrap();
+
+            // Let's ask miri whether locking the same mutex inside a waker is UB.
+            let mut fut = async {
+                let _g = mutex.lock().await;
+            };
+
+            let mut fut = unsafe { Pin::new_unchecked(&mut fut) };
+            _ = fut.poll_unpin(&mut Context::from_waker(&NOOP_WAKER));
+        }
+
+        static VTABLE: RawWakerVTable = RawWakerVTable::new(|ptr| RawWaker::new(ptr, &VTABLE), wake, wake, |_| {});
+
+        let raw_waker = RawWaker::new(&mutex as *const Mutex<NoopRawMutex, i32> as *const _, &VTABLE);
+        let waker = unsafe { Waker::from_raw(raw_waker) };
+        let mut cx = Context::from_waker(&waker);
+
+        let mut fut = unsafe { Pin::new_unchecked(&mut fut) };
+        loop {
+            if let Poll::Ready(_) = fut.as_mut().poll(&mut cx) {
+                break;
+            }
+        }
     }
 }
