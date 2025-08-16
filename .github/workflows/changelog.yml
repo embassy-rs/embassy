@@ -45,6 +45,8 @@ jobs:
             - 'embassy-executor/**'
             embassy-executor-macros:
             - 'embassy-executor-macros/**'
+            embassy-executor-timer-queue:
+            - 'embassy-executor-timer-queue/**'
             embassy-futures:
             - 'embassy-futures/**'
             embassy-imxrt:
@@ -162,6 +164,13 @@ jobs:
           changeLogPath: embassy-executor-macros/CHANGELOG.md
           skipLabels: "skip-changelog"
           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-executor-macros/CHANGELOG.md file."
+      - name: Check that changelog updated (embassy-executor-timer-queue)
+        if: steps.changes.outputs.embassy-executor-timer-queue == 'true'
+        uses: dangoslen/changelog-enforcer@v3
+        with:
+          changeLogPath: embassy-executor-timer-queue/CHANGELOG.md
+          skipLabels: "skip-changelog"
+          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-executor-timer-queue/CHANGELOG.md file."
       - name: Check that changelog updated (embassy-futures)
         if: steps.changes.outputs.embassy-futures == 'true'
         uses: dangoslen/changelog-enforcer@v3
