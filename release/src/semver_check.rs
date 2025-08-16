@@ -13,6 +13,9 @@ pub fn minimum_update(krate: &Crate) -> Result<ReleaseType, anyhow::Error> {
     let package_name = krate.name.clone();
     let current_path = build_doc_json(krate, config)?;
 
+    // TODO: Prevent compiler panic on current compiler version
+    std::env::set_var("RUSTFLAGS", "--cap-lints=warn");
+
     let baseline = Rustdoc::from_registry_latest_crate_version();
     let doc = Rustdoc::from_path(&current_path);
     let mut semver_check = Check::new(doc);

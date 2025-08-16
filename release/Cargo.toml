@@ -21,6 +21,7 @@ flate2 = "1.1.1"
 
 [patch.crates-io]
 cargo-semver-checks = { git = "https://github.com/lulf/cargo-semver-checks.git", rev="385f274edcbb6bf5156e30a94315852b27a527e6" }
+#cargo-semver-checks = { path = "../../cargo-semver-checks" }
 
 [package.metadata.embassy]
 skip = true
