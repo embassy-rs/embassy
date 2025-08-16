@@ -5,7 +5,6 @@ use std::process::Command as ProcessCommand;
 
 use anyhow::{anyhow, bail, Result};
 use clap::{Parser, Subcommand};
-use log::info;
 use petgraph::graph::{Graph, NodeIndex};
 use petgraph::visit::Bfs;
 use petgraph::{Directed, Direction};
