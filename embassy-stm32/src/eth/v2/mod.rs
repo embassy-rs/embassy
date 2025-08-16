@@ -65,19 +65,19 @@ macro_rules! config_pins {
 
 impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     /// Create a new RMII ethernet driver using 9 pins.
-    pub fn new<const TX: usize, const RX: usize>(
+    pub fn new<const TX: usize, const RX: usize, A>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::ETH, InterruptHandler> + 'd,
-        ref_clk: Peri<'d, impl RefClkPin<T>>,
-        mdio: Peri<'d, impl MDIOPin<T>>,
-        mdc: Peri<'d, impl MDCPin<T>>,
-        crs: Peri<'d, impl CRSPin<T>>,
-        rx_d0: Peri<'d, impl RXD0Pin<T>>,
-        rx_d1: Peri<'d, impl RXD1Pin<T>>,
-        tx_d0: Peri<'d, impl TXD0Pin<T>>,
-        tx_d1: Peri<'d, impl TXD1Pin<T>>,
-        tx_en: Peri<'d, impl TXEnPin<T>>,
+        ref_clk: Peri<'d, impl RefClkPin<T, A>>,
+        mdio: Peri<'d, impl MDIOPin<T, A>>,
+        mdc: Peri<'d, impl MDCPin<T, A>>,
+        crs: Peri<'d, impl CRSPin<T, A>>,
+        rx_d0: Peri<'d, impl RXD0Pin<T, A>>,
+        rx_d1: Peri<'d, impl RXD1Pin<T, A>>,
+        tx_d0: Peri<'d, impl TXD0Pin<T, A>>,
+        tx_d1: Peri<'d, impl TXD1Pin<T, A>>,
+        tx_en: Peri<'d, impl TXEnPin<T, A>>,
         phy: P,
         mac_addr: [u8; 6],
     ) -> Self {
@@ -110,24 +110,24 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     }
 
     /// Create a new MII ethernet driver using 14 pins.
-    pub fn new_mii<const TX: usize, const RX: usize>(
+    pub fn new_mii<const TX: usize, const RX: usize, A>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::ETH, InterruptHandler> + 'd,
-        rx_clk: Peri<'d, impl RXClkPin<T>>,
-        tx_clk: Peri<'d, impl TXClkPin<T>>,
-        mdio: Peri<'d, impl MDIOPin<T>>,
-        mdc: Peri<'d, impl MDCPin<T>>,
-        rxdv: Peri<'d, impl RXDVPin<T>>,
-        rx_d0: Peri<'d, impl RXD0Pin<T>>,
-        rx_d1: Peri<'d, impl RXD1Pin<T>>,
-        rx_d2: Peri<'d, impl RXD2Pin<T>>,
-        rx_d3: Peri<'d, impl RXD3Pin<T>>,
-        tx_d0: Peri<'d, impl TXD0Pin<T>>,
-        tx_d1: Peri<'d, impl TXD1Pin<T>>,
-        tx_d2: Peri<'d, impl TXD2Pin<T>>,
-        tx_d3: Peri<'d, impl TXD3Pin<T>>,
-        tx_en: Peri<'d, impl TXEnPin<T>>,
+        rx_clk: Peri<'d, impl RXClkPin<T, A>>,
+        tx_clk: Peri<'d, impl TXClkPin<T, A>>,
+        mdio: Peri<'d, impl MDIOPin<T, A>>,
+        mdc: Peri<'d, impl MDCPin<T, A>>,
+        rxdv: Peri<'d, impl RXDVPin<T, A>>,
+        rx_d0: Peri<'d, impl RXD0Pin<T, A>>,
+        rx_d1: Peri<'d, impl RXD1Pin<T, A>>,
+        rx_d2: Peri<'d, impl RXD2Pin<T, A>>,
+        rx_d3: Peri<'d, impl RXD3Pin<T, A>>,
+        tx_d0: Peri<'d, impl TXD0Pin<T, A>>,
+        tx_d1: Peri<'d, impl TXD1Pin<T, A>>,
+        tx_d2: Peri<'d, impl TXD2Pin<T, A>>,
+        tx_d3: Peri<'d, impl TXD3Pin<T, A>>,
+        tx_en: Peri<'d, impl TXEnPin<T, A>>,
         phy: P,
         mac_addr: [u8; 6],
     ) -> Self {
