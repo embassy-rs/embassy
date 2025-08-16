@@ -368,19 +368,23 @@ fn main() -> Result<()> {
                 println!("Updating {} from {} -> {}", weight, c.version, newver.to_string());
                 let newver = newver.to_string();
 
-                update_version(&mut c, &newver)?;
-                let c = ctx.crates.get(weight).unwrap();
+                if c.publish {
+                    update_version(&mut c, &newver)?;
+                    let c = ctx.crates.get(weight).unwrap();
 
-                // Update all nodes further down the tree
-                let mut bfs = Bfs::new(&rgraph, node);
-                while let Some(dep_node) = bfs.next(&rgraph) {
-                    let dep_weight = rgraph.node_weight(dep_node).unwrap();
-                    let dep = ctx.crates.get(dep_weight).unwrap();
-                    update_versions(dep, &c.name, &newver)?;
+                    // Update all nodes further down the tree
+                    let mut bfs = Bfs::new(&rgraph, node);
+                    while let Some(dep_node) = bfs.next(&rgraph) {
+                        let dep_weight = rgraph.node_weight(dep_node).unwrap();
+                        let dep = ctx.crates.get(dep_weight).unwrap();
+                        update_versions(dep, &c.name, &newver)?;
+                    }
+
+                    // Update changelog
+                    update_changelog(&ctx.root, &c)?;
+                } else {
+                    update_version(&mut c, &newver)?;
                 }
-
-                // Update changelog
-                update_changelog(&ctx.root, &c)?;
             }
 
             let weight = rgraph.node_weight(*start).unwrap();
