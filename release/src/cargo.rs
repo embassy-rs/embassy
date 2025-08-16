@@ -15,6 +15,12 @@ pub struct Artifact {
 }
 
 /// Execute cargo with the given arguments and from the specified directory.
+pub fn run(args: &[String], cwd: &Path) -> Result<()> {
+    run_with_env::<[(&str, &str); 0], _, _>(args, cwd, [], false)?;
+    Ok(())
+}
+
+/// Execute cargo with the given arguments and from the specified directory.
 pub fn run_with_env<I, K, V>(args: &[String], cwd: &Path, envs: I, capture: bool) -> Result<String>
 where
     I: IntoIterator<Item = (K, V)> + core::fmt::Debug,
