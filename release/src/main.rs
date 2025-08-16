@@ -357,18 +357,18 @@ fn main() -> Result<()> {
                 let weight = rgraph.node_weight(node).unwrap();
                 println!("Preparing {}", weight);
                 let mut c = ctx.crates.get_mut(weight).unwrap();
-                let ver = semver::Version::parse(&c.version)?;
-                let newver = if let Err(_) = check_semver(&c) {
-                    println!("Semver check failed, bumping minor!");
-                    semver::Version::new(ver.major, ver.minor + 1, 0)
-                } else {
-                    semver::Version::new(ver.major, ver.minor, ver.patch + 1)
-                };
-
-                println!("Updating {} from {} -> {}", weight, c.version, newver.to_string());
-                let newver = newver.to_string();
-
                 if c.publish {
+                    let ver = semver::Version::parse(&c.version)?;
+                    let newver = if let Err(_) = check_semver(&c) {
+                        println!("Semver check failed, bumping minor!");
+                        semver::Version::new(ver.major, ver.minor + 1, 0)
+                    } else {
+                        semver::Version::new(ver.major, ver.minor, ver.patch + 1)
+                    };
+
+                    println!("Updating {} from {} -> {}", weight, c.version, newver.to_string());
+                    let newver = newver.to_string();
+
                     update_version(&mut c, &newver)?;
                     let c = ctx.crates.get(weight).unwrap();
 
@@ -382,8 +382,6 @@ fn main() -> Result<()> {
 
                     // Update changelog
                     update_changelog(&ctx.root, &c)?;
-                } else {
-                    update_version(&mut c, &newver)?;
                 }
             }
 
