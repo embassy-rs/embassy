@@ -140,7 +140,7 @@ impl TaskRef {
     /// Safety
     ///
     /// This function must only be called in the context of the integrated timer queue.
-    unsafe fn timer_queue_item(mut self) -> &'static mut TimerQueueItem {
+    pub unsafe fn timer_queue_item(mut self) -> &'static mut TimerQueueItem {
         unsafe { &mut self.ptr.as_mut().timer_queue_item }
     }
 
