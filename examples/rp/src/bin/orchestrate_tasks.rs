@@ -306,7 +306,7 @@ pub async fn usb_power(_spawner: Spawner, r: Vbus) {
 pub async fn vsys_voltage(_spawner: Spawner, r: Vsys) {
     let mut adc = Adc::new(r.adc, Irqs, Config::default());
     let vsys_in = r.pin_29;
-    let mut channel = Channel::new_pin(vsys_in, Pull::None);
+    let mut channel = Channel::new_pin(&adc, vsys_in, Pull::None);
     let sender = EVENT_CHANNEL.sender();
 
     loop {

@@ -23,12 +23,12 @@ async fn main(_spawner: Spawner) {
 
     let mut adc = Adc::new(p.ADC, Irqs, Config::default());
     let mut dma = p.DMA_CH0;
-    let mut pin = Channel::new_pin(p.PIN_26, Pull::Up);
+    let mut pin = Channel::new_pin(&adc, p.PIN_26, Pull::Up);
     let mut pins = [
-        Channel::new_pin(p.PIN_27, Pull::Down),
-        Channel::new_pin(p.PIN_28, Pull::None),
-        Channel::new_pin(p.PIN_29, Pull::Up),
-        Channel::new_temp_sensor(p.ADC_TEMP_SENSOR),
+        Channel::new_pin(&adc, p.PIN_27, Pull::Down),
+        Channel::new_pin(&adc, p.PIN_28, Pull::None),
+        Channel::new_pin(&adc, p.PIN_29, Pull::Up),
+        Channel::new_temp_sensor(&adc, p.ADC_TEMP_SENSOR),
     ];
 
     const BLOCK_SIZE: usize = 100;
