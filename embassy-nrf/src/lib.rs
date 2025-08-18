@@ -82,7 +82,6 @@ pub mod buffered_uarte;
 #[cfg(not(feature = "_nrf51"))]
 pub mod egu;
 pub mod gpio;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(feature = "gpiote")]
 pub mod gpiote;
 #[cfg(not(feature = "_nrf54l"))] // TODO
@@ -118,7 +117,6 @@ pub mod pdm;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(feature = "nrf52840", feature = "nrf9160-s", feature = "nrf9160-ns"))]
 pub mod power;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod ppi;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(
@@ -1085,7 +1083,6 @@ pub fn init(config: config::Config) -> Peripherals {
     }
 
     // Init GPIOTE
-    #[cfg(not(feature = "_nrf54l"))] // TODO
     #[cfg(feature = "gpiote")]
     gpiote::init(config.gpiote_interrupt_priority);
 

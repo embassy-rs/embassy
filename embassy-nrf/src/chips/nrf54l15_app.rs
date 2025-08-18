@@ -206,7 +206,22 @@ pub const EASY_DMA_SIZE: usize = (1 << 16) - 1;
 pub const FLASH_SIZE: usize = 1536 * 1024;
 
 embassy_hal_internal::peripherals! {
-    // GPIO port 0
+    // GPIOTE
+    GPIOTE20_CH0,
+    GPIOTE20_CH1,
+    GPIOTE20_CH2,
+    GPIOTE20_CH3,
+    GPIOTE20_CH4,
+    GPIOTE20_CH5,
+    GPIOTE20_CH6,
+    GPIOTE20_CH7,
+
+    GPIOTE30_CH0,
+    GPIOTE30_CH1,
+    GPIOTE30_CH2,
+    GPIOTE30_CH3,
+
+    // GPIO port P0
     P0_00,
     P0_01,
     P0_02,
@@ -215,7 +230,7 @@ embassy_hal_internal::peripherals! {
     P0_05,
     P0_06,
 
-    // GPIO port 1
+    // GPIO port P1
     P1_00,
     P1_01,
     P1_02,
@@ -234,8 +249,7 @@ embassy_hal_internal::peripherals! {
     P1_15,
     P1_16,
 
-
-    // GPIO port 2
+    // GPIO port P2
     P2_00,
     P2_01,
     P2_02,
@@ -247,6 +261,56 @@ embassy_hal_internal::peripherals! {
     P2_08,
     P2_09,
     P2_10,
+
+    // PPI CHs
+    PPI00_CH0,
+    PPI00_CH1,
+    PPI00_CH2,
+    PPI00_CH3,
+    PPI00_CH4,
+    PPI00_CH5,
+    PPI00_CH6,
+    PPI00_CH7,
+
+    // DPPI10 channels are dedicated to the radio. Do not implement.
+
+    PPI20_CH0,
+    PPI20_CH1,
+    PPI20_CH2,
+    PPI20_CH3,
+    PPI20_CH4,
+    PPI20_CH5,
+    PPI20_CH6,
+    PPI20_CH7,
+    PPI20_CH8,
+    PPI20_CH9,
+    PPI20_CH10,
+    PPI20_CH11,
+    PPI20_CH12,
+    PPI20_CH13,
+    PPI20_CH14,
+    PPI20_CH15,
+
+    PPI30_CH0,
+    PPI30_CH1,
+    PPI30_CH2,
+    PPI30_CH3,
+
+    // PPI GROUPs
+    PPI00_GROUP0,
+    PPI00_GROUP1,
+
+    // DPPI10 groups are dedicated to the radio. Do not implement.
+
+    PPI20_GROUP0,
+    PPI20_GROUP1,
+    PPI20_GROUP2,
+    PPI20_GROUP3,
+    PPI20_GROUP4,
+    PPI20_GROUP5,
+
+    PPI30_GROUP0,
+    PPI30_GROUP1,
 
     #[cfg(feature = "_s")]
     // RRAMC
@@ -301,6 +365,60 @@ impl_pin!(P2_07, 2, 7);
 impl_pin!(P2_08, 2, 8);
 impl_pin!(P2_09, 2, 9);
 impl_pin!(P2_10, 2, 10);
+
+// DPPI00 channels
+impl_ppi_channel!(PPI00_CH0, pac::DPPIC00, 0 => configurable);
+impl_ppi_channel!(PPI00_CH1, pac::DPPIC00, 1 => configurable);
+impl_ppi_channel!(PPI00_CH2, pac::DPPIC00, 2 => configurable);
+impl_ppi_channel!(PPI00_CH3, pac::DPPIC00, 3 => configurable);
+impl_ppi_channel!(PPI00_CH4, pac::DPPIC00, 4 => configurable);
+impl_ppi_channel!(PPI00_CH5, pac::DPPIC00, 5 => configurable);
+impl_ppi_channel!(PPI00_CH6, pac::DPPIC00, 6 => configurable);
+impl_ppi_channel!(PPI00_CH7, pac::DPPIC00, 7 => configurable);
+
+// DPPI10 channels are dedicated to the radio. Do not implement.
+
+// DPPI20 channels
+impl_ppi_channel!(PPI20_CH0, pac::DPPIC20, 0 => configurable);
+impl_ppi_channel!(PPI20_CH1, pac::DPPIC20, 1 => configurable);
+impl_ppi_channel!(PPI20_CH2, pac::DPPIC20, 2 => configurable);
+impl_ppi_channel!(PPI20_CH3, pac::DPPIC20, 3 => configurable);
+impl_ppi_channel!(PPI20_CH4, pac::DPPIC20, 4 => configurable);
+impl_ppi_channel!(PPI20_CH5, pac::DPPIC20, 5 => configurable);
+impl_ppi_channel!(PPI20_CH6, pac::DPPIC20, 6 => configurable);
+impl_ppi_channel!(PPI20_CH7, pac::DPPIC20, 7 => configurable);
+impl_ppi_channel!(PPI20_CH8, pac::DPPIC20, 8 => configurable);
+impl_ppi_channel!(PPI20_CH9, pac::DPPIC20, 9 => configurable);
+impl_ppi_channel!(PPI20_CH10, pac::DPPIC20, 10 => configurable);
+impl_ppi_channel!(PPI20_CH11, pac::DPPIC20, 11 => configurable);
+impl_ppi_channel!(PPI20_CH12, pac::DPPIC20, 12 => configurable);
+impl_ppi_channel!(PPI20_CH13, pac::DPPIC20, 13 => configurable);
+impl_ppi_channel!(PPI20_CH14, pac::DPPIC20, 14 => configurable);
+impl_ppi_channel!(PPI20_CH15, pac::DPPIC20, 15 => configurable);
+
+// DPPI30 channels
+impl_ppi_channel!(PPI30_CH0, pac::DPPIC30, 0 => configurable);
+impl_ppi_channel!(PPI30_CH1, pac::DPPIC30, 1 => configurable);
+impl_ppi_channel!(PPI30_CH2, pac::DPPIC30, 2 => configurable);
+impl_ppi_channel!(PPI30_CH3, pac::DPPIC30, 3 => configurable);
+
+// DPPI00 groups
+impl_ppi_group!(PPI00_GROUP0, pac::DPPIC00, 0);
+impl_ppi_group!(PPI00_GROUP1, pac::DPPIC00, 1);
+
+// DPPI10 groups are dedicated to the radio. Do not implement.
+
+// DPPI20 groups
+impl_ppi_group!(PPI20_GROUP0, pac::DPPIC20, 0);
+impl_ppi_group!(PPI20_GROUP1, pac::DPPIC20, 1);
+impl_ppi_group!(PPI20_GROUP2, pac::DPPIC20, 2);
+impl_ppi_group!(PPI20_GROUP3, pac::DPPIC20, 3);
+impl_ppi_group!(PPI20_GROUP4, pac::DPPIC20, 4);
+impl_ppi_group!(PPI20_GROUP5, pac::DPPIC20, 5);
+
+// DPPI30 groups
+impl_ppi_group!(PPI30_GROUP0, pac::DPPIC30, 0);
+impl_ppi_group!(PPI30_GROUP1, pac::DPPIC30, 1);
 
 #[cfg(feature = "_ns")]
 impl_wdt!(WDT, WDT31, WDT31, 0);

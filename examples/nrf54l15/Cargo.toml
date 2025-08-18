@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 embassy-executor = { version = "0.8.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
 embassy-nrf = { version = "0.6.0", path = "../../embassy-nrf", features = ["defmt", "nrf54l15-app-s", "time-driver-rtc1", "gpiote", "unstable-pac", "time"] }
 
