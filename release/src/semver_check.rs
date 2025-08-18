@@ -1,6 +1,11 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
+use std::{env, fs};
 
-use cargo_semver_checks::{Check, GlobalConfig, LintConfig, LintLevel, ReleaseType, RequiredSemverUpdate, Rustdoc};
+use anyhow::anyhow;
+use cargo_semver_checks::{Check, GlobalConfig, ReleaseType, RequiredSemverUpdate, Rustdoc};
+use flate2::read::GzDecoder;
+use tar::Archive;
 
 use crate::cargo::CargoArgsBuilder;
 use crate::types::{BuildConfig, Crate};
@@ -11,12 +16,18 @@ pub fn minimum_update(krate: &Crate) -> Result<ReleaseType, anyhow::Error> {
     let config = krate.configs.first().unwrap(); // TODO
 
     let package_name = krate.name.clone();
+    let baseline_path = download_baseline(&package_name, &krate.version)?;
+    let mut baseline_krate = krate.clone();
+    baseline_krate.path = baseline_path;
+
+    // Compare features as it's not covered by semver-checks
+    if compare_features(&baseline_krate, &krate)? {
+        return Ok(ReleaseType::Minor);
+    }
+    let baseline_path = build_doc_json(&baseline_krate, config)?;
     let current_path = build_doc_json(krate, config)?;
 
-    // TODO: Prevent compiler panic on current compiler version
-    std::env::set_var("RUSTFLAGS", "--cap-lints=warn");
-
-    let baseline = Rustdoc::from_registry_latest_crate_version();
+    let baseline = Rustdoc::from_path(&baseline_path);
     let doc = Rustdoc::from_path(&current_path);
     let mut semver_check = Check::new(doc);
     semver_check.with_default_features();
@@ -29,12 +40,8 @@ pub fn minimum_update(krate: &Crate) -> Result<ReleaseType, anyhow::Error> {
         semver_check.set_build_target(target.clone());
     }
     let mut cfg = GlobalConfig::new();
-    cfg.set_log_level(Some(log::Level::Trace));
+    cfg.set_log_level(Some(log::Level::Info));
 
-    let mut lint_cfg = LintConfig::new();
-    // Disable this lint because we provide the rustdoc json only, so it can't do feature comparison.
-    lint_cfg.set("feature_missing", LintLevel::Allow, RequiredSemverUpdate::Minor, 0);
-    cfg.set_lint_config(lint_cfg);
     let result = semver_check.check_release(&mut cfg)?;
 
     let mut min_required_update = ReleaseType::Patch;
@@ -51,7 +58,71 @@ pub fn minimum_update(krate: &Crate) -> Result<ReleaseType, anyhow::Error> {
     Ok(min_required_update)
 }
 
-pub(crate) fn build_doc_json(krate: &Crate, config: &BuildConfig) -> Result<PathBuf, anyhow::Error> {
+fn compare_features(old: &Crate, new: &Crate) -> Result<bool, anyhow::Error> {
+    let mut old = read_features(&old.path)?;
+    let new = read_features(&new.path)?;
+
+    old.retain(|r| !new.contains(r));
+    log::info!("Features removed in new: {:?}", old);
+    Ok(!old.is_empty())
+}
+
+fn download_baseline(name: &str, version: &str) -> Result<PathBuf, anyhow::Error> {
+    let config = crates_index::IndexConfig {
+        dl: "https://crates.io/api/v1/crates".to_string(),
+        api: Some("https://crates.io".to_string()),
+    };
+
+    let url =
+        config
+            .download_url(name, version)
+            .ok_or(anyhow!("unable to download baseline for {}-{}", name, version))?;
+
+    let parent_dir = env::var("RELEASER_CACHE").map_err(|_| anyhow!("RELEASER_CACHE not set"))?;
+
+    let extract_path = PathBuf::from(&parent_dir).join(format!("{}-{}", name, version));
+
+    if extract_path.exists() {
+        return Ok(extract_path);
+    }
+
+    let response = reqwest::blocking::get(url)?;
+    let bytes = response.bytes()?;
+
+    let decoder = GzDecoder::new(&bytes[..]);
+    let mut archive = Archive::new(decoder);
+    archive.unpack(&parent_dir)?;
+
+    Ok(extract_path)
+}
+
+fn read_features(crate_path: &PathBuf) -> Result<HashSet<String>, anyhow::Error> {
+    let cargo_toml_path = crate_path.join("Cargo.toml");
+
+    if !cargo_toml_path.exists() {
+        return Err(anyhow!("Cargo.toml not found at {:?}", cargo_toml_path));
+    }
+
+    let manifest = cargo_manifest::Manifest::from_path(&cargo_toml_path)?;
+
+    let mut set = HashSet::new();
+    if let Some(features) = manifest.features {
+        for f in features.keys() {
+            set.insert(f.clone());
+        }
+    }
+    if let Some(deps) = manifest.dependencies {
+        for (k, v) in deps.iter() {
+            if v.optional() {
+                set.insert(k.clone());
+            }
+        }
+    }
+
+    Ok(set)
+}
+
+fn build_doc_json(krate: &Crate, config: &BuildConfig) -> Result<PathBuf, anyhow::Error> {
     let target_dir = std::env::var("CARGO_TARGET_DIR");
 
     let target_path = if let Ok(target) = target_dir {
