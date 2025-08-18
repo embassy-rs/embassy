@@ -1,9 +1,9 @@
 use std::collections::HashSet;
+use std::env;
 use std::path::PathBuf;
-use std::{env, fs};
 
 use anyhow::anyhow;
-use cargo_semver_checks::{Check, GlobalConfig, ReleaseType, RequiredSemverUpdate, Rustdoc};
+use cargo_semver_checks::{Check, GlobalConfig, ReleaseType, Rustdoc};
 use flate2::read::GzDecoder;
 use tar::Archive;
 

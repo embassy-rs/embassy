@@ -396,7 +396,9 @@ fn main() -> Result<()> {
             while let Some(node) = bfs.next(&rgraph) {
                 let weight = rgraph.node_weight(node).unwrap();
                 let c = ctx.crates.get(weight).unwrap();
-                println!("git tag {}-v{}", weight, c.version);
+                if c.publish {
+                    println!("git tag {}-v{}", weight, c.version);
+                }
             }
 
             println!("");
@@ -414,8 +416,10 @@ fn main() -> Result<()> {
                 ];
 
                 let config = c.configs.first().unwrap(); // TODO
-                args.push("--features".into());
-                args.push(config.features.join(","));
+                if !config.features.is_empty() {
+                    args.push("--features".into());
+                    args.push(config.features.join(","));
+                }
 
                 if let Some(target) = &config.target {
                     args.push("--target".into());
@@ -428,7 +432,9 @@ fn main() -> Result<()> {
 
                 println!("cargo {}", dry_run.join(" "));
                 */
-                println!("cargo {}", args.join(" "));
+                if c.publish {
+                    println!("cargo {}", args.join(" "));
+                }
             }
 
             println!("");
