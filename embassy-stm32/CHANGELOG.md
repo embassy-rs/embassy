@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - fix: Fix vrefbuf building with log feature
+- feat: Add RingBuffer, ReadableRingBuffer, and WritableRingBuffer for GPDMA
+- fix: Add GPDMA support for SAI ([#4565](https://github.com/embassy-rs/embassy/pull/4565))
 
 ## 0.3.0 - 2025-08-12
 

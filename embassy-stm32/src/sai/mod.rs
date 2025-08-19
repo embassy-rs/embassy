@@ -1,13 +1,11 @@
 //! Serial Audio Interface (SAI)
 #![macro_use]
-#![cfg_attr(gpdma, allow(unused))]
 
 use core::marker::PhantomData;
 
 use embassy_hal_internal::PeripheralType;
 
 pub use crate::dma::word;
-#[cfg(not(gpdma))]
 use crate::dma::{ringbuffer, Channel, ReadableRingBuffer, Request, TransferOptions, WritableRingBuffer};
 use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::pac::sai::{vals, Sai as Regs};
@@ -26,7 +24,6 @@ pub enum Error {
     Overrun,
 }
 
-#[cfg(not(gpdma))]
 impl From<ringbuffer::Error> for Error {
     fn from(#[allow(unused)] err: ringbuffer::Error) -> Self {
         #[cfg(feature = "defmt")]
@@ -649,8 +646,6 @@ impl Config {
         return Default::default();
     }
 }
-
-#[cfg(not(gpdma))]
 enum RingBuffer<'d, W: word::Word> {
     Writable(WritableRingBuffer<'d, W>),
     Readable(ReadableRingBuffer<'d, W>),
@@ -677,7 +672,6 @@ fn get_af_types(mode: Mode, tx_rx: TxRx) -> (AfType, AfType) {
     )
 }
 
-#[cfg(not(gpdma))]
 fn get_ring_buffer<'d, T: Instance, W: word::Word>(
     dma: Peri<'d, impl Channel>,
     dma_buf: &'d mut [W],
@@ -685,11 +679,8 @@ fn get_ring_buffer<'d, T: Instance, W: word::Word>(
     sub_block: WhichSubBlock,
     tx_rx: TxRx,
 ) -> RingBuffer<'d, W> {
-    let opts = TransferOptions {
-        half_transfer_ir: true,
-        //the new_write() and new_read() always use circular mode
-        ..Default::default()
-    };
+    // GPDMA v1 `TransferOptions` currently has no configurable fields; circular + interrupts are handled internally.
+    let opts: TransferOptions = Default::default();
     match tx_rx {
         TxRx::Transmitter => RingBuffer::Writable(unsafe {
             WritableRingBuffer::new(dma, request, dr(T::REGS, sub_block), dma_buf, opts)
@@ -748,14 +739,10 @@ pub struct Sai<'d, T: Instance, W: word::Word> {
     fs: Option<Peri<'d, AnyPin>>,
     sck: Option<Peri<'d, AnyPin>>,
     mclk: Option<Peri<'d, AnyPin>>,
-    #[cfg(gpdma)]
-    ring_buffer: PhantomData<W>,
-    #[cfg(not(gpdma))]
     ring_buffer: RingBuffer<'d, W>,
     sub_block: WhichSubBlock,
 }
 
-#[cfg(not(gpdma))]
 impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     /// Create a new SAI driver in asynchronous mode with MCLK.
     ///
