@@ -59,6 +59,11 @@ impl Header {
         &self.id
     }
 
+    /// Get mutable reference to ID
+    pub fn id_mut(&mut self) -> &mut embedded_can::Id {
+        &mut self.id
+    }
+
     /// Return length as u8
     pub fn len(&self) -> u8 {
         self.len
@@ -205,6 +210,11 @@ impl Frame {
     /// Return ID
     pub fn id(&self) -> &embedded_can::Id {
         &self.can_header.id
+    }
+
+    /// Get mutable reference to ID
+    pub fn id_mut(&mut self) -> &mut embedded_can::Id {
+        &mut self.can_header.id
     }
 
     /// Get reference to data

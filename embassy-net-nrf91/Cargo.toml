@@ -21,7 +21,7 @@ nrf-pac = "0.1.0"
 cortex-m = "0.7.7"
 
 embassy-time = { version = "0.4.0", path = "../embassy-time" }
-embassy-sync = { version = "0.7.0", path = "../embassy-sync" }
+embassy-sync = { version = "0.7.1", path = "../embassy-sync" }
 embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
 embassy-net-driver-channel = { version = "0.3.1", path = "../embassy-net-driver-channel" }
 

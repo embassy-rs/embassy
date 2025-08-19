@@ -57,6 +57,14 @@ impl<T, F: FnOnce() -> T> LazyLock<T, F> {
         unsafe { &(*self.data.get()).value }
     }
 
+    /// Get a mutable reference to the underlying value, initializing it if it
+    /// has not been done already.
+    #[inline]
+    pub fn get_mut(&mut self) -> &mut T {
+        self.ensure_init_fast();
+        unsafe { &mut (*self.data.get()).value }
+    }
+
     /// Consume the `LazyLock`, returning the underlying value. The
     /// initialization function will be called if it has not been
     /// already.
@@ -120,6 +128,13 @@ mod tests {
         static VALUE: LazyLock<u32> = LazyLock::new(|| 20);
         let reference = VALUE.get();
         assert_eq!(reference, &20);
+    }
+    #[test]
+    fn test_lazy_lock_mutation() {
+        let mut value: LazyLock<u32> = LazyLock::new(|| 20);
+        *value.get_mut() = 21;
+        let reference = value.get();
+        assert_eq!(reference, &21);
     }
     #[test]
     fn test_lazy_lock_into_inner() {

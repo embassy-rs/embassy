@@ -158,7 +158,6 @@ impl<'d> I2c<'d, Async, Master> {
             + 'd,
         tx_dma: Peri<'d, impl TxDma<T>>,
         rx_dma: Peri<'d, impl RxDma<T>>,
-        freq: Hertz,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -167,7 +166,6 @@ impl<'d> I2c<'d, Async, Master> {
             new_pin!(sda, config.sda_af()),
             new_dma!(tx_dma),
             new_dma!(rx_dma),
-            freq,
             config,
         )
     }
@@ -179,7 +177,6 @@ impl<'d> I2c<'d, Blocking, Master> {
         peri: Peri<'d, T>,
         scl: Peri<'d, impl SclPin<T>>,
         sda: Peri<'d, impl SdaPin<T>>,
-        freq: Hertz,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -188,7 +185,6 @@ impl<'d> I2c<'d, Blocking, Master> {
             new_pin!(sda, config.sda_af()),
             None,
             None,
-            freq,
             config,
         )
     }
@@ -202,7 +198,6 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
         sda: Option<Peri<'d, AnyPin>>,
         tx_dma: Option<ChannelAndRequest<'d>>,
         rx_dma: Option<ChannelAndRequest<'d>>,
-        freq: Hertz,
         config: Config,
     ) -> Self {
         unsafe { T::EventInterrupt::enable() };
@@ -224,14 +219,14 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
                 sda,
             },
         };
-        this.enable_and_init(freq, config);
+        this.enable_and_init(config);
 
         this
     }
 
-    fn enable_and_init(&mut self, freq: Hertz, config: Config) {
+    fn enable_and_init(&mut self, config: Config) {
         self.info.rcc.enable_and_reset();
-        self.init(freq, config);
+        self.init(config);
     }
 }
 

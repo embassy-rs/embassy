@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 cortex-m-rt = "0.7"
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
-embassy-stm32 = { version = "0.2.0", path = "../../../../embassy-stm32", features = ["stm32l475vg", "memory-x"] }
+embassy-stm32 = { version = "0.3.0", path = "../../../../embassy-stm32", features = ["stm32l475vg", "memory-x"] }
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"

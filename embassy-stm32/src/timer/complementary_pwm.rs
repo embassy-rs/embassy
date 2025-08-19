@@ -2,7 +2,7 @@
 
 use core::marker::PhantomData;
 
-use stm32_metapac::timer::vals::Ckd;
+pub use stm32_metapac::timer::vals::{Ckd, Ossi, Ossr};
 
 use super::low_level::{CountingMode, OutputPolarity, Timer};
 use super::simple_pwm::PwmPin;
@@ -43,6 +43,15 @@ pub struct ComplementaryPwm<'d, T: AdvancedInstance4Channel> {
     inner: Timer<'d, T>,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+/// Determines which outputs are active when PWM is in idle mode
+pub enum IdlePolarity {
+    /// Normal channels are forced active and complementary channels are forced inactive
+    OisActive,
+    /// Normal channels are forced inactive and complementary channels are forced active
+    OisnActive,
+}
+
 impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Create a new complementary PWM driver.
     #[allow(clippy::too_many_arguments)]
@@ -80,6 +89,50 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         this.inner.set_autoreload_preload(true);
 
         this
+    }
+
+    /// Sets the idle output state for the given channels.
+    pub fn set_output_idle_state(&mut self, channels: &[Channel], polarity: IdlePolarity) {
+        let ois_active = matches!(polarity, IdlePolarity::OisActive);
+        for &channel in channels {
+            self.inner.set_ois(channel, ois_active);
+            self.inner.set_oisn(channel, !ois_active);
+        }
+    }
+
+    /// Set state of OSSI-bit in BDTR register
+    pub fn set_off_state_selection_idle(&mut self, val: Ossi) {
+        self.inner.set_ossi(val);
+    }
+
+    /// Get state of OSSI-bit in BDTR register
+    pub fn get_off_state_selection_idle(&self) -> Ossi {
+        self.inner.get_ossi()
+    }
+
+    /// Set state of OSSR-bit in BDTR register
+    pub fn set_off_state_selection_run(&mut self, val: Ossr) {
+        self.inner.set_ossr(val);
+    }
+
+    /// Get state of OSSR-bit in BDTR register
+    pub fn get_off_state_selection_run(&self) -> Ossr {
+        self.inner.get_ossr()
+    }
+
+    /// Trigger break input from software
+    pub fn trigger_software_break(&mut self, n: usize) {
+        self.inner.trigger_software_break(n);
+    }
+
+    /// Set Master Output Enable
+    pub fn set_master_output_enable(&mut self, enable: bool) {
+        self.inner.set_moe(enable);
+    }
+
+    /// Get Master Output Enable
+    pub fn get_master_output_enable(&self) -> bool {
+        self.inner.get_moe()
     }
 
     /// Enable the given channel.
