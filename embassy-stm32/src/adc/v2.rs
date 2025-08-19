@@ -233,12 +233,12 @@ where
             });
         */
 
-    pub fn seq_reader<'reader, 'func, RX_DMA: RxDma<T>>(
+    pub fn seq_reader<'reader, 'func, RXDMA: RxDma<T>>(
         &'reader mut self,
-        rx_dma: Peri<'reader, RX_DMA>,
+        rx_dma: Peri<'reader, RXDMA>,
         sequence: impl ExactSizeIterator<Item = (&'func mut AnyAdcChannel<T>, SampleTime)>,
         readings: &'reader mut [u16],
-    ) -> Result<SeqReader<'reader, 'd, T, RX_DMA>, ()> {
+    ) -> Result<SeqReader<'reader, 'd, T, RXDMA>, ()> {
         if !self.is_on() {
             self.turn(true);
         }
@@ -428,15 +428,15 @@ where
     }
 }
 
-pub struct SeqReader<'a, 'd, T: Instance, RX_DMA: RxDma<T>> {
-    adc: &'a mut Adc<'d, T>,
+pub struct SeqReader<'a, 'd, T: Instance, RXDMA: RxDma<T>> {
+    _adc: &'a mut Adc<'d, T>,
     buf: &'a mut [u16],
-    rx_dma: Peri<'a, RX_DMA>,
+    rx_dma: Peri<'a, RXDMA>,
 }
 
-impl<'a, 'd, T: Instance, RX_DMA: RxDma<T>> SeqReader<'a, 'd, T, RX_DMA> {
-    fn new(adc: &'a mut Adc<'d, T>, buf: &'a mut [u16], rx_dma: Peri<'a, RX_DMA>) -> Self {
-        Self { adc, buf, rx_dma }
+impl<'a, 'd, T: Instance, RXDMA: RxDma<T>> SeqReader<'a, 'd, T, RXDMA> {
+    fn new(adc: &'a mut Adc<'d, T>, buf: &'a mut [u16], rx_dma: Peri<'a, RXDMA>) -> Self {
+        Self { _adc: adc, buf, rx_dma }
     }
 
     pub async fn read(&mut self) -> Result<&[u16], ()> {
