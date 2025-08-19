@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use defmt::panic;
+use defmt::{info, panic};
 use embassy_executor::Spawner;
 use embassy_stm32::sai::*;
 use embassy_stm32::Config;
@@ -103,6 +103,8 @@ async fn main(_spawner: Spawner) {
     sai_receiver.start().unwrap();
 
     let mut buf = [0u32; HALF_DMA_BUFFER_LENGTH];
+
+    info!("setup SAI!");
 
     loop {
         // write() must be called before read() to start the master (transmitter)
