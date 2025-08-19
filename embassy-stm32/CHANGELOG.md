@@ -8,9 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- fix: stm32/i2c: pull-down was enabled instead of pull-none when no internal pull-up was needed.
+- feat: Improve blocking hash speed
 - fix: Fix vrefbuf building with log feature
 - feat: Add RingBuffer, ReadableRingBuffer, and WritableRingBuffer for GPDMA
-- fix: Add GPDMA support for SAI ([#4565](https://github.com/embassy-rs/embassy/pull/4565))
+- fix: Add GPDMA support for SAI
+- fix: Fix performing a hash after performing a hmac
+- chore: Updated stm32-metapac and stm32-data dependencies
 
 ## 0.3.0 - 2025-08-12
 

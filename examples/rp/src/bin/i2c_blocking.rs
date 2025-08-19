@@ -49,7 +49,11 @@ async fn main(_spawner: Spawner) {
     let scl = p.PIN_15;
 
     info!("set up i2c ");
-    let mut i2c = i2c::I2c::new_blocking(p.I2C1, scl, sda, Config::default());
+    let mut config = Config::default();
+    // by default internal pullup resitors are disabled
+    config.sda_pullup = true;
+    config.scl_pullup = true;
+    let mut i2c = i2c::I2c::new_blocking(p.I2C1, scl, sda, config);
 
     use mcp23017::*;
 

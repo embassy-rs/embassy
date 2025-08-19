@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## Unreleased - ReleaseDate
+- add `i2c` internal pullup options ([#4564](https://github.com/embassy-rs/embassy/pull/4564))
 
 ## 0.7.0 - 2025-08-04
 
