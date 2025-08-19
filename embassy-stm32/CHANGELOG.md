@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - fix: Fix vrefbuf building with log feature
+- fix: stm32/i2c: pull-down was enabled instead of pull-none when no internal pull-up was needed.
 
 ## 0.3.0 - 2025-08-12
 
