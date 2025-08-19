@@ -79,8 +79,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             frequency: 100_000,
-            sda_pullup: false,
-            scl_pullup: false,
+            sda_pullup: true,
+            scl_pullup: true,
         }
     }
 }

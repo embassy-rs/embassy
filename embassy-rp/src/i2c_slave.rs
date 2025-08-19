@@ -82,8 +82,8 @@ impl Default for Config {
         Self {
             addr: 0x55,
             general_call: true,
-            sda_pullup: false,
-            scl_pullup: false,
+            sda_pullup: true,
+            scl_pullup: true,
         }
     }
 }
