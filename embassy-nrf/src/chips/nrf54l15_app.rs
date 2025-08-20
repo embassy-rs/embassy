@@ -199,14 +199,14 @@ pub mod pac {
 
 /// The maximum buffer size that the EasyDMA can send/recv in one operation.
 pub const EASY_DMA_SIZE: usize = (1 << 16) - 1;
-//pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
+pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 
 // 1.5 MB NVM
 #[allow(unused)]
 pub const FLASH_SIZE: usize = 1536 * 1024;
 
 embassy_hal_internal::peripherals! {
-    // GPIO port 0
+    // GPIO port P0
     P0_00,
     P0_01,
     P0_02,
@@ -215,7 +215,7 @@ embassy_hal_internal::peripherals! {
     P0_05,
     P0_06,
 
-    // GPIO port 1
+    // GPIO port P1
     P1_00,
     P1_01,
     P1_02,
@@ -234,8 +234,7 @@ embassy_hal_internal::peripherals! {
     P1_15,
     P1_16,
 
-
-    // GPIO port 2
+    // GPIO port P2
     P2_00,
     P2_01,
     P2_02,
@@ -254,6 +253,13 @@ embassy_hal_internal::peripherals! {
 
     // TEMP
     TEMP,
+
+    // TWI/SPI
+    SPI00,
+    TWISPI20,
+    TWISPI21,
+    TWISPI22,
+    TWISPI30,
 
     // WDT
     #[cfg(feature = "_ns")]
@@ -301,6 +307,20 @@ impl_pin!(P2_07, 2, 7);
 impl_pin!(P2_08, 2, 8);
 impl_pin!(P2_09, 2, 9);
 impl_pin!(P2_10, 2, 10);
+
+// SPIM
+impl_spim!(SPI00, SPIM00, SERIAL00);
+impl_spim!(TWISPI20, SPIM20, SERIAL20);
+impl_spim!(TWISPI21, SPIM21, SERIAL21);
+impl_spim!(TWISPI22, SPIM22, SERIAL22);
+impl_spim!(TWISPI30, SPIM30, SERIAL30);
+
+// SPIS
+impl_spis!(SPI00, SPIS00, SERIAL00);
+impl_spis!(TWISPI20, SPIS20, SERIAL20);
+impl_spis!(TWISPI21, SPIS21, SERIAL21);
+impl_spis!(TWISPI22, SPIS22, SERIAL22);
+impl_spis!(TWISPI30, SPIS30, SERIAL30);
 
 #[cfg(feature = "_ns")]
 impl_wdt!(WDT, WDT31, WDT31, 0);
