@@ -13,6 +13,9 @@ use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
+#[cfg(feature = "_nrf54l")]
+pub use pac::spim::vals::Order as BitOrder;
+#[cfg(not(feature = "_nrf54l"))]
 pub use pac::spim::vals::{Frequency, Order as BitOrder};
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
@@ -36,8 +39,16 @@ pub enum Error {
 #[non_exhaustive]
 #[derive(Clone)]
 pub struct Config {
+    #[cfg(not(feature = "_nrf54l"))]
     /// Frequency
     pub frequency: Frequency,
+
+    #[cfg(feature = "_nrf54l")]
+    /// The prescaler is used to set the SPI frequency. The frequency is `core_clock/prescaler`.
+    /// The core_clock in the MCU PD is 128 MHz. In the PERI and LP PDs, it is 16 MHz. The
+    /// prescaler must be an *even* value in the range [4,126] for the MCD PD and [2,126] for the
+    /// PERI and LP PDs.
+    pub prescaler: u8,
 
     /// SPI mode
     pub mode: Mode,
@@ -58,10 +69,27 @@ pub struct Config {
     pub mosi_drive: OutputDrive,
 }
 
+#[cfg(not(feature = "_nrf54l"))]
+/// SPIM configuration error
+pub type ConfigError = ();
+
+#[cfg(feature = "_nrf54l")]
+/// SPIM configuration error
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum ConfigError {
+    /// Invalid prescaler
+    InvalidPrescaler(u8),
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
+            #[cfg(not(feature = "_nrf54l"))]
             frequency: Frequency::M1,
+            #[cfg(feature = "_nrf54l")]
+            prescaler: 16, // 8 MHz in MCU PD and 1 MHz in PERI and LP PDs
             mode: MODE_0,
             bit_order: BitOrder::MSB_FIRST,
             orc: 0x00,
@@ -230,13 +258,29 @@ impl<'d, T: Instance> Spim<'d, T> {
 
         // Set up the DMA read.
         let (rx_ptr, rx_len) = xfer_params(rx as *mut u8 as _, rx.len() as _, offset, length);
-        r.rxd().ptr().write_value(rx_ptr);
-        r.rxd().maxcnt().write(|w| w.set_maxcnt(rx_len as _));
+        #[cfg(not(feature = "_nrf54l"))]
+        {
+            r.rxd().ptr().write_value(rx_ptr);
+            r.rxd().maxcnt().write(|w| w.set_maxcnt(rx_len as _));
+        }
+        #[cfg(feature = "_nrf54l")]
+        {
+            r.dma().rx().ptr().write_value(rx_ptr);
+            r.dma().rx().maxcnt().write(|w| w.set_maxcnt(rx_len as _));
+        }
 
         // Set up the DMA write.
         let (tx_ptr, tx_len) = xfer_params(tx as *const u8 as _, tx.len() as _, offset, length);
-        r.txd().ptr().write_value(tx_ptr);
-        r.txd().maxcnt().write(|w| w.set_maxcnt(tx_len as _));
+        #[cfg(not(feature = "_nrf54l"))]
+        {
+            r.txd().ptr().write_value(tx_ptr);
+            r.txd().maxcnt().write(|w| w.set_maxcnt(tx_len as _));
+        }
+        #[cfg(feature = "_nrf54l")]
+        {
+            r.dma().tx().ptr().write_value(tx_ptr);
+            r.dma().tx().maxcnt().write(|w| w.set_maxcnt(tx_len as _));
+        }
 
         /*
         trace!("XFER: offset: {}, length: {}", offset, length);
@@ -601,9 +645,18 @@ impl<'d, T: Instance> embedded_hal_async::spi::SpiBus<u8> for Spim<'d, T> {
 
 impl<'d, T: Instance> SetConfig for Spim<'d, T> {
     type Config = Config;
-    type ConfigError = ();
+    type ConfigError = ConfigError;
     fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
         let r = T::regs();
+
+        #[cfg(feature = "_nrf54l")]
+        {
+            let min = if r.as_ptr() == pac::SPIM00.as_ptr() { 4 } else { 2 };
+            if config.prescaler % 2 != 0 || config.prescaler < min || config.prescaler > 126 {
+                return Err(Self::ConfigError::InvalidPrescaler(config.prescaler));
+            }
+        }
+
         // Configure mode.
         let mode = config.mode;
         r.config().write(|w| {
@@ -629,8 +682,10 @@ impl<'d, T: Instance> SetConfig for Spim<'d, T> {
         });
 
         // Configure frequency.
-        let frequency = config.frequency;
-        r.frequency().write(|w| w.set_frequency(frequency));
+        #[cfg(not(feature = "_nrf54l"))]
+        r.frequency().write(|w| w.set_frequency(config.frequency));
+        #[cfg(feature = "_nrf54l")]
+        r.prescaler().write(|w| w.set_divisor(config.prescaler));
 
         // Set over-read character
         let orc = config.orc;
