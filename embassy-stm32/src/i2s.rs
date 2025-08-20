@@ -72,7 +72,7 @@ impl From<ringbuffer::Error> for Error {
 }
 
 impl Standard {
-    #[cfg(any(spi_v1, spi_v3, spi_f1))]
+    #[cfg(any(spi_v1, spi_v2, spi_v3, spi_f1))]
     const fn i2sstd(&self) -> vals::I2sstd {
         match self {
             Standard::Philips => vals::I2sstd::PHILIPS,
@@ -83,7 +83,7 @@ impl Standard {
         }
     }
 
-    #[cfg(any(spi_v1, spi_v3, spi_f1))]
+    #[cfg(any(spi_v1, spi_v2, spi_v3, spi_f1))]
     const fn pcmsync(&self) -> vals::Pcmsync {
         match self {
             Standard::PcmLongSync => vals::Pcmsync::LONG,
@@ -106,7 +106,7 @@ pub enum Format {
 }
 
 impl Format {
-    #[cfg(any(spi_v1, spi_v3, spi_f1))]
+    #[cfg(any(spi_v1, spi_v2, spi_v3, spi_f1))]
     const fn datlen(&self) -> vals::Datlen {
         match self {
             Format::Data16Channel16 => vals::Datlen::BITS16,
@@ -116,7 +116,7 @@ impl Format {
         }
     }
 
-    #[cfg(any(spi_v1, spi_v3, spi_f1))]
+    #[cfg(any(spi_v1, spi_v2, spi_v3, spi_f1))]
     const fn chlen(&self) -> vals::Chlen {
         match self {
             Format::Data16Channel16 => vals::Chlen::BITS16,
@@ -137,7 +137,7 @@ pub enum ClockPolarity {
 }
 
 impl ClockPolarity {
-    #[cfg(any(spi_v1, spi_v3, spi_f1))]
+    #[cfg(any(spi_v1, spi_v2, spi_v3, spi_f1))]
     const fn ckpol(&self) -> vals::Ckpol {
         match self {
             ClockPolarity::IdleHigh => vals::Ckpol::IDLE_HIGH,
@@ -492,12 +492,11 @@ impl<'d, W: Word> I2S<'d, W> {
 
         let (odd, div) = compute_baud_rate(pclk, config.frequency, config.master_clock, config.format);
 
-        #[cfg(any(spi_v1, spi_v3, spi_f1))]
+        #[cfg(any(spi_v1, spi_v2, spi_v3, spi_f1))]
         {
             #[cfg(spi_v3)]
             {
                 regs.cr1().modify(|w| w.set_spe(false));
-
                 reset_incompatible_bitfields::<T>();
             }
 
@@ -525,7 +524,7 @@ impl<'d, W: Word> I2S<'d, W> {
             // 5. The I2SE bit in SPI_I2SCFGR register must be set.
 
             let clk_reg = {
-                #[cfg(any(spi_v1, spi_f1))]
+                #[cfg(any(spi_v1, spi_v2, spi_f1))]
                 {
                     regs.i2spr()
                 }
@@ -567,7 +566,7 @@ impl<'d, W: Word> I2S<'d, W> {
                     (Mode::Slave, Function::FullDuplex) => I2scfg::SLAVE_FULL_DUPLEX,
                 });
 
-                #[cfg(any(spi_v1, spi_f1))]
+                #[cfg(any(spi_v1, spi_v2, spi_f1))]
                 w.set_i2se(true);
             });
 
