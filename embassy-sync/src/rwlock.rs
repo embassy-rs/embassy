@@ -16,6 +16,7 @@ use crate::waitqueue::WakerRegistration;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TryLockError;
 
+#[derive(Debug)]
 struct State {
     readers: usize,
     writer: bool,
