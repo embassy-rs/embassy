@@ -983,7 +983,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         self.with_paused(|sm| {
             for pin in pins {
                 Self::this_sm().pinctrl().write(|w| {
-                    w.set_set_base(pin.pin());
+                    w.set_set_base(pin.pin() - if PIO::PIO.gpiobase().read().gpiobase() { 16 } else { 0 });
                     w.set_set_count(1);
                 });
                 // SET PINDIRS, (dir)
@@ -998,7 +998,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         self.with_paused(|sm| {
             for pin in pins {
                 Self::this_sm().pinctrl().write(|w| {
-                    w.set_set_base(pin.pin());
+                    w.set_set_base(pin.pin() - if PIO::PIO.gpiobase().read().gpiobase() { 16 } else { 0 });
                     w.set_set_count(1);
                 });
                 // SET PINS, (dir)
@@ -1361,6 +1361,7 @@ impl<'d, PIO: Instance> Pio<'d, PIO> {
         PIO::state().users.store(5, Ordering::Release);
         PIO::state().used_pins.store(0, Ordering::Release);
         PIO::Interrupt::unpend();
+
         unsafe { PIO::Interrupt::enable() };
         Self {
             common: Common {
