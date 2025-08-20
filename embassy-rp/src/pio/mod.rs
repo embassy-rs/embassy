@@ -977,13 +977,27 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         self.set_enable(enabled);
     }
 
+    #[cfg(feature = "rp2040")]
+    fn pin_base() -> u8 {
+        0
+    }
+
+    #[cfg(feature = "_rp235x")]
+    fn pin_base() -> u8 {
+        if PIO::PIO.gpiobase().read().gpiobase() {
+            16
+        } else {
+            0
+        }
+    }
+
     /// Sets pin directions. This pauses the current state machine to run `SET` commands
     /// and temporarily unsets the `OUT_STICKY` bit.
     pub fn set_pin_dirs(&mut self, dir: Direction, pins: &[&Pin<'d, PIO>]) {
         self.with_paused(|sm| {
             for pin in pins {
                 Self::this_sm().pinctrl().write(|w| {
-                    w.set_set_base(pin.pin());
+                    w.set_set_base(pin.pin() - Self::pin_base());
                     w.set_set_count(1);
                 });
                 // SET PINDIRS, (dir)
@@ -998,7 +1012,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         self.with_paused(|sm| {
             for pin in pins {
                 Self::this_sm().pinctrl().write(|w| {
-                    w.set_set_base(pin.pin());
+                    w.set_set_base(pin.pin() - Self::pin_base());
                     w.set_set_count(1);
                 });
                 // SET PINS, (dir)
@@ -1361,6 +1375,7 @@ impl<'d, PIO: Instance> Pio<'d, PIO> {
         PIO::state().users.store(5, Ordering::Release);
         PIO::state().used_pins.store(0, Ordering::Release);
         PIO::Interrupt::unpend();
+
         unsafe { PIO::Interrupt::enable() };
         Self {
             common: Common {
