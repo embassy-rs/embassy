@@ -6,21 +6,16 @@ mod common;
 
 use common::*;
 use embassy_executor::Spawner;
-use embassy_stm32::bind_interrupts;
-use embassy_stm32::gpio::Pull;
+use embassy_stm32::gpio::{OutputType, Pull};
 use embassy_stm32::pac::AFIO;
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, ComplementaryPwmPin};
 use embassy_stm32::timer::input_capture::{CapturePin, InputCapture};
 use embassy_stm32::timer::pwm_input::PwmInput;
 use embassy_stm32::timer::qei::{Qei, QeiPin};
-use embassy_stm32::usart::{UartRx, UartTx};
-use embassy_stm32::{
-    gpio::OutputType,
-    timer::simple_pwm::{PwmPin, SimplePwm},
-    usart::Uart,
-    Peripherals,
-};
+use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
+use embassy_stm32::usart::{Uart, UartRx, UartTx};
+use embassy_stm32::{bind_interrupts, Peripherals};
 
 #[cfg(not(feature = "afio-connectivity-line"))]
 bind_interrupts!(struct Irqs {
@@ -338,11 +333,12 @@ async fn main(_spawner: Spawner) {
 
 #[cfg(feature = "afio-connectivity-line")]
 mod connectivity_line {
-    use super::*;
     use embassy_stm32::can::Can;
     use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue};
     use embassy_stm32::i2s::I2S;
     use embassy_stm32::spi::Spi;
+
+    use super::*;
 
     pub fn run(p: &mut Peripherals) {
         // USART3
