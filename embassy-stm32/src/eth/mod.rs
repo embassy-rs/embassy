@@ -209,19 +209,19 @@ impl SealedInstance for crate::peripherals::ETH {
 }
 impl Instance for crate::peripherals::ETH {}
 
-pin_trait!(RXClkPin, Instance);
-pin_trait!(TXClkPin, Instance);
-pin_trait!(RefClkPin, Instance);
-pin_trait!(MDIOPin, Instance);
-pin_trait!(MDCPin, Instance);
-pin_trait!(RXDVPin, Instance);
-pin_trait!(CRSPin, Instance);
-pin_trait!(RXD0Pin, Instance);
-pin_trait!(RXD1Pin, Instance);
-pin_trait!(RXD2Pin, Instance);
-pin_trait!(RXD3Pin, Instance);
-pin_trait!(TXD0Pin, Instance);
-pin_trait!(TXD1Pin, Instance);
-pin_trait!(TXD2Pin, Instance);
-pin_trait!(TXD3Pin, Instance);
-pin_trait!(TXEnPin, Instance);
+pin_trait!(RXClkPin, Instance, @A);
+pin_trait!(TXClkPin, Instance, @A);
+pin_trait!(RefClkPin, Instance, @A);
+pin_trait!(MDIOPin, Instance, @A);
+pin_trait!(MDCPin, Instance, @A);
+pin_trait!(RXDVPin, Instance, @A);
+pin_trait!(CRSPin, Instance, @A);
+pin_trait!(RXD0Pin, Instance, @A);
+pin_trait!(RXD1Pin, Instance, @A);
+pin_trait!(RXD2Pin, Instance, @A);
+pin_trait!(RXD3Pin, Instance, @A);
+pin_trait!(TXD0Pin, Instance, @A);
+pin_trait!(TXD1Pin, Instance, @A);
+pin_trait!(TXD2Pin, Instance, @A);
+pin_trait!(TXD3Pin, Instance, @A);
+pin_trait!(TXEnPin, Instance, @A);

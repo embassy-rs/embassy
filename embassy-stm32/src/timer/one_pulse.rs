@@ -42,7 +42,8 @@ impl From<ExternalTriggerPolarity> for Etp {
 ///
 /// This wraps a pin to make it usable as a timer trigger.
 pub struct TriggerPin<'d, T, C> {
-    _pin: Peri<'d, AnyPin>,
+    #[allow(unused)]
+    pin: Peri<'d, AnyPin>,
     phantom: PhantomData<(T, C)>,
 }
 
@@ -113,7 +114,7 @@ impl<'d, T: GeneralInstance4Channel, C: TriggerSource> TriggerPin<'d, T, C> {
     pub fn new(pin: Peri<'d, impl TimerTriggerPin<T, C>>, pull: Pull) -> Self {
         pin.set_as_af(pin.af_num(), AfType::input(pull));
         TriggerPin {
-            _pin: pin.into(),
+            pin: pin.into(),
             phantom: PhantomData,
         }
     }
@@ -131,14 +132,17 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
     ///
     /// The pulse is triggered by a channel 1 input pin on both rising and
     /// falling edges. Channel 1 will unusable as an output.
+    #[allow(unused)]
     pub fn new_ch1_edge_detect(
         tim: Peri<'d, T>,
-        _pin: TriggerPin<'d, T, Ch1>,
+        pin: TriggerPin<'d, T, Ch1>,
         _irq: impl Binding<T::CaptureCompareInterrupt, CaptureCompareInterruptHandler<T>> + 'd,
         freq: Hertz,
         pulse_end: u32,
         counting_mode: CountingMode,
     ) -> Self {
+        #[cfg(afio)]
+        super::set_afio::<T>(&[Some(pin.pin)]);
         let mut this = Self { inner: Timer::new(tim) };
 
         this.inner.set_trigger_source(Ts::TI1F_ED);

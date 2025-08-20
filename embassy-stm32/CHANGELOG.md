@@ -13,6 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix: Fix vrefbuf building with log feature
 - fix: Fix performing a hash after performing a hmac
 - chore: Updated stm32-metapac and stm32-data dependencies
+- feat: Added support for STM32F1 peripheral pin remapping (AFIO) ([#4430](https://github.com/embassy-rs/embassy/pull/4430))
 
 ## 0.3.0 - 2025-08-12
 
