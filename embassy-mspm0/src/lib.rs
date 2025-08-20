@@ -15,6 +15,7 @@ mod macros;
 
 pub mod dma;
 pub mod gpio;
+pub mod i2c;
 pub mod timer;
 pub mod uart;
 
@@ -193,7 +194,7 @@ pub fn init(config: Config) -> Peripherals {
 
         _generated::enable_group_interrupts(cs);
 
-        #[cfg(mspm0c110x)]
+        #[cfg(any(mspm0c110x, mspm0l110x))]
         unsafe {
             use crate::_generated::interrupt::typelevel::Interrupt;
             crate::interrupt::typelevel::GPIOA::enable();

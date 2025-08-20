@@ -12,7 +12,7 @@ rp235xb = ["embassy-rp/rp235xb"]
 [dependencies]
 teleprobe-meta = "1.1"
 
-embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = ["defmt"] }
+embassy-sync = { version = "0.7.1", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.8.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["defmt", ] }
 embassy-rp = { version = "0.7.0", path = "../../embassy-rp", features = [ "defmt", "unstable-pac", "time-driver", "critical-section-impl", "intrinsics", "rom-v2-intrinsics", "run-from-ram"]  }

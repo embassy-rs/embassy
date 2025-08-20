@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 <!-- next-header -->
+## Unreleased - ReleaseDate
+
+- fix: stm32/i2c: pull-down was enabled instead of pull-none when no internal pull-up was needed.
+- feat: Improve blocking hash speed
+- fix: Fix vrefbuf building with log feature
+- fix: Fix performing a hash after performing a hmac
+- chore: Updated stm32-metapac and stm32-data dependencies
+
 ## 0.3.0 - 2025-08-12
 
 - feat: Added VREFBUF voltage reference buffer driver ([#4524](https://github.com/embassy-rs/embassy/pull/4524))

@@ -39,6 +39,7 @@ where
     state: Mutex<M, Cell<State<T>>>,
 }
 
+#[derive(Debug)]
 enum State<T> {
     None,
     Waiting(Waker),

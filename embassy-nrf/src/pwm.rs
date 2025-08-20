@@ -480,7 +480,7 @@ impl<'d, 's, T: Instance> Sequencer<'d, 's, T> {
 
         match times {
             SequenceMode::Loop(n) => {
-                r.loop_().write(|w| w.set_cnt(vals::LoopCnt(n)));
+                r.loop_().write(|w| w.set_cnt(vals::LoopCnt::from_bits(n)));
             }
             // to play infinitely, repeat the sequence one time, then have loops done self trigger seq0 again
             SequenceMode::Infinite => {

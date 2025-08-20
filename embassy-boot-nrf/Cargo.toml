@@ -24,7 +24,7 @@ target = "thumbv7em-none-eabi"
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.17", optional = true }
 
-embassy-sync = { version = "0.7.0", path = "../embassy-sync" }
+embassy-sync = { version = "0.7.1", path = "../embassy-sync" }
 embassy-nrf = { version = "0.6.0", path = "../embassy-nrf", default-features = false }
 embassy-boot = { version = "0.6.0", path = "../embassy-boot" }
 cortex-m = { version = "0.7.6" }
