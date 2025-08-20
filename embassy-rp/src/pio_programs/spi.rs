@@ -121,10 +121,6 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Spi<'d, PIO, SM, M> {
             clk_pin.set_output_inversion(false);
         }
 
-        sm.set_pins(Level::Low, &[&clk_pin, &mosi_pin]);
-        sm.set_pin_dirs(Direction::Out, &[&clk_pin, &mosi_pin]);
-        sm.set_pin_dirs(Direction::In, &[&miso_pin]);
-
         let mut cfg = crate::pio::Config::default();
 
         cfg.use_program(&program.prg, &[&clk_pin]);
@@ -142,6 +138,11 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Spi<'d, PIO, SM, M> {
         cfg.clock_divider = calculate_clock_divider(config.frequency);
 
         sm.set_config(&cfg);
+
+        sm.set_pins(Level::Low, &[&clk_pin, &mosi_pin]);
+        sm.set_pin_dirs(Direction::Out, &[&clk_pin, &mosi_pin]);
+        sm.set_pin_dirs(Direction::In, &[&miso_pin]);
+
         sm.set_enable(true);
 
         Self {
