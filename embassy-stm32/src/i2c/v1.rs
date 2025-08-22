@@ -1414,41 +1414,85 @@ impl<'d> I2c<'d, Async, MultiMaster> {
 
         trace!("I2C slave: starting select between DMA completion and I2C events");
         // Wait for either DMA completion or I2C termination condition (using master pattern)
-        match select(dma_transfer, poll_error).await {
+        let dma_result = match select(dma_transfer, poll_error).await {
             Either::Second(Err(e)) => {
                 error!("I2C slave: I2C error occurred during write: {:?}", e);
                 critical_section::with(|_| {
                     info.regs.cr2().modify(|w| w.set_dmaen(false));
                 });
                 drop(on_drop);
-                Err(e)
+                return Err(e);
             }
             Either::First(_) => {
-                trace!("I2C slave: DMA transfer completed first");
+                trace!("I2C slave: DMA transfer completed first - buffer full");
                 critical_section::with(|_| {
                     info.regs.cr2().modify(|w| w.set_dmaen(false));
                 });
-                drop(on_drop);
                 
-                // For v1 hardware, determining exact bytes received is complex
-                // Return the buffer length as an approximation
+                // DMA completed but master might still be sending more bytes
+                // We need to discard any excess bytes until STOP/RESTART
+                trace!("I2C slave: DMA complete, checking for excess bytes to discard");
+                
+                let excess_discard = poll_fn(|cx| {
+                    state.waker.register(cx.waker());
+                    
+                    match Self::check_and_clear_error_flags(info) {
+                        Err(e) => {
+                            error!("I2C slave: error while discarding excess bytes: {:?}", e);
+                            Poll::Ready(Err::<(), Error>(e))
+                        },
+                        Ok(sr1) => {
+                            // Check for transaction termination first
+                            if sr1.stopf() {
+                                trace!("I2C slave: STOP condition detected while discarding excess");
+                                Self::clear_stop_flag(info);
+                                return Poll::Ready(Ok(()));
+                            }
+                            
+                            if sr1.addr() {
+                                trace!("I2C slave: RESTART condition detected while discarding excess");
+                                return Poll::Ready(Ok(()));
+                            }
+                            
+                            // If there's data to read, read and discard it
+                            if sr1.rxne() {
+                                let discarded_byte = info.regs.dr().read().dr();
+                                trace!("I2C slave: discarded excess byte: 0x{:02X}", discarded_byte);
+                                // Continue polling for more bytes or termination
+                                Self::enable_interrupts(info);
+                                return Poll::Pending;
+                            }
+                            
+                            // No immediate termination or data, keep waiting
+                            Self::enable_interrupts(info);
+                            Poll::Pending
+                        }
+                    }
+                });
+                
+                // Wait for transaction to actually end
+                excess_discard.await?;
+                
                 let bytes_received = buffer.len();
-                trace!("I2C slave: write complete, returning {} bytes (buffer length)", bytes_received);
+                trace!("I2C slave: write complete after discarding excess, returning {} bytes", bytes_received);
+                drop(on_drop);
                 Ok(bytes_received)
             }
             Either::Second(Ok(())) => {
-                trace!("I2C slave: I2C event (STOP/RESTART) occurred first");
+                trace!("I2C slave: I2C event (STOP/RESTART) occurred before DMA completion");
                 critical_section::with(|_| {
                     info.regs.cr2().modify(|w| w.set_dmaen(false));
                 });
-                drop(on_drop);
                 
-                // Transaction ended normally, return buffer length
+                // Transaction ended normally before buffer was full
                 let bytes_received = buffer.len();
-                trace!("I2C slave: write complete via I2C event, returning {} bytes", bytes_received);
+                trace!("I2C slave: write complete via early I2C event, returning {} bytes", bytes_received);
+                drop(on_drop);
                 Ok(bytes_received)
             }
-        }
+        };
+        
+        dma_result
     }
 
     /// Async respond to read command using TX DMA
@@ -1533,40 +1577,101 @@ impl<'d> I2c<'d, Async, MultiMaster> {
 
         trace!("I2C slave: starting select between DMA completion and I2C events");
         // Wait for either DMA completion or I2C termination (using master pattern)
-        match select(dma_transfer, poll_completion).await {
+        let dma_result = match select(dma_transfer, poll_completion).await {
             Either::Second(Err(e)) => {
                 error!("I2C slave: I2C error occurred during read: {:?}", e);
                 critical_section::with(|_| {
                     info.regs.cr2().modify(|w| w.set_dmaen(false));
                 });
                 drop(on_drop);
-                Err(e)
+                return Err(e);
             }
             Either::First(_) => {
                 trace!("I2C slave: DMA transfer completed first - all data sent");
                 critical_section::with(|_| {
                     info.regs.cr2().modify(|w| w.set_dmaen(false));
                 });
-                drop(on_drop);
                 
-                let bytes_sent = data.len();
-                trace!("I2C slave: read complete via DMA, sent {} bytes", bytes_sent);
-                Ok(bytes_sent)
+                // DMA completed but master might still be requesting more bytes
+                // We need to send padding bytes (0x00) until NACK/STOP/RESTART
+                trace!("I2C slave: DMA complete, entering padding phase");
+                let mut padding_bytes_sent = 0;
+                
+                let padding_phase = poll_fn(|cx| {
+                    state.waker.register(cx.waker());
+                    
+                    match Self::check_and_clear_error_flags(info) {
+                        Err(Error::Nack) => {
+                            trace!("I2C slave: NACK received during padding - normal end");
+                            return Poll::Ready(Ok(()));
+                        },
+                        Err(e) => {
+                            error!("I2C slave: error while sending padding bytes: {:?}", e);
+                            return Poll::Ready(Err::<(), Error>(e));
+                        },
+                        Ok(sr1) => {
+                            // Check for transaction termination first
+                            if sr1.af() {
+                                trace!("I2C slave: acknowledge failure during padding - normal end");
+                                info.regs.sr1().write(|reg| {
+                                    reg.0 = !0;
+                                    reg.set_af(false);
+                                });
+                                return Poll::Ready(Ok(()));
+                            }
+                            
+                            if sr1.stopf() {
+                                trace!("I2C slave: STOP condition detected during padding");
+                                Self::clear_stop_flag(info);
+                                return Poll::Ready(Ok(()));
+                            }
+                            
+                            if sr1.addr() {
+                                trace!("I2C slave: RESTART condition detected during padding");
+                                return Poll::Ready(Ok(()));
+                            }
+                            
+                            // If transmit buffer is empty, send a padding byte
+                            if sr1.txe() {
+                                info.regs.dr().write(|w| w.set_dr(0x00));
+                                padding_bytes_sent += 1;
+                                trace!("I2C slave: sent padding byte #{}", padding_bytes_sent);
+                                // Continue padding until transaction ends
+                                Self::enable_interrupts(info);
+                                return Poll::Pending;
+                            }
+                            
+                            // No immediate termination or transmit request, keep waiting
+                            Self::enable_interrupts(info);
+                            Poll::Pending
+                        }
+                    }
+                });
+                
+                // Wait for transaction to actually end
+                padding_phase.await?;
+                
+                let total_bytes_sent = data.len() + padding_bytes_sent;
+                trace!("I2C slave: read complete after sending {} padding bytes, total {} bytes sent", 
+                       padding_bytes_sent, total_bytes_sent);
+                drop(on_drop);
+                Ok(total_bytes_sent)
             }
             Either::Second(Ok(())) => {
-                trace!("I2C slave: I2C event (STOP/NACK/RESTART) occurred first");
+                trace!("I2C slave: I2C event (STOP/NACK/RESTART) occurred before DMA completion");
                 critical_section::with(|_| {
                     info.regs.cr2().modify(|w| w.set_dmaen(false));
                 });
-                drop(on_drop);
                 
-                // For slave read, we can't easily determine exact bytes sent in v1
-                // Return the full data length if no error occurred
+                // Transaction ended normally before all data was sent
                 let bytes_sent = data.len();
-                trace!("I2C slave: read complete via I2C event, reporting {} bytes sent", bytes_sent);
+                trace!("I2C slave: read complete via early I2C event, sent {} bytes", bytes_sent);
+                drop(on_drop);
                 Ok(bytes_sent)
             }
-        }
+        };
+        
+        dma_result
     }
 }
 
