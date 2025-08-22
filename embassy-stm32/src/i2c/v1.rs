@@ -45,7 +45,7 @@ impl State {
 // hit a case like this!
 pub unsafe fn on_interrupt<T: Instance>() {
     let regs = T::info().regs;
-    trace!("i2c v1 interrupt triggered");
+    trace!("I2C interrupt triggered");
     // i2c v2 only woke the task on transfer complete interrupts. v1 uses interrupts for a bunch of
     // other stuff, so we wake the task on every interrupt.
     T::state().waker.wake();
@@ -360,8 +360,6 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
         Ok(())
     }
-
-    // Async
     
     /// Can be used by both blocking and async implementations  
     #[inline] // pretty sure this should always be inlined
@@ -374,7 +372,6 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                 w.set_itevten(true);
             });
         });
-        trace!("I2C slave: safely enabled interrupts");
     }
 
     /// Can be used by both blocking and async implementations
@@ -383,7 +380,6 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         // v1 requires: READ SR1 then WRITE CR1 to clear STOPF
         let _ = info.regs.sr1().read();
         info.regs.cr1().modify(|_| {}); // Dummy write to clear STOPF
-        trace!("I2C slave: STOPF flag cleared");
     }
     
 }
@@ -760,6 +756,7 @@ enum ReceiveResult {
 
 /// Enumeration of slave transaction termination conditions
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 enum SlaveTermination {
     /// STOP condition received - normal end of transaction
     Stop,
@@ -887,9 +884,9 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     /// This method blocks until the slave address is matched by a master.
     /// Returns the command type (Read/Write) and the matched address.
     pub fn blocking_listen(&mut self) -> Result<SlaveCommand, Error> {
-        trace!("I2C slave: listening for address match");
+        trace!("I2C slave: starting blocking listen for address match");
         let result = self.blocking_listen_with_timeout(self.timeout());
-        trace!("I2C slave: listen result={:?}", result);
+        trace!("I2C slave: blocking listen complete, result={:?}", result);
         result
     }
     
@@ -901,16 +898,15 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     ///
     /// Returns the total number of bytes transmitted (including padding).
     pub fn blocking_respond_to_read(&mut self, data: &[u8]) -> Result<usize, Error> {
-        trace!("I2C slave: responding to read, data_len={}", data.len());
+        trace!("I2C slave: starting blocking respond_to_read, data_len={}", data.len());
         
-        // Check for zero-length read BEFORE any transmission setup
         if let Some(zero_length_result) = self.detect_zero_length_read(self.timeout())? {
             trace!("I2C slave: zero-length read detected");
             return Ok(zero_length_result);
         }
         
         let result = self.transmit_to_master(data, self.timeout());
-        trace!("I2C slave: read response complete, result={:?}", result);
+        trace!("I2C slave: blocking respond_to_read complete, result={:?}", result);
         result
     }
     
@@ -922,9 +918,9 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     ///
     /// Returns the number of bytes stored in the buffer (not total received).
     pub fn blocking_respond_to_write(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
-        trace!("I2C slave: responding to write, buffer_len={}", buffer.len());
+        trace!("I2C slave: starting blocking respond_to_write, buffer_len={}", buffer.len());
         let result = self.receive_from_master(buffer, self.timeout());
-        trace!("I2C slave: write response complete, result={:?}", result);
+        trace!("I2C slave: blocking respond_to_write complete, result={:?}", result);
         result
     }
     
@@ -965,29 +961,33 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     /// Transmit data to master in response to read request
     fn transmit_to_master(&mut self, data: &[u8], timeout: Timeout) -> Result<usize, Error> {
         let mut bytes_transmitted = 0;
+        let mut padding_count = 0;
         
         loop {
-            // Determine next byte to send
             let byte_to_send = if bytes_transmitted < data.len() {
                 data[bytes_transmitted]
             } else {
+                padding_count += 1;
                 0x00 // Send padding bytes when data is exhausted
             };
             
-            // Attempt to send the byte
             match self.transmit_byte(byte_to_send, timeout)? {
                 TransmitResult::Acknowledged => {
                     bytes_transmitted += 1;
-                    // Continue transmission
                 },
                 TransmitResult::NotAcknowledged => {
                     bytes_transmitted += 1; // Count the NACKed byte
-                    break; // Normal end of read transaction
+                    break;
                 },
                 TransmitResult::Stopped | TransmitResult::Restarted => {
-                    break; // Transaction terminated by master
+                    break;
                 }
             }
+        }
+        
+        if padding_count > 0 {
+            trace!("I2C slave: sent {} data bytes + {} padding bytes = {} total", 
+                   data.len(), padding_count, bytes_transmitted);
         }
         
         Ok(bytes_transmitted)
@@ -1076,14 +1076,19 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     
     /// Discard excess bytes when buffer is full
     fn discard_excess_bytes(&mut self, timeout: Timeout) -> Result<(), Error> {
+        let mut discarded_count = 0;
+        
         loop {
             match self.receive_byte(timeout)? {
                 ReceiveResult::Data(_) => {
-                    // Byte received and ACKed, but discarded
+                    discarded_count += 1;
                     continue;
                 },
                 ReceiveResult::Stopped | ReceiveResult::Restarted => {
-                    break; // Transaction completed
+                    if discarded_count > 0 {
+                        trace!("I2C slave: discarded {} excess bytes", discarded_count);
+                    }
+                    break;
                 },
             }
         }
@@ -1316,12 +1321,12 @@ impl<'d> I2c<'d, Async, MultiMaster> {
     /// (Read/Write) and the matched address. This method will suspend until
     /// an address match occurs.
     pub async fn listen(&mut self) -> Result<SlaveCommand, Error> {
+        trace!("I2C slave: starting async listen for address match");
         let state = self.state;
         let info = self.info;
         
         Self::enable_interrupts(info);
 
-        // Ensure interrupts are cleaned up on early exit
         let on_drop = OnDrop::new(|| {
             Self::disable_dma_and_interrupts(info);
         });
@@ -1330,10 +1335,12 @@ impl<'d> I2c<'d, Async, MultiMaster> {
             state.waker.register(cx.waker());
 
             match Self::check_and_clear_error_flags(info) {
-                Err(e) => Poll::Ready(Err(e)),
+                Err(e) => {
+                    error!("I2C slave: error during listen: {:?}", e);
+                    Poll::Ready(Err(e))
+                },
                 Ok(sr1) => {
                     if sr1.addr() {
-                        // Address matched - determine direction and decode address
                         let sr2 = info.regs.sr2().read();
                         let direction = if sr2.tra() {
                             SlaveCommandKind::Read
@@ -1342,11 +1349,16 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                         };
                         
                         let matched_address = match Self::decode_matched_address(sr2, info) {
-                            Ok(addr) => addr,
-                            Err(e) => return Poll::Ready(Err(e)),
+                            Ok(addr) => {
+                                trace!("I2C slave: address matched, direction={:?}, addr={:?}", direction, addr);
+                                addr
+                            },
+                            Err(e) => {
+                                error!("I2C slave: failed to decode matched address: {:?}", e);
+                                return Poll::Ready(Err(e));
+                            }
                         };
                         
-                        // Don't clear ADDR here - leave it for DMA setup in respond methods
                         Poll::Ready(Ok(SlaveCommand {
                             kind: direction,
                             address: matched_address,
@@ -1360,6 +1372,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
         }).await;
 
         drop(on_drop);
+        trace!("I2C slave: listen complete, result={:?}", result);
         result
     }
 
@@ -1371,28 +1384,28 @@ impl<'d> I2c<'d, Async, MultiMaster> {
     /// 
     /// Returns the number of bytes stored in the buffer (not total received).
     pub async fn respond_to_write(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        trace!("I2C slave: starting respond_to_write, buffer_len={}", buffer.len());
+        
         if buffer.is_empty() {
+            warn!("I2C slave: respond_to_write called with empty buffer");
             return Err(Error::Overrun);
         }
 
         let state = self.state;
         let info = self.info;
 
-        // Use shared DMA setup
         self.setup_slave_dma_base();
 
-        // Ensure proper cleanup on exit
         let on_drop = OnDrop::new(|| {
             Self::disable_dma_and_interrupts(info);
         });
 
-        // Clear ADDR flag to release clock stretching
         info.regs.sr2().read();
 
-        // Start DMA transfer and monitor completion
         let result = self.execute_slave_receive_transfer(buffer, state, info).await;
 
         drop(on_drop);
+        trace!("I2C slave: respond_to_write complete, result={:?}", result);
         result
     }
 
@@ -1404,28 +1417,28 @@ impl<'d> I2c<'d, Async, MultiMaster> {
     /// 
     /// Returns the total number of bytes transmitted (data + padding).
     pub async fn respond_to_read(&mut self, data: &[u8]) -> Result<usize, Error> {
+        trace!("I2C slave: starting respond_to_read, data_len={}", data.len());
+        
         if data.is_empty() {
+            warn!("I2C slave: respond_to_read called with empty data");
             return Err(Error::Overrun);
         }
 
         let state = self.state;
         let info = self.info;
 
-        // Use shared DMA setup  
         self.setup_slave_dma_base();
 
-        // Ensure proper cleanup on exit
         let on_drop = OnDrop::new(|| {
             Self::disable_dma_and_interrupts(info);
         });
 
-        // Clear ADDR flag to release clock stretching
         info.regs.sr2().read();
 
-        // Start DMA transfer and monitor completion
         let result = self.execute_slave_transmit_transfer(data, state, info).await;
 
         drop(on_drop);
+        trace!("I2C slave: respond_to_read complete, result={:?}", result);
         result
     }
 
@@ -1438,28 +1451,27 @@ impl<'d> I2c<'d, Async, MultiMaster> {
         state: &'static State, 
         info: &'static Info
     ) -> Result<usize, Error> {
-        // Start DMA transfer
         let dma_transfer = unsafe {
             let src = info.regs.dr().as_ptr() as *mut u8;
             self.rx_dma.as_mut().unwrap().read(src, buffer, Default::default())
         };
 
-        // Monitor for I2C events during transfer
         let i2c_monitor = Self::create_termination_monitor(state, info, &[SlaveTermination::Stop, SlaveTermination::Restart]);
 
         match select(dma_transfer, i2c_monitor).await {
             Either::Second(Err(e)) => {
+                error!("I2C slave: error during receive transfer: {:?}", e);
                 Self::disable_dma_and_interrupts(info);
                 Err(e)
             }
             Either::First(_) => {
-                // DMA completed first - handle potential excess bytes
+                trace!("I2C slave: DMA receive completed, handling excess bytes");
                 Self::disable_dma_and_interrupts(info);
                 self.handle_excess_bytes(state, info).await?;
                 Ok(buffer.len())
             }
-            Either::Second(Ok(_)) => {
-                // I2C event occurred first - normal transaction end
+            Either::Second(Ok(termination)) => {
+                trace!("I2C slave: receive terminated by I2C event: {:?}", termination);
                 Self::disable_dma_and_interrupts(info);
                 Ok(buffer.len())
             }
@@ -1473,28 +1485,30 @@ impl<'d> I2c<'d, Async, MultiMaster> {
         state: &'static State, 
         info: &'static Info
     ) -> Result<usize, Error> {
-        // Start DMA transfer
         let dma_transfer = unsafe {
             let dst = info.regs.dr().as_ptr() as *mut u8;
             self.tx_dma.as_mut().unwrap().write(data, dst, Default::default())
         };
 
-        // Monitor for I2C events during transfer (NACK is normal for slave transmit)
         let i2c_monitor = Self::create_termination_monitor(state, info, &[SlaveTermination::Stop, SlaveTermination::Restart, SlaveTermination::Nack]);
 
         match select(dma_transfer, i2c_monitor).await {
             Either::Second(Err(e)) => {
+                error!("I2C slave: error during transmit transfer: {:?}", e);
                 Self::disable_dma_and_interrupts(info);
                 Err(e)
             }
             Either::First(_) => {
-                // DMA completed first - handle potential padding bytes
+                trace!("I2C slave: DMA transmit completed, handling padding bytes");
                 Self::disable_dma_and_interrupts(info);
                 let padding_count = self.handle_padding_bytes(state, info).await?;
-                Ok(data.len() + padding_count)
+                let total_bytes = data.len() + padding_count;
+                trace!("I2C slave: sent {} data bytes + {} padding bytes = {} total", 
+                       data.len(), padding_count, total_bytes);
+                Ok(total_bytes)
             }
-            Either::Second(Ok(_)) => {
-                // I2C event occurred first - normal transaction end
+            Either::Second(Ok(termination)) => {
+                trace!("I2C slave: transmit terminated by I2C event: {:?}", termination);
                 Self::disable_dma_and_interrupts(info);
                 Ok(data.len())
             }
@@ -1549,25 +1563,32 @@ impl<'d> I2c<'d, Async, MultiMaster> {
     /// 
     /// Reads and discards bytes until transaction termination to prevent interrupt flooding
     async fn handle_excess_bytes(&mut self, state: &'static State, info: &'static Info) -> Result<(), Error> {
+        let mut discarded_count = 0;
+        
         poll_fn(|cx| {
             state.waker.register(cx.waker());
             
             match Self::check_and_clear_error_flags(info) {
-                Err(e) => Poll::Ready(Err(e)),
+                Err(e) => {
+                    error!("I2C slave: error while discarding excess bytes: {:?}", e);
+                    Poll::Ready(Err(e))
+                },
                 Ok(sr1) => {
-                    // Check for transaction termination first
                     if let Some(termination) = Self::check_slave_termination_conditions(sr1) {
                         match termination {
                             SlaveTermination::Stop => Self::clear_stop_flag(info),
-                            SlaveTermination::Restart => {}, // Leave ADDR for next operation
+                            SlaveTermination::Restart => {},
                             SlaveTermination::Nack => unreachable!("NACK not expected during receive"),
+                        }
+                        if discarded_count > 0 {
+                            trace!("I2C slave: discarded {} excess bytes", discarded_count);
                         }
                         return Poll::Ready(Ok(()));
                     }
                     
-                    // If there's data to read, discard it
                     if sr1.rxne() {
                         let _discarded_byte = info.regs.dr().read().dr();
+                        discarded_count += 1;
                         Self::enable_interrupts(info);
                         return Poll::Pending;
                     }
@@ -1589,14 +1610,16 @@ impl<'d> I2c<'d, Async, MultiMaster> {
             state.waker.register(cx.waker());
             
             match Self::check_and_clear_error_flags(info) {
-                Err(Error::Nack) => Poll::Ready(Ok(padding_count)), // Normal termination
-                Err(e) => Poll::Ready(Err(e)),
+                Err(Error::Nack) => Poll::Ready(Ok(padding_count)),
+                Err(e) => {
+                    error!("I2C slave: error while sending padding bytes: {:?}", e);
+                    Poll::Ready(Err(e))
+                },
                 Ok(sr1) => {
-                    // Check for transaction termination first
                     if let Some(termination) = Self::check_slave_termination_conditions(sr1) {
                         match termination {
                             SlaveTermination::Stop => Self::clear_stop_flag(info),
-                            SlaveTermination::Restart => {}, // Leave ADDR for next operation
+                            SlaveTermination::Restart => {},
                             SlaveTermination::Nack => {
                                 info.regs.sr1().write(|reg| {
                                     reg.0 = !0;
@@ -1607,7 +1630,6 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                         return Poll::Ready(Ok(padding_count));
                     }
                     
-                    // If transmit buffer is empty, send padding byte
                     if sr1.txe() {
                         info.regs.dr().write(|w| w.set_dr(0x00));
                         padding_count += 1;
