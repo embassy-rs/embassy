@@ -442,7 +442,7 @@ impl<'d, IM: MasterMode> embedded_hal_async::i2c::I2c for I2c<'d, Async, IM> {
 /// controlling the generation of start conditions (ST or SR), stop conditions (SP),
 /// and ACK/NACK behavior for read operations.
 ///
-/// For write operations, some framing configurations are functionally identical 
+/// For write operations, some framing configurations are functionally identical
 /// because they differ only in ACK/NACK treatment which is relevant only for reads:
 ///
 /// - `First` and `FirstAndNext` behave identically for writes
@@ -489,7 +489,7 @@ impl OperationFraming {
     }
 
     /// Returns true if NACK should be sent after the last byte received in a read operation.
-    /// 
+    ///
     /// This signals the end of a read sequence and releases the bus for the master's
     /// next transmission (or stop condition).
     fn send_nack(self) -> bool {
@@ -525,7 +525,7 @@ impl OperationFraming {
 ///
 /// # Returns
 /// An iterator over (operation, framing) pairs, or an error if the transaction is invalid
-/// 
+///
 #[allow(dead_code)]
 fn assign_operation_framing<'a, 'b: 'a>(
     operations: &'a mut [embedded_hal_1::i2c::Operation<'b>],
@@ -535,7 +535,7 @@ fn assign_operation_framing<'a, 'b: 'a>(
     // Validate that no read operations have empty buffers before starting the transaction.
     // Empty read operations would risk halting with an error mid-transaction.
     //
-    // Note: We could theoretically allow empty read operations within consecutive read 
+    // Note: We could theoretically allow empty read operations within consecutive read
     // sequences as long as the final merged read has at least one byte, but this would
     // complicate the logic significantly and create error-prone edge cases.
     if operations.iter().any(|op| match op {
@@ -558,7 +558,7 @@ fn assign_operation_framing<'a, 'b: 'a>(
         // Compute the appropriate framing based on three key properties:
         //
         // 1. **Start Condition**: Generate (repeated) start for first operation of each type
-        // 2. **Stop Condition**: Generate stop for the final operation in the entire transaction  
+        // 2. **Stop Condition**: Generate stop for the final operation in the entire transaction
         // 3. **ACK/NACK for Reads**: For read operations, send ACK if more reads follow in the
         //    sequence, or NACK for the final read in a sequence (before write or transaction end)
         //
@@ -571,7 +571,7 @@ fn assign_operation_framing<'a, 'b: 'a>(
             (true, Some(Read(_))) => OperationFraming::FirstAndNext,
             // First operation of type, next operation is write (end current sequence)
             (true, Some(Write(_))) => OperationFraming::First,
-            
+
             // Continuation operation, and it's the final operation overall
             (false, None) => OperationFraming::Last,
             // Continuation operation, next operation is also a read (continue read sequence)
