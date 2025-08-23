@@ -382,6 +382,9 @@ impl AnyChannel {
         let info = self.info();
         let ch = info.dma.ch(info.num);
 
+        self.request_suspend();
+        while self.is_running() {}
+
         ch.cr().modify(|w| w.set_reset(true));
     }
 
