@@ -1,5 +1,5 @@
 //! I2C slave example using async operations with DMA
-//! 
+//!
 //! This example demonstrates DMA-accelerated I2C slave operations,
 //! which provide better performance and lower CPU overhead for
 //! high-frequency I2C transactions.
@@ -7,12 +7,12 @@
 #![no_std]
 #![no_main]
 
-use defmt_rtt as _;
 use defmt::{error, info};
+use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::{bind_interrupts, peripherals};
-use embassy_stm32::i2c::{self, I2c, SlaveAddrConfig, SlaveCommand, SlaveCommandKind, Address};
+use embassy_stm32::i2c::{self, Address, I2c, SlaveAddrConfig, SlaveCommand, SlaveCommandKind};
 use embassy_stm32::time::Hertz;
+use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
@@ -30,38 +30,39 @@ bind_interrupts!(struct Irqs {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
-    
+
     // Configure I2C
     let mut i2c_config = i2c::Config::default();
     i2c_config.sda_pullup = false;
     i2c_config.scl_pullup = false;
     i2c_config.frequency = Hertz(100_000); // 100kHz I2C speed
-    
+
     // Initialize I2C as master first
     let i2c_master = I2c::new(
-        p.I2C1,
-        p.PB8,  // SCL
-        p.PB9,  // SDA
-        Irqs,
-        p.DMA1_CH6, // TX DMA
+        p.I2C1, p.PB8, // SCL
+        p.PB9, // SDA
+        Irqs, p.DMA1_CH6, // TX DMA
         p.DMA1_CH0, // RX DMA
         i2c_config,
     );
-    
+
     // Convert to MultiMaster mode
     let slave_config = SlaveAddrConfig::basic(I2C_SLAVE_ADDR);
     let i2c_slave = i2c_master.into_slave_multimaster(slave_config);
-    
+
     spawner.spawn(i2c_slave_task(i2c_slave)).unwrap();
 }
 
 #[embassy_executor::task]
 pub async fn i2c_slave_task(mut i2c_slave: I2c<'static, embassy_stm32::mode::Async, i2c::mode::MultiMaster>) {
     info!("Async I2C slave ready at address 0x{:02X}", I2C_SLAVE_ADDR);
-    
+
     loop {
         match i2c_slave.listen().await {
-            Ok(SlaveCommand { kind: SlaveCommandKind::Write, address }) => {
+            Ok(SlaveCommand {
+                kind: SlaveCommandKind::Write,
+                address,
+            }) => {
                 let addr_val = match address {
                     Address::SevenBit(addr) => addr,
                     Address::TenBit(addr) => (addr & 0xFF) as u8,
@@ -70,7 +71,7 @@ pub async fn i2c_slave_task(mut i2c_slave: I2c<'static, embassy_stm32::mode::Asy
                 info!("I2C: Received write command - Address 0x{:02X}", addr_val);
 
                 let mut data_buffer = I2C_BUFFER.lock().await;
-                
+
                 match i2c_slave.respond_to_write(&mut *data_buffer).await {
                     Ok(_) => {
                         info!("I2C: Data received - Buffer now contains: 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}", 
@@ -81,8 +82,11 @@ pub async fn i2c_slave_task(mut i2c_slave: I2c<'static, embassy_stm32::mode::Asy
                     }
                 }
             }
-            
-            Ok(SlaveCommand { kind: SlaveCommandKind::Read, address }) => {
+
+            Ok(SlaveCommand {
+                kind: SlaveCommandKind::Read,
+                address,
+            }) => {
                 let addr_val = match address {
                     Address::SevenBit(addr) => addr,
                     Address::TenBit(addr) => (addr & 0xFF) as u8, // Show low byte for 10-bit
@@ -91,7 +95,7 @@ pub async fn i2c_slave_task(mut i2c_slave: I2c<'static, embassy_stm32::mode::Asy
                 info!("I2C: Received read command - Address 0x{:02X}", addr_val);
 
                 let data_buffer = I2C_BUFFER.lock().await;
-                
+
                 match i2c_slave.respond_to_read(&data_buffer[..BUFFER_SIZE]).await {
                     Ok(_) => {
                         info!("I2C: Responded to read command");
@@ -101,7 +105,7 @@ pub async fn i2c_slave_task(mut i2c_slave: I2c<'static, embassy_stm32::mode::Asy
                     }
                 }
             }
-            
+
             Err(e) => {
                 error!("I2C: Listen error: {}", format_i2c_error(&e));
                 Timer::after(Duration::from_millis(100)).await;
