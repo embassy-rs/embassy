@@ -431,16 +431,15 @@ impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
         Self { channel }
     }
 
-    /// Request the transfer to suspend.
+    /// Request the transfer to pause, keeping the existing configuration for this channel.
     ///
     /// To resume the transfer, call [`request_resume`](Self::request_resume) again.
-    ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn request_pause(&mut self) {
         self.channel.request_pause()
     }
 
-    /// Request the transfer to resume after being suspended.
+    /// Request the transfer to resume after having been paused.
     pub fn request_resume(&mut self) {
         self.channel.request_resume()
     }
@@ -456,7 +455,7 @@ impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
     /// Return whether this transfer is still running.
     ///
     /// If this returns `false`, it can be because either the transfer finished, or
-    /// it was requested to stop early with [`request_stop`](Self::request_stop).
+    /// it was requested to stop early with [`request_pause`](Self::request_pause).
     pub fn is_running(&mut self) -> bool {
         self.channel.is_running()
     }
@@ -480,8 +479,7 @@ impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
 
 impl<'a, const ITEM_COUNT: usize> Drop for LinkedListTransfer<'a, ITEM_COUNT> {
     fn drop(&mut self) {
-        self.request_pause();
-        while self.is_running() {}
+        self.request_reset();
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
         fence(Ordering::SeqCst);
@@ -629,9 +627,8 @@ impl<'a> Transfer<'a> {
         Self { channel }
     }
 
-    /// Request the transfer to suspend.
-    ///
-    /// To resume the transfer, call [`request_resume`](Self::request_resume) again.
+    /// Request the transfer to pause, keeping the existing configuration for this channel.
+    /// To restart the transfer, call [`start`](Self::start) again.
     ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn request_pause(&mut self) {
@@ -654,7 +651,7 @@ impl<'a> Transfer<'a> {
     /// Return whether this transfer is still running.
     ///
     /// If this returns `false`, it can be because either the transfer finished, or
-    /// it was requested to stop early with [`request_stop`](Self::request_stop).
+    /// it was requested to stop early with [`request_pause`](Self::request_pause).
     pub fn is_running(&mut self) -> bool {
         self.channel.is_running()
     }
