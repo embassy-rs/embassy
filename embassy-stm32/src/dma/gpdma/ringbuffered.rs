@@ -22,7 +22,19 @@ struct DmaCtrlImpl<'a>(PeripheralRef<'a, AnyChannel>);
 
 impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
     fn get_remaining_transfers(&self) -> usize {
-        self.0.get_remaining_transfers() as _
+        let state = &STATE[self.0.id as usize];
+        let current_remaining = self.0.get_remaining_transfers() as usize;
+
+        let lli_count = state.lli_state.count.load(Ordering::Relaxed);
+
+        if lli_count > 0 {
+            let lli_index = state.lli_state.index.load(Ordering::Relaxed);
+            let single_transfer_count = state.lli_state.transfer_count.load(Ordering::Relaxed) / lli_count;
+
+            (lli_count - lli_index - 1) * single_transfer_count + current_remaining
+        } else {
+            current_remaining
+        }
     }
 
     fn reset_complete_count(&mut self) -> usize {
@@ -56,7 +68,7 @@ impl BufferHalf {
 pub struct ReadableRingBuffer<'a, W: Word> {
     channel: PeripheralRef<'a, AnyChannel>,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
-    table: Table<1>,
+    table: Table<2>,
     user_buffer_half: BufferHalf,
 }
 
@@ -78,12 +90,10 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         options.half_transfer_ir = true;
         options.complete_transfer_ir = true;
 
-        // let items = [
-        //     LinearItem::new_read(request, peri_addr, &mut buffer[..half_len], options),
-        //     LinearItem::new_read(request, peri_addr, &mut buffer[half_len..], options),
-        // ];
-        let items = [LinearItem::new_read(request, peri_addr, buffer, options)];
-
+        let items = [
+            LinearItem::new_read(request, peri_addr, &mut buffer[..half_len], options),
+            LinearItem::new_read(request, peri_addr, &mut buffer[half_len..], options),
+        ];
         let table = Table::new(items);
 
         let this = Self {
@@ -209,7 +219,7 @@ impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
 pub struct WritableRingBuffer<'a, W: Word> {
     channel: PeripheralRef<'a, AnyChannel>,
     ringbuf: WritableDmaRingBuffer<'a, W>,
-    table: Table<1>,
+    table: Table<2>,
     user_buffer_half: BufferHalf,
 }
 
@@ -231,11 +241,10 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         options.half_transfer_ir = true;
         options.complete_transfer_ir = true;
 
-        // let items = [
-        //     LinearItem::new_write(request, &mut buffer[..half_len], peri_addr, options),
-        //     LinearItem::new_write(request, &mut buffer[half_len..], peri_addr, options),
-        // ];
-        let items = [LinearItem::new_write(request, buffer, peri_addr, options)];
+        let items = [
+            LinearItem::new_write(request, &mut buffer[..half_len], peri_addr, options),
+            LinearItem::new_write(request, &mut buffer[half_len..], peri_addr, options),
+        ];
         let table = Table::new(items);
 
         let this = Self {
