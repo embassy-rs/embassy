@@ -118,6 +118,11 @@ pub struct TransferConfig {
 
     /// Number of dummy cycles (DCYC)
     pub dummy: DummyCycles,
+
+    /// Data strobe (DQS) management enable
+    pub dqse: bool,
+    /// Send instruction only once (SIOO) mode enable
+    pub sioo: bool,
 }
 
 impl Default for TransferConfig {
@@ -142,6 +147,9 @@ impl Default for TransferConfig {
             ddtr: false,
 
             dummy: DummyCycles::_0,
+
+            dqse: false,
+            sioo: true,
         }
     }
 }
@@ -192,26 +200,27 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         let reg = T::REGS;
         while reg.sr().read().busy() {}
 
-        reg.ccr().modify(|r| {
-            r.set_dqse(false);
-            r.set_sioo(true);
-        });
+        if let Some(instruction) = write_config.instruction {
+            reg.wir().write(|r| {
+                r.set_instruction(instruction);
+            });
+        }
 
-        // Set wrting configurations, there are separate registers for write configurations in memory mapped mode
+        // Set writing configurations, there are separate registers for write configurations in memory mapped mode
         reg.wccr().modify(|w| {
             w.set_imode(PhaseMode::from_bits(write_config.iwidth.into()));
             w.set_idtr(write_config.idtr);
             w.set_isize(SizeInBits::from_bits(write_config.isize.into()));
 
             w.set_admode(PhaseMode::from_bits(write_config.adwidth.into()));
-            w.set_addtr(write_config.idtr);
+            w.set_addtr(write_config.addtr);
             w.set_adsize(SizeInBits::from_bits(write_config.adsize.into()));
 
             w.set_dmode(PhaseMode::from_bits(write_config.dwidth.into()));
             w.set_ddtr(write_config.ddtr);
 
             w.set_abmode(PhaseMode::from_bits(write_config.abwidth.into()));
-            w.set_dqse(true);
+            w.set_dqse(write_config.dqse);
         });
 
         reg.wtcr().modify(|w| w.set_dcyc(write_config.dummy.into()));
@@ -465,18 +474,21 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
             })
         }
 
-        // Configure instruction/address/data modes
+        // Configure instruction/address/data/communication modes
         T::REGS.ccr().modify(|w| {
             w.set_imode(PhaseMode::from_bits(command.iwidth.into()));
             w.set_idtr(command.idtr);
             w.set_isize(SizeInBits::from_bits(command.isize.into()));
 
             w.set_admode(PhaseMode::from_bits(command.adwidth.into()));
-            w.set_addtr(command.idtr);
+            w.set_addtr(command.addtr);
             w.set_adsize(SizeInBits::from_bits(command.adsize.into()));
 
             w.set_dmode(PhaseMode::from_bits(command.dwidth.into()));
             w.set_ddtr(command.ddtr);
+
+            w.set_dqse(command.dqse);
+            w.set_sioo(command.sioo);
         });
 
         // Set informationrequired to initiate transaction
@@ -854,6 +866,45 @@ impl<'d, T: Instance> Ospi<'d, T, Blocking> {
             false,
         )
     }
+
+    /// Create new blocking OSPI driver for octospi external chips with DQS support
+    pub fn new_blocking_octospi_with_dqs(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
+        dqs: Peri<'d, impl DQSPin<T>>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d4, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d5, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d6, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d7, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
+            new_pin!(dqs, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            None,
+            config,
+            OspiWidth::OCTO,
+            false,
+        )
+    }
 }
 
 impl<'d, T: Instance> Ospi<'d, T, Async> {
@@ -1029,6 +1080,46 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
                 AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
             ),
             None,
+            new_dma!(dma),
+            config,
+            OspiWidth::OCTO,
+            false,
+        )
+    }
+
+    /// Create new blocking OSPI driver for octospi external chips with DQS support
+    pub fn new_octospi_with_dqs(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        nss: Peri<'d, impl NSSPin<T>>,
+        dqs: Peri<'d, impl DQSPin<T>>,
+        dma: Peri<'d, impl OctoDma<T>>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d4, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d5, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d6, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d7, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(
+                nss,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
+            new_pin!(dqs, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             new_dma!(dma),
             config,
             OspiWidth::OCTO,

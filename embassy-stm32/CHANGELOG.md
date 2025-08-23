@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - STM32: Prevent dropped DacChannel from disabling Dac peripheral if another DacChannel is still in scope ([#4577](https://github.com/embassy-rs/embassy/pull/4577))
+- feat: Added support for more OctoSPI configurations (e.g. APS6408 RAM) ([#4581](https://github.com/embassy-rs/embassy/pull/4581))
 
 ## 0.4.0 - 2025-08-26
 
