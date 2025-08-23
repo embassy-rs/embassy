@@ -8,10 +8,6 @@ use crate::dma::{
     word::{Word, WordSize},
     Dir, Request,
 };
-use core::{
-    ptr,
-    sync::atomic::{AtomicUsize, Ordering},
-};
 
 /// The mode in which to run the linked list.
 #[derive(Debug)]
@@ -28,6 +24,7 @@ pub enum RunMode {
 ///
 /// Also works for 2D-capable GPDMA channels, but does not use 2D capabilities.
 #[derive(Debug, Copy, Clone, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(C)]
 pub struct LinearItem {
     /// Transfer register 1.
@@ -146,7 +143,9 @@ impl LinearItem {
         llr.set_usa(true);
         llr.set_uda(true);
         llr.set_ull(true);
-        llr.set_la(next);
+
+        // Lower two bits are ignored: 32 bit aligned.
+        llr.set_la(next >> 2);
 
         self.llr = llr.0;
     }
@@ -159,78 +158,82 @@ impl LinearItem {
     }
 }
 
+/// A table of linked list items.
+#[repr(C)]
 pub struct Table<const ITEM_COUNT: usize> {
-    current_index: AtomicUsize,
-    items: [LinearItem; ITEM_COUNT],
+    /// The items.
+    pub items: [LinearItem; ITEM_COUNT],
 }
 
 impl<const ITEM_COUNT: usize> Table<ITEM_COUNT> {
     /// Create a new table.
-    pub fn new(items: [LinearItem; ITEM_COUNT], run_mode: RunMode) -> Self {
+    pub fn new(items: [LinearItem; ITEM_COUNT]) -> Self {
         assert!(!items.is_empty());
 
-        let mut this = Self {
-            current_index: AtomicUsize::new(0),
-            items,
-        };
+        Self { items }
+    }
 
+    pub fn link(&mut self, run_mode: RunMode) {
         if matches!(run_mode, RunMode::Once | RunMode::Repeat) {
-            this.link_sequential();
+            self.link_sequential();
         }
 
         if matches!(run_mode, RunMode::Repeat) {
-            this.link_repeat();
+            self.link_repeat();
         }
-
-        this
     }
 
+    /// The number of linked list items.s
     pub fn len(&self) -> usize {
         self.items.len()
     }
 
-    /// Items are linked together sequentially.
+    /// Link items of given indices together: first -> second.
+    pub fn link_indices(&mut self, first: usize, second: usize) {
+        assert!(first < self.len());
+        assert!(second < self.len());
+
+        let second_item = self.offset_address(second);
+        self.items[first].link_to(second_item);
+    }
+
+    /// Link items sequentially.
     pub fn link_sequential(&mut self) {
-        if self.items.len() > 1 {
+        if self.len() > 1 {
             for index in 0..(self.items.len() - 1) {
-                let next = ptr::addr_of!(self.items[index + 1]) as u16;
+                let next = self.offset_address(index + 1);
                 self.items[index].link_to(next);
             }
         }
     }
 
-    /// Last item links to first item.
+    /// Link last to first item.
     pub fn link_repeat(&mut self) {
-        let first_item = self.items.first().unwrap();
-        let first_address = ptr::addr_of!(first_item) as u16;
+        let first_address = self.offset_address(0);
         self.items.last_mut().unwrap().link_to(first_address);
     }
 
-    /// The index of the next item.
-    pub fn next_index(&self) -> usize {
-        let mut next_index = self.current_index.load(Ordering::Relaxed) + 1;
-        if next_index >= self.len() {
-            next_index = 0;
+    /// Unlink all items.
+    pub fn unlink(&mut self) {
+        for item in self.items.iter_mut() {
+            item.unlink();
         }
-
-        next_index
-    }
-
-    /// Unlink the next item.
-    pub fn unlink_next(&mut self) {
-        let next_index = self.next_index();
-        self.items[next_index].unlink();
     }
 
     /// Linked list base address (upper 16 address bits).
     pub fn base_address(&self) -> u16 {
-        ((ptr::addr_of!(self.items) as u32) >> 16) as _
+        ((&raw const self.items as u32) >> 16) as _
     }
 
     /// Linked list offset address (lower 16 address bits) at the selected index.
     pub fn offset_address(&self, index: usize) -> u16 {
         assert!(self.items.len() > index);
 
-        (ptr::addr_of!(self.items[index]) as u32) as _
+        let address = &raw const self.items[index] as _;
+
+        // Ensure 32 bit address alignment.
+        assert_eq!(address & 0b11, 0);
+
+        address
     }
 }

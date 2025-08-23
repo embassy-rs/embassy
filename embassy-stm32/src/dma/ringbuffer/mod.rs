@@ -92,6 +92,16 @@ impl<'a, W: Word> ReadableDmaRingBuffer<'a, W> {
         }
     }
 
+    /// The current ring-buffer read index.
+    pub fn read_index(&self, offset: usize) -> usize {
+        self.read_index.as_index(self.cap(), offset)
+    }
+
+    /// The current ring-buffer write index.
+    pub fn write_index(&self, offset: usize) -> usize {
+        self.write_index.as_index(self.cap(), offset)
+    }
+
     /// Reset the ring buffer to its initial state.
     pub fn reset(&mut self, dma: &mut impl DmaCtrl) {
         dma.reset_complete_count();
@@ -206,6 +216,16 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
                 pos: len,
             },
         }
+    }
+
+    /// The current ring-buffer read index.
+    pub fn read_index(&self, offset: usize) -> usize {
+        self.read_index.as_index(self.cap(), offset)
+    }
+
+    /// The current ring-buffer write index.
+    pub fn write_index(&self, offset: usize) -> usize {
+        self.write_index.as_index(self.cap(), offset)
     }
 
     /// Reset the ring buffer to its initial state. The buffer after the reset will be full.
