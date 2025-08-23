@@ -525,16 +525,7 @@ impl OperationFraming {
 ///
 /// # Returns
 /// An iterator over (operation, framing) pairs, or an error if the transaction is invalid
-///
-/// # Example
-/// ```rust
-/// for (op, framing) in assign_operation_framing(operations)? {
-///     match op {
-///         Operation::Read(buffer) => self.read_with_framing(addr, buffer, framing).await?,
-///         Operation::Write(data) => self.write_with_framing(addr, data, framing).await?,
-///     }
-/// }
-/// ```
+/// 
 #[allow(dead_code)]
 fn assign_operation_framing<'a, 'b: 'a>(
     operations: &'a mut [embedded_hal_1::i2c::Operation<'b>],
