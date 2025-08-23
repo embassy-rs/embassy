@@ -1,0 +1,572 @@
+#![macro_use]
+
+use core::future::Future;
+use core::pin::Pin;
+use core::sync::atomic::{fence, AtomicUsize, Ordering};
+use core::task::{Context, Poll};
+
+use embassy_hal_internal::Peri;
+use embassy_sync::waitqueue::AtomicWaker;
+use linked_list::Table;
+use stm32_metapac::gpdma::regs;
+
+use super::word::{Word, WordSize};
+use super::{AnyChannel, Channel, Dir, Request, STATE};
+use crate::interrupt::typelevel::Interrupt;
+use crate::pac;
+use crate::pac::gpdma::vals;
+
+mod linked_list;
+mod ringbuffer;
+
+pub(crate) struct ChannelInfo {
+    pub(crate) dma: pac::gpdma::Gpdma,
+    pub(crate) num: usize,
+    #[cfg(feature = "_dual-core")]
+    pub(crate) irq: pac::Interrupt,
+}
+
+/// DMA request priority
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Priority {
+    /// Low Priority
+    Low,
+    /// Medium Priority
+    Medium,
+    /// High Priority
+    High,
+    /// Very High Priority
+    VeryHigh,
+}
+
+impl From<Priority> for pac::gpdma::vals::Prio {
+    fn from(value: Priority) -> Self {
+        match value {
+            Priority::Low => pac::gpdma::vals::Prio::LOW_WITH_LOWH_WEIGHT,
+            Priority::Medium => pac::gpdma::vals::Prio::LOW_WITH_MID_WEIGHT,
+            Priority::High => pac::gpdma::vals::Prio::LOW_WITH_HIGH_WEIGHT,
+            Priority::VeryHigh => pac::gpdma::vals::Prio::HIGH,
+        }
+    }
+}
+
+/// GPDMA transfer options.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub struct TransferOptions {
+    priority: Priority,
+    half_transfer_ir: bool,
+    complete_transfer_ir: bool,
+}
+
+impl Default for TransferOptions {
+    fn default() -> Self {
+        Self {
+            priority: Priority::VeryHigh,
+            half_transfer_ir: false,
+            complete_transfer_ir: true,
+        }
+    }
+}
+
+impl From<WordSize> for vals::Dw {
+    fn from(raw: WordSize) -> Self {
+        match raw {
+            WordSize::OneByte => Self::BYTE,
+            WordSize::TwoBytes => Self::HALF_WORD,
+            WordSize::FourBytes => Self::WORD,
+        }
+    }
+}
+
+pub(crate) struct ChannelState {
+    waker: AtomicWaker,
+    complete_count: AtomicUsize,
+}
+
+impl ChannelState {
+    pub(crate) const NEW: Self = Self {
+        waker: AtomicWaker::new(),
+        complete_count: AtomicUsize::new(0),
+    };
+}
+
+/// safety: must be called only once
+pub(crate) unsafe fn init(cs: critical_section::CriticalSection, irq_priority: Priority) {
+    foreach_interrupt! {
+        ($peri:ident, gpdma, $block:ident, $signal_name:ident, $irq:ident) => {
+            crate::interrupt::typelevel::$irq::set_priority_with_cs(cs, irq_priority);
+            #[cfg(not(feature = "_dual-core"))]
+            crate::interrupt::typelevel::$irq::enable();
+        };
+    }
+    crate::_generated::init_gpdma();
+}
+
+impl AnyChannel {
+    /// Safety: Must be called with a matching set of parameters for a valid dma channel
+    pub(crate) unsafe fn on_irq(&self) {
+        let info = self.info();
+        #[cfg(feature = "_dual-core")]
+        {
+            use embassy_hal_internal::interrupt::InterruptExt as _;
+            info.irq.enable();
+        }
+
+        let state = &STATE[self.id as usize];
+
+        let ch = info.dma.ch(info.num);
+        let sr = ch.sr().read();
+
+        if sr.dtef() {
+            panic!(
+                "DMA: data transfer error on DMA@{:08x} channel {}",
+                info.dma.as_ptr() as u32,
+                info.num
+            );
+        }
+        if sr.usef() {
+            panic!(
+                "DMA: user settings error on DMA@{:08x} channel {}",
+                info.dma.as_ptr() as u32,
+                info.num
+            );
+        }
+        if sr.ulef() {
+            panic!(
+                "DMA: link transfer error on DMA@{:08x} channel {}",
+                info.dma.as_ptr() as u32,
+                info.num
+            );
+        }
+
+        if sr.tcf() {
+            state.complete_count.fetch_add(1, Ordering::Release);
+        }
+
+        if sr.suspf() || sr.tcf() {
+            // disable all xxIEs to prevent the irq from firing again.
+            ch.cr().write(|_| {});
+
+            // Wake the future. It'll look at tcf and see it's set.
+            state.waker.wake();
+        }
+    }
+
+    fn get_remaining_transfers(&self) -> u16 {
+        let info = self.info();
+        let ch = info.dma.ch(info.num);
+
+        ch.br1().read().bndt()
+    }
+
+    unsafe fn configure(
+        &self,
+        request: Request,
+        dir: Dir,
+        peri_addr: *const u32,
+        mem_addr: *mut u32,
+        mem_len: usize,
+        incr_mem: bool,
+        data_size: WordSize,
+        dst_size: WordSize,
+        options: TransferOptions,
+    ) {
+        // BNDT is specified as bytes, not as number of transfers.
+        let Ok(bndt) = (mem_len * data_size.bytes()).try_into() else {
+            panic!("DMA transfers may not be larger than 65535 bytes.");
+        };
+
+        let info = self.info();
+        let ch = info.dma.ch(info.num);
+
+        // "Preceding reads and writes cannot be moved past subsequent writes."
+        fence(Ordering::SeqCst);
+
+        ch.cr().write(|w| w.set_reset(true));
+        ch.fcr().write(|w| w.0 = 0xFFFF_FFFF); // clear all irqs
+        ch.llr().write(|_| {}); // no linked list
+        ch.tr1().write(|w| {
+            w.set_sdw(data_size.into());
+            w.set_ddw(dst_size.into());
+            w.set_sinc(dir == Dir::MemoryToPeripheral && incr_mem);
+            w.set_dinc(dir == Dir::PeripheralToMemory && incr_mem);
+        });
+        ch.tr2().write(|w| {
+            w.set_dreq(match dir {
+                Dir::MemoryToPeripheral => vals::Dreq::DESTINATION_PERIPHERAL,
+                Dir::PeripheralToMemory => vals::Dreq::SOURCE_PERIPHERAL,
+            });
+            w.set_reqsel(request);
+        });
+        ch.tr3().write(|_| {}); // no address offsets.
+        ch.br1().write(|w| w.set_bndt(bndt));
+
+        match dir {
+            Dir::MemoryToPeripheral => {
+                ch.sar().write_value(mem_addr as _);
+                ch.dar().write_value(peri_addr as _);
+            }
+            Dir::PeripheralToMemory => {
+                ch.sar().write_value(peri_addr as _);
+                ch.dar().write_value(mem_addr as _);
+            }
+        }
+
+        ch.cr().write(|w| {
+            w.set_prio(options.priority.into());
+            w.set_htie(options.half_transfer_ir);
+            w.set_tcie(options.complete_transfer_ir);
+            w.set_useie(true);
+            w.set_dteie(true);
+            w.set_suspie(true);
+        });
+    }
+
+    unsafe fn configure_linked_list<const ITEM_COUNT: usize>(
+        &self,
+        table: &Table<ITEM_COUNT>,
+        options: TransferOptions,
+    ) {
+        let info = self.info();
+        let ch = info.dma.ch(info.num);
+
+        // "Preceding reads and writes cannot be moved past subsequent writes."
+        fence(Ordering::SeqCst);
+
+        ch.cr().write(|w| w.set_reset(true));
+        ch.fcr().write(|w| w.0 = 0xFFFF_FFFF); // clear all irqs
+
+        ch.lbar().write(|reg| reg.set_lba(table.base_address()));
+
+        // Enable all linked-list field updates.
+        let mut llr = regs::ChLlr(0);
+        llr.set_ut1(true);
+        llr.set_ut2(true);
+        llr.set_ub1(true);
+        llr.set_usa(true);
+        llr.set_uda(true);
+        llr.set_ull(true);
+
+        llr.set_la(table.offset_address(0));
+
+        ch.llr().write(|_| llr.0);
+
+        ch.tr3().write(|_| {}); // no address offsets.
+
+        ch.cr().write(|w| {
+            w.set_prio(options.priority.into());
+            w.set_htie(options.half_transfer_ir);
+            w.set_tcie(options.complete_transfer_ir);
+            w.set_useie(true);
+            w.set_uleie(true);
+            w.set_dteie(true);
+            w.set_suspie(true);
+        });
+    }
+
+    fn start(&self) {
+        let info = self.info();
+        let ch = info.dma.ch(info.num);
+
+        ch.cr().modify(|w| w.set_en(true));
+    }
+
+    fn request_stop(&self) {
+        let info = self.info();
+        let ch = info.dma.ch(info.num);
+
+        ch.cr().modify(|w| w.set_susp(true))
+    }
+
+    fn is_running(&self) -> bool {
+        let info = self.info();
+        let ch = info.dma.ch(info.num);
+
+        let sr = ch.sr().read();
+        !sr.tcf() && !sr.suspf()
+    }
+
+    fn poll_stop(&self) -> Poll<()> {
+        use core::sync::atomic::compiler_fence;
+        compiler_fence(Ordering::SeqCst);
+
+        if !self.is_running() {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    }
+}
+
+/// Linked-list DMA transfer.
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct LinkedListTransfer<'a, const ITEM_COUNT: usize> {
+    channel: PeripheralRef<'a, AnyChannel>,
+    table: Table<ITEM_COUNT>,
+}
+
+impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
+    /// Create a new linked-list transfer.
+    pub unsafe fn new_linked_list<const N: usize>(
+        channel: impl Peripheral<P = impl Channel> + 'a,
+        table: Table<ITEM_COUNT>,
+        options: TransferOptions,
+    ) -> Self {
+        into_ref!(channel);
+
+        Self::new_inner_linked_list(channel.map_into(), table, options)
+    }
+
+    unsafe fn new_inner_linked_list(
+        channel: PeripheralRef<'a, AnyChannel>,
+        table: Table<ITEM_COUNT>,
+        options: TransferOptions,
+    ) -> Self {
+        channel.configure_linked_list(&table, options);
+        channel.start();
+
+        Self { channel, table }
+    }
+
+    /// Request the transfer to stop.
+    ///
+    /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
+    pub fn request_stop(&mut self) {
+        self.channel.request_stop()
+    }
+
+    /// Return whether this transfer is still running.
+    ///
+    /// If this returns `false`, it can be because either the transfer finished, or
+    /// it was requested to stop early with [`request_stop`](Self::request_stop).
+    pub fn is_running(&mut self) -> bool {
+        self.channel.is_running()
+    }
+
+    /// Gets the total remaining transfers for the channel
+    /// Note: this will be zero for transfers that completed without cancellation.
+    pub fn get_remaining_transfers(&self) -> u16 {
+        self.channel.get_remaining_transfers()
+    }
+
+    /// Blocking wait until the transfer finishes.
+    pub fn blocking_wait(mut self) {
+        while self.is_running() {}
+
+        // "Subsequent reads and writes cannot be moved ahead of preceding reads."
+        fence(Ordering::SeqCst);
+
+        core::mem::forget(self);
+    }
+}
+
+impl<'a, const ITEM_COUNT: usize> Drop for LinkedListTransfer<'a, ITEM_COUNT> {
+    fn drop(&mut self) {
+        self.request_stop();
+        while self.is_running() {}
+
+        // "Subsequent reads and writes cannot be moved ahead of preceding reads."
+        fence(Ordering::SeqCst);
+    }
+}
+
+impl<'a, const ITEM_COUNT: usize> Unpin for LinkedListTransfer<'a, ITEM_COUNT> {}
+impl<'a, const ITEM_COUNT: usize> Future for LinkedListTransfer<'a, ITEM_COUNT> {
+    type Output = ();
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let state = &STATE[self.channel.id as usize];
+        state.waker.register(cx.waker());
+
+        if self.is_running() {
+            Poll::Pending
+        } else {
+            Poll::Ready(())
+        }
+    }
+}
+
+/// DMA transfer.
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct Transfer<'a> {
+    channel: Peri<'a, AnyChannel>,
+}
+
+impl<'a> Transfer<'a> {
+    /// Create a new read DMA transfer (peripheral to memory).
+    pub unsafe fn new_read<W: Word>(
+        channel: Peri<'a, impl Channel>,
+        request: Request,
+        peri_addr: *mut W,
+        buf: &'a mut [W],
+        options: TransferOptions,
+    ) -> Self {
+        Self::new_read_raw(channel, request, peri_addr, buf, options)
+    }
+
+    /// Create a new read DMA transfer (peripheral to memory), using raw pointers.
+    pub unsafe fn new_read_raw<MW: Word, PW: Word>(
+        channel: Peri<'a, impl Channel>,
+        request: Request,
+        peri_addr: *mut PW,
+        buf: *mut [MW],
+        options: TransferOptions,
+    ) -> Self {
+        Self::new_inner(
+            channel.into(),
+            request,
+            Dir::PeripheralToMemory,
+            peri_addr as *const u32,
+            buf as *mut MW as *mut u32,
+            buf.len(),
+            true,
+            PW::size(),
+            MW::size(),
+            options,
+        )
+    }
+
+    /// Create a new write DMA transfer (memory to peripheral).
+    pub unsafe fn new_write<MW: Word, PW: Word>(
+        channel: Peri<'a, impl Channel>,
+        request: Request,
+        buf: &'a [MW],
+        peri_addr: *mut PW,
+        options: TransferOptions,
+    ) -> Self {
+        Self::new_write_raw(channel, request, buf, peri_addr, options)
+    }
+
+    /// Create a new write DMA transfer (memory to peripheral), using raw pointers.
+    pub unsafe fn new_write_raw<MW: Word, PW: Word>(
+        channel: Peri<'a, impl Channel>,
+        request: Request,
+        buf: *const [MW],
+        peri_addr: *mut PW,
+        options: TransferOptions,
+    ) -> Self {
+        Self::new_inner(
+            channel.into(),
+            request,
+            Dir::MemoryToPeripheral,
+            peri_addr as *const u32,
+            buf as *const MW as *mut u32,
+            buf.len(),
+            true,
+            MW::size(),
+            PW::size(),
+            options,
+        )
+    }
+
+    /// Create a new write DMA transfer (memory to peripheral), writing the same value repeatedly.
+    pub unsafe fn new_write_repeated<MW: Word, PW: Word>(
+        channel: Peri<'a, impl Channel>,
+        request: Request,
+        repeated: &'a MW,
+        count: usize,
+        peri_addr: *mut PW,
+        options: TransferOptions,
+    ) -> Self {
+        Self::new_inner(
+            channel.into(),
+            request,
+            Dir::MemoryToPeripheral,
+            peri_addr as *const u32,
+            repeated as *const MW as *mut u32,
+            count,
+            false,
+            MW::size(),
+            PW::size(),
+            options,
+        )
+    }
+
+    unsafe fn new_inner(
+        channel: Peri<'a, AnyChannel>,
+        request: Request,
+        dir: Dir,
+        peri_addr: *const u32,
+        mem_addr: *mut u32,
+        mem_len: usize,
+        incr_mem: bool,
+        data_size: WordSize,
+        peripheral_size: WordSize,
+        options: TransferOptions,
+    ) -> Self {
+        assert!(mem_len > 0 && mem_len <= 0xFFFF);
+
+        channel.configure(
+            _request,
+            dir,
+            peri_addr,
+            mem_addr,
+            mem_len,
+            incr_mem,
+            data_size,
+            peripheral_size,
+            options,
+        );
+        channel.start();
+
+        Self { channel }
+    }
+
+    /// Request the transfer to stop.
+    ///
+    /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
+    pub fn request_stop(&mut self) {
+        self.channel.request_stop()
+    }
+
+    /// Return whether this transfer is still running.
+    ///
+    /// If this returns `false`, it can be because either the transfer finished, or
+    /// it was requested to stop early with [`request_stop`](Self::request_stop).
+    pub fn is_running(&mut self) -> bool {
+        self.channel.is_running()
+    }
+
+    /// Gets the total remaining transfers for the channel
+    /// Note: this will be zero for transfers that completed without cancellation.
+    pub fn get_remaining_transfers(&self) -> u16 {
+        self.channel.get_remaining_transfers()
+    }
+
+    /// Blocking wait until the transfer finishes.
+    pub fn blocking_wait(mut self) {
+        while self.is_running() {}
+
+        // "Subsequent reads and writes cannot be moved ahead of preceding reads."
+        fence(Ordering::SeqCst);
+
+        core::mem::forget(self);
+    }
+}
+
+impl<'a> Drop for Transfer<'a> {
+    fn drop(&mut self) {
+        self.request_stop();
+        while self.is_running() {}
+
+        // "Subsequent reads and writes cannot be moved ahead of preceding reads."
+        fence(Ordering::SeqCst);
+    }
+}
+
+impl<'a> Unpin for Transfer<'a> {}
+impl<'a> Future for Transfer<'a> {
+    type Output = ();
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let state = &STATE[self.channel.id as usize];
+        state.waker.register(cx.waker());
+
+        if self.is_running() {
+            Poll::Pending
+        } else {
+            Poll::Ready(())
+        }
+    }
+}
