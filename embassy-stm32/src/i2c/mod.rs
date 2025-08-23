@@ -5,9 +5,6 @@
 #[cfg_attr(any(i2c_v2, i2c_v3), path = "v2.rs")]
 mod _version;
 
-// Type alias for the peri_trait! macro
-type State = _version::State;
-
 mod config;
 
 use core::future::Future;
@@ -16,6 +13,7 @@ use core::marker::PhantomData;
 
 pub use config::*;
 use embassy_hal_internal::Peri;
+use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
 use mode::MasterMode;
@@ -274,6 +272,19 @@ impl Timeout {
 
         #[cfg(not(feature = "time"))]
         fut
+    }
+}
+
+struct State {
+    #[allow(unused)]
+    waker: AtomicWaker,
+}
+
+impl State {
+    const fn new() -> Self {
+        Self {
+            waker: AtomicWaker::new(),
+        }
     }
 }
 
