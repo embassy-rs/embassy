@@ -8,7 +8,7 @@
 #![no_main]
 
 use defmt::{error, info};
-use defmt_rtt as _;
+use {defmt_rtt as _, panic_probe as _};
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::{self, Address, I2c, SlaveAddrConfig, SlaveCommand, SlaveCommandKind};
 use embassy_stm32::time::Hertz;
@@ -16,7 +16,6 @@ use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
-use panic_probe as _;
 
 pub const I2C_SLAVE_ADDR: u8 = 0x42;
 pub const BUFFER_SIZE: usize = 8;
