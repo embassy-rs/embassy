@@ -5,6 +5,7 @@ name = "embassy-basic-example"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
+publish = false
 [dependencies]
 embassy-executor = { version = "0.8.0", path = "../../../embassy-executor", features = ["defmt", "arch-cortex-m", "executor-thread"] }
 embassy-time = { version = "0.4.0", path = "../../../embassy-time", features = ["defmt"] }
@@ -16,3 +17,8 @@ defmt-rtt = "1.0.0"
 cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7em-none-eabi" }
+]

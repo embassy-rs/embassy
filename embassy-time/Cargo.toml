@@ -14,6 +14,12 @@ categories = [
     "asynchronous",
 ]
 
+[package.metadata.embassy]
+build = [
+    {target = "thumbv6m-none-eabi", features = ["defmt", "defmt-timestamp-uptime", "mock-driver"]},
+    {features = ["defmt", "std"]},
+]
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-time-v$VERSION/embassy-time/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-time/src/"

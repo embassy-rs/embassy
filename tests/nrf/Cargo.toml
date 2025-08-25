@@ -3,6 +3,7 @@ edition = "2021"
 name = "embassy-nrf-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 teleprobe-meta = "1"
@@ -112,3 +113,13 @@ path = "src/bin/wifi_esp_hosted_perf.rs"
 required-features = [ "nrf52840",]
 
 # END TESTS
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv6m-none-eabi", features = ["nrf51422"], artifact-dir = "out/tests/nrf51422-dk" },
+  { target = "thumbv7em-none-eabi", features = ["nrf52832"], artifact-dir = "out/tests/nrf52832-dk" },
+  { target = "thumbv7em-none-eabi", features = ["nrf52833"], artifact-dir = "out/tests/nrf52833-dk" },
+  { target = "thumbv7em-none-eabi", features = ["nrf52840"], artifact-dir = "out/tests/nrf52840-dk" },
+  { target = "thumbv8m.main-none-eabihf", features = ["nrf5340"], artifact-dir = "out/tests/nrf5340-dk" },
+  { target = "thumbv8m.main-none-eabihf", features = ["nrf9160"], artifact-dir = "out/tests/nrf9160-dk" }
+]

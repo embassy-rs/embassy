@@ -12,6 +12,26 @@ categories = [
     "asynchronous",
 ]
 
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabi", features = []},
+    {target = "thumbv7em-none-eabi", features = ["log"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt"]},
+    {target = "thumbv6m-none-eabi", features = ["arch-cortex-m", "defmt", "executor-interrupt", "executor-thread"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "rtos-trace"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-thread"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread"]},
+    {target = "armv7a-none-eabi", features = ["arch-cortex-ar", "executor-thread"]},
+    {target = "armv7r-none-eabi", features = ["arch-cortex-ar", "executor-thread"]},
+    {target = "armv7r-none-eabihf", features = ["arch-cortex-ar", "executor-thread"]},
+    {target = "riscv32imac-unknown-none-elf", features = ["arch-riscv32"]},
+    {target = "riscv32imac-unknown-none-elf", features = ["arch-riscv32", "executor-thread"]},
+]
+
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-executor-v$VERSION/embassy-executor/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-executor/src/"

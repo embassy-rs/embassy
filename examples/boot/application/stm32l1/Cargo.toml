@@ -3,6 +3,7 @@ edition = "2021"
 name = "embassy-boot-stm32l1-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 embassy-sync = { version = "0.7.1", path = "../../../../embassy-sync" }
@@ -29,3 +30,8 @@ defmt = [
       "embassy-sync/defmt",
 ]
 skip-include = []
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7m-none-eabi", features = ["skip-include"], artifact-dir = "out/examples/boot/stm32l1" }
+]

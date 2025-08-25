@@ -3,6 +3,7 @@ edition = "2021"
 name = "embassy-mspm0-g3507-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 embassy-mspm0 = { version = "0.1.0", path = "../../embassy-mspm0", features = ["mspm0g3507pm", "defmt", "rt", "time-driver-any"] }
@@ -21,3 +22,8 @@ embedded-io-async = "0.6.1"
 
 [profile.release]
 debug = 2
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv6m-none-eabi", artifact-dir = "out/examples/mspm0g3507" }
+]
