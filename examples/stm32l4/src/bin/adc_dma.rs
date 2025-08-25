@@ -13,8 +13,11 @@ const DMA_BUF_LEN: usize = 512;
 async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
-    let config = Config::default();
-
+    let mut config = Config::default();
+    {
+        use embassy_stm32::rcc::*;
+        config.rcc.mux.adcsel = mux::Adcsel::SYS;
+    }
     let p = embassy_stm32::init(config);
 
     let mut adc = Adc::new(p.ADC1);
@@ -36,14 +39,13 @@ async fn main(_spawner: Spawner) {
     loop {
         match ring_buffered_adc.read(&mut measurements).await {
             Ok(_) => {
-                //note: originally there was a print here showing all the samples, 
+                //note: originally there was a print here showing all the samples,
                 //but even that takes too much time and would cause adc overruns
-                info!("adc1 first 10 samples: {}",measurements[0..10]);
+                info!("adc1 first 10 samples: {}", measurements[0..10]);
             }
             Err(e) => {
                 warn!("Error: {:?}", e);
             }
         }
     }
-
 }
