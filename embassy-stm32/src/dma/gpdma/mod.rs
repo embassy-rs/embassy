@@ -8,7 +8,6 @@ use core::task::{Context, Poll};
 use embassy_hal_internal::Peri;
 use embassy_sync::waitqueue::AtomicWaker;
 use linked_list::Table;
-use stm32_metapac::gpdma::regs;
 
 use super::word::{Word, WordSize};
 use super::{AnyChannel, Channel, Dir, Request, STATE};
@@ -16,8 +15,8 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::pac;
 use crate::pac::gpdma::vals;
 
-mod linked_list;
-mod ringbuffer;
+pub mod linked_list;
+pub mod ringbuffered;
 
 pub(crate) struct ChannelInfo {
     pub(crate) dma: pac::gpdma::Gpdma,
@@ -56,9 +55,12 @@ impl From<Priority> for pac::gpdma::vals::Prio {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub struct TransferOptions {
-    priority: Priority,
-    half_transfer_ir: bool,
-    complete_transfer_ir: bool,
+    /// Request priority level.
+    pub priority: Priority,
+    /// Enable half transfer interrupt.
+    pub half_transfer_ir: bool,
+    /// Enable transfer complete interrupt.
+    pub complete_transfer_ir: bool,
 }
 
 impl Default for TransferOptions {
@@ -81,6 +83,17 @@ impl From<WordSize> for vals::Dw {
     }
 }
 
+impl From<vals::Dw> for WordSize {
+    fn from(raw: vals::Dw) -> Self {
+        match raw {
+            vals::Dw::BYTE => Self::OneByte,
+            vals::Dw::HALF_WORD => Self::TwoBytes,
+            vals::Dw::WORD => Self::FourBytes,
+            _ => panic!("Invalid word size"),
+        }
+    }
+}
+
 pub(crate) struct ChannelState {
     waker: AtomicWaker,
     complete_count: AtomicUsize,
@@ -94,7 +107,7 @@ impl ChannelState {
 }
 
 /// safety: must be called only once
-pub(crate) unsafe fn init(cs: critical_section::CriticalSection, irq_priority: Priority) {
+pub(crate) unsafe fn init(cs: critical_section::CriticalSection, irq_priority: crate::interrupt::Priority) {
     foreach_interrupt! {
         ($peri:ident, gpdma, $block:ident, $signal_name:ident, $irq:ident) => {
             crate::interrupt::typelevel::$irq::set_priority_with_cs(cs, irq_priority);
@@ -142,24 +155,30 @@ impl AnyChannel {
             );
         }
 
+        if sr.htf() {
+            ch.fcr().write(|w| w.set_htf(true));
+        }
+
         if sr.tcf() {
+            ch.fcr().write(|w| w.set_tcf(true));
             state.complete_count.fetch_add(1, Ordering::Release);
         }
 
-        if sr.suspf() || sr.tcf() {
+        if sr.suspf() {
             // disable all xxIEs to prevent the irq from firing again.
             ch.cr().write(|_| {});
 
             // Wake the future. It'll look at tcf and see it's set.
-            state.waker.wake();
         }
+        state.waker.wake();
     }
 
     fn get_remaining_transfers(&self) -> u16 {
         let info = self.info();
         let ch = info.dma.ch(info.num);
+        let word_size: WordSize = ch.tr1().read().ddw().into();
 
-        ch.br1().read().bndt()
+        ch.br1().read().bndt() / word_size.bytes() as u16
     }
 
     unsafe fn configure(
@@ -238,21 +257,23 @@ impl AnyChannel {
 
         ch.cr().write(|w| w.set_reset(true));
         ch.fcr().write(|w| w.0 = 0xFFFF_FFFF); // clear all irqs
-
         ch.lbar().write(|reg| reg.set_lba(table.base_address()));
 
+        // Empty LLI0.
+        ch.br1().write(|w| w.set_bndt(0));
+
         // Enable all linked-list field updates.
-        let mut llr = regs::ChLlr(0);
-        llr.set_ut1(true);
-        llr.set_ut2(true);
-        llr.set_ub1(true);
-        llr.set_usa(true);
-        llr.set_uda(true);
-        llr.set_ull(true);
+        ch.llr().write(|w| {
+            w.set_ut1(true);
+            w.set_ut2(true);
+            w.set_ub1(true);
+            w.set_usa(true);
+            w.set_uda(true);
+            w.set_ull(true);
 
-        llr.set_la(table.offset_address(0));
-
-        ch.llr().write(|_| llr.0);
+            // Lower two bits are ignored: 32 bit aligned.
+            w.set_la(table.offset_address(0) >> 2);
+        });
 
         ch.tr3().write(|_| {}); // no address offsets.
 
@@ -281,12 +302,23 @@ impl AnyChannel {
         ch.cr().modify(|w| w.set_susp(true))
     }
 
+    fn request_pause(&self) {
+        let info = self.info();
+        let ch = info.dma.ch(info.num);
+
+        // Disable the channel without overwriting the existing configuration
+        ch.cr().modify(|w| {
+            w.set_en(false);
+        });
+    }
+
     fn is_running(&self) -> bool {
         let info = self.info();
         let ch = info.dma.ch(info.num);
 
         let sr = ch.sr().read();
-        !sr.tcf() && !sr.suspf()
+
+        !sr.tcf() && !sr.suspf() && !sr.idlef()
     }
 
     fn poll_stop(&self) -> Poll<()> {
@@ -305,7 +337,6 @@ impl AnyChannel {
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct LinkedListTransfer<'a, const ITEM_COUNT: usize> {
     channel: PeripheralRef<'a, AnyChannel>,
-    table: Table<ITEM_COUNT>,
 }
 
 impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
@@ -328,7 +359,7 @@ impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
         channel.configure_linked_list(&table, options);
         channel.start();
 
-        Self { channel, table }
+        Self { channel }
     }
 
     /// Request the transfer to stop.
@@ -515,10 +546,20 @@ impl<'a> Transfer<'a> {
     }
 
     /// Request the transfer to stop.
+    /// The configuration for this channel will **not be preserved**. If you need to restart the transfer
+    /// at a later point with the same configuration, see [`request_pause`](Self::request_pause) instead.
     ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn request_stop(&mut self) {
         self.channel.request_stop()
+    }
+
+    /// Request the transfer to pause, keeping the existing configuration for this channel.
+    /// To restart the transfer, call [`start`](Self::start) again.
+    ///
+    /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
+    pub fn request_pause(&mut self) {
+        self.channel.request_pause()
     }
 
     /// Return whether this transfer is still running.
