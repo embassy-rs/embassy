@@ -650,8 +650,8 @@ impl Config {
 }
 
 enum RingBuffer<'d, W: word::Word> {
-    Writable(WritableRingBuffer<'d, W>),
-    Readable(ReadableRingBuffer<'d, W>),
+    Writable(WritableRingBuffer<'d, W, 2>),
+    Readable(ReadableRingBuffer<'d, W, 2>),
 }
 
 fn dr<W: word::Word>(w: crate::pac::sai::Sai, sub_block: WhichSubBlock) -> *mut W {
@@ -687,13 +687,12 @@ fn get_ring_buffer<'d, T: Instance, W: word::Word>(
         //the new_write() and new_read() always use circular mode
         ..Default::default()
     };
-    let updaters = Default::default();
     match tx_rx {
         TxRx::Transmitter => RingBuffer::Writable(unsafe {
-            WritableRingBuffer::new(dma, request, dr(T::REGS, sub_block), dma_buf, opts, updaters)
+            WritableRingBuffer::new(dma, request, dr(T::REGS, sub_block), dma_buf, opts)
         }),
         TxRx::Receiver => RingBuffer::Readable(unsafe {
-            ReadableRingBuffer::new(dma, request, dr(T::REGS, sub_block), dma_buf, opts, updaters)
+            ReadableRingBuffer::new(dma, request, dr(T::REGS, sub_block), dma_buf, opts)
         }),
     }
 }
