@@ -24,7 +24,7 @@ features = ["defmt", "tcp", "udp", "raw", "dns", "icmp", "dhcpv4", "proto-ipv6",
 
 [features]
 ## Enable defmt
-defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "embassy-time/defmt", "heapless/defmt-03", "defmt?/ip_in_core"]
+defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "embassy-time/defmt", "heapless/defmt", "defmt?/ip_in_core"]
 
 ## Trace all raw received and transmitted packets using defmt or log.
 packet-trace = []
@@ -82,6 +82,6 @@ embassy-sync = { version = "0.7.1", path = "../embassy-sync" }
 embedded-io-async = { version = "0.6.1" }
 
 managed = { version = "0.8.0", default-features = false, features = [ "map" ] }
-heapless = { version = "0.8", default-features = false }
+heapless = { version = "0.9", default-features = false }
 embedded-nal-async = "0.8.0"
 document-features = "0.2.7"
