@@ -9,6 +9,8 @@ pub use dma_bdma::*;
 #[cfg(gpdma)]
 pub(crate) mod gpdma;
 #[cfg(gpdma)]
+pub use gpdma::ringbuffered::*;
+#[cfg(gpdma)]
 pub use gpdma::*;
 
 #[cfg(dmamux)]

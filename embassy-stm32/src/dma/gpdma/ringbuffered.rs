@@ -2,6 +2,7 @@
 //!
 //! FIXME: add request_pause functionality?
 use core::{
+    future::poll_fn,
     sync::atomic::{fence, Ordering},
     task::Waker,
 };
@@ -12,7 +13,7 @@ use crate::dma::{
     gpdma::linked_list::{LinearItem, RunMode, Table},
     ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer},
     word::Word,
-    Channel, Dir, Request,
+    Channel, Request,
 };
 
 use super::{AnyChannel, TransferOptions, STATE};
@@ -27,7 +28,7 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
     fn reset_complete_count(&mut self) -> usize {
         let state = &STATE[self.0.id as usize];
 
-        return state.complete_count.swap(0, Ordering::AcqRel);
+        state.complete_count.swap(0, Ordering::AcqRel)
     }
 
     fn set_waker(&mut self, waker: &Waker) {
@@ -35,11 +36,28 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
     }
 }
 
+/// The current buffer half (e.g. for DMA or the user application).
+#[derive(Debug, PartialEq, PartialOrd)]
+enum BufferHalf {
+    First,
+    Second,
+}
+
+impl BufferHalf {
+    fn toggle(&mut self) {
+        *self = match *self {
+            Self::First => Self::Second,
+            Self::Second => Self::First,
+        };
+    }
+}
+
 /// Ringbuffer for receiving data using GPDMA linked-list mode.
 pub struct ReadableRingBuffer<'a, W: Word> {
     channel: PeripheralRef<'a, AnyChannel>,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
-    table: Table<2>,
+    table: Table<1>,
+    user_buffer_half: BufferHalf,
 }
 
 impl<'a, W: Word> ReadableRingBuffer<'a, W> {
@@ -57,20 +75,22 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         let half_len = buffer.len() / 2;
         assert_eq!(half_len * 2, buffer.len());
 
-        options.half_transfer_ir = false;
+        options.half_transfer_ir = true;
         options.complete_transfer_ir = true;
 
-        let items = [
-            LinearItem::new_read(request, peri_addr, &mut buffer[..half_len], options),
-            LinearItem::new_read(request, peri_addr, &mut buffer[half_len..], options),
-        ];
+        // let items = [
+        //     LinearItem::new_read(request, peri_addr, &mut buffer[..half_len], options),
+        //     LinearItem::new_read(request, peri_addr, &mut buffer[half_len..], options),
+        // ];
+        let items = [LinearItem::new_read(request, peri_addr, buffer, options)];
 
-        let table = Table::new(items, RunMode::Once);
+        let table = Table::new(items);
 
         let this = Self {
             channel,
             ringbuf: ReadableDmaRingBuffer::new(buffer),
             table,
+            user_buffer_half: BufferHalf::First,
         };
 
         this.channel.configure_linked_list(&this.table, options);
@@ -140,12 +160,38 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         self.channel.request_stop()
     }
 
+    /// Request the transfer to pause, keeping the existing configuration for this channel.
+    /// To restart the transfer, call [`start`](Self::start) again.
+    ///
+    /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
+    pub fn request_pause(&mut self) {
+        self.channel.request_pause()
+    }
+
     /// Return whether DMA is still running.
     ///
     /// If this returns `false`, it can be because either the transfer finished, or
     /// it was requested to stop early with [`request_stop`](Self::request_stop).
     pub fn is_running(&mut self) -> bool {
         self.channel.is_running()
+    }
+
+    /// Stop the DMA transfer and await until the buffer is full.
+    ///
+    /// This disables the DMA transfer's circular mode so that the transfer
+    /// stops when the buffer is full.
+    ///
+    /// This is designed to be used with streaming input data such as the
+    /// I2S/SAI or ADC.
+    ///
+    /// When using the UART, you probably want `request_stop()`.
+    pub async fn stop(&mut self) {
+        // wait until cr.susp reads as true
+        poll_fn(|cx| {
+            self.set_waker(cx.waker());
+            self.channel.poll_stop()
+        })
+        .await
     }
 }
 
@@ -163,13 +209,15 @@ impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
 pub struct WritableRingBuffer<'a, W: Word> {
     channel: PeripheralRef<'a, AnyChannel>,
     ringbuf: WritableDmaRingBuffer<'a, W>,
+    table: Table<1>,
+    user_buffer_half: BufferHalf,
 }
 
 impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// Create a new ring buffer.
     pub unsafe fn new(
         channel: impl Peripheral<P = impl Channel> + 'a,
-        _request: Request,
+        request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
         mut options: TransferOptions,
@@ -177,36 +225,63 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         into_ref!(channel);
         let channel: PeripheralRef<'a, AnyChannel> = channel.map_into();
 
-        let len = buffer.len();
-        let dir = Dir::MemoryToPeripheral;
-        let data_size = W::size();
-        let buffer_ptr = buffer.as_mut_ptr();
+        let half_len = buffer.len() / 2;
+        assert_eq!(half_len * 2, buffer.len());
 
         options.half_transfer_ir = true;
         options.complete_transfer_ir = true;
 
-        channel.configure(
-            _request,
-            dir,
-            peri_addr as *mut u32,
-            buffer_ptr as *mut u32,
-            len,
-            true,
-            data_size,
-            data_size,
-            options,
-        );
+        // let items = [
+        //     LinearItem::new_write(request, &mut buffer[..half_len], peri_addr, options),
+        //     LinearItem::new_write(request, &mut buffer[half_len..], peri_addr, options),
+        // ];
+        let items = [LinearItem::new_write(request, buffer, peri_addr, options)];
+        let table = Table::new(items);
 
-        Self {
+        let this = Self {
             channel,
             ringbuf: WritableDmaRingBuffer::new(buffer),
+            table,
+            user_buffer_half: BufferHalf::First,
+        };
+
+        this
+    }
+
+    fn dma_buffer_half(&self) -> BufferHalf {
+        if self.ringbuf.read_index(0) < self.ringbuf.cap() / 2 {
+            BufferHalf::First
+        } else {
+            BufferHalf::Second
         }
+    }
+
+    fn link_next_buffer(&mut self) {
+        self.table.unlink();
+
+        match self.user_buffer_half {
+            BufferHalf::First => self.table.link_indices(0, 1),
+            BufferHalf::Second => self.table.link_indices(1, 0),
+        }
+
+        self.user_buffer_half.toggle();
     }
 
     /// Start the ring buffer operation.
     ///
     /// You must call this after creating it for it to work.
     pub fn start(&mut self) {
+        unsafe {
+            self.channel.configure_linked_list(
+                &self.table,
+                TransferOptions {
+                    half_transfer_ir: true,
+                    complete_transfer_ir: true,
+                    ..Default::default()
+                },
+            )
+        };
+        self.table.link(RunMode::Repeat);
         self.channel.start();
     }
 
@@ -229,9 +304,56 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
     /// Write an exact number of elements to the ringbuffer.
     pub async fn write_exact(&mut self, buffer: &[W]) -> Result<usize, Error> {
-        self.ringbuf
+        return self
+            .ringbuf
             .write_exact(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
-            .await
+            .await;
+
+        let mut remaining = buffer.len();
+
+        let mut remaining_cap = 0;
+        let cap = self.ringbuf.cap();
+
+        while remaining > 0 {
+            let dma_buffer_half = self.dma_buffer_half();
+            if dma_buffer_half == self.user_buffer_half {
+                self.link_next_buffer();
+            }
+
+            let write_index = self.ringbuf.write_index(0);
+            let len = match dma_buffer_half {
+                BufferHalf::First => {
+                    // if write_index < cap / 2 {
+                    //     error!("write index: {}", write_index);
+                    //     panic!()
+                    // }
+                    info!("Write second");
+
+                    // Fill up second buffer half when DMA reads the first.
+                    cap - write_index
+                }
+                BufferHalf::Second => {
+                    // if write_index >= cap / 2 {
+                    //     error!("write index: {}", write_index);
+                    //     panic!()
+                    // }
+                    info!("Write first");
+
+                    // Fill up first buffer half when DMA reads the second.
+                    cap / 2 - write_index
+                }
+            }
+            .min(remaining);
+
+            remaining_cap = self
+                .ringbuf
+                .write_exact(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
+                .await?;
+
+            remaining -= len;
+        }
+
+        Ok(remaining_cap)
     }
 
     /// Wait for any ring buffer write error.
@@ -257,10 +379,20 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     }
 
     /// Request the DMA to stop.
+    /// The configuration for this channel will **not be preserved**. If you need to restart the transfer
+    /// at a later point with the same configuration, see [`request_pause`](Self::request_pause) instead.
     ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn request_stop(&mut self) {
         self.channel.request_stop()
+    }
+
+    /// Request the transfer to pause, keeping the existing configuration for this channel.
+    /// To restart the transfer, call [`start`](Self::start) again.
+    ///
+    /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
+    pub fn request_pause(&mut self) {
+        self.channel.request_pause()
     }
 
     /// Return whether DMA is still running.
@@ -269,6 +401,24 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// it was requested to stop early with [`request_stop`](Self::request_stop).
     pub fn is_running(&mut self) -> bool {
         self.channel.is_running()
+    }
+
+    /// Stop the DMA transfer and await until the buffer is full.
+    ///
+    /// This disables the DMA transfer's circular mode so that the transfer
+    /// stops when the buffer is full.
+    ///
+    /// This is designed to be used with streaming input data such as the
+    /// I2S/SAI or ADC.
+    ///
+    /// When using the UART, you probably want `request_stop()`.
+    pub async fn stop(&mut self) {
+        // wait until cr.susp reads as true
+        poll_fn(|cx| {
+            self.set_waker(cx.waker());
+            self.channel.poll_stop()
+        })
+        .await
     }
 }
 
