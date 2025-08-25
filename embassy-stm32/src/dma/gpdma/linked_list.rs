@@ -25,17 +25,17 @@ pub enum RunMode {
 #[repr(C)]
 pub struct LinearItem {
     /// Transfer register 1.
-    pub tr1: u32,
+    pub tr1: regs::ChTr1,
     /// Transfer register 2.
-    pub tr2: u32,
+    pub tr2: regs::ChTr2,
     /// Block register 2.
-    pub br1: u32,
+    pub br1: regs::ChBr1,
     /// Source address register.
     pub sar: u32,
     /// Destination address register.
     pub dar: u32,
     /// Linked-list address register.
-    pub llr: u32,
+    pub llr: regs::ChLlr,
 }
 
 impl LinearItem {
@@ -106,12 +106,12 @@ impl LinearItem {
         let llr = regs::ChLlr(0);
 
         Self {
-            tr1: tr1.0,
-            tr2: tr2.0,
-            br1: br1.0,
+            tr1,
+            tr2,
+            br1,
             sar,
             dar,
-            llr: llr.0,
+            llr,
         }
     }
 
@@ -131,23 +131,20 @@ impl LinearItem {
         // Lower two bits are ignored: 32 bit aligned.
         llr.set_la(next >> 2);
 
-        self.llr = llr.0;
+        self.llr = llr;
     }
 
     /// Unlink the next linear item.
     ///
     /// Disables channel update bits.
     fn unlink(&mut self) {
-        self.llr = regs::ChLlr(0).0;
+        self.llr = regs::ChLlr(0);
     }
 
     /// The item's transfer count in number of words.
     fn transfer_count(&self) -> usize {
-        let br1 = regs::ChBr1(self.br1);
-        let tr1 = regs::ChTr1(self.tr1);
-        let word_size: WordSize = tr1.ddw().into();
-
-        br1.bndt() as usize / word_size.bytes()
+        let word_size: WordSize = self.tr1.ddw().into();
+        self.br1.bndt() as usize / word_size.bytes()
     }
 }
 
