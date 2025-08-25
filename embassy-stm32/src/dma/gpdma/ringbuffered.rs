@@ -63,7 +63,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
-        _options: TransferOptions,
+        options: TransferOptions,
     ) -> Self {
         let channel: Peri<'a, AnyChannel> = channel.into();
 
@@ -78,7 +78,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         let table = Table::new(items);
 
         // Apply the default configuration to the channel.
-        unsafe { channel.configure_linked_list(&table, Default::default()) };
+        unsafe { channel.configure_linked_list(&table, options) };
 
         Self {
             channel,
@@ -220,7 +220,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
-        _options: TransferOptions,
+        options: TransferOptions,
     ) -> Self {
         let channel: Peri<'a, AnyChannel> = channel.into();
 
@@ -235,7 +235,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         let table = Table::new(items);
 
         // Apply the default configuration to the channel.
-        unsafe { channel.configure_linked_list(&table, Default::default()) };
+        unsafe { channel.configure_linked_list(&table, options) };
 
         let this = Self {
             channel,
