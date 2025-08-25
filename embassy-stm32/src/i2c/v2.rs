@@ -1283,7 +1283,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
             } else if isr.stopf() {
                 self.info.regs.icr().write(|reg| reg.set_stopcf(true));
                 if remaining_len > 0 {
-                    dma_transfer.request_stop();
+                    dma_transfer.request_pause();
                     Poll::Ready(Ok(SendStatus::LeftoverBytes(remaining_len as usize)))
                 } else {
                     Poll::Ready(Ok(SendStatus::Done))
