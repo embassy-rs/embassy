@@ -303,18 +303,56 @@ impl<'a, W: Word> WritableDmaRingBuffer<'a, W> {
     }
 
     /// Write an exact number of elements to the ringbuffer.
+    ///
+    /// Returns the remaining write capacity in the buffer.
     pub async fn write_exact(&mut self, dma: &mut impl DmaCtrl, buffer: &[W]) -> Result<usize, Error> {
-        let mut written_data = 0;
+        let mut written_len = 0;
         let buffer_len = buffer.len();
 
         poll_fn(|cx| {
             dma.set_waker(cx.waker());
 
-            match self.write(dma, &buffer[written_data..buffer_len]) {
+            match self.write(dma, &buffer[written_len..buffer_len]) {
                 Ok((len, remaining)) => {
-                    written_data += len;
-                    if written_data == buffer_len {
+                    written_len += len;
+                    if written_len == buffer_len {
                         Poll::Ready(Ok(remaining))
+                    } else {
+                        Poll::Pending
+                    }
+                }
+                Err(e) => Poll::Ready(Err(e)),
+            }
+        })
+        .await
+    }
+
+    /// Write until a given write index.
+    ///
+    /// Returns a tuple of the written length, and the remaining write capacity in the buffer.
+    pub async fn write_until(
+        &mut self,
+        dma: &mut impl DmaCtrl,
+        buffer: &[W],
+        index: usize,
+    ) -> Result<(usize, usize), Error> {
+        let mut written_len = 0;
+        let write_len = index
+            .saturating_sub(self.write_index.as_index(self.cap(), 0))
+            .min(buffer.len());
+
+        if write_len == 0 {
+            return Err(Error::Overrun);
+        }
+
+        poll_fn(|cx| {
+            dma.set_waker(cx.waker());
+
+            match self.write(dma, &buffer[written_len..write_len]) {
+                Ok((len, remaining)) => {
+                    written_len += len;
+                    if written_len == write_len {
+                        Poll::Ready(Ok((written_len, remaining)))
                     } else {
                         Poll::Pending
                     }
