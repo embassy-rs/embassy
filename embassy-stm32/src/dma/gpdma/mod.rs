@@ -73,6 +73,28 @@ impl Default for TransferOptions {
     }
 }
 
+/// GPDMA linked-list item register updater functions.
+#[derive(Debug, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct RegisterUpdaters {
+    /// Function used to overwrite transfer register 1.
+    pub tr1: fn(&mut pac::gpdma::regs::ChTr1),
+    /// Function used to overwrite transfer register 2.
+    pub tr2: fn(&mut pac::gpdma::regs::ChTr2),
+    /// Function used to overwrite transfer register 3.
+    pub tr3: fn(&mut pac::gpdma::regs::ChTr3),
+}
+
+impl Default for RegisterUpdaters {
+    fn default() -> Self {
+        Self {
+            tr1: |_| {},
+            tr2: |_| {},
+            tr3: |_| {},
+        }
+    }
+}
+
 impl From<WordSize> for vals::Dw {
     fn from(raw: WordSize) -> Self {
         match raw {

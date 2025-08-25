@@ -687,12 +687,13 @@ fn get_ring_buffer<'d, T: Instance, W: word::Word>(
         //the new_write() and new_read() always use circular mode
         ..Default::default()
     };
+    let updaters = Default::default();
     match tx_rx {
         TxRx::Transmitter => RingBuffer::Writable(unsafe {
-            WritableRingBuffer::new(dma, request, dr(T::REGS, sub_block), dma_buf, opts)
+            WritableRingBuffer::new(dma, request, dr(T::REGS, sub_block), dma_buf, opts, updaters)
         }),
         TxRx::Receiver => RingBuffer::Readable(unsafe {
-            ReadableRingBuffer::new(dma, request, dr(T::REGS, sub_block), dma_buf, opts)
+            ReadableRingBuffer::new(dma, request, dr(T::REGS, sub_block), dma_buf, opts, updaters)
         }),
     }
 }

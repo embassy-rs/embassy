@@ -4,6 +4,7 @@
 use stm32_metapac::gpdma::regs;
 use stm32_metapac::gpdma::vals::Dreq;
 
+use super::RegisterUpdaters;
 use crate::dma::word::{Word, WordSize};
 use crate::dma::{Dir, Request};
 
@@ -41,7 +42,12 @@ pub struct LinearItem {
 
 impl LinearItem {
     /// Create a new read DMA transfer (peripheral to memory).
-    pub unsafe fn new_read<'d, W: Word>(request: Request, peri_addr: *mut W, buf: &'d mut [W]) -> Self {
+    pub unsafe fn new_read<'d, W: Word>(
+        request: Request,
+        peri_addr: *mut W,
+        buf: &'d mut [W],
+        register_updaters: &RegisterUpdaters,
+    ) -> Self {
         Self::new_inner(
             request,
             Dir::PeripheralToMemory,
@@ -51,11 +57,17 @@ impl LinearItem {
             true,
             W::size(),
             W::size(),
+            register_updaters,
         )
     }
 
     /// Create a new write DMA transfer (memory to peripheral).
-    pub unsafe fn new_write<'d, MW: Word, PW: Word>(request: Request, buf: &'d [MW], peri_addr: *mut PW) -> Self {
+    pub unsafe fn new_write<'d, MW: Word, PW: Word>(
+        request: Request,
+        buf: &'d [MW],
+        peri_addr: *mut PW,
+        register_updaters: &RegisterUpdaters,
+    ) -> Self {
         Self::new_inner(
             request,
             Dir::MemoryToPeripheral,
@@ -65,6 +77,7 @@ impl LinearItem {
             true,
             MW::size(),
             PW::size(),
+            register_updaters,
         )
     }
 
@@ -77,6 +90,7 @@ impl LinearItem {
         incr_mem: bool,
         data_size: WordSize,
         dst_size: WordSize,
+        register_updaters: &RegisterUpdaters,
     ) -> Self {
         // BNDT is specified as bytes, not as number of transfers.
         let Ok(bndt) = (mem_len * data_size.bytes()).try_into() else {
@@ -91,6 +105,7 @@ impl LinearItem {
         tr1.set_ddw(dst_size.into());
         tr1.set_sinc(dir == Dir::MemoryToPeripheral && incr_mem);
         tr1.set_dinc(dir == Dir::PeripheralToMemory && incr_mem);
+        (register_updaters.tr1)(&mut tr1);
 
         let mut tr2 = regs::ChTr2(0);
         tr2.set_dreq(match dir {
@@ -98,6 +113,7 @@ impl LinearItem {
             Dir::PeripheralToMemory => Dreq::SOURCE_PERIPHERAL,
         });
         tr2.set_reqsel(request);
+        (register_updaters.tr2)(&mut tr2);
 
         let (sar, dar) = match dir {
             Dir::MemoryToPeripheral => (mem_addr as _, peri_addr as _),
