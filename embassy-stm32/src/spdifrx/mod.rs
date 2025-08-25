@@ -8,8 +8,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::ringbuffer::Error as RingbufferError;
 pub use crate::dma::word;
-use crate::dma::ReadableRingBuffer;
-use crate::dma::{Channel, TransferOptions};
+use crate::dma::{Channel, ReadableRingBuffer, TransferOptions};
 use crate::gpio::{AfType, AnyPin, Pull, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::spdifrx::Spdifrx as Regs;

@@ -1,22 +1,17 @@
 //! GPDMA ring buffer implementation.
 //!
 //! FIXME: add request_pause functionality?
-use core::{
-    future::poll_fn,
-    sync::atomic::{fence, Ordering},
-    task::Waker,
-};
+use core::future::poll_fn;
+use core::sync::atomic::{fence, Ordering};
+use core::task::Waker;
 
 use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
 
-use crate::dma::{
-    gpdma::linked_list::{LinearItem, RunMode, Table},
-    ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer},
-    word::Word,
-    Channel, Request,
-};
-
 use super::{AnyChannel, TransferOptions, STATE};
+use crate::dma::gpdma::linked_list::{LinearItem, RunMode, Table};
+use crate::dma::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
+use crate::dma::word::Word;
+use crate::dma::{Channel, Request};
 
 struct DmaCtrlImpl<'a>(PeripheralRef<'a, AnyChannel>);
 

@@ -1,13 +1,12 @@
 //! Implementation of the GPDMA linked list and linked list items.
 #![macro_use]
 
-use stm32_metapac::gpdma::{regs, vals::Dreq};
+use stm32_metapac::gpdma::regs;
+use stm32_metapac::gpdma::vals::Dreq;
 
 use super::TransferOptions;
-use crate::dma::{
-    word::{Word, WordSize},
-    Dir, Request,
-};
+use crate::dma::word::{Word, WordSize};
+use crate::dma::{Dir, Request};
 
 /// The mode in which to run the linked list.
 #[derive(Debug)]
