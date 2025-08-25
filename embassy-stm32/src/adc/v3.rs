@@ -471,7 +471,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// `read` method is used to read out measurements from the DMA ring buffer, and its buffer should be exactly half of the `dma_buf` length.
     /// It is critical to call `read` frequently to prevent DMA buffer overrun.
     ///
-    /// [`read`]: #method.read 
+    /// [`read`]: #method.read
     #[cfg(adc_v3)]
     pub fn into_ring_buffered<'a>(
         &mut self,
