@@ -237,7 +237,16 @@ impl AnyChannel {
         fence(Ordering::SeqCst);
 
         ch.cr().write(|w| w.set_reset(true));
-        ch.fcr().write(|w| w.0 = 0xFFFF_FFFF); // clear all irqs
+        ch.fcr().write(|w| {
+            // Clear all irqs
+            w.set_dtef(true);
+            w.set_htf(true);
+            w.set_suspf(true);
+            w.set_tcf(true);
+            w.set_tof(true);
+            w.set_ulef(true);
+            w.set_usef(true);
+        });
         ch.llr().write(|_| {}); // no linked list
         ch.tr1().write(|w| {
             w.set_sdw(data_size.into());
@@ -294,7 +303,16 @@ impl AnyChannel {
         fence(Ordering::SeqCst);
 
         ch.cr().write(|w| w.set_reset(true));
-        ch.fcr().write(|w| w.0 = 0xFFFF_FFFF); // clear all irqs
+        ch.fcr().write(|w| {
+            // Clear all irqs
+            w.set_dtef(true);
+            w.set_htf(true);
+            w.set_suspf(true);
+            w.set_tcf(true);
+            w.set_tof(true);
+            w.set_ulef(true);
+            w.set_usef(true);
+        });
         ch.lbar().write(|reg| reg.set_lba(table.base_address()));
 
         // Empty LLI0.
