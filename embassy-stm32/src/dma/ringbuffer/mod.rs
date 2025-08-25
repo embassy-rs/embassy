@@ -3,14 +3,6 @@ use core::task::{Poll, Waker};
 
 use crate::dma::word::Word;
 
-/// The current buffer half (e.g. for DMA or the user application).
-#[derive(Debug, PartialEq, PartialOrd)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-enum BufferHalf {
-    First,
-    Second,
-}
-
 pub trait DmaCtrl {
     /// Get the NDTR register value, i.e. the space left in the underlying
     /// buffer until the dma writer wraps.
