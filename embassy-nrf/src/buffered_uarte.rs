@@ -121,7 +121,7 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
 
                     // Enable endrx -> startrx PPI channel.
                     // From this point on, if endrx happens, startrx is automatically fired.
-                    ppi::regs().chenset().write(|w| w.0 = 1 << chn);
+                    ppi::regs(()).chenset().write(|w| w.0 = 1 << chn);
 
                     // It is possible that endrx happened BEFORE enabling the PPI. In this case
                     // the PPI channel doesn't trigger, and we'd hang. We have to detect this
@@ -145,7 +145,7 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
 
                     // Check if the PPI channel is still enabled. The PPI channel disables itself
                     // when it fires, so if it's still enabled it hasn't fired.
-                    let ppi_ch_enabled = ppi::regs().chen().read().ch(chn as _);
+                    let ppi_ch_enabled = ppi::regs(()).chen().read().ch(chn as _);
 
                     // if rxend happened, and the ppi channel hasn't fired yet, the rxend got missed.
                     // this condition also naturally matches if `!started`, needed to kickstart the DMA.
@@ -153,7 +153,7 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
                         //trace!("manually starting.");
 
                         // disable the ppi ch, it's of no use anymore.
-                        ppi::regs().chenclr().write(|w| w.set_ch(chn as _, true));
+                        ppi::regs(()).chenclr().write(|w| w.set_ch(chn as _, true));
 
                         // manually start
                         r.tasks_startrx().write_value(1);
