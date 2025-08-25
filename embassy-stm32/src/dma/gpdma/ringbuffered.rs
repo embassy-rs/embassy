@@ -69,6 +69,8 @@ pub struct ReadableRingBuffer<'a, W: Word> {
 
 impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// Create a new ring buffer.
+    ///
+    /// Transfer options are applied to the individual linked list items.
     pub unsafe fn new(
         channel: impl Peripheral<P = impl Channel> + 'a,
         request: Request,
@@ -220,6 +222,8 @@ pub struct WritableRingBuffer<'a, W: Word> {
 
 impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// Create a new ring buffer.
+    ///
+    /// Transfer options are applied to the individual linked list items.
     pub unsafe fn new(
         channel: impl Peripheral<P = impl Channel> + 'a,
         request: Request,
@@ -279,7 +283,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
             self.channel.configure_linked_list(
                 &self.table,
                 TransferOptions {
-                    half_transfer_ir: true,
+                    half_transfer_ir: false,
                     complete_transfer_ir: true,
                     ..Default::default()
                 },
