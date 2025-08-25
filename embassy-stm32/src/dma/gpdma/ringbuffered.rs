@@ -280,14 +280,14 @@ impl<'a, W: Word, const L: usize> WritableRingBuffer<'a, W, L> {
     /// Create a new simple linked-list table.
     ///
     /// This uses two linked-list items, one for each half of the buffer.
-    pub unsafe fn simple_ring_buffer_table(request: Request, peri_addr: *mut W, buffer: &mut [W]) -> Table<2> {
+    pub unsafe fn simple_ring_buffer_table(request: Request, peri_addr: *mut W, buffer: &[W]) -> Table<2> {
         // Buffer halves should be the same length.
         let half_len = buffer.len() / 2;
         assert_eq!(half_len * 2, buffer.len());
 
         let items = [
-            LinearItem::new_write(request, &mut buffer[..half_len], peri_addr),
-            LinearItem::new_write(request, &mut buffer[half_len..], peri_addr),
+            LinearItem::new_write(request, &buffer[..half_len], peri_addr),
+            LinearItem::new_write(request, &buffer[half_len..], peri_addr),
         ];
         Table::new(items)
     }
