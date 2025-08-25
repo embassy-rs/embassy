@@ -156,6 +156,15 @@ impl LinearItem {
     fn unlink(&mut self) {
         self.llr = regs::ChLlr(0).0;
     }
+
+    /// The item's transfer count in number of words.
+    fn transfer_count(&self) -> usize {
+        let br1 = regs::ChBr1(self.br1);
+        let tr1 = regs::ChTr1(self.tr1);
+        let word_size: WordSize = tr1.ddw().into();
+
+        br1.bndt() as usize / word_size.bytes()
+    }
 }
 
 /// A table of linked list items.
@@ -173,6 +182,7 @@ impl<const ITEM_COUNT: usize> Table<ITEM_COUNT> {
         Self { items }
     }
 
+    /// Link the table as given by the run mode.
     pub fn link(&mut self, run_mode: RunMode) {
         if matches!(run_mode, RunMode::Once | RunMode::Repeat) {
             self.link_sequential();
@@ -183,9 +193,19 @@ impl<const ITEM_COUNT: usize> Table<ITEM_COUNT> {
         }
     }
 
-    /// The number of linked list items.s
+    /// The number of linked list items.
     pub fn len(&self) -> usize {
         self.items.len()
+    }
+
+    /// The total transfer count of the table in number of words.
+    pub fn transfer_count(&self) -> usize {
+        let mut count = 0;
+        for item in self.items {
+            count += item.transfer_count() as usize
+        }
+
+        count
     }
 
     /// Link items of given indices together: first -> second.

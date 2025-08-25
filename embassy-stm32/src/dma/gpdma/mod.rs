@@ -94,15 +94,31 @@ impl From<vals::Dw> for WordSize {
     }
 }
 
+pub(crate) struct LLiState {
+    /// The number of linked-list items.
+    count: AtomicUsize,
+    /// The index of the current linked-list item.
+    index: AtomicUsize,
+    /// The total transfer count of all linked-list items in number of words.
+    transfer_count: AtomicUsize,
+}
+
 pub(crate) struct ChannelState {
     waker: AtomicWaker,
     complete_count: AtomicUsize,
+    lli_state: LLiState,
 }
 
 impl ChannelState {
     pub(crate) const NEW: Self = Self {
         waker: AtomicWaker::new(),
         complete_count: AtomicUsize::new(0),
+
+        lli_state: LLiState {
+            count: AtomicUsize::new(0),
+            index: AtomicUsize::new(0),
+            transfer_count: AtomicUsize::new(0),
+        },
     };
 }
 
@@ -161,7 +177,25 @@ impl AnyChannel {
 
         if sr.tcf() {
             ch.fcr().write(|w| w.set_tcf(true));
-            state.complete_count.fetch_add(1, Ordering::Release);
+
+            let lli_count = state.lli_state.count.load(Ordering::Relaxed);
+            let complete = if lli_count > 0 {
+                let next_lli_index = state.lli_state.index.load(Ordering::Relaxed) + 1;
+                let complete = next_lli_index >= lli_count;
+
+                state
+                    .lli_state
+                    .index
+                    .store(if complete { 0 } else { next_lli_index }, Ordering::Relaxed);
+
+                complete
+            } else {
+                true
+            };
+
+            if complete {
+                state.complete_count.fetch_add(1, Ordering::Release);
+            }
         }
 
         if sr.suspf() {
@@ -242,6 +276,11 @@ impl AnyChannel {
             w.set_dteie(true);
             w.set_suspie(true);
         });
+
+        let state = &STATE[self.id as usize];
+        state.lli_state.count.store(0, Ordering::Relaxed);
+        state.lli_state.index.store(0, Ordering::Relaxed);
+        state.lli_state.transfer_count.store(0, Ordering::Relaxed)
     }
 
     unsafe fn configure_linked_list<const ITEM_COUNT: usize>(
@@ -286,6 +325,14 @@ impl AnyChannel {
             w.set_dteie(true);
             w.set_suspie(true);
         });
+
+        let state = &STATE[self.id as usize];
+        state.lli_state.count.store(ITEM_COUNT, Ordering::Relaxed);
+        state.lli_state.index.store(0, Ordering::Relaxed);
+        state
+            .lli_state
+            .transfer_count
+            .store(table.transfer_count(), Ordering::Relaxed)
     }
 
     fn start(&self) {
