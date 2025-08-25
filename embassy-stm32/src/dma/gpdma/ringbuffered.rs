@@ -96,14 +96,6 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         self.channel.start();
     }
 
-    /// Get a handle to the GPDMA channel for configuring the DMA.
-    ///
-    /// Usually, **this is not needed** as a default configuration is already
-    /// applied, but it may be useful to setup trigger sources, etc.
-    pub fn get_dma_channel(&mut self) -> stm32_metapac::gpdma::Channel {
-        self.channel.get_dma_channel()
-    }
-
     /// Clear all data in the ring buffer.
     pub fn clear(&mut self) {
         self.ringbuf.reset(&mut DmaCtrlImpl(self.channel.reborrow()));
@@ -256,14 +248,6 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     pub fn start(&mut self) {
         self.table.link(RunMode::Circular);
         self.channel.start();
-    }
-
-    /// Get a handle to the GPDMA channel for configuring the DMA.
-    ///
-    /// Usually, **this is not needed** as a default configuration is already
-    /// applied, but it may be useful to setup trigger sources, etc.
-    pub fn get_dma_channel(&mut self) -> stm32_metapac::gpdma::Channel {
-        self.channel.get_dma_channel()
     }
 
     /// Clear all data in the ring buffer.
