@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix: Fix performing a hash after performing a hmac
 - chore: Updated stm32-metapac and stm32-data dependencies
 - feat: stm32/adc/v3: allow DMA reads to loop through enable channels
+- fix: Fix XSPI not disabling alternate bytes when they were previously enabled
 
 ## 0.3.0 - 2025-08-12
 
