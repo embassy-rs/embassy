@@ -1,10 +1,10 @@
+use core::marker::PhantomData;
+use core::sync::atomic::{compiler_fence, Ordering};
+
 use cfg_if::cfg_if;
 use pac::adc::vals::Dmacfg;
 #[cfg(adc_v3)]
 use pac::adc::vals::{OversamplingRatio, OversamplingShift, Rovsm, Trovs};
-
-use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, Ordering};
 
 use super::{
     blocking_delay_us, Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel,
