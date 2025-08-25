@@ -8,7 +8,7 @@ use core::task::Waker;
 
 use embassy_hal_internal::Peri;
 
-use super::{AnyChannel, RegisterUpdaters, TransferOptions, STATE};
+use super::{AnyChannel, TransferOptions, STATE};
 use crate::dma::gpdma::linked_list::{LinearItem, RunMode, Table};
 use crate::dma::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use crate::dma::word::Word;
@@ -48,14 +48,14 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
 }
 
 /// Ringbuffer for receiving data using GPDMA linked-list mode.
-pub struct ReadableRingBuffer<'a, W: Word> {
+pub struct ReadableRingBuffer<'a, W: Word, const L: usize> {
     channel: Peri<'a, AnyChannel>,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
-    table: Table<2>,
+    table: Table<L>,
     options: TransferOptions,
 }
 
-impl<'a, W: Word> ReadableRingBuffer<'a, W> {
+impl<'a, W: Word> ReadableRingBuffer<'a, W, 2> {
     /// Create a new ring buffer.
     ///
     /// Transfer options are applied to the individual linked list items.
@@ -65,19 +65,9 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         peri_addr: *mut W,
         buffer: &'a mut [W],
         options: TransferOptions,
-        register_updaters: RegisterUpdaters,
     ) -> Self {
         let channel: Peri<'a, AnyChannel> = channel.into();
-
-        // Buffer halves should be the same length.
-        let half_len = buffer.len() / 2;
-        assert_eq!(half_len * 2, buffer.len());
-
-        let items = [
-            LinearItem::new_read(request, peri_addr, &mut buffer[..half_len], &register_updaters),
-            LinearItem::new_read(request, peri_addr, &mut buffer[half_len..], &register_updaters),
-        ];
-        let table = Table::new(items);
+        let table = Self::simple_ring_buffer_table(request, peri_addr, buffer);
 
         Self {
             channel,
@@ -85,6 +75,42 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
             table,
             options,
         }
+    }
+}
+
+impl<'a, W: Word, const L: usize> ReadableRingBuffer<'a, W, L> {
+    /// Create a new ring buffer with a provided linked-list table.
+    ///
+    /// Transfer options are applied to the individual linked list items.
+    pub fn new_with_table(
+        channel: Peri<'a, impl Channel>,
+        buffer: &'a mut [W],
+        options: TransferOptions,
+        table: Table<L>,
+    ) -> Self {
+        let channel: Peri<'a, AnyChannel> = channel.into();
+
+        Self {
+            channel,
+            ringbuf: ReadableDmaRingBuffer::new(buffer),
+            table,
+            options,
+        }
+    }
+
+    /// Create a new simple linked-list table.
+    ///
+    /// This uses two linked-list items, one for each half of the buffer.
+    pub unsafe fn simple_ring_buffer_table(request: Request, peri_addr: *mut W, buffer: &mut [W]) -> Table<2> {
+        // Buffer halves should be the same length.
+        let half_len = buffer.len() / 2;
+        assert_eq!(half_len * 2, buffer.len());
+
+        let items = [
+            LinearItem::new_read(request, peri_addr, &mut buffer[..half_len]),
+            LinearItem::new_read(request, peri_addr, &mut buffer[half_len..]),
+        ];
+        Table::new(items)
     }
 
     /// Start the ring buffer operation.
@@ -190,7 +216,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     }
 }
 
-impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
+impl<'a, W: Word, const L: usize> Drop for ReadableRingBuffer<'a, W, L> {
     fn drop(&mut self) {
         self.request_suspend();
         while self.is_running() {}
@@ -201,43 +227,69 @@ impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
 }
 
 /// Ringbuffer for writing data using GPDMA linked-list mode.
-pub struct WritableRingBuffer<'a, W: Word> {
+pub struct WritableRingBuffer<'a, W: Word, const L: usize> {
     channel: Peri<'a, AnyChannel>,
     ringbuf: WritableDmaRingBuffer<'a, W>,
-    table: Table<2>,
+    table: Table<L>,
     options: TransferOptions,
 }
 
-impl<'a, W: Word> WritableRingBuffer<'a, W> {
+impl<'a, W: Word> WritableRingBuffer<'a, W, 2> {
     /// Create a new ring buffer.
+    ///
+    /// Transfer options are applied to the individual linked list items.
     pub unsafe fn new(
         channel: Peri<'a, impl Channel>,
         request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
         options: TransferOptions,
-        register_updaters: RegisterUpdaters,
+    ) -> Self {
+        let channel: Peri<'a, AnyChannel> = channel.into();
+        let table = Self::simple_ring_buffer_table(request, peri_addr, buffer);
+
+        Self {
+            channel,
+            ringbuf: WritableDmaRingBuffer::new(buffer),
+            table,
+            options,
+        }
+    }
+}
+
+impl<'a, W: Word, const L: usize> WritableRingBuffer<'a, W, L> {
+    /// Create a new ring buffer with a provided linked-list table.
+    ///
+    /// Transfer options are applied to the individual linked list items.
+    pub fn new_with_table(
+        channel: Peri<'a, impl Channel>,
+        buffer: &'a mut [W],
+        options: TransferOptions,
+        table: Table<L>,
     ) -> Self {
         let channel: Peri<'a, AnyChannel> = channel.into();
 
+        Self {
+            channel,
+            ringbuf: WritableDmaRingBuffer::new(buffer),
+            table,
+            options,
+        }
+    }
+
+    /// Create a new simple linked-list table.
+    ///
+    /// This uses two linked-list items, one for each half of the buffer.
+    pub unsafe fn simple_ring_buffer_table(request: Request, peri_addr: *mut W, buffer: &mut [W]) -> Table<2> {
         // Buffer halves should be the same length.
         let half_len = buffer.len() / 2;
         assert_eq!(half_len * 2, buffer.len());
 
         let items = [
-            LinearItem::new_write(request, &mut buffer[..half_len], peri_addr, &register_updaters),
-            LinearItem::new_write(request, &mut buffer[half_len..], peri_addr, &register_updaters),
+            LinearItem::new_write(request, &mut buffer[..half_len], peri_addr),
+            LinearItem::new_write(request, &mut buffer[half_len..], peri_addr),
         ];
-        let table = Table::new(items);
-
-        let this = Self {
-            channel,
-            ringbuf: WritableDmaRingBuffer::new(buffer),
-            table,
-            options,
-        };
-
-        this
+        Table::new(items)
     }
 
     /// Start the ring buffer operation.
@@ -343,7 +395,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     }
 }
 
-impl<'a, W: Word> Drop for WritableRingBuffer<'a, W> {
+impl<'a, W: Word, const L: usize> Drop for WritableRingBuffer<'a, W, L> {
     fn drop(&mut self) {
         self.request_suspend();
         while self.is_running() {}
