@@ -5,7 +5,7 @@ use core::future::poll_fn;
 use core::sync::atomic::{fence, Ordering};
 use core::task::Waker;
 
-use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::Peri;
 
 use super::{AnyChannel, TransferOptions, STATE};
 use crate::dma::gpdma::linked_list::{LinearItem, RunMode, Table};
@@ -13,7 +13,7 @@ use crate::dma::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaR
 use crate::dma::word::Word;
 use crate::dma::{Channel, Request};
 
-struct DmaCtrlImpl<'a>(PeripheralRef<'a, AnyChannel>);
+struct DmaCtrlImpl<'a>(Peri<'a, AnyChannel>);
 
 impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
     fn get_remaining_transfers(&self) -> usize {
@@ -48,7 +48,7 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
 
 /// Ringbuffer for receiving data using GPDMA linked-list mode.
 pub struct ReadableRingBuffer<'a, W: Word> {
-    channel: PeripheralRef<'a, AnyChannel>,
+    channel: Peri<'a, AnyChannel>,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
     table: Table<2>,
 }
@@ -58,14 +58,13 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     ///
     /// Transfer options are applied to the individual linked list items.
     pub unsafe fn new(
-        channel: impl Peripheral<P = impl Channel> + 'a,
+        channel: Peri<'a, impl Channel>,
         request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
         _options: TransferOptions,
     ) -> Self {
-        into_ref!(channel);
-        let channel: PeripheralRef<'a, AnyChannel> = channel.map_into();
+        let channel: Peri<'a, AnyChannel> = channel.into();
 
         // Buffer halves should be the same length.
         let half_len = buffer.len() / 2;
@@ -195,7 +194,7 @@ impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
 
 /// Ringbuffer for writing data using DMA circular mode.
 pub struct WritableRingBuffer<'a, W: Word> {
-    channel: PeripheralRef<'a, AnyChannel>,
+    channel: Peri<'a, AnyChannel>,
     ringbuf: WritableDmaRingBuffer<'a, W>,
     table: Table<2>,
 }
@@ -203,14 +202,13 @@ pub struct WritableRingBuffer<'a, W: Word> {
 impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// Create a new ring buffer.
     pub unsafe fn new(
-        channel: impl Peripheral<P = impl Channel> + 'a,
+        channel: Peri<'a, impl Channel>,
         request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
         _options: TransferOptions,
     ) -> Self {
-        into_ref!(channel);
-        let channel: PeripheralRef<'a, AnyChannel> = channel.map_into();
+        let channel: Peri<'a, AnyChannel> = channel.into();
 
         // Buffer halves should be the same length.
         let half_len = buffer.len() / 2;
