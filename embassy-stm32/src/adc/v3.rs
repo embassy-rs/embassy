@@ -9,6 +9,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use super::{
     blocking_delay_us, Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel,
 };
+#[cfg(adc_v3)]
 use crate::dma::{ReadableRingBuffer, Transfer, TransferOptions};
 use crate::{pac, rcc, Peri};
 
