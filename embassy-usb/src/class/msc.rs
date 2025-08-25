@@ -1,8 +1,7 @@
 //! USB Mass storage class
-//! - No allocator required (no `extern crate alloc`, no heap use)
 //! - Async BlockDevice trait
 //! - Configurable INQUIRY strings (vendor/product/revision)
-//! - Fixed 512-byte sector size via constant
+//! - Fixed 512-byte sector size
 //! - Bulk-Only Transport (BOT) + minimal SCSI (INQUIRY, TEST UNIT READY,
 //! REQUEST SENSE, READ CAPACITY(10), READ(10), WRITE(10), MODE SENSE(6))
 
@@ -15,6 +14,7 @@ use crate::{
     Builder,
 };
 
+/// only 512 byte block size is supported
 pub const BLOCK_SIZE: usize = 512;
 
 const CBW_SIGNATURE: u32 = 0x4342_5355; // 'USBC'
@@ -24,12 +24,13 @@ const CSW_STATUS_PASSED: u8 = 0;
 const CSW_STATUS_FAILED: u8 = 1;
 const CSW_STATUS_PHASE: u8 = 2;
 
-// USB Mass Storage Class codes
+/// USB Mass Storage Class codes
 pub const USB_CLASS_MSC: u8 = 0x08;
+/// USB Mass Storage subclass
 const MSC_SUBCLASS_SCSI: u8 = 0x06;
+/// USB Mass Storage bulk-only
 const MSC_PROTOCOL_BULK_ONLY: u8 = 0x50;
 
-#[allow(async_fn_in_trait)]
 pub trait BlockDevice {
     /// Number of blocks (each of size `BLOCK_SIZE`).
     fn num_blocks(&self) -> u32;
@@ -68,7 +69,6 @@ struct CommandStatusWrapper {
 enum DataDir {
     In,
     Out,
-    None,
 }
 
 #[derive(Clone, Copy)]
@@ -99,8 +99,7 @@ pub struct MassStorage<'d, D: Driver<'d>, BD: BlockDevice> {
 }
 
 impl<'d, D: Driver<'d>, BD: BlockDevice> MassStorage<'d, D, BD> {
-    /// Construct the MSC class from pre-allocated endpoints (`alloc_endpoint_in/out` or
-    /// `endpoint_bulk_in/endpoint_bulk_out` from the builder's `InterfaceAltBuilder`).
+    /// Construct the MSC class from builder
     pub fn new(
         builder: &mut Builder<'d, D>,
         bd: BD,
