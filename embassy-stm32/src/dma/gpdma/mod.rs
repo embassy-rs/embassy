@@ -199,10 +199,8 @@ impl AnyChannel {
         }
 
         if sr.suspf() {
-            // disable all xxIEs to prevent the irq from firing again.
+            // Disable all xxIEs to prevent the irq from firing again.
             ch.cr().write(|_| {});
-
-            // Wake the future. It'll look at tcf and see it's set.
         }
         state.waker.wake();
     }
@@ -366,7 +364,7 @@ impl AnyChannel {
 
         let sr = ch.sr().read();
 
-        !sr.tcf() && !sr.suspf() && !sr.idlef()
+        !sr.suspf() && !sr.idlef()
     }
 
     fn poll_stop(&self) -> Poll<()> {
