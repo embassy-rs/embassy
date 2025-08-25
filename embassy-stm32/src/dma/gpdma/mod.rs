@@ -352,6 +352,11 @@ impl AnyChannel {
             .store(table.transfer_count(), Ordering::Relaxed)
     }
 
+    fn get_dma_channel(&self) -> pac::gpdma::Channel {
+        let info = self.info();
+        info.dma.ch(info.num)
+    }
+
     fn start(&self) {
         let info = self.info();
         let ch = info.dma.ch(info.num);
