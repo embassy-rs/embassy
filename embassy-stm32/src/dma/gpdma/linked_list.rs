@@ -15,7 +15,7 @@ pub enum RunMode {
     /// The list is linked sequentially and only run once.
     Once,
     /// The list is linked sequentially, and the end of the list is linked to the beginning.
-    Repeat,
+    Circular,
 }
 
 /// A linked-list item for linear GPDMA transfers.
@@ -169,11 +169,11 @@ impl<const ITEM_COUNT: usize> Table<ITEM_COUNT> {
 
     /// Link the table as given by the run mode.
     pub fn link(&mut self, run_mode: RunMode) {
-        if matches!(run_mode, RunMode::Once | RunMode::Repeat) {
+        if matches!(run_mode, RunMode::Once | RunMode::Circular) {
             self.link_sequential();
         }
 
-        if matches!(run_mode, RunMode::Repeat) {
+        if matches!(run_mode, RunMode::Circular) {
             self.link_repeat();
         }
     }
