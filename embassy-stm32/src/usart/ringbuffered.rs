@@ -83,7 +83,7 @@ pub struct RingBufferedUartRx<'d> {
     kernel_clock: Hertz,
     rx: Option<Peri<'d, AnyPin>>,
     rts: Option<Peri<'d, AnyPin>>,
-    ring_buf: ReadableRingBuffer<'d, u8, 2>,
+    ring_buf: ReadableRingBuffer<'d, u8>,
 }
 
 impl<'d> SetConfig for RingBufferedUartRx<'d> {
@@ -165,7 +165,7 @@ impl<'d> RingBufferedUartRx<'d> {
 
     /// Stop DMA backed UART receiver
     fn stop_uart(&mut self) {
-        self.ring_buf.request_suspend();
+        self.ring_buf.request_pause();
 
         let r = self.info.regs;
         // clear all interrupts and DMA Rx Request

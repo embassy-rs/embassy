@@ -9,7 +9,7 @@ use core::task::Waker;
 use embassy_hal_internal::Peri;
 
 use super::{AnyChannel, TransferOptions, STATE};
-use crate::dma::gpdma::linked_list::{LinearItem, RunMode, Table};
+use crate::dma::gpdma::linked_list::{RunMode, Table};
 use crate::dma::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use crate::dma::word::Word;
 use crate::dma::{Channel, Request};
@@ -48,14 +48,14 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
 }
 
 /// Ringbuffer for receiving data using GPDMA linked-list mode.
-pub struct ReadableRingBuffer<'a, W: Word, const L: usize> {
+pub struct ReadableRingBuffer<'a, W: Word> {
     channel: Peri<'a, AnyChannel>,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
-    table: Table<L>,
+    table: Table<2>,
     options: TransferOptions,
 }
 
-impl<'a, W: Word> ReadableRingBuffer<'a, W, 2> {
+impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// Create a new ring buffer.
     ///
     /// Transfer options are applied to the individual linked list items.
@@ -67,7 +67,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W, 2> {
         options: TransferOptions,
     ) -> Self {
         let channel: Peri<'a, AnyChannel> = channel.into();
-        let table = Self::new_ping_pong_table(request, peri_addr, buffer);
+        let table = Table::<2>::new_ping_pong::<W>(request, peri_addr, buffer);
 
         Self {
             channel,
@@ -75,42 +75,6 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W, 2> {
             table,
             options,
         }
-    }
-}
-
-impl<'a, W: Word, const L: usize> ReadableRingBuffer<'a, W, L> {
-    /// Create a new ring buffer with a provided linked-list table.
-    ///
-    /// Transfer options are applied to the individual linked list items.
-    pub fn new_with_table(
-        channel: Peri<'a, impl Channel>,
-        buffer: &'a mut [W],
-        options: TransferOptions,
-        table: Table<L>,
-    ) -> Self {
-        let channel: Peri<'a, AnyChannel> = channel.into();
-
-        Self {
-            channel,
-            ringbuf: ReadableDmaRingBuffer::new(buffer),
-            table,
-            options,
-        }
-    }
-
-    /// Create a new simple linked-list table.
-    ///
-    /// This uses two linked-list items, one for each half of the buffer.
-    pub unsafe fn new_ping_pong_table(request: Request, peri_addr: *mut W, buffer: &mut [W]) -> Table<2> {
-        // Buffer halves should be the same length.
-        let half_len = buffer.len() / 2;
-        assert_eq!(half_len * 2, buffer.len());
-
-        let items = [
-            LinearItem::new_read(request, peri_addr, &mut buffer[..half_len]),
-            LinearItem::new_read(request, peri_addr, &mut buffer[half_len..]),
-        ];
-        Table::new(items)
     }
 
     /// Start the ring buffer operation.
@@ -172,7 +136,7 @@ impl<'a, W: Word, const L: usize> ReadableRingBuffer<'a, W, L> {
     /// To resume the transfer, call [`request_resume`](Self::request_resume) again.
     ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
-    pub fn request_suspend(&mut self) {
+    pub fn request_pause(&mut self) {
         self.channel.request_suspend()
     }
 
@@ -216,9 +180,9 @@ impl<'a, W: Word, const L: usize> ReadableRingBuffer<'a, W, L> {
     }
 }
 
-impl<'a, W: Word, const L: usize> Drop for ReadableRingBuffer<'a, W, L> {
+impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
     fn drop(&mut self) {
-        self.request_suspend();
+        self.request_pause();
         while self.is_running() {}
 
         // "Subsequent reads and writes cannot be moved ahead of preceding reads."
@@ -227,14 +191,14 @@ impl<'a, W: Word, const L: usize> Drop for ReadableRingBuffer<'a, W, L> {
 }
 
 /// Ringbuffer for writing data using GPDMA linked-list mode.
-pub struct WritableRingBuffer<'a, W: Word, const L: usize> {
+pub struct WritableRingBuffer<'a, W: Word> {
     channel: Peri<'a, AnyChannel>,
     ringbuf: WritableDmaRingBuffer<'a, W>,
-    table: Table<L>,
+    table: Table<2>,
     options: TransferOptions,
 }
 
-impl<'a, W: Word> WritableRingBuffer<'a, W, 2> {
+impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// Create a new ring buffer.
     ///
     /// Transfer options are applied to the individual linked list items.
@@ -246,7 +210,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W, 2> {
         options: TransferOptions,
     ) -> Self {
         let channel: Peri<'a, AnyChannel> = channel.into();
-        let table = Self::new_ping_pong_table(request, peri_addr, buffer);
+        let table = Table::<2>::new_ping_pong::<W>(request, peri_addr, buffer);
 
         Self {
             channel,
@@ -254,42 +218,6 @@ impl<'a, W: Word> WritableRingBuffer<'a, W, 2> {
             table,
             options,
         }
-    }
-}
-
-impl<'a, W: Word, const L: usize> WritableRingBuffer<'a, W, L> {
-    /// Create a new ring buffer with a provided linked-list table.
-    ///
-    /// Transfer options are applied to the individual linked list items.
-    pub fn new_with_table(
-        channel: Peri<'a, impl Channel>,
-        buffer: &'a mut [W],
-        options: TransferOptions,
-        table: Table<L>,
-    ) -> Self {
-        let channel: Peri<'a, AnyChannel> = channel.into();
-
-        Self {
-            channel,
-            ringbuf: WritableDmaRingBuffer::new(buffer),
-            table,
-            options,
-        }
-    }
-
-    /// Create a new simple linked-list table.
-    ///
-    /// This uses two linked-list items, one for each half of the buffer.
-    pub unsafe fn new_ping_pong_table(request: Request, peri_addr: *mut W, buffer: &[W]) -> Table<2> {
-        // Buffer halves should be the same length.
-        let half_len = buffer.len() / 2;
-        assert_eq!(half_len * 2, buffer.len());
-
-        let items = [
-            LinearItem::new_write(request, &buffer[..half_len], peri_addr),
-            LinearItem::new_write(request, &buffer[half_len..], peri_addr),
-        ];
-        Table::new(items)
     }
 
     /// Start the ring buffer operation.
@@ -351,7 +279,7 @@ impl<'a, W: Word, const L: usize> WritableRingBuffer<'a, W, L> {
     /// To resume the transfer, call [`request_resume`](Self::request_resume) again.
     ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
-    pub fn request_suspend(&mut self) {
+    pub fn request_pause(&mut self) {
         self.channel.request_suspend()
     }
 
@@ -395,7 +323,7 @@ impl<'a, W: Word, const L: usize> WritableRingBuffer<'a, W, L> {
     }
 }
 
-impl<'a, W: Word, const L: usize> Drop for WritableRingBuffer<'a, W, L> {
+impl<'a, W: Word> Drop for WritableRingBuffer<'a, W> {
     fn drop(&mut self) {
         self.request_suspend();
         while self.is_running() {}
