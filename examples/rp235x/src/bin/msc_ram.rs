@@ -3,15 +3,13 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_rp::{bind_interrupts, peripherals::USB, usb};
+use embassy_rp::peripherals::USB;
+use embassy_rp::{bind_interrupts, usb};
 use embassy_time::Delay;
-use embassy_usb::{Builder, Config};
-
-use static_cell::StaticCell;
-
-use {defmt_rtt as _, panic_probe as _};
-
 use embassy_usb::class::msc::{BlockDevice, MassStorage, BLOCK_SIZE};
+use embassy_usb::{Builder, Config};
+use static_cell::StaticCell;
+use {defmt_rtt as _, panic_probe as _};
 
 struct RamDisk {
     storage: &'static mut [u8],

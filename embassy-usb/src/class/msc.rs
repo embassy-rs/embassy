@@ -5,14 +5,13 @@
 //! - Bulk-Only Transport (BOT) + minimal SCSI (INQUIRY, TEST UNIT READY,
 //! REQUEST SENSE, READ CAPACITY(10), READ(10), WRITE(10), MODE SENSE(6))
 
-use core::{cmp::min, mem::size_of};
+use core::cmp::min;
+use core::mem::size_of;
 
 use embedded_hal_async::delay::DelayNs;
 
-use crate::{
-    driver::{Driver, EndpointError, EndpointIn, EndpointOut},
-    Builder,
-};
+use crate::driver::{Driver, EndpointError, EndpointIn, EndpointOut};
+use crate::Builder;
 
 /// only 512 byte block size is supported
 pub const BLOCK_SIZE: usize = 512;
