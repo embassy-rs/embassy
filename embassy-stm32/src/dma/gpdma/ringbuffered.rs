@@ -8,7 +8,7 @@ use core::task::Waker;
 
 use embassy_hal_internal::Peri;
 
-use super::{AnyChannel, TransferOptions, STATE};
+use super::{AnyChannel, RegisterUpdaters, TransferOptions, STATE};
 use crate::dma::gpdma::linked_list::{LinearItem, RunMode, Table};
 use crate::dma::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use crate::dma::word::Word;
@@ -52,6 +52,7 @@ pub struct ReadableRingBuffer<'a, W: Word> {
     channel: Peri<'a, AnyChannel>,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
     table: Table<2>,
+    options: TransferOptions,
 }
 
 impl<'a, W: Word> ReadableRingBuffer<'a, W> {
@@ -64,6 +65,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         peri_addr: *mut W,
         buffer: &'a mut [W],
         options: TransferOptions,
+        register_updaters: RegisterUpdaters,
     ) -> Self {
         let channel: Peri<'a, AnyChannel> = channel.into();
 
@@ -72,8 +74,8 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         assert_eq!(half_len * 2, buffer.len());
 
         let items = [
-            LinearItem::new_read(request, peri_addr, &mut buffer[..half_len]),
-            LinearItem::new_read(request, peri_addr, &mut buffer[half_len..]),
+            LinearItem::new_read(request, peri_addr, &mut buffer[..half_len], &register_updaters),
+            LinearItem::new_read(request, peri_addr, &mut buffer[half_len..], &register_updaters),
         ];
         let table = Table::new(items);
 
@@ -84,6 +86,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
             channel,
             ringbuf: ReadableDmaRingBuffer::new(buffer),
             table,
+            options,
         }
     }
 
@@ -211,6 +214,7 @@ pub struct WritableRingBuffer<'a, W: Word> {
     channel: Peri<'a, AnyChannel>,
     ringbuf: WritableDmaRingBuffer<'a, W>,
     table: Table<2>,
+    options: TransferOptions,
 }
 
 impl<'a, W: Word> WritableRingBuffer<'a, W> {
@@ -221,6 +225,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         peri_addr: *mut W,
         buffer: &'a mut [W],
         options: TransferOptions,
+        register_updaters: RegisterUpdaters,
     ) -> Self {
         let channel: Peri<'a, AnyChannel> = channel.into();
 
@@ -229,8 +234,8 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         assert_eq!(half_len * 2, buffer.len());
 
         let items = [
-            LinearItem::new_write(request, &mut buffer[..half_len], peri_addr),
-            LinearItem::new_write(request, &mut buffer[half_len..], peri_addr),
+            LinearItem::new_write(request, &mut buffer[..half_len], peri_addr, &register_updaters),
+            LinearItem::new_write(request, &mut buffer[half_len..], peri_addr, &register_updaters),
         ];
         let table = Table::new(items);
 
@@ -241,6 +246,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
             channel,
             ringbuf: WritableDmaRingBuffer::new(buffer),
             table,
+            options,
         };
 
         this
