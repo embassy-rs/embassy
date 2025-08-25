@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased
 
+- Improve receive performance, more efficient copy from FIFO
+
 ## 0.3.0 - 2025-07-22
 
 - Bump `embassy-usb-driver` to v0.2.0
