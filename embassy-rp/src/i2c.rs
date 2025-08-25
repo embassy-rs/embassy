@@ -64,14 +64,26 @@ pub enum ConfigError {
 pub struct Config {
     /// Frequency.
     pub frequency: u32,
+    /// Enable internal pullup on SDA.
+    ///
+    /// Using external pullup resistors is recommended for I2C. If you do
+    /// have external pullups you should not enable this.
+    pub sda_pullup: bool,
+    /// Enable internal pullup on SCL.
+    ///
+    /// Using external pullup resistors is recommended for I2C. If you do
+    /// have external pullups you should not enable this.
+    pub scl_pullup: bool,
 }
-
 impl Default for Config {
     fn default() -> Self {
-        Self { frequency: 100_000 }
+        Self {
+            frequency: 100_000,
+            sda_pullup: true,
+            scl_pullup: true,
+        }
     }
 }
-
 /// Size of I2C FIFO.
 pub const FIFO_SIZE: u8 = 16;
 
@@ -359,7 +371,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
-pub(crate) fn set_up_i2c_pin<P, T>(pin: &P)
+pub(crate) fn set_up_i2c_pin<P, T>(pin: &P, pullup: bool)
 where
     P: core::ops::Deref<Target = T>,
     T: crate::gpio::Pin,
@@ -372,7 +384,7 @@ where
         w.set_slewfast(false);
         w.set_ie(true);
         w.set_od(false);
-        w.set_pue(true);
+        w.set_pue(pullup);
         w.set_pde(false);
     });
 }
@@ -384,8 +396,8 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
         crate::reset::unreset_wait(reset);
 
         // Configure SCL & SDA pins
-        set_up_i2c_pin(&scl);
-        set_up_i2c_pin(&sda);
+        set_up_i2c_pin(&scl, config.scl_pullup);
+        set_up_i2c_pin(&sda, config.sda_pullup);
 
         let mut me = Self { phantom: PhantomData };
 

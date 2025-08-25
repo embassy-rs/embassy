@@ -5,6 +5,7 @@ use heapless::Vec;
 /// Utility struct to register and wake multiple wakers.
 /// Queue of wakers with a maximum length of `N`.
 /// Intended for waking multiple tasks.
+#[derive(Debug)]
 pub struct MultiWakerRegistration<const N: usize> {
     wakers: Vec<Waker, N>,
 }

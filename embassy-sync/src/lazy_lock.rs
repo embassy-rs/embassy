@@ -21,6 +21,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 /// let reference = VALUE.get();
 /// assert_eq!(reference, &20);
 /// ```
+#[derive(Debug)]
 pub struct LazyLock<T, F = fn() -> T> {
     init: AtomicBool,
     data: UnsafeCell<Data<T, F>>,
@@ -144,6 +145,7 @@ mod tests {
     }
 
     static DROP_CHECKER: AtomicU32 = AtomicU32::new(0);
+    #[derive(Debug)]
     struct DropCheck;
 
     impl Drop for DropCheck {

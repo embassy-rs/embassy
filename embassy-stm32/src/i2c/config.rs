@@ -156,7 +156,7 @@ impl Config {
             self.gpio_speed,
             match self.scl_pullup {
                 true => Pull::Up,
-                false => Pull::Down,
+                false => Pull::None,
             },
         );
     }
@@ -170,7 +170,7 @@ impl Config {
             self.gpio_speed,
             match self.sda_pullup {
                 true => Pull::Up,
-                false => Pull::Down,
+                false => Pull::None,
             },
         );
     }

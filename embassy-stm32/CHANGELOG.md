@@ -9,7 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - feat: Added support for injected ADC sampling for g4 ([#4243](https://github.com/embassy-rs/embassy/pull/4243))
+- fix: stm32/i2c: pull-down was enabled instead of pull-none when no internal pull-up was needed.
+- feat: Improve blocking hash speed
 - fix: Fix vrefbuf building with log feature
+- fix: Fix performing a hash after performing a hmac
+- chore: Updated stm32-metapac and stm32-data dependencies
+- fix: Fix XSPI not disabling alternate bytes when they were previously enabled
 
 ## 0.3.0 - 2025-08-12
 
