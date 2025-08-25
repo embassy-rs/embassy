@@ -131,16 +131,15 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         DmaCtrlImpl(self.channel.reborrow()).set_waker(waker);
     }
 
-    /// Request the DMA to suspend.
+    /// Request the transfer to pause, keeping the existing configuration for this channel.
     ///
     /// To resume the transfer, call [`request_resume`](Self::request_resume) again.
-    ///
     /// This doesn't immediately stop the transfer, you have to wait until [`is_running`](Self::is_running) returns false.
     pub fn request_pause(&mut self) {
         self.channel.request_pause()
     }
 
-    /// Request the DMA to resume transfers after being suspended.
+    /// Request the transfer to resume after having been paused.
     pub fn request_resume(&mut self) {
         self.channel.request_resume()
     }
@@ -153,10 +152,10 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         self.channel.request_reset()
     }
 
-    /// Return whether DMA is still running.
+    /// Return whether this transfer is still running.
     ///
     /// If this returns `false`, it can be because either the transfer finished, or
-    /// it was requested to stop early with [`request_stop`](Self::request_stop).
+    /// it was requested to stop early with [`request_pause`](Self::request_pause).
     pub fn is_running(&mut self) -> bool {
         self.channel.is_running()
     }
@@ -168,8 +167,6 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     ///
     /// This is designed to be used with streaming input data such as the
     /// I2S/SAI or ADC.
-    ///
-    /// When using the UART, you probably want `request_stop()`.
     pub async fn stop(&mut self) {
         // wait until cr.susp reads as true
         poll_fn(|cx| {
