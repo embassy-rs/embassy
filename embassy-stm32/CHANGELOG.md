@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: stm32/adc/v3: allow DMA reads to loop through enable channels
 - fix: Fix XSPI not disabling alternate bytes when they were previously enabled
 - fix: Fix stm32h7rs init when using external flash via XSPI
+- feat: Add Adc::new_with_clock() to configure analog clock
 
 ## 0.3.0 - 2025-08-12
 
