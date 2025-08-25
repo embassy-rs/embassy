@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Added `extern "Rust" fn __embassy_time_queue_item_from_waker`
+- Removed `TaskRef::dangling`
+- Added `embassy_time_queue_utils` as a dependency
+- Moved the `TimeQueueItem` struct and `timer-item-payload-size-*` features into embassy-time-queue-utils
+
 ## 0.8.0 - 2025-07-31
 
 - Added `SpawnToken::id`
