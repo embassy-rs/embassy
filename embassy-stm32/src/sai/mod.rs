@@ -8,6 +8,7 @@ use embassy_hal_internal::PeripheralType;
 pub use crate::dma::word;
 use crate::dma::{ringbuffer, Channel, ReadableRingBuffer, Request, TransferOptions, WritableRingBuffer};
 use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
+pub use crate::pac::sai::vals::Mckdiv as MasterClockDivider;
 use crate::pac::sai::{vals, Sai as Regs};
 use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peri};
@@ -45,7 +46,6 @@ pub enum Mode {
 }
 
 impl Mode {
-    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn mode(&self, tx_rx: TxRx) -> vals::Mode {
         match tx_rx {
             TxRx::Transmitter => match self {
@@ -80,7 +80,6 @@ pub enum SlotSize {
 }
 
 impl SlotSize {
-    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn slotsz(&self) -> vals::Slotsz {
         match self {
             SlotSize::DataSize => vals::Slotsz::DATA_SIZE,
@@ -103,7 +102,6 @@ pub enum DataSize {
 }
 
 impl DataSize {
-    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn ds(&self) -> vals::Ds {
         match self {
             DataSize::Data8 => vals::Ds::BIT8,
@@ -128,7 +126,6 @@ pub enum FifoThreshold {
 }
 
 impl FifoThreshold {
-    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn fth(&self) -> vals::Fth {
         match self {
             FifoThreshold::Empty => vals::Fth::EMPTY,
@@ -149,7 +146,6 @@ pub enum MuteValue {
 }
 
 impl MuteValue {
-    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn muteval(&self) -> vals::Muteval {
         match self {
             MuteValue::Zero => vals::Muteval::SEND_ZERO,
@@ -168,7 +164,6 @@ pub enum Protocol {
 }
 
 impl Protocol {
-    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn prtcfg(&self) -> vals::Prtcfg {
         match self {
             Protocol::Free => vals::Prtcfg::FREE,
@@ -226,7 +221,6 @@ pub enum StereoMono {
 }
 
 impl StereoMono {
-    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn mono(&self) -> vals::Mono {
         match self {
             StereoMono::Stereo => vals::Mono::STEREO,
@@ -245,7 +239,6 @@ pub enum BitOrder {
 }
 
 impl BitOrder {
-    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn lsbfirst(&self) -> vals::Lsbfirst {
         match self {
             BitOrder::LsbFirst => vals::Lsbfirst::LSB_FIRST,
@@ -264,7 +257,6 @@ pub enum FrameSyncOffset {
 }
 
 impl FrameSyncOffset {
-    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn fsoff(&self) -> vals::Fsoff {
         match self {
             FrameSyncOffset::OnFirstBit => vals::Fsoff::ON_FIRST,
@@ -283,7 +275,6 @@ pub enum FrameSyncPolarity {
 }
 
 impl FrameSyncPolarity {
-    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn fspol(&self) -> vals::Fspol {
         match self {
             FrameSyncPolarity::ActiveLow => vals::Fspol::FALLING_EDGE,
@@ -301,7 +292,6 @@ pub enum FrameSyncDefinition {
 }
 
 impl FrameSyncDefinition {
-    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn fsdef(&self) -> bool {
         match self {
             FrameSyncDefinition::StartOfFrame => false,
@@ -319,7 +309,6 @@ pub enum ClockStrobe {
 }
 
 impl ClockStrobe {
-    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn ckstr(&self) -> vals::Ckstr {
         match self {
             ClockStrobe::Falling => vals::Ckstr::FALLING_EDGE,
@@ -337,7 +326,6 @@ pub enum ComplementFormat {
 }
 
 impl ComplementFormat {
-    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn cpl(&self) -> vals::Cpl {
         match self {
             ComplementFormat::OnesComplement => vals::Cpl::ONES_COMPLEMENT,
@@ -356,7 +344,6 @@ pub enum Companding {
 }
 
 impl Companding {
-    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn comp(&self) -> vals::Comp {
         match self {
             Companding::None => vals::Comp::NO_COMPANDING,
@@ -375,201 +362,10 @@ pub enum OutputDrive {
 }
 
 impl OutputDrive {
-    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn outdriv(&self) -> vals::Outdriv {
         match self {
             OutputDrive::OnStart => vals::Outdriv::ON_START,
             OutputDrive::Immediately => vals::Outdriv::IMMEDIATELY,
-        }
-    }
-}
-
-/// Master clock divider.
-#[derive(Copy, Clone, PartialEq)]
-#[allow(missing_docs)]
-#[cfg(any(sai_v1, sai_v2))]
-pub enum MasterClockDivider {
-    MasterClockDisabled,
-    Div1,
-    Div2,
-    Div4,
-    Div6,
-    Div8,
-    Div10,
-    Div12,
-    Div14,
-    Div16,
-    Div18,
-    Div20,
-    Div22,
-    Div24,
-    Div26,
-    Div28,
-    Div30,
-}
-
-/// Master clock divider.
-#[derive(Copy, Clone, PartialEq)]
-#[allow(missing_docs)]
-#[cfg(any(sai_v1_4pdm, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
-pub enum MasterClockDivider {
-    MasterClockDisabled,
-    Div1,
-    Div2,
-    Div3,
-    Div4,
-    Div5,
-    Div6,
-    Div7,
-    Div8,
-    Div9,
-    Div10,
-    Div11,
-    Div12,
-    Div13,
-    Div14,
-    Div15,
-    Div16,
-    Div17,
-    Div18,
-    Div19,
-    Div20,
-    Div21,
-    Div22,
-    Div23,
-    Div24,
-    Div25,
-    Div26,
-    Div27,
-    Div28,
-    Div29,
-    Div30,
-    Div31,
-    Div32,
-    Div33,
-    Div34,
-    Div35,
-    Div36,
-    Div37,
-    Div38,
-    Div39,
-    Div40,
-    Div41,
-    Div42,
-    Div43,
-    Div44,
-    Div45,
-    Div46,
-    Div47,
-    Div48,
-    Div49,
-    Div50,
-    Div51,
-    Div52,
-    Div53,
-    Div54,
-    Div55,
-    Div56,
-    Div57,
-    Div58,
-    Div59,
-    Div60,
-    Div61,
-    Div62,
-    Div63,
-}
-
-impl MasterClockDivider {
-    #[cfg(any(sai_v1, sai_v2))]
-    const fn mckdiv(&self) -> u8 {
-        match self {
-            MasterClockDivider::MasterClockDisabled => 0,
-            MasterClockDivider::Div1 => 0,
-            MasterClockDivider::Div2 => 1,
-            MasterClockDivider::Div4 => 2,
-            MasterClockDivider::Div6 => 3,
-            MasterClockDivider::Div8 => 4,
-            MasterClockDivider::Div10 => 5,
-            MasterClockDivider::Div12 => 6,
-            MasterClockDivider::Div14 => 7,
-            MasterClockDivider::Div16 => 8,
-            MasterClockDivider::Div18 => 9,
-            MasterClockDivider::Div20 => 10,
-            MasterClockDivider::Div22 => 11,
-            MasterClockDivider::Div24 => 12,
-            MasterClockDivider::Div26 => 13,
-            MasterClockDivider::Div28 => 14,
-            MasterClockDivider::Div30 => 15,
-        }
-    }
-
-    #[cfg(any(sai_v1_4pdm, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
-    const fn mckdiv(&self) -> u8 {
-        match self {
-            MasterClockDivider::MasterClockDisabled => 0,
-            MasterClockDivider::Div1 => 1,
-            MasterClockDivider::Div2 => 2,
-            MasterClockDivider::Div3 => 3,
-            MasterClockDivider::Div4 => 4,
-            MasterClockDivider::Div5 => 5,
-            MasterClockDivider::Div6 => 6,
-            MasterClockDivider::Div7 => 7,
-            MasterClockDivider::Div8 => 8,
-            MasterClockDivider::Div9 => 9,
-            MasterClockDivider::Div10 => 10,
-            MasterClockDivider::Div11 => 11,
-            MasterClockDivider::Div12 => 12,
-            MasterClockDivider::Div13 => 13,
-            MasterClockDivider::Div14 => 14,
-            MasterClockDivider::Div15 => 15,
-            MasterClockDivider::Div16 => 16,
-            MasterClockDivider::Div17 => 17,
-            MasterClockDivider::Div18 => 18,
-            MasterClockDivider::Div19 => 19,
-            MasterClockDivider::Div20 => 20,
-            MasterClockDivider::Div21 => 21,
-            MasterClockDivider::Div22 => 22,
-            MasterClockDivider::Div23 => 23,
-            MasterClockDivider::Div24 => 24,
-            MasterClockDivider::Div25 => 25,
-            MasterClockDivider::Div26 => 26,
-            MasterClockDivider::Div27 => 27,
-            MasterClockDivider::Div28 => 28,
-            MasterClockDivider::Div29 => 29,
-            MasterClockDivider::Div30 => 30,
-            MasterClockDivider::Div31 => 31,
-            MasterClockDivider::Div32 => 32,
-            MasterClockDivider::Div33 => 33,
-            MasterClockDivider::Div34 => 34,
-            MasterClockDivider::Div35 => 35,
-            MasterClockDivider::Div36 => 36,
-            MasterClockDivider::Div37 => 37,
-            MasterClockDivider::Div38 => 38,
-            MasterClockDivider::Div39 => 39,
-            MasterClockDivider::Div40 => 40,
-            MasterClockDivider::Div41 => 41,
-            MasterClockDivider::Div42 => 42,
-            MasterClockDivider::Div43 => 43,
-            MasterClockDivider::Div44 => 44,
-            MasterClockDivider::Div45 => 45,
-            MasterClockDivider::Div46 => 46,
-            MasterClockDivider::Div47 => 47,
-            MasterClockDivider::Div48 => 48,
-            MasterClockDivider::Div49 => 49,
-            MasterClockDivider::Div50 => 50,
-            MasterClockDivider::Div51 => 51,
-            MasterClockDivider::Div52 => 52,
-            MasterClockDivider::Div53 => 53,
-            MasterClockDivider::Div54 => 54,
-            MasterClockDivider::Div55 => 55,
-            MasterClockDivider::Div56 => 56,
-            MasterClockDivider::Div57 => 57,
-            MasterClockDivider::Div58 => 58,
-            MasterClockDivider::Div59 => 59,
-            MasterClockDivider::Div60 => 60,
-            MasterClockDivider::Div61 => 61,
-            MasterClockDivider::Div62 => 62,
-            MasterClockDivider::Div63 => 63,
         }
     }
 }
@@ -598,8 +394,7 @@ pub struct Config {
     pub frame_length: u8,
     pub clock_strobe: ClockStrobe,
     pub output_drive: OutputDrive,
-    pub master_clock_divider: MasterClockDivider,
-    pub nodiv: bool,
+    pub master_clock_divider: Option<MasterClockDivider>,
     pub is_high_impedance_on_inactive_slot: bool,
     pub fifo_threshold: FifoThreshold,
     pub companding: Companding,
@@ -628,8 +423,7 @@ impl Default for Config {
             frame_sync_active_level_length: word::U7(16),
             frame_sync_definition: FrameSyncDefinition::ChannelIdentification,
             frame_length: 32,
-            master_clock_divider: MasterClockDivider::MasterClockDisabled,
-            nodiv: false,
+            master_clock_divider: None,
             clock_strobe: ClockStrobe::Rising,
             output_drive: OutputDrive::Immediately,
             is_high_impedance_on_inactive_slot: false,
@@ -761,14 +555,10 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         mclk: Peri<'d, impl MclkPin<T, S>>,
         dma: Peri<'d, impl Channel + Dma<T, S>>,
         dma_buf: &'d mut [W],
-        mut config: Config,
+        config: Config,
     ) -> Self {
         let (_sd_af_type, ck_af_type) = get_af_types(config.mode, config.tx_rx);
         mclk.set_as_af(mclk.af_num(), ck_af_type);
-
-        if config.master_clock_divider == MasterClockDivider::MasterClockDisabled {
-            config.master_clock_divider = MasterClockDivider::Div1;
-        }
 
         Self::new_asynchronous(peri, sck, sd, fs, dma, dma_buf, config)
     }
@@ -851,10 +641,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     ) -> Self {
         let ch = T::REGS.ch(sub_block as usize);
 
-        #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
-        {
-            ch.cr1().modify(|w| w.set_saien(false));
-        }
+        ch.cr1().modify(|w| w.set_saien(false));
 
         ch.cr2().modify(|w| w.set_fflush(true));
 
@@ -877,55 +664,52 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
             }
         }
 
-        #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
-        {
-            ch.cr1().modify(|w| {
-                w.set_mode(config.mode.mode(if Self::is_transmitter(&ring_buffer) {
-                    TxRx::Transmitter
-                } else {
-                    TxRx::Receiver
-                }));
-                w.set_prtcfg(config.protocol.prtcfg());
-                w.set_ds(config.data_size.ds());
-                w.set_lsbfirst(config.bit_order.lsbfirst());
-                w.set_ckstr(config.clock_strobe.ckstr());
-                w.set_syncen(config.sync_input.syncen());
-                w.set_mono(config.stereo_mono.mono());
-                w.set_outdriv(config.output_drive.outdriv());
-                w.set_mckdiv(config.master_clock_divider.mckdiv().into());
-                w.set_nodiv(config.nodiv);
-                w.set_dmaen(true);
-            });
+        ch.cr1().modify(|w| {
+            w.set_mode(config.mode.mode(if Self::is_transmitter(&ring_buffer) {
+                TxRx::Transmitter
+            } else {
+                TxRx::Receiver
+            }));
+            w.set_prtcfg(config.protocol.prtcfg());
+            w.set_ds(config.data_size.ds());
+            w.set_lsbfirst(config.bit_order.lsbfirst());
+            w.set_ckstr(config.clock_strobe.ckstr());
+            w.set_syncen(config.sync_input.syncen());
+            w.set_mono(config.stereo_mono.mono());
+            w.set_outdriv(config.output_drive.outdriv());
+            w.set_mckdiv(config.master_clock_divider.unwrap_or(MasterClockDivider::DIV1));
+            w.set_nodiv(config.master_clock_divider.is_none());
+            w.set_dmaen(true);
+        });
 
-            ch.cr2().modify(|w| {
-                w.set_fth(config.fifo_threshold.fth());
-                w.set_comp(config.companding.comp());
-                w.set_cpl(config.complement_format.cpl());
-                w.set_muteval(config.mute_value.muteval());
-                w.set_mutecnt(config.mute_detection_counter.0 as u8);
-                w.set_tris(config.is_high_impedance_on_inactive_slot);
-            });
+        ch.cr2().modify(|w| {
+            w.set_fth(config.fifo_threshold.fth());
+            w.set_comp(config.companding.comp());
+            w.set_cpl(config.complement_format.cpl());
+            w.set_muteval(config.mute_value.muteval());
+            w.set_mutecnt(config.mute_detection_counter.0 as u8);
+            w.set_tris(config.is_high_impedance_on_inactive_slot);
+        });
 
-            ch.frcr().modify(|w| {
-                w.set_fsoff(config.frame_sync_offset.fsoff());
-                w.set_fspol(config.frame_sync_polarity.fspol());
-                w.set_fsdef(config.frame_sync_definition.fsdef());
-                w.set_fsall(config.frame_sync_active_level_length.0 as u8 - 1);
-                w.set_frl(config.frame_length - 1);
-            });
+        ch.frcr().modify(|w| {
+            w.set_fsoff(config.frame_sync_offset.fsoff());
+            w.set_fspol(config.frame_sync_polarity.fspol());
+            w.set_fsdef(config.frame_sync_definition.fsdef());
+            w.set_fsall(config.frame_sync_active_level_length.0 as u8 - 1);
+            w.set_frl(config.frame_length - 1);
+        });
 
-            ch.slotr().modify(|w| {
-                w.set_nbslot(config.slot_count.0 as u8 - 1);
-                w.set_slotsz(config.slot_size.slotsz());
-                w.set_fboff(config.first_bit_offset.0 as u8);
-                w.set_sloten(vals::Sloten::from_bits(config.slot_enable as u16));
-            });
+        ch.slotr().modify(|w| {
+            w.set_nbslot(config.slot_count.0 as u8 - 1);
+            w.set_slotsz(config.slot_size.slotsz());
+            w.set_fboff(config.first_bit_offset.0 as u8);
+            w.set_sloten(vals::Sloten::from_bits(config.slot_enable as u16));
+        });
 
-            ch.cr1().modify(|w| w.set_saien(true));
+        ch.cr1().modify(|w| w.set_saien(true));
 
-            if ch.cr1().read().saien() == false {
-                panic!("SAI failed to enable. Check that config is valid (frame length, slot count, etc)");
-            }
+        if ch.cr1().read().saien() == false {
+            panic!("SAI failed to enable. Check that config is valid (frame length, slot count, etc)");
         }
 
         Self {
