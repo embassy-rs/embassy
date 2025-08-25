@@ -1,6 +1,7 @@
 //! GPDMA ring buffer implementation.
 //!
-//! FIXME: add request_pause functionality?
+//! FIXME: Add request_pause functionality?
+//! FIXME: Stop the DMA, if a user does not queue new transfers (chain of linked-list items ends automatically).
 use core::future::poll_fn;
 use core::sync::atomic::{fence, Ordering};
 use core::task::Waker;
@@ -257,23 +258,9 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
     /// Write an exact number of elements to the ringbuffer.
     pub async fn write_exact(&mut self, buffer: &[W]) -> Result<usize, Error> {
-        // return self
-        //     .ringbuf
-        //     .write_exact(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
-        //     .await;
-
-        let mut remaining_cap = 0;
-        let mut written_len = 0;
-
-        while written_len < buffer.len() {
-            (written_len, remaining_cap) = self
-                .ringbuf
-                .write_half(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
-                .await?;
-            // info!("Written: {}/{}", written_len, buffer.len());
-        }
-
-        Ok(remaining_cap)
+        self.ringbuf
+            .write_exact(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
+            .await
     }
 
     /// Wait for any ring buffer write error.
