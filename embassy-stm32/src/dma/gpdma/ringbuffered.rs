@@ -193,7 +193,7 @@ impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
     }
 }
 
-/// Ringbuffer for writing data using DMA circular mode.
+/// Ringbuffer for writing data using GPDMA linked-list mode.
 pub struct WritableRingBuffer<'a, W: Word> {
     channel: Peri<'a, AnyChannel>,
     ringbuf: WritableDmaRingBuffer<'a, W>,
