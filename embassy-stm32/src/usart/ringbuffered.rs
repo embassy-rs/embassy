@@ -165,7 +165,7 @@ impl<'d> RingBufferedUartRx<'d> {
 
     /// Stop DMA backed UART receiver
     fn stop_uart(&mut self) {
-        self.ring_buf.request_pause();
+        self.ring_buf.request_suspend();
 
         let r = self.info.regs;
         // clear all interrupts and DMA Rx Request
