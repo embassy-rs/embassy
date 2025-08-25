@@ -178,15 +178,15 @@ impl AnyChannel {
         if sr.tcf() {
             ch.fcr().write(|w| w.set_tcf(true));
 
-            let lli_count = state.lli_state.count.load(Ordering::Relaxed);
+            let lli_count = state.lli_state.count.load(Ordering::Acquire);
             let complete = if lli_count > 0 {
-                let next_lli_index = state.lli_state.index.load(Ordering::Relaxed) + 1;
+                let next_lli_index = state.lli_state.index.load(Ordering::Acquire) + 1;
                 let complete = next_lli_index >= lli_count;
 
                 state
                     .lli_state
                     .index
-                    .store(if complete { 0 } else { next_lli_index }, Ordering::Relaxed);
+                    .store(if complete { 0 } else { next_lli_index }, Ordering::Release);
 
                 complete
             } else {
