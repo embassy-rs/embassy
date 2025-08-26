@@ -1,6 +1,6 @@
 [package]
 name = "embassy-time"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 description = "Instant and Duration for embedded no-std systems, with async timer support"
 repository = "https://github.com/embassy-rs/embassy"
@@ -423,7 +423,7 @@ tick-hz-5_242_880_000 = ["embassy-time-driver/tick-hz-5_242_880_000"]
 #! </details>
 
 [dependencies]
-embassy-time-driver = { version = "0.2", path = "../embassy-time-driver" }
+embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver" }
 embassy-time-queue-utils = { version = "0.2", path = "../embassy-time-queue-utils", optional = true}
 
 defmt = { version = "1.0.1", optional = true }
