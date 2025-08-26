@@ -1,6 +1,6 @@
 [package]
 edition = "2021"
-name = "embassy-stm32l4-examples"
+name = "embassy-stm32l432-examples"
 version = "0.1.1"
 license = "MIT OR Apache-2.0"
 publish = false
