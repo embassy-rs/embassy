@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.3.0 - 2025-08-26
+
+## 0.2.1 - 2025-08-26
+
 - Removed the embassy-executor dependency
 
 ## 0.2.0 - 2025-08-04

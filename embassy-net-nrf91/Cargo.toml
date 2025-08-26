@@ -21,10 +21,10 @@ log = { version = "0.4.14", optional = true }
 nrf-pac = "0.1.0"
 cortex-m = "0.7.7"
 
-embassy-time = { version = "0.4.0", path = "../embassy-time" }
-embassy-sync = { version = "0.7.1", path = "../embassy-sync" }
-embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
-embassy-net-driver-channel = { version = "0.3.1", path = "../embassy-net-driver-channel" }
+embassy-time = { version = "0.5.0", path = "../embassy-time" }
+embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
+embassy-net-driver-channel = { version = "0.3.2", path = "../embassy-net-driver-channel" }
 
 heapless = "0.8"
 embedded-io = "0.6.1"

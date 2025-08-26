@@ -13,7 +13,7 @@ defmt-rtt = { version = "1.0.0", optional = true }
 embassy-stm32 = { path = "../../../../embassy-stm32", features = [] }
 embassy-boot-stm32 = { path = "../../../../embassy-boot-stm32" }
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
-embassy-sync = { version = "0.7.1", path = "../../../../embassy-sync" }
+embassy-sync = { version = "0.7.2", path = "../../../../embassy-sync" }
 cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.1"
 embedded-storage-async = "0.4.0"
