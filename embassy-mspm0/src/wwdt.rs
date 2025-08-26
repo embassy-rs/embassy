@@ -336,10 +336,10 @@ pub trait Instance: SealedInstance + PeripheralType {}
 
 macro_rules! impl_wwdt_instance {
     ($instance: ident) => {
-        impl crate::watchdog::SealedInstance for crate::peripherals::$instance {
+        impl crate::wwdt::SealedInstance for crate::peripherals::$instance {
             const REGS: crate::pac::wwdt::Wwdt = crate::pac::$instance;
         }
 
-        impl crate::watchdog::Instance for crate::peripherals::$instance {}
+        impl crate::wwdt::Instance for crate::peripherals::$instance {}
     };
 }
