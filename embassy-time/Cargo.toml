@@ -1,6 +1,6 @@
 [package]
 name = "embassy-time"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 description = "Instant and Duration for embedded no-std systems, with async timer support"
 repository = "https://github.com/embassy-rs/embassy"
@@ -17,7 +17,6 @@ categories = [
 [package.metadata.embassy]
 build = [
     {target = "thumbv6m-none-eabi", features = ["defmt", "defmt-timestamp-uptime", "mock-driver"]},
-    {features = ["defmt", "std"]},
 ]
 
 [package.metadata.embassy_docs]
@@ -423,8 +422,8 @@ tick-hz-5_242_880_000 = ["embassy-time-driver/tick-hz-5_242_880_000"]
 #! </details>
 
 [dependencies]
-embassy-time-driver = { version = "0.2", path = "../embassy-time-driver" }
-embassy-time-queue-utils = { version = "0.2", path = "../embassy-time-queue-utils", optional = true}
+embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver" }
+embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils", optional = true}
 
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
@@ -447,4 +446,4 @@ wasm-timer = { version = "0.2.5", optional = true }
 [dev-dependencies]
 serial_test = "0.9"
 critical-section = { version = "1.1", features = ["std"] }
-embassy-executor = { version = "0.8.0", path = "../embassy-executor" }
+embassy-executor = { version = "0.9.0", path = "../embassy-executor" }

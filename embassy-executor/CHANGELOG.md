@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.9.0 - 2025-08-26
+
 - Added `extern "Rust" fn __embassy_time_queue_item_from_waker`
 - Removed `TaskRef::dangling`
 - Added `embassy_time_queue_utils` as a dependency
