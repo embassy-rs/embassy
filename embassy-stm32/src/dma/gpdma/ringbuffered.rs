@@ -12,7 +12,7 @@ use super::{AnyChannel, TransferOptions, STATE};
 use crate::dma::gpdma::linked_list::{RunMode, Table};
 use crate::dma::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use crate::dma::word::Word;
-use crate::dma::{Channel, Request};
+use crate::dma::{Channel, Dir, Request};
 
 struct DmaCtrlImpl<'a>(Peri<'a, AnyChannel>);
 
@@ -67,7 +67,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         options: TransferOptions,
     ) -> Self {
         let channel: Peri<'a, AnyChannel> = channel.into();
-        let table = Table::<2>::new_ping_pong::<W>(request, peri_addr, buffer);
+        let table = Table::<2>::new_ping_pong::<W>(request, peri_addr, buffer, Dir::PeripheralToMemory);
 
         Self {
             channel,
@@ -207,7 +207,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         options: TransferOptions,
     ) -> Self {
         let channel: Peri<'a, AnyChannel> = channel.into();
-        let table = Table::<2>::new_ping_pong::<W>(request, peri_addr, buffer);
+        let table = Table::<2>::new_ping_pong::<W>(request, peri_addr, buffer, Dir::MemoryToPeripheral);
 
         Self {
             channel,
@@ -222,6 +222,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         // Apply the default configuration to the channel.
         unsafe { self.channel.configure_linked_list(&self.table, self.options) };
         self.table.link(RunMode::Circular);
+
         self.channel.start();
     }
 
