@@ -39,9 +39,11 @@ async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     info!("Here we go!");
 
+    let adc = Adc::new(p.ADC, Irqs, Config::default());
+    let pin = adc::Channel::new_pin(&adc, p.PIN_29, Pull::None);
     let adc_parts = AdcParts {
-        adc: Adc::new(p.ADC, Irqs, Config::default()),
-        pin: adc::Channel::new_pin(p.PIN_29, Pull::None),
+        adc,
+        pin,
         dma: p.DMA_CH0,
     };
 
