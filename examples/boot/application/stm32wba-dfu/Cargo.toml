@@ -3,6 +3,7 @@ edition = "2021"
 name = "embassy-boot-stm32wba-dfu-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 embassy-sync = { version = "0.7.1", path = "../../../../embassy-sync" }
@@ -29,4 +30,9 @@ defmt = [
       "embassy-stm32/defmt",
       "embassy-boot-stm32/defmt",
       "embassy-sync/defmt",
+]
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/boot/stm32wba-dfu" }
 ]

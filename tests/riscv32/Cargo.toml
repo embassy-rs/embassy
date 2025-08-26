@@ -3,6 +3,7 @@ edition = "2021"
 name = "embassy-riscv-tests"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 critical-section = { version = "1.1.1", features = ["restore-state-bool"] }
@@ -44,3 +45,8 @@ debug = false
 debug-assertions = false
 opt-level = 0
 overflow-checks = false
+
+[package.metadata.embassy]
+build = [
+  { target = "riscv32imac-unknown-none-elf" }
+]

@@ -9,6 +9,13 @@ categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-stm32-wpan"
 
+publish = false
+
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabi", features = ["stm32wb55rg"]},
+]
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-stm32-wpan-v$VERSION/embassy-stm32-wpan/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-stm32-wpan/src/"

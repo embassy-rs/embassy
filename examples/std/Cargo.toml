@@ -3,6 +3,7 @@ edition = "2021"
 name = "embassy-std-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 embassy-sync = { version = "0.7.1", path = "../../embassy-sync", features = ["log"] }
@@ -27,3 +28,8 @@ static_cell = "2"
 
 [profile.release]
 debug = 2
+
+[package.metadata.embassy]
+build = [
+  { artifact-dir = "out/examples/std" }
+]

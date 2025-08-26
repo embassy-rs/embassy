@@ -3,6 +3,7 @@ edition = "2021"
 name = "embassy-nrf5340-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
@@ -27,3 +28,8 @@ serde = { version = "1.0.136", default-features = false }
 
 [profile.release]
 debug = 2
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/nrf5340" }
+]

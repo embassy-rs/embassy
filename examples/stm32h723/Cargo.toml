@@ -3,6 +3,7 @@ edition = "2021"
 name = "embassy-stm32h723-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 # Change stm32h723zg to your chip name, if necessary.
@@ -66,3 +67,8 @@ incremental = false
 lto = 'fat'
 opt-level = 3 # <-
 overflow-checks = false # <-
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7em-none-eabi", artifact-dir = "out/examples/stm32h723" }
+]

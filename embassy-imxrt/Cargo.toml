@@ -9,6 +9,13 @@ categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-imxrt"
 
+publish = false
+[package.metadata.embassy]
+build = [
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "mimxrt633s", "time", "time-driver-rtc", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "mimxrt685s", "time", "time-driver-rtc", "unstable-pac"]},
+]
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-imxrt-v$VERSION/embassy-imxrt/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-imxrt/src/"

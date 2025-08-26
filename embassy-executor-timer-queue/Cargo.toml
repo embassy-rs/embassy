@@ -33,3 +33,9 @@ timer-item-size-8-words = []
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-executor-timer-queue-v$VERSION/embassy-executor-timer-queue/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-executor-timer-queue/src/"
 target = "x86_64-unknown-linux-gnu"
+
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabi", features = []},
+    {target = "thumbv6m-none-eabi", features = []},
+]

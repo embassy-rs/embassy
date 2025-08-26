@@ -3,6 +3,15 @@ name = "embassy-nxp"
 version = "0.1.0"
 edition = "2021"
 
+publish = false
+
+[package.metadata.embassy]
+build = [
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "lpc55"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mimxrt1011", "rt", "time-driver-pit"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mimxrt1062", "rt", "time-driver-pit"]},
+]
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-nxp-v$VERSION/embassy-nxp/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-nxp/src/"

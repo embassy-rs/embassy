@@ -3,6 +3,7 @@ edition = "2021"
 name = "embassy-boot-nrf-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 embassy-sync = { version = "0.7.1", path = "../../../../embassy-sync" }
@@ -31,4 +32,13 @@ defmt = [
       "embassy-nrf/defmt",
       "embassy-boot-nrf/defmt",
       "embassy-sync/defmt",
+]
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7em-none-eabi", features = ["embassy-nrf/nrf52840", "skip-include"], artifact-dir = "out/examples/boot/nrf52840" },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9160-ns", "skip-include"], artifact-dir = "out/examples/boot/nrf9160" },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9120-ns", "skip-include"], artifact-dir = "out/examples/boot/nrf9120" },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9151-ns", "skip-include"], artifact-dir = "out/examples/boot/nrf9151" },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9161-ns", "skip-include"], artifact-dir = "out/examples/boot/nrf9161" }
 ]

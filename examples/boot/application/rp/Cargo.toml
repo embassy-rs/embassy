@@ -3,6 +3,7 @@ edition = "2021"
 name = "embassy-boot-rp-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 embassy-sync = { version = "0.7.1", path = "../../../../embassy-sync" }
@@ -34,3 +35,8 @@ skip-include = []
 
 [profile.release]
 debug = true
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv6m-none-eabi", features = ["skip-include"], artifact-dir = "out/examples/boot/rp" }
+]

@@ -12,6 +12,12 @@ categories = [
     "asynchronous"
 ]
 
+[package.metadata.embassy]
+build = [
+    { target = "thumbv7em-none-eabi", features = [ "defmt", "cortex-m", "dfu" ] },
+    { target = "thumbv7em-none-eabi", features = [ "defmt", "cortex-m", "application" ] },
+]
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-usb-v$VERSION/embassy-usb-dfu/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-usb-dfu/src/"

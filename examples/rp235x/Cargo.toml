@@ -4,6 +4,7 @@ name = "embassy-rp2350-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
+publish = false
 
 [dependencies]
 embassy-embedded-hal = { version = "0.4.0", path = "../../embassy-embedded-hal", features = ["defmt"] }
@@ -60,3 +61,8 @@ embedded-sdmmc = "0.7.0"
 [profile.release]
 # Enable generation of debug symbols even on release builds
 debug = true
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/rp235x" }
+]
