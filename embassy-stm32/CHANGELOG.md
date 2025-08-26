@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - feat: stm32/sai: make NODIV independent of MCKDIV 
+- fix: stm32/sai: fix WB MCKDIV
 - fix: stm32/i2c: pull-down was enabled instead of pull-none when no internal pull-up was needed.
 - feat: Improve blocking hash speed
 - fix: Fix vrefbuf building with log feature

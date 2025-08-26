@@ -390,7 +390,7 @@ impl OutputDrive {
 /// Master clock divider.
 #[derive(Copy, Clone, PartialEq)]
 #[allow(missing_docs)]
-#[cfg(any(sai_v1, sai_v1_4pdm, sai_v2))]
+#[cfg(any(sai_v1, sai_v2))]
 pub enum MasterClockDivider {
     MasterClockDisabled,
     Div1,
@@ -414,7 +414,7 @@ pub enum MasterClockDivider {
 /// Master clock divider.
 #[derive(Copy, Clone, PartialEq)]
 #[allow(missing_docs)]
-#[cfg(any(sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+#[cfg(any(sai_v1_4pdm, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
 pub enum MasterClockDivider {
     MasterClockDisabled,
     Div1,
@@ -483,7 +483,7 @@ pub enum MasterClockDivider {
 }
 
 impl MasterClockDivider {
-    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2))]
+    #[cfg(any(sai_v1, sai_v2))]
     const fn mckdiv(&self) -> u8 {
         match self {
             MasterClockDivider::MasterClockDisabled => 0,
@@ -506,7 +506,7 @@ impl MasterClockDivider {
         }
     }
 
-    #[cfg(any(sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+    #[cfg(any(sai_v1_4pdm, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn mckdiv(&self) -> u8 {
         match self {
             MasterClockDivider::MasterClockDisabled => 0,
