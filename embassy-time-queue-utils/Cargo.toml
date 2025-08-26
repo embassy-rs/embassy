@@ -1,6 +1,6 @@
 [package]
 name = "embassy-time-queue-utils"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 description = "Timer queue driver trait for embassy-time"
 repository = "https://github.com/embassy-rs/embassy"
