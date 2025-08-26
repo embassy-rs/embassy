@@ -166,15 +166,27 @@ impl<const ITEM_COUNT: usize> Table<ITEM_COUNT> {
     /// Create a ping-pong linked-list table.
     ///
     /// This uses two linked-list items, one for each half of the buffer.
-    pub unsafe fn new_ping_pong<W: Word>(request: Request, peri_addr: *mut W, buffer: &mut [W]) -> Table<2> {
+    pub unsafe fn new_ping_pong<W: Word>(
+        request: Request,
+        peri_addr: *mut W,
+        buffer: &mut [W],
+        direction: Dir,
+    ) -> Table<2> {
         // Buffer halves should be the same length.
         let half_len = buffer.len() / 2;
         assert_eq!(half_len * 2, buffer.len());
 
-        let items = [
-            LinearItem::new_read(request, peri_addr, &mut buffer[..half_len]),
-            LinearItem::new_read(request, peri_addr, &mut buffer[half_len..]),
-        ];
+        let items = match direction {
+            Dir::MemoryToPeripheral => [
+                LinearItem::new_write(request, &mut buffer[..half_len], peri_addr),
+                LinearItem::new_write(request, &mut buffer[half_len..], peri_addr),
+            ],
+            Dir::PeripheralToMemory => [
+                LinearItem::new_read(request, peri_addr, &mut buffer[..half_len]),
+                LinearItem::new_read(request, peri_addr, &mut buffer[half_len..]),
+            ],
+        };
+
         Table::new(items)
     }
 
