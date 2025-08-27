@@ -1,6 +1,3 @@
-use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, Ordering};
-
 use cfg_if::cfg_if;
 use pac::adc::vals::Dmacfg;
 #[cfg(adc_v3)]
@@ -9,8 +6,14 @@ use pac::adc::vals::{OversamplingRatio, OversamplingShift, Rovsm, Trovs};
 use super::{
     blocking_delay_us, Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel,
 };
+
 #[cfg(adc_v3)]
-use crate::dma::{ReadableRingBuffer, Transfer, TransferOptions};
+mod ringbuffered_v3;
+
+#[cfg(adc_v3)]
+use ringbuffered_v3::RingBufferedAdc;
+
+use crate::dma::Transfer;
 use crate::{pac, rcc, Peri};
 
 /// Default VREF voltage used for sample conversion to millivolts.
@@ -110,14 +113,6 @@ pub enum Averaging {
     Samples64,
     Samples128,
     Samples256,
-}
-
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct OverrunError;
-
-pub struct RingBufferedAdc<'d, T: Instance> {
-    _phantom: PhantomData<T>,
-    ring_buf: ReadableRingBuffer<'d, u16>,
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
@@ -531,19 +526,6 @@ impl<'d, T: Instance> Adc<'d, T> {
             }
         }
 
-        //dma side setup
-        let opts = TransferOptions {
-            half_transfer_ir: true,
-            circular: true,
-            ..Default::default()
-        };
-
-        // Safety: we forget the struct before this function returns.
-        let request = dma.request();
-
-        let ring_buf =
-            unsafe { ReadableRingBuffer::new(dma, request, T::regs().dr().as_ptr() as *mut u16, dma_buf, opts) };
-
         // On G0 and U0 enabled channels are sampled from 0 to last channel.
         // It is possible to add up to 8 sequences if CHSELRMOD = 1.
         // However for supporting more than 8 channels alternative CHSELRMOD = 0 approach is used.
@@ -573,10 +555,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             reg.set_dmaen(true);
         });
 
-        RingBufferedAdc {
-            _phantom: PhantomData,
-            ring_buf,
-        }
+        RingBufferedAdc::new(dma, dma_buf)
     }
 
     fn configure_channel(channel: &mut impl AdcChannel<T>, sample_time: SampleTime) {
@@ -681,150 +660,5 @@ impl<'d, T: Instance> Adc<'d, T> {
             });
             while T::regs().cr().read().adstart() {}
         }
-    }
-}
-
-#[cfg(adc_v3)]
-impl<'d, T: Instance> RingBufferedAdc<'d, T> {
-    #[inline]
-    fn start_continous_sampling(&mut self) {
-        // Start adc conversion
-        T::regs().cr().modify(|reg| {
-            reg.set_adstart(true);
-        });
-        self.ring_buf.start();
-    }
-
-    #[inline]
-    pub fn stop_continous_sampling(&mut self) {
-        // Stop adc conversion
-        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
-            T::regs().cr().modify(|reg| {
-                reg.set_adstp(true);
-            });
-            while T::regs().cr().read().adstart() {}
-        }
-    }
-    pub fn disable_adc(&mut self) {
-        self.stop_continous_sampling();
-        self.ring_buf.clear();
-        self.ring_buf.request_pause();
-    }
-
-    pub fn teardown_adc(&mut self) {
-        self.disable_adc();
-
-        //disable dma control
-        #[cfg(not(any(adc_g0, adc_u0)))]
-        T::regs().cfgr().modify(|reg| {
-            reg.set_dmaen(false);
-        });
-        #[cfg(any(adc_g0, adc_u0))]
-        T::regs().cfgr1().modify(|reg| {
-            reg.set_dmaen(false);
-        });
-
-        //TODO: do we need to cleanup the DMA request here?
-
-        compiler_fence(Ordering::SeqCst);
-    }
-
-    /// Reads measurements from the DMA ring buffer.
-    ///
-    /// This method fills the provided `measurements` array with ADC readings from the DMA buffer.
-    /// The length of the `measurements` array should be exactly half of the DMA buffer length. Because interrupts are only generated if half or full DMA transfer completes.
-    ///
-    /// Each call to `read` will populate the `measurements` array in the same order as the channels defined with `sequence`.
-    /// There will be many sequences worth of measurements in this array because it only returns if at least half of the DMA buffer is filled.
-    /// For example if 2 channels are sampled `measurements` contain: `[sq0 sq1 sq0 sq1 sq0 sq1 ..]`.
-    ///
-    /// Note that the ADC Datarate can be very fast, it is suggested to use DMA mode inside tightly running tasks
-    /// Otherwise, you'll see constant Overrun errors occuring, this means that you're sampling too quickly for the task to handle, and you may need to increase the buffer size.
-    /// Example:
-    /// ```rust,ignore
-    /// const DMA_BUF_LEN: usize = 120;
-    /// use embassy_stm32::adc::{Adc, AdcChannel}
-    ///
-    /// let mut adc = Adc::new(p.ADC1);
-    /// let mut adc_pin0 = p.PA0.degrade_adc();
-    /// let mut adc_pin1 = p.PA1.degrade_adc();
-    /// let adc_dma_buf = [0u16; DMA_BUF_LEN];
-    ///
-    /// let mut ring_buffered_adc: RingBufferedAdc<embassy_stm32::peripherals::ADC1> = adc.into_ring_buffered(
-    ///     p.DMA2_CH0,
-    ///      adc_dma_buf, [
-    ///         (&mut *adc_pin0, SampleTime::CYCLES160_5),
-    ///         (&mut *adc_pin1, SampleTime::CYCLES160_5),
-    ///     ].into_iter());
-    ///
-    ///
-    /// let mut measurements = [0u16; DMA_BUF_LEN / 2];
-    /// loop {
-    ///     match ring_buffered_adc.read(&mut measurements).await {
-    ///         Ok(_) => {
-    ///             defmt::info!("adc1: {}", measurements);
-    ///         }
-    ///         Err(e) => {
-    ///             defmt::warn!("Error: {:?}", e);
-    ///         }
-    ///     }
-    /// }
-    /// ```
-    ///
-    ///
-    /// [`teardown_adc`]: #method.teardown_adc
-    /// [`start_continous_sampling`]: #method.start_continous_sampling
-    pub async fn read(&mut self, measurements: &mut [u16]) -> Result<usize, OverrunError> {
-        assert_eq!(
-            self.ring_buf.capacity() / 2,
-            measurements.len(),
-            "Buffer size must be half the size of the ring buffer"
-        );
-
-        let r = T::regs();
-
-        // Start background receive if it was not already started
-        if !r.cr().read().adstart() {
-            self.start_continous_sampling();
-        }
-
-        self.ring_buf.read_exact(measurements).await.map_err(|_| OverrunError)
-    }
-
-    /// Read bytes that are readily available in the ring buffer.
-    /// If no bytes are currently available in the buffer the call waits until the some
-    /// bytes are available (at least one byte and at most half the buffer size)
-    ///
-    /// Background receive is started if `start_continous_sampling()` has not been previously called.
-    ///
-    /// Receive in the background is terminated if an error is returned.
-    /// It must then manually be started again by calling `start_continous_sampling()` or by re-calling `blocking_read()`.
-    pub fn blocking_read(&mut self, buf: &mut [u16]) -> Result<usize, OverrunError> {
-        let r = T::regs();
-
-        // Start background receive if it was not already started
-        if !r.cr().read().adstart() {
-            self.start_continous_sampling();
-        }
-
-        loop {
-            match self.ring_buf.read(buf) {
-                Ok((0, _)) => {}
-                Ok((len, _)) => {
-                    return Ok(len);
-                }
-                Err(_) => {
-                    self.stop_continous_sampling();
-                    return Err(OverrunError);
-                }
-            }
-        }
-    }
-}
-
-impl<T: Instance> Drop for RingBufferedAdc<'_, T> {
-    fn drop(&mut self) {
-        self.teardown_adc();
-        rcc::disable::<T>();
     }
 }
