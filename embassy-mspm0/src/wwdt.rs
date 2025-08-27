@@ -4,8 +4,6 @@
 
 #![macro_use]
 
-use core::marker::PhantomData;
-
 use embassy_hal_internal::PeripheralType;
 
 use crate::pac::wwdt::{vals, Wwdt as Regs};
@@ -262,22 +260,22 @@ impl Default for Config {
     }
 }
 
-pub struct Watchdog<'d, T: Instance> {
-    wdt: PhantomData<&'d mut T>,
+pub struct Watchdog {
+    regs: &'static Regs,
 }
 
-impl<'d, T: Instance> Watchdog<'d, T> {
+impl Watchdog {
     /// Watchdog initialization.
-    pub fn new(_instance: Peri<'d, T>, config: Config) -> Self {
+    pub fn new<T: Instance>(_instance: Peri<T>, config: Config) -> Self {
         // Init power for watchdog
-        T::REGS.gprcm(0).rstctl().write(|w| {
+        T::regs().gprcm(0).rstctl().write(|w| {
             w.set_resetstkyclr(true);
             w.set_resetassert(true);
             w.set_key(vals::ResetKey::KEY);
         });
 
         // Enable power for watchdog
-        T::REGS.gprcm(0).pwren().write(|w| {
+        T::regs().gprcm(0).pwren().write(|w| {
             w.set_enable(true);
             w.set_key(vals::PwrenKey::KEY);
         });
@@ -286,7 +284,7 @@ impl<'d, T: Instance> Watchdog<'d, T> {
         cortex_m::asm::delay(16);
 
         //init watchdog
-        T::REGS.wwdtctl0().write(|w| {
+        T::regs().wwdtctl0().write(|w| {
             w.set_clkdiv(config.timeout.get_clkdiv());
             w.set_per(config.timeout.get_period());
             w.set_mode(vals::Mode::WINDOW);
@@ -296,7 +294,7 @@ impl<'d, T: Instance> Watchdog<'d, T> {
         });
 
         // Set Window0 as active window
-        T::REGS.wwdtctl1().write(|w| {
+        T::regs().wwdtctl1().write(|w| {
             w.set_winsel(vals::Winsel::WIN0);
             w.set_key(vals::Wwdtctl1Key::KEY);
         });
@@ -304,30 +302,30 @@ impl<'d, T: Instance> Watchdog<'d, T> {
         critical_section::with(|_| {
             // make sure watchdog triggers BOOTRST
             pac::SYSCTL.systemcfg().write(|w| {
-                if T::REGS == pac::WWDT0 {
+                if *T::regs() == pac::WWDT0 {
                     w.set_wwdtlp0rstdis(false);
                 }
 
                 #[cfg(any(mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x))]
-                if T::REGS == pac::WWDT1 {
+                if *T::regs() == pac::WWDT1 {
                     w.set_wwdtlp1rstdis(false);
                 }
             });
         });
 
-        Watchdog { wdt: PhantomData }
+        Self { regs: T::regs() }
     }
 
     /// Pet (reload, refresh) the watchdog.
     pub fn pet(&mut self) {
-        T::REGS.wwdtcntrst().write(|w| {
+        self.regs.wwdtcntrst().write(|w| {
             w.set_restart(vals::WwdtcntrstRestart::RESTART);
         });
     }
 }
 
 pub(crate) trait SealedInstance {
-    const REGS: Regs;
+    fn regs() -> &'static Regs;
 }
 
 /// WWDT instance trait
@@ -337,7 +335,9 @@ pub trait Instance: SealedInstance + PeripheralType {}
 macro_rules! impl_wwdt_instance {
     ($instance: ident) => {
         impl crate::wwdt::SealedInstance for crate::peripherals::$instance {
-            const REGS: crate::pac::wwdt::Wwdt = crate::pac::$instance;
+            fn regs() -> &'static crate::pac::wwdt::Wwdt {
+                &crate::pac::$instance
+            }
         }
 
         impl crate::wwdt::Instance for crate::peripherals::$instance {}
