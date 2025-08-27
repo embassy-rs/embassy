@@ -1,6 +1,6 @@
 [package]
 name = "embassy-stm32"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Embassy Hardware Abstraction Layer (HAL) for ST STM32 series microcontrollers"
@@ -141,17 +141,17 @@ features = ["defmt", "unstable-pac", "exti", "time-driver-any", "time", "stm32h7
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-embassy-sync = { version = "0.7.1", path = "../embassy-sync" }
-embassy-time = { version = "0.4.0", path = "../embassy-time", optional = true }
-embassy-time-driver = { version = "0.2", path = "../embassy-time-driver", optional = true }
-embassy-time-queue-utils = { version = "0.2", path = "../embassy-time-queue-utils", optional = true }
-embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
+embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
+embassy-time = { version = "0.5.0", path = "../embassy-time", optional = true }
+embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver", optional = true }
+embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils", optional = true }
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
-embassy-embedded-hal = { version = "0.4.0", path = "../embassy-embedded-hal", default-features = false }
+embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal", default-features = false }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
 embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
-embassy-usb-synopsys-otg = { version = "0.3.0", path = "../embassy-usb-synopsys-otg" }
-embassy-executor = { version = "0.8.0", path = "../embassy-executor", optional = true }
+embassy-usb-synopsys-otg = { version = "0.3.1", path = "../embassy-usb-synopsys-otg" }
+embassy-executor = { version = "0.9.0", path = "../embassy-executor", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }

@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.7.2 - 2025-08-26
+
 - Add `get_mut` to `LazyLock`
 - Add more `Debug` impls to `embassy-sync`, particularly on `OnceLock`
 

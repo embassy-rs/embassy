@@ -10,7 +10,7 @@ publish = false
 [dependencies]
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 cortex-m-rt = { version = "0.7" }
-embassy-stm32 = { version = "0.3.0", path = "../../../../embassy-stm32", features = ["stm32l475vg", "memory-x", "unstable-pac"] }
+embassy-stm32 = { version = "0.4.0", path = "../../../../embassy-stm32", features = ["stm32l475vg", "memory-x", "unstable-pac"] }
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"

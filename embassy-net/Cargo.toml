@@ -1,6 +1,6 @@
 [package]
 name = "embassy-net"
-version = "0.7.0"
+version = "0.7.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Async TCP/IP network stack for embedded systems"
@@ -92,8 +92,8 @@ smoltcp = { version = "0.12.0", default-features = false, features = [
 ] }
 
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
-embassy-time = { version = "0.4.0", path = "../embassy-time" }
-embassy-sync = { version = "0.7.1", path = "../embassy-sync" }
+embassy-time = { version = "0.5.0", path = "../embassy-time" }
+embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
 embedded-io-async = { version = "0.6.1" }
 
 managed = { version = "0.8.0", default-features = false, features = [ "map" ] }

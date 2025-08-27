@@ -1,6 +1,6 @@
 [package]
 name = "cyw43"
-version = "0.4.0"
+version = "0.4.1"
 edition = "2021"
 description = "Rust driver for the CYW43439 WiFi chip, used in the Raspberry Pi Pico W."
 keywords = ["embedded", "cyw43", "embassy-net", "embedded-hal-async", "wifi"]
@@ -18,10 +18,10 @@ bluetooth = ["dep:bt-hci", "dep:embedded-io-async"]
 firmware-logs = []
 
 [dependencies]
-embassy-time = { version = "0.4.0", path = "../embassy-time"}
-embassy-sync = { version = "0.7.1", path = "../embassy-sync"}
-embassy-futures = { version = "0.1.0", path = "../embassy-futures"}
-embassy-net-driver-channel = { version = "0.3.1", path = "../embassy-net-driver-channel"}
+embassy-time = { version = "0.5.0", path = "../embassy-time"}
+embassy-sync = { version = "0.7.2", path = "../embassy-sync"}
+embassy-futures = { version = "0.1.2", path = "../embassy-futures"}
+embassy-net-driver-channel = { version = "0.3.2", path = "../embassy-net-driver-channel"}
 
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.17", optional = true }

@@ -11,11 +11,11 @@ cortex-m-rt = "0.7.3"
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 
-embassy-executor = { version = "0.8.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
-embassy-futures = { version = "0.1.1", path = "../../embassy-futures" }
+embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
 embassy-nxp = { version = "0.1.0", path = "../../embassy-nxp", features = ["defmt", "mimxrt1011", "unstable-pac", "time-driver-pit"] }
-embassy-time = { version = "0.4", path = "../../embassy-time", features = ["defmt", ] } # "defmt-timestamp-uptime" # RT1011 hard faults currently with this enabled.
-embassy-sync = { version = "0.7.1", path = "../../embassy-sync", features = ["defmt"] }
+embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", ] } # "defmt-timestamp-uptime" # RT1011 hard faults currently with this enabled.
+embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = ["defmt"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = "1.0.0"
 
