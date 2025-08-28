@@ -244,6 +244,11 @@ impl<'d> CanConfigurator<'d> {
         self.config = self.config.set_nominal_bit_timing(nbtr);
     }
 
+    /// Configures the transmit buffer to FIFO or priority mode.
+    pub fn set_tx_buffer_mode(&mut self, mode: crate::can::fd::config::TxBufferMode) {
+        self.config.tx_buffer_mode = mode;
+    }
+
     /// Configures the bit timings for VBR data calculated from supplied bitrate. This also sets confit to allow can FD and VBR
     pub fn set_fd_data_bitrate(&mut self, bitrate: u32, transceiver_delay_compensation: bool) {
         let bit_timing = util::calc_can_timings(self.periph_clock, bitrate).unwrap();
@@ -692,7 +697,6 @@ impl RxMode {
             let ts = info.regs.calc_timestamp(ns_per_timer_tick, ts);
             Some(Ok((msg, ts)))
         } else if let Some(err) = info.regs.curr_error() {
-            // TODO: this is probably wrong
             Some(Err(err))
         } else {
             None
