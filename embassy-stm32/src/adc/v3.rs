@@ -304,7 +304,8 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     /// Read one or multiple ADC channels using DMA.
     ///
-    /// `sequence` iterator and `readings` must have the same length.
+    /// `readings` must have a length that is a multiple of the length of the
+    /// `sequence` iterator.
     ///
     /// Note: The order of values in `readings` is defined by the pin ADC
     /// channel number and not the pin order in `sequence`.
@@ -338,8 +339,8 @@ impl<'d, T: Instance> Adc<'d, T> {
     ) {
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
         assert!(
-            sequence.len() == readings.len(),
-            "Sequence length must be equal to readings length"
+            readings.len() % sequence.len() == 0,
+            "Readings length must be a multiple of sequence length"
         );
         assert!(
             sequence.len() <= 16,

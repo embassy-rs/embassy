@@ -554,6 +554,7 @@ fn generate_peripheral_instances() -> TokenStream {
         let tokens = match peripheral.kind {
             "uart" => Some(quote! { impl_uart_instance!(#peri); }),
             "i2c" => Some(quote! { impl_i2c_instance!(#peri, #fifo_size); }),
+            "wwdt" => Some(quote! { impl_wwdt_instance!(#peri); }),
             _ => None,
         };
 
