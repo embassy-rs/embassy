@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
-- Added support for more OctoSPI configurations (e.g. APS6408 RAM) ([#4581](https://github.com/embassy-rs/embassy/pull/4581))
+- feat: Added support for more OctoSPI configurations (e.g. APS6408 RAM) ([#4581](https://github.com/embassy-rs/embassy/pull/4581))
 
 ## 0.4.0 - 2025-08-26
 
@@ -54,8 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix: Improve error handling for I2C v2 NACK conditions
 - fix: Renamed frequency parameters for consistency (freq -> frequency)
 - chore: Updated stm32-metapac and stm32-data dependencies
-- chore: 
-ialization to take pins before interrupts ([#3983](https://github.com/embassy-rs/embassy/pull/3983))
+- chore: Modify BufferedUart initialization to take pins before interrupts ([#3983](https://github.com/embassy-rs/embassy/pull/3983))
 - feat: Added a 'single-bank' and a 'dual-bank' feature so chips with configurable flash bank setups are be supported in embassy ([#4125](https://github.com/embassy-rs/embassy/pull/4125))
 - feat: Add automatic setting of remap bits when using alternate DMA channels on STM32F0 and STM32F3 devices ([#3653](https://github.com/embassy-rs/embassy/pull/3653))
 
