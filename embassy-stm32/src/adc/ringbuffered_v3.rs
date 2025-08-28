@@ -1,11 +1,11 @@
 use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
+
 use embassy_hal_internal::Peri;
 
+use crate::adc::{Instance, RxDma};
 use crate::dma::{ReadableRingBuffer, TransferOptions};
 
-use crate::adc::Instance;
-use crate::adc::RxDma;
 use crate::rcc;
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
