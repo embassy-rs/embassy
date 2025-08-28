@@ -283,6 +283,20 @@ impl Watchdog {
         // init delay, 16 cycles
         cortex_m::asm::delay(16);
 
+        critical_section::with(|_| {
+            // make sure watchdog triggers BOOTRST
+            pac::SYSCTL.systemcfg().modify(|w| {
+                if *T::regs() == pac::WWDT0 {
+                    w.set_wwdtlp0rstdis(false);
+                }
+
+                #[cfg(any(mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x))]
+                if *T::regs() == pac::WWDT1 {
+                    w.set_wwdtlp1rstdis(false);
+                }
+            });
+        });
+
         //init watchdog
         T::regs().wwdtctl0().write(|w| {
             w.set_clkdiv(config.timeout.get_clkdiv());
@@ -297,20 +311,6 @@ impl Watchdog {
         T::regs().wwdtctl1().write(|w| {
             w.set_winsel(vals::Winsel::WIN0);
             w.set_key(vals::Wwdtctl1Key::KEY);
-        });
-
-        critical_section::with(|_| {
-            // make sure watchdog triggers BOOTRST
-            pac::SYSCTL.systemcfg().write(|w| {
-                if *T::regs() == pac::WWDT0 {
-                    w.set_wwdtlp0rstdis(false);
-                }
-
-                #[cfg(any(mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x))]
-                if *T::regs() == pac::WWDT1 {
-                    w.set_wwdtlp1rstdis(false);
-                }
-            });
         });
 
         Self { regs: T::regs() }
