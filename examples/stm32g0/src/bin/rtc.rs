@@ -3,9 +3,8 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::rtc::{DateTime, DayOfWeek, Rtc, RtcConfig};
+use embassy_stm32::rtc::{Alarm, DateTime, DayOfWeek, Rtc, RtcAlarmMatch, RtcConfig};
 use embassy_stm32::Config;
-use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -21,11 +20,23 @@ async fn main(_spawner: Spawner) {
 
     rtc.set_datetime(now.unwrap()).expect("datetime not set");
 
+    rtc.set_alarm(
+        Alarm::A,
+        RtcAlarmMatch {
+            subsecond: None,
+            second: None,
+            minute: None,
+            hour: None,
+            hour_is_pm: false,
+            date: None,
+        },
+    );
+
     loop {
         let now: DateTime = rtc.now().unwrap().into();
 
-        info!("{}:{}:{}", now.hour(), now.minute(), now.second());
+        info!("{:02}:{:02}:{:02}", now.hour(), now.minute(), now.second());
 
-        Timer::after_millis(1000).await;
+        rtc.wait_for_alarm(Alarm::A).await;
     }
 }
