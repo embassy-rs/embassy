@@ -5,9 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## unreleased
+<!-- next-header -->
+## Unreleased - ReleaseDate
 
+## 0.9.0 - 2025-08-26
+
+- Added `extern "Rust" fn __embassy_time_queue_item_from_waker`
+- Removed `TaskRef::dangling`
+- Added `embassy_time_queue_utils` as a dependency
+- Moved the `TimeQueueItem` struct and `timer-item-payload-size-*` features into embassy-time-queue-utils
+
+## 0.8.0 - 2025-07-31
+
+- Added `SpawnToken::id`
+- Task pools are now statically allocated on stable rust. All `task-arena-size-*` features have been removed and are no longer necessary.
+- New trace hooks: `_embassy_trace_poll_start` & `_embassy_trace_task_end`
+- Added task naming capability to tracing infrastructure
+- Added `Executor::id` & `Spawner::executor_id`
+- Disable `critical-section/std` for arch-std
+- Added possibility to select an executor in `#[embassy_executor::main]`
+- Fix AVR executor
+- executor: Make state implementations and their conditions match
 - Added support for Cortex-A and Cortex-R
+- Added support for `-> impl Future<Output = ()>` in `#[task]`
+- Fixed `Send` unsoundness with `-> impl Future` tasks
+- Marked `Spawner::for_current_executor` as `unsafe`
+- `#[task]` now properly marks the generated function as unsafe if the task is marked unsafe
 
 ## 0.7.0 - 2025-01-02
 

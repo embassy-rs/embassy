@@ -5,7 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+<!-- next-header -->
+## Unreleased - ReleaseDate
+
+## 0.7.0 - 2025-08-26
+
+- bugfix: use correct analog input SAADC pins on nrf5340
+
+## 0.6.0 - 2025-08-04
+
+- changed: update to latest embassy-time-queue-utils
+
+## 0.5.0 - 2025-07-16
+
+- changed: update to latest embassy-usb-driver
+
+## 0.4.1 - 2025-07-14
+
+- changed: nrf52833: configure internal LDO
+- changed: nrf5340: add more options to clock config
+- bugfix: clean the SAADC's register while dropping
+- changed: Remove Peripheral trait, rename PeripheralRef->Peri.
+- changed: take pins before interrupts in buffered uart init
+- changed: nrf5340: add wdt support
+- changed: remove nrf radio BLE
+- changed: add Blocking/Async Mode param.
+- bugfix: fix PWM loop count
+- bugfix: fixing the nrf54l drive configuration bug
+- changed: add temp driver for nrf5340
+- changed: add support for rand 0.9
 
 ## 0.3.1 - 2025-01-09
 

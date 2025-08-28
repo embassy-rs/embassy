@@ -4,11 +4,17 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
+publish = false
 [dependencies]
 cortex-m-rt = "0.7"
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
-embassy-stm32 = { version = "0.2.0", path = "../../../../embassy-stm32", features = ["stm32l475vg", "memory-x"] }
+embassy-stm32 = { version = "0.4.0", path = "../../../../embassy-stm32", features = ["stm32l475vg", "memory-x"] }
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7em-none-eabi" }
+]

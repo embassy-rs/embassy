@@ -1,6 +1,6 @@
 [package]
 name = "embassy-net-enc28j60"
-version = "0.2.0"
+version = "0.2.1"
 description = "embassy-net driver for the ENC28J60 ethernet chip"
 keywords = ["embedded", "enc28j60", "embassy-net", "embedded-hal-async", "ethernet"]
 categories = ["embedded", "hardware-support", "no-std", "network-programming", "asynchronous"]
@@ -13,8 +13,8 @@ documentation = "https://docs.embassy.dev/embassy-net-enc28j60"
 embedded-hal = { version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
-embassy-time = { version = "0.4.0", path = "../embassy-time" }
-embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
+embassy-time = { version = "0.5.0", path = "../embassy-time" }
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }

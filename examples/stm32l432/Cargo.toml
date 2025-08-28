@@ -1,15 +1,16 @@
 [package]
 edition = "2021"
-name = "embassy-stm32l4-examples"
+name = "embassy-stm32l432-examples"
 version = "0.1.1"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 # Change stm32l4s5vi to your chip name, if necessary.
-embassy-stm32 = { version = "0.2.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "stm32l432kc", "memory-x", "time-driver-any", "exti", "chrono"] }
-embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = [ "defmt" ] }
-embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = [ "arch-cortex-m", "executor-thread", "defmt" ] }
-embassy-time = { version = "0.4.0", path = "../../embassy-time", features = [ "defmt", "defmt-timestamp-uptime", "tick-hz-32_768" ] }
+embassy-stm32 = { version = "0.4.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "stm32l432kc", "memory-x", "time-driver-any", "exti", "chrono"] }
+embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = [ "defmt" ] }
+embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = [ "arch-cortex-m", "executor-thread", "defmt" ] }
+embassy-time = { version = "0.5.0", path = "../../embassy-time", features = [ "defmt", "defmt-timestamp-uptime", "tick-hz-32_768" ] }
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 
@@ -28,3 +29,8 @@ debug = 2
 name = "qspi_mmap"
 path = "src/bin/qspi_mmap.rs"
 test = false
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7em-none-eabi", artifact-dir = "out/examples/stm32l432" }
+]

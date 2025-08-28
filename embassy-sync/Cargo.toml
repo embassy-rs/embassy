@@ -1,6 +1,6 @@
 [package]
 name = "embassy-sync"
-version = "0.7.0"
+version = "0.7.2"
 edition = "2021"
 description = "no-std, no-alloc synchronization primitives with async support"
 repository = "https://github.com/embassy-rs/embassy"
@@ -12,6 +12,11 @@ categories = [
     "no-std",
     "concurrency",
     "asynchronous",
+]
+
+[package.metadata.embassy]
+build = [
+    {target = "thumbv6m-none-eabi", features = ["defmt"]},
 ]
 
 [package.metadata.embassy_docs]

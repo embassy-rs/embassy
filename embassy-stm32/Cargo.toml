@@ -1,6 +1,6 @@
 [package]
 name = "embassy-stm32"
-version = "0.2.0"
+version = "0.4.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Embassy Hardware Abstraction Layer (HAL) for ST STM32 series microcontrollers"
@@ -8,6 +8,99 @@ keywords = ["embedded", "async", "stm32", "hal", "embedded-hal"]
 categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-stm32"
+
+[package.metadata.embassy]
+build = [
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "dual-bank", "exti", "stm32l552ze", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "dual-bank", "stm32l552ze", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "dual-bank", "exti", "stm32l552ze", "time"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "dual-bank", "stm32l552ze", "time"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "dual-bank", "exti", "stm32l552ze"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "dual-bank", "stm32l552ze"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "single-bank", "stm32l552ze"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32c071rb", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32c051f6", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32c091gb", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32c092rc", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32f038f6", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32f030c6", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32f058t8", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32f030r8", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32f031k6", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32f030rc", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32f070f6", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32f078vb", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32f042g4", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32f072c8", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f401ve", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f405zg", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f407zg", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f401ve", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f405zg", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f407zg", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f410tb", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f411ce", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f412zg", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f413vh", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f415zg", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f417zg", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f423zh", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f427zi", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["exti", "log", "stm32f429zi", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["exti", "log", "stm32f437zi", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f439zi", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f446ze", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f469zi", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f479zi", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f730i8", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h753zi", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h735zg", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "split-pc2", "split-pc3", "stm32h755zi-cm7", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h725re", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h7b3ai", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h7b3ai", "time", "time-driver-tim1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h7r3z8", "time", "time-driver-tim1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h7r7a8", "time", "time-driver-tim1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h7s3a8", "time", "time-driver-tim1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32h7s7z8", "time", "time-driver-tim1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32l431cb", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32l476vg", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32l422cb", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32wb15cc", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32l072cz", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32l041f6", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32l051k8", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "low-power", "stm32l073cz", "time", "time-driver-any"]},
+    {target = "thumbv7m-none-eabi", features = ["defmt", "exti", "stm32l151cb-a", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f303c8", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f398ve", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32f378cc", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32g0b0ce", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32g0c1ve", "time", "time-driver-any"]},
+    {target = "thumbv7m-none-eabi", features = ["defmt", "exti", "stm32f217zg", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "dual-bank", "exti", "low-power", "stm32l552ze", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32wl54jc-cm0p", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32wle5jb", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32g431kb", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dual-bank", "exti", "stm32g474pe", "time", "time-driver-any"]},
+    {target = "thumbv7m-none-eabi", features = ["defmt", "exti", "stm32f107vc", "time", "time-driver-any"]},
+    {target = "thumbv7m-none-eabi", features = ["defmt", "exti", "stm32f103re", "time", "time-driver-any"]},
+    {target = "thumbv7m-none-eabi", features = ["defmt", "exti", "stm32f100c4", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32h503rb", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32h523cc", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32h562ag", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32wba50ke", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32wba55ug", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32wba62cg", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "low-power", "stm32wba65ri", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32u5f9zj", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32u5g9nj", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32wb35ce", "time", "time-driver-any"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "low-power", "stm32wb55rg", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32u031r8", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32u073mb", "time", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32u083rc", "time", "time-driver-any"]},
+]
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-stm32-v$VERSION/embassy-stm32/src/"
@@ -44,21 +137,21 @@ flavors = [
 ]
 
 [package.metadata.docs.rs]
-features = ["defmt", "unstable-pac", "exti", "time-driver-any", "time", "stm32h755zi-cm7", "single-bank"]
+features = ["defmt", "unstable-pac", "exti", "time-driver-any", "time", "stm32h755zi-cm7", "dual-bank"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-embassy-sync = { version = "0.7.0", path = "../embassy-sync" }
-embassy-time = { version = "0.4.0", path = "../embassy-time", optional = true }
-embassy-time-driver = { version = "0.2", path = "../embassy-time-driver", optional = true }
-embassy-time-queue-utils = { version = "0.1", path = "../embassy-time-queue-utils", optional = true }
-embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
-embassy-hal-internal = { version = "0.2.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
-embassy-embedded-hal = { version = "0.3.0", path = "../embassy-embedded-hal", default-features = false }
+embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
+embassy-time = { version = "0.5.0", path = "../embassy-time", optional = true }
+embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver", optional = true }
+embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils", optional = true }
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
+embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-4"] }
+embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal", default-features = false }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
-embassy-usb-driver = { version = "0.1.0", path = "../embassy-usb-driver" }
-embassy-usb-synopsys-otg = { version = "0.2.0", path = "../embassy-usb-synopsys-otg" }
-embassy-executor = { version = "0.7.0", path = "../embassy-executor", optional = true }
+embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
+embassy-usb-synopsys-otg = { version = "0.3.1", path = "../embassy-usb-synopsys-otg" }
+embassy-executor = { version = "0.9.0", path = "../embassy-executor", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
@@ -80,8 +173,8 @@ cortex-m = "0.7.6"
 futures-util = { version = "0.3.30", default-features = false }
 sdio-host = "0.9.0"
 critical-section = "1.1"
-#stm32-metapac = { version = "16" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-0069be7389d0378d826003304d72a13008f3ebce" }
+stm32-metapac = { version = "18" }
+#stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-ecb93d42a6cbcd9e09cab74873908a2ca22327f7" }
 
 vcell = "0.1.3"
 nb = "1.0.0"
@@ -109,8 +202,8 @@ proptest-state-machine = "0.3.0"
 proc-macro2 = "1.0.36"
 quote = "1.0.15"
 
-#stm32-metapac = { version = "16", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-0069be7389d0378d826003304d72a13008f3ebce", default-features = false, features = ["metadata"] }
+stm32-metapac = { version = "18", default-features = false, features = ["metadata"]}
+#stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-ecb93d42a6cbcd9e09cab74873908a2ca22327f7", default-features = false, features = ["metadata"] }
 
 [features]
 default = ["rt"]
@@ -129,6 +222,7 @@ defmt = [
     "embassy-net-driver/defmt",
     "embassy-time?/defmt",
     "embassy-usb-synopsys-otg/defmt",
+    "stm32-metapac/defmt"
 ]
 
 exti = []
@@ -237,6 +331,47 @@ stm32c031g4 = [ "stm32-metapac/stm32c031g4" ]
 stm32c031g6 = [ "stm32-metapac/stm32c031g6" ]
 stm32c031k4 = [ "stm32-metapac/stm32c031k4" ]
 stm32c031k6 = [ "stm32-metapac/stm32c031k6" ]
+stm32c051c6 = [ "stm32-metapac/stm32c051c6" ]
+stm32c051c8 = [ "stm32-metapac/stm32c051c8" ]
+stm32c051d8 = [ "stm32-metapac/stm32c051d8" ]
+stm32c051f6 = [ "stm32-metapac/stm32c051f6" ]
+stm32c051f8 = [ "stm32-metapac/stm32c051f8" ]
+stm32c051g6 = [ "stm32-metapac/stm32c051g6" ]
+stm32c051g8 = [ "stm32-metapac/stm32c051g8" ]
+stm32c051k6 = [ "stm32-metapac/stm32c051k6" ]
+stm32c051k8 = [ "stm32-metapac/stm32c051k8" ]
+stm32c071c8 = [ "stm32-metapac/stm32c071c8" ]
+stm32c071cb = [ "stm32-metapac/stm32c071cb" ]
+stm32c071f8 = [ "stm32-metapac/stm32c071f8" ]
+stm32c071fb = [ "stm32-metapac/stm32c071fb" ]
+stm32c071g8 = [ "stm32-metapac/stm32c071g8" ]
+stm32c071gb = [ "stm32-metapac/stm32c071gb" ]
+stm32c071k8 = [ "stm32-metapac/stm32c071k8" ]
+stm32c071kb = [ "stm32-metapac/stm32c071kb" ]
+stm32c071r8 = [ "stm32-metapac/stm32c071r8" ]
+stm32c071rb = [ "stm32-metapac/stm32c071rb" ]
+stm32c091cb = [ "stm32-metapac/stm32c091cb" ]
+stm32c091cc = [ "stm32-metapac/stm32c091cc" ]
+stm32c091ec = [ "stm32-metapac/stm32c091ec" ]
+stm32c091fb = [ "stm32-metapac/stm32c091fb" ]
+stm32c091fc = [ "stm32-metapac/stm32c091fc" ]
+stm32c091gb = [ "stm32-metapac/stm32c091gb" ]
+stm32c091gc = [ "stm32-metapac/stm32c091gc" ]
+stm32c091kb = [ "stm32-metapac/stm32c091kb" ]
+stm32c091kc = [ "stm32-metapac/stm32c091kc" ]
+stm32c091rb = [ "stm32-metapac/stm32c091rb" ]
+stm32c091rc = [ "stm32-metapac/stm32c091rc" ]
+stm32c092cb = [ "stm32-metapac/stm32c092cb" ]
+stm32c092cc = [ "stm32-metapac/stm32c092cc" ]
+stm32c092ec = [ "stm32-metapac/stm32c092ec" ]
+stm32c092fb = [ "stm32-metapac/stm32c092fb" ]
+stm32c092fc = [ "stm32-metapac/stm32c092fc" ]
+stm32c092gb = [ "stm32-metapac/stm32c092gb" ]
+stm32c092gc = [ "stm32-metapac/stm32c092gc" ]
+stm32c092kb = [ "stm32-metapac/stm32c092kb" ]
+stm32c092kc = [ "stm32-metapac/stm32c092kc" ]
+stm32c092rb = [ "stm32-metapac/stm32c092rb" ]
+stm32c092rc = [ "stm32-metapac/stm32c092rc" ]
 stm32f030c6 = [ "stm32-metapac/stm32f030c6" ]
 stm32f030c8 = [ "stm32-metapac/stm32f030c8" ]
 stm32f030cc = [ "stm32-metapac/stm32f030cc" ]

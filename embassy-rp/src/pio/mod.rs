@@ -98,6 +98,9 @@ pub enum StatusSource {
     TxFifoLevel = 0,
     /// All-ones if RX FIFO level < N, otherwise all-zeroes.
     RxFifoLevel = 1,
+    /// All-ones if the indexed IRQ flag is raised, otherwise all-zeroes
+    #[cfg(feature = "_rp235x")]
+    Irq = 2,
 }
 
 const RXNEMPTY_MASK: u32 = 1 << 0;
@@ -736,6 +739,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
             w.set_status_sel(match config.status_sel {
                 StatusSource::TxFifoLevel => pac::pio::vals::ExecctrlStatusSel::TXLEVEL,
                 StatusSource::RxFifoLevel => pac::pio::vals::ExecctrlStatusSel::RXLEVEL,
+                StatusSource::Irq => pac::pio::vals::ExecctrlStatusSel::IRQ,
             });
             #[cfg(feature = "rp2040")]
             w.set_status_sel(match config.status_sel {

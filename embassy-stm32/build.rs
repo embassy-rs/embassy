@@ -505,6 +505,13 @@ fn main() {
                 field: "CLK48SEL",
             },
         );
+        clock_gen.chained_muxes.insert(
+            "RFWKP",
+            &PeripheralRccRegister {
+                register: "CSR",
+                field: "RFWKPSEL",
+            },
+        );
     }
     if chip_name.starts_with("stm32f7") {
         clock_gen.chained_muxes.insert(
@@ -1490,6 +1497,10 @@ fn main() {
         signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
     }
 
+    if chip_name.starts_with("stm32wba") {
+        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma4));
+    }
+
     if chip_name.starts_with("stm32g4") {
         let line_number = chip_name.chars().skip(8).next().unwrap();
         if line_number == '3' || line_number == '4' {
@@ -1547,9 +1558,35 @@ fn main() {
                             quote!(())
                         };
 
+                        let mut remap = quote!();
+                        for remap_info in ch.remap {
+                            let register = format_ident!("{}", remap_info.register.to_lowercase());
+                            let setter = format_ident!("set_{}", remap_info.field.to_lowercase());
+
+                            let field_metadata = METADATA
+                                .peripherals
+                                .iter()
+                                .filter(|p| p.name == "SYSCFG")
+                                .flat_map(|p| p.registers.as_ref().unwrap().ir.fieldsets.iter())
+                                .filter(|f| f.name.eq_ignore_ascii_case(remap_info.register))
+                                .flat_map(|f| f.fields.iter())
+                                .find(|f| f.name.eq_ignore_ascii_case(remap_info.field))
+                                .unwrap();
+
+                            let value = if field_metadata.bit_size == 1 {
+                                let bool_value = format_ident!("{}", remap_info.value > 0);
+                                quote!(#bool_value)
+                            } else {
+                                let value = remap_info.value;
+                                quote!(#value.into())
+                            };
+
+                            remap.extend(quote!(crate::pac::SYSCFG.#register().modify(|w| w.#setter(#value));));
+                        }
+
                         let channel = format_ident!("{}", channel);
                         g.extend(quote! {
-                            dma_trait_impl!(#tr, #peri, #channel, #request);
+                            dma_trait_impl!(#tr, #peri, #channel, #request, {#remap});
                         });
                     }
                 }
@@ -1562,7 +1599,7 @@ fn main() {
     for e in rcc_registers.ir.enums {
         fn is_rcc_name(e: &str) -> bool {
             match e {
-                "Pllp" | "Pllq" | "Pllr" | "Pllm" | "Plln" | "Prediv1" | "Prediv2" => true,
+                "Pllp" | "Pllq" | "Pllr" | "Plldivst" | "Pllm" | "Plln" | "Prediv1" | "Prediv2" | "Hpre5" => true,
                 "Timpre" | "Pllrclkpre" => false,
                 e if e.ends_with("pre") || e.ends_with("pres") || e.ends_with("div") || e.ends_with("mul") => true,
                 _ => false,
@@ -1881,9 +1918,9 @@ fn main() {
     }
 
     g.extend(quote!(
-        pub fn gpio_block(n: usize) -> crate::pac::gpio::Gpio {{
-            unsafe {{ crate::pac::gpio::Gpio::from_ptr((#gpio_base + #gpio_stride*n) as _) }}
-        }}
+        pub fn gpio_block(n: usize) -> crate::pac::gpio::Gpio {
+            unsafe { crate::pac::gpio::Gpio::from_ptr((#gpio_base + #gpio_stride*n) as _) }
+        }
     ));
 
     // ========

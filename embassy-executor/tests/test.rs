@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::task::Poll;
 
 use embassy_executor::raw::Executor;
-use embassy_executor::task;
+use embassy_executor::{task, Spawner};
 
 #[export_name = "__pender"]
 fn __pender(context: *mut ()) {
@@ -315,5 +315,14 @@ fn executor_task_cfg_args() {
     #[task]
     async fn task2(a: u32, b: u32, #[cfg(all())] c: u32) {
         let (_, _, _) = (a, b, c);
+    }
+}
+
+#[test]
+fn recursive_task() {
+    #[embassy_executor::task(pool_size = 2)]
+    async fn task1() {
+        let spawner = unsafe { Spawner::for_current_executor().await };
+        spawner.spawn(task1());
     }
 }

@@ -1,6 +1,6 @@
 [package]
 name = "embassy-executor"
-version = "0.7.0"
+version = "0.9.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "async/await executor designed for embedded usage"
@@ -11,6 +11,26 @@ categories = [
     "no-std",
     "asynchronous",
 ]
+
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabi", features = []},
+    {target = "thumbv7em-none-eabi", features = ["log"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt"]},
+    {target = "thumbv6m-none-eabi", features = ["arch-cortex-m", "defmt", "executor-interrupt", "executor-thread"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "rtos-trace"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-thread"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread"]},
+    {target = "armv7a-none-eabi", features = ["arch-cortex-ar", "executor-thread"]},
+    {target = "armv7r-none-eabi", features = ["arch-cortex-ar", "executor-thread"]},
+    {target = "armv7r-none-eabihf", features = ["arch-cortex-ar", "executor-thread"]},
+    {target = "riscv32imac-unknown-none-elf", features = ["arch-riscv32"]},
+    {target = "riscv32imac-unknown-none-elf", features = ["arch-riscv32", "executor-thread"]},
+]
+
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-executor-v$VERSION/embassy-executor/src/"
@@ -33,8 +53,9 @@ defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 rtos-trace = { version = "0.1.3", optional = true }
 
-embassy-executor-macros = { version = "0.6.2", path = "../embassy-executor-macros" }
-embassy-time-driver = { version = "0.2", path = "../embassy-time-driver", optional = true }
+embassy-executor-macros = { version = "0.7.0", path = "../embassy-executor-macros" }
+embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver", optional = true }
+embassy-executor-timer-queue = { version = "0.1", path = "../embassy-executor-timer-queue" }
 critical-section = "1.1"
 
 document-features = "0.2.7"
@@ -98,19 +119,3 @@ executor-interrupt = []
 trace = []
 ## Enable support for rtos-trace framework
 rtos-trace = ["dep:rtos-trace", "trace", "dep:embassy-time-driver"]
-
-#! ### Timer Item Payload Size
-#! Sets the size of the payload for timer items, allowing integrated timer implementors to store
-#! additional data in the timer item. The payload field will be aligned to this value as well.
-#! If these features are not defined, the timer item will contain no payload field.
-
-_timer-item-payload = [] # A size was picked
-
-## 1 bytes
-timer-item-payload-size-1 = ["_timer-item-payload"]
-## 2 bytes
-timer-item-payload-size-2 = ["_timer-item-payload"]
-## 4 bytes
-timer-item-payload-size-4 = ["_timer-item-payload"]
-## 8 bytes
-timer-item-payload-size-8 = ["_timer-item-payload"]

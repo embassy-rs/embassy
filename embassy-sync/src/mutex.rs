@@ -16,6 +16,7 @@ use crate::waitqueue::WakerRegistration;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TryLockError;
 
+#[derive(Debug)]
 struct State {
     locked: bool,
     waker: WakerRegistration,
@@ -23,7 +24,7 @@ struct State {
 
 /// Async mutex.
 ///
-/// The mutex is generic over a blocking [`RawMutex`](crate::blocking_mutex::raw::RawMutex).
+/// The mutex is generic over a blocking [`RawMutex`].
 /// The raw mutex is used to guard access to the internal "is locked" flag. It
 /// is held for very short periods only, while locking and unlocking. It is *not* held
 /// for the entire time the async Mutex is locked.

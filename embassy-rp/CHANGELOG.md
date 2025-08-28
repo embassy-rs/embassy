@@ -5,7 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+<!-- next-header -->
+## Unreleased - ReleaseDate
+
+## 0.8.0 - 2025-08-26
+
+## 0.7.1 - 2025-08-26
+- add `i2c` internal pullup options ([#4564](https://github.com/embassy-rs/embassy/pull/4564))
+
+## 0.7.0 - 2025-08-04
+
+- changed: update to latest embassy-time-queue-utils
+
+## 0.6.0 - 2025-07-16
+
+- update to latest embassy-usb-driver
+
+## 0.5.0 - 2025-07-15
+
+- Fix wrong `funcsel` on RP2350 gpout/gpin ([#3975](https://github.com/embassy-rs/embassy/pull/3975))
+- Fix potential race condition in `ADC::wait_for_ready` ([#4012](https://github.com/embassy-rs/embassy/pull/4012))
+- `flash`: rename `BOOTROM_BASE` to `BOOTRAM_BASE` ([#4014](https://github.com/embassy-rs/embassy/pull/4014))
+- Remove `Peripheral` trait & rename `PeripheralRef` to `Peri` ([#3999](https://github.com/embassy-rs/embassy/pull/3999))
+- Fix watchdog count on RP235x ([#4021](https://github.com/embassy-rs/embassy/pull/4021))
+- I2C: ensure that wakers are registered before checking status of `wait_on` helpers ([#4043](https://github.com/embassy-rs/embassy/pull/4043))
+- Modify `Uarte` and `BufferedUarte` initialization to take pins before interrupts ([#3983](https://github.com/embassy-rs/embassy/pull/3983))
+- `uart`: increase RX FIFO watermark from 1/8 to 7/8 ([#4055](https://github.com/embassy-rs/embassy/pull/4055))
+- Add `spinlock_mutex` ([#4017](https://github.com/embassy-rs/embassy/pull/4017))
+- Enable input mode for PWM pins on RP235x and disable it on drop ([#4093](https://github.com/embassy-rs/embassy/pull/4093))
+- Add `impl rand_core::CryptoRng for Trng` ([#4096](https://github.com/embassy-rs/embassy/pull/4096))
+- `pwm`: enable pull-down resistors for pins in `Drop` implementation ([#4115](https://github.com/embassy-rs/embassy/pull/4115))
+- Rewrite PIO onewire implementation ([#4128](https://github.com/embassy-rs/embassy/pull/4128))
+- Implement RP2040 overclocking ([#4150](https://github.com/embassy-rs/embassy/pull/4150))
+- Implement RP235x overclocking ([#4187](https://github.com/embassy-rs/embassy/pull/4187))
+- `trng`: improve error handling ([#4139](https://github.com/embassy-rs/embassy/pull/4139))
+- Remove `<T: Instance>` from `Uart` and `BufferedUart` ([#4155](https://github.com/embassy-rs/embassy/pull/4155))
+- Make bit-depth of I2S PIO program configurable ([#4193](https://github.com/embassy-rs/embassy/pull/4193))
+- Add the possibility to document `bind_interrupts` `struct`s ([#4206](https://github.com/embassy-rs/embassy/pull/4206))
+- Add missing `Debug` and `defmt::Format` `derive`s for ADC & `AnyPin` ([#4205](https://github.com/embassy-rs/embassy/pull/4205))
+- Add `rand-core` v0.9 support ([#4217](https://github.com/embassy-rs/embassy/pull/4217))
+- Update `embassy-sync` to v0.7.0 ([#4234](https://github.com/embassy-rs/embassy/pull/4234))
+- Add compatibility with ws2812 leds that have 4 addressable lights ([#4236](https://github.com/embassy-rs/embassy/pull/4236))
+- Implement input/output inversion ([#4237](https://github.com/embassy-rs/embassy/pull/4237))
+- Add `multicore::current_core` API ([#4362](https://github.com/embassy-rs/embassy/pull/4362))
 
 ## 0.4.0 - 2025-03-09
 

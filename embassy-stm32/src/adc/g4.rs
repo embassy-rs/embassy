@@ -24,44 +24,31 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(60);
 #[cfg(stm32h7)]
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(50);
 
-#[cfg(stm32g4)]
-const VREF_CHANNEL: u8 = 18;
-#[cfg(stm32g4)]
-const TEMP_CHANNEL: u8 = 16;
-
-#[cfg(stm32h7)]
-const VREF_CHANNEL: u8 = 19;
-#[cfg(stm32h7)]
-const TEMP_CHANNEL: u8 = 18;
-
-// TODO this should be 14 for H7a/b/35
-const VBAT_CHANNEL: u8 = 17;
-
 // NOTE: Vrefint/Temperature/Vbat are not available on all ADCs, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
 /// Internal voltage reference channel.
 pub struct VrefInt;
-impl<T: Instance> AdcChannel<T> for VrefInt {}
-impl<T: Instance> super::SealedAdcChannel<T> for VrefInt {
+impl<T: Instance + VrefChannel> AdcChannel<T> for VrefInt {}
+impl<T: Instance + VrefChannel> super::SealedAdcChannel<T> for VrefInt {
     fn channel(&self) -> u8 {
-        VREF_CHANNEL
+        T::CHANNEL
     }
 }
 
 /// Internal temperature channel.
 pub struct Temperature;
-impl<T: Instance> AdcChannel<T> for Temperature {}
-impl<T: Instance> super::SealedAdcChannel<T> for Temperature {
+impl<T: Instance + TemperatureChannel> AdcChannel<T> for Temperature {}
+impl<T: Instance + TemperatureChannel> super::SealedAdcChannel<T> for Temperature {
     fn channel(&self) -> u8 {
-        TEMP_CHANNEL
+        T::CHANNEL
     }
 }
 
 /// Internal battery voltage channel.
 pub struct Vbat;
-impl<T: Instance> AdcChannel<T> for Vbat {}
-impl<T: Instance> super::SealedAdcChannel<T> for Vbat {
+impl<T: Instance + VBatChannel> AdcChannel<T> for Vbat {}
+impl<T: Instance + VBatChannel> super::SealedAdcChannel<T> for Vbat {
     fn channel(&self) -> u8 {
-        VBAT_CHANNEL
+        T::CHANNEL
     }
 }
 
@@ -234,7 +221,10 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     /// Enable reading the voltage reference internal channel.
-    pub fn enable_vrefint(&self) -> VrefInt {
+    pub fn enable_vrefint(&self) -> VrefInt
+    where
+        T: VrefChannel,
+    {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vrefen(true);
         });
@@ -243,7 +233,10 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     /// Enable reading the temperature internal channel.
-    pub fn enable_temperature(&self) -> Temperature {
+    pub fn enable_temperature(&self) -> Temperature
+    where
+        T: TemperatureChannel,
+    {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vsenseen(true);
         });
@@ -252,7 +245,10 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     /// Enable reading the vbat internal channel.
-    pub fn enable_vbat(&self) -> Vbat {
+    pub fn enable_vbat(&self) -> Vbat
+    where
+        T: VBatChannel,
+    {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vbaten(true);
         });
@@ -517,5 +513,80 @@ impl<'d, T: Instance> Adc<'d, T> {
             });
             while T::regs().cr().read().adstart() {}
         }
+    }
+}
+
+/// Implemented for ADCs that have a Temperature channel
+pub trait TemperatureChannel {
+    const CHANNEL: u8;
+}
+/// Implemented for ADCs that have a Vref channel
+pub trait VrefChannel {
+    const CHANNEL: u8;
+}
+/// Implemented for ADCs that have a VBat channel
+pub trait VBatChannel {
+    const CHANNEL: u8;
+}
+
+#[cfg(stm32g4)]
+mod g4 {
+    pub use super::*;
+
+    impl TemperatureChannel for crate::peripherals::ADC1 {
+        const CHANNEL: u8 = 16;
+    }
+
+    impl VrefChannel for crate::peripherals::ADC1 {
+        const CHANNEL: u8 = 18;
+    }
+
+    impl VBatChannel for crate::peripherals::ADC1 {
+        const CHANNEL: u8 = 17;
+    }
+
+    #[cfg(peri_adc3_common)]
+    impl VrefChannel for crate::peripherals::ADC3 {
+        const CHANNEL: u8 = 18;
+    }
+
+    #[cfg(peri_adc3_common)]
+    impl VBatChannel for crate::peripherals::ADC3 {
+        const CHANNEL: u8 = 17;
+    }
+
+    #[cfg(not(stm32g4x1))]
+    impl VrefChannel for crate::peripherals::ADC4 {
+        const CHANNEL: u8 = 18;
+    }
+
+    #[cfg(not(stm32g4x1))]
+    impl TemperatureChannel for crate::peripherals::ADC5 {
+        const CHANNEL: u8 = 4;
+    }
+
+    #[cfg(not(stm32g4x1))]
+    impl VrefChannel for crate::peripherals::ADC5 {
+        const CHANNEL: u8 = 18;
+    }
+
+    #[cfg(not(stm32g4x1))]
+    impl VBatChannel for crate::peripherals::ADC5 {
+        const CHANNEL: u8 = 17;
+    }
+}
+
+// TODO this should look at each ADC individually and impl the correct channels
+#[cfg(stm32h7)]
+mod h7 {
+    impl<T: Instance> TemperatureChannel for T {
+        const CHANNEL: u8 = 18;
+    }
+    impl<T: Instance> VrefChannel for T {
+        const CHANNEL: u8 = 19;
+    }
+    impl<T: Instance> VBatChannel for T {
+        // TODO this should be 14 for H7a/b/35
+        const CHANNEL: u8 = 17;
     }
 }

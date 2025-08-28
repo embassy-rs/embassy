@@ -34,6 +34,8 @@ teleprobe_meta::target!(b"nucleo-stm32u5a5zj");
 teleprobe_meta::target!(b"nucleo-stm32h563zi");
 #[cfg(feature = "stm32c031c6")]
 teleprobe_meta::target!(b"nucleo-stm32c031c6");
+#[cfg(feature = "stm32c071rb")]
+teleprobe_meta::target!(b"nucleo-stm32c071rb");
 #[cfg(feature = "stm32l073rz")]
 teleprobe_meta::target!(b"nucleo-stm32l073rz");
 #[cfg(feature = "stm32l152re")]
@@ -186,6 +188,12 @@ define_peris!(
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
     @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
 );
+#[cfg(feature = "stm32c071rb")]
+define_peris!(
+    UART = USART1, UART_TX = PB6, UART_RX = PB7, UART_TX_DMA = DMA1_CH1, UART_RX_DMA = DMA1_CH2,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
+    @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
+);
 #[cfg(feature = "stm32l496zg")]
 define_peris!(
     UART = USART3, UART_TX = PD8, UART_RX = PD9, UART_TX_DMA = DMA1_CH2, UART_RX_DMA = DMA1_CH3,
@@ -271,7 +279,7 @@ pub fn config() -> Config {
     #[allow(unused_mut)]
     let mut config = Config::default();
 
-    #[cfg(feature = "stm32c031c6")]
+    #[cfg(any(feature = "stm32c031c6", feature = "stm32c071rb"))]
     {
         config.rcc.hsi = Some(Hsi {
             sys_div: HsiSysDiv::DIV1, // 48Mhz
@@ -673,6 +681,8 @@ pub fn config() -> Config {
             divp: Some(PllDiv::DIV2),  // 600Mhz
             divq: Some(PllDiv::DIV25), // 48Mhz
             divr: None,
+            divs: None,
+            divt: None,
         });
         config.rcc.sys = Sysclk::PLL1_P; // 600 Mhz
         config.rcc.ahb_pre = AHBPrescaler::DIV2; // 300 Mhz

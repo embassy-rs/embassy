@@ -189,11 +189,13 @@ macro_rules! bind_interrupts {
             #[no_mangle]
             $(#[cfg($cond_irq)])?
             unsafe extern "C" fn $irq() {
-                $(
-                    $(#[cfg($cond_handler)])?
-                    <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
+                unsafe {
+                    $(
+                        $(#[cfg($cond_handler)])?
+                        <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
 
-                )*
+                    )*
+                }
             }
 
             $(#[cfg($cond_irq)])?
@@ -567,7 +569,7 @@ unsafe fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
     unsafe {
         core.MPU.ctrl.write(5); // enable mpu with background default map
         core.MPU.rbar.write(stack_bottom as u32 & !0xff); // set address
-        core.MPU.rlar.write(1); // enable region
+        core.MPU.rlar.write(((stack_bottom as usize + 255) as u32) | 1);
     }
     Ok(())
 }

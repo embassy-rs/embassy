@@ -99,13 +99,19 @@ impl<'d, T: Instance> Rng<'d, T> {
         });
         // wait for CONDRST to be set
         while !T::regs().cr().read().condrst() {}
-        // magic number must be written immediately before every read or write access to HTCR
-        T::regs().htcr().write(|w| w.set_htcfg(pac::rng::vals::Htcfg::MAGIC));
-        // write recommended value according to reference manual
-        // note: HTCR can only be written during conditioning
-        T::regs()
-            .htcr()
-            .write(|w| w.set_htcfg(pac::rng::vals::Htcfg::RECOMMENDED));
+
+        // TODO for WBA6, the HTCR reg is different
+        #[cfg(not(rng_wba6))]
+        {
+            // magic number must be written immediately before every read or write access to HTCR
+            T::regs().htcr().write(|w| w.set_htcfg(pac::rng::vals::Htcfg::MAGIC));
+            // write recommended value according to reference manual
+            // note: HTCR can only be written during conditioning
+            T::regs()
+                .htcr()
+                .write(|w| w.set_htcfg(pac::rng::vals::Htcfg::RECOMMENDED));
+        }
+
         // finish conditioning
         T::regs().cr().modify(|reg| {
             reg.set_rngen(true);

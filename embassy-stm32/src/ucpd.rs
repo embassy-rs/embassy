@@ -193,6 +193,18 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             });
         }
 
+        // Software trim according to RM0456, p. 3480/3462
+        #[cfg(stm32u5)]
+        {
+            let trim_rd_cc1 = unsafe { *(0x0BFA_0544 as *const u8) & 0xF };
+            let trim_rd_cc2 = unsafe { *(0x0BFA_0546 as *const u8) & 0xF };
+
+            r.cfgr3().write(|w| {
+                w.set_trim_cc1_rd(trim_rd_cc1);
+                w.set_trim_cc2_rd(trim_rd_cc2);
+            });
+        }
+
         Self {
             cc_phy: CcPhy { _lifetime: PhantomData },
         }
@@ -311,6 +323,25 @@ impl<'d, T: Instance> CcPhy<'d, T> {
 
                 w.set_trim_cc1_rp(trim_3a0_cc1 as u8);
                 w.set_trim_cc2_rp(trim_3a0_cc2 as u8);
+            }
+        });
+
+        // Software trim according to RM0456, p. 3480/3462
+        #[cfg(stm32u5)]
+        T::REGS.cfgr3().modify(|w| match cc_pull {
+            CcPull::Source1_5A => {
+                let trim_1a5_cc1 = unsafe { *(0x0BFA_07A7 as *const u8) & 0xF };
+                let trim_1a5_cc2 = unsafe { *(0x0BFA_07A8 as *const u8) & 0xF };
+
+                w.set_trim_cc1_rp(trim_1a5_cc1);
+                w.set_trim_cc2_rp(trim_1a5_cc2);
+            }
+            _ => {
+                let trim_3a0_cc1 = unsafe { *(0x0BFA_0545 as *const u8) & 0xF };
+                let trim_3a0_cc2 = unsafe { *(0x0BFA_0547 as *const u8) & 0xF };
+
+                w.set_trim_cc1_rp(trim_3a0_cc1);
+                w.set_trim_cc2_rp(trim_3a0_cc2);
             }
         });
 

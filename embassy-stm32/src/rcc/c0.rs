@@ -190,6 +190,8 @@ pub(crate) unsafe fn init(config: Config) {
         // TODO
         lsi: None,
         lse: None,
+        #[cfg(crs)]
+        hsi48: None,
     );
 
     RCC.ccipr()

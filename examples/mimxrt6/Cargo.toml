@@ -3,6 +3,7 @@ name = "embassy-imxrt-examples"
 version = "0.1.0"
 edition = "2021"
 license = "MIT or Apache-2.0"
+publish = false
 
 [dependencies]
 cortex-m = { version = "0.7.7", features = ["inline-asm", "critical-section-single-core"] }
@@ -10,11 +11,11 @@ cortex-m-rt = "0.7.3"
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 
-embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
-embassy-futures = { version = "0.1.1", path = "../../embassy-futures" }
+embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
 embassy-imxrt = { version = "0.1.0", path = "../../embassy-imxrt", features = ["defmt", "mimxrt685s", "unstable-pac", "time", "time-driver-os-timer"] }
-embassy-time = { version = "0.4", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = ["defmt"] }
+embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = ["defmt"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = "1.0.0"
 
@@ -58,3 +59,8 @@ incremental = false
 lto = 'fat'
 opt-level = 3 # <-
 overflow-checks = false # <-
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/mimxrt6" }
+]

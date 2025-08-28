@@ -15,7 +15,7 @@ fn common_init<T: Instance>() {
     let freq = T::frequency();
 
     // On the H7RS, the USBPHYC embeds a PLL accepting one of the input frequencies listed below and providing 48MHz to OTG_FS and 60MHz to OTG_HS internally
-    #[cfg(any(stm32h7rs, all(stm32u5, peri_usb_otg_hs)))]
+    #[cfg(any(stm32h7rs, all(stm32u5, peri_usb_otg_hs), all(stm32wba, peri_usb_otg_hs)))]
     if ![16_000_000, 19_200_000, 20_000_000, 24_000_000, 26_000_000, 32_000_000].contains(&freq.0) {
         panic!(
             "USB clock should be one of 16, 19.2, 20, 24, 26, 32Mhz but is {} Hz. Please double-check your RCC settings.",
@@ -25,7 +25,7 @@ fn common_init<T: Instance>() {
     // Check frequency is within the 0.25% tolerance allowed by the spec.
     // Clock might not be exact 48Mhz due to rounding errors in PLL calculation, or if the user
     // has tight clock restrictions due to something else (like audio).
-    #[cfg(not(any(stm32h7rs, all(stm32u5, peri_usb_otg_hs))))]
+    #[cfg(not(any(stm32h7rs, all(stm32u5, peri_usb_otg_hs), all(stm32wba, peri_usb_otg_hs))))]
     if freq.0.abs_diff(48_000_000) > 120_000 {
         panic!(
             "USB clock should be 48Mhz but is {} Hz. Please double-check your RCC settings.",
@@ -96,6 +96,32 @@ fn common_init<T: Instance>() {
         {
             crate::pac::PWR.vosr().modify(|w| {
                 w.set_usbpwren(true);
+                w.set_usbboosten(true);
+            });
+            while !crate::pac::PWR.vosr().read().usbboostrdy() {}
+        }
+    }
+
+    #[cfg(stm32wba)]
+    {
+        // Enable USB power
+        critical_section::with(|_| {
+            crate::pac::PWR.svmcr().modify(|w| {
+                w.set_usv(crate::pac::pwr::vals::Usv::B_0X1);
+            });
+            crate::pac::PWR.vosr().modify(|w| {
+                w.set_vdd11usbdis(false);
+                w.set_usbpwren(true);
+            });
+        });
+
+        // Wait for USB power to stabilize
+        while !crate::pac::PWR.vosr().read().vdd11usbrdy() {}
+
+        // Now set up transceiver power if it's a OTG-HS
+        #[cfg(peri_usb_otg_hs)]
+        {
+            crate::pac::PWR.vosr().modify(|w| {
                 w.set_usbboosten(true);
             });
             while !crate::pac::PWR.vosr().read().usbboostrdy() {}

@@ -32,25 +32,48 @@ pub struct InterruptHandler<T: Instance> {
 }
 
 impl<T: Instance> InterruptHandler<T> {
-    fn data_interrupts(enable: bool) {
+    fn enable_interrupts() {
         let regs = T::regs();
         regs.maskr().write(|w| {
-            w.set_dcrcfailie(enable);
-            w.set_dtimeoutie(enable);
-            w.set_dataendie(enable);
+            w.set_dcrcfailie(true);
+            w.set_dtimeoutie(true);
+            w.set_dataendie(true);
+            w.set_dbckendie(true);
 
             #[cfg(sdmmc_v1)]
-            w.set_stbiterre(enable);
+            w.set_stbiterre(true);
             #[cfg(sdmmc_v2)]
-            w.set_dabortie(enable);
+            w.set_dabortie(true);
         });
     }
 }
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        Self::data_interrupts(false);
         T::state().wake();
+        let status = T::regs().star().read();
+        T::regs().maskr().modify(|w| {
+            if status.dcrcfail() {
+                w.set_dcrcfailie(false)
+            }
+            if status.dtimeout() {
+                w.set_dtimeoutie(false)
+            }
+            if status.dataend() {
+                w.set_dataendie(false)
+            }
+            if status.dbckend() {
+                w.set_dbckendie(false)
+            }
+            #[cfg(sdmmc_v1)]
+            if status.stbiterr() {
+                w.set_stbiterre(false)
+            }
+            #[cfg(sdmmc_v2)]
+            if status.dabort() {
+                w.set_dabortie(false)
+            }
+        });
     }
 }
 
@@ -225,8 +248,7 @@ fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(bool, u8, Hertz), Error> {
         return Ok((true, 0, ker_ck));
     }
 
-    // `ker_ck / sdmmc_ck` rounded up
-    let clk_div = match (ker_ck.0 + sdmmc_ck - 1) / sdmmc_ck {
+    let clk_div = match ker_ck.0.div_ceil(sdmmc_ck) {
         0 | 1 => Ok(0),
         x @ 2..=258 => Ok((x - 2) as u8),
         _ => Err(Error::BadClock),
@@ -244,12 +266,11 @@ fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(bool, u8, Hertz), Error> {
 /// `clk_div` is the divisor register value and `clk_f` is the resulting new clock frequency.
 #[cfg(sdmmc_v2)]
 fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(bool, u16, Hertz), Error> {
-    // `ker_ck / sdmmc_ck` rounded up
-    match (ker_ck.0 + sdmmc_ck - 1) / sdmmc_ck {
+    match ker_ck.0.div_ceil(sdmmc_ck) {
         0 | 1 => Ok((false, 0, ker_ck)),
         x @ 2..=2046 => {
             // SDMMC_CK frequency = SDMMCCLK / [CLKDIV * 2]
-            let clk_div = ((x + 1) / 2) as u16;
+            let clk_div = x.div_ceil(2) as u16;
             let clk = Hertz(ker_ck.0 / (clk_div as u32 * 2));
 
             Ok((false, clk_div, clk))
@@ -1004,14 +1025,14 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
             // Wait for the abort
             while Self::data_active() {}
         }
-        InterruptHandler::<T>::data_interrupts(false);
+        regs.maskr().write(|_| ()); // disable irqs
         Self::clear_interrupt_flags();
         Self::stop_datapath();
     }
 
     /// Wait for a previously started datapath transfer to complete from an interrupt.
     #[inline]
-    async fn complete_datapath_transfer() -> Result<(), Error> {
+    async fn complete_datapath_transfer(block: bool) -> Result<(), Error> {
         let regs = T::regs();
 
         let res = poll_fn(|cx| {
@@ -1031,7 +1052,11 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
             if status.stbiterr() {
                 return Poll::Ready(Err(Error::StBitErr));
             }
-            if status.dataend() {
+            let done = match block {
+                true => status.dbckend(),
+                false => status.dataend(),
+            };
+            if done {
                 return Poll::Ready(Ok(()));
             }
             Poll::Pending
@@ -1069,10 +1094,10 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
             512,
             9,
         );
-        InterruptHandler::<T>::data_interrupts(true);
+        InterruptHandler::<T>::enable_interrupts();
         Self::cmd(common_cmd::read_single_block(address), true)?;
 
-        let res = Self::complete_datapath_transfer().await;
+        let res = Self::complete_datapath_transfer(true).await;
 
         if res.is_ok() {
             on_drop.defuse();
@@ -1102,7 +1127,6 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
         };
         Self::cmd(common_cmd::set_block_length(512), false)?; // CMD16
 
-        let regs = T::regs();
         let on_drop = OnDrop::new(|| Self::on_drop());
 
         let transfer = Self::prepare_datapath_read(
@@ -1113,30 +1137,11 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
             512 * blocks.len() as u32,
             9,
         );
-        InterruptHandler::<T>::data_interrupts(true);
+        InterruptHandler::<T>::enable_interrupts();
 
         Self::cmd(common_cmd::read_multiple_blocks(address), true)?;
 
-        let res = poll_fn(|cx| {
-            T::state().register(cx.waker());
-            let status = regs.star().read();
-
-            if status.dcrcfail() {
-                return Poll::Ready(Err(Error::Crc));
-            }
-            if status.dtimeout() {
-                return Poll::Ready(Err(Error::Timeout));
-            }
-            #[cfg(sdmmc_v1)]
-            if status.stbiterr() {
-                return Poll::Ready(Err(Error::StBitErr));
-            }
-            if status.dataend() {
-                return Poll::Ready(Ok(()));
-            }
-            Poll::Pending
-        })
-        .await;
+        let res = Self::complete_datapath_transfer(false).await;
 
         Self::cmd(common_cmd::stop_transmission(), false)?; // CMD12
         Self::clear_interrupt_flags();
@@ -1171,12 +1176,12 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
         Self::cmd(common_cmd::write_single_block(address), true)?;
 
         let transfer = self.prepare_datapath_write(buffer, 512, 9);
-        InterruptHandler::<T>::data_interrupts(true);
+        InterruptHandler::<T>::enable_interrupts();
 
         #[cfg(sdmmc_v2)]
         Self::cmd(common_cmd::write_single_block(address), true)?;
 
-        let res = Self::complete_datapath_transfer().await;
+        let res = Self::complete_datapath_transfer(true).await;
 
         match res {
             Ok(_) => {
@@ -1227,7 +1232,6 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
 
         let block_count = blocks.len();
 
-        let regs = T::regs();
         let on_drop = OnDrop::new(|| Self::on_drop());
 
         #[cfg(sdmmc_v1)]
@@ -1235,36 +1239,12 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
 
         // Setup write command
         let transfer = self.prepare_datapath_write(buffer, 512 * block_count as u32, 9);
-        InterruptHandler::<T>::data_interrupts(true);
+        InterruptHandler::<T>::enable_interrupts();
 
         #[cfg(sdmmc_v2)]
         Self::cmd(common_cmd::write_multiple_blocks(address), true)?; // CMD25
 
-        let res = poll_fn(|cx| {
-            T::state().register(cx.waker());
-
-            let status = regs.star().read();
-
-            if status.dcrcfail() {
-                return Poll::Ready(Err(Error::Crc));
-            }
-            if status.dtimeout() {
-                return Poll::Ready(Err(Error::Timeout));
-            }
-            if status.txunderr() {
-                return Poll::Ready(Err(Error::Underrun));
-            }
-            #[cfg(sdmmc_v1)]
-            if status.stbiterr() {
-                return Poll::Ready(Err(Error::StBitErr));
-            }
-            if status.dataend() {
-                return Poll::Ready(Ok(()));
-            }
-
-            Poll::Pending
-        })
-        .await;
+        let res = Self::complete_datapath_transfer(false).await;
 
         Self::cmd(common_cmd::stop_transmission(), false)?; // CMD12
         Self::clear_interrupt_flags();
@@ -1599,10 +1579,10 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
             64,
             6,
         );
-        InterruptHandler::<T>::data_interrupts(true);
+        InterruptHandler::<T>::enable_interrupts();
         Self::cmd(sd_cmd::cmd6(set_function), true)?; // CMD6
 
-        let res = Self::complete_datapath_transfer().await;
+        let res = Self::complete_datapath_transfer(true).await;
 
         // Host is allowed to use the new functions at least 8
         // clocks after the end of the switch command
@@ -1659,10 +1639,10 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
             8,
             3,
         );
-        InterruptHandler::<T>::data_interrupts(true);
+        InterruptHandler::<T>::enable_interrupts();
         Self::cmd(sd_cmd::send_scr(), true)?;
 
-        let res = Self::complete_datapath_transfer().await;
+        let res = Self::complete_datapath_transfer(true).await;
 
         if res.is_ok() {
             on_drop.defuse();
@@ -1705,10 +1685,10 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
             64,
             6,
         );
-        InterruptHandler::<T>::data_interrupts(true);
+        InterruptHandler::<T>::enable_interrupts();
         Self::cmd(sd_cmd::sd_status(), true)?;
 
-        let res = Self::complete_datapath_transfer().await;
+        let res = Self::complete_datapath_transfer(true).await;
 
         if res.is_ok() {
             on_drop.defuse();
@@ -1755,10 +1735,10 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
             512,
             9,
         );
-        InterruptHandler::<T>::data_interrupts(true);
+        InterruptHandler::<T>::enable_interrupts();
         Self::cmd(emmc_cmd::send_ext_csd(), true)?;
 
-        let res = Self::complete_datapath_transfer().await;
+        let res = Self::complete_datapath_transfer(true).await;
 
         if res.is_ok() {
             on_drop.defuse();

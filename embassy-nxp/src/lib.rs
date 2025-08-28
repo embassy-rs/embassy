@@ -1,11 +1,31 @@
 #![no_std]
 
-pub mod gpio;
-mod pac_utils;
-pub mod pint;
+// This mod MUST go first, so that the others see its macros.
+pub(crate) mod fmt;
 
-pub use embassy_hal_internal::Peri;
-pub use lpc55_pac as pac;
+pub mod gpio;
+#[cfg(feature = "lpc55")]
+pub mod pint;
+#[cfg(feature = "lpc55")]
+pub mod usart;
+
+#[cfg(feature = "_time_driver")]
+#[cfg_attr(feature = "time-driver-pit", path = "time_driver/pit.rs")]
+#[cfg_attr(feature = "time-driver-rtc", path = "time_driver/rtc.rs")]
+mod time_driver;
+
+// This mod MUST go last, so that it sees all the `impl_foo!` macros
+#[cfg_attr(feature = "lpc55", path = "chips/lpc55.rs")]
+#[cfg_attr(feature = "mimxrt1011", path = "chips/mimxrt1011.rs")]
+#[cfg_attr(feature = "mimxrt1062", path = "chips/mimxrt1062.rs")]
+mod chip;
+
+#[cfg(feature = "unstable-pac")]
+pub use chip::pac;
+#[cfg(not(feature = "unstable-pac"))]
+pub(crate) use chip::pac;
+pub use chip::{peripherals, Peripherals};
+pub use embassy_hal_internal::{Peri, PeripheralType};
 
 /// Initialize the `embassy-nxp` HAL with the provided configuration.
 ///
@@ -13,79 +33,66 @@ pub use lpc55_pac as pac;
 ///
 /// This should only be called once and at startup, otherwise it panics.
 pub fn init(_config: config::Config) -> Peripherals {
+    // Do this first, so that it panics if user is calling `init` a second time
+    // before doing anything important.
+    let peripherals = Peripherals::take();
+
+    #[cfg(feature = "mimxrt1011")]
+    {
+        // The RT1010 Reference manual states that core clock root must be switched before
+        // reprogramming PLL2.
+        pac::CCM.cbcdr().modify(|w| {
+            w.set_periph_clk_sel(pac::ccm::vals::PeriphClkSel::PERIPH_CLK_SEL_1);
+        });
+
+        while matches!(
+            pac::CCM.cdhipr().read().periph_clk_sel_busy(),
+            pac::ccm::vals::PeriphClkSelBusy::PERIPH_CLK_SEL_BUSY_1
+        ) {}
+
+        info!("Core clock root switched");
+
+        // 480 * 18 / 24 = 360
+        pac::CCM_ANALOG.pfd_480().modify(|x| x.set_pfd2_frac(12));
+
+        //480*18/24(pfd0)/4
+        pac::CCM_ANALOG.pfd_480().modify(|x| x.set_pfd0_frac(24));
+        pac::CCM.cscmr1().modify(|x| x.set_flexspi_podf(3.into()));
+
+        // CPU Core
+        pac::CCM_ANALOG.pfd_528().modify(|x| x.set_pfd3_frac(18));
+        cortex_m::asm::delay(500_000);
+
+        // Clock core clock with PLL 2.
+        pac::CCM
+            .cbcdr()
+            .modify(|x| x.set_periph_clk_sel(pac::ccm::vals::PeriphClkSel::PERIPH_CLK_SEL_0)); // false
+
+        while matches!(
+            pac::CCM.cdhipr().read().periph_clk_sel_busy(),
+            pac::ccm::vals::PeriphClkSelBusy::PERIPH_CLK_SEL_BUSY_1
+        ) {}
+
+        pac::CCM
+            .cbcmr()
+            .write(|v| v.set_pre_periph_clk_sel(pac::ccm::vals::PrePeriphClkSel::PRE_PERIPH_CLK_SEL_0));
+
+        // TODO: Some for USB PLLs
+
+        // DCDC clock?
+        pac::CCM.ccgr6().modify(|v| v.set_cg0(1));
+    }
+
+    #[cfg(any(feature = "lpc55", rt1xxx))]
     gpio::init();
+
+    #[cfg(feature = "lpc55")]
     pint::init();
 
-    crate::Peripherals::take()
-}
+    #[cfg(feature = "_time_driver")]
+    time_driver::init();
 
-embassy_hal_internal::peripherals! {
-    // External pins. These are not only GPIOs, they are multi-purpose pins and can be used by other
-    // peripheral types (e.g. I2C).
-    PIO0_0,
-    PIO0_1,
-    PIO0_2,
-    PIO0_3,
-    PIO0_4,
-    PIO0_5,
-    PIO0_6,
-    PIO0_7,
-    PIO0_8,
-    PIO0_9,
-    PIO0_10,
-    PIO0_11,
-    PIO0_12,
-    PIO0_13,
-    PIO0_14,
-    PIO0_15,
-    PIO0_16,
-    PIO0_17,
-    PIO0_18,
-    PIO0_19,
-    PIO0_20,
-    PIO0_21,
-    PIO0_22,
-    PIO0_23,
-    PIO0_24,
-    PIO0_25,
-    PIO0_26,
-    PIO0_27,
-    PIO0_28,
-    PIO0_29,
-    PIO0_30,
-    PIO0_31,
-    PIO1_0,
-    PIO1_1,
-    PIO1_2,
-    PIO1_3,
-    PIO1_4,
-    PIO1_5,
-    PIO1_6,
-    PIO1_7,
-    PIO1_8,
-    PIO1_9,
-    PIO1_10,
-    PIO1_11,
-    PIO1_12,
-    PIO1_13,
-    PIO1_14,
-    PIO1_15,
-    PIO1_16,
-    PIO1_17,
-    PIO1_18,
-    PIO1_19,
-    PIO1_20,
-    PIO1_21,
-    PIO1_22,
-    PIO1_23,
-    PIO1_24,
-    PIO1_25,
-    PIO1_26,
-    PIO1_27,
-    PIO1_28,
-    PIO1_29,
-    PIO1_30,
-    PIO1_31,
+    peripherals
 }
 
 /// HAL configuration for the NXP board.
@@ -93,3 +100,38 @@ pub mod config {
     #[derive(Default)]
     pub struct Config {}
 }
+
+#[allow(unused)]
+struct BitIter(u32);
+
+impl Iterator for BitIter {
+    type Item = u32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.0.trailing_zeros() {
+            32 => None,
+            b => {
+                self.0 &= !(1 << b);
+                Some(b)
+            }
+        }
+    }
+}
+
+trait SealedMode {}
+
+/// UART mode.
+#[allow(private_bounds)]
+pub trait Mode: SealedMode {}
+
+macro_rules! impl_mode {
+    ($name:ident) => {
+        impl SealedMode for $name {}
+        impl Mode for $name {}
+    };
+}
+
+/// Blocking mode.
+pub struct Blocking;
+
+impl_mode!(Blocking);
