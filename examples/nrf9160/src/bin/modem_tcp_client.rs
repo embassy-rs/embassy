@@ -112,7 +112,7 @@ async fn main(spawner: Spawner) {
 
     info!("Hello World!");
 
-    unwrap!(spawner.spawn(blink_task(p.P0_02.into())));
+    spawner.spawn(unwrap!(blink_task(p.P0_02.into())));
 
     let ipc_mem = unsafe {
         let ipc_start = &__start_ipc as *const u8 as *mut MaybeUninit<u8>;
@@ -138,8 +138,8 @@ async fn main(spawner: Spawner) {
     static TRACE: StaticCell<TraceBuffer> = StaticCell::new();
     let (device, control, runner, tracer) =
         embassy_net_nrf91::new_with_trace(STATE.init(State::new()), ipc_mem, TRACE.init(TraceBuffer::new())).await;
-    unwrap!(spawner.spawn(modem_task(runner)));
-    unwrap!(spawner.spawn(trace_task(uart, tracer)));
+    spawner.spawn(unwrap!(modem_task(runner)));
+    spawner.spawn(unwrap!(trace_task(uart, tracer)));
 
     let config = embassy_net::Config::default();
 
@@ -150,12 +150,12 @@ async fn main(spawner: Spawner) {
     static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::<2>::new()), seed);
 
-    unwrap!(spawner.spawn(net_task(runner)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     static CONTROL: StaticCell<context::Control<'static>> = StaticCell::new();
     let control = CONTROL.init(context::Control::new(control, 0).await);
 
-    unwrap!(spawner.spawn(control_task(
+    spawner.spawn(unwrap!(control_task(
         control,
         context::Config {
             apn: b"iot.nat.es",

@@ -29,7 +29,7 @@
 //! #[cortex_m_rt::entry]
 //! fn main() -> ! {
 //!     Executor::take().run(|spawner| {
-//!         unwrap!(spawner.spawn(async_main(spawner)));
+//!         spawner.spawn(unwrap!(async_main(spawner)));
 //!     });
 //! }
 //!

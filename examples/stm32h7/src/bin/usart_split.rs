@@ -27,7 +27,7 @@ async fn main(spawner: Spawner) -> ! {
 
     let (mut tx, rx) = usart.split();
 
-    unwrap!(spawner.spawn(reader(rx)));
+    spawner.spawn(unwrap!(reader(rx)));
 
     loop {
         let buf = CHANNEL.receive().await;

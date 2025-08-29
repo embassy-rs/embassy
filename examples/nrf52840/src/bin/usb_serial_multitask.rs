@@ -76,8 +76,8 @@ async fn main(spawner: Spawner) {
     // Build the builder.
     let usb = builder.build();
 
-    unwrap!(spawner.spawn(usb_task(usb)));
-    unwrap!(spawner.spawn(echo_task(class)));
+    spawner.spawn(unwrap!(usb_task(usb)));
+    spawner.spawn(unwrap!(echo_task(class)));
 }
 
 struct Disconnected {}
