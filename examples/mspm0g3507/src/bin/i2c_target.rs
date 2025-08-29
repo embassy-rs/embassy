@@ -1,4 +1,4 @@
-//! Example of using blocking I2C
+//! Example of using async I2C target
 //!
 //! This uses the virtual COM port provided on the LP-MSPM0G3507 board.
 
