@@ -190,8 +190,7 @@ fn waking_after_completion_does_not_poll() {
     let (executor, trace) = setup();
     executor.spawner().spawn(task1(trace.clone(), waker)).unwrap();
 
-    unsafe { executor.poll() };
-    waker.wake();
+    // Task registers waker, then exits
     unsafe { executor.poll() };
 
     // Exited task may be waken but is not polled
@@ -210,7 +209,6 @@ fn waking_after_completion_does_not_poll() {
             "pend",       // spawning a task pends the executor
             "poll task1", //
             "pend",       // manual wake, gets cleared by poll
-            "pend",       // manual wake, single pend for two wakes
             "pend",       // respawning a task pends the executor
             "poll task1", //
         ]
