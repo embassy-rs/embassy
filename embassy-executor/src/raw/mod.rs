@@ -39,12 +39,9 @@ use core::sync::atomic::AtomicPtr;
 use core::sync::atomic::Ordering;
 use core::task::{Context, Poll, Waker};
 
-use embassy_executor_timer_queue::TimerQueueItem;
-#[cfg(feature = "arch-avr")]
-use portable_atomic::AtomicPtr;
-
 #[cfg(feature = "metadata-deadline")]
 pub use deadline::Deadline;
+use embassy_executor_timer_queue::TimerQueueItem;
 #[cfg(feature = "arch-avr")]
 use portable_atomic::AtomicPtr;
 
