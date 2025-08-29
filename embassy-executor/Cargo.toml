@@ -46,7 +46,7 @@ flavors = [
 [package.metadata.docs.rs]
 default-target = "thumbv7em-none-eabi"
 targets = ["thumbv7em-none-eabi"]
-features = ["defmt", "arch-cortex-m", "executor-thread", "executor-interrupt"]
+features = ["defmt", "arch-cortex-m", "executor-thread", "executor-interrupt", "edf-scheduler"]
 
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
@@ -75,6 +75,11 @@ js-sys = { version = "0.3", optional = true }
 
 # arch-avr dependencies
 avr-device = { version = "0.7.0", optional = true }
+
+
+[dependencies.cordyceps]
+version = "0.3.4"
+features = ["no-cache-pad"]
 
 [dev-dependencies]
 critical-section = { version = "1.1", features = ["std"] }
@@ -113,6 +118,8 @@ arch-spin = ["_arch"]
 
 ## Enable the `name` field in task metadata.
 metadata-name = []
+## Enable the `deadline` field in task metadata.
+metadata-deadline = []
 
 #! ### Executor
 
@@ -125,6 +132,10 @@ trace = ["_any_trace"]
 ## Enable support for rtos-trace framework
 rtos-trace = ["_any_trace", "metadata-name", "dep:rtos-trace", "dep:embassy-time-driver"]
 _any_trace = []
+
+## Enable "Earliest Deadline First" Scheduler, using soft-realtime "deadlines" to prioritize
+## tasks based on the remaining time before their deadline. Adds some overhead.
+edf-scheduler = ["dep:embassy-time-driver", "metadata-deadline"]
 
 #! ### Timer Item Payload Size
 #! Sets the size of the payload for timer items, allowing integrated timer implementors to store
