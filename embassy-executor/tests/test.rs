@@ -322,7 +322,7 @@ fn recursive_task() {
     #[embassy_executor::task(pool_size = 2)]
     async fn task1() {
         let spawner = unsafe { Spawner::for_current_executor().await };
-        spawner.spawn(task1());
+        spawner.spawn(task1().unwrap());
     }
 }
 
