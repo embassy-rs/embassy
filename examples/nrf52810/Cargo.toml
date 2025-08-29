@@ -3,13 +3,14 @@ edition = "2021"
 name = "embassy-nrf52810-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
-embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
-embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
-embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-nrf = { version = "0.5.0", path = "../../embassy-nrf", features = ["defmt", "nrf52810", "time-driver-rtc1", "gpiote", "unstable-pac", "time"] }
+embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
+embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = ["defmt"] }
+embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-nrf = { version = "0.7.0", path = "../../embassy-nrf", features = ["defmt", "nrf52810", "time-driver-rtc1", "gpiote", "unstable-pac", "time"] }
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
@@ -22,3 +23,8 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 
 [profile.release]
 debug = 2
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7em-none-eabi", artifact-dir = "out/examples/nrf52810" }
+]

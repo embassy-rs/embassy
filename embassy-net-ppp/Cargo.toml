@@ -1,6 +1,6 @@
 [package]
 name = "embassy-net-ppp"
-version = "0.2.0"
+version = "0.2.1"
 description = "embassy-net driver for PPP over Serial"
 keywords = ["embedded", "ppp", "embassy-net", "embedded-hal-async", "async"]
 categories = ["embedded", "hardware-support", "no-std", "network-programming", "asynchronous"]
@@ -18,10 +18,10 @@ defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
 embedded-io-async = { version = "0.6.1" }
-embassy-net-driver-channel = { version = "0.3.1", path = "../embassy-net-driver-channel" }
-embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
+embassy-net-driver-channel = { version = "0.3.2", path = "../embassy-net-driver-channel" }
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 ppproto = { version = "0.2.1"}
-embassy-sync = { version = "0.7.0", path = "../embassy-sync" }
+embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-ppp-v$VERSION/embassy-net-ppp/src/"

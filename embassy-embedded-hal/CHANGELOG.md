@@ -8,7 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.5.0 - 2025-08-27
+
+## 0.4.0 - 2025-08-03
+
+- `SpiDevice` cancel safety: always set CS pin to high on drop
+- Update `embassy-sync` to v0.7.0
+
+## 0.3.2 - 2025-08-03
+
+- Reverted changes in 0.3.1
+- Reexport `SetConfig`, `GetConfig` traits from v0.4.0.
+
 ## 0.3.1 - 2025-07-16
+
+YANKED due to embassy-sync upgrade being a breaking change.
 
 - `SpiDevice` cancel safety: always set CS pin to high on drop
 - Update `embassy-sync` to v0.7.0

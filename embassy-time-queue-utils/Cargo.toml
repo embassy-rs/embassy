@@ -1,6 +1,6 @@
 [package]
 name = "embassy-time-queue-utils"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
 description = "Timer queue driver trait for embassy-time"
 repository = "https://github.com/embassy-rs/embassy"
@@ -22,7 +22,7 @@ links = "embassy-time-queue"
 
 [dependencies]
 heapless = "0.8"
-embassy-executor = { version = "0.7.0", path = "../embassy-executor" }
+embassy-executor-timer-queue = { version = "0.1", path = "../embassy-executor-timer-queue", features = ["timer-item-size-6-words"] }
 
 [features]
 #! ### Generic Queue
@@ -51,6 +51,12 @@ generic-queue-64 = ["_generic-queue"]
 generic-queue-128 = ["_generic-queue"]
 
 _generic-queue = []
+
+[package.metadata.embassy]
+build = [
+    {target = "thumbv6m-none-eabi", features = []},
+    {target = "thumbv6m-none-eabi", features = ["generic-queue-8"]},
+]
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-time-queue-utils-v$VERSION/embassy-time-queue-utils/src/"

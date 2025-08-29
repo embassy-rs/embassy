@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.5.0 - 2025-08-26
+
 - Allow inlining on time driver boundary
 - Add `saturating_add` and `saturating_sub` to `Instant`
 - Add `Instant::try_from_*` constructor functions
@@ -15,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Don't select `critical-section` impl for `std`
 - Manually implement the future for `with_timeout`
 - Add 133MHz tick rate to support PR2040 @ 133MHz when `TIMERx`'s `SOURCE` is set to `SYSCLK`
+- Implement Sum for Duration
 
 ## 0.4.0 - 2025-01-02
 

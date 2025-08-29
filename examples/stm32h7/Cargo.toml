@@ -3,17 +3,18 @@ edition = "2021"
 name = "embassy-stm32h7-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 # Change stm32h743bi to your chip name, if necessary.
-embassy-stm32 = { version = "0.2.0", path = "../../embassy-stm32", features = ["defmt", "stm32h743bi", "time-driver-tim2", "exti", "memory-x", "unstable-pac", "chrono"] }
-embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = ["defmt"] }
-embassy-embedded-hal = { version = "0.3.1", path = "../../embassy-embedded-hal" }
-embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
-embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
-embassy-net = { version = "0.7.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", "proto-ipv6", "dns"] }
-embassy-usb = { version = "0.5.0", path = "../../embassy-usb", features = ["defmt"] }
-embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
+embassy-stm32 = { version = "0.4.0", path = "../../embassy-stm32", features = ["defmt", "stm32h743bi", "time-driver-tim2", "exti", "memory-x", "unstable-pac", "chrono"] }
+embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = ["defmt"] }
+embassy-embedded-hal = { version = "0.5.0", path = "../../embassy-embedded-hal" }
+embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
+embassy-net = { version = "0.7.1", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", "proto-ipv6", "dns"] }
+embassy-usb = { version = "0.5.1", path = "../../embassy-usb", features = ["defmt"] }
+embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
@@ -72,3 +73,8 @@ incremental = false
 lto = 'fat'
 opt-level = 3 # <-
 overflow-checks = false # <-
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7em-none-eabi", artifact-dir = "out/examples/stm32h7" }
+]

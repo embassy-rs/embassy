@@ -95,6 +95,18 @@ cfg_if! {
     }
 }
 
+/// Number of samples used for averaging.
+pub enum Averaging {
+    Disabled,
+    Samples2,
+    Samples4,
+    Samples8,
+    Samples16,
+    Samples32,
+    Samples64,
+    Samples128,
+    Samples256,
+}
 impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(adc: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
@@ -225,6 +237,30 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
     }
 
+    pub fn set_averaging(&mut self, averaging: Averaging) {
+        let (enable, samples, right_shift) = match averaging {
+            Averaging::Disabled => (false, 0, 0),
+            Averaging::Samples2 => (true, 0, 1),
+            Averaging::Samples4 => (true, 1, 2),
+            Averaging::Samples8 => (true, 2, 3),
+            Averaging::Samples16 => (true, 3, 4),
+            Averaging::Samples32 => (true, 4, 5),
+            Averaging::Samples64 => (true, 5, 6),
+            Averaging::Samples128 => (true, 6, 7),
+            Averaging::Samples256 => (true, 7, 8),
+        };
+        T::regs().cfgr2().modify(|reg| {
+            #[cfg(not(any(adc_g0, adc_u0)))]
+            reg.set_rovse(enable);
+            #[cfg(any(adc_g0, adc_u0))]
+            reg.set_ovse(enable);
+            #[cfg(any(adc_h5, adc_h7rs))]
+            reg.set_ovsr(samples.into());
+            #[cfg(not(any(adc_h5, adc_h7rs)))]
+            reg.set_ovsr(samples.into());
+            reg.set_ovss(right_shift.into());
+        })
+    }
     /*
     /// Convert a raw sample from the `Temperature` to deg C
     pub fn to_degrees_centigrade(sample: u16) -> f32 {
@@ -260,7 +296,8 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     /// Read one or multiple ADC channels using DMA.
     ///
-    /// `sequence` iterator and `readings` must have the same length.
+    /// `readings` must have a length that is a multiple of the length of the
+    /// `sequence` iterator.
     ///
     /// Note: The order of values in `readings` is defined by the pin ADC
     /// channel number and not the pin order in `sequence`.
@@ -294,8 +331,8 @@ impl<'d, T: Instance> Adc<'d, T> {
     ) {
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
         assert!(
-            sequence.len() == readings.len(),
-            "Sequence length must be equal to readings length"
+            readings.len() % sequence.len() == 0,
+            "Readings length must be a multiple of sequence length"
         );
         assert!(
             sequence.len() <= 16,

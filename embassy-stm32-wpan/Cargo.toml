@@ -9,6 +9,13 @@ categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-stm32-wpan"
 
+publish = false
+
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabi", features = ["stm32wb55rg"]},
+]
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-stm32-wpan-v$VERSION/embassy-stm32-wpan/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-stm32-wpan/src/"
@@ -19,12 +26,12 @@ features = ["stm32wb55rg", "ble", "mac"]
 features = ["stm32wb55rg", "ble", "mac"]
 
 [dependencies]
-embassy-stm32 = { version = "0.2.0", path = "../embassy-stm32" }
-embassy-sync = { version = "0.7.0", path = "../embassy-sync" }
-embassy-time = { version = "0.4.0", path = "../embassy-time", optional = true }
-embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
+embassy-stm32 = { version = "0.4.0", path = "../embassy-stm32" }
+embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
+embassy-time = { version = "0.5.0", path = "../embassy-time", optional = true }
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal" }
-embassy-embedded-hal = { version = "0.3.1", path = "../embassy-embedded-hal" }
+embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal" }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver", optional=true }
 
 defmt = { version = "1.0.1", optional = true }

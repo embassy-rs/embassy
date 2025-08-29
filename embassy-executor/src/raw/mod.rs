@@ -17,7 +17,7 @@ mod run_queue;
 mod state;
 
 pub mod timer_queue;
-#[cfg(feature = "_any_trace")]
+#[cfg(feature = "trace")]
 pub mod trace;
 pub(crate) mod util;
 #[cfg_attr(feature = "turbowakers", path = "waker_turbo.rs")]
@@ -31,8 +31,9 @@ use core::ptr::NonNull;
 #[cfg(not(feature = "arch-avr"))]
 use core::sync::atomic::AtomicPtr;
 use core::sync::atomic::Ordering;
-use core::task::{Context, Poll};
+use core::task::{Context, Poll, Waker};
 
+use embassy_executor_timer_queue::TimerQueueItem;
 #[cfg(feature = "arch-avr")]
 use portable_atomic::AtomicPtr;
 
@@ -42,6 +43,11 @@ use self::util::{SyncUnsafeCell, UninitCell};
 pub use self::waker::task_from_waker;
 use super::SpawnToken;
 use crate::{Metadata, SpawnError};
+
+#[no_mangle]
+extern "Rust" fn __embassy_time_queue_item_from_waker(waker: &Waker) -> &'static mut TimerQueueItem {
+    unsafe { task_from_waker(waker).timer_queue_item() }
+}
 
 /// Raw task header for use in task pointers.
 ///
@@ -89,16 +95,16 @@ pub(crate) struct TaskHeader {
     poll_fn: SyncUnsafeCell<Option<unsafe fn(TaskRef)>>,
 
     /// Integrated timer queue storage. This field should not be accessed outside of the timer queue.
-    pub(crate) timer_queue_item: timer_queue::TimerQueueItem,
+    pub(crate) timer_queue_item: TimerQueueItem,
 
     pub(crate) metadata: Metadata,
 
-    #[cfg(feature = "rtos-trace")]
+    #[cfg(feature = "trace")]
     all_tasks_next: AtomicPtr<TaskHeader>,
 }
 
 /// This is essentially a `&'static TaskStorage<F>` where the type of the future has been erased.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TaskRef {
     ptr: NonNull<TaskHeader>,
 }
@@ -120,16 +126,6 @@ impl TaskRef {
         }
     }
 
-    /// # Safety
-    ///
-    /// The result of this function must only be compared
-    /// for equality, or stored, but not used.
-    pub const unsafe fn dangling() -> Self {
-        Self {
-            ptr: NonNull::dangling(),
-        }
-    }
-
     pub(crate) fn header(self) -> &'static TaskHeader {
         unsafe { self.ptr.as_ref() }
     }
@@ -144,9 +140,13 @@ impl TaskRef {
         executor.as_ref().map(|e| Executor::wrap(e))
     }
 
-    /// Returns a reference to the timer queue item.
-    pub fn timer_queue_item(&self) -> &'static timer_queue::TimerQueueItem {
-        &self.header().timer_queue_item
+    /// Returns a mutable reference to the timer queue item.
+    ///
+    /// Safety
+    ///
+    /// This function must only be called in the context of the integrated timer queue.
+    pub unsafe fn timer_queue_item(mut self) -> &'static mut TimerQueueItem {
+        unsafe { &mut self.ptr.as_mut().timer_queue_item }
     }
 
     /// The returned pointer is valid for the entire TaskStorage.
@@ -199,9 +199,9 @@ impl<F: Future + 'static> TaskStorage<F> {
                 // Note: this is lazily initialized so that a static `TaskStorage` will go in `.bss`
                 poll_fn: SyncUnsafeCell::new(None),
 
-                timer_queue_item: timer_queue::TimerQueueItem::new(),
+                timer_queue_item: TimerQueueItem::new(),
                 metadata: Metadata::new(),
-                #[cfg(feature = "rtos-trace")]
+                #[cfg(feature = "trace")]
                 all_tasks_next: AtomicPtr::new(core::ptr::null_mut()),
             },
             future: UninitCell::uninit(),

@@ -3,6 +3,15 @@ name = "embassy-nxp"
 version = "0.1.0"
 edition = "2021"
 
+publish = false
+
+[package.metadata.embassy]
+build = [
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "lpc55"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mimxrt1011", "rt", "time-driver-pit"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mimxrt1062", "rt", "time-driver-pit"]},
+]
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-nxp-v$VERSION/embassy-nxp/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-nxp/src/"
@@ -18,13 +27,14 @@ cortex-m = "0.7.7"
 cortex-m-rt = "0.7.0"
 critical-section = "1.1.2"
 embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
-embassy-sync = { version = "0.7.0", path = "../embassy-sync" }
+embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
 defmt = { version = "1", optional = true }
 log = { version = "0.4.27", optional = true }
-embassy-time = { version = "0.4.0", path = "../embassy-time", optional = true }
-embassy-time-driver = { version = "0.2", path = "../embassy-time-driver", optional = true }
-embassy-time-queue-utils = { version = "0.1", path = "../embassy-time-queue-utils", optional = true }
-
+embassy-time = { version = "0.5.0", path = "../embassy-time", optional = true }
+embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver", optional = true }
+embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils", optional = true }
+embedded-io = "0.6.1"
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 ## Chip dependencies
 lpc55-pac = { version = "0.5.0", optional = true }
 nxp-pac = { version = "0.1.0", optional = true, git = "https://github.com/i509VCB/nxp-pac", rev = "be4dd0936c20d5897364a381b1d95a99514c1e7e" }
@@ -49,6 +59,9 @@ log = ["dep:log"]
 
 ## Use Periodic Interrupt Timer (PIT) as the time driver for `embassy-time`, with a tick rate of 1 MHz
 time-driver-pit = ["_time_driver", "embassy-time?/tick-hz-1_000_000"]
+
+## Use Real Time Clock (RTC) as the time driver for `embassy-time`, with a tick rate of 32768 Hz
+time-driver-rtc = ["_time_driver", "embassy-time?/tick-hz-32_768"]
 
 ## Reexport the PAC for the currently enabled chip at `embassy_nxp::pac` (unstable)
 unstable-pac = []

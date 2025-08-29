@@ -55,6 +55,7 @@ use crate::blocking_mutex::Mutex;
 use crate::waitqueue::WakerRegistration;
 
 /// Send-only access to a [`Channel`].
+#[derive(Debug)]
 pub struct Sender<'ch, M, T, const N: usize>
 where
     M: RawMutex,
@@ -241,6 +242,7 @@ impl<'ch, T> SendDynamicSender<'ch, T> {
 }
 
 /// Receive-only access to a [`Channel`].
+#[derive(Debug)]
 pub struct Receiver<'ch, M, T, const N: usize>
 where
     M: RawMutex,
@@ -419,6 +421,11 @@ pub struct SendDynamicReceiver<'ch, T> {
     pub(crate) channel: &'ch dyn DynamicChannel<T>,
 }
 
+/// Receive-only access to a [`Channel`] without knowing channel size.
+/// This version can be sent between threads but can only be created if the underlying mutex is Sync.
+#[deprecated(since = "0.7.1", note = "please use `SendDynamicReceiver` instead")]
+pub type SendableDynamicReceiver<'ch, T> = SendDynamicReceiver<'ch, T>;
+
 impl<'ch, T> Clone for SendDynamicReceiver<'ch, T> {
     fn clone(&self) -> Self {
         *self
@@ -481,6 +488,7 @@ where
 
 /// Future returned by [`Channel::receive`] and  [`Receiver::receive`].
 #[must_use = "futures do nothing unless you `.await` or poll them"]
+#[derive(Debug)]
 pub struct ReceiveFuture<'ch, M, T, const N: usize>
 where
     M: RawMutex,
@@ -501,6 +509,7 @@ where
 
 /// Future returned by [`Channel::ready_to_receive`] and  [`Receiver::ready_to_receive`].
 #[must_use = "futures do nothing unless you `.await` or poll them"]
+#[derive(Debug)]
 pub struct ReceiveReadyFuture<'ch, M, T, const N: usize>
 where
     M: RawMutex,
@@ -544,6 +553,7 @@ impl<'ch, M: RawMutex, T, const N: usize> From<ReceiveFuture<'ch, M, T, N>> for 
 
 /// Future returned by [`Channel::send`] and  [`Sender::send`].
 #[must_use = "futures do nothing unless you `.await` or poll them"]
+#[derive(Debug)]
 pub struct SendFuture<'ch, M, T, const N: usize>
 where
     M: RawMutex,
@@ -641,6 +651,7 @@ pub enum TrySendError<T> {
     Full(T),
 }
 
+#[derive(Debug)]
 struct ChannelState<T, const N: usize> {
     queue: Deque<T, N>,
     receiver_waker: WakerRegistration,
@@ -780,6 +791,7 @@ impl<T, const N: usize> ChannelState<T, N> {
 /// received from the channel.
 ///
 /// All data sent will become available in the same order as it was sent.
+#[derive(Debug)]
 pub struct Channel<M, T, const N: usize>
 where
     M: RawMutex,

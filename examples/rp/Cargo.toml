@@ -4,20 +4,21 @@ name = "embassy-rp-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
 
+publish = false
 
 [dependencies]
-embassy-embedded-hal = { version = "0.3.1", path = "../../embassy-embedded-hal", features = ["defmt"] }
-embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
-embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-rp = { version = "0.6.0", path = "../../embassy-rp", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp2040"] }
-embassy-usb = { version = "0.5.0", path = "../../embassy-usb", features = ["defmt"] }
-embassy-net = { version = "0.7.0", path = "../../embassy-net", features = ["defmt", "icmp", "tcp", "udp", "raw", "dhcpv4", "medium-ethernet", "dns", "proto-ipv4", "proto-ipv6", "multicast"] }
-embassy-net-wiznet = { version = "0.2.0", path = "../../embassy-net-wiznet", features = ["defmt"] }
-embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
-embassy-usb-logger = { version = "0.5.0", path = "../../embassy-usb-logger" }
-cyw43 = { version = "0.4.0", path = "../../cyw43", features = ["defmt", "firmware-logs"] }
-cyw43-pio = { version = "0.5.1", path = "../../cyw43-pio", features = ["defmt"] }
+embassy-embedded-hal = { version = "0.5.0", path = "../../embassy-embedded-hal", features = ["defmt"] }
+embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = ["defmt"] }
+embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-rp = { version = "0.8.0", path = "../../embassy-rp", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp2040"] }
+embassy-usb = { version = "0.5.1", path = "../../embassy-usb", features = ["defmt"] }
+embassy-net = { version = "0.7.1", path = "../../embassy-net", features = ["defmt", "icmp", "tcp", "udp", "raw", "dhcpv4", "medium-ethernet", "dns", "proto-ipv4", "proto-ipv6", "multicast"] }
+embassy-net-wiznet = { version = "0.2.1", path = "../../embassy-net-wiznet", features = ["defmt"] }
+embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
+embassy-usb-logger = { version = "0.5.1", path = "../../embassy-usb-logger" }
+cyw43 = { version = "0.5.0", path = "../../cyw43", features = ["defmt", "firmware-logs"] }
+cyw43-pio = { version = "0.8.0", path = "../../cyw43-pio", features = ["defmt"] }
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
@@ -60,3 +61,8 @@ embedded-sdmmc = "0.7.0"
 [profile.release]
 # Enable generation of debug symbols even on release builds
 debug = true
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv6m-none-eabi", artifact-dir = "out/examples/rp" }
+]

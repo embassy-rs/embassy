@@ -1,12 +1,12 @@
 [package]
 edition = "2021"
-name = "embassy-stm32f7-examples"
+name = "embassy-stm32h742-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
-# Change stm32f777zi to your chip name, if necessary.
-embassy-stm32 = { version = "0.2.0", path = "../../embassy-stm32", features = [
+embassy-stm32 = { version = "0.4.0", path = "../../embassy-stm32", features = [
     "defmt",
     "stm32h742vi",
     "memory-x",
@@ -14,30 +14,30 @@ embassy-stm32 = { version = "0.2.0", path = "../../embassy-stm32", features = [
     "time-driver-any",
     "exti",
 ] }
-embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = [
+embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = [
     "defmt",
 ] }
-embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = [
+embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = [
     "arch-cortex-m",
     "executor-thread",
     "defmt",
 ] }
-embassy-time = { version = "0.4.0", path = "../../embassy-time", features = [
+embassy-time = { version = "0.5.0", path = "../../embassy-time", features = [
     "defmt",
     "defmt-timestamp-uptime",
     "tick-hz-32_768",
 ] }
-embassy-net = { version = "0.7.0", path = "../../embassy-net", features = [
+embassy-net = { version = "0.7.1", path = "../../embassy-net", features = [
     "defmt",
     "tcp",
     "dhcpv4",
     "medium-ethernet",
 ] }
 embedded-io-async = { version = "0.6.1" }
-embassy-usb = { version = "0.5.0", path = "../../embassy-usb", features = [
+embassy-usb = { version = "0.5.1", path = "../../embassy-usb", features = [
     "defmt",
 ] }
-embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
+embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
@@ -63,3 +63,8 @@ aes-gcm = { version = "0.10.3", default-features = false, features = [
 
 [profile.release]
 debug = 2
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7em-none-eabi", artifact-dir = "out/examples/stm32h742" }
+]

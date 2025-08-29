@@ -18,7 +18,7 @@ use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
-use embassy_time::{Duration, Timer};
+use embassy_time::Duration;
 use embedded_io_async::Write;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
@@ -97,26 +97,21 @@ async fn main(spawner: Spawner) {
 
     spawner.spawn(unwrap!(net_task(runner)));
 
-    loop {
-        match control
-            .join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()))
-            .await
-        {
-            Ok(_) => break,
-            Err(err) => {
-                info!("join failed with status={}", err.status);
-            }
-        }
+    while let Err(err) = control
+        .join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()))
+        .await
+    {
+        info!("join failed with status={}", err.status);
     }
 
-    // Wait for DHCP, not necessary when using static IP
+    info!("waiting for link...");
+    stack.wait_link_up().await;
+
     info!("waiting for DHCP...");
-    while !stack.is_config_up() {
-        Timer::after_millis(100).await;
-    }
-    info!("DHCP is now up!");
+    stack.wait_config_up().await;
 
     // And now we can use it!
+    info!("Stack is up!");
 
     let mut rx_buffer = [0; 4096];
     let mut tx_buffer = [0; 4096];

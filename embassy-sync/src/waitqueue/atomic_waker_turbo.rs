@@ -7,6 +7,7 @@ use core::task::Waker;
 /// If a waker is registered, registering another waker will replace the previous one without waking it.
 /// The intended use case is to wake tasks from interrupts. Therefore, it is generally not expected,
 /// that multiple tasks register try to register a waker simultaneously.
+#[derive(Debug)]
 pub struct AtomicWaker {
     waker: AtomicPtr<()>,
 }

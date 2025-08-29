@@ -48,7 +48,7 @@ pub enum Mode {
 }
 
 impl Mode {
-    #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn mode(&self, tx_rx: TxRx) -> vals::Mode {
         match tx_rx {
             TxRx::Transmitter => match self {
@@ -83,7 +83,7 @@ pub enum SlotSize {
 }
 
 impl SlotSize {
-    #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn slotsz(&self) -> vals::Slotsz {
         match self {
             SlotSize::DataSize => vals::Slotsz::DATA_SIZE,
@@ -106,7 +106,7 @@ pub enum DataSize {
 }
 
 impl DataSize {
-    #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn ds(&self) -> vals::Ds {
         match self {
             DataSize::Data8 => vals::Ds::BIT8,
@@ -131,7 +131,7 @@ pub enum FifoThreshold {
 }
 
 impl FifoThreshold {
-    #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn fth(&self) -> vals::Fth {
         match self {
             FifoThreshold::Empty => vals::Fth::EMPTY,
@@ -152,7 +152,7 @@ pub enum MuteValue {
 }
 
 impl MuteValue {
-    #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn muteval(&self) -> vals::Muteval {
         match self {
             MuteValue::Zero => vals::Muteval::SEND_ZERO,
@@ -171,7 +171,7 @@ pub enum Protocol {
 }
 
 impl Protocol {
-    #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn prtcfg(&self) -> vals::Prtcfg {
         match self {
             Protocol::Free => vals::Prtcfg::FREE,
@@ -229,7 +229,7 @@ pub enum StereoMono {
 }
 
 impl StereoMono {
-    #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn mono(&self) -> vals::Mono {
         match self {
             StereoMono::Stereo => vals::Mono::STEREO,
@@ -248,7 +248,7 @@ pub enum BitOrder {
 }
 
 impl BitOrder {
-    #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn lsbfirst(&self) -> vals::Lsbfirst {
         match self {
             BitOrder::LsbFirst => vals::Lsbfirst::LSB_FIRST,
@@ -267,7 +267,7 @@ pub enum FrameSyncOffset {
 }
 
 impl FrameSyncOffset {
-    #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn fsoff(&self) -> vals::Fsoff {
         match self {
             FrameSyncOffset::OnFirstBit => vals::Fsoff::ON_FIRST,
@@ -286,7 +286,7 @@ pub enum FrameSyncPolarity {
 }
 
 impl FrameSyncPolarity {
-    #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn fspol(&self) -> vals::Fspol {
         match self {
             FrameSyncPolarity::ActiveLow => vals::Fspol::FALLING_EDGE,
@@ -304,7 +304,7 @@ pub enum FrameSyncDefinition {
 }
 
 impl FrameSyncDefinition {
-    #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn fsdef(&self) -> bool {
         match self {
             FrameSyncDefinition::StartOfFrame => false,
@@ -322,7 +322,7 @@ pub enum ClockStrobe {
 }
 
 impl ClockStrobe {
-    #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn ckstr(&self) -> vals::Ckstr {
         match self {
             ClockStrobe::Falling => vals::Ckstr::FALLING_EDGE,
@@ -340,7 +340,7 @@ pub enum ComplementFormat {
 }
 
 impl ComplementFormat {
-    #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn cpl(&self) -> vals::Cpl {
         match self {
             ComplementFormat::OnesComplement => vals::Cpl::ONES_COMPLEMENT,
@@ -359,7 +359,7 @@ pub enum Companding {
 }
 
 impl Companding {
-    #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn comp(&self) -> vals::Comp {
         match self {
             Companding::None => vals::Comp::NO_COMPANDING,
@@ -378,7 +378,7 @@ pub enum OutputDrive {
 }
 
 impl OutputDrive {
-    #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn outdriv(&self) -> vals::Outdriv {
         match self {
             OutputDrive::OnStart => vals::Outdriv::ON_START,
@@ -414,7 +414,7 @@ pub enum MasterClockDivider {
 /// Master clock divider.
 #[derive(Copy, Clone, PartialEq)]
 #[allow(missing_docs)]
-#[cfg(any(sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+#[cfg(any(sai_v1_4pdm, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
 pub enum MasterClockDivider {
     MasterClockDisabled,
     Div1,
@@ -506,7 +506,7 @@ impl MasterClockDivider {
         }
     }
 
-    #[cfg(any(sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+    #[cfg(any(sai_v1_4pdm, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
     const fn mckdiv(&self) -> u8 {
         match self {
             MasterClockDivider::MasterClockDisabled => 0,
@@ -602,6 +602,7 @@ pub struct Config {
     pub clock_strobe: ClockStrobe,
     pub output_drive: OutputDrive,
     pub master_clock_divider: MasterClockDivider,
+    pub nodiv: bool,
     pub is_high_impedance_on_inactive_slot: bool,
     pub fifo_threshold: FifoThreshold,
     pub companding: Companding,
@@ -631,6 +632,7 @@ impl Default for Config {
             frame_sync_definition: FrameSyncDefinition::ChannelIdentification,
             frame_length: 32,
             master_clock_divider: MasterClockDivider::MasterClockDisabled,
+            nodiv: false,
             clock_strobe: ClockStrobe::Rising,
             output_drive: OutputDrive::Immediately,
             is_high_impedance_on_inactive_slot: false,
@@ -704,7 +706,7 @@ fn update_synchronous_config(config: &mut Config) {
     config.mode = Mode::Slave;
     config.sync_output = false;
 
-    #[cfg(any(sai_v1, sai_v2))]
+    #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2))]
     {
         config.sync_input = SyncInput::Internal;
     }
@@ -858,7 +860,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     ) -> Self {
         let ch = T::REGS.ch(sub_block as usize);
 
-        #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+        #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
         {
             ch.cr1().modify(|w| w.set_saien(false));
         }
@@ -884,7 +886,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
             }
         }
 
-        #[cfg(any(sai_v1, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+        #[cfg(any(sai_v1, sai_v1_4pdm, sai_v2, sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
         {
             ch.cr1().modify(|w| {
                 w.set_mode(config.mode.mode(if Self::is_transmitter(&ring_buffer) {
@@ -899,14 +901,8 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
                 w.set_syncen(config.sync_input.syncen());
                 w.set_mono(config.stereo_mono.mono());
                 w.set_outdriv(config.output_drive.outdriv());
-                w.set_mckdiv(config.master_clock_divider.mckdiv());
-                w.set_nodiv(
-                    if config.master_clock_divider == MasterClockDivider::MasterClockDisabled {
-                        vals::Nodiv::NO_DIV
-                    } else {
-                        vals::Nodiv::MASTER_CLOCK
-                    },
-                );
+                w.set_mckdiv(config.master_clock_divider.mckdiv().into());
+                w.set_nodiv(config.nodiv);
                 w.set_dmaen(true);
             });
 

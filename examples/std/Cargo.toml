@@ -3,14 +3,15 @@ edition = "2021"
 name = "embassy-std-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
-embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = ["log"] }
-embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["arch-std", "executor-thread", "log"] }
-embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["log", "std", ] }
-embassy-net = { version = "0.7.0", path = "../../embassy-net", features=[ "log", "medium-ethernet", "medium-ip", "tcp", "udp", "dns", "dhcpv4", "proto-ipv6"] }
+embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = ["log"] }
+embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-std", "executor-thread", "log"] }
+embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["log", "std", ] }
+embassy-net = { version = "0.7.1", path = "../../embassy-net", features=[ "log", "medium-ethernet", "medium-ip", "tcp", "udp", "dns", "dhcpv4", "proto-ipv6"] }
 embassy-net-tuntap = { version = "0.1.0", path = "../../embassy-net-tuntap" }
-embassy-net-ppp = { version = "0.2.0", path = "../../embassy-net-ppp", features = ["log"]}
+embassy-net-ppp = { version = "0.2.1", path = "../../embassy-net-ppp", features = ["log"]}
 embedded-io-async = { version = "0.6.1" }
 embedded-io-adapters = { version = "0.6.1", features = ["futures-03"] }
 critical-section = { version = "1.1", features = ["std"] }
@@ -27,3 +28,8 @@ static_cell = "2"
 
 [profile.release]
 debug = 2
+
+[package.metadata.embassy]
+build = [
+  { artifact-dir = "out/examples/std" }
+]

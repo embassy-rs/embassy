@@ -1,7 +1,7 @@
 [package]
 edition = "2021"
 name = "embassy-boot-stm32"
-version = "0.4.0"
+version = "0.6.0"
 description = "Bootloader lib for STM32 chips"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/embassy-rs/embassy"
@@ -11,6 +11,12 @@ categories = [
     "no-std",
     "asynchronous",
 ]
+
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabi", features = ["embassy-stm32/stm32l496zg"]},
+]
+
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-boot-stm32-v$VERSION/embassy-boot-stm32/src/"
@@ -24,9 +30,9 @@ target = "thumbv7em-none-eabi"
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4", optional = true }
 
-embassy-sync = { version = "0.7.0", path = "../embassy-sync" }
-embassy-stm32 = { version = "0.2.0", path = "../embassy-stm32", default-features = false }
-embassy-boot = { version = "0.5.0", path = "../embassy-boot" }
+embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
+embassy-stm32 = { version = "0.4.0", path = "../embassy-stm32", default-features = false }
+embassy-boot = { version = "0.6.1", path = "../embassy-boot" }
 cortex-m = { version = "0.7.6" }
 cortex-m-rt = { version = "0.7" }
 embedded-storage = "0.3.1"

@@ -2,7 +2,7 @@ use core::cell::RefCell;
 
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::blocking_mutex::Mutex;
-use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
+use embedded_storage::nor_flash::{ErrorType, MultiwriteNorFlash, NorFlash, ReadNorFlash};
 
 use super::Error;
 
@@ -108,6 +108,8 @@ impl<M: RawMutex, T: NorFlash> NorFlash for BlockingPartition<'_, M, T> {
         })
     }
 }
+
+impl<M: RawMutex, T: MultiwriteNorFlash> MultiwriteNorFlash for BlockingPartition<'_, M, T> {}
 
 #[cfg(test)]
 mod tests {

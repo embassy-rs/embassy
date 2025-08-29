@@ -3,15 +3,16 @@ edition = "2021"
 name = "embassy-boot-nrf-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
-embassy-sync = { version = "0.7.0", path = "../../../../embassy-sync" }
-embassy-executor = { version = "0.7.0", path = "../../../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "arch-cortex-m", "executor-thread"] }
-embassy-time = { version = "0.4.0", path = "../../../../embassy-time", features = [] }
-embassy-nrf = { version = "0.5.0", path = "../../../../embassy-nrf", features = ["time-driver-rtc1", "gpiote", ] }
-embassy-boot = { version = "0.5.0", path = "../../../../embassy-boot", features = [] }
-embassy-boot-nrf = { version = "0.6.0", path = "../../../../embassy-boot-nrf", features = [] }
-embassy-embedded-hal = { version = "0.3.1", path = "../../../../embassy-embedded-hal" }
+embassy-sync = { version = "0.7.2", path = "../../../../embassy-sync" }
+embassy-executor = { version = "0.9.0", path = "../../../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "arch-cortex-m", "executor-thread"] }
+embassy-time = { version = "0.5.0", path = "../../../../embassy-time", features = [] }
+embassy-nrf = { version = "0.7.0", path = "../../../../embassy-nrf", features = ["time-driver-rtc1", "gpiote", ] }
+embassy-boot = { version = "0.6.1", path = "../../../../embassy-boot", features = [] }
+embassy-boot-nrf = { version = "0.8.0", path = "../../../../embassy-boot-nrf", features = [] }
+embassy-embedded-hal = { version = "0.5.0", path = "../../../../embassy-embedded-hal" }
 
 defmt = { version = "1.0.1", optional = true }
 defmt-rtt = { version = "1.0.0", optional = true }
@@ -31,4 +32,13 @@ defmt = [
       "embassy-nrf/defmt",
       "embassy-boot-nrf/defmt",
       "embassy-sync/defmt",
+]
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7em-none-eabi", features = ["embassy-nrf/nrf52840", "skip-include"], artifact-dir = "out/examples/boot/nrf52840" },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9160-ns", "skip-include"], artifact-dir = "out/examples/boot/nrf9160" },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9120-ns", "skip-include"], artifact-dir = "out/examples/boot/nrf9120" },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9151-ns", "skip-include"], artifact-dir = "out/examples/boot/nrf9151" },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9161-ns", "skip-include"], artifact-dir = "out/examples/boot/nrf9161" }
 ]

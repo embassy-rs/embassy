@@ -125,6 +125,8 @@ pub mod uid;
 pub mod usart;
 #[cfg(any(usb, otg))]
 pub mod usb;
+#[cfg(vrefbuf)]
+pub mod vrefbuf;
 #[cfg(iwdg)]
 pub mod wdg;
 #[cfg(xspi)]
@@ -546,7 +548,11 @@ fn init_hw(config: Config) -> Peripherals {
         {
             use crate::pac::pwr::vals;
             crate::pac::PWR.svmcr().modify(|w| {
-                w.set_io2sv(vals::Io2sv::B_0X1);
+                w.set_io2sv(if config.enable_independent_io_supply {
+                    vals::Io2sv::B_0X1
+                } else {
+                    vals::Io2sv::B_0X0
+                });
             });
         }
         #[cfg(stm32u5)]

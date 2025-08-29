@@ -3,16 +3,17 @@ edition = "2021"
 name = "embassy-stm32l5-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 # Change stm32l552ze to your chip name, if necessary.
-embassy-stm32 = { version = "0.2.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "stm32l552ze", "time-driver-any", "exti", "memory-x", "low-power", "dual-bank"]  }
-embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
-embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
-embassy-usb = { version = "0.5.0", path = "../../embassy-usb", features = ["defmt"] }
-embassy-net = { version = "0.7.0", path = "../../embassy-net", features = ["defmt",  "tcp", "dhcpv4", "medium-ethernet"] }
-embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
+embassy-stm32 = { version = "0.4.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "stm32l552ze", "time-driver-any", "exti", "memory-x", "low-power", "dual-bank"]  }
+embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = ["defmt"] }
+embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
+embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
+embassy-usb = { version = "0.5.1", path = "../../embassy-usb", features = ["defmt"] }
+embassy-net = { version = "0.7.1", path = "../../embassy-net", features = ["defmt",  "tcp", "dhcpv4", "medium-ethernet"] }
+embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
 usbd-hid = "0.8.1"
 
 defmt = "1.0.1"
@@ -32,3 +33,8 @@ debug = 2
 [[bin]]
 name = "stop"
 default-features = ["embassy-stm32/low-power"]
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/stm32l5" }
+]

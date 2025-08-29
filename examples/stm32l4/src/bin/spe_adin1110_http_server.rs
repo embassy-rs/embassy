@@ -115,7 +115,6 @@ async fn main(spawner: Spawner) {
         Irqs,
         dp.DMA1_CH6,
         dp.DMA1_CH7,
-        Hertz(100_000),
         I2C_Config::default(),
     );
 

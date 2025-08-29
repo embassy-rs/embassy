@@ -3,14 +3,15 @@ edition = "2021"
 name = "embassy-boot-rp-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
-embassy-sync = { version = "0.7.0", path = "../../../../embassy-sync" }
-embassy-executor = { version = "0.7.0", path = "../../../../embassy-executor", features = ["arch-cortex-m", "executor-thread"] }
-embassy-time = { version = "0.4.0", path = "../../../../embassy-time", features = [] }
-embassy-rp = { version = "0.6.0", path = "../../../../embassy-rp", features = ["time-driver", "rp2040"] }
-embassy-boot-rp = { version = "0.6.0", path = "../../../../embassy-boot-rp", features = [] }
-embassy-embedded-hal = { version = "0.3.1", path = "../../../../embassy-embedded-hal" }
+embassy-sync = { version = "0.7.2", path = "../../../../embassy-sync" }
+embassy-executor = { version = "0.9.0", path = "../../../../embassy-executor", features = ["arch-cortex-m", "executor-thread"] }
+embassy-time = { version = "0.5.0", path = "../../../../embassy-time", features = [] }
+embassy-rp = { version = "0.8.0", path = "../../../../embassy-rp", features = ["time-driver", "rp2040"] }
+embassy-boot-rp = { version = "0.8.0", path = "../../../../embassy-boot-rp", features = [] }
+embassy-embedded-hal = { version = "0.5.0", path = "../../../../embassy-embedded-hal" }
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
@@ -34,3 +35,8 @@ skip-include = []
 
 [profile.release]
 debug = true
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv6m-none-eabi", features = ["skip-include"], artifact-dir = "out/examples/boot/rp" }
+]

@@ -43,8 +43,11 @@ cargo batch \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target armv7r-none-eabihf --features arch-cortex-ar,executor-thread \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target riscv32imac-unknown-none-elf --features arch-riscv32 \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target riscv32imac-unknown-none-elf --features arch-riscv32,executor-thread \
+    --- build --release --manifest-path embassy-embedded-hal/Cargo.toml --target thumbv7em-none-eabi \
+    --- build --release --manifest-path embassy-embedded-hal/Cargo.toml --target thumbv7em-none-eabi --features time \
     --- build --release --manifest-path embassy-sync/Cargo.toml --target thumbv6m-none-eabi --features defmt \
     --- build --release --manifest-path embassy-time/Cargo.toml --target thumbv6m-none-eabi --features defmt,defmt-timestamp-uptime,mock-driver \
+    --- build --release --manifest-path embassy-time/Cargo.toml --features defmt,std \
     --- build --release --manifest-path embassy-time-queue-utils/Cargo.toml --target thumbv6m-none-eabi \
     --- build --release --manifest-path embassy-time-queue-utils/Cargo.toml --target thumbv6m-none-eabi --features generic-queue-8 \
     --- build --release --manifest-path embassy-net/Cargo.toml --target thumbv7em-none-eabi --features defmt,tcp,udp,dns,proto-ipv4,medium-ethernet,packet-trace \
@@ -107,6 +110,8 @@ cargo batch \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv8m.main-none-eabihf --features stm32l552ze,single-bank,defmt \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32c071rb,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32c051f6,defmt,exti,time-driver-any,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32c091gb,defmt,exti,time-driver-any,time \
+    --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32c092rc,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32f038f6,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32f030c6,defmt,exti,time-driver-any,time \
     --- build --release --manifest-path embassy-stm32/Cargo.toml --target thumbv6m-none-eabi --features stm32f058t8,defmt,exti,time-driver-any,time \
@@ -269,6 +274,7 @@ cargo batch \
     --- build --release --manifest-path examples/stm32u5/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/stm32u5 \
     --- build --release --manifest-path examples/stm32wb/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32wb \
     --- build --release --manifest-path examples/stm32wba/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/stm32wba \
+    --- build --release --manifest-path examples/stm32wba6/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/stm32wba6 \
     --- build --release --manifest-path examples/stm32wl/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/stm32wl \
     --- build --release --manifest-path examples/lpc55s69/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/lpc55s69 \
     --- build --release --manifest-path examples/mimxrt1011/Cargo.toml --target thumbv7em-none-eabihf --artifact-dir out/examples/mimxrt1011 \
@@ -291,6 +297,7 @@ cargo batch \
     --- build --release --manifest-path examples/boot/application/stm32l4/Cargo.toml --target thumbv7em-none-eabi --features skip-include --artifact-dir out/examples/boot/stm32l4 \
     --- build --release --manifest-path examples/boot/application/stm32wl/Cargo.toml --target thumbv7em-none-eabi --features skip-include --artifact-dir out/examples/boot/stm32wl \
     --- build --release --manifest-path examples/boot/application/stm32wb-dfu/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/boot/stm32wb-dfu \
+    --- build --release --manifest-path examples/boot/application/stm32wba-dfu/Cargo.toml --target thumbv8m.main-none-eabihf --artifact-dir out/examples/boot/stm32wba-dfu \
     --- build --release --manifest-path examples/boot/bootloader/nrf/Cargo.toml --target thumbv7em-none-eabi --features embassy-nrf/nrf52840 \
     --- build --release --manifest-path examples/boot/bootloader/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9160-ns \
     --- build --release --manifest-path examples/boot/bootloader/nrf/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-nrf/nrf9120-ns \
@@ -300,6 +307,7 @@ cargo batch \
     --- build --release --manifest-path examples/boot/bootloader/stm32/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32l496zg \
     --- build --release --manifest-path examples/boot/bootloader/stm32wb-dfu/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32wb55rg \
     --- build --release --manifest-path examples/boot/bootloader/stm32wb-dfu/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32wb55rg,verify \
+    --- build --release --manifest-path examples/boot/bootloader/stm32wba-dfu/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-stm32/stm32wba65ri,verify \
     --- build --release --manifest-path examples/boot/bootloader/stm32-dual-bank/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32h743zi \
     --- build --release --manifest-path examples/wasm/Cargo.toml --target wasm32-unknown-unknown --artifact-dir out/examples/wasm \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32f103c8 --artifact-dir out/tests/stm32f103c8 \
@@ -353,6 +361,7 @@ DEFMT_RTT_BUFFER_SIZE="72" cargo batch \
 rm -rf out/tests/stm32f103c8
 rm -rf out/tests/nrf52840-dk
 rm -rf out/tests/nrf52833-dk
+rm -rf out/tests/nrf5340-dk
 
 # disabled because these boards are not on the shelf
 rm -rf out/tests/mspm0g3507

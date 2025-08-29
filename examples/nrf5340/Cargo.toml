@@ -3,15 +3,16 @@ edition = "2021"
 name = "embassy-nrf5340-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
-embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
-embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.7.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
-embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-nrf = { version = "0.5.0", path = "../../embassy-nrf", features = ["defmt", "nrf5340-app-s", "time-driver-rtc1", "gpiote", "unstable-pac"] }
-embassy-net = { version = "0.7.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet"] }
-embassy-usb = { version = "0.5.0", path = "../../embassy-usb", features = ["defmt"] }
+embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
+embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = ["defmt"] }
+embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
+embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
+embassy-nrf = { version = "0.7.0", path = "../../embassy-nrf", features = ["defmt", "nrf5340-app-s", "time-driver-rtc1", "gpiote", "unstable-pac"] }
+embassy-net = { version = "0.7.1", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet"] }
+embassy-usb = { version = "0.5.1", path = "../../embassy-usb", features = ["defmt"] }
 embedded-io-async = { version = "0.6.1" }
 
 defmt = "1.0.1"
@@ -27,3 +28,8 @@ serde = { version = "1.0.136", default-features = false }
 
 [profile.release]
 debug = 2
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/nrf5340" }
+]

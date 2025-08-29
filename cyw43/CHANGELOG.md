@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.5.0 - 2025-08-28
+
+- bump bt-hci to 0.4.0
+
+## 0.4.1 - 2025-08-26 (yanked)
+
+- bump bt-hci to 0.4.0
+
 ## 0.4.0 - 2025-07-15
 
 - bump embassy-sync to 0.7.0

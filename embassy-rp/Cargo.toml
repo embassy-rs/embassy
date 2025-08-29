@@ -1,6 +1,6 @@
 [package]
 name = "embassy-rp"
-version = "0.6.0"
+version = "0.8.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Embassy Hardware Abstraction Layer (HAL) for the Raspberry Pi RP2040 or RP235x microcontroller"
@@ -8,6 +8,17 @@ keywords = ["embedded", "async", "rp235x", "rp2040", "embedded-hal"]
 categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-rp"
+
+[package.metadata.embassy]
+build = [
+    {target = "thumbv6m-none-eabi", features = ["defmt", "rp2040", "time-driver"]},
+    {target = "thumbv6m-none-eabi", features = ["log", "rp2040", "time-driver"]},
+    {target = "thumbv6m-none-eabi", features = ["intrinsics", "rp2040", "time-driver"]},
+    {target = "thumbv6m-none-eabi", features = ["qspi-as-gpio", "rp2040", "time-driver"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "rp235xa", "time-driver"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["log", "rp235xa", "time-driver"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["binary-info", "rp235xa", "time-driver"]},
+]
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-rp-v$VERSION/embassy-rp/src/"
@@ -136,13 +147,13 @@ _test = []
 binary-info = ["rt", "dep:rp-binary-info", "rp-binary-info?/binary-info"]
 
 [dependencies]
-embassy-sync = { version = "0.7.0", path = "../embassy-sync" }
-embassy-time-driver = { version = "0.2", path = "../embassy-time-driver", optional = true }
-embassy-time-queue-utils = { version = "0.1", path = "../embassy-time-queue-utils", optional = true }
-embassy-time = { version = "0.4.0", path = "../embassy-time" }
-embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
+embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
+embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver", optional = true }
+embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils", optional = true }
+embassy-time = { version = "0.5.0", path = "../embassy-time" }
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
-embassy-embedded-hal = { version = "0.3.1", path = "../embassy-embedded-hal" }
+embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal" }
 embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
 atomic-polyfill = "1.0.1"
 defmt = { version = "1.0.1", optional = true }
@@ -177,5 +188,5 @@ rp-binary-info = { version = "0.1.0", optional = true }
 smart-leds = "0.4.0"
 
 [dev-dependencies]
-embassy-executor = { version = "0.7.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }
+embassy-executor = { version = "0.9.0", path = "../embassy-executor", features = ["arch-std", "executor-thread"] }
 static_cell = { version = "2" }
