@@ -431,13 +431,10 @@ pub(crate) unsafe fn init(config: Config) {
     while !RCC.cr().read().hsirdy() {}
 
     #[cfg(stm32h7rs)]
-    let (xspi1sel, xspi2sel) = {
-        // Save XSPI clock source settings and switch the clock source so it will use HSI
-        let xspi1sel = RCC.ahbperckselr().read().xspi1sel();
-        let xspi2sel = RCC.ahbperckselr().read().xspi2sel();
+    {
+        // Switch the XSPI clock source so it will use HSI
         RCC.ahbperckselr().modify(|w| w.set_xspi1sel(Xspisel::HCLK5));
         RCC.ahbperckselr().modify(|w| w.set_xspi2sel(Xspisel::HCLK5));
-        (xspi1sel, xspi2sel)
     };
 
     // Use the HSI clock as system clock during the actual clock setup
@@ -687,13 +684,6 @@ pub(crate) unsafe fn init(config: Config) {
     }
 
     config.mux.init();
-
-    #[cfg(stm32h7rs)]
-    {
-        // Set the XSPI clock source back to what it was originally
-        RCC.ahbperckselr().modify(|w| w.set_xspi1sel(xspi1sel));
-        RCC.ahbperckselr().modify(|w| w.set_xspi2sel(xspi2sel));
-    }
 
     set_clocks!(
         sys: Some(sys),
