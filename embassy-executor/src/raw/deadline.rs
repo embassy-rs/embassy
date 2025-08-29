@@ -62,7 +62,7 @@ impl Deadline {
     pub fn set_current_task_deadline(instant_ticks: u64) -> impl Future<Output = ()> {
         poll_fn(move |cx| {
             let task = super::task_from_waker(cx.waker());
-            task.header().deadline.set(instant_ticks);
+            task.header().metadata.deadline().set(instant_ticks);
             Poll::Ready(())
         })
     }
@@ -87,7 +87,7 @@ impl Deadline {
             // reasons later.
             let deadline = now.saturating_add(duration_ticks);
 
-            task.header().deadline.set(deadline);
+            task.header().metadata.deadline().set(deadline);
 
             Poll::Ready(Deadline::new(deadline))
         })
@@ -109,10 +109,10 @@ impl Deadline {
     #[must_use = "Setting deadline must be polled to be effective"]
     pub fn increment_current_task_deadline(increment_ticks: u64) -> impl Future<Output = Deadline> {
         poll_fn(move |cx| {
-            let task = super::task_from_waker(cx.waker());
+            let task_header = super::task_from_waker(cx.waker()).header();
 
             // Get the last value
-            let last = task.header().deadline.instant_ticks();
+            let last = task_header.metadata.deadline().instant_ticks();
 
             // Since ticks is a u64, saturating add is PROBABLY overly cautious, leave
             // it for now, we can probably make this wrapping_add for performance
@@ -120,7 +120,7 @@ impl Deadline {
             let deadline = last.saturating_add(increment_ticks);
 
             // Store the new value
-            task.header().deadline.set(deadline);
+            task_header.metadata.deadline().set(deadline);
 
             Poll::Ready(Deadline::new(deadline))
         })
@@ -134,7 +134,7 @@ impl Deadline {
         poll_fn(move |cx| {
             let task = super::task_from_waker(cx.waker());
 
-            let deadline = task.header().deadline.instant_ticks();
+            let deadline = task.header().metadata.deadline().instant_ticks();
             Poll::Ready(Self::new(deadline))
         })
     }
@@ -146,12 +146,12 @@ impl Deadline {
     #[must_use = "Clearing deadline must be polled to be effective"]
     pub fn clear_current_task_deadline() -> impl Future<Output = Self> {
         poll_fn(move |cx| {
-            let task = super::task_from_waker(cx.waker());
+            let task_header = super::task_from_waker(cx.waker()).header();
 
             // get the old value
-            let deadline = task.header().deadline.instant_ticks();
+            let deadline = task_header.metadata.deadline().instant_ticks();
             // Store the default value
-            task.header().deadline.set(Self::UNSET_DEADLINE_TICKS);
+            task_header.metadata.deadline().set(Self::UNSET_DEADLINE_TICKS);
 
             Poll::Ready(Self::new(deadline))
         })

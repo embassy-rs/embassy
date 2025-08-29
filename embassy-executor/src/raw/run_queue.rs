@@ -109,7 +109,10 @@ impl RunQueue {
     #[cfg(feature = "edf-scheduler")]
     pub(crate) fn dequeue_all(&self, on_task: impl Fn(TaskRef)) {
         let mut sorted = SortedList::<TaskHeader>::new_with_cmp(|lhs, rhs| {
-            lhs.deadline.instant_ticks().cmp(&rhs.deadline.instant_ticks())
+            lhs.metadata
+                .deadline()
+                .instant_ticks()
+                .cmp(&rhs.metadata.deadline().instant_ticks())
         });
 
         loop {
