@@ -14,6 +14,7 @@
 
 use core::sync::atomic::{compiler_fence, Ordering};
 
+use defmt::unwrap;
 use embassy_executor::raw::Deadline;
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Instant, Timer};
@@ -57,7 +58,7 @@ async fn main(spawner: Spawner) {
 
     // Spawn all of our load workers!
     for i in 0..tasks {
-        spawner.must_spawn(load_task(i, work_time_ticks, time_window));
+        spawner.spawn(unwrap!(load_task(i, work_time_ticks, time_window)));
     }
 
     // Let all the tasks spin up
