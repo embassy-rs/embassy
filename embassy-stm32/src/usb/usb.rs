@@ -912,7 +912,16 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         // Software should ensure that a small delay is included before accessing the SRAM contents. This delay should be
         // 800 ns in Full Speed mode and 6.4 μs in Low Speed mode.
         #[cfg(stm32h5)]
-        embassy_time::block_for(embassy_time::Duration::from_nanos(800));
+        {
+            #[cfg(feature = "time")]
+            embassy_time::block_for(embassy_time::Duration::from_nanos(800));
+            #[cfg(not(feature = "time"))]
+            {
+                let freq = unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 as u64;
+                let cycles = freq * 800 / 1_000_000;
+                cortex_m::asm::delay(cycles as u32);
+            }
+        }
 
         RX_COMPLETE[index].store(false, Ordering::Relaxed);
 
