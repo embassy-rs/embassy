@@ -16,7 +16,6 @@ mod run_queue;
 #[cfg_attr(not(target_has_atomic = "8"), path = "state_critical_section.rs")]
 mod state;
 
-pub mod timer_queue;
 #[cfg(feature = "trace")]
 pub mod trace;
 pub(crate) mod util;
@@ -237,7 +236,7 @@ impl<F: Future + 'static> TaskStorage<F> {
         let mut cx = Context::from_waker(&waker);
         match future.poll(&mut cx) {
             Poll::Ready(_) => {
-                #[cfg(feature = "_any_trace")]
+                #[cfg(feature = "trace")]
                 let exec_ptr: *const SyncExecutor = this.raw.executor.load(Ordering::Relaxed);
 
                 // As the future has finished and this function will not be called
@@ -252,7 +251,7 @@ impl<F: Future + 'static> TaskStorage<F> {
                 // after we're done with it.
                 this.raw.state.despawn();
 
-                #[cfg(feature = "_any_trace")]
+                #[cfg(feature = "trace")]
                 trace::task_end(exec_ptr, &p);
             }
             Poll::Pending => {}
@@ -426,7 +425,7 @@ impl SyncExecutor {
     /// - `task` must NOT be already enqueued (in this executor or another one).
     #[inline(always)]
     unsafe fn enqueue(&self, task: TaskRef, l: state::Token) {
-        #[cfg(feature = "_any_trace")]
+        #[cfg(feature = "trace")]
         trace::task_ready_begin(self, &task);
 
         if self.run_queue.enqueue(task, l) {
@@ -439,7 +438,7 @@ impl SyncExecutor {
             .executor
             .store((self as *const Self).cast_mut(), Ordering::Relaxed);
 
-        #[cfg(feature = "_any_trace")]
+        #[cfg(feature = "trace")]
         trace::task_new(self, &task);
 
         state::locked(|l| {
@@ -451,23 +450,23 @@ impl SyncExecutor {
     ///
     /// Same as [`Executor::poll`], plus you must only call this on the thread this executor was created.
     pub(crate) unsafe fn poll(&'static self) {
-        #[cfg(feature = "_any_trace")]
+        #[cfg(feature = "trace")]
         trace::poll_start(self);
 
         self.run_queue.dequeue_all(|p| {
             let task = p.header();
 
-            #[cfg(feature = "_any_trace")]
+            #[cfg(feature = "trace")]
             trace::task_exec_begin(self, &p);
 
             // Run the task
             task.poll_fn.get().unwrap_unchecked()(p);
 
-            #[cfg(feature = "_any_trace")]
+            #[cfg(feature = "trace")]
             trace::task_exec_end(self, &p);
         });
 
-        #[cfg(feature = "_any_trace")]
+        #[cfg(feature = "trace")]
         trace::executor_idle(self)
     }
 }
