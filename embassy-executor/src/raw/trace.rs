@@ -246,7 +246,10 @@ pub(crate) fn task_new(executor: &SyncExecutor, task: &TaskRef) {
     #[cfg(feature = "rtos-trace")]
     {
         rtos_trace::trace::task_new(task.as_ptr() as u32);
-        let name = task.name().unwrap_or("unnamed task\0");
+        #[cfg(feature = "metadata-name")]
+        let name = task.metadata().name().unwrap_or("unnamed task\0");
+        #[cfg(not(feature = "metadata-name"))]
+        let name = "unnamed task\0";
         let info = rtos_trace::TaskInfo {
             name,
             priority: 0,
@@ -358,7 +361,10 @@ impl rtos_trace::RtosTraceOSCallbacks for crate::raw::SyncExecutor {
     fn task_list() {
         with_all_active_tasks(|task| {
             let info = rtos_trace::TaskInfo {
+                #[cfg(feature = "metadata-name")]
                 name: task.metadata().name().unwrap_or("unnamed task\0"),
+                #[cfg(not(feature = "metadata-name"))]
+                name: "unnamed task\0",
                 priority: 0,
                 stack_base: 0,
                 stack_size: 0,

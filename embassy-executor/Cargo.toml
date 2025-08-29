@@ -121,9 +121,10 @@ executor-thread = []
 ## Enable the interrupt-mode executor (available in Cortex-M only)
 executor-interrupt = []
 ## Enable tracing hooks
-trace = []
+trace = ["_any_trace"]
 ## Enable support for rtos-trace framework
-rtos-trace = ["dep:rtos-trace", "trace", "dep:embassy-time-driver"]
+rtos-trace = ["_any_trace", "dep:rtos-trace", "dep:embassy-time-driver"]
+_any_trace = []
 
 #! ### Timer Item Payload Size
 #! Sets the size of the payload for timer items, allowing integrated timer implementors to store
