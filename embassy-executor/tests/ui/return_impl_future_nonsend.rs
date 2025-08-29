@@ -15,7 +15,7 @@ fn task() -> impl Future<Output = ()> {
 }
 
 fn send_spawn(s: SendSpawner) {
-    s.spawn(task()).unwrap();
+    s.spawn(task().unwrap());
 }
 
 fn main() {}

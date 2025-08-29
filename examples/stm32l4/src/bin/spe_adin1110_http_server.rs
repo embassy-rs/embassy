@@ -181,11 +181,11 @@ async fn main(spawner: Spawner) {
     .await;
 
     // Start task blink_led
-    unwrap!(spawner.spawn(heartbeat_led(led_uc3_yellow)));
+    spawner.spawn(unwrap!(heartbeat_led(led_uc3_yellow)));
     // Start task temperature measurement
-    unwrap!(spawner.spawn(temp_task(temp_sens_i2c, led_uc4_blue)));
+    spawner.spawn(unwrap!(temp_task(temp_sens_i2c, led_uc4_blue)));
     // Start ethernet task
-    unwrap!(spawner.spawn(ethernet_task(runner)));
+    spawner.spawn(unwrap!(ethernet_task(runner)));
 
     let mut rng = Rng::new(dp.RNG, Irqs);
     // Generate random seed
@@ -208,7 +208,7 @@ async fn main(spawner: Spawner) {
     let (stack, runner) = embassy_net::new(device, ip_cfg, RESOURCES.init(StackResources::new()), seed);
 
     // Launch network task
-    unwrap!(spawner.spawn(net_task(runner)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     let cfg = wait_for_config(stack).await;
     let local_addr = cfg.address.address();

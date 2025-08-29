@@ -40,7 +40,7 @@ bind_interrupts!(struct Irqs {
 async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
 
-    unwrap!(spawner.spawn(blinky(p.PB1)));
+    spawner.spawn(unwrap!(blinky(p.PB1)));
     // Connect PA8 and PA6 with a 1k Ohm resistor
     let ch1_pin = PwmPin::new(p.PA8, OutputType::PushPull);
     let mut pwm = SimplePwm::new(p.TIM1, Some(ch1_pin), None, None, None, khz(1), Default::default());

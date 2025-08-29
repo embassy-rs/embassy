@@ -10,7 +10,7 @@ async fn task(non_send: *mut ()) {
 }
 
 fn send_spawn(s: SendSpawner) {
-    s.spawn(task(core::ptr::null_mut())).unwrap();
+    s.spawn(task(core::ptr::null_mut()).unwrap());
 }
 
 fn main() {}

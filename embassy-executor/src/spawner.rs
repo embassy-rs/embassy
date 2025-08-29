@@ -5,8 +5,7 @@ use core::sync::atomic::Ordering;
 use core::task::Poll;
 
 use super::raw;
-#[cfg(feature = "trace")]
-use crate::raw::trace::TaskRefTrace;
+use crate::Metadata;
 
 /// Token to spawn a newly-created task in an executor.
 ///
@@ -24,33 +23,28 @@ use crate::raw::trace::TaskRefTrace;
 /// Once you've invoked a task function and obtained a SpawnToken, you *must* spawn it.
 #[must_use = "Calling a task function does nothing on its own. You must spawn the returned SpawnToken, typically with Spawner::spawn()"]
 pub struct SpawnToken<S> {
-    pub(crate) raw_task: Option<raw::TaskRef>,
+    pub(crate) raw_task: raw::TaskRef,
     phantom: PhantomData<*mut S>,
 }
 
 impl<S> SpawnToken<S> {
     pub(crate) unsafe fn new(raw_task: raw::TaskRef) -> Self {
         Self {
-            raw_task: Some(raw_task),
+            raw_task,
             phantom: PhantomData,
         }
     }
 
-    /// Returns the task id if available, otherwise 0
-    /// This can be used in combination with rtos-trace to match task names with id's
+    /// Returns the task ID.
+    /// This can be used in combination with rtos-trace to match task names with IDs
     pub fn id(&self) -> u32 {
-        match self.raw_task {
-            None => 0,
-            Some(t) => t.as_ptr() as u32,
-        }
+        self.raw_task.id()
     }
 
-    /// Return a SpawnToken that represents a failed spawn.
-    pub fn new_failed() -> Self {
-        Self {
-            raw_task: None,
-            phantom: PhantomData,
-        }
+    /// Get the metadata for this task. You can use this to set metadata fields
+    /// prior to spawning it.
+    pub fn metadata(&self) -> &Metadata {
+        self.raw_task.metadata()
     }
 }
 
@@ -159,30 +153,10 @@ impl Spawner {
     /// Spawn a task into an executor.
     ///
     /// You obtain the `token` by calling a task function (i.e. one marked with `#[embassy_executor::task]`).
-    pub fn spawn<S>(&self, token: SpawnToken<S>) -> Result<(), SpawnError> {
+    pub fn spawn<S>(&self, token: SpawnToken<S>) {
         let task = token.raw_task;
         mem::forget(token);
-
-        match task {
-            Some(task) => {
-                unsafe { self.executor.spawn(task) };
-                Ok(())
-            }
-            None => Err(SpawnError::Busy),
-        }
-    }
-
-    // Used by the `embassy_executor_macros::main!` macro to throw an error when spawn
-    // fails. This is here to allow conditional use of `defmt::unwrap!`
-    // without introducing a `defmt` feature in the `embassy_executor_macros` package,
-    // which would require use of `-Z namespaced-features`.
-    /// Spawn a task into an executor, panicking on failure.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the spawning fails.
-    pub fn must_spawn<S>(&self, token: SpawnToken<S>) {
-        unwrap!(self.spawn(token));
+        unsafe { self.executor.spawn(task) }
     }
 
     /// Convert this Spawner to a SendSpawner. This allows you to send the
@@ -195,53 +169,6 @@ impl Spawner {
     /// Return the unique ID of this Spawner's Executor.
     pub fn executor_id(&self) -> usize {
         self.executor.id()
-    }
-}
-
-/// Extension trait adding tracing capabilities to the Spawner
-///
-/// This trait provides an additional method to spawn tasks with an associated name,
-/// which can be useful for debugging and tracing purposes.
-pub trait SpawnerTraceExt {
-    /// Spawns a new task with a specified name.
-    ///
-    /// # Arguments
-    /// * `name` - Static string name to associate with the task
-    /// * `token` - Token representing the task to spawn
-    ///
-    /// # Returns
-    /// Result indicating whether the spawn was successful
-    fn spawn_named<S>(&self, name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError>;
-}
-
-/// Implementation of the SpawnerTraceExt trait for Spawner when trace is enabled
-#[cfg(feature = "trace")]
-impl SpawnerTraceExt for Spawner {
-    fn spawn_named<S>(&self, name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError> {
-        let task = token.raw_task;
-        core::mem::forget(token);
-
-        match task {
-            Some(task) => {
-                // Set the name and ID when trace is enabled
-                task.set_name(Some(name));
-                let task_id = task.as_ptr() as u32;
-                task.set_id(task_id);
-
-                unsafe { self.executor.spawn(task) };
-                Ok(())
-            }
-            None => Err(SpawnError::Busy),
-        }
-    }
-}
-
-/// Implementation of the SpawnerTraceExt trait for Spawner when trace is disabled
-#[cfg(not(feature = "trace"))]
-impl SpawnerTraceExt for Spawner {
-    fn spawn_named<S>(&self, _name: &'static str, token: SpawnToken<S>) -> Result<(), SpawnError> {
-        // When trace is disabled, just forward to regular spawn and ignore the name
-        self.spawn(token)
     }
 }
 
@@ -287,25 +214,9 @@ impl SendSpawner {
     /// Spawn a task into an executor.
     ///
     /// You obtain the `token` by calling a task function (i.e. one marked with `#[embassy_executor::task]`).
-    pub fn spawn<S: Send>(&self, token: SpawnToken<S>) -> Result<(), SpawnError> {
+    pub fn spawn<S: Send>(&self, token: SpawnToken<S>) {
         let header = token.raw_task;
         mem::forget(token);
-
-        match header {
-            Some(header) => {
-                unsafe { self.executor.spawn(header) };
-                Ok(())
-            }
-            None => Err(SpawnError::Busy),
-        }
-    }
-
-    /// Spawn a task into an executor, panicking on failure.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the spawning fails.
-    pub fn must_spawn<S: Send>(&self, token: SpawnToken<S>) {
-        unwrap!(self.spawn(token));
+        unsafe { self.executor.spawn(header) }
     }
 }

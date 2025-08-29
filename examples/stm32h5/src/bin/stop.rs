@@ -18,7 +18,7 @@ use {defmt_rtt as _, panic_probe as _};
 #[cortex_m_rt::entry]
 fn main() -> ! {
     Executor::take().run(|spawner| {
-        unwrap!(spawner.spawn(async_main(spawner)));
+        spawner.spawn(unwrap!(async_main(spawner)));
     })
 }
 
@@ -43,8 +43,8 @@ async fn async_main(spawner: Spawner) {
     let rtc = RTC.init(rtc);
     embassy_stm32::low_power::stop_with_rtc(rtc);
 
-    unwrap!(spawner.spawn(blinky(p.PB4.into())));
-    unwrap!(spawner.spawn(timeout()));
+    spawner.spawn(unwrap!(blinky(p.PB4.into())));
+    spawner.spawn(unwrap!(timeout()));
 }
 
 #[embassy_executor::task]

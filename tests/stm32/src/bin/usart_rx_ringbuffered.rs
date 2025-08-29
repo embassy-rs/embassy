@@ -46,8 +46,8 @@ async fn main(spawner: Spawner) {
     let rx = rx.into_ring_buffered(unsafe { &mut *core::ptr::addr_of_mut!(DMA_BUF) });
 
     info!("Spawning tasks");
-    spawner.spawn(transmit_task(tx)).unwrap();
-    spawner.spawn(receive_task(rx)).unwrap();
+    spawner.spawn(transmit_task(tx).unwrap());
+    spawner.spawn(receive_task(rx).unwrap());
 }
 
 #[embassy_executor::task]
