@@ -118,6 +118,8 @@ arch-spin = ["_arch"]
 
 ## Enable the `name` field in task metadata.
 metadata-name = []
+## Enable the `deadline` field in task metadata.
+metadata-deadline = []
 
 #! ### Executor
 
@@ -133,7 +135,7 @@ _any_trace = []
 
 ## Enable "Earliest Deadline First" Scheduler, using soft-realtime "deadlines" to prioritize
 ## tasks based on the remaining time before their deadline. Adds some overhead.
-edf-scheduler = ["dep:embassy-time-driver"]
+edf-scheduler = ["dep:embassy-time-driver", "metadata-deadline"]
 
 #! ### Timer Item Payload Size
 #! Sets the size of the payload for timer items, allowing integrated timer implementors to store

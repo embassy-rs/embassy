@@ -12,6 +12,8 @@ use crate::raw;
 pub struct Metadata {
     #[cfg(feature = "metadata-name")]
     name: Mutex<Cell<Option<&'static str>>>,
+    #[cfg(feature = "metadata-deadline")]
+    deadline: raw::Deadline,
 }
 
 impl Metadata {
@@ -19,6 +21,10 @@ impl Metadata {
         Self {
             #[cfg(feature = "metadata-name")]
             name: Mutex::new(Cell::new(None)),
+            // NOTE: The deadline is set to zero to allow the initializer to reside in `.bss`. This
+            // will be lazily initalized in `initialize_impl`
+            #[cfg(feature = "metadata-deadline")]
+            deadline: raw::Deadline::new_unset(),
         }
     }
 
@@ -51,5 +57,12 @@ impl Metadata {
     #[cfg(feature = "metadata-name")]
     pub fn set_name(&self, name: &'static str) {
         critical_section::with(|cs| self.name.borrow(cs).set(Some(name)))
+    }
+
+    /// Earliest Deadline First scheduler Deadline. This field should not be accessed
+    /// outside the context of the task itself as it being polled by the executor.
+    #[cfg(feature = "metadata-deadline")]
+    pub fn deadline(&self) -> &raw::Deadline {
+        &self.deadline
     }
 }
