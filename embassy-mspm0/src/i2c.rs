@@ -56,19 +56,6 @@ pub enum ClockDiv {
 }
 
 impl ClockDiv {
-    fn into(self) -> vals::Ratio {
-        match self {
-            Self::DivBy1 => vals::Ratio::DIV_BY_1,
-            Self::DivBy2 => vals::Ratio::DIV_BY_2,
-            Self::DivBy3 => vals::Ratio::DIV_BY_3,
-            Self::DivBy4 => vals::Ratio::DIV_BY_4,
-            Self::DivBy5 => vals::Ratio::DIV_BY_5,
-            Self::DivBy6 => vals::Ratio::DIV_BY_6,
-            Self::DivBy7 => vals::Ratio::DIV_BY_7,
-            Self::DivBy8 => vals::Ratio::DIV_BY_8,
-        }
-    }
-
     fn divider(self) -> u32 {
         match self {
             Self::DivBy1 => 1,
@@ -79,6 +66,21 @@ impl ClockDiv {
             Self::DivBy6 => 6,
             Self::DivBy7 => 7,
             Self::DivBy8 => 8,
+        }
+    }
+}
+
+impl From<ClockDiv> for vals::Ratio {
+    fn from(value: ClockDiv) -> Self {
+        match value {
+            ClockDiv::DivBy1 => Self::DIV_BY_1,
+            ClockDiv::DivBy2 => Self::DIV_BY_2,
+            ClockDiv::DivBy3 => Self::DIV_BY_3,
+            ClockDiv::DivBy4 => Self::DIV_BY_4,
+            ClockDiv::DivBy5 => Self::DIV_BY_5,
+            ClockDiv::DivBy6 => Self::DIV_BY_6,
+            ClockDiv::DivBy7 => Self::DIV_BY_7,
+            ClockDiv::DivBy8 => Self::DIV_BY_8,
         }
     }
 }
@@ -133,6 +135,11 @@ pub enum ConfigError {
     ///
     /// The clock soure is not enabled is SYSCTL.
     ClockSourceNotEnabled,
+
+    /// Invalid target address.
+    ///
+    /// The target address is not 7-bit.
+    InvalidTargetAddress,
 }
 
 #[non_exhaustive]
@@ -140,7 +147,7 @@ pub enum ConfigError {
 /// Config
 pub struct Config {
     /// I2C clock source.
-    clock_source: ClockSel,
+    pub(crate) clock_source: ClockSel,
 
     /// I2C clock divider.
     pub clock_div: ClockDiv,
@@ -159,6 +166,12 @@ pub struct Config {
 
     /// Set the pull configuration for the SCL pin.
     pub bus_speed: BusSpeed,
+
+    /// 7-bit Target Address
+    pub target_addr: u8,
+
+    /// Control if the target should ack to and report general calls.
+    pub general_call: bool,
 }
 
 impl Default for Config {
@@ -171,6 +184,8 @@ impl Default for Config {
             sda_pull: Pull::None,
             scl_pull: Pull::None,
             bus_speed: BusSpeed::Standard,
+            target_addr: 0x48,
+            general_call: false,
         }
     }
 }
@@ -209,7 +224,7 @@ impl Config {
         mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x, mspm0h321x, mspm0l110x, mspm0l122x,
         mspm0l130x, mspm0l134x, mspm0l222x
     ))]
-    fn calculate_clock_source(&self) -> u32 {
+    pub(crate) fn calculate_clock_source(&self) -> u32 {
         // Assume that BusClk has default value.
         // TODO: calculate BusClk more precisely.
         match self.clock_source {
