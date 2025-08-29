@@ -3,6 +3,7 @@ edition = "2021"
 name = "embassy-nrf52840-edf-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
+publish = false
 
 [dependencies]
 # NOTE: "edf-scheduler" feature is enabled
@@ -19,3 +20,8 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 
 [profile.release]
 debug = 2
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7em-none-eabi", artifact-dir = "out/examples/nrf52840-edf" }
+]
