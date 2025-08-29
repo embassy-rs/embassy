@@ -26,7 +26,7 @@ pub(crate) mod util;
 #[cfg_attr(feature = "turbowakers", path = "waker_turbo.rs")]
 mod waker;
 
-#[cfg(feature = "edf-scheduler")]
+#[cfg(feature = "metadata-deadline")]
 mod deadline;
 
 use core::future::Future;
@@ -43,7 +43,7 @@ use embassy_executor_timer_queue::TimerQueueItem;
 #[cfg(feature = "arch-avr")]
 use portable_atomic::AtomicPtr;
 
-#[cfg(feature = "edf-scheduler")]
+#[cfg(feature = "metadata-deadline")]
 pub use deadline::Deadline;
 #[cfg(feature = "arch-avr")]
 use portable_atomic::AtomicPtr;
@@ -102,11 +102,6 @@ extern "Rust" fn __embassy_time_queue_item_from_waker(waker: &Waker) -> &'static
 pub(crate) struct TaskHeader {
     pub(crate) state: State,
     pub(crate) run_queue_item: RunQueueItem,
-
-    /// Earliest Deadline First scheduler Deadline. This field should not be accessed
-    /// outside the context of the task itself as it being polled by the executor.
-    #[cfg(feature = "edf-scheduler")]
-    pub(crate) deadline: Deadline,
 
     pub(crate) executor: AtomicPtr<SyncExecutor>,
     poll_fn: SyncUnsafeCell<Option<unsafe fn(TaskRef)>>,
@@ -212,10 +207,6 @@ impl<F: Future + 'static> TaskStorage<F> {
             raw: TaskHeader {
                 state: State::new(),
                 run_queue_item: RunQueueItem::new(),
-                // NOTE: The deadline is set to zero to allow the initializer to reside in `.bss`. This
-                // will be lazily initalized in `initialize_impl`
-                #[cfg(feature = "edf-scheduler")]
-                deadline: Deadline::new_unset(),
                 executor: AtomicPtr::new(core::ptr::null_mut()),
                 // Note: this is lazily initialized so that a static `TaskStorage` will go in `.bss`
                 poll_fn: SyncUnsafeCell::new(None),
@@ -315,7 +306,11 @@ impl<F: Future + 'static> AvailableTask<F> {
             // By default, deadlines are set to the maximum value, so that any task WITH
             // a set deadline will ALWAYS be scheduled BEFORE a task WITHOUT a set deadline
             #[cfg(feature = "edf-scheduler")]
-            self.task.raw.deadline.set(deadline::Deadline::UNSET_DEADLINE_TICKS);
+            self.task
+                .raw
+                .metadata
+                .deadline()
+                .set(deadline::Deadline::UNSET_DEADLINE_TICKS);
 
             let task = TaskRef::new(self.task);
 
