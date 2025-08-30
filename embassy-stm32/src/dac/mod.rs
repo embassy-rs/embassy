@@ -12,6 +12,7 @@ use crate::{peripherals, Peri};
 
 mod tsel;
 use embassy_hal_internal::PeripheralType;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 pub use tsel::TriggerSel;
 
 /// Operating mode for DAC channel
@@ -96,6 +97,41 @@ pub enum ValueArray<'a> {
     Bit12Right(&'a [u16]),
 }
 
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+enum ChannelEvent {
+    Enable,
+    Disable,
+}
+
+struct InnerState {
+    channel_count: usize,
+}
+
+type SharedState = embassy_sync::blocking_mutex::Mutex<CriticalSectionRawMutex, core::cell::RefCell<InnerState>>;
+struct State {
+    state: SharedState,
+}
+
+impl State {
+    /// Adjusts the channel count in response to a `ChannelEvent`, returning the updated value.
+    pub fn adjust_channel_count(&self, event: ChannelEvent) -> usize {
+        self.state.lock(|state| {
+            {
+                let mut mut_state = state.borrow_mut();
+                match event {
+                    ChannelEvent::Enable => {
+                        mut_state.channel_count += 1;
+                    }
+                    ChannelEvent::Disable => {
+                        mut_state.channel_count -= 1;
+                    }
+                };
+            }
+            state.borrow().channel_count
+        })
+    }
+}
 /// Driver for a single DAC channel.
 ///
 /// If you want to use both channels, either together or independently,
@@ -249,6 +285,16 @@ impl<'d, T: Instance, C: Channel, M: PeriMode> DacChannel<'d, T, C, M> {
                 reg.set_en(C::IDX, on);
             });
         });
+        let event = if on {
+            ChannelEvent::Enable
+        } else {
+            ChannelEvent::Disable
+        };
+        let channel_count = T::state().adjust_channel_count(event);
+        // Disable the DAC only if no more channels are using it.
+        if channel_count == 0 {
+            rcc::disable::<T>();
+        }
     }
 
     /// Enable this channel.
@@ -354,7 +400,7 @@ impl<'d, T: Instance, C: Channel, M: PeriMode> DacChannel<'d, T, C, M> {
 
 impl<'d, T: Instance, C: Channel, M: PeriMode> Drop for DacChannel<'d, T, C, M> {
     fn drop(&mut self) {
-        rcc::disable::<T>();
+        self.disable();
     }
 }
 
@@ -597,6 +643,13 @@ impl<'d, T: Instance, M: PeriMode> Dac<'d, T, M> {
 
 trait SealedInstance {
     fn regs() -> crate::pac::dac::Dac;
+
+    fn state() -> &'static State {
+        static STATE: State = State {
+            state: embassy_sync::blocking_mutex::Mutex::new(core::cell::RefCell::new(InnerState { channel_count: 0 })),
+        };
+        &STATE
+    }
 }
 
 /// DAC instance.
