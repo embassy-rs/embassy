@@ -31,6 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `peek` method on `channel` and `priority_channel`.
 - Add dynamic sender and receiver that are Send + Sync for `channel`.
 
+- AtomicWaker now drops the Waker after waking it.
+- Added `AtomicWaker::take`.
+
 ## 0.6.2 - 2025-01-15
 
 - Add dynamic dispatch variant of `Pipe`.
