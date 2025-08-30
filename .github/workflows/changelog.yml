@@ -161,9 +161,9 @@ jobs:
         if: steps.changes.outputs.embassy-executor-macros == 'true'
         uses: dangoslen/changelog-enforcer@v3
         with:
-          changeLogPath: embassy-executor-macros/CHANGELOG.md
+          changeLogPath: embassy-executor/CHANGELOG.md
           skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-executor-macros/CHANGELOG.md file."
+          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-executor/CHANGELOG.md file."
       - name: Check that changelog updated (embassy-executor-timer-queue)
         if: steps.changes.outputs.embassy-executor-timer-queue == 'true'
         uses: dangoslen/changelog-enforcer@v3
