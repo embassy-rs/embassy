@@ -51,7 +51,7 @@ features = ["defmt", "arch-cortex-m", "executor-thread", "executor-interrupt"]
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
-rtos-trace = { version = "0.1.3", optional = true }
+rtos-trace = { version = "0.2", optional = true }
 
 embassy-executor-macros = { version = "0.7.0", path = "../embassy-executor-macros" }
 embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver", optional = true }
