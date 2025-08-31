@@ -182,7 +182,7 @@ pub enum SyncInput {
     /// Syncs with the other A/B sub-block within the SAI unit
     Internal,
     /// Syncs with a sub-block in the other SAI unit
-    #[cfg(any(sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+    #[cfg(any(sai_v3, sai_v4))]
     External(SyncInputInstance),
 }
 
@@ -191,14 +191,14 @@ impl SyncInput {
         match self {
             SyncInput::None => vals::Syncen::ASYNCHRONOUS,
             SyncInput::Internal => vals::Syncen::INTERNAL,
-            #[cfg(any(sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+            #[cfg(any(sai_v3, sai_v4))]
             SyncInput::External(_) => vals::Syncen::EXTERNAL,
         }
     }
 }
 
 /// SAI instance to sync from.
-#[cfg(any(sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+#[cfg(any(sai_v3, sai_v4))]
 #[derive(Copy, Clone, PartialEq)]
 #[allow(missing_docs)]
 pub enum SyncInputInstance {
@@ -500,7 +500,7 @@ fn update_synchronous_config(config: &mut Config) {
         config.sync_input = SyncInput::Internal;
     }
 
-    #[cfg(any(sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+    #[cfg(any(sai_v3, sai_v4))]
     {
         //this must either be Internal or External
         //The asynchronous sub-block on the same SAI needs to enable sync_output
@@ -645,7 +645,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
 
         ch.cr2().modify(|w| w.set_fflush(true));
 
-        #[cfg(any(sai_v3_2pdm, sai_v3_4pdm, sai_v4_2pdm, sai_v4_4pdm))]
+        #[cfg(any(sai_v3, sai_v4))]
         {
             if let SyncInput::External(i) = config.sync_input {
                 T::REGS.gcr().modify(|w| {

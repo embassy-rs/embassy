@@ -16,6 +16,27 @@ use stm32_metapac::metadata::{
 #[path = "./build_common.rs"]
 mod common;
 
+/// Helper function to handle peripheral versions with underscores.
+/// For a version like "v1_foo_bar", this generates all prefix combinations:
+/// - "kind_v1"
+/// - "kind_v1_foo"
+/// - "kind_v1_foo_bar"
+fn foreach_version_cfg(
+    cfgs: &mut common::CfgSet,
+    kind: &str,
+    version: &str,
+    mut cfg_fn: impl FnMut(&mut common::CfgSet, &str),
+) {
+    let parts: Vec<&str> = version.split('_').collect();
+
+    // Generate all possible prefix combinations
+    for i in 1..=parts.len() {
+        let partial_version = parts[0..i].join("_");
+        let cfg_name = format!("{}_{}", kind, partial_version);
+        cfg_fn(cfgs, &cfg_name);
+    }
+}
+
 fn main() {
     let mut cfgs = common::CfgSet::new();
     common::set_target_cfgs(&mut cfgs);
@@ -38,14 +59,18 @@ fn main() {
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
             cfgs.enable(r.kind);
-            cfgs.enable(format!("{}_{}", r.kind, r.version));
+            foreach_version_cfg(&mut cfgs, r.kind, r.version, |cfgs, cfg_name| {
+                cfgs.enable(cfg_name);
+            });
         }
     }
 
     for &(kind, versions) in ALL_PERIPHERAL_VERSIONS.iter() {
         cfgs.declare(kind);
         for &version in versions.iter() {
-            cfgs.declare(format!("{}_{}", kind, version));
+            foreach_version_cfg(&mut cfgs, kind, version, |cfgs, cfg_name| {
+                cfgs.declare(cfg_name);
+            });
         }
     }
 
