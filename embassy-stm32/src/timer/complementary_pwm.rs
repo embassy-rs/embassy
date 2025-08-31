@@ -7,11 +7,12 @@ use super::simple_pwm::PwmPin;
 use super::{AdvancedInstance4Channel, Ch1, Ch2, Ch3, Ch4, Channel, TimerComplementaryPin};
 use crate::Peri;
 use crate::dma::word::Word;
-use crate::gpio::{AnyPin, OutputType};
+use crate::gpio::{AfType, AnyPin, OutputType};
 pub use crate::pac::timer::vals::{Ccds, Ckd, Mms2, Ossi, Ossr};
 use crate::time::Hertz;
 use crate::timer::TimerChannel;
 use crate::timer::low_level::OutputCompareMode;
+use crate::timer::simple_pwm::PwmPinConfig;
 
 /// Complementary PWM pin wrapper.
 ///
@@ -27,9 +28,27 @@ impl<'d, T: AdvancedInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(
     pub fn new(pin: Peri<'d, if_afio!(impl TimerComplementaryPin<T, C, A>)>, output_type: OutputType) -> Self {
         critical_section::with(|_| {
             pin.set_low();
-            set_as_af!(
-                pin,
-                crate::gpio::AfType::output(output_type, crate::gpio::Speed::VeryHigh)
+            set_as_af!(pin, AfType::output(output_type, crate::gpio::Speed::VeryHigh));
+        });
+        ComplementaryPwmPin {
+            pin: pin.into(),
+            phantom: PhantomData,
+        }
+    }
+
+    /// Create a new PWM pin instance with config.
+    pub fn new_with_config(
+        pin: Peri<'d, if_afio!(impl TimerComplementaryPin<T, C, A>)>,
+        pin_config: PwmPinConfig,
+    ) -> Self {
+        critical_section::with(|_| {
+            pin.set_low();
+            #[cfg(gpio_v1)]
+            set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
+            #[cfg(gpio_v2)]
+            pin.set_as_af(
+                pin.af_num(),
+                AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull),
             );
         });
         ComplementaryPwmPin {
