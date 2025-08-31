@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added new metadata API for tasks
 - Named main task when rtos-trace feature is enabled.
 - Upgraded rtos-trace
+
+## 0.9.1 - 2025-08-31
+
 - Fixed performance regression on some ESP32 MCUs.
 
 ## 0.9.0 - 2025-08-26
