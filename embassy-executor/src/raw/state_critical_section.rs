@@ -3,13 +3,18 @@ use core::cell::Cell;
 pub(crate) use critical_section::{with as locked, CriticalSection as Token};
 use critical_section::{CriticalSection, Mutex};
 
+#[cfg(target_arch = "avr")]
+type StateBits = u8;
+#[cfg(not(target_arch = "avr"))]
+type StateBits = usize;
+
 /// Task is spawned (has a future)
-pub(crate) const STATE_SPAWNED: u8 = 1 << 0;
+pub(crate) const STATE_SPAWNED: StateBits = 1 << 0;
 /// Task is in the executor run queue
-pub(crate) const STATE_RUN_QUEUED: u8 = 1 << 1;
+pub(crate) const STATE_RUN_QUEUED: StateBits = 1 << 1;
 
 pub(crate) struct State {
-    state: Mutex<Cell<u8>>,
+    state: Mutex<Cell<StateBits>>,
 }
 
 impl State {
@@ -19,11 +24,11 @@ impl State {
         }
     }
 
-    fn update<R>(&self, f: impl FnOnce(&mut u8) -> R) -> R {
+    fn update<R>(&self, f: impl FnOnce(&mut StateBits) -> R) -> R {
         critical_section::with(|cs| self.update_with_cs(cs, f))
     }
 
-    fn update_with_cs<R>(&self, cs: CriticalSection<'_>, f: impl FnOnce(&mut u8) -> R) -> R {
+    fn update_with_cs<R>(&self, cs: CriticalSection<'_>, f: impl FnOnce(&mut StateBits) -> R) -> R {
         let s = self.state.borrow(cs);
         let mut val = s.get();
         let r = f(&mut val);
