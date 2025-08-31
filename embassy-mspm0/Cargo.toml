@@ -52,7 +52,7 @@ embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-ut
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
 embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal", default-features = false }
-embassy-executor = { version = "0.9.0", path = "../embassy-executor", optional = true }
+embassy-executor = { version = "0.9.1", path = "../embassy-executor", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal = { version = "1.0" }
