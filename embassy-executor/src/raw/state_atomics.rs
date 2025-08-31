@@ -1,4 +1,15 @@
-use core::sync::atomic::{AtomicU8, Ordering};
+// Prefer pointer-width atomic operations, as narrower ones may be slower.
+#[cfg(all(target_pointer_width = "32", target_has_atomic = "32"))]
+type AtomicState = core::sync::atomic::AtomicU32;
+#[cfg(not(all(target_pointer_width = "32", target_has_atomic = "32")))]
+type AtomicState = core::sync::atomic::AtomicU8;
+
+#[cfg(all(target_pointer_width = "32", target_has_atomic = "32"))]
+type StateBits = u32;
+#[cfg(not(all(target_pointer_width = "32", target_has_atomic = "32")))]
+type StateBits = u8;
+
+use core::sync::atomic::Ordering;
 
 #[derive(Clone, Copy)]
 pub(crate) struct Token(());
@@ -11,18 +22,18 @@ pub(crate) fn locked<R>(f: impl FnOnce(Token) -> R) -> R {
 }
 
 /// Task is spawned (has a future)
-pub(crate) const STATE_SPAWNED: u8 = 1 << 0;
+pub(crate) const STATE_SPAWNED: StateBits = 1 << 0;
 /// Task is in the executor run queue
-pub(crate) const STATE_RUN_QUEUED: u8 = 1 << 1;
+pub(crate) const STATE_RUN_QUEUED: StateBits = 1 << 1;
 
 pub(crate) struct State {
-    state: AtomicU8,
+    state: AtomicState,
 }
 
 impl State {
     pub const fn new() -> State {
         Self {
-            state: AtomicU8::new(0),
+            state: AtomicState::new(0),
         }
     }
 
