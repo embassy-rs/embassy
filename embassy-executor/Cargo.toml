@@ -24,6 +24,7 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-thread"]},
     {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt"]},
     {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "edf-scheduler"]},
     {target = "armv7a-none-eabi", features = ["arch-cortex-ar", "executor-thread"]},
     {target = "armv7r-none-eabi", features = ["arch-cortex-ar", "executor-thread"]},
     {target = "armv7r-none-eabihf", features = ["arch-cortex-ar", "executor-thread"]},
