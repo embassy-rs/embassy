@@ -334,9 +334,43 @@ impl<'d> Can<'d> {
         TxMode::write(&self.info, frame).await
     }
 
+    /// Blocking write frame.
+    ///
+    /// If the TX queue is full, this will wait until there is space.
+    pub fn blocking_write(&mut self, frame: &Frame) -> Option<Frame> {
+        loop {
+            match self.info.regs.write(frame) {
+                Ok(dropped) => return dropped,
+                Err(nb::Error::WouldBlock) => continue,
+                Err(nb::Error::Other(_)) => unreachable!(), // Infallible
+            }
+        }
+    }
+
     /// Returns the next received message frame
     pub async fn read(&mut self) -> Result<Envelope, BusError> {
         RxMode::read_classic(&self.info).await
+    }
+
+    /// Blocking read frame.
+    ///
+    /// If no CAN frame is in the RX buffer, this will wait until there is one.
+    pub fn blocking_read(&mut self) -> Result<Envelope, BusError> {
+        let ns_per_timer_tick = self.info.state.lock(|s| s.borrow().ns_per_timer_tick);
+
+        loop {
+            if let Some(result) = self.info.regs.read::<Frame>(0) {
+                let ts = self.info.regs.calc_timestamp(ns_per_timer_tick, result.1);
+                return Ok(Envelope { ts, frame: result.0 });
+            }
+            if let Some(result) = self.info.regs.read::<Frame>(1) {
+                let ts = self.info.regs.calc_timestamp(ns_per_timer_tick, result.1);
+                return Ok(Envelope { ts, frame: result.0 });
+            }
+            if let Some(err) = self.info.regs.curr_error() {
+                return Err(err);
+            }
+        }
     }
 
     /// Queues the message to be sent but exerts backpressure.  If a lower-priority
@@ -347,9 +381,43 @@ impl<'d> Can<'d> {
         TxMode::write_fd(&self.info, frame).await
     }
 
+    /// Blocking write FD frame.
+    ///
+    /// If the TX queue is full, this will wait until there is space.
+    pub fn blocking_write_fd(&mut self, frame: &FdFrame) -> Option<FdFrame> {
+        loop {
+            match self.info.regs.write(frame) {
+                Ok(dropped) => return dropped,
+                Err(nb::Error::WouldBlock) => continue,
+                Err(nb::Error::Other(_)) => unreachable!(), // Infallible
+            }
+        }
+    }
+
     /// Returns the next received message frame
     pub async fn read_fd(&mut self) -> Result<FdEnvelope, BusError> {
         RxMode::read_fd(&self.info).await
+    }
+
+    /// Blocking read FD frame.
+    ///
+    /// If no CAN FD frame is in the RX buffer, this will wait until there is one.
+    pub fn blocking_read_fd(&mut self) -> Result<FdEnvelope, BusError> {
+        let ns_per_timer_tick = self.info.state.lock(|s| s.borrow().ns_per_timer_tick);
+
+        loop {
+            if let Some(result) = self.info.regs.read::<FdFrame>(0) {
+                let ts = self.info.regs.calc_timestamp(ns_per_timer_tick, result.1);
+                return Ok(FdEnvelope { ts, frame: result.0 });
+            }
+            if let Some(result) = self.info.regs.read::<FdFrame>(1) {
+                let ts = self.info.regs.calc_timestamp(ns_per_timer_tick, result.1);
+                return Ok(FdEnvelope { ts, frame: result.0 });
+            }
+            if let Some(err) = self.info.regs.curr_error() {
+                return Err(err);
+            }
+        }
     }
 
     /// Split instance into separate portions: Tx(write), Rx(read), common properties
@@ -467,6 +535,29 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d,
         self.rx_buf.receive().await
     }
 
+    /// Blocking write frame to TX buffer.
+    pub fn blocking_write(&mut self, frame: Frame) {
+        loop {
+            match self.tx_buf.try_send(frame) {
+                Ok(()) => {
+                    self.info.interrupt0.pend(); // Wake for Tx
+                    return;
+                }
+                Err(_) => continue,
+            }
+        }
+    }
+
+    /// Blocking read frame from RX buffer.
+    pub fn blocking_read(&mut self) -> Result<Envelope, BusError> {
+        loop {
+            match self.rx_buf.try_receive() {
+                Ok(result) => return result,
+                Err(_) => continue,
+            }
+        }
+    }
+
     /// Returns a sender that can be used for sending CAN frames.
     pub fn writer(&self) -> BufferedCanSender {
         BufferedCanSender {
@@ -556,6 +647,29 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCanFd<'
         self.rx_buf.receive().await
     }
 
+    /// Blocking write frame to TX buffer.
+    pub fn blocking_write(&mut self, frame: FdFrame) {
+        loop {
+            match self.tx_buf.try_send(frame) {
+                Ok(()) => {
+                    self.info.interrupt0.pend(); // Wake for Tx
+                    return;
+                }
+                Err(_) => continue,
+            }
+        }
+    }
+
+    /// Blocking read frame from RX buffer.
+    pub fn blocking_read(&mut self) -> Result<FdEnvelope, BusError> {
+        loop {
+            match self.rx_buf.try_receive() {
+                Ok(result) => return result,
+                Err(_) => continue,
+            }
+        }
+    }
+
     /// Returns a sender that can be used for sending CAN frames.
     pub fn writer(&self) -> BufferedFdCanSender {
         BufferedFdCanSender {
@@ -586,9 +700,51 @@ impl<'d> CanRx<'d> {
         RxMode::read_classic(&self.info).await
     }
 
+    /// Blocking read frame.
+    ///
+    /// If no CAN frame is in the RX buffer, this will wait until there is one.
+    pub fn blocking_read(&mut self) -> Result<Envelope, BusError> {
+        let ns_per_timer_tick = self.info.state.lock(|s| s.borrow().ns_per_timer_tick);
+
+        loop {
+            if let Some(result) = self.info.regs.read::<Frame>(0) {
+                let ts = self.info.regs.calc_timestamp(ns_per_timer_tick, result.1);
+                return Ok(Envelope { ts, frame: result.0 });
+            }
+            if let Some(result) = self.info.regs.read::<Frame>(1) {
+                let ts = self.info.regs.calc_timestamp(ns_per_timer_tick, result.1);
+                return Ok(Envelope { ts, frame: result.0 });
+            }
+            if let Some(err) = self.info.regs.curr_error() {
+                return Err(err);
+            }
+        }
+    }
+
     /// Returns the next received message frame
     pub async fn read_fd(&mut self) -> Result<FdEnvelope, BusError> {
         RxMode::read_fd(&self.info).await
+    }
+
+    /// Blocking read FD frame.
+    ///
+    /// If no CAN FD frame is in the RX buffer, this will wait until there is one.
+    pub fn blocking_read_fd(&mut self) -> Result<FdEnvelope, BusError> {
+        let ns_per_timer_tick = self.info.state.lock(|s| s.borrow().ns_per_timer_tick);
+
+        loop {
+            if let Some(result) = self.info.regs.read::<FdFrame>(0) {
+                let ts = self.info.regs.calc_timestamp(ns_per_timer_tick, result.1);
+                return Ok(FdEnvelope { ts, frame: result.0 });
+            }
+            if let Some(result) = self.info.regs.read::<FdFrame>(1) {
+                let ts = self.info.regs.calc_timestamp(ns_per_timer_tick, result.1);
+                return Ok(FdEnvelope { ts, frame: result.0 });
+            }
+            if let Some(err) = self.info.regs.curr_error() {
+                return Err(err);
+            }
+        }
     }
 }
 
@@ -609,12 +765,38 @@ impl<'c, 'd> CanTx<'d> {
         TxMode::write(&self.info, frame).await
     }
 
+    /// Blocking write frame.
+    ///
+    /// If the TX queue is full, this will wait until there is space.
+    pub fn blocking_write(&mut self, frame: &Frame) -> Option<Frame> {
+        loop {
+            match self.info.regs.write(frame) {
+                Ok(dropped) => return dropped,
+                Err(nb::Error::WouldBlock) => continue,
+                Err(nb::Error::Other(_)) => unreachable!(), // Infallible
+            }
+        }
+    }
+
     /// Queues the message to be sent but exerts backpressure.  If a lower-priority
     /// frame is dropped from the mailbox, it is returned.  If no lower-priority frames
     /// can be replaced, this call asynchronously waits for a frame to be successfully
     /// transmitted, then tries again.
     pub async fn write_fd(&mut self, frame: &FdFrame) -> Option<FdFrame> {
         TxMode::write_fd(&self.info, frame).await
+    }
+
+    /// Blocking write FD frame.
+    ///
+    /// If the TX queue is full, this will wait until there is space.
+    pub fn blocking_write_fd(&mut self, frame: &FdFrame) -> Option<FdFrame> {
+        loop {
+            match self.info.regs.write(frame) {
+                Ok(dropped) => return dropped,
+                Err(nb::Error::WouldBlock) => continue,
+                Err(nb::Error::Other(_)) => unreachable!(), // Infallible
+            }
+        }
     }
 }
 
