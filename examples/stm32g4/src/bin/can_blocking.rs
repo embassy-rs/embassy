@@ -72,7 +72,7 @@ async fn main(_spawner: Spawner) {
         // Blocking read
         match can.blocking_read() {
             Ok(envelope) => {
-                let (ts, rx_frame) = (envelope.ts, envelope.frame);
+                let (_ts, rx_frame) = (envelope.ts, envelope.frame);
                 info!(
                     "Blocking read - Rx: {} {:02x}",
                     rx_frame.header().len(),
@@ -103,7 +103,7 @@ async fn main(_spawner: Spawner) {
         // Blocking read FD
         match can.blocking_read_fd() {
             Ok(envelope) => {
-                let (ts, rx_frame) = (envelope.ts, envelope.frame);
+                let (_ts, rx_frame) = (envelope.ts, envelope.frame);
                 info!(
                     "Blocking read FD - Rx: {} {:02x}",
                     rx_frame.header().len(),
@@ -136,7 +136,7 @@ async fn main(_spawner: Spawner) {
         // Split blocking read
         match rx.blocking_read() {
             Ok(envelope) => {
-                let (ts, rx_frame) = (envelope.ts, envelope.frame);
+                let (_ts, rx_frame) = (envelope.ts, envelope.frame);
                 info!(
                     "Split blocking read - Rx: {} {:02x}",
                     rx_frame.header().len(),
@@ -170,7 +170,7 @@ async fn main(_spawner: Spawner) {
         // Buffered blocking read
         match buffered_can.blocking_read() {
             Ok(envelope) => {
-                let (ts, rx_frame) = (envelope.ts, envelope.frame);
+                let (_ts, rx_frame) = (envelope.ts, envelope.frame);
                 info!(
                     "Buffered blocking read - Rx: {} {:02x}",
                     rx_frame.header().len(),
