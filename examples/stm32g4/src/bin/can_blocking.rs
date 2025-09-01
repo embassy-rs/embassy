@@ -49,7 +49,7 @@ async fn main(_spawner: Spawner) {
 
     info!("Configured CAN for blocking operations");
 
-    // Start in internal loopback mode for testing 
+    // Start in internal loopback mode for testing
     let mut can = can.start(can::OperatingMode::InternalLoopbackMode);
 
     info!("CAN Blocking Example Started");
@@ -57,7 +57,7 @@ async fn main(_spawner: Spawner) {
     // Example 1: Basic blocking operations
     for i in 0..3 {
         let frame = can::frame::Frame::new_extended(0x123456F + i as u32, &[i, 0x01, 0x02, 0x03]).unwrap();
-        
+
         // Blocking write
         info!("Blocking write frame {}", i);
         match can.blocking_write(&frame) {
@@ -68,7 +68,7 @@ async fn main(_spawner: Spawner) {
                 info!("Frame sent successfully");
             }
         }
-        
+
         // Blocking read
         match can.blocking_read() {
             Ok(envelope) => {
@@ -85,10 +85,10 @@ async fn main(_spawner: Spawner) {
         }
     }
 
-    // Example 2: Using FD blocking operations  
+    // Example 2: Using FD blocking operations
     for i in 3..6 {
         let frame = can::frame::FdFrame::new_extended(0x200000 + i as u32, &[i, 0x10, 0x20, 0x30, 0x40]).unwrap();
-        
+
         // Blocking write FD
         info!("Blocking write FD frame {}", i);
         match can.blocking_write_fd(&frame) {
@@ -99,7 +99,7 @@ async fn main(_spawner: Spawner) {
                 info!("FD Frame sent successfully");
             }
         }
-        
+
         // Blocking read FD
         match can.blocking_read_fd() {
             Ok(envelope) => {
@@ -118,10 +118,10 @@ async fn main(_spawner: Spawner) {
 
     // Example 3: Split CAN blocking operations
     let (mut tx, mut rx, _props) = can.split();
-    
+
     for i in 6..9 {
         let frame = can::frame::Frame::new_extended(0x300000 + i as u32, &[i, 0xAA, 0xBB, 0xCC]).unwrap();
-        
+
         // Split blocking write
         info!("Split blocking write frame {}", i);
         match tx.blocking_write(&frame) {
@@ -132,7 +132,7 @@ async fn main(_spawner: Spawner) {
                 info!("Split frame sent successfully");
             }
         }
-        
+
         // Split blocking read
         match rx.blocking_read() {
             Ok(envelope) => {
@@ -151,22 +151,22 @@ async fn main(_spawner: Spawner) {
 
     // Example 4: Buffered blocking operations
     let can = can::Can::join(tx, rx);
-    
+
     static TX_BUF: StaticCell<can::TxBuf<8>> = StaticCell::new();
     static RX_BUF: StaticCell<can::RxBuf<10>> = StaticCell::new();
-    
+
     let mut buffered_can = can.buffered(
         TX_BUF.init(can::TxBuf::<8>::new()),
         RX_BUF.init(can::RxBuf::<10>::new()),
     );
-    
+
     for i in 9..12 {
         let frame = can::frame::Frame::new_extended(0x400000 + i as u32, &[i, 0xFF, 0xEE, 0xDD]).unwrap();
-        
+
         // Buffered blocking write
         info!("Buffered blocking write frame {}", i);
         buffered_can.blocking_write(frame);
-        
+
         // Buffered blocking read
         match buffered_can.blocking_read() {
             Ok(envelope) => {
@@ -184,7 +184,7 @@ async fn main(_spawner: Spawner) {
     }
 
     info!("CAN Blocking Example Completed - all CAN operations were blocking!");
-    
+
     // Keep the program running (Embassy executor still needed for interrupt handling)
     loop {
         embassy_time::Timer::after_secs(1).await;

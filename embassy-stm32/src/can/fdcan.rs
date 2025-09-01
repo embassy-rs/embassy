@@ -357,7 +357,7 @@ impl<'d> Can<'d> {
     /// If no CAN frame is in the RX buffer, this will wait until there is one.
     pub fn blocking_read(&mut self) -> Result<Envelope, BusError> {
         let ns_per_timer_tick = self.info.state.lock(|s| s.borrow().ns_per_timer_tick);
-        
+
         loop {
             if let Some(result) = self.info.regs.read::<Frame>(0) {
                 let ts = self.info.regs.calc_timestamp(ns_per_timer_tick, result.1);
@@ -404,7 +404,7 @@ impl<'d> Can<'d> {
     /// If no CAN FD frame is in the RX buffer, this will wait until there is one.
     pub fn blocking_read_fd(&mut self) -> Result<FdEnvelope, BusError> {
         let ns_per_timer_tick = self.info.state.lock(|s| s.borrow().ns_per_timer_tick);
-        
+
         loop {
             if let Some(result) = self.info.regs.read::<FdFrame>(0) {
                 let ts = self.info.regs.calc_timestamp(ns_per_timer_tick, result.1);
@@ -705,7 +705,7 @@ impl<'d> CanRx<'d> {
     /// If no CAN frame is in the RX buffer, this will wait until there is one.
     pub fn blocking_read(&mut self) -> Result<Envelope, BusError> {
         let ns_per_timer_tick = self.info.state.lock(|s| s.borrow().ns_per_timer_tick);
-        
+
         loop {
             if let Some(result) = self.info.regs.read::<Frame>(0) {
                 let ts = self.info.regs.calc_timestamp(ns_per_timer_tick, result.1);
@@ -731,7 +731,7 @@ impl<'d> CanRx<'d> {
     /// If no CAN FD frame is in the RX buffer, this will wait until there is one.
     pub fn blocking_read_fd(&mut self) -> Result<FdEnvelope, BusError> {
         let ns_per_timer_tick = self.info.state.lock(|s| s.borrow().ns_per_timer_tick);
-        
+
         loop {
             if let Some(result) = self.info.regs.read::<FdFrame>(0) {
                 let ts = self.info.regs.calc_timestamp(ns_per_timer_tick, result.1);

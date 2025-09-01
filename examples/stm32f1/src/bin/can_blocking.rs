@@ -65,20 +65,20 @@ async fn main(_spawner: Spawner) {
         .set_bitrate(250_000);
 
     can.blocking_enable();
-    
+
     info!("CAN Blocking Example Started");
 
     // Example 1: Basic blocking operations with split CAN
     let (mut tx, mut rx) = can.split();
-    
+
     for i in 0..3 {
         let tx_frame = Frame::new_data(unwrap!(StandardId::new(0x123 + i)), &[i as u8, 0x01, 0x02, 0x03]).unwrap();
-        
+
         // Blocking write
         info!("Blocking write frame {}", i);
         tx.blocking_write(&tx_frame);
-        
-        // Blocking read  
+
+        // Blocking read
         match rx.blocking_read() {
             Ok(env) => {
                 handle_frame(env, "Blocking");
@@ -95,11 +95,11 @@ async fn main(_spawner: Spawner) {
 
     for i in 3..6 {
         let tx_frame = Frame::new_data(unwrap!(StandardId::new(0x200 + i)), &[i as u8, 0x10, 0x20, 0x30]).unwrap();
-        
+
         // Buffered blocking write
         info!("Buffered blocking write frame {}", i);
         tx.blocking_write(&tx_frame);
-        
+
         // Buffered blocking read
         match rx.blocking_read() {
             Ok(envelope) => {
@@ -112,7 +112,7 @@ async fn main(_spawner: Spawner) {
     }
 
     info!("CAN Blocking Example Completed - all CAN operations were blocking!");
-    
+
     // Keep the program running (Embassy executor still needed for interrupt handling)
     loop {
         embassy_time::Timer::after_secs(1).await;
