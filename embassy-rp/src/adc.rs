@@ -296,13 +296,13 @@ impl<'d> Adc<'d, Async> {
         }
         let auto_reset = ResetDmaConfig;
 
-        let dma = unsafe { dma::read(dma, r.fifo().as_ptr() as *const W, buf as *mut [W], TreqSel::ADC) };
+        let mut dma = unsafe { dma::read(dma, r.fifo().as_ptr() as *const W, buf as *mut [W], TreqSel::ADC) };
         // start conversions and wait for dma to finish. we can't report errors early
         // because there's no interrupt to signal them, and inspecting every element
         // of the fifo is too costly to do here.
         r.div().write_set(|w| w.set_int(div));
         r.cs().write_set(|w| w.set_start_many(true));
-        dma.await;
+        dma.wait().await;
         mem::drop(auto_reset);
         // we can't report errors before the conversions have ended since no interrupt
         // exists to report them early, and since they're exceedingly rare we probably don't
