@@ -454,7 +454,8 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                 // (START has been ACKed or last byte when
                 // through)
                 if let Err(err) = self.wait_txis(timeout) {
-                    if send_stop {
+                    if send_stop && err != Error::Nack {
+                        // STOP is sent automatically if a NACK was received
                         self.master_stop();
                     }
                     return Err(err);
@@ -548,7 +549,9 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                     (idx != last_slice_index) || (slice_len > 255),
                     timeout,
                 ) {
-                    self.master_stop();
+                    if err != Error::Nack {
+                        self.master_stop();
+                    }
                     return Err(err);
                 }
             }
@@ -561,7 +564,9 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                         (number != last_chunk_idx) || (idx != last_slice_index),
                         timeout,
                     ) {
-                        self.master_stop();
+                        if err != Error::Nack {
+                            self.master_stop();
+                        }
                         return Err(err);
                     }
                 }
@@ -571,7 +576,9 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                     // (START has been ACKed or last byte when
                     // through)
                     if let Err(err) = self.wait_txis(timeout) {
-                        self.master_stop();
+                        if err != Error::Nack {
+                            self.master_stop();
+                        }
                         return Err(err);
                     }
 
