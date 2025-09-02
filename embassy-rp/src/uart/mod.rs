@@ -253,7 +253,7 @@ impl<'d> UartTx<'d, Async> {
     /// Write to UART TX from the provided buffer using DMA.
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let ch = self.tx_dma.as_mut().unwrap().reborrow();
-        let transfer = unsafe {
+        let mut transfer = unsafe {
             self.info.regs.uartdmacr().write_set(|reg| {
                 reg.set_txdmae(true);
             });
@@ -266,7 +266,7 @@ impl<'d> UartTx<'d, Async> {
                 self.info.tx_dreq.into(),
             )
         };
-        transfer.await;
+        transfer.wait().await;
         Ok(())
     }
 }
@@ -440,7 +440,7 @@ impl<'d> UartRx<'d, Async> {
             reg.set_rxdmae(true);
             reg.set_dmaonerr(true);
         });
-        let transfer = unsafe {
+        let mut transfer = unsafe {
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
             crate::dma::read(
@@ -453,7 +453,7 @@ impl<'d> UartRx<'d, Async> {
 
         // wait for either the transfer to complete or an error to happen.
         let transfer_result = select(
-            transfer,
+            transfer.wait(),
             poll_fn(|cx| {
                 self.dma_state.rx_err_waker.register(cx.waker());
                 match self.dma_state.rx_errs.swap(0, Ordering::Relaxed) {
@@ -600,7 +600,7 @@ impl<'d> UartRx<'d, Async> {
         });
 
         loop {
-            let transfer = unsafe {
+            let mut transfer = unsafe {
                 // If we don't assign future to a variable, the data register pointer
                 // is held across an await and makes the future non-Send.
                 crate::dma::read(
@@ -613,7 +613,7 @@ impl<'d> UartRx<'d, Async> {
 
             // wait for either the transfer to complete or an error to happen.
             let transfer_result = select(
-                transfer,
+                transfer.wait(),
                 poll_fn(|cx| {
                     self.dma_state.rx_err_waker.register(cx.waker());
                     match self.dma_state.rx_errs.swap(0, Ordering::Relaxed) {
@@ -623,6 +623,8 @@ impl<'d> UartRx<'d, Async> {
                 }),
             )
             .await;
+
+            drop(transfer);
 
             // Figure out our error state
             let errors = match transfer_result {

@@ -163,7 +163,7 @@ fn copy_inner<'a, C: Channel>(
 }
 
 /// DMA transfer driver.
-#[must_use = "futures do nothing unless you `.await` or poll them"]
+/// dropping this will abort transfer
 pub struct Transfer<'a, C: Channel> {
     channel: Peri<'a, C>,
 }
@@ -171,6 +171,12 @@ pub struct Transfer<'a, C: Channel> {
 impl<'a, C: Channel> Transfer<'a, C> {
     pub(crate) fn new(channel: Peri<'a, C>) -> Self {
         Self { channel }
+    }
+
+    pub fn wait(&mut self) -> TransferFuture<C> {
+        TransferFuture {
+            channel: self.channel.reborrow(),
+        }
     }
 }
 
@@ -184,8 +190,16 @@ impl<'a, C: Channel> Drop for Transfer<'a, C> {
     }
 }
 
-impl<'a, C: Channel> Unpin for Transfer<'a, C> {}
-impl<'a, C: Channel> Future for Transfer<'a, C> {
+/// dropping this will not affect the state of transfer
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct TransferFuture<'a, C: Channel> {
+    // while TransferFuture only polls busy state of dma
+    // since only one Waker can be registered,
+    // we prevent others from registering Waker by having exclusive access
+    channel: Peri<'a, C>,
+}
+impl<'a, C: Channel> Unpin for TransferFuture<'a, C> {}
+impl<'a, C: Channel> Future for TransferFuture<'a, C> {
     type Output = ();
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // We need to register/re-register the waker for each poll because any

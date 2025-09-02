@@ -106,7 +106,7 @@ impl<'d, P: Instance, const S: usize, const N: usize> PioWs2812<'d, P, S, N> {
         }
 
         // DMA transfer
-        self.sm.tx().dma_push(self.dma.reborrow(), &words, false).await;
+        self.sm.tx().dma_push(self.dma.reborrow(), &words, false).wait().await;
 
         Timer::after_micros(55).await;
     }
@@ -172,7 +172,7 @@ impl<'d, P: Instance, const S: usize, const N: usize> RgbwPioWs2812<'d, P, S, N>
         }
 
         // DMA transfer
-        self.sm.tx().dma_push(self.dma.reborrow(), &words, false).await;
+        self.sm.tx().dma_push(self.dma.reborrow(), &words, false).wait().await;
 
         Timer::after_micros(55).await;
     }
