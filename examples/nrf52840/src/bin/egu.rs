@@ -21,8 +21,8 @@ async fn main(_spawner: Spawner) {
     let btn1 = Input::new(p.P0_11, Pull::Up);
 
     let mut egu1 = Egu::new(p.EGU0);
-    let led1 = OutputChannel::new(p.GPIOTE_CH0, led1, OutputChannelPolarity::Toggle);
-    let btn1 = InputChannel::new(p.GPIOTE_CH1, btn1, InputChannelPolarity::LoToHi);
+    let led1 = OutputChannel::new(p.GPIOTE_CH0, led1.into(), OutputChannelPolarity::Toggle);
+    let btn1 = InputChannel::new(p.GPIOTE_CH1, btn1.into(), InputChannelPolarity::LoToHi);
 
     let trigger0 = egu1.trigger(TriggerNumber::Trigger0);
     let trigger1 = egu1.trigger(TriggerNumber::Trigger1);
