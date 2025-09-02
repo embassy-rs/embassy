@@ -46,6 +46,7 @@ impl Default for TransferConfig {
 }
 
 /// QSPI driver configuration.
+#[derive(Clone, Copy)]
 pub struct Config {
     /// Flash memory size representend as 2^[0-32], as reasonable minimum 1KiB(9) was chosen.
     /// If you need other value the whose predefined use `Other` variant.
