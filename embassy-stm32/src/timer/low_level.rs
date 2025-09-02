@@ -6,7 +6,10 @@
 //!
 //! The available functionality depends on the timer type.
 
+use core::future::Future;
 use core::mem::ManuallyDrop;
+use core::pin::Pin;
+use core::task::{Context, Poll};
 
 use embassy_hal_internal::Peri;
 // Re-export useful enums
@@ -648,6 +651,44 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     /// Set Timer Trigger Source
     pub fn set_trigger_source(&self, ts: TriggerSource) {
         self.regs_gp16().smcr().modify(|r| r.set_ts(ts));
+    }
+
+    /// Wait for the update interrupt to fire
+    pub async fn wait_for_update(&mut self) {
+        self.enable_update_interrupt(true);
+        TimerUpdateFuture {
+            phantom: PhantomData::<T>,
+        }
+        .await
+    }
+}
+
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+struct TimerUpdateFuture<T: GeneralInstance4Channel> {
+    phantom: PhantomData<T>,
+}
+
+impl<T: GeneralInstance4Channel> Drop for TimerUpdateFuture<T> {
+    fn drop(&mut self) {
+        critical_section::with(|_| {
+            let regs = unsafe { crate::pac::timer::TimGp16::from_ptr(T::regs()) };
+            regs.dier().modify(|w| w.set_uie(false));
+        })
+    }
+}
+
+impl<T: GeneralInstance4Channel> Future for TimerUpdateFuture<T> {
+    type Output = ();
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        T::state().up_waker.register(cx.waker());
+
+        let regs = unsafe { crate::pac::timer::TimGp16::from_ptr(T::regs()) };
+
+        if !regs.dier().read().uie() {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
     }
 }
 

@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - fix: Fixed STM32H5 builds requiring time feature
+- feat: stm32/timer: wait for the update interrupt via `low_level::wait_for_update`
 
 ## 0.4.0 - 2025-08-26
 
