@@ -22,7 +22,7 @@ pub trait Handler {
     /// TODO
     fn finish(&mut self) -> Result<(), Error>;
     /// TODO
-    fn reset(&mut self);
+    fn switch_to_app(&mut self);
 }
 
 /// Internal state for USB DFU
@@ -69,7 +69,7 @@ impl<'d, H: Handler> DfuState<H> {
 
 impl<H: Handler> crate::Handler for DfuState<H> {
     fn reset(&mut self) {
-        self.handler.reset();
+        self.handler.switch_to_app();
     }
 
     fn control_out(&mut self, req: ControlRequest, data: &[u8]) -> Option<OutResponse> {

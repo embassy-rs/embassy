@@ -627,3 +627,12 @@ fn init_hw(config: Config) -> Peripherals {
         p
     })
 }
+
+/// Reset immediately.
+pub struct ResetImmediate;
+
+impl embassy_embedded_hal::Reset for ResetImmediate {
+    fn sys_reset(&self) {
+        cortex_m::peripheral::SCB::sys_reset()
+    }
+}

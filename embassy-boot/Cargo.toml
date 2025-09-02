@@ -30,6 +30,8 @@ log = { version = "0.4", optional = true }
 ed25519-dalek = { version = "2", default-features = false, features = ["digest"], optional = true }
 embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal" }
 embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
+embassy-time = { version = "0.5.0", path = "../embassy-time", optional = true }
+embassy-usb = { version = "0.5.1", path = "../embassy-usb", optional = true  }
 embedded-storage = "0.3.1"
 embedded-storage-async = { version = "0.4.1" }
 salty = { version = "0.3", optional = true }
@@ -48,6 +50,8 @@ ed25519-dalek = { version = "2", default-features = false, features = ["std", "r
 ed25519-dalek = ["dep:ed25519-dalek", "_verify"]
 ed25519-salty = ["dep:salty", "_verify"]
 flash-erase-zero = []
+usb-dfu-app = ["dep:embassy-time", "dep:embassy-usb"]
+usb-dfu-dfu = ["dep:embassy-time", "dep:embassy-usb"]
 
 #Internal features
 _verify = []

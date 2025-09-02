@@ -1,6 +1,6 @@
 //! USB DFU application mode.
 
-use embassy_time::Duration;
+use embassy_time::{Duration, Instant};
 use embassy_usb_driver::Driver;
 
 use crate::{
@@ -16,9 +16,7 @@ use super::consts::{
 /// TODO
 pub trait Handler {
     /// TODO
-    fn detach(&mut self) {}
-    /// TODO
-    fn reset(&mut self) {}
+    fn switch_to_dfu(&mut self) {}
 }
 
 /// Internal state for the DFU class
@@ -26,6 +24,8 @@ pub struct DfuState<H: Handler> {
     handler: H,
     state: State,
     attrs: DfuAttributes,
+    timeout: Option<Duration>,
+    detach_start: Option<Instant>,
 }
 
 impl<H: Handler> DfuState<H> {
@@ -35,13 +35,26 @@ impl<H: Handler> DfuState<H> {
             handler,
             state: State::AppIdle,
             attrs,
+            timeout: None,
+            detach_start: None,
         }
     }
 }
 
 impl<H: Handler> crate::Handler for DfuState<H> {
     fn reset(&mut self) {
-        self.handler.reset()
+        if let Some(start) = self.detach_start {
+            let delta = Instant::now() - start;
+            let timeout = self.timeout.unwrap();
+            trace!(
+                "Received RESET with delta = {}, timeout = {}",
+                delta.as_millis(),
+                timeout.as_millis()
+            );
+            if delta < timeout {
+                self.handler.switch_to_dfu();
+            }
+        }
     }
 
     fn control_out(&mut self, req: ControlRequest, _: &[u8]) -> Option<OutResponse> {
@@ -53,9 +66,15 @@ impl<H: Handler> crate::Handler for DfuState<H> {
 
         match Request::try_from(req.request) {
             Ok(Request::Detach) => {
-                trace!("Received DETACH");
+                self.detach_start = Some(Instant::now());
+                self.timeout = Some(Duration::from_millis(req.value as u64));
                 self.state = State::AppDetach;
-                self.handler.detach();
+                if self.attrs.contains(DfuAttributes::WILL_DETACH) {
+                    trace!("Received DETACH, performing reset");
+                    self.reset();
+                } else {
+                    trace!("Received DETACH, awaiting USB reset");
+                }
                 Some(OutResponse::Accepted)
             }
             _ => None,
