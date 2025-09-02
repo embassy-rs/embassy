@@ -10,7 +10,7 @@ use pac::dma::vals::DataSize;
 
 use crate::interrupt::InterruptExt;
 use crate::pac::dma::vals;
-use crate::{interrupt, pac, peripherals};
+use crate::{interrupt, pac, peripherals, RegExt};
 
 #[cfg(feature = "rt")]
 #[interrupt]
@@ -173,10 +173,46 @@ impl<'a, C: Channel> Transfer<'a, C> {
         Self { channel }
     }
 
+    /// wait until transfer finishes (not busy)
+    /// this will never be ready if transfer is disabled before finishing
     pub fn wait(&mut self) -> TransferFuture<C> {
         TransferFuture {
             channel: self.channel.reborrow(),
         }
+    }
+
+    /// Return whether this transfer is still running.
+    ///
+    /// If this returns `false`, it can be because either the transfer finished, or
+    /// it was requested to stop early with [`abort`](Self::abort).
+    pub fn busy(&self) -> bool {
+        self.channel.regs().ctrl_trig().read().busy()
+    }
+
+    /// Enable transfer
+    ///
+    /// Unless disabled manually, transfer is enabled by default
+    pub fn enable(&mut self) {
+        self.channel.regs().ctrl_trig().write_set(|w| w.set_en(true));
+    }
+
+    /// Disable transfer
+    ///
+    /// Effectively pauses transfer, It will not affect busy state
+    pub fn disable(&mut self) {
+        self.channel.regs().ctrl_trig().write_clear(|w| w.set_en(true));
+    }
+
+    /// Check if transfer is enabled
+    ///
+    /// Unless disabled manually, transfer is enabled by default
+    pub fn is_enabled(&self) -> bool {
+        self.channel.regs().ctrl_trig().read().en()
+    }
+
+    /// Returns amount of transfers left before finishing
+    pub fn transfer_count(&self) -> u32 {
+        self.channel.regs().trans_count().read()
     }
 }
 
