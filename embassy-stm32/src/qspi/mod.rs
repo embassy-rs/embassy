@@ -17,6 +17,7 @@ use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peri};
 
 /// QSPI transfer configuration.
+#[derive(Clone, Copy)]
 pub struct TransferConfig {
     /// Instruction width (IMODE)
     pub iwidth: QspiWidth,
