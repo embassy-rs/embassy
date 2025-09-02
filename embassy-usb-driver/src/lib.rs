@@ -242,7 +242,7 @@ pub trait EndpointOut: Endpoint {
     ///
     /// This should also clear any NAK flags and prepare the endpoint to receive the next packet or
     /// data block.
-    async fn read_data(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+    async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
         let mut n = 0;
         loop {
             let i = self.read(&mut buf[n..]).await?;
@@ -370,11 +370,11 @@ pub trait EndpointIn: Endpoint {
     ///
     /// If the buffer size is evenly divisible by wMaxPacketSize, this will also ensure the
     /// terminating zero-length-packet is transmitted.
-    async fn write_data(&mut self, buf: &[u8]) -> Result<(), EndpointError> {
+    async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointError> {
         for chunk in buf.chunks(self.info().max_packet_size as usize) {
             self.write(chunk).await?;
         }
-        if buf.len() % self.info().max_packet_size as usize == 0 {
+        if needs_zlp && buf.len() % self.info().max_packet_size as usize == 0 {
             self.write(&[]).await?;
         }
         Ok(())
