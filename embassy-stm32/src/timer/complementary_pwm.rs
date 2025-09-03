@@ -185,6 +185,16 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.set_complementary_output_polarity(channel, polarity);
     }
 
+    /// Set the main output polarity for a given channel.
+    pub fn set_main_polarity(&mut self, channel: Channel, polarity: OutputPolarity) {
+        self.inner.set_output_polarity(channel, polarity);
+    }
+
+    /// Set the complementary output polarity for a given channel.
+    pub fn set_complementary_polarity(&mut self, channel: Channel, polarity: OutputPolarity) {
+        self.inner.set_complementary_output_polarity(channel, polarity);
+    }
+
     /// Set the dead time as a proportion of max_duty
     pub fn set_dead_time(&mut self, value: u16) {
         let (ckd, value) = compute_dead_time_value(value);

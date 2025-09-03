@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix: Fixed STM32H5 builds requiring time feature
 - feat: Derive Clone, Copy for QSPI Config
 - fix: stm32/i2c in master mode (blocking): subsequent transmissions failed after a NACK was received
+- feat: stm32/timer: add set_polarity functions for main and complementary outputs in complementary_pwm
 
 ## 0.4.0 - 2025-08-26
 
