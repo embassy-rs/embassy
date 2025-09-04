@@ -20,7 +20,7 @@ use {defmt_rtt as _, panic_probe as _};
 static mut RAM_D3: GroundedArrayCell<u8, 256> = GroundedArrayCell::uninit();
 
 #[embassy_executor::task]
-async fn main_task(mut spi: spi::Spi<'static, Async>) {
+async fn main_task(mut spi: spi::Spi<'static, Async, spi::mode::Master>) {
     let (read_buffer, write_buffer) = unsafe {
         let ram = &mut *core::ptr::addr_of_mut!(RAM_D3);
         ram.initialize_all_copied(0);
