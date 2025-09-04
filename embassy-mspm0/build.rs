@@ -79,8 +79,12 @@ fn get_chip_cfgs(chip_name: &str) -> Vec<String> {
     let mut cfgs = Vec::new();
 
     // GPIO on C110x is special as it does not belong to an interrupt group.
-    if chip_name.starts_with("mspm0c110") || chip_name.starts_with("msps003f") {
+    if chip_name.starts_with("mspm0c1103") || chip_name.starts_with("mspm0c1104") || chip_name.starts_with("msps003f") {
         cfgs.push("mspm0c110x".to_string());
+    }
+
+    if chip_name.starts_with("mspm0c1105") || chip_name.starts_with("mspm0c1106") {
+        cfgs.push("mspm0c1105_c1106".to_string());
     }
 
     // Family ranges (temporary until int groups are generated)
@@ -537,6 +541,8 @@ fn generate_interrupts() -> TokenStream {
         pub fn enable_group_interrupts(_cs: critical_section::CriticalSection) {
             use crate::interrupt::typelevel::Interrupt;
 
+            // This is empty for C1105/6
+            #[allow(unused_unsafe)]
             unsafe {
                 #(#group_interrupt_enables)*
             }
