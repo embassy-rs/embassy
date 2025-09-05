@@ -25,7 +25,7 @@ pub struct CapturePin<'d, T, C, #[cfg(afio)] A> {
 impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(CapturePin<'d, T, C, A>) {
     /// Create a new capture pin instance.
     pub fn new(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, pull: Pull) -> Self {
-        pin.set_as_af(pin.af_num(), AfType::input(pull));
+        set_as_af!(pin, AfType::input(pull));
         CapturePin {
             pin: pin.into(),
             phantom: PhantomData,

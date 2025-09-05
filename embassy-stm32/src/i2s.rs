@@ -471,8 +471,8 @@ impl<'d, W: Word> I2S<'d, W> {
         config: Config,
         function: Function,
     ) -> Self {
-        ws.set_as_af(ws.af_num(), AfType::output(OutputType::PushPull, config.gpio_speed));
-        ck.set_as_af(ck.af_num(), AfType::output(OutputType::PushPull, config.gpio_speed));
+        set_as_af!(ws, AfType::output(OutputType::PushPull, config.gpio_speed));
+        set_as_af!(ck, AfType::output(OutputType::PushPull, config.gpio_speed));
 
         let spi = Spi::new_internal(peri, None, None, {
             let mut spi_config = SpiConfig::default();

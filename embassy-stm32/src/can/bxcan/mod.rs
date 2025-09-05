@@ -194,10 +194,8 @@ impl<'d> Can<'d> {
         let info = T::info();
         let regs = &T::info().regs;
 
-        rx.set_as_af(rx.af_num(), AfType::input(Pull::None));
-        #[cfg(afio)]
-        rx.afio_remap();
-        tx.set_as_af(tx.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        set_as_af!(rx, AfType::input(Pull::None));
+        set_as_af!(tx, AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
         rcc::enable_and_reset::<T>();
 
@@ -231,8 +229,8 @@ impl<'d> Can<'d> {
             info.sce_interrupt.enable();
         }
 
-        rx.set_as_af(rx.af_num(), AfType::input(Pull::None));
-        tx.set_as_af(tx.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        set_as_af!(rx, AfType::input(Pull::None));
+        set_as_af!(tx, AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
         Registers(T::regs()).leave_init_mode();
 

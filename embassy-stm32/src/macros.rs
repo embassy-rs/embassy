@@ -44,6 +44,7 @@ macro_rules! pin_trait {
     ($signal:ident, $instance:path $(, $mode:path)? $(, @$afio:ident)?) => {
         #[doc = concat!(stringify!($signal), " pin trait")]
         pub trait $signal<T: $instance $(, M: $mode)? $(, #[cfg(afio)] $afio)?>: crate::gpio::Pin {
+            #[cfg(not(afio))]
             #[doc = concat!("Get the AF number needed to use this pin as ", stringify!($signal))]
             fn af_num(&self) -> u8;
 
@@ -58,10 +59,6 @@ macro_rules! pin_trait_impl {
     (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $pin:ident, $af:expr $(, $afio:path)?) => {
         #[cfg(afio)]
         impl crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)? $(, $afio)?> for crate::peripherals::$pin {
-            fn af_num(&self) -> u8 {
-                $af
-            }
-
             fn afio_remap(&self) {
                 // nothing
             }
@@ -92,10 +89,6 @@ macro_rules! pin_trait_afio_impl {
     (crate::$mod:ident::$trait:ident<$mode:ident>, $instance:ident, $pin:ident, {$reg:ident, $setter:ident, $type:ident, [$($val:expr),+]}) => {
         $(
             impl crate::$mod::$trait<crate::peripherals::$instance, crate::$mod::$mode, crate::gpio::$type<$val>> for crate::peripherals::$pin {
-                fn af_num(&self) -> u8 {
-                    0
-                }
-
                 fn afio_remap(&self) {
                     pin_trait_afio_impl!(@set $reg, $setter, $val);
                 }
@@ -105,10 +98,6 @@ macro_rules! pin_trait_afio_impl {
     (crate::$mod:ident::$trait:ident, $instance:ident, $pin:ident, {$reg:ident, $setter:ident, $type:ident, [$($val:expr),+]}) => {
         $(
             impl crate::$mod::$trait<crate::peripherals::$instance, crate::gpio::$type<$val>> for crate::peripherals::$pin {
-                fn af_num(&self) -> u8 {
-                    0
-                }
-
                 fn afio_remap(&self) {
                     pin_trait_afio_impl!(@set $reg, $setter, $val);
                 }
@@ -193,9 +182,30 @@ macro_rules! new_pin {
         let pin = $name;
         #[cfg(afio)]
         pin.afio_remap();
-        pin.set_as_af(pin.af_num(), $af_type);
+        pin.set_as_af(
+            #[cfg(not(afio))]
+            pin.af_num(),
+            $af_type,
+        );
         Some(pin.into())
     }};
+}
+
+/// Macro to configure a pin for alternate function use.
+/// For AFIO chips (STM32F1), it calls afio_remap().
+/// For non-AFIO chips, it calls set_as_af() with the pin's af_num().
+macro_rules! set_as_af {
+    ($pin:expr, $af_type:expr) => {
+        #[cfg(afio)]
+        {
+            $pin.set_as_af($af_type);
+            $pin.afio_remap();
+        }
+        #[cfg(not(afio))]
+        {
+            $pin.set_as_af($pin.af_num(), $af_type);
+        }
+    };
 }
 
 #[cfg(afio)]

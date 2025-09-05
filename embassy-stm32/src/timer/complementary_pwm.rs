@@ -27,12 +27,10 @@ impl<'d, T: AdvancedInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(
     pub fn new(pin: Peri<'d, if_afio!(impl TimerComplementaryPin<T, C, A>)>, output_type: OutputType) -> Self {
         critical_section::with(|_| {
             pin.set_low();
-            pin.set_as_af(
-                pin.af_num(),
-                crate::gpio::AfType::output(output_type, crate::gpio::Speed::VeryHigh),
+            set_as_af!(
+                pin,
+                crate::gpio::AfType::output(output_type, crate::gpio::Speed::VeryHigh)
             );
-            #[cfg(afio)]
-            pin.afio_remap();
         });
         ComplementaryPwmPin {
             pin: pin.into(),

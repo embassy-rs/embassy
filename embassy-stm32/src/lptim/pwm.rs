@@ -50,10 +50,7 @@ macro_rules! channel_impl {
             pub fn $new_chx(pin: Peri<'d, impl $pin_trait<T>>) -> Self {
                 critical_section::with(|_| {
                     pin.set_low();
-                    pin.set_as_af(
-                        pin.af_num(),
-                        AfType::output(OutputType::PushPull, Speed::VeryHigh),
-                    );
+                    set_as_af!(pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
                 });
                 PwmPin {
                     _pin: pin.into(),
@@ -64,12 +61,12 @@ macro_rules! channel_impl {
             pub fn $new_chx_with_config(pin: Peri<'d, impl $pin_trait<T>>, pin_config: PwmPinConfig) -> Self {
                 critical_section::with(|_| {
                     pin.set_low();
-                    pin.set_as_af(
-                        pin.af_num(),
-                        #[cfg(gpio_v1)]
-                        AfType::output(pin_config.output_type, pin_config.speed),
-                        #[cfg(gpio_v2)]
-                        AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull),
+                    #[cfg(gpio_v1)]
+                    set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
+                    #[cfg(gpio_v2)]
+                    set_as_af!(
+                        pin,
+                        AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull)
                     );
                 });
                 PwmPin {

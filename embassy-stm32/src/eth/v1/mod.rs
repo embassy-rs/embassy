@@ -69,7 +69,7 @@ macro_rules! config_in_pins {
         critical_section::with(|_| {
             $(
                 // TODO properly create a set_as_input function
-                $pin.set_as_af($pin.af_num(), AfType::input(Pull::None));
+                set_as_af!($pin, AfType::input(Pull::None));
             )*
         })
     }
@@ -80,7 +80,7 @@ macro_rules! config_af_pins {
     ($($pin:ident),*) => {
         critical_section::with(|_| {
             $(
-                $pin.set_as_af($pin.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+                set_as_af!($pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
             )*
         })
     };
@@ -91,7 +91,7 @@ macro_rules! config_pins {
     ($($pin:ident),*) => {
         critical_section::with(|_| {
             $(
-                $pin.set_as_af($pin.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+                set_as_af!($pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
             )*
         })
     };
@@ -150,8 +150,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         {
             config_in_pins!(ref_clk, rx_d0, rx_d1);
             config_af_pins!(mdio, mdc, tx_d0, tx_d1, tx_en);
-            #[cfg(afio)]
-            rx_d0.afio_remap();
         }
 
         #[cfg(any(eth_v1b, eth_v1c))]
@@ -349,8 +347,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         {
             config_in_pins!(rx_clk, tx_clk, rx_d0, rx_d1, rx_d2, rx_d3, rxdv);
             config_af_pins!(mdio, mdc, tx_d0, tx_d1, tx_d2, tx_d3, tx_en);
-            #[cfg(afio)]
-            rx_d0.afio_remap();
         }
 
         #[cfg(any(eth_v1b, eth_v1c))]

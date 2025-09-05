@@ -24,9 +24,7 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         pull: Pull,
         freq: Hertz,
     ) -> Self {
-        pin.set_as_af(pin.af_num(), AfType::input(pull));
-        #[cfg(afio)]
-        pin.afio_remap();
+        set_as_af!(pin, AfType::input(pull));
 
         Self::new_inner(tim, freq, Channel::Ch1, Channel::Ch2)
     }
@@ -38,9 +36,7 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         pull: Pull,
         freq: Hertz,
     ) -> Self {
-        pin.set_as_af(pin.af_num(), AfType::input(pull));
-        #[cfg(afio)]
-        pin.afio_remap();
+        set_as_af!(pin, AfType::input(pull));
 
         Self::new_inner(tim, freq, Channel::Ch2, Channel::Ch1)
     }

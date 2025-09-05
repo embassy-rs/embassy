@@ -40,9 +40,7 @@ impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(P
     pub fn new(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, output_type: OutputType) -> Self {
         critical_section::with(|_| {
             pin.set_low();
-            pin.set_as_af(pin.af_num(), AfType::output(output_type, Speed::VeryHigh));
-            #[cfg(afio)]
-            pin.afio_remap();
+            set_as_af!(pin, AfType::output(output_type, Speed::VeryHigh));
         });
         PwmPin {
             pin: pin.into(),
@@ -54,15 +52,13 @@ impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(P
     pub fn new_with_config(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, pin_config: PwmPinConfig) -> Self {
         critical_section::with(|_| {
             pin.set_low();
-            pin.set_as_af(
-                pin.af_num(),
-                #[cfg(gpio_v1)]
-                AfType::output(pin_config.output_type, pin_config.speed),
-                #[cfg(gpio_v2)]
-                AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull),
+            #[cfg(gpio_v1)]
+            set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
+            #[cfg(gpio_v2)]
+            set_as_af!(
+                pin,
+                AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull)
             );
-            #[cfg(afio)]
-            pin.afio_remap();
         });
         PwmPin {
             pin: pin.into(),
