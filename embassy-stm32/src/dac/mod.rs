@@ -575,8 +575,6 @@ impl<'d, T: Instance, M: PeriMode> Dac<'d, T, M> {
         dma_ch2: Option<ChannelAndRequest<'d>>,
         #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))] mode: Mode,
     ) -> Self {
-        // Enable twice to increment the DAC refcount for each channel.
-        rcc::enable_and_reset::<T>();
         rcc::enable_and_reset::<T>();
 
         let mut ch1 = DacCh1 {
