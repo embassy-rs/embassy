@@ -202,6 +202,66 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.set_dead_time_clock_division(ckd);
         self.inner.set_dead_time_value(value);
     }
+
+    /// Generate a sequence of PWM waveform
+    ///
+    /// Note:
+    /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
+    pub async fn waveform_up(&mut self, dma: Peri<'_, impl super::UpDma<T>>, channel: Channel, duty: &[u16]) {
+        #[allow(clippy::let_unit_value)] // eg. stm32f334
+        let req = dma.request();
+
+        let original_duty_state = self.inner.get_compare_value(channel);
+        let original_enable_state = self.inner.get_channel_enable_state(channel);
+        let original_update_dma_state = self.inner.get_update_dma_state();
+
+        if !original_update_dma_state {
+            self.inner.enable_update_dma(true);
+        }
+
+        if !original_enable_state {
+            self.inner.enable_channel(channel, true);
+        }
+
+        unsafe {
+            #[cfg(not(any(bdma, gpdma)))]
+            use crate::dma::{Burst, FifoThreshold};
+            use crate::dma::{Transfer, TransferOptions};
+
+            let dma_transfer_option = TransferOptions {
+                #[cfg(not(any(bdma, gpdma)))]
+                fifo_threshold: Some(FifoThreshold::Full),
+                #[cfg(not(any(bdma, gpdma)))]
+                mburst: Burst::Incr8,
+                ..Default::default()
+            };
+
+            Transfer::new_write(
+                dma,
+                req,
+                duty,
+                self.inner.regs_gp16().ccr(channel.index()).as_ptr() as *mut u16,
+                dma_transfer_option,
+            )
+            .await
+        };
+
+        // restore output compare state
+        if !original_enable_state {
+            self.inner.enable_channel(channel, false);
+        }
+
+        self.inner.set_compare_value(channel, original_duty_state);
+
+        // Since DMA is closed before timer update event trigger DMA is turn off,
+        // this can almost always trigger a DMA FIFO error.
+        //
+        // optional TODO:
+        // clean FEIF after disable UDE
+        if !original_update_dma_state {
+            self.inner.enable_update_dma(false);
+        }
+    }
 }
 
 impl<'d, T: AdvancedInstance4Channel> embedded_hal_02::Pwm for ComplementaryPwm<'d, T> {
