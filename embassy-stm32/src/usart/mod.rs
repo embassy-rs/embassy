@@ -1965,9 +1965,7 @@ pub use buffered::*;
 pub use crate::usart::buffered::InterruptHandler as BufferedInterruptHandler;
 mod buffered;
 
-#[cfg(not(gpdma))]
 mod ringbuffered;
-#[cfg(not(gpdma))]
 pub use ringbuffered::RingBufferedUartRx;
 
 #[cfg(any(usart_v1, usart_v2))]

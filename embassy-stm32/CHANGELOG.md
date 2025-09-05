@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: stm32/adc/v3: allow DMA reads to loop through enable channels
 - fix: Fix XSPI not disabling alternate bytes when they were previously enabled
 - fix: Fix stm32h7rs init when using external flash via XSPI
+- feat: Add GPDMA linked-list + ringbuffer support ([#3923](https://github.com/embassy-rs/embassy/pull/3923))
 
 ## 0.3.0 - 2025-08-12
 
@@ -135,7 +136,7 @@ GPIO:
 - Refactor AfType ([#3031](https://github.com/embassy-rs/embassy/pull/3031))
 - Gpiov1: Do not call set_speed for AFType::Input ([#2996](https://github.com/embassy-rs/embassy/pull/2996))
 
-UART: 
+UART:
 - Add embedded-io impls ([#2739](https://github.com/embassy-rs/embassy/pull/2739))
 - Add support for changing baud rate ([#3512](https://github.com/embassy-rs/embassy/pull/3512))
 - Add split_ref ([#3500](https://github.com/embassy-rs/embassy/pull/3500))
@@ -159,7 +160,7 @@ UART:
     - Wake receive task for each received byte ([#2722](https://github.com/embassy-rs/embassy/pull/2722))
     - Fix dma and idle line detection in ringbuffereduartrx ([#3319](https://github.com/embassy-rs/embassy/pull/3319))
 
-SPI: 
+SPI:
 - Add MISO pullup configuration option ([#2943](https://github.com/embassy-rs/embassy/pull/2943))
 - Add slew rate configuration options ([#3669](https://github.com/embassy-rs/embassy/pull/3669))
 - Fix blocking_write on nosck spi. ([#3035](https://github.com/embassy-rs/embassy/pull/3035))
