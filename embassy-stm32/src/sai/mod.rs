@@ -558,7 +558,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         config: Config,
     ) -> Self {
         let (_sd_af_type, ck_af_type) = get_af_types(config.mode, config.tx_rx);
-        mclk.set_as_af(mclk.af_num(), ck_af_type);
+        set_as_af!(mclk, ck_af_type);
 
         Self::new_asynchronous(peri, sck, sd, fs, dma, dma_buf, config)
     }
@@ -578,9 +578,9 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         let peri = peri.peri;
 
         let (sd_af_type, ck_af_type) = get_af_types(config.mode, config.tx_rx);
-        sd.set_as_af(sd.af_num(), sd_af_type);
-        sck.set_as_af(sck.af_num(), ck_af_type);
-        fs.set_as_af(fs.af_num(), ck_af_type);
+        set_as_af!(sd, sd_af_type);
+        set_as_af!(sck, ck_af_type);
+        set_as_af!(fs, ck_af_type);
 
         let sub_block = S::WHICH;
         let request = dma.request();
@@ -612,7 +612,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         let peri = peri.peri;
 
         let (sd_af_type, _ck_af_type) = get_af_types(config.mode, config.tx_rx);
-        sd.set_as_af(sd.af_num(), sd_af_type);
+        set_as_af!(sd, sd_af_type);
 
         let sub_block = S::WHICH;
         let request = dma.request();

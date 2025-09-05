@@ -298,7 +298,7 @@ impl<'d, T: Instance> Driver<'d, T> {
     ) -> Self {
         {
             use crate::gpio::{AfType, OutputType, Speed};
-            sof.set_as_af(sof.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            set_as_af!(sof, AfType::output(OutputType::PushPull, Speed::VeryHigh));
         }
 
         Self::new(_usb, _irq, dp, dm)
@@ -329,8 +329,8 @@ impl<'d, T: Instance> Driver<'d, T> {
         #[cfg(not(stm32l1))]
         {
             use crate::gpio::{AfType, OutputType, Speed};
-            dp.set_as_af(dp.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
-            dm.set_as_af(dm.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
         }
         #[cfg(stm32l1)]
         let _ = (dp, dm); // suppress "unused" warnings.

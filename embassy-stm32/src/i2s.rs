@@ -237,12 +237,12 @@ pub struct I2S<'d, W: Word> {
 
 impl<'d, W: Word> I2S<'d, W> {
     /// Create a transmitter driver.
-    pub fn new_txonly<T: Instance>(
+    pub fn new_txonly<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        sd: Peri<'d, impl MosiPin<T>>,
-        ws: Peri<'d, impl WsPin<T>>,
-        ck: Peri<'d, impl CkPin<T>>,
-        mck: Peri<'d, impl MckPin<T>>,
+        sd: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
+        ws: Peri<'d, if_afio!(impl WsPin<T, A>)>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        mck: Peri<'d, if_afio!(impl MckPin<T, A>)>,
         txdma: Peri<'d, impl TxDma<T>>,
         txdma_buf: &'d mut [W],
         config: Config,
@@ -262,11 +262,11 @@ impl<'d, W: Word> I2S<'d, W> {
     }
 
     /// Create a transmitter driver without a master clock pin.
-    pub fn new_txonly_nomck<T: Instance>(
+    pub fn new_txonly_nomck<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        sd: Peri<'d, impl MosiPin<T>>,
-        ws: Peri<'d, impl WsPin<T>>,
-        ck: Peri<'d, impl CkPin<T>>,
+        sd: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
+        ws: Peri<'d, if_afio!(impl WsPin<T, A>)>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
         txdma: Peri<'d, impl TxDma<T>>,
         txdma_buf: &'d mut [W],
         config: Config,
@@ -286,12 +286,12 @@ impl<'d, W: Word> I2S<'d, W> {
     }
 
     /// Create a receiver driver.
-    pub fn new_rxonly<T: Instance>(
+    pub fn new_rxonly<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        sd: Peri<'d, impl MisoPin<T>>,
-        ws: Peri<'d, impl WsPin<T>>,
-        ck: Peri<'d, impl CkPin<T>>,
-        mck: Peri<'d, impl MckPin<T>>,
+        sd: Peri<'d, if_afio!(impl MisoPin<T, A>)>,
+        ws: Peri<'d, if_afio!(impl WsPin<T, A>)>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        mck: Peri<'d, if_afio!(impl MckPin<T, A>)>,
         rxdma: Peri<'d, impl RxDma<T>>,
         rxdma_buf: &'d mut [W],
         config: Config,
@@ -313,13 +313,13 @@ impl<'d, W: Word> I2S<'d, W> {
     #[cfg(any(spi_v4, spi_v5))]
 
     /// Create a full duplex driver.
-    pub fn new_full_duplex<T: Instance>(
+    pub fn new_full_duplex<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        txsd: Peri<'d, impl MosiPin<T>>,
-        rxsd: Peri<'d, impl MisoPin<T>>,
-        ws: Peri<'d, impl WsPin<T>>,
-        ck: Peri<'d, impl CkPin<T>>,
-        mck: Peri<'d, impl MckPin<T>>,
+        txsd: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
+        rxsd: Peri<'d, if_afio!(impl MisoPin<T, A>)>,
+        ws: Peri<'d, if_afio!(impl WsPin<T, A>)>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
+        mck: Peri<'d, if_afio!(impl MckPin<T, A>)>,
         txdma: Peri<'d, impl TxDma<T>>,
         txdma_buf: &'d mut [W],
         rxdma: Peri<'d, impl RxDma<T>>,
@@ -459,20 +459,20 @@ impl<'d, W: Word> I2S<'d, W> {
         }
     }
 
-    fn new_inner<T: Instance>(
+    fn new_inner<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         txsd: Option<Peri<'d, AnyPin>>,
         rxsd: Option<Peri<'d, AnyPin>>,
-        ws: Peri<'d, impl WsPin<T>>,
-        ck: Peri<'d, impl CkPin<T>>,
+        ws: Peri<'d, if_afio!(impl WsPin<T, A>)>,
+        ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
         mck: Option<Peri<'d, AnyPin>>,
         txdma: Option<(ChannelAndRequest<'d>, &'d mut [W])>,
         rxdma: Option<(ChannelAndRequest<'d>, &'d mut [W])>,
         config: Config,
         function: Function,
     ) -> Self {
-        ws.set_as_af(ws.af_num(), AfType::output(OutputType::PushPull, config.gpio_speed));
-        ck.set_as_af(ck.af_num(), AfType::output(OutputType::PushPull, config.gpio_speed));
+        set_as_af!(ws, AfType::output(OutputType::PushPull, config.gpio_speed));
+        set_as_af!(ck, AfType::output(OutputType::PushPull, config.gpio_speed));
 
         let spi = Spi::new_internal(peri, None, None, {
             let mut spi_config = SpiConfig::default();

@@ -1391,9 +1391,53 @@ fn main() {
                         })
                     }
 
-                    g.extend(quote! {
-                        pin_trait_impl!(#tr, #peri, #pin_name, #af);
-                    })
+                    let pin_trait_impl = if let Some(afio) = &p.afio {
+                        let values = afio
+                            .values
+                            .iter()
+                            .filter(|v| v.pins.contains(&pin.pin))
+                            .map(|v| v.value)
+                            .collect::<Vec<_>>();
+
+                        if values.is_empty() {
+                            None
+                        } else {
+                            let reg = format_ident!("{}", afio.register.to_lowercase());
+                            let setter = format_ident!("set_{}", afio.field.to_lowercase());
+                            let type_and_values = if is_bool_field("AFIO", afio.register, afio.field) {
+                                let values = values.iter().map(|&v| v > 0);
+                                quote!(AfioRemapBool, [#(#values),*])
+                            } else {
+                                quote!(AfioRemap, [#(#values),*])
+                            };
+
+                            Some(quote! {
+                                pin_trait_afio_impl!(#tr, #peri, #pin_name, {#reg, #setter, #type_and_values});
+                            })
+                        }
+                    } else {
+                        let peripherals_with_afio = [
+                            "CAN",
+                            "CEC",
+                            "ETH",
+                            "I2C",
+                            "SPI",
+                            "SUBGHZSPI",
+                            "USART",
+                            "UART",
+                            "LPUART",
+                            "TIM",
+                        ];
+                        let not_applicable = if peripherals_with_afio.iter().any(|&x| p.name.starts_with(x)) {
+                            quote!(, crate::gpio::AfioRemapNotApplicable)
+                        } else {
+                            quote!()
+                        };
+
+                        Some(quote!(pin_trait_impl!(#tr, #peri, #pin_name, #af #not_applicable);))
+                    };
+
+                    g.extend(pin_trait_impl);
                 }
 
                 // ADC is special
@@ -1588,17 +1632,7 @@ fn main() {
                             let register = format_ident!("{}", remap_info.register.to_lowercase());
                             let setter = format_ident!("set_{}", remap_info.field.to_lowercase());
 
-                            let field_metadata = METADATA
-                                .peripherals
-                                .iter()
-                                .filter(|p| p.name == "SYSCFG")
-                                .flat_map(|p| p.registers.as_ref().unwrap().ir.fieldsets.iter())
-                                .filter(|f| f.name.eq_ignore_ascii_case(remap_info.register))
-                                .flat_map(|f| f.fields.iter())
-                                .find(|f| f.name.eq_ignore_ascii_case(remap_info.field))
-                                .unwrap();
-
-                            let value = if field_metadata.bit_size == 1 {
+                            let value = if is_bool_field("SYSCFG", &remap_info.register, &remap_info.field) {
                                 let bool_value = format_ident!("{}", remap_info.value > 0);
                                 quote!(#bool_value)
                             } else {
@@ -2299,4 +2333,18 @@ fn gcd(a: u32, b: u32) -> u32 {
         return a;
     }
     gcd(b, a % b)
+}
+
+fn is_bool_field(peripheral: &str, register: &str, field: &str) -> bool {
+    let field_metadata = METADATA
+        .peripherals
+        .iter()
+        .filter(|p| p.name == peripheral)
+        .flat_map(|p| p.registers.as_ref().unwrap().ir.fieldsets.iter())
+        .filter(|f| f.name.eq_ignore_ascii_case(register))
+        .flat_map(|f| f.fields.iter())
+        .find(|f| f.name.eq_ignore_ascii_case(field))
+        .unwrap();
+
+    field_metadata.bit_size == 1
 }

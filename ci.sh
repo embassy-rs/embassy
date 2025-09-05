@@ -311,7 +311,9 @@ cargo batch \
     --- build --release --manifest-path examples/boot/bootloader/stm32wba-dfu/Cargo.toml --target thumbv8m.main-none-eabihf --features embassy-stm32/stm32wba65ri,verify \
     --- build --release --manifest-path examples/boot/bootloader/stm32-dual-bank/Cargo.toml --target thumbv7em-none-eabi --features embassy-stm32/stm32h743zi \
     --- build --release --manifest-path examples/wasm/Cargo.toml --target wasm32-unknown-unknown --artifact-dir out/examples/wasm \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32f100rd --artifact-dir out/tests/stm32f100rd \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32f103c8 --artifact-dir out/tests/stm32f103c8 \
+    --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7m-none-eabi --features stm32f107vc --artifact-dir out/tests/stm32f107vc \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f429zi --artifact-dir out/tests/stm32f429zi \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32f446re --artifact-dir out/tests/stm32f446re \
     --- build --release --manifest-path tests/stm32/Cargo.toml --target thumbv7em-none-eabi --features stm32g491re --artifact-dir out/tests/stm32g491re \
@@ -398,8 +400,10 @@ rm out/tests/pimoroni-pico-plus-2/pwm
 rm out/tests/rpi-pico/pwm
 rm out/tests/rpi-pico/cyw43-perf
 
-# tests are implemented but the HIL test farm doesn't actually have this board yet
+# tests are implemented but the HIL test farm doesn't actually have these boards, yet
 rm -rf out/tests/stm32c071rb
+rm -rf out/tests/stm32f100rd
+rm -rf out/tests/stm32f107vc
 
 if [[ -z "${TELEPROBE_TOKEN-}" ]]; then
     echo No teleprobe token found, skipping running HIL tests
