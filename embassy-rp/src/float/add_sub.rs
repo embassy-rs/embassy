@@ -1,3 +1,5 @@
+//! Rust implementation of ROM floating point addition and subtraction functions.
+
 // Credit: taken from `rp-hal` (also licensed Apache+MIT)
 // https://github.com/rp-rs/rp-hal/blob/main/rp2040-hal/src/float/add_sub.rs
 
