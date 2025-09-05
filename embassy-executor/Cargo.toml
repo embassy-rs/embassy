@@ -51,7 +51,7 @@ features = ["defmt", "arch-cortex-m", "executor-thread", "executor-interrupt"]
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
-rtos-trace = { version = "0.1.3", optional = true }
+rtos-trace = { version = "0.2", optional = true }
 
 embassy-executor-macros = { version = "0.7.0", path = "../embassy-executor-macros" }
 embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver", optional = true }
@@ -112,7 +112,7 @@ arch-spin = ["_arch"]
 #! ### Metadata
 
 ## Enable the `name` field in task metadata.
-metadata-name = []
+metadata-name = ["embassy-executor-macros/metadata-name"]
 
 #! ### Executor
 
@@ -125,19 +125,3 @@ trace = ["_any_trace"]
 ## Enable support for rtos-trace framework
 rtos-trace = ["_any_trace", "metadata-name", "dep:rtos-trace", "dep:embassy-time-driver"]
 _any_trace = []
-
-#! ### Timer Item Payload Size
-#! Sets the size of the payload for timer items, allowing integrated timer implementors to store
-#! additional data in the timer item. The payload field will be aligned to this value as well.
-#! If these features are not defined, the timer item will contain no payload field.
-
-_timer-item-payload = [] # A size was picked
-
-## 1 bytes
-timer-item-payload-size-1 = ["_timer-item-payload"]
-## 2 bytes
-timer-item-payload-size-2 = ["_timer-item-payload"]
-## 4 bytes
-timer-item-payload-size-4 = ["_timer-item-payload"]
-## 8 bytes
-timer-item-payload-size-8 = ["_timer-item-payload"]

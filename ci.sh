@@ -193,18 +193,19 @@ cargo batch \
     --- build --release --manifest-path embassy-nxp/Cargo.toml --target thumbv8m.main-none-eabihf --features lpc55,defmt \
     --- build --release --manifest-path embassy-nxp/Cargo.toml --target thumbv7em-none-eabihf --features mimxrt1011,rt,defmt,time-driver-pit \
     --- build --release --manifest-path embassy-nxp/Cargo.toml --target thumbv7em-none-eabihf --features mimxrt1062,rt,defmt,time-driver-pit \
-    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0c1104dgs20,defmt,time-driver-any \
-    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g3507pm,defmt,time-driver-any \
-    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g3519pz,defmt,time-driver-any \
-    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0l1306rhb,defmt,time-driver-any \
-    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0l2228pn,defmt,time-driver-any \
-    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0l1345dgs28,defmt,time-driver-any \
-    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0l1106dgs28,defmt,time-driver-any \
-    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0l1228pm,defmt,time-driver-any \
-    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g1107ycj,defmt,time-driver-any \
-    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g3105rhb,defmt,time-driver-any \
-    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g1505pt,defmt,time-driver-any \
-    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g1519rhb,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0c1104dgs20,rt,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0c1106rgz,rt,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g3507pm,rt,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g3519pz,rt,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0l1306rhb,rt,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0l2228pn,rt,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0l1345dgs28,rt,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0l1106dgs28,rt,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0l1228pm,rt,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g1107ycj,rt,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g3105rhb,rt,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g1505pt,rt,defmt,time-driver-any \
+    --- build --release --manifest-path embassy-mspm0/Cargo.toml --target thumbv6m-none-eabi --features mspm0g1519rhb,rt,defmt,time-driver-any \
     --- build --release --manifest-path cyw43/Cargo.toml --target thumbv6m-none-eabi --features ''\
     --- build --release --manifest-path cyw43/Cargo.toml --target thumbv6m-none-eabi --features 'log' \
     --- build --release --manifest-path cyw43/Cargo.toml --target thumbv6m-none-eabi --features 'defmt' \

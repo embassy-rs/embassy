@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- fix: Fixed STM32H5 builds requiring time feature
+- feat: Derive Clone, Copy for QSPI Config
+- fix: stm32/i2c in master mode (blocking): subsequent transmissions failed after a NACK was received
+- feat: stm32/timer: add set_polarity functions for main and complementary outputs in complementary_pwm
+
 ## 0.4.0 - 2025-08-26
 
 - feat: stm32/sai: make NODIV independent of MCKDIV 
@@ -21,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix: Fix XSPI not disabling alternate bytes when they were previously enabled
 - fix: Fix stm32h7rs init when using external flash via XSPI
 - feat: Add Adc::new_with_clock() to configure analog clock
+- feat: Add GPDMA linked-list + ringbuffer support ([#3923](https://github.com/embassy-rs/embassy/pull/3923))
 
 ## 0.3.0 - 2025-08-12
 
@@ -131,7 +137,7 @@ GPIO:
 - Refactor AfType ([#3031](https://github.com/embassy-rs/embassy/pull/3031))
 - Gpiov1: Do not call set_speed for AFType::Input ([#2996](https://github.com/embassy-rs/embassy/pull/2996))
 
-UART: 
+UART:
 - Add embedded-io impls ([#2739](https://github.com/embassy-rs/embassy/pull/2739))
 - Add support for changing baud rate ([#3512](https://github.com/embassy-rs/embassy/pull/3512))
 - Add split_ref ([#3500](https://github.com/embassy-rs/embassy/pull/3500))
@@ -155,7 +161,7 @@ UART:
     - Wake receive task for each received byte ([#2722](https://github.com/embassy-rs/embassy/pull/2722))
     - Fix dma and idle line detection in ringbuffereduartrx ([#3319](https://github.com/embassy-rs/embassy/pull/3319))
 
-SPI: 
+SPI:
 - Add MISO pullup configuration option ([#2943](https://github.com/embassy-rs/embassy/pull/2943))
 - Add slew rate configuration options ([#3669](https://github.com/embassy-rs/embassy/pull/3669))
 - Fix blocking_write on nosck spi. ([#3035](https://github.com/embassy-rs/embassy/pull/3035))

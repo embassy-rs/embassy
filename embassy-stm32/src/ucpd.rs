@@ -490,14 +490,14 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             let sr = r.sr().read();
 
             if sr.rxhrstdet() {
-                dma.request_stop();
+                dma.request_pause();
 
                 // Clean and re-enable hard reset receive interrupt.
                 r.icr().write(|w| w.set_rxhrstdetcf(true));
                 r.imr().modify(|w| w.set_rxhrstdetie(true));
                 Poll::Ready(Err(RxError::HardReset))
             } else if sr.rxmsgend() {
-                dma.request_stop();
+                dma.request_pause();
                 // Should be read immediately on interrupt.
                 rxpaysz = r.rx_payszr().read().rxpaysz().into();
 
