@@ -18,7 +18,12 @@ pub struct PwmInput<'d, T: GeneralInstance4Channel> {
 
 impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
     /// Create a new PWM input driver.
-    pub fn new_ch1<A>(tim: Peri<'d, T>, pin: Peri<'d, impl TimerPin<T, Ch1, A>>, pull: Pull, freq: Hertz) -> Self {
+    pub fn new_ch1<#[cfg(afio)] A>(
+        tim: Peri<'d, T>,
+        pin: Peri<'d, if_afio!(impl TimerPin<T, Ch1, A>)>,
+        pull: Pull,
+        freq: Hertz,
+    ) -> Self {
         pin.set_as_af(pin.af_num(), AfType::input(pull));
         #[cfg(afio)]
         pin.afio_remap();
@@ -27,7 +32,12 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
     }
 
     /// Create a new PWM input driver.
-    pub fn new_ch2<A>(tim: Peri<'d, T>, pin: Peri<'d, impl TimerPin<T, Ch2, A>>, pull: Pull, freq: Hertz) -> Self {
+    pub fn new_ch2<#[cfg(afio)] A>(
+        tim: Peri<'d, T>,
+        pin: Peri<'d, if_afio!(impl TimerPin<T, Ch2, A>)>,
+        pull: Pull,
+        freq: Hertz,
+    ) -> Self {
         pin.set_as_af(pin.af_num(), AfType::input(pull));
         #[cfg(afio)]
         pin.afio_remap();

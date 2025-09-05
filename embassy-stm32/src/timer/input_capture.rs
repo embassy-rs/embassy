@@ -17,14 +17,14 @@ use crate::Peri;
 /// Capture pin wrapper.
 ///
 /// This wraps a pin to make it usable with capture.
-pub struct CapturePin<'d, T, C, A> {
+pub struct CapturePin<'d, T, C, #[cfg(afio)] A> {
     #[allow(unused)]
     pin: Peri<'d, AnyPin>,
-    phantom: PhantomData<(T, C, A)>,
+    phantom: PhantomData<if_afio!((T, C, A))>,
 }
-impl<'d, T: GeneralInstance4Channel, C: TimerChannel, A> CapturePin<'d, T, C, A> {
+impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(CapturePin<'d, T, C, A>) {
     /// Create a new capture pin instance.
-    pub fn new(pin: Peri<'d, impl TimerPin<T, C, A>>, pull: Pull) -> Self {
+    pub fn new(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, pull: Pull) -> Self {
         pin.set_as_af(pin.af_num(), AfType::input(pull));
         CapturePin {
             pin: pin.into(),
@@ -41,12 +41,12 @@ pub struct InputCapture<'d, T: GeneralInstance4Channel> {
 impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
     /// Create a new input capture driver.
     #[allow(unused)]
-    pub fn new<A>(
+    pub fn new<#[cfg(afio)] A>(
         tim: Peri<'d, T>,
-        ch1: Option<CapturePin<'d, T, Ch1, A>>,
-        ch2: Option<CapturePin<'d, T, Ch2, A>>,
-        ch3: Option<CapturePin<'d, T, Ch3, A>>,
-        ch4: Option<CapturePin<'d, T, Ch4, A>>,
+        ch1: Option<if_afio!(CapturePin<'d, T, Ch1, A>)>,
+        ch2: Option<if_afio!(CapturePin<'d, T, Ch2, A>)>,
+        ch3: Option<if_afio!(CapturePin<'d, T, Ch3, A>)>,
+        ch4: Option<if_afio!(CapturePin<'d, T, Ch4, A>)>,
         _irq: impl Binding<T::CaptureCompareInterrupt, CaptureCompareInterruptHandler<T>> + 'd,
         freq: Hertz,
         counting_mode: CountingMode,

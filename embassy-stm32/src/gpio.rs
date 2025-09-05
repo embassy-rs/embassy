@@ -718,6 +718,7 @@ pub struct AfioRemap<const V: u8>;
 /// Holds the AFIO remap value for a peripheral's pin
 pub struct AfioRemapBool<const V: bool>;
 
+#[cfg(afio)]
 /// Placeholder for a peripheral's pin which cannot be remapped via AFIO.
 pub struct AfioRemapNotApplicable;
 

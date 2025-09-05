@@ -99,19 +99,19 @@ macro_rules! config_pins {
 
 impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     /// safety: the returned instance is not leak-safe
-    pub fn new<const TX: usize, const RX: usize, A>(
+    pub fn new<const TX: usize, const RX: usize, #[cfg(afio)] A>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::ETH, InterruptHandler> + 'd,
-        ref_clk: Peri<'d, impl RefClkPin<T, A>>,
-        mdio: Peri<'d, impl MDIOPin<T, A>>,
-        mdc: Peri<'d, impl MDCPin<T, A>>,
-        crs: Peri<'d, impl CRSPin<T, A>>,
-        rx_d0: Peri<'d, impl RXD0Pin<T, A>>,
-        rx_d1: Peri<'d, impl RXD1Pin<T, A>>,
-        tx_d0: Peri<'d, impl TXD0Pin<T, A>>,
-        tx_d1: Peri<'d, impl TXD1Pin<T, A>>,
-        tx_en: Peri<'d, impl TXEnPin<T, A>>,
+        ref_clk: Peri<'d, if_afio!(impl RefClkPin<T, A>)>,
+        mdio: Peri<'d, if_afio!(impl MDIOPin<T, A>)>,
+        mdc: Peri<'d, if_afio!(impl MDCPin<T, A>)>,
+        crs: Peri<'d, if_afio!(impl CRSPin<T, A>)>,
+        rx_d0: Peri<'d, if_afio!(impl RXD0Pin<T, A>)>,
+        rx_d1: Peri<'d, if_afio!(impl RXD1Pin<T, A>)>,
+        tx_d0: Peri<'d, if_afio!(impl TXD0Pin<T, A>)>,
+        tx_d1: Peri<'d, if_afio!(impl TXD1Pin<T, A>)>,
+        tx_en: Peri<'d, if_afio!(impl TXEnPin<T, A>)>,
         phy: P,
         mac_addr: [u8; 6],
     ) -> Self {
@@ -291,24 +291,24 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     }
 
     /// Create a new MII ethernet driver using 14 pins.
-    pub fn new_mii<const TX: usize, const RX: usize, A>(
+    pub fn new_mii<const TX: usize, const RX: usize, #[cfg(afio)] A>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::ETH, InterruptHandler> + 'd,
-        rx_clk: Peri<'d, impl RXClkPin<T, A>>,
-        tx_clk: Peri<'d, impl TXClkPin<T, A>>,
-        mdio: Peri<'d, impl MDIOPin<T, A>>,
-        mdc: Peri<'d, impl MDCPin<T, A>>,
-        rxdv: Peri<'d, impl RXDVPin<T, A>>,
-        rx_d0: Peri<'d, impl RXD0Pin<T, A>>,
-        rx_d1: Peri<'d, impl RXD1Pin<T, A>>,
-        rx_d2: Peri<'d, impl RXD2Pin<T, A>>,
-        rx_d3: Peri<'d, impl RXD3Pin<T, A>>,
-        tx_d0: Peri<'d, impl TXD0Pin<T, A>>,
-        tx_d1: Peri<'d, impl TXD1Pin<T, A>>,
-        tx_d2: Peri<'d, impl TXD2Pin<T, A>>,
-        tx_d3: Peri<'d, impl TXD3Pin<T, A>>,
-        tx_en: Peri<'d, impl TXEnPin<T, A>>,
+        rx_clk: Peri<'d, if_afio!(impl RXClkPin<T, A>)>,
+        tx_clk: Peri<'d, if_afio!(impl TXClkPin<T, A>)>,
+        mdio: Peri<'d, if_afio!(impl MDIOPin<T, A>)>,
+        mdc: Peri<'d, if_afio!(impl MDCPin<T, A>)>,
+        rxdv: Peri<'d, if_afio!(impl RXDVPin<T, A>)>,
+        rx_d0: Peri<'d, if_afio!(impl RXD0Pin<T, A>)>,
+        rx_d1: Peri<'d, if_afio!(impl RXD1Pin<T, A>)>,
+        rx_d2: Peri<'d, if_afio!(impl RXD2Pin<T, A>)>,
+        rx_d3: Peri<'d, if_afio!(impl RXD3Pin<T, A>)>,
+        tx_d0: Peri<'d, if_afio!(impl TXD0Pin<T, A>)>,
+        tx_d1: Peri<'d, if_afio!(impl TXD1Pin<T, A>)>,
+        tx_d2: Peri<'d, if_afio!(impl TXD2Pin<T, A>)>,
+        tx_d3: Peri<'d, if_afio!(impl TXD3Pin<T, A>)>,
+        tx_en: Peri<'d, if_afio!(impl TXEnPin<T, A>)>,
         phy: P,
         mac_addr: [u8; 6],
     ) -> Self {

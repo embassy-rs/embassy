@@ -14,10 +14,10 @@ use crate::Peri;
 /// PWM pin wrapper.
 ///
 /// This wraps a pin to make it usable with PWM.
-pub struct PwmPin<'d, T, C, A> {
+pub struct PwmPin<'d, T, C, #[cfg(afio)] A> {
     #[allow(unused)]
     pub(crate) pin: Peri<'d, AnyPin>,
-    phantom: PhantomData<(T, C, A)>,
+    phantom: PhantomData<if_afio!((T, C, A))>,
 }
 
 /// PWM pin config
@@ -35,9 +35,9 @@ pub struct PwmPinConfig {
     pub pull: Pull,
 }
 
-impl<'d, T: GeneralInstance4Channel, C: TimerChannel, A> PwmPin<'d, T, C, A> {
+impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(PwmPin<'d, T, C, A>) {
     /// Create a new PWM pin instance.
-    pub fn new(pin: Peri<'d, impl TimerPin<T, C, A>>, output_type: OutputType) -> Self {
+    pub fn new(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, output_type: OutputType) -> Self {
         critical_section::with(|_| {
             pin.set_low();
             pin.set_as_af(pin.af_num(), AfType::output(output_type, Speed::VeryHigh));
@@ -50,8 +50,8 @@ impl<'d, T: GeneralInstance4Channel, C: TimerChannel, A> PwmPin<'d, T, C, A> {
         }
     }
 
-    /// Create a new PWM pin instance with config.
-    pub fn new_with_config(pin: Peri<'d, impl TimerPin<T, C, A>>, pin_config: PwmPinConfig) -> Self {
+    /// Create a new PWM pin instance with a specific configuration.
+    pub fn new_with_config(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, pin_config: PwmPinConfig) -> Self {
         critical_section::with(|_| {
             pin.set_low();
             pin.set_as_af(
@@ -184,12 +184,12 @@ pub struct SimplePwm<'d, T: GeneralInstance4Channel> {
 impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// Create a new simple PWM driver.
     #[allow(unused)]
-    pub fn new<A>(
+    pub fn new<#[cfg(afio)] A>(
         tim: Peri<'d, T>,
-        ch1: Option<PwmPin<'d, T, Ch1, A>>,
-        ch2: Option<PwmPin<'d, T, Ch2, A>>,
-        ch3: Option<PwmPin<'d, T, Ch3, A>>,
-        ch4: Option<PwmPin<'d, T, Ch4, A>>,
+        ch1: Option<if_afio!(PwmPin<'d, T, Ch1, A>)>,
+        ch2: Option<if_afio!(PwmPin<'d, T, Ch2, A>)>,
+        ch3: Option<if_afio!(PwmPin<'d, T, Ch3, A>)>,
+        ch4: Option<if_afio!(PwmPin<'d, T, Ch4, A>)>,
         freq: Hertz,
         counting_mode: CountingMode,
     ) -> Self {

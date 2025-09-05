@@ -181,10 +181,10 @@ pub enum TryWriteError {
 impl<'d> Can<'d> {
     /// Creates a new Bxcan instance, keeping the peripheral in sleep mode.
     /// You must call [Can::enable_non_blocking] to use the peripheral.
-    pub fn new<T: Instance, A>(
+    pub fn new<T: Instance, #[cfg(afio)] A>(
         _peri: Peri<'d, T>,
-        rx: Peri<'d, impl RxPin<T, A>>,
-        tx: Peri<'d, impl TxPin<T, A>>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
         _irqs: impl interrupt::typelevel::Binding<T::TXInterrupt, TxInterruptHandler<T>>
             + interrupt::typelevel::Binding<T::RX0Interrupt, Rx0InterruptHandler<T>>
             + interrupt::typelevel::Binding<T::RX1Interrupt, Rx1InterruptHandler<T>>

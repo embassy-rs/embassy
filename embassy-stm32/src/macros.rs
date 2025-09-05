@@ -43,7 +43,7 @@ macro_rules! peri_trait_impl {
 macro_rules! pin_trait {
     ($signal:ident, $instance:path $(, $mode:path)? $(, @$afio:ident)?) => {
         #[doc = concat!(stringify!($signal), " pin trait")]
-        pub trait $signal<T: $instance $(, M: $mode)? $(, $afio)?>: crate::gpio::Pin {
+        pub trait $signal<T: $instance $(, M: $mode)? $(, #[cfg(afio)] $afio)?>: crate::gpio::Pin {
             #[doc = concat!("Get the AF number needed to use this pin as ", stringify!($signal))]
             fn af_num(&self) -> u8;
 
@@ -56,14 +56,21 @@ macro_rules! pin_trait {
 
 macro_rules! pin_trait_impl {
     (crate::$mod:ident::$trait:ident$(<$mode:ident>)?, $instance:ident, $pin:ident, $af:expr $(, $afio:path)?) => {
+        #[cfg(afio)]
         impl crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)? $(, $afio)?> for crate::peripherals::$pin {
             fn af_num(&self) -> u8 {
                 $af
             }
 
-            #[cfg(afio)]
             fn afio_remap(&self) {
                 // nothing
+            }
+        }
+
+        #[cfg(not(afio))]
+        impl crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)?> for crate::peripherals::$pin {
+            fn af_num(&self) -> u8 {
+                $af
             }
         }
     };
@@ -189,4 +196,47 @@ macro_rules! new_pin {
         pin.set_as_af(pin.af_num(), $af_type);
         Some(pin.into())
     }};
+}
+
+#[cfg(afio)]
+macro_rules! if_afio {
+    ($($t:tt)*) => {
+        $($t)*
+    }
+}
+#[cfg(not(afio))]
+macro_rules! if_afio {
+    (($a:ty, A)) => {
+        ($a,)
+    };
+    (($a:ty, $b:ty, A)) => {
+        ($a,$b)
+    };
+    (($a:ty, $b:ty, $c:ty, A)) => {
+        ($a,$b, $c)
+    };
+    ($type:ident<$lt:lifetime, $a:ty, $b:ty, A>) => {
+        $type<$lt, $a, $b>
+    };
+    ($type:ident<$lt:lifetime, $a:ty, $b:ty, $c:ty, A>) => {
+        $type<$lt, $a, $b, $c>
+    };
+    ($type:ident<$a:ty, A>) => {
+        $type<$a>
+    };
+    ($type:ident<$a:ty, $b:ty, A>) => {
+        $type<$a, $b>
+    };
+    ($type:ident<$a:ty, $b:ty, $c:ty, A>) => {
+        $type<$a, $b, $c>
+    };
+    (impl $trait:ident<$a:ty, A>) => {
+        impl $trait<$a>
+    };
+    (impl $trait:ident<$a:ty, $b:ty, A>) => {
+        impl $trait<$a, $b>
+    };
+    (impl $trait:ident<$a:ty, $b:ty, $c:ty, A>) => {
+        impl $trait<$a, $b, $c>
+    };
 }

@@ -64,7 +64,7 @@ impl SealedTriggerSource for Ext {}
 
 impl<'d, T: GeneralInstance4Channel, C: TriggerSource + TimerChannel> TriggerPin<'d, T, C> {
     /// Create a new Channel trigger pin instance.
-    pub fn new<A>(pin: Peri<'d, impl TimerPin<T, C, A>>, pull: Pull) -> Self {
+    pub fn new<#[cfg(afio)] A>(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, pull: Pull) -> Self {
         pin.set_as_af(pin.af_num(), AfType::input(pull));
         #[cfg(afio)]
         pin.afio_remap();
@@ -77,7 +77,7 @@ impl<'d, T: GeneralInstance4Channel, C: TriggerSource + TimerChannel> TriggerPin
 
 impl<'d, T: GeneralInstance4Channel> TriggerPin<'d, T, Ext> {
     /// Create a new external trigger pin instance.
-    pub fn new_external<A>(pin: Peri<'d, impl ExternalTriggerPin<T, A>>, pull: Pull) -> Self {
+    pub fn new_external<#[cfg(afio)] A>(pin: Peri<'d, if_afio!(impl ExternalTriggerPin<T, A>)>, pull: Pull) -> Self {
         pin.set_as_af(pin.af_num(), AfType::input(pull));
         #[cfg(afio)]
         pin.afio_remap();

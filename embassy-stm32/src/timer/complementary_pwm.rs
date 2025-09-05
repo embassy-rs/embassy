@@ -16,15 +16,15 @@ use crate::Peri;
 /// Complementary PWM pin wrapper.
 ///
 /// This wraps a pin to make it usable with PWM.
-pub struct ComplementaryPwmPin<'d, T, C, A> {
+pub struct ComplementaryPwmPin<'d, T, C, #[cfg(afio)] A> {
     #[allow(unused)]
     pin: Peri<'d, AnyPin>,
-    phantom: PhantomData<(T, C, A)>,
+    phantom: PhantomData<if_afio!((T, C, A))>,
 }
 
-impl<'d, T: AdvancedInstance4Channel, C: TimerChannel, A> ComplementaryPwmPin<'d, T, C, A> {
+impl<'d, T: AdvancedInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(ComplementaryPwmPin<'d, T, C, A>) {
     /// Create a new  complementary PWM pin instance.
-    pub fn new(pin: Peri<'d, impl TimerComplementaryPin<T, C, A>>, output_type: OutputType) -> Self {
+    pub fn new(pin: Peri<'d, if_afio!(impl TimerComplementaryPin<T, C, A>)>, output_type: OutputType) -> Self {
         critical_section::with(|_| {
             pin.set_low();
             pin.set_as_af(
@@ -58,16 +58,16 @@ pub enum IdlePolarity {
 impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Create a new complementary PWM driver.
     #[allow(clippy::too_many_arguments, unused)]
-    pub fn new<A>(
+    pub fn new<#[cfg(afio)] A>(
         tim: Peri<'d, T>,
-        ch1: Option<PwmPin<'d, T, Ch1, A>>,
-        ch1n: Option<ComplementaryPwmPin<'d, T, Ch1, A>>,
-        ch2: Option<PwmPin<'d, T, Ch2, A>>,
-        ch2n: Option<ComplementaryPwmPin<'d, T, Ch2, A>>,
-        ch3: Option<PwmPin<'d, T, Ch3, A>>,
-        ch3n: Option<ComplementaryPwmPin<'d, T, Ch3, A>>,
-        ch4: Option<PwmPin<'d, T, Ch4, A>>,
-        ch4n: Option<ComplementaryPwmPin<'d, T, Ch4, A>>,
+        ch1: Option<if_afio!(PwmPin<'d, T, Ch1, A>)>,
+        ch1n: Option<if_afio!(ComplementaryPwmPin<'d, T, Ch1, A>)>,
+        ch2: Option<if_afio!(PwmPin<'d, T, Ch2, A>)>,
+        ch2n: Option<if_afio!(ComplementaryPwmPin<'d, T, Ch2, A>)>,
+        ch3: Option<if_afio!(PwmPin<'d, T, Ch3, A>)>,
+        ch3n: Option<if_afio!(ComplementaryPwmPin<'d, T, Ch3, A>)>,
+        ch4: Option<if_afio!(PwmPin<'d, T, Ch4, A>)>,
+        ch4n: Option<if_afio!(ComplementaryPwmPin<'d, T, Ch4, A>)>,
         freq: Hertz,
         counting_mode: CountingMode,
     ) -> Self {
