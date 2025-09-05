@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: Derive Clone, Copy for QSPI Config
 - fix: stm32/i2c in master mode (blocking): subsequent transmissions failed after a NACK was received
 - feat: stm32/timer: add set_polarity functions for main and complementary outputs in complementary_pwm
+- Add I2S support for STM32F1, STM32C0, STM32F0, STM32F3, STM32F7, STM32G0, STM32WL, STM32H5, STM32H7RS
 
 ## 0.4.0 - 2025-08-26
 

@@ -87,7 +87,7 @@ pub mod hsem;
 pub mod hspi;
 #[cfg(i2c)]
 pub mod i2c;
-#[cfg(any(all(spi_v1, rcc_f4), spi_v3))]
+#[cfg(any(spi_v1_i2s, spi_v2_i2s, spi_v3_i2s, spi_v4_i2s, spi_v5_i2s))]
 pub mod i2s;
 #[cfg(stm32wb)]
 pub mod ipcc;
