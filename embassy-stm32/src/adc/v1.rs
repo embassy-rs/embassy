@@ -66,7 +66,11 @@ pub struct Temperature;
 impl AdcChannel<ADC1> for Temperature {}
 impl super::SealedAdcChannel<ADC1> for Temperature {
     fn channel(&self) -> u8 {
-        16
+        if cfg!(adc_l0) {
+            18
+        } else {
+            16
+        }
     }
 }
 
