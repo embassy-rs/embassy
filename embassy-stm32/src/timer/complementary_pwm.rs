@@ -16,21 +16,23 @@ use crate::Peri;
 /// Complementary PWM pin wrapper.
 ///
 /// This wraps a pin to make it usable with PWM.
-pub struct ComplementaryPwmPin<'d, T, C> {
+pub struct ComplementaryPwmPin<'d, T, C, A> {
     #[allow(unused)]
     pin: Peri<'d, AnyPin>,
-    phantom: PhantomData<(T, C)>,
+    phantom: PhantomData<(T, C, A)>,
 }
 
-impl<'d, T: AdvancedInstance4Channel, C: TimerChannel> ComplementaryPwmPin<'d, T, C> {
+impl<'d, T: AdvancedInstance4Channel, C: TimerChannel, A> ComplementaryPwmPin<'d, T, C, A> {
     /// Create a new  complementary PWM pin instance.
-    pub fn new(pin: Peri<'d, impl TimerComplementaryPin<T, C>>, output_type: OutputType) -> Self {
+    pub fn new(pin: Peri<'d, impl TimerComplementaryPin<T, C, A>>, output_type: OutputType) -> Self {
         critical_section::with(|_| {
             pin.set_low();
             pin.set_as_af(
                 pin.af_num(),
                 crate::gpio::AfType::output(output_type, crate::gpio::Speed::VeryHigh),
             );
+            #[cfg(afio)]
+            pin.afio_remap();
         });
         ComplementaryPwmPin {
             pin: pin.into(),
@@ -56,30 +58,19 @@ pub enum IdlePolarity {
 impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Create a new complementary PWM driver.
     #[allow(clippy::too_many_arguments, unused)]
-    pub fn new(
+    pub fn new<A>(
         tim: Peri<'d, T>,
-        ch1: Option<PwmPin<'d, T, Ch1>>,
-        ch1n: Option<ComplementaryPwmPin<'d, T, Ch1>>,
-        ch2: Option<PwmPin<'d, T, Ch2>>,
-        ch2n: Option<ComplementaryPwmPin<'d, T, Ch2>>,
-        ch3: Option<PwmPin<'d, T, Ch3>>,
-        ch3n: Option<ComplementaryPwmPin<'d, T, Ch3>>,
-        ch4: Option<PwmPin<'d, T, Ch4>>,
-        ch4n: Option<ComplementaryPwmPin<'d, T, Ch4>>,
+        ch1: Option<PwmPin<'d, T, Ch1, A>>,
+        ch1n: Option<ComplementaryPwmPin<'d, T, Ch1, A>>,
+        ch2: Option<PwmPin<'d, T, Ch2, A>>,
+        ch2n: Option<ComplementaryPwmPin<'d, T, Ch2, A>>,
+        ch3: Option<PwmPin<'d, T, Ch3, A>>,
+        ch3n: Option<ComplementaryPwmPin<'d, T, Ch3, A>>,
+        ch4: Option<PwmPin<'d, T, Ch4, A>>,
+        ch4n: Option<ComplementaryPwmPin<'d, T, Ch4, A>>,
         freq: Hertz,
         counting_mode: CountingMode,
     ) -> Self {
-        #[cfg(afio)]
-        super::set_afio::<T>(&[
-            ch1.map(|p| p.pin),
-            ch1n.map(|p| p.pin),
-            ch2.map(|p| p.pin),
-            ch2n.map(|p| p.pin),
-            ch3.map(|p| p.pin),
-            ch3n.map(|p| p.pin),
-            ch4.map(|p| p.pin),
-            ch4n.map(|p| p.pin),
-        ]);
         Self::new_inner(tim, freq, counting_mode)
     }
 

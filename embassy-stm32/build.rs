@@ -1391,58 +1391,51 @@ fn main() {
                         })
                     }
 
-                    let pin_trait_impl = p
-                        .afio
-                        .as_ref()
-                        .and_then(|afio| {
-                            if p.name.starts_with("TIM") {
-                                // timers are handled by timer_afio_impl!()
-                                return None;
-                            }
+                    let pin_trait_impl = if let Some(afio) = &p.afio {
+                        let values = afio
+                            .values
+                            .iter()
+                            .filter(|v| v.pins.contains(&pin.pin))
+                            .map(|v| v.value)
+                            .collect::<Vec<_>>();
 
-                            let values = afio
-                                .values
-                                .iter()
-                                .filter(|v| v.pins.contains(&pin.pin))
-                                .map(|v| v.value)
-                                .collect::<Vec<_>>();
-
-                            if values.is_empty() {
-                                None
+                        if values.is_empty() {
+                            None
+                        } else {
+                            let reg = format_ident!("{}", afio.register.to_lowercase());
+                            let setter = format_ident!("set_{}", afio.field.to_lowercase());
+                            let type_and_values = if is_bool_field("AFIO", afio.register, afio.field) {
+                                let values = values.iter().map(|&v| v > 0);
+                                quote!(AfioRemapBool, [#(#values),*])
                             } else {
-                                let setter = format_ident!("set_{}", afio.field.to_lowercase());
-                                let type_and_values = if is_bool_field("AFIO", afio.register, afio.field) {
-                                    let values = values.iter().map(|&v| v > 0);
-                                    quote!(AfioRemapBool, [#(#values),*])
-                                } else {
-                                    quote!(AfioRemap, [#(#values),*])
-                                };
-
-                                Some(quote! {
-                                    pin_trait_afio_impl!(#tr, #peri, #pin_name, {#setter, #type_and_values});
-                                })
-                            }
-                        })
-                        .unwrap_or_else(|| {
-                            let peripherals_with_afio = [
-                                "CAN",
-                                "CEC",
-                                "ETH",
-                                "I2C",
-                                "SPI",
-                                "SUBGHZSPI",
-                                "USART",
-                                "UART",
-                                "LPUART",
-                            ];
-                            let af_or_not_applicable = if peripherals_with_afio.iter().any(|&x| p.name.starts_with(x)) {
-                                quote!(0, crate::gpio::AfioRemapNotApplicable)
-                            } else {
-                                quote!(#af)
+                                quote!(AfioRemap, [#(#values),*])
                             };
 
-                            quote!(pin_trait_impl!(#tr, #peri, #pin_name, #af_or_not_applicable);)
-                        });
+                            Some(quote! {
+                                pin_trait_afio_impl!(#tr, #peri, #pin_name, {#reg, #setter, #type_and_values});
+                            })
+                        }
+                    } else {
+                        let peripherals_with_afio = [
+                            "CAN",
+                            "CEC",
+                            "ETH",
+                            "I2C",
+                            "SPI",
+                            "SUBGHZSPI",
+                            "USART",
+                            "UART",
+                            "LPUART",
+                            "TIM",
+                        ];
+                        let af_or_not_applicable = if peripherals_with_afio.iter().any(|&x| p.name.starts_with(x)) {
+                            quote!(0, crate::gpio::AfioRemapNotApplicable)
+                        } else {
+                            quote!(#af)
+                        };
+
+                        Some(quote!(pin_trait_impl!(#tr, #peri, #pin_name, #af_or_not_applicable);))
+                    };
 
                     g.extend(pin_trait_impl);
                 }
@@ -1968,48 +1961,6 @@ fn main() {
     g.extend(quote! {
         pub(crate) const DMA_CHANNELS: &[crate::dma::ChannelInfo] = &[#dmas];
     });
-
-    // ========
-    // Generate timer AFIO impls
-
-    for p in METADATA.peripherals {
-        if p.name.starts_with("TIM") {
-            let pname = format_ident!("{}", p.name);
-            let afio = if let Some(afio) = &p.afio {
-                let register = format_ident!("{}", afio.register.to_lowercase());
-                let setter = format_ident!("set_{}", afio.field.to_lowercase());
-
-                let swj_cfg = if afio.register == "MAPR" {
-                    quote!(w.set_swj_cfg(crate::pac::afio::vals::SwjCfg::NO_OP);)
-                } else {
-                    quote!()
-                };
-                let bool_eval = if is_bool_field("AFIO", &afio.register, &afio.field) {
-                    quote!(> 0)
-                } else {
-                    quote!()
-                };
-
-                let values = afio.values.iter().map(|v| {
-                    let mapr_value = v.value;
-                    let pin = v.pins.iter().map(|p| {
-                        let port_num = p.chars().nth(1).unwrap() as u8 - b'A';
-                        let pin_num = p[2..].parse::<u8>().unwrap();
-                        port_num * 16 + pin_num
-                    });
-                    quote!(#mapr_value, [#(#pin),*])
-                });
-
-                quote! {
-                    , |v| crate::pac::AFIO.#register().modify(|w| { #swj_cfg w.#setter(v #bool_eval); }), #({#values}),*
-                }
-            } else {
-                quote!()
-            };
-
-            g.extend(quote!(timer_afio_impl!(#pname #afio);));
-        }
-    }
 
     // ========
     // Generate gpio_block() function

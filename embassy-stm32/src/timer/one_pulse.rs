@@ -15,6 +15,7 @@ use crate::gpio::{AfType, AnyPin, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::pac::timer::vals::Etp;
 use crate::time::Hertz;
+use crate::timer::TimerChannel;
 use crate::Peri;
 
 /// External input marker type.
@@ -61,58 +62,25 @@ impl SealedTriggerSource for Ch1 {}
 impl SealedTriggerSource for Ch2 {}
 impl SealedTriggerSource for Ext {}
 
-trait SealedTimerTriggerPin<T, S>: crate::gpio::Pin {}
-
-/// Marker trait for a trigger pin.
-#[expect(private_bounds)]
-// TODO: find better naming scheme than prefixing all pin traits with "Timer".
-// The trait name cannot conflict with the corresponding type's name.
-// Applies to other timer submodules as well.
-pub trait TimerTriggerPin<T, S>: SealedTimerTriggerPin<T, S> {
-    /// Get the AF number needed to use this pin as a trigger source.
-    fn af_num(&self) -> u8;
-}
-
-impl<T, P, C> TimerTriggerPin<T, C> for P
-where
-    T: GeneralInstance4Channel,
-    P: TimerPin<T, C>,
-    C: super::TimerChannel + TriggerSource,
-{
-    fn af_num(&self) -> u8 {
-        TimerPin::af_num(self)
-    }
-}
-
-impl<T, P> TimerTriggerPin<T, Ext> for P
-where
-    T: GeneralInstance4Channel,
-    P: ExternalTriggerPin<T>,
-{
-    fn af_num(&self) -> u8 {
-        ExternalTriggerPin::af_num(self)
-    }
-}
-
-impl<T, P, C> SealedTimerTriggerPin<T, C> for P
-where
-    T: GeneralInstance4Channel,
-    P: TimerPin<T, C>,
-    C: super::TimerChannel + TriggerSource,
-{
-}
-
-impl<T, P> SealedTimerTriggerPin<T, Ext> for P
-where
-    T: GeneralInstance4Channel,
-    P: ExternalTriggerPin<T>,
-{
-}
-
-impl<'d, T: GeneralInstance4Channel, C: TriggerSource> TriggerPin<'d, T, C> {
-    /// "Create a new Ch1 trigger pin instance.
-    pub fn new(pin: Peri<'d, impl TimerTriggerPin<T, C>>, pull: Pull) -> Self {
+impl<'d, T: GeneralInstance4Channel, C: TriggerSource + TimerChannel> TriggerPin<'d, T, C> {
+    /// Create a new Channel trigger pin instance.
+    pub fn new<A>(pin: Peri<'d, impl TimerPin<T, C, A>>, pull: Pull) -> Self {
         pin.set_as_af(pin.af_num(), AfType::input(pull));
+        #[cfg(afio)]
+        pin.afio_remap();
+        TriggerPin {
+            pin: pin.into(),
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<'d, T: GeneralInstance4Channel> TriggerPin<'d, T, Ext> {
+    /// Create a new external trigger pin instance.
+    pub fn new_external<A>(pin: Peri<'d, impl ExternalTriggerPin<T, A>>, pull: Pull) -> Self {
+        pin.set_as_af(pin.af_num(), AfType::input(pull));
+        #[cfg(afio)]
+        pin.afio_remap();
         TriggerPin {
             pin: pin.into(),
             phantom: PhantomData,
@@ -141,8 +109,6 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
         pulse_end: u32,
         counting_mode: CountingMode,
     ) -> Self {
-        #[cfg(afio)]
-        super::set_afio::<T>(&[Some(pin.pin)]);
         let mut this = Self { inner: Timer::new(tim) };
 
         this.inner.set_trigger_source(Ts::TI1F_ED);

@@ -71,7 +71,31 @@ macro_rules! pin_trait_impl {
 
 #[cfg(afio)]
 macro_rules! pin_trait_afio_impl {
-    (crate::$mod:ident::$trait:ident, $instance:ident, $pin:ident, {$setter:ident, $type:ident, [$($val:expr),+]}) => {
+    (@set mapr, $setter:ident, $val:expr) => {
+        crate::pac::AFIO.mapr().modify(|w| {
+            w.set_swj_cfg(crate::pac::afio::vals::SwjCfg::NO_OP);
+            w.$setter($val);
+        });
+    };
+    (@set mapr2, $setter:ident, $val:expr) => {
+        crate::pac::AFIO.mapr2().modify(|w| {
+            w.$setter($val);
+        });
+    };
+    (crate::$mod:ident::$trait:ident<$mode:ident>, $instance:ident, $pin:ident, {$reg:ident, $setter:ident, $type:ident, [$($val:expr),+]}) => {
+        $(
+            impl crate::$mod::$trait<crate::peripherals::$instance, crate::$mod::$mode, crate::gpio::$type<$val>> for crate::peripherals::$pin {
+                fn af_num(&self) -> u8 {
+                    0
+                }
+
+                fn afio_remap(&self) {
+                    pin_trait_afio_impl!(@set $reg, $setter, $val);
+                }
+            }
+        )+
+    };
+    (crate::$mod:ident::$trait:ident, $instance:ident, $pin:ident, {$reg:ident, $setter:ident, $type:ident, [$($val:expr),+]}) => {
         $(
             impl crate::$mod::$trait<crate::peripherals::$instance, crate::gpio::$type<$val>> for crate::peripherals::$pin {
                 fn af_num(&self) -> u8 {
@@ -79,10 +103,7 @@ macro_rules! pin_trait_afio_impl {
                 }
 
                 fn afio_remap(&self) {
-                    crate::pac::AFIO.mapr().modify(|w| {
-                        w.set_swj_cfg(crate::pac::afio::vals::SwjCfg::NO_OP);
-                        w.$setter($val);
-                    });
+                    pin_trait_afio_impl!(@set $reg, $setter, $val);
                 }
             }
         )+
@@ -95,30 +116,6 @@ macro_rules! sel_trait_impl {
         impl crate::$mod::$trait<crate::peripherals::$instance $(, crate::$mod::$mode)?> for crate::peripherals::$pin {
             fn sel(&self) -> u8 {
                 $sel
-            }
-        }
-    };
-}
-
-// ====================
-
-macro_rules! timer_afio_impl {
-    ($instance:ident $(, $set_afio:expr)? $(,{$mapr_value:literal, [$($pin:literal),*]})*) => {
-        impl crate::timer::Afio for crate::peripherals::$instance {
-            fn afio_mappings() -> &'static [crate::timer::AfioMapping] {
-                &[
-                    $(
-                        crate::timer::AfioMapping {
-                            value: $mapr_value,
-                            pins: &[$($pin),*],
-                        }
-                    ),*
-                ]
-            }
-
-            #[allow(unused)]
-            fn set_afio(value: u8) {
-                $($set_afio(value);)?
             }
         }
     };

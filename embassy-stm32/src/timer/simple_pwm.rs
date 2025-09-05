@@ -14,10 +14,10 @@ use crate::Peri;
 /// PWM pin wrapper.
 ///
 /// This wraps a pin to make it usable with PWM.
-pub struct PwmPin<'d, T, C> {
+pub struct PwmPin<'d, T, C, A> {
     #[allow(unused)]
     pub(crate) pin: Peri<'d, AnyPin>,
-    phantom: PhantomData<(T, C)>,
+    phantom: PhantomData<(T, C, A)>,
 }
 
 /// PWM pin config
@@ -35,12 +35,14 @@ pub struct PwmPinConfig {
     pub pull: Pull,
 }
 
-impl<'d, T: GeneralInstance4Channel, C: TimerChannel> PwmPin<'d, T, C> {
+impl<'d, T: GeneralInstance4Channel, C: TimerChannel, A> PwmPin<'d, T, C, A> {
     /// Create a new PWM pin instance.
-    pub fn new(pin: Peri<'d, impl TimerPin<T, C>>, output_type: OutputType) -> Self {
+    pub fn new(pin: Peri<'d, impl TimerPin<T, C, A>>, output_type: OutputType) -> Self {
         critical_section::with(|_| {
             pin.set_low();
             pin.set_as_af(pin.af_num(), AfType::output(output_type, Speed::VeryHigh));
+            #[cfg(afio)]
+            pin.afio_remap();
         });
         PwmPin {
             pin: pin.into(),
@@ -49,7 +51,7 @@ impl<'d, T: GeneralInstance4Channel, C: TimerChannel> PwmPin<'d, T, C> {
     }
 
     /// Create a new PWM pin instance with config.
-    pub fn new_with_config(pin: Peri<'d, impl TimerPin<T, C>>, pin_config: PwmPinConfig) -> Self {
+    pub fn new_with_config(pin: Peri<'d, impl TimerPin<T, C, A>>, pin_config: PwmPinConfig) -> Self {
         critical_section::with(|_| {
             pin.set_low();
             pin.set_as_af(
@@ -59,6 +61,8 @@ impl<'d, T: GeneralInstance4Channel, C: TimerChannel> PwmPin<'d, T, C> {
                 #[cfg(gpio_v2)]
                 AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull),
             );
+            #[cfg(afio)]
+            pin.afio_remap();
         });
         PwmPin {
             pin: pin.into(),
@@ -180,22 +184,15 @@ pub struct SimplePwm<'d, T: GeneralInstance4Channel> {
 impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// Create a new simple PWM driver.
     #[allow(unused)]
-    pub fn new(
+    pub fn new<A>(
         tim: Peri<'d, T>,
-        ch1: Option<PwmPin<'d, T, Ch1>>,
-        ch2: Option<PwmPin<'d, T, Ch2>>,
-        ch3: Option<PwmPin<'d, T, Ch3>>,
-        ch4: Option<PwmPin<'d, T, Ch4>>,
+        ch1: Option<PwmPin<'d, T, Ch1, A>>,
+        ch2: Option<PwmPin<'d, T, Ch2, A>>,
+        ch3: Option<PwmPin<'d, T, Ch3, A>>,
+        ch4: Option<PwmPin<'d, T, Ch4, A>>,
         freq: Hertz,
         counting_mode: CountingMode,
     ) -> Self {
-        #[cfg(afio)]
-        super::set_afio::<T>(&[
-            ch1.map(|p| p.pin),
-            ch2.map(|p| p.pin),
-            ch3.map(|p| p.pin),
-            ch4.map(|p| p.pin),
-        ]);
         Self::new_inner(tim, freq, counting_mode)
     }
 

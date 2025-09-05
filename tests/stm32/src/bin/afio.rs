@@ -6,7 +6,7 @@ mod common;
 
 use common::*;
 use embassy_executor::Spawner;
-use embassy_stm32::gpio::{OutputType, Pull};
+use embassy_stm32::gpio::{AfioRemap, OutputType, Pull};
 use embassy_stm32::pac::AFIO;
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, ComplementaryPwmPin};
@@ -173,7 +173,7 @@ async fn main(_spawner: Spawner) {
     {
         // no remap
         afio_registers_set_remap();
-        SimplePwm::new(
+        SimplePwm::new::<AfioRemap<0>>(
             p.TIM1.reborrow(),
             Some(PwmPin::new(p.PA8.reborrow(), OutputType::PushPull)),
             Some(PwmPin::new(p.PA9.reborrow(), OutputType::PushPull)),
@@ -187,7 +187,7 @@ async fn main(_spawner: Spawner) {
     {
         // no remap
         afio_registers_set_remap();
-        SimplePwm::new(
+        SimplePwm::new::<AfioRemap<0>>(
             p.TIM1.reborrow(),
             Some(PwmPin::new(p.PA8.reborrow(), OutputType::PushPull)),
             None,
@@ -201,7 +201,7 @@ async fn main(_spawner: Spawner) {
     {
         // partial remap
         reset_afio_registers();
-        ComplementaryPwm::new(
+        ComplementaryPwm::new::<AfioRemap<1>>(
             p.TIM1.reborrow(),
             Some(PwmPin::new(p.PA8.reborrow(), OutputType::PushPull)),
             None,
@@ -219,7 +219,7 @@ async fn main(_spawner: Spawner) {
     {
         // partial remap
         reset_afio_registers();
-        ComplementaryPwm::new(
+        ComplementaryPwm::new::<AfioRemap<1>>(
             p.TIM1.reborrow(),
             Some(PwmPin::new(p.PA8.reborrow(), OutputType::PushPull)),
             Some(ComplementaryPwmPin::new(p.PA7.reborrow(), OutputType::PushPull)),
@@ -237,7 +237,7 @@ async fn main(_spawner: Spawner) {
     {
         // partial remap
         reset_afio_registers();
-        InputCapture::new(
+        InputCapture::new::<AfioRemap<1>>(
             p.TIM1.reborrow(),
             Some(CapturePin::new(p.PA8.reborrow(), Pull::Down)),
             None,
@@ -252,13 +252,13 @@ async fn main(_spawner: Spawner) {
     {
         // partial remap
         reset_afio_registers();
-        PwmInput::new_ch1(p.TIM1.reborrow(), p.PA8.reborrow(), Pull::Down, khz(10));
+        PwmInput::new_ch1::<AfioRemap<1>>(p.TIM1.reborrow(), p.PA8.reborrow(), Pull::Down, khz(10));
         defmt::assert_eq!(AFIO.mapr().read().tim1_remap(), 1);
     }
     {
         // partial remap
         reset_afio_registers();
-        Qei::new(
+        Qei::new::<AfioRemap<1>>(
             p.TIM1.reborrow(),
             QeiPin::new(p.PA8.reborrow()),
             QeiPin::new(p.PA9.reborrow()),
@@ -270,7 +270,7 @@ async fn main(_spawner: Spawner) {
     {
         // no remap
         afio_registers_set_remap();
-        SimplePwm::new(
+        SimplePwm::new::<AfioRemap<0>>(
             p.TIM2.reborrow(),
             Some(PwmPin::new(p.PA0.reborrow(), OutputType::PushPull)),
             Some(PwmPin::new(p.PA1.reborrow(), OutputType::PushPull)),
@@ -284,7 +284,7 @@ async fn main(_spawner: Spawner) {
     {
         // partial remap 1
         reset_afio_registers();
-        SimplePwm::new(
+        SimplePwm::new::<AfioRemap<1>>(
             p.TIM2.reborrow(),
             Some(PwmPin::new(p.PA15.reborrow(), OutputType::PushPull)),
             Some(PwmPin::new(p.PB3.reborrow(), OutputType::PushPull)),
@@ -298,7 +298,7 @@ async fn main(_spawner: Spawner) {
     {
         // partial remap 2
         reset_afio_registers();
-        SimplePwm::new(
+        SimplePwm::new::<AfioRemap<2>>(
             p.TIM2.reborrow(),
             Some(PwmPin::new(p.PA0.reborrow(), OutputType::PushPull)),
             Some(PwmPin::new(p.PA1.reborrow(), OutputType::PushPull)),
@@ -312,7 +312,7 @@ async fn main(_spawner: Spawner) {
     {
         // full remap
         reset_afio_registers();
-        SimplePwm::new(
+        SimplePwm::new::<AfioRemap<3>>(
             p.TIM2.reborrow(),
             Some(PwmPin::new(p.PA15.reborrow(), OutputType::PushPull)),
             Some(PwmPin::new(p.PB3.reborrow(), OutputType::PushPull)),
