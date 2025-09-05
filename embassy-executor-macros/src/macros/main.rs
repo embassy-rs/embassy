@@ -170,7 +170,7 @@ For example: `#[embassy_executor::main(entry = ..., executor = \"some_crate::Exe
     let f_body = f.body;
     let out = &f.sig.output;
 
-    let name_main_task = if cfg!(feature = "rtos-trace") {
+    let name_main_task = if cfg!(feature = "metadata-name") {
         quote!(
             main_task.metadata().set_name("main\0");
         )

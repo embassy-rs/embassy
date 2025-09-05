@@ -112,7 +112,7 @@ arch-spin = ["_arch"]
 #! ### Metadata
 
 ## Enable the `name` field in task metadata.
-metadata-name = []
+metadata-name = ["embassy-executor-macros/metadata-name"]
 
 #! ### Executor
 
