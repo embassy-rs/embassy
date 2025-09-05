@@ -10,7 +10,7 @@ use pac::dma::vals::DataSize;
 
 use crate::interrupt::InterruptExt;
 use crate::pac::dma::vals;
-use crate::{interrupt, pac, peripherals};
+use crate::{interrupt, pac, peripherals, RegExt};
 
 #[cfg(feature = "rt")]
 #[interrupt]
@@ -163,7 +163,7 @@ fn copy_inner<'a, C: Channel>(
 }
 
 /// DMA transfer driver.
-#[must_use = "futures do nothing unless you `.await` or poll them"]
+/// dropping this will abort transfer
 pub struct Transfer<'a, C: Channel> {
     channel: Peri<'a, C>,
 }
@@ -171,6 +171,48 @@ pub struct Transfer<'a, C: Channel> {
 impl<'a, C: Channel> Transfer<'a, C> {
     pub(crate) fn new(channel: Peri<'a, C>) -> Self {
         Self { channel }
+    }
+
+    /// wait until transfer finishes (not busy)
+    /// this will never be ready if transfer is disabled before finishing
+    pub fn wait(&mut self) -> TransferFuture<C> {
+        TransferFuture {
+            channel: self.channel.reborrow()
+        }
+    }
+
+    /// Return whether this transfer is still running.
+    ///
+    /// If this returns `false`, it can be because either the transfer finished, or
+    /// it was requested to stop early with [`abort`](Self::abort).
+    pub fn busy(&self) -> bool {
+        self.channel.regs().ctrl_trig().read().busy()
+    }
+
+    /// Enable transfer
+    ///
+    /// Unless disabled manually, transfer is enabled by default
+    pub fn enable(&mut self) {
+        self.channel.regs().ctrl_trig().write_set(|w| w.set_en(true));
+    }
+
+    /// Disable transfer
+    ///
+    /// Effectively pauses transfer, It will not affect busy state
+    pub fn disable(&mut self) {
+        self.channel.regs().ctrl_trig().write_clear(|w| w.set_en(true));
+    }
+
+    /// Check if transfer is enabled
+    ///
+    /// Unless disabled manually, transfer is enabled by default
+    pub fn is_enabled(&self) -> bool {
+        self.channel.regs().ctrl_trig().read().en()
+    }
+
+    /// Returns amount of transfers left before finishing
+    pub fn transfer_count(&self) -> u32 {
+        self.channel.regs().trans_count().read()
     }
 }
 
@@ -184,8 +226,16 @@ impl<'a, C: Channel> Drop for Transfer<'a, C> {
     }
 }
 
-impl<'a, C: Channel> Unpin for Transfer<'a, C> {}
-impl<'a, C: Channel> Future for Transfer<'a, C> {
+/// dropping this will not affect the state of transfer
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+pub struct TransferFuture<'a, C: Channel> {
+    // while TransferFuture only polls busy state of dma
+    // since only one Waker can be registered,
+    // we prevent others from registering Waker by having exclusive access
+    channel: Peri<'a, C>,
+}
+impl<'a, C: Channel> Unpin for TransferFuture<'a, C> {}
+impl<'a, C: Channel> Future for TransferFuture<'a, C> {
     type Output = ();
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // We need to register/re-register the waker for each poll because any
