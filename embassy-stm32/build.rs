@@ -1428,13 +1428,13 @@ fn main() {
                             "LPUART",
                             "TIM",
                         ];
-                        let af_or_not_applicable = if peripherals_with_afio.iter().any(|&x| p.name.starts_with(x)) {
-                            quote!(0, crate::gpio::AfioRemapNotApplicable)
+                        let not_applicable = if peripherals_with_afio.iter().any(|&x| p.name.starts_with(x)) {
+                            quote!(, crate::gpio::AfioRemapNotApplicable)
                         } else {
-                            quote!(#af)
+                            quote!()
                         };
 
-                        Some(quote!(pin_trait_impl!(#tr, #peri, #pin_name, #af_or_not_applicable);))
+                        Some(quote!(pin_trait_impl!(#tr, #peri, #pin_name, #af #not_applicable);))
                     };
 
                     g.extend(pin_trait_impl);
