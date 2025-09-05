@@ -1,20 +1,25 @@
 #![no_std]
 #![no_main]
 
+use core::mem::MaybeUninit;
+
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, Clock, Presc, SampleTime};
+use embassy_stm32::adc::{Adc, CkModePclk, Clock, SampleTime};
+use embassy_stm32::SharedData;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
+static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(Default::default());
+    let p = embassy_stm32::init_primary(Default::default(), &SHARED_DATA);
     info!("Hello World!");
 
-    let mut adc = Adc::new_with_clock(p.ADC1, Clock::Async { div: Presc::DIV1 });
+    let mut adc = Adc::new_with_clock(p.ADC1, Clock::Sync { div: CkModePclk::DIV1 });
     adc.set_sample_time(SampleTime::CYCLES79_5);
-    let mut pin = p.PA1;
+    let mut pin = p.PB2;
 
     let mut vrefint = adc.enable_vrefint();
     let vrefint_sample = adc.blocking_read(&mut vrefint);
