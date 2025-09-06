@@ -137,6 +137,17 @@ pub mod qspi;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(feature = "_nrf91", feature = "_nrf5340-app")))]
 pub mod radio;
+
+#[cfg(any(
+    feature = "nrf52811",
+    feature = "nrf52820",
+    feature = "nrf52833",
+    feature = "nrf52840",
+    feature = "_nrf5340-net"
+))]
+#[cfg(feature = "_net-driver")]
+pub mod embassy_net_802154_driver;
+
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(feature = "_nrf5340")]
 pub mod reset;
