@@ -68,6 +68,7 @@ fn generate_code() {
     g.extend(generate_pin_trait_impls());
     g.extend(generate_groups());
     g.extend(generate_dma_channel_count());
+    g.extend(generate_adc_constants());
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let out_file = out_dir.join("_generated.rs").to_string_lossy().to_string();
@@ -218,6 +219,59 @@ fn generate_dma_channel_count() -> TokenStream {
     let count = METADATA.dma_channels.len();
 
     quote! { pub const DMA_CHANNELS: usize = #count; }
+}
+
+fn generate_adc_constants() -> TokenStream {
+    let vrsel = METADATA.adc_vrsel;
+    let memctl = METADATA.adc_memctl;
+
+    if vrsel == 3 {
+        quote! {
+            pub const ADC_VRSEL: u8 = #vrsel;
+            pub const ADC_MEMCTL: u8 = #memctl;
+
+            #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+            #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+            /// Reference voltage (Vref) selection for the ADC channels.
+            pub enum Vrsel {
+                /// VDDA reference
+                VddaVssa = 0,
+
+                /// External reference from pin
+                ExtrefVrefm = 1,
+
+                /// Internal reference
+                IntrefVssa = 2,
+            }
+        }
+    } else if vrsel == 5 {
+        quote! {
+            pub const ADC_VRSEL: u8 = #vrsel;
+            pub const ADC_MEMCTL: u8 = #memctl;
+
+            #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+            #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+            /// Reference voltage (Vref) selection for the ADC channels.
+            pub enum Vrsel {
+                /// VDDA reference
+                VddaVssa = 0,
+
+                /// External reference from pin
+                ExtrefVrefm = 1,
+
+                /// Internal reference
+                IntrefVssa = 2,
+
+                /// VDDA and VREFM connected to VREF+ and VREF- of ADC
+                VddaVrefm = 3,
+
+                /// INTREF and VREFM connected to VREF+ and VREF- of ADC
+                IntrefVrefm = 4,
+            }
+        }
+    } else {
+        panic!("Unsupported ADC VRSEL value: {vrsel}");
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -561,6 +615,7 @@ fn generate_peripheral_instances() -> TokenStream {
             "uart" => Some(quote! { impl_uart_instance!(#peri); }),
             "i2c" => Some(quote! { impl_i2c_instance!(#peri, #fifo_size); }),
             "wwdt" => Some(quote! { impl_wwdt_instance!(#peri); }),
+            "adc" => Some(quote! { impl_adc_instance!(#peri); }),
             _ => None,
         };
 
@@ -609,6 +664,10 @@ fn generate_pin_trait_impls() -> TokenStream {
                 ("uart", "RTS") => Some(quote! { impl_uart_rts_pin!(#peri, #pin_name, #pf); }),
                 ("i2c", "SDA") => Some(quote! { impl_i2c_sda_pin!(#peri, #pin_name, #pf); }),
                 ("i2c", "SCL") => Some(quote! { impl_i2c_scl_pin!(#peri, #pin_name, #pf); }),
+                ("adc", s) => {
+                    let signal = s.parse::<u8>().unwrap();
+                    Some(quote! { impl_adc_pin!(#peri, #pin_name, #signal); })
+                }
 
                 _ => None,
             };
