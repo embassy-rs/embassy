@@ -7,6 +7,7 @@ use core::task::Poll;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
+use embassy_time::{Duration, Instant};
 use pac::i2c;
 
 use crate::gpio::AnyPin;
@@ -44,6 +45,8 @@ pub enum Error {
     /// Target i2c address is reserved
     #[deprecated = "embassy_rp no longer prevents accesses to reserved addresses."]
     AddressReserved(u16),
+    /// Operation timed out
+    Timeout,
 }
 
 /// I2C Config error
@@ -74,6 +77,8 @@ pub struct Config {
     /// Using external pullup resistors is recommended for I2C. If you do
     /// have external pullups you should not enable this.
     pub scl_pullup: bool,
+    /// Timeout for I2C operations.
+    pub timeout: Duration,
 }
 impl Default for Config {
     fn default() -> Self {
@@ -81,6 +86,7 @@ impl Default for Config {
             frequency: 100_000,
             sda_pullup: true,
             scl_pullup: true,
+            timeout: Duration::from_millis(1000),
         }
     }
 }
@@ -91,6 +97,7 @@ pub const FIFO_SIZE: u8 = 16;
 #[derive(Debug)]
 pub struct I2c<'d, T: Instance, M: Mode> {
     phantom: PhantomData<(&'d mut T, M)>,
+    timeout: Duration,
 }
 
 impl<'d, T: Instance> I2c<'d, T, Blocking> {
@@ -102,6 +109,35 @@ impl<'d, T: Instance> I2c<'d, T, Blocking> {
         config: Config,
     ) -> Self {
         Self::new_inner(peri, scl.into(), sda.into(), config)
+    }
+}
+
+impl<'d, T: Instance> I2c<'d, T, Blocking> {
+    fn timeout(&self) -> Timeout {
+        Timeout::new(self.timeout)
+    }
+}
+
+#[derive(Copy, Clone)]
+struct Timeout {
+    deadline: Instant,
+}
+
+impl Timeout {
+    #[inline]
+    fn new(duration: Duration) -> Self {
+        Self {
+            deadline: Instant::now() + duration,
+        }
+    }
+
+    #[inline]
+    fn check(self) -> Result<(), Error> {
+        if Instant::now() > self.deadline {
+            return Err(Error::Timeout);
+        }
+
+        Ok(())
     }
 }
 
@@ -330,7 +366,10 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
     /// Read from address into buffer asynchronously.
     pub async fn read_async(&mut self, addr: impl Into<u16>, buffer: &mut [u8]) -> Result<(), Error> {
         Self::setup(addr.into())?;
-        self.read_async_internal(buffer, true, true).await
+        match embassy_time::with_timeout(self.timeout, self.read_async_internal(buffer, true, true)).await {
+            Ok(result) => result,
+            Err(_) => Err(Error::Timeout),
+        }
     }
 
     /// Write to address from buffer asynchronously.
@@ -340,7 +379,10 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         bytes: impl IntoIterator<Item = u8>,
     ) -> Result<(), Error> {
         Self::setup(addr.into())?;
-        self.write_async_internal(bytes, true).await
+        match embassy_time::with_timeout(self.timeout, self.write_async_internal(bytes, true)).await {
+            Ok(result) => result,
+            Err(_) => Err(Error::Timeout),
+        }
     }
 
     /// Write to address from bytes and read from address into buffer asynchronously.
@@ -351,8 +393,18 @@ impl<'d, T: Instance> I2c<'d, T, Async> {
         buffer: &mut [u8],
     ) -> Result<(), Error> {
         Self::setup(addr.into())?;
-        self.write_async_internal(bytes, false).await?;
-        self.read_async_internal(buffer, true, true).await
+
+        // Apply timeout to the write operation
+        match embassy_time::with_timeout(self.timeout, self.write_async_internal(bytes, false)).await {
+            Ok(result) => result?,
+            Err(_) => return Err(Error::Timeout),
+        };
+
+        // Apply timeout to the read operation
+        match embassy_time::with_timeout(self.timeout, self.read_async_internal(buffer, true, true)).await {
+            Ok(result) => result,
+            Err(_) => Err(Error::Timeout),
+        }
     }
 }
 
@@ -399,7 +451,10 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
         set_up_i2c_pin(&scl, config.scl_pullup);
         set_up_i2c_pin(&sda, config.sda_pullup);
 
-        let mut me = Self { phantom: PhantomData };
+        let mut me = Self {
+            phantom: PhantomData,
+            timeout: config.timeout,
+        };
 
         if let Err(e) = me.set_config_inner(&config) {
             panic!("Error configuring i2c: {:?}", e);
@@ -529,6 +584,8 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
     }
 
     fn read_blocking_internal(&mut self, read: &mut [u8], restart: bool, send_stop: bool) -> Result<(), Error> {
+        let timeout = Timeout::new(self.timeout);
+
         if read.is_empty() {
             return Err(Error::InvalidReadBufferLength);
         }
@@ -540,7 +597,9 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
             let last = i == lastindex;
 
             // wait until there is space in the FIFO to write the next byte
-            while Self::tx_fifo_full() {}
+            while Self::tx_fifo_full() {
+                timeout.check()?;
+            }
 
             p.ic_data_cmd().write(|w| {
                 w.set_restart(restart && first);
@@ -550,6 +609,7 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
             });
 
             while Self::rx_fifo_len() == 0 {
+                timeout.check()?;
                 self.read_and_clear_abort_reason()?;
             }
 
@@ -560,6 +620,8 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
     }
 
     fn write_blocking_internal(&mut self, write: &[u8], send_stop: bool) -> Result<(), Error> {
+        let timeout = Timeout::new(self.timeout);
+
         if write.is_empty() {
             return Err(Error::InvalidWriteBufferLength);
         }
@@ -578,7 +640,9 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
             // internal shift register has completed. For this to function
             // correctly, the TX_EMPTY_CTRL flag in IC_CON must be set. The
             // TX_EMPTY_CTRL flag was set in i2c_init.
-            while !p.ic_raw_intr_stat().read().tx_empty() {}
+            while !p.ic_raw_intr_stat().read().tx_empty() {
+                timeout.check()?;
+            }
 
             let abort_reason = self.read_and_clear_abort_reason();
 
@@ -586,7 +650,9 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
                 // If the transaction was aborted or if it completed
                 // successfully wait until the STOP condition has occurred.
 
-                while !p.ic_raw_intr_stat().read().stop_det() {}
+                while !p.ic_raw_intr_stat().read().stop_det() {
+                    timeout.check()?;
+                }
 
                 p.ic_clr_stop_det().read().clr_stop_det();
             }
@@ -658,14 +724,20 @@ impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::Transactional for
         address: u8,
         operations: &mut [embedded_hal_02::blocking::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
+        let timeout = Timeout::new(self.timeout);
+
         Self::setup(address.into())?;
         for i in 0..operations.len() {
             let last = i == operations.len() - 1;
             match &mut operations[i] {
                 embedded_hal_02::blocking::i2c::Operation::Read(buf) => {
+                    timeout.check()?;
                     self.read_blocking_internal(buf, false, last)?
                 }
-                embedded_hal_02::blocking::i2c::Operation::Write(buf) => self.write_blocking_internal(buf, last)?,
+                embedded_hal_02::blocking::i2c::Operation::Write(buf) => {
+                    timeout.check()?;
+                    self.write_blocking_internal(buf, last)?
+                }
             }
         }
         Ok(())
@@ -686,6 +758,7 @@ impl embedded_hal_1::i2c::Error for Error {
             Self::AddressOutOfRange(_) => embedded_hal_1::i2c::ErrorKind::Other,
             #[allow(deprecated)]
             Self::AddressReserved(_) => embedded_hal_1::i2c::ErrorKind::Other,
+            Self::Timeout => embedded_hal_1::i2c::ErrorKind::Other,
         }
     }
 }
@@ -712,12 +785,20 @@ impl<'d, T: Instance, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, T, M> {
         address: u8,
         operations: &mut [embedded_hal_1::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
+        let timeout = Timeout::new(self.timeout);
+
         Self::setup(address.into())?;
         for i in 0..operations.len() {
             let last = i == operations.len() - 1;
             match &mut operations[i] {
-                embedded_hal_1::i2c::Operation::Read(buf) => self.read_blocking_internal(buf, false, last)?,
-                embedded_hal_1::i2c::Operation::Write(buf) => self.write_blocking_internal(buf, last)?,
+                embedded_hal_1::i2c::Operation::Read(buf) => {
+                    timeout.check()?;
+                    self.read_blocking_internal(buf, false, last)?
+                }
+                embedded_hal_1::i2c::Operation::Write(buf) => {
+                    timeout.check()?;
+                    self.write_blocking_internal(buf, last)?
+                }
             }
         }
         Ok(())
@@ -753,21 +834,30 @@ where
         if !operations.is_empty() {
             Self::setup(addr)?;
         }
-        let mut iterator = operations.iter_mut();
 
-        while let Some(op) = iterator.next() {
-            let last = iterator.len() == 0;
+        // Apply timeout to the whole transaction
+        match embassy_time::with_timeout(self.timeout, async {
+            let mut iterator = operations.iter_mut();
 
-            match op {
-                Operation::Read(buffer) => {
-                    self.read_async_internal(buffer, false, last).await?;
-                }
-                Operation::Write(buffer) => {
-                    self.write_async_internal(buffer.iter().cloned(), last).await?;
+            while let Some(op) = iterator.next() {
+                let last = iterator.len() == 0;
+
+                match op {
+                    Operation::Read(buffer) => {
+                        self.read_async_internal(buffer, false, last).await?;
+                    }
+                    Operation::Write(buffer) => {
+                        self.write_async_internal(buffer.iter().cloned(), last).await?;
+                    }
                 }
             }
+            Ok(())
+        })
+        .await
+        {
+            Ok(result) => result,
+            Err(_) => Err(Error::Timeout),
         }
-        Ok(())
     }
 }
 
