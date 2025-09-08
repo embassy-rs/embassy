@@ -1,16 +1,16 @@
 #![macro_use]
 
-use crate::interrupt;
-use crate::interrupt::{Interrupt, InterruptExt};
-use crate::mode::{Async, Blocking, Mode};
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use crate::pac::adc::{vals, Adc as Regs};
-use crate::Peri;
 use embassy_hal_internal::{impl_peripheral, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
+
+use crate::interrupt::{Interrupt, InterruptExt};
+use crate::mode::{Async, Blocking, Mode};
+use crate::pac::adc::{vals, Adc as Regs};
+use crate::{interrupt, Peri};
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
