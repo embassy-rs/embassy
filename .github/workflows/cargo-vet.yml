@@ -1,0 +1,53 @@
+# This workflow runs whenever a PR is opened or updated. It runs cargo vet to check for unvetted dependencies in the Cargo.lock file.
+permissions:
+  contents: read
+on:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+name: cargo-vet
+jobs:
+  vet:
+    # cargo-vet checks for unvetted dependencies in the Cargo.lock file
+    # This is to ensure that new dependencies are vetted before they are added to the project
+    name: vet-dependencies
+    runs-on: ubuntu-latest
+    env:
+      CARGO_VET_VERSION: 0.10.1
+    
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        submodules: true
+  
+    - uses: actions/cache@v4
+      with:
+        path: ${{ runner.tool_cache }}/cargo-vet
+        key: cargo-vet-bin-${{ env.CARGO_VET_VERSION }}
+  
+    - name: Add the tool cache directory to the search path
+      run: echo "${{ runner.tool_cache }}/cargo-vet/bin" >> $GITHUB_PATH
+  
+    - name: Ensure that the tool cache is populated with the cargo-vet binary
+      run: cargo install --root ${{ runner.tool_cache }}/cargo-vet --version ${{ env.CARGO_VET_VERSION }} cargo-vet
+  
+    - name: Invoke cargo-vet
+      run: cargo vet --locked
+    
+    - name: Save PR number
+    # PR number is saved as an artifact so it can be used to determine the PR to comment on by the vet-pr-comment workflow
+    # vet-pr-comment workflow is triggered by the workflow_run event so it runs in the context of the base branch and not the PR branch
+      if: ${{ failure() }} || ${{ success() }}
+      run: |
+        mkdir -p ./pr
+        echo ${{ github.event.number }} > ./pr/NR
+    - uses: actions/upload-artifact@v4
+    # Need to upload the artifact in both success and failure cases so comment can be updated in either case
+      if: ${{ failure() }} || ${{ success() }}
+      with:
+        name: pr
+        path: pr/
+        overwrite: true

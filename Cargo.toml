@@ -1,0 +1,19 @@
+[package]
+name = "embedded-rust-template"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/OpenDevicePartnership/embedded-rust-template"
+rust-version = "1.85"
+
+[dependencies]
+# dependencies for all targets
+
+[target.'cfg(target_os = "none")'.dependencies]
+# dependencies for no-std targets
+
+[lints.clippy]
+suspicious = "forbid"
+correctness = "forbid"
+perf = "forbid"
+style = "forbid"
