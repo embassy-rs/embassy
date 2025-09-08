@@ -1,4 +1,6 @@
 //! Direct Memory Access (DMA)
+
+use core::cmp::min;
 use core::future::Future;
 use core::pin::Pin;
 use core::sync::atomic::{compiler_fence, Ordering};
@@ -159,7 +161,175 @@ fn copy_inner<'a, C: Channel>(
     });
 
     compiler_fence(Ordering::SeqCst);
-    Transfer::new(ch)
+    Transfer::new_inner(ch)
+}
+
+/// DMA Target
+pub(crate) trait Target<W: Word> {
+    /// size of address wrap region (refer to rp2040 datasheet)
+    const RING_SIZE: u8 = 0;
+
+    /// If 1, the read address increments with each transfer. If 0, each
+    /// read is directed to the same, initial address.
+    const INCR_ADDR: bool = false;
+
+    const TREQ_SEL: u8 = vals::TreqSel::PERMANENT as u8;
+
+    /// return max transfer count
+    fn transfer_count(&self) -> u32 {
+        u32::MAX
+    }
+}
+
+const fn resolve_treq(a: u8, b: u8) -> u8 {
+    if a == vals::TreqSel::PERMANENT as u8 || a == b {
+        b
+    } else if b == vals::TreqSel::PERMANENT as u8 {
+        a
+    } else {
+        core::panic!("TREQ of two DMA target doesn't match")
+    }
+}
+
+/// DMA Target Utils
+pub trait TargetExt<W: Word>: Sized {
+    /// Read from DMA target
+    fn dma_read_with_transfer_count<'a, C: Channel + 'a, T: TargetMut<W> + 'a>(
+        self,
+        ch: Peri<'a, C>,
+        to: T,
+        transfer_count: u32,
+    ) -> (Transfer<'a, C>, u32)
+    where
+        Self: TargetRef<W> + 'a,
+    {
+        let treq = vals::TreqSel::from(const { resolve_treq(Self::TREQ_SEL, T::TREQ_SEL) });
+        Transfer::new_with_transfer_count(ch, self, to, transfer_count, treq)
+    }
+
+    /// Write to DMA target
+    fn dma_write_with_transfer_count<'a, C: Channel + 'a, T: TargetRef<W> + 'a>(
+        self,
+        ch: Peri<'a, C>,
+        from: T,
+        transfer_count: u32,
+    ) -> (Transfer<'a, C>, u32)
+    where
+        Self: TargetMut<W> + 'a,
+    {
+        let treq = vals::TreqSel::from(const { resolve_treq(Self::TREQ_SEL, T::TREQ_SEL) });
+        Transfer::new_with_transfer_count(ch, from, self, transfer_count, treq)
+    }
+}
+
+impl<W: Word, T: Target<W> + Sized> TargetExt<W> for T {}
+
+/// immutable dma target address
+#[allow(private_bounds)]
+pub trait TargetRef<W: Word>: Target<W> {
+    /// return address
+    fn as_ptr(&self) -> *const W;
+}
+
+/// mutable dma target address
+#[allow(private_bounds)]
+pub trait TargetMut<W: Word>: Target<W> {
+    /// return mutable address
+    fn as_mut_ptr(&mut self) -> *mut W;
+}
+
+impl<W: Word> Target<W> for &W {}
+
+impl<W: Word> Target<W> for &mut W {}
+
+impl<W: Word> TargetRef<W> for &W {
+    fn as_ptr(&self) -> *const W {
+        *self
+    }
+}
+
+impl<W: Word> TargetRef<W> for &mut W {
+    fn as_ptr(&self) -> *const W {
+        *self
+    }
+}
+
+impl<W: Word> TargetMut<W> for &mut W {
+    fn as_mut_ptr(&mut self) -> *mut W {
+        *self
+    }
+}
+
+const fn ring_size<T: Sized>() -> u8 {
+    let t_size = size_of::<T>();
+    let mut i = 1;
+    while i <= 0b1111 {
+        if 1 << i == t_size {
+            return i;
+        }
+        i += 1;
+    }
+    core::panic!("byte size must be power of two");
+}
+
+/// wrapper for dma read/write address, will make it repeat slice
+/// byte size of type must be power of two
+#[derive(Debug)]
+pub struct Ring<T>(T);
+
+impl<W: Word, const N: usize> Target<W> for Ring<&[W; N]> {
+    const RING_SIZE: u8 = ring_size::<[W; N]>();
+
+    const INCR_ADDR: bool = true;
+}
+
+impl<W: Word, const N: usize> Target<W> for Ring<&mut [W; N]> {
+    const RING_SIZE: u8 = ring_size::<[W; N]>();
+    const INCR_ADDR: bool = true;
+}
+
+impl<W: Word, const N: usize> TargetRef<W> for Ring<&[W; N]> {
+    fn as_ptr(&self) -> *const W {
+        &self.0[0]
+    }
+}
+
+impl<W: Word, const N: usize> TargetMut<W> for Ring<&mut [W; N]> {
+    fn as_mut_ptr(&mut self) -> *mut W {
+        &mut self.0[0]
+    }
+}
+
+impl<W: Word> Target<W> for &[W] {
+    const RING_SIZE: u8 = 0;
+
+    const INCR_ADDR: bool = true;
+
+    fn transfer_count(&self) -> u32 {
+        self.len() as u32
+    }
+}
+
+impl<W: Word> Target<W> for &mut [W] {
+    const RING_SIZE: u8 = 0;
+
+    const INCR_ADDR: bool = true;
+
+    fn transfer_count(&self) -> u32 {
+        self.len() as u32
+    }
+}
+
+impl<W: Word> TargetRef<W> for &[W] {
+    fn as_ptr(&self) -> *const W {
+        &self[0]
+    }
+}
+
+impl<W: Word> TargetMut<W> for &mut [W] {
+    fn as_mut_ptr(&mut self) -> *mut W {
+        &mut self[0]
+    }
 }
 
 /// DMA transfer driver.
@@ -169,13 +339,63 @@ pub struct Transfer<'a, C: Channel> {
 }
 
 impl<'a, C: Channel> Transfer<'a, C> {
-    pub(crate) fn new(channel: Peri<'a, C>) -> Self {
+    pub(crate) fn new_inner(channel: Peri<'a, C>) -> Self {
         Self { channel }
+    }
+
+    /// start DMA with transfer count
+    pub fn new_with_transfer_count<W: Word, F: TargetRef<W> + 'a, T: TargetMut<W> + 'a>(
+        ch: Peri<'a, C>,
+        from: F,
+        mut to: T,
+        // receive transfer count to remind dma can only be finite
+        mut transfer_count: u32,
+        dreq: vals::TreqSel,
+    ) -> (Self, u32) {
+        let (ring_size, ring_sel) = const {
+            if F::RING_SIZE * T::RING_SIZE != 0 {
+                core::panic!("read or write can't be set ring at the same time");
+            }
+            (F::RING_SIZE + T::RING_SIZE, T::RING_SIZE != 0)
+        };
+        transfer_count = min(transfer_count, from.transfer_count());
+        transfer_count = min(transfer_count, to.transfer_count());
+
+        let p = ch.regs();
+
+        p.read_addr().write_value(from.as_ptr() as u32);
+        p.write_addr().write_value(to.as_mut_ptr() as u32);
+        #[cfg(feature = "rp2040")]
+        p.trans_count().write(|w| {
+            *w = transfer_count;
+        });
+        #[cfg(feature = "_rp235x")]
+        p.trans_count().write(|w| {
+            w.set_mode(0.into());
+            w.set_count(transfer_count);
+        });
+
+        compiler_fence(Ordering::SeqCst);
+
+        p.ctrl_trig().write(|w| {
+            w.set_treq_sel(dreq);
+            w.set_data_size(W::size());
+            w.set_incr_read(F::INCR_ADDR);
+            w.set_incr_write(T::INCR_ADDR);
+            w.set_ring_size(ring_size);
+            w.set_ring_sel(ring_sel);
+            w.set_chain_to(ch.number());
+            w.set_en(true);
+        });
+
+        compiler_fence(Ordering::SeqCst);
+
+        (Self::new_inner(ch), transfer_count)
     }
 
     /// wait until transfer finishes (not busy)
     /// this will never be ready if transfer is disabled before finishing
-    pub fn wait(&mut self) -> TransferFuture<C> {
+    pub fn wait(&mut self) -> TransferFuture<'_, C> {
         TransferFuture {
             channel: self.channel.reborrow(),
         }
@@ -273,7 +493,7 @@ pub trait Channel: PeripheralType + SealedChannel + Into<AnyChannel> + Sized + '
 
 /// DMA word.
 #[allow(private_bounds)]
-pub trait Word: SealedWord {
+pub trait Word: SealedWord + Sized {
     /// Word size.
     fn size() -> vals::DataSize;
 }
