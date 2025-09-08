@@ -2,7 +2,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 /// A type for interacting with the deadline of the current task
 ///
-/// Requires the `edf-scheduler` feature.
+/// Requires the `scheduler-deadline` feature.
 ///
 /// Note: Interacting with the deadline should be done locally in a task.
 /// In theory you could try to set or read the deadline from another task,

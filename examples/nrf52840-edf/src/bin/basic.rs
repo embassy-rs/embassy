@@ -15,7 +15,6 @@
 use core::sync::atomic::{compiler_fence, Ordering};
 
 use defmt::unwrap;
-use embassy_executor::raw::Deadline;
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
@@ -127,7 +126,8 @@ async fn main(spawner: Spawner) {
         let start = Instant::now();
         // Set the deadline to ~2x the theoretical time. In practice, setting any deadline
         // here elevates the current task above all other worker tasks.
-        Deadline::set_current_task_deadline_after(theoretical * 2).await;
+        let meta = embassy_executor::Metadata::for_current_task().await;
+        meta.set_deadline_after(theoretical * 2);
 
         // Perform the trial
         for _ in 0..num_steps {
@@ -147,7 +147,7 @@ async fn main(spawner: Spawner) {
 
         // Unset the deadline, deadlines are not automatically cleared, and if our
         // deadline is in the past, then we get very high priority!
-        Deadline::clear_current_task_deadline().await;
+        meta.unset_deadline();
 
         Timer::after_millis(500).await;
     }
