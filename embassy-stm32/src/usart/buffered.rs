@@ -692,6 +692,8 @@ impl<'d> BufferedUartTx<'d> {
     fn blocking_write(&self, buf: &[u8]) -> Result<usize, Error> {
         loop {
             let state = self.state;
+            state.tx_done.store(false, Ordering::Release);
+
             let empty = state.tx_buf.is_empty();
 
             let mut tx_writer = unsafe { state.tx_buf.writer() };
@@ -713,7 +715,7 @@ impl<'d> BufferedUartTx<'d> {
     fn blocking_flush(&self) -> Result<(), Error> {
         loop {
             let state = self.state;
-            if state.tx_buf.is_empty() {
+            if state.tx_done.load(Ordering::Acquire) {
                 return Ok(());
             }
         }
