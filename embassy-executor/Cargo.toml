@@ -24,7 +24,7 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-thread"]},
     {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt"]},
     {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread"]},
-    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "edf-scheduler"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "scheduler-deadline", "embassy-time-driver"]},
     {target = "armv7a-none-eabi", features = ["arch-cortex-ar", "executor-thread"]},
     {target = "armv7r-none-eabi", features = ["arch-cortex-ar", "executor-thread"]},
     {target = "armv7r-none-eabihf", features = ["arch-cortex-ar", "executor-thread"]},
@@ -47,7 +47,7 @@ flavors = [
 [package.metadata.docs.rs]
 default-target = "thumbv7em-none-eabi"
 targets = ["thumbv7em-none-eabi"]
-features = ["defmt", "arch-cortex-m", "executor-thread", "executor-interrupt", "edf-scheduler"]
+features = ["defmt", "arch-cortex-m", "executor-thread", "executor-interrupt", "scheduler-deadline", "embassy-time-driver"]
 
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
