@@ -26,7 +26,7 @@ pub(crate) mod util;
 #[cfg_attr(feature = "turbowakers", path = "waker_turbo.rs")]
 mod waker;
 
-#[cfg(feature = "metadata-deadline")]
+#[cfg(feature = "scheduler-deadline")]
 mod deadline;
 
 use core::future::Future;
@@ -39,7 +39,7 @@ use core::sync::atomic::AtomicPtr;
 use core::sync::atomic::Ordering;
 use core::task::{Context, Poll, Waker};
 
-#[cfg(feature = "metadata-deadline")]
+#[cfg(feature = "scheduler-deadline")]
 pub use deadline::Deadline;
 use embassy_executor_timer_queue::TimerQueueItem;
 #[cfg(feature = "arch-avr")]
@@ -302,7 +302,7 @@ impl<F: Future + 'static> AvailableTask<F> {
 
             // By default, deadlines are set to the maximum value, so that any task WITH
             // a set deadline will ALWAYS be scheduled BEFORE a task WITHOUT a set deadline
-            #[cfg(feature = "edf-scheduler")]
+            #[cfg(feature = "scheduler-deadline")]
             self.task
                 .raw
                 .metadata

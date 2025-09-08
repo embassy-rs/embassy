@@ -119,8 +119,6 @@ arch-spin = ["_arch"]
 
 ## Enable the `name` field in task metadata.
 metadata-name = ["embassy-executor-macros/metadata-name"]
-## Enable the `deadline` field in task metadata.
-metadata-deadline = []
 
 #! ### Executor
 
@@ -131,9 +129,13 @@ executor-interrupt = []
 ## Enable tracing hooks
 trace = ["_any_trace"]
 ## Enable support for rtos-trace framework
-rtos-trace = ["_any_trace", "metadata-name", "dep:rtos-trace", "dep:embassy-time-driver"]
+rtos-trace = ["_any_trace", "metadata-name", "dep:rtos-trace", "embassy-time-driver"]
 _any_trace = []
 
 ## Enable "Earliest Deadline First" Scheduler, using soft-realtime "deadlines" to prioritize
 ## tasks based on the remaining time before their deadline. Adds some overhead.
-edf-scheduler = ["dep:embassy-time-driver", "metadata-deadline"]
+scheduler-deadline = []
+
+## Enable the embassy_time_driver dependency.
+## This can unlock extra APIs, for example for the `sheduler-deadline`
+embassy-time-driver = ["dep:embassy-time-driver"]
