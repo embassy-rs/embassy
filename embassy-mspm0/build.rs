@@ -225,52 +225,15 @@ fn generate_adc_constants() -> TokenStream {
     let vrsel = METADATA.adc_vrsel;
     let memctl = METADATA.adc_memctl;
 
-    if vrsel == 3 {
-        quote! {
-            pub const ADC_VRSEL: u8 = #vrsel;
-            pub const ADC_MEMCTL: u8 = #memctl;
-
-            #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-            #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-            /// Reference voltage (Vref) selection for the ADC channels.
-            pub enum Vrsel {
-                /// VDDA reference
-                VddaVssa = 0,
-
-                /// External reference from pin
-                ExtrefVrefm = 1,
-
-                /// Internal reference
-                IntrefVssa = 2,
-            }
-        }
-    } else if vrsel == 5 {
-        quote! {
-            pub const ADC_VRSEL: u8 = #vrsel;
-            pub const ADC_MEMCTL: u8 = #memctl;
-
-            #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-            #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-            /// Reference voltage (Vref) selection for the ADC channels.
-            pub enum Vrsel {
-                /// VDDA reference
-                VddaVssa = 0,
-
-                /// External reference from pin
-                ExtrefVrefm = 1,
-
-                /// Internal reference
-                IntrefVssa = 2,
-
-                /// VDDA and VREFM connected to VREF+ and VREF- of ADC
-                VddaVrefm = 3,
-
-                /// INTREF and VREFM connected to VREF+ and VREF- of ADC
-                IntrefVrefm = 4,
-            }
-        }
-    } else {
-        panic!("Unsupported ADC VRSEL value: {vrsel}");
+    println!("cargo::rustc-check-cfg=cfg(adc_neg_vref)");
+    match vrsel {
+        3 => (),
+        5 => println!("cargo:rustc-cfg=adc_neg_vref"),
+        _ => panic!("Unsupported ADC VRSEL value: {vrsel}"),
+    }
+    quote! {
+        pub const ADC_VRSEL: u8 = #vrsel;
+        pub const ADC_MEMCTL: u8 = #memctl;
     }
 }
 

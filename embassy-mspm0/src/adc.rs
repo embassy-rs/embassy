@@ -58,10 +58,32 @@ impl Resolution {
     }
 }
 
-pub use crate::_generated::Vrsel;
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+/// Reference voltage (Vref) selection for the ADC channels.
+pub enum Vrsel {
+    /// VDDA reference
+    VddaVssa = 0,
+
+    /// External reference from pin
+    ExtrefVrefm = 1,
+
+    /// Internal reference
+    IntrefVssa = 2,
+
+    /// VDDA and VREFM connected to VREF+ and VREF- of ADC
+    #[cfg(adc_neg_vref)]
+    VddaVrefm = 3,
+
+    /// INTREF and VREFM connected to VREF+ and VREF- of ADC
+    #[cfg(adc_neg_vref)]
+    IntrefVrefm = 4,
+}
 
 /// ADC configuration.
-pub struct AdcConfig {
+#[derive(Copy, Clone)]
+#[non_exhaustive]
+pub struct Config {
     /// Resolution of the ADC conversion. The number of bits used to represent an ADC measurement.
     pub resolution: Resolution,
     /// ADC voltage reference selection.
@@ -73,19 +95,29 @@ pub struct AdcConfig {
     pub sample_time: u16,
 }
 
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            resolution: Resolution::BIT12,
+            vr_select: Vrsel::VddaVssa,
+            sample_time: 50,
+        }
+    }
+}
+
 /// ADC (Analog to Digial Converter) Driver.
 pub struct Adc<'d, T: Instance, M: Mode> {
     #[allow(unused)]
     adc: crate::Peri<'d, T>,
     info: &'static Info,
     state: &'static State,
-    config: AdcConfig,
+    config: Config,
     _phantom: PhantomData<M>,
 }
 
 impl<'d, T: Instance> Adc<'d, T, Blocking> {
     /// A new blocking ADC driver instance.
-    pub fn new_blocking(peri: Peri<'d, T>, config: AdcConfig) -> Self {
+    pub fn new_blocking(peri: Peri<'d, T>, config: Config) -> Self {
         let mut this = Self {
             adc: peri,
             info: T::info(),
@@ -102,10 +134,8 @@ impl<'d, T: Instance> Adc<'d, T, Async> {
     /// A new asynchronous ADC driver instance.
     pub fn new_async(
         peri: Peri<'d, T>,
-        config: AdcConfig,
-        _irqs: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-            + interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-            + 'd,
+        config: Config,
+        _irqs: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         let mut this = Self {
             adc: peri,
@@ -244,6 +274,9 @@ impl<'d, T: Instance, M: Mode> Adc<'d, T, M> {
 }
 
 impl<'d, T: Instance> Adc<'d, T, Async> {
+    /// Maximum length allowed for [`Self::read_sequence`].
+    pub const MAX_SEQUENCE_LEN: usize = ADC_MEMCTL as usize;
+
     async fn wait_for_conversion(&self) {
         let info = self.info;
         let state = self.state;
@@ -337,9 +370,9 @@ impl<'d, T: Instance> Adc<'d, T, Async> {
             "Sequence length must be equal to readings length"
         );
         assert!(
-            sequence.len() <= ADC_MEMCTL as usize,
+            sequence.len() <= Self::MAX_SEQUENCE_LEN,
             "Asynchronous read sequence cannot be more than {} in length",
-            ADC_MEMCTL
+            Self::MAX_SEQUENCE_LEN
         );
 
         // CTL0.ENC must be 0 to write the MEMCTL register

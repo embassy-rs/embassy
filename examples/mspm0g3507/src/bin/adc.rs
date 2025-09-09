@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_mspm0::adc::{self, Adc, AdcChannel, AdcConfig, Resolution, Vrsel};
+use embassy_mspm0::adc::{self, Adc, AdcChannel, Vrsel};
 use embassy_mspm0::{bind_interrupts, peripherals, Config};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_halt as _};
@@ -17,14 +17,8 @@ async fn main(_spawner: Spawner) -> ! {
     info!("Hello world!");
     let p = embassy_mspm0::init(Config::default());
 
-    let adc_config = AdcConfig {
-        resolution: Resolution::BIT12,
-        vr_select: Vrsel::VddaVssa,
-        sample_time: 50,
-    };
-
     // Configure adc with sequence 0 to 1
-    let mut adc = Adc::new_async(p.ADC0, adc_config, Irqs);
+    let mut adc = Adc::new_async(p.ADC0, Default::default(), Irqs);
     let pin1 = p.PA22.degrade_adc();
     let pin2 = p.PB20.degrade_adc();
     let sequence = [(&pin1, Vrsel::VddaVssa), (&pin2, Vrsel::VddaVssa)];
