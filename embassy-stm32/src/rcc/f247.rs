@@ -2,6 +2,7 @@ use stm32_metapac::flash::vals::Latency;
 
 #[cfg(any(stm32f413, stm32f423, stm32f412))]
 pub use crate::pac::rcc::vals::Plli2ssrc as Plli2sSource;
+use crate::pac::rcc::vals::Pllm;
 pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Pllm as PllPreDiv, Plln as PllMul, Pllp as PllPDiv, Pllq as PllQDiv, Pllr as PllRDiv,
     Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
@@ -9,7 +10,7 @@ pub use crate::pac::rcc::vals::{
 #[cfg(any(stm32f4, stm32f7))]
 use crate::pac::PWR;
 use crate::pac::{FLASH, RCC};
-use crate::time::Hertz;
+use crate::time::{Hertz, Scale};
 
 // TODO: on some F4s, PLLM is shared between all PLLs. Enforce that.
 // TODO: on some F4s, add support for plli2s_src
@@ -393,7 +394,8 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
 
     let in_freq = pll_src / pll.prediv;
     assert!(max::PLL_IN.contains(&in_freq));
-    let vco_freq = in_freq * pll.mul;
+    let pll_mulsrc = pll_src.0 as u64 * Scale::from(pll.mul);
+    let vco_freq = Hertz((pll_mulsrc / Scale::from(pll.prediv)) as u32);
     assert!(max::PLL_VCO.contains(&vco_freq));
 
     // stm32f2 plls are like swiss cheese
@@ -408,9 +410,13 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput) -> Pll
         }
     }
 
-    let p = pll.divp.map(|div| vco_freq / div);
-    let q = pll.divq.map(|div| vco_freq / div);
-    let r = pll.divr.map(|div| vco_freq / div);
+    fn div_pll<T: Into<Scale>>(pll_mulsrc: u64, prediv: Pllm, div: T) -> Hertz {
+        Hertz((pll_mulsrc / (Scale::from(prediv) * div.into())) as u32)
+    }
+
+    let p = pll.divp.map(|div| div_pll(pll_mulsrc, pll.prediv, div));
+    let q = pll.divq.map(|div| div_pll(pll_mulsrc, pll.prediv, div));
+    let r = pll.divr.map(|div| div_pll(pll_mulsrc, pll.prediv, div));
 
     macro_rules! write_fields {
         ($w:ident) => {

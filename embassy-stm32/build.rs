@@ -1682,8 +1682,7 @@ fn main() {
 
         if is_rcc_name(e.name) {
             let enum_name = format_ident!("{}", e.name);
-            let mut muls = Vec::new();
-            let mut divs = Vec::new();
+            let mut nds = Vec::new();
             for v in e.variants {
                 let Ok(val) = parse_num(v.name) else {
                     panic!("could not parse mul/div. enum={} variant={}", e.name, v.name)
@@ -1692,29 +1691,29 @@ fn main() {
                 let variant = quote!(crate::pac::rcc::vals::#enum_name::#variant_name);
                 let num = val.num;
                 let denom = val.denom;
-                muls.push(quote!(#variant => self * #num / #denom,));
-                divs.push(quote!(#variant => self * #denom / #num,));
+                nds.push(quote!(#variant => Self { num: #num, denom: #denom },));
             }
 
             g.extend(quote! {
-                impl core::ops::Div<crate::pac::rcc::vals::#enum_name> for crate::time::Hertz {
-                    type Output = crate::time::Hertz;
-                    fn div(self, rhs: crate::pac::rcc::vals::#enum_name) -> Self::Output {
-                        match rhs {
-                            #(#divs)*
+                impl core::convert::From<crate::pac::rcc::vals::#enum_name> for crate::time::Scale {
+                    fn from(value: crate::pac::rcc::vals::#enum_name) -> Self {
+                        match value {
+                            #(#nds)*
                             #[allow(unreachable_patterns)]
                             _ => unreachable!(),
                         }
                     }
                 }
+                impl core::ops::Div<crate::pac::rcc::vals::#enum_name> for crate::time::Hertz {
+                    type Output = crate::time::Hertz;
+                    fn div(self, rhs: crate::pac::rcc::vals::#enum_name) -> Self::Output {
+                        self / crate::time::Scale::from(rhs)
+                    }
+                }
                 impl core::ops::Mul<crate::pac::rcc::vals::#enum_name> for crate::time::Hertz {
                     type Output = crate::time::Hertz;
                     fn mul(self, rhs: crate::pac::rcc::vals::#enum_name) -> Self::Output {
-                        match rhs {
-                            #(#muls)*
-                            #[allow(unreachable_patterns)]
-                            _ => unreachable!(),
-                        }
+                        self * crate::time::Scale::from(rhs)
                     }
                 }
             });

@@ -136,3 +136,47 @@ impl From<MaybeHertz> for Option<Hertz> {
         }
     }
 }
+
+#[derive(Clone, Copy, Debug, Default)]
+/// Time scaling factor (multiplier/divider), may be an unreduced fraction
+pub(crate) struct Scale {
+    pub num: u32,
+    pub denom: u32,
+}
+
+impl Mul for Scale {
+    type Output = Scale;
+    fn mul(self, rhs: Self) -> Self::Output {
+        let num = self.num * rhs.num;
+        let denom = self.denom * rhs.denom;
+        Self { num, denom }
+    }
+}
+
+impl Mul<Scale> for Hertz {
+    type Output = Hertz;
+    fn mul(self, rhs: Scale) -> Self::Output {
+        self * rhs.num / rhs.denom
+    }
+}
+
+impl Div<Scale> for Hertz {
+    type Output = Hertz;
+    fn div(self, rhs: Scale) -> Self::Output {
+        self * rhs.denom / rhs.num
+    }
+}
+
+impl Mul<Scale> for u64 {
+    type Output = u64;
+    fn mul(self, rhs: Scale) -> Self::Output {
+        self * rhs.num as u64 / rhs.denom as u64
+    }
+}
+
+impl Div<Scale> for u64 {
+    type Output = u64;
+    fn div(self, rhs: Scale) -> Self::Output {
+        self * rhs.denom as u64 / rhs.num as u64
+    }
+}
