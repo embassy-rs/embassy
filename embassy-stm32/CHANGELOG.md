@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add I2S support for STM32F1, STM32C0, STM32F0, STM32F3, STM32F7, STM32G0, STM32WL, STM32H5, STM32H7RS
 - fix: STM32: Prevent dropped DacChannel from disabling Dac peripheral if another DacChannel is still in scope ([#4577](https://github.com/embassy-rs/embassy/pull/4577))
 - feat: Added support for more OctoSPI configurations (e.g. APS6408 RAM) ([#4581](https://github.com/embassy-rs/embassy/pull/4581))
+- fix: stm32/usart: fix bug with blocking flush in buffered uart ([#4648](https://github.com/embassy-rs/embassy/pull/4648))
 
 ## 0.4.0 - 2025-08-26
 
