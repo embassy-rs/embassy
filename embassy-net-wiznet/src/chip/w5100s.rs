@@ -29,6 +29,7 @@ impl super::SealedChip for W5100S {
     const SOCKET_RX_DATA_READ_PTR: Self::Address = SOCKET_BASE + 0x28;
     const SOCKET_INTR_MASK: Self::Address = SOCKET_BASE + 0x2C;
     const SOCKET_INTR: Self::Address = SOCKET_BASE + 0x02;
+    const SOCKET_INTR_CLR: Self::Address = SOCKET_BASE + 0x02;
 
     const SOCKET_MODE_VALUE: u8 = (1 << 2) | (1 << 6);
 
