@@ -7,7 +7,7 @@ publish = false
 
 [package.metadata.embassy]
 build = [
-    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "lpc55"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "lpc55-core0"]},
     {target = "thumbv7em-none-eabihf", features = ["defmt", "mimxrt1011", "rt", "time-driver-pit"]},
     {target = "thumbv7em-none-eabihf", features = ["defmt", "mimxrt1062", "rt", "time-driver-pit"]},
 ]
@@ -18,7 +18,7 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-nxp/s
 features = ["defmt", "unstable-pac" ] # TODO: Add time-driver-any, as both lpc55 and mimxrt1xxx use different drivers.
 
 flavors = [
-    { regex_feature = "lpc55", target = "thumbv8m.main-none-eabihf" },
+    { regex_feature = "lpc55-core0", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "mimxrt.*", target = "thumbv7em-none-eabihf" },
 ]
 
@@ -78,6 +78,6 @@ _rt1xxx = []
 _time_driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
 
 #! ### Chip selection features
-lpc55 = ["nxp-pac/lpc55s69_cm33_core0"]
+lpc55-core0 = ["nxp-pac/lpc55s69_cm33_core0"]
 mimxrt1011 = ["nxp-pac/mimxrt1011", "_rt1xxx", "dep:imxrt-rt"]
 mimxrt1062 = ["nxp-pac/mimxrt1062", "_rt1xxx", "dep:imxrt-rt"]

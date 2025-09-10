@@ -4,9 +4,9 @@
 pub(crate) mod fmt;
 
 pub mod gpio;
-#[cfg(feature = "lpc55")]
+#[cfg(feature = "lpc55-core0")]
 pub mod pint;
-#[cfg(feature = "lpc55")]
+#[cfg(feature = "lpc55-core0")]
 pub mod usart;
 
 #[cfg(feature = "_time_driver")]
@@ -15,7 +15,7 @@ pub mod usart;
 mod time_driver;
 
 // This mod MUST go last, so that it sees all the `impl_foo!` macros
-#[cfg_attr(feature = "lpc55", path = "chips/lpc55.rs")]
+#[cfg_attr(feature = "lpc55-core0", path = "chips/lpc55.rs")]
 #[cfg_attr(feature = "mimxrt1011", path = "chips/mimxrt1011.rs")]
 #[cfg_attr(feature = "mimxrt1062", path = "chips/mimxrt1062.rs")]
 mod chip;
@@ -83,10 +83,10 @@ pub fn init(_config: config::Config) -> Peripherals {
         pac::CCM.ccgr6().modify(|v| v.set_cg0(1));
     }
 
-    #[cfg(any(feature = "lpc55", rt1xxx))]
+    #[cfg(any(feature = "lpc55-core0", rt1xxx))]
     gpio::init();
 
-    #[cfg(feature = "lpc55")]
+    #[cfg(feature = "lpc55-core0")]
     pint::init();
 
     #[cfg(feature = "_time_driver")]
