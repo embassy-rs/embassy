@@ -68,7 +68,7 @@ fn generate_code() {
     g.extend(generate_pin_trait_impls());
     g.extend(generate_groups());
     g.extend(generate_dma_channel_count());
-    g.extend(generate_adc_constants());
+    g.extend(generate_adc_constants(&mut cfgs));
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let out_file = out_dir.join("_generated.rs").to_string_lossy().to_string();
@@ -221,14 +221,14 @@ fn generate_dma_channel_count() -> TokenStream {
     quote! { pub const DMA_CHANNELS: usize = #count; }
 }
 
-fn generate_adc_constants() -> TokenStream {
+fn generate_adc_constants(cfgs: &mut CfgSet) -> TokenStream {
     let vrsel = METADATA.adc_vrsel;
     let memctl = METADATA.adc_memctl;
 
-    println!("cargo::rustc-check-cfg=cfg(adc_neg_vref)");
+    cfgs.declare("adc_neg_vref");
     match vrsel {
         3 => (),
-        5 => println!("cargo:rustc-cfg=adc_neg_vref"),
+        5 => cfgs.enable("adc_neg_vref"),
         _ => panic!("Unsupported ADC VRSEL value: {vrsel}"),
     }
     quote! {
