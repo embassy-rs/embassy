@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added new metadata API for tasks.
 - Main task automatically gets a name of `main` when the `metadata-name` feature is enabled.
 - Upgraded rtos-trace
+- Added optional "earliest deadline first" EDF scheduling
 
 ## 0.9.1 - 2025-08-31
 

@@ -24,6 +24,7 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-thread"]},
     {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt"]},
     {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "scheduler-deadline", "embassy-time-driver"]},
     {target = "armv7a-none-eabi", features = ["arch-cortex-ar", "executor-thread"]},
     {target = "armv7r-none-eabi", features = ["arch-cortex-ar", "executor-thread"]},
     {target = "armv7r-none-eabihf", features = ["arch-cortex-ar", "executor-thread"]},
@@ -35,7 +36,7 @@ build = [
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-executor-v$VERSION/embassy-executor/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-executor/src/"
-features = ["defmt"]
+features = ["defmt", "scheduler-deadline"]
 flavors = [
     { name = "std",             target = "x86_64-unknown-linux-gnu",     features = ["arch-std", "executor-thread"] },
     { name = "wasm",            target = "wasm32-unknown-unknown",       features = ["arch-wasm", "executor-thread"] },
@@ -46,7 +47,7 @@ flavors = [
 [package.metadata.docs.rs]
 default-target = "thumbv7em-none-eabi"
 targets = ["thumbv7em-none-eabi"]
-features = ["defmt", "arch-cortex-m", "executor-thread", "executor-interrupt"]
+features = ["defmt", "arch-cortex-m", "executor-thread", "executor-interrupt", "scheduler-deadline", "embassy-time-driver"]
 
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
@@ -75,6 +76,11 @@ js-sys = { version = "0.3", optional = true }
 
 # arch-avr dependencies
 avr-device = { version = "0.7.0", optional = true }
+
+
+[dependencies.cordyceps]
+version = "0.3.4"
+features = ["no-cache-pad"]
 
 [dev-dependencies]
 critical-section = { version = "1.1", features = ["std"] }
@@ -123,5 +129,13 @@ executor-interrupt = []
 ## Enable tracing hooks
 trace = ["_any_trace"]
 ## Enable support for rtos-trace framework
-rtos-trace = ["_any_trace", "metadata-name", "dep:rtos-trace", "dep:embassy-time-driver"]
+rtos-trace = ["_any_trace", "metadata-name", "dep:rtos-trace", "embassy-time-driver"]
 _any_trace = []
+
+## Enable "Earliest Deadline First" Scheduler, using soft-realtime "deadlines" to prioritize
+## tasks based on the remaining time before their deadline. Adds some overhead.
+scheduler-deadline = []
+
+## Enable the embassy_time_driver dependency.
+## This can unlock extra APIs, for example for the `sheduler-deadline`
+embassy-time-driver = ["dep:embassy-time-driver"]
