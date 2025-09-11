@@ -38,6 +38,12 @@ cargo batch \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m,executor-thread \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m,executor-interrupt \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m,executor-thread,executor-interrupt \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m,executor-interrupt,executor-thread,embassy-time-driver \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m,executor-interrupt,executor-thread,embassy-time-driver,scheduler-priority \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m,executor-interrupt,executor-thread,embassy-time-driver,scheduler-priority,scheduler-deadline \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m,executor-interrupt,executor-thread,embassy-time-driver,scheduler-deadline \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m,executor-interrupt,executor-thread,scheduler-priority,scheduler-deadline \
+    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features arch-cortex-m,executor-interrupt,executor-thread,scheduler-deadline \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target armv7a-none-eabi --features arch-cortex-ar,executor-thread \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target armv7r-none-eabi --features arch-cortex-ar,executor-thread \
     --- build --release --manifest-path embassy-executor/Cargo.toml --target armv7r-none-eabihf --features arch-cortex-ar,executor-thread \
