@@ -3,6 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::pwm::{Prescaler, SimplePwm};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
@@ -71,7 +72,11 @@ static DUTY: [u16; 1024] = [
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
-    let mut pwm = SimplePwm::new_4ch(p.PWM0, p.P0_13, p.P0_14, p.P0_16, p.P0_15);
+    let ch0 = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
+    let ch1 = Output::new(p.P0_14, Level::Low, OutputDrive::Standard);
+    let ch2 = Output::new(p.P0_16, Level::Low, OutputDrive::Standard);
+    let ch3 = Output::new(p.P0_15, Level::Low, OutputDrive::Standard);
+    let mut pwm = SimplePwm::new_4ch(p.PWM0, ch0.into(), ch1.into(), ch2.into(), ch3.into());
     pwm.set_prescaler(Prescaler::Div1);
     pwm.set_max_duty(32767);
     info!("pwm initialized!");

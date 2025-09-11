@@ -3,6 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::pwm::{Config, Prescaler, SequenceConfig, SequencePwm, SingleSequenceMode, SingleSequencer};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
@@ -22,7 +23,11 @@ async fn main(_spawner: Spawner) {
     seq_config.refresh = 624;
     // thus our sequence takes 5 * 5000ms or 25 seconds
 
-    let mut pwm = unwrap!(SequencePwm::new_1ch(p.PWM0, p.P0_13, config,));
+    let mut pwm = unwrap!(SequencePwm::new_1ch(
+        p.PWM0,
+        Output::new(p.P0_13, Level::Low, OutputDrive::Standard).into(),
+        config,
+    ));
 
     let sequencer = SingleSequencer::new(&mut pwm, &seq_words, seq_config);
     unwrap!(sequencer.start(SingleSequenceMode::Times(1)));
