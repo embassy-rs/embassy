@@ -7,7 +7,7 @@ use core::sync::atomic::{AtomicU32, Ordering};
 /// Note: Interacting with the deadline should be done locally in a task.
 /// In theory you could try to set or read the deadline from another task,
 /// but that will result in weird (though not unsound) behavior.
-pub struct Deadline {
+pub(crate) struct Deadline {
     instant_ticks_hi: AtomicU32,
     instant_ticks_lo: AtomicU32,
 }
@@ -21,7 +21,7 @@ impl Deadline {
     }
 
     pub(crate) const fn new_unset() -> Self {
-        Self::new(Self::UNSET_DEADLINE_TICKS)
+        Self::new(Self::UNSET_TICKS)
     }
 
     pub(crate) fn set(&self, instant_ticks: u64) {
@@ -31,7 +31,7 @@ impl Deadline {
     }
 
     /// Deadline value in ticks, same time base and ticks as `embassy-time`
-    pub fn instant_ticks(&self) -> u64 {
+    pub(crate) fn instant_ticks(&self) -> u64 {
         let hi = self.instant_ticks_hi.load(Ordering::Relaxed) as u64;
         let lo = self.instant_ticks_lo.load(Ordering::Relaxed) as u64;
 
@@ -40,11 +40,5 @@ impl Deadline {
 
     /// Sentinel value representing an "unset" deadline, which has lower priority
     /// than any other set deadline value
-    pub const UNSET_DEADLINE_TICKS: u64 = u64::MAX;
-
-    /// Does the given Deadline represent an "unset" deadline?
-    #[inline]
-    pub fn is_unset(&self) -> bool {
-        self.instant_ticks() == Self::UNSET_DEADLINE_TICKS
-    }
+    pub(crate) const UNSET_TICKS: u64 = u64::MAX;
 }

@@ -63,8 +63,8 @@ impl Metadata {
 
     /// Get this task's deadline.
     #[cfg(feature = "scheduler-deadline")]
-    pub fn deadline(&self) -> &raw::Deadline {
-        &self.deadline
+    pub fn deadline(&self) -> u64 {
+        self.deadline.instant_ticks()
     }
 
     /// Set this task's deadline.
@@ -79,7 +79,7 @@ impl Metadata {
     /// This brings it back to the defaul where it's not scheduled ahead of other tasks.
     #[cfg(feature = "scheduler-deadline")]
     pub fn unset_deadline(&self) {
-        self.deadline.set(Deadline::UNSET_DEADLINE_TICKS);
+        self.deadline.set(Deadline::UNSET_TICKS);
     }
 
     /// Set this task's deadline `duration_ticks` in the future from when
@@ -110,7 +110,7 @@ impl Metadata {
     /// Returns the deadline that was set.
     #[cfg(feature = "scheduler-deadline")]
     pub fn increment_deadline(&self, duration_ticks: u64) {
-        let last = self.deadline().instant_ticks();
+        let last = self.deadline();
 
         // Since ticks is a u64, saturating add is PROBABLY overly cautious, leave
         // it for now, we can probably make this wrapping_add for performance

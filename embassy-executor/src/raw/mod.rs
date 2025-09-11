@@ -40,7 +40,7 @@ use core::sync::atomic::Ordering;
 use core::task::{Context, Poll, Waker};
 
 #[cfg(feature = "scheduler-deadline")]
-pub use deadline::Deadline;
+pub(crate) use deadline::Deadline;
 use embassy_executor_timer_queue::TimerQueueItem;
 #[cfg(feature = "arch-avr")]
 use portable_atomic::AtomicPtr;
@@ -303,11 +303,7 @@ impl<F: Future + 'static> AvailableTask<F> {
             // By default, deadlines are set to the maximum value, so that any task WITH
             // a set deadline will ALWAYS be scheduled BEFORE a task WITHOUT a set deadline
             #[cfg(feature = "scheduler-deadline")]
-            self.task
-                .raw
-                .metadata
-                .deadline()
-                .set(deadline::Deadline::UNSET_DEADLINE_TICKS);
+            self.task.raw.metadata.unset_deadline();
 
             let task = TaskRef::new(self.task);
 

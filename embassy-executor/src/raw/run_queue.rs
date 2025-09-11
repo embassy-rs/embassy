@@ -108,12 +108,8 @@ impl RunQueue {
     /// runqueue are both empty, at which point this function will return.
     #[cfg(feature = "scheduler-deadline")]
     pub(crate) fn dequeue_all(&self, on_task: impl Fn(TaskRef)) {
-        let mut sorted = SortedList::<TaskHeader>::new_with_cmp(|lhs, rhs| {
-            lhs.metadata
-                .deadline()
-                .instant_ticks()
-                .cmp(&rhs.metadata.deadline().instant_ticks())
-        });
+        let mut sorted =
+            SortedList::<TaskHeader>::new_with_cmp(|lhs, rhs| lhs.metadata.deadline().cmp(&rhs.metadata.deadline()));
 
         loop {
             // For each loop, grab any newly pended items
