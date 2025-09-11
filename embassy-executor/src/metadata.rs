@@ -1,6 +1,8 @@
 #[cfg(feature = "metadata-name")]
 use core::cell::Cell;
 use core::future::{poll_fn, Future};
+#[cfg(feature = "scheduler-priority")]
+use core::sync::atomic::{AtomicU8, Ordering};
 use core::task::Poll;
 
 #[cfg(feature = "metadata-name")]
@@ -14,6 +16,8 @@ use crate::raw::Deadline;
 pub struct Metadata {
     #[cfg(feature = "metadata-name")]
     name: Mutex<Cell<Option<&'static str>>>,
+    #[cfg(feature = "scheduler-priority")]
+    priority: AtomicU8,
     #[cfg(feature = "scheduler-deadline")]
     deadline: raw::Deadline,
 }
@@ -23,6 +27,8 @@ impl Metadata {
         Self {
             #[cfg(feature = "metadata-name")]
             name: Mutex::new(Cell::new(None)),
+            #[cfg(feature = "scheduler-priority")]
+            priority: AtomicU8::new(0),
             // NOTE: The deadline is set to zero to allow the initializer to reside in `.bss`. This
             // will be lazily initalized in `initialize_impl`
             #[cfg(feature = "scheduler-deadline")]
@@ -33,6 +39,14 @@ impl Metadata {
     pub(crate) fn reset(&self) {
         #[cfg(feature = "metadata-name")]
         critical_section::with(|cs| self.name.borrow(cs).set(None));
+
+        #[cfg(feature = "scheduler-priority")]
+        self.set_priority(0);
+
+        // By default, deadlines are set to the maximum value, so that any task WITH
+        // a set deadline will ALWAYS be scheduled BEFORE a task WITHOUT a set deadline
+        #[cfg(feature = "scheduler-deadline")]
+        self.unset_deadline();
     }
 
     /// Get the metadata for the current task.
@@ -59,6 +73,18 @@ impl Metadata {
     #[cfg(feature = "metadata-name")]
     pub fn set_name(&self, name: &'static str) {
         critical_section::with(|cs| self.name.borrow(cs).set(Some(name)))
+    }
+
+    /// Get this task's priority.
+    #[cfg(feature = "scheduler-priority")]
+    pub fn priority(&self) -> u8 {
+        self.priority.load(Ordering::Relaxed)
+    }
+
+    /// Set this task's priority.
+    #[cfg(feature = "scheduler-priority")]
+    pub fn set_priority(&self, priority: u8) {
+        self.priority.store(priority, Ordering::Relaxed)
     }
 
     /// Get this task's deadline.

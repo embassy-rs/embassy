@@ -300,11 +300,6 @@ impl<F: Future + 'static> AvailableTask<F> {
             self.task.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
             self.task.future.write_in_place(future);
 
-            // By default, deadlines are set to the maximum value, so that any task WITH
-            // a set deadline will ALWAYS be scheduled BEFORE a task WITHOUT a set deadline
-            #[cfg(feature = "scheduler-deadline")]
-            self.task.raw.metadata.unset_deadline();
-
             let task = TaskRef::new(self.task);
 
             SpawnToken::new(task)
