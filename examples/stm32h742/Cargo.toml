@@ -49,7 +49,7 @@ cortex-m = { version = "0.7.6", features = [
 cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
-heapless = { version = "0.8", default-features = false }
+heapless = { version = "0.9", default-features = false }
 nb = "1.0.0"
 critical-section = "1.1"
 embedded-storage = "0.3.1"
