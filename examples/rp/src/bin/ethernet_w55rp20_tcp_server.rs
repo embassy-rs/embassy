@@ -1,4 +1,5 @@
-//! This example implements a TCP client that attempts to connect to a host on port 1234 and send it some data once per second.
+//! This example implements a TCP echo server on port 1234 and using DHCP.
+//! Send it some data, you should see it echoed back and printed in the console.
 //!
 //! Example written for the [`WIZnet W55RP20-EVB-Pico`](https://docs.wiznet.io/Product/ioNIC/W55RP20/w55rp20-evb-pico) board.
 //! Note: the W55RP20 is a single package that contains both a RP2040 and the Wiznet W5500 ethernet
@@ -65,7 +66,8 @@ async fn main(spawner: Spawner) {
 
     // Construct an SPI driver backed by a PIO state machine
     let mut spi_cfg = SpiConfig::default();
-    spi_cfg.frequency = 50_000_000;
+    spi_cfg.frequency = 10_000_000; // The PIO SPI program is much less stable than the actual SPI
+                                    // peripheral, use higher speeds at your peril
     let spi = Spi::new(&mut common, sm0, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, spi_cfg);
 
     // Further control pins
@@ -109,28 +111,38 @@ async fn main(spawner: Spawner) {
 
     let mut rx_buffer = [0; 4096];
     let mut tx_buffer = [0; 4096];
+    let mut buf = [0; 4096];
     loop {
         let mut socket = embassy_net::tcp::TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
         socket.set_timeout(Some(Duration::from_secs(10)));
 
         led.set_low();
-        info!("Connecting...");
-        let host_addr = embassy_net::Ipv4Address::from_str("192.168.1.110").unwrap();
-        if let Err(e) = socket.connect((host_addr, 1234)).await {
-            warn!("connect error: {:?}", e);
+        info!("Listening on TCP:1234...");
+        if let Err(e) = socket.accept(1234).await {
+            warn!("accept error: {:?}", e);
             continue;
         }
-        info!("Connected to {:?}", socket.remote_endpoint());
+        info!("Received connection from {:?}", socket.remote_endpoint());
         led.set_high();
 
-        let msg = b"Hello world!\n";
         loop {
-            if let Err(e) = socket.write_all(msg).await {
+            let n = match socket.read(&mut buf).await {
+                Ok(0) => {
+                    warn!("read EOF");
+                    break;
+                }
+                Ok(n) => n,
+                Err(e) => {
+                    warn!("{:?}", e);
+                    break;
+                }
+            };
+            info!("rxd {}", core::str::from_utf8(&buf[..n]).unwrap());
+
+            if let Err(e) = socket.write_all(&buf[..n]).await {
                 warn!("write error: {:?}", e);
                 break;
             }
-            info!("txd: {}", core::str::from_utf8(msg).unwrap());
-            Timer::after_secs(1).await;
         }
     }
 }
