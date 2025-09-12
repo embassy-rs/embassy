@@ -149,10 +149,10 @@ pub struct I2c<'d, M: Mode, IM: MasterMode> {
 
 impl<'d> I2c<'d, Async, Master> {
     /// Create a new I2C driver.
-    pub fn new<T: Instance>(
+    pub fn new<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        scl: Peri<'d, impl SclPin<T>>,
-        sda: Peri<'d, impl SdaPin<T>>,
+        scl: Peri<'d, if_afio!(impl SclPin<T, A>)>,
+        sda: Peri<'d, if_afio!(impl SdaPin<T, A>)>,
         _irq: impl interrupt::typelevel::Binding<T::EventInterrupt, EventInterruptHandler<T>>
             + interrupt::typelevel::Binding<T::ErrorInterrupt, ErrorInterruptHandler<T>>
             + 'd,
@@ -173,10 +173,10 @@ impl<'d> I2c<'d, Async, Master> {
 
 impl<'d> I2c<'d, Blocking, Master> {
     /// Create a new blocking I2C driver.
-    pub fn new_blocking<T: Instance>(
+    pub fn new_blocking<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        scl: Peri<'d, impl SclPin<T>>,
-        sda: Peri<'d, impl SdaPin<T>>,
+        scl: Peri<'d, if_afio!(impl SclPin<T, A>)>,
+        sda: Peri<'d, if_afio!(impl SdaPin<T, A>)>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -296,8 +296,8 @@ peri_trait!(
     irqs: [EventInterrupt, ErrorInterrupt],
 );
 
-pin_trait!(SclPin, Instance);
-pin_trait!(SdaPin, Instance);
+pin_trait!(SclPin, Instance, @A);
+pin_trait!(SdaPin, Instance, @A);
 dma_trait!(RxDma, Instance);
 dma_trait!(TxDma, Instance);
 

@@ -95,17 +95,20 @@ use crate::spawner::{SpawnError, SpawnToken, Spawner};
 /// This static provides access to the global task tracker which maintains
 /// a list of all tasks in the system. It's automatically updated by the
 /// task lifecycle hooks in the trace module.
-pub static TASK_TRACKER: TaskTracker = TaskTracker::new();
+#[cfg(feature = "rtos-trace")]
+pub(crate) static TASK_TRACKER: TaskTracker = TaskTracker::new();
 
 /// A thread-safe tracker for all tasks in the system
 ///
 /// This struct uses an intrusive linked list approach to track all tasks
 /// without additional memory allocations. It maintains a global list of
 /// tasks that can be traversed to find all currently existing tasks.
-pub struct TaskTracker {
+#[cfg(feature = "rtos-trace")]
+pub(crate) struct TaskTracker {
     head: AtomicPtr<TaskHeader>,
 }
 
+#[cfg(feature = "rtos-trace")]
 impl TaskTracker {
     /// Creates a new empty task tracker
     ///
@@ -125,7 +128,7 @@ impl TaskTracker {
     /// # Arguments
     /// * `task` - The task reference to add to the tracker
     pub fn add(&self, task: TaskRef) {
-        let task_ptr = task.as_ptr() as *mut TaskHeader;
+        let task_ptr = task.as_ptr();
 
         loop {
             let current_head = self.head.load(Ordering::Acquire);
@@ -135,7 +138,7 @@ impl TaskTracker {
 
             if self
                 .head
-                .compare_exchange(current_head, task_ptr, Ordering::Release, Ordering::Relaxed)
+                .compare_exchange(current_head, task_ptr.cast_mut(), Ordering::Release, Ordering::Relaxed)
                 .is_ok()
             {
                 break;
@@ -165,50 +168,7 @@ impl TaskTracker {
     }
 }
 
-/// Extension trait for `TaskRef` that provides tracing functionality.
-///
-/// This trait is only available when the `trace` feature is enabled.
-/// It extends `TaskRef` with methods for accessing and modifying task identifiers
-/// and names, which are useful for debugging, logging, and performance analysis.
-pub trait TaskRefTrace {
-    /// Get the name for a task
-    fn name(&self) -> Option<&'static str>;
-
-    /// Set the name for a task
-    fn set_name(&self, name: Option<&'static str>);
-
-    /// Get the ID for a task
-    fn id(&self) -> u32;
-
-    /// Set the ID for a task
-    fn set_id(&self, id: u32);
-}
-
-impl TaskRefTrace for TaskRef {
-    fn name(&self) -> Option<&'static str> {
-        self.header().name
-    }
-
-    fn set_name(&self, name: Option<&'static str>) {
-        unsafe {
-            let header_ptr = self.ptr.as_ptr() as *mut TaskHeader;
-            (*header_ptr).name = name;
-        }
-    }
-
-    fn id(&self) -> u32 {
-        self.header().id
-    }
-
-    fn set_id(&self, id: u32) {
-        unsafe {
-            let header_ptr = self.ptr.as_ptr() as *mut TaskHeader;
-            (*header_ptr).id = id;
-        }
-    }
-}
-
-#[cfg(not(feature = "rtos-trace"))]
+#[cfg(feature = "trace")]
 extern "Rust" {
     /// This callback is called when the executor begins polling. This will always
     /// be paired with a later call to `_embassy_trace_executor_idle`.
@@ -270,7 +230,7 @@ extern "Rust" {
 
 #[inline]
 pub(crate) fn poll_start(executor: &SyncExecutor) {
-    #[cfg(not(feature = "rtos-trace"))]
+    #[cfg(feature = "trace")]
     unsafe {
         _embassy_trace_poll_start(executor as *const _ as u32)
     }
@@ -278,7 +238,7 @@ pub(crate) fn poll_start(executor: &SyncExecutor) {
 
 #[inline]
 pub(crate) fn task_new(executor: &SyncExecutor, task: &TaskRef) {
-    #[cfg(not(feature = "rtos-trace"))]
+    #[cfg(feature = "trace")]
     unsafe {
         _embassy_trace_task_new(executor as *const _ as u32, task.as_ptr() as u32)
     }
@@ -286,7 +246,7 @@ pub(crate) fn task_new(executor: &SyncExecutor, task: &TaskRef) {
     #[cfg(feature = "rtos-trace")]
     {
         rtos_trace::trace::task_new(task.as_ptr() as u32);
-        let name = task.name().unwrap_or("unnamed task\0");
+        let name = task.metadata().name().unwrap_or("unnamed task\0");
         let info = rtos_trace::TaskInfo {
             name,
             priority: 0,
@@ -302,7 +262,7 @@ pub(crate) fn task_new(executor: &SyncExecutor, task: &TaskRef) {
 
 #[inline]
 pub(crate) fn task_end(executor: *const SyncExecutor, task: &TaskRef) {
-    #[cfg(not(feature = "rtos-trace"))]
+    #[cfg(feature = "trace")]
     unsafe {
         _embassy_trace_task_end(executor as u32, task.as_ptr() as u32)
     }
@@ -310,7 +270,7 @@ pub(crate) fn task_end(executor: *const SyncExecutor, task: &TaskRef) {
 
 #[inline]
 pub(crate) fn task_ready_begin(executor: &SyncExecutor, task: &TaskRef) {
-    #[cfg(not(feature = "rtos-trace"))]
+    #[cfg(feature = "trace")]
     unsafe {
         _embassy_trace_task_ready_begin(executor as *const _ as u32, task.as_ptr() as u32)
     }
@@ -320,7 +280,7 @@ pub(crate) fn task_ready_begin(executor: &SyncExecutor, task: &TaskRef) {
 
 #[inline]
 pub(crate) fn task_exec_begin(executor: &SyncExecutor, task: &TaskRef) {
-    #[cfg(not(feature = "rtos-trace"))]
+    #[cfg(feature = "trace")]
     unsafe {
         _embassy_trace_task_exec_begin(executor as *const _ as u32, task.as_ptr() as u32)
     }
@@ -330,7 +290,7 @@ pub(crate) fn task_exec_begin(executor: &SyncExecutor, task: &TaskRef) {
 
 #[inline]
 pub(crate) fn task_exec_end(executor: &SyncExecutor, task: &TaskRef) {
-    #[cfg(not(feature = "rtos-trace"))]
+    #[cfg(feature = "trace")]
     unsafe {
         _embassy_trace_task_exec_end(executor as *const _ as u32, task.as_ptr() as u32)
     }
@@ -340,7 +300,7 @@ pub(crate) fn task_exec_end(executor: &SyncExecutor, task: &TaskRef) {
 
 #[inline]
 pub(crate) fn executor_idle(executor: &SyncExecutor) {
-    #[cfg(not(feature = "rtos-trace"))]
+    #[cfg(feature = "trace")]
     unsafe {
         _embassy_trace_executor_idle(executor as *const _ as u32)
     }
@@ -356,6 +316,7 @@ pub(crate) fn executor_idle(executor: &SyncExecutor) {
 ///
 /// # Returns
 /// An iterator that yields `TaskRef` items for each task
+#[cfg(feature = "rtos-trace")]
 fn get_all_active_tasks() -> impl Iterator<Item = TaskRef> + 'static {
     struct TaskIterator<'a> {
         tracker: &'a TaskTracker,
@@ -384,6 +345,7 @@ fn get_all_active_tasks() -> impl Iterator<Item = TaskRef> + 'static {
 }
 
 /// Perform an action on each active task
+#[cfg(feature = "rtos-trace")]
 fn with_all_active_tasks<F>(f: F)
 where
     F: FnMut(TaskRef),
@@ -395,9 +357,8 @@ where
 impl rtos_trace::RtosTraceOSCallbacks for crate::raw::SyncExecutor {
     fn task_list() {
         with_all_active_tasks(|task| {
-            let name = task.name().unwrap_or("unnamed task\0");
             let info = rtos_trace::TaskInfo {
-                name,
+                name: task.metadata().name().unwrap_or("unnamed task\0"),
                 priority: 0,
                 stack_base: 0,
                 stack_size: 0,

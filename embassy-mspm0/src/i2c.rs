@@ -195,7 +195,7 @@ impl Config {
             .unwrap();
     }
 
-    #[cfg(any(mspm0c110x))]
+    #[cfg(any(mspm0c110x, mspm0c1105_c1106))]
     fn calculate_clock_source(&self) -> u32 {
         // Assume that BusClk has default value.
         // TODO: calculate BusClk more precisely.

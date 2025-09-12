@@ -83,7 +83,7 @@ where
 
     /// Remove the queued value in this `Signal`, if any.
     pub fn reset(&self) {
-        self.state.lock(|cell| cell.set(State::None));
+        self.try_take();
     }
 
     fn poll_wait(&self, cx: &mut Context<'_>) -> Poll<T> {

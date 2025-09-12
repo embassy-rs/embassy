@@ -181,10 +181,10 @@ pub enum TryWriteError {
 impl<'d> Can<'d> {
     /// Creates a new Bxcan instance, keeping the peripheral in sleep mode.
     /// You must call [Can::enable_non_blocking] to use the peripheral.
-    pub fn new<T: Instance>(
+    pub fn new<T: Instance, #[cfg(afio)] A>(
         _peri: Peri<'d, T>,
-        rx: Peri<'d, impl RxPin<T>>,
-        tx: Peri<'d, impl TxPin<T>>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
         _irqs: impl interrupt::typelevel::Binding<T::TXInterrupt, TxInterruptHandler<T>>
             + interrupt::typelevel::Binding<T::RX0Interrupt, Rx0InterruptHandler<T>>
             + interrupt::typelevel::Binding<T::RX1Interrupt, Rx1InterruptHandler<T>>
@@ -194,8 +194,8 @@ impl<'d> Can<'d> {
         let info = T::info();
         let regs = &T::info().regs;
 
-        rx.set_as_af(rx.af_num(), AfType::input(Pull::None));
-        tx.set_as_af(tx.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        set_as_af!(rx, AfType::input(Pull::None));
+        set_as_af!(tx, AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
         rcc::enable_and_reset::<T>();
 
@@ -229,8 +229,8 @@ impl<'d> Can<'d> {
             info.sce_interrupt.enable();
         }
 
-        rx.set_as_af(rx.af_num(), AfType::input(Pull::None));
-        tx.set_as_af(tx.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        set_as_af!(rx, AfType::input(Pull::None));
+        set_as_af!(tx, AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
         Registers(T::regs()).leave_init_mode();
 
@@ -1218,8 +1218,8 @@ foreach_peripheral!(
     };
 );
 
-pin_trait!(RxPin, Instance);
-pin_trait!(TxPin, Instance);
+pin_trait!(RxPin, Instance, @A);
+pin_trait!(TxPin, Instance, @A);
 
 trait Index {
     fn index(&self) -> usize;

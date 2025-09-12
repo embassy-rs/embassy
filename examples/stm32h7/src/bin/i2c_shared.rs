@@ -95,9 +95,9 @@ async fn main(spawner: Spawner) {
 
     // Device 1, using embedded-hal-async compatible driver for TMP117
     let i2c_dev1 = I2cDevice::new(i2c_bus);
-    spawner.spawn(temperature(i2c_dev1)).unwrap();
+    spawner.spawn(temperature(i2c_dev1).unwrap());
 
     // Device 2, using embedded-hal-async compatible driver for SHTC3
     let i2c_dev2 = I2cDevice::new(i2c_bus);
-    spawner.spawn(humidity(i2c_dev2)).unwrap();
+    spawner.spawn(humidity(i2c_dev2).unwrap());
 }

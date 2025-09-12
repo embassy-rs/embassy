@@ -1,6 +1,6 @@
 [package]
 name = "embassy-usb-logger"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "`log` implementation for USB serial using `embassy-usb`."
@@ -15,7 +15,7 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-usb-l
 target = "thumbv7em-none-eabi"
 
 [dependencies]
-embassy-usb = { version = "0.5.0", path = "../embassy-usb" }
-embassy-sync = { version = "0.7.1", path = "../embassy-sync" }
-embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
+embassy-usb = { version = "0.5.1", path = "../embassy-usb" }
+embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 log = "0.4"

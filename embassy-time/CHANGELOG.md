@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.5.0 - 2025-08-26
+
 - Allow inlining on time driver boundary
 - Add `saturating_add` and `saturating_sub` to `Instant`
 - Add `Instant::try_from_*` constructor functions

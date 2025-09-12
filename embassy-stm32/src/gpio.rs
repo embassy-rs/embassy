@@ -150,9 +150,13 @@ impl<'d> Flex<'d> {
     /// This puts the pin into the AF mode, with the requested number and AF type. This is
     /// completely unchecked, it can attach the pin to literally any peripheral, so use with care.
     #[inline]
-    pub fn set_as_af_unchecked(&mut self, af_num: u8, af_type: AfType) {
+    pub fn set_as_af_unchecked(&mut self, #[cfg(not(afio))] af_num: u8, af_type: AfType) {
         critical_section::with(|_| {
-            self.pin.set_as_af(af_num, af_type);
+            self.pin.set_as_af(
+                #[cfg(not(afio))]
+                af_num,
+                af_type,
+            );
         });
     }
 
@@ -588,7 +592,7 @@ impl AfType {
 
 #[inline(never)]
 #[cfg(gpio_v1)]
-fn set_as_af(pin_port: u8, _af_num: u8, af_type: AfType) {
+fn set_as_af(pin_port: u8, af_type: AfType) {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
     let n = pin._pin() as usize;
@@ -710,6 +714,18 @@ fn get_pull(pin_port: u8) -> Pull {
     };
 }
 
+#[cfg(afio)]
+/// Holds the AFIO remap value for a peripheral's pin
+pub struct AfioRemap<const V: u8>;
+
+#[cfg(afio)]
+/// Holds the AFIO remap value for a peripheral's pin
+pub struct AfioRemapBool<const V: bool>;
+
+#[cfg(afio)]
+/// Placeholder for a peripheral's pin which cannot be remapped via AFIO.
+pub struct AfioRemapNotApplicable;
+
 pub(crate) trait SealedPin {
     fn pin_port(&self) -> u8;
 
@@ -743,8 +759,13 @@ pub(crate) trait SealedPin {
     }
 
     #[inline]
-    fn set_as_af(&self, af_num: u8, af_type: AfType) {
-        set_as_af(self.pin_port(), af_num, af_type)
+    fn set_as_af(&self, #[cfg(not(afio))] af_num: u8, af_type: AfType) {
+        set_as_af(
+            self.pin_port(),
+            #[cfg(not(afio))]
+            af_num,
+            af_type,
+        )
     }
 
     #[inline]

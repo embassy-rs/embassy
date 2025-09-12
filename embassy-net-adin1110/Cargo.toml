@@ -1,6 +1,6 @@
 [package]
 name = "embassy-net-adin1110"
-version = "0.3.0"
+version = "0.3.1"
 description = "embassy-net driver for the ADIN1110 ethernet chip"
 keywords = ["embedded", "ADIN1110", "embassy-net", "embedded-hal-async", "ethernet"]
 categories = ["embedded", "hardware-support", "no-std", "network-programming", "asynchronous"]
@@ -16,9 +16,9 @@ log = { version = "0.4", default-features = false, optional = true }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 embedded-hal-bus = { version = "0.1", features = ["async"] }
-embassy-net-driver-channel = { version = "0.3.1", path = "../embassy-net-driver-channel" }
-embassy-time = { version = "0.4.0", path = "../embassy-time" }
-embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
+embassy-net-driver-channel = { version = "0.3.2", path = "../embassy-net-driver-channel" }
+embassy-time = { version = "0.5.0", path = "../embassy-time" }
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 bitfield = "0.14.0"
 
 [dev-dependencies]

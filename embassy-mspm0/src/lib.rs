@@ -18,6 +18,7 @@ pub mod gpio;
 pub mod i2c;
 pub mod timer;
 pub mod uart;
+pub mod wwdt;
 
 /// Operating modes for peripherals.
 pub mod mode {

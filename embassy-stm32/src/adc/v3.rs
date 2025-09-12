@@ -107,8 +107,50 @@ pub enum Averaging {
     Samples128,
     Samples256,
 }
+
+cfg_if! { if #[cfg(adc_g0)] {
+
+/// Synchronous PCLK prescaler
+/// * ADC_CFGR2:CKMODE in STM32WL5x
+#[repr(u8)]
+pub enum CkModePclk {
+    DIV1 = 3,
+    DIV2 = 1,
+    DIV4 = 2,
+}
+
+/// Asynchronous ADCCLK prescaler
+/// * ADC_CCR:PRESC in STM32WL5x
+#[repr(u8)]
+pub enum Presc {
+    DIV1,
+    DIV2,
+    DIV4,
+    DIV6,
+    DIV8,
+    DIV10,
+    DIV12,
+    DIV16,
+    DIV32,
+    DIV64,
+    DIV128,
+    DIV256,
+}
+
+/// The analog clock is either the synchronous prescaled PCLK or
+/// the asynchronous prescaled ADCCLK configured by the RCC mux.
+/// The data sheet states the maximum analog clock frequency -
+/// for STM32WL55CC it is 36 MHz.
+pub enum Clock {
+    Sync { div: CkModePclk },
+    Async { div: Presc },
+}
+
+}}
+
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(adc: Peri<'d, T>) -> Self {
+    /// Enable the voltage regulator
+    fn init_regulator() {
         rcc::enable_and_reset::<T>();
         T::regs().cr().modify(|reg| {
             #[cfg(not(any(adc_g0, adc_u0)))]
@@ -117,13 +159,17 @@ impl<'d, T: Instance> Adc<'d, T> {
         });
 
         // If this is false then each ADC_CHSELR bit enables an input channel.
+        // This is the reset value, so has no effect.
         #[cfg(any(adc_g0, adc_u0))]
         T::regs().cfgr1().modify(|reg| {
             reg.set_chselrmod(false);
         });
 
         blocking_delay_us(20);
+    }
 
+    /// Calibrate to remove conversion offset
+    fn init_calibrate() {
         T::regs().cr().modify(|reg| {
             reg.set_adcal(true);
         });
@@ -133,6 +179,45 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
 
         blocking_delay_us(1);
+    }
+
+    /// Initialize the ADC leaving any analog clock at reset value.
+    /// For G0 and WL, this is the async clock without prescaler.
+    pub fn new(adc: Peri<'d, T>) -> Self {
+        Self::init_regulator();
+        Self::init_calibrate();
+        Self {
+            adc,
+            sample_time: SampleTime::from_bits(0),
+        }
+    }
+
+    #[cfg(adc_g0)]
+    /// Initialize ADC with explicit clock for the analog ADC
+    pub fn new_with_clock(adc: Peri<'d, T>, clock: Clock) -> Self {
+        Self::init_regulator();
+
+        #[cfg(any(stm32wl5x))]
+        {
+            // Reset value 0 is actually _No clock selected_ in the STM32WL5x reference manual
+            let async_clock_available = pac::RCC.ccipr().read().adcsel() != pac::rcc::vals::Adcsel::_RESERVED_0;
+            match clock {
+                Clock::Async { div: _ } => {
+                    assert!(async_clock_available);
+                }
+                Clock::Sync { div: _ } => {
+                    if async_clock_available {
+                        warn!("Not using configured ADC clock");
+                    }
+                }
+            }
+        }
+        match clock {
+            Clock::Async { div } => T::regs().ccr().modify(|reg| reg.set_presc(div as u8)),
+            Clock::Sync { div } => T::regs().cfgr2().modify(|reg| reg.set_ckmode(div as u8)),
+        }
+
+        Self::init_calibrate();
 
         Self {
             adc,
@@ -296,7 +381,8 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     /// Read one or multiple ADC channels using DMA.
     ///
-    /// `sequence` iterator and `readings` must have the same length.
+    /// `readings` must have a length that is a multiple of the length of the
+    /// `sequence` iterator.
     ///
     /// Note: The order of values in `readings` is defined by the pin ADC
     /// channel number and not the pin order in `sequence`.
@@ -330,8 +416,8 @@ impl<'d, T: Instance> Adc<'d, T> {
     ) {
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
         assert!(
-            sequence.len() == readings.len(),
-            "Sequence length must be equal to readings length"
+            readings.len() % sequence.len() == 0,
+            "Readings length must be a multiple of sequence length"
         );
         assert!(
             sequence.len() <= 16,

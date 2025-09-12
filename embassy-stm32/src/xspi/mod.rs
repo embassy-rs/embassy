@@ -429,6 +429,11 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
                 w.set_abdtr(command.abdtr);
                 w.set_absize(CcrAbsize::from_bits(command.absize.into()));
             })
+        } else {
+            T::REGS.ccr().modify(|w| {
+                // disable alternate bytes
+                w.set_abmode(CcrAbmode::B_0X0);
+            })
         }
 
         // Configure dummy cycles

@@ -26,7 +26,7 @@ async fn my_sending_task() {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let _p = embassy_stm32::init(Default::default());
-    unwrap!(spawner.spawn(my_sending_task()));
+    spawner.spawn(unwrap!(my_sending_task()));
 
     loop {
         let received_counter = SIGNAL.wait().await;

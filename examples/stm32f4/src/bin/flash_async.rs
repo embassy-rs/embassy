@@ -21,7 +21,7 @@ async fn main(spawner: Spawner) {
     let mut f = Flash::new(p.FLASH, Irqs);
 
     // Led should blink uninterrupted during ~2sec erase operation
-    spawner.spawn(blinky(p.PB7.into())).unwrap();
+    spawner.spawn(blinky(p.PB7.into()).unwrap());
 
     // Test on bank 2 in order not to stall CPU.
     test_flash(&mut f, 1024 * 1024, 128 * 1024).await;

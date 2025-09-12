@@ -17,6 +17,7 @@ use crate::rcc::{self, RccPeripheral};
 use crate::{peripherals, Peri};
 
 /// QSPI transfer configuration.
+#[derive(Clone, Copy)]
 pub struct TransferConfig {
     /// Instruction width (IMODE)
     pub iwidth: QspiWidth,
@@ -46,6 +47,7 @@ impl Default for TransferConfig {
 }
 
 /// QSPI driver configuration.
+#[derive(Clone, Copy)]
 pub struct Config {
     /// Flash memory size representend as 2^[0-32], as reasonable minimum 1KiB(9) was chosen.
     /// If you need other value the whose predefined use `Other` variant.

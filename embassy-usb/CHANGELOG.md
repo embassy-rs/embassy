@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.5.1 - 2025-08-26
+
 ## 0.5.0 - 2025-07-16
 
 - `UAC1`: unmute by default ([#3992](https://github.com/embassy-rs/embassy/pull/3992))

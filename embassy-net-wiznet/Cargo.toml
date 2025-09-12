@@ -1,6 +1,6 @@
 [package]
 name = "embassy-net-wiznet"
-version = "0.2.0"
+version = "0.2.1"
 description = "embassy-net driver for WIZnet SPI Ethernet chips"
 keywords = ["embedded", "embassy-net", "embedded-hal-async", "ethernet", "async"]
 categories = ["embedded", "hardware-support", "no-std", "network-programming", "asynchronous"]
@@ -12,9 +12,9 @@ documentation = "https://docs.embassy.dev/embassy-net-wiznet"
 [dependencies]
 embedded-hal = { version = "1.0" }
 embedded-hal-async = { version = "1.0" }
-embassy-net-driver-channel = { version = "0.3.1", path = "../embassy-net-driver-channel" }
-embassy-time = { version = "0.4.0", path = "../embassy-time" }
-embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
+embassy-net-driver-channel = { version = "0.3.2", path = "../embassy-net-driver-channel" }
+embassy-time = { version = "0.5.0", path = "../embassy-time" }
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 defmt = { version = "1.0.1", optional = true }
 
 [package.metadata.embassy_docs]

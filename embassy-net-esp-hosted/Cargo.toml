@@ -1,6 +1,6 @@
 [package]
 name = "embassy-net-esp-hosted"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 description = "embassy-net driver for ESP-Hosted"
 keywords = ["embedded", "esp-hosted", "embassy-net", "embedded-hal-async", "wifi"]
@@ -17,10 +17,10 @@ log = ["dep:log"]
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
-embassy-time = { version = "0.4.0", path = "../embassy-time" }
-embassy-sync = { version = "0.7.1", path = "../embassy-sync"}
-embassy-futures = { version = "0.1.0", path = "../embassy-futures"}
-embassy-net-driver-channel = { version = "0.3.1", path = "../embassy-net-driver-channel"}
+embassy-time = { version = "0.5.0", path = "../embassy-time" }
+embassy-sync = { version = "0.7.2", path = "../embassy-sync"}
+embassy-futures = { version = "0.1.2", path = "../embassy-futures"}
+embassy-net-driver-channel = { version = "0.3.2", path = "../embassy-net-driver-channel"}
 
 embedded-hal = { version = "1.0" }
 embedded-hal-async = { version = "1.0" }
