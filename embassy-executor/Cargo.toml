@@ -35,6 +35,31 @@ build = [
     {target = "armv7r-none-eabihf", features = ["arch-cortex-ar", "executor-thread"]},
     {target = "riscv32imac-unknown-none-elf", features = ["arch-riscv32"]},
     {target = "riscv32imac-unknown-none-elf", features = ["arch-riscv32", "executor-thread"]},
+    # Nightly builds
+    {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly"]},
+    {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "log"]},
+    {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "defmt"]},
+    {group = "nightly", target = "thumbv6m-none-eabi", features = ["nightly", "defmt"]},
+    {group = "nightly", target = "thumbv6m-none-eabi", features = ["nightly", "defmt", "arch-cortex-m", "executor-thread", "executor-interrupt"]},
+    {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "arch-cortex-m"]},
+    {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "arch-cortex-m", "executor-thread"]},
+    {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "arch-cortex-m", "executor-interrupt"]},
+    {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "arch-cortex-m", "executor-thread", "executor-interrupt"]},
+    {group = "nightly", target = "riscv32imac-unknown-none-elf", features = ["nightly", "arch-riscv32"]},
+    {group = "nightly", target = "riscv32imac-unknown-none-elf", features = ["nightly", "arch-riscv32", "executor-thread"]},
+    {group = "nightly", target = "armv7a-none-eabi", features = ["nightly", "arch-cortex-ar", "executor-thread"]},
+    {group = "nightly", target = "avr-none", features = ["nightly", "arch-avr", "avr-device/atmega328p"], build-std = ["core", "alloc"], env = { RUSTFLAGS = "-Ctarget-cpu=atmega328p" }},
+    # Xtensa builds
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = []},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["log"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s2-none-elf", features = ["defmt"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt", "arch-spin", "executor-thread"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s2-none-elf", features = ["defmt", "arch-spin", "executor-thread"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s3-none-elf", features = ["defmt", "arch-spin", "executor-thread"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["arch-spin"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["arch-spin", "rtos-trace"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["arch-spin", "executor-thread"]},
 ]
 
 

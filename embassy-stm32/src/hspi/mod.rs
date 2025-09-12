@@ -116,7 +116,7 @@ pub struct TransferConfig {
 
     /// Data width (DMODE)
     pub dwidth: HspiWidth,
-    /// Data buffer
+    /// Data Double Transfer rate enable
     pub ddtr: bool,
 
     /// Number of dummy cycles (DCYC)
@@ -395,11 +395,6 @@ impl<'d, T: Instance, M: PeriMode> Hspi<'d, T, M> {
         // Configure alternate bytes
         if let Some(ab) = command.alternate_bytes {
             T::REGS.abr().write(|v| v.set_alternate(ab));
-            T::REGS.ccr().modify(|w| {
-                w.set_abmode(command.abwidth.into());
-                w.set_abdtr(command.abdtr);
-                w.set_absize(command.absize.into());
-            })
         }
 
         // Configure dummy cycles
@@ -411,14 +406,14 @@ impl<'d, T: Instance, M: PeriMode> Hspi<'d, T, M> {
         if let Some(data_length) = data_len {
             T::REGS.dlr().write(|v| {
                 v.set_dl((data_length - 1) as u32);
-            })
+            });
         } else {
             T::REGS.dlr().write(|v| {
                 v.set_dl((0) as u32);
-            })
+            });
         }
 
-        // Configure instruction/address/data modes
+        // Configure instruction/address/alternate bytes/data modes
         T::REGS.ccr().modify(|w| {
             w.set_imode(command.iwidth.into());
             w.set_idtr(command.idtr);
@@ -427,6 +422,10 @@ impl<'d, T: Instance, M: PeriMode> Hspi<'d, T, M> {
             w.set_admode(command.adwidth.into());
             w.set_addtr(command.addtr);
             w.set_adsize(command.adsize.into());
+
+            w.set_abmode(command.abwidth.into());
+            w.set_abdtr(command.abdtr);
+            w.set_absize(command.absize.into());
 
             w.set_dmode(command.dwidth.into());
             w.set_ddtr(command.ddtr);
