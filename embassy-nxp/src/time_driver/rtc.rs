@@ -6,7 +6,9 @@ use embassy_hal_internal::interrupt::{InterruptExt, Priority};
 use embassy_sync::blocking_mutex::CriticalSectionMutex as Mutex;
 use embassy_time_driver::{time_driver_impl, Driver};
 use embassy_time_queue_utils::Queue;
-use lpc55_pac::{interrupt, PMC, RTC, SYSCON};
+
+use crate::pac::{interrupt, pmc, rtc, PMC, RTC, SYSCON};
+
 struct AlarmState {
     timestamp: Cell<u64>,
 }
@@ -32,33 +34,32 @@ time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
 });
 impl RtcDriver {
     fn init(&'static self) {
-        let syscon = unsafe { &*SYSCON::ptr() };
-        let pmc = unsafe { &*PMC::ptr() };
-        let rtc = unsafe { &*RTC::ptr() };
+        let syscon = SYSCON;
+        let pmc = PMC;
+        let rtc = RTC;
 
-        syscon.ahbclkctrl0.modify(|_, w| w.rtc().enable());
+        syscon.ahbclkctrl0().modify(|w| w.set_rtc(true));
 
         // By default the RTC enters software reset. If for some reason it is
         // not in reset, we enter and them promptly leave.q
-        rtc.ctrl.modify(|_, w| w.swreset().set_bit());
-        rtc.ctrl.modify(|_, w| w.swreset().clear_bit());
+        rtc.ctrl().modify(|w| w.set_swreset(true));
+        rtc.ctrl().modify(|w| w.set_swreset(false));
 
         // Select clock source - either XTAL or FRO
-        // pmc.rtcosc32k.write(|w| w.sel().xtal32k());
-        pmc.rtcosc32k.write(|w| w.sel().fro32k());
+        // pmc.rtcosc32k().write(|w| w.set_sel(pmc::vals::Sel::XTAL32K));
+        pmc.rtcosc32k().write(|w| w.set_sel(pmc::vals::Sel::FRO32K));
 
         // Start the RTC peripheral
-        rtc.ctrl.modify(|_, w| w.rtc_osc_pd().power_up());
-
-        // rtc.ctrl.modify(|_, w| w.rtc_en().clear_bit()); // EXTRA
+        rtc.ctrl().modify(|w| w.set_rtc_osc_pd(rtc::vals::RtcOscPd::POWER_UP));
 
         //reset/clear(?) counter
-        rtc.count.reset();
+        rtc.count().modify(|w| w.set_val(0));
         //en rtc main counter
-        rtc.ctrl.modify(|_, w| w.rtc_en().set_bit());
-        rtc.ctrl.modify(|_, w| w.rtc1khz_en().set_bit());
+        rtc.ctrl().modify(|w| w.set_rtc_en(true));
+        rtc.ctrl().modify(|w| w.set_rtc1khz_en(true));
         // subsec counter enable
-        rtc.ctrl.modify(|_, w| w.rtc_subsec_ena().set_bit());
+        rtc.ctrl()
+            .modify(|w| w.set_rtc_subsec_ena(rtc::vals::RtcSubsecEna::POWER_UP));
 
         // enable irq
         unsafe {
@@ -68,7 +69,7 @@ impl RtcDriver {
     }
 
     fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
-        let rtc = unsafe { &*RTC::ptr() };
+        let rtc = RTC;
         let alarm = &self.alarms.borrow(cs);
         alarm.timestamp.set(timestamp);
         let now = self.now();
@@ -83,33 +84,38 @@ impl RtcDriver {
         let sec = (diff / 32768) as u32;
         let subsec = (diff % 32768) as u32;
 
-        let current_sec = rtc.count.read().val().bits();
+        let current_sec = rtc.count().read().val();
         let target_sec = current_sec.wrapping_add(sec as u32);
 
-        rtc.match_.write(|w| unsafe { w.matval().bits(target_sec) });
-        rtc.wake.write(|w| unsafe {
+        rtc.match_().write(|w| w.set_matval(target_sec));
+        rtc.wake().write(|w| {
             let ms = (subsec * 1000) / 32768;
-            w.val().bits(ms as u16)
+            w.set_val(ms as u16)
         });
+
         if subsec > 0 {
             let ms = (subsec * 1000) / 32768;
-            rtc.wake.write(|w| unsafe { w.val().bits(ms as u16) });
+            rtc.wake().write(|w| w.set_val(ms as u16));
         }
-        rtc.ctrl.modify(|_, w| w.alarm1hz().clear_bit().wake1khz().clear_bit());
+
+        rtc.ctrl().modify(|w| {
+            w.set_alarm1hz(false);
+            w.set_wake1khz(rtc::vals::Wake1khz::RUN)
+        });
         true
     }
 
     fn on_interrupt(&self) {
         critical_section::with(|cs| {
-            let rtc = unsafe { &*RTC::ptr() };
-            let flags = rtc.ctrl.read();
-            if flags.alarm1hz().bit_is_clear() {
-                rtc.ctrl.modify(|_, w| w.alarm1hz().set_bit());
+            let rtc = RTC;
+            let flags = rtc.ctrl().read();
+            if flags.alarm1hz() == false {
+                rtc.ctrl().modify(|w| w.set_alarm1hz(true));
                 self.trigger_alarm(cs);
             }
 
-            if flags.wake1khz().bit_is_clear() {
-                rtc.ctrl.modify(|_, w| w.wake1khz().set_bit());
+            if flags.wake1khz() == rtc::vals::Wake1khz::RUN {
+                rtc.ctrl().modify(|w| w.set_wake1khz(rtc::vals::Wake1khz::TIMEOUT));
                 self.trigger_alarm(cs);
             }
         });
@@ -135,13 +141,13 @@ impl RtcDriver {
 
 impl Driver for RtcDriver {
     fn now(&self) -> u64 {
-        let rtc = unsafe { &*RTC::ptr() };
+        let rtc = RTC;
 
         loop {
-            let sec1 = rtc.count.read().val().bits() as u64;
-            let sub1 = rtc.subsec.read().subsec().bits() as u64;
-            let sec2 = rtc.count.read().val().bits() as u64;
-            let sub2 = rtc.subsec.read().subsec().bits() as u64;
+            let sec1 = rtc.count().read().val() as u64;
+            let sub1 = rtc.subsec().read().subsec() as u64;
+            let sec2 = rtc.count().read().val() as u64;
+            let sub2 = rtc.subsec().read().subsec() as u64;
 
             if sec1 == sec2 && sub1 == sub2 {
                 return sec1 * 32768 + sub1;
@@ -162,7 +168,7 @@ impl Driver for RtcDriver {
         })
     }
 }
-#[cortex_m_rt::interrupt]
+#[interrupt]
 fn RTC() {
     DRIVER.on_interrupt();
 }

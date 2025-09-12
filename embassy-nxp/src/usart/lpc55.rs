@@ -2,9 +2,12 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use embedded_io::{self, ErrorKind};
-pub use sealed::SealedInstance;
 
-use crate::gpio::AnyPin;
+use crate::gpio::{match_iocon, AnyPin, Bank, SealedPin};
+use crate::pac::flexcomm::Flexcomm as FlexcommReg;
+use crate::pac::iocon::vals::PioFunc;
+use crate::pac::usart::Usart as UsartReg;
+use crate::pac::*;
 use crate::{Blocking, Mode};
 
 /// Serial error
@@ -47,16 +50,6 @@ pub enum DataBits {
     DataBits9,
 }
 
-impl DataBits {
-    fn bits(&self) -> u8 {
-        match self {
-            Self::DataBits7 => 0b00,
-            Self::DataBits8 => 0b01,
-            Self::DataBits9 => 0b10,
-        }
-    }
-}
-
 /// Parity bit.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Parity {
@@ -68,16 +61,6 @@ pub enum Parity {
     ParityOdd,
 }
 
-impl Parity {
-    fn bits(&self) -> u8 {
-        match self {
-            Self::ParityNone => 0b00,
-            Self::ParityEven => 0b10,
-            Self::ParityOdd => 0b11,
-        }
-    }
-}
-
 /// Stop bits.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum StopBits {
@@ -85,15 +68,6 @@ pub enum StopBits {
     Stop1,
     /// 2 stop bits. This setting should only be used for asynchronous communication.
     Stop2,
-}
-
-impl StopBits {
-    fn bits(&self) -> bool {
-        return match self {
-            Self::Stop1 => false,
-            Self::Stop2 => true,
-        };
-    }
 }
 
 /// UART config.
@@ -117,7 +91,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            baudrate: 9600,
+            baudrate: 115200,
             data_bits: DataBits::DataBits8,
             stop_bits: StopBits::Stop1,
             parity: Parity::ParityNone,
@@ -131,59 +105,72 @@ impl Default for Config {
 /// 'd: the lifetime marker ensuring correct borrow checking for peripherals used at compile time
 /// T: the peripheral instance type allowing usage of peripheral specific registers
 /// M: the operating mode of USART peripheral
-pub struct Usart<'d, T: Instance, M: Mode> {
-    tx: UsartTx<'d, T, M>,
-    rx: UsartRx<'d, T, M>,
+pub struct Usart<'d, M: Mode> {
+    tx: UsartTx<'d, M>,
+    rx: UsartRx<'d, M>,
 }
 
-pub struct UsartTx<'d, T: Instance, M: Mode> {
-    phantom: PhantomData<(&'d (), T, M)>,
+pub struct UsartTx<'d, M: Mode> {
+    info: &'static Info,
+    phantom: PhantomData<(&'d (), M)>,
 }
 
-pub struct UsartRx<'d, T: Instance, M: Mode> {
-    phantom: PhantomData<(&'d (), T, M)>,
+pub struct UsartRx<'d, M: Mode> {
+    info: &'static Info,
+    phantom: PhantomData<(&'d (), M)>,
 }
 
-impl<'d, T: Instance, M: Mode> UsartTx<'d, T, M> {
-    pub fn new(_usart: Peri<'d, T>, tx: Peri<'d, impl TxPin<T>>, config: Config) -> Self {
-        Usart::<T, M>::init(Some(tx.into()), None, config);
-        Self::new_inner()
+impl<'d, M: Mode> UsartTx<'d, M> {
+    pub fn new<T: Instance>(_usart: Peri<'d, T>, tx: Peri<'d, impl TxPin<T>>, config: Config) -> Self {
+        Usart::<M>::init::<T>(Some(tx.into()), None, config);
+        Self::new_inner(T::info())
     }
 
     #[inline]
-    fn new_inner() -> Self {
-        Self { phantom: PhantomData }
+    fn new_inner(info: &'static Info) -> Self {
+        Self {
+            info,
+            phantom: PhantomData,
+        }
     }
 
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        T::blocking_write(buffer)
+        for &b in buffer {
+            while !(self.info.usart_reg.fifostat().read().txnotfull()) {}
+            self.info.usart_reg.fifowr().write(|w| w.set_txdata(b as u16));
+        }
+        Ok(())
     }
 
     pub fn blocking_flush(&mut self) -> Result<(), Error> {
-        T::blocking_flush()
+        while !(self.info.usart_reg.fifostat().read().txempty()) {}
+        Ok(())
     }
 
     pub fn tx_busy(&self) -> bool {
-        T::tx_busy()
+        !(self.info.usart_reg.fifostat().read().txempty())
     }
 }
 
-impl<'d, T: Instance> UsartTx<'d, T, Blocking> {
-    pub fn new_blocking(_usart: Peri<'d, T>, tx: Peri<'d, impl TxPin<T>>, config: Config) -> Self {
-        Usart::<T, Blocking>::init(Some(tx.into()), None, config);
-        Self::new_inner()
+impl<'d> UsartTx<'d, Blocking> {
+    pub fn new_blocking<T: Instance>(_usart: Peri<'d, T>, tx: Peri<'d, impl TxPin<T>>, config: Config) -> Self {
+        Usart::<Blocking>::init::<T>(Some(tx.into()), None, config);
+        Self::new_inner(T::info())
     }
 }
 
-impl<'d, T: Instance, M: Mode> UsartRx<'d, T, M> {
-    pub fn new(_usart: Peri<'d, T>, rx: Peri<'d, impl RxPin<T>>, config: Config) -> Self {
-        Usart::<T, M>::init(None, Some(rx.into()), config);
-        Self::new_inner()
+impl<'d, M: Mode> UsartRx<'d, M> {
+    pub fn new<T: Instance>(_usart: Peri<'d, T>, rx: Peri<'d, impl RxPin<T>>, config: Config) -> Self {
+        Usart::<M>::init::<T>(None, Some(rx.into()), config);
+        Self::new_inner(T::info())
     }
 
     #[inline]
-    fn new_inner() -> Self {
-        Self { phantom: PhantomData }
+    fn new_inner(info: &'static Info) -> Self {
+        Self {
+            info,
+            phantom: PhantomData,
+        }
     }
 
     pub fn blocking_read(&mut self, mut buffer: &mut [u8]) -> Result<(), Error> {
@@ -201,19 +188,35 @@ impl<'d, T: Instance, M: Mode> UsartRx<'d, T, M> {
     /// - Ok(n) -> read n bytes
     /// - Err(n, Error) -> read n-1 bytes, but encountered an error while reading nth byte
     fn drain_fifo(&mut self, buffer: &mut [u8]) -> Result<usize, (usize, Error)> {
-        T::drain_fifo(buffer)
+        for (i, b) in buffer.iter_mut().enumerate() {
+            while !(self.info.usart_reg.fifostat().read().rxnotempty()) {}
+            if self.info.usart_reg.fifostat().read().rxerr() {
+                return Err((i, Error::Overrun));
+            } else if self.info.usart_reg.fifordnopop().read().parityerr() {
+                return Err((i, Error::Parity));
+            } else if self.info.usart_reg.fifordnopop().read().framerr() {
+                return Err((i, Error::Framing));
+            } else if self.info.usart_reg.fifordnopop().read().rxnoise() {
+                return Err((i, Error::Noise));
+            } else if self.info.usart_reg.intstat().read().deltarxbrk() {
+                return Err((i, Error::Break));
+            }
+            let dr = self.info.usart_reg.fiford().read().rxdata() as u8;
+            *b = dr;
+        }
+        Ok(buffer.len())
     }
 }
 
-impl<'d, T: Instance> UsartRx<'d, T, Blocking> {
-    pub fn new_blocking(_usart: Peri<'d, T>, rx: Peri<'d, impl RxPin<T>>, config: Config) -> Self {
-        Usart::<T, Blocking>::init(None, Some(rx.into()), config);
-        Self::new_inner()
+impl<'d> UsartRx<'d, Blocking> {
+    pub fn new_blocking<T: Instance>(_usart: Peri<'d, T>, rx: Peri<'d, impl RxPin<T>>, config: Config) -> Self {
+        Usart::<Blocking>::init::<T>(None, Some(rx.into()), config);
+        Self::new_inner(T::info())
     }
 }
 
-impl<'d, T: Instance> Usart<'d, T, Blocking> {
-    pub fn new_blocking(
+impl<'d> Usart<'d, Blocking> {
+    pub fn new_blocking<T: Instance>(
         usart: Peri<'d, T>,
         tx: Peri<'d, impl TxPin<T>>,
         rx: Peri<'d, impl RxPin<T>>,
@@ -223,29 +226,70 @@ impl<'d, T: Instance> Usart<'d, T, Blocking> {
     }
 }
 
-impl<'d, T: Instance, M: Mode> Usart<'d, T, M> {
-    fn new_inner(_usart: Peri<'d, T>, mut tx: Peri<'d, AnyPin>, mut rx: Peri<'d, AnyPin>, config: Config) -> Self {
-        Self::init(Some(tx.reborrow()), Some(rx.reborrow()), config);
+impl<'d, M: Mode> Usart<'d, M> {
+    fn new_inner<T: Instance>(
+        _usart: Peri<'d, T>,
+        mut tx: Peri<'d, AnyPin>,
+        mut rx: Peri<'d, AnyPin>,
+        config: Config,
+    ) -> Self {
+        Self::init::<T>(Some(tx.reborrow()), Some(rx.reborrow()), config);
         Self {
-            tx: UsartTx::new_inner(),
-            rx: UsartRx::new_inner(),
+            tx: UsartTx::new_inner(T::info()),
+            rx: UsartRx::new_inner(T::info()),
         }
     }
 
-    fn init(_tx: Option<Peri<'_, AnyPin>>, _rx: Option<Peri<'_, AnyPin>>, config: Config) {
-        T::enable_clock();
-        T::reset_flexcomm();
-        let source_clock: u32 = T::select_clock(config.baudrate);
-        T::configure_flexcomm();
-        T::tx_pin_config();
-        T::rx_pin_config();
-        Self::set_baudrate(source_clock, config.baudrate);
-        T::configure_usart(config);
-        T::disable_dma();
-        T::enable_usart();
+    fn init<T: Instance>(tx: Option<Peri<'_, AnyPin>>, rx: Option<Peri<'_, AnyPin>>, config: Config) {
+        Self::configure_flexcomm(T::info().fc_reg, T::instance_number());
+        Self::configure_clock::<T>(&config);
+        Self::pin_config::<T>(tx, rx);
+        Self::configure_usart(T::info(), &config);
     }
 
-    fn set_baudrate(source_clock: u32, baudrate: u32) {
+    fn configure_clock<T: Instance>(config: &Config) {
+        // Select source clock
+
+        // Adaptive clock choice based on baud rate
+        // To get the desired baud rate, it is essential to choose the clock bigger than baud rate so that it can be 'chiseled'
+        // There are two types of dividers: integer divider (baud rate generator register and oversample selection value)
+        // and fractional divider (fractional rate divider).
+
+        // By default, oversampling rate is 16 which is an industry standard.
+        // That means 16 clocks are used to deliver the byte to recipient.
+        // In this way the probability of getting correct bytes instead of noise directly increases as oversampling increases as well.
+
+        // Minimum and maximum values were computed taking these formulas into account:
+        // For minimum value, MULT = 0, BRGVAL = 0
+        // For maximum value, MULT = 255, BRGVAL = 255
+        // Flexcomm Interface function clock = (clock selected via FCCLKSEL) / (1 + MULT / DIV)
+        // By default, OSRVAL = 15 (see above)
+        // Baud rate = [FCLK / (OSRVAL+1)] / (BRGVAL + 1)
+        let source_clock = match config.baudrate {
+            750_001..=6_000_000 => {
+                SYSCON
+                    .fcclksel(T::instance_number())
+                    .modify(|w| w.set_sel(syscon::vals::FcclkselSel::ENUM_0X3)); // 96 MHz
+                96_000_000
+            }
+            1501..=750_000 => {
+                SYSCON
+                    .fcclksel(T::instance_number())
+                    .modify(|w| w.set_sel(syscon::vals::FcclkselSel::ENUM_0X2)); // 12 MHz
+                12_000_000
+            }
+            121..=1500 => {
+                SYSCON
+                    .fcclksel(T::instance_number())
+                    .modify(|w| w.set_sel(syscon::vals::FcclkselSel::ENUM_0X4)); // 1 MHz
+                1_000_000
+            }
+            _ => {
+                panic!("{} baudrate is not permitted in this mode", config.baudrate);
+            }
+        };
+        // Calculate MULT and BRG values based on baudrate
+
         // There are two types of dividers: integer divider (baud rate generator register and oversample selection value)
         // and fractional divider (fractional rate divider).
         // For oversampling, the default is industry standard 16x oversampling, i.e. OSRVAL = 15
@@ -274,14 +318,167 @@ impl<'d, T: Instance, M: Mode> Usart<'d, T, M> {
         // Secondly, MULT is calculated to ultimately 'chisel' the clock to get the baud rate.
         // The deduced formulas are written below.
 
-        let brg_value = (source_clock / (16 * baudrate)).min(255);
+        let brg_value = (source_clock / (16 * config.baudrate)).min(255);
         let raw_clock = source_clock / (16 * brg_value);
-        let mult_value = ((raw_clock * 256 / baudrate) - 256).min(255);
-        T::set_baudrate(mult_value as u8, brg_value as u8);
+        let mult_value = ((raw_clock * 256 / config.baudrate) - 256).min(255);
+
+        // Write values to the registers
+
+        // FCLK =  (clock selected via FCCLKSEL) / (1+ MULT / DIV)
+        // Remark: To use the fractional baud rate generator, 0xFF must be wirtten to the DIV value
+        // to yield a denominator vale of 256. All other values are not supported
+        SYSCON.flexfrgctrl(T::instance_number()).modify(|w| {
+            w.set_div(0xFF);
+            w.set_mult(mult_value as u8);
+        });
+
+        // Baud rate = [FCLK / (OSRVAL+1)] / (BRGVAL + 1)
+        // By default, oversampling is 16x, i.e. OSRVAL = 15
+
+        // Typical industry standard USARTs use a 16x oversample clock to transmit and receive
+        // asynchronous data. This is the number of BRG clocks used for one data bit. The
+        // Oversample Select Register (OSR) allows this USART to use a 16x down to a 5x
+        // oversample clock. There is no oversampling in synchronous modes.
+        T::info()
+            .usart_reg
+            .brg()
+            .modify(|w| w.set_brgval((brg_value - 1) as u16));
+    }
+
+    fn pin_config<T: Instance>(tx: Option<Peri<'_, AnyPin>>, rx: Option<Peri<'_, AnyPin>>) {
+        if let Some(tx_pin) = tx {
+            match_iocon!(register, tx_pin.pin_bank(), tx_pin.pin_number(), {
+                register.modify(|w| {
+                    w.set_func(T::tx_pin_func());
+                    w.set_mode(iocon::vals::PioMode::INACTIVE);
+                    w.set_slew(iocon::vals::PioSlew::STANDARD);
+                    w.set_invert(false);
+                    w.set_digimode(iocon::vals::PioDigimode::DIGITAL);
+                    w.set_od(iocon::vals::PioOd::NORMAL);
+                });
+            })
+        }
+
+        if let Some(rx_pin) = rx {
+            match_iocon!(register, rx_pin.pin_bank(), rx_pin.pin_number(), {
+                register.modify(|w| {
+                    w.set_func(T::rx_pin_func());
+                    w.set_mode(iocon::vals::PioMode::INACTIVE);
+                    w.set_slew(iocon::vals::PioSlew::STANDARD);
+                    w.set_invert(false);
+                    w.set_digimode(iocon::vals::PioDigimode::DIGITAL);
+                    w.set_od(iocon::vals::PioOd::NORMAL);
+                });
+            })
+        };
+    }
+
+    fn configure_flexcomm(flexcomm_register: crate::pac::flexcomm::Flexcomm, instance_number: usize) {
+        critical_section::with(|_cs| {
+            if !(SYSCON.ahbclkctrl0().read().iocon()) {
+                SYSCON.ahbclkctrl0().modify(|w| w.set_iocon(true));
+            }
+        });
+        critical_section::with(|_cs| {
+            if !(SYSCON.ahbclkctrl1().read().fc(instance_number)) {
+                SYSCON.ahbclkctrl1().modify(|w| w.set_fc(instance_number, true));
+            }
+        });
+        SYSCON
+            .presetctrl1()
+            .modify(|w| w.set_fc_rst(instance_number, syscon::vals::FcRst::ASSERTED));
+        SYSCON
+            .presetctrl1()
+            .modify(|w| w.set_fc_rst(instance_number, syscon::vals::FcRst::RELEASED));
+        flexcomm_register
+            .pselid()
+            .modify(|w| w.set_persel(flexcomm::vals::Persel::USART));
+    }
+
+    fn configure_usart(info: &'static Info, config: &Config) {
+        let registers = info.usart_reg;
+        // See section 34.6.1
+        registers.cfg().modify(|w| {
+            // LIN break mode enable
+            // Disabled. Break detect and generate is configured for normal operation.
+            w.set_linmode(false);
+            //CTS Enable. Determines whether CTS is used for flow control. CTS can be from the
+            //input pin, or from the USART’s own RTS if loopback mode is enabled.
+            // No flow control. The transmitter does not receive any automatic flow control signal.
+            w.set_ctsen(false);
+            // Selects synchronous or asynchronous operation.
+            w.set_syncen(usart::vals::Syncen::ASYNCHRONOUS_MODE);
+            // Selects the clock polarity and sampling edge of received data in synchronous mode.
+            w.set_clkpol(usart::vals::Clkpol::RISING_EDGE);
+            // Synchronous mode Master select.
+            // When synchronous mode is enabled, the USART is a master.
+            w.set_syncmst(usart::vals::Syncmst::MASTER);
+            // Selects data loopback mode
+            w.set_loop_(usart::vals::Loop::NORMAL);
+            // Output Enable Turnaround time enable for RS-485 operation.
+            // Disabled. If selected by OESEL, the Output Enable signal deasserted at the end of
+            // the last stop bit of a transmission.
+            w.set_oeta(false);
+            // Output enable select.
+            // Standard. The RTS signal is used as the standard flow control function.
+            w.set_oesel(usart::vals::Oesel::STANDARD);
+            // Automatic address matching enable.
+            // Disabled. When addressing is enabled by ADDRDET, address matching is done by
+            // software. This provides the possibility of versatile addressing (e.g. respond to more
+            // than one address)
+            w.set_autoaddr(false);
+            // Output enable polarity.
+            // Low. If selected by OESEL, the output enable is active low.
+            w.set_oepol(usart::vals::Oepol::LOW);
+        });
+
+        // Configurations based on the config written by a user
+        registers.cfg().modify(|w| {
+            w.set_datalen(match config.data_bits {
+                DataBits::DataBits7 => usart::vals::Datalen::BIT_7,
+                DataBits::DataBits8 => usart::vals::Datalen::BIT_8,
+                DataBits::DataBits9 => usart::vals::Datalen::BIT_9,
+            });
+            w.set_paritysel(match config.parity {
+                Parity::ParityNone => usart::vals::Paritysel::NO_PARITY,
+                Parity::ParityEven => usart::vals::Paritysel::EVEN_PARITY,
+                Parity::ParityOdd => usart::vals::Paritysel::ODD_PARITY,
+            });
+            w.set_stoplen(match config.stop_bits {
+                StopBits::Stop1 => usart::vals::Stoplen::BIT_1,
+                StopBits::Stop2 => usart::vals::Stoplen::BITS_2,
+            });
+            w.set_rxpol(match config.invert_rx {
+                false => usart::vals::Rxpol::STANDARD,
+                true => usart::vals::Rxpol::INVERTED,
+            });
+            w.set_txpol(match config.invert_tx {
+                false => usart::vals::Txpol::STANDARD,
+                true => usart::vals::Txpol::INVERTED,
+            });
+        });
+
+        // DMA-related settings
+        registers.fifocfg().modify(|w| {
+            w.set_dmatx(false);
+            w.set_dmatx(false);
+        });
+
+        // Enabling USART
+        registers.fifocfg().modify(|w| {
+            w.set_enabletx(true);
+            w.set_enablerx(true);
+        });
+        registers.cfg().modify(|w| w.set_enable(true));
+
+        // Drain RX FIFO in case it still has some unrelevant data
+        while registers.fifostat().read().rxnotempty() {
+            let _ = registers.fiford().read().0;
+        }
     }
 }
 
-impl<'d, T: Instance, M: Mode> Usart<'d, T, M> {
+impl<'d, M: Mode> Usart<'d, M> {
     /// Transmit the provided buffer blocking execution until done.
     pub fn blocking_write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         self.tx.blocking_write(buffer)
@@ -304,19 +501,19 @@ impl<'d, T: Instance, M: Mode> Usart<'d, T, M> {
 
     /// Split the Usart into a transmitter and receiver, which is particularly
     /// useful when having two tasks correlating to transmitting and receiving.
-    pub fn split(self) -> (UsartTx<'d, T, M>, UsartRx<'d, T, M>) {
+    pub fn split(self) -> (UsartTx<'d, M>, UsartRx<'d, M>) {
         (self.tx, self.rx)
     }
 
     /// Split the Usart into a transmitter and receiver by mutable reference,
     /// which is particularly useful when having two tasks correlating to
     /// transmitting and receiving.
-    pub fn split_ref(&mut self) -> (&mut UsartTx<'d, T, M>, &mut UsartRx<'d, T, M>) {
+    pub fn split_ref(&mut self) -> (&mut UsartTx<'d, M>, &mut UsartRx<'d, M>) {
         (&mut self.tx, &mut self.rx)
     }
 }
 
-impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for UsartTx<'d, T, M> {
+impl<'d, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for UsartTx<'d, M> {
     type Error = Error;
 
     fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
@@ -328,7 +525,7 @@ impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for 
     }
 }
 
-impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for Usart<'d, T, M> {
+impl<'d, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for Usart<'d, M> {
     type Error = Error;
 
     fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
@@ -340,11 +537,11 @@ impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for 
     }
 }
 
-impl<'d, T: Instance> embedded_io::ErrorType for UsartTx<'d, T, Blocking> {
+impl<'d> embedded_io::ErrorType for UsartTx<'d, Blocking> {
     type Error = Error;
 }
 
-impl<'d, T: Instance> embedded_io::Write for UsartTx<'d, T, Blocking> {
+impl<'d> embedded_io::Write for UsartTx<'d, Blocking> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.blocking_write(buf).map(|_| buf.len())
     }
@@ -354,21 +551,21 @@ impl<'d, T: Instance> embedded_io::Write for UsartTx<'d, T, Blocking> {
     }
 }
 
-impl<'d, T: Instance> embedded_io::ErrorType for UsartRx<'d, T, Blocking> {
+impl<'d> embedded_io::ErrorType for UsartRx<'d, Blocking> {
     type Error = Error;
 }
 
-impl<'d, T: Instance> embedded_io::Read for UsartRx<'d, T, Blocking> {
+impl<'d> embedded_io::Read for UsartRx<'d, Blocking> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         self.blocking_read(buf).map(|_| buf.len())
     }
 }
 
-impl<'d, T: Instance> embedded_io::ErrorType for Usart<'d, T, Blocking> {
+impl<'d> embedded_io::ErrorType for Usart<'d, Blocking> {
     type Error = Error;
 }
 
-impl<'d, T: Instance> embedded_io::Write for Usart<'d, T, Blocking> {
+impl<'d> embedded_io::Write for Usart<'d, Blocking> {
     fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.blocking_write(buf).map(|_| buf.len())
     }
@@ -378,467 +575,68 @@ impl<'d, T: Instance> embedded_io::Write for Usart<'d, T, Blocking> {
     }
 }
 
-impl<'d, T: Instance> embedded_io::Read for Usart<'d, T, Blocking> {
+impl<'d> embedded_io::Read for Usart<'d, Blocking> {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
         self.blocking_read(buf).map(|_| buf.len())
     }
 }
 
-type UsartRegBlock = crate::pac::usart0::RegisterBlock;
+struct Info {
+    usart_reg: UsartReg,
+    fc_reg: FlexcommReg,
+}
 
-mod sealed {
-    use crate::usart::inner::UsartRegBlock;
-    use crate::usart::{Config, Error};
-    pub trait SealedInstance {
-        fn usart_reg() -> &'static UsartRegBlock;
-        fn enable_clock();
-        fn select_clock(baudrate: u32) -> u32;
-        fn configure_flexcomm();
-        fn set_baudrate(mult_value: u8, brg_value: u8);
-        fn reset_flexcomm();
-        fn tx_pin_config();
-        fn rx_pin_config();
-
-        fn configure_usart(config: Config) {
-            // See section 34.6.1
-            Self::usart_reg().cfg.modify(|_, w| {
-                // LIN break mode enable
-                w.linmode()
-                    // Disabled. Break detect and generate is configured for normal operation.
-                    .disabled()
-                    //CTS Enable. Determines whether CTS is used for flow control. CTS can be from the
-                    //input pin, or from the USART’s own RTS if loopback mode is enabled.
-                    .ctsen()
-                    // No flow control. The transmitter does not receive any automatic flow control signal.
-                    .disabled()
-                    // Selects synchronous or asynchronous operation.
-                    .syncen()
-                    .asynchronous_mode()
-                    // Selects the clock polarity and sampling edge of received data in synchronous mode.
-                    .clkpol()
-                    .rising_edge()
-                    // Synchronous mode Master select.
-                    .syncmst()
-                    // When synchronous mode is enabled, the USART is a master.
-                    .master()
-                    // Selects data loopback mode
-                    .loop_()
-                    // Normal operation
-                    .normal()
-                    // Output Enable Turnaround time enable for RS-485 operation.
-                    .oeta()
-                    // Disabled. If selected by OESEL, the Output Enable signal deasserted at the end of
-                    // the last stop bit of a transmission.
-                    .disabled()
-                    // Output enable select.
-                    .oesel()
-                    // Standard. The RTS signal is used as the standard flow control function.
-                    .standard()
-                    // Automatic address matching enable.
-                    .autoaddr()
-                    // Disabled. When addressing is enabled by ADDRDET, address matching is done by
-                    // software. This provides the possibility of versatile addressing (e.g. respond to more
-                    // than one address)
-                    .disabled()
-                    // Output enable polarity.
-                    .oepol()
-                    // Low. If selected by OESEL, the output enable is active low.
-                    .low()
-            });
-
-            Self::usart_reg().cfg.modify(|_, w| unsafe {
-                w.datalen()
-                    .bits(config.data_bits.bits())
-                    .paritysel()
-                    .bits(config.parity.bits())
-                    .stoplen()
-                    .bit(config.stop_bits.bits())
-                    .rxpol()
-                    .bit(config.invert_rx)
-                    .txpol()
-                    .bit(config.invert_tx)
-            });
-        }
-        fn disable_dma() {
-            Self::usart_reg()
-                .fifocfg
-                .modify(|_, w| w.dmatx().disabled().dmarx().disabled());
-        }
-        fn enable_usart() {
-            Self::usart_reg()
-                .fifocfg
-                .modify(|_, w| w.enabletx().enabled().enablerx().enabled());
-            Self::usart_reg().cfg.modify(|_, w| w.enable().enabled());
-            while Self::usart_reg().fifostat.read().rxnotempty().bit_is_set() {
-                let _ = Self::usart_reg().fiford.read().bits();
-            }
-        }
-        fn blocking_write(buffer: &[u8]) -> Result<(), Error> {
-            for &b in buffer {
-                while Self::usart_reg().fifostat.read().txnotfull().bit_is_clear() {}
-                Self::usart_reg()
-                    .fifowr
-                    .modify(|_, w| unsafe { w.txdata().bits(b as u16) });
-            }
-            Ok(())
-        }
-        fn blocking_flush() -> Result<(), Error> {
-            while Self::usart_reg().fifostat.read().txempty().bit_is_clear() {}
-            Ok(())
-        }
-        fn tx_busy() -> bool {
-            Self::usart_reg().fifostat.read().txempty().bit_is_clear()
-        }
-        fn drain_fifo(buffer: &mut [u8]) -> Result<usize, (usize, Error)> {
-            for (i, b) in buffer.iter_mut().enumerate() {
-                while Self::usart_reg().fifostat.read().rxnotempty().bit_is_clear() {}
-
-                if Self::usart_reg().fifostat.read().rxerr().bit_is_set() {
-                    return Err((i, Error::Overrun));
-                } else if Self::usart_reg().fifordnopop.read().parityerr().bit_is_set() {
-                    return Err((i, Error::Parity));
-                } else if Self::usart_reg().fifordnopop.read().framerr().bit_is_set() {
-                    return Err((i, Error::Framing));
-                } else if Self::usart_reg().fifordnopop.read().rxnoise().bit_is_set() {
-                    return Err((i, Error::Noise));
-                } else if Self::usart_reg().intstat.read().deltarxbrk().bit_is_set() {
-                    return Err((i, Error::Break));
-                }
-                let dr = Self::usart_reg().fiford.read().bits() as u8;
-                *b = dr;
-            }
-            Ok(buffer.len())
-        }
-    }
+trait SealedInstance {
+    fn info() -> &'static Info;
+    fn instance_number() -> usize;
+    fn tx_pin_func() -> PioFunc;
+    fn rx_pin_func() -> PioFunc;
 }
 
 /// UART instance.
 #[allow(private_bounds)]
-pub trait Instance: sealed::SealedInstance + PeripheralType {}
+pub trait Instance: SealedInstance + PeripheralType {}
 
-#[macro_export]
 macro_rules! impl_instance {
-    (
-        $inst:ident,
-        usart_peripheral: $USARTX:ident,
-        usart_crate: $usartX:ident,
-
-        flexcomm: {
-          field: $FLEXCOMM_FIELD:ident,
-          clock_field: $FLEXCOMM_CLK_FIELD:ident
-        },
-
-        reset: {
-            bit: $RESET_BIT:ident
-        },
-
-        clock: {
-            sel_field: $CLKSEL_FIELD:ident,
-            frg_field: $FRG_FIELD:ident
-        },
-
-        pins: {
-            tx: $TX_IOCON:ident => $TX_FUNC:expr,
-            rx: $RX_IOCON:ident => $RX_FUNC:expr
-        }
-
-    ) => {
-        impl $crate::usart::SealedInstance for $crate::peripherals::$inst {
-            fn usart_reg() -> &'static UsartRegBlock {
-                unsafe { &*$crate::pac::$USARTX::ptr() }
-            }
-
-            fn enable_clock() {
-                critical_section::with(|_cs| {
-                    if syscon_reg().ahbclkctrl0.read().iocon().is_disable() {
-                        syscon_reg().ahbclkctrl0.modify(|_, w| w.iocon().enable());
-                    }
-                    if syscon_reg().ahbclkctrl1.read().$FLEXCOMM_CLK_FIELD().is_disable() {
-                        syscon_reg()
-                            .ahbclkctrl1
-                            .modify(|_, w| w.$FLEXCOMM_CLK_FIELD().enable());
-                    }
-                });
-            }
-
-            fn configure_flexcomm() {
-                let flexcomm = unsafe { &*$crate::pac::$FLEXCOMM_FIELD::ptr() };
-                flexcomm.pselid.modify(|_, w| w.persel().usart());
-            }
-
-            fn reset_flexcomm() {
-                syscon_reg().presetctrl1.modify(|_, w| w.$RESET_BIT().set_bit());
-                syscon_reg().presetctrl1.modify(|_, w| w.$RESET_BIT().clear_bit());
-            }
-
-            fn select_clock(baudrate: u32) -> u32 {
-                // Adaptive clock choice based on baud rate
-                // To get the desired baud rate, it is essential to choose the clock bigger than baud rate so that it can be 'chiseled'
-                // There are two types of dividers: integer divider (baud rate generator register and oversample selection value)
-                // and fractional divider (fractional rate divider).
-
-                // By default, oversampling rate is 16 which is an industry standard.
-                // That means 16 clocks are used to deliver the byte to recipient.
-                // In this way the probability of getting correct bytes instead of noise directly increases as oversampling increases as well.
-
-                // Minimum and maximum values were computed taking these formulas into account:
-                // For minimum value, MULT = 0, BRGVAL = 0
-                // For maximum value, MULT = 255, BRGVAL = 255
-                // Flexcomm Interface function clock = (clock selected via FCCLKSEL) / (1 + MULT / DIV)
-                // By default, OSRVAL = 15 (see above)
-                // Baud rate = [FCLK / (OSRVAL+1)] / (BRGVAL + 1)
-                return match baudrate {
-                    750_001..=6000000 => {
-                        syscon_reg().$CLKSEL_FIELD().write(|w| w.sel().enum_0x3()); // 96 MHz
-                        96_000_000
-                    }
-                    1501..=750_000 => {
-                        syscon_reg().$CLKSEL_FIELD().write(|w| w.sel().enum_0x2()); // 12 MHz
-                        12_000_000
-                    }
-                    121..=1500 => {
-                        syscon_reg().$CLKSEL_FIELD().write(|w| w.sel().enum_0x4()); // 1 MHz
-                        1_000_000
-                    }
-                    _ => {
-                        panic!("{} baudrate is not permitted in this mode", baudrate);
-                    }
+    ($inst:ident, $fc:ident, $tx_pin:ident, $rx_pin:ident, $fc_num:expr) => {
+        impl $crate::usart::inner::SealedInstance for $crate::peripherals::$inst {
+            fn info() -> &'static Info {
+                static INFO: Info = Info {
+                    usart_reg: crate::pac::$inst,
+                    fc_reg: crate::pac::$fc,
                 };
+                &INFO
             }
-
-            fn set_baudrate(mult_value: u8, brg_value: u8) {
-                // FCLK =  (clock selected via FCCLKSEL) / (1+ MULT / DIV)
-                // Remark: To use the fractional baud rate generator, 0xFF must be wirtten to the DIV value
-                // to yield a denominator vale of 256. All other values are not supported
-                syscon_reg()
-                    .$FRG_FIELD()
-                    .modify(|_, w| unsafe { w.div().bits(0xFF).mult().bits(mult_value as u8) });
-
-                // Baud rate = [FCLK / (OSRVAL+1)] / (BRGVAL + 1)
-                // By default, oversampling is 16x, i.e. OSRVAL = 15
-
-                // Typical industry standard USARTs use a 16x oversample clock to transmit and receive
-                // asynchronous data. This is the number of BRG clocks used for one data bit. The
-                // Oversample Select Register (OSR) allows this USART to use a 16x down to a 5x
-                // oversample clock. There is no oversampling in synchronous modes.
-                Self::usart_reg()
-                    .brg
-                    .modify(|_, w| unsafe { w.brgval().bits((brg_value - 1) as u16) });
+            #[inline]
+            fn instance_number() -> usize {
+                $fc_num
             }
-
-            fn tx_pin_config() {
-                iocon_reg().$TX_IOCON.modify(|_, w| unsafe {
-                    w.func()
-                        .bits($TX_FUNC)
-                        .digimode()
-                        .digital()
-                        .slew()
-                        .standard()
-                        .mode()
-                        .inactive()
-                        .invert()
-                        .disabled()
-                        .od()
-                        .normal()
-                });
+            #[inline]
+            fn tx_pin_func() -> PioFunc {
+                PioFunc::$tx_pin
             }
-
-            fn rx_pin_config() {
-                iocon_reg().$RX_IOCON.modify(|_, w| unsafe {
-                    w.func()
-                        .bits($RX_FUNC)
-                        .digimode()
-                        .digital()
-                        .slew()
-                        .standard()
-                        .mode()
-                        .inactive()
-                        .invert()
-                        .disabled()
-                        .od()
-                        .normal()
-                });
+            #[inline]
+            fn rx_pin_func() -> PioFunc {
+                PioFunc::$rx_pin
             }
         }
-
         impl $crate::usart::Instance for $crate::peripherals::$inst {}
     };
 }
 
-impl_instance!(USART0, usart_peripheral: USART0, usart_crate: usart0,
-    flexcomm: {
-        field: FLEXCOMM0,
-        clock_field: fc0
-    },
-
-    reset: {
-        bit: fc0_rst
-    },
-
-    clock: {
-        sel_field: fcclksel0,
-        frg_field: flexfrg0ctrl
-    },
-
-    pins: {
-        tx: pio1_6 => 1,
-        rx: pio1_5 => 1
-    }
-);
-
-impl_instance!(USART1, usart_peripheral: USART1, usart_crate: usart1,
-    flexcomm: {
-        field: FLEXCOMM1,
-        clock_field: fc1
-    },
-
-    reset: {
-        bit: fc1_rst
-    },
-
-    clock: {
-        sel_field: fcclksel1,
-        frg_field: flexfrg1ctrl
-    },
-
-    pins: {
-        tx: pio1_11 => 2,
-        rx: pio1_10 => 2
-    }
-);
-
-impl_instance!(USART2, usart_peripheral: USART2, usart_crate: usart2,
-    flexcomm: {
-        field: FLEXCOMM2,
-        clock_field: fc2
-    },
-
-    reset: {
-        bit: fc2_rst
-    },
-
-    clock: {
-        sel_field: fcclksel2,
-        frg_field: flexfrg2ctrl
-    },
-
-    pins: {
-        tx: pio0_27 => 1,
-        rx: pio1_24 => 1
-    }
-);
-
-impl_instance!(USART3, usart_peripheral: USART3, usart_crate: usart3,
-    flexcomm: {
-        field: FLEXCOMM3,
-        clock_field: fc3
-    },
-
-    reset: {
-        bit: fc3_rst
-    },
-
-    clock: {
-        sel_field: fcclksel3,
-        frg_field: flexfrg3ctrl
-    },
-
-    pins: {
-        tx: pio0_2 => 1,
-        rx: pio0_3 => 1
-    }
-);
-
-impl_instance!(USART4, usart_peripheral: USART4, usart_crate: usart4,
-    flexcomm: {
-        field: FLEXCOMM4,
-        clock_field: fc4
-    },
-
-    reset: {
-        bit: fc4_rst
-    },
-
-    clock: {
-        sel_field: fcclksel4,
-        frg_field: flexfrg4ctrl
-    },
-
-    pins: {
-        tx: pio0_16 => 1,
-        rx: pio0_5 => 2
-    }
-);
-
-impl_instance!(USART5, usart_peripheral: USART5, usart_crate: usart5,
-    flexcomm: {
-        field: FLEXCOMM5,
-        clock_field: fc5
-    },
-
-    reset: {
-        bit: fc5_rst
-    },
-
-    clock: {
-        sel_field: fcclksel5,
-        frg_field: flexfrg5ctrl
-    },
-
-    pins: {
-        tx: pio0_9 => 3,
-        rx: pio0_8 => 3
-    }
-);
-
-impl_instance!(USART6, usart_peripheral: USART6, usart_crate: usart6,
-    flexcomm: {
-        field: FLEXCOMM6,
-        clock_field: fc6
-    },
-
-    reset: {
-        bit: fc6_rst
-    },
-
-    clock: {
-        sel_field: fcclksel6,
-        frg_field: flexfrg6ctrl
-    },
-
-    pins: {
-        tx: pio1_16 => 2,
-        rx: pio1_13 => 2
-    }
-);
-
-impl_instance!(USART7, usart_peripheral: USART7, usart_crate: usart7,
-    flexcomm: {
-        field: FLEXCOMM7,
-        clock_field: fc7
-    },
-
-    reset: {
-        bit: fc7_rst
-    },
-
-    clock: {
-        sel_field: fcclksel7,
-        frg_field: flexfrg7ctrl
-    },
-
-    pins: {
-        tx: pio0_19 => 7,
-        rx: pio0_20 => 7
-    }
-);
+impl_instance!(USART0, FLEXCOMM0, ALT1, ALT1, 0);
+impl_instance!(USART1, FLEXCOMM1, ALT2, ALT2, 1);
+impl_instance!(USART2, FLEXCOMM2, ALT1, ALT1, 2);
+impl_instance!(USART3, FLEXCOMM3, ALT1, ALT1, 3);
+impl_instance!(USART4, FLEXCOMM4, ALT1, ALT2, 4);
+impl_instance!(USART5, FLEXCOMM5, ALT3, ALT3, 5);
+impl_instance!(USART6, FLEXCOMM6, ALT2, ALT2, 6);
+impl_instance!(USART7, FLEXCOMM7, ALT7, ALT7, 7);
 
 /// Trait for TX pins.
 pub trait TxPin<T: Instance>: crate::gpio::Pin {}
 /// Trait for RX pins.
 pub trait RxPin<T: Instance>: crate::gpio::Pin {}
-
-// TODO: Add RTS, CTS and CLK pin traits
 
 macro_rules! impl_pin {
     ($pin:ident, $instance:ident, Tx) => {
@@ -849,37 +647,19 @@ macro_rules! impl_pin {
     };
 }
 
-impl_pin!(PIO1_5, USART0, Rx);
 impl_pin!(PIO1_6, USART0, Tx);
-impl_pin!(PIO1_10, USART1, Rx);
+impl_pin!(PIO1_5, USART0, Rx);
 impl_pin!(PIO1_11, USART1, Tx);
+impl_pin!(PIO1_10, USART1, Rx);
 impl_pin!(PIO0_27, USART2, Tx);
 impl_pin!(PIO1_24, USART2, Rx);
 impl_pin!(PIO0_2, USART3, Tx);
 impl_pin!(PIO0_3, USART3, Rx);
 impl_pin!(PIO0_16, USART4, Tx);
 impl_pin!(PIO0_5, USART4, Rx);
-impl_pin!(PIO0_8, USART5, Rx);
 impl_pin!(PIO0_9, USART5, Tx);
+impl_pin!(PIO0_8, USART5, Rx);
 impl_pin!(PIO1_16, USART6, Tx);
 impl_pin!(PIO1_13, USART6, Rx);
-impl_pin!(PIO0_20, USART7, Rx);
 impl_pin!(PIO0_19, USART7, Tx);
-
-/// Get the SYSCON register block.
-///
-/// # Safety
-/// Read/Write operations on a single registers are NOT atomic. You must ensure that the GPIO
-/// registers are not accessed concurrently by multiple threads.
-pub(crate) fn syscon_reg() -> &'static crate::pac::syscon::RegisterBlock {
-    unsafe { &*crate::pac::SYSCON::ptr() }
-}
-
-/// Get the IOCON register block.
-///
-/// # Safety
-/// Read/Write operations on a single registers are NOT atomic. You must ensure that the GPIO
-/// registers are not accessed concurrently by multiple threads.
-pub(crate) fn iocon_reg() -> &'static crate::pac::iocon::RegisterBlock {
-    unsafe { &*crate::pac::IOCON::ptr() }
-}
+impl_pin!(PIO0_20, USART7, Rx);

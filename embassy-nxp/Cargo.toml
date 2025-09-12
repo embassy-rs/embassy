@@ -7,7 +7,7 @@ publish = false
 
 [package.metadata.embassy]
 build = [
-    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "lpc55"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "lpc55-core0"]},
     {target = "thumbv7em-none-eabihf", features = ["defmt", "mimxrt1011", "rt", "time-driver-pit"]},
     {target = "thumbv7em-none-eabihf", features = ["defmt", "mimxrt1062", "rt", "time-driver-pit"]},
 ]
@@ -18,7 +18,7 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-nxp/s
 features = ["defmt", "unstable-pac" ] # TODO: Add time-driver-any, as both lpc55 and mimxrt1xxx use different drivers.
 
 flavors = [
-    { regex_feature = "lpc55", target = "thumbv8m.main-none-eabihf" },
+    { regex_feature = "lpc55-core0", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "mimxrt.*", target = "thumbv7em-none-eabihf" },
 ]
 
@@ -36,21 +36,20 @@ embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-ut
 embedded-io = "0.6.1"
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 ## Chip dependencies
-lpc55-pac = { version = "0.5.0", optional = true }
-nxp-pac = { version = "0.1.0", optional = true, git = "https://github.com/i509VCB/nxp-pac", rev = "be4dd0936c20d5897364a381b1d95a99514c1e7e" }
+nxp-pac = { version = "0.1.0", optional = true, git = "https://github.com/i509VCB/nxp-pac", rev = "b736e3038254d593024aaa1a5a7b1f95a5728538"}
 
 imxrt-rt = { version = "0.1.7", optional = true, features = ["device"] }
 
 [build-dependencies]
 cfg_aliases = "0.2.1"
-nxp-pac = { version = "0.1.0", git = "https://github.com/i509VCB/nxp-pac", rev = "be4dd0936c20d5897364a381b1d95a99514c1e7e", features = ["metadata"], optional = true }
+nxp-pac = { version = "0.1.0", git = "https://github.com/i509VCB/nxp-pac", rev = "b736e3038254d593024aaa1a5a7b1f95a5728538", features = ["metadata"], optional = true }
 proc-macro2 = "1.0.95"
 quote = "1.0.15"
 
 [features]
 default = ["rt"]
 # Enable PACs as optional dependencies, since some chip families will use different pac crates (temporarily).
-rt = ["lpc55-pac?/rt", "nxp-pac?/rt"]
+rt = ["nxp-pac?/rt"]
 
 ## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
 defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt"]
@@ -79,6 +78,6 @@ _rt1xxx = []
 _time_driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils"]
 
 #! ### Chip selection features
-lpc55 = ["dep:lpc55-pac"]
+lpc55-core0 = ["nxp-pac/lpc55s69_cm33_core0"]
 mimxrt1011 = ["nxp-pac/mimxrt1011", "_rt1xxx", "dep:imxrt-rt"]
 mimxrt1062 = ["nxp-pac/mimxrt1062", "_rt1xxx", "dep:imxrt-rt"]
