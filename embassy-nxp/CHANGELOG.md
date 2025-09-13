@@ -7,5 +7,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## Unreleased - ReleaseDate
-
+- Moved NXP LPC55S69 from `lpc55-pac` to `nxp-pac`
 - First release with changelog.
