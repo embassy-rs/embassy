@@ -8,8 +8,6 @@
 #![no_std]
 #![no_main]
 
-use core::str::FromStr;
-
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::yield_now;
@@ -22,7 +20,7 @@ use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio_programs::spi::Spi;
 use embassy_rp::spi::{Async, Config as SpiConfig};
 use embassy_rp::{bind_interrupts, pio};
-use embassy_time::{Delay, Duration, Timer};
+use embassy_time::{Delay, Duration};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_io_async::Write;
 use static_cell::StaticCell;
