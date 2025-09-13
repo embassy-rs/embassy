@@ -202,6 +202,18 @@ impl<'a, 'd, PIO: Instance, const SM: usize> Drop for FifoInFuture<'a, 'd, PIO, 
     }
 }
 
+/// Clears IRQ when dropped
+pub struct IrqHandle<'a, 'd, PIO: Instance> {
+    pio: PhantomData<&'a mut Irq<'d, PIO, 0>>,
+    irq_no: u8,
+}
+
+impl<PIO: Instance> Drop for IrqHandle<'_, '_, PIO> {
+    fn drop(&mut self) {
+        PIO::PIO.irq().write(|m| m.0 = 1 << self.irq_no);
+    }
+}
+
 /// Future that waits for IRQ
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct IrqFuture<'a, 'd, PIO: Instance> {
@@ -209,21 +221,40 @@ pub struct IrqFuture<'a, 'd, PIO: Instance> {
     irq_no: u8,
 }
 
+impl<'a, 'd, PIO: Instance> IrqFuture<'a, 'd, PIO> {
+    fn new(irq_no: u8) -> Self {
+        PIO::PIO.irqs(0).inte().write_set(|m| {
+            m.0 = SMIRQ_MASK << irq_no;
+        });
+        Self {
+            pio: PhantomData,
+            irq_no,
+        }
+    }
+}
+
 impl<'a, 'd, PIO: Instance> Future for IrqFuture<'a, 'd, PIO> {
-    type Output = ();
+    type Output = IrqHandle<'a, 'd, PIO>;
     fn poll(self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         //debug!("Poll {},{}", PIO::PIO_NO, SM);
 
         // Check if IRQ flag is already set
         if PIO::PIO.irq().read().0 & (1 << self.irq_no) != 0 {
-            PIO::PIO.irq().write(|m| m.0 = 1 << self.irq_no);
-            return Poll::Ready(());
+            assert_eq!(
+                PIO::PIO.irqs(0).inte().read().0 & (SMIRQ_MASK << self.irq_no),
+                0,
+                "future polled after return"
+            );
+            PIO::PIO.irqs(0).inte().write_clear(|m| {
+                m.0 = SMIRQ_MASK << self.irq_no;
+            });
+            return Poll::Ready(IrqHandle {
+                pio: PhantomData,
+                irq_no: self.irq_no,
+            });
         }
 
         PIO::wakers().irq()[self.irq_no as usize].register(cx.waker());
-        PIO::PIO.irqs(0).inte().write_set(|m| {
-            m.0 = SMIRQ_MASK << self.irq_no;
-        });
         Poll::Pending
     }
 }
@@ -1226,10 +1257,7 @@ pub struct Irq<'d, PIO: Instance, const N: usize> {
 impl<'d, PIO: Instance, const N: usize> Irq<'d, PIO, N> {
     /// Wait for an IRQ to fire.
     pub fn wait<'a>(&'a mut self) -> IrqFuture<'a, 'd, PIO> {
-        IrqFuture {
-            pio: PhantomData,
-            irq_no: N as u8,
-        }
+        IrqFuture::new(N as u8)
     }
 }
 
