@@ -217,7 +217,7 @@ impl<'d, T: Instance, M: Mode> Adc<'d, T, M> {
         });
     }
 
-    fn setup_blocking_channel(&mut self, channel: &mut impl AdcChannel<T>) {
+    fn setup_blocking_channel(&mut self, channel: &Peri<'d, impl AdcChannel<T>>) {
         channel.setup();
 
         // CTL0.ENC must be 0 to write the MEMCTL register
@@ -262,7 +262,7 @@ impl<'d, T: Instance, M: Mode> Adc<'d, T, M> {
     }
 
     /// Read one ADC channel in blocking mode using the config provided at initialization.
-    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+    pub fn blocking_read(&mut self, channel: &Peri<'d, impl AdcChannel<T>>) -> u16 {
         self.setup_blocking_channel(channel);
         self.enable_conversion();
         self.start_conversion();
@@ -292,7 +292,7 @@ impl<'d, T: Instance> Adc<'d, T, Async> {
         .await;
     }
 
-    fn setup_async_channel(&self, id: usize, channel: &impl AdcChannel<T>, vrsel: Vrsel) {
+    fn setup_async_channel(&self, id: usize, channel: &Peri<'d, impl AdcChannel<T>>, vrsel: Vrsel) {
         let vrsel = vals::Vrsel::from_bits(vrsel as u8);
         // Conversion mem config
         self.info.regs.memctl(id).modify(|reg| {
@@ -316,7 +316,7 @@ impl<'d, T: Instance> Adc<'d, T, Async> {
     }
 
     /// Read one ADC channel asynchronously using the config provided at initialization.
-    pub async fn read_channel(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+    pub async fn read_channel(&mut self, channel: &Peri<'d, impl AdcChannel<T>>) -> u16 {
         channel.setup();
 
         // CTL0.ENC must be 0 to write the MEMCTL register
@@ -345,24 +345,18 @@ impl<'d, T: Instance> Adc<'d, T, Async> {
     /// use embassy_mspm0::adc::{Adc, AdcChannel, Vrsel};
     ///
     /// let mut adc = Adc::new_async(p.ADC0, adc_config, Irqs);
-    /// let pin1 = p.PA14.degrade_adc();
-    /// let pin2 = p.PA25.degrade_adc();
-    /// let sequence = [(&pin1, Vrsel::VddaVssa), (&pin2, Vrsel::VddaVssa)];
+    /// let sequence = [(&p.PA22.into(), Vrsel::VddaVssa), (&p.PA20.into(), Vrsel::VddaVssa)];
     /// let mut readings = [0u16; 2];
     ///
-    /// adc.read_sequence(
-    ///     sequence.into_iter(),
-    ///     &mut readings,
-    /// )
-    /// .await;
+    /// adc.read_sequence(sequence.into_iter(), &mut readings).await;
     /// defmt::info!("Measurements: {}", readings);
     /// ```
     pub async fn read_sequence<'a>(
         &mut self,
-        sequence: impl ExactSizeIterator<Item = (&'a AnyAdcChannel<T>, Vrsel)>,
+        sequence: impl ExactSizeIterator<Item = (&'a Peri<'d, AnyAdcChannel<T>>, Vrsel)>,
         readings: &mut [u16],
     ) where
-        T: 'a,
+        'd: 'a,
     {
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
         assert!(
@@ -398,7 +392,7 @@ impl<'d, T: Instance> Adc<'d, T, Async> {
 
 /// Peripheral instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType {
+pub trait Instance: PeripheralType + SealedInstance {
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 
@@ -460,8 +454,8 @@ macro_rules! impl_adc_instance {
 /// This is useful in scenarios where you need the ADC channels to have the same type, such as
 /// storing them in an array.
 pub struct AnyAdcChannel<T> {
-    channel: u8,
-    _phantom: PhantomData<T>,
+    pub(crate) channel: u8,
+    pub(crate) _phantom: PhantomData<T>,
 }
 
 impl_peripheral!(AnyAdcChannel<T: Instance>);
@@ -481,35 +475,35 @@ impl<T> AnyAdcChannel<T> {
 
 /// ADC channel.
 #[allow(private_bounds)]
-pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
-    /// Allows an ADC channel to be converted into a type-erased [`AnyAdcChannel`].
-    #[allow(unused_mut)]
-    fn degrade_adc(mut self) -> AnyAdcChannel<T> {
-        self.setup();
-
-        AnyAdcChannel {
-            channel: self.channel(),
-            _phantom: PhantomData,
-        }
-    }
-}
+pub trait AdcChannel<T>: PeripheralType + Into<AnyAdcChannel<T>> + SealedAdcChannel<T> + Sized {}
 
 pub(crate) trait SealedAdcChannel<T> {
-    fn setup(&mut self) {}
+    fn setup(&self) {}
 
     fn channel(&self) -> u8;
 }
 
 macro_rules! impl_adc_pin {
-    ($inst:ident, $pin:ident, $ch:expr) => {
-        impl crate::adc::AdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {}
-        impl crate::adc::SealedAdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {
-            fn setup(&mut self) {
-                <crate::peripherals::$pin as crate::gpio::SealedPin>::set_as_analog(self);
+    ($inst: ident, $pin: ident, $ch: expr) => {
+        impl crate::adc::AdcChannel<peripherals::$inst> for crate::peripherals::$pin {}
+        impl crate::adc::SealedAdcChannel<peripherals::$inst> for crate::peripherals::$pin {
+            fn setup(&self) {
+                crate::gpio::SealedPin::set_as_analog(self);
             }
 
             fn channel(&self) -> u8 {
                 $ch
+            }
+        }
+
+        impl From<crate::peripherals::$pin> for crate::adc::AnyAdcChannel<peripherals::$inst> {
+            fn from(val: crate::peripherals::$pin) -> Self {
+                crate::adc::SealedAdcChannel::<peripherals::$inst>::setup(&val);
+
+                Self {
+                    channel: crate::adc::SealedAdcChannel::<peripherals::$inst>::channel(&val),
+                    _phantom: core::marker::PhantomData,
+                }
             }
         }
     };

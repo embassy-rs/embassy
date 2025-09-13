@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_mspm0::adc::{self, Adc, AdcChannel, Vrsel};
+use embassy_mspm0::adc::{self, Adc, Vrsel};
 use embassy_mspm0::{bind_interrupts, peripherals, Config};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_halt as _};
@@ -19,14 +19,11 @@ async fn main(_spawner: Spawner) -> ! {
 
     // Configure adc with sequence 0 to 1
     let mut adc = Adc::new_async(p.ADC0, Default::default(), Irqs);
-    let pin1 = p.PA22.degrade_adc();
-    let pin2 = p.PB20.degrade_adc();
-    let sequence = [(&pin1, Vrsel::VddaVssa), (&pin2, Vrsel::VddaVssa)];
+    let sequence = [(&p.PA22.into(), Vrsel::VddaVssa), (&p.PB20.into(), Vrsel::VddaVssa)];
     let mut readings = [0u16; 2];
-    let mut pin3 = p.PA27;
 
     loop {
-        let r = adc.read_channel(&mut pin3).await;
+        let r = adc.read_channel(&p.PA27).await;
         info!("Raw adc PA27: {}", r);
         // With a voltage range of 0-3.3V and a resolution of 12 bits, the raw value can be
         // approximated to voltage (~0.0008 per step).
