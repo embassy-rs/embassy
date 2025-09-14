@@ -122,6 +122,8 @@ fn main() {
         singletons.push(p.name.to_string());
     }
 
+    singletons.push("BKPSRAM".to_string());
+
     // generate one singleton per peripheral (with many exceptions...)
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
