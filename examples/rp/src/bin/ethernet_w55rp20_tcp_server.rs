@@ -64,7 +64,7 @@ async fn main(spawner: Spawner) {
 
     // Construct an SPI driver backed by a PIO state machine
     let mut spi_cfg = SpiConfig::default();
-    spi_cfg.frequency = 10_000_000; // The PIO SPI program is much less stable than the actual SPI
+    spi_cfg.frequency = 12_500_000; // The PIO SPI program is much less stable than the actual SPI
                                     // peripheral, use higher speeds at your peril
     let spi = Spi::new(&mut common, sm0, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, spi_cfg);
 
