@@ -27,9 +27,9 @@ async fn main(_spawner: Spawner) {
 
     // These pins are routed to different hardware SPI peripherals, but we can
     // use them together regardless
-    let mosi = p.PIN_6;
-    let miso = p.PIN_7;
-    let clk = p.PIN_8;
+    let mosi = p.PIN_6; // SPI0 SCLK
+    let miso = p.PIN_7; // SPI0 MOSI
+    let clk = p.PIN_8; // SPI1 MISO
 
     let pio::Pio { mut common, sm0, .. } = pio::Pio::new(p.PIO0, Irqs);
 
