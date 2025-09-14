@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add PIO SPI
 - Add PIO I2S input
+- Add PIO onewire parasite power strong pullup
 
 ## 0.8.0 - 2025-08-26
 
