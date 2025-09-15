@@ -142,6 +142,19 @@ impl RingBuffer {
         self.wrap(start + len) == end
     }
 
+    /// Check if buffer is at least half full.
+    pub fn is_half_full(&self) -> bool {
+        let len = self.len.load(Ordering::Relaxed);
+        let start = self.start.load(Ordering::Relaxed);
+        let end = self.end.load(Ordering::Relaxed);
+        let n = if end >= start {
+            end - start
+        } else {
+            2 * len - start + end
+        };
+        n >= len / 2
+    }
+
     /// Check if buffer is empty.
     pub fn is_empty(&self) -> bool {
         let start = self.start.load(Ordering::Relaxed);
@@ -394,6 +407,7 @@ mod tests {
             rb.init(b.as_mut_ptr(), 4);
 
             assert_eq!(rb.is_empty(), true);
+            assert_eq!(rb.is_half_full(), false);
             assert_eq!(rb.is_full(), false);
 
             rb.writer().push(|buf| {
@@ -406,6 +420,7 @@ mod tests {
             });
 
             assert_eq!(rb.is_empty(), false);
+            assert_eq!(rb.is_half_full(), true);
             assert_eq!(rb.is_full(), true);
 
             rb.writer().push(|buf| {
@@ -415,6 +430,7 @@ mod tests {
             });
 
             assert_eq!(rb.is_empty(), false);
+            assert_eq!(rb.is_half_full(), true);
             assert_eq!(rb.is_full(), true);
 
             rb.reader().pop(|buf| {
@@ -424,6 +440,7 @@ mod tests {
             });
 
             assert_eq!(rb.is_empty(), false);
+            assert_eq!(rb.is_half_full(), true);
             assert_eq!(rb.is_full(), false);
 
             rb.reader().pop(|buf| {
@@ -432,6 +449,7 @@ mod tests {
             });
 
             assert_eq!(rb.is_empty(), false);
+            assert_eq!(rb.is_half_full(), true);
             assert_eq!(rb.is_full(), false);
 
             rb.reader().pop(|buf| {
@@ -447,6 +465,7 @@ mod tests {
             });
 
             assert_eq!(rb.is_empty(), true);
+            assert_eq!(rb.is_half_full(), false);
             assert_eq!(rb.is_full(), false);
 
             rb.reader().pop(|buf| {
@@ -460,14 +479,28 @@ mod tests {
                 1
             });
 
+            assert_eq!(rb.is_empty(), false);
+            assert_eq!(rb.is_half_full(), false);
+            assert_eq!(rb.is_full(), false);
+
             rb.writer().push(|buf| {
                 assert_eq!(3, buf.len());
                 buf[0] = 11;
-                buf[1] = 12;
-                2
+                1
             });
 
             assert_eq!(rb.is_empty(), false);
+            assert_eq!(rb.is_half_full(), true);
+            assert_eq!(rb.is_full(), false);
+
+            rb.writer().push(|buf| {
+                assert_eq!(2, buf.len());
+                buf[0] = 12;
+                1
+            });
+
+            assert_eq!(rb.is_empty(), false);
+            assert_eq!(rb.is_half_full(), true);
             assert_eq!(rb.is_full(), false);
 
             rb.writer().push(|buf| {
@@ -477,6 +510,7 @@ mod tests {
             });
 
             assert_eq!(rb.is_empty(), false);
+            assert_eq!(rb.is_half_full(), true);
             assert_eq!(rb.is_full(), true);
         }
     }
@@ -490,6 +524,7 @@ mod tests {
             rb.init(b.as_mut_ptr(), b.len());
 
             assert_eq!(rb.is_empty(), true);
+            assert_eq!(rb.is_half_full(), true);
             assert_eq!(rb.is_full(), true);
 
             rb.writer().push(|buf| {

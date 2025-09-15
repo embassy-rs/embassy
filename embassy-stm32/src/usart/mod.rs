@@ -4,7 +4,7 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, AtomicU8, Ordering};
+use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU8, Ordering};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
@@ -206,6 +206,18 @@ pub struct Config {
     /// If false: the error is ignored and cleared
     pub detect_previous_overrun: bool,
 
+    /// If true then read-like calls on `BufferedUartRx` and `RingBufferedUartRx`
+    /// are woken/return as soon as any data is available in the buffer.
+    ///
+    /// If false (the default) then reads started typically only wake/return after
+    /// line idle or after the buffer is at least half full (`BufferedUartRx`) or
+    /// the DMA buffer is written at the half or full positions (`RingBufferedUartRx`),
+    /// though it may also wake/return earlier in some circumstances.
+    ///
+    /// Has no effect on plain `Uart` or `UartRx` reads, which are specified to either
+    /// return a single word, a full buffer, or after line idle.
+    pub eager_reads: bool,
+
     /// Set this to true if the line is considered noise free.
     /// This will increase the receiver’s tolerance to clock deviations,
     /// but will effectively disable noise detection.
@@ -270,6 +282,7 @@ impl Default for Config {
             parity: Parity::ParityNone,
             // historical behavior
             detect_previous_overrun: false,
+            eager_reads: false,
             #[cfg(not(usart_v1))]
             assume_noise_free: false,
             #[cfg(any(usart_v3, usart_v4))]
@@ -966,6 +979,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
         let info = self.info;
         let state = self.state;
         state.tx_rx_refcount.store(1, Ordering::Relaxed);
+        state.eager_reads.store(config.eager_reads, Ordering::Relaxed);
 
         info.rcc.enable_and_reset();
 
@@ -982,6 +996,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
 
     /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+        self.state.eager_reads.store(config.eager_reads, Ordering::Relaxed);
         reconfigure(self.info, self.kernel_clock, config)
     }
 
@@ -1462,6 +1477,7 @@ impl<'d, M: Mode> Uart<'d, M> {
         let info = self.rx.info;
         let state = self.rx.state;
         state.tx_rx_refcount.store(2, Ordering::Relaxed);
+        state.eager_reads.store(config.eager_reads, Ordering::Relaxed);
 
         info.rcc.enable_and_reset();
 
@@ -2022,6 +2038,7 @@ struct State {
     rx_waker: AtomicWaker,
     tx_waker: AtomicWaker,
     tx_rx_refcount: AtomicU8,
+    eager_reads: AtomicBool,
 }
 
 impl State {
@@ -2030,6 +2047,7 @@ impl State {
             rx_waker: AtomicWaker::new(),
             tx_waker: AtomicWaker::new(),
             tx_rx_refcount: AtomicU8::new(0),
+            eager_reads: AtomicBool::new(false),
         }
     }
 }
