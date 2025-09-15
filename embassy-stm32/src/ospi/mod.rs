@@ -31,7 +31,9 @@ pub struct Config {
     /// Indicates the type of external device connected
     pub memory_type: MemoryType, // Need to add an additional enum to provide this public interface
     /// Defines the size of the external device connected to the OSPI corresponding
-    /// to the number of address bits required to access the device
+    /// to the number of address bits required to access the device.
+    /// When using indirect mode, [`TransferConfig::address`] + the length of the data being read
+    /// or written must fit within the configured `device_size`, otherwise an error is returned.
     pub device_size: MemorySize,
     /// Sets the minimum number of clock cycles that the chip select signal must be held high
     /// between commands
@@ -95,10 +97,11 @@ pub struct TransferConfig {
     pub isize: AddressSize,
     /// Instruction Double Transfer rate enable
     pub idtr: bool,
-
     /// Address width (ADMODE)
     pub adwidth: OspiWidth,
-    /// Device memory address
+    /// Device memory address.
+    /// In indirect mode, this value + the length of the data being read or written must be within
+    /// configured [`Config::device_size`], otherwise the transfer returns an error.
     pub address: Option<u32>,
     /// Number of Address Bytes
     pub adsize: AddressSize,
@@ -526,6 +529,18 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
                 // The only single phase transaction supported is instruction only
                 return Err(OspiError::InvalidCommand);
             }
+        }
+
+        // The following errors set the TEF flag in OCTOSPI_SR register:
+        // - in indirect or automatic status-polling mode, when a wrong address has been programmed
+        //   in OCTOSPI_AR (according to the device size defined by DEVSIZE[4:0])
+        // - in indirect mode, if the address plus the data length exceed the device size: TEF is
+        // set as soon as the access is triggered.
+        if T::REGS.sr().read().tef() {
+            // Clear the TEF register to make it ready for the next transfer.
+            T::REGS.fcr().write(|w| w.set_ctef(true));
+
+            return Err(OspiError::InvalidCommand);
         }
 
         Ok(())
