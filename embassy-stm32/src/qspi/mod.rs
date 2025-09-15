@@ -62,6 +62,8 @@ pub struct Config {
     pub cs_high_time: ChipSelectHighTime,
     /// Shift sampling point of input data (none, or half-cycle)
     pub sample_shifting: SampleShifting,
+    /// GPIO Speed
+    pub gpio_speed: Speed,
 }
 
 impl Default for Config {
@@ -73,6 +75,7 @@ impl Default for Config {
             fifo_threshold: FIFOThresholdLevel::_17Bytes,
             cs_high_time: ChipSelectHighTime::_5Cycle,
             sample_shifting: SampleShifting::None,
+            gpio_speed: Speed::VeryHigh,
         }
     }
 }
@@ -286,14 +289,14 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d0, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(
                 nss,
-                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+                AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
             ),
             None,
             config,
@@ -314,14 +317,14 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d0, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(
                 nss,
-                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+                AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
             ),
             None,
             config,
@@ -345,14 +348,14 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d0, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(
                 nss,
-                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+                AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
             ),
             new_dma!(dma),
             config,
@@ -374,14 +377,14 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
-            new_pin!(sck, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d0, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(sck, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(
                 nss,
-                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+                AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
             ),
             new_dma!(dma),
             config,
