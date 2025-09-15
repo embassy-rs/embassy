@@ -96,6 +96,8 @@ cfg_if! {
 }
 
 /// Number of samples used for averaging.
+#[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Averaging {
     Disabled,
     Samples2,
