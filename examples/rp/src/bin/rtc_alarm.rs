@@ -55,7 +55,11 @@ async fn main(_spawner: Spawner) {
             }
             // Alarm triggered
             Either::Second(_) => {
-                info!("ALARM TRIGGERED!");
+                let dt = rtc.now().unwrap();
+                info!(
+                    "ALARM TRIGGERED! Now: {}-{:02}-{:02} {}:{:02}:{:02}",
+                    dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second,
+                );
             }
         }
     }
