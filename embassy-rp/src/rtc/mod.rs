@@ -2,7 +2,7 @@
 mod filter;
 
 use core::future::poll_fn;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::{Peri, PeripheralType};
@@ -21,6 +21,8 @@ use crate::interrupt::{self, InterruptExt};
 
 // Static waker for the interrupt handler
 static WAKER: AtomicWaker = AtomicWaker::new();
+// Static flag to indicate if an alarm has occurred
+static ALARM_OCCURRED: AtomicBool = AtomicBool::new(false);
 
 /// A reference to the real time clock of the system
 pub struct Rtc<'d, T: Instance> {
@@ -257,10 +259,15 @@ impl<'d, T: Instance> Rtc<'d, T> {
         poll_fn(|cx| {
             WAKER.register(cx.waker());
 
-            // Check hardware interrupt status directly
-            if self.inner.regs().ints().read().rtc() {
-                // Clear the interrupt status and disable the alarm
-                self.inner.regs().ints().write(|w| w.set_rtc(true));
+            // Atomically check and clear the alarm occurred flag to prevent race conditions
+            if critical_section::with(|_| {
+                let occurred = ALARM_OCCURRED.load(Ordering::SeqCst);
+                if occurred {
+                    ALARM_OCCURRED.store(false, Ordering::SeqCst);
+                }
+                occurred
+            }) {
+                // Clear the interrupt and disable the alarm
                 self.clear_interrupt();
 
                 compiler_fence(Ordering::SeqCst);
@@ -284,7 +291,8 @@ impl crate::interrupt::typelevel::Handler<crate::interrupt::typelevel::RTC_IRQ> 
         let rtc = crate::pac::RTC;
         rtc.irq_setup_0().modify(|w| w.set_match_ena(false));
 
-        // Wake the waker - interrupt status will be checked directly by polling future
+        // Set the alarm occurred flag and wake the waker
+        ALARM_OCCURRED.store(true, Ordering::SeqCst);
         WAKER.wake();
     }
 }
