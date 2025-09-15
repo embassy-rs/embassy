@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix: stm32/usart: fix bug with blocking flush in buffered uart ([#4648](https://github.com/embassy-rs/embassy/pull/4648))
 - fix: stm32/(ospi/hspi/xspi): Fix the alternate bytes register config sticking around for subsequent writes
 - feat: Configurable gpio speed for QSPI
+- feat: derive Clone, Copy and defmt::Format for all *SPI-related configs
 
 ## 0.4.0 - 2025-08-26
 
