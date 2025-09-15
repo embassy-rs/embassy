@@ -23,6 +23,7 @@ use crate::{peripherals, Peri};
 
 /// OPSI driver config.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
     /// Fifo threshold used by the peripheral to generate the interrupt indicating data
     /// or space is available in the FIFO
@@ -83,6 +84,8 @@ impl Default for Config {
 }
 
 /// OSPI transfer configuration.
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TransferConfig {
     /// Instruction width (IMODE)
     pub iwidth: OspiWidth,

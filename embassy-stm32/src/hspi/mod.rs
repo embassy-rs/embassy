@@ -86,6 +86,8 @@ impl Default for Config {
 }
 
 /// HSPI transfer configuration.
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TransferConfig {
     /// Instruction width (IMODE)
     pub iwidth: HspiWidth,

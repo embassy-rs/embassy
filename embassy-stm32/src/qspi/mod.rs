@@ -18,6 +18,7 @@ use crate::{peripherals, Peri};
 
 /// QSPI transfer configuration.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TransferConfig {
     /// Instruction width (IMODE)
     pub iwidth: QspiWidth,
@@ -48,6 +49,7 @@ impl Default for TransferConfig {
 
 /// QSPI driver configuration.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub struct Config {
     /// Flash memory size representend as 2^[0-32], as reasonable minimum 1KiB(9) was chosen.
