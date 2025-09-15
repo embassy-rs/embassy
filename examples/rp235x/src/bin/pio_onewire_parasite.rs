@@ -1,5 +1,7 @@
-//! This example shows how you can use PIO to read one or more `DS18B20` one-wire temperature sensors.
-//! This uses externally powered sensors. For parasite power, see the pio_onewire_parasite.rs example.
+//! This example shows how you can use PIO to read one or more `DS18B20`
+//! one-wire temperature sensors using parasite power.
+//! It applies a strong pullup during conversion, see "Powering the DS18B20" in the datasheet.
+//! For externally powered sensors, use the pio_onewire.rs example.
 
 #![no_std]
 #![no_main]
@@ -9,7 +11,7 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::pio_programs::onewire::{PioOneWire, PioOneWireProgram, PioOneWireSearch};
-use embassy_time::Timer;
+use embassy_time::Duration;
 use heapless::Vec;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -33,7 +35,7 @@ async fn main(_spawner: Spawner) {
         if !search.is_finished() {
             if let Some(address) = search.next(&mut onewire).await {
                 if crc8(&address.to_le_bytes()) == 0 {
-                    info!("Found addres: {:x}", address);
+                    info!("Found address: {:x}", address);
                     let _ = devices.push(address);
                 } else {
                     warn!("Found invalid address: {:x}", address);
@@ -45,14 +47,14 @@ async fn main(_spawner: Spawner) {
     info!("Search done, found {} devices", devices.len());
 
     loop {
-        onewire.reset().await;
-        // Skip rom and trigger conversion, we can trigger all devices on the bus immediately
-        onewire.write_bytes(&[0xCC, 0x44]).await;
-
-        Timer::after_secs(1).await; // Allow 1s for the measurement to finish
-
         // Read all devices one by one
         for device in &devices {
+            onewire.reset().await;
+            onewire.write_bytes(&[0x55]).await; // Match rom
+            onewire.write_bytes(&device.to_le_bytes()).await;
+            // 750 ms delay required for default 12-bit resolution.
+            onewire.write_bytes_pullup(&[0x44], Duration::from_millis(750)).await;
+
             onewire.reset().await;
             onewire.write_bytes(&[0x55]).await; // Match rom
             onewire.write_bytes(&device.to_le_bytes()).await;
@@ -64,10 +66,9 @@ async fn main(_spawner: Spawner) {
                 let temp = ((data[1] as u32) << 8 | data[0] as u32) as f32 / 16.;
                 info!("Read device {:x}: {} deg C", device, temp);
             } else {
-                warn!("Reading device {:x} failed", device);
+                warn!("Reading device {:x} failed. {:02x}", device, data);
             }
         }
-        Timer::after_secs(1).await;
     }
 }
 
