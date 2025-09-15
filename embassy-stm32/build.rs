@@ -112,6 +112,8 @@ fn main() {
         }
     };
 
+    let has_bkpsram = memory.iter().any(|m| m.name == "BKPSRAM");
+
     // ========
     // Generate singletons
 
@@ -122,7 +124,9 @@ fn main() {
         singletons.push(p.name.to_string());
     }
 
-    singletons.push("BKPSRAM".to_string());
+    if has_bkpsram {
+        singletons.push("BKPSRAM".to_string());
+    }
 
     // generate one singleton per peripheral (with many exceptions...)
     for p in METADATA.peripherals {
@@ -1983,6 +1987,18 @@ fn main() {
             unsafe { crate::pac::gpio::Gpio::from_ptr((#gpio_base + #gpio_stride*n) as _) }
         }
     ));
+
+    // ========
+    // Generate backup sram constants
+    if let Some(m) = memory.iter().find(|m| m.name == "BKPSRAM") {
+        let bkpsram_base = m.address as usize;
+        let bkpsram_size = m.size as usize;
+
+        g.extend(quote!(
+            pub const BKPSRAM_BASE: usize = #bkpsram_base;
+            pub const BKPSRAM_SIZE: usize = #bkpsram_size;
+        ));
+    }
 
     // ========
     // Generate flash constants
