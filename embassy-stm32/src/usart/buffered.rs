@@ -68,8 +68,14 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
             // FIXME: Should we disable any further RX interrupts when the buffer becomes full.
         }
 
-        if !state.rx_buf.is_empty() {
-            state.rx_waker.wake();
+        if state.eager_reads.load(Ordering::Relaxed) {
+            if !state.rx_buf.is_empty() {
+                state.rx_waker.wake();
+            }
+        } else {
+            if state.rx_buf.is_half_full() {
+                state.rx_waker.wake();
+            }
         }
     }
 
@@ -132,6 +138,7 @@ pub(super) struct State {
     tx_done: AtomicBool,
     tx_rx_refcount: AtomicU8,
     half_duplex_readback: AtomicBool,
+    eager_reads: AtomicBool,
 }
 
 impl State {
@@ -144,6 +151,7 @@ impl State {
             tx_done: AtomicBool::new(true),
             tx_rx_refcount: AtomicU8::new(0),
             half_duplex_readback: AtomicBool::new(false),
+            eager_reads: AtomicBool::new(false),
         }
     }
 }
@@ -419,6 +427,7 @@ impl<'d> BufferedUart<'d> {
         let state = T::buffered_state();
         let kernel_clock = T::frequency();
 
+        state.eager_reads.store(config.eager_reads, Ordering::Relaxed);
         state.half_duplex_readback.store(
             config.duplex == Duplex::Half(HalfDuplexReadback::Readback),
             Ordering::Relaxed,
@@ -456,6 +465,7 @@ impl<'d> BufferedUart<'d> {
         let info = self.rx.info;
         let state = self.rx.state;
         state.tx_rx_refcount.store(2, Ordering::Relaxed);
+        state.eager_reads.store(config.eager_reads, Ordering::Relaxed);
 
         info.rcc.enable_and_reset();
 
@@ -526,6 +536,8 @@ impl<'d> BufferedUart<'d> {
     /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         reconfigure(self.rx.info, self.rx.kernel_clock, config)?;
+
+        self.rx.state.eager_reads.store(config.eager_reads, Ordering::Relaxed);
 
         self.rx.info.regs.cr1().modify(|w| {
             w.set_rxneie(true);
@@ -632,6 +644,8 @@ impl<'d> BufferedUartRx<'d> {
     /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
         reconfigure(self.info, self.kernel_clock, config)?;
+
+        self.state.eager_reads.store(config.eager_reads, Ordering::Relaxed);
 
         self.info.regs.cr1().modify(|w| {
             w.set_rxneie(true);

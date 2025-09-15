@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: Add USB CRS sync support for STM32C071
 - fix: RTC register definition for STM32L4P5 and L4Q5 as they use v3 register map.
 - fix: Cut down the capabilities of the STM32L412 and L422 RTC as those are missing binary timer mode and underflow interrupt.
+- feat: stm32/usart: add `eager_reads` option to control if buffered readers return as soon as possible or after more data is available ([#4668](https://github.com/embassy-rs/embassy/pull/4668))
 
 ## 0.4.0 - 2025-08-26
 
