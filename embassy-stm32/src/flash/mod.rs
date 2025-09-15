@@ -5,13 +5,20 @@ use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 mod asynch;
 #[cfg(flash)]
 mod common;
+#[cfg(eeprom)]
+mod eeprom;
 
 #[cfg(flash_f4)]
 pub use asynch::InterruptHandler;
 #[cfg(flash)]
 pub use common::*;
+#[cfg(eeprom)]
+#[allow(unused_imports)]
+pub use eeprom::*;
 
 pub use crate::_generated::flash_regions::*;
+#[cfg(eeprom)]
+pub use crate::_generated::{EEPROM_BASE, EEPROM_SIZE};
 pub use crate::_generated::{FLASH_BASE, FLASH_SIZE, MAX_ERASE_SIZE, WRITE_SIZE};
 
 /// Get all flash regions.
@@ -83,7 +90,8 @@ pub enum FlashBank {
     /// OTP region,
     Otp,
 }
-
+#[cfg(all(eeprom, not(any(flash_l0, flash_l1))))]
+compile_error!("The 'eeprom' cfg is enabled for a non-L0/L1 chip family. This is an unsupported configuration.");
 #[cfg_attr(any(flash_l0, flash_l1, flash_l4, flash_l5, flash_wl, flash_wb), path = "l.rs")]
 #[cfg_attr(flash_f0, path = "f0.rs")]
 #[cfg_attr(any(flash_f1, flash_f3), path = "f1f3.rs")]
@@ -93,7 +101,7 @@ pub enum FlashBank {
 #[cfg_attr(any(flash_g0x0, flash_g0x1, flash_g4c2, flash_g4c3, flash_g4c4), path = "g.rs")]
 #[cfg_attr(flash_h7, path = "h7.rs")]
 #[cfg_attr(flash_h7ab, path = "h7.rs")]
-#[cfg_attr(flash_u5, path = "u5.rs")]
+#[cfg_attr(any(flash_u5, flash_wba), path = "u5.rs")]
 #[cfg_attr(flash_h5, path = "h5.rs")]
 #[cfg_attr(flash_h50, path = "h50.rs")]
 #[cfg_attr(flash_u0, path = "u0.rs")]
@@ -101,7 +109,7 @@ pub enum FlashBank {
     not(any(
         flash_l0, flash_l1, flash_l4, flash_l5, flash_wl, flash_wb, flash_f0, flash_f1, flash_f2, flash_f3, flash_f4,
         flash_f7, flash_g0x0, flash_g0x1, flash_g4c2, flash_g4c3, flash_g4c4, flash_h7, flash_h7ab, flash_u5,
-        flash_h50, flash_u0, flash_h5,
+        flash_wba, flash_h50, flash_u0, flash_h5,
     )),
     path = "other.rs"
 )]

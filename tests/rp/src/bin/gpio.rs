@@ -67,6 +67,40 @@ async fn main(_spawner: Spawner) {
         }
     }
 
+    // Test input inversion
+    {
+        let mut b = Input::new(b.reborrow(), Pull::None);
+        b.set_inversion(true);
+        // no pull, the status is undefined
+
+        let mut a = Output::new(a.reborrow(), Level::Low);
+        delay();
+        assert!(b.is_high());
+        a.set_high();
+        delay();
+        assert!(b.is_low());
+
+        b.set_inversion(false);
+        a.set_inversion(true);
+
+        a.set_low();
+        delay();
+        assert!(b.is_high());
+
+        a.set_high();
+        delay();
+        assert!(b.is_low());
+
+        b.set_inversion(true);
+        a.set_high();
+        delay();
+        assert!(b.is_high());
+
+        a.set_high();
+        delay();
+        assert!(b.is_high());
+    }
+
     // Test input no pull
     {
         let b = Input::new(b.reborrow(), Pull::None);

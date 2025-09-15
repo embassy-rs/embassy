@@ -1,5 +1,7 @@
 use cfg_if::cfg_if;
 use pac::adc::vals::Dmacfg;
+#[cfg(adc_v3)]
+use pac::adc::vals::{OversamplingRatio, OversamplingShift, Rovsm, Trovs};
 
 use super::{
     blocking_delay_us, Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel,
@@ -93,8 +95,64 @@ cfg_if! {
     }
 }
 
+/// Number of samples used for averaging.
+#[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Averaging {
+    Disabled,
+    Samples2,
+    Samples4,
+    Samples8,
+    Samples16,
+    Samples32,
+    Samples64,
+    Samples128,
+    Samples256,
+}
+
+cfg_if! { if #[cfg(adc_g0)] {
+
+/// Synchronous PCLK prescaler
+/// * ADC_CFGR2:CKMODE in STM32WL5x
+#[repr(u8)]
+pub enum CkModePclk {
+    DIV1 = 3,
+    DIV2 = 1,
+    DIV4 = 2,
+}
+
+/// Asynchronous ADCCLK prescaler
+/// * ADC_CCR:PRESC in STM32WL5x
+#[repr(u8)]
+pub enum Presc {
+    DIV1,
+    DIV2,
+    DIV4,
+    DIV6,
+    DIV8,
+    DIV10,
+    DIV12,
+    DIV16,
+    DIV32,
+    DIV64,
+    DIV128,
+    DIV256,
+}
+
+/// The analog clock is either the synchronous prescaled PCLK or
+/// the asynchronous prescaled ADCCLK configured by the RCC mux.
+/// The data sheet states the maximum analog clock frequency -
+/// for STM32WL55CC it is 36 MHz.
+pub enum Clock {
+    Sync { div: CkModePclk },
+    Async { div: Presc },
+}
+
+}}
+
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(adc: Peri<'d, T>) -> Self {
+    /// Enable the voltage regulator
+    fn init_regulator() {
         rcc::enable_and_reset::<T>();
         T::regs().cr().modify(|reg| {
             #[cfg(not(any(adc_g0, adc_u0)))]
@@ -103,13 +161,17 @@ impl<'d, T: Instance> Adc<'d, T> {
         });
 
         // If this is false then each ADC_CHSELR bit enables an input channel.
+        // This is the reset value, so has no effect.
         #[cfg(any(adc_g0, adc_u0))]
         T::regs().cfgr1().modify(|reg| {
             reg.set_chselrmod(false);
         });
 
         blocking_delay_us(20);
+    }
 
+    /// Calibrate to remove conversion offset
+    fn init_calibrate() {
         T::regs().cr().modify(|reg| {
             reg.set_adcal(true);
         });
@@ -119,6 +181,45 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
 
         blocking_delay_us(1);
+    }
+
+    /// Initialize the ADC leaving any analog clock at reset value.
+    /// For G0 and WL, this is the async clock without prescaler.
+    pub fn new(adc: Peri<'d, T>) -> Self {
+        Self::init_regulator();
+        Self::init_calibrate();
+        Self {
+            adc,
+            sample_time: SampleTime::from_bits(0),
+        }
+    }
+
+    #[cfg(adc_g0)]
+    /// Initialize ADC with explicit clock for the analog ADC
+    pub fn new_with_clock(adc: Peri<'d, T>, clock: Clock) -> Self {
+        Self::init_regulator();
+
+        #[cfg(any(stm32wl5x))]
+        {
+            // Reset value 0 is actually _No clock selected_ in the STM32WL5x reference manual
+            let async_clock_available = pac::RCC.ccipr().read().adcsel() != pac::rcc::vals::Adcsel::_RESERVED_0;
+            match clock {
+                Clock::Async { div: _ } => {
+                    assert!(async_clock_available);
+                }
+                Clock::Sync { div: _ } => {
+                    if async_clock_available {
+                        warn!("Not using configured ADC clock");
+                    }
+                }
+            }
+        }
+        match clock {
+            Clock::Async { div } => T::regs().ccr().modify(|reg| reg.set_presc(div as u8)),
+            Clock::Sync { div } => T::regs().cfgr2().modify(|reg| reg.set_ckmode(div as u8)),
+        }
+
+        Self::init_calibrate();
 
         Self {
             adc,
@@ -223,6 +324,30 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
     }
 
+    pub fn set_averaging(&mut self, averaging: Averaging) {
+        let (enable, samples, right_shift) = match averaging {
+            Averaging::Disabled => (false, 0, 0),
+            Averaging::Samples2 => (true, 0, 1),
+            Averaging::Samples4 => (true, 1, 2),
+            Averaging::Samples8 => (true, 2, 3),
+            Averaging::Samples16 => (true, 3, 4),
+            Averaging::Samples32 => (true, 4, 5),
+            Averaging::Samples64 => (true, 5, 6),
+            Averaging::Samples128 => (true, 6, 7),
+            Averaging::Samples256 => (true, 7, 8),
+        };
+        T::regs().cfgr2().modify(|reg| {
+            #[cfg(not(any(adc_g0, adc_u0)))]
+            reg.set_rovse(enable);
+            #[cfg(any(adc_g0, adc_u0))]
+            reg.set_ovse(enable);
+            #[cfg(any(adc_h5, adc_h7rs))]
+            reg.set_ovsr(samples.into());
+            #[cfg(not(any(adc_h5, adc_h7rs)))]
+            reg.set_ovsr(samples.into());
+            reg.set_ovss(right_shift.into());
+        })
+    }
     /*
     /// Convert a raw sample from the `Temperature` to deg C
     pub fn to_degrees_centigrade(sample: u16) -> f32 {
@@ -258,7 +383,8 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     /// Read one or multiple ADC channels using DMA.
     ///
-    /// `sequence` iterator and `readings` must have the same length.
+    /// `readings` must have a length that is a multiple of the length of the
+    /// `sequence` iterator.
     ///
     /// Note: The order of values in `readings` is defined by the pin ADC
     /// channel number and not the pin order in `sequence`.
@@ -272,8 +398,8 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// let mut adc_pin1 = p.PA1.degrade_adc();
     /// let mut measurements = [0u16; 2];
     ///
-    /// adc.read_async(
-    ///     p.DMA1_CH2,
+    /// adc.read(
+    ///     p.DMA1_CH2.reborrow(),
     ///     [
     ///         (&mut *adc_pin0, SampleTime::CYCLES160_5),
     ///         (&mut *adc_pin1, SampleTime::CYCLES160_5),
@@ -292,8 +418,8 @@ impl<'d, T: Instance> Adc<'d, T> {
     ) {
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
         assert!(
-            sequence.len() == readings.len(),
-            "Sequence length must be equal to readings length"
+            readings.len() % sequence.len() == 0,
+            "Readings length must be a multiple of sequence length"
         );
         assert!(
             sequence.len() <= 16,
@@ -468,6 +594,23 @@ impl<'d, T: Instance> Adc<'d, T> {
     #[cfg(any(adc_g0, adc_u0))]
     pub fn oversampling_enable(&mut self, enable: bool) {
         T::regs().cfgr2().modify(|reg| reg.set_ovse(enable));
+    }
+
+    #[cfg(adc_v3)]
+    pub fn enable_regular_oversampling_mode(&mut self, mode: Rovsm, trig_mode: Trovs, enable: bool) {
+        T::regs().cfgr2().modify(|reg| reg.set_trovs(trig_mode));
+        T::regs().cfgr2().modify(|reg| reg.set_rovsm(mode));
+        T::regs().cfgr2().modify(|reg| reg.set_rovse(enable));
+    }
+
+    #[cfg(adc_v3)]
+    pub fn set_oversampling_ratio(&mut self, ratio: OversamplingRatio) {
+        T::regs().cfgr2().modify(|reg| reg.set_ovsr(ratio));
+    }
+
+    #[cfg(adc_v3)]
+    pub fn set_oversampling_shift(&mut self, shift: OversamplingShift) {
+        T::regs().cfgr2().modify(|reg| reg.set_ovss(shift));
     }
 
     fn set_channel_sample_time(_ch: u8, sample_time: SampleTime) {

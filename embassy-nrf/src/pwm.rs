@@ -479,9 +479,8 @@ impl<'d, 's, T: Instance> Sequencer<'d, 's, T> {
         let seqstart_index = if start_seq == StartSequence::One { 1 } else { 0 };
 
         match times {
-            // just the one time, no loop count
-            SequenceMode::Loop(_) => {
-                r.loop_().write(|w| w.set_cnt(vals::LoopCnt::DISABLED));
+            SequenceMode::Loop(n) => {
+                r.loop_().write(|w| w.set_cnt(vals::LoopCnt::from_bits(n)));
             }
             // to play infinitely, repeat the sequence one time, then have loops done self trigger seq0 again
             SequenceMode::Infinite => {

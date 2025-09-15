@@ -293,3 +293,12 @@ impl From<Duration> for core::time::Duration {
         core::time::Duration::from_micros(value.as_micros())
     }
 }
+
+impl core::iter::Sum for Duration {
+    fn sum<I>(iter: I) -> Self
+    where
+        I: Iterator<Item = Duration>,
+    {
+        Duration::from_ticks(iter.map(|d| d.as_ticks()).sum())
+    }
+}

@@ -495,52 +495,58 @@ impl<'d> UartRx<'d, Async> {
         unreachable!("unrecognized rx error");
     }
 
-    /// Read from the UART, waiting for a line break.
+    /// Read from the UART, waiting for a break.
     ///
     /// We read until one of the following occurs:
     ///
-    /// * We read `buffer.len()` bytes without a line break
+    /// * We read `buffer.len()` bytes without a break
     ///     * returns `Err(ReadToBreakError::MissingBreak(buffer.len()))`
-    /// * We read `n` bytes then a line break occurs
+    /// * We read `n` bytes then a break occurs
     ///     * returns `Ok(n)`
-    /// * We encounter some error OTHER than a line break
+    /// * We encounter some error OTHER than a break
     ///     * returns `Err(ReadToBreakError::Other(error))`
     ///
     /// **NOTE**: you MUST provide a buffer one byte larger than your largest expected
     /// message to reliably detect the framing on one single call to `read_to_break()`.
     ///
-    /// * If you expect a message of 20 bytes + line break, and provide a 20-byte buffer:
+    /// * If you expect a message of 20 bytes + break, and provide a 20-byte buffer:
     ///     * The first call to `read_to_break()` will return `Err(ReadToBreakError::MissingBreak(20))`
-    ///     * The next call to `read_to_break()` will immediately return `Ok(0)`, from the "stale" line break
-    /// * If you expect a message of 20 bytes + line break, and provide a 21-byte buffer:
+    ///     * The next call to `read_to_break()` will immediately return `Ok(0)`, from the "stale" break
+    /// * If you expect a message of 20 bytes + break, and provide a 21-byte buffer:
     ///     * The first call to `read_to_break()` will return `Ok(20)`.
     ///     * The next call to `read_to_break()` will work as expected
+    ///
+    /// **NOTE**: In the UART context, a break refers to a break condition (the line being held low for
+    /// for longer than a single character), not an ASCII line break.
     pub async fn read_to_break(&mut self, buffer: &mut [u8]) -> Result<usize, ReadToBreakError> {
         self.read_to_break_with_count(buffer, 0).await
     }
 
-    /// Read from the UART, waiting for a line break as soon as at least `min_count` bytes have been read.
+    /// Read from the UART, waiting for a break as soon as at least `min_count` bytes have been read.
     ///
     /// We read until one of the following occurs:
     ///
-    /// * We read `buffer.len()` bytes without a line break
+    /// * We read `buffer.len()` bytes without a break
     ///     * returns `Err(ReadToBreakError::MissingBreak(buffer.len()))`
-    /// * We read `n > min_count` bytes then a line break occurs
+    /// * We read `n > min_count` bytes then a break occurs
     ///     * returns `Ok(n)`
-    /// * We encounter some error OTHER than a line break
+    /// * We encounter some error OTHER than a break
     ///     * returns `Err(ReadToBreakError::Other(error))`
     ///
-    /// If a line break occurs before `min_count` bytes have been read, the break will be ignored and the read will continue
+    /// If a break occurs before `min_count` bytes have been read, the break will be ignored and the read will continue
     ///
     /// **NOTE**: you MUST provide a buffer one byte larger than your largest expected
     /// message to reliably detect the framing on one single call to `read_to_break()`.
     ///
-    /// * If you expect a message of 20 bytes + line break, and provide a 20-byte buffer:
+    /// * If you expect a message of 20 bytes + break, and provide a 20-byte buffer:
     ///     * The first call to `read_to_break()` will return `Err(ReadToBreakError::MissingBreak(20))`
     ///     * The next call to `read_to_break()` will immediately return `Ok(0)`, from the "stale" line break
-    /// * If you expect a message of 20 bytes + line break, and provide a 21-byte buffer:
+    /// * If you expect a message of 20 bytes + break, and provide a 21-byte buffer:
     ///     * The first call to `read_to_break()` will return `Ok(20)`.
     ///     * The next call to `read_to_break()` will work as expected
+    ///
+    /// **NOTE**: In the UART context, a break refers to a break condition (the line being held low for
+    /// for longer than a single character), not an ASCII line break.
     pub async fn read_to_break_with_count(
         &mut self,
         buffer: &mut [u8],

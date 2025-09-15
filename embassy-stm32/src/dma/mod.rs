@@ -9,6 +9,8 @@ pub use dma_bdma::*;
 #[cfg(gpdma)]
 pub(crate) mod gpdma;
 #[cfg(gpdma)]
+pub use gpdma::ringbuffered::*;
+#[cfg(gpdma)]
 pub use gpdma::*;
 
 #[cfg(dmamux)]
@@ -26,10 +28,13 @@ use embassy_hal_internal::{impl_peripheral, PeripheralType};
 
 use crate::interrupt;
 
+/// The direction of a DMA transfer.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-enum Dir {
+pub enum Dir {
+    /// Transfer from memory to a peripheral.
     MemoryToPeripheral,
+    /// Transfer from a peripheral to memory.
     PeripheralToMemory,
 }
 

@@ -1,6 +1,7 @@
 //! Synchronization primitive for initializing a value once, allowing others to await a reference to the value.
 
 use core::cell::Cell;
+use core::fmt::{Debug, Formatter};
 use core::future::{poll_fn, Future};
 use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -42,7 +43,16 @@ pub struct OnceLock<T> {
     data: Cell<MaybeUninit<T>>,
 }
 
-unsafe impl<T> Sync for OnceLock<T> {}
+impl<T> Debug for OnceLock<T> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("OnceLock")
+            .field("init", &self.init)
+            .field("data", &"Cell<MaybeUninit<{unprintable}>>")
+            .finish()
+    }
+}
+
+unsafe impl<T> Sync for OnceLock<T> where T: Sync {}
 
 impl<T> OnceLock<T> {
     /// Create a new uninitialized `OnceLock`.

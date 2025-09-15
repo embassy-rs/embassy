@@ -1,6 +1,6 @@
 [package]
 name = "embassy-futures"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 description = "no-std, no-alloc utilities for working with futures"
 repository = "https://github.com/embassy-rs/embassy"
@@ -24,5 +24,5 @@ target = "thumbv7em-none-eabi"
 features = ["defmt"]
 
 [dependencies]
-defmt = { version = "0.3", optional = true }
+defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }

@@ -196,6 +196,17 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
         Ok(())
     }
 
+    /// Read a slice of data from the DFU storage peripheral, starting the read
+    /// operation at the given address offset, and reading `buf.len()` bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the arguments are not aligned or out of bounds.
+    pub fn read_dfu(&mut self, offset: u32, buf: &mut [u8]) -> Result<(), FirmwareUpdaterError> {
+        self.dfu.read(offset, buf)?;
+        Ok(())
+    }
+
     /// Mark to trigger firmware swap on next boot.
     #[cfg(not(feature = "_verify"))]
     pub fn mark_updated(&mut self) -> Result<(), FirmwareUpdaterError> {

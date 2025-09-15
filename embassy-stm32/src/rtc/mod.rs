@@ -25,7 +25,7 @@ use crate::time::Hertz;
     ),
     path = "v2.rs"
 )]
-#[cfg_attr(any(rtc_v3, rtc_v3u5, rtc_v3l5), path = "v3.rs")]
+#[cfg_attr(any(rtc_v3, rtc_v3u5, rtc_v3l5, rtc_v3h7rs, rtc_v3c0), path = "v3.rs")]
 mod _version;
 #[allow(unused_imports)]
 pub use _version::*;
@@ -296,7 +296,7 @@ trait SealedInstance {
     const BACKUP_REGISTER_COUNT: usize;
 
     #[cfg(feature = "low-power")]
-    #[cfg(not(any(stm32u5, stm32u0)))]
+    #[cfg(not(any(stm32wba, stm32u5, stm32u0)))]
     const EXTI_WAKEUP_LINE: usize;
 
     #[cfg(feature = "low-power")]

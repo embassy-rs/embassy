@@ -2,7 +2,7 @@ use std::path::Path;
 use std::time::Duration;
 use std::{env, io, process, thread};
 
-use rand::random;
+use rand::{rng, Rng};
 use serial::SerialPort;
 
 pub fn main() {
@@ -34,14 +34,15 @@ fn saturate<T: SerialPort>(port: &mut T, idles: bool) -> io::Result<()> {
     })?;
 
     let mut written = 0;
+    let mut rng = rng();
     loop {
-        let len = random::<usize>() % 0x1000;
+        let len = rng.random_range(1..=0x1000);
         let buf: Vec<u8> = (written..written + len).map(|x| x as u8).collect();
 
         port.write_all(&buf)?;
 
         if idles {
-            let micros = (random::<usize>() % 1000) as u64;
+            let micros = rng.random_range(1..=1000) as u64;
             println!("Sleeping {}us", micros);
             port.flush().unwrap();
             thread::sleep(Duration::from_micros(micros));

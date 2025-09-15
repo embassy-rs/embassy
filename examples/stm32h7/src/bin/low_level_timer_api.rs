@@ -6,7 +6,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::gpio::{AfType, Flex, OutputType, Speed};
 use embassy_stm32::time::{khz, Hertz};
 use embassy_stm32::timer::low_level::{OutputCompareMode, Timer as LLTimer};
-use embassy_stm32::timer::{Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin, GeneralInstance32bit4Channel};
+use embassy_stm32::timer::{Ch1, Ch2, Ch3, Ch4, Channel, GeneralInstance32bit4Channel, TimerPin};
 use embassy_stm32::{Config, Peri};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
@@ -67,10 +67,10 @@ pub struct SimplePwm32<'d, T: GeneralInstance32bit4Channel> {
 impl<'d, T: GeneralInstance32bit4Channel> SimplePwm32<'d, T> {
     pub fn new(
         tim: Peri<'d, T>,
-        ch1: Peri<'d, impl Channel1Pin<T>>,
-        ch2: Peri<'d, impl Channel2Pin<T>>,
-        ch3: Peri<'d, impl Channel3Pin<T>>,
-        ch4: Peri<'d, impl Channel4Pin<T>>,
+        ch1: Peri<'d, impl TimerPin<T, Ch1>>,
+        ch2: Peri<'d, impl TimerPin<T, Ch2>>,
+        ch3: Peri<'d, impl TimerPin<T, Ch3>>,
+        ch4: Peri<'d, impl TimerPin<T, Ch4>>,
         freq: Hertz,
     ) -> Self {
         let af1 = ch1.af_num();

@@ -30,19 +30,19 @@ pub(crate) unsafe fn enable_blocking_write() {
 
     #[cfg(feature = "trustzone-secure")]
     pac::FLASH.seccr().write(|w| {
-        w.set_pg(pac::flash::vals::SeccrPg::B_0X1);
+        w.set_pg(true);
     });
     #[cfg(not(feature = "trustzone-secure"))]
     pac::FLASH.nscr().write(|w| {
-        w.set_pg(pac::flash::vals::NscrPg::B_0X1);
+        w.set_pg(true);
     });
 }
 
 pub(crate) unsafe fn disable_blocking_write() {
     #[cfg(feature = "trustzone-secure")]
-    pac::FLASH.seccr().write(|w| w.set_pg(pac::flash::vals::SeccrPg::B_0X0));
+    pac::FLASH.seccr().write(|w| w.set_pg(false));
     #[cfg(not(feature = "trustzone-secure"))]
-    pac::FLASH.nscr().write(|w| w.set_pg(pac::flash::vals::NscrPg::B_0X0));
+    pac::FLASH.nscr().write(|w| w.set_pg(false));
 }
 
 pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
@@ -65,19 +65,19 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
         w.set_pnb(sector.index_in_bank);
         // TODO: add check for bank swap
         w.set_bker(match sector.bank {
-            FlashBank::Bank1 => pac::flash::vals::SeccrBker::B_0X0,
-            FlashBank::Bank2 => pac::flash::vals::SeccrBker::B_0X1,
+            FlashBank::Bank1 => false,
+            FlashBank::Bank2 => true,
             _ => unreachable!(),
         });
     });
     #[cfg(not(feature = "trustzone-secure"))]
     pac::FLASH.nscr().modify(|w| {
-        w.set_per(pac::flash::vals::NscrPer::B_0X1);
+        w.set_per(true);
         w.set_pnb(sector.index_in_bank);
         // TODO: add check for bank swap
         w.set_bker(match sector.bank {
-            FlashBank::Bank1 => pac::flash::vals::NscrBker::B_0X0,
-            FlashBank::Bank2 => pac::flash::vals::NscrBker::B_0X1,
+            FlashBank::Bank1 => false,
+            FlashBank::Bank2 => true,
             _ => unreachable!(),
         });
     });
@@ -93,13 +93,9 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
 
     let ret: Result<(), Error> = blocking_wait_ready();
     #[cfg(feature = "trustzone-secure")]
-    pac::FLASH
-        .seccr()
-        .modify(|w| w.set_per(pac::flash::vals::SeccrPer::B_0X0));
+    pac::FLASH.seccr().modify(|w| w.set_per(false));
     #[cfg(not(feature = "trustzone-secure"))]
-    pac::FLASH
-        .nscr()
-        .modify(|w| w.set_per(pac::flash::vals::NscrPer::B_0X0));
+    pac::FLASH.nscr().modify(|w| w.set_per(false));
     clear_all_err();
     ret
 }

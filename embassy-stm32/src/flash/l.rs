@@ -162,7 +162,7 @@ pub(crate) unsafe fn clear_all_err() {
     pac::FLASH.nssr().modify(|_| {});
 }
 
-unsafe fn wait_ready_blocking() -> Result<(), Error> {
+pub(crate) unsafe fn wait_ready_blocking() -> Result<(), Error> {
     loop {
         #[cfg(not(flash_l5))]
         {

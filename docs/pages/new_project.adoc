@@ -11,6 +11,8 @@ Once you’ve successfully xref:#_getting_started[run some example projects], th
 - link:https://github.com/lulf/embassy-template[embassy-template] (STM32, NRF, and RP)
 - link:https://github.com/bentwire/embassy-rp2040-template[embassy-rp2040-template] (RP)
 
+=== esp-generate
+- link:https://github.com/esp-rs/esp-generate[esp-generate] (ESP32 using esp-hal)
 
 == Starting a project from scratch
 

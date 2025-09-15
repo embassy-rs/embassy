@@ -2,7 +2,8 @@
 name = "test-utils"
 version = "0.1.0"
 edition = "2021"
+publish = false
 
 [dependencies]
-rand = "0.8"
+rand = "0.9"
 serial = "0.4"

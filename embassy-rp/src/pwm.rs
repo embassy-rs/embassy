@@ -464,6 +464,10 @@ impl<'d> Drop for Pwm<'d> {
         pac::PWM.ch(self.slice).csr().write_clear(|w| w.set_en(false));
         if let Some(pin) = &self.pin_a {
             pin.gpio().ctrl().write(|w| w.set_funcsel(31));
+            // Enable pin PULL-DOWN
+            pin.pad_ctrl().modify(|w| {
+                w.set_pde(true);
+            });
         }
         if let Some(pin) = &self.pin_b {
             pin.gpio().ctrl().write(|w| w.set_funcsel(31));
@@ -471,6 +475,10 @@ impl<'d> Drop for Pwm<'d> {
             // Disable input mode. Only pin_b can be input, so not needed for pin_a
             pin.pad_ctrl().modify(|w| {
                 w.set_ie(false);
+            });
+            // Enable pin PULL-DOWN
+            pin.pad_ctrl().modify(|w| {
+                w.set_pde(true);
             });
         }
     }

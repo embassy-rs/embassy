@@ -13,7 +13,7 @@ use crate::clocks::enable_and_reset;
 use crate::iopctl::IopctlPin;
 pub use crate::iopctl::{AnyPin, DriveMode, DriveStrength, Function, Inverter, Pull, SlewRate};
 use crate::sealed::Sealed;
-use crate::{interrupt, peripherals, Peri, PeripheralType};
+use crate::{interrupt, peripherals, BitIter, Peri, PeripheralType};
 
 // This should be unique per IMXRT package
 const PORT_COUNT: usize = 8;
@@ -61,24 +61,6 @@ pub enum InterruptType {
 #[allow(non_snake_case)]
 fn GPIO_INTA() {
     irq_handler(&GPIO_WAKERS);
-}
-
-#[cfg(feature = "rt")]
-struct BitIter(u32);
-
-#[cfg(feature = "rt")]
-impl Iterator for BitIter {
-    type Item = u32;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.0.trailing_zeros() {
-            32 => None,
-            b => {
-                self.0 &= !(1 << b);
-                Some(b)
-            }
-        }
-    }
 }
 
 #[cfg(feature = "rt")]

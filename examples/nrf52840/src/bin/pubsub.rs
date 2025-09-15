@@ -26,9 +26,9 @@ async fn main(spawner: Spawner) {
     // It's good to set up the subscribers before publishing anything.
     // A subscriber will only yield messages that have been published after its creation.
 
-    spawner.must_spawn(fast_logger(unwrap!(MESSAGE_BUS.subscriber())));
-    spawner.must_spawn(slow_logger(unwrap!(MESSAGE_BUS.dyn_subscriber())));
-    spawner.must_spawn(slow_logger_pure(unwrap!(MESSAGE_BUS.dyn_subscriber())));
+    spawner.spawn(fast_logger(unwrap!(MESSAGE_BUS.subscriber())).unwrap());
+    spawner.spawn(slow_logger(unwrap!(MESSAGE_BUS.dyn_subscriber())).unwrap());
+    spawner.spawn(slow_logger_pure(unwrap!(MESSAGE_BUS.dyn_subscriber())).unwrap());
 
     // Get a publisher
     let message_publisher = unwrap!(MESSAGE_BUS.publisher());

@@ -37,9 +37,9 @@ impl Config {
     pub fn try_new<T: Instance>(_wdt: &Peri<'_, T>) -> Option<Self> {
         let r = T::REGS;
 
-        #[cfg(not(any(feature = "_nrf91", feature = "_nrf5340")))]
+        #[cfg(not(any(feature = "_nrf91", feature = "_nrf5340", feature = "_nrf54l")))]
         let runstatus = r.runstatus().read().runstatus();
-        #[cfg(any(feature = "_nrf91", feature = "_nrf5340"))]
+        #[cfg(any(feature = "_nrf91", feature = "_nrf5340", feature = "_nrf54l"))]
         let runstatus = r.runstatus().read().runstatuswdt();
 
         if runstatus {
@@ -90,9 +90,9 @@ impl<T: Instance> Watchdog<T> {
         let crv = config.timeout_ticks.max(MIN_TICKS);
         let rren = crate::pac::wdt::regs::Rren((1u32 << N) - 1);
 
-        #[cfg(not(any(feature = "_nrf91", feature = "_nrf5340")))]
+        #[cfg(not(any(feature = "_nrf91", feature = "_nrf5340", feature = "_nrf54l")))]
         let runstatus = r.runstatus().read().runstatus();
-        #[cfg(any(feature = "_nrf91", feature = "_nrf5340"))]
+        #[cfg(any(feature = "_nrf91", feature = "_nrf5340", feature = "_nrf54l"))]
         let runstatus = r.runstatus().read().runstatuswdt();
 
         if runstatus {

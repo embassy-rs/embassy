@@ -1,0 +1,17 @@
+error: future cannot be sent between threads safely
+  --> tests/ui/return_impl_future_nonsend.rs:18:13
+   |
+18 |     s.spawn(task().unwrap());
+   |             ^^^^^^^^^^^^^^^ future created by async block is not `Send`
+   |
+   = help: within `impl Sized`, the trait `Send` is not implemented for `*mut ()`
+note: captured value is not `Send`
+  --> tests/ui/return_impl_future_nonsend.rs:13:24
+   |
+13 |         println!("{}", non_send as usize);
+   |                        ^^^^^^^^ has type `*mut ()` which is not `Send`
+note: required by a bound in `SendSpawner::spawn`
+  --> src/spawner.rs
+   |
+   |     pub fn spawn<S: Send>(&self, token: SpawnToken<S>) {
+   |                     ^^^^ required by this bound in `SendSpawner::spawn`

@@ -71,6 +71,7 @@ pub use subscriber::{DynSubscriber, Subscriber};
 /// # block_on(test);
 /// ```
 ///
+#[derive(Debug)]
 pub struct PubSubChannel<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> {
     inner: Mutex<M, RefCell<PubSubState<T, CAP, SUBS, PUBS>>>,
 }
@@ -88,7 +89,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
     /// Create a new subscriber. It will only receive messages that are published after its creation.
     ///
     /// If there are no subscriber slots left, an error will be returned.
-    pub fn subscriber(&self) -> Result<Subscriber<M, T, CAP, SUBS, PUBS>, Error> {
+    pub fn subscriber(&self) -> Result<Subscriber<'_, M, T, CAP, SUBS, PUBS>, Error> {
         self.inner.lock(|inner| {
             let mut s = inner.borrow_mut();
 
@@ -120,7 +121,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
     /// Create a new publisher
     ///
     /// If there are no publisher slots left, an error will be returned.
-    pub fn publisher(&self) -> Result<Publisher<M, T, CAP, SUBS, PUBS>, Error> {
+    pub fn publisher(&self) -> Result<Publisher<'_, M, T, CAP, SUBS, PUBS>, Error> {
         self.inner.lock(|inner| {
             let mut s = inner.borrow_mut();
 
@@ -151,13 +152,13 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
 
     /// Create a new publisher that can only send immediate messages.
     /// This kind of publisher does not take up a publisher slot.
-    pub fn immediate_publisher(&self) -> ImmediatePublisher<M, T, CAP, SUBS, PUBS> {
+    pub fn immediate_publisher(&self) -> ImmediatePublisher<'_, M, T, CAP, SUBS, PUBS> {
         ImmediatePublisher(ImmediatePub::new(self))
     }
 
     /// Create a new publisher that can only send immediate messages.
     /// This kind of publisher does not take up a publisher slot.
-    pub fn dyn_immediate_publisher(&self) -> DynImmediatePublisher<T> {
+    pub fn dyn_immediate_publisher(&self) -> DynImmediatePublisher<'_, T> {
         DynImmediatePublisher(ImmediatePub::new(self))
     }
 
@@ -297,6 +298,7 @@ impl<M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usi
 }
 
 /// Internal state for the PubSub channel
+#[derive(Debug)]
 struct PubSubState<T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize> {
     /// The queue contains the last messages that have been published and a countdown of how many subscribers are yet to read it
     queue: Deque<(T, usize), CAP>,

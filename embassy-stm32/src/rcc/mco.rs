@@ -74,7 +74,7 @@ macro_rules! impl_peri {
     };
 }
 
-#[cfg(any(rcc_c0, rcc_g0, rcc_u0))]
+#[cfg(any(rcc_c0, rcc_c0v2, rcc_g0x0, rcc_g0x1, rcc_u0))]
 #[allow(unused_imports)]
 use self::{McoSource as Mco1Source, McoSource as Mco2Source};
 
@@ -94,7 +94,7 @@ impl<'d, T: McoInstance> Mco<'d, T> {
     pub fn new(_peri: Peri<'d, T>, pin: Peri<'d, impl McoPin<T>>, source: T::Source, prescaler: McoPrescaler) -> Self {
         critical_section::with(|_| unsafe {
             T::_apply_clock_settings(source, prescaler);
-            pin.set_as_af(pin.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            set_as_af!(pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
         });
 
         Self { phantom: PhantomData }

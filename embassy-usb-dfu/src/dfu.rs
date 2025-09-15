@@ -1,7 +1,8 @@
+//! DFU bootloader part of DFU logic
 use embassy_boot::{AlignedBuffer, BlockingFirmwareUpdater, FirmwareUpdaterError};
 use embassy_usb::control::{InResponse, OutResponse, Recipient, RequestType};
 use embassy_usb::driver::Driver;
-use embassy_usb::{Builder, Handler};
+use embassy_usb::{Builder, FunctionBuilder, Handler};
 use embedded_storage::nor_flash::{NorFlash, NorFlashErrorKind};
 
 use crate::consts::{
@@ -19,11 +20,19 @@ pub struct Control<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_S
     offset: usize,
     buf: AlignedBuffer<BLOCK_SIZE>,
     reset: RST,
+
+    #[cfg(feature = "_verify")]
+    public_key: &'static [u8; 32],
 }
 
 impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Control<'d, DFU, STATE, RST, BLOCK_SIZE> {
     /// Create a new DFU instance to handle DFU transfers.
-    pub fn new(updater: BlockingFirmwareUpdater<'d, DFU, STATE>, attrs: DfuAttributes, reset: RST) -> Self {
+    pub fn new(
+        updater: BlockingFirmwareUpdater<'d, DFU, STATE>,
+        attrs: DfuAttributes,
+        reset: RST,
+        #[cfg(feature = "_verify")] public_key: &'static [u8; 32],
+    ) -> Self {
         Self {
             updater,
             attrs,
@@ -32,6 +41,9 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Co
             offset: 0,
             buf: AlignedBuffer([0; BLOCK_SIZE]),
             reset,
+
+            #[cfg(feature = "_verify")]
+            public_key,
         }
     }
 
@@ -102,7 +114,23 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Ha
                 if final_transfer {
                     debug!("Receiving final transfer");
 
-                    match self.updater.mark_updated() {
+                    #[cfg(feature = "_verify")]
+                    let update_res: Result<(), FirmwareUpdaterError> = {
+                        const SIGNATURE_LEN: usize = 64;
+
+                        let mut signature = [0; SIGNATURE_LEN];
+                        let update_len = (self.offset - SIGNATURE_LEN) as u32;
+
+                        self.updater.read_dfu(update_len, &mut signature).and_then(|_| {
+                            self.updater
+                                .verify_and_mark_updated(self.public_key, &signature, update_len)
+                        })
+                    };
+
+                    #[cfg(not(feature = "_verify"))]
+                    let update_res = self.updater.mark_updated();
+
+                    match update_res {
                         Ok(_) => {
                             self.status = Status::Ok;
                             self.state = State::ManifestSync;
@@ -168,7 +196,7 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Ha
                 Some(InResponse::Accepted(&buf[0..1]))
             }
             Ok(Request::Upload) if self.attrs.contains(DfuAttributes::CAN_UPLOAD) => {
-                //TODO: FirmwareUpdater does not provide a way of reading the active partition, can't upload.
+                //TODO: FirmwareUpdater provides a way of reading the active partition so we could in theory add functionality to upload firmware.
                 Some(InResponse::Rejected)
             }
             _ => None,
@@ -186,8 +214,14 @@ impl<'d, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize> Ha
 pub fn usb_dfu<'d, D: Driver<'d>, DFU: NorFlash, STATE: NorFlash, RST: Reset, const BLOCK_SIZE: usize>(
     builder: &mut Builder<'d, D>,
     handler: &'d mut Control<'d, DFU, STATE, RST, BLOCK_SIZE>,
+    func_modifier: impl Fn(&mut FunctionBuilder<'_, 'd, D>),
 ) {
     let mut func = builder.function(USB_CLASS_APPN_SPEC, APPN_SPEC_SUBCLASS_DFU, DFU_PROTOCOL_DFU);
+
+    // Here we give users the opportunity to add their own function level MSOS headers for instance.
+    // This is useful when DFU functionality is part of a composite USB device.
+    func_modifier(&mut func);
+
     let mut iface = func.interface();
     let mut alt = iface.alt_setting(USB_CLASS_APPN_SPEC, APPN_SPEC_SUBCLASS_DFU, DFU_PROTOCOL_DFU, None);
     alt.descriptor(

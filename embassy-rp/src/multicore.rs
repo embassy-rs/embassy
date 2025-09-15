@@ -38,11 +38,11 @@
 //!
 //!     embassy_rp::multicore::spawn_core1(p.CORE1, unsafe { &mut CORE1_STACK }, move || {
 //!         let executor1 = EXECUTOR1.init(Executor::new());
-//!         executor1.run(|spawner| spawner.spawn(core1_task()).unwrap());
+//!         executor1.run(|spawner| spawner.spawn(core1_task().unwrap()));
 //!     });
 //!
 //!     let executor0 = EXECUTOR0.init(Executor::new());
-//!     executor0.run(|spawner| spawner.spawn(core0_task()).unwrap())
+//!     executor0.run(|spawner| spawner.spawn(core0_task().unwrap()))
 //! }
 //! ```
 
@@ -56,6 +56,26 @@ use crate::{gpio, install_stack_guard, interrupt, pac, Peri};
 const PAUSE_TOKEN: u32 = 0xDEADBEEF;
 const RESUME_TOKEN: u32 = !0xDEADBEEF;
 static IS_CORE1_INIT: AtomicBool = AtomicBool::new(false);
+
+/// Represents a partiticular CPU core (SIO_CPUID)
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum CoreId {
+    /// Core 0
+    Core0 = 0x0,
+    /// Core 1
+    Core1 = 0x1,
+}
+
+/// Gets which core we are currently executing from
+pub fn current_core() -> CoreId {
+    if pac::SIO.cpuid().read() == 0 {
+        CoreId::Core0
+    } else {
+        CoreId::Core1
+    }
+}
 
 #[inline(always)]
 unsafe fn core1_setup(stack_bottom: *mut usize) {

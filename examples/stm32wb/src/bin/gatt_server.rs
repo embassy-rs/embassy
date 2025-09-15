@@ -27,6 +27,7 @@ use embassy_stm32_wpan::hci::vendor::event::{self, AttributeHandle, VendorEvent}
 use embassy_stm32_wpan::hci::{BdAddr, Event};
 use embassy_stm32_wpan::lhci::LhciC1DeviceInformationCcrp;
 use embassy_stm32_wpan::sub::ble::Ble;
+use embassy_stm32_wpan::sub::mm;
 use embassy_stm32_wpan::TlMbox;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -38,7 +39,7 @@ bind_interrupts!(struct Irqs{
 const BLE_GAP_DEVICE_NAME_LENGTH: u8 = 7;
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     /*
         How to make this work:
 
@@ -70,6 +71,7 @@ async fn main(_spawner: Spawner) {
     let config = Config::default();
     let mut mbox = TlMbox::init(p.IPCC, Irqs, config);
 
+    spawner.spawn(run_mm_queue(mbox.mm_subsystem).unwrap());
     let sys_event = mbox.sys_subsystem.read().await;
     info!("sys event: {}", sys_event.payload());
 
@@ -219,6 +221,11 @@ async fn main(_spawner: Spawner) {
             }
         }
     }
+}
+
+#[embassy_executor::task]
+async fn run_mm_queue(memory_manager: mm::MemoryManager) {
+    memory_manager.run_queue().await;
 }
 
 fn get_bd_addr() -> BdAddr {

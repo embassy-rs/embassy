@@ -19,7 +19,6 @@ use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
 use embassy_time::{Delay, Duration};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_io_async::Write;
-use rand::RngCore;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -67,7 +66,7 @@ async fn main(spawner: Spawner) {
     )
     .await
     .unwrap();
-    unwrap!(spawner.spawn(ethernet_task(runner)));
+    spawner.spawn(unwrap!(ethernet_task(runner)));
 
     // Generate random seed
     let seed = rng.next_u64();
@@ -82,7 +81,7 @@ async fn main(spawner: Spawner) {
     );
 
     // Launch network task
-    unwrap!(spawner.spawn(net_task(runner)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     info!("Waiting for DHCP...");
     let cfg = wait_for_config(stack).await;

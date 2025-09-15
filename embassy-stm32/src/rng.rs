@@ -7,7 +7,6 @@ use core::task::Poll;
 
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
-use rand_core::{CryptoRng, RngCore};
 
 use crate::interrupt::typelevel::Interrupt;
 use crate::{interrupt, pac, peripherals, rcc, Peri};
@@ -100,13 +99,19 @@ impl<'d, T: Instance> Rng<'d, T> {
         });
         // wait for CONDRST to be set
         while !T::regs().cr().read().condrst() {}
-        // magic number must be written immediately before every read or write access to HTCR
-        T::regs().htcr().write(|w| w.set_htcfg(pac::rng::vals::Htcfg::MAGIC));
-        // write recommended value according to reference manual
-        // note: HTCR can only be written during conditioning
-        T::regs()
-            .htcr()
-            .write(|w| w.set_htcfg(pac::rng::vals::Htcfg::RECOMMENDED));
+
+        // TODO for WBA6, the HTCR reg is different
+        #[cfg(not(rng_wba6))]
+        {
+            // magic number must be written immediately before every read or write access to HTCR
+            T::regs().htcr().write(|w| w.set_htcfg(pac::rng::vals::Htcfg::MAGIC));
+            // write recommended value according to reference manual
+            // note: HTCR can only be written during conditioning
+            T::regs()
+                .htcr()
+                .write(|w| w.set_htcfg(pac::rng::vals::Htcfg::RECOMMENDED));
+        }
+
         // finish conditioning
         T::regs().cr().modify(|reg| {
             reg.set_rngen(true);
@@ -184,10 +189,9 @@ impl<'d, T: Instance> Rng<'d, T> {
 
         Ok(())
     }
-}
 
-impl<'d, T: Instance> RngCore for Rng<'d, T> {
-    fn next_u32(&mut self) -> u32 {
+    /// Get a random u32
+    pub fn next_u32(&mut self) -> u32 {
         loop {
             let sr = T::regs().sr().read();
             if sr.seis() | sr.ceis() {
@@ -198,13 +202,15 @@ impl<'d, T: Instance> RngCore for Rng<'d, T> {
         }
     }
 
-    fn next_u64(&mut self) -> u64 {
+    /// Get a random u64
+    pub fn next_u64(&mut self) -> u64 {
         let mut rand = self.next_u32() as u64;
         rand |= (self.next_u32() as u64) << 32;
         rand
     }
 
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
+    /// Fill a slice with random bytes
+    pub fn fill_bytes(&mut self, dest: &mut [u8]) {
         for chunk in dest.chunks_mut(4) {
             let rand = self.next_u32();
             for (slot, num) in chunk.iter_mut().zip(rand.to_ne_bytes().iter()) {
@@ -212,14 +218,53 @@ impl<'d, T: Instance> RngCore for Rng<'d, T> {
             }
         }
     }
+}
 
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core::Error> {
+impl<'d, T: Instance> Drop for Rng<'d, T> {
+    fn drop(&mut self) {
+        T::regs().cr().modify(|reg| {
+            reg.set_rngen(false);
+        });
+        rcc::disable::<T>();
+    }
+}
+
+impl<'d, T: Instance> rand_core_06::RngCore for Rng<'d, T> {
+    fn next_u32(&mut self) -> u32 {
+        self.next_u32()
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.next_u64()
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.fill_bytes(dest);
+    }
+
+    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core_06::Error> {
         self.fill_bytes(dest);
         Ok(())
     }
 }
 
-impl<'d, T: Instance> CryptoRng for Rng<'d, T> {}
+impl<'d, T: Instance> rand_core_06::CryptoRng for Rng<'d, T> {}
+
+impl<'d, T: Instance> rand_core_09::RngCore for Rng<'d, T> {
+    fn next_u32(&mut self) -> u32 {
+        self.next_u32()
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.next_u64()
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        self.fill_bytes(dest);
+    }
+}
+
+impl<'d, T: Instance> rand_core_09::CryptoRng for Rng<'d, T> {}
 
 trait SealedInstance {
     fn regs() -> pac::rng::Rng;

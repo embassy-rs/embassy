@@ -198,6 +198,8 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
             if key.len() > 64 {
                 T::regs().cr().modify(|w| w.set_lkey(true));
             }
+        } else {
+            T::regs().cr().modify(|w| w.set_mode(false));
         }
 
         T::regs().cr().modify(|w| w.set_init(true));
@@ -351,13 +353,17 @@ impl<'d, T: Instance, M: Mode> Hash<'d, T, M> {
         let num_valid_bits: u8 = (8 * (input.len() % 4)) as u8;
         T::regs().str().modify(|w| w.set_nblw(num_valid_bits));
 
-        let mut i = 0;
-        while i < input.len() {
+        let mut chunks = input.chunks_exact(4);
+        for chunk in &mut chunks {
+            T::regs()
+                .din()
+                .write_value(u32::from_ne_bytes(chunk.try_into().unwrap()));
+        }
+        let rem = chunks.remainder();
+        if !rem.is_empty() {
             let mut word: [u8; 4] = [0; 4];
-            let copy_idx = min(i + 4, input.len());
-            word[0..copy_idx - i].copy_from_slice(&input[i..copy_idx]);
+            word[0..rem.len()].copy_from_slice(rem);
             T::regs().din().write_value(u32::from_ne_bytes(word));
-            i += 4;
         }
     }
 
