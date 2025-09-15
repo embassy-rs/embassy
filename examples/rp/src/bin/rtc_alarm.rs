@@ -47,14 +47,10 @@ async fn main(_spawner: Spawner) {
                 );
 
                 // See if the alarm is already scheduled, if not, schedule it
-                match rtc.alarm_scheduled() {
-                    None => {
-                        info!("Scheduling alarm for 30 seconds from now");
-                        rtc.schedule_alarm(DateTimeFilter::default().second((dt.second + 30) % 60));
-
-                        info!("Alarm scheduled: {}", rtc.alarm_scheduled().unwrap());
-                    }
-                    Some(_) => {}
+                if rtc.alarm_scheduled().is_none() {
+                    info!("Scheduling alarm for 30 seconds from now");
+                    rtc.schedule_alarm(DateTimeFilter::default().second((dt.second + 30) % 60));
+                    info!("Alarm scheduled: {}", rtc.alarm_scheduled().unwrap());
                 }
             }
             // Alarm triggered

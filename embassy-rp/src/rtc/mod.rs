@@ -2,7 +2,7 @@
 mod filter;
 
 use core::future::poll_fn;
-use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
+use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::{Peri, PeripheralType};
@@ -21,8 +21,6 @@ use crate::interrupt::{self, InterruptExt};
 
 // Static waker for the interrupt handler
 static WAKER: AtomicWaker = AtomicWaker::new();
-// Static flag to indicate if an alarm has occurred
-static ALARM_OCCURRED: AtomicBool = AtomicBool::new(false);
 
 /// A reference to the real time clock of the system
 pub struct Rtc<'d, T: Instance> {
@@ -259,19 +257,15 @@ impl<'d, T: Instance> Rtc<'d, T> {
         poll_fn(|cx| {
             WAKER.register(cx.waker());
 
-            // If the alarm has occured, we will clear the interrupt and return ready
-            if ALARM_OCCURRED.load(Ordering::SeqCst) {
-                // Clear the alarm occurred flag
-                ALARM_OCCURRED.store(false, Ordering::SeqCst);
-
-                // Clear the interrupt and disable the alarm
+            // Check hardware interrupt status directly
+            if self.inner.regs().ints().read().rtc() {
+                // Clear the interrupt status and disable the alarm
+                self.inner.regs().ints().write(|w| w.set_rtc(true));
                 self.clear_interrupt();
 
-                // Return ready
                 compiler_fence(Ordering::SeqCst);
                 return Poll::Ready(());
             } else {
-                // If the alarm has not occurred, we will return pending
                 return Poll::Pending;
             }
         })
@@ -290,8 +284,7 @@ impl crate::interrupt::typelevel::Handler<crate::interrupt::typelevel::RTC_IRQ> 
         let rtc = crate::pac::RTC;
         rtc.irq_setup_0().modify(|w| w.set_match_ena(false));
 
-        // Set the alarm occurred flag and wake the waker
-        ALARM_OCCURRED.store(true, Ordering::SeqCst);
+        // Wake the waker - interrupt status will be checked directly by polling future
         WAKER.wake();
     }
 }
