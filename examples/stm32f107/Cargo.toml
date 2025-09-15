@@ -1,0 +1,34 @@
+[package]
+edition = "2024"
+name = "embassy-stm32f107-examples"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+# Change stm32f107rc to your chip name, if necessary.
+embassy-stm32 = { version = "0.5.0", path = "../../embassy-stm32", features = [ "defmt", "stm32f107rc", "unstable-pac", "memory-x", "time-driver-any" ]  }
+embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
+embassy-net = { version = "0.8.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4"] }
+
+defmt = "1.0.1"
+defmt-rtt = "1.0.0"
+
+cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
+cortex-m-rt = "0.7.0"
+embedded-hal = "0.2.6"
+panic-probe = { version = "1.0.0", features = ["print-defmt"] }
+heapless = { version = "0.8", default-features = false }
+nb = "1.0.0"
+static_cell = "2.0.0"
+
+[profile.dev]
+opt-level = "s"
+
+[profile.release]
+debug = 2
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7m-none-eabi", artifact-dir = "out/examples/stm32f107" }
+]
