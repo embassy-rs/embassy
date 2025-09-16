@@ -47,10 +47,10 @@ impl<'a> Default for State<'a> {
 
 impl<'a> State<'a> {
     /// Create a new `State`.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             control: MaybeUninit::uninit(),
-            shared: ControlShared::default(),
+            shared: ControlShared::new(),
         }
     }
 }
@@ -92,6 +92,12 @@ struct ControlShared {
 
 impl Default for ControlShared {
     fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ControlShared {
+    const fn new() -> Self {
         ControlShared {
             dtr: AtomicBool::new(false),
             rts: AtomicBool::new(false),
@@ -105,9 +111,7 @@ impl Default for ControlShared {
             changed: AtomicBool::new(false),
         }
     }
-}
 
-impl ControlShared {
     fn changed(&self) -> impl Future<Output = ()> + '_ {
         poll_fn(|cx| {
             if self.changed.load(Ordering::Relaxed) {
@@ -250,14 +254,14 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
             ],
         );
 
-        let comm_ep = alt.endpoint_interrupt_in(8, 255);
+        let comm_ep = alt.endpoint_interrupt_in(None, 8, 255);
 
         // Data interface
         let mut iface = func.interface();
         let data_if = iface.interface_number();
         let mut alt = iface.alt_setting(USB_CLASS_CDC_DATA, 0x00, CDC_PROTOCOL_NONE, None);
-        let read_ep = alt.endpoint_bulk_out(max_packet_size);
-        let write_ep = alt.endpoint_bulk_in(max_packet_size);
+        let read_ep = alt.endpoint_bulk_out(None, max_packet_size);
+        let write_ep = alt.endpoint_bulk_in(None, max_packet_size);
 
         drop(func);
 
@@ -406,6 +410,18 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
     }
 }
 
+impl<'d, D: Driver<'d>> embedded_io_async::ErrorType for Sender<'d, D> {
+    type Error = EndpointError;
+}
+
+impl<'d, D: Driver<'d>> embedded_io_async::Write for Sender<'d, D> {
+    async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
+        let len = core::cmp::min(buf.len(), self.max_packet_size() as usize);
+        self.write_packet(&buf[..len]).await?;
+        Ok(len)
+    }
+}
+
 /// CDC ACM class packet receiver.
 ///
 /// You can obtain a `Receiver` with [`CdcAcmClass::split`]
@@ -446,6 +462,93 @@ impl<'d, D: Driver<'d>> Receiver<'d, D> {
     /// Waits for the USB host to enable this interface
     pub async fn wait_connection(&mut self) {
         self.read_ep.wait_enabled().await;
+    }
+
+    /// Turn the `Receiver` into a [`BufferedReceiver`].
+    ///
+    /// The supplied buffer must be large enough to hold max_packet_size bytes.
+    pub fn into_buffered(self, buf: &'d mut [u8]) -> BufferedReceiver<'d, D> {
+        BufferedReceiver {
+            receiver: self,
+            buffer: buf,
+            start: 0,
+            end: 0,
+        }
+    }
+}
+
+/// CDC ACM class buffered receiver.
+///
+/// It is a requirement of the [`embedded_io_async::Read`] trait that arbitrarily small lengths of
+/// data can be read from the stream. The [`Receiver`] can only read full packets at a time. The
+/// `BufferedReceiver` instead buffers a single packet if the caller does not read all of the data,
+/// so that the remaining data can be returned in subsequent calls.
+///
+/// If you have no requirement to use the [`embedded_io_async::Read`] trait or to read a data length
+/// less than the packet length, then it is more efficient to use the [`Receiver`] directly.
+///
+/// You can obtain a `BufferedReceiver` with [`Receiver::into_buffered`].
+///
+/// [`embedded_io_async::Read`]: https://docs.rs/embedded-io-async/latest/embedded_io_async/trait.Read.html
+pub struct BufferedReceiver<'d, D: Driver<'d>> {
+    receiver: Receiver<'d, D>,
+    buffer: &'d mut [u8],
+    start: usize,
+    end: usize,
+}
+
+impl<'d, D: Driver<'d>> BufferedReceiver<'d, D> {
+    fn read_from_buffer(&mut self, buf: &mut [u8]) -> usize {
+        let available = &self.buffer[self.start..self.end];
+        let len = core::cmp::min(available.len(), buf.len());
+        buf[..len].copy_from_slice(&available[..len]);
+        self.start += len;
+        len
+    }
+
+    /// Gets the current line coding. The line coding contains information that's mainly relevant
+    /// for USB to UART serial port emulators, and can be ignored if not relevant.
+    pub fn line_coding(&self) -> LineCoding {
+        self.receiver.line_coding()
+    }
+
+    /// Gets the DTR (data terminal ready) state
+    pub fn dtr(&self) -> bool {
+        self.receiver.dtr()
+    }
+
+    /// Gets the RTS (request to send) state
+    pub fn rts(&self) -> bool {
+        self.receiver.rts()
+    }
+
+    /// Waits for the USB host to enable this interface
+    pub async fn wait_connection(&mut self) {
+        self.receiver.wait_connection().await;
+    }
+}
+
+impl<'d, D: Driver<'d>> embedded_io_async::ErrorType for BufferedReceiver<'d, D> {
+    type Error = EndpointError;
+}
+
+impl<'d, D: Driver<'d>> embedded_io_async::Read for BufferedReceiver<'d, D> {
+    async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
+        // If there is a buffered packet, return data from that first
+        if self.start != self.end {
+            return Ok(self.read_from_buffer(buf));
+        }
+
+        // If the caller's buffer is large enough to contain an entire packet, read directly into
+        // that instead of buffering the packet internally.
+        if buf.len() > self.receiver.max_packet_size() as usize {
+            return self.receiver.read_packet(buf).await;
+        }
+
+        // Otherwise read a packet into the internal buffer, and return some of it to the caller
+        self.start = 0;
+        self.end = self.receiver.read_packet(&mut self.buffer).await?;
+        return Ok(self.read_from_buffer(buf));
     }
 }
 

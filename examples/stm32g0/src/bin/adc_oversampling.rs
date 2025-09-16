@@ -7,7 +7,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, SampleTime};
+use embassy_stm32::adc::{Adc, Clock, Presc, SampleTime};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -16,7 +16,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Adc oversample test");
 
-    let mut adc = Adc::new(p.ADC1);
+    let mut adc = Adc::new_with_clock(p.ADC1, Clock::Async { div: Presc::DIV1 });
     adc.set_sample_time(SampleTime::CYCLES1_5);
     let mut pin = p.PA1;
 

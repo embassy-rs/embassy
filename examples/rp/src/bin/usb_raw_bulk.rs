@@ -96,8 +96,8 @@ async fn main(_spawner: Spawner) {
     let mut function = builder.function(0xFF, 0, 0);
     let mut interface = function.interface();
     let mut alt = interface.alt_setting(0xFF, 0, 0, None);
-    let mut read_ep = alt.endpoint_bulk_out(64);
-    let mut write_ep = alt.endpoint_bulk_in(64);
+    let mut read_ep = alt.endpoint_bulk_out(None, 64);
+    let mut write_ep = alt.endpoint_bulk_in(None, 64);
     drop(function);
 
     // Build the builder.

@@ -313,15 +313,15 @@ impl<'d, D: Driver<'d>> CdcNcmClass<'d, D> {
             ],
         );
 
-        let comm_ep = alt.endpoint_interrupt_in(8, 255);
+        let comm_ep = alt.endpoint_interrupt_in(None, 8, 255);
 
         // Data interface
         let mut iface = func.interface();
         let data_if = iface.interface_number();
         let _alt = iface.alt_setting(USB_CLASS_CDC_DATA, 0x00, CDC_PROTOCOL_NTB, None);
         let mut alt = iface.alt_setting(USB_CLASS_CDC_DATA, 0x00, CDC_PROTOCOL_NTB, None);
-        let read_ep = alt.endpoint_bulk_out(max_packet_size);
-        let write_ep = alt.endpoint_bulk_in(max_packet_size);
+        let read_ep = alt.endpoint_bulk_out(None, max_packet_size);
+        let write_ep = alt.endpoint_bulk_in(None, max_packet_size);
 
         drop(func);
 

@@ -334,6 +334,8 @@ impl_egu!(EGU3, EGU3, EGU3_SWI3);
 impl_egu!(EGU4, EGU4, EGU4_SWI4);
 impl_egu!(EGU5, EGU5, EGU5_SWI5);
 
+impl_wdt!(WDT, WDT, WDT, 0);
+
 embassy_hal_internal::interrupt_mod!(
     CLOCK_POWER,
     RADIO,

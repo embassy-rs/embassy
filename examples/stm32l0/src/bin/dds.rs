@@ -11,7 +11,7 @@ use embassy_stm32::rcc::*;
 use embassy_stm32::time::hz;
 use embassy_stm32::timer::low_level::{Timer as LLTimer, *};
 use embassy_stm32::timer::simple_pwm::PwmPin;
-use embassy_stm32::timer::Channel;
+use embassy_stm32::timer::{Ch3, Channel};
 use embassy_stm32::{interrupt, pac, Config};
 use panic_probe as _;
 
@@ -70,7 +70,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(config);
 
     // setup PWM pin in AF mode
-    let _ch3 = PwmPin::new_ch3(p.PA2, OutputType::PushPull);
+    let _ch3 = PwmPin::<_, Ch3>::new(p.PA2, OutputType::PushPull);
 
     // initialize timer
     // we cannot use SimplePWM here because the Time is privately encapsulated

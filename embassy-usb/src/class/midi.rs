@@ -129,14 +129,14 @@ impl<'d, D: Driver<'d>> MidiClass<'d, D> {
         for i in 0..n_out_jacks {
             endpoint_data[2 + i as usize] = in_jack_id_emb(i);
         }
-        let read_ep = alt.endpoint_bulk_out(max_packet_size);
+        let read_ep = alt.endpoint_bulk_out(None, max_packet_size);
         alt.descriptor(CS_ENDPOINT, &endpoint_data[0..2 + n_out_jacks as usize]);
 
         endpoint_data[1] = n_in_jacks;
         for i in 0..n_in_jacks {
             endpoint_data[2 + i as usize] = out_jack_id_emb(i);
         }
-        let write_ep = alt.endpoint_bulk_in(max_packet_size);
+        let write_ep = alt.endpoint_bulk_in(None, max_packet_size);
         alt.descriptor(CS_ENDPOINT, &endpoint_data[0..2 + n_in_jacks as usize]);
 
         MidiClass { read_ep, write_ep }

@@ -10,7 +10,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 pub use pac::spim::vals::{Frequency, Order as BitOrder};
@@ -21,7 +21,7 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::spim::vals;
 use crate::util::slice_in_ram_or;
-use crate::{interrupt, pac, Peripheral};
+use crate::{interrupt, pac};
 
 /// SPIM error
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,73 +100,61 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
 /// SPIM driver.
 pub struct Spim<'d, T: Instance> {
-    _p: PeripheralRef<'d, T>,
+    _p: Peri<'d, T>,
 }
 
 impl<'d, T: Instance> Spim<'d, T> {
     /// Create a new SPIM driver.
     pub fn new(
-        spim: impl Peripheral<P = T> + 'd,
+        spim: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        sck: impl Peripheral<P = impl GpioPin> + 'd,
-        miso: impl Peripheral<P = impl GpioPin> + 'd,
-        mosi: impl Peripheral<P = impl GpioPin> + 'd,
+        sck: Peri<'d, impl GpioPin>,
+        miso: Peri<'d, impl GpioPin>,
+        mosi: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(sck, miso, mosi);
-        Self::new_inner(
-            spim,
-            Some(sck.map_into()),
-            Some(miso.map_into()),
-            Some(mosi.map_into()),
-            config,
-        )
+        Self::new_inner(spim, Some(sck.into()), Some(miso.into()), Some(mosi.into()), config)
     }
 
     /// Create a new SPIM driver, capable of TX only (MOSI only).
     pub fn new_txonly(
-        spim: impl Peripheral<P = T> + 'd,
+        spim: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        sck: impl Peripheral<P = impl GpioPin> + 'd,
-        mosi: impl Peripheral<P = impl GpioPin> + 'd,
+        sck: Peri<'d, impl GpioPin>,
+        mosi: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(sck, mosi);
-        Self::new_inner(spim, Some(sck.map_into()), None, Some(mosi.map_into()), config)
+        Self::new_inner(spim, Some(sck.into()), None, Some(mosi.into()), config)
     }
 
     /// Create a new SPIM driver, capable of RX only (MISO only).
     pub fn new_rxonly(
-        spim: impl Peripheral<P = T> + 'd,
+        spim: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        sck: impl Peripheral<P = impl GpioPin> + 'd,
-        miso: impl Peripheral<P = impl GpioPin> + 'd,
+        sck: Peri<'d, impl GpioPin>,
+        miso: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(sck, miso);
-        Self::new_inner(spim, Some(sck.map_into()), Some(miso.map_into()), None, config)
+        Self::new_inner(spim, Some(sck.into()), Some(miso.into()), None, config)
     }
 
     /// Create a new SPIM driver, capable of TX only (MOSI only), without SCK pin.
     pub fn new_txonly_nosck(
-        spim: impl Peripheral<P = T> + 'd,
+        spim: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        mosi: impl Peripheral<P = impl GpioPin> + 'd,
+        mosi: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(mosi);
-        Self::new_inner(spim, None, None, Some(mosi.map_into()), config)
+        Self::new_inner(spim, None, None, Some(mosi.into()), config)
     }
 
     fn new_inner(
-        spim: impl Peripheral<P = T> + 'd,
-        sck: Option<PeripheralRef<'d, AnyPin>>,
-        miso: Option<PeripheralRef<'d, AnyPin>>,
-        mosi: Option<PeripheralRef<'d, AnyPin>>,
+        spim: Peri<'d, T>,
+        sck: Option<Peri<'d, AnyPin>>,
+        miso: Option<Peri<'d, AnyPin>>,
+        mosi: Option<Peri<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        into_ref!(spim);
-
         let r = T::regs();
 
         // Configure pins
@@ -511,7 +499,7 @@ pub(crate) trait SealedInstance {
 
 /// SPIM peripheral instance
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static {
+pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

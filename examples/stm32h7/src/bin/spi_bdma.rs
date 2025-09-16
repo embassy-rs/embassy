@@ -16,7 +16,7 @@ use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 // Defined in memory.x
-#[link_section = ".ram_d3"]
+#[unsafe(link_section = ".ram_d3")]
 static mut RAM_D3: GroundedArrayCell<u8, 256> = GroundedArrayCell::uninit();
 
 #[embassy_executor::task]
@@ -80,6 +80,6 @@ fn main() -> ! {
     let executor = EXECUTOR.init(Executor::new());
 
     executor.run(|spawner| {
-        unwrap!(spawner.spawn(main_task(spi)));
+        spawner.spawn(unwrap!(main_task(spi)));
     })
 }

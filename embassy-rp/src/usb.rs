@@ -5,6 +5,7 @@ use core::slice;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
@@ -12,7 +13,7 @@ use embassy_usb_driver::{
 };
 
 use crate::interrupt::typelevel::{Binding, Interrupt};
-use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
+use crate::{interrupt, pac, peripherals, Peri, RegExt};
 
 trait SealedInstance {
     fn regs() -> crate::pac::usb::Usb;
@@ -21,7 +22,7 @@ trait SealedInstance {
 
 /// USB peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + 'static {
+pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
@@ -107,7 +108,7 @@ pub struct Driver<'d, T: Instance> {
 
 impl<'d, T: Instance> Driver<'d, T> {
     /// Create a new USB driver.
-    pub fn new(_usb: impl Peripheral<P = T> + 'd, _irq: impl Binding<T::Interrupt, InterruptHandler<T>>) -> Self {
+    pub fn new(_usb: Peri<'d, T>, _irq: impl Binding<T::Interrupt, InterruptHandler<T>>) -> Self {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
@@ -152,6 +153,7 @@ impl<'d, T: Instance> Driver<'d, T> {
     fn alloc_endpoint<D: Dir>(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Endpoint<'d, T, D>, driver::EndpointAllocError> {
@@ -168,12 +170,25 @@ impl<'d, T: Instance> Driver<'d, T> {
             Direction::In => &mut self.ep_in,
         };
 
-        let index = alloc.iter_mut().enumerate().find(|(i, ep)| {
-            if *i == 0 {
-                return false; // reserved for control pipe
+        let index = if let Some(addr) = ep_addr {
+            // Use the specified endpoint address
+            let requested_index = addr.index();
+            if requested_index == 0 || requested_index >= EP_COUNT {
+                return Err(EndpointAllocError);
             }
-            !ep.used
-        });
+            if alloc[requested_index].used {
+                return Err(EndpointAllocError);
+            }
+            Some((requested_index, &mut alloc[requested_index]))
+        } else {
+            // Find any available endpoint
+            alloc.iter_mut().enumerate().find(|(i, ep)| {
+                if *i == 0 {
+                    return false; // reserved for control pipe
+                }
+                !ep.used
+            })
+        };
 
         let (index, ep) = index.ok_or(EndpointAllocError)?;
         assert!(!ep.used);
@@ -298,19 +313,21 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
     fn alloc_endpoint_in(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
-        self.alloc_endpoint(ep_type, max_packet_size, interval_ms)
+        self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
     fn alloc_endpoint_out(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
-        self.alloc_endpoint(ep_type, max_packet_size, interval_ms)
+        self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
     fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {

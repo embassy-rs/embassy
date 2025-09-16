@@ -1,0 +1,7 @@
+error[E0308]: mismatched types
+ --> tests/ui/type_error.rs:5:5
+  |
+4 | async fn task() {
+  |                - help: try adding a return type: `-> i32`
+5 |     5
+  |     ^ expected `()`, found integer

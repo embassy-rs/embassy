@@ -342,6 +342,8 @@ impl_egu!(EGU3, EGU3, EGU3);
 impl_egu!(EGU4, EGU4, EGU4);
 impl_egu!(EGU5, EGU5, EGU5);
 
+impl_wdt!(WDT, WDT, WDT, 0);
+
 embassy_hal_internal::interrupt_mod!(
     SPU,
     CLOCK_POWER,

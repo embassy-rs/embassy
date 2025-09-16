@@ -5,55 +5,33 @@ use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
-
 use super::low_level::{CountingMode, FilterValue, InputCaptureMode, InputTISelection, Timer};
-use super::{
-    CaptureCompareInterruptHandler, Channel, Channel1Pin, Channel2Pin, Channel3Pin, Channel4Pin,
-    GeneralInstance4Channel,
-};
+use super::{CaptureCompareInterruptHandler, Channel, GeneralInstance4Channel, TimerPin};
+pub use super::{Ch1, Ch2, Ch3, Ch4};
 use crate::gpio::{AfType, AnyPin, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::time::Hertz;
-use crate::Peripheral;
-
-/// Channel 1 marker type.
-pub enum Ch1 {}
-/// Channel 2 marker type.
-pub enum Ch2 {}
-/// Channel 3 marker type.
-pub enum Ch3 {}
-/// Channel 4 marker type.
-pub enum Ch4 {}
+use crate::timer::TimerChannel;
+use crate::Peri;
 
 /// Capture pin wrapper.
 ///
 /// This wraps a pin to make it usable with capture.
-pub struct CapturePin<'d, T, C> {
-    _pin: PeripheralRef<'d, AnyPin>,
-    phantom: PhantomData<(T, C)>,
+pub struct CapturePin<'d, T, C, #[cfg(afio)] A> {
+    #[allow(unused)]
+    pin: Peri<'d, AnyPin>,
+    phantom: PhantomData<if_afio!((T, C, A))>,
 }
-
-macro_rules! channel_impl {
-    ($new_chx:ident, $channel:ident, $pin_trait:ident) => {
-        impl<'d, T: GeneralInstance4Channel> CapturePin<'d, T, $channel> {
-            #[doc = concat!("Create a new ", stringify!($channel), " capture pin instance.")]
-            pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<T>> + 'd, pull: Pull) -> Self {
-                into_ref!(pin);
-                pin.set_as_af(pin.af_num(), AfType::input(pull));
-                CapturePin {
-                    _pin: pin.map_into(),
-                    phantom: PhantomData,
-                }
-            }
+impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(CapturePin<'d, T, C, A>) {
+    /// Create a new capture pin instance.
+    pub fn new(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, pull: Pull) -> Self {
+        set_as_af!(pin, AfType::input(pull));
+        CapturePin {
+            pin: pin.into(),
+            phantom: PhantomData,
         }
-    };
+    }
 }
-
-channel_impl!(new_ch1, Ch1, Channel1Pin);
-channel_impl!(new_ch2, Ch2, Channel2Pin);
-channel_impl!(new_ch3, Ch3, Channel3Pin);
-channel_impl!(new_ch4, Ch4, Channel4Pin);
 
 /// Input capture driver.
 pub struct InputCapture<'d, T: GeneralInstance4Channel> {
@@ -62,12 +40,13 @@ pub struct InputCapture<'d, T: GeneralInstance4Channel> {
 
 impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
     /// Create a new input capture driver.
-    pub fn new(
-        tim: impl Peripheral<P = T> + 'd,
-        _ch1: Option<CapturePin<'d, T, Ch1>>,
-        _ch2: Option<CapturePin<'d, T, Ch2>>,
-        _ch3: Option<CapturePin<'d, T, Ch3>>,
-        _ch4: Option<CapturePin<'d, T, Ch4>>,
+    #[allow(unused)]
+    pub fn new<#[cfg(afio)] A>(
+        tim: Peri<'d, T>,
+        ch1: Option<if_afio!(CapturePin<'d, T, Ch1, A>)>,
+        ch2: Option<if_afio!(CapturePin<'d, T, Ch2, A>)>,
+        ch3: Option<if_afio!(CapturePin<'d, T, Ch3, A>)>,
+        ch4: Option<if_afio!(CapturePin<'d, T, Ch4, A>)>,
         _irq: impl Binding<T::CaptureCompareInterrupt, CaptureCompareInterruptHandler<T>> + 'd,
         freq: Hertz,
         counting_mode: CountingMode,
@@ -75,7 +54,7 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         Self::new_inner(tim, freq, counting_mode)
     }
 
-    fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz, counting_mode: CountingMode) -> Self {
+    fn new_inner(tim: Peri<'d, T>, freq: Hertz, counting_mode: CountingMode) -> Self {
         let mut this = Self { inner: Timer::new(tim) };
 
         this.inner.set_counting_mode(counting_mode);

@@ -8,7 +8,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use fixed::types::I7F1;
 
@@ -25,7 +25,7 @@ pub use crate::pac::pdm::vals::Freq as Frequency;
     feature = "_nrf91",
 ))]
 pub use crate::pac::pdm::vals::Ratio;
-use crate::{interrupt, pac, Peripheral};
+use crate::{interrupt, pac};
 
 /// Interrupt handler
 pub struct InterruptHandler<T: Instance> {
@@ -54,7 +54,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
 /// PDM microphone interface
 pub struct Pdm<'d, T: Instance> {
-    _peri: PeripheralRef<'d, T>,
+    _peri: Peri<'d, T>,
 }
 
 /// PDM error
@@ -89,24 +89,16 @@ pub enum SamplerState {
 impl<'d, T: Instance> Pdm<'d, T> {
     /// Create PDM driver
     pub fn new(
-        pdm: impl Peripheral<P = T> + 'd,
+        pdm: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        clk: impl Peripheral<P = impl GpioPin> + 'd,
-        din: impl Peripheral<P = impl GpioPin> + 'd,
+        clk: Peri<'d, impl GpioPin>,
+        din: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(pdm, clk, din);
-        Self::new_inner(pdm, clk.map_into(), din.map_into(), config)
+        Self::new_inner(pdm, clk.into(), din.into(), config)
     }
 
-    fn new_inner(
-        pdm: PeripheralRef<'d, T>,
-        clk: PeripheralRef<'d, AnyPin>,
-        din: PeripheralRef<'d, AnyPin>,
-        config: Config,
-    ) -> Self {
-        into_ref!(pdm);
-
+    fn new_inner(pdm: Peri<'d, T>, clk: Peri<'d, AnyPin>, din: Peri<'d, AnyPin>, config: Config) -> Self {
         let r = T::regs();
 
         // setup gpio pins
@@ -452,7 +444,7 @@ pub(crate) trait SealedInstance {
 
 /// PDM peripheral instance
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral
     type Interrupt: interrupt::typelevel::Interrupt;
 }

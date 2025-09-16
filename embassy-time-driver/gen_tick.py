@@ -22,6 +22,7 @@ for i in range(1, 30):
     ticks.append(10 * i * 1_000_000)
 for i in range(15, 50):
     ticks.append(20 * i * 1_000_000)
+ticks.append(133 * 1_000_000)
 
 seen = set()
 ticks = sorted([x for x in ticks if not (x in seen or seen.add(x))])

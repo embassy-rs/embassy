@@ -6,7 +6,6 @@
 #![macro_use]
 
 /// Bluetooth Low Energy Radio driver.
-pub mod ble;
 #[cfg(any(
     feature = "nrf52811",
     feature = "nrf52820",
@@ -19,11 +18,11 @@ pub mod ieee802154;
 
 use core::marker::PhantomData;
 
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
-use pac::radio::vals::State as RadioState;
 pub use pac::radio::vals::Txpower as TxPower;
 
-use crate::{interrupt, pac, Peripheral};
+use crate::{interrupt, pac};
 
 /// RADIO error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,6 +80,7 @@ macro_rules! impl_radio {
                 pac::$pac_type
             }
 
+            #[allow(unused)]
             fn state() -> &'static crate::radio::State {
                 static STATE: crate::radio::State = crate::radio::State::new();
                 &STATE
@@ -94,12 +94,7 @@ macro_rules! impl_radio {
 
 /// Radio peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
-}
-
-/// Get the state of the radio
-pub(crate) fn state(radio: pac::radio::Radio) -> RadioState {
-    radio.state().read().state()
 }

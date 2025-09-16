@@ -68,7 +68,7 @@ async fn main(spawner: Spawner) {
     static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
 
-    unwrap!(spawner.spawn(net_task(runner)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     perf_client::run(
         stack,

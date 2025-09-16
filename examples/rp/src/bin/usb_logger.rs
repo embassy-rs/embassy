@@ -25,7 +25,7 @@ async fn logger_task(driver: Driver<'static, USB>) {
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let driver = Driver::new(p.USB, Irqs);
-    spawner.spawn(logger_task(driver)).unwrap();
+    spawner.spawn(logger_task(driver).unwrap());
 
     let mut counter = 0;
     loop {

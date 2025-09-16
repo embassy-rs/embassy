@@ -34,6 +34,7 @@ impl Ord for Timer {
 }
 
 /// A timer queue with a pre-determined capacity.
+#[derive(Debug)]
 pub struct ConstGenericQueue<const QUEUE_SIZE: usize> {
     queue: Vec<Timer, QUEUE_SIZE>,
 }
@@ -119,6 +120,7 @@ const QUEUE_SIZE: usize = 128;
 const QUEUE_SIZE: usize = 64;
 
 /// A timer queue with a pre-determined capacity.
+#[derive(Debug)]
 pub struct Queue {
     queue: ConstGenericQueue<QUEUE_SIZE>,
 }

@@ -22,7 +22,7 @@ async fn main(_spawner: Spawner) {
 
     {
         let config = Config::default();
-        let mut usart = Uart::new_blocking(&mut usart, &mut rx, &mut tx, config).unwrap();
+        let mut usart = Uart::new_blocking(usart.reborrow(), rx.reborrow(), tx.reborrow(), config).unwrap();
 
         // We can't send too many bytes, they have to fit in the FIFO.
         // This is because we aren't sending+receiving at the same time.
@@ -45,7 +45,7 @@ async fn main(_spawner: Spawner) {
     // Test error handling with with an overflow error
     {
         let config = Config::default();
-        let mut usart = Uart::new_blocking(&mut usart, &mut rx, &mut tx, config).unwrap();
+        let mut usart = Uart::new_blocking(usart.reborrow(), rx.reborrow(), tx.reborrow(), config).unwrap();
 
         // Send enough bytes to fill the RX FIFOs off all USART versions.
         let data = [0; 64];
@@ -75,7 +75,7 @@ async fn main(_spawner: Spawner) {
 
         let mut config = Config::default();
         config.baudrate = baudrate;
-        let mut usart = match Uart::new_blocking(&mut usart, &mut rx, &mut tx, config) {
+        let mut usart = match Uart::new_blocking(usart.reborrow(), rx.reborrow(), tx.reborrow(), config) {
             Ok(x) => x,
             Err(ConfigError::BaudrateTooHigh) => {
                 info!("baudrate too high");

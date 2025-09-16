@@ -11,6 +11,7 @@ use embassy_embedded_hal::SetConfig;
 use embassy_futures::select::{select, Either};
 use embassy_hal_internal::drop::OnDrop;
 use embedded_hal_1::i2c::Operation;
+use mode::Master;
 
 use super::*;
 use crate::mode::Mode as PeriMode;
@@ -41,8 +42,8 @@ pub unsafe fn on_interrupt<T: Instance>() {
     });
 }
 
-impl<'d, M: PeriMode> I2c<'d, M> {
-    pub(crate) fn init(&mut self, freq: Hertz, _config: Config) {
+impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
+    pub(crate) fn init(&mut self, config: Config) {
         self.info.regs.cr1().modify(|reg| {
             reg.set_pe(false);
             //reg.set_anfoff(false);
@@ -74,7 +75,7 @@ impl<'d, M: PeriMode> I2c<'d, M> {
             reg.set_swrst(false);
         });
 
-        let timings = Timings::new(self.kernel_clock, freq);
+        let timings = Timings::new(self.kernel_clock, config.frequency);
 
         self.info.regs.cr2().modify(|reg| {
             reg.set_freq(timings.freq);
@@ -354,7 +355,7 @@ impl<'d, M: PeriMode> I2c<'d, M> {
     }
 }
 
-impl<'d> I2c<'d, Async> {
+impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     async fn write_frame(&mut self, address: u8, write: &[u8], frame: FrameOptions) -> Result<(), Error> {
         self.info.regs.cr2().modify(|w| {
             // Note: Do not enable the ITBUFEN bit in the I2C_CR2 register if DMA is used for
@@ -737,15 +738,15 @@ struct Timings {
 }
 
 impl Timings {
-    fn new(i2cclk: Hertz, speed: Hertz) -> Self {
+    fn new(i2cclk: Hertz, frequency: Hertz) -> Self {
         // Calculate settings for I2C speed modes
-        let speed = speed.0;
+        let frequency = frequency.0;
         let clock = i2cclk.0;
         let freq = clock / 1_000_000;
         assert!((2..=50).contains(&freq));
 
         // Configure bus frequency into I2C peripheral
-        let trise = if speed <= 100_000 {
+        let trise = if frequency <= 100_000 {
             freq + 1
         } else {
             (freq * 300) / 1000 + 1
@@ -756,11 +757,11 @@ impl Timings {
         let mode;
 
         // I2C clock control calculation
-        if speed <= 100_000 {
+        if frequency <= 100_000 {
             duty = Duty::Duty2_1;
             mode = Mode::Standard;
             ccr = {
-                let ccr = clock / (speed * 2);
+                let ccr = clock / (frequency * 2);
                 if ccr < 4 {
                     4
                 } else {
@@ -772,13 +773,13 @@ impl Timings {
             mode = Mode::Fast;
             if DUTYCYCLE == 0 {
                 duty = Duty::Duty2_1;
-                ccr = clock / (speed * 3);
+                ccr = clock / (frequency * 3);
                 ccr = if ccr < 1 { 1 } else { ccr };
 
                 // Set clock to fast mode with appropriate parameters for selected speed (2:1 duty cycle)
             } else {
                 duty = Duty::Duty16_9;
-                ccr = clock / (speed * 25);
+                ccr = clock / (frequency * 25);
                 ccr = if ccr < 1 { 1 } else { ccr };
 
                 // Set clock to fast mode with appropriate parameters for selected speed (16:9 duty cycle)
@@ -800,7 +801,7 @@ impl Timings {
     }
 }
 
-impl<'d, M: PeriMode> SetConfig for I2c<'d, M> {
+impl<'d, M: PeriMode> SetConfig for I2c<'d, M, Master> {
     type Config = Hertz;
     type ConfigError = ();
     fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {

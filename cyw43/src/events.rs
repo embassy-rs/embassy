@@ -296,10 +296,10 @@ pub struct Events {
 }
 
 impl Events {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             queue: EventQueue::new(),
-            mask: SharedEventMask::default(),
+            mask: SharedEventMask::new(),
         }
     }
 }
@@ -333,13 +333,18 @@ impl Message {
     }
 }
 
-#[derive(Default)]
 struct EventMask {
     mask: [u32; Self::WORD_COUNT],
 }
 
 impl EventMask {
     const WORD_COUNT: usize = ((Event::LAST as u32 + (u32::BITS - 1)) / u32::BITS) as usize;
+
+    const fn new() -> Self {
+        Self {
+            mask: [0; Self::WORD_COUNT],
+        }
+    }
 
     fn enable(&mut self, event: Event) {
         let n = event as u32;
@@ -366,13 +371,17 @@ impl EventMask {
     }
 }
 
-#[derive(Default)]
-
 pub struct SharedEventMask {
     mask: RefCell<EventMask>,
 }
 
 impl SharedEventMask {
+    pub const fn new() -> Self {
+        Self {
+            mask: RefCell::new(EventMask::new()),
+        }
+    }
+
     pub fn enable(&self, events: &[Event]) {
         let mut mask = self.mask.borrow_mut();
         for event in events {
@@ -396,5 +405,11 @@ impl SharedEventMask {
     pub fn is_enabled(&self, event: Event) -> bool {
         let mask = self.mask.borrow();
         mask.is_enabled(event)
+    }
+}
+
+impl Default for SharedEventMask {
+    fn default() -> Self {
+        Self::new()
     }
 }

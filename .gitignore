@@ -9,3 +9,4 @@ out/
 .zed
 .neoconf.json
 *.vim
+**/.idea

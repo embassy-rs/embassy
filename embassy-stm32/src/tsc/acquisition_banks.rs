@@ -32,7 +32,7 @@ impl AcquisitionBankPins {
     /// Returns an iterator over the pins in this acquisition bank.
     ///
     /// This method allows for easy traversal of all configured pins in the bank.
-    pub fn iter(&self) -> AcquisitionBankPinsIterator {
+    pub fn iter(&self) -> AcquisitionBankPinsIterator<'_> {
         AcquisitionBankPinsIterator(AcquisitionBankIterator::new(self))
     }
 }
@@ -90,7 +90,7 @@ impl<'a> Iterator for AcquisitionBankPinsIterator<'a> {
 
 impl AcquisitionBankPins {
     /// Returns an iterator over the available pins in the bank
-    pub fn pins_iterator(&self) -> AcquisitionBankPinsIterator {
+    pub fn pins_iterator(&self) -> AcquisitionBankPinsIterator<'_> {
         AcquisitionBankPinsIterator(AcquisitionBankIterator::new(self))
     }
 }
@@ -107,7 +107,7 @@ pub struct AcquisitionBank {
 
 impl AcquisitionBank {
     /// Returns an iterator over the available pins in the bank.
-    pub fn pins_iterator(&self) -> AcquisitionBankPinsIterator {
+    pub fn pins_iterator(&self) -> AcquisitionBankPinsIterator<'_> {
         self.pins.pins_iterator()
     }
 

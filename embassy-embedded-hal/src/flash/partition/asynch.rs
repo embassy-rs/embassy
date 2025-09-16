@@ -1,7 +1,7 @@
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::mutex::Mutex;
 use embedded_storage::nor_flash::ErrorType;
-use embedded_storage_async::nor_flash::{NorFlash, ReadNorFlash};
+use embedded_storage_async::nor_flash::{MultiwriteNorFlash, NorFlash, ReadNorFlash};
 
 use super::Error;
 
@@ -98,6 +98,8 @@ impl<M: RawMutex, T: NorFlash> NorFlash for Partition<'_, M, T> {
             .map_err(Error::Flash)
     }
 }
+
+impl<M: RawMutex, T: MultiwriteNorFlash> MultiwriteNorFlash for Partition<'_, M, T> {}
 
 #[cfg(test)]
 mod tests {
