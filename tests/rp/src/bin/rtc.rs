@@ -36,6 +36,7 @@ async fn main(_spawner: Spawner) {
             second: 0,
         };
         rtc.set_datetime(now).unwrap();
+        Timer::after_millis(100).await;
     }
 
     // Test 1: Basic RTC functionality - read current time
@@ -53,8 +54,18 @@ async fn main(_spawner: Spawner) {
     // Test 2: Schedule and wait for alarm
     info!("Testing alarm scheduling");
 
-    // Schedule alarm for 3 seconds from now
-    let alarm_second = (initial_time.second + 3) % 60;
+    // Wait until we're at a predictable second, then schedule for a future second
+    loop {
+        let current = rtc.now().unwrap();
+        if current.second <= 55 {
+            break;
+        }
+        Timer::after_millis(100).await;
+    }
+
+    // Now schedule alarm for 3 seconds from current time
+    let current_time = rtc.now().unwrap();
+    let alarm_second = (current_time.second + 3) % 60;
     let alarm_filter = DateTimeFilter::default().second(alarm_second);
 
     info!("Scheduling alarm for second: {}", alarm_second);
@@ -69,13 +80,13 @@ async fn main(_spawner: Spawner) {
     let alarm_start = Instant::now();
     match select(Timer::after_secs(5), rtc.wait_for_alarm()).await {
         Either::First(_) => {
-            core::panic!("Alarm timeout - alarm should have triggered within 5 seconds");
+            core::panic!("Alarm timeout - alarm should have triggered by now");
         }
         Either::Second(_) => {
             let alarm_duration = Instant::now() - alarm_start;
             info!("ALARM TRIGGERED after {:?}", alarm_duration);
 
-            // Verify timing is reasonable (should be around 3 seconds, allow some margin)
+            // Verify timing is reasonable (should be around 3 seconds)
             assert!(
                 alarm_duration >= Duration::from_secs(2) && alarm_duration <= Duration::from_secs(4),
                 "Alarm timing incorrect: {:?}",
@@ -107,6 +118,7 @@ async fn main(_spawner: Spawner) {
         post_alarm_scheduled.is_none(),
         "Alarm should not be scheduled after triggering"
     );
+    info!("Alarm correctly cleared after triggering");
 
     info!("Test OK");
     cortex_m::asm::bkpt();
