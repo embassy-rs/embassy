@@ -282,25 +282,27 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
     /// Create a new QSPI driver for bank 1, in blocking mode.
     pub fn new_blocking_bank1(
         peri: Peri<'d, T>,
-        d0: Peri<'d, impl BK1D0Pin<T>>,
-        d1: Peri<'d, impl BK1D1Pin<T>>,
-        d2: Peri<'d, impl BK1D2Pin<T>>,
-        d3: Peri<'d, impl BK1D3Pin<T>>,
-        sck: Peri<'d, impl SckPin<T>>,
-        nss: Peri<'d, impl BK1NSSPin<T>>,
+        d0: Option<Peri<'d, impl BK1D0Pin<T>>>,
+        d1: Option<Peri<'d, impl BK1D1Pin<T>>>,
+        d2: Option<Peri<'d, impl BK1D2Pin<T>>>,
+        d3: Option<Peri<'d, impl BK1D3Pin<T>>>,
+        sck: Option<Peri<'d, impl SckPin<T>>>,
+        nss: Option<Peri<'d, impl BK1NSSPin<T>>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(d1, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(d2, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(d3, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(sck, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(
-                nss,
-                AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
-            ),
+            d0.and_then(|pin| new_pin!(pin, AfType::output(OutputType::PushPull, config.gpio_speed))),
+            d1.and_then(|pin| new_pin!(pin, AfType::output(OutputType::PushPull, config.gpio_speed))),
+            d2.and_then(|pin| new_pin!(pin, AfType::output(OutputType::PushPull, config.gpio_speed))),
+            d3.and_then(|pin| new_pin!(pin, AfType::output(OutputType::PushPull, config.gpio_speed))),
+            sck.and_then(|pin| new_pin!(pin, AfType::output(OutputType::PushPull, config.gpio_speed))),
+            nss.and_then(|pin| {
+                new_pin!(
+                    pin,
+                    AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
+                )
+            }),
             None,
             config,
             FlashSelection::Flash1,
@@ -310,25 +312,27 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
     /// Create a new QSPI driver for bank 2, in blocking mode.
     pub fn new_blocking_bank2(
         peri: Peri<'d, T>,
-        d0: Peri<'d, impl BK2D0Pin<T>>,
-        d1: Peri<'d, impl BK2D1Pin<T>>,
-        d2: Peri<'d, impl BK2D2Pin<T>>,
-        d3: Peri<'d, impl BK2D3Pin<T>>,
-        sck: Peri<'d, impl SckPin<T>>,
-        nss: Peri<'d, impl BK2NSSPin<T>>,
+        d0: Option<Peri<'d, impl BK2D0Pin<T>>>,
+        d1: Option<Peri<'d, impl BK2D1Pin<T>>>,
+        d2: Option<Peri<'d, impl BK2D2Pin<T>>>,
+        d3: Option<Peri<'d, impl BK2D3Pin<T>>>,
+        sck: Option<Peri<'d, impl SckPin<T>>>,
+        nss: Option<Peri<'d, impl BK2NSSPin<T>>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(d1, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(d2, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(d3, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(sck, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(
-                nss,
-                AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
-            ),
+            d0.and_then(|pin| new_pin!(pin, AfType::output(OutputType::PushPull, config.gpio_speed))),
+            d1.and_then(|pin| new_pin!(pin, AfType::output(OutputType::PushPull, config.gpio_speed))),
+            d2.and_then(|pin| new_pin!(pin, AfType::output(OutputType::PushPull, config.gpio_speed))),
+            d3.and_then(|pin| new_pin!(pin, AfType::output(OutputType::PushPull, config.gpio_speed))),
+            sck.and_then(|pin| new_pin!(pin, AfType::output(OutputType::PushPull, config.gpio_speed))),
+            nss.and_then(|pin| {
+                new_pin!(
+                    pin,
+                    AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
+                )
+            }),
             None,
             config,
             FlashSelection::Flash2,
@@ -340,26 +344,28 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
     /// Create a new QSPI driver for bank 1.
     pub fn new_bank1(
         peri: Peri<'d, T>,
-        d0: Peri<'d, impl BK1D0Pin<T>>,
-        d1: Peri<'d, impl BK1D1Pin<T>>,
-        d2: Peri<'d, impl BK1D2Pin<T>>,
-        d3: Peri<'d, impl BK1D3Pin<T>>,
-        sck: Peri<'d, impl SckPin<T>>,
-        nss: Peri<'d, impl BK1NSSPin<T>>,
+        d0: Option<Peri<'d, impl BK1D0Pin<T>>>,
+        d1: Option<Peri<'d, impl BK1D1Pin<T>>>,
+        d2: Option<Peri<'d, impl BK1D2Pin<T>>>,
+        d3: Option<Peri<'d, impl BK1D3Pin<T>>>,
+        sck: Option<Peri<'d, impl SckPin<T>>>,
+        nss: Option<Peri<'d, impl BK1NSSPin<T>>>,
         dma: Peri<'d, impl QuadDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(d1, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(d2, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(d3, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(sck, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(
-                nss,
-                AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
-            ),
+            d0.and_then(|pin| new_pin!(pin, AfType::output(OutputType::PushPull, config.gpio_speed))),
+            d1.and_then(|pin| new_pin!(pin, AfType::output(OutputType::PushPull, config.gpio_speed))),
+            d2.and_then(|pin| new_pin!(pin, AfType::output(OutputType::PushPull, config.gpio_speed))),
+            d3.and_then(|pin| new_pin!(pin, AfType::output(OutputType::PushPull, config.gpio_speed))),
+            sck.and_then(|pin| new_pin!(pin, AfType::output(OutputType::PushPull, config.gpio_speed))),
+            nss.and_then(|pin| {
+                new_pin!(
+                    pin,
+                    AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
+                )
+            }),
             new_dma!(dma),
             config,
             FlashSelection::Flash1,
@@ -369,26 +375,28 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
     /// Create a new QSPI driver for bank 2.
     pub fn new_bank2(
         peri: Peri<'d, T>,
-        d0: Peri<'d, impl BK2D0Pin<T>>,
-        d1: Peri<'d, impl BK2D1Pin<T>>,
-        d2: Peri<'d, impl BK2D2Pin<T>>,
-        d3: Peri<'d, impl BK2D3Pin<T>>,
-        sck: Peri<'d, impl SckPin<T>>,
-        nss: Peri<'d, impl BK2NSSPin<T>>,
+        d0: Option<Peri<'d, impl BK2D0Pin<T>>>,
+        d1: Option<Peri<'d, impl BK2D1Pin<T>>>,
+        d2: Option<Peri<'d, impl BK2D2Pin<T>>>,
+        d3: Option<Peri<'d, impl BK2D3Pin<T>>>,
+        sck: Option<Peri<'d, impl SckPin<T>>>,
+        nss: Option<Peri<'d, impl BK2NSSPin<T>>>,
         dma: Peri<'d, impl QuadDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
             peri,
-            new_pin!(d0, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(d1, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(d2, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(d3, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(sck, AfType::output(OutputType::PushPull, config.gpio_speed)),
-            new_pin!(
-                nss,
-                AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
-            ),
+            d0.and_then(|pin| new_pin!(pin, AfType::output(OutputType::PushPull, config.gpio_speed))),
+            d1.and_then(|pin| new_pin!(pin, AfType::output(OutputType::PushPull, config.gpio_speed))),
+            d2.and_then(|pin| new_pin!(pin, AfType::output(OutputType::PushPull, config.gpio_speed))),
+            d3.and_then(|pin| new_pin!(pin, AfType::output(OutputType::PushPull, config.gpio_speed))),
+            sck.and_then(|pin| new_pin!(pin, AfType::output(OutputType::PushPull, config.gpio_speed))),
+            nss.and_then(|pin| {
+                new_pin!(
+                    pin,
+                    AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
+                )
+            }),
             new_dma!(dma),
             config,
             FlashSelection::Flash2,
