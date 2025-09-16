@@ -6,13 +6,6 @@
 #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 
 #[cfg(not(any(
-    feature = "cec1712h_b2_sx",
-    feature = "cec1712h_n2_sx",
-    feature = "cec1712h_s2_sx",
-    feature = "cec1734_s0_2hw",
-    feature = "cec1734_s0_2zw",
-    feature = "cec1736_s0_2hw",
-    feature = "cec1736_s0_2zw",
     feature = "mec1721n_b0_lj",
     feature = "mec1721n_b0_sz",
     feature = "mec1723n_b0_lj",
@@ -26,13 +19,6 @@
 )))]
 compile_error!(
     "No chip feature activated. You must activate exactcly one of the following features:
-    cec1712h_b2_sx,
-    cec1712h_n2_sx,
-    cec1712h_s2_sx,
-    cec1734_s0_2hw,
-    cec1734_s0_2zw,
-    cec1736_s0_2hw,
-    cec1736_s0_2zw,
     mec1721n_b0_lj,
     mec1721n_b0_sz,
     mec1723n_b0_lj,
@@ -114,7 +100,6 @@ embassy_hal_internal::interrupt_mod!(
     DMA_CH13,
     DMA_CH14,
     DMA_CH15,
-    EEPROM,
     EMI0,
     EMI1,
     EMI2,

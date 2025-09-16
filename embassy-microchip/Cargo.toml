@@ -9,10 +9,28 @@ categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-microchip"
 
+# TODO: Remove to publish initial version
+publish = false
+
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mec1721n_b0_lj", "rt", "time-driver-cct", "unstable-pac"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mec1721n_b0_sz", "rt", "time-driver-cct", "unstable-pac"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mec1723n_b0_lj", "rt", "time-driver-cct", "unstable-pac"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mec1723n_b0_sz", "rt", "time-driver-cct", "unstable-pac"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mec1723n_f0_sz", "rt", "time-driver-cct", "unstable-pac"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mec1723n_p0_9y", "rt", "time-driver-cct", "unstable-pac"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mec1724n_b0_lj", "rt", "time-driver-cct", "unstable-pac"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mec1724n_b0_sz", "rt", "time-driver-cct", "unstable-pac"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mec1725n_b0_lj", "rt", "time-driver-cct", "unstable-pac"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mec1727n_b0_sz", "rt", "time-driver-cct", "unstable-pac"]},
+]
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-microchip-v$VERSION/embassy-microchip/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-microchip/src/"
-features = ["defmt", "unstable-pac"]
+
+features = ["mec1723n_b0_sz", "defmt", "unstable-pac", "time-driver-cct"]
 flavors = [
     { regex_feature = ".*", target = "thumbv7em-none-eabihf" }
 ]
@@ -41,27 +59,6 @@ time-driver-cct = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-48_0
 
 
 #! ### Chip selection features
-## CEC1712H_B2_SX
-cec1712h_b2_sx = ["mec17xx-pac/cec1712h_b2_sx"]
-
-## CEC1712H_N2_SX
-cec1712h_n2_sx = ["mec17xx-pac/cec1712h_n2_sx"]
-
-## CEC1712H_S2_SX
-cec1712h_s2_sx = ["mec17xx-pac/cec1712h_s2_sx"]
-
-## CEC1734_S0_2HW
-cec1734_s0_2hw = ["mec17xx-pac/cec1734_s0_2hw"]
-
-## CEC1734_S0_2ZW
-cec1734_s0_2zw = ["mec17xx-pac/cec1734_s0_2zw"]
-
-## CEC1736_S0_2HW
-cec1736_s0_2hw = ["mec17xx-pac/cec1736_s0_2hw"]
-
-## CEC1736_S0_2ZW
-cec1736_s0_2zw = ["mec17xx-pac/cec1736_s0_2zw"]
-
 ## MEC1721N_B0_LJ
 mec1721n_b0_lj = ["mec17xx-pac/mec1721n_b0_sz"]
 
@@ -117,4 +114,4 @@ embedded-hal-nb = { version = "1.0" }
 document-features = "0.2.11"
 
 # PAC
-mec17xx-pac = "0.1.2"
+mec17xx-pac = { version = "0.1.2", default-features = false }
