@@ -56,6 +56,9 @@ _generic-queue = []
 build = [
     {target = "thumbv6m-none-eabi", features = []},
     {target = "thumbv6m-none-eabi", features = ["generic-queue-8"]},
+    # Xtensa builds
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s2-none-elf", features = []},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s2-none-elf", features = ["generic-queue-8"]},
 ]
 
 [package.metadata.embassy_docs]

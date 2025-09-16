@@ -2,6 +2,10 @@
 
 Here are known examples of real-world projects which make use of Embassy. Feel free to link:https://github.com/embassy-rs/embassy/blob/main/docs/pages/embassy_in_the_wild.adoc[add more]!
 
+_newer entries at the top_
+
+* link:https://github.com/CarlKCarlK/clock[Embassy Clock: Layered, modular bare-metal clock with emulation]
+** A `no_std` Raspberry Pi Pico clock demonstrating layered Embassy tasks (Display->Blinker->Clock) for clean separation of multiplexing, blinking, and UI logic. Features single-button HH:MM/MM:SS time-set UI, heapless data structures, and a Renode emulator for hardware-free testing. See link:https://medium.com/@carlmkadie/how-rust-embassy-shine-on-embedded-devices-part-2-aad1adfccf72[this article] for details.
 * link:https://github.com/1-rafael-1/simple-robot[A simple tracked robot based on Raspberry Pi Pico 2]
 ** A hobbyist project building a tracked robot with basic autonomous and manual drive mode.
 * link:https://github.com/1-rafael-1/pi-pico-alarmclock-rust[A Raspberry Pi Pico W Alarmclock]

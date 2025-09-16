@@ -23,6 +23,7 @@ use crate::{peripherals, Peri};
 
 /// OPSI driver config.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
     /// Fifo threshold used by the peripheral to generate the interrupt indicating data
     /// or space is available in the FIFO
@@ -30,7 +31,9 @@ pub struct Config {
     /// Indicates the type of external device connected
     pub memory_type: MemoryType, // Need to add an additional enum to provide this public interface
     /// Defines the size of the external device connected to the OSPI corresponding
-    /// to the number of address bits required to access the device
+    /// to the number of address bits required to access the device.
+    /// When using indirect mode, [`TransferConfig::address`] + the length of the data being read
+    /// or written must fit within the configured `device_size`, otherwise an error is returned.
     pub device_size: MemorySize,
     /// Sets the minimum number of clock cycles that the chip select signal must be held high
     /// between commands
@@ -83,6 +86,8 @@ impl Default for Config {
 }
 
 /// OSPI transfer configuration.
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TransferConfig {
     /// Instruction width (IMODE)
     pub iwidth: OspiWidth,
@@ -92,10 +97,11 @@ pub struct TransferConfig {
     pub isize: AddressSize,
     /// Instruction Double Transfer rate enable
     pub idtr: bool,
-
     /// Address width (ADMODE)
     pub adwidth: OspiWidth,
-    /// Device memory address
+    /// Device memory address.
+    /// In indirect mode, this value + the length of the data being read or written must be within
+    /// configured [`Config::device_size`], otherwise the transfer returns an error.
     pub address: Option<u32>,
     /// Number of Address Bytes
     pub adsize: AddressSize,
@@ -113,7 +119,7 @@ pub struct TransferConfig {
 
     /// Data width (DMODE)
     pub dwidth: OspiWidth,
-    /// Data buffer
+    /// Data Double Transfer rate enable
     pub ddtr: bool,
 
     /// Number of dummy cycles (DCYC)
@@ -451,11 +457,6 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         // Configure alternate bytes
         if let Some(ab) = command.alternate_bytes {
             T::REGS.abr().write(|v| v.set_alternate(ab));
-            T::REGS.ccr().modify(|w| {
-                w.set_abmode(PhaseMode::from_bits(command.abwidth.into()));
-                w.set_abdtr(command.abdtr);
-                w.set_absize(SizeInBits::from_bits(command.absize.into()));
-            })
         }
 
         // Configure dummy cycles
@@ -467,14 +468,14 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         if let Some(data_length) = data_len {
             T::REGS.dlr().write(|v| {
                 v.set_dl((data_length - 1) as u32);
-            })
+            });
         } else {
             T::REGS.dlr().write(|v| {
                 v.set_dl((0) as u32);
-            })
+            });
         }
 
-        // Configure instruction/address/data/communication modes
+        // Configure instruction/address/alternate bytes/data/communication modes
         T::REGS.ccr().modify(|w| {
             w.set_imode(PhaseMode::from_bits(command.iwidth.into()));
             w.set_idtr(command.idtr);
@@ -484,6 +485,10 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
             w.set_addtr(command.addtr);
             w.set_adsize(SizeInBits::from_bits(command.adsize.into()));
 
+            w.set_abmode(PhaseMode::from_bits(command.abwidth.into()));
+            w.set_abdtr(command.abdtr);
+            w.set_absize(SizeInBits::from_bits(command.absize.into()));
+
             w.set_dmode(PhaseMode::from_bits(command.dwidth.into()));
             w.set_ddtr(command.ddtr);
 
@@ -491,7 +496,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
             w.set_sioo(command.sioo);
         });
 
-        // Set informationrequired to initiate transaction
+        // Set information required to initiate transaction
         if let Some(instruction) = command.instruction {
             if let Some(address) = command.address {
                 T::REGS.ir().write(|v| {
@@ -524,6 +529,18 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
                 // The only single phase transaction supported is instruction only
                 return Err(OspiError::InvalidCommand);
             }
+        }
+
+        // The following errors set the TEF flag in OCTOSPI_SR register:
+        // - in indirect or automatic status-polling mode, when a wrong address has been programmed
+        //   in OCTOSPI_AR (according to the device size defined by DEVSIZE[4:0])
+        // - in indirect mode, if the address plus the data length exceed the device size: TEF is
+        // set as soon as the access is triggered.
+        if T::REGS.sr().read().tef() {
+            // Clear the TEF register to make it ready for the next transfer.
+            T::REGS.fcr().write(|w| w.set_ctef(true));
+
+            return Err(OspiError::InvalidCommand);
         }
 
         Ok(())
@@ -1181,16 +1198,19 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
             .cr()
             .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_WRITE));
 
-        let transfer = unsafe {
-            self.dma
-                .as_mut()
-                .unwrap()
-                .write(buf, T::REGS.dr().as_ptr() as *mut W, Default::default())
-        };
+        // TODO: implement this using a LinkedList DMA to offload the whole transfer off the CPU.
+        for chunk in buf.chunks(0xFFFF) {
+            let transfer = unsafe {
+                self.dma
+                    .as_mut()
+                    .unwrap()
+                    .write(chunk, T::REGS.dr().as_ptr() as *mut W, Default::default())
+            };
 
-        T::REGS.cr().modify(|w| w.set_dmaen(true));
+            T::REGS.cr().modify(|w| w.set_dmaen(true));
 
-        transfer.blocking_wait();
+            transfer.blocking_wait();
+        }
 
         finish_dma(T::REGS);
 
@@ -1251,16 +1271,19 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
             .cr()
             .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_WRITE));
 
-        let transfer = unsafe {
-            self.dma
-                .as_mut()
-                .unwrap()
-                .write(buf, T::REGS.dr().as_ptr() as *mut W, Default::default())
-        };
+        // TODO: implement this using a LinkedList DMA to offload the whole transfer off the CPU.
+        for chunk in buf.chunks(0xFFFF) {
+            let transfer = unsafe {
+                self.dma
+                    .as_mut()
+                    .unwrap()
+                    .write(chunk, T::REGS.dr().as_ptr() as *mut W, Default::default())
+            };
 
-        T::REGS.cr().modify(|w| w.set_dmaen(true));
+            T::REGS.cr().modify(|w| w.set_dmaen(true));
 
-        transfer.await;
+            transfer.await;
+        }
 
         finish_dma(T::REGS);
 
