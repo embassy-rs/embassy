@@ -52,6 +52,8 @@ pub(crate) mod fmt;
 pub mod gpio;
 pub mod i2c;
 pub mod pwm;
+
+#[cfg(feature = "time-driver-cct")]
 pub mod time_driver;
 
 // Reexports
@@ -528,6 +530,8 @@ pub fn init(_config: config::Config) -> Peripherals {
         cortex_m::interrupt::enable();
         gpio::init();
     }
+
+    #[cfg(feature = "time-driver-cct")]
     time_driver::init();
 
     peripherals
