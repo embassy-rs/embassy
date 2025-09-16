@@ -15,10 +15,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add I2S support for STM32F1, STM32C0, STM32F0, STM32F3, STM32F7, STM32G0, STM32WL, STM32H5, STM32H7RS
 - fix: STM32: Prevent dropped DacChannel from disabling Dac peripheral if another DacChannel is still in scope ([#4577](https://github.com/embassy-rs/embassy/pull/4577))
 - feat: Added support for more OctoSPI configurations (e.g. APS6408 RAM) ([#4581](https://github.com/embassy-rs/embassy/pull/4581))
+- feat: More ADC enums for g0 PAC, API change for over sampling, allow separate sample times
 
 ## 0.4.0 - 2025-08-26
 
-- feat: stm32/sai: make NODIV independent of MCKDIV 
+- feat: stm32/sai: make NODIV independent of MCKDIV
 - fix: stm32/sai: fix WB MCKDIV
 - fix: stm32/i2c: pull-down was enabled instead of pull-none when no internal pull-up was needed.
 - feat: Improve blocking hash speed
@@ -97,24 +98,25 @@ For peripherals, both pins and DMA channels have been eliminated. Peripherals no
 ### More complete and consistent RCC
 
 RCC support has been vastly expanded and improved.
+
 - The API is now consistent across all STM32 families. Previously in some families you'd configure the desired target frequencies for `sysclk` and the buses and `embassy-stm32` would try to calculate dividers and muxes to hit them as close as possible. This has proved to be intractable in the general case and hard to extend to more exotic RCC configurations. So, we have standardized on an API where the user specifies the settings for dividers and muxes directly. It's lower level but gices more control to the user, supports all edge case exotic configurations, and makes it easier to translate a configuration from the STM32CubeMX tool. ([Tracking issue](https://github.com/embassy-rs/embassy/issues/2515). [#2624](https://github.com/embassy-rs/embassy/pull/2624). F0, F1 [#2564](https://github.com/embassy-rs/embassy/pull/2564), F3 [#2560](https://github.com/embassy-rs/embassy/pull/2560), U5 [#2617](https://github.com/embassy-rs/embassy/pull/2617), [#3514](https://github.com/embassy-rs/embassy/pull/3514), [#3513](https://github.com/embassy-rs/embassy/pull/3513), G4 [#2579](https://github.com/embassy-rs/embassy/pull/2579), [#2618](https://github.com/embassy-rs/embassy/pull/2618), WBA [#2520](https://github.com/embassy-rs/embassy/pull/2520), G0, C0 ([#2656](https://github.com/embassy-rs/embassy/pull/2656)).
 - Added support for configuring all per-peripheral clock muxes (CCIPRx, DCKCFGRx registers) in `config.rcc.mux`. This was previously handled in an ad-hoc way in some drivers (e.g. USB) and not at all in others (causing e.g. wrong SPI frequency) ([#2521](https://github.com/embassy-rs/embassy/pull/2521), [#2583](https://github.com/embassy-rs/embassy/pull/2583), [#2634](https://github.com/embassy-rs/embassy/pull/2634), [#2626](https://github.com/embassy-rs/embassy/pull/2626), [#2815](https://github.com/embassy-rs/embassy/pull/2815), [#2517](https://github.com/embassy-rs/embassy/pull/2517)).
 - Switch to a safe configuration before configuring RCC. This helps avoid crashes when RCC has been already configured previously (for example by a bootloader). (F2, F4, F7 [#2829](https://github.com/embassy-rs/embassy/pull/2829), C0, F0, F1, F3, G0, G4, H5, H7[#3008](https://github.com/embassy-rs/embassy/pull/3008))
 - Some new nice features:
-    - Expose RCC enable and disable in public API. ([#2807](https://github.com/embassy-rs/embassy/pull/2807))
-    - Add `unchecked-overclocking` feature that disables all asserts, allowing running RCC out of spec. ([#3574](https://github.com/embassy-rs/embassy/pull/3574))
+  - Expose RCC enable and disable in public API. ([#2807](https://github.com/embassy-rs/embassy/pull/2807))
+  - Add `unchecked-overclocking` feature that disables all asserts, allowing running RCC out of spec. ([#3574](https://github.com/embassy-rs/embassy/pull/3574))
 - Many fixes:
-    - Workaround H5 errata that accidentally clears RAM on backup domain reset. ([#2616](https://github.com/embassy-rs/embassy/pull/2616))
-    - Reset RTC on L0 ([#2597](https://github.com/embassy-rs/embassy/pull/2597))
-    - Fix H7 to use correct unit in vco clock check ([#2537](https://github.com/embassy-rs/embassy/pull/2537))
-    - Fix incorrect D1CPRE max for STM32H7 RM0468 ([#2518](https://github.com/embassy-rs/embassy/pull/2518))
-    - WBA's high speed external clock has to run at 32 MHz ([#2511](https://github.com/embassy-rs/embassy/pull/2511))
-    - Take into account clock propagation delay to peripherals after enabling a clock. ([#2677](https://github.com/embassy-rs/embassy/pull/2677))
-    - Fix crash caused by using higher MSI range as sysclk on STM32WL ([#2786](https://github.com/embassy-rs/embassy/pull/2786))
-    - fix using HSI48 as SYSCLK on F0 devices with CRS ([#3652](https://github.com/embassy-rs/embassy/pull/3652))
-    - compute LSE and LSI frequency for STM32L and STM32U0 series ([#3554](https://github.com/embassy-rs/embassy/pull/3554))
-    - Add support for LSESYS, used to pass LSE clock to peripherals ([#3518](https://github.com/embassy-rs/embassy/pull/3518))
-    - H5: LSE low drive mode is not functional ([#2738](https://github.com/embassy-rs/embassy/pull/2738))
+  - Workaround H5 errata that accidentally clears RAM on backup domain reset. ([#2616](https://github.com/embassy-rs/embassy/pull/2616))
+  - Reset RTC on L0 ([#2597](https://github.com/embassy-rs/embassy/pull/2597))
+  - Fix H7 to use correct unit in vco clock check ([#2537](https://github.com/embassy-rs/embassy/pull/2537))
+  - Fix incorrect D1CPRE max for STM32H7 RM0468 ([#2518](https://github.com/embassy-rs/embassy/pull/2518))
+  - WBA's high speed external clock has to run at 32 MHz ([#2511](https://github.com/embassy-rs/embassy/pull/2511))
+  - Take into account clock propagation delay to peripherals after enabling a clock. ([#2677](https://github.com/embassy-rs/embassy/pull/2677))
+  - Fix crash caused by using higher MSI range as sysclk on STM32WL ([#2786](https://github.com/embassy-rs/embassy/pull/2786))
+  - fix using HSI48 as SYSCLK on F0 devices with CRS ([#3652](https://github.com/embassy-rs/embassy/pull/3652))
+  - compute LSE and LSI frequency for STM32L and STM32U0 series ([#3554](https://github.com/embassy-rs/embassy/pull/3554))
+  - Add support for LSESYS, used to pass LSE clock to peripherals ([#3518](https://github.com/embassy-rs/embassy/pull/3518))
+  - H5: LSE low drive mode is not functional ([#2738](https://github.com/embassy-rs/embassy/pull/2738))
 
 ### New peripheral drivers
 
@@ -134,6 +136,7 @@ RCC support has been vastly expanded and improved.
 ### Improvements to existing drivers
 
 GPIO:
+
 - Generate singletons only for pins that actually exist. ([#3738](https://github.com/embassy-rs/embassy/pull/3738))
 - Add `set_as_analog` to Flex ([#3017](https://github.com/embassy-rs/embassy/pull/3017))
 - Add `embedded-hal` v0.2 `InputPin` impls for `OutputOpenDrain`. ([#2716](https://github.com/embassy-rs/embassy/pull/2716))
@@ -142,6 +145,7 @@ GPIO:
 - Gpiov1: Do not call set_speed for AFType::Input ([#2996](https://github.com/embassy-rs/embassy/pull/2996))
 
 UART:
+
 - Add embedded-io impls ([#2739](https://github.com/embassy-rs/embassy/pull/2739))
 - Add support for changing baud rate ([#3512](https://github.com/embassy-rs/embassy/pull/3512))
 - Add split_ref ([#3500](https://github.com/embassy-rs/embassy/pull/3500))
@@ -151,21 +155,22 @@ UART:
 - Add support for sending breaks ([#3286](https://github.com/embassy-rs/embassy/pull/3286))
 - Disconnect pins on drop ([#3006](https://github.com/embassy-rs/embassy/pull/3006))
 - Half-duplex improvements
-    - Add half-duplex for all USART versions ([#2833](https://github.com/embassy-rs/embassy/pull/2833))
-    - configurable readback for half-duplex. ([#3679](https://github.com/embassy-rs/embassy/pull/3679))
-    - Convert uart half_duplex to use user configurable IO ([#3233](https://github.com/embassy-rs/embassy/pull/3233))
-    - Fix uart::flush with FIFO at Half-Duplex mode ([#2895](https://github.com/embassy-rs/embassy/pull/2895))
-    - Fix Half-Duplex sequential reads and writes ([#3089](https://github.com/embassy-rs/embassy/pull/3089))
-    - disable transmitter during during half-duplex flush ([#3299](https://github.com/embassy-rs/embassy/pull/3299))
+  - Add half-duplex for all USART versions ([#2833](https://github.com/embassy-rs/embassy/pull/2833))
+  - configurable readback for half-duplex. ([#3679](https://github.com/embassy-rs/embassy/pull/3679))
+  - Convert uart half_duplex to use user configurable IO ([#3233](https://github.com/embassy-rs/embassy/pull/3233))
+  - Fix uart::flush with FIFO at Half-Duplex mode ([#2895](https://github.com/embassy-rs/embassy/pull/2895))
+  - Fix Half-Duplex sequential reads and writes ([#3089](https://github.com/embassy-rs/embassy/pull/3089))
+  - disable transmitter during during half-duplex flush ([#3299](https://github.com/embassy-rs/embassy/pull/3299))
 - Buffered UART improvements
-    - Add embedded-io ReadReady impls ([#3179](https://github.com/embassy-rs/embassy/pull/3179), [#3451](https://github.com/embassy-rs/embassy/pull/3451))
-    - Add constructors for RS485 ([#3441](https://github.com/embassy-rs/embassy/pull/3441))
-    - Fix RingBufferedUartRx hard-resetting DMA after initial error ([#3356](https://github.com/embassy-rs/embassy/pull/3356))
-    - Don't teardown during reconfigure ([#2989](https://github.com/embassy-rs/embassy/pull/2989))
-    - Wake receive task for each received byte ([#2722](https://github.com/embassy-rs/embassy/pull/2722))
-    - Fix dma and idle line detection in ringbuffereduartrx ([#3319](https://github.com/embassy-rs/embassy/pull/3319))
+  - Add embedded-io ReadReady impls ([#3179](https://github.com/embassy-rs/embassy/pull/3179), [#3451](https://github.com/embassy-rs/embassy/pull/3451))
+  - Add constructors for RS485 ([#3441](https://github.com/embassy-rs/embassy/pull/3441))
+  - Fix RingBufferedUartRx hard-resetting DMA after initial error ([#3356](https://github.com/embassy-rs/embassy/pull/3356))
+  - Don't teardown during reconfigure ([#2989](https://github.com/embassy-rs/embassy/pull/2989))
+  - Wake receive task for each received byte ([#2722](https://github.com/embassy-rs/embassy/pull/2722))
+  - Fix dma and idle line detection in ringbuffereduartrx ([#3319](https://github.com/embassy-rs/embassy/pull/3319))
 
 SPI:
+
 - Add MISO pullup configuration option ([#2943](https://github.com/embassy-rs/embassy/pull/2943))
 - Add slew rate configuration options ([#3669](https://github.com/embassy-rs/embassy/pull/3669))
 - Fix blocking_write on nosck spi. ([#3035](https://github.com/embassy-rs/embassy/pull/3035))
@@ -175,6 +180,7 @@ SPI:
 - Add proper rxonly support for spi_v3 and force tx dma stream requirements. ([#3007](https://github.com/embassy-rs/embassy/pull/3007))
 
 I2C:
+
 - Implement asynchronous transactions ([#2742](https://github.com/embassy-rs/embassy/pull/2742))
 - Implement blocking transactions ([#2713](https://github.com/embassy-rs/embassy/pull/2713))
 - Disconnect pins on drop ([#3006](https://github.com/embassy-rs/embassy/pull/3006))
@@ -183,6 +189,7 @@ I2C:
 - Fix disabling pullup accidentally enabling pulldown ([#3410](https://github.com/embassy-rs/embassy/pull/3410))
 
 Flash:
+
 - Add L5 support ([#3423](https://github.com/embassy-rs/embassy/pull/3423))
 - Add H5 support ([#3305](https://github.com/embassy-rs/embassy/pull/3305))
 - add F2 support ([#3303](https://github.com/embassy-rs/embassy/pull/3303))
@@ -194,6 +201,7 @@ Flash:
 - H7: enhance resilience to program sequence errors (pgserr) ([#2539](https://github.com/embassy-rs/embassy/pull/2539))
 
 ADC:
+
 - Add `AnyAdcChannel` type. You can obtain it from a pin with `.degrade_adc()`. Useful for making arrays of ADC pins. ([#2985](https://github.com/embassy-rs/embassy/pull/2985))
 - Add L0 support ([#2544](https://github.com/embassy-rs/embassy/pull/2544))
 - Add U5 support ([#3688](https://github.com/embassy-rs/embassy/pull/3688))
@@ -213,14 +221,17 @@ ADC:
 - F2 ADC fixes ([#2513](https://github.com/embassy-rs/embassy/pull/2513))
 
 DAC:
+
 - Fix new_internal not setting mode as documented ([#2886](https://github.com/embassy-rs/embassy/pull/2886))
 
 OPAMP:
+
 - Add missing opamp external outputs for STM32G4 ([#3636](https://github.com/embassy-rs/embassy/pull/3636))
 - Add extra lifetime to opamp-using structs ([#3207](https://github.com/embassy-rs/embassy/pull/3207))
 - Make OpAmp usable in follower configuration for internal DAC channel ([#3021](https://github.com/embassy-rs/embassy/pull/3021))
 
 CAN:
+
 - Add FDCAN support. ([#2475](https://github.com/embassy-rs/embassy/pull/2475), [#2571](https://github.com/embassy-rs/embassy/pull/2571), [#2623](https://github.com/embassy-rs/embassy/pull/2623), [#2631](https://github.com/embassy-rs/embassy/pull/2631), [#2635](https://github.com/embassy-rs/embassy/pull/2635), [#2637](https://github.com/embassy-rs/embassy/pull/2637), [#2645](https://github.com/embassy-rs/embassy/pull/2645), [#2647](https://github.com/embassy-rs/embassy/pull/2647), [#2658](https://github.com/embassy-rs/embassy/pull/2658), [#2703](https://github.com/embassy-rs/embassy/pull/2703), [#3364](https://github.com/embassy-rs/embassy/pull/3364))
 - Simplify BXCAN API, make BXCAN and FDCAN APIs consistent. ([#2760](https://github.com/embassy-rs/embassy/pull/2760), [#2693](https://github.com/embassy-rs/embassy/pull/2693), [#2744](https://github.com/embassy-rs/embassy/pull/2744))
 - Add buffered mode support ([#2588](https://github.com/embassy-rs/embassy/pull/2588))
@@ -237,9 +248,11 @@ CAN:
 - Preseve the RTR flag in messages. ([#2745](https://github.com/embassy-rs/embassy/pull/2745))
 
 FMC:
+
 - Add 13bit address sdram constructors ([#3189](https://github.com/embassy-rs/embassy/pull/3189))
 
 xSPI:
+
 - Add OCTOSPI support ([#2672](https://github.com/embassy-rs/embassy/pull/2672))
 - Add OCTOSPIM support ([#3102](https://github.com/embassy-rs/embassy/pull/3102))
 - Add HEXADECASPI support ([#3667](https://github.com/embassy-rs/embassy/pull/3667))
@@ -250,39 +263,44 @@ xSPI:
 - Stick to `blocking_*` naming convention for QSPI, OSPI ([#3661](https://github.com/embassy-rs/embassy/pull/3661))
 
 SDMMC:
+
 - Add `block-device-driver` impl for use with `embedded-fatfs` ([#2607](https://github.com/embassy-rs/embassy/pull/2607))
 - Allow cmd block to be passed in for sdmmc dma transfers ([#3188](https://github.com/embassy-rs/embassy/pull/3188))
 
 ETH:
+
 - Fix reception of multicast packets ([#3488](https://github.com/embassy-rs/embassy/pull/3488), [#3707](https://github.com/embassy-rs/embassy/pull/3707))
 - Add support for executing custom SMI commands ([#3355](https://github.com/embassy-rs/embassy/pull/3355))
 - Add support for MII interface ([#2465](https://github.com/embassy-rs/embassy/pull/2465))
 
 USB:
+
 - Assert correct clock on init. ([#2711](https://github.com/embassy-rs/embassy/pull/2711))
 - Set PWR_CR2 USV on STM32L4 ([#2605](https://github.com/embassy-rs/embassy/pull/2605))
 - USBD driver improvements:
-    - Add ISO endpoint support ([#3314](https://github.com/embassy-rs/embassy/pull/3314))
-    - Add support for L1. ([#2452](https://github.com/embassy-rs/embassy/pull/2452))
-    - set USB initialization delay to 1µs ([#3700](https://github.com/embassy-rs/embassy/pull/3700))
+  - Add ISO endpoint support ([#3314](https://github.com/embassy-rs/embassy/pull/3314))
+  - Add support for L1. ([#2452](https://github.com/embassy-rs/embassy/pull/2452))
+  - set USB initialization delay to 1µs ([#3700](https://github.com/embassy-rs/embassy/pull/3700))
 - OTG driver improvements:
-    - Add ISO endpoint support ([#3314](https://github.com/embassy-rs/embassy/pull/3314))
-    - Add support for U595, U5A5 ([#3613](https://github.com/embassy-rs/embassy/pull/3613))
-    - Add support for STM32H7R/S ([#3337](https://github.com/embassy-rs/embassy/pull/3337))
-    - Add support for full-speed ULPI mode ([#3281](https://github.com/embassy-rs/embassy/pull/3281))
-    - Make max EP count configurable ([#2881](https://github.com/embassy-rs/embassy/pull/2881))
-    - fix corruption in CONTROL OUT transfers in stm32f4. ([#3565](https://github.com/embassy-rs/embassy/pull/3565))
-    - Extract Synopsys USB OTG driver to a separate crate ([#2871](https://github.com/embassy-rs/embassy/pull/2871))
-    - Add critical sections to avoid USB OTG corruption Errata ([#2823](https://github.com/embassy-rs/embassy/pull/2823))
-    - Fix support for OTG_HS in FS mode. ([#2805](https://github.com/embassy-rs/embassy/pull/2805))
+  - Add ISO endpoint support ([#3314](https://github.com/embassy-rs/embassy/pull/3314))
+  - Add support for U595, U5A5 ([#3613](https://github.com/embassy-rs/embassy/pull/3613))
+  - Add support for STM32H7R/S ([#3337](https://github.com/embassy-rs/embassy/pull/3337))
+  - Add support for full-speed ULPI mode ([#3281](https://github.com/embassy-rs/embassy/pull/3281))
+  - Make max EP count configurable ([#2881](https://github.com/embassy-rs/embassy/pull/2881))
+  - fix corruption in CONTROL OUT transfers in stm32f4. ([#3565](https://github.com/embassy-rs/embassy/pull/3565))
+  - Extract Synopsys USB OTG driver to a separate crate ([#2871](https://github.com/embassy-rs/embassy/pull/2871))
+  - Add critical sections to avoid USB OTG corruption Errata ([#2823](https://github.com/embassy-rs/embassy/pull/2823))
+  - Fix support for OTG_HS in FS mode. ([#2805](https://github.com/embassy-rs/embassy/pull/2805))
 
 I2S:
+
 - Add SPIv3 support. ([#2992](https://github.com/embassy-rs/embassy/pull/2992))
 - Add full-duplex support. ([#2992](https://github.com/embassy-rs/embassy/pull/2992))
 - Add I2S ringbuffered DMA support ([#3023](https://github.com/embassy-rs/embassy/pull/3023))
 - Fix STM32F4 I2S clock calculations ([#3716](https://github.com/embassy-rs/embassy/pull/3716))
 
 SAI:
+
 - Add a function that waits for any SAI/ringbuffer write error ([#3545](https://github.com/embassy-rs/embassy/pull/3545))
 - Disallow start without an initial write ([#3541](https://github.com/embassy-rs/embassy/pull/3541))
 - Flush FIFO on init and disable ([#3538](https://github.com/embassy-rs/embassy/pull/3538))
@@ -291,6 +309,7 @@ SAI:
 - Add function to check if SAI is muted ([#3282](https://github.com/embassy-rs/embassy/pull/3282))
 
 Low-power support:
+
 - Update `embassy-executor` to v0.7.
 - Add support for U0 ([#3556](https://github.com/embassy-rs/embassy/pull/3556))
 - Add support for U5 ([#3496](https://github.com/embassy-rs/embassy/pull/3496))
@@ -300,18 +319,20 @@ Low-power support:
 - Fix alarms not triggering in some cases ([#3592](https://github.com/embassy-rs/embassy/pull/3592))
 
 Timer:
+
 - Add Input Capture high-level driver ([#2912](https://github.com/embassy-rs/embassy/pull/2912))
 - Add PWM Input high-level driver ([#3014](https://github.com/embassy-rs/embassy/pull/3014))
 - Add support for splitting `SimplePwm` into channels ([#3317](https://github.com/embassy-rs/embassy/pull/3317))
 - Fix `SimplePwm` not enabling output pin in some stm32 families ([#2670](https://github.com/embassy-rs/embassy/pull/2670))
 - Add LPTIM low-level driver. ([#3310](https://github.com/embassy-rs/embassy/pull/3310))
 - Low-level TIM driver improvements:
-    - Simplify traits, convert from trait methods to struct. ([#2728](https://github.com/embassy-rs/embassy/pull/2728))
-    - Add `low_level::Timer::get_clock_frequency()` ([#2908](https://github.com/embassy-rs/embassy/pull/2908))
-    - Fix 32bit timer off by one ARR error ([#2876](https://github.com/embassy-rs/embassy/pull/2876))
-    - Avoid max_compare_value >= u16::MAX ([#3549](https://github.com/embassy-rs/embassy/pull/3549))
+  - Simplify traits, convert from trait methods to struct. ([#2728](https://github.com/embassy-rs/embassy/pull/2728))
+  - Add `low_level::Timer::get_clock_frequency()` ([#2908](https://github.com/embassy-rs/embassy/pull/2908))
+  - Fix 32bit timer off by one ARR error ([#2876](https://github.com/embassy-rs/embassy/pull/2876))
+  - Avoid max_compare_value >= u16::MAX ([#3549](https://github.com/embassy-rs/embassy/pull/3549))
 
 DMA:
+
 - Add `AnyChannel` type. Similar to `AnyPin`, it allows representing any DMA channel at runtime without needing generics. ([#2606](https://github.com/embassy-rs/embassy/pull/2606))
 , Add support for BDMA on H7 ([#2606](https://github.com/embassy-rs/embassy/pull/2606))
 - Add async `stop()` function to BDMA, DMA ([#2757](https://github.com/embassy-rs/embassy/pull/2757))
@@ -321,6 +342,7 @@ DMA:
 - Right-align `write_immediate()` in ring buffers ([#3588](https://github.com/embassy-rs/embassy/pull/3588))
 
 `embassy-time` driver:
+
 - Update to `embassy-time` v0.4, `embassy-time-driver` v0.2. ([#3593](https://github.com/embassy-rs/embassy/pull/3593))
 - Change preference order of `time-driver-any` to pick less-featureful timers first. ([#2570](https://github.com/embassy-rs/embassy/pull/2570))
 - Allow using more TIMx timers for the time driver  of TIM1 ([#2570](https://github.com/embassy-rs/embassy/pull/2570), [#2614](https://github.com/embassy-rs/embassy/pull/2614))
@@ -328,9 +350,11 @@ DMA:
 - adds timer-driver for tim21 and tim22 (on L0) ([#2450](https://github.com/embassy-rs/embassy/pull/2450))
 
 WDG:
+
 - Allow higher PSC value for iwdg_v3 ... ([#2628](https://github.com/embassy-rs/embassy/pull/2628))
 
 Misc:
+
 - Allow `bind_interrupts!` to accept conditional compilation attrs ([#3444](https://github.com/embassy-rs/embassy/pull/3444))
 
 ## 0.1.0 - 2024-01-12
