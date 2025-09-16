@@ -282,7 +282,15 @@ async fn main(_spawner: Spawner) -> ! {
     config.sample_shifting = SampleShifting::None;
 
     let driver = Qspi::new_bank1(
-        p.QUADSPI, p.PF8, p.PF9, p.PE2, p.PF6, p.PF10, p.PB10, p.DMA2_CH7, config,
+        p.QUADSPI,
+        Some(p.PF8),
+        Some(p.PF9),
+        Some(p.PE2),
+        Some(p.PF6),
+        Some(p.PF10),
+        Some(p.PB10),
+        p.DMA2_CH7,
+        config,
     );
     let mut flash = FlashMemory::new(driver);
     let flash_id = flash.read_id();

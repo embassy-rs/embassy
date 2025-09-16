@@ -254,7 +254,17 @@ async fn main(_spawner: Spawner) {
     config.fifo_threshold = FIFOThresholdLevel::_16Bytes;
     config.sample_shifting = SampleShifting::None;
 
-    let driver = qspi::Qspi::new_bank1(p.QUADSPI, p.PB1, p.PB0, p.PA7, p.PA6, p.PA3, p.PA2, p.DMA2_CH7, config);
+    let driver = qspi::Qspi::new_bank1(
+        p.QUADSPI,
+        Some(p.PB1),
+        Some(p.PB0),
+        Some(p.PA7),
+        Some(p.PA6),
+        Some(p.PA3),
+        Some(p.PA2),
+        p.DMA2_CH7,
+        config,
+    );
     let mut flash = FlashMemory::new(driver);
     let mut wr_buf = [0u8; 256];
     for i in 0..32 {
