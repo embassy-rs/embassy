@@ -7,7 +7,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, Clock, Presc, SampleTime};
+use embassy_stm32::adc::{Adc, Clock, Ovsr, Ovss, Presc, SampleTime};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -31,8 +31,8 @@ async fn main(_spawner: Spawner) {
     // 0x05 oversampling ratio X64
     // 0x06 oversampling ratio X128
     // 0x07 oversampling ratio X256
-    adc.set_oversampling_ratio(0x03);
-    adc.set_oversampling_shift(0b0000);
+    adc.set_oversampling_ratio(Ovsr::MUL16);
+    adc.set_oversampling_shift(Ovss::NO_SHIFT);
     adc.oversampling_enable(true);
 
     loop {

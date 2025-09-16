@@ -3,9 +3,11 @@ use cfg_if::cfg_if;
 use heapless::Vec;
 use pac::adc::vals::Dmacfg;
 #[cfg(adc_g0)]
-use pac::adc::vals::{Ckmode, Ovsr, Ovss, Presc, Smpsel};
+use pac::adc::vals::{Ckmode, Smpsel};
 #[cfg(adc_v3)]
 use pac::adc::vals::{OversamplingRatio, OversamplingShift, Rovsm, Trovs};
+#[cfg(adc_g0)]
+pub use pac::adc::vals::{Ovsr, Ovss, Presc};
 
 use super::{
     blocking_delay_us, Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel,
