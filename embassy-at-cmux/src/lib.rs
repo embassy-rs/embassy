@@ -6,7 +6,7 @@
 mod fmt;
 mod frame;
 
-use core::cell::Cell;
+use core::cell::{Cell, Ref, RefCell};
 use core::future::{poll_fn, Future};
 use core::mem::MaybeUninit;
 use core::pin::pin;
@@ -99,7 +99,7 @@ pub struct ChannelLines<'a, const BUF: usize> {
 pub struct Runner<'a, const N: usize, const BUF: usize> {
     tx: [Reader<'a, NoopRawMutex, BUF>; N],
     rx: [Writer<'a, NoopRawMutex, BUF>; N],
-    control_channel_opened: bool,
+    control_channel_opened: RefCell<bool>,
     lines: &'a [Lines; N],
     line_status_updated: &'a Signal<NoopRawMutex, ()>,
 }
@@ -141,7 +141,7 @@ impl<const N: usize, const BUF: usize> Mux<N, BUF> {
         let runner = Runner {
             rx: unsafe { runner_rx.assume_init() },
             tx: unsafe { runner_tx.assume_init() },
-            control_channel_opened: false,
+            control_channel_opened: RefCell::new(false),
             lines: &self.lines,
             line_status_updated: &self.line_status_updated,
         };
@@ -156,11 +156,26 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
         mut port_w: W,
         max_frame_size: usize,
     ) -> Result<(), Error> {
-        if !self.control_channel_opened {
+        info!("Mux runner start");
+
+        let drop_mux = OnDrop::new(|| {
+            debug!("Dropping MUX runner, closing all channels");
+            *self.control_channel_opened.borrow_mut() = false;
+
+            for line in self.lines.iter() {
+                line.opened.set(false);
+                line.hangup.set(false);
+            }
+        });
+
+        if !*self.control_channel_opened.borrow() {
             debug!("Opening control channel");
 
             // Send open channel request
-            frame::Sabm { id: 0 }.write(&mut port_w).await?;
+            if let Err(e) = (frame::Sabm { id: 0 }).write(&mut port_w).await {
+                error!("Failed to send SABM for control channel: {:?}", e);
+                return Err(e);
+            }
         }
 
         for channel_id in 0..N {
@@ -168,11 +183,15 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
                 debug!("Opening channel {}", channel_id);
 
                 // Send open channel request
-                frame::Sabm {
+                if let Err(e) = (frame::Sabm {
                     id: channel_id as u8 + 1,
-                }
+                })
                 .write(&mut port_w)
-                .await?;
+                .await
+                {
+                    error!("Failed to send SABM for channel {}: {:?}", channel_id + 1, e);
+                    return Err(e);
+                }
             }
         }
 
@@ -203,6 +222,10 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
                     // }
 
                     if !self.lines[i].opened.get() {
+                        let len = buf.len().min(max_frame_size);
+                        warn!("Channel {} not opened, dropping {} bytes", i + 1, len);
+                        drop(futs);
+                        self.tx[i].consume(len);
                         continue;
                     }
 
@@ -213,7 +236,10 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
                         information: Information::Data(&buf[..len]),
                     };
 
-                    frame.write(&mut port_w).await?;
+                    if let Err(e) = frame.write(&mut port_w).await {
+                        error!("Failed to write data frame for channel {}: {:?}", i + 1, e);
+                        return Err(e);
+                    }
 
                     drop(futs);
 
@@ -231,7 +257,13 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
 
                     match header.frame_type {
                         FrameType::Ui | FrameType::Uih if header.is_control() => {
-                            let info = header.read_information().await?;
+                            let info = match header.read_information().await {
+                                Ok(info) => info,
+                                Err(e) => {
+                                    error!("Failed to read information from control frame: {:?}", e);
+                                    return Err(e);
+                                }
+                            };
 
                             if info.is_command() {
                                 let mut supported = true;
@@ -269,7 +301,7 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
                                         warn!("Unknown command {:?} for the control channel", n);
 
                                         // Send `InformationType::NonSupportedCommandResponse`
-                                        frame::Uih {
+                                        if let Err(e) = (frame::Uih {
                                             id: 0,
                                             information: Information::NonSupportedCommandResponse(
                                                 NonSupportedCommandResponse {
@@ -277,9 +309,13 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
                                                     command_type: n.info_type(),
                                                 },
                                             ),
-                                        }
+                                        })
                                         .write(&mut port_w)
-                                        .await?;
+                                        .await
+                                        {
+                                            error!("Failed to send NonSupportedCommandResponse: {:?}", e);
+                                            return Err(e);
+                                        }
 
                                         supported = false;
                                     }
@@ -287,7 +323,10 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
 
                                 if supported {
                                     // acknowledge the command
-                                    info.send_ack(&mut port_w).await?;
+                                    if let Err(e) = info.send_ack(&mut port_w).await {
+                                        error!("Failed to send ACK for command: {:?}", e);
+                                        return Err(e);
+                                    }
                                 }
                             } else {
                                 // received ack for a command
@@ -315,17 +354,23 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
                             // lines.tx.set((ctrl.with_fc(true), brk));
                             // self.line_status_updated.signal(());
 
-                            header.copy(&mut self.rx[channel_id]).await?;
+                            if let Err(e) = header.copy(&mut self.rx[channel_id]).await {
+                                error!("Failed to copy data to channel {}: {:?}", channel_id + 1, e);
+                                return Err(e);
+                            }
                         }
                         FrameType::Sabm if header.is_control() => {
                             // channel open request
-                            if self.control_channel_opened {
+                            if *self.control_channel_opened.borrow() {
                                 info!("Received SABM even though control channel was already open.");
                             } else {
                                 info!("Control channel opened.");
                             }
-                            self.control_channel_opened = true;
-                            frame::Ua { id: 0 }.write(&mut port_w).await?;
+                            *self.control_channel_opened.borrow_mut() = true;
+                            if let Err(e) = (frame::Ua { id: 0 }).write(&mut port_w).await {
+                                error!("Failed to send UA for control channel SABM: {:?}", e);
+                                return Err(e);
+                            }
                         }
                         FrameType::Sabm => {
                             let channel_id = header.id() as usize - 1;
@@ -335,14 +380,17 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
                                 info!("Logical channel {} opened.", channel_id);
                             }
                             self.lines[channel_id].opened.set(true);
-                            frame::Ua { id: header.id() }.write(&mut port_w).await?;
+                            if let Err(e) = (frame::Ua { id: header.id() }).write(&mut port_w).await {
+                                error!("Failed to send UA for channel {} SABM: {:?}", channel_id + 1, e);
+                                return Err(e);
+                            }
                         }
                         FrameType::Ua if header.is_control() => {
-                            if self.control_channel_opened {
-                                self.control_channel_opened = false;
+                            if *self.control_channel_opened.borrow() {
+                                *self.control_channel_opened.borrow_mut() = false;
                                 info!("Control channel closed.");
                             } else {
-                                self.control_channel_opened = true;
+                                *self.control_channel_opened.borrow_mut() = true;
                                 info!("Control channel opened.");
 
                                 // send version Siemens version test
@@ -373,14 +421,20 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
                             info!("Logical channel {} couldn't be opened.", header.id() - 1);
                         }
                         FrameType::Disc if header.is_control() => {
-                            if self.control_channel_opened {
+                            if *self.control_channel_opened.borrow() {
                                 info!("Control channel closed.");
-                                self.control_channel_opened = false;
-                                frame::Ua { id: 0 }.write(&mut port_w).await?;
+                                *self.control_channel_opened.borrow_mut() = false;
+                                if let Err(e) = (frame::Ua { id: 0 }).write(&mut port_w).await {
+                                    error!("Failed to send UA for control channel DISC: {:?}", e);
+                                    return Err(e);
+                                }
                                 break;
                             } else {
                                 info!("Received DISC even though control channel was already closed.");
-                                frame::Dm { id: 0 }.write(&mut port_w).await?;
+                                if let Err(e) = (frame::Dm { id: 0 }).write(&mut port_w).await {
+                                    error!("Failed to send DM for control channel DISC: {:?}", e);
+                                    return Err(e);
+                                }
                             }
                         }
                         FrameType::Disc => {
@@ -388,15 +442,24 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
                             if self.lines[channel_id].opened.get() {
                                 self.lines[channel_id].opened.set(false);
                                 info!("Logical channel {} closed.", channel_id);
-                                frame::Ua { id: header.id() }.write(&mut port_w).await?;
+                                if let Err(e) = (frame::Ua { id: header.id() }).write(&mut port_w).await {
+                                    error!("Failed to send UA for channel {} DISC: {:?}", channel_id + 1, e);
+                                    return Err(e);
+                                }
                             } else {
                                 info!("Received DISC even though channel {} was already closed.", channel_id);
-                                frame::Dm { id: header.id() }.write(&mut port_w).await?;
+                                if let Err(e) = (frame::Dm { id: header.id() }).write(&mut port_w).await {
+                                    error!("Failed to send DM for channel {} DISC: {:?}", channel_id + 1, e);
+                                    return Err(e);
+                                }
                             }
                         }
                     }
 
-                    header.finalize().await?;
+                    if let Err(e) = header.finalize().await {
+                        error!("Failed to finalize header: {:?}", e);
+                        return Err(e);
+                    }
                 }
                 Either3::Third(_) if ping_number >= MAX_PINGS => {}
                 Either3::Third(_) => {
@@ -417,20 +480,28 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
             let channel_id = id + 1;
             info!("Closing down the logical channel {}.", channel_id);
             if self.lines[channel_id].opened.get() {
-                frame::Disc { id: channel_id as u8 }.write(&mut port_w).await?;
+                if let Err(e) = (frame::Disc { id: channel_id as u8 }).write(&mut port_w).await {
+                    error!("Failed to send DISC for channel {}: {:?}", channel_id, e);
+                    return Err(e);
+                }
             }
         }
 
-        if self.control_channel_opened {
+        if *self.control_channel_opened.borrow() {
             info!("Sending close down request to the multiplexer.");
-            frame::Uih {
+            if let Err(e) = (frame::Uih {
                 id: 0,
                 information: Information::MultiplexerCloseDown(MultiplexerCloseDown { cr: frame::CR::Command }),
-            }
+            })
             .write(&mut port_w)
-            .await?;
+            .await
+            {
+                error!("Failed to send MultiplexerCloseDown: {:?}", e);
+                return Err(e);
+            }
         }
 
+        drop_mux.defuse();
         Ok(())
     }
 }
@@ -618,4 +689,27 @@ where
         Either::First(r) => Ok(r),
         Either::Second(()) => Err(ChannelError::Hangup),
     })
+}
+
+#[must_use = "to delay the drop handler invocation to the end of the scope"]
+struct OnDrop<F: FnOnce()> {
+    f: core::mem::MaybeUninit<F>,
+}
+
+impl<F: FnOnce()> OnDrop<F> {
+    fn new(f: F) -> Self {
+        Self {
+            f: core::mem::MaybeUninit::new(f),
+        }
+    }
+
+    fn defuse(self) {
+        core::mem::forget(self)
+    }
+}
+
+impl<F: FnOnce()> Drop for OnDrop<F> {
+    fn drop(&mut self) {
+        unsafe { self.f.as_ptr().read()() }
+    }
 }
