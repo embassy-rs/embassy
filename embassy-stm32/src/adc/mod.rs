@@ -2,12 +2,12 @@
 
 #![macro_use]
 #![allow(missing_docs)] // TODO
-#![cfg_attr(adc_f3_v2, allow(unused))]
+#![cfg_attr(adc_f3v3, allow(unused))]
 
-#[cfg(not(any(adc_f3_v2, adc_wba)))]
+#[cfg(not(any(adc_f3v3, adc_wba)))]
 #[cfg_attr(adc_f1, path = "f1.rs")]
-#[cfg_attr(adc_f3, path = "f3.rs")]
-#[cfg_attr(adc_f3_v1_1, path = "f3_v1_1.rs")]
+#[cfg_attr(adc_f3v1, path = "f3.rs")]
+#[cfg_attr(adc_f3v2, path = "f3_v1_1.rs")]
 #[cfg_attr(adc_v1, path = "v1.rs")]
 #[cfg_attr(adc_l0, path = "v1.rs")]
 #[cfg_attr(adc_v2, path = "v2.rs")]
@@ -20,10 +20,10 @@ mod _version;
 use core::marker::PhantomData;
 
 #[allow(unused)]
-#[cfg(not(any(adc_f3_v2, adc_wba)))]
+#[cfg(not(any(adc_f3v3, adc_wba)))]
 pub use _version::*;
 use embassy_hal_internal::{impl_peripheral, PeripheralType};
-#[cfg(any(adc_f1, adc_f3, adc_v1, adc_l0, adc_f3_v1_1))]
+#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
 use embassy_sync::waitqueue::AtomicWaker;
 
 #[cfg(any(adc_u5, adc_wba))]
@@ -31,7 +31,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 pub mod adc4;
 
 pub use crate::pac::adc::vals;
-#[cfg(not(any(adc_f1, adc_f3_v2)))]
+#[cfg(not(any(adc_f1, adc_f3v3)))]
 pub use crate::pac::adc::vals::Res as Resolution;
 pub use crate::pac::adc::vals::SampleTime;
 use crate::peripherals;
@@ -47,16 +47,16 @@ dma_trait!(RxDma4, adc4::Instance);
 pub struct Adc<'d, T: Instance> {
     #[allow(unused)]
     adc: crate::Peri<'d, T>,
-    #[cfg(not(any(adc_f3_v2, adc_f3_v1_1, adc_wba)))]
+    #[cfg(not(any(adc_f3v3, adc_f3v2, adc_wba)))]
     sample_time: SampleTime,
 }
 
-#[cfg(any(adc_f1, adc_f3, adc_v1, adc_l0, adc_f3_v1_1))]
+#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
 pub struct State {
     pub waker: AtomicWaker,
 }
 
-#[cfg(any(adc_f1, adc_f3, adc_v1, adc_l0, adc_f3_v1_1))]
+#[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
 impl State {
     pub const fn new() -> Self {
         Self {
@@ -69,10 +69,10 @@ trait SealedInstance {
     #[cfg(not(adc_wba))]
     #[allow(unused)]
     fn regs() -> crate::pac::adc::Adc;
-    #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3_v2, adc_f3_v1_1, adc_g0)))]
+    #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3v3, adc_f3v2, adc_g0)))]
     #[allow(unused)]
     fn common_regs() -> crate::pac::adccommon::AdcCommon;
-    #[cfg(any(adc_f1, adc_f3, adc_v1, adc_l0, adc_f3_v1_1))]
+    #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
     fn state() -> &'static State;
 }
 
@@ -100,22 +100,8 @@ pub(crate) fn blocking_delay_us(us: u32) {
 
 /// ADC instance.
 #[cfg(not(any(
-    adc_f1,
-    adc_v1,
-    adc_l0,
-    adc_v2,
-    adc_v3,
-    adc_v4,
-    adc_g4,
-    adc_f3,
-    adc_f3_v1_1,
-    adc_g0,
-    adc_u0,
-    adc_h5,
-    adc_h7rs,
-    adc_u5,
-    adc_c0,
-    adc_wba,
+    adc_f1, adc_v1, adc_l0, adc_v2, adc_v3, adc_v4, adc_g4, adc_f3v1, adc_f3v2, adc_g0, adc_u0, adc_h5, adc_h7rs,
+    adc_u5, adc_c0, adc_wba,
 )))]
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + crate::PeripheralType {
@@ -123,22 +109,8 @@ pub trait Instance: SealedInstance + crate::PeripheralType {
 }
 /// ADC instance.
 #[cfg(any(
-    adc_f1,
-    adc_v1,
-    adc_l0,
-    adc_v2,
-    adc_v3,
-    adc_v4,
-    adc_g4,
-    adc_f3,
-    adc_f3_v1_1,
-    adc_g0,
-    adc_u0,
-    adc_h5,
-    adc_h7rs,
-    adc_u5,
-    adc_c0,
-    adc_wba,
+    adc_f1, adc_v1, adc_l0, adc_v2, adc_v3, adc_v4, adc_g4, adc_f3v1, adc_f3v2, adc_g0, adc_u0, adc_h5, adc_h7rs,
+    adc_u5, adc_c0, adc_wba,
 ))]
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + crate::PeripheralType + crate::rcc::RccPeripheral {
@@ -258,12 +230,12 @@ foreach_adc!(
                 crate::pac::$inst
             }
 
-            #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3_v2, adc_f3_v1_1, adc_g0, adc_u5, adc_wba)))]
+            #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3v3, adc_f3v2, adc_g0, adc_u5, adc_wba)))]
             fn common_regs() -> crate::pac::adccommon::AdcCommon {
                 return crate::pac::$common_inst
             }
 
-            #[cfg(any(adc_f1, adc_f3, adc_v1, adc_l0, adc_f3_v1_1))]
+            #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
             fn state() -> &'static State {
                 static STATE: State = State::new();
                 &STATE
@@ -295,7 +267,7 @@ macro_rules! impl_adc_pin {
 /// Get the maximum reading value for this resolution.
 ///
 /// This is `2**n - 1`.
-#[cfg(not(any(adc_f1, adc_f3_v2)))]
+#[cfg(not(any(adc_f1, adc_f3v3)))]
 pub const fn resolution_to_max_count(res: Resolution) -> u32 {
     match res {
         #[cfg(adc_v4)]
@@ -309,7 +281,7 @@ pub const fn resolution_to_max_count(res: Resolution) -> u32 {
         Resolution::BITS12 => (1 << 12) - 1,
         Resolution::BITS10 => (1 << 10) - 1,
         Resolution::BITS8 => (1 << 8) - 1,
-        #[cfg(any(adc_v1, adc_v2, adc_v3, adc_l0, adc_c0, adc_g0, adc_f3, adc_f3_v1_1, adc_h5))]
+        #[cfg(any(adc_v1, adc_v2, adc_v3, adc_l0, adc_c0, adc_g0, adc_f3v1, adc_f3v2, adc_h5))]
         Resolution::BITS6 => (1 << 6) - 1,
         #[allow(unreachable_patterns)]
         _ => core::unreachable!(),

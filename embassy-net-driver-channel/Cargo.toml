@@ -1,6 +1,6 @@
 [package]
 name = "embassy-net-driver-channel"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "High-level channel-based driver for the `embassy-net` async TCP/IP network stack."
@@ -25,6 +25,6 @@ features = ["defmt"]
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
-embassy-sync = { version = "0.7.1", path = "../embassy-sync" }
-embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
+embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }

@@ -16,23 +16,24 @@ use crate::Peri;
 /// Complementary PWM pin wrapper.
 ///
 /// This wraps a pin to make it usable with PWM.
-pub struct ComplementaryPwmPin<'d, T, C> {
-    _pin: Peri<'d, AnyPin>,
-    phantom: PhantomData<(T, C)>,
+pub struct ComplementaryPwmPin<'d, T, C, #[cfg(afio)] A> {
+    #[allow(unused)]
+    pin: Peri<'d, AnyPin>,
+    phantom: PhantomData<if_afio!((T, C, A))>,
 }
 
-impl<'d, T: AdvancedInstance4Channel, C: TimerChannel> ComplementaryPwmPin<'d, T, C> {
+impl<'d, T: AdvancedInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(ComplementaryPwmPin<'d, T, C, A>) {
     /// Create a new  complementary PWM pin instance.
-    pub fn new(pin: Peri<'d, impl TimerComplementaryPin<T, C>>, output_type: OutputType) -> Self {
+    pub fn new(pin: Peri<'d, if_afio!(impl TimerComplementaryPin<T, C, A>)>, output_type: OutputType) -> Self {
         critical_section::with(|_| {
             pin.set_low();
-            pin.set_as_af(
-                pin.af_num(),
-                crate::gpio::AfType::output(output_type, crate::gpio::Speed::VeryHigh),
+            set_as_af!(
+                pin,
+                crate::gpio::AfType::output(output_type, crate::gpio::Speed::VeryHigh)
             );
         });
         ComplementaryPwmPin {
-            _pin: pin.into(),
+            pin: pin.into(),
             phantom: PhantomData,
         }
     }
@@ -54,17 +55,17 @@ pub enum IdlePolarity {
 
 impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Create a new complementary PWM driver.
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    #[allow(clippy::too_many_arguments, unused)]
+    pub fn new<#[cfg(afio)] A>(
         tim: Peri<'d, T>,
-        _ch1: Option<PwmPin<'d, T, Ch1>>,
-        _ch1n: Option<ComplementaryPwmPin<'d, T, Ch1>>,
-        _ch2: Option<PwmPin<'d, T, Ch2>>,
-        _ch2n: Option<ComplementaryPwmPin<'d, T, Ch2>>,
-        _ch3: Option<PwmPin<'d, T, Ch3>>,
-        _ch3n: Option<ComplementaryPwmPin<'d, T, Ch3>>,
-        _ch4: Option<PwmPin<'d, T, Ch4>>,
-        _ch4n: Option<ComplementaryPwmPin<'d, T, Ch4>>,
+        ch1: Option<if_afio!(PwmPin<'d, T, Ch1, A>)>,
+        ch1n: Option<if_afio!(ComplementaryPwmPin<'d, T, Ch1, A>)>,
+        ch2: Option<if_afio!(PwmPin<'d, T, Ch2, A>)>,
+        ch2n: Option<if_afio!(ComplementaryPwmPin<'d, T, Ch2, A>)>,
+        ch3: Option<if_afio!(PwmPin<'d, T, Ch3, A>)>,
+        ch3n: Option<if_afio!(ComplementaryPwmPin<'d, T, Ch3, A>)>,
+        ch4: Option<if_afio!(PwmPin<'d, T, Ch4, A>)>,
+        ch4n: Option<if_afio!(ComplementaryPwmPin<'d, T, Ch4, A>)>,
         freq: Hertz,
         counting_mode: CountingMode,
     ) -> Self {
@@ -190,12 +191,82 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.set_complementary_output_polarity(channel, polarity);
     }
 
+    /// Set the main output polarity for a given channel.
+    pub fn set_main_polarity(&mut self, channel: Channel, polarity: OutputPolarity) {
+        self.inner.set_output_polarity(channel, polarity);
+    }
+
+    /// Set the complementary output polarity for a given channel.
+    pub fn set_complementary_polarity(&mut self, channel: Channel, polarity: OutputPolarity) {
+        self.inner.set_complementary_output_polarity(channel, polarity);
+    }
+
     /// Set the dead time as a proportion of max_duty
     pub fn set_dead_time(&mut self, value: u16) {
         let (ckd, value) = compute_dead_time_value(value);
 
         self.inner.set_dead_time_clock_division(ckd);
         self.inner.set_dead_time_value(value);
+    }
+
+    /// Generate a sequence of PWM waveform
+    ///
+    /// Note:
+    /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
+    pub async fn waveform_up(&mut self, dma: Peri<'_, impl super::UpDma<T>>, channel: Channel, duty: &[u16]) {
+        #[allow(clippy::let_unit_value)] // eg. stm32f334
+        let req = dma.request();
+
+        let original_duty_state = self.inner.get_compare_value(channel);
+        let original_enable_state = self.inner.get_channel_enable_state(channel);
+        let original_update_dma_state = self.inner.get_update_dma_state();
+
+        if !original_update_dma_state {
+            self.inner.enable_update_dma(true);
+        }
+
+        if !original_enable_state {
+            self.inner.enable_channel(channel, true);
+        }
+
+        unsafe {
+            #[cfg(not(any(bdma, gpdma)))]
+            use crate::dma::{Burst, FifoThreshold};
+            use crate::dma::{Transfer, TransferOptions};
+
+            let dma_transfer_option = TransferOptions {
+                #[cfg(not(any(bdma, gpdma)))]
+                fifo_threshold: Some(FifoThreshold::Full),
+                #[cfg(not(any(bdma, gpdma)))]
+                mburst: Burst::Incr8,
+                ..Default::default()
+            };
+
+            Transfer::new_write(
+                dma,
+                req,
+                duty,
+                self.inner.regs_gp16().ccr(channel.index()).as_ptr() as *mut u16,
+                dma_transfer_option,
+            )
+            .await
+        };
+
+        // restore output compare state
+        if !original_enable_state {
+            self.inner.enable_channel(channel, false);
+        }
+
+        self.inner.set_compare_value(channel, original_duty_state);
+
+        // Since DMA is closed before timer update event trigger DMA is turn off,
+        // this can almost always trigger a DMA FIFO error.
+        //
+        // optional TODO:
+        // clean FEIF after disable UDE
+        if !original_update_dma_state {
+            self.inner.enable_update_dma(false);
+        }
     }
 }
 

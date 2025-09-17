@@ -74,7 +74,7 @@ async fn main(spawner: Spawner) {
     )
     .await;
 
-    unwrap!(spawner.spawn(wifi_task(runner)));
+    spawner.spawn(unwrap!(wifi_task(runner)));
 
     unwrap!(control.init().await);
     unwrap!(control.connect(WIFI_NETWORK, WIFI_PASSWORD).await);
@@ -94,7 +94,7 @@ async fn main(spawner: Spawner) {
         seed,
     );
 
-    unwrap!(spawner.spawn(net_task(runner)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     perf_client::run(
         stack,
