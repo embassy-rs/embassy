@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- changed: Do not reset in the GetStatus request
 - Allow enabling the `application` and `dfu` feature at the same time
 
 ## 0.2.0 - 2025-08-27
