@@ -234,7 +234,7 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
     if !errors.is_empty() {
         task_outer_body = quote! {
             #![allow(unused_variables, unreachable_code)]
-            let _x: #embassy_executor::SpawnToken<()> = ::core::todo!();
+            let _x: ::core::result::Result<#embassy_executor::SpawnToken<()>, #embassy_executor::SpawnError> = ::core::todo!();
             _x
         };
     }
@@ -248,7 +248,7 @@ pub fn run(args: TokenStream, item: TokenStream) -> TokenStream {
         #task_inner
 
         #(#task_outer_attrs)*
-        #visibility #unsafety fn #task_ident #generics (#fargs) -> #embassy_executor::SpawnToken<impl Sized> #where_clause{
+        #visibility #unsafety fn #task_ident #generics (#fargs) -> ::core::result::Result<#embassy_executor::SpawnToken<impl Sized>, #embassy_executor::SpawnError> #where_clause{
             #task_outer_body
         }
 

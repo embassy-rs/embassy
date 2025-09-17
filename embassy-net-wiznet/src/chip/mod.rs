@@ -4,6 +4,8 @@ pub use w5500::W5500;
 mod w5100s;
 use embedded_hal_async::spi::SpiDevice;
 pub use w5100s::W5100S;
+mod w6100;
+pub use w6100::W6100;
 
 pub(crate) trait SealedChip {
     type Address;
@@ -28,7 +30,9 @@ pub(crate) trait SealedChip {
     const SOCKET_RECVD_SIZE: Self::Address;
     const SOCKET_RX_DATA_READ_PTR: Self::Address;
     const SOCKET_INTR_MASK: Self::Address;
+    #[allow(dead_code)]
     const SOCKET_INTR: Self::Address;
+    const SOCKET_INTR_CLR: Self::Address;
 
     const SOCKET_MODE_VALUE: u8;
 

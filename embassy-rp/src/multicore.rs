@@ -38,11 +38,11 @@
 //!
 //!     embassy_rp::multicore::spawn_core1(p.CORE1, unsafe { &mut CORE1_STACK }, move || {
 //!         let executor1 = EXECUTOR1.init(Executor::new());
-//!         executor1.run(|spawner| spawner.spawn(core1_task()).unwrap());
+//!         executor1.run(|spawner| spawner.spawn(core1_task().unwrap()));
 //!     });
 //!
 //!     let executor0 = EXECUTOR0.init(Executor::new());
-//!     executor0.run(|spawner| spawner.spawn(core0_task()).unwrap())
+//!     executor0.run(|spawner| spawner.spawn(core0_task().unwrap()))
 //! }
 //! ```
 

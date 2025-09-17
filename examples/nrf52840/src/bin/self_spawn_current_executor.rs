@@ -11,12 +11,12 @@ async fn my_task(n: u32) {
     Timer::after_secs(1).await;
     info!("Spawning self! {}", n);
     let spawner = unsafe { Spawner::for_current_executor().await };
-    unwrap!(spawner.spawn(my_task(n + 1)));
+    spawner.spawn(unwrap!(my_task(n + 1)));
 }
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let _p = embassy_nrf::init(Default::default());
     info!("Hello World!");
-    unwrap!(spawner.spawn(my_task(0)));
+    spawner.spawn(unwrap!(my_task(0)));
 }

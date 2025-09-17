@@ -20,20 +20,21 @@ pub enum Direction {
 }
 
 /// Wrapper for using a pin with QEI.
-pub struct QeiPin<'d, T, Channel> {
-    _pin: Peri<'d, AnyPin>,
-    phantom: PhantomData<(T, Channel)>,
+pub struct QeiPin<'d, T, Channel, #[cfg(afio)] A> {
+    #[allow(unused)]
+    pin: Peri<'d, AnyPin>,
+    phantom: PhantomData<if_afio!((T, Channel, A))>,
 }
 
-impl<'d, T: GeneralInstance4Channel, C: QeiChannel> QeiPin<'d, T, C> {
-    /// Create a new  QEI pin instance.
-    pub fn new(pin: Peri<'d, impl TimerPin<T, C>>) -> Self {
+impl<'d, T: GeneralInstance4Channel, C: QeiChannel, #[cfg(afio)] A> if_afio!(QeiPin<'d, T, C, A>) {
+    /// Create a new QEI pin instance.
+    pub fn new(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>) -> Self {
         critical_section::with(|_| {
             pin.set_low();
-            pin.set_as_af(pin.af_num(), AfType::input(Pull::None));
+            set_as_af!(pin, AfType::input(Pull::None));
         });
         QeiPin {
-            _pin: pin.into(),
+            pin: pin.into(),
             phantom: PhantomData,
         }
     }
@@ -58,7 +59,12 @@ pub struct Qei<'d, T: GeneralInstance4Channel> {
 
 impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
     /// Create a new quadrature decoder driver.
-    pub fn new(tim: Peri<'d, T>, _ch1: QeiPin<'d, T, Ch1>, _ch2: QeiPin<'d, T, Ch2>) -> Self {
+    #[allow(unused)]
+    pub fn new<#[cfg(afio)] A>(
+        tim: Peri<'d, T>,
+        ch1: if_afio!(QeiPin<'d, T, Ch1, A>),
+        ch2: if_afio!(QeiPin<'d, T, Ch2, A>),
+    ) -> Self {
         Self::new_inner(tim)
     }
 

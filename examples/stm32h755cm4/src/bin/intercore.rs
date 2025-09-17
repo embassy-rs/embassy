@@ -128,7 +128,7 @@ async fn main(spawner: Spawner) -> ! {
     let red_led = Output::new(p.PB14, Level::Low, Speed::Low); // LD3 (heartbeat)
 
     // Start heartbeat task
-    unwrap!(spawner.spawn(blink_heartbeat(red_led)));
+    spawner.spawn(unwrap!(blink_heartbeat(red_led)));
 
     // Track previous values to detect changes
     let mut prev_green = false;

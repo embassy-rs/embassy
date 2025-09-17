@@ -51,7 +51,7 @@ async fn main(spawner: Spawner) {
     // No Mutex needed when sharing within the same executor/prio level
     static AVG: StaticCell<Cell<u32>> = StaticCell::new();
     let avg = AVG.init(Default::default());
-    spawner.must_spawn(processing(avg));
+    spawner.spawn(processing(avg).unwrap());
 
     let mut ticker = Ticker::every(Duration::from_secs(1));
     loop {

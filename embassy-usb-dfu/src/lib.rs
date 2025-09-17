@@ -6,20 +6,14 @@ mod fmt;
 pub mod consts;
 
 #[cfg(feature = "dfu")]
-mod dfu;
-#[cfg(feature = "dfu")]
+pub mod dfu;
+#[cfg(all(feature = "dfu", not(feature = "application")))]
 pub use self::dfu::*;
 
 #[cfg(feature = "application")]
-mod application;
-#[cfg(feature = "application")]
+pub mod application;
+#[cfg(all(feature = "application", not(feature = "dfu")))]
 pub use self::application::*;
-
-#[cfg(any(
-    all(feature = "dfu", feature = "application"),
-    not(any(feature = "dfu", feature = "application"))
-))]
-compile_error!("usb-dfu must be compiled with exactly one of `dfu`, or `application` features");
 
 /// Provides a platform-agnostic interface for initiating a system reset.
 ///

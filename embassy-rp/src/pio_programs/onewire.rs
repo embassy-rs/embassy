@@ -52,7 +52,8 @@ impl<'a, PIO: Instance> PioOneWireProgram<'a, PIO> {
 
                     ; The low pulse was already done, we only need to delay and poll the bit in case we are reading
                     write_1:
-                        nop                     side 0 [( 6 / CLK) - 1]     ; Delay before sampling the input pin
+                        jmp y--, continue_1     side 0 [( 6 / CLK) - 1]     ; Delay before sampling input. Always decrement y
+                    continue_1:
                         in pins, 1              side 0 [(48 / CLK) - 1]     ; This writes the state of the pin into the ISR
                         ; Fallthrough
 
@@ -61,9 +62,24 @@ impl<'a, PIO: Instance> PioOneWireProgram<'a, PIO> {
                     .wrap_target
                         out x, 1                side 0 [(12 / CLK) - 1]     ; Stalls if no data available in TX FIFO and OSR
                         jmp x--, write_1        side 1 [( 6 / CLK) - 1]     ; Do the always low part of a bit, jump to write_1 if we want to write a 1 bit
-                        in null, 1              side 1 [(54 / CLK) - 1]     ; Do the remainder of the low part of a 0 bit
-                                                                            ; This writes 0 into the ISR so that the shift count stays in sync
+                        jmp y--, continue_0     side 1 [(48 / CLK) - 1]     ; Do the remainder of the low part of a 0 bit
+                        jmp pullup              side 1 [( 6 / CLK) - 1]     ; Remain low while jumping
+                    continue_0:
+                        in null, 1              side 1 [( 6 / CLK) - 1]     ; This writes 0 into the ISR so that the shift count stays in sync
                     .wrap
+
+                    ; Assume that strong pullup commands always have MSB (the last bit) = 0,
+                    ; since the rising edge can be used to start the operation.
+                    ; That's the case for DS18B20 (44h and 48h).
+                    pullup:
+                        set pins, 1             side 1[( 6 / CLK) - 1]      ; Drive pin high output immediately.
+                                                                            ; Strong pullup must be within 10us of rise.
+                        in null, 1              side 1[( 6 / CLK) - 1]      ; Keep ISR in sync. Must occur after the y--.
+                        out null, 8             side 1[( 6 / CLK) - 1]      ; Wait for write_bytes_pullup() delay to complete.
+                                                                            ; The delay is hundreds of ms, so done externally.
+                        set pins, 0             side 0[( 6 / CLK) - 1]      ; Back to open drain, pin low when driven
+                        in null, 8              side 1[( 6 / CLK) - 1]      ; Inform write_bytes_pullup() it's ready
+                        jmp next_bit            side 0[( 6 / CLK) - 1]      ; Continue
             "#
         );
 
@@ -98,6 +114,7 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
         let mut cfg = Config::default();
         cfg.use_program(&program.prg, &[&pin]);
         cfg.set_in_pins(&[&pin]);
+        cfg.set_set_pins(&[&pin]);
 
         let shift_cfg = ShiftConfig {
             auto_fill: true,
@@ -146,6 +163,7 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
 
     /// Write bytes to the onewire bus
     pub async fn write_bytes(&mut self, data: &[u8]) {
+        unsafe { self.sm.set_y(u32::MAX as u32) };
         let (rx, tx) = self.sm.rx_tx();
         for b in data {
             tx.wait_push(*b as u32).await;
@@ -155,8 +173,29 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
         }
     }
 
+    /// Write bytes to the onewire bus, then apply a strong pullup
+    pub async fn write_bytes_pullup(&mut self, data: &[u8], pullup_time: embassy_time::Duration) {
+        unsafe { self.sm.set_y(data.len() as u32 * 8 - 1) };
+        let (rx, tx) = self.sm.rx_tx();
+        for b in data {
+            tx.wait_push(*b as u32).await;
+
+            // Empty the buffer that is being filled with every write
+            let _ = rx.wait_pull().await;
+        }
+
+        // Perform the delay, usually hundreds of ms.
+        embassy_time::Timer::after(pullup_time).await;
+
+        // Signal that delay has completed
+        tx.wait_push(0 as u32).await;
+        // Wait until it's back at 0 low, open drain
+        let _ = rx.wait_pull().await;
+    }
+
     /// Read bytes from the onewire bus
     pub async fn read_bytes(&mut self, data: &mut [u8]) {
+        unsafe { self.sm.set_y(u32::MAX as u32) };
         let (rx, tx) = self.sm.rx_tx();
         for b in data {
             // Write all 1's so that we can read what the device responds

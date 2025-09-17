@@ -94,7 +94,7 @@ impl<'d, T: McoInstance> Mco<'d, T> {
     pub fn new(_peri: Peri<'d, T>, pin: Peri<'d, impl McoPin<T>>, source: T::Source, prescaler: McoPrescaler) -> Self {
         critical_section::with(|_| unsafe {
             T::_apply_clock_settings(source, prescaler);
-            pin.set_as_af(pin.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            set_as_af!(pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
         });
 
         Self { phantom: PhantomData }

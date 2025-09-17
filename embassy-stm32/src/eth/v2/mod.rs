@@ -57,7 +57,7 @@ macro_rules! config_pins {
         critical_section::with(|_| {
             $(
                 // TODO: shouldn't some pins be configured as inputs?
-                $pin.set_as_af($pin.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+                set_as_af!($pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
             )*
         })
     };

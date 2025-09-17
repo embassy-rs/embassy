@@ -1,3 +1,4 @@
+//! Application part of DFU logic
 use embassy_boot::BlockingFirmwareState;
 use embassy_time::{Duration, Instant};
 use embassy_usb::control::{InResponse, OutResponse, Recipient, RequestType};

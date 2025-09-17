@@ -54,6 +54,9 @@ pub mod raw;
 mod spawner;
 pub use spawner::*;
 
+mod metadata;
+pub use metadata::*;
+
 /// Implementation details for embassy macros.
 /// Do not use. Used for macros and HALs only. Not covered by semver guarantees.
 #[doc(hidden)]

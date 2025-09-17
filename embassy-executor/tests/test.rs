@@ -65,7 +65,7 @@ fn executor_task() {
     }
 
     let (executor, trace) = setup();
-    executor.spawner().spawn(task1(trace.clone())).unwrap();
+    executor.spawner().spawn(task1(trace.clone()).unwrap());
 
     unsafe { executor.poll() };
     unsafe { executor.poll() };
@@ -93,7 +93,7 @@ fn executor_task_rpit() {
     }
 
     let (executor, trace) = setup();
-    executor.spawner().spawn(task1(trace.clone())).unwrap();
+    executor.spawner().spawn(task1(trace.clone()).unwrap());
 
     unsafe { executor.poll() };
     unsafe { executor.poll() };
@@ -120,7 +120,7 @@ fn executor_task_self_wake() {
     }
 
     let (executor, trace) = setup();
-    executor.spawner().spawn(task1(trace.clone())).unwrap();
+    executor.spawner().spawn(task1(trace.clone()).unwrap());
 
     unsafe { executor.poll() };
     unsafe { executor.poll() };
@@ -152,7 +152,7 @@ fn executor_task_self_wake_twice() {
     }
 
     let (executor, trace) = setup();
-    executor.spawner().spawn(task1(trace.clone())).unwrap();
+    executor.spawner().spawn(task1(trace.clone()).unwrap());
 
     unsafe { executor.poll() };
     unsafe { executor.poll() };
@@ -188,7 +188,7 @@ fn waking_after_completion_does_not_poll() {
     let waker = Box::leak(Box::new(AtomicWaker::new()));
 
     let (executor, trace) = setup();
-    executor.spawner().spawn(task1(trace.clone(), waker)).unwrap();
+    executor.spawner().spawn(task1(trace.clone(), waker).unwrap());
 
     unsafe { executor.poll() };
     waker.wake();
@@ -200,7 +200,7 @@ fn waking_after_completion_does_not_poll() {
     unsafe { executor.poll() }; // Clears running status
 
     // Can respawn waken-but-dead task
-    executor.spawner().spawn(task1(trace.clone(), waker)).unwrap();
+    executor.spawner().spawn(task1(trace.clone(), waker).unwrap());
 
     unsafe { executor.poll() };
 
@@ -250,7 +250,7 @@ fn waking_with_old_waker_after_respawn() {
     let waker = Box::leak(Box::new(AtomicWaker::new()));
 
     let (executor, trace) = setup();
-    executor.spawner().spawn(task1(trace.clone(), waker)).unwrap();
+    executor.spawner().spawn(task1(trace.clone(), waker).unwrap());
 
     unsafe { executor.poll() };
     unsafe { executor.poll() }; // progress to registering the waker
@@ -273,8 +273,7 @@ fn waking_with_old_waker_after_respawn() {
     let (other_executor, other_trace) = setup();
     other_executor
         .spawner()
-        .spawn(task1(other_trace.clone(), waker))
-        .unwrap();
+        .spawn(task1(other_trace.clone(), waker).unwrap());
 
     unsafe { other_executor.poll() }; // just run to the yield_now
     waker.wake(); // trigger old waker registration
@@ -323,6 +322,37 @@ fn recursive_task() {
     #[embassy_executor::task(pool_size = 2)]
     async fn task1() {
         let spawner = unsafe { Spawner::for_current_executor().await };
-        spawner.spawn(task1());
+        spawner.spawn(task1().unwrap());
     }
+}
+
+#[cfg(feature = "metadata-name")]
+#[test]
+fn task_metadata() {
+    #[task]
+    async fn task1(expected_name: Option<&'static str>) {
+        use embassy_executor::Metadata;
+        assert_eq!(Metadata::for_current_task().await.name(), expected_name);
+    }
+
+    // check no task name
+    let (executor, _) = setup();
+    executor.spawner().spawn(task1(None).unwrap());
+    unsafe { executor.poll() };
+
+    // check setting task name
+    let token = task1(Some("foo")).unwrap();
+    token.metadata().set_name("foo");
+    executor.spawner().spawn(token);
+    unsafe { executor.poll() };
+
+    let token = task1(Some("bar")).unwrap();
+    token.metadata().set_name("bar");
+    executor.spawner().spawn(token);
+    unsafe { executor.poll() };
+
+    // check name is cleared if the task pool slot is recycled.
+    let (executor, _) = setup();
+    executor.spawner().spawn(task1(None).unwrap());
+    unsafe { executor.poll() };
 }

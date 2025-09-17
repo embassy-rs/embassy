@@ -87,7 +87,7 @@ pub mod hsem;
 pub mod hspi;
 #[cfg(i2c)]
 pub mod i2c;
-#[cfg(any(all(spi_v1, rcc_f4), spi_v3))]
+#[cfg(any(spi_v1_i2s, spi_v2_i2s, spi_v3_i2s, spi_v4_i2s, spi_v5_i2s))]
 pub mod i2s;
 #[cfg(stm32wb)]
 pub mod ipcc;
@@ -526,7 +526,7 @@ fn init_hw(config: Config) -> Peripherals {
             }
         });
 
-        #[cfg(not(any(stm32f1, stm32wb, stm32wl)))]
+        #[cfg(not(any(stm32f1, stm32wb, stm32wl, stm32h7rs)))]
         rcc::enable_and_reset_with_cs::<peripherals::SYSCFG>(cs);
         #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl)))]
         rcc::enable_and_reset_with_cs::<peripherals::PWR>(cs);

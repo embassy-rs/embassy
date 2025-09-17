@@ -23,6 +23,7 @@ impl From<QspiMode> for u8 {
 /// QSPI lane width
 #[allow(dead_code)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum QspiWidth {
     /// None
     NONE,
@@ -67,6 +68,7 @@ impl From<FlashSelection> for bool {
 /// QSPI memory size.
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum MemorySize {
     _1KiB,
     _2KiB,
@@ -127,6 +129,7 @@ impl From<MemorySize> for u8 {
 
 /// QSPI Address size
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AddressSize {
     /// 8-bit address
     _8Bit,
@@ -152,6 +155,7 @@ impl From<AddressSize> for u8 {
 /// Time the Chip Select line stays high.
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ChipSelectHighTime {
     _1Cycle,
     _2Cycle,
@@ -181,6 +185,7 @@ impl From<ChipSelectHighTime> for u8 {
 /// FIFO threshold.
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FIFOThresholdLevel {
     _1Bytes,
     _2Bytes,
@@ -258,6 +263,7 @@ impl From<FIFOThresholdLevel> for u8 {
 /// Dummy cycle count
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DummyCycles {
     _0,
     _1,
@@ -334,6 +340,7 @@ impl From<DummyCycles> for u8 {
 
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SampleShifting {
     None,
     HalfCycle,

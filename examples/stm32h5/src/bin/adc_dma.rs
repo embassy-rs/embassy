@@ -42,8 +42,8 @@ async fn main(spawner: Spawner) {
     }
     let p = embassy_stm32::init(config);
 
-    spawner.must_spawn(adc1_task(p.ADC1, p.GPDMA1_CH0, p.PA0, p.PA2));
-    spawner.must_spawn(adc2_task(p.ADC2, p.GPDMA1_CH1, p.PA1, p.PA3));
+    spawner.spawn(unwrap!(adc1_task(p.ADC1, p.GPDMA1_CH0, p.PA0, p.PA2)));
+    spawner.spawn(unwrap!(adc2_task(p.ADC2, p.GPDMA1_CH1, p.PA1, p.PA3)));
 }
 
 #[embassy_executor::task]

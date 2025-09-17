@@ -33,7 +33,6 @@ lto = true
 codegen-units = 1
 
 [package.metadata.embassy]
-skip = true # TODO: remove when we find a way to decrease the defmt buffer size in ci.
 build = [
-  { target = "thumbv6m-none-eabi", artifact-dir = "out/examples/mspm0c1104" }
+  { target = "thumbv6m-none-eabi", artifact-dir = "out/examples/mspm0c1104", env = { DEFMT_RTT_BUFFER_SIZE = "72" }}
 ]

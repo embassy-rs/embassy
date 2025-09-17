@@ -1,4 +1,4 @@
-pub use lpc55_pac as pac;
+pub use nxp_pac as pac;
 
 embassy_hal_internal::peripherals! {
     // External pins. These are not only GPIOs, they are multi-purpose pins and can be used by other

@@ -31,7 +31,7 @@ async fn main(spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
     let mut led = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
 
-    unwrap!(spawner.spawn(my_task()));
+    spawner.spawn(unwrap!(my_task()));
 
     loop {
         match CHANNEL.receive().await {
