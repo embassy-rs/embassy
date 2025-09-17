@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 cortex-m = { version = "0.7.7", features = ["critical-section-single-core", "inline-asm"] }
-cortex-m-rt = "0.7.5"
+cortex-m-rt = { version = "0.7.5", features = ["set-vtor"] }
 defmt = "1.0"
 defmt-rtt = "1.0"
 embassy-executor = { version = "0.9.1", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }

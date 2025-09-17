@@ -16,11 +16,6 @@ bind_interrupts!(
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    unsafe {
-        let cp = cortex_m::Peripherals::steal();
-        cp.SCB.vtor.write(0x000c_0000);
-    }
-
     let p = embassy_microchip::init(Default::default());
 
     info!("Hello, world!");
