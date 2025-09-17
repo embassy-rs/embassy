@@ -35,7 +35,11 @@ pub mod multicore;
 #[cfg(feature = "_rp235x")]
 pub mod otp;
 pub mod pio_programs;
+#[cfg(feature = "_rp235x")]
+pub mod psram;
 pub mod pwm;
+#[cfg(feature = "_rp235x")]
+pub mod qmi_cs1;
 mod reset;
 pub mod rom_data;
 #[cfg(feature = "rp2040")]
@@ -380,6 +384,8 @@ embassy_hal_internal::peripherals! {
 
     SPI0,
     SPI1,
+
+    QMI_CS1,
 
     I2C0,
     I2C1,

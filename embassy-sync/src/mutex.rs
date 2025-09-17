@@ -187,7 +187,7 @@ where
     T: ?Sized,
 {
     /// Returns a locked view over a portion of the locked data.
-    pub fn map<U>(this: Self, fun: impl FnOnce(&mut T) -> &mut U) -> MappedMutexGuard<'a, M, U> {
+    pub fn map<U: ?Sized>(this: Self, fun: impl FnOnce(&mut T) -> &mut U) -> MappedMutexGuard<'a, M, U> {
         let mutex = this.mutex;
         let value = fun(unsafe { &mut *this.mutex.inner.get() });
         // Don't run the `drop` method for MutexGuard. The ownership of the underlying
@@ -279,7 +279,7 @@ where
     T: ?Sized,
 {
     /// Returns a locked view over a portion of the locked data.
-    pub fn map<U>(this: Self, fun: impl FnOnce(&mut T) -> &mut U) -> MappedMutexGuard<'a, M, U> {
+    pub fn map<U: ?Sized>(this: Self, fun: impl FnOnce(&mut T) -> &mut U) -> MappedMutexGuard<'a, M, U> {
         let state = this.state;
         let value = fun(unsafe { &mut *this.value });
         // Don't run the `drop` method for MutexGuard. The ownership of the underlying

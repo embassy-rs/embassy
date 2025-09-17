@@ -428,9 +428,9 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
         config: Config,
     ) -> Self {
         critical_section::with(|_| {
-            clk.set_as_af(clk.af_num(), CLK_AF);
-            cmd.set_as_af(cmd.af_num(), CMD_AF);
-            d0.set_as_af(d0.af_num(), DATA_AF);
+            set_as_af!(clk, CLK_AF);
+            set_as_af!(cmd, CMD_AF);
+            set_as_af!(d0, DATA_AF);
         });
 
         Self::new_inner(
@@ -464,12 +464,12 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
         config: Config,
     ) -> Self {
         critical_section::with(|_| {
-            clk.set_as_af(clk.af_num(), CLK_AF);
-            cmd.set_as_af(cmd.af_num(), CMD_AF);
-            d0.set_as_af(d0.af_num(), DATA_AF);
-            d1.set_as_af(d1.af_num(), DATA_AF);
-            d2.set_as_af(d2.af_num(), DATA_AF);
-            d3.set_as_af(d3.af_num(), DATA_AF);
+            set_as_af!(clk, CLK_AF);
+            set_as_af!(cmd, CMD_AF);
+            set_as_af!(d0, DATA_AF);
+            set_as_af!(d1, DATA_AF);
+            set_as_af!(d2, DATA_AF);
+            set_as_af!(d3, DATA_AF);
         });
 
         Self::new_inner(
@@ -510,16 +510,16 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
         config: Config,
     ) -> Self {
         critical_section::with(|_| {
-            clk.set_as_af(clk.af_num(), CLK_AF);
-            cmd.set_as_af(cmd.af_num(), CMD_AF);
-            d0.set_as_af(d0.af_num(), DATA_AF);
-            d1.set_as_af(d1.af_num(), DATA_AF);
-            d2.set_as_af(d2.af_num(), DATA_AF);
-            d3.set_as_af(d3.af_num(), DATA_AF);
-            d4.set_as_af(d4.af_num(), DATA_AF);
-            d5.set_as_af(d5.af_num(), DATA_AF);
-            d6.set_as_af(d6.af_num(), DATA_AF);
-            d7.set_as_af(d7.af_num(), DATA_AF);
+            set_as_af!(clk, CLK_AF);
+            set_as_af!(cmd, CMD_AF);
+            set_as_af!(d0, DATA_AF);
+            set_as_af!(d1, DATA_AF);
+            set_as_af!(d2, DATA_AF);
+            set_as_af!(d3, DATA_AF);
+            set_as_af!(d4, DATA_AF);
+            set_as_af!(d5, DATA_AF);
+            set_as_af!(d6, DATA_AF);
+            set_as_af!(d7, DATA_AF);
         });
 
         Self::new_inner(
@@ -552,9 +552,9 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
         config: Config,
     ) -> Self {
         critical_section::with(|_| {
-            clk.set_as_af(clk.af_num(), CLK_AF);
-            cmd.set_as_af(cmd.af_num(), CMD_AF);
-            d0.set_as_af(d0.af_num(), DATA_AF);
+            set_as_af!(clk, CLK_AF);
+            set_as_af!(cmd, CMD_AF);
+            set_as_af!(d0, DATA_AF);
         });
 
         Self::new_inner(
@@ -586,12 +586,12 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
         config: Config,
     ) -> Self {
         critical_section::with(|_| {
-            clk.set_as_af(clk.af_num(), CLK_AF);
-            cmd.set_as_af(cmd.af_num(), CMD_AF);
-            d0.set_as_af(d0.af_num(), DATA_AF);
-            d1.set_as_af(d1.af_num(), DATA_AF);
-            d2.set_as_af(d2.af_num(), DATA_AF);
-            d3.set_as_af(d3.af_num(), DATA_AF);
+            set_as_af!(clk, CLK_AF);
+            set_as_af!(cmd, CMD_AF);
+            set_as_af!(d0, DATA_AF);
+            set_as_af!(d1, DATA_AF);
+            set_as_af!(d2, DATA_AF);
+            set_as_af!(d3, DATA_AF);
         });
 
         Self::new_inner(
@@ -630,16 +630,16 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
         config: Config,
     ) -> Self {
         critical_section::with(|_| {
-            clk.set_as_af(clk.af_num(), CLK_AF);
-            cmd.set_as_af(cmd.af_num(), CMD_AF);
-            d0.set_as_af(d0.af_num(), DATA_AF);
-            d1.set_as_af(d1.af_num(), DATA_AF);
-            d2.set_as_af(d2.af_num(), DATA_AF);
-            d3.set_as_af(d3.af_num(), DATA_AF);
-            d4.set_as_af(d4.af_num(), DATA_AF);
-            d5.set_as_af(d5.af_num(), DATA_AF);
-            d6.set_as_af(d6.af_num(), DATA_AF);
-            d7.set_as_af(d7.af_num(), DATA_AF);
+            set_as_af!(clk, CLK_AF);
+            set_as_af!(cmd, CMD_AF);
+            set_as_af!(d0, DATA_AF);
+            set_as_af!(d1, DATA_AF);
+            set_as_af!(d2, DATA_AF);
+            set_as_af!(d3, DATA_AF);
+            set_as_af!(d4, DATA_AF);
+            set_as_af!(d5, DATA_AF);
+            set_as_af!(d6, DATA_AF);
+            set_as_af!(d7, DATA_AF);
         });
 
         Self::new_inner(

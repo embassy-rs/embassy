@@ -7,8 +7,6 @@
 //! Using this module requires respecting subtle safety contracts. If you can, prefer using the safe
 //! [executor wrappers](crate::Executor) and the [`embassy_executor::task`](embassy_executor_macros::task) macro, which are fully safe.
 
-#[cfg_attr(target_has_atomic = "ptr", path = "run_queue_atomics.rs")]
-#[cfg_attr(not(target_has_atomic = "ptr"), path = "run_queue_critical_section.rs")]
 mod run_queue;
 
 #[cfg_attr(all(cortex_m, target_has_atomic = "32"), path = "state_atomics_arm.rs")]
@@ -28,6 +26,9 @@ pub(crate) mod util;
 #[cfg_attr(feature = "turbowakers", path = "waker_turbo.rs")]
 mod waker;
 
+#[cfg(feature = "scheduler-deadline")]
+mod deadline;
+
 use core::future::Future;
 use core::marker::PhantomData;
 use core::mem;
@@ -38,6 +39,8 @@ use core::sync::atomic::AtomicPtr;
 use core::sync::atomic::Ordering;
 use core::task::{Context, Poll, Waker};
 
+#[cfg(feature = "scheduler-deadline")]
+pub(crate) use deadline::Deadline;
 use embassy_executor_timer_queue::TimerQueueItem;
 #[cfg(feature = "arch-avr")]
 use portable_atomic::AtomicPtr;
@@ -96,6 +99,7 @@ extern "Rust" fn __embassy_time_queue_item_from_waker(waker: &Waker) -> &'static
 pub(crate) struct TaskHeader {
     pub(crate) state: State,
     pub(crate) run_queue_item: RunQueueItem,
+
     pub(crate) executor: AtomicPtr<SyncExecutor>,
     poll_fn: SyncUnsafeCell<Option<unsafe fn(TaskRef)>>,
 
