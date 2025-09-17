@@ -64,6 +64,12 @@ name = "float"
 path = "src/bin/float.rs"
 required-features = [ "rp2040",]
 
+# RTC is only available on RP2040
+[[bin]]
+name = "rtc"
+path = "src/bin/rtc.rs"
+required-features = [ "rp2040",]
+
 [profile.dev]
 debug = 2
 debug-assertions = true
