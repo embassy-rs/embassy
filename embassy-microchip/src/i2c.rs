@@ -131,8 +131,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             speed: BusSpeed::Standard,
-            addr1: Some(0x7f),
-            addr2: Some(0x7f),
+            addr1: None,
+            addr2: None,
         }
     }
 }
