@@ -11,6 +11,10 @@ mod firmware_updater;
 mod mem_flash;
 #[cfg(test)]
 mod test_flash;
+#[cfg(feature = "usb-dfu-app")]
+pub mod usb_dfu_app;
+#[cfg(feature = "usb-dfu-dfu")]
+pub mod usb_dfu_dfu;
 
 // The expected value of the flash after an erase
 // TODO: Use the value provided by NorFlash when available
