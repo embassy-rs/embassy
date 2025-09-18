@@ -565,24 +565,30 @@ impl<'d> BufferedUartRx<'d> {
         poll_fn(move |cx| {
             let state = self.state;
             let mut rx_reader = unsafe { state.rx_buf.reader() };
-            let data = rx_reader.pop_slice();
+            let mut buf_len = 0;
+            let mut data = rx_reader.pop_slice();
 
-            if !data.is_empty() {
-                let len = data.len().min(buf.len());
-                buf[..len].copy_from_slice(&data[..len]);
+            while !data.is_empty() && buf_len < buf.len() {
+                let data_len = data.len().min(buf.len() - buf_len);
+                buf[buf_len..buf_len + data_len].copy_from_slice(&data[..data_len]);
+                buf_len += data_len;
 
                 let do_pend = state.rx_buf.is_full();
-                rx_reader.pop_done(len);
+                rx_reader.pop_done(data_len);
 
                 if do_pend {
                     self.info.interrupt.pend();
                 }
 
-                return Poll::Ready(Ok(len));
+                data = rx_reader.pop_slice();
             }
 
-            state.rx_waker.register(cx.waker());
-            Poll::Pending
+            if buf_len != 0 {
+                Poll::Ready(Ok(buf_len))
+            } else {
+                state.rx_waker.register(cx.waker());
+                Poll::Pending
+            }
         })
         .await
     }
@@ -591,21 +597,24 @@ impl<'d> BufferedUartRx<'d> {
         loop {
             let state = self.state;
             let mut rx_reader = unsafe { state.rx_buf.reader() };
-            let data = rx_reader.pop_slice();
+            let mut buf_len = 0;
+            let mut data = rx_reader.pop_slice();
 
-            if !data.is_empty() {
-                let len = data.len().min(buf.len());
-                buf[..len].copy_from_slice(&data[..len]);
+            while !data.is_empty() && buf_len < buf.len() {
+                let data_len = data.len().min(buf.len() - buf_len);
+                buf[buf_len..buf_len + data_len].copy_from_slice(&data[..data_len]);
+                buf_len += data_len;
 
                 let do_pend = state.rx_buf.is_full();
-                rx_reader.pop_done(len);
+                rx_reader.pop_done(data_len);
 
                 if do_pend {
                     self.info.interrupt.pend();
                 }
 
-                return Ok(len);
+                data = rx_reader.pop_slice();
             }
+            return Ok(buf_len);
         }
     }
 
