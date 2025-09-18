@@ -112,11 +112,11 @@ where
         cs_drop.defuse();
         let cs_res = self.cs.set_high();
 
-        let op_res = op_res.map_err(SpiDeviceError::Spi)?;
+        op_res.map_err(SpiDeviceError::Spi)?;
         flush_res.map_err(SpiDeviceError::Spi)?;
         cs_res.map_err(SpiDeviceError::Cs)?;
 
-        Ok(op_res)
+        Ok(())
     }
 }
 
@@ -203,10 +203,10 @@ where
         cs_drop.defuse();
         let cs_res = self.cs.set_high();
 
-        let op_res = op_res.map_err(SpiDeviceError::Spi)?;
+        op_res.map_err(SpiDeviceError::Spi)?;
         flush_res.map_err(SpiDeviceError::Spi)?;
         cs_res.map_err(SpiDeviceError::Cs)?;
 
-        Ok(op_res)
+        Ok(())
     }
 }
