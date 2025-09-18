@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: Added support for more OctoSPI configurations (e.g. APS6408 RAM) ([#4581](https://github.com/embassy-rs/embassy/pull/4581))
 - fix: stm32/usart: fix bug with blocking flush in buffered uart ([#4648](https://github.com/embassy-rs/embassy/pull/4648))
 - fix: stm32/(ospi/hspi/xspi): Fix the alternate bytes register config sticking around for subsequent writes
+- feat: stm32/rcc/mco: Added support for IO driver strength when using Master Clock Out IO. This changes signature on Mco::new taking a McoConfig struct ([#4679](https://github.com/embassy-rs/embassy/pull/4679))
 
 ## 0.4.0 - 2025-08-26
 
