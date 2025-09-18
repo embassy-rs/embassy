@@ -2269,7 +2269,7 @@ fn gen_memory_x(memory: &[MemoryRegion], out_dir: &Path) {
     write!(memory_x, "MEMORY\n{{\n").unwrap();
     writeln!(
         memory_x,
-        "    FLASH : ORIGIN = 0x{:08x}, LENGTH = {:>4}K /* {} */",
+        "    FLASH  : ORIGIN = 0x{:08x}, LENGTH = {:>4}K /* {} */",
         flash.0,
         flash.1 / 1024,
         flash.2
@@ -2277,13 +2277,35 @@ fn gen_memory_x(memory: &[MemoryRegion], out_dir: &Path) {
     .unwrap();
     writeln!(
         memory_x,
-        "    RAM   : ORIGIN = 0x{:08x}, LENGTH = {:>4}K /* {} */",
+        "    RAM    : ORIGIN = 0x{:08x}, LENGTH = {:>4}K /* {} */",
         ram.0,
         ram.1 / 1024,
         ram.2
     )
     .unwrap();
+
+    if let Some(m) = memory.iter().find(|m| m.name == "BKPSRAM") {
+        writeln!(
+            memory_x,
+            "    BKPSRAM: ORIGIN = 0x{:08x}, LENGTH = {:>4}K /* {} */",
+            m.address,
+            m.size / 1024,
+            m.name
+        )
+        .unwrap()
+    }
+
     write!(memory_x, "}}").unwrap();
+
+    if let Some(m) = memory.iter().find(|m| m.name == "BKPSRAM") {
+        writeln!(memory_x).unwrap();
+        writeln!(memory_x, "SECTIONS\n{{").unwrap();
+        writeln!(memory_x, "    .bkpsram (NOLOAD): {{").unwrap();
+        writeln!(memory_x, "        PROVIDE(BKPSRAM = .);").unwrap();
+        writeln!(memory_x, "        . = . + {:>4}; /* reserve {}bytes */", m.size, m.size).unwrap();
+        writeln!(memory_x, "    }} > BKPSRAM").unwrap();
+        writeln!(memory_x, "}}").unwrap();
+    }
 
     std::fs::write(out_dir.join("memory.x"), memory_x.as_bytes()).unwrap();
 }

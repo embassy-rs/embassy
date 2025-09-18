@@ -1,3 +1,5 @@
+#[cfg(rcc_h5)]
+use core::sync::atomic::AtomicBool;
 use core::sync::atomic::{compiler_fence, Ordering};
 
 #[cfg(rcc_h5)]
@@ -11,6 +13,9 @@ use crate::time::Hertz;
 pub const LSI_FREQ: Hertz = Hertz(40_000);
 #[cfg(not(any(stm32f0, stm32f1, stm32f3)))]
 pub const LSI_FREQ: Hertz = Hertz(32_000);
+
+#[cfg(rcc_h5)]
+pub(crate) static WAS_BKPSRAM_ALREADY_POWERED_BY_BATTERY: AtomicBool = AtomicBool::new(false);
 
 #[allow(dead_code)]
 #[derive(Clone, Copy)]
@@ -206,12 +211,18 @@ impl LsConfig {
 
         // Enable backup regulator for peristent battery backed sram
         #[cfg(rcc_h5)]
-        crate::pac::PWR.bdcr().modify(|w| w.set_bren(self.backup_ram_retention));
+        {
+            crate::pac::PWR.bdcr().modify(|w| {
+                WAS_BKPSRAM_ALREADY_POWERED_BY_BATTERY.store(w.bren() == Retention::PRESERVED, Ordering::SeqCst);
 
-        #[cfg(rcc_h5)]
-        if self.backup_ram_retention == Retention::PRESERVED {
-            // Wait for backup regulator voltage to stabilize
-            while !crate::pac::PWR.bdsr().read().brrdy() {}
+                w.set_bren(self.backup_ram_retention)
+            });
+
+            #[cfg(rcc_h5)]
+            if self.backup_ram_retention == Retention::PRESERVED {
+                // Wait for backup regulator voltage to stabilize
+                while !crate::pac::PWR.bdsr().read().brrdy() {}
+            }
         }
 
         // backup domain configuration (LSEON, RTCEN, RTCSEL) is kept across resets.

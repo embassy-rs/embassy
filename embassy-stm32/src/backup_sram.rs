@@ -1,13 +1,13 @@
 //! Battary backed SRAM
 
+use core::arch::asm;
 use core::slice;
-use core::{arch::asm, mem::MaybeUninit};
+use core::sync::atomic::Ordering;
 
 use embassy_hal_internal::Peri;
 
-use crate::peripherals::BKPSRAM;
-
 use crate::_generated::BKPSRAM_SIZE;
+use crate::peripherals::BKPSRAM;
 
 /// Status of battery backed memory
 pub enum Status {
@@ -24,11 +24,7 @@ pub enum Status {
 
 // TODO: Setup these symbols in the linker script. BKPSRAM needs to be at 0x4003_6400
 unsafe extern "C" {
-    static mut BKPSRAM: [MaybeUninit<u8>; BKPSRAM_SIZE];
-}
-
-fn is_bkpsram_powered_by_battery() -> bool {
-    todo!()
+    static mut BKPSRAM: [u8; BKPSRAM_SIZE];
 }
 
 /// Setup battery backed sram
@@ -48,12 +44,10 @@ pub fn init(_backup_sram: Peri<'static, BKPSRAM>) -> (&'static mut [u8], Status)
     let ptr = ptr as *mut u8;
 
     // This bit will only be 0 the first time or when the battery power has been lost
-    let status = if !is_bkpsram_powered_by_battery() {
-        // TODO: Set RCC bits to enable battery power to BKPSRAM
-
-        Status::BackupRamDisabled
-    } else {
+    let status = if super::rcc::bd::WAS_BKPSRAM_ALREADY_POWERED_BY_BATTERY.load(Ordering::SeqCst) {
         Status::AlreadyActive
+    } else {
+        Status::BackupRamDisabled
     };
 
     let bytes = unsafe { slice::from_raw_parts_mut(ptr, BKPSRAM_SIZE) };
