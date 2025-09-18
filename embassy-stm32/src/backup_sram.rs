@@ -41,8 +41,6 @@ pub fn init(_backup_sram: Peri<'static, BKPSRAM>) -> (&'static mut [u8], Status)
         asm!("/*{0}*/", in(reg) ptr);
     }
 
-    let ptr = ptr as *mut u8;
-
     // This bit will only be 0 the first time or when the battery power has been lost
     let status = if super::rcc::bd::WAS_BKPSRAM_ALREADY_POWERED_BY_BATTERY.load(Ordering::SeqCst) {
         Status::AlreadyActive
