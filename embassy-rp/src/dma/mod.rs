@@ -12,6 +12,11 @@ use crate::interrupt::InterruptExt;
 use crate::pac::dma::vals;
 use crate::{interrupt, pac, peripherals};
 
+// double-buffered dma helpers live in a submodule to mirror rp2040-hal organization
+pub mod double_buffer;
+
+pub use double_buffer::RxStream;
+
 #[cfg(feature = "rt")]
 #[interrupt]
 fn DMA_IRQ_0() {

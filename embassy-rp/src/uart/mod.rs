@@ -11,7 +11,8 @@ use embassy_time::{Delay, Timer};
 use pac::uart::regs::Uartris;
 
 use crate::clocks::clk_peri_freq;
-use crate::dma::{AnyChannel, Channel};
+use crate::dma::{self, AnyChannel, Channel};
+use crate::dma::double_buffer as dma_double_buffer;
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel::{Binding, Interrupt as _};
 use crate::interrupt::{Interrupt, InterruptExt};
@@ -716,6 +717,36 @@ impl<'d> UartRx<'d, Async> {
             unreachable!("unrecognized rx error");
         }
     }
+
+    /// create a double-buffered dma rx stream.
+    ///
+    /// notes:
+    /// - only receiving is supported.
+    /// - the returned stream yields guards that deref to `&[u8]`. dropping the guard re-queues that buffer.
+    /// - dropping the stream aborts the dma channels.
+    pub fn into_double_buffered_stream<'s, C0: Channel, C1: Channel>(
+        &mut self,
+        ch_a: Peri<'d, C0>,
+        ch_b: Peri<'d, C1>,
+        buf_a: &'s mut [u8],
+        buf_b: &'s mut [u8],
+    ) -> dma_double_buffer::RxStream<'d, 's, C0, C1> {
+        // enable uart rx dma; abort on error so the transfer doesn't hang
+        self.info.regs.uartdmacr().write_set(|reg| {
+            reg.set_rxdmae(true);
+            reg.set_dmaonerr(true);
+        });
+
+        // construct stream pointing at uart data register and rx dreq
+        dma_double_buffer::RxStream::new(
+            ch_a,
+            ch_b,
+            self.info.regs.uartdr().as_ptr() as *const _,
+            self.info.rx_dreq.into(),
+            buf_a,
+            buf_b,
+        )
+    }
 }
 
 impl<'d> Uart<'d, Blocking> {
@@ -1117,6 +1148,47 @@ impl<'d> Uart<'d, Async> {
     }
 }
 
+impl<'d> Uart<'d, Streaming> {
+    /// create a new uart with double-buffered dma continuous rx (streaming).
+    pub fn new<T: Instance>(
+        uart: Peri<'d, T>,
+        tx: Peri<'d, impl TxPin<T>>, // kept for pin muxing; tx not used for streaming
+        rx: Peri<'d, impl RxPin<T>>,
+        _irq: impl Binding<T::Interrupt, InterruptHandler<T>>, // needed for rx error handling wakeups
+        config: Config,
+    ) -> Self {
+        // init pins and peripheral
+        Uart::<Streaming>::init(T::info(), Some(tx.into()), Some(rx.into()), None, None, config);
+        Self {
+            tx: UartTx::new_inner(T::info(), None),
+            rx: UartRx::new_inner(T::info(), T::dma_state(), true, None),
+        }
+    }
+
+    /// split and construct a double-buffered dma rx stream.
+    pub fn into_stream<'s, C0: Channel, C1: Channel>(
+        &mut self,
+        ch_a: Peri<'d, C0>,
+        ch_b: Peri<'d, C1>,
+        buf_a: &'s mut [u8],
+        buf_b: &'s mut [u8],
+    ) -> dma::RxStream<'d, 's, C0, C1> {
+        // enable rx dma with abort-on-error
+        self.rx.info.regs.uartdmacr().write_set(|reg| {
+            reg.set_rxdmae(true);
+            reg.set_dmaonerr(true);
+        });
+        dma::RxStream::new(
+            ch_a,
+            ch_b,
+            self.rx.info.regs.uartdr().as_ptr() as *const _,
+            self.rx.info.rx_dreq.into(),
+            buf_a,
+            buf_b,
+        )
+    }
+}
+
 impl<'d, M: Mode> embedded_hal_02::serial::Read<u8> for UartRx<'d, M> {
     type Error = Error;
     fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
@@ -1339,9 +1411,12 @@ macro_rules! impl_mode {
 pub struct Blocking;
 /// Async mode.
 pub struct Async;
+/// Streaming mode (double-buffered DMA continuous RX)
+pub struct Streaming;
 
 impl_mode!(Blocking);
 impl_mode!(Async);
+impl_mode!(Streaming);
 
 /// UART instance.
 #[allow(private_bounds)]
