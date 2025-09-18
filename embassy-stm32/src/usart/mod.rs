@@ -185,6 +185,12 @@ pub enum ConfigError {
     RxOrTxNotEnabled,
     /// Data bits and parity combination not supported
     DataParityNotSupported,
+    /// DE assertion time too high
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    DeAssertionTimeTooHigh,
+    /// DE deassertion time too high
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    DeDeassertionTimeTooHigh,
 }
 
 #[non_exhaustive]
@@ -251,6 +257,14 @@ pub struct Config {
     /// Set the pin configuration for the DE pin.
     pub de_config: OutputConfig,
 
+    /// Set DE assertion time before the first start bit, 0-31 16ths of a bit period.
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    pub de_assertion_time: u8,
+
+    /// Set DE deassertion time after the last stop bit, 0-31 16ths of a bit period.
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    pub de_deassertion_time: u8,
+
     // private: set by new_half_duplex, not by the user.
     duplex: Duplex,
 }
@@ -296,6 +310,10 @@ impl Default for Config {
             tx_config: OutputConfig::PushPull,
             rts_config: OutputConfig::PushPull,
             de_config: OutputConfig::PushPull,
+            #[cfg(not(any(usart_v1, usart_v2)))]
+            de_assertion_time: 0,
+            #[cfg(not(any(usart_v1, usart_v2)))]
+            de_deassertion_time: 0,
             duplex: Duplex::Full,
         }
     }
@@ -1706,6 +1724,16 @@ fn configure(
         return Err(ConfigError::RxOrTxNotEnabled);
     }
 
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    let dem = r.cr3().read().dem();
+
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    if config.de_assertion_time > 31 {
+        return Err(ConfigError::DeAssertionTimeTooHigh);
+    } else if config.de_deassertion_time > 31 {
+        return Err(ConfigError::DeDeassertionTimeTooHigh);
+    }
+
     // UART must be disabled during configuration.
     r.cr1().modify(|w| {
         w.set_ue(false);
@@ -1752,6 +1780,20 @@ fn configure(
             w.set_te(enable_tx);
             // enable receiver
             w.set_re(enable_rx);
+        }
+
+        #[cfg(not(any(usart_v1, usart_v2)))]
+        if dem {
+            w.set_deat(if over8 {
+                config.de_assertion_time / 2
+            } else {
+                config.de_assertion_time
+            });
+            w.set_dedt(if over8 {
+                config.de_assertion_time / 2
+            } else {
+                config.de_assertion_time
+            });
         }
 
         // configure word size and parity, since the parity bit is inserted into the MSB position,
