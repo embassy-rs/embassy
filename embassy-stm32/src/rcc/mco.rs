@@ -91,16 +91,28 @@ pub struct Mco<'d, T: McoInstance> {
 
 impl<'d, T: McoInstance> Mco<'d, T> {
     /// Create a new MCO instance.
-    pub fn new(peri: Peri<'d, T>, pin: Peri<'d, impl McoPin<T>>, source: T::Source, prescaler: McoPrescaler) -> Self {
-        Self::new_with_speed(peri, pin, Speed::VeryHigh, source, prescaler)
-    }
-
-    pub fn new_with_speed(_peri: Peri<'d, T>, pin: Peri<'d, impl McoPin<T>>, speed: Speed, source: T::Source, prescaler: McoPrescaler) -> Self {
+    pub fn new(_peri: Peri<'d, T>, pin: Peri<'d, impl McoPin<T>>, source: T::Source, config: McoConfig) -> Self {
         critical_section::with(|_| unsafe {
-            T::_apply_clock_settings(source, prescaler);
-            set_as_af!(pin, AfType::output(OutputType::PushPull, speed));
+            T::_apply_clock_settings(source, config.prescaler);
+            set_as_af!(pin, AfType::output(OutputType::PushPull, config.speed));
         });
 
         Self { phantom: PhantomData }
+    }
+}
+
+pub struct McoConfig {
+    /// Master Clock Out prescaler
+    pub prescaler: McoPrescaler,
+    /// IO Drive Strength
+    pub speed: Speed,
+}
+
+impl Default for McoConfig {
+    fn default() -> Self {
+        Self {
+            prescaler: McoPrescaler::DIV1,
+            speed: Speed::VeryHigh,
+        }
     }
 }
