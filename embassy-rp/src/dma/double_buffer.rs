@@ -48,7 +48,7 @@ impl<'a, 's, C0: Channel, C1: Channel> Drop for RxBuf<'a, 's, C0, C1> {
 }
 
 /// double-buffered dma rx stream
-pub struct RxStream<'d, 's, C0: Channel, C1: Channel> {
+pub struct RxStream<'d, C0: Channel, C1: Channel> {
     ch_a: Peri<'d, C0>,
     ch_b: Peri<'d, C1>,
 
@@ -74,9 +74,9 @@ pub struct RxStream<'d, 's, C0: Channel, C1: Channel> {
     _not_send: PhantomData<*const ()>,
 }
 
-impl<'d, 's, C0: Channel, C1: Channel> RxStream<'d, 's, C0, C1> {
+impl<'d, C0: Channel, C1: Channel> RxStream<'d, C0, C1> {
     /// create a new rx stream for a peripheral register `from_ptr` and dreq.
-    pub fn new(
+    pub fn new<'s>(
         ch_a: Peri<'d, C0>,
         ch_b: Peri<'d, C1>,
         from_ptr: *const u32,
@@ -180,14 +180,21 @@ impl<'d, 's, C0: Channel, C1: Channel> RxStream<'d, 's, C0, C1> {
             }
 
             // the other channel should already be running due to chain. record state.
-            let other = match which { Which::A => Which::B, Which::B => Which::A };
+            let other = match which {
+                Which::A => Which::B,
+                Which::B => Which::A,
+            };
             self.running = Some(other);
             self.next_to_fill = which;
 
             // build guard with immutable slice
             let buf: &'s [u8] = unsafe { self.slice_for(which) };
             self.in_user = Some(which);
-            let guard = RxBuf { stream: self, which, buf };
+            let guard = RxBuf {
+                stream: self,
+                which,
+                buf,
+            };
             return Poll::Ready(Some(guard));
         }
 
@@ -265,5 +272,3 @@ impl<'d, 's, C0: Channel, C1: Channel> RxStream<'d, 's, C0, C1> {
         o
     }
 }
-
-
