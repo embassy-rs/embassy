@@ -156,8 +156,6 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
         mut port_w: W,
         max_frame_size: usize,
     ) -> Result<(), Error> {
-        info!("Mux runner start");
-
         let drop_mux = OnDrop::new(|| {
             debug!("Dropping MUX runner, closing all channels");
             *self.control_channel_opened.borrow_mut() = false;
@@ -270,7 +268,7 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
 
                                 match &info {
                                     Information::MultiplexerCloseDown(_cld) => {
-                                        info!("The mobile station requested mux-mode termination");
+                                        debug!("The mobile station requested mux-mode termination");
                                         break;
                                     }
                                     Information::TestCommand => {
@@ -361,11 +359,7 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
                         }
                         FrameType::Sabm if header.is_control() => {
                             // channel open request
-                            if *self.control_channel_opened.borrow() {
-                                info!("Received SABM even though control channel was already open.");
-                            } else {
-                                info!("Control channel opened.");
-                            }
+
                             *self.control_channel_opened.borrow_mut() = true;
                             if let Err(e) = (frame::Ua { id: 0 }).write(&mut port_w).await {
                                 error!("Failed to send UA for control channel SABM: {:?}", e);
@@ -374,11 +368,6 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
                         }
                         FrameType::Sabm => {
                             let channel_id = header.id() as usize - 1;
-                            if self.lines[channel_id].opened.get() {
-                                info!("Received SABM even though channel {} was already open.", channel_id);
-                            } else {
-                                info!("Logical channel {} opened.", channel_id);
-                            }
                             self.lines[channel_id].opened.set(true);
                             if let Err(e) = (frame::Ua { id: header.id() }).write(&mut port_w).await {
                                 error!("Failed to send UA for channel {} SABM: {:?}", channel_id + 1, e);
@@ -388,10 +377,10 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
                         FrameType::Ua if header.is_control() => {
                             if *self.control_channel_opened.borrow() {
                                 *self.control_channel_opened.borrow_mut() = false;
-                                info!("Control channel closed.");
+                                debug!("Control channel closed.");
                             } else {
                                 *self.control_channel_opened.borrow_mut() = true;
-                                info!("Control channel opened.");
+                                debug!("Control channel opened.");
 
                                 // send version Siemens version test
                                 // frame::Uih {
@@ -405,24 +394,23 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
                         FrameType::Ua => {
                             let channel_id = header.id() as usize - 1;
                             if self.lines[channel_id].opened.get() {
-                                info!("Logical channel {} closed.", channel_id);
+                                debug!("Logical channel {} closed.", channel_id);
                                 self.lines[channel_id].opened.set(false);
                             } else {
-                                info!("Logical channel {} opened.", channel_id);
-
+                                debug!("Logical channel {} opened.", channel_id);
                                 self.lines[channel_id].opened.set(true);
                             }
                         }
                         FrameType::Dm if header.is_control() => {
-                            info!("Couldn't open control channel. -> Terminating MUX");
+                            debug!("Couldn't open control channel. -> Terminating MUX");
                             break;
                         }
                         FrameType::Dm => {
-                            info!("Logical channel {} couldn't be opened.", header.id() - 1);
+                            debug!("Logical channel {} couldn't be opened.", header.id() - 1);
                         }
                         FrameType::Disc if header.is_control() => {
                             if *self.control_channel_opened.borrow() {
-                                info!("Control channel closed.");
+                                debug!("Control channel closed.");
                                 *self.control_channel_opened.borrow_mut() = false;
                                 if let Err(e) = (frame::Ua { id: 0 }).write(&mut port_w).await {
                                     error!("Failed to send UA for control channel DISC: {:?}", e);
@@ -430,7 +418,7 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
                                 }
                                 break;
                             } else {
-                                info!("Received DISC even though control channel was already closed.");
+                                debug!("Received DISC even though control channel was already closed.");
                                 if let Err(e) = (frame::Dm { id: 0 }).write(&mut port_w).await {
                                     error!("Failed to send DM for control channel DISC: {:?}", e);
                                     return Err(e);
@@ -441,13 +429,13 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
                             let channel_id = header.id() as usize - 1;
                             if self.lines[channel_id].opened.get() {
                                 self.lines[channel_id].opened.set(false);
-                                info!("Logical channel {} closed.", channel_id);
+                                debug!("Logical channel {} closed.", channel_id);
                                 if let Err(e) = (frame::Ua { id: header.id() }).write(&mut port_w).await {
                                     error!("Failed to send UA for channel {} DISC: {:?}", channel_id + 1, e);
                                     return Err(e);
                                 }
                             } else {
-                                info!("Received DISC even though channel {} was already closed.", channel_id);
+                                debug!("Received DISC even though channel {} was already closed.", channel_id);
                                 if let Err(e) = (frame::Dm { id: header.id() }).write(&mut port_w).await {
                                     error!("Failed to send DM for channel {} DISC: {:?}", channel_id + 1, e);
                                     return Err(e);
@@ -478,7 +466,7 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
 
         for id in (0..N).rev() {
             let channel_id = id + 1;
-            info!("Closing down the logical channel {}.", channel_id);
+            debug!("Closing down the logical channel {}.", channel_id);
             if self.lines[channel_id].opened.get() {
                 if let Err(e) = (frame::Disc { id: channel_id as u8 }).write(&mut port_w).await {
                     error!("Failed to send DISC for channel {}: {:?}", channel_id, e);
@@ -488,7 +476,7 @@ impl<'a, const N: usize, const BUF: usize> Runner<'a, N, BUF> {
         }
 
         if *self.control_channel_opened.borrow() {
-            info!("Sending close down request to the multiplexer.");
+            debug!("Sending close down request to the multiplexer.");
             if let Err(e) = (frame::Uih {
                 id: 0,
                 information: Information::MultiplexerCloseDown(MultiplexerCloseDown { cr: frame::CR::Command }),
