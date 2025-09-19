@@ -1119,26 +1119,14 @@ impl<'d> Uart<'d, Async> {
 }
 
 impl<'d> UartRx<'d, Streaming> {
-    /// Create a new DMA-enabled UART which can only receive data
-    pub fn new<T: Instance>(
-        _uart: Peri<'d, T>,
-        rx: Peri<'d, impl RxPin<T>>,
-        _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
-        config: Config,
-    ) -> Self {
-        Uart::<M>::init(T::info(), None, Some(rx.into()), None, None, config);
-        // don't store the rx_dma here, we need two channels
-        Self::new_inner(T::info(), T::dma_state(), true, None)
-    }
-
     /// split and construct a double-buffered dma rx stream.
-    pub fn into_stream<'s, C0: Channel, C1: Channel>(
+    pub fn into_stream<'buf, C0: Channel, C1: Channel>(
         &mut self,
         ch_a: Peri<'d, C0>,
         ch_b: Peri<'d, C1>,
-        buf_a: &'s mut [u8],
-        buf_b: &'s mut [u8],
-    ) -> dma::RxStream<'d, 's, C0, C1> {
+        buf_a: &'buf mut [u8],
+        buf_b: &'buf mut [u8],
+    ) -> dma::RxStream<'d, 'buf, C0, C1> {
         // enable rx dma with abort-on-error
         self.info.regs.uartdmacr().write_set(|reg| {
             reg.set_rxdmae(true);
