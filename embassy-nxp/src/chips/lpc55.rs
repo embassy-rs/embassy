@@ -1,5 +1,9 @@
 pub use nxp_pac as pac;
 
+embassy_hal_internal::interrupt_mod!(
+    FLEXCOMM0, FLEXCOMM1, FLEXCOMM2, FLEXCOMM3, FLEXCOMM4, FLEXCOMM5, FLEXCOMM6, FLEXCOMM7
+);
+
 embassy_hal_internal::peripherals! {
     // External pins. These are not only GPIOs, they are multi-purpose pins and can be used by other
     // peripheral types (e.g. I2C).
@@ -68,6 +72,32 @@ embassy_hal_internal::peripherals! {
     PIO1_30,
     PIO1_31,
 
+    // Direct Memory Access (DMA) channels. They are used for asynchronous modes of peripherals.
+    DMA_CH0,
+    DMA_CH1,
+    DMA_CH2,
+    DMA_CH3,
+    DMA_CH4,
+    DMA_CH5,
+    DMA_CH6,
+    DMA_CH7,
+    DMA_CH8,
+    DMA_CH9,
+    DMA_CH10,
+    DMA_CH11,
+    DMA_CH12,
+    DMA_CH13,
+    DMA_CH14,
+    DMA_CH15,
+    DMA_CH16,
+    DMA_CH17,
+    DMA_CH18,
+    DMA_CH19,
+    DMA_CH20,
+    DMA_CH21,
+    DMA_CH22,
+
+    // Universal Synchronous/Asynchronous Receiver/Transmitter (USART) instances.
     USART0,
     USART1,
     USART2,
