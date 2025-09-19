@@ -6,13 +6,13 @@
 mod fmt;
 mod frame;
 
-use core::cell::{Cell, Ref, RefCell};
-use core::future::{poll_fn, Future};
+use core::cell::{Cell, RefCell};
+use core::future::{Future, poll_fn};
 use core::mem::MaybeUninit;
 use core::pin::pin;
 use core::task::Poll;
 
-use embassy_futures::select::{select, select3, select_slice, Either, Either3};
+use embassy_futures::select::{Either, Either3, select, select_slice, select3};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::pipe::{Pipe, Reader, Writer};
 use embassy_sync::signal::Signal;
