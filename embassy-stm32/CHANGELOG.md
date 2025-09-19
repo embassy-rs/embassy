@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- feat: Added support for injected ADC sampling for g4 ([#4243](https://github.com/embassy-rs/embassy/pull/4243))
 - fix: Fixed STM32H5 builds requiring time feature
 - feat: Derive Clone, Copy for QSPI Config
 - fix: stm32/i2c in master mode (blocking): subsequent transmissions failed after a NACK was received
