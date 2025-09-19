@@ -132,7 +132,9 @@ impl<'d> UartRx<'d, Async> {
 impl<'d> RingBufferedUartRx<'d> {
     /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
-        self.state.eager_reads.store(config.eager_reads, Ordering::Relaxed);
+        self.state
+            .eager_reads
+            .store(config.eager_reads.unwrap_or(0), Ordering::Relaxed);
         reconfigure(self.info, self.kernel_clock, config)
     }
 
@@ -149,7 +151,7 @@ impl<'d> RingBufferedUartRx<'d> {
         // clear all interrupts and DMA Rx Request
         r.cr1().modify(|w| {
             // use RXNE only when returning reads early
-            w.set_rxneie(self.state.eager_reads.load(Ordering::Relaxed));
+            w.set_rxneie(self.state.eager_reads.load(Ordering::Relaxed) > 0);
             // enable parity interrupt if not ParityNone
             w.set_peie(w.pce());
             // enable idle line interrupt
@@ -261,11 +263,12 @@ impl<'d> RingBufferedUartRx<'d> {
                 // However, DMA will clear RXNE, so we can't check directly, and because
                 // the other future borrows `ring_buf`, we can't check `len()` here either.
                 // Instead, return from this future and we'll check the length afterwards.
-                let eager = s.eager_reads.load(Ordering::Relaxed);
+                let eager = s.eager_reads.load(Ordering::Relaxed) > 0;
 
-                if check_idle_and_errors(self.info.regs)? || (eager && uart_init) {
+                let idle = check_idle_and_errors(self.info.regs)?;
+                if idle || (eager && uart_init) {
                     // Idle line is detected, or eager reads is set and some data is available.
-                    Poll::Ready(Ok(()))
+                    Poll::Ready(Ok(idle))
                 } else {
                     uart_init = true;
                     Poll::Pending
@@ -288,13 +291,24 @@ impl<'d> RingBufferedUartRx<'d> {
             });
 
             match select(uart, dma).await {
-                Either::Left((result, _)) => {
-                    if self.ring_buf.len().unwrap_or(0) > 0 || result.is_err() {
-                        return result;
+                // UART woke with line idle
+                Either::Left((Ok(true), _)) => {
+                    return Ok(());
+                }
+                // UART woke without idle or error: word received
+                Either::Left((Ok(false), _)) => {
+                    let eager = self.state.eager_reads.load(Ordering::Relaxed);
+                    if eager > 0 && self.ring_buf.len().unwrap_or(0) >= eager {
+                        return Ok(());
                     } else {
                         continue;
                     }
                 }
+                // UART woke with error
+                Either::Left((Err(e), _)) => {
+                    return Err(e);
+                }
+                // DMA woke
                 Either::Right(((), _)) => return Ok(()),
             }
         }
