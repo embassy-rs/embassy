@@ -31,6 +31,17 @@ impl<'buf> StreamingUartRx<'buf> {
         super::Uart::<Async>::init(T::info(), None, Some(rx.into()), None, None, uart_config);
         let info = T::info();
 
+        // disable all error interrupts initially
+        info.regs.uartimsc().write_set(|w| {
+            w.set_oeim(true);
+            w.set_beim(true);
+            w.set_peim(true);
+            w.set_feim(true);
+        });
+
+        info.interrupt.unpend();
+        unsafe { info.interrupt.enable() };
+
         // enable rx dma and abort transfers on uart error conditions
         info.regs.uartdmacr().write_set(|reg| {
             reg.set_rxdmae(true);
@@ -98,5 +109,17 @@ impl<'buf> StreamingUartRx<'buf> {
         }
 
         unreachable!("unrecognized rx error");
+    }
+}
+
+impl<'d> Drop for StreamingUartRx<'d> {
+    fn drop(&mut self) {
+        self.info.interrupt.disable();
+
+        // clear dma flags. irq handlers use these to disambiguate among themselves.
+        self.info.regs.uartdmacr().write_clear(|reg| {
+            reg.set_rxdmae(true);
+            reg.set_dmaonerr(true);
+        });
     }
 }
