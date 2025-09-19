@@ -3,8 +3,7 @@ use core::future::Future;
 use core::mem::MaybeUninit;
 
 use bt_hci::transport::WithIndicator;
-use bt_hci::FromHciBytesError;
-use bt_hci::{ControllerToHostPacket, FromHciBytes, HostToControllerPacket, PacketKind, WriteHci};
+use bt_hci::{ControllerToHostPacket, FromHciBytes, FromHciBytesError, HostToControllerPacket, PacketKind, WriteHci};
 use embassy_futures::yield_now;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::zerocopy_channel;
