@@ -131,15 +131,12 @@ impl<'peri, 'buf, C0: Channel, C1: Channel> RxStream<'peri, 'buf, C0, C1> {
     pub async fn next<'s>(&'s mut self) -> Option<RxBufView<'s, 'buf>> {
         let info = &mut self.info;
         let state = &mut self.state;
+        let buffers = &mut self.buffers;
 
-        let which = poll_fn(|cx| Self::poll_next(cx, info, state)).await;
+        let which = poll_fn(|cx| Self::poll_next(cx, info, state, buffers)).await;
 
         match which {
-            Some(which) => Some(RxBufView {
-                state,
-                buffers: &mut self.buffers,
-                which,
-            }),
+            Some(which) => Some(RxBufView { state, buffers, which }),
             None => None,
         }
     }
@@ -149,6 +146,7 @@ impl<'peri, 'buf, C0: Channel, C1: Channel> RxStream<'peri, 'buf, C0, C1> {
         cx: &mut Context<'cx>,
         info: &'a mut Info<'peri, C0, C1>,
         state: &'a mut State,
+        buffers: &'a mut Buffers<'buf>,
     ) -> Poll<Option<Which>> {
         // register wakers on both channels. any completion will wake us.
         // safety: using the same waker for both is fine; irq wakes per-channel.
@@ -164,6 +162,12 @@ impl<'peri, 'buf, C0: Channel, C1: Channel> RxStream<'peri, 'buf, C0, C1> {
                     // buffer A is ready
                     state.ready = Some(Which::A);
                     state.filling = Some(Which::B);
+
+                    // if channel B is not enabled, start it
+                    if !info.ch_b.regs().ctrl_trig().read().en() {
+                        unsafe { Self::program_channel(info, buffers, Which::B, true) };
+                    }
+
                     return Poll::Ready(Some(Which::A));
                 }
             }
@@ -172,6 +176,12 @@ impl<'peri, 'buf, C0: Channel, C1: Channel> RxStream<'peri, 'buf, C0, C1> {
                     // buffer B is ready
                     state.ready = Some(Which::B);
                     state.filling = Some(Which::A);
+
+                    // if channel A is not enabled, start it
+                    if !info.ch_a.regs().ctrl_trig().read().en() {
+                        unsafe { Self::program_channel(info, buffers, Which::A, true) };
+                    }
+
                     return Poll::Ready(Some(Which::B));
                 }
             }
