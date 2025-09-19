@@ -220,6 +220,10 @@ impl_timer!(TIMER2, TIMER2, TIMER2);
 impl_timer!(TIMER3, TIMER3, TIMER3, extended);
 impl_timer!(TIMER4, TIMER4, TIMER4, extended);
 
+impl_rtc!(RTC0, RTC0, RTC0);
+impl_rtc!(RTC1, RTC1, RTC1);
+impl_rtc!(RTC2, RTC2, RTC2);
+
 impl_qspi!(QSPI, QSPI, QSPI);
 
 impl_pdm!(PDM, PDM, PDM);
