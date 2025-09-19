@@ -8,6 +8,7 @@ use core::future::poll_fn;
 use core::task::{Context, Poll};
 
 use embassy_hal_internal::Peri;
+use rp_pac::dma::regs::CtrlTrig;
 
 use crate::dma::{AnyChannel, Channel, CHANNEL_COUNT};
 use crate::pac;
@@ -120,8 +121,8 @@ impl<'peri, 'buf, C0: Channel, C1: Channel> RxStream<'peri, 'buf, C0, C1> {
 
         // program both channels, chain to each other. start A only to kick off ping-pong.
         unsafe {
-            Self::program_channel(&mut s.info, &mut s.buffers, Which::A, true);
             Self::program_channel(&mut s.info, &mut s.buffers, Which::B, false);
+            Self::program_channel(&mut s.info, &mut s.buffers, Which::A, true);
         }
 
         s
@@ -163,10 +164,10 @@ impl<'peri, 'buf, C0: Channel, C1: Channel> RxStream<'peri, 'buf, C0, C1> {
                     state.ready = Some(Which::A);
                     state.filling = Some(Which::B);
 
-                    // if channel B is not enabled, start it
-                    if !info.ch_b.regs().ctrl_trig().read().en() {
-                        unsafe { Self::program_channel(info, buffers, Which::B, true) };
-                    }
+                    // // if channel B is not enabled, start it
+                    // if !info.ch_b.regs().ctrl_trig().read().en() {
+                    //     unsafe { Self::program_channel(info, buffers, Which::B, true) };
+                    // }
 
                     return Poll::Ready(Some(Which::A));
                 }
@@ -177,10 +178,10 @@ impl<'peri, 'buf, C0: Channel, C1: Channel> RxStream<'peri, 'buf, C0, C1> {
                     state.ready = Some(Which::B);
                     state.filling = Some(Which::A);
 
-                    // if channel A is not enabled, start it
-                    if !info.ch_a.regs().ctrl_trig().read().en() {
-                        unsafe { Self::program_channel(info, buffers, Which::A, true) };
-                    }
+                    // // if channel A is not enabled, start it
+                    // if !info.ch_a.regs().ctrl_trig().read().en() {
+                    //     unsafe { Self::program_channel(info, buffers, Which::A, true) };
+                    // }
 
                     return Poll::Ready(Some(Which::B));
                 }
@@ -191,7 +192,7 @@ impl<'peri, 'buf, C0: Channel, C1: Channel> RxStream<'peri, 'buf, C0, C1> {
         Poll::Pending
     }
 
-    unsafe fn program_channel(info: &mut Info<'peri, C0, C1>, buffers: &mut Buffers<'buf>, which: Which, enable: bool) {
+    unsafe fn program_channel(info: &mut Info<'peri, C0, C1>, buffers: &mut Buffers<'buf>, which: Which, start: bool) {
         let (ch_this, wptr, len, ch_other_num) = match which {
             Which::A => (
                 Peri::<AnyChannel>::from(info.ch_a.reborrow().into()),
@@ -224,17 +225,36 @@ impl<'peri, 'buf, C0: Channel, C1: Channel> RxStream<'peri, 'buf, C0, C1> {
 
         // ensure previous stores are visible before enabling
         core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
-        p.ctrl_trig().write(|w| {
-            w.set_treq_sel(info.dreq);
-            #[cfg(feature = "rp2040")]
-            w.set_data_size(DataSize::SIZE_BYTE);
-            // rp235x encodes size in the fifo mapping; byte access by default
-            w.set_incr_read(false);
-            w.set_incr_write(true);
-            // chain to the other channel for continuous ping-pong
-            w.set_chain_to(ch_other_num);
-            w.set_en(enable);
-        });
+
+        if start {
+            p.ctrl_trig().write(|w| {
+                w.set_treq_sel(info.dreq);
+                #[cfg(feature = "rp2040")]
+                w.set_data_size(DataSize::SIZE_BYTE);
+                // rp235x encodes size in the fifo mapping; byte access by default
+                w.set_incr_read(false);
+                w.set_incr_write(true);
+                // chain to the other channel for continuous ping-pong
+                w.set_chain_to(ch_other_num);
+                w.set_en(true);
+            });
+        } else {
+            // don't start right away
+            p.al1_ctrl().write(|w| {
+                let mut cw = CtrlTrig(*w);
+                cw.set_treq_sel(info.dreq);
+                #[cfg(feature = "rp2040")]
+                cw.set_data_size(DataSize::SIZE_BYTE);
+                // rp235x encodes size in the fifo mapping; byte access by default
+                cw.set_incr_read(false);
+                cw.set_incr_write(true);
+                // chain to the other channel for continuous ping-pong
+                cw.set_chain_to(ch_other_num);
+                cw.set_en(true);
+                *w = cw.0;
+            });
+        }
+
         core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
     }
 }
