@@ -5,12 +5,9 @@
 //! dropping the yielded buffer guard re-queues that buffer for the next transfer. only rx is supported.
 
 use core::future::poll_fn;
-use core::marker::PhantomData;
-use core::pin::Pin;
 use core::task::{Context, Poll};
 
 use embassy_hal_internal::Peri;
-use futures_core::stream::Stream;
 
 use crate::dma::{AnyChannel, Channel, CHANNEL_COUNT};
 use crate::pac;
@@ -27,35 +24,35 @@ enum Which {
 }
 
 /// guard returned to the user. on drop this re-queues the buffer for the next transfer.
-pub struct RxBufView<'a, 'peri, 'buf, C0: Channel, C1: Channel> {
-    info: &'a mut Info<'peri, C0, C1>,
+pub struct RxBufView<'a, 'buf> {
     state: &'a mut State,
     buffers: &'a mut Buffers<'buf>,
     which: Which,
 }
 
-impl<'a, 'peri, 'buf, C0: Channel, C1: Channel> core::ops::Deref for RxBufView<'a, 'peri, 'buf, C0, C1> {
+impl<'a, 'buf> core::ops::Deref for RxBufView<'a, 'buf> {
     type Target = [u8];
     fn deref(&self) -> &Self::Target {
         self.buffers.slice_for(self.which)
     }
 }
 
-impl<'a, 'peri, 'buf, C0: Channel, C1: Channel> Drop for RxBufView<'a, 'peri, 'buf, C0, C1> {
+impl<'a, 'buf> Drop for RxBufView<'a, 'buf> {
     fn drop(&mut self) {
-        // re-queue this buffer. if the stream is already closed, do nothing.
-        RxStream::on_buffer_released(self.which, self.info, self.state, self.buffers);
+        if self.state.borrowed == Some(self.which) {
+            self.state.borrowed = None;
+        }
     }
 }
 
-pub struct Info<'peri, C0: Channel, C1: Channel> {
+struct Info<'peri, C0: Channel, C1: Channel> {
     ch_a: Peri<'peri, C0>,
     ch_b: Peri<'peri, C1>,
     from_ptr: *const u32,
     dreq: TreqSel,
 }
 
-pub struct Buffers<'buf> {
+struct Buffers<'buf> {
     buf_a: &'buf mut [u8],
     buf_b: &'buf mut [u8],
 }
@@ -76,12 +73,15 @@ impl<'buf> Buffers<'buf> {
     }
 }
 
-pub struct State {
-    running: Option<Which>,
-    in_user: Option<Which>,
-    pending_complete: Option<Which>,
-    next_to_fill: Which,
-    closed: bool,
+struct State {
+    /// tracks which buffer is currently being filled. none means that the
+    /// stream is closed and neither channel is running
+    filling: Option<Which>,
+    /// tracks which buffer is currently borrowed by the user
+    borrowed: Option<Which>,
+    /// tracks which buffer is ready to be yielded
+    ready: Option<Which>,
+    /// set to true if a transfer happens while a buffer is in use
     overrun: bool,
 }
 
@@ -110,11 +110,9 @@ impl<'peri, 'buf, C0: Channel, C1: Channel> RxStream<'peri, 'buf, C0, C1> {
                 dreq,
             },
             state: State {
-                running: None,
-                in_user: None,
-                pending_complete: None,
-                next_to_fill: Which::A,
-                closed: false,
+                filling: Some(Which::A),
+                borrowed: None,
+                ready: None,
                 overrun: false,
             },
             buffers: Buffers { buf_a, buf_b },
@@ -122,44 +120,28 @@ impl<'peri, 'buf, C0: Channel, C1: Channel> RxStream<'peri, 'buf, C0, C1> {
 
         // program both channels, chain to each other. start A only to kick off ping-pong.
         unsafe {
-            Self::program_channel(&mut s.info, &mut s.state, &mut s.buffers, Which::A, true);
-            Self::program_channel(&mut s.info, &mut s.state, &mut s.buffers, Which::B, false);
+            Self::program_channel(&mut s.info, &mut s.buffers, Which::A, true);
+            Self::program_channel(&mut s.info, &mut s.buffers, Which::B, false);
         }
 
-        s.state.running = Some(Which::A);
-        s.state.next_to_fill = Which::B;
         s
     }
 
     /// async convenience that yields the next filled buffer.
-    pub async fn next<'s>(&'s mut self) -> Option<RxBufView<'s, 'peri, 'buf, C0, C1>> {
+    pub async fn next<'s>(&'s mut self) -> Option<RxBufView<'s, 'buf>> {
         let info = &mut self.info;
         let state = &mut self.state;
-        let buffers = &mut self.buffers;
 
-        poll_fn(|cx| {
-            let poll = Self::poll_next(cx, info, state, buffers);
-            poll
-        })
-        .await
-    }
+        let which = poll_fn(|cx| Self::poll_next(cx, info, state)).await;
 
-    /// called by `RxBuf::drop` to release the buffer and (re)start a transfer if possible.
-    fn on_buffer_released(
-        which: Which,
-        info: &mut Info<'peri, C0, C1>,
-        state: &mut State,
-        buffers: &mut Buffers<'buf>,
-    ) {
-        if state.closed {
-            return;
+        match which {
+            Some(which) => Some(RxBufView {
+                state,
+                buffers: &mut self.buffers,
+                which,
+            }),
+            None => None,
         }
-        // mark user buffer as free
-        if state.in_user == Some(which) {
-            state.in_user = None;
-        }
-        // reprogram the released channel for the next round; do not enable it now.
-        unsafe { Self::program_channel(info, state, buffers, which, false) };
     }
 
     /// poll for next completed buffer.
@@ -167,83 +149,39 @@ impl<'peri, 'buf, C0: Channel, C1: Channel> RxStream<'peri, 'buf, C0, C1> {
         cx: &mut Context<'cx>,
         info: &'a mut Info<'peri, C0, C1>,
         state: &'a mut State,
-        buffers: &'a mut Buffers<'buf>,
-    ) -> Poll<Option<RxBufView<'a, 'peri, 'buf, C0, C1>>> {
-        if state.closed {
-            return Poll::Ready(None);
-        }
-
+    ) -> Poll<Option<Which>> {
         // register wakers on both channels. any completion will wake us.
         // safety: using the same waker for both is fine; irq wakes per-channel.
         let a_idx = info.ch_a.number() as usize;
         let b_idx = info.ch_b.number() as usize;
-        assert!(a_idx < CHANNEL_COUNT && b_idx < CHANNEL_COUNT);
+        debug_assert!(a_idx < CHANNEL_COUNT && b_idx < CHANNEL_COUNT);
         super::CHANNEL_WAKERS[a_idx].register(cx.waker());
         super::CHANNEL_WAKERS[b_idx].register(cx.waker());
 
-        // update completion state based on dma busy flags
-        if state.pending_complete.is_none() {
-            match state.running {
-                Some(Which::A) => {
-                    if !info.ch_a.regs().ctrl_trig().read().busy() {
-                        // detect if this buffer is still in use by user -> overrun
-                        if state.in_user == Some(Which::A) {
-                            state.overrun = true;
-                        }
-                        state.pending_complete = Some(Which::A);
-                        state.running = None;
-                    }
+        match state.filling {
+            Some(Which::A) => {
+                if !info.ch_a.regs().ctrl_trig().read().busy() {
+                    // buffer A is ready
+                    state.ready = Some(Which::A);
+                    state.filling = Some(Which::B);
+                    return Poll::Ready(Some(Which::A));
                 }
-                Some(Which::B) => {
-                    if !info.ch_b.regs().ctrl_trig().read().busy() {
-                        if state.in_user == Some(Which::B) {
-                            state.overrun = true;
-                        }
-                        state.pending_complete = Some(Which::B);
-                        state.running = None;
-                    }
+            }
+            Some(Which::B) => {
+                if !info.ch_b.regs().ctrl_trig().read().busy() {
+                    // buffer B is ready
+                    state.ready = Some(Which::B);
+                    state.filling = Some(Which::A);
+                    return Poll::Ready(Some(Which::B));
                 }
-                None => {}
             }
-        }
-
-        // if we have a completed buffer and none is currently borrowed by user, yield it
-        if let Some(which) = state.pending_complete.take() {
-            if state.in_user.is_some() {
-                // can't yield yet, wait until user drops previous buffer
-                state.pending_complete = Some(which);
-                return Poll::Pending;
-            }
-
-            // the other channel should already be running due to chain. record state.
-            let other = match which {
-                Which::A => Which::B,
-                Which::B => Which::A,
-            };
-            state.running = Some(other);
-            state.next_to_fill = which;
-
-            // build guard with immutable slice
-            state.in_user = Some(which);
-
-            return Poll::Ready(Some(RxBufView {
-                info,
-                state,
-                buffers,
-                which,
-            }));
+            None => return Poll::Ready(None),
         }
 
         Poll::Pending
     }
 
-    unsafe fn program_channel(
-        info: &mut Info<'peri, C0, C1>,
-        state: &mut State,
-        buffers: &mut Buffers<'buf>,
-        which: Which,
-        enable: bool,
-    ) {
+    unsafe fn program_channel(info: &mut Info<'peri, C0, C1>, buffers: &mut Buffers<'buf>, which: Which, enable: bool) {
         let (ch_this, wptr, len, ch_other_num) = match which {
             Which::A => (
                 Peri::<AnyChannel>::from(info.ch_a.reborrow().into()),
@@ -267,6 +205,7 @@ impl<'peri, 'buf, C0: Channel, C1: Channel> RxStream<'peri, 'buf, C0, C1> {
         p.trans_count().write(|w| {
             *w = len as u32;
         });
+
         #[cfg(feature = "_rp235x")]
         p.trans_count().write(|w| {
             w.set_mode(0.into());
@@ -292,23 +231,30 @@ impl<'peri, 'buf, C0: Channel, C1: Channel> RxStream<'peri, 'buf, C0, C1> {
 
 impl<'d, 'buf, C0: Channel, C1: Channel> Drop for RxStream<'d, 'buf, C0, C1> {
     fn drop(&mut self) {
-        self.state.closed = true;
+        self.state.filling = None;
         // abort both channels to stop transfers
-        unsafe {
-            pac::DMA
-                .chan_abort()
-                .modify(|m| m.set_chan_abort((1 << self.info.ch_a.number()) | (1 << self.info.ch_b.number())));
-        }
+
+        pac::DMA
+            .chan_abort()
+            .modify(|m| m.set_chan_abort((1 << self.info.ch_a.number()) | (1 << self.info.ch_b.number())));
     }
 }
 
-// impl<'a, 'peri, 'buf, C0: Channel, C1: Channel> futures_core::stream::Stream for RxStream<'peri, 'buf, C0, C1> {
-//     type Item = RxBufView<'a, 'peri, 'buf, C0, C1>;
-//     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>>
-//     {
+// impl<'peri, 'buf, C0: Channel, C1: Channel> futures_core::stream::Stream for RxStream<'peri, 'buf, C0, C1> {
+//     type Item = RxBufView<'_, 'peri, 'buf, C0, C1>;
+
+//     fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
 //         // safety: we never move fields that are not Unpin; we only delegate to inner method
 //         let this = unsafe { self.get_unchecked_mut() };
-//         this.poll_next(cx)
+
+//         core::task::ready!(RxStream::<'peri, 'buf, C0, C1>::poll_next(
+//             cx,
+//             &mut this.info,
+//             &mut this.state,
+//             &mut this.buffers
+//         ));
+
+//         Poll::Ready(this.get_current_buffer())
 //     }
 // }
 
