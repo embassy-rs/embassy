@@ -27,7 +27,7 @@ pub mod clocks;
 pub mod dma;
 pub mod flash;
 #[cfg(feature = "rp2040")]
-mod float;
+pub mod float;
 pub mod gpio;
 pub mod i2c;
 pub mod i2c_slave;
