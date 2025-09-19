@@ -11,6 +11,7 @@ use crate::dma::{self, Channel};
 /// streaming uart rx handle
 pub struct StreamingUartRx<'buf> {
     pub(super) info: &'static Info,
+    pub(super) dma_state: &'static DmaState,
     pub(super) inner: dma::RxStream<'static, 'buf, AnyChannel, AnyChannel>,
 }
 
@@ -45,12 +46,57 @@ impl<'buf> StreamingUartRx<'buf> {
                 buf_a,
                 buf_b,
             ),
+            dma_state: T::dma_state(),
             info,
         }
     }
 
     /// Build a double-buffered DMA stream using the provided DMA channels and buffers.
-    pub async fn next(&mut self) -> Option<dma::RxBufView<'_, 'buf>> {
-        self.inner.next().await
+    pub async fn next(&mut self) -> Result<Option<dma::RxBufView<'_, 'buf>>, Error> {
+        let transfer_result = select(
+            self.inner.next(),
+            poll_fn(|cx| {
+                self.dma_state.rx_err_waker.register(cx.waker());
+                match self.dma_state.rx_errs.swap(0, Ordering::Relaxed) {
+                    0 => Poll::Pending,
+                    e => Poll::Ready(Uartris(e as u32)),
+                }
+            }),
+        )
+        .await;
+
+        let (errors, buf_opt) = match transfer_result {
+            Either::First(buf_opt) => {
+                // We're here because the DMA finished, BUT if an error occurred on the LAST
+                // byte, then we may still need to grab the error state!
+                (
+                    Uartris(self.dma_state.rx_errs.swap(0, Ordering::Relaxed) as u32),
+                    buf_opt,
+                )
+            }
+            Either::Second(e) => {
+                // We're here because we errored, which means this is the error that
+                // was problematic.
+                (e, None)
+            }
+        };
+
+        // If we got no error, just return at this point
+        if errors.0 == 0 {
+            return Ok(buf_opt);
+        }
+
+        // If we DID get an error, we need to figure out which one it was.
+        if errors.oeris() {
+            return Err(Error::Overrun);
+        } else if errors.beris() {
+            return Err(Error::Break);
+        } else if errors.peris() {
+            return Err(Error::Parity);
+        } else if errors.feris() {
+            return Err(Error::Framing);
+        }
+
+        unreachable!("unrecognized rx error");
     }
 }
