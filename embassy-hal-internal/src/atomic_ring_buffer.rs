@@ -133,6 +133,18 @@ impl RingBuffer {
         self.len.load(Ordering::Relaxed)
     }
 
+    /// Return number of items available to read.
+    pub fn available(&self) -> usize {
+        let end = self.end.load(Ordering::Relaxed);
+        let len = self.len.load(Ordering::Relaxed);
+        let start = self.start.load(Ordering::Relaxed);
+        if end >= start {
+            end - start
+        } else {
+            2 * len - start + end
+        }
+    }
+
     /// Check if buffer is full.
     pub fn is_full(&self) -> bool {
         let len = self.len.load(Ordering::Relaxed);
@@ -144,15 +156,7 @@ impl RingBuffer {
 
     /// Check if buffer is at least half full.
     pub fn is_half_full(&self) -> bool {
-        let len = self.len.load(Ordering::Relaxed);
-        let start = self.start.load(Ordering::Relaxed);
-        let end = self.end.load(Ordering::Relaxed);
-        let n = if end >= start {
-            end - start
-        } else {
-            2 * len - start + end
-        };
-        n >= len / 2
+        self.available() >= self.len.load(Ordering::Relaxed) / 2
     }
 
     /// Check if buffer is empty.
