@@ -1,4 +1,9 @@
+#[cfg(rcc_h5)]
+use core::sync::atomic::AtomicBool;
 use core::sync::atomic::{compiler_fence, Ordering};
+
+#[cfg(rcc_h5)]
+use stm32_metapac::pwr::vals::Retention;
 
 use crate::pac::common::{Reg, RW};
 pub use crate::pac::rcc::vals::Rtcsel as RtcClockSource;
@@ -8,6 +13,9 @@ use crate::time::Hertz;
 pub const LSI_FREQ: Hertz = Hertz(40_000);
 #[cfg(not(any(stm32f0, stm32f1, stm32f3)))]
 pub const LSI_FREQ: Hertz = Hertz(32_000);
+
+#[cfg(rcc_h5)]
+pub(crate) static WAS_BKPSRAM_ALREADY_POWERED_BY_BATTERY: AtomicBool = AtomicBool::new(false);
 
 #[allow(dead_code)]
 #[derive(Clone, Copy)]
@@ -89,6 +97,8 @@ pub struct LsConfig {
     pub rtc: RtcClockSource,
     pub lsi: bool,
     pub lse: Option<LseConfig>,
+    #[cfg(rcc_h5)]
+    pub backup_ram_retention: Retention,
 }
 
 impl LsConfig {
@@ -113,6 +123,8 @@ impl LsConfig {
                 peripherals_clocked: false,
             }),
             lsi: false,
+            #[cfg(rcc_h5)]
+            backup_ram_retention: Retention::LOST,
         }
     }
 
@@ -121,6 +133,8 @@ impl LsConfig {
             rtc: RtcClockSource::LSI,
             lsi: true,
             lse: None,
+            #[cfg(rcc_h5)]
+            backup_ram_retention: Retention::LOST,
         }
     }
 
@@ -129,6 +143,8 @@ impl LsConfig {
             rtc: RtcClockSource::DISABLE,
             lsi: false,
             lse: None,
+            #[cfg(rcc_h5)]
+            backup_ram_retention: Retention::LOST,
         }
     }
 }
@@ -191,6 +207,22 @@ impl LsConfig {
 
             #[cfg(any(rcc_wb, rcc_wba))]
             while !csr.read().lsi1rdy() {}
+        }
+
+        // Enable backup regulator for peristent battery backed sram
+        #[cfg(rcc_h5)]
+        {
+            crate::pac::PWR.bdcr().modify(|w| {
+                WAS_BKPSRAM_ALREADY_POWERED_BY_BATTERY.store(w.bren() == Retention::PRESERVED, Ordering::SeqCst);
+
+                w.set_bren(self.backup_ram_retention)
+            });
+
+            #[cfg(rcc_h5)]
+            if self.backup_ram_retention == Retention::PRESERVED {
+                // Wait for backup regulator voltage to stabilize
+                while !crate::pac::PWR.bdsr().read().brrdy() {}
+            }
         }
 
         // backup domain configuration (LSEON, RTCEN, RTCSEL) is kept across resets.
