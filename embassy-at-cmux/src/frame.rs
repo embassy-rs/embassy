@@ -787,12 +787,7 @@ impl<'a, R: embedded_io_async::BufRead> RxHeader<'a, R> {
 
         if trailer[1] != FLAG {
             let mut check_rest = [0; 10];
-
             Self::read_exact(self.reader, &mut check_rest).await?;
-
-            error!("Extra bytes after malformed packet: {:02x}", check_rest);
-
-            error!("Trailer bytes = {:02x}", trailer);
             error!("Malformed packet! Expected {:#02x} but got {:#02x}", FLAG, trailer[1]);
             return Err(Error::MalformedFrame);
         }
