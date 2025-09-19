@@ -101,6 +101,7 @@ impl<'d, T: McoInstance> Mco<'d, T> {
     }
 }
 
+#[non_exhaustive]
 pub struct McoConfig {
     /// Master Clock Out prescaler
     pub prescaler: McoPrescaler,
