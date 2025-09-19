@@ -11,8 +11,7 @@ use embassy_time::{Delay, Timer};
 use pac::uart::regs::Uartris;
 
 use crate::clocks::clk_peri_freq;
-use crate::dma::double_buffer as dma_double_buffer;
-use crate::dma::{self, AnyChannel, Channel};
+use crate::dma::{AnyChannel, Channel};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel::{Binding, Interrupt as _};
 use crate::interrupt::{Interrupt, InterruptExt};
@@ -20,7 +19,9 @@ use crate::pac::io::vals::{Inover, Outover};
 use crate::{interrupt, pac, peripherals, RegExt};
 
 mod buffered;
+mod streaming;
 pub use buffered::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, BufferedUartTx};
+pub use streaming::StreamingUartRx;
 
 /// Word length.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1118,32 +1119,6 @@ impl<'d> Uart<'d, Async> {
     }
 }
 
-impl<'d> UartRx<'d, Streaming> {
-    /// split and construct a double-buffered dma rx stream.
-    pub fn into_stream<'buf, C0: Channel, C1: Channel>(
-        &mut self,
-        ch_a: Peri<'d, C0>,
-        ch_b: Peri<'d, C1>,
-        buf_a: &'buf mut [u8],
-        buf_b: &'buf mut [u8],
-    ) -> dma::RxStream<'d, 'buf, C0, C1> {
-        // enable rx dma with abort-on-error
-        self.info.regs.uartdmacr().write_set(|reg| {
-            reg.set_rxdmae(true);
-            reg.set_dmaonerr(true);
-        });
-
-        dma::RxStream::new(
-            ch_a,
-            ch_b,
-            self.info.regs.uartdr().as_ptr() as *const _,
-            self.info.rx_dreq.into(),
-            buf_a,
-            buf_b,
-        )
-    }
-}
-
 impl<'d, M: Mode> embedded_hal_02::serial::Read<u8> for UartRx<'d, M> {
     type Error = Error;
     fn read(&mut self) -> Result<u8, nb::Error<Self::Error>> {
@@ -1366,12 +1341,10 @@ macro_rules! impl_mode {
 pub struct Blocking;
 /// Async mode.
 pub struct Async;
-/// Streaming mode (double-buffered DMA continuous RX)
-pub struct Streaming;
 
 impl_mode!(Blocking);
 impl_mode!(Async);
-impl_mode!(Streaming);
+
 
 /// UART instance.
 #[allow(private_bounds)]
