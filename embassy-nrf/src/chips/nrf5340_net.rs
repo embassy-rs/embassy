@@ -141,6 +141,9 @@ embassy_hal_internal::peripherals! {
     PPI_GROUP4,
     PPI_GROUP5,
 
+    // IPC
+    IPC,
+
     // GPIO port 0
     P0_00,
     P0_01,
@@ -198,7 +201,12 @@ embassy_hal_internal::peripherals! {
 
     // EGU
     EGU0,
+
+    // TEMP
+    TEMP,
 }
+
+impl_ipc!(IPC, IPC, IPC);
 
 impl_uarte!(SERIAL0, UARTE0, SERIAL0);
 impl_spim!(SERIAL0, SPIM0, SERIAL0);
@@ -298,6 +306,8 @@ impl_ppi_channel!(PPI_CH31, 31 => configurable);
 impl_radio!(RADIO, RADIO, RADIO);
 
 impl_egu!(EGU0, EGU0, EGU0);
+
+impl_wdt!(WDT, WDT, WDT, 0);
 
 embassy_hal_internal::interrupt_mod!(
     CLOCK_POWER,

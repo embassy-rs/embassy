@@ -13,7 +13,6 @@ use core::future::poll_fn;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 pub use vals::{Bitframesdd as SddPat, Discardmode as DiscardMode};
 
@@ -22,7 +21,7 @@ use crate::pac::nfct::vals;
 use crate::pac::NFCT;
 use crate::peripherals::NFCT;
 use crate::util::slice_in_ram;
-use crate::{interrupt, pac, Peripheral};
+use crate::{interrupt, pac, Peri};
 
 /// NFCID1 (aka UID) of different sizes.
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -96,7 +95,7 @@ pub enum Error {
 
 /// NFC tag emulator driver.
 pub struct NfcT<'d> {
-    _p: PeripheralRef<'d, NFCT>,
+    _p: Peri<'d, NFCT>,
     rx_buf: [u8; 256],
     tx_buf: [u8; 256],
 }
@@ -104,12 +103,10 @@ pub struct NfcT<'d> {
 impl<'d> NfcT<'d> {
     /// Create an Nfc Tag driver
     pub fn new(
-        _p: impl Peripheral<P = NFCT> + 'd,
+        _p: Peri<'d, NFCT>,
         _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::NFCT, InterruptHandler> + 'd,
         config: &Config,
     ) -> Self {
-        into_ref!(_p);
-
         let r = pac::NFCT;
 
         unsafe {

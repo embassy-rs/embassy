@@ -5,7 +5,7 @@ macro_rules! floating_fixed_convert {
     ($f_to_q:ident, $q_to_f:ident, $unsigned_bin_typ:ty, $signed_bin_typ:ty, $float_ty:ty, $offset:literal, $min_positive:literal) => {
         /// convert float point to fixed point format
         pub fn $f_to_q(value: $float_ty) -> Result<$unsigned_bin_typ, NumberOutOfRange> {
-            const MIN_POSITIVE: $float_ty = unsafe { core::mem::transmute($min_positive) };
+            const MIN_POSITIVE: $float_ty = <$float_ty>::from_bits($min_positive);
 
             if value < -1.0 {
                 return Err(NumberOutOfRange::BelowLowerBound)

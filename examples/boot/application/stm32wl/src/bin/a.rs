@@ -20,7 +20,7 @@ static APP_B: &[u8] = &[0, 1, 2, 3];
 #[cfg(not(feature = "skip-include"))]
 static APP_B: &[u8] = include_bytes!("../../b.bin");
 
-#[link_section = ".shared_data"]
+#[unsafe(link_section = ".shared_data")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 
 #[embassy_executor::main]

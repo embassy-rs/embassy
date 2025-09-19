@@ -12,7 +12,7 @@ Synchronization primitives and data structures with async support:
 - [`Mutex`](mutex::Mutex) - Mutex for synchronizing state between asynchronous tasks.
 - [`Pipe`](pipe::Pipe) - Byte stream implementing `embedded_io` traits.
 - [`WakerRegistration`](waitqueue::WakerRegistration) - Utility to register and wake a `Waker`.
-- [`AtomicWaker`](waitqueue::AtomicWaker) - A variant of `WakerRegistration` accessible using a non-mut API.
+- [`AtomicWaker`](waitqueue::AtomicWaker) - Utility to register and wake a `Waker` from interrupt context.
 - [`MultiWakerRegistration`](waitqueue::MultiWakerRegistration) - Utility registering and waking multiple `Waker`'s.
 - [`LazyLock`](lazy_lock::LazyLock) - A value which is initialized on the first access
 

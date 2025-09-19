@@ -634,14 +634,23 @@ impl<'a, R: embedded_io_async::BufRead> RxHeader<'a, R> {
     pub(crate) async fn read(reader: &'a mut R) -> Result<Self, Error> {
         let mut fcs = FCS.digest();
 
-        let mut header = [FLAG; 3];
+        let mut header = [0; 3];
+
+        // Read until we find a FLAG, indicating start/end of frame
+        while header[0] != FLAG {
+            Self::read_exact(reader, &mut header[..1]).await?;
+        }
+
+        // Read until we find a non-FLAG byte, indicating start of actual header
         while header[0] == FLAG {
             Self::read_exact(reader, &mut header[..1]).await?;
         }
 
+        // We have the first byte of the header, read the rest
         Self::read_exact(reader, &mut header[1..]).await?;
 
         let id = header[0] >> 2;
+
         let frame_type = FrameType::try_from(header[1])?;
 
         fcs.update(&header);
@@ -704,19 +713,55 @@ impl<'a, R: embedded_io_async::BufRead> RxHeader<'a, R> {
     }
 
     pub(crate) async fn copy<W: embedded_io_async::Write>(&mut self, w: &mut W) -> Result<(), Error> {
+        let total_len = self.len;
+
         while self.len != 0 {
-            let buf = self.reader.fill_buf().await.map_err(|e| Error::Read(e.kind()))?;
+            let remaining = self.len;
+            let buf = match self.reader.fill_buf().await {
+                Ok(buf) => buf,
+                Err(e) => {
+                    let err = Error::Read(e.kind());
+                    error!(
+                        "RxHeader copy: fill_buf failed with {} bytes remaining: {:?}",
+                        remaining, err
+                    );
+                    return Err(err);
+                }
+            };
             if buf.is_empty() {
+                error!("RxHeader copy: EOF with {} bytes remaining", remaining);
                 panic!("EOF");
             }
             let n = buf.len().min(self.len);
 
             // FIXME: This should be re-written in a way that allows us to set channel flowcontrol if `w` cannot receive more bytes
-            let n = w.write(&buf[..n]).await.map_err(|e| Error::Write(e.kind()))?;
+            let n = match w.write(&buf[..n]).await {
+                Ok(written) => written,
+                Err(e) => {
+                    let err = Error::Write(e.kind());
+                    error!(
+                        "RxHeader copy: write failed after copying {} bytes, {} remaining: {:?}",
+                        total_len - remaining,
+                        remaining,
+                        err
+                    );
+                    return Err(err);
+                }
+            };
             self.reader.consume(n);
             self.len -= n;
         }
-        w.flush().await.map_err(|e| Error::Write(e.kind()))?;
+        match w.flush().await {
+            Ok(()) => {}
+            Err(e) => {
+                let err = Error::Write(e.kind());
+                error!(
+                    "RxHeader copy: flush failed after copying {} bytes: {:?}",
+                    total_len, err
+                );
+                return Err(err);
+            }
+        }
 
         Ok(())
     }
@@ -735,12 +780,14 @@ impl<'a, R: embedded_io_async::BufRead> RxHeader<'a, R> {
         }
 
         let mut trailer = [0; 2];
-        Self::read_exact(&mut self.reader, &mut trailer).await?;
+        Self::read_exact(self.reader, &mut trailer).await?;
 
         self.fcs.update(&[trailer[0]]);
         let expected_fcs = self.fcs.finalize();
 
         if trailer[1] != FLAG {
+            let mut check_rest = [0; 10];
+            Self::read_exact(self.reader, &mut check_rest).await?;
             error!("Malformed packet! Expected {:#02x} but got {:#02x}", FLAG, trailer[1]);
             return Err(Error::MalformedFrame);
         }

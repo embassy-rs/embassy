@@ -16,6 +16,7 @@ use crate::waitqueue::WakerRegistration;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TryLockError;
 
+#[derive(Debug)]
 struct State {
     locked: bool,
     waker: WakerRegistration,
@@ -23,7 +24,7 @@ struct State {
 
 /// Async mutex.
 ///
-/// The mutex is generic over a blocking [`RawMutex`](crate::blocking_mutex::raw::RawMutex).
+/// The mutex is generic over a blocking [`RawMutex`].
 /// The raw mutex is used to guard access to the internal "is locked" flag. It
 /// is held for very short periods only, while locking and unlocking. It is *not* held
 /// for the entire time the async Mutex is locked.
@@ -186,7 +187,7 @@ where
     T: ?Sized,
 {
     /// Returns a locked view over a portion of the locked data.
-    pub fn map<U>(this: Self, fun: impl FnOnce(&mut T) -> &mut U) -> MappedMutexGuard<'a, M, U> {
+    pub fn map<U: ?Sized>(this: Self, fun: impl FnOnce(&mut T) -> &mut U) -> MappedMutexGuard<'a, M, U> {
         let mutex = this.mutex;
         let value = fun(unsafe { &mut *this.mutex.inner.get() });
         // Don't run the `drop` method for MutexGuard. The ownership of the underlying
@@ -278,7 +279,7 @@ where
     T: ?Sized,
 {
     /// Returns a locked view over a portion of the locked data.
-    pub fn map<U>(this: Self, fun: impl FnOnce(&mut T) -> &mut U) -> MappedMutexGuard<'a, M, U> {
+    pub fn map<U: ?Sized>(this: Self, fun: impl FnOnce(&mut T) -> &mut U) -> MappedMutexGuard<'a, M, U> {
         let state = this.state;
         let value = fun(unsafe { &mut *this.value });
         // Don't run the `drop` method for MutexGuard. The ownership of the underlying

@@ -54,7 +54,7 @@ async fn main(_spawner: Spawner) {
     // Should print 400kHz for initialization
     info!("Configured clock: {}", sdmmc.clock().0);
 
-    unwrap!(sdmmc.init_card(mhz(25)).await);
+    unwrap!(sdmmc.init_sd_card(mhz(25)).await);
 
     let card = unwrap!(sdmmc.card());
 

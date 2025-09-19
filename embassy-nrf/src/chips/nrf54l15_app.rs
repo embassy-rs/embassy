@@ -201,7 +201,9 @@ pub mod pac {
 pub const EASY_DMA_SIZE: usize = (1 << 16) - 1;
 //pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 
-//pub const FLASH_SIZE: usize = 1024 * 1024;
+// 1.5 MB NVM
+#[allow(unused)]
+pub const FLASH_SIZE: usize = 1536 * 1024;
 
 embassy_hal_internal::peripherals! {
     // GPIO port 0
@@ -245,6 +247,21 @@ embassy_hal_internal::peripherals! {
     P2_08,
     P2_09,
     P2_10,
+
+    #[cfg(feature = "_s")]
+    // RRAMC
+    RRAMC,
+
+    // TEMP
+    TEMP,
+
+    // WDT
+    #[cfg(feature = "_ns")]
+    WDT,
+    #[cfg(feature = "_s")]
+    WDT0,
+    #[cfg(feature = "_s")]
+    WDT1,
 }
 
 impl_pin!(P0_00, 0, 0);
@@ -284,6 +301,13 @@ impl_pin!(P2_07, 2, 7);
 impl_pin!(P2_08, 2, 8);
 impl_pin!(P2_09, 2, 9);
 impl_pin!(P2_10, 2, 10);
+
+#[cfg(feature = "_ns")]
+impl_wdt!(WDT, WDT31, WDT31, 0);
+#[cfg(feature = "_s")]
+impl_wdt!(WDT0, WDT31, WDT31, 0);
+#[cfg(feature = "_s")]
+impl_wdt!(WDT1, WDT30, WDT30, 1);
 
 embassy_hal_internal::interrupt_mod!(
     SWI00,

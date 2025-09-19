@@ -21,7 +21,7 @@ async fn main(_spawner: Spawner) {
     config.baudrate = 115200;
     let mut tx_buf = [0u8; 256];
     let mut rx_buf = [0u8; 256];
-    let mut usart = BufferedUart::new(p.USART1, Irqs, p.PB7, p.PB6, &mut tx_buf, &mut rx_buf, config).unwrap();
+    let mut usart = BufferedUart::new(p.USART1, p.PB7, p.PB6, &mut tx_buf, &mut rx_buf, Irqs, config).unwrap();
 
     usart.write_all(b"Hello Embassy World!\r\n").await.unwrap();
     info!("wrote Hello, starting echo");

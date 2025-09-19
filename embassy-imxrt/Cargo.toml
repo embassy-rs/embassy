@@ -1,0 +1,107 @@
+[package]
+name = "embassy-imxrt"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "Embassy Hardware Abstraction Layer (HAL) for the IMXRT microcontroller"
+keywords = ["embedded", "async", "imxrt", "rt600", "embedded-hal"]
+categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-imxrt"
+
+publish = false
+[package.metadata.embassy]
+build = [
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "mimxrt633s", "time", "time-driver-rtc", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "mimxrt685s", "time", "time-driver-rtc", "unstable-pac"]},
+]
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-imxrt-v$VERSION/embassy-imxrt/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-imxrt/src/"
+features = ["defmt", "unstable-pac", "time", "time-driver-os-timer"]
+flavors = [
+    { regex_feature = "mimxrt6.*", target = "thumbv8m.main-none-eabihf" }
+]
+
+[package.metadata.docs.rs]
+features = ["mimxrt685s", "defmt", "unstable-pac", "time", "time-driver"]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = ["rt"]
+
+## Cortex-M runtime (enabled by default)
+rt = [
+    "mimxrt685s-pac?/rt",
+    "mimxrt633s-pac?/rt",
+]
+
+## Enable defmt
+defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "mimxrt685s-pac?/defmt", "mimxrt633s-pac?/defmt"]
+
+## Enable features requiring `embassy-time`
+time = ["dep:embassy-time", "embassy-embedded-hal/time"]
+
+## Enable custom embassy time-driver implementation, using 32KHz RTC
+time-driver-rtc = ["_time-driver", "embassy-time-driver?/tick-hz-1_000"]
+
+## Enable custom embassy time-driver implementation, using 1MHz OS Timer
+time-driver-os-timer = ["_time-driver", "embassy-time-driver?/tick-hz-1_000_000"]
+
+_time-driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils", "embassy-embedded-hal/time"]
+
+## Reexport the PAC for the currently enabled chip at `embassy_imxrt::pac` (unstable)
+unstable-pac = []
+
+# Features starting with `_` are for internal use only. They're not intended
+# to be enabled by other crates, and are not covered by semver guarantees.
+
+_mimxrt685s = []
+_mimxrt633s = ["_espi"]
+
+# Peripherals
+_espi = []
+
+#! ### Chip selection features
+## MIMXRT685S
+mimxrt685s = ["mimxrt685s-pac", "_mimxrt685s"]
+## MIMXRT633S
+mimxrt633s = ["mimxrt633s-pac", "_mimxrt633s"]
+
+[dependencies]
+embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
+embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver", optional = true }
+embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils", optional = true }
+embassy-time = { version = "0.5.0", path = "../embassy-time", optional = true }
+embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
+embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal", default-features = false }
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
+
+defmt = { version = "1.0.1", optional = true }
+log = { version = "0.4.14", optional = true }
+nb = "1.0.0"
+cfg-if = "1.0.0"
+cortex-m-rt = ">=0.7.3,<0.8"
+cortex-m = "0.7.6"
+critical-section = "1.1"
+embedded-io = { version = "0.6.1" }
+embedded-io-async = { version = "0.6.1" }
+fixed = "1.23.1"
+
+rand-core-06 = { package = "rand_core", version = "0.6" }
+rand-core-09 = { package = "rand_core", version = "0.9" }
+
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = [
+    "unproven",
+] }
+embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
+embedded-hal-async = { version = "1.0" }
+embedded-hal-nb = { version = "1.0" }
+
+document-features = "0.2.7"
+paste = "1.0"
+
+# PACs
+mimxrt685s-pac = { version = "0.4.0", optional = true, features = ["rt", "critical-section"] }
+mimxrt633s-pac = { version = "0.4.0", optional = true, features = ["rt", "critical-section"] }

@@ -1,0 +1,9 @@
+[target.'cfg(all(target_arch = "arm", target_os = "none"))']
+# replace MSPM0L2228 with your chip as listed in `probe-rs chip list`
+runner = "probe-rs run --restore-unwritten --verify --chip MSPM0L2228 --protocol=swd"
+
+[build]
+target = "thumbv6m-none-eabi"
+
+[env]
+DEFMT_LOG = "trace"

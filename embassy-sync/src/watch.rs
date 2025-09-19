@@ -10,7 +10,7 @@ use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
 use crate::waitqueue::MultiWakerRegistration;
 
-/// The `Watch` is a single-slot signaling primitive that allows multiple receivers to concurrently await
+/// The `Watch` is a single-slot signaling primitive that allows _multiple_ (`N`) receivers to concurrently await
 /// changes to the value. Unlike a [`Signal`](crate::signal::Signal), `Watch` supports multiple receivers,
 /// and unlike a [`PubSubChannel`](crate::pubsub::PubSubChannel), `Watch` immediately overwrites the previous
 /// value when a new one is sent, without waiting for all receivers to read the previous value.
@@ -65,10 +65,12 @@ use crate::waitqueue::MultiWakerRegistration;
 /// };
 /// block_on(f);
 /// ```
+#[derive(Debug)]
 pub struct Watch<M: RawMutex, T: Clone, const N: usize> {
     mutex: Mutex<M, RefCell<WatchState<T, N>>>,
 }
 
+#[derive(Debug)]
 struct WatchState<T: Clone, const N: usize> {
     data: Option<T>,
     current_id: u64,
@@ -298,7 +300,7 @@ impl<M: RawMutex, T: Clone, const N: usize> WatchBehavior<T> for Watch<M, T, N> 
 }
 
 impl<M: RawMutex, T: Clone, const N: usize> Watch<M, T, N> {
-    /// Create a new `Watch` channel.
+    /// Create a new `Watch` channel for `N` receivers.
     pub const fn new() -> Self {
         Self {
             mutex: Mutex::new(RefCell::new(WatchState {
@@ -392,6 +394,7 @@ impl<M: RawMutex, T: Clone, const N: usize> Watch<M, T, N> {
 }
 
 /// A receiver can `.await` a change in the `Watch` value.
+#[derive(Debug)]
 pub struct Snd<'a, T: Clone, W: WatchBehavior<T> + ?Sized> {
     watch: &'a W,
     _phantom: PhantomData<T>,
@@ -467,6 +470,7 @@ impl<'a, T: Clone, W: WatchBehavior<T> + ?Sized> Snd<'a, T, W> {
 ///
 /// For a simpler type definition, consider [`DynSender`] at the expense of
 /// some runtime performance due to dynamic dispatch.
+#[derive(Debug)]
 pub struct Sender<'a, M: RawMutex, T: Clone, const N: usize>(Snd<'a, T, Watch<M, T, N>>);
 
 impl<'a, M: RawMutex, T: Clone, const N: usize> Clone for Sender<'a, M, T, N> {
@@ -622,6 +626,7 @@ impl<'a, T: Clone, W: WatchBehavior<T> + ?Sized> Drop for Rcv<'a, T, W> {
 }
 
 /// A anonymous receiver can NOT `.await` a change in the `Watch` value.
+#[derive(Debug)]
 pub struct AnonRcv<'a, T: Clone, W: WatchBehavior<T> + ?Sized> {
     watch: &'a W,
     at_id: u64,
@@ -726,6 +731,7 @@ impl<'a, T: Clone> DerefMut for DynReceiver<'a, T> {
 }
 
 /// A receiver of a `Watch` channel that cannot `.await` values.
+#[derive(Debug)]
 pub struct AnonReceiver<'a, M: RawMutex, T: Clone, const N: usize>(AnonRcv<'a, T, Watch<M, T, N>>);
 
 impl<'a, M: RawMutex, T: Clone, const N: usize> AnonReceiver<'a, M, T, N> {

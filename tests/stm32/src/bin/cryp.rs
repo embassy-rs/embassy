@@ -72,7 +72,7 @@ async fn main(_spawner: Spawner) {
     defmt::assert!(encrypt_tag == payload_vec[ciphertext.len()..ciphertext.len() + encrypt_tag.len()]);
 
     // Decrypt in software using AES-GCM 128-bit
-    let _ = cipher.decrypt_in_place(&iv.into(), &aad, &mut payload_vec);
+    cipher.decrypt_in_place(&iv.into(), &aad, &mut payload_vec).unwrap();
 
     info!("Test OK");
     cortex_m::asm::bkpt();

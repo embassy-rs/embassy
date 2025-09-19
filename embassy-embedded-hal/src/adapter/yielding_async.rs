@@ -147,6 +147,11 @@ impl<T: embedded_storage_async::nor_flash::NorFlash> embedded_storage_async::nor
     }
 }
 
+impl<T: embedded_storage_async::nor_flash::MultiwriteNorFlash> embedded_storage_async::nor_flash::MultiwriteNorFlash
+    for YieldingAsync<T>
+{
+}
+
 #[cfg(test)]
 mod tests {
     use embedded_storage_async::nor_flash::NorFlash;

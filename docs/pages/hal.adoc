@@ -4,7 +4,7 @@ Embassy provides HALs for several microcontroller families:
 
 * `embassy-nrf` for the nRF microcontrollers from Nordic Semiconductor
 * `embassy-stm32` for STM32 microcontrollers from ST Microelectronics
-* `embassy-rp` for the Raspberry Pi RP2040 microcontrollers
+* `embassy-rp` for the Raspberry Pi RP2040 and RP235x microcontrollers
 
 These HALs implement async/await functionality for most peripherals while also implementing the
 async traits in `embedded-hal` and `embedded-hal-async`. You can also use these HALs with another executor.
@@ -12,3 +12,7 @@ async traits in `embedded-hal` and `embedded-hal-async`. You can also use these 
 For the ESP32 series, there is an link:https://github.com/esp-rs/esp-hal[esp-hal] which you can use.
 
 For the WCH 32-bit RISC-V series, there is an link:https://github.com/ch32-rs/ch32-hal[ch32-hal], which you can use.
+
+For the Microchip PolarFire SoC, there is link:https://github.com/AlexCharlton/mpfs-hal[mpfs-hal].
+
+For the Puya Semiconductor PY32 series, there is link:https://github.com/py32-rs/py32-hal[py32-hal].

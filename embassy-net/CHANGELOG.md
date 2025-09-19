@@ -5,14 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## Unreleased
+<!-- next-header -->
+## Unreleased - ReleaseDate
+
+## 0.7.1 - 2025-08-26
 
 No unreleased changes yet... Quick, go send a PR!
 
-## 0.7 - 2025-02-14
+## 0.7 - 2025-05-06
 
 - don't infinite loop if udp::send methods receive a buffer too large to ever be sent
 - add ICMP sockets and a ping utility
+- configurable rate_limit for the ping utility
+- Feature match udp sockets
 
 ## 0.6 - 2025-01-05
 

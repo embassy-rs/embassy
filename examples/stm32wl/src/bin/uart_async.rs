@@ -14,7 +14,7 @@ bind_interrupts!(struct Irqs{
     LPUART1 => InterruptHandler<peripherals::LPUART1>;
 });
 
-#[link_section = ".shared_data"]
+#[unsafe(link_section = ".shared_data")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 
 /*

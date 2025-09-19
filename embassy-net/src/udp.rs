@@ -172,7 +172,7 @@ impl<'a> UdpSocket<'a> {
     /// register the current task to be notified when a datagram is received.
     ///
     /// When a datagram is received, this method will call the provided function
-    /// with the number of bytes received and the remote endpoint and return
+    /// with a reference to the received bytes and the remote endpoint and return
     /// `Poll::Ready` with the function's returned value.
     pub async fn recv_from_with<F, R>(&mut self, f: F) -> R
     where

@@ -9,9 +9,9 @@ pub(crate) enum QspiMode {
     MemoryMapped,
 }
 
-impl Into<u8> for QspiMode {
-    fn into(self) -> u8 {
-        match self {
+impl From<QspiMode> for u8 {
+    fn from(val: QspiMode) -> Self {
+        match val {
             QspiMode::IndirectWrite => 0b00,
             QspiMode::IndirectRead => 0b01,
             QspiMode::AutoPolling => 0b10,
@@ -23,6 +23,7 @@ impl Into<u8> for QspiMode {
 /// QSPI lane width
 #[allow(dead_code)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum QspiWidth {
     /// None
     NONE,
@@ -34,9 +35,9 @@ pub enum QspiWidth {
     QUAD,
 }
 
-impl Into<u8> for QspiWidth {
-    fn into(self) -> u8 {
-        match self {
+impl From<QspiWidth> for u8 {
+    fn from(val: QspiWidth) -> Self {
+        match val {
             QspiWidth::NONE => 0b00,
             QspiWidth::SING => 0b01,
             QspiWidth::DUAL => 0b10,
@@ -55,9 +56,9 @@ pub enum FlashSelection {
     Flash2,
 }
 
-impl Into<bool> for FlashSelection {
-    fn into(self) -> bool {
-        match self {
+impl From<FlashSelection> for bool {
+    fn from(val: FlashSelection) -> Self {
+        match val {
             FlashSelection::Flash1 => false,
             FlashSelection::Flash2 => true,
         }
@@ -67,6 +68,7 @@ impl Into<bool> for FlashSelection {
 /// QSPI memory size.
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum MemorySize {
     _1KiB,
     _2KiB,
@@ -94,9 +96,9 @@ pub enum MemorySize {
     Other(u8),
 }
 
-impl Into<u8> for MemorySize {
-    fn into(self) -> u8 {
-        match self {
+impl From<MemorySize> for u8 {
+    fn from(val: MemorySize) -> Self {
+        match val {
             MemorySize::_1KiB => 9,
             MemorySize::_2KiB => 10,
             MemorySize::_4KiB => 11,
@@ -127,6 +129,7 @@ impl Into<u8> for MemorySize {
 
 /// QSPI Address size
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AddressSize {
     /// 8-bit address
     _8Bit,
@@ -138,9 +141,9 @@ pub enum AddressSize {
     _32bit,
 }
 
-impl Into<u8> for AddressSize {
-    fn into(self) -> u8 {
-        match self {
+impl From<AddressSize> for u8 {
+    fn from(val: AddressSize) -> Self {
+        match val {
             AddressSize::_8Bit => 0b00,
             AddressSize::_16Bit => 0b01,
             AddressSize::_24bit => 0b10,
@@ -152,6 +155,7 @@ impl Into<u8> for AddressSize {
 /// Time the Chip Select line stays high.
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ChipSelectHighTime {
     _1Cycle,
     _2Cycle,
@@ -163,9 +167,9 @@ pub enum ChipSelectHighTime {
     _8Cycle,
 }
 
-impl Into<u8> for ChipSelectHighTime {
-    fn into(self) -> u8 {
-        match self {
+impl From<ChipSelectHighTime> for u8 {
+    fn from(val: ChipSelectHighTime) -> Self {
+        match val {
             ChipSelectHighTime::_1Cycle => 0,
             ChipSelectHighTime::_2Cycle => 1,
             ChipSelectHighTime::_3Cycle => 2,
@@ -181,6 +185,7 @@ impl Into<u8> for ChipSelectHighTime {
 /// FIFO threshold.
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FIFOThresholdLevel {
     _1Bytes,
     _2Bytes,
@@ -216,9 +221,9 @@ pub enum FIFOThresholdLevel {
     _32Bytes,
 }
 
-impl Into<u8> for FIFOThresholdLevel {
-    fn into(self) -> u8 {
-        match self {
+impl From<FIFOThresholdLevel> for u8 {
+    fn from(val: FIFOThresholdLevel) -> Self {
+        match val {
             FIFOThresholdLevel::_1Bytes => 0,
             FIFOThresholdLevel::_2Bytes => 1,
             FIFOThresholdLevel::_3Bytes => 2,
@@ -258,6 +263,7 @@ impl Into<u8> for FIFOThresholdLevel {
 /// Dummy cycle count
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DummyCycles {
     _0,
     _1,
@@ -293,9 +299,9 @@ pub enum DummyCycles {
     _31,
 }
 
-impl Into<u8> for DummyCycles {
-    fn into(self) -> u8 {
-        match self {
+impl From<DummyCycles> for u8 {
+    fn from(val: DummyCycles) -> Self {
+        match val {
             DummyCycles::_0 => 0,
             DummyCycles::_1 => 1,
             DummyCycles::_2 => 2,
@@ -328,6 +334,23 @@ impl Into<u8> for DummyCycles {
             DummyCycles::_29 => 29,
             DummyCycles::_30 => 30,
             DummyCycles::_31 => 31,
+        }
+    }
+}
+
+#[allow(missing_docs)]
+#[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SampleShifting {
+    None,
+    HalfCycle,
+}
+
+impl From<SampleShifting> for bool {
+    fn from(value: SampleShifting) -> Self {
+        match value {
+            SampleShifting::None => false,
+            SampleShifting::HalfCycle => true,
         }
     }
 }

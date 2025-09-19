@@ -4,7 +4,7 @@ use core::convert::Infallible;
 use core::future::{poll_fn, Future};
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::{AnyPin, Flex, Input, Output, Pin as GpioPin, SealedPin as _};
@@ -189,7 +189,7 @@ impl Iterator for BitIter {
 
 /// GPIOTE channel driver in input mode
 pub struct InputChannel<'d> {
-    ch: PeripheralRef<'d, AnyChannel>,
+    ch: Peri<'d, AnyChannel>,
     pin: Input<'d>,
 }
 
@@ -204,9 +204,7 @@ impl<'d> Drop for InputChannel<'d> {
 
 impl<'d> InputChannel<'d> {
     /// Create a new GPIOTE input channel driver.
-    pub fn new(ch: impl Peripheral<P = impl Channel> + 'd, pin: Input<'d>, polarity: InputChannelPolarity) -> Self {
-        into_ref!(ch);
-
+    pub fn new(ch: Peri<'d, impl Channel>, pin: Input<'d>, polarity: InputChannelPolarity) -> Self {
         let g = regs();
         let num = ch.number();
 
@@ -228,7 +226,7 @@ impl<'d> InputChannel<'d> {
 
         g.events_in(num).write_value(0);
 
-        InputChannel { ch: ch.map_into(), pin }
+        InputChannel { ch: ch.into(), pin }
     }
 
     /// Asynchronously wait for an event in this channel.
@@ -261,7 +259,7 @@ impl<'d> InputChannel<'d> {
 
 /// GPIOTE channel driver in output mode
 pub struct OutputChannel<'d> {
-    ch: PeripheralRef<'d, AnyChannel>,
+    ch: Peri<'d, AnyChannel>,
     _pin: Output<'d>,
 }
 
@@ -276,8 +274,7 @@ impl<'d> Drop for OutputChannel<'d> {
 
 impl<'d> OutputChannel<'d> {
     /// Create a new GPIOTE output channel driver.
-    pub fn new(ch: impl Peripheral<P = impl Channel> + 'd, pin: Output<'d>, polarity: OutputChannelPolarity) -> Self {
-        into_ref!(ch);
+    pub fn new(ch: Peri<'d, impl Channel>, pin: Output<'d>, polarity: OutputChannelPolarity) -> Self {
         let g = regs();
         let num = ch.number();
 
@@ -301,7 +298,7 @@ impl<'d> OutputChannel<'d> {
         });
 
         OutputChannel {
-            ch: ch.map_into(),
+            ch: ch.into(),
             _pin: pin,
         }
     }
@@ -351,14 +348,12 @@ impl<'d> OutputChannel<'d> {
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub(crate) struct PortInputFuture<'a> {
-    pin: PeripheralRef<'a, AnyPin>,
+    pin: Peri<'a, AnyPin>,
 }
 
 impl<'a> PortInputFuture<'a> {
-    fn new(pin: impl Peripheral<P = impl GpioPin> + 'a) -> Self {
-        Self {
-            pin: pin.into_ref().map_into(),
-        }
+    fn new(pin: Peri<'a, impl GpioPin>) -> Self {
+        Self { pin: pin.into() }
     }
 }
 
@@ -415,13 +410,13 @@ impl<'d> Flex<'d> {
     /// Wait until the pin is high. If it is already high, return immediately.
     pub async fn wait_for_high(&mut self) {
         self.pin.conf().modify(|w| w.set_sense(Sense::HIGH));
-        PortInputFuture::new(&mut self.pin).await
+        PortInputFuture::new(self.pin.reborrow()).await
     }
 
     /// Wait until the pin is low. If it is already low, return immediately.
     pub async fn wait_for_low(&mut self) {
         self.pin.conf().modify(|w| w.set_sense(Sense::LOW));
-        PortInputFuture::new(&mut self.pin).await
+        PortInputFuture::new(self.pin.reborrow()).await
     }
 
     /// Wait for the pin to undergo a transition from low to high.
@@ -443,7 +438,7 @@ impl<'d> Flex<'d> {
         } else {
             self.pin.conf().modify(|w| w.set_sense(Sense::HIGH));
         }
-        PortInputFuture::new(&mut self.pin).await
+        PortInputFuture::new(self.pin.reborrow()).await
     }
 }
 
@@ -455,24 +450,14 @@ trait SealedChannel {}
 ///
 /// Implemented by all GPIOTE channels.
 #[allow(private_bounds)]
-pub trait Channel: SealedChannel + Into<AnyChannel> + Sized + 'static {
+pub trait Channel: PeripheralType + SealedChannel + Into<AnyChannel> + Sized + 'static {
     /// Get the channel number.
     fn number(&self) -> usize;
-
-    /// Convert this channel to a type-erased `AnyChannel`.
-    ///
-    /// This allows using several channels in situations that might require
-    /// them to be the same type, like putting them in an array.
-    fn degrade(self) -> AnyChannel {
-        AnyChannel {
-            number: self.number() as u8,
-        }
-    }
 }
 
 /// Type-erased channel.
 ///
-/// Obtained by calling `Channel::degrade`.
+/// Obtained by calling `Channel::into()`.
 ///
 /// This allows using several channels in situations that might require
 /// them to be the same type, like putting them in an array.
@@ -498,7 +483,9 @@ macro_rules! impl_channel {
 
         impl From<peripherals::$type> for AnyChannel {
             fn from(val: peripherals::$type) -> Self {
-                Channel::degrade(val)
+                Self {
+                    number: val.number() as u8,
+                }
             }
         }
     };

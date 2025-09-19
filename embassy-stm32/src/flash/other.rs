@@ -1,14 +1,6 @@
 #![allow(unused)]
 
-use super::{Error, FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
-
-pub(crate) const fn is_default_layout() -> bool {
-    true
-}
-
-pub(crate) const fn get_flash_regions() -> &'static [&'static FlashRegion] {
-    &FLASH_REGIONS
-}
+use super::{Error, FlashSector, WRITE_SIZE};
 
 pub(crate) unsafe fn lock() {
     unimplemented!();

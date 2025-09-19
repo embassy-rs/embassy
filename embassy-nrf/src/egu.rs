@@ -7,20 +7,19 @@
 
 use core::marker::PhantomData;
 
-use embassy_hal_internal::into_ref;
+use embassy_hal_internal::PeripheralType;
 
 use crate::ppi::{Event, Task};
-use crate::{interrupt, pac, Peripheral, PeripheralRef};
+use crate::{interrupt, pac, Peri};
 
 /// An instance of the EGU.
 pub struct Egu<'d, T: Instance> {
-    _p: PeripheralRef<'d, T>,
+    _p: Peri<'d, T>,
 }
 
 impl<'d, T: Instance> Egu<'d, T> {
     /// Create a new EGU instance.
-    pub fn new(_p: impl Peripheral<P = T> + 'd) -> Self {
-        into_ref!(_p);
+    pub fn new(_p: Peri<'d, T>) -> Self {
         Self { _p }
     }
 
@@ -39,7 +38,7 @@ pub(crate) trait SealedInstance {
 
 /// Basic Egu instance.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

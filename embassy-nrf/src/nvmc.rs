@@ -2,14 +2,13 @@
 
 use core::{ptr, slice};
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
 use embedded_storage::nor_flash::{
     ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash,
 };
 
 use crate::pac::nvmc::vals;
 use crate::peripherals::NVMC;
-use crate::{pac, Peripheral};
+use crate::{pac, Peri};
 
 #[cfg(not(feature = "_nrf5340-net"))]
 /// Erase size of NVMC flash in bytes.
@@ -42,13 +41,12 @@ impl NorFlashError for Error {
 
 /// Non-Volatile Memory Controller (NVMC) that implements the `embedded-storage` traits.
 pub struct Nvmc<'d> {
-    _p: PeripheralRef<'d, NVMC>,
+    _p: Peri<'d, NVMC>,
 }
 
 impl<'d> Nvmc<'d> {
     /// Create Nvmc driver.
-    pub fn new(_p: impl Peripheral<P = NVMC> + 'd) -> Self {
-        into_ref!(_p);
+    pub fn new(_p: Peri<'d, NVMC>) -> Self {
         Self { _p }
     }
 

@@ -76,10 +76,16 @@ pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(r: Otg, state: &State<MAX_
                     let buf =
                         unsafe { core::slice::from_raw_parts_mut(*state.ep_states[ep_num].out_buffer.get(), len) };
 
-                    for chunk in buf.chunks_mut(4) {
+                    let mut chunks = buf.chunks_exact_mut(4);
+                    for chunk in &mut chunks {
                         // RX FIFO is shared so always read from fifo(0)
                         let data = r.fifo(0).read().0;
-                        chunk.copy_from_slice(&data.to_ne_bytes()[0..chunk.len()]);
+                        chunk.copy_from_slice(&data.to_ne_bytes());
+                    }
+                    let rem = chunks.into_remainder();
+                    if !rem.is_empty() {
+                        let data = r.fifo(0).read().0;
+                        rem.copy_from_slice(&data.to_ne_bytes()[0..rem.len()]);
                     }
 
                     state.ep_states[ep_num].out_size.store(len as u16, Ordering::Release);
@@ -345,6 +351,7 @@ impl<'d, const MAX_EP_COUNT: usize> Driver<'d, MAX_EP_COUNT> {
     fn alloc_endpoint<D: Dir>(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Endpoint<'d, D>, EndpointAllocError> {
@@ -379,15 +386,31 @@ impl<'d, const MAX_EP_COUNT: usize> Driver<'d, MAX_EP_COUNT> {
             Direction::In => &mut self.ep_in[..self.instance.endpoint_count],
         };
 
-        // Find free endpoint slot
-        let slot = eps.iter_mut().enumerate().find(|(i, ep)| {
-            if *i == 0 && ep_type != EndpointType::Control {
-                // reserved for control pipe
-                false
-            } else {
-                ep.is_none()
+        // Find endpoint slot
+        let slot = if let Some(addr) = ep_addr {
+            // Use the specified endpoint address
+            let requested_index = addr.index();
+            if requested_index >= self.instance.endpoint_count {
+                return Err(EndpointAllocError);
             }
-        });
+            if requested_index == 0 && ep_type != EndpointType::Control {
+                return Err(EndpointAllocError); // EP0 is reserved for control
+            }
+            if eps[requested_index].is_some() {
+                return Err(EndpointAllocError); // Already allocated
+            }
+            Some((requested_index, &mut eps[requested_index]))
+        } else {
+            // Find any free endpoint slot
+            eps.iter_mut().enumerate().find(|(i, ep)| {
+                if *i == 0 && ep_type != EndpointType::Control {
+                    // reserved for control pipe
+                    false
+                } else {
+                    ep.is_none()
+                }
+            })
+        };
 
         let index = match slot {
             Some((index, ep)) => {
@@ -438,27 +461,29 @@ impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Driver<'d> for Driver<'d
     fn alloc_endpoint_in(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointIn, EndpointAllocError> {
-        self.alloc_endpoint(ep_type, max_packet_size, interval_ms)
+        self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
     fn alloc_endpoint_out(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointOut, EndpointAllocError> {
-        self.alloc_endpoint(ep_type, max_packet_size, interval_ms)
+        self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
     fn start(mut self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
         let ep_out = self
-            .alloc_endpoint(EndpointType::Control, control_max_packet_size, 0)
+            .alloc_endpoint(EndpointType::Control, None, control_max_packet_size, 0)
             .unwrap();
         let ep_in = self
-            .alloc_endpoint(EndpointType::Control, control_max_packet_size, 0)
+            .alloc_endpoint(EndpointType::Control, None, control_max_packet_size, 0)
             .unwrap();
         assert_eq!(ep_out.info.addr.index(), 0);
         assert_eq!(ep_in.info.addr.index(), 0);
@@ -1210,10 +1235,19 @@ impl<'d> embassy_usb_driver::EndpointIn for Endpoint<'d, In> {
             });
 
             // Write data to FIFO
-            for chunk in buf.chunks(4) {
+            let fifo = self.regs.fifo(index);
+            let mut chunks = buf.chunks_exact(4);
+            for chunk in &mut chunks {
+                let val = u32::from_ne_bytes(chunk.try_into().unwrap());
+                fifo.write_value(regs::Fifo(val));
+            }
+            // Write any last chunk
+            let rem = chunks.remainder();
+            if !rem.is_empty() {
                 let mut tmp = [0u8; 4];
-                tmp[0..chunk.len()].copy_from_slice(chunk);
-                self.regs.fifo(index).write_value(regs::Fifo(u32::from_ne_bytes(tmp)));
+                tmp[0..rem.len()].copy_from_slice(rem);
+                let tmp = u32::from_ne_bytes(tmp);
+                fifo.write_value(regs::Fifo(tmp));
             }
         });
 
