@@ -156,6 +156,9 @@ impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);
 impl_timer!(TIMER2, TIMER2, TIMER2);
 
+impl_rtc!(RTC0, RTC0, RTC0);
+impl_rtc!(RTC1, RTC1, RTC1);
+
 impl_pin!(P0_00, 0, 0);
 impl_pin!(P0_01, 0, 1);
 impl_pin!(P0_02, 0, 2);
