@@ -164,6 +164,9 @@ impl_timer!(TIMER1, TIMER1, TIMER1);
 impl_timer!(TIMER2, TIMER2, TIMER2);
 impl_timer!(TIMER3, TIMER3, TIMER3, extended);
 
+impl_rtc!(RTC0, RTC0, RTC0);
+impl_rtc!(RTC1, RTC1, RTC1);
+
 impl_qdec!(QDEC, QDEC, QDEC);
 
 impl_rng!(RNG, RNG, RNG);

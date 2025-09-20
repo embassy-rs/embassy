@@ -182,6 +182,10 @@ impl_twim!(TWISPI1, TWIM1, TWISPI1);
 impl_twis!(TWISPI0, TWIS0, TWISPI0);
 impl_twis!(TWISPI1, TWIS1, TWISPI1);
 
+impl_rtc!(RTC0, RTC0, RTC0);
+impl_rtc!(RTC1, RTC1, RTC1);
+impl_rtc!(RTC2, RTC2, RTC2);
+
 impl_pwm!(PWM0, PWM0, PWM0);
 impl_pwm!(PWM1, PWM1, PWM1);
 impl_pwm!(PWM2, PWM2, PWM2);
