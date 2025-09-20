@@ -28,6 +28,7 @@ pub use hsi48::*;
 #[cfg_attr(any(stm32l0, stm32l1, stm32l4, stm32l5, stm32wb, stm32wl, stm32u0), path = "l.rs")]
 #[cfg_attr(stm32u5, path = "u5.rs")]
 #[cfg_attr(stm32wba, path = "wba.rs")]
+#[cfg_attr(stm32n6, path = "n6.rs")]
 mod _version;
 
 pub use _version::*;

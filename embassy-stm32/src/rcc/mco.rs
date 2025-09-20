@@ -15,7 +15,8 @@ pub use crate::pac::rcc::vals::Mcopre as McoPrescaler;
     rcc_h7ab,
     rcc_h7rm0433,
     rcc_h7,
-    rcc_h7rs
+    rcc_h7rs,
+    rcc_n6
 )))]
 pub use crate::pac::rcc::vals::Mcosel as McoSource;
 #[cfg(any(
@@ -28,7 +29,8 @@ pub use crate::pac::rcc::vals::Mcosel as McoSource;
     rcc_h7ab,
     rcc_h7rm0433,
     rcc_h7,
-    rcc_h7rs
+    rcc_h7rs,
+    rcc_n6
 ))]
 pub use crate::pac::rcc::vals::{Mco1sel as Mco1Source, Mco2sel as Mco2Source};
 use crate::pac::RCC;
