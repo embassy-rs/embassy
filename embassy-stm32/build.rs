@@ -352,101 +352,108 @@ fn main() {
 
     // ========
     // Generate FLASH regions
-    let mut flash_regions = TokenStream::new();
-    let flash_memory_regions: Vec<_> = memory
-        .iter()
-        .filter(|x| x.kind == MemoryRegionKind::Flash && x.settings.is_some())
-        .collect();
-    for region in flash_memory_regions.iter() {
-        let region_name = format_ident!("{}", get_flash_region_name(region.name));
-        let bank_variant = format_ident!(
-            "{}",
-            if region.name.starts_with("BANK_1") {
-                "Bank1"
-            } else if region.name.starts_with("BANK_2") {
-                "Bank2"
-            } else if region.name == "OTP" {
-                "Otp"
-            } else {
-                continue;
-            }
-        );
-        let base = region.address;
-        let size = region.size;
-        let settings = region.settings.as_ref().unwrap();
-        let erase_size = settings.erase_size;
-        let write_size = settings.write_size;
-        let erase_value = settings.erase_value;
+    cfgs.declare("flash");
+    let mut has_flash = false;
+    if !chip_name.starts_with("stm32n6") {
+        cfgs.enable("flash");
+        has_flash = true;
 
-        flash_regions.extend(quote! {
-            pub const #region_name: crate::flash::FlashRegion = crate::flash::FlashRegion {
-                bank: crate::flash::FlashBank::#bank_variant,
-                base: #base,
-                size: #size,
-                erase_size: #erase_size,
-                write_size: #write_size,
-                erase_value: #erase_value,
-                _ensure_internal: (),
-            };
-        });
+        let mut flash_regions = TokenStream::new();
+        let flash_memory_regions: Vec<_> = memory
+            .iter()
+            .filter(|x| x.kind == MemoryRegionKind::Flash && x.settings.is_some())
+            .collect();
+        for region in flash_memory_regions.iter() {
+            let region_name = format_ident!("{}", get_flash_region_name(region.name));
+            let bank_variant = format_ident!(
+                "{}",
+                if region.name.starts_with("BANK_1") {
+                    "Bank1"
+                } else if region.name.starts_with("BANK_2") {
+                    "Bank2"
+                } else if region.name == "OTP" {
+                    "Otp"
+                } else {
+                    continue;
+                }
+            );
+            let base = region.address;
+            let size = region.size;
+            let settings = region.settings.as_ref().unwrap();
+            let erase_size = settings.erase_size;
+            let write_size = settings.write_size;
+            let erase_value = settings.erase_value;
 
-        let region_type = format_ident!("{}", get_flash_region_type_name(region.name));
-        flash_regions.extend(quote! {
+            flash_regions.extend(quote! {
+                pub const #region_name: crate::flash::FlashRegion = crate::flash::FlashRegion {
+                    bank: crate::flash::FlashBank::#bank_variant,
+                    base: #base,
+                    size: #size,
+                    erase_size: #erase_size,
+                    write_size: #write_size,
+                    erase_value: #erase_value,
+                    _ensure_internal: (),
+                };
+            });
+
+            let region_type = format_ident!("{}", get_flash_region_type_name(region.name));
+            flash_regions.extend(quote! {
             #[cfg(flash)]
             pub struct #region_type<'d, MODE = crate::flash::Async>(pub &'static crate::flash::FlashRegion, pub(crate) embassy_hal_internal::Peri<'d, crate::peripherals::FLASH>, pub(crate) core::marker::PhantomData<MODE>);
         });
-    }
-
-    let (fields, (inits, region_names)): (Vec<TokenStream>, (Vec<TokenStream>, Vec<Ident>)) = flash_memory_regions
-        .iter()
-        .map(|f| {
-            let region_name = get_flash_region_name(f.name);
-            let field_name = format_ident!("{}", region_name.to_lowercase());
-            let field_type = format_ident!("{}", get_flash_region_type_name(f.name));
-            let field = quote! {
-                pub #field_name: #field_type<'d, MODE>
-            };
-            let region_name = format_ident!("{}", region_name);
-            let init = quote! {
-                #field_name: #field_type(&#region_name, unsafe { p.clone_unchecked()}, core::marker::PhantomData)
-            };
-
-            (field, (init, region_name))
-        })
-        .unzip();
-
-    let regions_len = flash_memory_regions.len();
-    flash_regions.extend(quote! {
-        #[cfg(flash)]
-        pub struct FlashLayout<'d, MODE = crate::flash::Async> {
-            #(#fields),*,
-            _mode: core::marker::PhantomData<MODE>,
         }
 
-        #[cfg(flash)]
-        impl<'d, MODE> FlashLayout<'d, MODE> {
-            pub(crate) fn new(p: embassy_hal_internal::Peri<'d, crate::peripherals::FLASH>) -> Self {
-                Self {
-                    #(#inits),*,
-                    _mode: core::marker::PhantomData,
+        let (fields, (inits, region_names)): (Vec<TokenStream>, (Vec<TokenStream>, Vec<Ident>)) = flash_memory_regions
+            .iter()
+            .map(|f| {
+                let region_name = get_flash_region_name(f.name);
+                let field_name = format_ident!("{}", region_name.to_lowercase());
+                let field_type = format_ident!("{}", get_flash_region_type_name(f.name));
+                let field = quote! {
+                    pub #field_name: #field_type<'d, MODE>
+                };
+                let region_name = format_ident!("{}", region_name);
+                let init = quote! {
+                    #field_name: #field_type(&#region_name, unsafe { p.clone_unchecked()}, core::marker::PhantomData)
+                };
+
+                (field, (init, region_name))
+            })
+            .unzip();
+
+        let regions_len = flash_memory_regions.len();
+        flash_regions.extend(quote! {
+            #[cfg(flash)]
+            pub struct FlashLayout<'d, MODE = crate::flash::Async> {
+                #(#fields),*,
+                _mode: core::marker::PhantomData<MODE>,
+            }
+
+            #[cfg(flash)]
+            impl<'d, MODE> FlashLayout<'d, MODE> {
+                pub(crate) fn new(p: embassy_hal_internal::Peri<'d, crate::peripherals::FLASH>) -> Self {
+                    Self {
+                        #(#inits),*,
+                        _mode: core::marker::PhantomData,
+                    }
                 }
             }
-        }
 
-        pub const FLASH_REGIONS: [&crate::flash::FlashRegion; #regions_len] = [
-            #(&#region_names),*
-        ];
-    });
+            pub const FLASH_REGIONS: [&crate::flash::FlashRegion; #regions_len] = [
+                #(&#region_names),*
+            ];
+        });
 
-    let max_erase_size = flash_memory_regions
-        .iter()
-        .map(|region| region.settings.as_ref().unwrap().erase_size)
-        .max()
-        .unwrap();
+        let max_erase_size = flash_memory_regions
+            .iter()
+            .map(|region| region.settings.as_ref().unwrap().erase_size)
+            .max()
+            .unwrap();
 
-    g.extend(quote! { pub const MAX_ERASE_SIZE: usize = #max_erase_size as usize; });
+        g.extend(quote! { pub const MAX_ERASE_SIZE: usize = #max_erase_size as usize; });
 
-    g.extend(quote! { pub mod flash_regions { #flash_regions } });
+        g.extend(quote! { pub mod flash_regions { #flash_regions } });
+    }
 
     // ========
     // Extract the rcc registers
@@ -1844,7 +1851,12 @@ fn main() {
             if r.kind == "dma" || r.kind == "bdma" || r.kind == "gpdma" || r.kind == "lpdma" {
                 for irq in p.interrupts {
                     let ch_name = format!("{}_{}", p.name, irq.signal);
-                    let ch = METADATA.dma_channels.iter().find(|c| c.name == ch_name).unwrap();
+                    let ch = METADATA.dma_channels.iter().find(|c| c.name == ch_name);
+
+                    if ch.is_none() {
+                        continue;
+                    }
+                    let ch = ch.unwrap();
 
                     // Some H7 chips have BDMA1 hardcoded for DFSDM, ie no DMAMUX. It's unsupported, skip it.
                     if has_dmamux && ch.dmamux.is_none() {
@@ -1985,31 +1997,33 @@ fn main() {
     // ========
     // Generate flash constants
 
-    let flash_regions: Vec<&MemoryRegion> = memory
-        .iter()
-        .filter(|x| x.kind == MemoryRegionKind::Flash && x.name.starts_with("BANK_"))
-        .collect();
-    let first_flash = flash_regions.first().unwrap();
-    let total_flash_size = flash_regions
-        .iter()
-        .map(|x| x.size)
-        .reduce(|acc, item| acc + item)
-        .unwrap();
-    let write_sizes: HashSet<_> = flash_regions
-        .iter()
-        .map(|r| r.settings.as_ref().unwrap().write_size)
-        .collect();
-    assert_eq!(1, write_sizes.len());
+    if has_flash {
+        let flash_regions: Vec<&MemoryRegion> = memory
+            .iter()
+            .filter(|x| x.kind == MemoryRegionKind::Flash && x.name.starts_with("BANK_"))
+            .collect();
+        let first_flash = flash_regions.first().unwrap();
+        let total_flash_size = flash_regions
+            .iter()
+            .map(|x| x.size)
+            .reduce(|acc, item| acc + item)
+            .unwrap();
+        let write_sizes: HashSet<_> = flash_regions
+            .iter()
+            .map(|r| r.settings.as_ref().unwrap().write_size)
+            .collect();
+        assert_eq!(1, write_sizes.len());
 
-    let flash_base = first_flash.address as usize;
-    let total_flash_size = total_flash_size as usize;
-    let write_size = (*write_sizes.iter().next().unwrap()) as usize;
+        let flash_base = first_flash.address as usize;
+        let total_flash_size = total_flash_size as usize;
+        let write_size = (*write_sizes.iter().next().unwrap()) as usize;
 
-    g.extend(quote!(
-        pub const FLASH_BASE: usize = #flash_base;
-        pub const FLASH_SIZE: usize = #total_flash_size;
-        pub const WRITE_SIZE: usize = #write_size;
-    ));
+        g.extend(quote!(
+            pub const FLASH_BASE: usize = #flash_base;
+            pub const FLASH_SIZE: usize = #total_flash_size;
+            pub const WRITE_SIZE: usize = #write_size;
+        ));
+    }
 
     // ========
     // Generate EEPROM constants

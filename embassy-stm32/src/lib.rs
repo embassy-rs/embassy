@@ -74,6 +74,7 @@ pub mod dts;
 pub mod eth;
 #[cfg(feature = "exti")]
 pub mod exti;
+#[cfg(flash)]
 pub mod flash;
 #[cfg(fmc)]
 pub mod fmc;
