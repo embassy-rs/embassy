@@ -75,6 +75,15 @@ impl<'d> Input<'d> {
     }
 }
 
+impl Input<'static> {
+    /// Persist the pin's configuration for the rest of the program's lifetime. This method should
+    /// be preferred over [`core::mem::forget()`] because the `'static` bound prevents accidental
+    /// reuse of the underlying peripheral.
+    pub fn persist(self) {
+        self.pin.persist()
+    }
+}
+
 /// Digital input or output level.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -264,6 +273,15 @@ impl<'d> Output<'d> {
     }
 }
 
+impl Output<'static> {
+    /// Persist the pin's configuration for the rest of the program's lifetime. This method should
+    /// be preferred over [`core::mem::forget()`] because the `'static` bound prevents accidental
+    /// reuse of the underlying peripheral.
+    pub fn persist(self) {
+        self.pin.persist()
+    }
+}
+
 pub(crate) fn convert_drive(w: &mut pac::gpio::regs::PinCnf, drive: OutputDrive) {
     #[cfg(not(feature = "_nrf54l"))]
     {
@@ -444,6 +462,15 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn get_output_level(&self) -> Level {
         self.is_set_high().into()
+    }
+}
+
+impl Flex<'static> {
+    /// Persist the pin's configuration for the rest of the program's lifetime. This method should
+    /// be preferred over [`core::mem::forget()`] because the `'static` bound prevents accidental
+    /// reuse of the underlying peripheral.
+    pub fn persist(self) {
+        core::mem::forget(self);
     }
 }
 
