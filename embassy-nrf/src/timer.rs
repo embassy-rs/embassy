@@ -81,8 +81,6 @@ pub enum Frequency {
 ///
 /// It has either 4 or 6 Capture/Compare registers, which can be used to capture the current state of the counter
 /// or trigger an event when the counter reaches a certain value.
-
-/// Timer driver.
 pub struct Timer<'d, T: Instance> {
     _p: Peri<'d, T>,
 }
@@ -143,6 +141,13 @@ impl<'d, T: Instance> Timer<'d, T> {
         }
 
         this
+    }
+
+    /// Direct access to the register block.
+    #[cfg(feature = "unstable-pac")]
+    #[inline]
+    pub fn regs(&mut self) -> pac::timer::Timer {
+        T::regs()
     }
 
     /// Starts the timer.
@@ -248,7 +253,7 @@ pub struct Cc<'d, T: Instance> {
 impl<'d, T: Instance> Cc<'d, T> {
     /// Get the current value stored in the register.
     pub fn read(&self) -> u32 {
-        return T::regs().cc(self.n).read();
+        T::regs().cc(self.n).read()
     }
 
     /// Set the value stored in the register.
@@ -276,6 +281,12 @@ impl<'d, T: Instance> Cc<'d, T> {
     /// This event will fire when the timer's counter reaches the value in this CC register.
     pub fn event_compare(&self) -> Event<'d> {
         Event::from_reg(T::regs().events_compare(self.n))
+    }
+
+    /// Clear the COMPARE event for this CC register.
+    #[inline]
+    pub fn clear_events(&self) {
+        T::regs().events_compare(self.n).write_value(0);
     }
 
     /// Enable the shortcut between this CC register's COMPARE event and the timer's CLEAR task.

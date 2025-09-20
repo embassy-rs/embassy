@@ -14,6 +14,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - added: basic RTC driver
 - changed: add persist() method for gpio, gpiote, timer and ppi
 - changed: impl Drop for Timer
+- added: expose `regs` for timer driver
+- added: timer driver CC `clear_events` method
 
 ## 0.7.0 - 2025-08-26
 
