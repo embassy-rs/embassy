@@ -61,10 +61,12 @@ macro_rules! impl_peri {
             type Source = $source;
 
             unsafe fn _apply_clock_settings(source: Self::Source, _prescaler: McoPrescaler) {
-                #[cfg(not(any(stm32u5, stm32wba)))]
+                #[cfg(not(any(stm32u5, stm32wba, stm32n6)))]
                 let r = RCC.cfgr();
                 #[cfg(any(stm32u5, stm32wba))]
                 let r = RCC.cfgr1();
+                #[cfg(any(stm32n6))]
+                let r = RCC.ccipr5();
 
                 r.modify(|w| {
                     w.$set_source(source);
