@@ -8,6 +8,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use ssmarshal::serialize;
 #[cfg(feature = "usbd-hid")]
 use usbd_hid::descriptor::AsInputReport;
+use usbd_hid::hid_class::HidProtocolMode;
 
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
@@ -389,6 +390,23 @@ pub trait RequestHandler {
         OutResponse::Rejected
     }
 
+    /// Gets the current hid protocol.
+    ///
+    /// Returns `Report` protocol by default.
+    fn get_protocol(&self) -> HidProtocolMode {
+        HidProtocolMode::Report
+    }
+
+    /// Sets the current hid protocol to `protocol`.
+    ///
+    /// Accepts only `Report` protocol by default.
+    fn set_protocol(&mut self, protocol: HidProtocolMode) -> OutResponse {
+        match protocol {
+            HidProtocolMode::Report => OutResponse::Accepted,
+            HidProtocolMode::Boot => OutResponse::Rejected,
+        }
+    }
+
     /// Get the idle rate for `id`.
     ///
     /// If `id` is `None`, get the idle rate for all reports. Returning `None`
@@ -482,11 +500,14 @@ impl<'d> Handler for Control<'d> {
                 _ => Some(OutResponse::Rejected),
             },
             HID_REQ_SET_PROTOCOL => {
-                if req.value == 1 {
-                    Some(OutResponse::Accepted)
-                } else {
-                    warn!("HID Boot Protocol is unsupported.");
-                    Some(OutResponse::Rejected) // UNSUPPORTED: Boot Protocol
+                let hid_protocol = HidProtocolMode::from(req.value as u8);
+                match (self.request_handler.as_mut(), hid_protocol) {
+                    (Some(request_handler), hid_protocol) => Some(request_handler.set_protocol(hid_protocol)),
+                    (None, HidProtocolMode::Report) => Some(OutResponse::Accepted),
+                    (None, HidProtocolMode::Boot) => {
+                        warn!("HID Boot Protocol is unsupported.");
+                        Some(OutResponse::Rejected) // UNSUPPORTED: Boot Protocol
+                    }
                 }
             }
             _ => Some(OutResponse::Rejected),
@@ -539,8 +560,12 @@ impl<'d> Handler for Control<'d> {
                         }
                     }
                     HID_REQ_GET_PROTOCOL => {
-                        // UNSUPPORTED: Boot Protocol
-                        buf[0] = 1;
+                        if let Some(request_handler) = self.request_handler.as_mut() {
+                            buf[0] = request_handler.get_protocol() as u8;
+                        } else {
+                            // Return `Report` protocol by default
+                            buf[0] = HidProtocolMode::Report as u8;
+                        }
                         Some(InResponse::Accepted(&buf[0..1]))
                     }
                     _ => Some(InResponse::Rejected),
