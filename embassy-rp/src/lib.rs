@@ -565,18 +565,10 @@ unsafe fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
 #[cfg(all(feature = "_rp235x", not(feature = "_test")))]
 #[inline(always)]
 unsafe fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
-    let core = unsafe { cortex_m::Peripherals::steal() };
+    // The RP2350 arm cores are cortex-m33 and can use the MSPLIM register to guard the end of stack.
+    // We'll need to do something else for the riscv cores.
+    cortex_m::register::msplim::write(stack_bottom.addr() as u32);
 
-    // Fail if MPU is already configured
-    if core.MPU.ctrl.read() != 0 {
-        return Err(());
-    }
-
-    unsafe {
-        core.MPU.ctrl.write(5); // enable mpu with background default map
-        core.MPU.rbar.write(stack_bottom as u32 & !0xff); // set address
-        core.MPU.rlar.write(((stack_bottom as usize + 255) as u32) | 1);
-    }
     Ok(())
 }
 
