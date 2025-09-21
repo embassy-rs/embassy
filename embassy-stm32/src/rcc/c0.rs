@@ -49,6 +49,10 @@ pub struct Config {
     /// System Clock Configuration
     pub sys: Sysclk,
 
+    /// HSI48 Configuration
+    #[cfg(crs)]
+    pub hsi48: Option<super::Hsi48Config>,
+
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
 
@@ -68,6 +72,8 @@ impl Config {
             }),
             hse: None,
             sys: Sysclk::HSISYS,
+            #[cfg(crs)]
+            hsi48: Some(crate::rcc::Hsi48Config::new()),
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
             ls: crate::rcc::LsConfig::new(),
@@ -127,6 +133,10 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
+    // Configure HSI48 if required
+    #[cfg(crs)]
+    let hsi48 = config.hsi48.map(super::init_hsi48);
+
     let rtc = config.ls.init();
 
     let sys = match config.sys {
@@ -185,13 +195,13 @@ pub(crate) unsafe fn init(config: Config) {
         hsi: hsi,
         hsiker: hsiker,
         hse: hse,
+        #[cfg(crs)]
+        hsi48: hsi48,
         rtc: rtc,
 
         // TODO
         lsi: None,
         lse: None,
-        #[cfg(crs)]
-        hsi48: None,
     );
 
     RCC.ccipr()

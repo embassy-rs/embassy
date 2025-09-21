@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix: handle address and data-length errors in OSPI
 - feat: Allow OSPI DMA writes larger than 64kB using chunking
 - feat: More ADC enums for g0 PAC, API change for oversampling, allow separate sample times
+- feat: Add USB CRS sync support for STM32C071
 
 ## 0.4.0 - 2025-08-26
 
