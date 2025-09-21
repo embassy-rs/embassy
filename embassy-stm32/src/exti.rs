@@ -31,11 +31,11 @@ fn cpu_regs() -> pac::exti::Exti {
     EXTI
 }
 
-#[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, gpio_v1, exti_u5, exti_h5, exti_h50)))]
+#[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, gpio_v1, exti_u5, exti_h5, exti_h50, exti_n6)))]
 fn exticr_regs() -> pac::syscfg::Syscfg {
     pac::SYSCFG
 }
-#[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50))]
+#[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6))]
 fn exticr_regs() -> pac::exti::Exti {
     EXTI
 }
@@ -45,9 +45,9 @@ fn exticr_regs() -> pac::afio::Afio {
 }
 
 unsafe fn on_irq() {
-    #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50)))]
+    #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6)))]
     let bits = EXTI.pr(0).read().0;
-    #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50))]
+    #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6))]
     let bits = EXTI.rpr(0).read().0 | EXTI.fpr(0).read().0;
 
     // We don't handle or change any EXTI lines above 16.
@@ -62,9 +62,9 @@ unsafe fn on_irq() {
     }
 
     // Clear pending
-    #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50)))]
+    #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6)))]
     EXTI.pr(0).write_value(Lines(bits));
-    #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50))]
+    #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6))]
     {
         EXTI.rpr(0).write_value(Lines(bits));
         EXTI.fpr(0).write_value(Lines(bits));
@@ -239,9 +239,9 @@ impl<'a> ExtiInputFuture<'a> {
             EXTI.ftsr(0).modify(|w| w.set_line(pin, falling));
 
             // clear pending bit
-            #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50)))]
+            #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6)))]
             EXTI.pr(0).write(|w| w.set_line(pin, true));
-            #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50))]
+            #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6))]
             {
                 EXTI.rpr(0).write(|w| w.set_line(pin, true));
                 EXTI.fpr(0).write(|w| w.set_line(pin, true));
