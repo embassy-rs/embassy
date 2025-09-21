@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add PIO I2S input
 - Add PIO onewire parasite power strong pullup
 - add `wait_for_alarm` and `alarm_scheduled` methods to rtc module ([#4216](https://github.com/embassy-rs/embassy/pull/4216))
+- rp235x: use msplim for stack guard instead of MPU
 
 ## 0.8.0 - 2025-08-26
 
