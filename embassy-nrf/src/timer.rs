@@ -90,7 +90,7 @@ pub struct Timer<'d, T: Instance> {
 impl<'d, T: Instance> Timer<'d, T> {
     /// Create a new `Timer` driver.
     ///
-    /// This can be useful for triggering tasks via PPI
+    /// This can be useful for triggering tasks via PPI.
     /// `Uarte` uses this internally.
     pub fn new(timer: Peri<'d, T>) -> Self {
         Self::new_inner(timer, false)
@@ -98,7 +98,7 @@ impl<'d, T: Instance> Timer<'d, T> {
 
     /// Create a new `Timer` driver in counter mode.
     ///
-    /// This can be useful for triggering tasks via PPI
+    /// This can be useful for triggering tasks via PPI.
     /// `Uarte` uses this internally.
     pub fn new_counter(timer: Peri<'d, T>) -> Self {
         Self::new_inner(timer, true)
