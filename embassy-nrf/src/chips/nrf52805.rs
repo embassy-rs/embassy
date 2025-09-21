@@ -12,6 +12,7 @@ pub const APPROTECT_MIN_BUILD_CODE: u8 = b'B';
 embassy_hal_internal::peripherals! {
     // RTC
     RTC0,
+    #[cfg(not(feature="time-driver-rtc1"))]
     RTC1,
 
     // WDT
@@ -157,6 +158,7 @@ impl_timer!(TIMER1, TIMER1, TIMER1);
 impl_timer!(TIMER2, TIMER2, TIMER2);
 
 impl_rtc!(RTC0, RTC0, RTC0);
+#[cfg(not(feature = "time-driver-rtc1"))]
 impl_rtc!(RTC1, RTC1, RTC1);
 
 impl_pin!(P0_00, 0, 0);
@@ -237,12 +239,12 @@ embassy_hal_internal::interrupt_mod!(
     TIMER0,
     TIMER1,
     TIMER2,
-    RTC0,
     TEMP,
     RNG,
     ECB,
     AAR_CCM,
     WDT,
+    RTC0,
     RTC1,
     QDEC,
     EGU0_SWI0,
