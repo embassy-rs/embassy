@@ -225,6 +225,10 @@ defmt = [
     "embassy-usb-synopsys-otg/defmt",
     "stm32-metapac/defmt"
 ]
+## Use log for logging
+log = ["dep:log"]
+## Enable chrono support
+chrono = ["dep:chrono"]
 
 exti = []
 low-power = [ "dep:embassy-executor", "embassy-executor?/arch-cortex-m", "time" ]

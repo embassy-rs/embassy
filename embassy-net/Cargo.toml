@@ -53,6 +53,8 @@ features = ["defmt", "tcp", "udp", "raw", "dns", "icmp", "dhcpv4", "proto-ipv6",
 [features]
 ## Enable defmt
 defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "embassy-time/defmt", "heapless/defmt-03", "defmt?/ip_in_core"]
+## Enable log
+log = ["dep:log"]
 
 ## Trace all raw received and transmitted packets using defmt or log.
 packet-trace = []

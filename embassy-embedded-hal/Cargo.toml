@@ -25,6 +25,7 @@ src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-embed
 target = "x86_64-unknown-linux-gnu"
 
 [features]
+defmt = ["dep:defmt"]
 time = ["dep:embassy-time"]
 
 [dependencies]

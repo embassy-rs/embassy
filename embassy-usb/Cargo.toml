@@ -31,6 +31,7 @@ features = ["defmt", "usbd-hid"]
 
 [features]
 defmt = ["dep:defmt", "embassy-usb-driver/defmt"]
+log = ["dep:log"]
 usbd-hid = ["dep:usbd-hid", "dep:ssmarshal"]
 default = ["usbd-hid"]
 

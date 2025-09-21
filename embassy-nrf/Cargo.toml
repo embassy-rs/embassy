@@ -66,6 +66,8 @@ time = ["dep:embassy-time", "embassy-embedded-hal/time"]
 
 ## Enable defmt
 defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "embassy-usb-driver/defmt", "embassy-embedded-hal/defmt"]
+## Enable log
+log = ["dep:log"]
 
 ## Reexport the PAC for the currently enabled chip at `embassy_nrf::pac` (unstable)
 unstable-pac = []
