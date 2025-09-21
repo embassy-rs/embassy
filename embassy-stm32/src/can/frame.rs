@@ -1,7 +1,7 @@
 //! Definition for CAN Frames
 use bit_field::BitField;
 
-use crate::can::enums::FrameCreateError;
+use crate::can::enums::{FrameCreateError, IdCreateError};
 
 /// Calculate proper timestamp when available.
 #[cfg(feature = "time")]
@@ -17,6 +17,37 @@ pub struct Header {
     id: embedded_can::Id,
     len: u8,
     flags: u8,
+}
+
+/// Convenience wrapper for embedded_can::Id
+#[derive(Debug, Copy, Clone)]
+pub struct Id(
+    // Wrapped ID
+    embedded_can::Id,
+);
+
+impl TryFrom<u16> for Id {
+    type Error = IdCreateError;
+
+    fn try_from(raw_id: u16) -> Result<Self, Self::Error> {
+        let standard_id = embedded_can::StandardId::new(raw_id).ok_or(IdCreateError::OutOfRange)?;
+        Ok(Id { 0: standard_id.into() })
+    }
+}
+
+impl TryFrom<u32> for Id {
+    type Error = IdCreateError;
+
+    fn try_from(raw_id: u32) -> Result<Self, Self::Error> {
+        let extended_id = embedded_can::ExtendedId::new(raw_id).ok_or(IdCreateError::OutOfRange)?;
+        Ok(Id { 0: extended_id.into() })
+    }
+}
+
+impl From<Id> for embedded_can::Id {
+    fn from(id: Id) -> Self {
+        id.0
+    }
 }
 
 #[cfg(feature = "defmt")]
@@ -39,19 +70,27 @@ impl Header {
     const FLAG_BRS: usize = 2; // Bit-rate switching, ignored for Classic CAN
 
     /// Create new CAN Header
-    pub fn new(id: embedded_can::Id, len: u8, rtr: bool) -> Header {
+    pub fn new(id: impl Into<embedded_can::Id>, len: u8, rtr: bool) -> Header {
         let mut flags = 0u8;
         flags.set_bit(Self::FLAG_RTR, rtr);
-        Header { id, len, flags }
+        Header {
+            id: id.into(),
+            len,
+            flags,
+        }
     }
 
     /// Create new CAN FD Header
-    pub fn new_fd(id: embedded_can::Id, len: u8, rtr: bool, brs: bool) -> Header {
+    pub fn new_fd(id: impl Into<embedded_can::Id>, len: u8, rtr: bool, brs: bool) -> Header {
         let mut flags = 0u8;
         flags.set_bit(Self::FLAG_RTR, rtr);
         flags.set_bit(Self::FLAG_FDCAN, true);
         flags.set_bit(Self::FLAG_BRS, brs);
-        Header { id, len, flags }
+        Header {
+            id: id.into(),
+            len,
+            flags,
+        }
     }
 
     /// Return ID
@@ -178,7 +217,7 @@ impl Frame {
     /// Create new extended frame
     pub fn new_extended(raw_id: u32, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
         if let Some(id) = embedded_can::ExtendedId::new(raw_id) {
-            Self::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data)
+            Self::new(Header::new(id, raw_data.len() as u8, false), raw_data)
         } else {
             Err(FrameCreateError::InvalidCanId)
         }
@@ -187,7 +226,7 @@ impl Frame {
     /// Create new standard frame
     pub fn new_standard(raw_id: u16, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
         if let Some(id) = embedded_can::StandardId::new(raw_id) {
-            Self::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data)
+            Self::new(Header::new(id, raw_data.len() as u8, false), raw_data)
         } else {
             Err(FrameCreateError::InvalidCanId)
         }
@@ -380,9 +419,10 @@ impl FdFrame {
     }
 
     /// Create new extended frame
+    /// BRS is set to false by default
     pub fn new_extended(raw_id: u32, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
         if let Some(id) = embedded_can::ExtendedId::new(raw_id) {
-            Self::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data)
+            Self::new(Header::new(id, raw_data.len() as u8, false), raw_data)
         } else {
             Err(FrameCreateError::InvalidCanId)
         }
@@ -391,7 +431,7 @@ impl FdFrame {
     /// Create new standard frame
     pub fn new_standard(raw_id: u16, raw_data: &[u8]) -> Result<Self, FrameCreateError> {
         if let Some(id) = embedded_can::StandardId::new(raw_id) {
-            Self::new(Header::new(id.into(), raw_data.len() as u8, false), raw_data)
+            Self::new(Header::new(id, raw_data.len() as u8, false), raw_data)
         } else {
             Err(FrameCreateError::InvalidCanId)
         }
