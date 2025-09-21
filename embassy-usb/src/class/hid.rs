@@ -8,6 +8,7 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use ssmarshal::serialize;
 #[cfg(feature = "usbd-hid")]
 use usbd_hid::descriptor::AsInputReport;
+#[cfg(feature = "usbd-hid")]
 use usbd_hid::hid_class::HidProtocolMode;
 
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
@@ -31,6 +32,30 @@ const HID_REQ_GET_REPORT: u8 = 0x01;
 const HID_REQ_SET_REPORT: u8 = 0x09;
 const HID_REQ_GET_PROTOCOL: u8 = 0x03;
 const HID_REQ_SET_PROTOCOL: u8 = 0x0b;
+
+/// Get/Set Protocol mapping
+/// See (7.2.5 and 7.2.6): <https://www.usb.org/sites/default/files/hid1_11.pdf>
+#[cfg(not(feature = "usbd-hid"))]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum HidProtocolMode {
+    /// Hid Boot Protocol Mode
+    Boot = 0,
+    /// Hid Report Protocol Mode
+    Report = 1,
+}
+
+#[cfg(not(feature = "usbd-hid"))]
+impl From<u8> for HidProtocolMode {
+    fn from(mode: u8) -> HidProtocolMode {
+        if mode == HidProtocolMode::Boot as u8 {
+            HidProtocolMode::Boot
+        } else {
+            HidProtocolMode::Report
+        }
+    }
+}
 
 /// Configuration for the HID class.
 pub struct Config<'d> {
