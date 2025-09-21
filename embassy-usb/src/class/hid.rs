@@ -530,8 +530,8 @@ impl<'d> Handler for Control<'d> {
                     (Some(request_handler), hid_protocol) => Some(request_handler.set_protocol(hid_protocol)),
                     (None, HidProtocolMode::Report) => Some(OutResponse::Accepted),
                     (None, HidProtocolMode::Boot) => {
-                        warn!("HID Boot Protocol is unsupported.");
-                        Some(OutResponse::Rejected) // UNSUPPORTED: Boot Protocol
+                        info!("Received request to switch to Boot protocol mode, but it is disabled by default.");
+                        Some(OutResponse::Rejected)
                     }
                 }
             }
@@ -588,7 +588,7 @@ impl<'d> Handler for Control<'d> {
                         if let Some(request_handler) = self.request_handler.as_mut() {
                             buf[0] = request_handler.get_protocol() as u8;
                         } else {
-                            // Return `Report` protocol by default
+                            // Return `Report` protocol mode by default
                             buf[0] = HidProtocolMode::Report as u8;
                         }
                         Some(InResponse::Accepted(&buf[0..1]))
