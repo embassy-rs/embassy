@@ -3,6 +3,7 @@
 
 use core::convert::Infallible;
 use core::hint::unreachable_unchecked;
+use core::ops::{Deref, DerefMut};
 
 use cfg_if::cfg_if;
 use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
@@ -42,6 +43,7 @@ pub enum Pull {
 }
 
 /// GPIO input driver.
+#[repr(transparent)]
 pub struct Input<'d> {
     pub(crate) pin: Flex<'d>,
 }
@@ -212,6 +214,7 @@ pub enum OutputDrive {
 }
 
 /// GPIO output driver.
+#[repr(transparent)]
 pub struct Output<'d> {
     pub(crate) pin: Flex<'d>,
 }
@@ -344,7 +347,7 @@ impl<'d> Flex<'d> {
 
     /// Put the pin into input mode.
     #[inline]
-    pub fn set_as_input(&mut self, pull: Pull) {
+    pub fn set_as_input(&mut self, pull: Pull) -> GpioRef<'_, Input<'d>> {
         self.pin.conf().write(|w| {
             w.set_dir(vals::Dir::INPUT);
             w.set_input(vals::Input::CONNECT);
@@ -352,6 +355,9 @@ impl<'d> Flex<'d> {
             convert_drive(w, OutputDrive::Standard);
             w.set_sense(vals::Sense::DISABLED);
         });
+
+        // SAFETY: `Input` is a repr-transparent wrapper around `Flex` so this cast is safe
+        GpioRef::Borrowed(unsafe { &mut *(self as *mut _ as *mut Input) })
     }
 
     /// Put the pin into output mode.
@@ -359,7 +365,7 @@ impl<'d> Flex<'d> {
     /// The pin level will be whatever was set before (or low by default). If you want it to begin
     /// at a specific level, call `set_high`/`set_low` on the pin first.
     #[inline]
-    pub fn set_as_output(&mut self, drive: OutputDrive) {
+    pub fn set_as_output(&mut self, drive: OutputDrive) -> GpioRef<'_, Output<'d>> {
         self.pin.conf().write(|w| {
             w.set_dir(vals::Dir::OUTPUT);
             w.set_input(vals::Input::DISCONNECT);
@@ -367,6 +373,9 @@ impl<'d> Flex<'d> {
             convert_drive(w, drive);
             w.set_sense(vals::Sense::DISABLED);
         });
+
+        // SAFETY: `Output` is a repr-transparent wrapper around `Flex` so this cast is safe
+        GpioRef::Borrowed(unsafe { &mut *(self as *mut _ as *mut Output) })
     }
 
     /// Put the pin into input + output mode.
@@ -479,6 +488,67 @@ impl<'d> Drop for Flex<'d> {
         self.set_as_disconnected();
     }
 }
+
+/// A reference to a GPIO which can be either borrowed or owned.
+pub enum GpioRef<'a, T> {
+    /// An owned gpio
+    Owned(T),
+    /// A borrowed gpio
+    Borrowed(&'a mut T),
+}
+
+impl<T> GpioRef<'_, T> {
+    /// Reborrow into a "child" GpioRef.
+    ///
+    /// `self` will stay borrowed until the child GpioRef is dropped.
+    pub fn reborrow(&mut self) -> GpioRef<'_, T> {
+        match self {
+            GpioRef::Owned(output) => GpioRef::Borrowed(&mut *output),
+            GpioRef::Borrowed(output) => GpioRef::Borrowed(&mut **output),
+        }
+    }
+}
+
+impl<T> Deref for GpioRef<'_, T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        match self {
+            GpioRef::Owned(output) => output,
+            GpioRef::Borrowed(output) => output,
+        }
+    }
+}
+
+impl<T> DerefMut for GpioRef<'_, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        match self {
+            GpioRef::Owned(output) => output,
+            GpioRef::Borrowed(output) => output,
+        }
+    }
+}
+
+impl<T> From<T> for GpioRef<'_, T> {
+    fn from(value: T) -> Self {
+        GpioRef::Owned(value)
+    }
+}
+
+impl<'a, T> From<&'a mut T> for GpioRef<'a, T> {
+    fn from(value: &'a mut T) -> Self {
+        GpioRef::Borrowed(value)
+    }
+}
+
+/// A reference to an [`Input`] which can be either borrowed or owned.
+pub type InputRef<'a, 'd> = GpioRef<'a, Input<'d>>;
+
+/// A reference to an [`Output`] which can be either borrowed or owned.
+pub type OutputRef<'a, 'd> = GpioRef<'a, Output<'d>>;
+
+/// A reference to a [`Flex`] which can be either borrowed or owned.
+pub type FlexRef<'a, 'd> = GpioRef<'a, Flex<'d>>;
 
 pub(crate) trait SealedPin {
     fn pin_port(&self) -> u8;
@@ -596,6 +666,17 @@ impl<'a, P: Pin> PselBits for Option<Peri<'a, P>> {
     fn psel_bits(&self) -> pac::shared::regs::Psel {
         match self {
             Some(pin) => pin.psel_bits(),
+            None => DISCONNECTED,
+        }
+    }
+}
+
+#[cfg(not(feature = "_nrf51"))]
+impl PselBits for Option<GpioRef<'_, Output<'_>>> {
+    #[inline]
+    fn psel_bits(&self) -> pac::shared::regs::Psel {
+        match self {
+            Some(pin) => pin.pin.pin.psel_bits(),
             None => DISCONNECTED,
         }
     }
@@ -735,6 +816,53 @@ mod eh02 {
             Ok(())
         }
     }
+
+    impl<T: embedded_hal_02::digital::v2::InputPin> embedded_hal_02::digital::v2::InputPin for GpioRef<'_, T> {
+        type Error = T::Error;
+
+        fn is_high(&self) -> Result<bool, Self::Error> {
+            (**self).is_high()
+        }
+
+        fn is_low(&self) -> Result<bool, Self::Error> {
+            (**self).is_low()
+        }
+    }
+
+    impl<T: embedded_hal_02::digital::v2::OutputPin> embedded_hal_02::digital::v2::OutputPin for GpioRef<'_, T> {
+        type Error = T::Error;
+
+        fn set_high(&mut self) -> Result<(), Self::Error> {
+            (**self).set_high()
+        }
+
+        fn set_low(&mut self) -> Result<(), Self::Error> {
+            (**self).set_low()
+        }
+    }
+
+    impl<T: embedded_hal_02::digital::v2::StatefulOutputPin> embedded_hal_02::digital::v2::StatefulOutputPin
+        for GpioRef<'_, T>
+    {
+        fn is_set_high(&self) -> Result<bool, Self::Error> {
+            (**self).is_set_high()
+        }
+
+        fn is_set_low(&self) -> Result<bool, Self::Error> {
+            (**self).is_set_low()
+        }
+    }
+
+    impl<T: embedded_hal_02::digital::v2::ToggleableOutputPin> embedded_hal_02::digital::v2::ToggleableOutputPin
+        for GpioRef<'_, T>
+    {
+        type Error = T::Error;
+
+        #[inline]
+        fn toggle(&mut self) -> Result<(), Self::Error> {
+            (**self).toggle()
+        }
+    }
 }
 
 impl<'d> embedded_hal_1::digital::ErrorType for Input<'d> {
@@ -813,5 +941,39 @@ impl<'d> embedded_hal_1::digital::StatefulOutputPin for Flex<'d> {
 
     fn is_set_low(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_set_low())
+    }
+}
+
+impl<T: embedded_hal_1::digital::ErrorType> embedded_hal_1::digital::ErrorType for GpioRef<'_, T> {
+    type Error = T::Error;
+}
+
+impl<T: embedded_hal_1::digital::InputPin> embedded_hal_1::digital::InputPin for GpioRef<'_, T> {
+    fn is_high(&mut self) -> Result<bool, Self::Error> {
+        (**self).is_high()
+    }
+
+    fn is_low(&mut self) -> Result<bool, Self::Error> {
+        (**self).is_low()
+    }
+}
+
+impl<T: embedded_hal_1::digital::OutputPin> embedded_hal_1::digital::OutputPin for GpioRef<'_, T> {
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        (**self).set_high()
+    }
+
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        (**self).set_low()
+    }
+}
+
+impl<T: embedded_hal_1::digital::StatefulOutputPin> embedded_hal_1::digital::StatefulOutputPin for GpioRef<'_, T> {
+    fn is_set_high(&mut self) -> Result<bool, Self::Error> {
+        (**self).is_set_high()
+    }
+
+    fn is_set_low(&mut self) -> Result<bool, Self::Error> {
+        (**self).is_set_low()
     }
 }

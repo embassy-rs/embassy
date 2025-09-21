@@ -3,6 +3,7 @@
 
 use defmt::{debug, error, info};
 use embassy_executor::Spawner;
+use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::i2s::{self, Channels, Config, DoubleBuffering, MasterClock, Sample as _, SampleWidth, I2S};
 use embassy_nrf::pwm::{Prescaler, SimplePwm};
 use embassy_nrf::{bind_interrupts, peripherals};
@@ -34,7 +35,12 @@ async fn main(_spawner: Spawner) {
         I2S::new_master(p.I2S, Irqs, p.P0_25, p.P0_26, p.P0_27, master_clock, config).input(p.P0_29, buffers);
 
     // Configure the PWM to use the pins corresponding to the RGB leds
-    let mut pwm = SimplePwm::new_3ch(p.PWM0, p.P0_23, p.P0_22, p.P0_24);
+    let mut pwm = SimplePwm::new_3ch(
+        p.PWM0,
+        Output::new(p.P0_23, Level::Low, OutputDrive::Standard).into(),
+        Output::new(p.P0_22, Level::Low, OutputDrive::Standard).into(),
+        Output::new(p.P0_24, Level::Low, OutputDrive::Standard).into(),
+    );
     pwm.set_prescaler(Prescaler::Div1);
     pwm.set_max_duty(255);
 

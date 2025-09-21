@@ -5,7 +5,7 @@ use core::future::pending;
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_nrf::gpio::{Input, Pull};
+use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::gpiote::{InputChannel, InputChannelPolarity};
 use embassy_nrf::ppi::Ppi;
 use embassy_nrf::pwm::{Config, Prescaler, SequenceConfig, SequencePwm, SingleSequenceMode, SingleSequencer};
@@ -25,20 +25,24 @@ async fn main(_spawner: Spawner) {
     let mut seq_config = SequenceConfig::default();
     seq_config.refresh = 30;
 
-    let mut pwm = unwrap!(SequencePwm::new_1ch(p.PWM0, p.P0_13, config));
+    let mut pwm = unwrap!(SequencePwm::new_1ch(
+        p.PWM0,
+        Output::new(p.P0_13, Level::Low, OutputDrive::Standard).into(),
+        config
+    ));
 
     // pwm.stop() deconfigures pins, and then the task_start_seq0 task cant work
     // so its going to have to start running in order load the configuration
 
     let button1 = InputChannel::new(
         p.GPIOTE_CH0,
-        Input::new(p.P0_11, Pull::Up),
+        Input::new(p.P0_11, Pull::Up).into(),
         InputChannelPolarity::HiToLo,
     );
 
     let button2 = InputChannel::new(
         p.GPIOTE_CH1,
-        Input::new(p.P0_12, Pull::Up),
+        Input::new(p.P0_12, Pull::Up).into(),
         InputChannelPolarity::HiToLo,
     );
 

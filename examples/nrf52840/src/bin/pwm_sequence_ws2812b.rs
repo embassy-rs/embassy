@@ -3,6 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::pwm::{
     Config, Prescaler, SequenceConfig, SequenceLoad, SequencePwm, SingleSequenceMode, SingleSequencer,
 };
@@ -41,7 +42,11 @@ async fn main(_spawner: Spawner) {
     config.sequence_load = SequenceLoad::Common;
     config.prescaler = Prescaler::Div1;
     config.max_duty = 20; // 1.25us (1s / 16Mhz * 20)
-    let mut pwm = unwrap!(SequencePwm::new_1ch(p.PWM0, p.P1_05, config));
+    let mut pwm = unwrap!(SequencePwm::new_1ch(
+        p.PWM0,
+        Output::new(p.P1_05, Level::Low, OutputDrive::Standard).into(),
+        config
+    ));
 
     // Declare the bits of 24 bits in a buffer we'll be
     // mutating later.
