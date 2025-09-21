@@ -8,7 +8,7 @@ use core::task::{Context, Poll};
 use embassy_hal_internal::{impl_peripheral, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::{AnyPin, Input, Level, Pin as GpioPin, Pull};
+use crate::gpio::{AnyPin, Input, Level, Pin as GpioPin, PinNumber, Pull};
 use crate::pac::exti::regs::Lines;
 use crate::pac::EXTI;
 use crate::{interrupt, pac, peripherals, Peri};
@@ -226,12 +226,12 @@ impl<'d> embedded_hal_async::digital::Wait for ExtiInput<'d> {
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 struct ExtiInputFuture<'a> {
-    pin: u8,
+    pin: PinNumber,
     phantom: PhantomData<&'a mut AnyPin>,
 }
 
 impl<'a> ExtiInputFuture<'a> {
-    fn new(pin: u8, port: u8, rising: bool, falling: bool) -> Self {
+    fn new(pin: PinNumber, port: PinNumber, rising: bool, falling: bool) -> Self {
         critical_section::with(|_| {
             let pin = pin as usize;
             exticr_regs().exticr(pin / 4).modify(|w| w.set_exti(pin % 4, port));
@@ -334,20 +334,20 @@ trait SealedChannel {}
 #[allow(private_bounds)]
 pub trait Channel: PeripheralType + SealedChannel + Sized {
     /// Get the EXTI channel number.
-    fn number(&self) -> u8;
+    fn number(&self) -> PinNumber;
 }
 
 /// Type-erased EXTI channel.
 ///
 /// This represents ownership over any EXTI channel, known at runtime.
 pub struct AnyChannel {
-    number: u8,
+    number: PinNumber,
 }
 
 impl_peripheral!(AnyChannel);
 impl SealedChannel for AnyChannel {}
 impl Channel for AnyChannel {
-    fn number(&self) -> u8 {
+    fn number(&self) -> PinNumber {
         self.number
     }
 }
@@ -356,7 +356,7 @@ macro_rules! impl_exti {
     ($type:ident, $number:expr) => {
         impl SealedChannel for peripherals::$type {}
         impl Channel for peripherals::$type {
-            fn number(&self) -> u8 {
+            fn number(&self) -> PinNumber {
                 $number
             }
         }
@@ -364,7 +364,7 @@ macro_rules! impl_exti {
         impl From<peripherals::$type> for AnyChannel {
             fn from(val: peripherals::$type) -> Self {
                 Self {
-                    number: val.number() as u8,
+                    number: val.number() as PinNumber,
                 }
             }
         }
