@@ -584,7 +584,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
 
         // Data stage
         if setup.length > 0 {
-            self.request_out(&buf[..setup.length as usize]).await?;
+            self.request_out(&buf[..setup.length as usize], false).await?;
         }
 
         // Status stage
@@ -648,7 +648,7 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
         res
     }
 
-    async fn request_out(&mut self, buf: &[u8]) -> Result<(), ChannelError>
+    async fn request_out(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), ChannelError>
     where
         D: channel::IsOut,
     {
@@ -675,6 +675,11 @@ impl<'d, T: Instance, E: channel::Type, D: channel::Direction> UsbChannel<E, D> 
             count += packet;
 
             if count == buf.len() {
+                if packet == self.max_packet_size as usize && ensure_transaction_end {
+                    trace!("CHANNEL {} START ZLP WRITE", self.index);
+                    self.set_data_out(&[]);
+                    trace!("ZLP WRITE DONE");
+                }
                 break Ok(());
             }
         };

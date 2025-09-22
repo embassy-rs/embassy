@@ -292,7 +292,8 @@ pub trait UsbChannel<T: channel::Type, D: channel::Direction> {
         D: channel::IsIn;
 
     /// Send OUT request of type other from control
-    async fn request_out(&mut self, buf: &[u8]) -> Result<(), ChannelError>
+    /// ensure_transaction_end: Send a zero length packet at the end of transaction if last packet is of max size.
+    async fn request_out(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), ChannelError>
     where
         D: channel::IsOut;
 
