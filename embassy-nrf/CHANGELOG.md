@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - changed: Add embassy-net-driver-channel implementation for IEEE 802.15.4
 - changed: add persist() method for gpio and ppi
 - added: basic RTC driver
+- changed: add persist() method for gpio, gpiote, timer and ppi
+- changed: impl Drop for Timer
 
 ## 0.7.0 - 2025-08-26
 

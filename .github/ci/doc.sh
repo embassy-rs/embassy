@@ -9,62 +9,14 @@ set -euxo pipefail
 export RUSTUP_HOME=/ci/cache/rustup
 export CARGO_HOME=/ci/cache/cargo
 export CARGO_TARGET_DIR=/ci/cache/target
-export BUILDER_THREADS=4
-export BUILDER_COMPRESS=true
+export PATH=$CARGO_HOME/bin:$PATH
 mv rust-toolchain-nightly.toml rust-toolchain.toml
 
-# force rustup to download the toolchain before starting building.
-# Otherwise, the docs builder is running multiple instances of cargo rustdoc concurrently.
-# They all see the toolchain is not installed and try to install it in parallel
-# which makes rustup very sad
-rustc --version > /dev/null
+cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev 3ca80f7065acbe0b69b7da463fab60e744f9de79
 
-docserver build -i ./embassy-boot -o webroot/crates/embassy-boot/git.zup
-docserver build -i ./embassy-boot-nrf -o webroot/crates/embassy-boot-nrf/git.zup
-docserver build -i ./embassy-boot-rp -o webroot/crates/embassy-boot-rp/git.zup
-docserver build -i ./embassy-boot-stm32 -o webroot/crates/embassy-boot-stm32/git.zup
-docserver build -i ./embassy-embedded-hal -o webroot/crates/embassy-embedded-hal/git.zup
-docserver build -i ./embassy-executor -o webroot/crates/embassy-executor/git.zup
-docserver build -i ./embassy-futures -o webroot/crates/embassy-futures/git.zup
-docserver build -i ./embassy-nrf -o webroot/crates/embassy-nrf/git.zup
-docserver build -i ./embassy-rp -o webroot/crates/embassy-rp/git.zup
-docserver build -i ./embassy-mspm0 -o webroot/crates/embassy-mspm0/git.zup
-docserver build -i ./embassy-nxp -o webroot/crates/embassy-nxp/git.zup
-docserver build -i ./embassy-sync -o webroot/crates/embassy-sync/git.zup
-docserver build -i ./cyw43 -o webroot/crates/cyw43/git.zup
-docserver build -i ./cyw43-pio -o webroot/crates/cyw43-pio/git.zup
-docserver build -i ./embassy-stm32-wpan -o webroot/crates/embassy-stm32-wpan/git.zup --output-static webroot/static
-
-docserver build -i ./embassy-time -o webroot/crates/embassy-time/git.zup
-docserver build -i ./embassy-time-driver -o webroot/crates/embassy-time-driver/git.zup
-docserver build -i ./embassy-time-queue-utils -o webroot/crates/embassy-time-queue-utils/git.zup
-
-docserver build -i ./embassy-usb -o webroot/crates/embassy-usb/git.zup
-docserver build -i ./embassy-usb-dfu -o webroot/crates/embassy-usb-dfu/git.zup
-docserver build -i ./embassy-usb-driver -o webroot/crates/embassy-usb-driver/git.zup
-docserver build -i ./embassy-usb-logger -o webroot/crates/embassy-usb-logger/git.zup
-docserver build -i ./embassy-usb-synopsys-otg -o webroot/crates/embassy-usb-synopsys-otg/git.zup
-
-docserver build -i ./embassy-net -o webroot/crates/embassy-net/git.zup
-docserver build -i ./embassy-net-nrf91 -o webroot/crates/embassy-net-nrf91/git.zup
-docserver build -i ./embassy-net-driver -o webroot/crates/embassy-net-driver/git.zup
-docserver build -i ./embassy-net-driver-channel -o webroot/crates/embassy-net-driver-channel/git.zup
-docserver build -i ./embassy-net-wiznet -o webroot/crates/embassy-net-wiznet/git.zup
-docserver build -i ./embassy-net-ppp -o webroot/crates/embassy-net-ppp/git.zup
-docserver build -i ./embassy-net-tuntap -o webroot/crates/embassy-net-tuntap/git.zup
-docserver build -i ./embassy-net-enc28j60 -o webroot/crates/embassy-net-enc28j60/git.zup
-docserver build -i ./embassy-net-esp-hosted -o webroot/crates/embassy-net-esp-hosted/git.zup
-docserver build -i ./embassy-net-adin1110 -o webroot/crates/embassy-net-adin1110/git.zup
+cargo embassy-devtool doc -o webroot
 
 export KUBECONFIG=/ci/secrets/kubeconfig.yml
 POD=$(kubectl -n embassy get po -l app=docserver -o jsonpath={.items[0].metadata.name})
 kubectl cp webroot/crates $POD:/data
 kubectl cp webroot/static $POD:/data
-
-# build and upload stm32 last
-# so that it doesn't prevent other crates from getting docs updates when it breaks.
-
-rm -rf webroot
-docserver build -i ./embassy-stm32 -o webroot/crates/embassy-stm32/git.zup
-POD=$(kubectl -n embassy get po -l app=docserver -o jsonpath={.items[0].metadata.name})
-kubectl cp webroot/crates $POD:/data

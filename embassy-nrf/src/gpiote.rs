@@ -193,6 +193,15 @@ pub struct InputChannel<'d> {
     pin: Input<'d>,
 }
 
+impl InputChannel<'static> {
+    /// Persist the channel's configuration for the rest of the program's lifetime. This method
+    /// should be preferred over [`core::mem::forget()`] because the `'static` bound prevents
+    /// accidental reuse of the underlying peripheral.
+    pub fn persist(self) {
+        core::mem::forget(self);
+    }
+}
+
 impl<'d> Drop for InputChannel<'d> {
     fn drop(&mut self) {
         let g = regs();
@@ -261,6 +270,15 @@ impl<'d> InputChannel<'d> {
 pub struct OutputChannel<'d> {
     ch: Peri<'d, AnyChannel>,
     _pin: Output<'d>,
+}
+
+impl OutputChannel<'static> {
+    /// Persist the channel's configuration for the rest of the program's lifetime. This method
+    /// should be preferred over [`core::mem::forget()`] because the `'static` bound prevents
+    /// accidental reuse of the underlying peripheral.
+    pub fn persist(self) {
+        core::mem::forget(self);
+    }
 }
 
 impl<'d> Drop for OutputChannel<'d> {

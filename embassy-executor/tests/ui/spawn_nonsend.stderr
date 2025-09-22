@@ -9,7 +9,7 @@ warning: unused import: `core::future::Future`
 error[E0277]: `*mut ()` cannot be sent between threads safely
   --> tests/ui/spawn_nonsend.rs:13:13
    |
-7  | #[embassy_executor::task]
+ 7 | #[embassy_executor::task]
    | ------------------------- within this `impl Sized`
 ...
 13 |     s.spawn(task(core::ptr::null_mut()).unwrap());
@@ -21,7 +21,7 @@ error[E0277]: `*mut ()` cannot be sent between threads safely
 note: required because it's used within this closure
   --> tests/ui/spawn_nonsend.rs:7:1
    |
-7  | #[embassy_executor::task]
+ 7 | #[embassy_executor::task]
    | ^^^^^^^^^^^^^^^^^^^^^^^^^
 note: required because it appears within the type `impl Sized`
   --> src/raw/mod.rs
@@ -31,7 +31,7 @@ note: required because it appears within the type `impl Sized`
 note: required because it appears within the type `impl Sized`
   --> tests/ui/spawn_nonsend.rs:7:1
    |
-7  | #[embassy_executor::task]
+ 7 | #[embassy_executor::task]
    | ^^^^^^^^^^^^^^^^^^^^^^^^^
 note: required by a bound in `SendSpawner::spawn`
   --> src/spawner.rs

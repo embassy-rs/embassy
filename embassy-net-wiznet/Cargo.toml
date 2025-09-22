@@ -17,6 +17,9 @@ embassy-time = { version = "0.5.0", path = "../embassy-time" }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 defmt = { version = "1.0.1", optional = true }
 
+[features]
+defmt = ["dep:defmt", "embassy-net-driver-channel/defmt"]
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-wiznet-v$VERSION/embassy-net-wiznet/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net-wiznet/src/"

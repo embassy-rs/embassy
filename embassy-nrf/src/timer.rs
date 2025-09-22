@@ -104,7 +104,7 @@ impl<'d, T: Instance> Timer<'d, T> {
         Self::new_inner(timer, true)
     }
 
-    fn new_inner(timer: Peri<'d, T>, _is_counter: bool) -> Self {
+    fn new_inner(timer: Peri<'d, T>, is_counter: bool) -> Self {
         let regs = T::regs();
 
         let this = Self { _p: timer };
@@ -114,7 +114,7 @@ impl<'d, T: Instance> Timer<'d, T> {
         this.stop();
 
         regs.mode().write(|w| {
-            w.set_mode(match _is_counter {
+            w.set_mode(match is_counter {
                 #[cfg(not(feature = "_nrf51"))]
                 true => vals::Mode::LOW_POWER_COUNTER,
                 #[cfg(feature = "_nrf51")]
@@ -215,6 +215,21 @@ impl<'d, T: Instance> Timer<'d, T> {
             n,
             _p: unsafe { self._p.clone_unchecked() },
         }
+    }
+}
+
+impl<T: Instance> Timer<'static, T> {
+    /// Persist the timer's configuration for the rest of the program's lifetime. This method
+    /// should be preferred over [`core::mem::forget()`] because the `'static` bound prevents
+    /// accidental reuse of the underlying peripheral.
+    pub fn persist(self) {
+        core::mem::forget(self);
+    }
+}
+
+impl<'d, T: Instance> Drop for Timer<'d, T> {
+    fn drop(&mut self) {
+        self.stop();
     }
 }
 
