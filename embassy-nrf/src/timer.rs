@@ -218,6 +218,15 @@ impl<'d, T: Instance> Timer<'d, T> {
     }
 }
 
+impl<T: Instance> Timer<'static, T> {
+    /// Persist the timer's configuration for the rest of the program's lifetime. This method
+    /// should be preferred over [`core::mem::forget()`] because the `'static` bound prevents
+    /// accidental reuse of the underlying peripheral.
+    pub fn persist(self) {
+        core::mem::forget(self);
+    }
+}
+
 impl<'d, T: Instance> Drop for Timer<'d, T> {
     fn drop(&mut self) {
         self.stop();
