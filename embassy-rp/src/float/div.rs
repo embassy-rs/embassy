@@ -1,3 +1,5 @@
+//! Rust implementation of floating point division.
+
 // Credit: taken from `rp-hal` (also licensed Apache+MIT)
 // https://github.com/rp-rs/rp-hal/blob/main/rp2040-hal/src/float/conv.rs
 
