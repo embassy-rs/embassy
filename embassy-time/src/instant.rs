@@ -57,6 +57,17 @@ impl Instant {
         }
     }
 
+    /// Try to create an Instant from a nanosecond count since system boot.
+    /// Fails if the number of nanoseconds is too large.
+    pub const fn try_from_nanos(nanos: u64) -> Option<Self> {
+        let Some(value) = nanos.checked_mul(TICK_HZ / GCD_1G) else {
+            return None;
+        };
+        Some(Self {
+            ticks: value / (1_000_000_000 / GCD_1G),
+        })
+    }
+
     /// Try to create an Instant from a microsecond count since system boot.
     /// Fails if the number of microseconds is too large.
     pub const fn try_from_micros(micros: u64) -> Option<Self> {
