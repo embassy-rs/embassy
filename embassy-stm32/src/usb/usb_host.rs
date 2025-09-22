@@ -462,7 +462,8 @@ impl<'d, I: Instance, D: channel::Direction, T: channel::Type> Channel<'d, I, D,
         }
     }
 
-    async fn write(&mut self, buf: &[u8]) -> Result<(), ChannelError> {
+    //TODO: Emit a zero length packet when ensure_transaction_end is true and the packet is of max size
+    async fn write(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), ChannelError> {
         self.write_data(buf);
 
         let index = self.index;
@@ -577,7 +578,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         epr_val.set_setup(true);
         epr0.write_value(epr_val);
 
-        self.write(setup.as_bytes()).await?;
+        self.write(setup.as_bytes(), false).await?;
 
         // data stage
         let count = self.read(buf).await?;
@@ -586,7 +587,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
 
         // Send 0 bytes
         let zero: [u8; 0] = [0u8; 0];
-        self.write(&zero).await?;
+        self.write(&zero, false).await?;
 
         Ok(count)
     }
@@ -606,12 +607,12 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         let mut epr_val = invariant(epr0.read());
         epr_val.set_setup(true);
         epr0.write_value(epr_val);
-        self.write(setup.as_bytes()).await?;
+        self.write(setup.as_bytes(), false).await?;
 
         if buf.is_empty() {
             // do nothing
         } else {
-            self.write(buf).await?;
+            self.write(buf, false).await?;
         }
 
         // Status stage
@@ -654,11 +655,11 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         self.read(buf).await
     }
 
-    async fn request_out(&mut self, buf: &[u8]) -> Result<(), ChannelError>
+    async fn request_out(&mut self, buf: &[u8], ensure_transaction_end: bool) -> Result<(), ChannelError>
     where
         D: channel::IsOut,
     {
-        self.write(buf).await
+        self.write(buf, ensure_transaction_end).await
     }
 
     async fn set_timeout(&mut self, _: TimeoutConfig) {
