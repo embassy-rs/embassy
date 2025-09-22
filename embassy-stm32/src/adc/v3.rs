@@ -1,7 +1,13 @@
 use cfg_if::cfg_if;
+#[cfg(adc_g0)]
+use heapless::Vec;
 use pac::adc::vals::Dmacfg;
+#[cfg(adc_g0)]
+use pac::adc::vals::{Ckmode, Smpsel};
 #[cfg(adc_v3)]
 use pac::adc::vals::{OversamplingRatio, OversamplingShift, Rovsm, Trovs};
+#[cfg(adc_g0)]
+pub use pac::adc::vals::{Ovsr, Ovss, Presc};
 
 use super::{
     blocking_delay_us, Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel,
@@ -13,6 +19,11 @@ use crate::{pac, rcc, Peri};
 pub const VREF_DEFAULT_MV: u32 = 3300;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 pub const VREF_CALIB_MV: u32 = 3000;
+
+#[cfg(adc_g0)]
+/// The number of variants in Smpsel
+// TODO: Use [#![feature(variant_count)]](https://github.com/rust-lang/rust/issues/73662) when stable
+const SAMPLE_TIMES_CAPACITY: usize = 2;
 
 pub struct VrefInt;
 impl<T: Instance> AdcChannel<T> for VrefInt {}
@@ -113,30 +124,10 @@ pub enum Averaging {
 cfg_if! { if #[cfg(adc_g0)] {
 
 /// Synchronous PCLK prescaler
-/// * ADC_CFGR2:CKMODE in STM32WL5x
-#[repr(u8)]
 pub enum CkModePclk {
-    DIV1 = 3,
-    DIV2 = 1,
-    DIV4 = 2,
-}
-
-/// Asynchronous ADCCLK prescaler
-/// * ADC_CCR:PRESC in STM32WL5x
-#[repr(u8)]
-pub enum Presc {
     DIV1,
     DIV2,
     DIV4,
-    DIV6,
-    DIV8,
-    DIV10,
-    DIV12,
-    DIV16,
-    DIV32,
-    DIV64,
-    DIV128,
-    DIV256,
 }
 
 /// The analog clock is either the synchronous prescaled PCLK or
@@ -215,8 +206,14 @@ impl<'d, T: Instance> Adc<'d, T> {
             }
         }
         match clock {
-            Clock::Async { div } => T::regs().ccr().modify(|reg| reg.set_presc(div as u8)),
-            Clock::Sync { div } => T::regs().cfgr2().modify(|reg| reg.set_ckmode(div as u8)),
+            Clock::Async { div } => T::regs().ccr().modify(|reg| reg.set_presc(div)),
+            Clock::Sync { div } => T::regs().cfgr2().modify(|reg| {
+                reg.set_ckmode(match div {
+                    CkModePclk::DIV1 => Ckmode::PCLK,
+                    CkModePclk::DIV2 => Ckmode::PCLK_DIV2,
+                    CkModePclk::DIV4 => Ckmode::PCLK_DIV4,
+                })
+            }),
         }
 
         Self::init_calibrate();
@@ -436,53 +433,78 @@ impl<'d, T: Instance> Adc<'d, T> {
             w.set_l(sequence.len() as u8 - 1);
         });
 
-        #[cfg(any(adc_g0, adc_u0))]
-        let mut channel_mask = 0;
+        #[cfg(adc_g0)]
+        {
+            let mut sample_times = Vec::<SampleTime, SAMPLE_TIMES_CAPACITY>::new();
 
-        // Configure channels and ranks
-        for (_i, (channel, sample_time)) in sequence.enumerate() {
-            Self::configure_channel(channel, sample_time);
-
-            // Each channel is sampled according to sequence
-            #[cfg(not(any(adc_g0, adc_u0)))]
-            match _i {
-                0..=3 => {
-                    T::regs().sqr1().modify(|w| {
-                        w.set_sq(_i, channel.channel());
-                    });
-                }
-                4..=8 => {
-                    T::regs().sqr2().modify(|w| {
-                        w.set_sq(_i - 4, channel.channel());
-                    });
-                }
-                9..=13 => {
-                    T::regs().sqr3().modify(|w| {
-                        w.set_sq(_i - 9, channel.channel());
-                    });
-                }
-                14..=15 => {
-                    T::regs().sqr4().modify(|w| {
-                        w.set_sq(_i - 14, channel.channel());
-                    });
-                }
-                _ => unreachable!(),
-            }
-
-            #[cfg(any(adc_g0, adc_u0))]
-            {
-                channel_mask |= 1 << channel.channel();
-            }
+            T::regs().chselr().write(|chselr| {
+                T::regs().smpr().write(|smpr| {
+                    for (channel, sample_time) in sequence {
+                        chselr.set_chsel(channel.channel.into(), true);
+                        if let Some(i) = sample_times.iter().position(|&t| t == sample_time) {
+                            smpr.set_smpsel(channel.channel.into(), (i as u8).into());
+                        } else {
+                            smpr.set_sample_time(sample_times.len(), sample_time);
+                            if let Err(_) = sample_times.push(sample_time) {
+                                panic!(
+                                    "Implementation is limited to {} unique sample times among all channels.",
+                                    SAMPLE_TIMES_CAPACITY
+                                );
+                            }
+                        }
+                    }
+                })
+            });
         }
+        #[cfg(not(adc_g0))]
+        {
+            #[cfg(adc_u0)]
+            let mut channel_mask = 0;
 
-        // On G0 and U0 enabled channels are sampled from 0 to last channel.
-        // It is possible to add up to 8 sequences if CHSELRMOD = 1.
-        // However for supporting more than 8 channels alternative CHSELRMOD = 0 approach is used.
-        #[cfg(any(adc_g0, adc_u0))]
-        T::regs().chselr().modify(|reg| {
-            reg.set_chsel(channel_mask);
-        });
+            // Configure channels and ranks
+            for (_i, (channel, sample_time)) in sequence.enumerate() {
+                Self::configure_channel(channel, sample_time);
 
+                // Each channel is sampled according to sequence
+                #[cfg(not(any(adc_g0, adc_u0)))]
+                match _i {
+                    0..=3 => {
+                        T::regs().sqr1().modify(|w| {
+                            w.set_sq(_i, channel.channel());
+                        });
+                    }
+                    4..=8 => {
+                        T::regs().sqr2().modify(|w| {
+                            w.set_sq(_i - 4, channel.channel());
+                        });
+                    }
+                    9..=13 => {
+                        T::regs().sqr3().modify(|w| {
+                            w.set_sq(_i - 9, channel.channel());
+                        });
+                    }
+                    14..=15 => {
+                        T::regs().sqr4().modify(|w| {
+                            w.set_sq(_i - 14, channel.channel());
+                        });
+                    }
+                    _ => unreachable!(),
+                }
+
+                #[cfg(adc_u0)]
+                {
+                    channel_mask |= 1 << channel.channel();
+                }
+            }
+
+            // On G0 and U0 enabled channels are sampled from 0 to last channel.
+            // It is possible to add up to 8 sequences if CHSELRMOD = 1.
+            // However for supporting more than 8 channels alternative CHSELRMOD = 0 approach is used.
+            #[cfg(adc_u0)]
+            T::regs().chselr().modify(|reg| {
+                reg.set_chsel(channel_mask);
+            });
+        }
         // Set continuous mode with oneshot dma.
         // Clear overrun flag before starting transfer.
         T::regs().isr().modify(|reg| {
@@ -537,6 +559,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         });
     }
 
+    #[cfg(not(adc_g0))]
     fn configure_channel(channel: &mut impl AdcChannel<T>, sample_time: SampleTime) {
         // RM0492, RM0481, etc.
         // "This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected."
@@ -551,13 +574,23 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     fn read_channel(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
         self.enable();
+        #[cfg(not(adc_g0))]
         Self::configure_channel(channel, self.sample_time);
-
+        #[cfg(adc_g0)]
+        T::regs().smpr().write(|reg| {
+            reg.set_sample_time(0, self.sample_time);
+            reg.set_smpsel(channel.channel().into(), Smpsel::SMP1);
+        });
         // Select channel
         #[cfg(not(any(adc_g0, adc_u0)))]
         T::regs().sqr1().write(|reg| reg.set_sq(0, channel.channel()));
         #[cfg(any(adc_g0, adc_u0))]
-        T::regs().chselr().write(|reg| reg.set_chsel(1 << channel.channel()));
+        T::regs().chselr().write(|reg| {
+            #[cfg(adc_g0)]
+            reg.set_chsel(channel.channel().into(), true);
+            #[cfg(adc_u0)]
+            reg.set_chsel(1 << channel.channel());
+        });
 
         // Some models are affected by an erratum:
         // If we perform conversions slower than 1 kHz, the first read ADC value can be
@@ -581,12 +614,20 @@ impl<'d, T: Instance> Adc<'d, T> {
         val
     }
 
-    #[cfg(any(adc_g0, adc_u0))]
+    #[cfg(adc_g0)]
+    pub fn set_oversampling_shift(&mut self, shift: Ovss) {
+        T::regs().cfgr2().modify(|reg| reg.set_ovss(shift));
+    }
+    #[cfg(adc_u0)]
     pub fn set_oversampling_shift(&mut self, shift: u8) {
         T::regs().cfgr2().modify(|reg| reg.set_ovss(shift));
     }
 
-    #[cfg(any(adc_g0, adc_u0))]
+    #[cfg(adc_g0)]
+    pub fn set_oversampling_ratio(&mut self, ratio: Ovsr) {
+        T::regs().cfgr2().modify(|reg| reg.set_ovsr(ratio));
+    }
+    #[cfg(adc_u0)]
     pub fn set_oversampling_ratio(&mut self, ratio: u8) {
         T::regs().cfgr2().modify(|reg| reg.set_ovsr(ratio));
     }
@@ -613,9 +654,10 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr2().modify(|reg| reg.set_ovss(shift));
     }
 
+    #[cfg(not(adc_g0))]
     fn set_channel_sample_time(_ch: u8, sample_time: SampleTime) {
         cfg_if! {
-            if #[cfg(any(adc_g0, adc_u0))] {
+            if #[cfg(adc_u0)] {
                 // On G0 and U6 all channels use the same sampling time.
                 T::regs().smpr().modify(|reg| reg.set_smp1(sample_time.into()));
             } else if #[cfg(any(adc_h5, adc_h7rs))] {

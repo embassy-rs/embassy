@@ -28,7 +28,7 @@ fi
 hashtime restore /ci/cache/filetime.json || true
 hashtime save /ci/cache/filetime.json
 
-cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev 280829ad163f1444999468a57d28fb7c412babbe
+cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev 3ca80f7065acbe0b69b7da463fab60e744f9de79
 
 ./ci.sh
 
