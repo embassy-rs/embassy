@@ -1,7 +1,7 @@
 use core::fmt;
 use core::ops::{Add, AddAssign, Sub, SubAssign};
 
-use super::{Duration, GCD_1K, GCD_1M, GCD_1G, TICK_HZ};
+use super::{Duration, GCD_1G, GCD_1K, GCD_1M, TICK_HZ};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
