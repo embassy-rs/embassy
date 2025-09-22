@@ -1,7 +1,7 @@
 use core::fmt;
 use core::ops::{Add, AddAssign, Sub, SubAssign};
 
-use super::{Duration, GCD_1K, GCD_1M, TICK_HZ};
+use super::{Duration, GCD_1K, GCD_1M, GCD_1G, TICK_HZ};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -27,6 +27,13 @@ impl Instant {
     /// Create an Instant from a tick count since system boot.
     pub const fn from_ticks(ticks: u64) -> Self {
         Self { ticks }
+    }
+
+    /// Create an Instant from a nanosecond count since system boot.
+    pub const fn from_nanos(nanos: u64) -> Self {
+        Self {
+            ticks: nanos * (TICK_HZ / GCD_1G) / (1_000_000_000 / GCD_1G),
+        }
     }
 
     /// Create an Instant from a microsecond count since system boot.
@@ -99,6 +106,11 @@ impl Instant {
     /// Microseconds since system boot.
     pub const fn as_micros(&self) -> u64 {
         self.ticks * (1_000_000 / GCD_1M) / (TICK_HZ / GCD_1M)
+    }
+
+    /// Nanoseconds since system boot.
+    pub const fn as_nanos(&self) -> u64 {
+        self.ticks * (1_000_000_000 / GCD_1G) / (TICK_HZ / GCD_1G)
     }
 
     /// Duration between this Instant and another Instant
