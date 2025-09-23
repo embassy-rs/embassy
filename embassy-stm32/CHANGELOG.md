@@ -23,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: Allow OSPI DMA writes larger than 64kB using chunking
 - feat: More ADC enums for g0 PAC, API change for oversampling, allow separate sample times
 - feat: Add USB CRS sync support for STM32C071
+- feat: Add read_from_break method to STM32 UartRx ([#4702](https://github.com/embassy-rs/embassy/pull/4702))
 
 ## 0.4.0 - 2025-08-26
 
