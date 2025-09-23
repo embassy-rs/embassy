@@ -252,7 +252,7 @@ impl ApproxSampleRate {
 ///
 /// Those are non standard sample rates that can be configured without error.
 ///
-/// For custom master clock configuration, please refer to [Mode].
+/// For custom master clock configuration, please refer to [vals::Mode].
 #[derive(Clone, Copy)]
 pub enum ExactSampleRate {
     /// 8000 Hz
