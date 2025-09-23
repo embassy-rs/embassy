@@ -41,7 +41,8 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 unsafe fn on_interrupt(r: Regs, s: &'static State) {
     let (sr, cr1, cr3) = (sr(r).read(), r.cr1().read(), r.cr3().read());
 
-    let has_errors = (sr.pe() && cr1.peie()) || ((sr.fe() || sr.ne() || sr.ore()) && cr3.eie());
+    let has_errors =
+        (sr.pe() && cr1.peie()) || ((sr.ne() || sr.ore()) && cr3.eie()) || (sr.fe() && cr3.eie() && cr3.dmar());
     if has_errors {
         // clear all interrupts and DMA Rx Request
         r.cr1().modify(|w| {
@@ -74,6 +75,14 @@ unsafe fn on_interrupt(r: Regs, s: &'static State) {
         // We cannot check the RXNE flag as it is auto-cleared by the DMA controller
 
         // It is up to the listener to determine if this in fact was a RX event and disable the RXNE detection
+    } else if sr.fe() && cr3.eie() {
+        // Break detected (frame error)
+        if sr.fe() {
+            #[cfg(any(usart_v3, usart_v4))]
+            r.icr().write(|w| w.set_fe(true)); // clear framing error
+            unsafe { rdr(r).read_volatile() }; // clear byte so DMA doesn't pick it up
+            r.cr3().modify(|w| w.set_dmar(true)); // start DMA
+        }
     } else {
         return;
     }
@@ -692,20 +701,27 @@ impl<'d> UartRx<'d, Async> {
 
     /// Initiate an asynchronous UART read
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        self.inner_read(buffer, false).await?;
+        self.inner_read(buffer, false, false).await?;
 
         Ok(())
     }
 
     /// Initiate an asynchronous read with idle line detection enabled
     pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
-        self.inner_read(buffer, true).await
+        self.inner_read(buffer, true, false).await
+    }
+
+    /// Initiate an asynchronous read, waiting for a break character (frame error) before starting the read
+    /// Returns Err(Framing) if a second break occurs before buffer.len() characters have been received.
+    pub async fn read_from_break(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        self.inner_read(buffer, false, true).await
     }
 
     async fn inner_read_run(
         &mut self,
         buffer: &mut [u8],
         enable_idle_line_detection: bool,
+        wait_for_break: bool,
     ) -> Result<ReadCompletionEvent, Error> {
         let r = self.info.regs;
 
@@ -767,8 +783,10 @@ impl<'d> UartRx<'d, Async> {
         r.cr3().modify(|w| {
             // enable Error Interrupt: (Frame error, Noise error, Overrun error)
             w.set_eie(true);
-            // enable DMA Rx Request
-            w.set_dmar(true);
+            // enable DMA Rx Request unless waiting for break first
+            if !wait_for_break {
+                w.set_dmar(true);
+            }
         });
 
         compiler_fence(Ordering::SeqCst);
@@ -779,7 +797,7 @@ impl<'d> UartRx<'d, Async> {
 
         let cr3 = r.cr3().read();
 
-        if !cr3.dmar() {
+        if !wait_for_break && !cr3.dmar() {
             // something went wrong
             // because the only way to get this flag cleared is to have an interrupt
 
@@ -841,7 +859,7 @@ impl<'d> UartRx<'d, Async> {
 
             compiler_fence(Ordering::SeqCst);
 
-            let has_errors = sr.pe() || sr.fe() || sr.ne() || sr.ore();
+            let has_errors = sr.pe() || sr.ne() || sr.fe() || (sr.ore() && !wait_for_break);
 
             if has_errors {
                 // all Rx interrupts and Rx DMA Request have already been cleared in interrupt handler
@@ -889,7 +907,12 @@ impl<'d> UartRx<'d, Async> {
         r
     }
 
-    async fn inner_read(&mut self, buffer: &mut [u8], enable_idle_line_detection: bool) -> Result<usize, Error> {
+    async fn inner_read(
+        &mut self,
+        buffer: &mut [u8],
+        enable_idle_line_detection: bool,
+        wait_for_break: bool,
+    ) -> Result<usize, Error> {
         if buffer.is_empty() {
             return Ok(0);
         } else if buffer.len() > 0xFFFF {
@@ -899,7 +922,9 @@ impl<'d> UartRx<'d, Async> {
         let buffer_len = buffer.len();
 
         // wait for DMA to complete or IDLE line detection if requested
-        let res = self.inner_read_run(buffer, enable_idle_line_detection).await;
+        let res = self
+            .inner_read_run(buffer, enable_idle_line_detection, wait_for_break)
+            .await;
 
         match res {
             Ok(ReadCompletionEvent::DmaCompleted) => Ok(buffer_len),
