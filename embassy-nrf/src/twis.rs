@@ -700,7 +700,7 @@ impl<'d, T: Instance> Twis<'d, T> {
 
     /// Respond to an I2C master READ command with timeout.
     /// Returns the number of bytes written.
-    /// See [`blocking_respond_to_read`].
+    /// See [Self::blocking_respond_to_read].
     #[cfg(feature = "time")]
     pub fn blocking_respond_to_read_timeout(&mut self, buffer: &[u8], timeout: Duration) -> Result<usize, Error> {
         self.setup_respond(buffer, false)?;

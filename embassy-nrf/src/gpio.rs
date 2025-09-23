@@ -217,7 +217,7 @@ pub struct Output<'d> {
 }
 
 impl<'d> Output<'d> {
-    /// Create GPIO output driver for a [Pin] with the provided [Level] and [OutputDriver] configuration.
+    /// Create GPIO output driver for a [Pin] with the provided [Level] and [OutputDrive] configuration.
     #[inline]
     pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level, drive: OutputDrive) -> Self {
         let mut pin = Flex::new(pin);
@@ -781,7 +781,7 @@ impl<'d> embedded_hal_1::digital::ErrorType for Flex<'d> {
     type Error = Infallible;
 }
 
-/// Implement [`InputPin`] for [`Flex`];
+/// Implement [embedded_hal_1::digital::InputPin] for [`Flex`];
 ///
 /// If the pin is not in input mode the result is unspecified.
 impl<'d> embedded_hal_1::digital::InputPin for Flex<'d> {

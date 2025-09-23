@@ -207,7 +207,7 @@ mod chip;
 /// Macro to bind interrupts to handlers.
 ///
 /// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
-/// and implements the right [`Binding`]s for it. You can pass this struct to drivers to
+/// and implements the right [crate::interrupt::typelevel::Binding]s for it. You can pass this struct to drivers to
 /// prove at compile-time that the right interrupts have been bound.
 ///
 /// Example of how to bind one interrupt:
