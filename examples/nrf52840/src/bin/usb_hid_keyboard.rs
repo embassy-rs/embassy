@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -17,6 +17,7 @@ use embassy_usb::class::hid::{HidReaderWriter, ReportId, RequestHandler, State};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, Handler};
 use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
+use usbd_hid::hid_class::HidProtocolMode;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -25,6 +26,8 @@ bind_interrupts!(struct Irqs {
 });
 
 static SUSPENDED: AtomicBool = AtomicBool::new(false);
+
+static HID_PROTOCOL_MODE: AtomicU8 = AtomicU8::new(HidProtocolMode::Boot as u8);
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -110,6 +113,11 @@ async fn main(_spawner: Spawner) {
             if SUSPENDED.load(Ordering::Acquire) {
                 info!("Triggering remote wakeup");
                 remote_wakeup.signal(());
+            } else if HID_PROTOCOL_MODE.load(Ordering::Relaxed) == HidProtocolMode::Boot as u8 {
+                match writer.write(&[0, 0, 4, 0, 0, 0, 0, 0]).await {
+                    Ok(()) => {}
+                    Err(e) => warn!("Failed to send boot report: {:?}", e),
+                };
             } else {
                 let report = KeyboardReport {
                     keycodes: [4, 0, 0, 0, 0, 0],
@@ -125,16 +133,23 @@ async fn main(_spawner: Spawner) {
 
             button.wait_for_high().await;
             info!("RELEASED");
-            let report = KeyboardReport {
-                keycodes: [0, 0, 0, 0, 0, 0],
-                leds: 0,
-                modifier: 0,
-                reserved: 0,
-            };
-            match writer.write_serialize(&report).await {
-                Ok(()) => {}
-                Err(e) => warn!("Failed to send report: {:?}", e),
-            };
+            if HID_PROTOCOL_MODE.load(Ordering::Relaxed) == HidProtocolMode::Boot as u8 {
+                match writer.write(&[0, 0, 0, 0, 0, 0, 0, 0]).await {
+                    Ok(()) => {}
+                    Err(e) => warn!("Failed to send boot report: {:?}", e),
+                };
+            } else {
+                let report = KeyboardReport {
+                    keycodes: [0, 0, 0, 0, 0, 0],
+                    leds: 0,
+                    modifier: 0,
+                    reserved: 0,
+                };
+                match writer.write_serialize(&report).await {
+                    Ok(()) => {}
+                    Err(e) => warn!("Failed to send report: {:?}", e),
+                };
+            }
         }
     };
 
@@ -157,6 +172,18 @@ impl RequestHandler for MyRequestHandler {
 
     fn set_report(&mut self, id: ReportId, data: &[u8]) -> OutResponse {
         info!("Set report for {:?}: {=[u8]}", id, data);
+        OutResponse::Accepted
+    }
+
+    fn get_protocol(&self) -> HidProtocolMode {
+        let protocol = HidProtocolMode::from(HID_PROTOCOL_MODE.load(Ordering::Relaxed));
+        info!("The current HID protocol mode is: {}", protocol);
+        protocol
+    }
+
+    fn set_protocol(&mut self, protocol: HidProtocolMode) -> OutResponse {
+        info!("Switching to HID protocol mode: {}", protocol);
+        HID_PROTOCOL_MODE.store(protocol as u8, Ordering::Relaxed);
         OutResponse::Accepted
     }
 
