@@ -81,8 +81,6 @@ pub enum Frequency {
 ///
 /// It has either 4 or 6 Capture/Compare registers, which can be used to capture the current state of the counter
 /// or trigger an event when the counter reaches a certain value.
-
-/// Timer driver.
 pub struct Timer<'d, T: Instance> {
     _p: Peri<'d, T>,
 }
@@ -90,7 +88,7 @@ pub struct Timer<'d, T: Instance> {
 impl<'d, T: Instance> Timer<'d, T> {
     /// Create a new `Timer` driver.
     ///
-    /// This can be useful for triggering tasks via PPI
+    /// This can be useful for triggering tasks via PPI.
     /// `Uarte` uses this internally.
     pub fn new(timer: Peri<'d, T>) -> Self {
         Self::new_inner(timer, false)
@@ -98,13 +96,13 @@ impl<'d, T: Instance> Timer<'d, T> {
 
     /// Create a new `Timer` driver in counter mode.
     ///
-    /// This can be useful for triggering tasks via PPI
+    /// This can be useful for triggering tasks via PPI.
     /// `Uarte` uses this internally.
     pub fn new_counter(timer: Peri<'d, T>) -> Self {
         Self::new_inner(timer, true)
     }
 
-    fn new_inner(timer: Peri<'d, T>, _is_counter: bool) -> Self {
+    fn new_inner(timer: Peri<'d, T>, is_counter: bool) -> Self {
         let regs = T::regs();
 
         let this = Self { _p: timer };
@@ -114,7 +112,7 @@ impl<'d, T: Instance> Timer<'d, T> {
         this.stop();
 
         regs.mode().write(|w| {
-            w.set_mode(match _is_counter {
+            w.set_mode(match is_counter {
                 #[cfg(not(feature = "_nrf51"))]
                 true => vals::Mode::LOW_POWER_COUNTER,
                 #[cfg(feature = "_nrf51")]
@@ -143,6 +141,13 @@ impl<'d, T: Instance> Timer<'d, T> {
         }
 
         this
+    }
+
+    /// Direct access to the register block.
+    #[cfg(feature = "unstable-pac")]
+    #[inline]
+    pub fn regs(&mut self) -> pac::timer::Timer {
+        T::regs()
     }
 
     /// Starts the timer.
@@ -218,6 +223,21 @@ impl<'d, T: Instance> Timer<'d, T> {
     }
 }
 
+impl<T: Instance> Timer<'static, T> {
+    /// Persist the timer's configuration for the rest of the program's lifetime. This method
+    /// should be preferred over [`core::mem::forget()`] because the `'static` bound prevents
+    /// accidental reuse of the underlying peripheral.
+    pub fn persist(self) {
+        core::mem::forget(self);
+    }
+}
+
+impl<'d, T: Instance> Drop for Timer<'d, T> {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 /// A representation of a timer's Capture/Compare (CC) register.
 ///
 /// A CC register holds a 32-bit value.
@@ -233,7 +253,7 @@ pub struct Cc<'d, T: Instance> {
 impl<'d, T: Instance> Cc<'d, T> {
     /// Get the current value stored in the register.
     pub fn read(&self) -> u32 {
-        return T::regs().cc(self.n).read();
+        T::regs().cc(self.n).read()
     }
 
     /// Set the value stored in the register.
@@ -261,6 +281,12 @@ impl<'d, T: Instance> Cc<'d, T> {
     /// This event will fire when the timer's counter reaches the value in this CC register.
     pub fn event_compare(&self) -> Event<'d> {
         Event::from_reg(T::regs().events_compare(self.n))
+    }
+
+    /// Clear the COMPARE event for this CC register.
+    #[inline]
+    pub fn clear_events(&self) {
+        T::regs().events_compare(self.n).write_value(0);
     }
 
     /// Enable the shortcut between this CC register's COMPARE event and the timer's CLEAR task.

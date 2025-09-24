@@ -298,7 +298,7 @@ impl<'d, T: Instance> Driver<'d, T> {
     ) -> Self {
         {
             use crate::gpio::{AfType, OutputType, Speed};
-            sof.set_as_af(sof.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            set_as_af!(sof, AfType::output(OutputType::PushPull, Speed::VeryHigh));
         }
 
         Self::new(_usb, _irq, dp, dm)
@@ -329,8 +329,8 @@ impl<'d, T: Instance> Driver<'d, T> {
         #[cfg(not(stm32l1))]
         {
             use crate::gpio::{AfType, OutputType, Speed};
-            dp.set_as_af(dp.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
-            dm.set_as_af(dm.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
         }
         #[cfg(stm32l1)]
         let _ = (dp, dm); // suppress "unused" warnings.
@@ -912,7 +912,16 @@ impl<'d, T: Instance> driver::EndpointOut for Endpoint<'d, T, Out> {
         // Software should ensure that a small delay is included before accessing the SRAM contents. This delay should be
         // 800 ns in Full Speed mode and 6.4 μs in Low Speed mode.
         #[cfg(stm32h5)]
-        embassy_time::block_for(embassy_time::Duration::from_nanos(800));
+        {
+            #[cfg(feature = "time")]
+            embassy_time::block_for(embassy_time::Duration::from_nanos(800));
+            #[cfg(not(feature = "time"))]
+            {
+                let freq = unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 as u64;
+                let cycles = freq * 800 / 1_000_000;
+                cortex_m::asm::delay(cycles as u32);
+            }
+        }
 
         RX_COMPLETE[index].store(false, Ordering::Relaxed);
 

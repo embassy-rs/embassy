@@ -273,14 +273,14 @@ async fn main(_spawner: Spawner) -> ! {
     let p = embassy_stm32::init(config);
     info!("Embassy initialized");
 
-    let config = QspiCfg {
-        memory_size: MemorySize::_8MiB,
-        address_size: AddressSize::_24bit,
-        prescaler: 16,
-        cs_high_time: ChipSelectHighTime::_1Cycle,
-        fifo_threshold: FIFOThresholdLevel::_16Bytes,
-        sample_shifting: SampleShifting::None,
-    };
+    let mut config = QspiCfg::default();
+    config.memory_size = MemorySize::_8MiB;
+    config.address_size = AddressSize::_24bit;
+    config.prescaler = 16;
+    config.cs_high_time = ChipSelectHighTime::_1Cycle;
+    config.fifo_threshold = FIFOThresholdLevel::_16Bytes;
+    config.sample_shifting = SampleShifting::None;
+
     let driver = Qspi::new_bank1(
         p.QUADSPI, p.PF8, p.PF9, p.PE2, p.PF6, p.PF10, p.PB10, p.DMA2_CH7, config,
     );

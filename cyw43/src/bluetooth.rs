@@ -3,12 +3,13 @@ use core::future::Future;
 use core::mem::MaybeUninit;
 
 use bt_hci::transport::WithIndicator;
-use bt_hci::{ControllerToHostPacket, FromHciBytes, HostToControllerPacket, PacketKind, WriteHci};
+use bt_hci::{ControllerToHostPacket, FromHciBytes, FromHciBytesError, HostToControllerPacket, PacketKind, WriteHci};
 use embassy_futures::yield_now;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::zerocopy_channel;
 use embassy_time::{Duration, Timer};
 use embedded_hal_1::digital::OutputPin;
+use embedded_io_async::ErrorKind;
 
 use crate::bus::Bus;
 pub use crate::bus::SpiBusCyw43;
@@ -472,8 +473,33 @@ impl<'a> BtRunner<'a> {
     }
 }
 
+/// HCI transport error.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Debug)]
+pub enum Error {
+    /// I/O error.
+    Io(ErrorKind),
+}
+
+impl From<FromHciBytesError> for Error {
+    fn from(e: FromHciBytesError) -> Self {
+        match e {
+            FromHciBytesError::InvalidSize => Error::Io(ErrorKind::InvalidInput),
+            FromHciBytesError::InvalidValue => Error::Io(ErrorKind::InvalidData),
+        }
+    }
+}
+
 impl<'d> embedded_io_async::ErrorType for BtDriver<'d> {
-    type Error = core::convert::Infallible;
+    type Error = Error;
+}
+
+impl embedded_io_async::Error for Error {
+    fn kind(&self) -> ErrorKind {
+        match self {
+            Self::Io(e) => *e,
+        }
+    }
 }
 
 impl<'d> bt_hci::transport::Transport for BtDriver<'d> {
@@ -486,9 +512,9 @@ impl<'d> bt_hci::transport::Transport for BtDriver<'d> {
             rx[..n].copy_from_slice(&buf.buf[..n]);
             ch.receive_done();
 
-            let kind = PacketKind::from_hci_bytes_complete(&rx[..1]).unwrap();
-            let (res, _) = ControllerToHostPacket::from_hci_bytes_with_kind(kind, &rx[1..n]).unwrap();
-            Ok(res)
+            let kind = PacketKind::from_hci_bytes_complete(&rx[..1])?;
+            let (pkt, _) = ControllerToHostPacket::from_hci_bytes_with_kind(kind, &rx[1..n])?;
+            Ok(pkt)
         }
     }
 
@@ -499,7 +525,9 @@ impl<'d> bt_hci::transport::Transport for BtDriver<'d> {
             let buf = ch.send().await;
             let buf_len = buf.buf.len();
             let mut slice = &mut buf.buf[..];
-            WithIndicator::new(val).write_hci(&mut slice).unwrap();
+            WithIndicator::new(val)
+                .write_hci(&mut slice)
+                .map_err(|_| Error::Io(ErrorKind::Other))?;
             buf.len = buf_len - slice.len();
             ch.send_done();
             Ok(())

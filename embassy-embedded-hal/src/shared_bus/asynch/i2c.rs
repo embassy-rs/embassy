@@ -41,6 +41,12 @@ impl<'a, M: RawMutex, BUS> I2cDevice<'a, M, BUS> {
     }
 }
 
+impl<'a, M: RawMutex, BUS> Clone for I2cDevice<'a, M, BUS> {
+    fn clone(&self) -> Self {
+        Self { bus: self.bus }
+    }
+}
+
 impl<'a, M: RawMutex, BUS> i2c::ErrorType for I2cDevice<'a, M, BUS>
 where
     BUS: i2c::ErrorType,
@@ -110,6 +116,18 @@ impl<'a, M: RawMutex, BUS: SetConfig> I2cDeviceWithConfig<'a, M, BUS> {
     /// Change the device's config at runtime
     pub fn set_config(&mut self, config: BUS::Config) {
         self.config = config;
+    }
+}
+
+impl<'a, M: RawMutex, BUS: SetConfig> Clone for I2cDeviceWithConfig<'a, M, BUS>
+where
+    BUS::Config: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            bus: self.bus,
+            config: self.config.clone(),
+        }
     }
 }
 

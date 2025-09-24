@@ -14,9 +14,10 @@ use crate::Peri;
 /// PWM pin wrapper.
 ///
 /// This wraps a pin to make it usable with PWM.
-pub struct PwmPin<'d, T, C> {
-    _pin: Peri<'d, AnyPin>,
-    phantom: PhantomData<(T, C)>,
+pub struct PwmPin<'d, T, C, #[cfg(afio)] A> {
+    #[allow(unused)]
+    pub(crate) pin: Peri<'d, AnyPin>,
+    phantom: PhantomData<if_afio!((T, C, A))>,
 }
 
 /// PWM pin config
@@ -34,33 +35,33 @@ pub struct PwmPinConfig {
     pub pull: Pull,
 }
 
-impl<'d, T: GeneralInstance4Channel, C: TimerChannel> PwmPin<'d, T, C> {
+impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(PwmPin<'d, T, C, A>) {
     /// Create a new PWM pin instance.
-    pub fn new(pin: Peri<'d, impl TimerPin<T, C>>, output_type: OutputType) -> Self {
+    pub fn new(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, output_type: OutputType) -> Self {
         critical_section::with(|_| {
             pin.set_low();
-            pin.set_as_af(pin.af_num(), AfType::output(output_type, Speed::VeryHigh));
+            set_as_af!(pin, AfType::output(output_type, Speed::VeryHigh));
         });
         PwmPin {
-            _pin: pin.into(),
+            pin: pin.into(),
             phantom: PhantomData,
         }
     }
 
-    /// Create a new PWM pin instance with config.
-    pub fn new_with_config(pin: Peri<'d, impl TimerPin<T, C>>, pin_config: PwmPinConfig) -> Self {
+    /// Create a new PWM pin instance with a specific configuration.
+    pub fn new_with_config(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, pin_config: PwmPinConfig) -> Self {
         critical_section::with(|_| {
             pin.set_low();
-            pin.set_as_af(
-                pin.af_num(),
-                #[cfg(gpio_v1)]
-                AfType::output(pin_config.output_type, pin_config.speed),
-                #[cfg(gpio_v2)]
-                AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull),
+            #[cfg(gpio_v1)]
+            set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
+            #[cfg(gpio_v2)]
+            set_as_af!(
+                pin,
+                AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull)
             );
         });
         PwmPin {
-            _pin: pin.into(),
+            pin: pin.into(),
             phantom: PhantomData,
         }
     }
@@ -178,12 +179,13 @@ pub struct SimplePwm<'d, T: GeneralInstance4Channel> {
 
 impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// Create a new simple PWM driver.
-    pub fn new(
+    #[allow(unused)]
+    pub fn new<#[cfg(afio)] A>(
         tim: Peri<'d, T>,
-        _ch1: Option<PwmPin<'d, T, Ch1>>,
-        _ch2: Option<PwmPin<'d, T, Ch2>>,
-        _ch3: Option<PwmPin<'d, T, Ch3>>,
-        _ch4: Option<PwmPin<'d, T, Ch4>>,
+        ch1: Option<if_afio!(PwmPin<'d, T, Ch1, A>)>,
+        ch2: Option<if_afio!(PwmPin<'d, T, Ch2, A>)>,
+        ch3: Option<if_afio!(PwmPin<'d, T, Ch3, A>)>,
+        ch4: Option<if_afio!(PwmPin<'d, T, Ch4, A>)>,
         freq: Hertz,
         counting_mode: CountingMode,
     ) -> Self {

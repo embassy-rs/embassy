@@ -21,3 +21,6 @@ features = ["defmt"]
 [dependencies]
 embedded-io-async = "0.6.1"
 defmt = { version = "1", optional = true }
+
+[features]
+defmt = ["dep:defmt"]

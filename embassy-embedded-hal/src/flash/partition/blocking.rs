@@ -129,7 +129,7 @@ mod tests {
         let mut read_buf = [0; 8];
         partition.read(4, &mut read_buf).unwrap();
 
-        assert!(read_buf.iter().position(|&x| x != 0xAA).is_none());
+        assert!(!read_buf.iter().any(|&x| x != 0xAA));
     }
 
     #[test]
@@ -143,7 +143,7 @@ mod tests {
         partition.write(4, &write_buf).unwrap();
 
         let flash = flash.into_inner().take();
-        assert!(flash.mem[132..132 + 8].iter().position(|&x| x != 0xAA).is_none());
+        assert!(!flash.mem[132..132 + 8].iter().any(|&x| x != 0xAA));
     }
 
     #[test]
@@ -156,6 +156,6 @@ mod tests {
         partition.erase(0, 128).unwrap();
 
         let flash = flash.into_inner().take();
-        assert!(flash.mem[128..256].iter().position(|&x| x != 0xFF).is_none());
+        assert!(!flash.mem[128..256].iter().any(|&x| x != 0xFF));
     }
 }

@@ -36,6 +36,12 @@ impl<'a, M: RawMutex, BUS> I2cDevice<'a, M, BUS> {
     }
 }
 
+impl<'a, M: RawMutex, BUS> Clone for I2cDevice<'a, M, BUS> {
+    fn clone(&self) -> Self {
+        Self { bus: self.bus }
+    }
+}
+
 impl<'a, M: RawMutex, BUS> ErrorType for I2cDevice<'a, M, BUS>
 where
     BUS: ErrorType,
@@ -75,33 +81,33 @@ where
     }
 }
 
-impl<'a, M, BUS, E> embedded_hal_02::blocking::i2c::Write for I2cDevice<'_, M, BUS>
+impl<M, BUS, E> embedded_hal_02::blocking::i2c::Write for I2cDevice<'_, M, BUS>
 where
     M: RawMutex,
     BUS: embedded_hal_02::blocking::i2c::Write<Error = E>,
 {
     type Error = I2cDeviceError<E>;
 
-    fn write<'w>(&mut self, addr: u8, bytes: &'w [u8]) -> Result<(), Self::Error> {
+    fn write(&mut self, addr: u8, bytes: &[u8]) -> Result<(), Self::Error> {
         self.bus
             .lock(|bus| bus.borrow_mut().write(addr, bytes).map_err(I2cDeviceError::I2c))
     }
 }
 
-impl<'a, M, BUS, E> embedded_hal_02::blocking::i2c::Read for I2cDevice<'_, M, BUS>
+impl<M, BUS, E> embedded_hal_02::blocking::i2c::Read for I2cDevice<'_, M, BUS>
 where
     M: RawMutex,
     BUS: embedded_hal_02::blocking::i2c::Read<Error = E>,
 {
     type Error = I2cDeviceError<E>;
 
-    fn read<'w>(&mut self, addr: u8, bytes: &'w mut [u8]) -> Result<(), Self::Error> {
+    fn read(&mut self, addr: u8, bytes: &mut [u8]) -> Result<(), Self::Error> {
         self.bus
             .lock(|bus| bus.borrow_mut().read(addr, bytes).map_err(I2cDeviceError::I2c))
     }
 }
 
-impl<'a, M, BUS, E> embedded_hal_02::blocking::i2c::WriteRead for I2cDevice<'_, M, BUS>
+impl<M, BUS, E> embedded_hal_02::blocking::i2c::WriteRead for I2cDevice<'_, M, BUS>
 where
     M: RawMutex,
     BUS: embedded_hal_02::blocking::i2c::WriteRead<Error = E>,
@@ -136,6 +142,18 @@ impl<'a, M: RawMutex, BUS: SetConfig> I2cDeviceWithConfig<'a, M, BUS> {
     /// Change the device's config at runtime
     pub fn set_config(&mut self, config: BUS::Config) {
         self.config = config;
+    }
+}
+
+impl<'a, M: RawMutex, BUS: SetConfig> Clone for I2cDeviceWithConfig<'a, M, BUS>
+where
+    BUS::Config: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            bus: self.bus,
+            config: self.config.clone(),
+        }
     }
 }
 

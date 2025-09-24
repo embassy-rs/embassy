@@ -17,6 +17,8 @@ categories = [
 [package.metadata.embassy]
 build = [
     {target = "thumbv6m-none-eabi", features = ["defmt", "defmt-timestamp-uptime", "mock-driver"]},
+    # Xtensa builds
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s2-none-elf", features = ["defmt", "defmt-timestamp-uptime", "mock-driver"]},
 ]
 
 [package.metadata.embassy_docs]
@@ -29,6 +31,11 @@ target = "x86_64-unknown-linux-gnu"
 features = ["defmt", "std"]
 
 [features]
+## Enable defmt
+defmt = ["dep:defmt"]
+## Enable log  
+log = ["dep:log"]
+
 ## Display the time since startup next to defmt log messages.
 ## At most 1 `defmt-timestamp-uptime-*` feature can be used.
 ## `defmt-timestamp-uptime` is provided for backwards compatibility (provides the same format as `uptime-us`).

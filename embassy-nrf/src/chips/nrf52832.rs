@@ -16,6 +16,7 @@ pub const APPROTECT_MIN_BUILD_CODE: u8 = b'G';
 embassy_hal_internal::peripherals! {
     // RTC
     RTC0,
+    #[cfg(not(feature="time-driver-rtc1"))]
     RTC1,
     RTC2,
 
@@ -181,6 +182,11 @@ impl_twim!(TWISPI1, TWIM1, TWISPI1);
 
 impl_twis!(TWISPI0, TWIS0, TWISPI0);
 impl_twis!(TWISPI1, TWIS1, TWISPI1);
+
+impl_rtc!(RTC0, RTC0, RTC0);
+#[cfg(not(feature = "time-driver-rtc1"))]
+impl_rtc!(RTC1, RTC1, RTC1);
+impl_rtc!(RTC2, RTC2, RTC2);
 
 impl_pwm!(PWM0, PWM0, PWM0);
 impl_pwm!(PWM1, PWM1, PWM1);

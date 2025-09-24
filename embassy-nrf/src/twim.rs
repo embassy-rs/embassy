@@ -558,7 +558,7 @@ impl<'d, T: Instance> Twim<'d, T> {
 
     /// Execute the provided operations on the I2C bus with timeout.
     ///
-    /// See [`blocking_transaction`].
+    /// See [Self::blocking_transaction].
     #[cfg(feature = "time")]
     pub fn blocking_transaction_timeout(
         &mut self,
@@ -632,7 +632,7 @@ impl<'d, T: Instance> Twim<'d, T> {
 
     /// Write to an I2C slave with timeout.
     ///
-    /// See [`blocking_write`].
+    /// See [Self::blocking_write].
     #[cfg(feature = "time")]
     pub fn blocking_write_timeout(&mut self, address: u8, buffer: &[u8], timeout: Duration) -> Result<(), Error> {
         self.blocking_transaction_timeout(address, &mut [Operation::Write(buffer)], timeout)

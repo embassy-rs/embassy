@@ -185,8 +185,8 @@ impl<'d> CanConfigurator<'d> {
             + interrupt::typelevel::Binding<T::IT1Interrupt, IT1InterruptHandler<T>>
             + 'd,
     ) -> CanConfigurator<'d> {
-        rx.set_as_af(rx.af_num(), AfType::input(Pull::None));
-        tx.set_as_af(tx.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        set_as_af!(rx, AfType::input(Pull::None));
+        set_as_af!(tx, AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
         rcc::enable_and_reset::<T>();
 

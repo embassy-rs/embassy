@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 - Fix wakers getting dropped by `Signal::reset`
+- Remove `Sized` trait bound from `MutexGuard::map`
 
 ## 0.7.2 - 2025-08-26
 

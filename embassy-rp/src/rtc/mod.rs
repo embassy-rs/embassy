@@ -1,7 +1,12 @@
 //! RTC driver.
 mod filter;
 
+use core::future::poll_fn;
+use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
+use core::task::Poll;
+
 use embassy_hal_internal::{Peri, PeripheralType};
+use embassy_sync::waitqueue::AtomicWaker;
 
 pub use self::filter::DateTimeFilter;
 
@@ -11,6 +16,13 @@ mod datetime;
 
 pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
 use crate::clocks::clk_rtc_freq;
+use crate::interrupt::typelevel::Binding;
+use crate::interrupt::{self, InterruptExt};
+
+// Static waker for the interrupt handler
+static WAKER: AtomicWaker = AtomicWaker::new();
+// Static flag to indicate if an alarm has occurred
+static ALARM_OCCURRED: AtomicBool = AtomicBool::new(false);
 
 /// A reference to the real time clock of the system
 pub struct Rtc<'d, T: Instance> {
@@ -23,9 +35,14 @@ impl<'d, T: Instance> Rtc<'d, T> {
     /// # Errors
     ///
     /// Will return `RtcError::InvalidDateTime` if the datetime is not a valid range.
-    pub fn new(inner: Peri<'d, T>) -> Self {
+    pub fn new(inner: Peri<'d, T>, _irq: impl Binding<interrupt::typelevel::RTC_IRQ, InterruptHandler>) -> Self {
         // Set the RTC divider
         inner.regs().clkdiv_m1().write(|w| w.set_clkdiv_m1(clk_rtc_freq() - 1));
+
+        // Setup the IRQ
+        // Clear any pending interrupts from the RTC_IRQ interrupt and enable it, so we do not have unexpected interrupts after initialization
+        interrupt::RTC_IRQ.unpend();
+        unsafe { interrupt::RTC_IRQ.enable() };
 
         Self { inner }
     }
@@ -173,6 +190,110 @@ impl<'d, T: Instance> Rtc<'d, T> {
     /// [`schedule_alarm`]: #method.schedule_alarm
     pub fn clear_interrupt(&mut self) {
         self.disable_alarm();
+    }
+
+    /// Check if an alarm is scheduled.
+    ///
+    /// This function checks if the RTC alarm is currently active. If it is, it returns the alarm configuration
+    /// as a [`DateTimeFilter`]. Otherwise, it returns `None`.
+    pub fn alarm_scheduled(&self) -> Option<DateTimeFilter> {
+        // Check if alarm is active
+        if !self.inner.regs().irq_setup_0().read().match_active() {
+            return None;
+        }
+
+        // Get values from both alarm registers
+        let irq_0 = self.inner.regs().irq_setup_0().read();
+        let irq_1 = self.inner.regs().irq_setup_1().read();
+
+        // Create a DateTimeFilter and populate it based on which fields are enabled
+        let mut filter = DateTimeFilter::default();
+
+        if irq_0.year_ena() {
+            filter.year = Some(irq_0.year());
+        }
+
+        if irq_0.month_ena() {
+            filter.month = Some(irq_0.month());
+        }
+
+        if irq_0.day_ena() {
+            filter.day = Some(irq_0.day());
+        }
+
+        if irq_1.dotw_ena() {
+            // Convert day of week value to DayOfWeek enum
+            let day_of_week = match irq_1.dotw() {
+                0 => DayOfWeek::Sunday,
+                1 => DayOfWeek::Monday,
+                2 => DayOfWeek::Tuesday,
+                3 => DayOfWeek::Wednesday,
+                4 => DayOfWeek::Thursday,
+                5 => DayOfWeek::Friday,
+                6 => DayOfWeek::Saturday,
+                _ => return None, // Invalid day of week
+            };
+            filter.day_of_week = Some(day_of_week);
+        }
+
+        if irq_1.hour_ena() {
+            filter.hour = Some(irq_1.hour());
+        }
+
+        if irq_1.min_ena() {
+            filter.minute = Some(irq_1.min());
+        }
+
+        if irq_1.sec_ena() {
+            filter.second = Some(irq_1.sec());
+        }
+
+        Some(filter)
+    }
+
+    /// Wait for an RTC alarm to trigger.
+    ///
+    /// This function will wait until the RTC alarm is triggered. If the alarm is already triggered, it will return immediately.
+    /// If no alarm is scheduled, it will wait indefinitely until one is scheduled and triggered.
+    pub async fn wait_for_alarm(&mut self) {
+        poll_fn(|cx| {
+            WAKER.register(cx.waker());
+
+            // Atomically check and clear the alarm occurred flag to prevent race conditions
+            if critical_section::with(|_| {
+                let occurred = ALARM_OCCURRED.load(Ordering::SeqCst);
+                if occurred {
+                    ALARM_OCCURRED.store(false, Ordering::SeqCst);
+                }
+                occurred
+            }) {
+                // Clear the interrupt and disable the alarm
+                self.clear_interrupt();
+
+                compiler_fence(Ordering::SeqCst);
+                return Poll::Ready(());
+            } else {
+                return Poll::Pending;
+            }
+        })
+        .await;
+    }
+}
+
+/// Interrupt handler.
+pub struct InterruptHandler {
+    _empty: (),
+}
+
+impl crate::interrupt::typelevel::Handler<crate::interrupt::typelevel::RTC_IRQ> for InterruptHandler {
+    unsafe fn on_interrupt() {
+        // Disable the alarm first thing, to prevent unexpected re-entry
+        let rtc = crate::pac::RTC;
+        rtc.irq_setup_0().modify(|w| w.set_match_ena(false));
+
+        // Set the alarm occurred flag and wake the waker
+        ALARM_OCCURRED.store(true, Ordering::SeqCst);
+        WAKER.wake();
     }
 }
 

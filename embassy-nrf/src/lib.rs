@@ -137,12 +137,25 @@ pub mod qspi;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(feature = "_nrf91", feature = "_nrf5340-app")))]
 pub mod radio;
+
+#[cfg(any(
+    feature = "nrf52811",
+    feature = "nrf52820",
+    feature = "nrf52833",
+    feature = "nrf52840",
+    feature = "_nrf5340-net"
+))]
+#[cfg(feature = "_net-driver")]
+pub mod embassy_net_802154_driver;
+
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(feature = "_nrf5340")]
 pub mod reset;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod rng;
+#[cfg(not(feature = "_nrf54l"))] // TODO
+pub mod rtc;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(feature = "_nrf51", feature = "nrf52820", feature = "_nrf5340-net")))]
 pub mod saadc;
@@ -194,7 +207,7 @@ mod chip;
 /// Macro to bind interrupts to handlers.
 ///
 /// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
-/// and implements the right [`Binding`]s for it. You can pass this struct to drivers to
+/// and implements the right [crate::interrupt::typelevel::Binding]s for it. You can pass this struct to drivers to
 /// prove at compile-time that the right interrupts have been bound.
 ///
 /// Example of how to bind one interrupt:
@@ -707,6 +720,14 @@ pub fn init(config: config::Config) -> Peripherals {
         }
     }
 
+    // GLITCHDET is only accessible for secure code
+    #[cfg(all(feature = "_nrf54l", feature = "_s"))]
+    {
+        // The voltage glitch detectors are automatically enabled after reset.
+        // To save power, the glitch detectors must be disabled when not in use.
+        pac::GLITCHDET.config().write(|w| w.set_enable(false));
+    }
+
     // Setup debug protection.
     #[cfg(not(feature = "_nrf51"))]
     match config.debug {
@@ -1082,6 +1103,15 @@ pub fn init(config: config::Config) -> Peripherals {
         if config.dcdc.regradio {
             reg.vregradio().dcdcen().write(|w| w.set_dcdcen(true));
         }
+    }
+    #[cfg(feature = "_nrf54l")]
+    {
+        // Turn on DCDC
+        // From Product specification:
+        // "Once the device starts, the DC/DC regulator must be enabled using register VREGMAIN.DCDCEN.
+        // When enabling the DC/DC regulator, the device checks if an inductor is connected to the DCC pin.
+        // If an inductor is not detected, the device remains in LDO mode"
+        pac::REGULATORS.vregmain().dcdcen().write(|w| w.set_val(true));
     }
 
     // Init GPIOTE

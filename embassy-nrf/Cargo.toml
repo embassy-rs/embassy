@@ -66,6 +66,8 @@ time = ["dep:embassy-time", "embassy-embedded-hal/time"]
 
 ## Enable defmt
 defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "embassy-usb-driver/defmt", "embassy-embedded-hal/defmt"]
+## Enable log
+log = ["dep:log"]
 
 ## Reexport the PAC for the currently enabled chip at `embassy_nrf::pac` (unstable)
 unstable-pac = []
@@ -78,6 +80,9 @@ gpiote = []
 
 ## Use RTC1 as the time driver for `embassy-time`, with a tick rate of 32.768khz
 time-driver-rtc1 = ["_time-driver"]
+
+## Enable embassy-net 802.15.4 driver
+net-driver = ["_net-driver"]
 
 ## Allow using the NFC pins as regular GPIO pins (P0_09/P0_10 on nRF52, P0_02/P0_03 on nRF53)
 nfc-pins-as-gpio = []
@@ -154,6 +159,8 @@ _nrf91 = []
 
 _time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-32_768", "dep:embassy-time-queue-utils", "embassy-embedded-hal/time"]
 
+_net-driver = ["dep:embassy-net-driver-channel","dep:embassy-futures"]
+
 # trustzone state.
 _s = []
 _ns = []
@@ -177,6 +184,8 @@ embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
 embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
 embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal", default-features = false }
 embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
+embassy-net-driver-channel = { version = "0.3.2", path = "../embassy-net-driver-channel", optional = true}
+embassy-futures = { version = "0.1.2", path = "../embassy-futures", optional = true}
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
