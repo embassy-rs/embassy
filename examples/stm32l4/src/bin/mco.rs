@@ -4,7 +4,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::rcc::{Mco, McoPrescaler, McoConfig, McoSource};
+use embassy_stm32::rcc::{Mco, McoConfig, McoPrescaler, McoSource};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
