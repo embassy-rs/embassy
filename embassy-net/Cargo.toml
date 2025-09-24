@@ -52,7 +52,7 @@ features = ["defmt", "tcp", "udp", "raw", "dns", "icmp", "dhcpv4", "proto-ipv6",
 
 [features]
 ## Enable defmt
-defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "embassy-time/defmt", "heapless/defmt-03", "defmt?/ip_in_core"]
+defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "embassy-time/defmt", "heapless/defmt", "defmt?/ip_in_core"]
 ## Enable log
 log = ["dep:log"]
 
@@ -69,6 +69,10 @@ icmp = ["smoltcp/socket-icmp"]
 udp = ["smoltcp/socket-udp"]
 ## Enable Raw support
 raw = ["smoltcp/socket-raw"]
+## Enable ETH socket support
+# Currently socket-raw is added for compile error in smoll-tcp
+# See https://github.com/smoltcp-rs/smoltcp/pull/1013#issuecomment-3327778090
+eth = ["smoltcp/socket-eth", "smoltcp/socket-raw"]
 ## Enable TCP support
 tcp = ["smoltcp/socket-tcp"]
 ## Enable DNS support
@@ -112,6 +116,9 @@ embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
 embedded-io-async = { version = "0.6.1" }
 
 managed = { version = "0.8.0", default-features = false, features = [ "map" ] }
-heapless = { version = "0.8", default-features = false }
+heapless = { version = "0.9", default-features = false }
 embedded-nal-async = "0.8.0"
 document-features = "0.2.7"
+
+[patch.crates-io]
+smoltcp = { git = "https://github.com/ususdei/smoltcp.git", branch = "ethernet_socket" }
