@@ -21,12 +21,7 @@ async fn main(_spawner: Spawner) {
         config
     };
 
-    let _mco = Mco::new(
-        p.MCO2,
-        p.PC9,
-        Mco2Source::SYS,
-        config
-    );
+    let _mco = Mco::new(p.MCO2, p.PC9, Mco2Source::SYS, config);
 
     info!("Clock out with low drive strength set on Master Clock Out 2 pin as AF on PC9");
 
