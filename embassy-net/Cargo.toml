@@ -69,7 +69,7 @@ icmp = ["smoltcp/socket-icmp"]
 udp = ["smoltcp/socket-udp"]
 ## Enable Raw support
 raw = ["smoltcp/socket-raw"]
-## Enable ETH socket support
+## Enable Raw Ethernet socket support
 # Currently socket-raw is added for compile error in smoll-tcp
 # See https://github.com/smoltcp-rs/smoltcp/pull/1013#issuecomment-3327778090
 eth = ["smoltcp/socket-eth", "smoltcp/socket-raw"]

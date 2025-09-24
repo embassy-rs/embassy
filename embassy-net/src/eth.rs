@@ -1,4 +1,4 @@
-//! Raw sockets.
+//! Raw Ethernet sockets.
 
 use core::future::{poll_fn, Future};
 use core::mem;
@@ -7,12 +7,12 @@ use core::task::{Context, Poll};
 use embassy_net_driver::Driver;
 use smoltcp::iface::{Interface, SocketHandle};
 use smoltcp::socket::eth;
-pub use smoltcp::socket::raw::PacketMetadata;
+pub use smoltcp::socket::eth::PacketMetadata;
 pub use smoltcp::wire::{IpProtocol, IpVersion};
 
 use crate::Stack;
 
-/// Error returned by [`RawSocket::recv`] and [`RawSocket::send`].
+/// Error returned by [`EthSocket::recv`] and [`EthSocket::send`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RecvError {
@@ -20,14 +20,14 @@ pub enum RecvError {
     Truncated,
 }
 
-/// An Raw socket.
-pub struct RawSocket<'a> {
+/// An Raw Ethernet socket.
+pub struct EthSocket<'a> {
     stack: Stack<'a>,
     handle: SocketHandle,
 }
 
-impl<'a> RawSocket<'a> {
-    /// Create a new Raw socket using the provided stack and buffers.
+impl<'a> EthSocket<'a> {
+    /// Create a new Raw Ethernet socket using the provided stack and buffers.
     pub fn new<D: Driver>(
         stack: Stack<'a>,
         eth_type: Option<u16>,
@@ -177,12 +177,12 @@ impl<'a> RawSocket<'a> {
     }
 }
 
-impl Drop for RawSocket<'_> {
+impl Drop for EthSocket<'_> {
     fn drop(&mut self) {
         self.stack.with_mut(|i| i.sockets.remove(self.handle));
     }
 }
 
-fn _assert_covariant<'a, 'b: 'a>(x: RawSocket<'b>) -> RawSocket<'a> {
+fn _assert_covariant<'a, 'b: 'a>(x: EthSocket<'b>) -> EthSocket<'a> {
     x
 }
