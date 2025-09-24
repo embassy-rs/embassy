@@ -394,7 +394,8 @@ pub struct Config {
     pub frame_length: u16,
     pub clock_strobe: ClockStrobe,
     pub output_drive: OutputDrive,
-    pub master_clock_divider: Option<MasterClockDivider>,
+    pub master_clock_divider: MasterClockDivider,
+    pub nodiv: bool,
     pub is_high_impedance_on_inactive_slot: bool,
     pub fifo_threshold: FifoThreshold,
     pub companding: Companding,
@@ -423,7 +424,8 @@ impl Default for Config {
             frame_sync_active_level_length: word::U7(16),
             frame_sync_definition: FrameSyncDefinition::ChannelIdentification,
             frame_length: 32,
-            master_clock_divider: None,
+            master_clock_divider: MasterClockDivider::DIV1,
+            nodiv: false,
             clock_strobe: ClockStrobe::Rising,
             output_drive: OutputDrive::Immediately,
             is_high_impedance_on_inactive_slot: false,
@@ -677,8 +679,8 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
             w.set_syncen(config.sync_input.syncen());
             w.set_mono(config.stereo_mono.mono());
             w.set_outdriv(config.output_drive.outdriv());
-            w.set_mckdiv(config.master_clock_divider.unwrap_or(MasterClockDivider::DIV1));
-            w.set_nodiv(config.master_clock_divider.is_none());
+            w.set_mckdiv(config.master_clock_divider);
+            w.set_nodiv(config.nodiv);
             w.set_dmaen(true);
         });
 
