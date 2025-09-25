@@ -9,6 +9,8 @@ pub mod gpio;
 #[cfg(feature = "lpc55-core0")]
 pub mod pint;
 #[cfg(feature = "lpc55-core0")]
+pub mod pwm;
+#[cfg(feature = "lpc55-core0")]
 pub mod usart;
 
 #[cfg(feature = "_time_driver")]
@@ -153,7 +155,10 @@ pub fn init(_config: config::Config) -> Peripherals {
     gpio::init();
 
     #[cfg(feature = "lpc55-core0")]
-    pint::init();
+    {
+        pint::init();
+        pwm::Pwm::reset();
+    }
 
     #[cfg(feature = "_time_driver")]
     time_driver::init();
