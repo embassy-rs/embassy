@@ -1,0 +1,314 @@
+use core::sync::atomic::AtomicU32;
+
+use embassy_hal_internal::{Peri, PeripheralType};
+
+use crate::gpio::{match_iocon, AnyPin, Bank};
+use crate::pac::iocon::vals::PioFunc;
+use crate::pac::{IOCON, SCT0, SYSCON};
+
+// Since for now the counter is shared, the TOP value has to be kept.
+static TOP_VALUE: AtomicU32 = AtomicU32::new(0);
+
+/// The configuration of a PWM output.
+/// Note the period in clock cycles of an output can be computed as:
+/// `(top + 1) * (phase_correct ? 1 : 2) * divider`
+/// By default, the clock used is 96 MHz.
+#[non_exhaustive]
+#[derive(Clone)]
+pub struct Config {
+    /// Inverts the PWM output signal.
+    pub invert: bool,
+    /// Enables phase-correct mode for PWM operation.
+    /// In phase-correct mode, the PWM signal is generated in such a way that
+    /// the pulse is always centered regardless of the duty cycle.
+    /// The output frequency is halved when phase-correct mode is enabled.
+    pub phase_correct: bool,
+    /// Enables the PWM output, allowing it to generate an output.
+    pub enable: bool,
+    /// A SYSCON clock divider allows precise control over
+    /// the PWM output frequency by gating the PWM counter increment.
+    /// A higher value will result in a slower output frequency.
+    /// The clock is divided by `divider + 1`.
+    pub divider: u8,
+    /// Specifies the factor by which the SCT clock is prescaled to produce the unified
+    /// counter clock. The counter clock is clocked at the rate of the SCT clock divided by
+    /// `PRE + 1`.
+    pub prescale_factor: u8,
+    /// The output goes high when `compare` is higher than the
+    /// counter. A compare of 0 will produce an always low output, while a
+    /// compare of `top` will produce an always high output.
+    pub compare: u32,
+    /// The point at which the counter resets, representing the maximum possible
+    /// period. The counter will either wrap to 0 or reverse depending on the
+    /// setting of `phase_correct`.
+    pub top: u32,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            invert: false,
+            phase_correct: true,
+            enable: true,
+            divider: 255,
+            prescale_factor: 255,
+            compare: 1_000_000_000,
+            top: 2_000_000_000,
+        }
+    }
+}
+
+/// PWM driver.
+pub struct Pwm<'d> {
+    _pin: Peri<'d, AnyPin>,
+    output: usize,
+}
+
+impl<'d> Pwm<'d> {
+    fn new_inner<T: Output>(output: usize, channel: Peri<'d, impl OutputChannelPin<T>>, config: Config) -> Self {
+        // Enable clocks (Syscon is enabled by default)
+        critical_section::with(|_cs| {
+            if !SYSCON.ahbclkctrl0().read().iocon() {
+                SYSCON.ahbclkctrl0().modify(|w| w.set_iocon(true));
+            }
+            if !SYSCON.ahbclkctrl1().read().sct() {
+                SYSCON.ahbclkctrl1().modify(|w| w.set_sct(true));
+            }
+        });
+
+        // Choose the clock for PWM
+        SYSCON
+            .sctclksel()
+            .modify(|w| w.set_sel(crate::pac::syscon::vals::SctclkselSel::ENUM_0X3));
+        // For now, 96 MHz
+
+        // IOCON Setup
+        match_iocon!(register, channel.pin_bank(), channel.pin_number(), {
+            register.modify(|w| {
+                w.set_func(channel.pin_func());
+                w.set_digimode(crate::pac::iocon::vals::PioDigimode::DIGITAL);
+                w.set_slew(crate::pac::iocon::vals::PioSlew::STANDARD);
+                w.set_mode(crate::pac::iocon::vals::PioMode::INACTIVE);
+                w.set_od(crate::pac::iocon::vals::PioOd::NORMAL);
+            })
+        });
+
+        // Reset SCTimer => Reset counter and halt it.
+        // Cannot reset it because it will reset all the other instances and will break the whole functionality
+        // when a new output is added.
+        // SYSCON
+        //     .presetctrl1()
+        //     .modify(|w| w.set_sct_rst(crate::pac::syscon::vals::SctRst::ASSERTED));
+        // SYSCON
+        //     .presetctrl1()
+        //     .modify(|w| w.set_sct_rst(crate::pac::syscon::vals::SctRst::RELEASED));
+
+        Self::configure(output, &config);
+        Self {
+            _pin: channel.into(),
+            output,
+        }
+    }
+
+    /// Create PWM driver with a single 'a' pin as output.
+    #[inline]
+    pub fn new_output<T: Output>(
+        output: Peri<'d, T>,
+        channel: Peri<'d, impl OutputChannelPin<T>>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(output.number(), channel, config)
+    }
+
+    /// Set the PWM config.
+    pub fn set_config(&mut self, config: &Config) {
+        Self::configure(self.output, config);
+    }
+
+    fn configure(output_number: usize, config: &Config) {
+        // Stop and reset the counter
+        SCT0.ctrl().modify(|w| {
+            w.set_bidir(
+                0,
+                if config.phase_correct {
+                    crate::pac::sct0::vals::Bidir::UP_DOWN
+                } else {
+                    crate::pac::sct0::vals::Bidir::UP
+                },
+            );
+            w.set_halt(0, true); // halt the counter to make new changes
+            w.set_clrctr(0, true); // clear the counter
+        });
+        // Divides clock by 1-255
+        SYSCON.sctclkdiv().modify(|w| w.set_div(config.divider));
+
+        SCT0.config().modify(|w| {
+            w.set_unify(crate::pac::sct0::vals::Unify::UNIFIED_COUNTER);
+            w.set_clkmode(crate::pac::sct0::vals::Clkmode::SYSTEM_CLOCK_MODE);
+            w.set_noreload(0, true);
+            w.set_autolimit(0, true);
+        });
+
+        // Before settign the mathces, it has to be assured that compare value is than the top value
+        core::assert!(config.compare <= config.top);
+
+        if TOP_VALUE.load(core::sync::atomic::Ordering::Relaxed) == 0 {
+            // Match 0 will reset the timer using TOP value
+            SCT0.match_(0).modify(|w| {
+                w.set_matchn(0, (config.top & 0xFFFF) as u16);
+                w.set_matchn(1, (config.top >> 16) as u16);
+            });
+        } else {
+            panic!("The top value cannot be changed after the initialization.");
+        }
+        // The actual matches that are used for event logic
+        SCT0.match_(output_number + 1).modify(|w| {
+            w.set_matchn(0, (config.compare & 0xFFFF) as u16);
+            w.set_matchn(1, (config.compare >> 16) as u16);
+        });
+
+        SCT0.match_(15).modify(|w| {
+            w.set_matchn(0, 0);
+            w.set_matchn(1, 0);
+        });
+
+        // Event configuration
+        critical_section::with(|_cs| {
+            // If it is already set, don't change
+            if SCT0.ev(0).ev_ctrl().read().matchsel() != 15 {
+                SCT0.ev(0).ev_ctrl().modify(|w| {
+                    w.set_matchsel(15);
+                    w.set_combmode(crate::pac::sct0::vals::Combmode::MATCH);
+                    w.set_stateld(crate::pac::sct0::vals::Stateld::ADD); // STATE + statev, where STATE is a on-board variable.
+                    w.set_statev(0); // = statev
+                });
+            }
+        });
+        SCT0.ev(output_number + 1).ev_ctrl().modify(|w| {
+            w.set_matchsel((output_number + 1) as u8);
+            w.set_combmode(crate::pac::sct0::vals::Combmode::MATCH);
+            w.set_stateld(crate::pac::sct0::vals::Stateld::ADD); // STATE + statev, where STATE is a on-board variable.
+            w.set_statev(0);
+        });
+
+        // Assign events to states
+        SCT0.ev(0).ev_state().modify(|w| w.set_statemskn(1 << 0));
+        SCT0.ev(output_number + 1)
+            .ev_state()
+            .modify(|w| w.set_statemskn(1 << 0));
+
+        if config.invert {
+            SCT0.out(output_number).out_clr().modify(|w| w.set_clr(1 << 0)); // Low when event 0 is active
+            SCT0.out(output_number)
+                .out_set()
+                .modify(|w| w.set_set(1 << (output_number + 1))); // High when event `output_number + 1` is active
+        } else {
+            SCT0.out(output_number).out_set().modify(|w| w.set_set(1 << 0)); // High when event 0 is active
+            SCT0.out(output_number)
+                .out_clr()
+                .modify(|w| w.set_clr(1 << (output_number + 1))); // Low when event `output_number + 1` is active
+        }
+
+        if config.phase_correct {
+            // Take into account the set matches and reverse their actions while counting back.
+            SCT0.outputdirctrl()
+                .modify(|w| w.set_setclr(output_number, crate::pac::sct0::vals::Setclr::L_REVERSED));
+        }
+
+        SCT0.state().modify(|w| w.set_state(0, 0)); // State 0 by default
+
+        SCT0.ctrl().modify(|w| {
+            w.set_halt(0, !config.enable); // Remove halt and start the actual counter
+        });
+    }
+
+    /// Read PWM counter.
+    #[inline]
+    pub fn counter(&self) -> u32 {
+        SCT0.count().read().0
+    }
+}
+
+trait SealedOutput {
+    /// Output number.
+    fn number(&self) -> usize;
+}
+
+/// PWM Output.
+#[allow(private_bounds)]
+pub trait Output: PeripheralType + SealedOutput {}
+
+macro_rules! output {
+    ($name:ident, $num:expr) => {
+        impl SealedOutput for crate::peripherals::$name {
+            fn number(&self) -> usize {
+                $num
+            }
+        }
+        impl Output for crate::peripherals::$name {}
+    };
+}
+
+output!(PWM_OUTPUT0, 0);
+output!(PWM_OUTPUT1, 1);
+output!(PWM_OUTPUT2, 2);
+output!(PWM_OUTPUT3, 3);
+output!(PWM_OUTPUT4, 4);
+output!(PWM_OUTPUT5, 5);
+output!(PWM_OUTPUT6, 6);
+output!(PWM_OUTPUT7, 7);
+output!(PWM_OUTPUT8, 8);
+output!(PWM_OUTPUT9, 9);
+
+/// PWM Output Channel.
+pub trait OutputChannelPin<T: Output>: crate::gpio::Pin {
+    fn pin_func(&self) -> PioFunc;
+}
+
+macro_rules! impl_pin {
+    ($pin:ident, $output:ident, $func:ident) => {
+        impl crate::pwm::inner::OutputChannelPin<crate::peripherals::$output> for crate::peripherals::$pin {
+            fn pin_func(&self) -> PioFunc {
+                PioFunc::$func
+            }
+        }
+    };
+}
+
+impl_pin!(PIO0_2, PWM_OUTPUT0, ALT3);
+impl_pin!(PIO0_17, PWM_OUTPUT0, ALT4);
+impl_pin!(PIO1_4, PWM_OUTPUT0, ALT4);
+impl_pin!(PIO1_23, PWM_OUTPUT0, ALT2);
+
+impl_pin!(PIO0_3, PWM_OUTPUT1, ALT3);
+impl_pin!(PIO0_18, PWM_OUTPUT1, ALT4);
+impl_pin!(PIO1_8, PWM_OUTPUT1, ALT4);
+impl_pin!(PIO1_24, PWM_OUTPUT1, ALT2);
+
+impl_pin!(PIO0_10, PWM_OUTPUT2, ALT5);
+impl_pin!(PIO0_15, PWM_OUTPUT2, ALT4);
+impl_pin!(PIO0_19, PWM_OUTPUT2, ALT4);
+impl_pin!(PIO1_9, PWM_OUTPUT2, ALT4);
+impl_pin!(PIO1_25, PWM_OUTPUT2, ALT2);
+
+impl_pin!(PIO0_22, PWM_OUTPUT3, ALT4);
+impl_pin!(PIO0_31, PWM_OUTPUT3, ALT4);
+impl_pin!(PIO1_10, PWM_OUTPUT3, ALT4);
+impl_pin!(PIO1_26, PWM_OUTPUT3, ALT2);
+
+impl_pin!(PIO0_23, PWM_OUTPUT4, ALT4);
+impl_pin!(PIO1_3, PWM_OUTPUT4, ALT4);
+impl_pin!(PIO1_17, PWM_OUTPUT4, ALT4);
+
+impl_pin!(PIO0_26, PWM_OUTPUT5, ALT4);
+impl_pin!(PIO1_18, PWM_OUTPUT5, ALT4);
+
+impl_pin!(PIO0_27, PWM_OUTPUT6, ALT4);
+impl_pin!(PIO1_31, PWM_OUTPUT6, ALT4);
+
+impl_pin!(PIO0_28, PWM_OUTPUT7, ALT4);
+impl_pin!(PIO1_19, PWM_OUTPUT7, ALT2);
+
+impl_pin!(PIO0_29, PWM_OUTPUT8, ALT4);
+
+impl_pin!(PIO0_30, PWM_OUTPUT9, ALT4);
