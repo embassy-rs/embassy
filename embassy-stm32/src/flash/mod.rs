@@ -1,4 +1,9 @@
 //! Flash memory (FLASH)
+//!
+//! ## Examples
+//!
+//! - [STM32F4 Flash](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/flash.rs)
+//! - [STM32F4 Flash Async](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/flash_async.rs)
 use embedded_storage::nor_flash::{NorFlashError, NorFlashErrorKind};
 
 #[cfg(flash_f4)]
