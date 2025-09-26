@@ -1,10 +1,9 @@
-//! USB driver.
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::slice;
-use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
+use atomic_polyfill::{compiler_fence, Ordering};
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
@@ -12,33 +11,9 @@ use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
 };
 
+use super::{Dir, In, Instance, Out};
 use crate::interrupt::typelevel::{Binding, Interrupt};
-use crate::{interrupt, pac, peripherals, Peri, RegExt};
-
-trait SealedInstance {
-    fn regs() -> crate::pac::usb::Usb;
-    fn dpram() -> crate::pac::usb_dpram::UsbDpram;
-}
-
-/// USB peripheral instance.
-#[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType + 'static {
-    /// Interrupt for this peripheral.
-    type Interrupt: interrupt::typelevel::Interrupt;
-}
-
-impl crate::usb::SealedInstance for peripherals::USB {
-    fn regs() -> pac::usb::Usb {
-        pac::USB
-    }
-    fn dpram() -> crate::pac::usb_dpram::UsbDpram {
-        pac::USB_DPRAM
-    }
-}
-
-impl crate::usb::Instance for peripherals::USB {
-    type Interrupt = crate::interrupt::typelevel::USBCTRL_IRQ;
-}
+use crate::{interrupt, pac, Peri, RegExt};
 
 const EP_COUNT: usize = 16;
 const EP_MEMORY_SIZE: usize = 4096;
@@ -99,14 +74,14 @@ impl EndpointData {
 }
 
 /// RP2040 USB driver handle.
-pub struct Driver<'d, T: Instance> {
+pub struct Driver<'d, T: Instance + PeripheralType> {
     phantom: PhantomData<&'d mut T>,
     ep_in: [EndpointData; EP_COUNT],
     ep_out: [EndpointData; EP_COUNT],
     ep_mem_free: u16, // first free address in EP mem, in bytes.
 }
 
-impl<'d, T: Instance> Driver<'d, T> {
+impl<'d, T: Instance + PeripheralType> Driver<'d, T> {
     /// Create a new USB driver.
     pub fn new(_usb: Peri<'d, T>, _irq: impl Binding<T::Interrupt, InterruptHandler<T>>) -> Self {
         T::Interrupt::unpend();
@@ -304,7 +279,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
-impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
+impl<'d, T: Instance + PeripheralType> driver::Driver<'d> for Driver<'d, T> {
     type EndpointOut = Endpoint<'d, T, Out>;
     type EndpointIn = Endpoint<'d, T, In>;
     type ControlPipe = ControlPipe<'d, T>;
@@ -504,26 +479,6 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
 
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported> {
         Err(Unsupported)
-    }
-}
-
-trait Dir {
-    fn dir() -> Direction;
-}
-
-/// Type for In direction.
-pub enum In {}
-impl Dir for In {
-    fn dir() -> Direction {
-        Direction::In
-    }
-}
-
-/// Type for Out direction.
-pub enum Out {}
-impl Dir for Out {
-    fn dir() -> Direction {
-        Direction::Out
     }
 }
 
