@@ -35,6 +35,10 @@ async fn main(_spawner: Spawner) {
     config.serial_number = Some("12345678");
     config.max_power = 100;
     config.max_packet_size_0 = 64;
+    config.composite_with_iads = false;
+    config.device_class = 0;
+    config.device_sub_class = 0;
+    config.device_protocol = 0;
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.
@@ -66,7 +70,7 @@ async fn main(_spawner: Spawner) {
         poll_ms: 60,
         max_packet_size: 64,
     };
-    let hid = HidReaderWriter::<_, 1, 8>::new(&mut builder, &mut state, config);
+    let hid = HidReaderWriter::<_, 1, 8>::new_keyboard(&mut builder, &mut state, config);
 
     // Build the builder.
     let mut usb = builder.build();
