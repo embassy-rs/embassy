@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- fix: Fixed handling of secondary I2C addresses (`ADCn.OA2`); previously, they were incorrectly left-shifted, such that calling `configure_oa2(addr)` would actually create an I2C peripheral with address `addr`\*2. ([#4692](https://github.com/embassy-rs/embassy/pull/4692))
 - fix: Fixed STM32H5 builds requiring time feature
 - feat: Derive Clone, Copy for QSPI Config
 - fix: stm32/i2c in master mode (blocking): subsequent transmissions failed after a NACK was received
