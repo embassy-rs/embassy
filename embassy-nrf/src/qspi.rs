@@ -138,16 +138,18 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 /// QSPI flash driver.
-pub struct Qspi<'d, T: Instance> {
-    _peri: Peri<'d, T>,
+pub struct Qspi<'d> {
+    r: pac::qspi::Qspi,
+    state: &'static State,
     dpm_enabled: bool,
     capacity: u32,
+    _phantom: PhantomData<&'d ()>,
 }
 
-impl<'d, T: Instance> Qspi<'d, T> {
+impl<'d> Qspi<'d> {
     /// Create a new QSPI driver.
-    pub fn new(
-        qspi: Peri<'d, T>,
+    pub fn new<T: Instance>(
+        _qspi: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         sck: Peri<'d, impl GpioPin>,
         csn: Peri<'d, impl GpioPin>,
@@ -214,9 +216,11 @@ impl<'d, T: Instance> Qspi<'d, T> {
         r.enable().write(|w| w.set_enable(true));
 
         let res = Self {
-            _peri: qspi,
+            r: T::regs(),
+            state: T::state(),
             dpm_enabled: config.deep_power_down.is_some(),
             capacity: config.capacity,
+            _phantom: PhantomData,
         };
 
         r.events_ready().write_value(0);
@@ -274,14 +278,13 @@ impl<'d, T: Instance> Qspi<'d, T> {
             }
         }
 
-        let r = T::regs();
-        r.cinstrdat0().write(|w| w.0 = dat0);
-        r.cinstrdat1().write(|w| w.0 = dat1);
+        self.r.cinstrdat0().write(|w| w.0 = dat0);
+        self.r.cinstrdat1().write(|w| w.0 = dat1);
 
-        r.events_ready().write_value(0);
-        r.intenset().write(|w| w.set_ready(true));
+        self.r.events_ready().write_value(0);
+        self.r.intenset().write(|w| w.set_ready(true));
 
-        r.cinstrconf().write(|w| {
+        self.r.cinstrconf().write(|w| {
             w.set_opcode(opcode);
             w.set_length(vals::Length::from_bits(len + 1));
             w.set_lio2(true);
@@ -295,10 +298,8 @@ impl<'d, T: Instance> Qspi<'d, T> {
     }
 
     fn custom_instruction_finish(&mut self, resp: &mut [u8]) -> Result<(), Error> {
-        let r = T::regs();
-
-        let dat0 = r.cinstrdat0().read().0;
-        let dat1 = r.cinstrdat1().read().0;
+        let dat0 = self.r.cinstrdat0().read().0;
+        let dat1 = self.r.cinstrdat1().read().0;
         for i in 0..4 {
             if i < resp.len() {
                 resp[i] = (dat0 >> (i * 8)) as u8;
@@ -313,9 +314,9 @@ impl<'d, T: Instance> Qspi<'d, T> {
     }
 
     fn wait_ready(&mut self) -> impl Future<Output = ()> {
+        let r = self.r;
+        let s = self.state;
         poll_fn(move |cx| {
-            let r = T::regs();
-            let s = T::state();
             s.waker.register(cx.waker());
             if r.events_ready().read() != 0 {
                 return Poll::Ready(());
@@ -326,7 +327,7 @@ impl<'d, T: Instance> Qspi<'d, T> {
 
     fn blocking_wait_ready() {
         loop {
-            let r = T::regs();
+            let r = pac::QSPI;
             if r.events_ready().read() != 0 {
                 break;
             }
@@ -339,15 +340,13 @@ impl<'d, T: Instance> Qspi<'d, T> {
         assert_eq!(data.len() as u32 % 4, 0);
         assert_eq!(address % 4, 0);
 
-        let r = T::regs();
+        self.r.read().src().write_value(address);
+        self.r.read().dst().write_value(data.as_ptr() as u32);
+        self.r.read().cnt().write(|w| w.set_cnt(data.len() as u32));
 
-        r.read().src().write_value(address);
-        r.read().dst().write_value(data.as_ptr() as u32);
-        r.read().cnt().write(|w| w.set_cnt(data.len() as u32));
-
-        r.events_ready().write_value(0);
-        r.intenset().write(|w| w.set_ready(true));
-        r.tasks_readstart().write_value(1);
+        self.r.events_ready().write_value(0);
+        self.r.intenset().write(|w| w.set_ready(true));
+        self.r.tasks_readstart().write_value(1);
 
         Ok(())
     }
@@ -358,14 +357,13 @@ impl<'d, T: Instance> Qspi<'d, T> {
         assert_eq!(data.len() as u32 % 4, 0);
         assert_eq!(address % 4, 0);
 
-        let r = T::regs();
-        r.write().src().write_value(data.as_ptr() as u32);
-        r.write().dst().write_value(address);
-        r.write().cnt().write(|w| w.set_cnt(data.len() as u32));
+        self.r.write().src().write_value(data.as_ptr() as u32);
+        self.r.write().dst().write_value(address);
+        self.r.write().cnt().write(|w| w.set_cnt(data.len() as u32));
 
-        r.events_ready().write_value(0);
-        r.intenset().write(|w| w.set_ready(true));
-        r.tasks_writestart().write_value(1);
+        self.r.events_ready().write_value(0);
+        self.r.intenset().write(|w| w.set_ready(true));
+        self.r.tasks_writestart().write_value(1);
 
         Ok(())
     }
@@ -374,13 +372,12 @@ impl<'d, T: Instance> Qspi<'d, T> {
         // TODO: Return these as errors instead.
         assert_eq!(address % 4096, 0);
 
-        let r = T::regs();
-        r.erase().ptr().write_value(address);
-        r.erase().len().write(|w| w.set_len(vals::Len::_4KB));
+        self.r.erase().ptr().write_value(address);
+        self.r.erase().len().write(|w| w.set_len(vals::Len::_4KB));
 
-        r.events_ready().write_value(0);
-        r.intenset().write(|w| w.set_ready(true));
-        r.tasks_erasestart().write_value(1);
+        self.r.events_ready().write_value(0);
+        self.r.intenset().write(|w| w.set_ready(true));
+        self.r.tasks_erasestart().write_value(1);
 
         Ok(())
     }
@@ -520,19 +517,17 @@ impl<'d, T: Instance> Qspi<'d, T> {
     }
 }
 
-impl<'d, T: Instance> Drop for Qspi<'d, T> {
+impl<'d> Drop for Qspi<'d> {
     fn drop(&mut self) {
-        let r = T::regs();
-
         if self.dpm_enabled {
             trace!("qspi: doing deep powerdown...");
 
-            r.ifconfig1().modify(|w| w.set_dpmen(true));
+            self.r.ifconfig1().modify(|w| w.set_dpmen(true));
 
             // Wait for DPM enter.
             // Unfortunately we must spin. There's no way to do this interrupt-driven.
             // The READY event does NOT fire on DPM enter (but it does fire on DPM exit :shrug:)
-            while !r.status().read().dpm() {}
+            while !self.r.status().read().dpm() {}
 
             // Wait MORE for DPM enter.
             // I have absolutely no idea why, but the wait above is not enough :'(
@@ -541,29 +536,29 @@ impl<'d, T: Instance> Drop for Qspi<'d, T> {
         }
 
         // it seems events_ready is not generated in response to deactivate. nrfx doesn't wait for it.
-        r.tasks_deactivate().write_value(1);
+        self.r.tasks_deactivate().write_value(1);
 
         // Workaround https://docs.nordicsemi.com/bundle/errata_nRF52840_Rev3/page/ERR/nRF52840/Rev3/latest/anomaly_840_122.html
         // Note that the doc has 2 register writes, but the first one is really the write to tasks_deactivate,
         // so we only do the second one here.
         unsafe { ptr::write_volatile(0x40029054 as *mut u32, 1) }
 
-        r.enable().write(|w| w.set_enable(false));
+        self.r.enable().write(|w| w.set_enable(false));
 
         // Note: we do NOT deconfigure CSN here. If DPM is in use and we disconnect CSN,
         // leaving it floating, the flash chip might read it as zero which would cause it to
         // spuriously exit DPM.
-        gpio::deconfigure_pin(r.psel().sck().read());
-        gpio::deconfigure_pin(r.psel().io0().read());
-        gpio::deconfigure_pin(r.psel().io1().read());
-        gpio::deconfigure_pin(r.psel().io2().read());
-        gpio::deconfigure_pin(r.psel().io3().read());
+        gpio::deconfigure_pin(self.r.psel().sck().read());
+        gpio::deconfigure_pin(self.r.psel().io0().read());
+        gpio::deconfigure_pin(self.r.psel().io1().read());
+        gpio::deconfigure_pin(self.r.psel().io2().read());
+        gpio::deconfigure_pin(self.r.psel().io3().read());
 
         trace!("qspi: dropped");
     }
 }
 
-impl<'d, T: Instance> ErrorType for Qspi<'d, T> {
+impl<'d> ErrorType for Qspi<'d> {
     type Error = Error;
 }
 
@@ -573,7 +568,7 @@ impl NorFlashError for Error {
     }
 }
 
-impl<'d, T: Instance> ReadNorFlash for Qspi<'d, T> {
+impl<'d> ReadNorFlash for Qspi<'d> {
     const READ_SIZE: usize = 4;
 
     fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
@@ -586,7 +581,7 @@ impl<'d, T: Instance> ReadNorFlash for Qspi<'d, T> {
     }
 }
 
-impl<'d, T: Instance> NorFlash for Qspi<'d, T> {
+impl<'d> NorFlash for Qspi<'d> {
     const WRITE_SIZE: usize = 4;
     const ERASE_SIZE: usize = 4096;
 
@@ -611,7 +606,7 @@ mod _eh1 {
 
     use super::*;
 
-    impl<'d, T: Instance> AsyncNorFlash for Qspi<'d, T> {
+    impl<'d> AsyncNorFlash for Qspi<'d> {
         const WRITE_SIZE: usize = <Self as NorFlash>::WRITE_SIZE;
         const ERASE_SIZE: usize = <Self as NorFlash>::ERASE_SIZE;
 
@@ -627,7 +622,7 @@ mod _eh1 {
         }
     }
 
-    impl<'d, T: Instance> AsyncReadNorFlash for Qspi<'d, T> {
+    impl<'d> AsyncReadNorFlash for Qspi<'d> {
         const READ_SIZE: usize = 4;
         async fn read(&mut self, address: u32, data: &mut [u8]) -> Result<(), Self::Error> {
             self.read(address, data).await
