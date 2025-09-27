@@ -127,10 +127,10 @@ pub enum StopMode {
     Stop2,
 }
 
-#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32u0))]
+#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32wlex, stm32u0))]
 use stm32_metapac::pwr::vals::Lpms;
 
-#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32u0))]
+#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32wlex, stm32u0))]
 impl Into<Lpms> for StopMode {
     fn into(self) -> Lpms {
         match self {
@@ -207,7 +207,7 @@ impl Executor {
 
     #[allow(unused_variables)]
     fn configure_stop(&mut self, stop_mode: StopMode) {
-        #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wba))]
+        #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wba, stm32wlex))]
         crate::pac::PWR.cr1().modify(|m| m.set_lpms(stop_mode.into()));
         #[cfg(stm32h5)]
         crate::pac::PWR.pmcr().modify(|v| {
@@ -219,6 +219,11 @@ impl Executor {
 
     fn configure_pwr(&mut self) {
         self.scb.clear_sleepdeep();
+        // Clear any previous stop flags
+        #[cfg(stm32wlex)]
+        crate::pac::PWR.extscr().modify(|w| {
+            w.set_c1cssf(true);
+        });
 
         compiler_fence(Ordering::SeqCst);
 
@@ -270,8 +275,20 @@ impl Executor {
         loop {
             unsafe {
                 executor.inner.poll();
+                trace!("low power: calling configure_pwr");
                 self.configure_pwr();
+                trace!("low power: after configure_pwr");
+
                 asm!("wfe");
+
+                trace!("low power: awake from 'wfe'");
+                #[cfg(stm32wlex)]
+                {
+                    let es = crate::pac::PWR.extscr().read();
+                    trace!("low power: C1SBF: {}", es.c1sbf());
+                    trace!("low power: C1STOPF: {}", es.c1stopf());
+                    trace!("low power: C1STOP2F: {}", es.c1stop2f());
+                }
             };
         }
     }
