@@ -96,24 +96,14 @@ pub struct Msi {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-pub struct PllOscillator {
-    pub source: Pllsel,
-    pub divm: Plldivm,
-    pub fractional: u32,
-    pub divn: u16,
-    pub divp1: Pllpdiv,
-    pub divp2: Pllpdiv,
-}
-
-#[derive(Clone, Copy, PartialEq)]
 pub enum Pll {
     Oscillator {
         source: Pllsel,
-        m: Plldivm,
+        divm: Plldivm,
         fractional: u32,
-        n: u16,
-        p1: Pllpdiv,
-        p2: Pllpdiv,
+        divn: u16,
+        divp1: Pllpdiv,
+        divp2: Pllpdiv,
     },
     Bypass {
         source: Pllsel,
@@ -150,7 +140,10 @@ pub struct Config {
 impl Config {
     pub const fn new() -> Self {
         Self {
-            hsi: None,
+            hsi: Some(Hsi {
+                pre: HsiPrescaler::DIV1,
+                trim: HsiCalibration::from_bits(32),
+            }),
             hse: None,
             msi: None,
             lsi: true,
@@ -173,7 +166,7 @@ impl Config {
     }
 }
 
-fn HAL_RCC_ClockConfig(config: Config) {
+fn init_clocks(config: Config) {
     // handle increasing dividers
     debug!("configuring increasing pclk dividers");
     RCC.cfgr2().modify(|w| {
@@ -203,7 +196,7 @@ fn HAL_RCC_ClockConfig(config: Config) {
     match config.cpu {
         CpuClk::Hse if !RCC.sr().read().hserdy() => panic!("HSE is not ready to be selected as CPU clock source"),
         CpuClk::Pll { source, divider } => {
-            if !RCC_IC_CheckPLLSources(RCC.iccfgr(0).read().icsel().to_bits(), source.to_bits()) {
+            if !pll_sources_ready(RCC.iccfgr(0).read().icsel().to_bits(), source.to_bits()) {
                 panic!("ICx clock switch requires both origin and destination clock source to be active")
             }
 
@@ -228,13 +221,13 @@ fn HAL_RCC_ClockConfig(config: Config) {
     match config.sys {
         SysClk::Hse if !RCC.sr().read().hserdy() => panic!("HSE is not ready to be selected as CPU clock source"),
         SysClk::Pll { ic2, ic6, ic11 } => {
-            if !RCC_IC_CheckPLLSources(RCC.iccfgr(1).read().icsel().to_bits(), ic2.source.to_bits()) {
+            if !pll_sources_ready(RCC.iccfgr(1).read().icsel().to_bits(), ic2.source.to_bits()) {
                 panic!("IC2 clock switch requires both origin and destination clock source to be active")
             }
-            if !RCC_IC_CheckPLLSources(RCC.iccfgr(5).read().icsel().to_bits(), ic6.source.to_bits()) {
+            if !pll_sources_ready(RCC.iccfgr(5).read().icsel().to_bits(), ic6.source.to_bits()) {
                 panic!("IC6 clock switch requires both origin and destination clock source to be active")
             }
-            if !RCC_IC_CheckPLLSources(RCC.iccfgr(10).read().icsel().to_bits(), ic11.source.to_bits()) {
+            if !pll_sources_ready(RCC.iccfgr(10).read().icsel().to_bits(), ic11.source.to_bits()) {
                 panic!("IC11 clock switch requires both origin and destination clock source to be active")
             }
 
@@ -292,7 +285,7 @@ fn HAL_RCC_ClockConfig(config: Config) {
     });
 }
 
-fn RCC_PLL_Source_IsReady(source: u8) -> bool {
+fn pll_source_ready(source: u8) -> bool {
     match source {
         0x0 if !RCC.sr().read().pllrdy(0) && !RCC.pllcfgr1(0).read().pllbyp() => false,
         0x1 if !RCC.sr().read().pllrdy(1) && !RCC.pllcfgr1(1).read().pllbyp() => false,
@@ -302,8 +295,8 @@ fn RCC_PLL_Source_IsReady(source: u8) -> bool {
     }
 }
 
-fn RCC_IC_CheckPLLSources(source1: u8, source2: u8) -> bool {
-    RCC_PLL_Source_IsReady(source1) && RCC_PLL_Source_IsReady(source2)
+fn pll_sources_ready(source1: u8, source2: u8) -> bool {
+    pll_source_ready(source1) && pll_source_ready(source2)
 }
 
 impl Default for Config {
@@ -325,7 +318,7 @@ fn power_supply_config(supply_config: SupplyConfig) {
     while !PWR.voscr().read().actvosrdy() {}
 }
 
-fn pll_config(pll_config: Option<Pll>, pll_index: usize) {
+fn init_pll(pll_config: Option<Pll>, pll_index: usize) {
     let cfgr1 = RCC.pllcfgr1(pll_index);
     let cfgr2 = RCC.pllcfgr2(pll_index);
     let cfgr3 = RCC.pllcfgr3(pll_index);
@@ -333,11 +326,11 @@ fn pll_config(pll_config: Option<Pll>, pll_index: usize) {
     match pll_config {
         Some(Pll::Oscillator {
             source,
-            m,
+            divm,
             fractional,
-            n,
-            p1,
-            p2,
+            divn,
+            divp1,
+            divp2,
         }) => {
             // ensure pll is disabled
             RCC.ccr().write(|w| w.set_pllonc(pll_index, true));
@@ -350,12 +343,12 @@ fn pll_config(pll_config: Option<Pll>, pll_index: usize) {
             // configure the pll clock source, mul and div factors
             cfgr1.modify(|w| {
                 w.set_pllsel(source);
-                w.set_plldivm(m);
-                w.set_plldivn(n);
+                w.set_plldivm(divm);
+                w.set_plldivn(divn);
             });
             cfgr3.modify(|w| {
-                w.set_pllpdiv1(p1);
-                w.set_pllpdiv2(p2);
+                w.set_pllpdiv1(divp1);
+                w.set_pllpdiv2(divp2);
             });
             // configure pll divnfrac
             cfgr2.modify(|w| w.set_plldivnfrac(fractional));
@@ -380,7 +373,7 @@ fn pll_config(pll_config: Option<Pll>, pll_index: usize) {
         }
         Some(Pll::Bypass { source }) => {
             // check if source is ready
-            if !RCC_PLL_Source_IsReady(source.to_bits()) {
+            if !pll_source_ready(source.to_bits()) {
                 panic!("PLL source is not ready")
             }
 
@@ -405,7 +398,7 @@ fn pll_config(pll_config: Option<Pll>, pll_index: usize) {
     }
 }
 
-fn HAL_RCC_OscConfig(config: Config) {
+fn init_osc(config: Config) {
     let (cpu_src, sys_src) = {
         let reg = RCC.cfgr().read();
         (reg.cpusws(), reg.syssws())
@@ -555,7 +548,7 @@ fn HAL_RCC_OscConfig(config: Config) {
         debug!("configuring PLL{}", n + 1);
         let pll_ready = RCC.sr().read().pllrdy(n);
 
-        if RCC_PLL_IsNewConfig(pll, 0) {
+        if is_new_pll_config(pll, 0) {
             let ic1_src = RCC.iccfgr(0).read().icsel();
             let ic2_src = RCC.iccfgr(1).read().icsel();
             let ic6_src = RCC.iccfgr(5).read().icsel();
@@ -571,7 +564,7 @@ fn HAL_RCC_OscConfig(config: Config) {
                 panic!("PLL should not be disabled / reconfigured if used for IC2, IC6 or IC11 (sysclksrc)")
             }
 
-            pll_config(pll, 0);
+            init_pll(pll, 0);
         } else if pll.is_some() && !pll_ready {
             debug!("PLL{} off", n + 1);
             RCC.csr().write(|w| w.pllons(n));
@@ -580,7 +573,7 @@ fn HAL_RCC_OscConfig(config: Config) {
     }
 }
 
-fn RCC_PLL_IsNewConfig(pll: Option<Pll>, pll_index: usize) -> bool {
+fn is_new_pll_config(pll: Option<Pll>, pll_index: usize) -> bool {
     let cfgr1 = RCC.pllcfgr1(pll_index).read();
     let cfgr2 = RCC.pllcfgr2(pll_index).read();
     let cfgr3 = RCC.pllcfgr3(pll_index).read();
@@ -603,11 +596,11 @@ fn RCC_PLL_IsNewConfig(pll: Option<Pll>, pll_index: usize) -> bool {
         Some(Pll::Bypass { source }) => cfgr1.pllsel() != source,
         Some(Pll::Oscillator {
             source,
-            m,
+            divm: m,
             fractional,
-            n,
-            p1,
-            p2,
+            divn: n,
+            divp1: p1,
+            divp2: p2,
         }) => {
             cfgr1.pllsel() != source
                 || cfgr1.plldivm() != m
@@ -656,8 +649,8 @@ pub(crate) unsafe fn init(config: Config) {
 
     power_supply_config(config.supply_config);
 
-    HAL_RCC_OscConfig(config);
-    HAL_RCC_ClockConfig(config);
+    init_osc(config);
+    init_clocks(config);
 
     let sys = match config.sys {
         SysClk::Hse => todo!(),
@@ -680,7 +673,7 @@ pub(crate) unsafe fn init(config: Config) {
         hclk5: None,
         pclk1: None,
         pclk2: None,
-        pclk2_tim: None,
+        pclk2_tim: Some(Hertz(1_000_000)), // FIXME: what is this??
         pclk4: None,
         pclk5: None,
         per: None,
