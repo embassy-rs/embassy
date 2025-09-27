@@ -654,7 +654,7 @@ fn set_as_af(pin_port: PinNumber, af_num: u8, af_type: AfType) {
     let r = pin.block();
     let n = pin._pin() as usize;
 
-    r.afr(n / 8).modify(|w| w.set_afr(n % 8, af_num as u8));
+    r.afr(n / 8).modify(|w| w.set_afr(n % 8, af_num));
     r.pupdr().modify(|w| w.set_pupdr(n, af_type.pupdr));
     r.otyper().modify(|w| w.set_ot(n, af_type.ot));
     r.ospeedr().modify(|w| w.set_ospeedr(n, af_type.ospeedr));
@@ -798,6 +798,10 @@ pub(crate) trait SealedPin {
     }
 }
 
+/// GPIO pin number type.
+///
+/// Some chips have a total number of ports that exceeds 8, a larger integer
+/// is needed to hold the total pin number `(ports * number)`.
 #[cfg(not(stm32n6))]
 pub type PinNumber = u8;
 #[cfg(stm32n6)]
