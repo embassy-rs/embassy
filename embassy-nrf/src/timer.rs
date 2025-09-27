@@ -6,6 +6,8 @@
 
 #![macro_use]
 
+use core::marker::PhantomData;
+
 use embassy_hal_internal::{Peri, PeripheralType};
 
 use crate::pac;
@@ -81,16 +83,18 @@ pub enum Frequency {
 ///
 /// It has either 4 or 6 Capture/Compare registers, which can be used to capture the current state of the counter
 /// or trigger an event when the counter reaches a certain value.
-pub struct Timer<'d, T: Instance> {
-    _p: Peri<'d, T>,
+pub struct Timer<'d> {
+    r: pac::timer::Timer,
+    ccs: usize,
+    _p: PhantomData<&'d ()>,
 }
 
-impl<'d, T: Instance> Timer<'d, T> {
+impl<'d> Timer<'d> {
     /// Create a new `Timer` driver.
     ///
     /// This can be useful for triggering tasks via PPI.
     /// `Uarte` uses this internally.
-    pub fn new(timer: Peri<'d, T>) -> Self {
+    pub fn new<T: Instance>(timer: Peri<'d, T>) -> Self {
         Self::new_inner(timer, false)
     }
 
@@ -98,14 +102,18 @@ impl<'d, T: Instance> Timer<'d, T> {
     ///
     /// This can be useful for triggering tasks via PPI.
     /// `Uarte` uses this internally.
-    pub fn new_counter(timer: Peri<'d, T>) -> Self {
+    pub fn new_counter<T: Instance>(timer: Peri<'d, T>) -> Self {
         Self::new_inner(timer, true)
     }
 
-    fn new_inner(timer: Peri<'d, T>, is_counter: bool) -> Self {
+    fn new_inner<T: Instance>(_timer: Peri<'d, T>, is_counter: bool) -> Self {
         let regs = T::regs();
 
-        let this = Self { _p: timer };
+        let this = Self {
+            r: regs,
+            ccs: T::CCS,
+            _p: PhantomData,
+        };
 
         // Stop the timer before doing anything else,
         // since changing BITMODE while running can cause 'unpredictable behaviour' according to the specification.
@@ -131,7 +139,7 @@ impl<'d, T: Instance> Timer<'d, T> {
         // Default to the max frequency of the lower power clock
         this.set_frequency(Frequency::F1MHz);
 
-        for n in 0..T::CCS {
+        for n in 0..this.ccs {
             let cc = this.cc(n);
             // Initialize all the shorts as disabled.
             cc.unshort_compare_clear();
@@ -147,43 +155,43 @@ impl<'d, T: Instance> Timer<'d, T> {
     #[cfg(feature = "unstable-pac")]
     #[inline]
     pub fn regs(&mut self) -> pac::timer::Timer {
-        T::regs()
+        self.r
     }
 
     /// Starts the timer.
     pub fn start(&self) {
-        T::regs().tasks_start().write_value(1)
+        self.r.tasks_start().write_value(1)
     }
 
     /// Stops the timer.
     pub fn stop(&self) {
-        T::regs().tasks_stop().write_value(1)
+        self.r.tasks_stop().write_value(1)
     }
 
     /// Reset the timer's counter to 0.
     pub fn clear(&self) {
-        T::regs().tasks_clear().write_value(1)
+        self.r.tasks_clear().write_value(1)
     }
 
     /// Returns the START task, for use with PPI.
     ///
     /// When triggered, this task starts the timer.
     pub fn task_start(&self) -> Task<'d> {
-        Task::from_reg(T::regs().tasks_start())
+        Task::from_reg(self.r.tasks_start())
     }
 
     /// Returns the STOP task, for use with PPI.
     ///
     /// When triggered, this task stops the timer.
     pub fn task_stop(&self) -> Task<'d> {
-        Task::from_reg(T::regs().tasks_stop())
+        Task::from_reg(self.r.tasks_stop())
     }
 
     /// Returns the CLEAR task, for use with PPI.
     ///
     /// When triggered, this task resets the timer's counter to 0.
     pub fn task_clear(&self) -> Task<'d> {
-        Task::from_reg(T::regs().tasks_clear())
+        Task::from_reg(self.r.tasks_clear())
     }
 
     /// Returns the COUNT task, for use with PPI.
@@ -191,7 +199,7 @@ impl<'d, T: Instance> Timer<'d, T> {
     /// When triggered, this task increments the timer's counter by 1.
     /// Only works in counter mode.
     pub fn task_count(&self) -> Task<'d> {
-        Task::from_reg(T::regs().tasks_count())
+        Task::from_reg(self.r.tasks_count())
     }
 
     /// Change the timer's frequency.
@@ -201,7 +209,7 @@ impl<'d, T: Instance> Timer<'d, T> {
     pub fn set_frequency(&self, frequency: Frequency) {
         self.stop();
 
-        T::regs()
+        self.r
             .prescaler()
             // SAFETY: `frequency` is a variant of `Frequency`,
             // whose values are all in the range of 0-9 (the valid range of `prescaler`).
@@ -212,18 +220,19 @@ impl<'d, T: Instance> Timer<'d, T> {
     ///
     /// # Panics
     /// Panics if `n` >= the number of CC registers this timer has (4 for a normal timer, 6 for an extended timer).
-    pub fn cc(&self, n: usize) -> Cc<'d, T> {
-        if n >= T::CCS {
-            panic!("Cannot get CC register {} of timer with {} CC registers.", n, T::CCS);
+    pub fn cc(&self, n: usize) -> Cc<'d> {
+        if n >= self.ccs {
+            panic!("Cannot get CC register {} of timer with {} CC registers.", n, self.ccs);
         }
         Cc {
             n,
-            _p: unsafe { self._p.clone_unchecked() },
+            r: self.r,
+            _p: PhantomData,
         }
     }
 }
 
-impl<T: Instance> Timer<'static, T> {
+impl Timer<'static> {
     /// Persist the timer's configuration for the rest of the program's lifetime. This method
     /// should be preferred over [`core::mem::forget()`] because the `'static` bound prevents
     /// accidental reuse of the underlying peripheral.
@@ -232,7 +241,7 @@ impl<T: Instance> Timer<'static, T> {
     }
 }
 
-impl<'d, T: Instance> Drop for Timer<'d, T> {
+impl<'d> Drop for Timer<'d> {
     fn drop(&mut self) {
         self.stop();
     }
@@ -245,27 +254,28 @@ impl<'d, T: Instance> Drop for Timer<'d, T> {
 ///
 /// The timer will fire the register's COMPARE event when its counter reaches the value stored in the register.
 /// When the register's CAPTURE task is triggered, the timer will store the current value of its counter in the register
-pub struct Cc<'d, T: Instance> {
+pub struct Cc<'d> {
     n: usize,
-    _p: Peri<'d, T>,
+    r: pac::timer::Timer,
+    _p: PhantomData<&'d ()>,
 }
 
-impl<'d, T: Instance> Cc<'d, T> {
+impl<'d> Cc<'d> {
     /// Get the current value stored in the register.
     pub fn read(&self) -> u32 {
-        T::regs().cc(self.n).read()
+        self.r.cc(self.n).read()
     }
 
     /// Set the value stored in the register.
     ///
     /// `event_compare` will fire when the timer's counter reaches this value.
     pub fn write(&self, value: u32) {
-        T::regs().cc(self.n).write_value(value);
+        self.r.cc(self.n).write_value(value);
     }
 
     /// Capture the current value of the timer's counter in this register, and return it.
     pub fn capture(&self) -> u32 {
-        T::regs().tasks_capture(self.n).write_value(1);
+        self.r.tasks_capture(self.n).write_value(1);
         self.read()
     }
 
@@ -273,20 +283,20 @@ impl<'d, T: Instance> Cc<'d, T> {
     ///
     /// When triggered, this task will capture the current value of the timer's counter in this register.
     pub fn task_capture(&self) -> Task<'d> {
-        Task::from_reg(T::regs().tasks_capture(self.n))
+        Task::from_reg(self.r.tasks_capture(self.n))
     }
 
     /// Returns this CC register's COMPARE event, for use with PPI.
     ///
     /// This event will fire when the timer's counter reaches the value in this CC register.
     pub fn event_compare(&self) -> Event<'d> {
-        Event::from_reg(T::regs().events_compare(self.n))
+        Event::from_reg(self.r.events_compare(self.n))
     }
 
     /// Clear the COMPARE event for this CC register.
     #[inline]
     pub fn clear_events(&self) {
-        T::regs().events_compare(self.n).write_value(0);
+        self.r.events_compare(self.n).write_value(0);
     }
 
     /// Enable the shortcut between this CC register's COMPARE event and the timer's CLEAR task.
@@ -295,12 +305,12 @@ impl<'d, T: Instance> Cc<'d, T> {
     ///
     /// So, when the timer's counter reaches the value stored in this register, the timer's counter will be reset to 0.
     pub fn short_compare_clear(&self) {
-        T::regs().shorts().modify(|w| w.set_compare_clear(self.n, true))
+        self.r.shorts().modify(|w| w.set_compare_clear(self.n, true))
     }
 
     /// Disable the shortcut between this CC register's COMPARE event and the timer's CLEAR task.
     pub fn unshort_compare_clear(&self) {
-        T::regs().shorts().modify(|w| w.set_compare_clear(self.n, false))
+        self.r.shorts().modify(|w| w.set_compare_clear(self.n, false))
     }
 
     /// Enable the shortcut between this CC register's COMPARE event and the timer's STOP task.
@@ -309,11 +319,11 @@ impl<'d, T: Instance> Cc<'d, T> {
     ///
     /// So, when the timer's counter reaches the value stored in this register, the timer will stop counting up.
     pub fn short_compare_stop(&self) {
-        T::regs().shorts().modify(|w| w.set_compare_stop(self.n, true))
+        self.r.shorts().modify(|w| w.set_compare_stop(self.n, true))
     }
 
     /// Disable the shortcut between this CC register's COMPARE event and the timer's STOP task.
     pub fn unshort_compare_stop(&self) {
-        T::regs().shorts().modify(|w| w.set_compare_stop(self.n, false))
+        self.r.shorts().modify(|w| w.set_compare_stop(self.n, false))
     }
 }

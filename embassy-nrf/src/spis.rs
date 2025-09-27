@@ -96,14 +96,16 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
-/// SPIS driver.
-pub struct Spis<'d, T: Instance> {
-    _p: Peri<'d, T>,
+/// Serial Peripheral Interface in slave mode.
+pub struct Spis<'d> {
+    r: pac::spis::Spis,
+    state: &'static State,
+    _p: PhantomData<&'d ()>,
 }
 
-impl<'d, T: Instance> Spis<'d, T> {
+impl<'d> Spis<'d> {
     /// Create a new SPIS driver.
-    pub fn new(
+    pub fn new<T: Instance>(
         spis: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         cs: Peri<'d, impl GpioPin>,
@@ -123,7 +125,7 @@ impl<'d, T: Instance> Spis<'d, T> {
     }
 
     /// Create a new SPIS driver, capable of TX only (MISO only).
-    pub fn new_txonly(
+    pub fn new_txonly<T: Instance>(
         spis: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         cs: Peri<'d, impl GpioPin>,
@@ -135,7 +137,7 @@ impl<'d, T: Instance> Spis<'d, T> {
     }
 
     /// Create a new SPIS driver, capable of RX only (MOSI only).
-    pub fn new_rxonly(
+    pub fn new_rxonly<T: Instance>(
         spis: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         cs: Peri<'d, impl GpioPin>,
@@ -147,7 +149,7 @@ impl<'d, T: Instance> Spis<'d, T> {
     }
 
     /// Create a new SPIS driver, capable of TX only (MISO only) without SCK pin.
-    pub fn new_txonly_nosck(
+    pub fn new_txonly_nosck<T: Instance>(
         spis: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         cs: Peri<'d, impl GpioPin>,
@@ -157,8 +159,8 @@ impl<'d, T: Instance> Spis<'d, T> {
         Self::new_inner(spis, cs.into(), None, Some(miso.into()), None, config)
     }
 
-    fn new_inner(
-        spis: Peri<'d, T>,
+    fn new_inner<T: Instance>(
+        _spis: Peri<'d, T>,
         cs: Peri<'d, AnyPin>,
         sck: Option<Peri<'d, AnyPin>>,
         miso: Option<Peri<'d, AnyPin>>,
@@ -191,10 +193,14 @@ impl<'d, T: Instance> Spis<'d, T> {
         // Enable SPIS instance.
         r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
 
-        let mut spis = Self { _p: spis };
+        let mut spis = Self {
+            r: T::regs(),
+            state: T::state(),
+            _p: PhantomData,
+        };
 
         // Apply runtime peripheral configuration
-        Self::set_config(&mut spis, &config).unwrap();
+        spis.set_config(&config).unwrap();
 
         // Disable all events interrupts.
         r.intenclr().write(|w| w.0 = 0xFFFF_FFFF);
@@ -212,7 +218,7 @@ impl<'d, T: Instance> Spis<'d, T> {
 
         compiler_fence(Ordering::SeqCst);
 
-        let r = T::regs();
+        let r = self.r;
 
         // Set up the DMA write.
         if tx.len() > EASY_DMA_SIZE {
@@ -239,7 +245,7 @@ impl<'d, T: Instance> Spis<'d, T> {
 
     fn blocking_inner_from_ram(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(usize, usize), Error> {
         compiler_fence(Ordering::SeqCst);
-        let r = T::regs();
+        let r = self.r;
 
         // Acquire semaphore.
         if r.semstat().read().0 != 1 {
@@ -276,8 +282,8 @@ impl<'d, T: Instance> Spis<'d, T> {
     }
 
     async fn async_inner_from_ram(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(usize, usize), Error> {
-        let r = T::regs();
-        let s = T::state();
+        let r = self.r;
+        let s = self.state;
 
         // Clear status register.
         r.status().write(|w| {
@@ -420,21 +426,21 @@ impl<'d, T: Instance> Spis<'d, T> {
 
     /// Checks if last transaction overread.
     pub fn is_overread(&mut self) -> bool {
-        T::regs().status().read().overread()
+        self.r.status().read().overread()
     }
 
     /// Checks if last transaction overflowed.
     pub fn is_overflow(&mut self) -> bool {
-        T::regs().status().read().overflow()
+        self.r.status().read().overflow()
     }
 }
 
-impl<'d, T: Instance> Drop for Spis<'d, T> {
+impl<'d> Drop for Spis<'d> {
     fn drop(&mut self) {
         trace!("spis drop");
 
         // Disable
-        let r = T::regs();
+        let r = self.r;
         r.enable().write(|w| w.set_enable(vals::Enable::DISABLED));
 
         gpio::deconfigure_pin(r.psel().sck().read());
@@ -489,11 +495,11 @@ macro_rules! impl_spis {
 
 // ====================
 
-impl<'d, T: Instance> SetConfig for Spis<'d, T> {
+impl<'d> SetConfig for Spis<'d> {
     type Config = Config;
     type ConfigError = ();
     fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
-        let r = T::regs();
+        let r = self.r;
         // Configure mode.
         let mode = config.mode;
         r.config().write(|w| {
