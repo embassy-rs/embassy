@@ -132,28 +132,32 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 /// UARTE driver.
-pub struct Uarte<'d, T: Instance> {
-    tx: UarteTx<'d, T>,
-    rx: UarteRx<'d, T>,
+pub struct Uarte<'d> {
+    tx: UarteTx<'d>,
+    rx: UarteRx<'d>,
 }
 
 /// Transmitter part of the UARTE driver.
 ///
 /// This can be obtained via [`Uarte::split`], or created directly.
-pub struct UarteTx<'d, T: Instance> {
-    _p: Peri<'d, T>,
+pub struct UarteTx<'d> {
+    r: pac::uarte::Uarte,
+    state: &'static State,
+    _p: PhantomData<&'d ()>,
 }
 
 /// Receiver part of the UARTE driver.
 ///
 /// This can be obtained via [`Uarte::split`], or created directly.
-pub struct UarteRx<'d, T: Instance> {
-    _p: Peri<'d, T>,
+pub struct UarteRx<'d> {
+    r: pac::uarte::Uarte,
+    state: &'static State,
+    _p: PhantomData<&'d ()>,
 }
 
-impl<'d, T: Instance> Uarte<'d, T> {
+impl<'d> Uarte<'d> {
     /// Create a new UARTE without hardware flow control
-    pub fn new(
+    pub fn new<T: Instance>(
         uarte: Peri<'d, T>,
         rxd: Peri<'d, impl GpioPin>,
         txd: Peri<'d, impl GpioPin>,
@@ -164,7 +168,7 @@ impl<'d, T: Instance> Uarte<'d, T> {
     }
 
     /// Create a new UARTE with hardware flow control (RTS/CTS)
-    pub fn new_with_rtscts(
+    pub fn new_with_rtscts<T: Instance>(
         uarte: Peri<'d, T>,
         rxd: Peri<'d, impl GpioPin>,
         txd: Peri<'d, impl GpioPin>,
@@ -183,8 +187,8 @@ impl<'d, T: Instance> Uarte<'d, T> {
         )
     }
 
-    fn new_inner(
-        uarte: Peri<'d, T>,
+    fn new_inner<T: Instance>(
+        _uarte: Peri<'d, T>,
         rxd: Peri<'d, AnyPin>,
         txd: Peri<'d, AnyPin>,
         cts: Option<Peri<'d, AnyPin>>,
@@ -211,16 +215,22 @@ impl<'d, T: Instance> Uarte<'d, T> {
 
         Self {
             tx: UarteTx {
-                _p: unsafe { uarte.clone_unchecked() },
+                r: T::regs(),
+                state: T::state(),
+                _p: PhantomData {},
             },
-            rx: UarteRx { _p: uarte },
+            rx: UarteRx {
+                r: T::regs(),
+                state: T::state(),
+                _p: PhantomData {},
+            },
         }
     }
 
     /// Split the Uarte into the transmitter and receiver parts.
     ///
     /// This is useful to concurrently transmit and receive from independent tasks.
-    pub fn split(self) -> (UarteTx<'d, T>, UarteRx<'d, T>) {
+    pub fn split(self) -> (UarteTx<'d>, UarteRx<'d>) {
         (self.tx, self.rx)
     }
 
@@ -228,7 +238,7 @@ impl<'d, T: Instance> Uarte<'d, T> {
     ///
     /// The returned halves borrow from `self`, so you can drop them and go back to using
     /// the "un-split" `self`. This allows temporarily splitting the UART.
-    pub fn split_by_ref(&mut self) -> (&mut UarteTx<'d, T>, &mut UarteRx<'d, T>) {
+    pub fn split_by_ref(&mut self) -> (&mut UarteTx<'d>, &mut UarteRx<'d>) {
         (&mut self.tx, &mut self.rx)
     }
 
@@ -240,13 +250,13 @@ impl<'d, T: Instance> Uarte<'d, T> {
         timer: Peri<'d, U>,
         ppi_ch1: Peri<'d, impl ConfigurableChannel + 'd>,
         ppi_ch2: Peri<'d, impl ConfigurableChannel + 'd>,
-    ) -> (UarteTx<'d, T>, UarteRxWithIdle<'d, T, U>) {
+    ) -> (UarteTx<'d>, UarteRxWithIdle<'d>) {
         (self.tx, self.rx.with_idle(timer, ppi_ch1, ppi_ch2))
     }
 
     /// Return the endtx event for use with PPI
     pub fn event_endtx(&self) -> Event<'_> {
-        let r = T::regs();
+        let r = self.tx.r;
         Event::from_reg(r.events_endtx())
     }
 
@@ -343,9 +353,9 @@ pub(crate) fn configure(r: pac::uarte::Uarte, config: Config, hardware_flow_cont
     apply_workaround_for_enable_anomaly(r);
 }
 
-impl<'d, T: Instance> UarteTx<'d, T> {
+impl<'d> UarteTx<'d> {
     /// Create a new tx-only UARTE without hardware flow control
-    pub fn new(
+    pub fn new<T: Instance>(
         uarte: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         txd: Peri<'d, impl GpioPin>,
@@ -355,7 +365,7 @@ impl<'d, T: Instance> UarteTx<'d, T> {
     }
 
     /// Create a new tx-only UARTE with hardware flow control (RTS/CTS)
-    pub fn new_with_rtscts(
+    pub fn new_with_rtscts<T: Instance>(
         uarte: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         txd: Peri<'d, impl GpioPin>,
@@ -365,7 +375,12 @@ impl<'d, T: Instance> UarteTx<'d, T> {
         Self::new_inner(uarte, txd.into(), Some(cts.into()), config)
     }
 
-    fn new_inner(uarte: Peri<'d, T>, txd: Peri<'d, AnyPin>, cts: Option<Peri<'d, AnyPin>>, config: Config) -> Self {
+    fn new_inner<T: Instance>(
+        _uarte: Peri<'d, T>,
+        txd: Peri<'d, AnyPin>,
+        cts: Option<Peri<'d, AnyPin>>,
+        config: Config,
+    ) -> Self {
         let r = T::regs();
 
         configure(r, config, cts.is_some());
@@ -378,7 +393,11 @@ impl<'d, T: Instance> UarteTx<'d, T> {
         let s = T::state();
         s.tx_rx_refcount.store(1, Ordering::Relaxed);
 
-        Self { _p: uarte }
+        Self {
+            r: T::regs(),
+            state: T::state(),
+            _p: PhantomData {},
+        }
     }
 
     /// Write all bytes in the buffer.
@@ -409,8 +428,8 @@ impl<'d, T: Instance> UarteTx<'d, T> {
         let ptr = buffer.as_ptr();
         let len = buffer.len();
 
-        let r = T::regs();
-        let s = T::state();
+        let r = self.r;
+        let s = self.state;
 
         let drop = OnDrop::new(move || {
             trace!("write drop: stopping");
@@ -479,7 +498,7 @@ impl<'d, T: Instance> UarteTx<'d, T> {
         let ptr = buffer.as_ptr();
         let len = buffer.len();
 
-        let r = T::regs();
+        let r = self.r;
 
         r.txd().ptr().write_value(ptr as u32);
         r.txd().maxcnt().write(|w| w.set_maxcnt(len as _));
@@ -501,11 +520,11 @@ impl<'d, T: Instance> UarteTx<'d, T> {
     }
 }
 
-impl<'a, T: Instance> Drop for UarteTx<'a, T> {
+impl<'a> Drop for UarteTx<'a> {
     fn drop(&mut self) {
         trace!("uarte tx drop");
 
-        let r = T::regs();
+        let r = self.r;
 
         let did_stoptx = r.events_txstarted().read() != 0;
         trace!("did_stoptx {}", did_stoptx);
@@ -513,15 +532,15 @@ impl<'a, T: Instance> Drop for UarteTx<'a, T> {
         // Wait for txstopped, if needed.
         while did_stoptx && r.events_txstopped().read() == 0 {}
 
-        let s = T::state();
+        let s = self.state;
 
         drop_tx_rx(r, s);
     }
 }
 
-impl<'d, T: Instance> UarteRx<'d, T> {
+impl<'d> UarteRx<'d> {
     /// Create a new rx-only UARTE without hardware flow control
-    pub fn new(
+    pub fn new<T: Instance>(
         uarte: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rxd: Peri<'d, impl GpioPin>,
@@ -531,7 +550,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
     }
 
     /// Create a new rx-only UARTE with hardware flow control (RTS/CTS)
-    pub fn new_with_rtscts(
+    pub fn new_with_rtscts<T: Instance>(
         uarte: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         rxd: Peri<'d, impl GpioPin>,
@@ -543,13 +562,18 @@ impl<'d, T: Instance> UarteRx<'d, T> {
 
     /// Check for errors and clear the error register if an error occured.
     fn check_and_clear_errors(&mut self) -> Result<(), Error> {
-        let r = T::regs();
+        let r = self.r;
         let err_bits = r.errorsrc().read();
         r.errorsrc().write_value(err_bits);
         ErrorSource::from_bits_truncate(err_bits.0).check()
     }
 
-    fn new_inner(uarte: Peri<'d, T>, rxd: Peri<'d, AnyPin>, rts: Option<Peri<'d, AnyPin>>, config: Config) -> Self {
+    fn new_inner<T: Instance>(
+        _uarte: Peri<'d, T>,
+        rxd: Peri<'d, AnyPin>,
+        rts: Option<Peri<'d, AnyPin>>,
+        config: Config,
+    ) -> Self {
         let r = T::regs();
 
         configure(r, config, rts.is_some());
@@ -562,7 +586,11 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         let s = T::state();
         s.tx_rx_refcount.store(1, Ordering::Relaxed);
 
-        Self { _p: uarte }
+        Self {
+            r: T::regs(),
+            state: T::state(),
+            _p: PhantomData {},
+        }
     }
 
     /// Upgrade to an instance that supports idle line detection.
@@ -571,10 +599,10 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         timer: Peri<'d, U>,
         ppi_ch1: Peri<'d, impl ConfigurableChannel + 'd>,
         ppi_ch2: Peri<'d, impl ConfigurableChannel + 'd>,
-    ) -> UarteRxWithIdle<'d, T, U> {
+    ) -> UarteRxWithIdle<'d> {
         let timer = Timer::new(timer);
 
-        let r = T::regs();
+        let r = self.r;
 
         // BAUDRATE register values are `baudrate * 2^32 / 16000000`
         // source: https://devzone.nordicsemi.com/f/nordic-q-a/391/uart-baudrate-register-values
@@ -605,11 +633,15 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         );
         ppi_ch2.enable();
 
+        let state = self.state;
+
         UarteRxWithIdle {
             rx: self,
             timer,
-            ppi_ch1,
+            ppi_ch1: ppi_ch1,
             _ppi_ch2: ppi_ch2,
+            r: r,
+            state: state,
         }
     }
 
@@ -625,8 +657,8 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         let ptr = buffer.as_ptr();
         let len = buffer.len();
 
-        let r = T::regs();
-        let s = T::state();
+        let r = self.r;
+        let s = self.state;
 
         let drop = OnDrop::new(move || {
             trace!("read drop: stopping");
@@ -692,7 +724,7 @@ impl<'d, T: Instance> UarteRx<'d, T> {
         let ptr = buffer.as_ptr();
         let len = buffer.len();
 
-        let r = T::regs();
+        let r = self.r;
 
         r.rxd().ptr().write_value(ptr as u32);
         r.rxd().maxcnt().write(|w| w.set_maxcnt(len as _));
@@ -718,11 +750,11 @@ impl<'d, T: Instance> UarteRx<'d, T> {
     }
 }
 
-impl<'a, T: Instance> Drop for UarteRx<'a, T> {
+impl<'a> Drop for UarteRx<'a> {
     fn drop(&mut self) {
         trace!("uarte rx drop");
 
-        let r = T::regs();
+        let r = self.r;
 
         let did_stoprx = r.events_rxstarted().read() != 0;
         trace!("did_stoprx {}", did_stoprx);
@@ -730,7 +762,7 @@ impl<'a, T: Instance> Drop for UarteRx<'a, T> {
         // Wait for rxto, if needed.
         while did_stoprx && r.events_rxto().read() == 0 {}
 
-        let s = T::state();
+        let s = self.state;
 
         drop_tx_rx(r, s);
     }
@@ -739,14 +771,16 @@ impl<'a, T: Instance> Drop for UarteRx<'a, T> {
 /// Receiver part of the UARTE driver, with `read_until_idle` support.
 ///
 /// This can be obtained via [`Uarte::split_with_idle`].
-pub struct UarteRxWithIdle<'d, T: Instance, U: TimerInstance> {
-    rx: UarteRx<'d, T>,
-    timer: Timer<'d, U>,
+pub struct UarteRxWithIdle<'d> {
+    rx: UarteRx<'d>,
+    timer: Timer<'d>,
     ppi_ch1: Ppi<'d, AnyConfigurableChannel, 1, 2>,
     _ppi_ch2: Ppi<'d, AnyConfigurableChannel, 1, 1>,
+    r: pac::uarte::Uarte,
+    state: &'static State,
 }
 
-impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
+impl<'d> UarteRxWithIdle<'d> {
     /// Read bytes until the buffer is filled.
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         self.ppi_ch1.disable();
@@ -773,8 +807,8 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
         let ptr = buffer.as_ptr();
         let len = buffer.len();
 
-        let r = T::regs();
-        let s = T::state();
+        let r = self.r;
+        let s = self.state;
 
         self.ppi_ch1.enable();
 
@@ -846,7 +880,7 @@ impl<'d, T: Instance, U: TimerInstance> UarteRxWithIdle<'d, T, U> {
         let ptr = buffer.as_ptr();
         let len = buffer.len();
 
-        let r = T::regs();
+        let r = self.r;
 
         self.ppi_ch1.enable();
 
@@ -997,7 +1031,7 @@ macro_rules! impl_uarte {
 mod eh02 {
     use super::*;
 
-    impl<'d, T: Instance> embedded_hal_02::blocking::serial::Write<u8> for Uarte<'d, T> {
+    impl<'d> embedded_hal_02::blocking::serial::Write<u8> for Uarte<'d> {
         type Error = Error;
 
         fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
@@ -1009,7 +1043,7 @@ mod eh02 {
         }
     }
 
-    impl<'d, T: Instance> embedded_hal_02::blocking::serial::Write<u8> for UarteTx<'d, T> {
+    impl<'d> embedded_hal_02::blocking::serial::Write<u8> for UarteTx<'d> {
         type Error = Error;
 
         fn bwrite_all(&mut self, buffer: &[u8]) -> Result<(), Self::Error> {
@@ -1038,22 +1072,22 @@ mod _embedded_io {
         }
     }
 
-    impl<'d, U: Instance> embedded_io_async::ErrorType for Uarte<'d, U> {
+    impl<'d> embedded_io_async::ErrorType for Uarte<'d> {
         type Error = Error;
     }
 
-    impl<'d, U: Instance> embedded_io_async::ErrorType for UarteTx<'d, U> {
+    impl<'d> embedded_io_async::ErrorType for UarteTx<'d> {
         type Error = Error;
     }
 
-    impl<'d, U: Instance> embedded_io_async::Write for Uarte<'d, U> {
+    impl<'d> embedded_io_async::Write for Uarte<'d> {
         async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
             self.write(buf).await?;
             Ok(buf.len())
         }
     }
 
-    impl<'d: 'd, U: Instance> embedded_io_async::Write for UarteTx<'d, U> {
+    impl<'d> embedded_io_async::Write for UarteTx<'d> {
         async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
             self.write(buf).await?;
             Ok(buf.len())

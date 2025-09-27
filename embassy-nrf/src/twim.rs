@@ -114,7 +114,6 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 /// TWI driver.
 pub struct Twim<'d> {
     r: pac::twim::Twim,
-    irq: interrupt::Interrupt,
     state: &'static State,
     tx_ram_buffer: &'d mut [u8],
     _p: PhantomData<&'d ()>,
@@ -171,7 +170,6 @@ impl<'d> Twim<'d> {
 
         let mut twim = Self {
             r: T::regs(),
-            irq: T::Interrupt::IRQ,
             state: T::state(),
             tx_ram_buffer,
             _p: PhantomData {},
