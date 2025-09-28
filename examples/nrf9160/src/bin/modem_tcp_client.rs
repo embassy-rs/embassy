@@ -32,7 +32,7 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::task]
-async fn trace_task(mut uart: BufferedUarteTx<'static, peripherals::SERIAL0>, reader: TraceReader<'static>) -> ! {
+async fn trace_task(mut uart: BufferedUarteTx<'static>, reader: TraceReader<'static>) -> ! {
     let mut rx = [0u8; 1024];
     loop {
         let n = reader.read(&mut rx[..]).await;

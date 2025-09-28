@@ -17,7 +17,7 @@ bind_interrupts!(struct Irqs {
     CLOCK_POWER => usb::vbus_detect::InterruptHandler;
 });
 
-type MyDriver = Driver<'static, peripherals::USBD, HardwareVbusDetect>;
+type MyDriver = Driver<'static, HardwareVbusDetect>;
 
 #[embassy_executor::task]
 async fn usb_task(mut device: UsbDevice<'static, MyDriver>) {
