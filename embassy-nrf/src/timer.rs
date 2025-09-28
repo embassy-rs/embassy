@@ -17,6 +17,7 @@ use crate::ppi::{Event, Task};
 pub(crate) trait SealedInstance {
     /// The number of CC registers this instance has.
     const CCS: usize;
+    #[cfg(not(feature = "unstable-pac"))]
     fn regs() -> pac::timer::Timer;
 }
 
@@ -25,6 +26,9 @@ pub(crate) trait SealedInstance {
 pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: crate::interrupt::typelevel::Interrupt;
+    /// Direct access to the register block.
+    #[cfg(feature = "unstable-pac")]
+    fn regs() -> pac::timer::Timer;
 }
 
 /// Extended timer instance.
@@ -34,12 +38,17 @@ macro_rules! impl_timer {
     ($type:ident, $pac_type:ident, $irq:ident, $ccs:literal) => {
         impl crate::timer::SealedInstance for peripherals::$type {
             const CCS: usize = $ccs;
+            #[cfg(not(feature = "unstable-pac"))]
             fn regs() -> pac::timer::Timer {
                 unsafe { pac::timer::Timer::from_ptr(pac::$pac_type.as_ptr()) }
             }
         }
         impl crate::timer::Instance for peripherals::$type {
             type Interrupt = crate::interrupt::typelevel::$irq;
+            #[cfg(feature = "unstable-pac")]
+            fn regs() -> pac::timer::Timer {
+                unsafe { pac::timer::Timer::from_ptr(pac::$pac_type.as_ptr()) }
+            }
         }
     };
     ($type:ident, $pac_type:ident, $irq:ident) => {

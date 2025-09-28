@@ -786,6 +786,7 @@ impl State {
 }
 
 pub(crate) trait SealedInstance {
+    #[cfg(not(feature = "unstable-pac"))]
     fn regs() -> pac::twis::Twis;
     fn state() -> &'static State;
 }
@@ -795,11 +796,15 @@ pub(crate) trait SealedInstance {
 pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
+    /// Direct access to the register block.
+    #[cfg(feature = "unstable-pac")]
+    fn regs() -> pac::twis::Twis;
 }
 
 macro_rules! impl_twis {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::twis::SealedInstance for peripherals::$type {
+            #[cfg(not(feature = "unstable-pac"))]
             fn regs() -> pac::twis::Twis {
                 pac::$pac_type
             }
@@ -810,6 +815,10 @@ macro_rules! impl_twis {
         }
         impl crate::twis::Instance for peripherals::$type {
             type Interrupt = crate::interrupt::typelevel::$irq;
+            #[cfg(feature = "unstable-pac")]
+            fn regs() -> pac::twis::Twis {
+                pac::$pac_type
+            }
         }
     };
 }

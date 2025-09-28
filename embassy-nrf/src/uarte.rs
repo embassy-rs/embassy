@@ -993,6 +993,7 @@ impl State {
 }
 
 pub(crate) trait SealedInstance {
+    #[cfg(not(feature = "unstable-pac"))]
     fn regs() -> pac::uarte::Uarte;
     fn state() -> &'static State;
     fn buffered_state() -> &'static crate::buffered_uarte::State;
@@ -1003,11 +1004,15 @@ pub(crate) trait SealedInstance {
 pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
+    /// Direct access to the register block.
+    #[cfg(feature = "unstable-pac")]
+    fn regs() -> pac::uarte::Uarte;
 }
 
 macro_rules! impl_uarte {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::uarte::SealedInstance for peripherals::$type {
+            #[cfg(not(feature = "unstable-pac"))]
             fn regs() -> pac::uarte::Uarte {
                 pac::$pac_type
             }
@@ -1022,6 +1027,10 @@ macro_rules! impl_uarte {
         }
         impl crate::uarte::Instance for peripherals::$type {
             type Interrupt = crate::interrupt::typelevel::$irq;
+            #[cfg(feature = "unstable-pac")]
+            fn regs() -> pac::uarte::Uarte {
+                pac::$pac_type
+            }
         }
     };
 }
