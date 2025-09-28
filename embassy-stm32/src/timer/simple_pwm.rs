@@ -345,7 +345,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
                         dma,
                         req,
                         duty,
-                        self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut u16,
+                        self.inner.regs_1ch().ccr(channel.index()).as_ptr() as *mut u16,
                         dma_transfer_option,
                     )
                     .await
@@ -360,7 +360,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
                         dma,
                         req,
                         duty,
-                        self.inner.regs_gp16().ccr(cc_channel.index()).as_ptr() as *mut u32,
+                        self.inner.regs_1ch().ccr(channel.index()).as_ptr() as *mut u32,
                         dma_transfer_option,
                     )
                     .await
