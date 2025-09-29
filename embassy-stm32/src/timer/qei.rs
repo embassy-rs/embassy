@@ -88,15 +88,6 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
         tim: Peri<'d, T>,
         ch1: Peri<'d, if_afio!(impl TimerPin<T, CH1, A>)>,
         ch2: Peri<'d, if_afio!(impl TimerPin<T, CH2, A>)>,
-    ) -> Self {
-        Self::new_with_config(tim, ch1, ch2, Default::default())
-    }
-    /// Create a new quadrature decoder driver, with a given [`Config`].
-    #[allow(unused)]
-    pub fn new_with_config<CH1: QeiChannel, CH2: QeiChannel, #[cfg(afio)] A>(
-        tim: Peri<'d, T>,
-        ch1: Peri<'d, if_afio!(impl TimerPin<T, CH1, A>)>,
-        ch2: Peri<'d, if_afio!(impl TimerPin<T, CH2, A>)>,
         config: Config,
     ) -> Self {
         // Configure the pins to be used for the QEI peripheral.
