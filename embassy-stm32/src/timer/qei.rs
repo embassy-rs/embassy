@@ -55,20 +55,27 @@ impl SealedQeiChannel for Ch2 {}
 /// Quadrature decoder driver.
 pub struct Qei<'d, T: GeneralInstance4Channel> {
     inner: Timer<'d, T>,
+    _ch1: Peri<'d, AnyPin>,
+    _ch2: Peri<'d, AnyPin>,
 }
 
 impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
     /// Create a new quadrature decoder driver.
     #[allow(unused)]
-    pub fn new<#[cfg(afio)] A>(
+    pub fn new<CH1: QeiChannel, CH2: QeiChannel, #[cfg(afio)] A>(
         tim: Peri<'d, T>,
-        ch1: if_afio!(QeiPin<'d, T, Ch1, A>),
-        ch2: if_afio!(QeiPin<'d, T, Ch2, A>),
+        ch1: Peri<'d, if_afio!(impl TimerPin<T, CH1, A>)>,
+        ch2: Peri<'d, if_afio!(impl TimerPin<T, CH2, A>)>,
     ) -> Self {
-        Self::new_inner(tim)
-    }
+        // Configure the pins to be used for the QEI peripheral.
+        critical_section::with(|_| {
+            ch1.set_low();
+            set_as_af!(ch1, AfType::input(Pull::None));
 
-    fn new_inner(tim: Peri<'d, T>) -> Self {
+            ch2.set_low();
+            set_as_af!(ch2, AfType::input(Pull::None));
+        });
+
         let inner = Timer::new(tim);
         let r = inner.regs_gp16();
 
@@ -94,7 +101,11 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
         r.arr().modify(|w| w.set_arr(u16::MAX));
         r.cr1().modify(|w| w.set_cen(true));
 
-        Self { inner }
+        Self {
+            inner,
+            _ch1: ch1.into(),
+            _ch2: ch2.into(),
+        }
     }
 
     /// Get direction.
