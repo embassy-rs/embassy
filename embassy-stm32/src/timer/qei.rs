@@ -1,7 +1,5 @@
 //! Quadrature decoder using a timer.
 
-use core::marker::PhantomData;
-
 use stm32_metapac::timer::vals;
 
 use super::low_level::Timer;
@@ -17,27 +15,6 @@ pub enum Direction {
     Upcounting,
     /// Counting down.
     Downcounting,
-}
-
-/// Wrapper for using a pin with QEI.
-pub struct QeiPin<'d, T, Channel, #[cfg(afio)] A> {
-    #[allow(unused)]
-    pin: Peri<'d, AnyPin>,
-    phantom: PhantomData<if_afio!((T, Channel, A))>,
-}
-
-impl<'d, T: GeneralInstance4Channel, C: QeiChannel, #[cfg(afio)] A> if_afio!(QeiPin<'d, T, C, A>) {
-    /// Create a new QEI pin instance.
-    pub fn new(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>) -> Self {
-        critical_section::with(|_| {
-            pin.set_low();
-            set_as_af!(pin, AfType::input(Pull::None));
-        });
-        QeiPin {
-            pin: pin.into(),
-            phantom: PhantomData,
-        }
-    }
 }
 
 trait SealedQeiChannel: TimerChannel {}
