@@ -35,7 +35,6 @@ impl<'d, T: GeneralInstance4Channel, C: QeiChannel, #[cfg(afio)] A> if_afio!(Qei
     /// Create a new QEI pin instance with a configured internal pull up/down resistor.
     pub fn new_with_pull(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, pull: Pull) -> Self {
         critical_section::with(|_| {
-            pin.set_low();
             set_as_af!(pin, AfType::input(pull));
         });
         QeiPin {
