@@ -457,6 +457,19 @@ impl<'d> Saadc<'d, 1> {
 
 impl<'d, const N: usize> Drop for Saadc<'d, N> {
     fn drop(&mut self) {
+        // Reset of SAADC.
+        //
+        // This is needed when more than one pin is sampled to avoid needless power consumption.
+        // More information can be found in [nrf52 Anomaly 241](https://docs.nordicsemi.com/bundle/errata_nRF52810_Rev1/page/ERR/nRF52810/Rev1/latest/anomaly_810_241.html).
+        // The workaround seems like it copies the configuration before reset and reapplies it after.
+        // The instance is dropped, forcing a reconfiguration at compile time, hence we only
+        // call what is the reset portion of the workaround.
+        #[cfg(feature = "_nrf52")]
+        {
+            unsafe { core::ptr::write_volatile(0x40007FFC as *mut u32, 0) }
+            unsafe { core::ptr::read_volatile(0x40007FFC as *const ()) }
+            unsafe { core::ptr::write_volatile(0x40007FFC as *mut u32, 1) }
+        }
         let r = Self::regs();
         r.enable().write(|w| w.set_enable(false));
         for i in 0..N {

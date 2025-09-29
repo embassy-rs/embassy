@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - changed: impl Drop for Timer
 - added: expose `regs` for timer driver
 - added: timer driver CC `clear_events` method
+- changed: Saadc reset in Drop impl, anomaly 241 - high power usage
 
 ## 0.7.0 - 2025-08-26
 
