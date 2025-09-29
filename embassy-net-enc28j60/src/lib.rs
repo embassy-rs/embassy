@@ -19,7 +19,7 @@ mod traits;
 use core::cmp;
 
 use embassy_net_driver::{Capabilities, HardwareAddress, LinkState};
-use embassy_time::Duration;
+use embassy_time::{Duration, Instant};
 use embedded_hal::digital::OutputPin;
 use embedded_hal::spi::{Operation, SpiDevice};
 use traits::U16Ext;
@@ -55,6 +55,8 @@ pub struct Enc28j60<S, O> {
     // address of the next packet in buffer memory
     next_packet: u16,
 }
+
+struct TxTimeout;
 
 impl<S, O> Enc28j60<S, O>
 where
@@ -248,10 +250,15 @@ where
         Some(len as usize)
     }
 
-    fn wait_tx_ready(&mut self) {
+    fn wait_tx_ready(&mut self) -> Result<(), TxTimeout> {
+        const READY_TIMEOUT: Duration = Duration::from_secs(2);
+        let start = Instant::now();
         for _ in 0u32..10000 {
             if common::ECON1(self.read_control_register(common::Register::ECON1)).txrts() == 0 {
-                return;
+                return Ok(());
+            }
+            if start.elapsed() > READY_TIMEOUT {
+                return Err(TxTimeout);
             }
         }
 
@@ -263,6 +270,7 @@ where
         //    let mask = common::EIR::mask();
         //    mask.txerif() | mask.txif()
         //});
+        Ok(())
     }
 
     /// Starts the transmission of `bytes`
@@ -280,7 +288,10 @@ where
     pub fn transmit(&mut self, bytes: &[u8]) {
         assert!(bytes.len() <= self.mtu() as usize);
 
-        self.wait_tx_ready();
+        if let Err(TxTimeout) = self.wait_tx_ready() {
+            warn!("TX ready timed out, dropping packet");
+            return;
+        }
 
         // NOTE the plus one is to not overwrite the per packet control byte
         let wrpt = TXST + 1;
