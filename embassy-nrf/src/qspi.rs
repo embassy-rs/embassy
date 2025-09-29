@@ -599,7 +599,7 @@ impl<'d> NorFlash for Qspi<'d> {
 }
 
 #[cfg(feature = "qspi-multiwrite-flash")]
-impl<'d, T: Instance> embedded_storage::nor_flash::MultiwriteNorFlash for Qspi<'d, T> {}
+impl<'d> embedded_storage::nor_flash::MultiwriteNorFlash for Qspi<'d> {}
 
 mod _eh1 {
     use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash};
@@ -634,7 +634,7 @@ mod _eh1 {
     }
 
     #[cfg(feature = "qspi-multiwrite-flash")]
-    impl<'d, T: Instance> embedded_storage_async::nor_flash::MultiwriteNorFlash for Qspi<'d, T> {}
+    impl<'d> embedded_storage_async::nor_flash::MultiwriteNorFlash for Qspi<'d> {}
 }
 
 /// Peripheral static state
