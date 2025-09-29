@@ -18,6 +18,11 @@ impl Register {
     }
 }
 
+register!(PHCON1, 0, u16, {
+    #[doc = "PHY Duplex Mode bit"]
+    pdpxmd @ 8,
+});
+
 register!(PHCON2, 0, u16, {
     #[doc = "PHY Half-Duplex Loopback Disable bit"]
     hdldis @ 8,
@@ -30,6 +35,8 @@ register!(PHCON2, 0, u16, {
 });
 
 register!(PHSTAT2, 0, u16, {
+    #[doc = "Duplex Status bit"]
+    dpxstat @ 9,
     #[doc = "Link Status bit"]
     lstat @ 10,
 });
