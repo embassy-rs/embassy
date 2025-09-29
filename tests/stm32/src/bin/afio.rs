@@ -12,8 +12,9 @@ use embassy_stm32::time::khz;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, ComplementaryPwmPin};
 use embassy_stm32::timer::input_capture::{CapturePin, InputCapture};
 use embassy_stm32::timer::pwm_input::PwmInput;
-use embassy_stm32::timer::qei::{Qei, QeiPin};
+use embassy_stm32::timer::qei::Qei;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
+use embassy_stm32::timer::{Ch1, Ch2};
 use embassy_stm32::usart::{Uart, UartRx, UartTx};
 use embassy_stm32::{bind_interrupts, Peripherals};
 
@@ -258,10 +259,11 @@ async fn main(_spawner: Spawner) {
     {
         // partial remap
         reset_afio_registers();
-        Qei::new::<AfioRemap<1>>(
+        Qei::new::<Ch1, Ch2, AfioRemap<1>>(
             p.TIM1.reborrow(),
-            QeiPin::new(p.PA8.reborrow()),
-            QeiPin::new(p.PA9.reborrow()),
+            p.PA8.reborrow(),
+            p.PA9.reborrow(),
+            Default::default(),
         );
         defmt::assert_eq!(AFIO.mapr().read().tim1_remap(), 1);
     }
