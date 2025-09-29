@@ -258,11 +258,7 @@ async fn main(_spawner: Spawner) {
     {
         // partial remap
         reset_afio_registers();
-        Qei::new::<AfioRemap<1>>(
-            p.TIM1.reborrow(),
-            p.PA8.reborrow(),
-            p.PA9.reborrow(),
-        );
+        Qei::new::<AfioRemap<1>>(p.TIM1.reborrow(), p.PA8.reborrow(), p.PA9.reborrow());
         defmt::assert_eq!(AFIO.mapr().read().tim1_remap(), 1);
     }
 
