@@ -462,7 +462,7 @@ impl<'d, const N: usize> Drop for Saadc<'d, N> {
         // This is needed when more than one pin is sampled to avoid needless power consumption.
         // More information can be found in [nrf52 Anomaly 241](https://docs.nordicsemi.com/bundle/errata_nRF52810_Rev1/page/ERR/nRF52810/Rev1/latest/anomaly_810_241.html).
         // The workaround seems like it copies the configuration before reset and reapplies it after.
-        // This method consumes the instance forcing a reconfiguration at compile time, hence we only
+        // The instance is dropped, forcing a reconfiguration at compile time, hence we only
         // call what is the reset portion of the workaround.
         #[cfg(feature = "_nrf52")]
         {
