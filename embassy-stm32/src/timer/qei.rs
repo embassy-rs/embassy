@@ -29,9 +29,14 @@ pub struct QeiPin<'d, T, Channel, #[cfg(afio)] A> {
 impl<'d, T: GeneralInstance4Channel, C: QeiChannel, #[cfg(afio)] A> if_afio!(QeiPin<'d, T, C, A>) {
     /// Create a new QEI pin instance.
     pub fn new(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>) -> Self {
+        Self::new_with_pull(pin, Pull::None)
+    }
+
+    /// Create a new QEI pin instance with a configured internal pull up/down resistor.
+    pub fn new_with_pull(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, pull: Pull) -> Self {
         critical_section::with(|_| {
             pin.set_low();
-            set_as_af!(pin, AfType::input(Pull::None));
+            set_as_af!(pin, AfType::input(pull));
         });
         QeiPin {
             pin: pin.into(),
