@@ -53,6 +53,7 @@ pub enum CompareChannel {
 }
 
 pub(crate) trait SealedInstance {
+    #[cfg(not(feature = "unstable-pac"))]
     fn regs() -> pac::rtc::Rtc;
 }
 
@@ -61,6 +62,9 @@ pub(crate) trait SealedInstance {
 pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: crate::interrupt::typelevel::Interrupt;
+    /// Direct access to the register block.
+    #[cfg(feature = "unstable-pac")]
+    fn regs() -> pac::rtc::Rtc;
 
     /// Unsafely create a peripheral instance.
     ///
@@ -74,6 +78,7 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
 macro_rules! impl_rtc {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::rtc::SealedInstance for peripherals::$type {
+            #[cfg(not(feature = "unstable-pac"))]
             #[inline]
             fn regs() -> pac::rtc::Rtc {
                 unsafe { pac::rtc::Rtc::from_ptr(pac::$pac_type.as_ptr()) }
@@ -82,6 +87,11 @@ macro_rules! impl_rtc {
 
         impl crate::rtc::Instance for peripherals::$type {
             type Interrupt = crate::interrupt::typelevel::$irq;
+            #[cfg(feature = "unstable-pac")]
+            #[inline]
+            fn regs() -> pac::rtc::Rtc {
+                unsafe { pac::rtc::Rtc::from_ptr(pac::$pac_type.as_ptr()) }
+            }
 
             unsafe fn steal() -> embassy_hal_internal::Peri<'static, Self> {
                 unsafe { peripherals::$type::steal() }
