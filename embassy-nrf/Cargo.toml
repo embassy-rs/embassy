@@ -34,6 +34,7 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["defmt", "gpiote", "nrf52840", "time"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "gpiote", "nrf52840", "time-driver-rtc1"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "gpiote", "nrf52840", "time", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "gpiote", "nrf52840", "time", "time-driver-rtc1","qspi-multiwrite-flash"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "nrf51", "time", "time-driver-rtc1"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "nrf51", "time"]},
     {target = "thumbv6m-none-eabi", features = ["nrf51", "time"]},
