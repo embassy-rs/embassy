@@ -1,6 +1,6 @@
 //! Quadrature decoder using a timer.
 
-use stm32_metapac::timer::vals;
+use stm32_metapac::timer::vals::{self, Sms};
 
 use super::low_level::Timer;
 pub use super::{Ch1, Ch2};
@@ -8,6 +8,51 @@ use super::{GeneralInstance4Channel, TimerPin};
 use crate::gpio::{AfType, AnyPin, Pull};
 use crate::timer::TimerChannel;
 use crate::Peri;
+
+/// Qei driver config.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Clone, Copy)]
+pub struct Config {
+    /// Configures the internal pull up/down resistor for Qei's channel 1 pin.
+    pub ch1_pull: Pull,
+    /// Configures the internal pull up/down resistor for Qei's channel 2 pin.
+    pub ch2_pull: Pull,
+    /// Specifies the encoder mode to use for the Qei peripheral.
+    pub mode: QeiMode,
+}
+
+impl Default for Config {
+    /// Arbitrary defaults to preserve backwards compatibility
+    fn default() -> Self {
+        Self {
+            ch1_pull: Pull::None,
+            ch2_pull: Pull::None,
+            mode: QeiMode::Mode3,
+        }
+    }
+}
+
+/// See STMicro AN4013 for §2.3 for more information
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Clone, Copy)]
+pub enum QeiMode {
+    /// Direct alias for [`Sms::ENCODER_MODE_1`]
+    Mode1,
+    /// Direct alias for [`Sms::ENCODER_MODE_2`]
+    Mode2,
+    /// Direct alias for [`Sms::ENCODER_MODE_3`]
+    Mode3,
+}
+
+impl From<QeiMode> for Sms {
+    fn from(mode: QeiMode) -> Self {
+        match mode {
+            QeiMode::Mode1 => Sms::ENCODER_MODE_1,
+            QeiMode::Mode2 => Sms::ENCODER_MODE_2,
+            QeiMode::Mode3 => Sms::ENCODER_MODE_3,
+        }
+    }
+}
 
 /// Counting direction
 pub enum Direction {
@@ -37,20 +82,30 @@ pub struct Qei<'d, T: GeneralInstance4Channel> {
 }
 
 impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
-    /// Create a new quadrature decoder driver.
+    /// Create a new quadrature decoder driver, with a given [`Config`].
     #[allow(unused)]
     pub fn new<CH1: QeiChannel, CH2: QeiChannel, #[cfg(afio)] A>(
         tim: Peri<'d, T>,
         ch1: Peri<'d, if_afio!(impl TimerPin<T, CH1, A>)>,
         ch2: Peri<'d, if_afio!(impl TimerPin<T, CH2, A>)>,
     ) -> Self {
+        Self::new_with_config(tim, ch1, ch2, Default::default())
+    }
+    /// Create a new quadrature decoder driver, with a given [`Config`].
+    #[allow(unused)]
+    pub fn new_with_config<CH1: QeiChannel, CH2: QeiChannel, #[cfg(afio)] A>(
+        tim: Peri<'d, T>,
+        ch1: Peri<'d, if_afio!(impl TimerPin<T, CH1, A>)>,
+        ch2: Peri<'d, if_afio!(impl TimerPin<T, CH2, A>)>,
+        config: Config,
+    ) -> Self {
         // Configure the pins to be used for the QEI peripheral.
         critical_section::with(|_| {
             ch1.set_low();
-            set_as_af!(ch1, AfType::input(Pull::None));
+            set_as_af!(ch1, AfType::input(config.ch1_pull));
 
             ch2.set_low();
-            set_as_af!(ch2, AfType::input(Pull::None));
+            set_as_af!(ch2, AfType::input(config.ch2_pull));
         });
 
         let inner = Timer::new(tim);
@@ -72,7 +127,7 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
         });
 
         r.smcr().modify(|w| {
-            w.set_sms(vals::Sms::ENCODER_MODE_3);
+            w.set_sms(config.mode.into());
         });
 
         r.arr().modify(|w| w.set_arr(u16::MAX));
