@@ -10,11 +10,12 @@ use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
 use embassy_nrf::usb::Driver;
 use embassy_nrf::{bind_interrupts, pac, peripherals, usb};
 use embassy_time::Timer;
-use embassy_usb::class::hid::{HidWriter, ReportId, RequestHandler, State};
+use embassy_usb::class::hid::{
+    HidBootProtocol, HidProtocolMode, HidSubclass, HidWriter, ReportId, RequestHandler, State,
+};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config};
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
-use usbd_hid::hid_class::HidProtocolMode;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -72,9 +73,11 @@ async fn main(_spawner: Spawner) {
         request_handler: Some(&mut request_handler),
         poll_ms: 60,
         max_packet_size: 8,
+        hid_subclass: HidSubclass::ReportOrBoot,
+        hid_boot_protocol: HidBootProtocol::Mouse,
     };
 
-    let mut writer = HidWriter::<_, 5>::new_mouse(&mut builder, &mut state, config);
+    let mut writer = HidWriter::<_, 5>::new(&mut builder, &mut state, config);
 
     // Build the builder.
     let mut usb = builder.build();

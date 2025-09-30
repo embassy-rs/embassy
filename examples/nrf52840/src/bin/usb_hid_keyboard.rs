@@ -13,11 +13,12 @@ use embassy_nrf::usb::Driver;
 use embassy_nrf::{bind_interrupts, pac, peripherals, usb};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
-use embassy_usb::class::hid::{HidReaderWriter, ReportId, RequestHandler, State};
+use embassy_usb::class::hid::{
+    HidBootProtocol, HidProtocolMode, HidReaderWriter, HidSubclass, ReportId, RequestHandler, State,
+};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Config, Handler};
 use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
-use usbd_hid::hid_class::HidProtocolMode;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -81,8 +82,10 @@ async fn main(_spawner: Spawner) {
         request_handler: None,
         poll_ms: 60,
         max_packet_size: 64,
+        hid_subclass: HidSubclass::ReportOrBoot,
+        hid_boot_protocol: HidBootProtocol::Keyboard,
     };
-    let hid = HidReaderWriter::<_, 1, 8>::new_keyboard(&mut builder, &mut state, config);
+    let hid = HidReaderWriter::<_, 1, 8>::new(&mut builder, &mut state, config);
 
     // Build the builder.
     let mut usb = builder.build();

@@ -8,8 +8,6 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use ssmarshal::serialize;
 #[cfg(feature = "usbd-hid")]
 use usbd_hid::descriptor::AsInputReport;
-#[cfg(feature = "usbd-hid")]
-use usbd_hid::hid_class::HidProtocolMode;
 
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
@@ -17,13 +15,6 @@ use crate::types::InterfaceNumber;
 use crate::{Builder, Handler};
 
 const USB_CLASS_HID: u8 = 0x03;
-
-const USB_SUBCLASS_REPORT_ONLY: u8 = 0x00;
-const USB_SUBCLASS_BOOT_OR_REPORT: u8 = 0x01;
-
-const USB_PROTOCOL_NONE: u8 = 0x00;
-const USB_PROTOCOL_KEYBOARD: u8 = 0x01;
-const USB_PROTOCOL_MOUSE: u8 = 0x02;
 
 // HID
 const HID_DESC_DESCTYPE_HID: u8 = 0x21;
@@ -40,7 +31,6 @@ const HID_REQ_SET_PROTOCOL: u8 = 0x0b;
 
 /// Get/Set Protocol mapping
 /// See (7.2.5 and 7.2.6): <https://www.usb.org/sites/default/files/hid1_11.pdf>
-#[cfg(not(feature = "usbd-hid"))]
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
@@ -51,7 +41,6 @@ pub enum HidProtocolMode {
     Report = 1,
 }
 
-#[cfg(not(feature = "usbd-hid"))]
 impl From<u8> for HidProtocolMode {
     fn from(mode: u8) -> HidProtocolMode {
         if mode == HidProtocolMode::Boot as u8 {
@@ -60,6 +49,30 @@ impl From<u8> for HidProtocolMode {
             HidProtocolMode::Report
         }
     }
+}
+
+/// USB HID interface subclass values.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum HidSubclass {
+    /// Only report mode is supported.
+    ReportOnly = 0,
+    /// Both boot and report mode are supported.
+    ReportOrBoot = 1,
+}
+
+/// USB HID protocol values.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum HidBootProtocol {
+    /// No specific boot protocol.
+    None = 0,
+    /// Boot protocol keyboard.
+    Keyboard = 1,
+    /// Boot protocol mouse.
+    Mouse = 2,
 }
 
 /// Configuration for the HID class.
@@ -79,6 +92,12 @@ pub struct Config<'d> {
 
     /// Max packet size for both the IN and OUT endpoints.
     pub max_packet_size: u16,
+
+    /// The HID subclass of this interface
+    pub hid_subclass: HidSubclass,
+
+    /// The HID boot protocol of this interface
+    pub hid_boot_protocol: HidBootProtocol,
 }
 
 /// Report ID
@@ -137,15 +156,18 @@ fn build<'d, D: Driver<'d>>(
     state: &'d mut State<'d>,
     config: Config<'d>,
     with_out_endpoint: bool,
-    usb_subclass: u8,
-    usb_protocol: u8,
 ) -> (Option<D::EndpointOut>, D::EndpointIn, &'d AtomicUsize) {
     let len = config.report_descriptor.len();
 
-    let mut func = builder.function(USB_CLASS_HID, usb_subclass, usb_protocol);
+    let mut func = builder.function(USB_CLASS_HID, config.hid_subclass as u8, config.hid_boot_protocol as u8);
     let mut iface = func.interface();
     let if_num = iface.interface_number();
-    let mut alt = iface.alt_setting(USB_CLASS_HID, usb_subclass, usb_protocol, None);
+    let mut alt = iface.alt_setting(
+        USB_CLASS_HID,
+        config.hid_subclass as u8,
+        config.hid_boot_protocol as u8,
+        None,
+    );
 
     // HID descriptor
     alt.descriptor(
@@ -193,42 +215,7 @@ impl<'d, D: Driver<'d>, const READ_N: usize, const WRITE_N: usize> HidReaderWrit
     /// HID reports, consider using [`HidWriter::new`] instead, which allocates an IN endpoint only.
     ///
     pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, config: Config<'d>) -> Self {
-        HidReaderWriter::_new(builder, state, config, USB_SUBCLASS_REPORT_ONLY, USB_PROTOCOL_NONE)
-    }
-
-    /// Creates a new `HidReaderWriter` for a HID Mouse, with support for the BOOT protocol mode.
-    ///
-    /// This will allocate one IN and one OUT endpoints. If you only need writing (sending)
-    /// HID reports, consider using [`HidWriter::new`] instead, which allocates an IN endpoint only.
-    ///
-    pub fn new_mouse(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, config: Config<'d>) -> Self {
-        HidReaderWriter::_new(builder, state, config, USB_SUBCLASS_BOOT_OR_REPORT, USB_PROTOCOL_MOUSE)
-    }
-
-    /// Creates a new `HidReaderWriter` for a HID Keyboard, with support for the BOOT protocol mode.
-    ///
-    /// This will allocate one IN and one OUT endpoints. If you only need writing (sending)
-    /// HID reports, consider using [`HidWriter::new`] instead, which allocates an IN endpoint only.
-    ///
-    pub fn new_keyboard(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, config: Config<'d>) -> Self {
-        HidReaderWriter::_new(
-            builder,
-            state,
-            config,
-            USB_SUBCLASS_BOOT_OR_REPORT,
-            USB_PROTOCOL_KEYBOARD,
-        )
-    }
-
-    /// Private helper function to create a new `HidReaderWriter`.
-    fn _new(
-        builder: &mut Builder<'d, D>,
-        state: &'d mut State<'d>,
-        config: Config<'d>,
-        usb_subclass: u8,
-        usb_protocol: u8,
-    ) -> Self {
-        let (ep_out, ep_in, offset) = build(builder, state, config, true, usb_subclass, usb_protocol);
+        let (ep_out, ep_in, offset) = build(builder, state, config, true);
 
         Self {
             reader: HidReader {
@@ -317,50 +304,7 @@ impl<'d, D: Driver<'d>, const N: usize> HidWriter<'d, D, N> {
     /// of CPU on the device & bandwidth on the bus. A value of 10 is reasonable for
     /// high performance uses, and a value of 255 is good for best-effort usecases.
     pub fn new(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, config: Config<'d>) -> Self {
-        HidWriter::_new(builder, state, config, USB_SUBCLASS_REPORT_ONLY, USB_PROTOCOL_NONE)
-    }
-
-    /// Creates a new `HidWriter` for a HID Mouse, with support for the BOOT protocol mode.
-    ///
-    /// This will allocate one IN endpoint only, so the host won't be able to send
-    /// reports to us. If you need that, consider using [`HidReaderWriter::new`] instead.
-    ///
-    /// poll_ms configures how frequently the host should poll for reading/writing
-    /// HID reports. A lower value means better throughput & latency, at the expense
-    /// of CPU on the device & bandwidth on the bus. A value of 10 is reasonable for
-    /// high performance uses, and a value of 255 is good for best-effort usecases.
-    pub fn new_mouse(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, config: Config<'d>) -> Self {
-        HidWriter::_new(builder, state, config, USB_SUBCLASS_BOOT_OR_REPORT, USB_PROTOCOL_MOUSE)
-    }
-
-    /// Creates a new `HidWriter` for a HID Keyboard, with support for the BOOT protocol mode.
-    ///
-    /// This will allocate one IN endpoint only, so the host won't be able to send
-    /// reports to us. If you need that, consider using [`HidReaderWriter::new`] instead.
-    ///
-    /// poll_ms configures how frequently the host should poll for reading/writing
-    /// HID reports. A lower value means better throughput & latency, at the expense
-    /// of CPU on the device & bandwidth on the bus. A value of 10 is reasonable for
-    /// high performance uses, and a value of 255 is good for best-effort usecases.
-    pub fn new_keyboard(builder: &mut Builder<'d, D>, state: &'d mut State<'d>, config: Config<'d>) -> Self {
-        HidWriter::_new(
-            builder,
-            state,
-            config,
-            USB_SUBCLASS_BOOT_OR_REPORT,
-            USB_PROTOCOL_KEYBOARD,
-        )
-    }
-
-    /// Private helper function to create a new `HidWriter`.
-    pub fn _new(
-        builder: &mut Builder<'d, D>,
-        state: &'d mut State<'d>,
-        config: Config<'d>,
-        usb_subclass: u8,
-        usb_protocol: u8,
-    ) -> Self {
-        let (ep_out, ep_in, _offset) = build(builder, state, config, false, usb_subclass, usb_protocol);
+        let (ep_out, ep_in, _offset) = build(builder, state, config, false);
 
         assert!(ep_out.is_none());
 

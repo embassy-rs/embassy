@@ -11,7 +11,7 @@ use embassy_stm32::gpio::Pull;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
-use embassy_usb::class::hid::{HidReaderWriter, ReportId, RequestHandler, State};
+use embassy_usb::class::hid::{HidBootProtocol, HidReaderWriter, HidSubclass, ReportId, RequestHandler, State};
 use embassy_usb::control::OutResponse;
 use embassy_usb::{Builder, Handler};
 use usbd_hid::descriptor::{KeyboardReport, SerializedDescriptor};
@@ -105,9 +105,11 @@ async fn main(_spawner: Spawner) {
         request_handler: None,
         poll_ms: 60,
         max_packet_size: 8,
+        hid_subclass: HidSubclass::ReportOrBoot,
+        hid_boot_protocol: HidBootProtocol::Keyboard,
     };
 
-    let hid = HidReaderWriter::<_, 1, 8>::new_keyboard(&mut builder, &mut state, config);
+    let hid = HidReaderWriter::<_, 1, 8>::new(&mut builder, &mut state, config);
 
     // Build the builder.
     let mut usb = builder.build();

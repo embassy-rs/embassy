@@ -8,7 +8,7 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
 use embassy_time::Timer;
-use embassy_usb::class::hid::{HidWriter, ReportId, RequestHandler, State};
+use embassy_usb::class::hid::{HidBootProtocol, HidSubclass, HidWriter, ReportId, RequestHandler, State};
 use embassy_usb::control::OutResponse;
 use embassy_usb::Builder;
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
@@ -95,9 +95,11 @@ async fn main(_spawner: Spawner) {
         request_handler: Some(&mut request_handler),
         poll_ms: 60,
         max_packet_size: 8,
+        hid_subclass: HidSubclass::ReportOrBoot,
+        hid_boot_protocol: HidBootProtocol::Mouse,
     };
 
-    let mut writer = HidWriter::<_, 5>::new_mouse(&mut builder, &mut state, config);
+    let mut writer = HidWriter::<_, 5>::new(&mut builder, &mut state, config);
 
     // Build the builder.
     let mut usb = builder.build();
