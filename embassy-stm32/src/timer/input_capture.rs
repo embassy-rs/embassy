@@ -155,6 +155,44 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         self.new_future(channel, InputCaptureMode::BothEdges, InputTISelection::Alternate)
             .await
     }
+
+    /// Capture a sequence of timer input edges into a buffer using DMA
+    pub async fn receive_waveform<M>(&mut self, dma: Peri<'_, impl super::Dma<T, M>>, buf: &mut [u16])
+    where
+        M: TimerChannel,
+    {
+        #[allow(clippy::let_unit_value)] // eg. stm32f334
+        let req = dma.request();
+
+        let original_enable_state = self.is_enabled(M::CHANNEL);
+        let original_update_dma_state = self.inner.get_update_dma_state();
+
+        if !original_update_dma_state {
+            self.inner.enable_update_dma(true);
+        }
+
+        if !original_enable_state {
+            self.enable(M::CHANNEL);
+        }
+
+        unsafe {
+            use crate::dma::{Transfer, TransferOptions};
+
+            Transfer::new_read(
+                dma,
+                req,
+                self.inner.regs_1ch().ccr(M::CHANNEL.index()).as_ptr() as *mut u16,
+                buf,
+                TransferOptions::default(),
+            )
+            .await
+        };
+
+        // restore output compare state
+        if !original_enable_state {
+            self.disable(M::CHANNEL);
+        }
+    }
 }
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
