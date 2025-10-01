@@ -69,7 +69,7 @@ async fn main(_spawner: Spawner) {
         request_handler: None,
         poll_ms: 60,
         max_packet_size: 64,
-        hid_subclass: HidSubclass::ReportOrBoot,
+        hid_subclass: HidSubclass::Boot,
         hid_boot_protocol: HidBootProtocol::Mouse,
     };
     let hid = HidReaderWriter::<_, 1, 8>::new(&mut builder, &mut state, config);

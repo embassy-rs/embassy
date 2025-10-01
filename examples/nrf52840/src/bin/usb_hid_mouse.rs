@@ -73,7 +73,7 @@ async fn main(_spawner: Spawner) {
         request_handler: Some(&mut request_handler),
         poll_ms: 60,
         max_packet_size: 8,
-        hid_subclass: HidSubclass::ReportOrBoot,
+        hid_subclass: HidSubclass::Boot,
         hid_boot_protocol: HidBootProtocol::Mouse,
     };
 

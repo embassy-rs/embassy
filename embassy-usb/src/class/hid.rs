@@ -56,10 +56,10 @@ impl From<u8> for HidProtocolMode {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
 pub enum HidSubclass {
-    /// Only report mode is supported.
-    ReportOnly = 0,
-    /// Both boot and report mode are supported.
-    ReportOrBoot = 1,
+    /// No subclass, standard HID device.
+    No = 0,
+    /// Boot interface subclass, supports BIOS boot protocol.
+    Boot = 1,
 }
 
 /// USB HID protocol values.
@@ -67,11 +67,11 @@ pub enum HidSubclass {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
 pub enum HidBootProtocol {
-    /// No specific boot protocol.
+    /// No boot protocol.
     None = 0,
-    /// Boot protocol keyboard.
+    /// Keyboard boot protocol.
     Keyboard = 1,
-    /// Boot protocol mouse.
+    /// Mouse boot protocol.
     Mouse = 2,
 }
 
