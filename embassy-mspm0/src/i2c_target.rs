@@ -62,9 +62,9 @@ pub enum ReadStatus {
     /// Transaction completed successfully. The controller either NACKed the last byte
     /// or sent a STOP condition.
     Done,
-    /// Transaction Incomplete, controller trying to read more bytes than were provided
+    /// Transaction incomplete, controller trying to read more bytes than were provided
     NeedMoreBytes,
-    /// Transaction Complere, but controller stopped reading bytes before we ran out
+    /// Transaction complete, but controller stopped reading bytes before we ran out
     LeftoverBytes(u16),
 }
 
