@@ -1,8 +1,8 @@
-#[cfg(rcc_h5)]
+#[cfg(backup_sram)]
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::{compiler_fence, Ordering};
 
-#[cfg(rcc_h5)]
+#[cfg(backup_sram)]
 use stm32_metapac::pwr::vals::Retention;
 
 use crate::pac::common::{Reg, RW};
@@ -14,7 +14,7 @@ pub const LSI_FREQ: Hertz = Hertz(40_000);
 #[cfg(not(any(stm32f0, stm32f1, stm32f3)))]
 pub const LSI_FREQ: Hertz = Hertz(32_000);
 
-#[cfg(rcc_h5)]
+#[cfg(backup_sram)]
 pub(crate) static WAS_BKPSRAM_ALREADY_POWERED_BY_BATTERY: AtomicBool = AtomicBool::new(false);
 
 #[allow(dead_code)]
@@ -97,7 +97,7 @@ pub struct LsConfig {
     pub rtc: RtcClockSource,
     pub lsi: bool,
     pub lse: Option<LseConfig>,
-    #[cfg(rcc_h5)]
+    #[cfg(backup_sram)]
     pub backup_ram_retention: Retention,
 }
 
@@ -123,7 +123,7 @@ impl LsConfig {
                 peripherals_clocked: false,
             }),
             lsi: false,
-            #[cfg(rcc_h5)]
+            #[cfg(backup_sram)]
             backup_ram_retention: Retention::LOST,
         }
     }
@@ -133,7 +133,7 @@ impl LsConfig {
             rtc: RtcClockSource::LSI,
             lsi: true,
             lse: None,
-            #[cfg(rcc_h5)]
+            #[cfg(backup_sram)]
             backup_ram_retention: Retention::LOST,
         }
     }
@@ -143,7 +143,7 @@ impl LsConfig {
             rtc: RtcClockSource::DISABLE,
             lsi: false,
             lse: None,
-            #[cfg(rcc_h5)]
+            #[cfg(backup_sram)]
             backup_ram_retention: Retention::LOST,
         }
     }
