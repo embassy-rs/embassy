@@ -210,7 +210,7 @@ impl LsConfig {
         }
 
         // Enable backup regulator for peristent battery backed sram
-        #[cfg(rcc_h5)]
+        #[cfg(backup_sram)]
         {
             crate::pac::PWR.bdcr().modify(|w| {
                 WAS_BKPSRAM_ALREADY_POWERED_BY_BATTERY.store(w.bren() == Retention::PRESERVED, Ordering::SeqCst);
@@ -218,7 +218,6 @@ impl LsConfig {
                 w.set_bren(self.backup_ram_retention)
             });
 
-            #[cfg(rcc_h5)]
             if self.backup_ram_retention == Retention::PRESERVED {
                 // Wait for backup regulator voltage to stabilize
                 while !crate::pac::PWR.bdsr().read().brrdy() {}
