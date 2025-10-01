@@ -160,28 +160,24 @@ impl<'peri, 'buf, C0: Channel, C1: Channel> RxStream<'peri, 'buf, C0, C1> {
         match state.filling {
             Some(Which::A) => {
                 if !info.ch_a.regs().ctrl_trig().read().busy() {
+                    // reconfigure channel A's write address
+                    unsafe { Self::program_channel(info, buffers, Which::A, false) };
+
                     // buffer A is ready
                     state.ready = Some(Which::A);
                     state.filling = Some(Which::B);
-
-                    // // if channel B is not enabled, start it
-                    // if !info.ch_b.regs().ctrl_trig().read().en() {
-                    //     unsafe { Self::program_channel(info, buffers, Which::B, true) };
-                    // }
 
                     return Poll::Ready(Some(Which::A));
                 }
             }
             Some(Which::B) => {
                 if !info.ch_b.regs().ctrl_trig().read().busy() {
+                    // reconfigure channel B's write address
+                    unsafe { Self::program_channel(info, buffers, Which::B, false) };
+
                     // buffer B is ready
                     state.ready = Some(Which::B);
                     state.filling = Some(Which::A);
-
-                    // // if channel A is not enabled, start it
-                    // if !info.ch_a.regs().ctrl_trig().read().en() {
-                    //     unsafe { Self::program_channel(info, buffers, Which::A, true) };
-                    // }
 
                     return Poll::Ready(Some(Which::B));
                 }
