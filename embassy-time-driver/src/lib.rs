@@ -6,7 +6,7 @@
 //!
 //! - Define a struct `MyDriver`
 //! - Implement [`Driver`] for it
-//! - Register it as the global driver with [`time_driver_impl`](crate::time_driver_impl).
+//! - Register it as the global driver with [`time_driver_impl`].
 //!
 //! If your driver has a single set tick rate, enable the corresponding [`tick-hz-*`](crate#tick-rate) feature,
 //! which will prevent users from needing to configure it themselves (or selecting an incorrect configuration).

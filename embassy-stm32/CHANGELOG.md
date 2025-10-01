@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix: handle address and data-length errors in OSPI
 - feat: Allow OSPI DMA writes larger than 64kB using chunking
 - feat: More ADC enums for g0 PAC, API change for oversampling, allow separate sample times
+- feat: Add USB CRS sync support for STM32C071
+- fix: RTC register definition for STM32L4P5 and L4Q5 as they use v3 register map.
+- fix: Cut down the capabilities of the STM32L412 and L422 RTC as those are missing binary timer mode and underflow interrupt.
+- fix: Allow configuration of the internal pull up/down resistors on the pins for the Qei peripheral, as well as the Qei decoder mode.
 
 ## 0.4.0 - 2025-08-26
 

@@ -25,7 +25,7 @@ bind_interrupts!(struct Irqs {
 async fn net_task(
     mut runner: embassy_net::Runner<
         'static,
-        Enc28j60<ExclusiveDevice<Spim<'static, peripherals::SPI3>, Output<'static>, Delay>, Output<'static>>,
+        Enc28j60<ExclusiveDevice<Spim<'static>, Output<'static>, Delay>, Output<'static>>,
     >,
 ) -> ! {
     runner.run().await

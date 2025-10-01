@@ -2,7 +2,7 @@
 name = "embassy-imxrt"
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
+license = "MIT OR Apache-2.0"
 description = "Embassy Hardware Abstraction Layer (HAL) for the IMXRT microcontroller"
 keywords = ["embedded", "async", "imxrt", "rt600", "embedded-hal"]
 categories = ["embedded", "hardware-support", "no-std", "asynchronous"]

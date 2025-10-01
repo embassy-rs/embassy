@@ -49,6 +49,9 @@ esp32c3-hal = { version = "0.13.0", optional = true, default-features = false }
 dfu = []
 application = []
 defmt = ["dep:defmt", "embassy-boot/defmt", "embassy-usb/defmt"]
+log = ["dep:log"]
+cortex-m = ["dep:cortex-m"]  
+esp32c3-hal = ["dep:esp32c3-hal"]
 ed25519-dalek = ["embassy-boot/ed25519-dalek", "_verify"]
 ed25519-salty = ["embassy-boot/ed25519-salty", "_verify"]
 

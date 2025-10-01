@@ -1,6 +1,6 @@
 [package]
 name = "embassy-nrf"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Embassy Hardware Abstraction Layer (HAL) for nRF series microcontrollers"
@@ -34,6 +34,7 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["defmt", "gpiote", "nrf52840", "time"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "gpiote", "nrf52840", "time-driver-rtc1"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "gpiote", "nrf52840", "time", "time-driver-rtc1"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "gpiote", "nrf52840", "time", "time-driver-rtc1","qspi-multiwrite-flash"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "nrf51", "time", "time-driver-rtc1"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "nrf51", "time"]},
     {target = "thumbv6m-none-eabi", features = ["nrf51", "time"]},
@@ -66,6 +67,8 @@ time = ["dep:embassy-time", "embassy-embedded-hal/time"]
 
 ## Enable defmt
 defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "embassy-usb-driver/defmt", "embassy-embedded-hal/defmt"]
+## Enable log
+log = ["dep:log"]
 
 ## Reexport the PAC for the currently enabled chip at `embassy_nrf::pac` (unstable)
 unstable-pac = []

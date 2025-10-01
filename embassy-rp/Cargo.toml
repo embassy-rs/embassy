@@ -45,6 +45,10 @@ rt = [ "rp-pac/rt" ]
 
 ## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
 defmt = ["dep:defmt", "embassy-usb-driver/defmt", "embassy-hal-internal/defmt"]
+## Enable log support
+log = ["dep:log"]
+## Enable chrono support  
+chrono = ["dep:chrono"]
 
 ## Configure the [`critical-section`](https://docs.rs/critical-section) crate to use an implementation that is safe for multicore use on rp2040.
 critical-section-impl = ["critical-section/restore-state-u8"]

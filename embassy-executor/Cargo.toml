@@ -123,6 +123,12 @@ rustversion = "1.0.21"
 ## Enable nightly-only features
 nightly = ["embassy-executor-macros/nightly"]
 
+## Enable defmt logging
+defmt = ["dep:defmt"]
+
+## Enable log logging  
+log = ["dep:log"]
+
 # Enables turbo wakers, which requires patching core. Not surfaced in the docs by default due to
 # being an complicated advanced and undocumented feature.
 # See: https://github.com/embassy-rs/embassy/pull/1263

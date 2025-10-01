@@ -1,15 +1,17 @@
 //! IEEE 802.15.4 radio driver
 
+use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 
-use super::{Error, Instance, InterruptHandler, TxPower};
+use super::{Error, InterruptHandler, TxPower};
 use crate::interrupt::typelevel::Interrupt;
 use crate::interrupt::{self};
 use crate::pac::radio::vals;
 pub use crate::pac::radio::vals::State as RadioState;
+use crate::radio::Instance;
 use crate::Peri;
 
 /// Default (IEEE compliant) Start of Frame Delimiter
@@ -32,18 +34,20 @@ pub enum Cca {
 }
 
 /// IEEE 802.15.4 radio driver.
-pub struct Radio<'d, T: Instance> {
-    _p: Peri<'d, T>,
+pub struct Radio<'d> {
+    r: crate::pac::radio::Radio,
+    state: &'static crate::radio::State,
     needs_enable: bool,
+    phantom: PhantomData<&'d ()>,
 }
 
-impl<'d, T: Instance> Radio<'d, T> {
+impl<'d> Radio<'d> {
     /// Create a new IEEE 802.15.4 radio driver.
-    pub fn new(
-        radio: Peri<'d, T>,
+    pub fn new<T: Instance>(
+        _radio: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
-        let r = T::regs();
+        let r = crate::pac::RADIO;
 
         // Disable and enable to reset peripheral
         r.power().write(|w| w.set_power(false));
@@ -89,12 +93,14 @@ impl<'d, T: Instance> Radio<'d, T> {
         });
 
         // Enable NVIC interrupt
-        T::Interrupt::unpend();
-        unsafe { T::Interrupt::enable() };
+        crate::interrupt::typelevel::RADIO::unpend();
+        unsafe { crate::interrupt::typelevel::RADIO::enable() };
 
         let mut radio = Self {
-            _p: radio,
+            r: crate::pac::RADIO,
+            state: T::state(),
             needs_enable: false,
+            phantom: PhantomData,
         };
 
         radio.set_sfd(DEFAULT_SFD);
@@ -107,7 +113,7 @@ impl<'d, T: Instance> Radio<'d, T> {
 
     /// Changes the radio channel
     pub fn set_channel(&mut self, channel: u8) {
-        let r = T::regs();
+        let r = self.r;
         if channel < 11 || channel > 26 {
             panic!("Bad 802.15.4 channel");
         }
@@ -121,7 +127,7 @@ impl<'d, T: Instance> Radio<'d, T> {
 
     /// Changes the Clear Channel Assessment method
     pub fn set_cca(&mut self, cca: Cca) {
-        let r = T::regs();
+        let r = self.r;
         self.needs_enable = true;
         match cca {
             Cca::CarrierSense => r.ccactrl().write(|w| w.set_ccamode(vals::Ccamode::CARRIER_MODE)),
@@ -138,19 +144,19 @@ impl<'d, T: Instance> Radio<'d, T> {
 
     /// Changes the Start of Frame Delimiter (SFD)
     pub fn set_sfd(&mut self, sfd: u8) {
-        let r = T::regs();
+        let r = self.r;
         r.sfd().write(|w| w.set_sfd(sfd));
     }
 
     /// Clear interrupts
     pub fn clear_all_interrupts(&mut self) {
-        let r = T::regs();
+        let r = self.r;
         r.intenclr().write(|w| w.0 = 0xffff_ffff);
     }
 
     /// Changes the radio transmission power
     pub fn set_transmission_power(&mut self, power: i8) {
-        let r = T::regs();
+        let r = self.r;
         self.needs_enable = true;
 
         let tx_power: TxPower = match power {
@@ -201,12 +207,12 @@ impl<'d, T: Instance> Radio<'d, T> {
 
     /// Get the current radio state
     fn state(&self) -> RadioState {
-        T::regs().state().read().state()
+        self.r.state().read().state()
     }
 
     /// Moves the radio from any state to the DISABLED state
     fn disable(&mut self) {
-        let r = T::regs();
+        let r = self.r;
         // See figure 110 in nRF52840-PS
         loop {
             match self.state() {
@@ -238,15 +244,15 @@ impl<'d, T: Instance> Radio<'d, T> {
     }
 
     fn set_buffer(&mut self, buffer: &[u8]) {
-        let r = T::regs();
+        let r = self.r;
         r.packetptr().write_value(buffer.as_ptr() as u32);
     }
 
     /// Moves the radio to the RXIDLE state
     fn receive_prepare(&mut self) {
         // clear related events
-        T::regs().events_ccabusy().write_value(0);
-        T::regs().events_phyend().write_value(0);
+        self.r.events_ccabusy().write_value(0);
+        self.r.events_phyend().write_value(0);
         // NOTE to avoid errata 204 (see rev1 v1.4) we do TX_IDLE -> DISABLED -> RXIDLE
         let disable = match self.state() {
             RadioState::DISABLED => false,
@@ -263,7 +269,7 @@ impl<'d, T: Instance> Radio<'d, T> {
     fn receive_start(&mut self, packet: &mut Packet) {
         // NOTE we do NOT check the address of `packet` because the mutable reference ensures it's
         // allocated in RAM
-        let r = T::regs();
+        let r = self.r;
 
         self.receive_prepare();
 
@@ -290,7 +296,7 @@ impl<'d, T: Instance> Radio<'d, T> {
 
     /// Cancel receiving packet
     fn receive_cancel() {
-        let r = T::regs();
+        let r = crate::pac::RADIO;
         r.shorts().write(|_| {});
         r.tasks_stop().write_value(1);
         loop {
@@ -309,8 +315,8 @@ impl<'d, T: Instance> Radio<'d, T> {
     /// validated by the hardware; otherwise it returns the `Err` variant. In either case, `packet`
     /// will be updated with the received packet's data
     pub async fn receive(&mut self, packet: &mut Packet) -> Result<(), Error> {
-        let s = T::state();
-        let r = T::regs();
+        let s = self.state;
+        let r = self.r;
 
         // Start the read
         self.receive_start(packet);
@@ -356,8 +362,8 @@ impl<'d, T: Instance> Radio<'d, T> {
     // NOTE we do NOT check the address of `packet` because the mutable reference ensures it's
     // allocated in RAM
     pub async fn try_send(&mut self, packet: &mut Packet) -> Result<(), Error> {
-        let s = T::state();
-        let r = T::regs();
+        let s = self.state;
+        let r = self.r;
 
         // enable radio to perform cca
         self.receive_prepare();

@@ -28,3 +28,7 @@ log = { version = "0.4.14", optional = true }
 embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
+
+[features]
+defmt = ["dep:defmt"]
+log = ["dep:log"]

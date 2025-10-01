@@ -5,7 +5,7 @@ use defmt::{info, panic};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_nrf::usb::vbus_detect::{HardwareVbusDetect, VbusDetect};
-use embassy_nrf::usb::{Driver, Instance};
+use embassy_nrf::usb::Driver;
 use embassy_nrf::{bind_interrupts, pac, peripherals, usb};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
@@ -108,9 +108,7 @@ impl From<EndpointError> for Disconnected {
     }
 }
 
-async fn echo<'d, T: Instance + 'd, P: VbusDetect + 'd>(
-    class: &mut CdcAcmClass<'d, Driver<'d, T, P>>,
-) -> Result<(), Disconnected> {
+async fn echo<'d, V: VbusDetect + 'd>(class: &mut CdcAcmClass<'d, Driver<'d, V>>) -> Result<(), Disconnected> {
     let mut buf = [0; 64];
     loop {
         let n = class.read_packet(&mut buf).await?;
