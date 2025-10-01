@@ -29,7 +29,7 @@ const WIFI_PASSWORD: &str = "V8YxhKt5CdIAJFud";
 async fn wifi_task(
     runner: hosted::Runner<
         'static,
-        ExclusiveDevice<Spim<'static, peripherals::SPI3>, Output<'static>, Delay>,
+        ExclusiveDevice<Spim<'static>, Output<'static>, Delay>,
         Input<'static>,
         Output<'static>,
     >,

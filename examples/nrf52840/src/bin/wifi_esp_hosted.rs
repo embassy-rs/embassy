@@ -27,7 +27,7 @@ bind_interrupts!(struct Irqs {
 async fn wifi_task(
     runner: hosted::Runner<
         'static,
-        ExclusiveDevice<Spim<'static, peripherals::SPI3>, Output<'static>, Delay>,
+        ExclusiveDevice<Spim<'static>, Output<'static>, Delay>,
         Input<'static>,
         Output<'static>,
     >,

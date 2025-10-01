@@ -24,6 +24,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: More ADC enums for g0 PAC, API change for oversampling, allow separate sample times
 - feat: Add USB CRS sync support for STM32C071
 - feat: stm32/rcc/mco: Added support for IO driver strength when using Master Clock Out IO. This changes signature on Mco::new taking a McoConfig struct ([#4679](https://github.com/embassy-rs/embassy/pull/4679))
+- fix: RTC register definition for STM32L4P5 and L4Q5 as they use v3 register map.
+- fix: Cut down the capabilities of the STM32L412 and L422 RTC as those are missing binary timer mode and underflow interrupt.
+- fix: Allow configuration of the internal pull up/down resistors on the pins for the Qei peripheral, as well as the Qei decoder mode.
 
 ## 0.4.0 - 2025-08-26
 

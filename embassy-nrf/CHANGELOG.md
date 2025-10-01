@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.8.0 - 2025-09-30
+
+- changed: Remove `T: Instance` generic params in all drivers.
 - changed: nrf54l: Disable glitch detection and enable DC/DC in init.
 - changed: Add embassy-net-driver-channel implementation for IEEE 802.15.4
 - changed: add persist() method for gpio and ppi
@@ -16,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - changed: impl Drop for Timer
 - added: expose `regs` for timer driver
 - added: timer driver CC `clear_events` method
+- changed: Saadc reset in Drop impl, anomaly 241 - high power usage
 
 ## 0.7.0 - 2025-08-26
 

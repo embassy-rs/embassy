@@ -14,8 +14,7 @@ use {defmt_rtt as _, panic_probe as _};
 
 // 64 bit counter which will never overflow.
 static TICK_COUNTER: AtomicU64 = AtomicU64::new(0);
-static RTC: Mutex<CriticalSectionRawMutex, RefCell<Option<Rtc<'static, embassy_nrf::peripherals::RTC0>>>> =
-    Mutex::new(RefCell::new(None));
+static RTC: Mutex<CriticalSectionRawMutex, RefCell<Option<Rtc<'static>>>> = Mutex::new(RefCell::new(None));
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
