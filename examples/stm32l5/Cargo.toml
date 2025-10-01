@@ -24,7 +24,7 @@ cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-sing
 cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
 heapless = { version = "0.8", default-features = false }
-embedded-io-async = { version = "0.6.1" }
+embedded-io-async = { version = "0.7.0" }
 static_cell = "2"
 
 [profile.release]

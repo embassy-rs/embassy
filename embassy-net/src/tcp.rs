@@ -670,6 +670,13 @@ impl<'d> TcpIo<'d> {
 mod embedded_io_impls {
     use super::*;
 
+    impl core::fmt::Display for ConnectError {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.write_str("ConnectError")
+        }
+    }
+    impl core::error::Error for ConnectError {}
+
     impl embedded_io_async::Error for ConnectError {
         fn kind(&self) -> embedded_io_async::ErrorKind {
             match self {
@@ -680,6 +687,15 @@ mod embedded_io_impls {
             }
         }
     }
+
+    impl core::fmt::Display for Error {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            match self {
+                Self::ConnectionReset => f.write_str("ConnectionReset"),
+            }
+        }
+    }
+    impl core::error::Error for Error {}
 
     impl embedded_io_async::Error for Error {
         fn kind(&self) -> embedded_io_async::ErrorKind {

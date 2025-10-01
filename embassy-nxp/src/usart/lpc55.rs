@@ -51,6 +51,15 @@ impl embedded_io::Error for Error {
         }
     }
 }
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(self, f)
+    }
+}
+
+impl core::error::Error for Error {}
+
 /// Word length.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum DataBits {

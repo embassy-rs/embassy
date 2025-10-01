@@ -568,6 +568,27 @@ pub enum Error {
     ClockSetup(ClockError),
 }
 
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Error::Read => write!(f, "Read error"),
+            Error::Overrun => write!(f, "Buffer overflow"),
+            Error::Noise => write!(f, "Noise error"),
+            Error::Framing => write!(f, "Framing error"),
+            Error::Parity => write!(f, "Parity error"),
+            Error::Fail => write!(f, "Failure"),
+            Error::InvalidArgument => write!(f, "Invalid argument"),
+            Error::UnsupportedBaudrate => write!(f, "Unsupported baud rate"),
+            Error::RxFifoEmpty => write!(f, "RX FIFO empty"),
+            Error::TxFifoFull => write!(f, "TX FIFO full"),
+            Error::TxBusy => write!(f, "TX busy"),
+            Error::ClockSetup(e) => write!(f, "Clock setup error: {:?}", e),
+        }
+    }
+}
+
+impl core::error::Error for Error {}
+
 /// A specialized Result type for LPUART operations
 pub type Result<T> = core::result::Result<T, Error>;
 

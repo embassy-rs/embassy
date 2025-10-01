@@ -33,7 +33,7 @@ embassy-net = { version = "0.7.1", path = "../../embassy-net", features = [
     "dhcpv4",
     "medium-ethernet",
 ] }
-embedded-io-async = { version = "0.6.1" }
+embedded-io-async = { version = "0.7.0" }
 embassy-usb = { version = "0.5.1", path = "../../embassy-usb", features = [
     "defmt",
 ] }

@@ -18,7 +18,7 @@ defmt-rtt = "1.0.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 panic-semihosting = "0.6.0"
 
-embedded-io-async = "0.6.1"
+embedded-io-async = { version = "0.7.0" }
 
 [profile.release]
 debug = 2
