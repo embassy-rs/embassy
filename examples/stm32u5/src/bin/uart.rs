@@ -3,10 +3,8 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::{
-    bind_interrupts, peripherals,
-    usart::{self, Config, Uart},
-};
+use embassy_stm32::usart::{self, Config, Uart};
+use embassy_stm32::{bind_interrupts, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
