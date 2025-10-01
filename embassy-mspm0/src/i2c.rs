@@ -56,6 +56,19 @@ pub enum ClockDiv {
 }
 
 impl ClockDiv {
+    pub(crate) fn into(self) -> vals::Ratio {
+        match self {
+            Self::DivBy1 => vals::Ratio::DIV_BY_1,
+            Self::DivBy2 => vals::Ratio::DIV_BY_2,
+            Self::DivBy3 => vals::Ratio::DIV_BY_3,
+            Self::DivBy4 => vals::Ratio::DIV_BY_4,
+            Self::DivBy5 => vals::Ratio::DIV_BY_5,
+            Self::DivBy6 => vals::Ratio::DIV_BY_6,
+            Self::DivBy7 => vals::Ratio::DIV_BY_7,
+            Self::DivBy8 => vals::Ratio::DIV_BY_8,
+        }
+    }
+
     fn divider(self) -> u32 {
         match self {
             Self::DivBy1 => 1,
@@ -66,21 +79,6 @@ impl ClockDiv {
             Self::DivBy6 => 6,
             Self::DivBy7 => 7,
             Self::DivBy8 => 8,
-        }
-    }
-}
-
-impl From<ClockDiv> for vals::Ratio {
-    fn from(value: ClockDiv) -> Self {
-        match value {
-            ClockDiv::DivBy1 => Self::DIV_BY_1,
-            ClockDiv::DivBy2 => Self::DIV_BY_2,
-            ClockDiv::DivBy3 => Self::DIV_BY_3,
-            ClockDiv::DivBy4 => Self::DIV_BY_4,
-            ClockDiv::DivBy5 => Self::DIV_BY_5,
-            ClockDiv::DivBy6 => Self::DIV_BY_6,
-            ClockDiv::DivBy7 => Self::DIV_BY_7,
-            ClockDiv::DivBy8 => Self::DIV_BY_8,
         }
     }
 }
