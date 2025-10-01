@@ -1,6 +1,6 @@
 //! Example of using async I2C target
 //!
-//! This uses the virtual COM port provided on the LP-MSPM0G3507 board.
+//! This uses the virtual COM port provided on the LP-MSPM0L1306 board.
 
 #![no_std]
 #![no_main]
@@ -8,21 +8,21 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_mspm0::i2c_target::{Command, I2cTarget, ReadStatus};
-use embassy_mspm0::peripherals::I2C1;
+use embassy_mspm0::peripherals::I2C0;
 use embassy_mspm0::{bind_interrupts, i2c};
 use {defmt_rtt as _, panic_halt as _};
 
 bind_interrupts!(struct Irqs {
-    I2C1 => i2c::InterruptHandler<I2C1>;
+    I2C0 => i2c::InterruptHandler<I2C0>;
 });
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
     let p = embassy_mspm0::init(Default::default());
 
-    let instance = p.I2C1;
-    let scl = p.PB2;
-    let sda = p.PB3;
+    let instance = p.I2C0;
+    let scl = p.PA1;
+    let sda = p.PA0;
 
     let mut config = i2c::Config::default();
     config.target_addr = 0x48;
