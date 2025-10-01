@@ -876,9 +876,12 @@ impl<'d> UartRx<'d, Async> {
             Either::Left(((), _)) => Ok(ReadCompletionEvent::DmaCompleted),
 
             // Idle line detected first
-            Either::Right((Ok(()), transfer)) => Ok(ReadCompletionEvent::Idle(
-                buffer_len - transfer.get_remaining_transfers() as usize,
-            )),
+            Either::Right((Ok(()), mut transfer)) => {
+                transfer.request_pause();
+                Ok(ReadCompletionEvent::Idle(
+                    buffer_len - transfer.get_remaining_transfers() as usize,
+                ))
+            }
 
             // error occurred
             Either::Right((Err(e), _)) => Err(e),
