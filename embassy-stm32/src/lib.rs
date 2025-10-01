@@ -53,7 +53,7 @@ pub mod timer;
 
 #[cfg(adc)]
 pub mod adc;
-//#[cfg(backup_sram)]
+#[cfg(backup_sram)]
 pub mod backup_sram;
 #[cfg(can)]
 pub mod can;

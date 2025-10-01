@@ -124,9 +124,11 @@ fn main() {
         singletons.push(p.name.to_string());
     }
 
+    cfgs.declare("backup_sram");
+
     if has_bkpsram {
         singletons.push("BKPSRAM".to_string());
-        cfgs.declare("backup_sram");
+        cfgs.enable("backup_sram")
     }
 
     // generate one singleton per peripheral (with many exceptions...)
