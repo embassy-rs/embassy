@@ -273,10 +273,10 @@ impl<'a> DescriptorWriter<'a> {
                 assert_eq!(synchronization_type, SynchronizationType::NoSynchronization)
             }
 
-            let synchronization_bm_attibutes: u8 = (synchronization_type as u8) << 2;
-            let usage_bm_attibutes: u8 = (usage_type as u8) << 4;
+            let synchronization_bm_attributes: u8 = (synchronization_type as u8) << 2;
+            let usage_bm_attributes: u8 = (usage_type as u8) << 4;
 
-            bm_attributes |= usage_bm_attibutes | synchronization_bm_attibutes;
+            bm_attributes |= usage_bm_attributes | synchronization_bm_attributes;
         }
 
         self.write(
