@@ -20,7 +20,7 @@ pub enum AddrMask {
     MASK4,
     /// OA2\[5:1\] are masked and don’t care. Only OA2\[7:6\] are compared.
     MASK5,
-    /// OA2\[6:1\] are masked and don’t care. Only OA2\[7:6\] are compared.
+    /// OA2\[6:1\] are masked and don’t care. Only OA2\[7\] is compared.
     MASK6,
     /// OA2\[7:1\] are masked and don’t care. No comparison is done, and all (except reserved) 7-bit received addresses are acknowledged
     MASK7,
