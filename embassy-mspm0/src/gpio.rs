@@ -156,7 +156,12 @@ impl<'d> Flex<'d> {
             w.set_pf(GPIO_PF);
             w.set_hiz1(true);
             w.set_pc(true);
-            w.set_inena(false);
+            w.set_inena(true);
+        });
+
+        // Enable output driver (DOE) - required for open-drain to drive low
+        self.pin.block().doeset31_0().write(|w| {
+            w.set_dio(self.pin.bit_index(), true);
         });
 
         self.set_pull(Pull::None);
