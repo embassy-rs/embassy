@@ -165,10 +165,13 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         let req = dma.request();
 
         let original_enable_state = self.is_enabled(M::CHANNEL);
-        let original_update_dma_state = self.inner.get_update_dma_state();
+        let original_cc_dma_enable_state = self.inner.get_cc_dma_enable_state(M::CHANNEL);
 
-        if !original_update_dma_state {
-            self.inner.enable_update_dma(true);
+        self.inner.set_input_ti_selection(M::CHANNEL, InputTISelection::Normal);
+        self.inner.set_input_capture_mode(M::CHANNEL, InputCaptureMode::BothEdges);
+
+        if !original_cc_dma_enable_state {
+            self.inner.set_cc_dma_enable_state(M::CHANNEL, true);
         }
 
         if !original_enable_state {
@@ -181,7 +184,7 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
             Transfer::new_read(
                 dma,
                 req,
-                self.inner.regs_1ch().ccr(M::CHANNEL.index()).as_ptr() as *mut u16,
+                self.inner.regs_gp16().ccr(M::CHANNEL.index()).as_ptr() as *mut u16,
                 buf,
                 TransferOptions::default(),
             )
