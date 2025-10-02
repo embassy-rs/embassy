@@ -240,6 +240,82 @@ impl ClosedWindowPercentage {
     }
 }
 
+/// Reset cause values from SYSCTL.RSTCAUSE register.
+/// Based on MSPM0 Technical Reference Manual Table 2-9.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum ResetCause {
+    /// No reset since last read
+    NoReset = 0x00,
+    /// VDD < POR- violation, PMU trim parity fault, or SHUTDNSTOREx parity fault
+    PorHwFailure = 0x01,
+    /// NRST pin reset (>1s)
+    PorExternalNrst = 0x02,
+    /// Software-triggered POR
+    PorSwTriggered = 0x03,
+    /// VDD < BOR- violation
+    BorSupplyFailure = 0x04,
+    /// Wake from SHUTDOWN
+    BorWakeFromShutdown = 0x05,
+    /// Non-PMU trim parity fault
+    BootrstNonPmuParityFault = 0x08,
+    /// Fatal clock fault
+    BootrstClockFault = 0x09,
+    /// NRST pin reset (<1s)
+    BootrstExternalNrst = 0x0C,
+    /// Software-triggered BOOTRST
+    BootrstSwTriggered = 0x0D,
+    /// WWDT0 violation - This is the main watchdog reset cause we're interested in
+    SysrstWwdt0Violation = 0x0E,
+    /// BSL exit (if present)
+    SysrstBslExit = 0x10,
+    /// BSL entry (if present)
+    SysrstBslEntry = 0x11,
+    /// Uncorrectable flash ECC error (if present)
+    SysrstFlashEccError = 0x14,
+    /// CPU lockup violation
+    SysrstCpuLockupViolation = 0x15,
+    /// Debug-triggered SYSRST
+    SysrstDebugTriggered = 0x1A,
+    /// Software-triggered SYSRST
+    SysrstSwTriggered = 0x1B,
+    /// Debug-triggered CPURST
+    CpurstDebugTriggered = 0x1C,
+    /// Software-triggered CPURST
+    CpurstSwTriggered = 0x1D,
+}
+
+impl TryFrom<u8> for ResetCause {
+    type Error = u8;
+
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        use ResetCause::*;
+        match value {
+            0x00 => Ok(NoReset),
+            0x01 => Ok(PorHwFailure),
+            0x02 => Ok(PorExternalNrst),
+            0x03 => Ok(PorSwTriggered),
+            0x04 => Ok(BorSupplyFailure),
+            0x05 => Ok(BorWakeFromShutdown),
+            0x08 => Ok(BootrstNonPmuParityFault),
+            0x09 => Ok(BootrstClockFault),
+            0x0C => Ok(BootrstExternalNrst),
+            0x0D => Ok(BootrstSwTriggered),
+            0x0E => Ok(SysrstWwdt0Violation),
+            0x10 => Ok(SysrstBslExit),
+            0x11 => Ok(SysrstBslEntry),
+            0x14 => Ok(SysrstFlashEccError),
+            0x15 => Ok(SysrstCpuLockupViolation),
+            0x1A => Ok(SysrstDebugTriggered),
+            0x1B => Ok(SysrstSwTriggered),
+            0x1C => Ok(CpurstDebugTriggered),
+            0x1D => Ok(CpurstSwTriggered),
+            other => Err(other),
+        }
+    }
+}
+
 #[non_exhaustive]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 /// Watchdog Config
@@ -322,6 +398,16 @@ impl Watchdog {
             w.set_restart(vals::WwdtcntrstRestart::RESTART);
         });
     }
+}
+
+/// Read the reset cause from the SYSCTL.RSTCAUSE register.
+/// 
+/// This function reads the reset cause register which indicates why the last
+/// system reset occurred. The register is automatically cleared after being read,
+/// so this should be called only once per application startup.
+pub fn read_reset_cause() -> Result<ResetCause, u8> {
+    let cause_raw = pac::SYSCTL.rstcause().read().id();
+    ResetCause::try_from(cause_raw as u8)
 }
 
 pub(crate) trait SealedInstance {
