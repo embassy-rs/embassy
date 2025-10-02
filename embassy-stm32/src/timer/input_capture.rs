@@ -168,7 +168,8 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         let original_cc_dma_enable_state = self.inner.get_cc_dma_enable_state(M::CHANNEL);
 
         self.inner.set_input_ti_selection(M::CHANNEL, InputTISelection::Normal);
-        self.inner.set_input_capture_mode(M::CHANNEL, InputCaptureMode::BothEdges);
+        self.inner
+            .set_input_capture_mode(M::CHANNEL, InputCaptureMode::BothEdges);
 
         if !original_cc_dma_enable_state {
             self.inner.set_cc_dma_enable_state(M::CHANNEL, true);
