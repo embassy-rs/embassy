@@ -18,14 +18,9 @@ use crate::pac::rtc::regs::{Dr, Tr};
 use crate::time::Hertz;
 
 /// refer to AN4759 to compare features of RTC2 and RTC3
-#[cfg_attr(any(rtc_v1), path = "v1.rs")]
-#[cfg_attr(
-    any(
-        rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb
-    ),
-    path = "v2.rs"
-)]
-#[cfg_attr(any(rtc_v3, rtc_v3u5, rtc_v3l5, rtc_v3h7rs, rtc_v3c0), path = "v3.rs")]
+#[cfg_attr(rtc_v1, path = "v1.rs")]
+#[cfg_attr(rtc_v2, path = "v2.rs")]
+#[cfg_attr(rtc_v3, path = "v3.rs")]
 mod _version;
 #[allow(unused_imports)]
 pub use _version::*;
@@ -72,12 +67,12 @@ impl RtcTimeProvider {
 
             // Calculate second fraction and multiply to microseconds
             // Formula from RM0410
-            #[cfg(not(rtc_v2f2))]
+            #[cfg(not(rtc_v2_f2))]
             let us = {
                 let prediv = RTC::regs().prer().read().prediv_s() as f32;
                 (((prediv - _ss as f32) / (prediv + 1.0)) * 1e6).min(999_999.0) as u32
             };
-            #[cfg(rtc_v2f2)]
+            #[cfg(rtc_v2_f2)]
             let us = 0;
 
             DateTime::from(year, month, day, weekday, hour, minute, second, us).map_err(RtcError::InvalidDateTime)
@@ -87,9 +82,9 @@ impl RtcTimeProvider {
     fn read<R>(&self, mut f: impl FnMut(Dr, Tr, u16) -> Result<R, RtcError>) -> Result<R, RtcError> {
         let r = RTC::regs();
 
-        #[cfg(not(rtc_v2f2))]
+        #[cfg(not(rtc_v2_f2))]
         let read_ss = || r.ssr().read().ss();
-        #[cfg(rtc_v2f2)]
+        #[cfg(rtc_v2_f2)]
         let read_ss = || 0;
 
         let mut ss = read_ss();
@@ -168,7 +163,7 @@ impl Rtc {
         this.configure(async_psc, sync_psc);
 
         // Wait for the clock to update after initialization
-        #[cfg(not(rtc_v2f2))]
+        #[cfg(not(rtc_v2_f2))]
         {
             let now = this.time_provider().read(|_, _, ss| Ok(ss)).unwrap();
             while now == this.time_provider().read(|_, _, ss| Ok(ss)).unwrap() {}

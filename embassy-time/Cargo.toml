@@ -31,6 +31,11 @@ target = "x86_64-unknown-linux-gnu"
 features = ["defmt", "std"]
 
 [features]
+## Enable defmt
+defmt = ["dep:defmt"]
+## Enable log  
+log = ["dep:log"]
+
 ## Display the time since startup next to defmt log messages.
 ## At most 1 `defmt-timestamp-uptime-*` feature can be used.
 ## `defmt-timestamp-uptime` is provided for backwards compatibility (provides the same format as `uptime-us`).

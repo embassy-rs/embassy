@@ -108,6 +108,14 @@ impl<'d, G: Group> PpiGroup<'d, G> {
         Task::from_reg(regs().tasks_chg(n).dis())
     }
 }
+impl<G: Group> PpiGroup<'static, G> {
+    /// Persist this group's configuration for the rest of the program's lifetime. This method
+    /// should be preferred over [`core::mem::forget()`] because the `'static` bound prevents
+    /// accidental reuse of the underlying peripheral.
+    pub fn persist(self) {
+        core::mem::forget(self);
+    }
+}
 
 impl<'d, G: Group> Drop for PpiGroup<'d, G> {
     fn drop(&mut self) {

@@ -32,12 +32,12 @@ impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
 /// Background runner for the driver.
 ///
 /// You must call `.run()` in a background task for the driver to operate.
-pub struct Runner<'d, T: nrf::radio::Instance> {
-    radio: nrf::radio::ieee802154::Radio<'d, T>,
+pub struct Runner<'d> {
+    radio: nrf::radio::ieee802154::Radio<'d>,
     ch: ch::Runner<'d, MTU>,
 }
 
-impl<'d, T: nrf::radio::Instance> Runner<'d, T> {
+impl<'d> Runner<'d> {
     /// Drives the radio. Needs to run to use the driver.
     pub async fn run(mut self) -> ! {
         let (state_chan, mut rx_chan, mut tx_chan) = self.ch.split();
@@ -84,7 +84,7 @@ pub async fn new<'a, const N_RX: usize, const N_TX: usize, T: nrf::radio::Instan
     radio: nrf::Peri<'a, T>,
     irq: Irq,
     state: &'a mut State<N_RX, N_TX>,
-) -> Result<(Device<'a>, Runner<'a, T>), ()>
+) -> Result<(Device<'a>, Runner<'a>), ()>
 where
     Irq: interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
 {

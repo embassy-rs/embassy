@@ -37,6 +37,11 @@ impl Duration {
         self.ticks * (1_000_000 / GCD_1M) / (TICK_HZ / GCD_1M)
     }
 
+    /// Convert the `Duration` to nanoseconds, rounding down.
+    pub const fn as_nanos(&self) -> u64 {
+        self.ticks * (1_000_000_000 / GCD_1G) / (TICK_HZ / GCD_1G)
+    }
+
     /// Creates a duration from the specified number of clock ticks
     pub const fn from_ticks(ticks: u64) -> Duration {
         Duration { ticks }

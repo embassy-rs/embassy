@@ -564,8 +564,6 @@ impl Executor {
     ///
     /// # Safety
     ///
-    /// You must call `initialize` before calling this method.
-    ///
     /// You must NOT call `poll` reentrantly on the same executor.
     ///
     /// In particular, note that `poll` may call the pender synchronously. Therefore, you

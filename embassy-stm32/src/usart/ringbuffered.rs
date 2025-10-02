@@ -26,9 +26,9 @@ use crate::Peri;
 /// contain enough bytes to fill the buffer passed by the caller of
 /// the function, or is empty.
 ///
-/// Waiting for bytes operates in one of two modes, depending on
-/// the behavior of the sender and the size of the buffer passed
-/// to the function:
+/// Waiting for bytes operates in one of three modes, depending on
+/// the behavior of the sender, the size of the buffer passed
+/// to the function, and the configuration:
 ///
 /// - If the sender sends intermittently, the 'idle line'
 /// condition will be detected when the sender stops, and any
@@ -47,7 +47,11 @@ use crate::Peri;
 /// interrupt when those specific buffer addresses have been
 /// written.
 ///
-/// In both cases this will result in variable latency due to the
+/// - If `eager_reads` is enabled in `config`, the UART interrupt
+/// is enabled on all data reception and the call will only wait
+/// for at least one byte to be available before returning.
+///
+/// In the first two cases this will result in variable latency due to the
 /// buffering effect. For example, if the baudrate is 2400 bps, and
 /// the configuration is 8 data bits, no parity bit, and one stop bit,
 /// then a byte will be received every ~4.16ms. If the ring buffer is
@@ -68,15 +72,10 @@ use crate::Peri;
 /// sending, but would be falsely triggered in the worst-case
 /// buffer delay scenario.
 ///
-/// Note: This latency is caused by the limited capabilities of the
-/// STM32 DMA controller; since it cannot generate an interrupt when
-/// it stores a byte into an empty ring buffer, or in any other
-/// configurable conditions, it is not possible to take notice of the
-/// contents of the ring buffer more quickly without introducing
-/// polling. As a result the latency can be reduced by calling the
-/// read functions repeatedly with smaller buffers to receive the
-/// available bytes, as each call to a read function will explicitly
-/// check the ring buffer for available bytes.
+/// Note: Enabling `eager_reads` with `RingBufferedUartRx` will enable
+/// an UART RXNE interrupt, which will cause an interrupt to occur on
+/// every received data byte. The data is still copied using DMA, but
+/// there is nevertheless additional processing overhead for each byte.
 pub struct RingBufferedUartRx<'d> {
     info: &'static Info,
     state: &'static State,
@@ -133,6 +132,9 @@ impl<'d> UartRx<'d, Async> {
 impl<'d> RingBufferedUartRx<'d> {
     /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+        self.state
+            .eager_reads
+            .store(config.eager_reads.unwrap_or(0), Ordering::Relaxed);
         reconfigure(self.info, self.kernel_clock, config)
     }
 
@@ -148,8 +150,8 @@ impl<'d> RingBufferedUartRx<'d> {
         let r = self.info.regs;
         // clear all interrupts and DMA Rx Request
         r.cr1().modify(|w| {
-            // disable RXNE interrupt
-            w.set_rxneie(false);
+            // use RXNE only when returning reads early
+            w.set_rxneie(self.state.eager_reads.load(Ordering::Relaxed) > 0);
             // enable parity interrupt if not ParityNone
             w.set_peie(w.pce());
             // enable idle line interrupt
@@ -248,39 +250,67 @@ impl<'d> RingBufferedUartRx<'d> {
     async fn wait_for_data_or_idle(&mut self) -> Result<(), Error> {
         compiler_fence(Ordering::SeqCst);
 
-        // Future which completes when idle line is detected
-        let s = self.state;
-        let uart = poll_fn(|cx| {
-            s.rx_waker.register(cx.waker());
+        loop {
+            // Future which completes when idle line is detected
+            let s = self.state;
+            let mut uart_init = false;
+            let uart = poll_fn(|cx| {
+                s.rx_waker.register(cx.waker());
 
-            compiler_fence(Ordering::SeqCst);
+                compiler_fence(Ordering::SeqCst);
 
-            if check_idle_and_errors(self.info.regs)? {
-                // Idle line is detected
-                Poll::Ready(Ok(()))
-            } else {
-                Poll::Pending
+                // We may have been woken by IDLE or, if eager_reads is set, by RXNE.
+                // However, DMA will clear RXNE, so we can't check directly, and because
+                // the other future borrows `ring_buf`, we can't check `len()` here either.
+                // Instead, return from this future and we'll check the length afterwards.
+                let eager = s.eager_reads.load(Ordering::Relaxed) > 0;
+
+                let idle = check_idle_and_errors(self.info.regs)?;
+                if idle || (eager && uart_init) {
+                    // Idle line is detected, or eager reads is set and some data is available.
+                    Poll::Ready(Ok(idle))
+                } else {
+                    uart_init = true;
+                    Poll::Pending
+                }
+            });
+
+            let mut dma_init = false;
+            // Future which completes when the DMA controller indicates it
+            // has written to the ring buffer's middle byte, or last byte
+            let dma = poll_fn(|cx| {
+                self.ring_buf.set_waker(cx.waker());
+
+                let status = match dma_init {
+                    false => Poll::Pending,
+                    true => Poll::Ready(()),
+                };
+
+                dma_init = true;
+                status
+            });
+
+            match select(uart, dma).await {
+                // UART woke with line idle
+                Either::Left((Ok(true), _)) => {
+                    return Ok(());
+                }
+                // UART woke without idle or error: word received
+                Either::Left((Ok(false), _)) => {
+                    let eager = self.state.eager_reads.load(Ordering::Relaxed);
+                    if eager > 0 && self.ring_buf.len().unwrap_or(0) >= eager {
+                        return Ok(());
+                    } else {
+                        continue;
+                    }
+                }
+                // UART woke with error
+                Either::Left((Err(e), _)) => {
+                    return Err(e);
+                }
+                // DMA woke
+                Either::Right(((), _)) => return Ok(()),
             }
-        });
-
-        let mut dma_init = false;
-        // Future which completes when the DMA controller indicates it
-        // has written to the ring buffer's middle byte, or last byte
-        let dma = poll_fn(|cx| {
-            self.ring_buf.set_waker(cx.waker());
-
-            let status = match dma_init {
-                false => Poll::Pending,
-                true => Poll::Ready(()),
-            };
-
-            dma_init = true;
-            status
-        });
-
-        match select(uart, dma).await {
-            Either::Left((result, _)) => result,
-            Either::Right(((), _)) => Ok(()),
         }
     }
 

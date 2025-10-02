@@ -1,14 +1,24 @@
+use core::fmt::Debug;
+use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicBool, Ordering};
+use core::task::Poll;
 
+use embassy_futures::select::{select, Either};
+use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_hal_internal::{Peri, PeripheralType};
+use embassy_sync::waitqueue::AtomicWaker;
 use embedded_io::{self, ErrorKind};
 
+use crate::dma::{AnyChannel, Channel};
 use crate::gpio::{match_iocon, AnyPin, Bank, SealedPin};
+use crate::interrupt::typelevel::{Binding, Interrupt as _};
+use crate::interrupt::Interrupt;
 use crate::pac::flexcomm::Flexcomm as FlexcommReg;
 use crate::pac::iocon::vals::PioFunc;
 use crate::pac::usart::Usart as UsartReg;
 use crate::pac::*;
-use crate::{Blocking, Mode};
+use crate::{Async, Blocking, Mode};
 
 /// Serial error
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -101,6 +111,12 @@ impl Default for Config {
     }
 }
 
+/// Internal DMA state of UART RX.
+pub struct DmaState {
+    rx_err_waker: AtomicWaker,
+    rx_err: AtomicBool,
+}
+
 /// # Type parameters
 /// 'd: the lifetime marker ensuring correct borrow checking for peripherals used at compile time
 /// T: the peripheral instance type allowing usage of peripheral specific registers
@@ -112,24 +128,33 @@ pub struct Usart<'d, M: Mode> {
 
 pub struct UsartTx<'d, M: Mode> {
     info: &'static Info,
-    phantom: PhantomData<(&'d (), M)>,
+    tx_dma: Option<Peri<'d, AnyChannel>>,
+    phantom: PhantomData<M>,
 }
 
 pub struct UsartRx<'d, M: Mode> {
     info: &'static Info,
-    phantom: PhantomData<(&'d (), M)>,
+    dma_state: &'static DmaState,
+    rx_dma: Option<Peri<'d, AnyChannel>>,
+    phantom: PhantomData<M>,
 }
 
 impl<'d, M: Mode> UsartTx<'d, M> {
-    pub fn new<T: Instance>(_usart: Peri<'d, T>, tx: Peri<'d, impl TxPin<T>>, config: Config) -> Self {
+    pub fn new<T: Instance>(
+        _usart: Peri<'d, T>,
+        tx: Peri<'d, impl TxPin<T>>,
+        tx_dma: Peri<'d, impl Channel>,
+        config: Config,
+    ) -> Self {
         Usart::<M>::init::<T>(Some(tx.into()), None, config);
-        Self::new_inner(T::info())
+        Self::new_inner(T::info(), Some(tx_dma.into()))
     }
 
     #[inline]
-    fn new_inner(info: &'static Info) -> Self {
+    fn new_inner(info: &'static Info, tx_dma: Option<Peri<'d, AnyChannel>>) -> Self {
         Self {
             info,
+            tx_dma,
             phantom: PhantomData,
         }
     }
@@ -155,20 +180,65 @@ impl<'d, M: Mode> UsartTx<'d, M> {
 impl<'d> UsartTx<'d, Blocking> {
     pub fn new_blocking<T: Instance>(_usart: Peri<'d, T>, tx: Peri<'d, impl TxPin<T>>, config: Config) -> Self {
         Usart::<Blocking>::init::<T>(Some(tx.into()), None, config);
-        Self::new_inner(T::info())
+        Self::new_inner(T::info(), None)
     }
 }
 
+impl<'d> UsartTx<'d, Async> {
+    /// Write to UART TX from the provided buffer using DMA.
+    pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        // Unwrap() can be used because UsartTx::new() in Async mode always sets it to Some
+        let ch = self.tx_dma.as_mut().unwrap().reborrow();
+        let transfer = unsafe {
+            // Enable to pace DMA transfers.
+            self.info.usart_reg.fifocfg().modify(|w| w.set_dmatx(true));
+            // If future is not assigned to a variable, the data register pointer
+            // is held across an await and makes the future non-Send.
+            crate::dma::write(ch, buffer, self.info.usart_reg.fifowr().as_ptr() as *mut _)
+        };
+        transfer.await;
+        Ok(())
+    }
+}
 impl<'d, M: Mode> UsartRx<'d, M> {
-    pub fn new<T: Instance>(_usart: Peri<'d, T>, rx: Peri<'d, impl RxPin<T>>, config: Config) -> Self {
+    pub fn new<T: Instance>(
+        _usart: Peri<'d, T>,
+        rx: Peri<'d, impl RxPin<T>>,
+        has_irq: bool,
+        rx_dma: Peri<'d, impl Channel>,
+        config: Config,
+    ) -> Self {
         Usart::<M>::init::<T>(None, Some(rx.into()), config);
-        Self::new_inner(T::info())
+        Self::new_inner(T::info(), T::dma_state(), has_irq, Some(rx_dma.into()))
     }
 
-    #[inline]
-    fn new_inner(info: &'static Info) -> Self {
+    fn new_inner(
+        info: &'static Info,
+        dma_state: &'static DmaState,
+        has_irq: bool,
+        rx_dma: Option<Peri<'d, AnyChannel>>,
+    ) -> Self {
+        core::debug_assert_eq!(has_irq, rx_dma.is_some());
+        if has_irq {
+            // Disable all the related interrupts for now.
+            info.usart_reg.intenclr().write(|w| {
+                w.set_framerrclr(true);
+                w.set_parityerrclr(true);
+                w.set_rxnoiseclr(true);
+            });
+            info.usart_reg.fifointenclr().modify(|w| {
+                w.set_rxlvl(true);
+                w.set_rxerr(true);
+            });
+            info.interrupt.unpend();
+            unsafe {
+                info.interrupt.enable();
+            }
+        }
         Self {
             info,
+            dma_state,
+            rx_dma,
             phantom: PhantomData,
         }
     }
@@ -211,7 +281,120 @@ impl<'d, M: Mode> UsartRx<'d, M> {
 impl<'d> UsartRx<'d, Blocking> {
     pub fn new_blocking<T: Instance>(_usart: Peri<'d, T>, rx: Peri<'d, impl RxPin<T>>, config: Config) -> Self {
         Usart::<Blocking>::init::<T>(None, Some(rx.into()), config);
-        Self::new_inner(T::info())
+        Self::new_inner(T::info(), T::dma_state(), false, None)
+    }
+}
+
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _uart: PhantomData<T>,
+}
+
+impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let regs = T::info().usart_reg;
+        if !regs.fifocfg().read().dmarx() {
+            return;
+        }
+        let state = T::dma_state();
+        state.rx_err.store(true, Ordering::Relaxed);
+        state.rx_err_waker.wake();
+        // Disable the error interrupts instead of clearing the flags. Clearing the
+        // flags would allow the DMA transfer to continue, potentially signaling
+        // completion before we can check for errors that happened *during* the transfer.
+        regs.intenclr().write(|w| {
+            w.set_framerrclr(true);
+            w.set_rxnoiseclr(true);
+            w.set_parityerrclr(true);
+        });
+        regs.fifointenclr().write(|w| w.set_rxerr(true));
+    }
+}
+
+impl<'d> UsartRx<'d, Async> {
+    /// Read from USART RX into the provided buffer.
+    pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        // Clear error flags before the FIFO is drained. Errors that have accumulated
+        // in the flags will also be present in the FIFO.
+        self.dma_state.rx_err.store(false, Ordering::Relaxed);
+        self.info.usart_reg.intenclr().write(|w| {
+            w.set_framerrclr(true);
+            w.set_parityerrclr(true);
+            w.set_rxnoiseclr(true);
+        });
+        self.info.usart_reg.fifointenclr().modify(|w| w.set_rxerr(true));
+        // Then drain the fifo. It is necessary to read at most 16 bytes (the size of FIFO).
+        // Errors that apply to FIFO bytes will be reported directly.
+        let buffer = match {
+            let limit = buffer.len().min(16);
+            self.drain_fifo(&mut buffer[0..limit])
+        } {
+            Ok(len) if len < buffer.len() => &mut buffer[len..],
+            Ok(_) => return Ok(()),
+            Err((_i, e)) => return Err(e),
+        };
+
+        // Start a DMA transfer. If errors have happened in the interim some error
+        // interrupt flags will have been raised, and those will be picked up immediately
+        // by the interrupt handler.
+        // Unwrap() can be used because UsartRx::new() in Async mode always sets it to Some
+        let ch = self.rx_dma.as_mut().unwrap().reborrow();
+
+        self.info.usart_reg.intenset().write(|w| {
+            w.set_framerren(true);
+            w.set_parityerren(true);
+            w.set_rxnoiseen(true);
+        });
+        self.info.usart_reg.fifointenset().modify(|w| w.set_rxerr(true));
+        self.info.usart_reg.fifocfg().modify(|w| w.set_dmarx(true));
+        let transfer = unsafe {
+            // If we don't assign future to a variable, the data register pointer
+            // is held across an await and makes the future non-Send.
+            crate::dma::read(ch, self.info.usart_reg.fiford().as_ptr() as *const _, buffer)
+        };
+
+        // wait for either the transfer to complete or an error to happen.
+        let transfer_result = select(
+            transfer,
+            poll_fn(|cx| {
+                self.dma_state.rx_err_waker.register(cx.waker());
+                match self.dma_state.rx_err.swap(false, Ordering::Relaxed) {
+                    false => Poll::Pending,
+                    e => Poll::Ready(e),
+                }
+            }),
+        )
+        .await;
+
+        let errors = match transfer_result {
+            Either::First(()) => {
+                // The DMA controller finished, BUT if an error occurred on the LAST
+                // byte, then we may still need to grab the error state!
+                self.dma_state.rx_err.swap(false, Ordering::Relaxed)
+            }
+            Either::Second(e) => {
+                // There is an error, which means this is the error that
+                // was problematic.
+                e
+            }
+        };
+
+        // If we got no error, just return at this point
+        if !errors {
+            return Ok(());
+        }
+
+        // If we DID get an error, we need to figure out which one it was.
+        if self.info.usart_reg.intstat().read().framerrint() {
+            return Err(Error::Framing);
+        } else if self.info.usart_reg.intstat().read().parityerrint() {
+            return Err(Error::Parity);
+        } else if self.info.usart_reg.intstat().read().rxnoiseint() {
+            return Err(Error::Noise);
+        } else if self.info.usart_reg.fifointstat().read().rxerr() {
+            return Err(Error::Overrun);
+        }
+        unreachable!("unrecognized rx error");
     }
 }
 
@@ -222,7 +405,29 @@ impl<'d> Usart<'d, Blocking> {
         rx: Peri<'d, impl RxPin<T>>,
         config: Config,
     ) -> Self {
-        Self::new_inner(usart, tx.into(), rx.into(), config)
+        Self::new_inner(usart, tx.into(), rx.into(), false, None, None, config)
+    }
+}
+
+impl<'d> Usart<'d, Async> {
+    pub fn new<T: Instance>(
+        uart: Peri<'d, T>,
+        tx: Peri<'d, impl TxPin<T>>,
+        rx: Peri<'d, impl RxPin<T>>,
+        _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
+        tx_dma: Peri<'d, impl TxChannel<T>>,
+        rx_dma: Peri<'d, impl RxChannel<T>>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            uart,
+            tx.into(),
+            rx.into(),
+            true,
+            Some(tx_dma.into()),
+            Some(rx_dma.into()),
+            config,
+        )
     }
 }
 
@@ -231,12 +436,15 @@ impl<'d, M: Mode> Usart<'d, M> {
         _usart: Peri<'d, T>,
         mut tx: Peri<'d, AnyPin>,
         mut rx: Peri<'d, AnyPin>,
+        has_irq: bool,
+        tx_dma: Option<Peri<'d, AnyChannel>>,
+        rx_dma: Option<Peri<'d, AnyChannel>>,
         config: Config,
     ) -> Self {
         Self::init::<T>(Some(tx.reborrow()), Some(rx.reborrow()), config);
         Self {
-            tx: UsartTx::new_inner(T::info()),
-            rx: UsartRx::new_inner(T::info()),
+            tx: UsartTx::new_inner(T::info(), tx_dma),
+            rx: UsartRx::new_inner(T::info(), T::dma_state(), has_irq, rx_dma),
         }
     }
 
@@ -390,9 +598,11 @@ impl<'d, M: Mode> Usart<'d, M> {
         SYSCON
             .presetctrl1()
             .modify(|w| w.set_fc_rst(instance_number, syscon::vals::FcRst::RELEASED));
-        flexcomm_register
-            .pselid()
-            .modify(|w| w.set_persel(flexcomm::vals::Persel::USART));
+        flexcomm_register.pselid().modify(|w| {
+            w.set_persel(flexcomm::vals::Persel::USART);
+            // This will lock the peripheral PERSEL and will not allow any changes until the board is reset.
+            w.set_lock(true);
+        });
     }
 
     fn configure_usart(info: &'static Info, config: &Config) {
@@ -471,6 +681,8 @@ impl<'d, M: Mode> Usart<'d, M> {
         });
         registers.cfg().modify(|w| w.set_enable(true));
 
+        registers.fifointenset().modify(|w| w.set_rxerr(true));
+
         // Drain RX FIFO in case it still has some unrelevant data
         while registers.fifostat().read().rxnotempty() {
             let _ = registers.fiford().read().0;
@@ -513,6 +725,17 @@ impl<'d, M: Mode> Usart<'d, M> {
     }
 }
 
+impl<'d> Usart<'d, Async> {
+    /// Write to UART TX from the provided buffer.
+    pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        self.tx.write(buffer).await
+    }
+
+    /// Read from UART RX into the provided buffer.
+    pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        self.rx.read(buffer).await
+    }
+}
 impl<'d, M: Mode> embedded_hal_02::blocking::serial::Write<u8> for UsartTx<'d, M> {
     type Error = Error;
 
@@ -584,10 +807,12 @@ impl<'d> embedded_io::Read for Usart<'d, Blocking> {
 struct Info {
     usart_reg: UsartReg,
     fc_reg: FlexcommReg,
+    interrupt: Interrupt,
 }
 
 trait SealedInstance {
     fn info() -> &'static Info;
+    fn dma_state() -> &'static DmaState;
     fn instance_number() -> usize;
     fn tx_pin_func() -> PioFunc;
     fn rx_pin_func() -> PioFunc;
@@ -595,7 +820,10 @@ trait SealedInstance {
 
 /// UART instance.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType {}
+pub trait Instance: SealedInstance + PeripheralType {
+    /// Interrupt for this instance.
+    type Interrupt: crate::interrupt::typelevel::Interrupt;
+}
 
 macro_rules! impl_instance {
     ($inst:ident, $fc:ident, $tx_pin:ident, $rx_pin:ident, $fc_num:expr) => {
@@ -604,8 +832,17 @@ macro_rules! impl_instance {
                 static INFO: Info = Info {
                     usart_reg: crate::pac::$inst,
                     fc_reg: crate::pac::$fc,
+                    interrupt: crate::interrupt::typelevel::$fc::IRQ,
                 };
                 &INFO
+            }
+
+            fn dma_state() -> &'static DmaState {
+                static STATE: DmaState = DmaState {
+                    rx_err_waker: AtomicWaker::new(),
+                    rx_err: AtomicBool::new(false),
+                };
+                &STATE
             }
             #[inline]
             fn instance_number() -> usize {
@@ -620,7 +857,9 @@ macro_rules! impl_instance {
                 PioFunc::$rx_pin
             }
         }
-        impl $crate::usart::Instance for $crate::peripherals::$inst {}
+        impl $crate::usart::Instance for $crate::peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$fc;
+        }
     };
 }
 
@@ -663,3 +902,34 @@ impl_pin!(PIO1_16, USART6, Tx);
 impl_pin!(PIO1_13, USART6, Rx);
 impl_pin!(PIO0_19, USART7, Tx);
 impl_pin!(PIO0_20, USART7, Rx);
+
+/// Trait for TX DMA channels.
+pub trait TxChannel<T: Instance>: crate::dma::Channel {}
+/// Trait for RX DMA channels.
+pub trait RxChannel<T: Instance>: crate::dma::Channel {}
+
+macro_rules! impl_channel {
+    ($dma:ident, $instance:ident, Tx) => {
+        impl TxChannel<crate::peripherals::$instance> for crate::peripherals::$dma {}
+    };
+    ($dma:ident, $instance:ident, Rx) => {
+        impl RxChannel<crate::peripherals::$instance> for crate::peripherals::$dma {}
+    };
+}
+
+impl_channel!(DMA_CH4, USART0, Rx);
+impl_channel!(DMA_CH5, USART0, Tx);
+impl_channel!(DMA_CH6, USART1, Rx);
+impl_channel!(DMA_CH7, USART1, Tx);
+impl_channel!(DMA_CH10, USART2, Rx);
+impl_channel!(DMA_CH11, USART2, Tx);
+impl_channel!(DMA_CH8, USART3, Rx);
+impl_channel!(DMA_CH9, USART3, Tx);
+impl_channel!(DMA_CH12, USART4, Rx);
+impl_channel!(DMA_CH13, USART4, Tx);
+impl_channel!(DMA_CH14, USART5, Rx);
+impl_channel!(DMA_CH15, USART5, Tx);
+impl_channel!(DMA_CH16, USART6, Rx);
+impl_channel!(DMA_CH17, USART6, Tx);
+impl_channel!(DMA_CH18, USART7, Rx);
+impl_channel!(DMA_CH19, USART7, Tx);
