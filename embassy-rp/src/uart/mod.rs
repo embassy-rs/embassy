@@ -19,7 +19,9 @@ use crate::pac::io::vals::{Inover, Outover};
 use crate::{interrupt, pac, peripherals, RegExt};
 
 mod buffered;
+mod streaming;
 pub use buffered::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, BufferedUartTx};
+pub use streaming::StreamingUartRx;
 
 /// Word length.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -1342,6 +1344,7 @@ pub struct Async;
 
 impl_mode!(Blocking);
 impl_mode!(Async);
+
 
 /// UART instance.
 #[allow(private_bounds)]
