@@ -85,7 +85,7 @@ pub struct BackgroundRead<'a, 'd, T: Instance, const FLASH_SIZE: usize> {
 impl<'a, 'd, T: Instance, const FLASH_SIZE: usize> Future for BackgroundRead<'a, 'd, T, FLASH_SIZE> {
     type Output = ();
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Pin::new(&mut self.transfer).poll(cx)
+        Pin::new(&mut self.transfer.wait()).poll(cx)
     }
 }
 
