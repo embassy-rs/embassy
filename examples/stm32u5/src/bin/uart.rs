@@ -19,9 +19,13 @@ async fn main(_spawner: Spawner) -> ! {
     let mut uart = Uart::new(p.USART1, p.PA10, p.PA9, Irqs, p.GPDMA1_CH0, p.GPDMA1_CH1, config).unwrap();
     let mut buffer = [0u8; 32];
     loop {
-        if let Ok(len) = uart.read_until_idle(&mut buffer).await {
-            info!("{}", &buffer[0..len]);
-            uart.write(&buffer[0..len]).await.unwrap()
+        match uart.read_until_idle(&mut buffer).await {
+            Ok(0) => info! {"Zero bytes."},
+            Ok(len) => {
+                info!("Received: {}", &buffer[0..len]);
+                uart.write(&buffer[0..len]).await.unwrap()
+            }
+            Err(_) => defmt::panic!("Uart Error."),
         }
     }
 }
