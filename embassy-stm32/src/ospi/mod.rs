@@ -451,7 +451,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         }
 
         T::REGS.cr().modify(|w| {
-            w.set_fmode(0.into());
+            w.set_fmode(vals::FunctionalMode::INDIRECT_WRITE);
         });
 
         // Configure alternate bytes
