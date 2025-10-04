@@ -420,9 +420,9 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
             return Err(XspiError::InvalidCommand);
         }
 
-        T::REGS.cr().modify(|w| {
-            w.set_fmode(0.into());
-        });
+        T::REGS
+            .cr()
+            .modify(|w| w.set_fmode(Fmode::from_bits(XspiMode::IndirectWrite.into())));
 
         // Configure alternate bytes
         if let Some(ab) = command.alternate_bytes {
