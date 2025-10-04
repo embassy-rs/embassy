@@ -391,7 +391,7 @@ impl<'d, T: Instance, M: PeriMode> Hspi<'d, T, M> {
         while T::REGS.sr().read().busy() {}
 
         T::REGS.cr().modify(|w| {
-            w.set_fmode(0.into());
+            w.set_fmode(FunctionalMode::IndirectWrite.into());
         });
 
         // Configure alternate bytes
