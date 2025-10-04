@@ -164,12 +164,6 @@ pub struct Config {
 
     /// Set the pull configuration for the SCL pin.
     pub bus_speed: BusSpeed,
-
-    /// 7-bit Target Address
-    pub target_addr: u8,
-
-    /// Control if the target should ack to and report general calls.
-    pub general_call: bool,
 }
 
 impl Default for Config {
@@ -182,8 +176,6 @@ impl Default for Config {
             sda_pull: Pull::None,
             scl_pull: Pull::None,
             bus_speed: BusSpeed::Standard,
-            target_addr: 0x48,
-            general_call: false,
         }
     }
 }
