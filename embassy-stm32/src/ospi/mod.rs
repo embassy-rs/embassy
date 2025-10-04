@@ -577,7 +577,8 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
             w.set_dmaen(false);
         });
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
 
         let current_address = T::REGS.ar().read().address();
         let current_instruction = T::REGS.ir().read().instruction();
@@ -616,7 +617,8 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
             w.set_dmaen(false);
         });
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
 
         T::REGS
             .cr()
@@ -1153,7 +1155,8 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
 
         let current_address = T::REGS.ar().read().address();
         let current_instruction = T::REGS.ir().read().instruction();
@@ -1193,7 +1196,8 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
         T::REGS
             .cr()
             .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_WRITE));
@@ -1226,7 +1230,8 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
 
         let current_address = T::REGS.ar().read().address();
         let current_instruction = T::REGS.ir().read().instruction();
@@ -1266,7 +1271,8 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
         T::REGS
             .cr()
             .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_WRITE));
