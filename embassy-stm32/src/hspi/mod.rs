@@ -785,16 +785,18 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
             T::REGS.ar().write(|v| v.set_address(current_address));
         }
 
-        let transfer = unsafe {
-            self.dma
-                .as_mut()
-                .unwrap()
-                .read(T::REGS.dr().as_ptr() as *mut W, buf, Default::default())
-        };
+        for chunk in buf.chunks_mut(0xFFFF / W::size().bytes()) {
+            let transfer = unsafe {
+                self.dma
+                    .as_mut()
+                    .unwrap()
+                    .read(T::REGS.dr().as_ptr() as *mut W, chunk, Default::default())
+            };
 
-        T::REGS.cr().modify(|w| w.set_dmaen(true));
+            T::REGS.cr().modify(|w| w.set_dmaen(true));
 
-        transfer.blocking_wait();
+            transfer.blocking_wait();
+        }
 
         finish_dma(T::REGS);
 
@@ -816,16 +818,18 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
             .cr()
             .modify(|v| v.set_fmode(FunctionalMode::IndirectWrite.into()));
 
-        let transfer = unsafe {
-            self.dma
-                .as_mut()
-                .unwrap()
-                .write(buf, T::REGS.dr().as_ptr() as *mut W, Default::default())
-        };
+        for chunk in buf.chunks(0xFFFF / W::size().bytes()) {
+            let transfer = unsafe {
+                self.dma
+                    .as_mut()
+                    .unwrap()
+                    .write(chunk, T::REGS.dr().as_ptr() as *mut W, Default::default())
+            };
 
-        T::REGS.cr().modify(|w| w.set_dmaen(true));
+            T::REGS.cr().modify(|w| w.set_dmaen(true));
 
-        transfer.blocking_wait();
+            transfer.blocking_wait();
+        }
 
         finish_dma(T::REGS);
 
@@ -857,16 +861,18 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
             T::REGS.ar().write(|v| v.set_address(current_address));
         }
 
-        let transfer = unsafe {
-            self.dma
-                .as_mut()
-                .unwrap()
-                .read(T::REGS.dr().as_ptr() as *mut W, buf, Default::default())
-        };
+        for chunk in buf.chunks_mut(0xFFFF / W::size().bytes()) {
+            let transfer = unsafe {
+                self.dma
+                    .as_mut()
+                    .unwrap()
+                    .read(T::REGS.dr().as_ptr() as *mut W, chunk, Default::default())
+            };
 
-        T::REGS.cr().modify(|w| w.set_dmaen(true));
+            T::REGS.cr().modify(|w| w.set_dmaen(true));
 
-        transfer.await;
+            transfer.await;
+        }
 
         finish_dma(T::REGS);
 
@@ -888,16 +894,19 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
             .cr()
             .modify(|v| v.set_fmode(FunctionalMode::IndirectWrite.into()));
 
-        let transfer = unsafe {
-            self.dma
-                .as_mut()
-                .unwrap()
-                .write(buf, T::REGS.dr().as_ptr() as *mut W, Default::default())
-        };
+        // TODO: implement this using a LinkedList DMA to offload the whole transfer off the CPU.
+        for chunk in buf.chunks(0xFFFF / W::size().bytes()) {
+            let transfer = unsafe {
+                self.dma
+                    .as_mut()
+                    .unwrap()
+                    .write(chunk, T::REGS.dr().as_ptr() as *mut W, Default::default())
+            };
 
-        T::REGS.cr().modify(|w| w.set_dmaen(true));
+            T::REGS.cr().modify(|w| w.set_dmaen(true));
 
-        transfer.await;
+            transfer.await;
+        }
 
         finish_dma(T::REGS);
 
