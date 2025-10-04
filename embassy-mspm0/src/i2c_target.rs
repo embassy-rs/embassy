@@ -8,16 +8,36 @@ use core::marker::PhantomData;
 use core::sync::atomic::Ordering;
 use core::task::Poll;
 
+use embassy_embedded_hal::SetConfig;
 use mspm0_metapac::i2c::vals::CpuIntIidxStat;
 
 use crate::gpio::{AnyPin, SealedPin};
-use crate::interrupt;
 use crate::interrupt::InterruptExt;
 use crate::mode::{Async, Blocking, Mode};
 use crate::pac::{self, i2c::vals};
-use crate::Peri;
+use crate::{i2c, i2c_target, interrupt, Peri};
 // Re-use I2c controller types
-use crate::i2c::{ClockSel, Config, ConfigError, Info, Instance, InterruptHandler, SclPin, SdaPin, State};
+use crate::i2c::{ClockSel, ConfigError, Info, Instance, InterruptHandler, SclPin, SdaPin, State};
+
+#[non_exhaustive]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+/// Config
+pub struct Config {
+    /// 7-bit Target Address
+    pub target_addr: u8,
+
+    /// Control if the target should ack to and report general calls.
+    pub general_call: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            target_addr: 0x48,
+            general_call: false,
+        }
+    }
+}
 
 /// I2C error
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -75,24 +95,71 @@ pub struct I2cTarget<'d, M: Mode> {
     state: &'static State,
     scl: Option<Peri<'d, AnyPin>>,
     sda: Option<Peri<'d, AnyPin>>,
-    config: Config,
+    config: i2c::Config,
+    target_config: i2c_target::Config,
     _phantom: PhantomData<M>,
+}
+
+impl<'d> SetConfig for I2cTarget<'d, Async> {
+    type Config = (i2c::Config, i2c_target::Config);
+    type ConfigError = ConfigError;
+
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
+        self.info.interrupt.disable();
+
+        if let Some(ref sda) = self.sda {
+            sda.update_pf(config.0.sda_pf());
+        }
+
+        if let Some(ref scl) = self.scl {
+            scl.update_pf(config.0.scl_pf());
+        }
+
+        self.config = config.0.clone();
+        self.target_config = config.1.clone();
+
+        self.reset()
+    }
+}
+
+impl<'d> SetConfig for I2cTarget<'d, Blocking> {
+    type Config = (i2c::Config, i2c_target::Config);
+    type ConfigError = ConfigError;
+
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
+        if let Some(ref sda) = self.sda {
+            sda.update_pf(config.0.sda_pf());
+        }
+
+        if let Some(ref scl) = self.scl {
+            scl.update_pf(config.0.scl_pf());
+        }
+
+        self.config = config.0.clone();
+        self.target_config = config.1.clone();
+
+        self.reset()
+    }
 }
 
 impl<'d> I2cTarget<'d, Async> {
     /// Create a new asynchronous I2C target driver using interrupts
+    /// The `config` reuses the i2c controller config to setup the clock while `target_config`
+    /// configures i2c target specific parameters.
     pub fn new<T: Instance>(
         peri: Peri<'d, T>,
         scl: Peri<'d, impl SclPin<T>>,
         sda: Peri<'d, impl SdaPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        config: Config,
+        config: i2c::Config,
+        target_config: i2c_target::Config,
     ) -> Result<Self, ConfigError> {
         let mut this = Self::new_inner(
             peri,
             new_pin!(scl, config.scl_pf()),
             new_pin!(sda, config.sda_pf()),
             config,
+            target_config,
         );
         this.reset()?;
         Ok(this)
@@ -110,17 +177,21 @@ impl<'d> I2cTarget<'d, Async> {
 
 impl<'d> I2cTarget<'d, Blocking> {
     /// Create a new blocking I2C target driver.
+    /// The `config` reuses the i2c controller config to setup the clock while `target_config`
+    /// configures i2c target specific parameters.
     pub fn new_blocking<T: Instance>(
         peri: Peri<'d, T>,
         scl: Peri<'d, impl SclPin<T>>,
         sda: Peri<'d, impl SdaPin<T>>,
-        config: Config,
+        config: i2c::Config,
+        target_config: i2c_target::Config,
     ) -> Result<Self, ConfigError> {
         let mut this = Self::new_inner(
             peri,
             new_pin!(scl, config.scl_pf()),
             new_pin!(sda, config.sda_pf()),
             config,
+            target_config,
         );
         this.reset()?;
         Ok(this)
@@ -140,7 +211,8 @@ impl<'d, M: Mode> I2cTarget<'d, M> {
         _peri: Peri<'d, T>,
         scl: Option<Peri<'d, AnyPin>>,
         sda: Option<Peri<'d, AnyPin>>,
-        config: Config,
+        config: i2c::Config,
+        target_config: i2c_target::Config,
     ) -> Self {
         if let Some(ref scl) = scl {
             let pincm = pac::IOMUX.pincm(scl._pin_cm() as usize);
@@ -161,17 +233,19 @@ impl<'d, M: Mode> I2cTarget<'d, M> {
             scl,
             sda,
             config,
+            target_config,
             _phantom: PhantomData,
         }
     }
 
     fn init(&mut self) -> Result<(), ConfigError> {
         let mut config = self.config;
+        let target_config = self.target_config;
         let regs = self.info.regs;
 
         config.check_config()?;
         // Target address must be 7-bit
-        if !(config.target_addr < 0x80) {
+        if !(target_config.target_addr < 0x80) {
             return Err(ConfigError::InvalidTargetAddress);
         }
 
@@ -213,7 +287,7 @@ impl<'d, M: Mode> I2cTarget<'d, M> {
         // target address can be enabled and configured by using I2Cx.TOAR2 register.
         regs.target(0).toar().modify(|w| {
             w.set_oaren(true);
-            w.set_oar(config.target_addr as u16);
+            w.set_oar(target_config.target_addr as u16);
         });
 
         self.state
@@ -221,7 +295,7 @@ impl<'d, M: Mode> I2cTarget<'d, M> {
             .store(config.calculate_clock_source(), Ordering::Relaxed);
 
         regs.target(0).tctr().modify(|w| {
-            w.set_gencall(config.general_call);
+            w.set_gencall(target_config.general_call);
             w.set_tclkstretch(true);
             // Disable target wakeup, follow TI example. (TI note: Workaround for errata I2C_ERR_04.)
             w.set_twuen(false);
