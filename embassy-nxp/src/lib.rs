@@ -9,6 +9,8 @@ pub mod gpio;
 #[cfg(feature = "lpc55-core0")]
 pub mod pint;
 #[cfg(feature = "lpc55-core0")]
+pub mod pwm;
+#[cfg(feature = "lpc55-core0")]
 pub mod usart;
 
 #[cfg(feature = "_time_driver")]
