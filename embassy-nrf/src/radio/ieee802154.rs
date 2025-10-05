@@ -52,6 +52,7 @@ impl<'d> Radio<'d> {
         // Disable and enable to reset peripheral
         r.power().write(|w| w.set_power(false));
         r.power().write(|w| w.set_power(true));
+        errata::post_power();
 
         // Enable 802.15.4 mode
         r.mode().write(|w| w.set_mode(vals::Mode::IEEE802154_250KBIT));
@@ -540,4 +541,20 @@ fn dma_start_fence() {
 /// NOTE must be preceded by a volatile read operation
 fn dma_end_fence() {
     compiler_fence(Ordering::Acquire);
+}
+
+mod errata {
+    pub fn post_power() {
+        // Workaround for anomaly 158
+        #[cfg(feature = "_nrf5340-net")]
+        for i in 0..32 {
+            let info = crate::pac::FICR.trimcnf(i);
+            let addr = info.addr().read();
+            if addr & 0xFFFF_F000 == crate::pac::RADIO.as_ptr() as u32 {
+                unsafe {
+                    (addr as *mut u32).write_volatile(info.data().read());
+                }
+            }
+        }
+    }
 }

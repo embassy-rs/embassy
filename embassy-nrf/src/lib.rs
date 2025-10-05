@@ -406,9 +406,10 @@ pub mod config {
     /// Settings for the internal capacitors.
     #[cfg(feature = "nrf5340-app-s")]
     pub struct InternalCapacitors {
-        /// Config for the internal capacitors on pins XC1 and XC2.
+        /// Config for the internal capacitors on pins XC1 and XC2. Pass `None` to not touch it.
         pub hfxo: Option<HfxoCapacitance>,
-        /// Config for the internal capacitors between pins XL1 and XL2.
+        /// Config for the internal capacitors between pins XL1 and XL2. Pass `None` to not touch
+        /// it.
         pub lfxo: Option<LfxoCapacitance>,
     }
 
@@ -416,6 +417,8 @@ pub mod config {
     #[cfg(feature = "nrf5340-app-s")]
     #[derive(Copy, Clone)]
     pub enum HfxoCapacitance {
+        /// Use external capacitors
+        External,
         /// 7.0 pF
         _7_0pF,
         /// 7.5 pF
@@ -475,8 +478,9 @@ pub mod config {
     #[cfg(feature = "nrf5340-app-s")]
     impl HfxoCapacitance {
         /// The capacitance value times two.
-        pub(crate) const fn value2(self) -> i32 {
+        pub(crate) fn value2(self) -> i32 {
             match self {
+                HfxoCapacitance::External => unreachable!(),
                 HfxoCapacitance::_7_0pF => 14,
                 HfxoCapacitance::_7_5pF => 15,
                 HfxoCapacitance::_8_0pF => 16,
@@ -506,11 +510,17 @@ pub mod config {
                 HfxoCapacitance::_20_0pF => 40,
             }
         }
+
+        pub(crate) fn external(self) -> bool {
+            matches!(self, Self::External)
+        }
     }
 
     /// Internal capacitance value for the LFXO.
     #[cfg(feature = "nrf5340-app-s")]
     pub enum LfxoCapacitance {
+        /// Use external capacitors
+        External = 0,
         /// 6 pF
         _6pF = 1,
         /// 7 pF
@@ -523,6 +533,7 @@ pub mod config {
     impl From<LfxoCapacitance> for super::pac::oscillators::vals::Intcap {
         fn from(t: LfxoCapacitance) -> Self {
             match t {
+                LfxoCapacitance::External => Self::EXTERNAL,
                 LfxoCapacitance::_6pF => Self::C6PF,
                 LfxoCapacitance::_7pF => Self::C7PF,
                 LfxoCapacitance::_9pF => Self::C9PF,
@@ -717,6 +728,29 @@ pub fn init(config: config::Config) -> Peripherals {
                 let _ = uicr_write(consts::UICR_HFXOCNT, 32);
             }
             needs_reset = true;
+        }
+    }
+
+    // Apply trimming values from the FICR.
+    #[cfg(any(
+        all(feature = "_nrf5340-app", feature = "_s"),
+        all(feature = "_nrf54l", feature = "_s"),
+        feature = "_nrf5340-net",
+    ))]
+    {
+        #[cfg(feature = "_nrf5340")]
+        let n = 32;
+        #[cfg(feature = "_nrf54l")]
+        let n = 64;
+        for i in 0..n {
+            let info = pac::FICR.trimcnf(i);
+            let addr = info.addr().read();
+            if addr == 0 || addr == 0xFFFF_FFFF {
+                break;
+            }
+            unsafe {
+                (addr as *mut u32).write_volatile(info.data().read());
+            }
         }
     }
 
@@ -953,17 +987,21 @@ pub fn init(config: config::Config) -> Peripherals {
     #[cfg(feature = "nrf5340-app-s")]
     {
         if let Some(cap) = config.internal_capacitors.hfxo {
-            let mut slope = pac::FICR.xosc32mtrim().read().slope() as i32;
-            let offset = pac::FICR.xosc32mtrim().read().offset() as i32;
-            // slope is a signed 5-bit integer
-            if slope >= 16 {
-                slope -= 32;
+            if cap.external() {
+                pac::OSCILLATORS.xosc32mcaps().write(|w| w.set_enable(false));
+            } else {
+                let mut slope = pac::FICR.xosc32mtrim().read().slope() as i32;
+                let offset = pac::FICR.xosc32mtrim().read().offset() as i32;
+                // slope is a signed 5-bit integer
+                if slope >= 16 {
+                    slope -= 32;
+                }
+                let capvalue = (((slope + 56) * (cap.value2() - 14)) + ((offset - 8) << 4) + 32) >> 6;
+                pac::OSCILLATORS.xosc32mcaps().write(|w| {
+                    w.set_capvalue(capvalue as u8);
+                    w.set_enable(true);
+                });
             }
-            let capvalue = (((slope + 56) * (cap.value2() - 14)) + ((offset - 8) << 4) + 32) >> 6;
-            pac::OSCILLATORS.xosc32mcaps().write(|w| {
-                w.set_capvalue(capvalue as u8);
-                w.set_enable(true);
-            });
         }
         if let Some(cap) = config.internal_capacitors.lfxo {
             pac::OSCILLATORS.xosc32ki().intcap().write(|w| w.set_intcap(cap.into()));
