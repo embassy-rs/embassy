@@ -4,6 +4,8 @@ Here are known examples of real-world projects which make use of Embassy. Feel f
 
 _newer entries at the top_
 
+* link:https://github.com/1-rafael-1/air-quality-monitor[Air Quality Monitor]
+** Air Quality Monitor based on rp2350 board, ens160 and aht21 sensors and ssd1306 display. Code and 3D printable enclosure included.
 * link:https://github.com/CarlKCarlK/clock[Embassy Clock: Layered, modular bare-metal clock with emulation]
 ** A `no_std` Raspberry Pi Pico clock demonstrating layered Embassy tasks (Display->Blinker->Clock) for clean separation of multiplexing, blinking, and UI logic. Features single-button HH:MM/MM:SS time-set UI, heapless data structures, and a Renode emulator for hardware-free testing. See link:https://medium.com/@carlmkadie/how-rust-embassy-shine-on-embedded-devices-part-2-aad1adfccf72[this article] for details.
 * link:https://github.com/1-rafael-1/simple-robot[A simple tracked robot based on Raspberry Pi Pico 2]
@@ -11,7 +13,7 @@ _newer entries at the top_
 * link:https://github.com/1-rafael-1/pi-pico-alarmclock-rust[A Raspberry Pi Pico W Alarmclock]
 ** A hobbyist project building an alarm clock around a Pi Pico W complete with code, components list and enclosure design files.
 * link:https://github.com/haobogu/rmk/[RMK: A feature-rich Rust keyboard firmware]
-** RMK has built-in layer support, wireless(BLE) support, real-time key editing support using vial, and more! 
+** RMK has built-in layer support, wireless(BLE) support, real-time key editing support using vial, and more!
 ** Targets STM32, RP2040, nRF52 and ESP32 MCUs
 * link:https://github.com/cbruiz/printhor/[Printhor: The highly reliable but not necessarily functional 3D printer firmware]
 ** Targets some STM32 MCUs
@@ -21,10 +23,9 @@ _newer entries at the top_
 * link:https://github.com/matoushybl/air-force-one[Air force one: A simple air quality monitoring system]
 ** Targets nRF52 and uses nrf-softdevice
 
-* link:https://github.com/schmettow/ylab-edge-go[YLab Edge Go] and link:https://github.com/schmettow/ylab-edge-pro[YLab Edge Pro] projects develop 
+* link:https://github.com/schmettow/ylab-edge-go[YLab Edge Go] and link:https://github.com/schmettow/ylab-edge-pro[YLab Edge Pro] projects develop
 firmware (RP2040, STM32) for capturing physiological data in behavioural science research. Included so far are:
 ** biopotentials (analog ports)
 ** motion capture (6-axis accelerometers)
 ** air quality (CO2, Temp, Humidity)
 ** comes with an app for capturing and visualizing data [link:https://github.com/schmettow/ystudio-zero[Ystudio]]
-
