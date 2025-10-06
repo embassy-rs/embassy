@@ -12,6 +12,9 @@ use crate::interrupt::InterruptExt;
 use crate::pac::dma::vals;
 use crate::{interrupt, pac, peripherals};
 
+pub mod double_buffer;
+pub use double_buffer::{RxStream, RxBufView};
+
 #[cfg(feature = "rt")]
 #[interrupt]
 fn DMA_IRQ_0() {
