@@ -254,7 +254,7 @@ unsafe fn on_irq() {
         #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50)))]
         crate::pac::EXTI.pr(0).write(|w| w.set_line(exti_line, true));
 
-        #[cfg(any(exti_c0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50))]
+        #[cfg(any(exti_c0, exti_u0, stm32g0, exti_l5, exti_u5, exti_h5, exti_h50))]
         crate::pac::EXTI.rpr(0).write(|w| w.set_line(exti_line, true));
     }
 }
