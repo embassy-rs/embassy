@@ -14,6 +14,7 @@
 //! use embassy_rp::multicore::Stack;
 //! use static_cell::StaticCell;
 //! use embassy_executor::Executor;
+//! use core::ptr::addr_of_mut;
 //!
 //! static mut CORE1_STACK: Stack<4096> = Stack::new();
 //! static EXECUTOR0: StaticCell<Executor> = StaticCell::new();
@@ -36,7 +37,7 @@
 //! fn main() -> ! {
 //!     let p = embassy_rp::init(Default::default());
 //!
-//!     embassy_rp::multicore::spawn_core1(p.CORE1, unsafe { &mut CORE1_STACK }, move || {
+//!     embassy_rp::multicore::spawn_core1(p.CORE1, unsafe { &mut *addr_of_mut!(CORE1_STACK) }, move || {
 //!         let executor1 = EXECUTOR1.init(Executor::new());
 //!         executor1.run(|spawner| spawner.spawn(core1_task().unwrap()));
 //!     });
@@ -110,7 +111,6 @@ impl<const SIZE: usize> Stack<SIZE> {
 
 #[cfg(all(feature = "rt", feature = "rp2040"))]
 #[interrupt]
-#[link_section = ".data.ram_func"]
 unsafe fn SIO_IRQ_PROC1() {
     let sio = pac::SIO;
     // Clear IRQ
@@ -135,7 +135,6 @@ unsafe fn SIO_IRQ_PROC1() {
 
 #[cfg(all(feature = "rt", feature = "_rp235x"))]
 #[interrupt]
-#[link_section = ".data.ram_func"]
 unsafe fn SIO_IRQ_FIFO() {
     let sio = pac::SIO;
     // Clear IRQ

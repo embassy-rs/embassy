@@ -208,7 +208,7 @@ fn generate_groups() -> TokenStream {
 
         #[cfg(feature = "rt")]
         mod group_vectors {
-            extern "Rust" {
+            unsafe extern "Rust" {
                 #(#group_vectors)*
             }
         }

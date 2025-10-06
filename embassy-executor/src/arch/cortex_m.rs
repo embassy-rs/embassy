@@ -1,4 +1,4 @@
-#[export_name = "__pender"]
+#[unsafe(export_name = "__pender")]
 #[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
 fn __pender(context: *mut ()) {
     unsafe {

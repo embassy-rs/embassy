@@ -1,7 +1,7 @@
 #[cfg(feature = "executor-interrupt")]
 compile_error!("`executor-interrupt` is not supported with `arch-cortex-ar`.");
 
-#[export_name = "__pender"]
+#[unsafe(export_name = "__pender")]
 #[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
 fn __pender(context: *mut ()) {
     // `context` is always `usize::MAX` created by `Executor::run`.

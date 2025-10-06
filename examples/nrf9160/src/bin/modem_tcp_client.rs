@@ -101,7 +101,7 @@ async fn blink_task(pin: Peri<'static, AnyPin>) {
     }
 }
 
-extern "C" {
+unsafe extern "C" {
     static __start_ipc: u8;
     static __end_ipc: u8;
 }

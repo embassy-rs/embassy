@@ -26,7 +26,7 @@ pub fn task_from_waker(waker: &Waker) -> TaskRef {
 }
 
 #[inline(never)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 fn _turbo_wake(ptr: NonNull<()>) {
     // safety: our wakers are always created with `TaskRef::as_ptr`
     let task = unsafe { TaskRef::from_ptr(ptr.as_ptr() as *const TaskHeader) };

@@ -9,7 +9,7 @@ use std::task::Poll;
 use embassy_executor::raw::Executor;
 use embassy_executor::{task, Spawner};
 
-#[export_name = "__pender"]
+#[unsafe(export_name = "__pender")]
 fn __pender(context: *mut ()) {
     unsafe {
         let trace = &*(context as *const Trace);

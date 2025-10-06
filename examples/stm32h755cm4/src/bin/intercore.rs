@@ -85,7 +85,7 @@ mod shared {
         }
     }
 
-    #[link_section = ".ram_d3"]
+    #[unsafe(link_section = ".ram_d3")]
     pub static SHARED_LED_STATE: SharedLedState = SharedLedState::new();
 }
 
@@ -99,7 +99,7 @@ use embassy_time::Timer;
 use shared::SHARED_LED_STATE;
 use {defmt_rtt as _, panic_probe as _};
 
-#[link_section = ".ram_d3"]
+#[unsafe(link_section = ".ram_d3")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 
 /// Task that continuously blinks the red LED as a heartbeat indicator

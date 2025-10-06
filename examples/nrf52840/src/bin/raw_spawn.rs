@@ -48,5 +48,5 @@ fn main() -> ! {
 }
 
 unsafe fn make_static<T>(t: &T) -> &'static T {
-    mem::transmute(t)
+    unsafe { mem::transmute(t) }
 }

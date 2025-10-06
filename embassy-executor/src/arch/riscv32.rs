@@ -15,7 +15,7 @@ mod thread {
     /// global atomic used to keep track of whether there is work to do since sev() is not available on RISCV
     static SIGNAL_WORK_THREAD_MODE: AtomicBool = AtomicBool::new(false);
 
-    #[export_name = "__pender"]
+    #[unsafe(export_name = "__pender")]
     fn __pender(_context: *mut ()) {
         SIGNAL_WORK_THREAD_MODE.store(true, Ordering::SeqCst);
     }

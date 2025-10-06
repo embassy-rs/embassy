@@ -1,5 +1,6 @@
 #![cfg_attr(not(any(feature = "std", feature = "wasm", test)), no_std)]
 #![allow(async_fn_in_trait)]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![doc = include_str!("../README.md")]
 #![allow(clippy::new_without_default)]
 #![warn(missing_docs)]

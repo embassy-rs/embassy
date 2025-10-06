@@ -12,7 +12,7 @@ mod thread {
 
     use crate::{raw, Spawner};
 
-    #[export_name = "__pender"]
+    #[unsafe(export_name = "__pender")]
     fn __pender(context: *mut ()) {
         let signaler: &'static Signaler = unsafe { std::mem::transmute(context) };
         signaler.signal()

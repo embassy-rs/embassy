@@ -11,7 +11,7 @@ mod thread {
 
     use crate::{raw, Spawner};
 
-    #[export_name = "__pender"]
+    #[unsafe(export_name = "__pender")]
     fn __pender(_context: *mut ()) {}
 
     /// Spin Executor
