@@ -97,31 +97,7 @@ impl super::Rtc {
     where
         F: FnOnce(crate::pac::rtc::Rtc) -> R,
     {
-        let r = RTC::regs();
-        // Disable write protection.
-        // This is safe, as we're only writin the correct and expected values.
-        r.wpr().write(|w| w.set_key(0xca));
-        r.wpr().write(|w| w.set_key(0x53));
-
-        // true if initf bit indicates RTC peripheral is in init mode
-        if init_mode && !r.isr().read().initf() {
-            // to update calendar date/time, time format, and prescaler configuration, RTC must be in init mode
-            r.isr().modify(|w| w.set_init(true));
-            // wait till init state entered
-            // ~2 RTCCLK cycles
-            while !r.isr().read().initf() {}
-        }
-
-        let result = f(r);
-
-        if init_mode {
-            r.isr().modify(|w| w.set_init(false)); // Exits init mode
-        }
-
-        // Re-enable write protection.
-        // This is safe, as the field accepts the full range of 8-bit values.
-        r.wpr().write(|w| w.set_key(0xff));
-        result
+        RTC::write(init_mode, f)
     }
 }
 
@@ -158,5 +134,36 @@ impl SealedInstance for crate::peripherals::RTC {
         if register < Self::BACKUP_REGISTER_COUNT {
             rtc.bkpr(register).write(|w| w.set_bkp(value));
         }
+    }
+
+    fn write<F, R>(init_mode: bool, f: F) -> R
+    where
+        F: FnOnce(crate::pac::rtc::Rtc) -> R,
+    {
+        let r = RTC::regs();
+        // Disable write protection.
+        // This is safe, as we're only writin the correct and expected values.
+        r.wpr().write(|w| w.set_key(0xca));
+        r.wpr().write(|w| w.set_key(0x53));
+
+        // true if initf bit indicates RTC peripheral is in init mode
+        if init_mode && !r.isr().read().initf() {
+            // to update calendar date/time, time format, and prescaler configuration, RTC must be in init mode
+            r.isr().modify(|w| w.set_init(true));
+            // wait till init state entered
+            // ~2 RTCCLK cycles
+            while !r.isr().read().initf() {}
+        }
+
+        let result = f(r);
+
+        if init_mode {
+            r.isr().modify(|w| w.set_init(false)); // Exits init mode
+        }
+
+        // Re-enable write protection.
+        // This is safe, as the field accepts the full range of 8-bit values.
+        r.wpr().write(|w| w.set_key(0xff));
+        result
     }
 }

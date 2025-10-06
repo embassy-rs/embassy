@@ -99,30 +99,7 @@ impl super::Rtc {
     where
         F: FnOnce(crate::pac::rtc::Rtc) -> R,
     {
-        let r = RTC::regs();
-        // Disable write protection.
-        // This is safe, as we're only writin the correct and expected values.
-        r.wpr().write(|w| w.set_key(Key::DEACTIVATE1));
-        r.wpr().write(|w| w.set_key(Key::DEACTIVATE2));
-
-        if init_mode && !r.icsr().read().initf() {
-            r.icsr().modify(|w| w.set_init(true));
-            // wait till init state entered
-            // ~2 RTCCLK cycles
-            while !r.icsr().read().initf() {}
-        }
-
-        let result = f(r);
-
-        if init_mode {
-            r.icsr().modify(|w| w.set_init(false)); // Exits init mode
-        }
-
-        // Re-enable write protection.
-        // This is safe, as the field accepts the full range of 8-bit values.
-        r.wpr().write(|w| w.set_key(Key::ACTIVATE));
-
-        result
+        RTC::write(init_mode, f)
     }
 }
 
@@ -151,6 +128,28 @@ impl SealedInstance for crate::peripherals::RTC {
         }
     );
 
+    cfg_if::cfg_if!(
+        if #[cfg(any(stm32l5, stm32g4, stm32h5, stm32h7, stm32h7rs, stm32wl))] {
+            const EXTI_ALARM_LINE: Option<usize> = Some(17);
+        } else if #[cfg(any(stm32g0, stm32c0))] {
+            const EXTI_ALARM_LINE: Option<usize> = Some(19);
+        } else if #[cfg(stm32u0)] {
+            const EXTI_ALARM_LINE: Option<usize> = Some(28);
+        } else if #[cfg(any(stm32u5, stm32wba))] {
+            // these does not support direct events from peripherals to EXTI
+            const EXTI_ALARM_LINE: Option<usize> = None;
+        }
+    );
+    cfg_if::cfg_if!(
+        if #[cfg(any(stm32g4, stm32h7, stm32wl))] {
+            type AlarmInterrupt = crate::interrupt::typelevel::RTC_ALARM;
+        } else if #[cfg(any(stm32g0, stm32u0))] {
+            type AlarmInterrupt = crate::interrupt::typelevel::RTC_TAMP;
+        } else if #[cfg(any(stm32c0, stm32l5, stm32h5, stm32u5, stm32h7rs, stm32wba))] {
+            type AlarmInterrupt = crate::interrupt::typelevel::RTC;
+        }
+    );
+
     fn read_backup_register(_rtc: Rtc, register: usize) -> Option<u32> {
         #[allow(clippy::if_same_then_else)]
         if register < Self::BACKUP_REGISTER_COUNT {
@@ -166,5 +165,35 @@ impl SealedInstance for crate::peripherals::RTC {
             // RTC3 backup registers come from the TAMP peripheral, not RTC. Not() even in the L412 PAC
             //self.rtc.bkpr()[register].write(|w| w.bits(value))
         }
+    }
+
+    fn write<F, R>(init_mode: bool, f: F) -> R
+    where
+        F: FnOnce(crate::pac::rtc::Rtc) -> R,
+    {
+        let r = RTC::regs();
+        // Disable write protection.
+        // This is safe, as we're only writin the correct and expected values.
+        r.wpr().write(|w| w.set_key(Key::DEACTIVATE1));
+        r.wpr().write(|w| w.set_key(Key::DEACTIVATE2));
+
+        if init_mode && !r.icsr().read().initf() {
+            r.icsr().modify(|w| w.set_init(true));
+            // wait till init state entered
+            // ~2 RTCCLK cycles
+            while !r.icsr().read().initf() {}
+        }
+
+        let result = f(r);
+
+        if init_mode {
+            r.icsr().modify(|w| w.set_init(false)); // Exits init mode
+        }
+
+        // Re-enable write protection.
+        // This is safe, as the field accepts the full range of 8-bit values.
+        r.wpr().write(|w| w.set_key(Key::ACTIVATE));
+
+        result
     }
 }

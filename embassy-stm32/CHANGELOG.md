@@ -47,6 +47,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: Add Adc::new_with_clock() to configure analog clock
 - feat: Add GPDMA linked-list + ringbuffer support ([#3923](https://github.com/embassy-rs/embassy/pull/3923))
 - feat: Added support for STM32F1 peripheral pin remapping (AFIO) ([#4430](https://github.com/embassy-rs/embassy/pull/4430))
+- feat: Added support for RTC alarm on STM32 ([#3834](https://github.com/embassy-rs/embassy/pull/3834))
 
 ## 0.3.0 - 2025-08-12
 
