@@ -14,13 +14,7 @@ use crate::interrupt;
 use crate::peripherals::RTC;
 use crate::rtc::SealedInstance;
 
-cfg_if::cfg_if!(
-    if #[cfg(rtc_v2_f2)] {
-        const ALARM_COUNT: usize = 1;
-    } else {
-        const ALARM_COUNT: usize = 2;
-    }
-);
+const ALARM_COUNT: usize = 2;
 
 static RTC_WAKERS: [AtomicWaker; ALARM_COUNT] = [const { AtomicWaker::new() }; ALARM_COUNT];
 
@@ -29,8 +23,6 @@ static RTC_WAKERS: [AtomicWaker; ALARM_COUNT] = [const { AtomicWaker::new() }; A
 pub enum Alarm {
     /// Alarm A
     A = 0,
-    // stm32wb0 also doesn't have alarm B?
-    #[cfg(not(any(rtc_v2_f2)))]
     /// Alarm B
     B = 1,
 }
@@ -159,14 +151,8 @@ impl Rtc {
             r.cr().modify(|w| w.set_alre(alarm.index(), false));
 
             // wait until update is allowed
-            #[cfg(rtc_v3)]
+            #[cfg(not(stm32h7rs))]
             while !r.icsr().read().alrwf(alarm.index()) {}
-
-            #[cfg(any(
-                rtc_v2_f0, rtc_v2_f2, rtc_v2_f3, rtc_v2_f4, rtc_v2_f7, rtc_v2_h7, rtc_v2_l0, rtc_v2_l1, rtc_v2_l4,
-                rtc_v2_wb
-            ))]
-            while !r.isr().read().alrwf(alarm.index()) {}
 
             r.alrmr(alarm.index()).write_value(alrmr);
             r.alrmssr(alarm.index()).write_value(alrmrss);
@@ -195,19 +181,15 @@ impl RtcAlarmFuture {
                 });
 
                 // clear pending bit
-                #[cfg(rtc_v3)]
                 rtc.scr().write(|w| w.set_calrf(alarm.index(), Calrf::CLEAR));
-
-                #[cfg(any(
-                    rtc_v2_f0, rtc_v2_f2, rtc_v2_f3, rtc_v2_f4, rtc_v2_f7, rtc_v2_h7, rtc_v2_l0, rtc_v2_l1, rtc_v2_l4,
-                    rtc_v2_wb
-                ))]
-                rtc.isr().modify(|w| w.set_alrf(alarm.index(), false))
             });
 
             use crate::pac::EXTI;
-            EXTI.rtsr(0).modify(|w| w.set_line(RTC::EXTI_ALARM_LINE, true));
-            EXTI.imr(0).modify(|w| w.set_line(RTC::EXTI_ALARM_LINE, true));
+            if let Some(exti_line) = RTC::EXTI_ALARM_LINE {
+                EXTI.rtsr(0).modify(|w| w.set_line(exti_line, true));
+                #[cfg(not(stm32wl))]
+                EXTI.imr(0).modify(|w| w.set_line(exti_line, true));
+            }
         });
 
         Self { alarm }
@@ -246,34 +228,14 @@ unsafe fn on_irq() {
     crate::low_power::on_wakeup_irq();
 
     let reg = crate::pac::RTC;
-    #[cfg(rtc_v3)]
     let misr = reg.misr().read();
 
-    #[cfg(any(
-        rtc_v2_f0, rtc_v2_f2, rtc_v2_f3, rtc_v2_f4, rtc_v2_f7, rtc_v2_h7, rtc_v2_l0, rtc_v2_l1, rtc_v2_l4, rtc_v2_wb
-    ))]
-    let isr = reg.isr().read();
-
     for i in 0..ALARM_COUNT {
-        #[cfg(rtc_v3)]
         let has_fired = misr.alrmf(i) == Alrmf::MATCH;
-
-        #[cfg(any(
-            rtc_v2_f0, rtc_v2_f2, rtc_v2_f3, rtc_v2_f4, rtc_v2_f7, rtc_v2_h7, rtc_v2_l0, rtc_v2_l1, rtc_v2_l4,
-            rtc_v2_wb
-        ))]
-        let has_fired = isr.alrf(i);
 
         if has_fired {
             // clear pending bit
-            #[cfg(rtc_v3)]
             reg.scr().write(|w| w.set_calrf(i, Calrf::CLEAR));
-
-            #[cfg(any(
-                rtc_v2_f0, rtc_v2_f2, rtc_v2_f3, rtc_v2_f4, rtc_v2_f7, rtc_v2_h7, rtc_v2_l0, rtc_v2_l1, rtc_v2_l4,
-                rtc_v2_wb
-            ))]
-            reg.isr().modify(|w| w.set_alrf(i, false));
 
             RTC::write(false, |regs| {
                 // disable the interrupt, this way the future knows the irq fired
@@ -288,18 +250,18 @@ unsafe fn on_irq() {
     // the RTC exti line is configurable on some variants, other do not need
     // the pending bit reset
 
-    #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50)))]
-    crate::pac::EXTI.pr(0).write(|w| w.set_line(RTC::EXTI_ALARM_LINE, true));
+    if let Some(exti_line) = RTC::EXTI_ALARM_LINE {
+        #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50)))]
+        crate::pac::EXTI.pr(0).write(|w| w.set_line(exti_line, true));
 
-    #[cfg(any(exti_c0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50))]
-    crate::pac::EXTI
-        .rpr(0)
-        .write(|w| w.set_line(RTC::EXTI_ALARM_LINE, true));
+        #[cfg(any(exti_c0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50))]
+        crate::pac::EXTI
+            .rpr(0)
+            .write(|w| w.set_line(exti_line, true));
+    }
 }
 
-// TODO figure out IRQs for all variants..
-
-#[cfg(any(stm32f0, stm32g0, stm32l0, stm32u0, stm32u5))]
+#[cfg(any(stm32c0, stm32f0, stm32g0, stm32l0, stm32u0, stm32u5, stm32wba))]
 foreach_interrupt! {
     (RTC, rtc, $block:ident, TAMP, $irq:ident) => {
         #[interrupt]
@@ -310,7 +272,7 @@ foreach_interrupt! {
     };
 }
 
-#[cfg(any(stm32f1, stm32f3, stm32f4, stm32g4))]
+#[cfg(any(stm32f1, stm32f3, stm32f4, stm32g4, stm32h7, stm32h7rs, stm32wl))]
 foreach_interrupt! {
     (RTC, rtc, $block:ident, ALARM, $irq:ident) => {
         #[interrupt]

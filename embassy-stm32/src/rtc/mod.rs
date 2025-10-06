@@ -1,4 +1,5 @@
 //! Real Time Clock (RTC)
+#[cfg(rtc_v3)]
 mod alarm;
 mod datetime;
 
@@ -13,7 +14,9 @@ use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 #[cfg(feature = "low-power")]
 use embassy_sync::blocking_mutex::Mutex;
 
+#[cfg(rtc_v3)]
 pub use self::alarm::{Alarm, AlarmDate, RtcAlarmMatch};
+
 use self::datetime::{day_of_week_from_u8, day_of_week_to_u8};
 pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
 use crate::pac::rtc::regs::{Dr, Tr};
@@ -152,10 +155,13 @@ impl Rtc {
         #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
         crate::rcc::enable_and_reset::<RTC>();
 
-        use crate::interrupt::typelevel::Interrupt;
-        <RTC as crate::rtc::SealedInstance>::AlarmInterrupt::unpend();
-        unsafe {
-            <RTC as crate::rtc::SealedInstance>::AlarmInterrupt::enable();
+        #[cfg(rtc_v3)]
+        {
+            use crate::interrupt::typelevel::Interrupt;
+            <RTC as crate::rtc::SealedInstance>::AlarmInterrupt::unpend();
+            unsafe {
+                <RTC as crate::rtc::SealedInstance>::AlarmInterrupt::enable();
+            }
         }
 
         let mut this = Self {
@@ -305,8 +311,10 @@ trait SealedInstance {
     #[cfg(feature = "low-power")]
     type WakeupInterrupt: crate::interrupt::typelevel::Interrupt;
 
-    const EXTI_ALARM_LINE: usize;
+    #[cfg(rtc_v3)]
+    const EXTI_ALARM_LINE: Option<usize>;
 
+    #[cfg(rtc_v3)]
     type AlarmInterrupt: crate::interrupt::typelevel::Interrupt;
 
     fn regs() -> crate::pac::rtc::Rtc {

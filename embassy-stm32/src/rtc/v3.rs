@@ -129,20 +129,23 @@ impl SealedInstance for crate::peripherals::RTC {
     );
 
     cfg_if::cfg_if!(
-        if #[cfg(any(stm32l5, stm32g4, stm32h5))] {
-            const EXTI_ALARM_LINE: usize = 17;
-        } else if #[cfg(stm32g0)] {
-            const EXTI_ALARM_LINE: usize = 19;
+        if #[cfg(any(stm32l5, stm32g4, stm32h5, stm32h7, stm32h7rs, stm32wl))] {
+            const EXTI_ALARM_LINE: Option<usize> = Some(17);
+        } else if #[cfg(any(stm32g0, stm32c0))] {
+            const EXTI_ALARM_LINE: Option<usize> = Some(19);
         } else if #[cfg(stm32u0)] {
-            const EXTI_ALARM_LINE: usize = 28;
+            const EXTI_ALARM_LINE: Option<usize> = Some(28);
+        } else if #[cfg(any(stm32u5, stm32wba))] {
+            // these does not support direct events from peripherals to EXTI
+            const EXTI_ALARM_LINE: Option<usize> = None;
         }
     );
     cfg_if::cfg_if!(
-        if #[cfg(stm32g4)] {
+        if #[cfg(any(stm32g4, stm32h7, stm32wl))] {
             type AlarmInterrupt = crate::interrupt::typelevel::RTC_ALARM;
         } else if #[cfg(any(stm32g0, stm32u0))] {
             type AlarmInterrupt = crate::interrupt::typelevel::RTC_TAMP;
-        } else if #[cfg(any(stm32l5, stm32h5, stm32u5))] {
+        } else if #[cfg(any(stm32c0, stm32l5, stm32h5, stm32u5, stm32h7rs, stm32wba))] {
             type AlarmInterrupt = crate::interrupt::typelevel::RTC;
         }
     );
