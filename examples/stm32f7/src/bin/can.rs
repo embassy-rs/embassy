@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use core::num::{NonZeroU16, NonZeroU8};
+use core::num::{NonZeroU8, NonZeroU16};
 
 use defmt::*;
 use embassy_executor::Spawner;

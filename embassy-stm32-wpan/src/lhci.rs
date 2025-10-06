@@ -1,9 +1,9 @@
 use core::ptr;
 
 use crate::cmd::CmdPacket;
-use crate::consts::{TlPacketType, TL_EVT_HEADER_SIZE};
+use crate::consts::{TL_EVT_HEADER_SIZE, TlPacketType};
 use crate::evt::{CcEvt, EvtPacket, EvtSerial};
-use crate::tables::{DeviceInfoTable, RssInfoTable, SafeBootInfoTable, WirelessFwInfoTable, TL_DEVICE_INFO_TABLE};
+use crate::tables::{DeviceInfoTable, RssInfoTable, SafeBootInfoTable, TL_DEVICE_INFO_TABLE, WirelessFwInfoTable};
 
 const TL_BLEEVT_CC_OPCODE: u8 = 0x0e;
 const LHCI_OPCODE_C1_DEVICE_INF: u16 = 0xfd62;

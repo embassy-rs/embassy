@@ -9,7 +9,7 @@ use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, Resolution, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::ADC1;
-use crate::{interrupt, rcc, Peri};
+use crate::{Peri, interrupt, rcc};
 
 mod watchdog_v1;
 pub use watchdog_v1::WatchdogChannels;
@@ -66,11 +66,7 @@ pub struct Temperature;
 impl AdcChannel<ADC1> for Temperature {}
 impl super::SealedAdcChannel<ADC1> for Temperature {
     fn channel(&self) -> u8 {
-        if cfg!(adc_l0) {
-            18
-        } else {
-            16
-        }
+        if cfg!(adc_l0) { 18 } else { 16 }
     }
 }
 

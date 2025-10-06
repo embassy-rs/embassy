@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = "2024"
 name = "nrf-bootloader-example"
 version = "0.1.0"
 description = "Bootloader for nRF chips"

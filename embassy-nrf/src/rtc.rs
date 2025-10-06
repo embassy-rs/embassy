@@ -2,10 +2,13 @@
 
 #![macro_use]
 
+use core::marker::PhantomData;
+
+use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_hal_internal::{Peri, PeripheralType};
 
-use crate::chip::interrupt::typelevel::Interrupt as _;
-use crate::pac;
+use crate::interrupt::typelevel::Interrupt as _;
+use crate::{interrupt, pac};
 
 /// Prescaler has an invalid value which exceeds 12 bits.
 #[derive(Debug, PartialEq, Eq)]
@@ -88,23 +91,31 @@ macro_rules! impl_rtc {
 }
 
 /// nRF RTC driver.
-pub struct Rtc<'d, T: Instance>(Peri<'d, T>);
+pub struct Rtc<'d> {
+    r: pac::rtc::Rtc,
+    irq: interrupt::Interrupt,
+    _phantom: PhantomData<&'d ()>,
+}
 
-impl<'d, T: Instance> Rtc<'d, T> {
+impl<'d> Rtc<'d> {
     /// Create a new `Rtc` driver.
     ///
     /// fRTC \[Hz\] = 32_768 / (`prescaler` + 1 )
-    pub fn new(rtc: Peri<'d, T>, prescaler: u32) -> Result<Self, PrescalerOutOfRangeError> {
+    pub fn new<T: Instance>(_rtc: Peri<'d, T>, prescaler: u32) -> Result<Self, PrescalerOutOfRangeError> {
         if prescaler >= (1 << 12) {
             return Err(PrescalerOutOfRangeError(prescaler));
         }
 
         T::regs().prescaler().write(|w| w.set_prescaler(prescaler as u16));
-        Ok(Self(rtc))
+        Ok(Self {
+            r: T::regs(),
+            irq: T::Interrupt::IRQ,
+            _phantom: PhantomData,
+        })
     }
 
     /// Create a new `Rtc` driver, configuring it to run at the given frequency.
-    pub fn new_for_freq(rtc: Peri<'d, T>, freq_hz: u32) -> Result<Self, PrescalerOutOfRangeError> {
+    pub fn new_for_freq<T: Instance>(rtc: Peri<'d, T>, freq_hz: u32) -> Result<Self, PrescalerOutOfRangeError> {
         let prescaler = (32_768 / freq_hz).saturating_sub(1);
         Self::new(rtc, prescaler)
     }
@@ -115,34 +126,38 @@ impl<'d, T: Instance> Rtc<'d, T> {
     ///
     /// Potentially allows to create multiple instances of the driver for the same peripheral
     /// which can lead to undefined behavior.
-    pub unsafe fn steal() -> Self {
-        Self(unsafe { T::steal() })
+    pub unsafe fn steal<T: Instance>() -> Self {
+        Self {
+            r: T::regs(),
+            irq: T::Interrupt::IRQ,
+            _phantom: PhantomData,
+        }
     }
 
     /// Direct access to the RTC registers.
     #[cfg(feature = "unstable-pac")]
     #[inline]
     pub fn regs(&mut self) -> pac::rtc::Rtc {
-        T::regs()
+        self.r
     }
 
     /// Enable the RTC.
     #[inline]
     pub fn enable(&mut self) {
-        T::regs().tasks_start().write_value(1);
+        self.r.tasks_start().write_value(1);
     }
 
     /// Disable the RTC.
     #[inline]
     pub fn disable(&mut self) {
-        T::regs().tasks_stop().write_value(1);
+        self.r.tasks_stop().write_value(1);
     }
 
     /// Enables interrupts for the given [Interrupt] source.
     ///
     /// Optionally also enables the interrupt in the NVIC.
     pub fn enable_interrupt(&mut self, int: Interrupt, enable_in_nvic: bool) {
-        let regs = T::regs();
+        let regs = self.r;
         match int {
             Interrupt::Tick => regs.intenset().write(|w| w.set_tick(true)),
             Interrupt::Overflow => regs.intenset().write(|w| w.set_ovrflw(true)),
@@ -152,7 +167,7 @@ impl<'d, T: Instance> Rtc<'d, T> {
             Interrupt::Compare3 => regs.intenset().write(|w| w.set_compare(3, true)),
         }
         if enable_in_nvic {
-            unsafe { T::Interrupt::enable() };
+            unsafe { self.irq.enable() };
         }
     }
 
@@ -160,7 +175,7 @@ impl<'d, T: Instance> Rtc<'d, T> {
     ///
     /// Optionally also disables the interrupt in the NVIC.
     pub fn disable_interrupt(&mut self, int: Interrupt, disable_in_nvic: bool) {
-        let regs = T::regs();
+        let regs = self.r;
         match int {
             Interrupt::Tick => regs.intenclr().write(|w| w.set_tick(true)),
             Interrupt::Overflow => regs.intenclr().write(|w| w.set_ovrflw(true)),
@@ -170,13 +185,13 @@ impl<'d, T: Instance> Rtc<'d, T> {
             Interrupt::Compare3 => regs.intenclr().write(|w| w.set_compare(3, true)),
         }
         if disable_in_nvic {
-            T::Interrupt::disable();
+            self.irq.disable();
         }
     }
 
     /// Enable the generation of a hardware event from a given stimulus.
     pub fn enable_event(&mut self, evt: Interrupt) {
-        let regs = T::regs();
+        let regs = self.r;
         match evt {
             Interrupt::Tick => regs.evtenset().write(|w| w.set_tick(true)),
             Interrupt::Overflow => regs.evtenset().write(|w| w.set_ovrflw(true)),
@@ -189,7 +204,7 @@ impl<'d, T: Instance> Rtc<'d, T> {
 
     /// Disable the generation of a hardware event from a given stimulus.
     pub fn disable_event(&mut self, evt: Interrupt) {
-        let regs = T::regs();
+        let regs = self.r;
         match evt {
             Interrupt::Tick => regs.evtenclr().write(|w| w.set_tick(true)),
             Interrupt::Overflow => regs.evtenclr().write(|w| w.set_ovrflw(true)),
@@ -202,7 +217,7 @@ impl<'d, T: Instance> Rtc<'d, T> {
 
     /// Resets the given event.
     pub fn reset_event(&mut self, evt: Interrupt) {
-        let regs = T::regs();
+        let regs = self.r;
         match evt {
             Interrupt::Tick => regs.events_tick().write_value(0),
             Interrupt::Overflow => regs.events_ovrflw().write_value(0),
@@ -215,7 +230,7 @@ impl<'d, T: Instance> Rtc<'d, T> {
 
     /// Checks if the given event has been triggered.
     pub fn is_event_triggered(&self, evt: Interrupt) -> bool {
-        let regs = T::regs();
+        let regs = self.r;
         let val = match evt {
             Interrupt::Tick => regs.events_tick().read(),
             Interrupt::Overflow => regs.events_ovrflw().read(),
@@ -241,25 +256,19 @@ impl<'d, T: Instance> Rtc<'d, T> {
             CompareChannel::_3 => 3,
         };
 
-        T::regs().cc(reg).write(|w| w.set_compare(val));
+        self.r.cc(reg).write(|w| w.set_compare(val));
         Ok(())
     }
 
     /// Clear the Real Time Counter.
     #[inline]
     pub fn clear(&self) {
-        T::regs().tasks_clear().write_value(1);
+        self.r.tasks_clear().write_value(1);
     }
 
     /// Obtain the current value of the Real Time Counter, 24 bits of range.
     #[inline]
     pub fn read(&self) -> u32 {
-        T::regs().counter().read().counter()
-    }
-
-    /// Relase the RTC, returning the underlying peripheral instance.
-    #[inline]
-    pub fn release(self) -> Peri<'d, T> {
-        self.0
+        self.r.counter().read().counter()
     }
 }

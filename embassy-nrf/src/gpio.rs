@@ -5,10 +5,10 @@ use core::convert::Infallible;
 use core::hint::unreachable_unchecked;
 
 use cfg_if::cfg_if;
-use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
+use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 
 use crate::pac;
-use crate::pac::common::{Reg, RW};
+use crate::pac::common::{RW, Reg};
 use crate::pac::gpio;
 use crate::pac::gpio::vals;
 #[cfg(not(feature = "_nrf51"))]
@@ -217,7 +217,7 @@ pub struct Output<'d> {
 }
 
 impl<'d> Output<'d> {
-    /// Create GPIO output driver for a [Pin] with the provided [Level] and [OutputDriver] configuration.
+    /// Create GPIO output driver for a [Pin] with the provided [Level] and [OutputDrive] configuration.
     #[inline]
     pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level, drive: OutputDrive) -> Self {
         let mut pin = Flex::new(pin);
@@ -781,7 +781,7 @@ impl<'d> embedded_hal_1::digital::ErrorType for Flex<'d> {
     type Error = Infallible;
 }
 
-/// Implement [`InputPin`] for [`Flex`];
+/// Implement [embedded_hal_1::digital::InputPin] for [`Flex`];
 ///
 /// If the pin is not in input mode the result is unspecified.
 impl<'d> embedded_hal_1::digital::InputPin for Flex<'d> {

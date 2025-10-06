@@ -7,7 +7,7 @@ use embedded_storage::nor_flash::{
 };
 
 use crate::peripherals::RRAMC;
-use crate::{pac, Peri};
+use crate::{Peri, pac};
 
 //
 // Export Nvmc alias and page size for downstream compatibility

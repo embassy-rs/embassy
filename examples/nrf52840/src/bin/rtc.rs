@@ -7,15 +7,14 @@ use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::interrupt;
 use embassy_nrf::rtc::Rtc;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use portable_atomic::AtomicU64;
 use {defmt_rtt as _, panic_probe as _};
 
 // 64 bit counter which will never overflow.
 static TICK_COUNTER: AtomicU64 = AtomicU64::new(0);
-static RTC: Mutex<CriticalSectionRawMutex, RefCell<Option<Rtc<'static, embassy_nrf::peripherals::RTC0>>>> =
-    Mutex::new(RefCell::new(None));
+static RTC: Mutex<CriticalSectionRawMutex, RefCell<Option<Rtc<'static>>>> = Mutex::new(RefCell::new(None));
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

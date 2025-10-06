@@ -6,13 +6,13 @@
 use core::slice;
 
 use cyw43::SpiBusCyw43;
+use embassy_rp::Peri;
 use embassy_rp::dma::Channel;
 use embassy_rp::gpio::{Drive, Level, Output, Pull, SlewRate};
 use embassy_rp::pio::program::pio_asm;
 use embassy_rp::pio::{Common, Config, Direction, Instance, Irq, PioPin, ShiftDirection, StateMachine};
-use embassy_rp::Peri;
-use fixed::types::extra::U8;
 use fixed::FixedU32;
+use fixed::types::extra::U8;
 
 /// SPI comms driven by PIO.
 pub struct PioSpi<'d, PIO: Instance, const SM: usize, DMA: Channel> {

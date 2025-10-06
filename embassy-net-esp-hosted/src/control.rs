@@ -65,8 +65,7 @@ macro_rules! ioctl {
         };
         $self.ioctl(&mut msg).await?;
         #[allow(unused_mut)]
-        let Some(proto::CtrlMsgPayload::$resp_variant(mut $resp)) = msg.payload
-        else {
+        let Some(proto::CtrlMsgPayload::$resp_variant(mut $resp)) = msg.payload else {
             warn!("unexpected response variant");
             return Err(Error::Internal);
         };

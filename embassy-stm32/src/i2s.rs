@@ -3,15 +3,13 @@
 use embassy_futures::join::join;
 use stm32_metapac::spi::vals;
 
-use crate::dma::{
-    ringbuffer, Channel, ChannelAndRequest, ReadableRingBuffer, Request, TransferOptions, WritableRingBuffer,
-};
+use crate::Peri;
+use crate::dma::{Channel, ChannelAndRequest, Request ReadableRingBuffer, TransferOptions, WritableRingBuffer, ringbuffer};
 use crate::gpio::{AfType, AnyPin, OutputType, Pin, SealedPin, Speed};
 use crate::mode::Async;
 use crate::peripherals::{DMA1_CH0, PB4};
 use crate::spi::{Config as SpiConfig, RegsExt as _, *};
 use crate::time::Hertz;
-use crate::Peri;
 
 // XXX(RLB) These traits exist in order to provide information that is not currently captured by
 // stm32-metapac, namely:

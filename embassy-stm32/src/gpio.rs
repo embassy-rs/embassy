@@ -4,7 +4,7 @@
 use core::convert::Infallible;
 
 use critical_section::CriticalSection;
-use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
+use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 
 use crate::pac::gpio::{self, vals};
 use crate::peripherals;

@@ -134,97 +134,99 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
 /// IPC driver
 #[non_exhaustive]
-pub struct Ipc<'d, T: Instance> {
+pub struct Ipc<'d> {
     /// Event 0
-    pub event0: Event<'d, T>,
+    pub event0: Event<'d>,
     /// Event 1
-    pub event1: Event<'d, T>,
+    pub event1: Event<'d>,
     /// Event 2
-    pub event2: Event<'d, T>,
+    pub event2: Event<'d>,
     /// Event 3
-    pub event3: Event<'d, T>,
+    pub event3: Event<'d>,
     /// Event 4
-    pub event4: Event<'d, T>,
+    pub event4: Event<'d>,
     /// Event 5
-    pub event5: Event<'d, T>,
+    pub event5: Event<'d>,
     /// Event 6
-    pub event6: Event<'d, T>,
+    pub event6: Event<'d>,
     /// Event 7
-    pub event7: Event<'d, T>,
+    pub event7: Event<'d>,
     /// Event 8
-    pub event8: Event<'d, T>,
+    pub event8: Event<'d>,
     /// Event 9
-    pub event9: Event<'d, T>,
+    pub event9: Event<'d>,
     /// Event 10
-    pub event10: Event<'d, T>,
+    pub event10: Event<'d>,
     /// Event 11
-    pub event11: Event<'d, T>,
+    pub event11: Event<'d>,
     /// Event 12
-    pub event12: Event<'d, T>,
+    pub event12: Event<'d>,
     /// Event 13
-    pub event13: Event<'d, T>,
+    pub event13: Event<'d>,
     /// Event 14
-    pub event14: Event<'d, T>,
+    pub event14: Event<'d>,
     /// Event 15
-    pub event15: Event<'d, T>,
+    pub event15: Event<'d>,
 }
 
-impl<'d, T: Instance> Ipc<'d, T> {
+impl<'d> Ipc<'d> {
     /// Create a new IPC driver.
-    pub fn new(
+    pub fn new<T: Instance>(
         _p: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        let _phantom = PhantomData;
+        let r = T::regs();
+        let state = T::state();
         #[rustfmt::skip]
-        let r = Self { // attributes on expressions are experimental
-            event0: Event { number: EventNumber::Event0, _phantom },
-            event1: Event { number: EventNumber::Event1, _phantom },
-            event2: Event { number: EventNumber::Event2, _phantom },
-            event3: Event { number: EventNumber::Event3, _phantom },
-            event4: Event { number: EventNumber::Event4, _phantom },
-            event5: Event { number: EventNumber::Event5, _phantom },
-            event6: Event { number: EventNumber::Event6, _phantom },
-            event7: Event { number: EventNumber::Event7, _phantom },
-            event8: Event { number: EventNumber::Event8, _phantom },
-            event9: Event { number: EventNumber::Event9, _phantom },
-            event10: Event { number: EventNumber::Event10, _phantom },
-            event11: Event { number: EventNumber::Event11, _phantom },
-            event12: Event { number: EventNumber::Event12, _phantom },
-            event13: Event { number: EventNumber::Event13, _phantom },
-            event14: Event { number: EventNumber::Event14, _phantom },
-            event15: Event { number: EventNumber::Event15, _phantom },
+        let result = Self { // attributes on expressions are experimental
+            event0: Event { number: EventNumber::Event0, r, state, _phantom: PhantomData },
+            event1: Event { number: EventNumber::Event1, r, state, _phantom: PhantomData },
+            event2: Event { number: EventNumber::Event2, r, state, _phantom: PhantomData },
+            event3: Event { number: EventNumber::Event3, r, state, _phantom: PhantomData },
+            event4: Event { number: EventNumber::Event4, r, state, _phantom: PhantomData },
+            event5: Event { number: EventNumber::Event5, r, state, _phantom: PhantomData },
+            event6: Event { number: EventNumber::Event6, r, state, _phantom: PhantomData },
+            event7: Event { number: EventNumber::Event7, r, state, _phantom: PhantomData },
+            event8: Event { number: EventNumber::Event8, r, state, _phantom: PhantomData },
+            event9: Event { number: EventNumber::Event9, r, state, _phantom: PhantomData },
+            event10: Event { number: EventNumber::Event10, r, state, _phantom: PhantomData },
+            event11: Event { number: EventNumber::Event11, r, state, _phantom: PhantomData },
+            event12: Event { number: EventNumber::Event12, r, state, _phantom: PhantomData },
+            event13: Event { number: EventNumber::Event13, r, state, _phantom: PhantomData },
+            event14: Event { number: EventNumber::Event14, r, state, _phantom: PhantomData },
+            event15: Event { number: EventNumber::Event15, r, state, _phantom: PhantomData },
         };
-        r
+        result
     }
 }
 
 /// IPC event
-pub struct Event<'d, T: Instance> {
+pub struct Event<'d> {
     number: EventNumber,
-    _phantom: PhantomData<&'d T>,
+    r: pac::ipc::Ipc,
+    state: &'static State,
+    _phantom: PhantomData<&'d ()>,
 }
 
-impl<'d, T: Instance> Event<'d, T> {
+impl<'d> Event<'d> {
     /// Trigger the event.
     pub fn trigger(&self) {
         let nr = self.number;
-        T::regs().tasks_send(nr as usize).write_value(1);
+        self.r.tasks_send(nr as usize).write_value(1);
     }
 
     /// Wait for the event to be triggered.
     pub async fn wait(&mut self) {
-        let regs = T::regs();
         let nr = self.number as usize;
-        regs.intenset().write(|w| w.0 = 1 << nr);
+        self.r.intenset().write(|w| w.0 = 1 << nr);
         poll_fn(|cx| {
-            T::state().wakers[nr].register(cx.waker());
+            self.state.wakers[nr].register(cx.waker());
 
-            if regs.events_receive(nr).read() == 1 {
-                regs.events_receive(nr).write_value(0x00);
+            if self.r.events_receive(nr).read() == 1 {
+                self.r.events_receive(nr).write_value(0x00);
                 Poll::Ready(())
             } else {
                 Poll::Pending
@@ -239,16 +241,17 @@ impl<'d, T: Instance> Event<'d, T> {
     }
 
     /// Create a handle that can trigger the event.
-    pub fn trigger_handle(&self) -> EventTrigger<'d, T> {
+    pub fn trigger_handle(&self) -> EventTrigger<'d> {
         EventTrigger {
             number: self.number,
+            r: self.r,
             _phantom: PhantomData,
         }
     }
 
     /// Configure the channels the event will broadcast to
     pub fn configure_trigger<I: IntoIterator<Item = IpcChannel>>(&mut self, channels: I) {
-        T::regs().send_cnf(self.number as usize).write(|w| {
+        self.r.send_cnf(self.number as usize).write(|w| {
             for channel in channels {
                 w.0 |= channel.mask();
             }
@@ -257,7 +260,7 @@ impl<'d, T: Instance> Event<'d, T> {
 
     /// Configure the channels the event will listen on
     pub fn configure_wait<I: IntoIterator<Item = IpcChannel>>(&mut self, channels: I) {
-        T::regs().receive_cnf(self.number as usize).write(|w| {
+        self.r.receive_cnf(self.number as usize).write(|w| {
             for channel in channels {
                 w.0 |= channel.mask();
             }
@@ -267,22 +270,25 @@ impl<'d, T: Instance> Event<'d, T> {
     /// Get the task for the IPC event to use with PPI.
     pub fn task(&self) -> ppi::Task<'d> {
         let nr = self.number as usize;
-        let regs = T::regs();
-        ppi::Task::from_reg(regs.tasks_send(nr))
+        ppi::Task::from_reg(self.r.tasks_send(nr))
     }
 
     /// Get the event for the IPC event to use with PPI.
     pub fn event(&self) -> ppi::Event<'d> {
         let nr = self.number as usize;
-        let regs = T::regs();
-        ppi::Event::from_reg(regs.events_receive(nr))
+        ppi::Event::from_reg(self.r.events_receive(nr))
     }
 
     /// Reborrow into a "child" Event.
     ///
     /// `self` will stay borrowed until the child Event is dropped.
-    pub fn reborrow(&mut self) -> Event<'_, T> {
-        Self { ..*self }
+    pub fn reborrow(&mut self) -> Event<'_> {
+        Event {
+            number: self.number,
+            r: self.r,
+            state: self.state,
+            _phantom: PhantomData,
+        }
     }
 
     /// Steal an IPC event by number.
@@ -290,9 +296,11 @@ impl<'d, T: Instance> Event<'d, T> {
     /// # Safety
     ///
     /// The event number must not be in use by another [`Event`].
-    pub unsafe fn steal(number: EventNumber) -> Self {
+    pub unsafe fn steal<T: Instance>(number: EventNumber) -> Self {
         Self {
             number,
+            r: T::regs(),
+            state: T::state(),
             _phantom: PhantomData,
         }
     }
@@ -301,17 +309,17 @@ impl<'d, T: Instance> Event<'d, T> {
 /// A handle that can trigger an IPC event.
 ///
 /// This `struct` is returned by [`Event::trigger_handle`].
-#[derive(Debug, Copy, Clone)]
-pub struct EventTrigger<'d, T: Instance> {
+pub struct EventTrigger<'d> {
     number: EventNumber,
-    _phantom: PhantomData<&'d T>,
+    r: pac::ipc::Ipc,
+    _phantom: PhantomData<&'d ()>,
 }
 
-impl<T: Instance> EventTrigger<'_, T> {
+impl EventTrigger<'_> {
     /// Trigger the event.
     pub fn trigger(&self) {
         let nr = self.number;
-        T::regs().tasks_send(nr as usize).write_value(1);
+        self.r.tasks_send(nr as usize).write_value(1);
     }
 
     /// Returns the [`EventNumber`] of the event.

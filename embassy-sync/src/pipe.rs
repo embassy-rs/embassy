@@ -7,8 +7,8 @@ use core::ops::Range;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
+use crate::blocking_mutex::raw::RawMutex;
 use crate::ring_buffer::RingBuffer;
 use crate::waitqueue::WakerRegistration;
 

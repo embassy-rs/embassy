@@ -6,9 +6,9 @@ use embassy_net_driver::{Capabilities, HardwareAddress, LinkState};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 
+use crate::mac::MTU;
 use crate::mac::event::MacEvent;
 use crate::mac::runner::Runner;
-use crate::mac::MTU;
 
 pub struct Driver<'d> {
     runner: &'d Runner<'d>,

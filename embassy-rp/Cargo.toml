@@ -1,7 +1,7 @@
 [package]
 name = "embassy-rp"
 version = "0.8.0"
-edition = "2021"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Embassy Hardware Abstraction Layer (HAL) for the Raspberry Pi RP2040 or RP235x microcontroller"
 keywords = ["embedded", "async", "rp235x", "rp2040", "embedded-hal"]
@@ -104,7 +104,7 @@ boot2-w25x10cl = []
 ## Have embassy-rp not provide the boot2 so you can use your own.
 ## Place your own in the ".boot2" section like:
 ## ```
-## #[link_section = ".boot2"]
+## #[unsafe(link_section = ".boot2")]
 ## #[used]
 ## static BOOT2: [u8; 256] = [0; 256]; // Provide your own with e.g. include_bytes!
 ## ```
@@ -127,7 +127,7 @@ imagedef-nonsecure-exe = []
 ## ```ignore
 ## use embassy_rp::block::ImageDef;
 ##
-## #[link_section = ".start_block"]
+## #[unsafe(link_section = ".start_block")]
 ## #[used]
 ## static IMAGE_DEF: ImageDef = ImageDef::secure_exe(); // Update this with your own implementation.
 ## ```

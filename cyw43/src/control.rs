@@ -10,7 +10,7 @@ use crate::events::{Event, EventSubscriber, Events};
 use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType};
 use crate::structs::*;
-use crate::{countries, events, PowerManagementMode};
+use crate::{PowerManagementMode, countries, events};
 
 /// Control errors.
 #[derive(Debug)]
@@ -470,6 +470,8 @@ impl<'a> Control<'a> {
             pfi.passphrase[..passphrase.as_bytes().len()].copy_from_slice(passphrase.as_bytes());
             self.ioctl(IoctlType::Set, Ioctl::SetWsecPmk, 0, &mut pfi.to_bytes())
                 .await;
+        } else {
+            self.ioctl_set_u32(Ioctl::SetAuth, 0, 0).await;
         }
 
         // Change mutlicast rate from 1 Mbps to 11 Mbps

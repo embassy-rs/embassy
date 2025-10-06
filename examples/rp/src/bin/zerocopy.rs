@@ -11,7 +11,7 @@ use embassy_executor::Spawner;
 use embassy_rp::adc::{self, Adc, Async, Config, InterruptHandler};
 use embassy_rp::gpio::Pull;
 use embassy_rp::peripherals::DMA_CH0;
-use embassy_rp::{bind_interrupts, Peri};
+use embassy_rp::{Peri, bind_interrupts};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::zerocopy_channel::{Channel, Receiver, Sender};
 use embassy_time::{Duration, Ticker, Timer};

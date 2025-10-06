@@ -154,8 +154,8 @@ impl<'d> I2c<'d, Async, Master> {
         scl: Peri<'d, if_afio!(impl SclPin<T, A>)>,
         sda: Peri<'d, if_afio!(impl SdaPin<T, A>)>,
         _irq: impl interrupt::typelevel::Binding<T::EventInterrupt, EventInterruptHandler<T>>
-            + interrupt::typelevel::Binding<T::ErrorInterrupt, ErrorInterruptHandler<T>>
-            + 'd,
+        + interrupt::typelevel::Binding<T::ErrorInterrupt, ErrorInterruptHandler<T>>
+        + 'd,
         tx_dma: Peri<'d, impl TxDma<T>>,
         rx_dma: Peri<'d, impl RxDma<T>>,
         config: Config,

@@ -1,5 +1,6 @@
 #![no_std]
 #![allow(async_fn_in_trait)]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
 mod fmt;
@@ -341,11 +342,13 @@ mod tests {
             &mut aligned,
         );
 
-        assert!(block_on(updater.verify_and_mark_updated(
-            &public_key.to_bytes(),
-            &signature.to_bytes(),
-            firmware_len as u32,
-        ))
-        .is_ok());
+        assert!(
+            block_on(updater.verify_and_mark_updated(
+                &public_key.to_bytes(),
+                &signature.to_bytes(),
+                firmware_len as u32,
+            ))
+            .is_ok()
+        );
     }
 }
