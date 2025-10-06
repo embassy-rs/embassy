@@ -768,5 +768,9 @@ impl<'d, T: AdvancedInstance4Channel> Timer<'d, T> {
     /// Setting this bit generates a break event. This bit is automatically cleared by the hardware.
     pub fn trigger_software_break(&self, n: usize) {
         self.regs_advanced().egr().write(|r| r.set_bg(n, true));
+
+    /// Set repetition counter
+    pub fn set_repetition_counter(&self, val: u16) {
+        self.regs_advanced().rcr().modify(|w| w.set_rep(val));
     }
 }
