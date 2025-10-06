@@ -534,10 +534,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
 
         T::regs().cfgr().modify(|reg| {
-            reg.set_discen(false);
-            reg.set_cont(false); // False for interrupt triggered measurements
-            reg.set_dmacfg(Dmacfg::ONE_SHOT);
-            reg.set_dmaen(Dmaen::DISABLE);
+            reg.set_jdiscen(false); // Will convert all channels for each trigger
         });
 
         // Start conversion
