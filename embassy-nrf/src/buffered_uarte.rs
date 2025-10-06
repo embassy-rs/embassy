@@ -23,6 +23,7 @@ pub use pac::uarte::vals::{Baudrate, ConfigParity as Parity};
 
 use crate::gpio::{AnyPin, Pin as GpioPin};
 use crate::interrupt::typelevel::Interrupt;
+use crate::interrupt::InterruptExt;
 use crate::ppi::{
     self, AnyConfigurableChannel, AnyGroup, Channel, ConfigurableChannel, Event, Group, Ppi, PpiGroup, Task,
 };
@@ -207,21 +208,21 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
 }
 
 /// Buffered UARTE driver.
-pub struct BufferedUarte<'d, U: UarteInstance, T: TimerInstance> {
-    tx: BufferedUarteTx<'d, U>,
-    rx: BufferedUarteRx<'d, U, T>,
+pub struct BufferedUarte<'d> {
+    tx: BufferedUarteTx<'d>,
+    rx: BufferedUarteRx<'d>,
 }
 
-impl<'d, U: UarteInstance, T: TimerInstance> Unpin for BufferedUarte<'d, U, T> {}
+impl<'d> Unpin for BufferedUarte<'d> {}
 
-impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
+impl<'d> BufferedUarte<'d> {
     /// Create a new BufferedUarte without hardware flow control.
     ///
     /// # Panics
     ///
     /// Panics if `rx_buffer.len()` is odd.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn new<U: UarteInstance, T: TimerInstance>(
         uarte: Peri<'d, U>,
         timer: Peri<'d, T>,
         ppi_ch1: Peri<'d, impl ConfigurableChannel>,
@@ -256,7 +257,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     ///
     /// Panics if `rx_buffer.len()` is odd.
     #[allow(clippy::too_many_arguments)]
-    pub fn new_with_rtscts(
+    pub fn new_with_rtscts<U: UarteInstance, T: TimerInstance>(
         uarte: Peri<'d, U>,
         timer: Peri<'d, T>,
         ppi_ch1: Peri<'d, impl ConfigurableChannel>,
@@ -288,7 +289,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn new_inner(
+    fn new_inner<U: UarteInstance, T: TimerInstance>(
         peri: Peri<'d, U>,
         timer: Peri<'d, T>,
         ppi_ch1: Peri<'d, AnyConfigurableChannel>,
@@ -302,30 +303,33 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
         rx_buffer: &'d mut [u8],
         tx_buffer: &'d mut [u8],
     ) -> Self {
-        configure(U::regs(), config, cts.is_some());
+        let r = U::regs();
+        let irq = U::Interrupt::IRQ;
+        let state = U::state();
+
+        configure(r, config, cts.is_some());
 
         let tx = BufferedUarteTx::new_innerer(unsafe { peri.clone_unchecked() }, txd, cts, tx_buffer);
         let rx = BufferedUarteRx::new_innerer(peri, timer, ppi_ch1, ppi_ch2, ppi_group, rxd, rts, rx_buffer);
 
-        U::regs().enable().write(|w| w.set_enable(vals::Enable::ENABLED));
-        U::Interrupt::pend();
-        unsafe { U::Interrupt::enable() };
+        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        irq.pend();
+        unsafe { irq.enable() };
 
-        U::state().tx_rx_refcount.store(2, Ordering::Relaxed);
+        state.tx_rx_refcount.store(2, Ordering::Relaxed);
 
         Self { tx, rx }
     }
 
     /// Adjust the baud rate to the provided value.
     pub fn set_baudrate(&mut self, baudrate: Baudrate) {
-        let r = U::regs();
-        r.baudrate().write(|w| w.set_baudrate(baudrate));
+        self.tx.set_baudrate(baudrate);
     }
 
     /// Split the UART in reader and writer parts.
     ///
     /// This allows reading and writing concurrently from independent tasks.
-    pub fn split(self) -> (BufferedUarteRx<'d, U, T>, BufferedUarteTx<'d, U>) {
+    pub fn split(self) -> (BufferedUarteRx<'d>, BufferedUarteTx<'d>) {
         (self.rx, self.tx)
     }
 
@@ -333,7 +337,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
     ///
     /// The returned halves borrow from `self`, so you can drop them and go back to using
     /// the "un-split" `self`. This allows temporarily splitting the UART.
-    pub fn split_by_ref(&mut self) -> (&mut BufferedUarteRx<'d, U, T>, &mut BufferedUarteTx<'d, U>) {
+    pub fn split_by_ref(&mut self) -> (&mut BufferedUarteRx<'d>, &mut BufferedUarteTx<'d>) {
         (&mut self.rx, &mut self.tx)
     }
 
@@ -369,13 +373,17 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarte<'d, U, T> {
 }
 
 /// Reader part of the buffered UARTE driver.
-pub struct BufferedUarteTx<'d, U: UarteInstance> {
-    _peri: Peri<'d, U>,
+pub struct BufferedUarteTx<'d> {
+    r: pac::uarte::Uarte,
+    _irq: interrupt::Interrupt,
+    state: &'static crate::uarte::State,
+    buffered_state: &'static State,
+    _p: PhantomData<&'d ()>,
 }
 
-impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
+impl<'d> BufferedUarteTx<'d> {
     /// Create a new BufferedUarteTx without hardware flow control.
-    pub fn new(
+    pub fn new<U: UarteInstance>(
         uarte: Peri<'d, U>,
         txd: Peri<'d, impl GpioPin>,
         _irq: impl interrupt::typelevel::Binding<U::Interrupt, InterruptHandler<U>> + 'd,
@@ -390,7 +398,7 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
     /// # Panics
     ///
     /// Panics if `rx_buffer.len()` is odd.
-    pub fn new_with_cts(
+    pub fn new_with_cts<U: UarteInstance>(
         uarte: Peri<'d, U>,
         txd: Peri<'d, impl GpioPin>,
         cts: Peri<'d, impl GpioPin>,
@@ -401,41 +409,48 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
         Self::new_inner(uarte, txd.into(), Some(cts.into()), config, tx_buffer)
     }
 
-    fn new_inner(
+    fn new_inner<U: UarteInstance>(
         peri: Peri<'d, U>,
         txd: Peri<'d, AnyPin>,
         cts: Option<Peri<'d, AnyPin>>,
         config: Config,
         tx_buffer: &'d mut [u8],
     ) -> Self {
-        configure(U::regs(), config, cts.is_some());
+        let r = U::regs();
+        let irq = U::Interrupt::IRQ;
+        let state = U::state();
+        let _buffered_state = U::buffered_state();
+
+        configure(r, config, cts.is_some());
 
         let this = Self::new_innerer(peri, txd, cts, tx_buffer);
 
-        U::regs().enable().write(|w| w.set_enable(vals::Enable::ENABLED));
-        U::Interrupt::pend();
-        unsafe { U::Interrupt::enable() };
+        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        irq.pend();
+        unsafe { irq.enable() };
 
-        U::state().tx_rx_refcount.store(1, Ordering::Relaxed);
+        state.tx_rx_refcount.store(1, Ordering::Relaxed);
 
         this
     }
 
-    fn new_innerer(
-        peri: Peri<'d, U>,
+    fn new_innerer<U: UarteInstance>(
+        _peri: Peri<'d, U>,
         txd: Peri<'d, AnyPin>,
         cts: Option<Peri<'d, AnyPin>>,
         tx_buffer: &'d mut [u8],
     ) -> Self {
         let r = U::regs();
+        let irq = U::Interrupt::IRQ;
+        let state = U::state();
+        let buffered_state = U::buffered_state();
 
         configure_tx_pins(r, txd, cts);
 
         // Initialize state
-        let s = U::buffered_state();
-        s.tx_count.store(0, Ordering::Relaxed);
+        buffered_state.tx_count.store(0, Ordering::Relaxed);
         let len = tx_buffer.len();
-        unsafe { s.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
+        unsafe { buffered_state.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
 
         r.events_txstarted().write_value(0);
 
@@ -444,15 +459,21 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
             w.set_endtx(true);
         });
 
-        Self { _peri: peri }
+        Self {
+            r,
+            _irq: irq,
+            state,
+            buffered_state,
+            _p: PhantomData,
+        }
     }
 
     /// Write a buffer into this writer, returning how many bytes were written.
-    pub fn write<'a>(&'a mut self, buf: &'a [u8]) -> impl Future<Output = Result<usize, Error>> + 'a {
+    pub fn write<'a>(&'a mut self, buf: &'a [u8]) -> impl Future<Output = Result<usize, Error>> + 'a + use<'a, 'd> {
         poll_fn(move |cx| {
             //trace!("poll_write: {:?}", buf.len());
-            let ss = U::state();
-            let s = U::buffered_state();
+            let ss = self.state;
+            let s = self.buffered_state;
             let mut tx = unsafe { s.tx_buf.writer() };
 
             let tx_buf = tx.push_slice();
@@ -469,7 +490,7 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
             //trace!("poll_write: queued {:?}", n);
 
             compiler_fence(Ordering::SeqCst);
-            U::Interrupt::pend();
+            self._irq.pend();
 
             Poll::Ready(Ok(n))
         })
@@ -478,7 +499,7 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
     /// Try writing a buffer without waiting, returning how many bytes were written.
     pub fn try_write(&mut self, buf: &[u8]) -> Result<usize, Error> {
         //trace!("poll_write: {:?}", buf.len());
-        let s = U::buffered_state();
+        let s = self.buffered_state;
         let mut tx = unsafe { s.tx_buf.writer() };
 
         let tx_buf = tx.push_slice();
@@ -493,17 +514,17 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
         //trace!("poll_write: queued {:?}", n);
 
         compiler_fence(Ordering::SeqCst);
-        U::Interrupt::pend();
+        self._irq.pend();
 
         Ok(n)
     }
 
     /// Flush this output stream, ensuring that all intermediately buffered contents reach their destination.
     pub fn flush(&mut self) -> impl Future<Output = Result<(), Error>> + '_ {
+        let ss = self.state;
+        let s = self.buffered_state;
         poll_fn(move |cx| {
             //trace!("poll_flush");
-            let ss = U::state();
-            let s = U::buffered_state();
             if !s.tx_buf.is_empty() {
                 //trace!("poll_flush: pending");
                 ss.tx_waker.register(cx.waker());
@@ -513,11 +534,16 @@ impl<'d, U: UarteInstance> BufferedUarteTx<'d, U> {
             Poll::Ready(Ok(()))
         })
     }
+
+    /// Adjust the baud rate to the provided value.
+    pub fn set_baudrate(&mut self, baudrate: Baudrate) {
+        self.r.baudrate().write(|w| w.set_baudrate(baudrate));
+    }
 }
 
-impl<'a, U: UarteInstance> Drop for BufferedUarteTx<'a, U> {
+impl<'a> Drop for BufferedUarteTx<'a> {
     fn drop(&mut self) {
-        let r = U::regs();
+        let r = self.r;
 
         r.intenclr().write(|w| {
             w.set_txdrdy(true);
@@ -528,31 +554,34 @@ impl<'a, U: UarteInstance> Drop for BufferedUarteTx<'a, U> {
         r.tasks_stoptx().write_value(1);
         while r.events_txstopped().read() == 0 {}
 
-        let s = U::buffered_state();
+        let s = self.buffered_state;
         unsafe { s.tx_buf.deinit() }
 
-        let s = U::state();
+        let s = self.state;
         drop_tx_rx(r, s);
     }
 }
 
 /// Reader part of the buffered UARTE driver.
-pub struct BufferedUarteRx<'d, U: UarteInstance, T: TimerInstance> {
-    _peri: Peri<'d, U>,
-    timer: Timer<'d, T>,
+pub struct BufferedUarteRx<'d> {
+    r: pac::uarte::Uarte,
+    state: &'static crate::uarte::State,
+    buffered_state: &'static State,
+    timer: Timer<'d>,
     _ppi_ch1: Ppi<'d, AnyConfigurableChannel, 1, 1>,
     _ppi_ch2: Ppi<'d, AnyConfigurableChannel, 1, 2>,
     _ppi_group: PpiGroup<'d, AnyGroup>,
+    _p: PhantomData<&'d ()>,
 }
 
-impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
+impl<'d> BufferedUarteRx<'d> {
     /// Create a new BufferedUarte without hardware flow control.
     ///
     /// # Panics
     ///
     /// Panics if `rx_buffer.len()` is odd.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn new<U: UarteInstance, T: TimerInstance>(
         uarte: Peri<'d, U>,
         timer: Peri<'d, T>,
         ppi_ch1: Peri<'d, impl ConfigurableChannel>,
@@ -582,7 +611,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
     ///
     /// Panics if `rx_buffer.len()` is odd.
     #[allow(clippy::too_many_arguments)]
-    pub fn new_with_rts(
+    pub fn new_with_rts<U: UarteInstance, T: TimerInstance>(
         uarte: Peri<'d, U>,
         timer: Peri<'d, T>,
         ppi_ch1: Peri<'d, impl ConfigurableChannel>,
@@ -608,7 +637,7 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn new_inner(
+    fn new_inner<U: UarteInstance, T: TimerInstance>(
         peri: Peri<'d, U>,
         timer: Peri<'d, T>,
         ppi_ch1: Peri<'d, AnyConfigurableChannel>,
@@ -619,22 +648,27 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
         config: Config,
         rx_buffer: &'d mut [u8],
     ) -> Self {
-        configure(U::regs(), config, rts.is_some());
+        let r = U::regs();
+        let irq = U::Interrupt::IRQ;
+        let state = U::state();
+        let _buffered_state = U::buffered_state();
+
+        configure(r, config, rts.is_some());
 
         let this = Self::new_innerer(peri, timer, ppi_ch1, ppi_ch2, ppi_group, rxd, rts, rx_buffer);
 
-        U::regs().enable().write(|w| w.set_enable(vals::Enable::ENABLED));
-        U::Interrupt::pend();
-        unsafe { U::Interrupt::enable() };
+        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
+        irq.pend();
+        unsafe { irq.enable() };
 
-        U::state().tx_rx_refcount.store(1, Ordering::Relaxed);
+        state.tx_rx_refcount.store(1, Ordering::Relaxed);
 
         this
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn new_innerer(
-        peri: Peri<'d, U>,
+    fn new_innerer<U: UarteInstance, T: TimerInstance>(
+        _peri: Peri<'d, U>,
         timer: Peri<'d, T>,
         ppi_ch1: Peri<'d, AnyConfigurableChannel>,
         ppi_ch2: Peri<'d, AnyConfigurableChannel>,
@@ -646,16 +680,17 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
         assert!(rx_buffer.len() % 2 == 0);
 
         let r = U::regs();
+        let state = U::state();
+        let buffered_state = U::buffered_state();
 
         configure_rx_pins(r, rxd, rts);
 
         // Initialize state
-        let s = U::buffered_state();
-        s.rx_started_count.store(0, Ordering::Relaxed);
-        s.rx_ended_count.store(0, Ordering::Relaxed);
-        s.rx_started.store(false, Ordering::Relaxed);
+        buffered_state.rx_started_count.store(0, Ordering::Relaxed);
+        buffered_state.rx_ended_count.store(0, Ordering::Relaxed);
+        buffered_state.rx_started.store(false, Ordering::Relaxed);
         let rx_len = rx_buffer.len().min(EASY_DMA_SIZE * 2);
-        unsafe { s.rx_buf.init(rx_buffer.as_mut_ptr(), rx_len) };
+        unsafe { buffered_state.rx_buf.init(rx_buffer.as_mut_ptr(), rx_len) };
 
         // clear errors
         let errors = r.errorsrc().read();
@@ -683,7 +718,9 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
         let mut ppi_ch1 = Ppi::new_one_to_one(ppi_ch1, Event::from_reg(r.events_rxdrdy()), timer.task_count());
         ppi_ch1.enable();
 
-        s.rx_ppi_ch.store(ppi_ch2.number() as u8, Ordering::Relaxed);
+        buffered_state
+            .rx_ppi_ch
+            .store(ppi_ch2.number() as u8, Ordering::Relaxed);
         let mut ppi_group = PpiGroup::new(ppi_group);
         let mut ppi_ch2 = Ppi::new_one_to_two(
             ppi_ch2,
@@ -695,11 +732,14 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
         ppi_group.add_channel(&ppi_ch2);
 
         Self {
-            _peri: peri,
+            r,
+            state,
+            buffered_state,
             timer,
             _ppi_ch1: ppi_ch1,
             _ppi_ch2: ppi_ch2,
             _ppi_group: ppi_group,
+            _p: PhantomData,
         }
     }
 
@@ -714,17 +754,17 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
 
     /// Return the contents of the internal buffer, filling it with more data from the inner reader if it is empty.
     pub fn fill_buf(&mut self) -> impl Future<Output = Result<&'_ [u8], Error>> {
+        let r = self.r;
+        let s = self.buffered_state;
+        let ss = self.state;
+        let timer = &self.timer;
         poll_fn(move |cx| {
             compiler_fence(Ordering::SeqCst);
             //trace!("poll_read");
 
-            let r = U::regs();
-            let s = U::buffered_state();
-            let ss = U::state();
-
             // Read the RXDRDY counter.
-            T::regs().tasks_capture(0).write_value(1);
-            let mut end = T::regs().cc(0).read() as usize;
+            timer.cc(0).capture();
+            let mut end = timer.cc(0).read() as usize;
             //trace!("  rxdrdy count = {:?}", end);
 
             // We've set a compare channel that resets the counter to 0 when it reaches `len*2`.
@@ -771,24 +811,24 @@ impl<'d, U: UarteInstance, T: TimerInstance> BufferedUarteRx<'d, U, T> {
             return;
         }
 
-        let s = U::buffered_state();
+        let s = self.buffered_state;
         let mut rx = unsafe { s.rx_buf.reader() };
         rx.pop_done(amt);
-        U::regs().intenset().write(|w| w.set_rxstarted(true));
+        self.r.intenset().write(|w| w.set_rxstarted(true));
     }
 
     /// we are ready to read if there is data in the buffer
-    fn read_ready() -> Result<bool, Error> {
-        let state = U::buffered_state();
+    fn read_ready(&self) -> Result<bool, Error> {
+        let state = self.buffered_state;
         Ok(!state.rx_buf.is_empty())
     }
 }
 
-impl<'a, U: UarteInstance, T: TimerInstance> Drop for BufferedUarteRx<'a, U, T> {
+impl<'a> Drop for BufferedUarteRx<'a> {
     fn drop(&mut self) {
         self._ppi_group.disable_all();
 
-        let r = U::regs();
+        let r = self.r;
 
         self.timer.stop();
 
@@ -801,10 +841,10 @@ impl<'a, U: UarteInstance, T: TimerInstance> Drop for BufferedUarteRx<'a, U, T> 
         r.tasks_stoprx().write_value(1);
         while r.events_rxto().read() == 0 {}
 
-        let s = U::buffered_state();
+        let s = self.buffered_state;
         unsafe { s.rx_buf.deinit() }
 
-        let s = U::state();
+        let s = self.state;
         drop_tx_rx(r, s);
     }
 }
@@ -818,43 +858,44 @@ mod _embedded_io {
         }
     }
 
-    impl<'d, U: UarteInstance, T: TimerInstance> embedded_io_async::ErrorType for BufferedUarte<'d, U, T> {
+    impl<'d> embedded_io_async::ErrorType for BufferedUarte<'d> {
         type Error = Error;
     }
 
-    impl<'d, U: UarteInstance, T: TimerInstance> embedded_io_async::ErrorType for BufferedUarteRx<'d, U, T> {
+    impl<'d> embedded_io_async::ErrorType for BufferedUarteRx<'d> {
         type Error = Error;
     }
 
-    impl<'d, U: UarteInstance> embedded_io_async::ErrorType for BufferedUarteTx<'d, U> {
+    impl<'d> embedded_io_async::ErrorType for BufferedUarteTx<'d> {
         type Error = Error;
     }
 
-    impl<'d, U: UarteInstance, T: TimerInstance> embedded_io_async::Read for BufferedUarte<'d, U, T> {
+    impl<'d> embedded_io_async::Read for BufferedUarte<'d> {
         async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
             self.read(buf).await
         }
     }
 
-    impl<'d: 'd, U: UarteInstance, T: TimerInstance> embedded_io_async::Read for BufferedUarteRx<'d, U, T> {
+    impl<'d> embedded_io_async::Read for BufferedUarteRx<'d> {
         async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
             self.read(buf).await
         }
     }
 
-    impl<'d, U: UarteInstance, T: TimerInstance + 'd> embedded_io_async::ReadReady for BufferedUarte<'d, U, T> {
+    impl<'d> embedded_io_async::ReadReady for BufferedUarte<'d> {
         fn read_ready(&mut self) -> Result<bool, Self::Error> {
-            BufferedUarteRx::<'d, U, T>::read_ready()
+            self.rx.read_ready()
         }
     }
 
-    impl<'d, U: UarteInstance, T: TimerInstance + 'd> embedded_io_async::ReadReady for BufferedUarteRx<'d, U, T> {
+    impl<'d> embedded_io_async::ReadReady for BufferedUarteRx<'d> {
         fn read_ready(&mut self) -> Result<bool, Self::Error> {
-            Self::read_ready()
+            let state = self.buffered_state;
+            Ok(!state.rx_buf.is_empty())
         }
     }
 
-    impl<'d, U: UarteInstance, T: TimerInstance> embedded_io_async::BufRead for BufferedUarte<'d, U, T> {
+    impl<'d> embedded_io_async::BufRead for BufferedUarte<'d> {
         async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
             self.fill_buf().await
         }
@@ -864,7 +905,7 @@ mod _embedded_io {
         }
     }
 
-    impl<'d: 'd, U: UarteInstance, T: TimerInstance> embedded_io_async::BufRead for BufferedUarteRx<'d, U, T> {
+    impl<'d> embedded_io_async::BufRead for BufferedUarteRx<'d> {
         async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
             self.fill_buf().await
         }
@@ -874,7 +915,7 @@ mod _embedded_io {
         }
     }
 
-    impl<'d, U: UarteInstance, T: TimerInstance> embedded_io_async::Write for BufferedUarte<'d, U, T> {
+    impl<'d> embedded_io_async::Write for BufferedUarte<'d> {
         async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
             self.write(buf).await
         }
@@ -884,7 +925,7 @@ mod _embedded_io {
         }
     }
 
-    impl<'d: 'd, U: UarteInstance> embedded_io_async::Write for BufferedUarteTx<'d, U> {
+    impl<'d> embedded_io_async::Write for BufferedUarteTx<'d> {
         async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
             self.write(buf).await
         }

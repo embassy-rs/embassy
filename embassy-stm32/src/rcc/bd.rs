@@ -52,9 +52,9 @@ impl From<LseDrive> for crate::pac::rcc::vals::Lsedrv {
     }
 }
 
-#[cfg(not(any(rtc_v2l0, rtc_v2l1, stm32c0)))]
+#[cfg(not(any(rtc_v2_l0, rtc_v2_l1, stm32c0)))]
 type Bdcr = crate::pac::rcc::regs::Bdcr;
-#[cfg(any(rtc_v2l0, rtc_v2l1))]
+#[cfg(any(rtc_v2_l0, rtc_v2_l1))]
 type Bdcr = crate::pac::rcc::regs::Csr;
 #[cfg(any(stm32c0))]
 type Bdcr = crate::pac::rcc::regs::Csr1;
@@ -76,9 +76,9 @@ fn unlock() {
 }
 
 fn bdcr() -> Reg<Bdcr, RW> {
-    #[cfg(any(rtc_v2l0, rtc_v2l1))]
+    #[cfg(any(rtc_v2_l0, rtc_v2_l1))]
     return crate::pac::RCC.csr();
-    #[cfg(not(any(rtc_v2l0, rtc_v2l1, stm32c0)))]
+    #[cfg(not(any(rtc_v2_l0, rtc_v2_l1, stm32c0)))]
     return crate::pac::RCC.bdcr();
     #[cfg(any(stm32c0))]
     return crate::pac::RCC.csr1();
@@ -273,7 +273,7 @@ impl LsConfig {
 
         if self.rtc != RtcClockSource::DISABLE {
             bdcr().modify(|w| {
-                #[cfg(any(rtc_v2h7, rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
+                #[cfg(any(rtc_v2_h7, rtc_v2_l4, rtc_v2_wb, rtc_v3_base, rtc_v3_u5))]
                 assert!(!w.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
 
                 #[cfg(not(rcc_wba))]

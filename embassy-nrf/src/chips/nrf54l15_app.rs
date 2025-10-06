@@ -94,6 +94,7 @@ pub mod pac {
     #[cfg(feature = "_s")]
     #[doc(no_inline)]
     pub use nrf_pac::{
+        FICR_NS as FICR,
         SICR_S as SICR,
         ICACHEDATA_S as ICACHEDATA,
         ICACHEINFO_S as ICACHEINFO,
