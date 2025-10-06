@@ -7,7 +7,8 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_mspm0::i2c_target::{Command, I2cTarget, ReadStatus};
+use embassy_mspm0::i2c::Config;
+use embassy_mspm0::i2c_target::{Command, Config as TargetConfig, I2cTarget, ReadStatus};
 use embassy_mspm0::peripherals::I2C1;
 use embassy_mspm0::{bind_interrupts, i2c};
 use {defmt_rtt as _, panic_halt as _};
@@ -24,10 +25,11 @@ async fn main(_spawner: Spawner) -> ! {
     let scl = p.PB2;
     let sda = p.PB3;
 
-    let mut config = i2c::Config::default();
-    config.target_addr = 0x48;
-    config.general_call = true;
-    let mut i2c = I2cTarget::new(instance, scl, sda, Irqs, config).unwrap();
+    let config = Config::default();
+    let mut target_config = TargetConfig::default();
+    target_config.target_addr = 0x48;
+    target_config.general_call = true;
+    let mut i2c = I2cTarget::new(instance, scl, sda, Irqs, config, target_config).unwrap();
 
     let mut read = [0u8; 8];
     let data = [8u8; 2];
