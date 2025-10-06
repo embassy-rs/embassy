@@ -15,7 +15,7 @@ use crate::peripherals::RTC;
 use crate::rtc::SealedInstance;
 
 cfg_if::cfg_if!(
-    if #[cfg(rtc_v2f2)] {
+    if #[cfg(rtc_v2_f2)] {
         const ALARM_COUNT: usize = 1;
     } else {
         const ALARM_COUNT: usize = 2;
@@ -30,7 +30,7 @@ pub enum Alarm {
     /// Alarm A
     A = 0,
     // stm32wb0 also doesn't have alarm B?
-    #[cfg(not(any(rtc_v2f2)))]
+    #[cfg(not(any(rtc_v2_f2)))]
     /// Alarm B
     B = 1,
 }
@@ -163,7 +163,8 @@ impl Rtc {
             while !r.icsr().read().alrwf(alarm.index()) {}
 
             #[cfg(any(
-                rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb
+                rtc_v2_f0, rtc_v2_f2, rtc_v2_f3, rtc_v2_f4, rtc_v2_f7, rtc_v2_h7, rtc_v2_l0, rtc_v2_l1, rtc_v2_l4,
+                rtc_v2_wb
             ))]
             while !r.isr().read().alrwf(alarm.index()) {}
 
@@ -198,7 +199,8 @@ impl RtcAlarmFuture {
                 rtc.scr().write(|w| w.set_calrf(alarm.index(), Calrf::CLEAR));
 
                 #[cfg(any(
-                    rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb
+                    rtc_v2_f0, rtc_v2_f2, rtc_v2_f3, rtc_v2_f4, rtc_v2_f7, rtc_v2_h7, rtc_v2_l0, rtc_v2_l1, rtc_v2_l4,
+                    rtc_v2_wb
                 ))]
                 rtc.isr().modify(|w| w.set_alrf(alarm.index(), false))
             });
@@ -248,7 +250,7 @@ unsafe fn on_irq() {
     let misr = reg.misr().read();
 
     #[cfg(any(
-        rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb
+        rtc_v2_f0, rtc_v2_f2, rtc_v2_f3, rtc_v2_f4, rtc_v2_f7, rtc_v2_h7, rtc_v2_l0, rtc_v2_l1, rtc_v2_l4, rtc_v2_wb
     ))]
     let isr = reg.isr().read();
 
@@ -257,7 +259,8 @@ unsafe fn on_irq() {
         let has_fired = misr.alrmf(i) == Alrmf::MATCH;
 
         #[cfg(any(
-            rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb
+            rtc_v2_f0, rtc_v2_f2, rtc_v2_f3, rtc_v2_f4, rtc_v2_f7, rtc_v2_h7, rtc_v2_l0, rtc_v2_l1, rtc_v2_l4,
+            rtc_v2_wb
         ))]
         let has_fired = isr.alrf(i);
 
@@ -267,7 +270,8 @@ unsafe fn on_irq() {
             reg.scr().write(|w| w.set_calrf(i, Calrf::CLEAR));
 
             #[cfg(any(
-                rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb
+                rtc_v2_f0, rtc_v2_f2, rtc_v2_f3, rtc_v2_f4, rtc_v2_f7, rtc_v2_h7, rtc_v2_l0, rtc_v2_l1, rtc_v2_l4,
+                rtc_v2_wb
             ))]
             reg.isr().modify(|w| w.set_alrf(i, false));
 

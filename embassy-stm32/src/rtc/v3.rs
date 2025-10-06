@@ -128,16 +128,13 @@ impl SealedInstance for crate::peripherals::RTC {
         }
     );
 
-    // TODO figure out interrupts and exti lines for other variants
     cfg_if::cfg_if!(
-        if #[cfg(stm32g4)] {
+        if #[cfg(any(stm32l5, stm32g4, stm32h5))] {
             const EXTI_ALARM_LINE: usize = 17;
         } else if #[cfg(stm32g0)] {
             const EXTI_ALARM_LINE: usize = 19;
         } else if #[cfg(stm32u0)] {
             const EXTI_ALARM_LINE: usize = 28;
-        } else if #[cfg(any(stm32l5, stm32h5))] {
-            const EXTI_ALARM_LINE: usize = 17; // TODO
         }
     );
     cfg_if::cfg_if!(
