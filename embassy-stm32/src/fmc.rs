@@ -75,7 +75,7 @@ where
 macro_rules! config_pins {
     ($($pin:ident),*) => {
                 $(
-            $pin.set_as_af($pin.af_num(), AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up));
+            set_as_af!($pin, AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up));
         )*
     };
 }

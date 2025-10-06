@@ -25,7 +25,7 @@ bind_interrupts!(struct Irqs {
 async fn net_task(
     mut runner: embassy_net::Runner<
         'static,
-        Enc28j60<ExclusiveDevice<Spim<'static, peripherals::SPI3>, Output<'static>, Delay>, Output<'static>>,
+        Enc28j60<ExclusiveDevice<Spim<'static>, Output<'static>, Delay>, Output<'static>>,
     >,
 ) -> ! {
     runner.run().await
@@ -70,7 +70,7 @@ async fn main(spawner: Spawner) {
     static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
 
-    unwrap!(spawner.spawn(net_task(runner)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     // And now we can use it!
 

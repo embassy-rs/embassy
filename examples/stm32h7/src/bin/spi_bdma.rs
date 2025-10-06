@@ -80,6 +80,6 @@ fn main() -> ! {
     let executor = EXECUTOR.init(Executor::new());
 
     executor.run(|spawner| {
-        unwrap!(spawner.spawn(main_task(spi)));
+        spawner.spawn(unwrap!(main_task(spi)));
     })
 }

@@ -23,6 +23,7 @@ impl Into<u8> for OspiMode {
 /// Ospi lane width
 #[allow(dead_code)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum OspiWidth {
     /// None
     NONE,
@@ -71,6 +72,7 @@ impl Into<bool> for FlashSelection {
 #[allow(dead_code)]
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum WrapSize {
     None,
     _16Bytes,
@@ -95,6 +97,7 @@ impl Into<u8> for WrapSize {
 #[allow(missing_docs)]
 #[allow(dead_code)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum MemoryType {
     Micron,
     Macronix,
@@ -120,6 +123,7 @@ impl Into<u8> for MemoryType {
 /// Ospi memory size.
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum MemorySize {
     _1KiB,
     _2KiB,
@@ -180,6 +184,7 @@ impl Into<u8> for MemorySize {
 
 /// Ospi Address size
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AddressSize {
     /// 8-bit address
     _8Bit,
@@ -205,6 +210,7 @@ impl Into<u8> for AddressSize {
 /// Time the Chip Select line stays high.
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum ChipSelectHighTime {
     _1Cycle,
     _2Cycle,
@@ -234,6 +240,7 @@ impl Into<u8> for ChipSelectHighTime {
 /// FIFO threshold.
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum FIFOThresholdLevel {
     _1Bytes,
     _2Bytes,
@@ -311,6 +318,7 @@ impl Into<u8> for FIFOThresholdLevel {
 /// Dummy cycle count
 #[allow(missing_docs)]
 #[derive(Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum DummyCycles {
     _0,
     _1,

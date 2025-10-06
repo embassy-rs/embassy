@@ -66,11 +66,11 @@ impl Default for Config {
 }
 
 /// Watchdog driver.
-pub struct Watchdog<T: Instance> {
-    _wdt: Peri<'static, T>,
+pub struct Watchdog {
+    r: pac::wdt::Wdt,
 }
 
-impl<T: Instance> Watchdog<T> {
+impl Watchdog {
     /// Try to create a new watchdog driver.
     ///
     /// This function will return an error if the watchdog is already active
@@ -79,7 +79,7 @@ impl<T: Instance> Watchdog<T> {
     ///
     /// `N` must be between 1 and 8, inclusive.
     #[inline]
-    pub fn try_new<const N: usize>(
+    pub fn try_new<T: Instance, const N: usize>(
         wdt: Peri<'static, T>,
         config: Config,
     ) -> Result<(Self, [WatchdogHandle; N]), Peri<'static, T>> {
@@ -116,7 +116,7 @@ impl<T: Instance> Watchdog<T> {
             r.tasks_start().write_value(1);
         }
 
-        let this = Self { _wdt: wdt };
+        let this = Self { r: T::REGS };
 
         let mut handles = [const { WatchdogHandle { index: 0 } }; N];
         for i in 0..N {
@@ -135,7 +135,7 @@ impl<T: Instance> Watchdog<T> {
     /// interrupt has been enabled.
     #[inline(always)]
     pub fn enable_interrupt(&mut self) {
-        T::REGS.intenset().write(|w| w.set_timeout(true));
+        self.r.intenset().write(|w| w.set_timeout(true));
     }
 
     /// Disable the watchdog interrupt.
@@ -143,7 +143,7 @@ impl<T: Instance> Watchdog<T> {
     /// NOTE: This has no effect on the reset caused by the Watchdog.
     #[inline(always)]
     pub fn disable_interrupt(&mut self) {
-        T::REGS.intenclr().write(|w| w.set_timeout(true));
+        self.r.intenclr().write(|w| w.set_timeout(true));
     }
 
     /// Is the watchdog still awaiting pets from any handle?
@@ -152,9 +152,8 @@ impl<T: Instance> Watchdog<T> {
     /// handles to prevent a reset this time period.
     #[inline(always)]
     pub fn awaiting_pets(&self) -> bool {
-        let r = T::REGS;
-        let enabled = r.rren().read().0;
-        let status = r.reqstatus().read().0;
+        let enabled = self.r.rren().read().0;
+        let status = self.r.reqstatus().read().0;
         (status & enabled) == 0
     }
 }

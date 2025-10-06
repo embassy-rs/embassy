@@ -17,7 +17,7 @@ bind_interrupts!(struct Irqs {
     CLOCK_POWER => usb::vbus_detect::InterruptHandler;
 });
 
-type MyDriver = Driver<'static, peripherals::USBD, HardwareVbusDetect>;
+type MyDriver = Driver<'static, HardwareVbusDetect>;
 
 #[embassy_executor::task]
 async fn usb_task(mut device: UsbDevice<'static, MyDriver>) {
@@ -76,8 +76,8 @@ async fn main(spawner: Spawner) {
     // Build the builder.
     let usb = builder.build();
 
-    unwrap!(spawner.spawn(usb_task(usb)));
-    unwrap!(spawner.spawn(echo_task(class)));
+    spawner.spawn(unwrap!(usb_task(usb)));
+    spawner.spawn(unwrap!(echo_task(class)));
 }
 
 struct Disconnected {}

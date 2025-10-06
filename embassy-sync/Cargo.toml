@@ -1,6 +1,6 @@
 [package]
 name = "embassy-sync"
-version = "0.7.1"
+version = "0.7.2"
 edition = "2021"
 description = "no-std, no-alloc synchronization primitives with async support"
 repository = "https://github.com/embassy-rs/embassy"
@@ -14,12 +14,21 @@ categories = [
     "asynchronous",
 ]
 
+[package.metadata.embassy]
+build = [
+    {target = "thumbv6m-none-eabi", features = ["defmt"]},
+    # Xtensa builds
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s2-none-elf", features = ["defmt"]},
+]
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-sync-v$VERSION/embassy-sync/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-sync/src/"
 target = "thumbv7em-none-eabi"
 
 [features]
+defmt = ["dep:defmt"]
+log = ["dep:log"]
 std = []
 turbowakers = []
 

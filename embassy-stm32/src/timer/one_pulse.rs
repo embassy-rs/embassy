@@ -15,6 +15,7 @@ use crate::gpio::{AfType, AnyPin, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::pac::timer::vals::Etp;
 use crate::time::Hertz;
+use crate::timer::TimerChannel;
 use crate::Peri;
 
 /// External input marker type.
@@ -42,7 +43,8 @@ impl From<ExternalTriggerPolarity> for Etp {
 ///
 /// This wraps a pin to make it usable as a timer trigger.
 pub struct TriggerPin<'d, T, C> {
-    _pin: Peri<'d, AnyPin>,
+    #[allow(unused)]
+    pin: Peri<'d, AnyPin>,
     phantom: PhantomData<(T, C)>,
 }
 
@@ -60,60 +62,23 @@ impl SealedTriggerSource for Ch1 {}
 impl SealedTriggerSource for Ch2 {}
 impl SealedTriggerSource for Ext {}
 
-trait SealedTimerTriggerPin<T, S>: crate::gpio::Pin {}
-
-/// Marker trait for a trigger pin.
-#[expect(private_bounds)]
-// TODO: find better naming scheme than prefixing all pin traits with "Timer".
-// The trait name cannot conflict with the corresponding type's name.
-// Applies to other timer submodules as well.
-pub trait TimerTriggerPin<T, S>: SealedTimerTriggerPin<T, S> {
-    /// Get the AF number needed to use this pin as a trigger source.
-    fn af_num(&self) -> u8;
-}
-
-impl<T, P, C> TimerTriggerPin<T, C> for P
-where
-    T: GeneralInstance4Channel,
-    P: TimerPin<T, C>,
-    C: super::TimerChannel + TriggerSource,
-{
-    fn af_num(&self) -> u8 {
-        TimerPin::af_num(self)
-    }
-}
-
-impl<T, P> TimerTriggerPin<T, Ext> for P
-where
-    T: GeneralInstance4Channel,
-    P: ExternalTriggerPin<T>,
-{
-    fn af_num(&self) -> u8 {
-        ExternalTriggerPin::af_num(self)
-    }
-}
-
-impl<T, P, C> SealedTimerTriggerPin<T, C> for P
-where
-    T: GeneralInstance4Channel,
-    P: TimerPin<T, C>,
-    C: super::TimerChannel + TriggerSource,
-{
-}
-
-impl<T, P> SealedTimerTriggerPin<T, Ext> for P
-where
-    T: GeneralInstance4Channel,
-    P: ExternalTriggerPin<T>,
-{
-}
-
-impl<'d, T: GeneralInstance4Channel, C: TriggerSource> TriggerPin<'d, T, C> {
-    /// "Create a new Ch1 trigger pin instance.
-    pub fn new(pin: Peri<'d, impl TimerTriggerPin<T, C>>, pull: Pull) -> Self {
-        pin.set_as_af(pin.af_num(), AfType::input(pull));
+impl<'d, T: GeneralInstance4Channel, C: TriggerSource + TimerChannel> TriggerPin<'d, T, C> {
+    /// Create a new Channel trigger pin instance.
+    pub fn new<#[cfg(afio)] A>(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, pull: Pull) -> Self {
+        set_as_af!(pin, AfType::input(pull));
         TriggerPin {
-            _pin: pin.into(),
+            pin: pin.into(),
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<'d, T: GeneralInstance4Channel> TriggerPin<'d, T, Ext> {
+    /// Create a new external trigger pin instance.
+    pub fn new_external<#[cfg(afio)] A>(pin: Peri<'d, if_afio!(impl ExternalTriggerPin<T, A>)>, pull: Pull) -> Self {
+        set_as_af!(pin, AfType::input(pull));
+        TriggerPin {
+            pin: pin.into(),
             phantom: PhantomData,
         }
     }
@@ -131,9 +96,10 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
     ///
     /// The pulse is triggered by a channel 1 input pin on both rising and
     /// falling edges. Channel 1 will unusable as an output.
+    #[allow(unused)]
     pub fn new_ch1_edge_detect(
         tim: Peri<'d, T>,
-        _pin: TriggerPin<'d, T, Ch1>,
+        pin: TriggerPin<'d, T, Ch1>,
         _irq: impl Binding<T::CaptureCompareInterrupt, CaptureCompareInterruptHandler<T>> + 'd,
         freq: Hertz,
         pulse_end: u32,

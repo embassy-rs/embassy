@@ -60,7 +60,7 @@ async fn main(spawner: Spawner) {
     )
     .await
     .unwrap();
-    unwrap!(spawner.spawn(ethernet_task(runner)));
+    spawner.spawn(unwrap!(ethernet_task(runner)));
 
     // Generate random seed
     let seed = rng.next_u64();
@@ -75,7 +75,7 @@ async fn main(spawner: Spawner) {
     );
 
     // Launch network task
-    unwrap!(spawner.spawn(net_task(runner)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     perf_client::run(
         stack,

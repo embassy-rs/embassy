@@ -464,7 +464,7 @@ impl<'d> Stack<'d> {
     ///    seed
     /// );
     /// // Launch network task that runs `runner.run().await`
-    /// spawner.spawn(net_task(runner)).unwrap();
+    /// spawner.spawn(net_task(runner).unwrap());
     /// // Wait for DHCP config
     /// stack.wait_config_up().await;
     /// // use the network stack

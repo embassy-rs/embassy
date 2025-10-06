@@ -19,7 +19,7 @@ use static_cell::StaticCell;
 #[entry]
 fn main() -> ! {
     Executor::take().run(|spawner| {
-        unwrap!(spawner.spawn(async_main(spawner)));
+        spawner.spawn(unwrap!(async_main(spawner)));
     });
 }
 
@@ -75,6 +75,6 @@ async fn async_main(spawner: Spawner) {
 
     stop_with_rtc(rtc);
 
-    spawner.spawn(task_1()).unwrap();
-    spawner.spawn(task_2()).unwrap();
+    spawner.spawn(task_1().unwrap());
+    spawner.spawn(task_2().unwrap());
 }

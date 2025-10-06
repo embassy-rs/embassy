@@ -23,6 +23,7 @@ use crate::{peripherals, Peri};
 
 /// XPSI driver config.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Config {
     /// Fifo threshold used by the peripheral to generate the interrupt indicating data
     /// or space is available in the FIFO
@@ -80,6 +81,8 @@ impl Default for Config {
 }
 
 /// XSPI transfer configuration.
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TransferConfig {
     /// Instruction width (IMODE)
     pub iwidth: XspiWidth,
@@ -110,7 +113,7 @@ pub struct TransferConfig {
 
     /// Data width (DMODE)
     pub dwidth: XspiWidth,
-    /// Data buffer
+    /// Data Double Transfer rate enable
     pub ddtr: bool,
 
     /// Number of dummy cycles (DCYC)
@@ -424,10 +427,10 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
         // Configure alternate bytes
         if let Some(ab) = command.alternate_bytes {
             T::REGS.abr().write(|v| v.set_alternate(ab));
+        } else {
             T::REGS.ccr().modify(|w| {
-                w.set_abmode(CcrAbmode::from_bits(command.abwidth.into()));
-                w.set_abdtr(command.abdtr);
-                w.set_absize(CcrAbsize::from_bits(command.absize.into()));
+                // disable alternate bytes
+                w.set_abmode(CcrAbmode::B_0X0);
             })
         }
 
@@ -440,14 +443,14 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
         if let Some(data_length) = data_len {
             T::REGS.dlr().write(|v| {
                 v.set_dl((data_length - 1) as u32);
-            })
+            });
         } else {
             T::REGS.dlr().write(|v| {
                 v.set_dl((0) as u32);
-            })
+            });
         }
 
-        // Configure instruction/address/data modes
+        // Configure instruction/address/alternate bytes/data modes
         T::REGS.ccr().modify(|w| {
             w.set_imode(CcrImode::from_bits(command.iwidth.into()));
             w.set_idtr(command.idtr);
@@ -456,6 +459,10 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
             w.set_admode(CcrAdmode::from_bits(command.adwidth.into()));
             w.set_addtr(command.addtr);
             w.set_adsize(CcrAdsize::from_bits(command.adsize.into()));
+
+            w.set_abmode(CcrAbmode::from_bits(command.abwidth.into()));
+            w.set_abdtr(command.abdtr);
+            w.set_absize(CcrAbsize::from_bits(command.absize.into()));
 
             w.set_dmode(CcrDmode::from_bits(command.dwidth.into()));
             w.set_ddtr(command.ddtr);

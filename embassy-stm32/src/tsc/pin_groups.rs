@@ -427,7 +427,7 @@ macro_rules! impl_set_io {
         pub fn $method<Role: pin_roles::Role>(&mut self, pin: Peri<'d, impl $trait<T>>) -> IOPinWithRole<$group, Role> {
             critical_section::with(|_| {
                 pin.set_low();
-                pin.set_as_af(pin.af_num(), AfType::output(Role::output_type(), Speed::VeryHigh));
+                set_as_af!(pin, AfType::output(Role::output_type(), Speed::VeryHigh));
                 let tsc_io_pin = trait_to_io_pin!($trait);
                 let new_pin = Pin {
                     _pin: pin.into(),

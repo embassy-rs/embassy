@@ -4,7 +4,7 @@ error[E0133]: call to unsafe function `std::ptr::const_ptr::<impl *const T>::rea
 7 |     (&x as *const i32).read();
   |     ^^^^^^^^^^^^^^^^^^^^^^^^^ call to unsafe function
   |
-  = note: for more information, see <https://doc.rust-lang.org/nightly/edition-guide/rust-2024/unsafe-op-in-unsafe-fn.html>
+  = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/unsafe-op-in-unsafe-fn.html>
   = note: consult the function's documentation for information on how to avoid undefined behavior
 note: an unsafe function restricts its caller, but its body is safe by default
  --> tests/ui/unsafe_op_in_unsafe_task.rs:5:1

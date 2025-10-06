@@ -4,7 +4,7 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, AtomicU8, Ordering};
+use core::sync::atomic::{compiler_fence, AtomicU8, AtomicUsize, Ordering};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
@@ -185,6 +185,12 @@ pub enum ConfigError {
     RxOrTxNotEnabled,
     /// Data bits and parity combination not supported
     DataParityNotSupported,
+    /// DE assertion time too high
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    DeAssertionTimeTooHigh,
+    /// DE deassertion time too high
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    DeDeassertionTimeTooHigh,
 }
 
 #[non_exhaustive]
@@ -205,6 +211,21 @@ pub struct Config {
     ///
     /// If false: the error is ignored and cleared
     pub detect_previous_overrun: bool,
+
+    /// If `None` (the default) then read-like calls on `BufferedUartRx` and `RingBufferedUartRx`
+    /// typically only wake/return after line idle or after the buffer is at least half full
+    /// (for `BufferedUartRx`) or the DMA buffer is written at the half or full positions
+    /// (for `RingBufferedUartRx`), though it may also wake/return earlier in some circumstances.
+    ///
+    /// If `Some(n)` then such reads are also woken/return as soon as at least `n` words are
+    /// available in the buffer, in addition to waking/returning when the conditions described
+    /// above are met. `Some(0)` is treated as `None`. Setting this for `RingBufferedUartRx`
+    /// will trigger an interrupt for every received word to check the buffer level, which may
+    /// impact performance at high data rates.
+    ///
+    /// Has no effect on plain `Uart` or `UartRx` reads, which are specified to either
+    /// return a single word, a full buffer, or after line idle.
+    pub eager_reads: Option<usize>,
 
     /// Set this to true if the line is considered noise free.
     /// This will increase the receiver’s tolerance to clock deviations,
@@ -239,6 +260,14 @@ pub struct Config {
     /// Set the pin configuration for the DE pin.
     pub de_config: OutputConfig,
 
+    /// Set DE assertion time before the first start bit, 0-31 16ths of a bit period.
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    pub de_assertion_time: u8,
+
+    /// Set DE deassertion time after the last stop bit, 0-31 16ths of a bit period.
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    pub de_deassertion_time: u8,
+
     // private: set by new_half_duplex, not by the user.
     duplex: Duplex,
 }
@@ -270,6 +299,7 @@ impl Default for Config {
             parity: Parity::ParityNone,
             // historical behavior
             detect_previous_overrun: false,
+            eager_reads: None,
             #[cfg(not(usart_v1))]
             assume_noise_free: false,
             #[cfg(any(usart_v3, usart_v4))]
@@ -283,6 +313,10 @@ impl Default for Config {
             tx_config: OutputConfig::PushPull,
             rts_config: OutputConfig::PushPull,
             de_config: OutputConfig::PushPull,
+            #[cfg(not(any(usart_v1, usart_v2)))]
+            de_assertion_time: 0,
+            #[cfg(not(any(usart_v1, usart_v2)))]
+            de_deassertion_time: 0,
             duplex: Duplex::Full,
         }
     }
@@ -429,9 +463,9 @@ impl<'d, M: Mode> SetConfig for UartRx<'d, M> {
 
 impl<'d> UartTx<'d, Async> {
     /// Useful if you only want Uart Tx. It saves 1 pin and consumes a little less power.
-    pub fn new<T: Instance>(
+    pub fn new<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        tx: Peri<'d, impl TxPin<T>>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
         tx_dma: Peri<'d, impl TxDma<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
@@ -439,10 +473,10 @@ impl<'d> UartTx<'d, Async> {
     }
 
     /// Create a new tx-only UART with a clear-to-send pin
-    pub fn new_with_cts<T: Instance>(
+    pub fn new_with_cts<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        tx: Peri<'d, impl TxPin<T>>,
-        cts: Peri<'d, impl CtsPin<T>>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
         tx_dma: Peri<'d, impl TxDma<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
@@ -482,19 +516,19 @@ impl<'d> UartTx<'d, Blocking> {
     /// Create a new blocking tx-only UART with no hardware flow control.
     ///
     /// Useful if you only want Uart Tx. It saves 1 pin and consumes a little less power.
-    pub fn new_blocking<T: Instance>(
+    pub fn new_blocking<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        tx: Peri<'d, impl TxPin<T>>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(peri, new_pin!(tx, config.tx_af()), None, None, config)
     }
 
     /// Create a new blocking tx-only UART with a clear-to-send pin
-    pub fn new_blocking_with_cts<T: Instance>(
+    pub fn new_blocking_with_cts<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        tx: Peri<'d, impl TxPin<T>>,
-        cts: Peri<'d, impl CtsPin<T>>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
@@ -662,10 +696,10 @@ impl<'d> UartRx<'d, Async> {
     /// Create a new rx-only UART with no hardware flow control.
     ///
     /// Useful if you only want Uart Rx. It saves 1 pin and consumes a little less power.
-    pub fn new<T: Instance>(
+    pub fn new<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        rx: Peri<'d, impl RxPin<T>>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         rx_dma: Peri<'d, impl RxDma<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
@@ -673,11 +707,11 @@ impl<'d> UartRx<'d, Async> {
     }
 
     /// Create a new rx-only UART with a request-to-send pin
-    pub fn new_with_rts<T: Instance>(
+    pub fn new_with_rts<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        rx: Peri<'d, impl RxPin<T>>,
-        rts: Peri<'d, impl RtsPin<T>>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
         rx_dma: Peri<'d, impl RxDma<T>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
@@ -913,19 +947,19 @@ impl<'d> UartRx<'d, Blocking> {
     /// Create a new rx-only UART with no hardware flow control.
     ///
     /// Useful if you only want Uart Rx. It saves 1 pin and consumes a little less power.
-    pub fn new_blocking<T: Instance>(
+    pub fn new_blocking<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, impl RxPin<T>>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(peri, new_pin!(rx, config.rx_af()), None, None, config)
     }
 
     /// Create a new rx-only UART with a request-to-send pin
-    pub fn new_blocking_with_rts<T: Instance>(
+    pub fn new_blocking_with_rts<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, impl RxPin<T>>,
-        rts: Peri<'d, impl RtsPin<T>>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
@@ -966,6 +1000,9 @@ impl<'d, M: Mode> UartRx<'d, M> {
         let info = self.info;
         let state = self.state;
         state.tx_rx_refcount.store(1, Ordering::Relaxed);
+        state
+            .eager_reads
+            .store(config.eager_reads.unwrap_or(0), Ordering::Relaxed);
 
         info.rcc.enable_and_reset();
 
@@ -982,6 +1019,9 @@ impl<'d, M: Mode> UartRx<'d, M> {
 
     /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+        self.state
+            .eager_reads
+            .store(config.eager_reads.unwrap_or(0), Ordering::Relaxed);
         reconfigure(self.info, self.kernel_clock, config)
     }
 
@@ -1109,10 +1149,10 @@ fn drop_tx_rx(info: &Info, state: &State) {
 
 impl<'d> Uart<'d, Async> {
     /// Create a new bidirectional UART
-    pub fn new<T: Instance>(
+    pub fn new<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, impl RxPin<T>>,
-        tx: Peri<'d, impl TxPin<T>>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_dma: Peri<'d, impl TxDma<T>>,
         rx_dma: Peri<'d, impl RxDma<T>>,
@@ -1132,13 +1172,13 @@ impl<'d> Uart<'d, Async> {
     }
 
     /// Create a new bidirectional UART with request-to-send and clear-to-send pins
-    pub fn new_with_rtscts<T: Instance>(
+    pub fn new_with_rtscts<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, impl RxPin<T>>,
-        tx: Peri<'d, impl TxPin<T>>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        rts: Peri<'d, impl RtsPin<T>>,
-        cts: Peri<'d, impl CtsPin<T>>,
+        rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
+        cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
         tx_dma: Peri<'d, impl TxDma<T>>,
         rx_dma: Peri<'d, impl RxDma<T>>,
         config: Config,
@@ -1158,12 +1198,12 @@ impl<'d> Uart<'d, Async> {
 
     #[cfg(not(any(usart_v1, usart_v2)))]
     /// Create a new bidirectional UART with a driver-enable pin
-    pub fn new_with_de<T: Instance>(
+    pub fn new_with_de<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, impl RxPin<T>>,
-        tx: Peri<'d, impl TxPin<T>>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        de: Peri<'d, impl DePin<T>>,
+        de: Peri<'d, if_afio!(impl DePin<T, A>)>,
         tx_dma: Peri<'d, impl TxDma<T>>,
         rx_dma: Peri<'d, impl RxDma<T>>,
         config: Config,
@@ -1193,9 +1233,9 @@ impl<'d> Uart<'d, Async> {
     /// Apart from this, the communication protocol is similar to normal USART mode. Any conflict
     /// on the line must be managed by software (for instance by using a centralized arbiter).
     #[doc(alias("HDSEL"))]
-    pub fn new_half_duplex<T: Instance>(
+    pub fn new_half_duplex<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        tx: Peri<'d, impl TxPin<T>>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_dma: Peri<'d, impl TxDma<T>>,
         rx_dma: Peri<'d, impl RxDma<T>>,
@@ -1232,9 +1272,9 @@ impl<'d> Uart<'d, Async> {
     /// on the line must be managed by software (for instance by using a centralized arbiter).
     #[cfg(not(any(usart_v1, usart_v2)))]
     #[doc(alias("HDSEL"))]
-    pub fn new_half_duplex_on_rx<T: Instance>(
+    pub fn new_half_duplex_on_rx<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, impl RxPin<T>>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         tx_dma: Peri<'d, impl TxDma<T>>,
         rx_dma: Peri<'d, impl RxDma<T>>,
@@ -1280,10 +1320,10 @@ impl<'d> Uart<'d, Async> {
 
 impl<'d> Uart<'d, Blocking> {
     /// Create a new blocking bidirectional UART.
-    pub fn new_blocking<T: Instance>(
+    pub fn new_blocking<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, impl RxPin<T>>,
-        tx: Peri<'d, impl TxPin<T>>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
@@ -1300,12 +1340,12 @@ impl<'d> Uart<'d, Blocking> {
     }
 
     /// Create a new bidirectional UART with request-to-send and clear-to-send pins
-    pub fn new_blocking_with_rtscts<T: Instance>(
+    pub fn new_blocking_with_rtscts<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, impl RxPin<T>>,
-        tx: Peri<'d, impl TxPin<T>>,
-        rts: Peri<'d, impl RtsPin<T>>,
-        cts: Peri<'d, impl CtsPin<T>>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        rts: Peri<'d, if_afio!(impl RtsPin<T, A>)>,
+        cts: Peri<'d, if_afio!(impl CtsPin<T, A>)>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
@@ -1323,11 +1363,11 @@ impl<'d> Uart<'d, Blocking> {
 
     #[cfg(not(any(usart_v1, usart_v2)))]
     /// Create a new bidirectional UART with a driver-enable pin
-    pub fn new_blocking_with_de<T: Instance>(
+    pub fn new_blocking_with_de<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, impl RxPin<T>>,
-        tx: Peri<'d, impl TxPin<T>>,
-        de: Peri<'d, impl DePin<T>>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
+        de: Peri<'d, if_afio!(impl DePin<T, A>)>,
         config: Config,
     ) -> Result<Self, ConfigError> {
         Self::new_inner(
@@ -1354,9 +1394,9 @@ impl<'d> Uart<'d, Blocking> {
     /// Apart from this, the communication protocol is similar to normal USART mode. Any conflict
     /// on the line must be managed by software (for instance by using a centralized arbiter).
     #[doc(alias("HDSEL"))]
-    pub fn new_blocking_half_duplex<T: Instance>(
+    pub fn new_blocking_half_duplex<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        tx: Peri<'d, impl TxPin<T>>,
+        tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
         mut config: Config,
         readback: HalfDuplexReadback,
     ) -> Result<Self, ConfigError> {
@@ -1390,9 +1430,9 @@ impl<'d> Uart<'d, Blocking> {
     /// on the line must be managed by software (for instance by using a centralized arbiter).
     #[cfg(not(any(usart_v1, usart_v2)))]
     #[doc(alias("HDSEL"))]
-    pub fn new_blocking_half_duplex_on_rx<T: Instance>(
+    pub fn new_blocking_half_duplex_on_rx<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        rx: Peri<'d, impl RxPin<T>>,
+        rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         mut config: Config,
         readback: HalfDuplexReadback,
     ) -> Result<Self, ConfigError> {
@@ -1462,6 +1502,9 @@ impl<'d, M: Mode> Uart<'d, M> {
         let info = self.rx.info;
         let state = self.rx.state;
         state.tx_rx_refcount.store(2, Ordering::Relaxed);
+        state
+            .eager_reads
+            .store(config.eager_reads.unwrap_or(0), Ordering::Relaxed);
 
         info.rcc.enable_and_reset();
 
@@ -1690,6 +1733,16 @@ fn configure(
         return Err(ConfigError::RxOrTxNotEnabled);
     }
 
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    let dem = r.cr3().read().dem();
+
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    if config.de_assertion_time > 31 {
+        return Err(ConfigError::DeAssertionTimeTooHigh);
+    } else if config.de_deassertion_time > 31 {
+        return Err(ConfigError::DeDeassertionTimeTooHigh);
+    }
+
     // UART must be disabled during configuration.
     r.cr1().modify(|w| {
         w.set_ue(false);
@@ -1736,6 +1789,20 @@ fn configure(
             w.set_te(enable_tx);
             // enable receiver
             w.set_re(enable_rx);
+        }
+
+        #[cfg(not(any(usart_v1, usart_v2)))]
+        if dem {
+            w.set_deat(if over8 {
+                config.de_assertion_time / 2
+            } else {
+                config.de_assertion_time
+            });
+            w.set_dedt(if over8 {
+                config.de_assertion_time / 2
+            } else {
+                config.de_assertion_time
+            });
         }
 
         // configure word size and parity, since the parity bit is inserted into the MSB position,
@@ -1965,9 +2032,7 @@ pub use buffered::*;
 pub use crate::usart::buffered::InterruptHandler as BufferedInterruptHandler;
 mod buffered;
 
-#[cfg(not(gpdma))]
 mod ringbuffered;
-#[cfg(not(gpdma))]
 pub use ringbuffered::RingBufferedUartRx;
 
 #[cfg(any(usart_v1, usart_v2))]
@@ -2024,6 +2089,7 @@ struct State {
     rx_waker: AtomicWaker,
     tx_waker: AtomicWaker,
     tx_rx_refcount: AtomicU8,
+    eager_reads: AtomicUsize,
 }
 
 impl State {
@@ -2032,6 +2098,7 @@ impl State {
             rx_waker: AtomicWaker::new(),
             tx_waker: AtomicWaker::new(),
             tx_rx_refcount: AtomicU8::new(0),
+            eager_reads: AtomicUsize::new(0),
         }
     }
 }
@@ -2057,12 +2124,12 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
-pin_trait!(RxPin, Instance);
-pin_trait!(TxPin, Instance);
-pin_trait!(CtsPin, Instance);
-pin_trait!(RtsPin, Instance);
-pin_trait!(CkPin, Instance);
-pin_trait!(DePin, Instance);
+pin_trait!(RxPin, Instance, @A);
+pin_trait!(TxPin, Instance, @A);
+pin_trait!(CtsPin, Instance, @A);
+pin_trait!(RtsPin, Instance, @A);
+pin_trait!(CkPin, Instance, @A);
+pin_trait!(DePin, Instance, @A);
 
 dma_trait!(TxDma, Instance);
 dma_trait!(RxDma, Instance);
