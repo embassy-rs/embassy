@@ -395,12 +395,12 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
     /// Write data to SPI using DMA.
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
-        let tx_transfer = unsafe {
+        let mut tx_transfer = unsafe {
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
             crate::dma::write(tx_ch, buffer, self.inner.regs().dr().as_ptr() as *mut _, T::TX_DREQ)
         };
-        tx_transfer.await;
+        tx_transfer.wait().await;
 
         let p = self.inner.regs();
         while p.sr().read().bsy() {}
@@ -420,14 +420,14 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         // Start RX first. Transfer starts when TX starts, if RX
         // is not started yet we might lose bytes.
         let rx_ch = self.rx_dma.as_mut().unwrap().reborrow();
-        let rx_transfer = unsafe {
+        let mut rx_transfer = unsafe {
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
             crate::dma::read(rx_ch, self.inner.regs().dr().as_ptr() as *const _, buffer, T::RX_DREQ)
         };
 
         let tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
-        let tx_transfer = unsafe {
+        let mut tx_transfer = unsafe {
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
             crate::dma::write_repeated(
@@ -437,7 +437,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
                 T::TX_DREQ,
             )
         };
-        join(tx_transfer, rx_transfer).await;
+        join(tx_transfer.wait(), rx_transfer.wait()).await;
         Ok(())
     }
 
@@ -455,7 +455,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         // Start RX first. Transfer starts when TX starts, if RX
         // is not started yet we might lose bytes.
         let rx_ch = self.rx_dma.as_mut().unwrap().reborrow();
-        let rx_transfer = unsafe {
+        let mut rx_transfer = unsafe {
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
             crate::dma::read(rx_ch, self.inner.regs().dr().as_ptr() as *const _, rx, T::RX_DREQ)
@@ -467,17 +467,21 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         let tx_transfer = async {
             let p = self.inner.regs();
             unsafe {
-                crate::dma::write(tx_ch.reborrow(), tx, p.dr().as_ptr() as *mut _, T::TX_DREQ).await;
+                crate::dma::write(tx_ch.reborrow(), tx, p.dr().as_ptr() as *mut _, T::TX_DREQ)
+                    .wait()
+                    .await;
 
                 if rx.len() > tx.len() {
                     let write_bytes_len = rx.len() - tx.len();
                     // write dummy data
                     // this will disable incrementation of the buffers
-                    crate::dma::write_repeated(tx_ch, p.dr().as_ptr() as *mut u8, write_bytes_len, T::TX_DREQ).await
+                    crate::dma::write_repeated(tx_ch, p.dr().as_ptr() as *mut u8, write_bytes_len, T::TX_DREQ)
+                        .wait()
+                        .await
                 }
             }
         };
-        join(tx_transfer, rx_transfer).await;
+        join(tx_transfer, rx_transfer.wait()).await;
 
         // if tx > rx we should clear any overflow of the FIFO SPI buffer
         if tx.len() > rx.len() {

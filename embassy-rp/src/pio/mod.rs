@@ -16,7 +16,7 @@ use crate::dma::{self, Channel, Transfer, Word};
 use crate::gpio::{self, AnyPin, Drive, Level, Pull, SealedPin, SlewRate};
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::relocate::RelocatedProgram;
-use crate::{pac, peripherals, RegExt};
+use crate::{dma, pac, peripherals, RegExt};
 
 mod instr;
 
@@ -401,7 +401,23 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
             w.set_en(true);
         });
         compiler_fence(Ordering::SeqCst);
-        Transfer::new(ch)
+        Transfer::new_inner(ch)
+    }
+}
+
+impl<'d, PIO: Instance, const SM: usize, W: Word> dma::Target<W> for &mut StateMachineRx<'d, PIO, SM> {
+    const INCR_ADDR: bool = false;
+
+    const TREQ_SEL: u8 = PIO::PIO_NO * 8 + SM as u8 + 4;
+
+    fn transfer_count(&self) -> u32 {
+        u32::MAX
+    }
+}
+
+impl<'d, PIO: Instance, const SM: usize, W: Word> dma::TargetRef<W> for &mut StateMachineRx<'d, PIO, SM> {
+    fn as_ptr(&self) -> *const W {
+        PIO::PIO.rxf(SM).as_ptr() as *const W
     }
 
     /// Prepare a repeated DMA transfer from RX FIFO.
@@ -524,7 +540,23 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
             w.set_en(true);
         });
         compiler_fence(Ordering::SeqCst);
-        Transfer::new(ch)
+        Transfer::new_inner(ch)
+    }
+}
+
+impl<'d, PIO: Instance, const SM: usize, W: Word> dma::Target<W> for &mut StateMachineTx<'d, PIO, SM> {
+    const INCR_ADDR: bool = false;
+
+    const TREQ_SEL: u8 = PIO::PIO_NO * 8 + SM as u8;
+
+    fn transfer_count(&self) -> u32 {
+        u32::MAX
+    }
+}
+
+impl<'d, PIO: Instance, const SM: usize, W: Word> dma::TargetMut<W> for &mut StateMachineTx<'d, PIO, SM> {
+    fn as_mut_ptr(&mut self) -> *mut W {
+        PIO::PIO.txf(SM).as_ptr() as *mut W
     }
 
     /// Prepare a repeated DMA transfer to TX FIFO.
