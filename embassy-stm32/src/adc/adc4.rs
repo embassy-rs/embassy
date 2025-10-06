@@ -128,8 +128,7 @@ enum Prescaler {
 
 impl Prescaler {
     fn from_ker_ck(frequency: Hertz) -> Self {
-        // Calculate prescaler in a way where the clock can hit MAX CLK
-        let raw_prescaler = frequency.0.saturating_sub(1) / MAX_ADC_CLK_FREQ.0;
+        let raw_prescaler = rcc::raw_prescaler(frequency.0, MAX_ADC_CLK_FREQ.0);
         match raw_prescaler {
             0 => Self::NotDivided,
             1 => Self::DividedBy2,
