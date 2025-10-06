@@ -16,7 +16,6 @@ use embassy_sync::blocking_mutex::Mutex;
 
 #[cfg(rtc_v3)]
 pub use self::alarm::{Alarm, AlarmDate, RtcAlarmMatch};
-
 use self::datetime::{day_of_week_from_u8, day_of_week_to_u8};
 pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
 use crate::pac::rtc::regs::{Dr, Tr};
