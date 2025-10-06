@@ -4,7 +4,9 @@ use embassy_futures::join::join;
 use stm32_metapac::spi::vals;
 
 use crate::Peri;
-use crate::dma::{Channel, ChannelAndRequest, Request ReadableRingBuffer, TransferOptions, WritableRingBuffer, ringbuffer};
+use crate::dma::{
+    Channel, ChannelAndRequest, ReadableRingBuffer, Request, TransferOptions, WritableRingBuffer, ringbuffer,
+};
 use crate::gpio::{AfType, AnyPin, OutputType, Pin, SealedPin, Speed};
 use crate::mode::Async;
 use crate::peripherals::{DMA1_CH0, PB4};
