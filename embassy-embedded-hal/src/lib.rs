@@ -37,3 +37,9 @@ pub trait GetConfig {
     /// Get the configuration of the driver.
     fn get_config(&self) -> Self::Config;
 }
+
+/// Provides a platform-agnostic interface for initiating a system reset.
+pub trait Reset {
+    /// Reset the device.
+    fn sys_reset(&self);
+}
