@@ -2,12 +2,12 @@
 
 use fixed::traits::ToFixed;
 
+use crate::Peri;
 use crate::dma::{AnyChannel, Channel, Transfer};
 use crate::gpio::Pull;
 use crate::pio::{
     Common, Config, Direction, FifoJoin, Instance, LoadedProgram, PioPin, ShiftConfig, ShiftDirection, StateMachine,
 };
-use crate::Peri;
 
 /// This struct represents an i2s receiver & controller driver program
 pub struct PioI2sInProgram<'d, PIO: Instance> {

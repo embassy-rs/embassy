@@ -2,7 +2,7 @@
 #![no_main]
 
 use defmt::*;
-use embassy_stm32::adc::{adc4, AdcChannel};
+use embassy_stm32::adc::{AdcChannel, adc4};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]

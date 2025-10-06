@@ -9,7 +9,7 @@ use defmt::*;
 use embassy_executor::Executor;
 use embassy_stm32::mode::Async;
 use embassy_stm32::time::mhz;
-use embassy_stm32::{spi, Config};
+use embassy_stm32::{Config, spi};
 use grounded::uninit::GroundedArrayCell;
 use heapless::String;
 use static_cell::StaticCell;

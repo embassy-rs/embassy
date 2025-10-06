@@ -3,9 +3,9 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_stm32::Config;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::Pull;
-use embassy_stm32::Config;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]

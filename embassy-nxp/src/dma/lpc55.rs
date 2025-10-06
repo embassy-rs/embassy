@@ -1,16 +1,16 @@
 use core::cell::RefCell;
 use core::future::Future;
 use core::pin::Pin;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::{Context, Poll};
 
 use critical_section::Mutex;
 use embassy_hal_internal::interrupt::InterruptExt;
-use embassy_hal_internal::{impl_peripheral, PeripheralType};
+use embassy_hal_internal::{PeripheralType, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::pac::{DMA0, SYSCON, *};
-use crate::{peripherals, Peri};
+use crate::{Peri, peripherals};
 
 #[interrupt]
 fn DMA0() {

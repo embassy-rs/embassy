@@ -1,5 +1,6 @@
 #![cfg_attr(not(test), no_std)]
 #![allow(async_fn_in_trait)]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
@@ -22,7 +23,7 @@ use crate::fmt::Bytes;
 
 pub mod otg_v1;
 
-use otg_v1::{regs, vals, Otg};
+use otg_v1::{Otg, regs, vals};
 
 /// Handle interrupts.
 pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(r: Otg, state: &State<MAX_EP_COUNT>, ep_count: usize) {
@@ -679,9 +680,7 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
                 if let Some(ep) = self.ep_in[i] {
                     trace!(
                         "configuring tx fifo ep={}, offset={}, size={}",
-                        i,
-                        fifo_top,
-                        ep.fifo_size_words
+                        i, fifo_top, ep.fifo_size_words
                     );
 
                     let dieptxf = if i == 0 { regs.dieptxf0() } else { regs.dieptxf(i - 1) };
@@ -1158,9 +1157,7 @@ impl<'d> embassy_usb_driver::EndpointIn for Endpoint<'d, In> {
             let dtxfsts = self.regs.dtxfsts(index).read();
             trace!(
                 "write ep={:?}: diepctl {:08x} ftxfsts {:08x}",
-                self.info.addr,
-                diepctl.0,
-                dtxfsts.0
+                self.info.addr, diepctl.0, dtxfsts.0
             );
             if !diepctl.usbaep() {
                 trace!("write ep={:?} wait for prev: error disabled", self.info.addr);
@@ -1375,11 +1372,7 @@ fn ep_irq_mask(eps: &[Option<EndpointData>]) -> u16 {
     eps.iter().enumerate().fold(
         0,
         |mask, (index, ep)| {
-            if ep.is_some() {
-                mask | (1 << index)
-            } else {
-                mask
-            }
+            if ep.is_some() { mask | (1 << index) } else { mask }
         },
     )
 }

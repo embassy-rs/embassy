@@ -7,9 +7,9 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use defmt::info;
 use embassy_executor::Spawner;
+use embassy_stm32::Peri;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{AnyPin, Level, Output, Pull, Speed};
-use embassy_stm32::Peri;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 

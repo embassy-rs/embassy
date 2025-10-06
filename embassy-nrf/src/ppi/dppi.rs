@@ -1,5 +1,5 @@
 use super::{Channel, ConfigurableChannel, Event, Ppi, Task};
-use crate::{pac, Peri};
+use crate::{Peri, pac};
 
 const DPPI_ENABLE_BIT: u32 = 0x8000_0000;
 const DPPI_CHANNEL_MASK: u32 = 0x0000_00FF;

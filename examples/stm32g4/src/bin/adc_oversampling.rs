@@ -7,9 +7,9 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_stm32::Config;
 use embassy_stm32::adc::vals::{Rovsm, Trovs};
 use embassy_stm32::adc::{Adc, SampleTime};
-use embassy_stm32::Config;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 

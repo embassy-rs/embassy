@@ -16,16 +16,16 @@ use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::spi;
 use embassy_rp::spi::{Blocking, Spi};
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_time::{Delay, Duration, Timer};
 use embedded_graphics::image::{Image, ImageRawLE};
 use embedded_graphics::pixelcolor::Rgb565;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::{PrimitiveStyleBuilder, Rectangle};
+use mipidsi::Builder;
 use mipidsi::models::GC9A01;
 use mipidsi::options::{ColorInversion, ColorOrder};
-use mipidsi::Builder;
 use {defmt_rtt as _, panic_probe as _};
 
 const DISPLAY_FREQ: u32 = 64_000_000;
