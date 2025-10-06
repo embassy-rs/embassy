@@ -8,12 +8,11 @@ use stm32_metapac::rtc::regs::{Alrmr, Alrmssr};
 use stm32_metapac::rtc::vals::{Alrmf, Calrf};
 use stm32_metapac::rtc::vals::{AlrmrMsk, AlrmrPm, AlrmrWdsel};
 
+use super::datetime::day_of_week_to_u8;
+use super::{byte_to_bcd2, DayOfWeek, Rtc};
 use crate::interrupt;
 use crate::peripherals::RTC;
 use crate::rtc::SealedInstance;
-
-use super::datetime::day_of_week_to_u8;
-use super::{byte_to_bcd2, DayOfWeek, Rtc};
 
 cfg_if::cfg_if!(
     if #[cfg(rtc_v2f2)] {
