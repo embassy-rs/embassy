@@ -37,7 +37,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     }
 
     #[inline]
-    fn start_continous_sampling(&mut self) {
+    fn start_continuous_sampling(&mut self) {
         // Start adc conversion
         T::regs().cr().modify(|reg| {
             reg.set_adstart(true);
@@ -46,7 +46,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     }
 
     #[inline]
-    pub fn stop_continous_sampling(&mut self) {
+    pub fn stop_continuous_sampling(&mut self) {
         // Stop adc conversion
         if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
             T::regs().cr().modify(|reg| {
@@ -56,7 +56,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
         }
     }
     pub fn disable_adc(&mut self) {
-        self.stop_continous_sampling();
+        self.stop_continuous_sampling();
         self.ring_buf.clear();
         self.ring_buf.request_pause();
     }
@@ -123,7 +123,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     ///
     ///
     /// [`teardown_adc`]: #method.teardown_adc
-    /// [`start_continous_sampling`]: #method.start_continous_sampling
+    /// [`start_continuous_sampling`]: #method.start_continuous_sampling
     pub async fn read(&mut self, measurements: &mut [u16]) -> Result<usize, OverrunError> {
         assert_eq!(
             self.ring_buf.capacity() / 2,
@@ -135,7 +135,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
 
         // Start background receive if it was not already started
         if !r.cr().read().adstart() {
-            self.start_continous_sampling();
+            self.start_continuous_sampling();
         }
 
         self.ring_buf.read_exact(measurements).await.map_err(|_| OverrunError)
@@ -145,16 +145,16 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     /// If no bytes are currently available in the buffer the call waits until the some
     /// bytes are available (at least one byte and at most half the buffer size)
     ///
-    /// Background receive is started if `start_continous_sampling()` has not been previously called.
+    /// Background receive is started if `start_continuous_sampling()` has not been previously called.
     ///
     /// Receive in the background is terminated if an error is returned.
-    /// It must then manually be started again by calling `start_continous_sampling()` or by re-calling `blocking_read()`.
+    /// It must then manually be started again by calling `start_continuous_sampling()` or by re-calling `blocking_read()`.
     pub fn blocking_read(&mut self, buf: &mut [u16]) -> Result<usize, OverrunError> {
         let r = T::regs();
 
         // Start background receive if it was not already started
         if !r.cr().read().adstart() {
-            self.start_continous_sampling();
+            self.start_continuous_sampling();
         }
 
         loop {
@@ -164,7 +164,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
                     return Ok(len);
                 }
                 Err(_) => {
-                    self.stop_continous_sampling();
+                    self.stop_continuous_sampling();
                     return Err(OverrunError);
                 }
             }

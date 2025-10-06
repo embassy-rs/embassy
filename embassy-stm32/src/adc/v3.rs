@@ -13,10 +13,10 @@ use super::{
     blocking_delay_us, Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel,
 };
 
-#[cfg(adc_v3)]
+#[cfg(adc_v3, adc_g0)]
 mod ringbuffered_v3;
 
-#[cfg(adc_v3)]
+#[cfg(adc_v3, adc_g0)]
 use ringbuffered_v3::RingBufferedAdc;
 
 use crate::dma::Transfer;
@@ -576,7 +576,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// It is critical to call `read` frequently to prevent DMA buffer overrun.
     ///
     /// [`read`]: #method.read
-    #[cfg(adc_v3)]
+    #[cfg(adc_v3, adc_g0)]
     pub fn into_ring_buffered<'a>(
         &mut self,
         dma: Peri<'a, impl RxDma<T>>,
@@ -632,6 +632,11 @@ impl<'d, T: Instance> Adc<'d, T> {
                     });
                 }
                 _ => unreachable!(),
+            }
+
+            #[cfg(any(adc_g0, adc_u0))]
+            {
+                channel_mask |= 1 << channel.channel();
             }
         }
 
