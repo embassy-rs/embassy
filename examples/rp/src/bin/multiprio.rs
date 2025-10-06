@@ -61,7 +61,7 @@ use defmt::{info, unwrap};
 use embassy_executor::{Executor, InterruptExecutor};
 use embassy_rp::interrupt;
 use embassy_rp::interrupt::{InterruptExt, Priority};
-use embassy_time::{Instant, Timer, TICK_HZ};
+use embassy_time::{Instant, TICK_HZ, Timer};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 

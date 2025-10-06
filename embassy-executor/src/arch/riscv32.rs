@@ -10,7 +10,7 @@ mod thread {
 
     pub use embassy_executor_macros::main_riscv as main;
 
-    use crate::{raw, Spawner};
+    use crate::{Spawner, raw};
 
     /// global atomic used to keep track of whether there is work to do since sev() is not available on RISCV
     static SIGNAL_WORK_THREAD_MODE: AtomicBool = AtomicBool::new(false);

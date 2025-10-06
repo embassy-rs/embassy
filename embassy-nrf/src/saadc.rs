@@ -4,11 +4,11 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{impl_peripheral, Peri};
+use embassy_hal_internal::{Peri, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 pub(crate) use vals::Psel as InputChannel;
 

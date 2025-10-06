@@ -1,5 +1,5 @@
 use core::ptr::write_volatile;
-use core::sync::atomic::{fence, Ordering};
+use core::sync::atomic::{Ordering, fence};
 
 use super::{FlashSector, WRITE_SIZE};
 use crate::flash::Error;
@@ -234,19 +234,27 @@ pub(crate) unsafe fn wait_ready_blocking() -> Result<(), Error> {
 #[cfg(all(bank_setup_configurable, flash_l5))]
 pub(crate) fn check_bank_setup() {
     if cfg!(feature = "single-bank") && pac::FLASH.optr().read().dbank() {
-        panic!("Embassy is configured as single-bank, but the hardware is running in dual-bank mode. Change the hardware by changing the dbank value in the user option bytes or configure embassy to use dual-bank config");
+        panic!(
+            "Embassy is configured as single-bank, but the hardware is running in dual-bank mode. Change the hardware by changing the dbank value in the user option bytes or configure embassy to use dual-bank config"
+        );
     }
     if cfg!(feature = "dual-bank") && !pac::FLASH.optr().read().dbank() {
-        panic!("Embassy is configured as dual-bank, but the hardware is running in single-bank mode. Change the hardware by changing the dbank value in the user option bytes or configure embassy to use single-bank config");
+        panic!(
+            "Embassy is configured as dual-bank, but the hardware is running in single-bank mode. Change the hardware by changing the dbank value in the user option bytes or configure embassy to use single-bank config"
+        );
     }
 }
 
 #[cfg(all(bank_setup_configurable, flash_l4))]
 pub(crate) fn check_bank_setup() {
     if cfg!(feature = "single-bank") && pac::FLASH.optr().read().dualbank() {
-        panic!("Embassy is configured as single-bank, but the hardware is running in dual-bank mode. Change the hardware by changing the dualbank value in the user option bytes or configure embassy to use dual-bank config");
+        panic!(
+            "Embassy is configured as single-bank, but the hardware is running in dual-bank mode. Change the hardware by changing the dualbank value in the user option bytes or configure embassy to use dual-bank config"
+        );
     }
     if cfg!(feature = "dual-bank") && !pac::FLASH.optr().read().dualbank() {
-        panic!("Embassy is configured as dual-bank, but the hardware is running in single-bank mode. Change the hardware by changing the dualbank value in the user option bytes or configure embassy to use single-bank config");
+        panic!(
+            "Embassy is configured as dual-bank, but the hardware is running in single-bank mode. Change the hardware by changing the dualbank value in the user option bytes or configure embassy to use single-bank config"
+        );
     }
 }

@@ -55,7 +55,7 @@ pub(crate) mod _generated {
 
 // Reexports
 pub(crate) use _generated::gpio_pincm;
-pub use _generated::{peripherals, Peripherals};
+pub use _generated::{Peripherals, peripherals};
 pub use embassy_hal_internal::Peri;
 #[cfg(feature = "unstable-pac")]
 pub use mspm0_metapac as pac;

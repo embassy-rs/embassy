@@ -6,7 +6,7 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embedded_storage::nor_flash::NorFlash;
 
 use super::FirmwareUpdaterConfig;
-use crate::{FirmwareUpdaterError, State, BOOT_MAGIC, DFU_DETACH_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
+use crate::{BOOT_MAGIC, DFU_DETACH_MAGIC, FirmwareUpdaterError, STATE_ERASE_VALUE, SWAP_MAGIC, State};
 
 /// Blocking FirmwareUpdater is an application API for interacting with the BootLoader without the ability to
 /// 'mess up' the internal bootloader state
@@ -399,8 +399,8 @@ mod tests {
     use core::cell::RefCell;
 
     use embassy_embedded_hal::flash::partition::BlockingPartition;
-    use embassy_sync::blocking_mutex::raw::NoopRawMutex;
     use embassy_sync::blocking_mutex::Mutex;
+    use embassy_sync::blocking_mutex::raw::NoopRawMutex;
     use sha1::{Digest, Sha1};
 
     use super::*;

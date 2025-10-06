@@ -12,16 +12,16 @@ use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::rcc::WPAN_DEFAULT;
+use embassy_stm32_wpan::TlMbox;
+use embassy_stm32_wpan::hci::BdAddr;
 use embassy_stm32_wpan::hci::host::uart::UartHci;
 use embassy_stm32_wpan::hci::host::{AdvertisingFilterPolicy, EncryptionKey, HostHci, OwnAddressType};
 use embassy_stm32_wpan::hci::types::AdvertisingType;
 use embassy_stm32_wpan::hci::vendor::command::gap::{AdvertisingDataType, DiscoverableParameters, GapCommands, Role};
 use embassy_stm32_wpan::hci::vendor::command::gatt::GattCommands;
 use embassy_stm32_wpan::hci::vendor::command::hal::{ConfigData, HalCommands, PowerLevel};
-use embassy_stm32_wpan::hci::BdAddr;
 use embassy_stm32_wpan::lhci::LhciC1DeviceInformationCcrp;
 use embassy_stm32_wpan::sub::mm;
-use embassy_stm32_wpan::TlMbox;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{

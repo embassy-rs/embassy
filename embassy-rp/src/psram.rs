@@ -10,7 +10,7 @@
 
 #![cfg(feature = "_rp235x")]
 
-use critical_section::{acquire, release, CriticalSection, RestoreState};
+use critical_section::{CriticalSection, RestoreState, acquire, release};
 
 use crate::pac;
 use crate::qmi_cs1::QmiCs1;

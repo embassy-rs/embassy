@@ -10,7 +10,7 @@ mod thread {
     pub use embassy_executor_macros::main_avr as main;
     use portable_atomic::{AtomicBool, Ordering};
 
-    use crate::{raw, Spawner};
+    use crate::{Spawner, raw};
 
     static SIGNAL_WORK_THREAD_MODE: AtomicBool = AtomicBool::new(false);
 

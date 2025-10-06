@@ -2,8 +2,8 @@
 #![no_main]
 
 use defmt::*;
-use embassy_stm32::adc::{Adc, Resolution};
 use embassy_stm32::Config;
+use embassy_stm32::adc::{Adc, Resolution};
 use {defmt_rtt as _, panic_probe as _};
 
 #[cortex_m_rt::entry]

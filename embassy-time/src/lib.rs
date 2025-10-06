@@ -28,18 +28,14 @@ mod driver_std;
 #[cfg(feature = "wasm")]
 mod driver_wasm;
 
-pub use delay::{block_for, Delay};
+pub use delay::{Delay, block_for};
 pub use duration::Duration;
 pub use embassy_time_driver::TICK_HZ;
 pub use instant::Instant;
-pub use timer::{with_deadline, with_timeout, Ticker, TimeoutError, Timer, WithTimeout};
+pub use timer::{Ticker, TimeoutError, Timer, WithTimeout, with_deadline, with_timeout};
 
 const fn gcd(a: u64, b: u64) -> u64 {
-    if b == 0 {
-        a
-    } else {
-        gcd(b, a % b)
-    }
+    if b == 0 { a } else { gcd(b, a % b) }
 }
 
 pub(crate) const GCD_1K: u64 = gcd(TICK_HZ, 1_000);

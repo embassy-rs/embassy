@@ -9,7 +9,7 @@ use embassy_executor::Spawner;
 use embassy_rp::gpio::Pull;
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::program::pio_asm;
-use embassy_rp::{bind_interrupts, pio, Peri};
+use embassy_rp::{Peri, bind_interrupts, pio};
 use embassy_time::Timer;
 use fixed::traits::ToFixed;
 use pio::{Common, Config, FifoJoin, Instance, InterruptHandler, Pio, PioPin, ShiftDirection, StateMachine};

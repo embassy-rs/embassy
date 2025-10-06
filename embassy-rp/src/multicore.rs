@@ -48,11 +48,11 @@
 //! ```
 
 use core::mem::ManuallyDrop;
-use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
 
 use crate::interrupt::InterruptExt;
 use crate::peripherals::CORE1;
-use crate::{gpio, install_stack_guard, interrupt, pac, Peri};
+use crate::{Peri, gpio, install_stack_guard, interrupt, pac};
 
 const PAUSE_TOKEN: u32 = 0xDEADBEEF;
 const RESUME_TOKEN: u32 = !0xDEADBEEF;

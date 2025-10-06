@@ -342,11 +342,13 @@ mod tests {
             &mut aligned,
         );
 
-        assert!(block_on(updater.verify_and_mark_updated(
-            &public_key.to_bytes(),
-            &signature.to_bytes(),
-            firmware_len as u32,
-        ))
-        .is_ok());
+        assert!(
+            block_on(updater.verify_and_mark_updated(
+                &public_key.to_bytes(),
+                &signature.to_bytes(),
+                firmware_len as u32,
+            ))
+            .is_ok()
+        );
     }
 }

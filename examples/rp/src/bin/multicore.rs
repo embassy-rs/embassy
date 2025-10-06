@@ -8,7 +8,7 @@
 use defmt::*;
 use embassy_executor::Executor;
 use embassy_rp::gpio::{Level, Output};
-use embassy_rp::multicore::{spawn_core1, Stack};
+use embassy_rp::multicore::{Stack, spawn_core1};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::Timer;

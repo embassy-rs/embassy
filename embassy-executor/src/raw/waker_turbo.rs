@@ -1,7 +1,7 @@
 use core::ptr::NonNull;
 use core::task::Waker;
 
-use super::{wake_task, TaskHeader, TaskRef};
+use super::{TaskHeader, TaskRef, wake_task};
 
 pub(crate) unsafe fn from_task(p: TaskRef) -> Waker {
     Waker::from_turbo_ptr(NonNull::new_unchecked(p.as_ptr() as _))

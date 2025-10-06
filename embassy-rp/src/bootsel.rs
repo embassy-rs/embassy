@@ -7,8 +7,8 @@
 //!
 //! This module provides functionality to poll BOOTSEL from an embassy application.
 
-use crate::flash::in_ram;
 use crate::Peri;
+use crate::flash::in_ram;
 
 /// Reads the BOOTSEL button. Returns true if the button is pressed.
 ///

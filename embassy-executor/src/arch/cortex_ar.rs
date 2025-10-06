@@ -26,7 +26,7 @@ mod thread {
     use cortex_ar::asm::wfe;
     pub use embassy_executor_macros::main_cortex_ar as main;
 
-    use crate::{raw, Spawner};
+    use crate::{Spawner, raw};
 
     /// Thread mode executor, using WFE/SEV.
     ///

@@ -9,7 +9,7 @@ pub use embassy_boot::{
     FirmwareUpdater, FirmwareUpdaterConfig,
 };
 use embassy_nrf::nvmc::PAGE_SIZE;
-use embassy_nrf::{wdt, Peri};
+use embassy_nrf::{Peri, wdt};
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 
 /// A bootloader for nRF devices.

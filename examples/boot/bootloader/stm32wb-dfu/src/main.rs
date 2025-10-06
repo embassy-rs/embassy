@@ -7,14 +7,14 @@ use cortex_m_rt::{entry, exception};
 #[cfg(feature = "defmt")]
 use defmt_rtt as _;
 use embassy_boot_stm32::*;
-use embassy_stm32::flash::{Flash, BANK1_REGION, WRITE_SIZE};
+use embassy_stm32::flash::{BANK1_REGION, Flash, WRITE_SIZE};
 use embassy_stm32::rcc::WPAN_DEFAULT;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{bind_interrupts, peripherals, usb};
 use embassy_sync::blocking_mutex::Mutex;
-use embassy_usb::{msos, Builder};
+use embassy_usb::{Builder, msos};
 use embassy_usb_dfu::consts::DfuAttributes;
-use embassy_usb_dfu::{usb_dfu, Control, ResetImmediate};
+use embassy_usb_dfu::{Control, ResetImmediate, usb_dfu};
 
 bind_interrupts!(struct Irqs {
     USB_LP => usb::InterruptHandler<peripherals::USB>;

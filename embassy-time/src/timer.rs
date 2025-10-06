@@ -1,9 +1,9 @@
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use futures_core::stream::FusedStream;
 use futures_core::Stream;
+use futures_core::stream::FusedStream;
 
 use crate::{Duration, Instant};
 

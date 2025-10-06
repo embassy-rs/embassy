@@ -27,7 +27,7 @@ mod time;
 pub mod udp;
 
 use core::cell::RefCell;
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::mem::MaybeUninit;
 use core::pin::pin;
 use core::task::{Context, Poll};

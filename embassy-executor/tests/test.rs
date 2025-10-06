@@ -2,12 +2,12 @@
 #![cfg_attr(feature = "nightly", feature(never_type))]
 
 use std::boxed::Box;
-use std::future::{poll_fn, Future};
+use std::future::{Future, poll_fn};
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 
 use embassy_executor::raw::Executor;
-use embassy_executor::{task, Spawner};
+use embassy_executor::{Spawner, task};
 
 #[unsafe(export_name = "__pender")]
 fn __pender(context: *mut ()) {

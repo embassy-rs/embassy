@@ -9,7 +9,7 @@ use super::Resolution;
 use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::time::Hertz;
-use crate::{interrupt, rcc, Peri};
+use crate::{Peri, interrupt, rcc};
 
 const ADC_FREQ: Hertz = crate::rcc::HSI_FREQ;
 

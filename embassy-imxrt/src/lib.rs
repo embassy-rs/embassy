@@ -40,7 +40,7 @@ pub use chip::interrupts::*;
 pub use chip::pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use chip::pac;
-pub use chip::{peripherals, Peripherals};
+pub use chip::{Peripherals, peripherals};
 pub use embassy_hal_internal::{Peri, PeripheralType};
 
 #[cfg(feature = "rt")]

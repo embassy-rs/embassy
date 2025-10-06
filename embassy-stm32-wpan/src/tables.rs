@@ -1,6 +1,6 @@
 use core::mem::MaybeUninit;
 
-use aligned::{Aligned, A4};
+use aligned::{A4, Aligned};
 use bit_field::BitField;
 
 use crate::cmd::{AclDataPacket, CmdPacket};

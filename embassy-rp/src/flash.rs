@@ -6,8 +6,8 @@ use core::task::{Context, Poll};
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use embedded_storage::nor_flash::{
-    check_erase, check_read, check_write, ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind,
-    ReadNorFlash,
+    ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash, check_erase, check_read,
+    check_write,
 };
 
 use crate::dma::{AnyChannel, Channel, Transfer};

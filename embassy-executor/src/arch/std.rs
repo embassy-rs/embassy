@@ -10,7 +10,7 @@ mod thread {
 
     pub use embassy_executor_macros::main_std as main;
 
-    use crate::{raw, Spawner};
+    use crate::{Spawner, raw};
 
     #[unsafe(export_name = "__pender")]
     fn __pender(context: *mut ()) {

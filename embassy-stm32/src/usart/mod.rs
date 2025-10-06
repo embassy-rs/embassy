@@ -4,15 +4,16 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, AtomicU8, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::PeripheralType;
+use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::waitqueue::AtomicWaker;
-use futures_util::future::{select, Either};
+use futures_util::future::{Either, select};
 
+use crate::Peri;
 use crate::dma::ChannelAndRequest;
 use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::interrupt::typelevel::Interrupt as _;
@@ -25,7 +26,6 @@ use crate::pac::usart::Usart as Regs;
 use crate::pac::usart::{regs, vals};
 use crate::rcc::{RccInfo, SealedRccPeripheral};
 use crate::time::Hertz;
-use crate::Peri;
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {

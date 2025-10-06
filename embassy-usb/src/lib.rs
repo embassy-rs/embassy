@@ -21,7 +21,7 @@ mod config {
     include!(concat!(env!("OUT_DIR"), "/config.rs"));
 }
 
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use heapless::Vec;
 
 pub use crate::builder::{Builder, Config, FunctionBuilder, InterfaceAltBuilder, InterfaceBuilder, UsbVersion};

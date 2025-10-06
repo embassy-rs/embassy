@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
-use darling::export::NestedMeta;
 use darling::FromMeta;
+use darling::export::NestedMeta;
 use proc_macro2::TokenStream;
 use quote::quote;
 use syn::{ReturnType, Type};

@@ -22,7 +22,7 @@
 mod fmt;
 
 use core::mem::MaybeUninit;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 
 use embassy_hal_internal::Peri;
 use embassy_stm32::interrupt;
@@ -95,7 +95,7 @@ impl<'d> TlMbox<'d> {
     pub fn init(
         ipcc: Peri<'d, IPCC>,
         _irqs: impl interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C1_RX, ReceiveInterruptHandler>
-            + interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C1_TX, TransmitInterruptHandler>,
+        + interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C1_TX, TransmitInterruptHandler>,
         config: Config,
     ) -> Self {
         // this is an inlined version of TL_Init from the STM32WB firmware as requested by AN5289.
