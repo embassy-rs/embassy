@@ -694,8 +694,14 @@ impl<'d, W: Word> I2S<'d, W> {
         });
 
         // Configure ext peripheral identically, but in the opposite direction and always in slave
-        // mode
+        // mode.
         if let Some(regs_ext) = regs_ext.as_ref() {
+            regs_ext.i2spr().modify(|w| {
+                w.set_i2sdiv(2);
+                w.set_odd(Odd::EVEN);
+                w.set_mckoe(false);
+            });
+
             #[cfg(not(any(spi_v4, spi_v5)))]
             regs_ext.i2scfgr().modify(|w| {
                 w.set_ckpol(config.clock_polarity.ckpol());
