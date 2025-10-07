@@ -5,16 +5,16 @@ use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_hal_internal::Peri;
+use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_sync::waitqueue::AtomicWaker;
 
 #[cfg(not(any(usart_v1, usart_v2)))]
 use super::DePin;
 use super::{
+    Config, ConfigError, CtsPin, Duplex, Error, HalfDuplexReadback, Info, Instance, Regs, RtsPin, RxPin, TxPin,
     clear_interrupt_flags, configure, half_duplex_set_rx_tx_before_write, rdr, reconfigure, send_break, set_baudrate,
-    sr, tdr, Config, ConfigError, CtsPin, Duplex, Error, HalfDuplexReadback, Info, Instance, Regs, RtsPin, RxPin,
-    TxPin,
+    sr, tdr,
 };
 use crate::gpio::{AfType, AnyPin, Pull, SealedPin as _};
 use crate::interrupt::{self, InterruptExt};

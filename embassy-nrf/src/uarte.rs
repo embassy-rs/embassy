@@ -15,7 +15,7 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicU8, Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
@@ -25,7 +25,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 pub use pac::uarte::vals::{Baudrate, ConfigParity as Parity};
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
-use crate::gpio::{self, AnyPin, Pin as GpioPin, PselBits, SealedPin as _, DISCONNECTED};
+use crate::gpio::{self, AnyPin, DISCONNECTED, Pin as GpioPin, PselBits, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::uarte::vals;

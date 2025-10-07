@@ -1,7 +1,7 @@
 [package]
 name = "embassy-executor"
 version = "0.9.1"
-edition = "2021"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "async/await executor designed for embedded usage"
 repository = "https://github.com/embassy-rs/embassy"
@@ -30,6 +30,8 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "embassy-time-driver", "scheduler-deadline"]},
     {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "scheduler-priority", "scheduler-deadline"]},
     {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "scheduler-deadline"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-spin"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-spin", "scheduler-deadline"]},
     {target = "armv7a-none-eabi", features = ["arch-cortex-ar", "executor-thread"]},
     {target = "armv7r-none-eabi", features = ["arch-cortex-ar", "executor-thread"]},
     {target = "armv7r-none-eabihf", features = ["arch-cortex-ar", "executor-thread"]},

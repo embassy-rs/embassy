@@ -1,7 +1,7 @@
 [package]
 name = "embassy-nrf"
 version = "0.8.0"
-edition = "2021"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Embassy Hardware Abstraction Layer (HAL) for nRF series microcontrollers"
 keywords = ["embedded", "async", "nordic", "nrf", "embedded-hal"]

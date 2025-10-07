@@ -13,7 +13,7 @@ use crate::clocks::enable_and_reset;
 use crate::iopctl::IopctlPin;
 pub use crate::iopctl::{AnyPin, DriveMode, DriveStrength, Function, Inverter, Pull, SlewRate};
 use crate::sealed::Sealed;
-use crate::{interrupt, peripherals, BitIter, Peri, PeripheralType};
+use crate::{BitIter, Peri, PeripheralType, interrupt, peripherals};
 
 // This should be unique per IMXRT package
 const PORT_COUNT: usize = 8;

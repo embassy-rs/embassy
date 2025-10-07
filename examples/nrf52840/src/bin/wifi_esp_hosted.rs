@@ -3,8 +3,8 @@
 
 use defmt::{info, unwrap, warn};
 use embassy_executor::Spawner;
-use embassy_net::tcp::TcpSocket;
 use embassy_net::StackResources;
+use embassy_net::tcp::TcpSocket;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::rng::Rng;
 use embassy_nrf::spim::{self, Spim};

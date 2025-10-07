@@ -1,4 +1,4 @@
-#[export_name = "__pender"]
+#[unsafe(export_name = "__pender")]
 #[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
 fn __pender(context: *mut ()) {
     unsafe {
@@ -53,7 +53,7 @@ mod thread {
 
     pub use embassy_executor_macros::main_cortex_m as main;
 
-    use crate::{raw, Spawner};
+    use crate::{Spawner, raw};
 
     /// Thread mode executor, using WFE/SEV.
     ///

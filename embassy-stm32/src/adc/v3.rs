@@ -10,7 +10,7 @@ use pac::adc::vals::{OversamplingRatio, OversamplingShift, Rovsm, Trovs};
 pub use pac::adc::vals::{Ovsr, Ovss, Presc};
 
 use super::{
-    blocking_delay_us, Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel,
+    Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel, blocking_delay_us,
 };
 
 #[cfg(any(adc_v3, adc_g0, adc_u0))]
@@ -20,7 +20,7 @@ mod ringbuffered_v3;
 use ringbuffered_v3::RingBufferedAdc;
 
 use crate::dma::Transfer;
-use crate::{pac, rcc, Peri};
+use crate::{Peri, pac, rcc};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;

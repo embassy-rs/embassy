@@ -11,7 +11,7 @@ use embassy_hal_internal::PeripheralType;
 
 use crate::pac::wdt::vals;
 pub use crate::pac::wdt::vals::{Halt as HaltConfig, Sleep as SleepConfig};
-use crate::{interrupt, pac, peripherals, Peri};
+use crate::{Peri, interrupt, pac, peripherals};
 
 const MIN_TICKS: u32 = 15;
 

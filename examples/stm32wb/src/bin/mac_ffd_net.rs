@@ -6,11 +6,11 @@ use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::rcc::WPAN_DEFAULT;
+use embassy_stm32_wpan::TlMbox;
 use embassy_stm32_wpan::mac::commands::{ResetRequest, SetRequest, StartRequest};
 use embassy_stm32_wpan::mac::typedefs::{MacChannel, PanId, PibId};
 use embassy_stm32_wpan::mac::{self, Runner};
 use embassy_stm32_wpan::sub::mm;
-use embassy_stm32_wpan::TlMbox;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
