@@ -3,8 +3,8 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, AdcChannel, SampleTime};
 use embassy_stm32::Config;
+use embassy_stm32::adc::{Adc, AdcChannel, SampleTime};
 use {defmt_rtt as _, panic_probe as _};
 
 const DMA_BUF_LEN: usize = 512;

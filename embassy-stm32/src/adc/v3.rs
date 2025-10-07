@@ -576,7 +576,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// It is critical to call `read` frequently to prevent DMA buffer overrun.
     ///
     /// [`read`]: #method.read
-    #[cfg(any(adc_v3, adc_g0))]
+    #[cfg(any(adc_v3, adc_g0, adc_u0))]
     pub fn into_ring_buffered<'a>(
         &mut self,
         dma: Peri<'a, impl RxDma<T>>,
