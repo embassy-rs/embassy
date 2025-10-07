@@ -13,10 +13,10 @@ use super::{
     blocking_delay_us, Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel,
 };
 
-#[cfg(any(adc_v3, adc_g0))]
+#[cfg(any(adc_v3, adc_g0, adc_u0))]
 mod ringbuffered_v3;
 
-#[cfg(any(adc_v3, adc_g0))]
+#[cfg(any(adc_v3, adc_g0, adc_u0))]
 use ringbuffered_v3::RingBufferedAdc;
 
 use crate::dma::Transfer;
@@ -601,53 +601,78 @@ impl<'d, T: Instance> Adc<'d, T> {
             w.set_l(sequence.len() as u8 - 1);
         });
 
-        #[cfg(any(adc_g0, adc_u0))]
-        let mut channel_mask = 0;
+        #[cfg(adc_g0)]
+        {
+            let mut sample_times = Vec::<SampleTime, SAMPLE_TIMES_CAPACITY>::new();
 
-        // Configure channels and ranks
-        for (_i, (channel, sample_time)) in sequence.enumerate() {
-            Self::configure_channel(channel, sample_time);
-
-            // Each channel is sampled according to sequence
-            #[cfg(not(any(adc_g0, adc_u0)))]
-            match _i {
-                0..=3 => {
-                    T::regs().sqr1().modify(|w| {
-                        w.set_sq(_i, channel.channel());
-                    });
-                }
-                4..=8 => {
-                    T::regs().sqr2().modify(|w| {
-                        w.set_sq(_i - 4, channel.channel());
-                    });
-                }
-                9..=13 => {
-                    T::regs().sqr3().modify(|w| {
-                        w.set_sq(_i - 9, channel.channel());
-                    });
-                }
-                14..=15 => {
-                    T::regs().sqr4().modify(|w| {
-                        w.set_sq(_i - 14, channel.channel());
-                    });
-                }
-                _ => unreachable!(),
-            }
-
-            #[cfg(any(adc_g0, adc_u0))]
-            {
-                channel_mask |= 1 << channel.channel();
-            }
+            T::regs().chselr().write(|chselr| {
+                T::regs().smpr().write(|smpr| {
+                    for (channel, sample_time) in sequence {
+                        chselr.set_chsel(channel.channel.into(), true);
+                        if let Some(i) = sample_times.iter().position(|&t| t == sample_time) {
+                            smpr.set_smpsel(channel.channel.into(), (i as u8).into());
+                        } else {
+                            smpr.set_sample_time(sample_times.len(), sample_time);
+                            if let Err(_) = sample_times.push(sample_time) {
+                                panic!(
+                                    "Implementation is limited to {} unique sample times among all channels.",
+                                    SAMPLE_TIMES_CAPACITY
+                                );
+                            }
+                        }
+                    }
+                })
+            });
         }
+        #[cfg(not(adc_g0))]
+        {
+            #[cfg(adc_u0)]
+            let mut channel_mask = 0;
 
-        // On G0 and U0 enabled channels are sampled from 0 to last channel.
-        // It is possible to add up to 8 sequences if CHSELRMOD = 1.
-        // However for supporting more than 8 channels alternative CHSELRMOD = 0 approach is used.
-        #[cfg(any(adc_g0, adc_u0))]
-        T::regs().chselr().modify(|reg| {
-            reg.set_chsel(channel_mask);
-        });
+            // Configure channels and ranks
+            for (_i, (channel, sample_time)) in sequence.enumerate() {
+                Self::configure_channel(channel, sample_time);
 
+                // Each channel is sampled according to sequence
+                #[cfg(not(any(adc_g0, adc_u0)))]
+                match _i {
+                    0..=3 => {
+                        T::regs().sqr1().modify(|w| {
+                            w.set_sq(_i, channel.channel());
+                        });
+                    }
+                    4..=8 => {
+                        T::regs().sqr2().modify(|w| {
+                            w.set_sq(_i - 4, channel.channel());
+                        });
+                    }
+                    9..=13 => {
+                        T::regs().sqr3().modify(|w| {
+                            w.set_sq(_i - 9, channel.channel());
+                        });
+                    }
+                    14..=15 => {
+                        T::regs().sqr4().modify(|w| {
+                            w.set_sq(_i - 14, channel.channel());
+                        });
+                    }
+                    _ => unreachable!(),
+                }
+
+                #[cfg(adc_u0)]
+                {
+                    channel_mask |= 1 << channel.channel();
+                }
+            }
+
+            // On G0 and U0 enabled channels are sampled from 0 to last channel.
+            // It is possible to add up to 8 sequences if CHSELRMOD = 1.
+            // However for supporting more than 8 channels alternative CHSELRMOD = 0 approach is used.
+            #[cfg(adc_u0)]
+            T::regs().chselr().modify(|reg| {
+                reg.set_chsel(channel_mask);
+            });
+        }
         // Set continuous mode with Circular dma.
         // Clear overrun flag before starting transfer.
         T::regs().isr().modify(|reg| {
