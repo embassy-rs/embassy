@@ -13,3 +13,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: Add window watchdog implementation based on WWDT0, WWDT1 peripherals (#4574)
 - feat: Add MSPM0C1105/C1106 support
 - feat: Add adc implementation (#4646)
+- fix: gpio OutputOpenDrain config (#4735)
