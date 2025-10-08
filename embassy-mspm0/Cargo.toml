@@ -15,6 +15,7 @@ publish = false
 [package.metadata.embassy]
 build = [
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0c1104dgs20", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0c1106rgz", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g3507pm", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g3519pz", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1306rhb", "time-driver-any"]},
