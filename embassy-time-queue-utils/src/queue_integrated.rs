@@ -130,6 +130,9 @@ impl Queue {
                 // Remove it
                 prev.set(item.next.get());
                 item.next.set(None);
+                // Ensure there is no waker left in items that are not part of the timer queue
+                // even when the waker was not called (for timer that never expires, ie expires_at = u64::MAX)
+                item.waker = None;
             }
         }
     }
