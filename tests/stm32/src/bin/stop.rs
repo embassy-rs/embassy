@@ -9,10 +9,10 @@ use chrono::NaiveDate;
 use common::*;
 use cortex_m_rt::entry;
 use embassy_executor::Spawner;
-use embassy_stm32::low_power::{stop_ready, stop_with_rtc, Executor, StopMode};
+use embassy_stm32::Config;
+use embassy_stm32::low_power::{Executor, StopMode, stop_ready, stop_with_rtc};
 use embassy_stm32::rcc::LsConfig;
 use embassy_stm32::rtc::{Rtc, RtcConfig};
-use embassy_stm32::Config;
 use embassy_time::Timer;
 use static_cell::StaticCell;
 

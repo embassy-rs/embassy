@@ -6,7 +6,7 @@ use pio::InstructionOperands;
 
 use crate::gpio::Level;
 use crate::pio::{Common, Config, Direction, Instance, LoadedProgram, Pin, PioPin, StateMachine};
-use crate::{clocks, Peri};
+use crate::{Peri, clocks};
 
 /// This converts the duration provided into the number of cycles the PIO needs to run to make it take the same time
 fn to_pio_cycles(duration: Duration) -> u32 {

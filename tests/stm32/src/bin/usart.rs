@@ -7,7 +7,7 @@ use common::*;
 use defmt::{assert, assert_eq, unreachable};
 use embassy_executor::Spawner;
 use embassy_stm32::usart::{Config, ConfigError, Error, Uart};
-use embassy_time::{block_for, Duration, Instant};
+use embassy_time::{Duration, Instant, block_for};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

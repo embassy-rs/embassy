@@ -10,13 +10,13 @@ use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use mspm0_metapac::i2c;
 
+use crate::Peri;
 use crate::gpio::{AnyPin, PfType, Pull, SealedPin};
 use crate::interrupt::typelevel::Binding;
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
-use crate::pac::i2c::{vals, I2c as Regs};
+use crate::pac::i2c::{I2c as Regs, vals};
 use crate::pac::{self};
-use crate::Peri;
 
 /// The clock source for the I2C.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

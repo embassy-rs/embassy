@@ -2,7 +2,7 @@ use core::cmp;
 use core::future::poll_fn;
 use core::task::Poll;
 
-use config::{Address, OwnAddresses, OA2};
+use config::{Address, OA2, OwnAddresses};
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::drop::OnDrop;
 use embedded_hal_1::i2c::Operation;

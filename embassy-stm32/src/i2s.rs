@@ -3,12 +3,12 @@
 use embassy_futures::join::join;
 use stm32_metapac::spi::vals;
 
-use crate::dma::{ringbuffer, ChannelAndRequest, ReadableRingBuffer, TransferOptions, WritableRingBuffer};
+use crate::Peri;
+use crate::dma::{ChannelAndRequest, ReadableRingBuffer, TransferOptions, WritableRingBuffer, ringbuffer};
 use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
 use crate::mode::Async;
 use crate::spi::{Config as SpiConfig, RegsExt as _, *};
 use crate::time::Hertz;
-use crate::Peri;
 
 /// I2S mode
 #[derive(Copy, Clone)]

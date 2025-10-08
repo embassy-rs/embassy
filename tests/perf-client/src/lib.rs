@@ -4,7 +4,7 @@ use defmt::{assert, *};
 use embassy_futures::join::join;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Ipv4Address, Stack};
-use embassy_time::{with_timeout, Duration, Timer};
+use embassy_time::{Duration, Timer, with_timeout};
 
 pub struct Expected {
     pub down_kbps: usize,

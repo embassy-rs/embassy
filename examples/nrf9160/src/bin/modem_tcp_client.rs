@@ -11,11 +11,11 @@ use defmt::{info, unwrap, warn};
 use embassy_executor::Spawner;
 use embassy_net::{Ipv4Cidr, Stack, StackResources};
 use embassy_net_nrf91::context::Status;
-use embassy_net_nrf91::{context, Runner, State, TraceBuffer, TraceReader};
+use embassy_net_nrf91::{Runner, State, TraceBuffer, TraceReader, context};
 use embassy_nrf::buffered_uarte::{self, BufferedUarteTx};
 use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive};
 use embassy_nrf::uarte::Baudrate;
-use embassy_nrf::{bind_interrupts, interrupt, peripherals, uarte, Peri};
+use embassy_nrf::{Peri, bind_interrupts, interrupt, peripherals, uarte};
 use embassy_time::{Duration, Timer};
 use embedded_io_async::Write;
 use heapless::Vec;
@@ -32,7 +32,7 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::task]
-async fn trace_task(mut uart: BufferedUarteTx<'static, peripherals::SERIAL0>, reader: TraceReader<'static>) -> ! {
+async fn trace_task(mut uart: BufferedUarteTx<'static>, reader: TraceReader<'static>) -> ! {
     let mut rx = [0u8; 1024];
     loop {
         let n = reader.read(&mut rx[..]).await;
@@ -101,7 +101,7 @@ async fn blink_task(pin: Peri<'static, AnyPin>) {
     }
 }
 
-extern "C" {
+unsafe extern "C" {
     static __start_ipc: u8;
     static __end_ipc: u8;
 }

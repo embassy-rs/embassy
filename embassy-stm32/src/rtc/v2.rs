@@ -11,11 +11,11 @@ impl super::Rtc {
     pub(super) fn configure(&mut self, async_psc: u8, sync_psc: u16) {
         self.write(true, |rtc| {
             rtc.cr().modify(|w| {
-                #[cfg(not(rtc_v2f2))]
+                #[cfg(not(rtc_v2_f2))]
                 w.set_bypshad(true);
-                #[cfg(rtc_v2f2)]
+                #[cfg(rtc_v2_f2)]
                 w.set_fmt(false);
-                #[cfg(not(rtc_v2f2))]
+                #[cfg(not(rtc_v2_f2))]
                 w.set_fmt(stm32_metapac::rtc::vals::Fmt::TWENTY_FOUR_HOUR);
                 w.set_osel(Osel::DISABLED);
                 w.set_pol(Pol::HIGH);
@@ -36,7 +36,7 @@ impl super::Rtc {
     ///
     /// To perform a calibration when `async_prescaler` is less then 3, `sync_prescaler`
     /// has to be reduced accordingly (see RM0351 Rev 9, sec 38.3.12).
-    #[cfg(not(rtc_v2f2))]
+    #[cfg(not(rtc_v2_f2))]
     pub fn calibrate(&mut self, mut clock_drift: f32, period: super::RtcCalibrationCyclePeriod) {
         const RTC_CALR_MIN_PPM: f32 = -487.1;
         const RTC_CALR_MAX_PPM: f32 = 488.5;

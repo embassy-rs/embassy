@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use atomic_polyfill::{AtomicU16, Ordering};
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Delay, Timer};
@@ -16,7 +16,7 @@ use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel::{Binding, Interrupt as _};
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::pac::io::vals::{Inover, Outover};
-use crate::{interrupt, pac, peripherals, RegExt};
+use crate::{RegExt, interrupt, pac, peripherals};
 
 mod buffered;
 pub use buffered::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, BufferedUartTx};
@@ -863,11 +863,7 @@ impl<'d, M: Mode> Uart<'d, M> {
         if let Some(pin) = &tx {
             let funcsel = {
                 let pin_number = ((pin.gpio().as_ptr() as u32) & 0x1FF) / 8;
-                if (pin_number % 4) == 0 {
-                    2
-                } else {
-                    11
-                }
+                if (pin_number % 4) == 0 { 2 } else { 11 }
             };
             pin.gpio().ctrl().write(|w| {
                 w.set_funcsel(funcsel);
@@ -886,11 +882,7 @@ impl<'d, M: Mode> Uart<'d, M> {
         if let Some(pin) = &rx {
             let funcsel = {
                 let pin_number = ((pin.gpio().as_ptr() as u32) & 0x1FF) / 8;
-                if ((pin_number - 1) % 4) == 0 {
-                    2
-                } else {
-                    11
-                }
+                if ((pin_number - 1) % 4) == 0 { 2 } else { 11 }
             };
             pin.gpio().ctrl().write(|w| {
                 w.set_funcsel(funcsel);

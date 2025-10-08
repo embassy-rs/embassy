@@ -4,10 +4,10 @@ use core::task::Waker;
 use critical_section::CriticalSection;
 use embassy_hal_internal::interrupt::{InterruptExt, Priority};
 use embassy_sync::blocking_mutex::CriticalSectionMutex as Mutex;
-use embassy_time_driver::{time_driver_impl, Driver};
+use embassy_time_driver::{Driver, time_driver_impl};
 use embassy_time_queue_utils::Queue;
 
-use crate::pac::{interrupt, pmc, rtc, PMC, RTC, SYSCON};
+use crate::pac::{PMC, RTC, SYSCON, interrupt, pmc, rtc};
 
 struct AlarmState {
     timestamp: Cell<u64>,

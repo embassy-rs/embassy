@@ -2,21 +2,21 @@
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin as FuturePin;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::{Context, Poll};
 
-use atomic_polyfill::{AtomicU64, AtomicU8};
+use atomic_polyfill::{AtomicU8, AtomicU64};
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
-use fixed::types::extra::U8;
 use fixed::FixedU32;
+use fixed::types::extra::U8;
 use pio::{Program, SideSet, Wrap};
 
 use crate::dma::{self, Channel, Transfer, Word};
 use crate::gpio::{self, AnyPin, Drive, Level, Pull, SealedPin, SlewRate};
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::relocate::RelocatedProgram;
-use crate::{pac, peripherals, RegExt};
+use crate::{RegExt, pac, peripherals};
 
 mod instr;
 
@@ -984,11 +984,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
 
     #[cfg(feature = "_rp235x")]
     fn pin_base() -> u8 {
-        if PIO::PIO.gpiobase().read().gpiobase() {
-            16
-        } else {
-            0
-        }
+        if PIO::PIO.gpiobase().read().gpiobase() { 16 } else { 0 }
     }
 
     /// Sets pin directions. This pauses the current state machine to run `SET` commands

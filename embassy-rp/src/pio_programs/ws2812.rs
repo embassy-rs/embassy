@@ -4,12 +4,12 @@ use embassy_time::Timer;
 use fixed::types::U24F8;
 use smart_leds::{RGB8, RGBW};
 
+use crate::Peri;
 use crate::clocks::clk_sys_freq;
 use crate::dma::{AnyChannel, Channel};
 use crate::pio::{
     Common, Config, FifoJoin, Instance, LoadedProgram, PioPin, ShiftConfig, ShiftDirection, StateMachine,
 };
-use crate::Peri;
 
 const T1: u8 = 2; // start bit
 const T2: u8 = 5; // data bit

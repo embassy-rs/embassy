@@ -1,7 +1,7 @@
 [package]
 name = "embassy-embedded-hal"
 version = "0.5.0"
-edition = "2021"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Collection of utilities to use `embedded-hal` and `embedded-storage` traits with Embassy."
 repository = "https://github.com/embassy-rs/embassy"
