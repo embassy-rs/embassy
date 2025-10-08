@@ -4,7 +4,6 @@ use core::future::{poll_fn, Future};
 use core::mem;
 use core::task::{Context, Poll};
 
-use embassy_net_driver::Driver;
 use smoltcp::iface::{Interface, SocketHandle};
 use smoltcp::socket::eth;
 pub use smoltcp::socket::eth::PacketMetadata;
@@ -28,7 +27,7 @@ pub struct EthSocket<'a> {
 
 impl<'a> EthSocket<'a> {
     /// Create a new Raw Ethernet socket using the provided stack and buffers.
-    pub fn new<D: Driver>(
+    pub fn new(
         stack: Stack<'a>,
         eth_type: Option<u16>,
         rx_meta: &'a mut [PacketMetadata],
