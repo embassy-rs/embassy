@@ -117,9 +117,6 @@ async fn main(spawner: Spawner) -> ! {
 
     info!("Network task initialized");
 
-    let state: TcpClientState<1, 1024, 1024> = TcpClientState::new();
-    let client = TcpClient::new(stack, &state);
-
     let local_socket_address: SocketAddr = SocketAddrV4::new(config_v4.address.address().into(), 8001).into();
     info!("udp local address: {}", local_socket_address);
     let broadcast_socket_address: SocketAddr = SocketAddrV4::new(config_v4.address.broadcast().unwrap().into(), 8001).into();
@@ -132,11 +129,23 @@ async fn main(spawner: Spawner) -> ! {
     let tcp_address = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(192, 168, 18, 41), 8000));
 
     spawner.spawn(unwrap!(broadcast_task(stack, local_socket_address, broadcast_socket_address, udp_address, &MESSAGE)));
+    spawner.spawn(unwrap!(tcp_communication_task(stack, tcp_address, &MESSAGE)));
+
+    loop {
+        Timer::after_secs(1).await;
+    }
+}
+
+#[embassy_executor::task]
+async fn tcp_communication_task(stack: Stack<'static>, tcp_address: SocketAddr, message: &'static MessageType) -> ! {
+
+    let state: TcpClientState<1, 1024, 1024> = TcpClientState::new();
+    let client = TcpClient::new(stack, &state);
 
     loop {
         info!("connecting...");
         {
-            *(MESSAGE.lock().await) = Some(TcpState::Connecting);
+            *(message.lock().await) = Some(TcpState::Connecting);
         }
         let r = client.connect(tcp_address).await;
         if let Err(e) = r {
@@ -148,7 +157,7 @@ async fn main(spawner: Spawner) -> ! {
         let mut connection = r.unwrap();
         info!("tcp connected!");
         {
-            *(MESSAGE.lock().await) = Some(TcpState::Connected);
+            *(message.lock().await) = Some(TcpState::Connected);
         }
 
         loop {
