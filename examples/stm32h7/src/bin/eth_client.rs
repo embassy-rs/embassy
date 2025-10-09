@@ -1,12 +1,11 @@
 #![no_std]
 #![no_main]
 
-use embassy_net::udp::{PacketMetadata, UdpSocket};
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_net::StackResources;
+use embassy_net::{Stack, StackResources};
+use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::tcp::client::{TcpClient, TcpClientState};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue};
 use embassy_stm32::peripherals::ETH;
@@ -18,6 +17,16 @@ use embedded_nal_async::{TcpConnect, UnconnectedUdp};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 use embassy_net::udp::socket::UnconnectedUdpError;
+use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
+use embassy_sync::mutex::Mutex;
+
+enum TcpState {
+    Connecting,
+    Connected,
+}
+
+type MessageType = Mutex<ThreadModeRawMutex, Option<TcpState>>;
+static MESSAGE: MessageType = Mutex::new(None);
 
 bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler;
@@ -87,9 +96,9 @@ async fn main(spawner: Spawner) -> ! {
 
     let config = embassy_net::Config::dhcpv4(Default::default());
     //let config = embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
-    //    address: Ipv4Cidr::new(Ipv4Address::new(10, 42, 0, 61), 24),
+    //    address: Ipv4Cidr::new(Ipv4Address::new(192, 168, 18, 64), 24),
     //    dns_servers: Vec::new(),
-    //    gateway: Some(Ipv4Address::new(10, 42, 0, 1)),
+    //    gateway: Some(Ipv4Address::new(192, 168, 18, 1)),
     //});
 
     // Init network stack
@@ -105,6 +114,53 @@ async fn main(spawner: Spawner) -> ! {
 
     info!("Network task initialized");
 
+    let state: TcpClientState<1, 1024, 1024> = TcpClientState::new();
+    let client = TcpClient::new(stack, &state);
+
+    let local_socket_address: SocketAddr = SocketAddrV4::new(config_v4.address.address().into(), 8001).into();
+    info!("udp local address: {}", local_socket_address);
+    let broadcast_socket_address: SocketAddr = SocketAddrV4::new(config_v4.address.broadcast().unwrap().into(), 8001).into();
+    info!("udp broadcast address: {}", broadcast_socket_address);
+
+    // You need to start a server on the host machine, for example: `nc -b -l 8001`
+    let udp_address = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(192, 168, 18, 41), 8001));
+
+    // You need to start a server on the host machine, for example: `nc -l 8000`
+    let tcp_address = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(192, 168, 18, 41), 8000));
+    
+    spawner.spawn(unwrap!(broadcast_task(stack, local_socket_address, broadcast_socket_address, udp_address, &MESSAGE)));
+
+    loop {
+        info!("connecting...");
+        {
+            *(MESSAGE.lock().await) = Some(TcpState::Connecting);
+        }
+        let r = client.connect(tcp_address).await;
+        if let Err(e) = r {
+            info!("tcp connect error: {:?}", e);
+            Timer::after_secs(1).await;
+            continue;
+        }
+
+        let mut connection = r.unwrap();
+        info!("tcp connected!");
+        {
+            *(MESSAGE.lock().await) = Some(TcpState::Connected);
+        }
+
+        loop {
+            let r = connection.write_all(b"Hello\n").await;
+            if let Err(e) = r {
+                info!("tcp write error: {:?}", e);
+                break;
+            }
+            Timer::after_secs(1).await;
+        }
+    }
+}
+
+#[embassy_executor::task]
+async fn broadcast_task(stack: Stack<'static>, local_socket_address: SocketAddr, broadcast_socket_address: SocketAddr, udp_address: SocketAddr, message: &'static MessageType) -> ! {
 
     let mut rx_meta = [PacketMetadata::EMPTY; 16];
     let mut rx_buffer = [0; 4096];
@@ -114,50 +170,28 @@ async fn main(spawner: Spawner) -> ! {
     let mut socket = UdpSocket::new(stack, &mut rx_meta, &mut rx_buffer, &mut tx_meta, &mut tx_buffer);
     socket.bind(8001).unwrap();
 
-    let local_socket_address: SocketAddr = SocketAddrV4::new(config_v4.address.address().into(), 8001).into();
-    info!("udp local address: {}", local_socket_address);
-    let broadcast_socket_address: SocketAddr = SocketAddrV4::new(config_v4.address.broadcast().unwrap().into(), 8001).into();
-    info!("udp broadcast address: {}", broadcast_socket_address);
-
-    let state: TcpClientState<1, 1024, 1024> = TcpClientState::new();
-    let client = TcpClient::new(stack, &state);
-
     loop {
-        // You need to start a server on the host machine, for example: `nc -l 8000`
-        let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(192, 168, 18, 41), 8000));
+        let mut message_unlocked = message.lock().await;
+        if let Some(message_ref) = message_unlocked.as_mut() {
 
-        // You need to start a server on the host machine, for example: `nc -b -l 8001`
-        let udp_addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(192, 168, 18, 41), 8001));
-
-        info!("connecting...");
-
-        let r = socket.send(local_socket_address, broadcast_socket_address, b"Broadcast UDP\n").await;
-        if let Err(e) = r {
-            info!("udp broadcast error: {:?}", e);
-        }
-
-
-        let r = client.connect(addr).await;
-        if let Err(e) = r {
-            info!("tcp connect error: {:?}", e);
-            Timer::after_secs(1).await;
-            continue;
-        }
-        let mut connection = r.unwrap();
-        info!("tcp connected!");
-        loop {
-
-            let r = socket.send(local_socket_address, udp_addr, b"Hello UDP\n").await;
-            if let Err(e) = r {
-                info!("udp write error: {:?}", e);
+            match message_ref {
+                TcpState::Connecting => {
+                    let r = socket.send(local_socket_address, broadcast_socket_address, b"UDP: Waiting for TCP connect\n").await;
+                    if let Err(e) = r {
+                        info!("udp broadcast error: {:?}", e);
+                    }
+                }
+                TcpState::Connected => {
+                    let r = socket.send(local_socket_address, udp_address, b"UDP: TCP connection OK\n").await;
+                    if let Err(e) = r {
+                        info!("udp write error: {:?}", e);
+                    }
+                }
             }
-
-            let r = connection.write_all(b"Hello\n").await;
-            if let Err(e) = r {
-                info!("tcp write error: {:?}", e);
-                break;
-            }
-            Timer::after_secs(1).await;
         }
+        // release the mutex
+        drop(message_unlocked);
+
+        Timer::after_secs(1).await;
     }
 }
