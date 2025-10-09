@@ -12,6 +12,13 @@ pub use pac::adc::vals::{Ovsr, Ovss, Presc};
 use super::{
     Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel, blocking_delay_us,
 };
+
+#[cfg(any(adc_v3, adc_g0, adc_u0))]
+mod ringbuffered_v3;
+
+#[cfg(any(adc_v3, adc_g0, adc_u0))]
+use ringbuffered_v3::RingBufferedAdc;
+
 use crate::dma::Transfer;
 use crate::{Peri, pac, rcc};
 
@@ -557,6 +564,137 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr1().modify(|reg| {
             reg.set_cont(false);
         });
+    }
+
+    /// Configures the ADC to use a DMA ring buffer for continuous data acquisition.
+    ///
+    /// The `dma_buf` should be large enough to prevent DMA buffer overrun.
+    /// The length of the `dma_buf` should be a multiple of the ADC channel count.
+    /// For example, if 3 channels are measured, its length can be 3 * 40 = 120 measurements.
+    ///
+    /// `read` method is used to read out measurements from the DMA ring buffer, and its buffer should be exactly half of the `dma_buf` length.
+    /// It is critical to call `read` frequently to prevent DMA buffer overrun.
+    ///
+    /// [`read`]: #method.read
+    #[cfg(any(adc_v3, adc_g0, adc_u0))]
+    pub fn into_ring_buffered<'a>(
+        &mut self,
+        dma: Peri<'a, impl RxDma<T>>,
+        dma_buf: &'a mut [u16],
+        sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<T>, SampleTime)>,
+    ) -> RingBufferedAdc<'a, T> {
+        assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
+        assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
+        assert!(
+            sequence.len() <= 16,
+            "Asynchronous read sequence cannot be more than 16 in length"
+        );
+        // reset conversions and enable the adc
+        Self::cancel_conversions();
+        self.enable();
+
+        //adc side setup
+
+        // Set sequence length
+        #[cfg(not(any(adc_g0, adc_u0)))]
+        T::regs().sqr1().modify(|w| {
+            w.set_l(sequence.len() as u8 - 1);
+        });
+
+        #[cfg(adc_g0)]
+        {
+            let mut sample_times = Vec::<SampleTime, SAMPLE_TIMES_CAPACITY>::new();
+
+            T::regs().chselr().write(|chselr| {
+                T::regs().smpr().write(|smpr| {
+                    for (channel, sample_time) in sequence {
+                        chselr.set_chsel(channel.channel.into(), true);
+                        if let Some(i) = sample_times.iter().position(|&t| t == sample_time) {
+                            smpr.set_smpsel(channel.channel.into(), (i as u8).into());
+                        } else {
+                            smpr.set_sample_time(sample_times.len(), sample_time);
+                            if let Err(_) = sample_times.push(sample_time) {
+                                panic!(
+                                    "Implementation is limited to {} unique sample times among all channels.",
+                                    SAMPLE_TIMES_CAPACITY
+                                );
+                            }
+                        }
+                    }
+                })
+            });
+        }
+        #[cfg(not(adc_g0))]
+        {
+            #[cfg(adc_u0)]
+            let mut channel_mask = 0;
+
+            // Configure channels and ranks
+            for (_i, (channel, sample_time)) in sequence.enumerate() {
+                Self::configure_channel(channel, sample_time);
+
+                // Each channel is sampled according to sequence
+                #[cfg(not(any(adc_g0, adc_u0)))]
+                match _i {
+                    0..=3 => {
+                        T::regs().sqr1().modify(|w| {
+                            w.set_sq(_i, channel.channel());
+                        });
+                    }
+                    4..=8 => {
+                        T::regs().sqr2().modify(|w| {
+                            w.set_sq(_i - 4, channel.channel());
+                        });
+                    }
+                    9..=13 => {
+                        T::regs().sqr3().modify(|w| {
+                            w.set_sq(_i - 9, channel.channel());
+                        });
+                    }
+                    14..=15 => {
+                        T::regs().sqr4().modify(|w| {
+                            w.set_sq(_i - 14, channel.channel());
+                        });
+                    }
+                    _ => unreachable!(),
+                }
+
+                #[cfg(adc_u0)]
+                {
+                    channel_mask |= 1 << channel.channel();
+                }
+            }
+
+            // On G0 and U0 enabled channels are sampled from 0 to last channel.
+            // It is possible to add up to 8 sequences if CHSELRMOD = 1.
+            // However for supporting more than 8 channels alternative CHSELRMOD = 0 approach is used.
+            #[cfg(adc_u0)]
+            T::regs().chselr().modify(|reg| {
+                reg.set_chsel(channel_mask);
+            });
+        }
+        // Set continuous mode with Circular dma.
+        // Clear overrun flag before starting transfer.
+        T::regs().isr().modify(|reg| {
+            reg.set_ovr(true);
+        });
+
+        #[cfg(not(any(adc_g0, adc_u0)))]
+        T::regs().cfgr().modify(|reg| {
+            reg.set_discen(false);
+            reg.set_cont(true);
+            reg.set_dmacfg(Dmacfg::CIRCULAR);
+            reg.set_dmaen(true);
+        });
+        #[cfg(any(adc_g0, adc_u0))]
+        T::regs().cfgr1().modify(|reg| {
+            reg.set_discen(false);
+            reg.set_cont(true);
+            reg.set_dmacfg(Dmacfg::CIRCULAR);
+            reg.set_dmaen(true);
+        });
+
+        RingBufferedAdc::new(dma, dma_buf)
     }
 
     #[cfg(not(adc_g0))]
