@@ -10,6 +10,7 @@ use xarxa::socket::udp;
 pub use xarxa::socket::udp::PacketMetadata;
 use xarxa::wire::IpListenEndpoint;
 
+
 use crate::{IpAddress, IpEndpoint, Stack, TryError};
 
 /// Metadata for a sent or received UDP packet.
@@ -101,6 +102,8 @@ pub enum RecvError {
 pub struct UdpSocket<'a> {
     stack: Stack<'a>,
     handle: SocketHandle,
+
+    bind_endpoint: Option<IpListenEndpoint>,
 }
 
 impl<'a> UdpSocket<'a> {
@@ -123,7 +126,7 @@ impl<'a> UdpSocket<'a> {
             ))
         });
 
-        Self { stack, handle }
+        Self { stack, handle, bind_endpoint: None }
     }
 
     /// Bind the socket to a local endpoint.
@@ -588,3 +591,61 @@ impl core::fmt::Display for RecvError {
     }
 }
 impl core::error::Error for RecvError {}
+
+pub mod socket {
+    use core::net::SocketAddr;
+    use embedded_nal_async::UnconnectedUdp;
+    use super::*;
+
+        impl<'a> UnconnectedUdp for UdpSocket<'a> {
+        type Error = UnconnectedUdpError;
+
+        async fn send(&mut self, local: SocketAddr, remote: SocketAddr, data: &[u8]) -> Result<(), Self::Error> {
+            self.send_to(data, remote).await
+                .map_err(UnconnectedUdpError::SendError)
+        }
+
+        async fn receive_into(&mut self, buffer: &mut [u8]) -> Result<(usize, SocketAddr, SocketAddr), Self::Error> {
+            self.recv_from(buffer).await
+                .map(|(size, meta)| {
+                    // Safety: 'reciving' always has local_address, can't receive without being bound.
+                    let local_socket_address: SocketAddr = SocketAddr::new(meta.local_address.unwrap().into(), self.bind_endpoint.unwrap().port);
+                    let remote_socket_address: SocketAddr = SocketAddr::new(meta.endpoint.addr.into(), meta.endpoint.port);
+                    (size, local_socket_address, remote_socket_address)
+                })
+                .map_err(UnconnectedUdpError::RecvError)
+        }
+    }
+
+    #[derive(PartialEq, Eq, Clone, Copy, Debug)]
+    #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+    pub enum UnconnectedUdpError {
+        SendError(SendError),
+        RecvError(RecvError),
+    }
+}
+
+mod embedded_io_impls {
+    use embedded_io_async::ErrorKind;
+    use crate::udp::{RecvError, SendError};
+    use crate::udp::socket::UnconnectedUdpError;
+
+    impl embedded_io_async::Error for UnconnectedUdpError {
+        fn kind(&self) -> ErrorKind {
+            match self {
+                UnconnectedUdpError::SendError(send_error) => {
+                    match send_error {
+                        SendError::NoRoute => ErrorKind::NotFound,
+                        SendError::SocketNotBound => ErrorKind::Other,
+                        SendError::PacketTooLarge => ErrorKind::Other,
+                    }
+                }
+                UnconnectedUdpError::RecvError(receive_error) => {
+                    match receive_error {
+                        RecvError::Truncated => ErrorKind::BrokenPipe
+                    }
+                }
+            }
+        }
+    }
+}
