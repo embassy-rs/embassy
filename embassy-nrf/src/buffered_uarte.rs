@@ -849,6 +849,13 @@ impl<'a> Drop for BufferedUarteRx<'a> {
     }
 }
 
+impl core::fmt::Display for Error {
+    fn fmt(&self, _f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {}
+    }
+}
+impl core::error::Error for Error {}
+
 mod _embedded_io {
     use super::*;
 

@@ -90,6 +90,10 @@ impl<PIO: Instance, const SM: usize> Write for PioUartTx<'_, PIO, SM> {
         }
         Ok(buf.len())
     }
+
+    async fn flush(&mut self) -> Result<(), Infallible> {
+        Ok(())
+    }
 }
 
 /// This struct represents a Uart Rx program loaded into pio instruction memory.
