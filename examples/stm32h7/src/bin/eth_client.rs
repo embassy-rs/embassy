@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 
+use embassy_net::udp::{PacketMetadata, UdpSocket};
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use defmt::*;
@@ -13,9 +14,10 @@ use embassy_stm32::rng::Rng;
 use embassy_stm32::{Config, bind_interrupts, eth, peripherals, rng};
 use embassy_time::Timer;
 use embedded_io_async::Write;
-use embedded_nal_async::TcpConnect;
+use embedded_nal_async::{TcpConnect, UnconnectedUdp};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
+use embassy_net::udp::socket::UnconnectedUdpError;
 
 bind_interrupts!(struct Irqs {
     ETH => eth::InterruptHandler;
@@ -91,7 +93,7 @@ async fn main(spawner: Spawner) -> ! {
     //});
 
     // Init network stack
-    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
+    static RESOURCES: StaticCell<StackResources<4>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
 
     // Launch network task
@@ -99,29 +101,60 @@ async fn main(spawner: Spawner) -> ! {
 
     // Ensure DHCP configuration is up before trying connect
     stack.wait_config_up().await;
+    let config_v4 = unwrap!(stack.config_v4());
 
     info!("Network task initialized");
+
+
+    let mut rx_meta = [PacketMetadata::EMPTY; 16];
+    let mut rx_buffer = [0; 4096];
+    let mut tx_meta = [PacketMetadata::EMPTY; 16];
+    let mut tx_buffer = [0; 4096];
+
+    let mut socket = UdpSocket::new(stack, &mut rx_meta, &mut rx_buffer, &mut tx_meta, &mut tx_buffer);
+    socket.bind(8001).unwrap();
+
+    let local_socket_address: SocketAddr = SocketAddrV4::new(config_v4.address.address().into(), 8001).into();
+    info!("udp local address: {}", local_socket_address);
+    let broadcast_socket_address: SocketAddr = SocketAddrV4::new(config_v4.address.broadcast().unwrap().into(), 8001).into();
+    info!("udp broadcast address: {}", broadcast_socket_address);
 
     let state: TcpClientState<1, 1024, 1024> = TcpClientState::new();
     let client = TcpClient::new(stack, &state);
 
     loop {
         // You need to start a server on the host machine, for example: `nc -l 8000`
-        let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(10, 42, 0, 1), 8000));
+        let addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(192, 168, 18, 41), 8000));
+
+        // You need to start a server on the host machine, for example: `nc -b -l 8001`
+        let udp_addr = SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(192, 168, 18, 41), 8001));
 
         info!("connecting...");
+
+        let r = socket.send(local_socket_address, broadcast_socket_address, b"Broadcast UDP\n").await;
+        if let Err(e) = r {
+            info!("udp broadcast error: {:?}", e);
+        }
+
+
         let r = client.connect(addr).await;
         if let Err(e) = r {
-            info!("connect error: {:?}", e);
+            info!("tcp connect error: {:?}", e);
             Timer::after_secs(1).await;
             continue;
         }
         let mut connection = r.unwrap();
-        info!("connected!");
+        info!("tcp connected!");
         loop {
+
+            let r = socket.send(local_socket_address, udp_addr, b"Hello UDP\n").await;
+            if let Err(e) = r {
+                info!("udp write error: {:?}", e);
+            }
+
             let r = connection.write_all(b"Hello\n").await;
             if let Err(e) = r {
-                info!("write error: {:?}", e);
+                info!("tcp write error: {:?}", e);
                 break;
             }
             Timer::after_secs(1).await;
