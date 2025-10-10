@@ -16,3 +16,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix: gpio OutputOpenDrain config (#4735)
 - fix: add MSPM0C1106 to build test matrix
 - feat: add MSPM0H3216 support
+- feat: Add i2c target implementation (#4605)
