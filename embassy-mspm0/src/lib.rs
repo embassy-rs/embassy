@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(unsafe_op_in_unsafe_fn)]
 // Doc feature labels can be tested locally by running RUSTDOCFLAGS="--cfg=docsrs" cargo +nightly doc
 #![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg_hide), doc(cfg_hide(doc, docsrs)))]
 #![cfg_attr(
@@ -54,7 +55,7 @@ pub(crate) mod _generated {
 
 // Reexports
 pub(crate) use _generated::gpio_pincm;
-pub use _generated::{peripherals, Peripherals};
+pub use _generated::{Peripherals, peripherals};
 pub use embassy_hal_internal::Peri;
 #[cfg(feature = "unstable-pac")]
 pub use mspm0_metapac as pac;
@@ -111,7 +112,7 @@ macro_rules! bind_interrupts {
 
         $(
             #[allow(non_snake_case)]
-            #[no_mangle]
+            #[unsafe(no_mangle)]
             $(#[cfg($cond_irq)])?
             unsafe extern "C" fn $irq() {
                 unsafe {

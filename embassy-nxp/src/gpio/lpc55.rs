@@ -1,8 +1,8 @@
-use embassy_hal_internal::{impl_peripheral, PeripheralType};
+use embassy_hal_internal::{PeripheralType, impl_peripheral};
 
 use crate::pac::iocon::vals::{PioDigimode, PioMode};
 use crate::pac::{GPIO, IOCON, SYSCON};
-use crate::{peripherals, Peri};
+use crate::{Peri, peripherals};
 
 pub(crate) fn init() {
     // Enable clocks for GPIO, PINT, and IOCON

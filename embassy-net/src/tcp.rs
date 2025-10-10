@@ -8,7 +8,7 @@
 //! Incoming connections when no socket is listening are rejected. To accept many incoming
 //! connections, create many sockets and put them all into listening mode.
 
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::mem;
 use core::task::{Context, Poll};
 
@@ -18,8 +18,8 @@ use smoltcp::socket::tcp;
 pub use smoltcp::socket::tcp::State;
 use smoltcp::wire::{IpEndpoint, IpListenEndpoint};
 
-use crate::time::duration_to_smoltcp;
 use crate::Stack;
+use crate::time::duration_to_smoltcp;
 
 /// Error returned by TcpSocket read/write functions.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]

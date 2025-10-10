@@ -1,13 +1,13 @@
 use core::marker::PhantomData;
 use core::mem;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 
 use stm32_metapac::adc::vals::SampleTime;
 
 use crate::adc::{Adc, AdcChannel, Instance, RxDma};
 use crate::dma::{Priority, ReadableRingBuffer, TransferOptions};
 use crate::pac::adc::vals;
-use crate::{rcc, Peri};
+use crate::{Peri, rcc};
 
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct OverrunError;

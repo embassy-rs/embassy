@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = "2024"
 name = "stm32-bootloader-example"
 version = "0.1.0"
 description = "Example bootloader for STM32 chips"

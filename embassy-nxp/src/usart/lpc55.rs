@@ -4,16 +4,16 @@ use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use embedded_io::{self, ErrorKind};
 
 use crate::dma::{AnyChannel, Channel};
-use crate::gpio::{match_iocon, AnyPin, Bank, SealedPin};
-use crate::interrupt::typelevel::{Binding, Interrupt as _};
+use crate::gpio::{AnyPin, Bank, SealedPin, match_iocon};
 use crate::interrupt::Interrupt;
+use crate::interrupt::typelevel::{Binding, Interrupt as _};
 use crate::pac::flexcomm::Flexcomm as FlexcommReg;
 use crate::pac::iocon::vals::PioFunc;
 use crate::pac::usart::Usart as UsartReg;

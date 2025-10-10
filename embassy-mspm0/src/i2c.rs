@@ -10,13 +10,13 @@ use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use mspm0_metapac::i2c;
 
+use crate::Peri;
 use crate::gpio::{AnyPin, PfType, Pull, SealedPin};
 use crate::interrupt::typelevel::Binding;
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
-use crate::pac::i2c::{vals, I2c as Regs};
+use crate::pac::i2c::{I2c as Regs, vals};
 use crate::pac::{self};
-use crate::Peri;
 
 /// The clock source for the I2C.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -206,8 +206,8 @@ impl Config {
     }
 
     #[cfg(any(
-        mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x, mspm0l110x, mspm0l122x, mspm0l130x,
-        mspm0l134x, mspm0l222x
+        mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x, mspm0h321x, mspm0l110x, mspm0l122x,
+        mspm0l130x, mspm0l134x, mspm0l222x
     ))]
     fn calculate_clock_source(&self) -> u32 {
         // Assume that BusClk has default value.
