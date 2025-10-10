@@ -69,7 +69,10 @@ impl Default for Config {
         Self {
             fifo_threshold: FIFOThresholdLevel::_16Bytes, // 32 bytes FIFO, half capacity
             memory_type: MemoryType::Micron,
-            device_size: MemorySize::Other(0),
+            // We set the default is the maximum size of the memory
+            // This value limits the possible read length using indirect read mode
+            // To prevent a gotcha we choose to use a high value
+            device_size: MemorySize::Other(31),
             chip_select_high_time: ChipSelectHighTime::_5Cycle,
             free_running_clock: false,
             clock_mode: false,
