@@ -201,7 +201,7 @@ impl Config {
     }
 
     #[cfg(any(mspm0c110x, mspm0c1105_c1106))]
-    fn calculate_clock_source(&self) -> u32 {
+    pub(crate) fn calculate_clock_source(&self) -> u32 {
         // Assume that BusClk has default value.
         // TODO: calculate BusClk more precisely.
         match self.clock_source {
