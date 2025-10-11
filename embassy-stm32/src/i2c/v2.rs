@@ -963,7 +963,7 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
         self.info.regs.oar2().write(|reg| {
             reg.set_oa2en(false);
             reg.set_oa2msk(oa2.mask.into());
-            reg.set_oa2(oa2.addr << 1);
+            reg.set_oa2(oa2.addr);
             reg.set_oa2en(true);
         });
     }
