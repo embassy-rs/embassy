@@ -1,3 +1,6 @@
+#[cfg(all(feature = "low-power", stm32wlex))]
+use core::mem::MaybeUninit;
+
 #[cfg(any(stm32l0, stm32l1))]
 pub use crate::pac::pwr::vals::Vos as VoltageScale;
 use crate::pac::rcc::regs::Cfgr;
@@ -10,6 +13,42 @@ use crate::time::Hertz;
 
 /// HSI speed
 pub const HSI_FREQ: Hertz = Hertz(16_000_000);
+
+/// Saved RCC Config
+///
+/// Used when exiting STOP2 to re-enable clocks to their last configured state
+/// for chips that need it.
+#[cfg(all(feature = "low-power", stm32wlex))]
+static mut RESUME_RCC_CONFIG: MaybeUninit<Config> = MaybeUninit::uninit();
+
+/// Set the rcc config to be restored when exiting STOP2
+///
+/// Safety: Sets a mutable global.
+#[cfg(all(feature = "low-power", stm32wlex))]
+pub(crate) unsafe fn set_resume_config(config: Config) {
+    trace!("rcc set_resume_config()");
+    RESUME_RCC_CONFIG = MaybeUninit::new(config);
+}
+
+/// Get the rcc config to be restored when exiting STOP2
+///
+/// Safety: Reads a mutable global.
+#[cfg(all(feature = "low-power", stm32wlex))]
+pub(crate) unsafe fn get_resume_config() -> Config {
+    *(*core::ptr::addr_of_mut!(RESUME_RCC_CONFIG)).assume_init_ref()
+}
+
+#[cfg(all(feature = "low-power", stm32wlex))]
+/// Safety: should only be called from low power executable just after resuming from STOP2
+pub(crate) unsafe fn apply_resume_config() {
+    trace!("rcc apply_resume_config()");
+
+    while RCC.cfgr().read().sws() != Sysclk::MSI {}
+
+    let config = get_resume_config();
+
+    init(config);
+}
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum HseMode {
@@ -154,6 +193,10 @@ fn msi_enable(range: MSIRange) {
 }
 
 pub(crate) unsafe fn init(config: Config) {
+    // save the rcc config because if we enter stop 2 we need to re-apply it on wakeup
+    #[cfg(all(feature = "low-power", stm32wlex))]
+    set_resume_config(config);
+
     // Switch to MSI to prevent problems with PLL configuration.
     if !RCC.cr().read().msion() {
         // Turn on MSI and configure it to 4MHz.

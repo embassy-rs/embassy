@@ -180,6 +180,16 @@ impl Executor {
     }
 
     unsafe fn on_wakeup_irq(&mut self) {
+        #[cfg(stm32wlex)]
+        if crate::pac::PWR.extscr().read().c1stop2f() {
+            // when we wake from STOP2, we need to re-initialize the rcc and the time driver
+            // to restore the clocks to their last configured state
+            crate::rcc::apply_resume_config();
+            critical_section::with(|cs| crate::time_driver::init_timer(cs));
+            // reset the refcounts for STOP2 and STOP1 (initializing the time driver will increment one of them for the timer)
+            crate::rcc::REFCOUNT_STOP2 = 0;
+            crate::rcc::REFCOUNT_STOP1 = 0;
+        }
         self.time_driver.resume_time();
         trace!("low power: resume");
     }
@@ -275,19 +285,17 @@ impl Executor {
         loop {
             unsafe {
                 executor.inner.poll();
-                trace!("low power: calling configure_pwr");
                 self.configure_pwr();
-                trace!("low power: after configure_pwr");
-
                 asm!("wfe");
-
-                trace!("low power: awake from 'wfe'");
                 #[cfg(stm32wlex)]
                 {
                     let es = crate::pac::PWR.extscr().read();
-                    trace!("low power: C1SBF: {}", es.c1sbf());
-                    trace!("low power: C1STOPF: {}", es.c1stopf());
-                    trace!("low power: C1STOP2F: {}", es.c1stop2f());
+                    match (es.c1stopf(), es.c1stop2f()) {
+                        (true, false) => trace!("low power: wake from STOP1"),
+                        (false, true) => trace!("low power: wake from STOP2"),
+                        (true, true) => trace!("low power: wake from STOP1 and STOP2 ???"),
+                        (false, false) => trace!("low power: stop mode not entered"),
+                    };
                 }
             };
         }
