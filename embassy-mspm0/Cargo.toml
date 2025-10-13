@@ -15,17 +15,19 @@ publish = false
 [package.metadata.embassy]
 build = [
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0c1104dgs20", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0c1106rgz", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g1107ycj", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g1505pt", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g1519rhb", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g3105rhb", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g3507pm", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g3519pz", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0h3216pt", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1306rhb", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l2228pn", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1345dgs28", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1106dgs28", "time-driver-any"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1228pm", "time-driver-any"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g1107ycj", "time-driver-any"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g3105rhb", "time-driver-any"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g1505pt", "time-driver-any"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g1519rhb", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1228pt", "time-driver-any"]},
 ]
 
 [package.metadata.embassy_docs]
@@ -37,6 +39,7 @@ flavors = [
     { regex_feature = "mspm0c.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "mspm0l.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "mspm0g.*", target = "thumbv6m-none-eabi" },
+    { regex_feature = "mspm0h.*", target = "thumbv6m-none-eabi" },
 ]
 
 [package.metadata.docs.rs]
@@ -69,7 +72,7 @@ cortex-m = "0.7.6"
 critical-section = "1.2.0"
 
 # mspm0-metapac = { version = "" }
-mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-d7bf3d01ac0780e716a45b0474234d39443dc5cf" }
+mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-e7de4103a0713772695ffcad52c3c2f07414dc29" }
 
 [build-dependencies]
 proc-macro2 = "1.0.94"
@@ -77,7 +80,7 @@ quote = "1.0.40"
 cfg_aliases = "0.2.1"
 
 # mspm0-metapac = { version = "", default-features = false, features = ["metadata"] }
-mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-d7bf3d01ac0780e716a45b0474234d39443dc5cf", default-features = false, features = ["metadata"] }
+mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-e7de4103a0713772695ffcad52c3c2f07414dc29", default-features = false, features = ["metadata"] }
 
 [features]
 default = ["rt"]
@@ -243,6 +246,7 @@ mspm0g3519pn = ["mspm0-metapac/mspm0g3519pn"]
 mspm0g3519pz = ["mspm0-metapac/mspm0g3519pz"]
 mspm0g3519rgz = ["mspm0-metapac/mspm0g3519rgz"]
 mspm0g3519rhb = ["mspm0-metapac/mspm0g3519rhb"]
+mspm0h3216pt = ["mspm0-metapac/mspm0h3216pt"]
 mspm0l1105dgs20 = ["mspm0-metapac/mspm0l1105dgs20"]
 mspm0l1105dgs28 = ["mspm0-metapac/mspm0l1105dgs28"]
 mspm0l1105dyy = ["mspm0-metapac/mspm0l1105dyy"]
