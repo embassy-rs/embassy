@@ -243,9 +243,6 @@ impl RtcDriver {
         let timer_freq = T::frequency();
 
         r.cr1().modify(|w| w.set_cen(false));
-        #[cfg(all(feature = "low-power", stm32wlex))]
-        r.cnt().write(|w| w.set_cnt(self.saved_count.load(Ordering::SeqCst)));
-        #[cfg(not(any(feature = "low-power", stm32wlex)))]
         r.cnt().write(|w| w.set_cnt(0));
 
         let psc = timer_freq.0 / TICK_HZ as u32 - 1;
@@ -270,6 +267,9 @@ impl RtcDriver {
             w.set_uie(true);
             w.set_ccie(0, true);
         });
+
+        #[cfg(all(feature = "low-power", stm32wlex))]
+        r.cnt().write(|w| w.set_cnt(self.saved_count.load(Ordering::SeqCst)));
 
         <T as GeneralInstance1Channel>::CaptureCompareInterrupt::unpend();
         unsafe { <T as GeneralInstance1Channel>::CaptureCompareInterrupt::enable() };
@@ -449,7 +449,8 @@ impl RtcDriver {
                     .start_wakeup_alarm(time_until_next_alarm, cs);
 
                 regs_gp16().cr1().modify(|w| w.set_cen(false));
-                #[cfg(all(feature = "low-power", stm32wlex))]
+                // save the count for the timer as its lost in STOP2 for stm32wlex
+                #[cfg(stm32wlex)]
                 self.saved_count
                     .store(regs_gp16().cnt().read().cnt() as u16, Ordering::SeqCst);
                 Ok(())
