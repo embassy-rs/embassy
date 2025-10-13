@@ -11,7 +11,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embedded_io::{self, ErrorKind};
 
 use crate::dma::{AnyChannel, Channel};
-use crate::gpio::{AnyPin, Bank, SealedPin, match_iocon};
+use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::Interrupt;
 use crate::interrupt::typelevel::{Binding, Interrupt as _};
 use crate::pac::flexcomm::Flexcomm as FlexcommReg;
@@ -555,29 +555,25 @@ impl<'d, M: Mode> Usart<'d, M> {
 
     fn pin_config<T: Instance>(tx: Option<Peri<'_, AnyPin>>, rx: Option<Peri<'_, AnyPin>>) {
         if let Some(tx_pin) = tx {
-            match_iocon!(register, tx_pin.pin_bank(), tx_pin.pin_number(), {
-                register.modify(|w| {
-                    w.set_func(T::tx_pin_func());
-                    w.set_mode(iocon::vals::PioMode::INACTIVE);
-                    w.set_slew(iocon::vals::PioSlew::STANDARD);
-                    w.set_invert(false);
-                    w.set_digimode(iocon::vals::PioDigimode::DIGITAL);
-                    w.set_od(iocon::vals::PioOd::NORMAL);
-                });
-            })
+            tx_pin.pio().modify(|w| {
+                w.set_func(T::tx_pin_func());
+                w.set_mode(iocon::vals::PioMode::INACTIVE);
+                w.set_slew(iocon::vals::PioSlew::STANDARD);
+                w.set_invert(false);
+                w.set_digimode(iocon::vals::PioDigimode::DIGITAL);
+                w.set_od(iocon::vals::PioOd::NORMAL);
+            });
         }
 
         if let Some(rx_pin) = rx {
-            match_iocon!(register, rx_pin.pin_bank(), rx_pin.pin_number(), {
-                register.modify(|w| {
-                    w.set_func(T::rx_pin_func());
-                    w.set_mode(iocon::vals::PioMode::INACTIVE);
-                    w.set_slew(iocon::vals::PioSlew::STANDARD);
-                    w.set_invert(false);
-                    w.set_digimode(iocon::vals::PioDigimode::DIGITAL);
-                    w.set_od(iocon::vals::PioOd::NORMAL);
-                });
-            })
+            rx_pin.pio().modify(|w| {
+                w.set_func(T::rx_pin_func());
+                w.set_mode(iocon::vals::PioMode::INACTIVE);
+                w.set_slew(iocon::vals::PioSlew::STANDARD);
+                w.set_invert(false);
+                w.set_digimode(iocon::vals::PioDigimode::DIGITAL);
+                w.set_od(iocon::vals::PioOd::NORMAL);
+            });
         };
     }
 
