@@ -161,10 +161,19 @@ impl<'d> Twis<'d> {
         sda.conf().write(|w| {
             w.set_dir(gpiovals::Dir::INPUT);
             w.set_input(gpiovals::Input::CONNECT);
+            #[cfg(not(feature = "_nrf54l"))]
             w.set_drive(match config.sda_high_drive {
                 true => gpiovals::Drive::H0D1,
                 false => gpiovals::Drive::S0D1,
             });
+            #[cfg(feature = "_nrf54l")]
+            {
+                w.set_drive0(match config.sda_high_drive {
+                    true => gpiovals::Drive::H,
+                    false => gpiovals::Drive::S,
+                });
+                w.set_drive1(gpiovals::Drive::D);
+            }
             if config.sda_pullup {
                 w.set_pull(gpiovals::Pull::PULLUP);
             }
@@ -172,10 +181,19 @@ impl<'d> Twis<'d> {
         scl.conf().write(|w| {
             w.set_dir(gpiovals::Dir::INPUT);
             w.set_input(gpiovals::Input::CONNECT);
+            #[cfg(not(feature = "_nrf54l"))]
             w.set_drive(match config.scl_high_drive {
                 true => gpiovals::Drive::H0D1,
                 false => gpiovals::Drive::S0D1,
             });
+            #[cfg(feature = "_nrf54l")]
+            {
+                w.set_drive0(match config.scl_high_drive {
+                    true => gpiovals::Drive::H,
+                    false => gpiovals::Drive::S,
+                });
+                w.set_drive1(gpiovals::Drive::D);
+            }
             if config.sda_pullup {
                 w.set_pull(gpiovals::Pull::PULLUP);
             }
@@ -228,8 +246,8 @@ impl<'d> Twis<'d> {
         // We're giving the register a pointer to the stack. Since we're
         // waiting for the I2C transaction to end before this stack pointer
         // becomes invalid, there's nothing wrong here.
-        r.txd().ptr().write_value(buffer.as_ptr() as u32);
-        r.txd().maxcnt().write(|w|
+        r.dma().tx().ptr().write_value(buffer.as_ptr() as u32);
+        r.dma().tx().maxcnt().write(|w|
             // We're giving it the length of the buffer, so no danger of
             // accessing invalid memory. We have verified that the length of the
             // buffer fits in an `u8`, so the cast to `u8` is also fine.
@@ -255,8 +273,8 @@ impl<'d> Twis<'d> {
         // We're giving the register a pointer to the stack. Since we're
         // waiting for the I2C transaction to end before this stack pointer
         // becomes invalid, there's nothing wrong here.
-        r.rxd().ptr().write_value(buffer.as_mut_ptr() as u32);
-        r.rxd().maxcnt().write(|w|
+        r.dma().rx().ptr().write_value(buffer.as_mut_ptr() as u32);
+        r.dma().rx().maxcnt().write(|w|
             // We're giving it the length of the buffer, so no danger of
             // accessing invalid memory. We have verified that the length of the
             // buffer fits in an `u8`, so the cast to the type of maxcnt
@@ -330,13 +348,13 @@ impl<'d> Twis<'d> {
                 return match status {
                     Status::Read => Ok(Command::Read),
                     Status::Write => {
-                        let n = r.rxd().amount().read().0 as usize;
+                        let n = r.dma().rx().amount().read().0 as usize;
                         Ok(Command::Write(n))
                     }
                 };
             } else if r.events_read().read() != 0 {
                 r.events_read().write_value(0);
-                let n = r.rxd().amount().read().0 as usize;
+                let n = r.dma().rx().amount().read().0 as usize;
                 return Ok(Command::WriteRead(n));
             }
         }
@@ -360,7 +378,7 @@ impl<'d> Twis<'d> {
                 }
             } else if r.events_stopped().read() != 0 {
                 r.events_stopped().write_value(0);
-                let n = r.txd().amount().read().0 as usize;
+                let n = r.dma().tx().amount().read().0 as usize;
                 return Ok(n);
             }
         }
@@ -386,7 +404,7 @@ impl<'d> Twis<'d> {
                 }
             } else if r.events_stopped().read() != 0 {
                 r.events_stopped().write_value(0);
-                let n = r.txd().amount().read().0 as usize;
+                let n = r.dma().tx().amount().read().0 as usize;
                 return Ok(n);
             } else if Instant::now() > deadline {
                 r.tasks_stop().write_value(1);
@@ -442,13 +460,13 @@ impl<'d> Twis<'d> {
                 return match status {
                     Status::Read => Ok(Command::Read),
                     Status::Write => {
-                        let n = r.rxd().amount().read().0 as usize;
+                        let n = r.dma().rx().amount().read().0 as usize;
                         Ok(Command::Write(n))
                     }
                 };
             } else if r.events_read().read() != 0 {
                 r.events_read().write_value(0);
-                let n = r.rxd().amount().read().0 as usize;
+                let n = r.dma().rx().amount().read().0 as usize;
                 return Ok(Command::WriteRead(n));
             } else if Instant::now() > deadline {
                 r.tasks_stop().write_value(1);
@@ -478,7 +496,7 @@ impl<'d> Twis<'d> {
                 }
             } else if r.events_stopped().read() != 0 {
                 r.events_stopped().write_value(0);
-                let n = r.txd().amount().read().0 as usize;
+                let n = r.dma().tx().amount().read().0 as usize;
                 return Poll::Ready(Ok(n));
             }
 
@@ -529,13 +547,13 @@ impl<'d> Twis<'d> {
                 return match status {
                     Status::Read => Poll::Ready(Ok(Command::Read)),
                     Status::Write => {
-                        let n = r.rxd().amount().read().0 as usize;
+                        let n = r.dma().rx().amount().read().0 as usize;
                         Poll::Ready(Ok(Command::Write(n)))
                     }
                 };
             } else if r.events_read().read() != 0 {
                 r.events_read().write_value(0);
-                let n = r.rxd().amount().read().0 as usize;
+                let n = r.dma().rx().amount().read().0 as usize;
                 return Poll::Ready(Ok(Command::WriteRead(n)));
             }
             Poll::Pending

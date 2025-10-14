@@ -585,7 +585,6 @@ impl SealedPin for AnyPin {
 // ====================
 
 #[cfg(not(feature = "_nrf51"))]
-#[cfg_attr(feature = "_nrf54l", allow(unused))] // TODO
 pub(crate) trait PselBits {
     fn psel_bits(&self) -> pac::shared::regs::Psel;
 }
@@ -602,7 +601,6 @@ impl<'a, P: Pin> PselBits for Option<Peri<'a, P>> {
 }
 
 #[cfg(not(feature = "_nrf51"))]
-#[cfg_attr(feature = "_nrf54l", allow(unused))] // TODO
 pub(crate) const DISCONNECTED: Psel = Psel(1 << 31);
 
 #[cfg(not(feature = "_nrf51"))]

@@ -113,20 +113,20 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let r = T::regs();
         let s = T::state();
 
-        let endrx = r.events_endrx().read();
+        let endrx = r.events_dma().rx().end().read();
         let error = r.events_error().read();
         if endrx != 0 || error != 0 {
             s.rx_waker.wake();
             if endrx != 0 {
-                r.intenclr().write(|w| w.set_endrx(true));
+                r.intenclr().write(|w| w.set_dmarxend(true));
             }
             if error != 0 {
                 r.intenclr().write(|w| w.set_error(true));
             }
         }
-        if r.events_endtx().read() != 0 {
+        if r.events_dma().tx().end().read() != 0 {
             s.tx_waker.wake();
-            r.intenclr().write(|w| w.set_endtx(true));
+            r.intenclr().write(|w| w.set_dmatxend(true));
         }
     }
 }
@@ -257,7 +257,7 @@ impl<'d> Uarte<'d> {
     /// Return the endtx event for use with PPI
     pub fn event_endtx(&self) -> Event<'_> {
         let r = self.tx.r;
-        Event::from_reg(r.events_endtx())
+        Event::from_reg(r.events_dma().tx().end())
     }
 
     /// Read bytes until the buffer is filled.
@@ -296,7 +296,13 @@ pub(crate) fn configure_tx_pins(r: pac::uarte::Uarte, txd: Peri<'_, AnyPin>, cts
     txd.conf().write(|w| {
         w.set_dir(gpiovals::Dir::OUTPUT);
         w.set_input(gpiovals::Input::DISCONNECT);
+        #[cfg(not(feature = "_nrf54l"))]
         w.set_drive(gpiovals::Drive::H0H1);
+        #[cfg(feature = "_nrf54l")]
+        {
+            w.set_drive0(gpiovals::Drive::H);
+            w.set_drive1(gpiovals::Drive::H);
+        }
     });
     r.psel().txd().write_value(txd.psel_bits());
 
@@ -304,7 +310,13 @@ pub(crate) fn configure_tx_pins(r: pac::uarte::Uarte, txd: Peri<'_, AnyPin>, cts
         pin.conf().write(|w| {
             w.set_dir(gpiovals::Dir::INPUT);
             w.set_input(gpiovals::Input::CONNECT);
+            #[cfg(not(feature = "_nrf54l"))]
             w.set_drive(gpiovals::Drive::H0H1);
+            #[cfg(feature = "_nrf54l")]
+            {
+                w.set_drive0(gpiovals::Drive::H);
+                w.set_drive1(gpiovals::Drive::H);
+            }
         });
     }
     r.psel().cts().write_value(cts.psel_bits());
@@ -314,7 +326,13 @@ pub(crate) fn configure_rx_pins(r: pac::uarte::Uarte, rxd: Peri<'_, AnyPin>, rts
     rxd.conf().write(|w| {
         w.set_dir(gpiovals::Dir::INPUT);
         w.set_input(gpiovals::Input::CONNECT);
+        #[cfg(not(feature = "_nrf54l"))]
         w.set_drive(gpiovals::Drive::H0H1);
+        #[cfg(feature = "_nrf54l")]
+        {
+            w.set_drive0(gpiovals::Drive::H);
+            w.set_drive1(gpiovals::Drive::H);
+        }
     });
     r.psel().rxd().write_value(rxd.psel_bits());
 
@@ -323,7 +341,13 @@ pub(crate) fn configure_rx_pins(r: pac::uarte::Uarte, rxd: Peri<'_, AnyPin>, rts
         pin.conf().write(|w| {
             w.set_dir(gpiovals::Dir::OUTPUT);
             w.set_input(gpiovals::Input::DISCONNECT);
+            #[cfg(not(feature = "_nrf54l"))]
             w.set_drive(gpiovals::Drive::H0H1);
+            #[cfg(feature = "_nrf54l")]
+            {
+                w.set_drive0(gpiovals::Drive::H);
+                w.set_drive1(gpiovals::Drive::H);
+            }
         });
     }
     r.psel().rts().write_value(rts.psel_bits());
@@ -333,6 +357,10 @@ pub(crate) fn configure(r: pac::uarte::Uarte, config: Config, hardware_flow_cont
     r.config().write(|w| {
         w.set_hwfc(hardware_flow_control);
         w.set_parity(config.parity);
+        #[cfg(feature = "_nrf54l")]
+        w.set_framesize(vals::Framesize::_8BIT);
+        #[cfg(feature = "_nrf54l")]
+        w.set_frametimeout(true);
     });
     r.baudrate().write(|w| w.set_baudrate(config.baudrate));
 
@@ -341,8 +369,8 @@ pub(crate) fn configure(r: pac::uarte::Uarte, config: Config, hardware_flow_cont
 
     // Reset rxstarted, txstarted. These are used by drop to know whether a transfer was
     // stopped midway or not.
-    r.events_rxstarted().write_value(0);
-    r.events_txstarted().write_value(0);
+    r.events_dma().rx().ready().write_value(0);
+    r.events_dma().tx().ready().write_value(0);
 
     // reset all pins
     r.psel().txd().write_value(DISCONNECTED);
@@ -434,29 +462,29 @@ impl<'d> UarteTx<'d> {
         let drop = OnDrop::new(move || {
             trace!("write drop: stopping");
 
-            r.intenclr().write(|w| w.set_endtx(true));
+            r.intenclr().write(|w| w.set_dmatxend(true));
             r.events_txstopped().write_value(0);
-            r.tasks_stoptx().write_value(1);
+            r.tasks_dma().tx().stop().write_value(1);
 
             // TX is stopped almost instantly, spinning is fine.
-            while r.events_endtx().read() == 0 {}
+            while r.events_dma().tx().end().read() == 0 {}
             trace!("write drop: stopped");
         });
 
-        r.txd().ptr().write_value(ptr as u32);
-        r.txd().maxcnt().write(|w| w.set_maxcnt(len as _));
+        r.dma().tx().ptr().write_value(ptr as u32);
+        r.dma().tx().maxcnt().write(|w| w.set_maxcnt(len as _));
 
-        r.events_endtx().write_value(0);
-        r.intenset().write(|w| w.set_endtx(true));
+        r.events_dma().tx().end().write_value(0);
+        r.intenset().write(|w| w.set_dmatxend(true));
 
         compiler_fence(Ordering::SeqCst);
 
         trace!("starttx");
-        r.tasks_starttx().write_value(1);
+        r.tasks_dma().tx().start().write_value(1);
 
         poll_fn(|cx| {
             s.tx_waker.register(cx.waker());
-            if r.events_endtx().read() != 0 {
+            if r.events_dma().tx().end().read() != 0 {
                 return Poll::Ready(());
             }
             Poll::Pending
@@ -464,7 +492,7 @@ impl<'d> UarteTx<'d> {
         .await;
 
         compiler_fence(Ordering::SeqCst);
-        r.events_txstarted().write_value(0);
+        r.events_dma().tx().ready().write_value(0);
         drop.defuse();
 
         Ok(())
@@ -500,21 +528,21 @@ impl<'d> UarteTx<'d> {
 
         let r = self.r;
 
-        r.txd().ptr().write_value(ptr as u32);
-        r.txd().maxcnt().write(|w| w.set_maxcnt(len as _));
+        r.dma().tx().ptr().write_value(ptr as u32);
+        r.dma().tx().maxcnt().write(|w| w.set_maxcnt(len as _));
 
-        r.events_endtx().write_value(0);
-        r.intenclr().write(|w| w.set_endtx(true));
+        r.events_dma().tx().end().write_value(0);
+        r.intenclr().write(|w| w.set_dmatxend(true));
 
         compiler_fence(Ordering::SeqCst);
 
         trace!("starttx");
-        r.tasks_starttx().write_value(1);
+        r.tasks_dma().tx().start().write_value(1);
 
-        while r.events_endtx().read() == 0 {}
+        while r.events_dma().tx().end().read() == 0 {}
 
         compiler_fence(Ordering::SeqCst);
-        r.events_txstarted().write_value(0);
+        r.events_dma().tx().ready().write_value(0);
 
         Ok(())
     }
@@ -526,7 +554,7 @@ impl<'a> Drop for UarteTx<'a> {
 
         let r = self.r;
 
-        let did_stoptx = r.events_txstarted().read() != 0;
+        let did_stoptx = r.events_dma().tx().ready().read() != 0;
         trace!("did_stoptx {}", did_stoptx);
 
         // Wait for txstopped, if needed.
@@ -629,7 +657,7 @@ impl<'d> UarteRx<'d> {
         let mut ppi_ch2 = Ppi::new_one_to_one(
             ppi_ch2.into(),
             timer.cc(0).event_compare(),
-            Task::from_reg(r.tasks_stoprx()),
+            Task::from_reg(r.tasks_dma().rx().stop()),
         );
         ppi_ch2.enable();
 
@@ -664,41 +692,41 @@ impl<'d> UarteRx<'d> {
             trace!("read drop: stopping");
 
             r.intenclr().write(|w| {
-                w.set_endrx(true);
+                w.set_dmarxend(true);
                 w.set_error(true);
             });
             r.events_rxto().write_value(0);
             r.events_error().write_value(0);
-            r.tasks_stoprx().write_value(1);
+            r.tasks_dma().rx().stop().write_value(1);
 
-            while r.events_endrx().read() == 0 {}
+            while r.events_dma().rx().end().read() == 0 {}
 
             trace!("read drop: stopped");
         });
 
-        r.rxd().ptr().write_value(ptr as u32);
-        r.rxd().maxcnt().write(|w| w.set_maxcnt(len as _));
+        r.dma().rx().ptr().write_value(ptr as u32);
+        r.dma().rx().maxcnt().write(|w| w.set_maxcnt(len as _));
 
-        r.events_endrx().write_value(0);
+        r.events_dma().rx().end().write_value(0);
         r.events_error().write_value(0);
         r.intenset().write(|w| {
-            w.set_endrx(true);
+            w.set_dmarxend(true);
             w.set_error(true);
         });
 
         compiler_fence(Ordering::SeqCst);
 
         trace!("startrx");
-        r.tasks_startrx().write_value(1);
+        r.tasks_dma().rx().start().write_value(1);
 
         let result = poll_fn(|cx| {
             s.rx_waker.register(cx.waker());
 
             if let Err(e) = self.check_and_clear_errors() {
-                r.tasks_stoprx().write_value(1);
+                r.tasks_dma().rx().stop().write_value(1);
                 return Poll::Ready(Err(e));
             }
-            if r.events_endrx().read() != 0 {
+            if r.events_dma().rx().end().read() != 0 {
                 return Poll::Ready(Ok(()));
             }
             Poll::Pending
@@ -706,7 +734,7 @@ impl<'d> UarteRx<'d> {
         .await;
 
         compiler_fence(Ordering::SeqCst);
-        r.events_rxstarted().write_value(0);
+        r.events_dma().rx().ready().write_value(0);
         drop.defuse();
 
         result
@@ -726,25 +754,25 @@ impl<'d> UarteRx<'d> {
 
         let r = self.r;
 
-        r.rxd().ptr().write_value(ptr as u32);
-        r.rxd().maxcnt().write(|w| w.set_maxcnt(len as _));
+        r.dma().rx().ptr().write_value(ptr as u32);
+        r.dma().rx().maxcnt().write(|w| w.set_maxcnt(len as _));
 
-        r.events_endrx().write_value(0);
+        r.events_dma().rx().end().write_value(0);
         r.events_error().write_value(0);
         r.intenclr().write(|w| {
-            w.set_endrx(true);
+            w.set_dmarxend(true);
             w.set_error(true);
         });
 
         compiler_fence(Ordering::SeqCst);
 
         trace!("startrx");
-        r.tasks_startrx().write_value(1);
+        r.tasks_dma().rx().start().write_value(1);
 
-        while r.events_endrx().read() == 0 && r.events_error().read() == 0 {}
+        while r.events_dma().rx().end().read() == 0 && r.events_error().read() == 0 {}
 
         compiler_fence(Ordering::SeqCst);
-        r.events_rxstarted().write_value(0);
+        r.events_dma().rx().ready().write_value(0);
 
         self.check_and_clear_errors()
     }
@@ -756,7 +784,7 @@ impl<'a> Drop for UarteRx<'a> {
 
         let r = self.r;
 
-        let did_stoprx = r.events_rxstarted().read() != 0;
+        let did_stoprx = r.events_dma().rx().ready().read() != 0;
         trace!("did_stoprx {}", did_stoprx);
 
         // Wait for rxto, if needed.
@@ -816,38 +844,38 @@ impl<'d> UarteRxWithIdle<'d> {
             self.timer.stop();
 
             r.intenclr().write(|w| {
-                w.set_endrx(true);
+                w.set_dmarxend(true);
                 w.set_error(true);
             });
             r.events_rxto().write_value(0);
             r.events_error().write_value(0);
-            r.tasks_stoprx().write_value(1);
+            r.tasks_dma().rx().stop().write_value(1);
 
-            while r.events_endrx().read() == 0 {}
+            while r.events_dma().rx().end().read() == 0 {}
         });
 
-        r.rxd().ptr().write_value(ptr as u32);
-        r.rxd().maxcnt().write(|w| w.set_maxcnt(len as _));
+        r.dma().rx().ptr().write_value(ptr as u32);
+        r.dma().rx().maxcnt().write(|w| w.set_maxcnt(len as _));
 
-        r.events_endrx().write_value(0);
+        r.events_dma().rx().end().write_value(0);
         r.events_error().write_value(0);
         r.intenset().write(|w| {
-            w.set_endrx(true);
+            w.set_dmarxend(true);
             w.set_error(true);
         });
 
         compiler_fence(Ordering::SeqCst);
 
-        r.tasks_startrx().write_value(1);
+        r.tasks_dma().rx().start().write_value(1);
 
         let result = poll_fn(|cx| {
             s.rx_waker.register(cx.waker());
 
             if let Err(e) = self.rx.check_and_clear_errors() {
-                r.tasks_stoprx().write_value(1);
+                r.tasks_dma().rx().stop().write_value(1);
                 return Poll::Ready(Err(e));
             }
-            if r.events_endrx().read() != 0 {
+            if r.events_dma().rx().end().read() != 0 {
                 return Poll::Ready(Ok(()));
             }
 
@@ -856,10 +884,10 @@ impl<'d> UarteRxWithIdle<'d> {
         .await;
 
         compiler_fence(Ordering::SeqCst);
-        let n = r.rxd().amount().read().0 as usize;
+        let n = r.dma().rx().amount().read().0 as usize;
 
         self.timer.stop();
-        r.events_rxstarted().write_value(0);
+        r.events_dma().rx().ready().write_value(0);
 
         drop.defuse();
 
@@ -884,27 +912,27 @@ impl<'d> UarteRxWithIdle<'d> {
 
         self.ppi_ch1.enable();
 
-        r.rxd().ptr().write_value(ptr as u32);
-        r.rxd().maxcnt().write(|w| w.set_maxcnt(len as _));
+        r.dma().rx().ptr().write_value(ptr as u32);
+        r.dma().rx().maxcnt().write(|w| w.set_maxcnt(len as _));
 
-        r.events_endrx().write_value(0);
+        r.events_dma().rx().end().write_value(0);
         r.events_error().write_value(0);
         r.intenclr().write(|w| {
-            w.set_endrx(true);
+            w.set_dmarxend(true);
             w.set_error(true);
         });
 
         compiler_fence(Ordering::SeqCst);
 
-        r.tasks_startrx().write_value(1);
+        r.tasks_dma().rx().start().write_value(1);
 
-        while r.events_endrx().read() == 0 && r.events_error().read() == 0 {}
+        while r.events_dma().rx().end().read() == 0 && r.events_error().read() == 0 {}
 
         compiler_fence(Ordering::SeqCst);
-        let n = r.rxd().amount().read().0 as usize;
+        let n = r.dma().rx().amount().read().0 as usize;
 
         self.timer.stop();
-        r.events_rxstarted().write_value(0);
+        r.events_dma().rx().ready().write_value(0);
 
         self.rx.check_and_clear_errors().map(|_| n)
     }
@@ -927,14 +955,14 @@ pub(crate) fn apply_workaround_for_enable_anomaly(r: pac::uarte::Uarte) {
     // NB Safety: This is taken from Nordic's driver -
     // https://github.com/NordicSemiconductor/nrfx/blob/master/drivers/src/nrfx_uarte.c#L197
     if unsafe { core::ptr::read_volatile(txenable_reg) } == 1 {
-        r.tasks_stoptx().write_value(1);
+        r.tasks_dma().tx().stop().write_value(1);
     }
 
     // NB Safety: This is taken from Nordic's driver -
     // https://github.com/NordicSemiconductor/nrfx/blob/master/drivers/src/nrfx_uarte.c#L197
     if unsafe { core::ptr::read_volatile(rxenable_reg) } == 1 {
         r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
-        r.tasks_stoprx().write_value(1);
+        r.tasks_dma().rx().stop().write_value(1);
 
         let mut workaround_succeded = false;
         // The UARTE is able to receive up to four bytes after the STOPRX task has been triggered.

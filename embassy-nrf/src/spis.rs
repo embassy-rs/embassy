@@ -224,15 +224,15 @@ impl<'d> Spis<'d> {
         if tx.len() > EASY_DMA_SIZE {
             return Err(Error::TxBufferTooLong);
         }
-        r.txd().ptr().write_value(tx as *const u8 as _);
-        r.txd().maxcnt().write(|w| w.set_maxcnt(tx.len() as _));
+        r.dma().tx().ptr().write_value(tx as *const u8 as _);
+        r.dma().tx().maxcnt().write(|w| w.set_maxcnt(tx.len() as _));
 
         // Set up the DMA read.
         if rx.len() > EASY_DMA_SIZE {
             return Err(Error::RxBufferTooLong);
         }
-        r.rxd().ptr().write_value(rx as *mut u8 as _);
-        r.rxd().maxcnt().write(|w| w.set_maxcnt(rx.len() as _));
+        r.dma().rx().ptr().write_value(rx as *mut u8 as _);
+        r.dma().rx().maxcnt().write(|w| w.set_maxcnt(rx.len() as _));
 
         // Reset end event.
         r.events_end().write_value(0);
@@ -260,8 +260,8 @@ impl<'d> Spis<'d> {
         // Wait for 'end' event.
         while r.events_end().read() == 0 {}
 
-        let n_rx = r.rxd().amount().read().0 as usize;
-        let n_tx = r.txd().amount().read().0 as usize;
+        let n_rx = r.dma().rx().amount().read().0 as usize;
+        let n_tx = r.dma().tx().amount().read().0 as usize;
 
         compiler_fence(Ordering::SeqCst);
 
@@ -326,8 +326,8 @@ impl<'d> Spis<'d> {
         })
         .await;
 
-        let n_rx = r.rxd().amount().read().0 as usize;
-        let n_tx = r.txd().amount().read().0 as usize;
+        let n_rx = r.dma().rx().amount().read().0 as usize;
+        let n_tx = r.dma().tx().amount().read().0 as usize;
 
         compiler_fence(Ordering::SeqCst);
 

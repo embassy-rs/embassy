@@ -230,7 +230,7 @@ impl<'d> SequencePwm<'d> {
     /// Interacting with the sequence while it runs puts it in an unknown state
     #[inline(always)]
     pub unsafe fn task_start_seq0(&self) -> Task<'d> {
-        Task::from_reg(self.r.tasks_seqstart(0))
+        Task::from_reg(self.r.tasks_dma().seq(0).start())
     }
 
     /// Returns reference to `Seq1 Started` task endpoint for PPI.
@@ -239,7 +239,7 @@ impl<'d> SequencePwm<'d> {
     /// Interacting with the sequence while it runs puts it in an unknown state
     #[inline(always)]
     pub unsafe fn task_start_seq1(&self) -> Task<'d> {
-        Task::from_reg(self.r.tasks_seqstart(1))
+        Task::from_reg(self.r.tasks_dma().seq(1).start())
     }
 
     /// Returns reference to `NextStep` task endpoint for PPI.
@@ -441,13 +441,13 @@ impl<'d, 's> Sequencer<'d, 's> {
 
         r.seq(0).refresh().write(|w| w.0 = sequence0.config.refresh);
         r.seq(0).enddelay().write(|w| w.0 = sequence0.config.end_delay);
-        r.seq(0).ptr().write_value(sequence0.words.as_ptr() as u32);
-        r.seq(0).cnt().write(|w| w.0 = sequence0.words.len() as u32);
+        r.dma().seq(0).ptr().write_value(sequence0.words.as_ptr() as u32);
+        r.dma().seq(0).maxcnt().write(|w| w.0 = sequence0.words.len() as u32);
 
         r.seq(1).refresh().write(|w| w.0 = alt_sequence.config.refresh);
         r.seq(1).enddelay().write(|w| w.0 = alt_sequence.config.end_delay);
-        r.seq(1).ptr().write_value(alt_sequence.words.as_ptr() as u32);
-        r.seq(1).cnt().write(|w| w.0 = alt_sequence.words.len() as u32);
+        r.dma().seq(1).ptr().write_value(alt_sequence.words.as_ptr() as u32);
+        r.dma().seq(1).maxcnt().write(|w| w.0 = alt_sequence.words.len() as u32);
 
         r.enable().write(|w| w.set_enable(true));
 
@@ -463,11 +463,11 @@ impl<'d, 's> Sequencer<'d, 's> {
             // to play infinitely, repeat the sequence one time, then have loops done self trigger seq0 again
             SequenceMode::Infinite => {
                 r.loop_().write(|w| w.set_cnt(vals::LoopCnt::from_bits(1)));
-                r.shorts().write(|w| w.set_loopsdone_seqstart0(true));
+                r.shorts().write(|w| w.set_loopsdone_dma_seq0_start(true));
             }
         }
 
-        r.tasks_seqstart(seqstart_index).write_value(1);
+        r.tasks_dma().seq(seqstart_index).start().write_value(1);
 
         Ok(())
     }
@@ -627,7 +627,15 @@ impl<'d> SimplePwm<'d> {
                 pin.conf().write(|w| {
                     w.set_dir(gpiovals::Dir::OUTPUT);
                     w.set_input(gpiovals::Input::DISCONNECT);
+
+                    #[cfg(not(feature = "_nrf54l"))]
                     w.set_drive(gpiovals::Drive::S0S1);
+
+                    #[cfg(feature = "_nrf54l")]
+                    {
+                        w.set_drive0(gpiovals::Drive::S);
+                        w.set_drive1(gpiovals::Drive::S);
+                    }
                 });
             }
             r.psel().out(i).write_value(ch.psel_bits());
@@ -649,8 +657,8 @@ impl<'d> SimplePwm<'d> {
         // Enable
         r.enable().write(|w| w.set_enable(true));
 
-        r.seq(0).ptr().write_value((pwm.duty).as_ptr() as u32);
-        r.seq(0).cnt().write(|w| w.0 = 4);
+        r.dma().seq(0).ptr().write_value((pwm.duty).as_ptr() as u32);
+        r.dma().seq(0).maxcnt().write(|w| w.0 = 4);
         r.seq(0).refresh().write(|w| w.0 = 0);
         r.seq(0).enddelay().write(|w| w.0 = 0);
 
@@ -694,7 +702,7 @@ impl<'d> SimplePwm<'d> {
         self.duty[channel] = duty & 0x7FFF;
 
         // reload ptr in case self was moved
-        self.r.seq(0).ptr().write_value((self.duty).as_ptr() as u32);
+        self.r.dma().seq(0).ptr().write_value((self.duty).as_ptr() as u32);
 
         // defensive before seqstart
         compiler_fence(Ordering::SeqCst);
@@ -702,7 +710,7 @@ impl<'d> SimplePwm<'d> {
         self.r.events_seqend(0).write_value(0);
 
         // tasks_seqstart() doesn't exist in all svds so write its bit instead
-        self.r.tasks_seqstart(0).write_value(1);
+        self.r.tasks_dma().seq(0).start().write_value(1);
 
         // defensive wait until waveform is loaded after seqstart so set_duty
         // can't be called again while dma is still reading

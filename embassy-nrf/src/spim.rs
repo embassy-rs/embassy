@@ -13,7 +13,7 @@ use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
-pub use pac::spim::vals::{Frequency, Order as BitOrder};
+pub use pac::spim::vals::Order as BitOrder;
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::{self, AnyPin, OutputDrive, Pin as GpioPin, PselBits, SealedPin as _, convert_drive};
@@ -22,6 +22,110 @@ use crate::pac::gpio::vals as gpiovals;
 use crate::pac::spim::vals;
 use crate::util::slice_in_ram_or;
 use crate::{interrupt, pac};
+
+/// SPI frequencies.
+#[repr(transparent)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub struct Frequency(u32);
+impl Frequency {
+    #[doc = "125 kbps"]
+    pub const K125: Self = Self(0x0200_0000);
+    #[doc = "250 kbps"]
+    pub const K250: Self = Self(0x0400_0000);
+    #[doc = "500 kbps"]
+    pub const K500: Self = Self(0x0800_0000);
+    #[doc = "1 Mbps"]
+    pub const M1: Self = Self(0x1000_0000);
+    #[doc = "2 Mbps"]
+    pub const M2: Self = Self(0x2000_0000);
+    #[doc = "4 Mbps"]
+    pub const M4: Self = Self(0x4000_0000);
+    #[doc = "8 Mbps"]
+    pub const M8: Self = Self(0x8000_0000);
+    #[cfg(not(feature = "_spi-v1"))]
+    #[doc = "16 Mbps"]
+    pub const M16: Self = Self(0x0a00_0000);
+    #[cfg(not(feature = "_spi-v1"))]
+    #[doc = "32 Mbps"]
+    pub const M32: Self = Self(0x1400_0000);
+}
+
+impl Frequency {
+    #[cfg(feature = "_nrf54l")]
+    fn to_divisor(&self, clk: u32) -> u8 {
+        let frequency = match *self {
+            #[cfg(not(feature = "_spi-v1"))]
+            Self::M32 => 32_000_000,
+            #[cfg(not(feature = "_spi-v1"))]
+            Self::M16 => 16_000_000,
+            Self::M8 => 8_000_000,
+            Self::M4 => 4_000_000,
+            Self::M2 => 2_000_000,
+            Self::M1 => 1_000_000,
+            Self::K500 => 500_000,
+            Self::K250 => 250_000,
+            Self::K125 => 125_000,
+            _ => unreachable!(),
+        };
+        let divisor = (clk / frequency) as u8;
+        divisor
+    }
+}
+impl core::fmt::Debug for Frequency {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self.0 {
+            0x0200_0000 => f.write_str("K125"),
+            0x0400_0000 => f.write_str("K250"),
+            0x0800_0000 => f.write_str("K500"),
+            0x0a00_0000 => f.write_str("M16"),
+            0x1000_0000 => f.write_str("M1"),
+            0x1400_0000 => f.write_str("M32"),
+            0x2000_0000 => f.write_str("M2"),
+            0x4000_0000 => f.write_str("M4"),
+            0x8000_0000 => f.write_str("M8"),
+            other => core::write!(f, "0x{:02X}", other),
+        }
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for Frequency {
+    fn format(&self, f: defmt::Formatter) {
+        match self.0 {
+            0x0200_0000 => defmt::write!(f, "K125"),
+            0x0400_0000 => defmt::write!(f, "K250"),
+            0x0800_0000 => defmt::write!(f, "K500"),
+            0x0a00_0000 => defmt::write!(f, "M16"),
+            0x1000_0000 => defmt::write!(f, "M1"),
+            0x1400_0000 => defmt::write!(f, "M32"),
+            0x2000_0000 => defmt::write!(f, "M2"),
+            0x4000_0000 => defmt::write!(f, "M4"),
+            0x8000_0000 => defmt::write!(f, "M8"),
+            other => defmt::write!(f, "0x{:02X}", other),
+        }
+    }
+}
+
+#[cfg(not(feature = "_nrf54l"))]
+impl Into<pac::spim::vals::Frequency> for Frequency {
+    fn into(self) -> pac::spim::vals::Frequency {
+        use pac::spim::vals::Frequency as Freq;
+        match self {
+            #[cfg(not(feature = "_spi-v1"))]
+            Self::M32 => Freq::M32,
+            #[cfg(not(feature = "_spi-v1"))]
+            Self::M16 => Freq::M16,
+            Self::M8 => Freq::M8,
+            Self::M4 => Freq::M4,
+            Self::M2 => Freq::M2,
+            Self::M1 => Freq::M1,
+            Self::K500 => Freq::K500,
+            Self::K250 => Freq::K250,
+            Self::K125 => Freq::K125,
+            _ => unreachable!(),
+        }
+    }
+}
 
 /// SPIM error
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,6 +207,8 @@ pub struct Spim<'d> {
     r: pac::spim::Spim,
     irq: interrupt::Interrupt,
     state: &'static State,
+    #[cfg(feature = "_nrf54l")]
+    clk: u32,
     _p: PhantomData<&'d ()>,
 }
 
@@ -208,6 +314,8 @@ impl<'d> Spim<'d> {
             r: T::regs(),
             irq: T::Interrupt::IRQ,
             state: T::state(),
+            #[cfg(feature = "_nrf54l")]
+            clk: T::clk(),
             _p: PhantomData {},
         };
 
@@ -238,13 +346,13 @@ impl<'d> Spim<'d> {
 
         // Set up the DMA read.
         let (rx_ptr, rx_len) = xfer_params(rx as *mut u8 as _, rx.len() as _, offset, length);
-        r.rxd().ptr().write_value(rx_ptr);
-        r.rxd().maxcnt().write(|w| w.set_maxcnt(rx_len as _));
+        r.dma().rx().ptr().write_value(rx_ptr);
+        r.dma().rx().maxcnt().write(|w| w.set_maxcnt(rx_len as _));
 
         // Set up the DMA write.
         let (tx_ptr, tx_len) = xfer_params(tx as *const u8 as _, tx.len() as _, offset, length);
-        r.txd().ptr().write_value(tx_ptr);
-        r.txd().maxcnt().write(|w| w.set_maxcnt(tx_len as _));
+        r.dma().tx().ptr().write_value(tx_ptr);
+        r.dma().tx().maxcnt().write(|w| w.set_maxcnt(tx_len as _));
 
         /*
         trace!("XFER: offset: {}, length: {}", offset, length);
@@ -259,8 +367,8 @@ impl<'d> Spim<'d> {
             r.events_started().write_value(0);
 
             // Set rx/tx buffer lengths to 0...
-            r.txd().maxcnt().write(|_| ());
-            r.rxd().maxcnt().write(|_| ());
+            r.dma().tx().maxcnt().write(|_| ());
+            r.dma().rx().maxcnt().write(|_| ());
 
             // ...and keep track of original buffer lengths...
             s.tx.store(tx_len as _, Ordering::Relaxed);
@@ -447,8 +555,14 @@ impl<'d> Spim<'d> {
             r.events_end().write_value(0);
 
             // Update DMA registers with correct rx/tx buffer sizes
-            r.rxd().maxcnt().write(|w| w.set_maxcnt(s.rx.load(Ordering::Relaxed)));
-            r.txd().maxcnt().write(|w| w.set_maxcnt(s.tx.load(Ordering::Relaxed)));
+            r.dma()
+                .rx()
+                .maxcnt()
+                .write(|w| w.set_maxcnt(s.rx.load(Ordering::Relaxed)));
+            r.dma()
+                .tx()
+                .maxcnt()
+                .write(|w| w.set_maxcnt(s.tx.load(Ordering::Relaxed)));
 
             r.intenset().write(|w| w.set_end(true));
             // ... and start actual, hopefully glitch-free transmission
@@ -503,6 +617,8 @@ impl State {
 pub(crate) trait SealedInstance {
     fn regs() -> pac::spim::Spim;
     fn state() -> &'static State;
+    #[cfg(feature = "_nrf54l")]
+    fn clk() -> u32;
 }
 
 /// SPIM peripheral instance
@@ -512,6 +628,28 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
+#[cfg(feature = "_nrf54l")]
+macro_rules! impl_spim {
+    ($type:ident, $pac_type:ident, $irq:ident, $clk:expr) => {
+        impl crate::spim::SealedInstance for peripherals::$type {
+            fn regs() -> pac::spim::Spim {
+                pac::$pac_type
+            }
+            fn state() -> &'static crate::spim::State {
+                static STATE: crate::spim::State = crate::spim::State::new();
+                &STATE
+            }
+            fn clk() -> u32 {
+                $clk
+            }
+        }
+        impl crate::spim::Instance for peripherals::$type {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
+    };
+}
+
+#[cfg(not(feature = "_nrf54l"))]
 macro_rules! impl_spim {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::spim::SealedInstance for peripherals::$type {
@@ -638,7 +776,12 @@ impl<'d> SetConfig for Spim<'d> {
 
         // Configure frequency.
         let frequency = config.frequency;
-        r.frequency().write(|w| w.set_frequency(frequency));
+        #[cfg(not(feature = "_nrf54l"))]
+        r.frequency().write(|w| w.set_frequency(frequency.into()));
+        #[cfg(feature = "_nrf54l")]
+        {
+            r.prescaler().write(|w| w.set_divisor(frequency.to_divisor(self.clk)));
+        }
 
         // Set over-read character
         let orc = config.orc;
