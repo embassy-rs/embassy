@@ -76,8 +76,8 @@ pub(crate) mod util;
 #[cfg(feature = "_time-driver")]
 mod time_driver;
 
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
+#[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod buffered_uarte;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
@@ -169,14 +169,12 @@ pub mod spis;
 pub mod temp;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod timer;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod twim;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod twis;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
+#[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod uarte;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(
