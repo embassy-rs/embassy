@@ -76,14 +76,12 @@ pub(crate) mod util;
 #[cfg(feature = "_time-driver")]
 mod time_driver;
 
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod buffered_uarte;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod egu;
 pub mod gpio;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(feature = "gpiote")]
 pub mod gpiote;
 #[cfg(not(feature = "_nrf54l"))] // TODO
@@ -119,9 +117,7 @@ pub mod pdm;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(feature = "nrf52840", feature = "nrf9160-s", feature = "nrf9160-ns"))]
 pub mod power;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod ppi;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(
     feature = "_nrf51",
     feature = "nrf52805",
@@ -156,26 +152,19 @@ pub mod reset;
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod rng;
 pub mod rtc;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(feature = "_nrf51", feature = "nrf52820", feature = "_nrf5340-net")))]
 pub mod saadc;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod spim;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod spis;
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod temp;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod timer;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod twim;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod twis;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod uarte;
 #[cfg(not(feature = "_nrf54l"))] // TODO
@@ -1153,7 +1142,6 @@ pub fn init(config: config::Config) -> Peripherals {
     }
 
     // Init GPIOTE
-    #[cfg(not(feature = "_nrf54l"))] // TODO
     #[cfg(feature = "gpiote")]
     gpiote::init(config.gpiote_interrupt_priority);
 
