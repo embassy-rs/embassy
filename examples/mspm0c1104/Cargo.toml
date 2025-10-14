@@ -36,3 +36,6 @@ codegen-units = 1
 build = [
   { target = "thumbv6m-none-eabi", artifact-dir = "out/examples/mspm0c1104", env = { DEFMT_RTT_BUFFER_SIZE = "72" }}
 ]
+
+[patch.crates-io]
+maitake-sync = { git = "https://github.com/i509VCB/mycelium/", rev = "6870a5f331925f1989f4d9bdbae9e40ea8e2da4c" }
