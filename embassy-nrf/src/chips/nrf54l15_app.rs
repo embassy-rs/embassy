@@ -249,6 +249,45 @@ embassy_hal_internal::peripherals! {
     P2_09,
     P2_10,
 
+    // RTC
+    RTC10,
+    RTC30,
+
+    // SERIAL
+    SERIAL00,
+    SERIAL20,
+    SERIAL21,
+    SERIAL22,
+    SERIAL30,
+
+    // SAADC
+    SAADC,
+
+    // RADIO
+    RADIO,
+
+    // TIMER
+    TIMER00,
+    TIMER10,
+    TIMER20,
+
+    // PPI BRIDGE
+    PPIB00,
+    PPIB01,
+    PPIB10,
+    PPIB11,
+    PPIB20,
+    PPIB21,
+    PPIB22,
+    PPIB30,
+
+    // GPIOTE
+    GPIOTE20,
+    GPIOTE30,
+
+    // CRACEN
+    CRACEN,
+
     #[cfg(feature = "_s")]
     // RRAMC
     RRAMC,
@@ -302,6 +341,9 @@ impl_pin!(P2_07, 2, 7);
 impl_pin!(P2_08, 2, 8);
 impl_pin!(P2_09, 2, 9);
 impl_pin!(P2_10, 2, 10);
+
+impl_rtc!(RTC10, RTC10, RTC10);
+impl_rtc!(RTC30, RTC30, RTC30);
 
 #[cfg(feature = "_ns")]
 impl_wdt!(WDT, WDT31, WDT31, 0);

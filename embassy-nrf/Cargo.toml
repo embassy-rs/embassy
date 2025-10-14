@@ -80,6 +80,8 @@ unstable-pac = []
 gpiote = []
 
 ## Use RTC1 as the time driver for `embassy-time`, with a tick rate of 32.768khz
+## 
+## Note: For nRF54L, it's actually RTC30
 time-driver-rtc1 = ["_time-driver"]
 
 ## Enable embassy-net 802.15.4 driver
