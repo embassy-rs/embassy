@@ -311,6 +311,53 @@ impl Default for Config {
     }
 }
 
+/// Configuration for the simple PWM driver.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub struct SimpleConfig {
+    /// Selects up mode or up-and-down mode for the counter
+    pub counter_mode: CounterMode,
+    /// Top value to be compared against buffer values
+    pub max_duty: u16,
+    /// Configuration for PWM_CLK
+    pub prescaler: Prescaler,
+    /// Drive strength for the channel 0 line.
+    pub ch0_drive: OutputDrive,
+    /// Drive strength for the channel 1 line.
+    pub ch1_drive: OutputDrive,
+    /// Drive strength for the channel 2 line.
+    pub ch2_drive: OutputDrive,
+    /// Drive strength for the channel 3 line.
+    pub ch3_drive: OutputDrive,
+    /// Output level for the channel 0 line when PWM if disabled.
+    pub ch0_idle_level: Level,
+    /// Output level for the channel 1 line when PWM if disabled.
+    pub ch1_idle_level: Level,
+    /// Output level for the channel 2 line when PWM if disabled.
+    pub ch2_idle_level: Level,
+    /// Output level for the channel 3 line when PWM if disabled.
+    pub ch3_idle_level: Level,
+}
+
+impl Default for SimpleConfig {
+    fn default() -> Self {
+        Self {
+            counter_mode: CounterMode::Up,
+            max_duty: 1000,
+            prescaler: Prescaler::Div16,
+            ch0_drive: OutputDrive::Standard,
+            ch1_drive: OutputDrive::Standard,
+            ch2_drive: OutputDrive::Standard,
+            ch3_drive: OutputDrive::Standard,
+            ch0_idle_level: Level::Low,
+            ch1_idle_level: Level::Low,
+            ch2_idle_level: Level::Low,
+            ch3_idle_level: Level::Low,
+        }
+    }
+}
+
 /// Configuration per sequence
 #[non_exhaustive]
 #[derive(Debug, Clone)]
@@ -643,46 +690,48 @@ impl defmt::Format for DutyCycle {
 
 impl<'d> SimplePwm<'d> {
     /// Create a new 1-channel PWM
-    #[allow(unused_unsafe)]
-    pub fn new_1ch<T: Instance>(pwm: Peri<'d, T>, ch0: Peri<'d, impl GpioPin>) -> Self {
-        unsafe { Self::new_inner(pwm, Some(ch0.into()), None, None, None) }
+    pub fn new_1ch<T: Instance>(pwm: Peri<'d, T>, ch0: Peri<'d, impl GpioPin>, config: &SimpleConfig) -> Self {
+        Self::new_inner(pwm, Some(ch0.into()), None, None, None, config)
     }
 
     /// Create a new 2-channel PWM
-    #[allow(unused_unsafe)]
-    pub fn new_2ch<T: Instance>(pwm: Peri<'d, T>, ch0: Peri<'d, impl GpioPin>, ch1: Peri<'d, impl GpioPin>) -> Self {
-        Self::new_inner(pwm, Some(ch0.into()), Some(ch1.into()), None, None)
+    pub fn new_2ch<T: Instance>(
+        pwm: Peri<'d, T>,
+        ch0: Peri<'d, impl GpioPin>,
+        ch1: Peri<'d, impl GpioPin>,
+        config: &SimpleConfig,
+    ) -> Self {
+        Self::new_inner(pwm, Some(ch0.into()), Some(ch1.into()), None, None, config)
     }
 
     /// Create a new 3-channel PWM
-    #[allow(unused_unsafe)]
     pub fn new_3ch<T: Instance>(
         pwm: Peri<'d, T>,
         ch0: Peri<'d, impl GpioPin>,
         ch1: Peri<'d, impl GpioPin>,
         ch2: Peri<'d, impl GpioPin>,
+        config: &SimpleConfig,
     ) -> Self {
-        unsafe { Self::new_inner(pwm, Some(ch0.into()), Some(ch1.into()), Some(ch2.into()), None) }
+        Self::new_inner(pwm, Some(ch0.into()), Some(ch1.into()), Some(ch2.into()), None, config)
     }
 
     /// Create a new 4-channel PWM
-    #[allow(unused_unsafe)]
     pub fn new_4ch<T: Instance>(
         pwm: Peri<'d, T>,
         ch0: Peri<'d, impl GpioPin>,
         ch1: Peri<'d, impl GpioPin>,
         ch2: Peri<'d, impl GpioPin>,
         ch3: Peri<'d, impl GpioPin>,
+        config: &SimpleConfig,
     ) -> Self {
-        unsafe {
-            Self::new_inner(
-                pwm,
-                Some(ch0.into()),
-                Some(ch1.into()),
-                Some(ch2.into()),
-                Some(ch3.into()),
-            )
-        }
+        Self::new_inner(
+            pwm,
+            Some(ch0.into()),
+            Some(ch1.into()),
+            Some(ch2.into()),
+            Some(ch3.into()),
+            config,
+        )
     }
 
     fn new_inner<T: Instance>(
@@ -691,24 +740,33 @@ impl<'d> SimplePwm<'d> {
         ch1: Option<Peri<'d, AnyPin>>,
         ch2: Option<Peri<'d, AnyPin>>,
         ch3: Option<Peri<'d, AnyPin>>,
+        config: &SimpleConfig,
     ) -> Self {
         let r = T::regs();
 
-        for (i, ch) in [&ch0, &ch1, &ch2, &ch3].into_iter().enumerate() {
-            if let Some(pin) = ch {
-                pin.set_low();
-
+        let channels = [
+            (&ch0, config.ch0_drive, config.ch0_idle_level),
+            (&ch1, config.ch1_drive, config.ch1_idle_level),
+            (&ch2, config.ch2_drive, config.ch2_idle_level),
+            (&ch3, config.ch3_drive, config.ch3_idle_level),
+        ];
+        for (i, (pin, drive, idle_level)) in channels.into_iter().enumerate() {
+            if let Some(pin) = pin {
+                match idle_level {
+                    Level::Low => pin.set_low(),
+                    Level::High => pin.set_high(),
+                }
                 pin.conf().write(|w| {
                     w.set_dir(gpiovals::Dir::OUTPUT);
                     w.set_input(gpiovals::Input::DISCONNECT);
-                    w.set_drive(gpiovals::Drive::S0S1);
+                    convert_drive(w, drive);
                 });
             }
-            r.psel().out(i).write_value(ch.psel_bits());
+            r.psel().out(i).write_value(pin.psel_bits());
         }
 
         let pwm = Self {
-            r: T::regs(),
+            r,
             ch0,
             ch1,
             ch2,
@@ -732,9 +790,13 @@ impl<'d> SimplePwm<'d> {
             w.set_load(vals::Load::INDIVIDUAL);
             w.set_mode(vals::Mode::REFRESH_COUNT);
         });
-        r.mode().write(|w| w.set_updown(vals::Updown::UP));
-        r.prescaler().write(|w| w.set_prescaler(vals::Prescaler::DIV_16));
-        r.countertop().write(|w| w.set_countertop(1000));
+        r.mode().write(|w| match config.counter_mode {
+            CounterMode::UpAndDown => w.set_updown(vals::Updown::UP_AND_DOWN),
+            CounterMode::Up => w.set_updown(vals::Updown::UP),
+        });
+        r.prescaler()
+            .write(|w| w.set_prescaler(vals::Prescaler::from_bits(config.prescaler as u8)));
+        r.countertop().write(|w| w.set_countertop(config.max_duty));
         r.loop_().write(|w| w.set_cnt(vals::LoopCnt::DISABLED));
 
         pwm
