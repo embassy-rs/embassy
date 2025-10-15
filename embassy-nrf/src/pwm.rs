@@ -781,7 +781,23 @@ impl<'d> SimplePwm<'d> {
     /// Sets duty cycle (15 bit) and polarity for a PWM channel.
     pub fn set_duty(&mut self, channel: usize, duty: DutyCycle) {
         self.duty[channel] = duty;
+        self.sync_duty_cyles_to_peripheral();
+    }
 
+    /// Sets the duty cycle (15 bit) and polarity for all PWM channels.
+    ///
+    /// You can safely set the duty cycle of disabled PWM channels.
+    ///
+    /// When using this function, a single DMA transfer sets all the duty cycles.
+    /// If you call [`Self::set_duty()`] multiple times,
+    /// each duty cycle will be set by a separate DMA transfer.
+    pub fn set_all_duties(&mut self, duty: [DutyCycle; 4]) {
+        self.duty = duty;
+        self.sync_duty_cyles_to_peripheral();
+    }
+
+    /// Transfer the duty cycles from `self` to the peripheral.
+    fn sync_duty_cyles_to_peripheral(&self) {
         // reload ptr in case self was moved
         self.r.seq(0).ptr().write_value((self.duty).as_ptr() as u32);
 
