@@ -6,7 +6,7 @@ use core::sync::atomic::{Ordering, compiler_fence};
 
 use embassy_hal_internal::{Peri, PeripheralType};
 
-use crate::gpio::{AnyPin, DISCONNECTED, OutputDrive, Pin as GpioPin, PselBits, SealedPin as _, convert_drive};
+use crate::gpio::{AnyPin, DISCONNECTED, Level, OutputDrive, Pin as GpioPin, PselBits, SealedPin as _, convert_drive};
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::pwm::vals;
 use crate::ppi::{Event, Task};
@@ -53,13 +53,11 @@ pub const PWM_CLK_HZ: u32 = 16_000_000;
 
 impl<'d> SequencePwm<'d> {
     /// Create a new 1-channel PWM
-    #[allow(unused_unsafe)]
     pub fn new_1ch<T: Instance>(pwm: Peri<'d, T>, ch0: Peri<'d, impl GpioPin>, config: Config) -> Result<Self, Error> {
         Self::new_inner(pwm, Some(ch0.into()), None, None, None, config)
     }
 
     /// Create a new 2-channel PWM
-    #[allow(unused_unsafe)]
     pub fn new_2ch<T: Instance>(
         pwm: Peri<'d, T>,
         ch0: Peri<'d, impl GpioPin>,
@@ -70,7 +68,6 @@ impl<'d> SequencePwm<'d> {
     }
 
     /// Create a new 3-channel PWM
-    #[allow(unused_unsafe)]
     pub fn new_3ch<T: Instance>(
         pwm: Peri<'d, T>,
         ch0: Peri<'d, impl GpioPin>,
@@ -82,7 +79,6 @@ impl<'d> SequencePwm<'d> {
     }
 
     /// Create a new 4-channel PWM
-    #[allow(unused_unsafe)]
     pub fn new_4ch<T: Instance>(
         pwm: Peri<'d, T>,
         ch0: Peri<'d, impl GpioPin>,
@@ -111,43 +107,26 @@ impl<'d> SequencePwm<'d> {
     ) -> Result<Self, Error> {
         let r = T::regs();
 
-        if let Some(pin) = &ch0 {
-            pin.set_low();
-            pin.conf().write(|w| {
-                w.set_dir(gpiovals::Dir::OUTPUT);
-                w.set_input(gpiovals::Input::DISCONNECT);
-                convert_drive(w, config.ch0_drive);
-            });
+        let channels = [
+            (&ch0, config.ch0_drive, config.ch0_idle_level),
+            (&ch1, config.ch1_drive, config.ch1_idle_level),
+            (&ch2, config.ch2_drive, config.ch2_idle_level),
+            (&ch3, config.ch3_drive, config.ch3_idle_level),
+        ];
+        for (i, (pin, drive, idle_level)) in channels.into_iter().enumerate() {
+            if let Some(pin) = pin {
+                match idle_level {
+                    Level::Low => pin.set_low(),
+                    Level::High => pin.set_high(),
+                }
+                pin.conf().write(|w| {
+                    w.set_dir(gpiovals::Dir::OUTPUT);
+                    w.set_input(gpiovals::Input::DISCONNECT);
+                    convert_drive(w, drive);
+                });
+            }
+            r.psel().out(i).write_value(pin.psel_bits());
         }
-        if let Some(pin) = &ch1 {
-            pin.set_low();
-            pin.conf().write(|w| {
-                w.set_dir(gpiovals::Dir::OUTPUT);
-                w.set_input(gpiovals::Input::DISCONNECT);
-                convert_drive(w, config.ch1_drive);
-            });
-        }
-        if let Some(pin) = &ch2 {
-            pin.set_low();
-            pin.conf().write(|w| {
-                w.set_dir(gpiovals::Dir::OUTPUT);
-                w.set_input(gpiovals::Input::DISCONNECT);
-                convert_drive(w, config.ch2_drive);
-            });
-        }
-        if let Some(pin) = &ch3 {
-            pin.set_low();
-            pin.conf().write(|w| {
-                w.set_dir(gpiovals::Dir::OUTPUT);
-                w.set_input(gpiovals::Input::DISCONNECT);
-                convert_drive(w, config.ch3_drive);
-            });
-        }
-
-        r.psel().out(0).write_value(ch0.psel_bits());
-        r.psel().out(1).write_value(ch1.psel_bits());
-        r.psel().out(2).write_value(ch2.psel_bits());
-        r.psel().out(3).write_value(ch3.psel_bits());
 
         // Disable all interrupts
         r.intenclr().write(|w| w.0 = 0xFFFF_FFFF);
@@ -173,13 +152,7 @@ impl<'d> SequencePwm<'d> {
             .write(|w| w.set_prescaler(vals::Prescaler::from_bits(config.prescaler as u8)));
         r.countertop().write(|w| w.set_countertop(config.max_duty));
 
-        Ok(Self {
-            r: T::regs(),
-            ch0,
-            ch1,
-            ch2,
-            ch3,
-        })
+        Ok(Self { r, ch0, ch1, ch2, ch3 })
     }
 
     /// Returns reference to `Stopped` event endpoint for PPI.
@@ -309,11 +282,19 @@ pub struct Config {
     pub ch2_drive: OutputDrive,
     /// Drive strength for the channel 3 line.
     pub ch3_drive: OutputDrive,
+    /// Output level for the channel 0 line when PWM if disabled.
+    pub ch0_idle_level: Level,
+    /// Output level for the channel 1 line when PWM if disabled.
+    pub ch1_idle_level: Level,
+    /// Output level for the channel 2 line when PWM if disabled.
+    pub ch2_idle_level: Level,
+    /// Output level for the channel 3 line when PWM if disabled.
+    pub ch3_idle_level: Level,
 }
 
 impl Default for Config {
-    fn default() -> Config {
-        Config {
+    fn default() -> Self {
+        Self {
             counter_mode: CounterMode::Up,
             max_duty: 1000,
             prescaler: Prescaler::Div16,
@@ -322,6 +303,10 @@ impl Default for Config {
             ch1_drive: OutputDrive::Standard,
             ch2_drive: OutputDrive::Standard,
             ch3_drive: OutputDrive::Standard,
+            ch0_idle_level: Level::Low,
+            ch1_idle_level: Level::Low,
+            ch2_idle_level: Level::Low,
+            ch3_idle_level: Level::Low,
         }
     }
 }
