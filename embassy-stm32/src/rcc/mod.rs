@@ -390,7 +390,7 @@ pub fn disable<T: RccPeripheral>() {
 ///
 /// This should only be called after `init`.
 #[cfg(not(feature = "_dual-core"))]
-pub fn reinit<'a>(config: Config, _rcc: &'a mut crate::Peri<'a, crate::peripherals::RCC>) {
+pub fn reinit(config: Config, _rcc: &'_ mut crate::Peri<'_, crate::peripherals::RCC>) {
     critical_section::with(|cs| init_rcc(cs, config))
 }
 

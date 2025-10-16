@@ -124,10 +124,10 @@ pub enum StopMode {
     Stop2,
 }
 
-#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32u0))]
+#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32wlex, stm32u0))]
 use stm32_metapac::pwr::vals::Lpms;
 
-#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32u0))]
+#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32wlex, stm32u0))]
 impl Into<Lpms> for StopMode {
     fn into(self) -> Lpms {
         match self {
@@ -177,6 +177,16 @@ impl Executor {
     }
 
     unsafe fn on_wakeup_irq(&mut self) {
+        #[cfg(stm32wlex)]
+        if crate::pac::PWR.extscr().read().c1stop2f() {
+            // when we wake from STOP2, we need to re-initialize the rcc and the time driver
+            // to restore the clocks to their last configured state
+            crate::rcc::apply_resume_config();
+            critical_section::with(|cs| crate::time_driver::init_timer(cs));
+            // reset the refcounts for STOP2 and STOP1 (initializing the time driver will increment one of them for the timer)
+            crate::rcc::REFCOUNT_STOP2 = 0;
+            crate::rcc::REFCOUNT_STOP1 = 0;
+        }
         self.time_driver.resume_time();
         trace!("low power: resume");
     }
@@ -201,7 +211,7 @@ impl Executor {
 
     #[allow(unused_variables)]
     fn configure_stop(&mut self, stop_mode: StopMode) {
-        #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wba))]
+        #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wba, stm32wlex))]
         crate::pac::PWR.cr1().modify(|m| m.set_lpms(stop_mode.into()));
         #[cfg(stm32h5)]
         crate::pac::PWR.pmcr().modify(|v| {
@@ -213,6 +223,11 @@ impl Executor {
 
     fn configure_pwr(&mut self) {
         self.scb.clear_sleepdeep();
+        // Clear any previous stop flags
+        #[cfg(stm32wlex)]
+        crate::pac::PWR.extscr().modify(|w| {
+            w.set_c1cssf(true);
+        });
 
         compiler_fence(Ordering::SeqCst);
 
@@ -266,6 +281,16 @@ impl Executor {
                 executor.inner.poll();
                 self.configure_pwr();
                 asm!("wfe");
+                #[cfg(stm32wlex)]
+                {
+                    let es = crate::pac::PWR.extscr().read();
+                    match (es.c1stopf(), es.c1stop2f()) {
+                        (true, false) => trace!("low power: wake from STOP1"),
+                        (false, true) => trace!("low power: wake from STOP2"),
+                        (true, true) => trace!("low power: wake from STOP1 and STOP2 ???"),
+                        (false, false) => trace!("low power: stop mode not entered"),
+                    };
+                }
             };
         }
     }
