@@ -44,3 +44,6 @@ debug = 2
 build = [
   { target = "thumbv7em-none-eabi", artifact-dir = "out/examples/nrf52840" }
 ]
+
+[patch.crates-io]
+nrf-pac = { path = "../../../nrf-pac" }
