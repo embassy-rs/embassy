@@ -4,7 +4,7 @@
 use defmt::{debug, error, info};
 use embassy_executor::Spawner;
 use embassy_nrf::i2s::{self, Channels, Config, DoubleBuffering, I2S, MasterClock, Sample as _, SampleWidth};
-use embassy_nrf::pwm::{Prescaler, SimplePwm};
+use embassy_nrf::pwm::{DutyCycle, Prescaler, SimplePwm};
 use embassy_nrf::{bind_interrupts, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -34,7 +34,7 @@ async fn main(_spawner: Spawner) {
         I2S::new_master(p.I2S, Irqs, p.P0_25, p.P0_26, p.P0_27, master_clock, config).input(p.P0_29, buffers);
 
     // Configure the PWM to use the pins corresponding to the RGB leds
-    let mut pwm = SimplePwm::new_3ch(p.PWM0, p.P0_23, p.P0_22, p.P0_24);
+    let mut pwm = SimplePwm::new_3ch(p.PWM0, p.P0_23, p.P0_22, p.P0_24, &Default::default());
     pwm.set_prescaler(Prescaler::Div1);
     pwm.set_max_duty(255);
 
@@ -47,9 +47,8 @@ async fn main(_spawner: Spawner) {
         let rgb = rgb_from_rms(rms);
 
         debug!("RMS: {}, RGB: {:?}", rms, rgb);
-        for i in 0..3 {
-            pwm.set_duty(i, rgb[i].into());
-        }
+        let duties = rgb.map(|byte| DutyCycle::normal(u16::from(byte)));
+        pwm.set_all_duties([duties[0], duties[1], duties[2], DutyCycle::normal(0)]);
 
         if let Err(err) = input_stream.receive().await {
             error!("{}", err);
