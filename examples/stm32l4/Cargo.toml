@@ -16,8 +16,8 @@ embassy-usb = { version = "0.5.0", path = "../../embassy-usb", features = ["defm
 embassy-net-adin1110 = { version = "0.3.1", path = "../../embassy-net-adin1110" }
 embassy-net = { version = "0.7.1", path = "../../embassy-net", features = ["defmt",  "udp", "tcp", "dhcpv4", "medium-ethernet"] }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
-embedded-io-async = { version = "0.6.1", features = ["defmt-03"] }
-embedded-io = { version = "0.6.0", features = ["defmt-03"] }
+embedded-io-async = { version = "0.7.0", features = ["defmt"] }
+embedded-io = { version = "0.7.1", features = ["defmt"] }
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"

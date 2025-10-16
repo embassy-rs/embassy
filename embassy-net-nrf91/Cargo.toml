@@ -27,7 +27,7 @@ embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-net-driver-channel = { version = "0.3.2", path = "../embassy-net-driver-channel" }
 
 heapless = "0.8"
-embedded-io = "0.6.1"
+embedded-io = { version = "0.7.1" }
 at-commands = "0.5.4"
 
 [package.metadata.embassy]
