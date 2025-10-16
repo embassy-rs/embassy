@@ -96,14 +96,20 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     #[cfg(any(flash_wl, flash_wb, flash_l4, flash_l5))]
     {
         let idx = (sector.start - super::FLASH_BASE as u32) / super::BANK1_REGION.erase_size as u32;
+        #[cfg(any(flash_l4, flash_l5))]
+        let pgn = super::BANK1_REGION.size as u32 / super::BANK1_REGION.erase_size as u32;
 
         #[cfg(flash_l4)]
-        let (idx, bank) = if idx > 255 { (idx - 256, true) } else { (idx, false) };
+        let (idx, bank) = if idx > (pgn - 1) {
+            (idx - pgn, true)
+        } else {
+            (idx, false)
+        };
 
         #[cfg(flash_l5)]
         let (idx, bank) = if pac::FLASH.optr().read().dbank() {
-            if idx > 255 {
-                (idx - 256, Some(true))
+            if idx > (pgn - 1) {
+                (idx - pgn, Some(true))
             } else {
                 (idx, Some(false))
             }
