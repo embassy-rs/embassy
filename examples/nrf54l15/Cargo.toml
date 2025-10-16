@@ -21,6 +21,8 @@ cortex-m-rt = "0.7.0"
 embedded-storage = "0.3.1"
 portable-atomic = "1"
 
+static_cell = "2"
+
 [profile.release]
 debug = 2
 
