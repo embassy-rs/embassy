@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * **Fix(stm32h5):** Prevent a HardFault crash on STM32H5 devices by changing `uid()` to return `[u8; 12]` by value instead of a reference. (Fixes #2696)
 ## Unreleased - ReleaseDate
-
+- Add `receive_waveform` method in `InputCapture`, allowing asynchronous input capture with DMA.
 - fix: Fixed STM32H5 builds requiring time feature
 - feat: Derive Clone, Copy for QSPI Config
 - fix: stm32/i2c in master mode (blocking): subsequent transmissions failed after a NACK was received
