@@ -765,3 +765,12 @@ impl<T: Default + Copy, A: pac::common::Write> RegExt<T> for pac::common::Reg<T,
         res
     }
 }
+
+/// Reset immediately.
+pub struct ResetImmediate;
+
+impl embassy_embedded_hal::Reset for ResetImmediate {
+    fn sys_reset(&self) {
+        cortex_m::peripheral::SCB::sys_reset()
+    }
+}
