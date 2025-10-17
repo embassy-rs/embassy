@@ -26,6 +26,7 @@ struct SharedInner {
     is_init: bool,
     control_waker: WakerRegistration,
     runner_waker: WakerRegistration,
+    is_ap: bool,
 }
 
 impl Shared {
@@ -35,7 +36,16 @@ impl Shared {
             is_init: false,
             control_waker: WakerRegistration::new(),
             runner_waker: WakerRegistration::new(),
+            is_ap: false,
         }))
+    }
+
+    pub fn set_is_ap(&self, is_ap: bool) {
+        self.0.borrow_mut().is_ap = is_ap;
+    }
+
+    pub fn is_ap(&self) -> bool {
+        self.0.borrow().is_ap
     }
 
     pub fn ioctl_wait_complete(&self) -> impl Future<Output = usize> + '_ {
@@ -88,12 +98,18 @@ impl Shared {
             trace!("ioctl resp bytes: {:02x}", Bytes(response));
 
             // TODO fix this
-            (unsafe { &mut *buf }[..response.len()]).copy_from_slice(response);
+            let buf_ref = unsafe { &mut *buf };
+            if buf_ref.len() >= response.len() {
+                buf_ref[..response.len()].copy_from_slice(response);
+                this.ioctl = IoctlState::Done {
+                    resp_len: response.len(),
+                };
+                this.control_waker.wake();
+            } else {
+                warn!("IOCTL Response buffer too small");
+            }
 
-            this.ioctl = IoctlState::Done {
-                resp_len: response.len(),
-            };
-            this.control_waker.wake();
+
         } else {
             warn!("IOCTL Response but no pending Ioctl");
         }
