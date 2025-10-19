@@ -461,8 +461,9 @@ impl<'d, T: Instance> Adc<'d, T> {
             reg.set_dmacfg(Dmacfg::ONE_SHOT);
             reg.set_dmaen(Dmaen::ENABLE);
         });
+    }
 
-        // Configure DMA for receiving data in the provided buffer.
+    pub async fn trigger_regular_conversion_and_await_result(&mut self, rx_dma: Peri<'_, impl RxDma<T>>, readings: &mut [u16]) {
         let request = rx_dma.request();
         let transfer = unsafe {
             Transfer::new_read(
@@ -473,10 +474,8 @@ impl<'d, T: Instance> Adc<'d, T> {
                 Default::default(),
             )
         };
-    }
 
-    pub async fn trigger_regular_conversion_and_await_dma_transfer() {
-        // Start conversion by software trigger
+        // Start conversion
         T::regs().cr().modify(|reg| {
             reg.set_adstart(true);
         });
