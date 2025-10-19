@@ -391,21 +391,19 @@ impl<'d, T: Instance> Adc<'d, T> {
         sequence: impl ExactSizeIterator<Item = (&mut AnyAdcChannel<T>, SampleTime)>,
         readings: &mut [u16],
     ) {
-        self.configure_regular_sequence(rx_dma, sequence, readings).await;
+        assert!(
+            sequence.len() == readings.len(),
+            "Sequence length must be equal to readings length"
+        );
+        self.configure_regular_sequence(sequence).await;
         self.trigger_regular_conversion_and_await_result(rx_dma, readings).await;
     }
 
     pub async fn configure_regular_sequence(
         &mut self,
-        rx_dma: Peri<'_, impl RxDma<T>>,
         sequence: impl ExactSizeIterator<Item = (&mut AnyAdcChannel<T>, SampleTime)>,
-        readings: &mut [u16],
     ) {
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
-        assert!(
-            sequence.len() == readings.len(),
-            "Sequence length must be equal to readings length"
-        );
         assert!(
             sequence.len() <= 16,
             "Asynchronous read sequence cannot be more than 16 in length"
