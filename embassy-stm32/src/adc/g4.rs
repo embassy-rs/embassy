@@ -391,6 +391,16 @@ impl<'d, T: Instance> Adc<'d, T> {
         sequence: impl ExactSizeIterator<Item = (&mut AnyAdcChannel<T>, SampleTime)>,
         readings: &mut [u16],
     ) {
+        self.configure_regular_sequence(rx_dma, sequence, readings).await;
+        self.trigger_regular_conversion_and_await_result(rx_dma, readings).await;
+    }
+
+    pub async fn configure_regular_sequence(
+        &mut self,
+        rx_dma: Peri<'_, impl RxDma<T>>,
+        sequence: impl ExactSizeIterator<Item = (&mut AnyAdcChannel<T>, SampleTime)>,
+        readings: &mut [u16],
+    ) {
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
         assert!(
             sequence.len() == readings.len(),
@@ -402,7 +412,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         );
 
         // Ensure no conversions are ongoing and ADC is enabled.
-        Self::cancel_conversions();
+        Self::cancel_regular_conversions();
         self.enable();
 
         // Set sequence length
@@ -447,11 +457,12 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         T::regs().cfgr().modify(|reg| {
             reg.set_discen(false);
-            reg.set_cont(true);
+            reg.set_cont(false);
             reg.set_dmacfg(Dmacfg::ONE_SHOT);
             reg.set_dmaen(Dmaen::ENABLE);
         });
 
+        // Configure DMA for receiving data in the provided buffer.
         let request = rx_dma.request();
         let transfer = unsafe {
             Transfer::new_read(
@@ -462,8 +473,10 @@ impl<'d, T: Instance> Adc<'d, T> {
                 Default::default(),
             )
         };
+    }
 
-        // Start conversion
+    pub async fn trigger_regular_conversion_and_await_dma_transfer() {
+        // Start conversion by software trigger
         T::regs().cr().modify(|reg| {
             reg.set_adstart(true);
         });
@@ -473,11 +486,6 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         // Ensure conversions are finished.
         Self::cancel_conversions();
-
-        // Reset configuration.
-        T::regs().cfgr().modify(|reg| {
-            reg.set_cont(false);
-        });
     }
 
     // Dual ADC mode selection
@@ -499,7 +507,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         );
 
         // Ensure no conversions are ongoing and ADC is enabled.
-        Self::cancel_conversions();
+        Self::cancel_regular_conversions();
+        Self::cancel_injected_conversions();
         self.enable();
 
         // Set sequence length
@@ -600,12 +609,21 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    fn cancel_conversions() {
+    fn cancel_regular_conversions() {
         if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
             T::regs().cr().modify(|reg| {
                 reg.set_adstp(Adstp::STOP);
             });
             while T::regs().cr().read().adstart() {}
+        }
+    }
+
+    fn cancel_injecteed_conversions() {
+        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
+            T::regs().cr().modify(|reg| {
+                reg.set_jadstp(Jadstp::STOP);
+            });
+            while T::regs().cr().read().jadstart() {}
         }
     }
 }
