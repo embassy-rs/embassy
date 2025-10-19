@@ -17,7 +17,7 @@
   //"rust-analyzer.cargo.target": "thumbv8m.main-none-eabihf",
   "rust-analyzer.cargo.features": [
     // Comment out these features when working on the examples. Most example crates do not have any cargo features.
-    "stm32f446re",
+    "stm32f107rb",
     "time-driver-any",
     "unstable-pac",
     "exti",

@@ -1,7 +1,7 @@
 /// STM32H50 series flash impl. See RM0492
 use core::{
     ptr::write_volatile,
-    sync::atomic::{fence, Ordering},
+    sync::atomic::{Ordering, fence},
 };
 
 use cortex_m::interrupt;

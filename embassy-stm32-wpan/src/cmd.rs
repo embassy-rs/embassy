@@ -1,7 +1,7 @@
 use core::ptr;
 
-use crate::consts::TlPacketType;
 use crate::PacketHeader;
+use crate::consts::TlPacketType;
 
 #[derive(Copy, Clone)]
 #[repr(C, packed)]

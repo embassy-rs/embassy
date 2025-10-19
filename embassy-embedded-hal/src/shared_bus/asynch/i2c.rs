@@ -26,8 +26,8 @@ use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::mutex::Mutex;
 use embedded_hal_async::i2c;
 
-use crate::shared_bus::I2cDeviceError;
 use crate::SetConfig;
+use crate::shared_bus::I2cDeviceError;
 
 /// I2C device on a shared bus.
 pub struct I2cDevice<'a, M: RawMutex, BUS> {
@@ -41,6 +41,12 @@ impl<'a, M: RawMutex, BUS> I2cDevice<'a, M, BUS> {
     }
 }
 
+impl<'a, M: RawMutex, BUS> Clone for I2cDevice<'a, M, BUS> {
+    fn clone(&self) -> Self {
+        Self { bus: self.bus }
+    }
+}
+
 impl<'a, M: RawMutex, BUS> i2c::ErrorType for I2cDevice<'a, M, BUS>
 where
     BUS: i2c::ErrorType,
@@ -50,8 +56,8 @@ where
 
 impl<M, BUS> i2c::I2c for I2cDevice<'_, M, BUS>
 where
-    M: RawMutex + 'static,
-    BUS: i2c::I2c + 'static,
+    M: RawMutex,
+    BUS: i2c::I2c,
 {
     async fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), I2cDeviceError<BUS::Error>> {
         let mut bus = self.bus.lock().await;
@@ -113,6 +119,18 @@ impl<'a, M: RawMutex, BUS: SetConfig> I2cDeviceWithConfig<'a, M, BUS> {
     }
 }
 
+impl<'a, M: RawMutex, BUS: SetConfig> Clone for I2cDeviceWithConfig<'a, M, BUS>
+where
+    BUS::Config: Clone,
+{
+    fn clone(&self) -> Self {
+        Self {
+            bus: self.bus,
+            config: self.config.clone(),
+        }
+    }
+}
+
 impl<'a, M, BUS> i2c::ErrorType for I2cDeviceWithConfig<'a, M, BUS>
 where
     BUS: i2c::ErrorType,
@@ -124,8 +142,8 @@ where
 
 impl<M, BUS> i2c::I2c for I2cDeviceWithConfig<'_, M, BUS>
 where
-    M: RawMutex + 'static,
-    BUS: i2c::I2c + SetConfig + 'static,
+    M: RawMutex,
+    BUS: i2c::I2c + SetConfig,
 {
     async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), I2cDeviceError<BUS::Error>> {
         let mut bus = self.bus.lock().await;

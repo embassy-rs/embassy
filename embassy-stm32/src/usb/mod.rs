@@ -108,8 +108,11 @@ fn common_init<T: Instance>() {
         critical_section::with(|_| {
             crate::pac::PWR.svmcr().modify(|w| {
                 w.set_usv(crate::pac::pwr::vals::Usv::B_0X1);
-                // w.set_uvmen(true);
-            })
+            });
+            crate::pac::PWR.vosr().modify(|w| {
+                w.set_vdd11usbdis(false);
+                w.set_usbpwren(true);
+            });
         });
 
         // Wait for USB power to stabilize
@@ -119,7 +122,6 @@ fn common_init<T: Instance>() {
         #[cfg(peri_usb_otg_hs)]
         {
             crate::pac::PWR.vosr().modify(|w| {
-                w.set_usbpwren(true);
                 w.set_usbboosten(true);
             });
             while !crate::pac::PWR.vosr().read().usbboostrdy() {}

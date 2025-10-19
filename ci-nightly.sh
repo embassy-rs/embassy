@@ -8,19 +8,4 @@ if [[ -z "${CARGO_TARGET_DIR}" ]]; then
     export CARGO_TARGET_DIR=target_ci
 fi
 
-cargo batch  \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features nightly \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features nightly,log \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features nightly,defmt \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv6m-none-eabi --features nightly,defmt \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv6m-none-eabi --features nightly,defmt,arch-cortex-m,executor-thread,executor-interrupt \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features nightly,arch-cortex-m \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features nightly,arch-cortex-m,executor-thread \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features nightly,arch-cortex-m,executor-interrupt \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target thumbv7em-none-eabi --features nightly,arch-cortex-m,executor-thread,executor-interrupt \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target riscv32imac-unknown-none-elf --features nightly,arch-riscv32 \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target riscv32imac-unknown-none-elf --features nightly,arch-riscv32,executor-thread \
-    --- build --release --manifest-path examples/nrf52840-rtic/Cargo.toml --target thumbv7em-none-eabi --artifact-dir out/examples/nrf52840-rtic \
-    --- build --release --manifest-path embassy-executor/Cargo.toml --target armv7a-none-eabi --features nightly,arch-cortex-ar,executor-thread \
-
-RUSTFLAGS="$RUSTFLAGS -C target-cpu=atmega328p" cargo build --release --manifest-path embassy-executor/Cargo.toml --target avr-none -Z build-std=core,alloc --features nightly,arch-avr,avr-device/atmega328p
+cargo embassy-devtool build --group nightly

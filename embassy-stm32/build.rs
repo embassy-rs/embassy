@@ -9,12 +9,33 @@ use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use stm32_metapac::metadata::ir::BitOffset;
 use stm32_metapac::metadata::{
-    MemoryRegion, MemoryRegionKind, PeripheralRccKernelClock, PeripheralRccRegister, PeripheralRegisters, StopMode,
-    ALL_CHIPS, ALL_PERIPHERAL_VERSIONS, METADATA,
+    ALL_CHIPS, ALL_PERIPHERAL_VERSIONS, METADATA, MemoryRegion, MemoryRegionKind, PeripheralRccKernelClock,
+    PeripheralRccRegister, PeripheralRegisters, StopMode,
 };
 
 #[path = "./build_common.rs"]
 mod common;
+
+/// Helper function to handle peripheral versions with underscores.
+/// For a version like "v1_foo_bar", this generates all prefix combinations:
+/// - "kind_v1"
+/// - "kind_v1_foo"
+/// - "kind_v1_foo_bar"
+fn foreach_version_cfg(
+    cfgs: &mut common::CfgSet,
+    kind: &str,
+    version: &str,
+    mut cfg_fn: impl FnMut(&mut common::CfgSet, &str),
+) {
+    let parts: Vec<&str> = version.split('_').collect();
+
+    // Generate all possible prefix combinations
+    for i in 1..=parts.len() {
+        let partial_version = parts[0..i].join("_");
+        let cfg_name = format!("{}_{}", kind, partial_version);
+        cfg_fn(cfgs, &cfg_name);
+    }
+}
 
 fn main() {
     let mut cfgs = common::CfgSet::new();
@@ -38,14 +59,18 @@ fn main() {
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
             cfgs.enable(r.kind);
-            cfgs.enable(format!("{}_{}", r.kind, r.version));
+            foreach_version_cfg(&mut cfgs, r.kind, r.version, |cfgs, cfg_name| {
+                cfgs.enable(cfg_name);
+            });
         }
     }
 
     for &(kind, versions) in ALL_PERIPHERAL_VERSIONS.iter() {
         cfgs.declare(kind);
         for &version in versions.iter() {
-            cfgs.declare(format!("{}_{}", kind, version));
+            foreach_version_cfg(&mut cfgs, kind, version, |cfgs, cfg_name| {
+                cfgs.declare(cfg_name);
+            });
         }
     }
 
@@ -80,7 +105,9 @@ fn main() {
             }
             (false, false) => {
                 if METADATA.memory.len() != 1 {
-                    panic!("Chip supports single and dual bank configuration. No Cargo feature to select one is enabled. Use the 'single-bank' or 'dual-bank' feature to make your selection")
+                    panic!(
+                        "Chip supports single and dual bank configuration. No Cargo feature to select one is enabled. Use the 'single-bank' or 'dual-bank' feature to make your selection"
+                    )
                 }
                 METADATA.memory[0]
             }
@@ -1366,9 +1393,53 @@ fn main() {
                         })
                     }
 
-                    g.extend(quote! {
-                        pin_trait_impl!(#tr, #peri, #pin_name, #af);
-                    })
+                    let pin_trait_impl = if let Some(afio) = &p.afio {
+                        let values = afio
+                            .values
+                            .iter()
+                            .filter(|v| v.pins.contains(&pin.pin))
+                            .map(|v| v.value)
+                            .collect::<Vec<_>>();
+
+                        if values.is_empty() {
+                            None
+                        } else {
+                            let reg = format_ident!("{}", afio.register.to_lowercase());
+                            let setter = format_ident!("set_{}", afio.field.to_lowercase());
+                            let type_and_values = if is_bool_field("AFIO", afio.register, afio.field) {
+                                let values = values.iter().map(|&v| v > 0);
+                                quote!(AfioRemapBool, [#(#values),*])
+                            } else {
+                                quote!(AfioRemap, [#(#values),*])
+                            };
+
+                            Some(quote! {
+                                pin_trait_afio_impl!(#tr, #peri, #pin_name, {#reg, #setter, #type_and_values});
+                            })
+                        }
+                    } else {
+                        let peripherals_with_afio = [
+                            "CAN",
+                            "CEC",
+                            "ETH",
+                            "I2C",
+                            "SPI",
+                            "SUBGHZSPI",
+                            "USART",
+                            "UART",
+                            "LPUART",
+                            "TIM",
+                        ];
+                        let not_applicable = if peripherals_with_afio.iter().any(|&x| p.name.starts_with(x)) {
+                            quote!(, crate::gpio::AfioRemapNotApplicable)
+                        } else {
+                            quote!()
+                        };
+
+                        Some(quote!(pin_trait_impl!(#tr, #peri, #pin_name, #af #not_applicable);))
+                    };
+
+                    g.extend(pin_trait_impl);
                 }
 
                 // ADC is special
@@ -1563,17 +1634,7 @@ fn main() {
                             let register = format_ident!("{}", remap_info.register.to_lowercase());
                             let setter = format_ident!("set_{}", remap_info.field.to_lowercase());
 
-                            let field_metadata = METADATA
-                                .peripherals
-                                .iter()
-                                .filter(|p| p.name == "SYSCFG")
-                                .flat_map(|p| p.registers.as_ref().unwrap().ir.fieldsets.iter())
-                                .filter(|f| f.name.eq_ignore_ascii_case(remap_info.register))
-                                .flat_map(|f| f.fields.iter())
-                                .find(|f| f.name.eq_ignore_ascii_case(remap_info.field))
-                                .unwrap();
-
-                            let value = if field_metadata.bit_size == 1 {
+                            let value = if is_bool_field("SYSCFG", &remap_info.register, &remap_info.field) {
                                 let bool_value = format_ident!("{}", remap_info.value > 0);
                                 quote!(#bool_value)
                             } else {
@@ -1599,7 +1660,7 @@ fn main() {
     for e in rcc_registers.ir.enums {
         fn is_rcc_name(e: &str) -> bool {
             match e {
-                "Pllp" | "Pllq" | "Pllr" | "Pllm" | "Plln" | "Prediv1" | "Prediv2" => true,
+                "Pllp" | "Pllq" | "Pllr" | "Plldivst" | "Pllm" | "Plln" | "Prediv1" | "Prediv2" | "Hpre5" => true,
                 "Timpre" | "Pllrclkpre" => false,
                 e if e.ends_with("pre") || e.ends_with("pres") || e.ends_with("div") || e.ends_with("mul") => true,
                 _ => false,
@@ -2274,4 +2335,18 @@ fn gcd(a: u32, b: u32) -> u32 {
         return a;
     }
     gcd(b, a % b)
+}
+
+fn is_bool_field(peripheral: &str, register: &str, field: &str) -> bool {
+    let field_metadata = METADATA
+        .peripherals
+        .iter()
+        .filter(|p| p.name == peripheral)
+        .flat_map(|p| p.registers.as_ref().unwrap().ir.fieldsets.iter())
+        .filter(|f| f.name.eq_ignore_ascii_case(register))
+        .flat_map(|f| f.fields.iter())
+        .find(|f| f.name.eq_ignore_ascii_case(field))
+        .unwrap();
+
+    field_metadata.bit_size == 1
 }

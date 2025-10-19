@@ -2,18 +2,18 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::PeripheralType;
 use embassy_usb_driver::{EndpointAddress, EndpointAllocError, EndpointType, Event, Unsupported};
-use embassy_usb_synopsys_otg::otg_v1::vals::Dspd;
-use embassy_usb_synopsys_otg::otg_v1::Otg;
 pub use embassy_usb_synopsys_otg::Config;
+use embassy_usb_synopsys_otg::otg_v1::Otg;
+use embassy_usb_synopsys_otg::otg_v1::vals::Dspd;
 use embassy_usb_synopsys_otg::{
-    on_interrupt as on_interrupt_impl, Bus as OtgBus, ControlPipe, Driver as OtgDriver, Endpoint, In, OtgInstance, Out,
-    PhyType, State,
+    Bus as OtgBus, ControlPipe, Driver as OtgDriver, Endpoint, In, OtgInstance, Out, PhyType, State,
+    on_interrupt as on_interrupt_impl,
 };
 
 use crate::gpio::{AfType, OutputType, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::{self, RccPeripheral};
-use crate::{interrupt, Peri};
+use crate::{Peri, interrupt};
 
 const MAX_EP_COUNT: usize = 9;
 
@@ -34,7 +34,7 @@ macro_rules! config_ulpi_pins {
     ($($pin:ident),*) => {
                 critical_section::with(|_| {
             $(
-                $pin.set_as_af($pin.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+                set_as_af!($pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
             )*
         })
     };
@@ -68,8 +68,8 @@ impl<'d, T: Instance> Driver<'d, T> {
         ep_out_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        dp.set_as_af(dp.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        dm.set_as_af(dm.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
 
         let regs = T::regs();
 
@@ -107,8 +107,8 @@ impl<'d, T: Instance> Driver<'d, T> {
         // For STM32U5 High speed pins need to be left in analog mode
         #[cfg(not(any(all(stm32u5, peri_usb_otg_hs), all(stm32wba, peri_usb_otg_hs))))]
         {
-            _dp.set_as_af(_dp.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
-            _dm.set_as_af(_dm.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            set_as_af!(_dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            set_as_af!(_dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
         }
 
         let instance = OtgInstance {
@@ -315,29 +315,34 @@ impl<'d, T: Instance> Bus<'d, T> {
 
         #[cfg(all(stm32u5, peri_usb_otg_hs))]
         {
-            crate::pac::SYSCFG.otghsphycr().modify(|w| {
-                w.set_en(true);
-            });
-
             critical_section::with(|_| {
                 crate::pac::RCC.ahb2enr1().modify(|w| {
                     w.set_usb_otg_hsen(true);
                     w.set_usb_otg_hs_phyen(true);
                 });
             });
+
+            crate::pac::SYSCFG.otghsphycr().modify(|w| {
+                w.set_en(true);
+            });
         }
 
         #[cfg(all(stm32wba, peri_usb_otg_hs))]
         {
-            crate::pac::SYSCFG.otghsphycr().modify(|w| {
-                w.set_en(true);
-            });
-
             critical_section::with(|_| {
                 crate::pac::RCC.ahb2enr().modify(|w| {
                     w.set_usb_otg_hsen(true);
-                    w.set_otghsphyen(true);
+                    w.set_usb_otg_hs_phyen(true);
                 });
+            });
+
+            crate::pac::SYSCFG.otghsphytuner2().modify(|w| {
+                w.set_compdistune(0b010);
+                w.set_sqrxtune(0b000);
+            });
+
+            crate::pac::SYSCFG.otghsphycr().modify(|w| {
+                w.set_en(true);
             });
         }
 
@@ -355,7 +360,7 @@ impl<'d, T: Instance> Bus<'d, T> {
         match core_id {
             0x0000_1200 | 0x0000_1100 | 0x0000_1000 => self.inner.config_v1(),
             0x0000_2000 | 0x0000_2100 | 0x0000_2300 | 0x0000_3000 | 0x0000_3100 => self.inner.config_v2v3(),
-            0x0000_5000 => self.inner.config_v5(),
+            0x0000_5000 | 0x0000_6100 => self.inner.config_v5(),
             _ => unimplemented!("Unknown USB core id {:X}", core_id),
         }
     }

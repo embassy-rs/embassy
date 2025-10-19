@@ -29,7 +29,7 @@
 //! #[cortex_m_rt::entry]
 //! fn main() -> ! {
 //!     Executor::take().run(|spawner| {
-//!         unwrap!(spawner.spawn(async_main(spawner)));
+//!         spawner.spawn(unwrap!(async_main(spawner)));
 //!     });
 //! }
 //!
@@ -56,13 +56,13 @@
 
 use core::arch::asm;
 use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 
 use cortex_m::peripheral::SCB;
 use embassy_executor::*;
 
 use crate::interrupt;
-use crate::time_driver::{get_driver, RtcDriver};
+use crate::time_driver::{RtcDriver, get_driver};
 
 const THREAD_PENDER: usize = usize::MAX;
 

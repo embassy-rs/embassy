@@ -8,7 +8,7 @@ use embassy_net::{Ipv4Address, Ipv4Cidr, StackResources};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue};
 use embassy_stm32::peripherals::ETH;
 use embassy_stm32::rng::Rng;
-use embassy_stm32::{bind_interrupts, eth, peripherals, rng, Config};
+use embassy_stm32::{Config, bind_interrupts, eth, peripherals, rng};
 use embassy_time::Timer;
 use heapless::Vec;
 use static_cell::StaticCell;
@@ -41,6 +41,8 @@ async fn main(spawner: Spawner) -> ! {
             divp: Some(PllDiv::DIV2),
             divq: None,
             divr: None,
+            divs: None,
+            divt: None,
         });
         config.rcc.sys = Sysclk::PLL1_P; // 400 Mhz
         config.rcc.ahb_pre = AHBPrescaler::DIV2; // 200 Mhz
@@ -92,7 +94,7 @@ async fn main(spawner: Spawner) -> ! {
     let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
 
     // Launch network task
-    unwrap!(spawner.spawn(net_task(runner)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     // Ensure DHCP configuration is up before trying connect
     //stack.wait_config_up().await;

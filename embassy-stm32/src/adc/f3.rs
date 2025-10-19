@@ -6,7 +6,7 @@ use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::time::Hertz;
-use crate::{interrupt, rcc, Peri};
+use crate::{Peri, interrupt, rcc};
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;

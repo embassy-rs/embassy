@@ -4,7 +4,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{AfType, Flex, OutputType, Speed};
-use embassy_stm32::time::{khz, Hertz};
+use embassy_stm32::time::{Hertz, khz};
 use embassy_stm32::timer::low_level::{OutputCompareMode, Timer as LLTimer};
 use embassy_stm32::timer::{Ch1, Ch2, Ch3, Ch4, Channel, GeneralInstance32bit4Channel, TimerPin};
 use embassy_stm32::{Config, Peri};

@@ -1,11 +1,11 @@
 #![macro_use]
 
 pub use defmt::*;
+use embassy_stm32::Config;
 #[allow(unused)]
 use embassy_stm32::rcc::*;
 #[allow(unused)]
 use embassy_stm32::time::Hertz;
-use embassy_stm32::Config;
 use {defmt_rtt as _, panic_probe as _};
 
 #[cfg(feature = "stm32f103c8")]
@@ -103,7 +103,7 @@ define_peris!(
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
     @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
 );
-#[cfg(feature = "stm32f103c8")]
+#[cfg(any(feature = "stm32f100rd", feature = "stm32f103c8", feature = "stm32f107vc"))]
 define_peris!(
     UART = USART1, UART_TX = PA9, UART_RX = PA10, UART_TX_DMA = DMA1_CH4, UART_RX_DMA = DMA1_CH5,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
@@ -681,6 +681,8 @@ pub fn config() -> Config {
             divp: Some(PllDiv::DIV2),  // 600Mhz
             divq: Some(PllDiv::DIV25), // 48Mhz
             divr: None,
+            divs: None,
+            divt: None,
         });
         config.rcc.sys = Sysclk::PLL1_P; // 600 Mhz
         config.rcc.ahb_pre = AHBPrescaler::DIV2; // 300 Mhz
