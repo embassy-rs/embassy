@@ -5,7 +5,7 @@ use pac::adc::vals::{Adcaldif, Difsel, Exten};
 #[cfg(stm32g4)]
 pub use pac::adc::vals::{Adcaldif, Difsel, Exten, Rovsm, Trovs};
 pub use pac::adccommon::vals::Presc;
-pub use stm32_metapac::adc::vals::{Adstp, Dmacfg, Dmaen};
+pub use stm32_metapac::adc::vals::{Jadstp, Adstp, Dmacfg, Dmaen};
 pub use stm32_metapac::adccommon::vals::Dual;
 
 use super::{Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, blocking_delay_us};
@@ -617,7 +617,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    fn cancel_injecteed_conversions() {
+    fn cancel_injected_conversions() {
         if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
             T::regs().cr().modify(|reg| {
                 reg.set_jadstp(Jadstp::STOP);
