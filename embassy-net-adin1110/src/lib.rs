@@ -17,9 +17,9 @@ mod phy;
 mod regs;
 
 use ch::driver::LinkState;
-pub use crc32::ETH_FCS;
 use crc8::crc8;
-use embassy_futures::select::{select, Either};
+pub use crc32::ETH_FCS;
+use embassy_futures::select::{Either, select};
 use embassy_net_driver_channel as ch;
 use embassy_time::Timer;
 use embedded_hal_1::digital::OutputPin;

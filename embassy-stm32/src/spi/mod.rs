@@ -6,15 +6,15 @@ use core::ptr;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
-pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
+pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
 
-use crate::dma::{word, ChannelAndRequest};
+use crate::Peri;
+use crate::dma::{ChannelAndRequest, word};
 use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
-use crate::pac::spi::{regs, vals, Spi as Regs};
+use crate::pac::spi::{Spi as Regs, regs, vals};
 use crate::rcc::{RccInfo, SealedRccPeripheral};
 use crate::time::Hertz;
-use crate::Peri;
 
 /// SPI error.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]

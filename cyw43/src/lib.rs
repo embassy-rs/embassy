@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 #![allow(async_fn_in_trait)]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![deny(unused_must_use)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]

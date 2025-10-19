@@ -1,7 +1,7 @@
 //! MIDI class implementation.
 
-use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use crate::Builder;
+use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 
 /// This should be used as `device_class` when building the `UsbDevice`.
 pub const USB_AUDIO_CLASS: u8 = 0x01;

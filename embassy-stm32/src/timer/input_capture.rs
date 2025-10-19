@@ -8,11 +8,11 @@ use core::task::{Context, Poll};
 use super::low_level::{CountingMode, FilterValue, InputCaptureMode, InputTISelection, Timer};
 use super::{CaptureCompareInterruptHandler, Channel, GeneralInstance4Channel, TimerPin};
 pub use super::{Ch1, Ch2, Ch3, Ch4};
+use crate::Peri;
 use crate::gpio::{AfType, AnyPin, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::time::Hertz;
 use crate::timer::TimerChannel;
-use crate::Peri;
 
 /// Capture pin wrapper.
 ///

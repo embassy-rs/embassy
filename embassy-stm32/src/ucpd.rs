@@ -19,8 +19,8 @@ use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
-use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::PeripheralType;
+use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::{ChannelAndRequest, TransferOptions};
@@ -28,7 +28,7 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk, Txmode};
 pub use crate::pac::ucpd::vals::{Phyccsel as CcSel, Rxordset, TypecVstateCc as CcVState};
 use crate::rcc::{self, RccPeripheral};
-use crate::{interrupt, Peri};
+use crate::{Peri, interrupt};
 
 pub(crate) fn init(
     _cs: critical_section::CriticalSection,

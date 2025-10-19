@@ -22,7 +22,7 @@ use core::marker::PhantomData;
 #[allow(unused)]
 #[cfg(not(any(adc_f3v3, adc_wba)))]
 pub use _version::*;
-use embassy_hal_internal::{impl_peripheral, PeripheralType};
+use embassy_hal_internal::{PeripheralType, impl_peripheral};
 #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
 use embassy_sync::waitqueue::AtomicWaker;
 

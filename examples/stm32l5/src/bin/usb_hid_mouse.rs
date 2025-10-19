@@ -5,11 +5,11 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::usb::Driver;
-use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
+use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_time::Timer;
+use embassy_usb::Builder;
 use embassy_usb::class::hid::{HidWriter, ReportId, RequestHandler, State};
 use embassy_usb::control::OutResponse;
-use embassy_usb::Builder;
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
 

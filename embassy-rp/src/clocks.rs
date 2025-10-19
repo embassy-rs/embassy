@@ -72,8 +72,8 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use pac::clocks::vals::*;
 
 use crate::gpio::{AnyPin, SealedPin};
-use crate::pac::common::{Reg, RW};
-use crate::{pac, reset, Peri};
+use crate::pac::common::{RW, Reg};
+use crate::{Peri, pac, reset};
 
 // NOTE: all gpin handling is commented out for future reference.
 // gpin is not usually safe to use during the boot init() call, so it won't
