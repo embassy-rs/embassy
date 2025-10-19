@@ -2,7 +2,7 @@
 
 use core::marker::PhantomData;
 
-pub use stm32_metapac::timer::vals::{Ckd, Ossi, Ossr};
+pub use stm32_metapac::timer::vals::{Ckd, Mms2, Ossi, Ossr};
 
 use super::low_level::{CountingMode, OutputPolarity, Timer};
 use super::simple_pwm::PwmPin;
@@ -90,6 +90,11 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         this.inner.set_autoreload_preload(true);
 
         this
+    }
+
+    /// Set Master Slave Mode 2
+    pub fn set_mms2(&mut self, mms2: Mms2) {
+        self.inner.set_mms2_selection(mms2);
     }
 
     /// Sets the idle output state for the given channels.

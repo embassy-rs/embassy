@@ -751,6 +751,10 @@ impl<'d, T: AdvancedInstance4Channel> Timer<'d, T> {
             .modify(|w| w.set_ccne(channel.index(), enable));
     }
 
+    /// Set master mode selection 2
+    pub fn set_mms2_selection(&self, mms2: vals::Mms2) {
+        self.regs_advanced().cr2().modify(|w| w.set_mms2(mms2));
+    }
     /// Set Output Idle State
     pub fn set_ois(&self, channel: Channel, val: bool) {
         self.regs_advanced().cr2().modify(|w| w.set_ois(channel.index(), val));
