@@ -32,6 +32,7 @@ use embedded_io::Write as bWrite;
 use embedded_io_async::Write;
 use heapless::Vec;
 use panic_probe as _;
+use pca9535::{GPIOBank, Pca9535Immediate, StandardExpanderInterface};
 use static_cell::StaticCell;
 
 bind_interrupts!(struct Irqs {
@@ -77,7 +78,7 @@ async fn main(spawner: Spawner) {
             mul: PllMul::MUL10,
             divp: Some(PllDiv::DIV2),
             divq: Some(PllDiv::DIV2),
-            divr: None,
+            divr: Some(PllDiv::DIV1),
         });
         config.rcc.hsi48 = Some(Hsi48Config::default());
         config.rcc.msis = Some(Msirange::RANGE_48MHZ);
@@ -90,15 +91,8 @@ async fn main(spawner: Spawner) {
 
     defmt::println!("Setup IO pins");
 
-    // Setup LEDs
-    // TODO add pca9535 crate
-    // let _led_uc1_green = Output::new(dp.PC13, Level::Low, Speed::Low); // expander IO1 1
-    // let mut led_uc1_red = Output::new(dp.PE2, Level::High, Speed::Low); // expander IO1 2
-    // let led_uc2_green = Output::new(dp.PE6, Level::High, Speed::Low); // expander IO1 3
-    // let _led_uc2_red = Output::new(dp.PG15, Level::High, Speed::Low); // expander IO1 4
-
     // Setup I2C pins
-    let _temp_sens_i2c = I2c::new(
+    let i2c_bus = I2c::new(
         dp.I2C1,
         dp.PB6,
         dp.PB7,
@@ -107,6 +101,15 @@ async fn main(spawner: Spawner) {
         dp.GPDMA1_CH8,
         I2C_Config::default(),
     );
+
+    // Setup LEDs
+    let mut expander = Pca9535Immediate::new(i2c_bus, 0x21);
+    expander.pin_into_output(GPIOBank::Bank1, 2).unwrap();
+
+    // let _led_uc1_green = Output::new(dp.PC13, Level::Low, Speed::Low); // expander IO1 1
+    // let mut led_uc1_red = Output::new(dp.PE2, Level::High, Speed::Low); // expander IO1 2
+    // let led_uc2_green = Output::new(dp.PE6, Level::High, Speed::Low); // expander IO1 3
+    // let _led_uc2_red = Output::new(dp.PG15, Level::High, Speed::Low); // expander IO1 4
 
     // Setup IO and SPI for the SPE chip
     let spe_reset_n = Output::new(dp.PA0, Level::Low, Speed::Low);
@@ -186,7 +189,7 @@ async fn main(spawner: Spawner) {
                     break;
                 }
             };
-            // led_uc1_red.set_low();
+            expander.pin_set_low(GPIOBank::Bank1, 2).unwrap();
 
             let status_line = "HTTP/1.1 200 OK";
             let contents = PAGE;
@@ -213,7 +216,7 @@ async fn main(spawner: Spawner) {
                 break;
             }
 
-            // led_uc1_red.set_high();
+            expander.pin_set_high(GPIOBank::Bank1, 2).unwrap();
         }
     }
 }

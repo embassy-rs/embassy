@@ -59,6 +59,7 @@ heapless = { version = "0.8", default-features = false }
 embedded-graphics = { version = "0.8.1" }
 tinybmp = { version = "0.6.0" }
 static_cell = "2"
+pca9535 = "2.0.0"
 
 micromath = "2.0.0"
 
