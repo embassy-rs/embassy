@@ -1,11 +1,12 @@
 //! Raw Ethernet sockets.
 
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::mem;
 use core::task::{Context, Poll};
 
 use smoltcp::iface::{Interface, SocketHandle};
 use smoltcp::socket::eth;
+pub use smoltcp::socket::eth::EthMetadata;
 pub use smoltcp::socket::eth::PacketMetadata;
 pub use smoltcp::wire::{IpProtocol, IpVersion};
 
@@ -70,7 +71,7 @@ impl<'a> EthSocket<'a> {
     /// Receive a datagram.
     ///
     /// This method will wait until a datagram is received.
-    pub async fn recv(&self, buf: &mut [u8]) -> Result<usize, RecvError> {
+    pub async fn recv(&self, buf: &mut [u8]) -> Result<(usize, EthMetadata), RecvError> {
         poll_fn(move |cx| self.poll_recv(buf, cx)).await
     }
 
@@ -96,7 +97,7 @@ impl<'a> EthSocket<'a> {
     ///
     /// When no datagram is available, this method will return `Poll::Pending` and
     /// register the current task to be notified when a datagram is received.
-    pub fn poll_recv(&self, buf: &mut [u8], cx: &mut Context<'_>) -> Poll<Result<usize, RecvError>> {
+    pub fn poll_recv(&self, buf: &mut [u8], cx: &mut Context<'_>) -> Poll<Result<(usize, EthMetadata), RecvError>> {
         self.with_mut(|s, _| match s.recv_slice(buf) {
             Ok(n) => Poll::Ready(Ok(n)),
             // No data ready
@@ -138,8 +139,8 @@ impl<'a> EthSocket<'a> {
     /// Send a datagram.
     ///
     /// This method will wait until the datagram has been sent.`
-    pub fn send<'s>(&'s self, buf: &'s [u8]) -> impl Future<Output = ()> + 's {
-        poll_fn(|cx| self.poll_send(buf, cx))
+    pub fn send<'s>(&'s self, buf: &'s [u8], meta: EthMetadata) -> impl Future<Output = ()> + 's {
+        poll_fn(move |cx| self.poll_send(buf, cx, meta))
     }
 
     /// Send a datagram.
@@ -148,8 +149,8 @@ impl<'a> EthSocket<'a> {
     ///
     /// When the socket's send buffer is full, this method will return `Poll::Pending`
     /// and register the current task to be notified when the buffer has space available.
-    pub fn poll_send(&self, buf: &[u8], cx: &mut Context<'_>) -> Poll<()> {
-        self.with_mut(|s, _| match s.send_slice(buf) {
+    pub fn poll_send(&self, buf: &[u8], cx: &mut Context<'_>, meta: EthMetadata) -> Poll<()> {
+        self.with_mut(|s, _| match s.send_slice(buf, meta) {
             // Entire datagram has been sent
             Ok(()) => Poll::Ready(()),
             Err(eth::SendError::BufferFull) => {
