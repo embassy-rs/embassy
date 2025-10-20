@@ -23,19 +23,83 @@ use crate::pac::spim::vals;
 use crate::util::slice_in_ram_or;
 use crate::{interrupt, pac};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[repr(u32)]
-pub enum Frequency {
-    M32 = 32_000_000,
-    M16 = 16_000_000,
-    M8 = 8_000_000,
-    M4 = 4_000_000,
-    M2 = 2_000_000,
-    M1 = 1_000_000,
-    K500 = 500_000,
-    K250 = 250_000,
-    K125 = 125_000,
+/// SPI frequencies.
+#[repr(transparent)]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]
+pub struct Frequency(u32);
+impl Frequency {
+    #[doc = "125 kbps"]
+    pub const K125: Self = Self(0x0200_0000);
+    #[doc = "250 kbps"]
+    pub const K250: Self = Self(0x0400_0000);
+    #[doc = "500 kbps"]
+    pub const K500: Self = Self(0x0800_0000);
+    #[doc = "16 Mbps"]
+    pub const M16: Self = Self(0x0a00_0000);
+    #[doc = "1 Mbps"]
+    pub const M1: Self = Self(0x1000_0000);
+    #[doc = "32 Mbps"]
+    pub const M32: Self = Self(0x1400_0000);
+    #[doc = "2 Mbps"]
+    pub const M2: Self = Self(0x2000_0000);
+    #[doc = "4 Mbps"]
+    pub const M4: Self = Self(0x4000_0000);
+    #[doc = "8 Mbps"]
+    pub const M8: Self = Self(0x8000_0000);
+}
+
+impl Frequency {
+    #[cfg(feature = "_nrf54l")]
+    fn to_divisor(&self, clk: u32) -> u8 {
+        let frequency = match *self {
+            Self::M32 => 32_000_000,
+            Self::M16 => 16_000_000,
+            Self::M8 => 8_000_000,
+            Self::M4 => 4_000_000,
+            Self::M2 => 2_000_000,
+            Self::M1 => 1_000_000,
+            Self::K500 => 500_000,
+            Self::K250 => 250_000,
+            Self::K125 => 125_000,
+            _ => unreachable!(),
+        };
+        let divisor = (clk / frequency) as u8;
+        divisor
+    }
+}
+impl core::fmt::Debug for Frequency {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        match self.0 {
+            0x0200_0000 => f.write_str("K125"),
+            0x0400_0000 => f.write_str("K250"),
+            0x0800_0000 => f.write_str("K500"),
+            0x0a00_0000 => f.write_str("M16"),
+            0x1000_0000 => f.write_str("M1"),
+            0x1400_0000 => f.write_str("M32"),
+            0x2000_0000 => f.write_str("M2"),
+            0x4000_0000 => f.write_str("M4"),
+            0x8000_0000 => f.write_str("M8"),
+            other => core::write!(f, "0x{:02X}", other),
+        }
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for Frequency {
+    fn format(&self, f: defmt::Formatter) {
+        match self.0 {
+            0x0200_0000 => defmt::write!(f, "K125"),
+            0x0400_0000 => defmt::write!(f, "K250"),
+            0x0800_0000 => defmt::write!(f, "K500"),
+            0x0a00_0000 => defmt::write!(f, "M16"),
+            0x1000_0000 => defmt::write!(f, "M1"),
+            0x1400_0000 => defmt::write!(f, "M32"),
+            0x2000_0000 => defmt::write!(f, "M2"),
+            0x4000_0000 => defmt::write!(f, "M4"),
+            0x8000_0000 => defmt::write!(f, "M8"),
+            other => defmt::write!(f, "0x{:02X}", other),
+        }
+    }
 }
 
 #[cfg(not(feature = "_nrf54l"))]
@@ -52,6 +116,7 @@ impl Into<pac::spim::vals::Frequency> for Frequency {
             Self::K500 => Freq::K500,
             Self::K250 => Freq::K250,
             Self::K125 => Freq::K125,
+            _ => unreachable!(),
         }
     }
 }
@@ -136,6 +201,7 @@ pub struct Spim<'d> {
     r: pac::spim::Spim,
     irq: interrupt::Interrupt,
     state: &'static State,
+    #[cfg(feature = "_nrf54l")]
     clk: u32,
     _p: PhantomData<&'d ()>,
 }
@@ -242,6 +308,7 @@ impl<'d> Spim<'d> {
             r: T::regs(),
             irq: T::Interrupt::IRQ,
             state: T::state(),
+            #[cfg(feature = "_nrf54l")]
             clk: T::clk(),
             _p: PhantomData {},
         };
@@ -544,6 +611,7 @@ impl State {
 pub(crate) trait SealedInstance {
     fn regs() -> pac::spim::Spim;
     fn state() -> &'static State;
+    #[cfg(feature = "_nrf54l")]
     fn clk() -> u32;
 }
 
@@ -554,7 +622,7 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
-#[feature(cfg = "_nrf54l")]
+#[cfg(feature = "_nrf54l")]
 macro_rules! impl_spim {
     ($type:ident, $pac_type:ident, $irq:ident, $clk:expr) => {
         impl crate::spim::SealedInstance for peripherals::$type {
@@ -575,7 +643,7 @@ macro_rules! impl_spim {
     };
 }
 
-#[feature(not(cfg = "_nrf54l"))]
+#[cfg(not(feature = "_nrf54l"))]
 macro_rules! impl_spim {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::spim::SealedInstance for peripherals::$type {
@@ -585,9 +653,6 @@ macro_rules! impl_spim {
             fn state() -> &'static crate::spim::State {
                 static STATE: crate::spim::State = crate::spim::State::new();
                 &STATE
-            }
-            fn clk() -> u32 {
-                0
             }
         }
         impl crate::spim::Instance for peripherals::$type {
@@ -709,8 +774,7 @@ impl<'d> SetConfig for Spim<'d> {
         r.frequency().write(|w| w.set_frequency(frequency.into()));
         #[cfg(feature = "_nrf54l")]
         {
-            let divisor = (frequency as u32 / self.clk) as u8;
-            r.prescaler().write(|w| w.set_divisor(divisor));
+            r.prescaler().write(|w| w.set_divisor(frequency.to_divisor(self.clk)));
         }
 
         // Set over-read character
