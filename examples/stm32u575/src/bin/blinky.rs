@@ -2,14 +2,12 @@
 #![no_main]
 
 use defmt::*;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::bind_interrupts;
 use embassy_stm32::i2c::{self, Config as I2C_Config, I2c};
-use embassy_stm32::peripherals;
+use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::Timer;
-use panic_probe as _;
 use pca9535::{GPIOBank, Pca9535Immediate, StandardExpanderInterface};
+use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
