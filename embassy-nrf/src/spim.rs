@@ -13,7 +13,7 @@ use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
-pub use pac::spim::vals::{Frequency, Order as BitOrder};
+pub use pac::spim::vals::Order as BitOrder;
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::{self, AnyPin, OutputDrive, Pin as GpioPin, PselBits, SealedPin as _, convert_drive};
@@ -22,6 +22,39 @@ use crate::pac::gpio::vals as gpiovals;
 use crate::pac::spim::vals;
 use crate::util::slice_in_ram_or;
 use crate::{interrupt, pac};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u32)]
+pub enum Frequency {
+    M32 = 32_000_000,
+    M16 = 16_000_000,
+    M8 = 8_000_000,
+    M4 = 4_000_000,
+    M2 = 2_000_000,
+    M1 = 1_000_000,
+    K500 = 500_000,
+    K250 = 250_000,
+    K125 = 125_000,
+}
+
+#[cfg(not(feature = "_nrf54l"))]
+impl Into<pac::spim::vals::Frequency> for Frequency {
+    fn into(self) -> pac::spim::vals::Frequency {
+        use pac::spim::vals::Frequency as Freq;
+        match self {
+            Self::M32 => Freq::M32,
+            Self::M16 => Freq::M16,
+            Self::M8 => Freq::M8,
+            Self::M4 => Freq::M4,
+            Self::M2 => Freq::M2,
+            Self::M1 => Freq::M1,
+            Self::K500 => Freq::K500,
+            Self::K250 => Freq::K250,
+            Self::K125 => Freq::K125,
+        }
+    }
+}
 
 /// SPIM error
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,6 +136,7 @@ pub struct Spim<'d> {
     r: pac::spim::Spim,
     irq: interrupt::Interrupt,
     state: &'static State,
+    clk: u32,
     _p: PhantomData<&'d ()>,
 }
 
@@ -208,6 +242,7 @@ impl<'d> Spim<'d> {
             r: T::regs(),
             irq: T::Interrupt::IRQ,
             state: T::state(),
+            clk: T::clk(),
             _p: PhantomData {},
         };
 
@@ -238,13 +273,13 @@ impl<'d> Spim<'d> {
 
         // Set up the DMA read.
         let (rx_ptr, rx_len) = xfer_params(rx as *mut u8 as _, rx.len() as _, offset, length);
-        r.rxd().ptr().write_value(rx_ptr);
-        r.rxd().maxcnt().write(|w| w.set_maxcnt(rx_len as _));
+        r.dma().rx().ptr().write_value(rx_ptr);
+        r.dma().rx().maxcnt().write(|w| w.set_maxcnt(rx_len as _));
 
         // Set up the DMA write.
         let (tx_ptr, tx_len) = xfer_params(tx as *const u8 as _, tx.len() as _, offset, length);
-        r.txd().ptr().write_value(tx_ptr);
-        r.txd().maxcnt().write(|w| w.set_maxcnt(tx_len as _));
+        r.dma().tx().ptr().write_value(tx_ptr);
+        r.dma().tx().maxcnt().write(|w| w.set_maxcnt(tx_len as _));
 
         /*
         trace!("XFER: offset: {}, length: {}", offset, length);
@@ -259,8 +294,8 @@ impl<'d> Spim<'d> {
             r.events_started().write_value(0);
 
             // Set rx/tx buffer lengths to 0...
-            r.txd().maxcnt().write(|_| ());
-            r.rxd().maxcnt().write(|_| ());
+            r.dma().tx().maxcnt().write(|_| ());
+            r.dma().rx().maxcnt().write(|_| ());
 
             // ...and keep track of original buffer lengths...
             s.tx.store(tx_len as _, Ordering::Relaxed);
@@ -447,8 +482,14 @@ impl<'d> Spim<'d> {
             r.events_end().write_value(0);
 
             // Update DMA registers with correct rx/tx buffer sizes
-            r.rxd().maxcnt().write(|w| w.set_maxcnt(s.rx.load(Ordering::Relaxed)));
-            r.txd().maxcnt().write(|w| w.set_maxcnt(s.tx.load(Ordering::Relaxed)));
+            r.dma()
+                .rx()
+                .maxcnt()
+                .write(|w| w.set_maxcnt(s.rx.load(Ordering::Relaxed)));
+            r.dma()
+                .tx()
+                .maxcnt()
+                .write(|w| w.set_maxcnt(s.tx.load(Ordering::Relaxed)));
 
             r.intenset().write(|w| w.set_end(true));
             // ... and start actual, hopefully glitch-free transmission
@@ -503,6 +544,7 @@ impl State {
 pub(crate) trait SealedInstance {
     fn regs() -> pac::spim::Spim;
     fn state() -> &'static State;
+    fn clk() -> u32;
 }
 
 /// SPIM peripheral instance
@@ -512,6 +554,28 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
+#[feature(cfg = "_nrf54l")]
+macro_rules! impl_spim {
+    ($type:ident, $pac_type:ident, $irq:ident, $clk:expr) => {
+        impl crate::spim::SealedInstance for peripherals::$type {
+            fn regs() -> pac::spim::Spim {
+                pac::$pac_type
+            }
+            fn state() -> &'static crate::spim::State {
+                static STATE: crate::spim::State = crate::spim::State::new();
+                &STATE
+            }
+            fn clk() -> u32 {
+                $clk
+            }
+        }
+        impl crate::spim::Instance for peripherals::$type {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
+    };
+}
+
+#[feature(not(cfg = "_nrf54l"))]
 macro_rules! impl_spim {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::spim::SealedInstance for peripherals::$type {
@@ -521,6 +585,9 @@ macro_rules! impl_spim {
             fn state() -> &'static crate::spim::State {
                 static STATE: crate::spim::State = crate::spim::State::new();
                 &STATE
+            }
+            fn clk() -> u32 {
+                0
             }
         }
         impl crate::spim::Instance for peripherals::$type {
@@ -638,7 +705,13 @@ impl<'d> SetConfig for Spim<'d> {
 
         // Configure frequency.
         let frequency = config.frequency;
-        r.frequency().write(|w| w.set_frequency(frequency));
+        #[cfg(not(feature = "_nrf54l"))]
+        r.frequency().write(|w| w.set_frequency(frequency.into()));
+        #[cfg(feature = "_nrf54l")]
+        {
+            let divisor = (frequency as u32 / self.clk) as u8;
+            r.prescaler().write(|w| w.set_divisor(divisor));
+        }
 
         // Set over-read character
         let orc = config.orc;
