@@ -121,4 +121,4 @@ embedded-nal-async = "0.8.0"
 document-features = "0.2.7"
 
 [patch.crates-io]
-smoltcp = { git = "https://github.com/ususdei/smoltcp.git", branch = "ethernet_socket" }
+smoltcp = { git = "https://github.com/ususdei/smoltcp.git", rev = "c189a2e8832dc7951c7455465f61151b95bb1e21" }
