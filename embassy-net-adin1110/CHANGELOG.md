@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Added OPEN Alliance TC6 SPI protocol support
+
 ## 0.3.1 - 2025-08-26
 
 - First release with changelog.

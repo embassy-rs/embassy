@@ -1,13 +1,15 @@
+use embedded_hal_async::spi::{Operation, SpiDevice};
+use heapless::Vec;
+
 use super::Adin1110Protocol;
 use crate::crc8::crc8;
 use crate::crc32::ETH_FCS;
 use crate::fmt::Bytes;
 use crate::regs::{SpiHeader, SpiRegisters as sr};
-use crate::{AdinError, DONT_CARE_BYTE, ETH_MIN_WITHOUT_FCS_LEN, FCS_LEN, FRAME_HEADER_LEN};
-use crate::{MAX_BUFF, PORT_ID_BYTE, SPI_HEADER_CRC_LEN, SPI_HEADER_LEN, SPI_HEADER_TA_LEN, SPI_SPACE_MULTIPULE};
-use crate::{ETH_MIN_LEN, TURN_AROUND_BYTE};
-use embedded_hal_async::spi::{Operation, SpiDevice};
-use heapless::Vec;
+use crate::{
+    AdinError, DONT_CARE_BYTE, ETH_MIN_LEN, ETH_MIN_WITHOUT_FCS_LEN, FCS_LEN, FRAME_HEADER_LEN, MAX_BUFF, PORT_ID_BYTE,
+    SPI_HEADER_CRC_LEN, SPI_HEADER_LEN, SPI_HEADER_TA_LEN, SPI_SPACE_MULTIPULE, TURN_AROUND_BYTE,
+};
 
 /// Generic SPI protocol implementation for ADIN1110
 pub struct GenericSpi<SPI> {
@@ -54,10 +56,7 @@ impl<SPI: SpiDevice> Adin1110Protocol for GenericSpi<SPI> {
             rx_buf.len() - 1
         };
 
-        let mut spi_op = [
-            Operation::Write(&tx_buf),
-            Operation::Read(&mut rx_buf[0..spi_read_len]),
-        ];
+        let mut spi_op = [Operation::Write(&tx_buf), Operation::Read(&mut rx_buf[0..spi_read_len])];
 
         self.spi.transaction(&mut spi_op).await.map_err(AdinError::Spi)?;
 
@@ -246,9 +245,6 @@ impl<SPI: SpiDevice> Adin1110Protocol for GenericSpi<SPI> {
             Operation::Write(tail_data.as_slice()),
         ];
 
-        self.spi
-            .transaction(&mut transaction)
-            .await
-            .map_err(AdinError::Spi)
+        self.spi.transaction(&mut transaction).await.map_err(AdinError::Spi)
     }
 }
