@@ -23,7 +23,7 @@ use embassy_futures::select::{Either, select};
 use embassy_futures::yield_now;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Ipv4Address, Ipv4Cidr, Stack, StackResources, StaticConfigV4};
-use embassy_net_adin1110::{ADIN1110, Device, Runner};
+use embassy_net_adin1110::{ADIN1110, Device, GenericSpi, Runner};
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::i2c::{self, Config as I2C_Config, I2c};
 use embassy_stm32::mode::Async;
@@ -58,7 +58,7 @@ pub type SpeSpi = Spi<'static, Async>;
 pub type SpeSpiCs = ExclusiveDevice<SpeSpi, Output<'static>, Delay>;
 pub type SpeInt = exti::ExtiInput<'static>;
 pub type SpeRst = Output<'static>;
-pub type Adin1110T = ADIN1110<SpeSpiCs>;
+pub type Adin1110T = ADIN1110<GenericSpi<SpeSpiCs>>;
 pub type TempSensI2c = I2c<'static, Async, i2c::Master>;
 
 static TEMP: AtomicI32 = AtomicI32::new(0);
@@ -317,7 +317,7 @@ async fn temp_task(temp_dev_i2c: TempSensI2c, mut led: Output<'static>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn ethernet_task(runner: Runner<'static, SpeSpiCs, SpeInt, SpeRst>) -> ! {
+async fn ethernet_task(runner: Runner<'static, GenericSpi<SpeSpiCs>, SpeInt, SpeRst>) -> ! {
     runner.run().await
 }
 
