@@ -489,10 +489,10 @@ impl_spis!(TWISPI21, SPIS21, SERIAL21);
 impl_spis!(TWISPI22, SPIS22, SERIAL22);
 impl_spis!(TWISPI30, SPIS30, SERIAL30);
 
-impl_uarte!(TWISPI20, UARTE20, SERIAL20);
-impl_uarte!(TWISPI21, UARTE21, SERIAL21);
-impl_uarte!(TWISPI22, UARTE22, SERIAL22);
-impl_uarte!(TWISPI30, UARTE30, SERIAL30);
+impl_uarte!(SERIAL20, UARTE20, SERIAL20);
+impl_uarte!(SERIAL21, UARTE21, SERIAL21);
+impl_uarte!(SERIAL22, UARTE22, SERIAL22);
+impl_uarte!(SERIAL30, UARTE30, SERIAL30);
 
 embassy_hal_internal::interrupt_mod!(
     SWI00,
