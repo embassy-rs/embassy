@@ -391,7 +391,7 @@ pub struct Config {
     pub frame_sync_polarity: FrameSyncPolarity,
     pub frame_sync_active_level_length: word::U7,
     pub frame_sync_definition: FrameSyncDefinition,
-    pub frame_length: u8,
+    pub frame_length: u16,
     pub clock_strobe: ClockStrobe,
     pub output_drive: OutputDrive,
     pub master_clock_divider: Option<MasterClockDivider>,
