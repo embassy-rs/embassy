@@ -9,7 +9,7 @@ use defmt::*;
 use embassy_executor::Executor;
 use embassy_stm32::mode::Async;
 use embassy_stm32::time::mhz;
-use embassy_stm32::{spi, Config};
+use embassy_stm32::{Config, spi};
 use grounded::uninit::GroundedArrayCell;
 use heapless::String;
 use static_cell::StaticCell;
@@ -80,6 +80,6 @@ fn main() -> ! {
     let executor = EXECUTOR.init(Executor::new());
 
     executor.run(|spawner| {
-        unwrap!(spawner.spawn(main_task(spi)));
+        spawner.spawn(unwrap!(main_task(spi)));
     })
 }

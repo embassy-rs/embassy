@@ -7,11 +7,11 @@ use embassy_futures::join::join;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::time::mhz;
 use embassy_stm32::usb::{Driver, Instance};
-use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
+use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_time::Timer;
+use embassy_usb::Builder;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
-use embassy_usb::Builder;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {

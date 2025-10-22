@@ -14,12 +14,12 @@ mod config {
 async fn my_task(spawner: Spawner, n: u32) {
     Timer::after_secs(1).await;
     info!("Spawning self! {}", n);
-    unwrap!(spawner.spawn(my_task(spawner, n + 1)));
+    spawner.spawn(unwrap!(my_task(spawner, n + 1)));
 }
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let _p = embassy_nrf::init(Default::default());
     info!("Hello World!");
-    unwrap!(spawner.spawn(my_task(spawner, 0)));
+    spawner.spawn(unwrap!(my_task(spawner, 0)));
 }

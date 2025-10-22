@@ -4,10 +4,10 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
+use embassy_stm32::Config as StmCfg;
 use embassy_stm32::mode::Blocking;
 use embassy_stm32::qspi::enums::{AddressSize, ChipSelectHighTime, FIFOThresholdLevel, MemorySize, *};
 use embassy_stm32::qspi::{Config as QspiCfg, Instance, Qspi, TransferConfig};
-use embassy_stm32::Config as StmCfg;
 use {defmt_rtt as _, panic_probe as _};
 
 const MEMORY_PAGE_SIZE: usize = 256;
@@ -266,14 +266,14 @@ async fn main(_spawner: Spawner) -> ! {
     let p = embassy_stm32::init(config);
     info!("Embassy initialized");
 
-    let config = QspiCfg {
-        memory_size: MemorySize::_8MiB,
-        address_size: AddressSize::_24bit,
-        prescaler: 16,
-        cs_high_time: ChipSelectHighTime::_1Cycle,
-        fifo_threshold: FIFOThresholdLevel::_16Bytes,
-        sample_shifting: SampleShifting::None,
-    };
+    let mut config = QspiCfg::default();
+    config.memory_size = MemorySize::_8MiB;
+    config.address_size = AddressSize::_24bit;
+    config.prescaler = 16;
+    config.cs_high_time = ChipSelectHighTime::_1Cycle;
+    config.fifo_threshold = FIFOThresholdLevel::_16Bytes;
+    config.sample_shifting = SampleShifting::None;
+
     let driver = Qspi::new_blocking_bank1(p.QUADSPI, p.PD11, p.PD12, p.PE2, p.PD13, p.PB2, p.PB10, config);
     let mut flash = FlashMemory::new(driver);
     let flash_id = flash.read_id();

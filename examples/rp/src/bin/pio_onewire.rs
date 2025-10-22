@@ -1,4 +1,5 @@
 //! This example shows how you can use PIO to read one or more `DS18B20` one-wire temperature sensors.
+//! This uses externally powered sensors. For parasite power, see the pio_onewire_parasite.rs example.
 
 #![no_std]
 #![no_main]

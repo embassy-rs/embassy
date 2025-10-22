@@ -29,7 +29,7 @@
 //! #[cortex_m_rt::entry]
 //! fn main() -> ! {
 //!     Executor::take().run(|spawner| {
-//!         unwrap!(spawner.spawn(async_main(spawner)));
+//!         spawner.spawn(unwrap!(async_main(spawner)));
 //!     });
 //! }
 //!
@@ -56,13 +56,13 @@
 
 use core::arch::asm;
 use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 
 use cortex_m::peripheral::SCB;
 use embassy_executor::*;
 
 use crate::interrupt;
-use crate::time_driver::{get_driver, RtcDriver};
+use crate::time_driver::{RtcDriver, get_driver};
 
 const THREAD_PENDER: usize = usize::MAX;
 
@@ -124,15 +124,18 @@ pub enum StopMode {
     Stop2,
 }
 
-#[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0))]
+#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32u0))]
 use stm32_metapac::pwr::vals::Lpms;
 
-#[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0))]
+#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32u0))]
 impl Into<Lpms> for StopMode {
     fn into(self) -> Lpms {
         match self {
             StopMode::Stop1 => Lpms::STOP1,
+            #[cfg(not(stm32wba))]
             StopMode::Stop2 => Lpms::STOP2,
+            #[cfg(stm32wba)]
+            StopMode::Stop2 => Lpms::STOP1, // TODO: WBA has no STOP2?
         }
     }
 }
@@ -198,7 +201,7 @@ impl Executor {
 
     #[allow(unused_variables)]
     fn configure_stop(&mut self, stop_mode: StopMode) {
-        #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0))]
+        #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wba))]
         crate::pac::PWR.cr1().modify(|m| m.set_lpms(stop_mode.into()));
         #[cfg(stm32h5)]
         crate::pac::PWR.pmcr().modify(|v| {

@@ -2,7 +2,7 @@
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::slice;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_hal_internal::PeripheralType;
@@ -13,7 +13,7 @@ use embassy_usb_driver::{
 };
 
 use crate::interrupt::typelevel::{Binding, Interrupt};
-use crate::{interrupt, pac, peripherals, Peri, RegExt};
+use crate::{Peri, RegExt, interrupt, pac, peripherals};
 
 trait SealedInstance {
     fn regs() -> crate::pac::usb::Usb;
@@ -153,6 +153,7 @@ impl<'d, T: Instance> Driver<'d, T> {
     fn alloc_endpoint<D: Dir>(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Endpoint<'d, T, D>, driver::EndpointAllocError> {
@@ -169,12 +170,25 @@ impl<'d, T: Instance> Driver<'d, T> {
             Direction::In => &mut self.ep_in,
         };
 
-        let index = alloc.iter_mut().enumerate().find(|(i, ep)| {
-            if *i == 0 {
-                return false; // reserved for control pipe
+        let index = if let Some(addr) = ep_addr {
+            // Use the specified endpoint address
+            let requested_index = addr.index();
+            if requested_index == 0 || requested_index >= EP_COUNT {
+                return Err(EndpointAllocError);
             }
-            !ep.used
-        });
+            if alloc[requested_index].used {
+                return Err(EndpointAllocError);
+            }
+            Some((requested_index, &mut alloc[requested_index]))
+        } else {
+            // Find any available endpoint
+            alloc.iter_mut().enumerate().find(|(i, ep)| {
+                if *i == 0 {
+                    return false; // reserved for control pipe
+                }
+                !ep.used
+            })
+        };
 
         let (index, ep) = index.ok_or(EndpointAllocError)?;
         assert!(!ep.used);
@@ -299,19 +313,21 @@ impl<'d, T: Instance> driver::Driver<'d> for Driver<'d, T> {
     fn alloc_endpoint_in(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointIn, driver::EndpointAllocError> {
-        self.alloc_endpoint(ep_type, max_packet_size, interval_ms)
+        self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
     fn alloc_endpoint_out(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointOut, driver::EndpointAllocError> {
-        self.alloc_endpoint(ep_type, max_packet_size, interval_ms)
+        self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
     fn start(self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
@@ -529,11 +545,7 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
         poll_fn(|cx| {
             EP_IN_WAKERS[index].register(cx.waker());
             let val = T::dpram().ep_in_control(self.info.addr.index() - 1).read();
-            if val.enable() {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
+            if val.enable() { Poll::Ready(()) } else { Poll::Pending }
         })
         .await;
         trace!("wait_enabled IN OK");
@@ -551,11 +563,7 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
         poll_fn(|cx| {
             EP_OUT_WAKERS[index].register(cx.waker());
             let val = T::dpram().ep_out_control(self.info.addr.index() - 1).read();
-            if val.enable() {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
+            if val.enable() { Poll::Ready(()) } else { Poll::Pending }
         })
         .await;
         trace!("wait_enabled OUT OK");

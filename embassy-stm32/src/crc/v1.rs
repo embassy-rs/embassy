@@ -1,6 +1,6 @@
 use crate::pac::CRC as PAC_CRC;
 use crate::peripherals::CRC;
-use crate::{rcc, Peri};
+use crate::{Peri, rcc};
 
 /// CRC driver.
 pub struct Crc<'d> {

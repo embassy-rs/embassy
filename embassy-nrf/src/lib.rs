@@ -1,5 +1,6 @@
 #![no_std]
 #![allow(async_fn_in_trait)]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![cfg_attr(
     docsrs,
     doc = "<div style='padding:30px;background:#810;color:#fff;text-align:center;'><p>You might want to <a href='https://docs.embassy.dev/embassy-nrf'>browse the `embassy-nrf` documentation on the Embassy website</a> instead.</p><p>The documentation here on `docs.rs` is built for a single chip only (nRF52840 in particular), while on the Embassy website you can pick your exact chip from the top menu. Available peripherals and their APIs change depending on the chip.</p></div>\n\n"
@@ -98,8 +99,12 @@ pub mod ipc;
     feature = "_nrf5340-app"
 ))]
 pub mod nfct;
-#[cfg(not(feature = "_nrf54l"))] // TODO
+#[cfg(not(feature = "_nrf54l"))]
 pub mod nvmc;
+#[cfg(feature = "nrf54l15-app-s")]
+pub mod rramc;
+#[cfg(feature = "nrf54l15-app-s")]
+pub use rramc as nvmc;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(
     feature = "nrf52810",
@@ -133,12 +138,24 @@ pub mod qspi;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(feature = "_nrf91", feature = "_nrf5340-app")))]
 pub mod radio;
+
+#[cfg(any(
+    feature = "nrf52811",
+    feature = "nrf52820",
+    feature = "nrf52833",
+    feature = "nrf52840",
+    feature = "_nrf5340-net"
+))]
+#[cfg(feature = "_net-driver")]
+pub mod embassy_net_802154_driver;
+
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(feature = "_nrf5340")]
 pub mod reset;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod rng;
+pub mod rtc;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(feature = "_nrf51", feature = "nrf52820", feature = "_nrf5340-net")))]
 pub mod saadc;
@@ -148,7 +165,6 @@ pub mod spim;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod spis;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod temp;
 #[cfg(not(feature = "_nrf54l"))] // TODO
@@ -170,7 +186,6 @@ pub mod uarte;
     feature = "nrf52840"
 ))]
 pub mod usb;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod wdt;
 
 // This mod MUST go last, so that it sees all the `impl_foo!` macros
@@ -192,7 +207,7 @@ mod chip;
 /// Macro to bind interrupts to handlers.
 ///
 /// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
-/// and implements the right [`Binding`]s for it. You can pass this struct to drivers to
+/// and implements the right [crate::interrupt::typelevel::Binding]s for it. You can pass this struct to drivers to
 /// prove at compile-time that the right interrupts have been bound.
 ///
 /// Example of how to bind one interrupt:
@@ -237,14 +252,16 @@ macro_rules! bind_interrupts {
 
         $(
             #[allow(non_snake_case)]
-            #[no_mangle]
+            #[unsafe(no_mangle)]
             $(#[cfg($cond_irq)])?
             unsafe extern "C" fn $irq() {
-                $(
-                    $(#[cfg($cond_handler)])?
-                    <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
+                unsafe {
+                    $(
+                        $(#[cfg($cond_handler)])?
+                        <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
 
-                )*
+                    )*
+                }
             }
 
             $(#[cfg($cond_irq)])?
@@ -267,7 +284,7 @@ macro_rules! bind_interrupts {
 pub use chip::pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use chip::pac;
-pub use chip::{peripherals, Peripherals, EASY_DMA_SIZE};
+pub use chip::{EASY_DMA_SIZE, Peripherals, peripherals};
 pub use embassy_hal_internal::{Peri, PeripheralType};
 
 pub use crate::chip::interrupt;
@@ -389,9 +406,10 @@ pub mod config {
     /// Settings for the internal capacitors.
     #[cfg(feature = "nrf5340-app-s")]
     pub struct InternalCapacitors {
-        /// Config for the internal capacitors on pins XC1 and XC2.
+        /// Config for the internal capacitors on pins XC1 and XC2. Pass `None` to not touch it.
         pub hfxo: Option<HfxoCapacitance>,
-        /// Config for the internal capacitors between pins XL1 and XL2.
+        /// Config for the internal capacitors between pins XL1 and XL2. Pass `None` to not touch
+        /// it.
         pub lfxo: Option<LfxoCapacitance>,
     }
 
@@ -399,6 +417,8 @@ pub mod config {
     #[cfg(feature = "nrf5340-app-s")]
     #[derive(Copy, Clone)]
     pub enum HfxoCapacitance {
+        /// Use external capacitors
+        External,
         /// 7.0 pF
         _7_0pF,
         /// 7.5 pF
@@ -458,8 +478,9 @@ pub mod config {
     #[cfg(feature = "nrf5340-app-s")]
     impl HfxoCapacitance {
         /// The capacitance value times two.
-        pub(crate) const fn value2(self) -> i32 {
+        pub(crate) fn value2(self) -> i32 {
             match self {
+                HfxoCapacitance::External => unreachable!(),
                 HfxoCapacitance::_7_0pF => 14,
                 HfxoCapacitance::_7_5pF => 15,
                 HfxoCapacitance::_8_0pF => 16,
@@ -489,11 +510,17 @@ pub mod config {
                 HfxoCapacitance::_20_0pF => 40,
             }
         }
+
+        pub(crate) fn external(self) -> bool {
+            matches!(self, Self::External)
+        }
     }
 
     /// Internal capacitance value for the LFXO.
     #[cfg(feature = "nrf5340-app-s")]
     pub enum LfxoCapacitance {
+        /// Use external capacitors
+        External = 0,
         /// 6 pF
         _6pF = 1,
         /// 7 pF
@@ -506,6 +533,7 @@ pub mod config {
     impl From<LfxoCapacitance> for super::pac::oscillators::vals::Intcap {
         fn from(t: LfxoCapacitance) -> Self {
             match t {
+                LfxoCapacitance::External => Self::EXTERNAL,
                 LfxoCapacitance::_6pF => Self::C6PF,
                 LfxoCapacitance::_7pF => Self::C7PF,
                 LfxoCapacitance::_9pF => Self::C9PF,
@@ -584,8 +612,12 @@ pub mod config {
 #[allow(unused)]
 mod consts {
     pub const UICR_APPROTECT: *mut u32 = 0x00FF8000 as *mut u32;
+    pub const UICR_HFXOSRC: *mut u32 = 0x00FF801C as *mut u32;
+    pub const UICR_HFXOCNT: *mut u32 = 0x00FF8020 as *mut u32;
     pub const UICR_SECUREAPPROTECT: *mut u32 = 0x00FF802C as *mut u32;
     pub const APPROTECT_ENABLED: u32 = 0x0000_0000;
+    #[cfg(feature = "_nrf9120")]
+    pub const APPROTECT_DISABLED: u32 = 0x50FA50FA;
 }
 
 #[cfg(feature = "_nrf5340-app")]
@@ -648,13 +680,18 @@ unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> WriteRe
         return WriteResult::Failed;
     }
 
-    let nvmc = pac::NVMC;
-    nvmc.config().write(|w| w.set_wen(pac::nvmc::vals::Wen::WEN));
-    while !nvmc.ready().read().ready() {}
-    address.write_volatile(value | !mask);
-    while !nvmc.ready().read().ready() {}
-    nvmc.config().write(|_| {});
-    while !nvmc.ready().read().ready() {}
+    // Nrf9151 errata 7, need to disable interrups + use DSB https://docs.nordicsemi.com/bundle/errata_nRF9151_Rev2/page/ERR/nRF9151/Rev2/latest/anomaly_151_7.html
+    cortex_m::interrupt::free(|_cs| {
+        let nvmc = pac::NVMC;
+
+        nvmc.config().write(|w| w.set_wen(pac::nvmc::vals::Wen::WEN));
+        while !nvmc.ready().read().ready() {}
+        address.write_volatile(value | !mask);
+        cortex_m::asm::dsb();
+        while !nvmc.ready().read().ready() {}
+        nvmc.config().write(|_| {});
+        while !nvmc.ready().read().ready() {}
+    });
 
     WriteResult::Written
 }
@@ -671,6 +708,59 @@ pub fn init(config: config::Config) -> Peripherals {
 
     #[allow(unused_mut)]
     let mut needs_reset = false;
+
+    // Workaround used in the nrf mdk: file system_nrf91.c , function SystemInit(), after `#if !defined(NRF_SKIP_UICR_HFXO_WORKAROUND)`
+    #[cfg(all(feature = "_nrf91", feature = "_s"))]
+    {
+        let uicr = pac::UICR_S;
+        let hfxocnt = uicr.hfxocnt().read().hfxocnt().to_bits();
+        let hfxosrc = uicr.hfxosrc().read().hfxosrc().to_bits();
+
+        if hfxosrc == 1 {
+            unsafe {
+                let _ = uicr_write(consts::UICR_HFXOSRC, 0);
+            }
+            needs_reset = true;
+        }
+
+        if hfxocnt == 255 {
+            unsafe {
+                let _ = uicr_write(consts::UICR_HFXOCNT, 32);
+            }
+            needs_reset = true;
+        }
+    }
+
+    // Apply trimming values from the FICR.
+    #[cfg(any(
+        all(feature = "_nrf5340-app", feature = "_s"),
+        all(feature = "_nrf54l", feature = "_s"),
+        feature = "_nrf5340-net",
+    ))]
+    {
+        #[cfg(feature = "_nrf5340")]
+        let n = 32;
+        #[cfg(feature = "_nrf54l")]
+        let n = 64;
+        for i in 0..n {
+            let info = pac::FICR.trimcnf(i);
+            let addr = info.addr().read();
+            if addr == 0 || addr == 0xFFFF_FFFF {
+                break;
+            }
+            unsafe {
+                (addr as *mut u32).write_volatile(info.data().read());
+            }
+        }
+    }
+
+    // GLITCHDET is only accessible for secure code
+    #[cfg(all(feature = "_nrf54l", feature = "_s"))]
+    {
+        // The voltage glitch detectors are automatically enabled after reset.
+        // To save power, the glitch detectors must be disabled when not in use.
+        pac::GLITCHDET.config().write(|w| w.set_enable(false));
+    }
 
     // Setup debug protection.
     #[cfg(not(feature = "_nrf51"))]
@@ -768,6 +858,28 @@ pub fn init(config: config::Config) -> Peripherals {
             }
 
             // nothing to do on the nrf9160, debug is allowed by default.
+
+            // nrf9151, nrf9161 use the new-style approtect that requires writing a register.
+            #[cfg(feature = "nrf9120-s")]
+            unsafe {
+                let p = pac::APPROTECT_S;
+
+                let res = uicr_write(consts::UICR_APPROTECT, consts::APPROTECT_DISABLED);
+                needs_reset |= res == WriteResult::Written;
+                p.approtect()
+                    .disable()
+                    .write(|w| w.set_disable(pac::approtect::vals::ApprotectDisableDisable::SW_UNPROTECTED));
+
+                let res = uicr_write(consts::UICR_SECUREAPPROTECT, consts::APPROTECT_DISABLED);
+                needs_reset |= res == WriteResult::Written;
+                p.secureapprotect()
+                    .disable()
+                    .write(|w| w.set_disable(pac::approtect::vals::SecureapprotectDisableDisable::SW_UNPROTECTED));
+
+                // TODO: maybe add workaround for this errata
+                // It uses extra power, not sure how to let the user choose.
+                // https://docs.nordicsemi.com/bundle/errata_nRF9151_Rev1/page/ERR/nRF9151/Rev1/latest/anomaly_151_36.html#anomaly_151_36
+            }
         }
         config::Debug::Disallowed => {
             // TODO: Handle nRF54L
@@ -782,6 +894,13 @@ pub fn init(config: config::Config) -> Peripherals {
                 {
                     let res = uicr_write(consts::UICR_SECUREAPPROTECT, consts::APPROTECT_ENABLED);
                     needs_reset |= res == WriteResult::Written;
+                }
+
+                #[cfg(feature = "nrf9120-s")]
+                {
+                    let p = pac::APPROTECT_S;
+                    p.approtect().forceprotect().write(|w| w.set_forceprotect(true));
+                    p.secureapprotect().forceprotect().write(|w| w.set_forceprotect(true));
                 }
             }
         }
@@ -868,17 +987,21 @@ pub fn init(config: config::Config) -> Peripherals {
     #[cfg(feature = "nrf5340-app-s")]
     {
         if let Some(cap) = config.internal_capacitors.hfxo {
-            let mut slope = pac::FICR.xosc32mtrim().read().slope() as i32;
-            let offset = pac::FICR.xosc32mtrim().read().offset() as i32;
-            // slope is a signed 5-bit integer
-            if slope >= 16 {
-                slope -= 32;
+            if cap.external() {
+                pac::OSCILLATORS.xosc32mcaps().write(|w| w.set_enable(false));
+            } else {
+                let mut slope = pac::FICR.xosc32mtrim().read().slope() as i32;
+                let offset = pac::FICR.xosc32mtrim().read().offset() as i32;
+                // slope is a signed 5-bit integer
+                if slope >= 16 {
+                    slope -= 32;
+                }
+                let capvalue = (((slope + 56) * (cap.value2() - 14)) + ((offset - 8) << 4) + 32) >> 6;
+                pac::OSCILLATORS.xosc32mcaps().write(|w| {
+                    w.set_capvalue(capvalue as u8);
+                    w.set_enable(true);
+                });
             }
-            let capvalue = (((slope + 56) * (cap.value2() - 14)) + ((offset - 8) << 4) + 32) >> 6;
-            pac::OSCILLATORS.xosc32mcaps().write(|w| {
-                w.set_capvalue(capvalue as u8);
-                w.set_enable(true);
-            });
         }
         if let Some(cap) = config.internal_capacitors.lfxo {
             pac::OSCILLATORS.xosc32ki().intcap().write(|w| w.set_intcap(cap.into()));
@@ -1018,6 +1141,15 @@ pub fn init(config: config::Config) -> Peripherals {
         if config.dcdc.regradio {
             reg.vregradio().dcdcen().write(|w| w.set_dcdcen(true));
         }
+    }
+    #[cfg(feature = "_nrf54l")]
+    {
+        // Turn on DCDC
+        // From Product specification:
+        // "Once the device starts, the DC/DC regulator must be enabled using register VREGMAIN.DCDCEN.
+        // When enabling the DC/DC regulator, the device checks if an inductor is connected to the DCC pin.
+        // If an inductor is not detected, the device remains in LDO mode"
+        pac::REGULATORS.vregmain().dcdcen().write(|w| w.set_val(true));
     }
 
     // Init GPIOTE

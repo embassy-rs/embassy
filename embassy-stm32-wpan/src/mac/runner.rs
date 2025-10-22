@@ -7,10 +7,10 @@ use embassy_sync::channel::Channel;
 use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
 
+use crate::mac::MTU;
 use crate::mac::commands::DataRequest;
 use crate::mac::event::MacEvent;
 use crate::mac::typedefs::{AddressMode, MacAddress, PanId, SecurityLevel};
-use crate::mac::MTU;
 use crate::sub::mac::Mac;
 
 type ZeroCopyPubSub<M, T> = blocking_mutex::Mutex<M, RefCell<Option<Signal<NoopRawMutex, T>>>>;

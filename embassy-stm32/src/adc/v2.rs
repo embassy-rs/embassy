@@ -2,7 +2,7 @@ use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, Resolution, SampleTime};
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
-use crate::{rcc, Peri};
+use crate::{Peri, rcc};
 
 mod ringbuffered_v2;
 pub use ringbuffered_v2::{RingBufferedAdc, Sequence};

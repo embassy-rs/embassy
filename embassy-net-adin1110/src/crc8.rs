@@ -23,7 +23,7 @@ pub fn crc8(data: &[u8]) -> u8 {
 
 #[cfg(test)]
 mod tests {
-    use ::crc::{Crc, CRC_8_SMBUS};
+    use ::crc::{CRC_8_SMBUS, Crc};
 
     use super::crc8;
 

@@ -61,7 +61,7 @@ use defmt::{info, unwrap};
 use embassy_executor::{Executor, InterruptExecutor};
 use embassy_rp::interrupt;
 use embassy_rp::interrupt::{InterruptExt, Priority};
-use embassy_time::{Instant, Timer, TICK_HZ};
+use embassy_time::{Instant, TICK_HZ, Timer};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -113,12 +113,12 @@ static EXECUTOR_LOW: StaticCell<Executor> = StaticCell::new();
 
 #[interrupt]
 unsafe fn SWI_IRQ_1() {
-    EXECUTOR_HIGH.on_interrupt()
+    unsafe { EXECUTOR_HIGH.on_interrupt() }
 }
 
 #[interrupt]
 unsafe fn SWI_IRQ_0() {
-    EXECUTOR_MED.on_interrupt()
+    unsafe { EXECUTOR_MED.on_interrupt() }
 }
 
 #[entry]
@@ -130,16 +130,16 @@ fn main() -> ! {
     // High-priority executor: SWI_IRQ_1, priority level 2
     interrupt::SWI_IRQ_1.set_priority(Priority::P2);
     let spawner = EXECUTOR_HIGH.start(interrupt::SWI_IRQ_1);
-    unwrap!(spawner.spawn(run_high()));
+    spawner.spawn(unwrap!(run_high()));
 
     // Medium-priority executor: SWI_IRQ_0, priority level 3
     interrupt::SWI_IRQ_0.set_priority(Priority::P3);
     let spawner = EXECUTOR_MED.start(interrupt::SWI_IRQ_0);
-    unwrap!(spawner.spawn(run_med()));
+    spawner.spawn(unwrap!(run_med()));
 
     // Low priority executor: runs in thread mode, using WFE/SEV
     let executor = EXECUTOR_LOW.init(Executor::new());
     executor.run(|spawner| {
-        unwrap!(spawner.spawn(run_low()));
+        spawner.spawn(unwrap!(run_low()));
     });
 }

@@ -149,16 +149,15 @@ pub struct I2c<'d, M: Mode, IM: MasterMode> {
 
 impl<'d> I2c<'d, Async, Master> {
     /// Create a new I2C driver.
-    pub fn new<T: Instance>(
+    pub fn new<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        scl: Peri<'d, impl SclPin<T>>,
-        sda: Peri<'d, impl SdaPin<T>>,
+        scl: Peri<'d, if_afio!(impl SclPin<T, A>)>,
+        sda: Peri<'d, if_afio!(impl SdaPin<T, A>)>,
         _irq: impl interrupt::typelevel::Binding<T::EventInterrupt, EventInterruptHandler<T>>
-            + interrupt::typelevel::Binding<T::ErrorInterrupt, ErrorInterruptHandler<T>>
-            + 'd,
+        + interrupt::typelevel::Binding<T::ErrorInterrupt, ErrorInterruptHandler<T>>
+        + 'd,
         tx_dma: Peri<'d, impl TxDma<T>>,
         rx_dma: Peri<'d, impl RxDma<T>>,
-        freq: Hertz,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -167,7 +166,6 @@ impl<'d> I2c<'d, Async, Master> {
             new_pin!(sda, config.sda_af()),
             new_dma!(tx_dma),
             new_dma!(rx_dma),
-            freq,
             config,
         )
     }
@@ -175,11 +173,10 @@ impl<'d> I2c<'d, Async, Master> {
 
 impl<'d> I2c<'d, Blocking, Master> {
     /// Create a new blocking I2C driver.
-    pub fn new_blocking<T: Instance>(
+    pub fn new_blocking<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        scl: Peri<'d, impl SclPin<T>>,
-        sda: Peri<'d, impl SdaPin<T>>,
-        freq: Hertz,
+        scl: Peri<'d, if_afio!(impl SclPin<T, A>)>,
+        sda: Peri<'d, if_afio!(impl SdaPin<T, A>)>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -188,7 +185,6 @@ impl<'d> I2c<'d, Blocking, Master> {
             new_pin!(sda, config.sda_af()),
             None,
             None,
-            freq,
             config,
         )
     }
@@ -202,7 +198,6 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
         sda: Option<Peri<'d, AnyPin>>,
         tx_dma: Option<ChannelAndRequest<'d>>,
         rx_dma: Option<ChannelAndRequest<'d>>,
-        freq: Hertz,
         config: Config,
     ) -> Self {
         unsafe { T::EventInterrupt::enable() };
@@ -224,14 +219,14 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
                 sda,
             },
         };
-        this.enable_and_init(freq, config);
+        this.enable_and_init(config);
 
         this
     }
 
-    fn enable_and_init(&mut self, freq: Hertz, config: Config) {
+    fn enable_and_init(&mut self, config: Config) {
         self.info.rcc.enable_and_reset();
-        self.init(freq, config);
+        self.init(config);
     }
 }
 
@@ -301,8 +296,8 @@ peri_trait!(
     irqs: [EventInterrupt, ErrorInterrupt],
 );
 
-pin_trait!(SclPin, Instance);
-pin_trait!(SdaPin, Instance);
+pin_trait!(SclPin, Instance, @A);
+pin_trait!(SdaPin, Instance, @A);
 dma_trait!(RxDma, Instance);
 dma_trait!(TxDma, Instance);
 

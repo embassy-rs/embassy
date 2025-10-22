@@ -1,6 +1,6 @@
 use core::task::{RawWaker, RawWakerVTable, Waker};
 
-use super::{wake_task, TaskHeader, TaskRef};
+use super::{TaskHeader, TaskRef, wake_task};
 
 static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, wake, wake, drop);
 
@@ -35,7 +35,9 @@ pub fn task_from_waker(waker: &Waker) -> TaskRef {
     // make sure to compare vtable addresses. Doing `==` on the references
     // will compare the contents, which is slower.
     if waker.vtable() as *const _ != &VTABLE as *const _ {
-        panic!("Found waker not created by the Embassy executor. `embassy_time::Timer` only works with the Embassy executor.")
+        panic!(
+            "Found waker not created by the Embassy executor. `embassy_time::Timer` only works with the Embassy executor."
+        )
     }
     // safety: our wakers are always created with `TaskRef::as_ptr`
     unsafe { TaskRef::from_ptr(waker.data() as *const TaskHeader) }

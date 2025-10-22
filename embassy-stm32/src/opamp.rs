@@ -3,10 +3,10 @@
 
 use embassy_hal_internal::PeripheralType;
 
+use crate::Peri;
 use crate::pac::opamp::vals::*;
 #[cfg(not(any(stm32g4, stm32f3)))]
 use crate::rcc::RccInfo;
-use crate::Peri;
 
 /// Performs a busy-wait delay for a specified number of microseconds.
 #[cfg(opamp_v5)]

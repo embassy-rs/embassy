@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 use embassy_hal_internal::PeripheralType;
 
 use crate::gpio::{AfType, OutputType, Pull, Speed};
-use crate::{rcc, Peri};
+use crate::{Peri, rcc};
 
 /// FMC driver
 pub struct Fmc<'d, T: Instance> {
@@ -75,7 +75,7 @@ where
 macro_rules! config_pins {
     ($($pin:ident),*) => {
                 $(
-            $pin.set_as_af($pin.af_num(), AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up));
+            set_as_af!($pin, AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up));
         )*
     };
 }

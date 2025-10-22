@@ -8,7 +8,7 @@ use crate::shci::{SchiCommandStatus, ShciBleInitCmdParam, ShciOpcode};
 use crate::sub::mm;
 use crate::tables::{SysTable, WirelessFwInfoTable};
 use crate::unsafe_linked_list::LinkedListNode;
-use crate::{channels, Ipcc, SYSTEM_EVT_QUEUE, SYS_CMD_BUF, TL_DEVICE_INFO_TABLE, TL_SYS_TABLE};
+use crate::{Ipcc, SYS_CMD_BUF, SYSTEM_EVT_QUEUE, TL_DEVICE_INFO_TABLE, TL_SYS_TABLE, channels};
 
 /// A guard that, once constructed, allows for sys commands to be sent to CPU2.
 pub struct Sys {
@@ -35,11 +35,7 @@ impl Sys {
         let info = unsafe { TL_DEVICE_INFO_TABLE.as_mut_ptr().read_volatile().wireless_fw_info_table };
 
         // Zero version indicates that CPU2 wasn't active and didn't fill the information table
-        if info.version != 0 {
-            Some(info)
-        } else {
-            None
-        }
+        if info.version != 0 { Some(info) } else { None }
     }
 
     pub async fn write(&self, opcode: ShciOpcode, payload: &[u8]) {
@@ -66,8 +62,8 @@ impl Sys {
     #[cfg(feature = "mac")]
     pub async fn shci_c2_mac_802_15_4_init(&self) -> Result<SchiCommandStatus, ()> {
         use crate::tables::{
-            Mac802_15_4Table, TracesTable, MAC_802_15_4_CMD_BUFFER, MAC_802_15_4_NOTIF_RSP_EVT_BUFFER,
-            TL_MAC_802_15_4_TABLE, TL_TRACES_TABLE, TRACES_EVT_QUEUE,
+            MAC_802_15_4_CMD_BUFFER, MAC_802_15_4_NOTIF_RSP_EVT_BUFFER, Mac802_15_4Table, TL_MAC_802_15_4_TABLE,
+            TL_TRACES_TABLE, TRACES_EVT_QUEUE, TracesTable,
         };
 
         unsafe {

@@ -16,8 +16,8 @@ use embassy_rp::adc::{self, Adc, Blocking};
 use embassy_rp::gpio::Pull;
 use embassy_rp::interrupt;
 use embassy_rp::pwm::{Config, Pwm};
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_time::{Duration, Ticker};
 use portable_atomic::{AtomicU32, Ordering};
@@ -51,7 +51,7 @@ async fn main(spawner: Spawner) {
     // No Mutex needed when sharing within the same executor/prio level
     static AVG: StaticCell<Cell<u32>> = StaticCell::new();
     let avg = AVG.init(Default::default());
-    spawner.must_spawn(processing(avg));
+    spawner.spawn(processing(avg).unwrap());
 
     let mut ticker = Ticker::every(Duration::from_secs(1));
     loop {

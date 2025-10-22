@@ -22,6 +22,7 @@ use self::raw::RawMutex;
 ///
 /// In all cases, the blocking mutex is intended to be short lived and not held across await points.
 /// Use the async [`Mutex`](crate::mutex::Mutex) if you need a lock that is held across await points.
+#[derive(Debug)]
 pub struct Mutex<R, T: ?Sized> {
     // NOTE: `raw` must be FIRST, so when using ThreadModeMutex the "can't drop in non-thread-mode" gets
     // to run BEFORE dropping `data`.
@@ -134,9 +135,9 @@ impl<T> Mutex<raw::NoopRawMutex, T> {
 // There's still a ThreadModeRawMutex for use with the generic Mutex (handy with Channel, for example),
 // but that will require T: Send even though it shouldn't be needed.
 
-#[cfg(any(cortex_m, feature = "std"))]
+#[cfg(any(cortex_m, doc, feature = "std"))]
 pub use thread_mode_mutex::*;
-#[cfg(any(cortex_m, feature = "std"))]
+#[cfg(any(cortex_m, doc, feature = "std"))]
 mod thread_mode_mutex {
     use super::*;
 

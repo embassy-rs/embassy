@@ -37,6 +37,11 @@ impl Duration {
         self.ticks * (1_000_000 / GCD_1M) / (TICK_HZ / GCD_1M)
     }
 
+    /// Convert the `Duration` to nanoseconds, rounding down.
+    pub const fn as_nanos(&self) -> u64 {
+        self.ticks * (1_000_000_000 / GCD_1G) / (TICK_HZ / GCD_1G)
+    }
+
     /// Creates a duration from the specified number of clock ticks
     pub const fn from_ticks(ticks: u64) -> Duration {
         Duration { ticks }
@@ -170,13 +175,7 @@ impl Duration {
     /// NOTE: Giving this function a hz >= the TICK_HZ of your platform will clamp the Duration to 1
     /// tick. Doing so will not deadlock, but will certainly not produce the desired output.
     pub const fn from_hz(hz: u64) -> Duration {
-        let ticks = {
-            if hz >= TICK_HZ {
-                1
-            } else {
-                (TICK_HZ + hz / 2) / hz
-            }
-        };
+        let ticks = { if hz >= TICK_HZ { 1 } else { (TICK_HZ + hz / 2) / hz } };
         Duration { ticks }
     }
 
@@ -291,5 +290,14 @@ impl From<Duration> for core::time::Duration {
     /// Converts using [`Duration::as_micros`].
     fn from(value: Duration) -> Self {
         core::time::Duration::from_micros(value.as_micros())
+    }
+}
+
+impl core::iter::Sum for Duration {
+    fn sum<I>(iter: I) -> Self
+    where
+        I: Iterator<Item = Duration>,
+    {
+        Duration::from_ticks(iter.map(|d| d.as_ticks()).sum())
     }
 }

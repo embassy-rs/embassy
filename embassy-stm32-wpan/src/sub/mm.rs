@@ -3,7 +3,7 @@ use core::future::poll_fn;
 use core::mem::MaybeUninit;
 use core::task::Poll;
 
-use aligned::{Aligned, A4};
+use aligned::{A4, Aligned};
 use cortex_m::interrupt;
 use embassy_stm32::ipcc::Ipcc;
 use embassy_sync::waitqueue::AtomicWaker;
@@ -12,7 +12,7 @@ use crate::consts::POOL_SIZE;
 use crate::evt::EvtPacket;
 #[cfg(feature = "ble")]
 use crate::tables::BLE_SPARE_EVT_BUF;
-use crate::tables::{MemManagerTable, EVT_POOL, FREE_BUF_QUEUE, SYS_SPARE_EVT_BUF, TL_MEM_MANAGER_TABLE};
+use crate::tables::{EVT_POOL, FREE_BUF_QUEUE, MemManagerTable, SYS_SPARE_EVT_BUF, TL_MEM_MANAGER_TABLE};
 use crate::unsafe_linked_list::LinkedListNode;
 use crate::{channels, evt};
 

@@ -2,7 +2,7 @@ use std::task::Waker;
 
 use proptest::prop_oneof;
 use proptest::strategy::{self, BoxedStrategy, Strategy as _};
-use proptest_state_machine::{prop_state_machine, ReferenceStateMachine, StateMachineTest};
+use proptest_state_machine::{ReferenceStateMachine, StateMachineTest, prop_state_machine};
 
 use super::*;
 

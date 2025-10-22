@@ -8,7 +8,7 @@ mod fmt;
 use core::convert::Infallible;
 use core::mem::MaybeUninit;
 
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
 use embedded_io_async::{BufRead, Write};

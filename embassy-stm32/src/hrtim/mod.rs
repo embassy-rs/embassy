@@ -79,10 +79,7 @@ macro_rules! advanced_channel_impl {
             pub fn $new_chx(pin: Peri<'d, impl $pin_trait<T>>) -> Self {
                 critical_section::with(|_| {
                     pin.set_low();
-                    pin.set_as_af(
-                        pin.af_num(),
-                        AfType::output(OutputType::PushPull, Speed::VeryHigh),
-                    );
+                    set_as_af!(pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
                 });
                 PwmPin {
                     _pin: pin.into(),
@@ -96,10 +93,7 @@ macro_rules! advanced_channel_impl {
             pub fn $new_chx(pin: Peri<'d, impl $complementary_pin_trait<T>>) -> Self {
                 critical_section::with(|_| {
                     pin.set_low();
-                    pin.set_as_af(
-                        pin.af_num(),
-                        AfType::output(OutputType::PushPull, Speed::VeryHigh),
-                    );
+                    set_as_af!(pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
                 });
                 ComplementaryPwmPin {
                     _pin: pin.into(),

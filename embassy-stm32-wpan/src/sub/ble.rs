@@ -4,10 +4,10 @@ use embassy_stm32::ipcc::Ipcc;
 use hci::Opcode;
 
 use crate::cmd::CmdPacket;
-use crate::consts::{TlPacketType, TL_BLEEVT_CC_OPCODE, TL_BLEEVT_CS_OPCODE};
+use crate::consts::{TL_BLEEVT_CC_OPCODE, TL_BLEEVT_CS_OPCODE, TlPacketType};
 use crate::evt::{EvtBox, EvtPacket, EvtStub};
 use crate::sub::mm;
-use crate::tables::{BleTable, BLE_CMD_BUFFER, CS_BUFFER, EVT_QUEUE, HCI_ACL_DATA_BUFFER, TL_BLE_TABLE};
+use crate::tables::{BLE_CMD_BUFFER, BleTable, CS_BUFFER, EVT_QUEUE, HCI_ACL_DATA_BUFFER, TL_BLE_TABLE};
 use crate::unsafe_linked_list::LinkedListNode;
 use crate::{channels, evt};
 

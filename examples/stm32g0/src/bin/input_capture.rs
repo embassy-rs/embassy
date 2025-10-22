@@ -13,10 +13,10 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, OutputType, Pull, Speed};
 use embassy_stm32::time::khz;
+use embassy_stm32::timer::Channel;
 use embassy_stm32::timer::input_capture::{CapturePin, InputCapture};
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
-use embassy_stm32::timer::Channel;
-use embassy_stm32::{bind_interrupts, peripherals, timer, Peri};
+use embassy_stm32::{Peri, bind_interrupts, peripherals, timer};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -44,7 +44,7 @@ async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    unwrap!(spawner.spawn(blinky(p.PB1)));
+    spawner.spawn(unwrap!(blinky(p.PB1)));
 
     // Connect PB1 and PA8 with a 1k Ohm resistor
     let ch1_pin = PwmPin::new(p.PA8, OutputType::PushPull);

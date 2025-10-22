@@ -53,7 +53,7 @@ async fn main_task(spawner: Spawner) {
     let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
 
     // Launch network task
-    spawner.spawn(net_task(runner)).unwrap();
+    spawner.spawn(net_task(runner).unwrap());
 
     let host = "example.com";
     info!("querying host {:?}...", host);
@@ -78,6 +78,6 @@ fn main() {
 
     let executor = EXECUTOR.init(Executor::new());
     executor.run(|spawner| {
-        spawner.spawn(main_task(spawner)).unwrap();
+        spawner.spawn(main_task(spawner).unwrap());
     });
 }

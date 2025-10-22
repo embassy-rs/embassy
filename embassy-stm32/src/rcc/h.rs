@@ -1,5 +1,8 @@
 use core::ops::RangeInclusive;
 
+#[cfg(stm32h7rs)]
+use stm32_metapac::rcc::vals::{Plldivst, Xspisel};
+
 use crate::pac;
 pub use crate::pac::rcc::vals::{
     Hsidiv as HSIPrescaler, Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul, Pllsrc as PllSource, Sw as Sysclk,
@@ -78,6 +81,12 @@ pub struct Pll {
     pub divq: Option<PllDiv>,
     /// PLL R division factor. If None, PLL R output is disabled.
     pub divr: Option<PllDiv>,
+    #[cfg(stm32h7rs)]
+    /// PLL S division factor. If None, PLL S output is disabled.
+    pub divs: Option<Plldivst>,
+    #[cfg(stm32h7rs)]
+    /// PLL T division factor. If None, PLL T output is disabled.
+    pub divt: Option<Plldivst>,
 }
 
 fn apb_div_tim(apb: &APBPrescaler, clk: Hertz, tim: TimerPrescaler) -> Hertz {
@@ -421,6 +430,13 @@ pub(crate) unsafe fn init(config: Config) {
     }
     while !RCC.cr().read().hsirdy() {}
 
+    #[cfg(stm32h7rs)]
+    {
+        // Switch the XSPI clock source so it will use HSI
+        RCC.ahbperckselr().modify(|w| w.set_xspi1sel(Xspisel::HCLK5));
+        RCC.ahbperckselr().modify(|w| w.set_xspi2sel(Xspisel::HCLK5));
+    };
+
     // Use the HSI clock as system clock during the actual clock setup
     RCC.cfgr().modify(|w| w.set_sw(Sysclk::HSI));
     while RCC.cfgr().read().sws() != Sysclk::HSI {}
@@ -581,7 +597,10 @@ pub(crate) unsafe fn init(config: Config) {
             Hertz(24_000_000) => Usbrefcksel::MHZ24,
             Hertz(26_000_000) => Usbrefcksel::MHZ26,
             Hertz(32_000_000) => Usbrefcksel::MHZ32,
-            _ => panic!("cannot select USBPHYC reference clock with source frequency of {}, must be one of 16, 19.2, 20, 24, 26, 32 MHz", clk_val),
+            _ => panic!(
+                "cannot select USBPHYC reference clock with source frequency of {}, must be one of 16, 19.2, 20, 24, 26, 32 MHz",
+                clk_val
+            ),
         },
         None => Usbrefcksel::MHZ24,
     };
@@ -749,6 +768,12 @@ struct PllOutput {
     q: Option<Hertz>,
     #[allow(dead_code)]
     r: Option<Hertz>,
+    #[cfg(stm32h7rs)]
+    #[allow(dead_code)]
+    s: Option<Hertz>,
+    #[cfg(stm32h7rs)]
+    #[allow(dead_code)]
+    t: Option<Hertz>,
 }
 
 fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
@@ -767,6 +792,10 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
             p: None,
             q: None,
             r: None,
+            #[cfg(stm32h7rs)]
+            s: None,
+            #[cfg(stm32h7rs)]
+            t: None,
         };
     };
 
@@ -814,6 +843,10 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
     });
     let q = config.divq.map(|div| vco_clk / div);
     let r = config.divr.map(|div| vco_clk / div);
+    #[cfg(stm32h7rs)]
+    let s = config.divs.map(|div| vco_clk / div);
+    #[cfg(stm32h7rs)]
+    let t = config.divt.map(|div| vco_clk / div);
 
     #[cfg(stm32h5)]
     RCC.pllcfgr(num).write(|w| {
@@ -840,6 +873,10 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
             w.set_divpen(num, p.is_some());
             w.set_divqen(num, q.is_some());
             w.set_divren(num, r.is_some());
+            #[cfg(stm32h7rs)]
+            w.set_divsen(num, s.is_some());
+            #[cfg(stm32h7rs)]
+            w.set_divten(num, t.is_some());
         });
     }
 
@@ -850,10 +887,24 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
         w.set_pllr(config.divr.unwrap_or(PllDiv::DIV2));
     });
 
+    #[cfg(stm32h7rs)]
+    RCC.plldivr2(num).write(|w| {
+        w.set_plls(config.divs.unwrap_or(Plldivst::DIV2));
+        w.set_pllt(config.divt.unwrap_or(Plldivst::DIV2));
+    });
+
     RCC.cr().modify(|w| w.set_pllon(num, true));
     while !RCC.cr().read().pllrdy(num) {}
 
-    PllOutput { p, q, r }
+    PllOutput {
+        p,
+        q,
+        r,
+        #[cfg(stm32h7rs)]
+        s,
+        #[cfg(stm32h7rs)]
+        t,
+    }
 }
 
 fn flash_setup(clk: Hertz, vos: VoltageScale) {

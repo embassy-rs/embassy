@@ -10,9 +10,9 @@ use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver, Instance, InterruptHandler};
+use embassy_usb::UsbDevice;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
-use embassy_usb::UsbDevice;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -69,7 +69,7 @@ async fn main(spawner: Spawner) {
     let usb = builder.build();
 
     // Run the USB device.
-    unwrap!(spawner.spawn(usb_task(usb)));
+    spawner.spawn(unwrap!(usb_task(usb)));
 
     // Do stuff with the class!
     loop {

@@ -1,6 +1,6 @@
 //! [`embassy-net`](https://crates.io/crates/embassy-net) driver for the CDC-NCM class.
 
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
 use embassy_usb_driver::Driver;

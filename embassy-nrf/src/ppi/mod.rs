@@ -18,9 +18,9 @@
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 
-use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
+use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 
-use crate::pac::common::{Reg, RW, W};
+use crate::pac::common::{RW, Reg, W};
 use crate::peripherals;
 
 #[cfg_attr(feature = "_dppi", path = "dppi.rs")]
@@ -106,6 +106,14 @@ impl<'d, G: Group> PpiGroup<'d, G> {
     pub fn task_disable_all(&self) -> Task<'d> {
         let n = self.g.number();
         Task::from_reg(regs().tasks_chg(n).dis())
+    }
+}
+impl<G: Group> PpiGroup<'static, G> {
+    /// Persist this group's configuration for the rest of the program's lifetime. This method
+    /// should be preferred over [`core::mem::forget()`] because the `'static` bound prevents
+    /// accidental reuse of the underlying peripheral.
+    pub fn persist(self) {
+        core::mem::forget(self);
     }
 }
 

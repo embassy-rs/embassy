@@ -15,12 +15,12 @@
 //! another message will result in an error being returned.
 
 use core::cell::RefCell;
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
 use core::task::{Context, Poll};
 
-use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
+use crate::blocking_mutex::raw::RawMutex;
 use crate::waitqueue::WakerRegistration;
 
 /// A bounded zero-copy channel for communicating between asynchronous tasks
@@ -34,6 +34,7 @@ use crate::waitqueue::WakerRegistration;
 ///
 /// The channel requires a buffer of recyclable elements.  Writing to the channel is done through
 /// an `&mut T`.
+#[derive(Debug)]
 pub struct Channel<'a, M: RawMutex, T> {
     buf: BufferPtr<T>,
     phantom: PhantomData<&'a mut T>,
@@ -95,6 +96,7 @@ impl<'a, M: RawMutex, T> Channel<'a, M, T> {
 }
 
 #[repr(transparent)]
+#[derive(Debug)]
 struct BufferPtr<T>(*mut T);
 
 impl<T> BufferPtr<T> {
@@ -107,6 +109,7 @@ unsafe impl<T> Send for BufferPtr<T> {}
 unsafe impl<T> Sync for BufferPtr<T> {}
 
 /// Send-only access to a [`Channel`].
+#[derive(Debug)]
 pub struct Sender<'a, M: RawMutex, T> {
     channel: &'a Channel<'a, M, T>,
 }
@@ -190,6 +193,7 @@ impl<'a, M: RawMutex, T> Sender<'a, M, T> {
 }
 
 /// Receive-only access to a [`Channel`].
+#[derive(Debug)]
 pub struct Receiver<'a, M: RawMutex, T> {
     channel: &'a Channel<'a, M, T>,
 }
@@ -272,6 +276,7 @@ impl<'a, M: RawMutex, T> Receiver<'a, M, T> {
     }
 }
 
+#[derive(Debug)]
 struct State {
     /// Maximum number of elements the channel can hold.
     capacity: usize,
@@ -291,11 +296,7 @@ struct State {
 
 impl State {
     fn increment(&self, i: usize) -> usize {
-        if i + 1 == self.capacity {
-            0
-        } else {
-            i + 1
-        }
+        if i + 1 == self.capacity { 0 } else { i + 1 }
     }
 
     fn clear(&mut self) {

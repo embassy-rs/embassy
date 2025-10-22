@@ -1,7 +1,7 @@
 //! CDC-ACM class implementation, aka Serial over USB.
 
 use core::cell::{Cell, RefCell};
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::mem::{self, MaybeUninit};
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
@@ -254,14 +254,14 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
             ],
         );
 
-        let comm_ep = alt.endpoint_interrupt_in(8, 255);
+        let comm_ep = alt.endpoint_interrupt_in(None, 8, 255);
 
         // Data interface
         let mut iface = func.interface();
         let data_if = iface.interface_number();
         let mut alt = iface.alt_setting(USB_CLASS_CDC_DATA, 0x00, CDC_PROTOCOL_NONE, None);
-        let read_ep = alt.endpoint_bulk_out(max_packet_size);
-        let write_ep = alt.endpoint_bulk_in(max_packet_size);
+        let read_ep = alt.endpoint_bulk_out(None, max_packet_size);
+        let write_ep = alt.endpoint_bulk_in(None, max_packet_size);
 
         drop(func);
 
@@ -501,7 +501,7 @@ impl<'d, D: Driver<'d>> BufferedReceiver<'d, D> {
     fn read_from_buffer(&mut self, buf: &mut [u8]) -> usize {
         let available = &self.buffer[self.start..self.end];
         let len = core::cmp::min(available.len(), buf.len());
-        buf[..len].copy_from_slice(&self.buffer[..len]);
+        buf[..len].copy_from_slice(&available[..len]);
         self.start += len;
         len
     }

@@ -4,8 +4,8 @@ use core::marker::PhantomData;
 use embassy_hal_internal::PeripheralType;
 use stm32_metapac::iwdg::vals::{Key, Pr};
 
-use crate::rcc::LSI_FREQ;
 use crate::Peri;
+use crate::rcc::LSI_FREQ;
 
 /// Independent watchdog (IWDG) driver.
 pub struct IndependentWatchdog<'d, T: Instance> {

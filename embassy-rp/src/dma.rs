@@ -1,10 +1,10 @@
 //! Direct Memory Access (DMA)
 use core::future::Future;
 use core::pin::Pin;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
+use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::dma::vals::DataSize;
 

@@ -53,7 +53,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
-use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
+use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_usb::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use embassy_usb::msos::{self, windows_version};
 use embassy_usb::types::InterfaceNumber;

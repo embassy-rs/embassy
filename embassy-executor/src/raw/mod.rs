@@ -7,21 +7,27 @@
 //! Using this module requires respecting subtle safety contracts. If you can, prefer using the safe
 //! [executor wrappers](crate::Executor) and the [`embassy_executor::task`](embassy_executor_macros::task) macro, which are fully safe.
 
-#[cfg_attr(target_has_atomic = "ptr", path = "run_queue_atomics.rs")]
-#[cfg_attr(not(target_has_atomic = "ptr"), path = "run_queue_critical_section.rs")]
 mod run_queue;
 
 #[cfg_attr(all(cortex_m, target_has_atomic = "32"), path = "state_atomics_arm.rs")]
-#[cfg_attr(all(not(cortex_m), target_has_atomic = "8"), path = "state_atomics.rs")]
-#[cfg_attr(not(target_has_atomic = "8"), path = "state_critical_section.rs")]
+#[cfg_attr(
+    all(not(cortex_m), any(target_has_atomic = "8", target_has_atomic = "32")),
+    path = "state_atomics.rs"
+)]
+#[cfg_attr(
+    not(any(target_has_atomic = "8", target_has_atomic = "32")),
+    path = "state_critical_section.rs"
+)]
 mod state;
 
-pub mod timer_queue;
-#[cfg(feature = "trace")]
+#[cfg(feature = "_any_trace")]
 pub mod trace;
 pub(crate) mod util;
 #[cfg_attr(feature = "turbowakers", path = "waker_turbo.rs")]
 mod waker;
+
+#[cfg(feature = "scheduler-deadline")]
+mod deadline;
 
 use core::future::Future;
 use core::marker::PhantomData;
@@ -31,8 +37,11 @@ use core::ptr::NonNull;
 #[cfg(not(feature = "arch-avr"))]
 use core::sync::atomic::AtomicPtr;
 use core::sync::atomic::Ordering;
-use core::task::{Context, Poll};
+use core::task::{Context, Poll, Waker};
 
+#[cfg(feature = "scheduler-deadline")]
+pub(crate) use deadline::Deadline;
+use embassy_executor_timer_queue::TimerQueueItem;
 #[cfg(feature = "arch-avr")]
 use portable_atomic::AtomicPtr;
 
@@ -41,6 +50,12 @@ use self::state::State;
 use self::util::{SyncUnsafeCell, UninitCell};
 pub use self::waker::task_from_waker;
 use super::SpawnToken;
+use crate::{Metadata, SpawnError};
+
+#[unsafe(no_mangle)]
+extern "Rust" fn __embassy_time_queue_item_from_waker(waker: &Waker) -> &'static mut TimerQueueItem {
+    unsafe { task_from_waker(waker).timer_queue_item() }
+}
 
 /// Raw task header for use in task pointers.
 ///
@@ -84,21 +99,21 @@ use super::SpawnToken;
 pub(crate) struct TaskHeader {
     pub(crate) state: State,
     pub(crate) run_queue_item: RunQueueItem,
+
     pub(crate) executor: AtomicPtr<SyncExecutor>,
     poll_fn: SyncUnsafeCell<Option<unsafe fn(TaskRef)>>,
 
     /// Integrated timer queue storage. This field should not be accessed outside of the timer queue.
-    pub(crate) timer_queue_item: timer_queue::TimerQueueItem,
-    #[cfg(feature = "trace")]
-    pub(crate) name: Option<&'static str>,
-    #[cfg(feature = "trace")]
-    pub(crate) id: u32,
-    #[cfg(feature = "trace")]
+    pub(crate) timer_queue_item: TimerQueueItem,
+
+    pub(crate) metadata: Metadata,
+
+    #[cfg(feature = "rtos-trace")]
     all_tasks_next: AtomicPtr<TaskHeader>,
 }
 
 /// This is essentially a `&'static TaskStorage<F>` where the type of the future has been erased.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct TaskRef {
     ptr: NonNull<TaskHeader>,
 }
@@ -120,18 +135,12 @@ impl TaskRef {
         }
     }
 
-    /// # Safety
-    ///
-    /// The result of this function must only be compared
-    /// for equality, or stored, but not used.
-    pub const unsafe fn dangling() -> Self {
-        Self {
-            ptr: NonNull::dangling(),
-        }
-    }
-
     pub(crate) fn header(self) -> &'static TaskHeader {
         unsafe { self.ptr.as_ref() }
+    }
+
+    pub(crate) fn metadata(self) -> &'static Metadata {
+        unsafe { &self.ptr.as_ref().metadata }
     }
 
     /// Returns a reference to the executor that the task is currently running on.
@@ -140,14 +149,24 @@ impl TaskRef {
         executor.as_ref().map(|e| Executor::wrap(e))
     }
 
-    /// Returns a reference to the timer queue item.
-    pub fn timer_queue_item(&self) -> &'static timer_queue::TimerQueueItem {
-        &self.header().timer_queue_item
+    /// Returns a mutable reference to the timer queue item.
+    ///
+    /// Safety
+    ///
+    /// This function must only be called in the context of the integrated timer queue.
+    pub unsafe fn timer_queue_item(mut self) -> &'static mut TimerQueueItem {
+        unsafe { &mut self.ptr.as_mut().timer_queue_item }
     }
 
     /// The returned pointer is valid for the entire TaskStorage.
     pub(crate) fn as_ptr(self) -> *const TaskHeader {
         self.ptr.as_ptr()
+    }
+
+    /// Returns the task ID.
+    /// This can be used in combination with rtos-trace to match task names with IDs
+    pub fn id(&self) -> u32 {
+        self.as_ptr() as u32
     }
 }
 
@@ -189,12 +208,9 @@ impl<F: Future + 'static> TaskStorage<F> {
                 // Note: this is lazily initialized so that a static `TaskStorage` will go in `.bss`
                 poll_fn: SyncUnsafeCell::new(None),
 
-                timer_queue_item: timer_queue::TimerQueueItem::new(),
-                #[cfg(feature = "trace")]
-                name: None,
-                #[cfg(feature = "trace")]
-                id: 0,
-                #[cfg(feature = "trace")]
+                timer_queue_item: TimerQueueItem::new(),
+                metadata: Metadata::new(),
+                #[cfg(feature = "rtos-trace")]
                 all_tasks_next: AtomicPtr::new(core::ptr::null_mut()),
             },
             future: UninitCell::uninit(),
@@ -214,11 +230,11 @@ impl<F: Future + 'static> TaskStorage<F> {
     ///
     /// Once the task has finished running, you may spawn it again. It is allowed to spawn it
     /// on a different executor.
-    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
+    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> Result<SpawnToken<impl Sized>, SpawnError> {
         let task = AvailableTask::claim(self);
         match task {
-            Some(task) => task.initialize(future),
-            None => SpawnToken::new_failed(),
+            Some(task) => Ok(task.initialize(future)),
+            None => Err(SpawnError::Busy),
         }
     }
 
@@ -230,7 +246,7 @@ impl<F: Future + 'static> TaskStorage<F> {
         let mut cx = Context::from_waker(&waker);
         match future.poll(&mut cx) {
             Poll::Ready(_) => {
-                #[cfg(feature = "trace")]
+                #[cfg(feature = "_any_trace")]
                 let exec_ptr: *const SyncExecutor = this.raw.executor.load(Ordering::Relaxed);
 
                 // As the future has finished and this function will not be called
@@ -245,7 +261,7 @@ impl<F: Future + 'static> TaskStorage<F> {
                 // after we're done with it.
                 this.raw.state.despawn();
 
-                #[cfg(feature = "trace")]
+                #[cfg(feature = "_any_trace")]
                 trace::task_end(exec_ptr, &p);
             }
             Poll::Pending => {}
@@ -280,6 +296,7 @@ impl<F: Future + 'static> AvailableTask<F> {
 
     fn initialize_impl<S>(self, future: impl FnOnce() -> F) -> SpawnToken<S> {
         unsafe {
+            self.task.raw.metadata.reset();
             self.task.raw.poll_fn.set(Some(TaskStorage::<F>::poll));
             self.task.future.write_in_place(future);
 
@@ -346,10 +363,10 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
         }
     }
 
-    fn spawn_impl<T>(&'static self, future: impl FnOnce() -> F) -> SpawnToken<T> {
+    fn spawn_impl<T>(&'static self, future: impl FnOnce() -> F) -> Result<SpawnToken<T>, SpawnError> {
         match self.pool.iter().find_map(AvailableTask::claim) {
-            Some(task) => task.initialize_impl::<T>(future),
-            None => SpawnToken::new_failed(),
+            Some(task) => Ok(task.initialize_impl::<T>(future)),
+            None => Err(SpawnError::Busy),
         }
     }
 
@@ -360,7 +377,7 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
     /// This will loop over the pool and spawn the task in the first storage that
     /// is currently free. If none is free, a "poisoned" SpawnToken is returned,
     /// which will cause [`Spawner::spawn()`](super::Spawner::spawn) to return the error.
-    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> SpawnToken<impl Sized> {
+    pub fn spawn(&'static self, future: impl FnOnce() -> F) -> Result<SpawnToken<impl Sized>, SpawnError> {
         self.spawn_impl::<F>(future)
     }
 
@@ -373,7 +390,7 @@ impl<F: Future + 'static, const N: usize> TaskPool<F, N> {
     /// SAFETY: `future` must be a closure of the form `move || my_async_fn(args)`, where `my_async_fn`
     /// is an `async fn`, NOT a hand-written `Future`.
     #[doc(hidden)]
-    pub unsafe fn _spawn_async_fn<FutFn>(&'static self, future: FutFn) -> SpawnToken<impl Sized>
+    pub unsafe fn _spawn_async_fn<FutFn>(&'static self, future: FutFn) -> Result<SpawnToken<impl Sized>, SpawnError>
     where
         FutFn: FnOnce() -> F,
     {
@@ -390,7 +407,7 @@ unsafe impl Sync for Pender {}
 
 impl Pender {
     pub(crate) fn pend(self) {
-        extern "Rust" {
+        unsafe extern "Rust" {
             fn __pender(context: *mut ());
         }
         unsafe { __pender(self.0) };
@@ -418,7 +435,7 @@ impl SyncExecutor {
     /// - `task` must NOT be already enqueued (in this executor or another one).
     #[inline(always)]
     unsafe fn enqueue(&self, task: TaskRef, l: state::Token) {
-        #[cfg(feature = "trace")]
+        #[cfg(feature = "_any_trace")]
         trace::task_ready_begin(self, &task);
 
         if self.run_queue.enqueue(task, l) {
@@ -431,7 +448,7 @@ impl SyncExecutor {
             .executor
             .store((self as *const Self).cast_mut(), Ordering::Relaxed);
 
-        #[cfg(feature = "trace")]
+        #[cfg(feature = "_any_trace")]
         trace::task_new(self, &task);
 
         state::locked(|l| {
@@ -443,23 +460,23 @@ impl SyncExecutor {
     ///
     /// Same as [`Executor::poll`], plus you must only call this on the thread this executor was created.
     pub(crate) unsafe fn poll(&'static self) {
-        #[cfg(feature = "trace")]
+        #[cfg(feature = "_any_trace")]
         trace::poll_start(self);
 
         self.run_queue.dequeue_all(|p| {
             let task = p.header();
 
-            #[cfg(feature = "trace")]
+            #[cfg(feature = "_any_trace")]
             trace::task_exec_begin(self, &p);
 
             // Run the task
             task.poll_fn.get().unwrap_unchecked()(p);
 
-            #[cfg(feature = "trace")]
+            #[cfg(feature = "_any_trace")]
             trace::task_exec_end(self, &p);
         });
 
-        #[cfg(feature = "trace")]
+        #[cfg(feature = "_any_trace")]
         trace::executor_idle(self)
     }
 }
@@ -490,7 +507,7 @@ impl SyncExecutor {
 /// The pender function must be exported with the name `__pender` and have the following signature:
 ///
 /// ```rust
-/// #[export_name = "__pender"]
+/// #[unsafe(export_name = "__pender")]
 /// fn pender(context: *mut ()) {
 ///    // schedule `poll()` to be called
 /// }
@@ -546,8 +563,6 @@ impl Executor {
     /// energy.
     ///
     /// # Safety
-    ///
-    /// You must call `initialize` before calling this method.
     ///
     /// You must NOT call `poll` reentrantly on the same executor.
     ///

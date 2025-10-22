@@ -4,7 +4,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::peripherals::*;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{bind_interrupts, can, Config};
+use embassy_stm32::{Config, bind_interrupts, can};
 use embassy_time::Timer;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};

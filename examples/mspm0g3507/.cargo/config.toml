@@ -6,4 +6,4 @@ runner = "probe-rs run --chip MSPM0G3507 --protocol=swd"
 target = "thumbv6m-none-eabi"
 
 [env]
-DEFMT_LOG = "debug"
+DEFMT_LOG = "trace"

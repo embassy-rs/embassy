@@ -1,4 +1,4 @@
-use stm32_metapac::rtc::vals::{Calp, Calw16, Calw8, Fmt, Key, Osel, Pol, TampalrmType};
+use stm32_metapac::rtc::vals::{Calp, Calw8, Calw16, Fmt, Key, Osel, Pol, TampalrmType};
 
 use super::RtcCalibrationCyclePeriod;
 use crate::pac::rtc::Rtc;
@@ -146,7 +146,7 @@ impl SealedInstance for crate::peripherals::RTC {
             type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
         } else if #[cfg(any(stm32g0, stm32u0))] {
             type WakeupInterrupt = crate::interrupt::typelevel::RTC_TAMP;
-        } else if #[cfg(any(stm32l5, stm32h5, stm32u5))] {
+        } else if #[cfg(any(stm32l5, stm32h5, stm32u5, stm32wba))] {
             type WakeupInterrupt = crate::interrupt::typelevel::RTC;
         }
     );
