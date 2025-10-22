@@ -330,9 +330,23 @@ embassy_hal_internal::peripherals! {
     PPIB22,
     PPIB30,
 
-    // GPIOTE
+    // GPIOTE instances
     GPIOTE20,
     GPIOTE30,
+
+    // GPIOTE channels
+    GPIOTE_CH0,
+    GPIOTE_CH1,
+    GPIOTE_CH2,
+    GPIOTE_CH3,
+    GPIOTE_CH4,
+    GPIOTE_CH5,
+    GPIOTE_CH6,
+    GPIOTE_CH7,
+    GPIOTE_CH8,
+    GPIOTE_CH9,
+    GPIOTE_CH10,
+    GPIOTE_CH11,
 
     // CRACEN
     CRACEN,

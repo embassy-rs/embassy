@@ -1144,7 +1144,6 @@ pub fn init(config: config::Config) -> Peripherals {
     }
 
     // Init GPIOTE
-    #[cfg(not(feature = "_nrf54l"))] // TODO
     #[cfg(feature = "gpiote")]
     gpiote::init(config.gpiote_interrupt_priority);
 
