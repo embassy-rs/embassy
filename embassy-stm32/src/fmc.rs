@@ -237,7 +237,7 @@ impl<'d, T: Instance> Fmc<'d, T> {
         ]
     ));
 
-    fmc_sdram_constructor!(sdram_a13bits_d16bits_16banks_bank1: (
+    fmc_sdram_constructor!(sdram_a13bits_d16bits_4banks_bank1: (
         bank: stm32_fmc::SdramTargetBank::Bank1,
         addr: [
             (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin), (a12: A12Pin)
