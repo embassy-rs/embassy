@@ -136,10 +136,10 @@ pub mod mode {
     #[allow(private_bounds)]
     pub trait CommunicationMode: SealedMode {
         /// Spi communication mode
-        #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
+        #[cfg(not(any(spi_v4, spi_v5)))]
         const MASTER: vals::Mstr;
         /// Spi communication mode
-        #[cfg(any(spi_v3, spi_v4, spi_v5))]
+        #[cfg(any(spi_v4, spi_v5))]
         const MASTER: vals::Master;
     }
 
@@ -150,17 +150,17 @@ pub mod mode {
 
     impl SealedMode for Master {}
     impl CommunicationMode for Master {
-        #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
+        #[cfg(not(any(spi_v4, spi_v5)))]
         const MASTER: vals::Mstr = vals::Mstr::MASTER;
-        #[cfg(any(spi_v3, spi_v4, spi_v5))]
+        #[cfg(any(spi_v4, spi_v5))]
         const MASTER: vals::Master = vals::Master::MASTER;
     }
 
     impl SealedMode for Slave {}
     impl CommunicationMode for Slave {
-        #[cfg(not(any(spi_v3, spi_v4, spi_v5)))]
+        #[cfg(not(any(spi_v4, spi_v5)))]
         const MASTER: vals::Mstr = vals::Mstr::SLAVE;
-        #[cfg(any(spi_v3, spi_v4, spi_v5))]
+        #[cfg(any(spi_v4, spi_v5))]
         const MASTER: vals::Master = vals::Master::SLAVE;
     }
 }
@@ -526,7 +526,7 @@ impl<'d> Spi<'d, Blocking, Slave> {
         Self::new_inner(
             peri,
             new_pin!(sck, config.sck_af()),
-            new_pin!(mosi, AfType::output(OutputType::PushPull, config.rise_fall_speed)),
+            new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(miso, AfType::input(config.miso_pull)),
             new_pin!(cs, AfType::input(Pull::None)),
             None,
@@ -631,7 +631,7 @@ impl<'d> Spi<'d, Async, Slave> {
         Self::new_inner(
             peri,
             new_pin!(sck, config.sck_af()),
-            new_pin!(mosi, AfType::output(OutputType::PushPull, config.rise_fall_speed)),
+            new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(miso, AfType::input(config.miso_pull)),
             new_pin!(cs, AfType::input(Pull::None)),
             new_dma!(tx_dma),
@@ -678,6 +678,7 @@ impl<'d> Spi<'d, Async, Master> {
             new_pin!(sck, config.sck_af()),
             None,
             new_pin!(miso, AfType::input(config.miso_pull)),
+            None,
             #[cfg(any(spi_v1, spi_v2, spi_v3))]
             new_dma!(tx_dma),
             #[cfg(any(spi_v4, spi_v5, spi_v6))]
