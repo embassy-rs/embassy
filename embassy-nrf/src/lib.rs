@@ -82,7 +82,6 @@ pub mod buffered_uarte;
 #[cfg(not(feature = "_nrf51"))]
 pub mod egu;
 pub mod gpio;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(feature = "gpiote")]
 pub mod gpiote;
 #[cfg(not(feature = "_nrf54l"))] // TODO

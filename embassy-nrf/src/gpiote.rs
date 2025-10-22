@@ -268,6 +268,7 @@ impl<'d> InputChannel<'d> {
 
 /// GPIOTE channel driver in output mode
 pub struct OutputChannel<'d> {
+    inst: Peri<'d, AnyInstance>,
     ch: Peri<'d, AnyChannel>,
     _pin: Output<'d>,
 }
@@ -459,6 +460,37 @@ impl<'d> Flex<'d> {
         PortInputFuture::new(self.pin.reborrow()).await
     }
 }
+// =======================
+
+trait SealedInstance {}
+
+/// GPIOTE channel trait.
+///
+/// Implemented by all GPIOTE channels.
+#[allow(private_bounds)]
+pub trait Instance: PeripheralType + SealedInstance + Into<AnyInstance> + Sized + 'static {}
+
+/// Type-erased channel.
+///
+/// Obtained by calling `Channel::into()`.
+///
+/// This allows using several channels in situations that might require
+/// them to be the same type, like putting them in an array.
+pub struct AnyInstance {}
+
+impl_peripheral!(AnyInstance);
+impl SealedInstance for AnyInstance {}
+impl Instance for AnyInstance {}
+
+
+macro_rules! impl_gpiote_instance {
+    ($type:ident, $number:expr) => {};
+}
+
+
+impl_gpiote_instance!(GPIOTE_INST0, 0);
+#[cfg(feature = "_nrf54"))]
+impl_gpiote_instance!(GPIOTE_INST1, 0);
 
 // =======================
 
