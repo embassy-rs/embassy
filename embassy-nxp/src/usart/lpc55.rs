@@ -146,7 +146,8 @@ impl<'d, M: Mode> UsartTx<'d, M> {
         tx_dma: Peri<'d, impl Channel>,
         config: Config,
     ) -> Self {
-        Usart::<M>::init::<T>(Some(tx.into()), None, config);
+        let tx_func = tx.pin_func();
+        Usart::<M>::init::<T>(Some((tx.into(), tx_func)), None, config);
         Self::new_inner(T::info(), Some(tx_dma.into()))
     }
 
@@ -179,7 +180,8 @@ impl<'d, M: Mode> UsartTx<'d, M> {
 
 impl<'d> UsartTx<'d, Blocking> {
     pub fn new_blocking<T: Instance>(_usart: Peri<'d, T>, tx: Peri<'d, impl TxPin<T>>, config: Config) -> Self {
-        Usart::<Blocking>::init::<T>(Some(tx.into()), None, config);
+        let tx_func = tx.pin_func();
+        Usart::<Blocking>::init::<T>(Some((tx.into(), tx_func)), None, config);
         Self::new_inner(T::info(), None)
     }
 }
@@ -208,7 +210,8 @@ impl<'d, M: Mode> UsartRx<'d, M> {
         rx_dma: Peri<'d, impl Channel>,
         config: Config,
     ) -> Self {
-        Usart::<M>::init::<T>(None, Some(rx.into()), config);
+        let rx_func = rx.pin_func();
+        Usart::<M>::init::<T>(None, Some((rx.into(), rx_func)), config);
         Self::new_inner(T::info(), T::dma_state(), has_irq, Some(rx_dma.into()))
     }
 
@@ -280,7 +283,8 @@ impl<'d, M: Mode> UsartRx<'d, M> {
 
 impl<'d> UsartRx<'d, Blocking> {
     pub fn new_blocking<T: Instance>(_usart: Peri<'d, T>, rx: Peri<'d, impl RxPin<T>>, config: Config) -> Self {
-        Usart::<Blocking>::init::<T>(None, Some(rx.into()), config);
+        let rx_func = rx.pin_func();
+        Usart::<Blocking>::init::<T>(None, Some((rx.into(), rx_func)), config);
         Self::new_inner(T::info(), T::dma_state(), false, None)
     }
 }
@@ -405,7 +409,10 @@ impl<'d> Usart<'d, Blocking> {
         rx: Peri<'d, impl RxPin<T>>,
         config: Config,
     ) -> Self {
-        Self::new_inner(usart, tx.into(), rx.into(), false, None, None, config)
+        let tx_func = tx.pin_func();
+        let rx_func = rx.pin_func();
+
+        Self::new_inner(usart, tx.into(), tx_func, rx.into(), rx_func, false, None, None, config)
     }
 }
 
@@ -419,10 +426,15 @@ impl<'d> Usart<'d, Async> {
         rx_dma: Peri<'d, impl RxChannel<T>>,
         config: Config,
     ) -> Self {
+        let tx_func = tx.pin_func();
+        let rx_func = rx.pin_func();
+
         Self::new_inner(
             uart,
             tx.into(),
+            tx_func,
             rx.into(),
+            rx_func,
             true,
             Some(tx_dma.into()),
             Some(rx_dma.into()),
@@ -435,20 +447,26 @@ impl<'d, M: Mode> Usart<'d, M> {
     fn new_inner<T: Instance>(
         _usart: Peri<'d, T>,
         mut tx: Peri<'d, AnyPin>,
+        tx_func: PioFunc,
         mut rx: Peri<'d, AnyPin>,
+        rx_func: PioFunc,
         has_irq: bool,
         tx_dma: Option<Peri<'d, AnyChannel>>,
         rx_dma: Option<Peri<'d, AnyChannel>>,
         config: Config,
     ) -> Self {
-        Self::init::<T>(Some(tx.reborrow()), Some(rx.reborrow()), config);
+        Self::init::<T>(Some((tx.reborrow(), tx_func)), Some((rx.reborrow(), rx_func)), config);
         Self {
             tx: UsartTx::new_inner(T::info(), tx_dma),
             rx: UsartRx::new_inner(T::info(), T::dma_state(), has_irq, rx_dma),
         }
     }
 
-    fn init<T: Instance>(tx: Option<Peri<'_, AnyPin>>, rx: Option<Peri<'_, AnyPin>>, config: Config) {
+    fn init<T: Instance>(
+        tx: Option<(Peri<'_, AnyPin>, PioFunc)>,
+        rx: Option<(Peri<'_, AnyPin>, PioFunc)>,
+        config: Config,
+    ) {
         Self::configure_flexcomm(T::info().fc_reg, T::instance_number());
         Self::configure_clock::<T>(&config);
         Self::pin_config::<T>(tx, rx);
@@ -553,10 +571,10 @@ impl<'d, M: Mode> Usart<'d, M> {
             .modify(|w| w.set_brgval((brg_value - 1) as u16));
     }
 
-    fn pin_config<T: Instance>(tx: Option<Peri<'_, AnyPin>>, rx: Option<Peri<'_, AnyPin>>) {
-        if let Some(tx_pin) = tx {
+    fn pin_config<T: Instance>(tx: Option<(Peri<'_, AnyPin>, PioFunc)>, rx: Option<(Peri<'_, AnyPin>, PioFunc)>) {
+        if let Some((tx_pin, func)) = tx {
             tx_pin.pio().modify(|w| {
-                w.set_func(T::tx_pin_func());
+                w.set_func(func);
                 w.set_mode(iocon::vals::PioMode::INACTIVE);
                 w.set_slew(iocon::vals::PioSlew::STANDARD);
                 w.set_invert(false);
@@ -565,9 +583,9 @@ impl<'d, M: Mode> Usart<'d, M> {
             });
         }
 
-        if let Some(rx_pin) = rx {
+        if let Some((rx_pin, func)) = rx {
             rx_pin.pio().modify(|w| {
-                w.set_func(T::rx_pin_func());
+                w.set_func(func);
                 w.set_mode(iocon::vals::PioMode::INACTIVE);
                 w.set_slew(iocon::vals::PioSlew::STANDARD);
                 w.set_invert(false);
@@ -810,8 +828,6 @@ trait SealedInstance {
     fn info() -> &'static Info;
     fn dma_state() -> &'static DmaState;
     fn instance_number() -> usize;
-    fn tx_pin_func() -> PioFunc;
-    fn rx_pin_func() -> PioFunc;
 }
 
 /// UART instance.
@@ -822,7 +838,7 @@ pub trait Instance: SealedInstance + PeripheralType {
 }
 
 macro_rules! impl_instance {
-    ($inst:ident, $fc:ident, $tx_pin:ident, $rx_pin:ident, $fc_num:expr) => {
+    ($inst:ident, $fc:ident, $fc_num:expr) => {
         impl $crate::usart::inner::SealedInstance for $crate::peripherals::$inst {
             fn info() -> &'static Info {
                 static INFO: Info = Info {
@@ -844,14 +860,6 @@ macro_rules! impl_instance {
             fn instance_number() -> usize {
                 $fc_num
             }
-            #[inline]
-            fn tx_pin_func() -> PioFunc {
-                PioFunc::$tx_pin
-            }
-            #[inline]
-            fn rx_pin_func() -> PioFunc {
-                PioFunc::$rx_pin
-            }
         }
         impl $crate::usart::Instance for $crate::peripherals::$inst {
             type Interrupt = crate::interrupt::typelevel::$fc;
@@ -859,45 +867,72 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(USART0, FLEXCOMM0, ALT1, ALT1, 0);
-impl_instance!(USART1, FLEXCOMM1, ALT2, ALT2, 1);
-impl_instance!(USART2, FLEXCOMM2, ALT1, ALT1, 2);
-impl_instance!(USART3, FLEXCOMM3, ALT1, ALT1, 3);
-impl_instance!(USART4, FLEXCOMM4, ALT1, ALT2, 4);
-impl_instance!(USART5, FLEXCOMM5, ALT3, ALT3, 5);
-impl_instance!(USART6, FLEXCOMM6, ALT2, ALT2, 6);
-impl_instance!(USART7, FLEXCOMM7, ALT7, ALT7, 7);
+impl_instance!(USART0, FLEXCOMM0, 0);
+impl_instance!(USART1, FLEXCOMM1, 1);
+impl_instance!(USART2, FLEXCOMM2, 2);
+impl_instance!(USART3, FLEXCOMM3, 3);
+impl_instance!(USART4, FLEXCOMM4, 4);
+impl_instance!(USART5, FLEXCOMM5, 5);
+impl_instance!(USART6, FLEXCOMM6, 6);
+impl_instance!(USART7, FLEXCOMM7, 7);
+
+pub(crate) trait SealedTxPin<T: Instance>: crate::gpio::Pin {
+    fn pin_func(&self) -> PioFunc;
+}
+
+pub(crate) trait SealedRxPin<T: Instance>: crate::gpio::Pin {
+    fn pin_func(&self) -> PioFunc;
+}
 
 /// Trait for TX pins.
-pub trait TxPin<T: Instance>: crate::gpio::Pin {}
-/// Trait for RX pins.
-pub trait RxPin<T: Instance>: crate::gpio::Pin {}
+#[allow(private_bounds)]
+pub trait TxPin<T: Instance>: SealedTxPin<T> + crate::gpio::Pin {}
 
-macro_rules! impl_pin {
-    ($pin:ident, $instance:ident, Tx) => {
+/// Trait for RX pins.
+#[allow(private_bounds)]
+pub trait RxPin<T: Instance>: SealedRxPin<T> + crate::gpio::Pin {}
+
+macro_rules! impl_tx_pin {
+    ($pin:ident, $instance:ident, $func: ident) => {
+        impl SealedTxPin<crate::peripherals::$instance> for crate::peripherals::$pin {
+            fn pin_func(&self) -> PioFunc {
+                PioFunc::$func
+            }
+        }
+
         impl TxPin<crate::peripherals::$instance> for crate::peripherals::$pin {}
     };
-    ($pin:ident, $instance:ident, Rx) => {
+}
+
+macro_rules! impl_rx_pin {
+    ($pin:ident, $instance:ident, $func: ident) => {
+        impl SealedRxPin<crate::peripherals::$instance> for crate::peripherals::$pin {
+            fn pin_func(&self) -> PioFunc {
+                PioFunc::$func
+            }
+        }
+
         impl RxPin<crate::peripherals::$instance> for crate::peripherals::$pin {}
     };
 }
 
-impl_pin!(PIO1_6, USART0, Tx);
-impl_pin!(PIO1_5, USART0, Rx);
-impl_pin!(PIO1_11, USART1, Tx);
-impl_pin!(PIO1_10, USART1, Rx);
-impl_pin!(PIO0_27, USART2, Tx);
-impl_pin!(PIO1_24, USART2, Rx);
-impl_pin!(PIO0_2, USART3, Tx);
-impl_pin!(PIO0_3, USART3, Rx);
-impl_pin!(PIO0_16, USART4, Tx);
-impl_pin!(PIO0_5, USART4, Rx);
-impl_pin!(PIO0_9, USART5, Tx);
-impl_pin!(PIO0_8, USART5, Rx);
-impl_pin!(PIO1_16, USART6, Tx);
-impl_pin!(PIO1_13, USART6, Rx);
-impl_pin!(PIO0_19, USART7, Tx);
-impl_pin!(PIO0_20, USART7, Rx);
+impl_tx_pin!(PIO1_6, USART0, ALT1);
+impl_tx_pin!(PIO1_11, USART1, ALT2);
+impl_tx_pin!(PIO0_27, USART2, ALT1);
+impl_tx_pin!(PIO0_2, USART3, ALT1);
+impl_tx_pin!(PIO0_16, USART4, ALT1);
+impl_tx_pin!(PIO0_9, USART5, ALT3);
+impl_tx_pin!(PIO1_16, USART6, ALT2);
+impl_tx_pin!(PIO0_19, USART7, ALT7);
+
+impl_rx_pin!(PIO1_5, USART0, ALT1);
+impl_rx_pin!(PIO1_10, USART1, ALT2);
+impl_rx_pin!(PIO1_24, USART2, ALT1);
+impl_rx_pin!(PIO0_3, USART3, ALT1);
+impl_rx_pin!(PIO0_5, USART4, ALT2);
+impl_rx_pin!(PIO0_8, USART5, ALT3);
+impl_rx_pin!(PIO1_13, USART6, ALT2);
+impl_rx_pin!(PIO0_20, USART7, ALT7);
 
 /// Trait for TX DMA channels.
 pub trait TxChannel<T: Instance>: crate::dma::Channel {}
