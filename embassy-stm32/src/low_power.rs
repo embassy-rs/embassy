@@ -180,16 +180,19 @@ impl Executor {
     }
 
     unsafe fn on_wakeup_irq(&mut self) {
+        // when we wake from STOP2, we need to re-initialize the rcc and the time driver
+        // to restore the clocks to their last configured state
+        #[cfg(stm32wlex)]
+        crate::rcc::apply_resume_config();
         #[cfg(stm32wlex)]
         if crate::pac::PWR.extscr().read().c1stop2f() {
-            // when we wake from STOP2, we need to re-initialize the rcc and the time driver
-            // to restore the clocks to their last configured state
-            crate::rcc::apply_resume_config();
             critical_section::with(|cs| crate::time_driver::init_timer(cs));
             // reset the refcounts for STOP2 and STOP1 (initializing the time driver will increment one of them for the timer)
+            // and given that we just woke from STOP2, we can reset them
             crate::rcc::REFCOUNT_STOP2 = 0;
             crate::rcc::REFCOUNT_STOP1 = 0;
         }
+
         self.time_driver.resume_time();
         trace!("low power: resume");
     }
