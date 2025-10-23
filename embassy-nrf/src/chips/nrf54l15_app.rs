@@ -374,6 +374,13 @@ impl_pin!(P0_03, 0, 3);
 impl_pin!(P0_04, 0, 4);
 impl_pin!(P0_05, 0, 5);
 impl_pin!(P0_06, 0, 6);
+impl_gpiote_pin!(GPIOTE30, P0_00);
+impl_gpiote_pin!(GPIOTE30, P0_01);
+impl_gpiote_pin!(GPIOTE30, P0_02);
+impl_gpiote_pin!(GPIOTE30, P0_03);
+impl_gpiote_pin!(GPIOTE30, P0_04);
+impl_gpiote_pin!(GPIOTE30, P0_05);
+impl_gpiote_pin!(GPIOTE30, P0_06);
 
 impl_pin!(P1_00, 1, 0);
 impl_pin!(P1_01, 1, 1);
@@ -392,6 +399,24 @@ impl_pin!(P1_13, 1, 13);
 impl_pin!(P1_14, 1, 14);
 impl_pin!(P1_15, 1, 15);
 impl_pin!(P1_16, 1, 16);
+
+impl_gpiote_pin!(GPIOTE20, P1_00);
+impl_gpiote_pin!(GPIOTE20, P1_01);
+impl_gpiote_pin!(GPIOTE20, P1_02);
+impl_gpiote_pin!(GPIOTE20, P1_03);
+impl_gpiote_pin!(GPIOTE20, P1_04);
+impl_gpiote_pin!(GPIOTE20, P1_05);
+impl_gpiote_pin!(GPIOTE20, P1_06);
+impl_gpiote_pin!(GPIOTE20, P1_07);
+impl_gpiote_pin!(GPIOTE20, P1_08);
+impl_gpiote_pin!(GPIOTE20, P1_09);
+impl_gpiote_pin!(GPIOTE20, P1_10);
+impl_gpiote_pin!(GPIOTE20, P1_11);
+impl_gpiote_pin!(GPIOTE20, P1_12);
+impl_gpiote_pin!(GPIOTE20, P1_13);
+impl_gpiote_pin!(GPIOTE20, P1_14);
+impl_gpiote_pin!(GPIOTE20, P1_15);
+impl_gpiote_pin!(GPIOTE20, P1_16);
 
 impl_pin!(P2_00, 2, 0);
 impl_pin!(P2_01, 2, 1);

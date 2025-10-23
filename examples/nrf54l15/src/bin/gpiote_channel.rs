@@ -12,26 +12,10 @@ async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
     info!("Starting!");
 
-    let ch1 = InputChannel::new(
-        p.GPIOTE_CH0,
-        Input::new(p.P1_13, Pull::Up),
-        InputChannelPolarity::HiToLo,
-    );
-    let ch2 = InputChannel::new(
-        p.GPIOTE_CH1,
-        Input::new(p.P1_09, Pull::Up),
-        InputChannelPolarity::LoToHi,
-    );
-    let ch3 = InputChannel::new(
-        p.GPIOTE_CH2,
-        Input::new(p.P1_08, Pull::Up),
-        InputChannelPolarity::Toggle,
-    );
-    let ch4 = InputChannel::new(
-        p.GPIOTE_CH8,
-        Input::new(p.P0_04, Pull::Up),
-        InputChannelPolarity::Toggle,
-    );
+    let ch1 = InputChannel::new(p.GPIOTE_CH0, p.P1_13, Pull::Up, InputChannelPolarity::HiToLo);
+    let ch2 = InputChannel::new(p.GPIOTE_CH1, p.P1_09, Pull::Up, InputChannelPolarity::LoToHi);
+    let ch3 = InputChannel::new(p.GPIOTE_CH2, p.P1_08, Pull::Up, InputChannelPolarity::Toggle);
+    let ch4 = InputChannel::new(p.GPIOTE_CH8, p.P0_04, Pull::Up, InputChannelPolarity::Toggle);
 
     let button1 = async {
         loop {

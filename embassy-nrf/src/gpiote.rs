@@ -1,4 +1,5 @@
 //! GPIO task/event (GPIOTE) driver.
+#![macro_use]
 
 use core::convert::Infallible;
 use core::future::{Future, poll_fn};
@@ -7,7 +8,7 @@ use core::task::{Context, Poll};
 use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::{AnyPin, Flex, Input, Output, Pin as GpioPin, SealedPin as _};
+use crate::gpio::{AnyPin, Flex, Input, Level, Output, OutputDrive, Pin as GpioPin, Pull, SealedPin as _};
 use crate::interrupt::InterruptExt;
 #[cfg(not(feature = "_nrf51"))]
 use crate::pac::gpio::vals::Detectmode;
@@ -303,10 +304,34 @@ impl<'d> Drop for InputChannel<'d> {
 
 impl<'d> InputChannel<'d> {
     /// Create a new GPIOTE input channel driver.
-    pub fn new(ch: Peri<'d, impl Channel>, pin: Input<'d>, polarity: InputChannelPolarity) -> Self {
+    #[cfg(feature = "_nrf54l")]
+    pub fn new<C: Channel, T: GpiotePin<Instance = C::Instance>>(
+        ch: Peri<'d, C>,
+        pin: Peri<'d, T>,
+        pull: Pull,
+        polarity: InputChannelPolarity,
+    ) -> Self {
+        let pin = Input::new(pin, pull);
+        let ch = ch.into();
+        Self::new_inner(ch, pin, polarity)
+    }
+
+    /// Create a new GPIOTE output channel driver.
+    #[cfg(not(feature = "_nrf54l"))]
+    pub fn new<C: Channel, T: GpioPin>(
+        ch: Peri<'d, C>,
+        pin: Peri<'d, T>,
+        pull: Pull,
+        polarity: InputChannelPolarity,
+    ) -> Self {
+        let pin = Input::new(pin, pull);
+        let ch = ch.into();
+        Self::new_inner(ch, pin, polarity)
+    }
+
+    fn new_inner(ch: Peri<'d, AnyChannel>, pin: Input<'d>, polarity: InputChannelPolarity) -> Self {
         let g = ch.regs();
         let num = ch.number();
-
         g.config(num).write(|w| {
             w.set_mode(Mode::EVENT);
             match polarity {
@@ -331,7 +356,7 @@ impl<'d> InputChannel<'d> {
 
         g.events_in(num).write_value(0);
 
-        InputChannel { ch: ch.into(), pin }
+        InputChannel { ch, pin }
     }
 
     /// Asynchronously wait for an event in this channel.
@@ -390,7 +415,34 @@ impl<'d> Drop for OutputChannel<'d> {
 
 impl<'d> OutputChannel<'d> {
     /// Create a new GPIOTE output channel driver.
-    pub fn new(ch: Peri<'d, impl Channel>, pin: Output<'d>, polarity: OutputChannelPolarity) -> Self {
+    #[cfg(feature = "_nrf54l")]
+    pub fn new<C: Channel, T: GpiotePin<Instance = C::Instance>>(
+        ch: Peri<'d, C>,
+        pin: Peri<'d, T>,
+        initial_output: Level,
+        drive: OutputDrive,
+        polarity: OutputChannelPolarity,
+    ) -> Self {
+        let pin = Output::new(pin, initial_output, drive);
+        let ch = ch.into();
+        Self::new_inner(ch, pin, polarity)
+    }
+
+    /// Create a new GPIOTE output channel driver.
+    #[cfg(not(feature = "_nrf54l"))]
+    pub fn new<C: Channel, T: GpioPin>(
+        ch: Peri<'d, C>,
+        pin: Peri<'d, T>,
+        initial_output: Level,
+        drive: OutputDrive,
+        polarity: OutputChannelPolarity,
+    ) -> Self {
+        let pin = Output::new(pin, initial_output, drive);
+        let ch = ch.into();
+        Self::new_inner(ch, pin, polarity)
+    }
+
+    fn new_inner(ch: Peri<'d, AnyChannel>, pin: Output<'d>, polarity: OutputChannelPolarity) -> Self {
         let g = ch.regs();
         let num = ch.number();
 
@@ -419,10 +471,7 @@ impl<'d> OutputChannel<'d> {
             w.set_psel(pin.pin.pin.pin());
         });
 
-        OutputChannel {
-            ch: ch.into(),
-            _pin: pin,
-        }
+        OutputChannel { ch, _pin: pin }
     }
 
     /// Triggers the OUT task (does the action as configured with task_out_polarity, defaults to Toggle).
@@ -565,60 +614,72 @@ impl<'d> Flex<'d> {
     }
 }
 // =======================
+//
 
-trait SealedChannel {}
+trait SealedChannel {
+    fn waker(&self) -> usize;
+    fn regs(&self) -> pac::gpiote::Gpiote;
+}
 
 /// GPIOTE channel trait.
 ///
 /// Implemented by all GPIOTE channels.
 #[allow(private_bounds)]
 pub trait Channel: PeripheralType + SealedChannel + Into<AnyChannel> + Sized + 'static {
+    #[cfg(feature = "_nrf54l")]
+    type Instance: GpioteInstance;
     /// Get the channel number.
     fn number(&self) -> usize;
-    fn waker(&self) -> usize;
-    fn regs(&self) -> pac::gpiote::Gpiote;
 }
 
-/// Type-erased channel.
-///
-/// Obtained by calling `Channel::into()`.
-///
-/// This allows using several channels in situations that might require
-/// them to be the same type, like putting them in an array.
-pub struct AnyChannel {
+struct AnyChannel {
     number: u8,
-    waker: u8,
     regs: pac::gpiote::Gpiote,
+    waker: u8,
 }
 
 impl_peripheral!(AnyChannel);
-impl SealedChannel for AnyChannel {}
-impl Channel for AnyChannel {
-    fn number(&self) -> usize {
-        self.number as usize
-    }
+
+impl SealedChannel for AnyChannel {
     fn waker(&self) -> usize {
         self.waker as usize
     }
+
     fn regs(&self) -> pac::gpiote::Gpiote {
         self.regs
     }
 }
 
+#[cfg(feature = "_nrf54l")]
+impl AnyChannel {
+    fn number(&self) -> usize {
+        self.number as usize
+    }
+}
+
+#[cfg(not(feature = "_nrf54l"))]
+impl Channel for AnyChannel {
+    fn number(&self) -> usize {
+        self.number as usize
+    }
+}
+
 macro_rules! impl_channel {
     ($inst:ident, $type:ident, $number:expr, $waker:expr) => {
-        impl SealedChannel for peripherals::$type {}
-        impl Channel for peripherals::$type {
-            fn number(&self) -> usize {
-                $number as usize
+        impl SealedChannel for peripherals::$type {
+            fn waker(&self) -> usize {
+                $waker as usize
             }
 
             fn regs(&self) -> pac::gpiote::Gpiote {
                 $inst
             }
-
-            fn waker(&self) -> usize {
-                $waker as usize
+        }
+        impl Channel for peripherals::$type {
+            #[cfg(feature = "_nrf54l")]
+            type Instance = peripherals::$inst;
+            fn number(&self) -> usize {
+                $number as usize
             }
         }
 
@@ -636,8 +697,35 @@ macro_rules! impl_channel {
 
 cfg_if::cfg_if! {
     if #[cfg(feature = "_nrf54l")] {
+        trait SealedGpioteInstance {}
+        trait GpioteInstance: PeripheralType + SealedGpioteInstance + Sized + 'static {}
+
+        macro_rules! impl_gpiote {
+            ($type:ident) => {
+                impl SealedGpioteInstance for peripherals::$type {}
+                impl GpioteInstance for peripherals::$type {}
+            };
+        }
+
+        pub(crate) trait SealedGpiotePin {}
+
+        pub(crate) trait GpiotePin: GpioPin + SealedGpiotePin {
+            type Instance: GpioteInstance;
+        }
+
+        macro_rules! impl_gpiote_pin {
+            ($inst:ident, $type:ident) => {
+                impl crate::gpiote::SealedGpiotePin for peripherals::$type {}
+                impl crate::gpiote::GpiotePin for peripherals::$type {
+                    type Instance = peripherals::$inst;
+                }
+            };
+        }
+
         use pac::GPIOTE20;
         use pac::GPIOTE30;
+        impl_gpiote!(GPIOTE20);
+        impl_gpiote!(GPIOTE30);
         impl_channel!(GPIOTE20, GPIOTE_CH0, 0, 0);
         impl_channel!(GPIOTE20, GPIOTE_CH1, 1, 1);
         impl_channel!(GPIOTE20, GPIOTE_CH2, 2, 2);
