@@ -515,7 +515,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
 
 impl<'d> Spi<'d, Blocking, Slave> {
     /// Create a new blocking SPI slave driver.
-    pub fn new_blocking_slave<T: Instance>(
+    pub fn new_blocking_slave<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         sck: Peri<'d, if_afio!(impl SckPin<T, A>)>,
         mosi: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
@@ -618,7 +618,7 @@ impl<'d> Spi<'d, Blocking, Master> {
 
 impl<'d> Spi<'d, Async, Slave> {
     /// Create a new SPI slave driver.
-    pub fn new_slave<T: Instance>(
+    pub fn new_slave<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         sck: Peri<'d, if_afio!(impl SckPin<T, A>)>,
         mosi: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
