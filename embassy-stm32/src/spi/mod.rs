@@ -520,7 +520,7 @@ impl<'d> Spi<'d, Blocking, Slave> {
         sck: Peri<'d, if_afio!(impl SckPin<T, A>)>,
         mosi: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
         miso: Peri<'d, if_afio!(impl MisoPin<T, A>)>,
-        cs: Peri<'d, impl CsPin<T>>,
+        cs: Peri<'d, if_afio!(impl CsPin<T, A>)>,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -623,7 +623,7 @@ impl<'d> Spi<'d, Async, Slave> {
         sck: Peri<'d, if_afio!(impl SckPin<T, A>)>,
         mosi: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
         miso: Peri<'d, if_afio!(impl MisoPin<T, A>)>,
-        cs: Peri<'d, impl CsPin<T>>,
+        cs: Peri<'d, if_afio!(impl CsPin<T, A>)>,
         tx_dma: Peri<'d, impl TxDma<T>>,
         rx_dma: Peri<'d, impl RxDma<T>>,
         config: Config,
