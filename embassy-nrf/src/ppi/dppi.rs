@@ -4,52 +4,6 @@ use crate::{Peri, pac};
 const DPPI_ENABLE_BIT: u32 = 0x8000_0000;
 const DPPI_CHANNEL_MASK: u32 = 0x0000_00FF;
 
-#[derive(Copy, Clone)]
-/// DPPI instance
-pub enum DppiInstance {
-    /// DPPI_00 instance
-    Dppi00,
-    /// DPPI_20 instance
-    #[cfg(feature = "_nrf54l")]
-    Dppi20,
-    /// DPPI_30 instance
-    #[cfg(feature = "_nrf54l")]
-    Dppi30,
-}
-
-impl From<pac::dppic::Dppic> for DppiInstance {
-    fn from(dppic: pac::dppic::Dppic) -> Self {
-        match dppic {
-            pac::DPPIC00 => DppiInstance::Dppi00,
-            #[cfg(feature = "_nrf54l")]
-            pac::DPPIC20 => DppiInstance::Dppi20,
-            #[cfg(feature = "_nrf54l")]
-            pac::DPPIC30 => DppiInstance::Dppi30,
-            _ => panic!(),
-        }
-    }
-}
-
-#[cfg(feature = "_nrf54l")]
-pub(crate) type PpiInstance = DppiInstance;
-
-#[cfg(not(feature = "_nrf54l"))]
-pub(crate) type PpiInstance = ();
-
-pub(crate) fn regs(_inst: PpiInstance) -> pac::dppic::Dppic {
-    #[cfg(not(feature = "_nrf54l"))]
-    {
-        pac::DPPIC
-    }
-
-    #[cfg(feature = "_nrf54l")]
-    match _inst {
-        DppiInstance::Dppi00 => pac::DPPIC00,
-        DppiInstance::Dppi20 => pac::DPPIC20,
-        DppiInstance::Dppi30 => pac::DPPIC30,
-    }
-}
-
 impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 1> {
     /// Configure PPI channel to trigger `task` on `event`.
     pub fn new_one_to_one(ch: Peri<'d, C>, event: Event<'d>, task: Task<'d>) -> Self {
@@ -91,15 +45,22 @@ impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Ppi<'d, 
     /// Enables the channel.
     pub fn enable(&mut self) {
         let n = self.ch.number();
-        let inst = self.ch.inst();
-        regs(inst).chenset().write(|w| w.0 = 1 << n);
+        self.ch.regs().chenset().write(|w| w.0 = 1 << n);
     }
 
     /// Disables the channel.
     pub fn disable(&mut self) {
         let n = self.ch.number();
-        let inst = self.ch.inst();
-        regs(inst).chenclr().write(|w| w.0 = 1 << n);
+        self.ch.regs().chenclr().write(|w| w.0 = 1 << n);
+    }
+}
+
+impl<C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Ppi<'static, C, EVENT_COUNT, TASK_COUNT> {
+    /// Persist the channel's configuration for the rest of the program's lifetime. This method
+    /// should be preferred over [`core::mem::forget()`] because the `'static` bound prevents
+    /// accidental reuse of the underlying peripheral.
+    pub fn persist(self) {
+        core::mem::forget(self);
     }
 }
 
