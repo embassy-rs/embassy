@@ -31,6 +31,8 @@ use phy::{RegsC22, RegsC45};
 pub use protocol::Adin1110Protocol;
 #[cfg(feature = "generic-spi")]
 pub use protocol::GenericSpi;
+#[cfg(feature = "tc6")]
+pub use protocol::Tc6;
 use regs::{Config0, Config2, SpiRegisters as sr, Status0, Status1};
 
 use crate::regs::{LedCntrl, LedFunc, LedPol, LedPolarity};
@@ -185,6 +187,55 @@ impl<P: Adin1110Protocol> ADIN1110<P> {
 }
 
 impl<SPI: SpiDevice> mdio::MdioBus for ADIN1110<GenericSpi<SPI>> {
+    type Error = AdinError<SPI::Error>;
+
+    /// Read from the PHY Registers as Clause 22.
+    async fn read_cl22(&mut self, phy_id: u8, reg: u8) -> Result<u16, Self::Error> {
+        let mdio_acc_val: u32 =
+            (0x1 << 28) | u32::from(phy_id & 0x1F) << 21 | u32::from(reg & 0x1F) << 16 | (0x3 << 26);
+
+        // Result is in the lower half of the answer.
+        #[allow(clippy::cast_possible_truncation)]
+        self.write_mdio_acc_reg(mdio_acc_val).await.map(|val| val as u16)
+    }
+
+    /// Read from the PHY Registers as Clause 45.
+    async fn read_cl45(&mut self, phy_id: u8, regc45: (u8, u16)) -> Result<u16, Self::Error> {
+        let mdio_acc_val = u32::from(phy_id & 0x1F) << 21 | u32::from(regc45.0 & 0x1F) << 16 | u32::from(regc45.1);
+
+        self.write_mdio_acc_reg(mdio_acc_val).await?;
+
+        let mdio_acc_val = u32::from(phy_id & 0x1F) << 21 | u32::from(regc45.0 & 0x1F) << 16 | (0x03 << 26);
+
+        // Result is in the lower half of the answer.
+        #[allow(clippy::cast_possible_truncation)]
+        self.write_mdio_acc_reg(mdio_acc_val).await.map(|val| val as u16)
+    }
+
+    /// Write to the PHY Registers as Clause 22.
+    async fn write_cl22(&mut self, phy_id: u8, reg: u8, val: u16) -> Result<(), Self::Error> {
+        let mdio_acc_val: u32 =
+            (0x1 << 28) | u32::from(phy_id & 0x1F) << 21 | u32::from(reg & 0x1F) << 16 | (0x1 << 26) | u32::from(val);
+
+        self.write_mdio_acc_reg(mdio_acc_val).await.map(|_| ())
+    }
+
+    /// Write to the PHY Registers as Clause 45.
+    async fn write_cl45(&mut self, phy_id: u8, regc45: (u8, u16), value: u16) -> AEResult<(), SPI::Error> {
+        let phy_id = u32::from(phy_id & 0x1F) << 21;
+        let dev_addr = u32::from(regc45.0 & 0x1F) << 16;
+        let reg = u32::from(regc45.1);
+
+        let mdio_acc_val: u32 = phy_id | dev_addr | reg;
+        self.write_mdio_acc_reg(mdio_acc_val).await?;
+
+        let mdio_acc_val: u32 = phy_id | dev_addr | (0x01 << 26) | u32::from(value);
+        self.write_mdio_acc_reg(mdio_acc_val).await.map(|_| ())
+    }
+}
+
+#[cfg(feature = "tc6")]
+impl<SPI: SpiDevice> mdio::MdioBus for ADIN1110<Tc6<SPI>> {
     type Error = AdinError<SPI::Error>;
 
     /// Read from the PHY Registers as Clause 22.
@@ -399,6 +450,15 @@ impl<SPI: SpiDevice> ADIN1110<GenericSpi<SPI>> {
     /// Create driver with Generic SPI protocol (existing behavior)
     pub fn new_generic(spi: SPI, crc_enabled: bool, append_fcs_on_tx: bool) -> Self {
         let protocol = GenericSpi::new(spi, crc_enabled, append_fcs_on_tx);
+        Self::new(protocol)
+    }
+}
+
+#[cfg(feature = "tc6")]
+impl<SPI: SpiDevice> ADIN1110<Tc6<SPI>> {
+    /// Create driver with OPEN Alliance TC6 SPI protocol
+    pub fn new_tc6(spi: SPI) -> Self {
+        let protocol = Tc6::new(spi);
         Self::new(protocol)
     }
 }

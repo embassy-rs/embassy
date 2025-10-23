@@ -48,6 +48,7 @@ default = ["generic-spi"]
 defmt = ["dep:defmt", "embedded-hal-1/defmt-03"]
 log = ["dep:log"]
 generic-spi = []
+tc6 = []
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-adin1110-v$VERSION/embassy-net-adin1110/src/"

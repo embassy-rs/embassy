@@ -21,10 +21,10 @@ APL can be used in [`intrinsic safety applications/explosion hazardous areas`](h
 
 ## Supported SPI modes
 
-`ADIN1110` supports two SPI modes. `Generic` and [`OPEN Alliance 10BASE-T1x MAC-PHY serial interface`](https://opensig.org/wp-content/uploads/2023/12/OPEN_Alliance_10BASET1x_MAC-PHY_Serial_Interface_V1.1.pdf)
+`ADIN1110` supports two SPI modes. `Generic` and [`OPEN Alliance 10BASE-T1x MAC-PHY serial interface (TC6)`](https://opensig.org/wp-content/uploads/2023/12/OPEN_Alliance_10BASET1x_MAC-PHY_Serial_Interface_V1.1.pdf)
 
-Both modes support with and without additional CRC.
-Currently only `Generic` SPI with or without CRC is supported.
+- **Generic SPI**: Traditional SPI protocol with optional CRC (feature flag: `generic-spi`, enabled by default)
+- **TC6 Protocol**: OPEN Alliance TC6 chunk-based protocol (feature flag: `tc6`)
 
 *NOTE:* SPI Mode is selected by the hardware pins `SPI_CFG0` and `SPI_CFG1`. Software can't detect nor change the mode.
 

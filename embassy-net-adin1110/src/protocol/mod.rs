@@ -10,6 +10,11 @@ mod generic_spi;
 #[cfg(feature = "generic-spi")]
 pub use generic_spi::GenericSpi;
 
+#[cfg(feature = "tc6")]
+mod tc6;
+#[cfg(feature = "tc6")]
+pub use tc6::Tc6;
+
 use crate::AdinError;
 
 /// Protocol abstraction trait for ADIN1110 SPI communication
