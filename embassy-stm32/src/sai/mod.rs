@@ -696,7 +696,12 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
             w.set_fspol(config.frame_sync_polarity.fspol());
             w.set_fsdef(config.frame_sync_definition.fsdef());
             w.set_fsall(config.frame_sync_active_level_length.0 as u8 - 1);
-            w.set_frl(config.frame_length - 1);
+
+            if config.frame_length > 256 {
+                panic!("Frame length cannot be greater than 256");
+            }
+
+            w.set_frl((config.frame_length - 1) as u8);
         });
 
         ch.slotr().modify(|w| {
