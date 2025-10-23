@@ -627,6 +627,7 @@ trait SealedChannel {
 #[allow(private_bounds)]
 pub trait Channel: PeripheralType + SealedChannel + Into<AnyChannel> + Sized + 'static {
     #[cfg(feature = "_nrf54l")]
+    /// GPIOTE instance this channel belongs to.
     type Instance: GpioteInstance;
     /// Get the channel number.
     fn number(&self) -> usize;
@@ -698,7 +699,9 @@ macro_rules! impl_channel {
 cfg_if::cfg_if! {
     if #[cfg(feature = "_nrf54l")] {
         trait SealedGpioteInstance {}
-        trait GpioteInstance: PeripheralType + SealedGpioteInstance + Sized + 'static {}
+        /// Represents a GPIOTE instance.
+        #[allow(private_bounds)]
+        pub trait GpioteInstance: PeripheralType + SealedGpioteInstance + Sized + 'static {}
 
         macro_rules! impl_gpiote {
             ($type:ident) => {
@@ -709,7 +712,10 @@ cfg_if::cfg_if! {
 
         pub(crate) trait SealedGpiotePin {}
 
-        pub(crate) trait GpiotePin: GpioPin + SealedGpiotePin {
+        /// Represents a GPIO pin that can be used with GPIOTE.
+        #[allow(private_bounds)]
+        pub trait GpiotePin: GpioPin + SealedGpiotePin {
+            /// The GPIOTE instance this pin belongs to.
             type Instance: GpioteInstance;
         }
 

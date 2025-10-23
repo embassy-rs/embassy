@@ -3,7 +3,7 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_nrf::gpio::{Input, Pull};
+use embassy_nrf::gpio::Pull;
 use embassy_nrf::gpiote::{InputChannel, InputChannelPolarity};
 use {defmt_rtt as _, panic_probe as _};
 

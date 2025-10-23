@@ -24,12 +24,10 @@ use crate::pac::{
     self,
     common::{RW, Reg, W},
 };
-use crate::peripherals;
 
 #[cfg_attr(feature = "_dppi", path = "dppi.rs")]
 #[cfg_attr(feature = "_ppi", path = "ppi.rs")]
 mod _version;
-pub(crate) use _version::*;
 
 /// PPI channel driver.
 pub struct Ppi<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> {
