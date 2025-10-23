@@ -25,6 +25,8 @@ const CHANNEL_COUNT: usize = 8;
 #[cfg(any(feature = "_nrf54l"))]
 /// Amount of GPIOTE channels in the chip.
 const CHANNEL_COUNT: usize = 12;
+/// Max channels per port
+const CHANNELS_PER_PORT: usize = 8;
 
 #[cfg(any(
     feature = "nrf52833",
@@ -133,14 +135,14 @@ const INTNUM: usize = 0;
 #[cfg(feature = "rt")]
 #[interrupt]
 fn GPIOTE0() {
-    unsafe { handle_gpiote_interrupt(pac::GPIOTE0, &CHANNEL_WAKERS[..]) };
+    unsafe { handle_gpiote_interrupt(pac::GPIOTE0) };
 }
 
 #[cfg(any(feature = "nrf5340-app-ns", feature = "nrf9160-ns", feature = "nrf9120-ns"))]
 #[cfg(feature = "rt")]
 #[interrupt]
 fn GPIOTE1() {
-    unsafe { handle_gpiote_interrupt(pac::GPIOTE1, &CHANNEL_WAKERS[..]) };
+    unsafe { handle_gpiote_interrupt(pac::GPIOTE1) };
 }
 
 #[cfg(any(feature = "_nrf51", feature = "_nrf52", feature = "nrf5340-net"))]
@@ -148,7 +150,7 @@ fn GPIOTE1() {
 #[interrupt]
 fn GPIOTE() {
     info!("GPIOTE!");
-    unsafe { handle_gpiote_interrupt(pac::GPIOTE, &CHANNEL_WAKERS[..]) };
+    unsafe { handle_gpiote_interrupt(pac::GPIOTE) };
 }
 
 #[cfg(all(feature = "_nrf54l", feature = "_s"))]
@@ -156,7 +158,7 @@ fn GPIOTE() {
 #[interrupt]
 fn GPIOTE20_0() {
     info!("GPIOTE20_0!");
-    unsafe { handle_gpiote_interrupt(pac::GPIOTE20, &CHANNEL_WAKERS[..8]) };
+    unsafe { handle_gpiote_interrupt(pac::GPIOTE20) };
 }
 
 #[cfg(all(feature = "_nrf54l", feature = "_s"))]
@@ -164,7 +166,7 @@ fn GPIOTE20_0() {
 #[interrupt]
 fn GPIOTE30_0() {
     info!("GPIOTE30_0!");
-    unsafe { handle_gpiote_interrupt(pac::GPIOTE30, &CHANNEL_WAKERS[8..12]) };
+    unsafe { handle_gpiote_interrupt(pac::GPIOTE30) };
 }
 
 #[cfg(all(feature = "_nrf54l", feature = "_ns"))]
@@ -172,7 +174,7 @@ fn GPIOTE30_0() {
 #[interrupt]
 fn GPIOTE20_1() {
     info!("GPIOTE20_1!");
-    unsafe { handle_gpiote_interrupt(pac::GPIOTE20, &CHANNEL_WAKERS[..8]) };
+    unsafe { handle_gpiote_interrupt(pac::GPIOTE20) };
 }
 
 #[cfg(all(feature = "_nrf54l", feature = "_ns"))]
@@ -180,15 +182,16 @@ fn GPIOTE20_1() {
 #[interrupt]
 fn GPIOTE30_1() {
     info!("GPIOTE30_1!");
-    unsafe { handle_gpiote_interrupt(pac::GPIOTE30, &CHANNEL_WAKERS[8..12]) };
+    unsafe { handle_gpiote_interrupt(pac::GPIOTE30) };
 }
 
-unsafe fn handle_gpiote_interrupt(g: pac::gpiote::Gpiote, wakers: &[AtomicWaker]) {
-    for (i, w) in wakers.iter().enumerate() {
+unsafe fn handle_gpiote_interrupt(g: pac::gpiote::Gpiote) {
+    for c in 0..CHANNEL_COUNT {
+        let i = c % CHANNELS_PER_PORT;
         if g.events_in(i).read() != 0 {
-            info!("Clear IRQ {} waker {}", INTNUM, i);
+            info!("Clear IRQ {} waker {}", INTNUM, c);
             g.intenclr(INTNUM).write(|w| w.0 = 1 << i);
-            w.wake();
+            CHANNEL_WAKERS[c].wake();
         }
     }
 
@@ -335,6 +338,7 @@ impl<'d> InputChannel<'d> {
     pub async fn wait(&self) {
         let g = self.ch.regs();
         let num = self.ch.number();
+        let waker = self.ch.waker();
 
         // Enable interrupt
         g.events_in(num).write_value(0);
@@ -342,7 +346,7 @@ impl<'d> InputChannel<'d> {
 
         poll_fn(|cx| {
             info!("Waiting for channel waker {}", num);
-            CHANNEL_WAKERS[num].register(cx.waker());
+            CHANNEL_WAKERS[waker].register(cx.waker());
 
             if g.events_in(num).read() != 0 {
                 Poll::Ready(())
@@ -571,6 +575,7 @@ trait SealedChannel {}
 pub trait Channel: PeripheralType + SealedChannel + Into<AnyChannel> + Sized + 'static {
     /// Get the channel number.
     fn number(&self) -> usize;
+    fn waker(&self) -> usize;
     fn regs(&self) -> pac::gpiote::Gpiote;
 }
 
@@ -582,6 +587,7 @@ pub trait Channel: PeripheralType + SealedChannel + Into<AnyChannel> + Sized + '
 /// them to be the same type, like putting them in an array.
 pub struct AnyChannel {
     number: u8,
+    waker: u8,
     regs: pac::gpiote::Gpiote,
 }
 
@@ -591,13 +597,16 @@ impl Channel for AnyChannel {
     fn number(&self) -> usize {
         self.number as usize
     }
+    fn waker(&self) -> usize {
+        self.waker as usize
+    }
     fn regs(&self) -> pac::gpiote::Gpiote {
         self.regs
     }
 }
 
 macro_rules! impl_channel {
-    ($inst:ident, $type:ident, $number:expr) => {
+    ($inst:ident, $type:ident, $number:expr, $waker:expr) => {
         impl SealedChannel for peripherals::$type {}
         impl Channel for peripherals::$type {
             fn number(&self) -> usize {
@@ -607,12 +616,17 @@ macro_rules! impl_channel {
             fn regs(&self) -> pac::gpiote::Gpiote {
                 $inst
             }
+
+            fn waker(&self) -> usize {
+                $waker as usize
+            }
         }
 
         impl From<peripherals::$type> for AnyChannel {
             fn from(val: peripherals::$type) -> Self {
                 Self {
                     number: val.number() as u8,
+                    waker: val.waker() as u8,
                     regs: val.regs(),
                 }
             }
@@ -624,35 +638,35 @@ cfg_if::cfg_if! {
     if #[cfg(feature = "_nrf54l")] {
         use pac::GPIOTE20;
         use pac::GPIOTE30;
-        impl_channel!(GPIOTE20, GPIOTE_CH0, 0);
-        impl_channel!(GPIOTE20, GPIOTE_CH1, 1);
-        impl_channel!(GPIOTE20, GPIOTE_CH2, 2);
-        impl_channel!(GPIOTE20, GPIOTE_CH3, 3);
-        impl_channel!(GPIOTE20, GPIOTE_CH4, 4);
-        impl_channel!(GPIOTE20, GPIOTE_CH5, 5);
-        impl_channel!(GPIOTE20, GPIOTE_CH6, 6);
-        impl_channel!(GPIOTE20, GPIOTE_CH7, 7);
+        impl_channel!(GPIOTE20, GPIOTE_CH0, 0, 0);
+        impl_channel!(GPIOTE20, GPIOTE_CH1, 1, 1);
+        impl_channel!(GPIOTE20, GPIOTE_CH2, 2, 2);
+        impl_channel!(GPIOTE20, GPIOTE_CH3, 3, 3);
+        impl_channel!(GPIOTE20, GPIOTE_CH4, 4, 4);
+        impl_channel!(GPIOTE20, GPIOTE_CH5, 5, 5);
+        impl_channel!(GPIOTE20, GPIOTE_CH6, 6, 6);
+        impl_channel!(GPIOTE20, GPIOTE_CH7, 7, 7);
 
-        impl_channel!(GPIOTE30, GPIOTE_CH8, 0);
-        impl_channel!(GPIOTE30, GPIOTE_CH9, 1);
-        impl_channel!(GPIOTE30, GPIOTE_CH10, 2);
-        impl_channel!(GPIOTE30, GPIOTE_CH11, 3);
+        impl_channel!(GPIOTE30, GPIOTE_CH8, 0, 8);
+        impl_channel!(GPIOTE30, GPIOTE_CH9, 1, 9);
+        impl_channel!(GPIOTE30, GPIOTE_CH10, 2, 10);
+        impl_channel!(GPIOTE30, GPIOTE_CH11, 3, 11);
     } else if #[cfg(feature = "_nrf51")] {
         use pac::GPIOTE;
-        impl_channel!(GPIOTE, GPIOTE_CH0, 0);
-        impl_channel!(GPIOTE, GPIOTE_CH1, 1);
-        impl_channel!(GPIOTE, GPIOTE_CH2, 2);
-        impl_channel!(GPIOTE, GPIOTE_CH3, 3);
+        impl_channel!(GPIOTE, GPIOTE_CH0, 0, 0);
+        impl_channel!(GPIOTE, GPIOTE_CH1, 1, 1);
+        impl_channel!(GPIOTE, GPIOTE_CH2, 2, 2);
+        impl_channel!(GPIOTE, GPIOTE_CH3, 3, 3);
     } else {
         use pac::GPIOTE;
-        impl_channel!(GPIOTE, GPIOTE_CH0, 0);
-        impl_channel!(GPIOTE, GPIOTE_CH1, 1);
-        impl_channel!(GPIOTE, GPIOTE_CH2, 2);
-        impl_channel!(GPIOTE, GPIOTE_CH3, 3);
-        impl_channel!(GPIOTE, GPIOTE_CH4, 4);
-        impl_channel!(GPIOTE, GPIOTE_CH5, 5);
-        impl_channel!(GPIOTE, GPIOTE_CH6, 6);
-        impl_channel!(GPIOTE, GPIOTE_CH7, 7);
+        impl_channel!(GPIOTE, GPIOTE_CH0, 0, 0);
+        impl_channel!(GPIOTE, GPIOTE_CH1, 1, 1);
+        impl_channel!(GPIOTE, GPIOTE_CH2, 2, 2);
+        impl_channel!(GPIOTE, GPIOTE_CH3, 3, 3);
+        impl_channel!(GPIOTE, GPIOTE_CH4, 4, 4);
+        impl_channel!(GPIOTE, GPIOTE_CH5, 5, 5);
+        impl_channel!(GPIOTE, GPIOTE_CH6, 6, 6);
+        impl_channel!(GPIOTE, GPIOTE_CH7, 7, 7);
     }
 }
 
