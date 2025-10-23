@@ -517,9 +517,9 @@ impl<'d> Spi<'d, Blocking, Slave> {
     /// Create a new blocking SPI slave driver.
     pub fn new_blocking_slave<T: Instance>(
         peri: Peri<'d, T>,
-        sck: Peri<'d, impl SckPin<T>>,
-        mosi: Peri<'d, impl MosiPin<T>>,
-        miso: Peri<'d, impl MisoPin<T>>,
+        sck: Peri<'d, if_afio!(impl SckPin<T, A>)>,
+        mosi: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
+        miso: Peri<'d, if_afio!(impl MisoPin<T, A>)>,
         cs: Peri<'d, impl CsPin<T>>,
         config: Config,
     ) -> Self {
@@ -620,9 +620,9 @@ impl<'d> Spi<'d, Async, Slave> {
     /// Create a new SPI slave driver.
     pub fn new_slave<T: Instance>(
         peri: Peri<'d, T>,
-        sck: Peri<'d, impl SckPin<T>>,
-        mosi: Peri<'d, impl MosiPin<T>>,
-        miso: Peri<'d, impl MisoPin<T>>,
+        sck: Peri<'d, if_afio!(impl SckPin<T, A>)>,
+        mosi: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
+        miso: Peri<'d, if_afio!(impl MisoPin<T, A>)>,
         cs: Peri<'d, impl CsPin<T>>,
         tx_dma: Peri<'d, impl TxDma<T>>,
         rx_dma: Peri<'d, impl RxDma<T>>,
