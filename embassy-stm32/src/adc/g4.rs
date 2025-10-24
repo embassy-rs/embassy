@@ -1,3 +1,4 @@
+use embassy_sync::mutex;
 #[allow(unused)]
 #[cfg(stm32h7)]
 use pac::adc::vals::{Adcaldif, Difsel, Exten};
@@ -395,13 +396,13 @@ impl<'d, T: Instance> Adc<'d, T> {
             sequence.len() == readings.len(),
             "Sequence length must be equal to readings length"
         );
-        self.configure_regular_sequence(sequence).await;
-        self.trigger_regular_conversion_and_await_result(rx_dma, readings).await;
+        self.configure_regular_sequence(sequence);
+        //self.trigger_regular_conversion(rx_dma, readings);
     }
 
-    pub async fn configure_regular_sequence(
+    pub fn configure_regular_sequence<'a>(
         &mut self,
-        sequence: impl ExactSizeIterator<Item = (&mut AnyAdcChannel<T>, SampleTime)>,
+        sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<T>, SampleTime)>,
     ) {
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
         assert!(
@@ -456,33 +457,13 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr().modify(|reg| {
             reg.set_discen(false);
             reg.set_cont(false);
-            reg.set_dmacfg(Dmacfg::ONE_SHOT);
+            reg.set_dmacfg(Dmacfg::CIRCULAR);
             reg.set_dmaen(Dmaen::ENABLE);
         });
     }
 
-    pub async fn trigger_regular_conversion_and_await_result(&mut self, rx_dma: Peri<'_, impl RxDma<T>>, readings: &mut [u16]) {
-        let request = rx_dma.request();
-        let transfer = unsafe {
-            Transfer::new_read(
-                rx_dma,
-                request,
-                T::regs().dr().as_ptr() as *mut u16,
-                readings,
-                Default::default(),
-            )
-        };
-
-        // Start conversion
-        T::regs().cr().modify(|reg| {
-            reg.set_adstart(true);
-        });
-
-        // Wait for conversion sequence to finish.
-        transfer.await;
-
-        // Ensure conversions are finished.
-        Self::cancel_regular_conversions();
+    pub fn get_dma_data_pointer(&mut self) -> *mut u16 {
+        T::regs().dr().as_ptr() as *mut u16
     }
 
     // Dual ADC mode selection
@@ -550,6 +531,22 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cr().modify(|reg| {
             reg.set_jadstart(true);
         });
+    }
+
+    pub fn start_regular_conversion(&mut self) {
+        // Start conversion
+        T::regs().cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
+    }
+
+    /// Set external trigger for injected conversion sequence
+    pub fn set_regular_conversion_trigger(&mut self, trigger: u8, edge: Exten) {
+        T::regs().cfgr().modify(|r| {
+            r.set_extsel(trigger); // ADC group injected external trigger source
+            r.set_exten(edge); // ADC group injected external trigger polarity
+        });
+        T::regs().ier().modify(|r| r.set_eosie(false)); // group injected end of sequence conversions interrupt
     }
 
     /// Set external trigger for injected conversion sequence
