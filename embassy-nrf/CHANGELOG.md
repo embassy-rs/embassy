@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - changed: apply trimming values from FICR.TRIMCNF on nrf53/54l
 - changed: do not panic on BufferedUarte overrun
 - added: allow direct access to the input pin of `gpiote::InputChannel`
+- changed: removed unused generic from `Saadc::run_timer_sample`
 
 ## 0.8.0 - 2025-09-30
 
