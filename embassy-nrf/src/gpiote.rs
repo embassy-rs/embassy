@@ -259,6 +259,11 @@ impl<'d> InputChannel<'d> {
         .await;
     }
 
+    /// Get the associated input pin.
+    pub fn pin(&self) -> &Input<'_> {
+        &self.pin
+    }
+
     /// Returns the IN event, for use with PPI.
     pub fn event_in(&self) -> Event<'d> {
         let g = regs();
