@@ -89,7 +89,7 @@
 //! Instead of the usual "trait + generic params" approach, calls from embassy to the driver are done via `extern` functions.
 //!
 //! `embassy` internally defines the driver function as `extern "Rust" { fn _embassy_time_now() -> u64; }` and calls it.
-//! The driver crate defines the function as `#[no_mangle] fn _embassy_time_now() -> u64`. The linker will resolve the
+//! The driver crate defines the function as `#[unsafe(no_mangle)] fn _embassy_time_now() -> u64`. The linker will resolve the
 //! calls from the `embassy` crate to call into the driver crate.
 //!
 //! If there is none or multiple drivers in the crate tree, linking will fail.
@@ -133,7 +133,7 @@ pub trait Driver: Send + Sync + 'static {
     fn schedule_wake(&self, at: u64, waker: &Waker);
 }
 
-extern "Rust" {
+unsafe extern "Rust" {
     fn _embassy_time_now() -> u64;
     fn _embassy_time_schedule_wake(at: u64, waker: &Waker);
 }
@@ -158,13 +158,13 @@ macro_rules! time_driver_impl {
     (static $name:ident: $t: ty = $val:expr) => {
         static $name: $t = $val;
 
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         #[inline]
         fn _embassy_time_now() -> u64 {
             <$t as $crate::Driver>::now(&$name)
         }
 
-        #[no_mangle]
+        #[unsafe(no_mangle)]
         #[inline]
         fn _embassy_time_schedule_wake(at: u64, waker: &core::task::Waker) {
             <$t as $crate::Driver>::schedule_wake(&$name, at, waker);

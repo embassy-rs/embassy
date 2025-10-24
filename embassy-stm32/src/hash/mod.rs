@@ -19,7 +19,7 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::mode::Async;
 use crate::mode::{Blocking, Mode};
 use crate::peripherals::HASH;
-use crate::{interrupt, pac, peripherals, rcc, Peri};
+use crate::{Peri, interrupt, pac, peripherals, rcc};
 
 #[cfg(hash_v1)]
 const NUM_CONTEXT_REGS: usize = 51;
@@ -514,11 +514,7 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
             T::regs().imr().modify(|reg| reg.set_dcie(true));
             // Check for completion.
             let bits = T::regs().sr().read();
-            if bits.dcis() {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
+            if bits.dcis() { Poll::Ready(()) } else { Poll::Pending }
         })
         .await;
 

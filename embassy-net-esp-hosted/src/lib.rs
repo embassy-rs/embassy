@@ -2,7 +2,7 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
-use embassy_futures::select::{select4, Either4};
+use embassy_futures::select::{Either4, select4};
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
 use embassy_time::{Duration, Instant, Timer};

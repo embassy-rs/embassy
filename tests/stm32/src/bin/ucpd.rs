@@ -9,7 +9,7 @@ use defmt::{assert, assert_eq};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::ucpd::{self, CcPhy, CcPull, CcSel, CcVState, RxError, Ucpd};
-use embassy_stm32::{bind_interrupts, peripherals, Peri};
+use embassy_stm32::{Peri, bind_interrupts, peripherals};
 use embassy_time::Timer;
 
 bind_interrupts!(struct Irqs {

@@ -52,7 +52,7 @@ pub use self::waker::task_from_waker;
 use super::SpawnToken;
 use crate::{Metadata, SpawnError};
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "Rust" fn __embassy_time_queue_item_from_waker(waker: &Waker) -> &'static mut TimerQueueItem {
     unsafe { task_from_waker(waker).timer_queue_item() }
 }
@@ -407,7 +407,7 @@ unsafe impl Sync for Pender {}
 
 impl Pender {
     pub(crate) fn pend(self) {
-        extern "Rust" {
+        unsafe extern "Rust" {
             fn __pender(context: *mut ());
         }
         unsafe { __pender(self.0) };
@@ -507,7 +507,7 @@ impl SyncExecutor {
 /// The pender function must be exported with the name `__pender` and have the following signature:
 ///
 /// ```rust
-/// #[export_name = "__pender"]
+/// #[unsafe(export_name = "__pender")]
 /// fn pender(context: *mut ()) {
 ///    // schedule `poll()` to be called
 /// }

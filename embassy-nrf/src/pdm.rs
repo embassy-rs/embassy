@@ -4,7 +4,7 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
@@ -13,7 +13,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use fixed::types::I7F1;
 
 use crate::chip::EASY_DMA_SIZE;
-use crate::gpio::{AnyPin, Pin as GpioPin, SealedPin, DISCONNECTED};
+use crate::gpio::{AnyPin, DISCONNECTED, Pin as GpioPin, SealedPin};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::pdm::vals;

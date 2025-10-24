@@ -5,9 +5,9 @@ use core::mem::MaybeUninit;
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_stm32::SharedData;
 use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::Pull;
-use embassy_stm32::SharedData;
 use {defmt_rtt as _, panic_probe as _};
 
 #[unsafe(link_section = ".shared_data")]

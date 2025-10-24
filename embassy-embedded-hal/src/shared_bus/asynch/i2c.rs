@@ -26,8 +26,8 @@ use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::mutex::Mutex;
 use embedded_hal_async::i2c;
 
-use crate::shared_bus::I2cDeviceError;
 use crate::SetConfig;
+use crate::shared_bus::I2cDeviceError;
 
 /// I2C device on a shared bus.
 pub struct I2cDevice<'a, M: RawMutex, BUS> {

@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = "2024"
 name = "embassy-boot"
 version = "0.6.1"
 description = "A lightweight bootloader supporting firmware updates in a power-fail-safe way, with trial boots and rollbacks."

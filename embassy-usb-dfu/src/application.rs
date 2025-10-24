@@ -6,11 +6,11 @@ use embassy_usb::driver::Driver;
 use embassy_usb::{Builder, FunctionBuilder, Handler};
 use embedded_storage::nor_flash::NorFlash;
 
+use crate::Reset;
 use crate::consts::{
-    DfuAttributes, Request, State, Status, APPN_SPEC_SUBCLASS_DFU, DESC_DFU_FUNCTIONAL, DFU_PROTOCOL_RT,
+    APPN_SPEC_SUBCLASS_DFU, DESC_DFU_FUNCTIONAL, DFU_PROTOCOL_RT, DfuAttributes, Request, State, Status,
     USB_CLASS_APPN_SPEC,
 };
-use crate::Reset;
 
 /// Generic interface for a system that can signal to the bootloader that USB DFU mode is needed on the next boot.
 ///

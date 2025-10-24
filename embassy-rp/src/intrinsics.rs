@@ -223,7 +223,7 @@ macro_rules! intrinsics {
 
         #[cfg(all(target_arch = "arm", feature = "intrinsics"))]
         mod $name {
-            #[no_mangle]
+            #[unsafe(no_mangle)]
             $(#[$($attr)*])*
             pub extern $abi fn $name( $($argname: $ty),* ) -> $ret {
                 super::$name($($argname),*)
@@ -257,7 +257,7 @@ macro_rules! intrinsics {
 
         #[cfg(all(target_arch = "arm", feature = "intrinsics"))]
         mod $name {
-            #[no_mangle]
+            #[unsafe(no_mangle)]
             $(#[$($attr)*])*
             pub unsafe extern $abi fn $name( $($argname: $ty),* ) -> $ret {
                 super::$name($($argname),*)
@@ -392,7 +392,7 @@ macro_rules! division_function {
         );
 
         #[cfg(target_arch = "arm")]
-        extern "aapcs" {
+        unsafe extern "aapcs" {
             // Connect a local name to global symbol above through FFI.
             #[link_name = concat!("_erphal_", stringify!($name)) ]
             fn $name(n: $argty, d: $argty) -> u64;

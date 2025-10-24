@@ -1,6 +1,6 @@
 #[cfg(feature = "metadata-name")]
 use core::cell::Cell;
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 #[cfg(feature = "scheduler-priority")]
 use core::sync::atomic::{AtomicU8, Ordering};
 use core::task::Poll;

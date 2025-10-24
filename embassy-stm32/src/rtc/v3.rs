@@ -1,4 +1,4 @@
-use stm32_metapac::rtc::vals::{Calp, Calw16, Calw8, Fmt, Key, Osel, Pol, TampalrmType};
+use stm32_metapac::rtc::vals::{Calp, Calw8, Calw16, Fmt, Key, Osel, Pol, TampalrmType};
 
 use super::RtcCalibrationCyclePeriod;
 use crate::pac::rtc::Rtc;

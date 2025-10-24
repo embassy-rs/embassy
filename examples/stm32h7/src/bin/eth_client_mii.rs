@@ -5,12 +5,12 @@ use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_net::tcp::client::{TcpClient, TcpClientState};
 use embassy_net::StackResources;
+use embassy_net::tcp::client::{TcpClient, TcpClientState};
 use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue};
 use embassy_stm32::peripherals::ETH;
 use embassy_stm32::rng::Rng;
-use embassy_stm32::{bind_interrupts, eth, peripherals, rng, Config};
+use embassy_stm32::{Config, bind_interrupts, eth, peripherals, rng};
 use embassy_time::Timer;
 use embedded_io_async::Write;
 use embedded_nal_async::TcpConnect;

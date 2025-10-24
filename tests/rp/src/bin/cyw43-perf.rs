@@ -3,7 +3,7 @@
 teleprobe_meta::target!(b"rpi-pico");
 
 use cyw43::JoinOptions;
-use cyw43_pio::{PioSpi, DEFAULT_CLOCK_DIVIDER};
+use cyw43_pio::{DEFAULT_CLOCK_DIVIDER, PioSpi};
 use defmt::{panic, *};
 use embassy_executor::Spawner;
 use embassy_net::{Config, StackResources};

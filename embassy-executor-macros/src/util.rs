@@ -3,7 +3,7 @@ use std::fmt::Display;
 use proc_macro2::{TokenStream, TokenTree};
 use quote::{ToTokens, TokenStreamExt};
 use syn::parse::{Parse, ParseStream};
-use syn::{braced, bracketed, token, AttrStyle, Attribute, Signature, Token, Visibility};
+use syn::{AttrStyle, Attribute, Signature, Token, Visibility, braced, bracketed, token};
 
 pub fn token_stream_with_error(mut tokens: TokenStream, error: syn::Error) -> TokenStream {
     tokens.extend(error.into_compile_error());

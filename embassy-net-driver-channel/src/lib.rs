@@ -11,8 +11,8 @@ use core::task::{Context, Poll};
 
 pub use embassy_net_driver as driver;
 use embassy_net_driver::{Capabilities, LinkState};
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::waitqueue::WakerRegistration;
 use embassy_sync::zerocopy_channel;
 

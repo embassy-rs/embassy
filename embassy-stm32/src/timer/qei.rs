@@ -5,9 +5,9 @@ use stm32_metapac::timer::vals::{self, Sms};
 use super::low_level::Timer;
 pub use super::{Ch1, Ch2};
 use super::{GeneralInstance4Channel, TimerPin};
+use crate::Peri;
 use crate::gpio::{AfType, AnyPin, Pull};
 use crate::timer::TimerChannel;
-use crate::Peri;
 
 /// Qei driver config.
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]

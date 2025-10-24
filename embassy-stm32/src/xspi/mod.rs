@@ -11,15 +11,15 @@ use embassy_embedded_hal::{GetConfig, SetConfig};
 use embassy_hal_internal::PeripheralType;
 pub use enums::*;
 
-use crate::dma::{word, ChannelAndRequest};
+use crate::dma::{ChannelAndRequest, word};
 use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
-use crate::pac::xspi::vals::*;
 use crate::pac::xspi::Xspi as Regs;
+use crate::pac::xspi::vals::*;
 #[cfg(xspim_v1)]
 use crate::pac::xspim::Xspim;
 use crate::rcc::{self, RccPeripheral};
-use crate::{peripherals, Peri};
+use crate::{Peri, peripherals};
 
 /// XPSI driver config.
 #[derive(Clone, Copy)]

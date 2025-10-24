@@ -1,13 +1,13 @@
 //! A synchronization primitive for passing the latest value to **multiple** receivers.
 
 use core::cell::RefCell;
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 use core::task::{Context, Poll};
 
-use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
+use crate::blocking_mutex::raw::RawMutex;
 use crate::waitqueue::MultiWakerRegistration;
 
 /// The `Watch` is a single-slot signaling primitive that allows _multiple_ (`N`) receivers to concurrently await

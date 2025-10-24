@@ -1,7 +1,7 @@
 [package]
 name = "embassy-futures"
 version = "0.1.2"
-edition = "2021"
+edition = "2024"
 description = "no-std, no-alloc utilities for working with futures"
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-futures"

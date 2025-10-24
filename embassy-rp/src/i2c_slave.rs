@@ -5,9 +5,9 @@ use core::task::Poll;
 
 use pac::i2c;
 
-use crate::i2c::{set_up_i2c_pin, AbortReason, Instance, InterruptHandler, SclPin, SdaPin, FIFO_SIZE};
+use crate::i2c::{AbortReason, FIFO_SIZE, Instance, InterruptHandler, SclPin, SdaPin, set_up_i2c_pin};
 use crate::interrupt::typelevel::{Binding, Interrupt};
-use crate::{pac, Peri};
+use crate::{Peri, pac};
 
 /// I2C error
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]

@@ -8,6 +8,7 @@ use core::cmp::min;
 
 use defmt::info;
 use embassy_executor::Spawner;
+use embassy_stm32::Config;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::mode::Blocking;
 use embassy_stm32::time::Hertz;
@@ -15,7 +16,6 @@ use embassy_stm32::xspi::{
     AddressSize, ChipSelectHighTime, DummyCycles, FIFOThresholdLevel, Instance, MemorySize, MemoryType, TransferConfig,
     WrapSize, Xspi, XspiWidth,
 };
-use embassy_stm32::Config;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 

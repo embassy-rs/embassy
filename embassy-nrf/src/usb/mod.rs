@@ -4,10 +4,10 @@
 
 pub mod vbus_detect;
 
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
 use core::mem::MaybeUninit;
-use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
 use core::task::Poll;
 
 use cortex_m::peripheral::NVIC;
@@ -330,11 +330,7 @@ impl<'d, V: VbusDetect> driver::Bus for Bus<'d, V> {
                 let mut was_enabled = false;
                 regs.epinen().modify(|w| {
                     was_enabled = (w.0 & mask) != 0;
-                    if enabled {
-                        w.0 |= mask
-                    } else {
-                        w.0 &= !mask
-                    }
+                    if enabled { w.0 |= mask } else { w.0 &= !mask }
                 });
 
                 let ready_mask = In::mask(i);

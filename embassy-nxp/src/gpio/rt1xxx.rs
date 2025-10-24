@@ -5,13 +5,13 @@ use core::ops::Not;
 use core::pin::Pin as FuturePin;
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
+use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 use nxp_pac::gpio::vals::Icr;
 use nxp_pac::iomuxc::vals::Pus;
 
 use crate::chip::{mux_address, pad_address};
-use crate::pac::common::{Reg, RW};
+use crate::pac::common::{RW, Reg};
 use crate::pac::gpio::Gpio;
 #[cfg(feature = "rt")]
 use crate::pac::interrupt;

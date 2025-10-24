@@ -7,7 +7,7 @@ use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::interrupt::{self};
 use crate::time::Hertz;
-use crate::{rcc, Peri};
+use crate::{Peri, rcc};
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;

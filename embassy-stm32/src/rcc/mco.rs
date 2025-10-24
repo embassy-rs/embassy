@@ -3,6 +3,7 @@ use core::marker::PhantomData;
 use embassy_hal_internal::PeripheralType;
 
 use crate::gpio::{AfType, OutputType, Speed};
+use crate::pac::RCC;
 #[cfg(not(any(stm32f1, rcc_f0v1, rcc_f3v1, rcc_f37)))]
 pub use crate::pac::rcc::vals::Mcopre as McoPrescaler;
 #[cfg(not(any(
@@ -31,8 +32,7 @@ pub use crate::pac::rcc::vals::Mcosel as McoSource;
     rcc_h7rs
 ))]
 pub use crate::pac::rcc::vals::{Mco1sel as Mco1Source, Mco2sel as Mco2Source};
-use crate::pac::RCC;
-use crate::{peripherals, Peri};
+use crate::{Peri, peripherals};
 
 #[cfg(any(stm32f1, rcc_f0v1, rcc_f3v1, rcc_f37))]
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd)]

@@ -1,7 +1,7 @@
 #[cfg(feature = "time")]
 use embassy_time::{Duration, TICK_HZ};
 
-use super::{bcd2_to_byte, DateTimeError, Rtc, RtcError};
+use super::{DateTimeError, Rtc, RtcError, bcd2_to_byte};
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::RTC;
 use crate::rtc::SealedInstance;

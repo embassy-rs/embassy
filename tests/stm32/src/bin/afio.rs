@@ -16,7 +16,7 @@ use embassy_stm32::timer::qei::Qei;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
 use embassy_stm32::timer::{Ch1, Ch2};
 use embassy_stm32::usart::{Uart, UartRx, UartTx};
-use embassy_stm32::{bind_interrupts, Peripherals};
+use embassy_stm32::{Peripherals, bind_interrupts};
 
 #[cfg(not(feature = "afio-connectivity-line"))]
 bind_interrupts!(struct Irqs {

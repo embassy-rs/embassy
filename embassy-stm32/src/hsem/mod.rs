@@ -2,13 +2,13 @@
 
 use embassy_hal_internal::PeripheralType;
 
-use crate::pac;
-use crate::rcc::{self, RccPeripheral};
 // TODO: This code works for all HSEM implemenations except for the STM32WBA52/4/5xx MCUs.
 // Those MCUs have a different HSEM implementation (Secure semaphore lock support,
 // Privileged / unprivileged semaphore lock support, Semaphore lock protection via semaphore attribute),
 // which is not yet supported by this code.
 use crate::Peri;
+use crate::pac;
+use crate::rcc::{self, RccPeripheral};
 
 /// HSEM error.
 #[derive(Debug)]

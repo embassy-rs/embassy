@@ -7,9 +7,9 @@
 
 use defmt::{info, trace};
 use embassy_executor::Spawner;
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_stm32::spdifrx::{self, Spdifrx};
-use embassy_stm32::{bind_interrupts, peripherals, sai, Peri};
+use embassy_stm32::{Peri, bind_interrupts, peripherals, sai};
 use grounded::uninit::GroundedArrayCell;
 use hal::sai::*;
 use {defmt_rtt as _, embassy_stm32 as hal, panic_probe as _};

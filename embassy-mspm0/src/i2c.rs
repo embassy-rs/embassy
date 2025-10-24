@@ -10,13 +10,13 @@ use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use mspm0_metapac::i2c;
 
+use crate::Peri;
 use crate::gpio::{AnyPin, PfType, Pull, SealedPin};
 use crate::interrupt::typelevel::Binding;
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
-use crate::pac::i2c::{vals, I2c as Regs};
+use crate::pac::i2c::{I2c as Regs, vals};
 use crate::pac::{self};
-use crate::Peri;
 
 /// The clock source for the I2C.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -56,7 +56,7 @@ pub enum ClockDiv {
 }
 
 impl ClockDiv {
-    fn into(self) -> vals::Ratio {
+    pub(crate) fn into(self) -> vals::Ratio {
         match self {
             Self::DivBy1 => vals::Ratio::DIV_BY_1,
             Self::DivBy2 => vals::Ratio::DIV_BY_2,
@@ -133,6 +133,11 @@ pub enum ConfigError {
     ///
     /// The clock soure is not enabled is SYSCTL.
     ClockSourceNotEnabled,
+
+    /// Invalid target address.
+    ///
+    /// The target address is not 7-bit.
+    InvalidTargetAddress,
 }
 
 #[non_exhaustive]
@@ -140,7 +145,7 @@ pub enum ConfigError {
 /// Config
 pub struct Config {
     /// I2C clock source.
-    clock_source: ClockSel,
+    pub(crate) clock_source: ClockSel,
 
     /// I2C clock divider.
     pub clock_div: ClockDiv,
@@ -196,7 +201,7 @@ impl Config {
     }
 
     #[cfg(any(mspm0c110x, mspm0c1105_c1106))]
-    fn calculate_clock_source(&self) -> u32 {
+    pub(crate) fn calculate_clock_source(&self) -> u32 {
         // Assume that BusClk has default value.
         // TODO: calculate BusClk more precisely.
         match self.clock_source {
@@ -206,10 +211,10 @@ impl Config {
     }
 
     #[cfg(any(
-        mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x, mspm0l110x, mspm0l122x, mspm0l130x,
-        mspm0l134x, mspm0l222x
+        mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x, mspm0h321x, mspm0l110x, mspm0l122x,
+        mspm0l130x, mspm0l134x, mspm0l222x
     ))]
-    fn calculate_clock_source(&self) -> u32 {
+    pub(crate) fn calculate_clock_source(&self) -> u32 {
         // Assume that BusClk has default value.
         // TODO: calculate BusClk more precisely.
         match self.clock_source {

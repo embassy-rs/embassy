@@ -13,7 +13,7 @@ use embassy_stm32::mode::Async;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::spi::Spi;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{bind_interrupts, peripherals, rng, spi, Config};
+use embassy_stm32::{Config, bind_interrupts, peripherals, rng, spi};
 use embassy_time::{Delay, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_io_async::Write;

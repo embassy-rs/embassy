@@ -14,7 +14,7 @@ use crate::gpio::{AfType, AnyPin, OutputType, Pull, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::quadspi::Quadspi as Regs;
 use crate::rcc::{self, RccPeripheral};
-use crate::{peripherals, Peri};
+use crate::{Peri, peripherals};
 
 /// QSPI transfer configuration.
 #[derive(Clone, Copy)]

@@ -8,7 +8,7 @@ use core::future::poll_fn;
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_hal_internal::drop::OnDrop;
 use embedded_hal_1::i2c::Operation;
 use mode::Master;
@@ -762,11 +762,7 @@ impl Timings {
             mode = Mode::Standard;
             ccr = {
                 let ccr = clock / (frequency * 2);
-                if ccr < 4 {
-                    4
-                } else {
-                    ccr
-                }
+                if ccr < 4 { 4 } else { ccr }
             };
         } else {
             const DUTYCYCLE: u8 = 0;

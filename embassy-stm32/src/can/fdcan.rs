@@ -3,8 +3,8 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_hal_internal::PeripheralType;
+use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::waitqueue::AtomicWaker;
@@ -13,7 +13,7 @@ use crate::can::fd::peripheral::Registers;
 use crate::gpio::{AfType, OutputType, Pull, SealedPin as _, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::{self, RccPeripheral};
-use crate::{interrupt, peripherals, Peri};
+use crate::{Peri, interrupt, peripherals};
 
 pub(crate) mod fd;
 
@@ -182,8 +182,8 @@ impl<'d> CanConfigurator<'d> {
         rx: Peri<'d, impl RxPin<T>>,
         tx: Peri<'d, impl TxPin<T>>,
         _irqs: impl interrupt::typelevel::Binding<T::IT0Interrupt, IT0InterruptHandler<T>>
-            + interrupt::typelevel::Binding<T::IT1Interrupt, IT1InterruptHandler<T>>
-            + 'd,
+        + interrupt::typelevel::Binding<T::IT1Interrupt, IT1InterruptHandler<T>>
+        + 'd,
     ) -> CanConfigurator<'d> {
         set_as_af!(rx, AfType::input(Pull::None));
         set_as_af!(tx, AfType::output(OutputType::PushPull, Speed::VeryHigh));
@@ -459,7 +459,7 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d,
     pub async fn write(&mut self, frame: Frame) {
         self.tx_buf.send(frame).await;
         self.info.interrupt0.pend(); // Wake for Tx
-                                     //T::IT0Interrupt::pend(); // Wake for Tx
+        //T::IT0Interrupt::pend(); // Wake for Tx
     }
 
     /// Async read frame from RX buffer.
@@ -548,7 +548,7 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCanFd<'
     pub async fn write(&mut self, frame: FdFrame) {
         self.tx_buf.send(frame).await;
         self.info.interrupt0.pend(); // Wake for Tx
-                                     //T::IT0Interrupt::pend(); // Wake for Tx
+        //T::IT0Interrupt::pend(); // Wake for Tx
     }
 
     /// Async read frame from RX buffer.

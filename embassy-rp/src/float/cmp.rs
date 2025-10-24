@@ -21,19 +21,11 @@ impl ROMCmp for f64 {
 }
 
 fn le_abi<F: Float + ROMCmp>(a: F, b: F) -> i32 {
-    if a.is_nan() || b.is_nan() {
-        1
-    } else {
-        a.rom_cmp(b)
-    }
+    if a.is_nan() || b.is_nan() { 1 } else { a.rom_cmp(b) }
 }
 
 fn ge_abi<F: Float + ROMCmp>(a: F, b: F) -> i32 {
-    if a.is_nan() || b.is_nan() {
-        -1
-    } else {
-        a.rom_cmp(b)
-    }
+    if a.is_nan() || b.is_nan() { -1 } else { a.rom_cmp(b) }
 }
 
 intrinsics! {

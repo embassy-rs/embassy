@@ -4,12 +4,12 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::Peri;
 
-use super::timer::Timer;
 #[cfg(not(any(lptim_v2a, lptim_v2b)))]
 use super::OutputPin;
-#[cfg(any(lptim_v2a, lptim_v2b))]
-use super::{channel::Channel, timer::ChannelDirection, Channel1Pin, Channel2Pin};
+use super::timer::Timer;
 use super::{BasicInstance, Instance};
+#[cfg(any(lptim_v2a, lptim_v2b))]
+use super::{Channel1Pin, Channel2Pin, channel::Channel, timer::ChannelDirection};
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};

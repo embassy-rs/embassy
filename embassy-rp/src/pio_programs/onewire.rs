@@ -1,11 +1,11 @@
 //! OneWire pio driver
 
+use crate::Peri;
 use crate::clocks::clk_sys_freq;
 use crate::gpio::Level;
 use crate::pio::{
     Common, Config, Direction, Instance, LoadedProgram, PioPin, ShiftConfig, ShiftDirection, StateMachine,
 };
-use crate::Peri;
 
 /// This struct represents a onewire driver program
 pub struct PioOneWireProgram<'a, PIO: Instance> {
@@ -321,11 +321,7 @@ impl PioOneWireSearch {
 
     /// Search for the next address on the bus
     pub async fn next<PIO: Instance, const SM: usize>(&mut self, pio: &mut PioOneWire<'_, PIO, SM>) -> Option<u64> {
-        if self.finished {
-            None
-        } else {
-            pio.search(self).await
-        }
+        if self.finished { None } else { pio.search(self).await }
     }
 
     /// Is finished when all devices have been found

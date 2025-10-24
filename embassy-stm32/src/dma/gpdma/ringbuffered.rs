@@ -3,12 +3,12 @@
 //! FIXME: Add request_pause functionality?
 //! FIXME: Stop the DMA, if a user does not queue new transfers (chain of linked-list items ends automatically).
 use core::future::poll_fn;
-use core::sync::atomic::{fence, Ordering};
+use core::sync::atomic::{Ordering, fence};
 use core::task::Waker;
 
 use embassy_hal_internal::Peri;
 
-use super::{AnyChannel, TransferOptions, STATE};
+use super::{AnyChannel, STATE, TransferOptions};
 use crate::dma::gpdma::linked_list::{RunMode, Table};
 use crate::dma::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use crate::dma::word::Word;

@@ -16,7 +16,7 @@ use embassy_embedded_hal::{GetConfig, SetConfig};
 use embassy_hal_internal::{Peri, PeripheralType};
 pub use enums::*;
 
-use crate::dma::{word, ChannelAndRequest};
+use crate::dma::{ChannelAndRequest, word};
 use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::hspi::Hspi as Regs;

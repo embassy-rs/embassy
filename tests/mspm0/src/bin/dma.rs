@@ -11,8 +11,8 @@ use core::slice;
 
 use defmt::{assert, assert_eq, *};
 use embassy_executor::Spawner;
-use embassy_mspm0::dma::{Channel, Transfer, TransferMode, TransferOptions, Word};
 use embassy_mspm0::Peri;
+use embassy_mspm0::dma::{Channel, Transfer, TransferMode, TransferOptions, Word};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]

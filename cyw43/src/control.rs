@@ -10,7 +10,7 @@ use crate::events::{Event, EventSubscriber, Events};
 use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType};
 use crate::structs::*;
-use crate::{countries, events, PowerManagementMode};
+use crate::{PowerManagementMode, countries, events};
 
 /// Control errors.
 #[derive(Debug)]

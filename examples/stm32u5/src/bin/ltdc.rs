@@ -13,14 +13,14 @@ use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::ltdc::{self, Ltdc, LtdcConfiguration, LtdcLayer, LtdcLayerConfig, PolarityActive, PolarityEdge};
 use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::{Duration, Timer};
+use embedded_graphics::Pixel;
 use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::geometry::{OriginDimensions, Point, Size};
 use embedded_graphics::image::Image;
-use embedded_graphics::pixelcolor::raw::RawU24;
 use embedded_graphics::pixelcolor::Rgb888;
+use embedded_graphics::pixelcolor::raw::RawU24;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::Rectangle;
-use embedded_graphics::Pixel;
 use heapless::{Entry, FnvIndexMap};
 use tinybmp::Bmp;
 use {defmt_rtt as _, panic_probe as _};
@@ -317,7 +317,7 @@ impl OriginDimensions for DoubleBuffer {
 mod rcc_setup {
 
     use embassy_stm32::time::Hertz;
-    use embassy_stm32::{rcc, Config, Peripherals};
+    use embassy_stm32::{Config, Peripherals, rcc};
 
     /// Sets up clocks for the stm32u5g9zj mcu
     /// change this if you plan to use a different microcontroller

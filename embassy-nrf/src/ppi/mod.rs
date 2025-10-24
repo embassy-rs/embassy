@@ -18,9 +18,9 @@
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 
-use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
+use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 
-use crate::pac::common::{Reg, RW, W};
+use crate::pac::common::{RW, Reg, W};
 use crate::peripherals;
 
 #[cfg_attr(feature = "_dppi", path = "dppi.rs")]

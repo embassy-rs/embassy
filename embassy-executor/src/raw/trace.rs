@@ -368,11 +368,7 @@ impl rtos_trace::RtosTraceOSCallbacks for crate::raw::SyncExecutor {
     }
     fn time() -> u64 {
         const fn gcd(a: u64, b: u64) -> u64 {
-            if b == 0 {
-                a
-            } else {
-                gcd(b, a % b)
-            }
+            if b == 0 { a } else { gcd(b, a % b) }
         }
 
         const GCD_1M: u64 = gcd(embassy_time_driver::TICK_HZ, 1_000_000);

@@ -9,27 +9,27 @@
 //! Please also see [crate::uarte] to understand when [BufferedUarte] should be used.
 
 use core::cmp::min;
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
 use core::slice;
-use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU8, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering, compiler_fence};
 use core::task::Poll;
 
-use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_hal_internal::Peri;
+use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use pac::uarte::vals;
 // Re-export SVD variants to allow user to directly set values
 pub use pac::uarte::vals::{Baudrate, ConfigParity as Parity};
 
 use crate::gpio::{AnyPin, Pin as GpioPin};
-use crate::interrupt::typelevel::Interrupt;
 use crate::interrupt::InterruptExt;
+use crate::interrupt::typelevel::Interrupt;
 use crate::ppi::{
     self, AnyConfigurableChannel, AnyGroup, Channel, ConfigurableChannel, Event, Group, Ppi, PpiGroup, Task,
 };
 use crate::timer::{Instance as TimerInstance, Timer};
-use crate::uarte::{configure, configure_rx_pins, configure_tx_pins, drop_tx_rx, Config, Instance as UarteInstance};
-use crate::{interrupt, pac, EASY_DMA_SIZE};
+use crate::uarte::{Config, Instance as UarteInstance, configure, configure_rx_pins, configure_tx_pins, drop_tx_rx};
+use crate::{EASY_DMA_SIZE, interrupt, pac};
 
 pub(crate) struct State {
     tx_buf: RingBuffer,
@@ -40,6 +40,7 @@ pub(crate) struct State {
     rx_started_count: AtomicU8,
     rx_ended_count: AtomicU8,
     rx_ppi_ch: AtomicU8,
+    rx_overrun: AtomicBool,
 }
 
 /// UART error.
@@ -47,7 +48,8 @@ pub(crate) struct State {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
-    // No errors for now
+    /// Buffer Overrun
+    Overrun,
 }
 
 impl State {
@@ -61,6 +63,7 @@ impl State {
             rx_started_count: AtomicU8::new(0),
             rx_ended_count: AtomicU8::new(0),
             rx_ppi_ch: AtomicU8::new(0),
+            rx_overrun: AtomicBool::new(false),
         }
     }
 }
@@ -87,7 +90,8 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
                 r.errorsrc().write_value(errs);
 
                 if errs.overrun() {
-                    panic!("BufferedUarte overrun");
+                    s.rx_overrun.store(true, Ordering::Release);
+                    ss.rx_waker.wake();
                 }
             }
 
@@ -689,6 +693,7 @@ impl<'d> BufferedUarteRx<'d> {
         buffered_state.rx_started_count.store(0, Ordering::Relaxed);
         buffered_state.rx_ended_count.store(0, Ordering::Relaxed);
         buffered_state.rx_started.store(false, Ordering::Relaxed);
+        buffered_state.rx_overrun.store(false, Ordering::Relaxed);
         let rx_len = rx_buffer.len().min(EASY_DMA_SIZE * 2);
         unsafe { buffered_state.rx_buf.init(rx_buffer.as_mut_ptr(), rx_len) };
 
@@ -762,6 +767,10 @@ impl<'d> BufferedUarteRx<'d> {
             compiler_fence(Ordering::SeqCst);
             //trace!("poll_read");
 
+            if s.rx_overrun.swap(false, Ordering::Acquire) {
+                return Poll::Ready(Err(Error::Overrun));
+            }
+
             // Read the RXDRDY counter.
             timer.cc(0).capture();
             let mut end = timer.cc(0).read() as usize;
@@ -820,6 +829,9 @@ impl<'d> BufferedUarteRx<'d> {
     /// we are ready to read if there is data in the buffer
     fn read_ready(&self) -> Result<bool, Error> {
         let state = self.buffered_state;
+        if state.rx_overrun.swap(false, Ordering::Acquire) {
+            return Err(Error::Overrun);
+        }
         Ok(!state.rx_buf.is_empty())
     }
 }
@@ -854,7 +866,9 @@ mod _embedded_io {
 
     impl embedded_io_async::Error for Error {
         fn kind(&self) -> embedded_io_async::ErrorKind {
-            match *self {}
+            match *self {
+                Error::Overrun => embedded_io_async::ErrorKind::OutOfMemory,
+            }
         }
     }
 

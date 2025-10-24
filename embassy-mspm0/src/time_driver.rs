@@ -1,5 +1,5 @@
 use core::cell::{Cell, RefCell};
-use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
 use core::task::Waker;
 
 use critical_section::{CriticalSection, Mutex};

@@ -6,12 +6,12 @@ use core::marker::PhantomData;
 use embassy_hal_internal::PeripheralType;
 
 pub use crate::dma::word;
-use crate::dma::{ringbuffer, Channel, ReadableRingBuffer, Request, TransferOptions, WritableRingBuffer};
+use crate::dma::{Channel, ReadableRingBuffer, Request, TransferOptions, WritableRingBuffer, ringbuffer};
 use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 pub use crate::pac::sai::vals::Mckdiv as MasterClockDivider;
-use crate::pac::sai::{vals, Sai as Regs};
+use crate::pac::sai::{Sai as Regs, vals};
 use crate::rcc::{self, RccPeripheral};
-use crate::{peripherals, Peri};
+use crate::{Peri, peripherals};
 
 /// SAI error
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]

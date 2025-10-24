@@ -10,7 +10,7 @@
 
 #![cfg(feature = "_rp235x")]
 
-use critical_section::{acquire, release, CriticalSection, RestoreState};
+use critical_section::{CriticalSection, RestoreState, acquire, release};
 
 use crate::pac;
 use crate::qmi_cs1::QmiCs1;
@@ -251,7 +251,7 @@ impl<'d> Psram<'d> {
     }
 
     /// Verify APS6404L PSRAM device matches expected configuration.
-    #[link_section = ".data.ram_func"]
+    #[unsafe(link_section = ".data.ram_func")]
     #[inline(never)]
     fn verify_aps6404l(qmi: &pac::qmi::Qmi, expected_size: usize) -> Result<(), Error> {
         // APS6404L-specific constants
@@ -306,7 +306,7 @@ impl<'d> Psram<'d> {
         Ok(())
     }
 
-    #[link_section = ".data.ram_func"]
+    #[unsafe(link_section = ".data.ram_func")]
     #[inline(never)]
     unsafe fn read_aps6404l_kgd_eid(qmi: &pac::qmi::Qmi) -> (u32, u32) {
         const RESET_ENABLE_CMD: u8 = 0xf5;
@@ -435,7 +435,7 @@ impl<'d> Psram<'d> {
     }
 
     /// Initialize PSRAM with proper timing.
-    #[link_section = ".data.ram_func"]
+    #[unsafe(link_section = ".data.ram_func")]
     #[inline(never)]
     fn init_psram(qmi: &pac::qmi::Qmi, xip_ctrl: &pac::xip_ctrl::XipCtrl, config: &Config) -> Result<(), Error> {
         // Set PSRAM timing for APS6404
@@ -610,7 +610,7 @@ impl<'d> Psram<'d> {
         Ok(())
     }
 
-    #[link_section = ".data.ram_func"]
+    #[unsafe(link_section = ".data.ram_func")]
     #[inline(never)]
     unsafe fn direct_csr_send_init_command(config: &Config, init_cmd: u8) {
         #[cfg(target_arch = "arm")]

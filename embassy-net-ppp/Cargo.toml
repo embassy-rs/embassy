@@ -5,7 +5,7 @@ description = "embassy-net driver for PPP over Serial"
 keywords = ["embedded", "ppp", "embassy-net", "embedded-hal-async", "async"]
 categories = ["embedded", "hardware-support", "no-std", "network-programming", "asynchronous"]
 license = "MIT OR Apache-2.0"
-edition = "2021"
+edition = "2024"
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-net-ppp"
 

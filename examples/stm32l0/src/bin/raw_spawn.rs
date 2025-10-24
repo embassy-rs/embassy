@@ -5,8 +5,8 @@ use core::mem;
 
 use cortex_m_rt::entry;
 use defmt::*;
-use embassy_executor::raw::TaskStorage;
 use embassy_executor::Executor;
+use embassy_executor::raw::TaskStorage;
 use embassy_time::Timer;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
@@ -48,5 +48,5 @@ fn main() -> ! {
 }
 
 unsafe fn make_static<T>(t: &T) -> &'static T {
-    mem::transmute(t)
+    unsafe { mem::transmute(t) }
 }

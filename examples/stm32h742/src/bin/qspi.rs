@@ -4,10 +4,10 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
+use embassy_stm32::Config as StmCfg;
 use embassy_stm32::mode::Blocking;
 use embassy_stm32::qspi::enums::{AddressSize, ChipSelectHighTime, FIFOThresholdLevel, MemorySize, *};
 use embassy_stm32::qspi::{Config as QspiCfg, Instance, Qspi, TransferConfig};
-use embassy_stm32::Config as StmCfg;
 use {defmt_rtt as _, panic_probe as _};
 
 const MEMORY_PAGE_SIZE: usize = 256;

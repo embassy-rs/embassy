@@ -2,10 +2,10 @@
 
 #![macro_use]
 
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
-use core::sync::atomic::compiler_fence;
 use core::sync::atomic::Ordering::SeqCst;
+use core::sync::atomic::compiler_fence;
 use core::task::Poll;
 
 use embassy_hal_internal::{Peri, PeripheralType};

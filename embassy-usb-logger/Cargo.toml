@@ -1,7 +1,7 @@
 [package]
 name = "embassy-usb-logger"
 version = "0.5.1"
-edition = "2021"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "`log` implementation for USB serial using `embassy-usb`."
 keywords = ["embedded", "log", "usb", "hal", "serial"]

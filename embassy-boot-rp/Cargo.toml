@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = "2024"
 name = "embassy-boot-rp"
 version = "0.8.0"
 description = "Bootloader lib for RP2040 chips"

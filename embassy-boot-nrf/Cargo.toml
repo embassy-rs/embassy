@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = "2024"
 name = "embassy-boot-nrf"
 version = "0.9.0"
 description = "Bootloader lib for nRF chips"

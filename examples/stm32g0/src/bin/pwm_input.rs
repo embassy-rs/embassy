@@ -14,7 +14,7 @@ use embassy_stm32::gpio::{Level, Output, OutputType, Pull, Speed};
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::pwm_input::PwmInput;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
-use embassy_stm32::{bind_interrupts, peripherals, timer, Peri};
+use embassy_stm32::{Peri, bind_interrupts, peripherals, timer};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 

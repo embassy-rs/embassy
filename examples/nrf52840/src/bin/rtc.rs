@@ -7,8 +7,8 @@ use embassy_executor::Spawner;
 use embassy_nrf::gpio::{Level, Output, OutputDrive};
 use embassy_nrf::interrupt;
 use embassy_nrf::rtc::Rtc;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use portable_atomic::AtomicU64;
 use {defmt_rtt as _, panic_probe as _};
 

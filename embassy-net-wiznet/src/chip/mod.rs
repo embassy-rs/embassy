@@ -43,7 +43,7 @@ pub(crate) trait SealedChip {
     fn tx_addr(addr: u16) -> Self::Address;
 
     async fn bus_read<SPI: SpiDevice>(spi: &mut SPI, address: Self::Address, data: &mut [u8])
-        -> Result<(), SPI::Error>;
+    -> Result<(), SPI::Error>;
     async fn bus_write<SPI: SpiDevice>(spi: &mut SPI, address: Self::Address, data: &[u8]) -> Result<(), SPI::Error>;
 }
 

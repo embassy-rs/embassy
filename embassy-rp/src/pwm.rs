@@ -3,13 +3,13 @@
 use embassy_hal_internal::{Peri, PeripheralType};
 pub use embedded_hal_1::pwm::SetDutyCycle;
 use embedded_hal_1::pwm::{Error, ErrorKind, ErrorType};
-use fixed::traits::ToFixed;
 use fixed::FixedU16;
+use fixed::traits::ToFixed;
 use pac::pwm::regs::{ChDiv, Intr};
 use pac::pwm::vals::Divmode;
 
 use crate::gpio::{AnyPin, Pin as GpioPin, Pull, SealedPin as _};
-use crate::{pac, peripherals, RegExt};
+use crate::{RegExt, pac, peripherals};
 
 /// The configuration of a PWM slice.
 /// Note the period in clock cycles of a slice can be computed as:

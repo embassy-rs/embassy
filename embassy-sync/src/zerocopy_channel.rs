@@ -15,12 +15,12 @@
 //! another message will result in an error being returned.
 
 use core::cell::RefCell;
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
 use core::task::{Context, Poll};
 
-use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
+use crate::blocking_mutex::raw::RawMutex;
 use crate::waitqueue::WakerRegistration;
 
 /// A bounded zero-copy channel for communicating between asynchronous tasks
@@ -296,11 +296,7 @@ struct State {
 
 impl State {
     fn increment(&self, i: usize) -> usize {
-        if i + 1 == self.capacity {
-            0
-        } else {
-            i + 1
-        }
+        if i + 1 == self.capacity { 0 } else { i + 1 }
     }
 
     fn clear(&mut self) {

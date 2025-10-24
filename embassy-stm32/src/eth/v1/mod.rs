@@ -4,7 +4,7 @@ mod rx_desc;
 mod tx_desc;
 
 use core::marker::PhantomData;
-use core::sync::atomic::{fence, Ordering};
+use core::sync::atomic::{Ordering, fence};
 
 use embassy_hal_internal::Peri;
 use stm32_metapac::eth::vals::{Apcs, Cr, Dm, DmaomrSr, Fes, Ftf, Ifg, MbProgress, Mw, Pbl, Rsf, St, Tsf};
@@ -190,7 +190,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_apcs(Apcs::STRIP); // automatic padding and crc stripping
             w.set_fes(Fes::FES100); // fast ethernet speed
             w.set_dm(Dm::FULL_DUPLEX); // full duplex
-                                       // TODO: Carrier sense ? ECRSFD
+            // TODO: Carrier sense ? ECRSFD
         });
 
         // Set the mac to pass all multicast packets
@@ -350,7 +350,9 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         }
 
         #[cfg(any(eth_v1b, eth_v1c))]
-        config_pins!(rx_clk, tx_clk, mdio, mdc, rxdv, rx_d0, rx_d1, rx_d2, rx_d3, tx_d0, tx_d1, tx_d2, tx_d3, tx_en);
+        config_pins!(
+            rx_clk, tx_clk, mdio, mdc, rxdv, rx_d0, rx_d1, rx_d2, rx_d3, tx_d0, tx_d1, tx_d2, tx_d3, tx_en
+        );
 
         let pins = Pins::Mii([
             rx_clk.into(),

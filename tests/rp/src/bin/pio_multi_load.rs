@@ -57,7 +57,9 @@ async fn main(_spawner: Spawner) {
     assert_eq!(loaded2.wrap.target, 14);
 
     // wrapping around the end of program space automatically works
-    let prg3 = pio_asm!("nop", "nop", "nop", "nop", "nop", "nop", "nop", "nop", "nop", "nop", "nop", "irq 2",);
+    let prg3 = pio_asm!(
+        "nop", "nop", "nop", "nop", "nop", "nop", "nop", "nop", "nop", "nop", "nop", "irq 2",
+    );
     let loaded3 = common.load_program(&prg3.program);
     assert_eq!(loaded3.origin, 24);
     assert_eq!(loaded3.wrap.source, 3);

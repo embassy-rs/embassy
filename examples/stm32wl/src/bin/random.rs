@@ -7,7 +7,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{bind_interrupts, peripherals, SharedData};
+use embassy_stm32::{SharedData, bind_interrupts, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{

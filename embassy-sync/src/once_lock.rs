@@ -2,7 +2,7 @@
 
 use core::cell::Cell;
 use core::fmt::{Debug, Formatter};
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;

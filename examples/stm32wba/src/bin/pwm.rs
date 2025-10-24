@@ -4,13 +4,13 @@
 use defmt::*;
 use defmt_rtt as _; // global logger
 use embassy_executor::Spawner;
+use embassy_stm32::Config;
 use embassy_stm32::gpio::OutputType;
 use embassy_stm32::rcc::{
     AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale,
 };
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
-use embassy_stm32::Config;
 use embassy_time::Timer;
 use panic_probe as _;
 

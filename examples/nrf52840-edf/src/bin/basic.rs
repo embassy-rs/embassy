@@ -12,7 +12,7 @@
 #![no_std]
 #![no_main]
 
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 
 use defmt::unwrap;
 use embassy_executor::Spawner;

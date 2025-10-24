@@ -1,6 +1,6 @@
 //! UDP sockets.
 
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::mem;
 use core::task::{Context, Poll};
 
