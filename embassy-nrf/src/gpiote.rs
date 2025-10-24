@@ -1,10 +1,10 @@
 //! GPIO task/event (GPIOTE) driver.
 
 use core::convert::Infallible;
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
+use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::{AnyPin, Flex, Input, Output, Pin as GpioPin, SealedPin as _};
@@ -77,6 +77,9 @@ pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
 
         for &p in ports {
             // Enable latched detection
+            #[cfg(feature = "_s")]
+            p.detectmode_sec().write(|w| w.set_detectmode(Detectmode::LDETECT));
+            #[cfg(not(feature = "_s"))]
             p.detectmode().write(|w| w.set_detectmode(Detectmode::LDETECT));
             // Clear latch
             p.latch().write(|w| w.0 = 0xFFFFFFFF)
@@ -257,6 +260,11 @@ impl<'d> InputChannel<'d> {
             }
         })
         .await;
+    }
+
+    /// Get the associated input pin.
+    pub fn pin(&self) -> &Input<'_> {
+        &self.pin
     }
 
     /// Returns the IN event, for use with PPI.

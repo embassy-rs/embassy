@@ -8,12 +8,12 @@ mod low_power;
 use core::cell::Cell;
 
 #[cfg(feature = "low-power")]
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-#[cfg(feature = "low-power")]
 use embassy_sync::blocking_mutex::Mutex;
+#[cfg(feature = "low-power")]
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
-use self::datetime::{day_of_week_from_u8, day_of_week_to_u8};
 pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
+use self::datetime::{day_of_week_from_u8, day_of_week_to_u8};
 use crate::pac::rtc::regs::{Dr, Tr};
 use crate::time::Hertz;
 
@@ -25,8 +25,8 @@ mod _version;
 #[allow(unused_imports)]
 pub use _version::*;
 
-use crate::peripherals::RTC;
 use crate::Peri;
+use crate::peripherals::RTC;
 
 /// Errors that can occur on methods on [RtcClock]
 #[non_exhaustive]

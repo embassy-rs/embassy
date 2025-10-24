@@ -13,9 +13,9 @@ use embassy_stm32::usb::{self, Driver};
 use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_time::Duration;
-use embassy_usb::{msos, Builder};
+use embassy_usb::{Builder, msos};
 use embassy_usb_dfu::consts::DfuAttributes;
-use embassy_usb_dfu::{usb_dfu, Control, ResetImmediate};
+use embassy_usb_dfu::{Control, ResetImmediate, usb_dfu};
 use panic_reset as _;
 
 bind_interrupts!(struct Irqs {

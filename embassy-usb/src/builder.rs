@@ -5,7 +5,7 @@ use crate::descriptor::{BosWriter, DescriptorWriter, SynchronizationType, UsageT
 use crate::driver::{Driver, Endpoint, EndpointAddress, EndpointInfo, EndpointType};
 use crate::msos::{DeviceLevelDescriptor, FunctionLevelDescriptor, MsOsDescriptorWriter};
 use crate::types::{InterfaceNumber, StringIndex};
-use crate::{Handler, Interface, UsbDevice, MAX_INTERFACE_COUNT, STRING_INDEX_CUSTOM_START};
+use crate::{Handler, Interface, MAX_INTERFACE_COUNT, STRING_INDEX_CUSTOM_START, UsbDevice};
 
 #[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -176,7 +176,9 @@ impl<'d, D: Driver<'d>> Builder<'d, D> {
         if config.composite_with_iads
             && (config.device_class != 0xEF || config.device_sub_class != 0x02 || config.device_protocol != 0x01)
         {
-            panic!("if composite_with_iads is set, you must set device_class = 0xEF, device_sub_class = 0x02, device_protocol = 0x01");
+            panic!(
+                "if composite_with_iads is set, you must set device_class = 0xEF, device_sub_class = 0x02, device_protocol = 0x01"
+            );
         }
 
         assert!(
@@ -337,7 +339,8 @@ impl<'a, 'd, D: Driver<'d>> FunctionBuilder<'a, 'd, D> {
             num_alt_settings: 0,
         };
 
-        assert!(self.builder.interfaces.push(iface).is_ok(),
+        assert!(
+            self.builder.interfaces.push(iface).is_ok(),
             "embassy-usb: interface list full. Increase the `max_interface_count` compile-time setting. Current value: {}",
             MAX_INTERFACE_COUNT
         );

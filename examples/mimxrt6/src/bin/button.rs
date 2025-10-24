@@ -3,7 +3,7 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_imxrt::gpio;
 use {defmt_rtt as _, embassy_imxrt_examples as _, panic_probe as _};
 

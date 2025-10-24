@@ -10,7 +10,7 @@ use core::marker::PhantomData;
 use embassy_hal_internal::PeripheralType;
 
 use crate::ppi::{Event, Task};
-use crate::{interrupt, pac, Peri};
+use crate::{Peri, interrupt, pac};
 
 /// An instance of the EGU.
 pub struct Egu<'d> {

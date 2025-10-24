@@ -6,8 +6,8 @@ use core::mem::MaybeUninit;
 #[cfg(feature = "defmt")]
 use defmt_rtt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::SharedData;
+use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_time::Timer;
 use panic_reset as _;
 

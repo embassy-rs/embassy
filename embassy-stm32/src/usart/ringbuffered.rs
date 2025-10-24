@@ -1,19 +1,19 @@
 use core::future::poll_fn;
 use core::mem;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
 use embedded_io_async::ReadReady;
-use futures_util::future::{select, Either};
+use futures_util::future::{Either, select};
 
-use super::{rdr, reconfigure, set_baudrate, sr, Config, ConfigError, Error, Info, State, UartRx};
+use super::{Config, ConfigError, Error, Info, State, UartRx, rdr, reconfigure, set_baudrate, sr};
+use crate::Peri;
 use crate::dma::ReadableRingBuffer;
 use crate::gpio::{AnyPin, SealedPin as _};
 use crate::mode::Async;
 use crate::time::Hertz;
 use crate::usart::Regs;
-use crate::Peri;
 
 /// Rx-only Ring-buffered UART Driver
 ///

@@ -1,4 +1,4 @@
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
 use core::mem;
 use core::sync::atomic::Ordering;
@@ -75,7 +75,10 @@ impl core::fmt::Debug for SpawnError {
 impl core::fmt::Display for SpawnError {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
-            SpawnError::Busy => write!(f, "Busy - Too many instances of this task are already running. Check the `pool_size` attribute of the task."),
+            SpawnError::Busy => write!(
+                f,
+                "Busy - Too many instances of this task are already running. Check the `pool_size` attribute of the task."
+            ),
         }
     }
 }
@@ -84,7 +87,10 @@ impl core::fmt::Display for SpawnError {
 impl defmt::Format for SpawnError {
     fn format(&self, f: defmt::Formatter) {
         match self {
-            SpawnError::Busy => defmt::write!(f, "Busy - Too many instances of this task are already running. Check the `pool_size` attribute of the task."),
+            SpawnError::Busy => defmt::write!(
+                f,
+                "Busy - Too many instances of this task are already running. Check the `pool_size` attribute of the task."
+            ),
         }
     }
 }

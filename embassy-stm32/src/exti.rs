@@ -5,13 +5,13 @@ use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::{impl_peripheral, PeripheralType};
+use embassy_hal_internal::{PeripheralType, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::{AnyPin, Input, Level, Pin as GpioPin, Pull};
-use crate::pac::exti::regs::Lines;
 use crate::pac::EXTI;
-use crate::{interrupt, pac, peripherals, Peri};
+use crate::pac::exti::regs::Lines;
+use crate::{Peri, interrupt, pac, peripherals};
 
 const EXTI_COUNT: usize = 16;
 static EXTI_WAKERS: [AtomicWaker; EXTI_COUNT] = [const { AtomicWaker::new() }; EXTI_COUNT];

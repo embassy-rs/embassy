@@ -2,11 +2,11 @@
 
 #![macro_use]
 
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 
 use embassy_hal_internal::{Peri, PeripheralType};
 
-use crate::gpio::{convert_drive, AnyPin, OutputDrive, Pin as GpioPin, PselBits, SealedPin as _, DISCONNECTED};
+use crate::gpio::{AnyPin, DISCONNECTED, OutputDrive, Pin as GpioPin, PselBits, SealedPin as _, convert_drive};
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::pwm::vals;
 use crate::ppi::{Event, Task};

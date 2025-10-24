@@ -1,6 +1,6 @@
 //! Trait and implementations for performing VBUS detection.
 
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 

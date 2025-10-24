@@ -10,9 +10,9 @@ mod thread {
 
     pub use embassy_executor_macros::main_std as main;
 
-    use crate::{raw, Spawner};
+    use crate::{Spawner, raw};
 
-    #[export_name = "__pender"]
+    #[unsafe(export_name = "__pender")]
     fn __pender(context: *mut ()) {
         let signaler: &'static Signaler = unsafe { std::mem::transmute(context) };
         signaler.signal()
