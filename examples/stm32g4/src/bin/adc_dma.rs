@@ -12,7 +12,7 @@ static mut DMA_BUF: [u16; 2] = [0; 2];
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let mut read_buffer = unsafe { &mut DMA_BUF[..] };
+    let read_buffer = unsafe { &mut DMA_BUF[..] };
 
     let mut config = Config::default();
     {
@@ -47,7 +47,7 @@ async fn main(_spawner: Spawner) {
                 (&mut pa0, SampleTime::CYCLES247_5),
             ]
             .into_iter(),
-            &mut read_buffer,
+            read_buffer,
         )
         .await;
 
