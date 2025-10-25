@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### [Unreleased]
 
 * **Fix(stm32h5):** Prevent a HardFault crash on STM32H5 devices by changing `uid()` to return `[u8; 12]` by value instead of a reference. (Fixes #2696)
+- fix: Allow setting SAI peripheral `frame_length` to `256`
+
 ## Unreleased - ReleaseDate
 
 - fix flash erase on L4 & L5
