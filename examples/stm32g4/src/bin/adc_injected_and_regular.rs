@@ -1,40 +1,46 @@
+//! adc injected and regular conversions
+//!
+//! This example both regular and injected ADC conversions at the same time
+//! p:pa0 n:pa2
+
 #![no_std]
 #![no_main]
 
-use {defmt_rtt as _, panic_probe as _};
-use defmt::info;
 use core::cell::RefCell;
+use defmt::info;
+use {defmt_rtt as _, panic_probe as _};
 
+use embassy_stm32::adc::RxDma;
+use embassy_stm32::dma::ReadableRingBuffer;
+use embassy_stm32::interrupt::typelevel::Interrupt;
 use embassy_stm32::{
+    Config,
     adc::{Adc, AdcChannel as _, Exten, SampleTime},
     interrupt,
     interrupt::typelevel::ADC1_2,
-    peripherals::*,
+    peripherals::{ADC1, DMA1_CH1},
     time::Hertz,
-    timer::Channel,
     timer::complementary_pwm::{ComplementaryPwm, Mms2},
     timer::low_level::CountingMode,
-    Config,
 };
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
-use critical_section;
-use critical_section::Mutex;
-use embassy_stm32::interrupt::typelevel::Interrupt;
-use embassy_stm32::dma::Transfer;
-use embassy_stm32::adc::RxDma;
-use embassy_stm32::sai::word::WordSize;
-use embassy_stm32::dma::Dir;
-use embassy_stm32::dma::ReadableRingBuffer;
 
 static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<Adc<'static, ADC1>>>> =
     CriticalSectionMutex::new(RefCell::new(None));
 
-static COUNT: Mutex<RefCell<u32>> = Mutex::new(RefCell::new(0));
-
-
+/// This example showcases how to use both regular ADC conversions with DMA and injected ADC
+/// conversions with ADC interrupt simultaneously. Both conversion types can be configured with
+/// different triggers and thanks to DMA it is possible to use the measurements in different task
+/// without needing to access the ADC peripheral.
+///
+/// If you don't need both regular and injected conversions the example code can easily be reworked
+/// to only include one of the ADC conversion types.
 #[embassy_executor::main]
 async fn main(_spawner: embassy_executor::Spawner) {
-    info!("init");
+    // See Table 166 and 167 in RM0440 Rev 9 for ADC1/2 External triggers
+    // Note: Regular and Injected channels use different tables!!
+    const ADC1_INJECTED_TRIGGER_TIM1_TRGO2: u8 = 8;
+    const ADC1_REGULAR_TRIGGER_TIM1_TRGO2: u8 = 10;
 
     // --- RCC config ---
     let mut config = Config::default();
@@ -53,7 +59,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     }
     let p = embassy_stm32::init(config);
 
-    // --- TIM1 setup ---
+    // In this example we use tim1_trgo2 event to trigger the ADC conversions
     let tim1 = p.TIM1;
     let pwm_freq = 1;
     let mut pwm = ComplementaryPwm::new(
@@ -67,88 +73,95 @@ async fn main(_spawner: embassy_executor::Spawner) {
         None,
         None,
         Hertz::hz(pwm_freq),
-        CountingMode::CenterAlignedUpInterrupts,
+        CountingMode::EdgeAlignedUp,
     );
     pwm.set_master_output_enable(false);
-    let max_duty = pwm.get_max_duty();
-    pwm.set_duty(Channel::Ch4, max_duty - 1);
-    pwm.set_mms2(Mms2::COMPARE_OC4);
-
-    // --- ADC setup ---
-    let mut adc1 = Adc::new(p.ADC1);
-    let mut pa2 = p.PA2.degrade_adc();
-
-    let injected_seq = [(&mut pa2, SampleTime::CYCLES247_5)].into_iter();
-    adc1.configure_injected_sequence(injected_seq);
-    let trigger = 8; // tim1_trgo2 for injected channels
-    adc1.set_injected_conversion_trigger(trigger, Exten::RISING_EDGE);
+    // Mms2 is used to configure which timer event that is connected to tim1_trgo2.
+    // In this case we use the update event of the timer.
+    pwm.set_mms2(Mms2::UPDATE);
 
     // Configure regular conversions with DMA
+    let mut adc1 = Adc::new(p.ADC1);
     let mut vrefint_channel = adc1.enable_vrefint().degrade_adc();
     let mut pa0 = p.PC1.degrade_adc();
     let regular_sequence = [
         (&mut vrefint_channel, SampleTime::CYCLES247_5),
         (&mut pa0, SampleTime::CYCLES247_5),
-    ].into_iter();
+    ]
+    .into_iter();
     adc1.configure_regular_sequence(regular_sequence);
+    adc1.set_regular_conversion_trigger(ADC1_REGULAR_TRIGGER_TIM1_TRGO2, Exten::RISING_EDGE);
 
-    let trigger_regular = 10; // Regular and Injected channels use different trigger definitions
-    adc1.set_regular_conversion_trigger(trigger_regular, Exten::RISING_EDGE);
-    let adc1_addr = adc1.get_dma_data_pointer();
-
+    // Configure DMA for retrieving regular ADC measurements
     let mut dma1_ch1 = p.DMA1_CH1;
-    let mut readings = [0u16; 256];
-    let request = <DMA1_CH1 as embassy_stm32::adc::RxDma<embassy_stm32::peripherals::ADC1>>::request(&dma1_ch1);
-
-    let mut transfer = unsafe { ReadableRingBuffer::new(
-        dma1_ch1.reborrow(),
-        request,
-        adc1_addr,
-        &mut readings,
-        Default::default(),
-    )};
+    // Using a buffer larger than amount of samples gives more margin for timing of
+    // main loop iterations and DMA transfers.
+    let mut readings = [0u16; 4];
+    let dma_request = <DMA1_CH1 as RxDma<ADC1>>::request(&dma1_ch1);
+    let mut transfer = unsafe {
+        ReadableRingBuffer::new(
+            dma1_ch1.reborrow(),
+            dma_request,
+            adc1.get_data_register_address(),
+            &mut readings,
+            Default::default(),
+        )
+    };
     transfer.start();
 
+    // Configurations of Injected ADC measurements
+    let mut pa2 = p.PA2.degrade_adc();
+    let injected_seq = [(&mut pa2, SampleTime::CYCLES247_5)].into_iter();
+    adc1.configure_injected_sequence(injected_seq);
+    adc1.set_injected_conversion_trigger(ADC1_INJECTED_TRIGGER_TIM1_TRGO2, Exten::RISING_EDGE);
+
+    // ADC must be started after all configurations are completed
     adc1.start_regular_conversion();
-    // Store ADC globally so IRQ can access it
+    adc1.start_injected_conversion();
+
+    // Store ADC globally to allow access from ADC interrupt
     critical_section::with(|cs| {
         ADC1_HANDLE.borrow(cs).replace(Some(adc1));
     });
+    // Enable interrupt for ADC1_2
     unsafe { ADC1_2::enable() };
 
-    // Let main task idle (could do something else)
+    // Main loop for reading regular ADC measurements periodically
+    // Important: Delay must be chosen carefully such that the DMA buffer won't overflow
     let mut data = [0u16; 2];
     loop {
         {
+            // No need to access the ADC object here, instead we get the readings from the DMA
             match transfer.read(&mut data) {
-                Ok((0, _)) => {},
+                Ok((0, _)) => {
+                    // No data available yet, loop period may be to short in relation to ADC trigger
+                }
                 Ok((n, m)) => {
-                    defmt::info!("data: {:?}, n: {}, m: {}", &data, n, m);
-                },
-                res => {defmt::info!("res: {:?}", res);}
+                    defmt::info!("Regular ADC reading, VrefInt: {}, PA0: {}", data[0], data[1]);
+                    defmt::info!("length_read: {}, length_remaining: {}", n, m);
+                    transfer.clear();
+                    // Optionally transfer.clear() can be used to prevent overruns due to
+                    // inaccuracies between wait and trigger timer
+                }
+                res => {
+                    defmt::error!("res: {:?}", res)
+                }
             }
-            //transfer.clear();
-
         }
-
-        embassy_time::Timer::after_millis(120).await;
+        // Timer is running at 1 Hz so we expect new samples each 1000 ms.
+        embassy_time::Timer::after_millis(1000).await;
     }
 }
 
-
+/// Use ADC1_2 interrupt to retrieve injected ADC measurements
+/// Interrupt must be unsafe as hardware can invoke it any-time. Critical sections ensure safety
+/// within the interrupt.
 #[interrupt]
 unsafe fn ADC1_2() {
     critical_section::with(|cs| {
         if let Some(adc) = ADC1_HANDLE.borrow(cs).borrow_mut().as_mut() {
             let injected_data = adc.clear_injected_eos();
-
-            let mut count_ref = COUNT.borrow(cs).borrow_mut();
-            *count_ref += 1;
-            if *count_ref > 500 {
-                *count_ref = 0;
-                info!("u_dc: {}", injected_data[0]);
-            }
+            info!("Injected reading of PA2: {}", injected_data[0]);
         }
     });
 }
-

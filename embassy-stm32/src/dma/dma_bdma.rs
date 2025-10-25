@@ -695,7 +695,7 @@ impl<'a> Transfer<'a> {
         )
     }
 
-    pub unsafe fn new_inner(
+    unsafe fn new_inner(
         channel: Peri<'a, AnyChannel>,
         _request: Request,
         dir: Dir,
