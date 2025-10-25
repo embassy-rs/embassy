@@ -1,3 +1,5 @@
+#![macro_use]
+
 use core::fmt::Debug;
 use core::future::poll_fn;
 use core::marker::PhantomData;
@@ -13,7 +15,7 @@ use embedded_io::{self, ErrorKind};
 use crate::dma::{AnyChannel, Channel};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::Interrupt;
-use crate::interrupt::typelevel::{Binding, Interrupt as _};
+use crate::interrupt::typelevel::Binding;
 use crate::pac::flexcomm::Flexcomm as FlexcommReg;
 use crate::pac::iocon::vals::PioFunc;
 use crate::pac::usart::Usart as UsartReg;
@@ -113,8 +115,8 @@ impl Default for Config {
 
 /// Internal DMA state of UART RX.
 pub struct DmaState {
-    rx_err_waker: AtomicWaker,
-    rx_err: AtomicBool,
+    pub(crate) rx_err_waker: AtomicWaker,
+    pub(crate) rx_err: AtomicBool,
 }
 
 /// # Type parameters
@@ -818,13 +820,13 @@ impl<'d> embedded_io::Read for Usart<'d, Blocking> {
     }
 }
 
-struct Info {
-    usart_reg: UsartReg,
-    fc_reg: FlexcommReg,
-    interrupt: Interrupt,
+pub(crate) struct Info {
+    pub(crate) usart_reg: UsartReg,
+    pub(crate) fc_reg: FlexcommReg,
+    pub(crate) interrupt: Interrupt,
 }
 
-trait SealedInstance {
+pub(crate) trait SealedInstance {
     fn info() -> &'static Info;
     fn dma_state() -> &'static DmaState;
     fn instance_number() -> usize;
@@ -837,10 +839,13 @@ pub trait Instance: SealedInstance + PeripheralType {
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
 
-macro_rules! impl_instance {
+macro_rules! impl_usart_instance {
     ($inst:ident, $fc:ident, $fc_num:expr) => {
-        impl $crate::usart::inner::SealedInstance for $crate::peripherals::$inst {
-            fn info() -> &'static Info {
+        impl crate::usart::SealedInstance for $crate::peripherals::$inst {
+            fn info() -> &'static crate::usart::Info {
+                use crate::interrupt::typelevel::Interrupt;
+                use crate::usart::Info;
+
                 static INFO: Info = Info {
                     usart_reg: crate::pac::$inst,
                     fc_reg: crate::pac::$fc,
@@ -849,7 +854,13 @@ macro_rules! impl_instance {
                 &INFO
             }
 
-            fn dma_state() -> &'static DmaState {
+            fn dma_state() -> &'static crate::usart::DmaState {
+                use core::sync::atomic::AtomicBool;
+
+                use embassy_sync::waitqueue::AtomicWaker;
+
+                use crate::usart::DmaState;
+
                 static STATE: DmaState = DmaState {
                     rx_err_waker: AtomicWaker::new(),
                     rx_err: AtomicBool::new(false),
@@ -867,15 +878,6 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(USART0, FLEXCOMM0, 0);
-impl_instance!(USART1, FLEXCOMM1, 1);
-impl_instance!(USART2, FLEXCOMM2, 2);
-impl_instance!(USART3, FLEXCOMM3, 3);
-impl_instance!(USART4, FLEXCOMM4, 4);
-impl_instance!(USART5, FLEXCOMM5, 5);
-impl_instance!(USART6, FLEXCOMM6, 6);
-impl_instance!(USART7, FLEXCOMM7, 7);
-
 pub(crate) trait SealedTxPin<T: Instance>: crate::gpio::Pin {
     fn pin_func(&self) -> PioFunc;
 }
@@ -892,75 +894,46 @@ pub trait TxPin<T: Instance>: SealedTxPin<T> + crate::gpio::Pin {}
 #[allow(private_bounds)]
 pub trait RxPin<T: Instance>: SealedRxPin<T> + crate::gpio::Pin {}
 
-macro_rules! impl_tx_pin {
+macro_rules! impl_usart_txd_pin {
     ($pin:ident, $instance:ident, $func: ident) => {
-        impl SealedTxPin<crate::peripherals::$instance> for crate::peripherals::$pin {
-            fn pin_func(&self) -> PioFunc {
+        impl crate::usart::SealedTxPin<crate::peripherals::$instance> for crate::peripherals::$pin {
+            fn pin_func(&self) -> crate::pac::iocon::vals::PioFunc {
+                use crate::pac::iocon::vals::PioFunc;
                 PioFunc::$func
             }
         }
 
-        impl TxPin<crate::peripherals::$instance> for crate::peripherals::$pin {}
+        impl crate::usart::TxPin<crate::peripherals::$instance> for crate::peripherals::$pin {}
     };
 }
 
-macro_rules! impl_rx_pin {
+macro_rules! impl_usart_rxd_pin {
     ($pin:ident, $instance:ident, $func: ident) => {
-        impl SealedRxPin<crate::peripherals::$instance> for crate::peripherals::$pin {
-            fn pin_func(&self) -> PioFunc {
+        impl crate::usart::SealedRxPin<crate::peripherals::$instance> for crate::peripherals::$pin {
+            fn pin_func(&self) -> crate::pac::iocon::vals::PioFunc {
+                use crate::pac::iocon::vals::PioFunc;
                 PioFunc::$func
             }
         }
 
-        impl RxPin<crate::peripherals::$instance> for crate::peripherals::$pin {}
+        impl crate::usart::RxPin<crate::peripherals::$instance> for crate::peripherals::$pin {}
     };
 }
 
-impl_tx_pin!(PIO1_6, USART0, ALT1);
-impl_tx_pin!(PIO1_11, USART1, ALT2);
-impl_tx_pin!(PIO0_27, USART2, ALT1);
-impl_tx_pin!(PIO0_2, USART3, ALT1);
-impl_tx_pin!(PIO0_16, USART4, ALT1);
-impl_tx_pin!(PIO0_9, USART5, ALT3);
-impl_tx_pin!(PIO1_16, USART6, ALT2);
-impl_tx_pin!(PIO0_19, USART7, ALT7);
-
-impl_rx_pin!(PIO1_5, USART0, ALT1);
-impl_rx_pin!(PIO1_10, USART1, ALT2);
-impl_rx_pin!(PIO1_24, USART2, ALT1);
-impl_rx_pin!(PIO0_3, USART3, ALT1);
-impl_rx_pin!(PIO0_5, USART4, ALT2);
-impl_rx_pin!(PIO0_8, USART5, ALT3);
-impl_rx_pin!(PIO1_13, USART6, ALT2);
-impl_rx_pin!(PIO0_20, USART7, ALT7);
-
-/// Trait for TX DMA channels.
+/// Marker trait indicating a DMA channel may be used for USART transmit.
 pub trait TxChannel<T: Instance>: crate::dma::Channel {}
-/// Trait for RX DMA channels.
+
+/// Marker trait indicating a DMA channel may be used for USART recieve.
 pub trait RxChannel<T: Instance>: crate::dma::Channel {}
 
-macro_rules! impl_channel {
-    ($dma:ident, $instance:ident, Tx) => {
-        impl TxChannel<crate::peripherals::$instance> for crate::peripherals::$dma {}
-    };
-    ($dma:ident, $instance:ident, Rx) => {
-        impl RxChannel<crate::peripherals::$instance> for crate::peripherals::$dma {}
+macro_rules! impl_usart_tx_channel {
+    ($instance: ident, $channel: ident) => {
+        impl crate::usart::TxChannel<crate::peripherals::$instance> for crate::peripherals::$channel {}
     };
 }
 
-impl_channel!(DMA_CH4, USART0, Rx);
-impl_channel!(DMA_CH5, USART0, Tx);
-impl_channel!(DMA_CH6, USART1, Rx);
-impl_channel!(DMA_CH7, USART1, Tx);
-impl_channel!(DMA_CH10, USART2, Rx);
-impl_channel!(DMA_CH11, USART2, Tx);
-impl_channel!(DMA_CH8, USART3, Rx);
-impl_channel!(DMA_CH9, USART3, Tx);
-impl_channel!(DMA_CH12, USART4, Rx);
-impl_channel!(DMA_CH13, USART4, Tx);
-impl_channel!(DMA_CH14, USART5, Rx);
-impl_channel!(DMA_CH15, USART5, Tx);
-impl_channel!(DMA_CH16, USART6, Rx);
-impl_channel!(DMA_CH17, USART6, Tx);
-impl_channel!(DMA_CH18, USART7, Rx);
-impl_channel!(DMA_CH19, USART7, Tx);
+macro_rules! impl_usart_rx_channel {
+    ($instance: ident, $channel: ident) => {
+        impl crate::usart::RxChannel<crate::peripherals::$instance> for crate::peripherals::$channel {}
+    };
+}

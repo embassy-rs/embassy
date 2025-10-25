@@ -1,3 +1,5 @@
+#![macro_use]
+
 use core::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 
 use embassy_hal_internal::{Peri, PeripheralType};
@@ -240,43 +242,49 @@ impl<'d> Drop for Pwm<'d> {
     }
 }
 
-trait SealedOutput {
+/// SCT instance.
+#[allow(private_bounds)]
+pub trait Instance: SealedInstance {}
+
+pub(crate) trait SealedInstance {}
+
+pub(crate) trait SealedOutput {
     /// Output number.
     fn number(&self) -> usize;
 }
 
 /// PWM Output.
 #[allow(private_bounds)]
-pub trait Output: PeripheralType + SealedOutput {}
+pub trait Output<T: Instance>: PeripheralType + SealedOutput {}
 
-macro_rules! output {
-    ($name:ident, $num:expr) => {
-        impl SealedOutput for crate::peripherals::$name {
+macro_rules! impl_pwm_output {
+    ($instance:ident, $name:ident, $num:expr) => {
+        impl crate::pwm::SealedOutput for crate::peripherals::$name {
             fn number(&self) -> usize {
-                $num
+                $num as usize
             }
         }
-        impl Output for crate::peripherals::$name {}
+        impl crate::pwm::Output<crate::peripherals::$instance> for crate::peripherals::$name {}
     };
 }
 
-output!(PWM_OUTPUT0, 0);
-output!(PWM_OUTPUT1, 1);
-output!(PWM_OUTPUT2, 2);
-output!(PWM_OUTPUT3, 3);
-output!(PWM_OUTPUT4, 4);
-output!(PWM_OUTPUT5, 5);
-output!(PWM_OUTPUT6, 6);
-output!(PWM_OUTPUT7, 7);
-output!(PWM_OUTPUT8, 8);
-output!(PWM_OUTPUT9, 9);
+impl_pwm_output!(PWM_OUTPUT0, 0);
+impl_pwm_output!(PWM_OUTPUT1, 1);
+impl_pwm_output!(PWM_OUTPUT2, 2);
+impl_pwm_output!(PWM_OUTPUT3, 3);
+impl_pwm_output!(PWM_OUTPUT4, 4);
+impl_pwm_output!(PWM_OUTPUT5, 5);
+impl_pwm_output!(PWM_OUTPUT6, 6);
+impl_pwm_output!(PWM_OUTPUT7, 7);
+impl_pwm_output!(PWM_OUTPUT8, 8);
+impl_pwm_output!(PWM_OUTPUT9, 9);
 
 /// PWM Output Channel.
 pub trait OutputChannelPin<T: Output>: crate::gpio::Pin {
     fn pin_func(&self) -> PioFunc;
 }
 
-macro_rules! impl_pin {
+macro_rules! impl_pwm_output_pin {
     ($pin:ident, $output:ident, $func:ident) => {
         impl crate::pwm::inner::OutputChannelPin<crate::peripherals::$output> for crate::peripherals::$pin {
             fn pin_func(&self) -> PioFunc {
@@ -286,40 +294,40 @@ macro_rules! impl_pin {
     };
 }
 
-impl_pin!(PIO0_2, PWM_OUTPUT0, ALT3);
-impl_pin!(PIO0_17, PWM_OUTPUT0, ALT4);
-impl_pin!(PIO1_4, PWM_OUTPUT0, ALT4);
-impl_pin!(PIO1_23, PWM_OUTPUT0, ALT2);
+impl_pwm_output_pin!(PIO0_2, PWM_OUTPUT0, ALT3);
+impl_pwm_output_pin!(PIO0_17, PWM_OUTPUT0, ALT4);
+impl_pwm_output_pin!(PIO1_4, PWM_OUTPUT0, ALT4);
+impl_pwm_output_pin!(PIO1_23, PWM_OUTPUT0, ALT2);
 
-impl_pin!(PIO0_3, PWM_OUTPUT1, ALT3);
-impl_pin!(PIO0_18, PWM_OUTPUT1, ALT4);
-impl_pin!(PIO1_8, PWM_OUTPUT1, ALT4);
-impl_pin!(PIO1_24, PWM_OUTPUT1, ALT2);
+impl_pwm_output_pin!(PIO0_3, PWM_OUTPUT1, ALT3);
+impl_pwm_output_pin!(PIO0_18, PWM_OUTPUT1, ALT4);
+impl_pwm_output_pin!(PIO1_8, PWM_OUTPUT1, ALT4);
+impl_pwm_output_pin!(PIO1_24, PWM_OUTPUT1, ALT2);
 
-impl_pin!(PIO0_10, PWM_OUTPUT2, ALT5);
-impl_pin!(PIO0_15, PWM_OUTPUT2, ALT4);
-impl_pin!(PIO0_19, PWM_OUTPUT2, ALT4);
-impl_pin!(PIO1_9, PWM_OUTPUT2, ALT4);
-impl_pin!(PIO1_25, PWM_OUTPUT2, ALT2);
+impl_pwm_output_pin!(PIO0_10, PWM_OUTPUT2, ALT5);
+impl_pwm_output_pin!(PIO0_15, PWM_OUTPUT2, ALT4);
+impl_pwm_output_pin!(PIO0_19, PWM_OUTPUT2, ALT4);
+impl_pwm_output_pin!(PIO1_9, PWM_OUTPUT2, ALT4);
+impl_pwm_output_pin!(PIO1_25, PWM_OUTPUT2, ALT2);
 
-impl_pin!(PIO0_22, PWM_OUTPUT3, ALT4);
-impl_pin!(PIO0_31, PWM_OUTPUT3, ALT4);
-impl_pin!(PIO1_10, PWM_OUTPUT3, ALT4);
-impl_pin!(PIO1_26, PWM_OUTPUT3, ALT2);
+impl_pwm_output_pin!(PIO0_22, PWM_OUTPUT3, ALT4);
+impl_pwm_output_pin!(PIO0_31, PWM_OUTPUT3, ALT4);
+impl_pwm_output_pin!(PIO1_10, PWM_OUTPUT3, ALT4);
+impl_pwm_output_pin!(PIO1_26, PWM_OUTPUT3, ALT2);
 
-impl_pin!(PIO0_23, PWM_OUTPUT4, ALT4);
-impl_pin!(PIO1_3, PWM_OUTPUT4, ALT4);
-impl_pin!(PIO1_17, PWM_OUTPUT4, ALT4);
+impl_pwm_output_pin!(PIO0_23, PWM_OUTPUT4, ALT4);
+impl_pwm_output_pin!(PIO1_3, PWM_OUTPUT4, ALT4);
+impl_pwm_output_pin!(PIO1_17, PWM_OUTPUT4, ALT4);
 
-impl_pin!(PIO0_26, PWM_OUTPUT5, ALT4);
-impl_pin!(PIO1_18, PWM_OUTPUT5, ALT4);
+impl_pwm_output_pin!(PIO0_26, PWM_OUTPUT5, ALT4);
+impl_pwm_output_pin!(PIO1_18, PWM_OUTPUT5, ALT4);
 
-impl_pin!(PIO0_27, PWM_OUTPUT6, ALT4);
-impl_pin!(PIO1_31, PWM_OUTPUT6, ALT4);
+impl_pwm_output_pin!(PIO0_27, PWM_OUTPUT6, ALT4);
+impl_pwm_output_pin!(PIO1_31, PWM_OUTPUT6, ALT4);
 
-impl_pin!(PIO0_28, PWM_OUTPUT7, ALT4);
-impl_pin!(PIO1_19, PWM_OUTPUT7, ALT2);
+impl_pwm_output_pin!(PIO0_28, PWM_OUTPUT7, ALT4);
+impl_pwm_output_pin!(PIO1_19, PWM_OUTPUT7, ALT2);
 
-impl_pin!(PIO0_29, PWM_OUTPUT8, ALT4);
+impl_pwm_output_pin!(PIO0_29, PWM_OUTPUT8, ALT4);
 
-impl_pin!(PIO0_30, PWM_OUTPUT9, ALT4);
+impl_pwm_output_pin!(PIO0_30, PWM_OUTPUT9, ALT4);
