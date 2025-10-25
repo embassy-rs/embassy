@@ -4,7 +4,7 @@ mod rx_desc;
 mod tx_desc;
 
 use core::marker::PhantomData;
-use core::sync::atomic::{fence, Ordering};
+use core::sync::atomic::{Ordering, fence};
 
 use embassy_hal_internal::Peri;
 use stm32_metapac::eth::vals::{Apcs, Cr, Dm, DmaomrSr, Fes, Ftf, Ifg, MbProgress, Mw, Pbl, Rsf, St, Tsf};
@@ -69,7 +69,7 @@ macro_rules! config_in_pins {
         critical_section::with(|_| {
             $(
                 // TODO properly create a set_as_input function
-                $pin.set_as_af($pin.af_num(), AfType::input(Pull::None));
+                set_as_af!($pin, AfType::input(Pull::None));
             )*
         })
     }
@@ -80,7 +80,7 @@ macro_rules! config_af_pins {
     ($($pin:ident),*) => {
         critical_section::with(|_| {
             $(
-                $pin.set_as_af($pin.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+                set_as_af!($pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
             )*
         })
     };
@@ -91,7 +91,7 @@ macro_rules! config_pins {
     ($($pin:ident),*) => {
         critical_section::with(|_| {
             $(
-                $pin.set_as_af($pin.af_num(), AfType::output(OutputType::PushPull, Speed::VeryHigh));
+                set_as_af!($pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
             )*
         })
     };
@@ -99,19 +99,19 @@ macro_rules! config_pins {
 
 impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     /// safety: the returned instance is not leak-safe
-    pub fn new<const TX: usize, const RX: usize>(
+    pub fn new<const TX: usize, const RX: usize, #[cfg(afio)] A>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::ETH, InterruptHandler> + 'd,
-        ref_clk: Peri<'d, impl RefClkPin<T>>,
-        mdio: Peri<'d, impl MDIOPin<T>>,
-        mdc: Peri<'d, impl MDCPin<T>>,
-        crs: Peri<'d, impl CRSPin<T>>,
-        rx_d0: Peri<'d, impl RXD0Pin<T>>,
-        rx_d1: Peri<'d, impl RXD1Pin<T>>,
-        tx_d0: Peri<'d, impl TXD0Pin<T>>,
-        tx_d1: Peri<'d, impl TXD1Pin<T>>,
-        tx_en: Peri<'d, impl TXEnPin<T>>,
+        ref_clk: Peri<'d, if_afio!(impl RefClkPin<T, A>)>,
+        mdio: Peri<'d, if_afio!(impl MDIOPin<T, A>)>,
+        mdc: Peri<'d, if_afio!(impl MDCPin<T, A>)>,
+        crs: Peri<'d, if_afio!(impl CRSPin<T, A>)>,
+        rx_d0: Peri<'d, if_afio!(impl RXD0Pin<T, A>)>,
+        rx_d1: Peri<'d, if_afio!(impl RXD1Pin<T, A>)>,
+        tx_d0: Peri<'d, if_afio!(impl TXD0Pin<T, A>)>,
+        tx_d1: Peri<'d, if_afio!(impl TXD1Pin<T, A>)>,
+        tx_en: Peri<'d, if_afio!(impl TXEnPin<T, A>)>,
         phy: P,
         mac_addr: [u8; 6],
     ) -> Self {
@@ -190,7 +190,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_apcs(Apcs::STRIP); // automatic padding and crc stripping
             w.set_fes(Fes::FES100); // fast ethernet speed
             w.set_dm(Dm::FULL_DUPLEX); // full duplex
-                                       // TODO: Carrier sense ? ECRSFD
+            // TODO: Carrier sense ? ECRSFD
         });
 
         // Set the mac to pass all multicast packets
@@ -289,24 +289,24 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     }
 
     /// Create a new MII ethernet driver using 14 pins.
-    pub fn new_mii<const TX: usize, const RX: usize>(
+    pub fn new_mii<const TX: usize, const RX: usize, #[cfg(afio)] A>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::ETH, InterruptHandler> + 'd,
-        rx_clk: Peri<'d, impl RXClkPin<T>>,
-        tx_clk: Peri<'d, impl TXClkPin<T>>,
-        mdio: Peri<'d, impl MDIOPin<T>>,
-        mdc: Peri<'d, impl MDCPin<T>>,
-        rxdv: Peri<'d, impl RXDVPin<T>>,
-        rx_d0: Peri<'d, impl RXD0Pin<T>>,
-        rx_d1: Peri<'d, impl RXD1Pin<T>>,
-        rx_d2: Peri<'d, impl RXD2Pin<T>>,
-        rx_d3: Peri<'d, impl RXD3Pin<T>>,
-        tx_d0: Peri<'d, impl TXD0Pin<T>>,
-        tx_d1: Peri<'d, impl TXD1Pin<T>>,
-        tx_d2: Peri<'d, impl TXD2Pin<T>>,
-        tx_d3: Peri<'d, impl TXD3Pin<T>>,
-        tx_en: Peri<'d, impl TXEnPin<T>>,
+        rx_clk: Peri<'d, if_afio!(impl RXClkPin<T, A>)>,
+        tx_clk: Peri<'d, if_afio!(impl TXClkPin<T, A>)>,
+        mdio: Peri<'d, if_afio!(impl MDIOPin<T, A>)>,
+        mdc: Peri<'d, if_afio!(impl MDCPin<T, A>)>,
+        rxdv: Peri<'d, if_afio!(impl RXDVPin<T, A>)>,
+        rx_d0: Peri<'d, if_afio!(impl RXD0Pin<T, A>)>,
+        rx_d1: Peri<'d, if_afio!(impl RXD1Pin<T, A>)>,
+        rx_d2: Peri<'d, if_afio!(impl RXD2Pin<T, A>)>,
+        rx_d3: Peri<'d, if_afio!(impl RXD3Pin<T, A>)>,
+        tx_d0: Peri<'d, if_afio!(impl TXD0Pin<T, A>)>,
+        tx_d1: Peri<'d, if_afio!(impl TXD1Pin<T, A>)>,
+        tx_d2: Peri<'d, if_afio!(impl TXD2Pin<T, A>)>,
+        tx_d3: Peri<'d, if_afio!(impl TXD3Pin<T, A>)>,
+        tx_en: Peri<'d, if_afio!(impl TXEnPin<T, A>)>,
         phy: P,
         mac_addr: [u8; 6],
     ) -> Self {
@@ -350,7 +350,9 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         }
 
         #[cfg(any(eth_v1b, eth_v1c))]
-        config_pins!(rx_clk, tx_clk, mdio, mdc, rxdv, rx_d0, rx_d1, rx_d2, rx_d3, tx_d0, tx_d1, tx_d2, tx_d3, tx_en);
+        config_pins!(
+            rx_clk, tx_clk, mdio, mdc, rxdv, rx_d0, rx_d1, rx_d2, rx_d3, tx_d0, tx_d1, tx_d2, tx_d3, tx_en
+        );
 
         let pins = Pins::Mii([
             rx_clk.into(),

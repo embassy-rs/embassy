@@ -3,8 +3,8 @@
 
 use defmt::{info, unwrap, warn};
 use embassy_executor::Spawner;
-use embassy_net::tcp::TcpSocket;
 use embassy_net::StackResources;
+use embassy_net::tcp::TcpSocket;
 use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
 use embassy_nrf::rng::Rng;
 use embassy_nrf::spim::{self, Spim};
@@ -27,7 +27,7 @@ bind_interrupts!(struct Irqs {
 async fn wifi_task(
     runner: hosted::Runner<
         'static,
-        ExclusiveDevice<Spim<'static, peripherals::SPI3>, Output<'static>, Delay>,
+        ExclusiveDevice<Spim<'static>, Output<'static>, Delay>,
         Input<'static>,
         Output<'static>,
     >,
@@ -70,7 +70,7 @@ async fn main(spawner: Spawner) {
     )
     .await;
 
-    unwrap!(spawner.spawn(wifi_task(runner)));
+    spawner.spawn(unwrap!(wifi_task(runner)));
 
     unwrap!(control.init().await);
     unwrap!(control.connect(WIFI_NETWORK, WIFI_PASSWORD).await);
@@ -92,7 +92,7 @@ async fn main(spawner: Spawner) {
     static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
 
-    unwrap!(spawner.spawn(net_task(runner)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     // And now we can use it!
 

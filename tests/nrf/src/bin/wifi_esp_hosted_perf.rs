@@ -29,7 +29,7 @@ const WIFI_PASSWORD: &str = "V8YxhKt5CdIAJFud";
 async fn wifi_task(
     runner: hosted::Runner<
         'static,
-        ExclusiveDevice<Spim<'static, peripherals::SPI3>, Output<'static>, Delay>,
+        ExclusiveDevice<Spim<'static>, Output<'static>, Delay>,
         Input<'static>,
         Output<'static>,
     >,
@@ -74,7 +74,7 @@ async fn main(spawner: Spawner) {
     )
     .await;
 
-    unwrap!(spawner.spawn(wifi_task(runner)));
+    spawner.spawn(unwrap!(wifi_task(runner)));
 
     unwrap!(control.init().await);
     unwrap!(control.connect(WIFI_NETWORK, WIFI_PASSWORD).await);
@@ -94,7 +94,7 @@ async fn main(spawner: Spawner) {
         seed,
     );
 
-    unwrap!(spawner.spawn(net_task(runner)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     perf_client::run(
         stack,

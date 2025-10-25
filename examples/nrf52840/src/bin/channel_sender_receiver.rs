@@ -3,8 +3,8 @@
 
 use defmt::unwrap;
 use embassy_executor::Spawner;
-use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive};
 use embassy_nrf::Peri;
+use embassy_nrf::gpio::{AnyPin, Level, Output, OutputDrive};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::channel::{Channel, Receiver, Sender};
 use embassy_time::Timer;
@@ -45,6 +45,6 @@ async fn main(spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
     let channel = CHANNEL.init(Channel::new());
 
-    unwrap!(spawner.spawn(send_task(channel.sender())));
-    unwrap!(spawner.spawn(recv_task(p.P0_13.into(), channel.receiver())));
+    spawner.spawn(unwrap!(send_task(channel.sender())));
+    spawner.spawn(unwrap!(recv_task(p.P0_13.into(), channel.receiver())));
 }

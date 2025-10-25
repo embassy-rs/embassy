@@ -1,5 +1,6 @@
 #![no_std]
 #![allow(async_fn_in_trait)]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
 
@@ -26,7 +27,7 @@ mod time;
 pub mod udp;
 
 use core::cell::RefCell;
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::mem::MaybeUninit;
 use core::pin::pin;
 use core::task::{Context, Poll};
@@ -464,7 +465,7 @@ impl<'d> Stack<'d> {
     ///    seed
     /// );
     /// // Launch network task that runs `runner.run().await`
-    /// spawner.spawn(net_task(runner)).unwrap();
+    /// spawner.spawn(net_task(runner).unwrap());
     /// // Wait for DHCP config
     /// stack.wait_config_up().await;
     /// // use the network stack

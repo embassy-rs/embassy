@@ -208,7 +208,7 @@ async fn controller_task(con: &mut i2c::I2c<'static, I2C0, i2c::Async>) {
         config.addr = DEV_ADDR as u16;
         let device = i2c_slave::I2cSlave::new(p.I2C1, d_sda, d_scl, Irqs, config);
 
-        spawner.must_spawn(device_task(device));
+        spawner.spawn(device_task(device).unwrap());
 
         let c_sda = p.PIN_21;
         let c_scl = p.PIN_20;

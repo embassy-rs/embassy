@@ -1,7 +1,7 @@
 use core::ptr::write_volatile;
-use core::sync::atomic::{fence, Ordering};
+use core::sync::atomic::{Ordering, fence};
 
-use super::{FlashSector, BANK1_REGION, FLASH_REGIONS, WRITE_SIZE};
+use super::{BANK1_REGION, FLASH_REGIONS, FlashSector, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
 

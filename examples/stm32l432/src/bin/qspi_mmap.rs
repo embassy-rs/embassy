@@ -246,14 +246,14 @@ const MEMORY_ADDR: u32 = 0x00000000 as u32;
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
 
-    let config = qspi::Config {
-        memory_size: MemorySize::_16MiB,
-        address_size: AddressSize::_24bit,
-        prescaler: 200,
-        cs_high_time: ChipSelectHighTime::_1Cycle,
-        fifo_threshold: FIFOThresholdLevel::_16Bytes,
-        sample_shifting: SampleShifting::None,
-    };
+    let mut config = qspi::Config::default();
+    config.memory_size = MemorySize::_16MiB;
+    config.address_size = AddressSize::_24bit;
+    config.prescaler = 200;
+    config.cs_high_time = ChipSelectHighTime::_1Cycle;
+    config.fifo_threshold = FIFOThresholdLevel::_16Bytes;
+    config.sample_shifting = SampleShifting::None;
+
     let driver = qspi::Qspi::new_bank1(p.QUADSPI, p.PB1, p.PB0, p.PA7, p.PA6, p.PA3, p.PA2, p.DMA2_CH7, config);
     let mut flash = FlashMemory::new(driver);
     let mut wr_buf = [0u8; 256];

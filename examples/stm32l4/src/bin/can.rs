@@ -8,7 +8,7 @@ use embassy_stm32::can::{
     Can, Fifo, Frame, Rx0InterruptHandler, Rx1InterruptHandler, SceInterruptHandler, TxInterruptHandler,
 };
 use embassy_stm32::peripherals::CAN1;
-use embassy_stm32::{bind_interrupts, Config};
+use embassy_stm32::{Config, bind_interrupts};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 

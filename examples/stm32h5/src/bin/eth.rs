@@ -12,7 +12,7 @@ use embassy_stm32::rcc::{
 };
 use embassy_stm32::rng::Rng;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{bind_interrupts, eth, peripherals, rng, Config};
+use embassy_stm32::{Config, bind_interrupts, eth, peripherals, rng};
 use embassy_time::Timer;
 use embedded_io_async::Write;
 use static_cell::StaticCell;
@@ -94,7 +94,7 @@ async fn main(spawner: Spawner) -> ! {
     let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
 
     // Launch network task
-    unwrap!(spawner.spawn(net_task(runner)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     // Ensure DHCP configuration is up before trying connect
     stack.wait_config_up().await;

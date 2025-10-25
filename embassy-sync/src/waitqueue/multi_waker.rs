@@ -5,6 +5,7 @@ use heapless::Vec;
 /// Utility struct to register and wake multiple wakers.
 /// Queue of wakers with a maximum length of `N`.
 /// Intended for waking multiple tasks.
+#[derive(Debug)]
 pub struct MultiWakerRegistration<const N: usize> {
     wakers: Vec<Waker, N>,
 }
@@ -15,7 +16,9 @@ impl<const N: usize> MultiWakerRegistration<N> {
         Self { wakers: Vec::new() }
     }
 
-    /// Register a waker. If the buffer is full the function returns it in the error
+    /// Register a waker.
+    ///
+    /// If the buffer is full, [wakes all the wakers](Self::wake), clears its buffer and registers the waker.
     pub fn register(&mut self, w: &Waker) {
         // If we already have some waker that wakes the same task as `w`, do nothing.
         // This avoids cloning wakers, and avoids unnecessary mass-wakes.

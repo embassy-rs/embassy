@@ -8,6 +8,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- added: Add basic RTC support for nRF54L
+- changed: apply trimming values from FICR.TRIMCNF on nrf53/54l
+- changed: do not panic on BufferedUarte overrun
+- added: allow direct access to the input pin of `gpiote::InputChannel`
+- bugfix: use DETECTMODE_SEC in GPIOTE in secure mode
+
+## 0.8.0 - 2025-09-30
+
+- changed: Remove `T: Instance` generic params in all drivers.
+- changed: nrf54l: Disable glitch detection and enable DC/DC in init.
+- changed: Add embassy-net-driver-channel implementation for IEEE 802.15.4
+- changed: add persist() method for gpio and ppi
+- added: basic RTC driver
+- changed: add persist() method for gpio, gpiote, timer and ppi
+- changed: impl Drop for Timer
+- added: expose `regs` for timer driver
+- added: timer driver CC `clear_events` method
+- changed: Saadc reset in Drop impl, anomaly 241 - high power usage
+
+## 0.7.0 - 2025-08-26
+
+- bugfix: use correct analog input SAADC pins on nrf5340
+
+## 0.6.0 - 2025-08-04
+
+- changed: update to latest embassy-time-queue-utils
+
 ## 0.5.0 - 2025-07-16
 
 - changed: update to latest embassy-usb-driver

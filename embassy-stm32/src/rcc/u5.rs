@@ -6,9 +6,9 @@ pub use crate::pac::rcc::vals::{
     Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
 };
 use crate::pac::rcc::vals::{Hseext, Msipllfast, Msipllsel, Msirgsel, Pllmboost, Pllrge};
-#[cfg(all(peri_usb_otg_hs))]
-pub use crate::pac::{syscfg::vals::Usbrefcksel, SYSCFG};
 use crate::pac::{FLASH, PWR, RCC};
+#[cfg(all(peri_usb_otg_hs))]
+pub use crate::pac::{SYSCFG, syscfg::vals::Usbrefcksel};
 use crate::rcc::LSI_FREQ;
 use crate::time::Hertz;
 
@@ -442,7 +442,10 @@ pub(crate) unsafe fn init(config: Config) {
             Hertz(24_000_000) => Usbrefcksel::MHZ24,
             Hertz(26_000_000) => Usbrefcksel::MHZ26,
             Hertz(32_000_000) => Usbrefcksel::MHZ32,
-            _ => panic!("cannot select OTG_HS reference clock with source frequency of {}, must be one of 16, 19.2, 20, 24, 26, 32 MHz", clk_val),
+            _ => panic!(
+                "cannot select OTG_HS reference clock with source frequency of {}, must be one of 16, 19.2, 20, 24, 26, 32 MHz",
+                clk_val
+            ),
         },
         None => Usbrefcksel::MHZ24,
     };
