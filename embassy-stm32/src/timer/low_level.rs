@@ -10,7 +10,7 @@ use core::mem::ManuallyDrop;
 
 use embassy_hal_internal::Peri;
 // Re-export useful enums
-pub use stm32_metapac::timer::vals::{FilterValue, Sms as SlaveMode, Ts as TriggerSource};
+pub use stm32_metapac::timer::vals::{FilterValue, Mms, Sms as SlaveMode, Ts as TriggerSource};
 
 use super::*;
 use crate::pac::timer::vals;
@@ -572,6 +572,11 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         self.regs_gp16()
             .ccer()
             .modify(|w| w.set_ccp(channel.index(), polarity.into()));
+    }
+
+    /// Set master mode selection
+    pub fn set_mms_selection(&self, mms: vals::Mms) {
+        self.regs_gp16().cr2().modify(|w| w.set_mms(mms));
     }
 
     /// Enable/disable a channel.
