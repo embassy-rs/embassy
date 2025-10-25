@@ -748,6 +748,30 @@ impl<'d> BufferedUarteRx<'d> {
         }
     }
 
+    fn get_rxdrdy_counter(&self) -> usize {
+        let s = self.buffered_state;
+        let timer = &self.timer;
+
+        // Read the RXDRDY counter.
+        timer.cc(0).capture();
+        let mut rxdrdy = timer.cc(0).read() as usize;
+        //trace!("  rxdrdy count = {:?}", rxdrdy);
+
+        // We've set a compare channel that resets the counter to 0 when it reaches `len*2`.
+        // However, it's unclear if that's instant, or there's a small window where you can
+        // still read `len()*2`.
+        // This could happen if in one clock cycle the counter is updated, and in the next the
+        // clear takes effect. The docs are very sparse, they just say "Task delays: After TIMER
+        // is started, the CLEAR, COUNT, and STOP tasks are guaranteed to take effect within one
+        // clock cycle of the PCLK16M." :shrug:
+        // So, we wrap the counter ourselves, just in case.
+        if rxdrdy > s.rx_buf.len() * 2 {
+            rxdrdy = 0;
+        }
+
+        rxdrdy
+    }
+
     /// Pull some bytes from this source into the specified buffer, returning how many bytes were read.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         let data = self.fill_buf().await?;
@@ -762,7 +786,7 @@ impl<'d> BufferedUarteRx<'d> {
         let r = self.r;
         let s = self.buffered_state;
         let ss = self.state;
-        let timer = &self.timer;
+
         poll_fn(move |cx| {
             compiler_fence(Ordering::SeqCst);
             //trace!("poll_read");
@@ -771,22 +795,7 @@ impl<'d> BufferedUarteRx<'d> {
                 return Poll::Ready(Err(Error::Overrun));
             }
 
-            // Read the RXDRDY counter.
-            timer.cc(0).capture();
-            let mut end = timer.cc(0).read() as usize;
-            //trace!("  rxdrdy count = {:?}", end);
-
-            // We've set a compare channel that resets the counter to 0 when it reaches `len*2`.
-            // However, it's unclear if that's instant, or there's a small window where you can
-            // still read `len()*2`.
-            // This could happen if in one clock cycle the counter is updated, and in the next the
-            // clear takes effect. The docs are very sparse, they just say "Task delays: After TIMER
-            // is started, the CLEAR, COUNT, and STOP tasks are guaranteed to take effect within one
-            // clock cycle of the PCLK16M." :shrug:
-            // So, we wrap the counter ourselves, just in case.
-            if end > s.rx_buf.len() * 2 {
-                end = 0
-            }
+            let mut end = self.get_rxdrdy_counter();
 
             // This logic mirrors `atomic_ring_buffer::Reader::pop_buf()`
             let mut start = s.rx_buf.start.load(Ordering::Relaxed);
@@ -832,7 +841,11 @@ impl<'d> BufferedUarteRx<'d> {
         if state.rx_overrun.swap(false, Ordering::Acquire) {
             return Err(Error::Overrun);
         }
-        Ok(!state.rx_buf.is_empty())
+
+        let start = state.rx_buf.start.load(Ordering::Relaxed);
+        let end = self.get_rxdrdy_counter();
+
+        Ok(start != end)
     }
 }
 
