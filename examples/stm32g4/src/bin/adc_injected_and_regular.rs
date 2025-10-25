@@ -7,24 +7,18 @@
 #![no_main]
 
 use core::cell::RefCell;
-use defmt::info;
-use {defmt_rtt as _, panic_probe as _};
 
-use critical_section;
-use embassy_stm32::adc::RxDma;
+use defmt::info;
+use embassy_stm32::adc::{Adc, AdcChannel as _, Exten, RxDma, SampleTime};
 use embassy_stm32::dma::ReadableRingBuffer;
-use embassy_stm32::interrupt::typelevel::Interrupt;
-use embassy_stm32::{
-    Config,
-    adc::{Adc, AdcChannel as _, Exten, SampleTime},
-    interrupt,
-    interrupt::typelevel::ADC1_2,
-    peripherals::{ADC1, DMA1_CH1},
-    time::Hertz,
-    timer::complementary_pwm::{ComplementaryPwm, Mms2},
-    timer::low_level::CountingMode,
-};
+use embassy_stm32::interrupt::typelevel::{ADC1_2, Interrupt};
+use embassy_stm32::peripherals::{ADC1, DMA1_CH1};
+use embassy_stm32::time::Hertz;
+use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, Mms2};
+use embassy_stm32::timer::low_level::CountingMode;
+use embassy_stm32::{Config, interrupt};
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
+use {critical_section, defmt_rtt as _, panic_probe as _};
 
 static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<Adc<'static, ADC1>>>> =
     CriticalSectionMutex::new(RefCell::new(None));
