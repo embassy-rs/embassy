@@ -1,21 +1,9 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-# Change this runner as required for your MCU.
-runner = [
-    "probe-rs",
-    "run",
-    "--chip",
-    "STM32G431VBTx",
-    "--speed",
-    "5000",
-    "--preverify",
-    "--log-format",
-    "{t} [{L}] {s}",
-]
-
+# replace STM32G071C8Rx with your chip as listed in `probe-rs chip list`
+runner = "probe-rs run --chip STM32G484VETx"
 
 [build]
-target = "thumbv7em-none-eabihf"
+target = "thumbv7em-none-eabi"
 
 [env]
-DEFMT_LOG = "info"
-DEFMT_RTT_BUFFER_SIZE = "4096"
+DEFMT_LOG = "trace"

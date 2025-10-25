@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 # Change stm32g491re to your chip name, if necessary.
-embassy-stm32 = { path = "../../embassy-stm32", features = [ "defmt", "time-driver-any", "stm32g431vb", "memory-x", "unstable-pac", "exti"]  }
+embassy-stm32 = { path = "../../embassy-stm32", features = [ "defmt", "time-driver-any", "stm32g491re", "memory-x", "unstable-pac", "exti"]  }
 embassy-sync = { path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
@@ -25,8 +25,12 @@ embedded-can = { version = "0.4" }
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.8", default-features = false }
 static_cell = "2.0.0"
-
 critical-section = "1.1"
 
 [profile.release]
 debug = 2
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7em-none-eabi", artifact-dir = "out/examples/stm32g4" }
+]

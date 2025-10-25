@@ -10,6 +10,7 @@ use core::cell::RefCell;
 use defmt::info;
 use {defmt_rtt as _, panic_probe as _};
 
+use critical_section;
 use embassy_stm32::adc::RxDma;
 use embassy_stm32::dma::ReadableRingBuffer;
 use embassy_stm32::interrupt::typelevel::Interrupt;
