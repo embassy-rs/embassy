@@ -122,29 +122,21 @@ async fn main(_spawner: embassy_executor::Spawner) {
     unsafe { ADC1_2::enable() };
 
     // Main loop for reading regular ADC measurements periodically
-    // Important: Delay must be chosen carefully such that the DMA buffer won't overflow
     let mut data = [0u16; 2];
     loop {
         {
             // No need to access the ADC object here, instead we get the readings from the DMA
-            match transfer.read(&mut data) {
-                Ok((0, _)) => {
-                    // No data available yet, loop period may be to short in relation to ADC trigger
-                }
-                Ok((n, m)) => {
+            match transfer.read_exact(&mut data).await {
+                Ok(n) => {
                     defmt::info!("Regular ADC reading, VrefInt: {}, PA0: {}", data[0], data[1]);
-                    defmt::info!("length_read: {}, length_remaining: {}", n, m);
-                    transfer.clear();
-                    // Optionally transfer.clear() can be used to prevent overruns due to
-                    // inaccuracies between wait and trigger timer
+                    defmt::info!("Remaining samples: {}", n,);
                 }
-                res => {
-                    defmt::error!("res: {:?}", res)
+                Err(e) => {
+                    defmt::error!("DMA error: {:?}", e);
+                    transfer.clear();
                 }
             }
         }
-        // Timer is running at 1 Hz so we expect new samples each 1000 ms.
-        embassy_time::Timer::after_millis(1000).await;
     }
 }
 
