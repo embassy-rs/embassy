@@ -1,20 +1,66 @@
-//! [ws2812](https://www.sparkfun.com/datasheets/LCD/HD44780.pdf)
+//! [ws2812](https://www.sparkfun.com/categories/tags/ws2812)
 
 use embassy_time::Timer;
 use fixed::types::U24F8;
 use smart_leds::{RGB8, RGBW};
 
-use crate::Peri;
 use crate::clocks::clk_sys_freq;
 use crate::dma::{AnyChannel, Channel};
 use crate::pio::{
     Common, Config, FifoJoin, Instance, LoadedProgram, PioPin, ShiftConfig, ShiftDirection, StateMachine,
 };
+use crate::Peri;
 
 const T1: u8 = 2; // start bit
 const T2: u8 = 5; // data bit
 const T3: u8 = 3; // stop bit
 const CYCLES_PER_BIT: u32 = (T1 + T2 + T3) as u32;
+
+/// This trait defines the contract for color ordering
+pub trait ColorOrder {
+    type ColorType;
+
+    // Pack the type specific struct into a u32 word in the correct order
+    fn pack(color: Self::ColorType) -> u32;
+}
+
+/// Color orders for WS2812B, type RGB8
+/// Green, Red, Blue order is the common default for WS2812B
+pub struct Grb;
+impl ColorOrder for Grb {
+    type ColorType = RGB8;
+    fn pack(color: Self::ColorType) -> u32 {
+        (u32::from(color.g) << 24) | (u32::from(color.r) << 16) | (u32::from(color.b) << 8)
+    }
+}
+
+/// Red, Green, Blue is used by some WS2812B implementations
+pub struct Rgb;
+impl ColorOrder for Rgb {
+    type ColorType = RGB8;
+    fn pack(color: Self::ColorType) -> u32 {
+        (u32::from(color.r) << 24) | (u32::from(color.g) << 16) | (u32::from(color.b) << 8)
+    }
+}
+
+/// Color orders RGBW strips
+/// Green, Red, Blue, White order is the common default for RGBW strips
+pub struct Grbw;
+impl ColorOrder for Grbw {
+    type ColorType = RGBW<u8>;
+    fn pack(color: Self::ColorType) -> u32 {
+        (u32::from(color.g) << 24) | (u32::from(color.r) << 16) | (u32::from(color.b) << 8) | u32::from(color.a.0)
+    }
+}
+
+/// Red, Green, Blue, White order
+pub struct Rgbw;
+impl ColorOrder for Rgbw {
+    type ColorType = RGBW<u8>;
+    fn pack(color: Self::ColorType) -> u32 {
+        (u32::from(color.r) << 24) | (u32::from(color.g) << 16) | (u32::from(color.b) << 8) | u32::from(color.a.0)
+    }
+}
 
 /// This struct represents a ws2812 program loaded into pio instruction memory.
 pub struct PioWs2812Program<'a, PIO: Instance> {
@@ -52,12 +98,19 @@ impl<'a, PIO: Instance> PioWs2812Program<'a, PIO> {
 
 /// Pio backed RGB ws2812 driver
 /// Const N is the number of ws2812 leds attached to this pin
-pub struct PioWs2812<'d, P: Instance, const S: usize, const N: usize> {
+pub struct PioWs2812<'d, P: Instance, const S: usize, const N: usize, ORDER = Grb>
+where
+    ORDER: ColorOrder<ColorType = RGB8>,
+{
     dma: Peri<'d, AnyChannel>,
     sm: StateMachine<'d, P, S>,
+    _order: core::marker::PhantomData<ORDER>,
 }
 
-impl<'d, P: Instance, const S: usize, const N: usize> PioWs2812<'d, P, S, N> {
+impl<'d, P: Instance, const S: usize, const N: usize, ORDER = Grb> PioWs2812<'d, P, S, N, ORDER>
+where
+    ORDER: ColorOrder<ColorType = RGB8>,
+{
     /// Configure a pio state machine to use the loaded ws2812 program.
     pub fn new(
         pio: &mut Common<'d, P>,
@@ -93,7 +146,11 @@ impl<'d, P: Instance, const S: usize, const N: usize> PioWs2812<'d, P, S, N> {
         sm.set_config(&cfg);
         sm.set_enable(true);
 
-        Self { dma: dma.into(), sm }
+        Self {
+            dma: dma.into(),
+            sm,
+            _order: core::marker::PhantomData,
+        }
     }
 
     /// Write a buffer of [smart_leds::RGB8] to the ws2812 string
@@ -101,8 +158,7 @@ impl<'d, P: Instance, const S: usize, const N: usize> PioWs2812<'d, P, S, N> {
         // Precompute the word bytes from the colors
         let mut words = [0u32; N];
         for i in 0..N {
-            let word = (u32::from(colors[i].g) << 24) | (u32::from(colors[i].r) << 16) | (u32::from(colors[i].b) << 8);
-            words[i] = word;
+            words[i] = ORDER::pack(colors[i]);
         }
 
         // DMA transfer
@@ -115,12 +171,19 @@ impl<'d, P: Instance, const S: usize, const N: usize> PioWs2812<'d, P, S, N> {
 /// Pio backed RGBW ws2812 driver
 /// This version is intended for ws2812 leds with 4 addressable lights
 /// Const N is the number of ws2812 leds attached to this pin
-pub struct RgbwPioWs2812<'d, P: Instance, const S: usize, const N: usize> {
+pub struct RgbwPioWs2812<'d, P: Instance, const S: usize, const N: usize, ORDER = Grbw>
+where
+    ORDER: ColorOrder<ColorType = RGBW<u8>>,
+{
     dma: Peri<'d, AnyChannel>,
     sm: StateMachine<'d, P, S>,
+    _order: core::marker::PhantomData<ORDER>,
 }
 
-impl<'d, P: Instance, const S: usize, const N: usize> RgbwPioWs2812<'d, P, S, N> {
+impl<'d, P: Instance, const S: usize, const N: usize, ORDER = Grbw> RgbwPioWs2812<'d, P, S, N, ORDER>
+where
+    ORDER: ColorOrder<ColorType = RGBW<u8>>,
+{
     /// Configure a pio state machine to use the loaded ws2812 program.
     pub fn new(
         pio: &mut Common<'d, P>,
@@ -156,7 +219,11 @@ impl<'d, P: Instance, const S: usize, const N: usize> RgbwPioWs2812<'d, P, S, N>
         sm.set_config(&cfg);
         sm.set_enable(true);
 
-        Self { dma: dma.into(), sm }
+        Self {
+            dma: dma.into(),
+            sm,
+            _order: core::marker::PhantomData,
+        }
     }
 
     /// Write a buffer of [smart_leds::RGBW] to the ws2812 string
@@ -164,11 +231,7 @@ impl<'d, P: Instance, const S: usize, const N: usize> RgbwPioWs2812<'d, P, S, N>
         // Precompute the word bytes from the colors
         let mut words = [0u32; N];
         for i in 0..N {
-            let word = (u32::from(colors[i].g) << 24)
-                | (u32::from(colors[i].r) << 16)
-                | (u32::from(colors[i].b) << 8)
-                | u32::from(colors[i].a.0);
-            words[i] = word;
+            words[i] = ORDER::pack(colors[i]);
         }
 
         // DMA transfer
