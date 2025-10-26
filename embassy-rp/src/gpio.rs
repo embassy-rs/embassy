@@ -300,7 +300,7 @@ impl<'d> InputFuture<'d> {
 
         // Each INTR register is divided into 8 groups, one group for each
         // pin, and each group consists of LEVEL_LOW, LEVEL_HIGH, EDGE_LOW,
-        // and EGDE_HIGH.
+        // and EDGE_HIGH.
         pin.int_proc()
             .inte((pin.pin() / 8) as usize)
             .write_set(|w| match level {
