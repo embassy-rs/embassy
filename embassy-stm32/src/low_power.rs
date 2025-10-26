@@ -125,7 +125,6 @@ foreach_interrupt! {
 
 #[allow(dead_code)]
 pub(crate) unsafe fn on_wakeup_irq() {
-    info!("low power: on wakeup irq: extscr: {:?}", crate::pac::PWR.extscr().read());
     EXECUTOR.as_mut().unwrap().on_wakeup_irq();
 }
 
@@ -343,9 +342,9 @@ impl Executor {
                 {
                     let es = crate::pac::PWR.extscr().read();
                     match (es.c1stopf(), es.c1stop2f()) {
-                        (true, false) => trace!("low power: wake from STOP1"),
-                        (false, true) => trace!("low power: wake from STOP2"),
-                        (true, true) => trace!("low power: wake from STOP1 and STOP2 ???"),
+                        (true, false) => debug!("low power: wake from STOP1"),
+                        (false, true) => debug!("low power: wake from STOP2"),
+                        (true, true) => debug!("low power: wake from STOP1 and STOP2 ???"),
                         (false, false) => trace!("low power: stop mode not entered"),
                     };
                     crate::pac::PWR.extscr().modify(|w| {
