@@ -130,7 +130,7 @@ impl<'d, PIO: Instance> PioUartRxProgram<'d, PIO> {
     }
 }
 
-/// PIO backed Uart reciever
+/// PIO backed Uart receiver
 pub struct PioUartRx<'d, PIO: Instance, const SM: usize> {
     sm_rx: StateMachine<'d, PIO, SM>,
 }
