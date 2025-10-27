@@ -315,7 +315,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
     }
 
     /// Returns Ok(len) if no errors occurred. Returns Err((len, err)) if an error was
-    /// encountered. in both cases, `len` is the number of *good* bytes copied into
+    /// encountered. In both cases, `len` is the number of *good* bytes copied into
     /// `buffer`.
     fn drain_fifo(&mut self, buffer: &mut [u8]) -> Result<usize, (usize, Error)> {
         let r = self.info.regs;

@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
-- Fix typo in interrupt comment
+- Fix several minor typos in documentation
 - Add PIO SPI
 - Add PIO I2S input
 - Add PIO onewire parasite power strong pullup
