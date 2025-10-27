@@ -13,7 +13,6 @@ use embassy_rp::gpio::{Drive, Level, Output, Pull, SlewRate};
 use embassy_rp::pio::program::pio_asm;
 use embassy_rp::pio::{Common, Config, Direction, Instance, Irq, PioPin, ShiftDirection, StateMachine};
 use fixed::FixedU32;
-use fixed::traits::LosslessTryInto;
 use fixed::types::extra::U8;
 
 /// SPI comms driven by PIO.
@@ -64,7 +63,7 @@ where
         let effective_pio_frequency = (clk_sys_freq() as f32 / clock_divider.to_num::<f32>()) as u32;
 
         #[cfg(feature = "defmt")]
-        defmt::trace!("Effective pio frequency: {}", effective_pio_frequency);
+        defmt::trace!("Effective pio frequency: {}Hz", effective_pio_frequency);
 
         // Non-integer pio clock dividers are achieved by introducing clock jitter resulting in a
         // combination of long and short cycles. The long and short cycles average to achieve the
@@ -72,14 +71,14 @@ where
         // This can be a problem for peripherals that expect a consistent clock / have a clock
         // speed upper bound that is violated by the short cycles. The cyw43 seems to handle the
         // jitter well, but we emit a warning to recommend an integer divider anyway.
-        if let None = clock_divider.lossless_try_into<u32>() {
+        if clock_divider.frac() != FixedU32::<U8>::ZERO {
             #[cfg(feature = "defmt")]
             defmt::trace!(
                 "Configured clock divider is not a whole number. Some clock cycles may violate the maximum recommended GSPI speed. Use at your own risk."
             );
         }
 
-        // Different pio programs must be used for different pio clock speeds. 
+        // Different pio programs must be used for different pio clock speeds.
         // The programs used below are based on the pico SDK: https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2_common/pico_cyw43_driver/cyw43_bus_pio_spi.pio
         // The clock speed cutoff for each program has been determined experimentally:
         // > 100Mhz -> Overclock program
