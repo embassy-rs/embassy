@@ -228,6 +228,30 @@ impl From<OutputPolarity> for bool {
     }
 }
 
+mod sealed {
+    pub trait LowLevelTimer {}
+}
+
+pub trait LowLevelTimer: sealed::LowLevelTimer {
+    fn get_frequency(&self) -> Hertz;
+}
+
+impl<'d, T: CoreInstance> sealed::LowLevelTimer for Timer<'d, T> {}
+
+impl<'d, T: CoreInstance> LowLevelTimer for Timer<'d, T> {
+    fn get_frequency(&self) -> Hertz {
+        Timer::get_frequency(&self)
+    }
+}
+
+pub fn synchronize<'a, const N: usize>(timers: [&dyn LowLevelTimer; N]) {
+    // TODO: synchronize all timers
+
+    for t in timers {
+        t.get_frequency();
+    }
+}
+
 /// Low-level timer driver.
 pub struct Timer<'d, T: CoreInstance> {
     tim: Peri<'d, T>,
