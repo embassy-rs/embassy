@@ -10,7 +10,7 @@ use core::mem::ManuallyDrop;
 
 use embassy_hal_internal::Peri;
 // Re-export useful enums
-pub use stm32_metapac::timer::vals::{FilterValue, Mms, Mms2, Sms as SlaveMode, Ts as TriggerSource};
+pub use stm32_metapac::timer::vals::{FilterValue, Mms, Sms as SlaveMode, Ts as TriggerSource};
 
 use super::*;
 use crate::pac::timer::vals;
@@ -779,6 +779,7 @@ impl<'d, T: AdvancedInstance4Channel> Timer<'d, T> {
     /// Setting this bit generates a break event. This bit is automatically cleared by the hardware.
     pub fn trigger_software_break(&self, n: usize) {
         self.regs_advanced().egr().write(|r| r.set_bg(n, true));
+    }
 
     /// Set repetition counter
     pub fn set_repetition_counter(&self, val: u16) {
