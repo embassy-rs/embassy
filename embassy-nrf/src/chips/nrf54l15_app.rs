@@ -519,7 +519,20 @@ impl_pwm!(PWM20, PWM20, PWM20);
 impl_pwm!(PWM21, PWM21, PWM21);
 impl_pwm!(PWM22, PWM22, PWM22);
 
-impl_spim!(SERIAL00, SPIM00, SERIAL00, 128_000_000);
+#[cfg(feature = "_s")]
+impl_spim!(
+    SERIAL00,
+    SPIM00,
+    SERIAL00,
+    pac::OSCILLATORS_S.pll().currentfreq().read().0
+);
+#[cfg(feature = "_ns")]
+impl_spim!(
+    SERIAL00,
+    SPIM00,
+    SERIAL00,
+    pac::OSCILLATORS_NS.pll().currentfreq().read().0
+);
 impl_spim!(SERIAL20, SPIM20, SERIAL20, 16_000_000);
 impl_spim!(SERIAL21, SPIM21, SERIAL21, 16_000_000);
 impl_spim!(SERIAL22, SPIM22, SERIAL22, 16_000_000);
