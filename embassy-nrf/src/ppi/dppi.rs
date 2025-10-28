@@ -1,11 +1,12 @@
 use super::{Channel, ConfigurableChannel, Event, Ppi, Task};
-use crate::{Peri, pac};
+use crate::Peri;
 
 const DPPI_ENABLE_BIT: u32 = 0x8000_0000;
 const DPPI_CHANNEL_MASK: u32 = 0x0000_00FF;
 
-pub(crate) fn regs() -> pac::dppic::Dppic {
-    pac::DPPIC
+#[cfg(not(feature = "_nrf54l"))]
+pub(crate) fn regs() -> crate::pac::dppic::Dppic {
+    crate::pac::DPPIC
 }
 
 impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 1> {
@@ -49,13 +50,13 @@ impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Ppi<'d, 
     /// Enables the channel.
     pub fn enable(&mut self) {
         let n = self.ch.number();
-        regs().chenset().write(|w| w.0 = 1 << n);
+        self.ch.regs().chenset().write(|w| w.0 = 1 << n);
     }
 
     /// Disables the channel.
     pub fn disable(&mut self) {
         let n = self.ch.number();
-        regs().chenclr().write(|w| w.0 = 1 << n);
+        self.ch.regs().chenclr().write(|w| w.0 = 1 << n);
     }
 }
 
