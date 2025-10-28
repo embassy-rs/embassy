@@ -552,7 +552,11 @@ impl<'d, T: Instance> Adc<'d, T> {
             r.set_jextsel(trigger); // ADC group injected external trigger source
             r.set_jexten(edge); // ADC group injected external trigger polarity
         });
-        T::regs().ier().modify(|r| r.set_jeosie(true)); // group injected end of sequence conversions interrupt
+    }
+
+    /// Enable end of injected sequence interrupt
+    pub fn enable_injected_eos_interrupt(&mut self, enable: bool) {
+        T::regs().ier().modify(|r| r.set_jeosie(enable));
     }
 
     /// Read sampled data from all injected ADC injected ranks
