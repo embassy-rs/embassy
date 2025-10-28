@@ -1,6 +1,6 @@
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
-use heapless::String;
+use heapless::{String, Vec};
 
 use crate::ioctl::Shared;
 use crate::proto::{self, CtrlMsg};
@@ -38,12 +38,14 @@ enum WifiMode {
     ApSta = 3,
 }
 
-pub use proto::CtrlWifiSecProt as Security;
+pub use proto::{CtrlWifiBw as Bandwidth, CtrlWifiSecProt as Security, ScanResult as Network};
 
-/// WiFi status.
+use crate::proto::CtrlWifiMode::{Ap, Sta};
+
+/// WiFi station status.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub struct Status {
+pub struct StaStatus {
     /// Service Set Identifier.
     pub ssid: String<32>,
     /// Basic Service Set Identifier.
@@ -56,14 +58,45 @@ pub struct Status {
     pub security: Security,
 }
 
+/// WiFi access point status.
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ApStatus {
+    /// Service Set Identifier.
+    pub ssid: String<32>,
+    /// Password.
+    pub psk: String<32>,
+    /// WiFi channel.
+    pub channel: u32,
+    /// Security mode.
+    pub security: Security,
+    /// Max number of connections.
+    pub max_connections: u32,
+    /// SSID Hidden
+    pub hidden: bool,
+    /// Bandwidth
+    pub bandwidth: Bandwidth,
+}
+
+/// WiFi Scan Result.
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct ScanResult {
+    /// Number of networks found.
+    pub count: u32,
+    /// Networks found
+    pub entries: Vec<Network, 16>,
+}
+
 macro_rules! ioctl {
-    ($self:ident, $req_variant:ident, $resp_variant:ident, $req:ident, $resp:ident) => {
+    ($self:ident, $req_variant:ident, $resp_variant:ident, $req:ident, $resp:ident, $size:literal) => {
         let mut msg = proto::CtrlMsg {
             msg_id: proto::CtrlMsgId::$req_variant as _,
             msg_type: proto::CtrlMsgType::Req as _,
             payload: Some(proto::CtrlMsgPayload::$req_variant($req)),
         };
-        $self.ioctl(&mut msg).await?;
+        let mut buf = [0u8;$size];
+        $self.ioctl(&mut msg, &mut buf).await?;
         #[allow(unused_mut)]
         let Some(proto::CtrlMsgPayload::$resp_variant(mut $resp)) = msg.payload else {
             warn!("unexpected response variant");
@@ -98,17 +131,33 @@ impl<'a> Control<'a> {
         Ok(())
     }
 
-    /// Get the current status.
-    pub async fn get_status(&mut self) -> Result<Status, Error> {
+    /// Get the current station status.
+    pub async fn get_sta_status(&mut self) -> Result<StaStatus, Error> {
         let req = proto::CtrlMsgReqGetApConfig {};
-        ioctl!(self, ReqGetApConfig, RespGetApConfig, req, resp);
+        ioctl!(self, ReqGetApConfig, RespGetApConfig, req, resp, 128);
         trim_nulls(&mut resp.ssid);
-        Ok(Status {
+        Ok(StaStatus {
             ssid: resp.ssid,
             bssid: parse_mac(&resp.bssid)?,
             rssi: resp.rssi as _,
             channel: resp.chnl,
             security: resp.sec_prot,
+        })
+    }
+
+    /// Get the current access point status.
+    pub async fn get_ap_status(&mut self) -> Result<ApStatus, Error> {
+        let req = proto::CtrlMsgReqGetSoftApConfig {};
+        ioctl!(self, ReqGetSoftApConfig, RespGetSoftapConfig, req, resp, 128);
+        trim_nulls(&mut resp.ssid);
+        Ok(ApStatus {
+            ssid: resp.ssid,
+            psk: resp.pwd,
+            channel: resp.chnl,
+            security: resp.sec_prot,
+            max_connections: resp.max_conn,
+            hidden: resp.ssid_hidden,
+            bandwidth: Bandwidth::Ht20,
         })
     }
 
@@ -121,7 +170,7 @@ impl<'a> Control<'a> {
             listen_interval: 3,
             is_wpa3_supported: true,
         };
-        ioctl!(self, ReqConnectAp, RespConnectAp, req, resp);
+        ioctl!(self, ReqConnectAp, RespConnectAp, req, resp, 128);
         self.state_ch.set_link_state(LinkState::Up);
         Ok(())
     }
@@ -129,39 +178,86 @@ impl<'a> Control<'a> {
     /// Disconnect from any currently connected network.
     pub async fn disconnect(&mut self) -> Result<(), Error> {
         let req = proto::CtrlMsgReqGetStatus {};
-        ioctl!(self, ReqDisconnectAp, RespDisconnectAp, req, resp);
+        ioctl!(self, ReqDisconnectAp, RespDisconnectAp, req, resp, 128);
         self.state_ch.set_link_state(LinkState::Down);
         Ok(())
+    }
+
+    /// Set the interface to AP mode
+    pub async fn set_ap_mode(&mut self) -> Result<(), Error> {
+        let req = proto::CtrlMsgReqSetMode { mode: Ap as u32 };
+        ioctl!(self, ReqSetWifiMode, RespSetWifiMode, req, resp, 128);
+        self.shared.set_is_ap(true);
+        Ok(())
+    }
+
+    /// Set the interface to Sta mode
+    pub async fn set_sta_mode(&mut self) -> Result<(), Error> {
+        let req = proto::CtrlMsgReqSetMode { mode: Sta as u32 };
+        ioctl!(self, ReqSetWifiMode, RespSetWifiMode, req, resp, 128);
+        self.shared.set_is_ap(false);
+        Ok(())
+    }
+
+    /// Start and configure an AP
+    pub async fn start_ap(&mut self, ap_config: ApStatus) -> Result<(), Error> {
+        let req = proto::CtrlMsgReqStartSoftAp {
+            ssid: ap_config.ssid,
+            pwd: ap_config.psk,
+            chnl: ap_config.channel,
+            sec_prot: ap_config.security,
+            max_conn: ap_config.max_connections,
+            ssid_hidden: ap_config.hidden,
+            bw: ap_config.bandwidth as u32,
+        };
+        ioctl!(self, ReqStartSoftAp, RespStartSoftAp, req, resp, 128);
+        Ok(())
+    }
+
+    /// Stop AP
+    pub async fn stop_ap(&mut self) -> Result<(), Error> {
+        let req = proto::CtrlMsgReqGetStatus {};
+        ioctl!(self, ReqStopSoftAp, RespStopSoftAp, req, resp, 128);
+        Ok(())
+    }
+
+    /// Get AP Scan List
+    pub async fn get_scan_network_list(&mut self) -> Result<ScanResult, Error> {
+        let req = proto::CtrlMsgReqScanResult {};
+        ioctl!(self, ReqGetApScanList, RespScanApList, req, resp, 1600);
+        Ok(ScanResult {
+            count: resp.count,
+            entries: resp.entries,
+        })
+    }
+
+    /// Get Station mac address
+    pub async fn get_mac_addr(&mut self) -> Result<[u8; 6], Error> {
+        let req = proto::CtrlMsgReqGetMacAddress {
+            mode: WifiMode::Sta as _,
+        };
+        ioctl!(self, ReqGetMacAddress, RespGetMacAddress, req, resp, 128);
+        parse_mac(&resp.mac)
     }
 
     /// duration in seconds, clamped to [10, 3600]
     async fn set_heartbeat(&mut self, duration: u32) -> Result<(), Error> {
         let req = proto::CtrlMsgReqConfigHeartbeat { enable: true, duration };
-        ioctl!(self, ReqConfigHeartbeat, RespConfigHeartbeat, req, resp);
+        ioctl!(self, ReqConfigHeartbeat, RespConfigHeartbeat, req, resp, 128);
         Ok(())
-    }
-
-    async fn get_mac_addr(&mut self) -> Result<[u8; 6], Error> {
-        let req = proto::CtrlMsgReqGetMacAddress {
-            mode: WifiMode::Sta as _,
-        };
-        ioctl!(self, ReqGetMacAddress, RespGetMacAddress, req, resp);
-        parse_mac(&resp.mac)
     }
 
     async fn set_wifi_mode(&mut self, mode: u32) -> Result<(), Error> {
         let req = proto::CtrlMsgReqSetMode { mode };
-        ioctl!(self, ReqSetWifiMode, RespSetWifiMode, req, resp);
+        ioctl!(self, ReqSetWifiMode, RespSetWifiMode, req, resp, 128);
 
         Ok(())
     }
 
-    async fn ioctl(&mut self, msg: &mut CtrlMsg) -> Result<(), Error> {
+    async fn ioctl(&mut self, msg: &mut CtrlMsg, buf: &mut [u8]) -> Result<(), Error> {
         debug!("ioctl req: {:?}", &msg);
 
-        let mut buf = [0u8; 128];
-
-        let req_len = noproto::write(msg, &mut buf).map_err(|_| {
+        let req_len = noproto::write(msg, buf).map_err(|_| {
             warn!("failed to serialize control request");
             Error::Internal
         })?;
@@ -182,7 +278,7 @@ impl<'a> Control<'a> {
 
         let ioctl = CancelOnDrop(self.shared);
 
-        let resp_len = ioctl.0.ioctl(&mut buf, req_len).await;
+        let resp_len = ioctl.0.ioctl(buf, req_len).await;
 
         ioctl.defuse();
 
