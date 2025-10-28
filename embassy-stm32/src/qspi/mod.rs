@@ -72,7 +72,10 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            memory_size: MemorySize::Other(0),
+            // We set the default is the maximum size of the memory
+            // This value limits the possible read length using indirect read mode
+            // To prevent a gotcha we choose to use a high value
+            memory_size: MemorySize::Other(31),
             address_size: AddressSize::_24bit,
             prescaler: 128,
             fifo_threshold: FIFOThresholdLevel::_17Bytes,
