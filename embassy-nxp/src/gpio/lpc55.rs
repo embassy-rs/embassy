@@ -1,7 +1,8 @@
 use embassy_hal_internal::{PeripheralType, impl_peripheral};
 
+use crate::pac::common::{RW, Reg};
 use crate::pac::iocon::vals::{PioDigimode, PioMode};
-use crate::pac::{GPIO, IOCON, SYSCON};
+use crate::pac::{GPIO, IOCON, SYSCON, iocon};
 use crate::{Peri, peripherals};
 
 pub(crate) fn init() {
@@ -109,13 +110,7 @@ impl<'d> Input<'d> {
 
     /// Set the pull configuration for the pin. To disable the pull, use [Pull::None].
     pub fn set_pull(&mut self, pull: Pull) {
-        match_iocon!(register, self.pin.pin_bank(), self.pin.pin_number(), {
-            register.modify(|w| match pull {
-                Pull::None => w.set_mode(PioMode::INACTIVE),
-                Pull::Up => w.set_mode(PioMode::PULL_UP),
-                Pull::Down => w.set_mode(PioMode::PULL_DOWN),
-            });
-        });
+        self.pin.set_pull(pull);
     }
 
     /// Get the current input level of the pin.
@@ -193,11 +188,20 @@ impl<'d> Flex<'d> {
         1 << self.pin.pin_number()
     }
 
+    /// Set the pull configuration for the pin. To disable the pull, use [Pull::None].
+    pub fn set_pull(&mut self, pull: Pull) {
+        self.pin.pio().modify(|w| match pull {
+            Pull::None => w.set_mode(PioMode::INACTIVE),
+            Pull::Up => w.set_mode(PioMode::PULL_UP),
+            Pull::Down => w.set_mode(PioMode::PULL_DOWN),
+        });
+    }
+
     /// Set the pin to digital mode. This is required for using a pin as a GPIO pin. The default
     /// setting for pins is (usually) non-digital.
     fn set_as_digital(&mut self) {
-        match_iocon!(register, self.pin_bank(), self.pin_number(), {
-            register.modify(|w| w.set_digimode(PioDigimode::DIGITAL));
+        self.pin.pio().modify(|w| {
+            w.set_digimode(PioDigimode::DIGITAL);
         });
     }
 
@@ -220,6 +224,14 @@ impl<'d> Flex<'d> {
 pub(crate) trait SealedPin: Sized {
     fn pin_bank(&self) -> Bank;
     fn pin_number(&self) -> u8;
+
+    #[inline]
+    fn pio(&self) -> Reg<iocon::regs::Pio, RW> {
+        match self.pin_bank() {
+            Bank::Bank0 => IOCON.pio0(self.pin_number() as usize),
+            Bank::Bank1 => IOCON.pio1(self.pin_number() as usize),
+        }
+    }
 }
 
 /// Interface for a Pin that can be configured by an [Input] or [Output] driver, or converted to an
@@ -271,40 +283,6 @@ impl SealedPin for AnyPin {
         self.pin_number
     }
 }
-
-/// Match the pin bank and number of a pin to the corresponding IOCON register.
-///
-/// # Example
-/// ```
-/// use embassy_nxp::gpio::Bank;
-/// use embassy_nxp::pac_utils::{iocon_reg, match_iocon};
-///
-/// // Make pin PIO1_6 digital and set it to pull-down mode.
-/// match_iocon!(register, Bank::Bank1, 6, {
-///     register.modify(|w|{
-///         w.set_mode(PioMode::PULL_DOWN);
-///         w.set_digimode(PioDigimode::DIGITAL);
-///
-///     }
-/// });
-/// ```
-macro_rules! match_iocon {
-    ($register:ident, $pin_bank:expr, $pin_number:expr, $action:expr) => {
-        match $pin_bank {
-            Bank::Bank0 => {
-                let $register = IOCON.pio0($pin_number as usize);
-                $action;
-            }
-
-            Bank::Bank1 => {
-                let $register = IOCON.pio1($pin_number as usize);
-                $action;
-            }
-        }
-    };
-}
-
-pub(crate) use match_iocon;
 
 macro_rules! impl_pin {
     ($name:ident, $bank:expr, $pin_num:expr) => {

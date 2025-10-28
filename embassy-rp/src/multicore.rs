@@ -58,7 +58,7 @@ const PAUSE_TOKEN: u32 = 0xDEADBEEF;
 const RESUME_TOKEN: u32 = !0xDEADBEEF;
 static IS_CORE1_INIT: AtomicBool = AtomicBool::new(false);
 
-/// Represents a partiticular CPU core (SIO_CPUID)
+/// Represents a particular CPU core (SIO_CPUID)
 #[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[repr(u8)]
