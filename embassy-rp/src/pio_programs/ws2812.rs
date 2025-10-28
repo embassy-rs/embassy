@@ -94,7 +94,7 @@ impl<'a, PIO: Instance> PioWs2812Program<'a, PIO> {
 
 /// Pio backed RGB ws2812 driver
 /// Const N is the number of ws2812 leds attached to this pin
-pub struct PioWs2812<'d, P: Instance, const S: usize, const N: usize, ORDER = Grb>
+pub struct PioWs2812<'d, P: Instance, const S: usize, const N: usize, ORDER>
 where
     ORDER: RgbColorOrder,
 {
@@ -103,12 +103,24 @@ where
     _order: core::marker::PhantomData<ORDER>,
 }
 
-impl<'d, P: Instance, const S: usize, const N: usize, ORDER = Grb> PioWs2812<'d, P, S, N, ORDER>
+impl<'d, P: Instance, const S: usize, const N: usize> PioWs2812<'d, P, S, N, Grb> {
+    pub fn new(
+        pio: &mut Common<'d, P>,
+        sm: StateMachine<'d, P, S>,
+        dma: Peri<'d, impl Channel>,
+        pin: Peri<'d, impl PioPin>,
+        program: &PioWs2812Program<'d, P>,
+    ) -> Self {
+        Self::with_color_order(pio, sm, dma, pin, program)
+    }
+}
+
+impl<'d, P: Instance, const S: usize, const N: usize, ORDER> PioWs2812<'d, P, S, N, ORDER>
 where
     ORDER: RgbColorOrder,
 {
     /// Configure a pio state machine to use the loaded ws2812 program.
-    pub fn new(
+    pub fn with_color_order(
         pio: &mut Common<'d, P>,
         mut sm: StateMachine<'d, P, S>,
         dma: Peri<'d, impl Channel>,
@@ -167,7 +179,7 @@ where
 /// Pio backed RGBW ws2812 driver
 /// This version is intended for ws2812 leds with 4 addressable lights
 /// Const N is the number of ws2812 leds attached to this pin
-pub struct RgbwPioWs2812<'d, P: Instance, const S: usize, const N: usize, ORDER = Grbw>
+pub struct RgbwPioWs2812<'d, P: Instance, const S: usize, const N: usize, ORDER>
 where
     ORDER: RgbwColorOrder,
 {
@@ -176,12 +188,24 @@ where
     _order: core::marker::PhantomData<ORDER>,
 }
 
-impl<'d, P: Instance, const S: usize, const N: usize, ORDER = Grbw> RgbwPioWs2812<'d, P, S, N, ORDER>
+impl<'d, P: Instance, const S: usize, const N: usize> RgbwPioWs2812<'d, P, S, N, Grbw> {
+    pub fn new(
+        pio: &mut Common<'d, P>,
+        sm: StateMachine<'d, P, S>,
+        dma: Peri<'d, impl Channel>,
+        pin: Peri<'d, impl PioPin>,
+        program: &PioWs2812Program<'d, P>,
+    ) -> Self {
+        Self::with_color_order(pio, sm, dma, pin, program)
+    }
+}
+
+impl<'d, P: Instance, const S: usize, const N: usize, ORDER> RgbwPioWs2812<'d, P, S, N, ORDER>
 where
     ORDER: RgbwColorOrder,
 {
     /// Configure a pio state machine to use the loaded ws2812 program.
-    pub fn new(
+    pub fn with_color_order(
         pio: &mut Common<'d, P>,
         mut sm: StateMachine<'d, P, S>,
         dma: Peri<'d, impl Channel>,
