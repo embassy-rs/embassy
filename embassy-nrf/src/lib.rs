@@ -922,7 +922,7 @@ pub fn init(config: config::Config) -> Peripherals {
         }
     }
 
-    #[cfg(any(feature = "_nrf52", feature = "_nrf5340-app"))]
+    #[cfg(any(feature = "_nrf52", all(feature = "_nrf5340-app", feature = "_s")))]
     unsafe {
         let value = if cfg!(feature = "nfc-pins-as-gpio") { 0 } else { 1 };
         let res = uicr_write_masked(consts::UICR_NFCPINS, value, 1);

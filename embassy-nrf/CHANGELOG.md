@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - added: support setting the duty cycles of all channels at once in `SimplePwm`
 - changed: updated to nrf-pac with nrf52/nrf53/nrf91 register layout more similar to nrf54
 - added: support for nrf54l peripherals: uart, gpiote, twim, twis, spim, spis, dppi, pwm, saadc
+- bugfix: Do not write to UICR from non-secure code on nrf53
 
 ## 0.8.0 - 2025-09-30
 
