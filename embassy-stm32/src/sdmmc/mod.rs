@@ -11,9 +11,9 @@ use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use sdio_host::common_cmd::{self, Resp, ResponseLen};
-use sdio_host::emmc::{ExtCSD, EMMC};
-use sdio_host::sd::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CIC, CID, CSD, OCR, RCA, SCR, SD};
-use sdio_host::{emmc_cmd, sd_cmd, Cmd};
+use sdio_host::emmc::{EMMC, ExtCSD};
+use sdio_host::sd::{BusWidth, CIC, CID, CSD, CardCapacity, CardStatus, CurrentState, OCR, RCA, SCR, SD, SDStatus};
+use sdio_host::{Cmd, emmc_cmd, sd_cmd};
 
 #[cfg(sdmmc_v1)]
 use crate::dma::ChannelAndRequest;

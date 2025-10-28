@@ -9,8 +9,8 @@ use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use stm32_metapac::metadata::ir::BitOffset;
 use stm32_metapac::metadata::{
-    MemoryRegion, MemoryRegionKind, PeripheralRccKernelClock, PeripheralRccRegister, PeripheralRegisters, StopMode,
-    ALL_CHIPS, ALL_PERIPHERAL_VERSIONS, METADATA,
+    ALL_CHIPS, ALL_PERIPHERAL_VERSIONS, METADATA, MemoryRegion, MemoryRegionKind, PeripheralRccKernelClock,
+    PeripheralRccRegister, PeripheralRegisters, StopMode,
 };
 
 #[path = "./build_common.rs"]
@@ -105,7 +105,9 @@ fn main() {
             }
             (false, false) => {
                 if METADATA.memory.len() != 1 {
-                    panic!("Chip supports single and dual bank configuration. No Cargo feature to select one is enabled. Use the 'single-bank' or 'dual-bank' feature to make your selection")
+                    panic!(
+                        "Chip supports single and dual bank configuration. No Cargo feature to select one is enabled. Use the 'single-bank' or 'dual-bank' feature to make your selection"
+                    )
                 }
                 METADATA.memory[0]
             }

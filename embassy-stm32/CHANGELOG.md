@@ -6,9 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 <!-- next-header -->
+### [Unreleased]
+
+* **Fix(stm32h5):** Prevent a HardFault crash on STM32H5 devices by changing `uid()` to return `[u8; 12]` by value instead of a reference. (Fixes #2696)
 ## Unreleased - ReleaseDate
 
 - feat: Added support for injected ADC sampling for g4 ([#4243](https://github.com/embassy-rs/embassy/pull/4243))
+- fix flash erase on L4 & L5
 - fix: Fixed STM32H5 builds requiring time feature
 - feat: Derive Clone, Copy for QSPI Config
 - fix: stm32/i2c in master mode (blocking): subsequent transmissions failed after a NACK was received
@@ -23,6 +27,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix: handle address and data-length errors in OSPI
 - feat: Allow OSPI DMA writes larger than 64kB using chunking
 - feat: More ADC enums for g0 PAC, API change for oversampling, allow separate sample times
+- feat: Add USB CRS sync support for STM32C071
+- fix: RTC register definition for STM32L4P5 and L4Q5 as they use v3 register map.
+- fix: Cut down the capabilities of the STM32L412 and L422 RTC as those are missing binary timer mode and underflow interrupt.
+- fix: Allow configuration of the internal pull up/down resistors on the pins for the Qei peripheral, as well as the Qei decoder mode.
+- feat: stm32/rcc/mco: Added support for IO driver strength when using Master Clock Out IO. This changes signature on Mco::new taking a McoConfig struct ([#4679](https://github.com/embassy-rs/embassy/pull/4679))
+- feat: derive Clone, Copy and defmt::Format for all SPI-related configs
+- feat: stm32/usart: add `eager_reads` option to control if buffered readers return as soon as possible or after more data is available ([#4668](https://github.com/embassy-rs/embassy/pull/4668))
+- feat: stm32/usart: add `de_assertion_time` and `de_deassertion_time` config options
+- change: stm32/uart: BufferedUartRx now returns all available bytes from the internal buffer
 
 ## 0.4.0 - 2025-08-26
 

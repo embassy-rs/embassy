@@ -8,11 +8,11 @@ pub use pac::adccommon::vals::Presc;
 pub use stm32_metapac::adc::vals::{Adstp, Dmacfg, Dmaen};
 pub use stm32_metapac::adccommon::vals::Dual;
 
-use super::{blocking_delay_us, Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime};
+use super::{Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, blocking_delay_us};
 use crate::adc::SealedAdcChannel;
 use crate::dma::Transfer;
 use crate::time::Hertz;
-use crate::{pac, rcc, Peri};
+use crate::{Peri, pac, rcc};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -136,7 +136,10 @@ impl<'d, T: Instance> Adc<'d, T> {
         trace!("ADC frequency set to {}", frequency);
 
         if frequency > MAX_ADC_CLK_FREQ {
-            panic!("Maximal allowed frequency for the ADC is {} MHz and it varies with different packages, refer to ST docs for more information.", MAX_ADC_CLK_FREQ.0 /  1_000_000 );
+            panic!(
+                "Maximal allowed frequency for the ADC is {} MHz and it varies with different packages, refer to ST docs for more information.",
+                MAX_ADC_CLK_FREQ.0 / 1_000_000
+            );
         }
 
         let mut s = Self {
@@ -549,7 +552,11 @@ impl<'d, T: Instance> Adc<'d, T> {
             r.set_jextsel(trigger); // ADC group injected external trigger source
             r.set_jexten(edge); // ADC group injected external trigger polarity
         });
-        T::regs().ier().modify(|r| r.set_jeosie(true)); // group injected end of sequence conversions interrupt
+    }
+
+    /// Enable end of injected sequence interrupt
+    pub fn enable_injected_eos_interrupt(&mut self, enable: bool) {
+        T::regs().ier().modify(|r| r.set_jeosie(enable));
     }
 
     /// Read sampled data from all injected ADC injected ranks

@@ -1,12 +1,12 @@
 //! [HD44780 display driver](https://www.sparkfun.com/datasheets/LCD/HD44780.pdf)
 
+use crate::Peri;
 use crate::dma::{AnyChannel, Channel};
 use crate::pio::{
     Common, Config, Direction, FifoJoin, Instance, Irq, LoadedProgram, PioPin, ShiftConfig, ShiftDirection,
     StateMachine,
 };
 use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
-use crate::Peri;
 
 /// This struct represents a HD44780 program that takes command words (<wait:24> <command:4> <0:4>)
 pub struct PioHD44780CommandWordProgram<'a, PIO: Instance> {

@@ -1,10 +1,10 @@
 error[E0277]: `*const u8` cannot be shared between threads safely
   --> tests/ui/sync_impl/lazy_lock_function.rs:8:16
    |
-6  |     let closure_capturing_non_sync_variable = || unsafe { core::ptr::read(x_ptr) };
+ 6 |     let closure_capturing_non_sync_variable = || unsafe { core::ptr::read(x_ptr) };
    |                                               -- within this `{closure@$DIR/tests/ui/sync_impl/lazy_lock_function.rs:6:47: 6:49}`
-7  |
-8  |     check_sync(LazyLock::new(closure_capturing_non_sync_variable));
+ 7 |
+ 8 |     check_sync(LazyLock::new(closure_capturing_non_sync_variable));
    |     ---------- ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `*const u8` cannot be shared between threads safely
    |     |
    |     required by a bound introduced by this call
@@ -14,7 +14,7 @@ error[E0277]: `*const u8` cannot be shared between threads safely
 note: required because it's used within this closure
   --> tests/ui/sync_impl/lazy_lock_function.rs:6:47
    |
-6  |     let closure_capturing_non_sync_variable = || unsafe { core::ptr::read(x_ptr) };
+ 6 |     let closure_capturing_non_sync_variable = || unsafe { core::ptr::read(x_ptr) };
    |                                               ^^
    = note: required for `embassy_sync::lazy_lock::LazyLock<u8, {closure@$DIR/tests/ui/sync_impl/lazy_lock_function.rs:6:47: 6:49}>` to implement `Sync`
 note: required by a bound in `check_sync`

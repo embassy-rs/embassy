@@ -1,10 +1,10 @@
 //! GPIO task/event (GPIOTE) driver.
 
 use core::convert::Infallible;
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
+use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::{AnyPin, Flex, Input, Output, Pin as GpioPin, SealedPin as _};
@@ -193,6 +193,15 @@ pub struct InputChannel<'d> {
     pin: Input<'d>,
 }
 
+impl InputChannel<'static> {
+    /// Persist the channel's configuration for the rest of the program's lifetime. This method
+    /// should be preferred over [`core::mem::forget()`] because the `'static` bound prevents
+    /// accidental reuse of the underlying peripheral.
+    pub fn persist(self) {
+        core::mem::forget(self);
+    }
+}
+
 impl<'d> Drop for InputChannel<'d> {
     fn drop(&mut self) {
         let g = regs();
@@ -261,6 +270,15 @@ impl<'d> InputChannel<'d> {
 pub struct OutputChannel<'d> {
     ch: Peri<'d, AnyChannel>,
     _pin: Output<'d>,
+}
+
+impl OutputChannel<'static> {
+    /// Persist the channel's configuration for the rest of the program's lifetime. This method
+    /// should be preferred over [`core::mem::forget()`] because the `'static` bound prevents
+    /// accidental reuse of the underlying peripheral.
+    pub fn persist(self) {
+        core::mem::forget(self);
+    }
 }
 
 impl<'d> Drop for OutputChannel<'d> {
