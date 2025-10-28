@@ -737,19 +737,19 @@ cfg_if::cfg_if! {
 
         impl_gpiote!(GPIOTE20);
         impl_gpiote!(GPIOTE30);
-        impl_channel!(GPIOTE_CH0, GPIOTE20, 0, 0);
-        impl_channel!(GPIOTE_CH1, GPIOTE20, 1, 1);
-        impl_channel!(GPIOTE_CH2, GPIOTE20, 2, 2);
-        impl_channel!(GPIOTE_CH3, GPIOTE20, 3, 3);
-        impl_channel!(GPIOTE_CH4, GPIOTE20, 4, 4);
-        impl_channel!(GPIOTE_CH5, GPIOTE20, 5, 5);
-        impl_channel!(GPIOTE_CH6, GPIOTE20, 6, 6);
-        impl_channel!(GPIOTE_CH7, GPIOTE20, 7, 7);
+        impl_channel!(GPIOTE20_CH0, GPIOTE20, 0, 0);
+        impl_channel!(GPIOTE20_CH1, GPIOTE20, 1, 1);
+        impl_channel!(GPIOTE20_CH2, GPIOTE20, 2, 2);
+        impl_channel!(GPIOTE20_CH3, GPIOTE20, 3, 3);
+        impl_channel!(GPIOTE20_CH4, GPIOTE20, 4, 4);
+        impl_channel!(GPIOTE20_CH5, GPIOTE20, 5, 5);
+        impl_channel!(GPIOTE20_CH6, GPIOTE20, 6, 6);
+        impl_channel!(GPIOTE20_CH7, GPIOTE20, 7, 7);
 
-        impl_channel!(GPIOTE_CH8, GPIOTE30, 0, 8);
-        impl_channel!(GPIOTE_CH9, GPIOTE30, 1, 9);
-        impl_channel!(GPIOTE_CH10, GPIOTE30, 2, 10);
-        impl_channel!(GPIOTE_CH11, GPIOTE30, 3, 11);
+        impl_channel!(GPIOTE30_CH0, GPIOTE30, 0, 8);
+        impl_channel!(GPIOTE30_CH1, GPIOTE30, 1, 9);
+        impl_channel!(GPIOTE30_CH2, GPIOTE30, 2, 10);
+        impl_channel!(GPIOTE30_CH3, GPIOTE30, 3, 11);
     } else if #[cfg(feature = "_nrf51")] {
         impl_channel!(GPIOTE_CH0, GPIOTE, 0, 0);
         impl_channel!(GPIOTE_CH1, GPIOTE, 1, 1);
