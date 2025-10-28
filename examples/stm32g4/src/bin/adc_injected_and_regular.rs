@@ -114,6 +114,9 @@ async fn main(_spawner: embassy_executor::Spawner) {
     adc1.start_regular_conversion();
     adc1.start_injected_conversion();
 
+    // Enable interrupt at end of injected ADC conversion
+    adc1.enable_injected_eos_interrupt(true);
+
     // Store ADC globally to allow access from ADC interrupt
     critical_section::with(|cs| {
         ADC1_HANDLE.borrow(cs).replace(Some(adc1));
