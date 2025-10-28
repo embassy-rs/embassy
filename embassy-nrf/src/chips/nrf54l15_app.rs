@@ -524,14 +524,22 @@ impl_spim!(
     SERIAL00,
     SPIM00,
     SERIAL00,
-    pac::OSCILLATORS_S.pll().currentfreq().read().0
+    match pac::OSCILLATORS_S.pll().currentfreq().read().currentfreq() {
+        pac::oscillators::vals::Currentfreq::CK128M => 128_000_000,
+        pac::oscillators::vals::Currentfreq::CK64M => 64_000_000,
+        _ => unreachable!(),
+    }
 );
 #[cfg(feature = "_ns")]
 impl_spim!(
     SERIAL00,
     SPIM00,
     SERIAL00,
-    pac::OSCILLATORS_NS.pll().currentfreq().read().0
+    match pac::OSCILLATORS_NS.pll().currentfreq().read().currentfreq() {
+        pac::oscillators::vals::Currentfreq::CK128M => 128_000_000,
+        pac::oscillators::vals::Currentfreq::CK64M => 64_000_000,
+        _ => unreachable!(),
+    }
 );
 impl_spim!(SERIAL20, SPIM20, SERIAL20, 16_000_000);
 impl_spim!(SERIAL21, SPIM21, SERIAL21, 16_000_000);
