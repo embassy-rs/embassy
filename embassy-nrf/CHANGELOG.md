@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - changed: do not panic on BufferedUarte overrun
 - added: allow direct access to the input pin of `gpiote::InputChannel`
 - bugfix: use DETECTMODE_SEC in GPIOTE in secure mode
+- added: allow configuring the idle state of GPIO pins connected to PWM channels
+- changed: allow configuring the PWM peripheral in the constructor of `SimplePwm`
+- changed: support setting duty cycles with inverted polarity in `SimplePwm`
+- added: support setting the duty cycles of all channels at once in `SimplePwm`
 
 ## 0.8.0 - 2025-09-30
 

@@ -267,7 +267,7 @@ impl CoreVoltage {
     }
 }
 
-/// CLock configuration.
+/// Clock configuration.
 #[non_exhaustive]
 pub struct ClockConfig {
     /// Ring oscillator configuration.
