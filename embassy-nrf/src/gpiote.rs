@@ -83,7 +83,7 @@ pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
             // Enable latched detection
             #[cfg(all(feature = "_s", not(feature = "_nrf54l")))]
             p.detectmode_sec().write(|w| w.set_detectmode(Detectmode::LDETECT));
-            #[cfg(any(not(feature = "_s"), feature = "_nrf54l"))]
+            #[cfg(any(not(feature = "_s"), all(feature = "_s", feature = "_nrf54l")))]
             p.detectmode().write(|w| w.set_detectmode(Detectmode::LDETECT));
             // Clear latch
             p.latch().write(|w| w.0 = 0xFFFFFFFF)
