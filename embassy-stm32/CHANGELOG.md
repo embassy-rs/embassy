@@ -36,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: stm32/usart: add `de_assertion_time` and `de_deassertion_time` config options
 - change: stm32/uart: BufferedUartRx now returns all available bytes from the internal buffer
 - change: timer: added output compare values
+- feat: timer: add ability to set master mode
 
 ## 0.4.0 - 2025-08-26
 

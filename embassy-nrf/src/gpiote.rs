@@ -150,7 +150,6 @@ fn GPIOTE1() {
 #[cfg(feature = "rt")]
 #[interrupt]
 fn GPIOTE() {
-    info!("GPIOTE!");
     unsafe { handle_gpiote_interrupt(pac::GPIOTE) };
 }
 
@@ -158,7 +157,6 @@ fn GPIOTE() {
 #[cfg(feature = "rt")]
 #[interrupt]
 fn GPIOTE20_0() {
-    info!("GPIOTE20_0!");
     unsafe { handle_gpiote_interrupt(pac::GPIOTE20) };
 }
 
@@ -166,7 +164,6 @@ fn GPIOTE20_0() {
 #[cfg(feature = "rt")]
 #[interrupt]
 fn GPIOTE30_0() {
-    info!("GPIOTE30_0!");
     unsafe { handle_gpiote_interrupt(pac::GPIOTE30) };
 }
 
@@ -174,7 +171,6 @@ fn GPIOTE30_0() {
 #[cfg(feature = "rt")]
 #[interrupt]
 fn GPIOTE20_1() {
-    info!("GPIOTE20_1!");
     unsafe { handle_gpiote_interrupt(pac::GPIOTE20) };
 }
 
@@ -182,7 +178,6 @@ fn GPIOTE20_1() {
 #[cfg(feature = "rt")]
 #[interrupt]
 fn GPIOTE30_1() {
-    info!("GPIOTE30_1!");
     unsafe { handle_gpiote_interrupt(pac::GPIOTE30) };
 }
 
@@ -190,7 +185,6 @@ unsafe fn handle_gpiote_interrupt(g: pac::gpiote::Gpiote) {
     for c in 0..CHANNEL_COUNT {
         let i = c % CHANNELS_PER_PORT;
         if g.events_in(i).read() != 0 {
-            info!("Clear IRQ {} waker {}", INTNUM, c);
             g.intenclr(INTNUM).write(|w| w.0 = 1 << i);
             CHANNEL_WAKERS[c].wake();
         }
@@ -245,14 +239,9 @@ unsafe fn handle_gpiote_interrupt(g: pac::gpiote::Gpiote) {
 
         #[cfg(not(feature = "_nrf51"))]
         for (port, &p) in ports.iter().enumerate() {
-            info!("Interrupt port {}", port);
             let bits = p.latch().read().0;
             for pin in BitIter(bits) {
                 p.pin_cnf(pin as usize).modify(|w| w.set_sense(Sense::DISABLED));
-
-                let w = port * 32 + pin as usize;
-
-                info!("Interrupt pin {}, waker {}", pin as usize, w);
                 PORT_WAKERS[port * 32 + pin as usize].wake();
             }
             p.latch().write(|w| w.0 = bits);
@@ -370,7 +359,6 @@ impl<'d> InputChannel<'d> {
         g.intenset(INTNUM).write(|w| w.0 = 1 << num);
 
         poll_fn(|cx| {
-            info!("Waiting for channel waker {}", num);
             CHANNEL_WAKERS[waker].register(cx.waker());
 
             if g.events_in(num).read() != 0 {
@@ -545,7 +533,6 @@ impl<'a> Future for PortInputFuture<'a> {
     type Output = ();
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        info!("register waker on {}", self.pin.port() as usize);
         PORT_WAKERS[self.pin.pin_port() as usize].register(cx.waker());
 
         if self.pin.conf().read().sense() == Sense::DISABLED {
