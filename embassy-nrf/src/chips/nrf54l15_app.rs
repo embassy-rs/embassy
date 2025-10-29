@@ -256,6 +256,87 @@ embassy_hal_internal::peripherals! {
     PPI30_GROUP0,
     PPI30_GROUP1,
 
+    // PPI BRIDGE channels
+    PPIB00_CH0,
+    PPIB00_CH1,
+    PPIB00_CH2,
+    PPIB00_CH3,
+    PPIB00_CH4,
+    PPIB00_CH5,
+    PPIB00_CH6,
+    PPIB00_CH7,
+
+    PPIB01_CH0,
+    PPIB01_CH1,
+    PPIB01_CH2,
+    PPIB01_CH3,
+    PPIB01_CH4,
+    PPIB01_CH5,
+    PPIB01_CH6,
+    PPIB01_CH7,
+
+    PPIB10_CH0,
+    PPIB10_CH1,
+    PPIB10_CH2,
+    PPIB10_CH3,
+    PPIB10_CH4,
+    PPIB10_CH5,
+    PPIB10_CH6,
+    PPIB10_CH7,
+
+    PPIB11_CH0,
+    PPIB11_CH1,
+    PPIB11_CH2,
+    PPIB11_CH3,
+    PPIB11_CH4,
+    PPIB11_CH5,
+    PPIB11_CH6,
+    PPIB11_CH7,
+    PPIB11_CH8,
+    PPIB11_CH9,
+    PPIB11_CH10,
+    PPIB11_CH11,
+    PPIB11_CH12,
+    PPIB11_CH13,
+    PPIB11_CH14,
+    PPIB11_CH15,
+
+    PPIB20_CH0,
+    PPIB20_CH1,
+    PPIB20_CH2,
+    PPIB20_CH3,
+    PPIB20_CH4,
+    PPIB20_CH5,
+    PPIB20_CH6,
+    PPIB20_CH7,
+
+    PPIB21_CH0,
+    PPIB21_CH1,
+    PPIB21_CH2,
+    PPIB21_CH3,
+    PPIB21_CH4,
+    PPIB21_CH5,
+    PPIB21_CH6,
+    PPIB21_CH7,
+    PPIB21_CH8,
+    PPIB21_CH9,
+    PPIB21_CH10,
+    PPIB21_CH11,
+    PPIB21_CH12,
+    PPIB21_CH13,
+    PPIB21_CH14,
+    PPIB21_CH15,
+
+    PPIB22_CH0,
+    PPIB22_CH1,
+    PPIB22_CH2,
+    PPIB22_CH3,
+
+    PPIB30_CH0,
+    PPIB30_CH1,
+    PPIB30_CH2,
+    PPIB30_CH3,
+
     // Timers
     TIMER00,
     TIMER10,
@@ -332,15 +413,6 @@ embassy_hal_internal::peripherals! {
     // RADIO
     RADIO,
 
-    // PPI BRIDGE
-    PPIB00,
-    PPIB01,
-    PPIB10,
-    PPIB11,
-    PPIB20,
-    PPIB21,
-    PPIB22,
-    PPIB30,
 
     // GPIOTE instances
     GPIOTE20,
@@ -466,6 +538,9 @@ impl_ppi_channel!(PPI00_CH5, DPPIC00, 5 => configurable);
 impl_ppi_channel!(PPI00_CH6, DPPIC00, 6 => configurable);
 impl_ppi_channel!(PPI00_CH7, DPPIC00, 7 => configurable);
 
+// DPPI10 channels
+impl_ppi_channel!(PPI10_CH0, DPPIC10, 0 => static);
+
 // DPPI20 channels
 impl_ppi_channel!(PPI20_CH0, DPPIC20, 0 => configurable);
 impl_ppi_channel!(PPI20_CH1, DPPIC20, 1 => configurable);
@@ -494,6 +569,9 @@ impl_ppi_channel!(PPI30_CH3, DPPIC30, 3 => configurable);
 impl_ppi_group!(PPI00_GROUP0, DPPIC00, 0);
 impl_ppi_group!(PPI00_GROUP1, DPPIC00, 1);
 
+// DPPI10 groups
+impl_ppi_group!(PPI10_GROUP0, DPPIC10, 0);
+
 // DPPI20 groups
 impl_ppi_group!(PPI20_GROUP0, DPPIC20, 0);
 impl_ppi_group!(PPI20_GROUP1, DPPIC20, 1);
@@ -505,9 +583,6 @@ impl_ppi_group!(PPI20_GROUP5, DPPIC20, 5);
 // DPPI30 groups
 impl_ppi_group!(PPI30_GROUP0, DPPIC30, 0);
 impl_ppi_group!(PPI30_GROUP1, DPPIC30, 1);
-
-impl_ppi_channel!(PPI10_CH0, DPPIC10, 0 => static);
-impl_ppi_group!(PPI10_GROUP0, DPPIC10, 0);
 
 impl_timer!(TIMER00, TIMER00, TIMER00);
 impl_timer!(TIMER10, TIMER10, TIMER10);
