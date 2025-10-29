@@ -60,9 +60,11 @@ pub struct Status {
 macro_rules! ioctl {
     ($self:ident, $req_variant:ident, $resp_variant:ident, $req:ident, $resp:ident) => {
         let mut msg = proto::CtrlMsg {
-            r#msg_id: proto::CtrlMsgId::$req_variant,
-            r#msg_type: proto::CtrlMsgType::Req,
-            r#payload: Some(proto::CtrlMsg_::Payload::$req_variant($req)),
+            msg_id: proto::CtrlMsgId::$req_variant,
+            msg_type: proto::CtrlMsgType::Req,
+            payload: Some(proto::CtrlMsg_::Payload::$req_variant($req)),
+            req_resp_type: 0,
+            uid: 0,
         };
         $self.ioctl(&mut msg).await?;
         #[allow(unused_mut)]
@@ -117,15 +119,22 @@ impl<'a> Control<'a> {
 
     /// Connect to the network identified by ssid using the provided password.
     pub async fn connect(&mut self, ssid: &str, password: &str) -> Result<(), Error> {
+        const WIFI_BAND_MODE_AUTO: i32 = 3; // 2.4GHz + 5GHz
+
         let req = proto::CtrlMsg_Req_ConnectAP {
-            r#ssid: unwrap!(String::try_from(ssid)),
-            r#pwd: unwrap!(String::try_from(password)),
-            r#bssid: String::new(),
-            r#listen_interval: 3,
-            r#is_wpa3_supported: true,
+            ssid: unwrap!(String::try_from(ssid)),
+            pwd: unwrap!(String::try_from(password)),
+            bssid: String::new(),
+            listen_interval: 3,
+            is_wpa3_supported: true,
+            band_mode: WIFI_BAND_MODE_AUTO,
         };
         ioctl!(self, ReqConnectAp, RespConnectAp, req, resp);
+
+        // TODO: in newer esp-hosted firmwares that added EventStationConnectedToAp
+        // the connect ioctl seems to be async, so we shouldn't immediately set LinkState::Up here.
         self.state_ch.set_link_state(LinkState::Up);
+
         Ok(())
     }
 
@@ -140,8 +149,8 @@ impl<'a> Control<'a> {
     /// duration in seconds, clamped to [10, 3600]
     async fn set_heartbeat(&mut self, duration: u32) -> Result<(), Error> {
         let req = proto::CtrlMsg_Req_ConfigHeartbeat {
-            r#enable: true,
-            r#duration: duration as i32,
+            enable: true,
+            duration: duration as i32,
         };
         ioctl!(self, ReqConfigHeartbeat, RespConfigHeartbeat, req, resp);
         Ok(())
@@ -149,7 +158,7 @@ impl<'a> Control<'a> {
 
     async fn get_mac_addr(&mut self) -> Result<[u8; 6], Error> {
         let req = proto::CtrlMsg_Req_GetMacAddress {
-            r#mode: WifiMode::Sta as _,
+            mode: WifiMode::Sta as _,
         };
         ioctl!(self, ReqGetMacAddress, RespGetMacAddress, req, resp);
         let mac_str = core::str::from_utf8(&resp.mac).map_err(|_| Error::Internal)?;
@@ -157,7 +166,7 @@ impl<'a> Control<'a> {
     }
 
     async fn set_wifi_mode(&mut self, mode: u32) -> Result<(), Error> {
-        let req = proto::CtrlMsg_Req_SetMode { r#mode: mode as i32 };
+        let req = proto::CtrlMsg_Req_SetMode { mode: mode as i32 };
         ioctl!(self, ReqSetWifiMode, RespSetWifiMode, req, resp);
 
         Ok(())

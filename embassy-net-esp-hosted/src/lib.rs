@@ -340,6 +340,10 @@ where
         match payload {
             CtrlMsg_::Payload::EventEspInit(_) => self.shared.init_done(),
             CtrlMsg_::Payload::EventHeartbeat(_) => self.heartbeat_deadline = Instant::now() + HEARTBEAT_MAX_GAP,
+            CtrlMsg_::Payload::EventStationConnectedToAp(e) => {
+                info!("connected, code {}", e.resp);
+                self.state_ch.set_link_state(LinkState::Up);
+            }
             CtrlMsg_::Payload::EventStationDisconnectFromAp(e) => {
                 info!("disconnected, code {}", e.resp);
                 self.state_ch.set_link_state(LinkState::Down);
