@@ -125,7 +125,10 @@ foreach_interrupt! {
 
 #[allow(dead_code)]
 pub(crate) unsafe fn on_wakeup_irq() {
-    EXECUTOR.as_mut().unwrap().on_wakeup_irq();
+    if EXECUTOR.is_some() {
+        trace!("low power: wakeup irq");
+        EXECUTOR.as_mut().unwrap().on_wakeup_irq();
+    }
 }
 
 /// Configure STOP mode with RTC.
