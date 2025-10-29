@@ -18,12 +18,14 @@ const CYCLES_PER_BIT: u32 = (T1 + T2 + T3) as u32;
 
 /// Color orders for WS2812B, type RGB8
 pub trait RgbColorOrder {
+    /// Pack an 8-bit RGB color into a u32
     fn pack(color: RGB8) -> u32;
 }
 
 /// Green, Red, Blue order is the common default for WS2812B
 pub struct Grb;
 impl RgbColorOrder for Grb {
+    /// Pack an 8-bit RGB color into a u32 in GRB order
     fn pack(color: RGB8) -> u32 {
         (u32::from(color.g) << 24) | (u32::from(color.r) << 16) | (u32::from(color.b) << 8)
     }
@@ -32,6 +34,7 @@ impl RgbColorOrder for Grb {
 /// Red, Green, Blue is used by some WS2812B implementations
 pub struct Rgb;
 impl RgbColorOrder for Rgb {
+    /// Pack an 8-bit RGB color into a u32 in RGB order
     fn pack(color: RGB8) -> u32 {
         (u32::from(color.r) << 24) | (u32::from(color.g) << 16) | (u32::from(color.b) << 8)
     }
@@ -39,12 +42,14 @@ impl RgbColorOrder for Rgb {
 
 /// Color orders RGBW strips
 pub trait RgbwColorOrder {
+    /// Pack an RGB+W color into a u32
     fn pack(color: RGBW<u8>) -> u32;
 }
 
 /// Green, Red, Blue, White order is the common default for RGBW strips
 pub struct Grbw;
 impl RgbwColorOrder for Grbw {
+    /// Pack an RGB+W color into a u32 in GRBW order
     fn pack(color: RGBW<u8>) -> u32 {
         (u32::from(color.g) << 24) | (u32::from(color.r) << 16) | (u32::from(color.b) << 8) | u32::from(color.a.0)
     }
@@ -53,6 +58,7 @@ impl RgbwColorOrder for Grbw {
 /// Red, Green, Blue, White order
 pub struct Rgbw;
 impl RgbwColorOrder for Rgbw {
+    /// Pack an RGB+W color into a u32 in RGBW order
     fn pack(color: RGBW<u8>) -> u32 {
         (u32::from(color.r) << 24) | (u32::from(color.g) << 16) | (u32::from(color.b) << 8) | u32::from(color.a.0)
     }
@@ -104,6 +110,8 @@ where
 }
 
 impl<'d, P: Instance, const S: usize, const N: usize> PioWs2812<'d, P, S, N, Grb> {
+    /// Configure a pio state machine to use the loaded ws2812 program.
+    /// Uses the default GRB order.
     pub fn new(
         pio: &mut Common<'d, P>,
         sm: StateMachine<'d, P, S>,
@@ -120,6 +128,7 @@ where
     ORDER: RgbColorOrder,
 {
     /// Configure a pio state machine to use the loaded ws2812 program.
+    /// Uses the specified color order.
     pub fn with_color_order(
         pio: &mut Common<'d, P>,
         mut sm: StateMachine<'d, P, S>,
@@ -189,6 +198,8 @@ where
 }
 
 impl<'d, P: Instance, const S: usize, const N: usize> RgbwPioWs2812<'d, P, S, N, Grbw> {
+    /// Configure a pio state machine to use the loaded ws2812 program.
+    /// Uses the default GRBW color order
     pub fn new(
         pio: &mut Common<'d, P>,
         sm: StateMachine<'d, P, S>,
@@ -205,6 +216,7 @@ where
     ORDER: RgbwColorOrder,
 {
     /// Configure a pio state machine to use the loaded ws2812 program.
+    /// Uses the specified color order
     pub fn with_color_order(
         pio: &mut Common<'d, P>,
         mut sm: StateMachine<'d, P, S>,
