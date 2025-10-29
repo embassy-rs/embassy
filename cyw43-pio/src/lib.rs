@@ -7,6 +7,7 @@ use core::slice;
 
 use cyw43::SpiBusCyw43;
 use embassy_rp::Peri;
+use embassy_rp::clocks::clk_sys_freq;
 use embassy_rp::dma::Channel;
 use embassy_rp::gpio::{Drive, Level, Output, Pull, SlewRate};
 use embassy_rp::pio::program::pio_asm;
@@ -23,23 +24,24 @@ pub struct PioSpi<'d, PIO: Instance, const SM: usize, DMA: Channel> {
     wrap_target: u8,
 }
 
-/// The default clock divider that works for Pico 1 and 2 W. As well as the RM2 on rp2040 devices.
-/// same speed as pico-sdk, 62.5Mhz
-/// This is actually the fastest we can go without overclocking.
-/// According to data sheet, the theoretical maximum is 100Mhz Pio => 50Mhz SPI Freq.
-/// However, the PIO uses a fractional divider, which works by introducing jitter when
-/// the divider is not an integer. It does some clocks at 125mhz and others at 62.5mhz
-/// so that it averages out to the desired frequency of 100mhz. The 125mhz clock cycles
-/// violate the maximum from the data sheet.
+/// Clock divider used for most applications
+/// With default core clock configuration:
+/// RP2350: 150Mhz / 2 = 75Mhz pio clock -> 37.5Mhz GSPI clock
+/// RP2040: 133Mhz / 2 = 66.5Mhz pio clock -> 33.25Mhz GSPI clock
 pub const DEFAULT_CLOCK_DIVIDER: FixedU32<U8> = FixedU32::from_bits(0x0200);
 
-/// The overclock clock divider for the Pico 1 W. Does not work on any known RM2 devices.
-/// 125mhz Pio => 62.5Mhz SPI Freq. 25% higher than theoretical maximum according to
-/// data sheet, but seems to work fine.
+/// Clock divider used to overclock the cyw43
+/// With default core clock configuration:
+/// RP2350: 150Mhz / 1 = 150Mhz pio clock -> 75Mhz GSPI clock (50% greater that manufacturer
+/// recommended 50Mhz)
+/// RP2040: 133Mhz / 1 = 133Mhz pio clock -> 66.5Mhz GSPI clock (33% greater that manufacturer
+/// recommended 50Mhz)
 pub const OVERCLOCK_CLOCK_DIVIDER: FixedU32<U8> = FixedU32::from_bits(0x0100);
 
-/// The clock divider for the RM2 module. Found to be needed for the Pimoroni Pico Plus 2 W,
-/// Pico Plus 2 Non w with the RM2 breakout module, and the Pico 2 with the RM2 breakout module.
+/// Clock divider used with the RM2
+/// With default core clock configuration:
+/// RP2350: 150Mhz / 3 = 50Mhz pio clock -> 25Mhz GSPI clock
+/// RP2040: 133Mhz / 3 = 44.33Mhz pio clock -> 22.16Mhz GSPI clock
 pub const RM2_CLOCK_DIVIDER: FixedU32<U8> = FixedU32::from_bits(0x0300);
 
 impl<'d, PIO, const SM: usize, DMA> PioSpi<'d, PIO, SM, DMA>
@@ -58,7 +60,40 @@ where
         clk: Peri<'d, impl PioPin>,
         dma: Peri<'d, DMA>,
     ) -> Self {
-        let loaded_program = if clock_divider < DEFAULT_CLOCK_DIVIDER {
+        let effective_pio_frequency = (clk_sys_freq() as f32 / clock_divider.to_num::<f32>()) as u32;
+
+        #[cfg(feature = "defmt")]
+        defmt::trace!("Effective pio frequency: {}Hz", effective_pio_frequency);
+
+        // Non-integer pio clock dividers are achieved by introducing clock jitter resulting in a
+        // combination of long and short cycles. The long and short cycles average to achieve the
+        // requested clock speed.
+        // This can be a problem for peripherals that expect a consistent clock / have a clock
+        // speed upper bound that is violated by the short cycles. The cyw43 seems to handle the
+        // jitter well, but we emit a warning to recommend an integer divider anyway.
+        if clock_divider.frac() != FixedU32::<U8>::ZERO {
+            #[cfg(feature = "defmt")]
+            defmt::trace!(
+                "Configured clock divider is not a whole number. Some clock cycles may violate the maximum recommended GSPI speed. Use at your own risk."
+            );
+        }
+
+        // Different pio programs must be used for different pio clock speeds.
+        // The programs used below are based on the pico SDK: https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2_common/pico_cyw43_driver/cyw43_bus_pio_spi.pio
+        // The clock speed cutoff for each program has been determined experimentally:
+        // > 100Mhz -> Overclock program
+        // [75Mhz, 100Mhz] -> High speed program
+        // [0, 75Mhz) -> Low speed program
+        let loaded_program = if effective_pio_frequency > 100_000_000 {
+            // Any frequency > 100Mhz is overclocking the chip (manufacturer recommends max 50Mhz GSPI
+            // clock)
+            // Example:
+            // * RP2040 @ 133Mhz (stock) with OVERCLOCK_CLOCK_DIVIDER (133MHz)
+            #[cfg(feature = "defmt")]
+            defmt::trace!(
+                "Configured clock divider results in a GSPI frequency greater than the manufacturer recommendation (50Mhz). Use at your own risk."
+            );
+
             let overclock_program = pio_asm!(
                 ".side_set 1"
 
@@ -69,7 +104,7 @@ where
                 "jmp x-- lp     side 1"
                 // switch directions
                 "set pindirs, 0 side 0"
-                "nop            side 1"  // necessary for clkdiv=1.
+                "nop            side 1"
                 "nop            side 0"
                 // read in y-1 bits
                 "lp2:"
@@ -83,8 +118,47 @@ where
                 ".wrap"
             );
             common.load_program(&overclock_program.program)
+        } else if effective_pio_frequency >= 75_000_000 {
+            // Experimentally determined cutoff.
+            // Notably includes the stock RP2350 configured with clk_div of 2 (150Mhz base clock / 2 = 75Mhz)
+            // but does not include stock RP2040 configured with clk_div of 2 (133Mhz base clock / 2 = 66.5Mhz)
+            // Example:
+            // * RP2350 @ 150Mhz (stock) with DEFAULT_CLOCK_DIVIDER (75Mhz)
+            // * RP2XXX @ 200Mhz with DEFAULT_CLOCK_DIVIDER (100Mhz)
+            #[cfg(feature = "defmt")]
+            defmt::trace!("Using high speed pio program.");
+            let high_speed_program = pio_asm!(
+                ".side_set 1"
+
+                ".wrap_target"
+                // write out x-1 bits
+                "lp:"
+                "out pins, 1    side 0"
+                "jmp x-- lp     side 1"
+                // switch directions
+                "set pindirs, 0 side 0"
+                "nop            side 1"
+                // read in y-1 bits
+                "lp2:"
+                "in pins, 1     side 0"
+                "jmp y-- lp2    side 1"
+
+                // wait for event and irq host
+                "wait 1 pin 0   side 0"
+                "irq 0          side 0"
+
+                ".wrap"
+            );
+            common.load_program(&high_speed_program.program)
         } else {
-            let default_program = pio_asm!(
+            // Low speed
+            // Examples:
+            // * RP2040 @ 133Mhz (stock) with DEFAULT_CLOCK_DIVIDER (66.5Mhz)
+            // * RP2040 @ 133Mhz (stock) with RM2_CLOCK_DIVIDER (44.3Mhz)
+            // * RP2350 @ 150Mhz (stock) with RM2_CLOCK_DIVIDER (50Mhz)
+            #[cfg(feature = "defmt")]
+            defmt::trace!("Using low speed pio program.");
+            let low_speed_program = pio_asm!(
                 ".side_set 1"
 
                 ".wrap_target"
@@ -106,7 +180,7 @@ where
 
                 ".wrap"
             );
-            common.load_program(&default_program.program)
+            common.load_program(&low_speed_program.program)
         };
 
         let mut pin_io: embassy_rp::pio::Pin<PIO> = common.make_pio_pin(dio);
