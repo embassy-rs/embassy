@@ -201,7 +201,7 @@ fn generate_groups() -> TokenStream {
                     return;
                 }
 
-                // MUST subtract by 1 because Iidx::INT0=1
+                // MUST subtract by 1 because NO_INTR offsets IIDX values. 
                 let iidx = stat.to_bits() - 1;
 
                 let Ok(group) = #group_enum::try_from(iidx as u8) else {
