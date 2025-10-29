@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - added: support for nrf54l peripherals: uart, gpiote, twim, twis, spim, spis, dppi, pwm, saadc
 - bugfix: Do not write to UICR from non-secure code on nrf53
 - bugfix: Add delay to uart init anomaly fix
+- changed: `BufferedUarte::read_ready` now uses the same definition for 'empty' so following read calls will not block when true is returned
 
 ## 0.8.0 - 2025-09-30
 
