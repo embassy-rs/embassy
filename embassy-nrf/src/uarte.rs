@@ -976,6 +976,14 @@ pub(crate) fn apply_workaround_for_enable_anomaly(r: pac::uarte::Uarte) {
                 break;
             } else {
                 // Need to sleep for 1us here
+
+                // Get the worst case clock speed
+                #[cfg(feature = "_nrf9160")]
+                const CLOCK_SPEED: u32 = 64_000_000;
+                #[cfg(feature = "_nrf5340")]
+                const CLOCK_SPEED: u32 = 128_000_000;
+
+                cortex_m::asm::delay(CLOCK_SPEED / 1_000_000);
             }
         }
 
