@@ -538,17 +538,17 @@ impl<'d> Spi<'d, Blocking, Slave> {
 
 impl<'d> Spi<'d, Blocking, Master> {
     /// Create a new blocking SPI driver.
-    pub fn new_blocking<T: Instance>(
+    pub fn new_blocking<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        sck: Peri<'d, impl SckPin<T>>,
-        mosi: Peri<'d, impl MosiPin<T>>,
-        miso: Peri<'d, impl MisoPin<T>>,
+        sck: Peri<'d, if_afio!(impl SckPin<T, A>)>,
+        mosi: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
+        miso: Peri<'d, if_afio!(impl MisoPin<T, A>)>,
         config: Config,
     ) -> Self {
         Self::new_inner(
             peri,
             new_pin!(sck, config.sck_af()),
-            new_pin!(mosi, AfType::output(OutputType::PushPull, config.rise_fall_speed)),
+            new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(miso, AfType::input(config.miso_pull)),
             None,
             None,
@@ -643,11 +643,11 @@ impl<'d> Spi<'d, Async, Slave> {
 
 impl<'d> Spi<'d, Async, Master> {
     /// Create a new SPI driver.
-    pub fn new<T: Instance>(
+    pub fn new<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        sck: Peri<'d, impl SckPin<T>>,
-        mosi: Peri<'d, impl MosiPin<T>>,
-        miso: Peri<'d, impl MisoPin<T>>,
+        sck: Peri<'d, if_afio!(impl SckPin<T, A>)>,
+        mosi: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
+        miso: Peri<'d, if_afio!(impl MisoPin<T, A>)>,
         tx_dma: Peri<'d, impl TxDma<T>>,
         rx_dma: Peri<'d, impl RxDma<T>>,
         config: Config,
@@ -655,7 +655,7 @@ impl<'d> Spi<'d, Async, Master> {
         Self::new_inner(
             peri,
             new_pin!(sck, config.sck_af()),
-            new_pin!(mosi, AfType::output(OutputType::PushPull, config.rise_fall_speed)),
+            new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(miso, AfType::input(config.miso_pull)),
             None,
             new_dma!(tx_dma),
