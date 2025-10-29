@@ -1,6 +1,6 @@
 [package]
 authors = ["Dario Nieuwenhuis <dirbaio@dirbaio.net>"]
-edition = "2018"
+edition = "2024"
 name = "embassy-basic-example"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
