@@ -217,6 +217,8 @@ embassy_hal_internal::peripherals! {
     PPI00_CH6,
     PPI00_CH7,
 
+    PPI10_CH0,
+
     PPI20_CH0,
     PPI20_CH1,
     PPI20_CH2,
@@ -241,6 +243,8 @@ embassy_hal_internal::peripherals! {
 
     PPI00_GROUP0,
     PPI00_GROUP1,
+
+    PPI10_GROUP0,
 
     PPI20_GROUP0,
     PPI20_GROUP1,
@@ -302,6 +306,9 @@ embassy_hal_internal::peripherals! {
     P2_08,
     P2_09,
     P2_10,
+
+    // GRTC
+    GRTC,
 
     // RTC
     RTC10,
@@ -494,8 +501,8 @@ impl_ppi_group!(PPI20_GROUP5, DPPIC20, 5);
 impl_ppi_group!(PPI30_GROUP0, DPPIC30, 0);
 impl_ppi_group!(PPI30_GROUP1, DPPIC30, 1);
 
-// impl_ppi_channel!(PPI10_CH0, pac::DPPIC10, 0 => static);
-// impl_ppi_group!(PPI10_GROUP0, pac::DPPIC10, 0);
+impl_ppi_channel!(PPI10_CH0, DPPIC10, 0 => static);
+impl_ppi_group!(PPI10_GROUP0, DPPIC10, 0);
 
 impl_timer!(TIMER00, TIMER00, TIMER00);
 impl_timer!(TIMER10, TIMER10, TIMER10);
