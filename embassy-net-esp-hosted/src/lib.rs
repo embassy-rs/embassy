@@ -10,9 +10,19 @@ use embassy_time::{Duration, Instant, Timer};
 use embedded_hal::digital::OutputPin;
 
 use crate::ioctl::{PendingIoctl, Shared};
-use crate::proto::{CtrlMsg, CtrlMsgPayload};
+use crate::proto::{CtrlMsg, CtrlMsg_};
 
-mod proto;
+mod proto {
+    #![allow(unused)]
+    #![allow(non_snake_case)]
+    #![allow(non_camel_case_types)]
+    #![allow(non_upper_case_globals)]
+    #![allow(missing_docs)]
+    #![allow(clippy::all)]
+
+    // Include the generated protobuf code from micropb-gen
+    include!(concat!(env!("OUT_DIR"), "/proto.rs"));
+}
 
 // must be first
 mod fmt;
@@ -313,10 +323,12 @@ where
     }
 
     fn handle_event(&mut self, data: &[u8]) {
-        let Ok(event) = noproto::read::<CtrlMsg>(data) else {
+        use micropb::MessageDecode;
+        let mut event = CtrlMsg::default();
+        if event.decode_from_bytes(data).is_err() {
             warn!("failed to parse event");
             return;
-        };
+        }
 
         debug!("event: {:?}", &event);
 
@@ -326,9 +338,9 @@ where
         };
 
         match payload {
-            CtrlMsgPayload::EventEspInit(_) => self.shared.init_done(),
-            CtrlMsgPayload::EventHeartbeat(_) => self.heartbeat_deadline = Instant::now() + HEARTBEAT_MAX_GAP,
-            CtrlMsgPayload::EventStationDisconnectFromAp(e) => {
+            CtrlMsg_::Payload::EventEspInit(_) => self.shared.init_done(),
+            CtrlMsg_::Payload::EventHeartbeat(_) => self.heartbeat_deadline = Instant::now() + HEARTBEAT_MAX_GAP,
+            CtrlMsg_::Payload::EventStationDisconnectFromAp(e) => {
                 info!("disconnected, code {}", e.resp);
                 self.state_ch.set_link_state(LinkState::Down);
             }
