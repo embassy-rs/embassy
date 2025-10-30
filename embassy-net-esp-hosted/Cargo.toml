@@ -28,9 +28,6 @@ embedded-hal-async = { version = "1.0" }
 micropb = { version = "0.4.0", default-features = false, features = ["container-heapless", "encode", "decode"] }
 heapless = "0.8"
 
-[build-dependencies]
-micropb-gen = "0.4.0"
-
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-esp-hosted-v$VERSION/embassy-net-esp-hosted/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-net-esp-hosted/src/"
