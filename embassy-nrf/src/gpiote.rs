@@ -713,9 +713,7 @@ cfg_if::cfg_if! {
 
         macro_rules! impl_gpiote_pin {
             ($type:ident, $inst:ident) => {
-                #[cfg(feature = "gpiote")]
                 impl crate::gpiote::SealedGpiotePin for peripherals::$type {}
-                #[cfg(feature = "gpiote")]
                 impl crate::gpiote::GpiotePin for peripherals::$type {
                     type Instance = peripherals::$inst;
                 }
