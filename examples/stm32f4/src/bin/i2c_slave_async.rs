@@ -49,7 +49,7 @@ async fn main(spawner: Spawner) {
     let slave_config = SlaveAddrConfig::basic(I2C_SLAVE_ADDR);
     let i2c_slave = i2c_master.into_slave_multimaster(slave_config);
 
-    spawner.spawn(i2c_slave_task(i2c_slave)).unwrap();
+    spawner.spawn(i2c_slave_task(i2c_slave).unwrap());
 }
 
 #[embassy_executor::task]
@@ -73,8 +73,17 @@ pub async fn i2c_slave_task(mut i2c_slave: I2c<'static, embassy_stm32::mode::Asy
 
                 match i2c_slave.respond_to_write(&mut *data_buffer).await {
                     Ok(_) => {
-                        info!("I2C: Data received - Buffer now contains: 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}", 
-                            data_buffer[0], data_buffer[1], data_buffer[2], data_buffer[3], data_buffer[4], data_buffer[5], data_buffer[6], data_buffer[7]);
+                        info!(
+                            "I2C: Data received - Buffer now contains: 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}",
+                            data_buffer[0],
+                            data_buffer[1],
+                            data_buffer[2],
+                            data_buffer[3],
+                            data_buffer[4],
+                            data_buffer[5],
+                            data_buffer[6],
+                            data_buffer[7]
+                        );
                     }
                     Err(e) => {
                         error!("I2C: Write error: {}", format_i2c_error(&e));
