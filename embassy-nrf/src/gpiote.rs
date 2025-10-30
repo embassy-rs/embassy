@@ -349,16 +349,73 @@ impl<'d> InputChannel<'d> {
     }
 
     /// Asynchronously wait for an event in this channel.
-    pub async fn wait(&self) {
-        let g = self.ch.regs();
-        let num = self.ch.number();
-        let waker = self.ch.waker();
+    ///
+    /// It is possible to call this function and await the returned future later.
+    /// If an even occurs in the mean time, the future will immediately report ready.
+    pub fn wait(&mut self) -> impl Future<Output = ()> {
+        // NOTE: This is `-> impl Future` and not an `async fn` on purpose.
+        // Otherwise, events will only be detected starting at the first poll of the returned future.
+        Self::wait_internal(&mut self.ch)
+    }
+
+    /// Asynchronously wait for the pin to become high.
+    ///
+    /// The channel must be configured with [`InputChannelPolarity::LoToHi`] or [`InputChannelPolarity::Toggle`].
+    /// If the channel is not configured to detect rising edges, it is unspecified when the returned future completes.
+    ///
+    /// It is possible to call this function and await the returned future later.
+    /// If an even occurs in the mean time, the future will immediately report ready.
+    pub fn wait_for_high(&mut self) -> impl Future<Output = ()> {
+        // NOTE: This is `-> impl Future` and not an `async fn` on purpose.
+        // Otherwise, events will only be detected starting at the first poll of the returned future.
+
+        // Subscribe to the event before checking the pin level.
+        let wait = Self::wait_internal(&mut self.ch);
+        let pin = &self.pin;
+        async move {
+            if pin.is_high() {
+                return;
+            }
+            wait.await;
+        }
+    }
+
+    /// Asynchronously wait for the pin to become low.
+    ///
+    /// The channel must be configured with [`InputChannelPolarity::HiToLo`] or [`InputChannelPolarity::Toggle`].
+    /// If the channel is not configured to detect falling edges, it is unspecified when the returned future completes.
+    ///
+    /// It is possible to call this function and await the returned future later.
+    /// If an even occurs in the mean time, the future will immediately report ready.
+    pub fn wait_for_low(&mut self) -> impl Future<Output = ()> {
+        // NOTE: This is `-> impl Future` and not an `async fn` on purpose.
+        // Otherwise, events will only be detected starting at the first poll of the returned future.
+
+        // Subscribe to the event before checking the pin level.
+        let wait = Self::wait_internal(&mut self.ch);
+        let pin = &self.pin;
+        async move {
+            if pin.is_low() {
+                return;
+            }
+            wait.await;
+        }
+    }
+
+    /// Internal implementation for `wait()` and friends.
+    fn wait_internal(channel: &mut Peri<'_, AnyChannel>) -> impl Future<Output = ()> {
+        // NOTE: This is `-> impl Future` and not an `async fn` on purpose.
+        // Otherwise, events will only be detected starting at the first poll of the returned future.
+
+        let g = channel.regs();
+        let num = channel.number();
+        let waker = channel.waker();
 
         // Enable interrupt
         g.events_in(num).write_value(0);
         g.intenset(INTNUM).write(|w| w.0 = 1 << num);
 
-        poll_fn(|cx| {
+        poll_fn(move |cx| {
             CHANNEL_WAKERS[waker].register(cx.waker());
 
             if g.events_in(num).read() != 0 {
@@ -367,7 +424,6 @@ impl<'d> InputChannel<'d> {
                 Poll::Pending
             }
         })
-        .await;
     }
 
     /// Get the associated input pin.
