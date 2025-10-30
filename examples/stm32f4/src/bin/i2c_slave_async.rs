@@ -49,7 +49,7 @@ async fn main(spawner: Spawner) {
     let slave_config = SlaveAddrConfig::basic(I2C_SLAVE_ADDR);
     let i2c_slave = i2c_master.into_slave_multimaster(slave_config);
 
-    spawner.spawn(i2c_slave_task(i2c_slave)).unwrap();
+    spawner.spawn(i2c_slave_task(i2c_slave).unwrap());
 }
 
 #[embassy_executor::task]
