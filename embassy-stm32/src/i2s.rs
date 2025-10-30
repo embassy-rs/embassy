@@ -7,6 +7,7 @@ use crate::Peri;
 use crate::dma::{ChannelAndRequest, ReadableRingBuffer, TransferOptions, WritableRingBuffer, ringbuffer};
 use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
 use crate::mode::Async;
+use crate::spi::mode::Master;
 use crate::spi::{Config as SpiConfig, RegsExt as _, *};
 use crate::time::Hertz;
 
@@ -225,7 +226,7 @@ impl<'s, 'd, W: Word> Reader<'s, 'd, W> {
 pub struct I2S<'d, W: Word> {
     #[allow(dead_code)]
     mode: Mode,
-    spi: Spi<'d, Async>,
+    spi: Spi<'d, Async, Master>,
     txsd: Option<Peri<'d, AnyPin>>,
     rxsd: Option<Peri<'d, AnyPin>>,
     ws: Option<Peri<'d, AnyPin>>,

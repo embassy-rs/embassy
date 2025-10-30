@@ -37,6 +37,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - change: stm32/uart: BufferedUartRx now returns all available bytes from the internal buffer
 - change: timer: added output compare values
 - feat: timer: add ability to set master mode
+- feat: stm32/spi: added support for slave mode ([#4388](https://github.com/embassy-rs/embassy/pull/4388))
 
 ## 0.4.0 - 2025-08-26
 
