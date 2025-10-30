@@ -30,6 +30,7 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "embassy-time-driver", "scheduler-deadline"]},
     {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "scheduler-priority", "scheduler-deadline"]},
     {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "scheduler-deadline"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "embassy-time-driver", "scheduler-priority", "scheduler-deadline", "trace"]},
     {target = "thumbv7em-none-eabi", features = ["arch-spin"]},
     {target = "thumbv7em-none-eabi", features = ["arch-spin", "scheduler-deadline"]},
     {target = "armv7a-none-eabi", features = ["arch-cortex-ar", "executor-thread"]},
@@ -37,6 +38,7 @@ build = [
     {target = "armv7r-none-eabihf", features = ["arch-cortex-ar", "executor-thread"]},
     {target = "riscv32imac-unknown-none-elf", features = ["arch-riscv32"]},
     {target = "riscv32imac-unknown-none-elf", features = ["arch-riscv32", "executor-thread"]},
+    {target = "riscv32imac-unknown-none-elf", features = ["arch-riscv32", "executor-thread", "trace"]},
     # Nightly builds
     {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly"]},
     {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "log"]},
