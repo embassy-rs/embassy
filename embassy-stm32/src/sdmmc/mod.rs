@@ -1032,6 +1032,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
 
     /// Wait for a previously started datapath transfer to complete from an interrupt.
     #[inline]
+    #[allow(unused)]
     async fn complete_datapath_transfer(block: bool) -> Result<(), Error> {
         let regs = T::regs();
 
