@@ -65,10 +65,7 @@ async fn async_main(_spawner: Spawner) {
     {
         use embassy_stm32::mode::Blocking;
         use embassy_stm32::usart::Uart;
-        let mut config = embassy_stm32::usart::Config::default();
-        config.baudrate = 115200;
-        config.assume_noise_free = true;
-        config.detect_previous_overrun = true;
+        let config = embassy_stm32::usart::Config::default();
         let uart = Uart::new_blocking(p.LPUART1, p.PC0, p.PC1, config).expect("failed to configure UART!");
         static SERIAL: StaticCell<Uart<'static, Blocking>> = StaticCell::new();
         defmt_serial::defmt_serial(SERIAL.init(uart));

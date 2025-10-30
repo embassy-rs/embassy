@@ -15,6 +15,7 @@ All examples will set all pins to analog mode before configuring pins for the ex
 - the `adc` example will sleep in STOP1 betwen samples and the chip will only draw about 13uA while sleeping
 - the `blinky` example will sleep in STOP2 and the chip will only draw 1uA or less while sleeping
 - the `button_exti` example will sleep in STOP2 and the chip will only draw 1uA or less while sleeping
+- the `i2c` examples will sleep in STOP1 between reads and the chip only draw about 10uA while sleeping
 
 For each example you will need to start `defmt-print` with the example binary and the correct serial port in a seperate terminal.  Example:
 ```
