@@ -3,15 +3,15 @@
 use cortex_m::singleton;
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, RingBufferedAdc, SampleTime, Sequence};
 use embassy_stm32::Peripherals;
+use embassy_stm32::adc::{Adc, RingBufferedAdc, SampleTime, Sequence};
 use embassy_time::Instant;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
-    spawner.must_spawn(adc_task(p));
+    spawner.spawn(adc_task(p).unwrap());
 }
 
 #[embassy_executor::task]

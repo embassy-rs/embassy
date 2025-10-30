@@ -750,3 +750,35 @@ pub fn is_secure_mode() -> bool {
 pub fn is_secure_mode() -> bool {
     false
 }
+
+// These and the reset_to_usb_boot function are found from https://github.com/raspberrypi/pico-sdk/blob/master/src/rp2_common/pico_bootrom/bootrom.c#L35-L51
+// The following has just been translated to rust from the original c++
+const BOOTSEL_FLAG_GPIO_PIN_SPECIFIED: u32 = 0x20;
+const REBOOT2_FLAG_REBOOT_TYPE_BOOTSEL: u32 = 0x2;
+const REBOOT2_FLAG_NO_RETURN_ON_SUCCESS: u32 = 0x100;
+
+/// Resets the RP235x and uses the watchdog facility to re-start in BOOTSEL mode:
+///   * gpio_activity_pin_mask is provided to enable an 'activity light' via GPIO attached LED
+///     for the USB Mass Storage Device:
+///     * 0 No pins are used as per cold boot.
+///     * Otherwise a single bit set indicating which GPIO pin should be set to output and
+///       raised whenever there is mass storage activity from the host.
+///  * disable_interface_mask may be used to control the exposed USB interfaces:
+///    * 0 To enable both interfaces (as per cold boot).
+///    * 1 To disable the USB Mass Storage Interface.
+///    * 2 to Disable the USB PICOBOOT Interface.
+pub fn reset_to_usb_boot(mut usb_activity_gpio_pin_mask: u32, disable_interface_mask: u32) {
+    let mut flags = disable_interface_mask;
+
+    if usb_activity_gpio_pin_mask != 0 {
+        flags = flags | BOOTSEL_FLAG_GPIO_PIN_SPECIFIED;
+        usb_activity_gpio_pin_mask = usb_activity_gpio_pin_mask.trailing_zeros()
+    }
+
+    reboot(
+        REBOOT2_FLAG_REBOOT_TYPE_BOOTSEL | REBOOT2_FLAG_NO_RETURN_ON_SUCCESS,
+        10,
+        flags,
+        usb_activity_gpio_pin_mask,
+    );
+}

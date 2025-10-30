@@ -25,6 +25,7 @@ unimplemented features of the network protocols.
 - [`embassy-stm32`](https://github.com/embassy-rs/embassy/tree/main/embassy-stm32) for the builtin Ethernet MAC in all STM32 chips (STM32F1, STM32F2, STM32F4, STM32F7, STM32H7, STM32H5).
 - [`embassy-net-wiznet`](https://github.com/embassy-rs/embassy/tree/main/embassy-net-wiznet) for Wiznet SPI Ethernet MAC+PHY chips (W5100S, W5500)
 - [`embassy-net-esp-hosted`](https://github.com/embassy-rs/embassy/tree/main/embassy-net-esp-hosted) for using ESP32 chips with the [`esp-hosted`](https://github.com/espressif/esp-hosted) firmware as WiFi adapters for another non-ESP32 MCU.
+- [`embassy-nrf`](https://github.com/embassy-rs/embassy/tree/main/embassy-nrf) for IEEE 802.15.4 support on nrf chips.
 
 ## Examples
 

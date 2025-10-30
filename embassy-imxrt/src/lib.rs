@@ -1,5 +1,6 @@
 #![no_std]
 #![allow(async_fn_in_trait)]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
@@ -39,7 +40,7 @@ pub use chip::interrupts::*;
 pub use chip::pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use chip::pac;
-pub use chip::{peripherals, Peripherals};
+pub use chip::{Peripherals, peripherals};
 pub use embassy_hal_internal::{Peri, PeripheralType};
 
 #[cfg(feature = "rt")]
@@ -74,7 +75,7 @@ macro_rules! bind_interrupts {
 
         $(
             #[allow(non_snake_case)]
-            #[no_mangle]
+            #[unsafe(no_mangle)]
             unsafe extern "C" fn $irq() {
                 unsafe {
                     $(

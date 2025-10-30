@@ -1,12 +1,17 @@
 #![no_std]
+#![allow(unsafe_op_in_unsafe_fn)]
 
 // This mod MUST go first, so that the others see its macros.
 pub(crate) mod fmt;
 
+#[cfg(feature = "lpc55-core0")]
+pub mod dma;
 pub mod gpio;
-#[cfg(feature = "lpc55")]
+#[cfg(feature = "lpc55-core0")]
 pub mod pint;
-#[cfg(feature = "lpc55")]
+#[cfg(feature = "lpc55-core0")]
+pub mod pwm;
+#[cfg(feature = "lpc55-core0")]
 pub mod usart;
 
 #[cfg(feature = "_time_driver")]
@@ -15,17 +20,81 @@ pub mod usart;
 mod time_driver;
 
 // This mod MUST go last, so that it sees all the `impl_foo!` macros
-#[cfg_attr(feature = "lpc55", path = "chips/lpc55.rs")]
+#[cfg_attr(feature = "lpc55-core0", path = "chips/lpc55.rs")]
 #[cfg_attr(feature = "mimxrt1011", path = "chips/mimxrt1011.rs")]
 #[cfg_attr(feature = "mimxrt1062", path = "chips/mimxrt1062.rs")]
 mod chip;
 
+// TODO: Remove when this module is implemented for other chips
+#[cfg(feature = "lpc55-core0")]
+pub use chip::interrupt;
 #[cfg(feature = "unstable-pac")]
 pub use chip::pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use chip::pac;
-pub use chip::{peripherals, Peripherals};
+pub use chip::{Peripherals, peripherals};
 pub use embassy_hal_internal::{Peri, PeripheralType};
+
+/// Macro to bind interrupts to handlers.
+/// (Copied from `embassy-rp`)
+/// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
+/// and implements the right [`Binding`]s for it. You can pass this struct to drivers to
+/// prove at compile-time that the right interrupts have been bound.
+///
+/// Example of how to bind one interrupt:
+///
+/// ```rust,ignore
+/// use embassy_nxp::{bind_interrupts, usart, peripherals};
+///
+/// bind_interrupts!(
+///     /// Binds the USART Interrupts.
+///     struct Irqs {
+///         FLEXCOMM0 => usart::InterruptHandler<peripherals::USART0>;
+///     }
+/// );
+/// ```
+#[macro_export]
+macro_rules! bind_interrupts {
+    ($(#[$attr:meta])* $vis:vis struct $name:ident {
+        $(
+            $(#[cfg($cond_irq:meta)])?
+            $irq:ident => $(
+                $(#[cfg($cond_handler:meta)])?
+                $handler:ty
+            ),*;
+        )*
+    }) => {
+        #[derive(Copy, Clone)]
+        $(#[$attr])*
+        $vis struct $name;
+
+        $(
+            #[allow(non_snake_case)]
+            #[unsafe(no_mangle)]
+            $(#[cfg($cond_irq)])?
+            unsafe extern "C" fn $irq() {
+                unsafe {
+                    $(
+                        $(#[cfg($cond_handler)])?
+                        <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
+
+                    )*
+                }
+            }
+
+            $(#[cfg($cond_irq)])?
+            $crate::bind_interrupts!(@inner
+                $(
+                    $(#[cfg($cond_handler)])?
+                    unsafe impl $crate::interrupt::typelevel::Binding<$crate::interrupt::typelevel::$irq, $handler> for $name {}
+                )*
+            );
+        )*
+    };
+    (@inner $($t:tt)*) => {
+        $($t)*
+    }
+}
 
 /// Initialize the `embassy-nxp` HAL with the provided configuration.
 ///
@@ -83,14 +152,20 @@ pub fn init(_config: config::Config) -> Peripherals {
         pac::CCM.ccgr6().modify(|v| v.set_cg0(1));
     }
 
-    #[cfg(any(feature = "lpc55", rt1xxx))]
+    #[cfg(any(feature = "lpc55-core0", rt1xxx))]
     gpio::init();
 
-    #[cfg(feature = "lpc55")]
-    pint::init();
+    #[cfg(feature = "lpc55-core0")]
+    {
+        pint::init();
+        pwm::Pwm::reset();
+    }
 
     #[cfg(feature = "_time_driver")]
     time_driver::init();
+
+    #[cfg(feature = "lpc55-core0")]
+    dma::init();
 
     peripherals
 }
@@ -133,5 +208,8 @@ macro_rules! impl_mode {
 
 /// Blocking mode.
 pub struct Blocking;
+/// Asynchronous mode.
+pub struct Async;
 
 impl_mode!(Blocking);
+impl_mode!(Async);

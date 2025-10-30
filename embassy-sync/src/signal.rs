@@ -1,10 +1,10 @@
 //! A synchronization primitive for passing the latest value to a task.
 use core::cell::Cell;
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::task::{Context, Poll, Waker};
 
-use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
+use crate::blocking_mutex::raw::RawMutex;
 
 /// Single-slot signaling primitive for a _single_ consumer.
 ///
@@ -83,7 +83,7 @@ where
 
     /// Remove the queued value in this `Signal`, if any.
     pub fn reset(&self) {
-        self.state.lock(|cell| cell.set(State::None));
+        self.try_take();
     }
 
     fn poll_wait(&self, cx: &mut Context<'_>) -> Poll<T> {

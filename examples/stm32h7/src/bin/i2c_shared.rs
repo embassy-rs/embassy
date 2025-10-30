@@ -9,8 +9,8 @@ use embassy_executor::Spawner;
 use embassy_stm32::i2c::{self, I2c};
 use embassy_stm32::mode::Async;
 use embassy_stm32::{bind_interrupts, peripherals};
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::NoopMutex;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_time::{Duration, Timer};
 use embedded_hal_1::i2c::I2c as _;
 use static_cell::StaticCell;
@@ -95,9 +95,9 @@ async fn main(spawner: Spawner) {
 
     // Device 1, using embedded-hal-async compatible driver for TMP117
     let i2c_dev1 = I2cDevice::new(i2c_bus);
-    spawner.spawn(temperature(i2c_dev1)).unwrap();
+    spawner.spawn(temperature(i2c_dev1).unwrap());
 
     // Device 2, using embedded-hal-async compatible driver for SHTC3
     let i2c_dev2 = I2cDevice::new(i2c_bus);
-    spawner.spawn(humidity(i2c_dev2)).unwrap();
+    spawner.spawn(humidity(i2c_dev2).unwrap());
 }

@@ -1,11 +1,11 @@
 use core::cell::RefCell;
 
 use embassy_embedded_hal::flash::partition::BlockingPartition;
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embedded_storage::nor_flash::{NorFlash, NorFlashError, NorFlashErrorKind};
 
-use crate::{State, DFU_DETACH_MAGIC, REVERT_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
+use crate::{DFU_DETACH_MAGIC, REVERT_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC, State};
 
 /// Errors returned by bootloader
 #[derive(PartialEq, Eq, Debug)]
@@ -94,7 +94,7 @@ impl<'a, ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>
         dfu_flash: &'a Mutex<NoopRawMutex, RefCell<DFU>>,
         state_flash: &'a Mutex<NoopRawMutex, RefCell<STATE>>,
     ) -> Self {
-        extern "C" {
+        unsafe extern "C" {
             static __bootloader_state_start: u32;
             static __bootloader_state_end: u32;
             static __bootloader_active_start: u32;

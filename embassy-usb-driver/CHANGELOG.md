@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Add `EndpointOut::read_data()` and `EndpointIn::write_data()` provided methods.
+
 ## 0.2.0 - 2025-07-16
 
 - Make USB endpoint allocator methods accept an optional `EndpointAddress`.

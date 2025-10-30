@@ -7,7 +7,7 @@ use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::opamp::OpAmp;
 use embassy_stm32::peripherals::ADC2;
 use embassy_stm32::time::mhz;
-use embassy_stm32::{adc, bind_interrupts, Config};
+use embassy_stm32::{Config, adc, bind_interrupts};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 

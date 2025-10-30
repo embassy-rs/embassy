@@ -8,6 +8,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- added: Add basic RTC support for nRF54L
+- changed: apply trimming values from FICR.TRIMCNF on nrf53/54l
+- changed: do not panic on BufferedUarte overrun
+- added: allow direct access to the input pin of `gpiote::InputChannel`
+- bugfix: use DETECTMODE_SEC in GPIOTE in secure mode
+- added: allow configuring the idle state of GPIO pins connected to PWM channels
+- changed: allow configuring the PWM peripheral in the constructor of `SimplePwm`
+- changed: support setting duty cycles with inverted polarity in `SimplePwm`
+- added: support setting the duty cycles of all channels at once in `SimplePwm`
+- changed: updated to nrf-pac with nrf52/nrf53/nrf91 register layout more similar to nrf54
+- added: support for nrf54l peripherals: uart, gpiote, twim, twis, spim, spis, dppi, pwm, saadc
+- bugfix: Do not write to UICR from non-secure code on nrf53
+- bugfix: Add delay to uart init anomaly fix
+- changed: `BufferedUarte::read_ready` now uses the same definition for 'empty' so following read calls will not block when true is returned
+
+## 0.8.0 - 2025-09-30
+
+- changed: Remove `T: Instance` generic params in all drivers.
+- changed: nrf54l: Disable glitch detection and enable DC/DC in init.
+- changed: Add embassy-net-driver-channel implementation for IEEE 802.15.4
+- changed: add persist() method for gpio and ppi
+- added: basic RTC driver
+- changed: add persist() method for gpio, gpiote, timer and ppi
+- changed: impl Drop for Timer
+- added: expose `regs` for timer driver
+- added: timer driver CC `clear_events` method
+- changed: Saadc reset in Drop impl, anomaly 241 - high power usage
+
+## 0.7.0 - 2025-08-26
+
+- bugfix: use correct analog input SAADC pins on nrf5340
+
 ## 0.6.0 - 2025-08-04
 
 - changed: update to latest embassy-time-queue-utils

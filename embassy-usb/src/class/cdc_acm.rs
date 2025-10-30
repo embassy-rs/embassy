@@ -1,7 +1,7 @@
 //! CDC-ACM class implementation, aka Serial over USB.
 
 use core::cell::{Cell, RefCell};
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::mem::{self, MaybeUninit};
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;

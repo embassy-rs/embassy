@@ -11,7 +11,7 @@
 //! The class provides volume and mute controls for each channel.
 
 use core::cell::{Cell, RefCell};
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use core::task::Poll;
@@ -22,7 +22,7 @@ use heapless::Vec;
 
 use super::class_codes::*;
 use super::terminal_type::TerminalType;
-use super::{Channel, ChannelConfig, FeedbackRefresh, SampleWidth, MAX_AUDIO_CHANNEL_COUNT, MAX_AUDIO_CHANNEL_INDEX};
+use super::{Channel, ChannelConfig, FeedbackRefresh, MAX_AUDIO_CHANNEL_COUNT, MAX_AUDIO_CHANNEL_INDEX, SampleWidth};
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::descriptor::{SynchronizationType, UsageType};
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut, EndpointType};

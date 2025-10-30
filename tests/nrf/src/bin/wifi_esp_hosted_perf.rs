@@ -29,8 +29,7 @@ const WIFI_PASSWORD: &str = "V8YxhKt5CdIAJFud";
 async fn wifi_task(
     runner: hosted::Runner<
         'static,
-        ExclusiveDevice<Spim<'static, peripherals::SPI3>, Output<'static>, Delay>,
-        Input<'static>,
+        hosted::SpiInterface<ExclusiveDevice<Spim<'static>, Output<'static>, Delay>, Input<'static>>,
         Output<'static>,
     >,
 ) -> ! {
@@ -64,17 +63,13 @@ async fn main(spawner: Spawner) {
     let spi = spim::Spim::new(p.SPI3, Irqs, sck, miso, mosi, config);
     let spi = ExclusiveDevice::new(spi, cs, Delay);
 
-    static STATE: StaticCell<embassy_net_esp_hosted::State> = StaticCell::new();
-    let (device, mut control, runner) = embassy_net_esp_hosted::new(
-        STATE.init(embassy_net_esp_hosted::State::new()),
-        spi,
-        handshake,
-        ready,
-        reset,
-    )
-    .await;
+    let iface = hosted::SpiInterface::new(spi, handshake, ready);
 
-    unwrap!(spawner.spawn(wifi_task(runner)));
+    static STATE: StaticCell<embassy_net_esp_hosted::State> = StaticCell::new();
+    let (device, mut control, runner) =
+        embassy_net_esp_hosted::new(STATE.init(embassy_net_esp_hosted::State::new()), iface, reset).await;
+
+    spawner.spawn(unwrap!(wifi_task(runner)));
 
     unwrap!(control.init().await);
     unwrap!(control.connect(WIFI_NETWORK, WIFI_PASSWORD).await);
@@ -94,7 +89,7 @@ async fn main(spawner: Spawner) {
         seed,
     );
 
-    unwrap!(spawner.spawn(net_task(runner)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     perf_client::run(
         stack,

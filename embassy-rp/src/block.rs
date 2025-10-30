@@ -240,7 +240,7 @@ impl UnpartitionedSpace {
         }
     }
 
-    /// Create a new unpartition space from run-time values.
+    /// Create a new unpartitioned space from run-time values.
     ///
     /// Get these from the ROM function `get_partition_table_info` with an argument of `PT_INFO`.
     pub const fn from_raw(permissions_and_location: u32, permissions_and_flags: u32) -> Self {
@@ -714,7 +714,7 @@ impl PartitionTableBlock {
         new_table
     }
 
-    /// Add a a SHA256 hash of the Block
+    /// Add a SHA256 hash of the Block
     ///
     /// Adds a `HASH_DEF` covering all the previous items in the Block, and a
     /// `HASH_VALUE` with a SHA-256 hash of them.

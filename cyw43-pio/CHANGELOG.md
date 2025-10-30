@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Select pio program based on core clock speed #4792
+
+## 0.8.0 - 2025-08-28
+
+- Bump cyw43 version
+
+## 0.7.0 - 2025-08-26
+
 ## 0.6.0 - 2025-08-04
 
 ## 0.5.1 - 2025-07-16

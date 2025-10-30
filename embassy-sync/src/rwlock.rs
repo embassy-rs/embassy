@@ -3,12 +3,12 @@
 //! This module provides a read-write lock that can be used to synchronize data between asynchronous tasks.
 use core::cell::{RefCell, UnsafeCell};
 use core::fmt;
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
 
-use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex as BlockingMutex;
+use crate::blocking_mutex::raw::RawMutex;
 use crate::waitqueue::WakerRegistration;
 
 /// Error returned by [`RwLock::try_read`] and [`RwLock::try_write`] when the lock is already held.
@@ -37,8 +37,6 @@ struct State {
 /// Use [`NoopRawMutex`](crate::blocking_mutex::raw::NoopRawMutex) when data is only shared between tasks running on the same executor.
 ///
 /// Use [`ThreadModeRawMutex`](crate::blocking_mutex::raw::ThreadModeRawMutex) when data is shared between tasks running on the same executor but you want a singleton.
-///
-
 pub struct RwLock<M, T>
 where
     M: RawMutex,

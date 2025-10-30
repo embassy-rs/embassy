@@ -1,13 +1,34 @@
 [package]
 name = "embassy-mspm0"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Embassy Hardware Abstraction Layer (HAL) for Texas Instruments MSPM0 series microcontrollers"
 keywords = ["embedded", "async", "mspm0", "hal", "embedded-hal"]
 categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-mspm0"
+
+# TODO: Remove to publish initial version
+publish = false
+
+[package.metadata.embassy]
+build = [
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0c1104dgs20", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0c1106rgz", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g1107ycj", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g1505pt", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g1519rhb", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g3105rhb", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g3507pm", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g3519pz", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0h3216pt", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1306rhb", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l2228pn", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1345dgs28", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1106dgs28", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1228pt", "time-driver-any"]},
+]
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-mspm0-v$VERSION/embassy-mspm0/src/"
@@ -18,6 +39,7 @@ flavors = [
     { regex_feature = "mspm0c.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "mspm0l.*", target = "thumbv6m-none-eabi" },
     { regex_feature = "mspm0g.*", target = "thumbv6m-none-eabi" },
+    { regex_feature = "mspm0h.*", target = "thumbv6m-none-eabi" },
 ]
 
 [package.metadata.docs.rs]
@@ -25,15 +47,15 @@ features = ["defmt", "unstable-pac", "time-driver-any", "time", "mspm0g3507"]
 rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
-embassy-sync = { version = "0.7.1", path = "../embassy-sync" }
-embassy-time = { version = "0.4.0", path = "../embassy-time", optional = true }
+embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
+embassy-time = { version = "0.5.0", path = "../embassy-time", optional = true }
 # TODO: Support other tick rates
-embassy-time-driver = { version = "0.2", path = "../embassy-time-driver", optional = true, features = ["tick-hz-32_768"] }
-embassy-time-queue-utils = { version = "0.2", path = "../embassy-time-queue-utils", optional = true }
-embassy-futures = { version = "0.1.0", path = "../embassy-futures" }
+embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver", optional = true, features = ["tick-hz-32_768"] }
+embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils", optional = true }
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
-embassy-embedded-hal = { version = "0.4.0", path = "../embassy-embedded-hal", default-features = false }
-embassy-executor = { version = "0.8.0", path = "../embassy-executor", optional = true }
+embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal", default-features = false }
+embassy-executor = { version = "0.9.0", path = "../embassy-executor", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal = { version = "1.0" }
@@ -50,7 +72,7 @@ cortex-m = "0.7.6"
 critical-section = "1.2.0"
 
 # mspm0-metapac = { version = "" }
-mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-df572e257eabf06e6e0ae6c9077e0a2fec1fb5e1" }
+mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-e7de4103a0713772695ffcad52c3c2f07414dc29" }
 
 [build-dependencies]
 proc-macro2 = "1.0.94"
@@ -58,7 +80,7 @@ quote = "1.0.40"
 cfg_aliases = "0.2.1"
 
 # mspm0-metapac = { version = "", default-features = false, features = ["metadata"] }
-mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-df572e257eabf06e6e0ae6c9077e0a2fec1fb5e1", default-features = false, features = ["metadata"] }
+mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-e7de4103a0713772695ffcad52c3c2f07414dc29", default-features = false, features = ["metadata"] }
 
 [features]
 default = ["rt"]
@@ -140,6 +162,24 @@ mspm0c1104dsg = ["mspm0-metapac/mspm0c1104dsg"]
 mspm0c1104dyy = ["mspm0-metapac/mspm0c1104dyy"]
 mspm0c1104ruk = ["mspm0-metapac/mspm0c1104ruk"]
 mspm0c1104ycj = ["mspm0-metapac/mspm0c1104ycj"]
+mspm0c1105pt = ["mspm0-metapac/mspm0c1105pt"]
+mspm0c1105rgz = ["mspm0-metapac/mspm0c1105rgz"]
+mspm0c1105rhb = ["mspm0-metapac/mspm0c1105rhb"]
+mspm0c1105dgs32 = ["mspm0-metapac/mspm0c1105dgs32"]
+mspm0c1105dgs28 = ["mspm0-metapac/mspm0c1105dgs28"]
+mspm0c1105rge = ["mspm0-metapac/mspm0c1105rge"]
+mspm0c1105dgs20 = ["mspm0-metapac/mspm0c1105dgs20"]
+mspm0c1105ruk = ["mspm0-metapac/mspm0c1105ruk"]
+mspm0c1105zcm = ["mspm0-metapac/mspm0c1105zcm"]
+mspm0c1106pt = ["mspm0-metapac/mspm0c1106pt"]
+mspm0c1106rgz = ["mspm0-metapac/mspm0c1106rgz"]
+mspm0c1106rhb = ["mspm0-metapac/mspm0c1106rhb"]
+mspm0c1106dgs32 = ["mspm0-metapac/mspm0c1106dgs32"]
+mspm0c1106dgs28 = ["mspm0-metapac/mspm0c1106dgs28"]
+mspm0c1106rge = ["mspm0-metapac/mspm0c1106rge"]
+mspm0c1106dgs20 = ["mspm0-metapac/mspm0c1106dgs20"]
+mspm0c1106ruk = ["mspm0-metapac/mspm0c1106ruk"]
+mspm0c1106zcm = ["mspm0-metapac/mspm0c1106zcm"]
 mspm0g1105dgs28 = ["mspm0-metapac/mspm0g1105dgs28"]
 mspm0g1105pm = ["mspm0-metapac/mspm0g1105pm"]
 mspm0g1105pt = ["mspm0-metapac/mspm0g1105pt"]
@@ -206,6 +246,7 @@ mspm0g3519pn = ["mspm0-metapac/mspm0g3519pn"]
 mspm0g3519pz = ["mspm0-metapac/mspm0g3519pz"]
 mspm0g3519rgz = ["mspm0-metapac/mspm0g3519rgz"]
 mspm0g3519rhb = ["mspm0-metapac/mspm0g3519rhb"]
+mspm0h3216pt = ["mspm0-metapac/mspm0h3216pt"]
 mspm0l1105dgs20 = ["mspm0-metapac/mspm0l1105dgs20"]
 mspm0l1105dgs28 = ["mspm0-metapac/mspm0l1105dgs28"]
 mspm0l1105dyy = ["mspm0-metapac/mspm0l1105dyy"]

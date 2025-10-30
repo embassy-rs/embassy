@@ -1,7 +1,7 @@
 use core::ops::RangeInclusive;
 
 #[cfg(stm32h7rs)]
-use stm32_metapac::rcc::vals::Plldivst;
+use stm32_metapac::rcc::vals::{Plldivst, Xspisel};
 
 use crate::pac;
 pub use crate::pac::rcc::vals::{
@@ -430,6 +430,13 @@ pub(crate) unsafe fn init(config: Config) {
     }
     while !RCC.cr().read().hsirdy() {}
 
+    #[cfg(stm32h7rs)]
+    {
+        // Switch the XSPI clock source so it will use HSI
+        RCC.ahbperckselr().modify(|w| w.set_xspi1sel(Xspisel::HCLK5));
+        RCC.ahbperckselr().modify(|w| w.set_xspi2sel(Xspisel::HCLK5));
+    };
+
     // Use the HSI clock as system clock during the actual clock setup
     RCC.cfgr().modify(|w| w.set_sw(Sysclk::HSI));
     while RCC.cfgr().read().sws() != Sysclk::HSI {}
@@ -590,7 +597,10 @@ pub(crate) unsafe fn init(config: Config) {
             Hertz(24_000_000) => Usbrefcksel::MHZ24,
             Hertz(26_000_000) => Usbrefcksel::MHZ26,
             Hertz(32_000_000) => Usbrefcksel::MHZ32,
-            _ => panic!("cannot select USBPHYC reference clock with source frequency of {}, must be one of 16, 19.2, 20, 24, 26, 32 MHz", clk_val),
+            _ => panic!(
+                "cannot select USBPHYC reference clock with source frequency of {}, must be one of 16, 19.2, 20, 24, 26, 32 MHz",
+                clk_val
+            ),
         },
         None => Usbrefcksel::MHZ24,
     };

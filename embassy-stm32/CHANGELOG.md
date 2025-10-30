@@ -6,15 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 <!-- next-header -->
+### [Unreleased]
+
+* **Fix(stm32h5):** Prevent a HardFault crash on STM32H5 devices by changing `uid()` to return `[u8; 12]` by value instead of a reference. (Fixes #2696)
 ## Unreleased - ReleaseDate
 
+- fix flash erase on L4 & L5
+- fix: Fixed STM32H5 builds requiring time feature
+- feat: Derive Clone, Copy for QSPI Config
+- fix: stm32/i2c in master mode (blocking): subsequent transmissions failed after a NACK was received
+- feat: stm32/timer: add set_polarity functions for main and complementary outputs in complementary_pwm
+- Add I2S support for STM32F1, STM32C0, STM32F0, STM32F3, STM32F7, STM32G0, STM32WL, STM32H5, STM32H7RS
+- fix: STM32: Prevent dropped DacChannel from disabling Dac peripheral if another DacChannel is still in scope ([#4577](https://github.com/embassy-rs/embassy/pull/4577))
+- feat: Added support for more OctoSPI configurations (e.g. APS6408 RAM) ([#4581](https://github.com/embassy-rs/embassy/pull/4581))
+- fix: stm32/usart: fix bug with blocking flush in buffered uart ([#4648](https://github.com/embassy-rs/embassy/pull/4648))
+- fix: stm32/(ospi/hspi/xspi): Fix the alternate bytes register config sticking around for subsequent writes
+- feat: Configurable gpio speed for QSPI
+- feat: derive Clone, Copy and defmt::Format for all *SPI-related configs
+- fix: handle address and data-length errors in OSPI
+- feat: Allow OSPI DMA writes larger than 64kB using chunking
+- feat: More ADC enums for g0 PAC, API change for oversampling, allow separate sample times
+- feat: Add USB CRS sync support for STM32C071
+- fix: RTC register definition for STM32L4P5 and L4Q5 as they use v3 register map.
+- fix: Cut down the capabilities of the STM32L412 and L422 RTC as those are missing binary timer mode and underflow interrupt.
+- fix: Allow configuration of the internal pull up/down resistors on the pins for the Qei peripheral, as well as the Qei decoder mode.
+- feat: stm32/rcc/mco: Added support for IO driver strength when using Master Clock Out IO. This changes signature on Mco::new taking a McoConfig struct ([#4679](https://github.com/embassy-rs/embassy/pull/4679))
+- feat: derive Clone, Copy and defmt::Format for all SPI-related configs
+- feat: stm32/usart: add `eager_reads` option to control if buffered readers return as soon as possible or after more data is available ([#4668](https://github.com/embassy-rs/embassy/pull/4668))
+- feat: stm32/usart: add `de_assertion_time` and `de_deassertion_time` config options
+- change: stm32/uart: BufferedUartRx now returns all available bytes from the internal buffer
+- change: timer: added output compare values
+- feat: timer: add ability to set master mode
+- feat: Add I2C MultiMaster (Slave) support for I2C v1
+
+## 0.4.0 - 2025-08-26
+
+- feat: stm32/sai: make NODIV independent of MCKDIV 
+- fix: stm32/sai: fix WB MCKDIV
 - fix: stm32/i2c: pull-down was enabled instead of pull-none when no internal pull-up was needed.
 - feat: Improve blocking hash speed
 - fix: Fix vrefbuf building with log feature
 - fix: Fix performing a hash after performing a hmac
 - chore: Updated stm32-metapac and stm32-data dependencies
+- feat: stm32/adc/v3: allow DMA reads to loop through enable channels
 - fix: Fix XSPI not disabling alternate bytes when they were previously enabled
-- feat: Add I2C MultiMaster (Slave) support for I2C v1
+- fix: Fix stm32h7rs init when using external flash via XSPI
+- feat: Add Adc::new_with_clock() to configure analog clock
+- feat: Add GPDMA linked-list + ringbuffer support ([#3923](https://github.com/embassy-rs/embassy/pull/3923))
+- feat: Added support for STM32F1 peripheral pin remapping (AFIO) ([#4430](https://github.com/embassy-rs/embassy/pull/4430))
 
 ## 0.3.0 - 2025-08-12
 
@@ -125,7 +164,7 @@ GPIO:
 - Refactor AfType ([#3031](https://github.com/embassy-rs/embassy/pull/3031))
 - Gpiov1: Do not call set_speed for AFType::Input ([#2996](https://github.com/embassy-rs/embassy/pull/2996))
 
-UART: 
+UART:
 - Add embedded-io impls ([#2739](https://github.com/embassy-rs/embassy/pull/2739))
 - Add support for changing baud rate ([#3512](https://github.com/embassy-rs/embassy/pull/3512))
 - Add split_ref ([#3500](https://github.com/embassy-rs/embassy/pull/3500))
@@ -149,7 +188,7 @@ UART:
     - Wake receive task for each received byte ([#2722](https://github.com/embassy-rs/embassy/pull/2722))
     - Fix dma and idle line detection in ringbuffereduartrx ([#3319](https://github.com/embassy-rs/embassy/pull/3319))
 
-SPI: 
+SPI:
 - Add MISO pullup configuration option ([#2943](https://github.com/embassy-rs/embassy/pull/2943))
 - Add slew rate configuration options ([#3669](https://github.com/embassy-rs/embassy/pull/3669))
 - Fix blocking_write on nosck spi. ([#3035](https://github.com/embassy-rs/embassy/pull/3035))

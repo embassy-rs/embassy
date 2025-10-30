@@ -50,8 +50,8 @@ use core::task::{Context, Poll};
 
 use heapless::Deque;
 
-use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
+use crate::blocking_mutex::raw::RawMutex;
 use crate::waitqueue::WakerRegistration;
 
 /// Send-only access to a [`Channel`].
@@ -1112,11 +1112,13 @@ mod tests {
         static CHANNEL: StaticCell<Channel<CriticalSectionRawMutex, u32, 3>> = StaticCell::new();
         let c = &*CHANNEL.init(Channel::new());
         let c2 = c;
-        assert!(executor
-            .spawn(async move {
-                assert!(c2.try_send(1).is_ok());
-            })
-            .is_ok());
+        assert!(
+            executor
+                .spawn(async move {
+                    assert!(c2.try_send(1).is_ok());
+                })
+                .is_ok()
+        );
         assert_eq!(c.receive().await, 1);
     }
 
@@ -1143,13 +1145,15 @@ mod tests {
         // However, I've used the debugger to observe that the send does indeed wait.
         Delay::new(Duration::from_millis(500)).await;
         assert_eq!(c.receive().await, 1);
-        assert!(executor
-            .spawn(async move {
-                loop {
-                    c.receive().await;
-                }
-            })
-            .is_ok());
+        assert!(
+            executor
+                .spawn(async move {
+                    loop {
+                        c.receive().await;
+                    }
+                })
+                .is_ok()
+        );
         send_task_1.unwrap().await;
         send_task_2.unwrap().await;
     }

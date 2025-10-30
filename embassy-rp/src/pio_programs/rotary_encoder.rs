@@ -1,11 +1,11 @@
 //! PIO backed quadrature encoder
 
+use crate::Peri;
 use crate::gpio::Pull;
 use crate::pio::{
     Common, Config, Direction as PioDirection, FifoJoin, Instance, LoadedProgram, PioPin, ShiftDirection, StateMachine,
 };
 use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
-use crate::Peri;
 
 /// This struct represents an Encoder program loaded into pio instruction memory.
 pub struct PioEncoderProgram<'a, PIO: Instance> {

@@ -22,7 +22,7 @@ bind_interrupts!(struct Irqs {
     RNG => embassy_nrf::rng::InterruptHandler<peripherals::RNG>;
 });
 
-type MyDriver = Enc28j60<ExclusiveDevice<Spim<'static, peripherals::SPI3>, Output<'static>, Delay>, Output<'static>>;
+type MyDriver = Enc28j60<ExclusiveDevice<Spim<'static>, Output<'static>, Delay>, Output<'static>>;
 
 #[embassy_executor::task]
 async fn net_task(mut runner: embassy_net::Runner<'static, MyDriver>) -> ! {
@@ -68,7 +68,7 @@ async fn main(spawner: Spawner) {
     static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
 
-    unwrap!(spawner.spawn(net_task(runner)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     perf_client::run(
         stack,

@@ -2,13 +2,13 @@
 //!
 //! This module provides a mutex that can be used to synchronize data between asynchronous tasks.
 use core::cell::{RefCell, UnsafeCell};
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
 use core::{fmt, mem};
 
-use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex as BlockingMutex;
+use crate::blocking_mutex::raw::RawMutex;
 use crate::waitqueue::WakerRegistration;
 
 /// Error returned by [`Mutex::try_lock`]
@@ -187,7 +187,7 @@ where
     T: ?Sized,
 {
     /// Returns a locked view over a portion of the locked data.
-    pub fn map<U>(this: Self, fun: impl FnOnce(&mut T) -> &mut U) -> MappedMutexGuard<'a, M, U> {
+    pub fn map<U: ?Sized>(this: Self, fun: impl FnOnce(&mut T) -> &mut U) -> MappedMutexGuard<'a, M, U> {
         let mutex = this.mutex;
         let value = fun(unsafe { &mut *this.mutex.inner.get() });
         // Don't run the `drop` method for MutexGuard. The ownership of the underlying
@@ -279,7 +279,7 @@ where
     T: ?Sized,
 {
     /// Returns a locked view over a portion of the locked data.
-    pub fn map<U>(this: Self, fun: impl FnOnce(&mut T) -> &mut U) -> MappedMutexGuard<'a, M, U> {
+    pub fn map<U: ?Sized>(this: Self, fun: impl FnOnce(&mut T) -> &mut U) -> MappedMutexGuard<'a, M, U> {
         let state = this.state;
         let value = fun(unsafe { &mut *this.value });
         // Don't run the `drop` method for MutexGuard. The ownership of the underlying

@@ -16,14 +16,15 @@ use quote::{format_ident, quote};
 mod common;
 
 fn main() {
-    generate_code();
-    interrupt_group_linker_magic();
-}
-
-fn generate_code() {
     let mut cfgs = common::CfgSet::new();
     common::set_target_cfgs(&mut cfgs);
 
+    generate_code(&mut cfgs);
+    select_gpio_features(&mut cfgs);
+    interrupt_group_linker_magic();
+}
+
+fn generate_code(cfgs: &mut CfgSet) {
     #[cfg(any(feature = "rt"))]
     println!(
         "cargo:rustc-link-search={}",
@@ -53,9 +54,9 @@ fn generate_code() {
         cfgs.declare_all(&get_chip_cfgs(&chip));
     }
 
-    let mut singletons = get_singletons(&mut cfgs);
+    let mut singletons = get_singletons(cfgs);
 
-    time_driver(&mut singletons, &mut cfgs);
+    time_driver(&mut singletons, cfgs);
 
     let mut g = TokenStream::new();
 
@@ -68,6 +69,7 @@ fn generate_code() {
     g.extend(generate_pin_trait_impls());
     g.extend(generate_groups());
     g.extend(generate_dma_channel_count());
+    g.extend(generate_adc_constants(cfgs));
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let out_file = out_dir.join("_generated.rs").to_string_lossy().to_string();
@@ -79,8 +81,12 @@ fn get_chip_cfgs(chip_name: &str) -> Vec<String> {
     let mut cfgs = Vec::new();
 
     // GPIO on C110x is special as it does not belong to an interrupt group.
-    if chip_name.starts_with("mspm0c110") || chip_name.starts_with("msps003f") {
+    if chip_name.starts_with("mspm0c1103") || chip_name.starts_with("mspm0c1104") || chip_name.starts_with("msps003f") {
         cfgs.push("mspm0c110x".to_string());
+    }
+
+    if chip_name.starts_with("mspm0c1105") || chip_name.starts_with("mspm0c1106") {
+        cfgs.push("mspm0c1105_c1106".to_string());
     }
 
     // Family ranges (temporary until int groups are generated)
@@ -108,6 +114,10 @@ fn get_chip_cfgs(chip_name: &str) -> Vec<String> {
 
     if chip_name.starts_with("mspm0g351") {
         cfgs.push("mspm0g351x".to_string());
+    }
+
+    if chip_name.starts_with("mspm0h321") {
+        cfgs.push("mspm0h321x".to_string());
     }
 
     if chip_name.starts_with("mspm0l110") {
@@ -203,7 +213,7 @@ fn generate_groups() -> TokenStream {
 
         #[cfg(feature = "rt")]
         mod group_vectors {
-            extern "Rust" {
+            unsafe extern "Rust" {
                 #(#group_vectors)*
             }
         }
@@ -214,6 +224,22 @@ fn generate_dma_channel_count() -> TokenStream {
     let count = METADATA.dma_channels.len();
 
     quote! { pub const DMA_CHANNELS: usize = #count; }
+}
+
+fn generate_adc_constants(cfgs: &mut CfgSet) -> TokenStream {
+    let vrsel = METADATA.adc_vrsel;
+    let memctl = METADATA.adc_memctl;
+
+    cfgs.declare("adc_neg_vref");
+    match vrsel {
+        3 => (),
+        5 => cfgs.enable("adc_neg_vref"),
+        _ => panic!("Unsupported ADC VRSEL value: {vrsel}"),
+    }
+    quote! {
+        pub const ADC_VRSEL: u8 = #vrsel;
+        pub const ADC_MEMCTL: u8 = #memctl;
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -537,6 +563,8 @@ fn generate_interrupts() -> TokenStream {
         pub fn enable_group_interrupts(_cs: critical_section::CriticalSection) {
             use crate::interrupt::typelevel::Interrupt;
 
+            // This is empty for C1105/6
+            #[allow(unused_unsafe)]
             unsafe {
                 #(#group_interrupt_enables)*
             }
@@ -554,6 +582,8 @@ fn generate_peripheral_instances() -> TokenStream {
         let tokens = match peripheral.kind {
             "uart" => Some(quote! { impl_uart_instance!(#peri); }),
             "i2c" => Some(quote! { impl_i2c_instance!(#peri, #fifo_size); }),
+            "wwdt" => Some(quote! { impl_wwdt_instance!(#peri); }),
+            "adc" => Some(quote! { impl_adc_instance!(#peri); }),
             _ => None,
         };
 
@@ -602,6 +632,10 @@ fn generate_pin_trait_impls() -> TokenStream {
                 ("uart", "RTS") => Some(quote! { impl_uart_rts_pin!(#peri, #pin_name, #pf); }),
                 ("i2c", "SDA") => Some(quote! { impl_i2c_sda_pin!(#peri, #pin_name, #pf); }),
                 ("i2c", "SCL") => Some(quote! { impl_i2c_scl_pin!(#peri, #pin_name, #pf); }),
+                ("adc", s) => {
+                    let signal = s.parse::<u8>().unwrap();
+                    Some(quote! { impl_adc_pin!(#peri, #pin_name, #signal); })
+                }
 
                 _ => None,
             };
@@ -614,6 +648,35 @@ fn generate_pin_trait_impls() -> TokenStream {
 
     quote! {
         #(#impls)*
+    }
+}
+
+fn select_gpio_features(cfgs: &mut CfgSet) {
+    cfgs.declare_all(&[
+        "gpioa_interrupt",
+        "gpioa_group",
+        "gpiob_interrupt",
+        "gpiob_group",
+        "gpioc_group",
+    ]);
+
+    for interrupt in METADATA.interrupts.iter() {
+        match interrupt.name {
+            "GPIOA" => cfgs.enable("gpioa_interrupt"),
+            "GPIOB" => cfgs.enable("gpiob_interrupt"),
+            _ => (),
+        }
+    }
+
+    for group in METADATA.interrupt_groups.iter() {
+        for interrupt in group.interrupts {
+            match interrupt.name {
+                "GPIOA" => cfgs.enable("gpioa_group"),
+                "GPIOB" => cfgs.enable("gpiob_group"),
+                "GPIOC" => cfgs.enable("gpioc_group"),
+                _ => (),
+            }
+        }
     }
 }
 
