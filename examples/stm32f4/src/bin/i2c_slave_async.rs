@@ -73,8 +73,17 @@ pub async fn i2c_slave_task(mut i2c_slave: I2c<'static, embassy_stm32::mode::Asy
 
                 match i2c_slave.respond_to_write(&mut *data_buffer).await {
                     Ok(_) => {
-                        info!("I2C: Data received - Buffer now contains: 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}", 
-                            data_buffer[0], data_buffer[1], data_buffer[2], data_buffer[3], data_buffer[4], data_buffer[5], data_buffer[6], data_buffer[7]);
+                        info!(
+                            "I2C: Data received - Buffer now contains: 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}, 0x{:02X}",
+                            data_buffer[0],
+                            data_buffer[1],
+                            data_buffer[2],
+                            data_buffer[3],
+                            data_buffer[4],
+                            data_buffer[5],
+                            data_buffer[6],
+                            data_buffer[7]
+                        );
                     }
                     Err(e) => {
                         error!("I2C: Write error: {}", format_i2c_error(&e));

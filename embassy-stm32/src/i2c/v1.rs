@@ -961,8 +961,7 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
                 let matched_address = Self::decode_matched_address(sr2, self.info)?;
                 trace!(
                     "I2C slave: address matched, direction={:?}, addr={:?}",
-                    direction,
-                    matched_address
+                    direction, matched_address
                 );
 
                 return Ok(SlaveCommand {
