@@ -1052,10 +1052,13 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
             if status.stbiterr() {
                 return Poll::Ready(Err(Error::StBitErr));
             }
+            #[cfg(sdmmc_v1)]
             let done = match block {
                 true => status.dbckend(),
                 false => status.dataend(),
             };
+            #[cfg(sdmmc_v2)]
+            let done = status.dataend();
             if done {
                 return Poll::Ready(Ok(()));
             }
