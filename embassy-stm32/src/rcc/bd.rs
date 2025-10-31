@@ -1,6 +1,8 @@
 use core::sync::atomic::{Ordering, compiler_fence};
 
 use crate::pac::common::{RW, Reg};
+#[cfg(backup_sram)]
+use crate::pac::pwr::vals::Retention;
 pub use crate::pac::rcc::vals::Rtcsel as RtcClockSource;
 use crate::time::Hertz;
 
@@ -89,6 +91,8 @@ pub struct LsConfig {
     pub rtc: RtcClockSource,
     pub lsi: bool,
     pub lse: Option<LseConfig>,
+    #[cfg(backup_sram)]
+    pub enable_backup_sram: bool,
 }
 
 impl LsConfig {
@@ -113,6 +117,8 @@ impl LsConfig {
                 peripherals_clocked: false,
             }),
             lsi: false,
+            #[cfg(backup_sram)]
+            enable_backup_sram: false,
         }
     }
 
@@ -121,6 +127,8 @@ impl LsConfig {
             rtc: RtcClockSource::LSI,
             lsi: true,
             lse: None,
+            #[cfg(backup_sram)]
+            enable_backup_sram: false,
         }
     }
 
@@ -129,6 +137,8 @@ impl LsConfig {
             rtc: RtcClockSource::DISABLE,
             lsi: false,
             lse: None,
+            #[cfg(backup_sram)]
+            enable_backup_sram: false,
         }
     }
 }
@@ -191,6 +201,24 @@ impl LsConfig {
 
             #[cfg(any(rcc_wb, rcc_wba))]
             while !csr.read().lsi1rdy() {}
+        }
+
+        // Enable backup regulator for peristent battery backed sram
+        #[cfg(backup_sram)]
+        {
+            crate::pac::PWR.bdcr().modify(|w| {
+                critical_section::with(|_| unsafe { super::BKSRAM_RETAINED = w.bren() == Retention::PRESERVED });
+
+                w.set_bren(match self.enable_backup_sram {
+                    false => Retention::LOST,
+                    true => Retention::PRESERVED,
+                });
+            });
+
+            if self.enable_backup_sram {
+                // Wait for backup regulator voltage to stabilize
+                while !crate::pac::PWR.bdsr().read().brrdy() {}
+            }
         }
 
         // backup domain configuration (LSEON, RTCEN, RTCSEL) is kept across resets.
