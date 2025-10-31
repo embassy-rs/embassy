@@ -244,26 +244,26 @@ impl<T, E> Try for Result<T, E> {
 
 pub(crate) struct Bytes<'a>(pub &'a [u8]);
 
-impl<'a> Debug for Bytes<'a> {
+impl Debug for Bytes<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{:#02x?}", self.0)
     }
 }
 
-impl<'a> Display for Bytes<'a> {
+impl Display for Bytes<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{:#02x?}", self.0)
     }
 }
 
-impl<'a> LowerHex for Bytes<'a> {
+impl LowerHex for Bytes<'_> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{:#02x?}", self.0)
     }
 }
 
 #[cfg(feature = "defmt")]
-impl<'a> defmt::Format for Bytes<'a> {
+impl defmt::Format for Bytes<'_> {
     fn format(&self, fmt: defmt::Formatter) {
         defmt::write!(fmt, "{:02x}", self.0)
     }

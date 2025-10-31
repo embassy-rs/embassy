@@ -11,28 +11,34 @@
 mod fmt;
 
 mod crc32;
+
+#[cfg(feature = "generic-spi")]
 mod crc8;
+
 mod mdio;
 mod phy;
+mod protocol;
 mod regs;
 
 use ch::driver::LinkState;
-use crc8::crc8;
 pub use crc32::ETH_FCS;
 use embassy_futures::select::{Either, select};
 use embassy_net_driver_channel as ch;
 use embassy_time::Timer;
 use embedded_hal_1::digital::OutputPin;
 use embedded_hal_async::digital::Wait;
-use embedded_hal_async::spi::{Error, Operation, SpiDevice};
-use heapless::Vec;
+use embedded_hal_async::spi::{Error, SpiDevice};
 pub use mdio::MdioBus;
 pub use phy::Phy10BaseT1x;
 use phy::{RegsC22, RegsC45};
+pub use protocol::Adin1110Protocol;
+#[cfg(feature = "generic-spi")]
+pub use protocol::GenericSpi;
+#[cfg(feature = "tc6")]
+pub use protocol::Tc6;
 use regs::{Config0, Config2, SpiRegisters as sr, Status0, Status1};
 
-use crate::fmt::Bytes;
-use crate::regs::{LedCntrl, LedFunc, LedPol, LedPolarity, SpiHeader};
+use crate::regs::{LedCntrl, LedFunc, LedPol, LedPolarity};
 
 /// ADIN1110 intern PHY ID
 pub const PHYID: u32 = 0x0283_BC91;
@@ -75,19 +81,8 @@ const TURN_AROUND_BYTE: u8 = 0x00;
 const ETH_MIN_LEN: usize = 64;
 /// Ethernet `Frame Check Sequence` length
 const FCS_LEN: usize = 4;
-/// Packet minimal frame/packet length without `Frame Check Sequence` length
-const ETH_MIN_WITHOUT_FCS_LEN: usize = ETH_MIN_LEN - FCS_LEN;
-
-/// SPI Header, contains SPI action and register id.
-const SPI_HEADER_LEN: usize = 2;
-/// SPI Header CRC length
-const SPI_HEADER_CRC_LEN: usize = 1;
-/// SPI Header Turn Around length
-const SPI_HEADER_TA_LEN: usize = 1;
 /// Frame Header length
 const FRAME_HEADER_LEN: usize = 2;
-/// Space for last bytes to create multipule 4 bytes on the end of a FIFO read/write.
-const SPI_SPACE_MULTIPULE: usize = 3;
 
 /// P1 = 0x00, P2 = 0x01
 const PORT_ID_BYTE: u8 = 0x00;
@@ -111,95 +106,29 @@ impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
 
 /// ADIN1110 embassy-net driver
 #[derive(Debug)]
-pub struct ADIN1110<SPI> {
-    /// SPI bus
-    spi: SPI,
-    /// Enable CRC on SPI transfer.
-    /// This must match with the hardware pin `SPI_CFG0` were low = CRC enable, high = CRC disabled.
-    spi_crc: bool,
-    /// Append FCS by the application of transmit packet, false = FCS is appended by the MAC, true = FCS appended by the application.
-    append_fcs_on_tx: bool,
+pub struct ADIN1110<P: Adin1110Protocol> {
+    /// Generic or OPEN Alliance TC6 SPI protocol, wraps SPI device
+    protocol: P,
 }
 
-impl<SPI: SpiDevice> ADIN1110<SPI> {
+impl<P: Adin1110Protocol> ADIN1110<P> {
     /// Create a new ADIN1110 instance.
-    pub fn new(spi: SPI, spi_crc: bool, append_fcs_on_tx: bool) -> Self {
-        Self {
-            spi,
-            spi_crc,
-            append_fcs_on_tx,
-        }
+    pub fn new(protocol: P) -> Self {
+        Self { protocol }
     }
 
     /// Read a SPI register
-    pub async fn read_reg(&mut self, reg: sr) -> AEResult<u32, SPI::Error> {
-        let mut tx_buf = Vec::<u8, 16>::new();
-
-        let mut spi_hdr = SpiHeader(0);
-        spi_hdr.set_control(true);
-        spi_hdr.set_addr(reg);
-        let _ = tx_buf.extend_from_slice(spi_hdr.0.to_be_bytes().as_slice());
-
-        if self.spi_crc {
-            // Add CRC for header data
-            let _ = tx_buf.push(crc8(&tx_buf));
-        }
-
-        // Turn around byte, give the chip the time to access/setup the answer data.
-        let _ = tx_buf.push(TURN_AROUND_BYTE);
-
-        let mut rx_buf = [0; 5];
-
-        let spi_read_len = if self.spi_crc { rx_buf.len() } else { rx_buf.len() - 1 };
-
-        let mut spi_op = [Operation::Write(&tx_buf), Operation::Read(&mut rx_buf[0..spi_read_len])];
-
-        self.spi.transaction(&mut spi_op).await.map_err(AdinError::Spi)?;
-
-        if self.spi_crc {
-            let crc = crc8(&rx_buf[0..4]);
-            if crc != rx_buf[4] {
-                return Err(AdinError::SPI_CRC);
-            }
-        }
-
-        let value = u32::from_be_bytes(rx_buf[0..4].try_into().unwrap());
-
-        trace!("REG Read {} = {:08x} SPI {}", reg, value, Bytes(&tx_buf));
-
-        Ok(value)
+    pub async fn read_reg(&mut self, reg: sr) -> AEResult<u32, P::SpiError> {
+        self.protocol.read_reg(reg.into()).await
     }
 
     /// Write a SPI register
-    pub async fn write_reg(&mut self, reg: sr, value: u32) -> AEResult<(), SPI::Error> {
-        let mut tx_buf = Vec::<u8, 16>::new();
-
-        let mut spi_hdr = SpiHeader(0);
-        spi_hdr.set_control(true);
-        spi_hdr.set_write(true);
-        spi_hdr.set_addr(reg);
-        let _ = tx_buf.extend_from_slice(spi_hdr.0.to_be_bytes().as_slice());
-
-        if self.spi_crc {
-            // Add CRC for header data
-            let _ = tx_buf.push(crc8(&tx_buf));
-        }
-
-        let val = value.to_be_bytes();
-        let _ = tx_buf.extend_from_slice(val.as_slice());
-
-        if self.spi_crc {
-            // Add CRC for header data
-            let _ = tx_buf.push(crc8(val.as_slice()));
-        }
-
-        trace!("REG Write {} = {:08x} SPI {}", reg, value, Bytes(&tx_buf));
-
-        self.spi.write(&tx_buf).await.map_err(AdinError::Spi)
+    pub async fn write_reg(&mut self, reg: sr, value: u32) -> AEResult<(), P::SpiError> {
+        self.protocol.write_reg(reg.into(), value).await
     }
 
     /// helper function for write to `MDIO_ACC` register and wait for ready!
-    async fn write_mdio_acc_reg(&mut self, mdio_acc_val: u32) -> AEResult<u32, SPI::Error> {
+    async fn write_mdio_acc_reg(&mut self, mdio_acc_val: u32) -> AEResult<u32, P::SpiError> {
         self.write_reg(sr::MDIO_ACC, mdio_acc_val).await?;
 
         // TODO: Add proper timeout!
@@ -214,158 +143,19 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
     }
 
     /// Read out fifo ethernet packet memory received via the wire.
-    pub async fn read_fifo(&mut self, frame: &mut [u8]) -> AEResult<usize, SPI::Error> {
-        const HEAD_LEN: usize = SPI_HEADER_LEN + SPI_HEADER_CRC_LEN + SPI_HEADER_TA_LEN;
-        const TAIL_LEN: usize = FCS_LEN + SPI_SPACE_MULTIPULE;
-
-        let mut tx_buf = Vec::<u8, HEAD_LEN>::new();
-
-        // Size of the frame, also includes the `frame header` and `FCS`.
-        let fifo_frame_size = self.read_reg(sr::RX_FSIZE).await? as usize;
-
-        if fifo_frame_size < ETH_MIN_LEN + FRAME_HEADER_LEN {
-            return Err(AdinError::PACKET_TOO_SMALL);
-        }
-
-        let packet_size = fifo_frame_size - FRAME_HEADER_LEN - FCS_LEN;
-
-        if packet_size > frame.len() {
-            trace!("MAX: {} WANT: {}", frame.len(), packet_size);
-            return Err(AdinError::PACKET_TOO_BIG);
-        }
-
-        let mut spi_hdr = SpiHeader(0);
-        spi_hdr.set_control(true);
-        spi_hdr.set_addr(sr::RX);
-        let _ = tx_buf.extend_from_slice(spi_hdr.0.to_be_bytes().as_slice());
-
-        if self.spi_crc {
-            // Add CRC for header data
-            let _ = tx_buf.push(crc8(&tx_buf));
-        }
-
-        // Turn around byte, TODO: Unknown that this is.
-        let _ = tx_buf.push(TURN_AROUND_BYTE);
-
-        let mut frame_header = [0, 0];
-        let mut fcs_and_extra = [0; TAIL_LEN];
-
-        // Packet read of write to the MAC packet buffer must be a multipul of 4!
-        let tail_size = (fifo_frame_size & 0x03) + FCS_LEN;
-
-        let mut spi_op = [
-            Operation::Write(&tx_buf),
-            Operation::Read(&mut frame_header),
-            Operation::Read(&mut frame[0..packet_size]),
-            Operation::Read(&mut fcs_and_extra[0..tail_size]),
-        ];
-
-        self.spi.transaction(&mut spi_op).await.map_err(AdinError::Spi)?;
-
-        // According to register `CONFIG2`, bit 5 `CRC_APPEND` discription:
-        // "Similarly, on receive, the CRC32 is forwarded with the frame to the host where the host must verify it is correct."
-        // The application must allways check the FCS. It seems that the MAC/PHY has no option to handle this.
-        let fcs_calc = ETH_FCS::new(&frame[0..packet_size]);
-
-        if fcs_calc.hton_bytes() == fcs_and_extra[0..4] {
-            Ok(packet_size)
-        } else {
-            Err(AdinError::FCS)
-        }
+    pub async fn read_fifo(&mut self, frame: &mut [u8]) -> AEResult<usize, P::SpiError> {
+        self.protocol.read_fifo(frame).await
     }
 
     /// Write to fifo ethernet packet memory send over the wire.
-    pub async fn write_fifo(&mut self, frame: &[u8]) -> AEResult<(), SPI::Error> {
-        const HEAD_LEN: usize = SPI_HEADER_LEN + SPI_HEADER_CRC_LEN + FRAME_HEADER_LEN;
-        const TAIL_LEN: usize = ETH_MIN_LEN - FCS_LEN + FCS_LEN + SPI_SPACE_MULTIPULE;
-
-        if frame.len() < (6 + 6 + 2) {
-            return Err(AdinError::PACKET_TOO_SMALL);
-        }
-        if frame.len() > (MAX_BUFF - FRAME_HEADER_LEN) {
-            return Err(AdinError::PACKET_TOO_BIG);
-        }
-
-        // SPI HEADER + [OPTIONAL SPI CRC] + FRAME HEADER
-        let mut head_data = Vec::<u8, HEAD_LEN>::new();
-        // [OPTIONAL PAD DATA] + FCS + [OPTINAL BYTES MAKE SPI FRAME EVEN]
-        let mut tail_data = Vec::<u8, TAIL_LEN>::new();
-
-        let mut spi_hdr = SpiHeader(0);
-        spi_hdr.set_control(true);
-        spi_hdr.set_write(true);
-        spi_hdr.set_addr(sr::TX);
-
-        head_data
-            .extend_from_slice(spi_hdr.0.to_be_bytes().as_slice())
-            .map_err(|_e| AdinError::PACKET_TOO_BIG)?;
-
-        if self.spi_crc {
-            // Add CRC for header data
-            head_data
-                .push(crc8(&head_data[0..2]))
-                .map_err(|_| AdinError::PACKET_TOO_BIG)?;
-        }
-
-        // Add port number, ADIN1110 its fixed to zero/P1, but for ADIN2111 has two ports.
-        head_data
-            .extend_from_slice(u16::from(PORT_ID_BYTE).to_be_bytes().as_slice())
-            .map_err(|_e| AdinError::PACKET_TOO_BIG)?;
-
-        // ADIN1110 MAC and PHY don´t accept ethernet packet smaller than 64 bytes.
-        // So padded the data minus the FCS, FCS is automatilly added to by the MAC.
-        if frame.len() < ETH_MIN_WITHOUT_FCS_LEN {
-            let _ = tail_data.resize(ETH_MIN_WITHOUT_FCS_LEN - frame.len(), 0x00);
-        }
-
-        // Append FCS by the application
-        if self.append_fcs_on_tx {
-            let mut frame_fcs = ETH_FCS::new(frame);
-
-            if !tail_data.is_empty() {
-                frame_fcs = frame_fcs.update(&tail_data);
-            }
-
-            let _ = tail_data.extend_from_slice(frame_fcs.hton_bytes().as_slice());
-        }
-
-        // len = frame_size + optional padding + 2 bytes Frame header
-        let send_len_orig = frame.len() + tail_data.len() + FRAME_HEADER_LEN;
-
-        let send_len = u32::try_from(send_len_orig).map_err(|_| AdinError::PACKET_TOO_BIG)?;
-
-        // Packet read of write to the MAC packet buffer must be a multipul of 4 bytes!
-        let pad_len = send_len_orig & 0x03;
-        if pad_len != 0 {
-            let spi_pad_len = 4 - pad_len + tail_data.len();
-            let _ = tail_data.resize(spi_pad_len, DONT_CARE_BYTE);
-        }
-
-        self.write_reg(sr::TX_FSIZE, send_len).await?;
-
-        trace!(
-            "TX: hdr {} [{}] {}-{}-{} SIZE: {}",
-            head_data.len(),
-            frame.len(),
-            Bytes(head_data.as_slice()),
-            Bytes(frame),
-            Bytes(tail_data.as_slice()),
-            send_len,
-        );
-
-        let mut transaction = [
-            Operation::Write(head_data.as_slice()),
-            Operation::Write(frame),
-            Operation::Write(tail_data.as_slice()),
-        ];
-
-        self.spi.transaction(&mut transaction).await.map_err(AdinError::Spi)
+    pub async fn write_fifo(&mut self, frame: &[u8]) -> AEResult<(), P::SpiError> {
+        self.protocol.write_fifo(frame).await
     }
 
     /// Programs the mac address in the mac filters.
     /// Also set the boardcast address.
     /// The chip supports 2 priority queues but current code doesn't support this mode.
-    pub async fn set_mac_addr(&mut self, mac: &[u8; 6]) -> AEResult<(), SPI::Error> {
+    pub async fn set_mac_addr(&mut self, mac: &[u8; 6]) -> AEResult<(), P::SpiError> {
         let mac_high_part = u16::from_be_bytes(mac[0..2].try_into().unwrap());
         let mac_low_part = u32::from_be_bytes(mac[2..6].try_into().unwrap());
 
@@ -388,7 +178,57 @@ impl<SPI: SpiDevice> ADIN1110<SPI> {
     }
 }
 
-impl<SPI: SpiDevice> mdio::MdioBus for ADIN1110<SPI> {
+#[cfg(feature = "generic-spi")]
+impl<SPI: SpiDevice> mdio::MdioBus for ADIN1110<GenericSpi<SPI>> {
+    type Error = AdinError<SPI::Error>;
+
+    /// Read from the PHY Registers as Clause 22.
+    async fn read_cl22(&mut self, phy_id: u8, reg: u8) -> Result<u16, Self::Error> {
+        let mdio_acc_val: u32 =
+            (0x1 << 28) | u32::from(phy_id & 0x1F) << 21 | u32::from(reg & 0x1F) << 16 | (0x3 << 26);
+
+        // Result is in the lower half of the answer.
+        #[allow(clippy::cast_possible_truncation)]
+        self.write_mdio_acc_reg(mdio_acc_val).await.map(|val| val as u16)
+    }
+
+    /// Read from the PHY Registers as Clause 45.
+    async fn read_cl45(&mut self, phy_id: u8, regc45: (u8, u16)) -> Result<u16, Self::Error> {
+        let mdio_acc_val = u32::from(phy_id & 0x1F) << 21 | u32::from(regc45.0 & 0x1F) << 16 | u32::from(regc45.1);
+
+        self.write_mdio_acc_reg(mdio_acc_val).await?;
+
+        let mdio_acc_val = u32::from(phy_id & 0x1F) << 21 | u32::from(regc45.0 & 0x1F) << 16 | (0x03 << 26);
+
+        // Result is in the lower half of the answer.
+        #[allow(clippy::cast_possible_truncation)]
+        self.write_mdio_acc_reg(mdio_acc_val).await.map(|val| val as u16)
+    }
+
+    /// Write to the PHY Registers as Clause 22.
+    async fn write_cl22(&mut self, phy_id: u8, reg: u8, val: u16) -> Result<(), Self::Error> {
+        let mdio_acc_val: u32 =
+            (0x1 << 28) | u32::from(phy_id & 0x1F) << 21 | u32::from(reg & 0x1F) << 16 | (0x1 << 26) | u32::from(val);
+
+        self.write_mdio_acc_reg(mdio_acc_val).await.map(|_| ())
+    }
+
+    /// Write to the PHY Registers as Clause 45.
+    async fn write_cl45(&mut self, phy_id: u8, regc45: (u8, u16), value: u16) -> AEResult<(), SPI::Error> {
+        let phy_id = u32::from(phy_id & 0x1F) << 21;
+        let dev_addr = u32::from(regc45.0 & 0x1F) << 16;
+        let reg = u32::from(regc45.1);
+
+        let mdio_acc_val: u32 = phy_id | dev_addr | reg;
+        self.write_mdio_acc_reg(mdio_acc_val).await?;
+
+        let mdio_acc_val: u32 = phy_id | dev_addr | (0x01 << 26) | u32::from(value);
+        self.write_mdio_acc_reg(mdio_acc_val).await.map(|_| ())
+    }
+}
+
+#[cfg(feature = "tc6")]
+impl<SPI: SpiDevice> mdio::MdioBus for ADIN1110<Tc6<SPI>> {
     type Error = AdinError<SPI::Error>;
 
     /// Read from the PHY Registers as Clause 22.
@@ -439,162 +279,183 @@ impl<SPI: SpiDevice> mdio::MdioBus for ADIN1110<SPI> {
 /// Background runner for the ADIN1110.
 ///
 /// You must call `.run()` in a background task for the ADIN1110 to operate.
-pub struct Runner<'d, SPI, INT, RST> {
-    mac: ADIN1110<SPI>,
+pub struct Runner<'d, P: Adin1110Protocol, INT, RST> {
+    mac: ADIN1110<P>,
     ch: ch::Runner<'d, MTU>,
     int: INT,
     is_link_up: bool,
     _reset: RST,
 }
 
-impl<'d, SPI: SpiDevice, INT: Wait, RST: OutputPin> Runner<'d, SPI, INT, RST> {
+impl<P: Adin1110Protocol, INT: Wait, RST: OutputPin> Runner<'_, P, INT, RST>
+where
+    ADIN1110<P>: MdioBus,
+    <ADIN1110<P> as MdioBus>::Error: core::fmt::Debug,
+{
     /// Run the driver.
     #[allow(clippy::too_many_lines)]
     pub async fn run(mut self) -> ! {
+        let (state_chan, mut rx_chan, mut tx_chan) = self.ch.split();
+
         loop {
-            let (state_chan, mut rx_chan, mut tx_chan) = self.ch.split();
+            debug!("Waiting for interrupts");
+            match select(self.int.wait_for_low(), tx_chan.tx_buf()).await {
+                Either::First(_) => {
+                    let mut status1_clr = Status1(0);
+                    let mut status1 = Status1(self.mac.read_reg(sr::STATUS1).await.unwrap());
 
-            loop {
-                debug!("Waiting for interrupts");
-                match select(self.int.wait_for_low(), tx_chan.tx_buf()).await {
-                    Either::First(_) => {
-                        let mut status1_clr = Status1(0);
-                        let mut status1 = Status1(self.mac.read_reg(sr::STATUS1).await.unwrap());
-
-                        while status1.p1_rx_rdy() {
-                            debug!("alloc RX packet buffer");
-                            match select(rx_chan.rx_buf(), tx_chan.tx_buf()).await {
-                                // Handle frames that needs to transmit from the wire.
-                                // Note: rx_chan.rx_buf() channel don´t accept new request
-                                //       when the tx_chan is full. So these will be handled
-                                //       automaticly.
-                                Either::First(frame) => match self.mac.read_fifo(frame).await {
-                                    Ok(n) => {
-                                        rx_chan.rx_done(n);
-                                    }
-                                    Err(e) => match e {
-                                        AdinError::PACKET_TOO_BIG => {
-                                            error!("RX Packet too big, DROP");
-                                            self.mac.write_reg(sr::FIFO_CLR, 1).await.unwrap();
-                                        }
-                                        AdinError::PACKET_TOO_SMALL => {
-                                            error!("RX Packet too small, DROP");
-                                            self.mac.write_reg(sr::FIFO_CLR, 1).await.unwrap();
-                                        }
-                                        AdinError::Spi(e) => {
-                                            error!("RX Spi error {}", e.kind());
-                                        }
-                                        e => {
-                                            error!("RX Error {:?}", e);
-                                        }
-                                    },
-                                },
-                                Either::Second(frame) => {
-                                    // Handle frames that needs to transmit to the wire.
-                                    self.mac.write_fifo(frame).await.unwrap();
-                                    tx_chan.tx_done();
+                    while status1.p1_rx_rdy() {
+                        debug!("alloc RX packet buffer");
+                        match select(rx_chan.rx_buf(), tx_chan.tx_buf()).await {
+                            // Handle frames that needs to transmit from the wire.
+                            // Note: rx_chan.rx_buf() channel don´t accept new request
+                            //       when the tx_chan is full. So these will be handled
+                            //       automaticly.
+                            Either::First(frame) => match self.mac.read_fifo(frame).await {
+                                Ok(n) => {
+                                    rx_chan.rx_done(n);
                                 }
+                                Err(e) => match e {
+                                    AdinError::PACKET_TOO_BIG => {
+                                        error!("RX Packet too big, DROP");
+                                        self.mac.write_reg(sr::FIFO_CLR, 1).await.unwrap();
+                                    }
+                                    AdinError::PACKET_TOO_SMALL => {
+                                        error!("RX Packet too small, DROP");
+                                        self.mac.write_reg(sr::FIFO_CLR, 1).await.unwrap();
+                                    }
+                                    AdinError::Spi(e) => {
+                                        error!("RX Spi error {}", e.kind());
+                                    }
+                                    e => {
+                                        error!("RX Error {:?}", e);
+                                    }
+                                },
+                            },
+                            Either::Second(frame) => {
+                                // Handle frames that needs to transmit to the wire.
+                                self.mac.write_fifo(frame).await.unwrap();
+                                tx_chan.tx_done();
                             }
-                            status1 = Status1(self.mac.read_reg(sr::STATUS1).await.unwrap());
                         }
+                        status1 = Status1(self.mac.read_reg(sr::STATUS1).await.unwrap());
+                    }
 
-                        let status0 = Status0(self.mac.read_reg(sr::STATUS0).await.unwrap());
-                        if status1.0 & !0x1b != 0 {
-                            error!("SPE CHIP STATUS 0:{:08x} 1:{:08x}", status0.0, status1.0);
-                        }
+                    let status0 = Status0(self.mac.read_reg(sr::STATUS0).await.unwrap());
+                    if status1.0 & !0x1b != 0 {
+                        error!("SPE CHIP STATUS 0:{:08x} 1:{:08x}", status0.0, status1.0);
+                    }
 
-                        if status1.tx_rdy() {
-                            status1_clr.set_tx_rdy(true);
-                            trace!("TX_DONE");
-                        }
+                    if status1.tx_rdy() {
+                        status1_clr.set_tx_rdy(true);
+                        trace!("TX_DONE");
+                    }
 
-                        if status1.link_change() {
-                            let link = status1.p1_link_status();
-                            self.is_link_up = link;
+                    if status1.link_change() {
+                        let link = status1.p1_link_status();
+                        self.is_link_up = link;
 
-                            if link {
-                                let link_status = self
-                                    .mac
-                                    .read_cl45(MDIO_PHY_ADDR, RegsC45::DA7::AN_STATUS_EXTRA.into())
-                                    .await
-                                    .unwrap();
+                        if link {
+                            let link_status = self
+                                .mac
+                                .read_cl45(MDIO_PHY_ADDR, RegsC45::DA7::AN_STATUS_EXTRA.into())
+                                .await
+                                .unwrap();
 
-                                let volt = if link_status & (0b11 << 5) == (0b11 << 5) {
-                                    "2.4"
-                                } else {
-                                    "1.0"
-                                };
-
-                                let mse = self
-                                    .mac
-                                    .read_cl45(MDIO_PHY_ADDR, RegsC45::DA1::MSE_VAL.into())
-                                    .await
-                                    .unwrap();
-
-                                info!("LINK Changed: Link Up, Volt: {} V p-p, MSE: {:0004}", volt, mse);
+                            let volt = if link_status & (0b11 << 5) == (0b11 << 5) {
+                                "2.4"
                             } else {
-                                info!("LINK Changed: Link Down");
-                            }
+                                "1.0"
+                            };
 
-                            state_chan.set_link_state(if link { LinkState::Up } else { LinkState::Down });
-                            status1_clr.set_link_change(true);
-                        }
-
-                        if status1.tx_ecc_err() {
-                            error!("SPI TX_ECC_ERR error, CLEAR TX FIFO");
-                            self.mac.write_reg(sr::FIFO_CLR, 2).await.unwrap();
-                            status1_clr.set_tx_ecc_err(true);
-                        }
-
-                        if status1.rx_ecc_err() {
-                            error!("SPI RX_ECC_ERR error");
-                            status1_clr.set_rx_ecc_err(true);
-                        }
-
-                        if status1.spi_err() {
-                            error!("SPI SPI_ERR CRC error");
-                            status1_clr.set_spi_err(true);
-                        }
-
-                        if status0.phyint() {
-                            let crsm_irq_st = self
+                            let mse = self
                                 .mac
-                                .read_cl45(MDIO_PHY_ADDR, RegsC45::DA1E::CRSM_IRQ_STATUS.into())
+                                .read_cl45(MDIO_PHY_ADDR, RegsC45::DA1::MSE_VAL.into())
                                 .await
                                 .unwrap();
 
-                            let phy_irq_st = self
-                                .mac
-                                .read_cl45(MDIO_PHY_ADDR, RegsC45::DA1F::PHY_SYBSYS_IRQ_STATUS.into())
-                                .await
-                                .unwrap();
-
-                            warn!(
-                                "SPE CHIP PHY CRSM_IRQ_STATUS {:04x} PHY_SUBSYS_IRQ_STATUS {:04x}",
-                                crsm_irq_st, phy_irq_st
-                            );
+                            info!("LINK Changed: Link Up, Volt: {} V p-p, MSE: {:0004}", volt, mse);
+                        } else {
+                            info!("LINK Changed: Link Down");
                         }
 
-                        if status0.txfcse() {
-                            error!("Ethernet Frame FCS and calc FCS don't match!");
-                        }
+                        state_chan.set_link_state(if link { LinkState::Up } else { LinkState::Down });
+                        status1_clr.set_link_change(true);
+                    }
 
-                        // Clear status0
-                        self.mac.write_reg(sr::STATUS0, 0xFFF).await.unwrap();
-                        self.mac.write_reg(sr::STATUS1, status1_clr.0).await.unwrap();
+                    if status1.tx_ecc_err() {
+                        error!("SPI TX_ECC_ERR error, CLEAR TX FIFO");
+                        self.mac.write_reg(sr::FIFO_CLR, 2).await.unwrap();
+                        status1_clr.set_tx_ecc_err(true);
                     }
-                    Either::Second(packet) => {
-                        // Handle frames that needs to transmit to the wire.
-                        self.mac.write_fifo(packet).await.unwrap();
-                        tx_chan.tx_done();
+
+                    if status1.rx_ecc_err() {
+                        error!("SPI RX_ECC_ERR error");
+                        status1_clr.set_rx_ecc_err(true);
                     }
+
+                    if status1.spi_err() {
+                        error!("SPI SPI_ERR CRC error");
+                        status1_clr.set_spi_err(true);
+                    }
+
+                    if status0.phyint() {
+                        let crsm_irq_st = self
+                            .mac
+                            .read_cl45(MDIO_PHY_ADDR, RegsC45::DA1E::CRSM_IRQ_STATUS.into())
+                            .await
+                            .unwrap();
+
+                        let phy_irq_st = self
+                            .mac
+                            .read_cl45(MDIO_PHY_ADDR, RegsC45::DA1F::PHY_SYBSYS_IRQ_STATUS.into())
+                            .await
+                            .unwrap();
+
+                        warn!(
+                            "SPE CHIP PHY CRSM_IRQ_STATUS {:04x} PHY_SUBSYS_IRQ_STATUS {:04x}",
+                            crsm_irq_st, phy_irq_st
+                        );
+                    }
+
+                    if status0.txfcse() {
+                        error!("Ethernet Frame FCS and calc FCS don't match!");
+                    }
+
+                    // Clear status0
+                    self.mac.write_reg(sr::STATUS0, 0xFFF).await.unwrap();
+                    self.mac.write_reg(sr::STATUS1, status1_clr.0).await.unwrap();
+                }
+                Either::Second(packet) => {
+                    // Handle frames that needs to transmit to the wire.
+                    self.mac.write_fifo(packet).await.unwrap();
+                    tx_chan.tx_done();
                 }
             }
         }
     }
 }
 
+#[cfg(feature = "generic-spi")]
+impl<SPI: SpiDevice> ADIN1110<GenericSpi<SPI>> {
+    /// Create driver with Generic SPI protocol (existing behavior)
+    pub fn new_generic(spi: SPI, crc_enabled: bool, append_fcs_on_tx: bool) -> Self {
+        let protocol = GenericSpi::new(spi, crc_enabled, append_fcs_on_tx);
+        Self::new(protocol)
+    }
+}
+
+#[cfg(feature = "tc6")]
+impl<SPI: SpiDevice> ADIN1110<Tc6<SPI>> {
+    /// Create driver with OPEN Alliance TC6 SPI protocol
+    pub fn new_tc6(spi: SPI) -> Self {
+        let protocol = Tc6::new(spi);
+        Self::new(protocol)
+    }
+}
+
 /// Obtain a driver for using the ADIN1110 with [`embassy-net`](crates.io/crates/embassy-net).
+#[cfg(feature = "generic-spi")]
 pub async fn new<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait, RST: OutputPin>(
     mac_addr: [u8; 6],
     state: &'_ mut State<N_RX, N_TX>,
@@ -603,7 +464,7 @@ pub async fn new<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait
     mut reset: RST,
     spi_crc: bool,
     append_fcs_on_tx: bool,
-) -> (Device<'_>, Runner<'_, SPI, INT, RST>) {
+) -> (Device<'_>, Runner<'_, GenericSpi<SPI>, INT, RST>) {
     use crate::regs::{IMask0, IMask1};
 
     info!("INIT ADIN1110");
@@ -620,7 +481,7 @@ pub async fn new<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait
     Timer::after_millis(50).await;
 
     // Create device
-    let mut mac = ADIN1110::new(spi_dev, spi_crc, append_fcs_on_tx);
+    let mut mac = ADIN1110::new_generic(spi_dev, spi_crc, append_fcs_on_tx);
 
     // Check PHYID
     let id = mac.read_reg(sr::PHYID).await.unwrap();
@@ -647,13 +508,144 @@ pub async fn new<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait
 
     // Config0
     let mut config0 = Config0(0x0000_0006);
-    config0.set_txfcsve(mac.append_fcs_on_tx);
+    config0.set_txfcsve(append_fcs_on_tx);
     mac.write_reg(sr::CONFIG0, config0.0).await.unwrap();
 
     // Config2
     let mut config2 = Config2(0x0000_0800);
     // crc_append must be disable if tx_fcs_validation_enable is true!
-    config2.set_crc_append(!mac.append_fcs_on_tx);
+    config2.set_crc_append(!append_fcs_on_tx);
+    mac.write_reg(sr::CONFIG2, config2.0).await.unwrap();
+
+    // Pin Mux Config 1
+    let led_val = (0b11 << 6) | (0b11 << 4); // | (0b00 << 1);
+    mac.write_cl45(MDIO_PHY_ADDR, RegsC45::DA1E::DIGIO_PINMUX.into(), led_val)
+        .await
+        .unwrap();
+
+    let mut led_pol = LedPolarity(0);
+    led_pol.set_led1_polarity(LedPol::ActiveLow);
+    led_pol.set_led0_polarity(LedPol::ActiveLow);
+
+    // Led Polarity Regisgere Active Low
+    mac.write_cl45(MDIO_PHY_ADDR, RegsC45::DA1E::LED_POLARITY.into(), led_pol.0)
+        .await
+        .unwrap();
+
+    // Led Both On
+    let mut led_cntr = LedCntrl(0x0);
+
+    // LED1: Yellow
+    led_cntr.set_led1_en(true);
+    led_cntr.set_led1_function(LedFunc::TxLevel2P4);
+    // LED0: Green
+    led_cntr.set_led0_en(true);
+    led_cntr.set_led0_function(LedFunc::LinkupTxRxActicity);
+
+    mac.write_cl45(MDIO_PHY_ADDR, RegsC45::DA1E::LED_CNTRL.into(), led_cntr.0)
+        .await
+        .unwrap();
+
+    // Set ADIN1110 Interrupts, RX_READY and LINK_CHANGE
+    // Enable interrupts LINK_CHANGE, TX_RDY, RX_RDY(P1), SPI_ERR
+    // Have to clear the mask the enable it.
+    let mut imask0_val = IMask0(0x0000_1FBF);
+    imask0_val.set_txfcsem(false);
+    imask0_val.set_phyintm(false);
+    imask0_val.set_txboem(false);
+    imask0_val.set_rxboem(false);
+    imask0_val.set_txpem(false);
+
+    mac.write_reg(sr::IMASK0, imask0_val.0).await.unwrap();
+
+    // Set ADIN1110 Interrupts, RX_READY and LINK_CHANGE
+    // Enable interrupts LINK_CHANGE, TX_RDY, RX_RDY(P1), SPI_ERR
+    // Have to clear the mask the enable it.
+    let mut imask1_val = IMask1(0x43FA_1F1A);
+    imask1_val.set_link_change_mask(false);
+    imask1_val.set_p1_rx_rdy_mask(false);
+    imask1_val.set_spi_err_mask(false);
+    imask1_val.set_tx_ecc_err_mask(false);
+    imask1_val.set_rx_ecc_err_mask(false);
+
+    mac.write_reg(sr::IMASK1, imask1_val.0).await.unwrap();
+
+    // Program mac address but also sets mac filters.
+    mac.set_mac_addr(&mac_addr).await.unwrap();
+
+    let (runner, device) = ch::new(&mut state.ch_state, ch::driver::HardwareAddress::Ethernet(mac_addr));
+    (
+        device,
+        Runner {
+            ch: runner,
+            mac,
+            int,
+            is_link_up: false,
+            _reset: reset,
+        },
+    )
+}
+
+/// Obtain a driver for using the ADIN1110 with [`embassy-net`](crates.io/crates/embassy-net).
+#[cfg(feature = "tc6")]
+pub async fn new_tc6<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait, RST: OutputPin>(
+    mac_addr: [u8; 6],
+    state: &'_ mut State<N_RX, N_TX>,
+    spi_dev: SPI,
+    int: INT,
+    mut reset: RST,
+    append_fcs_on_tx: bool,
+) -> (Device<'_>, Runner<'_, Tc6<SPI>, INT, RST>) {
+    use crate::regs::{IMask0, IMask1};
+
+    info!("INIT ADIN1110");
+
+    // Reset sequence
+    reset.set_low().unwrap();
+
+    // Wait t1: 20-43mS
+    Timer::after_millis(30).await;
+
+    reset.set_high().unwrap();
+
+    // Wait t3: 50mS
+    Timer::after_millis(50).await;
+
+    // Create device
+    let mut mac = ADIN1110::new_tc6(spi_dev);
+
+    // Check PHYID
+    let id = mac.read_reg(sr::PHYID).await.unwrap();
+    assert_eq!(id, PHYID);
+
+    debug!("SPE: CHIP MAC/ID: {:08x}", id);
+
+    #[cfg(any(feature = "defmt", feature = "log"))]
+    {
+        let adin_phy = Phy10BaseT1x::default();
+        let phy_id = adin_phy.get_id(&mut mac).await.unwrap();
+        debug!("SPE: CHIP: PHY ID: {:08x}", phy_id);
+    }
+
+    let mi_control = mac.read_cl22(MDIO_PHY_ADDR, RegsC22::CONTROL as u8).await.unwrap();
+    debug!("SPE CHIP PHY MI_CONTROL {:04x}", mi_control);
+    if mi_control & 0x0800 != 0 {
+        let val = mi_control & !0x0800;
+        debug!("SPE CHIP PHY MI_CONTROL Disable PowerDown");
+        mac.write_cl22(MDIO_PHY_ADDR, RegsC22::CONTROL as u8, val)
+            .await
+            .unwrap();
+    }
+
+    // Config0
+    let mut config0 = Config0(0x0000_0006);
+    config0.set_txfcsve(append_fcs_on_tx);
+    mac.write_reg(sr::CONFIG0, config0.0).await.unwrap();
+
+    // Config2
+    let mut config2 = Config2(0x0000_0800);
+    // crc_append must be disable if tx_fcs_validation_enable is true!
+    config2.set_crc_append(!append_fcs_on_tx);
     mac.write_reg(sr::CONFIG2, config2.0).await.unwrap();
 
     // Pin Mux Config 1
@@ -736,6 +728,8 @@ mod tests {
     use embedded_hal_mock::common::Generic;
     use embedded_hal_mock::eh1::spi::{Mock as SpiMock, Transaction as SpiTransaction};
 
+    use crate::crc8::crc8;
+
     #[derive(Debug, Default)]
     struct CsPinMock {
         pub high: u32,
@@ -777,7 +771,9 @@ mod tests {
     }
 
     struct TestHarnass {
-        spe: ADIN1110<ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction<u8>>, CsPinMock, MockDelay>>,
+        spe: ADIN1110<
+            GenericSpi<ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction<u8>>, CsPinMock, MockDelay>>,
+        >,
         spi: Generic<SpiTransaction<u8>>,
     }
 
@@ -788,9 +784,7 @@ mod tests {
             let spi = SpiMock::new(expectations);
             let spi_dev: ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction<u8>>, CsPinMock, MockDelay> =
                 ExclusiveDevice::new(spi.clone(), cs, delay);
-            let spe: ADIN1110<
-                ExclusiveDevice<embedded_hal_mock::common::Generic<SpiTransaction<u8>>, CsPinMock, MockDelay>,
-            > = ADIN1110::new(spi_dev, spi_crc, append_fcs_on_tx);
+            let spe = ADIN1110::new_generic(spi_dev, spi_crc, append_fcs_on_tx);
 
             Self { spe, spi }
         }
