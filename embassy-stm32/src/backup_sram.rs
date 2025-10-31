@@ -2,9 +2,9 @@
 
 use core::slice;
 
-use crate::_generated::{BKPSRAM_BASE, BKPSRAM_SIZE};
 use embassy_hal_internal::Peri;
 
+use crate::_generated::{BKPSRAM_BASE, BKPSRAM_SIZE};
 use crate::peripherals::BKPSRAM;
 
 /// Value used to determine whether memory has been corrupted

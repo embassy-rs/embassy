@@ -1,10 +1,8 @@
 use core::sync::atomic::{Ordering, compiler_fence};
 
 use crate::pac::common::{RW, Reg};
-
 #[cfg(backup_sram)]
 use crate::pac::pwr::vals::Retention;
-
 pub use crate::pac::rcc::vals::Rtcsel as RtcClockSource;
 use crate::time::Hertz;
 
