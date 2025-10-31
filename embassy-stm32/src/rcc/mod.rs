@@ -5,7 +5,7 @@
 
 use core::mem::MaybeUninit;
 
-mod bd;
+pub(crate) mod bd;
 pub use bd::*;
 
 #[cfg(any(mco, mco1, mco2))]

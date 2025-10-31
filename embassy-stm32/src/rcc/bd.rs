@@ -13,6 +13,9 @@ pub const LSI_FREQ: Hertz = Hertz(40_000);
 #[cfg(not(any(stm32f0, stm32f1, stm32f3)))]
 pub const LSI_FREQ: Hertz = Hertz(32_000);
 
+#[cfg(backup_sram)]
+pub(crate) static WAS_BKPSRAM_ALREADY_POWERED_BY_BATTERY: AtomicBool = AtomicBool::new(false);
+
 #[allow(dead_code)]
 #[derive(Clone, Copy)]
 pub enum LseMode {
