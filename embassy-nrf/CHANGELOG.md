@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - added: Add basic RTC support for nRF54L
 - changed: apply trimming values from FICR.TRIMCNF on nrf53/54l
 - changed: do not panic on BufferedUarte overrun
+- added: allow direct access to the input pin of `gpiote::InputChannel`
+- bugfix: use DETECTMODE_SEC in GPIOTE in secure mode
+- added: allow configuring the idle state of GPIO pins connected to PWM channels
+- changed: allow configuring the PWM peripheral in the constructor of `SimplePwm`
+- changed: support setting duty cycles with inverted polarity in `SimplePwm`
+- added: support setting the duty cycles of all channels at once in `SimplePwm`
+- changed: updated to nrf-pac with nrf52/nrf53/nrf91 register layout more similar to nrf54
+- added: support for nrf54l peripherals: uart, gpiote, twim, twis, spim, spis, dppi, pwm, saadc
+- bugfix: Do not write to UICR from non-secure code on nrf53
+- bugfix: Add delay to uart init anomaly fix
+- changed: `BufferedUarte::read_ready` now uses the same definition for 'empty' so following read calls will not block when true is returned
 
 ## 0.8.0 - 2025-09-30
 

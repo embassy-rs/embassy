@@ -55,14 +55,14 @@ async fn main(_spawner: Spawner) {
     static mut TX_BUF: [u8; NSPAM] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
     let _spam = UarteTx::new(peri!(p, UART1), irqs!(UART1), peri!(p, PIN_A), config.clone());
     let spam_peri = pac::UARTE1;
-    let event = unsafe { Event::new_unchecked(NonNull::new_unchecked(spam_peri.events_endtx().as_ptr())) };
-    let task = unsafe { Task::new_unchecked(NonNull::new_unchecked(spam_peri.tasks_starttx().as_ptr())) };
+    let event = unsafe { Event::new_unchecked(NonNull::new_unchecked(spam_peri.events_dma().tx().end().as_ptr())) };
+    let task = unsafe { Task::new_unchecked(NonNull::new_unchecked(spam_peri.tasks_dma().tx().start().as_ptr())) };
     let mut spam_ppi = Ppi::new_one_to_one(p.PPI_CH2, event, task);
     spam_ppi.enable();
     let p = (&raw mut TX_BUF) as *mut u8;
-    spam_peri.txd().ptr().write_value(p as u32);
-    spam_peri.txd().maxcnt().write(|w| w.set_maxcnt(NSPAM as _));
-    spam_peri.tasks_starttx().write_value(1);
+    spam_peri.dma().tx().ptr().write_value(p as u32);
+    spam_peri.dma().tx().maxcnt().write(|w| w.set_maxcnt(NSPAM as _));
+    spam_peri.tasks_dma().tx().start().write_value(1);
 
     let mut i = 0;
     let mut total = 0;

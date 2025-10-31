@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## Unreleased - ReleaseDate
+- LPC55: PWM simple
+- LPC55: Move ALT definitions for USART to TX/RX pin impls. 
 - LPC55: Remove internal match_iocon macro
 - LPC55: DMA Controller and asynchronous version of USART
 - Moved NXP LPC55S69 from `lpc55-pac` to `nxp-pac`

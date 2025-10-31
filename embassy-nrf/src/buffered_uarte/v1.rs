@@ -102,25 +102,25 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
                 ss.rx_waker.wake();
             }
 
-            if r.events_endrx().read() != 0 {
+            if r.events_dma().rx().end().read() != 0 {
                 //trace!("  irq_rx: endrx");
-                r.events_endrx().write_value(0);
+                r.events_dma().rx().end().write_value(0);
 
                 let val = s.rx_ended_count.load(Ordering::Relaxed);
                 s.rx_ended_count.store(val.wrapping_add(1), Ordering::Relaxed);
             }
 
-            if r.events_rxstarted().read() != 0 || !s.rx_started.load(Ordering::Relaxed) {
+            if r.events_dma().rx().ready().read() != 0 || !s.rx_started.load(Ordering::Relaxed) {
                 //trace!("  irq_rx: rxstarted");
                 let (ptr, len) = rx.push_buf();
                 if len >= half_len {
-                    r.events_rxstarted().write_value(0);
+                    r.events_dma().rx().ready().write_value(0);
 
                     //trace!("  irq_rx: starting second {:?}", half_len);
 
                     // Set up the DMA read
-                    r.rxd().ptr().write_value(ptr as u32);
-                    r.rxd().maxcnt().write(|w| w.set_maxcnt(half_len as _));
+                    r.dma().rx().ptr().write_value(ptr as u32);
+                    r.dma().rx().maxcnt().write(|w| w.set_maxcnt(half_len as _));
 
                     let chn = s.rx_ppi_ch.load(Ordering::Relaxed);
 
@@ -133,9 +133,9 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
                     // and manually start.
 
                     // check again in case endrx has happened between the last check and now.
-                    if r.events_endrx().read() != 0 {
+                    if r.events_dma().rx().end().read() != 0 {
                         //trace!("  irq_rx: endrx");
-                        r.events_endrx().write_value(0);
+                        r.events_dma().rx().end().write_value(0);
 
                         let val = s.rx_ended_count.load(Ordering::Relaxed);
                         s.rx_ended_count.store(val.wrapping_add(1), Ordering::Relaxed);
@@ -161,7 +161,7 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
                         ppi::regs().chenclr().write(|w| w.set_ch(chn as _, true));
 
                         // manually start
-                        r.tasks_startrx().write_value(1);
+                        r.tasks_dma().rx().start().write_value(1);
                     }
 
                     rx.push_done(half_len);
@@ -170,7 +170,7 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
                     s.rx_started.store(true, Ordering::Relaxed);
                 } else {
                     //trace!("  irq_rx: rxstarted no buf");
-                    r.intenclr().write(|w| w.set_rxstarted(true));
+                    r.intenclr().write(|w| w.set_dmarxready(true));
                 }
             }
         }
@@ -179,8 +179,8 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
 
         if let Some(mut tx) = unsafe { s.tx_buf.try_reader() } {
             // TX end
-            if r.events_endtx().read() != 0 {
-                r.events_endtx().write_value(0);
+            if r.events_dma().tx().end().read() != 0 {
+                r.events_dma().tx().end().write_value(0);
 
                 let n = s.tx_count.load(Ordering::Relaxed);
                 //trace!("  irq_tx: endtx {:?}", n);
@@ -198,11 +198,11 @@ impl<U: UarteInstance> interrupt::typelevel::Handler<U::Interrupt> for Interrupt
                     s.tx_count.store(len, Ordering::Relaxed);
 
                     // Set up the DMA write
-                    r.txd().ptr().write_value(ptr as u32);
-                    r.txd().maxcnt().write(|w| w.set_maxcnt(len as _));
+                    r.dma().tx().ptr().write_value(ptr as u32);
+                    r.dma().tx().maxcnt().write(|w| w.set_maxcnt(len as _));
 
                     // Start UARTE Transmit transaction
-                    r.tasks_starttx().write_value(1);
+                    r.tasks_dma().tx().start().write_value(1);
                 }
             }
         }
@@ -456,11 +456,11 @@ impl<'d> BufferedUarteTx<'d> {
         let len = tx_buffer.len();
         unsafe { buffered_state.tx_buf.init(tx_buffer.as_mut_ptr(), len) };
 
-        r.events_txstarted().write_value(0);
+        r.events_dma().tx().ready().write_value(0);
 
         // Enable interrupts
         r.intenset().write(|w| {
-            w.set_endtx(true);
+            w.set_dmatxend(true);
         });
 
         Self {
@@ -551,11 +551,11 @@ impl<'a> Drop for BufferedUarteTx<'a> {
 
         r.intenclr().write(|w| {
             w.set_txdrdy(true);
-            w.set_txstarted(true);
+            w.set_dmatxready(true);
             w.set_txstopped(true);
         });
         r.events_txstopped().write_value(0);
-        r.tasks_stoptx().write_value(1);
+        r.tasks_dma().tx().stop().write_value(1);
         while r.events_txstopped().read() == 0 {}
 
         let s = self.buffered_state;
@@ -701,16 +701,16 @@ impl<'d> BufferedUarteRx<'d> {
         let errors = r.errorsrc().read();
         r.errorsrc().write_value(errors);
 
-        r.events_rxstarted().write_value(0);
+        r.events_dma().rx().ready().write_value(0);
         r.events_error().write_value(0);
-        r.events_endrx().write_value(0);
+        r.events_dma().rx().end().write_value(0);
 
         // Enable interrupts
         r.intenset().write(|w| {
-            w.set_endtx(true);
-            w.set_rxstarted(true);
+            w.set_dmatxend(true);
+            w.set_dmarxready(true);
             w.set_error(true);
-            w.set_endrx(true);
+            w.set_dmarxend(true);
         });
 
         // Configure byte counter.
@@ -729,8 +729,8 @@ impl<'d> BufferedUarteRx<'d> {
         let mut ppi_group = PpiGroup::new(ppi_group);
         let mut ppi_ch2 = Ppi::new_one_to_two(
             ppi_ch2,
-            Event::from_reg(r.events_endrx()),
-            Task::from_reg(r.tasks_startrx()),
+            Event::from_reg(r.events_dma().rx().end()),
+            Task::from_reg(r.tasks_dma().rx().start()),
             ppi_group.task_disable_all(),
         );
         ppi_ch2.disable();
@@ -748,6 +748,30 @@ impl<'d> BufferedUarteRx<'d> {
         }
     }
 
+    fn get_rxdrdy_counter(&self) -> usize {
+        let s = self.buffered_state;
+        let timer = &self.timer;
+
+        // Read the RXDRDY counter.
+        timer.cc(0).capture();
+        let mut rxdrdy = timer.cc(0).read() as usize;
+        //trace!("  rxdrdy count = {:?}", rxdrdy);
+
+        // We've set a compare channel that resets the counter to 0 when it reaches `len*2`.
+        // However, it's unclear if that's instant, or there's a small window where you can
+        // still read `len()*2`.
+        // This could happen if in one clock cycle the counter is updated, and in the next the
+        // clear takes effect. The docs are very sparse, they just say "Task delays: After TIMER
+        // is started, the CLEAR, COUNT, and STOP tasks are guaranteed to take effect within one
+        // clock cycle of the PCLK16M." :shrug:
+        // So, we wrap the counter ourselves, just in case.
+        if rxdrdy > s.rx_buf.len() * 2 {
+            rxdrdy = 0;
+        }
+
+        rxdrdy
+    }
+
     /// Pull some bytes from this source into the specified buffer, returning how many bytes were read.
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         let data = self.fill_buf().await?;
@@ -762,7 +786,7 @@ impl<'d> BufferedUarteRx<'d> {
         let r = self.r;
         let s = self.buffered_state;
         let ss = self.state;
-        let timer = &self.timer;
+
         poll_fn(move |cx| {
             compiler_fence(Ordering::SeqCst);
             //trace!("poll_read");
@@ -771,22 +795,7 @@ impl<'d> BufferedUarteRx<'d> {
                 return Poll::Ready(Err(Error::Overrun));
             }
 
-            // Read the RXDRDY counter.
-            timer.cc(0).capture();
-            let mut end = timer.cc(0).read() as usize;
-            //trace!("  rxdrdy count = {:?}", end);
-
-            // We've set a compare channel that resets the counter to 0 when it reaches `len*2`.
-            // However, it's unclear if that's instant, or there's a small window where you can
-            // still read `len()*2`.
-            // This could happen if in one clock cycle the counter is updated, and in the next the
-            // clear takes effect. The docs are very sparse, they just say "Task delays: After TIMER
-            // is started, the CLEAR, COUNT, and STOP tasks are guaranteed to take effect within one
-            // clock cycle of the PCLK16M." :shrug:
-            // So, we wrap the counter ourselves, just in case.
-            if end > s.rx_buf.len() * 2 {
-                end = 0
-            }
+            let mut end = self.get_rxdrdy_counter();
 
             // This logic mirrors `atomic_ring_buffer::Reader::pop_buf()`
             let mut start = s.rx_buf.start.load(Ordering::Relaxed);
@@ -823,7 +832,7 @@ impl<'d> BufferedUarteRx<'d> {
         let s = self.buffered_state;
         let mut rx = unsafe { s.rx_buf.reader() };
         rx.pop_done(amt);
-        self.r.intenset().write(|w| w.set_rxstarted(true));
+        self.r.intenset().write(|w| w.set_dmarxready(true));
     }
 
     /// we are ready to read if there is data in the buffer
@@ -832,7 +841,11 @@ impl<'d> BufferedUarteRx<'d> {
         if state.rx_overrun.swap(false, Ordering::Acquire) {
             return Err(Error::Overrun);
         }
-        Ok(!state.rx_buf.is_empty())
+
+        let start = state.rx_buf.start.load(Ordering::Relaxed);
+        let end = self.get_rxdrdy_counter();
+
+        Ok(start != end)
     }
 }
 
@@ -846,11 +859,11 @@ impl<'a> Drop for BufferedUarteRx<'a> {
 
         r.intenclr().write(|w| {
             w.set_rxdrdy(true);
-            w.set_rxstarted(true);
+            w.set_dmarxready(true);
             w.set_rxto(true);
         });
         r.events_rxto().write_value(0);
-        r.tasks_stoprx().write_value(1);
+        r.tasks_dma().rx().stop().write_value(1);
         while r.events_rxto().read() == 0 {}
 
         let s = self.buffered_state;
