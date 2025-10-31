@@ -340,19 +340,16 @@ impl Drop for RingBufferedUartRx<'_> {
 /// For usart_v1 and usart_v2, all status flags must be handled together anyway because all flags
 /// are cleared by a single read to the RDR register.
 fn check_idle_and_errors(r: Regs) -> Result<bool, Error> {
-    // Critical section is required so that the flags aren't set after read and before clear
-    let sr = critical_section::with(|_| {
-        // SAFETY: read only and we only use Rx related flags
-        let sr = sr(r).read();
+    // SAFETY: read only and we only use Rx related flags
+    let sr = sr(r).read();
 
-        #[cfg(not(any(usart_v3, usart_v4)))]
-        unsafe {
-            // This read also clears the error and idle interrupt flags on v1 (TODO and v2?)
-            rdr(r).read_volatile()
-        };
-        clear_interrupt_flags(r, sr);
-        sr
-    });
+    #[cfg(not(any(usart_v3, usart_v4)))]
+    unsafe {
+        // This read also clears the error and idle interrupt flags on v1 (TODO and v2?)
+        rdr(r).read_volatile()
+    };
+    clear_interrupt_flags(r, sr);
+
     if sr.pe() {
         Err(Error::Parity)
     } else if sr.fe() {
