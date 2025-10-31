@@ -54,6 +54,8 @@ pub mod timer;
 
 #[cfg(adc)]
 pub mod adc;
+#[cfg(backup_sram)]
+pub mod backup_sram;
 #[cfg(can)]
 pub mod can;
 // FIXME: Cordic driver cause stm32u5a5zj crash
