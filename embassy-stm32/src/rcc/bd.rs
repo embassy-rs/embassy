@@ -206,9 +206,8 @@ impl LsConfig {
         // Enable backup regulator for peristent battery backed sram
         #[cfg(backup_sram)]
         {
-            let mut backup_sram_state = Retention::LOST;
             crate::pac::PWR.bdcr().modify(|w| {
-                backup_sram_state = w.bren();
+                critical_section::with(|_| unsafe { super::BKSRAM_RETAINED = w.bren() == Retention::PRESERVED });
 
                 w.set_bren(match self.enable_backup_sram {
                     false => Retention::LOST,
@@ -219,13 +218,6 @@ impl LsConfig {
             if self.enable_backup_sram {
                 // Wait for backup regulator voltage to stabilize
                 while !crate::pac::PWR.bdsr().read().brrdy() {}
-            }
-
-            if self.enable_backup_sram && backup_sram_state == Retention::LOST {
-                // Clear the magic value
-                unsafe {
-                    (crate::_generated::BKPSRAM_BASE as *mut u32).write_volatile(0);
-                }
             }
         }
 

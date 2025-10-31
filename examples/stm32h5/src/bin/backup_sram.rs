@@ -3,7 +3,8 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::{Config, backup_sram};
+use embassy_stm32::Config;
+use embassy_stm32::backup_sram::BackupMemory;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -15,7 +16,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(config);
     info!("Started!");
 
-    let (bytes, status) = backup_sram::init(p.BKPSRAM);
+    let (bytes, status) = BackupMemory::new(p.BKPSRAM);
 
     match status {
         false => info!("BKPSRAM just enabled"),
