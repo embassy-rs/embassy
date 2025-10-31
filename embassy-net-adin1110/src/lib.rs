@@ -294,7 +294,7 @@ pub struct Runner<'d, P: Adin1110Protocol, INT, RST> {
     _reset: RST,
 }
 
-impl<'d, P: Adin1110Protocol, INT: Wait, RST: OutputPin> Runner<'d, P, INT, RST>
+impl<P: Adin1110Protocol, INT: Wait, RST: OutputPin> Runner<'_, P, INT, RST>
 where
     ADIN1110<P>: MdioBus,
     <ADIN1110<P> as MdioBus>::Error: core::fmt::Debug,
@@ -302,143 +302,141 @@ where
     /// Run the driver.
     #[allow(clippy::too_many_lines)]
     pub async fn run(mut self) -> ! {
+        let (state_chan, mut rx_chan, mut tx_chan) = self.ch.split();
+
         loop {
-            let (state_chan, mut rx_chan, mut tx_chan) = self.ch.split();
+            debug!("Waiting for interrupts");
+            match select(self.int.wait_for_low(), tx_chan.tx_buf()).await {
+                Either::First(_) => {
+                    let mut status1_clr = Status1(0);
+                    let mut status1 = Status1(self.mac.read_reg(sr::STATUS1).await.unwrap());
 
-            loop {
-                debug!("Waiting for interrupts");
-                match select(self.int.wait_for_low(), tx_chan.tx_buf()).await {
-                    Either::First(_) => {
-                        let mut status1_clr = Status1(0);
-                        let mut status1 = Status1(self.mac.read_reg(sr::STATUS1).await.unwrap());
-
-                        while status1.p1_rx_rdy() {
-                            debug!("alloc RX packet buffer");
-                            match select(rx_chan.rx_buf(), tx_chan.tx_buf()).await {
-                                // Handle frames that needs to transmit from the wire.
-                                // Note: rx_chan.rx_buf() channel don´t accept new request
-                                //       when the tx_chan is full. So these will be handled
-                                //       automaticly.
-                                Either::First(frame) => match self.mac.read_fifo(frame).await {
-                                    Ok(n) => {
-                                        rx_chan.rx_done(n);
-                                    }
-                                    Err(e) => match e {
-                                        AdinError::PACKET_TOO_BIG => {
-                                            error!("RX Packet too big, DROP");
-                                            self.mac.write_reg(sr::FIFO_CLR, 1).await.unwrap();
-                                        }
-                                        AdinError::PACKET_TOO_SMALL => {
-                                            error!("RX Packet too small, DROP");
-                                            self.mac.write_reg(sr::FIFO_CLR, 1).await.unwrap();
-                                        }
-                                        AdinError::Spi(e) => {
-                                            error!("RX Spi error {}", e.kind());
-                                        }
-                                        e => {
-                                            error!("RX Error {:?}", e);
-                                        }
-                                    },
-                                },
-                                Either::Second(frame) => {
-                                    // Handle frames that needs to transmit to the wire.
-                                    self.mac.write_fifo(frame).await.unwrap();
-                                    tx_chan.tx_done();
+                    while status1.p1_rx_rdy() {
+                        debug!("alloc RX packet buffer");
+                        match select(rx_chan.rx_buf(), tx_chan.tx_buf()).await {
+                            // Handle frames that needs to transmit from the wire.
+                            // Note: rx_chan.rx_buf() channel don´t accept new request
+                            //       when the tx_chan is full. So these will be handled
+                            //       automaticly.
+                            Either::First(frame) => match self.mac.read_fifo(frame).await {
+                                Ok(n) => {
+                                    rx_chan.rx_done(n);
                                 }
+                                Err(e) => match e {
+                                    AdinError::PACKET_TOO_BIG => {
+                                        error!("RX Packet too big, DROP");
+                                        self.mac.write_reg(sr::FIFO_CLR, 1).await.unwrap();
+                                    }
+                                    AdinError::PACKET_TOO_SMALL => {
+                                        error!("RX Packet too small, DROP");
+                                        self.mac.write_reg(sr::FIFO_CLR, 1).await.unwrap();
+                                    }
+                                    AdinError::Spi(e) => {
+                                        error!("RX Spi error {}", e.kind());
+                                    }
+                                    e => {
+                                        error!("RX Error {:?}", e);
+                                    }
+                                },
+                            },
+                            Either::Second(frame) => {
+                                // Handle frames that needs to transmit to the wire.
+                                self.mac.write_fifo(frame).await.unwrap();
+                                tx_chan.tx_done();
                             }
-                            status1 = Status1(self.mac.read_reg(sr::STATUS1).await.unwrap());
                         }
+                        status1 = Status1(self.mac.read_reg(sr::STATUS1).await.unwrap());
+                    }
 
-                        let status0 = Status0(self.mac.read_reg(sr::STATUS0).await.unwrap());
-                        if status1.0 & !0x1b != 0 {
-                            error!("SPE CHIP STATUS 0:{:08x} 1:{:08x}", status0.0, status1.0);
-                        }
+                    let status0 = Status0(self.mac.read_reg(sr::STATUS0).await.unwrap());
+                    if status1.0 & !0x1b != 0 {
+                        error!("SPE CHIP STATUS 0:{:08x} 1:{:08x}", status0.0, status1.0);
+                    }
 
-                        if status1.tx_rdy() {
-                            status1_clr.set_tx_rdy(true);
-                            trace!("TX_DONE");
-                        }
+                    if status1.tx_rdy() {
+                        status1_clr.set_tx_rdy(true);
+                        trace!("TX_DONE");
+                    }
 
-                        if status1.link_change() {
-                            let link = status1.p1_link_status();
-                            self.is_link_up = link;
+                    if status1.link_change() {
+                        let link = status1.p1_link_status();
+                        self.is_link_up = link;
 
-                            if link {
-                                let link_status = self
-                                    .mac
-                                    .read_cl45(MDIO_PHY_ADDR, RegsC45::DA7::AN_STATUS_EXTRA.into())
-                                    .await
-                                    .unwrap();
+                        if link {
+                            let link_status = self
+                                .mac
+                                .read_cl45(MDIO_PHY_ADDR, RegsC45::DA7::AN_STATUS_EXTRA.into())
+                                .await
+                                .unwrap();
 
-                                let volt = if link_status & (0b11 << 5) == (0b11 << 5) {
-                                    "2.4"
-                                } else {
-                                    "1.0"
-                                };
-
-                                let mse = self
-                                    .mac
-                                    .read_cl45(MDIO_PHY_ADDR, RegsC45::DA1::MSE_VAL.into())
-                                    .await
-                                    .unwrap();
-
-                                info!("LINK Changed: Link Up, Volt: {} V p-p, MSE: {:0004}", volt, mse);
+                            let volt = if link_status & (0b11 << 5) == (0b11 << 5) {
+                                "2.4"
                             } else {
-                                info!("LINK Changed: Link Down");
-                            }
+                                "1.0"
+                            };
 
-                            state_chan.set_link_state(if link { LinkState::Up } else { LinkState::Down });
-                            status1_clr.set_link_change(true);
-                        }
-
-                        if status1.tx_ecc_err() {
-                            error!("SPI TX_ECC_ERR error, CLEAR TX FIFO");
-                            self.mac.write_reg(sr::FIFO_CLR, 2).await.unwrap();
-                            status1_clr.set_tx_ecc_err(true);
-                        }
-
-                        if status1.rx_ecc_err() {
-                            error!("SPI RX_ECC_ERR error");
-                            status1_clr.set_rx_ecc_err(true);
-                        }
-
-                        if status1.spi_err() {
-                            error!("SPI SPI_ERR CRC error");
-                            status1_clr.set_spi_err(true);
-                        }
-
-                        if status0.phyint() {
-                            let crsm_irq_st = self
+                            let mse = self
                                 .mac
-                                .read_cl45(MDIO_PHY_ADDR, RegsC45::DA1E::CRSM_IRQ_STATUS.into())
+                                .read_cl45(MDIO_PHY_ADDR, RegsC45::DA1::MSE_VAL.into())
                                 .await
                                 .unwrap();
 
-                            let phy_irq_st = self
-                                .mac
-                                .read_cl45(MDIO_PHY_ADDR, RegsC45::DA1F::PHY_SYBSYS_IRQ_STATUS.into())
-                                .await
-                                .unwrap();
-
-                            warn!(
-                                "SPE CHIP PHY CRSM_IRQ_STATUS {:04x} PHY_SUBSYS_IRQ_STATUS {:04x}",
-                                crsm_irq_st, phy_irq_st
-                            );
+                            info!("LINK Changed: Link Up, Volt: {} V p-p, MSE: {:0004}", volt, mse);
+                        } else {
+                            info!("LINK Changed: Link Down");
                         }
 
-                        if status0.txfcse() {
-                            error!("Ethernet Frame FCS and calc FCS don't match!");
-                        }
+                        state_chan.set_link_state(if link { LinkState::Up } else { LinkState::Down });
+                        status1_clr.set_link_change(true);
+                    }
 
-                        // Clear status0
-                        self.mac.write_reg(sr::STATUS0, 0xFFF).await.unwrap();
-                        self.mac.write_reg(sr::STATUS1, status1_clr.0).await.unwrap();
+                    if status1.tx_ecc_err() {
+                        error!("SPI TX_ECC_ERR error, CLEAR TX FIFO");
+                        self.mac.write_reg(sr::FIFO_CLR, 2).await.unwrap();
+                        status1_clr.set_tx_ecc_err(true);
                     }
-                    Either::Second(packet) => {
-                        // Handle frames that needs to transmit to the wire.
-                        self.mac.write_fifo(packet).await.unwrap();
-                        tx_chan.tx_done();
+
+                    if status1.rx_ecc_err() {
+                        error!("SPI RX_ECC_ERR error");
+                        status1_clr.set_rx_ecc_err(true);
                     }
+
+                    if status1.spi_err() {
+                        error!("SPI SPI_ERR CRC error");
+                        status1_clr.set_spi_err(true);
+                    }
+
+                    if status0.phyint() {
+                        let crsm_irq_st = self
+                            .mac
+                            .read_cl45(MDIO_PHY_ADDR, RegsC45::DA1E::CRSM_IRQ_STATUS.into())
+                            .await
+                            .unwrap();
+
+                        let phy_irq_st = self
+                            .mac
+                            .read_cl45(MDIO_PHY_ADDR, RegsC45::DA1F::PHY_SYBSYS_IRQ_STATUS.into())
+                            .await
+                            .unwrap();
+
+                        warn!(
+                            "SPE CHIP PHY CRSM_IRQ_STATUS {:04x} PHY_SUBSYS_IRQ_STATUS {:04x}",
+                            crsm_irq_st, phy_irq_st
+                        );
+                    }
+
+                    if status0.txfcse() {
+                        error!("Ethernet Frame FCS and calc FCS don't match!");
+                    }
+
+                    // Clear status0
+                    self.mac.write_reg(sr::STATUS0, 0xFFF).await.unwrap();
+                    self.mac.write_reg(sr::STATUS1, status1_clr.0).await.unwrap();
+                }
+                Either::Second(packet) => {
+                    // Handle frames that needs to transmit to the wire.
+                    self.mac.write_fifo(packet).await.unwrap();
+                    tx_chan.tx_done();
                 }
             }
         }

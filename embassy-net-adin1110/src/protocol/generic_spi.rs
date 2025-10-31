@@ -19,7 +19,7 @@ pub struct GenericSpi<SPI> {
 }
 
 impl<SPI> GenericSpi<SPI> {
-    /// Create a new GenericSpi protocol handler
+    /// Create a new `GenericSpi` protocol handler
     pub fn new(spi: SPI, crc_enabled: bool, append_fcs_on_tx: bool) -> Self {
         Self {
             spi,

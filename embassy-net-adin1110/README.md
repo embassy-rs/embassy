@@ -17,7 +17,7 @@ In the industry SPE is also called [`APL (Advanced Physical Layer)`](https://www
 
 APL can be used in [`intrinsic safety applications/explosion hazardous areas`](https://en.wikipedia.org/wiki/Electrical_equipment_in_hazardous_areas) which has its own name and standard called [`2-WISE (2-wire intrinsically safe ethernet) IEC TS 60079-47:2021`](https://webstore.iec.ch/publication/64292).
 
-`10 BASE-T1L` and `ADIN1110` are designed to support intrinsic safety applications. The power supply energy is fixed and PDoL is not supported.
+`10BASE-T1L` and `ADIN1110` are designed to support intrinsic safety applications. The power supply energy is fixed and `PoDL` is not supported.
 
 ## Supported SPI modes
 

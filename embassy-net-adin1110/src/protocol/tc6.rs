@@ -1,5 +1,4 @@
 use embedded_hal_async::spi::{Operation, SpiDevice};
-use heapless::Vec;
 
 use super::Adin1110Protocol;
 use crate::regs::SpiRegisters as sr;

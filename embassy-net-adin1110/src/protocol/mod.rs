@@ -1,9 +1,9 @@
-/// Protocol abstraction for ADIN1110 SPI communication
-///
-/// This module defines a trait-based abstraction for different SPI protocols
-/// supported by the ADIN1110 chip:
-/// - Generic SPI
-/// - OPEN Alliance TC6
+//! Protocol abstraction for ADIN1110 SPI communication
+//!
+//! This module defines a trait-based abstraction for different SPI protocols
+//! supported by the ADIN1110 chip:
+//! - Generic SPI
+//! - OPEN Alliance TC6
 
 #[cfg(feature = "generic-spi")]
 mod generic_spi;
