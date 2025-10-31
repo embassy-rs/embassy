@@ -7,6 +7,7 @@ use embassy_hal_internal::Peri;
 use crate::_generated::{BKPSRAM_BASE, BKPSRAM_SIZE};
 use crate::peripherals::BKPSRAM;
 
+/// Struct used to initilize backup sram
 pub struct BackupMemory {}
 
 impl BackupMemory {
