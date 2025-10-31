@@ -11,7 +11,10 @@
 mod fmt;
 
 mod crc32;
+
+#[cfg(feature = "generic-spi")]
 mod crc8;
+
 mod mdio;
 mod phy;
 mod protocol;
@@ -78,19 +81,8 @@ const TURN_AROUND_BYTE: u8 = 0x00;
 const ETH_MIN_LEN: usize = 64;
 /// Ethernet `Frame Check Sequence` length
 const FCS_LEN: usize = 4;
-/// Packet minimal frame/packet length without `Frame Check Sequence` length
-const ETH_MIN_WITHOUT_FCS_LEN: usize = ETH_MIN_LEN - FCS_LEN;
-
-/// SPI Header, contains SPI action and register id.
-const SPI_HEADER_LEN: usize = 2;
-/// SPI Header CRC length
-const SPI_HEADER_CRC_LEN: usize = 1;
-/// SPI Header Turn Around length
-const SPI_HEADER_TA_LEN: usize = 1;
 /// Frame Header length
 const FRAME_HEADER_LEN: usize = 2;
-/// Space for last bytes to create multipule 4 bytes on the end of a FIFO read/write.
-const SPI_SPACE_MULTIPULE: usize = 3;
 
 /// P1 = 0x00, P2 = 0x01
 const PORT_ID_BYTE: u8 = 0x00;
@@ -186,6 +178,7 @@ impl<P: Adin1110Protocol> ADIN1110<P> {
     }
 }
 
+#[cfg(feature = "generic-spi")]
 impl<SPI: SpiDevice> mdio::MdioBus for ADIN1110<GenericSpi<SPI>> {
     type Error = AdinError<SPI::Error>;
 
@@ -460,6 +453,7 @@ impl<SPI: SpiDevice> ADIN1110<Tc6<SPI>> {
         Self::new(protocol)
     }
 }
+
 /// Obtain a driver for using the ADIN1110 with [`embassy-net`](crates.io/crates/embassy-net).
 #[cfg(feature = "generic-spi")]
 pub async fn new<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait, RST: OutputPin>(
@@ -488,6 +482,137 @@ pub async fn new<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait
 
     // Create device
     let mut mac = ADIN1110::new_generic(spi_dev, spi_crc, append_fcs_on_tx);
+
+    // Check PHYID
+    let id = mac.read_reg(sr::PHYID).await.unwrap();
+    assert_eq!(id, PHYID);
+
+    debug!("SPE: CHIP MAC/ID: {:08x}", id);
+
+    #[cfg(any(feature = "defmt", feature = "log"))]
+    {
+        let adin_phy = Phy10BaseT1x::default();
+        let phy_id = adin_phy.get_id(&mut mac).await.unwrap();
+        debug!("SPE: CHIP: PHY ID: {:08x}", phy_id);
+    }
+
+    let mi_control = mac.read_cl22(MDIO_PHY_ADDR, RegsC22::CONTROL as u8).await.unwrap();
+    debug!("SPE CHIP PHY MI_CONTROL {:04x}", mi_control);
+    if mi_control & 0x0800 != 0 {
+        let val = mi_control & !0x0800;
+        debug!("SPE CHIP PHY MI_CONTROL Disable PowerDown");
+        mac.write_cl22(MDIO_PHY_ADDR, RegsC22::CONTROL as u8, val)
+            .await
+            .unwrap();
+    }
+
+    // Config0
+    let mut config0 = Config0(0x0000_0006);
+    config0.set_txfcsve(append_fcs_on_tx);
+    mac.write_reg(sr::CONFIG0, config0.0).await.unwrap();
+
+    // Config2
+    let mut config2 = Config2(0x0000_0800);
+    // crc_append must be disable if tx_fcs_validation_enable is true!
+    config2.set_crc_append(!append_fcs_on_tx);
+    mac.write_reg(sr::CONFIG2, config2.0).await.unwrap();
+
+    // Pin Mux Config 1
+    let led_val = (0b11 << 6) | (0b11 << 4); // | (0b00 << 1);
+    mac.write_cl45(MDIO_PHY_ADDR, RegsC45::DA1E::DIGIO_PINMUX.into(), led_val)
+        .await
+        .unwrap();
+
+    let mut led_pol = LedPolarity(0);
+    led_pol.set_led1_polarity(LedPol::ActiveLow);
+    led_pol.set_led0_polarity(LedPol::ActiveLow);
+
+    // Led Polarity Regisgere Active Low
+    mac.write_cl45(MDIO_PHY_ADDR, RegsC45::DA1E::LED_POLARITY.into(), led_pol.0)
+        .await
+        .unwrap();
+
+    // Led Both On
+    let mut led_cntr = LedCntrl(0x0);
+
+    // LED1: Yellow
+    led_cntr.set_led1_en(true);
+    led_cntr.set_led1_function(LedFunc::TxLevel2P4);
+    // LED0: Green
+    led_cntr.set_led0_en(true);
+    led_cntr.set_led0_function(LedFunc::LinkupTxRxActicity);
+
+    mac.write_cl45(MDIO_PHY_ADDR, RegsC45::DA1E::LED_CNTRL.into(), led_cntr.0)
+        .await
+        .unwrap();
+
+    // Set ADIN1110 Interrupts, RX_READY and LINK_CHANGE
+    // Enable interrupts LINK_CHANGE, TX_RDY, RX_RDY(P1), SPI_ERR
+    // Have to clear the mask the enable it.
+    let mut imask0_val = IMask0(0x0000_1FBF);
+    imask0_val.set_txfcsem(false);
+    imask0_val.set_phyintm(false);
+    imask0_val.set_txboem(false);
+    imask0_val.set_rxboem(false);
+    imask0_val.set_txpem(false);
+
+    mac.write_reg(sr::IMASK0, imask0_val.0).await.unwrap();
+
+    // Set ADIN1110 Interrupts, RX_READY and LINK_CHANGE
+    // Enable interrupts LINK_CHANGE, TX_RDY, RX_RDY(P1), SPI_ERR
+    // Have to clear the mask the enable it.
+    let mut imask1_val = IMask1(0x43FA_1F1A);
+    imask1_val.set_link_change_mask(false);
+    imask1_val.set_p1_rx_rdy_mask(false);
+    imask1_val.set_spi_err_mask(false);
+    imask1_val.set_tx_ecc_err_mask(false);
+    imask1_val.set_rx_ecc_err_mask(false);
+
+    mac.write_reg(sr::IMASK1, imask1_val.0).await.unwrap();
+
+    // Program mac address but also sets mac filters.
+    mac.set_mac_addr(&mac_addr).await.unwrap();
+
+    let (runner, device) = ch::new(&mut state.ch_state, ch::driver::HardwareAddress::Ethernet(mac_addr));
+    (
+        device,
+        Runner {
+            ch: runner,
+            mac,
+            int,
+            is_link_up: false,
+            _reset: reset,
+        },
+    )
+}
+
+/// Obtain a driver for using the ADIN1110 with [`embassy-net`](crates.io/crates/embassy-net).
+#[cfg(feature = "tc6")]
+pub async fn new_tc6<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: Wait, RST: OutputPin>(
+    mac_addr: [u8; 6],
+    state: &'_ mut State<N_RX, N_TX>,
+    spi_dev: SPI,
+    int: INT,
+    mut reset: RST,
+    append_fcs_on_tx: bool,
+) -> (Device<'_>, Runner<'_, Tc6<SPI>, INT, RST>) {
+    use crate::regs::{IMask0, IMask1};
+
+    info!("INIT ADIN1110");
+
+    // Reset sequence
+    reset.set_low().unwrap();
+
+    // Wait t1: 20-43mS
+    Timer::after_millis(30).await;
+
+    reset.set_high().unwrap();
+
+    // Wait t3: 50mS
+    Timer::after_millis(50).await;
+
+    // Create device
+    let mut mac = ADIN1110::new_tc6(spi_dev);
 
     // Check PHYID
     let id = mac.read_reg(sr::PHYID).await.unwrap();

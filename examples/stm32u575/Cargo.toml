@@ -32,7 +32,9 @@ embassy-usb = { version = "0.5.1", path = "../../embassy-usb", features = [
   "defmt",
 ] }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
-embassy-net-adin1110 = { version = "0.3.1", path = "../../embassy-net-adin1110" }
+embassy-net-adin1110 = { version = "0.3.1", path = "../../embassy-net-adin1110", default-features = false, features = [
+  "tc6",
+] }
 embassy-net = { version = "0.7.1", path = "../../embassy-net", features = [
   "defmt",
   "udp",

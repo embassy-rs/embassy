@@ -7,9 +7,21 @@ use crate::crc32::ETH_FCS;
 use crate::fmt::Bytes;
 use crate::regs::{SpiHeader, SpiRegisters as sr};
 use crate::{
-    AdinError, DONT_CARE_BYTE, ETH_MIN_LEN, ETH_MIN_WITHOUT_FCS_LEN, FCS_LEN, FRAME_HEADER_LEN, MAX_BUFF, PORT_ID_BYTE,
-    SPI_HEADER_CRC_LEN, SPI_HEADER_LEN, SPI_HEADER_TA_LEN, SPI_SPACE_MULTIPULE, TURN_AROUND_BYTE,
+    AdinError, DONT_CARE_BYTE, ETH_MIN_LEN, FCS_LEN, FRAME_HEADER_LEN, MAX_BUFF, PORT_ID_BYTE, TURN_AROUND_BYTE,
 };
+
+/// Packet minimal frame/packet length without `Frame Check Sequence` length
+const ETH_MIN_WITHOUT_FCS_LEN: usize = ETH_MIN_LEN - FCS_LEN;
+
+/// SPI Header, contains SPI action and register id.
+const SPI_HEADER_LEN: usize = 2;
+/// SPI Header CRC length
+const SPI_HEADER_CRC_LEN: usize = 1;
+/// SPI Header Turn Around length
+const SPI_HEADER_TA_LEN: usize = 1;
+
+/// Space for last bytes to create multipule 4 bytes on the end of a FIFO read/write.
+const SPI_SPACE_MULTIPULE: usize = 3;
 
 /// Generic SPI protocol implementation for ADIN1110
 pub struct GenericSpi<SPI> {

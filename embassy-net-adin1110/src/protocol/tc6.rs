@@ -137,16 +137,6 @@ impl Tc6DataFooter {
         ((self.0 >> 16) & 0xFF) as u8
     }
 
-    /// Extract start valid offset
-    fn start_valid(&self) -> u8 {
-        ((self.0 >> 11) & 0x1F) as u8
-    }
-
-    /// Extract end valid offset
-    fn end_valid(&self) -> u8 {
-        ((self.0 >> 1) & 0x1F) as u8
-    }
-
     /// Check parity
     fn check_parity(&self) -> bool {
         let parity = (self.0 >> 1).count_ones() & 1;

@@ -17,7 +17,7 @@ use embassy_futures::select::{Either, select};
 use embassy_futures::yield_now;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Ipv6Address, Ipv6Cidr, Stack, StackResources, StaticConfigV6};
-use embassy_net_adin1110::{ADIN1110, Device, Runner};
+use embassy_net_adin1110::{ADIN1110, Device, Runner, Tc6};
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::i2c::{self, Config as I2C_Config, I2c};
 use embassy_stm32::mode::Async;
@@ -53,7 +53,7 @@ pub type SpeSpi = Spi<'static, Async>;
 pub type SpeSpiCs = ExclusiveDevice<SpeSpi, Output<'static>, Delay>;
 pub type SpeInt = exti::ExtiInput<'static>;
 pub type SpeRst = Output<'static>;
-pub type Adin1110T = ADIN1110<SpeSpiCs>;
+pub type Adin1110T = ADIN1110<Tc6<SpeSpiCs>>;
 pub type TempSensI2c = I2c<'static, Async, i2c::Master>;
 
 static TEMP: AtomicI32 = AtomicI32::new(0);
@@ -136,7 +136,7 @@ async fn main(spawner: Spawner) {
     static STATE: StaticCell<embassy_net_adin1110::State<8, 8>> = StaticCell::new();
     let state = STATE.init(embassy_net_adin1110::State::<8, 8>::new());
 
-    let (device, runner) = embassy_net_adin1110::new(MAC, state, spe_spi, spe_int, spe_reset_n, true, false).await;
+    let (device, runner) = embassy_net_adin1110::new_tc6(MAC, state, spe_spi, spe_int, spe_reset_n, false).await;
 
     // Start task blink_led
     // spawner.spawn(unwrap!(heartbeat_led(led_uc2_green)));
@@ -265,7 +265,7 @@ async fn temp_task(temp_dev_i2c: TempSensI2c, mut led: Output<'static>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn ethernet_task(runner: Runner<'static, SpeSpiCs, SpeInt, SpeRst>) -> ! {
+async fn ethernet_task(runner: Runner<'static, Tc6<SpeSpiCs>, SpeInt, SpeRst>) -> ! {
     runner.run().await
 }
 
