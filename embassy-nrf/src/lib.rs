@@ -1183,3 +1183,12 @@ pub mod mode {
     impl_mode!(Blocking);
     impl_mode!(Async);
 }
+
+/// Reset immediately.
+pub struct ResetImmediate;
+
+impl embassy_embedded_hal::Reset for ResetImmediate {
+    fn sys_reset(&self) {
+        cortex_m::peripheral::SCB::sys_reset()
+    }
+}
