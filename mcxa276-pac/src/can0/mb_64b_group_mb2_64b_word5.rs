@@ -1,0 +1,77 @@
+#[doc = "Register `MB2_64B_WORD5` reader"]
+pub type R = crate::R<Mb64bGroupMb2_64bWord5Spec>;
+#[doc = "Register `MB2_64B_WORD5` writer"]
+pub type W = crate::W<Mb64bGroupMb2_64bWord5Spec>;
+#[doc = "Field `DATA_BYTE_23` reader - Data byte 0 of Rx/Tx frame."]
+pub type DataByte23R = crate::FieldReader;
+#[doc = "Field `DATA_BYTE_23` writer - Data byte 0 of Rx/Tx frame."]
+pub type DataByte23W<'a, REG> = crate::FieldWriter<'a, REG, 8>;
+#[doc = "Field `DATA_BYTE_22` reader - Data byte 1 of Rx/Tx frame."]
+pub type DataByte22R = crate::FieldReader;
+#[doc = "Field `DATA_BYTE_22` writer - Data byte 1 of Rx/Tx frame."]
+pub type DataByte22W<'a, REG> = crate::FieldWriter<'a, REG, 8>;
+#[doc = "Field `DATA_BYTE_21` reader - Data byte 2 of Rx/Tx frame."]
+pub type DataByte21R = crate::FieldReader;
+#[doc = "Field `DATA_BYTE_21` writer - Data byte 2 of Rx/Tx frame."]
+pub type DataByte21W<'a, REG> = crate::FieldWriter<'a, REG, 8>;
+#[doc = "Field `DATA_BYTE_20` reader - Data byte 3 of Rx/Tx frame."]
+pub type DataByte20R = crate::FieldReader;
+#[doc = "Field `DATA_BYTE_20` writer - Data byte 3 of Rx/Tx frame."]
+pub type DataByte20W<'a, REG> = crate::FieldWriter<'a, REG, 8>;
+impl R {
+    #[doc = "Bits 0:7 - Data byte 0 of Rx/Tx frame."]
+    #[inline(always)]
+    pub fn data_byte_23(&self) -> DataByte23R {
+        DataByte23R::new((self.bits & 0xff) as u8)
+    }
+    #[doc = "Bits 8:15 - Data byte 1 of Rx/Tx frame."]
+    #[inline(always)]
+    pub fn data_byte_22(&self) -> DataByte22R {
+        DataByte22R::new(((self.bits >> 8) & 0xff) as u8)
+    }
+    #[doc = "Bits 16:23 - Data byte 2 of Rx/Tx frame."]
+    #[inline(always)]
+    pub fn data_byte_21(&self) -> DataByte21R {
+        DataByte21R::new(((self.bits >> 16) & 0xff) as u8)
+    }
+    #[doc = "Bits 24:31 - Data byte 3 of Rx/Tx frame."]
+    #[inline(always)]
+    pub fn data_byte_20(&self) -> DataByte20R {
+        DataByte20R::new(((self.bits >> 24) & 0xff) as u8)
+    }
+}
+impl W {
+    #[doc = "Bits 0:7 - Data byte 0 of Rx/Tx frame."]
+    #[inline(always)]
+    pub fn data_byte_23(&mut self) -> DataByte23W<Mb64bGroupMb2_64bWord5Spec> {
+        DataByte23W::new(self, 0)
+    }
+    #[doc = "Bits 8:15 - Data byte 1 of Rx/Tx frame."]
+    #[inline(always)]
+    pub fn data_byte_22(&mut self) -> DataByte22W<Mb64bGroupMb2_64bWord5Spec> {
+        DataByte22W::new(self, 8)
+    }
+    #[doc = "Bits 16:23 - Data byte 2 of Rx/Tx frame."]
+    #[inline(always)]
+    pub fn data_byte_21(&mut self) -> DataByte21W<Mb64bGroupMb2_64bWord5Spec> {
+        DataByte21W::new(self, 16)
+    }
+    #[doc = "Bits 24:31 - Data byte 3 of Rx/Tx frame."]
+    #[inline(always)]
+    pub fn data_byte_20(&mut self) -> DataByte20W<Mb64bGroupMb2_64bWord5Spec> {
+        DataByte20W::new(self, 24)
+    }
+}
+#[doc = "Message Buffer 2 WORD_64B Register\n\nYou can [`read`](crate::Reg::read) this register and get [`mb_64b_group_mb2_64b_word5::R`](R). You can [`reset`](crate::Reg::reset), [`write`](crate::Reg::write), [`write_with_zero`](crate::Reg::write_with_zero) this register using [`mb_64b_group_mb2_64b_word5::W`](W). You can also [`modify`](crate::Reg::modify) this register. See [API](https://docs.rs/svd2rust/#read--modify--write-api)."]
+pub struct Mb64bGroupMb2_64bWord5Spec;
+impl crate::RegisterSpec for Mb64bGroupMb2_64bWord5Spec {
+    type Ux = u32;
+}
+#[doc = "`read()` method returns [`mb_64b_group_mb2_64b_word5::R`](R) reader structure"]
+impl crate::Readable for Mb64bGroupMb2_64bWord5Spec {}
+#[doc = "`write(|w| ..)` method takes [`mb_64b_group_mb2_64b_word5::W`](W) writer structure"]
+impl crate::Writable for Mb64bGroupMb2_64bWord5Spec {
+    type Safety = crate::Unsafe;
+}
+#[doc = "`reset()` method sets MB2_64B_WORD5 to value 0"]
+impl crate::Resettable for Mb64bGroupMb2_64bWord5Spec {}

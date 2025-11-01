@@ -1,0 +1,17 @@
+[package]
+name = "mcxa276-pac"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+cortex-m = "0.7"
+vcell = "0.1"
+
+[features]
+default = []
+rt = ["cortex-m/inline-asm"]
+critical-section = []

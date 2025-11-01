@@ -1,0 +1,63 @@
+#[doc = "Register `ID2` reader"]
+pub type R = crate::R<MbGroupId2Spec>;
+#[doc = "Register `ID2` writer"]
+pub type W = crate::W<MbGroupId2Spec>;
+#[doc = "Field `EXT` reader - Contains extended (LOW word) identifier of message buffer."]
+pub type ExtR = crate::FieldReader<u32>;
+#[doc = "Field `EXT` writer - Contains extended (LOW word) identifier of message buffer."]
+pub type ExtW<'a, REG> = crate::FieldWriter<'a, REG, 18, u32>;
+#[doc = "Field `STD` reader - Contains standard/extended (HIGH word) identifier of message buffer."]
+pub type StdR = crate::FieldReader<u16>;
+#[doc = "Field `STD` writer - Contains standard/extended (HIGH word) identifier of message buffer."]
+pub type StdW<'a, REG> = crate::FieldWriter<'a, REG, 11, u16>;
+#[doc = "Field `PRIO` reader - Local priority. This 3-bit fieldis only used when LPRIO_EN bit is set in MCR and it only makes sense for Tx buffers. These bits are not transmitted. They are appended to the regular ID to define the transmission priority."]
+pub type PrioR = crate::FieldReader;
+#[doc = "Field `PRIO` writer - Local priority. This 3-bit fieldis only used when LPRIO_EN bit is set in MCR and it only makes sense for Tx buffers. These bits are not transmitted. They are appended to the regular ID to define the transmission priority."]
+pub type PrioW<'a, REG> = crate::FieldWriter<'a, REG, 3>;
+impl R {
+    #[doc = "Bits 0:17 - Contains extended (LOW word) identifier of message buffer."]
+    #[inline(always)]
+    pub fn ext(&self) -> ExtR {
+        ExtR::new(self.bits & 0x0003_ffff)
+    }
+    #[doc = "Bits 18:28 - Contains standard/extended (HIGH word) identifier of message buffer."]
+    #[inline(always)]
+    pub fn std(&self) -> StdR {
+        StdR::new(((self.bits >> 18) & 0x07ff) as u16)
+    }
+    #[doc = "Bits 29:31 - Local priority. This 3-bit fieldis only used when LPRIO_EN bit is set in MCR and it only makes sense for Tx buffers. These bits are not transmitted. They are appended to the regular ID to define the transmission priority."]
+    #[inline(always)]
+    pub fn prio(&self) -> PrioR {
+        PrioR::new(((self.bits >> 29) & 7) as u8)
+    }
+}
+impl W {
+    #[doc = "Bits 0:17 - Contains extended (LOW word) identifier of message buffer."]
+    #[inline(always)]
+    pub fn ext(&mut self) -> ExtW<MbGroupId2Spec> {
+        ExtW::new(self, 0)
+    }
+    #[doc = "Bits 18:28 - Contains standard/extended (HIGH word) identifier of message buffer."]
+    #[inline(always)]
+    pub fn std(&mut self) -> StdW<MbGroupId2Spec> {
+        StdW::new(self, 18)
+    }
+    #[doc = "Bits 29:31 - Local priority. This 3-bit fieldis only used when LPRIO_EN bit is set in MCR and it only makes sense for Tx buffers. These bits are not transmitted. They are appended to the regular ID to define the transmission priority."]
+    #[inline(always)]
+    pub fn prio(&mut self) -> PrioW<MbGroupId2Spec> {
+        PrioW::new(self, 29)
+    }
+}
+#[doc = "Message Buffer 2 ID Register\n\nYou can [`read`](crate::Reg::read) this register and get [`mb_group_id2::R`](R). You can [`reset`](crate::Reg::reset), [`write`](crate::Reg::write), [`write_with_zero`](crate::Reg::write_with_zero) this register using [`mb_group_id2::W`](W). You can also [`modify`](crate::Reg::modify) this register. See [API](https://docs.rs/svd2rust/#read--modify--write-api)."]
+pub struct MbGroupId2Spec;
+impl crate::RegisterSpec for MbGroupId2Spec {
+    type Ux = u32;
+}
+#[doc = "`read()` method returns [`mb_group_id2::R`](R) reader structure"]
+impl crate::Readable for MbGroupId2Spec {}
+#[doc = "`write(|w| ..)` method takes [`mb_group_id2::W`](W) writer structure"]
+impl crate::Writable for MbGroupId2Spec {
+    type Safety = crate::Unsafe;
+}
+#[doc = "`reset()` method sets ID2 to value 0"]
+impl crate::Resettable for MbGroupId2Spec {}

@@ -1,8 +1,0 @@
-
-# cargo-vet imports lock
-
-[audits.OpenDevicePartnership.audits]
-
-[audits.google.audits]
-
-[audits.mozilla.audits]
