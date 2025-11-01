@@ -300,7 +300,7 @@ impl<'d> Adc<'d, Async> {
         // start conversions and wait for dma to finish. we can't report errors early
         // because there's no interrupt to signal them, and inspecting every element
         // of the fifo is too costly to do here.
-        r.div().write_set(|w| w.set_int(div));
+        r.div().modify(|w| w.set_int(div));
         r.cs().write_set(|w| w.set_start_many(true));
         dma.await;
         mem::drop(auto_reset);
