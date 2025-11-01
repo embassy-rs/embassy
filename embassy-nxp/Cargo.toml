@@ -38,13 +38,13 @@ embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-ut
 embedded-io = "0.6.1"
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 ## Chip dependencies
-nxp-pac = { version = "0.1.0", optional = true, git = "https://github.com/i509VCB/nxp-pac", rev = "b736e3038254d593024aaa1a5a7b1f95a5728538"}
+nxp-pac = { version = "0.1.0", optional = true, git = "https://github.com/i509VCB/nxp-pac", rev = "477dfdbfd5e6c75c0730c56494b601c1b2257263"}
 
 imxrt-rt = { version = "0.1.7", optional = true, features = ["device"] }
 
 [build-dependencies]
 cfg_aliases = "0.2.1"
-nxp-pac = { version = "0.1.0", git = "https://github.com/i509VCB/nxp-pac", rev = "b736e3038254d593024aaa1a5a7b1f95a5728538", features = ["metadata"], optional = true }
+nxp-pac = { version = "0.1.0", git = "https://github.com/i509VCB/nxp-pac", rev = "477dfdbfd5e6c75c0730c56494b601c1b2257263", features = ["metadata"], optional = true }
 proc-macro2 = "1.0.95"
 quote = "1.0.15"
 

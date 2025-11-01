@@ -97,6 +97,18 @@ embassy_hal_internal::peripherals! {
     DMA_CH21,
     DMA_CH22,
 
+    // Pulse-Width Modulation Outputs.
+    PWM_OUTPUT0,
+    PWM_OUTPUT1,
+    PWM_OUTPUT2,
+    PWM_OUTPUT3,
+    PWM_OUTPUT4,
+    PWM_OUTPUT5,
+    PWM_OUTPUT6,
+    PWM_OUTPUT7,
+    PWM_OUTPUT8,
+    PWM_OUTPUT9,
+
     // Universal Synchronous/Asynchronous Receiver/Transmitter (USART) instances.
     USART0,
     USART1,

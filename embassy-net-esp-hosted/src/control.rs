@@ -1,6 +1,7 @@
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
 use heapless::String;
+use micropb::{MessageDecode, MessageEncode, PbEncoder};
 
 use crate::ioctl::Shared;
 use crate::proto::{self, CtrlMsg};
@@ -38,7 +39,7 @@ enum WifiMode {
     ApSta = 3,
 }
 
-pub use proto::CtrlWifiSecProt as Security;
+pub use proto::Ctrl_WifiSecProt as Security;
 
 /// WiFi status.
 #[derive(Clone, Debug)]
@@ -59,18 +60,20 @@ pub struct Status {
 macro_rules! ioctl {
     ($self:ident, $req_variant:ident, $resp_variant:ident, $req:ident, $resp:ident) => {
         let mut msg = proto::CtrlMsg {
-            msg_id: proto::CtrlMsgId::$req_variant as _,
-            msg_type: proto::CtrlMsgType::Req as _,
-            payload: Some(proto::CtrlMsgPayload::$req_variant($req)),
+            msg_id: proto::CtrlMsgId::$req_variant,
+            msg_type: proto::CtrlMsgType::Req,
+            payload: Some(proto::CtrlMsg_::Payload::$req_variant($req)),
+            req_resp_type: 0,
+            uid: 0,
         };
         $self.ioctl(&mut msg).await?;
         #[allow(unused_mut)]
-        let Some(proto::CtrlMsgPayload::$resp_variant(mut $resp)) = msg.payload else {
+        let Some(proto::CtrlMsg_::Payload::$resp_variant(mut $resp)) = msg.payload else {
             warn!("unexpected response variant");
             return Err(Error::Internal);
         };
         if $resp.resp != 0 {
-            return Err(Error::Failed($resp.resp));
+            return Err(Error::Failed($resp.resp as u32));
         }
     };
 }
@@ -100,35 +103,44 @@ impl<'a> Control<'a> {
 
     /// Get the current status.
     pub async fn get_status(&mut self) -> Result<Status, Error> {
-        let req = proto::CtrlMsgReqGetApConfig {};
+        let req = proto::CtrlMsg_Req_GetAPConfig {};
         ioctl!(self, ReqGetApConfig, RespGetApConfig, req, resp);
-        trim_nulls(&mut resp.ssid);
+        let ssid = core::str::from_utf8(&resp.ssid).map_err(|_| Error::Internal)?;
+        let ssid = String::try_from(ssid.trim_end_matches('\0')).map_err(|_| Error::Internal)?;
+        let bssid_str = core::str::from_utf8(&resp.bssid).map_err(|_| Error::Internal)?;
         Ok(Status {
-            ssid: resp.ssid,
-            bssid: parse_mac(&resp.bssid)?,
+            ssid,
+            bssid: parse_mac(bssid_str)?,
             rssi: resp.rssi as _,
-            channel: resp.chnl,
+            channel: resp.chnl as u32,
             security: resp.sec_prot,
         })
     }
 
     /// Connect to the network identified by ssid using the provided password.
     pub async fn connect(&mut self, ssid: &str, password: &str) -> Result<(), Error> {
-        let req = proto::CtrlMsgReqConnectAp {
+        const WIFI_BAND_MODE_AUTO: i32 = 3; // 2.4GHz + 5GHz
+
+        let req = proto::CtrlMsg_Req_ConnectAP {
             ssid: unwrap!(String::try_from(ssid)),
             pwd: unwrap!(String::try_from(password)),
             bssid: String::new(),
             listen_interval: 3,
             is_wpa3_supported: true,
+            band_mode: WIFI_BAND_MODE_AUTO,
         };
         ioctl!(self, ReqConnectAp, RespConnectAp, req, resp);
+
+        // TODO: in newer esp-hosted firmwares that added EventStationConnectedToAp
+        // the connect ioctl seems to be async, so we shouldn't immediately set LinkState::Up here.
         self.state_ch.set_link_state(LinkState::Up);
+
         Ok(())
     }
 
     /// Disconnect from any currently connected network.
     pub async fn disconnect(&mut self) -> Result<(), Error> {
-        let req = proto::CtrlMsgReqGetStatus {};
+        let req = proto::CtrlMsg_Req_GetStatus {};
         ioctl!(self, ReqDisconnectAp, RespDisconnectAp, req, resp);
         self.state_ch.set_link_state(LinkState::Down);
         Ok(())
@@ -136,21 +148,25 @@ impl<'a> Control<'a> {
 
     /// duration in seconds, clamped to [10, 3600]
     async fn set_heartbeat(&mut self, duration: u32) -> Result<(), Error> {
-        let req = proto::CtrlMsgReqConfigHeartbeat { enable: true, duration };
+        let req = proto::CtrlMsg_Req_ConfigHeartbeat {
+            enable: true,
+            duration: duration as i32,
+        };
         ioctl!(self, ReqConfigHeartbeat, RespConfigHeartbeat, req, resp);
         Ok(())
     }
 
     async fn get_mac_addr(&mut self) -> Result<[u8; 6], Error> {
-        let req = proto::CtrlMsgReqGetMacAddress {
+        let req = proto::CtrlMsg_Req_GetMacAddress {
             mode: WifiMode::Sta as _,
         };
         ioctl!(self, ReqGetMacAddress, RespGetMacAddress, req, resp);
-        parse_mac(&resp.mac)
+        let mac_str = core::str::from_utf8(&resp.mac).map_err(|_| Error::Internal)?;
+        parse_mac(mac_str)
     }
 
     async fn set_wifi_mode(&mut self, mode: u32) -> Result<(), Error> {
-        let req = proto::CtrlMsgReqSetMode { mode };
+        let req = proto::CtrlMsg_Req_SetMode { mode: mode as i32 };
         ioctl!(self, ReqSetWifiMode, RespSetWifiMode, req, resp);
 
         Ok(())
@@ -160,11 +176,15 @@ impl<'a> Control<'a> {
         debug!("ioctl req: {:?}", &msg);
 
         let mut buf = [0u8; 128];
+        let buf_len = buf.len();
 
-        let req_len = noproto::write(msg, &mut buf).map_err(|_| {
+        let mut encoder = PbEncoder::new(&mut buf[..]);
+        msg.encode(&mut encoder).map_err(|_| {
             warn!("failed to serialize control request");
             Error::Internal
         })?;
+        let remaining = encoder.into_writer();
+        let req_len = buf_len - remaining.len();
 
         struct CancelOnDrop<'a>(&'a Shared);
 
@@ -186,8 +206,8 @@ impl<'a> Control<'a> {
 
         ioctl.defuse();
 
-        *msg = noproto::read(&buf[..resp_len]).map_err(|_| {
-            warn!("failed to serialize control request");
+        msg.decode_from_bytes(&buf[..resp_len]).map_err(|_| {
+            warn!("failed to deserialize control response");
             Error::Internal
         })?;
         debug!("ioctl resp: {:?}", msg);
@@ -220,10 +240,4 @@ fn parse_mac(mac: &str) -> Result<[u8; 6], Error> {
         *b = (nibble_from_hex(mac[i * 3])? << 4) | nibble_from_hex(mac[i * 3 + 1])?
     }
     Ok(res)
-}
-
-fn trim_nulls<const N: usize>(s: &mut String<N>) {
-    while s.chars().rev().next() == Some(0 as char) {
-        s.pop();
-    }
 }
