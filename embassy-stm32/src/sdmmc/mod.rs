@@ -1034,11 +1034,9 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
     #[inline]
     #[allow(unused)]
     async fn complete_datapath_transfer(block: bool) -> Result<(), Error> {
-        let regs = T::regs();
-
         let res = poll_fn(|cx| {
             T::state().register(cx.waker());
-            let status = regs.star().read();
+            let status = T::regs().star().read();
 
             if status.dcrcfail() {
                 return Poll::Ready(Err(Error::Crc));
