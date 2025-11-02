@@ -38,6 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - change: timer: added output compare values
 - feat: timer: add ability to set master mode
 - fix: usart: fix race condition in ringbuffered usart
+- feat: stm32/fdcan: add ability to control automatic recovery from bus off ([#4821](https://github.com/embassy-rs/embassy/pull/4821))
 
 ## 0.4.0 - 2025-08-26
 
