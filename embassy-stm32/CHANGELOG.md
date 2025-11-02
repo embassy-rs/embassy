@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - change: timer: added output compare values
 - feat: timer: add ability to set master mode
 - fix: sdmmc: don't wait for DBCKEND flag on sdmmc_v2 devices as it never fires (Fixes #4723)
+- fix: usart: fix race condition in ringbuffered usart
 
 ## 0.4.0 - 2025-08-26
 
