@@ -16,7 +16,7 @@ pub struct RingBufferedAdc<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> RingBufferedAdc<'d, T> {
-    pub fn new(dma: Peri<'d, impl RxDma<T>>, dma_buf: &'d mut [u16]) -> Self {
+    pub(crate) fn new(dma: Peri<'d, impl RxDma<T>>, dma_buf: &'d mut [u16]) -> Self {
         //dma side setup
         let opts = TransferOptions {
             half_transfer_ir: true,
