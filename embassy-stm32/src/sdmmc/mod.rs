@@ -1035,6 +1035,8 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
     #[allow(unused)]
     async fn complete_datapath_transfer(block: bool) -> Result<(), Error> {
         let res = poll_fn(|cx| {
+            // Compiler might not be sufficiently constrained here
+            // https://github.com/embassy-rs/embassy/issues/4723
             T::state().register(cx.waker());
             let status = T::regs().star().read();
 
