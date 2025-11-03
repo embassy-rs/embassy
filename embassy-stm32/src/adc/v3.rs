@@ -14,10 +14,10 @@ use super::{
 };
 
 #[cfg(any(adc_v3, adc_g0, adc_u0))]
-mod ringbuffered_v3;
+mod ringbuffered;
 
 #[cfg(any(adc_v3, adc_g0, adc_u0))]
-use ringbuffered_v3::RingBufferedAdc;
+use ringbuffered::RingBufferedAdc;
 
 use crate::dma::Transfer;
 use crate::{Peri, pac, rcc};

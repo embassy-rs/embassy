@@ -8,8 +8,8 @@ use crate::peripherals::ADC1;
 use crate::time::Hertz;
 use crate::{Peri, rcc};
 
-mod ringbuffered_v2;
-pub use ringbuffered_v2::RingBufferedAdc;
+mod ringbuffered;
+pub use ringbuffered::RingBufferedAdc;
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
