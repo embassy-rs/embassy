@@ -72,7 +72,7 @@ cortex-m = "0.7.6"
 critical-section = "1.2.0"
 
 # mspm0-metapac = { version = "" }
-mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-e7de4103a0713772695ffcad52c3c2f07414dc29" }
+mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-8542f260cc89645a983b7f1a874c87b21822279e" }
 
 [build-dependencies]
 proc-macro2 = "1.0.94"
@@ -80,7 +80,7 @@ quote = "1.0.40"
 cfg_aliases = "0.2.1"
 
 # mspm0-metapac = { version = "", default-features = false, features = ["metadata"] }
-mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-e7de4103a0713772695ffcad52c3c2f07414dc29", default-features = false, features = ["metadata"] }
+mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-8542f260cc89645a983b7f1a874c87b21822279e", default-features = false, features = ["metadata"] }
 
 [features]
 default = ["rt"]
