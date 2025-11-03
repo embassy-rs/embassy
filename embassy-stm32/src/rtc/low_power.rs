@@ -127,7 +127,7 @@ impl Rtc {
     /// start the wakeup alarm and with a duration that is as close to but less than
     /// the requested duration, and record the instant the wakeup alarm was started
     pub(crate) fn start_wakeup_alarm(
-        &self,
+        &mut self,
         requested_duration: embassy_time::Duration,
         cs: critical_section::CriticalSection,
     ) {
@@ -179,7 +179,10 @@ impl Rtc {
 
     /// stop the wakeup alarm and return the time elapsed since `start_wakeup_alarm`
     /// was called, otherwise none
-    pub(crate) fn stop_wakeup_alarm(&self, cs: critical_section::CriticalSection) -> Option<embassy_time::Duration> {
+    pub(crate) fn stop_wakeup_alarm(
+        &mut self,
+        cs: critical_section::CriticalSection,
+    ) -> Option<embassy_time::Duration> {
         let instant = self.instant().unwrap();
         if RTC::regs().cr().read().wute() {
             trace!("rtc: stop wakeup alarm at {}", instant);

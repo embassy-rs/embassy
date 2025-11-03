@@ -43,8 +43,6 @@
 //!
 //!     // give the RTC to the executor...
 //!     let mut rtc = Rtc::new(p.RTC, RtcConfig::default());
-//!     static RTC: StaticCell<Rtc> = StaticCell::new();
-//!     let rtc = RTC.init(rtc);
 //!     embassy_stm32::low_power::stop_with_rtc(rtc);
 //!
 //!     // your application here...
@@ -98,8 +96,13 @@ pub(crate) unsafe fn on_wakeup_irq() {
 }
 
 /// Configure STOP mode with RTC.
-pub fn stop_with_rtc(rtc: &'static Rtc) {
+pub fn stop_with_rtc(rtc: Rtc) {
     unsafe { EXECUTOR.as_mut().unwrap() }.stop_with_rtc(rtc)
+}
+
+/// Reconfigure the RTC, if set.
+pub fn reconfigure_rtc(f: impl FnOnce(&mut Rtc)) {
+    unsafe { EXECUTOR.as_mut().unwrap() }.reconfigure_rtc(f);
 }
 
 /// Get whether the core is ready to enter the given stop mode.
@@ -181,12 +184,15 @@ impl Executor {
         trace!("low power: resume");
     }
 
-    pub(self) fn stop_with_rtc(&mut self, rtc: &'static Rtc) {
+    pub(self) fn stop_with_rtc(&mut self, rtc: Rtc) {
         self.time_driver.set_rtc(rtc);
-
-        rtc.enable_wakeup_line();
+        self.time_driver.reconfigure_rtc(|rtc| rtc.enable_wakeup_line());
 
         trace!("low power: stop with rtc configured");
+    }
+
+    pub(self) fn reconfigure_rtc(&mut self, f: impl FnOnce(&mut Rtc)) {
+        self.time_driver.reconfigure_rtc(f);
     }
 
     fn stop_mode(&self) -> Option<StopMode> {
