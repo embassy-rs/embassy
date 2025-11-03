@@ -15,7 +15,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn adc_task(mut p: Peripherals) {
+async fn adc_task(p: Peripherals) {
     const ADC_BUF_SIZE: usize = 1024;
     let adc_data: &mut [u16; ADC_BUF_SIZE] = singleton!(ADCDAT : [u16; ADC_BUF_SIZE] = [0u16; ADC_BUF_SIZE]).unwrap();
     let adc_data2: &mut [u16; ADC_BUF_SIZE] = singleton!(ADCDAT2 : [u16; ADC_BUF_SIZE] = [0u16; ADC_BUF_SIZE]).unwrap();
