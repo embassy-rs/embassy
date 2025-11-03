@@ -193,33 +193,6 @@ impl<'a> Transfer<'a> {
     /// a hardware event. This can be useful if you want to do a DMA accelerated memcpy.
     pub const SOFTWARE_TRIGGER: u8 = 0;
 
-    /// Create a new memory-to-memory DMA transfer, using raw pointers.
-    pub unsafe fn new_transfer_raw<SW: Word, DW: Word>(
-        channel: Peri<'a, impl Channel>,
-        trigger_source: u8,
-        src: *mut SW,
-        dst: *mut DW,
-        options: TransferOptions,
-    ) -> Result<Self, Error> {
-        verify_transfer::<DW>(dst)?;
-
-        let channel = channel.into();
-        channel.configure(
-            trigger_source,
-            src.cast(),
-            SW::width(),
-            dst.cast(),
-            DW::width(),
-            dst.len() as u16,
-            false,
-            true,
-            options,
-        );
-        channel.start();
-
-        Ok(Self { channel })
-    }
-
     /// Create a new read DMA transfer.
     pub unsafe fn new_read<SW: Word, DW: Word>(
         channel: Peri<'a, impl Channel>,
