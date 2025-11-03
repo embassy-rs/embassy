@@ -2,12 +2,11 @@ use core::marker::PhantomData;
 use core::mem;
 
 use super::blocking_delay_us;
-use crate::adc::{Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime};
+use crate::adc::{Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel};
 use crate::dma::{Priority, ReadableRingBuffer, TransferOptions};
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
 use crate::{Peri, rcc};
-use ringbuffered_v2::Sequence;
 
 mod ringbuffered_v2;
 pub use ringbuffered_v2::RingBufferedAdc;
@@ -128,7 +127,7 @@ where
     ///
     /// [`read`]: #method.read
     pub fn into_ring_buffered<'a>(
-        mut self,
+        self,
         dma: Peri<'d, impl RxDma<T>>,
         dma_buf: &'d mut [u16],
         sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<T>, SampleTime)>,
@@ -147,28 +146,23 @@ where
 
         let ring_buf = unsafe { ReadableRingBuffer::new(dma, request, rx_src, dma_buf, opts) };
 
-        for (i, (channel, sample_time)) in sequence.enumerate() {
-            let sequence = match i {
-                0 => Sequence::One,
-                1 => Sequence::Two,
-                2 => Sequence::Three,
-                3 => Sequence::Four,
-                4 => Sequence::Five,
-                5 => Sequence::Six,
-                6 => Sequence::Seven,
-                7 => Sequence::Eight,
-                8 => Sequence::Nine,
-                9 => Sequence::Ten,
-                10 => Sequence::Eleven,
-                11 => Sequence::Twelve,
-                12 => Sequence::Thirteen,
-                13 => Sequence::Fourteen,
-                14 => Sequence::Fifteen,
-                15 => Sequence::Sixteen,
-                _ => unreachable!(),
-            };
+        T::regs().cr2().modify(|reg| {
+            reg.set_adon(true);
+        });
 
-            self.set_sample_sequence(sequence, channel, sample_time);
+        // Check the sequence is long enough
+        T::regs().sqr1().modify(|r| {
+            r.set_l((sequence.len() - 1).try_into().unwrap());
+        });
+
+        for (i, (channel, sample_time)) in sequence.enumerate() {
+            // Set this GPIO as an analog input.
+            channel.setup();
+
+            // Set the channel in the right sequence field.
+            T::regs().sqr3().modify(|w| w.set_sq(i, channel.channel()));
+
+            Self::set_channel_sample_time(channel.channel(), sample_time);
         }
 
         // Don't disable the clock
@@ -177,79 +171,6 @@ where
         RingBufferedAdc {
             _phantom: PhantomData,
             ring_buf,
-        }
-    }
-
-    fn is_on() -> bool {
-        T::regs().cr2().read().adon()
-    }
-
-    fn stop_adc() {
-        T::regs().cr2().modify(|reg| {
-            reg.set_adon(false);
-        });
-    }
-
-    fn start_adc() {
-        T::regs().cr2().modify(|reg| {
-            reg.set_adon(true);
-        });
-    }
-
-    fn set_sample_sequence(&mut self, sequence: Sequence, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) {
-        let was_on = Self::is_on();
-        if !was_on {
-            Self::start_adc();
-        }
-
-        // Check the sequence is long enough
-        T::regs().sqr1().modify(|r| {
-            let prev: Sequence = r.l().into();
-            if prev < sequence {
-                let new_l: Sequence = sequence;
-                trace!("Setting sequence length from {:?} to {:?}", prev as u8, new_l as u8);
-                r.set_l(sequence.into())
-            } else {
-                r.set_l(prev.into())
-            }
-        });
-
-        // Set this GPIO as an analog input.
-        channel.setup();
-
-        // Set the channel in the right sequence field.
-        match sequence {
-            Sequence::One => T::regs().sqr3().modify(|w| w.set_sq(0, channel.channel())),
-            Sequence::Two => T::regs().sqr3().modify(|w| w.set_sq(1, channel.channel())),
-            Sequence::Three => T::regs().sqr3().modify(|w| w.set_sq(2, channel.channel())),
-            Sequence::Four => T::regs().sqr3().modify(|w| w.set_sq(3, channel.channel())),
-            Sequence::Five => T::regs().sqr3().modify(|w| w.set_sq(4, channel.channel())),
-            Sequence::Six => T::regs().sqr3().modify(|w| w.set_sq(5, channel.channel())),
-            Sequence::Seven => T::regs().sqr2().modify(|w| w.set_sq(0, channel.channel())),
-            Sequence::Eight => T::regs().sqr2().modify(|w| w.set_sq(1, channel.channel())),
-            Sequence::Nine => T::regs().sqr2().modify(|w| w.set_sq(2, channel.channel())),
-            Sequence::Ten => T::regs().sqr2().modify(|w| w.set_sq(3, channel.channel())),
-            Sequence::Eleven => T::regs().sqr2().modify(|w| w.set_sq(4, channel.channel())),
-            Sequence::Twelve => T::regs().sqr2().modify(|w| w.set_sq(5, channel.channel())),
-            Sequence::Thirteen => T::regs().sqr1().modify(|w| w.set_sq(0, channel.channel())),
-            Sequence::Fourteen => T::regs().sqr1().modify(|w| w.set_sq(1, channel.channel())),
-            Sequence::Fifteen => T::regs().sqr1().modify(|w| w.set_sq(2, channel.channel())),
-            Sequence::Sixteen => T::regs().sqr1().modify(|w| w.set_sq(3, channel.channel())),
-        };
-
-        if !was_on {
-            Self::stop_adc();
-        }
-
-        self.set_channels_sample_time(&[channel.channel()], sample_time);
-
-        Self::start_adc();
-    }
-
-    fn set_channels_sample_time(&mut self, ch: &[u8], sample_time: SampleTime) {
-        let ch_iter = ch.iter();
-        for idx in ch_iter {
-            Self::set_channel_sample_time(*idx, sample_time);
         }
     }
 
