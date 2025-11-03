@@ -265,15 +265,20 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
             if !r.cr2().read().dma() {
                 self.start()?;
             }
-        }
 
-        #[cfg(not(adc_v2))]
-        {
             // Clear overrun flag if set.
             if r.sr().read().ovr() {
                 return self.stop(OverrunError);
             }
 
+            // Start background receive if it was not already started
+            if !r.cr().read().adstart() {
+                self.start_continuous_sampling();
+            }
+        }
+
+        #[cfg(not(adc_v2))]
+        {
             // Start background receive if it was not already started
             if !r.cr().read().adstart() {
                 self.start_continuous_sampling();
