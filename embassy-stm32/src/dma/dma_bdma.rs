@@ -609,6 +609,28 @@ pub struct Transfer<'a> {
 }
 
 impl<'a> Transfer<'a> {
+    /// Create a new memory DMA transfer (memory to memory), using raw pointers.
+    pub unsafe fn new_read_raw<MW: Word, PW: Word>(
+        channel: Peri<'a, impl Channel>,
+        request: Request,
+        src_address: *mut PW,
+        dest_address: *mut MW,
+        options: TransferOptions,
+    ) -> Self {
+        Self::new_inner(
+            channel.into(),
+            request,
+            Dir::MemoryToMemory,
+            src_address as *const u32,
+            dest_address as *mut MW as *mut u32,
+            buf.len(),
+            true,
+            MW::size(),
+            PW::size(),
+            options,
+        )
+    }
+
     /// Create a new read DMA transfer (peripheral to memory).
     pub unsafe fn new_read<W: Word>(
         channel: Peri<'a, impl Channel>,
