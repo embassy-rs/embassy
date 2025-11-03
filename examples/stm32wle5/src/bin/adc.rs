@@ -74,8 +74,6 @@ async fn async_main(_spawner: Spawner) {
     // give the RTC to the low_power executor...
     let rtc_config = RtcConfig::default();
     let rtc = Rtc::new(p.RTC, rtc_config);
-    static RTC: StaticCell<Rtc> = StaticCell::new();
-    let rtc = RTC.init(rtc);
     embassy_stm32::low_power::stop_with_rtc(rtc);
 
     info!("Hello World!");
