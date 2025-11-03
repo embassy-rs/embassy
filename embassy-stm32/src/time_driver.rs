@@ -1,6 +1,8 @@
 #![allow(non_snake_case)]
 
 use core::cell::{Cell, RefCell};
+#[cfg(all(feature = "low-power", stm32wlex))]
+use core::sync::atomic::AtomicU16;
 use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
 
 use critical_section::CriticalSection;
@@ -214,6 +216,9 @@ pub(crate) struct RtcDriver {
     alarm: Mutex<CriticalSectionRawMutex, AlarmState>,
     #[cfg(feature = "low-power")]
     rtc: Mutex<CriticalSectionRawMutex, RefCell<Option<Rtc>>>,
+    /// Saved count for the timer (its value is lost when entering STOP2)
+    #[cfg(all(feature = "low-power", stm32wlex))]
+    saved_count: AtomicU16,
     queue: Mutex<CriticalSectionRawMutex, RefCell<Queue>>,
 }
 
@@ -222,11 +227,15 @@ embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     alarm: Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState::new()),
     #[cfg(feature = "low-power")]
     rtc: Mutex::const_new(CriticalSectionRawMutex::new(), RefCell::new(None)),
+    #[cfg(all(feature = "low-power", stm32wlex))]
+    saved_count: AtomicU16::new(0),
     queue: Mutex::new(RefCell::new(Queue::new()))
 });
 
 impl RtcDriver {
-    fn init(&'static self, cs: critical_section::CriticalSection) {
+    /// initialize the timer, but don't start it.  Used for chips like stm32wle5
+    /// for low power where the timer config is lost in STOP2.
+    fn init_timer(&'static self, cs: critical_section::CriticalSection) {
         let r = regs_gp16();
 
         rcc::enable_and_reset_with_cs::<T>(cs);
@@ -259,10 +268,16 @@ impl RtcDriver {
             w.set_ccie(0, true);
         });
 
+        #[cfg(all(feature = "low-power", stm32wlex))]
+        r.cnt().write(|w| w.set_cnt(self.saved_count.load(Ordering::SeqCst)));
+
         <T as GeneralInstance1Channel>::CaptureCompareInterrupt::unpend();
         unsafe { <T as GeneralInstance1Channel>::CaptureCompareInterrupt::enable() };
+    }
 
-        r.cr1().modify(|w| w.set_cen(true));
+    fn init(&'static self, cs: CriticalSection) {
+        self.init_timer(cs);
+        regs_gp16().cr1().modify(|w| w.set_cen(true));
     }
 
     fn on_interrupt(&self) {
@@ -420,6 +435,10 @@ impl RtcDriver {
 
             let time_until_next_alarm = self.time_until_next_alarm(cs);
             if time_until_next_alarm < Self::MIN_STOP_PAUSE {
+                trace!(
+                    "time_until_next_alarm < Self::MIN_STOP_PAUSE ({})",
+                    time_until_next_alarm
+                );
                 Err(())
             } else {
                 self.rtc
@@ -430,7 +449,10 @@ impl RtcDriver {
                     .start_wakeup_alarm(time_until_next_alarm, cs);
 
                 regs_gp16().cr1().modify(|w| w.set_cen(false));
-
+                // save the count for the timer as its lost in STOP2 for stm32wlex
+                #[cfg(stm32wlex)]
+                self.saved_count
+                    .store(regs_gp16().cnt().read().cnt() as u16, Ordering::SeqCst);
                 Ok(())
             }
         })
@@ -527,4 +549,9 @@ pub(crate) fn get_driver() -> &'static RtcDriver {
 
 pub(crate) fn init(cs: CriticalSection) {
     DRIVER.init(cs)
+}
+
+#[cfg(all(feature = "low-power", stm32wlex))]
+pub(crate) fn init_timer(cs: CriticalSection) {
+    DRIVER.init_timer(cs)
 }

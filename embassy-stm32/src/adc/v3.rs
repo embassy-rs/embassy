@@ -430,6 +430,9 @@ impl<'d, T: Instance> Adc<'d, T> {
             "Asynchronous read sequence cannot be more than 16 in length"
         );
 
+        #[cfg(all(feature = "low-power", stm32wlex))]
+        let _device_busy = crate::low_power::DeviceBusy::new();
+
         // Ensure no conversions are ongoing and ADC is enabled.
         Self::cancel_conversions();
         self.enable();
