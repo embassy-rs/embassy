@@ -38,6 +38,8 @@ pub enum Dir {
     MemoryToPeripheral,
     /// Transfer from a peripheral to memory.
     PeripheralToMemory,
+    /// Transfer from memory to another memory address.
+    MemoryToMemory
 }
 
 /// DMA request type alias. (also known as DMA channel number in some chips)

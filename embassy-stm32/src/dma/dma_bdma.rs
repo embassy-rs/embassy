@@ -141,6 +141,7 @@ mod dma_only {
             match raw {
                 Dir::MemoryToPeripheral => Self::MEMORY_TO_PERIPHERAL,
                 Dir::PeripheralToMemory => Self::PERIPHERAL_TO_MEMORY,
+                Dir::PeripheralToMemory => Self::MEMORY_TO_MEMORY,
             }
         }
     }
@@ -236,6 +237,7 @@ mod bdma_only {
             match raw {
                 Dir::MemoryToPeripheral => Self::FROM_MEMORY,
                 Dir::PeripheralToMemory => Self::FROM_PERIPHERAL,
+                Dir::MemoryToMemory => Self::FROM_MEMORY,
             }
         }
     }
