@@ -399,6 +399,48 @@ fn impl_sct(impls: &mut Vec<TokenStream>, peripheral: &Peripheral) {
     }
 }
 
+fn impl_spi(cfgs: &mut common::CfgSet, impls: &mut Vec<TokenStream>, peripheral: &Peripheral) {
+    cfgs.declare_all(&["has_spi_sck_pins", "has_spi_mosi_pins", "has_spi_miso_pins"]);
+
+    let instance = Ident::new(peripheral.name, Span::call_site());
+    let flexcomm = Ident::new(
+        peripheral.flexcomm.expect("LPC55 must specify FLEXCOMM instance"),
+        Span::call_site(),
+    );
+    let number = Literal::u8_unsuffixed(peripheral.name.strip_prefix("SPI").unwrap().parse::<u8>().unwrap());
+
+    impls.push(quote! {
+        impl_spi_instance!(#instance, #flexcomm, #number);
+    });
+
+    for signal in peripheral.signals {
+        let r#macro = match signal.name {
+            "SCK" => {
+                cfgs.enable("has_spi_sck_pins");
+                format_ident!("impl_spi_sck_pin")
+            }
+            "MOSI" => {
+                cfgs.enable("has_spi_mosi_pins");
+                format_ident!("impl_spi_mosi_pin")
+            }
+            "MISO" => {
+                cfgs.enable("has_spi_miso_pins");
+                format_ident!("impl_spi_miso_pin")
+            }
+            _ => unreachable!(),
+        };
+
+        for pin in signal.pins {
+            let alt = format_ident!("ALT{}", pin.alt);
+            let pin = format_ident!("{}", pin.pin);
+
+            impls.push(quote! {
+                #r#macro!(#pin, #instance, #alt);
+            });
+        }
+    }
+}
+
 fn impl_peripherals(cfgs: &mut common::CfgSet, _singletons: &[Singleton]) -> TokenStream {
     let mut impls = Vec::new();
 
@@ -413,6 +455,10 @@ fn impl_peripherals(cfgs: &mut common::CfgSet, _singletons: &[Singleton]) -> Tok
 
         if peripheral.name.starts_with("USART") {
             impl_usart(cfgs, &mut impls, peripheral);
+        }
+
+        if peripheral.name.starts_with("SPI") {
+            impl_spi(cfgs, &mut impls, peripheral);
         }
 
         if peripheral.name.starts_with("SCT") {
