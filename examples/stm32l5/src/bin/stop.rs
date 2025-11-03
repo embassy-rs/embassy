@@ -30,8 +30,6 @@ async fn async_main(spawner: Spawner) {
 
     // give the RTC to the executor...
     let rtc = Rtc::new(p.RTC, RtcConfig::default());
-    static RTC: StaticCell<Rtc> = StaticCell::new();
-    let rtc = RTC.init(rtc);
     embassy_stm32::low_power::stop_with_rtc(rtc);
 
     spawner.spawn(unwrap!(blinky(p.PC7.into())));

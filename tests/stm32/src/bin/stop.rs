@@ -70,9 +70,6 @@ async fn async_main(spawner: Spawner) {
 
     rtc.set_datetime(now.into()).expect("datetime not set");
 
-    static RTC: StaticCell<Rtc> = StaticCell::new();
-    let rtc = RTC.init(rtc);
-
     stop_with_rtc(rtc);
 
     spawner.spawn(task_1().unwrap());

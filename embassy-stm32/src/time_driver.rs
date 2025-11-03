@@ -213,7 +213,7 @@ pub(crate) struct RtcDriver {
     period: AtomicU32,
     alarm: Mutex<CriticalSectionRawMutex, AlarmState>,
     #[cfg(feature = "low-power")]
-    rtc: Mutex<CriticalSectionRawMutex, Cell<Option<&'static Rtc>>>,
+    rtc: Mutex<CriticalSectionRawMutex, RefCell<Option<Rtc>>>,
     queue: Mutex<CriticalSectionRawMutex, RefCell<Queue>>,
 }
 
@@ -221,7 +221,7 @@ embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     period: AtomicU32::new(0),
     alarm: Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState::new()),
     #[cfg(feature = "low-power")]
-    rtc: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(None)),
+    rtc: Mutex::const_new(CriticalSectionRawMutex::new(), RefCell::new(None)),
     queue: Mutex::new(RefCell::new(Queue::new()))
 });
 
@@ -379,7 +379,7 @@ impl RtcDriver {
     #[cfg(feature = "low-power")]
     /// Stop the wakeup alarm, if enabled, and add the appropriate offset
     fn stop_wakeup_alarm(&self, cs: CriticalSection) {
-        if let Some(offset) = self.rtc.borrow(cs).get().unwrap().stop_wakeup_alarm(cs) {
+        if let Some(offset) = self.rtc.borrow(cs).borrow_mut().as_mut().unwrap().stop_wakeup_alarm(cs) {
             self.add_time(offset, cs);
         }
     }
@@ -389,12 +389,18 @@ impl RtcDriver {
     */
     #[cfg(feature = "low-power")]
     /// Set the rtc but panic if it's already been set
-    pub(crate) fn set_rtc(&self, rtc: &'static Rtc) {
+    pub(crate) fn set_rtc(&self, mut rtc: Rtc) {
         critical_section::with(|cs| {
             rtc.stop_wakeup_alarm(cs);
 
             assert!(self.rtc.borrow(cs).replace(Some(rtc)).is_none())
         });
+    }
+
+    #[cfg(feature = "low-power")]
+    /// Set the rtc but panic if it's already been set
+    pub(crate) fn reconfigure_rtc(&self, f: impl FnOnce(&mut Rtc)) {
+        critical_section::with(|cs| f(self.rtc.borrow(cs).borrow_mut().as_mut().unwrap()));
     }
 
     #[cfg(feature = "low-power")]
@@ -418,7 +424,8 @@ impl RtcDriver {
             } else {
                 self.rtc
                     .borrow(cs)
-                    .get()
+                    .borrow_mut()
+                    .as_mut()
                     .unwrap()
                     .start_wakeup_alarm(time_until_next_alarm, cs);
 
