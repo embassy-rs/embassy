@@ -141,7 +141,7 @@ mod dma_only {
             match raw {
                 Dir::MemoryToPeripheral => Self::MEMORY_TO_PERIPHERAL,
                 Dir::PeripheralToMemory => Self::PERIPHERAL_TO_MEMORY,
-                Dir::PeripheralToMemory => Self::MEMORY_TO_MEMORY,
+                Dir::MemoryToMemory => Self::MEMORY_TO_MEMORY,
             }
         }
     }
