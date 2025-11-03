@@ -12,7 +12,6 @@ use embassy_stm32::rcc::{HSIPrescaler, LsConfig};
 use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_stm32::{Config, Peri};
 use embassy_time::Timer;
-use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 #[cortex_m_rt::entry]

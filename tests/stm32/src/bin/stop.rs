@@ -14,7 +14,6 @@ use embassy_stm32::low_power::{Executor, StopMode, stop_ready, stop_with_rtc};
 use embassy_stm32::rcc::LsConfig;
 use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_time::Timer;
-use static_cell::StaticCell;
 
 #[entry]
 fn main() -> ! {
