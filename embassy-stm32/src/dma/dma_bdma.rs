@@ -622,7 +622,7 @@ impl<'a> Transfer<'a> {
             request,
             Dir::MemoryToMemory,
             buf as *const MW as *mut u32,
-            dest_addr *mut u32,
+            dest_addr as *mut u32,
             buf.len(),
             true,
             MW::size(),
