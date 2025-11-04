@@ -42,6 +42,16 @@ pub enum Dir {
     MemoryToMemory
 }
 
+/// Which pointer in the transfer to increment.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Increment {
+    None,
+    Peripheral,
+    Memory,
+    Both
+}
+
 /// DMA request type alias. (also known as DMA channel number in some chips)
 #[cfg(any(dma_v2, bdma_v2, gpdma, dmamux))]
 pub type Request = u8;
