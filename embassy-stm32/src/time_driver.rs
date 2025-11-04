@@ -216,6 +216,9 @@ pub(crate) struct RtcDriver {
     alarm: Mutex<CriticalSectionRawMutex, AlarmState>,
     #[cfg(feature = "low-power")]
     rtc: Mutex<CriticalSectionRawMutex, RefCell<Option<Rtc>>>,
+    #[cfg(feature = "low-power")]
+    /// The minimum pause time beyond which the executor will enter a low-power state.
+    min_stop_pause: Mutex<CriticalSectionRawMutex, Cell<embassy_time::Duration>>,
     /// Saved count for the timer (its value is lost when entering STOP2)
     #[cfg(all(feature = "low-power", stm32wlex))]
     saved_count: AtomicU16,
@@ -227,6 +230,8 @@ embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     alarm: Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState::new()),
     #[cfg(feature = "low-power")]
     rtc: Mutex::const_new(CriticalSectionRawMutex::new(), RefCell::new(None)),
+    #[cfg(feature = "low-power")]
+    min_stop_pause: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(embassy_time::Duration::from_millis(0))),
     #[cfg(all(feature = "low-power", stm32wlex))]
     saved_count: AtomicU16::new(0),
     queue: Mutex::new(RefCell::new(Queue::new()))
@@ -400,27 +405,26 @@ impl RtcDriver {
     }
 
     /*
-        Low-power public functions: all create a critical section
+        Low-power public functions: all create or require a critical section
     */
     #[cfg(feature = "low-power")]
-    /// Set the rtc but panic if it's already been set
-    pub(crate) fn set_rtc(&self, mut rtc: Rtc) {
-        critical_section::with(|cs| {
-            rtc.stop_wakeup_alarm(cs);
-
-            assert!(self.rtc.borrow(cs).replace(Some(rtc)).is_none())
-        });
+    pub(crate) fn set_min_stop_pause(&self, cs: CriticalSection, min_stop_pause: embassy_time::Duration) {
+        self.min_stop_pause.borrow(cs).replace(min_stop_pause);
     }
 
     #[cfg(feature = "low-power")]
     /// Set the rtc but panic if it's already been set
-    pub(crate) fn reconfigure_rtc(&self, f: impl FnOnce(&mut Rtc)) {
-        critical_section::with(|cs| f(self.rtc.borrow(cs).borrow_mut().as_mut().unwrap()));
+    pub(crate) fn set_rtc(&self, cs: CriticalSection, mut rtc: Rtc) {
+        rtc.stop_wakeup_alarm(cs);
+
+        assert!(self.rtc.borrow(cs).replace(Some(rtc)).is_none());
     }
 
     #[cfg(feature = "low-power")]
-    /// The minimum pause time beyond which the executor will enter a low-power state.
-    pub(crate) const MIN_STOP_PAUSE: embassy_time::Duration = embassy_time::Duration::from_millis(250);
+    /// Reconfigure the rtc
+    pub(crate) fn reconfigure_rtc<R>(&self, f: impl FnOnce(&mut Rtc) -> R) -> R {
+        critical_section::with(|cs| f(self.rtc.borrow(cs).borrow_mut().as_mut().unwrap()))
+    }
 
     #[cfg(feature = "low-power")]
     /// Pause the timer if ready; return err if not
@@ -434,9 +438,9 @@ impl RtcDriver {
             self.stop_wakeup_alarm(cs);
 
             let time_until_next_alarm = self.time_until_next_alarm(cs);
-            if time_until_next_alarm < Self::MIN_STOP_PAUSE {
+            if time_until_next_alarm < self.min_stop_pause.borrow(cs).get() {
                 trace!(
-                    "time_until_next_alarm < Self::MIN_STOP_PAUSE ({})",
+                    "time_until_next_alarm < self.min_stop_pause ({})",
                     time_until_next_alarm
                 );
                 Err(())
@@ -460,18 +464,16 @@ impl RtcDriver {
 
     #[cfg(feature = "low-power")]
     /// Resume the timer with the given offset
-    pub(crate) fn resume_time(&self) {
+    pub(crate) fn resume_time(&self, cs: CriticalSection) {
         if regs_gp16().cr1().read().cen() {
             // Time isn't currently stopped
 
             return;
         }
 
-        critical_section::with(|cs| {
-            self.stop_wakeup_alarm(cs);
+        self.stop_wakeup_alarm(cs);
 
-            regs_gp16().cr1().modify(|w| w.set_cen(true));
-        })
+        regs_gp16().cr1().modify(|w| w.set_cen(true));
     }
 
     fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
@@ -543,7 +545,7 @@ impl Driver for RtcDriver {
 }
 
 #[cfg(feature = "low-power")]
-pub(crate) fn get_driver() -> &'static RtcDriver {
+pub(crate) const fn get_driver() -> &'static RtcDriver {
     &DRIVER
 }
 

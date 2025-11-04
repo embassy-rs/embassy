@@ -73,7 +73,7 @@ pub(crate) unsafe fn on_interrupt<T: Instance>() {
     // restore the clocks to their last configured state as
     // much is lost in STOP modes
     #[cfg(all(feature = "low-power", stm32wlex))]
-    crate::low_power::on_wakeup_irq();
+    crate::low_power::Executor::on_wakeup_irq();
 
     let regs = T::info().regs;
     let isr = regs.isr().read();
@@ -820,7 +820,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     /// Write.
     pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
         #[cfg(all(feature = "low-power", stm32wlex))]
-        let _device_busy = crate::low_power::DeviceBusy::new();
+        let _device_busy = crate::low_power::DeviceBusy::new_stop1();
         let timeout = self.timeout();
         if write.is_empty() {
             self.write_internal(address.into(), write, true, timeout)
@@ -836,7 +836,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     /// The buffers are concatenated in a single write transaction.
     pub async fn write_vectored(&mut self, address: Address, write: &[&[u8]]) -> Result<(), Error> {
         #[cfg(all(feature = "low-power", stm32wlex))]
-        let _device_busy = crate::low_power::DeviceBusy::new();
+        let _device_busy = crate::low_power::DeviceBusy::new_stop1();
         let timeout = self.timeout();
 
         if write.is_empty() {
@@ -861,7 +861,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     /// Read.
     pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
         #[cfg(all(feature = "low-power", stm32wlex))]
-        let _device_busy = crate::low_power::DeviceBusy::new();
+        let _device_busy = crate::low_power::DeviceBusy::new_stop1();
         let timeout = self.timeout();
 
         if buffer.is_empty() {
@@ -875,7 +875,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     /// Write, restart, read.
     pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
         #[cfg(all(feature = "low-power", stm32wlex))]
-        let _device_busy = crate::low_power::DeviceBusy::new();
+        let _device_busy = crate::low_power::DeviceBusy::new_stop1();
         let timeout = self.timeout();
 
         if write.is_empty() {
@@ -902,7 +902,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
     pub async fn transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
         #[cfg(all(feature = "low-power", stm32wlex))]
-        let _device_busy = crate::low_power::DeviceBusy::new();
+        let _device_busy = crate::low_power::DeviceBusy::new_stop1();
         let _ = addr;
         let _ = operations;
         todo!()

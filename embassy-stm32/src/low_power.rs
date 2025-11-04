@@ -41,10 +41,6 @@
 //!     config.enable_debug_during_sleep = false;
 //!     let p = embassy_stm32::init(config);
 //!
-//!     // give the RTC to the executor...
-//!     let mut rtc = Rtc::new(p.RTC, RtcConfig::default());
-//!     embassy_stm32::low_power::stop_with_rtc(rtc);
-//!
 //!     // your application here...
 //! }
 //! ```
@@ -57,10 +53,11 @@ use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, compiler_fence};
 
 use cortex_m::peripheral::SCB;
+use critical_section::CriticalSection;
 use embassy_executor::*;
 
 use crate::interrupt;
-use crate::time_driver::{RtcDriver, get_driver};
+use crate::time_driver::get_driver;
 
 const THREAD_PENDER: usize = usize::MAX;
 
@@ -68,46 +65,59 @@ use crate::rtc::Rtc;
 
 static mut EXECUTOR: Option<Executor> = None;
 
-#[cfg(stm32wlex)]
-pub(crate) use self::busy::DeviceBusy;
-#[cfg(stm32wlex)]
-mod busy {
-    use core::sync::atomic::{AtomicU32, Ordering};
+/// Prevent the device from going into the stop mode if held
+pub struct DeviceBusy(StopMode);
 
-    // Count of devices blocking STOP
-    static STOP_BLOCKED: AtomicU32 = AtomicU32::new(0);
-
-    /// Check if STOP1 is blocked.
-    pub(crate) fn stop_blocked() -> bool {
-        STOP_BLOCKED.load(Ordering::SeqCst) > 0
+impl DeviceBusy {
+    /// Create a new DeviceBusy with stop1.
+    pub fn new_stop1() -> Self {
+        Self::new(StopMode::Stop1)
     }
 
-    /// When ca device goes busy it will construct one of these where it will be dropped when the device goes idle.
-    pub(crate) struct DeviceBusy {}
-
-    impl DeviceBusy {
-        /// Create a new DeviceBusy.
-        pub(crate) fn new() -> Self {
-            STOP_BLOCKED.fetch_add(1, Ordering::SeqCst);
-            trace!("low power: device busy: Stop:{}", STOP_BLOCKED.load(Ordering::SeqCst));
-            Self {}
-        }
+    /// Create a new DeviceBusy with stop2.
+    pub fn new_stop2() -> Self {
+        Self::new(StopMode::Stop2)
     }
 
-    impl Drop for DeviceBusy {
-        fn drop(&mut self) {
-            STOP_BLOCKED.fetch_sub(1, Ordering::SeqCst);
-            trace!("low power: device idle: Stop:{}", STOP_BLOCKED.load(Ordering::SeqCst));
-        }
+    /// Create a new DeviceBusy.
+    pub fn new(stop_mode: StopMode) -> Self {
+        critical_section::with(|_| unsafe {
+            match stop_mode {
+                StopMode::Stop1 => {
+                    crate::rcc::REFCOUNT_STOP1 += 1;
+                }
+                StopMode::Stop2 => {
+                    crate::rcc::REFCOUNT_STOP2 += 1;
+                }
+            }
+        });
+
+        Self(stop_mode)
     }
 }
+
+impl Drop for DeviceBusy {
+    fn drop(&mut self) {
+        critical_section::with(|_| unsafe {
+            match self.0 {
+                StopMode::Stop1 => {
+                    crate::rcc::REFCOUNT_STOP1 -= 1;
+                }
+                StopMode::Stop2 => {
+                    crate::rcc::REFCOUNT_STOP2 -= 1;
+                }
+            }
+        });
+    }
+}
+
 #[cfg(not(stm32u0))]
 foreach_interrupt! {
     (RTC, rtc, $block:ident, WKUP, $irq:ident) => {
         #[interrupt]
         #[allow(non_snake_case)]
         unsafe fn $irq() {
-            EXECUTOR.as_mut().unwrap().on_wakeup_irq();
+            Executor::on_wakeup_irq();
         }
     };
 }
@@ -118,27 +128,14 @@ foreach_interrupt! {
         #[interrupt]
         #[allow(non_snake_case)]
         unsafe fn $irq() {
-            EXECUTOR.as_mut().unwrap().on_wakeup_irq();
+            Executor::on_wakeup_irq();
         }
     };
 }
 
-#[allow(dead_code)]
-pub(crate) unsafe fn on_wakeup_irq() {
-    if EXECUTOR.is_some() {
-        trace!("low power: wakeup irq");
-        EXECUTOR.as_mut().unwrap().on_wakeup_irq();
-    }
-}
-
-/// Configure STOP mode with RTC.
-pub fn stop_with_rtc(rtc: Rtc) {
-    unsafe { EXECUTOR.as_mut().unwrap() }.stop_with_rtc(rtc)
-}
-
 /// Reconfigure the RTC, if set.
-pub fn reconfigure_rtc(f: impl FnOnce(&mut Rtc)) {
-    unsafe { EXECUTOR.as_mut().unwrap() }.reconfigure_rtc(f);
+pub fn reconfigure_rtc<R>(f: impl FnOnce(&mut Rtc) -> R) -> R {
+    get_driver().reconfigure_rtc(f)
 }
 
 /// Get whether the core is ready to enter the given stop mode.
@@ -146,11 +143,11 @@ pub fn reconfigure_rtc(f: impl FnOnce(&mut Rtc)) {
 /// This will return false if some peripheral driver is in use that
 /// prevents entering the given stop mode.
 pub fn stop_ready(stop_mode: StopMode) -> bool {
-    match unsafe { EXECUTOR.as_mut().unwrap() }.stop_mode() {
+    critical_section::with(|cs| match Executor::stop_mode(cs) {
         Some(StopMode::Stop2) => true,
         Some(StopMode::Stop1) => stop_mode == StopMode::Stop1,
         None => false,
-    }
+    })
 }
 
 /// Available Stop modes.
@@ -193,7 +190,6 @@ pub struct Executor {
     inner: raw::Executor,
     not_send: PhantomData<*mut ()>,
     scb: SCB,
-    time_driver: &'static RtcDriver,
 }
 
 impl Executor {
@@ -206,7 +202,6 @@ impl Executor {
                 inner: raw::Executor::new(THREAD_PENDER as *mut ()),
                 not_send: PhantomData,
                 scb: cortex_m::Peripherals::steal().SCB,
-                time_driver: get_driver(),
             });
 
             let executor = EXECUTOR.as_mut().unwrap();
@@ -215,54 +210,33 @@ impl Executor {
         })
     }
 
-    unsafe fn on_wakeup_irq(&mut self) {
-        #[cfg(stm32wlex)]
-        {
-            let extscr = crate::pac::PWR.extscr().read();
-            if extscr.c1stop2f() || extscr.c1stopf() {
-                // when we wake from any stop mode we need to re-initialize the rcc
-                crate::rcc::apply_resume_config();
-                if extscr.c1stop2f() {
-                    // when we wake from STOP2, we need to re-initialize the time driver
-                    critical_section::with(|cs| crate::time_driver::init_timer(cs));
-                    // reset the refcounts for STOP2 and STOP1 (initializing the time driver will increment one of them for the timer)
-                    // and given that we just woke from STOP2, we can reset them
-                    crate::rcc::REFCOUNT_STOP2 = 0;
-                    crate::rcc::REFCOUNT_STOP1 = 0;
+    pub(crate) unsafe fn on_wakeup_irq() {
+        critical_section::with(|cs| {
+            #[cfg(stm32wlex)]
+            {
+                let extscr = crate::pac::PWR.extscr().read();
+                if extscr.c1stop2f() || extscr.c1stopf() {
+                    // when we wake from any stop mode we need to re-initialize the rcc
+                    crate::rcc::apply_resume_config();
+                    if extscr.c1stop2f() {
+                        // when we wake from STOP2, we need to re-initialize the time driver
+                        crate::time_driver::init_timer(cs);
+                        // reset the refcounts for STOP2 and STOP1 (initializing the time driver will increment one of them for the timer)
+                        // and given that we just woke from STOP2, we can reset them
+                        crate::rcc::REFCOUNT_STOP2 = 0;
+                        crate::rcc::REFCOUNT_STOP1 = 0;
+                    }
                 }
             }
-        }
-        self.time_driver.resume_time();
-        trace!("low power: resume");
+            get_driver().resume_time(cs);
+            trace!("low power: resume");
+        });
     }
 
-    pub(self) fn stop_with_rtc(&mut self, rtc: Rtc) {
-        self.time_driver.set_rtc(rtc);
-        self.time_driver.reconfigure_rtc(|rtc| rtc.enable_wakeup_line());
-
-        trace!("low power: stop with rtc configured");
-    }
-
-    pub(self) fn reconfigure_rtc(&mut self, f: impl FnOnce(&mut Rtc)) {
-        self.time_driver.reconfigure_rtc(f);
-    }
-
-    fn stop1_ok_to_enter(&self) -> bool {
-        #[cfg(stm32wlex)]
-        if self::busy::stop_blocked() {
-            return false;
-        }
-        unsafe { crate::rcc::REFCOUNT_STOP1 == 0 }
-    }
-
-    fn stop2_ok_to_enter(&self) -> bool {
-        self.stop1_ok_to_enter() && unsafe { crate::rcc::REFCOUNT_STOP2 == 0 }
-    }
-
-    fn stop_mode(&self) -> Option<StopMode> {
-        if self.stop2_ok_to_enter() {
+    fn stop_mode(_cs: CriticalSection) -> Option<StopMode> {
+        if unsafe { crate::rcc::REFCOUNT_STOP2 == 0 && crate::rcc::REFCOUNT_STOP1 == 0 } {
             Some(StopMode::Stop2)
-        } else if self.stop1_ok_to_enter() {
+        } else if unsafe { crate::rcc::REFCOUNT_STOP1 == 0 } {
             Some(StopMode::Stop1)
         } else {
             None
@@ -291,14 +265,14 @@ impl Executor {
 
         compiler_fence(Ordering::SeqCst);
 
-        let stop_mode = self.stop_mode();
+        let stop_mode = critical_section::with(|cs| Self::stop_mode(cs));
 
         if stop_mode.is_none() {
             trace!("low power: not ready to stop");
             return;
         }
 
-        if self.time_driver.pause_time().is_err() {
+        if get_driver().pause_time().is_err() {
             trace!("low power: failed to pause time");
             return;
         }

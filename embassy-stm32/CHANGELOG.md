@@ -43,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - adc: consolidate ringbuffer
 - feat: Added RTC low-power support for STM32WLEx ([#4716](https://github.com/embassy-rs/embassy/pull/4716))
 - fix: Correct STM32WBA VREFBUFTRIM values
+- low_power: remove stop_with rtc and initialize in init if low-power feature enabled.
 
 ## 0.4.0 - 2025-08-26
 
