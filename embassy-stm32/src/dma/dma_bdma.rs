@@ -413,16 +413,16 @@ impl AnyChannel {
                     w.set_psize(peri_size.into());
                     w.set_pl(options.priority.into());
                     match incr_mem {
-                        Increment::None = {},
+                        Increment::None => {},
                         Increment::Peripheral => {
                             w.set_minc(false);
                             w.set_pinc(true);
                         },
-                        Increment::Memory = {
+                        Increment::Memory => {
                             w.set_minc(true);
                             w.set_pinc(false);
                         },
-                        Increment::Both = {
+                        Increment::Both => {
                             w.set_minc(true);
                             w.set_pinc(true);
                         }
@@ -460,7 +460,21 @@ impl AnyChannel {
                 ch.cr().write(|w| {
                     w.set_psize(peri_size.into());
                     w.set_msize(mem_size.into());
-                    w.set_minc(incr_mem);
+                    match incr_mem {
+                        Increment::None => {},
+                        Increment::Peripheral => {
+                            w.set_minc(false);
+                            w.set_pinc(true);
+                        },
+                        Increment::Memory => {
+                            w.set_minc(true);
+                            w.set_pinc(false);
+                        },
+                        Increment::Both => {
+                            w.set_minc(true);
+                            w.set_pinc(true);
+                        }
+                    }
                     w.set_dir(dir.into());
                     w.set_teie(true);
                     w.set_tcie(options.complete_transfer_ir);
