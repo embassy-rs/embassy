@@ -9,7 +9,6 @@ use embassy_stm32::rcc::LsConfig;
 use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_stm32::{Config, Peri};
 use embassy_time::Timer;
-use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 #[cortex_m_rt::entry]
@@ -30,8 +29,6 @@ async fn async_main(spawner: Spawner) {
 
     // give the RTC to the executor...
     let rtc = Rtc::new(p.RTC, RtcConfig::default());
-    static RTC: StaticCell<Rtc> = StaticCell::new();
-    let rtc = RTC.init(rtc);
     embassy_stm32::low_power::stop_with_rtc(rtc);
 
     spawner.spawn(unwrap!(blinky(p.PC7.into())));

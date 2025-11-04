@@ -5,10 +5,6 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-<!-- next-header -->
-### [Unreleased]
-
-* **Fix(stm32h5):** Prevent a HardFault crash on STM32H5 devices by changing `uid()` to return `[u8; 12]` by value instead of a reference. (Fixes #2696)
 ## Unreleased - ReleaseDate
 
 - fix flash erase on L4 & L5
@@ -35,10 +31,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: stm32/usart: add `eager_reads` option to control if buffered readers return as soon as possible or after more data is available ([#4668](https://github.com/embassy-rs/embassy/pull/4668))
 - feat: stm32/usart: add `de_assertion_time` and `de_deassertion_time` config options
 - change: stm32/uart: BufferedUartRx now returns all available bytes from the internal buffer
+- fix: Prevent a HardFault crash on STM32H5 devices by changing `uid()` to return `[u8; 12]` by value instead of a reference. (Fixes #2696)
 - change: timer: added output compare values
 - feat: timer: add ability to set master mode
+- fix: sdmmc: don't wait for DBCKEND flag on sdmmc_v2 devices as it never fires (Fixes #4723)
 - fix: usart: fix race condition in ringbuffered usart
 - feat: Add I2C MultiMaster (Slave) support for I2C v1
+- feat: stm32/fdcan: add ability to control automatic recovery from bus off ([#4821](https://github.com/embassy-rs/embassy/pull/4821))
+- low-power: update rtc api to allow reconfig
+- adc: consolidate ringbuffer
+- feat: Added RTC low-power support for STM32WLEx ([#4716](https://github.com/embassy-rs/embassy/pull/4716))
+- fix: Correct STM32WBA VREFBUFTRIM values
 
 ## 0.4.0 - 2025-08-26
 
@@ -51,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - chore: Updated stm32-metapac and stm32-data dependencies
 - feat: stm32/adc/v3: allow DMA reads to loop through enable channels
 - fix: Fix XSPI not disabling alternate bytes when they were previously enabled
+- feat: stm32/adc/v3: added support for Continuous DMA configuration 
 - fix: Fix stm32h7rs init when using external flash via XSPI
 - feat: Add Adc::new_with_clock() to configure analog clock
 - feat: Add GPDMA linked-list + ringbuffer support ([#3923](https://github.com/embassy-rs/embassy/pull/3923))
