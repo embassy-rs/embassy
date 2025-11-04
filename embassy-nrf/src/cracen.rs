@@ -2,10 +2,13 @@
 
 #![macro_use]
 
-use crate::mode::{Async, Blocking, Mode};
+use crate::mode::{Blocking, Mode};
 use crate::{Peri, interrupt, pac, peripherals};
 use core::marker::PhantomData;
 
+/// A wrapper around an nRF54 CRACEN peripheral.
+///
+/// It has a blocking api through `rand`.
 pub struct Cracen<'d, M: Mode> {
     _peri: Peri<'d, peripherals::CRACEN>,
     _p: PhantomData<M>,
@@ -14,8 +17,6 @@ pub struct Cracen<'d, M: Mode> {
 impl<'d> Cracen<'d, Blocking> {
     /// Create a new CRACEN driver.
     pub fn new_blocking(_peri: Peri<'d, peripherals::CRACEN>) -> Self {
-        let r = pac::CRACEN;
-
         let me = Self { _peri, _p: PhantomData };
 
         me.stop();
@@ -136,9 +137,7 @@ impl<'d, M: Mode> rand_core_09::RngCore for Cracen<'d, M> {
 
 impl<'d, M: Mode> rand_core_09::CryptoRng for Cracen<'d, M> {}
 
-pub(crate) trait SealedInstance {
-    fn regs() -> pac::cracen::Cracen;
-}
+pub(crate) trait SealedInstance {}
 
 /// CRACEN peripheral instance.
 #[allow(private_bounds)]
@@ -149,11 +148,7 @@ pub trait Instance: SealedInstance + 'static + Send {
 
 macro_rules! impl_cracen {
     ($type:ident, $pac_type:ident, $irq:ident) => {
-        impl crate::cracen::SealedInstance for peripherals::$type {
-            fn regs() -> crate::pac::cracen::Cracen {
-                pac::$pac_type
-            }
-        }
+        impl crate::cracen::SealedInstance for peripherals::$type {}
         impl crate::cracen::Instance for peripherals::$type {
             type Interrupt = crate::interrupt::typelevel::$irq;
         }

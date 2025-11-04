@@ -563,6 +563,7 @@ pub mod config {
         pub time_interrupt_priority: crate::interrupt::Priority,
         /// Enable or disable the debug port.
         pub debug: Debug,
+        /// Clock speed configuration.
         #[cfg(feature = "_nrf54l")]
         pub clock_speed: ClockSpeed,
     }
