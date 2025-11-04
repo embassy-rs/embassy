@@ -145,10 +145,12 @@ pub mod radio;
 #[cfg(feature = "_net-driver")]
 pub mod embassy_net_802154_driver;
 
+#[cfg(feature = "_nrf54l")]
+pub mod cracen;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(feature = "_nrf5340")]
 pub mod reset;
-#[cfg(not(feature = "_nrf54l"))] // TODO
+#[cfg(not(feature = "_nrf54l"))]
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod rng;
 pub mod rtc;

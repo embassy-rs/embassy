@@ -682,6 +682,8 @@ impl_saadc_input!(P1_12, 1, 12);
 impl_saadc_input!(P1_13, 1, 13);
 impl_saadc_input!(P1_14, 1, 14);
 
+impl_cracen!(CRACEN, CRACEN, CRACEN);
+
 embassy_hal_internal::interrupt_mod!(
     SWI00,
     SWI01,
