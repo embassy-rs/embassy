@@ -157,10 +157,10 @@ impl Rtc {
     #[cfg(not(feature = "low-power"))]
     /// Create a new RTC instance.
     pub fn new(_rtc: Peri<'static, RTC>, rtc_config: RtcConfig) -> Self {
-        Self::new_inner(rtc_config, false)
+        Self::new_inner(rtc_config)
     }
 
-    pub(self) fn new_inner(rtc_config: RtcConfig, enable_wakeup_line: bool) -> Self {
+    pub(self) fn new_inner(rtc_config: RtcConfig) -> Self {
         #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
         crate::rcc::enable_and_reset::<RTC>();
 
@@ -183,9 +183,8 @@ impl Rtc {
             while now == this.time_provider().read(|_, _, ss| Ok(ss)).unwrap() {}
         }
 
-        if enable_wakeup_line {
-            this.enable_wakeup_line();
-        }
+        #[cfg(feature = "low-power")]
+        this.enable_wakeup_line();
 
         this
     }
@@ -336,7 +335,7 @@ trait SealedInstance {
 
 #[cfg(feature = "low-power")]
 pub(crate) fn init_rtc(_cs: CriticalSection, config: RtcConfig) {
-    crate::time_driver::get_driver().set_rtc(Rtc::new_inner(config, true));
+    crate::time_driver::get_driver().set_rtc(Rtc::new_inner(config));
 
     trace!("low power: stop with rtc configured");
 }
