@@ -4,7 +4,7 @@ use embassy_time::{Duration, TICK_HZ};
 use super::{DateTimeError, Rtc, RtcError, bcd2_to_byte};
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::RTC;
-use crate::rtc::SealedInstance;
+use crate::rtc::{RtcTimeProvider, SealedInstance};
 
 /// Represents an instant in time that can be substracted to compute a duration
 pub(super) struct RtcInstant {
@@ -117,7 +117,7 @@ impl WakeupPrescaler {
 impl Rtc {
     /// Return the current instant.
     fn instant(&self) -> Result<RtcInstant, RtcError> {
-        self.time_provider().read(|_, tr, ss| {
+        RtcTimeProvider::new().read(|_, tr, ss| {
             let second = bcd2_to_byte((tr.st(), tr.su()));
 
             RtcInstant::from(second, ss).map_err(RtcError::InvalidDateTime)

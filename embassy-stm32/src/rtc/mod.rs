@@ -5,7 +5,9 @@ mod datetime;
 mod low_power;
 
 #[cfg(feature = "low-power")]
-use core::cell::Cell;
+use core::cell::{Cell, RefCell, RefMut};
+#[cfg(feature = "low-power")]
+use core::ops;
 
 #[cfg(feature = "low-power")]
 use critical_section::CriticalSection;
@@ -52,9 +54,8 @@ pub struct RtcTimeProvider {
 }
 
 impl RtcTimeProvider {
-    #[cfg(feature = "low-power")]
     /// Create a new RTC time provider instance.
-    pub fn new(_rtc: Peri<'static, RTC>) -> Self {
+    pub(self) const fn new() -> Self {
         Self { _private: () }
     }
 
@@ -115,6 +116,50 @@ impl RtcTimeProvider {
     }
 }
 
+#[cfg(feature = "low-power")]
+/// Contains an RTC driver.
+pub struct RtcContainer {
+    pub(self) mutex: &'static Mutex<CriticalSectionRawMutex, RefCell<Option<Rtc>>>,
+}
+
+#[cfg(feature = "low-power")]
+impl RtcContainer {
+    pub(self) const fn new() -> Self {
+        Self {
+            mutex: &crate::time_driver::get_driver().rtc,
+        }
+    }
+
+    /// Acquire an RTC borrow.
+    pub fn borrow_mut<'a>(&self, cs: CriticalSection<'a>) -> RtcBorrow<'a> {
+        RtcBorrow {
+            ref_mut: self.mutex.borrow(cs).borrow_mut(),
+        }
+    }
+}
+
+#[cfg(feature = "low-power")]
+/// Contains an RTC borrow.
+pub struct RtcBorrow<'a> {
+    pub(self) ref_mut: RefMut<'a, Option<Rtc>>,
+}
+
+#[cfg(feature = "low-power")]
+impl<'a> ops::Deref for RtcBorrow<'a> {
+    type Target = Rtc;
+
+    fn deref(&self) -> &Self::Target {
+        self.ref_mut.as_ref().unwrap()
+    }
+}
+
+#[cfg(feature = "low-power")]
+impl<'a> ops::DerefMut for RtcBorrow<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.ref_mut.as_mut().unwrap()
+    }
+}
+
 /// RTC driver.
 pub struct Rtc {
     #[cfg(feature = "low-power")]
@@ -156,8 +201,14 @@ pub enum RtcCalibrationCyclePeriod {
 impl Rtc {
     #[cfg(not(feature = "low-power"))]
     /// Create a new RTC instance.
-    pub fn new(_rtc: Peri<'static, RTC>, rtc_config: RtcConfig) -> Self {
-        Self::new_inner(rtc_config)
+    pub fn new(_rtc: Peri<'static, RTC>, rtc_config: RtcConfig) -> (Self, RtcTimeProvider) {
+        (Self::new_inner(rtc_config), RtcTimeProvider::new())
+    }
+
+    #[cfg(feature = "low-power")]
+    /// Create a new RTC instance.
+    pub fn new(_rtc: Peri<'static, RTC>) -> (RtcContainer, RtcTimeProvider) {
+        (RtcContainer::new(), RtcTimeProvider::new())
     }
 
     pub(self) fn new_inner(rtc_config: RtcConfig) -> Self {
@@ -179,8 +230,8 @@ impl Rtc {
         // Wait for the clock to update after initialization
         #[cfg(not(rtc_v2_f2))]
         {
-            let now = this.time_provider().read(|_, _, ss| Ok(ss)).unwrap();
-            while now == this.time_provider().read(|_, _, ss| Ok(ss)).unwrap() {}
+            let now = RtcTimeProvider::new().read(|_, _, ss| Ok(ss)).unwrap();
+            while now == RtcTimeProvider::new().read(|_, _, ss| Ok(ss)).unwrap() {}
         }
 
         #[cfg(feature = "low-power")]
@@ -192,11 +243,6 @@ impl Rtc {
     fn frequency() -> Hertz {
         let freqs = unsafe { crate::rcc::get_freqs() };
         freqs.rtc.to_hertz().unwrap()
-    }
-
-    /// Acquire a [`RtcTimeProvider`] instance.
-    pub const fn time_provider(&self) -> RtcTimeProvider {
-        RtcTimeProvider { _private: () }
     }
 
     /// Set the datetime to a new value.
@@ -240,15 +286,6 @@ impl Rtc {
         });
 
         Ok(())
-    }
-
-    /// Return the current datetime.
-    ///
-    /// # Errors
-    ///
-    /// Will return an `RtcError::InvalidDateTime` if the stored value in the system is not a valid [`DayOfWeek`].
-    pub fn now(&self) -> Result<DateTime, RtcError> {
-        self.time_provider().now()
     }
 
     /// Check if daylight savings time is active.
