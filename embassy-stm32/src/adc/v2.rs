@@ -1,15 +1,22 @@
-use core::marker::PhantomData;
 use core::mem;
+use core::sync::atomic::{Ordering, compiler_fence};
 
 use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel};
-use crate::dma::{Priority, ReadableRingBuffer, TransferOptions};
+use crate::pac::adc::vals;
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
 use crate::{Peri, rcc};
 
 mod ringbuffered;
 pub use ringbuffered::RingBufferedAdc;
+
+fn clear_interrupt_flags(r: crate::pac::adc::Adc) {
+    r.sr().modify(|regs| {
+        regs.set_eoc(false);
+        regs.set_ovr(false);
+    });
+}
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -134,18 +141,6 @@ where
     ) -> RingBufferedAdc<'d, T> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
 
-        let opts: crate::dma::TransferOptions = TransferOptions {
-            half_transfer_ir: true,
-            priority: Priority::VeryHigh,
-            ..Default::default()
-        };
-
-        // Safety: we forget the struct before this function returns.
-        let rx_src = T::regs().dr().as_ptr() as *mut u16;
-        let request = dma.request();
-
-        let ring_buf = unsafe { ReadableRingBuffer::new(dma, request, rx_src, dma_buf, opts) };
-
         T::regs().cr2().modify(|reg| {
             reg.set_adon(true);
         });
@@ -165,13 +160,59 @@ where
             Self::set_channel_sample_time(channel.channel(), sample_time);
         }
 
+        compiler_fence(Ordering::SeqCst);
+
+        let r = T::regs();
+
+        // Clear all interrupts
+        r.sr().modify(|regs| {
+            regs.set_eoc(false);
+            regs.set_ovr(false);
+            regs.set_strt(false);
+        });
+
+        r.cr1().modify(|w| {
+            // Enable interrupt for end of conversion
+            w.set_eocie(true);
+            // Enable interrupt for overrun
+            w.set_ovrie(true);
+            // Scanning converisons of multiple channels
+            w.set_scan(true);
+            // Continuous conversion mode
+            w.set_discen(false);
+        });
+
+        r.cr2().modify(|w| {
+            // Enable DMA mode
+            w.set_dma(true);
+            // Enable continuous conversions
+            w.set_cont(true);
+            // DMA requests are issues as long as DMA=1 and data are converted.
+            w.set_dds(vals::Dds::CONTINUOUS);
+            // EOC flag is set at the end of each conversion.
+            w.set_eocs(vals::Eocs::EACH_CONVERSION);
+        });
+
         // Don't disable the clock
         mem::forget(self);
 
-        RingBufferedAdc {
-            _phantom: PhantomData,
-            ring_buf,
-        }
+        RingBufferedAdc::new(dma, dma_buf)
+    }
+
+    pub(super) fn start() {
+        // Begin ADC conversions
+        T::regs().cr2().modify(|reg| {
+            reg.set_adon(true);
+            reg.set_swstart(true);
+        });
+    }
+
+    pub(super) fn stop() {
+        // Stop ADC
+        T::regs().cr2().modify(|reg| {
+            // Stop ADC
+            reg.set_swstart(false);
+        });
     }
 
     pub fn set_sample_time(&mut self, sample_time: SampleTime) {
@@ -259,6 +300,31 @@ where
         } else {
             T::regs().smpr1().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
         }
+    }
+
+    pub(super) fn teardown_adc() {
+        let r = T::regs();
+
+        // Stop ADC
+        r.cr2().modify(|reg| {
+            // Stop ADC
+            reg.set_swstart(false);
+            // Stop ADC
+            reg.set_adon(false);
+            // Stop DMA
+            reg.set_dma(false);
+        });
+
+        r.cr1().modify(|w| {
+            // Disable interrupt for end of conversion
+            w.set_eocie(false);
+            // Disable interrupt for overrun
+            w.set_ovrie(false);
+        });
+
+        clear_interrupt_flags(r);
+
+        compiler_fence(Ordering::SeqCst);
     }
 }
 

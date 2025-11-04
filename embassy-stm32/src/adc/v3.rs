@@ -181,6 +181,38 @@ impl<'d, T: Instance> Adc<'d, T> {
         blocking_delay_us(1);
     }
 
+    #[cfg(any(adc_v3, adc_g0, adc_u0))]
+    pub(super) fn start() {
+        // Start adc conversion
+        T::regs().cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
+    }
+
+    #[cfg(any(adc_v3, adc_g0, adc_u0))]
+    pub(super) fn stop() {
+        // Stop adc conversion
+        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
+            T::regs().cr().modify(|reg| {
+                reg.set_adstp(true);
+            });
+            while T::regs().cr().read().adstart() {}
+        }
+    }
+
+    #[cfg(any(adc_v3, adc_g0, adc_u0))]
+    pub(super) fn teardown_adc() {
+        //disable dma control
+        #[cfg(not(any(adc_g0, adc_u0)))]
+        T::regs().cfgr().modify(|reg| {
+            reg.set_dmaen(false);
+        });
+        #[cfg(any(adc_g0, adc_u0))]
+        T::regs().cfgr1().modify(|reg| {
+            reg.set_dmaen(false);
+        });
+    }
+
     /// Initialize the ADC leaving any analog clock at reset value.
     /// For G0 and WL, this is the async clock without prescaler.
     pub fn new(adc: Peri<'d, T>) -> Self {

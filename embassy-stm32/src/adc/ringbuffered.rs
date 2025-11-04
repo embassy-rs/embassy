@@ -4,6 +4,7 @@ use core::sync::atomic::{Ordering, compiler_fence};
 #[allow(unused_imports)]
 use embassy_hal_internal::Peri;
 
+use crate::adc::Adc;
 #[allow(unused_imports)]
 use crate::adc::{Instance, RxDma};
 #[allow(unused_imports)]
@@ -13,21 +14,12 @@ use crate::rcc;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct OverrunError;
 
-#[cfg(adc_v2)]
-fn clear_interrupt_flags(r: crate::pac::adc::Adc) {
-    r.sr().modify(|regs| {
-        regs.set_eoc(false);
-        regs.set_ovr(false);
-    });
-}
-
 pub struct RingBufferedAdc<'d, T: Instance> {
-    pub _phantom: PhantomData<T>,
-    pub ring_buf: ReadableRingBuffer<'d, u16>,
+    _phantom: PhantomData<T>,
+    ring_buf: ReadableRingBuffer<'d, u16>,
 }
 
 impl<'d, T: Instance> RingBufferedAdc<'d, T> {
-    #[cfg(not(adc_v2))]
     pub(crate) fn new(dma: Peri<'d, impl RxDma<T>>, dma_buf: &'d mut [u16]) -> Self {
         //dma side setup
         let opts = TransferOptions {
@@ -48,161 +40,24 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
         }
     }
 
-    #[cfg(adc_v2)]
-    fn is_on() -> bool {
-        T::regs().cr2().read().adon()
-    }
-
-    #[cfg(adc_v2)]
     /// Turns on ADC if it is not already turned on and starts continuous DMA transfer.
-    pub fn start(&mut self) -> Result<(), OverrunError> {
-        self.setup_adc();
-        self.ring_buf.clear();
-
-        Ok(())
-    }
-
-    #[cfg(adc_v2)]
-    fn stop(&mut self, err: OverrunError) -> Result<usize, OverrunError> {
-        self.teardown_adc();
-        Err(err)
-    }
-
-    #[cfg(adc_v2)]
-    /// Stops DMA transfer.
-    /// It does not turn off ADC.
-    /// Calling `start` restarts continuous DMA transfer.
-    ///
-    /// [`start`]: #method.start
-    pub fn teardown_adc(&mut self) {
-        // Stop the DMA transfer
-        self.ring_buf.request_pause();
-
-        let r = T::regs();
-
-        // Stop ADC
-        r.cr2().modify(|reg| {
-            // Stop ADC
-            reg.set_swstart(false);
-            // Stop DMA
-            reg.set_dma(false);
-        });
-
-        r.cr1().modify(|w| {
-            // Disable interrupt for end of conversion
-            w.set_eocie(false);
-            // Disable interrupt for overrun
-            w.set_ovrie(false);
-        });
-
-        clear_interrupt_flags(r);
-
+    pub fn start(&mut self) {
         compiler_fence(Ordering::SeqCst);
-    }
-
-    #[cfg(adc_v2)]
-    fn setup_adc(&mut self) {
-        use crate::pac::adc::vals;
-
-        compiler_fence(Ordering::SeqCst);
-
         self.ring_buf.start();
 
-        let r = T::regs();
-
-        // Enable ADC
-        let was_on = Self::is_on();
-        if !was_on {
-            r.cr2().modify(|reg| {
-                reg.set_adon(false);
-                reg.set_swstart(false);
-            });
-        }
-
-        // Clear all interrupts
-        r.sr().modify(|regs| {
-            regs.set_eoc(false);
-            regs.set_ovr(false);
-            regs.set_strt(false);
-        });
-
-        r.cr1().modify(|w| {
-            // Enable interrupt for end of conversion
-            w.set_eocie(true);
-            // Enable interrupt for overrun
-            w.set_ovrie(true);
-            // Scanning converisons of multiple channels
-            w.set_scan(true);
-            // Continuous conversion mode
-            w.set_discen(false);
-        });
-
-        r.cr2().modify(|w| {
-            // Enable DMA mode
-            w.set_dma(true);
-            // Enable continuous conversions
-            w.set_cont(true);
-            // DMA requests are issues as long as DMA=1 and data are converted.
-            w.set_dds(vals::Dds::CONTINUOUS);
-            // EOC flag is set at the end of each conversion.
-            w.set_eocs(vals::Eocs::EACH_CONVERSION);
-        });
-
-        // Begin ADC conversions
-        T::regs().cr2().modify(|reg| {
-            reg.set_adon(true);
-            reg.set_swstart(true);
-        });
-
-        super::blocking_delay_us(3);
+        Adc::<T>::start();
     }
 
-    #[cfg(any(adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0))]
-    #[inline]
-    fn start_continuous_sampling(&mut self) {
-        // Start adc conversion
-        T::regs().cr().modify(|reg| {
-            reg.set_adstart(true);
-        });
-        self.ring_buf.start();
-    }
-
-    #[cfg(any(adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0))]
-    #[inline]
-    pub fn stop_continuous_sampling(&mut self) {
-        // Stop adc conversion
-        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
-            T::regs().cr().modify(|reg| {
-                reg.set_adstp(true);
-            });
-            while T::regs().cr().read().adstart() {}
-        }
-    }
-
-    #[cfg(any(adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0))]
-    pub fn disable_adc(&mut self) {
-        self.stop_continuous_sampling();
-        self.ring_buf.clear();
+    pub fn stop(&mut self) {
         self.ring_buf.request_pause();
-    }
 
-    #[cfg(any(adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0))]
-    pub fn teardown_adc(&mut self) {
-        self.disable_adc();
-
-        //disable dma control
-        #[cfg(not(any(adc_g0, adc_u0)))]
-        T::regs().cfgr().modify(|reg| {
-            reg.set_dmaen(false);
-        });
-        #[cfg(any(adc_g0, adc_u0))]
-        T::regs().cfgr1().modify(|reg| {
-            reg.set_dmaen(false);
-        });
-
-        //TODO: do we need to cleanup the DMA request here?
+        Adc::<T>::stop();
 
         compiler_fence(Ordering::SeqCst);
+    }
+
+    pub fn clear(&mut self) {
+        self.ring_buf.clear();
     }
 
     /// Reads measurements from the DMA ring buffer.
@@ -257,31 +112,17 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
             "Buffer size must be half the size of the ring buffer"
         );
 
-        let r = T::regs();
+        if !self.ring_buf.is_running() {
+            self.start();
+        }
 
         #[cfg(adc_v2)]
         {
-            // Start background receive if it was not already started
-            if !r.cr2().read().dma() {
-                self.start()?;
-            }
-
             // Clear overrun flag if set.
-            if r.sr().read().ovr() {
-                return self.stop(OverrunError);
-            }
+            if T::regs().sr().read().ovr() {
+                self.stop();
 
-            // Start background receive if it was not already started
-            if !r.cr().read().adstart() {
-                self.start_continuous_sampling();
-            }
-        }
-
-        #[cfg(not(adc_v2))]
-        {
-            // Start background receive if it was not already started
-            if !r.cr().read().adstart() {
-                self.start_continuous_sampling();
+                return Err(OverrunError);
             }
         }
 
@@ -297,50 +138,29 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     /// Receive in the background is terminated if an error is returned.
     /// It must then manually be started again by calling `start_continuous_sampling()` or by re-calling `blocking_read()`.
     pub fn blocking_read(&mut self, buf: &mut [u16]) -> Result<usize, OverrunError> {
-        let r = T::regs();
+        if !self.ring_buf.is_running() {
+            self.start();
+        }
 
         #[cfg(adc_v2)]
         {
-            // Start background receive if it was not already started
-            if !r.cr2().read().dma() {
-                self.start()?;
-            }
-
             // Clear overrun flag if set.
-            if r.sr().read().ovr() {
-                return self.stop(OverrunError);
-            }
+            if T::regs().sr().read().ovr() {
+                self.stop();
 
-            loop {
-                match self.ring_buf.read(buf) {
-                    Ok((0, _)) => {}
-                    Ok((len, _)) => {
-                        return Ok(len);
-                    }
-                    Err(_) => {
-                        return self.stop(OverrunError);
-                    }
-                }
+                return Err(OverrunError);
             }
         }
+        loop {
+            match self.ring_buf.read(buf) {
+                Ok((0, _)) => {}
+                Ok((len, _)) => {
+                    return Ok(len);
+                }
+                Err(_) => {
+                    self.stop();
 
-        #[cfg(not(adc_v2))]
-        {
-            // Start background receive if it was not already started
-            if !r.cr().read().adstart() {
-                self.start_continuous_sampling();
-            }
-
-            loop {
-                match self.ring_buf.read(buf) {
-                    Ok((0, _)) => {}
-                    Ok((len, _)) => {
-                        return Ok(len);
-                    }
-                    Err(_) => {
-                        self.stop_continuous_sampling();
-                        return Err(OverrunError);
-                    }
+                    return Err(OverrunError);
                 }
             }
         }
@@ -349,7 +169,11 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
 
 impl<T: Instance> Drop for RingBufferedAdc<'_, T> {
     fn drop(&mut self) {
-        self.teardown_adc();
+        Adc::<T>::teardown_adc();
+
+        compiler_fence(Ordering::SeqCst);
+
+        self.ring_buf.request_pause();
         rcc::disable::<T>();
     }
 }
