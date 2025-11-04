@@ -145,7 +145,7 @@ pub mod radio;
 #[cfg(feature = "_net-driver")]
 pub mod embassy_net_802154_driver;
 
-#[cfg(feature = "_nrf54l")]
+#[cfg(all(feature = "_nrf54l", feature = "_s"))]
 pub mod cracen;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(feature = "_nrf5340")]
