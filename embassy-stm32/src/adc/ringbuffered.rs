@@ -49,9 +49,9 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     }
 
     pub fn stop(&mut self) {
-        self.ring_buf.request_pause();
-
         Adc::<T>::stop();
+
+        self.ring_buf.request_pause();
 
         compiler_fence(Ordering::SeqCst);
     }
