@@ -215,7 +215,7 @@ pub(crate) struct RtcDriver {
     period: AtomicU32,
     alarm: Mutex<CriticalSectionRawMutex, AlarmState>,
     #[cfg(feature = "low-power")]
-    rtc: Mutex<CriticalSectionRawMutex, RefCell<Option<Rtc>>>,
+    pub(crate) rtc: Mutex<CriticalSectionRawMutex, RefCell<Option<Rtc>>>,
     #[cfg(feature = "low-power")]
     /// The minimum pause time beyond which the executor will enter a low-power state.
     min_stop_pause: Mutex<CriticalSectionRawMutex, Cell<embassy_time::Duration>>,
@@ -418,12 +418,6 @@ impl RtcDriver {
         rtc.stop_wakeup_alarm(cs);
 
         assert!(self.rtc.borrow(cs).replace(Some(rtc)).is_none());
-    }
-
-    #[cfg(feature = "low-power")]
-    /// Reconfigure the rtc
-    pub(crate) fn reconfigure_rtc<R>(&self, f: impl FnOnce(&mut Rtc) -> R) -> R {
-        critical_section::with(|cs| f(self.rtc.borrow(cs).borrow_mut().as_mut().unwrap()))
     }
 
     #[cfg(feature = "low-power")]

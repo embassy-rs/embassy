@@ -61,8 +61,6 @@ use crate::time_driver::get_driver;
 
 const THREAD_PENDER: usize = usize::MAX;
 
-use crate::rtc::Rtc;
-
 static mut EXECUTOR: Option<Executor> = None;
 
 /// Prevent the device from going into the stop mode if held
@@ -131,11 +129,6 @@ foreach_interrupt! {
             Executor::on_wakeup_irq();
         }
     };
-}
-
-/// Reconfigure the RTC, if set.
-pub fn reconfigure_rtc<R>(f: impl FnOnce(&mut Rtc) -> R) -> R {
-    get_driver().reconfigure_rtc(f)
 }
 
 /// Get whether the core is ready to enter the given stop mode.

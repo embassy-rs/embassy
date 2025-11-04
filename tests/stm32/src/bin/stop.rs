@@ -10,8 +10,9 @@ use common::*;
 use cortex_m_rt::entry;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
-use embassy_stm32::low_power::{Executor, StopMode, reconfigure_rtc, stop_ready};
+use embassy_stm32::low_power::{Executor, StopMode, stop_ready};
 use embassy_stm32::rcc::LsConfig;
+use embassy_stm32::rtc::Rtc;
 use embassy_time::Timer;
 
 #[entry]
@@ -56,7 +57,7 @@ async fn async_main(spawner: Spawner) {
         config.rcc.hsi = Some(HSIPrescaler::DIV4); // 64 MHz HSI will need a /4
     }
 
-    let _p = init_with_config(config);
+    let p = init_with_config(config);
     info!("Hello World!");
 
     let now = NaiveDate::from_ymd_opt(2020, 5, 15)
@@ -64,7 +65,11 @@ async fn async_main(spawner: Spawner) {
         .and_hms_opt(10, 30, 15)
         .unwrap();
 
-    reconfigure_rtc(|rtc| rtc.set_datetime(now.into()).expect("datetime not set"));
+    let (rtc, _time_provider) = Rtc::new(p.RTC);
+
+    critical_section::with(|cs| {
+        rtc.borrow_mut(cs).set_datetime(now.into()).expect("datetime not set");
+    });
 
     spawner.spawn(task_1().unwrap());
     spawner.spawn(task_2().unwrap());
