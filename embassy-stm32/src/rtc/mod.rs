@@ -154,19 +154,13 @@ pub enum RtcCalibrationCyclePeriod {
 }
 
 impl Rtc {
-    #[cfg(feature = "low-power")]
-    /// Create a new RTC instance.
-    pub(crate) fn new(rtc: Peri<'static, RTC>, rtc_config: RtcConfig) -> Self {
-        Self::new_inner(rtc, rtc_config)
-    }
-
     #[cfg(not(feature = "low-power"))]
     /// Create a new RTC instance.
-    pub fn new(rtc: Peri<'static, RTC>, rtc_config: RtcConfig) -> Self {
-        Self::new_inner(rtc, rtc_config)
+    pub fn new(_rtc: Peri<'static, RTC>, rtc_config: RtcConfig) -> Self {
+        Self::new_inner(rtc_config, false)
     }
 
-    fn new_inner(_rtc: Peri<'static, RTC>, rtc_config: RtcConfig) -> Self {
+    pub(self) fn new_inner(rtc_config: RtcConfig, enable_wakeup_line: bool) -> Self {
         #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
         crate::rcc::enable_and_reset::<RTC>();
 
@@ -187,6 +181,10 @@ impl Rtc {
         {
             let now = this.time_provider().read(|_, _, ss| Ok(ss)).unwrap();
             while now == this.time_provider().read(|_, _, ss| Ok(ss)).unwrap() {}
+        }
+
+        if enable_wakeup_line {
+            this.enable_wakeup_line();
         }
 
         this
@@ -338,10 +336,7 @@ trait SealedInstance {
 
 #[cfg(feature = "low-power")]
 pub(crate) fn init_rtc(_cs: CriticalSection, config: RtcConfig) {
-    let rtc = Rtc::new(unsafe { core::mem::transmute(()) }, config);
-
-    crate::time_driver::get_driver().set_rtc(rtc);
-    crate::time_driver::get_driver().reconfigure_rtc(|rtc| rtc.enable_wakeup_line());
+    crate::time_driver::get_driver().set_rtc(Rtc::new_inner(config, true));
 
     trace!("low power: stop with rtc configured");
 }
