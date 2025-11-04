@@ -916,7 +916,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
             peri_addr as *mut u32,
             buffer_ptr as *mut u32,
             len,
-            true,
+            Increment::Memory,
             data_size,
             data_size,
             options,
