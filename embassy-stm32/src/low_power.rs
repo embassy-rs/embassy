@@ -134,8 +134,8 @@ foreach_interrupt! {
 }
 
 /// Reconfigure the RTC, if set.
-pub fn reconfigure_rtc(f: impl FnOnce(&mut Rtc)) {
-    get_driver().reconfigure_rtc(f);
+pub fn reconfigure_rtc<R>(f: impl FnOnce(&mut Rtc) -> R) -> R {
+    get_driver().reconfigure_rtc(f)
 }
 
 /// Get whether the core is ready to enter the given stop mode.
@@ -212,12 +212,6 @@ impl Executor {
 
     pub(crate) unsafe fn on_wakeup_irq() {
         critical_section::with(|cs| {
-            if !get_driver().is_rtc_set(cs) {
-                trace!("low power: wakeup irq; rtc not set");
-
-                return;
-            }
-
             #[cfg(stm32wlex)]
             {
                 let extscr = crate::pac::PWR.extscr().read();
@@ -234,7 +228,7 @@ impl Executor {
                     }
                 }
             }
-            get_driver().resume_time();
+            get_driver().resume_time(cs);
             trace!("low power: resume");
         });
     }

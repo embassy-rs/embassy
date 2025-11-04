@@ -334,8 +334,8 @@ trait SealedInstance {
 }
 
 #[cfg(feature = "low-power")]
-pub(crate) fn init_rtc(_cs: CriticalSection, config: RtcConfig) {
-    crate::time_driver::get_driver().set_rtc(Rtc::new_inner(config));
+pub(crate) fn init_rtc(cs: CriticalSection, config: RtcConfig) {
+    crate::time_driver::get_driver().set_rtc(cs, Rtc::new_inner(config));
 
     trace!("low power: stop with rtc configured");
 }
