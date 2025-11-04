@@ -9,7 +9,7 @@
 use core::cell::RefCell;
 
 use defmt::info;
-use embassy_stm32::adc::{Adc, AdcChannel as _, Exten, RxDma, SampleTime};
+use embassy_stm32::adc::{Adc, AdcChannel as _, Exten, SampleTime};
 use embassy_stm32::interrupt::typelevel::{ADC1_2, Interrupt};
 use embassy_stm32::peripherals::ADC1;
 use embassy_stm32::time::Hertz;
