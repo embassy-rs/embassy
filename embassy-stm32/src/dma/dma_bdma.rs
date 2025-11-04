@@ -618,7 +618,6 @@ impl<'a> Transfer<'a> {
     ) -> Self {
         Self::new_transfer_raw(
             channel,
-            (channel as SealedChannel).id(),
             buf as *const MW as *mut u32,
             buf.len(),
             dest_addr,
@@ -648,7 +647,7 @@ impl<'a> Transfer<'a> {
     ) -> Self {
         Self::new_inner(
             channel.into(),
-            (channel as SealedChannel).id(),
+            (channel as crate::dma::SealedChannel).id(),
             Dir::MemoryToMemory,
             src_addr as *mut u32,
             dest_addr as *mut u32,
