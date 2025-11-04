@@ -645,9 +645,11 @@ impl<'a> Transfer<'a> {
         dest_addr: *mut PW,
         options: TransferOptions,
     ) -> Self {
+        let request = channel.id();
+
         Self::new_inner(
             channel.into(),
-            channel.id(),
+            request,
             Dir::MemoryToMemory,
             src_addr as *mut u32,
             dest_addr as *mut u32,
