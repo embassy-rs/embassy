@@ -25,11 +25,7 @@ async fn async_main(spawner: Spawner) {
     // when enabled the power-consumption is much higher during stop, but debugging and RTT is working
     // if you wan't to measure the power-consumption, or for production: uncomment this line
     // config.enable_debug_during_sleep = false;
-    let p = embassy_stm32::init(config);
-
-    // give the RTC to the executor...
-    let rtc = Rtc::new(p.RTC, RtcConfig::default());
-    embassy_stm32::low_power::stop_with_rtc(rtc);
+    let (p, _time_provider) = embassy_stm32::init_lp(config, RtcConfig::default());
 
     spawner.spawn(unwrap!(blinky(p.PC7.into())));
     spawner.spawn(unwrap!(timeout()));

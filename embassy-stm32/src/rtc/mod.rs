@@ -43,6 +43,7 @@ pub enum RtcError {
     NotRunning,
 }
 
+#[derive(Clone)]
 /// Provides immutable access to the current time of the RTC.
 pub struct RtcTimeProvider {
     _private: (),

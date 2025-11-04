@@ -314,6 +314,26 @@ impl Default for Config {
     }
 }
 
+#[cfg(feature = "low-power")]
+/// Initialize the `embassy-stm32` HAL with the provided configuration for low-power.
+///
+/// This returns the peripheral singletons that can be used for creating drivers.
+///
+/// This should only be called once at startup, otherwise it panics.
+pub fn init_lp(config: Config, rtc_config: crate::rtc::RtcConfig) -> (Peripherals, crate::rtc::RtcTimeProvider) {
+    let p = init(config);
+    let time_provider = critical_section::with(|_| unsafe {
+        let rtc = crate::rtc::Rtc::new(core::mem::transmute(()), rtc_config);
+        let time_provider = rtc.time_provider();
+
+        crate::low_power::stop_with_rtc(rtc);
+
+        time_provider
+    });
+
+    (p, time_provider)
+}
+
 /// Initialize the `embassy-stm32` HAL with the provided configuration.
 ///
 /// This returns the peripheral singletons that can be used for creating drivers.
