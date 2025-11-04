@@ -14,10 +14,10 @@ use super::{
 };
 
 #[cfg(any(adc_v3, adc_g0, adc_u0))]
-mod ringbuffered_v3;
+mod ringbuffered;
 
 #[cfg(any(adc_v3, adc_g0, adc_u0))]
-use ringbuffered_v3::RingBufferedAdc;
+use ringbuffered::RingBufferedAdc;
 
 use crate::dma::Transfer;
 use crate::{Peri, pac, rcc};
@@ -179,6 +179,38 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
 
         blocking_delay_us(1);
+    }
+
+    #[cfg(any(adc_v3, adc_g0, adc_u0))]
+    pub(super) fn start() {
+        // Start adc conversion
+        T::regs().cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
+    }
+
+    #[cfg(any(adc_v3, adc_g0, adc_u0))]
+    pub(super) fn stop() {
+        // Stop adc conversion
+        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
+            T::regs().cr().modify(|reg| {
+                reg.set_adstp(true);
+            });
+            while T::regs().cr().read().adstart() {}
+        }
+    }
+
+    #[cfg(any(adc_v3, adc_g0, adc_u0))]
+    pub(super) fn teardown_adc() {
+        //disable dma control
+        #[cfg(not(any(adc_g0, adc_u0)))]
+        T::regs().cfgr().modify(|reg| {
+            reg.set_dmaen(false);
+        });
+        #[cfg(any(adc_g0, adc_u0))]
+        T::regs().cfgr1().modify(|reg| {
+            reg.set_dmaen(false);
+        });
     }
 
     /// Initialize the ADC leaving any analog clock at reset value.
