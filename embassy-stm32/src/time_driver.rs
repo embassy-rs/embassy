@@ -413,6 +413,12 @@ impl RtcDriver {
     }
 
     #[cfg(feature = "low-power")]
+    /// Has the rtc been set?
+    pub(crate) fn is_rtc_set(&self, cs: CriticalSection) -> bool {
+        self.rtc.borrow(cs).borrow().is_some()
+    }
+
+    #[cfg(feature = "low-power")]
     /// Set the rtc but panic if it's already been set
     pub(crate) fn reconfigure_rtc(&self, f: impl FnOnce(&mut Rtc)) {
         critical_section::with(|cs| f(self.rtc.borrow(cs).borrow_mut().as_mut().unwrap()));
@@ -543,7 +549,7 @@ impl Driver for RtcDriver {
 }
 
 #[cfg(feature = "low-power")]
-pub(crate) fn get_driver() -> &'static RtcDriver {
+pub(crate) const fn get_driver() -> &'static RtcDriver {
     &DRIVER
 }
 
