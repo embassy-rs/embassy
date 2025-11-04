@@ -241,6 +241,10 @@ pub struct Config {
     /// RCC config.
     pub rcc: rcc::Config,
 
+    #[cfg(feature = "low-power")]
+    /// RTC config
+    pub rtc: rtc::RtcConfig,
+
     /// Enable debug during sleep and stop.
     ///
     /// May increase power consumption. Defaults to true.
@@ -294,6 +298,8 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             rcc: Default::default(),
+            #[cfg(feature = "low-power")]
+            rtc: Default::default(),
             #[cfg(dbgmcu)]
             enable_debug_during_sleep: true,
             #[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba))]
@@ -623,6 +629,9 @@ fn init_hw(config: Config) -> Peripherals {
             exti::init(cs);
 
             rcc::init_rcc(cs, config.rcc);
+
+            #[cfg(feature = "low-power")]
+            crate::rtc::init_rtc(cs, config.rtc);
         }
 
         p

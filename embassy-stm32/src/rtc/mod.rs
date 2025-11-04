@@ -8,6 +8,8 @@ mod low_power;
 use core::cell::Cell;
 
 #[cfg(feature = "low-power")]
+use critical_section::CriticalSection;
+#[cfg(feature = "low-power")]
 use embassy_sync::blocking_mutex::Mutex;
 #[cfg(feature = "low-power")]
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -44,11 +46,18 @@ pub enum RtcError {
 }
 
 /// Provides immutable access to the current time of the RTC.
+#[derive(Clone)]
 pub struct RtcTimeProvider {
     _private: (),
 }
 
 impl RtcTimeProvider {
+    #[cfg(feature = "low-power")]
+    /// Create a new RTC time provider instance.
+    pub fn new(_rtc: Peri<'static, RTC>) -> Self {
+        Self { _private: () }
+    }
+
     /// Return the current datetime.
     ///
     /// # Errors
@@ -145,8 +154,19 @@ pub enum RtcCalibrationCyclePeriod {
 }
 
 impl Rtc {
+    #[cfg(feature = "low-power")]
     /// Create a new RTC instance.
-    pub fn new(_rtc: Peri<'static, RTC>, rtc_config: RtcConfig) -> Self {
+    pub(crate) fn new(rtc: Peri<'static, RTC>, rtc_config: RtcConfig) -> Self {
+        Self::new_inner(rtc, rtc_config)
+    }
+
+    #[cfg(not(feature = "low-power"))]
+    /// Create a new RTC instance.
+    pub fn new(rtc: Peri<'static, RTC>, rtc_config: RtcConfig) -> Self {
+        Self::new_inner(rtc, rtc_config)
+    }
+
+    fn new_inner(_rtc: Peri<'static, RTC>, rtc_config: RtcConfig) -> Self {
         #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
         crate::rcc::enable_and_reset::<RTC>();
 
@@ -314,4 +334,14 @@ trait SealedInstance {
     fn write_backup_register(rtc: crate::pac::rtc::Rtc, register: usize, value: u32);
 
     // fn apply_config(&mut self, rtc_config: RtcConfig);
+}
+
+#[cfg(feature = "low-power")]
+pub(crate) fn init_rtc(_cs: CriticalSection, config: RtcConfig) {
+    let rtc = Rtc::new(unsafe { core::mem::transmute(()) }, config);
+
+    crate::time_driver::get_driver().set_rtc(rtc);
+    crate::time_driver::get_driver().reconfigure_rtc(|rtc| rtc.enable_wakeup_line());
+
+    trace!("low power: stop with rtc configured");
 }

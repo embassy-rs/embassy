@@ -41,10 +41,6 @@
 //!     config.enable_debug_during_sleep = false;
 //!     let p = embassy_stm32::init(config);
 //!
-//!     // give the RTC to the executor...
-//!     let mut rtc = Rtc::new(p.RTC, RtcConfig::default());
-//!     embassy_stm32::low_power::stop_with_rtc(rtc);
-//!
 //!     // your application here...
 //! }
 //! ```
@@ -137,23 +133,9 @@ foreach_interrupt! {
     };
 }
 
-#[allow(dead_code)]
-pub(crate) unsafe fn on_wakeup_irq() {
-    Executor::on_wakeup_irq();
-}
-
-/// Configure STOP mode with RTC.
-pub fn stop_with_rtc(rtc: Rtc) {
-    assert!(unsafe { EXECUTOR.is_some() });
-
-    Executor::stop_with_rtc(rtc)
-}
-
 /// Reconfigure the RTC, if set.
 pub fn reconfigure_rtc(f: impl FnOnce(&mut Rtc)) {
-    assert!(unsafe { EXECUTOR.is_some() });
-
-    Executor::reconfigure_rtc(f);
+    get_driver().reconfigure_rtc(f);
 }
 
 /// Get whether the core is ready to enter the given stop mode.
@@ -228,7 +210,7 @@ impl Executor {
         })
     }
 
-    pub(self) unsafe fn on_wakeup_irq() {
+    pub(crate) unsafe fn on_wakeup_irq() {
         critical_section::with(|cs| {
             if !get_driver().is_rtc_set(cs) {
                 trace!("low power: wakeup irq; rtc not set");
@@ -255,17 +237,6 @@ impl Executor {
             get_driver().resume_time();
             trace!("low power: resume");
         });
-    }
-
-    pub(self) fn stop_with_rtc(rtc: Rtc) {
-        get_driver().set_rtc(rtc);
-        get_driver().reconfigure_rtc(|rtc| rtc.enable_wakeup_line());
-
-        trace!("low power: stop with rtc configured");
-    }
-
-    pub(self) fn reconfigure_rtc(f: impl FnOnce(&mut Rtc)) {
-        get_driver().reconfigure_rtc(f);
     }
 
     fn stop_mode(_cs: CriticalSection) -> Option<StopMode> {
