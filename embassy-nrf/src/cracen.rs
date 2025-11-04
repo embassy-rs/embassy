@@ -2,9 +2,10 @@
 
 #![macro_use]
 
+use core::marker::PhantomData;
+
 use crate::mode::{Blocking, Mode};
 use crate::{Peri, interrupt, pac, peripherals};
-use core::marker::PhantomData;
 
 /// A wrapper around an nRF54 CRACEN peripheral.
 ///
