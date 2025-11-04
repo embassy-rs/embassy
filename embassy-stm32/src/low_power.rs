@@ -68,6 +68,39 @@ use crate::rtc::Rtc;
 
 static mut EXECUTOR: Option<Executor> = None;
 
+#[cfg(stm32wlex)]
+pub(crate) use self::busy::DeviceBusy;
+#[cfg(stm32wlex)]
+mod busy {
+    use core::sync::atomic::{AtomicU32, Ordering};
+
+    // Count of devices blocking STOP
+    static STOP_BLOCKED: AtomicU32 = AtomicU32::new(0);
+
+    /// Check if STOP1 is blocked.
+    pub(crate) fn stop_blocked() -> bool {
+        STOP_BLOCKED.load(Ordering::SeqCst) > 0
+    }
+
+    /// When ca device goes busy it will construct one of these where it will be dropped when the device goes idle.
+    pub(crate) struct DeviceBusy {}
+
+    impl DeviceBusy {
+        /// Create a new DeviceBusy.
+        pub(crate) fn new() -> Self {
+            STOP_BLOCKED.fetch_add(1, Ordering::SeqCst);
+            trace!("low power: device busy: Stop:{}", STOP_BLOCKED.load(Ordering::SeqCst));
+            Self {}
+        }
+    }
+
+    impl Drop for DeviceBusy {
+        fn drop(&mut self) {
+            STOP_BLOCKED.fetch_sub(1, Ordering::SeqCst);
+            trace!("low power: device idle: Stop:{}", STOP_BLOCKED.load(Ordering::SeqCst));
+        }
+    }
+}
 #[cfg(not(stm32u0))]
 foreach_interrupt! {
     (RTC, rtc, $block:ident, WKUP, $irq:ident) => {
@@ -92,7 +125,10 @@ foreach_interrupt! {
 
 #[allow(dead_code)]
 pub(crate) unsafe fn on_wakeup_irq() {
-    EXECUTOR.as_mut().unwrap().on_wakeup_irq();
+    if EXECUTOR.is_some() {
+        trace!("low power: wakeup irq");
+        EXECUTOR.as_mut().unwrap().on_wakeup_irq();
+    }
 }
 
 /// Configure STOP mode with RTC.
@@ -127,10 +163,10 @@ pub enum StopMode {
     Stop2,
 }
 
-#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32u0))]
+#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32wlex, stm32u0))]
 use stm32_metapac::pwr::vals::Lpms;
 
-#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32u0))]
+#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32wlex, stm32u0))]
 impl Into<Lpms> for StopMode {
     fn into(self) -> Lpms {
         match self {
@@ -180,6 +216,22 @@ impl Executor {
     }
 
     unsafe fn on_wakeup_irq(&mut self) {
+        #[cfg(stm32wlex)]
+        {
+            let extscr = crate::pac::PWR.extscr().read();
+            if extscr.c1stop2f() || extscr.c1stopf() {
+                // when we wake from any stop mode we need to re-initialize the rcc
+                crate::rcc::apply_resume_config();
+                if extscr.c1stop2f() {
+                    // when we wake from STOP2, we need to re-initialize the time driver
+                    critical_section::with(|cs| crate::time_driver::init_timer(cs));
+                    // reset the refcounts for STOP2 and STOP1 (initializing the time driver will increment one of them for the timer)
+                    // and given that we just woke from STOP2, we can reset them
+                    crate::rcc::REFCOUNT_STOP2 = 0;
+                    crate::rcc::REFCOUNT_STOP1 = 0;
+                }
+            }
+        }
         self.time_driver.resume_time();
         trace!("low power: resume");
     }
@@ -195,10 +247,22 @@ impl Executor {
         self.time_driver.reconfigure_rtc(f);
     }
 
+    fn stop1_ok_to_enter(&self) -> bool {
+        #[cfg(stm32wlex)]
+        if self::busy::stop_blocked() {
+            return false;
+        }
+        unsafe { crate::rcc::REFCOUNT_STOP1 == 0 }
+    }
+
+    fn stop2_ok_to_enter(&self) -> bool {
+        self.stop1_ok_to_enter() && unsafe { crate::rcc::REFCOUNT_STOP2 == 0 }
+    }
+
     fn stop_mode(&self) -> Option<StopMode> {
-        if unsafe { crate::rcc::REFCOUNT_STOP2 == 0 } && unsafe { crate::rcc::REFCOUNT_STOP1 == 0 } {
+        if self.stop2_ok_to_enter() {
             Some(StopMode::Stop2)
-        } else if unsafe { crate::rcc::REFCOUNT_STOP1 == 0 } {
+        } else if self.stop1_ok_to_enter() {
             Some(StopMode::Stop1)
         } else {
             None
@@ -207,7 +271,7 @@ impl Executor {
 
     #[allow(unused_variables)]
     fn configure_stop(&mut self, stop_mode: StopMode) {
-        #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wba))]
+        #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wba, stm32wlex))]
         crate::pac::PWR.cr1().modify(|m| m.set_lpms(stop_mode.into()));
         #[cfg(stm32h5)]
         crate::pac::PWR.pmcr().modify(|v| {
@@ -219,6 +283,11 @@ impl Executor {
 
     fn configure_pwr(&mut self) {
         self.scb.clear_sleepdeep();
+        // Clear any previous stop flags
+        #[cfg(stm32wlex)]
+        crate::pac::PWR.extscr().modify(|w| {
+            w.set_c1cssf(true);
+        });
 
         compiler_fence(Ordering::SeqCst);
 
@@ -272,6 +341,19 @@ impl Executor {
                 executor.inner.poll();
                 self.configure_pwr();
                 asm!("wfe");
+                #[cfg(stm32wlex)]
+                {
+                    let es = crate::pac::PWR.extscr().read();
+                    match (es.c1stopf(), es.c1stop2f()) {
+                        (true, false) => debug!("low power: wake from STOP1"),
+                        (false, true) => debug!("low power: wake from STOP2"),
+                        (true, true) => debug!("low power: wake from STOP1 and STOP2 ???"),
+                        (false, false) => trace!("low power: stop mode not entered"),
+                    };
+                    crate::pac::PWR.extscr().modify(|w| {
+                        w.set_c1cssf(false);
+                    });
+                }
             };
         }
     }
