@@ -647,7 +647,7 @@ impl<'a> Transfer<'a> {
     ) -> Self {
         Self::new_inner(
             channel.into(),
-            (channel as dyn crate::dma::SealedChannel).id(),
+            channel.id(),
             Dir::MemoryToMemory,
             src_addr as *mut u32,
             dest_addr as *mut u32,
