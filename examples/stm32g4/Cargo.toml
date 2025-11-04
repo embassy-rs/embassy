@@ -7,12 +7,12 @@ publish = false
 
 [dependencies]
 # Change stm32g491re to your chip name, if necessary.
-embassy-stm32 = { version = "0.4.0", path = "../../embassy-stm32", features = [ "defmt", "time-driver-any", "stm32g491re", "memory-x", "unstable-pac", "exti"]  }
-embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
-embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
-embassy-usb = { version = "0.5.1", path = "../../embassy-usb", features = ["defmt"] }
-embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
+embassy-stm32 = { path = "../../embassy-stm32", features = [ "defmt", "time-driver-any", "stm32g491re", "memory-x", "unstable-pac", "exti"]  }
+embassy-sync = { path = "../../embassy-sync", features = ["defmt"] }
+embassy-executor = { path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
+embassy-time = { path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
+embassy-usb = { path = "../../embassy-usb", features = ["defmt"] }
+embassy-futures = { path = "../../embassy-futures" }
 usbd-hid = "0.8.1"
 
 defmt = "1.0.1"
@@ -25,6 +25,7 @@ embedded-can = { version = "0.4" }
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.8", default-features = false }
 static_cell = "2.0.0"
+critical-section = "1.1"
 
 [profile.release]
 debug = 2
