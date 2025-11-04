@@ -1,11 +1,22 @@
+use core::mem;
+use core::sync::atomic::{Ordering, compiler_fence};
+
 use super::blocking_delay_us;
-use crate::adc::{Adc, AdcChannel, Instance, Resolution, SampleTime};
+use crate::adc::{Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel};
+use crate::pac::adc::vals;
 use crate::peripherals::ADC1;
 use crate::time::Hertz;
 use crate::{Peri, rcc};
 
-mod ringbuffered_v2;
-pub use ringbuffered_v2::{RingBufferedAdc, Sequence};
+mod ringbuffered;
+pub use ringbuffered::RingBufferedAdc;
+
+fn clear_interrupt_flags(r: crate::pac::adc::Adc) {
+    r.sr().modify(|regs| {
+        regs.set_eoc(false);
+        regs.set_ovr(false);
+    });
+}
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -112,6 +123,98 @@ where
         }
     }
 
+    /// Configures the ADC to use a DMA ring buffer for continuous data acquisition.
+    ///
+    /// The `dma_buf` should be large enough to prevent DMA buffer overrun.
+    /// The length of the `dma_buf` should be a multiple of the ADC channel count.
+    /// For example, if 3 channels are measured, its length can be 3 * 40 = 120 measurements.
+    ///
+    /// `read` method is used to read out measurements from the DMA ring buffer, and its buffer should be exactly half of the `dma_buf` length.
+    /// It is critical to call `read` frequently to prevent DMA buffer overrun.
+    ///
+    /// [`read`]: #method.read
+    pub fn into_ring_buffered<'a>(
+        self,
+        dma: Peri<'d, impl RxDma<T>>,
+        dma_buf: &'d mut [u16],
+        sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<T>, SampleTime)>,
+    ) -> RingBufferedAdc<'d, T> {
+        assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
+
+        T::regs().cr2().modify(|reg| {
+            reg.set_adon(true);
+        });
+
+        // Check the sequence is long enough
+        T::regs().sqr1().modify(|r| {
+            r.set_l((sequence.len() - 1).try_into().unwrap());
+        });
+
+        for (i, (channel, sample_time)) in sequence.enumerate() {
+            // Set this GPIO as an analog input.
+            channel.setup();
+
+            // Set the channel in the right sequence field.
+            T::regs().sqr3().modify(|w| w.set_sq(i, channel.channel()));
+
+            Self::set_channel_sample_time(channel.channel(), sample_time);
+        }
+
+        compiler_fence(Ordering::SeqCst);
+
+        let r = T::regs();
+
+        // Clear all interrupts
+        r.sr().modify(|regs| {
+            regs.set_eoc(false);
+            regs.set_ovr(false);
+            regs.set_strt(false);
+        });
+
+        r.cr1().modify(|w| {
+            // Enable interrupt for end of conversion
+            w.set_eocie(true);
+            // Enable interrupt for overrun
+            w.set_ovrie(true);
+            // Scanning converisons of multiple channels
+            w.set_scan(true);
+            // Continuous conversion mode
+            w.set_discen(false);
+        });
+
+        r.cr2().modify(|w| {
+            // Enable DMA mode
+            w.set_dma(true);
+            // Enable continuous conversions
+            w.set_cont(true);
+            // DMA requests are issues as long as DMA=1 and data are converted.
+            w.set_dds(vals::Dds::CONTINUOUS);
+            // EOC flag is set at the end of each conversion.
+            w.set_eocs(vals::Eocs::EACH_CONVERSION);
+        });
+
+        // Don't disable the clock
+        mem::forget(self);
+
+        RingBufferedAdc::new(dma, dma_buf)
+    }
+
+    pub(super) fn start() {
+        // Begin ADC conversions
+        T::regs().cr2().modify(|reg| {
+            reg.set_adon(true);
+            reg.set_swstart(true);
+        });
+    }
+
+    pub(super) fn stop() {
+        // Stop ADC
+        T::regs().cr2().modify(|reg| {
+            // Stop ADC
+            reg.set_swstart(false);
+        });
+    }
+
     pub fn set_sample_time(&mut self, sample_time: SampleTime) {
         self.sample_time = sample_time;
     }
@@ -197,6 +300,31 @@ where
         } else {
             T::regs().smpr1().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
         }
+    }
+
+    pub(super) fn teardown_adc() {
+        let r = T::regs();
+
+        // Stop ADC
+        r.cr2().modify(|reg| {
+            // Stop ADC
+            reg.set_swstart(false);
+            // Stop ADC
+            reg.set_adon(false);
+            // Stop DMA
+            reg.set_dma(false);
+        });
+
+        r.cr1().modify(|w| {
+            // Disable interrupt for end of conversion
+            w.set_eocie(false);
+            // Disable interrupt for overrun
+            w.set_ovrie(false);
+        });
+
+        clear_interrupt_flags(r);
+
+        compiler_fence(Ordering::SeqCst);
     }
 }
 

@@ -102,7 +102,7 @@ portable-atomic = { version = "1.5", optional = true }
 cortex-m = { version = "0.7.6", optional = true }
 
 # arch-cortex-ar dependencies
-cortex-ar = { version = "0.3", optional = true }
+aarch32-cpu = { version = "0.1", optional = true }
 
 # arch-wasm dependencies
 wasm-bindgen = { version = "0.2.82", optional = true }
@@ -130,7 +130,7 @@ nightly = ["embassy-executor-macros/nightly"]
 ## Enable defmt logging
 defmt = ["dep:defmt"]
 
-## Enable log logging  
+## Enable log logging
 log = ["dep:log"]
 
 # Enables turbo wakers, which requires patching core. Not surfaced in the docs by default due to
@@ -145,7 +145,7 @@ arch-std = ["_arch"]
 ## Cortex-M
 arch-cortex-m = ["_arch", "dep:cortex-m"]
 ## Cortex-A/R
-arch-cortex-ar = ["_arch", "dep:cortex-ar"]
+arch-cortex-ar = ["_arch", "dep:aarch32-cpu", "dep:arm-targets"]
 ## RISC-V 32
 arch-riscv32 = ["_arch"]
 ## WASM
@@ -182,3 +182,6 @@ scheduler-priority = []
 ## Enable the embassy_time_driver dependency.
 ## This can unlock extra APIs, for example for the `sheduler-deadline`
 embassy-time-driver = ["dep:embassy-time-driver"]
+
+[build-dependencies]
+arm-targets = { version = "0.4", optional = true }
