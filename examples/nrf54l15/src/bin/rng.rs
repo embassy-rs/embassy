@@ -3,7 +3,6 @@
 
 use embassy_executor::Spawner;
 use embassy_nrf::cracen::Cracen;
-use embassy_nrf::{bind_interrupts, cracen, peripherals};
 use rand::Rng as _;
 use {defmt_rtt as _, panic_probe as _};
 
