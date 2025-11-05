@@ -223,15 +223,15 @@ pub trait AdvancedInstance2Channel: BasicInstance + GeneralInstance2Channel + Ad
 /// Advanced 16-bit timer with 4 channels instance.
 pub trait AdvancedInstance4Channel: AdvancedInstance2Channel + GeneralInstance4Channel {}
 
-pin_trait!(TimerPin, GeneralInstance4Channel, TimerChannel);
-pin_trait!(ExternalTriggerPin, GeneralInstance4Channel);
+pin_trait!(TimerPin, GeneralInstance4Channel, TimerChannel, @A);
+pin_trait!(ExternalTriggerPin, GeneralInstance4Channel, @A);
 
-pin_trait!(TimerComplementaryPin, AdvancedInstance4Channel, TimerChannel);
+pin_trait!(TimerComplementaryPin, AdvancedInstance4Channel, TimerChannel, @A);
 
-pin_trait!(BreakInputPin, AdvancedInstance4Channel, BreakInput);
+pin_trait!(BreakInputPin, AdvancedInstance4Channel, BreakInput, @A);
 
-pin_trait!(BreakInputComparator1Pin, AdvancedInstance4Channel, BreakInput);
-pin_trait!(BreakInputComparator2Pin, AdvancedInstance4Channel, BreakInput);
+pin_trait!(BreakInputComparator1Pin, AdvancedInstance4Channel, BreakInput, @A);
+pin_trait!(BreakInputComparator2Pin, AdvancedInstance4Channel, BreakInput, @A);
 
 // Update Event trigger DMA for every timer
 dma_trait!(UpDma, BasicInstance);
@@ -399,7 +399,7 @@ pub struct UpdateInterruptHandler<T: CoreInstance> {
 impl<T: CoreInstance> interrupt::typelevel::Handler<T::UpdateInterrupt> for UpdateInterruptHandler<T> {
     unsafe fn on_interrupt() {
         #[cfg(feature = "low-power")]
-        crate::low_power::on_wakeup_irq();
+        crate::low_power::Executor::on_wakeup_irq();
 
         let regs = crate::pac::timer::TimCore::from_ptr(T::regs());
 
@@ -429,7 +429,7 @@ impl<T: GeneralInstance1Channel> interrupt::typelevel::Handler<T::CaptureCompare
 {
     unsafe fn on_interrupt() {
         #[cfg(feature = "low-power")]
-        crate::low_power::on_wakeup_irq();
+        crate::low_power::Executor::on_wakeup_irq();
 
         let regs = crate::pac::timer::TimGp16::from_ptr(T::regs());
 

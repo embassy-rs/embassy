@@ -5,11 +5,11 @@ pub use crate::pac::rcc::vals::Otghssel;
 use crate::pac::rcc::vals::Pllrge;
 pub use crate::pac::rcc::vals::{
     Hdiv5, Hpre as AHBPrescaler, Hpre5 as AHB5Prescaler, Hsepre as HsePrescaler, Plldiv as PllDiv, Pllm as PllPreDiv,
-    Plln as PllMul, Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
+    Plln as PllMul, Pllsrc as PllSource, Ppre as APBPrescaler, Sai1sel, Sw as Sysclk,
 };
-#[cfg(all(peri_usb_otg_hs))]
-pub use crate::pac::{syscfg::vals::Usbrefcksel, SYSCFG};
 use crate::pac::{FLASH, RCC};
+#[cfg(all(peri_usb_otg_hs))]
+pub use crate::pac::{SYSCFG, syscfg::vals::Usbrefcksel};
 use crate::rcc::LSI_FREQ;
 use crate::time::Hertz;
 
@@ -245,7 +245,10 @@ pub(crate) unsafe fn init(config: Config) {
             Hertz(24_000_000) => Usbrefcksel::MHZ24,
             Hertz(26_000_000) => Usbrefcksel::MHZ26,
             Hertz(32_000_000) => Usbrefcksel::MHZ32,
-            _ => panic!("cannot select OTG_HS reference clock with source frequency of {}, must be one of 16, 19.2, 20, 24, 26, 32 MHz", clk_val),
+            _ => panic!(
+                "cannot select OTG_HS reference clock with source frequency of {}, must be one of 16, 19.2, 20, 24, 26, 32 MHz",
+                clk_val
+            ),
         },
         None => Usbrefcksel::MHZ24,
     };
@@ -253,6 +256,16 @@ pub(crate) unsafe fn init(config: Config) {
     SYSCFG.otghsphycr().modify(|w| {
         w.set_clksel(usb_refck_sel);
     });
+
+    #[cfg(sai_v4_2pdm)]
+    let audioclk = match config.mux.sai1sel {
+        Sai1sel::HSI => Some(HSI_FREQ),
+        Sai1sel::PLL1_Q => Some(pll1.q.expect("PLL1.Q not configured")),
+        Sai1sel::PLL1_P => Some(pll1.p.expect("PLL1.P not configured")),
+        Sai1sel::SYS => panic!("SYS not supported yet"),
+        Sai1sel::AUDIOCLK => panic!("AUDIOCLK not supported yet"),
+        _ => None,
+    };
 
     let lsi = config.ls.lsi.then_some(LSI_FREQ);
 
@@ -279,6 +292,8 @@ pub(crate) unsafe fn init(config: Config) {
 
         // TODO
         lse: None,
+        #[cfg(sai_v4_2pdm)]
+        audioclk: audioclk,
     );
 }
 

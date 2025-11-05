@@ -8,6 +8,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Added new metadata API for tasks.
+- Main task automatically gets a name of `main` when the `metadata-name` feature is enabled.
+- Upgraded rtos-trace
+- Added optional "highest priority" scheduling
+- Added optional "earliest deadline first" EDF scheduling
+- Migrate `cortex-ar` to `aarch32-cpu`. The feature name `arch-cortex-ar` remains the same and
+  legacy ARM architectures are not supported.
+
+## 0.9.1 - 2025-08-31
+
+- Fixed performance regression on some ESP32 MCUs.
+
+## 0.9.0 - 2025-08-26
+
+- Added `extern "Rust" fn __embassy_time_queue_item_from_waker`
+- Removed `TaskRef::dangling`
+- Added `embassy-executor-timer-queue` as a dependency
+- Moved the `TimeQueueItem` struct and `timer-item-payload-size-*` features (as `timer-item-size-X-words`) into `embassy-executor-timer-queue`
+
 ## 0.8.0 - 2025-07-31
 
 - Added `SpawnToken::id`

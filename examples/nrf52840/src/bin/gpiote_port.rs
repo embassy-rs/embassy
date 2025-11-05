@@ -26,8 +26,8 @@ async fn main(spawner: Spawner) {
     let btn3 = Input::new(p.P0_24, Pull::Up);
     let btn4 = Input::new(p.P0_25, Pull::Up);
 
-    unwrap!(spawner.spawn(button_task(1, btn1)));
-    unwrap!(spawner.spawn(button_task(2, btn2)));
-    unwrap!(spawner.spawn(button_task(3, btn3)));
-    unwrap!(spawner.spawn(button_task(4, btn4)));
+    spawner.spawn(unwrap!(button_task(1, btn1)));
+    spawner.spawn(unwrap!(button_task(2, btn2)));
+    spawner.spawn(unwrap!(button_task(3, btn3)));
+    spawner.spawn(unwrap!(button_task(4, btn4)));
 }

@@ -2,11 +2,11 @@
 
 #![macro_use]
 
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 
 use embassy_hal_internal::{Peri, PeripheralType};
 
-use crate::gpio::{convert_drive, AnyPin, OutputDrive, Pin as GpioPin, PselBits, SealedPin as _, DISCONNECTED};
+use crate::gpio::{AnyPin, DISCONNECTED, Level, OutputDrive, Pin as GpioPin, PselBits, SealedPin as _, convert_drive};
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::pwm::vals;
 use crate::ppi::{Event, Task};
@@ -15,9 +15,9 @@ use crate::{interrupt, pac};
 
 /// SimplePwm is the traditional pwm interface you're probably used to, allowing
 /// to simply set a duty cycle across up to four channels.
-pub struct SimplePwm<'d, T: Instance> {
-    _peri: Peri<'d, T>,
-    duty: [u16; 4],
+pub struct SimplePwm<'d> {
+    r: pac::pwm::Pwm,
+    duty: [DutyCycle; 4],
     ch0: Option<Peri<'d, AnyPin>>,
     ch1: Option<Peri<'d, AnyPin>>,
     ch2: Option<Peri<'d, AnyPin>>,
@@ -26,8 +26,8 @@ pub struct SimplePwm<'d, T: Instance> {
 
 /// SequencePwm allows you to offload the updating of a sequence of duty cycles
 /// to up to four channels, as well as repeat that sequence n times.
-pub struct SequencePwm<'d, T: Instance> {
-    _peri: Peri<'d, T>,
+pub struct SequencePwm<'d> {
+    r: pac::pwm::Pwm,
     ch0: Option<Peri<'d, AnyPin>>,
     ch1: Option<Peri<'d, AnyPin>>,
     ch2: Option<Peri<'d, AnyPin>>,
@@ -51,16 +51,14 @@ const MAX_SEQUENCE_LEN: usize = 32767;
 /// The used pwm clock frequency
 pub const PWM_CLK_HZ: u32 = 16_000_000;
 
-impl<'d, T: Instance> SequencePwm<'d, T> {
+impl<'d> SequencePwm<'d> {
     /// Create a new 1-channel PWM
-    #[allow(unused_unsafe)]
-    pub fn new_1ch(pwm: Peri<'d, T>, ch0: Peri<'d, impl GpioPin>, config: Config) -> Result<Self, Error> {
+    pub fn new_1ch<T: Instance>(pwm: Peri<'d, T>, ch0: Peri<'d, impl GpioPin>, config: Config) -> Result<Self, Error> {
         Self::new_inner(pwm, Some(ch0.into()), None, None, None, config)
     }
 
     /// Create a new 2-channel PWM
-    #[allow(unused_unsafe)]
-    pub fn new_2ch(
+    pub fn new_2ch<T: Instance>(
         pwm: Peri<'d, T>,
         ch0: Peri<'d, impl GpioPin>,
         ch1: Peri<'d, impl GpioPin>,
@@ -70,8 +68,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     }
 
     /// Create a new 3-channel PWM
-    #[allow(unused_unsafe)]
-    pub fn new_3ch(
+    pub fn new_3ch<T: Instance>(
         pwm: Peri<'d, T>,
         ch0: Peri<'d, impl GpioPin>,
         ch1: Peri<'d, impl GpioPin>,
@@ -82,8 +79,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     }
 
     /// Create a new 4-channel PWM
-    #[allow(unused_unsafe)]
-    pub fn new_4ch(
+    pub fn new_4ch<T: Instance>(
         pwm: Peri<'d, T>,
         ch0: Peri<'d, impl GpioPin>,
         ch1: Peri<'d, impl GpioPin>,
@@ -101,7 +97,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
         )
     }
 
-    fn new_inner(
+    fn new_inner<T: Instance>(
         _pwm: Peri<'d, T>,
         ch0: Option<Peri<'d, AnyPin>>,
         ch1: Option<Peri<'d, AnyPin>>,
@@ -111,43 +107,26 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     ) -> Result<Self, Error> {
         let r = T::regs();
 
-        if let Some(pin) = &ch0 {
-            pin.set_low();
-            pin.conf().write(|w| {
-                w.set_dir(gpiovals::Dir::OUTPUT);
-                w.set_input(gpiovals::Input::DISCONNECT);
-                convert_drive(w, config.ch0_drive);
-            });
+        let channels = [
+            (&ch0, config.ch0_drive, config.ch0_idle_level),
+            (&ch1, config.ch1_drive, config.ch1_idle_level),
+            (&ch2, config.ch2_drive, config.ch2_idle_level),
+            (&ch3, config.ch3_drive, config.ch3_idle_level),
+        ];
+        for (i, (pin, drive, idle_level)) in channels.into_iter().enumerate() {
+            if let Some(pin) = pin {
+                match idle_level {
+                    Level::Low => pin.set_low(),
+                    Level::High => pin.set_high(),
+                }
+                pin.conf().write(|w| {
+                    w.set_dir(gpiovals::Dir::OUTPUT);
+                    w.set_input(gpiovals::Input::DISCONNECT);
+                    convert_drive(w, drive);
+                });
+            }
+            r.psel().out(i).write_value(pin.psel_bits());
         }
-        if let Some(pin) = &ch1 {
-            pin.set_low();
-            pin.conf().write(|w| {
-                w.set_dir(gpiovals::Dir::OUTPUT);
-                w.set_input(gpiovals::Input::DISCONNECT);
-                convert_drive(w, config.ch1_drive);
-            });
-        }
-        if let Some(pin) = &ch2 {
-            pin.set_low();
-            pin.conf().write(|w| {
-                w.set_dir(gpiovals::Dir::OUTPUT);
-                w.set_input(gpiovals::Input::DISCONNECT);
-                convert_drive(w, config.ch2_drive);
-            });
-        }
-        if let Some(pin) = &ch3 {
-            pin.set_low();
-            pin.conf().write(|w| {
-                w.set_dir(gpiovals::Dir::OUTPUT);
-                w.set_input(gpiovals::Input::DISCONNECT);
-                convert_drive(w, config.ch3_drive);
-            });
-        }
-
-        r.psel().out(0).write_value(ch0.psel_bits());
-        r.psel().out(1).write_value(ch1.psel_bits());
-        r.psel().out(2).write_value(ch2.psel_bits());
-        r.psel().out(3).write_value(ch3.psel_bits());
 
         // Disable all interrupts
         r.intenclr().write(|w| w.0 = 0xFFFF_FFFF);
@@ -173,69 +152,49 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
             .write(|w| w.set_prescaler(vals::Prescaler::from_bits(config.prescaler as u8)));
         r.countertop().write(|w| w.set_countertop(config.max_duty));
 
-        Ok(Self {
-            _peri: _pwm,
-            ch0,
-            ch1,
-            ch2,
-            ch3,
-        })
+        Ok(Self { r, ch0, ch1, ch2, ch3 })
     }
 
     /// Returns reference to `Stopped` event endpoint for PPI.
     #[inline(always)]
     pub fn event_stopped(&self) -> Event<'d> {
-        let r = T::regs();
-
-        Event::from_reg(r.events_stopped())
+        Event::from_reg(self.r.events_stopped())
     }
 
     /// Returns reference to `LoopsDone` event endpoint for PPI.
     #[inline(always)]
     pub fn event_loops_done(&self) -> Event<'d> {
-        let r = T::regs();
-
-        Event::from_reg(r.events_loopsdone())
+        Event::from_reg(self.r.events_loopsdone())
     }
 
     /// Returns reference to `PwmPeriodEnd` event endpoint for PPI.
     #[inline(always)]
     pub fn event_pwm_period_end(&self) -> Event<'d> {
-        let r = T::regs();
-
-        Event::from_reg(r.events_pwmperiodend())
+        Event::from_reg(self.r.events_pwmperiodend())
     }
 
     /// Returns reference to `Seq0 End` event endpoint for PPI.
     #[inline(always)]
     pub fn event_seq_end(&self) -> Event<'d> {
-        let r = T::regs();
-
-        Event::from_reg(r.events_seqend(0))
+        Event::from_reg(self.r.events_seqend(0))
     }
 
     /// Returns reference to `Seq1 End` event endpoint for PPI.
     #[inline(always)]
     pub fn event_seq1_end(&self) -> Event<'d> {
-        let r = T::regs();
-
-        Event::from_reg(r.events_seqend(1))
+        Event::from_reg(self.r.events_seqend(1))
     }
 
     /// Returns reference to `Seq0 Started` event endpoint for PPI.
     #[inline(always)]
     pub fn event_seq0_started(&self) -> Event<'d> {
-        let r = T::regs();
-
-        Event::from_reg(r.events_seqstarted(0))
+        Event::from_reg(self.r.events_seqstarted(0))
     }
 
     /// Returns reference to `Seq1 Started` event endpoint for PPI.
     #[inline(always)]
     pub fn event_seq1_started(&self) -> Event<'d> {
-        let r = T::regs();
-
-        Event::from_reg(r.events_seqstarted(1))
+        Event::from_reg(self.r.events_seqstarted(1))
     }
 
     /// Returns reference to `Seq0 Start` task endpoint for PPI.
@@ -244,9 +203,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     /// Interacting with the sequence while it runs puts it in an unknown state
     #[inline(always)]
     pub unsafe fn task_start_seq0(&self) -> Task<'d> {
-        let r = T::regs();
-
-        Task::from_reg(r.tasks_seqstart(0))
+        Task::from_reg(self.r.tasks_dma().seq(0).start())
     }
 
     /// Returns reference to `Seq1 Started` task endpoint for PPI.
@@ -255,9 +212,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     /// Interacting with the sequence while it runs puts it in an unknown state
     #[inline(always)]
     pub unsafe fn task_start_seq1(&self) -> Task<'d> {
-        let r = T::regs();
-
-        Task::from_reg(r.tasks_seqstart(1))
+        Task::from_reg(self.r.tasks_dma().seq(1).start())
     }
 
     /// Returns reference to `NextStep` task endpoint for PPI.
@@ -266,9 +221,7 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     /// Interacting with the sequence while it runs puts it in an unknown state
     #[inline(always)]
     pub unsafe fn task_next_step(&self) -> Task<'d> {
-        let r = T::regs();
-
-        Task::from_reg(r.tasks_nextstep())
+        Task::from_reg(self.r.tasks_nextstep())
     }
 
     /// Returns reference to `Stop` task endpoint for PPI.
@@ -277,40 +230,40 @@ impl<'d, T: Instance> SequencePwm<'d, T> {
     /// Interacting with the sequence while it runs puts it in an unknown state
     #[inline(always)]
     pub unsafe fn task_stop(&self) -> Task<'d> {
-        let r = T::regs();
-
-        Task::from_reg(r.tasks_stop())
+        Task::from_reg(self.r.tasks_stop())
     }
 }
 
-impl<'a, T: Instance> Drop for SequencePwm<'a, T> {
+impl<'a> Drop for SequencePwm<'a> {
     fn drop(&mut self) {
-        let r = T::regs();
-
         if let Some(pin) = &self.ch0 {
             pin.set_low();
             pin.conf().write(|_| ());
-            r.psel().out(0).write_value(DISCONNECTED);
+            self.r.psel().out(0).write_value(DISCONNECTED);
         }
         if let Some(pin) = &self.ch1 {
             pin.set_low();
             pin.conf().write(|_| ());
-            r.psel().out(1).write_value(DISCONNECTED);
+            self.r.psel().out(1).write_value(DISCONNECTED);
         }
         if let Some(pin) = &self.ch2 {
             pin.set_low();
             pin.conf().write(|_| ());
-            r.psel().out(2).write_value(DISCONNECTED);
+            self.r.psel().out(2).write_value(DISCONNECTED);
         }
         if let Some(pin) = &self.ch3 {
             pin.set_low();
             pin.conf().write(|_| ());
-            r.psel().out(3).write_value(DISCONNECTED);
+            self.r.psel().out(3).write_value(DISCONNECTED);
         }
+
+        self.r.enable().write(|w| w.set_enable(false));
     }
 }
 
 /// Configuration for the PWM as a whole.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub struct Config {
     /// Selects up mode or up-and-down mode for the counter
@@ -329,11 +282,19 @@ pub struct Config {
     pub ch2_drive: OutputDrive,
     /// Drive strength for the channel 3 line.
     pub ch3_drive: OutputDrive,
+    /// Output level for the channel 0 line when PWM if disabled.
+    pub ch0_idle_level: Level,
+    /// Output level for the channel 1 line when PWM if disabled.
+    pub ch1_idle_level: Level,
+    /// Output level for the channel 2 line when PWM if disabled.
+    pub ch2_idle_level: Level,
+    /// Output level for the channel 3 line when PWM if disabled.
+    pub ch3_idle_level: Level,
 }
 
 impl Default for Config {
-    fn default() -> Config {
-        Config {
+    fn default() -> Self {
+        Self {
             counter_mode: CounterMode::Up,
             max_duty: 1000,
             prescaler: Prescaler::Div16,
@@ -342,13 +303,65 @@ impl Default for Config {
             ch1_drive: OutputDrive::Standard,
             ch2_drive: OutputDrive::Standard,
             ch3_drive: OutputDrive::Standard,
+            ch0_idle_level: Level::Low,
+            ch1_idle_level: Level::Low,
+            ch2_idle_level: Level::Low,
+            ch3_idle_level: Level::Low,
+        }
+    }
+}
+
+/// Configuration for the simple PWM driver.
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub struct SimpleConfig {
+    /// Selects up mode or up-and-down mode for the counter
+    pub counter_mode: CounterMode,
+    /// Top value to be compared against buffer values
+    pub max_duty: u16,
+    /// Configuration for PWM_CLK
+    pub prescaler: Prescaler,
+    /// Drive strength for the channel 0 line.
+    pub ch0_drive: OutputDrive,
+    /// Drive strength for the channel 1 line.
+    pub ch1_drive: OutputDrive,
+    /// Drive strength for the channel 2 line.
+    pub ch2_drive: OutputDrive,
+    /// Drive strength for the channel 3 line.
+    pub ch3_drive: OutputDrive,
+    /// Output level for the channel 0 line when PWM if disabled.
+    pub ch0_idle_level: Level,
+    /// Output level for the channel 1 line when PWM if disabled.
+    pub ch1_idle_level: Level,
+    /// Output level for the channel 2 line when PWM if disabled.
+    pub ch2_idle_level: Level,
+    /// Output level for the channel 3 line when PWM if disabled.
+    pub ch3_idle_level: Level,
+}
+
+impl Default for SimpleConfig {
+    fn default() -> Self {
+        Self {
+            counter_mode: CounterMode::Up,
+            max_duty: 1000,
+            prescaler: Prescaler::Div16,
+            ch0_drive: OutputDrive::Standard,
+            ch1_drive: OutputDrive::Standard,
+            ch2_drive: OutputDrive::Standard,
+            ch3_drive: OutputDrive::Standard,
+            ch0_idle_level: Level::Low,
+            ch1_idle_level: Level::Low,
+            ch2_idle_level: Level::Low,
+            ch3_idle_level: Level::Low,
         }
     }
 }
 
 /// Configuration per sequence
 #[non_exhaustive]
-#[derive(Clone)]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SequenceConfig {
     /// Number of PWM periods to delay between each sequence sample
     pub refresh: u32,
@@ -367,6 +380,8 @@ impl Default for SequenceConfig {
 
 /// A composition of a sequence buffer and its configuration.
 #[non_exhaustive]
+#[derive(Debug, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Sequence<'s> {
     /// The words comprising the sequence. Must not exceed 32767 words.
     pub words: &'s [u16],
@@ -384,13 +399,13 @@ impl<'s> Sequence<'s> {
 /// A single sequence that can be started and stopped.
 /// Takes one sequence along with its configuration.
 #[non_exhaustive]
-pub struct SingleSequencer<'d, 's, T: Instance> {
-    sequencer: Sequencer<'d, 's, T>,
+pub struct SingleSequencer<'d, 's> {
+    sequencer: Sequencer<'d, 's>,
 }
 
-impl<'d, 's, T: Instance> SingleSequencer<'d, 's, T> {
+impl<'d, 's> SingleSequencer<'d, 's> {
     /// Create a new sequencer
-    pub fn new(pwm: &'s mut SequencePwm<'d, T>, words: &'s [u16], config: SequenceConfig) -> Self {
+    pub fn new(pwm: &'s mut SequencePwm<'d>, words: &'s [u16], config: SequenceConfig) -> Self {
         Self {
             sequencer: Sequencer::new(pwm, Sequence::new(words, config), None),
         }
@@ -423,16 +438,31 @@ impl<'d, 's, T: Instance> SingleSequencer<'d, 's, T> {
 /// In the case where no second sequence is provided then the first sequence
 /// is used.
 #[non_exhaustive]
-pub struct Sequencer<'d, 's, T: Instance> {
-    _pwm: &'s mut SequencePwm<'d, T>,
+pub struct Sequencer<'d, 's> {
+    _pwm: &'s mut SequencePwm<'d>,
     sequence0: Sequence<'s>,
     sequence1: Option<Sequence<'s>>,
 }
 
-impl<'d, 's, T: Instance> Sequencer<'d, 's, T> {
+#[cfg(feature = "_nrf54l")]
+fn pwmseq(r: pac::pwm::Pwm, n: usize) -> pac::pwm::PwmSeq {
+    r.seq(n)
+}
+
+#[cfg(not(feature = "_nrf54l"))]
+fn pwmseq(r: pac::pwm::Pwm, n: usize) -> pac::pwm::DmaSeq {
+    r.dma().seq(n)
+}
+
+#[cfg(feature = "_nrf54l")]
+const CNT_UNIT: u32 = 2;
+#[cfg(not(feature = "_nrf54l"))]
+const CNT_UNIT: u32 = 1;
+
+impl<'d, 's> Sequencer<'d, 's> {
     /// Create a new double sequence. In the absence of sequence 1, sequence 0
     /// will be used twice in the one loop.
-    pub fn new(pwm: &'s mut SequencePwm<'d, T>, sequence0: Sequence<'s>, sequence1: Option<Sequence<'s>>) -> Self {
+    pub fn new(pwm: &'s mut SequencePwm<'d>, sequence0: Sequence<'s>, sequence1: Option<Sequence<'s>>) -> Self {
         Sequencer {
             _pwm: pwm,
             sequence0,
@@ -459,17 +489,23 @@ impl<'d, 's, T: Instance> Sequencer<'d, 's, T> {
 
         self.stop();
 
-        let r = T::regs();
+        let r = self._pwm.r;
 
-        r.seq(0).refresh().write(|w| w.0 = sequence0.config.refresh);
-        r.seq(0).enddelay().write(|w| w.0 = sequence0.config.end_delay);
-        r.seq(0).ptr().write_value(sequence0.words.as_ptr() as u32);
-        r.seq(0).cnt().write(|w| w.0 = sequence0.words.len() as u32);
+        pwmseq(r, 0).refresh().write(|w| w.0 = sequence0.config.refresh);
+        pwmseq(r, 0).enddelay().write(|w| w.0 = sequence0.config.end_delay);
+        r.dma().seq(0).ptr().write_value(sequence0.words.as_ptr() as u32);
+        r.dma()
+            .seq(0)
+            .maxcnt()
+            .write(|w| w.0 = sequence0.words.len() as u32 * CNT_UNIT);
 
-        r.seq(1).refresh().write(|w| w.0 = alt_sequence.config.refresh);
-        r.seq(1).enddelay().write(|w| w.0 = alt_sequence.config.end_delay);
-        r.seq(1).ptr().write_value(alt_sequence.words.as_ptr() as u32);
-        r.seq(1).cnt().write(|w| w.0 = alt_sequence.words.len() as u32);
+        pwmseq(r, 1).refresh().write(|w| w.0 = alt_sequence.config.refresh);
+        pwmseq(r, 1).enddelay().write(|w| w.0 = alt_sequence.config.end_delay);
+        r.dma().seq(1).ptr().write_value(alt_sequence.words.as_ptr() as u32);
+        r.dma()
+            .seq(1)
+            .maxcnt()
+            .write(|w| w.0 = alt_sequence.words.len() as u32 * CNT_UNIT);
 
         r.enable().write(|w| w.set_enable(true));
 
@@ -480,16 +516,16 @@ impl<'d, 's, T: Instance> Sequencer<'d, 's, T> {
 
         match times {
             SequenceMode::Loop(n) => {
-                r.loop_().write(|w| w.set_cnt(vals::LoopCnt(n)));
+                r.loop_().write(|w| w.set_cnt(vals::LoopCnt::from_bits(n)));
             }
             // to play infinitely, repeat the sequence one time, then have loops done self trigger seq0 again
             SequenceMode::Infinite => {
                 r.loop_().write(|w| w.set_cnt(vals::LoopCnt::from_bits(1)));
-                r.shorts().write(|w| w.set_loopsdone_seqstart0(true));
+                r.shorts().write(|w| w.set_loopsdone_dma_seq0_start(true));
             }
         }
 
-        r.tasks_seqstart(seqstart_index).write_value(1);
+        r.tasks_dma().seq(seqstart_index).start().write_value(1);
 
         Ok(())
     }
@@ -499,7 +535,7 @@ impl<'d, 's, T: Instance> Sequencer<'d, 's, T> {
     /// `start` so that they may be further mutated.
     #[inline(always)]
     pub fn stop(&self) {
-        let r = T::regs();
+        let r = self._pwm.r;
 
         r.shorts().write(|_| ());
 
@@ -510,7 +546,7 @@ impl<'d, 's, T: Instance> Sequencer<'d, 's, T> {
     }
 }
 
-impl<'d, 's, T: Instance> Drop for Sequencer<'d, 's, T> {
+impl<'d, 's> Drop for Sequencer<'d, 's> {
     fn drop(&mut self) {
         self.stop();
     }
@@ -518,6 +554,7 @@ impl<'d, 's, T: Instance> Drop for Sequencer<'d, 's, T> {
 
 /// How many times to run a single sequence
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SingleSequenceMode {
     /// Run a single sequence n Times total.
     Times(u16),
@@ -527,6 +564,7 @@ pub enum SingleSequenceMode {
 
 /// Which sequence to start a loop with
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum StartSequence {
     /// Start with Sequence 0
     Zero,
@@ -536,6 +574,7 @@ pub enum StartSequence {
 
 /// How many loops to run two sequences
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SequenceMode {
     /// Run two sequences n loops i.e. (n * (seq0 + seq1.unwrap_or(seq0)))
     Loop(u16),
@@ -545,6 +584,7 @@ pub enum SequenceMode {
 
 /// PWM Base clock is system clock (16MHz) divided by prescaler
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Prescaler {
     /// Divide by 1
     Div1,
@@ -566,6 +606,7 @@ pub enum Prescaler {
 
 /// How the sequence values are distributed across the channels
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SequenceLoad {
     /// Provided sequence will be used across all channels
     Common,
@@ -582,6 +623,7 @@ pub enum SequenceLoad {
 
 /// Selects up mode or up-and-down mode for the counter
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CounterMode {
     /// Up counter (edge-aligned PWM duty cycle)
     Up,
@@ -589,79 +631,168 @@ pub enum CounterMode {
     UpAndDown,
 }
 
-impl<'d, T: Instance> SimplePwm<'d, T> {
+/// Duty value and polarity for a single channel.
+///
+/// If the channel has inverted polarity, the output is set high as long as the counter is below the duty value.
+#[repr(transparent)]
+#[derive(Eq, PartialEq, Clone, Copy)]
+pub struct DutyCycle {
+    /// The raw duty cycle valuea.
+    ///
+    /// This has the duty cycle in the lower 15 bits.
+    /// The highest bit indicates that the duty cycle has inverted polarity.
+    raw: u16,
+}
+
+impl DutyCycle {
+    /// Make a new duty value with normal polarity.
+    ///
+    /// The value is truncated to 15 bits.
+    ///
+    /// The output is set high if the counter is at or above the duty value.
+    pub const fn normal(value: u16) -> Self {
+        let raw = value & 0x7FFF;
+        Self { raw }
+    }
+
+    /// Make a new duty cycle with inverted polarity.
+    ///
+    /// The value is truncated to 15 bits.
+    ///
+    /// The output is set high if the counter is below the duty value.
+    pub const fn inverted(value: u16) -> Self {
+        let raw = value | 0x8000;
+        Self { raw }
+    }
+
+    /// Adjust the polarity of the duty cycle (returns a new object).
+    #[must_use = "this function return a new object, it does not modify self"]
+    pub const fn with_inverted(self, inverted_polarity: bool) -> Self {
+        if inverted_polarity {
+            Self::inverted(self.value())
+        } else {
+            Self::normal(self.value())
+        }
+    }
+
+    /// Gets the 15-bit value of the duty cycle.
+    pub const fn value(&self) -> u16 {
+        self.raw & 0x7FFF
+    }
+
+    /// Checks if the duty period has inverted polarity.
+    ///
+    /// If the channel has inverted polarity, the output is set high as long as the counter is below the duty value.
+    pub const fn is_inverted(&self) -> bool {
+        self.raw & 0x8000 != 0
+    }
+}
+
+impl core::fmt::Debug for DutyCycle {
+    fn fmt(&self, f: &mut core::fmt::Formatter) -> core::fmt::Result {
+        f.debug_struct("DutyCycle")
+            .field("value", &self.value())
+            .field("inverted", &self.is_inverted())
+            .finish()
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for DutyCycle {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(
+            f,
+            "DutyCycle {{ value: {=u16}, inverted: {=bool} }}",
+            self.value(),
+            self.is_inverted(),
+        );
+    }
+}
+
+impl<'d> SimplePwm<'d> {
     /// Create a new 1-channel PWM
-    #[allow(unused_unsafe)]
-    pub fn new_1ch(pwm: Peri<'d, T>, ch0: Peri<'d, impl GpioPin>) -> Self {
-        unsafe { Self::new_inner(pwm, Some(ch0.into()), None, None, None) }
+    pub fn new_1ch<T: Instance>(pwm: Peri<'d, T>, ch0: Peri<'d, impl GpioPin>, config: &SimpleConfig) -> Self {
+        Self::new_inner(pwm, Some(ch0.into()), None, None, None, config)
     }
 
     /// Create a new 2-channel PWM
-    #[allow(unused_unsafe)]
-    pub fn new_2ch(pwm: Peri<'d, T>, ch0: Peri<'d, impl GpioPin>, ch1: Peri<'d, impl GpioPin>) -> Self {
-        Self::new_inner(pwm, Some(ch0.into()), Some(ch1.into()), None, None)
+    pub fn new_2ch<T: Instance>(
+        pwm: Peri<'d, T>,
+        ch0: Peri<'d, impl GpioPin>,
+        ch1: Peri<'d, impl GpioPin>,
+        config: &SimpleConfig,
+    ) -> Self {
+        Self::new_inner(pwm, Some(ch0.into()), Some(ch1.into()), None, None, config)
     }
 
     /// Create a new 3-channel PWM
-    #[allow(unused_unsafe)]
-    pub fn new_3ch(
+    pub fn new_3ch<T: Instance>(
         pwm: Peri<'d, T>,
         ch0: Peri<'d, impl GpioPin>,
         ch1: Peri<'d, impl GpioPin>,
         ch2: Peri<'d, impl GpioPin>,
+        config: &SimpleConfig,
     ) -> Self {
-        unsafe { Self::new_inner(pwm, Some(ch0.into()), Some(ch1.into()), Some(ch2.into()), None) }
+        Self::new_inner(pwm, Some(ch0.into()), Some(ch1.into()), Some(ch2.into()), None, config)
     }
 
     /// Create a new 4-channel PWM
-    #[allow(unused_unsafe)]
-    pub fn new_4ch(
+    pub fn new_4ch<T: Instance>(
         pwm: Peri<'d, T>,
         ch0: Peri<'d, impl GpioPin>,
         ch1: Peri<'d, impl GpioPin>,
         ch2: Peri<'d, impl GpioPin>,
         ch3: Peri<'d, impl GpioPin>,
+        config: &SimpleConfig,
     ) -> Self {
-        unsafe {
-            Self::new_inner(
-                pwm,
-                Some(ch0.into()),
-                Some(ch1.into()),
-                Some(ch2.into()),
-                Some(ch3.into()),
-            )
-        }
+        Self::new_inner(
+            pwm,
+            Some(ch0.into()),
+            Some(ch1.into()),
+            Some(ch2.into()),
+            Some(ch3.into()),
+            config,
+        )
     }
 
-    fn new_inner(
+    fn new_inner<T: Instance>(
         _pwm: Peri<'d, T>,
         ch0: Option<Peri<'d, AnyPin>>,
         ch1: Option<Peri<'d, AnyPin>>,
         ch2: Option<Peri<'d, AnyPin>>,
         ch3: Option<Peri<'d, AnyPin>>,
+        config: &SimpleConfig,
     ) -> Self {
         let r = T::regs();
 
-        for (i, ch) in [&ch0, &ch1, &ch2, &ch3].into_iter().enumerate() {
-            if let Some(pin) = ch {
-                pin.set_low();
-
+        let channels = [
+            (&ch0, config.ch0_drive, config.ch0_idle_level),
+            (&ch1, config.ch1_drive, config.ch1_idle_level),
+            (&ch2, config.ch2_drive, config.ch2_idle_level),
+            (&ch3, config.ch3_drive, config.ch3_idle_level),
+        ];
+        for (i, (pin, drive, idle_level)) in channels.into_iter().enumerate() {
+            if let Some(pin) = pin {
+                match idle_level {
+                    Level::Low => pin.set_low(),
+                    Level::High => pin.set_high(),
+                }
                 pin.conf().write(|w| {
                     w.set_dir(gpiovals::Dir::OUTPUT);
                     w.set_input(gpiovals::Input::DISCONNECT);
-                    w.set_drive(gpiovals::Drive::S0S1);
+                    convert_drive(w, drive);
                 });
             }
-            r.psel().out(i).write_value(ch.psel_bits());
+            r.psel().out(i).write_value(pin.psel_bits());
         }
 
         let pwm = Self {
-            _peri: _pwm,
+            r,
             ch0,
             ch1,
             ch2,
             ch3,
-            duty: [0; 4],
+            duty: [const { DutyCycle::normal(0) }; 4],
         };
 
         // Disable all interrupts
@@ -671,18 +802,22 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
         // Enable
         r.enable().write(|w| w.set_enable(true));
 
-        r.seq(0).ptr().write_value((pwm.duty).as_ptr() as u32);
-        r.seq(0).cnt().write(|w| w.0 = 4);
-        r.seq(0).refresh().write(|w| w.0 = 0);
-        r.seq(0).enddelay().write(|w| w.0 = 0);
+        r.dma().seq(0).ptr().write_value((pwm.duty).as_ptr() as u32);
+        r.dma().seq(0).maxcnt().write(|w| w.0 = 4 * CNT_UNIT);
+        pwmseq(r, 0).refresh().write(|w| w.0 = 0);
+        pwmseq(r, 0).enddelay().write(|w| w.0 = 0);
 
         r.decoder().write(|w| {
             w.set_load(vals::Load::INDIVIDUAL);
             w.set_mode(vals::Mode::REFRESH_COUNT);
         });
-        r.mode().write(|w| w.set_updown(vals::Updown::UP));
-        r.prescaler().write(|w| w.set_prescaler(vals::Prescaler::DIV_16));
-        r.countertop().write(|w| w.set_countertop(1000));
+        r.mode().write(|w| match config.counter_mode {
+            CounterMode::UpAndDown => w.set_updown(vals::Updown::UP_AND_DOWN),
+            CounterMode::Up => w.set_updown(vals::Updown::UP),
+        });
+        r.prescaler()
+            .write(|w| w.set_prescaler(vals::Prescaler::from_bits(config.prescaler as u8)));
+        r.countertop().write(|w| w.set_countertop(config.max_duty));
         r.loop_().write(|w| w.set_cnt(vals::LoopCnt::DISABLED));
 
         pwm
@@ -691,57 +826,68 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
     /// Returns the enable state of the pwm counter
     #[inline(always)]
     pub fn is_enabled(&self) -> bool {
-        let r = T::regs();
-        r.enable().read().enable()
+        self.r.enable().read().enable()
     }
 
     /// Enables the PWM generator.
     #[inline(always)]
     pub fn enable(&self) {
-        let r = T::regs();
-        r.enable().write(|w| w.set_enable(true));
+        self.r.enable().write(|w| w.set_enable(true));
     }
 
     /// Disables the PWM generator. Does NOT clear the last duty cycle from the pin.
     #[inline(always)]
     pub fn disable(&self) {
-        let r = T::regs();
-        r.enable().write(|w| w.set_enable(false));
+        self.r.enable().write(|w| w.set_enable(false));
     }
 
-    /// Returns the current duty of the channel
-    pub fn duty(&self, channel: usize) -> u16 {
+    /// Returns the current duty of the channel.
+    pub fn duty(&self, channel: usize) -> DutyCycle {
         self.duty[channel]
     }
 
-    /// Sets duty cycle (15 bit) for a PWM channel.
-    pub fn set_duty(&mut self, channel: usize, duty: u16) {
-        let r = T::regs();
+    /// Sets duty cycle (15 bit) and polarity for a PWM channel.
+    pub fn set_duty(&mut self, channel: usize, duty: DutyCycle) {
+        self.duty[channel] = duty;
+        self.sync_duty_cyles_to_peripheral();
+    }
 
-        self.duty[channel] = duty & 0x7FFF;
+    /// Sets the duty cycle (15 bit) and polarity for all PWM channels.
+    ///
+    /// You can safely set the duty cycle of disabled PWM channels.
+    ///
+    /// When using this function, a single DMA transfer sets all the duty cycles.
+    /// If you call [`Self::set_duty()`] multiple times,
+    /// each duty cycle will be set by a separate DMA transfer.
+    pub fn set_all_duties(&mut self, duty: [DutyCycle; 4]) {
+        self.duty = duty;
+        self.sync_duty_cyles_to_peripheral();
+    }
 
+    /// Transfer the duty cycles from `self` to the peripheral.
+    fn sync_duty_cyles_to_peripheral(&self) {
         // reload ptr in case self was moved
-        r.seq(0).ptr().write_value((self.duty).as_ptr() as u32);
+        self.r.dma().seq(0).ptr().write_value((self.duty).as_ptr() as u32);
 
         // defensive before seqstart
         compiler_fence(Ordering::SeqCst);
 
-        r.events_seqend(0).write_value(0);
+        self.r.events_seqend(0).write_value(0);
 
         // tasks_seqstart() doesn't exist in all svds so write its bit instead
-        r.tasks_seqstart(0).write_value(1);
+        self.r.tasks_dma().seq(0).start().write_value(1);
 
         // defensive wait until waveform is loaded after seqstart so set_duty
         // can't be called again while dma is still reading
         if self.is_enabled() {
-            while r.events_seqend(0).read() == 0 {}
+            while self.r.events_seqend(0).read() == 0 {}
         }
     }
 
     /// Sets the PWM clock prescaler.
     #[inline(always)]
     pub fn set_prescaler(&self, div: Prescaler) {
-        T::regs()
+        self.r
             .prescaler()
             .write(|w| w.set_prescaler(vals::Prescaler::from_bits(div as u8)));
     }
@@ -749,7 +895,7 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
     /// Gets the PWM clock prescaler.
     #[inline(always)]
     pub fn prescaler(&self) -> Prescaler {
-        match T::regs().prescaler().read().prescaler().to_bits() {
+        match self.r.prescaler().read().prescaler().to_bits() {
             0 => Prescaler::Div1,
             1 => Prescaler::Div2,
             2 => Prescaler::Div4,
@@ -765,13 +911,13 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
     /// Sets the maximum duty cycle value.
     #[inline(always)]
     pub fn set_max_duty(&self, duty: u16) {
-        T::regs().countertop().write(|w| w.set_countertop(duty.min(32767u16)));
+        self.r.countertop().write(|w| w.set_countertop(duty.min(32767u16)));
     }
 
     /// Returns the maximum duty cycle value.
     #[inline(always)]
     pub fn max_duty(&self) -> u16 {
-        T::regs().countertop().read().countertop()
+        self.r.countertop().read().countertop()
     }
 
     /// Sets the PWM output frequency.
@@ -823,9 +969,9 @@ impl<'d, T: Instance> SimplePwm<'d, T> {
     }
 }
 
-impl<'a, T: Instance> Drop for SimplePwm<'a, T> {
+impl<'a> Drop for SimplePwm<'a> {
     fn drop(&mut self) {
-        let r = T::regs();
+        let r = &self.r;
 
         self.disable();
 

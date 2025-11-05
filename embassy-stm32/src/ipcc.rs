@@ -1,7 +1,7 @@
 //! Inter-Process Communication Controller (IPCC)
 
 use core::future::poll_fn;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;

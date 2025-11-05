@@ -3,7 +3,7 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_nrf::gpio::{Input, Pull};
+use embassy_nrf::gpio::Pull;
 use embassy_nrf::gpiote::{InputChannel, InputChannelPolarity};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -12,26 +12,10 @@ async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
     info!("Starting!");
 
-    let ch1 = InputChannel::new(
-        p.GPIOTE_CH0,
-        Input::new(p.P0_11, Pull::Up),
-        InputChannelPolarity::HiToLo,
-    );
-    let ch2 = InputChannel::new(
-        p.GPIOTE_CH1,
-        Input::new(p.P0_12, Pull::Up),
-        InputChannelPolarity::LoToHi,
-    );
-    let ch3 = InputChannel::new(
-        p.GPIOTE_CH2,
-        Input::new(p.P0_24, Pull::Up),
-        InputChannelPolarity::Toggle,
-    );
-    let ch4 = InputChannel::new(
-        p.GPIOTE_CH3,
-        Input::new(p.P0_25, Pull::Up),
-        InputChannelPolarity::Toggle,
-    );
+    let ch1 = InputChannel::new(p.GPIOTE_CH0, p.P0_11, Pull::Up, InputChannelPolarity::HiToLo);
+    let ch2 = InputChannel::new(p.GPIOTE_CH1, p.P0_12, Pull::Up, InputChannelPolarity::LoToHi);
+    let ch3 = InputChannel::new(p.GPIOTE_CH2, p.P0_24, Pull::Up, InputChannelPolarity::Toggle);
+    let ch4 = InputChannel::new(p.GPIOTE_CH3, p.P0_25, Pull::Up, InputChannelPolarity::Toggle);
 
     let button1 = async {
         loop {

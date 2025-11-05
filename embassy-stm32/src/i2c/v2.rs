@@ -2,7 +2,7 @@ use core::cmp;
 use core::future::poll_fn;
 use core::task::Poll;
 
-use config::{Address, OwnAddresses, OA2};
+use config::{Address, OA2, OwnAddresses};
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::drop::OnDrop;
 use embedded_hal_1::i2c::Operation;
@@ -70,6 +70,11 @@ fn debug_print_interrupts(isr: stm32_metapac::i2c::regs::Isr) {
 }
 
 pub(crate) unsafe fn on_interrupt<T: Instance>() {
+    // restore the clocks to their last configured state as
+    // much is lost in STOP modes
+    #[cfg(all(feature = "low-power", stm32wlex))]
+    crate::low_power::Executor::on_wakeup_irq();
+
     let regs = T::info().regs;
     let isr = regs.isr().read();
 
@@ -93,13 +98,13 @@ pub(crate) unsafe fn on_interrupt<T: Instance>() {
 }
 
 impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
-    pub(crate) fn init(&mut self, freq: Hertz, _config: Config) {
+    pub(crate) fn init(&mut self, config: Config) {
         self.info.regs.cr1().modify(|reg| {
             reg.set_pe(false);
             reg.set_anfoff(false);
         });
 
-        let timings = Timings::new(self.kernel_clock, freq.into());
+        let timings = Timings::new(self.kernel_clock, config.frequency.into());
 
         self.info.regs.timingr().write(|reg| {
             reg.set_presc(timings.prescale);
@@ -408,6 +413,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                 *byte = self.info.regs.rxdr().read().rxdata();
             }
         }
+        self.wait_stop(timeout)?;
         Ok(())
     }
 
@@ -453,7 +459,8 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                 // (START has been ACKed or last byte when
                 // through)
                 if let Err(err) = self.wait_txis(timeout) {
-                    if send_stop {
+                    if send_stop && err != Error::Nack {
+                        // STOP is sent automatically if a NACK was received
                         self.master_stop();
                     }
                     return Err(err);
@@ -463,11 +470,13 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             }
         }
         // Wait until the write finishes
-        let result = self.wait_tc(timeout);
+        self.wait_tc(timeout)?;
         if send_stop {
             self.master_stop();
+            self.wait_stop(timeout)?;
         }
-        result
+
+        Ok(())
     }
 
     // =========================
@@ -545,7 +554,9 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                     (idx != last_slice_index) || (slice_len > 255),
                     timeout,
                 ) {
-                    self.master_stop();
+                    if err != Error::Nack {
+                        self.master_stop();
+                    }
                     return Err(err);
                 }
             }
@@ -558,7 +569,9 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                         (number != last_chunk_idx) || (idx != last_slice_index),
                         timeout,
                     ) {
-                        self.master_stop();
+                        if err != Error::Nack {
+                            self.master_stop();
+                        }
                         return Err(err);
                     }
                 }
@@ -568,7 +581,9 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                     // (START has been ACKed or last byte when
                     // through)
                     if let Err(err) = self.wait_txis(timeout) {
-                        self.master_stop();
+                        if err != Error::Nack {
+                            self.master_stop();
+                        }
                         return Err(err);
                     }
 
@@ -579,9 +594,11 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             }
         }
         // Wait until the write finishes
-        let result = self.wait_tc(timeout);
+        self.wait_tc(timeout)?;
         self.master_stop();
-        result
+        self.wait_stop(timeout)?;
+
+        Ok(())
     }
 }
 
@@ -802,6 +819,8 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
     /// Write.
     pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
+        #[cfg(all(feature = "low-power", stm32wlex))]
+        let _device_busy = crate::low_power::DeviceBusy::new_stop1();
         let timeout = self.timeout();
         if write.is_empty() {
             self.write_internal(address.into(), write, true, timeout)
@@ -816,6 +835,8 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     ///
     /// The buffers are concatenated in a single write transaction.
     pub async fn write_vectored(&mut self, address: Address, write: &[&[u8]]) -> Result<(), Error> {
+        #[cfg(all(feature = "low-power", stm32wlex))]
+        let _device_busy = crate::low_power::DeviceBusy::new_stop1();
         let timeout = self.timeout();
 
         if write.is_empty() {
@@ -839,6 +860,8 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
     /// Read.
     pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
+        #[cfg(all(feature = "low-power", stm32wlex))]
+        let _device_busy = crate::low_power::DeviceBusy::new_stop1();
         let timeout = self.timeout();
 
         if buffer.is_empty() {
@@ -851,6 +874,8 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
     /// Write, restart, read.
     pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+        #[cfg(all(feature = "low-power", stm32wlex))]
+        let _device_busy = crate::low_power::DeviceBusy::new_stop1();
         let timeout = self.timeout();
 
         if write.is_empty() {
@@ -876,6 +901,8 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
     pub async fn transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
+        #[cfg(all(feature = "low-power", stm32wlex))]
+        let _device_busy = crate::low_power::DeviceBusy::new_stop1();
         let _ = addr;
         let _ = operations;
         todo!()
@@ -1271,7 +1298,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
             } else if isr.stopf() {
                 self.info.regs.icr().write(|reg| reg.set_stopcf(true));
                 if remaining_len > 0 {
-                    dma_transfer.request_stop();
+                    dma_transfer.request_pause();
                     Poll::Ready(Ok(SendStatus::LeftoverBytes(remaining_len as usize)))
                 } else {
                     Poll::Ready(Ok(SendStatus::Done))
@@ -1320,9 +1347,9 @@ struct Timings {
 }
 
 impl Timings {
-    fn new(i2cclk: Hertz, freq: Hertz) -> Self {
+    fn new(i2cclk: Hertz, frequency: Hertz) -> Self {
         let i2cclk = i2cclk.0;
-        let freq = freq.0;
+        let frequency = frequency.0;
         // Refer to RM0433 Rev 7 Figure 539 for setup and hold timing:
         //
         // t_I2CCLK = 1 / PCLK1
@@ -1332,13 +1359,13 @@ impl Timings {
         //
         // t_SYNC1 + t_SYNC2 > 4 * t_I2CCLK
         // t_SCL ~= t_SYNC1 + t_SYNC2 + t_SCLL + t_SCLH
-        let ratio = i2cclk / freq;
+        let ratio = i2cclk / frequency;
 
         // For the standard-mode configuration method, we must have a ratio of 4
         // or higher
         assert!(ratio >= 4, "The I2C PCLK must be at least 4 times the bus frequency!");
 
-        let (presc_reg, scll, sclh, sdadel, scldel) = if freq > 100_000 {
+        let (presc_reg, scll, sclh, sdadel, scldel) = if frequency > 100_000 {
             // Fast-mode (Fm) or Fast-mode Plus (Fm+)
             // here we pick SCLL + 1 = 2 * (SCLH + 1)
 
@@ -1352,7 +1379,7 @@ impl Timings {
             let sclh = ((ratio / presc) - 3) / 3;
             let scll = (2 * (sclh + 1)) - 1;
 
-            let (sdadel, scldel) = if freq > 400_000 {
+            let (sdadel, scldel) = if frequency > 400_000 {
                 // Fast-mode Plus (Fm+)
                 assert!(i2cclk >= 17_000_000); // See table in datsheet
 

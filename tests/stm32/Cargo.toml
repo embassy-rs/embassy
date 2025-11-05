@@ -1,14 +1,17 @@
 [package]
-edition = "2021"
+edition = "2024"
 name = "embassy-stm32-tests"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
 autobins = false
+publish = false
 
 [features]
 stm32c031c6 = ["embassy-stm32/stm32c031c6", "cm0", "not-gpdma"]
 stm32c071rb = ["embassy-stm32/stm32c071rb", "cm0", "not-gpdma"]
-stm32f103c8 = ["embassy-stm32/stm32f103c8", "spi-v1", "not-gpdma"]
+stm32f100rd = ["embassy-stm32/stm32f100rd", "spi-v1", "not-gpdma", "afio", "afio-value-line"]
+stm32f103c8 = ["embassy-stm32/stm32f103c8", "spi-v1", "not-gpdma", "afio"]
+stm32f107vc = ["embassy-stm32/stm32f107vc", "spi-v1", "not-gpdma", "afio", "afio-connectivity-line"]
 stm32f207zg = ["embassy-stm32/stm32f207zg", "spi-v1", "chrono", "not-gpdma", "eth", "rng"]
 stm32f303ze = ["embassy-stm32/stm32f303ze", "chrono", "not-gpdma"]
 stm32f429zi = ["embassy-stm32/stm32f429zi", "spi-v1", "chrono", "eth", "stop", "can", "not-gpdma", "dac", "rng"]
@@ -16,7 +19,7 @@ stm32f446re = ["embassy-stm32/stm32f446re", "spi-v1", "chrono", "stop", "can", "
 stm32f767zi = ["embassy-stm32/stm32f767zi", "chrono", "not-gpdma", "eth", "rng", "single-bank"]
 stm32g071rb = ["embassy-stm32/stm32g071rb", "cm0", "not-gpdma", "dac", "ucpd"]
 stm32g491re = ["embassy-stm32/stm32g491re", "chrono", "stop", "not-gpdma", "rng", "fdcan", "cordic"]
-stm32h563zi = ["embassy-stm32/stm32h563zi", "spi-v345", "chrono", "eth", "rng", "fdcan", "hash", "cordic", "stop"]
+stm32h563zi = ["embassy-stm32/stm32h563zi", "spi-v345", "chrono", "eth", "rng", "fdcan", "hash-v34", "cordic", "stop"]
 stm32h753zi = ["embassy-stm32/stm32h753zi", "spi-v345", "chrono", "not-gpdma", "eth", "rng", "fdcan", "hash", "cryp"]
 stm32h755zi = ["embassy-stm32/stm32h755zi-cm7", "spi-v345", "chrono", "not-gpdma", "eth", "dac", "rng", "fdcan", "hash", "cryp"]
 stm32h7a3zi = ["embassy-stm32/stm32h7a3zi", "spi-v345", "not-gpdma", "rng", "fdcan"]
@@ -33,13 +36,14 @@ stm32wba52cg = ["embassy-stm32/stm32wba52cg", "spi-v345", "chrono", "rng", "hash
 stm32wl55jc = ["embassy-stm32/stm32wl55jc-cm4", "not-gpdma", "rng", "chrono"]
 stm32f091rc = ["embassy-stm32/stm32f091rc", "cm0", "not-gpdma", "chrono"]
 stm32h503rb = ["embassy-stm32/stm32h503rb", "spi-v345", "rng", "stop"]
-stm32h7s3l8 = ["embassy-stm32/stm32h7s3l8", "spi-v345", "rng", "cordic", "hash"] # TODO: fdcan crashes, cryp dma hangs.
+stm32h7s3l8 = ["embassy-stm32/stm32h7s3l8", "spi-v345", "rng", "cordic", "hash-v34"] # TODO: fdcan crashes, cryp dma hangs.
 stm32u083rc = ["embassy-stm32/stm32u083rc", "cm0", "rng", "chrono"]
 
 spi-v1 = []
 spi-v345 = []
 cryp = []
 hash = []
+hash-v34 = ["hash"]
 eth = []
 rng = []
 sdmmc = []
@@ -57,19 +61,22 @@ cordic = ["dep:num-traits"]
 dual-bank = ["embassy-stm32/dual-bank"]
 single-bank = ["embassy-stm32/single-bank"]
 eeprom = []
+afio = []
+afio-connectivity-line = []
+afio-value-line = []
 
 cm0 = ["portable-atomic/unsafe-assume-single-core"]
 
 [dependencies]
 teleprobe-meta = "1"
 
-embassy-sync = { version = "0.7.0", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.8.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
-embassy-time = { version = "0.4.0", path = "../../embassy-time", features = ["defmt", "tick-hz-131_072", "defmt-timestamp-uptime"] }
-embassy-stm32 = { version = "0.2.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "memory-x", "time-driver-any"]  }
-embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
+embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = ["defmt"] }
+embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
+embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "tick-hz-131_072", "defmt-timestamp-uptime"] }
+embassy-stm32 = { version = "0.4.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "memory-x", "time-driver-any", "_allow-disable-rtc"]  }
+embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
 embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", optional = true, features = ["defmt", "stm32wb55rg", "ble"] }
-embassy-net = { version = "0.7.0", path = "../../embassy-net", features = ["defmt",  "tcp", "udp", "dhcpv4", "medium-ethernet"] }
+embassy-net = { version = "0.7.1", path = "../../embassy-net", features = ["defmt",  "tcp", "udp", "dhcpv4", "medium-ethernet"] }
 perf-client = { path = "../perf-client" }
 
 defmt = "1.0.1"
@@ -87,6 +94,7 @@ rand_core = { version = "0.9.1", default-features = false }
 rand_chacha = { version = "0.9.0", default-features = false }
 static_cell = "2"
 portable-atomic = { version = "1.5", features = [] }
+critical-section = "1.1"
 
 chrono = { version = "^0.4", default-features = false, optional = true}
 sha2 = { version = "0.10.8", default-features = false }
@@ -96,6 +104,11 @@ num-traits = { version="0.2", default-features = false,features = ["libm"], opti
 
 # BEGIN TESTS
 # Generated by gen_test.py. DO NOT EDIT.
+[[bin]]
+name = "afio"
+path = "src/bin/afio.rs"
+required-features = [ "afio",]
+
 [[bin]]
 name = "can"
 path = "src/bin/can.rs"
@@ -242,3 +255,36 @@ debug = false
 debug-assertions = false
 opt-level = 0
 overflow-checks = false
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7m-none-eabi", features = ["stm32f103c8"], artifact-dir = "out/tests/stm32f103c8" },
+  { target = "thumbv7em-none-eabi", features = ["stm32f429zi"], artifact-dir = "out/tests/stm32f429zi" },
+  { target = "thumbv7em-none-eabi", features = ["stm32f446re"], artifact-dir = "out/tests/stm32f446re" },
+  { target = "thumbv7em-none-eabi", features = ["stm32g491re"], artifact-dir = "out/tests/stm32g491re" },
+  { target = "thumbv6m-none-eabi", features = ["stm32g071rb"], artifact-dir = "out/tests/stm32g071rb" },
+  { target = "thumbv6m-none-eabi", features = ["stm32c031c6"], artifact-dir = "out/tests/stm32c031c6" },
+  { target = "thumbv6m-none-eabi", features = ["stm32c071rb"], artifact-dir = "out/tests/stm32c071rb" },
+  { target = "thumbv7em-none-eabi", features = ["stm32h755zi"], artifact-dir = "out/tests/stm32h755zi" },
+  { target = "thumbv7em-none-eabi", features = ["stm32h753zi"], artifact-dir = "out/tests/stm32h753zi" },
+  { target = "thumbv7em-none-eabi", features = ["stm32h7a3zi"], artifact-dir = "out/tests/stm32h7a3zi" },
+  { target = "thumbv7em-none-eabi", features = ["stm32wb55rg"], artifact-dir = "out/tests/stm32wb55rg" },
+  { target = "thumbv8m.main-none-eabihf", features = ["stm32h563zi"], artifact-dir = "out/tests/stm32h563zi" },
+  { target = "thumbv8m.main-none-eabihf", features = ["stm32u585ai"], artifact-dir = "out/tests/stm32u585ai" },
+  { target = "thumbv8m.main-none-eabihf", features = ["stm32u5a5zj"], artifact-dir = "out/tests/stm32u5a5zj" },
+  { target = "thumbv8m.main-none-eabihf", features = ["stm32wba52cg"], artifact-dir = "out/tests/stm32wba52cg" },
+  { target = "thumbv6m-none-eabi", features = ["stm32l073rz"], artifact-dir = "out/tests/stm32l073rz" },
+  { target = "thumbv7m-none-eabi", features = ["stm32l152re"], artifact-dir = "out/tests/stm32l152re" },
+  { target = "thumbv7em-none-eabi", features = ["stm32l4a6zg"], artifact-dir = "out/tests/stm32l4a6zg" },
+  { target = "thumbv7em-none-eabi", features = ["stm32l4r5zi"], artifact-dir = "out/tests/stm32l4r5zi" },
+  { target = "thumbv8m.main-none-eabihf", features = ["stm32l552ze"], artifact-dir = "out/tests/stm32l552ze" },
+  { target = "thumbv7em-none-eabi", features = ["stm32f767zi"], artifact-dir = "out/tests/stm32f767zi" },
+  { target = "thumbv7m-none-eabi", features = ["stm32f207zg"], artifact-dir = "out/tests/stm32f207zg" },
+  { target = "thumbv7em-none-eabi", features = ["stm32f303ze"], artifact-dir = "out/tests/stm32f303ze" },
+  { target = "thumbv7em-none-eabi", features = ["stm32l496zg"], artifact-dir = "out/tests/stm32l496zg" },
+  { target = "thumbv7em-none-eabi", features = ["stm32wl55jc"], artifact-dir = "out/tests/stm32wl55jc" },
+  { target = "thumbv7em-none-eabi", features = ["stm32h7s3l8"], artifact-dir = "out/tests/stm32h7s3l8" },
+  { target = "thumbv6m-none-eabi", features = ["stm32f091rc"], artifact-dir = "out/tests/stm32f091rc" },
+  { target = "thumbv8m.main-none-eabihf", features = ["stm32h503rb"], artifact-dir = "out/tests/stm32h503rb" },
+  { target = "thumbv6m-none-eabi", features = ["stm32u083rc"], artifact-dir = "out/tests/stm32u083rc" }
+]

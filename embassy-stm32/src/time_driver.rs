@@ -1,14 +1,16 @@
 #![allow(non_snake_case)]
 
 use core::cell::{Cell, RefCell};
-use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
+#[cfg(all(feature = "low-power", stm32wlex))]
+use core::sync::atomic::AtomicU16;
+use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
 
 use critical_section::CriticalSection;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time_driver::{Driver, TICK_HZ};
 use embassy_time_queue_utils::Queue;
-use stm32_metapac::timer::{regs, TimGp16};
+use stm32_metapac::timer::{TimGp16, regs};
 
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::timer::vals;
@@ -213,7 +215,13 @@ pub(crate) struct RtcDriver {
     period: AtomicU32,
     alarm: Mutex<CriticalSectionRawMutex, AlarmState>,
     #[cfg(feature = "low-power")]
-    rtc: Mutex<CriticalSectionRawMutex, Cell<Option<&'static Rtc>>>,
+    pub(crate) rtc: Mutex<CriticalSectionRawMutex, RefCell<Option<Rtc>>>,
+    #[cfg(feature = "low-power")]
+    /// The minimum pause time beyond which the executor will enter a low-power state.
+    min_stop_pause: Mutex<CriticalSectionRawMutex, Cell<embassy_time::Duration>>,
+    /// Saved count for the timer (its value is lost when entering STOP2)
+    #[cfg(all(feature = "low-power", stm32wlex))]
+    saved_count: AtomicU16,
     queue: Mutex<CriticalSectionRawMutex, RefCell<Queue>>,
 }
 
@@ -221,12 +229,18 @@ embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     period: AtomicU32::new(0),
     alarm: Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState::new()),
     #[cfg(feature = "low-power")]
-    rtc: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(None)),
+    rtc: Mutex::const_new(CriticalSectionRawMutex::new(), RefCell::new(None)),
+    #[cfg(feature = "low-power")]
+    min_stop_pause: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(embassy_time::Duration::from_millis(0))),
+    #[cfg(all(feature = "low-power", stm32wlex))]
+    saved_count: AtomicU16::new(0),
     queue: Mutex::new(RefCell::new(Queue::new()))
 });
 
 impl RtcDriver {
-    fn init(&'static self, cs: critical_section::CriticalSection) {
+    /// initialize the timer, but don't start it.  Used for chips like stm32wle5
+    /// for low power where the timer config is lost in STOP2.
+    fn init_timer(&'static self, cs: critical_section::CriticalSection) {
         let r = regs_gp16();
 
         rcc::enable_and_reset_with_cs::<T>(cs);
@@ -259,10 +273,16 @@ impl RtcDriver {
             w.set_ccie(0, true);
         });
 
+        #[cfg(all(feature = "low-power", stm32wlex))]
+        r.cnt().write(|w| w.set_cnt(self.saved_count.load(Ordering::SeqCst)));
+
         <T as GeneralInstance1Channel>::CaptureCompareInterrupt::unpend();
         unsafe { <T as GeneralInstance1Channel>::CaptureCompareInterrupt::enable() };
+    }
 
-        r.cr1().modify(|w| w.set_cen(true));
+    fn init(&'static self, cs: CriticalSection) {
+        self.init_timer(cs);
+        regs_gp16().cr1().modify(|w| w.set_cen(true));
     }
 
     fn on_interrupt(&self) {
@@ -379,27 +399,26 @@ impl RtcDriver {
     #[cfg(feature = "low-power")]
     /// Stop the wakeup alarm, if enabled, and add the appropriate offset
     fn stop_wakeup_alarm(&self, cs: CriticalSection) {
-        if let Some(offset) = self.rtc.borrow(cs).get().unwrap().stop_wakeup_alarm(cs) {
+        if let Some(offset) = self.rtc.borrow(cs).borrow_mut().as_mut().unwrap().stop_wakeup_alarm(cs) {
             self.add_time(offset, cs);
         }
     }
 
     /*
-        Low-power public functions: all create a critical section
+        Low-power public functions: all create or require a critical section
     */
     #[cfg(feature = "low-power")]
-    /// Set the rtc but panic if it's already been set
-    pub(crate) fn set_rtc(&self, rtc: &'static Rtc) {
-        critical_section::with(|cs| {
-            rtc.stop_wakeup_alarm(cs);
-
-            assert!(self.rtc.borrow(cs).replace(Some(rtc)).is_none())
-        });
+    pub(crate) fn set_min_stop_pause(&self, cs: CriticalSection, min_stop_pause: embassy_time::Duration) {
+        self.min_stop_pause.borrow(cs).replace(min_stop_pause);
     }
 
     #[cfg(feature = "low-power")]
-    /// The minimum pause time beyond which the executor will enter a low-power state.
-    pub(crate) const MIN_STOP_PAUSE: embassy_time::Duration = embassy_time::Duration::from_millis(250);
+    /// Set the rtc but panic if it's already been set
+    pub(crate) fn set_rtc(&self, cs: CriticalSection, mut rtc: Rtc) {
+        rtc.stop_wakeup_alarm(cs);
+
+        assert!(self.rtc.borrow(cs).replace(Some(rtc)).is_none());
+    }
 
     #[cfg(feature = "low-power")]
     /// Pause the timer if ready; return err if not
@@ -413,17 +432,25 @@ impl RtcDriver {
             self.stop_wakeup_alarm(cs);
 
             let time_until_next_alarm = self.time_until_next_alarm(cs);
-            if time_until_next_alarm < Self::MIN_STOP_PAUSE {
+            if time_until_next_alarm < self.min_stop_pause.borrow(cs).get() {
+                trace!(
+                    "time_until_next_alarm < self.min_stop_pause ({})",
+                    time_until_next_alarm
+                );
                 Err(())
             } else {
                 self.rtc
                     .borrow(cs)
-                    .get()
+                    .borrow_mut()
+                    .as_mut()
                     .unwrap()
                     .start_wakeup_alarm(time_until_next_alarm, cs);
 
                 regs_gp16().cr1().modify(|w| w.set_cen(false));
-
+                // save the count for the timer as its lost in STOP2 for stm32wlex
+                #[cfg(stm32wlex)]
+                self.saved_count
+                    .store(regs_gp16().cnt().read().cnt() as u16, Ordering::SeqCst);
                 Ok(())
             }
         })
@@ -431,18 +458,16 @@ impl RtcDriver {
 
     #[cfg(feature = "low-power")]
     /// Resume the timer with the given offset
-    pub(crate) fn resume_time(&self) {
+    pub(crate) fn resume_time(&self, cs: CriticalSection) {
         if regs_gp16().cr1().read().cen() {
             // Time isn't currently stopped
 
             return;
         }
 
-        critical_section::with(|cs| {
-            self.stop_wakeup_alarm(cs);
+        self.stop_wakeup_alarm(cs);
 
-            regs_gp16().cr1().modify(|w| w.set_cen(true));
-        })
+        regs_gp16().cr1().modify(|w| w.set_cen(true));
     }
 
     fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
@@ -514,10 +539,15 @@ impl Driver for RtcDriver {
 }
 
 #[cfg(feature = "low-power")]
-pub(crate) fn get_driver() -> &'static RtcDriver {
+pub(crate) const fn get_driver() -> &'static RtcDriver {
     &DRIVER
 }
 
 pub(crate) fn init(cs: CriticalSection) {
     DRIVER.init(cs)
+}
+
+#[cfg(all(feature = "low-power", stm32wlex))]
+pub(crate) fn init_timer(cs: CriticalSection) {
+    DRIVER.init_timer(cs)
 }

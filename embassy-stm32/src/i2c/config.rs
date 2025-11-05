@@ -1,9 +1,10 @@
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
 use crate::gpio::{AfType, OutputType, Speed};
+use crate::time::Hertz;
 
 #[repr(u8)]
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// Bits of the I2C OA2 register to mask out.
 pub enum AddrMask {
@@ -59,7 +60,7 @@ impl Address {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// The second Own Address register.
 pub struct OA2 {
@@ -69,7 +70,7 @@ pub struct OA2 {
     pub mask: AddrMask,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// The Own Address(es) of the I2C peripheral.
 pub enum OwnAddresses {
@@ -87,7 +88,7 @@ pub enum OwnAddresses {
 }
 
 /// Slave Configuration
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SlaveAddrConfig {
     /// Target Address(es)
@@ -109,6 +110,10 @@ impl SlaveAddrConfig {
 #[non_exhaustive]
 #[derive(Copy, Clone)]
 pub struct Config {
+    /// Frequency
+    pub frequency: Hertz,
+    /// GPIO Speed
+    pub gpio_speed: Speed,
     /// Enable internal pullup on SDA.
     ///
     /// Using external pullup resistors is recommended for I2C. If you do
@@ -129,6 +134,8 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            frequency: Hertz::khz(100),
+            gpio_speed: Speed::Medium,
             #[cfg(gpio_v2)]
             sda_pullup: false,
             #[cfg(gpio_v2)]
@@ -142,28 +149,28 @@ impl Default for Config {
 impl Config {
     pub(super) fn scl_af(&self) -> AfType {
         #[cfg(gpio_v1)]
-        return AfType::output(OutputType::OpenDrain, Speed::Medium);
+        return AfType::output(OutputType::OpenDrain, self.gpio_speed);
         #[cfg(gpio_v2)]
         return AfType::output_pull(
             OutputType::OpenDrain,
-            Speed::Medium,
+            self.gpio_speed,
             match self.scl_pullup {
                 true => Pull::Up,
-                false => Pull::Down,
+                false => Pull::None,
             },
         );
     }
 
     pub(super) fn sda_af(&self) -> AfType {
         #[cfg(gpio_v1)]
-        return AfType::output(OutputType::OpenDrain, Speed::Medium);
+        return AfType::output(OutputType::OpenDrain, self.gpio_speed);
         #[cfg(gpio_v2)]
         return AfType::output_pull(
             OutputType::OpenDrain,
-            Speed::Medium,
+            self.gpio_speed,
             match self.sda_pullup {
                 true => Pull::Up,
-                false => Pull::Down,
+                false => Pull::None,
             },
         );
     }

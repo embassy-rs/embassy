@@ -1,5 +1,6 @@
 #![cfg_attr(not(any(feature = "arch-std", feature = "arch-wasm")), no_std)]
 #![allow(clippy::new_without_default)]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
@@ -53,6 +54,9 @@ pub mod raw;
 
 mod spawner;
 pub use spawner::*;
+
+mod metadata;
+pub use metadata::*;
 
 /// Implementation details for embassy macros.
 /// Do not use. Used for macros and HALs only. Not covered by semver guarantees.

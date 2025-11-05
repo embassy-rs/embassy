@@ -1,7 +1,7 @@
 [package]
 name = "embassy-executor"
-version = "0.8.0"
-edition = "2021"
+version = "0.9.1"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "async/await executor designed for embedded usage"
 repository = "https://github.com/embassy-rs/embassy"
@@ -12,10 +12,65 @@ categories = [
     "asynchronous",
 ]
 
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabi", features = []},
+    {target = "thumbv7em-none-eabi", features = ["log"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt"]},
+    {target = "thumbv6m-none-eabi", features = ["arch-cortex-m", "defmt", "executor-interrupt", "executor-thread"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "rtos-trace"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-thread"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "embassy-time-driver"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "embassy-time-driver", "scheduler-priority"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "embassy-time-driver", "scheduler-priority", "scheduler-deadline"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "embassy-time-driver", "scheduler-deadline"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "scheduler-priority", "scheduler-deadline"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "scheduler-deadline"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "embassy-time-driver", "scheduler-priority", "scheduler-deadline", "trace"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-spin"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-spin", "scheduler-deadline"]},
+    {target = "armv7a-none-eabi", features = ["arch-cortex-ar", "executor-thread"]},
+    {target = "armv7r-none-eabi", features = ["arch-cortex-ar", "executor-thread"]},
+    {target = "armv7r-none-eabihf", features = ["arch-cortex-ar", "executor-thread"]},
+    {target = "riscv32imac-unknown-none-elf", features = ["arch-riscv32"]},
+    {target = "riscv32imac-unknown-none-elf", features = ["arch-riscv32", "executor-thread"]},
+    {target = "riscv32imac-unknown-none-elf", features = ["arch-riscv32", "executor-thread", "trace"]},
+    # Nightly builds
+    {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly"]},
+    {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "log"]},
+    {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "defmt"]},
+    {group = "nightly", target = "thumbv6m-none-eabi", features = ["nightly", "defmt"]},
+    {group = "nightly", target = "thumbv6m-none-eabi", features = ["nightly", "defmt", "arch-cortex-m", "executor-thread", "executor-interrupt"]},
+    {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "arch-cortex-m"]},
+    {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "arch-cortex-m", "executor-thread"]},
+    {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "arch-cortex-m", "executor-interrupt"]},
+    {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "arch-cortex-m", "executor-thread", "executor-interrupt"]},
+    {group = "nightly", target = "riscv32imac-unknown-none-elf", features = ["nightly", "arch-riscv32"]},
+    {group = "nightly", target = "riscv32imac-unknown-none-elf", features = ["nightly", "arch-riscv32", "executor-thread"]},
+    {group = "nightly", target = "armv7a-none-eabi", features = ["nightly", "arch-cortex-ar", "executor-thread"]},
+    {group = "nightly", target = "avr-none", features = ["nightly", "arch-avr", "avr-device/atmega328p"], build-std = ["core", "alloc"], env = { RUSTFLAGS = "-Ctarget-cpu=atmega328p" }},
+    # Xtensa builds
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = []},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["log"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s2-none-elf", features = ["defmt"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt", "arch-spin", "executor-thread"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s2-none-elf", features = ["defmt", "arch-spin", "executor-thread"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s3-none-elf", features = ["defmt", "arch-spin", "executor-thread"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["arch-spin"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["arch-spin", "rtos-trace"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["arch-spin", "executor-thread"]},
+]
+
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-executor-v$VERSION/embassy-executor/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-executor/src/"
-features = ["defmt"]
+features = ["defmt", "scheduler-deadline", "scheduler-priority"]
 flavors = [
     { name = "std",             target = "x86_64-unknown-linux-gnu",     features = ["arch-std", "executor-thread"] },
     { name = "wasm",            target = "wasm32-unknown-unknown",       features = ["arch-wasm", "executor-thread"] },
@@ -26,15 +81,16 @@ flavors = [
 [package.metadata.docs.rs]
 default-target = "thumbv7em-none-eabi"
 targets = ["thumbv7em-none-eabi"]
-features = ["defmt", "arch-cortex-m", "executor-thread", "executor-interrupt"]
+features = ["defmt", "arch-cortex-m", "executor-thread", "executor-interrupt", "scheduler-deadline", "scheduler-priority", "embassy-time-driver"]
 
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
-rtos-trace = { version = "0.1.3", optional = true }
+rtos-trace = { version = "0.2", optional = true }
 
 embassy-executor-macros = { version = "0.7.0", path = "../embassy-executor-macros" }
-embassy-time-driver = { version = "0.2", path = "../embassy-time-driver", optional = true }
+embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver", optional = true }
+embassy-executor-timer-queue = { version = "0.1", path = "../embassy-executor-timer-queue" }
 critical-section = "1.1"
 
 document-features = "0.2.7"
@@ -46,7 +102,7 @@ portable-atomic = { version = "1.5", optional = true }
 cortex-m = { version = "0.7.6", optional = true }
 
 # arch-cortex-ar dependencies
-cortex-ar = { version = "0.2", optional = true }
+aarch32-cpu = { version = "0.1", optional = true }
 
 # arch-wasm dependencies
 wasm-bindgen = { version = "0.2.82", optional = true }
@@ -54,6 +110,11 @@ js-sys = { version = "0.3", optional = true }
 
 # arch-avr dependencies
 avr-device = { version = "0.7.0", optional = true }
+
+
+[dependencies.cordyceps]
+version = "0.3.4"
+features = ["no-cache-pad"]
 
 [dev-dependencies]
 critical-section = { version = "1.1", features = ["std"] }
@@ -65,6 +126,12 @@ rustversion = "1.0.21"
 
 ## Enable nightly-only features
 nightly = ["embassy-executor-macros/nightly"]
+
+## Enable defmt logging
+defmt = ["dep:defmt"]
+
+## Enable log logging
+log = ["dep:log"]
 
 # Enables turbo wakers, which requires patching core. Not surfaced in the docs by default due to
 # being an complicated advanced and undocumented feature.
@@ -78,7 +145,7 @@ arch-std = ["_arch"]
 ## Cortex-M
 arch-cortex-m = ["_arch", "dep:cortex-m"]
 ## Cortex-A/R
-arch-cortex-ar = ["_arch", "dep:cortex-ar"]
+arch-cortex-ar = ["_arch", "dep:aarch32-cpu", "dep:arm-targets"]
 ## RISC-V 32
 arch-riscv32 = ["_arch"]
 ## WASM
@@ -88,29 +155,33 @@ arch-avr = ["_arch", "dep:portable-atomic", "dep:avr-device"]
 ## spin (architecture agnostic; never sleeps)
 arch-spin = ["_arch"]
 
+#! ### Metadata
+
+## Enable the `name` field in task metadata.
+metadata-name = ["embassy-executor-macros/metadata-name"]
+
 #! ### Executor
 
 ## Enable the thread-mode executor (using WFE/SEV in Cortex-M, WFI in other embedded archs)
 executor-thread = []
 ## Enable the interrupt-mode executor (available in Cortex-M only)
 executor-interrupt = []
-## Enable tracing support (adds some overhead)
-trace = []
+## Enable tracing hooks
+trace = ["_any_trace"]
 ## Enable support for rtos-trace framework
-rtos-trace = ["dep:rtos-trace", "trace", "dep:embassy-time-driver"]
+rtos-trace = ["_any_trace", "metadata-name", "dep:rtos-trace", "embassy-time-driver"]
+_any_trace = []
 
-#! ### Timer Item Payload Size
-#! Sets the size of the payload for timer items, allowing integrated timer implementors to store
-#! additional data in the timer item. The payload field will be aligned to this value as well.
-#! If these features are not defined, the timer item will contain no payload field.
+## Enable "Earliest Deadline First" Scheduler, using soft-realtime "deadlines" to prioritize
+## tasks based on the remaining time before their deadline. Adds some overhead.
+scheduler-deadline = []
 
-_timer-item-payload = [] # A size was picked
+## Enable "Highest Priority First" Scheduler. Adds some overhead.
+scheduler-priority = []
 
-## 1 bytes
-timer-item-payload-size-1 = ["_timer-item-payload"]
-## 2 bytes
-timer-item-payload-size-2 = ["_timer-item-payload"]
-## 4 bytes
-timer-item-payload-size-4 = ["_timer-item-payload"]
-## 8 bytes
-timer-item-payload-size-8 = ["_timer-item-payload"]
+## Enable the embassy_time_driver dependency.
+## This can unlock extra APIs, for example for the `sheduler-deadline`
+embassy-time-driver = ["dep:embassy-time-driver"]
+
+[build-dependencies]
+arm-targets = { version = "0.4", optional = true }
