@@ -13,7 +13,7 @@ use embassy_stm32::mode::Async;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::spi::Spi;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{bind_interrupts, peripherals, rng, spi, Config};
+use embassy_stm32::{Config, bind_interrupts, peripherals, rng, spi};
 use embassy_time::{Delay, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_io_async::Write;
@@ -83,7 +83,7 @@ async fn main(spawner: Spawner) -> ! {
     let (device, runner) = embassy_net_wiznet::new(mac_addr, state, spi, w5500_int, w5500_reset)
         .await
         .unwrap();
-    unwrap!(spawner.spawn(ethernet_task(runner)));
+    spawner.spawn(unwrap!(ethernet_task(runner)));
 
     let config = embassy_net::Config::dhcpv4(Default::default());
     //let config = embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
@@ -96,7 +96,7 @@ async fn main(spawner: Spawner) -> ! {
     let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
 
     // Launch network task
-    unwrap!(spawner.spawn(net_task(runner)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     // Ensure DHCP configuration is up before trying connect
     stack.wait_config_up().await;

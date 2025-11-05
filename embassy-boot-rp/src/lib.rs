@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
 mod fmt;
@@ -7,10 +8,10 @@ pub use embassy_boot::{
     AlignedBuffer, BlockingFirmwareState, BlockingFirmwareUpdater, BootError, BootLoaderConfig, FirmwareState,
     FirmwareUpdater, FirmwareUpdaterConfig, State,
 };
-use embassy_rp::flash::{Blocking, Flash, ERASE_SIZE};
+use embassy_rp::Peri;
+use embassy_rp::flash::{Blocking, ERASE_SIZE, Flash};
 use embassy_rp::peripherals::{FLASH, WATCHDOG};
 use embassy_rp::watchdog::Watchdog;
-use embassy_rp::Peri;
 use embassy_time::Duration;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 

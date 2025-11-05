@@ -9,16 +9,14 @@ use embassy_executor::Spawner;
 use embassy_stm32::gpio::{AnyPin, Level, Output, Speed};
 use embassy_stm32::low_power::Executor;
 use embassy_stm32::rcc::{HSIPrescaler, LsConfig};
-use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_stm32::{Config, Peri};
 use embassy_time::Timer;
-use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 #[cortex_m_rt::entry]
 fn main() -> ! {
     Executor::take().run(|spawner| {
-        unwrap!(spawner.spawn(async_main(spawner)));
+        spawner.spawn(unwrap!(async_main(spawner)));
     })
 }
 
@@ -37,14 +35,8 @@ async fn async_main(spawner: Spawner) {
     // config.enable_debug_during_sleep = false;
     let p = embassy_stm32::init(config);
 
-    // give the RTC to the executor...
-    let rtc = Rtc::new(p.RTC, RtcConfig::default());
-    static RTC: StaticCell<Rtc> = StaticCell::new();
-    let rtc = RTC.init(rtc);
-    embassy_stm32::low_power::stop_with_rtc(rtc);
-
-    unwrap!(spawner.spawn(blinky(p.PB4.into())));
-    unwrap!(spawner.spawn(timeout()));
+    spawner.spawn(unwrap!(blinky(p.PB4.into())));
+    spawner.spawn(unwrap!(timeout()));
 }
 
 #[embassy_executor::task]

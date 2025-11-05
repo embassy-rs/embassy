@@ -6,10 +6,10 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_nrf::gpio::{Input, Pull};
-use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
 use embassy_nrf::usb::Driver;
+use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
 use embassy_nrf::{bind_interrupts, pac, peripherals, usb};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::signal::Signal;
@@ -210,7 +210,9 @@ impl Handler for MyDeviceHandler {
 
     fn suspended(&mut self, suspended: bool) {
         if suspended {
-            info!("Device suspended, the Vbus current limit is 500µA (or 2.5mA for high-power devices with remote wakeup enabled).");
+            info!(
+                "Device suspended, the Vbus current limit is 500µA (or 2.5mA for high-power devices with remote wakeup enabled)."
+            );
             SUSPENDED.store(true, Ordering::Release);
         } else {
             SUSPENDED.store(false, Ordering::Release);

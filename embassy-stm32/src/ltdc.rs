@@ -14,7 +14,7 @@ use stm32_metapac::ltdc::vals::{Bf1, Bf2, Cfuif, Clif, Crrif, Cterrif, Pf, Vbr};
 use crate::gpio::{AfType, OutputType, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::interrupt::{self};
-use crate::{peripherals, rcc, Peri};
+use crate::{Peri, peripherals, rcc};
 
 static LTDC_WAKER: AtomicWaker = AtomicWaker::new();
 

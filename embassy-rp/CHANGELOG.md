@@ -8,9 +8,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
-## 0.7.1 - 2025-11-05
+- Enable RP Pico maths functions
+- Fix several minor typos in documentation
+- Add PIO SPI
+- Add PIO I2S input
+- Add PIO onewire parasite power strong pullup
+- add `wait_for_alarm` and `alarm_scheduled` methods to rtc module ([#4216](https://github.com/embassy-rs/embassy/pull/4216))
+- rp235x: use msplim for stack guard instead of MPU
+- Add reset_to_usb_boot for rp235x ([#4705](https://github.com/embassy-rs/embassy/pull/4705))
+- Add fix #4822 in PIO onewire. Change to disable the state machine before setting y register ([#4824](https://github.com/embassy-rs/embassy/pull/4824))
+- Add PIO::Ws2812 color order support
 
-Enable RP Pico maths functions
+## 0.8.0 - 2025-08-26
+
+## 0.7.1 - 2025-08-26
+- add `i2c` internal pullup options ([#4564](https://github.com/embassy-rs/embassy/pull/4564))
 
 ## 0.7.0 - 2025-08-04
 
@@ -50,7 +62,7 @@ Enable RP Pico maths functions
 
 ## 0.4.0 - 2025-03-09
 
-- Add PIO functions. ([#3857](https://github.com/embassy-rs/embassy/pull/3857))  
+- Add PIO functions. ([#3857](https://github.com/embassy-rs/embassy/pull/3857))
   The functions added in this change are `get_addr` `get_tx_threshold`, `set_tx_threshold`, `get_rx_threshold`, `set_rx_threshold`, `set_thresholds`.
 - Expose the watchdog reset reason. ([#3877](https://github.com/embassy-rs/embassy/pull/3877))
 - Update pio-rs, reexport, move instr methods to SM. ([#3865](https://github.com/embassy-rs/embassy/pull/3865))
@@ -91,7 +103,7 @@ Small release fixing a few gnarly bugs, upgrading is strongly recommended.
 - Add Clone and Copy to Error types
 - fix spinlocks staying locked after reset.
 - wait until read matches for PSM accesses.
-- Remove generics 
+- Remove generics
 - fix drop implementation of BufferedUartRx and BufferedUartTx
 - implement `embedded_storage_async::nor_flash::MultiwriteNorFlash`
 - rp usb: wake ep-wakers after stalling

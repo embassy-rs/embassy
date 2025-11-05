@@ -1,7 +1,7 @@
 [package]
 name = "embassy-net"
-version = "0.7.0"
-edition = "2021"
+version = "0.7.1"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Async TCP/IP network stack for embedded systems"
 repository = "https://github.com/embassy-rs/embassy"
@@ -11,6 +11,34 @@ categories = [
     "no-std",
     "asynchronous",
     "network-programming",
+]
+
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "packet-trace", "proto-ipv4", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "multicast", "proto-ipv4", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dns", "medium-ethernet", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dhcpv4", "dhcpv4-hostname", "dns", "medium-ethernet", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "proto-ipv6", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ieee802154", "proto-ipv6", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ieee802154", "proto-ipv6", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "proto-ipv4", "proto-ipv6", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ip", "proto-ipv4", "proto-ipv6", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ip", "proto-ipv4", "proto-ipv6", "tcp", "udp"]},
+    {target = "thumbv7em-none-eabi", features = ["defmt", "dns", "medium-ethernet", "medium-ieee802154", "medium-ip", "proto-ipv4", "proto-ipv6", "tcp", "udp"]},
+    # Xtensa builds
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt", "tcp", "udp", "dns", "proto-ipv4", "medium-ethernet", "packet-trace"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt", "tcp", "udp", "dns", "proto-ipv4", "multicast", "medium-ethernet"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "medium-ethernet"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt", "tcp", "udp", "dns", "dhcpv4", "medium-ethernet", "dhcpv4-hostname"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt", "tcp", "udp", "dns", "proto-ipv6", "medium-ethernet"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt", "tcp", "udp", "dns", "proto-ipv6", "medium-ieee802154"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt", "tcp", "udp", "dns", "proto-ipv6", "medium-ethernet", "medium-ieee802154"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt", "tcp", "udp", "dns", "proto-ipv6", "medium-ethernet"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt", "tcp", "udp", "dns", "proto-ipv4", "proto-ipv6", "medium-ethernet"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt", "tcp", "udp", "dns", "proto-ipv4", "proto-ipv6", "medium-ip"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt", "tcp", "udp", "dns", "proto-ipv4", "proto-ipv6", "medium-ip", "medium-ethernet"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt", "tcp", "udp", "dns", "proto-ipv4", "proto-ipv6", "medium-ip", "medium-ethernet", "medium-ieee802154"]},
 ]
 
 [package.metadata.embassy_docs]
@@ -25,6 +53,8 @@ features = ["defmt", "tcp", "udp", "raw", "dns", "icmp", "dhcpv4", "proto-ipv6",
 [features]
 ## Enable defmt
 defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "embassy-time/defmt", "heapless/defmt-03", "defmt?/ip_in_core"]
+## Enable log
+log = ["dep:log"]
 
 ## Trace all raw received and transmitted packets using defmt or log.
 packet-trace = []
@@ -77,8 +107,8 @@ smoltcp = { version = "0.12.0", default-features = false, features = [
 ] }
 
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
-embassy-time = { version = "0.4.0", path = "../embassy-time" }
-embassy-sync = { version = "0.7.0", path = "../embassy-sync" }
+embassy-time = { version = "0.5.0", path = "../embassy-time" }
+embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
 embedded-io-async = { version = "0.6.1" }
 
 managed = { version = "0.8.0", default-features = false, features = [ "map" ] }

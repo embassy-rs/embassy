@@ -52,7 +52,7 @@ bind_interrupts!(struct Irqs {
 
 #[interrupt]
 unsafe fn SWI_IRQ_0() {
-    EXECUTOR_HI.on_interrupt()
+    unsafe { EXECUTOR_HI.on_interrupt() }
 }
 
 #[entry]
@@ -68,7 +68,7 @@ fn main() -> ! {
     // High-priority executor: runs in interrupt mode
     interrupt::SWI_IRQ_0.set_priority(Priority::P3);
     let spawner = EXECUTOR_HI.start(interrupt::SWI_IRQ_0);
-    spawner.must_spawn(task_a(uart));
+    spawner.spawn(task_a(uart).unwrap());
 
     // Low priority executor: runs in thread mode
     let executor = EXECUTOR_LOW.init(Executor::new());
@@ -83,8 +83,8 @@ fn main() -> ! {
         static REF_CELL: ConstStaticCell<RefCell<MyType>> = ConstStaticCell::new(RefCell::new(MyType { inner: 0 }));
         let ref_cell = REF_CELL.take();
 
-        spawner.must_spawn(task_b(uart, cell, ref_cell));
-        spawner.must_spawn(task_c(cell, ref_cell));
+        spawner.spawn(task_b(uart, cell, ref_cell).unwrap());
+        spawner.spawn(task_c(cell, ref_cell).unwrap());
     });
 }
 

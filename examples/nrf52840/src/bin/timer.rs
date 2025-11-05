@@ -25,6 +25,6 @@ async fn run2() {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let _p = embassy_nrf::init(Default::default());
-    unwrap!(spawner.spawn(run1()));
-    unwrap!(spawner.spawn(run2()));
+    spawner.spawn(unwrap!(run1()));
+    spawner.spawn(unwrap!(run2()));
 }
