@@ -9,7 +9,7 @@
 use core::cell::RefCell;
 
 use defmt::info;
-use embassy_stm32::adc::{Adc, AdcChannel as _, Exten, SampleTime};
+use embassy_stm32::adc::{Adc, AdcChannel as _, Exten, SampleTime, ConversionTrigger, RegularConversionMode};
 use embassy_stm32::interrupt::typelevel::{ADC1_2, Interrupt};
 use embassy_stm32::peripherals::ADC1;
 use embassy_stm32::time::Hertz;
@@ -17,9 +17,10 @@ use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, Mms2};
 use embassy_stm32::timer::low_level::CountingMode;
 use embassy_stm32::{Config, interrupt};
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
+use embassy_stm32::adc::InjectedAdc;
 use {critical_section, defmt_rtt as _, panic_probe as _};
 
-static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<Adc<'static, ADC1>>>> =
+static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<ADC1>>>> =
     CriticalSectionMutex::new(RefCell::new(None));
 
 /// This example showcases how to use both regular ADC conversions with DMA and injected ADC
@@ -85,29 +86,30 @@ async fn main(_spawner: embassy_executor::Spawner) {
     ]
     .into_iter();
 
+    // Configurations of Injected ADC measurements
+    let mut pa2 = p.PA2.degrade_adc();
+    let injected_sequence = [(&mut pa2, SampleTime::CYCLES247_5)].into_iter();
+
     // Configure DMA for retrieving regular ADC measurements
     let dma1_ch1 = p.DMA1_CH1;
     // Using buffer of double size means the half-full interrupts will generate at the expected rate
     let mut readings = [0u16; 4];
-    let mut ring_buffered_adc = adc1.into_ring_buffered(dma1_ch1, &mut readings, regular_sequence);
 
-    // Configurations of Injected ADC measurements
-    let mut pa2 = p.PA2.degrade_adc();
-    let injected_seq = [(&mut pa2, SampleTime::CYCLES247_5)].into_iter();
-    adc1.configure_injected_sequence(injected_seq);
+    let injected_trigger = ConversionTrigger { channel: ADC1_INJECTED_TRIGGER_TIM1_TRGO2, edge: Exten::RISING_EDGE };
+    let regular_trigger = ConversionTrigger { channel: ADC1_REGULAR_TRIGGER_TIM1_TRGO2, edge: Exten::RISING_EDGE };
 
-    adc1.set_regular_conversion_trigger(ADC1_REGULAR_TRIGGER_TIM1_TRGO2, Exten::RISING_EDGE);
-    adc1.set_injected_conversion_trigger(ADC1_INJECTED_TRIGGER_TIM1_TRGO2, Exten::RISING_EDGE);
-
-    // ADC must be started after all configurations are completed
-    adc1.start_injected_conversion();
-
-    // Enable interrupt at end of injected ADC conversion
-    adc1.enable_injected_eos_interrupt(true);
+    let (mut ring_buffered_adc, injected_adc) = adc1.into_regular_ringbuffered_and_injected_interrupts(
+        dma1_ch1,
+        &mut readings,
+        regular_sequence,
+        RegularConversionMode::Triggered(regular_trigger),
+        injected_sequence,
+        injected_trigger,
+    );
 
     // Store ADC globally to allow access from ADC interrupt
     critical_section::with(|cs| {
-        ADC1_HANDLE.borrow(cs).replace(Some(adc1));
+        ADC1_HANDLE.borrow(cs).replace(Some(injected_adc));
     });
     // Enable interrupt for ADC1_2
     unsafe { ADC1_2::enable() };
@@ -136,8 +138,8 @@ async fn main(_spawner: embassy_executor::Spawner) {
 #[interrupt]
 unsafe fn ADC1_2() {
     critical_section::with(|cs| {
-        if let Some(adc) = ADC1_HANDLE.borrow(cs).borrow_mut().as_mut() {
-            let injected_data = adc.clear_injected_eos();
+        if let Some(injected_adc) = ADC1_HANDLE.borrow(cs).borrow_mut().as_mut() {
+            let injected_data = injected_adc.read_injected_samples();
             info!("Injected reading of PA2: {}", injected_data[0]);
         }
     });

@@ -17,6 +17,9 @@ use crate::{Peri, pac, rcc};
 mod ringbuffered;
 pub use ringbuffered::RingBufferedAdc;
 
+mod injected;
+pub use injected::InjectedAdc;
+
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
@@ -124,6 +127,22 @@ impl Prescaler {
             Prescaler::DividedBy256 => Presc::DIV256,
         }
     }
+}
+
+// Trigger source for ADC conversions
+pub struct ConversionTrigger {
+    // See Table 166 and 167 in RM0440 Rev 9 for ADC1/2 External triggers
+    // Note that Injected and Regular channels uses different mappings
+    pub channel: u8,
+    pub edge: Exten,
+}
+
+// Conversion mode for regular ADC channels
+pub enum RegularConversionMode {
+    // Samples as fast as possible
+    Continuous,
+    // Sample at rate determined by external trigger
+    Triggered(ConversionTrigger),
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
@@ -508,11 +527,10 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     /// Set external trigger for regular conversion sequence
-    /// Possible trigger values are seen in Table 166 in RM0440 Rev 9
-    pub fn set_regular_conversion_trigger(&mut self, trigger: u8, edge: Exten) {
+    pub fn set_regular_conversion_trigger(&mut self, trigger: ConversionTrigger) {
         T::regs().cfgr().modify(|r| {
-            r.set_extsel(trigger);
-            r.set_exten(edge);
+            r.set_extsel(trigger.channel);
+            r.set_exten(trigger.edge);
         });
         // Regular conversions uses DMA so no need to generate interrupt
         T::regs().ier().modify(|r| r.set_eosie(false));
@@ -542,6 +560,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         dma: Peri<'a, impl RxDma<T>>,
         dma_buf: &'a mut [u16],
         sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<T>, SampleTime)>,
+        mode: RegularConversionMode,
     ) -> RingBufferedAdc<'a, T> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
@@ -596,10 +615,23 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         T::regs().cfgr().modify(|reg| {
             reg.set_discen(false); // Convert all channels for each trigger
-            reg.set_cont(false); // New trigger is neede for each sample to be read
             reg.set_dmacfg(Dmacfg::CIRCULAR);
             reg.set_dmaen(Dmaen::ENABLE);
         });
+
+        match mode {
+            RegularConversionMode::Continuous => {
+                T::regs().cfgr().modify(|reg| {
+                    reg.set_cont(true);
+                });
+            },
+            RegularConversionMode::Triggered(trigger) => {
+                T::regs().cfgr().modify(|r| {
+                    r.set_cont(false); // New trigger is neede for each sample to be read
+                });
+                self.set_regular_conversion_trigger(trigger);
+            }
+        }
 
         RingBufferedAdc::new(dma, dma_buf)
     }
@@ -608,7 +640,8 @@ impl<'d, T: Instance> Adc<'d, T> {
     pub fn configure_injected_sequence<'a>(
         &mut self,
         sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<T>, SampleTime)>,
-    ) {
+        trigger: ConversionTrigger,
+    ) -> InjectedAdc<T> {
         assert!(sequence.len() != 0, "Read sequence cannot be empty");
         assert!(
             sequence.len() <= NR_INJECTED_RANKS,
@@ -656,6 +689,35 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr().modify(|reg| {
             reg.set_jdiscen(false); // Will convert all channels for each trigger
         });
+
+        self.set_injected_conversion_trigger(trigger);
+        self.enable_injected_eos_interrupt(true);
+
+        self.start_injected_conversion();
+        InjectedAdc::new()
+    }
+
+    pub fn into_regular_ringbuffered_and_injected_interrupts<'a>(
+        &mut self,
+        dma: Peri<'a, impl RxDma<T>>,
+        dma_buf: &'a mut [u16],
+        regular_sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<T>, SampleTime)>,
+        regular_conversion_mode: RegularConversionMode,
+        injected_sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<T>, SampleTime)>,
+        injected_trigger: ConversionTrigger,
+    ) -> (RingBufferedAdc<'a, T>, InjectedAdc<T>) {
+        (
+            self.into_ring_buffered(
+                dma,
+                dma_buf,
+                regular_sequence,
+                regular_conversion_mode,
+            ),
+            self.configure_injected_sequence(
+                injected_sequence,
+                injected_trigger,
+            ),
+        )
     }
 
     /// Start injected ADC conversion
@@ -667,10 +729,10 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     /// Set external trigger for injected conversion sequence
     /// Possible trigger values are seen in Table 167 in RM0440 Rev 9
-    pub fn set_injected_conversion_trigger(&mut self, trigger: u8, edge: Exten) {
+    pub fn set_injected_conversion_trigger(&mut self, trigger: ConversionTrigger) {
         T::regs().jsqr().modify(|r| {
-            r.set_jextsel(trigger);
-            r.set_jexten(edge);
+            r.set_jextsel(trigger.channel);
+            r.set_jexten(trigger.edge);
         });
     }
 
@@ -681,7 +743,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     /// Read sampled data from all injected ADC injected ranks
     /// Clear the JEOS flag to allow a new injected sequence
-    pub fn clear_injected_eos(&mut self) -> [u16; NR_INJECTED_RANKS] {
+    pub(super) fn read_injected_samples() -> [u16; NR_INJECTED_RANKS] {
         let mut data = [0u16; NR_INJECTED_RANKS];
         for i in 0..NR_INJECTED_RANKS {
             data[i] = T::regs().jdr(i).read().jdata();
@@ -732,6 +794,9 @@ impl<'d, T: Instance> Adc<'d, T> {
             });
             while T::regs().cr().read().adstart() {}
         }
+    }
+
+    pub(super) fn stop_injected_conversions() {
         // Cancel injected conversions
         if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
             T::regs().cr().modify(|reg| {
