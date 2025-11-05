@@ -634,10 +634,14 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     }
 
     /// Set compare value for a channel.
+    /// This will panic if the value is too large for the timer.
     pub fn set_compare_value(&self, channel: Channel, value: u32) {
         match T::BITS {
             TimerBits::Bits16 => {
-                let value = unwrap!(u16::try_from(value));
+                let value = match u16::try_from(value) {
+                    Ok(v) => v,
+                    Err(_) => panic!("Value to large for 16bit timer"),
+                };
                 self.regs_gp16().ccr(channel.index()).modify(|w| w.set_ccr(value));
             }
             #[cfg(not(stm32l0))]
@@ -653,6 +657,33 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
             TimerBits::Bits16 => self.regs_gp16().ccr(channel.index()).read().ccr() as u32,
             #[cfg(not(stm32l0))]
             TimerBits::Bits32 => self.regs_gp32_unchecked().ccr(channel.index()).read(),
+        }
+    }
+
+    /// Set auto-reload value.
+    /// This will panic if the value is too large for the timer.
+    pub fn set_auto_reload_value(&self, value: u32) {
+        match T::BITS {
+            TimerBits::Bits16 => {
+                let value = match u16::try_from(value) {
+                    Ok(v) => v,
+                    Err(_) => panic!("Value to large for 16bit timer"),
+                };
+                self.regs_gp16().arr().modify(|w| w.set_arr(value));
+            }
+            #[cfg(not(stm32l0))]
+            TimerBits::Bits32 => {
+                self.regs_gp32_unchecked().arr().write_value(value);
+            }
+        }
+    }
+
+    /// Get auto-reload value.
+    pub fn get_auto_reload_value(&self) -> u32 {
+        match T::BITS {
+            TimerBits::Bits16 => self.regs_gp16().arr().read().arr() as u32,
+            #[cfg(not(stm32l0))]
+            TimerBits::Bits32 => self.regs_gp32_unchecked().arr().read(),
         }
     }
 

@@ -542,6 +542,103 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     }
 }
 
+macro_rules! impl_waveform_variable_period_chx {
+    ($fn_name:ident, $dma_ch:ident, $cc_ch:ident) => {
+        impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
+            /// Generate a sequence of PWM waveform
+            pub async fn $fn_name(&mut self, dma: Peri<'_, impl super::$dma_ch<T>>, duty: &[u32]) {
+                use crate::pac::timer::vals::Ccds;
+
+                #[allow(clippy::let_unit_value)] // eg. stm32f334
+                let req = dma.request();
+
+                let cc_channel = Channel::$cc_ch;
+
+                let original_auto_reload_value = self.inner.get_auto_reload_value();
+                let original_enable_state = self.channel(cc_channel).is_enabled();
+                let original_cc_dma_on_compare = self.inner.get_cc_dma_selection() == Ccds::ON_COMPARE;
+                let original_cc_dma_enabled = self.inner.get_cc_dma_enable_state(cc_channel);
+
+                // redirect CC DMA request onto Compare Event
+                if !original_cc_dma_on_compare {
+                    self.inner.set_cc_dma_selection(Ccds::ON_COMPARE)
+                }
+
+                if !original_cc_dma_enabled {
+                    self.inner.set_cc_dma_enable_state(cc_channel, true);
+                }
+
+                if !original_enable_state {
+                    self.channel(cc_channel).enable();
+                }
+
+                unsafe {
+                    #[cfg(not(any(bdma, gpdma)))]
+                    use crate::dma::{Burst, FifoThreshold};
+                    use crate::dma::{Transfer, TransferOptions};
+
+                    let dma_transfer_option = TransferOptions {
+                        #[cfg(not(any(bdma, gpdma)))]
+                        fifo_threshold: Some(FifoThreshold::Full),
+                        #[cfg(not(any(bdma, gpdma)))]
+                        mburst: Burst::Single,
+                        ..Default::default()
+                    };
+
+                    match self.inner.bits() {
+                        TimerBits::Bits16 => {
+                            Transfer::new_write(
+                                dma,
+                                req,
+                                duty,
+                                self.inner.regs_gp16().arr().as_ptr() as *mut u16,
+                                dma_transfer_option,
+                            )
+                            .await
+                        }
+                        #[cfg(not(any(stm32l0)))]
+                        TimerBits::Bits32 => {
+                            Transfer::new_write(
+                                dma,
+                                req,
+                                duty,
+                                self.inner.regs_gp16().arr().as_ptr() as *mut u32,
+                                dma_transfer_option,
+                            )
+                            .await
+                        }
+                    };
+                };
+
+                // restore output compare state
+                if !original_enable_state {
+                    self.channel(cc_channel).disable();
+                }
+
+                self.inner.set_auto_reload_value(original_auto_reload_value);
+
+                // Since DMA is closed before timer Capture Compare Event trigger DMA is turn off,
+                // this can almost always trigger a DMA FIFO error.
+                //
+                // optional TODO:
+                // clean FEIF after disable UDE
+                if !original_cc_dma_enabled {
+                    self.inner.set_cc_dma_enable_state(cc_channel, false);
+                }
+
+                if !original_cc_dma_on_compare {
+                    self.inner.set_cc_dma_selection(Ccds::ON_UPDATE)
+                }
+            }
+        }
+    };
+}
+
+impl_waveform_variable_period_chx!(waveform_variable_period_ch1, Ch1Dma, Ch1);
+impl_waveform_variable_period_chx!(waveform_variable_period_ch2, Ch2Dma, Ch2);
+impl_waveform_variable_period_chx!(waveform_variable_period_ch3, Ch3Dma, Ch3);
+impl_waveform_variable_period_chx!(waveform_variable_period_ch4, Ch4Dma, Ch4);
+
 impl<'d, T: GeneralInstance4Channel> embedded_hal_1::pwm::ErrorType for SimplePwmChannel<'d, T> {
     type Error = core::convert::Infallible;
 }
