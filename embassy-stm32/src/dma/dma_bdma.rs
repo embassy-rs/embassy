@@ -413,7 +413,10 @@ impl AnyChannel {
                     w.set_psize(peri_size.into());
                     w.set_pl(options.priority.into());
                     match incr_mem {
-                        Increment::None => {},
+                        Increment::None => {
+                            w.set_minc(false);
+                            w.set_pinc(false);
+                        },
                         Increment::Peripheral => {
                             w.set_minc(false);
                             w.set_pinc(true);
@@ -461,7 +464,10 @@ impl AnyChannel {
                     w.set_psize(peri_size.into());
                     w.set_msize(mem_size.into());
                     match incr_mem {
-                        Increment::None => {},
+                        Increment::None => {
+                            w.set_minc(false);
+                            w.set_pinc(false);
+                        },
                         Increment::Peripheral => {
                             w.set_minc(false);
                             w.set_pinc(true);
