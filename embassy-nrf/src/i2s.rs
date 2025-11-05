@@ -422,7 +422,7 @@ impl<'d> I2S<'d> {
     pub fn new_master<T: Instance>(
         _i2s: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        mck: Peri<'d, impl GpioPin>,
+        mck: Option<Peri<'d, impl GpioPin>>,
         sck: Peri<'d, impl GpioPin>,
         lrck: Peri<'d, impl GpioPin>,
         master_clock: MasterClock,
@@ -434,7 +434,7 @@ impl<'d> I2S<'d> {
         Self {
             r: T::regs(),
             state: T::state(),
-            mck: Some(mck.into()),
+            mck: mck.map(|mck| mck.into()),
             sck: sck.into(),
             lrck: lrck.into(),
             sdin: None,
