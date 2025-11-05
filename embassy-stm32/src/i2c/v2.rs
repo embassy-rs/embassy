@@ -1196,7 +1196,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
 
         let regs = self.info.regs;
 
-        let dma_transfer = unsafe {
+        let mut dma_transfer = unsafe {
             regs.cr1().modify(|w| {
                 w.set_rxdmaen(true);
                 w.set_stopie(true);
@@ -1244,6 +1244,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
         })
         .await?;
 
+        dma_transfer.request_pause();
         dma_transfer.await;
 
         drop(on_drop);
@@ -1309,6 +1310,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
         })
         .await?;
 
+        dma_transfer.request_pause();
         dma_transfer.await;
 
         drop(on_drop);
