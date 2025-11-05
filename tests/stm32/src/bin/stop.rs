@@ -49,6 +49,7 @@ async fn async_main(spawner: Spawner) {
 
     let mut config = Config::default();
     config.rcc.ls = LsConfig::default_lse();
+    config.rtc._disable_rtc = false;
 
     // System Clock seems cannot be greater than 16 MHz
     #[cfg(any(feature = "stm32h563zi", feature = "stm32h503rb"))]
