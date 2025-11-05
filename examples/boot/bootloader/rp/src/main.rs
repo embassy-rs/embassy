@@ -8,6 +8,7 @@ use cortex_m_rt::{entry, exception};
 use defmt_rtt as _;
 use embassy_boot_rp::*;
 use embassy_sync::blocking_mutex::Mutex;
+#[cfg(feature = "watchdog")]
 use embassy_time::Duration;
 
 const FLASH_SIZE: usize = 2 * 1024 * 1024;
@@ -24,7 +25,10 @@ fn main() -> ! {
     }
     */
 
+    #[cfg(feature = "watchdog")]
     let flash = WatchdogFlash::<FLASH_SIZE>::start(p.FLASH, p.WATCHDOG, Duration::from_secs(8));
+    #[cfg(not(feature = "watchdog"))]
+    let flash = embassy_rp::flash::Flash::<_, embassy_rp::flash::Blocking, FLASH_SIZE>::new_blocking(p.FLASH);
     let flash = Mutex::new(RefCell::new(flash));
 
     let config = BootLoaderConfig::from_linkerfile_blocking(&flash, &flash, &flash);

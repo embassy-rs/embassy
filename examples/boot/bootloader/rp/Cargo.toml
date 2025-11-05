@@ -21,6 +21,7 @@ embedded-storage-async = "0.4.0"
 cfg-if = "1.0.0"
 
 [features]
+watchdog = ["embassy-boot-rp/watchdog"]
 defmt = [
     "dep:defmt",
     "dep:defmt-rtt",

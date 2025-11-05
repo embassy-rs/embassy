@@ -7,12 +7,18 @@ pub use embassy_boot::{
     AlignedBuffer, BlockingFirmwareState, BlockingFirmwareUpdater, BootError, BootLoaderConfig, FirmwareState,
     FirmwareUpdater, FirmwareUpdaterConfig, State,
 };
-use embassy_rp::flash::{Blocking, Flash, ERASE_SIZE};
-use embassy_rp::peripherals::{FLASH, WATCHDOG};
-use embassy_rp::watchdog::Watchdog;
-use embassy_rp::Peri;
-use embassy_time::Duration;
-use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
+use embassy_rp::flash::ERASE_SIZE;
+use embedded_storage::nor_flash::NorFlash;
+
+#[cfg(feature = "watchdog")]
+use {
+    embassy_rp::flash::{Blocking, Flash},
+    embassy_rp::peripherals::{FLASH, WATCHDOG},
+    embassy_rp::watchdog::Watchdog,
+    embassy_rp::Peri,
+    embassy_time::Duration,
+    embedded_storage::nor_flash::{ErrorType, ReadNorFlash},
+};
 
 /// A bootloader for RP2040 devices.
 pub struct BootLoader<const BUFFER_SIZE: usize = ERASE_SIZE> {
@@ -62,11 +68,13 @@ impl<const BUFFER_SIZE: usize> BootLoader<BUFFER_SIZE> {
 }
 
 /// A flash implementation that will feed a watchdog when touching flash.
+#[cfg(feature = "watchdog")]
 pub struct WatchdogFlash<'d, const SIZE: usize> {
     flash: Flash<'d, FLASH, Blocking, SIZE>,
     watchdog: Watchdog,
 }
 
+#[cfg(feature = "watchdog")]
 impl<'d, const SIZE: usize> WatchdogFlash<'d, SIZE> {
     /// Start a new watchdog with a given flash and watchdog peripheral and a timeout
     pub fn start(flash: Peri<'static, FLASH>, watchdog: Peri<'static, WATCHDOG>, timeout: Duration) -> Self {
@@ -77,10 +85,12 @@ impl<'d, const SIZE: usize> WatchdogFlash<'d, SIZE> {
     }
 }
 
+#[cfg(feature = "watchdog")]
 impl<'d, const SIZE: usize> ErrorType for WatchdogFlash<'d, SIZE> {
     type Error = <Flash<'d, FLASH, Blocking, SIZE> as ErrorType>::Error;
 }
 
+#[cfg(feature = "watchdog")]
 impl<'d, const SIZE: usize> NorFlash for WatchdogFlash<'d, SIZE> {
     const WRITE_SIZE: usize = <Flash<'d, FLASH, Blocking, SIZE> as NorFlash>::WRITE_SIZE;
     const ERASE_SIZE: usize = <Flash<'d, FLASH, Blocking, SIZE> as NorFlash>::ERASE_SIZE;
@@ -95,6 +105,7 @@ impl<'d, const SIZE: usize> NorFlash for WatchdogFlash<'d, SIZE> {
     }
 }
 
+#[cfg(feature = "watchdog")]
 impl<'d, const SIZE: usize> ReadNorFlash for WatchdogFlash<'d, SIZE> {
     const READ_SIZE: usize = <Flash<'d, FLASH, Blocking, SIZE> as ReadNorFlash>::READ_SIZE;
     fn read(&mut self, offset: u32, data: &mut [u8]) -> Result<(), Self::Error> {
