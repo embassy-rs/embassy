@@ -218,6 +218,29 @@ embassy_hal_internal::peripherals! {
     PPI00_CH7,
 
     PPI10_CH0,
+    PPI10_CH1,
+    PPI10_CH2,
+    PPI10_CH3,
+    PPI10_CH4,
+    PPI10_CH5,
+    PPI10_CH6,
+    PPI10_CH7,
+    PPI10_CH8,
+    PPI10_CH9,
+    PPI10_CH10,
+    PPI10_CH11,
+    PPI10_CH12,
+    PPI10_CH13,
+    PPI10_CH14,
+    PPI10_CH15,
+    PPI10_CH16,
+    PPI10_CH17,
+    PPI10_CH18,
+    PPI10_CH19,
+    PPI10_CH20,
+    PPI10_CH21,
+    PPI10_CH22,
+    PPI10_CH23,
 
     PPI20_CH0,
     PPI20_CH1,
@@ -245,6 +268,11 @@ embassy_hal_internal::peripherals! {
     PPI00_GROUP1,
 
     PPI10_GROUP0,
+    PPI10_GROUP1,
+    PPI10_GROUP2,
+    PPI10_GROUP3,
+    PPI10_GROUP4,
+    PPI10_GROUP5,
 
     PPI20_GROUP0,
     PPI20_GROUP1,
@@ -433,6 +461,7 @@ embassy_hal_internal::peripherals! {
     GPIOTE30_CH3,
 
     // CRACEN
+    #[cfg(feature = "_s")]
     CRACEN,
 
     #[cfg(feature = "_s")]
@@ -653,6 +682,9 @@ impl_saadc_input!(P1_11, 1, 11);
 impl_saadc_input!(P1_12, 1, 12);
 impl_saadc_input!(P1_13, 1, 13);
 impl_saadc_input!(P1_14, 1, 14);
+
+#[cfg(feature = "_s")]
+impl_cracen!(CRACEN, CRACEN, CRACEN);
 
 embassy_hal_internal::interrupt_mod!(
     SWI00,

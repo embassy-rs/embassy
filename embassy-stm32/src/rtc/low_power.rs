@@ -4,7 +4,7 @@ use embassy_time::{Duration, TICK_HZ};
 use super::{DateTimeError, Rtc, RtcError, bcd2_to_byte};
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::RTC;
-use crate::rtc::SealedInstance;
+use crate::rtc::{RtcTimeProvider, SealedInstance};
 
 /// Represents an instant in time that can be substracted to compute a duration
 pub(super) struct RtcInstant {
@@ -68,7 +68,7 @@ pub(crate) enum WakeupPrescaler {
 }
 
 #[cfg(any(
-    stm32f4, stm32l0, stm32g4, stm32l4, stm32l5, stm32wb, stm32h5, stm32g0, stm32u5, stm32u0, stm32wba
+    stm32f4, stm32l0, stm32g4, stm32l4, stm32l5, stm32wb, stm32h5, stm32g0, stm32u5, stm32u0, stm32wba, stm32wlex
 ))]
 impl From<WakeupPrescaler> for crate::pac::rtc::vals::Wucksel {
     fn from(val: WakeupPrescaler) -> Self {
@@ -84,7 +84,7 @@ impl From<WakeupPrescaler> for crate::pac::rtc::vals::Wucksel {
 }
 
 #[cfg(any(
-    stm32f4, stm32l0, stm32g4, stm32l4, stm32l5, stm32wb, stm32h5, stm32g0, stm32u5, stm32u0, stm32wba
+    stm32f4, stm32l0, stm32g4, stm32l4, stm32l5, stm32wb, stm32h5, stm32g0, stm32u5, stm32u0, stm32wba, stm32wlex
 ))]
 impl From<crate::pac::rtc::vals::Wucksel> for WakeupPrescaler {
     fn from(val: crate::pac::rtc::vals::Wucksel) -> Self {
@@ -117,7 +117,7 @@ impl WakeupPrescaler {
 impl Rtc {
     /// Return the current instant.
     fn instant(&self) -> Result<RtcInstant, RtcError> {
-        self.time_provider().read(|_, tr, ss| {
+        RtcTimeProvider::new().read(|_, tr, ss| {
             let second = bcd2_to_byte((tr.st(), tr.su()));
 
             RtcInstant::from(second, ss).map_err(RtcError::InvalidDateTime)
@@ -127,7 +127,7 @@ impl Rtc {
     /// start the wakeup alarm and with a duration that is as close to but less than
     /// the requested duration, and record the instant the wakeup alarm was started
     pub(crate) fn start_wakeup_alarm(
-        &self,
+        &mut self,
         requested_duration: embassy_time::Duration,
         cs: critical_section::CriticalSection,
     ) {
@@ -179,7 +179,10 @@ impl Rtc {
 
     /// stop the wakeup alarm and return the time elapsed since `start_wakeup_alarm`
     /// was called, otherwise none
-    pub(crate) fn stop_wakeup_alarm(&self, cs: critical_section::CriticalSection) -> Option<embassy_time::Duration> {
+    pub(crate) fn stop_wakeup_alarm(
+        &mut self,
+        cs: critical_section::CriticalSection,
+    ) -> Option<embassy_time::Duration> {
         let instant = self.instant().unwrap();
         if RTC::regs().cr().read().wute() {
             trace!("rtc: stop wakeup alarm at {}", instant);

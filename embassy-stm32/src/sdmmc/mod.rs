@@ -1032,12 +1032,13 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
 
     /// Wait for a previously started datapath transfer to complete from an interrupt.
     #[inline]
+    #[allow(unused)]
     async fn complete_datapath_transfer(block: bool) -> Result<(), Error> {
-        let regs = T::regs();
-
         let res = poll_fn(|cx| {
+            // Compiler might not be sufficiently constrained here
+            // https://github.com/embassy-rs/embassy/issues/4723
             T::state().register(cx.waker());
-            let status = regs.star().read();
+            let status = T::regs().star().read();
 
             if status.dcrcfail() {
                 return Poll::Ready(Err(Error::Crc));
@@ -1052,10 +1053,13 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
             if status.stbiterr() {
                 return Poll::Ready(Err(Error::StBitErr));
             }
+            #[cfg(sdmmc_v1)]
             let done = match block {
                 true => status.dbckend(),
                 false => status.dataend(),
             };
+            #[cfg(sdmmc_v2)]
+            let done = status.dataend();
             if done {
                 return Poll::Ready(Ok(()));
             }

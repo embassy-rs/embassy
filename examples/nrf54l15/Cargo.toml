@@ -14,6 +14,8 @@ embassy-nrf = { version = "0.8.0", path = "../../embassy-nrf", features = ["defm
 embedded-io = { version = "0.6.0", features = ["defmt-03"]  }
 embedded-io-async = { version = "0.6.1", features = ["defmt-03"] }
 
+rand = { version = "0.9.0", default-features = false }
+
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }

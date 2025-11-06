@@ -30,6 +30,7 @@ use crate::pac::i2c;
 // hit a case like this!
 pub unsafe fn on_interrupt<T: Instance>() {
     let regs = T::info().regs;
+    trace!("I2C interrupt triggered");
     // i2c v2 only woke the task on transfer complete interrupts. v1 uses interrupts for a bunch of
     // other stuff, so we wake the task on every interrupt.
     T::state().waker.wake();
@@ -92,6 +93,7 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
         self.info.regs.cr1().modify(|reg| {
             reg.set_pe(true);
         });
+        trace!("i2c v1 init complete");
     }
 
     fn check_and_clear_error_flags(info: &'static Info) -> Result<i2c::regs::Sr1, Error> {
@@ -151,7 +153,13 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
         Ok(sr1)
     }
 
-    fn write_bytes(&mut self, addr: u8, bytes: &[u8], timeout: Timeout, frame: FrameOptions) -> Result<(), Error> {
+    fn write_bytes(
+        &mut self,
+        address: u8,
+        write_buffer: &[u8],
+        timeout: Timeout,
+        frame: FrameOptions,
+    ) -> Result<(), Error> {
         if frame.send_start() {
             // Send a START condition
 
@@ -170,7 +178,7 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
             }
 
             // Set up current address we're trying to talk to
-            self.info.regs.dr().write(|reg| reg.set_dr(addr << 1));
+            self.info.regs.dr().write(|reg| reg.set_dr(address << 1));
 
             // Wait until address was sent
             // Wait for the address to be acknowledged
@@ -184,7 +192,7 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
         }
 
         // Send bytes
-        for c in bytes {
+        for c in write_buffer {
             self.send_byte(*c, timeout)?;
         }
 
@@ -236,12 +244,12 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
 
     fn blocking_read_timeout(
         &mut self,
-        addr: u8,
-        buffer: &mut [u8],
+        address: u8,
+        read_buffer: &mut [u8],
         timeout: Timeout,
         frame: FrameOptions,
     ) -> Result<(), Error> {
-        let Some((last, buffer)) = buffer.split_last_mut() else {
+        let Some((last_byte, read_buffer)) = read_buffer.split_last_mut() else {
             return Err(Error::Overrun);
         };
 
@@ -263,7 +271,7 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
             }
 
             // Set up current address we're trying to talk to
-            self.info.regs.dr().write(|reg| reg.set_dr((addr << 1) + 1));
+            self.info.regs.dr().write(|reg| reg.set_dr((address << 1) + 1));
 
             // Wait until address was sent
             // Wait for the address to be acknowledged
@@ -276,7 +284,7 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
         }
 
         // Receive bytes into buffer
-        for c in buffer {
+        for c in read_buffer {
             *c = self.recv_byte(timeout)?;
         }
 
@@ -291,37 +299,42 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
         });
 
         // Receive last byte
-        *last = self.recv_byte(timeout)?;
+        *last_byte = self.recv_byte(timeout)?;
 
         // Fallthrough is success
         Ok(())
     }
 
     /// Blocking read.
-    pub fn blocking_read(&mut self, addr: u8, read: &mut [u8]) -> Result<(), Error> {
-        self.blocking_read_timeout(addr, read, self.timeout(), FrameOptions::FirstAndLastFrame)
+    pub fn blocking_read(&mut self, address: u8, read_buffer: &mut [u8]) -> Result<(), Error> {
+        self.blocking_read_timeout(address, read_buffer, self.timeout(), FrameOptions::FirstAndLastFrame)
     }
 
     /// Blocking write.
-    pub fn blocking_write(&mut self, addr: u8, write: &[u8]) -> Result<(), Error> {
-        self.write_bytes(addr, write, self.timeout(), FrameOptions::FirstAndLastFrame)?;
+    pub fn blocking_write(&mut self, address: u8, write_buffer: &[u8]) -> Result<(), Error> {
+        self.write_bytes(address, write_buffer, self.timeout(), FrameOptions::FirstAndLastFrame)?;
 
         // Fallthrough is success
         Ok(())
     }
 
     /// Blocking write, restart, read.
-    pub fn blocking_write_read(&mut self, addr: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_write_read(
+        &mut self,
+        address: u8,
+        write_buffer: &[u8],
+        read_buffer: &mut [u8],
+    ) -> Result<(), Error> {
         // Check empty read buffer before starting transaction. Otherwise, we would not generate the
         // stop condition below.
-        if read.is_empty() {
+        if read_buffer.is_empty() {
             return Err(Error::Overrun);
         }
 
         let timeout = self.timeout();
 
-        self.write_bytes(addr, write, timeout, FrameOptions::FirstFrame)?;
-        self.blocking_read_timeout(addr, read, timeout, FrameOptions::FirstAndLastFrame)?;
+        self.write_bytes(address, write_buffer, timeout, FrameOptions::FirstFrame)?;
+        self.blocking_read_timeout(address, read_buffer, timeout, FrameOptions::FirstAndLastFrame)?;
 
         Ok(())
     }
@@ -331,32 +344,43 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
     /// Consecutive operations of same type are merged. See [transaction contract] for details.
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
-    pub fn blocking_transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
+    pub fn blocking_transaction(&mut self, address: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
         let timeout = self.timeout();
 
         for (op, frame) in operation_frames(operations)? {
             match op {
-                Operation::Read(read) => self.blocking_read_timeout(addr, read, timeout, frame)?,
-                Operation::Write(write) => self.write_bytes(addr, write, timeout, frame)?,
+                Operation::Read(read_buffer) => self.blocking_read_timeout(address, read_buffer, timeout, frame)?,
+                Operation::Write(write_buffer) => self.write_bytes(address, write_buffer, timeout, frame)?,
             }
         }
 
         Ok(())
     }
 
-    // Async
-
+    /// Can be used by both blocking and async implementations  
     #[inline] // pretty sure this should always be inlined
-    fn enable_interrupts(info: &'static Info) -> () {
-        info.regs.cr2().modify(|w| {
-            w.set_iterren(true);
-            w.set_itevten(true);
+    fn enable_interrupts(info: &'static Info) {
+        // The interrupt handler disables interrupts globally, so we need to re-enable them
+        // This must be done in a critical section to avoid races
+        critical_section::with(|_| {
+            info.regs.cr2().modify(|w| {
+                w.set_iterren(true);
+                w.set_itevten(true);
+            });
         });
+    }
+
+    /// Can be used by both blocking and async implementations
+    fn clear_stop_flag(info: &'static Info) {
+        trace!("I2C slave: clearing STOPF flag (v1 sequence)");
+        // v1 requires: READ SR1 then WRITE CR1 to clear STOPF
+        let _ = info.regs.sr1().read();
+        info.regs.cr1().modify(|_| {}); // Dummy write to clear STOPF
     }
 }
 
 impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
-    async fn write_frame(&mut self, address: u8, write: &[u8], frame: FrameOptions) -> Result<(), Error> {
+    async fn write_frame(&mut self, address: u8, write_buffer: &[u8], frame: FrameOptions) -> Result<(), Error> {
         self.info.regs.cr2().modify(|w| {
             // Note: Do not enable the ITBUFEN bit in the I2C_CR2 register if DMA is used for
             // reception.
@@ -439,7 +463,10 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             // this address from the memory after each TxE event.
             let dst = self.info.regs.dr().as_ptr() as *mut u8;
 
-            self.tx_dma.as_mut().unwrap().write(write, dst, Default::default())
+            self.tx_dma
+                .as_mut()
+                .unwrap()
+                .write(write_buffer, dst, Default::default())
         };
 
         // Wait for bytes to be sent, or an error to occur.
@@ -501,28 +528,28 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     }
 
     /// Write.
-    pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
-        self.write_frame(address, write, FrameOptions::FirstAndLastFrame)
+    pub async fn write(&mut self, address: u8, write_buffer: &[u8]) -> Result<(), Error> {
+        self.write_frame(address, write_buffer, FrameOptions::FirstAndLastFrame)
             .await?;
 
         Ok(())
     }
 
     /// Read.
-    pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
-        self.read_frame(address, buffer, FrameOptions::FirstAndLastFrame)
+    pub async fn read(&mut self, address: u8, read_buffer: &mut [u8]) -> Result<(), Error> {
+        self.read_frame(address, read_buffer, FrameOptions::FirstAndLastFrame)
             .await?;
 
         Ok(())
     }
 
-    async fn read_frame(&mut self, address: u8, buffer: &mut [u8], frame: FrameOptions) -> Result<(), Error> {
-        if buffer.is_empty() {
+    async fn read_frame(&mut self, address: u8, read_buffer: &mut [u8], frame: FrameOptions) -> Result<(), Error> {
+        if read_buffer.is_empty() {
             return Err(Error::Overrun);
         }
 
         // Some branches below depend on whether the buffer contains only a single byte.
-        let single_byte = buffer.len() == 1;
+        let single_byte = read_buffer.len() == 1;
 
         self.info.regs.cr2().modify(|w| {
             // Note: Do not enable the ITBUFEN bit in the I2C_CR2 register if DMA is used for
@@ -612,7 +639,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             self.info.regs.sr2().read();
         } else {
             // Before starting reception of single byte (but without START condition, i.e. in case
-            // of continued frame), program NACK to emit at end of this byte.
+            // of merged operations), program NACK to emit at end of this byte.
             if frame.send_nack() && single_byte {
                 self.info.regs.cr1().modify(|w| {
                     w.set_ack(false);
@@ -634,7 +661,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             // from this address from the memory after each RxE event.
             let src = self.info.regs.dr().as_ptr() as *mut u8;
 
-            self.rx_dma.as_mut().unwrap().read(src, buffer, Default::default())
+            self.rx_dma.as_mut().unwrap().read(src, read_buffer, Default::default())
         };
 
         // Wait for bytes to be received, or an error to occur.
@@ -673,15 +700,17 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     }
 
     /// Write, restart, read.
-    pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+    pub async fn write_read(&mut self, address: u8, write_buffer: &[u8], read_buffer: &mut [u8]) -> Result<(), Error> {
         // Check empty read buffer before starting transaction. Otherwise, we would not generate the
         // stop condition below.
-        if read.is_empty() {
+        if read_buffer.is_empty() {
             return Err(Error::Overrun);
         }
 
-        self.write_frame(address, write, FrameOptions::FirstFrame).await?;
-        self.read_frame(address, read, FrameOptions::FirstAndLastFrame).await
+        self.write_frame(address, write_buffer, FrameOptions::FirstFrame)
+            .await?;
+        self.read_frame(address, read_buffer, FrameOptions::FirstAndLastFrame)
+            .await
     }
 
     /// Transaction with operations.
@@ -689,11 +718,11 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     /// Consecutive operations of same type are merged. See [transaction contract] for details.
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
-    pub async fn transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
+    pub async fn transaction(&mut self, address: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
         for (op, frame) in operation_frames(operations)? {
             match op {
-                Operation::Read(read) => self.read_frame(addr, read, frame).await?,
-                Operation::Write(write) => self.write_frame(addr, write, frame).await?,
+                Operation::Read(read_buffer) => self.read_frame(address, read_buffer, frame).await?,
+                Operation::Write(write_buffer) => self.write_frame(address, write_buffer, frame).await?,
             }
         }
 
@@ -729,12 +758,956 @@ impl Duty {
     }
 }
 
+/// Result of attempting to send a byte in slave transmitter mode
+#[derive(Debug, PartialEq)]
+enum TransmitResult {
+    /// Byte sent and ACKed by master - continue transmission
+    Acknowledged,
+    /// Byte sent but NACKed by master - normal end of read transaction
+    NotAcknowledged,
+    /// STOP condition detected - master terminated transaction
+    Stopped,
+    /// RESTART condition detected - master starting new transaction
+    Restarted,
+}
+
+/// Result of attempting to receive a byte in slave receiver mode
+#[derive(Debug, PartialEq)]
+enum ReceiveResult {
+    /// Data byte successfully received
+    Data(u8),
+    /// STOP condition detected - end of write transaction
+    Stopped,
+    /// RESTART condition detected - master starting new transaction
+    Restarted,
+}
+
+/// Enumeration of slave transaction termination conditions
+#[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+enum SlaveTermination {
+    /// STOP condition received - normal end of transaction
+    Stop,
+    /// RESTART condition received - master starting new transaction  
+    Restart,
+    /// NACK received - normal end of read transaction
+    Nack,
+}
+
+impl<'d, M: PeriMode> I2c<'d, M, Master> {
+    /// Configure the I2C driver for slave operations, allowing for the driver to be used as a slave and a master (multimaster)
+    pub fn into_slave_multimaster(mut self, slave_addr_config: SlaveAddrConfig) -> I2c<'d, M, MultiMaster> {
+        let mut slave = I2c {
+            info: self.info,
+            state: self.state,
+            kernel_clock: self.kernel_clock,
+            tx_dma: self.tx_dma.take(), // Use take() to move ownership
+            rx_dma: self.rx_dma.take(), // Use take() to move ownership
+            #[cfg(feature = "time")]
+            timeout: self.timeout,
+            _phantom: PhantomData,
+            _phantom2: PhantomData,
+            _drop_guard: self._drop_guard, // Move the drop guard
+        };
+        slave.init_slave(slave_addr_config);
+        slave
+    }
+}
+
+// Address configuration methods
+impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
+    /// Initialize slave mode with address configuration
+    pub(crate) fn init_slave(&mut self, config: SlaveAddrConfig) {
+        trace!("I2C slave: initializing with config={:?}", config);
+
+        // Disable peripheral for configuration
+        self.info.regs.cr1().modify(|reg| reg.set_pe(false));
+
+        // Configure slave addresses
+        self.apply_address_configuration(config);
+
+        // Enable peripheral with slave settings
+        self.info.regs.cr1().modify(|reg| {
+            reg.set_pe(true);
+            reg.set_ack(true); // Enable acknowledgment for slave mode
+            reg.set_nostretch(false); // Allow clock stretching for processing time
+        });
+
+        trace!("I2C slave: initialization complete");
+    }
+
+    /// Apply the complete address configuration for slave mode
+    fn apply_address_configuration(&mut self, config: SlaveAddrConfig) {
+        match config.addr {
+            OwnAddresses::OA1(addr) => {
+                self.configure_primary_address(addr);
+                self.disable_secondary_address();
+            }
+            OwnAddresses::OA2(oa2) => {
+                self.configure_default_primary_address();
+                self.configure_secondary_address(oa2.addr); // v1 ignores mask
+            }
+            OwnAddresses::Both { oa1, oa2 } => {
+                self.configure_primary_address(oa1);
+                self.configure_secondary_address(oa2.addr); // v1 ignores mask
+            }
+        }
+
+        // Configure general call detection
+        if config.general_call {
+            self.info.regs.cr1().modify(|w| w.set_engc(true));
+        }
+    }
+
+    /// Configure the primary address (OA1) register
+    fn configure_primary_address(&mut self, addr: Address) {
+        match addr {
+            Address::SevenBit(addr) => {
+                self.info.regs.oar1().write(|reg| {
+                    let hw_addr = (addr as u16) << 1; // Address in bits [7:1]
+                    reg.set_add(hw_addr);
+                    reg.set_addmode(i2c::vals::Addmode::BIT7);
+                });
+            }
+            Address::TenBit(addr) => {
+                self.info.regs.oar1().write(|reg| {
+                    reg.set_add(addr);
+                    reg.set_addmode(i2c::vals::Addmode::BIT10);
+                });
+            }
+        }
+
+        // Set required bit 14 as per reference manual
+        self.info.regs.oar1().modify(|reg| reg.0 |= 1 << 14);
+    }
+
+    /// Configure the secondary address (OA2) register  
+    fn configure_secondary_address(&mut self, addr: u8) {
+        self.info.regs.oar2().write(|reg| {
+            reg.set_add2(addr);
+            reg.set_endual(i2c::vals::Endual::DUAL);
+        });
+    }
+
+    /// Set a default primary address when using OA2-only mode
+    fn configure_default_primary_address(&mut self) {
+        self.info.regs.oar1().write(|reg| {
+            reg.set_add(0); // Reserved address, safe to use
+            reg.set_addmode(i2c::vals::Addmode::BIT7);
+        });
+        self.info.regs.oar1().modify(|reg| reg.0 |= 1 << 14);
+    }
+
+    /// Disable secondary address when not needed
+    fn disable_secondary_address(&mut self) {
+        self.info.regs.oar2().write(|reg| {
+            reg.set_endual(i2c::vals::Endual::SINGLE);
+        });
+    }
+}
+
+impl<'d, M: PeriMode> I2c<'d, M, MultiMaster> {
+    /// Listen for incoming I2C address match and return the command type
+    ///
+    /// This method blocks until the slave address is matched by a master.
+    /// Returns the command type (Read/Write) and the matched address.
+    pub fn blocking_listen(&mut self) -> Result<SlaveCommand, Error> {
+        trace!("I2C slave: starting blocking listen for address match");
+        let result = self.blocking_listen_with_timeout(self.timeout());
+        trace!("I2C slave: blocking listen complete, result={:?}", result);
+        result
+    }
+
+    /// Respond to a master read request by transmitting data
+    ///
+    /// Sends the provided data to the master. If the master requests more bytes
+    /// than available, padding bytes (0x00) are sent until the master terminates
+    /// the transaction with NACK.
+    ///
+    /// Returns the total number of bytes transmitted (including padding).
+    pub fn blocking_respond_to_read(&mut self, data: &[u8]) -> Result<usize, Error> {
+        trace!("I2C slave: starting blocking respond_to_read, data_len={}", data.len());
+
+        if let Some(zero_length_result) = self.detect_zero_length_read(self.timeout())? {
+            trace!("I2C slave: zero-length read detected");
+            return Ok(zero_length_result);
+        }
+
+        let result = self.transmit_to_master(data, self.timeout());
+        trace!("I2C slave: blocking respond_to_read complete, result={:?}", result);
+        result
+    }
+
+    /// Respond to a master write request by receiving data
+    ///
+    /// Receives data from the master into the provided buffer. If the master
+    /// sends more bytes than the buffer can hold, excess bytes are acknowledged
+    /// but discarded.
+    ///
+    /// Returns the number of bytes stored in the buffer (not total received).
+    pub fn blocking_respond_to_write(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        trace!(
+            "I2C slave: starting blocking respond_to_write, buffer_len={}",
+            buffer.len()
+        );
+        let result = self.receive_from_master(buffer, self.timeout());
+        trace!("I2C slave: blocking respond_to_write complete, result={:?}", result);
+        result
+    }
+
+    // Private implementation methods
+
+    /// Wait for address match and determine transaction type
+    fn blocking_listen_with_timeout(&mut self, timeout: Timeout) -> Result<SlaveCommand, Error> {
+        // Ensure interrupts are disabled for blocking operation
+        self.disable_i2c_interrupts();
+
+        // Wait for address match (ADDR flag)
+        loop {
+            let sr1 = Self::read_status_and_handle_errors(self.info)?;
+
+            if sr1.addr() {
+                // Address matched - read SR2 to get direction and clear ADDR flag
+                let sr2 = self.info.regs.sr2().read();
+                let direction = if sr2.tra() {
+                    SlaveCommandKind::Read
+                } else {
+                    SlaveCommandKind::Write
+                };
+
+                // Use the static method instead of the instance method
+                let matched_address = Self::decode_matched_address(sr2, self.info)?;
+                trace!(
+                    "I2C slave: address matched, direction={:?}, addr={:?}",
+                    direction, matched_address
+                );
+
+                return Ok(SlaveCommand {
+                    kind: direction,
+                    address: matched_address,
+                });
+            }
+
+            timeout.check()?;
+        }
+    }
+
+    /// Transmit data to master in response to read request
+    fn transmit_to_master(&mut self, data: &[u8], timeout: Timeout) -> Result<usize, Error> {
+        let mut bytes_transmitted = 0;
+        let mut padding_count = 0;
+
+        loop {
+            let byte_to_send = if bytes_transmitted < data.len() {
+                data[bytes_transmitted]
+            } else {
+                padding_count += 1;
+                0x00 // Send padding bytes when data is exhausted
+            };
+
+            match self.transmit_byte(byte_to_send, timeout)? {
+                TransmitResult::Acknowledged => {
+                    bytes_transmitted += 1;
+                }
+                TransmitResult::NotAcknowledged => {
+                    bytes_transmitted += 1; // Count the NACKed byte
+                    break;
+                }
+                TransmitResult::Stopped | TransmitResult::Restarted => {
+                    break;
+                }
+            }
+        }
+
+        if padding_count > 0 {
+            trace!(
+                "I2C slave: sent {} data bytes + {} padding bytes = {} total",
+                data.len(),
+                padding_count,
+                bytes_transmitted
+            );
+        }
+
+        Ok(bytes_transmitted)
+    }
+
+    /// Receive data from master during write request
+    fn receive_from_master(&mut self, buffer: &mut [u8], timeout: Timeout) -> Result<usize, Error> {
+        let mut bytes_stored = 0;
+
+        // Receive bytes that fit in buffer
+        while bytes_stored < buffer.len() {
+            match self.receive_byte(timeout)? {
+                ReceiveResult::Data(byte) => {
+                    buffer[bytes_stored] = byte;
+                    bytes_stored += 1;
+                }
+                ReceiveResult::Stopped | ReceiveResult::Restarted => {
+                    return Ok(bytes_stored);
+                }
+            }
+        }
+
+        // Handle buffer overflow by discarding excess bytes
+        if bytes_stored == buffer.len() {
+            trace!("I2C slave: buffer full, discarding excess bytes");
+            self.discard_excess_bytes(timeout)?;
+        }
+
+        Ok(bytes_stored)
+    }
+
+    /// Detect zero-length read pattern early
+    ///
+    /// Zero-length reads occur when a master sends START+ADDR+R followed immediately
+    /// by NACK+STOP without wanting any data. This must be detected before attempting
+    /// to transmit any bytes to avoid SDA line issues.
+    fn detect_zero_length_read(&mut self, _timeout: Timeout) -> Result<Option<usize>, Error> {
+        // Quick check for immediate termination signals
+        let sr1 = self.info.regs.sr1().read();
+
+        // Check for immediate NACK (fastest zero-length pattern)
+        if sr1.af() {
+            self.clear_acknowledge_failure();
+            return Ok(Some(0));
+        }
+
+        // Check for immediate STOP (alternative zero-length pattern)
+        if sr1.stopf() {
+            Self::clear_stop_flag(self.info);
+            return Ok(Some(0));
+        }
+
+        // Give a brief window for master to send termination signals
+        // This handles masters that have slight delays between address ACK and NACK
+        const ZERO_LENGTH_DETECTION_CYCLES: u32 = 20; // ~5-10µs window
+
+        for _ in 0..ZERO_LENGTH_DETECTION_CYCLES {
+            let sr1 = self.info.regs.sr1().read();
+
+            // Immediate NACK indicates zero-length read
+            if sr1.af() {
+                self.clear_acknowledge_failure();
+                return Ok(Some(0));
+            }
+
+            // Immediate STOP indicates zero-length read
+            if sr1.stopf() {
+                Self::clear_stop_flag(self.info);
+                return Ok(Some(0));
+            }
+
+            // If TXE becomes ready, master is waiting for data - not zero-length
+            if sr1.txe() {
+                return Ok(None); // Proceed with normal transmission
+            }
+
+            // If RESTART detected, handle as zero-length
+            if sr1.addr() {
+                return Ok(Some(0));
+            }
+        }
+
+        // No zero-length pattern detected within the window
+        Ok(None)
+    }
+
+    /// Discard excess bytes when buffer is full
+    fn discard_excess_bytes(&mut self, timeout: Timeout) -> Result<(), Error> {
+        let mut discarded_count = 0;
+
+        loop {
+            match self.receive_byte(timeout)? {
+                ReceiveResult::Data(_) => {
+                    discarded_count += 1;
+                    continue;
+                }
+                ReceiveResult::Stopped | ReceiveResult::Restarted => {
+                    if discarded_count > 0 {
+                        trace!("I2C slave: discarded {} excess bytes", discarded_count);
+                    }
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Send a single byte and wait for master's response
+    fn transmit_byte(&mut self, byte: u8, timeout: Timeout) -> Result<TransmitResult, Error> {
+        // Wait for transmit buffer ready
+        self.wait_for_transmit_ready(timeout)?;
+
+        // Send the byte
+        self.info.regs.dr().write(|w| w.set_dr(byte));
+
+        // Wait for transmission completion or master response
+        self.wait_for_transmit_completion(timeout)
+    }
+
+    /// Wait until transmit buffer is ready (TXE flag set)
+    fn wait_for_transmit_ready(&mut self, timeout: Timeout) -> Result<(), Error> {
+        loop {
+            let sr1 = Self::read_status_and_handle_errors(self.info)?;
+
+            // Check for early termination conditions
+            if let Some(result) = Self::check_early_termination(sr1) {
+                return Err(self.handle_early_termination(result));
+            }
+
+            if sr1.txe() {
+                return Ok(()); // Ready to transmit
+            }
+
+            timeout.check()?;
+        }
+    }
+
+    /// Wait for byte transmission completion or master response
+    fn wait_for_transmit_completion(&mut self, timeout: Timeout) -> Result<TransmitResult, Error> {
+        loop {
+            let sr1 = self.info.regs.sr1().read();
+
+            // Check flags in priority order
+            if sr1.af() {
+                self.clear_acknowledge_failure();
+                return Ok(TransmitResult::NotAcknowledged);
+            }
+
+            if sr1.btf() {
+                return Ok(TransmitResult::Acknowledged);
+            }
+
+            if sr1.stopf() {
+                Self::clear_stop_flag(self.info);
+                return Ok(TransmitResult::Stopped);
+            }
+
+            if sr1.addr() {
+                return Ok(TransmitResult::Restarted);
+            }
+
+            // Check for other error conditions
+            self.check_for_hardware_errors(sr1)?;
+
+            timeout.check()?;
+        }
+    }
+
+    /// Receive a single byte or detect transaction termination
+    fn receive_byte(&mut self, timeout: Timeout) -> Result<ReceiveResult, Error> {
+        loop {
+            let sr1 = Self::read_status_and_handle_errors(self.info)?;
+
+            // Check for received data first (prioritize data over control signals)
+            if sr1.rxne() {
+                let byte = self.info.regs.dr().read().dr();
+                return Ok(ReceiveResult::Data(byte));
+            }
+
+            // Check for transaction termination
+            if sr1.addr() {
+                return Ok(ReceiveResult::Restarted);
+            }
+
+            if sr1.stopf() {
+                Self::clear_stop_flag(self.info);
+                return Ok(ReceiveResult::Stopped);
+            }
+
+            timeout.check()?;
+        }
+    }
+
+    /// Determine which slave address was matched based on SR2 flags
+    fn decode_matched_address(sr2: i2c::regs::Sr2, info: &'static Info) -> Result<Address, Error> {
+        if sr2.gencall() {
+            Ok(Address::SevenBit(0x00)) // General call address
+        } else if sr2.dualf() {
+            // OA2 (secondary address) was matched
+            let oar2 = info.regs.oar2().read();
+            if oar2.endual() != i2c::vals::Endual::DUAL {
+                return Err(Error::Bus); // Hardware inconsistency
+            }
+            Ok(Address::SevenBit(oar2.add2()))
+        } else {
+            // OA1 (primary address) was matched
+            let oar1 = info.regs.oar1().read();
+            match oar1.addmode() {
+                i2c::vals::Addmode::BIT7 => {
+                    let addr = (oar1.add() >> 1) as u8;
+                    Ok(Address::SevenBit(addr))
+                }
+                i2c::vals::Addmode::BIT10 => Ok(Address::TenBit(oar1.add())),
+            }
+        }
+    }
+
+    // Helper methods for hardware interaction
+
+    /// Read status register and handle I2C errors (except NACK in slave mode)
+    fn read_status_and_handle_errors(info: &'static Info) -> Result<i2c::regs::Sr1, Error> {
+        match Self::check_and_clear_error_flags(info) {
+            Ok(sr1) => Ok(sr1),
+            Err(Error::Nack) => {
+                // In slave mode, NACK is normal protocol behavior, not an error
+                Ok(info.regs.sr1().read())
+            }
+            Err(other_error) => Err(other_error),
+        }
+    }
+
+    /// Check for conditions that cause early termination of operations
+    fn check_early_termination(sr1: i2c::regs::Sr1) -> Option<TransmitResult> {
+        if sr1.stopf() {
+            Some(TransmitResult::Stopped)
+        } else if sr1.addr() {
+            Some(TransmitResult::Restarted)
+        } else if sr1.af() {
+            Some(TransmitResult::NotAcknowledged)
+        } else {
+            None
+        }
+    }
+
+    /// Convert early termination to appropriate error
+    fn handle_early_termination(&mut self, result: TransmitResult) -> Error {
+        match result {
+            TransmitResult::Stopped => {
+                Self::clear_stop_flag(self.info);
+                Error::Bus // Unexpected STOP during setup
+            }
+            TransmitResult::Restarted => {
+                Error::Bus // Unexpected RESTART during setup
+            }
+            TransmitResult::NotAcknowledged => {
+                self.clear_acknowledge_failure();
+                Error::Bus // Unexpected NACK during setup
+            }
+            TransmitResult::Acknowledged => {
+                unreachable!() // This should never be passed to this function
+            }
+        }
+    }
+
+    /// Check for hardware-level I2C errors during transmission
+    fn check_for_hardware_errors(&self, sr1: i2c::regs::Sr1) -> Result<(), Error> {
+        if sr1.timeout() || sr1.ovr() || sr1.arlo() || sr1.berr() {
+            // Delegate to existing error handling
+            Self::check_and_clear_error_flags(self.info)?;
+        }
+        Ok(())
+    }
+
+    /// Disable I2C event and error interrupts for blocking operations
+    fn disable_i2c_interrupts(&mut self) {
+        self.info.regs.cr2().modify(|w| {
+            w.set_itevten(false);
+            w.set_iterren(false);
+        });
+    }
+
+    /// Clear the acknowledge failure flag
+    fn clear_acknowledge_failure(&mut self) {
+        self.info.regs.sr1().write(|reg| {
+            reg.0 = !0;
+            reg.set_af(false);
+        });
+    }
+
+    /// Configure DMA settings for slave operations (shared between read/write)
+    fn setup_slave_dma_base(&mut self) {
+        self.info.regs.cr2().modify(|w| {
+            w.set_itbufen(false); // Always disable buffer interrupts when using DMA
+            w.set_dmaen(true); // Enable DMA requests
+            w.set_last(false); // LAST bit not used in slave mode for v1 hardware
+        });
+    }
+
+    /// Disable DMA and interrupts in a critical section
+    fn disable_dma_and_interrupts(info: &'static Info) {
+        critical_section::with(|_| {
+            info.regs.cr2().modify(|w| {
+                w.set_dmaen(false);
+                w.set_iterren(false);
+                w.set_itevten(false);
+            });
+        });
+    }
+
+    /// Check for early termination conditions during slave operations
+    /// Returns Some(result) if termination detected, None to continue
+    fn check_slave_termination_conditions(sr1: i2c::regs::Sr1) -> Option<SlaveTermination> {
+        if sr1.stopf() {
+            Some(SlaveTermination::Stop)
+        } else if sr1.addr() {
+            Some(SlaveTermination::Restart)
+        } else if sr1.af() {
+            Some(SlaveTermination::Nack)
+        } else {
+            None
+        }
+    }
+}
+
+impl<'d> I2c<'d, Async, MultiMaster> {
+    /// Async listen for incoming I2C messages using interrupts
+    ///
+    /// Waits for a master to address this slave and returns the command type
+    /// (Read/Write) and the matched address. This method will suspend until
+    /// an address match occurs.
+    pub async fn listen(&mut self) -> Result<SlaveCommand, Error> {
+        trace!("I2C slave: starting async listen for address match");
+        let state = self.state;
+        let info = self.info;
+
+        Self::enable_interrupts(info);
+
+        let on_drop = OnDrop::new(|| {
+            Self::disable_dma_and_interrupts(info);
+        });
+
+        let result = poll_fn(|cx| {
+            state.waker.register(cx.waker());
+
+            match Self::check_and_clear_error_flags(info) {
+                Err(e) => {
+                    error!("I2C slave: error during listen: {:?}", e);
+                    Poll::Ready(Err(e))
+                }
+                Ok(sr1) => {
+                    if sr1.addr() {
+                        let sr2 = info.regs.sr2().read();
+                        let direction = if sr2.tra() {
+                            SlaveCommandKind::Read
+                        } else {
+                            SlaveCommandKind::Write
+                        };
+
+                        let matched_address = match Self::decode_matched_address(sr2, info) {
+                            Ok(addr) => {
+                                trace!("I2C slave: address matched, direction={:?}, addr={:?}", direction, addr);
+                                addr
+                            }
+                            Err(e) => {
+                                error!("I2C slave: failed to decode matched address: {:?}", e);
+                                return Poll::Ready(Err(e));
+                            }
+                        };
+
+                        Poll::Ready(Ok(SlaveCommand {
+                            kind: direction,
+                            address: matched_address,
+                        }))
+                    } else {
+                        Self::enable_interrupts(info);
+                        Poll::Pending
+                    }
+                }
+            }
+        })
+        .await;
+
+        drop(on_drop);
+        trace!("I2C slave: listen complete, result={:?}", result);
+        result
+    }
+
+    /// Async respond to write command using RX DMA
+    ///
+    /// Receives data from the master into the provided buffer using DMA.
+    /// If the master sends more bytes than the buffer can hold, excess bytes
+    /// are acknowledged but discarded to prevent interrupt flooding.
+    ///
+    /// Returns the number of bytes stored in the buffer (not total received).
+    pub async fn respond_to_write(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        trace!("I2C slave: starting respond_to_write, buffer_len={}", buffer.len());
+
+        if buffer.is_empty() {
+            warn!("I2C slave: respond_to_write called with empty buffer");
+            return Err(Error::Overrun);
+        }
+
+        let state = self.state;
+        let info = self.info;
+
+        self.setup_slave_dma_base();
+
+        let on_drop = OnDrop::new(|| {
+            Self::disable_dma_and_interrupts(info);
+        });
+
+        info.regs.sr2().read();
+
+        let result = self.execute_slave_receive_transfer(buffer, state, info).await;
+
+        drop(on_drop);
+        trace!("I2C slave: respond_to_write complete, result={:?}", result);
+        result
+    }
+
+    /// Async respond to read command using TX DMA
+    ///
+    /// Transmits data to the master using DMA. If the master requests more bytes
+    /// than available in the data buffer, padding bytes (0x00) are sent until
+    /// the master terminates the transaction with NACK, STOP, or RESTART.
+    ///
+    /// Returns the total number of bytes transmitted (data + padding).
+    pub async fn respond_to_read(&mut self, data: &[u8]) -> Result<usize, Error> {
+        trace!("I2C slave: starting respond_to_read, data_len={}", data.len());
+
+        if data.is_empty() {
+            warn!("I2C slave: respond_to_read called with empty data");
+            return Err(Error::Overrun);
+        }
+
+        let state = self.state;
+        let info = self.info;
+
+        self.setup_slave_dma_base();
+
+        let on_drop = OnDrop::new(|| {
+            Self::disable_dma_and_interrupts(info);
+        });
+
+        info.regs.sr2().read();
+
+        let result = self.execute_slave_transmit_transfer(data, state, info).await;
+
+        drop(on_drop);
+        trace!("I2C slave: respond_to_read complete, result={:?}", result);
+        result
+    }
+
+    // === Private Transfer Execution Methods ===
+
+    /// Execute complete slave receive transfer with excess byte handling
+    async fn execute_slave_receive_transfer(
+        &mut self,
+        buffer: &mut [u8],
+        state: &'static State,
+        info: &'static Info,
+    ) -> Result<usize, Error> {
+        let dma_transfer = unsafe {
+            let src = info.regs.dr().as_ptr() as *mut u8;
+            self.rx_dma.as_mut().unwrap().read(src, buffer, Default::default())
+        };
+
+        let i2c_monitor =
+            Self::create_termination_monitor(state, info, &[SlaveTermination::Stop, SlaveTermination::Restart]);
+
+        match select(dma_transfer, i2c_monitor).await {
+            Either::Second(Err(e)) => {
+                error!("I2C slave: error during receive transfer: {:?}", e);
+                Self::disable_dma_and_interrupts(info);
+                Err(e)
+            }
+            Either::First(_) => {
+                trace!("I2C slave: DMA receive completed, handling excess bytes");
+                Self::disable_dma_and_interrupts(info);
+                self.handle_excess_bytes(state, info).await?;
+                Ok(buffer.len())
+            }
+            Either::Second(Ok(termination)) => {
+                trace!("I2C slave: receive terminated by I2C event: {:?}", termination);
+                Self::disable_dma_and_interrupts(info);
+                Ok(buffer.len())
+            }
+        }
+    }
+
+    /// Execute complete slave transmit transfer with padding byte handling
+    async fn execute_slave_transmit_transfer(
+        &mut self,
+        data: &[u8],
+        state: &'static State,
+        info: &'static Info,
+    ) -> Result<usize, Error> {
+        let dma_transfer = unsafe {
+            let dst = info.regs.dr().as_ptr() as *mut u8;
+            self.tx_dma.as_mut().unwrap().write(data, dst, Default::default())
+        };
+
+        let i2c_monitor = Self::create_termination_monitor(
+            state,
+            info,
+            &[
+                SlaveTermination::Stop,
+                SlaveTermination::Restart,
+                SlaveTermination::Nack,
+            ],
+        );
+
+        match select(dma_transfer, i2c_monitor).await {
+            Either::Second(Err(e)) => {
+                error!("I2C slave: error during transmit transfer: {:?}", e);
+                Self::disable_dma_and_interrupts(info);
+                Err(e)
+            }
+            Either::First(_) => {
+                trace!("I2C slave: DMA transmit completed, handling padding bytes");
+                Self::disable_dma_and_interrupts(info);
+                let padding_count = self.handle_padding_bytes(state, info).await?;
+                let total_bytes = data.len() + padding_count;
+                trace!(
+                    "I2C slave: sent {} data bytes + {} padding bytes = {} total",
+                    data.len(),
+                    padding_count,
+                    total_bytes
+                );
+                Ok(total_bytes)
+            }
+            Either::Second(Ok(termination)) => {
+                trace!("I2C slave: transmit terminated by I2C event: {:?}", termination);
+                Self::disable_dma_and_interrupts(info);
+                Ok(data.len())
+            }
+        }
+    }
+
+    /// Create a future that monitors for specific slave termination conditions
+    fn create_termination_monitor(
+        state: &'static State,
+        info: &'static Info,
+        allowed_terminations: &'static [SlaveTermination],
+    ) -> impl Future<Output = Result<SlaveTermination, Error>> {
+        poll_fn(move |cx| {
+            state.waker.register(cx.waker());
+
+            match Self::check_and_clear_error_flags(info) {
+                Err(Error::Nack) if allowed_terminations.contains(&SlaveTermination::Nack) => {
+                    Poll::Ready(Ok(SlaveTermination::Nack))
+                }
+                Err(e) => Poll::Ready(Err(e)),
+                Ok(sr1) => {
+                    if let Some(termination) = Self::check_slave_termination_conditions(sr1) {
+                        if allowed_terminations.contains(&termination) {
+                            // Handle the specific termination condition
+                            match termination {
+                                SlaveTermination::Stop => Self::clear_stop_flag(info),
+                                SlaveTermination::Nack => {
+                                    info.regs.sr1().write(|reg| {
+                                        reg.0 = !0;
+                                        reg.set_af(false);
+                                    });
+                                }
+                                SlaveTermination::Restart => {
+                                    // ADDR flag will be handled by next listen() call
+                                }
+                            }
+                            Poll::Ready(Ok(termination))
+                        } else {
+                            // Unexpected termination condition
+                            Poll::Ready(Err(Error::Bus))
+                        }
+                    } else {
+                        Self::enable_interrupts(info);
+                        Poll::Pending
+                    }
+                }
+            }
+        })
+    }
+
+    /// Handle excess bytes after DMA buffer is full
+    ///
+    /// Reads and discards bytes until transaction termination to prevent interrupt flooding
+    async fn handle_excess_bytes(&mut self, state: &'static State, info: &'static Info) -> Result<(), Error> {
+        let mut discarded_count = 0;
+
+        poll_fn(|cx| {
+            state.waker.register(cx.waker());
+
+            match Self::check_and_clear_error_flags(info) {
+                Err(e) => {
+                    error!("I2C slave: error while discarding excess bytes: {:?}", e);
+                    Poll::Ready(Err(e))
+                }
+                Ok(sr1) => {
+                    if let Some(termination) = Self::check_slave_termination_conditions(sr1) {
+                        match termination {
+                            SlaveTermination::Stop => Self::clear_stop_flag(info),
+                            SlaveTermination::Restart => {}
+                            SlaveTermination::Nack => unreachable!("NACK not expected during receive"),
+                        }
+                        if discarded_count > 0 {
+                            trace!("I2C slave: discarded {} excess bytes", discarded_count);
+                        }
+                        return Poll::Ready(Ok(()));
+                    }
+
+                    if sr1.rxne() {
+                        let _discarded_byte = info.regs.dr().read().dr();
+                        discarded_count += 1;
+                        Self::enable_interrupts(info);
+                        return Poll::Pending;
+                    }
+
+                    Self::enable_interrupts(info);
+                    Poll::Pending
+                }
+            }
+        })
+        .await
+    }
+
+    /// Handle padding bytes after DMA data is exhausted
+    ///
+    /// Sends 0x00 bytes until transaction termination to prevent interrupt flooding
+    async fn handle_padding_bytes(&mut self, state: &'static State, info: &'static Info) -> Result<usize, Error> {
+        let mut padding_count = 0;
+
+        poll_fn(|cx| {
+            state.waker.register(cx.waker());
+
+            match Self::check_and_clear_error_flags(info) {
+                Err(Error::Nack) => Poll::Ready(Ok(padding_count)),
+                Err(e) => {
+                    error!("I2C slave: error while sending padding bytes: {:?}", e);
+                    Poll::Ready(Err(e))
+                }
+                Ok(sr1) => {
+                    if let Some(termination) = Self::check_slave_termination_conditions(sr1) {
+                        match termination {
+                            SlaveTermination::Stop => Self::clear_stop_flag(info),
+                            SlaveTermination::Restart => {}
+                            SlaveTermination::Nack => {
+                                info.regs.sr1().write(|reg| {
+                                    reg.0 = !0;
+                                    reg.set_af(false);
+                                });
+                            }
+                        }
+                        return Poll::Ready(Ok(padding_count));
+                    }
+
+                    if sr1.txe() {
+                        info.regs.dr().write(|w| w.set_dr(0x00));
+                        padding_count += 1;
+                        Self::enable_interrupts(info);
+                        return Poll::Pending;
+                    }
+
+                    Self::enable_interrupts(info);
+                    Poll::Pending
+                }
+            }
+        })
+        .await
+    }
+}
+
+/// Timing configuration for I2C v1 hardware
+///
+/// This struct encapsulates the complex timing calculations required for STM32 I2C v1
+/// peripherals, which use three separate registers (CR2.FREQ, CCR, TRISE) instead of
+/// the unified TIMINGR register found in v2 hardware.
 struct Timings {
-    freq: u8,
-    mode: Mode,
-    trise: u8,
-    ccr: u16,
-    duty: Duty,
+    freq: u8,   // APB frequency in MHz for CR2.FREQ register
+    mode: Mode, // Standard or Fast mode selection
+    trise: u8,  // Rise time compensation value
+    ccr: u16,   // Clock control register value
+    duty: Duty, // Fast mode duty cycle selection
 }
 
 impl Timings {
@@ -771,14 +1744,10 @@ impl Timings {
                 duty = Duty::Duty2_1;
                 ccr = clock / (frequency * 3);
                 ccr = if ccr < 1 { 1 } else { ccr };
-
-                // Set clock to fast mode with appropriate parameters for selected speed (2:1 duty cycle)
             } else {
                 duty = Duty::Duty16_9;
                 ccr = clock / (frequency * 25);
                 ccr = if ccr < 1 { 1 } else { ccr };
-
-                // Set clock to fast mode with appropriate parameters for selected speed (16:9 duty cycle)
             }
         }
 
@@ -788,11 +1757,6 @@ impl Timings {
             ccr: ccr as u16,
             duty,
             mode,
-            //prescale: presc_reg,
-            //scll,
-            //sclh,
-            //sdadel,
-            //scldel,
         }
     }
 }

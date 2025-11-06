@@ -145,10 +145,12 @@ pub mod radio;
 #[cfg(feature = "_net-driver")]
 pub mod embassy_net_802154_driver;
 
+#[cfg(all(feature = "_nrf54l", feature = "_s"))]
+pub mod cracen;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(feature = "_nrf5340")]
 pub mod reset;
-#[cfg(not(feature = "_nrf54l"))] // TODO
+#[cfg(not(feature = "_nrf54l"))]
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod rng;
 pub mod rtc;
@@ -282,6 +284,15 @@ pub use crate::pac::NVIC_PRIO_BITS;
 
 pub mod config {
     //! Configuration options used when initializing the HAL.
+
+    /// Clock speed
+    #[cfg(feature = "_nrf54l")]
+    pub enum ClockSpeed {
+        /// Run at 128 MHz.
+        CK128,
+        /// Run at 64 MHz.
+        CK64,
+    }
 
     /// High frequency clock source.
     pub enum HfclkSource {
@@ -552,6 +563,9 @@ pub mod config {
         pub time_interrupt_priority: crate::interrupt::Priority,
         /// Enable or disable the debug port.
         pub debug: Debug,
+        /// Clock speed configuration.
+        #[cfg(feature = "_nrf54l")]
+        pub clock_speed: ClockSpeed,
     }
 
     impl Default for Config {
@@ -592,6 +606,8 @@ pub mod config {
                 debug: Debug::NotConfigured,
                 #[cfg(not(feature = "_ns"))]
                 debug: Debug::Allowed,
+                #[cfg(feature = "_nrf54l")]
+                clock_speed: ClockSpeed::CK64,
             }
         }
     }
@@ -697,6 +713,23 @@ pub fn init(config: config::Config) -> Peripherals {
 
     #[allow(unused_mut)]
     let mut needs_reset = false;
+
+    // set clock speed
+    #[cfg(feature = "_nrf54l")]
+    {
+        #[cfg(feature = "_s")]
+        let regs = pac::OSCILLATORS_S;
+        #[cfg(feature = "_ns")]
+        let regs = pac::OSCILLATORS_NS;
+
+        use pac::oscillators::vals::Freq;
+        regs.pll().freq().write(|w| {
+            w.set_freq(match config.clock_speed {
+                config::ClockSpeed::CK64 => Freq::CK64M,
+                config::ClockSpeed::CK128 => Freq::CK128M,
+            });
+        });
+    }
 
     // Workaround used in the nrf mdk: file system_nrf91.c , function SystemInit(), after `#if !defined(NRF_SKIP_UICR_HFXO_WORKAROUND)`
     #[cfg(all(feature = "_nrf91", feature = "_s"))]

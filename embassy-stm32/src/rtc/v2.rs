@@ -93,7 +93,7 @@ impl super::Rtc {
         })
     }
 
-    pub(super) fn write<F, R>(&self, init_mode: bool, f: F) -> R
+    pub(super) fn write<F, R>(&mut self, init_mode: bool, f: F) -> R
     where
         F: FnOnce(crate::pac::rtc::Rtc) -> R,
     {
