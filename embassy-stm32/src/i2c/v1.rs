@@ -153,16 +153,15 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
         Ok(sr1)
     }
 
-    fn write_bytes(
+    fn blocking_write_with_framing(
         &mut self,
         address: u8,
         write_buffer: &[u8],
         timeout: Timeout,
-        frame: FrameOptions,
+        position: PositionInTransaction,
     ) -> Result<(), Error> {
-        if frame.send_start() {
+        if position.send_start() {
             // Send a START condition
-
             self.info.regs.cr1().modify(|reg| {
                 reg.set_start(true);
             });
@@ -196,7 +195,7 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
             self.send_byte(*c, timeout)?;
         }
 
-        if frame.send_stop() {
+        if position.send_stop() {
             // Send a STOP condition
             self.info.regs.cr1().modify(|reg| reg.set_stop(true));
         }
@@ -242,18 +241,18 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
         Ok(value)
     }
 
-    fn blocking_read_timeout(
+    fn blocking_read_with_framing(
         &mut self,
         address: u8,
         read_buffer: &mut [u8],
         timeout: Timeout,
-        frame: FrameOptions,
+        position: PositionInTransaction,
     ) -> Result<(), Error> {
         let Some((last_byte, read_buffer)) = read_buffer.split_last_mut() else {
             return Err(Error::Overrun);
         };
 
-        if frame.send_start() {
+        if position.send_start() {
             // Send a START condition and set ACK bit
             self.info.regs.cr1().modify(|reg| {
                 reg.set_start(true);
@@ -290,10 +289,10 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
 
         // Prepare to send NACK then STOP after next byte
         self.info.regs.cr1().modify(|reg| {
-            if frame.send_nack() {
+            if position.send_nack() {
                 reg.set_ack(false);
             }
-            if frame.send_stop() {
+            if position.send_stop() {
                 reg.set_stop(true);
             }
         });
@@ -307,12 +306,12 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
 
     /// Blocking read.
     pub fn blocking_read(&mut self, address: u8, read_buffer: &mut [u8]) -> Result<(), Error> {
-        self.blocking_read_timeout(address, read_buffer, self.timeout(), FrameOptions::FirstAndLastFrame)
+        self.blocking_read_with_framing(address, read_buffer, self.timeout(), PositionInTransaction::FirstAndFinal)
     }
 
     /// Blocking write.
     pub fn blocking_write(&mut self, address: u8, write_buffer: &[u8]) -> Result<(), Error> {
-        self.write_bytes(address, write_buffer, self.timeout(), FrameOptions::FirstAndLastFrame)?;
+        self.blocking_write_with_framing(address, write_buffer, self.timeout(), PositionInTransaction::FirstAndFinal)?;
 
         // Fallthrough is success
         Ok(())
@@ -333,8 +332,8 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
 
         let timeout = self.timeout();
 
-        self.write_bytes(address, write_buffer, timeout, FrameOptions::FirstFrame)?;
-        self.blocking_read_timeout(address, read_buffer, timeout, FrameOptions::FirstAndLastFrame)?;
+        self.blocking_write_with_framing(address, write_buffer, timeout, PositionInTransaction::FirstThenSwitch)?;
+        self.blocking_read_with_framing(address, read_buffer, timeout, PositionInTransaction::FirstAndFinal)?;
 
         Ok(())
     }
@@ -347,10 +346,10 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
     pub fn blocking_transaction(&mut self, address: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
         let timeout = self.timeout();
 
-        for (op, frame) in operation_frames(operations)? {
+        for (op, position) in assign_position_in_transaction(operations)? {
             match op {
-                Operation::Read(read_buffer) => self.blocking_read_timeout(address, read_buffer, timeout, frame)?,
-                Operation::Write(write_buffer) => self.write_bytes(address, write_buffer, timeout, frame)?,
+                Operation::Read(read_buffer) => self.blocking_read_with_framing(address, read_buffer, timeout, position)?,
+                Operation::Write(write_buffer) => self.blocking_write_with_framing(address, write_buffer, timeout, position)?,
             }
         }
 
@@ -380,7 +379,11 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
 }
 
 impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
-    async fn write_frame(&mut self, address: u8, write_buffer: &[u8], frame: FrameOptions) -> Result<(), Error> {
+    async fn write_with_framing(
+        &mut self, address: u8,
+        write_buffer: &[u8],
+        position: PositionInTransaction
+    ) -> Result<(), Error> {
         self.info.regs.cr2().modify(|w| {
             // Note: Do not enable the ITBUFEN bit in the I2C_CR2 register if DMA is used for
             // reception.
@@ -402,7 +405,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             })
         });
 
-        if frame.send_start() {
+        if position.send_start() {
             // Send a START condition
             self.info.regs.cr1().modify(|reg| {
                 reg.set_start(true);
@@ -493,7 +496,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             w.set_dmaen(false);
         });
 
-        if frame.send_stop() {
+        if position.send_stop() {
             // The I2C transfer itself will take longer than the DMA transfer, so wait for that to finish too.
 
             // 18.3.8 “Master transmitter: In the interrupt routine after the EOT interrupt, disable DMA
@@ -529,7 +532,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
     /// Write.
     pub async fn write(&mut self, address: u8, write_buffer: &[u8]) -> Result<(), Error> {
-        self.write_frame(address, write_buffer, FrameOptions::FirstAndLastFrame)
+        self.write_with_framing(address, write_buffer, PositionInTransaction::FirstAndFinal)
             .await?;
 
         Ok(())
@@ -537,13 +540,13 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
     /// Read.
     pub async fn read(&mut self, address: u8, read_buffer: &mut [u8]) -> Result<(), Error> {
-        self.read_frame(address, read_buffer, FrameOptions::FirstAndLastFrame)
+        self.read_with_framing(address, read_buffer, PositionInTransaction::FirstAndFinal)
             .await?;
 
         Ok(())
     }
 
-    async fn read_frame(&mut self, address: u8, read_buffer: &mut [u8], frame: FrameOptions) -> Result<(), Error> {
+    async fn read_with_framing(&mut self, address: u8, read_buffer: &mut [u8], position: PositionInTransaction) -> Result<(), Error> {
         if read_buffer.is_empty() {
             return Err(Error::Overrun);
         }
@@ -561,7 +564,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             // If, in the I2C_CR2 register, the LAST bit is set, I2C automatically sends a NACK
             // after the next byte following EOT_1. The user can generate a Stop condition in
             // the DMA Transfer Complete interrupt routine if enabled.
-            w.set_last(frame.send_nack() && !single_byte);
+            w.set_last(position.send_nack() && !single_byte);
         });
 
         // Sentinel to disable transfer when an error occurs or future is canceled.
@@ -574,7 +577,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             })
         });
 
-        if frame.send_start() {
+        if position.send_start() {
             // Send a START condition and set ACK bit
             self.info.regs.cr1().modify(|reg| {
                 reg.set_start(true);
@@ -629,7 +632,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
             // 18.3.8: When a single byte must be received: the NACK must be programmed during EV6
             // event, i.e. program ACK=0 when ADDR=1, before clearing ADDR flag.
-            if frame.send_nack() && single_byte {
+            if position.send_nack() && single_byte {
                 self.info.regs.cr1().modify(|w| {
                     w.set_ack(false);
                 });
@@ -640,7 +643,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         } else {
             // Before starting reception of single byte (but without START condition, i.e. in case
             // of merged operations), program NACK to emit at end of this byte.
-            if frame.send_nack() && single_byte {
+            if position.send_nack() && single_byte {
                 self.info.regs.cr1().modify(|w| {
                     w.set_ack(false);
                 });
@@ -650,7 +653,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         // 18.3.8: When a single byte must be received: [snip] Then the user can program the STOP
         // condition either after clearing ADDR flag, or in the DMA Transfer Complete interrupt
         // routine.
-        if frame.send_stop() && single_byte {
+        if position.send_stop() && single_byte {
             self.info.regs.cr1().modify(|w| {
                 w.set_stop(true);
             });
@@ -687,7 +690,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             w.set_dmaen(false);
         });
 
-        if frame.send_stop() && !single_byte {
+        if position.send_stop() && !single_byte {
             self.info.regs.cr1().modify(|w| {
                 w.set_stop(true);
             });
@@ -707,9 +710,9 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             return Err(Error::Overrun);
         }
 
-        self.write_frame(address, write_buffer, FrameOptions::FirstFrame)
+        self.write_with_framing(address, write_buffer, PositionInTransaction::FirstThenSwitch)
             .await?;
-        self.read_frame(address, read_buffer, FrameOptions::FirstAndLastFrame)
+        self.read_with_framing(address, read_buffer, PositionInTransaction::FirstAndFinal)
             .await
     }
 
@@ -719,10 +722,10 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
     pub async fn transaction(&mut self, address: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
-        for (op, frame) in operation_frames(operations)? {
+        for (op, position) in assign_position_in_transaction(operations)? {
             match op {
-                Operation::Read(read_buffer) => self.read_frame(address, read_buffer, frame).await?,
-                Operation::Write(write_buffer) => self.write_frame(address, write_buffer, frame).await?,
+                Operation::Read(read_buffer) => self.read_with_framing(address, read_buffer, position).await?,
+                Operation::Write(write_buffer) => self.write_with_framing(address, write_buffer, position).await?,
             }
         }
 
