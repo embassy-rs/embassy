@@ -13,7 +13,7 @@ name = "embassy_mcxa276"
 [dependencies]
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 cortex-m-rt = { version = "0.7", features = ["device"] }
-mcxa276-pac = { path = "./mcxa276-pac", features = ["rt"] }
+mcxa276-pac = { git = "https://github.com/bogdan-petru/mcxa-pac", features = ["rt"] }
 embedded-io = "0.6"
 # Optional defmt support
 defmt = { version = "0.3", optional = true }

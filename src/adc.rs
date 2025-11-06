@@ -1,4 +1,4 @@
-//! ADC driver
+﻿//! ADC driver
 use crate::pac;
 use core::sync::atomic::{AtomicBool, Ordering};
 
@@ -285,8 +285,7 @@ impl<I: Instance> Adc<I> {
             1 => {
                 adc.cmdl1().write(|w| {
                     w.adch().variant(config.channel_number)
-                     .ctype().variant(config.sample_channel_mode)
-                     .mode().variant(config.conversion_resolution_mode)
+                                          .mode().variant(config.conversion_resolution_mode)
                 });
                 adc.cmdh1().write(|w| unsafe {
                     w.next().variant(config.chained_next_command_number)
