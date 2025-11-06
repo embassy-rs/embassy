@@ -312,6 +312,8 @@ cargo build --features "lpuart2 rtc0" --example rtc_alarm
 
 ### Critical Fix: MCXA276 Interrupt Vector Table
 
+
+Update (SVD 25.06.00, mcxa-pac a9dd33): No manual PAC edits are required anymore. OS_EVENT and WAKETIMER0 are present and the vector table is correct. The section below is kept for historical context.
 **Problem:** The OSTIMER examples crashed during interrupt handling with a hardfault (SP=0x00000000). Investigation revealed the OS_EVENT interrupt vector was NULL in the vector table, causing the CPU to jump to address 0 when OSTIMER interrupts fired.
 
 **Root Cause:** The `mcxa276-pac/src/lib.rs` file (generated from the SVD file) was missing the `WAKETIMER0` interrupt handler declaration. This caused the `__INTERRUPTS` array to have an off-by-one error, placing OS_EVENT at IRQ 58 instead of the correct IRQ 57 position.
