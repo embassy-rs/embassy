@@ -28,6 +28,7 @@ use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::i2c::{self, Config as I2C_Config, I2c};
 use embassy_stm32::mode::Async;
 use embassy_stm32::rng::{self, Rng};
+use embassy_stm32::spi::mode::Master;
 use embassy_stm32::spi::{Config as SPI_Config, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, exti, pac, peripherals};
@@ -54,7 +55,7 @@ const IP_ADDRESS: Ipv4Cidr = Ipv4Cidr::new(Ipv4Address::new(192, 168, 1, 5), 24)
 // Listen port for the webserver
 const HTTP_LISTEN_PORT: u16 = 80;
 
-pub type SpeSpi = Spi<'static, Async>;
+pub type SpeSpi = Spi<'static, Async, Master>;
 pub type SpeSpiCs = ExclusiveDevice<SpeSpi, Output<'static>, Delay>;
 pub type SpeInt = exti::ExtiInput<'static>;
 pub type SpeRst = Output<'static>;
