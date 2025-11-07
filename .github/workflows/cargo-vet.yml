@@ -44,7 +44,7 @@ jobs:
       run: |
         mkdir -p ./pr
         echo ${{ github.event.number }} > ./pr/NR
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v5
     # Need to upload the artifact in both success and failure cases so comment can be updated in either case
       if: ${{ failure() }} || ${{ success() }}
       with:
