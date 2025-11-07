@@ -14,7 +14,7 @@ use embedded_hal_1::i2c::Operation;
 use mode::Master;
 
 use super::*;
-use crate::mode::Mode as PeriMode;
+use crate::mode::Mode;
 use crate::pac::i2c;
 
 // /!\                      /!\
@@ -43,7 +43,7 @@ pub unsafe fn on_interrupt<T: Instance>() {
     });
 }
 
-impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
+impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     pub(crate) fn init(&mut self, config: Config) {
         self.info.regs.cr1().modify(|reg| {
             reg.set_pe(false);
@@ -82,8 +82,8 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
             reg.set_freq(timings.freq);
         });
         self.info.regs.ccr().modify(|reg| {
-            reg.set_f_s(timings.mode.f_s());
-            reg.set_duty(timings.duty.duty());
+            reg.set_f_s(timings.f_s);
+            reg.set_duty(timings.duty);
             reg.set_ccr(timings.ccr);
         });
         self.info.regs.trise().modify(|reg| {
@@ -733,34 +733,6 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     }
 }
 
-enum Mode {
-    Fast,
-    Standard,
-}
-
-impl Mode {
-    fn f_s(&self) -> i2c::vals::FS {
-        match self {
-            Mode::Fast => i2c::vals::FS::FAST,
-            Mode::Standard => i2c::vals::FS::STANDARD,
-        }
-    }
-}
-
-enum Duty {
-    Duty2_1,
-    Duty16_9,
-}
-
-impl Duty {
-    fn duty(&self) -> i2c::vals::Duty {
-        match self {
-            Duty::Duty2_1 => i2c::vals::Duty::DUTY2_1,
-            Duty::Duty16_9 => i2c::vals::Duty::DUTY16_9,
-        }
-    }
-}
-
 /// Result of attempting to send a byte in slave transmitter mode
 #[derive(Debug, PartialEq)]
 enum TransmitResult {
@@ -797,7 +769,7 @@ enum SlaveTermination {
     Nack,
 }
 
-impl<'d, M: PeriMode> I2c<'d, M, Master> {
+impl<'d, M: Mode> I2c<'d, M, Master> {
     /// Configure the I2C driver for slave operations, allowing for the driver to be used as a slave and a master (multimaster)
     pub fn into_slave_multimaster(mut self, slave_addr_config: SlaveAddrConfig) -> I2c<'d, M, MultiMaster> {
         let mut slave = I2c {
@@ -818,7 +790,7 @@ impl<'d, M: PeriMode> I2c<'d, M, Master> {
 }
 
 // Address configuration methods
-impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
+impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     /// Initialize slave mode with address configuration
     pub(crate) fn init_slave(&mut self, config: SlaveAddrConfig) {
         trace!("I2C slave: initializing with config={:?}", config);
@@ -909,7 +881,7 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
     }
 }
 
-impl<'d, M: PeriMode> I2c<'d, M, MultiMaster> {
+impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
     /// Listen for incoming I2C address match and return the command type
     ///
     /// This method blocks until the slave address is matched by a master.
@@ -1706,11 +1678,11 @@ impl<'d> I2c<'d, Async, MultiMaster> {
 /// peripherals, which use three separate registers (CR2.FREQ, CCR, TRISE) instead of
 /// the unified TIMINGR register found in v2 hardware.
 struct Timings {
-    freq: u8,   // APB frequency in MHz for CR2.FREQ register
-    mode: Mode, // Standard or Fast mode selection
-    trise: u8,  // Rise time compensation value
-    ccr: u16,   // Clock control register value
-    duty: Duty, // Fast mode duty cycle selection
+    freq: u8,              // APB frequency in MHz for CR2.FREQ register
+    f_s: i2c::vals::FS,    // Standard or Fast mode selection
+    trise: u8,             // Rise time compensation value
+    ccr: u16,              // Clock control register value
+    duty: i2c::vals::Duty, // Fast mode duty cycle selection
 }
 
 impl Timings {
@@ -1730,25 +1702,25 @@ impl Timings {
 
         let mut ccr;
         let duty;
-        let mode;
+        let f_s;
 
         // I2C clock control calculation
         if frequency <= 100_000 {
-            duty = Duty::Duty2_1;
-            mode = Mode::Standard;
+            duty = i2c::vals::Duty::DUTY2_1;
+            f_s = i2c::vals::FS::STANDARD;
             ccr = {
                 let ccr = clock / (frequency * 2);
                 if ccr < 4 { 4 } else { ccr }
             };
         } else {
             const DUTYCYCLE: u8 = 0;
-            mode = Mode::Fast;
+            f_s = i2c::vals::FS::FAST;
             if DUTYCYCLE == 0 {
-                duty = Duty::Duty2_1;
+                duty = i2c::vals::Duty::DUTY2_1;
                 ccr = clock / (frequency * 3);
                 ccr = if ccr < 1 { 1 } else { ccr };
             } else {
-                duty = Duty::Duty16_9;
+                duty = i2c::vals::Duty::DUTY16_9;
                 ccr = clock / (frequency * 25);
                 ccr = if ccr < 1 { 1 } else { ccr };
             }
@@ -1756,15 +1728,15 @@ impl Timings {
 
         Self {
             freq: freq as u8,
+            f_s,
             trise: trise as u8,
             ccr: ccr as u16,
             duty,
-            mode,
         }
     }
 }
 
-impl<'d, M: PeriMode> SetConfig for I2c<'d, M, Master> {
+impl<'d, M: Mode> SetConfig for I2c<'d, M, Master> {
     type Config = Hertz;
     type ConfigError = ();
     fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
@@ -1773,8 +1745,8 @@ impl<'d, M: PeriMode> SetConfig for I2c<'d, M, Master> {
             reg.set_freq(timings.freq);
         });
         self.info.regs.ccr().modify(|reg| {
-            reg.set_f_s(timings.mode.f_s());
-            reg.set_duty(timings.duty.duty());
+            reg.set_f_s(timings.f_s);
+            reg.set_duty(timings.duty);
             reg.set_ccr(timings.ccr);
         });
         self.info.regs.trise().modify(|reg| {
