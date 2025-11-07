@@ -9,7 +9,8 @@
 use core::cell::RefCell;
 
 use defmt::info;
-use embassy_stm32::adc::{Adc, AdcChannel as _, Exten, SampleTime, ConversionTrigger, RegularConversionMode};
+use embassy_stm32::adc::InjectedAdc;
+use embassy_stm32::adc::{Adc, AdcChannel as _, ConversionTrigger, Exten, RegularConversionMode, SampleTime};
 use embassy_stm32::interrupt::typelevel::{ADC1_2, Interrupt};
 use embassy_stm32::peripherals::ADC1;
 use embassy_stm32::time::Hertz;
@@ -17,7 +18,6 @@ use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, Mms2};
 use embassy_stm32::timer::low_level::CountingMode;
 use embassy_stm32::{Config, interrupt};
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
-use embassy_stm32::adc::InjectedAdc;
 use {critical_section, defmt_rtt as _, panic_probe as _};
 
 static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<ADC1>>>> =
@@ -76,7 +76,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     pwm.set_mms2(Mms2::UPDATE);
 
     // Configure regular conversions with DMA
-    let mut adc1 = Adc::new(p.ADC1);
+    let adc1 = Adc::new(p.ADC1);
 
     let mut vrefint_channel = adc1.enable_vrefint().degrade_adc();
     let mut pa0 = p.PC1.degrade_adc();
@@ -95,10 +95,16 @@ async fn main(_spawner: embassy_executor::Spawner) {
     // Using buffer of double size means the half-full interrupts will generate at the expected rate
     let mut readings = [0u16; 4];
 
-    let injected_trigger = ConversionTrigger { channel: ADC1_INJECTED_TRIGGER_TIM1_TRGO2, edge: Exten::RISING_EDGE };
-    let regular_trigger = ConversionTrigger { channel: ADC1_REGULAR_TRIGGER_TIM1_TRGO2, edge: Exten::RISING_EDGE };
+    let injected_trigger = ConversionTrigger {
+        channel: ADC1_INJECTED_TRIGGER_TIM1_TRGO2,
+        edge: Exten::RISING_EDGE,
+    };
+    let regular_trigger = ConversionTrigger {
+        channel: ADC1_REGULAR_TRIGGER_TIM1_TRGO2,
+        edge: Exten::RISING_EDGE,
+    };
 
-    let (mut ring_buffered_adc, injected_adc) = adc1.into_regular_ringbuffered_and_injected_interrupts(
+    let (mut ring_buffered_adc, injected_adc) = adc1.into_ring_buffered_and_injected(
         dma1_ch1,
         &mut readings,
         regular_sequence,

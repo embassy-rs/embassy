@@ -1,3 +1,5 @@
+use core::mem;
+
 #[allow(unused)]
 #[cfg(stm32h7)]
 use pac::adc::vals::{Adcaldif, Difsel, Exten};
@@ -556,7 +558,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     ///
     /// [`read`]: #method.read
     pub fn into_ring_buffered<'a>(
-        &mut self,
+        mut self,
         dma: Peri<'a, impl RxDma<T>>,
         dma_buf: &'a mut [u16],
         sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<T>, SampleTime)>,
@@ -624,7 +626,7 @@ impl<'d, T: Instance> Adc<'d, T> {
                 T::regs().cfgr().modify(|reg| {
                     reg.set_cont(true);
                 });
-            },
+            }
             RegularConversionMode::Triggered(trigger) => {
                 T::regs().cfgr().modify(|r| {
                     r.set_cont(false); // New trigger is neede for each sample to be read
@@ -633,12 +635,14 @@ impl<'d, T: Instance> Adc<'d, T> {
             }
         }
 
+        mem::forget(self);
+
         RingBufferedAdc::new(dma, dma_buf)
     }
 
     /// Configure a sequence of injected channels
     pub fn configure_injected_sequence<'a>(
-        &mut self,
+        mut self,
         sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<T>, SampleTime)>,
         trigger: ConversionTrigger,
     ) -> InjectedAdc<T> {
@@ -694,11 +698,14 @@ impl<'d, T: Instance> Adc<'d, T> {
         self.enable_injected_eos_interrupt(true);
 
         self.start_injected_conversion();
+
+        mem::forget(self);
+
         InjectedAdc::new()
     }
 
-    pub fn into_regular_ringbuffered_and_injected_interrupts<'a>(
-        &mut self,
+    pub fn into_ring_buffered_and_injected<'a>(
+        self,
         dma: Peri<'a, impl RxDma<T>>,
         dma_buf: &'a mut [u16],
         regular_sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<T>, SampleTime)>,
@@ -706,18 +713,20 @@ impl<'d, T: Instance> Adc<'d, T> {
         injected_sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<T>, SampleTime)>,
         injected_trigger: ConversionTrigger,
     ) -> (RingBufferedAdc<'a, T>, InjectedAdc<T>) {
-        (
-            self.into_ring_buffered(
-                dma,
-                dma_buf,
-                regular_sequence,
-                regular_conversion_mode,
-            ),
-            self.configure_injected_sequence(
-                injected_sequence,
-                injected_trigger,
-            ),
-        )
+        unsafe {
+            (
+                Self {
+                    adc: self.adc.clone_unchecked(),
+                    sample_time: self.sample_time,
+                }
+                .into_ring_buffered(dma, dma_buf, regular_sequence, regular_conversion_mode),
+                Self {
+                    adc: self.adc.clone_unchecked(),
+                    sample_time: self.sample_time,
+                }
+                .configure_injected_sequence(injected_sequence, injected_trigger),
+            )
+        }
     }
 
     /// Start injected ADC conversion
@@ -796,6 +805,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
+    #[allow(dead_code)]
     pub(super) fn stop_injected_conversions() {
         // Cancel injected conversions
         if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
