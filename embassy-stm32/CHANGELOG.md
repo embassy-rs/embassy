@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased - ReleaseDate
 
+- change: stm32/i2c_v1: Remove Mode and Duty wrapper enums, use PAC types directly
+- change: stm32/i2c_v1: Rename FrameOptions enum to PositionInTransaction
 - feat: stm32/hrtim add new_chx_with_config to provide pin configuration
 - fix flash erase on L4 & L5
 - fix: Fixed STM32H5 builds requiring time feature
