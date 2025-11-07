@@ -80,9 +80,3 @@ async fn main(_spawner: Spawner) {
         tx.write_all(&buf[..]).await.unwrap();
     }
 }
-
-#[cfg(not(feature = "defmt"))]
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    loop {}
-}

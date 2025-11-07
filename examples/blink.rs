@@ -85,9 +85,3 @@ async fn main(_spawner: Spawner) {
         Timer::after(Duration::from_millis(1000)).await;
     }
 }
-
-#[cfg(not(feature = "defmt"))]
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    loop {}
-}

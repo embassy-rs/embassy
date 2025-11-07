@@ -13,22 +13,18 @@ name = "embassy_mcxa276"
 [dependencies]
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 cortex-m-rt = { version = "0.7", features = ["device"] }
-mcxa276-pac = { git = "https://github.com/bogdan-petru/mcxa-pac", features = ["rt"], rev = "a9dd330149912c26f252f0f3c419f6435c1216e2", version = "0.1.0" }
-embedded-io = "0.6"
-# Optional defmt support
-defmt = { version = "0.3", optional = true }
-defmt-rtt = { version = "0.4", optional = true }
-rtt-target = { version = "0.4", optional = true }
-panic-probe = { version = "0.3", features = ["print-defmt"], optional = true }
+critical-section = "1.2.0"
+defmt = { version = "1.0", optional = true }
+embassy-embedded-hal = "0.5.0"
 embassy-executor = { version = "0.9.0", features = ["arch-cortex-m", "executor-interrupt", "executor-thread"], default-features = false }
+embassy-hal-internal = { version = "0.3.0", features = ["cortex-m", "prio-bits-3"] }
+embassy-sync = "0.7.2"
 embassy-time = "0.5.0"
 embassy-time-driver = "0.2.1"
-embassy-sync = "0.7.2"
-embassy-embedded-hal = "0.5.0"
-embassy-hal-internal = { version = "0.3.0", features = ["cortex-m", "prio-bits-3"] }
-critical-section = "1.2.0"
-paste = "1.0.15"
+embedded-io = "0.6"
 heapless = "0.8"
+mcxa-pac = { git = "https://github.com/OpenDevicePartnership/mcxa-pac", features = ["rt"], rev = "f0281344c605ab24c38979553b41a1655c50625c", version = "0.1.0" }
+paste = "1.0.15"
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = [
     "unproven",
@@ -39,25 +35,20 @@ embedded-hal-nb = { version = "1.0" }
 embedded-io-async = { version = "0.6.1" }
 nb = "1.1.0"
 
+[dev-dependencies]
+defmt-rtt = "1.0"
+panic-probe = { version = "1.0", features = ["print-defmt"] }
+
 [features]
 default = []
-uart-debug = []
-gpio = []
-lpuart2 = []
-ostimer0 = []
-rtc0 = []
-adc1 = []
-rt = []
+
 # Base defmt feature enables core + panic handler
 # Use with one logger feature: defmt-rtt (preferred) or defmt-uart (fallback)
-defmt = ["dep:defmt", "dep:panic-probe"]
-# RTT logger
-# Usage: cargo embed --features "defmt defmt-rtt lpuart2" --example hello
-# or:    PROBE_RS_PROBE=<id> cargo embed --features "defmt defmt-rtt lpuart2" --example hello
-defmt-rtt = ["dep:defmt-rtt", "dep:rtt-target"]
-# Optional: UART-based defmt (no RTT). Enable with `--features defmt-uart defmt`.
-# defmt-uart = []  # Removed - no longer needed
+defmt = ["dep:defmt"]
 
+rt = []
+
+unstable-pac = []
 
 [[example]]
 name = "hello"
@@ -115,7 +106,5 @@ opt-level = "s"
 [profile.dev]
 debug = 2
 opt-level = 1
-
-[dev-dependencies]
 
 

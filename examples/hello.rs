@@ -7,12 +7,7 @@ use hal::uart;
 
 mod common;
 
-#[cfg(all(feature = "defmt", feature = "defmt-rtt"))]
-use defmt_rtt as _;
-#[cfg(feature = "defmt")]
-use panic_probe as _;
-#[cfg(all(feature = "defmt", feature = "defmt-rtt"))]
-use rtt_target as _;
+use {defmt_rtt as _, panic_probe as _};
 
 /// Simple helper to write a byte as hex to UART
 fn write_hex_byte(uart: &hal::uart::Uart<hal::uart::Lpuart2>, byte: u8) {
@@ -25,7 +20,6 @@ fn write_hex_byte(uart: &hal::uart::Uart<hal::uart::Lpuart2>, byte: u8) {
 async fn main(_spawner: Spawner) {
     let p = hal::init(hal::config::Config::default());
 
-    #[cfg(feature = "defmt")]
     defmt::info!("boot");
 
     // Board-level init for UART2 clocks and pins.
@@ -117,10 +111,4 @@ fn parse_u8(bytes: &[u8]) -> Result<u8, ()> {
         }
     }
     Ok(result)
-}
-
-#[cfg(not(feature = "defmt"))]
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    loop {}
 }

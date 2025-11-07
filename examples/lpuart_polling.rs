@@ -1,16 +1,11 @@
 #![no_std]
 #![no_main]
 
-use crate::hal::lpuart::{lib, Config, Lpuart};
+use crate::hal::lpuart::{Config, Lpuart, lib};
 use embassy_executor::Spawner;
 use embassy_mcxa276 as hal;
 
-#[cfg(all(feature = "defmt", feature = "defmt-rtt"))]
-use defmt_rtt as _;
-#[cfg(feature = "defmt")]
-use panic_probe as _;
-#[cfg(all(feature = "defmt", feature = "defmt-rtt"))]
-use rtt_target as _;
+use {defmt_rtt as _, panic_probe as _};
 
 mod common;
 
@@ -19,7 +14,6 @@ async fn main(_spawner: Spawner) {
     let _p = hal::init(hal::config::Config::default());
     let p2 = lib::init();
 
-    #[cfg(feature = "defmt")]
     defmt::info!("boot");
 
     // Board-level init for UART2 clocks and pins.
@@ -58,10 +52,4 @@ async fn main(_spawner: Spawner) {
         rx.blocking_read(&mut buf).unwrap();
         tx.blocking_write(&buf).unwrap();
     }
-}
-
-#[cfg(not(feature = "defmt"))]
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    loop {}
 }

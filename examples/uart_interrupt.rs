@@ -8,14 +8,8 @@ use hal::uart;
 
 mod common;
 
-#[cfg(all(feature = "defmt", feature = "defmt-rtt"))]
-use defmt_rtt as _;
-#[cfg(feature = "defmt")]
-use panic_probe as _;
-#[cfg(all(feature = "defmt", feature = "defmt-rtt"))]
-use rtt_target as _;
-
 use embassy_mcxa276::bind_interrupts;
+use {defmt_rtt as _, panic_probe as _};
 
 // Bind LPUART2 interrupt to our handler
 bind_interrupts!(struct Irqs {
@@ -57,7 +51,6 @@ async fn main(_spawner: Spawner) {
     uart.write_str_blocking("Type characters to echo them back.\r\n");
 
     // Log using defmt if enabled
-    #[cfg(feature = "defmt")]
     defmt::info!("UART interrupt echo demo starting...");
 
     loop {
@@ -73,16 +66,4 @@ async fn main(_spawner: Spawner) {
             cortex_m::asm::delay(12_000_000); // ~1 second at 12MHz
         }
     }
-}
-
-#[cfg(feature = "defmt")]
-#[export_name = "_defmt_timestamp"]
-fn defmt_timestamp(_fmt: defmt::Formatter<'_>) {
-    // Return empty timestamp for now
-}
-
-#[cfg(not(feature = "defmt"))]
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    loop {}
 }

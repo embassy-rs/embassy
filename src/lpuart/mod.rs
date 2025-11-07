@@ -6,7 +6,7 @@ use paste::paste;
 use crate::pac;
 use crate::pac::lpuart0::baud::Sbns as StopBits;
 use crate::pac::lpuart0::ctrl::{
-    Idlecfg as IdleConfig, Ilt as IdleType, Pt as Parity, M as DataBits,
+    Idlecfg as IdleConfig, Ilt as IdleType, M as DataBits, Pt as Parity,
 };
 use crate::pac::lpuart0::modir::{Txctsc as TxCtsConfig, Txctssrc as TxCtsSource};
 use crate::pac::lpuart0::stat::Msbf as MsbFirst;

@@ -9,12 +9,7 @@
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
 
-#[cfg(all(feature = "defmt", feature = "defmt-rtt"))]
-use defmt_rtt as _;
-#[cfg(feature = "defmt")]
-use panic_probe as _;
-#[cfg(all(feature = "defmt", feature = "defmt-rtt"))]
-use rtt_target as _;
+use {defmt_rtt as _, panic_probe as _};
 
 use embassy_mcxa276 as hal;
 use hal::bind_interrupts;
@@ -37,7 +32,8 @@ async fn main(_spawner: Spawner) {
         common::init_uart2(hal::pac());
     }
     let src = unsafe { hal::clocks::uart2_src_hz(hal::pac()) };
-    let mut uart = hal::uart::Uart::<hal::uart::Lpuart2>::new(p.LPUART2, hal::uart::Config::new(src));
+    let mut uart =
+        hal::uart::Uart::<hal::uart::Lpuart2>::new(p.LPUART2, hal::uart::Config::new(src));
 
     uart.write_str_blocking("OSTIMER Counter Reading and Reset Example\n");
 
@@ -133,10 +129,4 @@ fn write_u64(uart: &mut hal::uart::Uart<hal::uart::Lpuart2>, value: u64) {
             _ => uart.write_str_blocking("?"),
         }
     }
-}
-
-#[cfg(not(feature = "defmt"))]
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    loop {}
 }

@@ -6,8 +6,8 @@ mod generated {
     embassy_hal_internal::interrupt_mod!(OS_EVENT, LPUART2, RTC, ADC1);
 }
 
-pub use generated::interrupt::typelevel;
 pub use generated::interrupt::Priority;
+pub use generated::interrupt::typelevel;
 
 use crate::pac::Interrupt;
 use core::sync::atomic::{AtomicU16, AtomicU32, Ordering};

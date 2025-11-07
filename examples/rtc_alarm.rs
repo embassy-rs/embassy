@@ -1,26 +1,21 @@
 #![no_std]
 #![no_main]
 
-
-use embassy_mcxa276 as hal;
 use cortex_m;
 use embassy_executor::Spawner;
+use embassy_mcxa276 as hal;
+use hal::InterruptExt;
 use hal::rtc::{RtcDateTime, RtcInterruptEnable};
 use hal::uart;
-use hal::InterruptExt;
 
 mod common;
 
 type MyRtc = hal::rtc::Rtc<hal::rtc::Rtc0>;
 
-#[cfg(all(feature = "defmt", feature = "defmt-rtt"))]
-use defmt_rtt as _;
-#[cfg(feature = "defmt")]
-use panic_probe as _;
-#[cfg(all(feature = "defmt", feature = "defmt-rtt"))]
-use rtt_target as _;
+use {defmt_rtt as _, panic_probe as _};
 
 use embassy_mcxa276::bind_interrupts;
+
 bind_interrupts!(struct Irqs {
     RTC => hal::rtc::RtcHandler;
 });
@@ -31,7 +26,6 @@ static KEEP_RTC: unsafe extern "C" fn() = RTC;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    
     let p = hal::init(hal::config::Config::default());
 
     unsafe {
@@ -58,12 +52,11 @@ async fn main(_spawner: Spawner) {
         second: 0,
     };
 
-
     rtc.stop();
 
     uart.write_str_blocking("Time set to: 2025-10-15 14:30:00\r\n");
     rtc.set_datetime(now);
-                    
+
     let mut alarm = now;
     alarm.second += 10;
 
@@ -92,14 +85,6 @@ async fn main(_spawner: Spawner) {
     }
 
     uart.write_str_blocking("Example complete - Test PASSED!\r\n");
-    
-    loop {
 
-    }
-}
-
-#[cfg(not(feature = "defmt"))]
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
     loop {}
 }

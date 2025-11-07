@@ -7,16 +7,9 @@ use hal::uart;
 
 mod common;
 
-#[cfg(all(feature = "defmt", feature = "defmt-rtt"))]
-use defmt_rtt as _;
-#[cfg(feature = "defmt")]
-use panic_probe as _;
-#[cfg(all(feature = "defmt", feature = "defmt-rtt"))]
-use rtt_target as _;
-
-use embassy_time::{Duration, Timer};
-
 use embassy_mcxa276::bind_interrupts;
+use embassy_time::{Duration, Timer};
+use {defmt_rtt as _, panic_probe as _};
 
 // Bind only OS_EVENT, and retain the symbol explicitly so it can’t be GC’ed.
 bind_interrupts!(struct Irqs {
@@ -57,20 +50,11 @@ async fn main(_spawner: Spawner) {
     // Removed force-pend; rely on real hardware match to trigger OS_EVENT.
 
     // Log using defmt if enabled
-    #[cfg(feature = "defmt")]
     defmt::info!("OSTIMER async example starting...");
 
     loop {
-        #[cfg(feature = "defmt")]
         defmt::info!("tick");
-        #[cfg(not(feature = "defmt"))]
         uart.write_str_blocking("tick\n");
         Timer::after(Duration::from_millis(1000)).await;
     }
-}
-
-#[cfg(not(feature = "defmt"))]
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    loop {}
 }

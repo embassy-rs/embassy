@@ -1,12 +1,12 @@
-﻿//! ADC driver
+//! ADC driver
 use crate::pac;
 use core::sync::atomic::{AtomicBool, Ordering};
 
-use crate::pac::adc1::ctrl::{CalAvgs};
-use crate::pac::adc1::cfg::{Refsel, Pwrsel, Tprictrl, Tres, Tcmdres, HptExdi};
-use crate::pac::adc1::tctrl::{Tcmd, Tpri};
+use crate::pac::adc1::cfg::{HptExdi, Pwrsel, Refsel, Tcmdres, Tprictrl, Tres};
+use crate::pac::adc1::cmdh1::{Avgs, Cmpen, Next, Sts};
 use crate::pac::adc1::cmdl1::{Adch, Ctype, Mode};
-use crate::pac::adc1::cmdh1::{Next, Avgs, Sts, Cmpen};
+use crate::pac::adc1::ctrl::CalAvgs;
+use crate::pac::adc1::tctrl::{Tcmd, Tpri};
 
 type Regs = pac::adc1::RegisterBlock;
 
@@ -17,9 +17,7 @@ pub trait Instance {
 }
 
 /// Token for ADC1
-#[cfg(feature = "adc1")]
 pub type Adc1 = crate::peripherals::ADC1;
-#[cfg(feature = "adc1")]
 impl Instance for crate::peripherals::ADC1 {
     #[inline(always)]
     fn ptr() -> *const Regs {
@@ -28,7 +26,6 @@ impl Instance for crate::peripherals::ADC1 {
 }
 
 // Also implement Instance for the Peri wrapper type
-#[cfg(feature = "adc1")]
 impl Instance for embassy_hal_internal::Peri<'_, crate::peripherals::ADC1> {
     #[inline(always)]
     fn ptr() -> *const Regs {
@@ -97,16 +94,15 @@ pub struct ConvResult {
     pub conv_value: u16,
 }
 
-
 pub struct Adc<I: Instance> {
     _inst: core::marker::PhantomData<I>,
 }
 
 impl<I: Instance> Adc<I> {
     /// initialize ADC
-    pub fn new(_inst: impl Instance, config : LpadcConfig) -> Self {
+    pub fn new(_inst: impl Instance, config: LpadcConfig) -> Self {
         let adc = unsafe { &*I::ptr() };
-    
+
         /* Reset the module. */
         adc.ctrl().modify(|_, w| w.rst().held_in_reset());
         adc.ctrl().modify(|_, w| w.rst().released_from_reset());
@@ -124,64 +120,81 @@ impl<I: Instance> Adc<I> {
         }
 
         /* Set calibration average mode. */
-        adc.ctrl().modify(|_, w| w.cal_avgs().variant(config.conversion_average_mode));
- 
-        adc.cfg().write(|w| unsafe {         
+        adc.ctrl()
+            .modify(|_, w| w.cal_avgs().variant(config.conversion_average_mode));
+
+        adc.cfg().write(|w| unsafe {
             let w = if config.enable_analog_preliminary {
                 w.pwren().pre_enabled()
             } else {
                 w
             };
 
-            w.pudly().bits(config.power_up_delay)
-             .refsel().variant(config.reference_voltage_source)
-             .pwrsel().variant(config.power_level_mode)
-             .tprictrl().variant(match config.trigger_priority_policy {
-                 TriggerPriorityPolicy::ConvPreemptSoftlyNotAutoResumed |
-                 TriggerPriorityPolicy::ConvPreemptSoftlyAutoRestarted |
-                 TriggerPriorityPolicy::ConvPreemptSoftlyAutoResumed => Tprictrl::FinishCurrentOnPriority,
-                 TriggerPriorityPolicy::ConvPreemptSubsequentlyNotAutoResumed |
-                 TriggerPriorityPolicy::ConvPreemptSubsequentlyAutoRestarted |
-                 TriggerPriorityPolicy::ConvPreemptSubsequentlyAutoResumed => Tprictrl::FinishSequenceOnPriority,
-                 _ => Tprictrl::AbortCurrentOnPriority,
-             })
-             .tres().variant(match config.trigger_priority_policy {
-                 TriggerPriorityPolicy::ConvPreemptImmediatelyAutoRestarted |
-                 TriggerPriorityPolicy::ConvPreemptSoftlyAutoRestarted | 
-                 TriggerPriorityPolicy::ConvPreemptImmediatelyAutoResumed |
-                 TriggerPriorityPolicy::ConvPreemptSoftlyAutoResumed |
-                 TriggerPriorityPolicy::ConvPreemptSubsequentlyAutoRestarted |
-                 TriggerPriorityPolicy::ConvPreemptSubsequentlyAutoResumed => Tres::Enabled,
-                 _ => Tres::Disabled,
-             })
-             .tcmdres().variant(match config.trigger_priority_policy {
-                 TriggerPriorityPolicy::ConvPreemptImmediatelyAutoResumed |
-                 TriggerPriorityPolicy::ConvPreemptSoftlyAutoResumed |
-                 TriggerPriorityPolicy::ConvPreemptSubsequentlyAutoResumed |
-                 TriggerPriorityPolicy::TriggerPriorityExceptionDisabled => Tcmdres::Enabled,
-                 _ => Tcmdres::Disabled,
-             })
-             .hpt_exdi().variant(match config.trigger_priority_policy {
-                 TriggerPriorityPolicy::TriggerPriorityExceptionDisabled => HptExdi::Disabled,
-                 _ => HptExdi::Enabled,
-             })
-        }); 
+            w.pudly()
+                .bits(config.power_up_delay)
+                .refsel()
+                .variant(config.reference_voltage_source)
+                .pwrsel()
+                .variant(config.power_level_mode)
+                .tprictrl()
+                .variant(match config.trigger_priority_policy {
+                    TriggerPriorityPolicy::ConvPreemptSoftlyNotAutoResumed
+                    | TriggerPriorityPolicy::ConvPreemptSoftlyAutoRestarted
+                    | TriggerPriorityPolicy::ConvPreemptSoftlyAutoResumed => {
+                        Tprictrl::FinishCurrentOnPriority
+                    }
+                    TriggerPriorityPolicy::ConvPreemptSubsequentlyNotAutoResumed
+                    | TriggerPriorityPolicy::ConvPreemptSubsequentlyAutoRestarted
+                    | TriggerPriorityPolicy::ConvPreemptSubsequentlyAutoResumed => {
+                        Tprictrl::FinishSequenceOnPriority
+                    }
+                    _ => Tprictrl::AbortCurrentOnPriority,
+                })
+                .tres()
+                .variant(match config.trigger_priority_policy {
+                    TriggerPriorityPolicy::ConvPreemptImmediatelyAutoRestarted
+                    | TriggerPriorityPolicy::ConvPreemptSoftlyAutoRestarted
+                    | TriggerPriorityPolicy::ConvPreemptImmediatelyAutoResumed
+                    | TriggerPriorityPolicy::ConvPreemptSoftlyAutoResumed
+                    | TriggerPriorityPolicy::ConvPreemptSubsequentlyAutoRestarted
+                    | TriggerPriorityPolicy::ConvPreemptSubsequentlyAutoResumed => Tres::Enabled,
+                    _ => Tres::Disabled,
+                })
+                .tcmdres()
+                .variant(match config.trigger_priority_policy {
+                    TriggerPriorityPolicy::ConvPreemptImmediatelyAutoResumed
+                    | TriggerPriorityPolicy::ConvPreemptSoftlyAutoResumed
+                    | TriggerPriorityPolicy::ConvPreemptSubsequentlyAutoResumed
+                    | TriggerPriorityPolicy::TriggerPriorityExceptionDisabled => Tcmdres::Enabled,
+                    _ => Tcmdres::Disabled,
+                })
+                .hpt_exdi()
+                .variant(match config.trigger_priority_policy {
+                    TriggerPriorityPolicy::TriggerPriorityExceptionDisabled => HptExdi::Disabled,
+                    _ => HptExdi::Enabled,
+                })
+        });
 
         if config.enable_conv_pause {
             adc.pause().modify(|_, w| unsafe {
-                w.pauseen().enabled()
-                 .pausedly().bits(config.conv_pause_delay)
+                w.pauseen()
+                    .enabled()
+                    .pausedly()
+                    .bits(config.conv_pause_delay)
             });
         } else {
             adc.pause().write(|w| unsafe { w.bits(0) });
         }
 
-        adc.fctrl0().write(|w| unsafe { w.fwmark().bits(config.fifo_watermark) });
+        adc.fctrl0()
+            .write(|w| unsafe { w.fwmark().bits(config.fifo_watermark) });
 
         // Enable ADC
         adc.ctrl().modify(|_, w| w.adcen().enabled());
 
-        Self { _inst: core::marker::PhantomData }
+        Self {
+            _inst: core::marker::PhantomData,
+        }
     }
 
     pub fn deinit(&self) {
@@ -189,7 +202,6 @@ impl<I: Instance> Adc<I> {
         adc.ctrl().modify(|_, w| w.adcen().disabled());
     }
 
-   
     pub fn get_default_config() -> LpadcConfig {
         LpadcConfig {
             enable_in_doze_mode: true,
@@ -208,13 +220,14 @@ impl<I: Instance> Adc<I> {
     pub fn do_offset_calibration(&self) {
         let adc = unsafe { &*I::ptr() };
         // Enable calibration mode
-        adc.ctrl().modify(|_, w| w.calofs().offset_calibration_request_pending());
+        adc.ctrl()
+            .modify(|_, w| w.calofs().offset_calibration_request_pending());
 
         // Wait for calibration to complete (polling status register)
         while adc.stat().read().cal_rdy().is_not_set() {}
     }
 
-    pub fn get_gain_conv_result(&self, mut gain_adjustment: f32) -> u32{
+    pub fn get_gain_conv_result(&self, mut gain_adjustment: f32) -> u32 {
         let mut gcra_array = [0u32; 17];
         let mut gcalr: u32 = 0;
 
@@ -234,20 +247,21 @@ impl<I: Instance> Adc<I> {
 
     pub fn do_auto_calibration(&self) {
         let adc = unsafe { &*I::ptr() };
-        adc.ctrl().modify(|_, w| w.cal_req().calibration_request_pending());
+        adc.ctrl()
+            .modify(|_, w| w.cal_req().calibration_request_pending());
 
         while adc.gcc0().read().rdy().is_gain_cal_not_valid() {}
 
-        
         let mut gcca = adc.gcc0().read().gain_cal().bits() as u32;
         if gcca & (((0xFFFF >> 0) + 1) >> 1) != 0 {
-                gcca |= !0xFFFF;
+            gcca |= !0xFFFF;
         }
 
         let gcra = 131072.0 / (131072.0 - gcca as f32);
 
         // Write to GCR0
-        adc.gcr0().write(|w| unsafe { w.bits(self.get_gain_conv_result(gcra)) }); 
+        adc.gcr0()
+            .write(|w| unsafe { w.bits(self.get_gain_conv_result(gcra)) });
 
         adc.gcr0().modify(|_, w| w.rdy().set_bit());
 
@@ -284,15 +298,22 @@ impl<I: Instance> Adc<I> {
         match index {
             1 => {
                 adc.cmdl1().write(|w| {
-                    w.adch().variant(config.channel_number)
-                                          .mode().variant(config.conversion_resolution_mode)
+                    w.adch()
+                        .variant(config.channel_number)
+                        .mode()
+                        .variant(config.conversion_resolution_mode)
                 });
                 adc.cmdh1().write(|w| unsafe {
-                    w.next().variant(config.chained_next_command_number)
-                     .loop_().bits(config.loop_count)
-                     .avgs().variant(config.hardware_average_mode)
-                     .sts().variant(config.sample_time_mode)
-                     .cmpen().variant(config.hardware_compare_mode);
+                    w.next()
+                        .variant(config.chained_next_command_number)
+                        .loop_()
+                        .bits(config.loop_count)
+                        .avgs()
+                        .variant(config.hardware_average_mode)
+                        .sts()
+                        .variant(config.sample_time_mode)
+                        .cmpen()
+                        .variant(config.hardware_compare_mode);
                     if config.enable_wait_trigger {
                         w.wait_trig().enabled();
                     }
@@ -371,5 +392,7 @@ pub fn on_interrupt() {
 
 pub struct AdcHandler;
 impl crate::interrupt::typelevel::Handler<crate::interrupt::typelevel::ADC1> for AdcHandler {
-    unsafe fn on_interrupt() { on_interrupt(); }
+    unsafe fn on_interrupt() {
+        on_interrupt();
+    }
 }

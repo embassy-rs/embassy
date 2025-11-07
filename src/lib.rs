@@ -1,31 +1,19 @@
 #![no_std]
 
 pub mod clocks; // still provide clock helpers
-#[cfg(feature = "gpio")]
 pub mod gpio;
 pub mod pins; // pin mux helpers
 pub mod reset; // reset control helpers
 
+pub mod adc;
 pub mod config;
 pub mod interrupt;
-pub mod ostimer;
-pub mod uart;
 pub mod lpuart;
+pub mod ostimer;
 pub mod rtc;
-pub mod adc;
+pub mod uart;
 
-embassy_hal_internal::peripherals!(
-    #[cfg(feature = "lpuart2")]
-    LPUART2,
-    #[cfg(feature = "ostimer0")]
-    OSTIMER0,
-    #[cfg(feature = "gpio")]
-    GPIO,
-    #[cfg(feature = "rtc0")]
-    RTC0,
-    #[cfg(feature = "adc1")]
-    ADC1,
-);
+embassy_hal_internal::peripherals!(LPUART2, OSTIMER0, GPIO, RTC0, ADC1,);
 
 /// Get access to the PAC Peripherals for low-level register access.
 /// This is a lazy-initialized singleton that can be called after init().
@@ -42,43 +30,32 @@ pub fn pac() -> &'static pac::Peripherals {
     }
 }
 
-pub use cortex_m_rt;
-pub use mcxa276_pac as pac;
+#[cfg(feature = "unstable-pac")]
+pub use mcxa_pac as pac;
+#[cfg(not(feature = "unstable-pac"))]
+pub(crate) use mcxa_pac as pac;
+
 // Use cortex-m-rt's #[interrupt] attribute directly; PAC does not re-export it.
 
 // Re-export interrupt traits and types
-pub use interrupt::InterruptExt;
-#[cfg(feature = "ostimer0")]
-pub use ostimer::Ostimer0 as Ostimer0Token;
-#[cfg(feature = "lpuart2")]
-pub use uart::Lpuart2 as Uart2Token;
-#[cfg(feature = "rtc0")]
-pub use rtc::Rtc0 as Rtc0Token;
-#[cfg(feature = "adc1")]
 pub use adc::Adc1 as Adc1Token;
-#[cfg(feature = "gpio")]
-pub use gpio::{pins::*, AnyPin, Flex, Gpio as GpioToken, Input, Level, Output};
+pub use gpio::{AnyPin, Flex, Gpio as GpioToken, Input, Level, Output, pins::*};
+pub use interrupt::InterruptExt;
+pub use ostimer::Ostimer0 as Ostimer0Token;
+pub use rtc::Rtc0 as Rtc0Token;
+pub use uart::Lpuart2 as Uart2Token;
 
 /// Initialize HAL with configuration (mirrors embassy-imxrt style). Minimal: just take peripherals.
 /// Also applies configurable NVIC priority for the OSTIMER OS_EVENT interrupt (no enabling).
 #[allow(unused_variables)]
 pub fn init(cfg: crate::config::Config) -> Peripherals {
     let peripherals = Peripherals::take();
-    #[cfg(feature = "ostimer0")]
-    {
-        // Apply user-configured priority early; enabling is left to examples/apps
-        crate::interrupt::OS_EVENT.set_priority(cfg.time_interrupt_priority);
-    }
-    #[cfg(feature = "rtc0")]
-    {
-        // Apply user-configured priority early; enabling is left to examples/apps
-        crate::interrupt::RTC.set_priority(cfg.rtc_interrupt_priority);
-    }
-    #[cfg(feature = "adc1")]
-    {
-        // Apply user-configured priority early; enabling is left to examples/apps
-        crate::interrupt::ADC1.set_priority(cfg.adc_interrupt_priority);
-    }
+    // Apply user-configured priority early; enabling is left to examples/apps
+    crate::interrupt::OS_EVENT.set_priority(cfg.time_interrupt_priority);
+    // Apply user-configured priority early; enabling is left to examples/apps
+    crate::interrupt::RTC.set_priority(cfg.rtc_interrupt_priority);
+    // Apply user-configured priority early; enabling is left to examples/apps
+    crate::interrupt::ADC1.set_priority(cfg.adc_interrupt_priority);
     peripherals
 }
 

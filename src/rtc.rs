@@ -1,6 +1,6 @@
 //! RTC DateTime driver.
 use crate::pac;
-use crate::pac::rtc0::cr::{Um};
+use crate::pac::rtc0::cr::Um;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 type Regs = pac::rtc0::RegisterBlock;
@@ -13,9 +13,7 @@ pub trait Instance {
 }
 
 /// Token for RTC0
-#[cfg(feature = "rtc0")]
 pub type Rtc0 = crate::peripherals::RTC0;
-#[cfg(feature = "rtc0")]
 impl Instance for crate::peripherals::RTC0 {
     #[inline(always)]
     fn ptr() -> *const Regs {
@@ -24,7 +22,6 @@ impl Instance for crate::peripherals::RTC0 {
 }
 
 // Also implement Instance for the Peri wrapper type
-#[cfg(feature = "rtc0")]
 impl Instance for embassy_hal_internal::Peri<'_, crate::peripherals::RTC0> {
     #[inline(always)]
     fn ptr() -> *const Regs {
@@ -86,7 +83,6 @@ pub fn convert_datetime_to_seconds(datetime: &RtcDateTime) -> u32 {
 
     seconds
 }
-
 
 pub fn convert_seconds_to_datetime(seconds: u32) -> RtcDateTime {
     let mut seconds_remaining = seconds;
@@ -166,11 +162,15 @@ impl<I: Instance> Rtc<I> {
         rtc.cr().modify(|_, w| w.um().variant(config.update_mode));
 
         rtc.tcr().modify(|_, w| unsafe {
-            w.cir().bits(config.compensation_interval)
-             .tcr().bits(config.compensation_time)
+            w.cir()
+                .bits(config.compensation_interval)
+                .tcr()
+                .bits(config.compensation_time)
         });
 
-        Self { _inst: core::marker::PhantomData }
+        Self {
+            _inst: core::marker::PhantomData,
+        }
     }
 
     pub fn set_datetime(&self, datetime: RtcDateTime) {
@@ -178,7 +178,7 @@ impl<I: Instance> Rtc<I> {
         let seconds = convert_datetime_to_seconds(&datetime);
         rtc.tsr().write(|w| unsafe { w.bits(seconds) });
     }
-    
+
     pub fn get_datetime(&self) -> RtcDateTime {
         let rtc = unsafe { &*I::ptr() };
         let seconds = rtc.tsr().read().bits();
@@ -203,7 +203,7 @@ impl<I: Instance> Rtc<I> {
         }
     }
 
-    pub fn get_alarm(&self) -> RtcDateTime{
+    pub fn get_alarm(&self) -> RtcDateTime {
         let rtc = unsafe { &*I::ptr() };
         let alarm_seconds = rtc.tar().read().bits();
         convert_seconds_to_datetime(alarm_seconds)
@@ -264,7 +264,7 @@ impl<I: Instance> Rtc<I> {
         ALARM_TRIGGERED.load(Ordering::Relaxed)
     }
 }
-    
+
 pub fn on_interrupt() {
     let rtc = unsafe { &*pac::Rtc0::ptr() };
     // Check if this is actually a time alarm interrupt
@@ -277,5 +277,7 @@ pub fn on_interrupt() {
 
 pub struct RtcHandler;
 impl crate::interrupt::typelevel::Handler<crate::interrupt::typelevel::RTC> for RtcHandler {
-    unsafe fn on_interrupt() { on_interrupt(); }
+    unsafe fn on_interrupt() {
+        on_interrupt();
+    }
 }

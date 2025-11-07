@@ -3,8 +3,8 @@ use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
-use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_hal_internal::Peri;
+use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use super::*;

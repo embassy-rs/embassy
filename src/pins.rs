@@ -57,7 +57,6 @@ pub unsafe fn configure_adc_pins() {
             .inv0()
             .lk()
             .lk0()
-
     });
     core::arch::asm!("dsb sy; isb sy");
 }

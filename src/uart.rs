@@ -15,9 +15,7 @@ pub trait Instance {
 }
 
 /// Token for LPUART2 provided by embassy-hal-internal peripherals macro.
-#[cfg(feature = "lpuart2")]
 pub type Lpuart2 = crate::peripherals::LPUART2;
-#[cfg(feature = "lpuart2")]
 impl Instance for crate::peripherals::LPUART2 {
     #[inline(always)]
     fn ptr() -> *const Regs {
@@ -26,7 +24,6 @@ impl Instance for crate::peripherals::LPUART2 {
 }
 
 // Also implement Instance for the Peri wrapper type
-#[cfg(feature = "lpuart2")]
 impl Instance for embassy_hal_internal::Peri<'_, crate::peripherals::LPUART2> {
     #[inline(always)]
     fn ptr() -> *const Regs {
@@ -111,7 +108,7 @@ impl<I: Instance> Uart<I> {
         cortex_m::asm::delay(3); // Short delay for reset to take effect
         l.global().write(|w| w.rst().no_effect());
         cortex_m::asm::delay(10); // Allow peripheral to stabilize after reset
-                                  // 2) BAUD
+        // 2) BAUD
         let (osr, sbr) = compute_osr_sbr(cfg.src_hz, cfg.baud);
         l.baud().modify(|_, w| {
             let w = match cfg.stop_bits {
@@ -145,7 +142,9 @@ impl<I: Instance> Uart<I> {
         });
         l.water()
             .modify(|_, w| unsafe { w.txwater().bits(0).rxwater().bits(0) });
-        Self { _inst: core::marker::PhantomData }
+        Self {
+            _inst: core::marker::PhantomData,
+        }
     }
 
     /// Enable RX interrupts. The caller must ensure an appropriate IRQ handler is installed.

@@ -493,10 +493,8 @@ pub trait Instance {
 }
 
 // Token for OSTIMER0 provided by embassy-hal-internal peripherals macro.
-#[cfg(feature = "ostimer0")]
 pub type Ostimer0 = crate::peripherals::OSTIMER0;
 
-#[cfg(feature = "ostimer0")]
 impl Instance for crate::peripherals::OSTIMER0 {
     #[inline(always)]
     fn ptr() -> *const Regs {
@@ -505,7 +503,6 @@ impl Instance for crate::peripherals::OSTIMER0 {
 }
 
 // Also implement Instance for the Peri wrapper type
-#[cfg(feature = "ostimer0")]
 impl Instance for embassy_hal_internal::Peri<'_, crate::peripherals::OSTIMER0> {
     #[inline(always)]
     fn ptr() -> *const Regs {
@@ -528,11 +525,10 @@ fn gray_to_bin(gray: u64) -> u64 {
     bin
 }
 
-#[cfg(feature = "ostimer0")]
 pub mod time_driver {
     use super::{
-        bin_to_gray, now_ticks_read, Regs, ALARM_ACTIVE, ALARM_CALLBACK, ALARM_FLAG,
-        ALARM_TARGET_TIME, EVTIMER_HI_MASK, EVTIMER_HI_SHIFT, LOW_32_BIT_MASK,
+        ALARM_ACTIVE, ALARM_CALLBACK, ALARM_FLAG, ALARM_TARGET_TIME, EVTIMER_HI_MASK,
+        EVTIMER_HI_SHIFT, LOW_32_BIT_MASK, Regs, bin_to_gray, now_ticks_read,
     };
     use crate::pac;
     use core::sync::atomic::Ordering;

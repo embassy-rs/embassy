@@ -9,12 +9,7 @@ use hal::uart;
 
 mod common;
 
-#[cfg(all(feature = "defmt", feature = "defmt-rtt"))]
-use defmt_rtt as _;
-#[cfg(feature = "defmt")]
-use panic_probe as _;
-#[cfg(all(feature = "defmt", feature = "defmt-rtt"))]
-use rtt_target as _;
+use {defmt_rtt as _, panic_probe as _};
 
 use embassy_mcxa276::bind_interrupts;
 
@@ -61,7 +56,8 @@ async fn main(_spawner: Spawner) {
         init_match_max: true,
         clock_frequency_hz: 1_000_000, // 1MHz
     };
-    let ostimer = hal::ostimer::Ostimer::<hal::ostimer::Ostimer0>::new(p.OSTIMER0, config, hal::pac());
+    let ostimer =
+        hal::ostimer::Ostimer::<hal::ostimer::Ostimer0>::new(p.OSTIMER0, config, hal::pac());
 
     // Create alarm with callback
     let alarm = hal::ostimer::Alarm::new()
@@ -117,10 +113,4 @@ async fn main(_spawner: Spawner) {
     }
 
     uart.write_str_blocking("Example complete\n");
-}
-
-#[cfg(not(feature = "defmt"))]
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    loop {}
 }

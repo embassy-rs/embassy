@@ -1,28 +1,23 @@
 #![no_std]
 #![no_main]
 
-use embassy_mcxa276 as hal;
 use cortex_m;
 use embassy_executor::Spawner;
+use embassy_mcxa276 as hal;
 
-use hal::adc::{TriggerPriorityPolicy, LpadcConfig};
-use hal::pac::adc1::cfg::{Refsel, Pwrsel};
-use hal::pac::adc1::tctrl::{Tcmd};
+use hal::adc::{LpadcConfig, TriggerPriorityPolicy};
+use hal::pac::adc1::cfg::{Pwrsel, Refsel};
 use hal::pac::adc1::cmdl1::{Adch, Mode};
-use hal::pac::adc1::ctrl::{CalAvgs};
+use hal::pac::adc1::ctrl::CalAvgs;
+use hal::pac::adc1::tctrl::Tcmd;
 
 use hal::uart;
 mod common;
 
-#[cfg(all(feature = "defmt", feature = "defmt-rtt"))]
-use defmt_rtt as _;
-#[cfg(feature = "defmt")]
-use panic_probe as _;
-#[cfg(all(feature = "defmt", feature = "defmt-rtt"))]
-use rtt_target as _;
+use {defmt_rtt as _, panic_probe as _};
 
-use hal::bind_interrupts;
 use hal::InterruptExt;
+use hal::bind_interrupts;
 
 bind_interrupts!(struct Irqs {
     ADC1 => hal::adc::AdcHandler;
@@ -40,7 +35,7 @@ async fn main(_spawner: Spawner) {
         common::init_uart2(hal::pac());
     }
 
-   let src = unsafe { hal::clocks::uart2_src_hz(hal::pac()) };
+    let src = unsafe { hal::clocks::uart2_src_hz(hal::pac()) };
     let uart = uart::Uart::<uart::Lpuart2>::new(p.LPUART2, uart::Config::new(src));
 
     uart.write_str_blocking("\r\n=== ADC interrupt Example ===\r\n");
@@ -48,19 +43,18 @@ async fn main(_spawner: Spawner) {
     unsafe {
         common::init_adc(hal::pac());
     }
-    
-    
+
     let adc_config = LpadcConfig {
-    enable_in_doze_mode: true,
-    conversion_average_mode: CalAvgs::Average128,
-    enable_analog_preliminary: true,
-    power_up_delay: 0x80,
-    reference_voltage_source: Refsel::Option3,
-    power_level_mode: Pwrsel::Lowest,
-    trigger_priority_policy: TriggerPriorityPolicy::ConvPreemptImmediatelyNotAutoResumed,
-    enable_conv_pause: false,
-    conv_pause_delay: 0,
-    fifo_watermark: 0,
+        enable_in_doze_mode: true,
+        conversion_average_mode: CalAvgs::Average128,
+        enable_analog_preliminary: true,
+        power_up_delay: 0x80,
+        reference_voltage_source: Refsel::Option3,
+        power_level_mode: Pwrsel::Lowest,
+        trigger_priority_policy: TriggerPriorityPolicy::ConvPreemptImmediatelyNotAutoResumed,
+        enable_conv_pause: false,
+        conv_pause_delay: 0,
+        fifo_watermark: 0,
     };
     let adc = hal::adc::Adc::<hal::adc::Adc1>::new(p.ADC1, adc_config);
 
@@ -78,7 +72,7 @@ async fn main(_spawner: Spawner) {
     adc.set_conv_trigger_config(0, &conv_trigger_config);
 
     uart.write_str_blocking("\r\n=== ADC configuration done... ===\r\n");
-    
+
     adc.enable_interrupt(0x1);
 
     unsafe {
@@ -92,15 +86,9 @@ async fn main(_spawner: Spawner) {
     loop {
         adc.do_software_trigger(1);
         while !adc.is_interrupt_triggered() {
-        // Wait until the interrupt is triggered
+            // Wait until the interrupt is triggered
         }
         uart.write_str_blocking("\r\n*** ADC interrupt TRIGGERED! ***\r\n");
         //TBD need to print the value
     }
-}
-
-#[cfg(not(feature = "defmt"))]
-#[panic_handler]
-fn panic(_info: &core::panic::PanicInfo) -> ! {
-    loop {}
 }

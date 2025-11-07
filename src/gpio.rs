@@ -66,7 +66,7 @@ pub trait PinId {
 }
 
 pub mod pins {
-    use super::{pac, AnyPin, PinId};
+    use super::{AnyPin, PinId, pac};
 
     macro_rules! define_pin {
         ($Name:ident, $port:literal, $pin:literal, $GpioBlk:ident) => {

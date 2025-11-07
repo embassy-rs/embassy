@@ -112,10 +112,10 @@ pub unsafe fn init_fro16k(peripherals: &pac::Peripherals) {
     let vbat = &peripherals.vbat0;
     // Enable FRO16K oscillator
     vbat.froctla().modify(|_, w| w.fro_en().set_bit());
-    
+
     // Lock the control register
     vbat.frolcka().modify(|_, w| w.lock().set_bit());
-    
+
     // Enable clock outputs to both VSYS and VDD_CORE domains
     // Bit 0: clk_16k0 to VSYS domain
     // Bit 1: clk_16k1 to VDD_CORE domain
@@ -130,7 +130,6 @@ pub unsafe fn enable_adc(peripherals: &pac::Peripherals) {
 pub unsafe fn select_adc_clock(peripherals: &pac::Peripherals) {
     // Use FRO_LF_DIV (already running) MUX=0 DIV=0
     let mrcc = &peripherals.mrcc0;
-    mrcc.mrcc_adc_clksel()
-        .write(|w| w.mux().clkroot_func_0());
+    mrcc.mrcc_adc_clksel().write(|w| w.mux().clkroot_func_0());
     mrcc.mrcc_adc_clkdiv().write(|w| unsafe { w.bits(0) });
 }
