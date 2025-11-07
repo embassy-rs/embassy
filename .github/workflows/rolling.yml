@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: true
       - name: Install stable
@@ -55,7 +55,7 @@ jobs:
                        # requires 1.85
     name: ubuntu / ${{ matrix.msrv }} (${{ matrix.commit }})
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: true
       - name: Install ${{ matrix.msrv }}
