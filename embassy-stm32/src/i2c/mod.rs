@@ -442,17 +442,17 @@ impl<'d, IM: MasterMode> embedded_hal_async::i2c::I2c for I2c<'d, Async, IM> {
 /// determines the appropriate protocol framing behavior when implementing the embedded-hal I2C
 /// [transaction contract] where consecutive operations of the same type (read-read or write-write)
 /// are logically merged.
-/// 
+///
 /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
-/// 
+///
 /// **Framing behavior for I2C transaction contract**:
-/// 
+///
 /// - **START (ST)**: Generated before the first operation in the transaction.
 /// - **Repeated START (SR)**: When switching from write to read or vice versa, a repeated start is issued.
 /// - **STOP (SP)**: Generated only after the final operation in the entire transaction.
 /// - **ACK/NACK**: For reads, ACK indicates more data is expected, NACK signals the end of
 ///   a read sequence. For writes, ACK/NACK is controlled by the slave and not relevant here.
-/// 
+///
 /// ## Examples
 ///
 /// ```ignore

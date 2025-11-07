@@ -306,12 +306,22 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
     /// Blocking read.
     pub fn blocking_read(&mut self, address: u8, read_buffer: &mut [u8]) -> Result<(), Error> {
-        self.blocking_read_with_framing(address, read_buffer, self.timeout(), PositionInTransaction::FirstAndFinal)
+        self.blocking_read_with_framing(
+            address,
+            read_buffer,
+            self.timeout(),
+            PositionInTransaction::FirstAndFinal,
+        )
     }
 
     /// Blocking write.
     pub fn blocking_write(&mut self, address: u8, write_buffer: &[u8]) -> Result<(), Error> {
-        self.blocking_write_with_framing(address, write_buffer, self.timeout(), PositionInTransaction::FirstAndFinal)?;
+        self.blocking_write_with_framing(
+            address,
+            write_buffer,
+            self.timeout(),
+            PositionInTransaction::FirstAndFinal,
+        )?;
 
         // Fallthrough is success
         Ok(())
@@ -348,8 +358,12 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
         for (op, position) in assign_position_in_transaction(operations)? {
             match op {
-                Operation::Read(read_buffer) => self.blocking_read_with_framing(address, read_buffer, timeout, position)?,
-                Operation::Write(write_buffer) => self.blocking_write_with_framing(address, write_buffer, timeout, position)?,
+                Operation::Read(read_buffer) => {
+                    self.blocking_read_with_framing(address, read_buffer, timeout, position)?
+                }
+                Operation::Write(write_buffer) => {
+                    self.blocking_write_with_framing(address, write_buffer, timeout, position)?
+                }
             }
         }
 
@@ -380,9 +394,10 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
 impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     async fn write_with_framing(
-        &mut self, address: u8,
+        &mut self,
+        address: u8,
         write_buffer: &[u8],
-        position: PositionInTransaction
+        position: PositionInTransaction,
     ) -> Result<(), Error> {
         self.info.regs.cr2().modify(|w| {
             // Note: Do not enable the ITBUFEN bit in the I2C_CR2 register if DMA is used for
@@ -546,7 +561,12 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         Ok(())
     }
 
-    async fn read_with_framing(&mut self, address: u8, read_buffer: &mut [u8], position: PositionInTransaction) -> Result<(), Error> {
+    async fn read_with_framing(
+        &mut self,
+        address: u8,
+        read_buffer: &mut [u8],
+        position: PositionInTransaction,
+    ) -> Result<(), Error> {
         if read_buffer.is_empty() {
             return Err(Error::Overrun);
         }
