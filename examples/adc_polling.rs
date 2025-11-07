@@ -1,24 +1,21 @@
 #![no_std]
 #![no_main]
 
-use embassy_mcxa276 as hal;
-
 use embassy_executor::Spawner;
-
+use embassy_mcxa276 as hal;
 use hal::adc::{ConvResult, LpadcConfig, TriggerPriorityPolicy};
 use hal::pac::adc1::cfg::{Pwrsel, Refsel};
 use hal::pac::adc1::cmdl1::{Adch, Mode};
 use hal::pac::adc1::ctrl::CalAvgs;
 use hal::pac::adc1::tctrl::Tcmd;
-
 use hal::uart;
 
 mod common;
 
-use {defmt_rtt as _, panic_probe as _};
-
 use core::fmt::Write;
+
 use heapless::String;
+use {defmt_rtt as _, panic_probe as _};
 
 const G_LPADC_RESULT_SHIFT: u32 = 0;
 

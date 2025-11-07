@@ -3,8 +3,8 @@ use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
-use embassy_hal_internal::Peri;
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
+use embassy_hal_internal::Peri;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use super::*;
@@ -87,15 +87,7 @@ impl<'a> BufferedLpuart<'a> {
         let state = T::buffered_state();
 
         // Initialize the peripheral
-        Self::init::<T>(
-            Some(&tx_pin),
-            Some(&rx_pin),
-            None,
-            None,
-            tx_buffer,
-            rx_buffer,
-            config,
-        )?;
+        Self::init::<T>(Some(&tx_pin), Some(&rx_pin), None, None, tx_buffer, rx_buffer, config)?;
 
         Ok(Self {
             tx: BufferedLpuartTx {
@@ -523,9 +515,7 @@ pub struct BufferedInterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt>
-    for BufferedInterruptHandler<T>
-{
+impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for BufferedInterruptHandler<T> {
     unsafe fn on_interrupt() {
         let regs = T::info().regs;
         let state = T::buffered_state();
@@ -616,8 +606,7 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt>
             // If buffer is empty, switch to TC interrupt or disable
             if state.tx_buf.is_empty() {
                 cortex_m::interrupt::free(|_| {
-                    regs.ctrl()
-                        .modify(|_, w| w.tie().disabled().tcie().enabled());
+                    regs.ctrl().modify(|_, w| w.tie().disabled().tcie().enabled());
                 });
             }
         }

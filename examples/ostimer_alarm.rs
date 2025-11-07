@@ -2,16 +2,15 @@
 #![no_main]
 
 use core::sync::atomic::{AtomicBool, Ordering};
-use cortex_m;
+
 use embassy_executor::Spawner;
-use embassy_mcxa276 as hal;
 use hal::uart;
+use {cortex_m, embassy_mcxa276 as hal};
 
 mod common;
 
-use {defmt_rtt as _, panic_probe as _};
-
 use embassy_mcxa276::bind_interrupts;
+use {defmt_rtt as _, panic_probe as _};
 
 // Bind only OS_EVENT, and retain the symbol explicitly so it can't be GC'ed.
 bind_interrupts!(struct Irqs {
@@ -46,18 +45,14 @@ async fn main(_spawner: Spawner) {
     uart.write_str_blocking("OSTIMER Alarm Example\n");
 
     // Initialize embassy-time global driver backed by OSTIMER0
-    hal::ostimer::time_driver::init(
-        hal::config::Config::default().time_interrupt_priority,
-        1_000_000,
-    );
+    hal::ostimer::time_driver::init(hal::config::Config::default().time_interrupt_priority, 1_000_000);
 
     // Create OSTIMER instance
     let config = hal::ostimer::Config {
         init_match_max: true,
         clock_frequency_hz: 1_000_000, // 1MHz
     };
-    let ostimer =
-        hal::ostimer::Ostimer::<hal::ostimer::Ostimer0>::new(p.OSTIMER0, config, hal::pac());
+    let ostimer = hal::ostimer::Ostimer::<hal::ostimer::Ostimer0>::new(p.OSTIMER0, config, hal::pac());
 
     // Create alarm with callback
     let alarm = hal::ostimer::Alarm::new()

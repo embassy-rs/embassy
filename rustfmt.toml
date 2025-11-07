@@ -1,7 +1,3 @@
-# Workspace formatting preferences
-edition = "2021"
-# Merge and sort imports by crate; reduces noise in diffs
-imports_granularity = "Crate"
 group_imports = "StdExternalCrate"
-# Keep defaults for everything else to stay close to rustfmt stable
-
+imports_granularity = "Module"
+max_width = 120

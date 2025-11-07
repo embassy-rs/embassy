@@ -84,10 +84,7 @@ pub unsafe fn set_pin_mux(port: u8, pin: u8, mux: u8) {
     };
 
     if pin > max_pin {
-        panic!(
-            "Invalid pin {} for PORT{}, max pin is {}",
-            pin, port, max_pin
-        );
+        panic!("Invalid pin {} for PORT{}, max pin is {}", pin, port, max_pin);
     }
 
     // Get the base address for the port

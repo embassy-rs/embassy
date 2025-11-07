@@ -30,17 +30,17 @@ pub fn pac() -> &'static pac::Peripherals {
     }
 }
 
-#[cfg(feature = "unstable-pac")]
-pub use mcxa_pac as pac;
-#[cfg(not(feature = "unstable-pac"))]
-pub(crate) use mcxa_pac as pac;
-
 // Use cortex-m-rt's #[interrupt] attribute directly; PAC does not re-export it.
 
 // Re-export interrupt traits and types
 pub use adc::Adc1 as Adc1Token;
-pub use gpio::{AnyPin, Flex, Gpio as GpioToken, Input, Level, Output, pins::*};
+pub use gpio::pins::*;
+pub use gpio::{AnyPin, Flex, Gpio as GpioToken, Input, Level, Output};
 pub use interrupt::InterruptExt;
+#[cfg(feature = "unstable-pac")]
+pub use mcxa_pac as pac;
+#[cfg(not(feature = "unstable-pac"))]
+pub(crate) use mcxa_pac as pac;
 pub use ostimer::Ostimer0 as Ostimer0Token;
 pub use rtc::Rtc0 as Rtc0Token;
 pub use uart::Lpuart2 as Uart2Token;

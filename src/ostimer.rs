@@ -27,9 +27,10 @@
 //! - Immediate wake for timestamps that would cause rollover issues
 #![allow(dead_code)]
 
+use core::sync::atomic::{AtomicBool, Ordering};
+
 use crate::interrupt::InterruptExt;
 use crate::pac;
-use core::sync::atomic::{AtomicBool, Ordering};
 
 // PAC defines the shared RegisterBlock under `ostimer0`.
 type Regs = pac::ostimer0::RegisterBlock;
@@ -129,18 +130,12 @@ pub(super) fn wait_for_match_write_complete(r: &Regs) -> bool {
 
 fn prime_match_registers(r: &Regs) {
     // Disable the interrupt, clear any pending flag, then wait until the MATCH registers are writable.
-    r.osevent_ctrl().write(|w| {
-        w.ostimer_intrflag()
-            .clear_bit_by_one()
-            .ostimer_intena()
-            .clear_bit()
-    });
+    r.osevent_ctrl()
+        .write(|w| w.ostimer_intrflag().clear_bit_by_one().ostimer_intena().clear_bit());
 
     if wait_for_match_write_ready(r) {
-        r.match_l()
-            .write(|w| unsafe { w.match_value().bits(MATCH_L_MAX) });
-        r.match_h()
-            .write(|w| unsafe { w.match_value().bits(MATCH_H_MAX) });
+        r.match_l().write(|w| unsafe { w.match_value().bits(MATCH_L_MAX) });
+        r.match_h().write(|w| unsafe { w.match_value().bits(MATCH_H_MAX) });
         let _ = wait_for_match_write_complete(r);
     }
 }
@@ -222,10 +217,7 @@ impl<'d, I: Instance> Ostimer<'d, I> {
     /// Requires clocks for the instance to be enabled by the board before calling.
     /// Does not enable NVIC or INTENA; use time_driver::init() for async operation.
     pub fn new(_inst: impl Instance, cfg: Config, _p: &'d crate::pac::Peripherals) -> Self {
-        assert!(
-            cfg.clock_frequency_hz > 0,
-            "OSTIMER frequency must be greater than 0"
-        );
+        assert!(cfg.clock_frequency_hz > 0, "OSTIMER frequency must be greater than 0");
 
         if cfg.init_match_max {
             let r: &Regs = unsafe { &*I::ptr() };
@@ -268,12 +260,8 @@ impl<'d, I: Instance> Ostimer<'d, I> {
 
             // Mask the peripheral interrupt flag before we toggle the reset line so that
             // no new NVIC activity races with the reset sequence.
-            r.osevent_ctrl().write(|w| {
-                w.ostimer_intrflag()
-                    .clear_bit_by_one()
-                    .ostimer_intena()
-                    .clear_bit()
-            });
+            r.osevent_ctrl()
+                .write(|w| w.ostimer_intrflag().clear_bit_by_one().ostimer_intena().clear_bit());
 
             unsafe {
                 crate::reset::assert::<crate::reset::line::Ostimer0>(peripherals);
@@ -287,9 +275,7 @@ impl<'d, I: Instance> Ostimer<'d, I> {
                 crate::reset::release::<crate::reset::line::Ostimer0>(peripherals);
             }
 
-            while !<crate::reset::line::Ostimer0 as crate::reset::ResetLine>::is_released(
-                &peripherals.mrcc0,
-            ) {
+            while !<crate::reset::line::Ostimer0 as crate::reset::ResetLine>::is_released(&peripherals.mrcc0) {
                 cortex_m::asm::nop();
             }
 
@@ -363,12 +349,8 @@ impl<'d, I: Instance> Ostimer<'d, I> {
 
         critical_section::with(|_| {
             // Disable interrupt and clear flag
-            r.osevent_ctrl().write(|w| {
-                w.ostimer_intrflag()
-                    .clear_bit_by_one()
-                    .ostimer_intena()
-                    .clear_bit()
-            });
+            r.osevent_ctrl()
+                .write(|w| w.ostimer_intrflag().clear_bit_by_one().ostimer_intena().clear_bit());
 
             if !wait_for_match_write_ready(r) {
                 prime_match_registers(r);
@@ -526,15 +508,17 @@ fn gray_to_bin(gray: u64) -> u64 {
 }
 
 pub mod time_driver {
-    use super::{
-        ALARM_ACTIVE, ALARM_CALLBACK, ALARM_FLAG, ALARM_TARGET_TIME, EVTIMER_HI_MASK,
-        EVTIMER_HI_SHIFT, LOW_32_BIT_MASK, Regs, bin_to_gray, now_ticks_read,
-    };
-    use crate::pac;
     use core::sync::atomic::Ordering;
     use core::task::Waker;
+
     use embassy_sync::waitqueue::AtomicWaker;
     use embassy_time_driver as etd;
+
+    use super::{
+        bin_to_gray, now_ticks_read, Regs, ALARM_ACTIVE, ALARM_CALLBACK, ALARM_FLAG, ALARM_TARGET_TIME,
+        EVTIMER_HI_MASK, EVTIMER_HI_SHIFT, LOW_32_BIT_MASK,
+    };
+    use crate::pac;
     pub struct Driver;
     static TIMER_WAKER: AtomicWaker = AtomicWaker::new();
 
@@ -569,12 +553,8 @@ pub mod time_driver {
 
             critical_section::with(|_| {
                 // Mask INTENA and clear flag
-                r.osevent_ctrl().write(|w| {
-                    w.ostimer_intrflag()
-                        .clear_bit_by_one()
-                        .ostimer_intena()
-                        .clear_bit()
-                });
+                r.osevent_ctrl()
+                    .write(|w| w.ostimer_intrflag().clear_bit_by_one().ostimer_intena().clear_bit());
 
                 // Read back to ensure W1C took effect on hardware
                 let _ = r.osevent_ctrl().read().ostimer_intrflag().bit();
@@ -690,9 +670,7 @@ pub mod time_driver {
 
     /// Type-level handler to be used with bind_interrupts! for OS_EVENT.
     pub struct OsEventHandler;
-    impl crate::interrupt::typelevel::Handler<crate::interrupt::typelevel::OS_EVENT>
-        for OsEventHandler
-    {
+    impl crate::interrupt::typelevel::Handler<crate::interrupt::typelevel::OS_EVENT> for OsEventHandler {
         unsafe fn on_interrupt() {
             on_interrupt();
         }

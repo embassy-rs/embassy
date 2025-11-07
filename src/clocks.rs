@@ -76,8 +76,7 @@ pub unsafe fn enable_ostimer0(peripherals: &pac::Peripherals) {
 pub unsafe fn select_uart2_clock(peripherals: &pac::Peripherals) {
     // Use FRO_LF_DIV (already running) MUX=0 DIV=0
     let mrcc = &peripherals.mrcc0;
-    mrcc.mrcc_lpuart2_clksel()
-        .write(|w| w.mux().clkroot_func_0());
+    mrcc.mrcc_lpuart2_clksel().write(|w| w.mux().clkroot_func_0());
     mrcc.mrcc_lpuart2_clkdiv().write(|w| unsafe { w.bits(0) });
 }
 

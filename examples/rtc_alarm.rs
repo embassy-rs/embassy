@@ -1,20 +1,17 @@
 #![no_std]
 #![no_main]
 
-use cortex_m;
 use embassy_executor::Spawner;
-use embassy_mcxa276 as hal;
-use hal::InterruptExt;
 use hal::rtc::{RtcDateTime, RtcInterruptEnable};
-use hal::uart;
+use hal::{uart, InterruptExt};
+use {cortex_m, embassy_mcxa276 as hal};
 
 mod common;
 
 type MyRtc = hal::rtc::Rtc<hal::rtc::Rtc0>;
 
-use {defmt_rtt as _, panic_probe as _};
-
 use embassy_mcxa276::bind_interrupts;
+use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     RTC => hal::rtc::RtcHandler;

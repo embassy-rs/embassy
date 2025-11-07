@@ -42,10 +42,7 @@ async fn main(_spawner: Spawner) {
 
     // Initialize OSTIMER with default 1MHz frequency
     // Adjust this value to match your actual OSTIMER clock frequency
-    hal::ostimer::time_driver::init(
-        hal::config::Config::default().time_interrupt_priority,
-        1_000_000,
-    );
+    hal::ostimer::time_driver::init(hal::config::Config::default().time_interrupt_priority, 1_000_000);
 
     // Removed force-pend; rely on real hardware match to trigger OS_EVENT.
 

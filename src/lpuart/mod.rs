@@ -1,15 +1,13 @@
-use crate::interrupt;
 use core::marker::PhantomData;
+
 use embassy_hal_internal::{Peri, PeripheralType};
 use paste::paste;
 
-use crate::pac;
 use crate::pac::lpuart0::baud::Sbns as StopBits;
-use crate::pac::lpuart0::ctrl::{
-    Idlecfg as IdleConfig, Ilt as IdleType, M as DataBits, Pt as Parity,
-};
+use crate::pac::lpuart0::ctrl::{Idlecfg as IdleConfig, Ilt as IdleType, Pt as Parity, M as DataBits};
 use crate::pac::lpuart0::modir::{Txctsc as TxCtsConfig, Txctssrc as TxCtsSource};
 use crate::pac::lpuart0::stat::Msbf as MsbFirst;
+use crate::{interrupt, pac};
 
 pub mod buffered;
 
@@ -261,8 +259,7 @@ pub fn configure_baudrate(regs: Regs, baudrate_bps: u32, clock: Clock) -> Result
 /// Configure frame format (stop bits, data bits)
 pub fn configure_frame_format(regs: Regs, config: &Config) {
     // Configure stop bits
-    regs.baud()
-        .modify(|_, w| w.sbns().variant(config.stop_bits_count));
+    regs.baud().modify(|_, w| w.sbns().variant(config.stop_bits_count));
 
     // Clear M10 for now (10-bit mode)
     regs.baud().modify(|_, w| w.m10().disabled());
@@ -314,8 +311,7 @@ pub fn configure_fifo(regs: Regs, config: &Config) {
     });
 
     // Enable TX/RX FIFOs
-    regs.fifo()
-        .modify(|_, w| w.txfe().enabled().rxfe().enabled());
+    regs.fifo().modify(|_, w| w.txfe().enabled().rxfe().enabled());
 
     // Flush FIFOs
     regs.fifo()
@@ -818,10 +814,7 @@ impl<'a> LpuartTx<'a, Blocking> {
     }
 
     fn write_byte_internal(&mut self, byte: u8) -> Result<()> {
-        self.info
-            .regs
-            .data()
-            .modify(|_, w| unsafe { w.bits(u32::from(byte)) });
+        self.info.regs.data().modify(|_, w| unsafe { w.bits(u32::from(byte)) });
 
         Ok(())
     }

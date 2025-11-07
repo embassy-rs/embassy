@@ -1,7 +1,7 @@
 //! ADC driver
-use crate::pac;
 use core::sync::atomic::{AtomicBool, Ordering};
 
+use crate::pac;
 use crate::pac::adc1::cfg::{HptExdi, Pwrsel, Refsel, Tcmdres, Tprictrl, Tres};
 use crate::pac::adc1::cmdh1::{Avgs, Cmpen, Next, Sts};
 use crate::pac::adc1::cmdl1::{Adch, Ctype, Mode};
@@ -140,14 +140,10 @@ impl<I: Instance> Adc<I> {
                 .variant(match config.trigger_priority_policy {
                     TriggerPriorityPolicy::ConvPreemptSoftlyNotAutoResumed
                     | TriggerPriorityPolicy::ConvPreemptSoftlyAutoRestarted
-                    | TriggerPriorityPolicy::ConvPreemptSoftlyAutoResumed => {
-                        Tprictrl::FinishCurrentOnPriority
-                    }
+                    | TriggerPriorityPolicy::ConvPreemptSoftlyAutoResumed => Tprictrl::FinishCurrentOnPriority,
                     TriggerPriorityPolicy::ConvPreemptSubsequentlyNotAutoResumed
                     | TriggerPriorityPolicy::ConvPreemptSubsequentlyAutoRestarted
-                    | TriggerPriorityPolicy::ConvPreemptSubsequentlyAutoResumed => {
-                        Tprictrl::FinishSequenceOnPriority
-                    }
+                    | TriggerPriorityPolicy::ConvPreemptSubsequentlyAutoResumed => Tprictrl::FinishSequenceOnPriority,
                     _ => Tprictrl::AbortCurrentOnPriority,
                 })
                 .tres()
@@ -176,12 +172,8 @@ impl<I: Instance> Adc<I> {
         });
 
         if config.enable_conv_pause {
-            adc.pause().modify(|_, w| unsafe {
-                w.pauseen()
-                    .enabled()
-                    .pausedly()
-                    .bits(config.conv_pause_delay)
-            });
+            adc.pause()
+                .modify(|_, w| unsafe { w.pauseen().enabled().pausedly().bits(config.conv_pause_delay) });
         } else {
             adc.pause().write(|w| unsafe { w.bits(0) });
         }
@@ -247,8 +239,7 @@ impl<I: Instance> Adc<I> {
 
     pub fn do_auto_calibration(&self) {
         let adc = unsafe { &*I::ptr() };
-        adc.ctrl()
-            .modify(|_, w| w.cal_req().calibration_request_pending());
+        adc.ctrl().modify(|_, w| w.cal_req().calibration_request_pending());
 
         while adc.gcc0().read().rdy().is_gain_cal_not_valid() {}
 
@@ -260,8 +251,7 @@ impl<I: Instance> Adc<I> {
         let gcra = 131072.0 / (131072.0 - gcca as f32);
 
         // Write to GCR0
-        adc.gcr0()
-            .write(|w| unsafe { w.bits(self.get_gain_conv_result(gcra)) });
+        adc.gcr0().write(|w| unsafe { w.bits(self.get_gain_conv_result(gcra)) });
 
         adc.gcr0().modify(|_, w| w.rdy().set_bit());
 

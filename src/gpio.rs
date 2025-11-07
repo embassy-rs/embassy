@@ -66,7 +66,7 @@ pub trait PinId {
 }
 
 pub mod pins {
-    use super::{AnyPin, PinId, pac};
+    use super::{pac, AnyPin, PinId};
 
     macro_rules! define_pin {
         ($Name:ident, $port:literal, $pin:literal, $GpioBlk:ident) => {
@@ -130,15 +130,13 @@ impl<'d> Flex<'d> {
     pub fn set_as_input(&mut self) {
         let mask = self.mask();
         let gpio = self.gpio();
-        gpio.pddr()
-            .modify(|r, w| unsafe { w.bits(r.bits() & !mask) });
+        gpio.pddr().modify(|r, w| unsafe { w.bits(r.bits() & !mask) });
     }
 
     pub fn set_as_output(&mut self) {
         let mask = self.mask();
         let gpio = self.gpio();
-        gpio.pddr()
-            .modify(|r, w| unsafe { w.bits(r.bits() | mask) });
+        gpio.pddr().modify(|r, w| unsafe { w.bits(r.bits() | mask) });
     }
 
     pub fn set_high(&mut self) {

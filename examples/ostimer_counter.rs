@@ -8,11 +8,8 @@
 
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
-
-use {defmt_rtt as _, panic_probe as _};
-
-use embassy_mcxa276 as hal;
 use hal::bind_interrupts;
+use {defmt_rtt as _, embassy_mcxa276 as hal, panic_probe as _};
 
 mod common;
 
@@ -32,8 +29,7 @@ async fn main(_spawner: Spawner) {
         common::init_uart2(hal::pac());
     }
     let src = unsafe { hal::clocks::uart2_src_hz(hal::pac()) };
-    let mut uart =
-        hal::uart::Uart::<hal::uart::Lpuart2>::new(p.LPUART2, hal::uart::Config::new(src));
+    let mut uart = hal::uart::Uart::<hal::uart::Lpuart2>::new(p.LPUART2, hal::uart::Config::new(src));
 
     uart.write_str_blocking("OSTIMER Counter Reading and Reset Example\n");
 

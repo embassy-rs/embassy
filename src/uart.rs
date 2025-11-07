@@ -1,10 +1,12 @@
 //! Minimal polling UART2 bring-up replicating MCUXpresso hello_world ordering.
 //! WARNING: This is a narrow implementation only for debug console (115200 8N1).
 
-use crate::pac;
 use core::cell::RefCell;
+
 use cortex_m::interrupt::Mutex;
 use embassy_sync::signal::Signal;
+
+use crate::pac;
 
 // svd2rust defines the shared LPUART RegisterBlock under lpuart0; all instances reuse it.
 type Regs = pac::lpuart0::RegisterBlock;
@@ -108,7 +110,7 @@ impl<I: Instance> Uart<I> {
         cortex_m::asm::delay(3); // Short delay for reset to take effect
         l.global().write(|w| w.rst().no_effect());
         cortex_m::asm::delay(10); // Allow peripheral to stabilize after reset
-        // 2) BAUD
+                                  // 2) BAUD
         let (osr, sbr) = compute_osr_sbr(cfg.src_hz, cfg.baud);
         l.baud().modify(|_, w| {
             let w = match cfg.stop_bits {
@@ -234,8 +236,7 @@ impl RingBuffer {
 
 // Global RX buffer shared between interrupt handler and UART instance
 static RX_BUFFER: Mutex<RefCell<RingBuffer>> = Mutex::new(RefCell::new(RingBuffer::new()));
-static RX_SIGNAL: Signal<embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex, ()> =
-    Signal::new();
+static RX_SIGNAL: Signal<embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex, ()> = Signal::new();
 
 // Debug counter for interrupt handler calls
 static mut INTERRUPT_COUNT: u32 = 0;
@@ -279,9 +280,7 @@ impl<I: Instance> Uart<I> {
 /// Type-level handler for LPUART2 interrupts, compatible with bind_interrupts!.
 pub struct UartInterruptHandler;
 
-impl crate::interrupt::typelevel::Handler<crate::interrupt::typelevel::LPUART2>
-    for UartInterruptHandler
-{
+impl crate::interrupt::typelevel::Handler<crate::interrupt::typelevel::LPUART2> for UartInterruptHandler {
     unsafe fn on_interrupt() {
         INTERRUPT_COUNT += 1;
 

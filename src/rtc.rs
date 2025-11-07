@@ -1,7 +1,8 @@
 //! RTC DateTime driver.
+use core::sync::atomic::{AtomicBool, Ordering};
+
 use crate::pac;
 use crate::pac::rtc0::cr::Um;
-use core::sync::atomic::{AtomicBool, Ordering};
 
 type Regs = pac::rtc0::RegisterBlock;
 

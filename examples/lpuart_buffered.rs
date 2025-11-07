@@ -4,12 +4,9 @@
 use embassy_executor::Spawner;
 use embassy_mcxa276 as hal;
 use embassy_mcxa276::interrupt::typelevel::Handler;
-use embassy_mcxa276::lpuart;
 use embassy_mcxa276::lpuart::buffered::BufferedLpuart;
-
+use embassy_mcxa276::{bind_interrupts, lpuart};
 use embedded_io_async::{Read, Write};
-
-use embassy_mcxa276::bind_interrupts;
 
 mod common;
 
@@ -69,9 +66,7 @@ async fn main(_spawner: Spawner) {
     let (tx, rx) = uart.split_ref();
 
     tx.write(b"Hello buffered LPUART.\r\n").await.unwrap();
-    tx.write(b"Type characters to echo them back.\r\n")
-        .await
-        .unwrap();
+    tx.write(b"Type characters to echo them back.\r\n").await.unwrap();
 
     // Echo loop
     let mut buf = [0u8; 4];

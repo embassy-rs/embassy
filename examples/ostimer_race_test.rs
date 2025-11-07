@@ -9,13 +9,12 @@
 #![no_std]
 #![no_main]
 
+use core::sync::atomic::{AtomicU32, Ordering};
+
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Timer};
-
-use core::sync::atomic::{AtomicU32, Ordering};
-use embassy_mcxa276 as hal;
 use hal::bind_interrupts;
-use {defmt_rtt as _, panic_probe as _};
+use {defmt_rtt as _, embassy_mcxa276 as hal, panic_probe as _};
 
 mod common;
 
@@ -80,8 +79,7 @@ async fn main(_spawner: Spawner) {
         common::init_uart2(hal::pac());
     }
     let src = unsafe { hal::clocks::uart2_src_hz(hal::pac()) };
-    let mut uart =
-        hal::uart::Uart::<hal::uart::Lpuart2>::new(p.LPUART2, hal::uart::Config::new(src));
+    let mut uart = hal::uart::Uart::<hal::uart::Lpuart2>::new(p.LPUART2, hal::uart::Config::new(src));
 
     uart.write_str_blocking("OSTIMER Race Condition Test Starting...\n");
 
@@ -250,9 +248,7 @@ async fn test_concurrent_operations(
     let alarm = hal::ostimer::Alarm::new().with_callback(alarm_callback);
     if !ostimer.schedule_alarm_delay(&alarm, 1000) {
         RACE_DETECTED.fetch_add(1, Ordering::SeqCst);
-        uart.write_str_blocking(
-            "ERROR: Failed to program OSTIMER alarm before concurrent operations\n",
-        );
+        uart.write_str_blocking("ERROR: Failed to program OSTIMER alarm before concurrent operations\n");
     }
 
     // Wait for both to complete

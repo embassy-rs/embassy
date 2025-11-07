@@ -1,23 +1,18 @@
 #![no_std]
 #![no_main]
 
-use cortex_m;
 use embassy_executor::Spawner;
-use embassy_mcxa276 as hal;
-
 use hal::adc::{LpadcConfig, TriggerPriorityPolicy};
 use hal::pac::adc1::cfg::{Pwrsel, Refsel};
 use hal::pac::adc1::cmdl1::{Adch, Mode};
 use hal::pac::adc1::ctrl::CalAvgs;
 use hal::pac::adc1::tctrl::Tcmd;
-
 use hal::uart;
+use {cortex_m, embassy_mcxa276 as hal};
 mod common;
 
+use hal::{bind_interrupts, InterruptExt};
 use {defmt_rtt as _, panic_probe as _};
-
-use hal::InterruptExt;
-use hal::bind_interrupts;
 
 bind_interrupts!(struct Irqs {
     ADC1 => hal::adc::AdcHandler;

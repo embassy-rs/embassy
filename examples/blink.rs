@@ -34,10 +34,7 @@ async fn main(_spawner: Spawner) {
     }
 
     // Initialize embassy-time global driver backed by OSTIMER0
-    hal::ostimer::time_driver::init(
-        hal::config::Config::default().time_interrupt_priority,
-        1_000_000,
-    );
+    hal::ostimer::time_driver::init(hal::config::Config::default().time_interrupt_priority, 1_000_000);
 
     // Configure LED pin for GPIO mode
     PIO3_18::set_mux_gpio();

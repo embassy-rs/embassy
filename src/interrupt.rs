@@ -6,11 +6,11 @@ mod generated {
     embassy_hal_internal::interrupt_mod!(OS_EVENT, LPUART2, RTC, ADC1);
 }
 
-pub use generated::interrupt::Priority;
-pub use generated::interrupt::typelevel;
+use core::sync::atomic::{AtomicU16, AtomicU32, Ordering};
+
+pub use generated::interrupt::{typelevel, Priority};
 
 use crate::pac::Interrupt;
-use core::sync::atomic::{AtomicU16, AtomicU32, Ordering};
 
 /// Trait for configuring and controlling interrupts.
 ///

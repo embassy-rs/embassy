@@ -1,11 +1,10 @@
 #![no_std]
 #![no_main]
 
-use crate::hal::lpuart::{Config, Lpuart, lib};
 use embassy_executor::Spawner;
-use embassy_mcxa276 as hal;
+use {defmt_rtt as _, embassy_mcxa276 as hal, panic_probe as _};
 
-use {defmt_rtt as _, panic_probe as _};
+use crate::hal::lpuart::{lib, Config, Lpuart};
 
 mod common;
 
@@ -43,8 +42,7 @@ async fn main(_spawner: Spawner) {
 
     // Write hello messages
     tx.blocking_write(b"Hello world.\r\n").unwrap();
-    tx.blocking_write(b"Echoing. Type characters...\r\n")
-        .unwrap();
+    tx.blocking_write(b"Echoing. Type characters...\r\n").unwrap();
 
     // Echo loop
     loop {
