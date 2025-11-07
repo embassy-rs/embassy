@@ -10,7 +10,7 @@ use core::cell::RefCell;
 
 use defmt::info;
 use embassy_stm32::adc::{
-    Adc, AdcChannel as _, ConversionTrigger, Exten, InjectedAdc, RegularConversionMode, SampleTime
+    Adc, AdcChannel as _, ConversionTrigger, Exten, InjectedAdc, RegularConversionMode, SampleTime,
 };
 use embassy_stm32::interrupt::typelevel::{ADC1_2, Interrupt};
 use embassy_stm32::peripherals::ADC1;
