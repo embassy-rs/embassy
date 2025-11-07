@@ -287,6 +287,10 @@ probe-rs run --chip MCXA276 --protocol swd --speed 1000 target/thumbv8m.main-non
 probe-rs run --chip MCXA276 --protocol swd --speed 1000 target/thumbv8m.main-none-eabihf/debug/examples/rtc_alarm
 probe-rs run --chip MCXA276 --protocol swd --speed 1000 target/thumbv8m.main-none-eabihf/debug/examples/adc_polling
 probe-rs run --chip MCXA276 --protocol swd --speed 1000 target/thumbv8m.main-none-eabihf/debug/examples/adc_interrupt
+probe-rs run --chip MCXA276 --protocol swd --speed 1000 target/thumbv8m.main-none-eabihf/debug/examples/ostimer_alarm
+probe-rs run --chip MCXA276 --protocol swd --speed 1000 target/thumbv8m.main-none-eabihf/debug/examples/ostimer_async
+probe-rs run --chip MCXA276 --protocol swd --speed 1000 target/thumbv8m.main-none-eabihf/debug/examples/ostimer_counter
+probe-rs run --chip MCXA276 --protocol swd --speed 1000 target/thumbv8m.main-none-eabihf/debug/examples/ostimer_race_test
 ```
 
 How I tested on Windows

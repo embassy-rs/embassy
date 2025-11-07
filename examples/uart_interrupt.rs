@@ -45,9 +45,11 @@ async fn main(_spawner: Spawner) {
     // Configure LPUART2 interrupt for UART operation BEFORE any UART usage
     hal::interrupt::LPUART2.configure_for_uart(hal::interrupt::Priority::from(3));
 
-    // Manually install the interrupt handler
+    // Manually install the interrupt handler and enable RX IRQs in the peripheral
     unsafe {
         hal::interrupt::LPUART2.install_handler(lpuart2_handler);
+        // Enable RX interrupts so the handler actually fires on incoming bytes
+        uart.enable_rx_interrupts();
     }
 
     // Print welcome message
