@@ -54,6 +54,16 @@ pub enum BitOrder {
     MsbFirst,
 }
 
+/// SPI Direction.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Direction {
+    /// Transmit
+    Transmit,
+    /// Receive
+    Receive,
+}
+
 /// SPI configuration.
 #[non_exhaustive]
 #[derive(Copy, Clone)]
@@ -346,6 +356,19 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
             });
         }
         Ok(())
+    }
+
+    /// Set SPI direction
+    pub fn set_direction(&mut self, dir: Option<Direction>) {
+        let (bidimode, bidioe) = match dir {
+            Some(Direction::Transmit) => (vals::Bidimode::BIDIRECTIONAL, vals::Bidioe::TRANSMIT),
+            Some(Direction::Receive) => (vals::Bidimode::BIDIRECTIONAL, vals::Bidioe::RECEIVE),
+            None => (vals::Bidimode::UNIDIRECTIONAL, vals::Bidioe::TRANSMIT),
+        };
+        self.info.regs.cr1().modify(|w| {
+            w.set_bidimode(bidimode);
+            w.set_bidioe(bidioe);
+        });
     }
 
     /// Get current SPI configuration.
@@ -706,6 +729,29 @@ impl<'d> Spi<'d, Async, Master> {
             None,
             config,
         )
+    }
+
+    /// Create a new SPI driver, in bidirectional mode
+    pub fn new_bidi<T: Instance, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, if_afio!(impl SckPin<T, A>)>,
+        sdio: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
+        tx_dma: Peri<'d, impl TxDma<T>>,
+        rx_dma: Peri<'d, impl RxDma<T>>,
+        config: Config,
+    ) -> Self {
+        let mut this = Self::new_inner(
+            peri,
+            new_pin!(sck, config.sck_af()),
+            new_pin!(sdio, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            None,
+            None,
+            new_dma!(tx_dma),
+            new_dma!(rx_dma),
+            config,
+        );
+        this.set_direction(Some(Direction::Transmit));
+        this
     }
 
     /// Create a new SPI driver, in TX-only mode, without SCK pin.
