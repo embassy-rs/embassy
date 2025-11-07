@@ -63,7 +63,7 @@ jobs:
     if: github.event.workflow_run.conclusion == 'failure'
     steps:
       - name: 'Comment on PR - Failure'
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@v5
         with:
           comment-id: ${{ needs.find-pr-comment.outputs.comment-id }}
           issue-number: ${{ needs.find-pr-comment.outputs.pr-number }}
@@ -120,7 +120,7 @@ jobs:
         # Only update the comment if it exists
         # This is to avoid creating a new comment if the cargo-vet job has never failed before
         if: ${{ needs.find-pr-comment.outputs.comment-id }}
-        uses: peter-evans/create-or-update-comment@v4
+        uses: peter-evans/create-or-update-comment@v5
         with:
           comment-id: ${{ needs.find-pr-comment.outputs.comment-id }}
           issue-number: ${{ needs.find-pr-comment.outputs.pr-number }}
