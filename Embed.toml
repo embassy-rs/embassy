@@ -1,0 +1,28 @@
+[default.probe]
+# Use the first available probe
+protocol = "Swd"
+speed = 1000
+
+[default.flashing]
+# Attach-only: don't flash (we already loaded to RAM)
+enabled = false
+
+[default.reset]
+# Don't reset; keep running app started by run_jlink_noblock.sh
+enabled = false
+
+[default.general]
+# The chip name of the target
+chip = "MCXA276"
+
+[default.gdb]
+# Whether or not a GDB server should be opened after loading
+enabled = false
+
+[default.rtt]
+# Enable RTT for debugging output
+enabled = true
+
+# Increase timeout for RTT CB discovery
+up_channels = [ { channel = 0, mode = "BlockIfFull" } ]
+timeout = 5000

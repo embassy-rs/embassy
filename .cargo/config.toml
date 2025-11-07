@@ -1,0 +1,19 @@
+[build]
+target = "thumbv8m.main-none-eabihf"
+
+[target.thumbv8m.main-none-eabihf]
+runner = "./run.sh"
+# Use our custom ram.ld for RAM-execution
+rustflags = ["-C", "link-arg=-Tdefmt.x", "-C", "link-arg=-Tram.ld"]
+
+[alias]
+# Build examples with defmt+RTT and LPUART2 enabled
+build-defmt = ["build", "--features", "defmt defmt-rtt lpuart2", "--examples"]
+# Blocking run (uses run.sh). Good for one-terminal flash+run.
+run-defmt = ["run", "--features", "defmt defmt-rtt lpuart2", "--example", "hello"]
+# Non-blocking flash to RAM via J-Link; frees probe for RTT attach
+flash-nb = ["!./tools/run_jlink_noblock.sh", "target/thumbv8m.main-none-eabihf/debug/examples/hello", "1366:0101:000600110607", "MCXA276", "500"]
+# Attach-only viewer that decodes defmt over RTT using J-Link
+# Requires PROBE_RS_PROBE exported (or it will prompt)
+defmt-attach = ["embed", "--features", "defmt defmt-rtt lpuart2", "--example", "hello"]
+

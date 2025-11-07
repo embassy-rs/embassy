@@ -1,0 +1,68 @@
+# This workflow runs every morning at midnight. It will run cargo hack
+# and a build with msrv. If any dependency breaks our crate, we will
+# know ASAP.
+#
+# - check: build with all features
+# - msrv: check that the msrv specified in the crate is correct
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+
+name: rolling
+jobs:
+
+  check:
+    runs-on: ubuntu-latest
+    name: ubuntu / stable / features
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install stable
+        uses: dtolnay/rust-toolchain@stable
+      - name: cargo install cargo-hack
+        uses: taiki-e/install-action@cargo-hack
+      - name: cargo check
+        run: |
+          cargo update
+          cargo check --all-features check
+
+  msrv:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        msrv: ["1.85"] # We're relying on namespaced-features, which
+                       # was released in 1.60
+                       #
+                       # We also depend on `fixed' which requires rust
+                       # 1.71
+                       #
+                       # Additionally, we depend on embedded-hal-async
+                       # which requires 1.75
+                       #
+                       # embassy-time requires 1.79 due to
+                       # collapse_debuginfo
+                       #
+                       # embassy upstream switched to rust 1.83
+                       #
+                       # embedded-services (storage bus) dependency
+                       # requires 1.85
+    name: ubuntu / ${{ matrix.msrv }} (${{ matrix.commit }})
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Install ${{ matrix.msrv }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.msrv }}
+      - name: cargo +${{ matrix.msrv }} check
+        run: |
+          cargo update
+          cargo check --all-features check

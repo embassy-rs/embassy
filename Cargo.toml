@@ -1,19 +1,110 @@
 [package]
-name = "embedded-rust-template"
+name = "embassy-mcxa276"
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
-repository = "https://github.com/OpenDevicePartnership/embedded-rust-template"
-rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+description = "Embassy Hardware Abstraction Layer (HAL) for NXP MCXA276"
+keywords = ["embedded", "hal", "nxp", "mcxa276", "embassy"]
+categories = ["embedded", "hardware-support", "no-std"]
+
+[lib]
+name = "embassy_mcxa276"
 
 [dependencies]
-# dependencies for all targets
+cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
+cortex-m-rt = { version = "0.7", features = ["device"] }
+critical-section = "1.2.0"
+defmt = { version = "1.0", optional = true }
+embassy-embedded-hal = "0.5.0"
+embassy-executor = { version = "0.9.0", features = ["arch-cortex-m", "executor-interrupt", "executor-thread"], default-features = false }
+embassy-hal-internal = { version = "0.3.0", features = ["cortex-m", "prio-bits-3"] }
+embassy-sync = "0.7.2"
+embassy-time = "0.5.0"
+embassy-time-driver = "0.2.1"
+embedded-io = "0.6"
+heapless = "0.8"
+mcxa-pac = { git = "https://github.com/OpenDevicePartnership/mcxa-pac", features = ["rt"], rev = "f0281344c605ab24c38979553b41a1655c50625c", version = "0.1.0" }
+paste = "1.0.15"
 
-[target.'cfg(target_os = "none")'.dependencies]
-# dependencies for no-std targets
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = [
+    "unproven",
+] }
+embedded-hal = { package = "embedded-hal", version = "1.0" }
+embedded-hal-async = { version = "1.0" }
+embedded-hal-nb = { version = "1.0" }
+embedded-io-async = { version = "0.6.1" }
+nb = "1.1.0"
 
-[lints.clippy]
-suspicious = "forbid"
-correctness = "forbid"
-perf = "forbid"
-style = "forbid"
+[dev-dependencies]
+defmt-rtt = "1.0"
+panic-probe = { version = "1.0", features = ["print-defmt"] }
+
+[features]
+default = []
+
+# Base defmt feature enables core + panic handler
+# Use with one logger feature: defmt-rtt (preferred) or defmt-uart (fallback)
+defmt = ["dep:defmt"]
+
+rt = []
+
+unstable-pac = []
+
+[[example]]
+name = "hello"
+required-features = ["lpuart2"]
+
+[[example]]
+name = "blink"
+required-features = ["gpio", "ostimer0"]
+
+[[example]]
+name = "uart_interrupt"
+required-features = ["lpuart2", "ostimer0"]
+
+[[example]]
+name = "ostimer_alarm"
+required-features = ["lpuart2", "ostimer0"]
+
+[[example]]
+name = "ostimer_async"
+required-features = ["lpuart2", "ostimer0"]
+
+[[example]]
+name = "ostimer_counter"
+required-features = ["lpuart2", "ostimer0"]
+
+[[example]]
+name = "ostimer_race_test"
+required-features = ["lpuart2", "ostimer0"]
+
+[[example]]
+name = "lpuart_polling"
+required-features = ["lpuart2", "ostimer0"]
+
+[[example]]
+name = "lpuart_buffered"
+required-features = ["lpuart2", "ostimer0"]
+
+[[example]]
+name = "rtc_alarm"
+required-features = ["lpuart2", "rtc0"]
+
+[[example]]
+name = "adc_polling"
+required-features = ["adc1", "lpuart2"]
+
+[[example]]
+name = "adc_interrupt"
+required-features = ["adc1", "lpuart2"]
+
+[profile.release]
+debug = 2
+lto = true
+opt-level = "s"
+
+[profile.dev]
+debug = 2
+opt-level = 1
+
+

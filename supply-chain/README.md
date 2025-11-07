@@ -70,6 +70,72 @@ Follow the process below to ensure compliance:
 
 ---
 
+## Audit criteria
+`cargo vet` comes pre-equipped with two built-in criteria but supports adding new criteria to suit our needs.  
+As defined [here](https://mozilla.github.io/cargo-vet/built-in-criteria.html), the default criteria are:
+
+- **safe-to-run**  
+  This crate can be compiled, run, and tested on a local workstation or in
+  controlled automation without surprising consequences, such as:
+  * Reading or writing data from sensitive or unrelated parts of the filesystem.
+  * Installing software or reconfiguring the device.
+  * Connecting to untrusted network endpoints.
+  * Misuse of system resources (e.g. cryptocurrency mining).
+
+- **safe-to-deploy**  
+  This crate will not introduce a serious security vulnerability to production
+  software exposed to untrusted input.
+  
+  Auditors are not required to perform a full logic review of the entire crate.
+  Rather, they must review enough to fully reason about the behavior of all unsafe
+  blocks and usage of powerful imports. For any reasonable usage of the crate in
+  real-world software, an attacker must not be able to manipulate the runtime
+  behavior of these sections in an exploitable or surprising way.
+  
+  Ideally, all unsafe code is fully sound, and ambient capabilities (e.g.
+  filesystem access) are hardened against manipulation and consistent with the
+  advertised behavior of the crate. However, some discretion is permitted. In such
+  cases, the nature of the discretion should be recorded in the `notes` field of
+  the audit record.
+  
+  For crates which generate deployed code (e.g. build dependencies or procedural
+  macros), reasonable usage of the crate should output code which meets the above
+  criteria.
+
+  **Note: `safe-to-deploy` implies `safe-to-run`**
+
+---
+
+## Conducting an audit
+
+When performing an audit for a new or updated dependency, auditors may consider the following criteria to ensure the safety, reliability, and suitability of the crate for use in our projects:
+
+- **Security**:  
+  - Review the crate for known vulnerabilities or security advisories.
+  - Check for unsafe code usage and ensure it is justified and well-documented.
+  - Evaluate the crate’s history of security issues and responsiveness to reported problems.
+
+- **Maintenance and Activity**:  
+  - Assess the frequency of updates and the responsiveness of maintainers to issues and pull requests.
+  - Prefer crates that are actively maintained and have a healthy contributor base.
+
+- **License Compliance**:  
+  - Verify that the crate’s license is compatible with our project’s licensing requirements.
+
+- **Community Trust and Adoption**:  
+  - Consider the crate’s adoption in the wider Rust ecosystem.
+  - Prefer crates that are widely used and trusted by the community.
+
+- **Functionality and Suitability**:  
+  - Confirm that the crate provides the required functionality without unnecessary features or bloat.
+  - Evaluate whether the crate’s API is stable and unlikely to introduce breaking changes unexpectedly.
+
+- **Audit Trail**:  
+  - Record the audit decision, including any concerns, mitigations, or recommendations for future updates.
+  - If exemptions are granted, document the justification and any follow-up actions required.
+
+---
+
 ## Tips for using `cargo vet`:
 
 - **Update _imports.lock_**:

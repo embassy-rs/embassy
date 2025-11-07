@@ -1,6 +1,5 @@
 # This workflow runs whenever a PR is opened or updated, or a commit is pushed to main. It runs
 # several checks:
-# - commit_list: produces a list of commits to be checked
 # - fmt: checks that the code is formatted according to rustfmt
 # - clippy: checks that the code does not contain any clippy warnings
 # - doc: checks that the code can be documented without errors
@@ -8,66 +7,84 @@
 # - msrv: check that the msrv specified in the crate is correct
 permissions:
   contents: read
+
 # This configuration allows maintainers of this repo to create a branch and pull request based on
 # the new branch. Restricting the push trigger to the main branch ensures that the PR only gets
 # built once.
 on:
+
   push:
-    branches: [main]
+    branches: [main, main-nextgen]
   pull_request:
+
 # If new code is pushed to a PR branch, then cancel in progress workflows for that PR. Ensures that
 # we don't waste CI time, and returns results quicker https://github.com/jonhoo/rust-ci-conf/pull/5
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
+
 name: check
+
 jobs:
+
   fmt:
     runs-on: ubuntu-latest
-    name: stable / fmt
+    name: nightly / fmt
+
+    strategy:
+      fail-fast: false
+      matrix:
+        workdir: [ ".", "examples/rt633", "examples/rt685s-evk",]
+
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - name: Install stable
-        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install nightly
+        uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
+
       - name: cargo fmt --check
         run: cargo fmt --check
+        working-directory: ${{ matrix.workdir }}
 
-  clippy:
+  clippy-examples:
     runs-on: ubuntu-latest
     name: ${{ matrix.toolchain }} / clippy
+
     permissions:
       contents: read
       checks: write
+
     strategy:
       fail-fast: false
       matrix:
         # Get early warning of new lints which are regularly introduced in beta channels.
-        toolchain: [stable, beta]
+        toolchain: [stable]
+        workdir: ["examples"]
+
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
+
       - name: Install ${{ matrix.toolchain }}
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
           components: clippy
+
       - name: cargo clippy
-        uses: giraffate/clippy-action@v1
-        with:
-          reporter: 'github-pr-check'
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: ${{ matrix.workdir }}
+        run: |
+          cargo clippy --locked -- -Dwarnings -D clippy::suspicious -D clippy::correctness -D clippy::perf -D clippy::style
 
   # Enable once we have a released crate
   # semver:
   #   runs-on: ubuntu-latest
   #   name: semver
-  #   strategy:
-  #     fail-fast: false
   #   steps:
   #     - uses: actions/checkout@v4
   #       with:
@@ -85,14 +102,18 @@ jobs:
     # API be documented as only available in some specific platforms.
     runs-on: ubuntu-latest
     name: nightly / doc
+
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
+
       - name: Install nightly
         uses: dtolnay/rust-toolchain@nightly
+
       - name: cargo doc
-        run: cargo doc --no-deps --all-features
+        run: |
+          cargo doc --no-deps --all-features --locked
         env:
           RUSTDOCFLAGS: --cfg docsrs
 
@@ -101,16 +122,24 @@ jobs:
     # which is required for feature unification
     runs-on: ubuntu-latest
     name: ubuntu / stable / features
+
+    strategy:
+      fail-fast: false
+
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
+
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
-      - name: cargo install cargo-hack
-        uses: taiki-e/install-action@cargo-hack
-      # intentionally no target specifier; see https://github.com/jonhoo/rust-ci-conf/pull/4
-      # --feature-powerset runs for every combination of features
+        with:
+          toolchain: stable
+          components: clippy
+
+      - name: rustup target add thumbv8m.main-none-eabihf
+        run: rustup target add thumbv8m.main-none-eabihf
+
       - name: cargo hack
         run: cargo hack --feature-powerset check
 
@@ -119,33 +148,22 @@ jobs:
     # our dependencies.
     runs-on: ubuntu-latest
     name: ubuntu / stable / deny
+
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
+
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
+
       - name: cargo install cargo-deny
         uses: EmbarkStudios/cargo-deny-action@v2
         with:
           log-level: warn
           manifest-path: ./Cargo.toml
           command: check
-          arguments: --all-features
-
-  test:
-    runs-on: ubuntu-latest
-    name: ubuntu / stable / test
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: true
-      - name: Install stable
-        uses: dtolnay/rust-toolchain@stable
-      - name: cargo install cargo-hack
-        uses: taiki-e/install-action@cargo-hack
-      - name: cargo test
-        run: cargo hack --feature-powerset test
+          arguments: --all-features --locked
 
   msrv:
     # check that we can build using the minimal rust version that is specified by this crate
@@ -155,15 +173,33 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        msrv: ["1.85"]
+        msrv: ["1.90"] # We're relying on namespaced-features, which
+                       # was released in 1.60
+                       #
+                       # We also depend on `fixed' which requires rust
+                       # 1.71
+                       #
+                       # Additionally, we depend on embedded-hal-async
+                       # which requires 1.75
+                       #
+                       # embassy-time requires 1.79 due to
+                       # collapse_debuginfo
+                       #
+                       # embassy upstream switched to rust 1.85
+                       #
+                       # unsigned_is_multiple_of requires 1.90, else we get clippy warnings
+
     name: ubuntu / ${{ matrix.msrv }}
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
+
       - name: Install ${{ matrix.msrv }}
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.msrv }}
+
       - name: cargo +${{ matrix.msrv }} check
-        run: cargo check
+        run: |
+          cargo check --all-features --locked
