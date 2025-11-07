@@ -6,7 +6,6 @@ use embassy_executor::Spawner;
 use embassy_stm32::gpio::{AnyPin, Level, Output, Speed};
 use embassy_stm32::low_power::Executor;
 use embassy_stm32::rcc::LsConfig;
-use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_stm32::{Config, Peri};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
@@ -26,10 +25,6 @@ async fn async_main(spawner: Spawner) {
     // if you wan't to measure the power-consumption, or for production: uncomment this line
     // config.enable_debug_during_sleep = false;
     let p = embassy_stm32::init(config);
-
-    // give the RTC to the executor...
-    let rtc = Rtc::new(p.RTC, RtcConfig::default());
-    embassy_stm32::low_power::stop_with_rtc(rtc);
 
     spawner.spawn(unwrap!(blinky(p.PC7.into())));
     spawner.spawn(unwrap!(timeout()));
