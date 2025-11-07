@@ -463,7 +463,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         );
 
         #[cfg(all(feature = "low-power", stm32wlex))]
-        let _device_busy = crate::low_power::DeviceBusy::new();
+        let _device_busy = crate::low_power::DeviceBusy::new_stop1();
 
         // Ensure no conversions are ongoing and ADC is enabled.
         Self::cancel_conversions();

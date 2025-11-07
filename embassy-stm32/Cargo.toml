@@ -313,6 +313,7 @@ single-bank = []
 
 ## internal use only
 _split-pins-enabled = []
+_allow-disable-rtc = []
 
 ## internal use only
 _dual-core = []

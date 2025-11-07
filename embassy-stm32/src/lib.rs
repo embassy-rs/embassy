@@ -241,6 +241,14 @@ pub struct Config {
     /// RCC config.
     pub rcc: rcc::Config,
 
+    #[cfg(feature = "low-power")]
+    /// RTC config
+    pub rtc: rtc::RtcConfig,
+
+    #[cfg(feature = "low-power")]
+    /// Minimum time to stop
+    pub min_stop_pause: embassy_time::Duration,
+
     /// Enable debug during sleep and stop.
     ///
     /// May increase power consumption. Defaults to true.
@@ -294,6 +302,10 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             rcc: Default::default(),
+            #[cfg(feature = "low-power")]
+            rtc: Default::default(),
+            #[cfg(feature = "low-power")]
+            min_stop_pause: embassy_time::Duration::from_millis(250),
             #[cfg(dbgmcu)]
             enable_debug_during_sleep: true,
             #[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba))]
@@ -623,6 +635,12 @@ fn init_hw(config: Config) -> Peripherals {
             exti::init(cs);
 
             rcc::init_rcc(cs, config.rcc);
+
+            #[cfg(feature = "low-power")]
+            crate::rtc::init_rtc(cs, config.rtc);
+
+            #[cfg(feature = "low-power")]
+            crate::time_driver::get_driver().set_min_stop_pause(cs, config.min_stop_pause);
         }
 
         p

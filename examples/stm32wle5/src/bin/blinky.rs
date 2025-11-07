@@ -7,7 +7,6 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::low_power::Executor;
-use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_time::Timer;
 use panic_probe as _;
 use static_cell::StaticCell;
@@ -68,11 +67,6 @@ async fn async_main(_spawner: Spawner) {
         static SERIAL: StaticCell<Uart<'static, Blocking>> = StaticCell::new();
         defmt_serial::defmt_serial(SERIAL.init(uart));
     }
-
-    // give the RTC to the low_power executor...
-    let rtc_config = RtcConfig::default();
-    let rtc = Rtc::new(p.RTC, rtc_config);
-    embassy_stm32::low_power::stop_with_rtc(rtc);
 
     info!("Hello World!");
 
