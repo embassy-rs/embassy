@@ -6,7 +6,22 @@ who = "Felipe Balbi <febalbi@microsoft.com>"
 criteria = "safe-to-deploy"
 version = "1.5.0"
 
+[[audits.cfg-if]]
+who = "Felipe Balbi <febalbi@microsoft.com>"
+criteria = "safe-to-deploy"
+version = "1.0.4"
+
+[[audits.darling]]
+who = "Felipe Balbi <febalbi@microsoft.com>"
+criteria = "safe-to-deploy"
+version = "0.20.11"
+
 [[audits.darling_core]]
+who = "Felipe Balbi <febalbi@microsoft.com>"
+criteria = "safe-to-deploy"
+version = "0.20.11"
+
+[[audits.darling_macro]]
 who = "Felipe Balbi <febalbi@microsoft.com>"
 criteria = "safe-to-deploy"
 version = "0.20.11"
@@ -16,6 +31,31 @@ who = "Felipe Balbi <febalbi@microsoft.com>"
 criteria = "safe-to-deploy"
 version = "1.0.0"
 notes = "defmt-rtt is used for all our logging purposes. Version 1.0.0 merely stabilizes what was already available previously."
+
+[[audits.defmt-rtt]]
+who = "Felipe Balbi <febalbi@microsoft.com>"
+criteria = "safe-to-deploy"
+delta = "1.0.0 -> 1.1.0"
+
+[[audits.document-features]]
+who = "Felipe Balbi <febalbi@microsoft.com>"
+criteria = "safe-to-deploy"
+version = "0.2.12"
+
+[[audits.document-features]]
+who = "Felipe Balbi <febalbi@microsoft.com>"
+criteria = "safe-to-run"
+version = "0.2.12"
+
+[[audits.embassy-executor]]
+who = "Felipe Balbi <febalbi@microsoft.com>"
+criteria = "safe-to-deploy"
+version = "0.9.1"
+
+[[audits.embassy-executor-macros]]
+who = "Felipe Balbi <febalbi@microsoft.com>"
+criteria = "safe-to-deploy"
+version = "0.7.0"
 
 [[audits.embassy-executor-timer-queue]]
 who = "Felipe Balbi <febalbi@microsoft.com>"
@@ -32,7 +72,57 @@ who = "Felipe Balbi <febalbi@microsoft.com>"
 criteria = "safe-to-deploy"
 version = "0.3.0"
 
+[[audits.ident_case]]
+who = "Felipe Balbi <febalbi@microsoft.com>"
+criteria = "safe-to-deploy"
+version = "1.0.1"
+
+[[audits.litrs]]
+who = "Felipe Balbi <febalbi@microsoft.com>"
+criteria = "safe-to-deploy"
+version = "1.0.0"
+
+[[audits.panic-probe]]
+who = "Felipe Balbi <febalbi@microsoft.com>"
+criteria = "safe-to-deploy"
+version = "1.0.0"
+
+[[audits.proc-macro2]]
+who = "Felipe Balbi <febalbi@microsoft.com>"
+criteria = "safe-to-deploy"
+version = "1.0.103"
+
+[[audits.quote]]
+who = "Felipe Balbi <febalbi@microsoft.com>"
+criteria = "safe-to-deploy"
+version = "1.0.42"
+
+[[audits.stable_deref_trait]]
+who = "Felipe Balbi <febalbi@microsoft.com>"
+criteria = "safe-to-deploy"
+version = "1.2.1"
+
 [[audits.static_cell]]
 who = "jerrysxie <jerryxie@microsoft.com>"
 criteria = "safe-to-run"
 delta = "2.1.0 -> 2.1.1"
+
+[[audits.syn]]
+who = "Felipe Balbi <febalbi@microsoft.com>"
+criteria = "safe-to-deploy"
+delta = "2.0.100 -> 2.0.109"
+
+[[audits.thiserror]]
+who = "Felipe Balbi <febalbi@microsoft.com>"
+criteria = "safe-to-deploy"
+version = "2.0.17"
+
+[[audits.thiserror-impl]]
+who = "Felipe Balbi <febalbi@microsoft.com>"
+criteria = "safe-to-deploy"
+version = "2.0.17"
+
+[[audits.unicode-ident]]
+who = "Felipe Balbi <febalbi@microsoft.com>"
+criteria = "safe-to-deploy"
+version = "1.0.22"

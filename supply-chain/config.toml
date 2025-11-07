@@ -49,14 +49,6 @@ criteria = "safe-to-deploy"
 version = "1.2.0"
 criteria = "safe-to-deploy"
 
-[[exemptions.darling]]
-version = "0.20.11"
-criteria = "safe-to-run"
-
-[[exemptions.darling_macro]]
-version = "0.20.11"
-criteria = "safe-to-run"
-
 [[exemptions.defmt]]
 version = "1.0.1"
 criteria = "safe-to-deploy"
@@ -72,14 +64,6 @@ criteria = "safe-to-deploy"
 [[exemptions.embassy-embedded-hal]]
 version = "0.5.0"
 criteria = "safe-to-deploy"
-
-[[exemptions.embassy-executor]]
-version = "0.9.0"
-criteria = "safe-to-run"
-
-[[exemptions.embassy-executor-macros]]
-version = "0.7.0"
-criteria = "safe-to-run"
 
 [[exemptions.embassy-futures]]
 version = "0.1.2"
@@ -153,10 +137,6 @@ criteria = "safe-to-deploy"
 version = "0.8.0"
 criteria = "safe-to-deploy"
 
-[[exemptions.ident_case]]
-version = "1.0.1"
-criteria = "safe-to-run"
-
 [[exemptions.itertools]]
 version = "0.11.0"
 criteria = "safe-to-deploy"
@@ -203,14 +183,6 @@ criteria = "safe-to-run"
 
 [[exemptions.syn]]
 version = "2.0.100"
-criteria = "safe-to-deploy"
-
-[[exemptions.thiserror]]
-version = "2.0.12"
-criteria = "safe-to-deploy"
-
-[[exemptions.thiserror-impl]]
-version = "2.0.12"
 criteria = "safe-to-deploy"
 
 [[exemptions.typenum]]
