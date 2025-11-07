@@ -1,6 +1,8 @@
 # Embassy MCXA276 HAL
 
-A Hardware Abstraction Layer (HAL) for the NXP MCXA276 microcontroller using the Embassy async framework. This HAL provides safe, idiomatic Rust interfaces for GPIO, UART, and OSTIMER peripherals.
+A Hardware Abstraction Layer (HAL) for the NXP MCXA276 microcontroller
+using the Embassy async framework. This HAL provides safe, idiomatic
+Rust interfaces for GPIO, UART, and OSTIMER peripherals.
 
 ## Prerequisites
 
@@ -35,8 +37,6 @@ cargo install probe-rs --features cli
   ```
 - Install a serial terminal (e.g., Tera Term): https://ttssh2.osdn.jp/
 - USB drivers: Windows 10/11 usually picks up the board as a USB CDC device automatically (COM port)
-
-
 
 ### Hardware Requirements
 
@@ -108,10 +108,12 @@ PROBE=1fc9:0143:H3AYDQVQMTROB cargo run --features "lpuart2 ostimer0" --example 
 # RTC example
 PROBE=1fc9:0143:H3AYDQVQMTROB cargo run --features "lpuart2 rtc0" --example rtc_alarm
 ```
+
 **Note:** All examples run from RAM, not flash memory. They are loaded directly into RAM for faster development iteration.
 
 **Important:** After pressing the RESET button on the board, the first `cargo run` attempt may fail with a connection error. This is expected - simply run the command again and it will work. The run.sh script now properly sets the Vector Table Offset Register (VTOR) to point to the RAM-based vector table, ensuring the correct stack pointer and reset vector are used.
 
+```console
 smw016108@smw016108:~/Downloads/nxp/rust/uart/embassy-mcxa276$ PROBE=1fc9:0143:H3AYDQVQMTROB cargo run --release --features "gpio ostimer0" --example blink
     Finished `release` profile [optimized + debuginfo] target(s) in 0.07s
      Running `/home/smw016108/Downloads/nxp/rust/uart/embassy-mcxa276/./run.sh target/thumbv8m.main-none-eabihf/release/examples/blink`
@@ -128,6 +130,7 @@ probe-rs gdb server failed to connect to target. Log:
 smw016108@smw016108:~/Downloads/nxp/rust/uart/embassy-mcxa276$ PROBE=1fc9:0143:H3AYDQVQMTROB cargo run --release --features "gpio ostimer0" --example blink
     Finished `release` profile [optimized + debuginfo] target(s) in 0.02s
      Running `/home/smw016108/Downloads/nxp/rust/uart/embassy-mcxa276/./run.sh target/thumbv8m.main-none-eabihf/release/examples/blink`
+```
 
 ### Additional UART Examples
 
@@ -150,6 +153,7 @@ Configures ADC1 channel A8 (pin P1_10) and prints conversion values to UART2 per
 #### `adc_interrupt`
 Triggers a conversion and signals completion via ADC1 interrupt, printing a notification on UART2.
 
+```console
 0x20002040 in ?? ()
 Supported Commands:
 
@@ -163,8 +167,11 @@ Loading section .Reset, size 0x58 lma 0x20000ba4
 Loading section .rodata, size 0x28 lma 0x20000bfc
 Start address 0x20000ba4, load size 3106
 Transfer rate: 13 KB/sec, 776 bytes/write.
+```
 
 then I see the LED blinking. I press CTRL+C to exit. It will show me ^C
+
+```console
 Program received signal SIGINT, Interrupt.
 0x20000880 in embassy_executor::arch::thread::Executor::run<blink::__cortex_m_rt_main::{closure_env#0}> (self=0x200027e8, init=...) at /home/smw016108/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/embassy-executor-0.9.1/src/arch/cortex_m.rs:106
 106                         asm!("wfe");
@@ -204,8 +211,11 @@ Loading section .Reset, size 0x58 lma 0x2000244c
 Loading section .rodata, size 0x6dc lma 0x200024a4
 Start address 0x2000244c, load size 11134
 Transfer rate: 16 KB/sec, 1855 bytes/write.
+```
 
 I can see in the console
+
+```console
 OSTIMER Alarm Example
 Scheduling alarm for 2 seconds...
 Alarm scheduled successfully
@@ -215,9 +225,11 @@ Alarm scheduled. Waiting 1 second then canceling...
 Alarm canceled
 Alarm was successfully canceled
 Example complete
+```
 
 then I press CTRL+C to stop running
 
+```console
 ^C
 Program received signal SIGINT, Interrupt.
 0x20000e64 in embassy_executor::arch::thread::Executor::run<ostimer_alarm::__cortex_m_rt_main::{closure_env#0}> (self=0x200027e8, init=...) at /home/smw016108/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/embassy-executor-0.9.1/src/arch/cortex_m.rs:106
@@ -225,7 +237,7 @@ Program received signal SIGINT, Interrupt.
 [Inferior 1 (process 1) detached]
 Program loaded and started (no reset)
 smw016108@smw016108:~/Downloads/nxp/rust/uart/embassy-mcxa276$
-
+```
 
 ### Windows: Running examples (RAM, no RTT/defmt)
 
@@ -233,22 +245,27 @@ Important: On Windows, do not use `cargo run` because `.cargo/config.toml` sets 
 
 1) Find your probe and COM port
 - List probes:
-  ```powershell
+
+  ```console
   probe-rs list
   ```
 - If multiple probes are attached, set the specific one (replace with your ID):
-  ```powershell
+
+  ```console
   $env:PROBE_RS_PROBE = "1366:0101:000600110607"
   ```
+
 - Check Windows Device Manager → Ports (COM & LPT) for the board’s COM port.
 
 2) Build the example
-```powershell
+
+```console
 cargo build --example hello --features "lpuart2"
 ```
 
 3) Run from RAM with probe-rs
-```powershell
+
+```console
 probe-rs run --chip MCXA276 --protocol swd --speed 1000 target/thumbv8m.main-none-eabihf/debug/examples/hello
 ```
 You will see a short probe-rs warning like "unknown variant, try to set watch point"; it’s harmless.
@@ -268,8 +285,9 @@ Notes
 - If the first attempt after a reset fails to connect, just run the command again.
 - UART2 pins: TX=P2_2, RX=P2_3 (ALT3), 115200 8N1.
 
-Quick commands for other examples (PowerShell)
-```powershell
+Quick commands for other examples:
+
+```console
 # Build
 cargo build --example blink            --features "gpio ostimer0"
 cargo build --example lpuart_polling   --features "lpuart2 ostimer0"
@@ -303,14 +321,13 @@ How I tested on Windows
 
 To build without running:
 
-```bash
+```console
 cargo build --features "gpio ostimer0" --example blink
 cargo build --features "lpuart2 ostimer0" --example hello
 cargo build --features "lpuart2 ostimer0" --example ostimer_alarm
 cargo build --features "lpuart2 rtc0" --example rtc_alarm
 # etc.
 ```
-
 
 ## Development Notes
 
@@ -339,7 +356,6 @@ Update (SVD 25.06.00, mcxa-pac a9dd33): No manual PAC edits are required anymore
 ### Warning: Avoid `#[inline(always)]` in Performance-Critical Code
 
 Using `#[inline(always)]` can cause the Rust compiler to generate incorrect assembly, leading to register corruption or unexpected behavior. For example, in tight polling loops like those in the OSTIMER driver, this attribute may result in invalid instructions that zero registers (e.g., `movs r1, r0` causing r1=0), triggering hardfaults.
-
 
 ## License
 
