@@ -2,8 +2,20 @@
 name = "embassy-net-adin1110"
 version = "0.3.1"
 description = "embassy-net driver for the ADIN1110 ethernet chip"
-keywords = ["embedded", "ADIN1110", "embassy-net", "embedded-hal-async", "ethernet"]
-categories = ["embedded", "hardware-support", "no-std", "network-programming", "asynchronous"]
+keywords = [
+    "embedded",
+    "ADIN1110",
+    "embassy-net",
+    "embedded-hal-async",
+    "ethernet",
+]
+categories = [
+    "embedded",
+    "hardware-support",
+    "no-std",
+    "network-programming",
+    "asynchronous",
+]
 license = "MIT OR Apache-2.0"
 edition = "2024"
 repository = "https://github.com/embassy-rs/embassy"
@@ -22,15 +34,21 @@ embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 bitfield = "0.14.0"
 
 [dev-dependencies]
-embedded-hal-mock = { version = "0.10.0", features = ["embedded-hal-async", "eh1"] }
+embedded-hal-mock = { version = "0.10.0", features = [
+    "embedded-hal-async",
+    "eh1",
+] }
 crc = "3.0.1"
 env_logger = "0.10"
 critical-section = { version = "1.1.2", features = ["std"] }
 futures-test = "0.3.28"
 
 [features]
+default = ["generic-spi"]
 defmt = ["dep:defmt", "embedded-hal-1/defmt-03"]
 log = ["dep:log"]
+generic-spi = []
+tc6 = []
 
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-net-adin1110-v$VERSION/embassy-net-adin1110/src/"

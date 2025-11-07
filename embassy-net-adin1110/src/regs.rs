@@ -399,10 +399,14 @@ impl LedPolarity {
 }
 
 /// SPI Header
+#[cfg(feature = "generic-spi")]
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub struct SpiHeader(pub u16);
+
+#[cfg(feature = "generic-spi")]
 bitfield_bitrange! {struct SpiHeader(u16)}
 
+#[cfg(feature = "generic-spi")]
 impl SpiHeader {
     bitfield_fields! {
         u16;

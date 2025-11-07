@@ -4,13 +4,7 @@
 #![allow(clippy::doc_markdown)]
 #![allow(clippy::missing_errors_doc)]
 
-// This example works on a ANALOG DEVICE EVAL-ADIN110EBZ board.
-// Settings switch S201 "HW CFG":
-//  - Without SPI CRC: OFF-ON-OFF-OFF-OFF
-//  -    With SPI CRC: ON -ON-OFF-OFF-OFF
-// Settings switch S303 "uC CFG":
-// - CFG0: On = static ip, Off = Dhcp
-// - CFG1: Ethernet `FCS` on TX path: On, Off
+// This example works on a Bristlemouth dev kit from Sofar Ocean.
 // The webserver shows the actual temperature of the onboard i2c temp sensor.
 
 use core::marker::PhantomData;
@@ -22,13 +16,12 @@ use embassy_executor::Spawner;
 use embassy_futures::select::{Either, select};
 use embassy_futures::yield_now;
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{Ipv4Address, Ipv4Cidr, Stack, StackResources, StaticConfigV4};
-use embassy_net_adin1110::{ADIN1110, Device, GenericSpi, Runner};
-use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
+use embassy_net::{Ipv6Address, Ipv6Cidr, Stack, StackResources, StaticConfigV6};
+use embassy_net_adin1110::{ADIN1110, Device, Runner, Tc6};
+use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::i2c::{self, Config as I2C_Config, I2c};
 use embassy_stm32::mode::Async;
 use embassy_stm32::rng::{self, Rng};
-use embassy_stm32::spi::mode::Master;
 use embassy_stm32::spi::{Config as SPI_Config, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, exti, pac, peripherals};
@@ -39,11 +32,12 @@ use embedded_io::Write as bWrite;
 use embedded_io_async::Write;
 use heapless::Vec;
 use panic_probe as _;
+use pca9535::{GPIOBank, Pca9535Immediate, StandardExpanderInterface};
 use static_cell::StaticCell;
 
 bind_interrupts!(struct Irqs {
-    I2C3_EV => i2c::EventInterruptHandler<peripherals::I2C3>;
-    I2C3_ER => i2c::ErrorInterruptHandler<peripherals::I2C3>;
+    I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
+    I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
     RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
@@ -51,15 +45,15 @@ bind_interrupts!(struct Irqs {
 // MAC-address used by the adin1110
 const MAC: [u8; 6] = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
 // Static IP settings
-const IP_ADDRESS: Ipv4Cidr = Ipv4Cidr::new(Ipv4Address::new(192, 168, 1, 5), 24);
+const IP_ADDRESS: Ipv6Cidr = Ipv6Cidr::new(Ipv6Address::new(0xfd00, 0, 0, 0, 0xc0ff, 0xeef0, 0xcacc, 0x1a99), 64);
 // Listen port for the webserver
 const HTTP_LISTEN_PORT: u16 = 80;
 
-pub type SpeSpi = Spi<'static, Async, Master>;
+pub type SpeSpi = Spi<'static, Async>;
 pub type SpeSpiCs = ExclusiveDevice<SpeSpi, Output<'static>, Delay>;
 pub type SpeInt = exti::ExtiInput<'static>;
 pub type SpeRst = Output<'static>;
-pub type Adin1110T = ADIN1110<GenericSpi<SpeSpiCs>>;
+pub type Adin1110T = ADIN1110<Tc6<SpeSpiCs>>;
 pub type TempSensI2c = I2c<'static, Async, i2c::Master>;
 
 static TEMP: AtomicI32 = AtomicI32::new(0);
@@ -70,23 +64,24 @@ async fn main(spawner: Spawner) {
 
     let mut config = embassy_stm32::Config::default();
     {
-        use embassy_stm32::rcc::*;
-        // 80Mhz clock (Source: 8 / SrcDiv: 1 * PllMul 20 / ClkDiv 2)
-        // 80MHz highest frequency for flash 0 wait.
+        use embassy_stm32::rcc::{
+            Hse, HseMode, Hsi48Config, Msirange, Pll, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk,
+        };
         config.rcc.sys = Sysclk::PLL1_R;
         config.rcc.hse = Some(Hse {
-            freq: Hertz::mhz(8),
+            freq: Hertz(16_000_000),
             mode: HseMode::Oscillator,
         });
-        config.rcc.pll = Some(Pll {
-            source: PllSource::HSE,
-            prediv: PllPreDiv::DIV1,
-            mul: PllMul::MUL20,
-            divp: None,
-            divq: None,
-            divr: Some(PllRDiv::DIV2), // sysclk 80Mhz clock (8 / 1 * 20 / 2)
+        config.rcc.pll1 = Some(Pll {
+            source: PllSource::MSIS,
+            prediv: PllPreDiv::DIV3,
+            mul: PllMul::MUL10,
+            divp: Some(PllDiv::DIV2),
+            divq: Some(PllDiv::DIV2),
+            divr: Some(PllDiv::DIV1),
         });
-        config.rcc.hsi48 = Some(Default::default()); // needed for RNG
+        config.rcc.hsi48 = Some(Hsi48Config::default());
+        config.rcc.msis = Some(Msirange::RANGE_48MHZ);
     }
 
     let dp = embassy_stm32::init(config);
@@ -96,97 +91,55 @@ async fn main(spawner: Spawner) {
 
     defmt::println!("Setup IO pins");
 
-    // Setup LEDs
-    let _led_uc1_green = Output::new(dp.PC13, Level::Low, Speed::Low);
-    let mut led_uc2_red = Output::new(dp.PE2, Level::High, Speed::Low);
-    let led_uc3_yellow = Output::new(dp.PE6, Level::High, Speed::Low);
-    let led_uc4_blue = Output::new(dp.PG15, Level::High, Speed::Low);
-
-    // Read the uc_cfg switches
-    let uc_cfg0 = Input::new(dp.PB2, Pull::None);
-    let uc_cfg1 = Input::new(dp.PF11, Pull::None);
-    let _uc_cfg2 = Input::new(dp.PG6, Pull::None);
-    let _uc_cfg3 = Input::new(dp.PG11, Pull::None);
-
     // Setup I2C pins
-    let temp_sens_i2c = I2c::new(
-        dp.I2C3,
-        dp.PG7,
-        dp.PG8,
+    let i2c_bus = I2c::new(
+        dp.I2C1,
+        dp.PB6,
+        dp.PB7,
         Irqs,
-        dp.DMA1_CH6,
-        dp.DMA1_CH7,
+        dp.GPDMA1_CH9,
+        dp.GPDMA1_CH8,
         I2C_Config::default(),
     );
 
+    // Setup LEDs
+    let mut expander = Pca9535Immediate::new(i2c_bus, 0x21);
+    expander.pin_into_output(GPIOBank::Bank1, 2).unwrap();
+
+    // let _led_uc1_green = Output::new(dp.PC13, Level::Low, Speed::Low); // expander IO1 1
+    // let mut led_uc1_red = Output::new(dp.PE2, Level::High, Speed::Low); // expander IO1 2
+    // let led_uc2_green = Output::new(dp.PE6, Level::High, Speed::Low); // expander IO1 3
+    // let _led_uc2_red = Output::new(dp.PG15, Level::High, Speed::Low); // expander IO1 4
+
     // Setup IO and SPI for the SPE chip
-    let spe_reset_n = Output::new(dp.PC7, Level::Low, Speed::Low);
-    let spe_cfg0 = Input::new(dp.PC8, Pull::None);
-    let spe_cfg1 = Input::new(dp.PC9, Pull::None);
-    let _spe_ts_capt = Output::new(dp.PC6, Level::Low, Speed::Low);
+    let spe_reset_n = Output::new(dp.PA0, Level::Low, Speed::Low);
+    let spe_int = exti::ExtiInput::new(dp.PB8, dp.EXTI8, Pull::None);
+    let spe_spi_cs_n = Output::new(dp.PA15, Level::High, Speed::High);
+    let spe_spi_sclk = dp.PB3;
+    let spe_spi_miso = dp.PB4;
+    let spe_spi_mosi = dp.PB5;
 
-    let spe_int = exti::ExtiInput::new(dp.PB11, dp.EXTI11, Pull::None);
-
-    let spe_spi_cs_n = Output::new(dp.PB12, Level::High, Speed::High);
-    let spe_spi_sclk = dp.PB13;
-    let spe_spi_miso = dp.PB14;
-    let spe_spi_mosi = dp.PB15;
-
-    // Don't turn the clock to high, clock must fit within the system clock as we get a runtime panic.
     let mut spi_config = SPI_Config::default();
-    spi_config.frequency = Hertz(25_000_000);
+    spi_config.frequency = Hertz(20_000_000);
 
     let spe_spi: SpeSpi = Spi::new(
-        dp.SPI2,
+        dp.SPI3,
         spe_spi_sclk,
         spe_spi_mosi,
         spe_spi_miso,
-        dp.DMA1_CH1,
-        dp.DMA1_CH2,
+        dp.GPDMA1_CH13,
+        dp.GPDMA1_CH12,
         spi_config,
     );
     let spe_spi = SpeSpiCs::new(spe_spi, spe_spi_cs_n, Delay);
 
-    let cfg0_without_crc = spe_cfg0.is_high();
-    let cfg1_spi_mode = spe_cfg1.is_high();
-    let uc_cfg1_fcs_en = uc_cfg1.is_low();
-
-    defmt::println!(
-        "ADIN1110: CFG SPI-MODE 1-{}, CRC-bit 0-{} FCS-{}",
-        cfg1_spi_mode,
-        cfg0_without_crc,
-        uc_cfg1_fcs_en
-    );
-
-    // Check the SPI mode selected with the "HW CFG" dip-switch
-    if !cfg1_spi_mode {
-        error!(
-            "Driver doesn´t support SPI Protolcol \"OPEN Alliance\".\nplease use the \"Generic SPI\"! Turn On \"HW CFG\": \"SPI_CFG1\""
-        );
-        loop {
-            led_uc2_red.toggle();
-            Timer::after(Duration::from_hz(10)).await;
-        }
-    };
-
     static STATE: StaticCell<embassy_net_adin1110::State<8, 8>> = StaticCell::new();
     let state = STATE.init(embassy_net_adin1110::State::<8, 8>::new());
 
-    let (device, runner) = embassy_net_adin1110::new(
-        MAC,
-        state,
-        spe_spi,
-        spe_int,
-        spe_reset_n,
-        !cfg0_without_crc,
-        uc_cfg1_fcs_en,
-    )
-    .await;
+    let (device, runner) = embassy_net_adin1110::new_tc6(MAC, state, spe_spi, spe_int, spe_reset_n, false).await;
 
     // Start task blink_led
-    spawner.spawn(unwrap!(heartbeat_led(led_uc3_yellow)));
-    // Start task temperature measurement
-    spawner.spawn(unwrap!(temp_task(temp_sens_i2c, led_uc4_blue)));
+    // spawner.spawn(unwrap!(heartbeat_led(led_uc2_green)));
     // Start ethernet task
     spawner.spawn(unwrap!(ethernet_task(runner)));
 
@@ -194,17 +147,11 @@ async fn main(spawner: Spawner) {
     // Generate random seed
     let seed = rng.next_u64();
 
-    let ip_cfg = if uc_cfg0.is_low() {
-        println!("Waiting for DHCP...");
-        let dhcp4_config = embassy_net::DhcpConfig::default();
-        embassy_net::Config::dhcpv4(dhcp4_config)
-    } else {
-        embassy_net::Config::ipv4_static(StaticConfigV4 {
-            address: IP_ADDRESS,
-            gateway: None,
-            dns_servers: Vec::new(),
-        })
-    };
+    let ip_cfg = embassy_net::Config::ipv6_static(StaticConfigV6 {
+        address: IP_ADDRESS,
+        gateway: None,
+        dns_servers: Vec::new(),
+    });
 
     // Init network stack
     static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
@@ -242,7 +189,7 @@ async fn main(spawner: Spawner) {
                     break;
                 }
             };
-            led_uc2_red.set_low();
+            expander.pin_set_low(GPIOBank::Bank1, 2).unwrap();
 
             let status_line = "HTTP/1.1 200 OK";
             let contents = PAGE;
@@ -269,14 +216,14 @@ async fn main(spawner: Spawner) {
                 break;
             }
 
-            led_uc2_red.set_high();
+            expander.pin_set_high(GPIOBank::Bank1, 2).unwrap();
         }
     }
 }
 
-async fn wait_for_config(stack: Stack<'static>) -> embassy_net::StaticConfigV4 {
+async fn wait_for_config(stack: Stack<'static>) -> embassy_net::StaticConfigV6 {
     loop {
-        if let Some(config) = stack.config_v4() {
+        if let Some(config) = stack.config_v6() {
             return config;
         }
         yield_now().await;
@@ -310,7 +257,7 @@ async fn temp_task(temp_dev_i2c: TempSensI2c, mut led: Output<'static>) -> ! {
                 }
                 Err(e) => defmt::println!("ADT7422: {}", e),
             },
-            Either::Second(_) => println!("Timeout"),
+            Either::Second(()) => println!("Timeout"),
         }
 
         tmr.next().await;
@@ -318,7 +265,7 @@ async fn temp_task(temp_dev_i2c: TempSensI2c, mut led: Output<'static>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn ethernet_task(runner: Runner<'static, GenericSpi<SpeSpiCs>, SpeInt, SpeRst>) -> ! {
+async fn ethernet_task(runner: Runner<'static, Tc6<SpeSpiCs>, SpeInt, SpeRst>) -> ! {
     runner.run().await
 }
 
@@ -364,7 +311,7 @@ pub enum Error<I2cError: Format> {
     Address,
 }
 
-impl<'d, BUS> ADT7422<'d, BUS>
+impl<BUS> ADT7422<'_, BUS>
 where
     BUS: I2cBus,
     BUS::Error: Format,
