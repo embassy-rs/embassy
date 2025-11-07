@@ -1,10 +1,10 @@
 use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, compiler_fence};
 
-use super::{AnyAdcChannel, SampleTime};
 #[allow(unused_imports)]
 use embassy_hal_internal::Peri;
 
+use super::{AnyAdcChannel, SampleTime};
 use crate::adc::Adc;
 #[allow(unused_imports)]
 use crate::adc::Instance;
