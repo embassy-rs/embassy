@@ -131,7 +131,8 @@ impl Prescaler {
     }
 }
 
-// Trigger source for ADC conversions
+// Trigger source for ADC conversions¨
+#[derive(Copy, Clone)]
 pub struct ConversionTrigger {
     // See Table 166 and 167 in RM0440 Rev 9 for ADC1/2 External triggers
     // Note that Injected and Regular channels uses different mappings
@@ -140,6 +141,7 @@ pub struct ConversionTrigger {
 }
 
 // Conversion mode for regular ADC channels
+#[derive(Copy, Clone)]
 pub enum RegularConversionMode {
     // Samples as fast as possible
     Continuous,
@@ -384,25 +386,23 @@ impl<'d, T: Instance> Adc<'d, T> {
         self.read_channel(channel)
     }
 
+    /// Start regular adc conversion
     pub(super) fn start() {
-        // Start adc conversion
         T::regs().cr().modify(|reg| {
             reg.set_adstart(true);
         });
     }
 
+    /// Stop regular conversions
     pub(super) fn stop() {
-        // Stop adc conversion
-        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
-            T::regs().cr().modify(|reg| {
-                reg.set_adstp(Adstp::STOP);
-            });
-            while T::regs().cr().read().adstart() {}
-        }
+        Self::stop_regular_conversions();
     }
 
+    /// Teardown method for stopping regular ADC conversions
     pub(super) fn teardown_adc() {
-        //disable dma control
+        Self::stop_regular_conversions();
+
+        // Disable dma control
         T::regs().cfgr().modify(|reg| {
             reg.set_dmaen(Dmaen::DISABLE);
         });
@@ -434,7 +434,8 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// defmt::info!("measurements: {}", measurements);
     /// ```
     ///
-    /// Note: This is not very efficient as the ADC needs to be reconfigured for each read.
+    /// Note: This is not very efficient as the ADC needs to be reconfigured for each read. Use
+    /// `into_ring_buffered`, `into_ring_buffered_and_injected`
     pub async fn read(
         &mut self,
         rx_dma: Peri<'_, impl RxDma<T>>,
@@ -452,7 +453,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         );
 
         // Ensure no conversions are ongoing and ADC is enabled.
-        Self::cancel_conversions();
+        Self::stop_regular_conversions();
         self.enable();
 
         // Set sequence length
@@ -520,7 +521,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         transfer.await;
 
         // Ensure conversions are finished.
-        Self::cancel_conversions();
+        Self::stop_regular_conversions();
 
         // Reset configuration.
         T::regs().cfgr().modify(|reg| {
@@ -529,7 +530,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     /// Set external trigger for regular conversion sequence
-    pub fn set_regular_conversion_trigger(&mut self, trigger: ConversionTrigger) {
+    fn set_regular_conversion_trigger(&mut self, trigger: ConversionTrigger) {
         T::regs().cfgr().modify(|r| {
             r.set_extsel(trigger.channel);
             r.set_exten(trigger.edge);
@@ -547,21 +548,30 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     /// Configures the ADC to use a DMA ring buffer for continuous data acquisition.
     ///
-    /// The `dma_buf` should be large enough to prevent DMA buffer overrun.
-    /// The length of the `dma_buf` should be a multiple of the ADC channel count.
-    /// For example, if 3 channels are measured, its length can be 3 * 40 = 120 measurements.
+    /// Use the [`read`] method to retrieve measurements from the DMA ring buffer. The read buffer
+    /// should be exactly half the size of `dma_buf`. When using triggered mode, it is recommended
+    /// to configure `dma_buf` as a double buffer so that one half can be read while the other half
+    /// is being filled by the DMA, preventing data loss. The trigger period of the ADC effectively
+    /// defines the period at which the buffer should be read.
     ///
-    /// `read` method is used to read out measurements from the DMA ring buffer, and its buffer
-    /// should be exactly half of the `dma_buf` length. It is critical to call `read` frequently to
-    /// prevent DMA buffer overrun. Or configure a software trigger for the regular ADC conversions
-    /// at a fixed interval.
+    /// If continous conversion mode is selected, the provided `dma_buf` must be large enough to prevent
+    /// DMA buffer overruns. Its length should be a multiple of the number of ADC channels being measured.
+    /// For example, if 3 channels are measured and you want to store 40 samples per channel,
+    /// the buffer length should be `3 * 40 = 120`.
     ///
-    /// [`read`]: #method.read
+    /// # Parameters
+    /// - `dma`: The DMA peripheral used to transfer ADC data into the buffer.
+    /// - `dma_buf`: The buffer where DMA stores ADC samples.
+    /// - `regular_sequence`: Sequence of channels and sample times for regular ADC conversions.
+    /// - `regular_conversion_mode`: Mode for regular conversions (continuous or triggered).
+    ///
+    /// # Returns
+    /// A `RingBufferedAdc<'a, T>` instance configured for continuous DMA-based sampling.
     pub fn into_ring_buffered<'a>(
         mut self,
         dma: Peri<'a, impl RxDma<T>>,
         dma_buf: &'a mut [u16],
-        sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<T>, SampleTime)>,
+        sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<T>, SampleTime)>,
         mode: RegularConversionMode,
     ) -> RingBufferedAdc<'a, T> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
@@ -571,7 +581,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             "Asynchronous read sequence cannot be more than 16 in length"
         );
         // reset conversions and enable the adc
-        Self::cancel_conversions();
+        Self::stop_regular_conversions();
         self.enable();
 
         //adc side setup
@@ -582,8 +592,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         });
 
         // Configure channels and ranks
-        for (_i, (channel, sample_time)) in sequence.enumerate() {
-            Self::configure_channel(channel, sample_time);
+        for (_i, (mut channel, sample_time)) in sequence.enumerate() {
+            Self::configure_channel(&mut channel, sample_time);
 
             match _i {
                 0..=3 => {
@@ -640,79 +650,107 @@ impl<'d, T: Instance> Adc<'d, T> {
         RingBufferedAdc::new(dma, dma_buf)
     }
 
-    /// Configure a sequence of injected channels
-    pub fn configure_injected_sequence<'a>(
+    /// Configures the ADC for injected conversions.
+    ///
+    /// Injected conversions are separate from the regular conversion sequence and are typically
+    /// triggered by software or an external event. This method sets up a fixed-length sequence of
+    /// injected channels with specified sample times, the trigger source, and whether the end-of-sequence
+    /// interrupt should be enabled.
+    ///
+    /// # Parameters
+    /// - `sequence`: An array of tuples containing the ADC channels and their sample times. The length
+    ///   `N` determines the number of injected ranks to configure (maximum 4 for STM32).
+    /// - `trigger`: The trigger source that starts the injected conversion sequence.
+    /// - `interrupt`: If `true`, enables the end-of-sequence (JEOS) interrupt for injected conversions.
+    ///
+    /// # Returns
+    /// An `InjectedAdc<T, N>` instance that represents the configured injected sequence. The returned
+    /// type encodes the sequence length `N` in its type, ensuring that reads return exactly `N` samples.
+    ///
+    /// # Panics
+    /// This function will panic if:
+    /// - `sequence` is empty.
+    /// - `sequence` length exceeds the maximum number of injected ranks (`NR_INJECTED_RANKS`).
+    ///
+    /// # Notes
+    /// - Injected conversions can run independently of regular ADC conversions.
+    /// - The order of channels in `sequence` determines the rank order in the injected sequence.
+    /// - Accessing samples beyond `N` will result in a panic; use the returned type
+    ///   `InjectedAdc<T, N>` to enforce bounds at compile time.
+    pub fn setup_injected_conversions<'a, const N: usize>(
         mut self,
-        sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<T>, SampleTime)>,
+        sequence: [(AnyAdcChannel<T>, SampleTime); N],
         trigger: ConversionTrigger,
-    ) -> InjectedAdc<T> {
-        assert!(sequence.len() != 0, "Read sequence cannot be empty");
+        interrupt: bool,
+    ) -> InjectedAdc<T, N> {
+        assert!(N != 0, "Read sequence cannot be empty");
         assert!(
-            sequence.len() <= NR_INJECTED_RANKS,
-            "Read sequence cannot be more than 4 in length"
+            N <= NR_INJECTED_RANKS,
+            "Read sequence cannot be more than {} in length",
+            NR_INJECTED_RANKS
         );
 
-        // Ensure no conversions are ongoing and ADC is enabled.
-        Self::cancel_conversions();
+        Self::stop_regular_conversions();
         self.enable();
 
-        // Set sequence length
-        T::regs().jsqr().modify(|w| {
-            w.set_jl(sequence.len() as u8 - 1);
-        });
+        T::regs().jsqr().modify(|w| w.set_jl(N as u8 - 1));
 
-        // Configure channels and ranks
-        for (n, (channel, sample_time)) in sequence.enumerate() {
-            Self::configure_channel(channel, sample_time);
+        for (n, (mut channel, sample_time)) in sequence.into_iter().enumerate() {
+            Self::configure_channel(&mut channel, sample_time);
 
-            match n {
-                0..=3 => {
-                    T::regs().jsqr().modify(|w| {
-                        w.set_jsq(n, channel.channel());
-                    });
-                }
-                4..=8 => {
-                    T::regs().jsqr().modify(|w| {
-                        w.set_jsq(n - 4, channel.channel());
-                    });
-                }
-                9..=13 => {
-                    T::regs().jsqr().modify(|w| {
-                        w.set_jsq(n - 9, channel.channel());
-                    });
-                }
-                14..=15 => {
-                    T::regs().jsqr().modify(|w| {
-                        w.set_jsq(n - 14, channel.channel());
-                    });
-                }
+            let idx = match n {
+                0..=3 => n,
+                4..=8 => n - 4,
+                9..=13 => n - 9,
+                14..=15 => n - 14,
                 _ => unreachable!(),
-            }
+            };
+
+            T::regs().jsqr().modify(|w| w.set_jsq(idx, channel.channel()));
         }
 
-        T::regs().cfgr().modify(|reg| {
-            reg.set_jdiscen(false); // Will convert all channels for each trigger
-        });
+        T::regs().cfgr().modify(|reg| reg.set_jdiscen(false));
 
         self.set_injected_conversion_trigger(trigger);
-        self.enable_injected_eos_interrupt(true);
+        self.enable_injected_eos_interrupt(interrupt);
+        Self::start_injected_conversions();
 
-        self.start_injected_conversion();
-
-        mem::forget(self);
-
-        InjectedAdc::new()
+        InjectedAdc::new(sequence) // InjectedAdc<'a, T, N> now borrows the channels
     }
 
-    pub fn into_ring_buffered_and_injected<'a>(
+    /// Configures ADC for both regular conversions with a ring-buffered DMA and injected conversions.
+    ///
+    /// # Parameters
+    /// - `dma`: The DMA peripheral to use for the ring-buffered ADC transfers.
+    /// - `dma_buf`: The buffer to store DMA-transferred samples for regular conversions.
+    /// - `regular_sequence`: The sequence of channels and their sample times for regular conversions.
+    /// - `regular_conversion_mode`: The mode for regular conversions (e.g., continuous or triggered).
+    /// - `injected_sequence`: An array of channels and sample times for injected conversions (length `N`).
+    /// - `injected_trigger`: The trigger source for injected conversions.
+    /// - `injected_interrupt`: Whether to enable the end-of-sequence interrupt for injected conversions.
+    ///
+    /// Injected conversions are typically used with interrupts. If ADC1 and ADC2 are used in dual mode,
+    /// it is recommended to enable interrupts only for the ADC whose sequence takes the longest to complete.
+    ///
+    /// # Returns
+    /// A tuple containing:
+    /// 1. `RingBufferedAdc<'a, T>` — the configured ADC for regular conversions using DMA.
+    /// 2. `InjectedAdc<T, N>` — the configured ADC for injected conversions.
+    ///
+    /// # Safety
+    /// This function is `unsafe` because it clones the ADC peripheral handle unchecked. Both the
+    /// `RingBufferedAdc` and `InjectedAdc` take ownership of the handle and drop it independently.
+    /// Ensure no other code concurrently accesses the same ADC instance in a conflicting way.
+    pub fn into_ring_buffered_and_injected<'a, const N: usize>(
         self,
         dma: Peri<'a, impl RxDma<T>>,
         dma_buf: &'a mut [u16],
-        regular_sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<T>, SampleTime)>,
+        regular_sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<T>, SampleTime)>,
         regular_conversion_mode: RegularConversionMode,
-        injected_sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<T>, SampleTime)>,
+        injected_sequence: [(AnyAdcChannel<T>, SampleTime); N],
         injected_trigger: ConversionTrigger,
-    ) -> (RingBufferedAdc<'a, T>, InjectedAdc<T>) {
+        injected_interrupt: bool,
+    ) -> (RingBufferedAdc<'a, T>, InjectedAdc<T, N>) {
         unsafe {
             (
                 Self {
@@ -724,13 +762,25 @@ impl<'d, T: Instance> Adc<'d, T> {
                     adc: self.adc.clone_unchecked(),
                     sample_time: self.sample_time,
                 }
-                .configure_injected_sequence(injected_sequence, injected_trigger),
+                .setup_injected_conversions(injected_sequence, injected_trigger, injected_interrupt),
             )
         }
     }
 
+    /// Stop injected conversions
+    pub(super) fn stop_injected_conversions() {
+        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
+            T::regs().cr().modify(|reg| {
+                reg.set_jadstp(Adstp::STOP);
+            });
+            // The software must poll JADSTART until the bit is reset before assuming the
+            // ADC is completely stopped
+            while T::regs().cr().read().jadstart() {}
+        }
+    }
+
     /// Start injected ADC conversion
-    pub fn start_injected_conversion(&mut self) {
+    pub(super) fn start_injected_conversions() {
         T::regs().cr().modify(|reg| {
             reg.set_jadstart(true);
         });
@@ -738,7 +788,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
     /// Set external trigger for injected conversion sequence
     /// Possible trigger values are seen in Table 167 in RM0440 Rev 9
-    pub fn set_injected_conversion_trigger(&mut self, trigger: ConversionTrigger) {
+    fn set_injected_conversion_trigger(&mut self, trigger: ConversionTrigger) {
         T::regs().jsqr().modify(|r| {
             r.set_jextsel(trigger.channel);
             r.set_jexten(trigger.edge);
@@ -746,21 +796,8 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     /// Enable end of injected sequence interrupt
-    pub fn enable_injected_eos_interrupt(&mut self, enable: bool) {
+    fn enable_injected_eos_interrupt(&mut self, enable: bool) {
         T::regs().ier().modify(|r| r.set_jeosie(enable));
-    }
-
-    /// Read sampled data from all injected ADC injected ranks
-    /// Clear the JEOS flag to allow a new injected sequence
-    pub(super) fn read_injected_samples() -> [u16; NR_INJECTED_RANKS] {
-        let mut data = [0u16; NR_INJECTED_RANKS];
-        for i in 0..NR_INJECTED_RANKS {
-            data[i] = T::regs().jdr(i).read().jdata();
-        }
-
-        // Clear JEOS by writing 1
-        T::regs().isr().modify(|r| r.set_jeos(true));
-        data
     }
 
     fn configure_channel(channel: &mut impl AdcChannel<T>, sample_time: SampleTime) {
@@ -795,25 +832,31 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    fn cancel_conversions() {
-        // Cancel regular conversions
+    // Stop regular conversions
+    fn stop_regular_conversions() {
         if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
             T::regs().cr().modify(|reg| {
                 reg.set_adstp(Adstp::STOP);
             });
+            // The software must poll ADSTART until the bit is reset before assuming the
+            // ADC is completely stopped
             while T::regs().cr().read().adstart() {}
         }
     }
+}
 
-    #[allow(dead_code)]
-    pub(super) fn stop_injected_conversions() {
-        // Cancel injected conversions
-        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
-            T::regs().cr().modify(|reg| {
-                reg.set_jadstp(Adstp::STOP);
-            });
-            while T::regs().cr().read().jadstart() {}
+impl<T: Instance, const N: usize> InjectedAdc<T, N> {
+    /// Read sampled data from all injected ADC injected ranks
+    /// Clear the JEOS flag to allow a new injected sequence
+    pub(super) fn read_injected_data() -> [u16; N] {
+        let mut data = [0u16; N];
+        for i in 0..N {
+            data[i] = T::regs().jdr(i).read().jdata();
         }
+
+        // Clear JEOS by writing 1
+        T::regs().isr().modify(|r| r.set_jeos(true));
+        data
     }
 }
 

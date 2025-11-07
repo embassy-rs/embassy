@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 # Change stm32g491re to your chip name, if necessary.
-embassy-stm32 = { path = "../../embassy-stm32", features = [ "defmt", "time-driver-any", "stm32g491re", "memory-x", "unstable-pac", "exti"]  }
+embassy-stm32 = { path = "../../embassy-stm32", features = [ "defmt", "time-driver-any", "stm32g431vb", "memory-x", "unstable-pac", "exti"]  }
 embassy-sync = { path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }

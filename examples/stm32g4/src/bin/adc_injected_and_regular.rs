@@ -18,9 +18,9 @@ use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, Mms2};
 use embassy_stm32::timer::low_level::CountingMode;
 use embassy_stm32::{Config, interrupt};
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
-use {critical_section, defmt_rtt as _, panic_probe as _};
+use {defmt_rtt as _, panic_probe as _};
 
-static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<ADC1>>>> =
+static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<ADC1, 1>>>> =
     CriticalSectionMutex::new(RefCell::new(None));
 
 /// This example showcases how to use both regular ADC conversions with DMA and injected ADC
@@ -78,17 +78,17 @@ async fn main(_spawner: embassy_executor::Spawner) {
     // Configure regular conversions with DMA
     let adc1 = Adc::new(p.ADC1);
 
-    let mut vrefint_channel = adc1.enable_vrefint().degrade_adc();
-    let mut pa0 = p.PC1.degrade_adc();
+    let vrefint_channel = adc1.enable_vrefint().degrade_adc();
+    let pa0 = p.PC1.degrade_adc();
     let regular_sequence = [
-        (&mut vrefint_channel, SampleTime::CYCLES247_5),
-        (&mut pa0, SampleTime::CYCLES247_5),
+        (vrefint_channel, SampleTime::CYCLES247_5),
+        (pa0, SampleTime::CYCLES247_5),
     ]
     .into_iter();
 
     // Configurations of Injected ADC measurements
-    let mut pa2 = p.PA2.degrade_adc();
-    let injected_sequence = [(&mut pa2, SampleTime::CYCLES247_5)].into_iter();
+    let pa2 = p.PA2.degrade_adc();
+    let injected_sequence = [(pa2, SampleTime::CYCLES247_5)];
 
     // Configure DMA for retrieving regular ADC measurements
     let dma1_ch1 = p.DMA1_CH1;
@@ -111,6 +111,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
         RegularConversionMode::Triggered(regular_trigger),
         injected_sequence,
         injected_trigger,
+        true,
     );
 
     // Store ADC globally to allow access from ADC interrupt
