@@ -63,14 +63,17 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     /// Reads measurements from the DMA ring buffer.
     ///
     /// This method fills the provided `measurements` array with ADC readings from the DMA buffer.
-    /// The length of the `measurements` array should be exactly half of the DMA buffer length. Because interrupts are only generated if half or full DMA transfer completes.
+    /// The length of the `measurements` array should be exactly half of the DMA buffer length.
+    /// Because interrupts are only generated if half or full DMA transfer completes.
     ///
-    /// Each call to `read` will populate the `measurements` array in the same order as the channels defined with `sequence`.
-    /// There will be many sequences worth of measurements in this array because it only returns if at least half of the DMA buffer is filled.
-    /// For example if 2 channels are sampled `measurements` contain: `[sq0 sq1 sq0 sq1 sq0 sq1 ..]`.
+    /// Each call to `read` will populate the `measurements` array in the same order as the channels
+    /// defined with `sequence`. There will be many sequences worth of measurements in this array
+    /// because it only returns if at least half of the DMA buffer is filled. For example if 2
+    /// channels are sampled `measurements` contain: `[sq0 sq1 sq0 sq1 sq0 sq1 ..]`.
     ///
-    /// Note that the ADC Datarate can be very fast, it is suggested to use DMA mode inside tightly running tasks
-    /// Otherwise, you'll see constant Overrun errors occuring, this means that you're sampling too quickly for the task to handle, and you may need to increase the buffer size.
+    /// Note that the ADC Datarate can be very fast, it is suggested to use DMA mode inside tightly
+    /// running tasks. Otherwise, you'll see constant Overrun errors occurring, this means that
+    /// you're sampling too quickly for the task to handle, and you may need to increase the buffer size.
     /// Example:
     /// ```rust,ignore
     /// const DMA_BUF_LEN: usize = 120;

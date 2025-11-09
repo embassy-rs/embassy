@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased - ReleaseDate
 
+- feat: Add support for injected ADC measurements for g4 ([#4840](https://github.com/embassy-rs/embassy/pull/4840))
+- feat: Implement into_ring_buffered for g4 ([#4840](https://github.com/embassy-rs/embassy/pull/4840))
 - feat: stm32/hrtim add new_chx_with_config to provide pin configuration
 - fix flash erase on L4 & L5
 - fix: Fixed STM32H5 builds requiring time feature
