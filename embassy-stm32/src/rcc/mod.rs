@@ -48,6 +48,9 @@ pub(crate) static mut REFCOUNT_STOP1: u32 = 0;
 /// May be read without a critical section
 pub(crate) static mut REFCOUNT_STOP2: u32 = 0;
 
+#[cfg(backup_sram)]
+pub(crate) static mut BKSRAM_RETAINED: bool = false;
+
 #[cfg(not(feature = "_dual-core"))]
 /// Frozen clock frequencies
 ///

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased - ReleaseDate
 
+- feat: Add support for injected ADC measurements for g4 ([#4840](https://github.com/embassy-rs/embassy/pull/4840))
+- feat: Implement into_ring_buffered for g4 ([#4840](https://github.com/embassy-rs/embassy/pull/4840))
 - feat: stm32/hrtim add new_chx_with_config to provide pin configuration
 - fix flash erase on L4 & L5
 - fix: Fixed STM32H5 builds requiring time feature
@@ -37,6 +39,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: timer: add ability to set master mode
 - fix: sdmmc: don't wait for DBCKEND flag on sdmmc_v2 devices as it never fires (Fixes #4723)
 - fix: usart: fix race condition in ringbuffered usart
+- feat: Add backup_sram::init() for H5 devices to access BKPSRAM
 - feat: Add I2C MultiMaster (Slave) support for I2C v1
 - feat: stm32/fdcan: add ability to control automatic recovery from bus off ([#4821](https://github.com/embassy-rs/embassy/pull/4821))
 - low-power: update rtc api to allow reconfig
