@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - feat: Add support for injected ADC measurements for g4 ([#4840](https://github.com/embassy-rs/embassy/pull/4840))
 - feat: Implement into_ring_buffered for g4 ([#4840](https://github.com/embassy-rs/embassy/pull/4840))
+- feat: Add support for 13-bit address and 16-bit data SDRAM chips
 - feat: stm32/hrtim add new_chx_with_config to provide pin configuration
 - fix flash erase on L4 & L5
 - fix: Fixed STM32H5 builds requiring time feature
@@ -53,7 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## 0.4.0 - 2025-08-26
 
-- feat: stm32/sai: make NODIV independent of MCKDIV 
+- feat: stm32/sai: make NODIV independent of MCKDIV
 - fix: stm32/sai: fix WB MCKDIV
 - fix: stm32/i2c: pull-down was enabled instead of pull-none when no internal pull-up was needed.
 - feat: Improve blocking hash speed
@@ -62,7 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - chore: Updated stm32-metapac and stm32-data dependencies
 - feat: stm32/adc/v3: allow DMA reads to loop through enable channels
 - fix: Fix XSPI not disabling alternate bytes when they were previously enabled
-- feat: stm32/adc/v3: added support for Continuous DMA configuration 
+- feat: stm32/adc/v3: added support for Continuous DMA configuration
 - fix: Fix stm32h7rs init when using external flash via XSPI
 - feat: Add Adc::new_with_clock() to configure analog clock
 - feat: Add GPDMA linked-list + ringbuffer support ([#3923](https://github.com/embassy-rs/embassy/pull/3923))

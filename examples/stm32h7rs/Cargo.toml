@@ -29,7 +29,7 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.8", default-features = false }
 critical-section = "1.1"
 micromath = "2.0.0"
-stm32-fmc = "0.3.0"
+stm32-fmc = "0.4.0"
 embedded-storage = "0.3.1"
 static_cell = "2"
 chrono = { version = "^0.4", default-features = false }
