@@ -2332,6 +2332,10 @@ fn mem_filter(chip: &str, region: &str) -> bool {
         return false;
     }
 
+    if region.starts_with("SDRAM_") || region.starts_with("FMC_") || region.starts_with("OCTOSPI_") {
+        return false;
+    }
+
     true
 }
 
