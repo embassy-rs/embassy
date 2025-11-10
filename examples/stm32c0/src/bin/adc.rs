@@ -17,7 +17,7 @@ async fn main(_spawner: Spawner) {
     info!("ADC STM32C0 example.");
 
     // We need to set certain sample time to be able to read temp sensor.
-    let mut adc = Adc::new(p.ADC1, SampleTime::CYCLES12_5, Resolution::BITS12);
+    let mut adc = Adc::new(p.ADC1, Resolution::BITS12);
     let mut temp = adc.enable_temperature().degrade_adc();
     let mut vref = adc.enable_vrefint().degrade_adc();
     let mut pin0 = p.PA0.degrade_adc();
@@ -27,9 +27,9 @@ async fn main(_spawner: Spawner) {
 
     loop {
         info!("============================");
-        let blocking_temp = adc.blocking_read(&mut temp);
-        let blocking_vref = adc.blocking_read(&mut vref);
-        let blocing_pin0 = adc.blocking_read(&mut pin0);
+        let blocking_temp = adc.blocking_read(&mut temp, SampleTime::CYCLES12_5);
+        let blocking_vref = adc.blocking_read(&mut vref, SampleTime::CYCLES12_5);
+        let blocing_pin0 = adc.blocking_read(&mut pin0, SampleTime::CYCLES12_5);
         info!(
             "Blocking ADC read: vref = {}, temp = {}, pin0 = {}.",
             blocking_vref, blocking_temp, blocing_pin0

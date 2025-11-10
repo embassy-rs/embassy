@@ -156,7 +156,7 @@ pub enum Averaging {
 
 impl<'d, T: Instance> Adc<'d, T> {
     /// Create a new ADC driver.
-    pub fn new(adc: Peri<'d, T>, sample_time: SampleTime, resolution: Resolution) -> Self {
+    pub fn new(adc: Peri<'d, T>, resolution: Resolution) -> Self {
         rcc::enable_and_reset::<T>();
 
         T::regs().cfgr2().modify(|w| w.set_ckmode(Ckmode::SYSCLK));
@@ -174,10 +174,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             );
         }
 
-        let mut s = Self {
-            adc,
-            sample_time: SampleTime::from_bits(0),
-        };
+        let mut s = Self { adc };
 
         s.power_up();
 
@@ -188,8 +185,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         s.enable();
 
         s.configure_default();
-
-        s.set_sample_time_all_channels(sample_time);
 
         s
     }
@@ -258,8 +253,6 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// Set the ADC sample time.
     /// Shall only be called when ADC is not converting.
     pub fn set_sample_time_all_channels(&mut self, sample_time: SampleTime) {
-        self.sample_time = sample_time;
-
         // Set all channels to use SMP1 field as source.
         T::regs().smpr().modify(|w| {
             w.smpsel(0);
@@ -288,7 +281,9 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().dr().read().data() as u16
     }
 
-    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
+        self.set_sample_time_all_channels(sample_time);
+
         Self::configure_channel(channel);
         T::regs().cfgr1().write(|reg| {
             reg.set_chselrmod(false);

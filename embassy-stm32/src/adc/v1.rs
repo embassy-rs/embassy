@@ -114,10 +114,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             T::Interrupt::enable();
         }
 
-        Self {
-            adc,
-            sample_time: SampleTime::from_bits(0),
-        }
+        Self { adc }
     }
 
     #[cfg(not(adc_l0))]
@@ -149,10 +146,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         Temperature
     }
 
-    pub fn set_sample_time(&mut self, sample_time: SampleTime) {
-        self.sample_time = sample_time;
-    }
-
     pub fn set_resolution(&mut self, resolution: Resolution) {
         T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
     }
@@ -163,12 +156,13 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr2().modify(|reg| reg.set_ckmode(ckmode));
     }
 
-    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
         let ch_num = channel.channel();
         channel.setup();
 
         // A.7.5 Single conversion sequence code example - Software trigger
         T::regs().chselr().write(|reg| reg.set_chsel_x(ch_num as usize, true));
+        T::regs().smpr().modify(|reg| reg.set_smp(sample_time.into()));
 
         self.convert().await
     }
@@ -179,7 +173,6 @@ impl<'d, T: Instance> Adc<'d, T> {
             reg.set_eosmp(true);
         });
 
-        T::regs().smpr().modify(|reg| reg.set_smp(self.sample_time.into()));
         T::regs().ier().modify(|w| w.set_eocie(true));
         T::regs().cr().modify(|reg| reg.set_adstart(true));
 

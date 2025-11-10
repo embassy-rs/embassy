@@ -218,10 +218,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(adc: Peri<'d, T>) -> Self {
         Self::init_regulator();
         Self::init_calibrate();
-        Self {
-            adc,
-            sample_time: SampleTime::from_bits(0),
-        }
+        Self { adc }
     }
 
     #[cfg(adc_g0)]
@@ -257,10 +254,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         Self::init_calibrate();
 
-        Self {
-            adc,
-            sample_time: SampleTime::from_bits(0),
-        }
+        Self { adc }
     }
 
     // Enable ADC only when it is not already running.
@@ -342,16 +336,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         Vbat {}
     }
 
-    /// Set the ADC sample time.
-    pub fn set_sample_time(&mut self, sample_time: SampleTime) {
-        self.sample_time = sample_time;
-    }
-
-    /// Get the ADC sample time.
-    pub fn sample_time(&self) -> SampleTime {
-        self.sample_time
-    }
-
     /// Set the ADC resolution.
     pub fn set_resolution(&mut self, resolution: Resolution) {
         #[cfg(not(any(adc_g0, adc_u0)))]
@@ -413,8 +397,8 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     /// Read an ADC channel.
-    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
-        self.read_channel(channel)
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
+        self.read_channel(channel, sample_time)
     }
 
     /// Read one or multiple ADC channels using DMA.
@@ -616,7 +600,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         &mut self,
         dma: Peri<'a, impl RxDma<T>>,
         dma_buf: &'a mut [u16],
-        sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<T>, SampleTime)>,
+        sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<T>, SampleTime)>,
     ) -> RingBufferedAdc<'a, T> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
@@ -665,8 +649,8 @@ impl<'d, T: Instance> Adc<'d, T> {
             let mut channel_mask = 0;
 
             // Configure channels and ranks
-            for (_i, (channel, sample_time)) in sequence.enumerate() {
-                Self::configure_channel(channel, sample_time);
+            for (_i, (mut channel, sample_time)) in sequence.enumerate() {
+                Self::configure_channel(&mut channel, sample_time);
 
                 // Each channel is sampled according to sequence
                 #[cfg(not(any(adc_g0, adc_u0)))]
@@ -745,13 +729,13 @@ impl<'d, T: Instance> Adc<'d, T> {
         Self::set_channel_sample_time(channel.channel(), sample_time);
     }
 
-    fn read_channel(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+    fn read_channel(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
         self.enable();
         #[cfg(not(adc_g0))]
-        Self::configure_channel(channel, self.sample_time);
+        Self::configure_channel(channel, sample_time);
         #[cfg(adc_g0)]
         T::regs().smpr().write(|reg| {
-            reg.set_sample_time(0, self.sample_time);
+            reg.set_sample_time(0, sample_time);
             reg.set_smpsel(channel.channel().into(), Smpsel::SMP1);
         });
         // Select channel

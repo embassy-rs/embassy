@@ -117,10 +117,7 @@ where
 
         blocking_delay_us(3);
 
-        Self {
-            adc,
-            sample_time: SampleTime::from_bits(0),
-        }
+        Self { adc }
     }
 
     /// Configures the ADC to use a DMA ring buffer for continuous data acquisition.
@@ -137,7 +134,7 @@ where
         self,
         dma: Peri<'d, impl RxDma<T>>,
         dma_buf: &'d mut [u16],
-        sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<T>, SampleTime)>,
+        sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<T>, SampleTime)>,
     ) -> RingBufferedAdc<'d, T> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
 
@@ -150,7 +147,7 @@ where
             r.set_l((sequence.len() - 1).try_into().unwrap());
         });
 
-        for (i, (channel, sample_time)) in sequence.enumerate() {
+        for (i, (mut channel, sample_time)) in sequence.enumerate() {
             // Set this GPIO as an analog input.
             channel.setup();
 
@@ -215,10 +212,6 @@ where
         });
     }
 
-    pub fn set_sample_time(&mut self, sample_time: SampleTime) {
-        self.sample_time = sample_time;
-    }
-
     pub fn set_resolution(&mut self, resolution: Resolution) {
         T::regs().cr1().modify(|reg| reg.set_res(resolution.into()));
     }
@@ -278,7 +271,7 @@ where
         T::regs().dr().read().0 as u16
     }
 
-    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
         channel.setup();
 
         // Configure ADC
@@ -288,7 +281,7 @@ where
         T::regs().sqr3().write(|reg| reg.set_sq(0, channel));
 
         // Configure channel
-        Self::set_channel_sample_time(channel, self.sample_time);
+        Self::set_channel_sample_time(channel, sample_time);
 
         self.convert()
     }

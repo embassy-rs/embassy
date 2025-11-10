@@ -47,8 +47,6 @@ dma_trait!(RxDma4, adc4::Instance);
 pub struct Adc<'d, T: Instance> {
     #[allow(unused)]
     adc: crate::Peri<'d, T>,
-    #[cfg(not(any(adc_f3v3, adc_f3v2, adc_wba)))]
-    sample_time: SampleTime,
 }
 
 #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]

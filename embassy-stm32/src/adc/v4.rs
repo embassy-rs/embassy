@@ -190,10 +190,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             };
             T::regs().cr().modify(|w| w.set_boost(boost));
         }
-        let mut s = Self {
-            adc,
-            sample_time: SampleTime::from_bits(0),
-        };
+        let mut s = Self { adc };
         s.power_up();
         s.configure_differential_inputs();
 
@@ -277,16 +274,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         Vbat {}
     }
 
-    /// Set the ADC sample time.
-    pub fn set_sample_time(&mut self, sample_time: SampleTime) {
-        self.sample_time = sample_time;
-    }
-
-    /// Get the ADC sample time.
-    pub fn sample_time(&self) -> SampleTime {
-        self.sample_time
-    }
-
     /// Set the ADC resolution.
     pub fn set_resolution(&mut self, resolution: Resolution) {
         T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
@@ -335,8 +322,8 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     /// Read an ADC channel.
-    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
-        self.read_channel(channel)
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
+        self.read_channel(channel, sample_time)
     }
 
     /// Read one or multiple ADC channels using DMA.
@@ -472,8 +459,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    fn read_channel(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
-        Self::configure_channel(channel, self.sample_time);
+    fn read_channel(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
+        Self::configure_channel(channel, sample_time);
 
         T::regs().sqr1().modify(|reg| {
             reg.set_sq(0, channel.channel());

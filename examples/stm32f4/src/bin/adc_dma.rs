@@ -27,8 +27,8 @@ async fn adc_task(p: Peripherals) {
         p.DMA2_CH0,
         adc_data,
         [
-            (&mut p.PA0.degrade_adc(), SampleTime::CYCLES112),
-            (&mut p.PA2.degrade_adc(), SampleTime::CYCLES112),
+            (p.PA0.degrade_adc(), SampleTime::CYCLES112),
+            (p.PA2.degrade_adc(), SampleTime::CYCLES112),
         ]
         .into_iter(),
     );
@@ -36,8 +36,8 @@ async fn adc_task(p: Peripherals) {
         p.DMA2_CH2,
         adc_data2,
         [
-            (&mut p.PA1.degrade_adc(), SampleTime::CYCLES112),
-            (&mut p.PA3.degrade_adc(), SampleTime::CYCLES112),
+            (p.PA1.degrade_adc(), SampleTime::CYCLES112),
+            (p.PA3.degrade_adc(), SampleTime::CYCLES112),
         ]
         .into_iter(),
     );

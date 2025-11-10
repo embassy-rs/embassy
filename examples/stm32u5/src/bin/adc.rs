@@ -2,8 +2,7 @@
 #![no_main]
 
 use defmt::*;
-use embassy_stm32::adc;
-use embassy_stm32::adc::{AdcChannel, adc4};
+use embassy_stm32::adc::{self, AdcChannel, SampleTime, adc4};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -18,7 +17,6 @@ async fn main(_spawner: embassy_executor::Spawner) {
     let mut adc1_pin2 = p.PA2; // A1
     adc1.set_resolution(adc::Resolution::BITS14);
     adc1.set_averaging(adc::Averaging::Samples1024);
-    adc1.set_sample_time(adc::SampleTime::CYCLES160_5);
     let max1 = adc::resolution_to_max_count(adc::Resolution::BITS14);
 
     // **** ADC2 init ****
@@ -27,7 +25,6 @@ async fn main(_spawner: embassy_executor::Spawner) {
     let mut adc2_pin2 = p.PB0; // A3
     adc2.set_resolution(adc::Resolution::BITS14);
     adc2.set_averaging(adc::Averaging::Samples1024);
-    adc2.set_sample_time(adc::SampleTime::CYCLES160_5);
     let max2 = adc::resolution_to_max_count(adc::Resolution::BITS14);
 
     // **** ADC4 init ****
@@ -36,33 +33,32 @@ async fn main(_spawner: embassy_executor::Spawner) {
     let mut adc4_pin2 = p.PC0; // A5
     adc4.set_resolution(adc4::Resolution::BITS12);
     adc4.set_averaging(adc4::Averaging::Samples256);
-    adc4.set_sample_time(adc4::SampleTime::CYCLES1_5);
     let max4 = adc4::resolution_to_max_count(adc4::Resolution::BITS12);
 
     // **** ADC1 blocking read ****
-    let raw: u16 = adc1.blocking_read(&mut adc1_pin1);
+    let raw: u16 = adc1.blocking_read(&mut adc1_pin1, SampleTime::CYCLES160_5);
     let volt: f32 = 3.3 * raw as f32 / max1 as f32;
     info!("Read adc1 pin 1 {}", volt);
 
-    let raw: u16 = adc1.blocking_read(&mut adc1_pin2);
+    let raw: u16 = adc1.blocking_read(&mut adc1_pin2, SampleTime::CYCLES160_5);
     let volt: f32 = 3.3 * raw as f32 / max1 as f32;
     info!("Read adc1 pin 2 {}", volt);
 
     // **** ADC2 blocking read ****
-    let raw: u16 = adc2.blocking_read(&mut adc2_pin1);
+    let raw: u16 = adc2.blocking_read(&mut adc2_pin1, SampleTime::CYCLES160_5);
     let volt: f32 = 3.3 * raw as f32 / max2 as f32;
     info!("Read adc2 pin 1 {}", volt);
 
-    let raw: u16 = adc2.blocking_read(&mut adc2_pin2);
+    let raw: u16 = adc2.blocking_read(&mut adc2_pin2, SampleTime::CYCLES160_5);
     let volt: f32 = 3.3 * raw as f32 / max2 as f32;
     info!("Read adc2 pin 2 {}", volt);
 
     // **** ADC4 blocking read ****
-    let raw: u16 = adc4.blocking_read(&mut adc4_pin1);
+    let raw: u16 = adc4.blocking_read(&mut adc4_pin1, adc4::SampleTime::CYCLES1_5);
     let volt: f32 = 3.3 * raw as f32 / max4 as f32;
     info!("Read adc4 pin 1 {}", volt);
 
-    let raw: u16 = adc4.blocking_read(&mut adc4_pin2);
+    let raw: u16 = adc4.blocking_read(&mut adc4_pin2, adc4::SampleTime::CYCLES1_5);
     let volt: f32 = 3.3 * raw as f32 / max4 as f32;
     info!("Read adc4 pin 2 {}", volt);
 

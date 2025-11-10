@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_stm32::Config;
-use embassy_stm32::adc::{Adc, Resolution};
+use embassy_stm32::adc::{Adc, Resolution, SampleTime};
 use {defmt_rtt as _, panic_probe as _};
 
 #[cortex_m_rt::entry]
@@ -23,7 +23,7 @@ fn main() -> ! {
     let mut channel = p.PC0;
 
     loop {
-        let v = adc.blocking_read(&mut channel);
+        let v = adc.blocking_read(&mut channel, SampleTime::from_bits(0));
         info!("--> {}", v);
     }
 }

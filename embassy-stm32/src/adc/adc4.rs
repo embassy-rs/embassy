@@ -327,18 +327,6 @@ impl<'d, T: Instance> Adc4<'d, T> {
         Dac {}
     }
 
-    /// Set the ADC sample time.
-    pub fn set_sample_time(&mut self, sample_time: SampleTime) {
-        T::regs().smpr().modify(|w| {
-            w.set_smp(0, sample_time);
-        });
-    }
-
-    /// Get the ADC sample time.
-    pub fn sample_time(&self) -> SampleTime {
-        T::regs().smpr().read().smp(0)
-    }
-
     /// Set the ADC resolution.
     pub fn set_resolution(&mut self, resolution: Resolution) {
         T::regs().cfgr1().modify(|w| w.set_res(resolution.into()));
@@ -387,7 +375,11 @@ impl<'d, T: Instance> Adc4<'d, T> {
     }
 
     /// Read an ADC channel.
-    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
+        T::regs().smpr().modify(|w| {
+            w.set_smp(0, sample_time);
+        });
+
         channel.setup();
 
         // Select channel

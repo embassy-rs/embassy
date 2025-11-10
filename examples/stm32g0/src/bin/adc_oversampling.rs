@@ -17,7 +17,6 @@ async fn main(_spawner: Spawner) {
     info!("Adc oversample test");
 
     let mut adc = Adc::new_with_clock(p.ADC1, Clock::Async { div: Presc::DIV1 });
-    adc.set_sample_time(SampleTime::CYCLES1_5);
     let mut pin = p.PA1;
 
     adc.set_oversampling_ratio(Ovsr::MUL16);
@@ -25,7 +24,7 @@ async fn main(_spawner: Spawner) {
     adc.oversampling_enable(true);
 
     loop {
-        let v = adc.blocking_read(&mut pin);
+        let v = adc.blocking_read(&mut pin, SampleTime::CYCLES1_5);
         info!("--> {} ", v); //max 65520 = 0xFFF0
         Timer::after_millis(100).await;
     }

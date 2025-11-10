@@ -90,10 +90,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             T::Interrupt::enable();
         }
 
-        Self {
-            adc,
-            sample_time: SampleTime::from_bits(0),
-        }
+        Self { adc }
     }
 
     fn freq() -> Hertz {
@@ -124,10 +121,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         Temperature {}
     }
 
-    pub fn set_sample_time(&mut self, sample_time: SampleTime) {
-        self.sample_time = sample_time;
-    }
-
     /// Perform a single conversion.
     async fn convert(&mut self) -> u16 {
         T::regs().isr().write(|_| {});
@@ -150,8 +143,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().dr().read().rdata()
     }
 
-    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
-        Self::set_channel_sample_time(channel.channel(), self.sample_time);
+    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
+        Self::set_channel_sample_time(channel.channel(), sample_time);
 
         // Configure the channel to sample
         T::regs().sqr1().write(|w| w.set_sq(0, channel.channel()));

@@ -168,10 +168,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             );
         }
 
-        let mut s = Self {
-            adc,
-            sample_time: SampleTime::from_bits(0),
-        };
+        let mut s = Self { adc };
         s.power_up();
         s.configure_differential_inputs();
 
@@ -297,7 +294,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// channel on the other ADC unusable. The only exception is when ADC master and the slave
     /// operate in interleaved mode.
     #[cfg(stm32g4)]
-    pub fn set_differential_channel(&mut self, ch: usize, enable: bool) {
+    fn set_differential_channel(&mut self, ch: usize, enable: bool) {
         T::regs().cr().modify(|w| w.set_aden(false)); // disable adc
         T::regs().difsel().modify(|w| {
             w.set_difsel(
@@ -350,11 +347,6 @@ impl<'d, T: Instance> Adc<'d, T> {
     //     T::regs().cfgr2().modify(|reg| reg.set_jovse(enable));
     // }
 
-    /// Set the ADC sample time.
-    pub fn set_sample_time(&mut self, sample_time: SampleTime) {
-        self.sample_time = sample_time;
-    }
-
     /// Set the ADC resolution.
     pub fn set_resolution(&mut self, resolution: Resolution) {
         T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
@@ -380,10 +372,10 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     /// Read an ADC pin.
-    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
         channel.setup();
 
-        self.read_channel(channel)
+        self.read_channel(channel, sample_time)
     }
 
     /// Start regular adc conversion
@@ -755,12 +747,10 @@ impl<'d, T: Instance> Adc<'d, T> {
             (
                 Self {
                     adc: self.adc.clone_unchecked(),
-                    sample_time: self.sample_time,
                 }
                 .into_ring_buffered(dma, dma_buf, regular_sequence, regular_conversion_mode),
                 Self {
                     adc: self.adc.clone_unchecked(),
-                    sample_time: self.sample_time,
                 }
                 .setup_injected_conversions(injected_sequence, injected_trigger, injected_interrupt),
             )
@@ -805,8 +795,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         Self::set_channel_sample_time(channel.channel(), sample_time);
     }
 
-    fn read_channel(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
-        Self::configure_channel(channel, self.sample_time);
+    fn read_channel(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
+        Self::configure_channel(channel, sample_time);
         #[cfg(stm32h7)]
         {
             T::regs().cfgr2().modify(|w| w.set_lshift(0));

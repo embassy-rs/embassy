@@ -33,14 +33,13 @@ async fn main(_spawner: Spawner) {
     let mut p = embassy_stm32::init(config);
 
     let mut adc = Adc::new(p.ADC1);
-    adc.set_sample_time(SampleTime::CYCLES247_5);
     adc.set_differential(&mut p.PA0, true); //p:pa0,n:pa1
 
     // can also use
     // adc.set_differential_channel(1, true);
     info!("adc initialized");
     loop {
-        let measured = adc.blocking_read(&mut p.PA0);
+        let measured = adc.blocking_read(&mut p.PA0, SampleTime::CYCLES247_5);
         info!("data: {}", measured);
         Timer::after_millis(500).await;
     }

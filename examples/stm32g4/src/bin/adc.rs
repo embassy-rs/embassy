@@ -29,10 +29,9 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let mut adc = Adc::new(p.ADC2);
-    adc.set_sample_time(SampleTime::CYCLES24_5);
 
     loop {
-        let measured = adc.blocking_read(&mut p.PA7);
+        let measured = adc.blocking_read(&mut p.PA7, SampleTime::CYCLES24_5);
         info!("measured: {}", measured);
         Timer::after_millis(500).await;
     }
