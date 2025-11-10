@@ -47,7 +47,7 @@ async fn main(_spawner: Spawner) -> ! {
 
     loop {
         let vref = adc.read(&mut vrefint, SampleTime::CYCLES601_5).await;
-        info!("read vref: {} (should be {})", vref, vrefint.value());
+        info!("read vref: {} (should be {})", vref, vrefint.calibrated_value());
 
         let temp = adc.read(&mut temperature, SampleTime::CYCLES601_5).await;
         info!("read temperature: {}", temp);
@@ -55,7 +55,7 @@ async fn main(_spawner: Spawner) -> ! {
         let pin = adc.read(&mut p.PA0, SampleTime::CYCLES601_5).await;
         info!("read pin: {}", pin);
 
-        let pin_mv = (pin as u32 * vrefint.value() as u32 / vref as u32) * 3300 / 4095;
+        let pin_mv = (pin as u32 * vrefint.calibrated_value() as u32 / vref as u32) * 3300 / 4095;
         info!("computed pin mv: {}", pin_mv);
 
         Timer::after_millis(500).await;

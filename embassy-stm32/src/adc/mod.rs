@@ -123,6 +123,14 @@ impl<T: Instance + VrefConverter> SealedAdcChannel<T> for VrefInt {
     }
 }
 
+impl VrefInt {
+    #[cfg(any(adc_f3v1, adc_f3v2))]
+    /// The value that vref would be if vdda was at 3300mv
+    pub fn calibrated_value(&self) -> u16 {
+        crate::pac::VREFINTCAL.data().read()
+    }
+}
+
 /// Internal temperature channel.
 pub struct Temperature;
 impl<T: Instance + TemperatureConverter> AdcChannel<T> for Temperature {}

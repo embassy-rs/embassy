@@ -33,13 +33,6 @@ impl<T: Instance> super::VrefConverter for T {
     const CHANNEL: u8 = 18;
 }
 
-impl super::VrefInt {
-    /// The value that vref would be if vdda was at 3300mv
-    pub fn value(&self) -> u16 {
-        crate::pac::VREFINTCAL.data().read()
-    }
-}
-
 impl<T: Instance> super::TemperatureConverter for T {
     const CHANNEL: u8 = 16;
 }
