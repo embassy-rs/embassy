@@ -52,6 +52,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: stm32/dsi support zero parameter commands in `write_cmd` ([#4847](https://github.com/embassy-rs/embassy/pull/4847))
 - feat: stm32/spi: added support for slave mode ([#4388](https://github.com/embassy-rs/embassy/pull/4388))
 - chore: Updated stm32-metapac and stm32-data dependencies
+- adc: reogranize and cleanup somewhat. require sample_time to be passed on conversion
 
 ## 0.4.0 - 2025-08-26
 
