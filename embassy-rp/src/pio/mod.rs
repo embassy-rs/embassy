@@ -62,7 +62,7 @@ pub enum FifoJoin {
     #[cfg(feature = "_rp235x")]
     RxAsControl,
     /// FJOIN_RX_PUT | FJOIN_RX_GET: RX can be used as a scratch register,
-    /// not accesible from the CPU
+    /// not accessible from the CPU
     #[cfg(feature = "_rp235x")]
     PioScratch,
 }

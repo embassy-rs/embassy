@@ -53,7 +53,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::IT0Interrupt> for IT0Interrup
             regs.ir().write(|w| w.set_tefn(true));
         }
 
-        T::info().state.lock(|s| {
+        let recover_from_bo = T::info().state.lock(|s| {
             let state = s.borrow_mut();
             match &state.tx_mode {
                 TxMode::NonBuffered(waker) => waker.wake(),
@@ -85,11 +85,15 @@ impl<T: Instance> interrupt::typelevel::Handler<T::IT0Interrupt> for IT0Interrup
             if ir.rfn(1) {
                 state.rx_mode.on_interrupt::<T>(1, state.ns_per_timer_tick);
             }
+
+            state.automatic_bus_off_recovery
         });
 
         if ir.bo() {
             regs.ir().write(|w| w.set_bo(true));
-            if regs.psr().read().bo() {
+            if let Some(true) = recover_from_bo
+                && regs.psr().read().bo()
+            {
                 // Initiate bus-off recovery sequence by resetting CCCR.INIT
                 regs.cccr().modify(|w| w.set_init(false));
             }
@@ -263,7 +267,9 @@ impl<'d> CanConfigurator<'d> {
     pub fn start(self, mode: OperatingMode) -> Can<'d> {
         let ns_per_timer_tick = calc_ns_per_timer_tick(&self.info, self.periph_clock, self.config.frame_transmit);
         self.info.state.lock(|s| {
-            s.borrow_mut().ns_per_timer_tick = ns_per_timer_tick;
+            let mut state = s.borrow_mut();
+            state.ns_per_timer_tick = ns_per_timer_tick;
+            state.automatic_bus_off_recovery = Some(self.config.automatic_bus_off_recovery);
         });
         self.info.regs.into_mode(self.config, mode);
         Can {
@@ -861,7 +867,7 @@ struct State {
     sender_instance_count: usize,
     tx_pin_port: Option<u8>,
     rx_pin_port: Option<u8>,
-
+    automatic_bus_off_recovery: Option<bool>, // controlled by CanConfigurator::start()
     pub err_waker: AtomicWaker,
 }
 
@@ -876,6 +882,7 @@ impl State {
             sender_instance_count: 0,
             tx_pin_port: None,
             rx_pin_port: None,
+            automatic_bus_off_recovery: None,
         }
     }
 }

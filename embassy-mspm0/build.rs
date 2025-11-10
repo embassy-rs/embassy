@@ -194,8 +194,15 @@ fn generate_groups() -> TokenStream {
                 use crate::pac::#group_enum;
 
                 let group = crate::pac::CPUSS.int_group(#group_number);
-                // MUST subtract by 1 since 0 is NO_INTR
-                let iidx = group.iidx().read().stat().to_bits() - 1;
+                let stat = group.iidx().read().stat();
+
+                // check for spurious interrupts
+                if stat == crate::pac::cpuss::vals::Iidx::NO_INTR {
+                    return;
+                }
+
+                // MUST subtract by 1 because NO_INTR offsets IIDX values.
+                let iidx = stat.to_bits() - 1;
 
                 let Ok(group) = #group_enum::try_from(iidx as u8) else {
                     return;

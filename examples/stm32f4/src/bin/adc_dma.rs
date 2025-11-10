@@ -4,7 +4,7 @@ use cortex_m::singleton;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::Peripherals;
-use embassy_stm32::adc::{Adc, RingBufferedAdc, SampleTime, Sequence};
+use embassy_stm32::adc::{Adc, AdcChannel, RingBufferedAdc, SampleTime};
 use embassy_time::Instant;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -15,7 +15,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn adc_task(mut p: Peripherals) {
+async fn adc_task(p: Peripherals) {
     const ADC_BUF_SIZE: usize = 1024;
     let adc_data: &mut [u16; ADC_BUF_SIZE] = singleton!(ADCDAT : [u16; ADC_BUF_SIZE] = [0u16; ADC_BUF_SIZE]).unwrap();
     let adc_data2: &mut [u16; ADC_BUF_SIZE] = singleton!(ADCDAT2 : [u16; ADC_BUF_SIZE] = [0u16; ADC_BUF_SIZE]).unwrap();
@@ -23,13 +23,24 @@ async fn adc_task(mut p: Peripherals) {
     let adc = Adc::new(p.ADC1);
     let adc2 = Adc::new(p.ADC2);
 
-    let mut adc: RingBufferedAdc<embassy_stm32::peripherals::ADC1> = adc.into_ring_buffered(p.DMA2_CH0, adc_data);
-    let mut adc2: RingBufferedAdc<embassy_stm32::peripherals::ADC2> = adc2.into_ring_buffered(p.DMA2_CH2, adc_data2);
-
-    adc.set_sample_sequence(Sequence::One, &mut p.PA0, SampleTime::CYCLES112);
-    adc.set_sample_sequence(Sequence::Two, &mut p.PA2, SampleTime::CYCLES112);
-    adc2.set_sample_sequence(Sequence::One, &mut p.PA1, SampleTime::CYCLES112);
-    adc2.set_sample_sequence(Sequence::Two, &mut p.PA3, SampleTime::CYCLES112);
+    let mut adc: RingBufferedAdc<embassy_stm32::peripherals::ADC1> = adc.into_ring_buffered(
+        p.DMA2_CH0,
+        adc_data,
+        [
+            (&mut p.PA0.degrade_adc(), SampleTime::CYCLES112),
+            (&mut p.PA2.degrade_adc(), SampleTime::CYCLES112),
+        ]
+        .into_iter(),
+    );
+    let mut adc2: RingBufferedAdc<embassy_stm32::peripherals::ADC2> = adc2.into_ring_buffered(
+        p.DMA2_CH2,
+        adc_data2,
+        [
+            (&mut p.PA1.degrade_adc(), SampleTime::CYCLES112),
+            (&mut p.PA3.degrade_adc(), SampleTime::CYCLES112),
+        ]
+        .into_iter(),
+    );
 
     // Note that overrun is a big consideration in this implementation. Whatever task is running the adc.read() calls absolutely must circle back around
     // to the adc.read() call before the DMA buffer is wrapped around > 1 time. At this point, the overrun is so significant that the context of

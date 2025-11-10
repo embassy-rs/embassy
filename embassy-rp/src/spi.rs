@@ -157,7 +157,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
 
     /// Private function to apply SPI configuration (phase, polarity, frequency) settings.
     ///
-    /// Driver should be disabled before making changes and reenabled after the modifications
+    /// Driver should be disabled before making changes and re-enabled after the modifications
     /// are applied.
     fn apply_config(inner: &Peri<'d, T>, config: &Config) {
         let p = inner.regs();

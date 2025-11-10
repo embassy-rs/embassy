@@ -1,4 +1,4 @@
-//! PIO backed SPi drivers
+//! PIO backed SPI drivers
 
 use core::marker::PhantomData;
 
@@ -83,7 +83,7 @@ pub enum Error {
     // No errors for now
 }
 
-/// PIO based Spi driver.
+/// PIO based SPI driver.
 /// Unlike other PIO programs, the PIO SPI driver owns and holds a reference to
 /// the PIO memory it uses. This is so that it can be reconfigured at runtime if
 /// desired.

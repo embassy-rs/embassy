@@ -10,7 +10,7 @@ use core::mem::ManuallyDrop;
 
 use embassy_hal_internal::Peri;
 // Re-export useful enums
-pub use stm32_metapac::timer::vals::{FilterValue, Sms as SlaveMode, Ts as TriggerSource};
+pub use stm32_metapac::timer::vals::{FilterValue, Mms as MasterMode, Sms as SlaveMode, Ts as TriggerSource};
 
 use super::*;
 use crate::pac::timer::vals;
@@ -143,20 +143,69 @@ pub enum OutputCompareMode {
     /// TIMx_CNT<TIMx_CCRx else active. In downcounting, channel is active as long as
     /// TIMx_CNT>TIMx_CCRx else inactive.
     PwmMode2,
-    // TODO: there's more modes here depending on the chip family.
+
+    #[cfg(timer_v2)]
+    /// In up-counting mode, the channel is active until a trigger
+    /// event is detected (on tim_trgi signal). Then, a comparison is performed as in PWM
+    /// mode 1 and the channels becomes active again at the next update. In down-counting
+    /// mode, the channel is inactive until a trigger event is detected (on tim_trgi signal).
+    /// Then, a comparison is performed as in PWM mode 1 and the channels becomes
+    /// inactive again at the next update.
+    OnePulseMode1,
+
+    #[cfg(timer_v2)]
+    /// In up-counting mode, the channel is inactive until a
+    /// trigger event is detected (on tim_trgi signal). Then, a comparison is performed as in
+    /// PWM mode 2 and the channels becomes inactive again at the next update. In down
+    /// counting mode, the channel is active until a trigger event is detected (on tim_trgi
+    /// signal). Then, a comparison is performed as in PWM mode 1 and the channels
+    /// becomes active again at the next update.
+    OnePulseMode2,
+
+    #[cfg(timer_v2)]
+    /// Combined PWM mode 1 - tim_oc1ref has the same behavior as in PWM mode 1.
+    /// tim_oc1refc is the logical OR between tim_oc1ref and tim_oc2ref.
+    CombinedPwmMode1,
+
+    #[cfg(timer_v2)]
+    /// Combined PWM mode 2 - tim_oc1ref has the same behavior as in PWM mode 2.
+    /// tim_oc1refc is the logical AND between tim_oc1ref and tim_oc2ref.
+    CombinedPwmMode2,
+
+    #[cfg(timer_v2)]
+    /// tim_oc1ref has the same behavior as in PWM mode 1. tim_oc1refc outputs tim_oc1ref
+    /// when the counter is counting up, tim_oc2ref when it is counting down.
+    AsymmetricPwmMode1,
+
+    #[cfg(timer_v2)]
+    /// tim_oc1ref has the same behavior as in PWM mode 2. tim_oc1refc outputs tim_oc1ref
+    /// when the counter is counting up, tim_oc2ref when it is counting down.
+    AsymmetricPwmMode2,
 }
 
-impl From<OutputCompareMode> for stm32_metapac::timer::vals::Ocm {
+impl From<OutputCompareMode> for crate::pac::timer::vals::Ocm {
     fn from(mode: OutputCompareMode) -> Self {
         match mode {
-            OutputCompareMode::Frozen => stm32_metapac::timer::vals::Ocm::FROZEN,
-            OutputCompareMode::ActiveOnMatch => stm32_metapac::timer::vals::Ocm::ACTIVE_ON_MATCH,
-            OutputCompareMode::InactiveOnMatch => stm32_metapac::timer::vals::Ocm::INACTIVE_ON_MATCH,
-            OutputCompareMode::Toggle => stm32_metapac::timer::vals::Ocm::TOGGLE,
-            OutputCompareMode::ForceInactive => stm32_metapac::timer::vals::Ocm::FORCE_INACTIVE,
-            OutputCompareMode::ForceActive => stm32_metapac::timer::vals::Ocm::FORCE_ACTIVE,
-            OutputCompareMode::PwmMode1 => stm32_metapac::timer::vals::Ocm::PWM_MODE1,
-            OutputCompareMode::PwmMode2 => stm32_metapac::timer::vals::Ocm::PWM_MODE2,
+            OutputCompareMode::Frozen => crate::pac::timer::vals::Ocm::FROZEN,
+            OutputCompareMode::ActiveOnMatch => crate::pac::timer::vals::Ocm::ACTIVE_ON_MATCH,
+            OutputCompareMode::InactiveOnMatch => crate::pac::timer::vals::Ocm::INACTIVE_ON_MATCH,
+            OutputCompareMode::Toggle => crate::pac::timer::vals::Ocm::TOGGLE,
+            OutputCompareMode::ForceInactive => crate::pac::timer::vals::Ocm::FORCE_INACTIVE,
+            OutputCompareMode::ForceActive => crate::pac::timer::vals::Ocm::FORCE_ACTIVE,
+            OutputCompareMode::PwmMode1 => crate::pac::timer::vals::Ocm::PWM_MODE1,
+            OutputCompareMode::PwmMode2 => crate::pac::timer::vals::Ocm::PWM_MODE2,
+            #[cfg(timer_v2)]
+            OutputCompareMode::OnePulseMode1 => crate::pac::timer::vals::Ocm::RETRIGERRABLE_OPM_MODE_1,
+            #[cfg(timer_v2)]
+            OutputCompareMode::OnePulseMode2 => crate::pac::timer::vals::Ocm::RETRIGERRABLE_OPM_MODE_2,
+            #[cfg(timer_v2)]
+            OutputCompareMode::CombinedPwmMode1 => crate::pac::timer::vals::Ocm::COMBINED_PWM_MODE_1,
+            #[cfg(timer_v2)]
+            OutputCompareMode::CombinedPwmMode2 => crate::pac::timer::vals::Ocm::COMBINED_PWM_MODE_2,
+            #[cfg(timer_v2)]
+            OutputCompareMode::AsymmetricPwmMode1 => crate::pac::timer::vals::Ocm::ASYMMETRIC_PWM_MODE_1,
+            #[cfg(timer_v2)]
+            OutputCompareMode::AsymmetricPwmMode2 => crate::pac::timer::vals::Ocm::ASYMMETRIC_PWM_MODE_2,
         }
     }
 }
@@ -640,6 +689,11 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         self.regs_gp16().dier().modify(|w| w.set_ccde(channel.index(), ccde))
     }
 
+    /// Set Timer Master Mode
+    pub fn set_master_mode(&self, mms: MasterMode) {
+        self.regs_gp16().cr2().modify(|w| w.set_mms(mms));
+    }
+
     /// Set Timer Slave Mode
     pub fn set_slave_mode(&self, sms: SlaveMode) {
         self.regs_gp16().smcr().modify(|r| r.set_sms(sms));
@@ -758,6 +812,16 @@ impl<'d, T: AdvancedInstance4Channel> Timer<'d, T> {
     /// Set Output Idle State Complementary Channel
     pub fn set_oisn(&self, channel: Channel, val: bool) {
         self.regs_advanced().cr2().modify(|w| w.set_oisn(channel.index(), val));
+    }
+
+    /// Set master mode selection 2
+    pub fn set_mms2_selection(&self, mms2: vals::Mms2) {
+        self.regs_advanced().cr2().modify(|w| w.set_mms2(mms2));
+    }
+
+    /// Set repetition counter
+    pub fn set_repetition_counter(&self, val: u16) {
+        self.regs_advanced().rcr().modify(|w| w.set_rep(val));
     }
 
     /// Trigger software break 1 or 2

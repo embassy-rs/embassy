@@ -121,17 +121,15 @@ impl<'d, T: Instance> DsiHost<'d, T> {
 
     /// DCS or Generic short/long write command
     pub fn write_cmd(&mut self, channel_id: u8, address: u8, data: &[u8]) -> Result<(), Error> {
-        assert!(data.len() > 0);
-
-        if data.len() == 1 {
-            self.short_write(channel_id, PacketType::DcsShortPktWriteP1, address, data[0])
-        } else {
-            self.long_write(
+        match data.len() {
+            0 => self.short_write(channel_id, PacketType::DcsShortPktWriteP0, address, 0),
+            1 => self.short_write(channel_id, PacketType::DcsShortPktWriteP1, address, data[0]),
+            _ => self.long_write(
                 channel_id,
                 PacketType::DcsLongPktWrite, // FIXME: This might be a generic long packet, as well...
                 address,
                 data,
-            )
+            ),
         }
     }
 

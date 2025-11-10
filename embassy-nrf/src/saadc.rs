@@ -10,6 +10,7 @@ use core::task::Poll;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
+#[cfg(not(feature = "_nrf54l"))]
 pub(crate) use vals::Psel as InputChannel;
 
 use crate::interrupt::InterruptExt;
@@ -84,6 +85,7 @@ pub struct ChannelConfig<'d> {
     /// Gain used to control the effective input range of the SAADC.
     pub gain: Gain,
     /// Positive channel resistor control.
+    #[cfg(not(feature = "_nrf54l"))]
     pub resistor: Resistor,
     /// Acquisition time in microseconds.
     pub time: Time,
@@ -98,7 +100,11 @@ impl<'d> ChannelConfig<'d> {
     pub fn single_ended(input: impl Input + 'd) -> Self {
         Self {
             reference: Reference::INTERNAL,
+            #[cfg(not(feature = "_nrf54l"))]
             gain: Gain::GAIN1_6,
+            #[cfg(feature = "_nrf54l")]
+            gain: Gain::GAIN2_8,
+            #[cfg(not(feature = "_nrf54l"))]
             resistor: Resistor::BYPASS,
             time: Time::_10US,
             p_channel: input.degrade_saadc(),
@@ -109,7 +115,11 @@ impl<'d> ChannelConfig<'d> {
     pub fn differential(p_input: impl Input + 'd, n_input: impl Input + 'd) -> Self {
         Self {
             reference: Reference::INTERNAL,
+            #[cfg(not(feature = "_nrf54l"))]
             gain: Gain::GAIN1_6,
+            #[cfg(feature = "_nrf54l")]
+            gain: Gain::GAIN2_8,
+            #[cfg(not(feature = "_nrf54l"))]
             resistor: Resistor::BYPASS,
             time: Time::_10US,
             p_channel: p_input.degrade_saadc(),
@@ -117,6 +127,8 @@ impl<'d> ChannelConfig<'d> {
         }
     }
 }
+
+const CNT_UNIT: usize = if cfg!(feature = "_nrf54l") { 2 } else { 1 };
 
 /// Value returned by the SAADC callback, deciding what happens next.
 #[derive(PartialEq)]
@@ -150,19 +162,38 @@ impl<'d, const N: usize> Saadc<'d, N> {
         r.oversample().write(|w| w.set_oversample(oversample.into()));
 
         for (i, cc) in channel_configs.iter().enumerate() {
+            #[cfg(not(feature = "_nrf54l"))]
             r.ch(i).pselp().write(|w| w.set_pselp(cc.p_channel.channel()));
+            #[cfg(feature = "_nrf54l")]
+            r.ch(i).pselp().write(|w| {
+                w.set_port(cc.p_channel.port());
+                w.set_pin(cc.p_channel.pin());
+                w.set_internal(cc.p_channel.internal());
+                w.set_connect(cc.p_channel.connect());
+            });
             if let Some(n_channel) = &cc.n_channel {
+                #[cfg(not(feature = "_nrf54l"))]
                 r.ch(i).pseln().write(|w| w.set_pseln(n_channel.channel()));
+                #[cfg(feature = "_nrf54l")]
+                r.ch(i).pseln().write(|w| {
+                    w.set_port(n_channel.port());
+                    w.set_pin(n_channel.pin());
+                    w.set_connect(n_channel.connect().to_bits().into());
+                });
             }
             r.ch(i).config().write(|w| {
                 w.set_refsel(cc.reference.into());
                 w.set_gain(cc.gain.into());
                 w.set_tacq(cc.time.into());
+                #[cfg(feature = "_nrf54l")]
+                w.set_tconv(7); // 7 is the default from the Nordic C driver
                 w.set_mode(match cc.n_channel {
                     None => vals::ConfigMode::SE,
                     Some(_) => vals::ConfigMode::DIFF,
                 });
+                #[cfg(not(feature = "_nrf54l"))]
                 w.set_resp(cc.resistor.into());
+                #[cfg(not(feature = "_nrf54l"))]
                 w.set_resn(vals::Resn::BYPASS);
                 w.set_burst(!matches!(oversample, Oversample::BYPASS));
             });
@@ -222,7 +253,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
 
         // Set up the DMA
         r.result().ptr().write_value(buf.as_mut_ptr() as u32);
-        r.result().maxcnt().write(|w| w.set_maxcnt(N as _));
+        r.result().maxcnt().write(|w| w.set_maxcnt((N * CNT_UNIT) as _));
 
         // Reset and enable the end event
         r.events_end().write_value(0);
@@ -354,7 +385,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
 
         // Set up the initial DMA
         r.result().ptr().write_value(bufs[0].as_mut_ptr() as u32);
-        r.result().maxcnt().write(|w| w.set_maxcnt((N0 * N) as _));
+        r.result().maxcnt().write(|w| w.set_maxcnt((N0 * N * CNT_UNIT) as _));
 
         // Reset and enable the events
         r.events_end().write_value(0);
@@ -473,12 +504,21 @@ impl<'d, const N: usize> Drop for Saadc<'d, N> {
         let r = Self::regs();
         r.enable().write(|w| w.set_enable(false));
         for i in 0..N {
-            r.ch(i).pselp().write(|w| w.set_pselp(InputChannel::NC));
-            r.ch(i).pseln().write(|w| w.set_pseln(InputChannel::NC));
+            #[cfg(not(feature = "_nrf54l"))]
+            {
+                r.ch(i).pselp().write(|w| w.set_pselp(InputChannel::NC));
+                r.ch(i).pseln().write(|w| w.set_pseln(InputChannel::NC));
+            }
+            #[cfg(feature = "_nrf54l")]
+            {
+                r.ch(i).pselp().write(|w| w.set_connect(vals::PselpConnect::NC));
+                r.ch(i).pseln().write(|w| w.set_connect(vals::PselnConnect::NC));
+            }
         }
     }
 }
 
+#[cfg(not(feature = "_nrf54l"))]
 impl From<Gain> for vals::Gain {
     fn from(gain: Gain) -> Self {
         match gain {
@@ -494,7 +534,24 @@ impl From<Gain> for vals::Gain {
     }
 }
 
+#[cfg(feature = "_nrf54l")]
+impl From<Gain> for vals::Gain {
+    fn from(gain: Gain) -> Self {
+        match gain {
+            Gain::GAIN2_8 => vals::Gain::GAIN2_8,
+            Gain::GAIN2_7 => vals::Gain::GAIN2_7,
+            Gain::GAIN2_6 => vals::Gain::GAIN2_6,
+            Gain::GAIN2_5 => vals::Gain::GAIN2_5,
+            Gain::GAIN2_4 => vals::Gain::GAIN2_4,
+            Gain::GAIN2_3 => vals::Gain::GAIN2_3,
+            Gain::GAIN1 => vals::Gain::GAIN1,
+            Gain::GAIN2 => vals::Gain::GAIN2,
+        }
+    }
+}
+
 /// Gain control
+#[cfg(not(feature = "_nrf54l"))]
 #[non_exhaustive]
 #[derive(Clone, Copy)]
 pub enum Gain {
@@ -516,11 +573,37 @@ pub enum Gain {
     GAIN4 = 7,
 }
 
+/// Gain control
+#[cfg(feature = "_nrf54l")]
+#[non_exhaustive]
+#[derive(Clone, Copy)]
+pub enum Gain {
+    /// 2/8
+    GAIN2_8 = 0,
+    /// 2/7
+    GAIN2_7 = 1,
+    /// 2/6
+    GAIN2_6 = 2,
+    /// 2/5
+    GAIN2_5 = 3,
+    /// 2/4
+    GAIN2_4 = 4,
+    /// 2/3
+    GAIN2_3 = 5,
+    /// 1
+    GAIN1 = 6,
+    /// 2
+    GAIN2 = 7,
+}
+
 impl From<Reference> for vals::Refsel {
     fn from(reference: Reference) -> Self {
         match reference {
             Reference::INTERNAL => vals::Refsel::INTERNAL,
+            #[cfg(not(feature = "_nrf54l"))]
             Reference::VDD1_4 => vals::Refsel::VDD1_4,
+            #[cfg(feature = "_nrf54l")]
+            Reference::EXTERNAL => vals::Refsel::EXTERNAL,
         }
     }
 }
@@ -531,10 +614,15 @@ impl From<Reference> for vals::Refsel {
 pub enum Reference {
     /// Internal reference (0.6 V)
     INTERNAL = 0,
+    #[cfg(not(feature = "_nrf54l"))]
     /// VDD/4 as reference
     VDD1_4 = 1,
+    /// PADC_EXT_REF_1V2 as reference
+    #[cfg(feature = "_nrf54l")]
+    EXTERNAL = 1,
 }
 
+#[cfg(not(feature = "_nrf54l"))]
 impl From<Resistor> for vals::Resp {
     fn from(resistor: Resistor) -> Self {
         match resistor {
@@ -549,6 +637,7 @@ impl From<Resistor> for vals::Resp {
 /// Positive channel resistor control
 #[non_exhaustive]
 #[derive(Clone, Copy)]
+#[cfg(not(feature = "_nrf54l"))]
 pub enum Resistor {
     /// Bypass resistor ladder
     BYPASS = 0,
@@ -560,6 +649,7 @@ pub enum Resistor {
     VDD1_2 = 3,
 }
 
+#[cfg(not(feature = "_nrf54l"))]
 impl From<Time> for vals::Tacq {
     fn from(time: Time) -> Self {
         match time {
@@ -569,6 +659,20 @@ impl From<Time> for vals::Tacq {
             Time::_15US => vals::Tacq::_15US,
             Time::_20US => vals::Tacq::_20US,
             Time::_40US => vals::Tacq::_40US,
+        }
+    }
+}
+
+#[cfg(feature = "_nrf54l")]
+impl From<Time> for u16 {
+    fn from(time: Time) -> Self {
+        match time {
+            Time::_3US => (3000 / 125) - 1,
+            Time::_5US => (5000 / 125) - 1,
+            Time::_10US => (10000 / 125) - 1,
+            Time::_15US => (15000 / 125) - 1,
+            Time::_20US => (20000 / 125) - 1,
+            Time::_40US => (40000 / 125) - 1,
         }
     }
 }
@@ -657,7 +761,20 @@ pub enum Resolution {
 }
 
 pub(crate) trait SealedInput {
+    #[cfg(not(feature = "_nrf54l"))]
     fn channel(&self) -> InputChannel;
+
+    #[cfg(feature = "_nrf54l")]
+    fn pin(&self) -> u8;
+
+    #[cfg(feature = "_nrf54l")]
+    fn port(&self) -> u8;
+
+    #[cfg(feature = "_nrf54l")]
+    fn internal(&self) -> vals::Internal;
+
+    #[cfg(feature = "_nrf54l")]
+    fn connect(&self) -> vals::PselpConnect;
 }
 
 /// An input that can be used as either or negative end of a ADC differential in the SAADC periperhal.
@@ -667,6 +784,7 @@ pub trait Input: SealedInput + Sized {
     ///
     /// This allows using several inputs  in situations that might require
     /// them to be the same type, like putting them in an array.
+    #[cfg(not(feature = "_nrf54l"))]
     fn degrade_saadc<'a>(self) -> AnyInput<'a>
     where
         Self: 'a,
@@ -676,14 +794,46 @@ pub trait Input: SealedInput + Sized {
             _phantom: core::marker::PhantomData,
         }
     }
+
+    /// Convert this SAADC input to a type-erased `AnyInput`.
+    ///
+    /// This allows using several inputs  in situations that might require
+    /// them to be the same type, like putting them in an array.
+    #[cfg(feature = "_nrf54l")]
+    fn degrade_saadc<'a>(self) -> AnyInput<'a>
+    where
+        Self: 'a,
+    {
+        AnyInput {
+            pin: self.pin(),
+            port: self.port(),
+            internal: self.internal(),
+            connect: self.connect(),
+            _phantom: core::marker::PhantomData,
+        }
+    }
 }
 
 /// A type-erased SAADC input.
 ///
 /// This allows using several inputs  in situations that might require
 /// them to be the same type, like putting them in an array.
+#[cfg(not(feature = "_nrf54l"))]
 pub struct AnyInput<'a> {
     channel: InputChannel,
+    _phantom: PhantomData<&'a ()>,
+}
+
+/// A type-erased SAADC input.
+///
+/// This allows using several inputs  in situations that might require
+/// them to be the same type, like putting them in an array.
+#[cfg(feature = "_nrf54l")]
+pub struct AnyInput<'a> {
+    pin: u8,
+    port: u8,
+    internal: vals::Internal,
+    connect: vals::PselpConnect,
     _phantom: PhantomData<&'a ()>,
 }
 
@@ -694,21 +844,56 @@ impl<'a> AnyInput<'a> {
     pub fn reborrow(&mut self) -> AnyInput<'_> {
         // safety: we're returning the clone inside a new Peripheral that borrows
         // self, so user code can't use both at the same time.
-        Self {
-            channel: self.channel,
-            _phantom: PhantomData,
+        #[cfg(not(feature = "_nrf54l"))]
+        {
+            Self {
+                channel: self.channel,
+                _phantom: PhantomData,
+            }
+        }
+        #[cfg(feature = "_nrf54l")]
+        {
+            Self {
+                pin: self.pin,
+                port: self.port,
+                internal: self.internal,
+                connect: self.connect,
+                _phantom: PhantomData,
+            }
         }
     }
 }
 
 impl SealedInput for AnyInput<'_> {
+    #[cfg(not(feature = "_nrf54l"))]
     fn channel(&self) -> InputChannel {
         self.channel
+    }
+
+    #[cfg(feature = "_nrf54l")]
+    fn pin(&self) -> u8 {
+        self.pin
+    }
+
+    #[cfg(feature = "_nrf54l")]
+    fn port(&self) -> u8 {
+        self.port
+    }
+
+    #[cfg(feature = "_nrf54l")]
+    fn internal(&self) -> vals::Internal {
+        self.internal
+    }
+
+    #[cfg(feature = "_nrf54l")]
+    fn connect(&self) -> vals::PselpConnect {
+        self.connect
     }
 }
 
 impl Input for AnyInput<'_> {}
 
+#[cfg(not(feature = "_nrf54l"))]
 macro_rules! impl_saadc_input {
     ($pin:ident, $ch:ident) => {
         impl_saadc_input!(@local, crate::Peri<'_, crate::peripherals::$pin>, $ch);
@@ -723,15 +908,45 @@ macro_rules! impl_saadc_input {
     };
 }
 
+#[cfg(feature = "_nrf54l")]
+macro_rules! impl_saadc_input {
+    ($pin:ident, $port:expr, $ain:expr) => {
+        impl_saadc_input!(@local, crate::Peri<'_, crate::peripherals::$pin>, $port, $ain, AVDD, ANALOG_INPUT);
+    };
+    (@local, $pin:ty, $port:expr, $ain:expr, $internal:ident, $connect:ident) => {
+        impl crate::saadc::SealedInput for $pin {
+            fn pin(&self) -> u8 {
+                $ain
+            }
+
+            fn port(&self) -> u8 {
+                $port
+            }
+
+            fn internal(&self) -> crate::pac::saadc::vals::Internal {
+                crate::pac::saadc::vals::Internal::$internal
+            }
+
+            fn connect(&self) -> crate::pac::saadc::vals::PselpConnect {
+                crate::pac::saadc::vals::PselpConnect::$connect
+            }
+        }
+        impl crate::saadc::Input for $pin {}
+    };
+}
+
 /// A dummy `Input` pin implementation for SAADC peripheral sampling from the
 /// internal voltage.
 pub struct VddInput;
 
 impl_peripheral!(VddInput);
+#[cfg(not(feature = "_nrf54l"))]
 #[cfg(not(feature = "_nrf91"))]
 impl_saadc_input!(@local, VddInput, VDD);
 #[cfg(feature = "_nrf91")]
 impl_saadc_input!(@local, VddInput, VDD_GPIO);
+#[cfg(feature = "_nrf54l")]
+impl_saadc_input!(@local, VddInput, 0, 0, VDD, INTERNAL);
 
 /// A dummy `Input` pin implementation for SAADC peripheral sampling from the
 /// VDDH / 5 voltage.
@@ -743,3 +958,21 @@ impl_peripheral!(VddhDiv5Input);
 
 #[cfg(any(feature = "_nrf5340-app", feature = "nrf52833", feature = "nrf52840"))]
 impl_saadc_input!(@local, VddhDiv5Input, VDDHDIV5);
+
+/// A dummy `Input` pin implementation for SAADC peripheral sampling from the
+/// AVDD internal voltage of the nrf54l chip family.
+#[cfg(feature = "_nrf54l")]
+pub struct AVddInput;
+#[cfg(feature = "_nrf54l")]
+embassy_hal_internal::impl_peripheral!(AVddInput);
+#[cfg(feature = "_nrf54l")]
+impl_saadc_input!(@local, AVddInput, 0, 0, AVDD, INTERNAL);
+
+/// A dummy `Input` pin implementation for SAADC peripheral sampling from the
+/// DVDD internal voltage of the nrf54l chip family.
+#[cfg(feature = "_nrf54l")]
+pub struct DVddInput;
+#[cfg(feature = "_nrf54l")]
+embassy_hal_internal::impl_peripheral!(DVddInput);
+#[cfg(feature = "_nrf54l")]
+impl_saadc_input!(@local, DVddInput, 0, 0, DVDD, INTERNAL);

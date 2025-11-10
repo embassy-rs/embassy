@@ -104,17 +104,17 @@ qspi-multiwrite-flash = []
 
 #! ### Chip selection features
 ## nRF51
-nrf51 = ["nrf-pac/nrf51", "_nrf51"]
+nrf51 = ["nrf-pac/nrf51", "_nrf51", "_spi-v1"]
 ## nRF52805
-nrf52805 = ["nrf-pac/nrf52805", "_nrf52"]
+nrf52805 = ["nrf-pac/nrf52805", "_nrf52", "_spi-v1"]
 ## nRF52810
-nrf52810 = ["nrf-pac/nrf52810", "_nrf52"]
+nrf52810 = ["nrf-pac/nrf52810", "_nrf52", "_spi-v1"]
 ## nRF52811
-nrf52811 = ["nrf-pac/nrf52811", "_nrf52"]
+nrf52811 = ["nrf-pac/nrf52811", "_nrf52", "_spi-v1"]
 ## nRF52820
-nrf52820 = ["nrf-pac/nrf52820", "_nrf52"]
+nrf52820 = ["nrf-pac/nrf52820", "_nrf52", "_spi-v1"]
 ## nRF52832
-nrf52832 = ["nrf-pac/nrf52832", "_nrf52", "_nrf52832_anomaly_109"]
+nrf52832 = ["nrf-pac/nrf52832", "_nrf52", "_nrf52832_anomaly_109", "_spi-v1"]
 ## nRF52833
 nrf52833 = ["nrf-pac/nrf52833", "_nrf52", "_gpio-p1"]
 ## nRF52840
@@ -154,10 +154,10 @@ _nrf54l15-app = ["_nrf54l15", "nrf-pac/nrf54l15-app"]
 _nrf54l15 = ["_nrf54l", "_gpio-p1", "_gpio-p2"]
 _nrf54l = ["_dppi"]
 
-_nrf9160 = ["nrf-pac/nrf9160", "_dppi"]
-_nrf9120 = ["nrf-pac/nrf9120", "_dppi"]
+_nrf9160 = ["nrf-pac/nrf9160", "_dppi", "_spi-v1"]
+_nrf9120 = ["nrf-pac/nrf9120", "_dppi", "_spi-v1"]
 _nrf52 = ["_ppi"]
-_nrf51 = ["_ppi"]
+_nrf51 = ["_ppi", "_spi-v1"]
 _nrf91 = []
 
 _time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-32_768", "dep:embassy-time-queue-utils", "embassy-embedded-hal/time"]
@@ -172,6 +172,7 @@ _ppi = []
 _dppi = []
 _gpio-p1 = []
 _gpio-p2 = []
+_spi-v1 = []
 
 # Errata workarounds
 _nrf52832_anomaly_109 = []
@@ -199,7 +200,7 @@ embedded-io-async = { version = "0.6.1" }
 rand-core-06 = { package = "rand_core", version = "0.6" }
 rand-core-09 = { package = "rand_core", version = "0.9" }
 
-nrf-pac = "0.1.0"
+nrf-pac = { version = "0.1.0", git = "https://github.com/embassy-rs/nrf-pac.git", rev = "58198c23bce72edc10b4e1656d1b54441fc74e7c" }
 
 defmt = { version = "1.0.1", optional = true }
 bitflags = "2.4.2"

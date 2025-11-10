@@ -169,7 +169,7 @@ impl TaskTracker {
 }
 
 #[cfg(feature = "trace")]
-extern "Rust" {
+unsafe extern "Rust" {
     /// This callback is called when the executor begins polling. This will always
     /// be paired with a later call to `_embassy_trace_executor_idle`.
     ///
