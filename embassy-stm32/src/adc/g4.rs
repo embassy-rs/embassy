@@ -147,7 +147,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         s.calibrate();
         blocking_delay_us(1);
 
-        s.enable();
+        Self::enable();
         s.configure();
 
         s
@@ -192,7 +192,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         blocking_delay_us(20);
     }
 
-    fn enable(&mut self) {
+    fn enable() {
         // Make sure bits are off
         while T::regs().cr().read().addis() {
             // spin
@@ -363,7 +363,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     /// Teardown method for stopping regular ADC conversions
-    pub(super) fn teardown_adc() {
+    pub(super) fn teardown_dma() {
         Self::stop_regular_conversions();
 
         // Disable dma control
@@ -418,39 +418,13 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         // Ensure no conversions are ongoing and ADC is enabled.
         Self::stop_regular_conversions();
-        self.enable();
+        Self::enable();
 
-        // Set sequence length
-        T::regs().sqr1().modify(|w| {
-            w.set_l(sequence.len() as u8 - 1);
-        });
-        // Configure channels and ranks
-        for (_i, (channel, sample_time)) in sequence.enumerate() {
-            Self::configure_channel(channel, sample_time);
-            match _i {
-                0..=3 => {
-                    T::regs().sqr1().modify(|w| {
-                        w.set_sq(_i, channel.channel());
-                    });
-                }
-                4..=8 => {
-                    T::regs().sqr2().modify(|w| {
-                        w.set_sq(_i - 4, channel.channel());
-                    });
-                }
-                9..=13 => {
-                    T::regs().sqr3().modify(|w| {
-                        w.set_sq(_i - 9, channel.channel());
-                    });
-                }
-                14..=15 => {
-                    T::regs().sqr4().modify(|w| {
-                        w.set_sq(_i - 14, channel.channel());
-                    });
-                }
-                _ => unreachable!(),
-            }
-        }
+        Self::configure_sequence(sequence.map(|(channel, sample_time)| {
+            channel.setup();
+
+            (channel.channel, sample_time)
+        }));
 
         // Set continuous mode with oneshot dma.
         // Clear overrun flag before starting transfer.
@@ -491,6 +465,47 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr().modify(|reg| {
             reg.set_cont(false);
         });
+    }
+
+    pub(super) fn configure_sequence(sequence: impl ExactSizeIterator<Item = (u8, SampleTime)>) {
+        // Set sequence length
+        T::regs().sqr1().modify(|w| {
+            w.set_l(sequence.len() as u8 - 1);
+        });
+
+        // Configure channels and ranks
+        for (_i, (ch, sample_time)) in sequence.enumerate() {
+            let sample_time = sample_time.into();
+            if ch <= 9 {
+                T::regs().smpr().modify(|reg| reg.set_smp(ch as _, sample_time));
+            } else {
+                T::regs().smpr2().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
+            }
+
+            match _i {
+                0..=3 => {
+                    T::regs().sqr1().modify(|w| {
+                        w.set_sq(_i, ch);
+                    });
+                }
+                4..=8 => {
+                    T::regs().sqr2().modify(|w| {
+                        w.set_sq(_i - 4, ch);
+                    });
+                }
+                9..=13 => {
+                    T::regs().sqr3().modify(|w| {
+                        w.set_sq(_i - 9, ch);
+                    });
+                }
+                14..=15 => {
+                    T::regs().sqr4().modify(|w| {
+                        w.set_sq(_i - 14, ch);
+                    });
+                }
+                _ => unreachable!(),
+            }
+        }
     }
 
     /// Set external trigger for regular conversion sequence
@@ -546,43 +561,15 @@ impl<'d, T: Instance> Adc<'d, T> {
         );
         // reset conversions and enable the adc
         Self::stop_regular_conversions();
-        self.enable();
+        Self::enable();
 
         //adc side setup
 
-        // Set sequence length
-        T::regs().sqr1().modify(|w| {
-            w.set_l(sequence.len() as u8 - 1);
-        });
+        Self::configure_sequence(sequence.map(|(mut channel, sample_time)| {
+            channel.setup();
 
-        // Configure channels and ranks
-        for (_i, (mut channel, sample_time)) in sequence.enumerate() {
-            Self::configure_channel(&mut channel, sample_time);
-
-            match _i {
-                0..=3 => {
-                    T::regs().sqr1().modify(|w| {
-                        w.set_sq(_i, channel.channel());
-                    });
-                }
-                4..=8 => {
-                    T::regs().sqr2().modify(|w| {
-                        w.set_sq(_i - 4, channel.channel());
-                    });
-                }
-                9..=13 => {
-                    T::regs().sqr3().modify(|w| {
-                        w.set_sq(_i - 9, channel.channel());
-                    });
-                }
-                14..=15 => {
-                    T::regs().sqr4().modify(|w| {
-                        w.set_sq(_i - 14, channel.channel());
-                    });
-                }
-                _ => unreachable!(),
-            }
-        }
+            (channel.channel, sample_time)
+        }));
 
         // Clear overrun flag before starting transfer.
         T::regs().isr().modify(|reg| {
@@ -655,7 +642,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         );
 
         Self::stop_regular_conversions();
-        self.enable();
+        Self::enable();
 
         T::regs().jsqr().modify(|w| w.set_jl(N as u8 - 1));
 

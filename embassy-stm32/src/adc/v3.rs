@@ -198,7 +198,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     #[cfg(any(adc_v3, adc_g0, adc_u0))]
-    pub(super) fn teardown_adc() {
+    pub(super) fn teardown_dma() {
         //disable dma control
         #[cfg(not(any(adc_g0, adc_u0)))]
         T::regs().cfgr().modify(|reg| {
