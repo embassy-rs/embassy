@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased - ReleaseDate
 
+- feat: timer: Add 32-bit timer support to SimplePwm waveform_up method following waveform pattern ([#4717](https://github.com/embassy-rs/embassy/pull/4717))
 - feat: Add support for injected ADC measurements for g4 ([#4840](https://github.com/embassy-rs/embassy/pull/4840))
 - feat: Implement into_ring_buffered for g4 ([#4840](https://github.com/embassy-rs/embassy/pull/4840))
 - feat: Add support for 13-bit address and 16-bit data SDRAM chips
