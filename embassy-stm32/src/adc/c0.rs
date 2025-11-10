@@ -19,33 +19,17 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(25);
 
 const TIME_ADC_VOLTAGE_REGUALTOR_STARTUP_US: u32 = 20;
 
-const TEMP_CHANNEL: u8 = 9;
-const VREF_CHANNEL: u8 = 10;
-
 const NUM_HW_CHANNELS: u8 = 22;
 const CHSELR_SQ_SIZE: usize = 8;
 const CHSELR_SQ_MAX_CHANNEL: u8 = 14;
 const CHSELR_SQ_SEQUENCE_END_MARKER: u8 = 0b1111;
 
-// NOTE: Vrefint/Temperature/Vbat are not available on all ADCs,
-// this currently cannot be modeled with stm32-data,
-// so these are available from the software on all ADCs.
-/// Internal voltage reference channel.
-pub struct VrefInt;
-impl<T: Instance> AdcChannel<T> for VrefInt {}
-impl<T: Instance> SealedAdcChannel<T> for VrefInt {
-    fn channel(&self) -> u8 {
-        VREF_CHANNEL
-    }
+impl<T: Instance> super::VrefConverter for T {
+    const CHANNEL: u8 = 10;
 }
 
-/// Internal temperature channel.
-pub struct Temperature;
-impl<T: Instance> AdcChannel<T> for Temperature {}
-impl<T: Instance> SealedAdcChannel<T> for Temperature {
-    fn channel(&self) -> u8 {
-        TEMP_CHANNEL
-    }
+impl<T: Instance> super::TemperatureConverter for T {
+    const CHANNEL: u8 = 9;
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -232,22 +216,22 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     /// Enable reading the voltage reference internal channel.
-    pub fn enable_vrefint(&self) -> VrefInt {
+    pub fn enable_vrefint(&self) -> super::VrefInt {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vrefen(true);
         });
 
-        VrefInt {}
+        super::VrefInt {}
     }
 
     /// Enable reading the temperature internal channel.
-    pub fn enable_temperature(&self) -> Temperature {
+    pub fn enable_temperature(&self) -> super::Temperature {
         debug!("Ensure that sample time is set to more than temperature sensor T_start from the datasheet!");
         T::common_regs().ccr().modify(|reg| {
             reg.set_tsen(true);
         });
 
-        Temperature {}
+        super::Temperature {}
     }
 
     /// Set the ADC sample time.

@@ -9,8 +9,11 @@ use pac::adc::vals::{OversamplingRatio, OversamplingShift, Rovsm, Trovs};
 #[cfg(adc_g0)]
 pub use pac::adc::vals::{Ovsr, Ovss, Presc};
 
+#[allow(unused_imports)]
+use super::SealedAdcChannel;
 use super::{
-    Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel, blocking_delay_us,
+    Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, Temperature, Vbat, VrefInt,
+    blocking_delay_us,
 };
 
 #[cfg(any(adc_v3, adc_g0, adc_u0))]
@@ -32,61 +35,55 @@ pub const VREF_CALIB_MV: u32 = 3000;
 // TODO: Use [#![feature(variant_count)]](https://github.com/rust-lang/rust/issues/73662) when stable
 const SAMPLE_TIMES_CAPACITY: usize = 2;
 
-pub struct VrefInt;
-impl<T: Instance> AdcChannel<T> for VrefInt {}
-impl<T: Instance> SealedAdcChannel<T> for VrefInt {
-    fn channel(&self) -> u8 {
-        cfg_if! {
-            if #[cfg(adc_g0)] {
-                let val = 13;
-            } else if #[cfg(any(adc_h5, adc_h7rs))] {
-                let val = 17;
-            } else if #[cfg(adc_u0)] {
-                let val = 12;
-            } else {
-                let val = 0;
-            }
-        }
-        val
-    }
+#[cfg(adc_g0)]
+impl<T: Instance> super::VrefConverter for T {
+    const CHANNEL: u8 = 13;
+}
+#[cfg(any(adc_h5, adc_h7rs))]
+impl<T: Instance> super::VrefConverter for T {
+    const CHANNEL: u8 = 17;
+}
+#[cfg(adc_u0)]
+impl<T: Instance> super::VrefConverter for T {
+    const CHANNEL: u8 = 12;
+}
+#[cfg(not(any(adc_g0, adc_h5, adc_h7rs, adc_u0)))]
+impl<T: Instance> super::VrefConverter for T {
+    const CHANNEL: u8 = 0;
 }
 
-pub struct Temperature;
-impl<T: Instance> AdcChannel<T> for Temperature {}
-impl<T: Instance> SealedAdcChannel<T> for Temperature {
-    fn channel(&self) -> u8 {
-        cfg_if! {
-            if #[cfg(adc_g0)] {
-                let val = 12;
-            } else if #[cfg(any(adc_h5, adc_h7rs))] {
-                let val = 16;
-            } else if #[cfg(adc_u0)] {
-                let val = 11;
-            } else {
-                let val = 17;
-            }
-        }
-        val
-    }
+#[cfg(adc_g0)]
+impl<T: Instance> super::TemperatureConverter for T {
+    const CHANNEL: u8 = 12;
+}
+#[cfg(any(adc_h5, adc_h7rs))]
+impl<T: Instance> super::TemperatureConverter for T {
+    const CHANNEL: u8 = 16;
+}
+#[cfg(adc_u0)]
+impl<T: Instance> super::TemperatureConverter for T {
+    const CHANNEL: u8 = 11;
+}
+#[cfg(not(any(adc_g0, adc_h5, adc_h7rs, adc_u0)))]
+impl<T: Instance> super::TemperatureConverter for T {
+    const CHANNEL: u8 = 17;
 }
 
-pub struct Vbat;
-impl<T: Instance> AdcChannel<T> for Vbat {}
-impl<T: Instance> SealedAdcChannel<T> for Vbat {
-    fn channel(&self) -> u8 {
-        cfg_if! {
-            if #[cfg(adc_g0)] {
-                let val = 14;
-            } else if #[cfg(any(adc_h5, adc_h7rs))] {
-                let val = 2;
-            } else if #[cfg(any(adc_h5, adc_h7rs))] {
-                let val = 13;
-            } else {
-                let val = 18;
-            }
-        }
-        val
-    }
+#[cfg(adc_g0)]
+impl<T: Instance> super::VBatConverter for T {
+    const CHANNEL: u8 = 14;
+}
+#[cfg(any(adc_h5, adc_h7rs))]
+impl<T: Instance> super::VBatConverter for T {
+    const CHANNEL: u8 = 2;
+}
+#[cfg(adc_u0)]
+impl<T: Instance> super::VBatConverter for T {
+    const CHANNEL: u8 = 13;
+}
+#[cfg(not(any(adc_g0, adc_h5, adc_h7rs, adc_u0)))]
+impl<T: Instance> super::VBatConverter for T {
+    const CHANNEL: u8 = 18;
 }
 
 cfg_if! {

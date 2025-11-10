@@ -5,7 +5,8 @@ use pac::adc::vals::{Adstp, Difsel, Dmngt, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
 
 use super::{
-    Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel, blocking_delay_us,
+    Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel, Temperature, Vbat,
+    VrefInt, blocking_delay_us,
 };
 use crate::dma::Transfer;
 use crate::time::Hertz;
@@ -25,52 +26,40 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(50);
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
 
 #[cfg(stm32g4)]
-const VREF_CHANNEL: u8 = 18;
+impl<T: Instance> super::VrefConverter for T {
+    const CHANNEL: u8 = 18;
+}
 #[cfg(stm32g4)]
-const TEMP_CHANNEL: u8 = 16;
+impl<T: Instance> super::TemperatureConverter for T {
+    const CHANNEL: u8 = 16;
+}
 
 #[cfg(stm32h7)]
-const VREF_CHANNEL: u8 = 19;
+impl<T: Instance> super::VrefConverter for T {
+    const CHANNEL: u8 = 19;
+}
 #[cfg(stm32h7)]
-const TEMP_CHANNEL: u8 = 18;
+impl<T: Instance> super::TemperatureConverter for T {
+    const CHANNEL: u8 = 18;
+}
 
 // TODO this should be 14 for H7a/b/35
 #[cfg(not(stm32u5))]
-const VBAT_CHANNEL: u8 = 17;
-
-#[cfg(stm32u5)]
-const VREF_CHANNEL: u8 = 0;
-#[cfg(stm32u5)]
-const TEMP_CHANNEL: u8 = 19;
-#[cfg(stm32u5)]
-const VBAT_CHANNEL: u8 = 18;
-
-// NOTE: Vrefint/Temperature/Vbat are not available on all ADCs, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
-/// Internal voltage reference channel.
-pub struct VrefInt;
-impl<T: Instance> AdcChannel<T> for VrefInt {}
-impl<T: Instance> SealedAdcChannel<T> for VrefInt {
-    fn channel(&self) -> u8 {
-        VREF_CHANNEL
-    }
+impl<T: Instance> super::VBatConverter for T {
+    const CHANNEL: u8 = 17;
 }
 
-/// Internal temperature channel.
-pub struct Temperature;
-impl<T: Instance> AdcChannel<T> for Temperature {}
-impl<T: Instance> SealedAdcChannel<T> for Temperature {
-    fn channel(&self) -> u8 {
-        TEMP_CHANNEL
-    }
+#[cfg(stm32u5)]
+impl<T: Instance> super::VrefConverter for T {
+    const CHANNEL: u8 = 0;
 }
-
-/// Internal battery voltage channel.
-pub struct Vbat;
-impl<T: Instance> AdcChannel<T> for Vbat {}
-impl<T: Instance> SealedAdcChannel<T> for Vbat {
-    fn channel(&self) -> u8 {
-        VBAT_CHANNEL
-    }
+#[cfg(stm32u5)]
+impl<T: Instance> super::TemperatureConverter for T {
+    const CHANNEL: u8 = 19;
+}
+#[cfg(stm32u5)]
+impl<T: Instance> super::VBatConverter for T {
+    const CHANNEL: u8 = 18;
 }
 
 // NOTE (unused): The prescaler enum closely copies the hardware capabilities,

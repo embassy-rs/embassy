@@ -1,10 +1,9 @@
 use core::mem;
 use core::sync::atomic::{Ordering, compiler_fence};
 
-use super::blocking_delay_us;
+use super::{Temperature, Vbat, VrefInt, blocking_delay_us};
 use crate::adc::{Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel};
 use crate::pac::adc::vals;
-use crate::peripherals::ADC1;
 use crate::time::Hertz;
 use crate::{Peri, rcc};
 
@@ -23,12 +22,22 @@ pub const VREF_DEFAULT_MV: u32 = 3300;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 pub const VREF_CALIB_MV: u32 = 3300;
 
-pub struct VrefInt;
-impl AdcChannel<ADC1> for VrefInt {}
-impl super::SealedAdcChannel<ADC1> for VrefInt {
-    fn channel(&self) -> u8 {
-        17
-    }
+impl super::VrefConverter for crate::peripherals::ADC1 {
+    const CHANNEL: u8 = 17;
+}
+
+#[cfg(any(stm32f2, stm32f40x, stm32f41x))]
+impl super::TemperatureConverter for crate::peripherals::ADC1 {
+    const CHANNEL: u8 = 16;
+}
+
+#[cfg(not(any(stm32f2, stm32f40x, stm32f41x)))]
+impl super::TemperatureConverter for crate::peripherals::ADC1 {
+    const CHANNEL: u8 = 18;
+}
+
+impl super::VBatConverter for crate::peripherals::ADC1 {
+    const CHANNEL: u8 = 18;
 }
 
 impl VrefInt {
@@ -38,32 +47,10 @@ impl VrefInt {
     }
 }
 
-pub struct Temperature;
-impl AdcChannel<ADC1> for Temperature {}
-impl super::SealedAdcChannel<ADC1> for Temperature {
-    fn channel(&self) -> u8 {
-        cfg_if::cfg_if! {
-            if #[cfg(any(stm32f2, stm32f40x, stm32f41x))] {
-                16
-            } else {
-                18
-            }
-        }
-    }
-}
-
 impl Temperature {
     /// Time needed for temperature sensor readings to stabilize
     pub fn start_time_us() -> u32 {
         10
-    }
-}
-
-pub struct Vbat;
-impl AdcChannel<ADC1> for Vbat {}
-impl super::SealedAdcChannel<ADC1> for Vbat {
-    fn channel(&self) -> u8 {
-        18
     }
 }
 

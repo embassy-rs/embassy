@@ -100,6 +100,47 @@ pub(crate) fn blocking_delay_us(us: u32) {
     }
 }
 
+/// Implemented for ADCs that have a Temperature channel
+pub trait TemperatureConverter {
+    const CHANNEL: u8;
+}
+/// Implemented for ADCs that have a Vref channel
+pub trait VrefConverter {
+    const CHANNEL: u8;
+}
+/// Implemented for ADCs that have a VBat channel
+pub trait VBatConverter {
+    const CHANNEL: u8;
+}
+
+// NOTE: Vrefint/Temperature/Vbat are not available on all ADCs, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
+/// Internal voltage reference channel.
+pub struct VrefInt;
+impl<T: Instance + VrefConverter> AdcChannel<T> for VrefInt {}
+impl<T: Instance + VrefConverter> SealedAdcChannel<T> for VrefInt {
+    fn channel(&self) -> u8 {
+        T::CHANNEL
+    }
+}
+
+/// Internal temperature channel.
+pub struct Temperature;
+impl<T: Instance + TemperatureConverter> AdcChannel<T> for Temperature {}
+impl<T: Instance + TemperatureConverter> SealedAdcChannel<T> for Temperature {
+    fn channel(&self) -> u8 {
+        T::CHANNEL
+    }
+}
+
+/// Internal battery voltage channel.
+pub struct Vbat;
+impl<T: Instance + VBatConverter> AdcChannel<T> for Vbat {}
+impl<T: Instance + VBatConverter> SealedAdcChannel<T> for Vbat {
+    fn channel(&self) -> u8 {
+        T::CHANNEL
+    }
+}
+
 /// ADC instance.
 #[cfg(not(any(
     adc_f1, adc_v1, adc_l0, adc_v2, adc_v3, adc_v4, adc_g4, adc_f3v1, adc_f3v2, adc_g0, adc_u0, adc_h5, adc_h7rs,

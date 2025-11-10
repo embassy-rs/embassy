@@ -29,27 +29,19 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
-pub struct Vref;
-impl<T: Instance> AdcChannel<T> for Vref {}
-impl<T: Instance> super::SealedAdcChannel<T> for Vref {
-    fn channel(&self) -> u8 {
-        18
-    }
+impl<T: Instance> super::VrefConverter for T {
+    const CHANNEL: u8 = 18;
 }
 
-impl Vref {
+impl super::VrefInt {
     /// The value that vref would be if vdda was at 3300mv
     pub fn value(&self) -> u16 {
         crate::pac::VREFINTCAL.data().read()
     }
 }
 
-pub struct Temperature;
-impl<T: Instance> AdcChannel<T> for Temperature {}
-impl<T: Instance> super::SealedAdcChannel<T> for Temperature {
-    fn channel(&self) -> u8 {
-        16
-    }
+impl<T: Instance> super::TemperatureConverter for T {
+    const CHANNEL: u8 = 16;
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
@@ -109,16 +101,16 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    pub fn enable_vref(&self) -> Vref {
+    pub fn enable_vref(&self) -> super::VrefInt {
         T::common_regs().ccr().modify(|w| w.set_vrefen(true));
 
-        Vref {}
+        super::VrefInt {}
     }
 
-    pub fn enable_temperature(&self) -> Temperature {
+    pub fn enable_temperature(&self) -> super::Temperature {
         T::common_regs().ccr().modify(|w| w.set_tsen(true));
 
-        Temperature {}
+        super::Temperature {}
     }
 
     /// Perform a single conversion.
