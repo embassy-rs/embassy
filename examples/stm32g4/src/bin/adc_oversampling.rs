@@ -33,7 +33,6 @@ async fn main(_spawner: Spawner) {
     let mut p = embassy_stm32::init(config);
 
     let mut adc = Adc::new(p.ADC1);
-    adc.set_sample_time(SampleTime::CYCLES6_5);
     // From https://www.st.com/resource/en/reference_manual/rm0440-stm32g4-series-advanced-armbased-32bit-mcus-stmicroelectronics.pdf
     // page652 Oversampler
     // Table 172. Maximum output results vs N and M. Grayed values indicates truncation
@@ -50,7 +49,7 @@ async fn main(_spawner: Spawner) {
     adc.enable_regular_oversampling_mode(Rovsm::RESUMED, Trovs::AUTOMATIC, true);
 
     loop {
-        let measured = adc.blocking_read(&mut p.PA0);
+        let measured = adc.blocking_read(&mut p.PA0, SampleTime::CYCLES6_5);
         info!("data: 0x{:X}", measured); //max 0xFFF0 -> 65520
         Timer::after_millis(500).await;
     }

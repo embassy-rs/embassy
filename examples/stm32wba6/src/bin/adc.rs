@@ -17,15 +17,14 @@ async fn main(_spawner: embassy_executor::Spawner) {
     let mut adc4_pin2 = p.PA1; // A5
     adc4.set_resolution(adc4::Resolution::BITS12);
     adc4.set_averaging(adc4::Averaging::Samples256);
-    adc4.set_sample_time(adc4::SampleTime::CYCLES1_5);
     let max4 = adc4::resolution_to_max_count(adc4::Resolution::BITS12);
 
     // **** ADC4 blocking read ****
-    let raw: u16 = adc4.blocking_read(&mut adc4_pin1);
+    let raw: u16 = adc4.blocking_read(&mut adc4_pin1, adc4::SampleTime::CYCLES1_5);
     let volt: f32 = 3.0 * raw as f32 / max4 as f32;
     info!("Read adc4 pin 1 {}", volt);
 
-    let raw: u16 = adc4.blocking_read(&mut adc4_pin2);
+    let raw: u16 = adc4.blocking_read(&mut adc4_pin2, adc4::SampleTime::CYCLES1_5);
     let volt: f32 = 3.3 * raw as f32 / max4 as f32;
     info!("Read adc4 pin 2 {}", volt);
 

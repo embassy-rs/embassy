@@ -5,10 +5,11 @@ use core::task::Poll;
 #[cfg(adc_l0)]
 use stm32_metapac::adc::vals::Ckmode;
 
-use super::blocking_delay_us;
+#[cfg(not(adc_l0))]
+use super::Vbat;
+use super::{Temperature, VrefInt, blocking_delay_us};
 use crate::adc::{Adc, AdcChannel, Instance, Resolution, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
-use crate::peripherals::ADC1;
 use crate::{Peri, interrupt, rcc};
 
 mod watchdog_v1;
@@ -42,32 +43,23 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 #[cfg(not(adc_l0))]
-pub struct Vbat;
-
-#[cfg(not(adc_l0))]
-impl AdcChannel<ADC1> for Vbat {}
-
-#[cfg(not(adc_l0))]
-impl super::SealedAdcChannel<ADC1> for Vbat {
-    fn channel(&self) -> u8 {
-        18
-    }
+impl super::VBatConverter for crate::peripherals::ADC1 {
+    const CHANNEL: u8 = 18;
 }
 
-pub struct Vref;
-impl AdcChannel<ADC1> for Vref {}
-impl super::SealedAdcChannel<ADC1> for Vref {
-    fn channel(&self) -> u8 {
-        17
-    }
+#[cfg(not(adc_l0))]
+impl super::VrefConverter for crate::peripherals::ADC1 {
+    const CHANNEL: u8 = 17;
 }
 
-pub struct Temperature;
-impl AdcChannel<ADC1> for Temperature {}
-impl super::SealedAdcChannel<ADC1> for Temperature {
-    fn channel(&self) -> u8 {
-        if cfg!(adc_l0) { 18 } else { 16 }
-    }
+#[cfg(adc_l0)]
+impl super::VrefConverter for crate::peripherals::ADC1 {
+    const CHANNEL: u8 = 18;
+}
+
+#[cfg(not(adc_l0))]
+impl super::TemperatureConverter for crate::peripherals::ADC1 {
+    const CHANNEL: u8 = 16;
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
@@ -114,10 +106,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             T::Interrupt::enable();
         }
 
-        Self {
-            adc,
-            sample_time: SampleTime::from_bits(0),
-        }
+        Self { adc }
     }
 
     #[cfg(not(adc_l0))]
@@ -130,12 +119,12 @@ impl<'d, T: Instance> Adc<'d, T> {
         Vbat
     }
 
-    pub fn enable_vref(&self) -> Vref {
+    pub fn enable_vref(&self) -> VrefInt {
         // Table 28. Embedded internal reference voltage
         // tstart = 10μs
         T::regs().ccr().modify(|reg| reg.set_vrefen(true));
         blocking_delay_us(10);
-        Vref
+        VrefInt
     }
 
     pub fn enable_temperature(&self) -> Temperature {
@@ -149,10 +138,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         Temperature
     }
 
-    pub fn set_sample_time(&mut self, sample_time: SampleTime) {
-        self.sample_time = sample_time;
-    }
-
     pub fn set_resolution(&mut self, resolution: Resolution) {
         T::regs().cfgr1().modify(|reg| reg.set_res(resolution.into()));
     }
@@ -163,12 +148,13 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr2().modify(|reg| reg.set_ckmode(ckmode));
     }
 
-    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
         let ch_num = channel.channel();
         channel.setup();
 
         // A.7.5 Single conversion sequence code example - Software trigger
         T::regs().chselr().write(|reg| reg.set_chsel_x(ch_num as usize, true));
+        T::regs().smpr().modify(|reg| reg.set_smp(sample_time.into()));
 
         self.convert().await
     }
@@ -179,7 +165,6 @@ impl<'d, T: Instance> Adc<'d, T> {
             reg.set_eosmp(true);
         });
 
-        T::regs().smpr().modify(|reg| reg.set_smp(self.sample_time.into()));
         T::regs().ier().modify(|w| w.set_eocie(true));
         T::regs().cr().modify(|reg| reg.set_adstart(true));
 

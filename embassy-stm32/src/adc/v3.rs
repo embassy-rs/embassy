@@ -9,8 +9,11 @@ use pac::adc::vals::{OversamplingRatio, OversamplingShift, Rovsm, Trovs};
 #[cfg(adc_g0)]
 pub use pac::adc::vals::{Ovsr, Ovss, Presc};
 
+#[allow(unused_imports)]
+use super::SealedAdcChannel;
 use super::{
-    Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel, blocking_delay_us,
+    Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, Temperature, Vbat, VrefInt,
+    blocking_delay_us,
 };
 
 #[cfg(any(adc_v3, adc_g0, adc_u0))]
@@ -32,61 +35,55 @@ pub const VREF_CALIB_MV: u32 = 3000;
 // TODO: Use [#![feature(variant_count)]](https://github.com/rust-lang/rust/issues/73662) when stable
 const SAMPLE_TIMES_CAPACITY: usize = 2;
 
-pub struct VrefInt;
-impl<T: Instance> AdcChannel<T> for VrefInt {}
-impl<T: Instance> SealedAdcChannel<T> for VrefInt {
-    fn channel(&self) -> u8 {
-        cfg_if! {
-            if #[cfg(adc_g0)] {
-                let val = 13;
-            } else if #[cfg(any(adc_h5, adc_h7rs))] {
-                let val = 17;
-            } else if #[cfg(adc_u0)] {
-                let val = 12;
-            } else {
-                let val = 0;
-            }
-        }
-        val
-    }
+#[cfg(adc_g0)]
+impl<T: Instance> super::VrefConverter for T {
+    const CHANNEL: u8 = 13;
+}
+#[cfg(any(adc_h5, adc_h7rs))]
+impl<T: Instance> super::VrefConverter for T {
+    const CHANNEL: u8 = 17;
+}
+#[cfg(adc_u0)]
+impl<T: Instance> super::VrefConverter for T {
+    const CHANNEL: u8 = 12;
+}
+#[cfg(not(any(adc_g0, adc_h5, adc_h7rs, adc_u0)))]
+impl<T: Instance> super::VrefConverter for T {
+    const CHANNEL: u8 = 0;
 }
 
-pub struct Temperature;
-impl<T: Instance> AdcChannel<T> for Temperature {}
-impl<T: Instance> SealedAdcChannel<T> for Temperature {
-    fn channel(&self) -> u8 {
-        cfg_if! {
-            if #[cfg(adc_g0)] {
-                let val = 12;
-            } else if #[cfg(any(adc_h5, adc_h7rs))] {
-                let val = 16;
-            } else if #[cfg(adc_u0)] {
-                let val = 11;
-            } else {
-                let val = 17;
-            }
-        }
-        val
-    }
+#[cfg(adc_g0)]
+impl<T: Instance> super::TemperatureConverter for T {
+    const CHANNEL: u8 = 12;
+}
+#[cfg(any(adc_h5, adc_h7rs))]
+impl<T: Instance> super::TemperatureConverter for T {
+    const CHANNEL: u8 = 16;
+}
+#[cfg(adc_u0)]
+impl<T: Instance> super::TemperatureConverter for T {
+    const CHANNEL: u8 = 11;
+}
+#[cfg(not(any(adc_g0, adc_h5, adc_h7rs, adc_u0)))]
+impl<T: Instance> super::TemperatureConverter for T {
+    const CHANNEL: u8 = 17;
 }
 
-pub struct Vbat;
-impl<T: Instance> AdcChannel<T> for Vbat {}
-impl<T: Instance> SealedAdcChannel<T> for Vbat {
-    fn channel(&self) -> u8 {
-        cfg_if! {
-            if #[cfg(adc_g0)] {
-                let val = 14;
-            } else if #[cfg(any(adc_h5, adc_h7rs))] {
-                let val = 2;
-            } else if #[cfg(any(adc_h5, adc_h7rs))] {
-                let val = 13;
-            } else {
-                let val = 18;
-            }
-        }
-        val
-    }
+#[cfg(adc_g0)]
+impl<T: Instance> super::VBatConverter for T {
+    const CHANNEL: u8 = 14;
+}
+#[cfg(any(adc_h5, adc_h7rs))]
+impl<T: Instance> super::VBatConverter for T {
+    const CHANNEL: u8 = 2;
+}
+#[cfg(adc_u0)]
+impl<T: Instance> super::VBatConverter for T {
+    const CHANNEL: u8 = 13;
+}
+#[cfg(not(any(adc_g0, adc_h5, adc_h7rs, adc_u0)))]
+impl<T: Instance> super::VBatConverter for T {
+    const CHANNEL: u8 = 18;
 }
 
 cfg_if! {
@@ -201,7 +198,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     #[cfg(any(adc_v3, adc_g0, adc_u0))]
-    pub(super) fn teardown_adc() {
+    pub(super) fn teardown_dma() {
         //disable dma control
         #[cfg(not(any(adc_g0, adc_u0)))]
         T::regs().cfgr().modify(|reg| {
@@ -218,10 +215,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(adc: Peri<'d, T>) -> Self {
         Self::init_regulator();
         Self::init_calibrate();
-        Self {
-            adc,
-            sample_time: SampleTime::from_bits(0),
-        }
+        Self { adc }
     }
 
     #[cfg(adc_g0)]
@@ -257,10 +251,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         Self::init_calibrate();
 
-        Self {
-            adc,
-            sample_time: SampleTime::from_bits(0),
-        }
+        Self { adc }
     }
 
     // Enable ADC only when it is not already running.
@@ -342,16 +333,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         Vbat {}
     }
 
-    /// Set the ADC sample time.
-    pub fn set_sample_time(&mut self, sample_time: SampleTime) {
-        self.sample_time = sample_time;
-    }
-
-    /// Get the ADC sample time.
-    pub fn sample_time(&self) -> SampleTime {
-        self.sample_time
-    }
-
     /// Set the ADC resolution.
     pub fn set_resolution(&mut self, resolution: Resolution) {
         #[cfg(not(any(adc_g0, adc_u0)))]
@@ -413,8 +394,8 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     /// Read an ADC channel.
-    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
-        self.read_channel(channel)
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
+        self.read_channel(channel, sample_time)
     }
 
     /// Read one or multiple ADC channels using DMA.
@@ -616,7 +597,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         &mut self,
         dma: Peri<'a, impl RxDma<T>>,
         dma_buf: &'a mut [u16],
-        sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<T>, SampleTime)>,
+        sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<T>, SampleTime)>,
     ) -> RingBufferedAdc<'a, T> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
@@ -665,8 +646,8 @@ impl<'d, T: Instance> Adc<'d, T> {
             let mut channel_mask = 0;
 
             // Configure channels and ranks
-            for (_i, (channel, sample_time)) in sequence.enumerate() {
-                Self::configure_channel(channel, sample_time);
+            for (_i, (mut channel, sample_time)) in sequence.enumerate() {
+                Self::configure_channel(&mut channel, sample_time);
 
                 // Each channel is sampled according to sequence
                 #[cfg(not(any(adc_g0, adc_u0)))]
@@ -745,13 +726,13 @@ impl<'d, T: Instance> Adc<'d, T> {
         Self::set_channel_sample_time(channel.channel(), sample_time);
     }
 
-    fn read_channel(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+    fn read_channel(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
         self.enable();
         #[cfg(not(adc_g0))]
-        Self::configure_channel(channel, self.sample_time);
+        Self::configure_channel(channel, sample_time);
         #[cfg(adc_g0)]
         T::regs().smpr().write(|reg| {
-            reg.set_sample_time(0, self.sample_time);
+            reg.set_sample_time(0, sample_time);
             reg.set_smpsel(channel.channel().into(), Smpsel::SMP1);
         });
         // Select channel

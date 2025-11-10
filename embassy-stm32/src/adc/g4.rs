@@ -35,34 +35,6 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(60);
 #[cfg(stm32h7)]
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(50);
 
-// NOTE: Vrefint/Temperature/Vbat are not available on all ADCs, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
-/// Internal voltage reference channel.
-pub struct VrefInt;
-impl<T: Instance + VrefChannel> AdcChannel<T> for VrefInt {}
-impl<T: Instance + VrefChannel> super::SealedAdcChannel<T> for VrefInt {
-    fn channel(&self) -> u8 {
-        T::CHANNEL
-    }
-}
-
-/// Internal temperature channel.
-pub struct Temperature;
-impl<T: Instance + TemperatureChannel> AdcChannel<T> for Temperature {}
-impl<T: Instance + TemperatureChannel> super::SealedAdcChannel<T> for Temperature {
-    fn channel(&self) -> u8 {
-        T::CHANNEL
-    }
-}
-
-/// Internal battery voltage channel.
-pub struct Vbat;
-impl<T: Instance + VBatChannel> AdcChannel<T> for Vbat {}
-impl<T: Instance + VBatChannel> super::SealedAdcChannel<T> for Vbat {
-    fn channel(&self) -> u8 {
-        T::CHANNEL
-    }
-}
-
 // NOTE (unused): The prescaler enum closely copies the hardware capabilities,
 // but high prescaling doesn't make a lot of sense in the current implementation and is ommited.
 #[allow(unused)]
@@ -168,17 +140,14 @@ impl<'d, T: Instance> Adc<'d, T> {
             );
         }
 
-        let mut s = Self {
-            adc,
-            sample_time: SampleTime::from_bits(0),
-        };
+        let mut s = Self { adc };
         s.power_up();
         s.configure_differential_inputs();
 
         s.calibrate();
         blocking_delay_us(1);
 
-        s.enable();
+        Self::enable();
         s.configure();
 
         s
@@ -223,7 +192,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         blocking_delay_us(20);
     }
 
-    fn enable(&mut self) {
+    fn enable() {
         // Make sure bits are off
         while T::regs().cr().read().addis() {
             // spin
@@ -253,39 +222,39 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     /// Enable reading the voltage reference internal channel.
-    pub fn enable_vrefint(&self) -> VrefInt
+    pub fn enable_vrefint(&self) -> super::VrefInt
     where
-        T: VrefChannel,
+        T: super::VrefConverter,
     {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vrefen(true);
         });
 
-        VrefInt {}
+        super::VrefInt {}
     }
 
     /// Enable reading the temperature internal channel.
-    pub fn enable_temperature(&self) -> Temperature
+    pub fn enable_temperature(&self) -> super::Temperature
     where
-        T: TemperatureChannel,
+        T: super::TemperatureConverter,
     {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vsenseen(true);
         });
 
-        Temperature {}
+        super::Temperature {}
     }
 
     /// Enable reading the vbat internal channel.
-    pub fn enable_vbat(&self) -> Vbat
+    pub fn enable_vbat(&self) -> super::Vbat
     where
-        T: VBatChannel,
+        T: super::VBatConverter,
     {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vbaten(true);
         });
 
-        Vbat {}
+        super::Vbat {}
     }
 
     /// Enable differential channel.
@@ -297,7 +266,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// channel on the other ADC unusable. The only exception is when ADC master and the slave
     /// operate in interleaved mode.
     #[cfg(stm32g4)]
-    pub fn set_differential_channel(&mut self, ch: usize, enable: bool) {
+    fn set_differential_channel(&mut self, ch: usize, enable: bool) {
         T::regs().cr().modify(|w| w.set_aden(false)); // disable adc
         T::regs().difsel().modify(|w| {
             w.set_difsel(
@@ -350,11 +319,6 @@ impl<'d, T: Instance> Adc<'d, T> {
     //     T::regs().cfgr2().modify(|reg| reg.set_jovse(enable));
     // }
 
-    /// Set the ADC sample time.
-    pub fn set_sample_time(&mut self, sample_time: SampleTime) {
-        self.sample_time = sample_time;
-    }
-
     /// Set the ADC resolution.
     pub fn set_resolution(&mut self, resolution: Resolution) {
         T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
@@ -380,10 +344,10 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     /// Read an ADC pin.
-    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
         channel.setup();
 
-        self.read_channel(channel)
+        self.read_channel(channel, sample_time)
     }
 
     /// Start regular adc conversion
@@ -399,7 +363,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     /// Teardown method for stopping regular ADC conversions
-    pub(super) fn teardown_adc() {
+    pub(super) fn teardown_dma() {
         Self::stop_regular_conversions();
 
         // Disable dma control
@@ -454,39 +418,13 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         // Ensure no conversions are ongoing and ADC is enabled.
         Self::stop_regular_conversions();
-        self.enable();
+        Self::enable();
 
-        // Set sequence length
-        T::regs().sqr1().modify(|w| {
-            w.set_l(sequence.len() as u8 - 1);
-        });
-        // Configure channels and ranks
-        for (_i, (channel, sample_time)) in sequence.enumerate() {
-            Self::configure_channel(channel, sample_time);
-            match _i {
-                0..=3 => {
-                    T::regs().sqr1().modify(|w| {
-                        w.set_sq(_i, channel.channel());
-                    });
-                }
-                4..=8 => {
-                    T::regs().sqr2().modify(|w| {
-                        w.set_sq(_i - 4, channel.channel());
-                    });
-                }
-                9..=13 => {
-                    T::regs().sqr3().modify(|w| {
-                        w.set_sq(_i - 9, channel.channel());
-                    });
-                }
-                14..=15 => {
-                    T::regs().sqr4().modify(|w| {
-                        w.set_sq(_i - 14, channel.channel());
-                    });
-                }
-                _ => unreachable!(),
-            }
-        }
+        Self::configure_sequence(sequence.map(|(channel, sample_time)| {
+            channel.setup();
+
+            (channel.channel, sample_time)
+        }));
 
         // Set continuous mode with oneshot dma.
         // Clear overrun flag before starting transfer.
@@ -527,6 +465,47 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cfgr().modify(|reg| {
             reg.set_cont(false);
         });
+    }
+
+    pub(super) fn configure_sequence(sequence: impl ExactSizeIterator<Item = (u8, SampleTime)>) {
+        // Set sequence length
+        T::regs().sqr1().modify(|w| {
+            w.set_l(sequence.len() as u8 - 1);
+        });
+
+        // Configure channels and ranks
+        for (_i, (ch, sample_time)) in sequence.enumerate() {
+            let sample_time = sample_time.into();
+            if ch <= 9 {
+                T::regs().smpr().modify(|reg| reg.set_smp(ch as _, sample_time));
+            } else {
+                T::regs().smpr2().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
+            }
+
+            match _i {
+                0..=3 => {
+                    T::regs().sqr1().modify(|w| {
+                        w.set_sq(_i, ch);
+                    });
+                }
+                4..=8 => {
+                    T::regs().sqr2().modify(|w| {
+                        w.set_sq(_i - 4, ch);
+                    });
+                }
+                9..=13 => {
+                    T::regs().sqr3().modify(|w| {
+                        w.set_sq(_i - 9, ch);
+                    });
+                }
+                14..=15 => {
+                    T::regs().sqr4().modify(|w| {
+                        w.set_sq(_i - 14, ch);
+                    });
+                }
+                _ => unreachable!(),
+            }
+        }
     }
 
     /// Set external trigger for regular conversion sequence
@@ -582,43 +561,15 @@ impl<'d, T: Instance> Adc<'d, T> {
         );
         // reset conversions and enable the adc
         Self::stop_regular_conversions();
-        self.enable();
+        Self::enable();
 
         //adc side setup
 
-        // Set sequence length
-        T::regs().sqr1().modify(|w| {
-            w.set_l(sequence.len() as u8 - 1);
-        });
+        Self::configure_sequence(sequence.map(|(mut channel, sample_time)| {
+            channel.setup();
 
-        // Configure channels and ranks
-        for (_i, (mut channel, sample_time)) in sequence.enumerate() {
-            Self::configure_channel(&mut channel, sample_time);
-
-            match _i {
-                0..=3 => {
-                    T::regs().sqr1().modify(|w| {
-                        w.set_sq(_i, channel.channel());
-                    });
-                }
-                4..=8 => {
-                    T::regs().sqr2().modify(|w| {
-                        w.set_sq(_i - 4, channel.channel());
-                    });
-                }
-                9..=13 => {
-                    T::regs().sqr3().modify(|w| {
-                        w.set_sq(_i - 9, channel.channel());
-                    });
-                }
-                14..=15 => {
-                    T::regs().sqr4().modify(|w| {
-                        w.set_sq(_i - 14, channel.channel());
-                    });
-                }
-                _ => unreachable!(),
-            }
-        }
+            (channel.channel, sample_time)
+        }));
 
         // Clear overrun flag before starting transfer.
         T::regs().isr().modify(|reg| {
@@ -691,7 +642,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         );
 
         Self::stop_regular_conversions();
-        self.enable();
+        Self::enable();
 
         T::regs().jsqr().modify(|w| w.set_jl(N as u8 - 1));
 
@@ -755,12 +706,10 @@ impl<'d, T: Instance> Adc<'d, T> {
             (
                 Self {
                     adc: self.adc.clone_unchecked(),
-                    sample_time: self.sample_time,
                 }
                 .into_ring_buffered(dma, dma_buf, regular_sequence, regular_conversion_mode),
                 Self {
                     adc: self.adc.clone_unchecked(),
-                    sample_time: self.sample_time,
                 }
                 .setup_injected_conversions(injected_sequence, injected_trigger, injected_interrupt),
             )
@@ -805,8 +754,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         Self::set_channel_sample_time(channel.channel(), sample_time);
     }
 
-    fn read_channel(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
-        Self::configure_channel(channel, self.sample_time);
+    fn read_channel(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
+        Self::configure_channel(channel, sample_time);
         #[cfg(stm32h7)]
         {
             T::regs().cfgr2().modify(|w| w.set_lshift(0));
@@ -860,62 +809,49 @@ impl<T: Instance, const N: usize> InjectedAdc<T, N> {
     }
 }
 
-/// Implemented for ADCs that have a Temperature channel
-pub trait TemperatureChannel {
-    const CHANNEL: u8;
-}
-/// Implemented for ADCs that have a Vref channel
-pub trait VrefChannel {
-    const CHANNEL: u8;
-}
-/// Implemented for ADCs that have a VBat channel
-pub trait VBatChannel {
-    const CHANNEL: u8;
-}
-
 #[cfg(stm32g4)]
 mod g4 {
-    pub use super::*;
+    use crate::adc::{TemperatureConverter, VBatConverter, VrefConverter};
 
-    impl TemperatureChannel for crate::peripherals::ADC1 {
+    impl TemperatureConverter for crate::peripherals::ADC1 {
         const CHANNEL: u8 = 16;
     }
 
-    impl VrefChannel for crate::peripherals::ADC1 {
+    impl VrefConverter for crate::peripherals::ADC1 {
         const CHANNEL: u8 = 18;
     }
 
-    impl VBatChannel for crate::peripherals::ADC1 {
+    impl VBatConverter for crate::peripherals::ADC1 {
         const CHANNEL: u8 = 17;
     }
 
     #[cfg(peri_adc3_common)]
-    impl VrefChannel for crate::peripherals::ADC3 {
+    impl VrefConverter for crate::peripherals::ADC3 {
         const CHANNEL: u8 = 18;
     }
 
     #[cfg(peri_adc3_common)]
-    impl VBatChannel for crate::peripherals::ADC3 {
+    impl VBatConverter for crate::peripherals::ADC3 {
         const CHANNEL: u8 = 17;
     }
 
     #[cfg(not(stm32g4x1))]
-    impl VrefChannel for crate::peripherals::ADC4 {
+    impl VrefConverter for crate::peripherals::ADC4 {
         const CHANNEL: u8 = 18;
     }
 
     #[cfg(not(stm32g4x1))]
-    impl TemperatureChannel for crate::peripherals::ADC5 {
+    impl TemperatureConverter for crate::peripherals::ADC5 {
         const CHANNEL: u8 = 4;
     }
 
     #[cfg(not(stm32g4x1))]
-    impl VrefChannel for crate::peripherals::ADC5 {
+    impl VrefConverter for crate::peripherals::ADC5 {
         const CHANNEL: u8 = 18;
     }
 
     #[cfg(not(stm32g4x1))]
-    impl VBatChannel for crate::peripherals::ADC5 {
+    impl VBatConverter for crate::peripherals::ADC5 {
         const CHANNEL: u8 = 17;
     }
 }
@@ -923,13 +859,13 @@ mod g4 {
 // TODO this should look at each ADC individually and impl the correct channels
 #[cfg(stm32h7)]
 mod h7 {
-    impl<T: Instance> TemperatureChannel for T {
+    impl<T: Instance> TemperatureConverter for T {
         const CHANNEL: u8 = 18;
     }
-    impl<T: Instance> VrefChannel for T {
+    impl<T: Instance> VrefConverter for T {
         const CHANNEL: u8 = 19;
     }
-    impl<T: Instance> VBatChannel for T {
+    impl<T: Instance> VBatConverter for T {
         // TODO this should be 14 for H7a/b/35
         const CHANNEL: u8 = 17;
     }

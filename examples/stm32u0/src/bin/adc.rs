@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_stm32::Config;
-use embassy_stm32::adc::{Adc, Resolution};
+use embassy_stm32::adc::{Adc, Resolution, SampleTime};
 use embassy_time::Duration;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -23,7 +23,7 @@ fn main() -> ! {
     let mut channel = p.PC0;
 
     loop {
-        let v = adc.blocking_read(&mut channel);
+        let v = adc.blocking_read(&mut channel, SampleTime::CYCLES12_5);
         info!("--> {}", v);
         embassy_time::block_for(Duration::from_millis(200));
     }

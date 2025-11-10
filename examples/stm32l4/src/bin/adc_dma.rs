@@ -21,18 +21,14 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(config);
 
     let mut adc = Adc::new(p.ADC1);
-    let mut adc_pin0 = p.PA0.degrade_adc();
-    let mut adc_pin1 = p.PA1.degrade_adc();
+    let adc_pin0 = p.PA0.degrade_adc();
+    let adc_pin1 = p.PA1.degrade_adc();
     let mut adc_dma_buf = [0u16; DMA_BUF_LEN];
     let mut measurements = [0u16; DMA_BUF_LEN / 2];
     let mut ring_buffered_adc = adc.into_ring_buffered(
         p.DMA1_CH1,
         &mut adc_dma_buf,
-        [
-            (&mut adc_pin0, SampleTime::CYCLES640_5),
-            (&mut adc_pin1, SampleTime::CYCLES640_5),
-        ]
-        .into_iter(),
+        [(adc_pin0, SampleTime::CYCLES640_5), (adc_pin1, SampleTime::CYCLES640_5)].into_iter(),
     );
 
     info!("starting measurement loop");

@@ -29,27 +29,12 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
-pub struct Vref;
-impl<T: Instance> AdcChannel<T> for Vref {}
-impl<T: Instance> super::SealedAdcChannel<T> for Vref {
-    fn channel(&self) -> u8 {
-        18
-    }
+impl<T: Instance> super::VrefConverter for T {
+    const CHANNEL: u8 = 18;
 }
 
-impl Vref {
-    /// The value that vref would be if vdda was at 3300mv
-    pub fn value(&self) -> u16 {
-        crate::pac::VREFINTCAL.data().read()
-    }
-}
-
-pub struct Temperature;
-impl<T: Instance> AdcChannel<T> for Temperature {}
-impl<T: Instance> super::SealedAdcChannel<T> for Temperature {
-    fn channel(&self) -> u8 {
-        16
-    }
+impl<T: Instance> super::TemperatureConverter for T {
+    const CHANNEL: u8 = 16;
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
@@ -90,10 +75,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             T::Interrupt::enable();
         }
 
-        Self {
-            adc,
-            sample_time: SampleTime::from_bits(0),
-        }
+        Self { adc }
     }
 
     fn freq() -> Hertz {
@@ -112,20 +94,16 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    pub fn enable_vref(&self) -> Vref {
+    pub fn enable_vref(&self) -> super::VrefInt {
         T::common_regs().ccr().modify(|w| w.set_vrefen(true));
 
-        Vref {}
+        super::VrefInt {}
     }
 
-    pub fn enable_temperature(&self) -> Temperature {
+    pub fn enable_temperature(&self) -> super::Temperature {
         T::common_regs().ccr().modify(|w| w.set_tsen(true));
 
-        Temperature {}
-    }
-
-    pub fn set_sample_time(&mut self, sample_time: SampleTime) {
-        self.sample_time = sample_time;
+        super::Temperature {}
     }
 
     /// Perform a single conversion.
@@ -150,8 +128,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().dr().read().rdata()
     }
 
-    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
-        Self::set_channel_sample_time(channel.channel(), self.sample_time);
+    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
+        Self::set_channel_sample_time(channel.channel(), sample_time);
 
         // Configure the channel to sample
         T::regs().sqr1().write(|w| w.set_sq(0, channel.channel()));
