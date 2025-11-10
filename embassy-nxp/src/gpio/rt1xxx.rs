@@ -11,7 +11,6 @@ use nxp_pac::gpio::vals::Icr;
 use nxp_pac::iomuxc::vals::Pus;
 
 use crate::chip::{iomuxc_mux, iomuxc_pad};
-use crate::iomuxc::Pad;
 use crate::pac::common::{RW, Reg};
 use crate::pac::gpio::Gpio;
 #[cfg(feature = "rt")]
