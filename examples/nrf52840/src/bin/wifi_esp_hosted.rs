@@ -27,14 +27,12 @@ bind_interrupts!(struct Irqs {
 async fn wifi_task(
     runner: hosted::Runner<
         'static,
-        ExclusiveDevice<Spim<'static>, Output<'static>, Delay>,
-        Input<'static>,
+        hosted::SpiInterface<ExclusiveDevice<Spim<'static>, Output<'static>, Delay>, Input<'static>>,
         Output<'static>,
     >,
 ) -> ! {
     runner.run().await
 }
-
 #[embassy_executor::task]
 async fn net_task(mut runner: embassy_net::Runner<'static, hosted::NetDriver<'static>>) -> ! {
     runner.run().await
@@ -60,15 +58,11 @@ async fn main(spawner: Spawner) {
     let spi = spim::Spim::new(p.SPI3, Irqs, sck, miso, mosi, config);
     let spi = ExclusiveDevice::new(spi, cs, Delay);
 
+    let iface = hosted::SpiInterface::new(spi, handshake, ready);
+
     static ESP_STATE: StaticCell<embassy_net_esp_hosted::State> = StaticCell::new();
-    let (device, mut control, runner) = embassy_net_esp_hosted::new(
-        ESP_STATE.init(embassy_net_esp_hosted::State::new()),
-        spi,
-        handshake,
-        ready,
-        reset,
-    )
-    .await;
+    let (device, mut control, runner) =
+        embassy_net_esp_hosted::new(ESP_STATE.init(embassy_net_esp_hosted::State::new()), iface, reset).await;
 
     spawner.spawn(unwrap!(wifi_task(runner)));
 

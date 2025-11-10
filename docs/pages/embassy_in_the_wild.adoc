@@ -4,6 +4,10 @@ Here are known examples of real-world projects which make use of Embassy. Feel f
 
 _newer entries at the top_
 
+* link:https://github.com/thataquarel/protovolt[ProtoV MINI: A USB-C mini lab power supply]
+** A dual-channel USB PD powered breadboard power supply based on the RP2040, running embedded graphics. Open-source schematics and firmware.
+* link:https://github.com/Dawson-HEP/opentrig/[Opentrig: A particle physics trigger and data acquisition system]
+** Digital event trigger with threshold, data acquisition system designed to interface with AIDA-2020 TLU systems, tested at the DESY II Test Beam Facility. Based on the RP2040, and Embassy's async event handling.
 * link:https://github.com/1-rafael-1/air-quality-monitor[Air Quality Monitor]
 ** Air Quality Monitor based on rp2350 board, ens160 and aht21 sensors and ssd1306 display. Code and 3D printable enclosure included.
 * link:https://github.com/CarlKCarlK/clock[Embassy Clock: Layered, modular bare-metal clock with emulation]

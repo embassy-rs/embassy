@@ -1,4 +1,4 @@
-//! Pio backed I2s output and output drivers
+//! Pio backed I2S output and output drivers
 
 use fixed::traits::ToFixed;
 
@@ -9,7 +9,7 @@ use crate::pio::{
     Common, Config, Direction, FifoJoin, Instance, LoadedProgram, PioPin, ShiftConfig, ShiftDirection, StateMachine,
 };
 
-/// This struct represents an i2s receiver & controller driver program
+/// This struct represents an I2S receiver & controller driver program
 pub struct PioI2sInProgram<'d, PIO: Instance> {
     prg: LoadedProgram<'d, PIO>,
 }
@@ -35,7 +35,7 @@ impl<'d, PIO: Instance> PioI2sInProgram<'d, PIO> {
     }
 }
 
-/// Pio backed I2s input driver
+/// Pio backed I2S input driver
 pub struct PioI2sIn<'d, P: Instance, const S: usize> {
     dma: Peri<'d, AnyChannel>,
     sm: StateMachine<'d, P, S>,
@@ -50,7 +50,7 @@ impl<'d, P: Instance, const S: usize> PioI2sIn<'d, P, S> {
         // Whether or not to use the MCU's internal pull-down resistor, as the
         // Pico 2 is known to have problems with the inbuilt pulldowns, many
         // opt to just use an external pull down resistor to meet requirements of common
-        // i2s microphones such as the INMP441
+        // I2S microphones such as the INMP441
         data_pulldown: bool,
         data_pin: Peri<'d, impl PioPin>,
         bit_clock_pin: Peri<'d, impl PioPin>,
@@ -90,13 +90,13 @@ impl<'d, P: Instance, const S: usize> PioI2sIn<'d, P, S> {
         Self { dma: dma.into(), sm }
     }
 
-    /// Return an in-prograss dma transfer future. Awaiting it will guarentee a complete transfer.
+    /// Return an in-progress dma transfer future. Awaiting it will guarantee a complete transfer.
     pub fn read<'b>(&'b mut self, buff: &'b mut [u32]) -> Transfer<'b, AnyChannel> {
         self.sm.rx().dma_pull(self.dma.reborrow(), buff, false)
     }
 }
 
-/// This struct represents an i2s output driver program
+/// This struct represents an I2S output driver program
 ///
 /// The sample bit-depth is set through scratch register `Y`.
 /// `Y` has to be set to sample bit-depth - 2.
@@ -128,14 +128,14 @@ impl<'d, PIO: Instance> PioI2sOutProgram<'d, PIO> {
     }
 }
 
-/// Pio backed I2s output driver
+/// Pio backed I2S output driver
 pub struct PioI2sOut<'d, P: Instance, const S: usize> {
     dma: Peri<'d, AnyChannel>,
     sm: StateMachine<'d, P, S>,
 }
 
 impl<'d, P: Instance, const S: usize> PioI2sOut<'d, P, S> {
-    /// Configure a state machine to output I2s
+    /// Configure a state machine to output I2S
     pub fn new(
         common: &mut Common<'d, P>,
         mut sm: StateMachine<'d, P, S>,
@@ -179,7 +179,7 @@ impl<'d, P: Instance, const S: usize> PioI2sOut<'d, P, S> {
         Self { dma: dma.into(), sm }
     }
 
-    /// Return an in-prograss dma transfer future. Awaiting it will guarentee a complete transfer.
+    /// Return an in-progress dma transfer future. Awaiting it will guarantee a complete transfer.
     pub fn write<'b>(&'b mut self, buff: &'b [u32]) -> Transfer<'b, AnyChannel> {
         self.sm.tx().dma_push(self.dma.reborrow(), buff, false)
     }

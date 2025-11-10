@@ -10,6 +10,7 @@ pub use traits::Instance;
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::rcc;
 use crate::time::Hertz;
+pub use crate::timer::simple_pwm::PwmPinConfig;
 
 /// HRTIM burst controller instance.
 pub struct BurstController<T: Instance> {
@@ -73,13 +74,28 @@ pub struct ComplementaryPwmPin<'d, T, C> {
 }
 
 macro_rules! advanced_channel_impl {
-    ($new_chx:ident, $channel:tt, $ch_num:expr, $pin_trait:ident, $complementary_pin_trait:ident) => {
+    ($new_chx:ident, $new_chx_with_config:ident, $channel:tt, $ch_num:expr, $pin_trait:ident, $complementary_pin_trait:ident) => {
         impl<'d, T: Instance> PwmPin<'d, T, $channel<T>> {
             #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance.")]
             pub fn $new_chx(pin: Peri<'d, impl $pin_trait<T>>) -> Self {
                 critical_section::with(|_| {
                     pin.set_low();
                     set_as_af!(pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+                });
+                PwmPin {
+                    _pin: pin.into(),
+                    phantom: PhantomData,
+                }
+            }
+
+            #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance with a specific configuration.")]
+            pub fn $new_chx_with_config(
+                pin: Peri<'d, impl $pin_trait<T>>,
+                pin_config: PwmPinConfig,
+            ) -> Self {
+                critical_section::with(|_| {
+                    pin.set_low();
+                    set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
                 });
                 PwmPin {
                     _pin: pin.into(),
@@ -100,6 +116,21 @@ macro_rules! advanced_channel_impl {
                     phantom: PhantomData,
                 }
             }
+
+            #[doc = concat!("Create a new ", stringify!($channel), " complementary PWM pin instance with a specific configuration.")]
+            pub fn $new_chx_with_config(
+                pin: Peri<'d, impl $complementary_pin_trait<T>>,
+                pin_config: PwmPinConfig,
+            ) -> Self {
+                critical_section::with(|_| {
+                    pin.set_low();
+                    set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
+                });
+                ComplementaryPwmPin {
+                    _pin: pin.into(),
+                    phantom: PhantomData,
+                }
+            }
         }
 
         impl<T: Instance> SealedAdvancedChannel<T> for $channel<T> {
@@ -111,13 +142,55 @@ macro_rules! advanced_channel_impl {
     };
 }
 
-advanced_channel_impl!(new_cha, ChA, 0, ChannelAPin, ChannelAComplementaryPin);
-advanced_channel_impl!(new_chb, ChB, 1, ChannelBPin, ChannelBComplementaryPin);
-advanced_channel_impl!(new_chc, ChC, 2, ChannelCPin, ChannelCComplementaryPin);
-advanced_channel_impl!(new_chd, ChD, 3, ChannelDPin, ChannelDComplementaryPin);
-advanced_channel_impl!(new_che, ChE, 4, ChannelEPin, ChannelEComplementaryPin);
+advanced_channel_impl!(
+    new_cha,
+    new_cha_with_config,
+    ChA,
+    0,
+    ChannelAPin,
+    ChannelAComplementaryPin
+);
+advanced_channel_impl!(
+    new_chb,
+    new_chb_with_config,
+    ChB,
+    1,
+    ChannelBPin,
+    ChannelBComplementaryPin
+);
+advanced_channel_impl!(
+    new_chc,
+    new_chc_with_config,
+    ChC,
+    2,
+    ChannelCPin,
+    ChannelCComplementaryPin
+);
+advanced_channel_impl!(
+    new_chd,
+    new_chd_with_config,
+    ChD,
+    3,
+    ChannelDPin,
+    ChannelDComplementaryPin
+);
+advanced_channel_impl!(
+    new_che,
+    new_che_with_config,
+    ChE,
+    4,
+    ChannelEPin,
+    ChannelEComplementaryPin
+);
 #[cfg(hrtim_v2)]
-advanced_channel_impl!(new_chf, ChF, 5, ChannelFPin, ChannelFComplementaryPin);
+advanced_channel_impl!(
+    new_chf,
+    new_chf_with_config,
+    ChF,
+    5,
+    ChannelFPin,
+    ChannelFComplementaryPin
+);
 
 /// Struct used to divide a high resolution timer into multiple channels
 pub struct AdvancedPwm<'d, T: Instance> {

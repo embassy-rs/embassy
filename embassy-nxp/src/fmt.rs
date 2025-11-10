@@ -1,5 +1,4 @@
 //! Copied from embassy-rp
-
 #![macro_use]
 #![allow(unused)]
 

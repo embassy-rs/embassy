@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- tcp: Add `set_nagle_enabled()` to control TcpSocket nagle algorithm.
+
 ## 0.7.1 - 2025-08-26
 
 No unreleased changes yet... Quick, go send a PR!

@@ -163,7 +163,11 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
 
     /// Write bytes to the onewire bus
     pub async fn write_bytes(&mut self, data: &[u8]) {
-        unsafe { self.sm.set_y(u32::MAX as u32) };
+        unsafe {
+            self.sm.set_enable(false);
+            self.sm.set_y(u32::MAX as u32);
+            self.sm.set_enable(true);
+        }
         let (rx, tx) = self.sm.rx_tx();
         for b in data {
             tx.wait_push(*b as u32).await;
@@ -175,7 +179,11 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
 
     /// Write bytes to the onewire bus, then apply a strong pullup
     pub async fn write_bytes_pullup(&mut self, data: &[u8], pullup_time: embassy_time::Duration) {
-        unsafe { self.sm.set_y(data.len() as u32 * 8 - 1) };
+        unsafe {
+            self.sm.set_enable(false);
+            self.sm.set_y(data.len() as u32 * 8 - 1);
+            self.sm.set_enable(true);
+        };
         let (rx, tx) = self.sm.rx_tx();
         for b in data {
             tx.wait_push(*b as u32).await;
@@ -195,7 +203,11 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
 
     /// Read bytes from the onewire bus
     pub async fn read_bytes(&mut self, data: &mut [u8]) {
-        unsafe { self.sm.set_y(u32::MAX as u32) };
+        unsafe {
+            self.sm.set_enable(false);
+            self.sm.set_y(u32::MAX as u32);
+            self.sm.set_enable(true);
+        };
         let (rx, tx) = self.sm.rx_tx();
         for b in data {
             // Write all 1's so that we can read what the device responds
