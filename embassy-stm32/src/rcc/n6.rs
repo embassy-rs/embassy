@@ -770,7 +770,9 @@ fn init_osc(config: Config) -> OscOutput {
         || (pll3_src == Pllsel::HSE && rcc_sr.pllrdy(2))
         || (pll4_src == Pllsel::HSE && rcc_sr.pllrdy(3))
     {
-        panic!("When the HSE is used as cpu/system bus clock or clock source for any PLL, it is not allowed to be disabled");
+        panic!(
+            "When the HSE is used as cpu/system bus clock or clock source for any PLL, it is not allowed to be disabled"
+        );
     } else {
         debug!("HSE off");
 
@@ -806,7 +808,9 @@ fn init_osc(config: Config) -> OscOutput {
         || (pll3_src == Pllsel::HSI && rcc_sr.pllrdy(2))
         || (pll4_src == Pllsel::HSI && rcc_sr.pllrdy(3))
     {
-        panic!("When the HSI is used as cpu/system bus clock or clock source for any PLL, it is not allowed to be disabled");
+        panic!(
+            "When the HSI is used as cpu/system bus clock or clock source for any PLL, it is not allowed to be disabled"
+        );
     } else {
         debug!("HSI off");
 
@@ -835,7 +839,9 @@ fn init_osc(config: Config) -> OscOutput {
         || (pll3_src == Pllsel::MSI && rcc_sr.pllrdy(2))
         || (pll4_src == Pllsel::MSI && rcc_sr.pllrdy(3))
     {
-        panic!("When the MSI is used as cpu/system bus clock or clock source for any PLL, it is not allowed to be disabled");
+        panic!(
+            "When the MSI is used as cpu/system bus clock or clock source for any PLL, it is not allowed to be disabled"
+        );
     } else {
         RCC.ccr().write(|w| w.set_msionc(true));
         while RCC.sr().read().msirdy() {}
