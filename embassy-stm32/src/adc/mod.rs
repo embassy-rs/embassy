@@ -80,6 +80,11 @@ pub(crate) trait SealedAdcChannel<T> {
 
     #[allow(unused)]
     fn channel(&self) -> u8;
+
+    #[allow(unused)]
+    fn is_differential(&self) -> bool {
+        false
+    }
 }
 
 /// Performs a busy-wait delay for a specified number of microseconds.
@@ -100,28 +105,27 @@ pub(crate) fn blocking_delay_us(us: u32) {
     }
 }
 
-/// Implemented for ADCs that have a Temperature channel
-pub trait TemperatureConverter {
-    const CHANNEL: u8;
-}
-/// Implemented for ADCs that have a Vref channel
-pub trait VrefConverter {
-    const CHANNEL: u8;
-}
-/// Implemented for ADCs that have a VBat channel
-pub trait VBatConverter {
+pub(self) trait SpecialChannel {}
+
+/// Implemented for ADCs that have a special channel
+trait SealedSpecialConverter<T: SpecialChannel + Sized> {
     const CHANNEL: u8;
 }
 
-// NOTE: Vrefint/Temperature/Vbat are not available on all ADCs, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
-/// Internal voltage reference channel.
-pub struct VrefInt;
-impl<T: Instance + VrefConverter> AdcChannel<T> for VrefInt {}
-impl<T: Instance + VrefConverter> SealedAdcChannel<T> for VrefInt {
+#[allow(private_bounds)]
+pub trait SpecialConverter<T: SpecialChannel + Sized>: SealedSpecialConverter<T> {}
+
+impl<C: SpecialChannel + Sized, T: SealedSpecialConverter<C>> SpecialConverter<C> for T {}
+
+impl<C: SpecialChannel, T: Instance + SealedSpecialConverter<C>> AdcChannel<T> for C {}
+impl<C: SpecialChannel, T: Instance + SealedSpecialConverter<C>> SealedAdcChannel<T> for C {
     fn channel(&self) -> u8 {
         T::CHANNEL
     }
 }
+
+pub struct VrefInt;
+impl SpecialChannel for VrefInt {}
 
 impl VrefInt {
     #[cfg(any(adc_f3v1, adc_f3v2))]
@@ -133,21 +137,11 @@ impl VrefInt {
 
 /// Internal temperature channel.
 pub struct Temperature;
-impl<T: Instance + TemperatureConverter> AdcChannel<T> for Temperature {}
-impl<T: Instance + TemperatureConverter> SealedAdcChannel<T> for Temperature {
-    fn channel(&self) -> u8 {
-        T::CHANNEL
-    }
-}
+impl SpecialChannel for Temperature {}
 
 /// Internal battery voltage channel.
 pub struct Vbat;
-impl<T: Instance + VBatConverter> AdcChannel<T> for Vbat {}
-impl<T: Instance + VBatConverter> SealedAdcChannel<T> for Vbat {
-    fn channel(&self) -> u8 {
-        T::CHANNEL
-    }
-}
+impl SpecialChannel for Vbat {}
 
 /// ADC instance.
 #[cfg(not(any(
@@ -178,6 +172,7 @@ pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
 
         AnyAdcChannel {
             channel: self.channel(),
+            is_differential: self.is_differential(),
             _phantom: PhantomData,
         }
     }
@@ -189,6 +184,7 @@ pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
 /// storing them in an array.
 pub struct AnyAdcChannel<T> {
     channel: u8,
+    is_differential: bool,
     _phantom: PhantomData<T>,
 }
 impl_peripheral!(AnyAdcChannel<T: Instance>);
@@ -196,6 +192,10 @@ impl<T: Instance> AdcChannel<T> for AnyAdcChannel<T> {}
 impl<T: Instance> SealedAdcChannel<T> for AnyAdcChannel<T> {
     fn channel(&self) -> u8 {
         self.channel
+    }
+
+    fn is_differential(&self) -> bool {
+        self.is_differential
     }
 }
 
@@ -310,6 +310,39 @@ macro_rules! impl_adc_pin {
 
             fn channel(&self) -> u8 {
                 $ch
+            }
+        }
+    };
+}
+
+#[allow(unused_macros)]
+macro_rules! impl_adc_pair {
+    ($inst:ident, $pin:ident, $npin:ident, $ch:expr) => {
+        impl crate::adc::AdcChannel<peripherals::$inst>
+            for (
+                crate::Peri<'_, crate::peripherals::$pin>,
+                crate::Peri<'_, crate::peripherals::$npin>,
+            )
+        {
+        }
+        impl crate::adc::SealedAdcChannel<peripherals::$inst>
+            for (
+                crate::Peri<'_, crate::peripherals::$pin>,
+                crate::Peri<'_, crate::peripherals::$npin>,
+            )
+        {
+            #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5, adc_wba))]
+            fn setup(&mut self) {
+                <crate::peripherals::$pin as crate::gpio::SealedPin>::set_as_analog(&mut self.0);
+                <crate::peripherals::$npin as crate::gpio::SealedPin>::set_as_analog(&mut self.1);
+            }
+
+            fn channel(&self) -> u8 {
+                $ch
+            }
+
+            fn is_differential(&self) -> bool {
+                true
             }
         }
     };

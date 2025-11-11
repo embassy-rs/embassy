@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use super::blocking_delay_us;
-use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
+use crate::adc::{Adc, AdcChannel, Instance, SampleTime, VrefInt};
 use crate::interrupt::typelevel::Interrupt;
 use crate::time::Hertz;
 use crate::{Peri, interrupt, rcc};
@@ -29,11 +29,11 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
-impl<T: Instance> super::VrefConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<VrefInt> for T {
     const CHANNEL: u8 = 18;
 }
 
-impl<T: Instance> super::TemperatureConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
     const CHANNEL: u8 = 16;
 }
 
