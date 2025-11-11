@@ -12,8 +12,11 @@ use embassy_hal_internal::{PeripheralType, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::Peri;
-use crate::pac::{DMA0, SYSCON, *};
+#[cfg(feature = "rt")]
+use crate::pac::interrupt;
+use crate::pac::{SYSCON, *};
 
+#[cfg(feature = "rt")]
 #[interrupt]
 fn DMA0() {
     let inta = DMA0.inta0().read().ia();

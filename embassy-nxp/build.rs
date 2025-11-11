@@ -338,26 +338,36 @@ fn impl_usart(impls: &mut Vec<TokenStream>, peripheral: &Peripheral) {
     }
 }
 
-// fn impl_sct(impls: &mut Vec<TokenStream>, peripheral: &Peripheral) {
-//     let instance = Ident::new(peripheral.name, Span::call_site());
+fn impl_sct(impls: &mut Vec<TokenStream>, peripheral: &Peripheral) {
+    let instance = Ident::new(peripheral.name, Span::call_site());
 
-//     for signal in peripheral.signals.iter() {
-//         if signal.name.starts_with("OUT") {
-//             let channel_number = signal
-//                 .name
-//                 .strip_prefix("OUT")
-//                 .unwrap()
-//                 .parse::<u8>()
-//                 .unwrap();
+    impls.push(quote! {
+        impl_sct_instance!(#instance);
+    });
 
-//             let channel_name = format_ident!("{instance}_OUT{channel_number}");
+    for signal in peripheral.signals.iter() {
+        if signal.name.starts_with("OUT") {
+            let channel_number = signal.name.strip_prefix("OUT").unwrap().parse::<u8>().unwrap();
 
-//             impls.push(quote! {
-//                 impl_pwm_output!(#instance, #channel_name, #channel_number);
-//             });
-//         }
-//     }
-// }
+            let channel_name = format_ident!("{instance}_OUT{channel_number}");
+
+            impls.push(quote! {
+                impl_sct_output_instance!(#instance, #channel_name, #channel_number);
+            });
+
+            if signal.name.starts_with("OUT") {
+                for pin in signal.pins {
+                    let pin_name = format_ident!("{}", pin.pin);
+                    let alt = format_ident!("ALT{}", pin.alt);
+
+                    impls.push(quote! {
+                        impl_sct_output_pin!(#instance, #channel_name, #pin_name, #alt);
+                    });
+                }
+            }
+        }
+    }
+}
 
 fn impl_peripherals(_cfgs: &mut common::CfgSet, _singletons: &[Singleton]) -> TokenStream {
     let mut impls = Vec::new();
@@ -375,9 +385,9 @@ fn impl_peripherals(_cfgs: &mut common::CfgSet, _singletons: &[Singleton]) -> To
             impl_usart(&mut impls, peripheral);
         }
 
-        // if peripheral.name.starts_with("SCT") {
-        //     impl_sct(&mut impls, peripheral);
-        // }
+        if peripheral.name.starts_with("SCT") {
+            impl_sct(&mut impls, peripheral);
+        }
     }
 
     quote! {
