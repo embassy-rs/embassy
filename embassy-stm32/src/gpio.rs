@@ -804,6 +804,11 @@ pub(crate) trait SealedPin {
 /// is needed to hold the total pin number `(ports * number)`.
 #[cfg(not(stm32n6))]
 pub type PinNumber = u8;
+
+/// GPIO pin number type.
+///
+/// Some chips have a total number of ports that exceeds 8, a larger integer
+/// is needed to hold the total pin number `(ports * number)`.
 #[cfg(stm32n6)]
 pub type PinNumber = u16;
 

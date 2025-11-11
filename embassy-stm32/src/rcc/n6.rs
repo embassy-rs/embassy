@@ -167,6 +167,7 @@ impl Config {
     }
 }
 
+#[allow(dead_code)]
 struct ClocksOutput {
     cpuclk: Hertz,
     sysclk: Hertz,
@@ -580,6 +581,7 @@ struct PllInput {
 }
 
 #[derive(Clone, Copy, Default)]
+#[allow(dead_code)]
 struct PllOutput {
     divm: Option<Hertz>,
     divn: Option<Hertz>,
@@ -707,6 +709,7 @@ fn init_pll(pll_config: Option<Pll>, pll_index: usize, input: &PllInput) -> PllO
     }
 }
 
+#[allow(dead_code)]
 struct OscOutput {
     hsi: Option<Hertz>,
     hse: Option<Hertz>,
