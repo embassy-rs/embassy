@@ -4,11 +4,11 @@ use pac::adc::vals::{Adstp, Align, Ckmode, Dmacfg, Exten, Ovrmod, Ovsr};
 use pac::adccommon::vals::Presc;
 
 use super::{
-    blocking_delay_us, Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel,
+    Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel, blocking_delay_us,
 };
 use crate::dma::Transfer;
 use crate::time::Hertz;
-use crate::{pac, rcc, Peri};
+use crate::{Peri, pac, rcc};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -19,33 +19,17 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(25);
 
 const TIME_ADC_VOLTAGE_REGUALTOR_STARTUP_US: u32 = 20;
 
-const TEMP_CHANNEL: u8 = 9;
-const VREF_CHANNEL: u8 = 10;
-
 const NUM_HW_CHANNELS: u8 = 22;
 const CHSELR_SQ_SIZE: usize = 8;
 const CHSELR_SQ_MAX_CHANNEL: u8 = 14;
 const CHSELR_SQ_SEQUENCE_END_MARKER: u8 = 0b1111;
 
-// NOTE: Vrefint/Temperature/Vbat are not available on all ADCs,
-// this currently cannot be modeled with stm32-data,
-// so these are available from the software on all ADCs.
-/// Internal voltage reference channel.
-pub struct VrefInt;
-impl<T: Instance> AdcChannel<T> for VrefInt {}
-impl<T: Instance> SealedAdcChannel<T> for VrefInt {
-    fn channel(&self) -> u8 {
-        VREF_CHANNEL
-    }
+impl<T: Instance> super::VrefConverter for T {
+    const CHANNEL: u8 = 10;
 }
 
-/// Internal temperature channel.
-pub struct Temperature;
-impl<T: Instance> AdcChannel<T> for Temperature {}
-impl<T: Instance> SealedAdcChannel<T> for Temperature {
-    fn channel(&self) -> u8 {
-        TEMP_CHANNEL
-    }
+impl<T: Instance> super::TemperatureConverter for T {
+    const CHANNEL: u8 = 9;
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -156,7 +140,7 @@ pub enum Averaging {
 
 impl<'d, T: Instance> Adc<'d, T> {
     /// Create a new ADC driver.
-    pub fn new(adc: Peri<'d, T>, sample_time: SampleTime, resolution: Resolution) -> Self {
+    pub fn new(adc: Peri<'d, T>, resolution: Resolution) -> Self {
         rcc::enable_and_reset::<T>();
 
         T::regs().cfgr2().modify(|w| w.set_ckmode(Ckmode::SYSCLK));
@@ -168,13 +152,13 @@ impl<'d, T: Instance> Adc<'d, T> {
         debug!("ADC frequency set to {}", frequency);
 
         if frequency > MAX_ADC_CLK_FREQ {
-            panic!("Maximal allowed frequency for the ADC is {} MHz and it varies with different packages, refer to ST docs for more information.", MAX_ADC_CLK_FREQ.0 /  1_000_000 );
+            panic!(
+                "Maximal allowed frequency for the ADC is {} MHz and it varies with different packages, refer to ST docs for more information.",
+                MAX_ADC_CLK_FREQ.0 / 1_000_000
+            );
         }
 
-        let mut s = Self {
-            adc,
-            sample_time: SampleTime::from_bits(0),
-        };
+        let mut s = Self { adc };
 
         s.power_up();
 
@@ -185,8 +169,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         s.enable();
 
         s.configure_default();
-
-        s.set_sample_time_all_channels(sample_time);
 
         s
     }
@@ -234,29 +216,27 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     /// Enable reading the voltage reference internal channel.
-    pub fn enable_vrefint(&self) -> VrefInt {
+    pub fn enable_vrefint(&self) -> super::VrefInt {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vrefen(true);
         });
 
-        VrefInt {}
+        super::VrefInt {}
     }
 
     /// Enable reading the temperature internal channel.
-    pub fn enable_temperature(&self) -> Temperature {
+    pub fn enable_temperature(&self) -> super::Temperature {
         debug!("Ensure that sample time is set to more than temperature sensor T_start from the datasheet!");
         T::common_regs().ccr().modify(|reg| {
             reg.set_tsen(true);
         });
 
-        Temperature {}
+        super::Temperature {}
     }
 
     /// Set the ADC sample time.
     /// Shall only be called when ADC is not converting.
     pub fn set_sample_time_all_channels(&mut self, sample_time: SampleTime) {
-        self.sample_time = sample_time;
-
         // Set all channels to use SMP1 field as source.
         T::regs().smpr().modify(|w| {
             w.smpsel(0);
@@ -285,7 +265,9 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().dr().read().data() as u16
     }
 
-    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
+        self.set_sample_time_all_channels(sample_time);
+
         Self::configure_channel(channel);
         T::regs().cfgr1().write(|reg| {
             reg.set_chselrmod(false);

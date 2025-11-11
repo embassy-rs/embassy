@@ -22,7 +22,7 @@ use core::marker::PhantomData;
 #[allow(unused)]
 #[cfg(not(any(adc_f3v3, adc_wba)))]
 pub use _version::*;
-use embassy_hal_internal::{impl_peripheral, PeripheralType};
+use embassy_hal_internal::{PeripheralType, impl_peripheral};
 #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
 use embassy_sync::waitqueue::AtomicWaker;
 
@@ -47,8 +47,6 @@ dma_trait!(RxDma4, adc4::Instance);
 pub struct Adc<'d, T: Instance> {
     #[allow(unused)]
     adc: crate::Peri<'d, T>,
-    #[cfg(not(any(adc_f3v3, adc_f3v2, adc_wba)))]
-    sample_time: SampleTime,
 }
 
 #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
@@ -87,14 +85,67 @@ pub(crate) trait SealedAdcChannel<T> {
 /// Performs a busy-wait delay for a specified number of microseconds.
 #[allow(unused)]
 pub(crate) fn blocking_delay_us(us: u32) {
-    #[cfg(feature = "time")]
-    embassy_time::block_for(embassy_time::Duration::from_micros(us as u64));
-    #[cfg(not(feature = "time"))]
-    {
-        let freq = unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 as u64;
-        let us = us as u64;
-        let cycles = freq * us / 1_000_000;
-        cortex_m::asm::delay(cycles as u32);
+    cfg_if::cfg_if! {
+        // this does strange things on stm32wlx in low power mode depending on exactly when it's called
+        // as in sometimes 15 us (1 tick) would take > 20 seconds.
+        if #[cfg(all(feature = "time", all(not(feature = "low-power"), not(stm32wlex))))] {
+            let duration = embassy_time::Duration::from_micros(us as u64);
+            embassy_time::block_for(duration);
+        } else {
+            let freq = unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 as u64;
+            let us = us as u64;
+            let cycles = freq * us / 1_000_000;
+            cortex_m::asm::delay(cycles as u32);
+        }
+    }
+}
+
+/// Implemented for ADCs that have a Temperature channel
+pub trait TemperatureConverter {
+    const CHANNEL: u8;
+}
+/// Implemented for ADCs that have a Vref channel
+pub trait VrefConverter {
+    const CHANNEL: u8;
+}
+/// Implemented for ADCs that have a VBat channel
+pub trait VBatConverter {
+    const CHANNEL: u8;
+}
+
+// NOTE: Vrefint/Temperature/Vbat are not available on all ADCs, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
+/// Internal voltage reference channel.
+pub struct VrefInt;
+impl<T: Instance + VrefConverter> AdcChannel<T> for VrefInt {}
+impl<T: Instance + VrefConverter> SealedAdcChannel<T> for VrefInt {
+    fn channel(&self) -> u8 {
+        T::CHANNEL
+    }
+}
+
+impl VrefInt {
+    #[cfg(any(adc_f3v1, adc_f3v2))]
+    /// The value that vref would be if vdda was at 3300mv
+    pub fn calibrated_value(&self) -> u16 {
+        crate::pac::VREFINTCAL.data().read()
+    }
+}
+
+/// Internal temperature channel.
+pub struct Temperature;
+impl<T: Instance + TemperatureConverter> AdcChannel<T> for Temperature {}
+impl<T: Instance + TemperatureConverter> SealedAdcChannel<T> for Temperature {
+    fn channel(&self) -> u8 {
+        T::CHANNEL
+    }
+}
+
+/// Internal battery voltage channel.
+pub struct Vbat;
+impl<T: Instance + VBatConverter> AdcChannel<T> for Vbat {}
+impl<T: Instance + VBatConverter> SealedAdcChannel<T> for Vbat {
+    fn channel(&self) -> u8 {
+        T::CHANNEL
     }
 }
 

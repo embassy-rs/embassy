@@ -2,16 +2,16 @@
 
 use core::marker::PhantomData;
 
-pub use stm32_metapac::timer::vals::{Ckd, Ossi, Ossr};
+pub use stm32_metapac::timer::vals::{Ckd, Mms2, Ossi, Ossr};
 
 use super::low_level::{CountingMode, OutputPolarity, Timer};
 use super::simple_pwm::PwmPin;
 use super::{AdvancedInstance4Channel, Ch1, Ch2, Ch3, Ch4, Channel, TimerComplementaryPin};
+use crate::Peri;
 use crate::gpio::{AnyPin, OutputType};
 use crate::time::Hertz;
-use crate::timer::low_level::OutputCompareMode;
 use crate::timer::TimerChannel;
-use crate::Peri;
+use crate::timer::low_level::OutputCompareMode;
 
 /// Complementary PWM pin wrapper.
 ///
@@ -134,6 +134,16 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Get Master Output Enable
     pub fn get_master_output_enable(&self) -> bool {
         self.inner.get_moe()
+    }
+
+    /// Set Master Slave Mode 2
+    pub fn set_mms2(&mut self, mms2: Mms2) {
+        self.inner.set_mms2_selection(mms2);
+    }
+
+    /// Set Repetition Counter
+    pub fn set_repetition_counter(&mut self, val: u16) {
+        self.inner.set_repetition_counter(val);
     }
 
     /// Enable the given channel.
@@ -388,7 +398,7 @@ fn compute_dead_time_value(value: u16) -> (Ckd, u8) {
 
 #[cfg(test)]
 mod tests {
-    use super::{compute_dead_time_value, Ckd};
+    use super::{Ckd, compute_dead_time_value};
 
     #[test]
     fn test_compute_dead_time_value() {

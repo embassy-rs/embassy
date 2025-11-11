@@ -16,18 +16,19 @@
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicI32, Ordering};
 
-use defmt::{error, info, println, unwrap, Format};
+use defmt::{Format, error, info, println, unwrap};
 use defmt_rtt as _; // global logger
 use embassy_executor::Spawner;
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_futures::yield_now;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Ipv4Address, Ipv4Cidr, Stack, StackResources, StaticConfigV4};
-use embassy_net_adin1110::{Device, Runner, ADIN1110};
+use embassy_net_adin1110::{ADIN1110, Device, Runner};
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::i2c::{self, Config as I2C_Config, I2c};
 use embassy_stm32::mode::Async;
 use embassy_stm32::rng::{self, Rng};
+use embassy_stm32::spi::mode::Master;
 use embassy_stm32::spi::{Config as SPI_Config, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, exti, pac, peripherals};
@@ -54,7 +55,7 @@ const IP_ADDRESS: Ipv4Cidr = Ipv4Cidr::new(Ipv4Address::new(192, 168, 1, 5), 24)
 // Listen port for the webserver
 const HTTP_LISTEN_PORT: u16 = 80;
 
-pub type SpeSpi = Spi<'static, Async>;
+pub type SpeSpi = Spi<'static, Async, Master>;
 pub type SpeSpiCs = ExclusiveDevice<SpeSpi, Output<'static>, Delay>;
 pub type SpeInt = exti::ExtiInput<'static>;
 pub type SpeRst = Output<'static>;
@@ -159,7 +160,9 @@ async fn main(spawner: Spawner) {
 
     // Check the SPI mode selected with the "HW CFG" dip-switch
     if !cfg1_spi_mode {
-        error!("Driver doesn´t support SPI Protolcol \"OPEN Alliance\".\nplease use the \"Generic SPI\"! Turn On \"HW CFG\": \"SPI_CFG1\"");
+        error!(
+            "Driver doesn´t support SPI Protolcol \"OPEN Alliance\".\nplease use the \"Generic SPI\"! Turn On \"HW CFG\": \"SPI_CFG1\""
+        );
         loop {
             led_uc2_red.toggle();
             Timer::after(Duration::from_hz(10)).await;

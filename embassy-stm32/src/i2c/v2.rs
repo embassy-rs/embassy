@@ -2,7 +2,7 @@ use core::cmp;
 use core::future::poll_fn;
 use core::task::Poll;
 
-use config::{Address, OwnAddresses, OA2};
+use config::{Address, OA2, OwnAddresses};
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::drop::OnDrop;
 use embedded_hal_1::i2c::Operation;
@@ -70,6 +70,11 @@ fn debug_print_interrupts(isr: stm32_metapac::i2c::regs::Isr) {
 }
 
 pub(crate) unsafe fn on_interrupt<T: Instance>() {
+    // restore the clocks to their last configured state as
+    // much is lost in STOP modes
+    #[cfg(all(feature = "low-power", stm32wlex))]
+    crate::low_power::Executor::on_wakeup_irq();
+
     let regs = T::info().regs;
     let isr = regs.isr().read();
 
@@ -814,6 +819,8 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
     /// Write.
     pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
+        #[cfg(all(feature = "low-power", stm32wlex))]
+        let _device_busy = crate::low_power::DeviceBusy::new_stop1();
         let timeout = self.timeout();
         if write.is_empty() {
             self.write_internal(address.into(), write, true, timeout)
@@ -828,6 +835,8 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     ///
     /// The buffers are concatenated in a single write transaction.
     pub async fn write_vectored(&mut self, address: Address, write: &[&[u8]]) -> Result<(), Error> {
+        #[cfg(all(feature = "low-power", stm32wlex))]
+        let _device_busy = crate::low_power::DeviceBusy::new_stop1();
         let timeout = self.timeout();
 
         if write.is_empty() {
@@ -851,6 +860,8 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
     /// Read.
     pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
+        #[cfg(all(feature = "low-power", stm32wlex))]
+        let _device_busy = crate::low_power::DeviceBusy::new_stop1();
         let timeout = self.timeout();
 
         if buffer.is_empty() {
@@ -863,6 +874,8 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
     /// Write, restart, read.
     pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+        #[cfg(all(feature = "low-power", stm32wlex))]
+        let _device_busy = crate::low_power::DeviceBusy::new_stop1();
         let timeout = self.timeout();
 
         if write.is_empty() {
@@ -888,6 +901,8 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
     pub async fn transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
+        #[cfg(all(feature = "low-power", stm32wlex))]
+        let _device_busy = crate::low_power::DeviceBusy::new_stop1();
         let _ = addr;
         let _ = operations;
         todo!()
@@ -1181,7 +1196,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
 
         let regs = self.info.regs;
 
-        let dma_transfer = unsafe {
+        let mut dma_transfer = unsafe {
             regs.cr1().modify(|w| {
                 w.set_rxdmaen(true);
                 w.set_stopie(true);
@@ -1220,6 +1235,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 regs.cr1().modify(|w| w.set_tcie(true));
                 Poll::Pending
             } else if isr.stopf() {
+                remaining_len = remaining_len.saturating_add(dma_transfer.get_remaining_transfers() as usize);
                 regs.icr().write(|reg| reg.set_stopcf(true));
                 let poll = Poll::Ready(Ok(total_len - remaining_len));
                 poll
@@ -1229,6 +1245,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
         })
         .await?;
 
+        dma_transfer.request_pause();
         dma_transfer.await;
 
         drop(on_drop);
@@ -1258,7 +1275,8 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 w.set_txdmaen(false);
                 w.set_stopie(false);
                 w.set_tcie(false);
-            })
+            });
+            regs.isr().write(|w| w.set_txe(true));
         });
 
         let state = self.state;
@@ -1281,6 +1299,11 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 self.info.regs.cr1().modify(|w| w.set_tcie(true));
                 Poll::Pending
             } else if isr.stopf() {
+                let mut leftover_bytes = dma_transfer.get_remaining_transfers();
+                if !self.info.regs.isr().read().txe() {
+                    leftover_bytes = leftover_bytes.saturating_add(1);
+                }
+                remaining_len = remaining_len.saturating_add(leftover_bytes as usize);
                 self.info.regs.icr().write(|reg| reg.set_stopcf(true));
                 if remaining_len > 0 {
                     dma_transfer.request_pause();
@@ -1294,6 +1317,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
         })
         .await?;
 
+        dma_transfer.request_pause();
         dma_transfer.await;
 
         drop(on_drop);

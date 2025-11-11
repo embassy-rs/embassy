@@ -1,7 +1,7 @@
 [package]
 name = "embassy-usb"
 version = "0.5.1"
-edition = "2021"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Async USB device stack for embedded devices in Rust."
 keywords = ["embedded", "async", "usb", "hal", "embedded-hal"]
@@ -31,6 +31,7 @@ features = ["defmt", "usbd-hid"]
 
 [features]
 defmt = ["dep:defmt", "embassy-usb-driver/defmt"]
+log = ["dep:log"]
 usbd-hid = ["dep:usbd-hid", "dep:ssmarshal"]
 default = ["usbd-hid"]
 

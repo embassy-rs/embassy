@@ -1,7 +1,7 @@
 use core::future::poll_fn;
 use core::task::Poll;
 
-use stm32_metapac::adc::vals::{Align, Awdsgl, Res};
+use stm32_metapac::adc::vals::{Align, Awdsgl, Res, SampleTime};
 
 use crate::adc::{Adc, AdcChannel, Instance};
 
@@ -67,7 +67,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// let v_high = adc.monitor_watchdog().await;
     /// info!("ADC sample is high {}", v_high);
     /// ```
-    pub async fn monitor_watchdog(&mut self) -> u16 {
+    pub async fn monitor_watchdog(&mut self, sample_time: SampleTime) -> u16 {
         assert!(
             match T::regs().cfgr1().read().awdsgl() {
                 Awdsgl::SINGLE_CHANNEL => T::regs().cfgr1().read().awdch() != 0,
@@ -76,7 +76,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             "`set_channel` should be called before `monitor`",
         );
         assert!(T::regs().chselr().read().0 != 0);
-        T::regs().smpr().modify(|reg| reg.set_smp(self.sample_time.into()));
+        T::regs().smpr().modify(|reg| reg.set_smp(sample_time.into()));
         Self::start_awd();
 
         let sample = poll_fn(|cx| {

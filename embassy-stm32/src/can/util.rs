@@ -1,6 +1,6 @@
 //! Utility functions shared between CAN controller types.
 
-use core::num::{NonZeroU16, NonZeroU8};
+use core::num::{NonZeroU8, NonZeroU16};
 
 /// Shared struct to represent bit timings used by calc_can_timings.
 #[derive(Clone, Copy, Debug)]

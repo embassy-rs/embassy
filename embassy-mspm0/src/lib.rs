@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(unsafe_op_in_unsafe_fn)]
 // Doc feature labels can be tested locally by running RUSTDOCFLAGS="--cfg=docsrs" cargo +nightly doc
 #![cfg_attr(docsrs, feature(doc_auto_cfg, doc_cfg_hide), doc(cfg_hide(doc, docsrs)))]
 #![cfg_attr(
@@ -17,6 +18,7 @@ pub mod adc;
 pub mod dma;
 pub mod gpio;
 pub mod i2c;
+pub mod i2c_target;
 pub mod timer;
 pub mod uart;
 pub mod wwdt;
@@ -54,7 +56,7 @@ pub(crate) mod _generated {
 
 // Reexports
 pub(crate) use _generated::gpio_pincm;
-pub use _generated::{peripherals, Peripherals};
+pub use _generated::{Peripherals, peripherals};
 pub use embassy_hal_internal::Peri;
 #[cfg(feature = "unstable-pac")]
 pub use mspm0_metapac as pac;
@@ -111,7 +113,7 @@ macro_rules! bind_interrupts {
 
         $(
             #[allow(non_snake_case)]
-            #[no_mangle]
+            #[unsafe(no_mangle)]
             $(#[cfg($cond_irq)])?
             unsafe extern "C" fn $irq() {
                 unsafe {
@@ -230,5 +232,116 @@ impl Iterator for BitIter {
                 Some(b)
             }
         }
+    }
+}
+
+/// Reset cause values from SYSCTL.RSTCAUSE register.
+/// Based on MSPM0 L-series Technical Reference Manual Table 2-9 and
+/// MSPM0 G-series Technical Reference Manual Table 2-12.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ResetCause {
+    /// No reset since last read
+    NoReset,
+    /// VDD < POR- violation, PMU trim parity fault, or SHUTDNSTOREx parity fault
+    PorHwFailure,
+    /// NRST pin reset (>1s)
+    PorExternalNrst,
+    /// Software-triggered POR
+    PorSwTriggered,
+    /// VDD < BOR- violation
+    BorSupplyFailure,
+    /// Wake from SHUTDOWN
+    BorWakeFromShutdown,
+    /// Non-PMU trim parity fault
+    #[cfg(not(any(
+        mspm0c110x,
+        mspm0c1105_c1106,
+        mspm0g110x,
+        mspm0g150x,
+        mspm0g151x,
+        mspm0g310x,
+        mspm0g350x,
+        mspm0g351x
+    )))]
+    BootrstNonPmuParityFault,
+    /// Fatal clock fault
+    BootrstClockFault,
+    /// Software-triggered BOOTRST
+    BootrstSwTriggered,
+    /// NRST pin reset (<1s)
+    BootrstExternalNrst,
+    /// WWDT0 violation
+    BootrstWwdt0Violation,
+    /// WWDT1 violation (G-series only)
+    #[cfg(any(mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x))]
+    SysrstWwdt1Violation,
+    /// BSL exit (if present)
+    SysrstBslExit,
+    /// BSL entry (if present)
+    SysrstBslEntry,
+    /// Uncorrectable flash ECC error (if present)
+    #[cfg(not(any(mspm0c110x, mspm0c1105_c1106, mspm0g351x, mspm0g151x)))]
+    SysrstFlashEccError,
+    /// CPU lockup violation
+    SysrstCpuLockupViolation,
+    /// Debug-triggered SYSRST
+    SysrstDebugTriggered,
+    /// Software-triggered SYSRST
+    SysrstSwTriggered,
+    /// Debug-triggered CPURST
+    CpurstDebugTriggered,
+    /// Software-triggered CPURST
+    CpurstSwTriggered,
+}
+
+/// Read the reset cause from the SYSCTL.RSTCAUSE register.
+///
+/// This function reads the reset cause register which indicates why the last
+/// system reset occurred. The register is automatically cleared after being read,
+/// so this should be called only once per application startup.
+///
+/// If the reset cause is not recognized, an `Err` containing the raw value is returned.
+#[must_use = "Reading reset cause will clear it"]
+pub fn read_reset_cause() -> Result<ResetCause, u8> {
+    let cause_raw = pac::SYSCTL.rstcause().read().id();
+
+    use ResetCause::*;
+    use pac::sysctl::vals::Id;
+
+    match cause_raw {
+        Id::NORST => Ok(NoReset),
+        Id::PORHWFAIL => Ok(PorHwFailure),
+        Id::POREXNRST => Ok(PorExternalNrst),
+        Id::PORSW => Ok(PorSwTriggered),
+        Id::BORSUPPLY => Ok(BorSupplyFailure),
+        Id::BORWAKESHUTDN => Ok(BorWakeFromShutdown),
+        #[cfg(not(any(
+            mspm0c110x,
+            mspm0c1105_c1106,
+            mspm0g110x,
+            mspm0g150x,
+            mspm0g151x,
+            mspm0g310x,
+            mspm0g350x,
+            mspm0g351x
+        )))]
+        Id::BOOTNONPMUPARITY => Ok(BootrstNonPmuParityFault),
+        Id::BOOTCLKFAIL => Ok(BootrstClockFault),
+        Id::BOOTSW => Ok(BootrstSwTriggered),
+        Id::BOOTEXNRST => Ok(BootrstExternalNrst),
+        Id::BOOTWWDT0 => Ok(BootrstWwdt0Violation),
+        Id::SYSBSLEXIT => Ok(SysrstBslExit),
+        Id::SYSBSLENTRY => Ok(SysrstBslEntry),
+        #[cfg(any(mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x))]
+        Id::SYSWWDT1 => Ok(SysrstWwdt1Violation),
+        #[cfg(not(any(mspm0c110x, mspm0c1105_c1106, mspm0g351x, mspm0g151x)))]
+        Id::SYSFLASHECC => Ok(SysrstFlashEccError),
+        Id::SYSCPULOCK => Ok(SysrstCpuLockupViolation),
+        Id::SYSDBG => Ok(SysrstDebugTriggered),
+        Id::SYSSW => Ok(SysrstSwTriggered),
+        Id::CPUDBG => Ok(CpurstDebugTriggered),
+        Id::CPUSW => Ok(CpurstSwTriggered),
+        other => Err(other as u8),
     }
 }

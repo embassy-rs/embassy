@@ -8,9 +8,9 @@ use critical_section::Mutex;
 use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::{self, AnyPin, Level, SealedPin};
-use crate::pac::{interrupt, INPUTMUX, PINT, SYSCON};
 use crate::Peri;
+use crate::gpio::{self, AnyPin, Level, SealedPin};
+use crate::pac::{INPUTMUX, PINT, SYSCON, interrupt};
 
 struct PinInterrupt {
     assigned: bool,

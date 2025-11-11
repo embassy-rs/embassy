@@ -4,7 +4,7 @@ use pac::adc::vals::{Adc4Dmacfg as Dmacfg, Adc4Exten as Exten, Adc4OversamplingR
 #[cfg(stm32wba)]
 use pac::adc::vals::{Chselrmod, Cont, Dmacfg, Exten, OversamplingRatio, Ovss, Smpsel};
 
-use super::{blocking_delay_us, AdcChannel, AnyAdcChannel, RxDma4, SealedAdcChannel};
+use super::{AdcChannel, AnyAdcChannel, RxDma4, SealedAdcChannel, blocking_delay_us};
 use crate::dma::Transfer;
 #[cfg(stm32u5)]
 pub use crate::pac::adc::regs::Adc4Chselrmod0 as Chselr;
@@ -15,7 +15,7 @@ pub use crate::pac::adc::vals::{Adc4Presc as Presc, Adc4Res as Resolution, Adc4S
 #[cfg(stm32wba)]
 pub use crate::pac::adc::vals::{Presc, Res as Resolution, SampleTime};
 use crate::time::Hertz;
-use crate::{pac, rcc, Peri};
+use crate::{Peri, pac, rcc};
 
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
 
@@ -208,7 +208,10 @@ impl<'d, T: Instance> Adc4<'d, T> {
         info!("ADC4 frequency set to {}", frequency);
 
         if frequency > MAX_ADC_CLK_FREQ {
-            panic!("Maximal allowed frequency for ADC4 is {} MHz and it varies with different packages, refer to ST docs for more information.", MAX_ADC_CLK_FREQ.0 /  1_000_000 );
+            panic!(
+                "Maximal allowed frequency for ADC4 is {} MHz and it varies with different packages, refer to ST docs for more information.",
+                MAX_ADC_CLK_FREQ.0 / 1_000_000
+            );
         }
 
         let mut s = Self { adc };
@@ -324,18 +327,6 @@ impl<'d, T: Instance> Adc4<'d, T> {
         Dac {}
     }
 
-    /// Set the ADC sample time.
-    pub fn set_sample_time(&mut self, sample_time: SampleTime) {
-        T::regs().smpr().modify(|w| {
-            w.set_smp(0, sample_time);
-        });
-    }
-
-    /// Get the ADC sample time.
-    pub fn sample_time(&self) -> SampleTime {
-        T::regs().smpr().read().smp(0)
-    }
-
     /// Set the ADC resolution.
     pub fn set_resolution(&mut self, resolution: Resolution) {
         T::regs().cfgr1().modify(|w| w.set_res(resolution.into()));
@@ -384,7 +375,11 @@ impl<'d, T: Instance> Adc4<'d, T> {
     }
 
     /// Read an ADC channel.
-    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
+        T::regs().smpr().modify(|w| {
+            w.set_smp(0, sample_time);
+        });
+
         channel.setup();
 
         // Select channel

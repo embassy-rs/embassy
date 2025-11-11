@@ -1,8 +1,8 @@
 use core::cell::Cell;
 use core::task::Waker;
 
-use crate::blocking_mutex::raw::{CriticalSectionRawMutex, RawMutex};
 use crate::blocking_mutex::Mutex;
+use crate::blocking_mutex::raw::{CriticalSectionRawMutex, RawMutex};
 
 /// Utility struct to register and wake a waker.
 /// If a waker is registered, registering another waker will replace the previous one without waking it.

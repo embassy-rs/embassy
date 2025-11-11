@@ -1,6 +1,8 @@
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 
-use crate::pac::common::{Reg, RW};
+use crate::pac::common::{RW, Reg};
+#[cfg(backup_sram)]
+use crate::pac::pwr::vals::Retention;
 pub use crate::pac::rcc::vals::Rtcsel as RtcClockSource;
 use crate::time::Hertz;
 
@@ -52,9 +54,9 @@ impl From<LseDrive> for crate::pac::rcc::vals::Lsedrv {
     }
 }
 
-#[cfg(not(any(rtc_v2l0, rtc_v2l1, stm32c0)))]
+#[cfg(not(any(rtc_v2_l0, rtc_v2_l1, stm32c0)))]
 type Bdcr = crate::pac::rcc::regs::Bdcr;
-#[cfg(any(rtc_v2l0, rtc_v2l1))]
+#[cfg(any(rtc_v2_l0, rtc_v2_l1))]
 type Bdcr = crate::pac::rcc::regs::Csr;
 #[cfg(any(stm32c0))]
 type Bdcr = crate::pac::rcc::regs::Csr1;
@@ -78,9 +80,9 @@ fn unlock() {
 }
 
 fn bdcr() -> Reg<Bdcr, RW> {
-    #[cfg(any(rtc_v2l0, rtc_v2l1))]
+    #[cfg(any(rtc_v2_l0, rtc_v2_l1))]
     return crate::pac::RCC.csr();
-    #[cfg(not(any(rtc_v2l0, rtc_v2l1, stm32c0)))]
+    #[cfg(not(any(rtc_v2_l0, rtc_v2_l1, stm32c0)))]
     return crate::pac::RCC.bdcr();
     #[cfg(any(stm32c0))]
     return crate::pac::RCC.csr1();
@@ -91,6 +93,8 @@ pub struct LsConfig {
     pub rtc: RtcClockSource,
     pub lsi: bool,
     pub lse: Option<LseConfig>,
+    #[cfg(backup_sram)]
+    pub enable_backup_sram: bool,
 }
 
 impl LsConfig {
@@ -115,6 +119,8 @@ impl LsConfig {
                 peripherals_clocked: false,
             }),
             lsi: false,
+            #[cfg(backup_sram)]
+            enable_backup_sram: false,
         }
     }
 
@@ -123,6 +129,8 @@ impl LsConfig {
             rtc: RtcClockSource::LSI,
             lsi: true,
             lse: None,
+            #[cfg(backup_sram)]
+            enable_backup_sram: false,
         }
     }
 
@@ -131,6 +139,8 @@ impl LsConfig {
             rtc: RtcClockSource::DISABLE,
             lsi: false,
             lse: None,
+            #[cfg(backup_sram)]
+            enable_backup_sram: false,
         }
     }
 }
@@ -198,6 +208,22 @@ impl LsConfig {
 
             #[cfg(any(rcc_wb, rcc_wba))]
             while !csr.read().lsi1rdy() {}
+        }
+
+        // Enable backup regulator for peristent battery backed sram
+        #[cfg(backup_sram)]
+        {
+            unsafe { super::BKSRAM_RETAINED = crate::pac::PWR.bdcr().read().bren() == Retention::PRESERVED };
+
+            crate::pac::PWR.bdcr().modify(|w| {
+                w.set_bren(match self.enable_backup_sram {
+                    true => Retention::PRESERVED,
+                    false => Retention::LOST,
+                });
+            });
+
+            // Wait for backup regulator voltage to stabilize
+            while self.enable_backup_sram && !crate::pac::PWR.bdsr().read().brrdy() {}
         }
 
         // backup domain configuration (LSEON, RTCEN, RTCSEL) is kept across resets.
@@ -329,7 +355,7 @@ impl LsConfig {
         if self.rtc != RtcClockSource::DISABLE {
             #[cfg(not(rcc_n6))]
             bdcr().modify(|w| {
-                #[cfg(any(rtc_v2h7, rtc_v2l4, rtc_v2wb, rtc_v3, rtc_v3u5))]
+                #[cfg(any(rtc_v2_h7, rtc_v2_l4, rtc_v2_wb, rtc_v3_base, rtc_v3_u5))]
                 assert!(!w.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
 
                 #[cfg(not(rcc_wba))]

@@ -1,5 +1,6 @@
 #![cfg_attr(not(test), no_std)]
 #![allow(async_fn_in_trait)]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![cfg_attr(
     docsrs,
     doc = "<div style='padding:30px;background:#810;color:#fff;text-align:center;'><p>You might want to <a href='https://docs.embassy.dev/embassy-stm32'>browse the `embassy-stm32` documentation on the Embassy website</a> instead.</p><p>The documentation here on `docs.rs` is built for a single chip only (stm32h7, stm32h7rs55 in particular), while on the Embassy website you can pick your exact chip from the top menu. Available peripherals and their APIs change depending on the chip.</p></div>\n\n"
@@ -53,6 +54,8 @@ pub mod timer;
 
 #[cfg(adc)]
 pub mod adc;
+#[cfg(backup_sram)]
+pub mod backup_sram;
 #[cfg(can)]
 pub mod can;
 // FIXME: Cordic driver cause stm32u5a5zj crash
@@ -194,7 +197,7 @@ macro_rules! bind_interrupts {
 
         $(
             #[allow(non_snake_case)]
-            #[no_mangle]
+            #[unsafe(no_mangle)]
             $(#[cfg($cond_irq)])?
             $(#[doc = $doc])*
             unsafe extern "C" fn $irq() {
@@ -222,7 +225,7 @@ macro_rules! bind_interrupts {
 }
 
 // Reexports
-pub use _generated::{peripherals, Peripherals};
+pub use _generated::{Peripherals, peripherals};
 pub use embassy_hal_internal::{Peri, PeripheralType};
 #[cfg(feature = "unstable-pac")]
 pub use stm32_metapac as pac;
@@ -239,6 +242,14 @@ pub use crate::pac::NVIC_PRIO_BITS;
 pub struct Config {
     /// RCC config.
     pub rcc: rcc::Config,
+
+    #[cfg(feature = "low-power")]
+    /// RTC config
+    pub rtc: rtc::RtcConfig,
+
+    #[cfg(feature = "low-power")]
+    /// Minimum time to stop
+    pub min_stop_pause: embassy_time::Duration,
 
     /// Enable debug during sleep and stop.
     ///
@@ -293,6 +304,10 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             rcc: Default::default(),
+            #[cfg(feature = "low-power")]
+            rtc: Default::default(),
+            #[cfg(feature = "low-power")]
+            min_stop_pause: embassy_time::Duration::from_millis(250),
             #[cfg(dbgmcu)]
             enable_debug_during_sleep: true,
             #[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba))]
@@ -632,6 +647,12 @@ fn init_hw(config: Config) -> Peripherals {
             exti::init(cs);
 
             rcc::init_rcc(cs, config.rcc);
+
+            #[cfg(feature = "low-power")]
+            crate::rtc::init_rtc(cs, config.rtc);
+
+            #[cfg(feature = "low-power")]
+            crate::time_driver::get_driver().set_min_stop_pause(cs, config.min_stop_pause);
         }
 
         p

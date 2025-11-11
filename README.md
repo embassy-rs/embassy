@@ -28,7 +28,7 @@ Rust's [async/await](https://rust-lang.github.io/async-book/) allows for unprece
   No more messing with hardware timers. [embassy_time](https://docs.embassy.dev/embassy-time) provides Instant, Duration, and Timer types that are globally available and never overflow.
 
 - **Real-time ready** -
-  Tasks on the same async executor run cooperatively, but you can create multiple executors with different priorities so that higher priority tasks preempt lower priority ones. See the [example](https://github.com/embassy-rs/embassy/blob/master/examples/nrf52840/src/bin/multiprio.rs).
+  Tasks on the same async executor run cooperatively, but you can create multiple executors with different priorities so that higher priority tasks preempt lower priority ones. See the [example](https://github.com/embassy-rs/embassy/blob/main/examples/nrf52840/src/bin/multiprio.rs).
 
 - **Low-power ready** -
   Easily build devices with years of battery life. The async executor automatically puts the core to sleep when there's no work to do. Tasks are woken by interrupts, there is no busy-loop polling while waiting.
@@ -49,7 +49,7 @@ Rust's [async/await](https://rust-lang.github.io/async-book/) allows for unprece
   [embassy-usb](https://docs.embassy.dev/embassy-usb/) implements a device-side USB stack. Implementations for common classes such as USB serial (CDC ACM) and USB HID are available, and a rich builder API allows building your own.
 
 - **Bootloader and DFU** -
-  [embassy-boot](https://github.com/embassy-rs/embassy/tree/master/embassy-boot) is a lightweight bootloader supporting firmware application upgrades in a power-fail-safe way, with trial boots and rollbacks.
+  [embassy-boot](https://github.com/embassy-rs/embassy/tree/main/embassy-boot) is a lightweight bootloader supporting firmware application upgrades in a power-fail-safe way, with trial boots and rollbacks.
 
 ## Sneak peek
 

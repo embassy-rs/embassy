@@ -71,7 +71,7 @@ unsafe fn on_irq() {
     }
 
     #[cfg(feature = "low-power")]
-    crate::low_power::on_wakeup_irq();
+    crate::low_power::Executor::on_wakeup_irq();
 }
 
 struct BitIter(u32);

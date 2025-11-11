@@ -5,33 +5,32 @@ mod datetime;
 mod low_power;
 
 #[cfg(feature = "low-power")]
-use core::cell::Cell;
+use core::cell::{Cell, RefCell, RefMut};
+#[cfg(feature = "low-power")]
+use core::ops;
 
 #[cfg(feature = "low-power")]
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use critical_section::CriticalSection;
 #[cfg(feature = "low-power")]
 use embassy_sync::blocking_mutex::Mutex;
+#[cfg(feature = "low-power")]
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
-use self::datetime::{day_of_week_from_u8, day_of_week_to_u8};
 pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
+use self::datetime::{day_of_week_from_u8, day_of_week_to_u8};
 use crate::pac::rtc::regs::{Dr, Tr};
 use crate::time::Hertz;
 
 /// refer to AN4759 to compare features of RTC2 and RTC3
-#[cfg_attr(any(rtc_v1), path = "v1.rs")]
-#[cfg_attr(
-    any(
-        rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb
-    ),
-    path = "v2.rs"
-)]
-#[cfg_attr(any(rtc_v3, rtc_v3u5, rtc_v3l5, rtc_v3h7rs, rtc_v3c0), path = "v3.rs")]
+#[cfg_attr(rtc_v1, path = "v1.rs")]
+#[cfg_attr(rtc_v2, path = "v2.rs")]
+#[cfg_attr(rtc_v3, path = "v3.rs")]
 mod _version;
 #[allow(unused_imports)]
 pub use _version::*;
 
-use crate::peripherals::RTC;
 use crate::Peri;
+use crate::peripherals::RTC;
 
 /// Errors that can occur on methods on [RtcClock]
 #[non_exhaustive]
@@ -49,11 +48,17 @@ pub enum RtcError {
 }
 
 /// Provides immutable access to the current time of the RTC.
+#[derive(Clone)]
 pub struct RtcTimeProvider {
     _private: (),
 }
 
 impl RtcTimeProvider {
+    /// Create a new RTC time provider instance.
+    pub(self) const fn new() -> Self {
+        Self { _private: () }
+    }
+
     /// Return the current datetime.
     ///
     /// # Errors
@@ -72,12 +77,12 @@ impl RtcTimeProvider {
 
             // Calculate second fraction and multiply to microseconds
             // Formula from RM0410
-            #[cfg(not(rtc_v2f2))]
+            #[cfg(not(rtc_v2_f2))]
             let us = {
                 let prediv = RTC::regs().prer().read().prediv_s() as f32;
                 (((prediv - _ss as f32) / (prediv + 1.0)) * 1e6).min(999_999.0) as u32
             };
-            #[cfg(rtc_v2f2)]
+            #[cfg(rtc_v2_f2)]
             let us = 0;
 
             DateTime::from(year, month, day, weekday, hour, minute, second, us).map_err(RtcError::InvalidDateTime)
@@ -87,9 +92,9 @@ impl RtcTimeProvider {
     fn read<R>(&self, mut f: impl FnMut(Dr, Tr, u16) -> Result<R, RtcError>) -> Result<R, RtcError> {
         let r = RTC::regs();
 
-        #[cfg(not(rtc_v2f2))]
+        #[cfg(not(rtc_v2_f2))]
         let read_ss = || r.ssr().read().ss();
-        #[cfg(rtc_v2f2)]
+        #[cfg(rtc_v2_f2)]
         let read_ss = || 0;
 
         let mut ss = read_ss();
@@ -111,6 +116,50 @@ impl RtcTimeProvider {
     }
 }
 
+#[cfg(feature = "low-power")]
+/// Contains an RTC driver.
+pub struct RtcContainer {
+    pub(self) mutex: &'static Mutex<CriticalSectionRawMutex, RefCell<Option<Rtc>>>,
+}
+
+#[cfg(feature = "low-power")]
+impl RtcContainer {
+    pub(self) const fn new() -> Self {
+        Self {
+            mutex: &crate::time_driver::get_driver().rtc,
+        }
+    }
+
+    /// Acquire an RTC borrow.
+    pub fn borrow_mut<'a>(&self, cs: CriticalSection<'a>) -> RtcBorrow<'a> {
+        RtcBorrow {
+            ref_mut: self.mutex.borrow(cs).borrow_mut(),
+        }
+    }
+}
+
+#[cfg(feature = "low-power")]
+/// Contains an RTC borrow.
+pub struct RtcBorrow<'a> {
+    pub(self) ref_mut: RefMut<'a, Option<Rtc>>,
+}
+
+#[cfg(feature = "low-power")]
+impl<'a> ops::Deref for RtcBorrow<'a> {
+    type Target = Rtc;
+
+    fn deref(&self) -> &Self::Target {
+        self.ref_mut.as_ref().unwrap()
+    }
+}
+
+#[cfg(feature = "low-power")]
+impl<'a> ops::DerefMut for RtcBorrow<'a> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.ref_mut.as_mut().unwrap()
+    }
+}
+
 /// RTC driver.
 pub struct Rtc {
     #[cfg(feature = "low-power")]
@@ -126,13 +175,21 @@ pub struct RtcConfig {
     ///
     /// A high counter frequency may impact stop power consumption
     pub frequency: Hertz,
+
+    #[cfg(feature = "_allow-disable-rtc")]
+    /// Allow disabling the rtc, even when stop is configured
+    pub _disable_rtc: bool,
 }
 
 impl Default for RtcConfig {
     /// LSI with prescalers assuming 32.768 kHz.
     /// Raw sub-seconds in 1/256.
     fn default() -> Self {
-        RtcConfig { frequency: Hertz(256) }
+        RtcConfig {
+            frequency: Hertz(256),
+            #[cfg(feature = "_allow-disable-rtc")]
+            _disable_rtc: false,
+        }
     }
 }
 
@@ -150,8 +207,19 @@ pub enum RtcCalibrationCyclePeriod {
 }
 
 impl Rtc {
+    #[cfg(not(feature = "low-power"))]
     /// Create a new RTC instance.
-    pub fn new(_rtc: Peri<'static, RTC>, rtc_config: RtcConfig) -> Self {
+    pub fn new(_rtc: Peri<'static, RTC>, rtc_config: RtcConfig) -> (Self, RtcTimeProvider) {
+        (Self::new_inner(rtc_config), RtcTimeProvider::new())
+    }
+
+    #[cfg(feature = "low-power")]
+    /// Create a new RTC instance.
+    pub fn new(_rtc: Peri<'static, RTC>) -> (RtcContainer, RtcTimeProvider) {
+        (RtcContainer::new(), RtcTimeProvider::new())
+    }
+
+    pub(self) fn new_inner(rtc_config: RtcConfig) -> Self {
         #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
         crate::rcc::enable_and_reset::<RTC>();
 
@@ -168,11 +236,14 @@ impl Rtc {
         this.configure(async_psc, sync_psc);
 
         // Wait for the clock to update after initialization
-        #[cfg(not(rtc_v2f2))]
+        #[cfg(not(rtc_v2_f2))]
         {
-            let now = this.time_provider().read(|_, _, ss| Ok(ss)).unwrap();
-            while now == this.time_provider().read(|_, _, ss| Ok(ss)).unwrap() {}
+            let now = RtcTimeProvider::new().read(|_, _, ss| Ok(ss)).unwrap();
+            while now == RtcTimeProvider::new().read(|_, _, ss| Ok(ss)).unwrap() {}
         }
+
+        #[cfg(feature = "low-power")]
+        this.enable_wakeup_line();
 
         this
     }
@@ -180,11 +251,6 @@ impl Rtc {
     fn frequency() -> Hertz {
         let freqs = unsafe { crate::rcc::get_freqs() };
         freqs.rtc.to_hertz().unwrap()
-    }
-
-    /// Acquire a [`RtcTimeProvider`] instance.
-    pub const fn time_provider(&self) -> RtcTimeProvider {
-        RtcTimeProvider { _private: () }
     }
 
     /// Set the datetime to a new value.
@@ -228,15 +294,6 @@ impl Rtc {
         });
 
         Ok(())
-    }
-
-    /// Return the current datetime.
-    ///
-    /// # Errors
-    ///
-    /// Will return an `RtcError::InvalidDateTime` if the stored value in the system is not a valid [`DayOfWeek`].
-    pub fn now(&self) -> Result<DateTime, RtcError> {
-        self.time_provider().now()
     }
 
     /// Check if daylight savings time is active.
@@ -319,4 +376,16 @@ trait SealedInstance {
     fn write_backup_register(rtc: crate::pac::rtc::Rtc, register: usize, value: u32);
 
     // fn apply_config(&mut self, rtc_config: RtcConfig);
+}
+
+#[cfg(feature = "low-power")]
+pub(crate) fn init_rtc(cs: CriticalSection, config: RtcConfig) {
+    #[cfg(feature = "_allow-disable-rtc")]
+    if config._disable_rtc {
+        return;
+    }
+
+    crate::time_driver::get_driver().set_rtc(cs, Rtc::new_inner(config));
+
+    trace!("low power: stop with rtc configured");
 }

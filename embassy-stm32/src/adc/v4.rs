@@ -5,11 +5,12 @@ use pac::adc::vals::{Adstp, Difsel, Dmngt, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
 
 use super::{
-    blocking_delay_us, Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel,
+    Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel, Temperature, Vbat,
+    VrefInt, blocking_delay_us,
 };
 use crate::dma::Transfer;
 use crate::time::Hertz;
-use crate::{pac, rcc, Peri};
+use crate::{Peri, pac, rcc};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -25,52 +26,40 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(50);
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
 
 #[cfg(stm32g4)]
-const VREF_CHANNEL: u8 = 18;
+impl<T: Instance> super::VrefConverter for T {
+    const CHANNEL: u8 = 18;
+}
 #[cfg(stm32g4)]
-const TEMP_CHANNEL: u8 = 16;
+impl<T: Instance> super::TemperatureConverter for T {
+    const CHANNEL: u8 = 16;
+}
 
 #[cfg(stm32h7)]
-const VREF_CHANNEL: u8 = 19;
+impl<T: Instance> super::VrefConverter for T {
+    const CHANNEL: u8 = 19;
+}
 #[cfg(stm32h7)]
-const TEMP_CHANNEL: u8 = 18;
+impl<T: Instance> super::TemperatureConverter for T {
+    const CHANNEL: u8 = 18;
+}
 
 // TODO this should be 14 for H7a/b/35
 #[cfg(not(stm32u5))]
-const VBAT_CHANNEL: u8 = 17;
-
-#[cfg(stm32u5)]
-const VREF_CHANNEL: u8 = 0;
-#[cfg(stm32u5)]
-const TEMP_CHANNEL: u8 = 19;
-#[cfg(stm32u5)]
-const VBAT_CHANNEL: u8 = 18;
-
-// NOTE: Vrefint/Temperature/Vbat are not available on all ADCs, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
-/// Internal voltage reference channel.
-pub struct VrefInt;
-impl<T: Instance> AdcChannel<T> for VrefInt {}
-impl<T: Instance> SealedAdcChannel<T> for VrefInt {
-    fn channel(&self) -> u8 {
-        VREF_CHANNEL
-    }
+impl<T: Instance> super::VBatConverter for T {
+    const CHANNEL: u8 = 17;
 }
 
-/// Internal temperature channel.
-pub struct Temperature;
-impl<T: Instance> AdcChannel<T> for Temperature {}
-impl<T: Instance> SealedAdcChannel<T> for Temperature {
-    fn channel(&self) -> u8 {
-        TEMP_CHANNEL
-    }
+#[cfg(stm32u5)]
+impl<T: Instance> super::VrefConverter for T {
+    const CHANNEL: u8 = 0;
 }
-
-/// Internal battery voltage channel.
-pub struct Vbat;
-impl<T: Instance> AdcChannel<T> for Vbat {}
-impl<T: Instance> SealedAdcChannel<T> for Vbat {
-    fn channel(&self) -> u8 {
-        VBAT_CHANNEL
-    }
+#[cfg(stm32u5)]
+impl<T: Instance> super::TemperatureConverter for T {
+    const CHANNEL: u8 = 19;
+}
+#[cfg(stm32u5)]
+impl<T: Instance> super::VBatConverter for T {
+    const CHANNEL: u8 = 18;
 }
 
 // NOTE (unused): The prescaler enum closely copies the hardware capabilities,
@@ -171,7 +160,10 @@ impl<'d, T: Instance> Adc<'d, T> {
         info!("ADC frequency set to {}", frequency);
 
         if frequency > MAX_ADC_CLK_FREQ {
-            panic!("Maximal allowed frequency for the ADC is {} MHz and it varies with different packages, refer to ST docs for more information.", MAX_ADC_CLK_FREQ.0 /  1_000_000 );
+            panic!(
+                "Maximal allowed frequency for the ADC is {} MHz and it varies with different packages, refer to ST docs for more information.",
+                MAX_ADC_CLK_FREQ.0 / 1_000_000
+            );
         }
 
         #[cfg(stm32h7)]
@@ -187,10 +179,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             };
             T::regs().cr().modify(|w| w.set_boost(boost));
         }
-        let mut s = Self {
-            adc,
-            sample_time: SampleTime::from_bits(0),
-        };
+        let mut s = Self { adc };
         s.power_up();
         s.configure_differential_inputs();
 
@@ -274,16 +263,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         Vbat {}
     }
 
-    /// Set the ADC sample time.
-    pub fn set_sample_time(&mut self, sample_time: SampleTime) {
-        self.sample_time = sample_time;
-    }
-
-    /// Get the ADC sample time.
-    pub fn sample_time(&self) -> SampleTime {
-        self.sample_time
-    }
-
     /// Set the ADC resolution.
     pub fn set_resolution(&mut self, resolution: Resolution) {
         T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
@@ -332,8 +311,8 @@ impl<'d, T: Instance> Adc<'d, T> {
     }
 
     /// Read an ADC channel.
-    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
-        self.read_channel(channel)
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
+        self.read_channel(channel, sample_time)
     }
 
     /// Read one or multiple ADC channels using DMA.
@@ -469,8 +448,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    fn read_channel(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
-        Self::configure_channel(channel, self.sample_time);
+    fn read_channel(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
+        Self::configure_channel(channel, sample_time);
 
         T::regs().sqr1().modify(|reg| {
             reg.set_sq(0, channel.channel());

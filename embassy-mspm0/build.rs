@@ -16,14 +16,15 @@ use quote::{format_ident, quote};
 mod common;
 
 fn main() {
-    generate_code();
-    interrupt_group_linker_magic();
-}
-
-fn generate_code() {
     let mut cfgs = common::CfgSet::new();
     common::set_target_cfgs(&mut cfgs);
 
+    generate_code(&mut cfgs);
+    select_gpio_features(&mut cfgs);
+    interrupt_group_linker_magic();
+}
+
+fn generate_code(cfgs: &mut CfgSet) {
     #[cfg(any(feature = "rt"))]
     println!(
         "cargo:rustc-link-search={}",
@@ -53,9 +54,9 @@ fn generate_code() {
         cfgs.declare_all(&get_chip_cfgs(&chip));
     }
 
-    let mut singletons = get_singletons(&mut cfgs);
+    let mut singletons = get_singletons(cfgs);
 
-    time_driver(&mut singletons, &mut cfgs);
+    time_driver(&mut singletons, cfgs);
 
     let mut g = TokenStream::new();
 
@@ -68,7 +69,7 @@ fn generate_code() {
     g.extend(generate_pin_trait_impls());
     g.extend(generate_groups());
     g.extend(generate_dma_channel_count());
-    g.extend(generate_adc_constants(&mut cfgs));
+    g.extend(generate_adc_constants(cfgs));
 
     let out_dir = &PathBuf::from(env::var_os("OUT_DIR").unwrap());
     let out_file = out_dir.join("_generated.rs").to_string_lossy().to_string();
@@ -113,6 +114,10 @@ fn get_chip_cfgs(chip_name: &str) -> Vec<String> {
 
     if chip_name.starts_with("mspm0g351") {
         cfgs.push("mspm0g351x".to_string());
+    }
+
+    if chip_name.starts_with("mspm0h321") {
+        cfgs.push("mspm0h321x".to_string());
     }
 
     if chip_name.starts_with("mspm0l110") {
@@ -189,8 +194,15 @@ fn generate_groups() -> TokenStream {
                 use crate::pac::#group_enum;
 
                 let group = crate::pac::CPUSS.int_group(#group_number);
-                // MUST subtract by 1 since 0 is NO_INTR
-                let iidx = group.iidx().read().stat().to_bits() - 1;
+                let stat = group.iidx().read().stat();
+
+                // check for spurious interrupts
+                if stat == crate::pac::cpuss::vals::Iidx::NO_INTR {
+                    return;
+                }
+
+                // MUST subtract by 1 because NO_INTR offsets IIDX values.
+                let iidx = stat.to_bits() - 1;
 
                 let Ok(group) = #group_enum::try_from(iidx as u8) else {
                     return;
@@ -208,7 +220,7 @@ fn generate_groups() -> TokenStream {
 
         #[cfg(feature = "rt")]
         mod group_vectors {
-            extern "Rust" {
+            unsafe extern "Rust" {
                 #(#group_vectors)*
             }
         }
@@ -643,6 +655,35 @@ fn generate_pin_trait_impls() -> TokenStream {
 
     quote! {
         #(#impls)*
+    }
+}
+
+fn select_gpio_features(cfgs: &mut CfgSet) {
+    cfgs.declare_all(&[
+        "gpioa_interrupt",
+        "gpioa_group",
+        "gpiob_interrupt",
+        "gpiob_group",
+        "gpioc_group",
+    ]);
+
+    for interrupt in METADATA.interrupts.iter() {
+        match interrupt.name {
+            "GPIOA" => cfgs.enable("gpioa_interrupt"),
+            "GPIOB" => cfgs.enable("gpiob_interrupt"),
+            _ => (),
+        }
+    }
+
+    for group in METADATA.interrupt_groups.iter() {
+        for interrupt in group.interrupts {
+            match interrupt.name {
+                "GPIOA" => cfgs.enable("gpioa_group"),
+                "GPIOB" => cfgs.enable("gpiob_group"),
+                "GPIOC" => cfgs.enable("gpioc_group"),
+                _ => (),
+            }
+        }
     }
 }
 
