@@ -99,6 +99,7 @@ build = [
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "low-power", "stm32wba65ri", "time", "time-driver-any"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32u5f9zj", "time", "time-driver-any"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32u5g9nj", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32n657x0", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "stm32wb35ce", "time", "time-driver-any"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "exti", "low-power", "stm32wb55rg", "time", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "exti", "stm32u031r8", "time", "time-driver-any"]},
@@ -211,7 +212,6 @@ quote = "1.0.15"
 critical-section = { version = "1.1", features = ["std"] }
 proptest = "1.5.0"
 proptest-state-machine = "0.3.0"
-
 
 
 [features]
@@ -1642,6 +1642,7 @@ stm32l562qe = [ "stm32-metapac/stm32l562qe" ]
 stm32l562re = [ "stm32-metapac/stm32l562re" ]
 stm32l562ve = [ "stm32-metapac/stm32l562ve" ]
 stm32l562ze = [ "stm32-metapac/stm32l562ze" ]
+stm32n657x0 = [ "stm32-metapac/stm32n657x0" ]
 stm32u031c6 = [ "stm32-metapac/stm32u031c6" ]
 stm32u031c8 = [ "stm32-metapac/stm32u031c8" ]
 stm32u031f4 = [ "stm32-metapac/stm32u031f4" ]

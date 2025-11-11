@@ -592,7 +592,7 @@ impl AfType {
 
 #[inline(never)]
 #[cfg(gpio_v1)]
-fn set_as_af(pin_port: u8, af_type: AfType) {
+fn set_as_af(pin_port: PinNumber, af_type: AfType) {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
     let n = pin._pin() as usize;
@@ -649,7 +649,7 @@ impl AfType {
 
 #[inline(never)]
 #[cfg(gpio_v2)]
-fn set_as_af(pin_port: u8, af_num: u8, af_type: AfType) {
+fn set_as_af(pin_port: PinNumber, af_num: u8, af_type: AfType) {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
     let n = pin._pin() as usize;
@@ -663,7 +663,7 @@ fn set_as_af(pin_port: u8, af_num: u8, af_type: AfType) {
 
 #[inline(never)]
 #[cfg(gpio_v2)]
-fn set_speed(pin_port: u8, speed: Speed) {
+fn set_speed(pin_port: PinNumber, speed: Speed) {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
     let n = pin._pin() as usize;
@@ -672,7 +672,7 @@ fn set_speed(pin_port: u8, speed: Speed) {
 }
 
 #[inline(never)]
-fn set_as_analog(pin_port: u8) {
+fn set_as_analog(pin_port: PinNumber) {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
     let n = pin._pin() as usize;
@@ -688,7 +688,7 @@ fn set_as_analog(pin_port: u8) {
 }
 
 #[inline(never)]
-fn get_pull(pin_port: u8) -> Pull {
+fn get_pull(pin_port: PinNumber) -> Pull {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
     let n = pin._pin() as usize;
@@ -727,15 +727,15 @@ pub struct AfioRemapBool<const V: bool>;
 pub struct AfioRemapNotApplicable;
 
 pub(crate) trait SealedPin {
-    fn pin_port(&self) -> u8;
+    fn pin_port(&self) -> PinNumber;
 
     #[inline]
-    fn _pin(&self) -> u8 {
+    fn _pin(&self) -> PinNumber {
         self.pin_port() % 16
     }
 
     #[inline]
-    fn _port(&self) -> u8 {
+    fn _port(&self) -> PinNumber {
         self.pin_port() / 16
     }
 
@@ -798,6 +798,20 @@ pub(crate) trait SealedPin {
     }
 }
 
+/// GPIO pin number type.
+///
+/// Some chips have a total number of ports that exceeds 8, a larger integer
+/// is needed to hold the total pin number `(ports * number)`.
+#[cfg(not(stm32n6))]
+pub type PinNumber = u8;
+
+/// GPIO pin number type.
+///
+/// Some chips have a total number of ports that exceeds 8, a larger integer
+/// is needed to hold the total pin number `(ports * number)`.
+#[cfg(stm32n6)]
+pub type PinNumber = u16;
+
 /// GPIO pin trait.
 #[allow(private_bounds)]
 pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
@@ -809,20 +823,20 @@ pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
 
     /// Number of the pin within the port (0..31)
     #[inline]
-    fn pin(&self) -> u8 {
+    fn pin(&self) -> PinNumber {
         self._pin()
     }
 
     /// Port of the pin
     #[inline]
-    fn port(&self) -> u8 {
+    fn port(&self) -> PinNumber {
         self._port()
     }
 }
 
 /// Type-erased GPIO pin
 pub struct AnyPin {
-    pin_port: u8,
+    pin_port: PinNumber,
 }
 
 impl AnyPin {
@@ -830,12 +844,12 @@ impl AnyPin {
     ///
     /// `pin_port` is `port_num * 16 + pin_num`, where `port_num` is 0 for port `A`, 1 for port `B`, etc...
     #[inline]
-    pub unsafe fn steal(pin_port: u8) -> Peri<'static, Self> {
+    pub unsafe fn steal(pin_port: PinNumber) -> Peri<'static, Self> {
         Peri::new_unchecked(Self { pin_port })
     }
 
     #[inline]
-    fn _port(&self) -> u8 {
+    fn _port(&self) -> PinNumber {
         self.pin_port / 16
     }
 
@@ -854,7 +868,7 @@ impl Pin for AnyPin {
 }
 impl SealedPin for AnyPin {
     #[inline]
-    fn pin_port(&self) -> u8 {
+    fn pin_port(&self) -> PinNumber {
         self.pin_port
     }
 }
@@ -869,7 +883,7 @@ foreach_pin!(
         }
         impl SealedPin for peripherals::$pin_name {
             #[inline]
-            fn pin_port(&self) -> u8 {
+            fn pin_port(&self) -> PinNumber {
                 $port_num * 16 + $pin_num
             }
         }
