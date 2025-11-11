@@ -1346,6 +1346,8 @@ fn main() {
 
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
+            let mut adc_pairs: BTreeMap<u8, (Option<Ident>, Option<Ident>)> = BTreeMap::new();
+
             for pin in p.pins {
                 let key = (regs.kind, pin.signal);
                 if let Some(tr) = signals.get(&key) {
@@ -1467,24 +1469,28 @@ fn main() {
                     };
 
                     // H7 has differential voltage measurements
-                    let ch: Option<u8> = if pin.signal.starts_with("INP") {
-                        Some(pin.signal.strip_prefix("INP").unwrap().parse().unwrap())
+                    let ch: Option<(u8, bool)> = if pin.signal.starts_with("INP") {
+                        Some((pin.signal.strip_prefix("INP").unwrap().parse().unwrap(), false))
                     } else if pin.signal.starts_with("INN") {
-                        // TODO handle in the future when embassy supports differential measurements
-                        None
+                        Some((pin.signal.strip_prefix("INN").unwrap().parse().unwrap(), true))
                     } else if pin.signal.starts_with("IN") && pin.signal.ends_with('b') {
                         // we number STM32L1 ADC bank 1 as 0..=31, bank 2 as 32..=63
                         let signal = pin.signal.strip_prefix("IN").unwrap().strip_suffix('b').unwrap();
-                        Some(32u8 + signal.parse::<u8>().unwrap())
+                        Some((32u8 + signal.parse::<u8>().unwrap(), false))
                     } else if pin.signal.starts_with("IN") {
-                        Some(pin.signal.strip_prefix("IN").unwrap().parse().unwrap())
+                        Some((pin.signal.strip_prefix("IN").unwrap().parse().unwrap(), false))
                     } else {
                         None
                     };
-                    if let Some(ch) = ch {
+                    if let Some((ch, false)) = ch {
+                        adc_pairs.entry(ch).or_insert((None, None)).0.replace(pin_name.clone());
+
                         g.extend(quote! {
                         impl_adc_pin!( #peri, #pin_name, #ch);
                         })
+                    }
+                    if let Some((ch, true)) = ch {
+                        adc_pairs.entry(ch).or_insert((None, None)).1.replace(pin_name.clone());
                     }
                 }
 
@@ -1521,6 +1527,23 @@ fn main() {
 
                     g.extend(quote! {
                     impl_spdifrx_pin!( #peri, #pin_name, #af, #sel);
+                    })
+                }
+            }
+
+            {
+                let peri = format_ident!("{}", p.name);
+
+                for (ch, (pin, npin)) in adc_pairs {
+                    let (pin_name, npin_name) = match (pin, npin) {
+                        (Some(pin), Some(npin)) => (pin, npin),
+                        _ => {
+                            continue;
+                        }
+                    };
+
+                    g.extend(quote! {
+                    impl_adc_pair!( #peri, #pin_name, #npin_name, #ch);
                     })
                 }
             }

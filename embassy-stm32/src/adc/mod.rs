@@ -80,6 +80,11 @@ pub(crate) trait SealedAdcChannel<T> {
 
     #[allow(unused)]
     fn channel(&self) -> u8;
+
+    #[allow(unused)]
+    fn is_differential(&self) -> bool {
+        false
+    }
 }
 
 /// Performs a busy-wait delay for a specified number of microseconds.
@@ -178,6 +183,7 @@ pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
 
         AnyAdcChannel {
             channel: self.channel(),
+            is_differential: self.is_differential(),
             _phantom: PhantomData,
         }
     }
@@ -189,6 +195,7 @@ pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
 /// storing them in an array.
 pub struct AnyAdcChannel<T> {
     channel: u8,
+    is_differential: bool,
     _phantom: PhantomData<T>,
 }
 impl_peripheral!(AnyAdcChannel<T: Instance>);
@@ -196,6 +203,10 @@ impl<T: Instance> AdcChannel<T> for AnyAdcChannel<T> {}
 impl<T: Instance> SealedAdcChannel<T> for AnyAdcChannel<T> {
     fn channel(&self) -> u8 {
         self.channel
+    }
+
+    fn is_differential(&self) -> bool {
+        self.is_differential
     }
 }
 
@@ -310,6 +321,39 @@ macro_rules! impl_adc_pin {
 
             fn channel(&self) -> u8 {
                 $ch
+            }
+        }
+    };
+}
+
+#[allow(unused_macros)]
+macro_rules! impl_adc_pair {
+    ($inst:ident, $pin:ident, $npin:ident, $ch:expr) => {
+        impl crate::adc::AdcChannel<peripherals::$inst>
+            for (
+                crate::Peri<'_, crate::peripherals::$pin>,
+                crate::Peri<'_, crate::peripherals::$npin>,
+            )
+        {
+        }
+        impl crate::adc::SealedAdcChannel<peripherals::$inst>
+            for (
+                crate::Peri<'_, crate::peripherals::$pin>,
+                crate::Peri<'_, crate::peripherals::$npin>,
+            )
+        {
+            #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5, adc_wba))]
+            fn setup(&mut self) {
+                <crate::peripherals::$pin as crate::gpio::SealedPin>::set_as_analog(&mut self.0);
+                <crate::peripherals::$npin as crate::gpio::SealedPin>::set_as_analog(&mut self.1);
+            }
+
+            fn channel(&self) -> u8 {
+                $ch
+            }
+
+            fn is_differential(&self) -> bool {
+                true
             }
         }
     };

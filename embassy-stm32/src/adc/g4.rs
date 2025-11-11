@@ -140,37 +140,19 @@ impl<'d, T: Instance> Adc<'d, T> {
             );
         }
 
-        let mut s = Self { adc };
-        s.power_up();
-        s.configure_differential_inputs();
-
-        s.calibrate();
-        blocking_delay_us(1);
-
-        Self::enable();
-        s.configure();
-
-        s
-    }
-
-    fn power_up(&mut self) {
         T::regs().cr().modify(|reg| {
             reg.set_deeppwd(false);
             reg.set_advregen(true);
         });
 
         blocking_delay_us(20);
-    }
 
-    fn configure_differential_inputs(&mut self) {
         T::regs().difsel().modify(|w| {
             for n in 0..18 {
                 w.set_difsel(n, Difsel::SINGLE_ENDED);
             }
         });
-    }
 
-    fn calibrate(&mut self) {
         T::regs().cr().modify(|w| {
             w.set_adcaldif(Adcaldif::SINGLE_ENDED);
         });
@@ -190,6 +172,16 @@ impl<'d, T: Instance> Adc<'d, T> {
         while T::regs().cr().read().adcal() {}
 
         blocking_delay_us(20);
+
+        Self::enable();
+
+        // single conversion mode, software trigger
+        T::regs().cfgr().modify(|w| {
+            w.set_cont(false);
+            w.set_exten(Exten::DISABLED);
+        });
+
+        Self { adc }
     }
 
     fn enable() {
@@ -211,14 +203,6 @@ impl<'d, T: Instance> Adc<'d, T> {
                 // spin
             }
         }
-    }
-
-    fn configure(&mut self) {
-        // single conversion mode, software trigger
-        T::regs().cfgr().modify(|w| {
-            w.set_cont(false);
-            w.set_exten(Exten::DISABLED);
-        });
     }
 
     /// Enable reading the voltage reference internal channel.
