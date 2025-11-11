@@ -172,20 +172,23 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         length: usize,
         stop: Stop,
         reload: bool,
+        restart: bool,
         timeout: Timeout,
     ) -> Result<(), Error> {
         assert!(length < 256);
 
-        // Wait for any previous address sequence to end
-        // automatically. This could be up to 50% of a bus
-        // cycle (ie. up to 0.5/freq)
-        while info.regs.cr2().read().start() {
-            timeout.check()?;
-        }
+        if !restart {
+            // Wait for any previous address sequence to end
+            // automatically. This could be up to 50% of a bus
+            // cycle (ie. up to 0.5/freq)
+            while info.regs.cr2().read().start() {
+                timeout.check()?;
+            }
 
-        // Wait for the bus to be free
-        while info.regs.isr().read().busy() {
-            timeout.check()?;
+            // Wait for the bus to be free
+            while info.regs.isr().read().busy() {
+                timeout.check()?;
+            }
         }
 
         let reload = if reload {
@@ -210,7 +213,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         Ok(())
     }
 
-    fn reload(info: &'static Info, length: usize, will_reload: bool, timeout: Timeout) -> Result<(), Error> {
+    fn reload(info: &'static Info, length: usize, will_reload: bool, stop: Stop, timeout: Timeout) -> Result<(), Error> {
         assert!(length < 256 && length > 0);
 
         while !info.regs.isr().read().tcr() {
@@ -226,6 +229,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         info.regs.cr2().modify(|w| {
             w.set_nbytes(length as u8);
             w.set_reload(will_reload);
+            w.set_autoend(stop.autoend());
         });
 
         Ok(())
@@ -403,7 +407,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
         for (number, chunk) in read.chunks_mut(255).enumerate() {
             if number != 0 {
-                Self::reload(self.info, chunk.len(), number != last_chunk_idx, timeout)?;
+                Self::reload(self.info, chunk.len(), number != last_chunk_idx, Stop::Automatic, timeout)?;
             }
 
             for byte in chunk {
@@ -441,6 +445,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             write.len().min(255),
             Stop::Software,
             last_chunk_idx != 0,
+            false, // restart
             timeout,
         ) {
             if send_stop {
@@ -451,7 +456,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
         for (number, chunk) in write.chunks(255).enumerate() {
             if number != 0 {
-                Self::reload(self.info, chunk.len(), number != last_chunk_idx, timeout)?;
+                Self::reload(self.info, chunk.len(), number != last_chunk_idx, Stop::Software, timeout)?;
             }
 
             for byte in chunk {
@@ -507,9 +512,219 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
     pub fn blocking_transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
-        let _ = addr;
-        let _ = operations;
-        todo!()
+        if operations.is_empty() {
+            return Err(Error::ZeroLengthTransfer);
+        }
+
+        let address = addr.into();
+        let timeout = self.timeout();
+
+        // Group consecutive operations of the same type
+        let mut op_idx = 0;
+        let mut is_first_group = true;
+
+        while op_idx < operations.len() {
+            // Determine the type of current group and find all consecutive operations of same type
+            let is_read = matches!(operations[op_idx], Operation::Read(_));
+            let group_start = op_idx;
+
+            // Find end of this group (consecutive operations of same type)
+            while op_idx < operations.len() && matches!(operations[op_idx], Operation::Read(_)) == is_read {
+                op_idx += 1;
+            }
+            let group_end = op_idx;
+            let is_last_group = op_idx >= operations.len();
+
+            // Execute this group of operations
+            if is_read {
+                self.execute_read_group(
+                    address,
+                    &mut operations[group_start..group_end],
+                    is_first_group,
+                    is_last_group,
+                    timeout,
+                )?;
+            } else {
+                self.execute_write_group(
+                    address,
+                    &operations[group_start..group_end],
+                    is_first_group,
+                    is_last_group,
+                    timeout,
+                )?;
+            }
+
+            is_first_group = false;
+        }
+
+        Ok(())
+    }
+
+    fn execute_write_group(
+        &mut self,
+        address: Address,
+        operations: &[Operation<'_>],
+        is_first_group: bool,
+        is_last_group: bool,
+        timeout: Timeout,
+    ) -> Result<(), Error> {
+        // Calculate total bytes across all operations in this group
+        let total_bytes: usize = operations
+            .iter()
+            .map(|op| match op {
+                Operation::Write(buf) => buf.len(),
+                _ => 0,
+            })
+            .sum();
+
+        if total_bytes == 0 {
+            // Handle empty write group - just send address
+            if is_first_group {
+                Self::master_write(self.info, address, 0, Stop::Software, false, !is_first_group, timeout)?;
+            }
+            if is_last_group {
+                self.master_stop();
+            }
+            return Ok(());
+        }
+
+        let mut total_remaining = total_bytes;
+        let mut first_chunk = true;
+
+        for operation in operations {
+            if let Operation::Write(buffer) = operation {
+                for chunk in buffer.chunks(255) {
+                    let chunk_len = chunk.len();
+                    total_remaining -= chunk_len;
+                    let is_last_chunk = total_remaining == 0;
+                    let will_reload = !is_last_chunk;
+
+                    if first_chunk {
+                        // First chunk: initiate transfer
+                        // If not first group, use RESTART instead of START
+                        Self::master_write(self.info, address, chunk_len, Stop::Software, will_reload, !is_first_group, timeout)?;
+                        first_chunk = false;
+                    } else {
+                        // Subsequent chunks: use reload
+                        // Always use Software stop for writes
+                        Self::reload(self.info, chunk_len, will_reload, Stop::Software, timeout)?;
+                    }
+
+                    // Send data bytes
+                    for byte in chunk {
+                        self.wait_txis(timeout)?;
+                        self.info.regs.txdr().write(|w| w.set_txdata(*byte));
+                    }
+                }
+            }
+        }
+
+        // Wait for transfer to complete
+        if is_last_group {
+            self.wait_tc(timeout)?;
+            self.master_stop();
+            self.wait_stop(timeout)?;
+        } else {
+            // Wait for TC before next group (enables RESTART)
+            self.wait_tc(timeout)?;
+        }
+
+        Ok(())
+    }
+
+    fn execute_read_group(
+        &mut self,
+        address: Address,
+        operations: &mut [Operation<'_>],
+        is_first_group: bool,
+        is_last_group: bool,
+        timeout: Timeout,
+    ) -> Result<(), Error> {
+        // Calculate total bytes across all operations in this group
+        let total_bytes: usize = operations
+            .iter()
+            .map(|op| match op {
+                Operation::Read(buf) => buf.len(),
+                _ => 0,
+            })
+            .sum();
+
+        if total_bytes == 0 {
+            // Handle empty read group
+            if is_first_group {
+                Self::master_read(
+                    self.info,
+                    address,
+                    0,
+                    if is_last_group { Stop::Automatic } else { Stop::Software },
+                    false,
+                    !is_first_group,
+                    timeout,
+                )?;
+            }
+            if is_last_group {
+                self.wait_stop(timeout)?;
+            }
+            return Ok(());
+        }
+
+        let mut total_remaining = total_bytes;
+        let mut first_chunk = true;
+
+        for operation in operations {
+            if let Operation::Read(buffer) = operation {
+                for chunk in buffer.chunks_mut(255) {
+                    let chunk_len = chunk.len();
+                    total_remaining -= chunk_len;
+                    let is_last_chunk = total_remaining == 0;
+                    let will_reload = !is_last_chunk;
+
+                    if first_chunk {
+                        // First chunk: initiate transfer
+                        let stop = if is_last_group && is_last_chunk {
+                            Stop::Automatic
+                        } else {
+                            Stop::Software
+                        };
+
+                        Self::master_read(
+                            self.info,
+                            address,
+                            chunk_len,
+                            stop,
+                            will_reload,
+                            !is_first_group, // restart if not first group
+                            timeout,
+                        )?;
+                        first_chunk = false;
+                    } else {
+                        // Subsequent chunks: use reload
+                        let stop = if is_last_group && is_last_chunk {
+                            Stop::Automatic
+                        } else {
+                            Stop::Software
+                        };
+                        Self::reload(self.info, chunk_len, will_reload, stop, timeout)?;
+                    }
+
+                    // Receive data bytes
+                    for byte in chunk {
+                        self.wait_rxne(timeout)?;
+                        *byte = self.info.regs.rxdr().read().rxdata();
+                    }
+                }
+            }
+        }
+
+        // Wait for transfer to complete
+        if is_last_group {
+            self.wait_stop(timeout)?;
+        }
+        // For non-last read groups, don't wait for TC - the peripheral may hold SCL low
+        // in Software AUTOEND mode until the next START is issued. Just proceed directly
+        // to the next group which will issue RESTART and release the clock.
+
+        Ok(())
     }
 
     /// Blocking write multiple buffers.
@@ -531,6 +746,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             first_length.min(255),
             Stop::Software,
             (first_length > 255) || (last_slice_index != 0),
+            false, // restart
             timeout,
         ) {
             self.master_stop();
@@ -552,6 +768,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                     self.info,
                     slice_len.min(255),
                     (idx != last_slice_index) || (slice_len > 255),
+                    Stop::Software,
                     timeout,
                 ) {
                     if err != Error::Nack {
@@ -567,6 +784,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                         self.info,
                         chunk.len(),
                         (number != last_chunk_idx) || (idx != last_slice_index),
+                        Stop::Software,
                         timeout,
                     ) {
                         if err != Error::Nack {
@@ -610,6 +828,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         first_slice: bool,
         last_slice: bool,
         send_stop: bool,
+        restart: bool,
         timeout: Timeout,
     ) -> Result<(), Error> {
         let total_len = write.len();
@@ -676,10 +895,11 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                         total_len.min(255),
                         Stop::Software,
                         (total_len > 255) || !last_slice,
+                        restart,
                         timeout,
                     )?;
                 } else {
-                    Self::reload(self.info, total_len.min(255), (total_len > 255) || !last_slice, timeout)?;
+                    Self::reload(self.info, total_len.min(255), (total_len > 255) || !last_slice, Stop::Software, timeout)?;
                     self.info.regs.cr1().modify(|w| w.set_tcie(true));
                 }
             } else if !(isr.tcr() || isr.tc()) {
@@ -690,7 +910,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             } else {
                 let last_piece = (remaining_len <= 255) && last_slice;
 
-                if let Err(e) = Self::reload(self.info, remaining_len.min(255), !last_piece, timeout) {
+                if let Err(e) = Self::reload(self.info, remaining_len.min(255), !last_piece, Stop::Software, timeout) {
                     return Poll::Ready(Err(e));
                 }
                 self.info.regs.cr1().modify(|w| w.set_tcie(true));
@@ -793,7 +1013,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             } else {
                 let last_piece = remaining_len <= 255;
 
-                if let Err(e) = Self::reload(self.info, remaining_len.min(255), !last_piece, timeout) {
+                if let Err(e) = Self::reload(self.info, remaining_len.min(255), !last_piece, Stop::Automatic, timeout) {
                     return Poll::Ready(Err(e));
                 }
                 // Return here if we are on last chunk,
@@ -826,7 +1046,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             self.write_internal(address.into(), write, true, timeout)
         } else {
             timeout
-                .with(self.write_dma_internal(address.into(), write, true, true, true, timeout))
+                .with(self.write_dma_internal(address.into(), write, true, true, true, false, timeout))
                 .await
         }
     }
@@ -850,7 +1070,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             let next = iter.next();
             let is_last = next.is_none();
 
-            let fut = self.write_dma_internal(address, c, first, is_last, is_last, timeout);
+            let fut = self.write_dma_internal(address, c, first, is_last, is_last, false, timeout);
             timeout.with(fut).await?;
             first = false;
             current = next;
@@ -881,7 +1101,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         if write.is_empty() {
             self.write_internal(address.into(), write, false, timeout)?;
         } else {
-            let fut = self.write_dma_internal(address.into(), write, true, true, false, timeout);
+            let fut = self.write_dma_internal(address.into(), write, true, true, false, false, timeout);
             timeout.with(fut).await?;
         }
 
@@ -903,9 +1123,235 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     pub async fn transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
         #[cfg(all(feature = "low-power", stm32wlex))]
         let _device_busy = crate::low_power::DeviceBusy::new_stop1();
-        let _ = addr;
-        let _ = operations;
-        todo!()
+
+        if operations.is_empty() {
+            return Err(Error::ZeroLengthTransfer);
+        }
+
+        let address = addr.into();
+        let timeout = self.timeout();
+
+        // Group consecutive operations of the same type
+        let mut op_idx = 0;
+        let mut is_first_group = true;
+
+        while op_idx < operations.len() {
+            // Determine the type of current group and find all consecutive operations of same type
+            let is_read = matches!(operations[op_idx], Operation::Read(_));
+            let group_start = op_idx;
+
+            // Find end of this group (consecutive operations of same type)
+            while op_idx < operations.len() && matches!(operations[op_idx], Operation::Read(_)) == is_read {
+                op_idx += 1;
+            }
+            let group_end = op_idx;
+            let is_last_group = op_idx >= operations.len();
+
+            // Execute this group of operations
+            if is_read {
+                self.execute_read_group_async(
+                    address,
+                    &mut operations[group_start..group_end],
+                    is_first_group,
+                    is_last_group,
+                    timeout,
+                )
+                .await?;
+            } else {
+                self.execute_write_group_async(
+                    address,
+                    &operations[group_start..group_end],
+                    is_first_group,
+                    is_last_group,
+                    timeout,
+                )
+                .await?;
+            }
+
+            is_first_group = false;
+        }
+
+        Ok(())
+    }
+
+    async fn execute_write_group_async(
+        &mut self,
+        address: Address,
+        operations: &[Operation<'_>],
+        is_first_group: bool,
+        is_last_group: bool,
+        timeout: Timeout,
+    ) -> Result<(), Error> {
+        // Calculate total bytes across all operations in this group
+        let total_bytes: usize = operations
+            .iter()
+            .map(|op| match op {
+                Operation::Write(buf) => buf.len(),
+                _ => 0,
+            })
+            .sum();
+
+        if total_bytes == 0 {
+            // Handle empty write group using blocking call
+            if is_first_group {
+                Self::master_write(self.info, address, 0, Stop::Software, false, !is_first_group, timeout)?;
+            }
+            if is_last_group {
+                self.master_stop();
+            }
+            return Ok(());
+        }
+
+        let send_stop = is_last_group;
+
+        // Use DMA for each operation in the group
+        let mut first_in_group = true;
+        let mut remaining_operations = operations.len();
+
+        for operation in operations {
+            if let Operation::Write(buffer) = operation {
+                remaining_operations -= 1;
+                let is_last_in_group = remaining_operations == 0;
+
+                if buffer.is_empty() {
+                    // Skip empty buffers
+                    continue;
+                }
+
+                let fut = self.write_dma_internal(
+                    address,
+                    buffer,
+                    first_in_group && is_first_group,  // first_slice
+                    is_last_in_group && is_last_group, // last_slice
+                    send_stop && is_last_in_group,     // send_stop
+                    !is_first_group && first_in_group, // restart
+                    timeout,
+                );
+                timeout.with(fut).await?;
+                first_in_group = false;
+            }
+        }
+
+        // If not last group, wait for TC to enable RESTART
+        if !is_last_group {
+            self.wait_tc(timeout)?;
+        }
+
+        Ok(())
+    }
+
+    async fn execute_read_group_async(
+        &mut self,
+        address: Address,
+        operations: &mut [Operation<'_>],
+        is_first_group: bool,
+        is_last_group: bool,
+        timeout: Timeout,
+    ) -> Result<(), Error> {
+        // Calculate total bytes across all operations in this group
+        let total_bytes: usize = operations
+            .iter()
+            .map(|op| match op {
+                Operation::Read(buf) => buf.len(),
+                _ => 0,
+            })
+            .sum();
+
+        if total_bytes == 0 {
+            // Handle empty read group using blocking call
+            if is_first_group {
+                Self::master_read(
+                    self.info,
+                    address,
+                    0,
+                    if is_last_group { Stop::Automatic } else { Stop::Software },
+                    false,
+                    !is_first_group,
+                    timeout,
+                )?;
+            }
+            if is_last_group {
+                self.wait_stop(timeout)?;
+            }
+            return Ok(());
+        }
+
+        // For read operations, we need to handle them differently since read_dma_internal
+        // expects a single buffer. We'll iterate through operations and use DMA for each.
+        let mut total_remaining = total_bytes;
+        let restart = !is_first_group;
+
+        for operation in operations {
+            if let Operation::Read(buffer) = operation {
+                if buffer.is_empty() {
+                    // Skip empty buffers
+                    continue;
+                }
+
+                let is_first_read = total_remaining == total_bytes;
+                let buf_len = buffer.len();
+                total_remaining -= buf_len;
+                let is_last_read = total_remaining == 0;
+
+                if is_first_read {
+                    // First read in the group
+                    let completed_chunks = buf_len / 255;
+                    let total_chunks = if completed_chunks * 255 == buf_len {
+                        completed_chunks
+                    } else {
+                        completed_chunks + 1
+                    };
+                    let last_chunk_idx = total_chunks.saturating_sub(1);
+
+                    // Use master_read to initiate, then DMA for data
+                    Self::master_read(
+                        self.info,
+                        address,
+                        buf_len.min(255),
+                        if is_last_group && is_last_read {
+                            Stop::Automatic
+                        } else {
+                            Stop::Software
+                        },
+                        last_chunk_idx != 0 || !is_last_read,
+                        restart,
+                        timeout,
+                    )?;
+                }
+
+                // Use the existing read_dma_internal, but we need to handle the reload logic ourselves
+                // For simplicity with consecutive reads, fall back to blocking for now
+                // This maintains correctness while keeping complexity manageable
+                for (chunk_idx, chunk) in buffer.chunks_mut(255).enumerate() {
+                    let chunk_len = chunk.len();
+                    let is_very_last = total_remaining == 0 && chunk_len == chunk.len();
+
+                    if !is_first_read || chunk_idx != 0 {
+                        let stop = if is_last_group && is_very_last {
+                            Stop::Automatic
+                        } else {
+                            Stop::Software
+                        };
+                        Self::reload(self.info, chunk_len, !(is_last_group && is_very_last), stop, timeout)?;
+                    }
+
+                    for byte in chunk {
+                        self.wait_rxne(timeout)?;
+                        *byte = self.info.regs.rxdr().read().rxdata();
+                    }
+                }
+            }
+        }
+
+        // Wait for transfer to complete
+        if is_last_group {
+            self.wait_stop(timeout)?;
+        }
+        // For non-last read groups, don't wait for TC - the peripheral may hold SCL low
+        // in Software AUTOEND mode until the next START is issued. Just proceed directly
+        // to the next group which will issue RESTART and release the clock.
+
+        Ok(())
     }
 }
 
@@ -1043,7 +1489,7 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
             if number == 0 {
                 Self::slave_start(self.info, chunk.len(), number != last_chunk_idx);
             } else {
-                Self::reload(self.info, chunk.len(), number != last_chunk_idx, timeout)?;
+                Self::reload(self.info, chunk.len(), number != last_chunk_idx, Stop::Software, timeout)?;
             }
 
             let mut index = 0;
@@ -1092,7 +1538,7 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
             if number == 0 {
                 Self::slave_start(self.info, chunk.len(), number != last_chunk_idx);
             } else {
-                Self::reload(self.info, chunk.len(), number != last_chunk_idx, timeout)?;
+                Self::reload(self.info, chunk.len(), number != last_chunk_idx, Stop::Software, timeout)?;
             }
 
             let mut index = 0;
@@ -1228,7 +1674,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 Poll::Pending
             } else if isr.tcr() {
                 let is_last_slice = remaining_len <= 255;
-                if let Err(e) = Self::reload(self.info, remaining_len.min(255), !is_last_slice, timeout) {
+                if let Err(e) = Self::reload(self.info, remaining_len.min(255), !is_last_slice, Stop::Software, timeout) {
                     return Poll::Ready(Err(e));
                 }
                 remaining_len = remaining_len.saturating_sub(255);
@@ -1292,7 +1738,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 Poll::Pending
             } else if isr.tcr() {
                 let is_last_slice = remaining_len <= 255;
-                if let Err(e) = Self::reload(self.info, remaining_len.min(255), !is_last_slice, timeout) {
+                if let Err(e) = Self::reload(self.info, remaining_len.min(255), !is_last_slice, Stop::Software, timeout) {
                     return Poll::Ready(Err(e));
                 }
                 remaining_len = remaining_len.saturating_sub(255);
