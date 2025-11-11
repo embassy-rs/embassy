@@ -241,35 +241,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         super::Vbat {}
     }
 
-    /// Enable differential channel.
-    /// Caution:
-    /// : When configuring the channel “i” in differential input mode, its negative input voltage VINN[i]
-    /// is connected to another channel. As a consequence, this channel is no longer usable in
-    /// single-ended mode or in differential mode and must never be configured to be converted.
-    /// Some channels are shared between ADC1/ADC2/ADC3/ADC4/ADC5: this can make the
-    /// channel on the other ADC unusable. The only exception is when ADC master and the slave
-    /// operate in interleaved mode.
-    #[cfg(stm32g4)]
-    fn set_differential_channel(&mut self, ch: usize, enable: bool) {
-        T::regs().cr().modify(|w| w.set_aden(false)); // disable adc
-        T::regs().difsel().modify(|w| {
-            w.set_difsel(
-                ch,
-                if enable {
-                    Difsel::DIFFERENTIAL
-                } else {
-                    Difsel::SINGLE_ENDED
-                },
-            );
-        });
-        T::regs().cr().modify(|w| w.set_aden(true));
-    }
-
-    #[cfg(stm32g4)]
-    pub fn set_differential(&mut self, channel: &mut impl AdcChannel<T>, enable: bool) {
-        self.set_differential_channel(channel.channel() as usize, enable);
-    }
-
     /// Set oversampling shift.
     #[cfg(stm32g4)]
     pub fn set_oversampling_shift(&mut self, shift: u8) {
@@ -331,7 +302,17 @@ impl<'d, T: Instance> Adc<'d, T> {
     pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
         channel.setup();
 
-        self.read_channel(channel, sample_time)
+        Self::configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
+
+        #[cfg(stm32h7)]
+        {
+            T::regs().cfgr2().modify(|w| w.set_lshift(0));
+            T::regs()
+                .pcsel()
+                .write(|w| w.set_pcsel(channel.channel() as _, Pcsel::PRESELECTED));
+        }
+
+        self.convert()
     }
 
     /// Start regular adc conversion
@@ -404,11 +385,9 @@ impl<'d, T: Instance> Adc<'d, T> {
         Self::stop_regular_conversions();
         Self::enable();
 
-        Self::configure_sequence(sequence.map(|(channel, sample_time)| {
-            channel.setup();
-
-            (channel.channel, sample_time)
-        }));
+        Self::configure_sequence(
+            sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
+        );
 
         // Set continuous mode with oneshot dma.
         // Clear overrun flag before starting transfer.
@@ -451,14 +430,14 @@ impl<'d, T: Instance> Adc<'d, T> {
         });
     }
 
-    pub(super) fn configure_sequence(sequence: impl ExactSizeIterator<Item = (u8, SampleTime)>) {
+    pub(super) fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
         // Set sequence length
         T::regs().sqr1().modify(|w| {
             w.set_l(sequence.len() as u8 - 1);
         });
 
         // Configure channels and ranks
-        for (_i, (ch, sample_time)) in sequence.enumerate() {
+        for (_i, ((ch, is_differential), sample_time)) in sequence.enumerate() {
             let sample_time = sample_time.into();
             if ch <= 9 {
                 T::regs().smpr().modify(|reg| reg.set_smp(ch as _, sample_time));
@@ -488,6 +467,24 @@ impl<'d, T: Instance> Adc<'d, T> {
                     });
                 }
                 _ => unreachable!(),
+            }
+
+            #[cfg(stm32g4)]
+            {
+                T::regs().cr().modify(|w| w.set_aden(false)); // disable adc
+
+                T::regs().difsel().modify(|w| {
+                    w.set_difsel(
+                        ch.into(),
+                        if is_differential {
+                            Difsel::DIFFERENTIAL
+                        } else {
+                            Difsel::SINGLE_ENDED
+                        },
+                    );
+                });
+
+                T::regs().cr().modify(|w| w.set_aden(true)); // enable adc
             }
         }
     }
@@ -548,12 +545,9 @@ impl<'d, T: Instance> Adc<'d, T> {
         Self::enable();
 
         //adc side setup
-
-        Self::configure_sequence(sequence.map(|(mut channel, sample_time)| {
-            channel.setup();
-
-            (channel.channel, sample_time)
-        }));
+        Self::configure_sequence(
+            sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
+        );
 
         // Clear overrun flag before starting transfer.
         T::regs().isr().modify(|reg| {
@@ -630,8 +624,17 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         T::regs().jsqr().modify(|w| w.set_jl(N as u8 - 1));
 
-        for (n, (mut channel, sample_time)) in sequence.into_iter().enumerate() {
-            Self::configure_channel(&mut channel, sample_time);
+        for (n, (channel, sample_time)) in sequence.into_iter().enumerate() {
+            let sample_time = sample_time.into();
+            if channel.channel() <= 9 {
+                T::regs()
+                    .smpr()
+                    .modify(|reg| reg.set_smp(channel.channel() as _, sample_time));
+            } else {
+                T::regs()
+                    .smpr2()
+                    .modify(|reg| reg.set_smp((channel.channel() - 10) as _, sample_time));
+            }
 
             let idx = match n {
                 0..=3 => n,
@@ -731,38 +734,6 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// Enable end of injected sequence interrupt
     fn enable_injected_eos_interrupt(&mut self, enable: bool) {
         T::regs().ier().modify(|r| r.set_jeosie(enable));
-    }
-
-    fn configure_channel(channel: &mut impl AdcChannel<T>, sample_time: SampleTime) {
-        // Configure channel
-        Self::set_channel_sample_time(channel.channel(), sample_time);
-    }
-
-    fn read_channel(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
-        Self::configure_channel(channel, sample_time);
-        #[cfg(stm32h7)]
-        {
-            T::regs().cfgr2().modify(|w| w.set_lshift(0));
-            T::regs()
-                .pcsel()
-                .write(|w| w.set_pcsel(channel.channel() as _, Pcsel::PRESELECTED));
-        }
-
-        T::regs().sqr1().write(|reg| {
-            reg.set_sq(0, channel.channel());
-            reg.set_l(0);
-        });
-
-        self.convert()
-    }
-
-    fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
-        let sample_time = sample_time.into();
-        if ch <= 9 {
-            T::regs().smpr().modify(|reg| reg.set_smp(ch as _, sample_time));
-        } else {
-            T::regs().smpr2().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
-        }
     }
 
     // Stop regular conversions
