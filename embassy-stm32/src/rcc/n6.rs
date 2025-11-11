@@ -329,6 +329,14 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
     let ppre4 = periph_prescaler_to_value(config.apb4.to_bits());
     let ppre5 = periph_prescaler_to_value(config.apb5.to_bits());
 
+    // enable all peripherals in sleep mode
+    enable_low_power_peripherals();
+
+    // enable interrupts
+    unsafe {
+        core::arch::asm!("cpsie i");
+    }
+
     ClocksOutput {
         sysclk,
         cpuclk,
@@ -339,6 +347,183 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
         apb4: sysclk / hpre / ppre4,
         apb5: sysclk / hpre / ppre5,
     }
+}
+
+fn enable_low_power_peripherals() {
+    // AHB1-5
+    RCC.ahb1lpenr().modify(|w| {
+        w.set_adc12lpen(true);
+        w.set_gpdma1lpen(true);
+    });
+    RCC.ahb2lpenr().modify(|w| {
+        w.set_adf1lpen(true);
+        w.set_mdf1lpen(true);
+        w.set_ramcfglpen(true);
+    });
+    RCC.ahb3lpenr().modify(|w| {
+        w.set_risaflpen(true);
+        w.set_iaclpen(true);
+        w.set_rifsclpen(true);
+        w.set_pkalpen(true);
+        w.set_saeslpen(true);
+        w.set_cryplpen(true);
+        w.set_hashlpen(true);
+        w.set_rnglpen(true);
+    });
+    RCC.ahb4lpenr().modify(|w| {
+        w.set_crclpen(true);
+        w.set_pwrlpen(true);
+        w.set_gpioqlpen(true);
+        w.set_gpioplpen(true);
+        w.set_gpioolpen(true);
+        w.set_gpionlpen(true);
+        w.set_gpiohlpen(true);
+        w.set_gpioglpen(true);
+        w.set_gpioflpen(true);
+        w.set_gpioelpen(true);
+        w.set_gpiodlpen(true);
+        w.set_gpioclpen(true);
+        w.set_gpioblpen(true);
+        w.set_gpioalpen(true);
+    });
+    RCC.ahb5lpenr().modify(|w| {
+        w.set_npulpen(true);
+        w.set_npucachelpen(true);
+        w.set_otg2lpen(true);
+        w.set_otgphy2lpen(true);
+        w.set_otgphy1lpen(true);
+        w.set_otg1lpen(true);
+        w.set_eth1lpen(true);
+        w.set_eth1rxlpen(true);
+        w.set_eth1txlpen(true);
+        w.set_eth1maclpen(true);
+        w.set_gpulpen(true);
+        w.set_gfxmmulpen(true);
+        w.set_mce4lpen(true);
+        w.set_xspi3lpen(true);
+        w.set_mce3lpen(true);
+        w.set_mce2lpen(true);
+        w.set_mce1lpen(true);
+        w.set_xspimlpen(true);
+        w.set_xspi2lpen(true);
+        w.set_sdmmc1lpen(true);
+        w.set_sdmmc2lpen(true);
+        w.set_pssilpen(true);
+        w.set_xspi1lpen(true);
+        w.set_fmclpen(true);
+        w.set_jpeglpen(true);
+        w.set_dma2dlpen(true);
+        w.set_hpdma1lpen(true);
+    });
+
+    // APB1-5
+    RCC.apb1llpenr().modify(|w| {
+        w.set_uart8lpen(true);
+        w.set_uart7lpen(true);
+        w.set_i3c2lpen(true);
+        w.set_i3c1lpen(true);
+        w.set_i2c3lpen(true);
+        w.set_i2c2lpen(true);
+        w.set_i2c1lpen(true);
+        w.set_uart5lpen(true);
+        w.set_uart4lpen(true);
+        w.set_usart3lpen(true);
+        w.set_usart2lpen(true);
+        w.set_spdifrx1lpen(true);
+        w.set_spi3lpen(true);
+        w.set_spi2lpen(true);
+        w.set_tim11lpen(true);
+        w.set_tim10lpen(true);
+        w.set_wwdglpen(true);
+        w.set_lptim1lpen(true);
+        w.set_tim14lpen(true);
+        w.set_tim13lpen(true);
+        w.set_tim12lpen(true);
+        w.set_tim7lpen(true);
+        w.set_tim6lpen(true);
+        w.set_tim5lpen(true);
+        w.set_tim4lpen(true);
+        w.set_tim3lpen(true);
+        w.set_tim2lpen(true);
+    });
+    RCC.apb1hlpenr().modify(|w| {
+        w.set_ucpd1lpen(true);
+        w.set_fdcanlpen(true);
+        w.set_mdioslpen(true);
+    });
+    RCC.apb2lpenr().modify(|w| {
+        w.set_sai2lpen(true);
+        w.set_sai1lpen(true);
+        w.set_spi5lpen(true);
+        w.set_tim9lpen(true);
+        w.set_tim17lpen(true);
+        w.set_tim16lpen(true);
+        w.set_tim15lpen(true);
+        w.set_tim18lpen(true);
+        w.set_spi4lpen(true);
+        w.set_spi1lpen(true);
+        w.set_usart10lpen(true);
+        w.set_uart9lpen(true);
+        w.set_usart6lpen(true);
+        w.set_usart1lpen(true);
+        w.set_tim8lpen(true);
+        w.set_tim1lpen(true);
+    });
+    RCC.apb3lpenr().modify(|w| {
+        w.set_dftlpen(true);
+    });
+    RCC.apb4llpenr().modify(|w| {
+        w.set_rtcapblpen(true);
+        w.set_rtclpen(true);
+        w.set_vrefbuflpen(true);
+        w.set_lptim5lpen(true);
+        w.set_lptim4lpen(true);
+        w.set_lptim3lpen(true);
+        w.set_lptim2lpen(true);
+        w.set_i2c4lpen(true);
+        w.set_spi6lpen(true);
+        w.set_lpuart1lpen(true);
+        w.set_hdplpen(true);
+    });
+    RCC.apb4hlpenr().modify(|w| {
+        w.set_dtslpen(true);
+        w.set_bseclpen(true);
+        w.set_syscfglpen(true);
+    });
+    RCC.apb5lpenr().modify(|w| {
+        w.set_csilpen(true);
+        w.set_venclpen(true);
+        w.set_gfxtimlpen(true);
+        w.set_dcmilpen(true);
+        w.set_ltdclpen(true);
+    });
+
+    RCC.buslpenr().modify(|w| {
+        w.set_aclknclpen(true);
+        w.set_aclknlpen(true);
+    });
+
+    RCC.memlpenr().modify(|w| {
+        w.set_bootromlpen(true);
+        w.set_vencramlpen(true);
+        w.set_npucacheramlpen(true);
+        w.set_flexramlpen(true);
+        w.set_axisram2lpen(true);
+        w.set_axisram1lpen(true);
+        w.set_bkpsramlpen(true);
+        w.set_ahbsram2lpen(true);
+        w.set_ahbsram1lpen(true);
+        w.set_axisram6lpen(true);
+        w.set_axisram5lpen(true);
+        w.set_axisram4lpen(true);
+        w.set_axisram3lpen(true);
+    });
+
+    RCC.misclpenr().modify(|w| {
+        w.set_perlpen(true);
+        w.set_xspiphycomplpen(true);
+        w.set_dbglpen(true);
+    });
 }
 
 const fn periph_prescaler_to_value(bits: u8) -> u8 {
