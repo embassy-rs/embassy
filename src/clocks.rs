@@ -1,5 +1,7 @@
 //! Clock control helpers (no magic numbers, PAC field access only).
 //! Provides reusable gate abstractions for peripherals used by the examples.
+use mcxa_pac::scg0::firccsr::{FircFclkPeriphEn, FircSclkPeriphEn, Fircsten};
+
 use crate::pac;
 
 /// Trait describing an AHB clock gate that can be toggled through MRCC.
@@ -131,4 +133,381 @@ pub unsafe fn select_adc_clock(peripherals: &pac::Peripherals) {
     let mrcc = &peripherals.mrcc0;
     mrcc.mrcc_adc_clksel().write(|w| w.mux().clkroot_func_0());
     mrcc.mrcc_adc_clkdiv().write(|w| unsafe { w.bits(0) });
+}
+
+// ==============================================
+
+/// This type represents a divider in the range 1..=256.
+///
+/// At a hardware level, this is an 8-bit register from 0..=255,
+/// which adds one.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub struct Div8(pub(super) u8);
+
+impl Div8 {
+    /// Store a "raw" divisor value that will divide the source by
+    /// `(n + 1)`, e.g. `Div8::from_raw(0)` will divide the source
+    /// by 1, and `Div8::from_raw(255)` will divide the source by
+    /// 256.
+    pub const fn from_raw(n: u8) -> Self {
+        Self(n)
+    }
+
+    /// Store a specific divisor value that will divide the source
+    /// by `n`. e.g. `Div8::from_divisor(1)` will divide the source
+    /// by 1, and `Div8::from_divisor(256)` will divide the source
+    /// by 256.
+    ///
+    /// Will return `None` if `n` is not in the range `1..=256`.
+    /// Consider [`Self::from_raw`] for an infallible version.
+    pub const fn from_divisor(n: u16) -> Option<Self> {
+        let Some(n) = n.checked_sub(1) else {
+            return None;
+        };
+        if n > (u8::MAX as u16) {
+            return None;
+        }
+        Some(Self(n as u8))
+    }
+
+    /// Convert into "raw" bits form
+    #[inline(always)]
+    pub const fn into_bits(self) -> u8 {
+        self.0
+    }
+
+    /// Convert into "divisor" form, as a u32 for convenient frequency math
+    #[inline(always)]
+    pub const fn into_divisor(self) -> u32 {
+        self.0 as u32 + 1
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Clock {
+    pub frequency: u32,
+    pub power: PoweredClock,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum PoweredClock {
+    HighPowerOnly,
+    AlwaysEnabled,
+}
+
+/// ```text
+///               ┌─────────────────────────────────────────────────────────┐
+///               │                                                         │
+///               │   ┌───────────┐  clk_out   ┌─────────┐                  │
+///    XTAL ──────┼──▷│ System    │───────────▷│         │       clk_in     │
+///               │   │  OSC      │ clkout_byp │   MUX   │──────────────────┼──────▷
+///   EXTAL ──────┼──▷│           │───────────▷│         │                  │
+///               │   └───────────┘            └─────────┘                  │
+///               │                                                         │
+///               │   ┌───────────┐ fro_hf_root  ┌────┐          fro_hf     │
+///               │   │ FRO180    ├───────┬─────▷│ CG │─────────────────────┼──────▷
+///               │   │           │       │      ├────┤         clk_45m     │
+///               │   │           │       └─────▷│ CG │─────────────────────┼──────▷
+///               │   └───────────┘              └────┘                     │
+///               │   ┌───────────┐ fro_12m_root  ┌────┐         fro_12m    │
+///               │   │ FRO12M    │────────┬─────▷│ CG │────────────────────┼──────▷
+///               │   │           │        │      ├────┤          clk_1m    │
+///               │   │           │        └─────▷│1/12│────────────────────┼──────▷
+///               │   └───────────┘               └────┘                    │
+///               │                                                         │
+///               │                  ┌──────────┐                           │
+///               │                  │000       │                           │
+///               │      clk_in      │          │                           │
+///               │  ───────────────▷│001       │                           │
+///               │      fro_12m     │          │                           │
+///               │  ───────────────▷│010       │                           │
+///               │    fro_hf_root   │          │                           │
+///               │  ───────────────▷│011       │              main_clk     │
+///               │                  │          │───────────────────────────┼──────▷
+/// clk_16k ──────┼─────────────────▷│100       │                           │
+///               │       none       │          │                           │
+///               │  ───────────────▷│101       │                           │
+///               │     pll1_clk     │          │                           │
+///               │  ───────────────▷│110       │                           │
+///               │       none       │          │                           │
+///               │  ───────────────▷│111       │                           │
+///               │                  └──────────┘                           │
+///               │                        ▲                                │
+///               │                        │                                │
+///               │                     SCG SCS                             │
+///               │ SCG-Lite                                                │
+///               └─────────────────────────────────────────────────────────┘
+///
+///
+///                      clk_in      ┌─────┐
+///                  ───────────────▷│00   │
+///                      clk_45m     │     │
+///                  ───────────────▷│01   │      ┌───────────┐   pll1_clk
+///                       none       │     │─────▷│   SPLL    │───────────────▷
+///                  ───────────────▷│10   │      └───────────┘
+///                      fro_12m     │     │
+///                  ───────────────▷│11   │
+///                                  └─────┘
+/// ```
+pub struct ClocksConfig {
+    // FIRC, FRO180, 45/60/90/180M clock source
+    pub firc: Option<FircConfig>,
+    pub sirc: Option<SircConfig>,
+}
+
+// FIRC/FRO180M
+
+/// ```text
+/// ┌───────────┐ fro_hf_root  ┌────┐   fro_hf
+/// │ FRO180M   ├───────┬─────▷│GATE│──────────▷
+/// │           │       │      ├────┤  clk_45m
+/// │           │       └─────▷│GATE│──────────▷
+/// └───────────┘              └────┘
+/// ```
+pub struct FircConfig {
+    pub frequency: FircFreqSel,
+    pub power: PoweredClock,
+    /// Is the "fro_hf" gated clock enabled?
+    pub fro_hf_enabled: bool,
+    /// Is the "clk_45m" gated clock enabled?
+    pub clk_45m_enabled: bool,
+    /// Is the "fro_hf_div" clock enabled? Requires `fro_hf`!
+    pub fro_hf_div: Option<Div8>,
+}
+
+pub enum FircFreqSel {
+    Mhz45,
+    Mhz60,
+    Mhz90,
+    Mhz180,
+}
+
+// SIRC/FRO12M
+
+/// ```text
+/// ┌───────────┐ fro_12m_root  ┌────┐ fro_12m
+/// │ FRO12M    │────────┬─────▷│ CG │──────────▷
+/// │           │        │      ├────┤  clk_1m
+/// │           │        └─────▷│1/12│──────────▷
+/// └───────────┘               └────┘
+/// ```
+pub struct SircConfig {
+    pub power: PoweredClock,
+    // peripheral output, aka sirc_12mhz
+    pub fro_12m_enabled: bool,
+    /// Is the "fro_lf_div" clock enabled? Requires `fro_12m`!
+    pub fro_lf_div: Option<Div8>,
+}
+
+#[derive(Default, Debug, Clone)]
+pub struct Clocks {
+    pub clk_in: Option<Clock>,
+
+    // FRO180M stuff
+    //
+    pub fro_hf_root: Option<Clock>,
+    pub fro_hf: Option<Clock>,
+    pub clk_45m: Option<Clock>,
+    pub fro_hf_div: Option<Clock>,
+    //
+    // End FRO180M
+
+    // FRO12M stuff
+    pub fro_12m_root: Option<Clock>,
+    pub fro_12m: Option<Clock>,
+    pub clk_1m: Option<Clock>,
+    pub fro_lf_div: Option<Clock>,
+    //
+    // End FRO12M stuff
+    pub main_clk: Option<Clock>,
+    pub pll1_clk: Option<Clock>,
+}
+
+static CLOCKS: critical_section::Mutex<Option<Clocks>> = critical_section::Mutex::new(None);
+
+pub enum ClockError {
+    AlreadyInitialized,
+    BadConfig { clock: &'static str, reason: &'static str },
+}
+
+struct ClockOperator<'a> {
+    clocks: &'a mut Clocks,
+    config: &'a ClocksConfig,
+
+    _mrcc0: pac::Mrcc0,
+    scg0: pac::Scg0,
+    syscon: pac::Syscon,
+}
+
+impl ClockOperator<'_> {
+    fn configure_firc_clocks(&mut self) -> Result<(), ClockError> {
+        const HARDCODED_ERR: Result<(), ClockError> = Err(ClockError::BadConfig {
+            clock: "firc",
+            reason: "For now, FIRC must be enabled and in default state!",
+        });
+
+        // Did the user give us a FIRC config?
+        let Some(firc) = self.config.firc.as_ref() else {
+            return HARDCODED_ERR;
+        };
+        // Is the FIRC set to 45MHz (should be reset default)
+        if !matches!(firc.frequency, FircFreqSel::Mhz45) {
+            return HARDCODED_ERR;
+        }
+        let base_freq = 45_000_000;
+
+        // Is the FIRC as expected?
+        let mut firc_ok = true;
+
+        // Is the hardware currently set to the default 45MHz?
+        //
+        // NOTE: the SVD currently has the wrong(?) values for these:
+        // 45 -> 48
+        // 60 -> 64
+        // 90 -> 96
+        // 180 -> 192
+        // Probably correct-ish, but for a different trim value?
+        firc_ok &= self.scg0.firccfg().read().freq_sel().is_firc_48mhz_192s();
+
+        // Check some values in the CSR
+        let csr = self.scg0.firccsr().read();
+        // Is it enabled?
+        firc_ok &= csr.fircen().is_enabled();
+        // Is it accurate?
+        firc_ok &= csr.fircacc().is_enabled_and_valid();
+        // Is there no error?
+        firc_ok &= csr.fircerr().is_error_not_detected();
+        // Is the FIRC the system clock?
+        firc_ok &= csr.fircsel().is_firc();
+        // Is it valid?
+        firc_ok &= csr.fircvld().is_enabled_and_valid();
+
+        // Are we happy with the current (hardcoded) state?
+        if !firc_ok {
+            return HARDCODED_ERR;
+        }
+
+        // Note that the fro_hf_root is active
+        self.clocks.fro_hf_root = Some(Clock {
+            frequency: base_freq,
+            power: firc.power,
+        });
+
+        // Okay! Now we're past that, let's enable all the downstream clocks.
+        let FircConfig {
+            frequency: _,
+            power,
+            fro_hf_enabled,
+            clk_45m_enabled,
+            fro_hf_div,
+        } = firc;
+
+        // When is the FRO enabled?
+        let pow_set = match power {
+            PoweredClock::HighPowerOnly => Fircsten::DisabledInStopModes,
+            PoweredClock::AlwaysEnabled => Fircsten::EnabledInStopModes,
+        };
+
+        // Do we enable the `fro_hf` output?
+        let fro_hf_set = if *fro_hf_enabled {
+            self.clocks.fro_hf = Some(Clock {
+                frequency: base_freq,
+                power: *power,
+            });
+            FircFclkPeriphEn::Enabled
+        } else {
+            FircFclkPeriphEn::Disabled
+        };
+
+        // Do we enable the `clk_45m` output?
+        let clk_45m_set = if *clk_45m_enabled {
+            self.clocks.clk_45m = Some(Clock {
+                frequency: 45_000_000,
+                power: *power,
+            });
+            FircSclkPeriphEn::Enabled
+        } else {
+            FircSclkPeriphEn::Disabled
+        };
+
+        self.scg0.firccsr().modify(|_r, w| {
+            w.fircsten().variant(pow_set);
+            w.firc_fclk_periph_en().variant(fro_hf_set);
+            w.firc_sclk_periph_en().variant(clk_45m_set);
+            w
+        });
+
+        // Do we enable the `fro_hf_div` output?
+        if let Some(d) = fro_hf_div.as_ref() {
+            // We need `fro_hf` to be enabled
+            if !*fro_hf_enabled {
+                return Err(ClockError::BadConfig {
+                    clock: "fro_hf_div",
+                    reason: "fro_hf not enabled",
+                });
+            }
+
+            // Halt and reset the div
+            self.syscon.frohfdiv().write(|w| {
+                w.halt().halt();
+                w.reset().asserted();
+                w
+            });
+            // Then change the div, unhalt it, and reset it
+            self.syscon.frohfdiv().write(|w| {
+                unsafe {
+                    w.div().bits(d.into_bits());
+                }
+                w.halt().run();
+                w.reset().released();
+                w
+            });
+
+            // Wait for clock to stabilize
+            while self.syscon.frohfdiv().read().unstab().is_ongoing() {}
+
+            // Store off the clock info
+            self.clocks.fro_hf_div = Some(Clock {
+                frequency: base_freq / d.into_divisor(),
+                power: *power,
+            });
+        }
+
+        Ok(())
+    }
+}
+
+pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
+    critical_section::with(|cs| {
+        if CLOCKS.borrow(cs).is_some() {
+            Err(ClockError::AlreadyInitialized)
+        } else {
+            Ok(())
+        }
+    })?;
+
+    let mut clocks = Clocks::default();
+    let mut operator = ClockOperator {
+        clocks: &mut clocks,
+        config: &settings,
+
+        _mrcc0: unsafe { pac::Mrcc0::steal() },
+        scg0: unsafe { pac::Scg0::steal() },
+        syscon: unsafe { pac::Syscon::steal() },
+    };
+
+    operator.configure_firc_clocks()?;
+    // TODO, SIRC, and everything downstream
+
+    Ok(())
+}
+
+/// Obtain the full clocks structure, calling the given closure in a critical section
+///
+/// NOTE: Clocks implements `Clone`,
+pub fn with_clocks<R: 'static, F: FnOnce(&Clocks) -> R>(f: F) -> Option<R> {
+    critical_section::with(|cs| {
+        let c = CLOCKS.borrow(cs).as_ref()?;
+        Some(f(c))
+    })
 }
