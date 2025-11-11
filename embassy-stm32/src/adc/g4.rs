@@ -208,7 +208,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// Enable reading the voltage reference internal channel.
     pub fn enable_vrefint(&self) -> super::VrefInt
     where
-        T: super::VrefConverter,
+        T: super::SpecialConverter<super::VrefInt>,
     {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vrefen(true);
@@ -220,7 +220,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// Enable reading the temperature internal channel.
     pub fn enable_temperature(&self) -> super::Temperature
     where
-        T: super::TemperatureConverter,
+        T: super::SpecialConverter<super::Temperature>,
     {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vsenseen(true);
@@ -232,7 +232,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// Enable reading the vbat internal channel.
     pub fn enable_vbat(&self) -> super::Vbat
     where
-        T: super::VBatConverter,
+        T: super::SpecialConverter<super::Vbat>,
     {
         T::common_regs().ccr().modify(|reg| {
             reg.set_vbaten(true);
@@ -766,47 +766,47 @@ impl<T: Instance, const N: usize> InjectedAdc<T, N> {
 
 #[cfg(stm32g4)]
 mod g4 {
-    use crate::adc::{TemperatureConverter, VBatConverter, VrefConverter};
+    use crate::adc::{SealedSpecialConverter, Temperature, Vbat, VrefInt};
 
-    impl TemperatureConverter for crate::peripherals::ADC1 {
+    impl SealedSpecialConverter<Temperature> for crate::peripherals::ADC1 {
         const CHANNEL: u8 = 16;
     }
 
-    impl VrefConverter for crate::peripherals::ADC1 {
+    impl SealedSpecialConverter<VrefInt> for crate::peripherals::ADC1 {
         const CHANNEL: u8 = 18;
     }
 
-    impl VBatConverter for crate::peripherals::ADC1 {
+    impl SealedSpecialConverter<Vbat> for crate::peripherals::ADC1 {
         const CHANNEL: u8 = 17;
     }
 
     #[cfg(peri_adc3_common)]
-    impl VrefConverter for crate::peripherals::ADC3 {
+    impl SealedSpecialConverter<VrefInt> for crate::peripherals::ADC3 {
         const CHANNEL: u8 = 18;
     }
 
     #[cfg(peri_adc3_common)]
-    impl VBatConverter for crate::peripherals::ADC3 {
+    impl SealedSpecialConverter<Vbat> for crate::peripherals::ADC3 {
         const CHANNEL: u8 = 17;
     }
 
     #[cfg(not(stm32g4x1))]
-    impl VrefConverter for crate::peripherals::ADC4 {
+    impl SealedSpecialConverter<VrefInt> for crate::peripherals::ADC4 {
         const CHANNEL: u8 = 18;
     }
 
     #[cfg(not(stm32g4x1))]
-    impl TemperatureConverter for crate::peripherals::ADC5 {
+    impl SealedSpecialConverter<Temperature> for crate::peripherals::ADC5 {
         const CHANNEL: u8 = 4;
     }
 
     #[cfg(not(stm32g4x1))]
-    impl VrefConverter for crate::peripherals::ADC5 {
+    impl SealedSpecialConverter<VrefInt> for crate::peripherals::ADC5 {
         const CHANNEL: u8 = 18;
     }
 
     #[cfg(not(stm32g4x1))]
-    impl VBatConverter for crate::peripherals::ADC5 {
+    impl SealedSpecialConverter<Vbat> for crate::peripherals::ADC5 {
         const CHANNEL: u8 = 17;
     }
 }
@@ -814,13 +814,13 @@ mod g4 {
 // TODO this should look at each ADC individually and impl the correct channels
 #[cfg(stm32h7)]
 mod h7 {
-    impl<T: Instance> TemperatureConverter for T {
+    impl<T: Instance> SealedSpecialConverter<Temperature> for T {
         const CHANNEL: u8 = 18;
     }
-    impl<T: Instance> VrefConverter for T {
+    impl<T: Instance> SealedSpecialConverter<VrefInt> for T {
         const CHANNEL: u8 = 19;
     }
-    impl<T: Instance> VBatConverter for T {
+    impl<T: Instance> SealedSpecialConverter<Vbat> for T {
         // TODO this should be 14 for H7a/b/35
         const CHANNEL: u8 = 17;
     }

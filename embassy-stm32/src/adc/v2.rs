@@ -22,21 +22,21 @@ pub const VREF_DEFAULT_MV: u32 = 3300;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 pub const VREF_CALIB_MV: u32 = 3300;
 
-impl super::VrefConverter for crate::peripherals::ADC1 {
+impl super::SealedSpecialConverter<super::VrefInt> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 17;
 }
 
 #[cfg(any(stm32f2, stm32f40x, stm32f41x))]
-impl super::TemperatureConverter for crate::peripherals::ADC1 {
+impl super::SealedSpecialConverter<super::Temperature> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 16;
 }
 
 #[cfg(not(any(stm32f2, stm32f40x, stm32f41x)))]
-impl super::TemperatureConverter for crate::peripherals::ADC1 {
+impl super::SealedSpecialConverter<super::Temperature> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 18;
 }
 
-impl super::VBatConverter for crate::peripherals::ADC1 {
+impl super::SealedSpecialConverter<super::Vbat> for crate::peripherals::ADC1 {
     const CHANNEL: u8 = 18;
 }
 

@@ -105,28 +105,27 @@ pub(crate) fn blocking_delay_us(us: u32) {
     }
 }
 
-/// Implemented for ADCs that have a Temperature channel
-pub trait TemperatureConverter {
-    const CHANNEL: u8;
-}
-/// Implemented for ADCs that have a Vref channel
-pub trait VrefConverter {
-    const CHANNEL: u8;
-}
-/// Implemented for ADCs that have a VBat channel
-pub trait VBatConverter {
+pub(self) trait SpecialChannel {}
+
+/// Implemented for ADCs that have a special channel
+trait SealedSpecialConverter<T: SpecialChannel + Sized> {
     const CHANNEL: u8;
 }
 
-// NOTE: Vrefint/Temperature/Vbat are not available on all ADCs, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
-/// Internal voltage reference channel.
-pub struct VrefInt;
-impl<T: Instance + VrefConverter> AdcChannel<T> for VrefInt {}
-impl<T: Instance + VrefConverter> SealedAdcChannel<T> for VrefInt {
+#[allow(private_bounds)]
+pub trait SpecialConverter<T: SpecialChannel + Sized>: SealedSpecialConverter<T> {}
+
+impl<C: SpecialChannel + Sized, T: SealedSpecialConverter<C>> SpecialConverter<C> for T {}
+
+impl<C: SpecialChannel, T: Instance + SealedSpecialConverter<C>> AdcChannel<T> for C {}
+impl<C: SpecialChannel, T: Instance + SealedSpecialConverter<C>> SealedAdcChannel<T> for C {
     fn channel(&self) -> u8 {
         T::CHANNEL
     }
 }
+
+pub struct VrefInt;
+impl SpecialChannel for VrefInt {}
 
 impl VrefInt {
     #[cfg(any(adc_f3v1, adc_f3v2))]
@@ -138,21 +137,11 @@ impl VrefInt {
 
 /// Internal temperature channel.
 pub struct Temperature;
-impl<T: Instance + TemperatureConverter> AdcChannel<T> for Temperature {}
-impl<T: Instance + TemperatureConverter> SealedAdcChannel<T> for Temperature {
-    fn channel(&self) -> u8 {
-        T::CHANNEL
-    }
-}
+impl SpecialChannel for Temperature {}
 
 /// Internal battery voltage channel.
 pub struct Vbat;
-impl<T: Instance + VBatConverter> AdcChannel<T> for Vbat {}
-impl<T: Instance + VBatConverter> SealedAdcChannel<T> for Vbat {
-    fn channel(&self) -> u8 {
-        T::CHANNEL
-    }
-}
+impl SpecialChannel for Vbat {}
 
 /// ADC instance.
 #[cfg(not(any(

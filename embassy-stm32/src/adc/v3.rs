@@ -36,53 +36,53 @@ pub const VREF_CALIB_MV: u32 = 3000;
 const SAMPLE_TIMES_CAPACITY: usize = 2;
 
 #[cfg(adc_g0)]
-impl<T: Instance> super::VrefConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
     const CHANNEL: u8 = 13;
 }
 #[cfg(any(adc_h5, adc_h7rs))]
-impl<T: Instance> super::VrefConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
     const CHANNEL: u8 = 17;
 }
 #[cfg(adc_u0)]
-impl<T: Instance> super::VrefConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
     const CHANNEL: u8 = 12;
 }
 #[cfg(not(any(adc_g0, adc_h5, adc_h7rs, adc_u0)))]
-impl<T: Instance> super::VrefConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
     const CHANNEL: u8 = 0;
 }
 
 #[cfg(adc_g0)]
-impl<T: Instance> super::TemperatureConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
     const CHANNEL: u8 = 12;
 }
 #[cfg(any(adc_h5, adc_h7rs))]
-impl<T: Instance> super::TemperatureConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
     const CHANNEL: u8 = 16;
 }
 #[cfg(adc_u0)]
-impl<T: Instance> super::TemperatureConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
     const CHANNEL: u8 = 11;
 }
 #[cfg(not(any(adc_g0, adc_h5, adc_h7rs, adc_u0)))]
-impl<T: Instance> super::TemperatureConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
     const CHANNEL: u8 = 17;
 }
 
 #[cfg(adc_g0)]
-impl<T: Instance> super::VBatConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
     const CHANNEL: u8 = 14;
 }
 #[cfg(any(adc_h5, adc_h7rs))]
-impl<T: Instance> super::VBatConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
     const CHANNEL: u8 = 2;
 }
 #[cfg(adc_u0)]
-impl<T: Instance> super::VBatConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
     const CHANNEL: u8 = 13;
 }
 #[cfg(not(any(adc_g0, adc_h5, adc_h7rs, adc_u0)))]
-impl<T: Instance> super::VBatConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
     const CHANNEL: u8 = 18;
 }
 

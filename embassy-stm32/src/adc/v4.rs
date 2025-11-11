@@ -26,39 +26,39 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(50);
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
 
 #[cfg(stm32g4)]
-impl<T: Instance> super::VrefConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
     const CHANNEL: u8 = 18;
 }
 #[cfg(stm32g4)]
-impl<T: Instance> super::TemperatureConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
     const CHANNEL: u8 = 16;
 }
 
 #[cfg(stm32h7)]
-impl<T: Instance> super::VrefConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
     const CHANNEL: u8 = 19;
 }
 #[cfg(stm32h7)]
-impl<T: Instance> super::TemperatureConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
     const CHANNEL: u8 = 18;
 }
 
 // TODO this should be 14 for H7a/b/35
 #[cfg(not(stm32u5))]
-impl<T: Instance> super::VBatConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
     const CHANNEL: u8 = 17;
 }
 
 #[cfg(stm32u5)]
-impl<T: Instance> super::VrefConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
     const CHANNEL: u8 = 0;
 }
 #[cfg(stm32u5)]
-impl<T: Instance> super::TemperatureConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
     const CHANNEL: u8 = 19;
 }
 #[cfg(stm32u5)]
-impl<T: Instance> super::VBatConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
     const CHANNEL: u8 = 18;
 }
 
