@@ -615,7 +615,7 @@ fn init_hw(config: Config) -> Peripherals {
             #[cfg(ucpd)]
             ucpd::init(
                 cs,
-                #[cfg(peri_ucpd1)]
+                #[cfg(all(peri_ucpd1, not(stm32n6)))]
                 config.enable_ucpd1_dead_battery,
                 #[cfg(peri_ucpd2)]
                 config.enable_ucpd2_dead_battery,

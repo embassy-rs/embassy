@@ -1,5 +1,7 @@
+#[cfg(not(stm32n6))]
 use core::sync::atomic::{Ordering, compiler_fence};
 
+#[cfg(not(stm32n6))]
 use crate::pac::common::{RW, Reg};
 #[cfg(backup_sram)]
 use crate::pac::pwr::vals::Retention;
@@ -54,7 +56,7 @@ impl From<LseDrive> for crate::pac::rcc::vals::Lsedrv {
     }
 }
 
-#[cfg(not(any(rtc_v2_l0, rtc_v2_l1, stm32c0)))]
+#[cfg(not(any(rtc_v2_l0, rtc_v2_l1, stm32c0, stm32n6)))]
 type Bdcr = crate::pac::rcc::regs::Bdcr;
 #[cfg(any(rtc_v2_l0, rtc_v2_l1))]
 type Bdcr = crate::pac::rcc::regs::Csr;
@@ -64,7 +66,7 @@ type Bdcr = crate::pac::rcc::regs::Csr1;
 #[cfg(any(stm32c0))]
 fn unlock() {}
 
-#[cfg(not(any(stm32c0)))]
+#[cfg(not(any(stm32c0, stm32n6)))]
 fn unlock() {
     #[cfg(any(stm32f0, stm32f1, stm32f2, stm32f3, stm32l0, stm32l1))]
     let cr = crate::pac::PWR.cr();
@@ -79,6 +81,7 @@ fn unlock() {
     while !cr.read().dbp() {}
 }
 
+#[cfg(not(stm32n6))]
 fn bdcr() -> Reg<Bdcr, RW> {
     #[cfg(any(rtc_v2_l0, rtc_v2_l1))]
     return crate::pac::RCC.csr();
@@ -152,6 +155,7 @@ impl Default for LsConfig {
 }
 
 impl LsConfig {
+    #[cfg(not(stm32n6))]
     pub(crate) fn init(&self) -> Option<Hertz> {
         let rtc_clk = match self.rtc {
             RtcClockSource::LSI => {
