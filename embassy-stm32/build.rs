@@ -1404,6 +1404,11 @@ fn main() {
                         }
                     }
 
+                    // MDIO and MDC are special
+                    if pin.signal == "MDIO" || pin.signal == "MDC" {
+                        peri = format_ident!("{}", "ETH_SMA");
+                    }
+
                     // XSPI NCS pin to CSSEL mapping
                     if pin.signal.ends_with("NCS1") {
                         g.extend(quote! {

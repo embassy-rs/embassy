@@ -16,6 +16,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 pub use self::_version::{InterruptHandler, *};
 pub use self::generic_phy::*;
+pub use self::sma::{Sma, StationManagement};
 use crate::rcc::RccPeripheral;
 
 #[allow(unused)]
@@ -158,14 +159,6 @@ impl<'a, 'd> embassy_net_driver::TxToken for TxToken<'a, 'd> {
     }
 }
 
-/// Station Management Interface (SMI) on an ethernet PHY
-pub trait StationManagement {
-    /// Read a register over SMI.
-    fn smi_read(&mut self, phy_addr: u8, reg: u8) -> u16;
-    /// Write a register over SMI.
-    fn smi_write(&mut self, phy_addr: u8, reg: u8, val: u16);
-}
-
 /// Trait for an Ethernet PHY
 pub trait Phy {
     /// Reset PHY and wait for it to come out of reset.
@@ -213,8 +206,8 @@ impl Instance for crate::peripherals::ETH {}
 pin_trait!(RXClkPin, Instance, @A);
 pin_trait!(TXClkPin, Instance, @A);
 pin_trait!(RefClkPin, Instance, @A);
-pin_trait!(MDIOPin, Instance, @A);
-pin_trait!(MDCPin, Instance, @A);
+pin_trait!(MDIOPin, sma::Instance, @A);
+pin_trait!(MDCPin, sma::Instance, @A);
 pin_trait!(RXDVPin, Instance, @A);
 pin_trait!(CRSPin, Instance, @A);
 pin_trait!(RXD0Pin, Instance, @A);

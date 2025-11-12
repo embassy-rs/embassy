@@ -1,18 +1,18 @@
 mod descriptors;
 
-use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, fence};
 
 use embassy_hal_internal::Peri;
 use stm32_metapac::syscfg::vals::EthSelPhy;
 
 pub(crate) use self::descriptors::{RDes, RDesRing, TDes, TDesRing};
+use super::sma::Sma;
 use super::*;
+use crate::eth::{MDCPin, MDIOPin};
 use crate::gpio::{AfType, AnyPin, OutputType, SealedPin as _, Speed};
 use crate::interrupt;
 use crate::interrupt::InterruptExt;
 use crate::pac::ETH;
-use crate::rcc::SealedRccPeripheral;
 
 /// Interrupt handler.
 pub struct InterruptHandler {}
@@ -42,7 +42,7 @@ pub struct Ethernet<'d, T: Instance, P: Phy> {
     pub(crate) rx: RDesRing<'d>,
     pins: Pins<'d>,
     pub(crate) phy: P,
-    pub(crate) station_management: EthernetStationManagement<'d, T>,
+    pub(crate) station_management: Sma<'d, T>,
     pub(crate) mac_addr: [u8; 6],
 }
 
@@ -92,7 +92,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             crate::pac::SYSCFG.pmcr().modify(|w| w.set_eth_sel_phy(EthSelPhy::RMII));
         });
 
-        config_pins!(ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
+        config_pins!(ref_clk, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
 
         let pins = Pins::Rmii([
             ref_clk.into(),
@@ -143,7 +143,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         });
 
         config_pins!(
-            rx_clk, tx_clk, mdio, mdc, rxdv, rx_d0, rx_d1, rx_d2, rx_d3, tx_d0, tx_d1, tx_d2, tx_d3, tx_en
+            rx_clk, tx_clk, rxdv, rx_d0, rx_d1, rx_d2, rx_d3, tx_d0, tx_d1, tx_d2, tx_d3, tx_en
         );
 
         let pins = Pins::Mii([
@@ -235,21 +235,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             w.set_rbsz(RX_BUFFER_SIZE as u16);
         });
 
-        let hclk = <T as SealedRccPeripheral>::frequency();
-        let hclk_mhz = hclk.0 / 1_000_000;
-
-        // Set the MDC clock frequency in the range 1MHz - 2.5MHz
-        let clock_range = match hclk_mhz {
-            0..=34 => 2,    // Divide by 16
-            35..=59 => 3,   // Divide by 26
-            60..=99 => 0,   // Divide by 42
-            100..=149 => 1, // Divide by 62
-            150..=249 => 4, // Divide by 102
-            250..=310 => 5, // Divide by 124
-            _ => {
-                panic!("HCLK results in MDC clock > 2.5MHz even for the highest CSR clock divider")
-            }
-        };
+        let sma_peri = unsafe { peri.clone_unchecked() };
 
         let mut this = Self {
             _peri: peri,
@@ -257,11 +243,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf),
             pins,
             phy,
-            station_management: EthernetStationManagement {
-                peri: PhantomData,
-                clock_range: clock_range,
-                pins: [mdio.into(), mdc.into()],
-            },
+            station_management: Sma::new(sma_peri, mdio, mdc),
             mac_addr,
         };
 
@@ -294,49 +276,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         unsafe { interrupt::ETH.enable() };
 
         this
-    }
-}
-
-/// Ethernet SMI driver.
-pub struct EthernetStationManagement<'d, T: Instance> {
-    peri: PhantomData<T>,
-    clock_range: u8,
-    pins: [Peri<'d, AnyPin>; 2],
-}
-
-impl<T: Instance> StationManagement for EthernetStationManagement<'_, T> {
-    fn smi_read(&mut self, phy_addr: u8, reg: u8) -> u16 {
-        let (macmdioar, macmdiodr) = {
-            let regs = T::regs().ethernet_mac();
-            (regs.macmdioar(), regs.macmdiodr())
-        };
-
-        macmdioar.modify(|w| {
-            w.set_pa(phy_addr);
-            w.set_rda(reg);
-            w.set_goc(0b11); // read
-            w.set_cr(self.clock_range);
-            w.set_mb(true);
-        });
-        while macmdioar.read().mb() {}
-        macmdiodr.read().md()
-    }
-
-    fn smi_write(&mut self, phy_addr: u8, reg: u8, val: u16) {
-        let (macmdioar, macmdiodr) = {
-            let regs = T::regs().ethernet_mac();
-            (regs.macmdioar(), regs.macmdiodr())
-        };
-
-        macmdiodr.write(|w| w.set_md(val));
-        macmdioar.modify(|w| {
-            w.set_pa(phy_addr);
-            w.set_rda(reg);
-            w.set_goc(0b01); // write
-            w.set_cr(self.clock_range);
-            w.set_mb(true);
-        });
-        while macmdioar.read().mb() {}
     }
 }
 
@@ -374,11 +313,5 @@ impl<'d, T: Instance, P: Phy> Drop for Ethernet<'d, T, P> {
                 pin.set_as_disconnected();
             }
         })
-    }
-}
-
-impl<T: Instance> Drop for EthernetStationManagement<'_, T> {
-    fn drop(&mut self) {
-        self.pins.iter_mut().for_each(|p| p.set_as_disconnected());
     }
 }

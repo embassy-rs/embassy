@@ -3,15 +3,16 @@
 mod rx_desc;
 mod tx_desc;
 
-use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, fence};
 
 use embassy_hal_internal::Peri;
-use stm32_metapac::eth::vals::{Apcs, Cr, Dm, DmaomrSr, Fes, Ftf, Ifg, MbProgress, Mw, Pbl, Rsf, St, Tsf};
+use stm32_metapac::eth::vals::{Apcs, Dm, DmaomrSr, Fes, Ftf, Ifg, Pbl, Rsf, St, Tsf};
 
 pub(crate) use self::rx_desc::{RDes, RDesRing};
 pub(crate) use self::tx_desc::{TDes, TDesRing};
+use super::sma::Sma;
 use super::*;
+use crate::eth::{MDCPin, MDIOPin};
 #[cfg(eth_v1a)]
 use crate::gpio::Pull;
 use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
@@ -22,7 +23,6 @@ use crate::pac::AFIO;
 #[cfg(any(eth_v1b, eth_v1c))]
 use crate::pac::SYSCFG;
 use crate::pac::{ETH, RCC};
-use crate::rcc::SealedRccPeripheral;
 
 /// Interrupt handler.
 pub struct InterruptHandler {}
@@ -53,7 +53,7 @@ pub struct Ethernet<'d, T: Instance, P: Phy> {
 
     pins: Pins<'d>,
     pub(crate) phy: P,
-    pub(crate) station_management: EthernetStationManagement<'d, T>,
+    pub(crate) station_management: Sma<'d, T>,
     pub(crate) mac_addr: [u8; 6],
 }
 
@@ -149,11 +149,11 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         #[cfg(eth_v1a)]
         {
             config_in_pins!(ref_clk, rx_d0, rx_d1);
-            config_af_pins!(mdio, mdc, tx_d0, tx_d1, tx_en);
+            config_af_pins!(tx_d0, tx_d1, tx_en);
         }
 
         #[cfg(any(eth_v1b, eth_v1c))]
-        config_pins!(ref_clk, mdio, mdc, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
+        config_pins!(ref_clk, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
 
         let pins = Pins::Rmii([
             ref_clk.into(),
@@ -168,7 +168,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         Self::new_inner(queue, peri, irq, pins, mdio, mdc, phy, mac_addr)
     }
 
-    fn new_inner<const TX: usize, const RX: usize>(
+    fn new_inner<const TX: usize, const RX: usize, #[cfg(afio)] A>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::ETH, InterruptHandler> + 'd,
@@ -226,31 +226,13 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
 
         // TODO MTU size setting not found for v1 ethernet, check if correct
 
-        let hclk = <T as SealedRccPeripheral>::frequency();
-        let hclk_mhz = hclk.0 / 1_000_000;
-
-        // Set the MDC clock frequency in the range 1MHz - 2.5MHz
-        let clock_range = match hclk_mhz {
-            0..=24 => panic!("Invalid HCLK frequency - should be at least 25 MHz."),
-            25..=34 => Cr::CR_20_35,     // Divide by 16
-            35..=59 => Cr::CR_35_60,     // Divide by 26
-            60..=99 => Cr::CR_60_100,    // Divide by 42
-            100..=149 => Cr::CR_100_150, // Divide by 62
-            150..=216 => Cr::CR_150_168, // Divide by 102
-            _ => {
-                panic!("HCLK results in MDC clock > 2.5MHz even for the highest CSR clock divider")
-            }
-        };
+        let sma_peri = unsafe { peri.clone_unchecked() };
 
         let mut this = Self {
             _peri: peri,
             pins,
             phy: phy,
-            station_management: EthernetStationManagement {
-                peri: PhantomData,
-                clock_range: clock_range,
-                pins: [mdio.into(), mdc.into()],
-            },
+            station_management: Sma::new(sma_peri, mdio, mdc),
             mac_addr,
             tx: TDesRing::new(&mut queue.tx_desc, &mut queue.tx_buf),
             rx: RDesRing::new(&mut queue.rx_desc, &mut queue.rx_buf),
@@ -347,12 +329,12 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         #[cfg(eth_v1a)]
         {
             config_in_pins!(rx_clk, tx_clk, rx_d0, rx_d1, rx_d2, rx_d3, rxdv);
-            config_af_pins!(mdio, mdc, tx_d0, tx_d1, tx_d2, tx_d3, tx_en);
+            config_af_pins!(tx_d0, tx_d1, tx_d2, tx_d3, tx_en);
         }
 
         #[cfg(any(eth_v1b, eth_v1c))]
         config_pins!(
-            rx_clk, tx_clk, mdio, mdc, rxdv, rx_d0, rx_d1, rx_d2, rx_d3, tx_d0, tx_d1, tx_d2, tx_d3, tx_en
+            rx_clk, tx_clk, rxdv, rx_d0, rx_d1, rx_d2, rx_d3, tx_d0, tx_d1, tx_d2, tx_d3, tx_en
         );
 
         let pins = Pins::Mii([
@@ -371,49 +353,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         ]);
 
         Self::new_inner(queue, peri, irq, pins, mdio, mdc, phy, mac_addr)
-    }
-}
-
-/// Ethernet station management interface.
-pub(crate) struct EthernetStationManagement<'d, T: Instance> {
-    peri: PhantomData<T>,
-    clock_range: Cr,
-    pins: [Peri<'d, AnyPin>; 2],
-}
-
-impl<T: Instance> StationManagement for EthernetStationManagement<'_, T> {
-    fn smi_read(&mut self, phy_addr: u8, reg: u8) -> u16 {
-        let (macmiiar, macmiidr) = {
-            let regs = T::regs().ethernet_mac();
-            (regs.macmiiar(), regs.macmiidr())
-        };
-
-        macmiiar.modify(|w| {
-            w.set_pa(phy_addr);
-            w.set_mr(reg);
-            w.set_mw(Mw::READ); // read operation
-            w.set_cr(self.clock_range);
-            w.set_mb(MbProgress::BUSY); // indicate that operation is in progress
-        });
-        while macmiiar.read().mb() == MbProgress::BUSY {}
-        macmiidr.read().md()
-    }
-
-    fn smi_write(&mut self, phy_addr: u8, reg: u8, val: u16) {
-        let (macmiiar, macmiidr) = {
-            let regs = T::regs().ethernet_mac();
-            (regs.macmiiar(), regs.macmiidr())
-        };
-
-        macmiidr.write(|w| w.set_md(val));
-        macmiiar.modify(|w| {
-            w.set_pa(phy_addr);
-            w.set_mr(reg);
-            w.set_mw(Mw::WRITE); // write
-            w.set_cr(self.clock_range);
-            w.set_mb(MbProgress::BUSY);
-        });
-        while macmiiar.read().mb() == MbProgress::BUSY {}
     }
 }
 
@@ -441,11 +380,5 @@ impl<'d, T: Instance, P: Phy> Drop for Ethernet<'d, T, P> {
                 pin.set_as_disconnected();
             }
         })
-    }
-}
-
-impl<T: Instance> Drop for EthernetStationManagement<'_, T> {
-    fn drop(&mut self) {
-        self.pins.iter_mut().for_each(|p| p.set_as_disconnected());
     }
 }

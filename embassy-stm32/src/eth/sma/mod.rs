@@ -2,13 +2,22 @@
 
 #![macro_use]
 
+#[cfg_attr(eth_v2, path = "v2.rs")]
+#[cfg_attr(any(eth_v1a, eth_v1b, eth_v1c), path = "v1.rs")]
+mod _version;
+
 use embassy_hal_internal::PeripheralType;
-#[cfg(eth_v2)]
-pub(crate) use regs::{Macmdioar as AddressRegister, Macmdiodr as DataRegister};
-#[cfg(any(eth_v1a, eth_v1b, eth_v1c))]
-pub(crate) use regs::{Macmiiar as AddressRegister, Macmiidr as DataRegister};
 use stm32_metapac::common::{RW, Reg};
-use stm32_metapac::eth::regs;
+
+pub use self::_version::*;
+
+/// Station Management Interface (SMI).
+pub trait StationManagement {
+    /// Read a register over SMI.
+    fn smi_read(&mut self, phy_addr: u8, reg: u8) -> u16;
+    /// Write a register over SMI.
+    fn smi_write(&mut self, phy_addr: u8, reg: u8, val: u16);
+}
 
 trait SealedInstance {
     fn regs() -> (Reg<AddressRegister, RW>, Reg<DataRegister, RW>);
@@ -30,4 +39,17 @@ impl SealedInstance for crate::peripherals::ETH_SMA {
     }
 }
 
+impl<T: crate::eth::Instance> SealedInstance for T {
+    fn regs() -> (Reg<AddressRegister, RW>, Reg<DataRegister, RW>) {
+        let mac = <T as crate::eth::SealedInstance>::regs().ethernet_mac();
+
+        #[cfg(any(eth_v1a, eth_v1b, eth_v1c))]
+        return (mac.macmiiar(), mac.macmiidr());
+
+        #[cfg(eth_v2)]
+        return (mac.macmdioar(), mac.macmdiodr());
+    }
+}
+
 impl Instance for crate::peripherals::ETH_SMA {}
+impl<T: crate::eth::Instance> Instance for T {}
