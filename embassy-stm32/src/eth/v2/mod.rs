@@ -42,14 +42,14 @@ pub struct Ethernet<'d, T: Instance, P: Phy> {
     pub(crate) rx: RDesRing<'d>,
     pins: Pins<'d>,
     pub(crate) phy: P,
-    pub(crate) station_management: EthernetStationManagement<T>,
+    pub(crate) station_management: EthernetStationManagement<'d, T>,
     pub(crate) mac_addr: [u8; 6],
 }
 
 /// Pins of ethernet driver.
 enum Pins<'d> {
-    Rmii([Peri<'d, AnyPin>; 9]),
-    Mii([Peri<'d, AnyPin>; 14]),
+    Rmii([Peri<'d, AnyPin>; 7]),
+    Mii([Peri<'d, AnyPin>; 12]),
 }
 
 macro_rules! config_pins {
@@ -96,8 +96,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
 
         let pins = Pins::Rmii([
             ref_clk.into(),
-            mdio.into(),
-            mdc.into(),
             crs.into(),
             rx_d0.into(),
             rx_d1.into(),
@@ -106,7 +104,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             tx_en.into(),
         ]);
 
-        Self::new_inner(queue, peri, irq, pins, phy, mac_addr)
+        Self::new_inner(queue, peri, irq, pins, mdio, mdc, phy, mac_addr)
     }
 
     /// Create a new MII ethernet driver using 14 pins.
@@ -151,8 +149,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         let pins = Pins::Mii([
             rx_clk.into(),
             tx_clk.into(),
-            mdio.into(),
-            mdc.into(),
             rxdv.into(),
             rx_d0.into(),
             rx_d1.into(),
@@ -165,7 +161,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             tx_en.into(),
         ]);
 
-        Self::new_inner(queue, peri, irq, pins, phy, mac_addr)
+        Self::new_inner(queue, peri, irq, pins, mdio, mdc, phy, mac_addr)
     }
 
     fn new_inner<const TX: usize, const RX: usize>(
@@ -173,6 +169,8 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         peri: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::ETH, InterruptHandler> + 'd,
         pins: Pins<'d>,
+        mdio: Peri<'d, impl MDIOPin<T>>,
+        mdc: Peri<'d, impl MDCPin<T>>,
         phy: P,
         mac_addr: [u8; 6],
     ) -> Self {
@@ -262,6 +260,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             station_management: EthernetStationManagement {
                 peri: PhantomData,
                 clock_range: clock_range,
+                pins: [mdio.into(), mdc.into()],
             },
             mac_addr,
         };
@@ -299,38 +298,45 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
 }
 
 /// Ethernet SMI driver.
-pub struct EthernetStationManagement<T: Instance> {
+pub struct EthernetStationManagement<'d, T: Instance> {
     peri: PhantomData<T>,
     clock_range: u8,
+    pins: [Peri<'d, AnyPin>; 2],
 }
 
-impl<T: Instance> StationManagement for EthernetStationManagement<T> {
+impl<T: Instance> StationManagement for EthernetStationManagement<'_, T> {
     fn smi_read(&mut self, phy_addr: u8, reg: u8) -> u16 {
-        let mac = T::regs().ethernet_mac();
+        let (macmdioar, macmdiodr) = {
+            let regs = T::regs().ethernet_mac();
+            (regs.macmdioar(), regs.macmdiodr())
+        };
 
-        mac.macmdioar().modify(|w| {
+        macmdioar.modify(|w| {
             w.set_pa(phy_addr);
             w.set_rda(reg);
             w.set_goc(0b11); // read
             w.set_cr(self.clock_range);
             w.set_mb(true);
         });
-        while mac.macmdioar().read().mb() {}
-        mac.macmdiodr().read().md()
+        while macmdioar.read().mb() {}
+        macmdiodr.read().md()
     }
 
     fn smi_write(&mut self, phy_addr: u8, reg: u8, val: u16) {
-        let mac = T::regs().ethernet_mac();
+        let (macmdioar, macmdiodr) = {
+            let regs = T::regs().ethernet_mac();
+            (regs.macmdioar(), regs.macmdiodr())
+        };
 
-        mac.macmdiodr().write(|w| w.set_md(val));
-        mac.macmdioar().modify(|w| {
+        macmdiodr.write(|w| w.set_md(val));
+        macmdioar.modify(|w| {
             w.set_pa(phy_addr);
             w.set_rda(reg);
             w.set_goc(0b01); // write
             w.set_cr(self.clock_range);
             w.set_mb(true);
         });
-        while mac.macmdioar().read().mb() {}
+        while macmdioar.read().mb() {}
     }
 }
 
@@ -368,5 +374,11 @@ impl<'d, T: Instance, P: Phy> Drop for Ethernet<'d, T, P> {
                 pin.set_as_disconnected();
             }
         })
+    }
+}
+
+impl<T: Instance> Drop for EthernetStationManagement<'_, T> {
+    fn drop(&mut self) {
+        self.pins.iter_mut().for_each(|p| p.set_as_disconnected());
     }
 }

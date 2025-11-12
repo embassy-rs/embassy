@@ -53,14 +53,14 @@ pub struct Ethernet<'d, T: Instance, P: Phy> {
 
     pins: Pins<'d>,
     pub(crate) phy: P,
-    pub(crate) station_management: EthernetStationManagement<T>,
+    pub(crate) station_management: EthernetStationManagement<'d, T>,
     pub(crate) mac_addr: [u8; 6],
 }
 
 /// Pins of ethernet driver.
 enum Pins<'d> {
-    Rmii([Peri<'d, AnyPin>; 9]),
-    Mii([Peri<'d, AnyPin>; 14]),
+    Rmii([Peri<'d, AnyPin>; 7]),
+    Mii([Peri<'d, AnyPin>; 12]),
 }
 
 #[cfg(eth_v1a)]
@@ -157,8 +157,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
 
         let pins = Pins::Rmii([
             ref_clk.into(),
-            mdio.into(),
-            mdc.into(),
             crs.into(),
             rx_d0.into(),
             rx_d1.into(),
@@ -167,7 +165,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             tx_en.into(),
         ]);
 
-        Self::new_inner(queue, peri, irq, pins, phy, mac_addr)
+        Self::new_inner(queue, peri, irq, pins, mdio, mdc, phy, mac_addr)
     }
 
     fn new_inner<const TX: usize, const RX: usize>(
@@ -175,6 +173,8 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         peri: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::ETH, InterruptHandler> + 'd,
         pins: Pins<'d>,
+        mdio: Peri<'d, if_afio!(impl MDIOPin<T, A>)>,
+        mdc: Peri<'d, if_afio!(impl MDCPin<T, A>)>,
         phy: P,
         mac_addr: [u8; 6],
     ) -> Self {
@@ -249,6 +249,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             station_management: EthernetStationManagement {
                 peri: PhantomData,
                 clock_range: clock_range,
+                pins: [mdio.into(), mdc.into()],
             },
             mac_addr,
             tx: TDesRing::new(&mut queue.tx_desc, &mut queue.tx_buf),
@@ -357,8 +358,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         let pins = Pins::Mii([
             rx_clk.into(),
             tx_clk.into(),
-            mdio.into(),
-            mdc.into(),
             rxdv.into(),
             rx_d0.into(),
             rx_d1.into(),
@@ -371,43 +370,50 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             tx_en.into(),
         ]);
 
-        Self::new_inner(queue, peri, irq, pins, phy, mac_addr)
+        Self::new_inner(queue, peri, irq, pins, mdio, mdc, phy, mac_addr)
     }
 }
 
 /// Ethernet station management interface.
-pub(crate) struct EthernetStationManagement<T: Instance> {
+pub(crate) struct EthernetStationManagement<'d, T: Instance> {
     peri: PhantomData<T>,
     clock_range: Cr,
+    pins: [Peri<'d, AnyPin>; 2],
 }
 
-impl<T: Instance> StationManagement for EthernetStationManagement<T> {
+impl<T: Instance> StationManagement for EthernetStationManagement<'_, T> {
     fn smi_read(&mut self, phy_addr: u8, reg: u8) -> u16 {
-        let mac = T::regs().ethernet_mac();
+        let (macmiiar, macmiidr) = {
+            let regs = T::regs().ethernet_mac();
+            (regs.macmiiar(), regs.macmiidr())
+        };
 
-        mac.macmiiar().modify(|w| {
+        macmiiar.modify(|w| {
             w.set_pa(phy_addr);
             w.set_mr(reg);
             w.set_mw(Mw::READ); // read operation
             w.set_cr(self.clock_range);
             w.set_mb(MbProgress::BUSY); // indicate that operation is in progress
         });
-        while mac.macmiiar().read().mb() == MbProgress::BUSY {}
-        mac.macmiidr().read().md()
+        while macmiiar.read().mb() == MbProgress::BUSY {}
+        macmiidr.read().md()
     }
 
     fn smi_write(&mut self, phy_addr: u8, reg: u8, val: u16) {
-        let mac = T::regs().ethernet_mac();
+        let (macmiiar, macmiidr) = {
+            let regs = T::regs().ethernet_mac();
+            (regs.macmiiar(), regs.macmiidr())
+        };
 
-        mac.macmiidr().write(|w| w.set_md(val));
-        mac.macmiiar().modify(|w| {
+        macmiidr.write(|w| w.set_md(val));
+        macmiiar.modify(|w| {
             w.set_pa(phy_addr);
             w.set_mr(reg);
             w.set_mw(Mw::WRITE); // write
             w.set_cr(self.clock_range);
             w.set_mb(MbProgress::BUSY);
         });
-        while mac.macmiiar().read().mb() == MbProgress::BUSY {}
+        while macmiiar.read().mb() == MbProgress::BUSY {}
     }
 }
 
@@ -435,5 +441,11 @@ impl<'d, T: Instance, P: Phy> Drop for Ethernet<'d, T, P> {
                 pin.set_as_disconnected();
             }
         })
+    }
+}
+
+impl<T: Instance> Drop for EthernetStationManagement<'_, T> {
+    fn drop(&mut self) {
+        self.pins.iter_mut().for_each(|p| p.set_as_disconnected());
     }
 }
