@@ -98,6 +98,27 @@ pub(crate) unsafe fn on_interrupt<T: Instance>() {
 }
 
 impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
+    #[inline]
+    fn to_reload(reload: bool) -> i2c::vals::Reload {
+        if reload {
+            i2c::vals::Reload::NOT_COMPLETED
+        } else {
+            i2c::vals::Reload::COMPLETED
+        }
+    }
+
+    /// Calculate total bytes in a group of operations
+    #[inline]
+    fn total_operation_bytes(operations: &[Operation<'_>]) -> usize {
+        operations
+            .iter()
+            .map(|op| match op {
+                Operation::Write(buf) => buf.len(),
+                Operation::Read(buf) => buf.len(),
+            })
+            .sum()
+    }
+
     pub(crate) fn init(&mut self, config: Config) {
         self.info.regs.cr1().modify(|reg| {
             reg.set_pe(false);
@@ -147,12 +168,6 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         // `buffer`. The START bit can be set even if the bus
         // is BUSY or I2C is in slave mode.
 
-        let reload = if reload {
-            i2c::vals::Reload::NOT_COMPLETED
-        } else {
-            i2c::vals::Reload::COMPLETED
-        };
-
         info.regs.cr2().modify(|w| {
             w.set_sadd(address.addr() << 1);
             w.set_add10(address.add_mode());
@@ -160,7 +175,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             w.set_nbytes(length as u8);
             w.set_start(true);
             w.set_autoend(stop.autoend());
-            w.set_reload(reload);
+            w.set_reload(Self::to_reload(reload));
         });
 
         Ok(())
@@ -191,12 +206,6 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             }
         }
 
-        let reload = if reload {
-            i2c::vals::Reload::NOT_COMPLETED
-        } else {
-            i2c::vals::Reload::COMPLETED
-        };
-
         // Set START and prepare to send `bytes`. The
         // START bit can be set even if the bus is BUSY or
         // I2C is in slave mode.
@@ -207,7 +216,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             w.set_nbytes(length as u8);
             w.set_start(true);
             w.set_autoend(stop.autoend());
-            w.set_reload(reload);
+            w.set_reload(Self::to_reload(reload));
         });
 
         Ok(())
@@ -220,15 +229,9 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             timeout.check()?;
         }
 
-        let will_reload = if will_reload {
-            i2c::vals::Reload::NOT_COMPLETED
-        } else {
-            i2c::vals::Reload::COMPLETED
-        };
-
         info.regs.cr2().modify(|w| {
             w.set_nbytes(length as u8);
-            w.set_reload(will_reload);
+            w.set_reload(Self::to_reload(will_reload));
             w.set_autoend(stop.autoend());
         });
 
@@ -400,7 +403,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
             address,
             read.len().min(255),
             Stop::Automatic,
-            last_chunk_idx != 0,
+            last_chunk_idx != 0, // reload
             restart,
             timeout,
         )?;
@@ -569,13 +572,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         timeout: Timeout,
     ) -> Result<(), Error> {
         // Calculate total bytes across all operations in this group
-        let total_bytes: usize = operations
-            .iter()
-            .map(|op| match op {
-                Operation::Write(buf) => buf.len(),
-                _ => 0,
-            })
-            .sum();
+        let total_bytes = Self::total_operation_bytes(operations);
 
         if total_bytes == 0 {
             // Handle empty write group - just send address
@@ -641,13 +638,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         timeout: Timeout,
     ) -> Result<(), Error> {
         // Calculate total bytes across all operations in this group
-        let total_bytes: usize = operations
-            .iter()
-            .map(|op| match op {
-                Operation::Read(buf) => buf.len(),
-                _ => 0,
-            })
-            .sum();
+        let total_bytes = Self::total_operation_bytes(operations);
 
         if total_bytes == 0 {
             // Handle empty read group
@@ -657,7 +648,7 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                     address,
                     0,
                     if is_last_group { Stop::Automatic } else { Stop::Software },
-                    false,
+                    false, // reload
                     !is_first_group,
                     timeout,
                 )?;
@@ -1000,7 +991,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                     address,
                     total_len.min(255),
                     Stop::Automatic,
-                    total_len > 255,
+                    total_len > 255, // reload
                     restart,
                     timeout,
                 )?;
@@ -1183,13 +1174,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         timeout: Timeout,
     ) -> Result<(), Error> {
         // Calculate total bytes across all operations in this group
-        let total_bytes: usize = operations
-            .iter()
-            .map(|op| match op {
-                Operation::Write(buf) => buf.len(),
-                _ => 0,
-            })
-            .sum();
+        let total_bytes = Self::total_operation_bytes(operations);
 
         if total_bytes == 0 {
             // Handle empty write group using blocking call
@@ -1249,13 +1234,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         timeout: Timeout,
     ) -> Result<(), Error> {
         // Calculate total bytes across all operations in this group
-        let total_bytes: usize = operations
-            .iter()
-            .map(|op| match op {
-                Operation::Read(buf) => buf.len(),
-                _ => 0,
-            })
-            .sum();
+        let total_bytes = Self::total_operation_bytes(operations);
 
         if total_bytes == 0 {
             // Handle empty read group using blocking call
@@ -1265,7 +1244,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                     address,
                     0,
                     if is_last_group { Stop::Automatic } else { Stop::Software },
-                    false,
+                    false, // reload
                     !is_first_group,
                     timeout,
                 )?;
@@ -1313,7 +1292,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                         } else {
                             Stop::Software
                         },
-                        last_chunk_idx != 0 || !is_last_read,
+                        last_chunk_idx != 0 || !is_last_read, // reload
                         restart,
                         timeout,
                     )?;
