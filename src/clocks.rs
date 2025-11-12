@@ -1,6 +1,9 @@
 //! Clock control helpers (no magic numbers, PAC field access only).
 //! Provides reusable gate abstractions for peripherals used by the examples.
-use mcxa_pac::scg0::firccsr::{FircFclkPeriphEn, FircSclkPeriphEn, Fircsten};
+use mcxa_pac::scg0::{
+    firccsr::{FircFclkPeriphEn, FircSclkPeriphEn, Fircsten},
+    sirccsr::{SircClkPeriphEn, Sircsten},
+};
 
 use crate::pac;
 
@@ -249,10 +252,12 @@ pub enum PoweredClock {
 ///                  ───────────────▷│11   │
 ///                                  └─────┘
 /// ```
+#[non_exhaustive]
 pub struct ClocksConfig {
     // FIRC, FRO180, 45/60/90/180M clock source
     pub firc: Option<FircConfig>,
-    pub sirc: Option<SircConfig>,
+    // NOTE: I don't think we *can* disable the SIRC?
+    pub sirc: SircConfig,
 }
 
 // FIRC/FRO180M
@@ -264,6 +269,7 @@ pub struct ClocksConfig {
 /// │           │       └─────▷│GATE│──────────▷
 /// └───────────┘              └────┘
 /// ```
+#[non_exhaustive]
 pub struct FircConfig {
     pub frequency: FircFreqSel,
     pub power: PoweredClock,
@@ -291,6 +297,7 @@ pub enum FircFreqSel {
 /// │           │        └─────▷│1/12│──────────▷
 /// └───────────┘               └────┘
 /// ```
+#[non_exhaustive]
 pub struct SircConfig {
     pub power: PoweredClock,
     // peripheral output, aka sirc_12mhz
@@ -300,6 +307,7 @@ pub struct SircConfig {
 }
 
 #[derive(Default, Debug, Clone)]
+#[non_exhaustive]
 pub struct Clocks {
     pub clk_in: Option<Clock>,
 
@@ -325,6 +333,7 @@ pub struct Clocks {
 
 static CLOCKS: critical_section::Mutex<Option<Clocks>> = critical_section::Mutex::new(None);
 
+#[non_exhaustive]
 pub enum ClockError {
     AlreadyInitialized,
     BadConfig { clock: &'static str, reason: &'static str },
@@ -475,6 +484,96 @@ impl ClockOperator<'_> {
 
         Ok(())
     }
+
+    fn configure_sirc_clocks(&mut self) -> Result<(), ClockError> {
+        let SircConfig {
+            power,
+            fro_12m_enabled,
+            fro_lf_div,
+        } = &self.config.sirc;
+        let base_freq = 12_000_000;
+
+        // Allow writes
+        self.scg0.sirccsr().modify(|_r, w| w.lk().write_enabled());
+        self.clocks.fro_12m_root = Some(Clock {
+            frequency: base_freq,
+            power: *power,
+        });
+
+        let deep = match power {
+            PoweredClock::HighPowerOnly => Sircsten::Disabled,
+            PoweredClock::AlwaysEnabled => Sircsten::Enabled,
+        };
+        let pclk = if *fro_12m_enabled {
+            self.clocks.fro_12m = Some(Clock {
+                frequency: base_freq,
+                power: *power,
+            });
+            self.clocks.clk_1m = Some(Clock {
+                frequency: base_freq / 12,
+                power: *power,
+            });
+            SircClkPeriphEn::Enabled
+        } else {
+            SircClkPeriphEn::Disabled
+        };
+
+        // Set sleep/peripheral usage
+        self.scg0.sirccsr().modify(|_r, w| {
+            w.sircsten().variant(deep);
+            w.sirc_clk_periph_en().variant(pclk);
+            w
+        });
+
+        while self.scg0.sirccsr().read().sircvld().is_disabled_or_not_valid() {}
+        if self.scg0.sirccsr().read().sircerr().is_error_detected() {
+            return Err(ClockError::BadConfig {
+                clock: "sirc",
+                reason: "error set",
+            });
+        }
+
+        // reset lock
+        self.scg0.sirccsr().modify(|_r, w| w.lk().write_disabled());
+
+        // Do we enable the `fro_lf_div` output?
+        if let Some(d) = fro_lf_div.as_ref() {
+            // We need `fro_lf` to be enabled
+            if !*fro_12m_enabled {
+                return Err(ClockError::BadConfig {
+                    clock: "fro_lf_div",
+                    reason: "fro_12m not enabled",
+                });
+            }
+
+            // Halt and reset the div
+            self.syscon.frolfdiv().write(|w| {
+                w.halt().halt();
+                w.reset().asserted();
+                w
+            });
+            // Then change the div, unhalt it, and reset it
+            self.syscon.frolfdiv().write(|w| {
+                unsafe {
+                    w.div().bits(d.into_bits());
+                }
+                w.halt().run();
+                w.reset().released();
+                w
+            });
+
+            // Wait for clock to stabilize
+            while self.syscon.frolfdiv().read().unstab().is_ongoing() {}
+
+            // Store off the clock info
+            self.clocks.fro_lf_div = Some(Clock {
+                frequency: base_freq / d.into_divisor(),
+                power: *power,
+            });
+        }
+
+        todo!()
+    }
 }
 
 pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
@@ -497,7 +596,8 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     };
 
     operator.configure_firc_clocks()?;
-    // TODO, SIRC, and everything downstream
+    operator.configure_sirc_clocks()?;
+    // TODO, everything downstream
 
     Ok(())
 }
