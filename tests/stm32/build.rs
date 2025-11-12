@@ -15,6 +15,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         feature = "stm32c071rb", // 24 kb
         feature = "stm32l073rz", // 20 kb
         feature = "stm32h503rb", // 32 kb
+        feature = "stm32f072rb", // 16 kb - I2C v2 test with async too large for RAM
         // no VTOR, so interrupts can't work when running from RAM
         feature = "stm32f091rc",
     )) {

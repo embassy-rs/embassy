@@ -225,7 +225,14 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
     fn reload(info: &'static Info, length: usize, will_reload: bool, stop: Stop, timeout: Timeout) -> Result<(), Error> {
         assert!(length < 256 && length > 0);
 
-        while !info.regs.isr().read().tcr() {
+        // Wait for either TCR (Transfer Complete Reload) or TC (Transfer Complete)
+        // TCR occurs when RELOAD=1, TC occurs when RELOAD=0
+        // Both indicate the peripheral is ready for the next transfer
+        loop {
+            let isr = info.regs.isr().read();
+            if isr.tcr() || isr.tc() {
+                break;
+            }
             timeout.check()?;
         }
 
@@ -885,12 +892,12 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                         address,
                         total_len.min(255),
                         Stop::Software,
-                        (total_len > 255) || !last_slice,
+                        total_len > 255,
                         restart,
                         timeout,
                     )?;
                 } else {
-                    Self::reload(self.info, total_len.min(255), (total_len > 255) || !last_slice, Stop::Software, timeout)?;
+                    Self::reload(self.info, total_len.min(255), total_len > 255, Stop::Software, timeout)?;
                     self.info.regs.cr1().modify(|w| w.set_tcie(true));
                 }
             } else if !(isr.tcr() || isr.tc()) {
@@ -899,9 +906,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             } else if remaining_len == 0 {
                 return Poll::Ready(Ok(()));
             } else {
-                let last_piece = (remaining_len <= 255) && last_slice;
-
-                if let Err(e) = Self::reload(self.info, remaining_len.min(255), !last_piece, Stop::Software, timeout) {
+                if let Err(e) = Self::reload(self.info, remaining_len.min(255), remaining_len > 255, Stop::Software, timeout) {
                     return Poll::Ready(Err(e));
                 }
                 self.info.regs.cr1().modify(|w| w.set_tcie(true));
@@ -913,10 +918,9 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         .await?;
 
         dma_transfer.await;
-        if last_slice {
-            // This should be done already
-            self.wait_tc(timeout)?;
-        }
+
+        // Always wait for TC after DMA completes - needed for consecutive buffers
+        self.wait_tc(timeout)?;
 
         if last_slice & send_stop {
             self.master_stop();
@@ -1173,56 +1177,9 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         is_last_group: bool,
         timeout: Timeout,
     ) -> Result<(), Error> {
-        // Calculate total bytes across all operations in this group
-        let total_bytes = Self::total_operation_bytes(operations);
-
-        if total_bytes == 0 {
-            // Handle empty write group using blocking call
-            if is_first_group {
-                Self::master_write(self.info, address, 0, Stop::Software, false, !is_first_group, timeout)?;
-            }
-            if is_last_group {
-                self.master_stop();
-            }
-            return Ok(());
-        }
-
-        let send_stop = is_last_group;
-
-        // Use DMA for each operation in the group
-        let mut first_in_group = true;
-        let mut remaining_operations = operations.len();
-
-        for operation in operations {
-            if let Operation::Write(buffer) = operation {
-                remaining_operations -= 1;
-                let is_last_in_group = remaining_operations == 0;
-
-                if buffer.is_empty() {
-                    // Skip empty buffers
-                    continue;
-                }
-
-                let fut = self.write_dma_internal(
-                    address,
-                    buffer,
-                    first_in_group && is_first_group,  // first_slice
-                    is_last_in_group && is_last_group, // last_slice
-                    send_stop && is_last_in_group,     // send_stop
-                    !is_first_group && first_in_group, // restart
-                    timeout,
-                );
-                timeout.with(fut).await?;
-                first_in_group = false;
-            }
-        }
-
-        // If not last group, wait for TC to enable RESTART
-        if !is_last_group {
-            self.wait_tc(timeout)?;
-        }
-
-        Ok(())
+        // For now, use blocking implementation for write groups
+        // This avoids complexity of handling multiple non-contiguous buffers with DMA
+        self.execute_write_group(address, operations, is_first_group, is_last_group, timeout)
     }
 
     async fn execute_read_group_async(
@@ -1255,10 +1212,10 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             return Ok(());
         }
 
-        // For read operations, we need to handle them differently since read_dma_internal
-        // expects a single buffer. We'll iterate through operations and use DMA for each.
-        let mut total_remaining = total_bytes;
+        // Use DMA for read operations - need to handle multiple buffers
         let restart = !is_first_group;
+        let mut total_remaining = total_bytes;
+        let mut is_first_in_group = true;
 
         for operation in operations {
             if let Operation::Read(buffer) = operation {
@@ -1267,57 +1224,46 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                     continue;
                 }
 
-                let is_first_read = total_remaining == total_bytes;
                 let buf_len = buffer.len();
                 total_remaining -= buf_len;
-                let is_last_read = total_remaining == 0;
+                let is_last_in_group = total_remaining == 0;
 
-                if is_first_read {
-                    // First read in the group
-                    let completed_chunks = buf_len / 255;
-                    let total_chunks = if completed_chunks * 255 == buf_len {
-                        completed_chunks
+                // Perform DMA read
+                if is_first_in_group {
+                    // First buffer: use read_dma_internal which handles restart properly
+                    // Only use Automatic stop if this is the last buffer in the last group
+                    let stop_mode = if is_last_group && is_last_in_group {
+                        Stop::Automatic
                     } else {
-                        completed_chunks + 1
+                        Stop::Software
                     };
-                    let last_chunk_idx = total_chunks.saturating_sub(1);
 
-                    // Use master_read to initiate, then DMA for data
-                    Self::master_read(
-                        self.info,
+                    // We need a custom DMA read that respects our stop mode
+                    self.read_dma_group_internal(
                         address,
-                        buf_len.min(255),
-                        if is_last_group && is_last_read {
-                            Stop::Automatic
-                        } else {
-                            Stop::Software
-                        },
-                        last_chunk_idx != 0 || !is_last_read, // reload
+                        buffer,
                         restart,
+                        stop_mode,
                         timeout,
-                    )?;
-                }
+                    )
+                    .await?;
+                    is_first_in_group = false;
+                } else {
+                    // Subsequent buffers: need to reload and continue
+                    let stop_mode = if is_last_group && is_last_in_group {
+                        Stop::Automatic
+                    } else {
+                        Stop::Software
+                    };
 
-                // Use the existing read_dma_internal, but we need to handle the reload logic ourselves
-                // For simplicity with consecutive reads, fall back to blocking for now
-                // This maintains correctness while keeping complexity manageable
-                for (chunk_idx, chunk) in buffer.chunks_mut(255).enumerate() {
-                    let chunk_len = chunk.len();
-                    let is_very_last = total_remaining == 0 && chunk_len == chunk.len();
-
-                    if !is_first_read || chunk_idx != 0 {
-                        let stop = if is_last_group && is_very_last {
-                            Stop::Automatic
-                        } else {
-                            Stop::Software
-                        };
-                        Self::reload(self.info, chunk_len, !(is_last_group && is_very_last), stop, timeout)?;
-                    }
-
-                    for byte in chunk {
-                        self.wait_rxne(timeout)?;
-                        *byte = self.info.regs.rxdr().read().rxdata();
-                    }
+                    self.read_dma_group_internal(
+                        address,
+                        buffer,
+                        false, // no restart for subsequent buffers in same group
+                        stop_mode,
+                        timeout,
+                    )
+                    .await?;
                 }
             }
         }
@@ -1326,9 +1272,108 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         if is_last_group {
             self.wait_stop(timeout)?;
         }
-        // For non-last read groups, don't wait for TC - the peripheral may hold SCL low
-        // in Software AUTOEND mode until the next START is issued. Just proceed directly
-        // to the next group which will issue RESTART and release the clock.
+
+        Ok(())
+    }
+
+    /// Internal DMA read helper for transaction groups
+    async fn read_dma_group_internal(
+        &mut self,
+        address: Address,
+        buffer: &mut [u8],
+        restart: bool,
+        stop_mode: Stop,
+        timeout: Timeout,
+    ) -> Result<(), Error> {
+        let total_len = buffer.len();
+
+        let dma_transfer = unsafe {
+            let regs = self.info.regs;
+            regs.cr1().modify(|w| {
+                w.set_rxdmaen(true);
+                w.set_tcie(true);
+                w.set_nackie(true);
+                w.set_errie(true);
+            });
+            let src = regs.rxdr().as_ptr() as *mut u8;
+
+            self.rx_dma.as_mut().unwrap().read(src, buffer, Default::default())
+        };
+
+        let mut remaining_len = total_len;
+
+        let on_drop = OnDrop::new(|| {
+            let regs = self.info.regs;
+            regs.cr1().modify(|w| {
+                w.set_rxdmaen(false);
+                w.set_tcie(false);
+                w.set_nackie(false);
+                w.set_errie(false);
+            });
+            regs.icr().write(|w| {
+                w.set_nackcf(true);
+                w.set_berrcf(true);
+                w.set_arlocf(true);
+                w.set_ovrcf(true);
+            });
+        });
+
+        poll_fn(|cx| {
+            self.state.waker.register(cx.waker());
+
+            let isr = self.info.regs.isr().read();
+
+            if isr.nackf() {
+                return Poll::Ready(Err(Error::Nack));
+            }
+            if isr.arlo() {
+                return Poll::Ready(Err(Error::Arbitration));
+            }
+            if isr.berr() {
+                return Poll::Ready(Err(Error::Bus));
+            }
+            if isr.ovr() {
+                return Poll::Ready(Err(Error::Overrun));
+            }
+
+            if remaining_len == total_len {
+                Self::master_read(
+                    self.info,
+                    address,
+                    total_len.min(255),
+                    stop_mode,
+                    total_len > 255, // reload
+                    restart,
+                    timeout,
+                )?;
+                if total_len <= 255 {
+                    return Poll::Ready(Ok(()));
+                }
+            } else if isr.tcr() {
+                // Transfer Complete Reload - need to set up next chunk
+                let last_piece = remaining_len <= 255;
+
+                if let Err(e) = Self::reload(self.info, remaining_len.min(255), !last_piece, stop_mode, timeout) {
+                    return Poll::Ready(Err(e));
+                }
+                // Return here if we are on last chunk,
+                // end of transfer will be awaited with the DMA below
+                if last_piece {
+                    return Poll::Ready(Ok(()));
+                }
+                self.info.regs.cr1().modify(|w| w.set_tcie(true));
+            } else {
+                // poll_fn was woken without TCR interrupt
+                return Poll::Pending;
+            }
+
+            remaining_len = remaining_len.saturating_sub(255);
+            Poll::Pending
+        })
+        .await?;
+
+        dma_transfer.await;
+        drop(on_drop);
 
         Ok(())
     }

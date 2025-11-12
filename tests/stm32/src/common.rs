@@ -109,7 +109,7 @@ define_peris!(
 define_peris!(
     UART = USART1, UART_TX = PA9, UART_RX = PA10, UART_TX_DMA = DMA1_CH4, UART_RX_DMA = DMA1_CH5,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
-    I2C = I2C1, I2C_SCL = PB8, I2C_SDA = PB9,
+    I2C = I2C1, I2C_SCL = PB8, I2C_SDA = PB9, I2C_TX_DMA = DMA1_CH6, I2C_RX_DMA = DMA1_CH7,
     @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
     @irq I2C = {I2C1 => embassy_stm32::i2c::EventInterruptHandler<embassy_stm32::peripherals::I2C1>, embassy_stm32::i2c::ErrorInterruptHandler<embassy_stm32::peripherals::I2C1>;},
 );
