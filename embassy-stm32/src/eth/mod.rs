@@ -111,7 +111,7 @@ impl<'d, T: Instance, P: Phy> embassy_net_driver::Driver for Ethernet<'d, T, P> 
     }
 
     fn link_state(&mut self, cx: &mut Context) -> LinkState {
-        if self.phy.poll_link(&mut self.station_management, cx) {
+        if self.phy.poll_link(cx) {
             LinkState::Up
         } else {
             LinkState::Down
@@ -162,21 +162,14 @@ impl<'a, 'd> embassy_net_driver::TxToken for TxToken<'a, 'd> {
 /// Trait for an Ethernet PHY
 pub trait Phy {
     /// Reset PHY and wait for it to come out of reset.
-    fn phy_reset<S: StationManagement>(&mut self, sm: &mut S);
+    fn phy_reset(&mut self);
     /// PHY initialisation.
-    fn phy_init<S: StationManagement>(&mut self, sm: &mut S);
+    fn phy_init(&mut self);
     /// Poll link to see if it is up and FD with 100Mbps
-    fn poll_link<S: StationManagement>(&mut self, sm: &mut S, cx: &mut Context) -> bool;
+    fn poll_link(&mut self, cx: &mut Context) -> bool;
 }
 
 impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
-    /// Directly expose the SMI interface used by the Ethernet driver.
-    ///
-    /// This can be used to for example configure special PHY registers for compliance testing.
-    pub fn station_management(&mut self) -> &mut impl StationManagement {
-        &mut self.station_management
-    }
-
     /// Access the user-supplied `Phy`.
     pub fn phy(&self) -> &P {
         &self.phy

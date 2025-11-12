@@ -39,17 +39,4 @@ impl SealedInstance for crate::peripherals::ETH_SMA {
     }
 }
 
-impl<T: crate::eth::Instance> SealedInstance for T {
-    fn regs() -> (Reg<AddressRegister, RW>, Reg<DataRegister, RW>) {
-        let mac = <T as crate::eth::SealedInstance>::regs().ethernet_mac();
-
-        #[cfg(any(eth_v1a, eth_v1b, eth_v1c))]
-        return (mac.macmiiar(), mac.macmiidr());
-
-        #[cfg(eth_v2)]
-        return (mac.macmdioar(), mac.macmdiodr());
-    }
-}
-
 impl Instance for crate::peripherals::ETH_SMA {}
-impl<T: crate::eth::Instance> Instance for T {}
