@@ -36,6 +36,7 @@ embedded-io-async = { version = "0.6.1" }
 nb = "1.1.0"
 
 [dev-dependencies]
+defmt = "1.0"
 defmt-rtt = "1.0"
 panic-probe = { version = "1.0", features = ["print-defmt"] }
 
@@ -52,51 +53,39 @@ unstable-pac = []
 
 [[example]]
 name = "hello"
-required-features = ["lpuart2"]
 
 [[example]]
 name = "blink"
-required-features = ["gpio", "ostimer0"]
 
 [[example]]
 name = "uart_interrupt"
-required-features = ["lpuart2", "ostimer0"]
 
 [[example]]
 name = "ostimer_alarm"
-required-features = ["lpuart2", "ostimer0"]
 
 [[example]]
 name = "ostimer_async"
-required-features = ["lpuart2", "ostimer0"]
 
 [[example]]
 name = "ostimer_counter"
-required-features = ["lpuart2", "ostimer0"]
 
 [[example]]
 name = "ostimer_race_test"
-required-features = ["lpuart2", "ostimer0"]
 
 [[example]]
 name = "lpuart_polling"
-required-features = ["lpuart2", "ostimer0"]
 
 [[example]]
 name = "lpuart_buffered"
-required-features = ["lpuart2", "ostimer0"]
 
 [[example]]
 name = "rtc_alarm"
-required-features = ["lpuart2", "rtc0"]
 
 [[example]]
 name = "adc_polling"
-required-features = ["adc1", "lpuart2"]
 
 [[example]]
 name = "adc_interrupt"
-required-features = ["adc1", "lpuart2"]
 
 [profile.release]
 debug = 2

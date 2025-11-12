@@ -3,11 +3,11 @@
 
 use embassy_executor::Spawner;
 use hal::adc::{LpadcConfig, TriggerPriorityPolicy};
-use hal::pac::adc1::cfg::{Pwrsel, Refsel};
-use hal::pac::adc1::cmdl1::{Adch, Mode};
-use hal::pac::adc1::ctrl::CalAvgs;
-use hal::pac::adc1::tctrl::Tcmd;
 use hal::uart;
+use mcxa_pac::adc1::cfg::{Pwrsel, Refsel};
+use mcxa_pac::adc1::cmdl1::{Adch, Mode};
+use mcxa_pac::adc1::ctrl::CalAvgs;
+use mcxa_pac::adc1::tctrl::Tcmd;
 use {cortex_m, embassy_mcxa276 as hal};
 mod common;
 

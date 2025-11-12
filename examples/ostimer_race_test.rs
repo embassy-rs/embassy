@@ -267,7 +267,7 @@ async fn test_concurrent_operations(
 async fn test_reset_during_operation(
     ostimer: &hal::ostimer::Ostimer<'_, hal::ostimer::Ostimer0>,
     uart: &mut hal::uart::Uart<hal::uart::Lpuart2>,
-    peripherals: &hal::pac::Peripherals,
+    peripherals: &mcxa_pac::Peripherals,
 ) {
     let initial_counter = ostimer.now();
 
