@@ -170,6 +170,11 @@ fn main() {
                     }
                     singletons.push(p.name.to_string());
                 }
+
+                "eth" => {
+                    singletons.push(p.name.to_string());
+                    singletons.push("ETH_SMA".to_string());
+                }
                 //"dbgmcu" => {}
                 //"syscfg" => {}
                 //"dma" => {}

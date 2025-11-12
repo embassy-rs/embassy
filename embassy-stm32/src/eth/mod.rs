@@ -5,6 +5,7 @@
 #[cfg_attr(eth_v2, path = "v2/mod.rs")]
 mod _version;
 mod generic_phy;
+mod sma;
 
 use core::mem::MaybeUninit;
 use core::task::Context;
