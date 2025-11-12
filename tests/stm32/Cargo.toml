@@ -35,6 +35,7 @@ stm32wb55rg = ["embassy-stm32/stm32wb55rg", "chrono", "not-gpdma", "ble", "mac" 
 stm32wba52cg = ["embassy-stm32/stm32wba52cg", "spi-v345", "chrono", "rng", "hash"]
 stm32wl55jc = ["embassy-stm32/stm32wl55jc-cm4", "not-gpdma", "rng", "chrono"]
 stm32f091rc = ["embassy-stm32/stm32f091rc", "cm0", "not-gpdma", "chrono"]
+stm32f072rb = ["embassy-stm32/stm32f072rb", "cm0", "not-gpdma", "chrono"]
 stm32h503rb = ["embassy-stm32/stm32h503rb", "spi-v345", "rng", "stop"]
 stm32h7s3l8 = ["embassy-stm32/stm32h7s3l8", "spi-v345", "rng", "cordic", "hash-v34"] # TODO: fdcan crashes, cryp dma hangs.
 stm32u083rc = ["embassy-stm32/stm32u083rc", "cm0", "rng", "chrono"]
@@ -158,6 +159,11 @@ required-features = []
 name = "hash"
 path = "src/bin/hash.rs"
 required-features = [ "hash",]
+
+[[bin]]
+name = "i2c_v2"
+path = "src/bin/i2c_v2.rs"
+required-features = [ "stm32f072rb",]
 
 [[bin]]
 name = "rng"
@@ -285,6 +291,7 @@ build = [
   { target = "thumbv7em-none-eabi", features = ["stm32wl55jc"], artifact-dir = "out/tests/stm32wl55jc" },
   { target = "thumbv7em-none-eabi", features = ["stm32h7s3l8"], artifact-dir = "out/tests/stm32h7s3l8" },
   { target = "thumbv6m-none-eabi", features = ["stm32f091rc"], artifact-dir = "out/tests/stm32f091rc" },
+  { target = "thumbv6m-none-eabi", features = ["stm32f072rb"], artifact-dir = "out/tests/stm32f072rb" },
   { target = "thumbv8m.main-none-eabihf", features = ["stm32h503rb"], artifact-dir = "out/tests/stm32h503rb" },
   { target = "thumbv6m-none-eabi", features = ["stm32u083rc"], artifact-dir = "out/tests/stm32u083rc" }
 ]

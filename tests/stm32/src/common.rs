@@ -60,6 +60,8 @@ teleprobe_meta::target!(b"nucleo-stm32wl55jc");
 teleprobe_meta::target!(b"nucleo-stm32wba52cg");
 #[cfg(feature = "stm32f091rc")]
 teleprobe_meta::target!(b"nucleo-stm32f091rc");
+#[cfg(feature = "stm32f072rb")]
+teleprobe_meta::target!(b"nucleo-stm32f072rb");
 #[cfg(feature = "stm32h503rb")]
 teleprobe_meta::target!(b"nucleo-stm32h503rb");
 #[cfg(feature = "stm32h7s3l8")]
@@ -102,6 +104,14 @@ define_peris!(
     UART = USART1, UART_TX = PA9, UART_RX = PA10, UART_TX_DMA = DMA1_CH4, UART_RX_DMA = DMA1_CH5,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
     @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
+);
+#[cfg(feature = "stm32f072rb")]
+define_peris!(
+    UART = USART1, UART_TX = PA9, UART_RX = PA10, UART_TX_DMA = DMA1_CH4, UART_RX_DMA = DMA1_CH5,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
+    I2C = I2C1, I2C_SCL = PB8, I2C_SDA = PB9,
+    @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
+    @irq I2C = {I2C1 => embassy_stm32::i2c::EventInterruptHandler<embassy_stm32::peripherals::I2C1>, embassy_stm32::i2c::ErrorInterruptHandler<embassy_stm32::peripherals::I2C1>;},
 );
 #[cfg(any(feature = "stm32f100rd", feature = "stm32f103c8", feature = "stm32f107vc"))]
 define_peris!(
@@ -311,6 +321,21 @@ pub fn config() -> Config {
     }
 
     #[cfg(feature = "stm32f091rc")]
+    {
+        config.rcc.hse = Some(Hse {
+            freq: Hertz(8_000_000),
+            mode: HseMode::Bypass,
+        });
+        config.rcc.pll = Some(Pll {
+            src: PllSource::HSE,
+            prediv: PllPreDiv::DIV1,
+            mul: PllMul::MUL6,
+        });
+        config.rcc.sys = Sysclk::PLL1_P;
+        config.rcc.ahb_pre = AHBPrescaler::DIV1;
+        config.rcc.apb1_pre = APBPrescaler::DIV1;
+    }
+    #[cfg(feature = "stm32f072rb")]
     {
         config.rcc.hse = Some(Hse {
             freq: Hertz(8_000_000),
