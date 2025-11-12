@@ -2,7 +2,7 @@
 #![no_main]
 
 use defmt::*;
-use embassy_stm32::adc::{self, AdcChannel, SampleTime, adc4};
+use embassy_stm32::adc::{self, AdcChannel, AdcConfig, SampleTime, adc4};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -12,19 +12,21 @@ async fn main(_spawner: embassy_executor::Spawner) {
     let mut p = embassy_stm32::init(config);
 
     // **** ADC1 init ****
-    let mut adc1 = adc::Adc::new(p.ADC1);
+    let mut config = AdcConfig::default();
+    config.averaging = Some(adc::Averaging::Samples1024);
+    config.resolution = Some(adc::Resolution::BITS14);
+    let mut adc1 = adc::Adc::new_with_config(p.ADC1, config);
     let mut adc1_pin1 = p.PA3; // A0 on nucleo u5a5
     let mut adc1_pin2 = p.PA2; // A1
-    adc1.set_resolution(adc::Resolution::BITS14);
-    adc1.set_averaging(adc::Averaging::Samples1024);
     let max1 = adc::resolution_to_max_count(adc::Resolution::BITS14);
 
     // **** ADC2 init ****
-    let mut adc2 = adc::Adc::new(p.ADC2);
+    let mut config = AdcConfig::default();
+    config.averaging = Some(adc::Averaging::Samples1024);
+    config.resolution = Some(adc::Resolution::BITS14);
+    let mut adc2 = adc::Adc::new_with_config(p.ADC2, config);
     let mut adc2_pin1 = p.PC3; // A2
     let mut adc2_pin2 = p.PB0; // A3
-    adc2.set_resolution(adc::Resolution::BITS14);
-    adc2.set_averaging(adc::Averaging::Samples1024);
     let max2 = adc::resolution_to_max_count(adc::Resolution::BITS14);
 
     // **** ADC4 init ****

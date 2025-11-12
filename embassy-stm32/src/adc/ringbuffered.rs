@@ -172,7 +172,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
 
 impl<T: Instance> Drop for RingBufferedAdc<'_, T> {
     fn drop(&mut self) {
-        Adc::<T>::teardown_dma();
+        Adc::<T>::stop();
 
         compiler_fence(Ordering::SeqCst);
 
