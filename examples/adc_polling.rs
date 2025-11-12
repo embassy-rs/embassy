@@ -4,11 +4,11 @@
 use embassy_executor::Spawner;
 use embassy_mcxa276 as hal;
 use hal::adc::{ConvResult, LpadcConfig, TriggerPriorityPolicy};
-use hal::pac::adc1::cfg::{Pwrsel, Refsel};
-use hal::pac::adc1::cmdl1::{Adch, Mode};
-use hal::pac::adc1::ctrl::CalAvgs;
-use hal::pac::adc1::tctrl::Tcmd;
 use hal::uart;
+use mcxa_pac::adc1::cfg::{Pwrsel, Refsel};
+use mcxa_pac::adc1::cmdl1::{Adch, Mode};
+use mcxa_pac::adc1::ctrl::CalAvgs;
+use mcxa_pac::adc1::tctrl::Tcmd;
 
 mod common;
 

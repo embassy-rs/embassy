@@ -26,7 +26,7 @@ async fn main(_spawner: Spawner) {
     let p2 = lpuart::lib::init();
 
     unsafe {
-        hal::interrupt::install_irq_handler(mcxa276_pac::Interrupt::LPUART2, lpuart2_handler);
+        hal::interrupt::install_irq_handler(mcxa_pac::Interrupt::LPUART2, lpuart2_handler);
     }
 
     // Configure NVIC for LPUART2
