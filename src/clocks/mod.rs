@@ -6,10 +6,7 @@ use mcxa_pac::scg0::{
 };
 
 use crate::pac;
-
-pub trait SPConfHelper {
-    fn post_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError>;
-}
+pub mod periph_helpers;
 
 // /// Trait describing an AHB clock gate that can be toggled through MRCC.
 // pub trait Gate {
@@ -198,8 +195,20 @@ pub struct Clock {
 
 #[derive(Debug, Clone, Copy)]
 pub enum PoweredClock {
-    HighPowerOnly,
+    NormalEnabledDeepSleepDisabled,
     AlwaysEnabled,
+}
+
+impl PoweredClock {
+    /// Does THIS clock meet the power requirements of the OTHER clock?
+    pub fn meets_requirement_of(&self, other: &Self) -> bool {
+        match (self, other) {
+            (PoweredClock::NormalEnabledDeepSleepDisabled, PoweredClock::AlwaysEnabled) => false,
+            (PoweredClock::NormalEnabledDeepSleepDisabled, PoweredClock::NormalEnabledDeepSleepDisabled) => true,
+            (PoweredClock::AlwaysEnabled, PoweredClock::NormalEnabledDeepSleepDisabled) => true,
+            (PoweredClock::AlwaysEnabled, PoweredClock::AlwaysEnabled) => true,
+        }
+    }
 }
 
 /// ```text
@@ -341,6 +350,7 @@ static CLOCKS: critical_section::Mutex<Option<Clocks>> = critical_section::Mutex
 pub enum ClockError {
     AlreadyInitialized,
     BadConfig { clock: &'static str, reason: &'static str },
+    NotImplemented { clock: &'static str },
 }
 
 struct ClockOperator<'a> {
@@ -417,7 +427,7 @@ impl ClockOperator<'_> {
 
         // When is the FRO enabled?
         let pow_set = match power {
-            PoweredClock::HighPowerOnly => Fircsten::DisabledInStopModes,
+            PoweredClock::NormalEnabledDeepSleepDisabled => Fircsten::DisabledInStopModes,
             PoweredClock::AlwaysEnabled => Fircsten::EnabledInStopModes,
         };
 
@@ -505,7 +515,7 @@ impl ClockOperator<'_> {
         });
 
         let deep = match power {
-            PoweredClock::HighPowerOnly => Sircsten::Disabled,
+            PoweredClock::NormalEnabledDeepSleepDisabled => Sircsten::Disabled,
             PoweredClock::AlwaysEnabled => Sircsten::Enabled,
         };
         let pclk = if *fro_12m_enabled {
@@ -614,4 +624,49 @@ pub fn with_clocks<R: 'static, F: FnOnce(&Clocks) -> R>(f: F) -> Option<R> {
         let c = CLOCKS.borrow(cs).as_ref()?;
         Some(f(c))
     })
+}
+
+impl Clocks {
+    pub fn ensure_fro_lf_div_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
+        let Some(clk) = self.fro_lf_div.as_ref() else {
+            return Err(ClockError::BadConfig { clock: "fro_lf_div", reason: "required but not active" });
+        };
+        if !clk.power.meets_requirement_of(at_level) {
+            return Err(ClockError::BadConfig { clock: "fro_lf_div", reason: "not low power active" });
+        }
+        Ok(clk.frequency)
+    }
+
+    pub fn ensure_fro_hf_div_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
+        let Some(clk) = self.fro_hf_div.as_ref() else {
+            return Err(ClockError::BadConfig { clock: "fro_hf_div", reason: "required but not active" });
+        };
+        if !clk.power.meets_requirement_of(at_level) {
+            return Err(ClockError::BadConfig { clock: "fro_hf_div", reason: "not low power active" });
+        }
+        Ok(clk.frequency)
+    }
+
+    pub fn ensure_clk_in_active(&self, _at_level: &PoweredClock) -> Result<u32, ClockError> {
+        Err(ClockError::NotImplemented { clock: "clk_in" })
+    }
+
+    pub fn ensure_clk_16k_active(&self, _at_level: &PoweredClock) -> Result<u32, ClockError> {
+        Err(ClockError::NotImplemented { clock: "clk_16k" })
+    }
+
+    pub fn ensure_clk_1m_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
+        let Some(clk) = self.clk_1m.as_ref() else {
+            return Err(ClockError::BadConfig { clock: "clk_1m", reason: "required but not active" });
+        };
+        if !clk.power.meets_requirement_of(at_level) {
+            return Err(ClockError::BadConfig { clock: "clk_1m", reason: "not low power active" });
+        }
+        Ok(clk.frequency)
+    }
+
+    pub fn ensure_pll1_clk_div_active(&self, _at_level: &PoweredClock) -> Result<u32, ClockError> {
+        Err(ClockError::NotImplemented { clock: "pll1_clk_div" })
+    }
+
 }
