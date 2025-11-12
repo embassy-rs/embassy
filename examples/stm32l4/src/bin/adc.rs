@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_stm32::Config;
-use embassy_stm32::adc::{Adc, Resolution, SampleTime};
+use embassy_stm32::adc::{Adc, AdcConfig, Resolution, SampleTime};
 use {defmt_rtt as _, panic_probe as _};
 
 #[cortex_m_rt::entry]
@@ -17,9 +17,12 @@ fn main() -> ! {
     }
     let p = embassy_stm32::init(config);
 
-    let mut adc = Adc::new(p.ADC1);
+    let mut config = AdcConfig::default();
+    config.resolution = Some(Resolution::BITS8);
+
+    let mut adc = Adc::new_with_config(p.ADC1, config);
     //adc.enable_vref();
-    adc.set_resolution(Resolution::BITS8);
+
     let mut channel = p.PC0;
 
     loop {

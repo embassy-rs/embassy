@@ -24,11 +24,11 @@ const CHSELR_SQ_SIZE: usize = 8;
 const CHSELR_SQ_MAX_CHANNEL: u8 = 14;
 const CHSELR_SQ_SEQUENCE_END_MARKER: u8 = 0b1111;
 
-impl<T: Instance> super::VrefConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
     const CHANNEL: u8 = 10;
 }
 
-impl<T: Instance> super::TemperatureConverter for T {
+impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
     const CHANNEL: u8 = 9;
 }
 

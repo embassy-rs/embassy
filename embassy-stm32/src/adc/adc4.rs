@@ -4,7 +4,7 @@ use pac::adc::vals::{Adc4Dmacfg as Dmacfg, Adc4Exten as Exten, Adc4OversamplingR
 #[cfg(stm32wba)]
 use pac::adc::vals::{Chselrmod, Cont, Dmacfg, Exten, OversamplingRatio, Ovss, Smpsel};
 
-use super::{AdcChannel, AnyAdcChannel, RxDma4, SealedAdcChannel, blocking_delay_us};
+use super::{AdcChannel, AnyAdcChannel, RxDma4, blocking_delay_us};
 use crate::dma::Transfer;
 #[cfg(stm32u5)]
 pub use crate::pac::adc::regs::Adc4Chselrmod0 as Chselr;
@@ -24,56 +24,24 @@ pub const VREF_DEFAULT_MV: u32 = 3300;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 pub const VREF_CALIB_MV: u32 = 3300;
 
-const VREF_CHANNEL: u8 = 0;
-const VCORE_CHANNEL: u8 = 12;
-const TEMP_CHANNEL: u8 = 13;
-const VBAT_CHANNEL: u8 = 14;
-const DAC_CHANNEL: u8 = 21;
-
-// NOTE: Vrefint/Temperature/Vbat are not available on all ADCs, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
-/// Internal voltage reference channel.
-pub struct VrefInt;
-impl<T: Instance> AdcChannel<T> for VrefInt {}
-impl<T: Instance> SealedAdcChannel<T> for VrefInt {
-    fn channel(&self) -> u8 {
-        VREF_CHANNEL
-    }
+impl<'d, T: Instance> super::SealedSpecialConverter<super::VrefInt> for Adc4<'d, T> {
+    const CHANNEL: u8 = 0;
 }
 
-/// Internal temperature channel.
-pub struct Temperature;
-impl<T: Instance> AdcChannel<T> for Temperature {}
-impl<T: Instance> SealedAdcChannel<T> for Temperature {
-    fn channel(&self) -> u8 {
-        TEMP_CHANNEL
-    }
+impl<'d, T: Instance> super::SealedSpecialConverter<super::Temperature> for Adc4<'d, T> {
+    const CHANNEL: u8 = 13;
 }
 
-/// Internal battery voltage channel.
-pub struct Vbat;
-impl<T: Instance> AdcChannel<T> for Vbat {}
-impl<T: Instance> SealedAdcChannel<T> for Vbat {
-    fn channel(&self) -> u8 {
-        VBAT_CHANNEL
-    }
+impl<'d, T: Instance> super::SealedSpecialConverter<super::Vcore> for Adc4<'d, T> {
+    const CHANNEL: u8 = 12;
 }
 
-/// Internal DAC channel.
-pub struct Dac;
-impl<T: Instance> AdcChannel<T> for Dac {}
-impl<T: Instance> SealedAdcChannel<T> for Dac {
-    fn channel(&self) -> u8 {
-        DAC_CHANNEL
-    }
+impl<'d, T: Instance> super::SealedSpecialConverter<super::Vbat> for Adc4<'d, T> {
+    const CHANNEL: u8 = 14;
 }
 
-/// Internal Vcore channel.
-pub struct Vcore;
-impl<T: Instance> AdcChannel<T> for Vcore {}
-impl<T: Instance> SealedAdcChannel<T> for Vcore {
-    fn channel(&self) -> u8 {
-        VCORE_CHANNEL
-    }
+impl<'d, T: Instance> super::SealedSpecialConverter<super::Dac> for Adc4<'d, T> {
+    const CHANNEL: u8 = 21;
 }
 
 #[derive(Copy, Clone)]
@@ -214,20 +182,6 @@ impl<'d, T: Instance> Adc4<'d, T> {
             );
         }
 
-        let mut s = Self { adc };
-
-        s.power_up();
-
-        s.calibrate();
-        blocking_delay_us(1);
-
-        s.enable();
-        s.configure();
-
-        s
-    }
-
-    fn power_up(&mut self) {
         T::regs().isr().modify(|w| {
             w.set_ldordy(true);
         });
@@ -239,22 +193,15 @@ impl<'d, T: Instance> Adc4<'d, T> {
         T::regs().isr().modify(|w| {
             w.set_ldordy(true);
         });
-    }
 
-    fn calibrate(&mut self) {
         T::regs().cr().modify(|w| w.set_adcal(true));
         while T::regs().cr().read().adcal() {}
         T::regs().isr().modify(|w| w.set_eocal(true));
-    }
 
-    fn enable(&mut self) {
-        T::regs().isr().write(|w| w.set_adrdy(true));
-        T::regs().cr().modify(|w| w.set_aden(true));
-        while !T::regs().isr().read().adrdy() {}
-        T::regs().isr().write(|w| w.set_adrdy(true));
-    }
+        blocking_delay_us(1);
 
-    fn configure(&mut self) {
+        Self::enable();
+
         // single conversion mode, software trigger
         T::regs().cfgr1().modify(|w| {
             #[cfg(stm32u5)]
@@ -280,51 +227,60 @@ impl<'d, T: Instance> Adc4<'d, T> {
                 w.set_smpsel(i, Smpsel::SMP1);
             }
         });
+
+        Self { adc }
+    }
+
+    fn enable() {
+        T::regs().isr().write(|w| w.set_adrdy(true));
+        T::regs().cr().modify(|w| w.set_aden(true));
+        while !T::regs().isr().read().adrdy() {}
+        T::regs().isr().write(|w| w.set_adrdy(true));
     }
 
     /// Enable reading the voltage reference internal channel.
-    pub fn enable_vrefint(&self) -> VrefInt {
+    pub fn enable_vrefint(&self) -> super::VrefInt {
         T::regs().ccr().modify(|w| {
             w.set_vrefen(true);
         });
 
-        VrefInt {}
+        super::VrefInt {}
     }
 
     /// Enable reading the temperature internal channel.
-    pub fn enable_temperature(&self) -> Temperature {
+    pub fn enable_temperature(&self) -> super::Temperature {
         T::regs().ccr().modify(|w| {
             w.set_vsensesel(true);
         });
 
-        Temperature {}
+        super::Temperature {}
     }
 
     /// Enable reading the vbat internal channel.
     #[cfg(stm32u5)]
-    pub fn enable_vbat(&self) -> Vbat {
+    pub fn enable_vbat(&self) -> super::Vbat {
         T::regs().ccr().modify(|w| {
             w.set_vbaten(true);
         });
 
-        Vbat {}
+        super::Vbat {}
     }
 
     /// Enable reading the vbat internal channel.
-    pub fn enable_vcore(&self) -> Vcore {
-        Vcore {}
+    pub fn enable_vcore(&self) -> super::Vcore {
+        super::Vcore {}
     }
 
     /// Enable reading the vbat internal channel.
     #[cfg(stm32u5)]
-    pub fn enable_dac_channel(&self, dac: DacChannel) -> Dac {
+    pub fn enable_dac_channel(&self, dac: DacChannel) -> super::Dac {
         let mux;
         match dac {
             DacChannel::OUT1 => mux = false,
             DacChannel::OUT2 => mux = true,
         }
         T::regs().or().modify(|w| w.set_chn21sel(mux));
-        Dac {}
+        super::Dac {}
     }
 
     /// Set the ADC resolution.

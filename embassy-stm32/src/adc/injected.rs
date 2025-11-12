@@ -38,7 +38,7 @@ impl<T: Instance, const N: usize> InjectedAdc<T, N> {
 
 impl<T: Instance, const N: usize> Drop for InjectedAdc<T, N> {
     fn drop(&mut self) {
-        Adc::<T>::teardown_dma();
+        Adc::<T>::stop();
         compiler_fence(Ordering::SeqCst);
     }
 }

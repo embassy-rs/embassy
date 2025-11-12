@@ -77,7 +77,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     pwm.set_mms2(Mms2::UPDATE);
 
     // Configure regular conversions with DMA
-    let adc1 = Adc::new(p.ADC1);
+    let adc1 = Adc::new(p.ADC1, Default::default());
 
     let vrefint_channel = adc1.enable_vrefint().degrade_adc();
     let pa0 = p.PC1.degrade_adc();
