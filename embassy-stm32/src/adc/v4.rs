@@ -4,11 +4,8 @@ use pac::adc::vals::{Adcaldif, Boost};
 use pac::adc::vals::{Adstp, Difsel, Dmngt, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
 
-use super::{
-    Adc, AdcChannel, AnyAdcChannel, Instance, Resolution, RxDma, SampleTime, SealedAdcChannel, Temperature, Vbat,
-    VrefInt, blocking_delay_us,
-};
-use crate::dma::Transfer;
+use super::{Adc, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt, blocking_delay_us};
+use crate::adc::ConversionMode;
 use crate::time::Hertz;
 use crate::{Peri, pac, rcc};
 
@@ -147,7 +144,48 @@ pub enum Averaging {
     Samples1024,
 }
 
+/// Adc configuration
+#[derive(Default)]
+pub struct AdcConfig {
+    pub resolution: Option<Resolution>,
+    pub averaging: Option<Averaging>,
+}
+
 impl<'d, T: Instance> Adc<'d, T> {
+    pub fn new_with_config(adc: Peri<'d, T>, config: AdcConfig) -> Self {
+        let s = Self::new(adc);
+
+        // Set the ADC resolution.
+        if let Some(resolution) = config.resolution {
+            T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
+        }
+
+        // Set hardware averaging.
+        if let Some(averaging) = config.averaging {
+            let (enable, samples, right_shift) = match averaging {
+                Averaging::Disabled => (false, 0, 0),
+                Averaging::Samples2 => (true, 1, 1),
+                Averaging::Samples4 => (true, 3, 2),
+                Averaging::Samples8 => (true, 7, 3),
+                Averaging::Samples16 => (true, 15, 4),
+                Averaging::Samples32 => (true, 31, 5),
+                Averaging::Samples64 => (true, 63, 6),
+                Averaging::Samples128 => (true, 127, 7),
+                Averaging::Samples256 => (true, 255, 8),
+                Averaging::Samples512 => (true, 511, 9),
+                Averaging::Samples1024 => (true, 1023, 10),
+            };
+
+            T::regs().cfgr2().modify(|reg| {
+                reg.set_rovse(enable);
+                reg.set_ovsr(samples);
+                reg.set_ovss(right_shift);
+            })
+        }
+
+        s
+    }
+
     /// Create a new ADC driver.
     pub fn new(adc: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
@@ -179,37 +217,20 @@ impl<'d, T: Instance> Adc<'d, T> {
             };
             T::regs().cr().modify(|w| w.set_boost(boost));
         }
-        let mut s = Self { adc };
-        s.power_up();
-        s.configure_differential_inputs();
 
-        s.calibrate();
-        blocking_delay_us(1);
-
-        s.enable();
-        s.configure();
-
-        s
-    }
-
-    fn power_up(&mut self) {
         T::regs().cr().modify(|reg| {
             reg.set_deeppwd(false);
             reg.set_advregen(true);
         });
 
         blocking_delay_us(10);
-    }
 
-    fn configure_differential_inputs(&mut self) {
         T::regs().difsel().modify(|w| {
             for n in 0..20 {
                 w.set_difsel(n, Difsel::SINGLE_ENDED);
             }
         });
-    }
 
-    fn calibrate(&mut self) {
         T::regs().cr().modify(|w| {
             #[cfg(not(adc_u5))]
             w.set_adcaldif(Adcaldif::SINGLE_ENDED);
@@ -219,21 +240,131 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().cr().modify(|w| w.set_adcal(true));
 
         while T::regs().cr().read().adcal() {}
+
+        blocking_delay_us(1);
+
+        Self::enable();
+
+        // single conversion mode, software trigger
+        T::regs().cfgr().modify(|w| {
+            w.set_cont(false);
+            w.set_exten(Exten::DISABLED);
+        });
+
+        Self { adc }
     }
 
-    fn enable(&mut self) {
+    pub(super) fn enable() {
         T::regs().isr().write(|w| w.set_adrdy(true));
         T::regs().cr().modify(|w| w.set_aden(true));
         while !T::regs().isr().read().adrdy() {}
         T::regs().isr().write(|w| w.set_adrdy(true));
     }
 
-    fn configure(&mut self) {
-        // single conversion mode, software trigger
-        T::regs().cfgr().modify(|w| {
-            w.set_cont(false);
-            w.set_exten(Exten::DISABLED);
+    pub(super) fn start() {
+        // Start conversion
+        T::regs().cr().modify(|reg| {
+            reg.set_adstart(true);
         });
+    }
+
+    pub(super) fn stop() {
+        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
+            T::regs().cr().modify(|reg| {
+                reg.set_adstp(Adstp::STOP);
+            });
+            while T::regs().cr().read().adstart() {}
+        }
+
+        // Reset configuration.
+        T::regs().cfgr().modify(|reg| {
+            reg.set_cont(false);
+            reg.set_dmngt(Dmngt::from_bits(0));
+        });
+    }
+
+    pub(super) fn convert() -> u16 {
+        T::regs().isr().modify(|reg| {
+            reg.set_eos(true);
+            reg.set_eoc(true);
+        });
+
+        // Start conversion
+        T::regs().cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
+
+        while !T::regs().isr().read().eos() {
+            // spin
+        }
+
+        T::regs().dr().read().0 as u16
+    }
+
+    pub(super) fn configure_dma(conversion_mode: ConversionMode) {
+        match conversion_mode {
+            ConversionMode::Singular => {
+                T::regs().isr().modify(|reg| {
+                    reg.set_ovr(true);
+                });
+                T::regs().cfgr().modify(|reg| {
+                    reg.set_cont(true);
+                    reg.set_dmngt(Dmngt::DMA_ONE_SHOT);
+                });
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    pub(super) fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+        // Set sequence length
+        T::regs().sqr1().modify(|w| {
+            w.set_l(sequence.len() as u8 - 1);
+        });
+
+        // Configure channels and ranks
+        for (i, ((channel, _), sample_time)) in sequence.enumerate() {
+            let sample_time = sample_time.into();
+            if channel <= 9 {
+                T::regs().smpr(0).modify(|reg| reg.set_smp(channel as _, sample_time));
+            } else {
+                T::regs()
+                    .smpr(1)
+                    .modify(|reg| reg.set_smp((channel - 10) as _, sample_time));
+            }
+
+            #[cfg(any(stm32h7, stm32u5))]
+            {
+                T::regs().cfgr2().modify(|w| w.set_lshift(0));
+                T::regs()
+                    .pcsel()
+                    .modify(|w| w.set_pcsel(channel as _, Pcsel::PRESELECTED));
+            }
+
+            match i {
+                0..=3 => {
+                    T::regs().sqr1().modify(|w| {
+                        w.set_sq(i, channel);
+                    });
+                }
+                4..=8 => {
+                    T::regs().sqr2().modify(|w| {
+                        w.set_sq(i - 4, channel);
+                    });
+                }
+                9..=13 => {
+                    T::regs().sqr3().modify(|w| {
+                        w.set_sq(i - 9, channel);
+                    });
+                }
+                14..=15 => {
+                    T::regs().sqr4().modify(|w| {
+                        w.set_sq(i - 14, channel);
+                    });
+                }
+                _ => unreachable!(),
+            }
+        }
     }
 
     /// Enable reading the voltage reference internal channel.
@@ -261,219 +392,5 @@ impl<'d, T: Instance> Adc<'d, T> {
         });
 
         Vbat {}
-    }
-
-    /// Set the ADC resolution.
-    pub fn set_resolution(&mut self, resolution: Resolution) {
-        T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
-    }
-
-    /// Set hardware averaging.
-    pub fn set_averaging(&mut self, averaging: Averaging) {
-        let (enable, samples, right_shift) = match averaging {
-            Averaging::Disabled => (false, 0, 0),
-            Averaging::Samples2 => (true, 1, 1),
-            Averaging::Samples4 => (true, 3, 2),
-            Averaging::Samples8 => (true, 7, 3),
-            Averaging::Samples16 => (true, 15, 4),
-            Averaging::Samples32 => (true, 31, 5),
-            Averaging::Samples64 => (true, 63, 6),
-            Averaging::Samples128 => (true, 127, 7),
-            Averaging::Samples256 => (true, 255, 8),
-            Averaging::Samples512 => (true, 511, 9),
-            Averaging::Samples1024 => (true, 1023, 10),
-        };
-
-        T::regs().cfgr2().modify(|reg| {
-            reg.set_rovse(enable);
-            reg.set_ovsr(samples);
-            reg.set_ovss(right_shift);
-        })
-    }
-
-    /// Perform a single conversion.
-    fn convert(&mut self) -> u16 {
-        T::regs().isr().modify(|reg| {
-            reg.set_eos(true);
-            reg.set_eoc(true);
-        });
-
-        // Start conversion
-        T::regs().cr().modify(|reg| {
-            reg.set_adstart(true);
-        });
-
-        while !T::regs().isr().read().eos() {
-            // spin
-        }
-
-        T::regs().dr().read().0 as u16
-    }
-
-    /// Read an ADC channel.
-    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
-        self.read_channel(channel, sample_time)
-    }
-
-    /// Read one or multiple ADC channels using DMA.
-    ///
-    /// `sequence` iterator and `readings` must have the same length.
-    ///
-    /// Example
-    /// ```rust,ignore
-    /// use embassy_stm32::adc::{Adc, AdcChannel}
-    ///
-    /// let mut adc = Adc::new(p.ADC1);
-    /// let mut adc_pin0 = p.PA0.into();
-    /// let mut adc_pin2 = p.PA2.into();
-    /// let mut measurements = [0u16; 2];
-    ///
-    /// adc.read(
-    ///     p.DMA2_CH0.reborrow(),
-    ///     [
-    ///         (&mut *adc_pin0, SampleTime::CYCLES112),
-    ///         (&mut *adc_pin2, SampleTime::CYCLES112),
-    ///     ]
-    ///     .into_iter(),
-    ///     &mut measurements,
-    /// )
-    /// .await;
-    /// defmt::info!("measurements: {}", measurements);
-    /// ```
-    pub async fn read(
-        &mut self,
-        rx_dma: Peri<'_, impl RxDma<T>>,
-        sequence: impl ExactSizeIterator<Item = (&mut AnyAdcChannel<T>, SampleTime)>,
-        readings: &mut [u16],
-    ) {
-        assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
-        assert!(
-            sequence.len() == readings.len(),
-            "Sequence length must be equal to readings length"
-        );
-        assert!(
-            sequence.len() <= 16,
-            "Asynchronous read sequence cannot be more than 16 in length"
-        );
-
-        // Ensure no conversions are ongoing
-        Self::cancel_conversions();
-
-        // Set sequence length
-        T::regs().sqr1().modify(|w| {
-            w.set_l(sequence.len() as u8 - 1);
-        });
-
-        // Configure channels and ranks
-        for (i, (channel, sample_time)) in sequence.enumerate() {
-            Self::configure_channel(channel, sample_time);
-            match i {
-                0..=3 => {
-                    T::regs().sqr1().modify(|w| {
-                        w.set_sq(i, channel.channel());
-                    });
-                }
-                4..=8 => {
-                    T::regs().sqr2().modify(|w| {
-                        w.set_sq(i - 4, channel.channel());
-                    });
-                }
-                9..=13 => {
-                    T::regs().sqr3().modify(|w| {
-                        w.set_sq(i - 9, channel.channel());
-                    });
-                }
-                14..=15 => {
-                    T::regs().sqr4().modify(|w| {
-                        w.set_sq(i - 14, channel.channel());
-                    });
-                }
-                _ => unreachable!(),
-            }
-        }
-
-        // Set continuous mode with oneshot dma.
-        // Clear overrun flag before starting transfer.
-
-        T::regs().isr().modify(|reg| {
-            reg.set_ovr(true);
-        });
-        T::regs().cfgr().modify(|reg| {
-            reg.set_cont(true);
-            reg.set_dmngt(Dmngt::DMA_ONE_SHOT);
-        });
-
-        let request = rx_dma.request();
-        let transfer = unsafe {
-            Transfer::new_read(
-                rx_dma,
-                request,
-                T::regs().dr().as_ptr() as *mut u16,
-                readings,
-                Default::default(),
-            )
-        };
-
-        // Start conversion
-        T::regs().cr().modify(|reg| {
-            reg.set_adstart(true);
-        });
-
-        // Wait for conversion sequence to finish.
-        transfer.await;
-
-        // Ensure conversions are finished.
-        Self::cancel_conversions();
-
-        // Reset configuration.
-        T::regs().cfgr().modify(|reg| {
-            reg.set_cont(false);
-            reg.set_dmngt(Dmngt::from_bits(0));
-        });
-    }
-
-    fn configure_channel(channel: &mut impl AdcChannel<T>, sample_time: SampleTime) {
-        channel.setup();
-
-        let channel = channel.channel();
-
-        Self::set_channel_sample_time(channel, sample_time);
-
-        #[cfg(any(stm32h7, stm32u5))]
-        {
-            T::regs().cfgr2().modify(|w| w.set_lshift(0));
-            T::regs()
-                .pcsel()
-                .modify(|w| w.set_pcsel(channel as _, Pcsel::PRESELECTED));
-        }
-    }
-
-    fn read_channel(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
-        Self::configure_channel(channel, sample_time);
-
-        T::regs().sqr1().modify(|reg| {
-            reg.set_sq(0, channel.channel());
-            reg.set_l(0);
-        });
-
-        self.convert()
-    }
-
-    fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
-        let sample_time = sample_time.into();
-        if ch <= 9 {
-            T::regs().smpr(0).modify(|reg| reg.set_smp(ch as _, sample_time));
-        } else {
-            T::regs().smpr(1).modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
-        }
-    }
-
-    fn cancel_conversions() {
-        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
-            T::regs().cr().modify(|reg| {
-                reg.set_adstp(Adstp::STOP);
-            });
-            while T::regs().cr().read().adstart() {}
-        }
     }
 }

@@ -4,7 +4,7 @@ use cortex_m::singleton;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::Peripherals;
-use embassy_stm32::adc::{Adc, AdcChannel, RingBufferedAdc, SampleTime};
+use embassy_stm32::adc::{Adc, AdcChannel, RegularConversionMode, RingBufferedAdc, SampleTime};
 use embassy_time::Instant;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -20,8 +20,8 @@ async fn adc_task(p: Peripherals) {
     let adc_data: &mut [u16; ADC_BUF_SIZE] = singleton!(ADCDAT : [u16; ADC_BUF_SIZE] = [0u16; ADC_BUF_SIZE]).unwrap();
     let adc_data2: &mut [u16; ADC_BUF_SIZE] = singleton!(ADCDAT2 : [u16; ADC_BUF_SIZE] = [0u16; ADC_BUF_SIZE]).unwrap();
 
-    let adc = Adc::new(p.ADC1);
-    let adc2 = Adc::new(p.ADC2);
+    let adc = Adc::new_with_config(p.ADC1, Default::default());
+    let adc2 = Adc::new_with_config(p.ADC2, Default::default());
 
     let mut adc: RingBufferedAdc<embassy_stm32::peripherals::ADC1> = adc.into_ring_buffered(
         p.DMA2_CH0,
@@ -31,6 +31,7 @@ async fn adc_task(p: Peripherals) {
             (p.PA2.degrade_adc(), SampleTime::CYCLES112),
         ]
         .into_iter(),
+        RegularConversionMode::Continuous,
     );
     let mut adc2: RingBufferedAdc<embassy_stm32::peripherals::ADC2> = adc2.into_ring_buffered(
         p.DMA2_CH2,
@@ -40,6 +41,7 @@ async fn adc_task(p: Peripherals) {
             (p.PA3.degrade_adc(), SampleTime::CYCLES112),
         ]
         .into_iter(),
+        RegularConversionMode::Continuous,
     );
 
     // Note that overrun is a big consideration in this implementation. Whatever task is running the adc.read() calls absolutely must circle back around

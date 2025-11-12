@@ -32,7 +32,7 @@ async fn main(_spawner: Spawner) {
     }
     let p = embassy_stm32::init(config);
 
-    let mut adc = Adc::new(p.ADC1);
+    let mut adc = Adc::new(p.ADC1, Default::default());
     let mut differential_channel = (p.PA0, p.PA1);
 
     // can also use

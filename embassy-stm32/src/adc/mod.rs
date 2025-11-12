@@ -17,6 +17,9 @@
 #[cfg_attr(adc_c0, path = "c0.rs")]
 mod _version;
 
+#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
+mod ringbuffered;
+
 use core::marker::PhantomData;
 
 #[allow(unused)]
@@ -25,6 +28,8 @@ pub use _version::*;
 use embassy_hal_internal::{PeripheralType, impl_peripheral};
 #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
 use embassy_sync::waitqueue::AtomicWaker;
+#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
+pub use ringbuffered::RingBufferedAdc;
 
 #[cfg(any(adc_u5, adc_wba))]
 #[path = "adc4.rs"]
@@ -105,6 +110,166 @@ pub(crate) fn blocking_delay_us(us: u32) {
     }
 }
 
+#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5))]
+pub(self) enum ConversionMode {
+    #[cfg(any(adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5))]
+    Singular,
+    #[allow(dead_code)]
+    Repeated(RegularConversionMode),
+}
+
+#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5))]
+// Conversion mode for regular ADC channels
+#[derive(Copy, Clone)]
+pub enum RegularConversionMode {
+    // Samples as fast as possible
+    Continuous,
+    #[cfg(adc_g4)]
+    // Sample at rate determined by external trigger
+    Triggered(ConversionTrigger),
+}
+
+impl<'d, T: Instance> Adc<'d, T> {
+    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_u5, adc_v4))]
+    /// Read an ADC pin.
+    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
+        #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5, adc_wba))]
+        channel.setup();
+
+        #[cfg(not(adc_v4))]
+        Self::enable();
+        Self::configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
+
+        Self::convert()
+    }
+
+    #[cfg(any(adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5))]
+    /// Read one or multiple ADC regular channels using DMA.
+    ///
+    /// `sequence` iterator and `readings` must have the same length.
+    ///
+    /// Example
+    /// ```rust,ignore
+    /// use embassy_stm32::adc::{Adc, AdcChannel}
+    ///
+    /// let mut adc = Adc::new(p.ADC1);
+    /// let mut adc_pin0 = p.PA0.into();
+    /// let mut adc_pin1 = p.PA1.into();
+    /// let mut measurements = [0u16; 2];
+    ///
+    /// adc.read(
+    ///     p.DMA1_CH2.reborrow(),
+    ///     [
+    ///         (&mut *adc_pin0, SampleTime::CYCLES160_5),
+    ///         (&mut *adc_pin1, SampleTime::CYCLES160_5),
+    ///     ]
+    ///     .into_iter(),
+    ///     &mut measurements,
+    /// )
+    /// .await;
+    /// defmt::info!("measurements: {}", measurements);
+    /// ```
+    ///
+    /// Note: This is not very efficient as the ADC needs to be reconfigured for each read. Use
+    /// `into_ring_buffered`, `into_ring_buffered_and_injected`
+    pub async fn read(
+        &mut self,
+        rx_dma: embassy_hal_internal::Peri<'_, impl RxDma<T>>,
+        sequence: impl ExactSizeIterator<Item = (&mut AnyAdcChannel<T>, SampleTime)>,
+        readings: &mut [u16],
+    ) {
+        assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
+        assert!(
+            sequence.len() == readings.len(),
+            "Sequence length must be equal to readings length"
+        );
+        assert!(
+            sequence.len() <= 16,
+            "Asynchronous read sequence cannot be more than 16 in length"
+        );
+
+        // Ensure no conversions are ongoing and ADC is enabled.
+        Self::stop();
+        Self::enable();
+
+        Self::configure_sequence(
+            sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
+        );
+
+        Self::configure_dma(ConversionMode::Singular);
+
+        let request = rx_dma.request();
+        let transfer = unsafe {
+            crate::dma::Transfer::new_read(
+                rx_dma,
+                request,
+                T::regs().dr().as_ptr() as *mut u16,
+                readings,
+                Default::default(),
+            )
+        };
+
+        Self::start();
+
+        // Wait for conversion sequence to finish.
+        transfer.await;
+
+        // Ensure conversions are finished.
+        Self::stop();
+    }
+
+    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
+    /// Configures the ADC to use a DMA ring buffer for continuous data acquisition.
+    ///
+    /// Use the [`read`] method to retrieve measurements from the DMA ring buffer. The read buffer
+    /// should be exactly half the size of `dma_buf`. When using triggered mode, it is recommended
+    /// to configure `dma_buf` as a double buffer so that one half can be read while the other half
+    /// is being filled by the DMA, preventing data loss. The trigger period of the ADC effectively
+    /// defines the period at which the buffer should be read.
+    ///
+    /// If continous conversion mode is selected, the provided `dma_buf` must be large enough to prevent
+    /// DMA buffer overruns. Its length should be a multiple of the number of ADC channels being measured.
+    /// For example, if 3 channels are measured and you want to store 40 samples per channel,
+    /// the buffer length should be `3 * 40 = 120`.
+    ///
+    /// # Parameters
+    /// - `dma`: The DMA peripheral used to transfer ADC data into the buffer.
+    /// - `dma_buf`: The buffer where DMA stores ADC samples.
+    /// - `regular_sequence`: Sequence of channels and sample times for regular ADC conversions.
+    /// - `regular_conversion_mode`: Mode for regular conversions (continuous or triggered).
+    ///
+    /// # Returns
+    /// A `RingBufferedAdc<'a, T>` instance configured for continuous DMA-based sampling.
+    pub fn into_ring_buffered<'a>(
+        self,
+        dma: embassy_hal_internal::Peri<'a, impl RxDma<T>>,
+        dma_buf: &'a mut [u16],
+        sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<T>, SampleTime)>,
+        mode: RegularConversionMode,
+    ) -> RingBufferedAdc<'a, T> {
+        assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
+        assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
+        assert!(
+            sequence.len() <= 16,
+            "Asynchronous read sequence cannot be more than 16 in length"
+        );
+        // reset conversions and enable the adc
+        Self::stop();
+        Self::enable();
+
+        //adc side setup
+        Self::configure_sequence(
+            sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
+        );
+
+        Self::configure_dma(ConversionMode::Repeated(mode));
+
+        core::mem::forget(self);
+
+        RingBufferedAdc::new(dma, dma_buf)
+    }
+}
+
 pub(self) trait SpecialChannel {}
 
 /// Implemented for ADCs that have a special channel
@@ -142,6 +307,14 @@ impl SpecialChannel for Temperature {}
 /// Internal battery voltage channel.
 pub struct Vbat;
 impl SpecialChannel for Vbat {}
+
+/// Vcore channel.
+pub struct Vcore;
+impl SpecialChannel for Vcore {}
+
+/// Internal dac channel.
+pub struct Dac;
+impl SpecialChannel for Dac {}
 
 /// ADC instance.
 #[cfg(not(any(
