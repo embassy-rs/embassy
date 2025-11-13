@@ -223,7 +223,7 @@ impl<'d, T: AnyInstance> Adc<'d, T> {
 
         // "The software must wait for the ADC voltage regulator startup time."
         // See datasheet for the value.
-        blocking_delay_us(TIME_ADC_VOLTAGE_REGUALTOR_STARTUP_US + 1);
+        blocking_delay_us(TIME_ADC_VOLTAGE_REGUALTOR_STARTUP_US as u64 + 1);
 
         T::regs().cfgr1().modify(|reg| reg.set_res(resolution));
 
