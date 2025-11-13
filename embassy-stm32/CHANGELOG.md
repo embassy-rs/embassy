@@ -44,7 +44,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix: sdmmc: don't wait for DBCKEND flag on sdmmc_v2 devices as it never fires (Fixes #4723)
 - fix: usart: fix race condition in ringbuffered usart
 - feat: Add backup_sram::init() for H5 devices to access BKPSRAM
-- feat: Add I2C MultiMaster (Slave) support for I2C v1
+- feat: stm32/i2c v1: Add I2C MultiMaster (Slave) support
+- feat: stm32/i2c v2: Add transaction() and blocking_transaction() methods with contract-compliant operation merging
 - feat: stm32/fdcan: add ability to control automatic recovery from bus off ([#4821](https://github.com/embassy-rs/embassy/pull/4821))
 - low-power: update rtc api to allow reconfig
 - adc: consolidate ringbuffer
