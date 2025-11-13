@@ -44,7 +44,6 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
 }
 
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
-    let idx = (sector.start - super::FLASH_BASE as u32) / super::BANK1_REGION.erase_size as u32;
     wait_busy();
     clear_all_err();
 
@@ -54,9 +53,9 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
             #[cfg(any(flash_g0x0, flash_g0x1, flash_g4c3))]
             w.set_bker(sector.bank == crate::flash::FlashBank::Bank2);
             #[cfg(flash_g0x0)]
-            w.set_pnb(idx as u16);
+            w.set_pnb(sector.index_in_bank as u16);
             #[cfg(not(flash_g0x0))]
-            w.set_pnb(idx as u8);
+            w.set_pnb(sector.index_in_bank as u8);
             w.set_strt(true);
         });
     });
