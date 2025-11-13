@@ -143,6 +143,7 @@ impl<T: Instance> super::SealedAnyInstance for T {
                     reg.set_dmngt(Dmngt::DMA_ONE_SHOT);
                 });
             }
+            #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
             _ => unreachable!(),
         }
     }

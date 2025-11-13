@@ -3,6 +3,7 @@ use core::sync::atomic::{Ordering, compiler_fence};
 use super::{ConversionMode, Temperature, Vbat, VrefInt, blocking_delay_us};
 use crate::adc::{Adc, Instance, Resolution, SampleTime};
 use crate::pac::adc::vals;
+pub use crate::pac::adccommon::vals::Adcpre;
 use crate::time::Hertz;
 use crate::{Peri, rcc};
 
@@ -50,38 +51,20 @@ impl Temperature {
     }
 }
 
-enum Prescaler {
-    Div2,
-    Div4,
-    Div6,
-    Div8,
-}
-
-impl Prescaler {
-    fn from_pclk2(freq: Hertz) -> Self {
-        // Datasheet for F2 specifies min frequency 0.6 MHz, and max 30 MHz (with VDDA 2.4-3.6V).
-        #[cfg(stm32f2)]
-        const MAX_FREQUENCY: Hertz = Hertz(30_000_000);
-        // Datasheet for both F4 and F7 specifies min frequency 0.6 MHz, typ freq. 30 MHz and max 36 MHz.
-        #[cfg(not(stm32f2))]
-        const MAX_FREQUENCY: Hertz = Hertz(36_000_000);
-        let raw_div = freq.0 / MAX_FREQUENCY.0;
-        match raw_div {
-            0..=1 => Self::Div2,
-            2..=3 => Self::Div4,
-            4..=5 => Self::Div6,
-            6..=7 => Self::Div8,
-            _ => panic!("Selected PCLK2 frequency is too high for ADC with largest possible prescaler."),
-        }
-    }
-
-    fn adcpre(&self) -> crate::pac::adccommon::vals::Adcpre {
-        match self {
-            Prescaler::Div2 => crate::pac::adccommon::vals::Adcpre::DIV2,
-            Prescaler::Div4 => crate::pac::adccommon::vals::Adcpre::DIV4,
-            Prescaler::Div6 => crate::pac::adccommon::vals::Adcpre::DIV6,
-            Prescaler::Div8 => crate::pac::adccommon::vals::Adcpre::DIV8,
-        }
+fn from_pclk2(freq: Hertz) -> Adcpre {
+    // Datasheet for F2 specifies min frequency 0.6 MHz, and max 30 MHz (with VDDA 2.4-3.6V).
+    #[cfg(stm32f2)]
+    const MAX_FREQUENCY: Hertz = Hertz(30_000_000);
+    // Datasheet for both F4 and F7 specifies min frequency 0.6 MHz, typ freq. 30 MHz and max 36 MHz.
+    #[cfg(not(stm32f2))]
+    const MAX_FREQUENCY: Hertz = Hertz(36_000_000);
+    let raw_div = freq.0 / MAX_FREQUENCY.0;
+    match raw_div {
+        0..=1 => Adcpre::DIV2,
+        2..=3 => Adcpre::DIV4,
+        4..=5 => Adcpre::DIV6,
+        6..=7 => Adcpre::DIV8,
+        _ => panic!("Selected PCLK2 frequency is too high for ADC with largest possible prescaler."),
     }
 }
 
@@ -224,8 +207,8 @@ where
     pub fn new_with_config(adc: Peri<'d, T>, config: AdcConfig) -> Self {
         rcc::enable_and_reset::<T>();
 
-        let presc = Prescaler::from_pclk2(T::frequency());
-        T::common_regs().ccr().modify(|w| w.set_adcpre(presc.adcpre()));
+        let presc = from_pclk2(T::frequency());
+        T::common_regs().ccr().modify(|w| w.set_adcpre(presc));
         T::regs().cr2().modify(|reg| {
             reg.set_adon(true);
         });

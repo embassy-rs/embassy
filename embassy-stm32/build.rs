@@ -1707,7 +1707,7 @@ fn main() {
         for e in psc_enums.iter() {
             fn is_adc_name(e: &str) -> bool {
                 match e {
-                    "Presc" | "Adc4Presc" => true,
+                    "Presc" | "Adc4Presc" | "Adcpre" => true,
                     _ => false,
                 }
             }
