@@ -2,15 +2,14 @@
 #![no_main]
 
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
+use embassy_mcxa_examples::init_uart2;
 use hal::rtc::{RtcDateTime, RtcInterruptEnable};
 use hal::{uart, InterruptExt};
-use {cortex_m, embassy_mcxa276 as hal};
-
-mod common;
 
 type MyRtc = hal::rtc::Rtc<hal::rtc::Rtc0>;
 
-use embassy_mcxa276::bind_interrupts;
+use embassy_mcxa::bind_interrupts;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -26,7 +25,7 @@ async fn main(_spawner: Spawner) {
     let p = hal::init(hal::config::Config::default());
 
     unsafe {
-        common::init_uart2(hal::pac());
+        init_uart2(hal::pac());
     }
 
     let src = unsafe { hal::clocks::uart2_src_hz(hal::pac()) };
@@ -82,6 +81,4 @@ async fn main(_spawner: Spawner) {
     }
 
     uart.write_str_blocking("Example complete - Test PASSED!\r\n");
-
-    loop {}
 }

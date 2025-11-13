@@ -2,12 +2,9 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa276 as hal;
+use embassy_mcxa_examples::init_uart2;
 use hal::uart;
-
-mod common;
-
-use {defmt_rtt as _, panic_probe as _};
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 /// Simple helper to write a byte as hex to UART
 fn write_hex_byte(uart: &hal::uart::Uart<hal::uart::Lpuart2>, byte: u8) {
@@ -24,7 +21,7 @@ async fn main(_spawner: Spawner) {
 
     // Board-level init for UART2 clocks and pins.
     unsafe {
-        common::init_uart2(hal::pac());
+        init_uart2(hal::pac());
     }
 
     // Get UART source frequency from clock configuration
@@ -74,7 +71,7 @@ async fn main(_spawner: Spawner) {
                     } else {
                         uart.write_str_blocking("Invalid number for hex command\r\n");
                     }
-                } else if command.len() > 0 {
+                } else if !command.is_empty() {
                     uart.write_str_blocking("Unknown command: ");
                     uart.write_str_blocking(core::str::from_utf8(command).unwrap_or(""));
                     uart.write_str_blocking("\r\n");
@@ -103,7 +100,7 @@ async fn main(_spawner: Spawner) {
 fn parse_u8(bytes: &[u8]) -> Result<u8, ()> {
     let mut result = 0u8;
     for &b in bytes {
-        if b >= b'0' && b <= b'9' {
+        if b.is_ascii_digit() {
             result = result.checked_mul(10).ok_or(())?;
             result = result.checked_add(b - b'0').ok_or(())?;
         } else {

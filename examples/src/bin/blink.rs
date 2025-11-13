@@ -2,14 +2,12 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa276 as hal;
+use embassy_mcxa as hal;
+use embassy_mcxa::bind_interrupts;
+use embassy_mcxa_examples::{init_led, init_ostimer0};
 use embassy_time::{Duration, Timer};
 use hal::gpio::pins::PIO3_18;
 use hal::gpio::{Level, Output};
-
-mod common;
-
-use embassy_mcxa276::bind_interrupts;
 
 // Bind only OS_EVENT for timer interrupts
 bind_interrupts!(struct Irqs {
@@ -24,13 +22,9 @@ static KEEP_OS_EVENT: unsafe extern "C" fn() = OS_EVENT;
 async fn main(_spawner: Spawner) {
     let _p = hal::init(hal::config::Config::default());
 
-    // Board-style init: enable LED GPIO/PORT clocks used by blink
     unsafe {
-        common::init_led(hal::pac());
-    }
-    // Initialize OSTIMER for async timing
-    unsafe {
-        common::init_ostimer0(hal::pac());
+        init_led(hal::pac());
+        init_ostimer0(hal::pac());
     }
 
     // Initialize embassy-time global driver backed by OSTIMER0

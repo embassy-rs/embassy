@@ -2,11 +2,9 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use {defmt_rtt as _, embassy_mcxa276 as hal, panic_probe as _};
-
-use crate::hal::lpuart::{lib, Config, Lpuart};
-
-mod common;
+use embassy_mcxa_examples::init_uart2;
+use hal::lpuart::{lib, Config, Lpuart};
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -17,7 +15,7 @@ async fn main(_spawner: Spawner) {
 
     // Board-level init for UART2 clocks and pins.
     unsafe {
-        common::init_uart2(hal::pac());
+        init_uart2(hal::pac());
     }
 
     // Create UART configuration

@@ -2,14 +2,11 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa276 as hal;
+use embassy_mcxa::bind_interrupts;
+use embassy_mcxa_examples::init_uart2;
 use hal::interrupt::typelevel::Handler;
 use hal::uart;
-
-mod common;
-
-use embassy_mcxa276::bind_interrupts;
-use {defmt_rtt as _, panic_probe as _};
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Bind LPUART2 interrupt to our handler
 bind_interrupts!(struct Irqs {
@@ -31,7 +28,7 @@ async fn main(_spawner: Spawner) {
 
     // Enable/clock UART2 before touching its registers
     unsafe {
-        common::init_uart2(hal::pac());
+        init_uart2(hal::pac());
     }
     let src = unsafe { hal::clocks::uart2_src_hz(hal::pac()) };
     let uart = uart::Uart::<uart::Lpuart2>::new(_p.LPUART2, uart::Config::new(src));

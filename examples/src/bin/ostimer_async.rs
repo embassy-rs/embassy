@@ -2,14 +2,11 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa276 as hal;
-use hal::uart;
-
-mod common;
-
-use embassy_mcxa276::bind_interrupts;
+use embassy_mcxa::bind_interrupts;
+use embassy_mcxa_examples::{init_ostimer0, init_uart2};
 use embassy_time::{Duration, Timer};
-use {defmt_rtt as _, panic_probe as _};
+use hal::uart;
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Bind only OS_EVENT, and retain the symbol explicitly so it can’t be GC’ed.
 bind_interrupts!(struct Irqs {
@@ -26,10 +23,8 @@ async fn main(_spawner: Spawner) {
 
     // Enable/clock OSTIMER0 and UART2 before touching their registers
     unsafe {
-        common::init_ostimer0(hal::pac());
-    }
-    unsafe {
-        common::init_uart2(hal::pac());
+        init_ostimer0(hal::pac());
+        init_uart2(hal::pac());
     }
     let src = unsafe { hal::clocks::uart2_src_hz(hal::pac()) };
     let uart = uart::Uart::<uart::Lpuart2>::new(_p.LPUART2, uart::Config::new(src));

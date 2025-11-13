@@ -1,14 +1,11 @@
 [package]
-name = "embassy-mcxa276"
+name = "embassy-mcxa"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "Embassy Hardware Abstraction Layer (HAL) for NXP MCXA276"
-keywords = ["embedded", "hal", "nxp", "mcxa276", "embassy"]
+description = "Embassy Hardware Abstraction Layer (HAL) for NXP MCXA series of MCUs"
+keywords = ["embedded", "hal", "nxp", "mcxa", "embassy"]
 categories = ["embedded", "hardware-support", "no-std"]
-
-[lib]
-name = "embassy_mcxa276"
 
 [dependencies]
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
@@ -35,11 +32,6 @@ embedded-hal-nb = { version = "1.0" }
 embedded-io-async = { version = "0.6.1" }
 nb = "1.1.0"
 
-[dev-dependencies]
-defmt = "1.0"
-defmt-rtt = "1.0"
-panic-probe = { version = "1.0", features = ["print-defmt"] }
-
 [features]
 default = []
 
@@ -50,50 +42,3 @@ defmt = ["dep:defmt"]
 rt = []
 
 unstable-pac = []
-
-[[example]]
-name = "hello"
-
-[[example]]
-name = "blink"
-
-[[example]]
-name = "uart_interrupt"
-
-[[example]]
-name = "ostimer_alarm"
-
-[[example]]
-name = "ostimer_async"
-
-[[example]]
-name = "ostimer_counter"
-
-[[example]]
-name = "ostimer_race_test"
-
-[[example]]
-name = "lpuart_polling"
-
-[[example]]
-name = "lpuart_buffered"
-
-[[example]]
-name = "rtc_alarm"
-
-[[example]]
-name = "adc_polling"
-
-[[example]]
-name = "adc_interrupt"
-
-[profile.release]
-debug = 2
-lto = true
-opt-level = "s"
-
-[profile.dev]
-debug = 2
-opt-level = 1
-
-

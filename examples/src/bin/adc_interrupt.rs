@@ -2,17 +2,14 @@
 #![no_main]
 
 use embassy_executor::Spawner;
+use embassy_mcxa_examples::{init_adc, init_uart2};
 use hal::adc::{LpadcConfig, TriggerPriorityPolicy};
-use hal::uart;
-use mcxa_pac::adc1::cfg::{Pwrsel, Refsel};
-use mcxa_pac::adc1::cmdl1::{Adch, Mode};
-use mcxa_pac::adc1::ctrl::CalAvgs;
-use mcxa_pac::adc1::tctrl::Tcmd;
-use {cortex_m, embassy_mcxa276 as hal};
-mod common;
-
-use hal::{bind_interrupts, InterruptExt};
-use {defmt_rtt as _, panic_probe as _};
+use hal::pac::adc1::cfg::{Pwrsel, Refsel};
+use hal::pac::adc1::cmdl1::{Adch, Mode};
+use hal::pac::adc1::ctrl::CalAvgs;
+use hal::pac::adc1::tctrl::Tcmd;
+use hal::{bind_interrupts, uart, InterruptExt};
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     ADC1 => hal::adc::AdcHandler;
@@ -27,7 +24,7 @@ async fn main(_spawner: Spawner) {
     let p = hal::init(hal::config::Config::default());
 
     unsafe {
-        common::init_uart2(hal::pac());
+        init_uart2(hal::pac());
     }
 
     let src = unsafe { hal::clocks::uart2_src_hz(hal::pac()) };
@@ -36,7 +33,7 @@ async fn main(_spawner: Spawner) {
     uart.write_str_blocking("\r\n=== ADC interrupt Example ===\r\n");
 
     unsafe {
-        common::init_adc(hal::pac());
+        init_adc(hal::pac());
     }
 
     let adc_config = LpadcConfig {

@@ -1,21 +1,18 @@
 #![no_std]
 #![no_main]
 
-use embassy_executor::Spawner;
-use embassy_mcxa276 as hal;
-use hal::adc::{ConvResult, LpadcConfig, TriggerPriorityPolicy};
-use hal::uart;
-use mcxa_pac::adc1::cfg::{Pwrsel, Refsel};
-use mcxa_pac::adc1::cmdl1::{Adch, Mode};
-use mcxa_pac::adc1::ctrl::CalAvgs;
-use mcxa_pac::adc1::tctrl::Tcmd;
-
-mod common;
-
 use core::fmt::Write;
 
+use embassy_executor::Spawner;
+use embassy_mcxa_examples::{init_adc, init_uart2};
+use hal::adc::{ConvResult, LpadcConfig, TriggerPriorityPolicy};
+use hal::pac::adc1::cfg::{Pwrsel, Refsel};
+use hal::pac::adc1::cmdl1::{Adch, Mode};
+use hal::pac::adc1::ctrl::CalAvgs;
+use hal::pac::adc1::tctrl::Tcmd;
+use hal::uart;
 use heapless::String;
-use {defmt_rtt as _, panic_probe as _};
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 const G_LPADC_RESULT_SHIFT: u32 = 0;
 
@@ -24,7 +21,7 @@ async fn main(_spawner: Spawner) {
     let p = hal::init(hal::config::Config::default());
 
     unsafe {
-        common::init_uart2(hal::pac());
+        init_uart2(hal::pac());
     }
 
     let src = unsafe { hal::clocks::uart2_src_hz(hal::pac()) };
@@ -33,7 +30,7 @@ async fn main(_spawner: Spawner) {
     uart.write_str_blocking("\r\n=== ADC polling Example ===\r\n");
 
     unsafe {
-        common::init_adc(hal::pac());
+        init_adc(hal::pac());
     }
 
     let adc_config = LpadcConfig {
