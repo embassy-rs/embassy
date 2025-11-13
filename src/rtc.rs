@@ -102,7 +102,7 @@ pub fn convert_seconds_to_datetime(seconds: u32) -> RtcDateTime {
         days -= days_in_year;
         year += 1;
 
-        days_in_year = if year % 4 == 0 {
+        days_in_year = if year.is_multiple_of(4) {
             DAYS_IN_A_YEAR + 1
         } else {
             DAYS_IN_A_YEAR
@@ -110,7 +110,7 @@ pub fn convert_seconds_to_datetime(seconds: u32) -> RtcDateTime {
     }
 
     let mut days_per_month = [0u8, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    if year % 4 == 0 {
+    if year.is_multiple_of(4) {
         days_per_month[2] = 29;
     }
 
