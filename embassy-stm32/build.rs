@@ -1602,13 +1602,13 @@ fn main() {
     .into();
 
     if chip_name.starts_with("stm32u5") {
-        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma4));
+        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
     } else {
         signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
     }
 
     if chip_name.starts_with("stm32wba") {
-        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma4));
+        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
     }
 
     if chip_name.starts_with("stm32g4") {

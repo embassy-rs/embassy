@@ -91,35 +91,14 @@ pub struct AdcConfig {
     resolution: Option<Resolution>,
 }
 
-impl<'d, T> Adc<'d, T>
-where
-    T: Instance,
-{
-    pub fn new(adc: Peri<'d, T>) -> Self {
-        Self::new_with_config(adc, Default::default())
+impl<T: Instance> super::SealedAnyInstance for T {
+    fn dr() -> *mut u16 {
+        T::regs().dr().as_ptr() as *mut u16
     }
 
-    pub fn new_with_config(adc: Peri<'d, T>, config: AdcConfig) -> Self {
-        rcc::enable_and_reset::<T>();
+    fn enable() {}
 
-        let presc = Prescaler::from_pclk2(T::frequency());
-        T::common_regs().ccr().modify(|w| w.set_adcpre(presc.adcpre()));
-        T::regs().cr2().modify(|reg| {
-            reg.set_adon(true);
-        });
-
-        blocking_delay_us(3);
-
-        if let Some(resolution) = config.resolution {
-            T::regs().cr1().modify(|reg| reg.set_res(resolution.into()));
-        }
-
-        Self { adc }
-    }
-
-    pub(super) fn enable() {}
-
-    pub(super) fn start() {
+    fn start() {
         // Begin ADC conversions
         T::regs().cr2().modify(|reg| {
             reg.set_adon(true);
@@ -127,7 +106,7 @@ where
         });
     }
 
-    pub(super) fn stop() {
+    fn stop() {
         let r = T::regs();
 
         // Stop ADC
@@ -152,7 +131,7 @@ where
         compiler_fence(Ordering::SeqCst);
     }
 
-    pub(super) fn convert() -> u16 {
+    fn convert() -> u16 {
         // clear end of conversion flag
         T::regs().sr().modify(|reg| {
             reg.set_eoc(false);
@@ -173,7 +152,7 @@ where
         T::regs().dr().read().0 as u16
     }
 
-    pub(super) fn configure_dma(conversion_mode: ConversionMode) {
+    fn configure_dma(conversion_mode: ConversionMode) {
         match conversion_mode {
             ConversionMode::Repeated(_) => {
                 let r = T::regs();
@@ -210,7 +189,7 @@ where
         }
     }
 
-    pub(super) fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+    fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
         T::regs().cr2().modify(|reg| {
             reg.set_adon(true);
         });
@@ -231,6 +210,33 @@ where
                 T::regs().smpr1().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
             }
         }
+    }
+}
+
+impl<'d, T> Adc<'d, T>
+where
+    T: Instance,
+{
+    pub fn new(adc: Peri<'d, T>) -> Self {
+        Self::new_with_config(adc, Default::default())
+    }
+
+    pub fn new_with_config(adc: Peri<'d, T>, config: AdcConfig) -> Self {
+        rcc::enable_and_reset::<T>();
+
+        let presc = Prescaler::from_pclk2(T::frequency());
+        T::common_regs().ccr().modify(|w| w.set_adcpre(presc.adcpre()));
+        T::regs().cr2().modify(|reg| {
+            reg.set_adon(true);
+        });
+
+        blocking_delay_us(3);
+
+        if let Some(resolution) = config.resolution {
+            T::regs().cr1().modify(|reg| reg.set_res(resolution.into()));
+        }
+
+        Self { adc }
     }
 
     /// Enables internal voltage reference and returns [VrefInt], which can be used in
