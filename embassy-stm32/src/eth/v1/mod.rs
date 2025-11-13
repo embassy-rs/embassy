@@ -110,37 +110,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         phy: P,
         mac_addr: [u8; 6],
     ) -> Self {
-        // Enable the necessary Clocks
-        #[cfg(eth_v1a)]
-        critical_section::with(|_| {
-            RCC.apb2enr().modify(|w| w.set_afioen(true));
-
-            // Select RMII (Reduced Media Independent Interface)
-            // Must be done prior to enabling peripheral clock
-            AFIO.mapr().modify(|w| {
-                w.set_mii_rmii_sel(true);
-                w.set_swj_cfg(crate::pac::afio::vals::SwjCfg::NO_OP);
-            });
-
-            RCC.ahbenr().modify(|w| {
-                w.set_ethen(true);
-                w.set_ethtxen(true);
-                w.set_ethrxen(true);
-            });
-        });
-
-        #[cfg(any(eth_v1b, eth_v1c))]
-        critical_section::with(|_| {
-            RCC.ahb1enr().modify(|w| {
-                w.set_ethen(true);
-                w.set_ethtxen(true);
-                w.set_ethrxen(true);
-            });
-
-            // RMII (Reduced Media Independent Interface)
-            SYSCFG.pmc().modify(|w| w.set_mii_rmii_sel(true));
-        });
-
         #[cfg(eth_v1a)]
         {
             config_in_pins!(ref_clk, rx_d0, rx_d1);
@@ -160,7 +129,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             tx_en.into(),
         ]);
 
-        Self::new_inner(queue, peri, irq, pins, phy, mac_addr)
+        Self::new_inner(queue, peri, irq, pins, phy, mac_addr, true)
     }
 
     fn new_inner<const TX: usize, const RX: usize>(
@@ -170,7 +139,39 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         pins: Pins<'d>,
         phy: P,
         mac_addr: [u8; 6],
+        rmii_mii_sel: bool,
     ) -> Self {
+        // Enable the necessary Clocks
+        #[cfg(eth_v1a)]
+        critical_section::with(|_| {
+            RCC.apb2enr().modify(|w| w.set_afioen(true));
+
+            // Select (R)MII (Reduced Media Independent Interface)
+            // Must be done prior to enabling peripheral clock
+            AFIO.mapr().modify(|w| {
+                w.set_mii_rmii_sel(rmii_mii_sel);
+                w.set_swj_cfg(crate::pac::afio::vals::SwjCfg::NO_OP);
+            });
+
+            RCC.ahbenr().modify(|w| {
+                w.set_ethen(true);
+                w.set_ethtxen(true);
+                w.set_ethrxen(true);
+            });
+        });
+
+        #[cfg(any(eth_v1b, eth_v1c))]
+        critical_section::with(|_| {
+            RCC.ahb1enr().modify(|w| {
+                w.set_ethen(true);
+                w.set_ethtxen(true);
+                w.set_ethrxen(true);
+            });
+
+            // (R)MII ((Reduced) Media Independent Interface)
+            SYSCFG.pmc().modify(|w| w.set_mii_rmii_sel(rmii_mii_sel));
+        });
+
         let dma = T::regs().ethernet_dma();
         let mac = T::regs().ethernet_mac();
 
@@ -281,39 +282,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         phy: P,
         mac_addr: [u8; 6],
     ) -> Self {
-        // TODO: Handle optional signals like CRS, MII_COL, RX_ER?
-
-        // Enable the necessary Clocks
-        #[cfg(eth_v1a)]
-        critical_section::with(|_| {
-            RCC.apb2enr().modify(|w| w.set_afioen(true));
-
-            // Select MII (Media Independent Interface)
-            // Must be done prior to enabling peripheral clock
-            AFIO.mapr().modify(|w| {
-                w.set_mii_rmii_sel(false);
-                w.set_swj_cfg(crate::pac::afio::vals::SwjCfg::NO_OP);
-            });
-
-            RCC.ahbenr().modify(|w| {
-                w.set_ethen(true);
-                w.set_ethtxen(true);
-                w.set_ethrxen(true);
-            });
-        });
-
-        #[cfg(any(eth_v1b, eth_v1c))]
-        critical_section::with(|_| {
-            RCC.ahb1enr().modify(|w| {
-                w.set_ethen(true);
-                w.set_ethtxen(true);
-                w.set_ethrxen(true);
-            });
-
-            // MII (Media Independent Interface)
-            SYSCFG.pmc().modify(|w| w.set_mii_rmii_sel(false));
-        });
-
         #[cfg(eth_v1a)]
         {
             config_in_pins!(rx_clk, tx_clk, rx_d0, rx_d1, rx_d2, rx_d3, rxdv);
@@ -340,7 +308,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             tx_en.into(),
         ]);
 
-        Self::new_inner(queue, peri, irq, pins, phy, mac_addr)
+        Self::new_inner(queue, peri, irq, pins, phy, mac_addr, false)
     }
 }
 

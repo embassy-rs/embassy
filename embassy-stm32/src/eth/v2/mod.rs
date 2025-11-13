@@ -76,17 +76,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         phy: P,
         mac_addr: [u8; 6],
     ) -> Self {
-        // Enable the necessary clocks
-        critical_section::with(|_| {
-            crate::pac::RCC.ahb1enr().modify(|w| {
-                w.set_ethen(true);
-                w.set_ethtxen(true);
-                w.set_ethrxen(true);
-            });
-
-            crate::pac::SYSCFG.pmcr().modify(|w| w.set_eth_sel_phy(EthSelPhy::RMII));
-        });
-
         config_pins!(ref_clk, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en);
 
         let pins = Pins::Rmii([
@@ -99,7 +88,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             tx_en.into(),
         ]);
 
-        Self::new_inner(queue, peri, irq, pins, phy, mac_addr)
+        Self::new_inner(queue, peri, irq, pins, phy, mac_addr, EthSelPhy::RMII)
     }
 
     /// Create a new MII ethernet driver using 12 pins.
@@ -122,19 +111,6 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         phy: P,
         mac_addr: [u8; 6],
     ) -> Self {
-        // Enable the necessary clocks
-        critical_section::with(|_| {
-            crate::pac::RCC.ahb1enr().modify(|w| {
-                w.set_ethen(true);
-                w.set_ethtxen(true);
-                w.set_ethrxen(true);
-            });
-
-            crate::pac::SYSCFG
-                .pmcr()
-                .modify(|w| w.set_eth_sel_phy(EthSelPhy::MII_GMII));
-        });
-
         config_pins!(
             rx_clk, tx_clk, rxdv, rx_d0, rx_d1, rx_d2, rx_d3, tx_d0, tx_d1, tx_d2, tx_d3, tx_en
         );
@@ -154,7 +130,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
             tx_en.into(),
         ]);
 
-        Self::new_inner(queue, peri, irq, pins, phy, mac_addr)
+        Self::new_inner(queue, peri, irq, pins, phy, mac_addr, EthSelPhy::MII_GMII)
     }
 
     fn new_inner<const TX: usize, const RX: usize>(
@@ -164,7 +140,19 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         pins: Pins<'d>,
         phy: P,
         mac_addr: [u8; 6],
+        eth_sel_phy: EthSelPhy,
     ) -> Self {
+        // Enable the necessary clocks
+        critical_section::with(|_| {
+            crate::pac::RCC.ahb1enr().modify(|w| {
+                w.set_ethen(true);
+                w.set_ethtxen(true);
+                w.set_ethrxen(true);
+            });
+
+            crate::pac::SYSCFG.pmcr().modify(|w| w.set_eth_sel_phy(eth_sel_phy));
+        });
+
         let dma = T::regs().ethernet_dma();
         let mac = T::regs().ethernet_mac();
         let mtl = T::regs().ethernet_mtl();
