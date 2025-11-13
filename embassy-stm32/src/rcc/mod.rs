@@ -28,6 +28,7 @@ pub use hsi48::*;
 #[cfg_attr(any(stm32l0, stm32l1, stm32l4, stm32l5, stm32wb, stm32wl, stm32u0), path = "l.rs")]
 #[cfg_attr(stm32u5, path = "u5.rs")]
 #[cfg_attr(stm32wba, path = "wba.rs")]
+#[cfg_attr(stm32n6, path = "n6.rs")]
 mod _version;
 
 pub use _version::*;
@@ -47,6 +48,9 @@ pub(crate) static mut REFCOUNT_STOP1: u32 = 0;
 ///
 /// May be read without a critical section
 pub(crate) static mut REFCOUNT_STOP2: u32 = 0;
+
+#[cfg(backup_sram)]
+pub(crate) static mut BKSRAM_RETAINED: bool = false;
 
 #[cfg(not(feature = "_dual-core"))]
 /// Frozen clock frequencies

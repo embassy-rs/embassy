@@ -79,7 +79,7 @@ impl<T: Instance> Vref<T> {
     }
 
     pub async fn calibrate(&mut self, adc: &mut Adc<'_, T>) -> Calibration {
-        let vref_val = adc.read(self).await;
+        let vref_val = adc.read(self, SampleTime::from(0)).await;
         Calibration {
             vref_cal: self.calibrated_value(),
             vref_val,
@@ -270,7 +270,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
     }
 
-    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
+    pub async fn read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: SampleTime) -> u16 {
+        self.set_sample_time(channel, sample_time).await;
         self.set_sample_sequence(&[channel.channel()]).await;
         self.convert().await
     }

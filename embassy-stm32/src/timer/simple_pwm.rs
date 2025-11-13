@@ -339,14 +339,33 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
                 ..Default::default()
             };
 
-            Transfer::new_write(
-                dma,
-                req,
-                duty,
-                self.inner.regs_1ch().ccr(channel.index()).as_ptr() as *mut u16,
-                dma_transfer_option,
-            )
-            .await
+            match self.inner.bits() {
+                TimerBits::Bits16 => {
+                    Transfer::new_write(
+                        dma,
+                        req,
+                        duty,
+                        self.inner.regs_1ch().ccr(channel.index()).as_ptr() as *mut u16,
+                        dma_transfer_option,
+                    )
+                    .await
+                }
+                #[cfg(not(any(stm32l0)))]
+                TimerBits::Bits32 => {
+                    #[cfg(not(any(bdma, gpdma)))]
+                    panic!("unsupported timer bits");
+
+                    #[cfg(any(bdma, gpdma))]
+                    Transfer::new_write(
+                        dma,
+                        req,
+                        duty,
+                        self.inner.regs_1ch().ccr(channel.index()).as_ptr() as *mut u32,
+                        dma_transfer_option,
+                    )
+                    .await
+                }
+            };
         };
 
         // restore output compare state

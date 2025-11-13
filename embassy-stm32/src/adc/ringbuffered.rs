@@ -4,7 +4,7 @@ use core::sync::atomic::{Ordering, compiler_fence};
 #[allow(unused_imports)]
 use embassy_hal_internal::Peri;
 
-use crate::adc::Adc;
+use crate::adc::AnyInstance;
 #[allow(unused_imports)]
 use crate::adc::{Instance, RxDma};
 #[allow(unused_imports)]
@@ -19,7 +19,7 @@ pub struct RingBufferedAdc<'d, T: Instance> {
     ring_buf: ReadableRingBuffer<'d, u16>,
 }
 
-impl<'d, T: Instance> RingBufferedAdc<'d, T> {
+impl<'d, T: Instance + AnyInstance> RingBufferedAdc<'d, T> {
     pub(crate) fn new(dma: Peri<'d, impl RxDma<T>>, dma_buf: &'d mut [u16]) -> Self {
         //dma side setup
         let opts = TransferOptions {
@@ -45,11 +45,11 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
         compiler_fence(Ordering::SeqCst);
         self.ring_buf.start();
 
-        Adc::<T>::start();
+        T::start();
     }
 
     pub fn stop(&mut self) {
-        Adc::<T>::stop();
+        T::stop();
 
         self.ring_buf.request_pause();
 
@@ -63,14 +63,17 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     /// Reads measurements from the DMA ring buffer.
     ///
     /// This method fills the provided `measurements` array with ADC readings from the DMA buffer.
-    /// The length of the `measurements` array should be exactly half of the DMA buffer length. Because interrupts are only generated if half or full DMA transfer completes.
+    /// The length of the `measurements` array should be exactly half of the DMA buffer length.
+    /// Because interrupts are only generated if half or full DMA transfer completes.
     ///
-    /// Each call to `read` will populate the `measurements` array in the same order as the channels defined with `sequence`.
-    /// There will be many sequences worth of measurements in this array because it only returns if at least half of the DMA buffer is filled.
-    /// For example if 2 channels are sampled `measurements` contain: `[sq0 sq1 sq0 sq1 sq0 sq1 ..]`.
+    /// Each call to `read` will populate the `measurements` array in the same order as the channels
+    /// defined with `sequence`. There will be many sequences worth of measurements in this array
+    /// because it only returns if at least half of the DMA buffer is filled. For example if 2
+    /// channels are sampled `measurements` contain: `[sq0 sq1 sq0 sq1 sq0 sq1 ..]`.
     ///
-    /// Note that the ADC Datarate can be very fast, it is suggested to use DMA mode inside tightly running tasks
-    /// Otherwise, you'll see constant Overrun errors occuring, this means that you're sampling too quickly for the task to handle, and you may need to increase the buffer size.
+    /// Note that the ADC Datarate can be very fast, it is suggested to use DMA mode inside tightly
+    /// running tasks. Otherwise, you'll see constant Overrun errors occurring, this means that
+    /// you're sampling too quickly for the task to handle, and you may need to increase the buffer size.
     /// Example:
     /// ```rust,ignore
     /// const DMA_BUF_LEN: usize = 120;
@@ -167,9 +170,9 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     }
 }
 
-impl<T: Instance> Drop for RingBufferedAdc<'_, T> {
+impl<T: Instance + AnyInstance> Drop for RingBufferedAdc<'_, T> {
     fn drop(&mut self) {
-        Adc::<T>::teardown_adc();
+        T::stop();
 
         compiler_fence(Ordering::SeqCst);
 
