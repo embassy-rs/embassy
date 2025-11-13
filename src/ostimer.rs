@@ -151,6 +151,12 @@ pub struct Alarm<'d> {
     _phantom: core::marker::PhantomData<&'d mut ()>,
 }
 
+impl<'d> Default for Alarm<'d> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'d> Alarm<'d> {
     /// Create a new alarm instance
     pub fn new() -> Self {

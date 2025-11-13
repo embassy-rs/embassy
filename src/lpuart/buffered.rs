@@ -24,6 +24,12 @@ pub struct State {
     initialized: AtomicBool,
 }
 
+impl Default for State {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl State {
     /// Create a new state instance
     pub const fn new() -> Self {
@@ -104,6 +110,7 @@ impl<'a> BufferedLpuart<'a> {
     }
 
     /// Create a new buffered LPUART with flexible pin configuration
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with_pins<T: Instance>(
         _inner: Peri<'a, T>,
         tx_pin: Option<Peri<'a, impl TxPin<T>>>,
@@ -612,16 +619,14 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Buffere
         }
 
         // Handle transmission complete
-        if ctrl.tcie().is_enabled() {
-            if regs.stat().read().tc().is_complete() {
-                state.tx_done.store(true, Ordering::Release);
-                state.tx_waker.wake();
+        if ctrl.tcie().is_enabled() && regs.stat().read().tc().is_complete() {
+            state.tx_done.store(true, Ordering::Release);
+            state.tx_waker.wake();
 
-                // Disable TC interrupt
-                cortex_m::interrupt::free(|_| {
-                    regs.ctrl().modify(|_, w| w.tcie().disabled());
-                });
-            }
+            // Disable TC interrupt
+            cortex_m::interrupt::free(|_| {
+                regs.ctrl().modify(|_, w| w.tcie().disabled());
+            });
         }
     }
 }

@@ -2,6 +2,10 @@
 //! Type-level interrupt traits and bindings are provided by the
 //! `embassy_hal_internal::interrupt_mod!` macro via the generated module below.
 
+// TODO(AJM): As of 2025-11-13, we need to do a pass to ensure safety docs
+// are complete prior to release.
+#![allow(clippy::missing_safety_doc)]
+
 mod generated {
     embassy_hal_internal::interrupt_mod!(OS_EVENT, LPUART2, RTC, ADC1);
 }
