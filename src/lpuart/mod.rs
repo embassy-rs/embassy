@@ -105,8 +105,9 @@ mod gpio {
 
                 impl GpioPin for super::lib::peripherals::$pin {}
 
-                impl Into<AnyPin> for super::lib::peripherals::$pin {
-                    fn into(self) -> AnyPin {
+                impl From<super::lib::peripherals::$pin> for AnyPin {
+                    // TODO: AJM: any reason we aren't using $pin?
+                    fn from(_val: super::lib::peripherals::$pin) -> Self {
                         AnyPin
                     }
                 }
@@ -242,7 +243,7 @@ pub fn configure_baudrate(regs: Regs, baudrate_bps: u32, clock: Clock) -> Result
     // Configure BAUD register
     regs.baud().modify(|_, w| unsafe {
         // Clear and set OSR
-        w.osr().bits((osr - 1) as u8);
+        w.osr().bits(osr - 1);
         // Clear and set SBR
         w.sbr().bits(sbr);
         // Set BOTHEDGE if OSR is between 4 and 7
@@ -305,9 +306,9 @@ pub fn configure_fifo(regs: Regs, config: &Config) {
     // Configure WATER register for FIFO watermarks
     regs.water().write(|w| unsafe {
         w.rxwater()
-            .bits(config.rx_fifo_watermark as u8)
+            .bits(config.rx_fifo_watermark)
             .txwater()
-            .bits(config.tx_fifo_watermark as u8)
+            .bits(config.tx_fifo_watermark)
     });
 
     // Enable TX/RX FIFOs
@@ -377,7 +378,7 @@ pub fn calculate_baudrate(baudrate: u32, src_clock_hz: u32) -> Result<(u8, u16)>
     // Try OSR values from 4 to 32
     for osr_temp in 4u8..=32u8 {
         // Calculate SBR: (srcClock_Hz * 2 / (baudRate * osr) + 1) / 2
-        let sbr_calc = ((src_clock_hz * 2) / (baudrate * osr_temp as u32) + 1) / 2;
+        let sbr_calc = ((src_clock_hz * 2) / (baudrate * osr_temp as u32)).div_ceil(2);
 
         let sbr_temp = if sbr_calc == 0 {
             1
@@ -390,11 +391,7 @@ pub fn calculate_baudrate(baudrate: u32, src_clock_hz: u32) -> Result<(u8, u16)>
         // Calculate actual baud rate
         let calculated_baud = src_clock_hz / (osr_temp as u32 * sbr_temp as u32);
 
-        let temp_diff = if calculated_baud > baudrate {
-            calculated_baud - baudrate
-        } else {
-            baudrate - calculated_baud
-        };
+        let temp_diff = calculated_baud.abs_diff(baudrate);
 
         if temp_diff <= baud_diff {
             baud_diff = temp_diff;

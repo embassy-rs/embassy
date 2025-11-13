@@ -228,7 +228,7 @@ impl<I: Instance> Adc<I> {
             let step = 1.0 / (1u32 << shift) as f32;
             let tmp = (gain_adjustment / step) as u32;
             gcra_array[i - 1] = tmp;
-            gain_adjustment = gain_adjustment - tmp as f32 * step;
+            gain_adjustment -= tmp as f32 * step;
         }
 
         for i in (1..=17).rev() {
@@ -244,7 +244,7 @@ impl<I: Instance> Adc<I> {
         while adc.gcc0().read().rdy().is_gain_cal_not_valid() {}
 
         let mut gcca = adc.gcc0().read().gain_cal().bits() as u32;
-        if gcca & (((0xFFFF >> 0) + 1) >> 1) != 0 {
+        if gcca & ((0xFFFF + 1) >> 1) != 0 {
             gcca |= !0xFFFF;
         }
 

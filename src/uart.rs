@@ -1,6 +1,10 @@
 //! Minimal polling UART2 bring-up replicating MCUXpresso hello_world ordering.
 //! WARNING: This is a narrow implementation only for debug console (115200 8N1).
 
+// TODO(AJM): As of 2025-11-13, we need to do a pass to ensure safety docs
+// are complete prior to release.
+#![allow(clippy::missing_safety_doc)]
+
 use core::cell::RefCell;
 
 use cortex_m::interrupt::Mutex;
@@ -118,7 +122,7 @@ impl<I: Instance> Uart<I> {
                 StopBits::Two => w.sbns().two(),
             };
             // OSR field encodes (osr-1); use raw bits to avoid a long match on all variants
-            let raw_osr = osr.saturating_sub(1) as u8;
+            let raw_osr = osr.saturating_sub(1);
             unsafe { w.osr().bits(raw_osr).sbr().bits(sbr) }
         });
         // 3) CTRL baseline and parity
@@ -193,6 +197,12 @@ pub struct RingBuffer {
     read_idx: usize,
     write_idx: usize,
     count: usize,
+}
+
+impl Default for RingBuffer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl RingBuffer {

@@ -25,6 +25,9 @@ jobs:
           submodules: true
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv8m.main-none-eabihf
+
       - name: cargo install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - name: cargo check
@@ -62,6 +65,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.msrv }}
+          targets: thumbv8m.main-none-eabihf
       - name: cargo +${{ matrix.msrv }} check
         run: |
           cargo update
