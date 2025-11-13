@@ -222,7 +222,13 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         Ok(())
     }
 
-    fn reload(info: &'static Info, length: usize, will_reload: bool, stop: Stop, timeout: Timeout) -> Result<(), Error> {
+    fn reload(
+        info: &'static Info,
+        length: usize,
+        will_reload: bool,
+        stop: Stop,
+        timeout: Timeout,
+    ) -> Result<(), Error> {
         assert!(length < 256 && length > 0);
 
         // Wait for either TCR (Transfer Complete Reload) or TC (Transfer Complete)
@@ -417,7 +423,13 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
         for (number, chunk) in read.chunks_mut(255).enumerate() {
             if number != 0 {
-                Self::reload(self.info, chunk.len(), number != last_chunk_idx, Stop::Automatic, timeout)?;
+                Self::reload(
+                    self.info,
+                    chunk.len(),
+                    number != last_chunk_idx,
+                    Stop::Automatic,
+                    timeout,
+                )?;
             }
 
             for byte in chunk {
@@ -466,7 +478,13 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
 
         for (number, chunk) in write.chunks(255).enumerate() {
             if number != 0 {
-                Self::reload(self.info, chunk.len(), number != last_chunk_idx, Stop::Software, timeout)?;
+                Self::reload(
+                    self.info,
+                    chunk.len(),
+                    number != last_chunk_idx,
+                    Stop::Software,
+                    timeout,
+                )?;
             }
 
             for byte in chunk {
@@ -606,7 +624,15 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
                     if first_chunk {
                         // First chunk: initiate transfer
                         // If not first group, use RESTART instead of START
-                        Self::master_write(self.info, address, chunk_len, Stop::Software, will_reload, !is_first_group, timeout)?;
+                        Self::master_write(
+                            self.info,
+                            address,
+                            chunk_len,
+                            Stop::Software,
+                            will_reload,
+                            !is_first_group,
+                            timeout,
+                        )?;
                         first_chunk = false;
                     } else {
                         // Subsequent chunks: use reload
@@ -906,7 +932,13 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             } else if remaining_len == 0 {
                 return Poll::Ready(Ok(()));
             } else {
-                if let Err(e) = Self::reload(self.info, remaining_len.min(255), remaining_len > 255, Stop::Software, timeout) {
+                if let Err(e) = Self::reload(
+                    self.info,
+                    remaining_len.min(255),
+                    remaining_len > 255,
+                    Stop::Software,
+                    timeout,
+                ) {
                     return Poll::Ready(Err(e));
                 }
                 self.info.regs.cr1().modify(|w| w.set_tcie(true));
@@ -1225,14 +1257,8 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                     };
 
                     // We need a custom DMA read that respects our stop mode
-                    self.read_dma_group_internal(
-                        address,
-                        buffer,
-                        restart,
-                        stop_mode,
-                        timeout,
-                    )
-                    .await?;
+                    self.read_dma_group_internal(address, buffer, restart, stop_mode, timeout)
+                        .await?;
                     is_first_in_group = false;
                 } else {
                     // Subsequent buffers: need to reload and continue
@@ -1243,11 +1269,8 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                     };
 
                     self.read_dma_group_internal(
-                        address,
-                        buffer,
-                        false, // no restart for subsequent buffers in same group
-                        stop_mode,
-                        timeout,
+                        address, buffer, false, // no restart for subsequent buffers in same group
+                        stop_mode, timeout,
                     )
                     .await?;
                 }
@@ -1499,7 +1522,13 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
             if number == 0 {
                 Self::slave_start(self.info, chunk.len(), number != last_chunk_idx);
             } else {
-                Self::reload(self.info, chunk.len(), number != last_chunk_idx, Stop::Software, timeout)?;
+                Self::reload(
+                    self.info,
+                    chunk.len(),
+                    number != last_chunk_idx,
+                    Stop::Software,
+                    timeout,
+                )?;
             }
 
             let mut index = 0;
@@ -1548,7 +1577,13 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
             if number == 0 {
                 Self::slave_start(self.info, chunk.len(), number != last_chunk_idx);
             } else {
-                Self::reload(self.info, chunk.len(), number != last_chunk_idx, Stop::Software, timeout)?;
+                Self::reload(
+                    self.info,
+                    chunk.len(),
+                    number != last_chunk_idx,
+                    Stop::Software,
+                    timeout,
+                )?;
             }
 
             let mut index = 0;
@@ -1684,7 +1719,13 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 Poll::Pending
             } else if isr.tcr() {
                 let is_last_slice = remaining_len <= 255;
-                if let Err(e) = Self::reload(self.info, remaining_len.min(255), !is_last_slice, Stop::Software, timeout) {
+                if let Err(e) = Self::reload(
+                    self.info,
+                    remaining_len.min(255),
+                    !is_last_slice,
+                    Stop::Software,
+                    timeout,
+                ) {
                     return Poll::Ready(Err(e));
                 }
                 remaining_len = remaining_len.saturating_sub(255);
@@ -1748,7 +1789,13 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 Poll::Pending
             } else if isr.tcr() {
                 let is_last_slice = remaining_len <= 255;
-                if let Err(e) = Self::reload(self.info, remaining_len.min(255), !is_last_slice, Stop::Software, timeout) {
+                if let Err(e) = Self::reload(
+                    self.info,
+                    remaining_len.min(255),
+                    !is_last_slice,
+                    Stop::Software,
+                    timeout,
+                ) {
                     return Poll::Ready(Err(e));
                 }
                 remaining_len = remaining_len.saturating_sub(255);
