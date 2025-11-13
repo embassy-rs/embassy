@@ -142,6 +142,9 @@ jobs:
           components: clippy
           targets: thumbv8m.main-none-eabihf
 
+      - name: cargo install cargo-hack
+        uses: taiki-e/install-action@cargo-hack
+
       - name: cargo hack
         run: cargo hack --feature-powerset check
 
