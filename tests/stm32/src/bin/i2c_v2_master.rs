@@ -9,11 +9,12 @@
 // - Pull-up resistors: 4.7kΩ on both SCL and SDA
 // - CN5 Pin 10 (PB8/SCL) and CN5 Pin 9 (PB9/SDA)
 //
-// Analog Discovery Setup:
+// Analog Discovery - Waveforms Setup:
+// - Increase buffer size: Settings -> Device Manager -> Option 4
+// - Run Protocol Analyzer
 // - Configure as I2C Slave at address 0x50
-// - DIO 0: SCL
-// - DIO 1: SDA
-// - Enable pull-ups or use external 4.7kΩ pull-up resistors
+// - Connect and configure DIO pins for SCL and SDA
+// - Frequency: 100kHz - [✓] Clock Stretching
 
 #[path = "../common.rs"]
 mod common;
@@ -29,7 +30,7 @@ use embedded_hal_1::i2c::Operation;
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = init();
-    info!("I2C v2 Transaction Test Starting...");
+    info!("Run stm32 I2C v2 Master Tests...");
 
     let mut i2c_peri = peri!(p, I2C);
     let mut scl = peri!(p, I2C_SCL);
@@ -44,7 +45,37 @@ async fn main(_spawner: Spawner) {
     // Wait for slave device to be ready
     Timer::after_millis(100).await;
 
-    // ========== BLOCKING TESTS ==========
+    // ========== BLOCKING DIRECT API TESTS ==========
+    info!("========== BLOCKING DIRECT API TESTS ==========");
+    {
+        let mut i2c = I2c::new_blocking(
+            i2c_peri.reborrow(),
+            scl.reborrow(),
+            sda.reborrow(),
+            config,
+        );
+
+        info!("=== Test 1: Direct blocking_write ===");
+        test_blocking_write(&mut i2c, slave_addr);
+
+        info!("=== Test 2: Direct blocking_read ===");
+        test_blocking_read(&mut i2c, slave_addr);
+
+        info!("=== Test 3: Direct blocking_write_read ===");
+        test_blocking_write_read(&mut i2c, slave_addr);
+
+        info!("=== Test 4: Direct blocking_write_vectored ===");
+        test_blocking_write_vectored(&mut i2c, slave_addr);
+
+        info!("=== Test 5: Large buffer (>255 bytes) ===");
+        test_blocking_large_buffer(&mut i2c, slave_addr);
+
+        info!("Blocking direct API tests OK");
+    }
+
+    Timer::after_millis(100).await;
+
+    // ========== BLOCKING TRANSACTION TESTS ==========
     info!("========== BLOCKING TRANSACTION TESTS ==========");
     {
         let mut i2c = I2c::new_blocking(
@@ -54,31 +85,31 @@ async fn main(_spawner: Spawner) {
             config,
         );
 
-        info!("=== Test 1: Consecutive Writes (Should Merge) ===");
+        info!("=== Test 6: Consecutive Writes (Should Merge) ===");
         test_consecutive_writes_blocking(&mut i2c, slave_addr);
 
-        info!("=== Test 2: Consecutive Reads (Should Merge) ===");
+        info!("=== Test 7: Consecutive Reads (Should Merge) ===");
         test_consecutive_reads_blocking(&mut i2c, slave_addr);
 
-        info!("=== Test 3: Write then Read (RESTART) ===");
+        info!("=== Test 8: Write then Read (RESTART) ===");
         test_write_then_read_blocking(&mut i2c, slave_addr);
 
-        info!("=== Test 4: Read then Write (RESTART) ===");
+        info!("=== Test 9: Read then Write (RESTART) ===");
         test_read_then_write_blocking(&mut i2c, slave_addr);
 
-        info!("=== Test 5: Complex Mixed Sequence ===");
+        info!("=== Test 10: Complex Mixed Sequence ===");
         test_mixed_sequence_blocking(&mut i2c, slave_addr);
 
-        info!("=== Test 6: Single Operations ===");
+        info!("=== Test 11: Single Operations ===");
         test_single_operations_blocking(&mut i2c, slave_addr);
 
-        info!("Blocking tests OK");
+        info!("Blocking transaction tests OK");
     }
 
     Timer::after_millis(100).await;
 
-    // ========== ASYNC TESTS ==========
-    info!("========== ASYNC TRANSACTION TESTS (DMA) ==========");
+    // ========== ASYNC TESTS (DMA) ==========
+    info!("========== ASYNC TESTS (DMA) ==========");
     {
         let tx_dma = peri!(p, I2C_TX_DMA);
         let rx_dma = peri!(p, I2C_RX_DMA);
@@ -86,30 +117,135 @@ async fn main(_spawner: Spawner) {
 
         let mut i2c = I2c::new(i2c_peri, scl, sda, irq, tx_dma, rx_dma, config);
 
-        info!("=== Test 1: Consecutive Writes (Should Merge) ===");
+        // Direct API tests (reusing same I2C instance)
+        info!("=== Direct API Test 1: write() ===");
+        test_async_write(&mut i2c, slave_addr).await;
+
+        info!("=== Direct API Test 2: read() ===");
+        test_async_read(&mut i2c, slave_addr).await;
+
+        info!("=== Direct API Test 3: write_read() ===");
+        test_async_write_read(&mut i2c, slave_addr).await;
+
+        info!("=== Direct API Test 4: write_vectored() ===");
+        test_async_write_vectored(&mut i2c, slave_addr).await;
+
+        info!("=== Direct API Test 5: Large buffer (>255 bytes) ===");
+        test_async_large_buffer(&mut i2c, slave_addr).await;
+
+        info!("Async Direct API tests OK");
+
+        // Transaction tests
+        info!("=== Transaction Test 6: Consecutive Writes (Should Merge) ===");
         test_consecutive_writes_async(&mut i2c, slave_addr).await;
 
-        info!("=== Test 2: Consecutive Reads (Should Merge) ===");
+        info!("=== Transaction Test 7: Consecutive Reads (Should Merge) ===");
         test_consecutive_reads_async(&mut i2c, slave_addr).await;
 
-        info!("=== Test 3: Write then Read (RESTART) ===");
+        info!("=== Transaction Test 8: Write then Read (RESTART) ===");
         test_write_then_read_async(&mut i2c, slave_addr).await;
 
-        info!("=== Test 4: Read then Write (RESTART) ===");
+        info!("=== Transaction Test 9: Read then Write (RESTART) ===");
         test_read_then_write_async(&mut i2c, slave_addr).await;
 
-        info!("=== Test 5: Complex Mixed Sequence ===");
+        info!("=== Transaction Test 10: Complex Mixed Sequence ===");
         test_mixed_sequence_async(&mut i2c, slave_addr).await;
 
-        info!("=== Test 6: Single Operations ===");
+        info!("=== Transaction Test 11: Single Operations ===");
         test_single_operations_async(&mut i2c, slave_addr).await;
 
-        info!("Async tests OK");
+        info!("Async transaction tests OK");
     }
 
     info!("All tests OK");
     cortex_m::asm::bkpt();
 }
+
+// ==================== BLOCKING DIRECT API TEST FUNCTIONS ====================
+
+fn test_blocking_write(i2c: &mut I2c<'_, Blocking, Master>, addr: u8) {
+    let write_data = [0x42, 0x43, 0x44, 0x45];
+
+    match i2c.blocking_write(addr, &write_data) {
+        Ok(_) => info!("✓ blocking_write succeeded: {:02x}", write_data),
+        Err(e) => {
+            error!("✗ blocking_write failed: {:?}", e);
+            defmt::panic!("Test failed: blocking_write");
+        }
+    }
+}
+
+fn test_blocking_read(i2c: &mut I2c<'_, Blocking, Master>, addr: u8) {
+    let mut read_buf = [0u8; 8];
+
+    match i2c.blocking_read(addr, &mut read_buf) {
+        Ok(_) => info!("✓ blocking_read succeeded: {:02x}", read_buf),
+        Err(e) => {
+            error!("✗ blocking_read failed: {:?}", e);
+            defmt::panic!("Test failed: blocking_read");
+        }
+    }
+}
+
+fn test_blocking_write_read(i2c: &mut I2c<'_, Blocking, Master>, addr: u8) {
+    let write_data = [0x50, 0x51];
+    let mut read_buf = [0u8; 6];
+
+    match i2c.blocking_write_read(addr, &write_data, &mut read_buf) {
+        Ok(_) => {
+            info!("✓ blocking_write_read succeeded");
+            info!("  Written: {:02x}", write_data);
+            info!("  Read: {:02x}", read_buf);
+        }
+        Err(e) => {
+            error!("✗ blocking_write_read failed: {:?}", e);
+            defmt::panic!("Test failed: blocking_write_read");
+        }
+    }
+}
+
+fn test_blocking_write_vectored(i2c: &mut I2c<'_, Blocking, Master>, addr: u8) {
+    let buf1 = [0x60, 0x61, 0x62];
+    let buf2 = [0x70, 0x71];
+    let buf3 = [0x80, 0x81, 0x82, 0x83];
+    let bufs = [&buf1[..], &buf2[..], &buf3[..]];
+
+    match i2c.blocking_write_vectored(addr, &bufs) {
+        Ok(_) => info!("✓ blocking_write_vectored succeeded (9 bytes total)"),
+        Err(e) => {
+            error!("✗ blocking_write_vectored failed: {:?}", e);
+            defmt::panic!("Test failed: blocking_write_vectored");
+        }
+    }
+}
+
+fn test_blocking_large_buffer(i2c: &mut I2c<'_, Blocking, Master>, addr: u8) {
+    // Test with 300 bytes to verify RELOAD mechanism works (needs chunking at 255 bytes)
+    let mut write_buf = [0u8; 300];
+    for (i, byte) in write_buf.iter_mut().enumerate() {
+        *byte = (i & 0xFF) as u8;
+    }
+
+    match i2c.blocking_write(addr, &write_buf) {
+        Ok(_) => info!("✓ Large buffer write succeeded (300 bytes, tests RELOAD)"),
+        Err(e) => {
+            error!("✗ Large buffer write failed: {:?}", e);
+            defmt::panic!("Test failed: large buffer write");
+        }
+    }
+
+    // Test large read
+    let mut read_buf = [0u8; 300];
+    match i2c.blocking_read(addr, &mut read_buf) {
+        Ok(_) => info!("✓ Large buffer read succeeded (300 bytes, tests RELOAD)"),
+        Err(e) => {
+            error!("✗ Large buffer read failed: {:?}", e);
+            defmt::panic!("Test failed: large buffer read");
+        }
+    }
+}
+
+// ==================== BLOCKING TRANSACTION TEST FUNCTIONS ====================
 
 fn test_consecutive_writes_blocking(i2c: &mut I2c<'_, Blocking, Master>, addr: u8) {
     // Expected on bus: START, ADDR+W, data1, data2, data3, STOP
@@ -257,7 +393,91 @@ fn test_single_operations_blocking(i2c: &mut I2c<'_, Blocking, Master>, addr: u8
     }
 }
 
-// ==================== ASYNC TEST FUNCTIONS ====================
+// ==================== ASYNC DIRECT API TEST FUNCTIONS ====================
+
+async fn test_async_write(i2c: &mut I2c<'_, Async, Master>, addr: u8) {
+    let write_data = [0x42, 0x43, 0x44, 0x45];
+
+    match i2c.write(addr, &write_data).await {
+        Ok(_) => info!("✓ async write succeeded: {:02x}", write_data),
+        Err(e) => {
+            error!("✗ async write failed: {:?}", e);
+            defmt::panic!("Test failed: async write");
+        }
+    }
+}
+
+async fn test_async_read(i2c: &mut I2c<'_, Async, Master>, addr: u8) {
+    let mut read_buf = [0u8; 8];
+
+    match i2c.read(addr, &mut read_buf).await {
+        Ok(_) => info!("✓ async read succeeded: {:02x}", read_buf),
+        Err(e) => {
+            error!("✗ async read failed: {:?}", e);
+            defmt::panic!("Test failed: async read");
+        }
+    }
+}
+
+async fn test_async_write_read(i2c: &mut I2c<'_, Async, Master>, addr: u8) {
+    let write_data = [0x50, 0x51];
+    let mut read_buf = [0u8; 6];
+
+    match i2c.write_read(addr, &write_data, &mut read_buf).await {
+        Ok(_) => {
+            info!("✓ async write_read succeeded");
+            info!("  Written: {:02x}", write_data);
+            info!("  Read: {:02x}", read_buf);
+        }
+        Err(e) => {
+            error!("✗ async write_read failed: {:?}", e);
+            defmt::panic!("Test failed: async write_read");
+        }
+    }
+}
+
+async fn test_async_write_vectored(i2c: &mut I2c<'_, Async, Master>, addr: u8) {
+    let buf1 = [0x60, 0x61, 0x62];
+    let buf2 = [0x70, 0x71];
+    let buf3 = [0x80, 0x81, 0x82, 0x83];
+    let bufs = [&buf1[..], &buf2[..], &buf3[..]];
+
+    match i2c.write_vectored(addr.into(), &bufs).await {
+        Ok(_) => info!("✓ async write_vectored succeeded (9 bytes total)"),
+        Err(e) => {
+            error!("✗ async write_vectored failed: {:?}", e);
+            defmt::panic!("Test failed: async write_vectored");
+        }
+    }
+}
+
+async fn test_async_large_buffer(i2c: &mut I2c<'_, Async, Master>, addr: u8) {
+    // Test with 300 bytes to verify RELOAD mechanism works with DMA (needs chunking at 255 bytes)
+    let mut write_buf = [0u8; 300];
+    for (i, byte) in write_buf.iter_mut().enumerate() {
+        *byte = (i & 0xFF) as u8;
+    }
+
+    match i2c.write(addr, &write_buf).await {
+        Ok(_) => info!("✓ Large buffer async write succeeded (300 bytes, tests RELOAD with DMA)"),
+        Err(e) => {
+            error!("✗ Large buffer async write failed: {:?}", e);
+            defmt::panic!("Test failed: large buffer async write");
+        }
+    }
+
+    // Test large read
+    let mut read_buf = [0u8; 300];
+    match i2c.read(addr, &mut read_buf).await {
+        Ok(_) => info!("✓ Large buffer async read succeeded (300 bytes, tests RELOAD with DMA)"),
+        Err(e) => {
+            error!("✗ Large buffer async read failed: {:?}", e);
+            defmt::panic!("Test failed: large buffer async read");
+        }
+    }
+}
+
+// ==================== ASYNC TRANSACTION TEST FUNCTIONS ====================
 
 async fn test_consecutive_writes_async(i2c: &mut I2c<'_, Async, Master>, addr: u8) {
     let data1 = [0x10, 0x11, 0x12];

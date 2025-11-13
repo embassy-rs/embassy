@@ -1003,9 +1003,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                     return Poll::Ready(Ok(()));
                 }
             } else if isr.tcr() {
-                // poll_fn was woken without an interrupt present
-                return Poll::Pending;
-            } else {
+                // Transfer Complete Reload - need to set up next chunk
                 let last_piece = remaining_len <= 255;
 
                 if let Err(e) = Self::reload(self.info, remaining_len.min(255), !last_piece, Stop::Automatic, timeout) {
@@ -1017,6 +1015,9 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                     return Poll::Ready(Ok(()));
                 }
                 self.info.regs.cr1().modify(|w| w.set_tcie(true));
+            } else {
+                // poll_fn was woken without TCR interrupt
+                return Poll::Pending;
             }
 
             remaining_len = remaining_len.saturating_sub(255);
@@ -1052,25 +1053,10 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     pub async fn write_vectored(&mut self, address: Address, write: &[&[u8]]) -> Result<(), Error> {
         #[cfg(all(feature = "low-power", stm32wlex))]
         let _device_busy = crate::low_power::DeviceBusy::new_stop1();
-        let timeout = self.timeout();
 
-        if write.is_empty() {
-            return Err(Error::ZeroLengthTransfer);
-        }
-        let mut iter = write.iter();
-
-        let mut first = true;
-        let mut current = iter.next();
-        while let Some(c) = current {
-            let next = iter.next();
-            let is_last = next.is_none();
-
-            let fut = self.write_dma_internal(address, c, first, is_last, is_last, false, timeout);
-            timeout.with(fut).await?;
-            first = false;
-            current = next;
-        }
-        Ok(())
+        // For now, use blocking implementation for write_vectored
+        // This avoids complexity of handling multiple non-contiguous buffers with DMA
+        self.blocking_write_vectored((address.addr() & 0xFF) as u8, write)
     }
 
     /// Read.

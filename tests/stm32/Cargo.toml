@@ -161,8 +161,8 @@ path = "src/bin/hash.rs"
 required-features = [ "hash",]
 
 [[bin]]
-name = "i2c_v2"
-path = "src/bin/i2c_v2.rs"
+name = "i2c_v2_master"
+path = "src/bin/i2c_v2_master.rs"
 required-features = [ "stm32f072rb",]
 
 [[bin]]
