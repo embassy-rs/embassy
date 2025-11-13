@@ -94,7 +94,15 @@ macro_rules! config_pins {
     };
 }
 
-impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
+impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA>>> {
+    /// Create a new RMII ethernet driver using 7 pins.
+    ///
+    /// This function uses a [`GenericPhy::new_auto`] as PHY, created using the
+    /// provided [`SMA`](sma::Instance), and MDIO and MDC pins.
+    ///
+    /// See [`Ethernet::new_with_phy`] for creating an RMII ethernet
+    /// river with a non-standard PHY.
+    ///
     /// safety: the returned instance is not leak-safe
     pub fn new<const TX: usize, const RX: usize, #[cfg(afio)] A>(
         queue: &'d mut PacketQueue<TX, RX>,
@@ -107,8 +115,72 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         tx_d0: Peri<'d, if_afio!(impl TXD0Pin<T, A>)>,
         tx_d1: Peri<'d, if_afio!(impl TXD1Pin<T, A>)>,
         tx_en: Peri<'d, if_afio!(impl TXEnPin<T, A>)>,
-        phy: P,
         mac_addr: [u8; 6],
+        sma: Peri<'d, SMA>,
+        mdio: Peri<'d, if_afio!(impl MDIOPin<SMA, A>)>,
+        mdc: Peri<'d, if_afio!(impl MDCPin<SMA, A>)>,
+    ) -> Self {
+        let sma = Sma::new(sma, mdio, mdc);
+        let phy = GenericPhy::new_auto(sma);
+
+        Self::new_with_phy(
+            queue, peri, irq, ref_clk, crs, rx_d0, rx_d1, tx_d0, tx_d1, tx_en, mac_addr, phy,
+        )
+    }
+
+    /// Create a new MII ethernet driver using 14 pins.
+    ///
+    /// This function uses a [`GenericPhy::new_auto`] as PHY, created using the
+    /// provided [`SMA`](sma::Instance), and MDIO and MDC pins.
+    ///
+    /// See [`Ethernet::new_mii_with_phy`] for creating an RMII ethernet
+    /// river with a non-standard PHY.
+    pub fn new_mii<const TX: usize, const RX: usize, #[cfg(afio)] A>(
+        queue: &'d mut PacketQueue<TX, RX>,
+        peri: Peri<'d, T>,
+        irq: impl interrupt::typelevel::Binding<interrupt::typelevel::ETH, InterruptHandler> + 'd,
+        rx_clk: Peri<'d, if_afio!(impl RXClkPin<T, A>)>,
+        tx_clk: Peri<'d, if_afio!(impl TXClkPin<T, A>)>,
+        rxdv: Peri<'d, if_afio!(impl RXDVPin<T, A>)>,
+        rx_d0: Peri<'d, if_afio!(impl RXD0Pin<T, A>)>,
+        rx_d1: Peri<'d, if_afio!(impl RXD1Pin<T, A>)>,
+        rx_d2: Peri<'d, if_afio!(impl RXD2Pin<T, A>)>,
+        rx_d3: Peri<'d, if_afio!(impl RXD3Pin<T, A>)>,
+        tx_d0: Peri<'d, if_afio!(impl TXD0Pin<T, A>)>,
+        tx_d1: Peri<'d, if_afio!(impl TXD1Pin<T, A>)>,
+        tx_d2: Peri<'d, if_afio!(impl TXD2Pin<T, A>)>,
+        tx_d3: Peri<'d, if_afio!(impl TXD3Pin<T, A>)>,
+        tx_en: Peri<'d, if_afio!(impl TXEnPin<T, A>)>,
+        mac_addr: [u8; 6],
+        sma: Peri<'d, SMA>,
+        mdio: Peri<'d, if_afio!(impl MDIOPin<SMA, A>)>,
+        mdc: Peri<'d, if_afio!(impl MDCPin<SMA, A>)>,
+    ) -> Self {
+        let sma = Sma::new(sma, mdio, mdc);
+        let phy = GenericPhy::new_auto(sma);
+
+        Self::new_mii_with_phy(
+            queue, peri, irq, rx_clk, tx_clk, rxdv, rx_d0, rx_d1, rx_d2, rx_d3, tx_d0, tx_d1, tx_d2, tx_d3, tx_en,
+            mac_addr, phy,
+        )
+    }
+}
+
+impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
+    /// safety: the returned instance is not leak-safe
+    pub fn new_with_phy<const TX: usize, const RX: usize, #[cfg(afio)] A>(
+        queue: &'d mut PacketQueue<TX, RX>,
+        peri: Peri<'d, T>,
+        irq: impl interrupt::typelevel::Binding<interrupt::typelevel::ETH, InterruptHandler> + 'd,
+        ref_clk: Peri<'d, if_afio!(impl RefClkPin<T, A>)>,
+        crs: Peri<'d, if_afio!(impl CRSPin<T, A>)>,
+        rx_d0: Peri<'d, if_afio!(impl RXD0Pin<T, A>)>,
+        rx_d1: Peri<'d, if_afio!(impl RXD1Pin<T, A>)>,
+        tx_d0: Peri<'d, if_afio!(impl TXD0Pin<T, A>)>,
+        tx_d1: Peri<'d, if_afio!(impl TXD1Pin<T, A>)>,
+        tx_en: Peri<'d, if_afio!(impl TXEnPin<T, A>)>,
+        mac_addr: [u8; 6],
+        phy: P,
     ) -> Self {
         #[cfg(eth_v1a)]
         {
@@ -263,7 +335,7 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
     }
 
     /// Create a new MII ethernet driver using 12 pins.
-    pub fn new_mii<const TX: usize, const RX: usize, #[cfg(afio)] A>(
+    pub fn new_mii_with_phy<const TX: usize, const RX: usize, #[cfg(afio)] A>(
         queue: &'d mut PacketQueue<TX, RX>,
         peri: Peri<'d, T>,
         irq: impl interrupt::typelevel::Binding<interrupt::typelevel::ETH, InterruptHandler> + 'd,
@@ -279,8 +351,8 @@ impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
         tx_d2: Peri<'d, if_afio!(impl TXD2Pin<T, A>)>,
         tx_d3: Peri<'d, if_afio!(impl TXD3Pin<T, A>)>,
         tx_en: Peri<'d, if_afio!(impl TXEnPin<T, A>)>,
-        phy: P,
         mac_addr: [u8; 6],
+        phy: P,
     ) -> Self {
         #[cfg(eth_v1a)]
         {

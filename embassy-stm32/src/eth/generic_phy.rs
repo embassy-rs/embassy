@@ -153,4 +153,9 @@ impl<SM: StationManagement> GenericPhy<SM> {
         self.sm.smi_write(self.phy_addr, PHY_REG_CTL, 0x4003); // set data
         self.sm.smi_write(self.phy_addr, PHY_REG_ADDAR, reg_data);
     }
+
+    /// Access the underlying station management.
+    pub fn station_management(&mut self) -> &mut SM {
+        &mut self.sm
+    }
 }

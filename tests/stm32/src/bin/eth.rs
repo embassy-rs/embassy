@@ -70,9 +70,6 @@ async fn main(spawner: Spawner) {
 
     static PACKETS: StaticCell<PacketQueue<PACKET_QUEUE_SIZE, PACKET_QUEUE_SIZE>> = StaticCell::new();
 
-    let sma = Sma::new(p.ETH_SMA, p.PA2, p.PC1);
-    let phy = GenericPhy::new_auto(sma);
-
     let device = Ethernet::new(
         PACKETS.init(PacketQueue::<PACKET_QUEUE_SIZE, PACKET_QUEUE_SIZE>::new()),
         p.ETH,
@@ -87,8 +84,10 @@ async fn main(spawner: Spawner) {
         #[cfg(feature = "stm32h563zi")]
         p.PB15,
         p.PG11,
-        phy,
         mac_addr,
+        p.ETH_SMA,
+        p.PA2,
+        p.PC1,
     );
 
     let config = embassy_net::Config::dhcpv4(Default::default());
