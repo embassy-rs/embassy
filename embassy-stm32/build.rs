@@ -1695,70 +1695,88 @@ fn main() {
     }
 
     // ========
-    // Generate Div/Mul impls for RCC prescalers/dividers/multipliers.
-    for e in rcc_registers.ir.enums {
-        fn is_rcc_name(e: &str) -> bool {
-            match e {
-                "Pllp" | "Pllq" | "Pllr" | "Plldivst" | "Pllm" | "Plln" | "Prediv1" | "Prediv2" | "Hpre5" => true,
-                "Timpre" | "Pllrclkpre" => false,
-                e if e.ends_with("pre") || e.ends_with("pres") || e.ends_with("div") || e.ends_with("mul") => true,
-                _ => false,
+    // Generate Div/Mul impls for RCC and ADC prescalers/dividers/multipliers.
+    for (kind, psc_enums) in ["rcc", "adc", "adccommon"].iter().filter_map(|kind| {
+        METADATA
+            .peripherals
+            .iter()
+            .filter_map(|p| p.registers.as_ref())
+            .find(|r| r.kind == *kind)
+            .map(|r| (*kind, r.ir.enums))
+    }) {
+        for e in psc_enums.iter() {
+            fn is_adc_name(e: &str) -> bool {
+                match e {
+                    "Presc" | "Adc4Presc" | "Adcpre" => true,
+                    _ => false,
+                }
             }
-        }
 
-        fn parse_num(n: &str) -> Result<Frac, ()> {
-            for prefix in ["DIV", "MUL"] {
-                if let Some(n) = n.strip_prefix(prefix) {
-                    let exponent = n.find('_').map(|e| n.len() - 1 - e).unwrap_or(0) as u32;
-                    let mantissa = n.replace('_', "").parse().map_err(|_| ())?;
-                    let f = Frac {
-                        num: mantissa,
-                        denom: 10u32.pow(exponent),
+            fn is_rcc_name(e: &str) -> bool {
+                match e {
+                    "Pllp" | "Pllq" | "Pllr" | "Plldivst" | "Pllm" | "Plln" | "Prediv1" | "Prediv2" | "Hpre5" => true,
+                    "Timpre" | "Pllrclkpre" => false,
+                    e if e.ends_with("pre") || e.ends_with("pres") || e.ends_with("div") || e.ends_with("mul") => true,
+                    _ => false,
+                }
+            }
+
+            fn parse_num(n: &str) -> Result<Frac, ()> {
+                for prefix in ["DIV", "MUL"] {
+                    if let Some(n) = n.strip_prefix(prefix) {
+                        let exponent = n.find('_').map(|e| n.len() - 1 - e).unwrap_or(0) as u32;
+                        let mantissa = n.replace('_', "").parse().map_err(|_| ())?;
+                        let f = Frac {
+                            num: mantissa,
+                            denom: 10u32.pow(exponent),
+                        };
+                        return Ok(f.simplify());
+                    }
+                }
+                Err(())
+            }
+
+            if (kind == "rcc" && is_rcc_name(e.name)) || ((kind == "adccommon" || kind == "adc") && is_adc_name(e.name))
+            {
+                let kind = format_ident!("{}", kind);
+                let enum_name = format_ident!("{}", e.name);
+                let mut muls = Vec::new();
+                let mut divs = Vec::new();
+                for v in e.variants {
+                    let Ok(val) = parse_num(v.name) else {
+                        panic!("could not parse mul/div. enum={} variant={}", e.name, v.name)
                     };
-                    return Ok(f.simplify());
+                    let variant_name = format_ident!("{}", v.name);
+                    let variant = quote!(crate::pac::#kind::vals::#enum_name::#variant_name);
+                    let num = val.num;
+                    let denom = val.denom;
+                    muls.push(quote!(#variant => self * #num / #denom,));
+                    divs.push(quote!(#variant => self * #denom / #num,));
                 }
-            }
-            Err(())
-        }
 
-        if is_rcc_name(e.name) {
-            let enum_name = format_ident!("{}", e.name);
-            let mut muls = Vec::new();
-            let mut divs = Vec::new();
-            for v in e.variants {
-                let Ok(val) = parse_num(v.name) else {
-                    panic!("could not parse mul/div. enum={} variant={}", e.name, v.name)
-                };
-                let variant_name = format_ident!("{}", v.name);
-                let variant = quote!(crate::pac::rcc::vals::#enum_name::#variant_name);
-                let num = val.num;
-                let denom = val.denom;
-                muls.push(quote!(#variant => self * #num / #denom,));
-                divs.push(quote!(#variant => self * #denom / #num,));
-            }
-
-            g.extend(quote! {
-                impl core::ops::Div<crate::pac::rcc::vals::#enum_name> for crate::time::Hertz {
-                    type Output = crate::time::Hertz;
-                    fn div(self, rhs: crate::pac::rcc::vals::#enum_name) -> Self::Output {
-                        match rhs {
-                            #(#divs)*
-                            #[allow(unreachable_patterns)]
-                            _ => unreachable!(),
+                g.extend(quote! {
+                    impl core::ops::Div<crate::pac::#kind::vals::#enum_name> for crate::time::Hertz {
+                        type Output = crate::time::Hertz;
+                        fn div(self, rhs: crate::pac::#kind::vals::#enum_name) -> Self::Output {
+                            match rhs {
+                                #(#divs)*
+                                #[allow(unreachable_patterns)]
+                                _ => unreachable!(),
+                            }
                         }
                     }
-                }
-                impl core::ops::Mul<crate::pac::rcc::vals::#enum_name> for crate::time::Hertz {
-                    type Output = crate::time::Hertz;
-                    fn mul(self, rhs: crate::pac::rcc::vals::#enum_name) -> Self::Output {
-                        match rhs {
-                            #(#muls)*
-                            #[allow(unreachable_patterns)]
-                            _ => unreachable!(),
+                    impl core::ops::Mul<crate::pac::#kind::vals::#enum_name> for crate::time::Hertz {
+                        type Output = crate::time::Hertz;
+                        fn mul(self, rhs: crate::pac::#kind::vals::#enum_name) -> Self::Output {
+                            match rhs {
+                                #(#muls)*
+                                #[allow(unreachable_patterns)]
+                                _ => unreachable!(),
+                            }
                         }
                     }
-                }
-            });
+                });
+            }
         }
     }
 

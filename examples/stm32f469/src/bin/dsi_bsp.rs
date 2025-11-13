@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::dsihost::{DsiHost, PacketType, blocking_delay_ms};
+use embassy_stm32::dsihost::{DsiHost, PacketType};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::ltdc::Ltdc;
 use embassy_stm32::pac::dsihost::regs::{Ier0, Ier1};
@@ -13,7 +13,7 @@ use embassy_stm32::rcc::{
     AHBPrescaler, APBPrescaler, Hse, HseMode, Pll, PllMul, PllPDiv, PllPreDiv, PllQDiv, PllRDiv, PllSource, Sysclk,
 };
 use embassy_stm32::time::mhz;
-use embassy_time::Timer;
+use embassy_time::{Duration, Timer, block_for};
 use {defmt_rtt as _, panic_probe as _};
 
 enum _Orientation {
@@ -444,7 +444,7 @@ async fn main(_spawner: Spawner) {
     dsi.enable_wrapper_dsi();
 
     // First, delay 120 ms (reason unknown, STM32 Cube Example does it)
-    blocking_delay_ms(120);
+    block_for(Duration::from_millis(120));
 
     // 1 to 26
     dsi.write_cmd(0, NT35510_WRITES_0[0], &NT35510_WRITES_0[1..]).unwrap();
@@ -480,7 +480,7 @@ async fn main(_spawner: Spawner) {
     dsi.write_cmd(0, NT35510_WRITES_37[0], &NT35510_WRITES_37[1..]).unwrap();
 
     // Add a delay, otherwise MADCTL not taken
-    blocking_delay_ms(200);
+    block_for(Duration::from_millis(200));
 
     // Configure orientation as landscape
     dsi.write_cmd(0, NT35510_MADCTL_LANDSCAPE[0], &NT35510_MADCTL_LANDSCAPE[1..])
@@ -494,7 +494,7 @@ async fn main(_spawner: Spawner) {
     dsi.write_cmd(0, NT35510_WRITES_27[0], &NT35510_WRITES_27[1..]).unwrap();
 
     // Wait for sleep out exit
-    blocking_delay_ms(120);
+    block_for(Duration::from_millis(120));
 
     // Configure COLOR_CODING
     dsi.write_cmd(0, NT35510_WRITES_37[0], &NT35510_WRITES_37[1..]).unwrap();
@@ -590,7 +590,7 @@ async fn main(_spawner: Spawner) {
     //LTDC->SRCR = LTDC_SRCR_IMR;
     LTDC.srcr().modify(|w| w.set_imr(Imr::RELOAD));
 
-    blocking_delay_ms(5000);
+    block_for(Duration::from_millis(5000));
 
     const READ_SIZE: u16 = 1;
     let mut data = [1u8; READ_SIZE as usize];
@@ -606,7 +606,7 @@ async fn main(_spawner: Spawner) {
         .unwrap();
     info!("Display ID3: {:#04x}", data);
 
-    blocking_delay_ms(500);
+    block_for(Duration::from_millis(500));
 
     info!("Config done, start blinking LED");
     loop {
