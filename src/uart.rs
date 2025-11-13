@@ -1,6 +1,10 @@
 //! Minimal polling UART2 bring-up replicating MCUXpresso hello_world ordering.
 //! WARNING: This is a narrow implementation only for debug console (115200 8N1).
 
+// TODO(AJM): As of 2025-11-13, we need to do a pass to ensure safety docs
+// are complete prior to release.
+#![allow(clippy::missing_safety_doc)]
+
 use core::cell::RefCell;
 
 use cortex_m::interrupt::Mutex;

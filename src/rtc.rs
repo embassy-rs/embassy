@@ -109,18 +109,29 @@ pub fn convert_seconds_to_datetime(seconds: u32) -> RtcDateTime {
         };
     }
 
-    let mut days_per_month = [0u8, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-    if year.is_multiple_of(4) {
-        days_per_month[2] = 29;
-    }
+    let days_per_month = [
+        31,
+        if year.is_multiple_of(4) { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
 
     let mut month = 1;
-    for m in 1..=12 {
-        if days <= days_per_month[m] as u32 {
+    for (m, month_days) in days_per_month.iter().enumerate() {
+        let m = m + 1;
+        if days <= *month_days as u32 {
             month = m;
             break;
         } else {
-            days -= days_per_month[m] as u32;
+            days -= *month_days as u32;
         }
     }
 

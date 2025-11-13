@@ -110,6 +110,7 @@ impl<'a> BufferedLpuart<'a> {
     }
 
     /// Create a new buffered LPUART with flexible pin configuration
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with_pins<T: Instance>(
         _inner: Peri<'a, T>,
         tx_pin: Option<Peri<'a, impl TxPin<T>>>,

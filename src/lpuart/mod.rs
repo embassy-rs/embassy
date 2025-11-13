@@ -106,7 +106,8 @@ mod gpio {
                 impl GpioPin for super::lib::peripherals::$pin {}
 
                 impl From<super::lib::peripherals::$pin> for AnyPin {
-                    fn from(val: super::lib::peripherals::$pin) -> Self {
+                    // TODO: AJM: any reason we aren't using $pin?
+                    fn from(_val: super::lib::peripherals::$pin) -> Self {
                         AnyPin
                     }
                 }
@@ -242,7 +243,7 @@ pub fn configure_baudrate(regs: Regs, baudrate_bps: u32, clock: Clock) -> Result
     // Configure BAUD register
     regs.baud().modify(|_, w| unsafe {
         // Clear and set OSR
-        w.osr().bits((osr - 1));
+        w.osr().bits(osr - 1);
         // Clear and set SBR
         w.sbr().bits(sbr);
         // Set BOTHEDGE if OSR is between 4 and 7

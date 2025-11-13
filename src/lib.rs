@@ -1,4 +1,7 @@
 #![no_std]
+// TODO(AJM): As of 2025-11-13, we need to do a pass to ensure safety docs
+// are complete prior to release.
+#![allow(clippy::missing_safety_doc)]
 
 pub mod clocks; // still provide clock helpers
 pub mod gpio;
