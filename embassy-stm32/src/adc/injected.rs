@@ -5,9 +5,9 @@ use core::sync::atomic::{Ordering, compiler_fence};
 use embassy_hal_internal::Peri;
 
 use super::{AnyAdcChannel, SampleTime};
-use crate::adc::Adc;
 #[allow(unused_imports)]
 use crate::adc::Instance;
+use crate::adc::{Adc, AnyInstance};
 
 /// Injected ADC sequence with owned channels.
 pub struct InjectedAdc<T: Instance, const N: usize> {
@@ -36,9 +36,9 @@ impl<T: Instance, const N: usize> InjectedAdc<T, N> {
     }
 }
 
-impl<T: Instance, const N: usize> Drop for InjectedAdc<T, N> {
+impl<T: Instance + AnyInstance, const N: usize> Drop for InjectedAdc<T, N> {
     fn drop(&mut self) {
-        Adc::<T>::stop();
+        T::stop();
         compiler_fence(Ordering::SeqCst);
     }
 }

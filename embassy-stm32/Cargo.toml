@@ -188,6 +188,7 @@ embedded-io = { version = "0.6.0" }
 embedded-io-async = { version = "0.6.1" }
 chrono = { version = "^0.4", default-features = false, optional = true }
 bit_field = "0.10.2"
+trait-set = "0.3.0"
 document-features = "0.2.7"
 
 static_assertions = { version = "1.1" }

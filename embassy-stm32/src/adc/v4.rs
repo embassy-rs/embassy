@@ -151,7 +151,126 @@ pub struct AdcConfig {
     pub averaging: Option<Averaging>,
 }
 
-impl<'d, T: Instance> Adc<'d, T> {
+impl<T: Instance> super::SealedAnyInstance for T {
+    fn dr() -> *mut u16 {
+        T::regs().dr().as_ptr() as *mut u16
+    }
+
+    fn enable() {
+        T::regs().isr().write(|w| w.set_adrdy(true));
+        T::regs().cr().modify(|w| w.set_aden(true));
+        while !T::regs().isr().read().adrdy() {}
+        T::regs().isr().write(|w| w.set_adrdy(true));
+    }
+
+    fn start() {
+        // Start conversion
+        T::regs().cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
+    }
+
+    fn stop() {
+        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
+            T::regs().cr().modify(|reg| {
+                reg.set_adstp(Adstp::STOP);
+            });
+            while T::regs().cr().read().adstart() {}
+        }
+
+        // Reset configuration.
+        T::regs().cfgr().modify(|reg| {
+            reg.set_cont(false);
+            reg.set_dmngt(Dmngt::from_bits(0));
+        });
+    }
+
+    fn convert() -> u16 {
+        T::regs().isr().modify(|reg| {
+            reg.set_eos(true);
+            reg.set_eoc(true);
+        });
+
+        // Start conversion
+        T::regs().cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
+
+        while !T::regs().isr().read().eos() {
+            // spin
+        }
+
+        T::regs().dr().read().0 as u16
+    }
+
+    fn configure_dma(conversion_mode: ConversionMode) {
+        match conversion_mode {
+            ConversionMode::Singular => {
+                T::regs().isr().modify(|reg| {
+                    reg.set_ovr(true);
+                });
+                T::regs().cfgr().modify(|reg| {
+                    reg.set_cont(true);
+                    reg.set_dmngt(Dmngt::DMA_ONE_SHOT);
+                });
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+        // Set sequence length
+        T::regs().sqr1().modify(|w| {
+            w.set_l(sequence.len() as u8 - 1);
+        });
+
+        // Configure channels and ranks
+        for (i, ((channel, _), sample_time)) in sequence.enumerate() {
+            let sample_time = sample_time.into();
+            if channel <= 9 {
+                T::regs().smpr(0).modify(|reg| reg.set_smp(channel as _, sample_time));
+            } else {
+                T::regs()
+                    .smpr(1)
+                    .modify(|reg| reg.set_smp((channel - 10) as _, sample_time));
+            }
+
+            #[cfg(any(stm32h7, stm32u5))]
+            {
+                T::regs().cfgr2().modify(|w| w.set_lshift(0));
+                T::regs()
+                    .pcsel()
+                    .modify(|w| w.set_pcsel(channel as _, Pcsel::PRESELECTED));
+            }
+
+            match i {
+                0..=3 => {
+                    T::regs().sqr1().modify(|w| {
+                        w.set_sq(i, channel);
+                    });
+                }
+                4..=8 => {
+                    T::regs().sqr2().modify(|w| {
+                        w.set_sq(i - 4, channel);
+                    });
+                }
+                9..=13 => {
+                    T::regs().sqr3().modify(|w| {
+                        w.set_sq(i - 9, channel);
+                    });
+                }
+                14..=15 => {
+                    T::regs().sqr4().modify(|w| {
+                        w.set_sq(i - 14, channel);
+                    });
+                }
+                _ => unreachable!(),
+            }
+        }
+    }
+}
+
+impl<'d, T: Instance + super::AnyInstance> Adc<'d, T> {
     pub fn new_with_config(adc: Peri<'d, T>, config: AdcConfig) -> Self {
         let s = Self::new(adc);
 
@@ -243,7 +362,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         blocking_delay_us(1);
 
-        Self::enable();
+        T::enable();
 
         // single conversion mode, software trigger
         T::regs().cfgr().modify(|w| {
@@ -252,119 +371,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         });
 
         Self { adc }
-    }
-
-    pub(super) fn enable() {
-        T::regs().isr().write(|w| w.set_adrdy(true));
-        T::regs().cr().modify(|w| w.set_aden(true));
-        while !T::regs().isr().read().adrdy() {}
-        T::regs().isr().write(|w| w.set_adrdy(true));
-    }
-
-    pub(super) fn start() {
-        // Start conversion
-        T::regs().cr().modify(|reg| {
-            reg.set_adstart(true);
-        });
-    }
-
-    pub(super) fn stop() {
-        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
-            T::regs().cr().modify(|reg| {
-                reg.set_adstp(Adstp::STOP);
-            });
-            while T::regs().cr().read().adstart() {}
-        }
-
-        // Reset configuration.
-        T::regs().cfgr().modify(|reg| {
-            reg.set_cont(false);
-            reg.set_dmngt(Dmngt::from_bits(0));
-        });
-    }
-
-    pub(super) fn convert() -> u16 {
-        T::regs().isr().modify(|reg| {
-            reg.set_eos(true);
-            reg.set_eoc(true);
-        });
-
-        // Start conversion
-        T::regs().cr().modify(|reg| {
-            reg.set_adstart(true);
-        });
-
-        while !T::regs().isr().read().eos() {
-            // spin
-        }
-
-        T::regs().dr().read().0 as u16
-    }
-
-    pub(super) fn configure_dma(conversion_mode: ConversionMode) {
-        match conversion_mode {
-            ConversionMode::Singular => {
-                T::regs().isr().modify(|reg| {
-                    reg.set_ovr(true);
-                });
-                T::regs().cfgr().modify(|reg| {
-                    reg.set_cont(true);
-                    reg.set_dmngt(Dmngt::DMA_ONE_SHOT);
-                });
-            }
-            _ => unreachable!(),
-        }
-    }
-
-    pub(super) fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
-        // Set sequence length
-        T::regs().sqr1().modify(|w| {
-            w.set_l(sequence.len() as u8 - 1);
-        });
-
-        // Configure channels and ranks
-        for (i, ((channel, _), sample_time)) in sequence.enumerate() {
-            let sample_time = sample_time.into();
-            if channel <= 9 {
-                T::regs().smpr(0).modify(|reg| reg.set_smp(channel as _, sample_time));
-            } else {
-                T::regs()
-                    .smpr(1)
-                    .modify(|reg| reg.set_smp((channel - 10) as _, sample_time));
-            }
-
-            #[cfg(any(stm32h7, stm32u5))]
-            {
-                T::regs().cfgr2().modify(|w| w.set_lshift(0));
-                T::regs()
-                    .pcsel()
-                    .modify(|w| w.set_pcsel(channel as _, Pcsel::PRESELECTED));
-            }
-
-            match i {
-                0..=3 => {
-                    T::regs().sqr1().modify(|w| {
-                        w.set_sq(i, channel);
-                    });
-                }
-                4..=8 => {
-                    T::regs().sqr2().modify(|w| {
-                        w.set_sq(i - 4, channel);
-                    });
-                }
-                9..=13 => {
-                    T::regs().sqr3().modify(|w| {
-                        w.set_sq(i - 9, channel);
-                    });
-                }
-                14..=15 => {
-                    T::regs().sqr4().modify(|w| {
-                        w.set_sq(i - 14, channel);
-                    });
-                }
-                _ => unreachable!(),
-            }
-        }
     }
 
     /// Enable reading the voltage reference internal channel.
