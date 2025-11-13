@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
-// required-features: stm32f072rb
-//
+
 // Hardware Setup for NUCLEO-F072RB:
 // - I2C1 pins: PB8 (SCL), PB9 (SDA) on CN5 connector
 // - Connect to I2C slave device (e.g., Digilent Analog Discovery I2C slave, or EEPROM)
@@ -16,25 +15,28 @@
 // - Connect and configure DIO pins for SCL and SDA
 // - Frequency: 100kHz - [✓] Clock Stretching
 
-#[path = "../common.rs"]
-mod common;
-
-use common::*;
+use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::{Config, I2c, Master};
 use embassy_stm32::mode::{Async, Blocking};
 use embassy_stm32::time::Hertz;
+use embassy_stm32::{bind_interrupts, i2c, peripherals};
 use embassy_time::Timer;
 use embedded_hal_1::i2c::Operation;
+use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    I2C1 => i2c::EventInterruptHandler<peripherals::I2C1>, i2c::ErrorInterruptHandler<peripherals::I2C1>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = init();
+    let p = embassy_stm32::init(Default::default());
     info!("Run stm32 I2C v2 Master Tests...");
 
-    let mut i2c_peri = peri!(p, I2C);
-    let mut scl = peri!(p, I2C_SCL);
-    let mut sda = peri!(p, I2C_SDA);
+    let mut i2c_peri = p.I2C1;
+    let mut scl = p.PB8;
+    let mut sda = p.PB9;
 
     let mut config = Config::default();
     config.frequency = Hertz(100_000);
@@ -101,11 +103,10 @@ async fn main(_spawner: Spawner) {
     // ========== ASYNC TESTS (DMA) ==========
     info!("========== ASYNC TESTS (DMA) ==========");
     {
-        let tx_dma = peri!(p, I2C_TX_DMA);
-        let rx_dma = peri!(p, I2C_RX_DMA);
-        let irq = irqs!(I2C);
+        let tx_dma = p.DMA1_CH2;
+        let rx_dma = p.DMA1_CH3;
 
-        let mut i2c = I2c::new(i2c_peri, scl, sda, irq, tx_dma, rx_dma, config);
+        let mut i2c = I2c::new(i2c_peri, scl, sda, Irqs, tx_dma, rx_dma, config);
 
         // Direct API tests (reusing same I2C instance)
         info!("=== Direct API Test 1: write() ===");
