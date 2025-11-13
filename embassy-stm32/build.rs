@@ -1589,6 +1589,7 @@ fn main() {
         (("dac", "CH1"), quote!(crate::dac::Dma<Ch1>)),
         (("dac", "CH2"), quote!(crate::dac::Dma<Ch2>)),
         (("timer", "UP"), quote!(crate::timer::UpDma)),
+        (("timer", "UPD"), quote!(crate::timer::UpDma)),
         (("hash", "IN"), quote!(crate::hash::Dma)),
         (("cryp", "IN"), quote!(crate::cryp::DmaIn)),
         (("cryp", "OUT"), quote!(crate::cryp::DmaOut)),
