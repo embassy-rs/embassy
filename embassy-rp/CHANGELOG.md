@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Add documentation for pio `get_x` about autopush.
 - Fix several minor typos in documentation
 - Add PIO SPI
 - Add PIO I2S input
@@ -114,3 +115,4 @@ Small release fixing a few gnarly bugs, upgrading is strongly recommended.
 - rename the Channel trait to Slice and the PwmPin to PwmChannel
 - i2c: Fix race condition that appears on fast repeated transfers.
 - Add a basic "read to break" function
+
