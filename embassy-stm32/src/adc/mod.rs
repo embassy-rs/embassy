@@ -88,19 +88,17 @@ pub(crate) trait SealedAdcChannel<T> {
 }
 
 // Temporary patch for ADCs that have not implemented the standard iface yet
-#[cfg(not(any(adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_g4)))]
+#[cfg(any(adc_v1, adc_l0, adc_f1, adc_f3v1, adc_f3v2, adc_f3v3, adc_v1, adc_c0))]
 trait_set::trait_set! {
     pub trait AnyInstance = Instance;
 }
 
 #[cfg(any(adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_g4))]
-#[allow(dead_code)]
 pub trait BasicAnyInstance {
     type SampleTime;
 }
 
 #[cfg(any(adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_g4))]
-#[allow(dead_code)]
 pub(self) trait SealedAnyInstance: BasicAnyInstance {
     fn enable();
     fn start();
@@ -108,6 +106,7 @@ pub(self) trait SealedAnyInstance: BasicAnyInstance {
     fn convert() -> u16;
     fn configure_dma(conversion_mode: ConversionMode);
     fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
+    #[allow(dead_code)]
     fn dr() -> *mut u16;
 }
 
@@ -169,17 +168,18 @@ pub enum Averaging {
 }
 
 #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba))]
-#[allow(dead_code)]
 pub(crate) enum ConversionMode {
+    // Should match the cfg on "read" below
     #[cfg(any(adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba))]
     Singular,
-    #[allow(dead_code)]
+    // Should match the cfg on "into_ring_buffered" below
+    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
     Repeated(RegularConversionMode),
 }
 
-#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba))]
+// Should match the cfg on "into_ring_buffered" below
+#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
 // Conversion mode for regular ADC channels
-#[allow(dead_code)]
 #[derive(Copy, Clone)]
 pub enum RegularConversionMode {
     // Samples as fast as possible

@@ -158,6 +158,7 @@ foreach_adc!(
                             reg.set_chselrmod(Chselrmod::ENABLE_INPUT)
                         });
                     }
+                    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
                     _ => unreachable!(),
                 }
             }
