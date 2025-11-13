@@ -88,31 +88,37 @@ pub(crate) trait SealedAdcChannel<T> {
 }
 
 // Temporary patch for ADCs that have not implemented the standard iface yet
-#[cfg(not(any(adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_g4)))]
+#[cfg(any(adc_v1, adc_l0, adc_f1, adc_f3v1, adc_f3v2, adc_f3v3, adc_v1))]
 trait_set::trait_set! {
     pub trait AnyInstance = Instance;
 }
 
-#[cfg(any(adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_g4))]
-#[allow(dead_code)]
+#[cfg(any(
+    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_g4, adc_c0
+))]
 pub trait BasicAnyInstance {
     type SampleTime;
 }
 
-#[cfg(any(adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_g4))]
-#[allow(dead_code)]
+#[cfg(any(
+    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_g4, adc_c0
+))]
 pub(self) trait SealedAnyInstance: BasicAnyInstance {
     fn enable();
     fn start();
     fn stop();
     fn convert() -> u16;
     fn configure_dma(conversion_mode: ConversionMode);
+    #[cfg(not(adc_c0))]
     fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
+    #[cfg(adc_c0)]
+    fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>, blocking: bool);
+    #[allow(dead_code)]
     fn dr() -> *mut u16;
 }
 
 // On chips without ADC4, AnyInstance is an Instance
-#[cfg(any(adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_g4))]
+#[cfg(any(adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_g4, adc_c0))]
 #[allow(private_bounds)]
 pub trait AnyInstance: SealedAnyInstance + Instance {}
 
@@ -122,12 +128,16 @@ pub trait AnyInstance: SealedAnyInstance + Instance {}
 pub trait AnyInstance: SealedAnyInstance + crate::PeripheralType + crate::rcc::RccPeripheral {}
 
 // Implement AnyInstance automatically for SealedAnyInstance
-#[cfg(any(adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_g4))]
+#[cfg(any(
+    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_g4, adc_c0
+))]
 impl<T: SealedAnyInstance + Instance> BasicAnyInstance for T {
     type SampleTime = SampleTime;
 }
 
-#[cfg(any(adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_g4))]
+#[cfg(any(
+    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_g4, adc_c0
+))]
 impl<T: SealedAnyInstance + Instance> AnyInstance for T {}
 
 /// Performs a busy-wait delay for a specified number of microseconds.
@@ -148,18 +158,41 @@ pub(crate) fn blocking_delay_us(us: u32) {
     }
 }
 
-#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba))]
-#[allow(dead_code)]
+#[cfg(any(adc_c0, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5))]
+/// Number of samples used for averaging.
+#[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Averaging {
+    Disabled,
+    Samples2,
+    Samples4,
+    Samples8,
+    Samples16,
+    Samples32,
+    Samples64,
+    Samples128,
+    Samples256,
+    #[cfg(any(adc_c0, adc_v4, adc_u5))]
+    Samples512,
+    #[cfg(any(adc_c0, adc_v4, adc_u5))]
+    Samples1024,
+}
+
+#[cfg(any(
+    adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_c0
+))]
 pub(crate) enum ConversionMode {
-    #[cfg(any(adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba))]
+    // Should match the cfg on "read" below
+    #[cfg(any(adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_c0))]
     Singular,
-    #[allow(dead_code)]
+    // Should match the cfg on "into_ring_buffered" below
+    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
     Repeated(RegularConversionMode),
 }
 
-#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba))]
+// Should match the cfg on "into_ring_buffered" below
+#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
 // Conversion mode for regular ADC channels
-#[allow(dead_code)]
 #[derive(Copy, Clone)]
 pub enum RegularConversionMode {
     // Samples as fast as possible
@@ -170,7 +203,9 @@ pub enum RegularConversionMode {
 }
 
 impl<'d, T: AnyInstance> Adc<'d, T> {
-    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_u5, adc_v4, adc_wba))]
+    #[cfg(any(
+        adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_u5, adc_v4, adc_wba, adc_c0
+    ))]
     /// Read an ADC pin.
     pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: T::SampleTime) -> u16 {
         #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5, adc_wba))]
@@ -178,12 +213,18 @@ impl<'d, T: AnyInstance> Adc<'d, T> {
 
         #[cfg(not(adc_v4))]
         T::enable();
+        #[cfg(not(adc_c0))]
         T::configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
+        #[cfg(adc_c0)]
+        T::configure_sequence(
+            [((channel.channel(), channel.is_differential()), sample_time)].into_iter(),
+            true,
+        );
 
         T::convert()
     }
 
-    #[cfg(any(adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba))]
+    #[cfg(any(adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_c0))]
     /// Read one or multiple ADC regular channels using DMA.
     ///
     /// `sequence` iterator and `readings` must have the same length.
@@ -212,6 +253,11 @@ impl<'d, T: AnyInstance> Adc<'d, T> {
     ///
     /// Note: This is not very efficient as the ADC needs to be reconfigured for each read. Use
     /// `into_ring_buffered`, `into_ring_buffered_and_injected`
+    ///
+    /// In STM32C0, channels bigger than 14 cannot be read using sequencer, so you have to use
+    /// either blocking reads or use the mechanism to read in HW order (CHSELRMOD=0).
+    ///
+    /// In addtion, on STM320, this method will panic if the channels are not passed in order
     pub async fn read(
         &mut self,
         rx_dma: embassy_hal_internal::Peri<'_, impl RxDma<T>>,
@@ -232,8 +278,15 @@ impl<'d, T: AnyInstance> Adc<'d, T> {
         T::stop();
         T::enable();
 
+        #[cfg(not(adc_c0))]
         T::configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
+        );
+
+        #[cfg(adc_c0)]
+        T::configure_sequence(
+            sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
+            false,
         );
 
         T::configure_dma(ConversionMode::Singular);

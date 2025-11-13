@@ -11,7 +11,7 @@ pub use pac::adc::vals::{Ovsr, Ovss, Presc};
 
 #[allow(unused_imports)]
 use super::SealedAdcChannel;
-use super::{Adc, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt, blocking_delay_us};
+use super::{Adc, Averaging, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt, blocking_delay_us};
 use crate::adc::ConversionMode;
 use crate::{Peri, pac, rcc};
 
@@ -98,21 +98,6 @@ cfg_if! {
             }
         }
     }
-}
-
-/// Number of samples used for averaging.
-#[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Averaging {
-    Disabled,
-    Samples2,
-    Samples4,
-    Samples8,
-    Samples16,
-    Samples32,
-    Samples64,
-    Samples128,
-    Samples256,
 }
 
 cfg_if! { if #[cfg(adc_g0)] {
@@ -274,6 +259,7 @@ impl<T: Instance> super::SealedAnyInstance for T {
             reg.set_cont(true);
             reg.set_dmacfg(match conversion_mode {
                 ConversionMode::Singular => Dmacfg::ONE_SHOT,
+                #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
                 ConversionMode::Repeated(_) => Dmacfg::CIRCULAR,
             });
             reg.set_dmaen(true);

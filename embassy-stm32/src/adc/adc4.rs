@@ -76,71 +76,17 @@ pub const fn resolution_to_max_count(res: Resolution) -> u32 {
     }
 }
 
-// NOTE (unused): The prescaler enum closely copies the hardware capabilities,
-// but high prescaling doesn't make a lot of sense in the current implementation and is ommited.
-#[allow(unused)]
-enum Prescaler {
-    NotDivided,
-    DividedBy2,
-    DividedBy4,
-    DividedBy6,
-    DividedBy8,
-    DividedBy10,
-    DividedBy12,
-    DividedBy16,
-    DividedBy32,
-    DividedBy64,
-    DividedBy128,
-    DividedBy256,
-}
-
-impl Prescaler {
-    fn from_ker_ck(frequency: Hertz) -> Self {
-        let raw_prescaler = frequency.0 / MAX_ADC_CLK_FREQ.0;
-        match raw_prescaler {
-            0 => Self::NotDivided,
-            1 => Self::DividedBy2,
-            2..=3 => Self::DividedBy4,
-            4..=5 => Self::DividedBy6,
-            6..=7 => Self::DividedBy8,
-            8..=9 => Self::DividedBy10,
-            10..=11 => Self::DividedBy12,
-            _ => unimplemented!(),
-        }
-    }
-
-    fn divisor(&self) -> u32 {
-        match self {
-            Prescaler::NotDivided => 1,
-            Prescaler::DividedBy2 => 2,
-            Prescaler::DividedBy4 => 4,
-            Prescaler::DividedBy6 => 6,
-            Prescaler::DividedBy8 => 8,
-            Prescaler::DividedBy10 => 10,
-            Prescaler::DividedBy12 => 12,
-            Prescaler::DividedBy16 => 16,
-            Prescaler::DividedBy32 => 32,
-            Prescaler::DividedBy64 => 64,
-            Prescaler::DividedBy128 => 128,
-            Prescaler::DividedBy256 => 256,
-        }
-    }
-
-    fn presc(&self) -> Presc {
-        match self {
-            Prescaler::NotDivided => Presc::DIV1,
-            Prescaler::DividedBy2 => Presc::DIV2,
-            Prescaler::DividedBy4 => Presc::DIV4,
-            Prescaler::DividedBy6 => Presc::DIV6,
-            Prescaler::DividedBy8 => Presc::DIV8,
-            Prescaler::DividedBy10 => Presc::DIV10,
-            Prescaler::DividedBy12 => Presc::DIV12,
-            Prescaler::DividedBy16 => Presc::DIV16,
-            Prescaler::DividedBy32 => Presc::DIV32,
-            Prescaler::DividedBy64 => Presc::DIV64,
-            Prescaler::DividedBy128 => Presc::DIV128,
-            Prescaler::DividedBy256 => Presc::DIV256,
-        }
+fn from_ker_ck(frequency: Hertz) -> Presc {
+    let raw_prescaler = frequency.0 / MAX_ADC_CLK_FREQ.0;
+    match raw_prescaler {
+        0 => Presc::DIV1,
+        1 => Presc::DIV2,
+        2..=3 => Presc::DIV4,
+        4..=5 => Presc::DIV6,
+        6..=7 => Presc::DIV8,
+        8..=9 => Presc::DIV10,
+        10..=11 => Presc::DIV12,
+        _ => unimplemented!(),
     }
 }
 
@@ -212,6 +158,7 @@ foreach_adc!(
                             reg.set_chselrmod(Chselrmod::ENABLE_INPUT)
                         });
                     }
+                    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
                     _ => unreachable!(),
                 }
             }
@@ -283,11 +230,11 @@ impl<'d, T: Instance + super::AnyInstance> super::Adc<'d, T> {
     /// Create a new ADC driver.
     pub fn new_adc4(adc: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
-        let prescaler = Prescaler::from_ker_ck(T::frequency());
+        let prescaler = from_ker_ck(T::frequency());
 
-        T::regs().ccr().modify(|w| w.set_presc(prescaler.presc()));
+        T::regs().ccr().modify(|w| w.set_presc(prescaler));
 
-        let frequency = Hertz(T::frequency().0 / prescaler.divisor());
+        let frequency = T::frequency() / prescaler;
         info!("ADC4 frequency set to {}", frequency);
 
         if frequency > MAX_ADC_CLK_FREQ {
