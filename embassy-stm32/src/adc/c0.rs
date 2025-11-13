@@ -119,25 +119,6 @@ impl<'a> defmt::Format for Prescaler {
     }
 }
 
-/// Number of samples used for averaging.
-/// TODO: Implement hardware averaging setting.
-#[allow(unused)]
-#[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Averaging {
-    Disabled,
-    Samples2,
-    Samples4,
-    Samples8,
-    Samples16,
-    Samples32,
-    Samples64,
-    Samples128,
-    Samples256,
-    Samples512,
-    Samples1024,
-}
-
 impl<'d, T: Instance> Adc<'d, T> {
     /// Create a new ADC driver.
     pub fn new(adc: Peri<'d, T>, resolution: Resolution) -> Self {

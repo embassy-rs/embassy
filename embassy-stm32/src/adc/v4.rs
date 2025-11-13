@@ -4,7 +4,7 @@ use pac::adc::vals::{Adcaldif, Boost};
 use pac::adc::vals::{Adstp, Difsel, Dmngt, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
 
-use super::{Adc, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt, blocking_delay_us};
+use super::{Adc, Averaging, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt, blocking_delay_us};
 use crate::adc::ConversionMode;
 use crate::time::Hertz;
 use crate::{Peri, pac, rcc};
@@ -125,23 +125,6 @@ impl Prescaler {
             Prescaler::DividedBy256 => Presc::DIV256,
         }
     }
-}
-
-/// Number of samples used for averaging.
-#[derive(Copy, Clone, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Averaging {
-    Disabled,
-    Samples2,
-    Samples4,
-    Samples8,
-    Samples16,
-    Samples32,
-    Samples64,
-    Samples128,
-    Samples256,
-    Samples512,
-    Samples1024,
 }
 
 /// Adc configuration

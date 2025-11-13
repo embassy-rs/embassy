@@ -148,6 +148,26 @@ pub(crate) fn blocking_delay_us(us: u32) {
     }
 }
 
+#[cfg(any(adc_c0, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5))]
+/// Number of samples used for averaging.
+#[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Averaging {
+    Disabled,
+    Samples2,
+    Samples4,
+    Samples8,
+    Samples16,
+    Samples32,
+    Samples64,
+    Samples128,
+    Samples256,
+    #[cfg(any(adc_c0, adc_v4, adc_u5))]
+    Samples512,
+    #[cfg(any(adc_c0, adc_v4, adc_u5))]
+    Samples1024,
+}
+
 #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba))]
 #[allow(dead_code)]
 pub(crate) enum ConversionMode {
