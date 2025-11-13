@@ -389,7 +389,9 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         loop {
             let isr = self.info.regs.isr().read();
             self.error_occurred(&isr, timeout)?;
-            if isr.tc() {
+            // Wait for either TC or TCR - both indicate transfer completion
+            // TCR occurs when RELOAD=1, TC occurs when RELOAD=0
+            if isr.tc() || isr.tcr() {
                 return Ok(());
             }
             timeout.check()?;
@@ -918,12 +920,12 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                         address,
                         total_len.min(255),
                         Stop::Software,
-                        total_len > 255,
+                        (total_len > 255) || !last_slice,
                         restart,
                         timeout,
                     )?;
                 } else {
-                    Self::reload(self.info, total_len.min(255), total_len > 255, Stop::Software, timeout)?;
+                    Self::reload(self.info, total_len.min(255), (total_len > 255) || !last_slice, Stop::Software, timeout)?;
                     self.info.regs.cr1().modify(|w| w.set_tcie(true));
                 }
             } else if !(isr.tcr() || isr.tc()) {
@@ -935,7 +937,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 if let Err(e) = Self::reload(
                     self.info,
                     remaining_len.min(255),
-                    remaining_len > 255,
+                    (remaining_len > 255) || !last_slice,
                     Stop::Software,
                     timeout,
                 ) {
@@ -1085,10 +1087,35 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     pub async fn write_vectored(&mut self, address: Address, write: &[&[u8]]) -> Result<(), Error> {
         #[cfg(all(feature = "low-power", stm32wlex))]
         let _device_busy = crate::low_power::DeviceBusy::new_stop1();
+        let timeout = self.timeout();
 
-        // For now, use blocking implementation for write_vectored
-        // This avoids complexity of handling multiple non-contiguous buffers with DMA
-        self.blocking_write_vectored((address.addr() & 0xFF) as u8, write)
+        if write.is_empty() {
+            return Err(Error::ZeroLengthTransfer);
+        }
+
+        let mut iter = write.iter();
+        let mut first = true;
+        let mut current = iter.next();
+
+        while let Some(c) = current {
+            let next = iter.next();
+            let is_last = next.is_none();
+
+            let fut = self.write_dma_internal(
+                address,
+                c,
+                first,      // first_slice
+                is_last,    // last_slice
+                is_last,    // send_stop (only on last buffer)
+                false,      // restart (false for all - they're one continuous write)
+                timeout,
+            );
+            timeout.with(fut).await?;
+
+            first = false;
+            current = next;
+        }
+        Ok(())
     }
 
     /// Read.
