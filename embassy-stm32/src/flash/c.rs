@@ -47,8 +47,12 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     let idx = (sector.start - super::FLASH_BASE as u32) / super::BANK1_REGION.erase_size as u32;
 
     #[cfg(feature = "defmt")]
-    defmt::trace!("STM32C0 Erase: addr=0x{:08x}, idx={}, erase_size={}", sector.start, idx, super::BANK1_REGION.erase_size);
-
+    defmt::trace!(
+        "STM32C0 Erase: addr=0x{:08x}, idx={}, erase_size={}",
+        sector.start,
+        idx,
+        super::BANK1_REGION.erase_size
+    );
 
     wait_busy();
     clear_all_err();
@@ -72,8 +76,13 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
         #[cfg(feature = "defmt")]
         {
             let cr_after = pac::FLASH.cr().read();
-            defmt::trace!("FLASH_CR after: 0x{:08x}, PER={}, PNB={}, STRT={}",
-                         cr_after.0, cr_after.per(), cr_after.pnb(), cr_after.strt());
+            defmt::trace!(
+                "FLASH_CR after: 0x{:08x}, PER={}, PNB={}, STRT={}",
+                cr_after.0,
+                cr_after.per(),
+                cr_after.pnb(),
+                cr_after.strt()
+            );
         }
     });
 
