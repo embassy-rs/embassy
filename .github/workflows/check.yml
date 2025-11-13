@@ -180,7 +180,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        msrv: ["1.90"] # We're relying on namespaced-features, which
+        msrv: ["1.91"] # We're relying on namespaced-features, which
                        # was released in 1.60
                        #
                        # We also depend on `fixed' which requires rust
@@ -195,6 +195,8 @@ jobs:
                        # embassy upstream switched to rust 1.85
                        #
                        # unsigned_is_multiple_of requires 1.90, else we get clippy warnings
+                       #
+                       # mcxa-pac@0.1.0 requires rustc 1.91
 
     name: ubuntu / ${{ matrix.msrv }}
     steps:
