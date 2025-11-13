@@ -48,12 +48,7 @@ async fn main(_spawner: Spawner) {
     // ========== BLOCKING DIRECT API TESTS ==========
     info!("========== BLOCKING DIRECT API TESTS ==========");
     {
-        let mut i2c = I2c::new_blocking(
-            i2c_peri.reborrow(),
-            scl.reborrow(),
-            sda.reborrow(),
-            config,
-        );
+        let mut i2c = I2c::new_blocking(i2c_peri.reborrow(), scl.reborrow(), sda.reborrow(), config);
 
         info!("=== Test 1: Direct blocking_write ===");
         test_blocking_write(&mut i2c, slave_addr);
@@ -78,12 +73,7 @@ async fn main(_spawner: Spawner) {
     // ========== BLOCKING TRANSACTION TESTS ==========
     info!("========== BLOCKING TRANSACTION TESTS ==========");
     {
-        let mut i2c = I2c::new_blocking(
-            i2c_peri.reborrow(),
-            scl.reborrow(),
-            sda.reborrow(),
-            config,
-        );
+        let mut i2c = I2c::new_blocking(i2c_peri.reborrow(), scl.reborrow(), sda.reborrow(), config);
 
         info!("=== Test 6: Consecutive Writes (Should Merge) ===");
         test_consecutive_writes_blocking(&mut i2c, slave_addr);
