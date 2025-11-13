@@ -925,7 +925,13 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                         timeout,
                     )?;
                 } else {
-                    Self::reload(self.info, total_len.min(255), (total_len > 255) || !last_slice, Stop::Software, timeout)?;
+                    Self::reload(
+                        self.info,
+                        total_len.min(255),
+                        (total_len > 255) || !last_slice,
+                        Stop::Software,
+                        timeout,
+                    )?;
                     self.info.regs.cr1().modify(|w| w.set_tcie(true));
                 }
             } else if !(isr.tcr() || isr.tc()) {
@@ -1102,12 +1108,10 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             let is_last = next.is_none();
 
             let fut = self.write_dma_internal(
-                address,
-                c,
-                first,      // first_slice
-                is_last,    // last_slice
-                is_last,    // send_stop (only on last buffer)
-                false,      // restart (false for all - they're one continuous write)
+                address, c, first,   // first_slice
+                is_last, // last_slice
+                is_last, // send_stop (only on last buffer)
+                false,   // restart (false for all - they're one continuous write)
                 timeout,
             );
             timeout.with(fut).await?;
