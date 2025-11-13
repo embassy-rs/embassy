@@ -34,7 +34,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        workdir: [ ".", "examples/rt633", "examples/rt685s-evk",]
+        workdir: [ ".", "examples",]
 
     steps:
       - uses: actions/checkout@v5
@@ -45,6 +45,7 @@ jobs:
         uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
+          targets: thumbv8m.main-none-eabihf
 
       - name: cargo fmt --check
         run: cargo fmt --check
@@ -75,6 +76,7 @@ jobs:
         with:
           toolchain: ${{ matrix.toolchain }}
           components: clippy
+          targets: thumbv8m.main-none-eabihf
 
       - name: cargo clippy
         working-directory: ${{ matrix.workdir }}
@@ -110,6 +112,8 @@ jobs:
 
       - name: Install nightly
         uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: thumbv8m.main-none-eabihf
 
       - name: cargo doc
         run: |
@@ -136,9 +140,7 @@ jobs:
         with:
           toolchain: stable
           components: clippy
-
-      - name: rustup target add thumbv8m.main-none-eabihf
-        run: rustup target add thumbv8m.main-none-eabihf
+          targets: thumbv8m.main-none-eabihf
 
       - name: cargo hack
         run: cargo hack --feature-powerset check
@@ -156,6 +158,8 @@ jobs:
 
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv8m.main-none-eabihf
 
       - name: cargo install cargo-deny
         uses: EmbarkStudios/cargo-deny-action@v2
@@ -199,6 +203,7 @@ jobs:
         uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.msrv }}
+          targets: thumbv8m.main-none-eabihf
 
       - name: cargo +${{ matrix.msrv }} check
         run: |

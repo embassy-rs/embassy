@@ -20,10 +20,6 @@ jobs:
     runs-on: ubuntu-latest
     name: ${{ matrix.target }}
 
-    strategy:
-      matrix:
-        target: [thumbv8m.main-none-eabihf]
-
     steps:
       - uses: actions/checkout@v5
         with:
@@ -31,13 +27,12 @@ jobs:
 
       - name: Install stable
         uses: dtolnay/rust-toolchain@stable
-
-      - name: rustup target add ${{ matrix.target }}
-        run: rustup target add ${{ matrix.target }}
+        with:
+          targets: thumbv8m.main-none-eabihf
 
       - name: Show variable
         run: echo ${{ env.TOKEN }}
 
       - name: cargo check
         run: |
-          cargo check --target ${{ matrix.target }} --all-features --locked
+          cargo check --target thumbv8m.main-none-eabihf --all-features --locked
