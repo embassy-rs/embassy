@@ -1222,9 +1222,53 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
         is_last_group: bool,
         timeout: Timeout,
     ) -> Result<(), Error> {
-        // For now, use blocking implementation for write groups
-        // This avoids complexity of handling multiple non-contiguous buffers with DMA
-        self.execute_write_group(address, operations, is_first_group, is_last_group, timeout)
+        // Calculate total bytes across all operations in this group
+        let total_bytes = Self::total_operation_bytes(operations);
+
+        if total_bytes == 0 {
+            // Handle empty write group using blocking call
+            if is_first_group {
+                Self::master_write(self.info, address, 0, Stop::Software, false, !is_first_group, timeout)?;
+            }
+            if is_last_group {
+                self.master_stop();
+            }
+            return Ok(());
+        }
+
+        // Collect all write buffers
+        let mut write_buffers: heapless::Vec<&[u8], 16> = heapless::Vec::new();
+        for operation in operations {
+            if let Operation::Write(buffer) = operation {
+                if !buffer.is_empty() {
+                    let _ = write_buffers.push(buffer);
+                }
+            }
+        }
+
+        if write_buffers.is_empty() {
+            return Ok(());
+        }
+
+        // Send each buffer using DMA
+        let num_buffers = write_buffers.len();
+        for (idx, buffer) in write_buffers.iter().enumerate() {
+            let is_first_buffer = idx == 0;
+            let is_last_buffer = idx == num_buffers - 1;
+
+            let fut = self.write_dma_internal(
+                address,
+                buffer,
+                is_first_buffer,                    // first_slice
+                is_last_buffer,                     // last_slice
+                is_last_buffer && is_last_group,    // send_stop
+                is_first_buffer && !is_first_group, // restart (only for first buffer if not first group)
+                timeout,
+            );
+            timeout.with(fut).await?;
+        }
+
+        Ok(())
     }
 
     async fn execute_read_group_async(
