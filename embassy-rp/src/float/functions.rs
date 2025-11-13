@@ -1,3 +1,5 @@
+//! Rust implementation of floating point functions.
+
 // Credit: taken from `rp-hal` (also licensed Apache+MIT)
 // https://github.com/rp-rs/rp-hal/blob/main/rp2040-hal/src/float/functions.rs
 
