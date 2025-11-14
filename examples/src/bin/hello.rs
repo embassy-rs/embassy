@@ -2,11 +2,8 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa276::{self as hal, lpuart::{Blocking, Config, Lpuart}};
-
-mod common;
-
-use {defmt_rtt as _, panic_probe as _};
+use hal::lpuart::{Blocking, Config, Lpuart};
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 /// Simple helper to write a byte as hex to UART
 fn write_hex_byte(uart: &mut Lpuart<'_, Blocking>, byte: u8) {
@@ -31,7 +28,7 @@ async fn main(_spawner: Spawner) {
 
     // Create UART instance using LPUART2 with PIO2_2 as TX and PIO2_3 as RX
     unsafe {
-        common::init_uart2(hal::pac());
+        embassy_mcxa_examples::init_uart2(hal::pac());
     }
     let mut uart = Lpuart::new_blocking(
         p.LPUART2, // Peripheral

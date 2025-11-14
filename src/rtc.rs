@@ -163,9 +163,7 @@ impl<'a, I: Instance> Rtc<'a, I> {
 
         // The RTC is NOT gated by the MRCC, but we DO need to make sure the 16k clock
         // on the vsys domain is active
-        let clocks = with_clocks(|c| {
-            c.clk_16k_vsys.clone()
-        });
+        let clocks = with_clocks(|c| c.clk_16k_vsys.clone());
         match clocks {
             None => panic!("Clocks have not been initialized"),
             Some(None) => panic!("Clocks initialized, but clk_16k_vsys not active"),

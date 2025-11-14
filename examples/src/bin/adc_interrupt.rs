@@ -2,19 +2,16 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa276::clocks::periph_helpers::{AdcClockSel, Div4};
-use embassy_mcxa276::clocks::PoweredClock;
-use embassy_mcxa276::lpuart::{Config, Lpuart};
 use hal::adc::{LpadcConfig, TriggerPriorityPolicy};
-use mcxa_pac::adc1::cfg::{Pwrsel, Refsel};
-use mcxa_pac::adc1::cmdl1::{Adch, Mode};
-use mcxa_pac::adc1::ctrl::CalAvgs;
-use mcxa_pac::adc1::tctrl::Tcmd;
-use {embassy_mcxa276 as hal};
-mod common;
-
+use hal::clocks::periph_helpers::{AdcClockSel, Div4};
+use hal::clocks::PoweredClock;
+use hal::lpuart::{Config, Lpuart};
+use hal::pac::adc1::cfg::{Pwrsel, Refsel};
+use hal::pac::adc1::cmdl1::{Adch, Mode};
+use hal::pac::adc1::ctrl::CalAvgs;
+use hal::pac::adc1::tctrl::Tcmd;
 use hal::{bind_interrupts, InterruptExt};
-use {defmt_rtt as _, panic_probe as _};
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     ADC1 => hal::adc::AdcHandler;
@@ -38,7 +35,7 @@ async fn main(_spawner: Spawner) {
 
     // Create UART instance using LPUART2 with PIO2_2 as TX and PIO2_3 as RX
     unsafe {
-        common::init_uart2(hal::pac());
+        embassy_mcxa_examples::init_uart2(hal::pac());
     }
     let mut uart = Lpuart::new_blocking(
         p.LPUART2, // Peripheral
@@ -47,9 +44,10 @@ async fn main(_spawner: Spawner) {
         config,
     )
     .unwrap();
+    uart.write_str_blocking("\r\n=== ADC interrupt Example ===\r\n");
 
     unsafe {
-        common::init_adc(hal::pac());
+        embassy_mcxa_examples::init_adc(hal::pac());
     }
 
     let adc_config = LpadcConfig {

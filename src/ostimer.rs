@@ -534,7 +534,10 @@ pub mod time_driver {
         bin_to_gray, now_ticks_read, Regs, ALARM_ACTIVE, ALARM_CALLBACK, ALARM_FLAG, ALARM_TARGET_TIME,
         EVTIMER_HI_MASK, EVTIMER_HI_SHIFT, LOW_32_BIT_MASK,
     };
-    use crate::{clocks::{enable_and_reset, periph_helpers::{OsTimerConfig, OstimerClockSel}, PoweredClock}, pac, peripherals::OSTIMER0};
+    use crate::clocks::periph_helpers::{OsTimerConfig, OstimerClockSel};
+    use crate::clocks::{enable_and_reset, PoweredClock};
+    use crate::pac;
+    use crate::peripherals::OSTIMER0;
     pub struct Driver;
     static TIMER_WAKER: AtomicWaker = AtomicWaker::new();
 

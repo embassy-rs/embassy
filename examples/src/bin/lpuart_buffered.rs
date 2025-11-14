@@ -2,13 +2,12 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa276 as hal;
-use embassy_mcxa276::interrupt::typelevel::Handler;
-use embassy_mcxa276::lpuart::buffered::BufferedLpuart;
-use embassy_mcxa276::{bind_interrupts, lpuart};
+use embassy_mcxa as hal;
+use embassy_mcxa::interrupt::typelevel::Handler;
+use embassy_mcxa::lpuart::buffered::BufferedLpuart;
+use embassy_mcxa::{bind_interrupts, lpuart};
+use embassy_mcxa_examples::init_uart2;
 use embedded_io_async::{Read, Write};
-
-mod common;
 
 // Bind OS_EVENT for timers plus LPUART2 IRQ for the buffered driver
 bind_interrupts!(struct Irqs {
@@ -25,14 +24,14 @@ async fn main(_spawner: Spawner) {
     let p = hal::init(hal::config::Config::default());
 
     unsafe {
-        hal::interrupt::install_irq_handler(mcxa_pac::Interrupt::LPUART2, lpuart2_handler);
+        hal::interrupt::install_irq_handler(hal::pac::Interrupt::LPUART2, lpuart2_handler);
     }
 
     // Configure NVIC for LPUART2
     hal::interrupt::LPUART2.configure_for_uart(hal::interrupt::Priority::P3);
 
     unsafe {
-        common::init_uart2(hal::pac());
+        init_uart2(hal::pac());
     }
 
     // UART configuration (enable both TX and RX)

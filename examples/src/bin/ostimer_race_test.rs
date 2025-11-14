@@ -12,15 +12,12 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use embassy_executor::Spawner;
-use embassy_mcxa276::{
-    clocks::{periph_helpers::OstimerClockSel, PoweredClock},
-    lpuart::{Blocking, Config, Lpuart},
-};
+use embassy_mcxa::clocks::periph_helpers::OstimerClockSel;
+use embassy_mcxa::clocks::PoweredClock;
+use embassy_mcxa::lpuart::{Blocking, Config, Lpuart};
 use embassy_time::{Duration, Timer};
 use hal::bind_interrupts;
-use {defmt_rtt as _, embassy_mcxa276 as hal, panic_probe as _};
-
-mod common;
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     OS_EVENT => hal::ostimer::time_driver::OsEventHandler;
@@ -85,7 +82,7 @@ async fn main(_spawner: Spawner) {
 
     // Create UART instance using LPUART2 with PIO2_2 as TX and PIO2_3 as RX
     unsafe {
-        common::init_uart2(hal::pac());
+        embassy_mcxa_examples::init_uart2(hal::pac());
     }
     let mut uart = Lpuart::new_blocking(
         p.LPUART2, // Peripheral
@@ -281,7 +278,7 @@ async fn test_concurrent_operations(
 async fn test_reset_during_operation(
     ostimer: &hal::ostimer::Ostimer<'_, hal::ostimer::Ostimer0>,
     uart: &mut Lpuart<'_, Blocking>,
-    peripherals: &mcxa_pac::Peripherals,
+    peripherals: &hal::pac::Peripherals,
 ) {
     let initial_counter = ostimer.now();
 
