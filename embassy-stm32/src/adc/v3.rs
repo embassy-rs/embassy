@@ -13,7 +13,7 @@ pub use pac::adc::vals::{Ovsr, Ovss, Presc};
 use super::SealedAdcChannel;
 use super::{Adc, Averaging, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt, blocking_delay_us};
 use crate::adc::ConversionMode;
-use crate::{Peri, pac, rcc, peripherals};
+use crate::{Peri, pac, peripherals, rcc};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -554,7 +554,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
 #[cfg(not(any(adc_g0, adc_u0)))]
 impl<'d> Adc<'d, peripherals::ADC2> {
-   pub fn enable_vbat(&self) -> Vbat {
+    pub fn enable_vbat(&self) -> Vbat {
         cfg_if! {
             if #[cfg(any(adc_h5, adc_h7rs))] {
                 pac::ADC12_COMMON.ccr().modify(|reg| {
