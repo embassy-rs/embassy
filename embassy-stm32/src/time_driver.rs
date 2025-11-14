@@ -319,7 +319,6 @@ impl RtcDriver {
 
         // We only modify the period from the timer interrupt, so we know this can't race.
         let period = self.period.load(Ordering::Relaxed) + 1;
-        self.period.store(period, Ordering::Relaxed);
         let t = (period as u64) << 15;
 
         critical_section::with(move |cs| {
@@ -333,7 +332,9 @@ impl RtcDriver {
                     w.set_ccie(n + 1, true);
                 }
             })
-        })
+        });
+
+        self.period.store(period, Ordering::Release);
     }
 
     fn trigger_alarm(&self, cs: CriticalSection) {
@@ -517,8 +518,10 @@ impl RtcDriver {
 impl Driver for RtcDriver {
     fn now(&self) -> u64 {
         let r = regs_gp16();
+        // Wait for the irq to propagate.
+        while r.sr().read().uif() {}
 
-        let period = self.period.load(Ordering::Relaxed);
+        let period = self.period.load(Ordering::Acquire);
         compiler_fence(Ordering::Acquire);
         let counter = r.cnt().read().cnt();
         calc_now(period, counter)
