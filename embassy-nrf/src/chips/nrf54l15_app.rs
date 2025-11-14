@@ -204,7 +204,7 @@ pub const FORCE_COPY_BUFFER_SIZE: usize = 1024;
 
 // 1.5 MB NVM
 #[allow(unused)]
-pub const FLASH_SIZE: usize = 1536 * 1024;
+pub const FLASH_SIZE: usize = 1524 * 1024;
 
 embassy_hal_internal::peripherals! {
     // PPI
