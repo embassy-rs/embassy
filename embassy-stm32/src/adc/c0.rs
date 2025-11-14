@@ -1,7 +1,7 @@
 #[allow(unused)]
 use pac::adc::vals::{Adstp, Align, Ckmode, Dmacfg, Exten, Ovrmod, Ovsr};
 use pac::adccommon::vals::Presc;
-use stm32_metapac::adc::vals::Scandir;
+use stm32_metapac::adc::vals::{SampleTime, Scandir};
 
 use super::{Adc, Instance, Resolution, blocking_delay_us};
 use crate::adc::{AnyInstance, ConversionMode};
@@ -17,7 +17,6 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(25);
 
 const TIME_ADC_VOLTAGE_REGUALTOR_STARTUP_US: u32 = 20;
 
-const NUM_HW_CHANNELS: u8 = 22;
 const CHSELR_SQ_SIZE: usize = 8;
 const CHSELR_SQ_MAX_CHANNEL: u8 = 14;
 const CHSELR_SQ_SEQUENCE_END_MARKER: u8 = 0b1111;
@@ -100,81 +99,66 @@ impl<T: Instance> super::SealedAnyInstance for T {
         }
     }
 
-    fn configure_sequence(mut sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>, blocking: bool) {
-        T::regs().cfgr1().modify(|reg| {
-            reg.set_chselrmod(!blocking);
-            reg.set_align(Align::RIGHT);
-        });
+    fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>) {
+        let mut needs_hw = sequence.len() == 1 || sequence.len() > CHSELR_SQ_SIZE;
+        let mut is_ordered_up = true;
+        let mut is_ordered_down = true;
 
-        assert!(!blocking || sequence.len() == 1, "Sequence len must be 1 for blocking.");
-        if blocking {
-            let ((ch, _), sample_time) = sequence.next().unwrap();
-            // Set all channels to use SMP1 field as source.
-            T::regs().smpr().modify(|w| {
-                w.smpsel(0);
-                w.set_smp1(sample_time);
-            });
+        let sequence_len = sequence.len();
+        let mut hw_channel_selection: u32 = 0;
+        let mut last_channel: u8 = 0;
+        let mut sample_time: Self::SampleTime = SampleTime::CYCLES2_5;
 
-            // write() because we want all other bits to be set to 0.
-            T::regs().chselr().write(|w| w.set_chsel(ch.into(), true));
-        } else {
-            let mut hw_channel_selection: u32 = 0;
-            let mut is_ordered_up = true;
-            let mut is_ordered_down = true;
-            let mut needs_hw = false;
-
-            assert!(
-                sequence.len() <= CHSELR_SQ_SIZE,
-                "Sequence read set cannot be more than {} in size.",
-                CHSELR_SQ_SIZE
-            );
-            let mut last_sq_set: usize = 0;
-            let mut last_channel: u8 = 0;
-            T::regs().chselr_sq().write(|w| {
-                for (i, ((channel, _), _sample_time)) in sequence.enumerate() {
-                    needs_hw = needs_hw || channel > CHSELR_SQ_MAX_CHANNEL;
-                    last_sq_set = i;
-                    is_ordered_up = is_ordered_up && channel > last_channel;
-                    is_ordered_down = is_ordered_down && channel < last_channel;
-                    hw_channel_selection += 1 << channel;
-                    last_channel = channel;
-
-                    if !needs_hw {
-                        w.set_sq(i, channel);
-                    }
-                }
-
+        T::regs().chselr_sq().write(|w| {
+            for (i, ((channel, _), _sample_time)) in sequence.enumerate() {
                 assert!(
-                    !needs_hw || is_ordered_up || is_ordered_down,
-                    "Sequencer is required because of unordered channels, but only support HW channels smaller than {}.",
-                    CHSELR_SQ_MAX_CHANNEL
+                    sample_time == _sample_time || i == 0,
+                    "C0 only supports one sample time for the sequence."
                 );
 
-                if needs_hw {
-                    assert!(
-                        hw_channel_selection != 0,
-                        "Some bits in `hw_channel_selection` shall be set."
-                    );
-                    assert!(
-                        (hw_channel_selection >> NUM_HW_CHANNELS) == 0,
-                        "STM32C0 only have {} ADC channels. `hw_channel_selection` cannot have bits higher than this number set.",
-                        NUM_HW_CHANNELS
-                    );
+                sample_time = _sample_time;
+                needs_hw = needs_hw || channel > CHSELR_SQ_MAX_CHANNEL;
+                is_ordered_up = is_ordered_up && (channel > last_channel || i == 0);
+                is_ordered_down = is_ordered_down && (channel < last_channel || i == 0);
+                hw_channel_selection += 1 << channel;
+                last_channel = channel;
 
-                    T::regs().cfgr1().modify(|reg| {
-                        reg.set_chselrmod(false);
-                        reg.set_scandir(if is_ordered_up { Scandir::UP} else { Scandir::BACK });
-                    });
-
-                    // Set required channels for multi-convert.
-                    unsafe { (T::regs().chselr().as_ptr() as *mut u32).write_volatile(hw_channel_selection) }
-                } else {
-                    for i in (last_sq_set + 1)..CHSELR_SQ_SIZE {
-                        w.set_sq(i, CHSELR_SQ_SEQUENCE_END_MARKER);
-                    }
+                if !needs_hw {
+                    w.set_sq(i, channel);
                 }
-            });
+            }
+
+            for i in sequence_len..CHSELR_SQ_SIZE {
+                w.set_sq(i, CHSELR_SQ_SEQUENCE_END_MARKER);
+            }
+        });
+
+        if needs_hw {
+            assert!(
+                sequence_len <= CHSELR_SQ_SIZE || is_ordered_up || is_ordered_down,
+                "Sequencer is required because of unordered channels, but read set cannot be more than {} in size.",
+                CHSELR_SQ_SIZE
+            );
+            assert!(
+                sequence_len > CHSELR_SQ_SIZE || is_ordered_up || is_ordered_down,
+                "Sequencer is required because of unordered channels, but only support HW channels smaller than {}.",
+                CHSELR_SQ_MAX_CHANNEL
+            );
+
+            // Set required channels for multi-convert.
+            unsafe { (T::regs().chselr().as_ptr() as *mut u32).write_volatile(hw_channel_selection) }
         }
+
+        T::regs().smpr().modify(|w| {
+            w.smpsel(0);
+            w.set_smp1(sample_time);
+        });
+
+        T::regs().cfgr1().modify(|reg| {
+            reg.set_chselrmod(!needs_hw);
+            reg.set_align(Align::RIGHT);
+            reg.set_scandir(if is_ordered_up { Scandir::UP } else { Scandir::BACK });
+        });
 
         // Trigger and wait for the channel selection procedure to complete.
         T::regs().isr().modify(|w| w.set_ccrdy(false));
