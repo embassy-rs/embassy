@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## Unreleased - ReleaseDate
+- Codegen using `nxp-pac` metadata
 - LPC55: PWM simple
 - LPC55: Move ALT definitions for USART to TX/RX pin impls. 
 - LPC55: Remove internal match_iocon macro

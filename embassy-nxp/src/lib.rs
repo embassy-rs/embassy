@@ -12,7 +12,12 @@ pub mod pint;
 #[cfg(feature = "lpc55-core0")]
 pub mod pwm;
 #[cfg(feature = "lpc55-core0")]
+pub mod sct;
+#[cfg(feature = "lpc55-core0")]
 pub mod usart;
+
+#[cfg(rt1xxx)]
+mod iomuxc;
 
 #[cfg(feature = "_time_driver")]
 #[cfg_attr(feature = "time-driver-pit", path = "time_driver/pit.rs")]
@@ -25,15 +30,12 @@ mod time_driver;
 #[cfg_attr(feature = "mimxrt1062", path = "chips/mimxrt1062.rs")]
 mod chip;
 
-// TODO: Remove when this module is implemented for other chips
-#[cfg(feature = "lpc55-core0")]
-pub use chip::interrupt;
-#[cfg(feature = "unstable-pac")]
-pub use chip::pac;
-#[cfg(not(feature = "unstable-pac"))]
-pub(crate) use chip::pac;
-pub use chip::{Peripherals, peripherals};
+pub use chip::{Peripherals, interrupt, peripherals};
 pub use embassy_hal_internal::{Peri, PeripheralType};
+#[cfg(feature = "unstable-pac")]
+pub use nxp_pac as pac;
+#[cfg(not(feature = "unstable-pac"))]
+pub(crate) use nxp_pac as pac;
 
 /// Macro to bind interrupts to handlers.
 /// (Copied from `embassy-rp`)
