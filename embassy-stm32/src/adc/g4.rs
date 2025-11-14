@@ -1,3 +1,5 @@
+#[cfg(stm32g4)]
+use pac::adc::regs::Difsel as DifselReg;
 #[allow(unused)]
 #[cfg(stm32h7)]
 use pac::adc::vals::{Adcaldif, Difsel, Exten};
@@ -179,6 +181,9 @@ impl<T: Instance> super::SealedAnyInstance for T {
             w.set_l(sequence.len() as u8 - 1);
         });
 
+        #[cfg(stm32g4)]
+        let mut difsel = DifselReg::default();
+
         // Configure channels and ranks
         for (_i, ((ch, is_differential), sample_time)) in sequence.enumerate() {
             let sample_time = sample_time.into();
@@ -214,10 +219,8 @@ impl<T: Instance> super::SealedAnyInstance for T {
 
             #[cfg(stm32g4)]
             {
-                T::regs().cr().modify(|w| w.set_aden(false)); // disable adc
-
-                T::regs().difsel().modify(|w| {
-                    w.set_difsel(
+                if ch < 18 {
+                    difsel.set_difsel(
                         ch.into(),
                         if is_differential {
                             Difsel::DIFFERENTIAL
@@ -225,10 +228,15 @@ impl<T: Instance> super::SealedAnyInstance for T {
                             Difsel::SINGLE_ENDED
                         },
                     );
-                });
-
-                T::regs().cr().modify(|w| w.set_aden(true)); // enable adc
+                }
             }
+        }
+
+        #[cfg(stm32g4)]
+        {
+            T::regs().cr().modify(|w| w.set_aden(false));
+            T::regs().difsel().write_value(difsel);
+            T::enable();
         }
     }
 }
@@ -412,7 +420,6 @@ impl<'d, T: Instance + AnyInstance> Adc<'d, T> {
             NR_INJECTED_RANKS
         );
 
-        T::stop();
         T::enable();
 
         T::regs().jsqr().modify(|w| w.set_jl(N as u8 - 1));
