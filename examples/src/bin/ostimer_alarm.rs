@@ -9,7 +9,7 @@ use embassy_mcxa::clocks::periph_helpers::OstimerClockSel;
 use embassy_mcxa::clocks::PoweredClock;
 use embassy_mcxa::lpuart::{Config, Lpuart};
 use embassy_mcxa_examples::init_uart2_pins;
-use {cortex_m, defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Bind only OS_EVENT, and retain the symbol explicitly so it can't be GC'ed.
 bind_interrupts!(struct Irqs {
