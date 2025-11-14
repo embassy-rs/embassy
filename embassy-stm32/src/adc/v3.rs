@@ -551,7 +551,7 @@ impl<'d, T: Instance> Adc<'d, T> {
      */
 }
 
-#[cfg(not(any(adc_g0, adc_u0)))]
+#[cfg(not(any(adc_g0, adc_u0, stm32wb)))]
 impl<'d> Adc<'d, peripherals::ADC2> {
     pub fn enable_vbat(&self) -> Vbat {
         cfg_if! {
@@ -599,14 +599,21 @@ impl<'d> Adc<'d, peripherals::ADC2> {
 
 impl<'d> Adc<'d, peripherals::ADC1> {
     pub fn enable_vrefint(&self) -> VrefInt {
-        #[cfg(not(any(adc_g0, adc_u0)))]
-        pac::ADC12_COMMON.ccr().modify(|reg| {
-            reg.set_vrefen(true);
-        });
-        #[cfg(any(adc_g0, adc_u0))]
-        pac::ADC1.ccr().modify(|reg| {
-            reg.set_vrefen(true);
-        });
+        cfg_if! {
+            if #[cfg(not(any(adc_g0, adc_u0, stm32wb)))] {
+                pac::ADC12_COMMON.ccr().modify(|reg| {
+                    reg.set_vrefen(true);
+                });
+            } else if #[cfg(any(adc_g0, adc_u0))] {
+                pac::ADC1.ccr().modify(|reg| {
+                    reg.set_vrefen(true);
+                });
+            } else {
+                pac::ADC1_COMMON.ccr().modify(|reg| {
+                    reg.set_vrefen(true);
+                });
+            }
+        }
 
         // "Table 24. Embedded internal voltage reference" states that it takes a maximum of 12 us
         // to stabilize the internal voltage reference.
@@ -625,10 +632,12 @@ impl<'d> Adc<'d, peripherals::ADC1> {
                 pac::ADC12_COMMON.ccr().modify(|reg| {
                     reg.set_tsen(true);
                 });
+            } else if #[cfg(any(stm32wb))] {
+                todo!();
             } else {
                 pac::ADC12_COMMON.ccr().modify(|reg| {
                     reg.set_ch17sel(true);
-                });
+                });                
             }
         }
 
