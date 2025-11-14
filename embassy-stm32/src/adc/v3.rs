@@ -11,7 +11,8 @@ pub use pac::adc::vals::{Ovsr, Ovss, Presc};
 
 #[allow(unused_imports)]
 use super::SealedAdcChannel;
-use super::{Adc, Averaging, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt, blocking_delay_us};
+#[allow(unused_imports)]
+use super::{Adc, Avergaing, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt, blocking_delay_us};
 use crate::adc::ConversionMode;
 use crate::{Peri, pac, peripherals, rcc};
 
@@ -628,19 +629,24 @@ impl<'d> Adc<'d, peripherals::ADC1> {
                 pac::ADC1.ccr().modify(|reg| {
                     reg.set_tsen(true);
                 });
+
+                Temperature {}
             } else if #[cfg(any(adc_h5, adc_h7rs))] {
                 pac::ADC12_COMMON.ccr().modify(|reg| {
                     reg.set_tsen(true);
                 });
+
+                Temperature {}
             } else if #[cfg(any(stm32wb))] {
                 todo!();
             } else {
                 pac::ADC12_COMMON.ccr().modify(|reg| {
                     reg.set_ch17sel(true);
                 });                
+
+                Temperature {}
             }
         }
 
-        Temperature {}
     }
 }
