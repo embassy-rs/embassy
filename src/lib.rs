@@ -6,7 +6,6 @@
 pub mod clocks; // still provide clock helpers
 pub mod gpio;
 pub mod pins; // pin mux helpers
-pub mod reset; // reset control helpers
 
 pub mod adc;
 pub mod config;

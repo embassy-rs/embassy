@@ -12,18 +12,17 @@ mod common;
 
 // Bind OS_EVENT for timers plus LPUART2 IRQ for the buffered driver
 bind_interrupts!(struct Irqs {
-    LPUART2 => lpuart::buffered::BufferedInterruptHandler::<lpuart::lib::peripherals::LPUART2>;
+    LPUART2 => lpuart::buffered::BufferedInterruptHandler::<hal::peripherals::LPUART2>;
 });
 
 // Wrapper function for the interrupt handler
 unsafe extern "C" fn lpuart2_handler() {
-    lpuart::buffered::BufferedInterruptHandler::<lpuart::lib::peripherals::LPUART2>::on_interrupt();
+    lpuart::buffered::BufferedInterruptHandler::<hal::peripherals::LPUART2>::on_interrupt();
 }
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let _p = hal::init(hal::config::Config::default());
-    let p2 = lpuart::lib::init();
 
     unsafe {
         hal::interrupt::install_irq_handler(mcxa_pac::Interrupt::LPUART2, lpuart2_handler);

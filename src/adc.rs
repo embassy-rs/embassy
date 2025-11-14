@@ -1,6 +1,10 @@
 //! ADC driver
 use core::sync::atomic::{AtomicBool, Ordering};
 
+use embassy_hal_internal::{Peri, PeripheralType};
+
+use crate::clocks::periph_helpers::{AdcClockSel, AdcConfig, Div4};
+use crate::clocks::{enable_and_reset, Gate, PoweredClock};
 use crate::pac;
 use crate::pac::adc1::cfg::{HptExdi, Pwrsel, Refsel, Tcmdres, Tprictrl, Tres};
 use crate::pac::adc1::cmdh1::{Avgs, Cmpen, Next, Sts};
@@ -12,7 +16,7 @@ type Regs = pac::adc1::RegisterBlock;
 
 static INTERRUPT_TRIGGERED: AtomicBool = AtomicBool::new(false);
 // Token-based instance pattern like embassy-imxrt
-pub trait Instance {
+pub trait Instance: Gate<MrccPeriphConfig = AdcConfig> + PeripheralType {
     fn ptr() -> *const Regs;
 }
 
@@ -26,12 +30,12 @@ impl Instance for crate::peripherals::ADC1 {
 }
 
 // Also implement Instance for the Peri wrapper type
-impl Instance for embassy_hal_internal::Peri<'_, crate::peripherals::ADC1> {
-    #[inline(always)]
-    fn ptr() -> *const Regs {
-        pac::Adc1::ptr()
-    }
-}
+// impl Instance for embassy_hal_internal::Peri<'_, crate::peripherals::ADC1> {
+//     #[inline(always)]
+//     fn ptr() -> *const Regs {
+//         pac::Adc1::ptr()
+//     }
+// }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -60,6 +64,29 @@ pub struct LpadcConfig {
     pub enable_conv_pause: bool,
     pub conv_pause_delay: u16,
     pub fifo_watermark: u8,
+    pub power: PoweredClock,
+    pub source: AdcClockSel,
+    pub div: Div4,
+}
+
+impl Default for LpadcConfig {
+    fn default() -> Self {
+        LpadcConfig {
+            enable_in_doze_mode: true,
+            conversion_average_mode: CalAvgs::NoAverage,
+            enable_analog_preliminary: false,
+            power_up_delay: 0x80,
+            reference_voltage_source: Refsel::Option1,
+            power_level_mode: Pwrsel::Lowest,
+            trigger_priority_policy: TriggerPriorityPolicy::ConvPreemptImmediatelyNotAutoResumed,
+            enable_conv_pause: false,
+            conv_pause_delay: 0,
+            fifo_watermark: 0,
+            power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            source: AdcClockSel::FroLfDiv,
+            div: Div4::no_div(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,14 +121,23 @@ pub struct ConvResult {
     pub conv_value: u16,
 }
 
-pub struct Adc<I: Instance> {
-    _inst: core::marker::PhantomData<I>,
+pub struct Adc<'a, I: Instance> {
+    _inst: core::marker::PhantomData<&'a mut I>,
 }
 
-impl<I: Instance> Adc<I> {
+impl<'a, I: Instance> Adc<'a, I> {
     /// initialize ADC
-    pub fn new(_inst: impl Instance, config: LpadcConfig) -> Self {
+    pub fn new(_inst: Peri<'a, I>, config: LpadcConfig) -> Self {
         let adc = unsafe { &*I::ptr() };
+
+        let _clock_freq = unsafe {
+            enable_and_reset::<I>(&AdcConfig {
+                power: config.power,
+                source: config.source,
+                div: config.div,
+            })
+            .expect("Adc Init should not fail")
+        };
 
         /* Reset the module. */
         adc.ctrl().modify(|_, w| w.rst().held_in_reset());
@@ -192,21 +228,6 @@ impl<I: Instance> Adc<I> {
     pub fn deinit(&self) {
         let adc = unsafe { &*I::ptr() };
         adc.ctrl().modify(|_, w| w.adcen().disabled());
-    }
-
-    pub fn get_default_config() -> LpadcConfig {
-        LpadcConfig {
-            enable_in_doze_mode: true,
-            conversion_average_mode: CalAvgs::NoAverage,
-            enable_analog_preliminary: false,
-            power_up_delay: 0x80,
-            reference_voltage_source: Refsel::Option1,
-            power_level_mode: Pwrsel::Lowest,
-            trigger_priority_policy: TriggerPriorityPolicy::ConvPreemptImmediatelyNotAutoResumed,
-            enable_conv_pause: false,
-            conv_pause_delay: 0,
-            fifo_watermark: 0,
-        }
     }
 
     pub fn do_offset_calibration(&self) {

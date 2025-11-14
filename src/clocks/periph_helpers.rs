@@ -18,6 +18,11 @@ pub trait SPConfHelper {
 pub struct Div4(pub(super) u8);
 
 impl Div4 {
+    /// Divide by one, or no division
+    pub const fn no_div() -> Self {
+        Self(0)
+    }
+
     /// Store a "raw" divisor value that will divide the source by
     /// `(n + 1)`, e.g. `Div4::from_raw(0)` will divide the source
     /// by 1, and `Div4::from_raw(15)` will divide the source by
@@ -81,6 +86,7 @@ pub enum LpuartClockSel {
     None,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum LpuartInstance {
     Lpuart0,
     Lpuart1,
@@ -102,6 +108,7 @@ pub struct LpuartConfig {
     pub(crate) instance: LpuartInstance,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum OstimerClockSel {
     /// 16k clock, sourced from FRO16K (Vdd Core)
     Clk16kVddCore,
@@ -116,6 +123,7 @@ pub struct OsTimerConfig {
     pub source: OstimerClockSel,
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum AdcClockSel {
     FroLfDiv,
     FroHf,

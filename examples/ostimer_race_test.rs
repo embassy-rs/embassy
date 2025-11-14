@@ -12,6 +12,7 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use embassy_executor::Spawner;
+use embassy_mcxa276::clocks::{periph_helpers::OstimerClockSel, PoweredClock};
 use embassy_time::{Duration, Timer};
 use hal::bind_interrupts;
 use {defmt_rtt as _, embassy_mcxa276 as hal, panic_probe as _};
@@ -98,9 +99,9 @@ async fn main(_spawner: Spawner) {
         p.OSTIMER0,
         hal::ostimer::Config {
             init_match_max: true,
-            clock_frequency_hz: 1_000_000,
+            power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            source: OstimerClockSel::Clk1M,
         },
-        hal::pac(),
     );
 
     uart.write_str_blocking("OSTIMER instance created\n");

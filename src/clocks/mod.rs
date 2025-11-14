@@ -79,6 +79,11 @@ pub unsafe fn assert_reset<G: Gate>() {
     G::assert_reset();
 }
 
+#[inline]
+pub unsafe fn is_reset_released<G: Gate>() -> bool {
+    G::is_reset_released()
+}
+
 /// Pulse a reset line (assert then release) with a short delay.
 #[inline]
 pub unsafe fn pulse_reset<G: Gate>() {
@@ -150,12 +155,15 @@ pub mod gate {
     use super::periph_helpers::{AdcConfig, LpuartConfig, OsTimerConfig};
     use super::*;
 
+    // These peripherals have no additional upstream clocks or configuration required
+    // other than enabling through the MRCC gate.
     impl_cc_gate!(PORT1, mrcc_glb_cc1, port1, NoConfig);
     impl_cc_gate!(PORT2, mrcc_glb_cc1, port2, NoConfig);
     impl_cc_gate!(PORT3, mrcc_glb_cc1, port3, NoConfig);
+    impl_cc_gate!(GPIO3, mrcc_glb_cc2, gpio3, NoConfig);
+
     impl_cc_gate!(OSTIMER0, mrcc_glb_cc1, ostimer0, OsTimerConfig);
     impl_cc_gate!(LPUART2, mrcc_glb_cc0, lpuart2, LpuartConfig);
-    impl_cc_gate!(GPIO3, mrcc_glb_cc2, gpio3, NoConfig);
     impl_cc_gate!(ADC1, mrcc_glb_cc1, adc1, AdcConfig);
 }
 
@@ -276,7 +284,7 @@ pub struct Clock {
     pub power: PoweredClock,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PoweredClock {
     NormalEnabledDeepSleepDisabled,
     AlwaysEnabled,

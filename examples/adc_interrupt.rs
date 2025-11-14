@@ -2,6 +2,8 @@
 #![no_main]
 
 use embassy_executor::Spawner;
+use embassy_mcxa276::clocks::periph_helpers::{AdcClockSel, Div4};
+use embassy_mcxa276::clocks::PoweredClock;
 use hal::adc::{LpadcConfig, TriggerPriorityPolicy};
 use hal::uart;
 use mcxa_pac::adc1::cfg::{Pwrsel, Refsel};
@@ -30,10 +32,10 @@ async fn main(_spawner: Spawner) {
         common::init_uart2(hal::pac());
     }
 
-    let src = unsafe { hal::clocks::uart2_src_hz(hal::pac()) };
-    let uart = uart::Uart::<uart::Lpuart2>::new(p.LPUART2, uart::Config::new(src));
+    // let src = unsafe { hal::clocks::uart2_src_hz(hal::pac()) };
+    // let uart = uart::Uart::<uart::Lpuart2>::new(p.LPUART2, uart::Config::new(src));
 
-    uart.write_str_blocking("\r\n=== ADC interrupt Example ===\r\n");
+    // uart.write_str_blocking("\r\n=== ADC interrupt Example ===\r\n");
 
     unsafe {
         common::init_adc(hal::pac());
@@ -50,6 +52,9 @@ async fn main(_spawner: Spawner) {
         enable_conv_pause: false,
         conv_pause_delay: 0,
         fifo_watermark: 0,
+        power: PoweredClock::NormalEnabledDeepSleepDisabled,
+        source: AdcClockSel::FroLfDiv,
+        div: Div4::no_div(),
     };
     let adc = hal::adc::Adc::<hal::adc::Adc1>::new(p.ADC1, adc_config);
 
@@ -66,7 +71,7 @@ async fn main(_spawner: Spawner) {
     conv_trigger_config.enable_hardware_trigger = false;
     adc.set_conv_trigger_config(0, &conv_trigger_config);
 
-    uart.write_str_blocking("\r\n=== ADC configuration done... ===\r\n");
+    // uart.write_str_blocking("\r\n=== ADC configuration done... ===\r\n");
 
     adc.enable_interrupt(0x1);
 
@@ -83,7 +88,7 @@ async fn main(_spawner: Spawner) {
         while !adc.is_interrupt_triggered() {
             // Wait until the interrupt is triggered
         }
-        uart.write_str_blocking("\r\n*** ADC interrupt TRIGGERED! ***\r\n");
+        // uart.write_str_blocking("\r\n*** ADC interrupt TRIGGERED! ***\r\n");
         //TBD need to print the value
     }
 }

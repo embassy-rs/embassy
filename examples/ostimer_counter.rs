@@ -7,6 +7,7 @@
 #![no_main]
 
 use embassy_executor::Spawner;
+use embassy_mcxa276::clocks::{periph_helpers::OstimerClockSel, PoweredClock};
 use embassy_time::{Duration, Timer};
 use hal::bind_interrupts;
 use {defmt_rtt as _, embassy_mcxa276 as hal, panic_probe as _};
@@ -22,9 +23,6 @@ async fn main(_spawner: Spawner) {
     let p = hal::init(Default::default());
 
     // Enable/clock OSTIMER0 and UART2 before touching their registers
-    unsafe {
-        common::init_ostimer0(hal::pac());
-    }
     unsafe {
         common::init_uart2(hal::pac());
     }
@@ -44,9 +42,9 @@ async fn main(_spawner: Spawner) {
         p.OSTIMER0,
         hal::ostimer::Config {
             init_match_max: true,
-            clock_frequency_hz: 1_000_000,
+            power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            source: OstimerClockSel::Clk1M,
         },
-        hal::pac(),
     );
 
     // Read initial counter value

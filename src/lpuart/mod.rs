@@ -545,7 +545,7 @@ impl Default for Config {
             swap_txd_rxd: false,
             power: PoweredClock::NormalEnabledDeepSleepDisabled,
             source: LpuartClockSel::FroLfDiv,
-            div: const { Div4::from_divisor(1).unwrap() },
+            div: Div4::no_div(),
         }
     }
 }

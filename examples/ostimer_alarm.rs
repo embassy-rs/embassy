@@ -9,7 +9,7 @@ use {cortex_m, embassy_mcxa276 as hal};
 
 mod common;
 
-use embassy_mcxa276::bind_interrupts;
+use embassy_mcxa276::{bind_interrupts, clocks::{periph_helpers::OstimerClockSel, PoweredClock}};
 use {defmt_rtt as _, panic_probe as _};
 
 // Bind only OS_EVENT, and retain the symbol explicitly so it can't be GC'ed.
@@ -50,9 +50,10 @@ async fn main(_spawner: Spawner) {
     // Create OSTIMER instance
     let config = hal::ostimer::Config {
         init_match_max: true,
-        clock_frequency_hz: 1_000_000, // 1MHz
+        power: PoweredClock::NormalEnabledDeepSleepDisabled,
+        source: OstimerClockSel::Clk1M,
     };
-    let ostimer = hal::ostimer::Ostimer::<hal::ostimer::Ostimer0>::new(p.OSTIMER0, config, hal::pac());
+    let ostimer = hal::ostimer::Ostimer::<hal::ostimer::Ostimer0>::new(p.OSTIMER0, config);
 
     // Create alarm with callback
     let alarm = hal::ostimer::Alarm::new()
