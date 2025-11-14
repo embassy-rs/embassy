@@ -551,7 +551,6 @@ impl<'d, T: Instance> Adc<'d, T> {
      */
 }
 
-
 #[cfg(not(any(adc_g0, adc_u0)))]
 impl<'d> Adc<'d, peripherals::ADC2> {
     pub fn enable_vbat(&self) -> Vbat {
@@ -597,7 +596,6 @@ impl<'d> Adc<'d, peripherals::ADC2> {
         VddCore {}
     }
 }
-
 
 impl<'d> Adc<'d, peripherals::ADC1> {
     pub fn enable_vrefint(&self) -> VrefInt {
