@@ -10,9 +10,11 @@ use embassy_sync::waitqueue::AtomicWaker;
 use futures_util::FutureExt;
 
 use crate::gpio::{AnyPin, Input, Level, Pin as GpioPin, PinNumber, Pull};
+use crate::interrupt::Interrupt as InterruptEnum;
+use crate::interrupt::typelevel::{AnyBinding, HandlerType, Interrupt as InterruptType, PrivateHandlerType};
 use crate::pac::EXTI;
 use crate::pac::exti::regs::Lines;
-use crate::{Peri, interrupt, pac, peripherals};
+use crate::{Peri, pac, peripherals};
 
 const EXTI_COUNT: usize = 16;
 static EXTI_WAKERS: [AtomicWaker; EXTI_COUNT] = [const { AtomicWaker::new() }; EXTI_COUNT];
@@ -106,14 +108,23 @@ impl<'d> Unpin for ExtiInput<'d> {}
 
 impl<'d> ExtiInput<'d> {
     /// Create an EXTI input.
-    pub fn new<T: GpioPin>(pin: Peri<'d, T>, ch: Peri<'d, T::ExtiChannel>, pull: Pull) -> Self {
+    ///
+    /// The interrupt [Binding] must be type-erased to [AnyBinding] via [Binding::into_any()] in order
+    /// to support type-erased [AnyChannel] arguments.
+    ///
+    /// The Binding must bind the Channel's IRQ to [InterruptHandler].
+    pub fn new<T: GpioPin>(pin: Peri<'d, T>, ch: Peri<'d, T::ExtiChannel>, pull: Pull, binding: AnyBinding) -> Self {
         // Needed if using AnyPin+AnyChannel.
         assert_eq!(pin.pin(), ch.number());
+        assert_eq!(ch.irq(), binding.irq());
+        assert!(matches!(binding.source(), HandlerType::EmbassyStm32Exti(_)));
 
         Self {
             pin: Input::new(pin, pull),
         }
     }
+
+    //pub fn new<P: GpioPin<ExtiChannel: Channel>, I: Instance, C: Channel>(
 
     /// Get whether the pin is high.
     pub fn is_high(&self) -> bool {
@@ -328,7 +339,7 @@ macro_rules! foreach_exti_irq {
             (EXTI15) => { $action!(EXTI15); };
 
             // plus the weird ones
-            (EXTI0_1)   => { $action!( EXTI0_1 ); };
+            (EXTI0_1)   => { $action!(EXTI0_1); };
             (EXTI15_10) => { $action!(EXTI15_10); };
             (EXTI15_4)  => { $action!(EXTI15_4); };
             (EXTI1_0)   => { $action!(EXTI1_0); };
@@ -341,18 +352,25 @@ macro_rules! foreach_exti_irq {
     };
 }
 
-macro_rules! impl_irq {
-    ($e:ident) => {
-        #[allow(non_snake_case)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        unsafe fn $e() {
-            on_irq()
-        }
-    };
+///EXTI interrupt handler. All EXTI interrupt vectors should be bound to this handler.
+///
+/// It is generic over the [Interrupt](crate::interrupt::typelevel::Interrupt) rather
+/// than the [Instance](crate::exti::Instance) because it should not be bound multiple
+/// times to the same vector on chips which multiplex multiple EXTI interrupts into one vector.
+//
+// It technically doesn't need to be generic at all, except to satisfy the generic argument
+// of [Handler](crate::interrupt::typelevel::Handler). All EXTI interrupts eventually
+// land in the same on_irq() function.
+pub struct InterruptHandler<T: crate::interrupt::typelevel::Interrupt> {
+    _phantom: PhantomData<T>,
 }
 
-foreach_exti_irq!(impl_irq);
+impl<T: crate::interrupt::typelevel::Interrupt> crate::interrupt::typelevel::Handler<T> for InterruptHandler<T> {
+    const SOURCE_ID: HandlerType = HandlerType::EmbassyStm32Exti(PrivateHandlerType::new());
+    unsafe fn on_interrupt() {
+        on_irq()
+    }
+}
 
 trait SealedChannel {}
 
@@ -361,6 +379,8 @@ trait SealedChannel {}
 pub trait Channel: PeripheralType + SealedChannel + Sized {
     /// Get the EXTI channel number.
     fn number(&self) -> PinNumber;
+    /// Get the EXTI IRQ, which may be the same for multiple channels
+    fn irq(&self) -> InterruptEnum;
 }
 
 /// Type-erased EXTI channel.
@@ -368,6 +388,7 @@ pub trait Channel: PeripheralType + SealedChannel + Sized {
 /// This represents ownership over any EXTI channel, known at runtime.
 pub struct AnyChannel {
     number: PinNumber,
+    irq: InterruptEnum,
 }
 
 impl_peripheral!(AnyChannel);
@@ -375,6 +396,9 @@ impl SealedChannel for AnyChannel {}
 impl Channel for AnyChannel {
     fn number(&self) -> PinNumber {
         self.number
+    }
+    fn irq(&self) -> InterruptEnum {
+        self.irq
     }
 }
 
@@ -385,12 +409,15 @@ macro_rules! impl_exti {
             fn number(&self) -> PinNumber {
                 $number
             }
+            fn irq(&self) -> InterruptEnum {
+                crate::_generated::peripheral_interrupts::EXTI::$type::IRQ
+            }
         }
-
         impl From<peripherals::$type> for AnyChannel {
-            fn from(val: peripherals::$type) -> Self {
+            fn from(_val: peripherals::$type) -> Self {
                 Self {
-                    number: val.number() as PinNumber,
+                    number: $number,
+                    irq: crate::_generated::peripheral_interrupts::EXTI::$type::IRQ,
                 }
             }
         }
