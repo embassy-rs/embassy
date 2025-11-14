@@ -3,6 +3,8 @@ use core::marker::PhantomData;
 use embassy_hal_internal::{Peri, PeripheralType};
 use paste::paste;
 
+use crate::clocks::periph_helpers::{LpuartClockSel, LpuartConfig};
+use crate::clocks::{enable_and_reset, ClockError, Div8, Gate, PoweredClock};
 use crate::pac::lpuart0::baud::Sbns as StopBits;
 use crate::pac::lpuart0::ctrl::{Idlecfg as IdleConfig, Ilt as IdleType, Pt as Parity, M as DataBits};
 use crate::pac::lpuart0::modir::{Txctsc as TxCtsConfig, Txctssrc as TxCtsSource};
@@ -18,70 +20,7 @@ pub mod buffered;
 // Stub implementation for LIB (Peripherals), GPIO, DMA and CLOCK until stable API
 // Pin and Clock initialization is currently done at the examples level.
 
-// --- START LIB ---
 
-// Use our own instance of Peripherals, until we align `lib.rs` with the EMBASSY-IMXRT approach
-// Inlined peripherals_definition! to bypass the `Peripherals::take_with_cs()` check
-// SHOULD NOT BE USED IN THE FINAL VERSION
-pub mod lib {
-    // embassy_hal_internal::peripherals!(LPUART2, PIO2_2, PIO2_3)
-
-    embassy_hal_internal::peripherals_definition!(LPUART2, PIO2_2, PIO2_3,);
-    #[doc = r" Struct containing all the peripheral singletons."]
-    #[doc = r""]
-    #[doc = r" To obtain the peripherals, you must initialize the HAL, by calling [`crate::init`]."]
-    #[allow(non_snake_case)]
-    pub struct Peripherals {
-        #[doc = concat!(stringify!(LPUART2)," peripheral")]
-        pub LPUART2: embassy_hal_internal::Peri<'static, peripherals::LPUART2>,
-        #[doc = concat!(stringify!(PIO2_2)," peripheral")]
-        pub PIO2_2: embassy_hal_internal::Peri<'static, peripherals::PIO2_2>,
-        #[doc = concat!(stringify!(PIO2_3)," peripheral")]
-        pub PIO2_3: embassy_hal_internal::Peri<'static, peripherals::PIO2_3>,
-    }
-    impl Peripherals {
-        #[doc = r"Returns all the peripherals *once*"]
-        #[inline]
-        pub(crate) fn take() -> Self {
-            critical_section::with(Self::take_with_cs)
-        }
-        #[doc = r"Returns all the peripherals *once*"]
-        #[inline]
-        pub(crate) fn take_with_cs(_cs: critical_section::CriticalSection) -> Self {
-            #[no_mangle]
-            static mut _EMBASSY_DEVICE_PERIPHERALS2: bool = false; // ALIGN: Temporary fix to use stub Peripherals
-            unsafe {
-                if _EMBASSY_DEVICE_PERIPHERALS2 {
-                    panic!("init called more than once!")
-                }
-                _EMBASSY_DEVICE_PERIPHERALS2 = true;
-                Self::steal()
-            }
-        }
-    }
-    impl Peripherals {
-        #[doc = r" Unsafely create an instance of this peripheral out of thin air."]
-        #[doc = r""]
-        #[doc = r" # Safety"]
-        #[doc = r""]
-        #[doc = r" You must ensure that you're only using one instance of this type at a time."]
-        #[inline]
-        pub unsafe fn steal() -> Self {
-            Self {
-                LPUART2: peripherals::LPUART2::steal(),
-                PIO2_2: peripherals::PIO2_2::steal(),
-                PIO2_3: peripherals::PIO2_3::steal(),
-            }
-        }
-    }
-
-    /// Initialize HAL
-    pub fn init() -> Peripherals {
-        Peripherals::take()
-    }
-}
-
-// --- END LIB ---
 
 // --- START GPIO ---
 
@@ -101,13 +40,13 @@ mod gpio {
     macro_rules! impl_gpio_pin {
         ($($pin:ident),*) => {
             $(
-                impl SealedPin for super::lib::peripherals::$pin {}
+                impl SealedPin for crate::peripherals::$pin {}
 
-                impl GpioPin for super::lib::peripherals::$pin {}
+                impl GpioPin for crate::peripherals::$pin {}
 
-                impl From<super::lib::peripherals::$pin> for AnyPin {
+                impl From<crate::peripherals::$pin> for AnyPin {
                     // TODO: AJM: any reason we aren't using $pin?
-                    fn from(_val: super::lib::peripherals::$pin) -> Self {
+                    fn from(_val: crate::peripherals::$pin) -> Self {
                         AnyPin
                     }
                 }
@@ -143,18 +82,6 @@ use dma::Channel;
 
 // --- END DMA ---
 
-// --- START CLOCK ---
-mod clock {
-    #[derive(Debug, Clone, Copy)]
-    pub enum Clock {
-        FroLf, // Low-Frequency Free-Running Oscillator
-    }
-}
-
-use clock::Clock;
-
-// --- END CLOCK ---
-
 // ============================================================================
 // MISC
 // ============================================================================
@@ -182,7 +109,8 @@ pub struct Info {
 
 /// Trait for LPUART peripheral instances
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<MrccPeriphConfig = LpuartConfig> {
+    const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpuartInstance;
     type Interrupt: interrupt::typelevel::Interrupt;
 }
 
@@ -190,7 +118,7 @@ macro_rules! impl_instance {
     ($($n:expr),*) => {
         $(
             paste!{
-                impl SealedInstance for lib::peripherals::[<LPUART $n>] {
+                impl SealedInstance for crate::peripherals::[<LPUART $n>] {
                     fn info() -> Info {
                         Info {
                             regs: unsafe { &*pac::[<Lpuart $n>]::ptr() },
@@ -208,7 +136,9 @@ macro_rules! impl_instance {
                     }
                 }
 
-                impl Instance for lib::peripherals::[<LPUART $n>] {
+                impl Instance for crate::peripherals::[<LPUART $n>] {
+                    const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpuartInstance
+                        = crate::clocks::periph_helpers::LpuartInstance::[<Lpuart $n>];
                     type Interrupt = crate::interrupt::typelevel::[<LPUART $n>];
                 }
             }
@@ -236,8 +166,7 @@ pub fn disable_transceiver(regs: Regs) {
 }
 
 /// Calculate and configure baudrate settings
-pub fn configure_baudrate(regs: Regs, baudrate_bps: u32, clock: Clock) -> Result<()> {
-    let clock_freq = get_fc_freq(clock)?;
+pub fn configure_baudrate(regs: Regs, baudrate_bps: u32, clock_freq: u32) -> Result<()> {
     let (osr, sbr) = calculate_baudrate(baudrate_bps, clock_freq)?;
 
     // Configure BAUD register
@@ -408,16 +337,6 @@ pub fn calculate_baudrate(baudrate: u32, src_clock_hz: u32) -> Result<(u8, u16)>
     Ok((osr, sbr))
 }
 
-pub fn get_fc_freq(clock: Clock) -> Result<u32> {
-    // This is a placeholder - actual implementation would query the clock system
-    // In real implementation, this would get the LPUART clock frequency
-    match clock {
-        Clock::FroLf => Ok(12_000_000), // Low frequency oscillator
-        #[allow(unreachable_patterns)]
-        _ => Err(Error::InvalidArgument),
-    }
-}
-
 /// Wait for all transmit operations to complete
 pub fn wait_for_tx_complete(regs: Regs) {
     // Wait for TX FIFO to empty
@@ -504,7 +423,7 @@ macro_rules! impl_pin_trait {
     ($fcn:ident, $mode:ident, $($pin:ident, $alt:ident),*) => {
         paste! {
             $(
-                impl [<$mode:camel Pin>]<lib::peripherals::$fcn> for lib::peripherals::$pin {
+                impl [<$mode:camel Pin>]<crate::peripherals::$fcn> for crate::peripherals::$pin {
                     fn [<as_ $mode>](&self) {
                         let _alt = gpio::Alt::$alt;
                         // todo!("Configure pin for LPUART function")
@@ -553,6 +472,8 @@ pub enum Error {
     TxFifoFull,
     /// TX Busy
     TxBusy,
+    /// Clock Error
+    ClockSetup(ClockError),
 }
 
 /// A specialized Result type for LPUART operations
@@ -565,10 +486,14 @@ pub type Result<T> = core::result::Result<T, Error>;
 /// Lpuart config
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
+    /// Power state required for this peripheral
+    pub power: PoweredClock,
+    /// Clock source
+    pub source: LpuartClockSel,
+    /// Clock divisor
+    pub div: Div8,
     /// Baud rate in bits per second
     pub baudrate_bps: u32,
-    /// Clock
-    pub clock: Clock,
     /// Parity configuration
     pub parity_mode: Option<Parity>,
     /// Number of data bits
@@ -605,7 +530,6 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             baudrate_bps: 115_200u32,
-            clock: Clock::FroLf,
             parity_mode: None,
             data_bits_count: DataBits::Data8,
             msb_firs: MsbFirst::LsbFirst,
@@ -621,6 +545,9 @@ impl Default for Config {
             enable_tx: false,
             enable_rx: false,
             swap_txd_rxd: false,
+            power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            source: LpuartClockSel::FroLfDiv,
+            div: const { Div8::from_divisor(1).unwrap() },
         }
     }
 }
@@ -706,10 +633,21 @@ impl<'a, M: Mode> Lpuart<'a, M> {
     ) -> Result<()> {
         let regs = T::info().regs;
 
+        // Enable clocks
+        let conf = LpuartConfig {
+            power: config.power,
+            source: config.source,
+            div: config.div,
+            instance: T::CLOCK_INSTANCE,
+        };
+        let clock_freq = unsafe {
+            enable_and_reset::<T>(&conf).map_err(Error::ClockSetup)?
+        };
+
         // Perform initialization sequence
         perform_software_reset(regs);
         disable_transceiver(regs);
-        configure_baudrate(regs, config.baudrate_bps, config.clock)?;
+        configure_baudrate(regs, config.baudrate_bps, clock_freq)?;
         configure_frame_format(regs, &config);
         configure_control_settings(regs, &config);
         configure_fifo(regs, &config);

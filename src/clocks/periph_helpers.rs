@@ -7,6 +7,7 @@ pub trait SPConfHelper {
 
 // config types
 
+#[derive(Debug, Clone, Copy)]
 pub enum LpuartClockSel {
     /// FRO12M/FRO_LF/SIRC clock source, passed through divider
     /// "fro_lf_div"
@@ -45,7 +46,7 @@ pub struct LpuartConfig {
     pub div: Div8,
     /// Which instance is this?
     // NOTE: should not be user settable
-    instance: LpuartInstance,
+    pub(crate) instance: LpuartInstance,
 }
 
 // impls

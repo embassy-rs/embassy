@@ -1,66 +1,157 @@
 //! Clock control helpers (no magic numbers, PAC field access only).
 //! Provides reusable gate abstractions for peripherals used by the examples.
+use core::cell::RefCell;
+
 use mcxa_pac::scg0::{
     firccsr::{FircFclkPeriphEn, FircSclkPeriphEn, Fircsten},
     sirccsr::{SircClkPeriphEn, Sircsten},
 };
+use periph_helpers::SPConfHelper;
 
 use crate::pac;
 pub mod periph_helpers;
 
-// /// Trait describing an AHB clock gate that can be toggled through MRCC.
-// pub trait Gate {
-//     /// Enable the clock gate.
-//     unsafe fn enable(mrcc: &pac::mrcc0::RegisterBlock);
+/// Trait describing an AHB clock gate that can be toggled through MRCC.
+pub trait Gate {
+    type MrccPeriphConfig: SPConfHelper;
 
-//     /// Return whether the clock gate is currently enabled.
-//     fn is_enabled(mrcc: &pac::mrcc0::RegisterBlock) -> bool;
-// }
+    /// Enable the clock gate.
+    unsafe fn enable_clock();
 
-// /// Enable a clock gate for the given peripheral set.
-// #[inline]
-// pub unsafe fn enable<G: Gate>(peripherals: &pac::Peripherals) {
-//     let mrcc = &peripherals.mrcc0;
-//     G::enable(mrcc);
-//     while !G::is_enabled(mrcc) {}
-//     core::arch::asm!("dsb sy; isb sy", options(nomem, nostack, preserves_flags));
-// }
+    /// Disable the clock gate.
+    unsafe fn disable_clock();
 
-// /// Check whether a gate is currently enabled.
-// #[inline]
-// pub fn is_enabled<G: Gate>(peripherals: &pac::Peripherals) -> bool {
-//     G::is_enabled(&peripherals.mrcc0)
-// }
+    /// Drive the peripheral into reset.
+    unsafe fn assert_reset();
 
-// macro_rules! impl_cc_gate {
-//     ($name:ident, $reg:ident, $field:ident) => {
-//         pub struct $name;
+    /// Drive the peripheral out of reset.
+    unsafe fn release_reset();
 
-//         impl Gate for $name {
-//             #[inline]
-//             unsafe fn enable(mrcc: &pac::mrcc0::RegisterBlock) {
-//                 mrcc.$reg().modify(|_, w| w.$field().enabled());
-//             }
+    /// Return whether the clock gate is currently enabled.
+    fn is_clock_enabled() -> bool;
 
-//             #[inline]
-//             fn is_enabled(mrcc: &pac::mrcc0::RegisterBlock) -> bool {
-//                 mrcc.$reg().read().$field().is_enabled()
-//             }
-//         }
-//     };
-// }
+    /// .
+    fn is_reset_released() -> bool;
+}
 
-// pub mod gate {
-//     use super::*;
+#[inline]
+pub unsafe fn enable_and_reset<G: Gate>(cfg: &G::MrccPeriphConfig) -> Result<u32, ClockError> {
+    let freq = enable::<G>(cfg)?;
+    pulse_reset::<G>();
+    Ok(freq)
+}
 
-//     impl_cc_gate!(Port2, mrcc_glb_cc1, port2);
-//     impl_cc_gate!(Port3, mrcc_glb_cc1, port3);
-//     impl_cc_gate!(Ostimer0, mrcc_glb_cc1, ostimer0);
-//     impl_cc_gate!(Lpuart2, mrcc_glb_cc0, lpuart2);
-//     impl_cc_gate!(Gpio3, mrcc_glb_cc2, gpio3);
-//     impl_cc_gate!(Port1, mrcc_glb_cc1, port1);
-//     impl_cc_gate!(Adc1, mrcc_glb_cc1, adc1);
-// }
+/// Enable a clock gate for the given peripheral set.
+#[inline]
+pub unsafe fn enable<G: Gate>(cfg: &G::MrccPeriphConfig) -> Result<u32, ClockError> {
+    G::enable_clock();
+    while !G::is_clock_enabled() {}
+    core::arch::asm!("dsb sy; isb sy", options(nomem, nostack, preserves_flags));
+
+    let freq = critical_section::with(|cs| {
+        let clocks = CLOCKS.borrow_ref(cs);
+        let clocks = clocks.as_ref().ok_or(ClockError::NeverInitialized)?;
+        cfg.post_enable_config(clocks)
+    });
+
+    freq.inspect_err(|_e| {
+        G::disable_clock();
+    })
+}
+
+pub unsafe fn disable<G: Gate>() {
+    G::disable_clock();
+}
+
+/// Check whether a gate is currently enabled.
+#[inline]
+pub fn is_clock_enabled<G: Gate>() -> bool {
+    G::is_clock_enabled()
+}
+
+/// Release a reset line for the given peripheral set.
+#[inline]
+pub unsafe fn release_reset<G: Gate>() {
+    G::release_reset();
+}
+
+/// Assert a reset line for the given peripheral set.
+#[inline]
+pub unsafe fn assert_reset<G: Gate>() {
+    G::assert_reset();
+}
+
+/// Pulse a reset line (assert then release) with a short delay.
+#[inline]
+pub unsafe fn pulse_reset<G: Gate>() {
+    G::assert_reset();
+    cortex_m::asm::nop();
+    cortex_m::asm::nop();
+    G::release_reset();
+}
+
+macro_rules! impl_cc_gate {
+    ($name:ident, $reg:ident, $field:ident, $config:ty) => {
+        impl Gate for crate::peripherals::$name {
+            type MrccPeriphConfig = $config;
+
+            #[inline]
+            unsafe fn enable_clock() {
+                let mrcc = unsafe { pac::Mrcc0::steal() };
+                mrcc.$reg().modify(|_, w| w.$field().enabled());
+            }
+
+            #[inline]
+            unsafe fn disable_clock() {
+                let mrcc = unsafe { pac::Mrcc0::steal() };
+                mrcc.$reg().modify(|_r, w| w.$field().disabled());
+            }
+
+            #[inline]
+            fn is_clock_enabled() -> bool {
+                let mrcc = unsafe { pac::Mrcc0::steal() };
+                mrcc.$reg().read().$field().is_enabled()
+            }
+
+            #[inline]
+            unsafe fn release_reset() {
+                let mrcc = unsafe { pac::Mrcc0::steal() };
+                mrcc.$reg().modify(|_, w| w.$field().enabled());
+            }
+
+            #[inline]
+            unsafe fn assert_reset() {
+                let mrcc = unsafe { pac::Mrcc0::steal() };
+                mrcc.$reg().modify(|_, w| w.$field().disabled());
+            }
+
+            #[inline]
+            fn is_reset_released() -> bool {
+                let mrcc = unsafe { pac::Mrcc0::steal() };
+                mrcc.$reg().read().$field().is_enabled()
+            }
+        }
+    };
+}
+
+pub struct UnimplementedConfig;
+impl SPConfHelper for UnimplementedConfig {
+    fn post_enable_config(&self, _clocks: &Clocks) -> Result<u32, ClockError> {
+        Err(ClockError::UnimplementedConfig)
+    }
+}
+
+pub mod gate {
+    use super::{periph_helpers::LpuartConfig, *};
+
+    impl_cc_gate!(PORT1, mrcc_glb_cc1, port1, UnimplementedConfig);
+    impl_cc_gate!(PORT2, mrcc_glb_cc1, port2, UnimplementedConfig);
+    impl_cc_gate!(PORT3, mrcc_glb_cc1, port3, UnimplementedConfig);
+    impl_cc_gate!(OSTIMER0, mrcc_glb_cc1, ostimer0, UnimplementedConfig);
+    impl_cc_gate!(LPUART2, mrcc_glb_cc0, lpuart2, LpuartConfig);
+    impl_cc_gate!(GPIO3, mrcc_glb_cc2, gpio3, UnimplementedConfig);
+    impl_cc_gate!(ADC1, mrcc_glb_cc1, adc1, UnimplementedConfig);
+}
 
 // /// Convenience helper enabling the PORT2 and LPUART2 gates required for the debug UART.
 // pub unsafe fn enable_uart2_port2(peripherals: &pac::Peripherals) {
@@ -111,20 +202,6 @@ pub mod periph_helpers;
 // pub unsafe fn select_ostimer0_clock_1m(peripherals: &pac::Peripherals) {
 //     let mrcc = &peripherals.mrcc0;
 //     mrcc.mrcc_ostimer0_clksel().write(|w| w.mux().clkroot_1m());
-// }
-
-// pub unsafe fn init_fro16k(peripherals: &pac::Peripherals) {
-//     let vbat = &peripherals.vbat0;
-//     // Enable FRO16K oscillator
-//     vbat.froctla().modify(|_, w| w.fro_en().set_bit());
-
-//     // Lock the control register
-//     vbat.frolcka().modify(|_, w| w.lock().set_bit());
-
-//     // Enable clock outputs to both VSYS and VDD_CORE domains
-//     // Bit 0: clk_16k0 to VSYS domain
-//     // Bit 1: clk_16k1 to VDD_CORE domain
-//     vbat.froclke().modify(|_, w| unsafe { w.clke().bits(0x3) });
 // }
 
 // pub unsafe fn enable_adc(peripherals: &pac::Peripherals) {
@@ -271,6 +348,7 @@ pub struct ClocksConfig {
     pub firc: Option<FircConfig>,
     // NOTE: I don't think we *can* disable the SIRC?
     pub sirc: SircConfig,
+    pub fro16k: Option<Fro16KConfig>,
 }
 
 // FIRC/FRO180M
@@ -340,17 +418,30 @@ pub struct Clocks {
     pub fro_lf_div: Option<Clock>,
     //
     // End FRO12M stuff
+
+    pub clk_16k_vsys: Option<Clock>,
+    pub clk_16k_vdd_core: Option<Clock>,
     pub main_clk: Option<Clock>,
     pub pll1_clk: Option<Clock>,
 }
 
-static CLOCKS: critical_section::Mutex<Option<Clocks>> = critical_section::Mutex::new(None);
+#[non_exhaustive]
+pub struct Fro16KConfig {
+    pub vsys_domain_active: bool,
+    pub vdd_core_domain_active: bool,
+}
 
+static CLOCKS: critical_section::Mutex<RefCell<Option<Clocks>>> = critical_section::Mutex::new(RefCell::new(None));
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum ClockError {
+    NeverInitialized,
     AlreadyInitialized,
     BadConfig { clock: &'static str, reason: &'static str },
     NotImplemented { clock: &'static str },
+    UnimplementedConfig,
 }
 
 struct ClockOperator<'a> {
@@ -360,6 +451,7 @@ struct ClockOperator<'a> {
     _mrcc0: pac::Mrcc0,
     scg0: pac::Scg0,
     syscon: pac::Syscon,
+    vbat0: pac::Vbat0,
 }
 
 impl ClockOperator<'_> {
@@ -586,13 +678,52 @@ impl ClockOperator<'_> {
             });
         }
 
-        todo!()
+        Ok(())
+    }
+
+    fn configure_fro16k_clocks(&mut self) -> Result<(), ClockError> {
+        let Some(fro16k) = self.config.fro16k.as_ref() else {
+            return Ok(());
+        };
+        // Enable FRO16K oscillator
+        self.vbat0.froctla().modify(|_, w| w.fro_en().set_bit());
+
+        // Lock the control register
+        self.vbat0.frolcka().modify(|_, w| w.lock().set_bit());
+
+        let Fro16KConfig { vsys_domain_active, vdd_core_domain_active } = fro16k;
+
+        // Enable clock outputs to both VSYS and VDD_CORE domains
+        // Bit 0: clk_16k0 to VSYS domain
+        // Bit 1: clk_16k1 to VDD_CORE domain
+        //
+        // TODO: Define sub-fields for this register with a PAC patch?
+        let mut bits = 0;
+        if *vsys_domain_active {
+            bits |= 0b01;
+            self.clocks.clk_16k_vsys = Some(Clock {
+                frequency: 16_384,
+                power: PoweredClock::AlwaysEnabled,
+            });
+        }
+        if *vdd_core_domain_active {
+            bits |= 0b10;
+            self.clocks.clk_16k_vdd_core = Some(Clock {
+                frequency: 16_384,
+                power: PoweredClock::AlwaysEnabled,
+            });
+        }
+        self.vbat0.froclke().modify(|_r, w| {
+            unsafe { w.clke().bits(bits) }
+        });
+
+        Ok(())
     }
 }
 
 pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     critical_section::with(|cs| {
-        if CLOCKS.borrow(cs).is_some() {
+        if CLOCKS.borrow_ref(cs).is_some() {
             Err(ClockError::AlreadyInitialized)
         } else {
             Ok(())
@@ -607,11 +738,19 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
         _mrcc0: unsafe { pac::Mrcc0::steal() },
         scg0: unsafe { pac::Scg0::steal() },
         syscon: unsafe { pac::Syscon::steal() },
+        vbat0: unsafe { pac::Vbat0::steal() },
     };
 
     operator.configure_firc_clocks()?;
     operator.configure_sirc_clocks()?;
+    operator.configure_fro16k_clocks()?;
     // TODO, everything downstream
+
+    critical_section::with(|cs| {
+        let mut clks = CLOCKS.borrow_ref_mut(cs);
+        assert!(clks.is_none(), "Clock setup race!");
+        *clks = Some(clocks);
+    });
 
     Ok(())
 }
@@ -621,7 +760,8 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
 /// NOTE: Clocks implements `Clone`,
 pub fn with_clocks<R: 'static, F: FnOnce(&Clocks) -> R>(f: F) -> Option<R> {
     critical_section::with(|cs| {
-        let c = CLOCKS.borrow(cs).as_ref()?;
+        let c = CLOCKS.borrow_ref(cs);
+        let c = c.as_ref()?;
         Some(f(c))
     })
 }
@@ -629,20 +769,32 @@ pub fn with_clocks<R: 'static, F: FnOnce(&Clocks) -> R>(f: F) -> Option<R> {
 impl Clocks {
     pub fn ensure_fro_lf_div_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         let Some(clk) = self.fro_lf_div.as_ref() else {
-            return Err(ClockError::BadConfig { clock: "fro_lf_div", reason: "required but not active" });
+            return Err(ClockError::BadConfig {
+                clock: "fro_lf_div",
+                reason: "required but not active",
+            });
         };
         if !clk.power.meets_requirement_of(at_level) {
-            return Err(ClockError::BadConfig { clock: "fro_lf_div", reason: "not low power active" });
+            return Err(ClockError::BadConfig {
+                clock: "fro_lf_div",
+                reason: "not low power active",
+            });
         }
         Ok(clk.frequency)
     }
 
     pub fn ensure_fro_hf_div_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         let Some(clk) = self.fro_hf_div.as_ref() else {
-            return Err(ClockError::BadConfig { clock: "fro_hf_div", reason: "required but not active" });
+            return Err(ClockError::BadConfig {
+                clock: "fro_hf_div",
+                reason: "required but not active",
+            });
         };
         if !clk.power.meets_requirement_of(at_level) {
-            return Err(ClockError::BadConfig { clock: "fro_hf_div", reason: "not low power active" });
+            return Err(ClockError::BadConfig {
+                clock: "fro_hf_div",
+                reason: "not low power active",
+            });
         }
         Ok(clk.frequency)
     }
@@ -657,10 +809,16 @@ impl Clocks {
 
     pub fn ensure_clk_1m_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         let Some(clk) = self.clk_1m.as_ref() else {
-            return Err(ClockError::BadConfig { clock: "clk_1m", reason: "required but not active" });
+            return Err(ClockError::BadConfig {
+                clock: "clk_1m",
+                reason: "required but not active",
+            });
         };
         if !clk.power.meets_requirement_of(at_level) {
-            return Err(ClockError::BadConfig { clock: "clk_1m", reason: "not low power active" });
+            return Err(ClockError::BadConfig {
+                clock: "clk_1m",
+                reason: "not low power active",
+            });
         }
         Ok(clk.frequency)
     }
@@ -668,5 +826,4 @@ impl Clocks {
     pub fn ensure_pll1_clk_div_active(&self, _at_level: &PoweredClock) -> Result<u32, ClockError> {
         Err(ClockError::NotImplemented { clock: "pll1_clk_div" })
     }
-
 }

@@ -16,7 +16,19 @@ pub mod ostimer;
 pub mod rtc;
 pub mod uart;
 
-embassy_hal_internal::peripherals!(LPUART2, OSTIMER0, GPIO, RTC0, ADC1,);
+embassy_hal_internal::peripherals!(
+    PORT1,
+    PORT2,
+    PORT3,
+    LPUART2,
+    OSTIMER0,
+    GPIO,
+    PIO2_2,
+    PIO2_3,
+    GPIO3,
+    RTC0,
+    ADC1,
+);
 
 /// Get access to the PAC Peripherals for low-level register access.
 /// This is a lazy-initialized singleton that can be called after init().
