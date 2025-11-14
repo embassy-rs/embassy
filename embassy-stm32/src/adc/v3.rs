@@ -642,11 +642,10 @@ impl<'d> Adc<'d, peripherals::ADC1> {
             } else {
                 pac::ADC12_COMMON.ccr().modify(|reg| {
                     reg.set_ch17sel(true);
-                });                
+                });
 
                 Temperature {}
             }
         }
-
     }
 }
