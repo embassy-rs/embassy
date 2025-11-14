@@ -2,10 +2,8 @@
 //! Provides reusable gate abstractions for peripherals used by the examples.
 use core::cell::RefCell;
 
-use mcxa_pac::scg0::{
-    firccsr::{FircFclkPeriphEn, FircSclkPeriphEn, Fircsten},
-    sirccsr::{SircClkPeriphEn, Sircsten},
-};
+use mcxa_pac::scg0::firccsr::{FircFclkPeriphEn, FircSclkPeriphEn, Fircsten};
+use mcxa_pac::scg0::sirccsr::{SircClkPeriphEn, Sircsten};
 use periph_helpers::SPConfHelper;
 
 use crate::pac;
@@ -149,7 +147,8 @@ impl SPConfHelper for NoConfig {
 }
 
 pub mod gate {
-    use super::{periph_helpers::{AdcConfig, LpuartConfig, OsTimerConfig}, *};
+    use super::periph_helpers::{AdcConfig, LpuartConfig, OsTimerConfig};
+    use super::*;
 
     impl_cc_gate!(PORT1, mrcc_glb_cc1, port1, NoConfig);
     impl_cc_gate!(PORT2, mrcc_glb_cc1, port2, NoConfig);
