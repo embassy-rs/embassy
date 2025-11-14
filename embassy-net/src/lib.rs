@@ -16,6 +16,8 @@ pub(crate) mod fmt;
 #[cfg(feature = "dns")]
 pub mod dns;
 mod driver_util;
+#[cfg(feature = "eth")]
+pub mod eth;
 #[cfg(feature = "icmp")]
 pub mod icmp;
 #[cfg(feature = "raw")]
