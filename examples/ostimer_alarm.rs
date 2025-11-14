@@ -4,12 +4,15 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use embassy_executor::Spawner;
-use hal::uart;
-use {cortex_m, embassy_mcxa276 as hal};
+use embassy_mcxa276 as hal;
 
 mod common;
 
-use embassy_mcxa276::{bind_interrupts, clocks::{periph_helpers::OstimerClockSel, PoweredClock}};
+use embassy_mcxa276::{
+    bind_interrupts,
+    clocks::{periph_helpers::OstimerClockSel, PoweredClock},
+    lpuart::{Config, Lpuart},
+};
 use {defmt_rtt as _, panic_probe as _};
 
 // Bind only OS_EVENT, and retain the symbol explicitly so it can't be GC'ed.
@@ -33,15 +36,26 @@ fn alarm_callback() {
 async fn main(_spawner: Spawner) {
     let p = hal::init(hal::config::Config::default());
 
-    // Enable/clock OSTIMER0 and UART2 before touching their registers
-    unsafe {
-        common::init_ostimer0(hal::pac());
-    }
+    // Create UART configuration
+    let config = Config {
+        baudrate_bps: 115_200,
+        enable_tx: true,
+        enable_rx: true,
+        ..Default::default()
+    };
+
+    // Create UART instance using LPUART2 with PIO2_2 as TX and PIO2_3 as RX
     unsafe {
         common::init_uart2(hal::pac());
     }
-    let src = unsafe { hal::clocks::uart2_src_hz(hal::pac()) };
-    let uart = uart::Uart::<uart::Lpuart2>::new(p.LPUART2, uart::Config::new(src));
+    let mut uart = Lpuart::new_blocking(
+        p.LPUART2, // Peripheral
+        p.PIO2_2,  // TX pin
+        p.PIO2_3,  // RX pin
+        config,
+    )
+    .unwrap();
+
     uart.write_str_blocking("OSTIMER Alarm Example\n");
 
     // Initialize embassy-time global driver backed by OSTIMER0

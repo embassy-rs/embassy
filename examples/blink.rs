@@ -28,10 +28,6 @@ async fn main(_spawner: Spawner) {
     unsafe {
         common::init_led(hal::pac());
     }
-    // Initialize OSTIMER for async timing
-    unsafe {
-        common::init_ostimer0(hal::pac());
-    }
 
     // Initialize embassy-time global driver backed by OSTIMER0
     hal::ostimer::time_driver::init(hal::config::Config::default().time_interrupt_priority, 1_000_000);

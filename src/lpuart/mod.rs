@@ -772,6 +772,10 @@ impl<'a> LpuartTx<'a, Blocking> {
         Ok(())
     }
 
+    pub fn write_str_blocking(&mut self, buf: &str) {
+        let _ = self.blocking_write(buf.as_bytes());
+    }
+
     /// Write data to LPUART TX without blocking.
     pub fn write(&mut self, buf: &[u8]) -> Result<()> {
         for x in buf {
@@ -899,6 +903,22 @@ impl<'a> Lpuart<'a, Blocking> {
     /// Write data to LPUART TX blocking execution until all data is sent
     pub fn blocking_write(&mut self, buf: &[u8]) -> Result<()> {
         self.tx.blocking_write(buf)
+    }
+
+    pub fn write_byte(&mut self, byte: u8) {
+        _ = self.tx.write_byte(byte);
+    }
+
+    pub fn read_byte_blocking(&mut self) -> u8 {
+        loop {
+            if let Ok(b) = self.rx.read_byte() {
+                return b;
+            }
+        }
+    }
+
+    pub fn write_str_blocking(&mut self, buf: &str) {
+        self.tx.write_str_blocking(buf);
     }
 
     /// Write data to LPUART TX without blocking

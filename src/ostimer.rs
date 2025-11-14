@@ -534,7 +534,7 @@ pub mod time_driver {
         bin_to_gray, now_ticks_read, Regs, ALARM_ACTIVE, ALARM_CALLBACK, ALARM_FLAG, ALARM_TARGET_TIME,
         EVTIMER_HI_MASK, EVTIMER_HI_SHIFT, LOW_32_BIT_MASK,
     };
-    use crate::pac;
+    use crate::{clocks::{enable_and_reset, periph_helpers::{OsTimerConfig, OstimerClockSel}, PoweredClock}, pac, peripherals::OSTIMER0};
     pub struct Driver;
     static TIMER_WAKER: AtomicWaker = AtomicWaker::new();
 
@@ -621,6 +621,14 @@ pub mod time_driver {
     /// Note: The frequency parameter is currently accepted for API compatibility.
     /// The embassy_time_driver macro handles driver registration automatically.
     pub fn init(priority: crate::interrupt::Priority, frequency_hz: u64) {
+        let _clock_freq = unsafe {
+            enable_and_reset::<OSTIMER0>(&OsTimerConfig {
+                power: PoweredClock::AlwaysEnabled,
+                source: OstimerClockSel::Clk1M,
+            })
+            .expect("Enabling OsTimer clock should not fail")
+        };
+
         // Mask/clear at peripheral and set default MATCH
         let r: &Regs = unsafe { &*pac::Ostimer0::ptr() };
         super::prime_match_registers(r);

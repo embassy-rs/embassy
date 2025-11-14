@@ -12,7 +12,10 @@
 use core::sync::atomic::{AtomicU32, Ordering};
 
 use embassy_executor::Spawner;
-use embassy_mcxa276::clocks::{periph_helpers::OstimerClockSel, PoweredClock};
+use embassy_mcxa276::{
+    clocks::{periph_helpers::OstimerClockSel, PoweredClock},
+    lpuart::{Blocking, Config, Lpuart},
+};
 use embassy_time::{Duration, Timer};
 use hal::bind_interrupts;
 use {defmt_rtt as _, embassy_mcxa276 as hal, panic_probe as _};
@@ -43,7 +46,7 @@ fn alarm_callback() {
     }
 }
 
-fn report_default_handler(uart: &mut hal::uart::Uart<hal::uart::Lpuart2>) {
+fn report_default_handler(uart: &mut Lpuart<'_, Blocking>) {
     let snapshot = hal::interrupt::default_handler_snapshot();
     if snapshot.count == 0 {
         return;
@@ -72,15 +75,25 @@ fn report_default_handler(uart: &mut hal::uart::Uart<hal::uart::Lpuart2>) {
 async fn main(_spawner: Spawner) {
     let p = hal::init(Default::default());
 
-    // Enable/clock OSTIMER0 and UART2 before touching their registers
-    unsafe {
-        common::init_ostimer0(hal::pac());
-    }
+    // Create UART configuration
+    let config = Config {
+        baudrate_bps: 115_200,
+        enable_tx: true,
+        enable_rx: true,
+        ..Default::default()
+    };
+
+    // Create UART instance using LPUART2 with PIO2_2 as TX and PIO2_3 as RX
     unsafe {
         common::init_uart2(hal::pac());
     }
-    let src = unsafe { hal::clocks::uart2_src_hz(hal::pac()) };
-    let mut uart = hal::uart::Uart::<hal::uart::Lpuart2>::new(p.LPUART2, hal::uart::Config::new(src));
+    let mut uart = Lpuart::new_blocking(
+        p.LPUART2, // Peripheral
+        p.PIO2_2,  // TX pin
+        p.PIO2_3,  // RX pin
+        config,
+    )
+    .unwrap();
 
     uart.write_str_blocking("OSTIMER Race Condition Test Starting...\n");
 
@@ -140,7 +153,7 @@ async fn main(_spawner: Spawner) {
 // Test rapid alarm scheduling to stress interrupt handling
 async fn test_rapid_alarms(
     ostimer: &hal::ostimer::Ostimer<'_, hal::ostimer::Ostimer0>,
-    uart: &mut hal::uart::Uart<hal::uart::Lpuart2>,
+    uart: &mut Lpuart<'_, Blocking>,
 ) {
     let initial_count = ALARM_CALLBACK_COUNT.load(Ordering::SeqCst);
 
@@ -177,7 +190,7 @@ async fn test_rapid_alarms(
 // Test reading counter while interrupts are firing
 async fn test_counter_reading_during_interrupts(
     ostimer: &hal::ostimer::Ostimer<'_, hal::ostimer::Ostimer0>,
-    uart: &mut hal::uart::Uart<hal::uart::Lpuart2>,
+    uart: &mut Lpuart<'_, Blocking>,
 ) {
     let initial_interrupt_count = INTERRUPT_COUNT.load(Ordering::SeqCst);
 
@@ -238,7 +251,7 @@ async fn test_counter_reading_during_interrupts(
 // Test concurrent timer operations (embassy-time + alarms)
 async fn test_concurrent_operations(
     ostimer: &hal::ostimer::Ostimer<'_, hal::ostimer::Ostimer0>,
-    uart: &mut hal::uart::Uart<hal::uart::Lpuart2>,
+    uart: &mut Lpuart<'_, Blocking>,
 ) {
     let initial_interrupt_count = INTERRUPT_COUNT.load(Ordering::SeqCst);
 
@@ -267,7 +280,7 @@ async fn test_concurrent_operations(
 // Test timer reset during active operations
 async fn test_reset_during_operation(
     ostimer: &hal::ostimer::Ostimer<'_, hal::ostimer::Ostimer0>,
-    uart: &mut hal::uart::Uart<hal::uart::Lpuart2>,
+    uart: &mut Lpuart<'_, Blocking>,
     peripherals: &mcxa_pac::Peripherals,
 ) {
     let initial_counter = ostimer.now();
@@ -308,7 +321,7 @@ async fn test_reset_during_operation(
 }
 
 // Helper function to write a u32 value as decimal string
-fn write_u32(uart: &mut hal::uart::Uart<hal::uart::Lpuart2>, value: u32) {
+fn write_u32(uart: &mut Lpuart<'_, Blocking>, value: u32) {
     if value == 0 {
         uart.write_str_blocking("0");
         return;
@@ -343,7 +356,7 @@ fn write_u32(uart: &mut hal::uart::Uart<hal::uart::Lpuart2>, value: u32) {
     }
 }
 
-fn write_hex32(uart: &mut hal::uart::Uart<hal::uart::Lpuart2>, value: u32) {
+fn write_hex32(uart: &mut Lpuart<'_, Blocking>, value: u32) {
     let mut buf = [b'0'; 8];
     let mut tmp = value;
     for i in (0..8).rev() {
@@ -355,15 +368,13 @@ fn write_hex32(uart: &mut hal::uart::Uart<hal::uart::Lpuart2>, value: u32) {
         };
         tmp >>= 4;
     }
-    for b in &buf {
-        uart.write_byte(*b);
-    }
+    uart.blocking_write(&buf).unwrap();
 }
 
 // Helper function to write a u64 value as decimal string
-fn write_u64(uart: &mut hal::uart::Uart<hal::uart::Lpuart2>, value: u64) {
+fn write_u64(uart: &mut Lpuart<'_, Blocking>, value: u64) {
     if value == 0 {
-        uart.write_str_blocking("0");
+        uart.blocking_write(b"0").unwrap();
         return;
     }
 
@@ -381,17 +392,17 @@ fn write_u64(uart: &mut hal::uart::Uart<hal::uart::Lpuart2>, value: u64) {
     while i > 0 {
         i -= 1;
         match buffer[i] {
-            b'0' => uart.write_str_blocking("0"),
-            b'1' => uart.write_str_blocking("1"),
-            b'2' => uart.write_str_blocking("2"),
-            b'3' => uart.write_str_blocking("3"),
-            b'4' => uart.write_str_blocking("4"),
-            b'5' => uart.write_str_blocking("5"),
-            b'6' => uart.write_str_blocking("6"),
-            b'7' => uart.write_str_blocking("7"),
-            b'8' => uart.write_str_blocking("8"),
-            b'9' => uart.write_str_blocking("9"),
-            _ => uart.write_str_blocking("?"),
+            b'0' => uart.blocking_write(b"0").unwrap(),
+            b'1' => uart.blocking_write(b"1").unwrap(),
+            b'2' => uart.blocking_write(b"2").unwrap(),
+            b'3' => uart.blocking_write(b"3").unwrap(),
+            b'4' => uart.blocking_write(b"4").unwrap(),
+            b'5' => uart.blocking_write(b"5").unwrap(),
+            b'6' => uart.blocking_write(b"6").unwrap(),
+            b'7' => uart.blocking_write(b"7").unwrap(),
+            b'8' => uart.blocking_write(b"8").unwrap(),
+            b'9' => uart.blocking_write(b"9").unwrap(),
+            _ => uart.blocking_write(b"?").unwrap(),
         }
     }
 }

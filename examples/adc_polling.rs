@@ -2,9 +2,11 @@
 #![no_main]
 
 use embassy_executor::Spawner;
+use embassy_mcxa276::clocks::periph_helpers::{AdcClockSel, Div4};
+use embassy_mcxa276::clocks::PoweredClock;
+use embassy_mcxa276::lpuart::{Config, Lpuart};
 use embassy_mcxa276 as hal;
 use hal::adc::{ConvResult, LpadcConfig, TriggerPriorityPolicy};
-use hal::uart;
 use mcxa_pac::adc1::cfg::{Pwrsel, Refsel};
 use mcxa_pac::adc1::cmdl1::{Adch, Mode};
 use mcxa_pac::adc1::ctrl::CalAvgs;
@@ -27,10 +29,27 @@ async fn main(_spawner: Spawner) {
         common::init_uart2(hal::pac());
     }
 
-    let src = unsafe { hal::clocks::uart2_src_hz(hal::pac()) };
-    let uart = uart::Uart::<uart::Lpuart2>::new(p.LPUART2, uart::Config::new(src));
+    // Create UART configuration
+    let config = Config {
+        baudrate_bps: 115_200,
+        enable_tx: true,
+        enable_rx: true,
+        ..Default::default()
+    };
 
-    uart.write_str_blocking("\r\n=== ADC polling Example ===\r\n");
+    // Create UART instance using LPUART2 with PIO2_2 as TX and PIO2_3 as RX
+    unsafe {
+        common::init_uart2(hal::pac());
+    }
+    let mut uart = Lpuart::new_blocking(
+        p.LPUART2, // Peripheral
+        p.PIO2_2,  // TX pin
+        p.PIO2_3,  // RX pin
+        config,
+    )
+    .unwrap();
+
+    uart.blocking_write(b"\r\n=== ADC polling Example ===\r\n").unwrap();
 
     unsafe {
         common::init_adc(hal::pac());
@@ -47,6 +66,9 @@ async fn main(_spawner: Spawner) {
         enable_conv_pause: false,
         conv_pause_delay: 0,
         fifo_watermark: 0,
+        power: PoweredClock::NormalEnabledDeepSleepDisabled,
+        source: AdcClockSel::FroLfDiv,
+        div: Div4::no_div(),
     };
     let adc = hal::adc::Adc::<hal::adc::Adc1>::new(p.ADC1, adc_config);
 

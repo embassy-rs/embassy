@@ -4,14 +4,13 @@
 use embassy_executor::Spawner;
 use {defmt_rtt as _, embassy_mcxa276 as hal, panic_probe as _};
 
-use crate::hal::lpuart::{lib, Config, Lpuart};
+use crate::hal::lpuart::{Config, Lpuart};
 
 mod common;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let _p = hal::init(hal::config::Config::default());
-    let p2 = lib::init();
+    let p = hal::init(hal::config::Config::default());
 
     defmt::info!("boot");
 
@@ -30,9 +29,9 @@ async fn main(_spawner: Spawner) {
 
     // Create UART instance using LPUART2 with PIO2_2 as TX and PIO2_3 as RX
     let lpuart = Lpuart::new_blocking(
-        p2.LPUART2, // Peripheral
-        p2.PIO2_2,  // TX pin
-        p2.PIO2_3,  // RX pin
+        p.LPUART2, // Peripheral
+        p.PIO2_2,  // TX pin
+        p.PIO2_3,  // RX pin
         config,
     )
     .unwrap();

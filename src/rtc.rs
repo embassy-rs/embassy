@@ -1,6 +1,9 @@
 //! RTC DateTime driver.
 use core::sync::atomic::{AtomicBool, Ordering};
 
+use embassy_hal_internal::{Peri, PeripheralType};
+
+use crate::clocks::with_clocks;
 use crate::pac;
 use crate::pac::rtc0::cr::Um;
 
@@ -9,21 +12,13 @@ type Regs = pac::rtc0::RegisterBlock;
 static ALARM_TRIGGERED: AtomicBool = AtomicBool::new(false);
 
 // Token-based instance pattern like embassy-imxrt
-pub trait Instance {
+pub trait Instance: PeripheralType {
     fn ptr() -> *const Regs;
 }
 
 /// Token for RTC0
 pub type Rtc0 = crate::peripherals::RTC0;
 impl Instance for crate::peripherals::RTC0 {
-    #[inline(always)]
-    fn ptr() -> *const Regs {
-        pac::Rtc0::ptr()
-    }
-}
-
-// Also implement Instance for the Peri wrapper type
-impl Instance for embassy_hal_internal::Peri<'_, crate::peripherals::RTC0> {
     #[inline(always)]
     fn ptr() -> *const Regs {
         pac::Rtc0::ptr()
@@ -157,14 +152,25 @@ pub fn get_default_config() -> RtcConfig {
     }
 }
 /// Minimal RTC handle for a specific instance I (store the zero-sized token like embassy)
-pub struct Rtc<I: Instance> {
-    _inst: core::marker::PhantomData<I>,
+pub struct Rtc<'a, I: Instance> {
+    _inst: core::marker::PhantomData<&'a mut I>,
 }
 
-impl<I: Instance> Rtc<I> {
+impl<'a, I: Instance> Rtc<'a, I> {
     /// initialize RTC
-    pub fn new(_inst: impl Instance, config: RtcConfig) -> Self {
+    pub fn new(_inst: Peri<'a, I>, config: RtcConfig) -> Self {
         let rtc = unsafe { &*I::ptr() };
+
+        // The RTC is NOT gated by the MRCC, but we DO need to make sure the 16k clock
+        // on the vsys domain is active
+        let clocks = with_clocks(|c| {
+            c.clk_16k_vsys.clone()
+        });
+        match clocks {
+            None => panic!("Clocks have not been initialized"),
+            Some(None) => panic!("Clocks initialized, but clk_16k_vsys not active"),
+            Some(Some(_)) => {}
+        }
 
         /* RTC reset */
         rtc.cr().modify(|_, w| w.swr().set_bit());

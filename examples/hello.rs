@@ -2,15 +2,14 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa276 as hal;
-use hal::uart;
+use embassy_mcxa276::{self as hal, lpuart::{Blocking, Config, Lpuart}};
 
 mod common;
 
 use {defmt_rtt as _, panic_probe as _};
 
 /// Simple helper to write a byte as hex to UART
-fn write_hex_byte(uart: &hal::uart::Uart<hal::uart::Lpuart2>, byte: u8) {
+fn write_hex_byte(uart: &mut Lpuart<'_, Blocking>, byte: u8) {
     const HEX_DIGITS: &[u8] = b"0123456789ABCDEF";
     uart.write_byte(HEX_DIGITS[(byte >> 4) as usize]);
     uart.write_byte(HEX_DIGITS[(byte & 0xF) as usize]);
@@ -22,15 +21,25 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("boot");
 
-    // Board-level init for UART2 clocks and pins.
+    // Create UART configuration
+    let config = Config {
+        baudrate_bps: 115_200,
+        enable_tx: true,
+        enable_rx: true,
+        ..Default::default()
+    };
+
+    // Create UART instance using LPUART2 with PIO2_2 as TX and PIO2_3 as RX
     unsafe {
         common::init_uart2(hal::pac());
     }
-
-    // Get UART source frequency from clock configuration
-    // Using hardcoded frequency for now - dynamic detection may have issues
-    let src = 12_000_000; // FRO_LF_DIV at 12MHz with DIV=0
-    let uart = uart::Uart::<uart::Lpuart2>::new(p.LPUART2, uart::Config::new(src));
+    let mut uart = Lpuart::new_blocking(
+        p.LPUART2, // Peripheral
+        p.PIO2_2,  // TX pin
+        p.PIO2_3,  // RX pin
+        config,
+    )
+    .unwrap();
 
     // Print welcome message before any async delays to guarantee early console output
     uart.write_str_blocking("\r\n=== MCXA276 UART Echo Demo ===\r\n");
@@ -69,12 +78,12 @@ async fn main(_spawner: Spawner) {
                     let num_str = &command[4..];
                     if let Ok(num) = parse_u8(num_str) {
                         uart.write_str_blocking("Hex: 0x");
-                        write_hex_byte(&uart, num);
+                        write_hex_byte(&mut uart, num);
                         uart.write_str_blocking("\r\n");
                     } else {
                         uart.write_str_blocking("Invalid number for hex command\r\n");
                     }
-                } else if command.len() > 0 {
+                } else if !command.is_empty() {
                     uart.write_str_blocking("Unknown command: ");
                     uart.write_str_blocking(core::str::from_utf8(command).unwrap_or(""));
                     uart.write_str_blocking("\r\n");
@@ -103,7 +112,7 @@ async fn main(_spawner: Spawner) {
 fn parse_u8(bytes: &[u8]) -> Result<u8, ()> {
     let mut result = 0u8;
     for &b in bytes {
-        if b >= b'0' && b <= b'9' {
+        if b.is_ascii_digit() {
             result = result.checked_mul(10).ok_or(())?;
             result = result.checked_add(b - b'0').ok_or(())?;
         } else {

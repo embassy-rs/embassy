@@ -58,9 +58,6 @@ name = "hello"
 name = "blink"
 
 [[example]]
-name = "uart_interrupt"
-
-[[example]]
 name = "ostimer_alarm"
 
 [[example]]
