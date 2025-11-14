@@ -13,7 +13,7 @@ pub use pac::adc::vals::{Ovsr, Ovss, Presc};
 use super::SealedAdcChannel;
 use super::{Adc, Averaging, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt, blocking_delay_us};
 use crate::adc::ConversionMode;
-use crate::{Peri, pac, rcc};
+use crate::{Peri, pac, rcc, peripherals};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -489,6 +489,22 @@ impl<'d, T: Instance> Adc<'d, T> {
         s
     }
 
+    #[cfg(any(adc_g0, adc_u0))]
+    pub fn enable_vbat(&self) -> Vbat {
+        T::regs().ccr().modify(|reg| {
+            reg.set_vbaten(true);
+        });
+
+        Vbat { }
+    }
+
+    #[cfg(any(adc_g0, adc_u0))]
+    pub fn disable_vbat(&self) {
+        T::regs().ccr().modify(|reg| {
+            reg.set_vbaten(false);
+        });
+    }
+
     #[cfg(adc_g0)]
     /// Initialize ADC with explicit clock for the analog ADC
     pub fn new_with_clock(adc: Peri<'d, T>, clock: Clock) -> Self {
@@ -525,81 +541,6 @@ impl<'d, T: Instance> Adc<'d, T> {
         Self { adc }
     }
 
-    pub fn enable_vrefint(&self) -> VrefInt {
-        #[cfg(not(any(adc_g0, adc_u0)))]
-        T::common_regs().ccr().modify(|reg| {
-            reg.set_vrefen(true);
-        });
-        #[cfg(any(adc_g0, adc_u0))]
-        T::regs().ccr().modify(|reg| {
-            reg.set_vrefen(true);
-        });
-
-        // "Table 24. Embedded internal voltage reference" states that it takes a maximum of 12 us
-        // to stabilize the internal voltage reference.
-        blocking_delay_us(15);
-
-        VrefInt {}
-    }
-
-    pub fn enable_temperature(&self) -> Temperature {
-        cfg_if! {
-            if #[cfg(any(adc_g0, adc_u0))] {
-                T::regs().ccr().modify(|reg| {
-                    reg.set_tsen(true);
-                });
-            } else if #[cfg(any(adc_h5, adc_h7rs))] {
-                T::common_regs().ccr().modify(|reg| {
-                    reg.set_tsen(true);
-                });
-            } else {
-                T::common_regs().ccr().modify(|reg| {
-                    reg.set_ch17sel(true);
-                });
-            }
-        }
-
-        Temperature {}
-    }
-
-    pub fn enable_vbat(&self) -> Vbat {
-        cfg_if! {
-            if #[cfg(any(adc_g0, adc_u0))] {
-                T::regs().ccr().modify(|reg| {
-                    reg.set_vbaten(true);
-                });
-            } else if #[cfg(any(adc_h5, adc_h7rs))] {
-                T::common_regs().ccr().modify(|reg| {
-                    reg.set_vbaten(true);
-                });
-            } else {
-                T::common_regs().ccr().modify(|reg| {
-                    reg.set_ch18sel(true);
-                });
-            }
-        }
-
-        Vbat {}
-    }
-
-    pub fn disable_vbat(&self) {
-        cfg_if! {
-            if #[cfg(any(adc_g0, adc_u0))] {
-                T::regs().ccr().modify(|reg| {
-                    reg.set_vbaten(false);
-                });
-            } else if #[cfg(any(adc_h5, adc_h7rs))] {
-                T::common_regs().ccr().modify(|reg| {
-                    reg.set_vbaten(false);
-                });
-            } else {
-                T::common_regs().ccr().modify(|reg| {
-                    reg.set_ch18sel(false);
-                });
-            }
-        }
-    }
-
     /*
     /// Convert a raw sample from the `Temperature` to deg C
     pub fn to_degrees_centigrade(sample: u16) -> f32 {
@@ -608,4 +549,91 @@ impl<'d, T: Instance> Adc<'d, T> {
             + 30.0
     }
      */
+}
+
+
+#[cfg(not(any(adc_g0, adc_u0)))]
+impl<'d> Adc<'d, peripherals::ADC2> {
+   pub fn enable_vbat(&self) -> Vbat {
+        cfg_if! {
+            if #[cfg(any(adc_h5, adc_h7rs))] {
+                pac::ADC12_COMMON.ccr().modify(|reg| {
+                    reg.set_vbaten(true);
+                });
+            } else {
+                pac::ADC12_COMMON.ccr().modify(|reg| {
+                    reg.set_ch18sel(true);
+                });
+            }
+        }
+
+        Vbat { }
+    }
+
+    pub fn disable_vbat(&self) {
+        cfg_if! {
+            if #[cfg(any(adc_g0, adc_u0))] {
+                pac::ADC2.ccr().modify(|reg| {
+                    reg.set_vbaten(false);
+                });
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
+                pac::ADC12_COMMON.ccr().modify(|reg| {
+                    reg.set_vbaten(false);
+                });
+            } else {
+                pac::ADC12_COMMON.ccr().modify(|reg| {
+                    reg.set_ch18sel(false);
+                });
+            }
+        }
+    }
+
+    #[cfg(any(adc_h5, adc_h7rs))]
+    pub fn enable_vddcore(&self) -> VddCore {
+        pac::ADC2.or().modify(|reg| {
+            reg.set_op0(true);
+        });
+
+        VddCore { }
+    }
+}
+
+
+impl<'d> Adc<'d, peripherals::ADC1> {
+    pub fn enable_vrefint(&self) -> VrefInt {
+        #[cfg(not(any(adc_g0, adc_u0)))]
+        pac::ADC12_COMMON.ccr().modify(|reg| {
+            reg.set_vrefen(true);
+        });
+        #[cfg(any(adc_g0, adc_u0))]
+        pac::ADC1.ccr().modify(|reg| {
+            reg.set_vrefen(true);
+        });
+
+        // "Table 24. Embedded internal voltage reference" states that it takes a maximum of 12 us
+        // to stabilize the internal voltage reference.
+        blocking_delay_us(15);
+
+        VrefInt { }
+    }
+
+    pub fn enable_temperature(&self) -> Temperature {
+        cfg_if! {
+            if #[cfg(any(adc_g0, adc_u0))] {
+                pac::ADC1.ccr().modify(|reg| {
+                    reg.set_tsen(true);
+                });
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
+                pac::ADC12_COMMON.ccr().modify(|reg| {
+                    reg.set_tsen(true);
+                });
+            } else {
+                pac::ADC12_COMMON.ccr().modify(|reg| {
+                    reg.set_ch17sel(true);
+                });
+            }
+        }
+
+        Temperature { }
+    }
 }
