@@ -560,6 +560,10 @@ impl<'d> Adc<'d, peripherals::ADC2> {
                 pac::ADC12_COMMON.ccr().modify(|reg| {
                     reg.set_vbaten(true);
                 });
+            } else if #[cfg(stm32l4)] {
+                pac::ADC123_COMMON.ccr().modify(|reg| {
+                    reg.set_ch18sel(true);
+                });
             } else {
                 pac::ADC12_COMMON.ccr().modify(|reg| {
                     reg.set_ch18sel(true);
@@ -572,18 +576,18 @@ impl<'d> Adc<'d, peripherals::ADC2> {
 
     pub fn disable_vbat(&self) {
         cfg_if! {
-            if #[cfg(any(adc_g0, adc_u0))] {
-                pac::ADC2.ccr().modify(|reg| {
-                    reg.set_vbaten(false);
-                });
-            } else if #[cfg(any(adc_h5, adc_h7rs))] {
+            if #[cfg(any(adc_h5, adc_h7rs))] {
                 pac::ADC12_COMMON.ccr().modify(|reg| {
                     reg.set_vbaten(false);
+                });
+            } else if #[cfg(stm32l4)] {
+                pac::ADC123_COMMON.ccr().modify(|reg| {
+                    reg.set_ch18sel(false);
                 });
             } else {
                 pac::ADC12_COMMON.ccr().modify(|reg| {
                     reg.set_ch18sel(false);
-                });
+                });                
             }
         }
     }
@@ -601,12 +605,16 @@ impl<'d> Adc<'d, peripherals::ADC2> {
 impl<'d> Adc<'d, peripherals::ADC1> {
     pub fn enable_vrefint(&self) -> VrefInt {
         cfg_if! {
-            if #[cfg(not(any(adc_g0, adc_u0, stm32wb)))] {
+            if #[cfg(any(adc_h5, adc_h7rs))] {
                 pac::ADC12_COMMON.ccr().modify(|reg| {
                     reg.set_vrefen(true);
                 });
             } else if #[cfg(any(adc_g0, adc_u0))] {
                 pac::ADC1.ccr().modify(|reg| {
+                    reg.set_vrefen(true);
+                });
+            } else if #[cfg(stm32l4)] {
+                pac::ADC123_COMMON.ccr().modify(|reg| {
                     reg.set_vrefen(true);
                 });
             } else {
@@ -637,8 +645,14 @@ impl<'d> Adc<'d, peripherals::ADC1> {
                 });
 
                 Temperature {}
-            } else if #[cfg(any(stm32wb))] {
-                todo!();
+            } else if #[cfg(stm32wb)] {
+                todo();
+            } else if #[cfg(stm32l4)] {
+                pac::ADC123_COMMON.ccr().modify(|reg| {
+                    reg.set_ch17sel(true);
+                });
+
+                Temperature {}
             } else {
                 pac::ADC12_COMMON.ccr().modify(|reg| {
                     reg.set_ch17sel(true);
