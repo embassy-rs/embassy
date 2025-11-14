@@ -495,7 +495,7 @@ impl<'d, T: Instance> Adc<'d, T> {
             reg.set_vbaten(true);
         });
 
-        Vbat { }
+        Vbat {}
     }
 
     #[cfg(any(adc_g0, adc_u0))]
@@ -567,7 +567,7 @@ impl<'d> Adc<'d, peripherals::ADC2> {
             }
         }
 
-        Vbat { }
+        Vbat {}
     }
 
     pub fn disable_vbat(&self) {
