@@ -5,8 +5,9 @@ use embassy_executor::Spawner;
 use embassy_mcxa as hal;
 use embassy_mcxa::interrupt::typelevel::Handler;
 use embassy_mcxa::lpuart::buffered::BufferedLpuart;
+use embassy_mcxa::lpuart::Config;
 use embassy_mcxa::{bind_interrupts, lpuart};
-use embassy_mcxa_examples::init_uart2;
+use embassy_mcxa_examples::init_uart2_pins;
 use embedded_io_async::{Read, Write};
 
 // Bind OS_EVENT for timers plus LPUART2 IRQ for the buffered driver
@@ -31,11 +32,11 @@ async fn main(_spawner: Spawner) {
     hal::interrupt::LPUART2.configure_for_uart(hal::interrupt::Priority::P3);
 
     unsafe {
-        init_uart2(hal::pac());
+        init_uart2_pins(hal::pac());
     }
 
     // UART configuration (enable both TX and RX)
-    let config = lpuart::Config {
+    let config = Config {
         baudrate_bps: 115_200,
         enable_tx: true,
         enable_rx: true,

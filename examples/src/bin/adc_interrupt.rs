@@ -2,6 +2,7 @@
 #![no_main]
 
 use embassy_executor::Spawner;
+use embassy_mcxa_examples::init_adc_pins;
 use hal::adc::{LpadcConfig, TriggerPriorityPolicy};
 use hal::clocks::periph_helpers::{AdcClockSel, Div4};
 use hal::clocks::PoweredClock;
@@ -35,7 +36,7 @@ async fn main(_spawner: Spawner) {
 
     // Create UART instance using LPUART2 with PIO2_2 as TX and PIO2_3 as RX
     unsafe {
-        embassy_mcxa_examples::init_uart2(hal::pac());
+        embassy_mcxa_examples::init_uart2_pins(hal::pac());
     }
     let mut uart = Lpuart::new_blocking(
         p.LPUART2, // Peripheral
@@ -47,7 +48,7 @@ async fn main(_spawner: Spawner) {
     uart.write_str_blocking("\r\n=== ADC interrupt Example ===\r\n");
 
     unsafe {
-        embassy_mcxa_examples::init_adc(hal::pac());
+        init_adc_pins(hal::pac());
     }
 
     let adc_config = LpadcConfig {

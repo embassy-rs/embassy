@@ -2,9 +2,10 @@
 #![no_main]
 
 use embassy_executor::Spawner;
+use embassy_mcxa as hal;
+use hal::lpuart::{Config, Lpuart};
 use hal::rtc::{RtcDateTime, RtcInterruptEnable};
 use hal::InterruptExt;
-use {cortex_m, embassy_mcxa as hal};
 
 type MyRtc = hal::rtc::Rtc<'static, hal::rtc::Rtc0>;
 
@@ -24,7 +25,7 @@ async fn main(_spawner: Spawner) {
     let p = hal::init(hal::config::Config::default());
 
     // Create UART configuration
-    let config = hal::lpuart::Config {
+    let config = Config {
         baudrate_bps: 115_200,
         enable_tx: true,
         enable_rx: true,
@@ -33,9 +34,9 @@ async fn main(_spawner: Spawner) {
 
     // Create UART instance using LPUART2 with PIO2_2 as TX and PIO2_3 as RX
     unsafe {
-        embassy_mcxa_examples::init_uart2(hal::pac());
+        embassy_mcxa_examples::init_uart2_pins(hal::pac());
     }
-    let mut uart = hal::lpuart::Lpuart::new_blocking(
+    let mut uart = Lpuart::new_blocking(
         p.LPUART2, // Peripheral
         p.PIO2_2,  // TX pin
         p.PIO2_3,  // RX pin

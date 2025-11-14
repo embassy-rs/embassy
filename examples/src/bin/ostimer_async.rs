@@ -3,8 +3,9 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::bind_interrupts;
-use embassy_mcxa_examples::init_uart2;
+use embassy_mcxa_examples::init_uart2_pins;
 use embassy_time::{Duration, Timer};
+use hal::lpuart::{Config, Lpuart};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Bind only OS_EVENT, and retain the symbol explicitly so it can’t be GC’ed.
@@ -21,7 +22,7 @@ async fn main(_spawner: Spawner) {
     let p = hal::init(hal::config::Config::default());
 
     // Create UART configuration
-    let config = hal::lpuart::Config {
+    let config = Config {
         baudrate_bps: 115_200,
         enable_tx: true,
         enable_rx: true,
@@ -30,9 +31,9 @@ async fn main(_spawner: Spawner) {
 
     // Create UART instance using LPUART2 with PIO2_2 as TX and PIO2_3 as RX
     unsafe {
-        init_uart2(hal::pac());
+        init_uart2_pins(hal::pac());
     }
-    let mut uart = hal::lpuart::Lpuart::new_blocking(
+    let mut uart = Lpuart::new_blocking(
         p.LPUART2, // Peripheral
         p.PIO2_2,  // TX pin
         p.PIO2_3,  // RX pin

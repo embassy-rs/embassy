@@ -8,7 +8,7 @@ use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::clocks::periph_helpers::OstimerClockSel;
 use embassy_mcxa::clocks::PoweredClock;
 use embassy_mcxa::lpuart::{Config, Lpuart};
-use embassy_mcxa_examples::init_uart2;
+use embassy_mcxa_examples::init_uart2_pins;
 use {cortex_m, defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Bind only OS_EVENT, and retain the symbol explicitly so it can't be GC'ed.
@@ -42,7 +42,7 @@ async fn main(_spawner: Spawner) {
 
     // Create UART instance using LPUART2 with PIO2_2 as TX and PIO2_3 as RX
     unsafe {
-        init_uart2(hal::pac());
+        init_uart2_pins(hal::pac());
     }
     let mut uart = Lpuart::new_blocking(
         p.LPUART2, // Peripheral

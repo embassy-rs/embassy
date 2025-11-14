@@ -4,7 +4,7 @@
 use embassy_executor::Spawner;
 use embassy_mcxa as hal;
 use embassy_mcxa::bind_interrupts;
-use embassy_mcxa_examples::init_led;
+use embassy_mcxa_examples::init_led_gpio_clocks;
 use embassy_time::{Duration, Timer};
 use hal::gpio::pins::PIO3_18;
 use hal::gpio::{Level, Output};
@@ -23,7 +23,7 @@ async fn main(_spawner: Spawner) {
     let _p = hal::init(hal::config::Config::default());
 
     unsafe {
-        init_led(hal::pac());
+        init_led_gpio_clocks(hal::pac());
     }
 
     // Initialize embassy-time global driver backed by OSTIMER0
