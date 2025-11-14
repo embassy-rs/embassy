@@ -12,7 +12,7 @@ pub use pac::adc::vals::{Ovsr, Ovss, Presc};
 #[allow(unused_imports)]
 use super::SealedAdcChannel;
 #[allow(unused_imports)]
-use super::{Adc, Avergaing, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt, blocking_delay_us};
+use super::{Adc, Averaging, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt, blocking_delay_us};
 use crate::adc::ConversionMode;
 use crate::{Peri, pac, peripherals, rcc};
 
