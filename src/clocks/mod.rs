@@ -141,16 +141,23 @@ impl SPConfHelper for UnimplementedConfig {
     }
 }
 
-pub mod gate {
-    use super::{periph_helpers::LpuartConfig, *};
+pub struct NoConfig;
+impl SPConfHelper for NoConfig {
+    fn post_enable_config(&self, _clocks: &Clocks) -> Result<u32, ClockError> {
+        Ok(0)
+    }
+}
 
-    impl_cc_gate!(PORT1, mrcc_glb_cc1, port1, UnimplementedConfig);
-    impl_cc_gate!(PORT2, mrcc_glb_cc1, port2, UnimplementedConfig);
-    impl_cc_gate!(PORT3, mrcc_glb_cc1, port3, UnimplementedConfig);
-    impl_cc_gate!(OSTIMER0, mrcc_glb_cc1, ostimer0, UnimplementedConfig);
+pub mod gate {
+    use super::{periph_helpers::{AdcConfig, LpuartConfig, OsTimerConfig}, *};
+
+    impl_cc_gate!(PORT1, mrcc_glb_cc1, port1, NoConfig);
+    impl_cc_gate!(PORT2, mrcc_glb_cc1, port2, NoConfig);
+    impl_cc_gate!(PORT3, mrcc_glb_cc1, port3, NoConfig);
+    impl_cc_gate!(OSTIMER0, mrcc_glb_cc1, ostimer0, OsTimerConfig);
     impl_cc_gate!(LPUART2, mrcc_glb_cc0, lpuart2, LpuartConfig);
-    impl_cc_gate!(GPIO3, mrcc_glb_cc2, gpio3, UnimplementedConfig);
-    impl_cc_gate!(ADC1, mrcc_glb_cc1, adc1, UnimplementedConfig);
+    impl_cc_gate!(GPIO3, mrcc_glb_cc2, gpio3, NoConfig);
+    impl_cc_gate!(ADC1, mrcc_glb_cc1, adc1, AdcConfig);
 }
 
 // /// Convenience helper enabling the PORT2 and LPUART2 gates required for the debug UART.
@@ -418,7 +425,6 @@ pub struct Clocks {
     pub fro_lf_div: Option<Clock>,
     //
     // End FRO12M stuff
-
     pub clk_16k_vsys: Option<Clock>,
     pub clk_16k_vdd_core: Option<Clock>,
     pub main_clk: Option<Clock>,
@@ -691,7 +697,10 @@ impl ClockOperator<'_> {
         // Lock the control register
         self.vbat0.frolcka().modify(|_, w| w.lock().set_bit());
 
-        let Fro16KConfig { vsys_domain_active, vdd_core_domain_active } = fro16k;
+        let Fro16KConfig {
+            vsys_domain_active,
+            vdd_core_domain_active,
+        } = fro16k;
 
         // Enable clock outputs to both VSYS and VDD_CORE domains
         // Bit 0: clk_16k0 to VSYS domain
@@ -713,9 +722,7 @@ impl ClockOperator<'_> {
                 power: PoweredClock::AlwaysEnabled,
             });
         }
-        self.vbat0.froclke().modify(|_r, w| {
-            unsafe { w.clke().bits(bits) }
-        });
+        self.vbat0.froclke().modify(|_r, w| unsafe { w.clke().bits(bits) });
 
         Ok(())
     }
@@ -783,6 +790,22 @@ impl Clocks {
         Ok(clk.frequency)
     }
 
+    pub fn ensure_fro_hf_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
+        let Some(clk) = self.fro_hf.as_ref() else {
+            return Err(ClockError::BadConfig {
+                clock: "fro_hf",
+                reason: "required but not active",
+            });
+        };
+        if !clk.power.meets_requirement_of(at_level) {
+            return Err(ClockError::BadConfig {
+                clock: "fro_hf",
+                reason: "not low power active",
+            });
+        }
+        Ok(clk.frequency)
+    }
+
     pub fn ensure_fro_hf_div_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         let Some(clk) = self.fro_hf_div.as_ref() else {
             return Err(ClockError::BadConfig {
@@ -803,8 +826,28 @@ impl Clocks {
         Err(ClockError::NotImplemented { clock: "clk_in" })
     }
 
-    pub fn ensure_clk_16k_active(&self, _at_level: &PoweredClock) -> Result<u32, ClockError> {
-        Err(ClockError::NotImplemented { clock: "clk_16k" })
+    pub fn ensure_clk_16k_vsys_active(&self, _at_level: &PoweredClock) -> Result<u32, ClockError> {
+        // NOTE: clk_16k is always active in low power mode
+        Ok(self
+            .clk_16k_vsys
+            .as_ref()
+            .ok_or(ClockError::BadConfig {
+                clock: "clk_16k_vsys",
+                reason: "required but not active",
+            })?
+            .frequency)
+    }
+
+    pub fn ensure_clk_16k_vdd_core_active(&self, _at_level: &PoweredClock) -> Result<u32, ClockError> {
+        // NOTE: clk_16k is always active in low power mode
+        Ok(self
+            .clk_16k_vdd_core
+            .as_ref()
+            .ok_or(ClockError::BadConfig {
+                clock: "clk_16k_vdd_core",
+                reason: "required but not active",
+            })?
+            .frequency)
     }
 
     pub fn ensure_clk_1m_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {

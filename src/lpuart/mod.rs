@@ -4,7 +4,7 @@ use embassy_hal_internal::{Peri, PeripheralType};
 use paste::paste;
 
 use crate::clocks::periph_helpers::{LpuartClockSel, LpuartConfig};
-use crate::clocks::{enable_and_reset, ClockError, Div8, Gate, PoweredClock};
+use crate::clocks::{enable_and_reset, ClockError, periph_helpers::Div4, Gate, PoweredClock};
 use crate::pac::lpuart0::baud::Sbns as StopBits;
 use crate::pac::lpuart0::ctrl::{Idlecfg as IdleConfig, Ilt as IdleType, Pt as Parity, M as DataBits};
 use crate::pac::lpuart0::modir::{Txctsc as TxCtsConfig, Txctssrc as TxCtsSource};
@@ -19,8 +19,6 @@ pub mod buffered;
 
 // Stub implementation for LIB (Peripherals), GPIO, DMA and CLOCK until stable API
 // Pin and Clock initialization is currently done at the examples level.
-
-
 
 // --- START GPIO ---
 
@@ -491,7 +489,7 @@ pub struct Config {
     /// Clock source
     pub source: LpuartClockSel,
     /// Clock divisor
-    pub div: Div8,
+    pub div: Div4,
     /// Baud rate in bits per second
     pub baudrate_bps: u32,
     /// Parity configuration
@@ -547,7 +545,7 @@ impl Default for Config {
             swap_txd_rxd: false,
             power: PoweredClock::NormalEnabledDeepSleepDisabled,
             source: LpuartClockSel::FroLfDiv,
-            div: const { Div8::from_divisor(1).unwrap() },
+            div: const { Div4::from_divisor(1).unwrap() },
         }
     }
 }
@@ -640,9 +638,7 @@ impl<'a, M: Mode> Lpuart<'a, M> {
             div: config.div,
             instance: T::CLOCK_INSTANCE,
         };
-        let clock_freq = unsafe {
-            enable_and_reset::<T>(&conf).map_err(Error::ClockSetup)?
-        };
+        let clock_freq = unsafe { enable_and_reset::<T>(&conf).map_err(Error::ClockSetup)? };
 
         // Perform initialization sequence
         perform_software_reset(regs);
