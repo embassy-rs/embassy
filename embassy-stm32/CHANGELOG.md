@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased - ReleaseDate
 
+- change: stm32/eth: ethernet no longer has a hard dependency on station management, and station management can be used independently ([#4871](https://github.com/embassy-rs/embassy/pull/4871))
 - fix: flash erase on dual-bank STM32Gxxx
 - feat: Add support for STM32N657X0
 - feat: timer: Add 32-bit timer support to SimplePwm waveform_up method following waveform pattern ([#4717](https://github.com/embassy-rs/embassy/pull/4717))
