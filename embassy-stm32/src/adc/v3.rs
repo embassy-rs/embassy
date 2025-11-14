@@ -594,7 +594,7 @@ impl<'d> Adc<'d, peripherals::ADC2> {
             reg.set_op0(true);
         });
 
-        VddCore { }
+        VddCore {}
     }
 }
 
@@ -614,7 +614,7 @@ impl<'d> Adc<'d, peripherals::ADC1> {
         // to stabilize the internal voltage reference.
         blocking_delay_us(15);
 
-        VrefInt { }
+        VrefInt {}
     }
 
     pub fn enable_temperature(&self) -> Temperature {
@@ -634,6 +634,6 @@ impl<'d> Adc<'d, peripherals::ADC1> {
             }
         }
 
-        Temperature { }
+        Temperature {}
     }
 }
