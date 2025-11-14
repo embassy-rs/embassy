@@ -646,7 +646,7 @@ impl<'d> Adc<'d, peripherals::ADC1> {
 
                 Temperature {}
             } else if #[cfg(stm32wb)] {
-                todo();
+                todo!();
             } else if #[cfg(stm32l4)] {
                 pac::ADC123_COMMON.ccr().modify(|reg| {
                     reg.set_ch17sel(true);
