@@ -26,6 +26,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - added: add `gpiote::InputChannel::wait_for_high()` and `wait_for_low()` to wait for specific signal level
 - changed: `gpiote::InputChannel::wait()` now takes a mutable reference to `self` to avoid interference from concurrent calls
 - changed: `gpiote::InputChannel::wait()` now ensures events are seen as soon as the function is called, even if the future is not polled
+- bugfix: use correct flash size for nRF54l
 
 ## 0.8.0 - 2025-09-30
 
