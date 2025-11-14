@@ -1,9 +1,9 @@
-use crate::pac::rtc::vals::Wucksel;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, TICK_HZ};
 
 use super::{DateTimeError, Rtc, RtcError, bcd2_to_byte};
 use crate::interrupt::typelevel::Interrupt;
+use crate::pac::rtc::vals::Wucksel;
 use crate::peripherals::RTC;
 use crate::rtc::{RtcTimeProvider, SealedInstance};
 
