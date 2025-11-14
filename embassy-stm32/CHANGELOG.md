@@ -58,6 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - adc: reogranize and cleanup somewhat. require sample_time to be passed on conversion
 - fix: stm32/i2c v2 slave: prevent misaligned reads, error false positives, and incorrect counts of bytes read/written
 - feat: add flash support for c0 family ([#4874](https://github.com/embassy-rs/embassy/pull/4874))
+- fix: fixing channel numbers on vbat and vddcore for adc on adc
+- adc: adding disable to vbat
 
 ## 0.4.0 - 2025-08-26
 

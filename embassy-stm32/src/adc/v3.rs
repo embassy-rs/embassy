@@ -65,7 +65,7 @@ impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
 }
 #[cfg(any(adc_h5, adc_h7rs))]
 impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
-    const CHANNEL: u8 = 2;
+    const CHANNEL: u8 = 16;
 }
 #[cfg(adc_u0)]
 impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
@@ -82,7 +82,7 @@ cfg_if! {
         impl<T: Instance> super::AdcChannel<T> for VddCore {}
         impl<T: Instance> super::SealedAdcChannel<T> for VddCore {
             fn channel(&self) -> u8 {
-                6
+                17
             }
         }
     }
@@ -573,6 +573,24 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
 
         Vbat {}
+    }
+
+    pub fn disable_vbat(&self) {
+        cfg_if! {
+            if #[cfg(any(adc_g0, adc_u0))] {
+                T::regs().ccr().modify(|reg| {
+                    reg.set_vbaten(false);
+                });
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
+                T::common_regs().ccr().modify(|reg| {
+                    reg.set_vbaten(false);
+                });
+            } else {
+                T::common_regs().ccr().modify(|reg| {
+                    reg.set_ch18sel(false);
+                });
+            }
+        }
     }
 
     /*
