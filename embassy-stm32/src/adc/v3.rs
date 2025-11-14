@@ -174,38 +174,31 @@ impl<T: Instance> super::SealedAnyInstance for T {
     }
 
     fn start() {
-        #[cfg(any(adc_v3, adc_g0, adc_u0))]
-        {
-            // Start adc conversion
-            T::regs().cr().modify(|reg| {
-                reg.set_adstart(true);
-            });
-        }
+        T::regs().cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
     }
 
     fn stop() {
-        #[cfg(any(adc_v3, adc_g0, adc_u0))]
-        {
-            // Ensure conversions are finished.
-            if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
-                T::regs().cr().modify(|reg| {
-                    reg.set_adstp(true);
-                });
-                while T::regs().cr().read().adstart() {}
-            }
-
-            // Reset configuration.
-            #[cfg(not(any(adc_g0, adc_u0)))]
-            T::regs().cfgr().modify(|reg| {
-                reg.set_cont(false);
-                reg.set_dmaen(false);
+        // Ensure conversions are finished.
+        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
+            T::regs().cr().modify(|reg| {
+                reg.set_adstp(true);
             });
-            #[cfg(any(adc_g0, adc_u0))]
-            T::regs().cfgr1().modify(|reg| {
-                reg.set_cont(false);
-                reg.set_dmaen(false);
-            });
+            while T::regs().cr().read().adstart() {}
         }
+
+        // Reset configuration.
+        #[cfg(not(any(adc_g0, adc_u0)))]
+        T::regs().cfgr().modify(|reg| {
+            reg.set_cont(false);
+            reg.set_dmaen(false);
+        });
+        #[cfg(any(adc_g0, adc_u0))]
+        T::regs().cfgr1().modify(|reg| {
+            reg.set_cont(false);
+            reg.set_dmaen(false);
+        });
     }
 
     /// Perform a single conversion.

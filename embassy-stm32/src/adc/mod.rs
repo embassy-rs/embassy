@@ -111,10 +111,7 @@ pub(self) trait SealedAnyInstance: BasicAnyInstance {
     fn stop();
     fn convert() -> u16;
     fn configure_dma(conversion_mode: ConversionMode);
-    #[cfg(not(adc_c0))]
     fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
-    #[cfg(adc_c0)]
-    fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>, blocking: bool);
     #[allow(dead_code)]
     fn dr() -> *mut u16;
 }
@@ -197,13 +194,7 @@ impl<'d, T: AnyInstance> Adc<'d, T> {
 
         #[cfg(not(adc_v4))]
         T::enable();
-        #[cfg(not(adc_c0))]
         T::configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
-        #[cfg(adc_c0)]
-        T::configure_sequence(
-            [((channel.channel(), channel.is_differential()), sample_time)].into_iter(),
-            true,
-        );
 
         T::convert()
     }
@@ -262,15 +253,8 @@ impl<'d, T: AnyInstance> Adc<'d, T> {
         T::stop();
         T::enable();
 
-        #[cfg(not(adc_c0))]
         T::configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
-        );
-
-        #[cfg(adc_c0)]
-        T::configure_sequence(
-            sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
-            false,
         );
 
         T::configure_dma(ConversionMode::Singular);
