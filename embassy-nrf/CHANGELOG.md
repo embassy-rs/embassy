@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - bugfix: Do not write to UICR from non-secure code on nrf53
 - bugfix: Add delay to uart init anomaly fix
 - changed: `BufferedUarte::read_ready` now uses the same definition for 'empty' so following read calls will not block when true is returned
+- added: add `gpiote::InputChannel::wait_for_high()` and `wait_for_low()` to wait for specific signal level
+- changed: `gpiote::InputChannel::wait()` now takes a mutable reference to `self` to avoid interference from concurrent calls
+- changed: `gpiote::InputChannel::wait()` now ensures events are seen as soon as the function is called, even if the future is not polled
 
 ## 0.8.0 - 2025-09-30
 
