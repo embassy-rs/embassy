@@ -587,7 +587,7 @@ impl<'d> Adc<'d, peripherals::ADC2> {
             } else {
                 pac::ADC12_COMMON.ccr().modify(|reg| {
                     reg.set_ch18sel(false);
-                });                
+                });
             }
         }
     }
