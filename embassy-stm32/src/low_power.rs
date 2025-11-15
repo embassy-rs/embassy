@@ -228,10 +228,13 @@ impl Executor {
 
     fn stop_mode(_cs: CriticalSection) -> Option<StopMode> {
         if unsafe { crate::rcc::REFCOUNT_STOP2 == 0 && crate::rcc::REFCOUNT_STOP1 == 0 } {
+            trace!("low power: stop 2");
             Some(StopMode::Stop2)
         } else if unsafe { crate::rcc::REFCOUNT_STOP1 == 0 } {
+            trace!("low power: stop 1");
             Some(StopMode::Stop1)
         } else {
+            trace!("low power: not ready to stop");
             None
         }
     }
@@ -258,27 +261,18 @@ impl Executor {
 
         compiler_fence(Ordering::SeqCst);
 
-        let stop_mode = critical_section::with(|cs| Self::stop_mode(cs));
+        critical_section::with(|cs| {
+            let stop_mode = Self::stop_mode(cs)?;
+            let _ = get_driver().pause_time(cs).ok()?;
 
-        if stop_mode.is_none() {
-            trace!("low power: not ready to stop");
-            return;
-        }
+            Some(stop_mode)
+        })
+        .map(|stop_mode| {
+            self.configure_stop(stop_mode);
 
-        if get_driver().pause_time().is_err() {
-            trace!("low power: failed to pause time");
-            return;
-        }
-
-        let stop_mode = stop_mode.unwrap();
-        match stop_mode {
-            StopMode::Stop1 => trace!("low power: stop 1"),
-            StopMode::Stop2 => trace!("low power: stop 2"),
-        }
-        self.configure_stop(stop_mode);
-
-        #[cfg(not(feature = "low-power-debug-with-sleep"))]
-        self.scb.set_sleepdeep();
+            #[cfg(not(feature = "low-power-debug-with-sleep"))]
+            self.scb.set_sleepdeep();
+        });
     }
 
     /// Run the executor.
