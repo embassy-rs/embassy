@@ -58,7 +58,7 @@ fn from_pclk2(freq: Hertz) -> Adcpre {
     // Datasheet for both F4 and F7 specifies min frequency 0.6 MHz, typ freq. 30 MHz and max 36 MHz.
     #[cfg(not(stm32f2))]
     const MAX_FREQUENCY: Hertz = Hertz(36_000_000);
-    let raw_div = freq.0 / MAX_FREQUENCY.0;
+    let raw_div = rcc::raw_prescaler(freq.0, MAX_FREQUENCY.0);
     match raw_div {
         0..=1 => Adcpre::DIV2,
         2..=3 => Adcpre::DIV4,

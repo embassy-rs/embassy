@@ -77,7 +77,7 @@ pub const fn resolution_to_max_count(res: Resolution) -> u32 {
 }
 
 fn from_ker_ck(frequency: Hertz) -> Presc {
-    let raw_prescaler = frequency.0 / MAX_ADC_CLK_FREQ.0;
+    let raw_prescaler = rcc::raw_prescaler(frequency.0, MAX_ADC_CLK_FREQ.0);
     match raw_prescaler {
         0 => Presc::DIV1,
         1 => Presc::DIV2,

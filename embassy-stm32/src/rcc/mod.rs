@@ -413,3 +413,33 @@ pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
         }
     }
 }
+
+/// Calculate intermediate prescaler number used to calculate peripheral prescalers
+///
+/// This function is intended to calculate a number indicating a minimum division
+/// necessary to result in a frequency lower than the provided `freq_max`.
+///
+/// The returned value indicates the `val + 1` divider is necessary to result in
+/// the output frequency that is below the maximum provided.
+///
+/// For example:
+/// 0 = divider of 1 => no division necessary as the input frequency is below max
+/// 1 = divider of 2 => division by 2 necessary
+/// ...
+///
+/// The provided max frequency is inclusive. So if `freq_in == freq_max` the result
+/// will be 0, indicating that no division is necessary. To accomplish that we subtract
+/// 1 from the input frequency so that the integer rounding plays in our favor.
+///
+/// For example:
+/// Let the input frequency be 110 and the max frequency be 55.
+/// If we naiively do `110/55 = 2` the renult will indicate that we need a divider by 3
+/// which in reality will be rounded up to 4 as usually a 3 division is not available.
+/// In either case the resulting frequency will be either 36 or 27 which is lower than
+/// what we would want. The result should be 1.
+/// If we do the following instead `109/55 = 1` indicating that we need a divide by 2
+/// which will result in the correct 55.
+#[allow(unused)]
+pub(crate) fn raw_prescaler(freq_in: u32, freq_max: u32) -> u32 {
+    freq_in.saturating_sub(1) / freq_max
+}

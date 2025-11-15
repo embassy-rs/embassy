@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: stm32/usart: add `eager_reads` option to control if buffered readers return as soon as possible or after more data is available ([#4668](https://github.com/embassy-rs/embassy/pull/4668))
 - feat: stm32/usart: add `de_assertion_time` and `de_deassertion_time` config options
 - change: stm32/uart: BufferedUartRx now returns all available bytes from the internal buffer
+- fix: stm32/adc: Calculate the ADC prescaler in a way that it allows for the max frequency to be reached
 - fix: Prevent a HardFault crash on STM32H5 devices by changing `uid()` to return `[u8; 12]` by value instead of a reference. (Fixes #2696)
 - change: timer: added output compare values
 - feat: timer: add ability to set master mode
