@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - fix: Avoid generating timer update events when updating the frequency ([#4890](https://github.com/embassy-rs/embassy/pull/4890))
+- chore: cleanup low-power add time
+- fix: Allow setting SAI peripheral `frame_length` to `256`
 - fix: flash erase on dual-bank STM32Gxxx
 - feat: Add support for STM32N657X0
 - feat: timer: Add 32-bit timer support to SimplePwm waveform_up method following waveform pattern ([#4717](https://github.com/embassy-rs/embassy/pull/4717))

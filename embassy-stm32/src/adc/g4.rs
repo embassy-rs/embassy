@@ -1,14 +1,12 @@
 #[cfg(stm32g4)]
 use pac::adc::regs::Difsel as DifselReg;
 #[allow(unused)]
+#[cfg(stm32g4)]
+pub use pac::adc::vals::{Adcaldif, Adstp, Difsel, Dmacfg, Dmaen, Exten, Rovsm, Trovs};
+#[allow(unused)]
 #[cfg(stm32h7)]
 use pac::adc::vals::{Adcaldif, Difsel, Exten};
-#[allow(unused)]
-#[cfg(stm32g4)]
-pub use pac::adc::vals::{Adcaldif, Difsel, Exten, Rovsm, Trovs};
-pub use pac::adccommon::vals::Presc;
-pub use stm32_metapac::adc::vals::{Adstp, Dmacfg, Dmaen};
-pub use stm32_metapac::adccommon::vals::Dual;
+pub use pac::adccommon::vals::{Dual, Presc};
 
 use super::{
     Adc, AnyAdcChannel, ConversionMode, Instance, RegularConversionMode, Resolution, RxDma, SampleTime,
@@ -176,6 +174,8 @@ impl<T: Instance> super::SealedAnyInstance for T {
     }
 
     fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+        T::regs().cr().modify(|w| w.set_aden(false));
+
         // Set sequence length
         T::regs().sqr1().modify(|w| {
             w.set_l(sequence.len() as u8 - 1);
@@ -183,36 +183,34 @@ impl<T: Instance> super::SealedAnyInstance for T {
 
         #[cfg(stm32g4)]
         let mut difsel = DifselReg::default();
+        let mut smpr = T::regs().smpr().read();
+        let mut smpr2 = T::regs().smpr2().read();
+        let mut sqr1 = T::regs().sqr1().read();
+        let mut sqr2 = T::regs().sqr2().read();
+        let mut sqr3 = T::regs().sqr3().read();
+        let mut sqr4 = T::regs().sqr4().read();
 
         // Configure channels and ranks
         for (_i, ((ch, is_differential), sample_time)) in sequence.enumerate() {
             let sample_time = sample_time.into();
             if ch <= 9 {
-                T::regs().smpr().modify(|reg| reg.set_smp(ch as _, sample_time));
+                smpr.set_smp(ch as _, sample_time);
             } else {
-                T::regs().smpr2().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
+                smpr2.set_smp((ch - 10) as _, sample_time);
             }
 
             match _i {
                 0..=3 => {
-                    T::regs().sqr1().modify(|w| {
-                        w.set_sq(_i, ch);
-                    });
+                    sqr1.set_sq(_i, ch);
                 }
                 4..=8 => {
-                    T::regs().sqr2().modify(|w| {
-                        w.set_sq(_i - 4, ch);
-                    });
+                    sqr2.set_sq(_i - 4, ch);
                 }
                 9..=13 => {
-                    T::regs().sqr3().modify(|w| {
-                        w.set_sq(_i - 9, ch);
-                    });
+                    sqr3.set_sq(_i - 9, ch);
                 }
                 14..=15 => {
-                    T::regs().sqr4().modify(|w| {
-                        w.set_sq(_i - 14, ch);
-                    });
+                    sqr4.set_sq(_i - 14, ch);
                 }
                 _ => unreachable!(),
             }
@@ -232,12 +230,14 @@ impl<T: Instance> super::SealedAnyInstance for T {
             }
         }
 
+        T::regs().smpr().write_value(smpr);
+        T::regs().smpr2().write_value(smpr2);
+        T::regs().sqr1().write_value(sqr1);
+        T::regs().sqr2().write_value(sqr2);
+        T::regs().sqr3().write_value(sqr3);
+        T::regs().sqr4().write_value(sqr4);
         #[cfg(stm32g4)]
-        {
-            T::regs().cr().modify(|w| w.set_aden(false));
-            T::regs().difsel().write_value(difsel);
-            T::enable();
-        }
+        T::regs().difsel().write_value(difsel);
     }
 }
 
