@@ -222,6 +222,54 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     pub async fn waveform_up(&mut self, dma: Peri<'_, impl super::UpDma<T>>, channel: Channel, duty: &[u16]) {
         self.inner.waveform_up(dma, channel, duty).await
     }
+
+    /// Generate a multichannel sequence of PWM waveforms using DMA triggered by timer update events.
+    ///
+    /// This method utilizes the timer's DMA burst transfer capability to update multiple CCRx registers
+    /// in sequence on each update event (UEV). The data is written via the DMAR register using the
+    /// DMA base address (DBA) and burst length (DBL) configured in the DCR register.
+    ///
+    /// The `duty` buffer must be structured as a flattened 2D array in row-major order, where each row
+    /// represents a single update event and each column corresponds to a specific timer channel (starting
+    /// from `starting_channel` up to and including `ending_channel`).
+    ///
+    /// For example, if using channels 1 through 4, a buffer of 4 update steps might look like:
+    ///
+    /// ```rust,ignore
+    /// let dma_buf: [u16; 16] = [
+    ///     ch1_duty_1, ch2_duty_1, ch3_duty_1, ch4_duty_1, // update 1
+    ///     ch1_duty_2, ch2_duty_2, ch3_duty_2, ch4_duty_2, // update 2
+    ///     ch1_duty_3, ch2_duty_3, ch3_duty_3, ch4_duty_3, // update 3
+    ///     ch1_duty_4, ch2_duty_4, ch3_duty_4, ch4_duty_4, // update 4
+    /// ];
+    /// ```
+    ///
+    /// Each group of `N` values (where `N` is number of channels) is transferred on one update event,
+    /// updating the duty cycles of all selected channels simultaneously.
+    ///
+    /// Note:
+    /// You will need to provide corresponding `TIMx_UP` DMA channel to use this method.
+    /// Also be aware that embassy timers use one of timers internally. It is possible to
+    /// switch this timer by using `time-driver-timX` feature.
+    ///
+    #[inline(always)]
+    pub async fn waveform_up_multi_channel(
+        &mut self,
+        dma: Peri<'_, impl super::UpDma<T>>,
+        starting_channel: Channel,
+        ending_channel: Channel,
+        duty: &[u16],
+    ) {
+        self.inner
+            .waveform_up_multi_channel(dma, starting_channel, ending_channel, duty)
+            .await;
+    }
+
+    /// Generate a sequence of PWM waveform
+    #[inline(always)]
+    pub async fn waveform<C: TimerChannel>(&mut self, dma: Peri<'_, impl super::Dma<T, C>>, duty: &[u16]) {
+        self.inner.waveform(dma, duty).await;
+    }
 }
 
 impl<'d, T: AdvancedInstance4Channel> embedded_hal_02::Pwm for ComplementaryPwm<'d, T> {
