@@ -285,16 +285,18 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
 
     /// Set PWM frequency.
     ///
-    /// Note: when you call this, the max duty value changes, so you will have to
-    /// call `set_duty` on all channels with the duty calculated based on the new max duty.
-    pub fn set_frequency(&mut self, freq: Hertz) {
+    /// Returns the applied ARR value which can be used to calculate CCR values.
+    ///
+    /// Note: that the frequency will not be applied in the timer until an update event
+    /// occurs. Reading the `max_duty` before the update event will return the old value
+    pub fn set_frequency(&mut self, freq: Hertz) -> u32 {
         // TODO: prevent ARR = u16::MAX?
         let multiplier = if self.inner.get_counting_mode().is_center_aligned() {
             2u8
         } else {
             1u8
         };
-        self.inner.set_frequency_internal(freq * multiplier, 16);
+        self.inner.set_frequency_internal(freq * multiplier, 16)
     }
 
     /// Get max duty value.
