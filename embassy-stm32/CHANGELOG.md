@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - fix: Allow setting SAI peripheral `frame_length` to `256`
+- fix: flash erase on dual-bank STM32Gxxx
+- feat: Add support for STM32N657X0
+- feat: timer: Add 32-bit timer support to SimplePwm waveform_up method following waveform pattern ([#4717](https://github.com/embassy-rs/embassy/pull/4717))
 - feat: Add support for injected ADC measurements for g4 ([#4840](https://github.com/embassy-rs/embassy/pull/4840))
 - feat: Implement into_ring_buffered for g4 ([#4840](https://github.com/embassy-rs/embassy/pull/4840))
 - feat: Add support for 13-bit address and 16-bit data SDRAM chips
@@ -42,7 +45,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix: sdmmc: don't wait for DBCKEND flag on sdmmc_v2 devices as it never fires (Fixes #4723)
 - fix: usart: fix race condition in ringbuffered usart
 - feat: Add backup_sram::init() for H5 devices to access BKPSRAM
-- feat: Add I2C MultiMaster (Slave) support for I2C v1
+- feat: stm32/i2c v1: Add I2C MultiMaster (Slave) support
+- feat: stm32/i2c v2: Add transaction() and blocking_transaction() methods with contract-compliant operation merging
 - feat: stm32/fdcan: add ability to control automatic recovery from bus off ([#4821](https://github.com/embassy-rs/embassy/pull/4821))
 - low-power: update rtc api to allow reconfig
 - adc: consolidate ringbuffer
@@ -52,6 +56,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: stm32/dsi support zero parameter commands in `write_cmd` ([#4847](https://github.com/embassy-rs/embassy/pull/4847))
 - feat: stm32/spi: added support for slave mode ([#4388](https://github.com/embassy-rs/embassy/pull/4388))
 - chore: Updated stm32-metapac and stm32-data dependencies
+- adc: reogranize and cleanup somewhat. require sample_time to be passed on conversion
+- fix: stm32/i2c v2 slave: prevent misaligned reads, error false positives, and incorrect counts of bytes read/written
+- feat: add flash support for c0 family ([#4874](https://github.com/embassy-rs/embassy/pull/4874))
+- fix: fixing channel numbers on vbat and vddcore for adc on adc
+- adc: adding disable to vbat
 
 ## 0.4.0 - 2025-08-26
 

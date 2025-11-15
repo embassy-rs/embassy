@@ -8,7 +8,7 @@ use core::task::{Context, Poll};
 use embassy_hal_internal::{PeripheralType, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::gpio::{AnyPin, Input, Level, Pin as GpioPin, Pull};
+use crate::gpio::{AnyPin, Input, Level, Pin as GpioPin, PinNumber, Pull};
 use crate::pac::EXTI;
 use crate::pac::exti::regs::Lines;
 use crate::{Peri, interrupt, pac, peripherals};
@@ -31,11 +31,11 @@ fn cpu_regs() -> pac::exti::Exti {
     EXTI
 }
 
-#[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, gpio_v1, exti_u5, exti_h5, exti_h50)))]
+#[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, gpio_v1, exti_u5, exti_h5, exti_h50, exti_n6)))]
 fn exticr_regs() -> pac::syscfg::Syscfg {
     pac::SYSCFG
 }
-#[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50))]
+#[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6))]
 fn exticr_regs() -> pac::exti::Exti {
     EXTI
 }
@@ -45,9 +45,9 @@ fn exticr_regs() -> pac::afio::Afio {
 }
 
 unsafe fn on_irq() {
-    #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50)))]
+    #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6)))]
     let bits = EXTI.pr(0).read().0;
-    #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50))]
+    #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6))]
     let bits = EXTI.rpr(0).read().0 | EXTI.fpr(0).read().0;
 
     // We don't handle or change any EXTI lines above 16.
@@ -62,9 +62,9 @@ unsafe fn on_irq() {
     }
 
     // Clear pending
-    #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50)))]
+    #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6)))]
     EXTI.pr(0).write_value(Lines(bits));
-    #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50))]
+    #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6))]
     {
         EXTI.rpr(0).write_value(Lines(bits));
         EXTI.fpr(0).write_value(Lines(bits));
@@ -226,12 +226,12 @@ impl<'d> embedded_hal_async::digital::Wait for ExtiInput<'d> {
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 struct ExtiInputFuture<'a> {
-    pin: u8,
+    pin: PinNumber,
     phantom: PhantomData<&'a mut AnyPin>,
 }
 
 impl<'a> ExtiInputFuture<'a> {
-    fn new(pin: u8, port: u8, rising: bool, falling: bool) -> Self {
+    fn new(pin: PinNumber, port: PinNumber, rising: bool, falling: bool) -> Self {
         critical_section::with(|_| {
             let pin = pin as usize;
             exticr_regs().exticr(pin / 4).modify(|w| w.set_exti(pin % 4, port));
@@ -239,9 +239,9 @@ impl<'a> ExtiInputFuture<'a> {
             EXTI.ftsr(0).modify(|w| w.set_line(pin, falling));
 
             // clear pending bit
-            #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50)))]
+            #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6)))]
             EXTI.pr(0).write(|w| w.set_line(pin, true));
-            #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50))]
+            #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6))]
             {
                 EXTI.rpr(0).write(|w| w.set_line(pin, true));
                 EXTI.fpr(0).write(|w| w.set_line(pin, true));
@@ -334,20 +334,20 @@ trait SealedChannel {}
 #[allow(private_bounds)]
 pub trait Channel: PeripheralType + SealedChannel + Sized {
     /// Get the EXTI channel number.
-    fn number(&self) -> u8;
+    fn number(&self) -> PinNumber;
 }
 
 /// Type-erased EXTI channel.
 ///
 /// This represents ownership over any EXTI channel, known at runtime.
 pub struct AnyChannel {
-    number: u8,
+    number: PinNumber,
 }
 
 impl_peripheral!(AnyChannel);
 impl SealedChannel for AnyChannel {}
 impl Channel for AnyChannel {
-    fn number(&self) -> u8 {
+    fn number(&self) -> PinNumber {
         self.number
     }
 }
@@ -356,7 +356,7 @@ macro_rules! impl_exti {
     ($type:ident, $number:expr) => {
         impl SealedChannel for peripherals::$type {}
         impl Channel for peripherals::$type {
-            fn number(&self) -> u8 {
+            fn number(&self) -> PinNumber {
                 $number
             }
         }
@@ -364,7 +364,7 @@ macro_rules! impl_exti {
         impl From<peripherals::$type> for AnyChannel {
             fn from(val: peripherals::$type) -> Self {
                 Self {
-                    number: val.number() as u8,
+                    number: val.number() as PinNumber,
                 }
             }
         }

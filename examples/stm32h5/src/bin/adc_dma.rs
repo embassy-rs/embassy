@@ -6,7 +6,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::adc::{self, Adc, AdcChannel, RxDma, SampleTime};
 use embassy_stm32::peripherals::{ADC1, ADC2, GPDMA1_CH0, GPDMA1_CH1, PA0, PA1, PA2, PA3};
 use embassy_stm32::{Config, Peri};
-use embassy_time::Instant;
+use embassy_time::{Duration, Instant, Ticker};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -76,6 +76,9 @@ async fn adc_task<'a, T: adc::Instance>(
     let mut pin1 = pin1.degrade_adc();
     let mut pin2 = pin2.degrade_adc();
 
+    info!("adc init");
+
+    let mut ticker = Ticker::every(Duration::from_millis(500));
     let mut tic = Instant::now();
     let mut buffer = [0u16; 512];
     loop {
@@ -84,11 +87,13 @@ async fn adc_task<'a, T: adc::Instance>(
         adc.read(
             dma.reborrow(),
             [(&mut pin1, SampleTime::CYCLES2_5), (&mut pin2, SampleTime::CYCLES2_5)].into_iter(),
-            &mut buffer,
+            &mut buffer[0..2],
         )
         .await;
         let toc = Instant::now();
         info!("\n adc1: {} dt = {}", buffer[0..16], (toc - tic).as_micros());
         tic = toc;
+
+        ticker.next().await;
     }
 }

@@ -5,17 +5,10 @@ use core::marker::PhantomData;
 use embassy_hal_internal::PeripheralType;
 
 //use crate::gpio::{AnyPin, SealedPin};
+use crate::block_for_us;
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::rcc::{self, RccPeripheral};
 use crate::{Peri, peripherals};
-
-/// Performs a busy-wait delay for a specified number of microseconds.
-pub fn blocking_delay_ms(ms: u32) {
-    #[cfg(feature = "time")]
-    embassy_time::block_for(embassy_time::Duration::from_millis(ms as u64));
-    #[cfg(not(feature = "time"))]
-    cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 / 1_000 * ms);
-}
 
 /// PacketTypes extracted from CubeMX
 #[repr(u8)]
@@ -334,7 +327,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             if T::regs().gpsr().read().cmdfe() {
                 return Ok(());
             }
-            blocking_delay_ms(1);
+            block_for_us(1_000);
         }
         Err(Error::FifoTimeout)
     }
@@ -345,7 +338,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             if !T::regs().gpsr().read().cmdff() {
                 return Ok(());
             }
-            blocking_delay_ms(1);
+            block_for_us(1_000);
         }
         Err(Error::FifoTimeout)
     }
@@ -356,7 +349,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             if !self.read_busy() {
                 return Ok(());
             }
-            blocking_delay_ms(1);
+            block_for_us(1_000);
         }
         Err(Error::ReadTimeout)
     }
@@ -367,7 +360,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             if !T::regs().gpsr().read().prdfe() {
                 return Ok(());
             }
-            blocking_delay_ms(1);
+            block_for_us(1_000);
         }
         Err(Error::FifoTimeout)
     }

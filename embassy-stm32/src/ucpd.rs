@@ -32,7 +32,7 @@ use crate::{Peri, interrupt};
 
 pub(crate) fn init(
     _cs: critical_section::CriticalSection,
-    #[cfg(peri_ucpd1)] ucpd1_db_enable: bool,
+    #[cfg(all(peri_ucpd1, not(stm32n6)))] ucpd1_db_enable: bool,
     #[cfg(peri_ucpd2)] ucpd2_db_enable: bool,
 ) {
     #[cfg(stm32g0x1)]
@@ -349,6 +349,7 @@ impl<'d, T: Instance> CcPhy<'d, T> {
         critical_section::with(|cs| {
             init(
                 cs,
+                #[cfg(not(stm32n6))]
                 false,
                 #[cfg(peri_ucpd2)]
                 false,

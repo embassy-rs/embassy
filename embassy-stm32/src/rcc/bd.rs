@@ -1,5 +1,7 @@
+#[cfg(not(stm32n6))]
 use core::sync::atomic::{Ordering, compiler_fence};
 
+#[cfg(not(stm32n6))]
 use crate::pac::common::{RW, Reg};
 #[cfg(backup_sram)]
 use crate::pac::pwr::vals::Retention;
@@ -54,7 +56,7 @@ impl From<LseDrive> for crate::pac::rcc::vals::Lsedrv {
     }
 }
 
-#[cfg(not(any(rtc_v2_l0, rtc_v2_l1, stm32c0)))]
+#[cfg(not(any(rtc_v2_l0, rtc_v2_l1, stm32c0, stm32n6)))]
 type Bdcr = crate::pac::rcc::regs::Bdcr;
 #[cfg(any(rtc_v2_l0, rtc_v2_l1))]
 type Bdcr = crate::pac::rcc::regs::Csr;
@@ -64,19 +66,22 @@ type Bdcr = crate::pac::rcc::regs::Csr1;
 #[cfg(any(stm32c0))]
 fn unlock() {}
 
-#[cfg(not(any(stm32c0)))]
+#[cfg(not(any(stm32c0, stm32n6)))]
 fn unlock() {
     #[cfg(any(stm32f0, stm32f1, stm32f2, stm32f3, stm32l0, stm32l1))]
     let cr = crate::pac::PWR.cr();
-    #[cfg(not(any(stm32f0, stm32f1, stm32f2, stm32f3, stm32l0, stm32l1, stm32u5, stm32h5, stm32wba)))]
+    #[cfg(not(any(
+        stm32f0, stm32f1, stm32f2, stm32f3, stm32l0, stm32l1, stm32u5, stm32h5, stm32wba, stm32n6
+    )))]
     let cr = crate::pac::PWR.cr1();
-    #[cfg(any(stm32u5, stm32h5, stm32wba))]
+    #[cfg(any(stm32u5, stm32h5, stm32wba, stm32n6))]
     let cr = crate::pac::PWR.dbpcr();
 
     cr.modify(|w| w.set_dbp(true));
     while !cr.read().dbp() {}
 }
 
+#[cfg(not(stm32n6))]
 fn bdcr() -> Reg<Bdcr, RW> {
     #[cfg(any(rtc_v2_l0, rtc_v2_l1))]
     return crate::pac::RCC.csr();
@@ -150,6 +155,7 @@ impl Default for LsConfig {
 }
 
 impl LsConfig {
+    #[cfg(not(stm32n6))]
     pub(crate) fn init(&self) -> Option<Hertz> {
         let rtc_clk = match self.rtc {
             RtcClockSource::LSI => {
@@ -185,13 +191,18 @@ impl LsConfig {
         if self.lsi {
             #[cfg(any(stm32u5, stm32h5, stm32wba))]
             let csr = crate::pac::RCC.bdcr();
-            #[cfg(not(any(stm32u5, stm32h5, stm32wba, stm32c0)))]
+            #[cfg(stm32n6)]
+            let csr = crate::pac::RCC.sr();
+            #[cfg(not(any(stm32u5, stm32h5, stm32wba, stm32c0, stm32n6)))]
             let csr = crate::pac::RCC.csr();
-            #[cfg(any(stm32c0))]
+            #[cfg(stm32c0)]
             let csr = crate::pac::RCC.csr2();
 
-            #[cfg(not(any(rcc_wb, rcc_wba)))]
+            #[cfg(not(any(rcc_wb, rcc_wba, rcc_n6)))]
             csr.modify(|w| w.set_lsion(true));
+
+            #[cfg(rcc_n6)]
+            crate::pac::RCC.cr().modify(|w| w.set_lsion(true));
 
             #[cfg(any(rcc_wb, rcc_wba))]
             csr.modify(|w| w.set_lsi1on(true));
@@ -222,24 +233,57 @@ impl LsConfig {
         // backup domain configuration (LSEON, RTCEN, RTCSEL) is kept across resets.
         // once set, changing it requires a backup domain reset.
         // first check if the configuration matches what we want.
+        // N6 has all the fields spread across multiple registers under RCC.
 
         // check if it's already enabled and in the source we want.
+        #[cfg(not(rcc_n6))]
         let reg = bdcr().read();
+        #[cfg(rcc_n6)]
+        let reg = crate::pac::RCC.cr().read();
+        #[cfg(rcc_n6)]
+        let apb4lenr = crate::pac::RCC.apb4lenr().read();
+        #[cfg(rcc_n6)]
+        let ccipr7 = crate::pac::RCC.ccipr7().read();
+        #[cfg(rcc_n6)]
+        let lsecfgr = crate::pac::RCC.lsecfgr().read();
+
         let mut ok = true;
-        ok &= reg.rtcsel() == self.rtc;
-        #[cfg(not(rcc_wba))]
+        #[cfg(not(rcc_n6))]
+        {
+            ok &= reg.rtcsel() == self.rtc;
+        }
+        #[cfg(rcc_n6)]
+        {
+            ok &= ccipr7.rtcsel() == self.rtc;
+        }
+        #[cfg(not(any(rcc_wba, rcc_n6)))]
         {
             ok &= reg.rtcen() == (self.rtc != RtcClockSource::DISABLE);
         }
+        #[cfg(rcc_n6)]
+        {
+            ok &= apb4lenr.rtcen() == (self.rtc != RtcClockSource::DISABLE);
+        }
         ok &= reg.lseon() == lse_en;
-        ok &= reg.lsebyp() == lse_byp;
+        #[cfg(not(rcc_n6))]
+        {
+            ok &= reg.lsebyp() == lse_byp;
+        }
+        #[cfg(rcc_n6)]
+        {
+            ok &= lsecfgr.lsebyp() == lse_byp;
+        }
         #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
         if let Some(lse_sysen) = lse_sysen {
             ok &= reg.lsesysen() == lse_sysen;
         }
-        #[cfg(not(any(rcc_f1, rcc_f1cl, rcc_f100, rcc_f2, rcc_f4, rcc_f410, rcc_l1)))]
+        #[cfg(not(any(rcc_f1, rcc_f1cl, rcc_f100, rcc_f2, rcc_f4, rcc_f410, rcc_l1, rcc_n6)))]
         if let Some(lse_drv) = lse_drv {
             ok &= reg.lsedrv() == lse_drv.into();
+        }
+        #[cfg(rcc_n6)]
+        if let Some(lse_drv) = lse_drv {
+            ok &= lsecfgr.lsedrv() == lse_drv.into();
         }
 
         // if configuration is OK, we're done.
@@ -249,7 +293,7 @@ impl LsConfig {
         }
 
         // If not OK, reset backup domain and configure it.
-        #[cfg(not(any(rcc_l0, rcc_l0_v2, rcc_l1, stm32h5, stm32h7rs, stm32c0)))]
+        #[cfg(not(any(rcc_l0, rcc_l0_v2, rcc_l1, stm32h5, stm32h7rs, stm32c0, stm32n6)))]
         {
             bdcr().modify(|w| w.set_bdrst(true));
             bdcr().modify(|w| w.set_bdrst(false));
@@ -262,7 +306,7 @@ impl LsConfig {
         // STM32H503CB/EB/KB/RB device errata - 2.2.8 SRAM2 unduly erased upon a backup domain reset
         // STM32H562xx/563xx/573xx device errata - 2.2.14 SRAM2 is erased when the backup domain is reset
         //#[cfg(any(stm32h5, stm32h7rs))]
-        #[cfg(any(stm32h7rs))]
+        #[cfg(any(stm32h7rs, stm32n6))]
         {
             bdcr().modify(|w| w.set_vswrst(true));
             bdcr().modify(|w| w.set_vswrst(false));
@@ -274,16 +318,31 @@ impl LsConfig {
         }
 
         if lse_en {
-            bdcr().modify(|w| {
-                #[cfg(not(any(rcc_f1, rcc_f1cl, rcc_f100, rcc_f2, rcc_f4, rcc_f410, rcc_l1)))]
-                if let Some(lse_drv) = lse_drv {
-                    w.set_lsedrv(lse_drv.into());
-                }
-                w.set_lsebyp(lse_byp);
-                w.set_lseon(true);
-            });
+            #[cfg(not(rcc_n6))]
+            {
+                bdcr().modify(|w| {
+                    #[cfg(not(any(rcc_f1, rcc_f1cl, rcc_f100, rcc_f2, rcc_f4, rcc_f410, rcc_l1)))]
+                    if let Some(lse_drv) = lse_drv {
+                        w.set_lsedrv(lse_drv.into());
+                    }
+                    w.set_lsebyp(lse_byp);
+                    w.set_lseon(true);
+                });
 
-            while !bdcr().read().lserdy() {}
+                while !bdcr().read().lserdy() {}
+            }
+            #[cfg(rcc_n6)]
+            {
+                crate::pac::RCC.lsecfgr().modify(|w| {
+                    if let Some(lse_drv) = lse_drv {
+                        w.set_lsedrv(lse_drv.into());
+                    }
+                    w.set_lsebyp(lse_byp);
+                });
+                crate::pac::RCC.cr().modify(|w| w.set_lseon(true));
+
+                while !crate::pac::RCC.sr().read().lserdy() {}
+            }
 
             #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
             if let Some(lse_sysen) = lse_sysen {
@@ -298,6 +357,7 @@ impl LsConfig {
         }
 
         if self.rtc != RtcClockSource::DISABLE {
+            #[cfg(not(rcc_n6))]
             bdcr().modify(|w| {
                 #[cfg(any(rtc_v2_h7, rtc_v2_l4, rtc_v2_wb, rtc_v3_base, rtc_v3_u5))]
                 assert!(!w.lsecsson(), "RTC is not compatible with LSE CSS, yet.");
@@ -306,6 +366,12 @@ impl LsConfig {
                 w.set_rtcen(true);
                 w.set_rtcsel(self.rtc);
             });
+
+            #[cfg(rcc_n6)]
+            {
+                crate::pac::RCC.ccipr7().modify(|w| w.set_rtcsel(self.rtc));
+                crate::pac::RCC.apb4lenr().modify(|w| w.set_rtcen(true))
+            }
         }
 
         trace!("BDCR configured: {:08x}", bdcr().read().0);
