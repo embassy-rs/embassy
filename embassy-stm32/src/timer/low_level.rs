@@ -505,6 +505,18 @@ impl<'d, T: GeneralInstance1Channel> Timer<'d, T> {
             }
         }
     }
+
+    pub fn set_prescaler(&mut self, psc: u16) {
+        self.regs_1ch().psc().write_value(psc);
+    }
+
+    /// Set output compare mode.
+    pub fn set_output_compare_mode(&self, channel: Channel, mode: OutputCompareMode) {
+        let raw_channel: usize = channel.index();
+        self.regs_1ch()
+            .ccmr_output(raw_channel / 2)
+            .modify(|w| w.set_ocm(raw_channel % 2, mode.into()));
+    }
 }
 
 impl<'d, T: GeneralInstance2Channel> Timer<'d, T> {
@@ -609,14 +621,6 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
                 r.set_ccp(channel.index(), true);
             }
         });
-    }
-
-    /// Set output compare mode.
-    pub fn set_output_compare_mode(&self, channel: Channel, mode: OutputCompareMode) {
-        let raw_channel: usize = channel.index();
-        self.regs_gp16()
-            .ccmr_output(raw_channel / 2)
-            .modify(|w| w.set_ocm(raw_channel % 2, mode.into()));
     }
 
     /// Set output polarity.
