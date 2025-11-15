@@ -198,7 +198,6 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         this.inner.set_counting_mode(counting_mode);
         this.set_frequency(freq);
         this.inner.enable_outputs(); // Required for advanced timers, see GeneralInstance4Channel for details
-        this.inner.start();
 
         [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
             .iter()
@@ -207,6 +206,11 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
 
                 this.inner.set_output_compare_preload(channel, true);
             });
+        this.inner.set_autoreload_preload(true);
+
+        // Generate update event so pre-load registers are written to the shadow registers
+        this.inner.generate_update_event();
+        this.inner.start();
 
         this
     }
@@ -285,8 +289,8 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
 
     /// Set PWM frequency.
     ///
-    /// Note: when you call this, the max duty value changes, so you will have to
-    /// call `set_duty` on all channels with the duty calculated based on the new max duty.
+    /// Note: that the frequency will not be applied in the timer until an update event
+    /// occurs.
     pub fn set_frequency(&mut self, freq: Hertz) {
         // TODO: prevent ARR = u16::MAX?
         let multiplier = if self.inner.get_counting_mode().is_center_aligned() {

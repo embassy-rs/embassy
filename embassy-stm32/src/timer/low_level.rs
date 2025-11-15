@@ -272,6 +272,17 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         self.regs_core().cr1().modify(|r| r.set_cen(true));
     }
 
+    /// Generate timer update event from software.
+    ///
+    /// Set URS to avoid generating interrupt or DMA request. This update event is only
+    /// used to load value from pre-load registers. If called when the timer is running,
+    /// it may disrupt the output waveform.
+    pub fn generate_update_event(&self) {
+        self.regs_core().cr1().modify(|r| r.set_urs(vals::Urs::COUNTER_ONLY));
+        self.regs_core().egr().write(|r| r.set_ug(true));
+        self.regs_core().cr1().modify(|r| r.set_urs(vals::Urs::ANY_EVENT));
+    }
+
     /// Stop the timer.
     pub fn stop(&self) {
         self.regs_core().cr1().modify(|r| r.set_cen(false));
@@ -322,10 +333,6 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
                 let regs = self.regs_core();
                 regs.psc().write_value(psc);
                 regs.arr().write(|r| r.set_arr(arr));
-
-                regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTER_ONLY));
-                regs.egr().write(|r| r.set_ug(true));
-                regs.cr1().modify(|r| r.set_urs(vals::Urs::ANY_EVENT));
             }
             #[cfg(not(stm32l0))]
             TimerBits::Bits32 => {
@@ -335,10 +342,6 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
                 let regs = self.regs_gp32_unchecked();
                 regs.psc().write_value(psc);
                 regs.arr().write_value(arr);
-
-                regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTER_ONLY));
-                regs.egr().write(|r| r.set_ug(true));
-                regs.cr1().modify(|r| r.set_urs(vals::Urs::ANY_EVENT));
             }
         }
     }
