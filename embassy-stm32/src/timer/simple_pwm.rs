@@ -309,7 +309,9 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// Generate a sequence of PWM waveform
     ///
     /// Note:
-    /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
+    /// You will need to provide corresponding `TIMx_UP` DMA channel to use this method.
+    /// Also be aware that embassy timers use one of timers internally. It is possible to
+    /// switch this timer by using `time-driver-timX` feature.
     pub async fn waveform_up(&mut self, dma: Peri<'_, impl super::UpDma<T>>, channel: Channel, duty: &[u16]) {
         #[allow(clippy::let_unit_value)] // eg. stm32f334
         let req = dma.request();
@@ -397,18 +399,23 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     ///
     /// For example, if using channels 1 through 4, a buffer of 4 update steps might look like:
     ///
+    /// ```rust,ignore
     /// let dma_buf: [u16; 16] = [
     ///     ch1_duty_1, ch2_duty_1, ch3_duty_1, ch4_duty_1, // update 1
     ///     ch1_duty_2, ch2_duty_2, ch3_duty_2, ch4_duty_2, // update 2
     ///     ch1_duty_3, ch2_duty_3, ch3_duty_3, ch4_duty_3, // update 3
     ///     ch1_duty_4, ch2_duty_4, ch3_duty_4, ch4_duty_4, // update 4
     /// ];
+    /// ```
     ///
-    /// Each group of N values (where N = number of channels) is transferred on one update event,
+    /// Each group of `N` values (where `N` is number of channels) is transferred on one update event,
     /// updating the duty cycles of all selected channels simultaneously.
     ///
     /// Note:
-    /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
+    /// You will need to provide corresponding `TIMx_UP` DMA channel to use this method.
+    /// Also be aware that embassy timers use one of timers internally. It is possible to
+    /// switch this timer by using `time-driver-timX` feature.
+    ///
     pub async fn waveform_up_multi_channel(
         &mut self,
         dma: Peri<'_, impl super::UpDma<T>>,
