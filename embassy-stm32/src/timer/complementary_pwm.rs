@@ -77,8 +77,6 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
 
         this.inner.set_counting_mode(counting_mode);
         this.set_frequency(freq);
-        this.inner.start();
-
         this.inner.enable_outputs();
 
         [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
@@ -88,6 +86,10 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
                 this.inner.set_output_compare_preload(channel, true);
             });
         this.inner.set_autoreload_preload(true);
+
+        // Generate update event so pre-load registers are written to the shadow registers
+        this.inner.generate_update_event();
+        this.inner.start();
 
         this
     }
@@ -160,17 +162,15 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
 
     /// Set PWM frequency.
     ///
-    /// Returns the applied ARR value which can be used to calculate CCR values.
-    ///
     /// Note: that the frequency will not be applied in the timer until an update event
-    /// occurs. Reading the `max_duty` before the update event will return the old value
-    pub fn set_frequency(&mut self, freq: Hertz) -> u32 {
+    /// occurs.
+    pub fn set_frequency(&mut self, freq: Hertz) {
         let multiplier = if self.inner.get_counting_mode().is_center_aligned() {
             2u8
         } else {
             1u8
         };
-        self.inner.set_frequency_internal(freq * multiplier, 16)
+        self.inner.set_frequency_internal(freq * multiplier, 16);
     }
 
     /// Get max duty value.
