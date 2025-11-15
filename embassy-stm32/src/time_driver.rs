@@ -380,13 +380,15 @@ impl RtcDriver {
     #[cfg(feature = "low-power")]
     /// Stop the wakeup alarm, if enabled, and add the appropriate offset
     fn stop_wakeup_alarm(&self, cs: CriticalSection) {
-        if let Some(offset) = self.rtc.borrow(cs).borrow_mut().as_mut().unwrap().stop_wakeup_alarm(cs) {
+        if !regs_gp16().cr1().read().cen()
+            && let Some(offset) = self.rtc.borrow(cs).borrow_mut().as_mut().unwrap().stop_wakeup_alarm(cs)
+        {
             self.add_time(offset, cs);
         }
     }
 
     /*
-        Low-power public functions: all create or require a critical section
+        Low-power public functions: all require a critical section
     */
     #[cfg(feature = "low-power")]
     pub(crate) fn set_min_stop_pause(&self, cs: CriticalSection, min_stop_pause: embassy_time::Duration) {
@@ -403,49 +405,36 @@ impl RtcDriver {
 
     #[cfg(feature = "low-power")]
     /// Pause the timer if ready; return err if not
-    pub(crate) fn pause_time(&self) -> Result<(), ()> {
-        critical_section::with(|cs| {
-            /*
-                If the wakeup timer is currently running, then we need to stop it and
-                add the elapsed time to the current time, as this will impact the result
-                of `time_until_next_alarm`.
-            */
-            self.stop_wakeup_alarm(cs);
+    pub(crate) fn pause_time(&self, cs: CriticalSection) -> Result<(), ()> {
+        self.stop_wakeup_alarm(cs);
 
-            let time_until_next_alarm = self.time_until_next_alarm(cs);
-            if time_until_next_alarm < self.min_stop_pause.borrow(cs).get() {
-                trace!(
-                    "time_until_next_alarm < self.min_stop_pause ({})",
-                    time_until_next_alarm
-                );
-                Err(())
-            } else {
-                self.rtc
-                    .borrow(cs)
-                    .borrow_mut()
-                    .as_mut()
-                    .unwrap()
-                    .start_wakeup_alarm(time_until_next_alarm, cs);
+        let time_until_next_alarm = self.time_until_next_alarm(cs);
+        if time_until_next_alarm < self.min_stop_pause.borrow(cs).get() {
+            trace!(
+                "time_until_next_alarm < self.min_stop_pause ({})",
+                time_until_next_alarm
+            );
+            Err(())
+        } else {
+            self.rtc
+                .borrow(cs)
+                .borrow_mut()
+                .as_mut()
+                .unwrap()
+                .start_wakeup_alarm(time_until_next_alarm, cs);
 
-                regs_gp16().cr1().modify(|w| w.set_cen(false));
-                // save the count for the timer as its lost in STOP2 for stm32wlex
-                #[cfg(stm32wlex)]
-                self.saved_count
-                    .store(regs_gp16().cnt().read().cnt() as u16, Ordering::SeqCst);
-                Ok(())
-            }
-        })
+            regs_gp16().cr1().modify(|w| w.set_cen(false));
+            // save the count for the timer as its lost in STOP2 for stm32wlex
+            #[cfg(stm32wlex)]
+            self.saved_count
+                .store(regs_gp16().cnt().read().cnt() as u16, Ordering::SeqCst);
+            Ok(())
+        }
     }
 
     #[cfg(feature = "low-power")]
     /// Resume the timer with the given offset
     pub(crate) fn resume_time(&self, cs: CriticalSection) {
-        if regs_gp16().cr1().read().cen() {
-            // Time isn't currently stopped
-
-            return;
-        }
-
         self.stop_wakeup_alarm(cs);
 
         regs_gp16().cr1().modify(|w| w.set_cen(true));
