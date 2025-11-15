@@ -1,9 +1,8 @@
 //! This example uses the RP Pico W board Wifi chip (cyw43).
-//! Connects to Wifi network and makes a web request to get the current time.
+//! Connects to Wifi network and makes a web request to httpbin.org.
 
 #![no_std]
 #![no_main]
-#![allow(async_fn_in_trait)]
 
 use core::str::from_utf8;
 
@@ -20,11 +19,14 @@ use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{DMA_CH0, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_time::{Duration, Timer};
-use reqwless::client::{HttpClient, TlsConfig, TlsVerify};
+use reqwless::client::HttpClient;
+// Uncomment these for TLS requests:
+// use reqwless::client::{HttpClient, TlsConfig, TlsVerify};
 use reqwless::request::Method;
 use serde::Deserialize;
+use serde_json_core::from_slice;
 use static_cell::StaticCell;
-use {defmt_rtt as _, panic_probe as _, serde_json_core};
+use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
@@ -119,64 +121,90 @@ async fn main(spawner: Spawner) {
     // And now we can use it!
 
     loop {
-        let mut rx_buffer = [0; 8192];
-        let mut tls_read_buffer = [0; 16640];
-        let mut tls_write_buffer = [0; 16640];
+        let mut rx_buffer = [0; 4096];
+        // Uncomment these for TLS requests:
+        // let mut tls_read_buffer = [0; 16640];
+        // let mut tls_write_buffer = [0; 16640];
 
-        let client_state = TcpClientState::<1, 1024, 1024>::new();
+        let client_state = TcpClientState::<1, 4096, 4096>::new();
         let tcp_client = TcpClient::new(stack, &client_state);
         let dns_client = DnsSocket::new(stack);
-        let tls_config = TlsConfig::new(seed, &mut tls_read_buffer, &mut tls_write_buffer, TlsVerify::None);
+        // Uncomment these for TLS requests:
+        // let tls_config = TlsConfig::new(seed, &mut tls_read_buffer, &mut tls_write_buffer, TlsVerify::None);
 
-        let mut http_client = HttpClient::new_with_tls(&tcp_client, &dns_client, tls_config);
-        let url = "https://worldtimeapi.org/api/timezone/Europe/Berlin";
-        // for non-TLS requests, use this instead:
-        // let mut http_client = HttpClient::new(&tcp_client, &dns_client);
-        // let url = "http://worldtimeapi.org/api/timezone/Europe/Berlin";
+        // Using non-TLS HTTP for this example
+        let mut http_client = HttpClient::new(&tcp_client, &dns_client);
+        let url = "http://httpbin.org/json";
+        // For TLS requests, use this instead:
+        // let mut http_client = HttpClient::new_with_tls(&tcp_client, &dns_client, tls_config);
+        // let url = "https://httpbin.org/json";
 
         info!("connecting to {}", &url);
 
-        let mut request = match http_client.request(Method::GET, &url).await {
+        let mut request = match http_client.request(Method::GET, url).await {
             Ok(req) => req,
             Err(e) => {
                 error!("Failed to make HTTP request: {:?}", e);
-                return; // handle the error
+                Timer::after(Duration::from_secs(5)).await;
+                continue;
             }
         };
 
         let response = match request.send(&mut rx_buffer).await {
             Ok(resp) => resp,
-            Err(_e) => {
-                error!("Failed to send HTTP request");
-                return; // handle the error;
+            Err(e) => {
+                error!("Failed to send HTTP request: {:?}", e);
+                Timer::after(Duration::from_secs(5)).await;
+                continue;
             }
         };
 
-        let body = match from_utf8(response.body().read_to_end().await.unwrap()) {
+        info!("Response status: {}", response.status.0);
+
+        let body_bytes = match response.body().read_to_end().await {
             Ok(b) => b,
             Err(_e) => {
                 error!("Failed to read response body");
-                return; // handle the error
+                Timer::after(Duration::from_secs(5)).await;
+                continue;
             }
         };
-        info!("Response body: {:?}", &body);
 
-        // parse the response body and update the RTC
+        let body = match from_utf8(body_bytes) {
+            Ok(b) => b,
+            Err(_e) => {
+                error!("Failed to parse response body as UTF-8");
+                Timer::after(Duration::from_secs(5)).await;
+                continue;
+            }
+        };
+        info!("Response body length: {} bytes", body.len());
+
+        // Parse the JSON response from httpbin.org/json
+        #[derive(Deserialize)]
+        struct SlideShow<'a> {
+            author: &'a str,
+            title: &'a str,
+        }
 
         #[derive(Deserialize)]
-        struct ApiResponse<'a> {
-            datetime: &'a str,
-            // other fields as needed
+        struct HttpBinResponse<'a> {
+            #[serde(borrow)]
+            slideshow: SlideShow<'a>,
         }
 
         let bytes = body.as_bytes();
-        match serde_json_core::de::from_slice::<ApiResponse>(bytes) {
+        match from_slice::<HttpBinResponse>(bytes) {
             Ok((output, _used)) => {
-                info!("Datetime: {:?}", output.datetime);
+                info!("Successfully parsed JSON response!");
+                info!("Slideshow title: {:?}", output.slideshow.title);
+                info!("Slideshow author: {:?}", output.slideshow.author);
             }
-            Err(_e) => {
-                error!("Failed to parse response body");
-                return; // handle the error
+            Err(e) => {
+                error!("Failed to parse JSON response: {}", Debug2Format(&e));
+                // Log preview of response for debugging
+                let preview = if body.len() > 200 { &body[..200] } else { body };
+                info!("Response preview: {:?}", preview);
             }
         }
 
