@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased - ReleaseDate
 
+- chore: cleanup low-power add time
 - fix: Allow setting SAI peripheral `frame_length` to `256`
 - fix: flash erase on dual-bank STM32Gxxx
 - feat: Add support for STM32N657X0

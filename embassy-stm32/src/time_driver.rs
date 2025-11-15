@@ -196,6 +196,11 @@ fn calc_now(period: u32, counter: u16) -> u64 {
     ((period as u64) << 15) + ((counter as u32 ^ ((period & 1) << 15)) as u64)
 }
 
+#[cfg(feature = "low-power")]
+fn calc_period_counter(ticks: u64) -> (u32, u16) {
+    (2 * (ticks >> 16) as u32 + (ticks as u16 >= 0x8000) as u32, ticks as u16)
+}
+
 struct AlarmState {
     timestamp: Cell<u64>,
 }
@@ -358,34 +363,10 @@ impl RtcDriver {
     #[cfg(feature = "low-power")]
     /// Add the given offset to the current time
     fn add_time(&self, offset: embassy_time::Duration, cs: CriticalSection) {
-        let offset = offset.as_ticks();
-        let cnt = regs_gp16().cnt().read().cnt() as u32;
-        let period = self.period.load(Ordering::SeqCst);
-
-        // Correct the race, if it exists
-        let period = if period & 1 == 1 && cnt < u16::MAX as u32 / 2 {
-            period + 1
-        } else {
-            period
-        };
-
-        // Normalize to the full overflow
-        let period = (period / 2) * 2;
-
-        // Add the offset
-        let period = period + 2 * (offset / u16::MAX as u64) as u32;
-        let cnt = cnt + (offset % u16::MAX as u64) as u32;
-
-        let (cnt, period) = if cnt > u16::MAX as u32 {
-            (cnt - u16::MAX as u32, period + 2)
-        } else {
-            (cnt, period)
-        };
-
-        let period = if cnt > u16::MAX as u32 / 2 { period + 1 } else { period };
+        let (period, counter) = calc_period_counter(self.now() + offset.as_ticks());
 
         self.period.store(period, Ordering::SeqCst);
-        regs_gp16().cnt().write(|w| w.set_cnt(cnt as u16));
+        regs_gp16().cnt().write(|w| w.set_cnt(counter));
 
         // Now, recompute alarm
         let alarm = self.alarm.borrow(cs);

@@ -3,6 +3,7 @@ use embassy_time::{Duration, TICK_HZ};
 
 use super::{DateTimeError, Rtc, RtcError, bcd2_to_byte};
 use crate::interrupt::typelevel::Interrupt;
+use crate::pac::rtc::vals::Wucksel;
 use crate::peripherals::RTC;
 use crate::rtc::{RtcTimeProvider, SealedInstance};
 
@@ -58,60 +59,16 @@ impl core::ops::Sub for RtcInstant {
     }
 }
 
-#[repr(u8)]
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum WakeupPrescaler {
-    Div2 = 2,
-    Div4 = 4,
-    Div8 = 8,
-    Div16 = 16,
-}
-
-#[cfg(any(
-    stm32f4, stm32l0, stm32g4, stm32l4, stm32l5, stm32wb, stm32h5, stm32g0, stm32u5, stm32u0, stm32wba, stm32wlex
-))]
-impl From<WakeupPrescaler> for crate::pac::rtc::vals::Wucksel {
-    fn from(val: WakeupPrescaler) -> Self {
-        use crate::pac::rtc::vals::Wucksel;
-
-        match val {
-            WakeupPrescaler::Div2 => Wucksel::DIV2,
-            WakeupPrescaler::Div4 => Wucksel::DIV4,
-            WakeupPrescaler::Div8 => Wucksel::DIV8,
-            WakeupPrescaler::Div16 => Wucksel::DIV16,
-        }
-    }
-}
-
-#[cfg(any(
-    stm32f4, stm32l0, stm32g4, stm32l4, stm32l5, stm32wb, stm32h5, stm32g0, stm32u5, stm32u0, stm32wba, stm32wlex
-))]
-impl From<crate::pac::rtc::vals::Wucksel> for WakeupPrescaler {
-    fn from(val: crate::pac::rtc::vals::Wucksel) -> Self {
-        use crate::pac::rtc::vals::Wucksel;
-
-        match val {
-            Wucksel::DIV2 => WakeupPrescaler::Div2,
-            Wucksel::DIV4 => WakeupPrescaler::Div4,
-            Wucksel::DIV8 => WakeupPrescaler::Div8,
-            Wucksel::DIV16 => WakeupPrescaler::Div16,
-            _ => unreachable!(),
-        }
-    }
-}
-
-impl WakeupPrescaler {
-    pub fn compute_min(val: u32) -> Self {
-        *[
-            WakeupPrescaler::Div2,
-            WakeupPrescaler::Div4,
-            WakeupPrescaler::Div8,
-            WakeupPrescaler::Div16,
-        ]
-        .iter()
-        .find(|psc| **psc as u32 > val)
-        .unwrap_or(&WakeupPrescaler::Div16)
-    }
+fn wucksel_compute_min(val: u32) -> (Wucksel, u32) {
+    *[
+        (Wucksel::DIV2, 2),
+        (Wucksel::DIV4, 4),
+        (Wucksel::DIV8, 8),
+        (Wucksel::DIV16, 16),
+    ]
+    .iter()
+    .find(|(_, psc)| *psc as u32 > val)
+    .unwrap_or(&(Wucksel::DIV16, 16))
 }
 
 impl Rtc {
@@ -138,7 +95,7 @@ impl Rtc {
         let requested_duration = requested_duration.as_ticks().clamp(0, u32::MAX as u64);
         let rtc_hz = Self::frequency().0 as u64;
         let rtc_ticks = requested_duration * rtc_hz / TICK_HZ;
-        let prescaler = WakeupPrescaler::compute_min((rtc_ticks / u16::MAX as u64) as u32);
+        let (wucksel, prescaler) = wucksel_compute_min((rtc_ticks / u16::MAX as u64) as u32);
 
         // adjust the rtc ticks to the prescaler and subtract one rtc tick
         let rtc_ticks = rtc_ticks / prescaler as u64;
@@ -159,7 +116,7 @@ impl Rtc {
                 while !regs.icsr().read().wutwf() {}
             }
 
-            regs.cr().modify(|w| w.set_wucksel(prescaler.into()));
+            regs.cr().modify(|w| w.set_wucksel(wucksel));
             regs.wutr().write(|w| w.set_wut(rtc_ticks));
             regs.cr().modify(|w| w.set_wute(true));
             regs.cr().modify(|w| w.set_wutie(true));
