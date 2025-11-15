@@ -1,11 +1,11 @@
 #![macro_use]
 
 pub use defmt::*;
+use embassy_stm32::Config;
 #[allow(unused)]
 use embassy_stm32::rcc::*;
 #[allow(unused)]
 use embassy_stm32::time::Hertz;
-use embassy_stm32::Config;
 use {defmt_rtt as _, panic_probe as _};
 
 #[cfg(feature = "stm32f103c8")]
@@ -468,6 +468,8 @@ pub fn config() -> Config {
         config.rcc.apb3_pre = APBPrescaler::DIV1;
         config.rcc.sys = Sysclk::PLL1_P;
         config.rcc.voltage_scale = VoltageScale::Scale0;
+
+        config.rtc._disable_rtc = true;
     }
 
     #[cfg(feature = "stm32h503rb")]

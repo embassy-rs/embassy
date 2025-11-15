@@ -6,7 +6,7 @@ use embassy_stm32::dcmi::{self, *};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::i2c::I2c;
 use embassy_stm32::rcc::{Mco, Mco1Source, McoConfig, McoPrescaler};
-use embassy_stm32::{bind_interrupts, i2c, peripherals, Config};
+use embassy_stm32::{Config, bind_interrupts, i2c, peripherals};
 use embassy_time::Timer;
 use ov7725::*;
 use {defmt_rtt as _, panic_probe as _};

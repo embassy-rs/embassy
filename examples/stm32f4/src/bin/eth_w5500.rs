@@ -12,8 +12,9 @@ use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::mode::Async;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::spi::Spi;
+use embassy_stm32::spi::mode::Master;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{bind_interrupts, peripherals, rng, spi, Config};
+use embassy_stm32::{Config, bind_interrupts, peripherals, rng, spi};
 use embassy_time::{Delay, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_io_async::Write;
@@ -24,7 +25,7 @@ bind_interrupts!(struct Irqs {
     HASH_RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
-type EthernetSPI = ExclusiveDevice<Spi<'static, Async>, Output<'static>, Delay>;
+type EthernetSPI = ExclusiveDevice<Spi<'static, Async, Master>, Output<'static>, Delay>;
 #[embassy_executor::task]
 async fn ethernet_task(runner: Runner<'static, W5500, EthernetSPI, ExtiInput<'static>, Output<'static>>) -> ! {
     runner.run().await

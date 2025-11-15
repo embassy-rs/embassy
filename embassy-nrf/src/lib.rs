@@ -1,5 +1,6 @@
 #![no_std]
 #![allow(async_fn_in_trait)]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![cfg_attr(
     docsrs,
     doc = "<div style='padding:30px;background:#810;color:#fff;text-align:center;'><p>You might want to <a href='https://docs.embassy.dev/embassy-nrf'>browse the `embassy-nrf` documentation on the Embassy website</a> instead.</p><p>The documentation here on `docs.rs` is built for a single chip only (nRF52840 in particular), while on the Embassy website you can pick your exact chip from the top menu. Available peripherals and their APIs change depending on the chip.</p></div>\n\n"
@@ -75,14 +76,12 @@ pub(crate) mod util;
 #[cfg(feature = "_time-driver")]
 mod time_driver;
 
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod buffered_uarte;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod egu;
 pub mod gpio;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(feature = "gpiote")]
 pub mod gpiote;
 #[cfg(not(feature = "_nrf54l"))] // TODO
@@ -118,9 +117,7 @@ pub mod pdm;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(feature = "nrf52840", feature = "nrf9160-s", feature = "nrf9160-ns"))]
 pub mod power;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod ppi;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(
     feature = "_nrf51",
     feature = "nrf52805",
@@ -148,34 +145,28 @@ pub mod radio;
 #[cfg(feature = "_net-driver")]
 pub mod embassy_net_802154_driver;
 
+#[cfg(all(feature = "_nrf54l", feature = "_s"))]
+pub mod cracen;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(feature = "_nrf5340")]
 pub mod reset;
-#[cfg(not(feature = "_nrf54l"))] // TODO
+#[cfg(not(feature = "_nrf54l"))]
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod rng;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod rtc;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(feature = "_nrf51", feature = "nrf52820", feature = "_nrf5340-net")))]
 pub mod saadc;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod spim;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod spis;
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod temp;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod timer;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod twim;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod twis;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod uarte;
 #[cfg(not(feature = "_nrf54l"))] // TODO
@@ -252,7 +243,7 @@ macro_rules! bind_interrupts {
 
         $(
             #[allow(non_snake_case)]
-            #[no_mangle]
+            #[unsafe(no_mangle)]
             $(#[cfg($cond_irq)])?
             unsafe extern "C" fn $irq() {
                 unsafe {
@@ -284,7 +275,7 @@ macro_rules! bind_interrupts {
 pub use chip::pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use chip::pac;
-pub use chip::{peripherals, Peripherals, EASY_DMA_SIZE};
+pub use chip::{EASY_DMA_SIZE, Peripherals, peripherals};
 pub use embassy_hal_internal::{Peri, PeripheralType};
 
 pub use crate::chip::interrupt;
@@ -293,6 +284,15 @@ pub use crate::pac::NVIC_PRIO_BITS;
 
 pub mod config {
     //! Configuration options used when initializing the HAL.
+
+    /// Clock speed
+    #[cfg(feature = "_nrf54l")]
+    pub enum ClockSpeed {
+        /// Run at 128 MHz.
+        CK128,
+        /// Run at 64 MHz.
+        CK64,
+    }
 
     /// High frequency clock source.
     pub enum HfclkSource {
@@ -563,6 +563,9 @@ pub mod config {
         pub time_interrupt_priority: crate::interrupt::Priority,
         /// Enable or disable the debug port.
         pub debug: Debug,
+        /// Clock speed configuration.
+        #[cfg(feature = "_nrf54l")]
+        pub clock_speed: ClockSpeed,
     }
 
     impl Default for Config {
@@ -603,6 +606,8 @@ pub mod config {
                 debug: Debug::NotConfigured,
                 #[cfg(not(feature = "_ns"))]
                 debug: Debug::Allowed,
+                #[cfg(feature = "_nrf54l")]
+                clock_speed: ClockSpeed::CK64,
             }
         }
     }
@@ -708,6 +713,23 @@ pub fn init(config: config::Config) -> Peripherals {
 
     #[allow(unused_mut)]
     let mut needs_reset = false;
+
+    // set clock speed
+    #[cfg(feature = "_nrf54l")]
+    {
+        #[cfg(feature = "_s")]
+        let regs = pac::OSCILLATORS_S;
+        #[cfg(feature = "_ns")]
+        let regs = pac::OSCILLATORS_NS;
+
+        use pac::oscillators::vals::Freq;
+        regs.pll().freq().write(|w| {
+            w.set_freq(match config.clock_speed {
+                config::ClockSpeed::CK64 => Freq::CK64M,
+                config::ClockSpeed::CK128 => Freq::CK128M,
+            });
+        });
+    }
 
     // Workaround used in the nrf mdk: file system_nrf91.c , function SystemInit(), after `#if !defined(NRF_SKIP_UICR_HFXO_WORKAROUND)`
     #[cfg(all(feature = "_nrf91", feature = "_s"))]
@@ -933,7 +955,7 @@ pub fn init(config: config::Config) -> Peripherals {
         }
     }
 
-    #[cfg(any(feature = "_nrf52", feature = "_nrf5340-app"))]
+    #[cfg(any(feature = "_nrf52", all(feature = "_nrf5340-app", feature = "_s")))]
     unsafe {
         let value = if cfg!(feature = "nfc-pins-as-gpio") { 0 } else { 1 };
         let res = uicr_write_masked(consts::UICR_NFCPINS, value, 1);
@@ -1153,7 +1175,6 @@ pub fn init(config: config::Config) -> Peripherals {
     }
 
     // Init GPIOTE
-    #[cfg(not(feature = "_nrf54l"))] // TODO
     #[cfg(feature = "gpiote")]
     gpiote::init(config.gpiote_interrupt_priority);
 

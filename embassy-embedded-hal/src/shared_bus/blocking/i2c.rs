@@ -17,12 +17,12 @@
 
 use core::cell::RefCell;
 
-use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::RawMutex;
 use embedded_hal_1::i2c::{ErrorType, I2c, Operation};
 
-use crate::shared_bus::I2cDeviceError;
 use crate::SetConfig;
+use crate::shared_bus::I2cDeviceError;
 
 /// I2C device on a shared bus.
 pub struct I2cDevice<'a, M: RawMutex, BUS> {

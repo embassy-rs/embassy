@@ -2,7 +2,7 @@
 
 use core::future::Future;
 use core::pin::Pin;
-use core::sync::atomic::{fence, AtomicUsize, Ordering};
+use core::sync::atomic::{AtomicUsize, Ordering, fence};
 use core::task::{Context, Poll};
 
 use embassy_hal_internal::Peri;
@@ -136,6 +136,7 @@ pub(crate) unsafe fn init(cs: critical_section::CriticalSection, irq_priority: c
 
 impl AnyChannel {
     /// Safety: Must be called with a matching set of parameters for a valid dma channel
+    #[cfg(not(stm32n6))]
     pub(crate) unsafe fn on_irq(&self) {
         let info = self.info();
         #[cfg(feature = "_dual-core")]

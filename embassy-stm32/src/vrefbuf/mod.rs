@@ -14,10 +14,10 @@ pub struct VoltageReferenceBuffer<'d, T: Instance> {
 #[cfg(rcc_wba)]
 fn get_refbuf_trim(voltage_scale: Vrs) -> usize {
     match voltage_scale {
-        Vrs::VREF0 => 0x0BFA_07A8usize,
-        Vrs::VREF1 => 0x0BFA_07A9usize,
-        Vrs::VREF2 => 0x0BFA_07AAusize,
-        Vrs::VREF3 => 0x0BFA_07ABusize,
+        Vrs::VREF0 => 0x0BFA_07ABusize,
+        Vrs::VREF1 => 0x0BFA_07AAusize,
+        Vrs::VREF2 => 0x0BFA_07A9usize,
+        Vrs::VREF3 => 0x0BFA_07A8usize,
         _ => panic!("Incorrect Vrs setting!"),
     }
 }
@@ -62,8 +62,7 @@ impl<'d, T: Instance> VoltageReferenceBuffer<'d, T> {
         }
         trace!(
             "Vrefbuf configured with voltage scale {} and impedance mode {}",
-            voltage_scale as u8,
-            impedance_mode as u8,
+            voltage_scale as u8, impedance_mode as u8,
         );
         VoltageReferenceBuffer { vrefbuf: PhantomData }
     }

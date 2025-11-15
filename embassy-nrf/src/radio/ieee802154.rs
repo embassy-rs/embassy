@@ -1,18 +1,18 @@
 //! IEEE 802.15.4 radio driver
 
 use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 
 use super::{Error, InterruptHandler, TxPower};
+use crate::Peri;
 use crate::interrupt::typelevel::Interrupt;
 use crate::interrupt::{self};
 use crate::pac::radio::vals;
 pub use crate::pac::radio::vals::State as RadioState;
 use crate::radio::Instance;
-use crate::Peri;
 
 /// Default (IEEE compliant) Start of Frame Delimiter
 pub const DEFAULT_SFD: u8 = 0xA7;

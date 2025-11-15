@@ -3,17 +3,17 @@
 mod buffered;
 
 use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
 
 pub use buffered::*;
 use embassy_embedded_hal::SetConfig;
 use embassy_hal_internal::PeripheralType;
 
+use crate::Peri;
 use crate::gpio::{AnyPin, PfType, Pull, SealedPin};
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::mode::{Blocking, Mode};
-use crate::pac::uart::{vals, Uart as Regs};
-use crate::Peri;
+use crate::pac::uart::{Uart as Regs, vals};
 
 /// The clock source for the UART.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -931,8 +931,7 @@ fn set_baudrate_inner(regs: Regs, clock: u32, baudrate: u32) -> Result<(), Confi
         let Some(min_clock) = baudrate.checked_mul(oversampling as u32) else {
             trace!(
                 "{}x oversampling would cause overflow for clock: {} Hz",
-                oversampling,
-                clock
+                oversampling, clock
             );
             continue;
         };
@@ -945,9 +944,7 @@ fn set_baudrate_inner(regs: Regs, clock: u32, baudrate: u32) -> Result<(), Confi
         for &(div, div_value) in &DIVS {
             trace!(
                 "Trying div: {}, oversampling {} for {} baud",
-                div,
-                oversampling,
-                baudrate
+                div, oversampling, baudrate
             );
 
             let Some((ibrd, fbrd)) = calculate_brd(clock, div, baudrate, oversampling) else {

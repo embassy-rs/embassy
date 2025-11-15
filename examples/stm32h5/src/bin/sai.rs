@@ -3,7 +3,7 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_stm32::{sai, Config};
+use embassy_stm32::{Config, sai};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]

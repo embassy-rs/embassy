@@ -10,12 +10,12 @@ use core::mem::ManuallyDrop;
 
 use embassy_hal_internal::Peri;
 // Re-export useful enums
-pub use stm32_metapac::timer::vals::{FilterValue, Sms as SlaveMode, Ts as TriggerSource};
+pub use stm32_metapac::timer::vals::{FilterValue, Mms as MasterMode, Sms as SlaveMode, Ts as TriggerSource};
 
 use super::*;
 use crate::pac::timer::vals;
-use crate::rcc;
 use crate::time::Hertz;
+use crate::{dma, rcc};
 
 /// Input capture mode.
 #[derive(Clone, Copy)]
@@ -143,20 +143,69 @@ pub enum OutputCompareMode {
     /// TIMx_CNT<TIMx_CCRx else active. In downcounting, channel is active as long as
     /// TIMx_CNT>TIMx_CCRx else inactive.
     PwmMode2,
-    // TODO: there's more modes here depending on the chip family.
+
+    #[cfg(timer_v2)]
+    /// In up-counting mode, the channel is active until a trigger
+    /// event is detected (on tim_trgi signal). Then, a comparison is performed as in PWM
+    /// mode 1 and the channels becomes active again at the next update. In down-counting
+    /// mode, the channel is inactive until a trigger event is detected (on tim_trgi signal).
+    /// Then, a comparison is performed as in PWM mode 1 and the channels becomes
+    /// inactive again at the next update.
+    OnePulseMode1,
+
+    #[cfg(timer_v2)]
+    /// In up-counting mode, the channel is inactive until a
+    /// trigger event is detected (on tim_trgi signal). Then, a comparison is performed as in
+    /// PWM mode 2 and the channels becomes inactive again at the next update. In down
+    /// counting mode, the channel is active until a trigger event is detected (on tim_trgi
+    /// signal). Then, a comparison is performed as in PWM mode 1 and the channels
+    /// becomes active again at the next update.
+    OnePulseMode2,
+
+    #[cfg(timer_v2)]
+    /// Combined PWM mode 1 - tim_oc1ref has the same behavior as in PWM mode 1.
+    /// tim_oc1refc is the logical OR between tim_oc1ref and tim_oc2ref.
+    CombinedPwmMode1,
+
+    #[cfg(timer_v2)]
+    /// Combined PWM mode 2 - tim_oc1ref has the same behavior as in PWM mode 2.
+    /// tim_oc1refc is the logical AND between tim_oc1ref and tim_oc2ref.
+    CombinedPwmMode2,
+
+    #[cfg(timer_v2)]
+    /// tim_oc1ref has the same behavior as in PWM mode 1. tim_oc1refc outputs tim_oc1ref
+    /// when the counter is counting up, tim_oc2ref when it is counting down.
+    AsymmetricPwmMode1,
+
+    #[cfg(timer_v2)]
+    /// tim_oc1ref has the same behavior as in PWM mode 2. tim_oc1refc outputs tim_oc1ref
+    /// when the counter is counting up, tim_oc2ref when it is counting down.
+    AsymmetricPwmMode2,
 }
 
-impl From<OutputCompareMode> for stm32_metapac::timer::vals::Ocm {
+impl From<OutputCompareMode> for crate::pac::timer::vals::Ocm {
     fn from(mode: OutputCompareMode) -> Self {
         match mode {
-            OutputCompareMode::Frozen => stm32_metapac::timer::vals::Ocm::FROZEN,
-            OutputCompareMode::ActiveOnMatch => stm32_metapac::timer::vals::Ocm::ACTIVE_ON_MATCH,
-            OutputCompareMode::InactiveOnMatch => stm32_metapac::timer::vals::Ocm::INACTIVE_ON_MATCH,
-            OutputCompareMode::Toggle => stm32_metapac::timer::vals::Ocm::TOGGLE,
-            OutputCompareMode::ForceInactive => stm32_metapac::timer::vals::Ocm::FORCE_INACTIVE,
-            OutputCompareMode::ForceActive => stm32_metapac::timer::vals::Ocm::FORCE_ACTIVE,
-            OutputCompareMode::PwmMode1 => stm32_metapac::timer::vals::Ocm::PWM_MODE1,
-            OutputCompareMode::PwmMode2 => stm32_metapac::timer::vals::Ocm::PWM_MODE2,
+            OutputCompareMode::Frozen => crate::pac::timer::vals::Ocm::FROZEN,
+            OutputCompareMode::ActiveOnMatch => crate::pac::timer::vals::Ocm::ACTIVE_ON_MATCH,
+            OutputCompareMode::InactiveOnMatch => crate::pac::timer::vals::Ocm::INACTIVE_ON_MATCH,
+            OutputCompareMode::Toggle => crate::pac::timer::vals::Ocm::TOGGLE,
+            OutputCompareMode::ForceInactive => crate::pac::timer::vals::Ocm::FORCE_INACTIVE,
+            OutputCompareMode::ForceActive => crate::pac::timer::vals::Ocm::FORCE_ACTIVE,
+            OutputCompareMode::PwmMode1 => crate::pac::timer::vals::Ocm::PWM_MODE1,
+            OutputCompareMode::PwmMode2 => crate::pac::timer::vals::Ocm::PWM_MODE2,
+            #[cfg(timer_v2)]
+            OutputCompareMode::OnePulseMode1 => crate::pac::timer::vals::Ocm::RETRIGERRABLE_OPM_MODE_1,
+            #[cfg(timer_v2)]
+            OutputCompareMode::OnePulseMode2 => crate::pac::timer::vals::Ocm::RETRIGERRABLE_OPM_MODE_2,
+            #[cfg(timer_v2)]
+            OutputCompareMode::CombinedPwmMode1 => crate::pac::timer::vals::Ocm::COMBINED_PWM_MODE_1,
+            #[cfg(timer_v2)]
+            OutputCompareMode::CombinedPwmMode2 => crate::pac::timer::vals::Ocm::COMBINED_PWM_MODE_2,
+            #[cfg(timer_v2)]
+            OutputCompareMode::AsymmetricPwmMode1 => crate::pac::timer::vals::Ocm::ASYMMETRIC_PWM_MODE_1,
+            #[cfg(timer_v2)]
+            OutputCompareMode::AsymmetricPwmMode2 => crate::pac::timer::vals::Ocm::ASYMMETRIC_PWM_MODE_2,
         }
     }
 }
@@ -607,6 +656,219 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         }
     }
 
+    /// Generate a sequence of PWM waveform
+    ///
+    /// Note:
+    /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
+    pub async fn waveform_up(&mut self, dma: Peri<'_, impl super::UpDma<T>>, channel: Channel, duty: &[u16]) {
+        #[allow(clippy::let_unit_value)] // eg. stm32f334
+        let req = dma.request();
+
+        let original_update_dma_state = self.get_update_dma_state();
+
+        if !original_update_dma_state {
+            self.enable_update_dma(true);
+        }
+
+        self.waveform_helper(dma, req, channel, duty).await;
+
+        // Since DMA is closed before timer update event trigger DMA is turn off,
+        // this can almost always trigger a DMA FIFO error.
+        //
+        // optional TODO:
+        // clean FEIF after disable UDE
+        if !original_update_dma_state {
+            self.enable_update_dma(false);
+        }
+    }
+
+    /// Generate a multichannel sequence of PWM waveforms using DMA triggered by timer update events.
+    ///
+    /// This method utilizes the timer's DMA burst transfer capability to update multiple CCRx registers
+    /// in sequence on each update event (UEV). The data is written via the DMAR register using the
+    /// DMA base address (DBA) and burst length (DBL) configured in the DCR register.
+    ///
+    /// The `duty` buffer must be structured as a flattened 2D array in row-major order, where each row
+    /// represents a single update event and each column corresponds to a specific timer channel (starting
+    /// from `starting_channel` up to and including `ending_channel`).
+    ///
+    /// For example, if using channels 1 through 4, a buffer of 4 update steps might look like:
+    ///
+    /// ```rust,ignore
+    /// let dma_buf: [u16; 16] = [
+    ///     ch1_duty_1, ch2_duty_1, ch3_duty_1, ch4_duty_1, // update 1
+    ///     ch1_duty_2, ch2_duty_2, ch3_duty_2, ch4_duty_2, // update 2
+    ///     ch1_duty_3, ch2_duty_3, ch3_duty_3, ch4_duty_3, // update 3
+    ///     ch1_duty_4, ch2_duty_4, ch3_duty_4, ch4_duty_4, // update 4
+    /// ];
+    /// ```
+    ///
+    /// Each group of `N` values (where `N` is number of channels) is transferred on one update event,
+    /// updating the duty cycles of all selected channels simultaneously.
+    ///
+    /// Note:
+    /// You will need to provide corresponding `TIMx_UP` DMA channel to use this method.
+    /// Also be aware that embassy timers use one of timers internally. It is possible to
+    /// switch this timer by using `time-driver-timX` feature.
+    ///
+    pub async fn waveform_up_multi_channel(
+        &mut self,
+        dma: Peri<'_, impl super::UpDma<T>>,
+        starting_channel: Channel,
+        ending_channel: Channel,
+        duty: &[u16],
+    ) {
+        let cr1_addr = self.regs_gp16().cr1().as_ptr() as u32;
+        let start_ch_index = starting_channel.index();
+        let end_ch_index = ending_channel.index();
+
+        assert!(start_ch_index <= end_ch_index);
+
+        let ccrx_addr = self.regs_gp16().ccr(start_ch_index).as_ptr() as u32;
+        self.regs_gp16()
+            .dcr()
+            .modify(|w| w.set_dba(((ccrx_addr - cr1_addr) / 4) as u8));
+        self.regs_gp16()
+            .dcr()
+            .modify(|w| w.set_dbl((end_ch_index - start_ch_index) as u8));
+
+        #[allow(clippy::let_unit_value)] // eg. stm32f334
+        let req = dma.request();
+
+        let original_update_dma_state = self.get_update_dma_state();
+        if !original_update_dma_state {
+            self.enable_update_dma(true);
+        }
+
+        unsafe {
+            #[cfg(not(any(bdma, gpdma)))]
+            use crate::dma::{Burst, FifoThreshold};
+            use crate::dma::{Transfer, TransferOptions};
+
+            let dma_transfer_option = TransferOptions {
+                #[cfg(not(any(bdma, gpdma)))]
+                fifo_threshold: Some(FifoThreshold::Full),
+                #[cfg(not(any(bdma, gpdma)))]
+                mburst: Burst::Incr4,
+                ..Default::default()
+            };
+
+            Transfer::new_write(
+                dma,
+                req,
+                duty,
+                self.regs_gp16().dmar().as_ptr() as *mut u16,
+                dma_transfer_option,
+            )
+            .await
+        };
+
+        if !original_update_dma_state {
+            self.enable_update_dma(false);
+        }
+    }
+
+    /// Generate a sequence of PWM waveform
+    pub async fn waveform<C: TimerChannel>(&mut self, dma: Peri<'_, impl super::Dma<T, C>>, duty: &[u16]) {
+        use crate::pac::timer::vals::Ccds;
+
+        #[allow(clippy::let_unit_value)] // eg. stm32f334
+        let req = dma.request();
+
+        let cc_channel = C::CHANNEL;
+
+        let original_cc_dma_on_update = self.get_cc_dma_selection() == Ccds::ON_UPDATE;
+        let original_cc_dma_enabled = self.get_cc_dma_enable_state(cc_channel);
+
+        // redirect CC DMA request onto Update Event
+        if !original_cc_dma_on_update {
+            self.set_cc_dma_selection(Ccds::ON_UPDATE)
+        }
+
+        if !original_cc_dma_enabled {
+            self.set_cc_dma_enable_state(cc_channel, true);
+        }
+
+        self.waveform_helper(dma, req, cc_channel, duty).await;
+
+        // Since DMA is closed before timer Capture Compare Event trigger DMA is turn off,
+        // this can almost always trigger a DMA FIFO error.
+        //
+        // optional TODO:
+        // clean FEIF after disable UDE
+        if !original_cc_dma_enabled {
+            self.set_cc_dma_enable_state(cc_channel, false);
+        }
+
+        if !original_cc_dma_on_update {
+            self.set_cc_dma_selection(Ccds::ON_COMPARE)
+        }
+    }
+
+    async fn waveform_helper(
+        &mut self,
+        dma: Peri<'_, impl dma::Channel>,
+        req: dma::Request,
+        channel: Channel,
+        duty: &[u16],
+    ) {
+        let original_duty_state = self.get_compare_value(channel);
+        let original_enable_state = self.get_channel_enable_state(channel);
+
+        if !original_enable_state {
+            self.enable_channel(channel, true);
+        }
+
+        unsafe {
+            #[cfg(not(any(bdma, gpdma)))]
+            use crate::dma::{Burst, FifoThreshold};
+            use crate::dma::{Transfer, TransferOptions};
+
+            let dma_transfer_option = TransferOptions {
+                #[cfg(not(any(bdma, gpdma)))]
+                fifo_threshold: Some(FifoThreshold::Full),
+                #[cfg(not(any(bdma, gpdma)))]
+                mburst: Burst::Incr8,
+                ..Default::default()
+            };
+
+            match self.bits() {
+                TimerBits::Bits16 => {
+                    Transfer::new_write(
+                        dma,
+                        req,
+                        duty,
+                        self.regs_1ch().ccr(channel.index()).as_ptr() as *mut u16,
+                        dma_transfer_option,
+                    )
+                    .await
+                }
+                #[cfg(not(any(stm32l0)))]
+                TimerBits::Bits32 => {
+                    #[cfg(not(any(bdma, gpdma)))]
+                    panic!("unsupported timer bits");
+
+                    #[cfg(any(bdma, gpdma))]
+                    Transfer::new_write(
+                        dma,
+                        req,
+                        duty,
+                        self.regs_1ch().ccr(channel.index()).as_ptr() as *mut u32,
+                        dma_transfer_option,
+                    )
+                    .await
+                }
+            };
+        };
+
+        // restore output compare state
+        if !original_enable_state {
+            self.enable_channel(channel, false);
+        }
+
+        self.set_compare_value(channel, original_duty_state);
+    }
+
     /// Get capture value for a channel.
     pub fn get_capture_value(&self, channel: Channel) -> u32 {
         self.get_compare_value(channel)
@@ -638,6 +900,11 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     /// Set capture compare DMA enable state
     pub fn set_cc_dma_enable_state(&self, channel: Channel, ccde: bool) {
         self.regs_gp16().dier().modify(|w| w.set_ccde(channel.index(), ccde))
+    }
+
+    /// Set Timer Master Mode
+    pub fn set_master_mode(&self, mms: MasterMode) {
+        self.regs_gp16().cr2().modify(|w| w.set_mms(mms));
     }
 
     /// Set Timer Slave Mode
@@ -758,6 +1025,16 @@ impl<'d, T: AdvancedInstance4Channel> Timer<'d, T> {
     /// Set Output Idle State Complementary Channel
     pub fn set_oisn(&self, channel: Channel, val: bool) {
         self.regs_advanced().cr2().modify(|w| w.set_oisn(channel.index(), val));
+    }
+
+    /// Set master mode selection 2
+    pub fn set_mms2_selection(&self, mms2: vals::Mms2) {
+        self.regs_advanced().cr2().modify(|w| w.set_mms2(mms2));
+    }
+
+    /// Set repetition counter
+    pub fn set_repetition_counter(&self, val: u16) {
+        self.regs_advanced().rcr().modify(|w| w.set_rep(val));
     }
 
     /// Trigger software break 1 or 2

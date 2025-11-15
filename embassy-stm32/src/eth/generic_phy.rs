@@ -8,6 +8,7 @@ use embassy_time::{Duration, Timer};
 use futures_util::FutureExt;
 
 use super::{Phy, StationManagement};
+use crate::block_for_us as blocking_delay_us;
 
 #[allow(dead_code)]
 mod phy_consts {
@@ -73,19 +74,6 @@ impl GenericPhy {
             #[cfg(feature = "time")]
             poll_interval: Duration::from_millis(500),
         }
-    }
-}
-
-// TODO: Factor out to shared functionality
-fn blocking_delay_us(us: u32) {
-    #[cfg(feature = "time")]
-    embassy_time::block_for(Duration::from_micros(us as u64));
-    #[cfg(not(feature = "time"))]
-    {
-        let freq = unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 as u64;
-        let us = us as u64;
-        let cycles = freq * us / 1_000_000;
-        cortex_m::asm::delay(cycles as u32);
     }
 }
 
