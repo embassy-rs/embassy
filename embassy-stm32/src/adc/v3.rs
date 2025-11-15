@@ -260,6 +260,9 @@ impl<T: Instance> super::SealedAnyInstance for T {
     }
 
     fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+        #[cfg(adc_h5)]
+        T::regs().cr().modify(|w| w.set_aden(false));
+
         // Set sequence length
         #[cfg(not(any(adc_g0, adc_u0)))]
         T::regs().sqr1().modify(|w| {
@@ -294,8 +297,11 @@ impl<T: Instance> super::SealedAnyInstance for T {
             #[cfg(adc_u0)]
             let mut channel_mask = 0;
 
+            #[cfg(adc_h5)]
+            let mut difsel = 0u32;
+
             // Configure channels and ranks
-            for (_i, ((channel, _), sample_time)) in sequence.enumerate() {
+            for (_i, ((channel, _is_differential), sample_time)) in sequence.enumerate() {
                 // RM0492, RM0481, etc.
                 // "This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected."
                 #[cfg(any(adc_h5, adc_h7rs))]
@@ -357,11 +363,19 @@ impl<T: Instance> super::SealedAnyInstance for T {
                     _ => unreachable!(),
                 }
 
+                #[cfg(adc_h5)]
+                {
+                    difsel |= (_is_differential as u32) << channel;
+                }
+
                 #[cfg(adc_u0)]
                 {
                     channel_mask |= 1 << channel;
                 }
             }
+
+            #[cfg(adc_h5)]
+            T::regs().difsel().write(|w| w.set_difsel(difsel));
 
             // On G0 and U0 enabled channels are sampled from 0 to last channel.
             // It is possible to add up to 8 sequences if CHSELRMOD = 1.

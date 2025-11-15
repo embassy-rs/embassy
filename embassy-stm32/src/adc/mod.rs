@@ -192,9 +192,15 @@ impl<'d, T: AnyInstance> Adc<'d, T> {
         #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5, adc_wba))]
         channel.setup();
 
-        #[cfg(not(adc_v4))]
+        #[cfg(any(adc_v2, adc_v3, adc_g0, adc_h7rs, adc_u0, adc_u5, adc_wba, adc_c0))]
         T::enable();
         T::configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
+
+        // On chips with differential channels, enable after configure_sequence to allow setting differential channels
+        //
+        // TODO: If hardware allows, enable after configure_sequence on all chips
+        #[cfg(any(adc_g4, adc_h5))]
+        T::enable();
 
         T::convert()
     }
@@ -229,10 +235,10 @@ impl<'d, T: AnyInstance> Adc<'d, T> {
     /// Note: This is not very efficient as the ADC needs to be reconfigured for each read. Use
     /// `into_ring_buffered`, `into_ring_buffered_and_injected`
     ///
-    /// In STM32C0, channels bigger than 14 cannot be read using sequencer, so you have to use
-    /// either blocking reads or use the mechanism to read in HW order (CHSELRMOD=0).
-    ///
-    /// In addtion, on STM320, this method will panic if the channels are not passed in order
+    /// Note: Depending on hardware limitations, this method may require channels to be passed
+    /// in order or require the sequence to have the same sample time for all channnels, depending
+    /// on the number and properties of the channels in the sequence. This method will panic if
+    /// the hardware cannot deliver the requested configuration.
     pub async fn read(
         &mut self,
         rx_dma: embassy_hal_internal::Peri<'_, impl RxDma<T>>,
@@ -249,14 +255,20 @@ impl<'d, T: AnyInstance> Adc<'d, T> {
             "Asynchronous read sequence cannot be more than 16 in length"
         );
 
-        // Ensure no conversions are ongoing and ADC is enabled.
+        // Ensure no conversions are ongoing
         T::stop();
+        #[cfg(any(adc_g0, adc_v3, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_c0))]
         T::enable();
 
         T::configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
         );
 
+        // On chips with differential channels, enable after configure_sequence to allow setting differential channels
+        //
+        // TODO: If hardware allows, enable after configure_sequence on all chips
+        #[cfg(any(adc_g4, adc_h5))]
+        T::enable();
         T::configure_dma(ConversionMode::Singular);
 
         let request = rx_dma.request();
@@ -294,6 +306,11 @@ impl<'d, T: AnyInstance> Adc<'d, T> {
     ///
     /// # Returns
     /// A `RingBufferedAdc<'a, T>` instance configured for continuous DMA-based sampling.
+    ///
+    /// Note: Depending on hardware limitations, this method may require channels to be passed
+    /// in order or require the sequence to have the same sample time for all channnels, depending
+    /// on the number and properties of the channels in the sequence. This method will panic if
+    /// the hardware cannot deliver the requested configuration.
     pub fn into_ring_buffered<'a>(
         self,
         dma: embassy_hal_internal::Peri<'a, impl RxDma<T>>,
@@ -307,15 +324,20 @@ impl<'d, T: AnyInstance> Adc<'d, T> {
             sequence.len() <= 16,
             "Asynchronous read sequence cannot be more than 16 in length"
         );
-        // reset conversions and enable the adc
+        // Ensure no conversions are ongoing
         T::stop();
+        #[cfg(any(adc_g0, adc_v3, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_c0))]
         T::enable();
 
-        //adc side setup
         T::configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
         );
 
+        // On chips with differential channels, enable after configure_sequence to allow setting differential channels
+        //
+        // TODO: If hardware allows, enable after configure_sequence on all chips
+        #[cfg(any(adc_g4, adc_h5))]
+        T::enable();
         T::configure_dma(ConversionMode::Repeated(mode));
 
         core::mem::forget(self);
