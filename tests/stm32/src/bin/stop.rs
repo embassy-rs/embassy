@@ -7,20 +7,12 @@ mod common;
 
 use chrono::NaiveDate;
 use common::*;
-use cortex_m_rt::entry;
 use embassy_executor::Spawner;
-use embassy_stm32::Config;
-use embassy_stm32::low_power::{Executor, StopMode, stop_ready};
+use embassy_stm32::low_power::{StopMode, stop_ready};
 use embassy_stm32::rcc::LsConfig;
 use embassy_stm32::rtc::Rtc;
+use embassy_stm32::{Config, low_power};
 use embassy_time::Timer;
-
-#[entry]
-fn main() -> ! {
-    Executor::take().run(|spawner| {
-        spawner.spawn(unwrap!(async_main(spawner)));
-    });
-}
 
 #[embassy_executor::task]
 async fn task_1() {
@@ -43,7 +35,7 @@ async fn task_2() {
     cortex_m::asm::bkpt();
 }
 
-#[embassy_executor::task]
+#[embassy_executor::main(executor = "low_power::Executor")]
 async fn async_main(spawner: Spawner) {
     let _ = config();
 
