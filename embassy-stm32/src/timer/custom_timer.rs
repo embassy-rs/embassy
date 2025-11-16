@@ -395,6 +395,33 @@ pub enum TriggerSource {
 impl<
     'd,
     T: GeneralInstance4Channel,
+    CH1: ch_mode::Mode<T>,
+    CH2: ch_mode::Mode<T>,
+    CH3: ch_mode::Mode<T>,
+    CH4: ch_mode::Mode<T>,
+    #[cfg(afio)] A,
+> if_afio!(CustomPwmBuilder<'d, T, CH1, CH2, CH3, CH4, external_trigger::Etr, trigger_source::Internal, A>)
+{
+    /// Setup timer to be triggered from ch1 compare match event
+    pub fn trigger_from_etr(
+        self,
+        mode: TriggerMode,
+    ) -> if_afio!(CustomPwmBuilder<'d, T, CH1, CH2, CH3, CH4, external_trigger::Etr, trigger_source::Etr, A>) {
+        set_field!(self, trigger_source: trigger_source::Etr,
+            trig_source: Ts::TI1F_ED,
+            slave_mode: match mode {
+                TriggerMode::ResetMode => SlaveMode::RESET_MODE,
+                TriggerMode::GatedMode => SlaveMode::GATED_MODE,
+                TriggerMode::TriggerMode => SlaveMode::TRIGGER_MODE,
+                TriggerMode::ExternalClockMode => SlaveMode::EXT_CLOCK_MODE,
+            }
+        )
+    }
+}
+
+impl<
+    'd,
+    T: GeneralInstance4Channel,
     CH2: ch_mode::Mode<T>,
     CH3: ch_mode::Mode<T>,
     CH4: ch_mode::Mode<T>,
