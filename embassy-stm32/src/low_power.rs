@@ -14,7 +14,7 @@
 //!
 //! Since entering and leaving low-power modes typically incurs a significant latency, the
 //! low-power executor will only attempt to enter when the next timer event is at least
-//! [`time_driver::MIN_STOP_PAUSE`] in the future.
+//! [`time_driver::min_stop_pause`] in the future.
 //!
 //! Currently there is no macro analogous to `embassy_executor::main` for this executor;
 //! consequently one must define their entrypoint manually. Moreover, you must relinquish control
@@ -22,21 +22,16 @@
 //!
 //! ```rust,no_run
 //! use embassy_executor::Spawner;
-//! use embassy_stm32::low_power::Executor;
+//! use embassy_stm32::low_power;
 //! use embassy_stm32::rtc::{Rtc, RtcConfig};
-//! use static_cell::StaticCell;
+//! use embassy_time::Duration;
 //!
-//! #[cortex_m_rt::entry]
-//! fn main() -> ! {
-//!     Executor::take().run(|spawner| {
-//!         spawner.spawn(unwrap!(async_main(spawner)));
-//!     });
-//! }
-//!
-//! #[embassy_executor::task]
+//! #[embassy_executor::main(executor = "low_power::Executor")]
 //! async fn async_main(spawner: Spawner) {
 //!     // initialize the platform...
 //!     let mut config = embassy_stm32::Config::default();
+//!     // the default value, but can be adjusted
+//!     config.min_stop_pause = Duration::from_millis(250);
 //!     // when enabled the power-consumption is much higher during stop, but debugging and RTT is working
 //!     config.enable_debug_during_sleep = false;
 //!     let p = embassy_stm32::init(config);
@@ -45,11 +40,9 @@
 //! }
 //! ```
 
-// TODO: Usage of `static mut` here is unsound. Fix then remove this `allow`.`
-#![allow(static_mut_refs)]
-
 use core::arch::asm;
 use core::marker::PhantomData;
+use core::mem;
 use core::sync::atomic::{Ordering, compiler_fence};
 
 use cortex_m::peripheral::SCB;
@@ -57,11 +50,12 @@ use critical_section::CriticalSection;
 use embassy_executor::*;
 
 use crate::interrupt;
+use crate::rcc::{REFCOUNT_STOP1, REFCOUNT_STOP2};
 use crate::time_driver::get_driver;
 
 const THREAD_PENDER: usize = usize::MAX;
 
-static mut EXECUTOR: Option<Executor> = None;
+static mut EXECUTOR_TAKEN: bool = false;
 
 /// Prevent the device from going into the stop mode if held
 pub struct DeviceBusy(StopMode);
@@ -182,42 +176,47 @@ impl Into<Lpms> for StopMode {
 pub struct Executor {
     inner: raw::Executor,
     not_send: PhantomData<*mut ()>,
-    scb: SCB,
 }
 
 impl Executor {
     /// Create a new Executor.
-    pub fn take() -> &'static mut Self {
-        critical_section::with(|_| unsafe {
-            assert!(EXECUTOR.is_none());
+    pub fn new() -> Self {
+        unsafe {
+            if EXECUTOR_TAKEN {
+                panic!("Low power executor can only be taken once.");
+            } else {
+                EXECUTOR_TAKEN = true;
+            }
+        }
 
-            EXECUTOR = Some(Self {
-                inner: raw::Executor::new(THREAD_PENDER as *mut ()),
-                not_send: PhantomData,
-                scb: cortex_m::Peripherals::steal().SCB,
-            });
-
-            let executor = EXECUTOR.as_mut().unwrap();
-
-            executor
-        })
+        Self {
+            inner: raw::Executor::new(THREAD_PENDER as *mut ()),
+            not_send: PhantomData,
+        }
     }
 
     pub(crate) unsafe fn on_wakeup_irq() {
         critical_section::with(|cs| {
             #[cfg(stm32wlex)]
             {
-                let extscr = crate::pac::PWR.extscr().read();
+                use crate::pac::rcc::vals::Sw;
+                use crate::pac::{PWR, RCC};
+                use crate::rcc::{RCC_CONFIG, init as init_rcc};
+
+                let extscr = PWR.extscr().read();
                 if extscr.c1stop2f() || extscr.c1stopf() {
                     // when we wake from any stop mode we need to re-initialize the rcc
-                    crate::rcc::apply_resume_config();
+                    while RCC.cfgr().read().sws() != Sw::MSI {}
+
+                    init_rcc(RCC_CONFIG.unwrap());
+
                     if extscr.c1stop2f() {
                         // when we wake from STOP2, we need to re-initialize the time driver
-                        crate::time_driver::init_timer(cs);
+                        get_driver().init_timer(cs);
                         // reset the refcounts for STOP2 and STOP1 (initializing the time driver will increment one of them for the timer)
                         // and given that we just woke from STOP2, we can reset them
-                        crate::rcc::REFCOUNT_STOP2 = 0;
-                        crate::rcc::REFCOUNT_STOP1 = 0;
+                        REFCOUNT_STOP2 = 0;
+                        REFCOUNT_STOP1 = 0;
                     }
                 }
             }
@@ -226,11 +225,15 @@ impl Executor {
         });
     }
 
+    const fn get_scb() -> SCB {
+        unsafe { mem::transmute(()) }
+    }
+
     fn stop_mode(_cs: CriticalSection) -> Option<StopMode> {
-        if unsafe { crate::rcc::REFCOUNT_STOP2 == 0 && crate::rcc::REFCOUNT_STOP1 == 0 } {
+        if unsafe { REFCOUNT_STOP2 == 0 && REFCOUNT_STOP1 == 0 } {
             trace!("low power: stop 2");
             Some(StopMode::Stop2)
-        } else if unsafe { crate::rcc::REFCOUNT_STOP1 == 0 } {
+        } else if unsafe { REFCOUNT_STOP1 == 0 } {
             trace!("low power: stop 1");
             Some(StopMode::Stop1)
         } else {
@@ -240,7 +243,7 @@ impl Executor {
     }
 
     #[allow(unused_variables)]
-    fn configure_stop(&mut self, stop_mode: StopMode) {
+    fn configure_stop(&self, stop_mode: StopMode) {
         #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wba, stm32wlex))]
         crate::pac::PWR.cr1().modify(|m| m.set_lpms(stop_mode.into()));
         #[cfg(stm32h5)]
@@ -251,8 +254,8 @@ impl Executor {
         });
     }
 
-    fn configure_pwr(&mut self) {
-        self.scb.clear_sleepdeep();
+    fn configure_pwr(&self) {
+        Self::get_scb().clear_sleepdeep();
         // Clear any previous stop flags
         #[cfg(stm32wlex)]
         crate::pac::PWR.extscr().modify(|w| {
@@ -271,7 +274,7 @@ impl Executor {
             self.configure_stop(stop_mode);
 
             #[cfg(not(feature = "low-power-debug-with-sleep"))]
-            self.scb.set_sleepdeep();
+            Self::get_scb().set_sleepdeep();
         });
     }
 
@@ -294,12 +297,11 @@ impl Executor {
     ///
     /// This function never returns.
     pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
-        let executor = unsafe { EXECUTOR.as_mut().unwrap() };
-        init(executor.inner.spawner());
+        init(self.inner.spawner());
 
         loop {
             unsafe {
-                executor.inner.poll();
+                self.inner.poll();
                 self.configure_pwr();
                 asm!("wfe");
                 #[cfg(stm32wlex)]

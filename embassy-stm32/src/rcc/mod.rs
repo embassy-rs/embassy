@@ -49,6 +49,9 @@ pub(crate) static mut REFCOUNT_STOP1: u32 = 0;
 /// May be read without a critical section
 pub(crate) static mut REFCOUNT_STOP2: u32 = 0;
 
+#[cfg(feature = "low-power")]
+pub(crate) static mut RCC_CONFIG: Option<Config> = None;
+
 #[cfg(backup_sram)]
 pub(crate) static mut BKSRAM_RETAINED: bool = false;
 
@@ -408,6 +411,7 @@ pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
 
         #[cfg(feature = "low-power")]
         {
+            RCC_CONFIG = Some(config);
             REFCOUNT_STOP2 = 0;
             REFCOUNT_STOP1 = 0;
         }

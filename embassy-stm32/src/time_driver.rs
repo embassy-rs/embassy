@@ -245,7 +245,7 @@ embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
 impl RtcDriver {
     /// initialize the timer, but don't start it.  Used for chips like stm32wle5
     /// for low power where the timer config is lost in STOP2.
-    fn init_timer(&'static self, cs: critical_section::CriticalSection) {
+    pub(crate) fn init_timer(&'static self, cs: critical_section::CriticalSection) {
         let r = regs_gp16();
 
         rcc::enable_and_reset_with_cs::<T>(cs);
@@ -515,9 +515,4 @@ pub(crate) const fn get_driver() -> &'static RtcDriver {
 
 pub(crate) fn init(cs: CriticalSection) {
     DRIVER.init(cs)
-}
-
-#[cfg(all(feature = "low-power", stm32wlex))]
-pub(crate) fn init_timer(cs: CriticalSection) {
-    DRIVER.init_timer(cs)
 }
