@@ -616,19 +616,19 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         });
     }
 
+    /// Set output compare mode.
+    pub fn set_output_compare_mode(&self, channel: Channel, mode: OutputCompareMode) {
+        let raw_channel: usize = channel.index();
+        self.regs_gp16()
+            .ccmr_output(raw_channel / 2)
+            .modify(|w| w.set_ocm(raw_channel % 2, mode.into()));
+    }
+
     /// Set output polarity.
     pub fn set_output_polarity(&self, channel: Channel, polarity: OutputPolarity) {
         self.regs_gp16()
             .ccer()
             .modify(|w| w.set_ccp(channel.index(), polarity.into()));
-    }
-
-    /// Set output compare mode.
-    pub fn set_output_compare_mode(&self, channel: Channel, mode: OutputCompareMode) {
-        let raw_channel: usize = channel.index();
-        self.regs_1ch()
-            .ccmr_output(raw_channel / 2)
-            .modify(|w| w.set_ocm(raw_channel % 2, mode.into()));
     }
 
     /// Enable/disable a channel.
