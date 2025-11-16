@@ -191,18 +191,16 @@ pub struct CustomPwmBuilder<
 }
 
 impl<'d, T: CoreInstance>
-    if_afio!(
-        CustomPwmBuilder<
-            'd,
-            T,
-            ch_mode::InternalOutput,
-            ch_mode::InternalOutput,
-            ch_mode::InternalOutput,
-            ch_mode::InternalOutput,
-            external_trigger::Unused,
-            trigger_source::Internal,
-        >
-    )
+    CustomPwmBuilder<
+        'd,
+        T,
+        ch_mode::InternalOutput,
+        ch_mode::InternalOutput,
+        ch_mode::InternalOutput,
+        ch_mode::InternalOutput,
+        external_trigger::Unused,
+        trigger_source::Internal,
+    >
 {
     /// Construct a [CustomPwmBuilder] which can be used to construct a [CustomPwm]
     pub fn new(tim: Peri<'d, T>) -> Self {
@@ -452,7 +450,7 @@ impl<'d, T: GeneralInstance4Channel, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4
     }
 }
 
-impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode, ETR, #[cfg(afio)] A>
+impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode, ETR>
     CustomPwmBuilder<'d, T, CH1, ch_mode::Input, CH3, CH4, ETR, trigger_source::Internal>
 {
     /// Setup timer to be triggered from ch1 compare match event
@@ -477,7 +475,6 @@ impl<
     CH3: ch_mode::Mode,
     ETR: external_trigger::Trigger,
     TS,
-    A,
 > CustomPwmBuilder<'d, T, CH1, CH2, CH3, ch_mode::InternalOutput, ETR, TS>
 {
     /// Finalize configuration and create the [CustomPwm]
@@ -595,7 +592,7 @@ async fn _example(
 }
 
 async fn _example2(tim: Peri<'_, crate::peripherals::TIM1>, trigger_pin: crate::peripherals::PA12) {
-    let mut tim = CustomPwmBuilder::<_, _, _, _, _, _, _, crate::gpio::AfioRemap<0>>::new(tim)
+    let mut tim = CustomPwmBuilder::<_, _, _, _, _, _, _>::new(tim)
         //.frequency(Hertz(123))
         .prescaler_and_period(0, 1337)
         .etr(trigger_pin, FilterValue::FDTS_DIV32_N8, Etp::NOT_INVERTED, Etps::DIV1)
