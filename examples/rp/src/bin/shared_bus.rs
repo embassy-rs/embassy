@@ -10,7 +10,7 @@ use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::i2c::{self, I2c, InterruptHandler};
-use embassy_rp::peripherals::{I2C1, SPI1};
+use embassy_rp::peripherals::I2C1;
 use embassy_rp::spi::{self, Spi};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::mutex::Mutex;
@@ -18,7 +18,7 @@ use embassy_time::Timer;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-type Spi1Bus = Mutex<NoopRawMutex, Spi<'static, SPI1, spi::Async>>;
+type Spi1Bus = Mutex<NoopRawMutex, Spi<'static, spi::Async>>;
 type I2c1Bus = Mutex<NoopRawMutex, I2c<'static, I2C1, i2c::Async>>;
 
 bind_interrupts!(struct Irqs {
