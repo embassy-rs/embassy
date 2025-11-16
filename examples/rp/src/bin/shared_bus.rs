@@ -19,7 +19,7 @@ use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 type SpiBus = Mutex<NoopRawMutex, Spi<'static, spi::Async>>;
-type I2cBus = Mutex<NoopRawMutex, I2c<i2c::Async>>;
+type I2cBus = Mutex<NoopRawMutex, I2c<'static, i2c::Async>>;
 
 bind_interrupts!(struct Irqs {
     I2C1_IRQ => InterruptHandler<I2C1>;

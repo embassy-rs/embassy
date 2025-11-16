@@ -89,14 +89,14 @@ impl Default for Config {
 pub const FIFO_SIZE: u8 = 16;
 
 /// I2C driver.
-pub struct I2c<M: Mode> {
+pub struct I2c<'d, M: Mode> {
     info: &'static Info,
-    phantom: PhantomData<M>,
+    phantom: PhantomData<(&'d (), M)>,
 }
 
-impl I2c<Blocking> {
+impl<'d> I2c<'d, Blocking> {
     /// Create a new driver instance in blocking mode.
-    pub fn new_blocking<'d, T: Instance>(
+    pub fn new_blocking<T: Instance>(
         _peri: Peri<'d, T>,
         scl: Peri<'d, impl SclPin<T>>,
         sda: Peri<'d, impl SdaPin<T>>,
@@ -106,9 +106,9 @@ impl I2c<Blocking> {
     }
 }
 
-impl I2c<Async> {
+impl<'d> I2c<'d, Async> {
     /// Create a new driver instance in async mode.
-    pub fn new_async<'d, T: Instance>(
+    pub fn new_async<T: Instance>(
         _peri: Peri<'d, T>,
         scl: Peri<'d, impl SclPin<T>>,
         sda: Peri<'d, impl SdaPin<T>>,
@@ -392,8 +392,8 @@ where
     });
 }
 
-impl<M: Mode> I2c<M> {
-    fn new_inner<'d>(info: &'static Info, scl: Peri<'d, AnyPin>, sda: Peri<'d, AnyPin>, config: Config) -> Self {
+impl<'d, M: Mode> I2c<'d, M> {
+    fn new_inner(info: &'static Info, scl: Peri<'d, AnyPin>, sda: Peri<'d, AnyPin>, config: Config) -> Self {
         let reset = (info.reset)();
         crate::reset::reset(reset);
         crate::reset::unreset_wait(reset);
@@ -632,7 +632,7 @@ impl<M: Mode> I2c<M> {
     }
 }
 
-impl<M: Mode> embedded_hal_02::blocking::i2c::Read for I2c<M> {
+impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Read for I2c<'d, M> {
     type Error = Error;
 
     fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
@@ -640,7 +640,7 @@ impl<M: Mode> embedded_hal_02::blocking::i2c::Read for I2c<M> {
     }
 }
 
-impl<M: Mode> embedded_hal_02::blocking::i2c::Write for I2c<M> {
+impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Write for I2c<'d, M> {
     type Error = Error;
 
     fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Self::Error> {
@@ -648,7 +648,7 @@ impl<M: Mode> embedded_hal_02::blocking::i2c::Write for I2c<M> {
     }
 }
 
-impl<M: Mode> embedded_hal_02::blocking::i2c::WriteRead for I2c<M> {
+impl<'d, M: Mode> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, M> {
     type Error = Error;
 
     fn write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
@@ -656,7 +656,7 @@ impl<M: Mode> embedded_hal_02::blocking::i2c::WriteRead for I2c<M> {
     }
 }
 
-impl<M: Mode> embedded_hal_02::blocking::i2c::Transactional for I2c<M> {
+impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Transactional for I2c<'d, M> {
     type Error = Error;
 
     fn exec(
@@ -696,11 +696,11 @@ impl embedded_hal_1::i2c::Error for Error {
     }
 }
 
-impl<M: Mode> embedded_hal_1::i2c::ErrorType for I2c<M> {
+impl<'d, M: Mode> embedded_hal_1::i2c::ErrorType for I2c<'d, M> {
     type Error = Error;
 }
 
-impl<M: Mode> embedded_hal_1::i2c::I2c for I2c<M> {
+impl<'d, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, M> {
     fn read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Self::Error> {
         self.blocking_read(address, read)
     }
@@ -730,7 +730,7 @@ impl<M: Mode> embedded_hal_1::i2c::I2c for I2c<M> {
     }
 }
 
-impl<A> embedded_hal_async::i2c::I2c<A> for I2c<Async>
+impl<'d, A> embedded_hal_async::i2c::I2c<A> for I2c<'d, Async>
 where
     A: embedded_hal_async::i2c::AddressMode + Into<u16> + 'static,
 {
@@ -776,7 +776,7 @@ where
     }
 }
 
-impl<M: Mode> embassy_embedded_hal::SetConfig for I2c<M> {
+impl<'d, M: Mode> embassy_embedded_hal::SetConfig for I2c<'d, M> {
     type Config = Config;
     type ConfigError = ConfigError;
 

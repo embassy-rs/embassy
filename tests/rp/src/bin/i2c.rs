@@ -26,7 +26,7 @@ bind_interrupts!(struct Irqs {
 const DEV_ADDR: u8 = 0x42;
 
 #[embassy_executor::task]
-async fn device_task(mut dev: i2c_slave::I2cSlave) -> ! {
+async fn device_task(mut dev: i2c_slave::I2cSlave<'static>) -> ! {
     info!("Device start");
 
     let mut count = 0xD0;
@@ -103,7 +103,7 @@ async fn device_task(mut dev: i2c_slave::I2cSlave) -> ! {
     }
 }
 
-async fn controller_task(con: &mut i2c::I2c<i2c::Async>) {
+async fn controller_task(con: &mut i2c::I2c<'static, i2c::Async>) {
     info!("Controller start");
 
     {

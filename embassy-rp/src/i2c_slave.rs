@@ -1,5 +1,6 @@
 //! I2C slave driver.
 use core::future;
+use core::marker::PhantomData;
 use core::task::Poll;
 
 use pac::i2c;
@@ -89,15 +90,16 @@ impl Default for Config {
 }
 
 /// I2CSlave driver.
-pub struct I2cSlave {
+pub struct I2cSlave<'d> {
     info: &'static Info,
     pending_byte: Option<u8>,
     config: Config,
+    phantom: PhantomData<&'d ()>,
 }
 
-impl I2cSlave {
+impl<'d> I2cSlave<'d> {
     /// Create a new instance.
-    pub fn new<'d, T: Instance>(
+    pub fn new<T: Instance>(
         _peri: Peri<'d, T>,
         scl: Peri<'d, impl SclPin<T>>,
         sda: Peri<'d, impl SdaPin<T>>,
@@ -114,6 +116,7 @@ impl I2cSlave {
             info: T::info(),
             pending_byte: None,
             config,
+            phantom: PhantomData,
         };
 
         ret.reset();
