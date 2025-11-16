@@ -18,8 +18,8 @@ use embassy_time::Timer;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-type Spi1Bus = Mutex<NoopRawMutex, Spi<'static, spi::Async>>;
-type I2c1Bus = Mutex<NoopRawMutex, I2c<'static, I2C1, i2c::Async>>;
+type SpiBus = Mutex<NoopRawMutex, Spi<'static, spi::Async>>;
+type I2cBus = Mutex<NoopRawMutex, I2c<i2c::Async>>;
 
 bind_interrupts!(struct Irqs {
     I2C1_IRQ => InterruptHandler<I2C1>;
@@ -32,7 +32,7 @@ async fn main(spawner: Spawner) {
 
     // Shared I2C bus
     let i2c = I2c::new_async(p.I2C1, p.PIN_15, p.PIN_14, Irqs, i2c::Config::default());
-    static I2C_BUS: StaticCell<I2c1Bus> = StaticCell::new();
+    static I2C_BUS: StaticCell<I2cBus> = StaticCell::new();
     let i2c_bus = I2C_BUS.init(Mutex::new(i2c));
 
     spawner.spawn(i2c_task_a(i2c_bus).unwrap());
@@ -41,7 +41,7 @@ async fn main(spawner: Spawner) {
     // Shared SPI bus
     let spi_cfg = spi::Config::default();
     let spi = Spi::new(p.SPI1, p.PIN_10, p.PIN_11, p.PIN_12, p.DMA_CH0, p.DMA_CH1, spi_cfg);
-    static SPI_BUS: StaticCell<Spi1Bus> = StaticCell::new();
+    static SPI_BUS: StaticCell<SpiBus> = StaticCell::new();
     let spi_bus = SPI_BUS.init(Mutex::new(spi));
 
     // Chip select pins for the SPI devices
@@ -53,7 +53,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn i2c_task_a(i2c_bus: &'static I2c1Bus) {
+async fn i2c_task_a(i2c_bus: &'static I2cBus) {
     let i2c_dev = I2cDevice::new(i2c_bus);
     let _sensor = DummyI2cDeviceDriver::new(i2c_dev, 0xC0);
     loop {
@@ -63,7 +63,7 @@ async fn i2c_task_a(i2c_bus: &'static I2c1Bus) {
 }
 
 #[embassy_executor::task]
-async fn i2c_task_b(i2c_bus: &'static I2c1Bus) {
+async fn i2c_task_b(i2c_bus: &'static I2cBus) {
     let i2c_dev = I2cDevice::new(i2c_bus);
     let _sensor = DummyI2cDeviceDriver::new(i2c_dev, 0xDE);
     loop {
@@ -73,7 +73,7 @@ async fn i2c_task_b(i2c_bus: &'static I2c1Bus) {
 }
 
 #[embassy_executor::task]
-async fn spi_task_a(spi_bus: &'static Spi1Bus, cs: Output<'static>) {
+async fn spi_task_a(spi_bus: &'static SpiBus, cs: Output<'static>) {
     let spi_dev = SpiDevice::new(spi_bus, cs);
     let _sensor = DummySpiDeviceDriver::new(spi_dev);
     loop {
@@ -83,7 +83,7 @@ async fn spi_task_a(spi_bus: &'static Spi1Bus, cs: Output<'static>) {
 }
 
 #[embassy_executor::task]
-async fn spi_task_b(spi_bus: &'static Spi1Bus, cs: Output<'static>) {
+async fn spi_task_b(spi_bus: &'static SpiBus, cs: Output<'static>) {
     let spi_dev = SpiDevice::new(spi_bus, cs);
     let _sensor = DummySpiDeviceDriver::new(spi_dev);
     loop {
