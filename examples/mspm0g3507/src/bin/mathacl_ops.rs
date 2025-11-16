@@ -22,12 +22,12 @@ async fn main(_spawner: Spawner) -> ! {
     // in range [-1,1)
     let angle = 0.5;
     match macl.sin(angle, Precision::High) {
-        Ok(res) => info!("sin({}) = {}", angle*180.0, res),
+        Ok(res) => info!("sin({}) = {}", angle * 180.0, res),
         Err(e) => error!("sin Error: {:?}", e),
     }
 
     match macl.cos(angle, Precision::Medium) {
-        Ok(res) => info!("cos({}) = {}", angle*180.0, res),
+        Ok(res) => info!("cos({}) = {}", angle * 180.0, res),
         Err(e) => error!("cos Error: {:?}", e),
     }
 

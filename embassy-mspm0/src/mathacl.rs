@@ -5,10 +5,10 @@
 #![macro_use]
 
 use embassy_hal_internal::PeripheralType;
+use micromath::F32Ext;
 
 use crate::Peri;
 use crate::pac::mathacl::{Mathacl as Regs, vals};
-use micromath::F32Ext;
 
 pub enum Precision {
     High = 31,
@@ -64,7 +64,9 @@ impl Mathacl {
         }
 
         match signed_f32_to_register(angle, 0) {
-            Ok(val) => self.regs.op1().write(|w| {w.set_data(val);}),
+            Ok(val) => self.regs.op1().write(|w| {
+                w.set_data(val);
+            }),
             Err(er) => return Err(er),
         };
 
@@ -142,7 +144,7 @@ fn signed_f32_to_register(data: f32, n_bits: u8) -> Result<u32, Error> {
     let mut m = ((abs - abs.floor()) * (1u32 << shift) as f32).round() as u32;
 
     // Handle trimming integer part
-    if n_bits == 0  && n > 0 {
+    if n_bits == 0 && n > 0 {
         m = 0x7FFFFFFF;
     }
 
@@ -189,7 +191,7 @@ fn register_to_signed_f32(data: u32, n_bits: u8) -> Result<f32, Error> {
     let mut n = if n_bits == 0 {
         0
     } else if shift >= 32 {
-        data & n_mask 
+        data & n_mask
     } else {
         (data >> shift) & n_mask
     };
