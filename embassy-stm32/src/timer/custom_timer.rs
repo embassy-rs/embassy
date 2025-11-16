@@ -252,7 +252,7 @@ impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH3
     /// Setup channel 1 as output
     pub fn etr<#[cfg(afio)] A>(
         self,
-        _pin: if_afio!(impl ExternalTriggerPin<T, A>),
+        _pin: Peri<'d, if_afio!(impl ExternalTriggerPin<T, A>)>,
         filter: FilterValue,
         polarity: Etp,
         trigger_prescaler: Etps,
@@ -282,7 +282,7 @@ impl<'d, T: GeneralInstance4Channel, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4
     /// Setup channel 1 as input
     pub fn ch1_input<#[cfg(afio)] A>(
         self,
-        _pin: if_afio!(impl TimerPin<T, Ch1, A>),
+        _pin: Peri<'d, if_afio!(impl TimerPin<T, Ch1, A>)>,
         filter: FilterValue,
         mode: InputCaptureMode,
         ti_selection: InputTISelection,
@@ -313,7 +313,7 @@ impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH3: ch_mode::Mode, CH4
     /// Setup channel 2 as input
     pub fn ch2_input<#[cfg(afio)] A>(
         self,
-        _pin: if_afio!(impl TimerPin<T, Ch2, A>),
+        _pin: Peri<'d, if_afio!(impl TimerPin<T, Ch2, A>)>,
         filter: FilterValue,
         mode: InputCaptureMode,
         ti_selection: InputTISelection,
@@ -344,7 +344,7 @@ impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH4
     /// Setup channel 3 as input
     pub fn ch3_input<#[cfg(afio)] A>(
         self,
-        _pin: if_afio!(impl TimerPin<T, Ch3, A>),
+        _pin: Peri<'d, if_afio!(impl TimerPin<T, Ch3, A>)>,
         filter: FilterValue,
         mode: InputCaptureMode,
         ti_selection: InputTISelection,
@@ -375,7 +375,7 @@ impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH3
     /// Setup channel 3 as input
     pub fn ch4_input<#[cfg(afio)] A>(
         self,
-        _pin: if_afio!(impl TimerPin<T, Ch3, A>),
+        _pin: Peri<'d, if_afio!(impl TimerPin<T, Ch3, A>)>,
         filter: FilterValue,
         mode: InputCaptureMode,
         ti_selection: InputTISelection,
