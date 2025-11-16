@@ -6,6 +6,7 @@
 #![no_main]
 
 use core::f32::consts::PI;
+
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_mspm0::mathacl::{Mathacl, Precision};

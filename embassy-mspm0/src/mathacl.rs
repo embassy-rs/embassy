@@ -6,6 +6,7 @@
 
 use core::f32::consts::PI;
 use core::marker::PhantomData;
+
 use embassy_hal_internal::PeripheralType;
 use micromath::F32Ext;
 
