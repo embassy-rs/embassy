@@ -2,10 +2,10 @@
 use core::future;
 use core::task::Poll;
 
-use embassy_hal_internal::interrupt::InterruptExt;
 use pac::i2c;
 
 use crate::i2c::{AbortReason, FIFO_SIZE, Info, Instance, InterruptHandler, SclPin, SdaPin, set_up_i2c_pin};
+use crate::interrupt::InterruptExt;
 use crate::interrupt::typelevel::Binding;
 use crate::{Peri, pac};
 
