@@ -7,6 +7,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 #[cfg(not(stm32l0))]
 pub mod complementary_pwm;
+#[cfg(not(stm32l0))]
 pub mod custom_timer;
 pub mod input_capture;
 pub mod low_level;
