@@ -4,6 +4,7 @@
 
 #![macro_use]
 
+use core::f32::consts::PI;
 use embassy_hal_internal::PeripheralType;
 use micromath::F32Ext;
 
@@ -21,7 +22,7 @@ pub enum Precision {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
-    AngleInWrongRange,
+    ValueInWrongRange,
     NBitsTooBig,
 }
 
@@ -53,17 +54,20 @@ impl Mathacl {
     }
 
     /// Internal helper SINCOS function.
-    fn sincos(&mut self, angle: f32, precision: Precision, sin: bool) -> Result<f32, Error> {
+    fn sincos(&mut self, rad: f32, precision: Precision, sin: bool) -> Result<f32, Error> {
         self.regs.ctl().write(|w| {
             w.set_func(vals::Func::SINCOS);
             w.set_numiter(precision as u8);
         });
 
-        if angle > 1.0 || angle < -1.0 {
-            return Err(Error::AngleInWrongRange);
+        if rad > PI || rad < -PI {
+            return Err(Error::ValueInWrongRange);
         }
 
-        match signed_f32_to_register(angle, 0) {
+        // TODO: make f32 division on CPU
+        let native = rad / PI;
+
+        match signed_f32_to_register(native, 0) {
             Ok(val) => self.regs.op1().write(|w| {
                 w.set_data(val);
             }),
@@ -80,13 +84,13 @@ impl Mathacl {
     }
 
     /// Calsulates trigonometric sine operation in the range [-1,1) with a give precision.
-    pub fn sin(&mut self, angle: f32, precision: Precision) -> Result<f32, Error> {
-        self.sincos(angle, precision, true)
+    pub fn sin(&mut self, rad: f32, precision: Precision) -> Result<f32, Error> {
+        self.sincos(rad, precision, true)
     }
 
     /// Calsulates trigonometric cosine operation in the range [-1,1) with a give precision.
-    pub fn cos(&mut self, angle: f32, precision: Precision) -> Result<f32, Error> {
-        self.sincos(angle, precision, false)
+    pub fn cos(&mut self, rad: f32, precision: Precision) -> Result<f32, Error> {
+        self.sincos(rad, precision, false)
     }
 }
 

@@ -5,6 +5,7 @@
 #![no_std]
 #![no_main]
 
+use core::f32::consts::PI;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_mspm0::mathacl::{Mathacl, Precision};
@@ -19,15 +20,15 @@ async fn main(_spawner: Spawner) -> ! {
 
     let mut macl = Mathacl::new(d.MATHACL);
 
-    // in range [-1,1)
-    let angle = 0.5;
-    match macl.sin(angle, Precision::High) {
-        Ok(res) => info!("sin({}) = {}", angle * 180.0, res),
+    // value radians [-PI; PI]
+    let rads = PI * 0.5;
+    match macl.sin(rads, Precision::High) {
+        Ok(res) => info!("sin({}) = {}", rads, res),
         Err(e) => error!("sin Error: {:?}", e),
     }
 
-    match macl.cos(angle, Precision::Medium) {
-        Ok(res) => info!("cos({}) = {}", angle * 180.0, res),
+    match macl.cos(rads, Precision::Medium) {
+        Ok(res) => info!("cos({}) = {}", rads, res),
         Err(e) => error!("cos Error: {:?}", e),
     }
 
