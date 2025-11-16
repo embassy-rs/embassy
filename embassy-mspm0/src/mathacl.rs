@@ -5,6 +5,7 @@
 #![macro_use]
 
 use core::f32::consts::PI;
+use core::marker::PhantomData;
 use embassy_hal_internal::PeripheralType;
 use micromath::F32Ext;
 
@@ -26,14 +27,15 @@ pub enum Error {
     NBitsTooBig,
 }
 
-#[derive(Copy, Clone)]
-pub struct Mathacl {
+pub struct Mathacl<'d, T: Instance> {
+    _peri: Peri<'d, T>,
     regs: &'static Regs,
+    _phantom: PhantomData<T>,
 }
 
-impl Mathacl {
+impl<'d, T: Instance> Mathacl<'d, T> {
     /// Mathacl initialization.
-    pub fn new<T: Instance>(_instance: Peri<T>) -> Self {
+    pub fn new(instance: Peri<'d, T>) -> Self {
         // Init power
         T::regs().gprcm(0).rstctl().write(|w| {
             w.set_resetstkyclr(vals::Resetstkyclr::CLR);
@@ -50,7 +52,11 @@ impl Mathacl {
         // init delay, 16 cycles
         cortex_m::asm::delay(16);
 
-        Self { regs: T::regs() }
+        Self {
+            _peri: instance,
+            regs: T::regs(),
+            _phantom: PhantomData,
+        }
     }
 
     /// Internal helper SINCOS function.
