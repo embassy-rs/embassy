@@ -591,6 +591,7 @@ fn generate_peripheral_instances() -> TokenStream {
             "i2c" => Some(quote! { impl_i2c_instance!(#peri, #fifo_size); }),
             "wwdt" => Some(quote! { impl_wwdt_instance!(#peri); }),
             "adc" => Some(quote! { impl_adc_instance!(#peri); }),
+            "mathacl" => Some(quote! { impl_mathacl_instance!(#peri); }),
             _ => None,
         };
 

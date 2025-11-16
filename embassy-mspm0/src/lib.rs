@@ -19,6 +19,7 @@ pub mod dma;
 pub mod gpio;
 pub mod i2c;
 pub mod i2c_target;
+pub mod mathacl;
 pub mod timer;
 pub mod uart;
 pub mod wwdt;
