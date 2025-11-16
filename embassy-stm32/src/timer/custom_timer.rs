@@ -145,8 +145,6 @@ macro_rules! set_field {
             trigger_source,
             trig_source,
             slave_mode,
-            #[cfg(afio)]
-            _a,
         } = $this;
         CustomPwmBuilder {
             tim $(: $tim)*,
@@ -161,8 +159,6 @@ macro_rules! set_field {
             trigger_source $(: $trigger_source)*,
             trig_source $(: $trig_source)*,
             slave_mode $(: $slave_mode)*,
-            #[cfg(afio)]
-            _a,
         }}
     };
 }
@@ -177,7 +173,6 @@ pub struct CustomPwmBuilder<
     CH4: ch_mode::Mode,
     ETR,
     TS,
-    #[cfg(afio)] A = crate::gpio::AfioRemap<0>,
 > {
     tim: Peri<'d, T>,
     ch1: CH1,
@@ -193,12 +188,9 @@ pub struct CustomPwmBuilder<
     one_pulse_mode: bool,
     counting_mode: CountingMode,
     speed: Speed,
-
-    #[cfg(afio)]
-    _a: PhantomData<A>,
 }
 
-impl<'d, T: CoreInstance, #[cfg(afio)] A>
+impl<'d, T: CoreInstance>
     if_afio!(
         CustomPwmBuilder<
             'd,
@@ -209,7 +201,6 @@ impl<'d, T: CoreInstance, #[cfg(afio)] A>
             ch_mode::InternalOutput,
             external_trigger::Unused,
             trigger_source::Internal,
-            A,
         >
     )
 {
@@ -228,22 +219,12 @@ impl<'d, T: CoreInstance, #[cfg(afio)] A>
             trigger_source: trigger_source::Internal,
             trig_source: Ts::ITR0,
             slave_mode: SlaveMode::DISABLED,
-            _a: PhantomData,
         }
     }
 }
 
-impl<
-    'd,
-    T: CoreInstance,
-    CH1: ch_mode::Mode,
-    CH2: ch_mode::Mode,
-    CH3: ch_mode::Mode,
-    CH4: ch_mode::Mode,
-    ETR,
-    TS,
-    #[cfg(afio)] A,
-> if_afio!(CustomPwmBuilder<'d, T, CH1, CH2, CH3, CH4, ETR, TS, A>)
+impl<'d, T: CoreInstance, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode, ETR, TS>
+    CustomPwmBuilder<'d, T, CH1, CH2, CH3, CH4, ETR, TS>
 {
     /// Set manually frequency by specifying prescaler and period
     pub fn prescaler_and_period(mut self, prescaler: u16, period_ticks: u32) -> Self {
@@ -267,39 +248,23 @@ impl<
     }
 }
 
-impl<
-    'd,
-    T: GeneralInstance4Channel,
-    CH1: ch_mode::Mode,
-    CH2: ch_mode::Mode,
-    CH3: ch_mode::Mode,
-    CH4: ch_mode::Mode,
-    TS,
-    #[cfg(afio)] A,
-> if_afio!(CustomPwmBuilder<'d, T, CH1, CH2, CH3, CH4, external_trigger::Unused, TS, A>)
+impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode, TS>
+    CustomPwmBuilder<'d, T, CH1, CH2, CH3, CH4, external_trigger::Unused, TS>
 {
     /// Setup channel 1 as output
-    pub fn etr(
+    pub fn etr<#[cfg(afio)] A>(
         self,
         _pin: if_afio!(impl ExternalTriggerPin<T, A>),
         filter: FilterValue,
         polarity: Etp,
         trigger_prescaler: Etps,
-    ) -> if_afio!(CustomPwmBuilder<'d, T, CH1, CH2, CH3, CH4, external_trigger::Etr, TS, A>) {
+    ) -> CustomPwmBuilder<'d, T, CH1, CH2, CH3, CH4, external_trigger::Etr, TS> {
         set_field!(self, etr: external_trigger::Etr{filter, polarity, trigger_prescaler })
     }
 }
 
-impl<
-    'd,
-    T: GeneralInstance4Channel,
-    CH2: ch_mode::Mode,
-    CH3: ch_mode::Mode,
-    CH4: ch_mode::Mode,
-    ETR,
-    TS,
-    #[cfg(afio)] A,
-> if_afio!(CustomPwmBuilder<'d, T, ch_mode::InternalOutput, CH2, CH3, CH4, ETR, TS, A>)
+impl<'d, T: GeneralInstance4Channel, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode, ETR, TS>
+    CustomPwmBuilder<'d, T, ch_mode::InternalOutput, CH2, CH3, CH4, ETR, TS>
 {
     /// Set ch1 to be used as internal output, can be used as time base etc
     pub fn ch1_internal(self, duty: u16) -> Self {
@@ -307,38 +272,30 @@ impl<
     }
 
     /// Setup channel 1 as output
-    pub fn ch1(
+    pub fn ch1<#[cfg(afio)] A>(
         self,
         _pin: if_afio!(PwmPin<'d, T, Ch1, A>),
         mode: OutputCompareMode,
         duty: u16,
-    ) -> if_afio!(CustomPwmBuilder<'d, T, ch_mode::Output, CH2, CH3, CH4, ETR, TS, A>) {
+    ) -> CustomPwmBuilder<'d, T, ch_mode::Output, CH2, CH3, CH4, ETR, TS> {
         set_field!(self, ch1: ch_mode::Output { mode, duty })
     }
 
     /// Setup channel 1 as input
-    pub fn ch1_input(
+    pub fn ch1_input<#[cfg(afio)] A>(
         self,
         _pin: if_afio!(impl TimerPin<T, Ch1, A>),
         filter: FilterValue,
         mode: InputCaptureMode,
         ti_selection: InputTISelection,
         prescaler_factor: u8,
-    ) -> if_afio!(CustomPwmBuilder<'d, T, ch_mode::Input, CH2, CH3, CH4, ETR, TS, A>) {
+    ) -> CustomPwmBuilder<'d, T, ch_mode::Input, CH2, CH3, CH4, ETR, TS> {
         set_field!(self, ch1: ch_mode::Input { filter, mode, ti_selection, prescaler_factor })
     }
 }
 
-impl<
-    'd,
-    T: GeneralInstance4Channel,
-    CH1: ch_mode::Mode,
-    CH3: ch_mode::Mode,
-    CH4: ch_mode::Mode,
-    ETR,
-    TS,
-    #[cfg(afio)] A,
-> if_afio!(CustomPwmBuilder<'d, T, CH1, ch_mode::InternalOutput, CH3, CH4, ETR, TS, A>)
+impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode, ETR, TS>
+    CustomPwmBuilder<'d, T, CH1, ch_mode::InternalOutput, CH3, CH4, ETR, TS>
 {
     /// Set ch2 to be used as internal output, can be used as time base etc
     pub fn ch2_internal(self, duty: u16) -> Self {
@@ -346,38 +303,30 @@ impl<
     }
 
     /// Setup channel 2 as output
-    pub fn ch2(
+    pub fn ch2<#[cfg(afio)] A>(
         self,
         _pin: if_afio!(PwmPin<'d, T, Ch2, A>),
         mode: OutputCompareMode,
         duty: u16,
-    ) -> if_afio!(CustomPwmBuilder<'d, T, CH1, ch_mode::Output, CH3, CH4, ETR, TS, A>) {
+    ) -> CustomPwmBuilder<'d, T, CH1, ch_mode::Output, CH3, CH4, ETR, TS> {
         set_field!(self, ch2: ch_mode::Output { mode, duty })
     }
 
     /// Setup channel 2 as input
-    pub fn ch2_input(
+    pub fn ch2_input<#[cfg(afio)] A>(
         self,
         _pin: if_afio!(impl TimerPin<T, Ch2, A>),
         filter: FilterValue,
         mode: InputCaptureMode,
         ti_selection: InputTISelection,
         prescaler_factor: u8,
-    ) -> if_afio!(CustomPwmBuilder<'d, T, CH1, ch_mode::Input, CH3, CH4, ETR, TS, A>) {
+    ) -> CustomPwmBuilder<'d, T, CH1, ch_mode::Input, CH3, CH4, ETR, TS> {
         set_field!(self, ch2: ch_mode::Input { filter, mode, ti_selection, prescaler_factor })
     }
 }
 
-impl<
-    'd,
-    T: GeneralInstance4Channel,
-    CH1: ch_mode::Mode,
-    CH2: ch_mode::Mode,
-    CH4: ch_mode::Mode,
-    ETR,
-    TS,
-    #[cfg(afio)] A,
-> if_afio!(CustomPwmBuilder<'d, T, CH1, CH2, ch_mode::InternalOutput, CH4, ETR, TS, A>)
+impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH4: ch_mode::Mode, ETR, TS>
+    CustomPwmBuilder<'d, T, CH1, CH2, ch_mode::InternalOutput, CH4, ETR, TS>
 {
     /// Set ch3 to be used as internal output, can be used as time base etc
     pub fn ch3_internal(self, duty: u16) -> Self {
@@ -385,38 +334,30 @@ impl<
     }
 
     /// Setup channel 3 as output
-    pub fn ch3(
+    pub fn ch3<#[cfg(afio)] A>(
         self,
         _pin: if_afio!(PwmPin<'d, T, Ch3, A>),
         mode: OutputCompareMode,
         duty: u16,
-    ) -> if_afio!(CustomPwmBuilder<'d, T, CH1, CH2, ch_mode::Output, CH4, ETR, TS, A>) {
+    ) -> CustomPwmBuilder<'d, T, CH1, CH2, ch_mode::Output, CH4, ETR, TS> {
         set_field!(self, ch3: ch_mode::Output { mode, duty })
     }
 
     /// Setup channel 3 as input
-    pub fn ch3_input(
+    pub fn ch3_input<#[cfg(afio)] A>(
         self,
         _pin: if_afio!(impl TimerPin<T, Ch3, A>),
         filter: FilterValue,
         mode: InputCaptureMode,
         ti_selection: InputTISelection,
         prescaler_factor: u8,
-    ) -> if_afio!(CustomPwmBuilder<'d, T, CH1, CH2, ch_mode::Input, CH4, ETR, TS, A>) {
+    ) -> CustomPwmBuilder<'d, T, CH1, CH2, ch_mode::Input, CH4, ETR, TS> {
         set_field!(self, ch3: ch_mode::Input { filter, mode, ti_selection, prescaler_factor })
     }
 }
 
-impl<
-    'd,
-    T: GeneralInstance4Channel,
-    CH1: ch_mode::Mode,
-    CH2: ch_mode::Mode,
-    CH3: ch_mode::Mode,
-    ETR,
-    TS,
-    #[cfg(afio)] A,
-> if_afio!(CustomPwmBuilder<'d, T, CH1, CH2, CH3, ch_mode::InternalOutput, ETR, TS, A>)
+impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH3: ch_mode::Mode, ETR, TS>
+    CustomPwmBuilder<'d, T, CH1, CH2, CH3, ch_mode::InternalOutput, ETR, TS>
 {
     /// Set ch4 to be used as internal output, can be used as time base etc
     pub fn ch4_internal(self, duty: u16) -> Self {
@@ -424,24 +365,24 @@ impl<
     }
 
     /// Setup channel 4 as output
-    pub fn ch4(
+    pub fn ch4<#[cfg(afio)] A>(
         self,
         _pin: if_afio!(PwmPin<'d, T, Ch4, A>),
         mode: OutputCompareMode,
         duty: u16,
-    ) -> if_afio!(CustomPwmBuilder<'d, T, CH1, CH2, CH3, ch_mode::Output, ETR, TS, A>) {
+    ) -> CustomPwmBuilder<'d, T, CH1, CH2, CH3, ch_mode::Output, ETR, TS> {
         set_field!(self, ch4: ch_mode::Output { mode, duty })
     }
 
     /// Setup channel 3 as input
-    pub fn ch4_input(
+    pub fn ch4_input<#[cfg(afio)] A>(
         self,
         _pin: if_afio!(impl TimerPin<T, Ch3, A>),
         filter: FilterValue,
         mode: InputCaptureMode,
         ti_selection: InputTISelection,
         prescaler_factor: u8,
-    ) -> if_afio!(CustomPwmBuilder<'d, T, CH1, CH2, CH3, ch_mode::Input, ETR, TS, A>) {
+    ) -> CustomPwmBuilder<'d, T, CH1, CH2, CH3, ch_mode::Input, ETR, TS> {
         set_field!(self, ch4: ch_mode::Input { filter, mode, ti_selection, prescaler_factor })
     }
 }
@@ -467,21 +408,14 @@ pub enum TriggerSource {
     Filtered,
 }
 
-impl<
-    'd,
-    T: GeneralInstance4Channel,
-    CH1: ch_mode::Mode,
-    CH2: ch_mode::Mode,
-    CH3: ch_mode::Mode,
-    CH4: ch_mode::Mode,
-    #[cfg(afio)] A,
-> if_afio!(CustomPwmBuilder<'d, T, CH1, CH2, CH3, CH4, external_trigger::Etr, trigger_source::Internal, A>)
+impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode>
+    CustomPwmBuilder<'d, T, CH1, CH2, CH3, CH4, external_trigger::Etr, trigger_source::Internal>
 {
     /// Setup timer to be triggered from ch1 compare match event
     pub fn trigger_from_etr(
         self,
         mode: TriggerMode,
-    ) -> if_afio!(CustomPwmBuilder<'d, T, CH1, CH2, CH3, CH4, external_trigger::Etr, trigger_source::Etr, A>) {
+    ) -> CustomPwmBuilder<'d, T, CH1, CH2, CH3, CH4, external_trigger::Etr, trigger_source::Etr> {
         set_field!(self, trigger_source: trigger_source::Etr,
             trig_source: Ts::TI1F_ED,
             slave_mode: match mode {
@@ -494,15 +428,15 @@ impl<
     }
 }
 
-impl<'d, T: GeneralInstance4Channel, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode, ETR, #[cfg(afio)] A>
-    if_afio!(CustomPwmBuilder<'d, T, ch_mode::Input, CH2, CH3, CH4, ETR, trigger_source::Internal, A>)
+impl<'d, T: GeneralInstance4Channel, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode, ETR>
+    CustomPwmBuilder<'d, T, ch_mode::Input, CH2, CH3, CH4, ETR, trigger_source::Internal>
 {
     /// Setup timer to be triggered from ch1 compare match event
     pub fn trigger_from_ch1(
         self,
         mode: TriggerMode,
         source: TriggerSource,
-    ) -> if_afio!(CustomPwmBuilder<'d, T, ch_mode::Input, CH2, CH3, CH4, ETR, trigger_source::Ch1, A>) {
+    ) -> CustomPwmBuilder<'d, T, ch_mode::Input, CH2, CH3, CH4, ETR, trigger_source::Ch1> {
         set_field!(self, trigger_source: trigger_source::Ch1,
             trig_source: match source {
                 TriggerSource::EdgeDetector => Ts::TI1F_ED,
@@ -519,13 +453,13 @@ impl<'d, T: GeneralInstance4Channel, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4
 }
 
 impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode, ETR, #[cfg(afio)] A>
-    if_afio!(CustomPwmBuilder<'d, T, CH1, ch_mode::Input, CH3, CH4, ETR, trigger_source::Internal, A>)
+    CustomPwmBuilder<'d, T, CH1, ch_mode::Input, CH3, CH4, ETR, trigger_source::Internal>
 {
     /// Setup timer to be triggered from ch1 compare match event
     pub fn trigger_from_ch2(
         self,
         mode: TriggerMode,
-    ) -> if_afio!(CustomPwmBuilder<'d, T, CH1, ch_mode::Input, CH3, CH4, ETR, trigger_source::Ch2, A>) {
+    ) -> CustomPwmBuilder<'d, T, CH1, ch_mode::Input, CH3, CH4, ETR, trigger_source::Ch2> {
         set_field!(self, trigger_source: trigger_source::Ch2, trig_source: Ts::TI2FP2, slave_mode: match mode {
             TriggerMode::ResetMode => SlaveMode::RESET_MODE,
             TriggerMode::GatedMode => SlaveMode::GATED_MODE,
@@ -544,7 +478,7 @@ impl<
     ETR: external_trigger::Trigger,
     TS,
     A,
-> if_afio!(CustomPwmBuilder<'d, T, CH1, CH2, CH3, ch_mode::InternalOutput, ETR, TS, A>)
+> CustomPwmBuilder<'d, T, CH1, CH2, CH3, ch_mode::InternalOutput, ETR, TS>
 {
     /// Finalize configuration and create the [CustomPwm]
     pub fn finalize(self) -> CustomPwm<'d, T> {
