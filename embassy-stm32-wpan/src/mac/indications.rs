@@ -3,6 +3,8 @@ use core::slice;
 use smoltcp::wire::Ieee802154FrameType;
 use smoltcp::wire::ieee802154::Frame;
 
+use crate::mac::typedefs::MacAddressAndMode;
+
 use super::consts::MAX_PENDING_ADDRESS;
 use super::event::ParseableMacEvent;
 use super::typedefs::{
@@ -76,6 +78,22 @@ pub struct BeaconNotifyIndication {
 }
 
 impl ParseableMacEvent for BeaconNotifyIndication {}
+
+impl BeaconNotifyIndication {
+    pub fn payload<'a>(&'a self) -> &'a mut [u8] {
+        unsafe { slice::from_raw_parts_mut(self.sdu_ptr as *mut _, self.sdu_length as usize) }
+    }
+}
+
+pub fn write_frame_from_beacon_indication<'a, T: AsRef<[u8]> + AsMut<[u8]>>(
+    data: &'a BeaconNotifyIndication,
+    buffer: &'a mut T,
+) {
+    let mut frame = Frame::new_unchecked(buffer);
+
+    frame.set_frame_type(Ieee802154FrameType::Beacon);
+    frame.set_sequence_number(data.bsn);
+}
 
 /// MLME COMM STATUS Indication which is used by the MAC to indicate a communications status
 #[repr(C)]
@@ -256,13 +274,13 @@ impl DataIndication {
 pub fn write_frame_from_data_indication<'a, T: AsRef<[u8]> + AsMut<[u8]>>(data: &'a DataIndication, buffer: &'a mut T) {
     let mut frame = Frame::new_unchecked(buffer);
 
-    // TODO: complete frame creation
     frame.set_frame_type(Ieee802154FrameType::Data);
-    frame.set_dst_addr(data.dst_address.into());
-    frame.set_src_addr(data.src_address.into());
+    frame.set_src_addr(MacAddressAndMode(data.src_address, data.src_addr_mode).into());
+    frame.set_dst_addr(MacAddressAndMode(data.dst_address, data.dst_addr_mode).into());
     frame.set_dst_pan_id(data.dst_pan_id.into());
     frame.set_src_pan_id(data.src_pan_id.into());
     frame.set_sequence_number(data.dsn);
+    frame.set_security_enabled(data.security_level == SecurityLevel::Secured);
 
     // No way around the copy with the current API
     frame.payload_mut().unwrap().copy_from_slice(data.payload());

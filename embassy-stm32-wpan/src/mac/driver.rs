@@ -11,7 +11,7 @@ use embassy_sync::mutex::Mutex;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::mac::event::MacEvent;
-use crate::mac::indications::write_frame_from_data_indication;
+use crate::mac::indications::{write_frame_from_beacon_indication, write_frame_from_data_indication};
 use crate::mac::runner::{BUF_SIZE, ZeroCopyPubSub};
 use crate::mac::{Control, MTU, Runner};
 use crate::sub::mac::{Mac, MacRx, MacTx};
@@ -183,6 +183,7 @@ impl<'d> embassy_net_driver::RxToken for RxToken<'d> {
         let mut buffer = [0u8; MTU];
         match self.rx.try_receive().unwrap() {
             MacEvent::McpsDataInd(data_event) => write_frame_from_data_indication(data_event, &mut buffer),
+            MacEvent::MlmeBeaconNotifyInd(data_event) => write_frame_from_beacon_indication(data_event, &mut buffer),
             _ => {}
         };
 
