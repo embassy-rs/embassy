@@ -319,7 +319,7 @@ pub trait Gate {
 ///
 /// This peripheral must not yet be in use prior to calling `enable_and_reset`.
 #[inline]
-pub(crate) unsafe fn enable_and_reset<G: Gate>(cfg: &G::MrccPeriphConfig) -> Result<u32, ClockError> {
+pub unsafe fn enable_and_reset<G: Gate>(cfg: &G::MrccPeriphConfig) -> Result<u32, ClockError> {
     let freq = enable::<G>(cfg).inspect_err(|_| disable::<G>())?;
     pulse_reset::<G>();
     Ok(freq)
@@ -334,7 +334,7 @@ pub(crate) unsafe fn enable_and_reset<G: Gate>(cfg: &G::MrccPeriphConfig) -> Res
 ///
 /// This peripheral must not yet be in use prior to calling `enable`.
 #[inline]
-pub(crate) unsafe fn enable<G: Gate>(cfg: &G::MrccPeriphConfig) -> Result<u32, ClockError> {
+pub unsafe fn enable<G: Gate>(cfg: &G::MrccPeriphConfig) -> Result<u32, ClockError> {
     G::enable_clock();
     while !G::is_clock_enabled() {}
     core::arch::asm!("dsb sy; isb sy", options(nomem, nostack, preserves_flags));
@@ -357,14 +357,14 @@ pub(crate) unsafe fn enable<G: Gate>(cfg: &G::MrccPeriphConfig) -> Result<u32, C
 /// This peripheral must no longer be in use prior to calling `enable`.
 #[allow(dead_code)]
 #[inline]
-pub(crate) unsafe fn disable<G: Gate>() {
+pub unsafe fn disable<G: Gate>() {
     G::disable_clock();
 }
 
 /// Check whether a gate is currently enabled.
 #[allow(dead_code)]
 #[inline]
-pub(crate) fn is_clock_enabled<G: Gate>() -> bool {
+pub fn is_clock_enabled<G: Gate>() -> bool {
     G::is_clock_enabled()
 }
 
@@ -376,7 +376,7 @@ pub(crate) fn is_clock_enabled<G: Gate>() -> bool {
 ///
 /// This peripheral must not yet be in use prior to calling `release_reset`.
 #[inline]
-pub(crate) unsafe fn release_reset<G: Gate>() {
+pub unsafe fn release_reset<G: Gate>() {
     G::release_reset();
 }
 
@@ -388,13 +388,13 @@ pub(crate) unsafe fn release_reset<G: Gate>() {
 ///
 /// This peripheral must not yet be in use prior to calling `assert_reset`.
 #[inline]
-pub(crate) unsafe fn assert_reset<G: Gate>() {
+pub unsafe fn assert_reset<G: Gate>() {
     G::assert_reset();
 }
 
 /// Check whether the peripheral is held in reset.
 #[inline]
-pub(crate) unsafe fn is_reset_released<G: Gate>() -> bool {
+pub unsafe fn is_reset_released<G: Gate>() -> bool {
     G::is_reset_released()
 }
 
@@ -406,7 +406,7 @@ pub(crate) unsafe fn is_reset_released<G: Gate>() -> bool {
 ///
 /// This peripheral must not yet be in use prior to calling `release_reset`.
 #[inline]
-pub(crate) unsafe fn pulse_reset<G: Gate>() {
+pub unsafe fn pulse_reset<G: Gate>() {
     G::assert_reset();
     cortex_m::asm::nop();
     cortex_m::asm::nop();

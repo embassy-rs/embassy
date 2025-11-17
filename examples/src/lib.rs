@@ -12,20 +12,20 @@ use {embassy_mcxa as hal, panic_probe as _};
 pub unsafe fn init_uart2_pins(_p: &hal::pac::Peripherals) {
     // NOTE: Lpuart has been updated to properly enable + reset its own clocks.
     // GPIO has not.
-    _ = clocks::enable_and_reset::<hal::peripherals::PORT2>(&clocks::NoConfig);
+    _ = clocks::enable_and_reset::<hal::peripherals::PORT2>(&clocks::periph_helpers::NoConfig);
     pins::configure_uart2_pins_port2();
 }
 
 /// Initialize clocks for the LED GPIO/PORT used by the blink example.
 pub unsafe fn init_led_gpio_clocks(_p: &hal::pac::Peripherals) {
-    _ = clocks::enable_and_reset::<hal::peripherals::PORT3>(&clocks::NoConfig);
-    _ = clocks::enable_and_reset::<hal::peripherals::GPIO3>(&clocks::NoConfig);
+    _ = clocks::enable_and_reset::<hal::peripherals::PORT3>(&clocks::periph_helpers::NoConfig);
+    _ = clocks::enable_and_reset::<hal::peripherals::GPIO3>(&clocks::periph_helpers::NoConfig);
 }
 
 /// Initialize clocks and pin muxing for ADC.
 pub unsafe fn init_adc_pins(_p: &hal::pac::Peripherals) {
     // NOTE: Lpuart has been updated to properly enable + reset its own clocks.
     // GPIO has not.
-    _ = clocks::enable_and_reset::<hal::peripherals::PORT1>(&clocks::NoConfig);
+    _ = clocks::enable_and_reset::<hal::peripherals::PORT1>(&clocks::periph_helpers::NoConfig);
     pins::configure_adc_pins();
 }
