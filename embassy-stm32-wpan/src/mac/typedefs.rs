@@ -140,9 +140,19 @@ impl From<Address> for MacAddress {
     }
 }
 
-impl From<MacAddress> for Address {
-    fn from(_value: MacAddress) -> Self {
-        todo!()
+pub struct MacAddressAndMode(pub MacAddress, pub AddressMode);
+
+impl From<MacAddressAndMode> for Address {
+    fn from(mac_address_and_mode: MacAddressAndMode) -> Self {
+        let address = mac_address_and_mode.0;
+        let mode = mac_address_and_mode.1;
+
+        match mode {
+            AddressMode::Short => Address::Short(unsafe { address.short }),
+            AddressMode::Extended => Address::Extended(unsafe { address.extended }),
+            AddressMode::NoAddress => Address::Absent,
+            AddressMode::Reserved => Address::Absent,
+        }
     }
 }
 
@@ -377,7 +387,7 @@ numeric_enum! {
 
 numeric_enum! {
     #[repr(u8)]
-    #[derive(Default, Clone, Copy, Debug)]
+    #[derive(Default, Clone, Copy, Debug, PartialEq)]
     #[cfg_attr(feature = "defmt", derive(defmt::Format))]
     pub enum SecurityLevel {
         /// MAC Unsecured Mode Security
