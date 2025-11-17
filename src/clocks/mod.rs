@@ -87,7 +87,12 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     operator.configure_firc_clocks()?;
     operator.configure_sirc_clocks()?;
     operator.configure_fro16k_clocks()?;
-    // TODO, everything downstream
+
+    // For now, just use FIRC as the main/cpu clock, which should already be
+    // the case on reset
+    assert!(operator.scg0.rccr().read().scs().is_firc());
+    assert_eq!(operator.syscon.ahbclkdiv().read().div().bits(), 0);
+    operator.clocks.main_clk = Some(operator.clocks.fro_hf_root.clone().unwrap());
 
     critical_section::with(|cs| {
         let mut clks = CLOCKS.borrow_ref_mut(cs);
