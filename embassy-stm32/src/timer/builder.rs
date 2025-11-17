@@ -13,99 +13,81 @@ use stm32_metapac::timer::vals::{Etp, Etps, FilterValue, Ts};
 use crate::{
     time::Hertz,
     timer::{
-        Ch1, Ch2, Ch3, Ch4, CoreInstance, ExternalTriggerPin, GeneralInstance4Channel, TimerPin,
+        self, Ch1, CoreInstance, ExternalTriggerPin, GeneralInstance4Channel, TimerPin,
         low_level::{CountingMode, InputCaptureMode, InputTISelection, OutputCompareMode, SlaveMode, Timer},
         simple_pwm::PwmPin,
     },
 };
 
-mod ch_mode {
-    use crate::timer::{
-        Channel,
-        low_level::{InputCaptureMode, InputTISelection},
-    };
-
-    use super::*;
-
-    pub trait Mode {
-        fn init<T: GeneralInstance4Channel>(self, channel: Channel, tim: &mut Timer<'_, T>);
-    }
-
-    pub struct InternalOutput {
-        pub(crate) duty: u16,
-    }
-
+enum ChannelMode {
+    InternalOutput {
+        duty: u16,
+    },
     // TODO: Look into the capture mode configuration Timer::set_input_capture_mode
-    pub struct Input {
-        pub(crate) filter: FilterValue,
-        pub(crate) mode: InputCaptureMode,
-        pub(crate) ti_selection: InputTISelection,
-        pub(crate) prescaler_factor: u8,
-    }
-    pub struct Output {
-        pub(crate) mode: OutputCompareMode,
-        pub(crate) duty: u16,
-    }
+    Input {
+        filter: FilterValue,
+        mode: InputCaptureMode,
+        ti_selection: InputTISelection,
+        prescaler_factor: u8,
+    },
+    Output {
+        mode: OutputCompareMode,
+        duty: u16,
+    },
+}
 
-    impl Mode for InternalOutput {
-        fn init<T: GeneralInstance4Channel>(self, channel: Channel, tim: &mut Timer<'_, T>) {
-            tim.set_output_compare_mode(channel, OutputCompareMode::Frozen);
-            tim.set_compare_value(channel, self.duty as u32)
-        }
-    }
-
-    impl Mode for Input {
-        fn init<T: GeneralInstance4Channel>(self, channel: Channel, tim: &mut Timer<'_, T>) {
-            tim.set_input_capture_filter(channel, self.filter);
-            tim.set_input_capture_mode(channel, self.mode);
-            tim.set_input_capture_prescaler(channel, self.prescaler_factor);
-            tim.set_input_ti_selection(channel, self.ti_selection);
-        }
-    }
-
-    impl Mode for Output {
-        fn init<T: GeneralInstance4Channel>(self, channel: Channel, tim: &mut Timer<'_, T>) {
-            tim.set_output_compare_mode(channel, self.mode);
-            tim.set_compare_value(channel, self.duty as u32)
+impl ChannelMode {
+    fn init<T: GeneralInstance4Channel>(self, channel: timer::Channel, tim: &mut Timer<'_, T>) {
+        match self {
+            ChannelMode::InternalOutput { duty } => {
+                tim.set_output_compare_mode(channel, OutputCompareMode::Frozen);
+                tim.set_compare_value(channel, duty as u32)
+            }
+            ChannelMode::Input {
+                filter,
+                mode,
+                ti_selection,
+                prescaler_factor,
+            } => {
+                tim.set_input_capture_filter(channel, filter);
+                tim.set_input_capture_mode(channel, mode);
+                tim.set_input_capture_prescaler(channel, prescaler_factor);
+                tim.set_input_ti_selection(channel, ti_selection);
+            }
+            ChannelMode::Output { mode, duty } => {
+                tim.set_output_compare_mode(channel, mode);
+                tim.set_compare_value(channel, duty as u32)
+            }
         }
     }
 }
 
-mod trigger_source {
-    pub struct Internal;
-    pub struct Ch1;
-    pub struct Ch2;
-    pub struct Etr;
+enum ExternalTrigger {
+    Unused,
+    Etr {
+        filter: FilterValue,
+        polarity: Etp,
+        trigger_prescaler: Etps,
+    },
 }
 
-mod external_trigger {
-    use stm32_metapac::timer::vals::{Etp, Etps};
-
-    use super::*;
-
-    pub trait Trigger {
-        fn init<T: GeneralInstance4Channel>(self, tim: &mut Timer<'_, T>);
-    }
-    pub struct Unused;
-    pub struct Etr {
-        pub(crate) filter: FilterValue,
-        pub(crate) polarity: Etp,
-        pub(crate) trigger_prescaler: Etps,
-    }
-
-    impl Trigger for Unused {
-        fn init<T: GeneralInstance4Channel>(self, _tim: &mut Timer<'_, T>) {}
-    }
-
-    impl Trigger for Etr {
-        fn init<T: GeneralInstance4Channel>(self, tim: &mut Timer<'_, T>) {
-            tim.regs_gp16().af1().modify(|w| w.set_etrsel(0)); // 0: ETR input
-            tim.regs_gp16().smcr().modify(|w| {
-                w.set_etf(self.filter);
-                w.set_ece(false); // <--- TODO: I really need to look into how to set this and the SMS bits
-                w.set_etp(self.polarity);
-                w.set_etps(self.trigger_prescaler);
-            });
+impl ExternalTrigger {
+    fn init<T: GeneralInstance4Channel>(self, tim: &mut Timer<'_, T>) {
+        match self {
+            ExternalTrigger::Unused => (),
+            ExternalTrigger::Etr {
+                filter,
+                polarity,
+                trigger_prescaler,
+            } => {
+                tim.regs_gp16().af1().modify(|w| w.set_etrsel(0)); // 0: ETR input
+                tim.regs_gp16().smcr().modify(|w| {
+                    w.set_etf(filter);
+                    w.set_ece(false); // <--- TODO: I really need to look into how to set this and the SMS bits
+                    w.set_etp(polarity);
+                    w.set_etps(trigger_prescaler);
+                });
+            }
         }
     }
 }
@@ -115,74 +97,14 @@ enum Speed {
     Manual { arr: u32, psc: u16 },
 }
 
-macro_rules! set_field {
-    (
-        $this:expr
-        $(, tim: $tim:expr)*
-        $(, ch1: $ch1:expr)*
-        $(, ch2: $ch2:expr)*
-        $(, ch3: $ch3:expr)*
-        $(, ch4: $ch4:expr)*
-        $(, etr: $etr:expr)*
-        $(, one_pulse_mode: $one_pulse_mode:expr)*
-        $(, counting_mode: $counting_mode:expr)*
-        $(, speed: $speed:expr)*
-        $(, trigger_source: $trigger_source:expr)*
-        $(, trig_source: $trig_source:expr)*
-        $(, slave_mode: $slave_mode:expr)*
-
-    ) => {{
-        #[allow(unused_variables)]
-        let TimerBuilder {
-            tim,
-            ch1,
-            ch2,
-            ch3,
-            ch4,
-            etr,
-            one_pulse_mode,
-            counting_mode,
-            speed,
-            trigger_source,
-            trig_source,
-            slave_mode,
-        } = $this;
-        TimerBuilder {
-            tim $(: $tim)*,
-            ch1 $(: $ch1)*,
-            ch2 $(: $ch2)*,
-            ch3 $(: $ch3)*,
-            ch4 $(: $ch4)*,
-            etr $(: $etr)*,
-            one_pulse_mode $(: $one_pulse_mode)*,
-            counting_mode $(: $counting_mode)*,
-            speed $(: $speed)*,
-            trigger_source $(: $trigger_source)*,
-            trig_source $(: $trig_source)*,
-            slave_mode $(: $slave_mode)*,
-        }}
-    };
-}
-
 /// Used to construct a [Timer]
-pub struct TimerBuilder<
-    'd,
-    T: CoreInstance,
-    CH1: ch_mode::Mode,
-    CH2: ch_mode::Mode,
-    CH3: ch_mode::Mode,
-    CH4: ch_mode::Mode,
-    ETR,
-    TS,
-> {
+pub struct TimerBuilder<'d, T: CoreInstance> {
     tim: Peri<'d, T>,
-    ch1: CH1,
-    ch2: CH2,
-    ch3: CH3,
-    ch4: CH4,
-    etr: ETR,
-
-    trigger_source: TS,
+    ch1: ChannelMode,
+    ch2: ChannelMode,
+    ch3: ChannelMode,
+    ch4: ChannelMode,
+    etr: ExternalTrigger,
     trig_source: Ts,
     slave_mode: SlaveMode,
 
@@ -191,40 +113,26 @@ pub struct TimerBuilder<
     speed: Speed,
 }
 
-impl<'d, T: CoreInstance>
-    TimerBuilder<
-        'd,
-        T,
-        ch_mode::InternalOutput,
-        ch_mode::InternalOutput,
-        ch_mode::InternalOutput,
-        ch_mode::InternalOutput,
-        external_trigger::Unused,
-        trigger_source::Internal,
-    >
-{
+impl<'d, T: CoreInstance> TimerBuilder<'d, T> {
     /// Construct a [CustomPwmBuilder] which can be used to construct a [CustomPwm]
     pub fn new(tim: Peri<'d, T>) -> Self {
         Self {
             tim,
-            ch1: ch_mode::InternalOutput { duty: 0 },
-            ch2: ch_mode::InternalOutput { duty: 0 },
-            ch3: ch_mode::InternalOutput { duty: 0 },
-            ch4: ch_mode::InternalOutput { duty: 0 },
-            etr: external_trigger::Unused,
+            ch1: ChannelMode::InternalOutput { duty: 0 },
+            ch2: ChannelMode::InternalOutput { duty: 0 },
+            ch3: ChannelMode::InternalOutput { duty: 0 },
+            ch4: ChannelMode::InternalOutput { duty: 0 },
+            etr: ExternalTrigger::Unused,
             one_pulse_mode: false,
             counting_mode: CountingMode::EdgeAlignedUp,
             speed: Speed::Manual { arr: u32::MAX, psc: 0 },
-            trigger_source: trigger_source::Internal,
             trig_source: Ts::ITR0,
             slave_mode: SlaveMode::DISABLED,
         }
     }
 }
 
-impl<'d, T: CoreInstance, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode, ETR, TS>
-    TimerBuilder<'d, T, CH1, CH2, CH3, CH4, ETR, TS>
-{
+impl<'d, T: CoreInstance> TimerBuilder<'d, T> {
     /// Set manually frequency by specifying prescaler and period
     pub fn prescaler_and_period(mut self, prescaler: u16, period_ticks: u32) -> Self {
         self.speed = Speed::Manual {
@@ -247,37 +155,60 @@ impl<'d, T: CoreInstance, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH3: ch_mode::
     }
 }
 
-impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode, TS>
-    TimerBuilder<'d, T, CH1, CH2, CH3, CH4, external_trigger::Unused, TS>
-{
+impl<'d, T: GeneralInstance4Channel> TimerBuilder<'d, T> {
     /// Setup channel 1 as output
     pub fn etr<#[cfg(afio)] A>(
-        self,
+        mut self,
         _pin: Peri<'d, if_afio!(impl ExternalTriggerPin<T, A>)>,
         filter: FilterValue,
         polarity: Etp,
         trigger_prescaler: Etps,
-    ) -> TimerBuilder<'d, T, CH1, CH2, CH3, CH4, external_trigger::Etr, TS> {
-        set_field!(self, etr: external_trigger::Etr{filter, polarity, trigger_prescaler })
+    ) -> Self {
+        self.etr = ExternalTrigger::Etr {
+            filter,
+            polarity,
+            trigger_prescaler,
+        };
+        self
+    }
+
+    /// Setup timer to be triggered from ch1 compare match event
+    pub fn etr_as_trigger<#[cfg(afio)] A>(
+        self,
+        pin: Peri<'d, if_afio!(impl ExternalTriggerPin<T, A>)>,
+        filter: FilterValue,
+        polarity: Etp,
+        trigger_prescaler: Etps,
+        mode: TriggerMode,
+    ) -> Self {
+        let mut s = self.etr(pin, filter, polarity, trigger_prescaler);
+        s.trig_source = Ts::TI1F_ED;
+        s.slave_mode = match mode {
+            TriggerMode::ResetMode => SlaveMode::RESET_MODE,
+            TriggerMode::GatedMode => SlaveMode::GATED_MODE,
+            TriggerMode::TriggerMode => SlaveMode::TRIGGER_MODE,
+            TriggerMode::ExternalClockMode => SlaveMode::EXT_CLOCK_MODE,
+        };
+        s
     }
 }
 
-impl<'d, T: GeneralInstance4Channel, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode, ETR, TS>
-    TimerBuilder<'d, T, ch_mode::InternalOutput, CH2, CH3, CH4, ETR, TS>
-{
+impl<'d, T: GeneralInstance4Channel> TimerBuilder<'d, T> {
     /// Set ch1 to be used as internal output, can be used as time base etc
-    pub fn ch1_internal(self, duty: u16) -> Self {
-        set_field!(self, ch1: ch_mode::InternalOutput { duty })
+    pub fn ch1_internal(mut self, duty: u16) -> Self {
+        self.ch1 = ChannelMode::InternalOutput { duty };
+        self
     }
 
     /// Setup channel 1 as output
     pub fn ch1<#[cfg(afio)] A>(
-        self,
+        mut self,
         _pin: if_afio!(PwmPin<'d, T, Ch1, A>),
         mode: OutputCompareMode,
         duty: u16,
-    ) -> TimerBuilder<'d, T, ch_mode::Output, CH2, CH3, CH4, ETR, TS> {
-        set_field!(self, ch1: ch_mode::Output { mode, duty })
+    ) -> Self {
+        self.ch1 = ChannelMode::Output { mode, duty };
+        self
     }
 
     /// Setup channel 1 as input
@@ -288,101 +219,41 @@ impl<'d, T: GeneralInstance4Channel, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4
         mode: InputCaptureMode,
         ti_selection: InputTISelection,
         prescaler_factor: u8,
-    ) -> TimerBuilder<'d, T, ch_mode::Input, CH2, CH3, CH4, ETR, TS> {
-        set_field!(self, ch1: ch_mode::Input { filter, mode, ti_selection, prescaler_factor })
-    }
-}
-
-impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode, ETR, TS>
-    TimerBuilder<'d, T, CH1, ch_mode::InternalOutput, CH3, CH4, ETR, TS>
-{
-    /// Set ch2 to be used as internal output, can be used as time base etc
-    pub fn ch2_internal(self, duty: u16) -> Self {
-        set_field!(self, ch2: ch_mode::InternalOutput { duty })
+    ) -> Self {
+        let mut s = self;
+        s.ch1 = ChannelMode::Input {
+            filter,
+            mode,
+            ti_selection,
+            prescaler_factor,
+        };
+        s
     }
 
-    /// Setup channel 2 as output
-    pub fn ch2<#[cfg(afio)] A>(
+    /// Setup channel 1 as input and set this as this timers trigger source
+    pub fn ch1_input_as_trigger<#[cfg(afio)] A>(
         self,
-        _pin: if_afio!(PwmPin<'d, T, Ch2, A>),
-        mode: OutputCompareMode,
-        duty: u16,
-    ) -> TimerBuilder<'d, T, CH1, ch_mode::Output, CH3, CH4, ETR, TS> {
-        set_field!(self, ch2: ch_mode::Output { mode, duty })
-    }
-
-    /// Setup channel 2 as input
-    pub fn ch2_input<#[cfg(afio)] A>(
-        self,
-        _pin: Peri<'d, if_afio!(impl TimerPin<T, Ch2, A>)>,
+        pin: Peri<'d, if_afio!(impl TimerPin<T, Ch1, A>)>,
         filter: FilterValue,
-        mode: InputCaptureMode,
+        capture_mode: InputCaptureMode,
         ti_selection: InputTISelection,
         prescaler_factor: u8,
-    ) -> TimerBuilder<'d, T, CH1, ch_mode::Input, CH3, CH4, ETR, TS> {
-        set_field!(self, ch2: ch_mode::Input { filter, mode, ti_selection, prescaler_factor })
-    }
-}
+        mode: TriggerMode,
+        source: TriggerSource,
+    ) -> Self {
+        let mut s = self.ch1_input(pin, filter, capture_mode, ti_selection, prescaler_factor);
+        s.trig_source = match source {
+            TriggerSource::EdgeDetector => Ts::TI1F_ED,
+            TriggerSource::Filtered => Ts::TI1FP1,
+        };
+        s.slave_mode = match mode {
+            TriggerMode::ResetMode => SlaveMode::RESET_MODE,
+            TriggerMode::GatedMode => SlaveMode::GATED_MODE,
+            TriggerMode::TriggerMode => SlaveMode::TRIGGER_MODE,
+            TriggerMode::ExternalClockMode => SlaveMode::EXT_CLOCK_MODE,
+        };
 
-impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH4: ch_mode::Mode, ETR, TS>
-    TimerBuilder<'d, T, CH1, CH2, ch_mode::InternalOutput, CH4, ETR, TS>
-{
-    /// Set ch3 to be used as internal output, can be used as time base etc
-    pub fn ch3_internal(self, duty: u16) -> Self {
-        set_field!(self, ch3: ch_mode::InternalOutput { duty })
-    }
-
-    /// Setup channel 3 as output
-    pub fn ch3<#[cfg(afio)] A>(
-        self,
-        _pin: if_afio!(PwmPin<'d, T, Ch3, A>),
-        mode: OutputCompareMode,
-        duty: u16,
-    ) -> TimerBuilder<'d, T, CH1, CH2, ch_mode::Output, CH4, ETR, TS> {
-        set_field!(self, ch3: ch_mode::Output { mode, duty })
-    }
-
-    /// Setup channel 3 as input
-    pub fn ch3_input<#[cfg(afio)] A>(
-        self,
-        _pin: Peri<'d, if_afio!(impl TimerPin<T, Ch3, A>)>,
-        filter: FilterValue,
-        mode: InputCaptureMode,
-        ti_selection: InputTISelection,
-        prescaler_factor: u8,
-    ) -> TimerBuilder<'d, T, CH1, CH2, ch_mode::Input, CH4, ETR, TS> {
-        set_field!(self, ch3: ch_mode::Input { filter, mode, ti_selection, prescaler_factor })
-    }
-}
-
-impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH3: ch_mode::Mode, ETR, TS>
-    TimerBuilder<'d, T, CH1, CH2, CH3, ch_mode::InternalOutput, ETR, TS>
-{
-    /// Set ch4 to be used as internal output, can be used as time base etc
-    pub fn ch4_internal(self, duty: u16) -> Self {
-        set_field!(self, ch4: ch_mode::InternalOutput { duty })
-    }
-
-    /// Setup channel 4 as output
-    pub fn ch4<#[cfg(afio)] A>(
-        self,
-        _pin: if_afio!(PwmPin<'d, T, Ch4, A>),
-        mode: OutputCompareMode,
-        duty: u16,
-    ) -> TimerBuilder<'d, T, CH1, CH2, CH3, ch_mode::Output, ETR, TS> {
-        set_field!(self, ch4: ch_mode::Output { mode, duty })
-    }
-
-    /// Setup channel 3 as input
-    pub fn ch4_input<#[cfg(afio)] A>(
-        self,
-        _pin: Peri<'d, if_afio!(impl TimerPin<T, Ch3, A>)>,
-        filter: FilterValue,
-        mode: InputCaptureMode,
-        ti_selection: InputTISelection,
-        prescaler_factor: u8,
-    ) -> TimerBuilder<'d, T, CH1, CH2, CH3, ch_mode::Input, ETR, TS> {
-        set_field!(self, ch4: ch_mode::Input { filter, mode, ti_selection, prescaler_factor })
+        s
     }
 }
 
@@ -407,80 +278,9 @@ pub enum TriggerSource {
     Filtered,
 }
 
-impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode>
-    TimerBuilder<'d, T, CH1, CH2, CH3, CH4, external_trigger::Etr, trigger_source::Internal>
-{
-    /// Setup timer to be triggered from ch1 compare match event
-    pub fn trigger_from_etr(
-        self,
-        mode: TriggerMode,
-    ) -> TimerBuilder<'d, T, CH1, CH2, CH3, CH4, external_trigger::Etr, trigger_source::Etr> {
-        set_field!(self, trigger_source: trigger_source::Etr,
-            trig_source: Ts::TI1F_ED,
-            slave_mode: match mode {
-                TriggerMode::ResetMode => SlaveMode::RESET_MODE,
-                TriggerMode::GatedMode => SlaveMode::GATED_MODE,
-                TriggerMode::TriggerMode => SlaveMode::TRIGGER_MODE,
-                TriggerMode::ExternalClockMode => SlaveMode::EXT_CLOCK_MODE,
-            }
-        )
-    }
-}
-
-impl<'d, T: GeneralInstance4Channel, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode, ETR>
-    TimerBuilder<'d, T, ch_mode::Input, CH2, CH3, CH4, ETR, trigger_source::Internal>
-{
-    /// Setup timer to be triggered from ch1 compare match event
-    pub fn trigger_from_ch1(
-        self,
-        mode: TriggerMode,
-        source: TriggerSource,
-    ) -> TimerBuilder<'d, T, ch_mode::Input, CH2, CH3, CH4, ETR, trigger_source::Ch1> {
-        set_field!(self, trigger_source: trigger_source::Ch1,
-            trig_source: match source {
-                TriggerSource::EdgeDetector => Ts::TI1F_ED,
-                TriggerSource::Filtered => Ts::TI1FP1,
-            },
-            slave_mode: match mode {
-                TriggerMode::ResetMode => SlaveMode::RESET_MODE,
-                TriggerMode::GatedMode => SlaveMode::GATED_MODE,
-                TriggerMode::TriggerMode => SlaveMode::TRIGGER_MODE,
-                TriggerMode::ExternalClockMode => SlaveMode::EXT_CLOCK_MODE,
-            }
-        )
-    }
-}
-
-impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode, ETR>
-    TimerBuilder<'d, T, CH1, ch_mode::Input, CH3, CH4, ETR, trigger_source::Internal>
-{
-    /// Setup timer to be triggered from ch1 compare match event
-    pub fn trigger_from_ch2(
-        self,
-        mode: TriggerMode,
-    ) -> TimerBuilder<'d, T, CH1, ch_mode::Input, CH3, CH4, ETR, trigger_source::Ch2> {
-        set_field!(self, trigger_source: trigger_source::Ch2, trig_source: Ts::TI2FP2, slave_mode: match mode {
-            TriggerMode::ResetMode => SlaveMode::RESET_MODE,
-            TriggerMode::GatedMode => SlaveMode::GATED_MODE,
-            TriggerMode::TriggerMode => SlaveMode::TRIGGER_MODE,
-            TriggerMode::ExternalClockMode => SlaveMode::EXT_CLOCK_MODE,
-        })
-    }
-}
-
-impl<
-    'd,
-    T: GeneralInstance4Channel,
-    CH1: ch_mode::Mode,
-    CH2: ch_mode::Mode,
-    CH3: ch_mode::Mode,
-    ETR: external_trigger::Trigger,
-    TS,
-> TimerBuilder<'d, T, CH1, CH2, CH3, ch_mode::InternalOutput, ETR, TS>
-{
+impl<'d, T: GeneralInstance4Channel> TimerBuilder<'d, T> {
     /// Finalize configuration and create the [CustomPwm]
     pub fn finalize(self) -> Timer<'d, T> {
-        use ch_mode::Mode;
         let mut timer = Timer::new(self.tim);
 
         self.ch1.init(super::Channel::Ch1, &mut timer);
