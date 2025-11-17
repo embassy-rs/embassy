@@ -38,6 +38,7 @@ pub(crate) mod fmt;
 pub mod gpio;
 pub mod i2c;
 pub mod pwm;
+pub mod tach;
 pub mod time_driver;
 
 // Reexports
@@ -478,6 +479,10 @@ embassy_hal_internal::peripherals! {
     SMB2,
     SMB3,
     SMB4,
+    TACH0,
+    TACH1,
+    TACH2,
+    TACH3,
 }
 
 /// HAL configuration for Microchip.
