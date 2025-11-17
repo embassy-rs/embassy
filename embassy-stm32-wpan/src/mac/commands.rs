@@ -2,13 +2,13 @@
 
 use core::{mem, slice};
 
+use smoltcp::wire::ieee802154::Frame;
+
 use super::opcodes::OpcodeM4ToM0;
 use super::typedefs::{
     AddressMode, Capabilities, DisassociationReason, GtsCharacteristics, KeyIdMode, MacAddress, MacChannel, MacStatus,
     PanId, PibId, ScanType, SecurityLevel,
 };
-
-use smoltcp::wire::ieee802154::Frame;
 
 pub trait MacCommand: Sized {
     const OPCODE: OpcodeM4ToM0;

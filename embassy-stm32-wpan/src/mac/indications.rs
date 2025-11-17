@@ -1,14 +1,14 @@
 use core::slice;
 
+use smoltcp::wire::Ieee802154FrameType;
+use smoltcp::wire::ieee802154::Frame;
+
 use super::consts::MAX_PENDING_ADDRESS;
 use super::event::ParseableMacEvent;
 use super::typedefs::{
     AddressMode, Capabilities, DisassociationReason, KeyIdMode, MacAddress, MacChannel, MacStatus, PanDescriptor,
     PanId, SecurityLevel,
 };
-
-use smoltcp::wire::Ieee802154FrameType;
-use smoltcp::wire::ieee802154::Frame;
 
 /// MLME ASSOCIATE Indication which will be used by the MAC
 /// to indicate the reception of an association request command
