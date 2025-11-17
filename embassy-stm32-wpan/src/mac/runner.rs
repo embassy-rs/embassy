@@ -34,7 +34,7 @@ pub struct Runner<'a> {
 }
 
 impl<'a> Runner<'a> {
-    pub fn new(
+    pub(crate) fn new(
         rx_event_channel: &'a ZeroCopyPubSub<CriticalSectionRawMutex, MacEvent<'a>>,
         rx_data_channel: &'a Channel<CriticalSectionRawMutex, MacEvent<'a>, 1>,
         mac_rx: &'a mut MacRx,
@@ -43,10 +43,19 @@ impl<'a> Runner<'a> {
         mac_tx: &'a Mutex<CriticalSectionRawMutex, MacTx>,
         tx_buf_queue: &'a mut [[u8; MTU]; BUF_SIZE],
         network_state: &'a blocking_mutex::Mutex<CriticalSectionRawMutex, RefCell<NetworkState>>,
+        short_address: [u8; 2],
+        mac_address: [u8; 8],
     ) -> Self {
         for buf in tx_buf_queue {
             tx_buf_channel.try_send(buf).unwrap();
         }
+
+        critical_section::with(|cs| {
+            let mut network_state = network_state.borrow(cs).borrow_mut();
+
+            network_state.mac_addr = mac_address;
+            network_state.short_addr = short_address;
+        });
 
         Self {
             rx_event_channel,
@@ -70,12 +79,7 @@ impl<'a> Runner<'a> {
                             }
                             _ => {
                                 self.rx_event_channel.lock(|s| {
-                                    match &*s.borrow() {
-                                        Some(signal) => {
-                                            signal.signal(mac_event);
-                                        }
-                                        None => {}
-                                    };
+                                    s.borrow().as_ref().map(|signal| signal.signal(mac_event));
                                 });
                             }
                         }
@@ -89,7 +93,9 @@ impl<'a> Runner<'a> {
                     let (buf, len) = self.tx_data_channel.receive().await;
                     let mac_tx = self.mac_tx.lock().await;
 
-                    // TODO: skip this if the link state is down
+                    let pan_id = critical_section::with(|cs| self.network_state.borrow(cs).borrow().pan_id);
+
+                    // TODO: get the destination address from the packet instead of using the broadcast address
 
                     // The mutex should be dropped on the next loop iteration
                     mac_tx
@@ -97,7 +103,7 @@ impl<'a> Runner<'a> {
                             DataRequest {
                                 src_addr_mode: AddressMode::Short,
                                 dst_addr_mode: AddressMode::Short,
-                                dst_pan_id: PanId([0x1A, 0xAA]),
+                                dst_pan_id: PanId(pan_id),
                                 dst_address: MacAddress::BROADCAST,
                                 msdu_handle: msdu_handle,
                                 ack_tx: 0x00,

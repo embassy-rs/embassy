@@ -38,7 +38,7 @@ impl<'a> Control<'a> {
         }
     }
 
-    pub async fn init_link(&mut self, short_address: [u8; 2], extended_address: [u8; 8], pan_id: [u8; 2]) {
+    pub async fn init_link(&mut self, pan_id: [u8; 2]) {
         debug!("resetting");
 
         debug!(
@@ -52,12 +52,19 @@ impl<'a> Control<'a> {
             .await
         );
 
+        let (short_address, mac_address) = critical_section::with(|cs| {
+            let mut network_state = self.network_state.borrow(cs).borrow_mut();
+
+            network_state.pan_id = pan_id;
+
+            (network_state.short_addr, network_state.mac_addr)
+        });
+
         debug!("setting extended address");
-        let extended_address: u64 = u64::from_be_bytes(extended_address);
         debug!(
             "{:#x}",
             self.send_command_and_get_response(&SetRequest {
-                pib_attribute_ptr: &extended_address as *const _ as *const u8,
+                pib_attribute_ptr: &u64::from_be_bytes(mac_address) as *const _ as *const u8,
                 pib_attribute: PibId::ExtendedAddress,
             })
             .await
@@ -66,21 +73,16 @@ impl<'a> Control<'a> {
         );
 
         debug!("setting short address");
-        let short_address: u16 = u16::from_be_bytes(short_address);
         debug!(
             "{:#x}",
             self.send_command_and_get_response(&SetRequest {
-                pib_attribute_ptr: &short_address as *const _ as *const u8,
+                pib_attribute_ptr: &u16::from_be_bytes(short_address) as *const _ as *const u8,
                 pib_attribute: PibId::ShortAddress,
             })
             .await
             .unwrap()
             .await
         );
-
-        critical_section::with(|cs| {
-            self.network_state.borrow(cs).borrow_mut().mac_addr = extended_address.to_be_bytes();
-        });
 
         debug!("setting association permit");
         let association_permit: bool = true;
@@ -186,20 +188,8 @@ impl<'a> Future for EventToken<'a> {
     type Output = MacEvent<'a>;
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
-        self.rx_event_channel.lock(|s| {
-            let signal = s.borrow_mut();
-            let signal = match &*signal {
-                Some(s) => s,
-                _ => unreachable!(),
-            };
-
-            let result = match signal.wait().poll_unpin(cx) {
-                Poll::Ready(mac_event) => Poll::Ready(mac_event),
-                Poll::Pending => Poll::Pending,
-            };
-
-            result
-        })
+        self.rx_event_channel
+            .lock(|s| s.borrow_mut().as_mut().unwrap().wait().poll_unpin(cx))
     }
 }
 

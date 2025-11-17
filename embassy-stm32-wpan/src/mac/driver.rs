@@ -17,6 +17,8 @@ use crate::sub::mac::{Mac, MacRx, MacTx};
 
 pub struct NetworkState {
     pub mac_addr: [u8; 8],
+    pub short_addr: [u8; 2],
+    pub pan_id: [u8; 2],
     pub link_state: LinkState,
     pub link_waker: AtomicWaker,
 }
@@ -25,6 +27,8 @@ impl NetworkState {
     pub const fn new() -> Self {
         Self {
             mac_addr: [0u8; 8],
+            short_addr: [0u8; 2],
+            pan_id: [0u8; 2],
             link_state: LinkState::Down,
             link_waker: AtomicWaker::new(),
         }
@@ -68,7 +72,11 @@ pub struct Driver<'d> {
 }
 
 impl<'d> Driver<'d> {
-    pub fn new(driver_state: &'d mut DriverState<'d>) -> (Self, Runner<'d>, Control<'d>) {
+    pub fn new(
+        driver_state: &'d mut DriverState<'d>,
+        short_address: [u8; 2],
+        mac_address: [u8; 8],
+    ) -> (Self, Runner<'d>, Control<'d>) {
         (
             Self {
                 tx_data_channel: &driver_state.tx_data_channel,
@@ -85,6 +93,8 @@ impl<'d> Driver<'d> {
                 &driver_state.mac_tx,
                 &mut driver_state.tx_buf_queue,
                 &driver_state.network_state,
+                short_address,
+                mac_address,
             ),
             Control::new(
                 &driver_state.rx_event_channel,
