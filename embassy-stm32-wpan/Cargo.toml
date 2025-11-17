@@ -40,6 +40,7 @@ log = { version = "0.4.17", optional = true }
 cortex-m = "0.7.6"
 heapless = "0.8"
 aligned = "0.4.1"
+critical-section = "1.1"
 
 bit_field = "0.10.2"
 stm32-device-signature = { version = "0.3.3", features = ["stm32wb5x"] }

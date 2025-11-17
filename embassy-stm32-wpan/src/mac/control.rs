@@ -1,65 +1,184 @@
+use core::cell::RefCell;
 use core::future::Future;
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task;
 use core::task::Poll;
 
+use embassy_net_driver::LinkState;
+use embassy_sync::blocking_mutex;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::mutex::MutexGuard;
+use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
 use futures_util::FutureExt;
 
-use super::commands::MacCommand;
-use super::event::MacEvent;
-use super::typedefs::MacError;
-use crate::mac::runner::Runner;
+use crate::mac::commands::*;
+use crate::mac::driver::NetworkState;
+use crate::mac::event::MacEvent;
+use crate::mac::runner::ZeroCopyPubSub;
+use crate::mac::typedefs::*;
+use crate::sub::mac::MacTx;
 
 pub struct Control<'a> {
-    runner: &'a Runner<'a>,
+    rx_event_channel: &'a ZeroCopyPubSub<CriticalSectionRawMutex, MacEvent<'a>>,
+    mac_tx: &'a Mutex<CriticalSectionRawMutex, MacTx>,
+    #[allow(unused)]
+    network_state: &'a blocking_mutex::Mutex<CriticalSectionRawMutex, RefCell<NetworkState>>,
 }
 
 impl<'a> Control<'a> {
-    pub(crate) fn new(runner: &'a Runner<'a>) -> Self {
-        Self { runner: runner }
+    pub(crate) fn new(
+        rx_event_channel: &'a ZeroCopyPubSub<CriticalSectionRawMutex, MacEvent<'a>>,
+        mac_tx: &'a Mutex<CriticalSectionRawMutex, MacTx>,
+        network_state: &'a blocking_mutex::Mutex<CriticalSectionRawMutex, RefCell<NetworkState>>,
+    ) -> Self {
+        Self {
+            rx_event_channel,
+            mac_tx,
+            network_state,
+        }
+    }
+
+    pub async fn init_link(&mut self, short_address: [u8; 2], extended_address: [u8; 8], pan_id: [u8; 2]) {
+        debug!("resetting");
+
+        debug!(
+            "{:#x}",
+            self.send_command_and_get_response(&ResetRequest {
+                set_default_pib: true,
+                ..Default::default()
+            })
+            .await
+            .unwrap()
+            .await
+        );
+
+        debug!("setting extended address");
+        let extended_address: u64 = u64::from_be_bytes(extended_address);
+        debug!(
+            "{:#x}",
+            self.send_command_and_get_response(&SetRequest {
+                pib_attribute_ptr: &extended_address as *const _ as *const u8,
+                pib_attribute: PibId::ExtendedAddress,
+            })
+            .await
+            .unwrap()
+            .await
+        );
+
+        debug!("setting short address");
+        let short_address: u16 = u16::from_be_bytes(short_address);
+        debug!(
+            "{:#x}",
+            self.send_command_and_get_response(&SetRequest {
+                pib_attribute_ptr: &short_address as *const _ as *const u8,
+                pib_attribute: PibId::ShortAddress,
+            })
+            .await
+            .unwrap()
+            .await
+        );
+
+        critical_section::with(|cs| {
+            self.network_state.borrow(cs).borrow_mut().mac_addr = extended_address.to_be_bytes();
+        });
+
+        debug!("setting association permit");
+        let association_permit: bool = true;
+        debug!(
+            "{:#x}",
+            self.send_command_and_get_response(&SetRequest {
+                pib_attribute_ptr: &association_permit as *const _ as *const u8,
+                pib_attribute: PibId::AssociationPermit,
+            })
+            .await
+            .unwrap()
+            .await
+        );
+
+        debug!("setting TX power");
+        let transmit_power: i8 = 2;
+        debug!(
+            "{:#x}",
+            self.send_command_and_get_response(&SetRequest {
+                pib_attribute_ptr: &transmit_power as *const _ as *const u8,
+                pib_attribute: PibId::TransmitPower,
+            })
+            .await
+            .unwrap()
+            .await
+        );
+
+        debug!("starting FFD device");
+        debug!(
+            "{:#x}",
+            self.send_command_and_get_response(&StartRequest {
+                pan_id: PanId(pan_id),
+                channel_number: MacChannel::Channel16,
+                beacon_order: 0x0F,
+                superframe_order: 0x0F,
+                pan_coordinator: true,
+                battery_life_extension: false,
+                ..Default::default()
+            })
+            .await
+            .unwrap()
+            .await
+        );
+
+        debug!("setting RX on when idle");
+        let rx_on_while_idle: bool = true;
+        debug!(
+            "{:#x}",
+            self.send_command_and_get_response(&SetRequest {
+                pib_attribute_ptr: &rx_on_while_idle as *const _ as *const u8,
+                pib_attribute: PibId::RxOnWhenIdle,
+            })
+            .await
+            .unwrap()
+            .await
+        );
+
+        critical_section::with(|cs| {
+            let mut network_state = self.network_state.borrow(cs).borrow_mut();
+
+            network_state.link_state = LinkState::Up;
+            network_state.link_waker.wake();
+        });
     }
 
     pub async fn send_command<T>(&self, cmd: &T) -> Result<(), MacError>
     where
         T: MacCommand,
     {
-        let _wm = self.runner.write_mutex.lock().await;
-
-        self.runner.mac_subsystem.send_command(cmd).await
+        self.mac_tx.lock().await.send_command(cmd).await
     }
 
     pub async fn send_command_and_get_response<T>(&self, cmd: &T) -> Result<EventToken<'a>, MacError>
     where
         T: MacCommand,
     {
-        let rm = self.runner.read_mutex.lock().await;
-        let _wm = self.runner.write_mutex.lock().await;
-        let token = EventToken::new(self.runner, rm);
+        let token = EventToken::new(self.rx_event_channel);
 
-        self.runner.mac_subsystem.send_command(cmd).await?;
+        compiler_fence(Ordering::Release);
+
+        self.mac_tx.lock().await.send_command(cmd).await?;
 
         Ok(token)
     }
 }
 
 pub struct EventToken<'a> {
-    runner: &'a Runner<'a>,
-    _mutex_guard: MutexGuard<'a, CriticalSectionRawMutex, ()>,
+    rx_event_channel: &'a ZeroCopyPubSub<CriticalSectionRawMutex, MacEvent<'a>>,
 }
 
 impl<'a> EventToken<'a> {
-    pub(crate) fn new(runner: &'a Runner<'a>, mutex_guard: MutexGuard<'a, CriticalSectionRawMutex, ()>) -> Self {
+    pub(crate) fn new(rx_event_channel: &'a ZeroCopyPubSub<CriticalSectionRawMutex, MacEvent<'a>>) -> Self {
         // Enable event receiving
-        runner.rx_event_channel.lock(|s| {
+        rx_event_channel.lock(|s| {
             *s.borrow_mut() = Some(Signal::new());
         });
 
-        Self {
-            runner: runner,
-            _mutex_guard: mutex_guard,
-        }
+        Self { rx_event_channel }
     }
 }
 
@@ -67,7 +186,7 @@ impl<'a> Future for EventToken<'a> {
     type Output = MacEvent<'a>;
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut task::Context<'_>) -> Poll<Self::Output> {
-        self.get_mut().runner.rx_event_channel.lock(|s| {
+        self.rx_event_channel.lock(|s| {
             let signal = s.borrow_mut();
             let signal = match &*signal {
                 Some(s) => s,
@@ -88,7 +207,7 @@ impl<'a> Drop for EventToken<'a> {
     fn drop(&mut self) {
         // Disable event receiving
         // This will also drop the contained event, if it exists, and will free up receiving the next event
-        self.runner.rx_event_channel.lock(|s| {
+        self.rx_event_channel.lock(|s| {
             *s.borrow_mut() = None;
         });
     }

@@ -8,52 +8,65 @@ use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
 
 use crate::mac::MTU;
-use crate::mac::commands::DataRequest;
+use crate::mac::commands::*;
+use crate::mac::driver::NetworkState;
 use crate::mac::event::MacEvent;
-use crate::mac::typedefs::{AddressMode, MacAddress, PanId, SecurityLevel};
-use crate::sub::mac::Mac;
+use crate::mac::typedefs::*;
+use crate::sub::mac::{MacRx, MacTx};
 
-type ZeroCopyPubSub<M, T> = blocking_mutex::Mutex<M, RefCell<Option<Signal<NoopRawMutex, T>>>>;
+pub type ZeroCopyPubSub<M, T> = blocking_mutex::Mutex<M, RefCell<Option<Signal<NoopRawMutex, T>>>>;
+
+pub const BUF_SIZE: usize = 3;
 
 pub struct Runner<'a> {
-    pub(crate) mac_subsystem: Mac,
     // rx event backpressure is already provided through the MacEvent drop mechanism
     // therefore, we don't need to worry about overwriting events
-    pub(crate) rx_event_channel: ZeroCopyPubSub<CriticalSectionRawMutex, MacEvent<'a>>,
-    pub(crate) read_mutex: Mutex<CriticalSectionRawMutex, ()>,
-    pub(crate) write_mutex: Mutex<CriticalSectionRawMutex, ()>,
-    pub(crate) rx_channel: Channel<CriticalSectionRawMutex, MacEvent<'a>, 1>,
-    pub(crate) tx_channel: Channel<CriticalSectionRawMutex, (&'a mut [u8; MTU], usize), 5>,
-    pub(crate) tx_buf_channel: Channel<CriticalSectionRawMutex, &'a mut [u8; MTU], 5>,
+    rx_event_channel: &'a ZeroCopyPubSub<CriticalSectionRawMutex, MacEvent<'a>>,
+    rx_data_channel: &'a Channel<CriticalSectionRawMutex, MacEvent<'a>, 1>,
+    mac_rx: &'a mut MacRx,
+
+    tx_data_channel: &'a Channel<CriticalSectionRawMutex, (&'a mut [u8; MTU], usize), BUF_SIZE>,
+    tx_buf_channel: &'a Channel<CriticalSectionRawMutex, &'a mut [u8; MTU], BUF_SIZE>,
+    mac_tx: &'a Mutex<CriticalSectionRawMutex, MacTx>,
+
+    #[allow(unused)]
+    network_state: &'a blocking_mutex::Mutex<CriticalSectionRawMutex, RefCell<NetworkState>>,
 }
 
 impl<'a> Runner<'a> {
-    pub fn new(mac: Mac, tx_buf_queue: [&'a mut [u8; MTU]; 5]) -> Self {
-        let this = Self {
-            mac_subsystem: mac,
-            rx_event_channel: blocking_mutex::Mutex::new(RefCell::new(None)),
-            read_mutex: Mutex::new(()),
-            write_mutex: Mutex::new(()),
-            rx_channel: Channel::new(),
-            tx_channel: Channel::new(),
-            tx_buf_channel: Channel::new(),
-        };
-
+    pub fn new(
+        rx_event_channel: &'a ZeroCopyPubSub<CriticalSectionRawMutex, MacEvent<'a>>,
+        rx_data_channel: &'a Channel<CriticalSectionRawMutex, MacEvent<'a>, 1>,
+        mac_rx: &'a mut MacRx,
+        tx_data_channel: &'a Channel<CriticalSectionRawMutex, (&'a mut [u8; MTU], usize), BUF_SIZE>,
+        tx_buf_channel: &'a Channel<CriticalSectionRawMutex, &'a mut [u8; MTU], BUF_SIZE>,
+        mac_tx: &'a Mutex<CriticalSectionRawMutex, MacTx>,
+        tx_buf_queue: &'a mut [[u8; MTU]; BUF_SIZE],
+        network_state: &'a blocking_mutex::Mutex<CriticalSectionRawMutex, RefCell<NetworkState>>,
+    ) -> Self {
         for buf in tx_buf_queue {
-            this.tx_buf_channel.try_send(buf).unwrap();
+            tx_buf_channel.try_send(buf).unwrap();
         }
 
-        this
+        Self {
+            rx_event_channel,
+            rx_data_channel,
+            mac_rx,
+            tx_data_channel,
+            tx_buf_channel,
+            mac_tx,
+            network_state,
+        }
     }
 
     pub async fn run(&'a self) -> ! {
         join::join(
             async {
                 loop {
-                    if let Ok(mac_event) = self.mac_subsystem.read().await {
+                    if let Ok(mac_event) = self.mac_rx.read().await {
                         match mac_event {
                             MacEvent::McpsDataInd(_) => {
-                                self.rx_channel.send(mac_event).await;
+                                self.rx_data_channel.send(mac_event).await;
                             }
                             _ => {
                                 self.rx_event_channel.lock(|s| {
@@ -73,11 +86,13 @@ impl<'a> Runner<'a> {
                 let mut msdu_handle = 0x02;
 
                 loop {
-                    let (buf, len) = self.tx_channel.receive().await;
-                    let _wm = self.write_mutex.lock().await;
+                    let (buf, len) = self.tx_data_channel.receive().await;
+                    let mac_tx = self.mac_tx.lock().await;
+
+                    // TODO: skip this if the link state is down
 
                     // The mutex should be dropped on the next loop iteration
-                    self.mac_subsystem
+                    mac_tx
                         .send_command(
                             DataRequest {
                                 src_addr_mode: AddressMode::Short,
