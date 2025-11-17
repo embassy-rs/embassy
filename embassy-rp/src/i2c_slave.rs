@@ -5,9 +5,7 @@ use core::task::Poll;
 
 use pac::i2c;
 
-use crate::i2c::{
-    AbortReason, FIFO_SIZE, Instance, InterruptHandler, SclPin, SdaPin, set_up_i2c_pin,
-};
+use crate::i2c::{AbortReason, FIFO_SIZE, Instance, InterruptHandler, SclPin, SdaPin, set_up_i2c_pin};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::{Peri, pac};
 
@@ -322,9 +320,7 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
                 }
 
                 if bytes_written < buffer.len() {
-                    for _ in 0..((FIFO_SIZE - p.ic_txflr().read().txflr()) as usize)
-                        .min(buffer.len() - bytes_written)
-                    {
+                    for _ in 0..((FIFO_SIZE - p.ic_txflr().read().txflr()) as usize).min(buffer.len() - bytes_written) {
                         p.ic_clr_rd_req().read();
                         p.ic_data_cmd().write(|w| w.set_dat(buffer[bytes_written]));
                         bytes_written += 1;
