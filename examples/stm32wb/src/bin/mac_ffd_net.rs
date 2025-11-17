@@ -7,9 +7,7 @@ use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::rcc::WPAN_DEFAULT;
 use embassy_stm32_wpan::TlMbox;
-use embassy_stm32_wpan::mac::commands::{ResetRequest, SetRequest, StartRequest};
-use embassy_stm32_wpan::mac::typedefs::{MacChannel, PanId, PibId};
-use embassy_stm32_wpan::mac::{self, Runner};
+use embassy_stm32_wpan::mac::{Driver, DriverState, Runner};
 use embassy_stm32_wpan::sub::mm;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
@@ -72,106 +70,23 @@ async fn main(spawner: Spawner) {
     let result = mbox.sys_subsystem.shci_c2_mac_802_15_4_init().await;
     info!("initialized mac: {}", result);
 
-    info!("resetting");
-    mbox.mac_subsystem
-        .send_command(&ResetRequest {
-            set_default_pib: true,
-            ..Default::default()
-        })
-        .await
-        .unwrap();
-    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
-
-    info!("setting extended address");
-    let extended_address: u64 = 0xACDE480000000001;
-    mbox.mac_subsystem
-        .send_command(&SetRequest {
-            pib_attribute_ptr: &extended_address as *const _ as *const u8,
-            pib_attribute: PibId::ExtendedAddress,
-        })
-        .await
-        .unwrap();
-    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
-
-    info!("setting short address");
-    let short_address: u16 = 0x1122;
-    mbox.mac_subsystem
-        .send_command(&SetRequest {
-            pib_attribute_ptr: &short_address as *const _ as *const u8,
-            pib_attribute: PibId::ShortAddress,
-        })
-        .await
-        .unwrap();
-    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
-
-    info!("setting association permit");
-    let association_permit: bool = true;
-    mbox.mac_subsystem
-        .send_command(&SetRequest {
-            pib_attribute_ptr: &association_permit as *const _ as *const u8,
-            pib_attribute: PibId::AssociationPermit,
-        })
-        .await
-        .unwrap();
-    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
-
-    info!("setting TX power");
-    let transmit_power: i8 = 2;
-    mbox.mac_subsystem
-        .send_command(&SetRequest {
-            pib_attribute_ptr: &transmit_power as *const _ as *const u8,
-            pib_attribute: PibId::TransmitPower,
-        })
-        .await
-        .unwrap();
-    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
-
-    info!("starting FFD device");
-    mbox.mac_subsystem
-        .send_command(&StartRequest {
-            pan_id: PanId([0x1A, 0xAA]),
-            channel_number: MacChannel::Channel16,
-            beacon_order: 0x0F,
-            superframe_order: 0x0F,
-            pan_coordinator: true,
-            battery_life_extension: false,
-            ..Default::default()
-        })
-        .await
-        .unwrap();
-    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
-
-    info!("setting RX on when idle");
-    let rx_on_while_idle: bool = true;
-    mbox.mac_subsystem
-        .send_command(&SetRequest {
-            pib_attribute_ptr: &rx_on_while_idle as *const _ as *const u8,
-            pib_attribute: PibId::RxOnWhenIdle,
-        })
-        .await
-        .unwrap();
-    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
-
-    static TX1: StaticCell<[u8; 127]> = StaticCell::new();
-    static TX2: StaticCell<[u8; 127]> = StaticCell::new();
-    static TX3: StaticCell<[u8; 127]> = StaticCell::new();
-    static TX4: StaticCell<[u8; 127]> = StaticCell::new();
-    static TX5: StaticCell<[u8; 127]> = StaticCell::new();
-    let tx_queue = [
-        TX1.init([0u8; 127]),
-        TX2.init([0u8; 127]),
-        TX3.init([0u8; 127]),
-        TX4.init([0u8; 127]),
-        TX5.init([0u8; 127]),
-    ];
-
+    static DRIVER_STATE: StaticCell<DriverState> = StaticCell::new();
     static RUNNER: StaticCell<Runner> = StaticCell::new();
-    let runner = RUNNER.init(Runner::new(mbox.mac_subsystem, tx_queue));
 
-    spawner.spawn(run_mac(runner).unwrap());
+    let driver_state = DRIVER_STATE.init(DriverState::new(mbox.mac_subsystem));
+    let (driver, runner, mut control) = Driver::new(driver_state);
 
-    let (driver, control) = mac::new(runner).await;
+    spawner.spawn(run_mac(RUNNER.init(runner)).unwrap());
+
+    control
+        .init_link(
+            0x1122u16.to_be_bytes().try_into().unwrap(),
+            0xACDE480000000001u64.to_be_bytes().try_into().unwrap(),
+            [0x1A, 0xAA],
+        )
+        .await;
+
+    cortex_m::asm::bkpt();
 
     let _ = driver;
-    let _ = control;
 }
