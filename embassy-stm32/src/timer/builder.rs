@@ -113,7 +113,7 @@ pub struct TimerBuilder<'d, T: CoreInstance> {
     speed: Speed,
 }
 
-impl<'d, T: CoreInstance> TimerBuilder<'d, T> {
+impl<'d, T: GeneralInstance4Channel> TimerBuilder<'d, T> {
     /// Construct a [CustomPwmBuilder] which can be used to construct a [CustomPwm]
     pub fn new(tim: Peri<'d, T>) -> Self {
         Self {
@@ -130,9 +130,7 @@ impl<'d, T: CoreInstance> TimerBuilder<'d, T> {
             slave_mode: SlaveMode::DISABLED,
         }
     }
-}
 
-impl<'d, T: CoreInstance> TimerBuilder<'d, T> {
     /// Set manually frequency by specifying prescaler and period
     pub fn prescaler_and_period(mut self, prescaler: u16, period_ticks: u32) -> Self {
         self.speed = Speed::Manual {
@@ -153,9 +151,7 @@ impl<'d, T: CoreInstance> TimerBuilder<'d, T> {
         self.one_pulse_mode = true;
         self
     }
-}
 
-impl<'d, T: GeneralInstance4Channel> TimerBuilder<'d, T> {
     /// Setup channel 1 as output
     pub fn etr<#[cfg(afio)] A>(
         mut self,
@@ -191,9 +187,7 @@ impl<'d, T: GeneralInstance4Channel> TimerBuilder<'d, T> {
         };
         s
     }
-}
 
-impl<'d, T: GeneralInstance4Channel> TimerBuilder<'d, T> {
     /// Set ch1 to be used as internal output, can be used as time base etc
     pub fn ch1_internal(mut self, duty: u16) -> Self {
         self.ch1 = ChannelMode::InternalOutput { duty };
