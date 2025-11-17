@@ -33,6 +33,7 @@ embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal" }
 embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal" }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver", optional=true }
+smoltcp = { version = "0.12.0", optional=true, default-features = false }
 
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.17", optional = true }
@@ -52,7 +53,7 @@ bitflags = { version = "2.3.3", optional = true }
 defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "stm32wb-hci?/defmt"]
 
 ble = ["dep:stm32wb-hci"]
-mac = ["dep:bitflags", "dep:embassy-net-driver" ]
+mac = ["dep:bitflags", "dep:embassy-net-driver", "dep:smoltcp", "smoltcp/medium-ieee802154"]
 
 extended = []
 

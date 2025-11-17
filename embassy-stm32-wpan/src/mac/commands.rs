@@ -8,6 +8,8 @@ use super::typedefs::{
     PanId, PibId, ScanType, SecurityLevel,
 };
 
+use smoltcp::wire::ieee802154::Frame;
+
 pub trait MacCommand: Sized {
     const OPCODE: OpcodeM4ToM0;
 
@@ -376,6 +378,30 @@ impl DataRequest {
         self.msdu_length = buf.len() as u8;
 
         self
+    }
+}
+
+impl<'a, T: AsRef<[u8]>> TryFrom<Frame<&'a T>> for DataRequest {
+    type Error = ();
+
+    fn try_from(frame: Frame<&'a T>) -> Result<Self, Self::Error> {
+        // TODO: map the rest of these
+
+        let mut request = DataRequest {
+            src_addr_mode: frame.src_addressing_mode().try_into()?,
+            dst_addr_mode: frame.dst_addressing_mode().try_into()?,
+            dst_pan_id: frame.dst_pan_id().ok_or(())?.into(),
+            dst_address: frame.dst_addr().ok_or(())?.into(),
+            msdu_handle: frame.sequence_number().ok_or(())?,
+            ack_tx: 0x00,
+            gts_tx: false,
+            security_level: SecurityLevel::Unsecure,
+            ..Default::default()
+        };
+
+        request.set_buffer(frame.payload().ok_or(())?);
+
+        Ok(request)
     }
 }
 

@@ -11,6 +11,7 @@ use embassy_sync::mutex::Mutex;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::mac::event::MacEvent;
+use crate::mac::indications::write_frame_from_data_indication;
 use crate::mac::runner::{BUF_SIZE, ZeroCopyPubSub};
 use crate::mac::{Control, MTU, Runner};
 use crate::sub::mac::{Mac, MacRx, MacTx};
@@ -179,14 +180,13 @@ impl<'d> embassy_net_driver::RxToken for RxToken<'d> {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        // Only valid data events should be put into the queue
-
-        let data_event = match self.rx.try_receive().unwrap() {
-            MacEvent::McpsDataInd(data_event) => data_event,
-            _ => unreachable!(),
+        let mut buffer = [0u8; MTU];
+        match self.rx.try_receive().unwrap() {
+            MacEvent::McpsDataInd(data_event) => write_frame_from_data_indication(data_event, &mut buffer),
+            _ => {}
         };
 
-        f(&mut data_event.payload())
+        f(&mut buffer[..])
     }
 }
 
