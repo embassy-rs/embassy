@@ -301,7 +301,7 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
             return Err(Error::InvalidResponseBufferLength);
         }
 
-        let mut chunks = buffer.chunks(FIFO_SIZE as usize);
+        let mut bytes_written = 0;
 
         self.wait_on(
             |me| {
@@ -319,10 +319,11 @@ impl<'d, T: Instance> I2cSlave<'d, T> {
                     }
                 }
 
-                if let Some(chunk) = chunks.next() {
-                    for byte in chunk {
+                if bytes_written < buffer.len() {
+                    for _ in 0..((FIFO_SIZE - p.ic_txflr().read().txflr()) as usize).min(buffer.len() - bytes_written)  {
                         p.ic_clr_rd_req().read();
-                        p.ic_data_cmd().write(|w| w.set_dat(*byte));
+                        p.ic_data_cmd().write(|w| w.set_dat(buffer[bytes_written]));
+                        bytes_written += 1;
                     }
 
                     Poll::Pending
