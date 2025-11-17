@@ -241,6 +241,8 @@ impl<'d, T: CoreInstance> Drop for Timer<'d, T> {
 
 impl<'d, T: CoreInstance> Timer<'d, T> {
     /// Create a new timer driver.
+    ///
+    /// Consider using [super::builder::TimerBuilder] instead
     pub fn new(tim: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
 

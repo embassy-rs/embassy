@@ -5,7 +5,7 @@
 //!
 //! The available functionality depends on the timer type.
 //!
-use core::{marker::PhantomData, u16};
+use core::u16;
 
 use embassy_hal_internal::Peri;
 use stm32_metapac::timer::vals::{Etp, Etps, FilterValue, Ts};
@@ -14,7 +14,6 @@ use crate::{
     time::Hertz,
     timer::{
         Ch1, Ch2, Ch3, Ch4, CoreInstance, ExternalTriggerPin, GeneralInstance4Channel, TimerPin,
-        input_capture::InputCaptureFuture,
         low_level::{CountingMode, InputCaptureMode, InputTISelection, OutputCompareMode, SlaveMode, Timer},
         simple_pwm::PwmPin,
     },
@@ -35,6 +34,8 @@ mod ch_mode {
     pub struct InternalOutput {
         pub(crate) duty: u16,
     }
+
+    // TODO: Look into the capture mode configuration Timer::set_input_capture_mode
     pub struct Input {
         pub(crate) filter: FilterValue,
         pub(crate) mode: InputCaptureMode,
@@ -132,7 +133,7 @@ macro_rules! set_field {
 
     ) => {{
         #[allow(unused_variables)]
-        let CustomPwmBuilder {
+        let TimerBuilder {
             tim,
             ch1,
             ch2,
@@ -146,7 +147,7 @@ macro_rules! set_field {
             trig_source,
             slave_mode,
         } = $this;
-        CustomPwmBuilder {
+        TimerBuilder {
             tim $(: $tim)*,
             ch1 $(: $ch1)*,
             ch2 $(: $ch2)*,
@@ -163,8 +164,8 @@ macro_rules! set_field {
     };
 }
 
-/// Used to construct a [CustomPwm]
-pub struct CustomPwmBuilder<
+/// Used to construct a [Timer]
+pub struct TimerBuilder<
     'd,
     T: CoreInstance,
     CH1: ch_mode::Mode,
@@ -191,7 +192,7 @@ pub struct CustomPwmBuilder<
 }
 
 impl<'d, T: CoreInstance>
-    CustomPwmBuilder<
+    TimerBuilder<
         'd,
         T,
         ch_mode::InternalOutput,
@@ -222,7 +223,7 @@ impl<'d, T: CoreInstance>
 }
 
 impl<'d, T: CoreInstance, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode, ETR, TS>
-    CustomPwmBuilder<'d, T, CH1, CH2, CH3, CH4, ETR, TS>
+    TimerBuilder<'d, T, CH1, CH2, CH3, CH4, ETR, TS>
 {
     /// Set manually frequency by specifying prescaler and period
     pub fn prescaler_and_period(mut self, prescaler: u16, period_ticks: u32) -> Self {
@@ -247,7 +248,7 @@ impl<'d, T: CoreInstance, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH3: ch_mode::
 }
 
 impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode, TS>
-    CustomPwmBuilder<'d, T, CH1, CH2, CH3, CH4, external_trigger::Unused, TS>
+    TimerBuilder<'d, T, CH1, CH2, CH3, CH4, external_trigger::Unused, TS>
 {
     /// Setup channel 1 as output
     pub fn etr<#[cfg(afio)] A>(
@@ -256,13 +257,13 @@ impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH3
         filter: FilterValue,
         polarity: Etp,
         trigger_prescaler: Etps,
-    ) -> CustomPwmBuilder<'d, T, CH1, CH2, CH3, CH4, external_trigger::Etr, TS> {
+    ) -> TimerBuilder<'d, T, CH1, CH2, CH3, CH4, external_trigger::Etr, TS> {
         set_field!(self, etr: external_trigger::Etr{filter, polarity, trigger_prescaler })
     }
 }
 
 impl<'d, T: GeneralInstance4Channel, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode, ETR, TS>
-    CustomPwmBuilder<'d, T, ch_mode::InternalOutput, CH2, CH3, CH4, ETR, TS>
+    TimerBuilder<'d, T, ch_mode::InternalOutput, CH2, CH3, CH4, ETR, TS>
 {
     /// Set ch1 to be used as internal output, can be used as time base etc
     pub fn ch1_internal(self, duty: u16) -> Self {
@@ -275,7 +276,7 @@ impl<'d, T: GeneralInstance4Channel, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4
         _pin: if_afio!(PwmPin<'d, T, Ch1, A>),
         mode: OutputCompareMode,
         duty: u16,
-    ) -> CustomPwmBuilder<'d, T, ch_mode::Output, CH2, CH3, CH4, ETR, TS> {
+    ) -> TimerBuilder<'d, T, ch_mode::Output, CH2, CH3, CH4, ETR, TS> {
         set_field!(self, ch1: ch_mode::Output { mode, duty })
     }
 
@@ -287,13 +288,13 @@ impl<'d, T: GeneralInstance4Channel, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4
         mode: InputCaptureMode,
         ti_selection: InputTISelection,
         prescaler_factor: u8,
-    ) -> CustomPwmBuilder<'d, T, ch_mode::Input, CH2, CH3, CH4, ETR, TS> {
+    ) -> TimerBuilder<'d, T, ch_mode::Input, CH2, CH3, CH4, ETR, TS> {
         set_field!(self, ch1: ch_mode::Input { filter, mode, ti_selection, prescaler_factor })
     }
 }
 
 impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode, ETR, TS>
-    CustomPwmBuilder<'d, T, CH1, ch_mode::InternalOutput, CH3, CH4, ETR, TS>
+    TimerBuilder<'d, T, CH1, ch_mode::InternalOutput, CH3, CH4, ETR, TS>
 {
     /// Set ch2 to be used as internal output, can be used as time base etc
     pub fn ch2_internal(self, duty: u16) -> Self {
@@ -306,7 +307,7 @@ impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH3: ch_mode::Mode, CH4
         _pin: if_afio!(PwmPin<'d, T, Ch2, A>),
         mode: OutputCompareMode,
         duty: u16,
-    ) -> CustomPwmBuilder<'d, T, CH1, ch_mode::Output, CH3, CH4, ETR, TS> {
+    ) -> TimerBuilder<'d, T, CH1, ch_mode::Output, CH3, CH4, ETR, TS> {
         set_field!(self, ch2: ch_mode::Output { mode, duty })
     }
 
@@ -318,13 +319,13 @@ impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH3: ch_mode::Mode, CH4
         mode: InputCaptureMode,
         ti_selection: InputTISelection,
         prescaler_factor: u8,
-    ) -> CustomPwmBuilder<'d, T, CH1, ch_mode::Input, CH3, CH4, ETR, TS> {
+    ) -> TimerBuilder<'d, T, CH1, ch_mode::Input, CH3, CH4, ETR, TS> {
         set_field!(self, ch2: ch_mode::Input { filter, mode, ti_selection, prescaler_factor })
     }
 }
 
 impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH4: ch_mode::Mode, ETR, TS>
-    CustomPwmBuilder<'d, T, CH1, CH2, ch_mode::InternalOutput, CH4, ETR, TS>
+    TimerBuilder<'d, T, CH1, CH2, ch_mode::InternalOutput, CH4, ETR, TS>
 {
     /// Set ch3 to be used as internal output, can be used as time base etc
     pub fn ch3_internal(self, duty: u16) -> Self {
@@ -337,7 +338,7 @@ impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH4
         _pin: if_afio!(PwmPin<'d, T, Ch3, A>),
         mode: OutputCompareMode,
         duty: u16,
-    ) -> CustomPwmBuilder<'d, T, CH1, CH2, ch_mode::Output, CH4, ETR, TS> {
+    ) -> TimerBuilder<'d, T, CH1, CH2, ch_mode::Output, CH4, ETR, TS> {
         set_field!(self, ch3: ch_mode::Output { mode, duty })
     }
 
@@ -349,13 +350,13 @@ impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH4
         mode: InputCaptureMode,
         ti_selection: InputTISelection,
         prescaler_factor: u8,
-    ) -> CustomPwmBuilder<'d, T, CH1, CH2, ch_mode::Input, CH4, ETR, TS> {
+    ) -> TimerBuilder<'d, T, CH1, CH2, ch_mode::Input, CH4, ETR, TS> {
         set_field!(self, ch3: ch_mode::Input { filter, mode, ti_selection, prescaler_factor })
     }
 }
 
 impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH3: ch_mode::Mode, ETR, TS>
-    CustomPwmBuilder<'d, T, CH1, CH2, CH3, ch_mode::InternalOutput, ETR, TS>
+    TimerBuilder<'d, T, CH1, CH2, CH3, ch_mode::InternalOutput, ETR, TS>
 {
     /// Set ch4 to be used as internal output, can be used as time base etc
     pub fn ch4_internal(self, duty: u16) -> Self {
@@ -368,7 +369,7 @@ impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH3
         _pin: if_afio!(PwmPin<'d, T, Ch4, A>),
         mode: OutputCompareMode,
         duty: u16,
-    ) -> CustomPwmBuilder<'d, T, CH1, CH2, CH3, ch_mode::Output, ETR, TS> {
+    ) -> TimerBuilder<'d, T, CH1, CH2, CH3, ch_mode::Output, ETR, TS> {
         set_field!(self, ch4: ch_mode::Output { mode, duty })
     }
 
@@ -380,7 +381,7 @@ impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH3
         mode: InputCaptureMode,
         ti_selection: InputTISelection,
         prescaler_factor: u8,
-    ) -> CustomPwmBuilder<'d, T, CH1, CH2, CH3, ch_mode::Input, ETR, TS> {
+    ) -> TimerBuilder<'d, T, CH1, CH2, CH3, ch_mode::Input, ETR, TS> {
         set_field!(self, ch4: ch_mode::Input { filter, mode, ti_selection, prescaler_factor })
     }
 }
@@ -407,13 +408,13 @@ pub enum TriggerSource {
 }
 
 impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode>
-    CustomPwmBuilder<'d, T, CH1, CH2, CH3, CH4, external_trigger::Etr, trigger_source::Internal>
+    TimerBuilder<'d, T, CH1, CH2, CH3, CH4, external_trigger::Etr, trigger_source::Internal>
 {
     /// Setup timer to be triggered from ch1 compare match event
     pub fn trigger_from_etr(
         self,
         mode: TriggerMode,
-    ) -> CustomPwmBuilder<'d, T, CH1, CH2, CH3, CH4, external_trigger::Etr, trigger_source::Etr> {
+    ) -> TimerBuilder<'d, T, CH1, CH2, CH3, CH4, external_trigger::Etr, trigger_source::Etr> {
         set_field!(self, trigger_source: trigger_source::Etr,
             trig_source: Ts::TI1F_ED,
             slave_mode: match mode {
@@ -427,14 +428,14 @@ impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH2: ch_mode::Mode, CH3
 }
 
 impl<'d, T: GeneralInstance4Channel, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode, ETR>
-    CustomPwmBuilder<'d, T, ch_mode::Input, CH2, CH3, CH4, ETR, trigger_source::Internal>
+    TimerBuilder<'d, T, ch_mode::Input, CH2, CH3, CH4, ETR, trigger_source::Internal>
 {
     /// Setup timer to be triggered from ch1 compare match event
     pub fn trigger_from_ch1(
         self,
         mode: TriggerMode,
         source: TriggerSource,
-    ) -> CustomPwmBuilder<'d, T, ch_mode::Input, CH2, CH3, CH4, ETR, trigger_source::Ch1> {
+    ) -> TimerBuilder<'d, T, ch_mode::Input, CH2, CH3, CH4, ETR, trigger_source::Ch1> {
         set_field!(self, trigger_source: trigger_source::Ch1,
             trig_source: match source {
                 TriggerSource::EdgeDetector => Ts::TI1F_ED,
@@ -451,13 +452,13 @@ impl<'d, T: GeneralInstance4Channel, CH2: ch_mode::Mode, CH3: ch_mode::Mode, CH4
 }
 
 impl<'d, T: GeneralInstance4Channel, CH1: ch_mode::Mode, CH3: ch_mode::Mode, CH4: ch_mode::Mode, ETR>
-    CustomPwmBuilder<'d, T, CH1, ch_mode::Input, CH3, CH4, ETR, trigger_source::Internal>
+    TimerBuilder<'d, T, CH1, ch_mode::Input, CH3, CH4, ETR, trigger_source::Internal>
 {
     /// Setup timer to be triggered from ch1 compare match event
     pub fn trigger_from_ch2(
         self,
         mode: TriggerMode,
-    ) -> CustomPwmBuilder<'d, T, CH1, ch_mode::Input, CH3, CH4, ETR, trigger_source::Ch2> {
+    ) -> TimerBuilder<'d, T, CH1, ch_mode::Input, CH3, CH4, ETR, trigger_source::Ch2> {
         set_field!(self, trigger_source: trigger_source::Ch2, trig_source: Ts::TI2FP2, slave_mode: match mode {
             TriggerMode::ResetMode => SlaveMode::RESET_MODE,
             TriggerMode::GatedMode => SlaveMode::GATED_MODE,
@@ -475,81 +476,36 @@ impl<
     CH3: ch_mode::Mode,
     ETR: external_trigger::Trigger,
     TS,
-> CustomPwmBuilder<'d, T, CH1, CH2, CH3, ch_mode::InternalOutput, ETR, TS>
+> TimerBuilder<'d, T, CH1, CH2, CH3, ch_mode::InternalOutput, ETR, TS>
 {
     /// Finalize configuration and create the [CustomPwm]
-    pub fn finalize(self) -> CustomPwm<'d, T> {
+    pub fn finalize(self) -> Timer<'d, T> {
         use ch_mode::Mode;
-        let mut inner = Timer::new(self.tim);
+        let mut timer = Timer::new(self.tim);
 
-        self.ch1.init(super::Channel::Ch1, &mut inner);
-        self.ch2.init(super::Channel::Ch2, &mut inner);
-        self.ch3.init(super::Channel::Ch3, &mut inner);
-        self.ch4.init(super::Channel::Ch4, &mut inner);
-        self.etr.init(&mut inner);
+        self.ch1.init(super::Channel::Ch1, &mut timer);
+        self.ch2.init(super::Channel::Ch2, &mut timer);
+        self.ch3.init(super::Channel::Ch3, &mut timer);
+        self.ch4.init(super::Channel::Ch4, &mut timer);
+        self.etr.init(&mut timer);
 
-        inner.set_trigger_source(self.trig_source);
-        inner.set_slave_mode(self.slave_mode);
+        timer.set_trigger_source(self.trig_source);
+        timer.set_slave_mode(self.slave_mode);
 
-        inner.set_counting_mode(self.counting_mode);
+        timer.set_counting_mode(self.counting_mode);
         match self.speed {
-            Speed::Hertz(hz) => inner.set_frequency(hz),
+            Speed::Hertz(hz) => timer.set_frequency(hz),
             Speed::Manual { arr, psc } => {
-                inner.set_max_compare_value(arr);
-                inner.set_prescaler(psc);
+                timer.set_max_compare_value(arr);
+                timer.set_prescaler(psc);
             }
         }
-        inner.generate_update_event();
+        timer.generate_update_event();
 
-        inner.regs_core().cr1().modify(|r| r.set_opm(self.one_pulse_mode));
-        inner.enable_outputs();
-        inner.start();
+        timer.regs_core().cr1().modify(|r| r.set_opm(self.one_pulse_mode));
+        timer.enable_outputs();
+        timer.start();
 
-        CustomPwm { inner }
-    }
-}
-
-/// Use [CustomPwmBuilder::new] to create a new timer
-pub struct CustomPwm<'d, T: CoreInstance> {
-    pub(crate) inner: Timer<'d, T>,
-}
-
-impl<'d, T: GeneralInstance4Channel> CustomPwm<'d, T> {
-    /// Set compare value
-    pub fn set_compare_value(&mut self, duty: u16, channel: super::Channel) {
-        self.inner.set_compare_value(channel, duty as u32);
-    }
-
-    /// Generate a sequence of PWM waveform
-    ///
-    /// Note:
-    /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
-    pub async fn waveform_up(&mut self, dma: Peri<'_, impl super::UpDma<T>>, channel: super::Channel, duty: &[u16]) {
-        self.inner.waveform_up(dma, channel, duty).await;
-    }
-
-    /// Get capture value for a channel.
-    pub fn get_capture_value(&self, channel: super::Channel) -> u32 {
-        self.inner.get_capture_value(channel)
-    }
-
-    fn new_future(&self, channel: super::Channel) -> InputCaptureFuture<T> {
-        self.inner.enable_channel(channel, true);
-        self.inner.enable_input_interrupt(channel, true);
-
-        InputCaptureFuture {
-            channel,
-            phantom: PhantomData,
-        }
-    }
-
-    /// Asynchronously wait until the pin sees an edge as configured on timer init.
-    pub async fn wait_for_configured_edge(&mut self, channel: super::Channel) -> u32 {
-        self.new_future(channel).await
-    }
-
-    /// Asynchronously wait until the period event
-    pub async fn wait_for_period(&mut self) -> u32 {
-        todo!()
+        timer
     }
 }
