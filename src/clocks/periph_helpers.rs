@@ -1,7 +1,43 @@
+//! Peripheral Helpers
+//!
+//! The purpose of this module is to define the per-peripheral special handling
+//! required from a clocking perspective. Different peripherals have different
+//! selectable source clocks, and some peripherals have additional pre-dividers
+//! that can be used.
+//!
+//! See the docs of [`SPConfHelper`] for more details.
+
 use super::{ClockError, Clocks, PoweredClock};
 use crate::pac;
 
+/// Sealed Peripheral Configuration Helper
+///
+/// NOTE: the name "sealed" doesn't *totally* make sense because its not sealed yet in the
+/// embassy-mcxa project, but it derives from embassy-imxrt where it is. We should
+/// fix the name, or actually do the sealing of peripherals.
+///
+/// This trait serves to act as a per-peripheral customization for clocking behavior.
+///
+/// This trait should be implemented on a configuration type for a given peripheral, and
+/// provide the methods that will be called by the higher level operations like
+/// `embassy_mcxa::clocks::enable_and_reset()`.
 pub trait SPConfHelper {
+    /// This method is called AFTER a given MRCC peripheral has been enabled (e.g. un-gated),
+    /// but BEFORE the peripheral reset line is reset.
+    ///
+    /// This function should check that any relevant upstream clocks are enabled, are in a
+    /// reasonable power state, and that the requested configuration can be made. If any of
+    /// these checks fail, an `Err(ClockError)` should be returned, likely `ClockError::BadConfig`.
+    ///
+    /// This function SHOULD NOT make any changes to the system clock configuration, even
+    /// unsafely, as this should remain static for the duration of the program.
+    ///
+    /// This function WILL be called in a critical section, care should be taken not to delay
+    /// for an unreasonable amount of time.
+    ///
+    /// On success, this function MUST return an `Ok(freq)`, where `freq` is the frequency
+    /// fed into the peripheral, taking into account the selected source clock, as well as
+    /// any pre-divisors.
     fn post_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError>;
 }
 
@@ -65,6 +101,33 @@ impl Div4 {
     }
 }
 
+/// A basic type that always returns an error when `post_enable_config` is called.
+///
+/// Should only be used as a placeholder.
+pub struct UnimplementedConfig;
+
+impl SPConfHelper for UnimplementedConfig {
+    fn post_enable_config(&self, _clocks: &Clocks) -> Result<u32, ClockError> {
+        Err(ClockError::UnimplementedConfig)
+    }
+}
+
+/// A basic type that always returns `Ok(0)` when `post_enable_config` is called.
+///
+/// This should only be used for peripherals that are "ambiently" clocked, like `PORTn`
+/// peripherals, which have no selectable/configurable source clock.
+pub struct NoConfig;
+impl SPConfHelper for NoConfig {
+    fn post_enable_config(&self, _clocks: &Clocks) -> Result<u32, ClockError> {
+        Ok(0)
+    }
+}
+
+//
+// LPUart
+//
+
+/// Selectable clocks for Lpuart peripherals
 #[derive(Debug, Clone, Copy)]
 pub enum LpuartClockSel {
     /// FRO12M/FRO_LF/SIRC clock source, passed through divider
@@ -86,16 +149,26 @@ pub enum LpuartClockSel {
     None,
 }
 
+/// Which instance of the Lpuart is this?
+///
+/// Should not be directly selectable by end-users.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum LpuartInstance {
+    /// Instance 0
     Lpuart0,
+    /// Instance 1
     Lpuart1,
+    /// Instance 2
     Lpuart2,
+    /// Instance 3
     Lpuart3,
+    /// Instance 4
     Lpuart4,
+    /// Instance 5
     Lpuart5,
 }
 
+/// Top level configuration for `Lpuart` instances.
 pub struct LpuartConfig {
     /// Power state required for this peripheral
     pub power: PoweredClock,
@@ -107,39 +180,6 @@ pub struct LpuartConfig {
     // NOTE: should not be user settable
     pub(crate) instance: LpuartInstance,
 }
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum OstimerClockSel {
-    /// 16k clock, sourced from FRO16K (Vdd Core)
-    Clk16kVddCore,
-    /// 1 MHz Clock sourced from FRO12M
-    Clk1M,
-    /// Disabled
-    None,
-}
-
-pub struct OsTimerConfig {
-    pub power: PoweredClock,
-    pub source: OstimerClockSel,
-}
-
-#[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum AdcClockSel {
-    FroLfDiv,
-    FroHf,
-    ClkIn,
-    Clk1M,
-    Pll1ClkDiv,
-    None,
-}
-
-pub struct AdcConfig {
-    pub power: PoweredClock,
-    pub source: AdcClockSel,
-    pub div: Div4,
-}
-
-// impls
 
 impl SPConfHelper for LpuartConfig {
     fn post_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
@@ -215,6 +255,29 @@ impl SPConfHelper for LpuartConfig {
     }
 }
 
+//
+// OSTimer
+//
+
+/// Selectable clocks for the OSTimer peripheral
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum OstimerClockSel {
+    /// 16k clock, sourced from FRO16K (Vdd Core)
+    Clk16kVddCore,
+    /// 1 MHz Clock sourced from FRO12M
+    Clk1M,
+    /// Disabled
+    None,
+}
+
+/// Top level configuration for the `OSTimer` peripheral
+pub struct OsTimerConfig {
+    /// Power state required for this peripheral
+    pub power: PoweredClock,
+    /// Selected clock source for this peripheral
+    pub source: OstimerClockSel,
+}
+
 impl SPConfHelper for OsTimerConfig {
     fn post_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
         let mrcc0 = unsafe { pac::Mrcc0::steal() };
@@ -235,6 +298,37 @@ impl SPConfHelper for OsTimerConfig {
             }
         })
     }
+}
+
+//
+// Adc
+//
+
+/// Selectable clocks for the ADC peripheral
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum AdcClockSel {
+    /// Divided `fro_lf`/`clk_12m`/FRO12M source
+    FroLfDiv,
+    /// Gated `fro_hf`/`FRO180M` source
+    FroHf,
+    /// External Clock Source
+    ClkIn,
+    /// 1MHz clock sourced by a divided `fro_lf`/`clk_12m`
+    Clk1M,
+    /// Internal PLL output, with configurable divisor
+    Pll1ClkDiv,
+    /// No clock/disabled
+    None,
+}
+
+/// Top level configuration for the ADC peripheral
+pub struct AdcConfig {
+    /// Power state required for this peripheral
+    pub power: PoweredClock,
+    /// Selected clock-source for this peripheral
+    pub source: AdcClockSel,
+    /// Pre-divisor, applied to the upstream clock output
+    pub div: Div4,
 }
 
 impl SPConfHelper for AdcConfig {
