@@ -11,12 +11,15 @@ use embassy_sync::mutex::Mutex;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::mac::event::MacEvent;
+use crate::mac::indications::write_frame_from_data_indication;
 use crate::mac::runner::{BUF_SIZE, ZeroCopyPubSub};
 use crate::mac::{Control, MTU, Runner};
 use crate::sub::mac::{Mac, MacRx, MacTx};
 
 pub struct NetworkState {
     pub mac_addr: [u8; 8],
+    pub short_addr: [u8; 2],
+    pub pan_id: [u8; 2],
     pub link_state: LinkState,
     pub link_waker: AtomicWaker,
 }
@@ -25,6 +28,8 @@ impl NetworkState {
     pub const fn new() -> Self {
         Self {
             mac_addr: [0u8; 8],
+            short_addr: [0u8; 2],
+            pan_id: [0u8; 2],
             link_state: LinkState::Down,
             link_waker: AtomicWaker::new(),
         }
@@ -68,7 +73,11 @@ pub struct Driver<'d> {
 }
 
 impl<'d> Driver<'d> {
-    pub fn new(driver_state: &'d mut DriverState<'d>) -> (Self, Runner<'d>, Control<'d>) {
+    pub fn new(
+        driver_state: &'d mut DriverState<'d>,
+        short_address: [u8; 2],
+        mac_address: [u8; 8],
+    ) -> (Self, Runner<'d>, Control<'d>) {
         (
             Self {
                 tx_data_channel: &driver_state.tx_data_channel,
@@ -85,6 +94,8 @@ impl<'d> Driver<'d> {
                 &driver_state.mac_tx,
                 &mut driver_state.tx_buf_queue,
                 &driver_state.network_state,
+                short_address,
+                mac_address,
             ),
             Control::new(
                 &driver_state.rx_event_channel,
@@ -169,14 +180,13 @@ impl<'d> embassy_net_driver::RxToken for RxToken<'d> {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        // Only valid data events should be put into the queue
-
-        let data_event = match self.rx.try_receive().unwrap() {
-            MacEvent::McpsDataInd(data_event) => data_event,
-            _ => unreachable!(),
+        let mut buffer = [0u8; MTU];
+        match self.rx.try_receive().unwrap() {
+            MacEvent::McpsDataInd(data_event) => write_frame_from_data_indication(data_event, &mut buffer),
+            _ => {}
         };
 
-        f(&mut data_event.payload())
+        f(&mut buffer[..])
     }
 }
 

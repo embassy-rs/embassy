@@ -1,5 +1,7 @@
 use core::fmt::Debug;
 
+use smoltcp::wire::ieee802154::{Address, AddressingMode, Pan};
+
 use crate::numeric_enum;
 
 #[derive(Debug)]
@@ -109,10 +111,39 @@ numeric_enum! {
 }
 }
 
+impl TryFrom<AddressingMode> for AddressMode {
+    type Error = ();
+
+    fn try_from(value: AddressingMode) -> Result<Self, Self::Error> {
+        match value {
+            AddressingMode::Absent => Ok(Self::NoAddress),
+            AddressingMode::Extended => Ok(Self::Extended),
+            AddressingMode::Short => Ok(Self::Short),
+            AddressingMode::Unknown(_) => Err(()),
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 pub union MacAddress {
     pub short: [u8; 2],
     pub extended: [u8; 8],
+}
+
+impl From<Address> for MacAddress {
+    fn from(value: Address) -> Self {
+        match value {
+            Address::Short(addr) => Self { short: addr },
+            Address::Extended(addr) => Self { extended: addr },
+            Address::Absent => Self { short: [0u8; 2] },
+        }
+    }
+}
+
+impl From<MacAddress> for Address {
+    fn from(_value: MacAddress) -> Self {
+        todo!()
+    }
 }
 
 impl Debug for MacAddress {
@@ -378,4 +409,16 @@ pub struct PanId(pub [u8; 2]);
 
 impl PanId {
     pub const BROADCAST: Self = Self([0xFF, 0xFF]);
+}
+
+impl From<Pan> for PanId {
+    fn from(value: Pan) -> Self {
+        Self(value.0.to_be_bytes())
+    }
+}
+
+impl From<PanId> for Pan {
+    fn from(value: PanId) -> Self {
+        Self(u16::from_be_bytes(value.0))
+    }
 }

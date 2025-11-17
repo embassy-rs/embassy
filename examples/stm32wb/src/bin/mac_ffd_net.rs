@@ -1,30 +1,44 @@
 #![no_std]
 #![no_main]
 
+use core::net::Ipv6Addr;
+
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_net::udp::{PacketMetadata, UdpSocket};
+use embassy_net::{Ipv6Cidr, StackResources, StaticConfigV6};
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
+use embassy_stm32::peripherals::RNG;
 use embassy_stm32::rcc::WPAN_DEFAULT;
+use embassy_stm32::rng::InterruptHandler as RngInterruptHandler;
 use embassy_stm32_wpan::TlMbox;
 use embassy_stm32_wpan::mac::{Driver, DriverState, Runner};
 use embassy_stm32_wpan::sub::mm;
+use embassy_time::{Duration, Timer};
+use heapless::Vec;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
     IPCC_C1_RX => ReceiveInterruptHandler;
     IPCC_C1_TX => TransmitInterruptHandler;
+    RNG => RngInterruptHandler<RNG>;
 });
 
 #[embassy_executor::task]
-async fn run_mm_queue(memory_manager: mm::MemoryManager) {
-    memory_manager.run_queue().await;
+async fn run_mm_queue(memory_manager: mm::MemoryManager) -> ! {
+    memory_manager.run_queue().await
 }
 
 #[embassy_executor::task]
-async fn run_mac(runner: &'static Runner<'static>) {
-    runner.run().await;
+async fn run_mac(runner: &'static Runner<'static>) -> ! {
+    runner.run().await
+}
+
+#[embassy_executor::task]
+async fn run_net(mut runner: embassy_net::Runner<'static, Driver<'static>>) -> ! {
+    runner.run().await
 }
 
 #[embassy_executor::main]
@@ -72,21 +86,67 @@ async fn main(spawner: Spawner) {
 
     static DRIVER_STATE: StaticCell<DriverState> = StaticCell::new();
     static RUNNER: StaticCell<Runner> = StaticCell::new();
+    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
 
     let driver_state = DRIVER_STATE.init(DriverState::new(mbox.mac_subsystem));
-    let (driver, runner, mut control) = Driver::new(driver_state);
 
-    spawner.spawn(run_mac(RUNNER.init(runner)).unwrap());
+    let (driver, mac_runner, mut control) = Driver::new(
+        driver_state,
+        0x1122u16.to_be_bytes().try_into().unwrap(),
+        0xACDE480000000001u64.to_be_bytes().try_into().unwrap(),
+    );
 
-    control
-        .init_link(
-            0x1122u16.to_be_bytes().try_into().unwrap(),
-            0xACDE480000000001u64.to_be_bytes().try_into().unwrap(),
-            [0x1A, 0xAA],
-        )
-        .await;
+    // TODO: rng does not work for some reason
+    // Generate random seed.
+    // let mut rng = Rng::new(p.RNG, Irqs);
+    let seed = [0; 8];
+    // let _ = rng.async_fill_bytes(&mut seed).await;
+    let seed = u64::from_le_bytes(seed);
+
+    info!("seed generated");
+
+    // Init network stack
+    let ipv6_addr = Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0xc00a, 0x2ff);
+
+    let config = embassy_net::Config::ipv6_static(StaticConfigV6 {
+        address: Ipv6Cidr::new(ipv6_addr, 104),
+        gateway: None,
+        dns_servers: Vec::new(),
+    });
+
+    let (stack, eth_runner) = embassy_net::new(driver, config, RESOURCES.init(StackResources::new()), seed);
+
+    // wpan runner
+    spawner.spawn(run_mac(RUNNER.init(mac_runner)).unwrap());
+
+    // Launch network task
+    spawner.spawn(unwrap!(run_net(eth_runner)));
+
+    info!("Network task initialized");
+
+    control.init_link([0x1A, 0xAA]).await;
+
+    // Ensure DHCP configuration is up before trying connect
+    stack.wait_config_up().await;
+
+    info!("Network up");
+
+    // Then we can use it!
+    let mut rx_meta = [PacketMetadata::EMPTY];
+    let mut rx_buffer = [0; 4096];
+    let mut tx_meta = [PacketMetadata::EMPTY];
+    let mut tx_buffer = [0; 4096];
+
+    let mut socket = UdpSocket::new(stack, &mut rx_meta, &mut rx_buffer, &mut tx_meta, &mut tx_buffer);
+
+    let remote_endpoint = (Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0xc00a, 0x2fb), 8000);
+
+    let send_buf = [0u8; 20];
+
+    socket.bind((ipv6_addr, 8000)).unwrap();
+    socket.send_to(&send_buf, remote_endpoint).await.unwrap();
+
+    Timer::after(Duration::from_secs(2)).await;
 
     cortex_m::asm::bkpt();
-
-    let _ = driver;
 }
