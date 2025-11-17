@@ -11,12 +11,10 @@ use embassy_sync::mutex::Mutex;
 use embassy_sync::signal::Signal;
 use futures_util::FutureExt;
 
-use crate::mac::commands::MacCommand;
 use crate::mac::commands::*;
 use crate::mac::driver::NetworkState;
 use crate::mac::event::MacEvent;
 use crate::mac::runner::ZeroCopyPubSub;
-use crate::mac::typedefs::MacError;
 use crate::mac::typedefs::*;
 use crate::sub::mac::MacTx;
 
