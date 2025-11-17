@@ -821,44 +821,44 @@ impl ClockOperator<'_> {
 /// This macro is used to implement the [`Gate`] trait for a given peripheral
 /// that is controlled by the MRCC peripheral.
 macro_rules! impl_cc_gate {
-    ($name:ident, $reg:ident, $field:ident, $config:ty) => {
+    ($name:ident, $clk_reg:ident, $rst_reg:ident, $field:ident, $config:ty) => {
         impl Gate for crate::peripherals::$name {
             type MrccPeriphConfig = $config;
 
             #[inline]
             unsafe fn enable_clock() {
                 let mrcc = unsafe { pac::Mrcc0::steal() };
-                mrcc.$reg().modify(|_, w| w.$field().enabled());
+                mrcc.$clk_reg().modify(|_, w| w.$field().enabled());
             }
 
             #[inline]
             unsafe fn disable_clock() {
                 let mrcc = unsafe { pac::Mrcc0::steal() };
-                mrcc.$reg().modify(|_r, w| w.$field().disabled());
+                mrcc.$clk_reg().modify(|_r, w| w.$field().disabled());
             }
 
             #[inline]
             fn is_clock_enabled() -> bool {
                 let mrcc = unsafe { pac::Mrcc0::steal() };
-                mrcc.$reg().read().$field().is_enabled()
+                mrcc.$clk_reg().read().$field().is_enabled()
             }
 
             #[inline]
             unsafe fn release_reset() {
                 let mrcc = unsafe { pac::Mrcc0::steal() };
-                mrcc.$reg().modify(|_, w| w.$field().enabled());
+                mrcc.$rst_reg().modify(|_, w| w.$field().enabled());
             }
 
             #[inline]
             unsafe fn assert_reset() {
                 let mrcc = unsafe { pac::Mrcc0::steal() };
-                mrcc.$reg().modify(|_, w| w.$field().disabled());
+                mrcc.$rst_reg().modify(|_, w| w.$field().disabled());
             }
 
             #[inline]
             fn is_reset_released() -> bool {
                 let mrcc = unsafe { pac::Mrcc0::steal() };
-                mrcc.$reg().read().$field().is_enabled()
+                mrcc.$rst_reg().read().$field().is_enabled()
             }
         }
     };
@@ -874,14 +874,14 @@ pub(crate) mod gate {
     // other than enabling through the MRCC gate. Currently, these peripherals will
     // ALWAYS return `Ok(0)` when calling [`enable_and_reset()`] and/or
     // [`SPConfHelper::post_enable_config()`].
-    impl_cc_gate!(PORT1, mrcc_glb_cc1, port1, NoConfig);
-    impl_cc_gate!(PORT2, mrcc_glb_cc1, port2, NoConfig);
-    impl_cc_gate!(PORT3, mrcc_glb_cc1, port3, NoConfig);
-    impl_cc_gate!(GPIO3, mrcc_glb_cc2, gpio3, NoConfig);
+    impl_cc_gate!(PORT1, mrcc_glb_cc1, mrcc_glb_rst1, port1, NoConfig);
+    impl_cc_gate!(PORT2, mrcc_glb_cc1, mrcc_glb_rst1, port2, NoConfig);
+    impl_cc_gate!(PORT3, mrcc_glb_cc1, mrcc_glb_rst1, port3, NoConfig);
+    impl_cc_gate!(GPIO3, mrcc_glb_cc2, mrcc_glb_rst2, gpio3, NoConfig);
 
     // These peripherals DO have meaningful configuration, and could fail if the system
     // clocks do not match their needs.
-    impl_cc_gate!(OSTIMER0, mrcc_glb_cc1, ostimer0, OsTimerConfig);
-    impl_cc_gate!(LPUART2, mrcc_glb_cc0, lpuart2, LpuartConfig);
-    impl_cc_gate!(ADC1, mrcc_glb_cc1, adc1, AdcConfig);
+    impl_cc_gate!(OSTIMER0, mrcc_glb_cc1, mrcc_glb_rst1, ostimer0, OsTimerConfig);
+    impl_cc_gate!(LPUART2, mrcc_glb_cc0, mrcc_glb_rst0, lpuart2, LpuartConfig);
+    impl_cc_gate!(ADC1, mrcc_glb_cc1, mrcc_glb_rst1, adc1, AdcConfig);
 }

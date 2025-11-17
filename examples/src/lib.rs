@@ -5,7 +5,7 @@
 //! These live with the examples so the HAL stays generic.
 
 use hal::{clocks, pins};
-use {embassy_mcxa as hal, panic_probe as _};
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 /// Initialize clocks and pin muxing for UART2 debug console.
 /// Safe to call multiple times; writes are idempotent for our use.

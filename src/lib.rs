@@ -47,7 +47,6 @@ pub use rtc::Rtc0 as Rtc0Token;
 
 /// Initialize HAL with configuration (mirrors embassy-imxrt style). Minimal: just take peripherals.
 /// Also applies configurable NVIC priority for the OSTIMER OS_EVENT interrupt (no enabling).
-#[allow(unused_variables)]
 pub fn init(cfg: crate::config::Config) -> Peripherals {
     let peripherals = Peripherals::take();
     // Apply user-configured priority early; enabling is left to examples/apps
@@ -56,6 +55,10 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
     crate::interrupt::RTC.set_priority(cfg.rtc_interrupt_priority);
     // Apply user-configured priority early; enabling is left to examples/apps
     crate::interrupt::ADC1.set_priority(cfg.adc_interrupt_priority);
+
+    // Configure clocks
+    crate::clocks::init(cfg.clock_cfg).unwrap();
+
     peripherals
 }
 
