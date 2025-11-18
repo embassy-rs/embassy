@@ -391,7 +391,7 @@ pub struct Config {
     pub frame_sync_polarity: FrameSyncPolarity,
     pub frame_sync_active_level_length: word::U7,
     pub frame_sync_definition: FrameSyncDefinition,
-    pub frame_length: u8,
+    pub frame_length: u16,
     pub clock_strobe: ClockStrobe,
     pub output_drive: OutputDrive,
     pub master_clock_divider: Option<MasterClockDivider>,
@@ -696,7 +696,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
             w.set_fspol(config.frame_sync_polarity.fspol());
             w.set_fsdef(config.frame_sync_definition.fsdef());
             w.set_fsall(config.frame_sync_active_level_length.0 as u8 - 1);
-            w.set_frl(config.frame_length - 1);
+            w.set_frl((config.frame_length - 1).try_into().unwrap());
         });
 
         ch.slotr().modify(|w| {

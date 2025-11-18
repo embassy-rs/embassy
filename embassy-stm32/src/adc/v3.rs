@@ -65,7 +65,7 @@ impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
 }
 #[cfg(any(adc_h5, adc_h7rs))]
 impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
-    const CHANNEL: u8 = 2;
+    const CHANNEL: u8 = 16;
 }
 #[cfg(adc_u0)]
 impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
@@ -82,7 +82,7 @@ cfg_if! {
         impl<T: Instance> super::AdcChannel<T> for VddCore {}
         impl<T: Instance> super::SealedAdcChannel<T> for VddCore {
             fn channel(&self) -> u8 {
-                6
+                17
             }
         }
     }
@@ -174,38 +174,31 @@ impl<T: Instance> super::SealedAnyInstance for T {
     }
 
     fn start() {
-        #[cfg(any(adc_v3, adc_g0, adc_u0))]
-        {
-            // Start adc conversion
-            T::regs().cr().modify(|reg| {
-                reg.set_adstart(true);
-            });
-        }
+        T::regs().cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
     }
 
     fn stop() {
-        #[cfg(any(adc_v3, adc_g0, adc_u0))]
-        {
-            // Ensure conversions are finished.
-            if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
-                T::regs().cr().modify(|reg| {
-                    reg.set_adstp(true);
-                });
-                while T::regs().cr().read().adstart() {}
-            }
-
-            // Reset configuration.
-            #[cfg(not(any(adc_g0, adc_u0)))]
-            T::regs().cfgr().modify(|reg| {
-                reg.set_cont(false);
-                reg.set_dmaen(false);
+        // Ensure conversions are finished.
+        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
+            T::regs().cr().modify(|reg| {
+                reg.set_adstp(true);
             });
-            #[cfg(any(adc_g0, adc_u0))]
-            T::regs().cfgr1().modify(|reg| {
-                reg.set_cont(false);
-                reg.set_dmaen(false);
-            });
+            while T::regs().cr().read().adstart() {}
         }
+
+        // Reset configuration.
+        #[cfg(not(any(adc_g0, adc_u0)))]
+        T::regs().cfgr().modify(|reg| {
+            reg.set_cont(false);
+            reg.set_dmaen(false);
+        });
+        #[cfg(any(adc_g0, adc_u0))]
+        T::regs().cfgr1().modify(|reg| {
+            reg.set_cont(false);
+            reg.set_dmaen(false);
+        });
     }
 
     /// Perform a single conversion.
@@ -267,6 +260,9 @@ impl<T: Instance> super::SealedAnyInstance for T {
     }
 
     fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+        #[cfg(adc_h5)]
+        T::regs().cr().modify(|w| w.set_aden(false));
+
         // Set sequence length
         #[cfg(not(any(adc_g0, adc_u0)))]
         T::regs().sqr1().modify(|w| {
@@ -301,8 +297,11 @@ impl<T: Instance> super::SealedAnyInstance for T {
             #[cfg(adc_u0)]
             let mut channel_mask = 0;
 
+            #[cfg(adc_h5)]
+            let mut difsel = 0u32;
+
             // Configure channels and ranks
-            for (_i, ((channel, _), sample_time)) in sequence.enumerate() {
+            for (_i, ((channel, _is_differential), sample_time)) in sequence.enumerate() {
                 // RM0492, RM0481, etc.
                 // "This option bit must be set to 1 when ADCx_INP0 or ADCx_INN1 channel is selected."
                 #[cfg(any(adc_h5, adc_h7rs))]
@@ -364,11 +363,19 @@ impl<T: Instance> super::SealedAnyInstance for T {
                     _ => unreachable!(),
                 }
 
+                #[cfg(adc_h5)]
+                {
+                    difsel |= (_is_differential as u32) << channel;
+                }
+
                 #[cfg(adc_u0)]
                 {
                     channel_mask |= 1 << channel;
                 }
             }
+
+            #[cfg(adc_h5)]
+            T::regs().difsel().write(|w| w.set_difsel(difsel));
 
             // On G0 and U0 enabled channels are sampled from 0 to last channel.
             // It is possible to add up to 8 sequences if CHSELRMOD = 1.
@@ -580,6 +587,24 @@ impl<'d, T: Instance> Adc<'d, T> {
         }
 
         Vbat {}
+    }
+
+    pub fn disable_vbat(&self) {
+        cfg_if! {
+            if #[cfg(any(adc_g0, adc_u0))] {
+                T::regs().ccr().modify(|reg| {
+                    reg.set_vbaten(false);
+                });
+            } else if #[cfg(any(adc_h5, adc_h7rs))] {
+                T::common_regs().ccr().modify(|reg| {
+                    reg.set_vbaten(false);
+                });
+            } else {
+                T::common_regs().ccr().modify(|reg| {
+                    reg.set_ch18sel(false);
+                });
+            }
+        }
     }
 
     /*
