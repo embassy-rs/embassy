@@ -66,6 +66,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: add flash support for c0 family ([#4874](https://github.com/embassy-rs/embassy/pull/4874))
 - fix: fixing channel numbers on vbat and vddcore for adc on adc
 - adc: adding disable to vbat
+- feat: stm32/flash: add async support for h7 family
 
 ## 0.4.0 - 2025-08-26
 
