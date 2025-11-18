@@ -27,6 +27,8 @@ async fn main(_spawner: Spawner) {
         init_ostimer0(hal::pac());
     }
 
+    defmt::info!("Blink example");
+
     // Initialize embassy-time global driver backed by OSTIMER0
     hal::ostimer::time_driver::init(hal::config::Config::default().time_interrupt_priority, 1_000_000);
 
@@ -42,6 +44,8 @@ async fn main(_spawner: Spawner) {
     // With pauses between letters and words
 
     loop {
+        defmt::info!("SOS");
+
         // S: three short blinks
         for _ in 0..3 {
             led.set_low();
