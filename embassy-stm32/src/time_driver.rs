@@ -492,11 +492,15 @@ impl RtcDriver {
 impl Driver for RtcDriver {
     fn now(&self) -> u64 {
         let r = regs_gp16();
-
-        let period = self.period.load(Ordering::Relaxed);
-        compiler_fence(Ordering::Acquire);
-        let counter = r.cnt().read().cnt();
-        calc_now(period, counter)
+        // Spinlock is needed ensure period and counter are consistent
+        loop {
+            let period1 = self.period.load(Ordering::Acquire);
+            let counter = r.cnt().read().cnt();
+            let period2 = self.period.load(Ordering::Acquire);
+            if period1 == period2 {
+                return calc_now(period1, counter);
+            }
+        }
     }
 
     fn schedule_wake(&self, at: u64, waker: &core::task::Waker) {
