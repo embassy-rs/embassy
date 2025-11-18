@@ -26,11 +26,11 @@ async fn main(_spawner: Spawner) {
         ..Default::default()
     };
 
-    // Create UART instance using LPUART2 with PIO2_2 as TX and PIO2_3 as RX
+    // Create UART instance using LPUART2 with P2_2 as TX and P2_3 as RX
     let lpuart = Lpuart::new_blocking(
         p.LPUART2, // Peripheral
-        p.PIO2_2,  // TX pin
-        p.PIO2_3,  // RX pin
+        p.P2_2,    // TX pin
+        p.P2_3,    // RX pin
         config,
     )
     .unwrap();

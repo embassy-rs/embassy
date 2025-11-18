@@ -53,7 +53,7 @@ mod gpio {
     }
 
     // Implement GpioPin for all pins from lib.rs
-    impl_gpio_pin!(PIO2_2, PIO2_3);
+    impl_gpio_pin!(P2_2, P2_3);
 
     #[derive(Debug, Clone, Copy)]
     pub struct AnyPin;
@@ -433,12 +433,12 @@ macro_rules! impl_pin_trait {
 }
 
 // Document identifier: MCXA343/344 Rev. 1DraftB ReleaseCandidate, 2025-07-10 - 6.1 MCX A173, A174 Signal Multiplexing and Pin Assignments
-// impl_pin_trait!(LPUART0, rx, PIO2_0, ALT2, PIO0_2, ALT2, PIO0_20, ALT3);
-// impl_pin_trait!(LPUART0, tx, PIO2_1, ALT2, PIO0_3, ALT2, PIO0_21, ALT3);
-// impl_pin_trait!(LPUART0, rts, PIO2_2, ALT2, PIO0_0, ALT2, PIO0_22, ALT3);
-// impl_pin_trait!(LPUART0, cts, PIO2_3, ALT2, PIO0_1, ALT2, PIO0_23, ALT3);
-impl_pin_trait!(LPUART2, rx, PIO2_3, ALT3);
-impl_pin_trait!(LPUART2, tx, PIO2_2, ALT3);
+// impl_pin_trait!(LPUART0, rx, P2_0, ALT2, P0_2, ALT2, P0_20, ALT3);
+// impl_pin_trait!(LPUART0, tx, P2_1, ALT2, P0_3, ALT2, P0_21, ALT3);
+// impl_pin_trait!(LPUART0, rts, P2_2, ALT2, P0_0, ALT2, P0_22, ALT3);
+// impl_pin_trait!(LPUART0, cts, P2_3, ALT2, P0_1, ALT2, P0_23, ALT3);
+impl_pin_trait!(LPUART2, rx, P2_3, ALT3);
+impl_pin_trait!(LPUART2, tx, P2_2, ALT3);
 
 // ============================================================================
 // ERROR TYPES AND RESULTS

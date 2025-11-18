@@ -51,8 +51,8 @@ async fn main(_spawner: Spawner) {
     // Create a buffered LPUART2 instance with both TX and RX
     let mut uart = BufferedLpuart::new(
         p.LPUART2,
-        p.PIO2_2, // TX pin
-        p.PIO2_3, // RX pin
+        p.P2_2, // TX pin
+        p.P2_3, // RX pin
         Irqs,
         &mut tx_buf,
         &mut rx_buf,

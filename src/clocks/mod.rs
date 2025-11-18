@@ -874,10 +874,17 @@ pub(crate) mod gate {
     // other than enabling through the MRCC gate. Currently, these peripherals will
     // ALWAYS return `Ok(0)` when calling [`enable_and_reset()`] and/or
     // [`SPConfHelper::post_enable_config()`].
+    impl_cc_gate!(PORT0, mrcc_glb_cc1, mrcc_glb_rst1, port0, NoConfig);
     impl_cc_gate!(PORT1, mrcc_glb_cc1, mrcc_glb_rst1, port1, NoConfig);
     impl_cc_gate!(PORT2, mrcc_glb_cc1, mrcc_glb_rst1, port2, NoConfig);
     impl_cc_gate!(PORT3, mrcc_glb_cc1, mrcc_glb_rst1, port3, NoConfig);
+    impl_cc_gate!(PORT4, mrcc_glb_cc1, mrcc_glb_rst1, port4, NoConfig);
+
+    impl_cc_gate!(GPIO0, mrcc_glb_cc2, mrcc_glb_rst2, gpio0, NoConfig);
+    impl_cc_gate!(GPIO1, mrcc_glb_cc2, mrcc_glb_rst2, gpio1, NoConfig);
+    impl_cc_gate!(GPIO2, mrcc_glb_cc2, mrcc_glb_rst2, gpio2, NoConfig);
     impl_cc_gate!(GPIO3, mrcc_glb_cc2, mrcc_glb_rst2, gpio3, NoConfig);
+    impl_cc_gate!(GPIO4, mrcc_glb_cc2, mrcc_glb_rst2, gpio4, NoConfig);
 
     // These peripherals DO have meaningful configuration, and could fail if the system
     // clocks do not match their needs.
