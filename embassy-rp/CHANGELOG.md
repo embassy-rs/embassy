@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add PIO::Ws2812 color order support
 - Add TX-only, no SCK SPI support
 - Remove atomic-polyfill with critical-section instead ([#4948](https://github.com/embassy-rs/embassy/pull/4948))
+- Add I2C bus lockup detection and recovery (recovery is async-only)
 
 ## 0.8.0 - 2025-08-26
 
