@@ -240,7 +240,6 @@ dependencies = [
  "critical-section",
  "defmt",
  "embassy-embedded-hal",
- "embassy-executor",
  "embassy-hal-internal",
  "embassy-sync",
  "embassy-time",
