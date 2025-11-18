@@ -6,7 +6,6 @@
 pub mod clocks; // still provide clock helpers
 pub mod gpio;
 pub mod pins; // pin mux helpers
-pub mod reset; // reset control helpers
 
 pub mod adc;
 pub mod config;
@@ -14,9 +13,8 @@ pub mod interrupt;
 pub mod lpuart;
 pub mod ostimer;
 pub mod rtc;
-pub mod uart;
 
-embassy_hal_internal::peripherals!(LPUART2, OSTIMER0, GPIO, RTC0, ADC1,);
+embassy_hal_internal::peripherals!(PORT1, PORT2, PORT3, LPUART2, OSTIMER0, GPIO, PIO2_2, PIO2_3, GPIO3, RTC0, ADC1,);
 
 /// Get access to the PAC Peripherals for low-level register access.
 /// This is a lazy-initialized singleton that can be called after init().
@@ -46,11 +44,9 @@ pub use mcxa_pac as pac;
 pub(crate) use mcxa_pac as pac;
 pub use ostimer::Ostimer0 as Ostimer0Token;
 pub use rtc::Rtc0 as Rtc0Token;
-pub use uart::Lpuart2 as Uart2Token;
 
 /// Initialize HAL with configuration (mirrors embassy-imxrt style). Minimal: just take peripherals.
 /// Also applies configurable NVIC priority for the OSTIMER OS_EVENT interrupt (no enabling).
-#[allow(unused_variables)]
 pub fn init(cfg: crate::config::Config) -> Peripherals {
     let peripherals = Peripherals::take();
     // Apply user-configured priority early; enabling is left to examples/apps
@@ -59,6 +55,10 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
     crate::interrupt::RTC.set_priority(cfg.rtc_interrupt_priority);
     // Apply user-configured priority early; enabling is left to examples/apps
     crate::interrupt::ADC1.set_priority(cfg.adc_interrupt_priority);
+
+    // Configure clocks
+    crate::clocks::init(cfg.clock_cfg).unwrap();
+
     peripherals
 }
 

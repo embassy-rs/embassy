@@ -3,9 +3,9 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::bind_interrupts;
-use embassy_mcxa_examples::{init_ostimer0, init_uart2};
+use embassy_mcxa_examples::init_uart2_pins;
 use embassy_time::{Duration, Timer};
-use hal::uart;
+use hal::lpuart::{Config, Lpuart};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Bind only OS_EVENT, and retain the symbol explicitly so it can’t be GC’ed.
@@ -19,16 +19,28 @@ static KEEP_OS_EVENT: unsafe extern "C" fn() = OS_EVENT;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let _p = hal::init(hal::config::Config::default());
+    let p = hal::init(hal::config::Config::default());
 
-    // Enable/clock OSTIMER0 and UART2 before touching their registers
+    // Create UART configuration
+    let config = Config {
+        baudrate_bps: 115_200,
+        enable_tx: true,
+        enable_rx: true,
+        ..Default::default()
+    };
+
+    // Create UART instance using LPUART2 with PIO2_2 as TX and PIO2_3 as RX
     unsafe {
-        init_ostimer0(hal::pac());
-        init_uart2(hal::pac());
+        init_uart2_pins(hal::pac());
     }
-    let src = unsafe { hal::clocks::uart2_src_hz(hal::pac()) };
-    let uart = uart::Uart::<uart::Lpuart2>::new(_p.LPUART2, uart::Config::new(src));
-    uart.write_str_blocking("boot\n");
+    let mut uart = Lpuart::new_blocking(
+        p.LPUART2, // Peripheral
+        p.PIO2_2,  // TX pin
+        p.PIO2_3,  // RX pin
+        config,
+    )
+    .unwrap();
+    uart.blocking_write(b"boot\n").unwrap();
 
     // Avoid mass NVIC writes here; DefaultHandler now safely returns.
 

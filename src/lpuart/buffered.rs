@@ -212,10 +212,19 @@ impl<'a> BufferedLpuart<'a> {
         config.enable_tx = true;
         config.enable_rx = true;
 
+        // Enable clocks
+        let conf = LpuartConfig {
+            power: config.power,
+            source: config.source,
+            div: config.div,
+            instance: T::CLOCK_INSTANCE,
+        };
+        let clock_freq = unsafe { enable_and_reset::<T>(&conf).map_err(Error::ClockSetup)? };
+
         // Perform standard initialization
         perform_software_reset(regs);
         disable_transceiver(regs);
-        configure_baudrate(regs, config.baudrate_bps, config.clock)?;
+        configure_baudrate(regs, config.baudrate_bps, clock_freq)?;
         configure_frame_format(regs, &config);
         configure_control_settings(regs, &config);
         configure_fifo(regs, &config);

@@ -13,24 +13,12 @@ url = "https://raw.githubusercontent.com/google/rust-crate-audits/main/audits.to
 [imports.mozilla]
 url = "https://raw.githubusercontent.com/mozilla/supply-chain/main/audits.toml"
 
-[[exemptions.az]]
-version = "1.2.1"
-criteria = "safe-to-deploy"
-
 [[exemptions.bare-metal]]
 version = "0.2.5"
 criteria = "safe-to-deploy"
 
 [[exemptions.bitfield]]
 version = "0.13.2"
-criteria = "safe-to-deploy"
-
-[[exemptions.bitfield]]
-version = "0.15.0"
-criteria = "safe-to-deploy"
-
-[[exemptions.chrono]]
-version = "0.4.40"
 criteria = "safe-to-deploy"
 
 [[exemptions.cortex-m]]
@@ -117,10 +105,6 @@ criteria = "safe-to-deploy"
 version = "0.4.1"
 criteria = "safe-to-deploy"
 
-[[exemptions.fixed]]
-version = "1.29.0"
-criteria = "safe-to-deploy"
-
 [[exemptions.futures-core]]
 version = "0.3.31"
 criteria = "safe-to-deploy"
@@ -137,25 +121,9 @@ criteria = "safe-to-deploy"
 version = "0.8.0"
 criteria = "safe-to-deploy"
 
-[[exemptions.itertools]]
-version = "0.11.0"
-criteria = "safe-to-deploy"
-
-[[exemptions.log]]
-version = "0.4.27"
-criteria = "safe-to-deploy"
-
-[[exemptions.mimxrt600-fcb]]
-version = "0.2.1"
-criteria = "safe-to-deploy"
-
 [[exemptions.paste]]
 version = "1.0.15"
 criteria = "safe-to-deploy"
-
-[[exemptions.portable-atomic]]
-version = "1.11.0"
-criteria = "safe-to-run"
 
 [[exemptions.proc-macro-error-attr2]]
 version = "2.0.0"
@@ -175,14 +143,6 @@ criteria = "safe-to-deploy"
 
 [[exemptions.semver-parser]]
 version = "0.7.0"
-criteria = "safe-to-deploy"
-
-[[exemptions.static_cell]]
-version = "2.1.0"
-criteria = "safe-to-run"
-
-[[exemptions.typenum]]
-version = "1.18.0"
 criteria = "safe-to-deploy"
 
 [[exemptions.vcell]]

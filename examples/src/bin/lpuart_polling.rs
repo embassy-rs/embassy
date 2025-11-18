@@ -2,20 +2,20 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa_examples::init_uart2;
-use hal::lpuart::{lib, Config, Lpuart};
+use embassy_mcxa_examples::init_uart2_pins;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+
+use crate::hal::lpuart::{Config, Lpuart};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let _p = hal::init(hal::config::Config::default());
-    let p2 = lib::init();
+    let p = hal::init(hal::config::Config::default());
 
     defmt::info!("boot");
 
     // Board-level init for UART2 clocks and pins.
     unsafe {
-        init_uart2(hal::pac());
+        init_uart2_pins(hal::pac());
     }
 
     // Create UART configuration
@@ -28,9 +28,9 @@ async fn main(_spawner: Spawner) {
 
     // Create UART instance using LPUART2 with PIO2_2 as TX and PIO2_3 as RX
     let lpuart = Lpuart::new_blocking(
-        p2.LPUART2, // Peripheral
-        p2.PIO2_2,  // TX pin
-        p2.PIO2_3,  // RX pin
+        p.LPUART2, // Peripheral
+        p.PIO2_2,  // TX pin
+        p.PIO2_3,  // RX pin
         config,
     )
     .unwrap();

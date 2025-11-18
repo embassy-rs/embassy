@@ -29,8 +29,13 @@
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
+use embassy_hal_internal::{Peri, PeripheralType};
+
+use crate::clocks::periph_helpers::{OsTimerConfig, OstimerClockSel};
+use crate::clocks::{assert_reset, enable_and_reset, is_reset_released, release_reset, Gate, PoweredClock};
 use crate::interrupt::InterruptExt;
 use crate::pac;
+use crate::peripherals::OSTIMER0;
 
 // PAC defines the shared RegisterBlock under `ostimer0`.
 type Regs = pac::ostimer0::RegisterBlock;
@@ -197,16 +202,16 @@ impl<'d> Alarm<'d> {
 pub struct Config {
     /// Initialize MATCH registers to their max values and mask/clear the interrupt flag.
     pub init_match_max: bool,
-    /// OSTIMER clock frequency in Hz (must match the actual hardware clock)
-    pub clock_frequency_hz: u64,
+    pub power: PoweredClock,
+    pub source: OstimerClockSel,
 }
 
 impl Default for Config {
     fn default() -> Self {
         Self {
             init_match_max: true,
-            // Default to 1MHz - user should override this with actual frequency
-            clock_frequency_hz: 1_000_000,
+            power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            source: OstimerClockSel::Clk1M,
         }
     }
 }
@@ -222,8 +227,16 @@ impl<'d, I: Instance> Ostimer<'d, I> {
     /// Construct OSTIMER handle.
     /// Requires clocks for the instance to be enabled by the board before calling.
     /// Does not enable NVIC or INTENA; use time_driver::init() for async operation.
-    pub fn new(_inst: impl Instance, cfg: Config, _p: &'d crate::pac::Peripherals) -> Self {
-        assert!(cfg.clock_frequency_hz > 0, "OSTIMER frequency must be greater than 0");
+    pub fn new(_inst: Peri<'d, I>, cfg: Config) -> Self {
+        let clock_freq = unsafe {
+            enable_and_reset::<I>(&OsTimerConfig {
+                power: cfg.power,
+                source: cfg.source,
+            })
+            .expect("Enabling OsTimer clock should not fail")
+        };
+
+        assert!(clock_freq > 0, "OSTIMER frequency must be greater than 0");
 
         if cfg.init_match_max {
             let r: &Regs = unsafe { &*I::ptr() };
@@ -233,7 +246,7 @@ impl<'d, I: Instance> Ostimer<'d, I> {
 
         Self {
             _inst: core::marker::PhantomData,
-            clock_frequency_hz: cfg.clock_frequency_hz,
+            clock_frequency_hz: clock_freq as u64,
             _phantom: core::marker::PhantomData,
         }
     }
@@ -260,7 +273,7 @@ impl<'d, I: Instance> Ostimer<'d, I> {
     /// # Safety
     /// This operation will reset the entire OSTIMER peripheral. Any active alarms
     /// or time_driver operations will be disrupted. Use with caution.
-    pub fn reset(&self, peripherals: &crate::pac::Peripherals) {
+    pub fn reset(&self, _peripherals: &crate::pac::Peripherals) {
         critical_section::with(|_| {
             let r: &Regs = unsafe { &*I::ptr() };
 
@@ -270,19 +283,17 @@ impl<'d, I: Instance> Ostimer<'d, I> {
                 .write(|w| w.ostimer_intrflag().clear_bit_by_one().ostimer_intena().clear_bit());
 
             unsafe {
-                crate::reset::assert::<crate::reset::line::Ostimer0>(peripherals);
-            }
+                assert_reset::<OSTIMER0>();
 
-            for _ in 0..RESET_STABILIZE_SPINS {
-                cortex_m::asm::nop();
-            }
+                for _ in 0..RESET_STABILIZE_SPINS {
+                    cortex_m::asm::nop();
+                }
 
-            unsafe {
-                crate::reset::release::<crate::reset::line::Ostimer0>(peripherals);
-            }
+                release_reset::<OSTIMER0>();
 
-            while !<crate::reset::line::Ostimer0 as crate::reset::ResetLine>::is_released(&peripherals.mrcc0) {
-                cortex_m::asm::nop();
+                while !is_reset_released::<OSTIMER0>() {
+                    cortex_m::asm::nop();
+                }
             }
 
             for _ in 0..RESET_STABILIZE_SPINS {
@@ -469,14 +480,13 @@ fn now_ticks_read() -> u64 {
     // Read high then low to minimize incoherent snapshots
     let hi = (r.evtimerh().read().evtimer_count_value().bits() as u64) & (EVTIMER_HI_MASK as u64);
     let lo = r.evtimerl().read().evtimer_count_value().bits() as u64;
-
     // Combine and convert from Gray code to binary
     let gray = lo | (hi << EVTIMER_HI_SHIFT);
     gray_to_bin(gray)
 }
 
 // Instance trait like other drivers, providing a PAC pointer for this OSTIMER instance
-pub trait Instance {
+pub trait Instance: Gate<MrccPeriphConfig = OsTimerConfig> + PeripheralType {
     fn ptr() -> *const Regs;
 }
 
@@ -491,12 +501,12 @@ impl Instance for crate::peripherals::OSTIMER0 {
 }
 
 // Also implement Instance for the Peri wrapper type
-impl Instance for embassy_hal_internal::Peri<'_, crate::peripherals::OSTIMER0> {
-    #[inline(always)]
-    fn ptr() -> *const Regs {
-        pac::Ostimer0::ptr()
-    }
-}
+// impl Instance for embassy_hal_internal::Peri<'_, crate::peripherals::OSTIMER0> {
+//     #[inline(always)]
+//     fn ptr() -> *const Regs {
+//         pac::Ostimer0::ptr()
+//     }
+// }
 
 #[inline(always)]
 fn bin_to_gray(x: u64) -> u64 {
@@ -524,7 +534,10 @@ pub mod time_driver {
         bin_to_gray, now_ticks_read, Regs, ALARM_ACTIVE, ALARM_CALLBACK, ALARM_FLAG, ALARM_TARGET_TIME,
         EVTIMER_HI_MASK, EVTIMER_HI_SHIFT, LOW_32_BIT_MASK,
     };
+    use crate::clocks::periph_helpers::{OsTimerConfig, OstimerClockSel};
+    use crate::clocks::{enable_and_reset, PoweredClock};
     use crate::pac;
+    use crate::peripherals::OSTIMER0;
     pub struct Driver;
     static TIMER_WAKER: AtomicWaker = AtomicWaker::new();
 
@@ -611,6 +624,14 @@ pub mod time_driver {
     /// Note: The frequency parameter is currently accepted for API compatibility.
     /// The embassy_time_driver macro handles driver registration automatically.
     pub fn init(priority: crate::interrupt::Priority, frequency_hz: u64) {
+        let _clock_freq = unsafe {
+            enable_and_reset::<OSTIMER0>(&OsTimerConfig {
+                power: PoweredClock::AlwaysEnabled,
+                source: OstimerClockSel::Clk1M,
+            })
+            .expect("Enabling OsTimer clock should not fail")
+        };
+
         // Mask/clear at peripheral and set default MATCH
         let r: &Regs = unsafe { &*pac::Ostimer0::ptr() };
         super::prime_match_registers(r);

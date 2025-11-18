@@ -4,13 +4,15 @@
 use core::fmt::Write;
 
 use embassy_executor::Spawner;
-use embassy_mcxa_examples::{init_adc, init_uart2};
+use embassy_mcxa_examples::{init_adc_pins, init_uart2_pins};
 use hal::adc::{ConvResult, LpadcConfig, TriggerPriorityPolicy};
+use hal::clocks::periph_helpers::{AdcClockSel, Div4};
+use hal::clocks::PoweredClock;
+use hal::lpuart::{Config, Lpuart};
 use hal::pac::adc1::cfg::{Pwrsel, Refsel};
 use hal::pac::adc1::cmdl1::{Adch, Mode};
 use hal::pac::adc1::ctrl::CalAvgs;
 use hal::pac::adc1::tctrl::Tcmd;
-use hal::uart;
 use heapless::String;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
@@ -21,16 +23,33 @@ async fn main(_spawner: Spawner) {
     let p = hal::init(hal::config::Config::default());
 
     unsafe {
-        init_uart2(hal::pac());
+        init_uart2_pins(hal::pac());
     }
 
-    let src = unsafe { hal::clocks::uart2_src_hz(hal::pac()) };
-    let uart = uart::Uart::<uart::Lpuart2>::new(p.LPUART2, uart::Config::new(src));
+    // Create UART configuration
+    let config = Config {
+        baudrate_bps: 115_200,
+        enable_tx: true,
+        enable_rx: true,
+        ..Default::default()
+    };
+
+    // Create UART instance using LPUART2 with PIO2_2 as TX and PIO2_3 as RX
+    unsafe {
+        init_uart2_pins(hal::pac());
+    }
+    let mut uart = Lpuart::new_blocking(
+        p.LPUART2, // Peripheral
+        p.PIO2_2,  // TX pin
+        p.PIO2_3,  // RX pin
+        config,
+    )
+    .unwrap();
 
     uart.write_str_blocking("\r\n=== ADC polling Example ===\r\n");
 
     unsafe {
-        init_adc(hal::pac());
+        init_adc_pins(hal::pac());
     }
 
     let adc_config = LpadcConfig {
@@ -44,6 +63,9 @@ async fn main(_spawner: Spawner) {
         enable_conv_pause: false,
         conv_pause_delay: 0,
         fifo_watermark: 0,
+        power: PoweredClock::NormalEnabledDeepSleepDisabled,
+        source: AdcClockSel::FroLfDiv,
+        div: Div4::no_div(),
     };
     let adc = hal::adc::Adc::<hal::adc::Adc1>::new(p.ADC1, adc_config);
 

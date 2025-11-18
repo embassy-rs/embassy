@@ -7,7 +7,9 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa_examples::{init_ostimer0, init_uart2};
+use embassy_mcxa::clocks::periph_helpers::OstimerClockSel;
+use embassy_mcxa::clocks::PoweredClock;
+use embassy_mcxa::lpuart::{Blocking, Config, Lpuart};
 use embassy_time::{Duration, Timer};
 use hal::bind_interrupts;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
@@ -20,13 +22,25 @@ bind_interrupts!(struct Irqs {
 async fn main(_spawner: Spawner) {
     let p = hal::init(Default::default());
 
-    // Enable/clock OSTIMER0 and UART2 before touching their registers
+    // Create UART configuration
+    let config = Config {
+        baudrate_bps: 115_200,
+        enable_tx: true,
+        enable_rx: true,
+        ..Default::default()
+    };
+
+    // Create UART instance using LPUART2 with PIO2_2 as TX and PIO2_3 as RX
     unsafe {
-        init_ostimer0(hal::pac());
-        init_uart2(hal::pac());
+        embassy_mcxa_examples::init_uart2_pins(hal::pac());
     }
-    let src = unsafe { hal::clocks::uart2_src_hz(hal::pac()) };
-    let mut uart = hal::uart::Uart::<hal::uart::Lpuart2>::new(p.LPUART2, hal::uart::Config::new(src));
+    let mut uart = Lpuart::new_blocking(
+        p.LPUART2, // Peripheral
+        p.PIO2_2,  // TX pin
+        p.PIO2_3,  // RX pin
+        config,
+    )
+    .unwrap();
 
     uart.write_str_blocking("OSTIMER Counter Reading and Reset Example\n");
 
@@ -41,9 +55,9 @@ async fn main(_spawner: Spawner) {
         p.OSTIMER0,
         hal::ostimer::Config {
             init_match_max: true,
-            clock_frequency_hz: 1_000_000,
+            power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            source: OstimerClockSel::Clk1M,
         },
-        hal::pac(),
     );
 
     // Read initial counter value
@@ -89,7 +103,7 @@ async fn main(_spawner: Spawner) {
 }
 
 // Helper function to write a u64 value as decimal string
-fn write_u64(uart: &mut hal::uart::Uart<hal::uart::Lpuart2>, value: u64) {
+fn write_u64(uart: &mut Lpuart<'_, Blocking>, value: u64) {
     if value == 0 {
         uart.write_str_blocking("0");
         return;

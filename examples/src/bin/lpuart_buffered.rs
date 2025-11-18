@@ -5,24 +5,24 @@ use embassy_executor::Spawner;
 use embassy_mcxa as hal;
 use embassy_mcxa::interrupt::typelevel::Handler;
 use embassy_mcxa::lpuart::buffered::BufferedLpuart;
+use embassy_mcxa::lpuart::Config;
 use embassy_mcxa::{bind_interrupts, lpuart};
-use embassy_mcxa_examples::{init_ostimer0, init_uart2};
+use embassy_mcxa_examples::init_uart2_pins;
 use embedded_io_async::{Read, Write};
 
 // Bind OS_EVENT for timers plus LPUART2 IRQ for the buffered driver
 bind_interrupts!(struct Irqs {
-    LPUART2 => lpuart::buffered::BufferedInterruptHandler::<lpuart::lib::peripherals::LPUART2>;
+    LPUART2 => lpuart::buffered::BufferedInterruptHandler::<hal::peripherals::LPUART2>;
 });
 
 // Wrapper function for the interrupt handler
 unsafe extern "C" fn lpuart2_handler() {
-    lpuart::buffered::BufferedInterruptHandler::<lpuart::lib::peripherals::LPUART2>::on_interrupt();
+    lpuart::buffered::BufferedInterruptHandler::<hal::peripherals::LPUART2>::on_interrupt();
 }
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let _p = hal::init(hal::config::Config::default());
-    let p2 = lpuart::lib::init();
+    let p = hal::init(hal::config::Config::default());
 
     unsafe {
         hal::interrupt::install_irq_handler(hal::pac::Interrupt::LPUART2, lpuart2_handler);
@@ -32,12 +32,11 @@ async fn main(_spawner: Spawner) {
     hal::interrupt::LPUART2.configure_for_uart(hal::interrupt::Priority::P3);
 
     unsafe {
-        init_uart2(hal::pac());
-        init_ostimer0(hal::pac());
+        init_uart2_pins(hal::pac());
     }
 
     // UART configuration (enable both TX and RX)
-    let config = lpuart::Config {
+    let config = Config {
         baudrate_bps: 115_200,
         enable_tx: true,
         enable_rx: true,
@@ -51,9 +50,9 @@ async fn main(_spawner: Spawner) {
 
     // Create a buffered LPUART2 instance with both TX and RX
     let mut uart = BufferedLpuart::new(
-        p2.LPUART2,
-        p2.PIO2_2, // TX pin
-        p2.PIO2_3, // RX pin
+        p.LPUART2,
+        p.PIO2_2, // TX pin
+        p.PIO2_3, // RX pin
         Irqs,
         &mut tx_buf,
         &mut rx_buf,

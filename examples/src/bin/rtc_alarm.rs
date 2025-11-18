@@ -3,11 +3,11 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa as hal;
-use embassy_mcxa_examples::init_uart2;
+use hal::lpuart::{Config, Lpuart};
 use hal::rtc::{RtcDateTime, RtcInterruptEnable};
-use hal::{uart, InterruptExt};
+use hal::InterruptExt;
 
-type MyRtc = hal::rtc::Rtc<hal::rtc::Rtc0>;
+type MyRtc = hal::rtc::Rtc<'static, hal::rtc::Rtc0>;
 
 use embassy_mcxa::bind_interrupts;
 use {defmt_rtt as _, panic_probe as _};
@@ -24,16 +24,27 @@ static KEEP_RTC: unsafe extern "C" fn() = RTC;
 async fn main(_spawner: Spawner) {
     let p = hal::init(hal::config::Config::default());
 
-    unsafe {
-        init_uart2(hal::pac());
-    }
+    // Create UART configuration
+    let config = Config {
+        baudrate_bps: 115_200,
+        enable_tx: true,
+        enable_rx: true,
+        ..Default::default()
+    };
 
-    let src = unsafe { hal::clocks::uart2_src_hz(hal::pac()) };
-    let uart = uart::Uart::<uart::Lpuart2>::new(p.LPUART2, uart::Config::new(src));
+    // Create UART instance using LPUART2 with PIO2_2 as TX and PIO2_3 as RX
+    unsafe {
+        embassy_mcxa_examples::init_uart2_pins(hal::pac());
+    }
+    let mut uart = Lpuart::new_blocking(
+        p.LPUART2, // Peripheral
+        p.PIO2_2,  // TX pin
+        p.PIO2_3,  // RX pin
+        config,
+    )
+    .unwrap();
 
     uart.write_str_blocking("\r\n=== RTC Alarm Example ===\r\n");
-
-    unsafe { hal::clocks::init_fro16k(hal::pac()) };
 
     let rtc_config = hal::rtc::get_default_config();
 
