@@ -5,12 +5,12 @@ use core::pin::Pin as FuturePin;
 use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::{Context, Poll};
 
-use atomic_polyfill::{AtomicU8, AtomicU64};
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use fixed::FixedU32;
 use fixed::types::extra::U8;
 use pio::{Program, SideSet, Wrap};
+use portable_atomic::{AtomicU8, AtomicU64};
 
 use crate::dma::{self, Channel, Transfer, Word};
 use crate::gpio::{self, AnyPin, Drive, Level, Pull, SealedPin, SlewRate};

@@ -3,12 +3,12 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use atomic_polyfill::{AtomicU16, Ordering};
 use embassy_futures::select::{Either, select};
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Delay, Timer};
 use pac::uart::regs::Uartris;
+use portable_atomic::{AtomicU16, Ordering};
 
 use crate::clocks::clk_peri_freq;
 use crate::dma::{AnyChannel, Channel};
