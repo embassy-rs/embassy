@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add reset_to_usb_boot for rp235x ([#4705](https://github.com/embassy-rs/embassy/pull/4705))
 - Add fix #4822 in PIO onewire. Change to disable the state machine before setting y register ([#4824](https://github.com/embassy-rs/embassy/pull/4824))
 - Add PIO::Ws2812 color order support
-- Remove unused deprecated atomic-polyfill crate from Cargo.toml ([#4909](https://github.com/embassy-rs/embassy/pull/4909))
+- Remove deprecated atomic-polyfill crate and use portable-atomic crate instead ([#4909](https://github.com/embassy-rs/embassy/pull/4909))
 
 ## 0.8.0 - 2025-08-26
 
