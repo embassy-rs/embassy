@@ -87,7 +87,7 @@ unsafe fn on_interrupt(r: Regs, state: &'static State) {
     // With `usart_v4` hardware FIFO is enabled and Transmission complete (TC)
     // indicates that all bytes are pushed out from the FIFO.
     // For other usart variants it shows that last byte from the buffer was just sent.
-    if sr_val.tc() {
+    if sr_val.tc() && r.cr1().read().tcie() {
         // For others it is cleared above with `clear_interrupt_flags`.
         #[cfg(any(usart_v1, usart_v2))]
         sr(r).modify(|w| w.set_tc(false));
