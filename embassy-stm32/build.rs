@@ -170,6 +170,11 @@ fn main() {
                     }
                     singletons.push(p.name.to_string());
                 }
+
+                "eth" => {
+                    singletons.push(p.name.to_string());
+                    singletons.push("ETH_SMA".to_string());
+                }
                 //"dbgmcu" => {}
                 //"syscfg" => {}
                 //"dma" => {}
@@ -1397,6 +1402,11 @@ fn main() {
                         } else {
                             panic! {"malformed XSPIM pin: {:?}", pin}
                         }
+                    }
+
+                    // MDIO and MDC are special
+                    if pin.signal == "MDIO" || pin.signal == "MDC" {
+                        peri = format_ident!("{}", "ETH_SMA");
                     }
 
                     // XSPI NCS pin to CSSEL mapping
