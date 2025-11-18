@@ -33,7 +33,7 @@ jobs:
       - name: cargo check
         run: |
           cargo update
-          cargo check --all-features check
+          cargo check --all-features
 
   msrv:
     runs-on: ubuntu-latest
@@ -55,4 +55,4 @@ jobs:
       - name: cargo +${{ matrix.msrv }} check
         run: |
           cargo update
-          cargo check --all-features check
+          cargo check --all-features
