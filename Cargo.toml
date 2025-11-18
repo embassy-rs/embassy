@@ -13,24 +13,20 @@ cortex-m-rt = { version = "0.7", features = ["device"] }
 critical-section = "1.2.0"
 defmt = { version = "1.0", optional = true }
 embassy-embedded-hal = "0.5.0"
-embassy-executor = { version = "0.9.0", features = ["arch-cortex-m", "executor-interrupt", "executor-thread"], default-features = false }
 embassy-hal-internal = { version = "0.3.0", features = ["cortex-m", "prio-bits-3"] }
 embassy-sync = "0.7.2"
 embassy-time = "0.5.0"
 embassy-time-driver = "0.2.1"
-embedded-io = "0.6"
-heapless = "0.8"
-mcxa-pac = { git = "https://github.com/OpenDevicePartnership/mcxa-pac", features = ["rt"], rev = "3ab4c868f75a9240bb8fdce24982d34f2273aabf", version = "0.1.0" }
-paste = "1.0.15"
-
-embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = [
-    "unproven",
-] }
 embedded-hal = { package = "embedded-hal", version = "1.0" }
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-async = { version = "1.0" }
 embedded-hal-nb = { version = "1.0" }
+embedded-io = "0.6"
 embedded-io-async = { version = "0.6.1" }
+heapless = "0.8"
+mcxa-pac = { git = "https://github.com/OpenDevicePartnership/mcxa-pac", features = ["rt"], rev = "3ab4c868f75a9240bb8fdce24982d34f2273aabf", version = "0.1.0" }
 nb = "1.1.0"
+paste = "1.0.15"
 
 [features]
 default = []

@@ -181,10 +181,6 @@ criteria = "safe-to-deploy"
 version = "2.1.0"
 criteria = "safe-to-run"
 
-[[exemptions.syn]]
-version = "2.0.100"
-criteria = "safe-to-deploy"
-
 [[exemptions.typenum]]
 version = "1.18.0"
 criteria = "safe-to-deploy"

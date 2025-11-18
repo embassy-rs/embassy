@@ -1,5 +1,5 @@
 [target.thumbv8m.main-none-eabihf]
-runner = 'probe-rs run --chip MCXA276 --preverify --verify'
+runner = 'probe-rs run --chip MCXA276 --preverify --verify --protocol swd --speed 12000'
 
 rustflags = [
   "-C", "linker=flip-link",
