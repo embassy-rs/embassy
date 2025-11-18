@@ -60,7 +60,7 @@ macro_rules! config_pins {
     };
 }
 
-impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<Sma<'d, SMA>>> {
+impl<'d, T: Instance, SMA: sma::Instance> Ethernet<'d, T, GenericPhy<'d, Sma<'d, SMA>>> {
     /// Create a new RMII ethernet driver using 7 pins.
     ///
     /// This function uses a [`GenericPhy::new_auto`] as PHY, created using the

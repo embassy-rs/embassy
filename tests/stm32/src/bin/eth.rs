@@ -27,7 +27,7 @@ bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
-type Device = Ethernet<'static, ETH, GenericPhy<Sma<'static, ETH_SMA>>>;
+type Device = Ethernet<'static, ETH, GenericPhy<'static, Sma<'static, ETH_SMA>>>;
 
 #[embassy_executor::task]
 async fn net_task(mut runner: embassy_net::Runner<'static, Device>) -> ! {

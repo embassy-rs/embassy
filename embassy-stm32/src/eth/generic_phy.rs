@@ -1,14 +1,23 @@
 //! Generic SMI Ethernet PHY
 
+#[cfg(feature = "exti")]
+use core::mem;
 use core::task::Context;
 
+#[cfg(feature = "exti")]
+use embassy_hal_internal::Peri;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Timer};
-#[cfg(feature = "time")]
+#[cfg(any(feature = "exti", feature = "time"))]
 use futures_util::FutureExt;
 
 use super::{Phy, StationManagement};
 use crate::block_for_us as blocking_delay_us;
+use crate::gpio::Input;
+#[cfg(feature = "exti")]
+use crate::gpio::{self, Pull};
+#[cfg(feature = "exti")]
+use crate::{exti::Channel, exti::ExtiInputFuture, gpio::Pin};
 
 #[allow(dead_code)]
 mod phy_consts {
@@ -43,15 +52,24 @@ mod phy_consts {
 }
 use self::phy_consts::*;
 
-/// Generic SMI Ethernet PHY implementation
-pub struct GenericPhy<SM: StationManagement> {
-    phy_addr: u8,
-    sm: SM,
+/// Link State Poll Type.
+enum LinkStatePollType<'d> {
     #[cfg(feature = "time")]
-    poll_interval: Duration,
+    Interval(Duration),
+    #[cfg(not(feature = "time"))]
+    Continuous,
+    #[allow(dead_code)]
+    External((Input<'d>, bool, bool)),
 }
 
-impl<SM: StationManagement> GenericPhy<SM> {
+/// Generic SMI Ethernet PHY implementation
+pub struct GenericPhy<'d, SM: StationManagement> {
+    phy_addr: u8,
+    sm: SM,
+    poll_type: LinkStatePollType<'d>,
+}
+
+impl<'d, SM: StationManagement> GenericPhy<'d, SM> {
     /// Construct the PHY. It assumes the address `phy_addr` in the SMI communication
     ///
     /// # Panics
@@ -62,7 +80,48 @@ impl<SM: StationManagement> GenericPhy<SM> {
             phy_addr,
             sm,
             #[cfg(feature = "time")]
-            poll_interval: Duration::from_millis(500),
+            poll_type: LinkStatePollType::Interval(Duration::from_millis(500)),
+            #[cfg(not(feature = "time"))]
+            poll_type: LinkStatePollType::Continuous,
+        }
+    }
+
+    #[cfg(feature = "time")]
+    /// Construct the PHY. It assumes the address `phy_addr` in the SMI communication
+    ///
+    /// # Panics
+    /// `phy_addr` must be in range `0..32`
+    pub fn new_with_duration(sm: SM, phy_addr: u8, duration: Duration) -> Self {
+        assert!(phy_addr < 32);
+        Self {
+            phy_addr,
+            sm,
+            poll_type: LinkStatePollType::Interval(duration),
+        }
+    }
+
+    #[cfg(feature = "exti")]
+    /// Construct the PHY. It assumes the address `phy_addr` in the SMI communication
+    ///
+    /// # Panics
+    /// `phy_addr` must be in range `0..32`
+    pub fn new_with_external_trigger<P: gpio::Pin>(
+        sm: SM,
+        phy_addr: u8,
+        pin: Peri<'d, P>,
+        ch: Peri<'d, P::ExtiChannel>,
+        pull: Pull,
+        rising_edge: bool,
+        falling_edge: bool,
+    ) -> Self {
+        // Needed if using AnyPin+AnyChannel.
+        assert_eq!(pin.pin(), ch.number());
+
+        assert!(phy_addr < 32);
+        Self {
+            phy_addr,
+            sm,
+            poll_type: LinkStatePollType::External((Input::new(pin, pull), rising_edge, falling_edge)),
         }
     }
 
@@ -75,12 +134,14 @@ impl<SM: StationManagement> GenericPhy<SM> {
             sm,
             phy_addr: 0xFF,
             #[cfg(feature = "time")]
-            poll_interval: Duration::from_millis(500),
+            poll_type: LinkStatePollType::Interval(Duration::from_millis(500)),
+            #[cfg(not(feature = "time"))]
+            poll_type: LinkStatePollType::Continuous,
         }
     }
 }
 
-impl<SM: StationManagement> Phy for GenericPhy<SM> {
+impl<'d, SM: StationManagement> Phy for GenericPhy<'d, SM> {
     fn phy_reset(&mut self) {
         // Detect SMI address
         if self.phy_addr == 0xFF {
@@ -116,11 +177,25 @@ impl<SM: StationManagement> Phy for GenericPhy<SM> {
     }
 
     fn poll_link(&mut self, cx: &mut Context) -> bool {
-        #[cfg(not(feature = "time"))]
-        cx.waker().wake_by_ref();
+        match &self.poll_type {
+            #[cfg(feature = "time")]
+            LinkStatePollType::Interval(interval) => {
+                let _ = Timer::after(*interval).poll_unpin(cx);
+            }
+            #[cfg(not(feature = "time"))]
+            LinkStatePollType::Continuous => {
+                cx.waker().wake_by_ref();
+            }
+            #[cfg(not(feature = "exti"))]
+            LinkStatePollType::External(_) => unreachable!(),
+            #[cfg(feature = "exti")]
+            LinkStatePollType::External((pin, rising_edge, falling_edge)) => {
+                let mut fut = ExtiInputFuture::new(pin.pin.pin.pin(), pin.pin.pin.port(), *rising_edge, *falling_edge);
+                let _ = fut.poll_unpin(cx);
 
-        #[cfg(feature = "time")]
-        let _ = Timer::after(self.poll_interval).poll_unpin(cx);
+                mem::forget(fut);
+            }
+        }
 
         let bsr = self.sm.smi_read(self.phy_addr, PHY_REG_BSR);
 
@@ -139,13 +214,7 @@ impl<SM: StationManagement> Phy for GenericPhy<SM> {
 }
 
 /// Public functions for the PHY
-impl<SM: StationManagement> GenericPhy<SM> {
-    /// Set the SMI polling interval.
-    #[cfg(feature = "time")]
-    pub fn set_poll_interval(&mut self, poll_interval: Duration) {
-        self.poll_interval = poll_interval
-    }
-
+impl<'d, SM: StationManagement> GenericPhy<'d, SM> {
     // Writes a value to an extended PHY register in MMD address space
     fn smi_write_ext(&mut self, reg_addr: u16, reg_data: u16) {
         self.sm.smi_write(self.phy_addr, PHY_REG_CTL, 0x0003); // set address

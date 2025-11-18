@@ -225,13 +225,13 @@ impl<'d> embedded_hal_async::digital::Wait for ExtiInput<'d> {
 }
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-struct ExtiInputFuture<'a> {
+pub(crate) struct ExtiInputFuture<'a> {
     pin: PinNumber,
     phantom: PhantomData<&'a mut AnyPin>,
 }
 
 impl<'a> ExtiInputFuture<'a> {
-    fn new(pin: PinNumber, port: PinNumber, rising: bool, falling: bool) -> Self {
+    pub(crate) fn new(pin: PinNumber, port: PinNumber, rising: bool, falling: bool) -> Self {
         critical_section::with(|_| {
             let pin = pin as usize;
             exticr_regs().exticr(pin / 4).modify(|w| w.set_exti(pin % 4, port));
