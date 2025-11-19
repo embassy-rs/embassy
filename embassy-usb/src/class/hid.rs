@@ -331,7 +331,7 @@ impl<'d, D: Driver<'d>, const N: usize> HidWriter<'d, D, N> {
         assert!(report.len() <= N);
 
         let max_packet_size = usize::from(self.ep_in.info().max_packet_size);
-        let zlp_needed = report.len() < N && (report.len() % max_packet_size == 0);
+        let zlp_needed = report.len() < N && report.len().is_multiple_of(max_packet_size);
         for chunk in report.chunks(max_packet_size) {
             self.ep_in.write(chunk).await?;
         }
@@ -354,7 +354,7 @@ impl<'d, D: Driver<'d>, const N: usize> HidReader<'d, D, N> {
     ///
     /// If `use_report_ids` is true, the first byte of the report will be used as
     /// the `ReportId` value. Otherwise the `ReportId` value will be 0.
-    pub async fn run<T: RequestHandler>(mut self, use_report_ids: bool, handler: &mut T) -> ! {
+    pub async fn run<T: RequestHandler>(&mut self, use_report_ids: bool, handler: &mut T) -> ! {
         let offset = self.offset.load(Ordering::Acquire);
         assert!(offset == 0);
         let mut buf = [0; N];
