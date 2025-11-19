@@ -31,9 +31,9 @@ stm32l4r5zi = ["embassy-stm32/stm32l4r5zi", "chrono", "not-gpdma", "rng", "dual-
 stm32l552ze = ["embassy-stm32/stm32l552ze", "not-gpdma", "rng", "hash", "dual-bank"]
 stm32u585ai = ["embassy-stm32/stm32u585ai", "spi-v345", "chrono", "rng", "hash", "cordic"]
 stm32u5a5zj = ["embassy-stm32/stm32u5a5zj", "spi-v345", "chrono", "rng", "hash"] # FIXME: cordic test cause it crash
-stm32wb55rg = ["embassy-stm32/stm32wb55rg", "chrono", "not-gpdma", "ble", "mac" , "rng"]
+stm32wb55rg = ["embassy-stm32/stm32wb55rg", "chrono", "not-gpdma", "ble", "mac" , "rng", "hsem"]
 stm32wba52cg = ["embassy-stm32/stm32wba52cg", "spi-v345", "chrono", "rng", "hash"]
-stm32wl55jc = ["embassy-stm32/stm32wl55jc-cm4", "not-gpdma", "rng", "chrono"]
+stm32wl55jc = ["embassy-stm32/stm32wl55jc-cm4", "not-gpdma", "rng", "chrono", "hsem"]
 stm32f091rc = ["embassy-stm32/stm32f091rc", "cm0", "not-gpdma", "chrono"]
 stm32h503rb = ["embassy-stm32/stm32h503rb", "spi-v345", "rng", "stop"]
 stm32h7s3l8 = ["embassy-stm32/stm32h7s3l8", "spi-v345", "rng", "cordic", "hash-v34"] # TODO: fdcan crashes, cryp dma hangs.
@@ -58,6 +58,7 @@ not-gpdma = []
 dac = []
 ucpd = []
 cordic = ["dep:num-traits"]
+hsem = []
 dual-bank = ["embassy-stm32/dual-bank"]
 single-bank = ["embassy-stm32/single-bank"]
 eeprom = []
@@ -223,6 +224,11 @@ required-features = [ "ble",]
 name = "wpan_mac"
 path = "src/bin/wpan_mac.rs"
 required-features = [ "mac",]
+
+[[bin]]
+name = "hsem"
+path = "src/bin/hsem.rs"
+required-features = [ "hsem",]
 
 # END TESTS
 
