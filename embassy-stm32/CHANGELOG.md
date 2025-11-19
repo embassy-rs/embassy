@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - feat: add poll_for methods to exti
+- feat: implement stop for stm32wb.
 - change: rework hsem and add HIL test for some chips.
 - change: stm32/eth: ethernet no longer has a hard dependency on station management, and station management can be used independently ([#4871](https://github.com/embassy-rs/embassy/pull/4871))
 - feat: allow embassy_executor::main for low power
@@ -69,6 +70,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: add flash support for c0 family ([#4874](https://github.com/embassy-rs/embassy/pull/4874))
 - fix: fixing channel numbers on vbat and vddcore for adc on adc
 - adc: adding disable to vbat
+- feat: stm32/flash: add async support for h7 family
 
 ## 0.4.0 - 2025-08-26
 
