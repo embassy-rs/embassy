@@ -35,7 +35,6 @@ use crate::clocks::periph_helpers::{OsTimerConfig, OstimerClockSel};
 use crate::clocks::{assert_reset, enable_and_reset, is_reset_released, release_reset, Gate, PoweredClock};
 use crate::interrupt::InterruptExt;
 use crate::pac;
-use crate::peripherals::OSTIMER0;
 
 // PAC defines the shared RegisterBlock under `ostimer0`.
 type Regs = pac::ostimer0::RegisterBlock;
@@ -283,15 +282,15 @@ impl<'d, I: Instance> Ostimer<'d, I> {
                 .write(|w| w.ostimer_intrflag().clear_bit_by_one().ostimer_intena().clear_bit());
 
             unsafe {
-                assert_reset::<OSTIMER0>();
+                assert_reset::<I>();
 
                 for _ in 0..RESET_STABILIZE_SPINS {
                     cortex_m::asm::nop();
                 }
 
-                release_reset::<OSTIMER0>();
+                release_reset::<I>();
 
-                while !is_reset_released::<OSTIMER0>() {
+                while !is_reset_released::<I>() {
                     cortex_m::asm::nop();
                 }
             }
@@ -490,23 +489,13 @@ pub trait Instance: Gate<MrccPeriphConfig = OsTimerConfig> + PeripheralType {
     fn ptr() -> *const Regs;
 }
 
-// Token for OSTIMER0 provided by embassy-hal-internal peripherals macro.
-pub type Ostimer0 = crate::peripherals::OSTIMER0;
-
+#[cfg(not(feature = "time"))]
 impl Instance for crate::peripherals::OSTIMER0 {
     #[inline(always)]
     fn ptr() -> *const Regs {
         pac::Ostimer0::ptr()
     }
 }
-
-// Also implement Instance for the Peri wrapper type
-// impl Instance for embassy_hal_internal::Peri<'_, crate::peripherals::OSTIMER0> {
-//     #[inline(always)]
-//     fn ptr() -> *const Regs {
-//         pac::Ostimer0::ptr()
-//     }
-// }
 
 #[inline(always)]
 fn bin_to_gray(x: u64) -> u64 {
@@ -523,6 +512,7 @@ fn gray_to_bin(gray: u64) -> u64 {
     bin
 }
 
+#[cfg(feature = "time")]
 pub mod time_driver {
     use core::sync::atomic::Ordering;
     use core::task::Waker;
@@ -537,7 +527,55 @@ pub mod time_driver {
     use crate::clocks::periph_helpers::{OsTimerConfig, OstimerClockSel};
     use crate::clocks::{enable_and_reset, PoweredClock};
     use crate::pac;
-    use crate::peripherals::OSTIMER0;
+
+    #[allow(non_camel_case_types)]
+    pub(crate) struct _OSTIMER0_TIME_DRIVER {
+        _x: (),
+    }
+
+    // #[cfg(feature = "time")]
+    // impl_cc_gate!(_OSTIMER0_TIME_DRIVER, mrcc_glb_cc1, mrcc_glb_rst1, ostimer0, OsTimerConfig);
+
+    impl crate::clocks::Gate for _OSTIMER0_TIME_DRIVER {
+        type MrccPeriphConfig = crate::clocks::periph_helpers::OsTimerConfig;
+
+        #[inline]
+        unsafe fn enable_clock() {
+            let mrcc = unsafe { pac::Mrcc0::steal() };
+            mrcc.mrcc_glb_cc1().modify(|_, w| w.ostimer0().enabled());
+        }
+
+        #[inline]
+        unsafe fn disable_clock() {
+            let mrcc = unsafe { pac::Mrcc0::steal() };
+            mrcc.mrcc_glb_cc1().modify(|_r, w| w.ostimer0().disabled());
+        }
+
+        #[inline]
+        fn is_clock_enabled() -> bool {
+            let mrcc = unsafe { pac::Mrcc0::steal() };
+            mrcc.mrcc_glb_cc1().read().ostimer0().is_enabled()
+        }
+
+        #[inline]
+        unsafe fn release_reset() {
+            let mrcc = unsafe { pac::Mrcc0::steal() };
+            mrcc.mrcc_glb_rst1().modify(|_, w| w.ostimer0().enabled());
+        }
+
+        #[inline]
+        unsafe fn assert_reset() {
+            let mrcc = unsafe { pac::Mrcc0::steal() };
+            mrcc.mrcc_glb_rst1().modify(|_, w| w.ostimer0().disabled());
+        }
+
+        #[inline]
+        fn is_reset_released() -> bool {
+            let mrcc = unsafe { pac::Mrcc0::steal() };
+            mrcc.mrcc_glb_rst1().read().ostimer0().is_enabled()
+        }
+    }
+
     pub struct Driver;
     static TIMER_WAKER: AtomicWaker = AtomicWaker::new();
 
@@ -625,7 +663,7 @@ pub mod time_driver {
     /// The embassy_time_driver macro handles driver registration automatically.
     pub fn init(priority: crate::interrupt::Priority, frequency_hz: u64) {
         let _clock_freq = unsafe {
-            enable_and_reset::<OSTIMER0>(&OsTimerConfig {
+            enable_and_reset::<_OSTIMER0_TIME_DRIVER>(&OsTimerConfig {
                 power: PoweredClock::AlwaysEnabled,
                 source: OstimerClockSel::Clk1M,
             })
@@ -694,12 +732,14 @@ pub mod time_driver {
             }
         });
     }
+}
 
-    /// Type-level handler to be used with bind_interrupts! for OS_EVENT.
-    pub struct OsEventHandler;
-    impl crate::interrupt::typelevel::Handler<crate::interrupt::typelevel::OS_EVENT> for OsEventHandler {
-        unsafe fn on_interrupt() {
-            on_interrupt();
-        }
-    }
+#[cfg(feature = "time")]
+use crate::pac::interrupt;
+
+#[cfg(feature = "time")]
+#[allow(non_snake_case)]
+#[interrupt]
+fn OS_EVENT() {
+    time_driver::on_interrupt()
 }

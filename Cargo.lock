@@ -328,6 +328,7 @@ source = "git+https://github.com/OpenDevicePartnership/mcxa-pac?rev=3ab4c868f75a
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
+ "critical-section",
  "vcell",
 ]
 

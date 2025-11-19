@@ -14,6 +14,9 @@ pub mod lpuart;
 pub mod ostimer;
 pub mod rtc;
 
+#[cfg(feature = "rt")]
+pub use crate::pac::NVIC_PRIO_BITS;
+
 #[rustfmt::skip]
 embassy_hal_internal::peripherals!(
     ADC0,
@@ -83,6 +86,8 @@ embassy_hal_internal::peripherals!(
     MBC0,
     MRCC0,
     OPAMP0,
+
+    #[cfg(not(feature = "time"))]
     OSTIMER0,
 
     P0_0,
@@ -335,7 +340,6 @@ pub use interrupt::InterruptExt;
 pub use mcxa_pac as pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use mcxa_pac as pac;
-pub use ostimer::Ostimer0 as Ostimer0Token;
 pub use rtc::Rtc0 as Rtc0Token;
 
 /// Initialize HAL with configuration (mirrors embassy-imxrt style). Minimal: just take peripherals.
@@ -343,6 +347,7 @@ pub use rtc::Rtc0 as Rtc0Token;
 pub fn init(cfg: crate::config::Config) -> Peripherals {
     let peripherals = Peripherals::take();
     // Apply user-configured priority early; enabling is left to examples/apps
+    #[cfg(feature = "time")]
     crate::interrupt::OS_EVENT.set_priority(cfg.time_interrupt_priority);
     // Apply user-configured priority early; enabling is left to examples/apps
     crate::interrupt::RTC.set_priority(cfg.rtc_interrupt_priority);
@@ -351,6 +356,10 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
 
     // Configure clocks
     crate::clocks::init(cfg.clock_cfg).unwrap();
+
+    // Initialize embassy-time global driver backed by OSTIMER0
+    #[cfg(feature = "time")]
+    crate::ostimer::time_driver::init(crate::config::Config::default().time_interrupt_priority, 1_000_000);
 
     // Enable GPIO clocks
     unsafe {

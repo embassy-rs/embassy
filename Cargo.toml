@@ -9,14 +9,12 @@ categories = ["embedded", "hardware-support", "no-std"]
 
 [dependencies]
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
-cortex-m-rt = { version = "0.7", features = ["device"] }
+cortex-m-rt = { version = "0.7" }
 critical-section = "1.2.0"
 defmt = { version = "1.0", optional = true }
 embassy-embedded-hal = "0.5.0"
 embassy-hal-internal = { version = "0.3.0", features = ["cortex-m", "prio-bits-3"] }
 embassy-sync = "0.7.2"
-embassy-time = "0.5.0"
-embassy-time-driver = "0.2.1"
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-async = { version = "1.0" }
@@ -24,9 +22,13 @@ embedded-hal-nb = { version = "1.0" }
 embedded-io = "0.6"
 embedded-io-async = { version = "0.6.1" }
 heapless = "0.8"
-mcxa-pac = { git = "https://github.com/OpenDevicePartnership/mcxa-pac", features = ["rt"], rev = "3ab4c868f75a9240bb8fdce24982d34f2273aabf", version = "0.1.0" }
+mcxa-pac = { git = "https://github.com/OpenDevicePartnership/mcxa-pac", features = ["rt", "critical-section"], rev = "3ab4c868f75a9240bb8fdce24982d34f2273aabf", version = "0.1.0" }
 nb = "1.1.0"
 paste = "1.0.15"
+
+# `time` dependencies
+embassy-time = { version = "0.5.0", optional = true }
+embassy-time-driver = { version = "0.2.1", optional = true }
 
 [features]
 default = []
@@ -35,6 +37,12 @@ default = []
 # Use with one logger feature: defmt-rtt (preferred) or defmt-uart (fallback)
 defmt = ["dep:defmt"]
 
-rt = []
+rt = ["cortex-m-rt/device"]
 
 unstable-pac = []
+
+# Embassy time
+time = [
+    "dep:embassy-time",
+    "dep:embassy-time-driver",
+]
