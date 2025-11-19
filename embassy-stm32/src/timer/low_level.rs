@@ -673,7 +673,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
             self.enable_update_dma(true);
         }
 
-        self.waveform_helper(dma, req, channel, duty).await;
+        self.waveform_helper(dma, req, channel, duty, false).await;
 
         // Since DMA is closed before timer update event trigger DMA is turn off,
         // this can almost always trigger a DMA FIFO error.
@@ -781,6 +781,44 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         let cc_channel = C::CHANNEL;
 
         let original_cc_dma_on_update = self.get_cc_dma_selection() == Ccds::ON_UPDATE;
+        let original_cc_dma_enabled = self.get_c fsc_dma_enable_state(cc_channel);
+
+        // redirect CC DMA request onto Update Event
+        if !original_cc_dma_on_update {
+            self.set_cc_dma_selection(Ccds::ON_UPDATE)
+        }
+
+        if !original_cc_dma_enabled {
+            self.set_cc_dma_enable_state(cc_channel, true);
+        }
+
+        self.waveform_helper(dma, req, cc_channel, duty, false).await;
+
+        // Since DMA is closed before timer Capture Compare Event trigger DMA is turn off,
+        // this can almost always trigger a DMA FIFO error.
+        //
+        // optional TODO:
+        // clean FEIF after disable UDE
+        if !original_cc_dma_enabled {
+            self.set_cc_dma_enable_state(cc_channel, false);
+        }
+
+        if !original_cc_dma_on_update {
+            self.set_cc_dma_selection(Ccds::ON_COMPARE)
+        }
+    }
+
+    /// Generate a sequence of PWM waveform that will run continously
+    /// You may want to start this in a new thread as this will block forever
+    pub async fn waveform_continuous<C: TimerChannel>(&mut self, dma: Peri<'_, impl super::Dma<T, C>>, duty: &[u16]) {
+        use crate::pac::timer::vals::Ccds;
+
+        #[allow(clippy::let_unit_value)] // eg. stm32f334
+        let req = dma.request();
+
+        let cc_channel = C::CHANNEL;
+
+        let original_cc_dma_on_update = self.get_cc_dma_selection() == Ccds::ON_UPDATE;
         let original_cc_dma_enabled = self.get_cc_dma_enable_state(cc_channel);
 
         // redirect CC DMA request onto Update Event
@@ -792,7 +830,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
             self.set_cc_dma_enable_state(cc_channel, true);
         }
 
-        self.waveform_helper(dma, req, cc_channel, duty).await;
+        self.waveform_helper(dma, req, cc_channel, duty, true).await;
 
         // Since DMA is closed before timer Capture Compare Event trigger DMA is turn off,
         // this can almost always trigger a DMA FIFO error.
@@ -814,6 +852,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         req: dma::Request,
         channel: Channel,
         duty: &[u16],
+        circular: bool,
     ) {
         let original_duty_state = self.get_compare_value(channel);
         let original_enable_state = self.get_channel_enable_state(channel);
@@ -832,6 +871,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
                 fifo_threshold: Some(FifoThreshold::Full),
                 #[cfg(not(any(bdma, gpdma)))]
                 mburst: Burst::Incr8,
+                circular: circular,
                 ..Default::default()
             };
 

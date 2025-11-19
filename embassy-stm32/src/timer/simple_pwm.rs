@@ -368,6 +368,12 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     pub async fn waveform<C: TimerChannel>(&mut self, dma: Peri<'_, impl super::Dma<T, C>>, duty: &[u16]) {
         self.inner.waveform(dma, duty).await;
     }
+    /// Generate a sequence of PWM waveform that will run continously
+    /// You may want to start this in a new thread as this will block forever
+    #[inline(always)]
+    pub async fn waveform_continuous<C: TimerChannel>(&mut self, dma: Peri<'_, impl super::Dma<T, C>>, duty: &[u16]) {
+        self.inner.waveform_continuous(dma, duty).await;
+    }
 }
 
 impl<'d, T: GeneralInstance4Channel> embedded_hal_1::pwm::ErrorType for SimplePwmChannel<'d, T> {
