@@ -293,8 +293,13 @@ impl<T: Instance> HardwareSemaphore<T> {
 }
 
 #[cfg(all(stm32wb, feature = "low-power"))]
-pub(crate) fn init_hsem(_cs: CriticalSection) {
-    rcc::enable_and_reset::<crate::peripherals::HSEM>();
+pub(crate) fn init_hsem(cs: CriticalSection) {
+    rcc::enable_and_reset_with_cs::<crate::peripherals::HSEM>(cs);
+
+    unsafe {
+        crate::rcc::REFCOUNT_STOP1 = 0;
+        crate::rcc::REFCOUNT_STOP2 = 0;
+    }
 }
 
 struct State {

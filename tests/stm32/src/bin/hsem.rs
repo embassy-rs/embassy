@@ -30,6 +30,9 @@ async fn main(_spawner: Spawner) {
     //
     //    hsem.channel_for(SemaphoreNumber::Channel5).unlock(0);
 
+    #[cfg(feature = "stm32wb55rg")]
+    let [_channel1, _channel2, mut channel5, _channel6] = hsem.split();
+    #[cfg(not(feature = "stm32wb55rg"))]
     let [_channel1, _channel2, _channel3, _channel4, mut channel5, _channel6] = hsem.split();
 
     info!("Locking channel 5");
