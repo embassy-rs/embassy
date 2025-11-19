@@ -148,7 +148,7 @@ pub enum StopMode {
 }
 
 #[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32wlex, stm32u0))]
-use stm32_metapac::pwr::vals::Lpms;
+use crate::pac::pwr::vals::Lpms;
 
 #[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32wlex, stm32u0))]
 impl Into<Lpms> for StopMode {
@@ -242,8 +242,63 @@ impl Executor {
         }
     }
 
+    #[cfg(all(stm32wb, feature = "low-power"))]
+    fn configure_stop_stm32wb(&self, _stop_mode: StopMode) -> Result<(), ()> {
+        use core::task::Poll;
+
+        use embassy_futures::poll_once;
+
+        use crate::hsem::HardwareSemaphoreChannel;
+        use crate::pac::rcc::vals::{Smps, Sw};
+        use crate::pac::{PWR, RCC};
+
+        let sem3_mutex = match poll_once(HardwareSemaphoreChannel::<crate::peripherals::HSEM>::new(3).lock(0)) {
+            Poll::Pending => None,
+            Poll::Ready(mutex) => Some(mutex),
+        }
+        .ok_or(())?;
+
+        let sem4_mutex = HardwareSemaphoreChannel::<crate::peripherals::HSEM>::new(4).try_lock(0);
+        if let Some(sem4_mutex) = sem4_mutex {
+            if PWR.extscr().read().c2ds() {
+                drop(sem4_mutex);
+            } else {
+                return Ok(());
+            }
+        }
+
+        // Sem4 not granted
+        // Set HSION
+        RCC.cr().modify(|w| {
+            w.set_hsion(true);
+        });
+
+        // Wait for HSIRDY
+        while !RCC.cr().read().hsirdy() {}
+
+        // Set SW to HSI
+        RCC.cfgr().modify(|w| {
+            w.set_sw(Sw::HSI);
+        });
+
+        // Wait for SWS to report HSI
+        while !RCC.cfgr().read().sws().eq(&Sw::HSI) {}
+
+        // Set SMPSSEL to HSI
+        RCC.smpscr().modify(|w| {
+            w.set_smpssel(Smps::HSI);
+        });
+
+        drop(sem3_mutex);
+
+        Ok(())
+    }
+
     #[allow(unused_variables)]
-    fn configure_stop(&self, stop_mode: StopMode) {
+    fn configure_stop(&self, stop_mode: StopMode) -> Result<(), ()> {
+        #[cfg(all(stm32wb, feature = "low-power"))]
+        self.configure_stop_stm32wb(stop_mode)?;
+
         #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wba, stm32wlex))]
         crate::pac::PWR.cr1().modify(|m| m.set_lpms(stop_mode.into()));
         #[cfg(stm32h5)]
@@ -252,6 +307,8 @@ impl Executor {
             v.set_lpms(vals::Lpms::STOP);
             v.set_svos(vals::Svos::SCALE3);
         });
+
+        Ok(())
     }
 
     fn configure_pwr(&self) {
@@ -267,12 +324,11 @@ impl Executor {
         critical_section::with(|cs| {
             let stop_mode = Self::stop_mode(cs)?;
             let _ = get_driver().pause_time(cs).ok()?;
+            self.configure_stop(stop_mode).ok()?;
 
-            Some(stop_mode)
+            Some(())
         })
-        .map(|stop_mode| {
-            self.configure_stop(stop_mode);
-
+        .map(|_| {
             #[cfg(not(feature = "low-power-debug-with-sleep"))]
             Self::get_scb().set_sleepdeep();
         });
