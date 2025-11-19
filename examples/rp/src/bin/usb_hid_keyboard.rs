@@ -88,7 +88,7 @@ async fn main(_spawner: Spawner) {
     // Enable the schmitt trigger to slightly debounce.
     signal_pin.set_schmitt(true);
 
-    let (reader, mut writer) = hid.split();
+    let (mut reader, mut writer) = hid.split();
 
     // Do stuff with the class!
     let in_fut = async {

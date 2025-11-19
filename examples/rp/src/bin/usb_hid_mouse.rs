@@ -84,7 +84,7 @@ async fn main(_spawner: Spawner) {
     // Run the USB device.
     let usb_fut = usb.run();
 
-    let (reader, mut writer) = hid.split();
+    let (mut reader, mut writer) = hid.split();
 
     // Do stuff with the class!
     let in_fut = async {

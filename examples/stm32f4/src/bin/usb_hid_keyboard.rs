@@ -121,7 +121,7 @@ async fn main(_spawner: Spawner) {
     // Run the USB device.
     let usb_fut = usb.run();
 
-    let (reader, mut writer) = hid.split();
+    let (mut reader, mut writer) = hid.split();
 
     let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Down);
 
