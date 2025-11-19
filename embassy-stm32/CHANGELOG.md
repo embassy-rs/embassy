@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased - ReleaseDate
 
+- change: rework hsem and add HIL test for some chips.
 - change: stm32/eth: ethernet no longer has a hard dependency on station management, and station management can be used independently ([#4871](https://github.com/embassy-rs/embassy/pull/4871))
 - feat: allow embassy_executor::main for low power
 - feat: Add waveform methods to ComplementaryPwm

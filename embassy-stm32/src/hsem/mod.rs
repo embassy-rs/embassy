@@ -1,14 +1,20 @@
 //! Hardware Semaphore (HSEM)
 
+use core::future::poll_fn;
+use core::marker::PhantomData;
+use core::sync::atomic::{Ordering, compiler_fence};
+use core::task::Poll;
+
 use embassy_hal_internal::PeripheralType;
+use embassy_sync::waitqueue::AtomicWaker;
 
 // TODO: This code works for all HSEM implemenations except for the STM32WBA52/4/5xx MCUs.
 // Those MCUs have a different HSEM implementation (Secure semaphore lock support,
 // Privileged / unprivileged semaphore lock support, Semaphore lock protection via semaphore attribute),
 // which is not yet supported by this code.
 use crate::Peri;
-use crate::pac;
 use crate::rcc::{self, RccPeripheral};
+use crate::{interrupt, pac};
 
 /// HSEM error.
 #[derive(Debug)]
@@ -41,63 +47,136 @@ pub enum CoreId {
     Core1 = 0x8,
 }
 
-/// Get the current core id
-/// This code assume that it is only executed on a Cortex-M M0+, M4 or M7 core.
-#[inline(always)]
-pub fn get_current_coreid() -> CoreId {
-    let cpuid = unsafe { cortex_m::peripheral::CPUID::PTR.read_volatile().base.read() };
-    match (cpuid & 0x000000F0) >> 4 {
-        #[cfg(any(stm32wb, stm32wl))]
-        0x0 => CoreId::Core1,
+impl CoreId {
+    /// Get the current core id
+    /// This code assume that it is only executed on a Cortex-M M0+, M4 or M7 core.
+    pub fn current() -> Self {
+        let cpuid = unsafe { cortex_m::peripheral::CPUID::PTR.read_volatile().base.read() };
+        match (cpuid & 0x000000F0) >> 4 {
+            #[cfg(any(stm32wb, stm32wl))]
+            0x0 => CoreId::Core1,
 
-        #[cfg(not(any(stm32h745, stm32h747, stm32h755, stm32h757)))]
-        0x4 => CoreId::Core0,
+            #[cfg(not(any(stm32h745, stm32h747, stm32h755, stm32h757)))]
+            0x4 => CoreId::Core0,
 
-        #[cfg(any(stm32h745, stm32h747, stm32h755, stm32h757))]
-        0x4 => CoreId::Core1,
+            #[cfg(any(stm32h745, stm32h747, stm32h755, stm32h757))]
+            0x4 => CoreId::Core1,
 
-        #[cfg(any(stm32h745, stm32h747, stm32h755, stm32h757))]
-        0x7 => CoreId::Core0,
-        _ => panic!("Unknown Cortex-M core"),
+            #[cfg(any(stm32h745, stm32h747, stm32h755, stm32h757))]
+            0x7 => CoreId::Core0,
+            _ => panic!("Unknown Cortex-M core"),
+        }
+    }
+
+    /// Translates the core ID to an index into the interrupt registers.
+    pub fn to_index(&self) -> usize {
+        match &self {
+            CoreId::Core0 => 0,
+            #[cfg(any(stm32h745, stm32h747, stm32h755, stm32h757, stm32wb, stm32wl))]
+            CoreId::Core1 => 1,
+        }
     }
 }
 
-/// Translates the core ID to an index into the interrupt registers.
-#[inline(always)]
-fn core_id_to_index(core: CoreId) -> usize {
-    match core {
-        CoreId::Core0 => 0,
-        #[cfg(any(stm32h745, stm32h747, stm32h755, stm32h757, stm32wb, stm32wl))]
-        CoreId::Core1 => 1,
+/// TX interrupt handler.
+pub struct HardwareSemaphoreInterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for HardwareSemaphoreInterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let core_id = CoreId::current();
+
+        for number in 0..5 {
+            if T::regs().isr(core_id.to_index()).read().isf(number as usize) {
+                T::regs()
+                    .icr(core_id.to_index())
+                    .write(|w| w.set_isc(number as usize, true));
+
+                T::regs()
+                    .ier(core_id.to_index())
+                    .modify(|w| w.set_ise(number as usize, false));
+
+                T::state().waker_for(number).wake();
+            }
+        }
     }
 }
 
-/// HSEM driver
-pub struct HardwareSemaphore<'d, T: Instance> {
-    _peri: Peri<'d, T>,
+/// Hardware semaphore mutex
+pub struct HardwareSemaphoreMutex<'a, T: Instance> {
+    index: u8,
+    process_id: u8,
+    _lifetime: PhantomData<&'a mut T>,
 }
 
-impl<'d, T: Instance> HardwareSemaphore<'d, T> {
-    /// Creates a new HardwareSemaphore instance.
-    pub fn new(peripheral: Peri<'d, T>) -> Self {
-        rcc::enable_and_reset::<T>();
+impl<'a, T: Instance> Drop for HardwareSemaphoreMutex<'a, T> {
+    fn drop(&mut self) {
+        HardwareSemaphoreChannel::<'a, T> {
+            index: self.index,
+            _lifetime: PhantomData,
+        }
+        .unlock(self.process_id);
+    }
+}
 
-        HardwareSemaphore { _peri: peripheral }
+/// Hardware semaphore channel
+pub struct HardwareSemaphoreChannel<'a, T: Instance> {
+    index: u8,
+    _lifetime: PhantomData<&'a mut T>,
+}
+
+impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
+    pub(self) const fn new(number: u8) -> Self {
+        core::assert!(number > 0 && number <= 6);
+
+        Self {
+            index: number - 1,
+            _lifetime: PhantomData,
+        }
     }
 
     /// Locks the semaphore.
     /// The 2-step lock procedure consists in a write to lock the semaphore, followed by a read to
     /// check if the lock has been successful, carried out from the HSEM_Rx register.
-    pub fn two_step_lock(&mut self, sem_id: u8, process_id: u8) -> Result<(), HsemError> {
-        T::regs().r(sem_id as usize).write(|w| {
+    pub async fn lock(&mut self, process_id: u8) -> HardwareSemaphoreMutex<'a, T> {
+        let core_id = CoreId::current();
+
+        poll_fn(|cx| {
+            T::state().waker_for(self.index).register(cx.waker());
+
+            compiler_fence(Ordering::SeqCst);
+
+            T::regs()
+                .ier(core_id.to_index())
+                .modify(|w| w.set_ise(self.index as usize, true));
+
+            if self.two_step_lock(process_id).is_ok() {
+                Poll::Ready(HardwareSemaphoreMutex {
+                    index: self.index,
+                    process_id: process_id,
+                    _lifetime: PhantomData,
+                })
+            } else {
+                Poll::Pending
+            }
+        })
+        .await
+    }
+
+    /// Locks the semaphore.
+    /// The 2-step lock procedure consists in a write to lock the semaphore, followed by a read to
+    /// check if the lock has been successful, carried out from the HSEM_Rx register.
+    pub fn two_step_lock(&mut self, process_id: u8) -> Result<(), HsemError> {
+        T::regs().r(self.index as usize).write(|w| {
             w.set_procid(process_id);
-            w.set_coreid(get_current_coreid() as u8);
+            w.set_coreid(CoreId::current() as u8);
             w.set_lock(true);
         });
-        let reg = T::regs().r(sem_id as usize).read();
+        let reg = T::regs().r(self.index as usize).read();
         match (
             reg.lock(),
-            reg.coreid() == get_current_coreid() as u8,
+            reg.coreid() == CoreId::current() as u8,
             reg.procid() == process_id,
         ) {
             (true, true, true) => Ok(()),
@@ -108,9 +187,9 @@ impl<'d, T: Instance> HardwareSemaphore<'d, T> {
     /// Locks the semaphore.
     /// The 1-step procedure consists in a read to lock and check the semaphore in a single step,
     /// carried out from the HSEM_RLRx register.
-    pub fn one_step_lock(&mut self, sem_id: u8) -> Result<(), HsemError> {
-        let reg = T::regs().rlr(sem_id as usize).read();
-        match (reg.lock(), reg.coreid() == get_current_coreid() as u8, reg.procid()) {
+    pub fn one_step_lock(&mut self) -> Result<(), HsemError> {
+        let reg = T::regs().rlr(self.index as usize).read();
+        match (reg.lock(), reg.coreid() == CoreId::current() as u8, reg.procid()) {
             (false, true, 0) => Ok(()),
             _ => Err(HsemError::LockFailed),
         }
@@ -119,12 +198,51 @@ impl<'d, T: Instance> HardwareSemaphore<'d, T> {
     /// Unlocks the semaphore.
     /// Unlocking a semaphore is a protected process, to prevent accidental clearing by a AHB bus
     /// core ID or by a process not having the semaphore lock right.
-    pub fn unlock(&mut self, sem_id: u8, process_id: u8) {
-        T::regs().r(sem_id as usize).write(|w| {
+    pub fn unlock(&mut self, process_id: u8) {
+        T::regs().r(self.index as usize).write(|w| {
             w.set_procid(process_id);
-            w.set_coreid(get_current_coreid() as u8);
+            w.set_coreid(CoreId::current() as u8);
             w.set_lock(false);
         });
+    }
+
+    /// Checks if the semaphore is locked.
+    pub fn is_semaphore_locked(&self) -> bool {
+        T::regs().r(self.index as usize).read().lock()
+    }
+}
+
+/// HSEM driver
+pub struct HardwareSemaphore<T: Instance> {
+    _type: PhantomData<T>,
+}
+
+impl<T: Instance> HardwareSemaphore<T> {
+    /// Creates a new HardwareSemaphore instance.
+    pub fn new<'d>(
+        _peripheral: Peri<'d, T>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, HardwareSemaphoreInterruptHandler<T>> + 'd,
+    ) -> Self {
+        rcc::enable_and_reset::<T>();
+
+        HardwareSemaphore { _type: PhantomData }
+    }
+
+    /// Get a single channel, and keep the global struct
+    pub const fn channel_for<'a>(&'a mut self, number: u8) -> HardwareSemaphoreChannel<'a, T> {
+        HardwareSemaphoreChannel::new(number)
+    }
+
+    /// Split the global struct into channels
+    pub const fn split<'a>(self) -> [HardwareSemaphoreChannel<'a, T>; 6] {
+        [
+            HardwareSemaphoreChannel::new(1),
+            HardwareSemaphoreChannel::new(2),
+            HardwareSemaphoreChannel::new(3),
+            HardwareSemaphoreChannel::new(4),
+            HardwareSemaphoreChannel::new(5),
+            HardwareSemaphoreChannel::new(6),
+        ]
     }
 
     /// Unlocks all semaphores.
@@ -138,11 +256,6 @@ impl<'d, T: Instance> HardwareSemaphore<'d, T> {
         });
     }
 
-    /// Checks if the semaphore is locked.
-    pub fn is_semaphore_locked(&self, sem_id: u8) -> bool {
-        T::regs().r(sem_id as usize).read().lock()
-    }
-
     /// Sets the clear (unlock) key
     pub fn set_clear_key(&mut self, key: u16) {
         T::regs().keyr().modify(|w| w.set_key(key));
@@ -152,38 +265,51 @@ impl<'d, T: Instance> HardwareSemaphore<'d, T> {
     pub fn get_clear_key(&mut self) -> u16 {
         T::regs().keyr().read().key()
     }
+}
 
-    /// Sets the interrupt enable bit for the semaphore.
-    pub fn enable_interrupt(&mut self, core_id: CoreId, sem_x: usize, enable: bool) {
-        T::regs()
-            .ier(core_id_to_index(core_id))
-            .modify(|w| w.set_ise(sem_x, enable));
+struct State {
+    wakers: [AtomicWaker; 6],
+}
+
+impl State {
+    const fn new() -> Self {
+        Self {
+            wakers: [const { AtomicWaker::new() }; 6],
+        }
     }
 
-    /// Gets the interrupt flag for the semaphore.
-    pub fn is_interrupt_active(&mut self, core_id: CoreId, sem_x: usize) -> bool {
-        T::regs().isr(core_id_to_index(core_id)).read().isf(sem_x)
-    }
-
-    /// Clears the interrupt flag for the semaphore.
-    pub fn clear_interrupt(&mut self, core_id: CoreId, sem_x: usize) {
-        T::regs()
-            .icr(core_id_to_index(core_id))
-            .write(|w| w.set_isc(sem_x, false));
+    const fn waker_for(&self, number: u8) -> &AtomicWaker {
+        &self.wakers[number as usize]
     }
 }
 
 trait SealedInstance {
     fn regs() -> pac::hsem::Hsem;
+    fn state() -> &'static State;
 }
 
 /// HSEM instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType + RccPeripheral + Send + 'static {}
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral + Send + 'static {
+    /// Interrupt for this peripheral.
+    type Interrupt: interrupt::typelevel::Interrupt;
+}
 
 impl SealedInstance for crate::peripherals::HSEM {
     fn regs() -> crate::pac::hsem::Hsem {
         crate::pac::HSEM
     }
+
+    fn state() -> &'static State {
+        static STATE: State = State::new();
+        &STATE
+    }
 }
-impl Instance for crate::peripherals::HSEM {}
+
+foreach_interrupt!(
+    ($inst:ident, hsem, $block:ident, $signal_name:ident, $irq:ident) => {
+        impl Instance for crate::peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
+    };
+);
