@@ -90,6 +90,11 @@ mod thread {
             *signaled = true;
             self.condvar.notify_one();
         }
+
+        fn check(&self) -> bool {
+            let signaled = self.mutex.lock().unwrap();
+            *signaled
+        }
     }
 
     /// Single-threaded std-based executor, that can be killed.
