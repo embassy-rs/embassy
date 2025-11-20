@@ -136,7 +136,7 @@ mod thread {
         /// - a `static mut` (unsafe)
         /// - a local variable in a function you know never returns (like `fn main() -> !`), upgrading its lifetime with `transmute`. (unsafe)
         ///
-        ///
+        /// This function returns after the `Executor` is killed.
         pub fn run(&'static mut self, init: impl FnOnce(Spawner, Killer)) {
             let killer = Killer::new(self.kill_switch);
 
@@ -149,6 +149,7 @@ mod thread {
         }
     }
 
+    /// Handle to kill a `KillableExecutor`.
     #[derive(Copy, Clone)]
     pub struct Killer {
         kill_switch: &'static Signaler,
@@ -156,13 +157,14 @@ mod thread {
     }
 
     impl Killer {
-        pub fn new(kill_switch: &'static Signaler) -> Self {
+        fn new(kill_switch: &'static Signaler) -> Self {
             Self {
                 kill_switch,
                 not_send: PhantomData,
             }
         }
 
+        /// Kill the associated `KillableExecutor`.
         pub fn kill(&self) {
             self.kill_switch.signal();
         }
