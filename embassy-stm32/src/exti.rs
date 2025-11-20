@@ -7,6 +7,7 @@ use core::task::{Context, Poll};
 
 use embassy_hal_internal::{PeripheralType, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
+use futures_util::FutureExt;
 
 use crate::gpio::{AnyPin, Input, Level, Pin as GpioPin, PinNumber, Pull};
 use crate::pac::EXTI;
@@ -133,7 +134,7 @@ impl<'d> ExtiInput<'d> {
     ///
     /// This returns immediately if the pin is already high.
     pub async fn wait_for_high(&mut self) {
-        let fut = ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, false);
+        let fut = ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, false, true);
         if self.is_high() {
             return;
         }
@@ -144,7 +145,7 @@ impl<'d> ExtiInput<'d> {
     ///
     /// This returns immediately if the pin is already low.
     pub async fn wait_for_low(&mut self) {
-        let fut = ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), false, true);
+        let fut = ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), false, true, true);
         if self.is_low() {
             return;
         }
@@ -155,19 +156,40 @@ impl<'d> ExtiInput<'d> {
     ///
     /// If the pin is already high, it will wait for it to go low then back high.
     pub async fn wait_for_rising_edge(&mut self) {
-        ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, false).await
+        ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, false, true).await
+    }
+
+    /// Asynchronously wait until the pin sees a rising edge.
+    ///
+    /// If the pin is already high, it will wait for it to go low then back high.
+    pub fn poll_for_rising_edge<'a>(&mut self, cx: &mut Context<'a>) {
+        let _ =
+            ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, false, false).poll_unpin(cx);
     }
 
     /// Asynchronously wait until the pin sees a falling edge.
     ///
     /// If the pin is already low, it will wait for it to go high then back low.
     pub async fn wait_for_falling_edge(&mut self) {
-        ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), false, true).await
+        ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), false, true, true).await
+    }
+
+    /// Asynchronously wait until the pin sees a falling edge.
+    ///
+    /// If the pin is already low, it will wait for it to go high then back low.
+    pub fn poll_for_falling_edge<'a>(&mut self, cx: &mut Context<'a>) {
+        let _ =
+            ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), false, true, false).poll_unpin(cx);
     }
 
     /// Asynchronously wait until the pin sees any edge (either rising or falling).
     pub async fn wait_for_any_edge(&mut self) {
-        ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, true).await
+        ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, true, true).await
+    }
+
+    /// Asynchronously wait until the pin sees any edge (either rising or falling).
+    pub fn poll_for_any_edge<'a>(&mut self, cx: &mut Context<'a>) {
+        let _ = ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, true, false).poll_unpin(cx);
     }
 }
 
@@ -227,11 +249,12 @@ impl<'d> embedded_hal_async::digital::Wait for ExtiInput<'d> {
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 struct ExtiInputFuture<'a> {
     pin: PinNumber,
+    drop: bool,
     phantom: PhantomData<&'a mut AnyPin>,
 }
 
 impl<'a> ExtiInputFuture<'a> {
-    fn new(pin: PinNumber, port: PinNumber, rising: bool, falling: bool) -> Self {
+    fn new(pin: PinNumber, port: PinNumber, rising: bool, falling: bool, drop: bool) -> Self {
         critical_section::with(|_| {
             let pin = pin as usize;
             exticr_regs().exticr(pin / 4).modify(|w| w.set_exti(pin % 4, port));
@@ -252,6 +275,7 @@ impl<'a> ExtiInputFuture<'a> {
 
         Self {
             pin,
+            drop,
             phantom: PhantomData,
         }
     }
@@ -259,10 +283,12 @@ impl<'a> ExtiInputFuture<'a> {
 
 impl<'a> Drop for ExtiInputFuture<'a> {
     fn drop(&mut self) {
-        critical_section::with(|_| {
-            let pin = self.pin as _;
-            cpu_regs().imr(0).modify(|w| w.set_line(pin, false));
-        });
+        if self.drop {
+            critical_section::with(|_| {
+                let pin = self.pin as _;
+                cpu_regs().imr(0).modify(|w| w.set_line(pin, false));
+            });
+        }
     }
 }
 
