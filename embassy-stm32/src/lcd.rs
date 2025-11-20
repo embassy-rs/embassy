@@ -1,12 +1,12 @@
 //! LCD
 use core::marker::PhantomData;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 
-use crate::gpio::{AFType, AnyPin, SealedPin};
+use crate::gpio::{AfType, AnyPin, SealedPin};
+use crate::peripherals;
 use crate::rcc::{self, RccPeripheral};
 use crate::time::Hertz;
-use crate::{peripherals, Peripheral};
 
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy)]
@@ -123,21 +123,24 @@ pub struct Lcd<'d, T: Instance> {
 impl<'d, T: Instance> Lcd<'d, T> {
     /// Initialize the lcd driver
     pub fn new<const N: usize>(
-        _peri: impl Peripheral<P = T> + 'd,
+        _peripheral: Peri<'d, T>,
         config: Config,
-        vlcd_pin: impl Peripheral<P = impl VlcdPin<T>> + 'd,
+        vlcd_pin: Peri<'_, impl VlcdPin<T>>,
         pins: [LcdPin<'d, T>; N],
     ) -> Self {
         rcc::enable_and_reset::<T>();
 
-        into_ref!(vlcd_pin);
-        vlcd_pin.set_as_af(vlcd_pin.af_num(), AFType::OutputPushPull);
-        vlcd_pin.set_speed(crate::gpio::Speed::VeryHigh);
+        vlcd_pin.set_as_af(
+            vlcd_pin.af_num(),
+            AfType::output(crate::gpio::OutputType::PushPull, crate::gpio::Speed::VeryHigh),
+        );
 
         // Set the pins
         for pin in pins {
-            pin.pin.set_as_af(pin.af_num, AFType::OutputPushPull);
-            pin.pin.set_speed(crate::gpio::Speed::VeryHigh);
+            pin.pin.set_as_af(
+                pin.af_num,
+                AfType::output(crate::gpio::OutputType::PushPull, crate::gpio::Speed::VeryHigh),
+            );
         }
 
         // Initialize the display ram to 0
@@ -147,7 +150,7 @@ impl<'d, T: Instance> Lcd<'d, T> {
         }
 
         // Calculate the clock dividers
-        let Some(lcd_clk) = (unsafe { rcc::get_freqs().rtc }) else {
+        let Some(lcd_clk) = (unsafe { rcc::get_freqs().rtc.to_hertz() }) else {
             panic!("The LCD driver needs the RTC/LCD clock to be running");
         };
         let duty_divider = match config.duty {
@@ -183,10 +186,7 @@ impl<'d, T: Instance> Lcd<'d, T> {
 
         trace!(
             "lcd_clk: {}, fps: {}, ps: {}, div: {}",
-            lcd_clk,
-            best_fps_match,
-            ps,
-            div
+            lcd_clk, best_fps_match, ps, div
         );
 
         if best_fps_match == u32::MAX || ps > 0xF {
@@ -228,7 +228,7 @@ impl<'d, T: Instance> Lcd<'d, T> {
     }
 
     /// Change the contrast by changing the voltage being used.
-    /// 
+    ///
     /// This from low at 0 to high at 7.
     pub fn set_contrast_control(&mut self, value: u8) {
         T::regs().fcr().modify(|w| w.set_cc(value));
@@ -236,17 +236,19 @@ impl<'d, T: Instance> Lcd<'d, T> {
 
     /// Change the contrast by introducing a deadtime to the signals
     /// where the voltages are held at 0V.
-    /// 
+    ///
     /// This from no dead time at 0 to high dead time at 7.
     pub fn set_dead_time(&mut self, value: u8) {
-        T::regs().fcr().modify(|w: &mut stm32_metapac::lcd::regs::Fcr| w.set_dead(value));
+        T::regs()
+            .fcr()
+            .modify(|w: &mut stm32_metapac::lcd::regs::Fcr| w.set_dead(value));
     }
 
     /// Write frame data to the peripheral.
-    /// 
+    ///
     /// What each bit means depends on the exact microcontroller you use,
     /// which pins are connected to your LCD and also the LCD layout itself.
-    /// 
+    ///
     /// This function blocks until the last update display request has been processed.
     pub fn write_frame(&mut self, data: &[u32; 16]) {
         while T::regs().sr().read().udr() {}
@@ -265,37 +267,37 @@ impl<'d, T: Instance> Lcd<'d, T> {
 
 impl<'d, T: Instance> Drop for Lcd<'d, T> {
     fn drop(&mut self) {
+        // Disable the lcd
+        T::regs().cr().modify(|w| w.set_lcden(false));
         rcc::disable::<T>();
     }
 }
 
 pub struct LcdPin<'d, T: Instance> {
-    pin: PeripheralRef<'d, AnyPin>,
+    pin: Peri<'d, AnyPin>,
     af_num: u8,
     _phantom: PhantomData<T>,
 }
 
-impl<'d, T: Instance, Pin: Peripheral<P: SegComPin<T>> + 'd> From<Pin> for LcdPin<'d, T> {
-    fn from(value: Pin) -> Self {
+impl<'d, T: Instance, Pin: SegComPin<T>> From<Peri<'d, Pin>> for LcdPin<'d, T> {
+    fn from(value: Peri<'d, Pin>) -> Self {
         Self::new(value)
     }
 }
 
 impl<'d, T: Instance> LcdPin<'d, T> {
-    pub fn new(pin: impl Peripheral<P = impl SegComPin<T>> + 'd) -> Self {
-        into_ref!(pin);
-
+    pub fn new(pin: Peri<'d, impl SegComPin<T>>) -> Self {
         let af = pin.af_num();
 
         Self {
-            pin: pin.map_into(),
+            pin: pin.into(),
             af_num: af,
             _phantom: PhantomData,
         }
     }
 }
 
-trait SealedInstance: crate::rcc::SealedRccPeripheral {
+trait SealedInstance: crate::rcc::SealedRccPeripheral + PeripheralType {
     fn regs() -> crate::pac::lcd::Lcd;
 }
 
