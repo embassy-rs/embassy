@@ -2,8 +2,8 @@
 #![no_main]
 
 use defmt::*;
-use embassy_stm32::adc::{Adc, AdcChannel, SampleTime, adc4};
 use embassy_stm32::Config;
+use embassy_stm32::adc::{Adc, AdcChannel, SampleTime, adc4};
 use embassy_stm32::rcc::{
     AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale,
 };
