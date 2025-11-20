@@ -650,6 +650,9 @@ fn init_hw(config: Config) -> Peripherals {
 
             #[cfg(feature = "low-power")]
             rtc::init_rtc(cs, config.rtc, config.min_stop_pause);
+
+            #[cfg(all(stm32wb, feature = "low-power"))]
+            hsem::init_hsem(cs);
         }
 
         p
