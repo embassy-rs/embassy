@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased - ReleaseDate
 
+- fix: Fixed ADC4 enable() for WBA
 - feat: add poll_for methods to exti
 - feat: implement stop for stm32wb.
 - change: rework hsem and add HIL test for some chips.
