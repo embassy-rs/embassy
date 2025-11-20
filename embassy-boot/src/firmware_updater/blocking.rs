@@ -6,7 +6,7 @@ use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embedded_storage::nor_flash::NorFlash;
 
 use super::FirmwareUpdaterConfig;
-use crate::{FirmwareUpdaterError, State, BOOT_MAGIC, DFU_DETACH_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
+use crate::{BOOT_MAGIC, DFU_DETACH_MAGIC, FirmwareUpdaterError, STATE_ERASE_VALUE, SWAP_MAGIC, State};
 
 /// Blocking FirmwareUpdater is an application API for interacting with the BootLoader without the ability to
 /// 'mess up' the internal bootloader state
@@ -55,7 +55,7 @@ impl<'a, DFU: NorFlash, STATE: NorFlash>
         dfu_flash: &'a embassy_sync::blocking_mutex::Mutex<NoopRawMutex, core::cell::RefCell<DFU>>,
         state_flash: &'a embassy_sync::blocking_mutex::Mutex<NoopRawMutex, core::cell::RefCell<STATE>>,
     ) -> Self {
-        extern "C" {
+        unsafe extern "C" {
             static __bootloader_state_start: u32;
             static __bootloader_state_end: u32;
             static __bootloader_dfu_start: u32;
@@ -142,7 +142,8 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
             let mut chunk_buf = [0; 2];
             self.hash::<Sha512>(_update_len, &mut chunk_buf, &mut message)?;
 
-            public_key.verify(&message, &signature).map_err(into_signature_error)?
+            public_key.verify(&message, &signature).map_err(into_signature_error)?;
+            return self.state.mark_updated();
         }
         #[cfg(feature = "ed25519-salty")]
         {
@@ -169,10 +170,13 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
                 message,
                 r.is_ok()
             );
-            r.map_err(into_signature_error)?
+            r.map_err(into_signature_error)?;
+            return self.state.mark_updated();
         }
-
-        self.state.mark_updated()
+        #[cfg(not(any(feature = "ed25519-dalek", feature = "ed25519-salty")))]
+        {
+            Err(FirmwareUpdaterError::Signature(signature::Error::new()))
+        }
     }
 
     /// Verify the update in DFU with any digest.
@@ -189,6 +193,17 @@ impl<'d, DFU: NorFlash, STATE: NorFlash> BlockingFirmwareUpdater<'d, DFU, STATE>
             digest.update(&chunk_buf[..len]);
         }
         output.copy_from_slice(digest.finalize().as_slice());
+        Ok(())
+    }
+
+    /// Read a slice of data from the DFU storage peripheral, starting the read
+    /// operation at the given address offset, and reading `buf.len()` bytes.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the arguments are not aligned or out of bounds.
+    pub fn read_dfu(&mut self, offset: u32, buf: &mut [u8]) -> Result<(), FirmwareUpdaterError> {
+        self.dfu.read(offset, buf)?;
         Ok(())
     }
 
@@ -320,7 +335,8 @@ impl<'d, STATE: NorFlash> BlockingFirmwareState<'d, STATE> {
 
     // Make sure we are running a booted firmware to avoid reverting to a bad state.
     fn verify_booted(&mut self) -> Result<(), FirmwareUpdaterError> {
-        if self.get_state()? == State::Boot || self.get_state()? == State::DfuDetach {
+        let state = self.get_state()?;
+        if state == State::Boot || state == State::DfuDetach || state == State::Revert {
             Ok(())
         } else {
             Err(FirmwareUpdaterError::BadState)
@@ -334,14 +350,7 @@ impl<'d, STATE: NorFlash> BlockingFirmwareState<'d, STATE> {
     /// `mark_booted`.
     pub fn get_state(&mut self) -> Result<State, FirmwareUpdaterError> {
         self.state.read(0, &mut self.aligned)?;
-
-        if !self.aligned.iter().any(|&b| b != SWAP_MAGIC) {
-            Ok(State::Swap)
-        } else if !self.aligned.iter().any(|&b| b != DFU_DETACH_MAGIC) {
-            Ok(State::DfuDetach)
-        } else {
-            Ok(State::Boot)
-        }
+        Ok(State::from(&self.aligned))
     }
 
     /// Mark to trigger firmware swap on next boot.
@@ -390,8 +399,8 @@ mod tests {
     use core::cell::RefCell;
 
     use embassy_embedded_hal::flash::partition::BlockingPartition;
-    use embassy_sync::blocking_mutex::raw::NoopRawMutex;
     use embassy_sync::blocking_mutex::Mutex;
+    use embassy_sync::blocking_mutex::raw::NoopRawMutex;
     use sha1::{Digest, Sha1};
 
     use super::*;

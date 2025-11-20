@@ -2,6 +2,13 @@
 
 `embassy-boot` a lightweight bootloader supporting firmware application upgrades in a power-fail-safe way, with trial boots and rollbacks.
 
+The update method used is referred to as an A/B partition update scheme.
+
+With a general-purpose OS, A/B partition update is accomplished by directly booting either the A or B partition depending on the update state.
+To accomplish the same goal in a way that is portable across all microcontrollers, `embassy-boot` swaps data page by page (in both directions) between the DFU and the Active partition when a firmware update is triggered. +
+Because the original Active application is moved into the DFU partition during this update, the operation can be reversed if the update is interrupted or the new firmware does not flag that it booted successfully. +
+See the design section for more details on how this is implemented.
+
 The bootloader can be used either as a library or be flashed directly if you are happy with the default configuration and capabilities.
 
 By design, the bootloader does not provide any network capabilities. Networking capabilities for fetching new firmware can be provided by the user application, using the bootloader as a library for updating the firmware, or by using the bootloader as a library and adding this capability yourself.
@@ -19,6 +26,8 @@ The bootloader supports
 
 In general, the bootloader works on any platform that implements the `embedded-storage` traits for its internal flash, but may require custom initialization code to work.
 
+STM32L0x1 devices require the `flash-erase-zero` feature to be enabled.
+
 == Design
 
 image::bootloader_flash.png[Bootloader flash layout]
@@ -34,14 +43,14 @@ Partition Size~dfu~= Partition Size~active~+ Page Size~active~
 +
 All values are specified in bytes.
 
-* BOOTLOADER STATE - Where the bootloader stores the current state describing if the active and dfu partitions need to be swapped. When the new firmware has been written to the DFU partition, a magic field is written to instruct the bootloader that the partitions should be swapped. This partition must be able to store a magic field as well as the partition swap progress. The partition size given by:
+* BOOTLOADER STATE - Where the bootloader stores the current state describing if the active and dfu partitions need to be swapped. When the new firmware has been written to the DFU partition, a magic field is written to instruct the bootloader that the partitions should be swapped. This partition must be able to store a magic field as well as the partition swap progress. The partition size is given by:
 +
-Partition Size~state~ = Write Size~state~ + (2 × Partition Size~active~ / Page Size~active~)
+Partition Size~state~ = (2 × Write Size~state~) + (4 × Write Size~state~ × Partition Size~active~ / Page Size~active~)
 +
 All values are specified in bytes.
 
 The partitions for ACTIVE (+BOOTLOADER), DFU and BOOTLOADER_STATE may be placed in separate flash. The page size used by the bootloader is determined by the lowest common multiple of the ACTIVE and DFU page sizes.
-The BOOTLOADER_STATE partition must be big enough to store one word per page in the ACTIVE and DFU partitions combined.
+The BOOTLOADER_STATE partition must be big enough to store two words, plus four words per page in the ACTIVE partition.
 
 The bootloader has a platform-agnostic part, which implements the power fail safe swapping algorithm given the boundaries set by the partitions. The platform-specific part is a minimal shim that provides additional functionality such as watchdogs or supporting the nRF52 softdevice.
 
@@ -86,8 +95,7 @@ Then, to sign your firmware given a declaration of `FIRMWARE_DIR` and a firmware
 
 [source, bash]
 ----
-shasum -a 512 -b $FIRMWARE_DIR/myfirmware > $SECRETS_DIR/message.txt
-cat $SECRETS_DIR/message.txt | dd ibs=128 count=1 | xxd -p -r > $SECRETS_DIR/message.txt
+shasum -a 512 -b $FIRMWARE_DIR/myfirmware | head -c128 | xxd -p -r > $SECRETS_DIR/message.txt
 signify -S -s $SECRETS_DIR/key.sec -m $SECRETS_DIR/message.txt -x $SECRETS_DIR/message.txt.sig
 cp $FIRMWARE_DIR/myfirmware $FIRMWARE_DIR/myfirmware+signed
 tail -n1 $SECRETS_DIR/message.txt.sig | base64 -d -i - | dd ibs=10 skip=1 >> $FIRMWARE_DIR/myfirmware+signed

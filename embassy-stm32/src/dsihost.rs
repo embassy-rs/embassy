@@ -2,20 +2,13 @@
 
 use core::marker::PhantomData;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::PeripheralType;
 
 //use crate::gpio::{AnyPin, SealedPin};
-use crate::gpio::{AFType, AnyPin, Pull, Speed};
+use crate::block_for_us;
+use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::rcc::{self, RccPeripheral};
-use crate::{peripherals, Peripheral};
-
-/// Performs a busy-wait delay for a specified number of microseconds.
-pub fn blocking_delay_ms(ms: u32) {
-    #[cfg(feature = "time")]
-    embassy_time::block_for(embassy_time::Duration::from_millis(ms as u64));
-    #[cfg(not(feature = "time"))]
-    cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.unwrap().0 / 1_000 * ms);
-}
+use crate::{Peri, peripherals};
 
 /// PacketTypes extracted from CubeMX
 #[repr(u8)]
@@ -69,19 +62,16 @@ impl From<PacketType> for u8 {
 /// DSIHOST driver.
 pub struct DsiHost<'d, T: Instance> {
     _peri: PhantomData<&'d mut T>,
-    _te: PeripheralRef<'d, AnyPin>,
+    _te: Peri<'d, AnyPin>,
 }
 
 impl<'d, T: Instance> DsiHost<'d, T> {
     /// Note: Full-Duplex modes are not supported at this time
-    pub fn new(_peri: impl Peripheral<P = T> + 'd, te: impl Peripheral<P = impl TePin<T>> + 'd) -> Self {
-        into_ref!(te);
-
+    pub fn new(_peri: Peri<'d, T>, te: Peri<'d, impl TePin<T>>) -> Self {
         rcc::enable_and_reset::<T>();
 
         // Set Tearing Enable pin according to CubeMx example
-        te.set_as_af_pull(te.af_num(), AFType::OutputPushPull, Pull::None);
-        te.set_speed(Speed::Low);
+        set_as_af!(te, AfType::output(OutputType::PushPull, Speed::Low));
         /*
                 T::regs().wcr().modify(|w| {
                     w.set_dsien(true);
@@ -89,7 +79,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
         */
         Self {
             _peri: PhantomData,
-            _te: te.map_into(),
+            _te: te.into(),
         }
     }
 
@@ -124,17 +114,15 @@ impl<'d, T: Instance> DsiHost<'d, T> {
 
     /// DCS or Generic short/long write command
     pub fn write_cmd(&mut self, channel_id: u8, address: u8, data: &[u8]) -> Result<(), Error> {
-        assert!(data.len() > 0);
-
-        if data.len() == 1 {
-            self.short_write(channel_id, PacketType::DcsShortPktWriteP1, address, data[0])
-        } else {
-            self.long_write(
+        match data.len() {
+            0 => self.short_write(channel_id, PacketType::DcsShortPktWriteP0, address, 0),
+            1 => self.short_write(channel_id, PacketType::DcsShortPktWriteP1, address, data[0]),
+            _ => self.long_write(
                 channel_id,
                 PacketType::DcsLongPktWrite, // FIXME: This might be a generic long packet, as well...
                 address,
                 data,
-            )
+            ),
         }
     }
 
@@ -339,7 +327,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             if T::regs().gpsr().read().cmdfe() {
                 return Ok(());
             }
-            blocking_delay_ms(1);
+            block_for_us(1_000);
         }
         Err(Error::FifoTimeout)
     }
@@ -350,7 +338,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             if !T::regs().gpsr().read().cmdff() {
                 return Ok(());
             }
-            blocking_delay_ms(1);
+            block_for_us(1_000);
         }
         Err(Error::FifoTimeout)
     }
@@ -361,7 +349,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             if !self.read_busy() {
                 return Ok(());
             }
-            blocking_delay_ms(1);
+            block_for_us(1_000);
         }
         Err(Error::ReadTimeout)
     }
@@ -372,7 +360,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
             if !T::regs().gpsr().read().prdfe() {
                 return Ok(());
             }
-            blocking_delay_ms(1);
+            block_for_us(1_000);
         }
         Err(Error::FifoTimeout)
     }
@@ -389,6 +377,7 @@ impl<'d, T: Instance> DsiHost<'d, T> {
 /// Possible Error Types for DSI HOST
 #[non_exhaustive]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error {
     /// Waiting for FIFO empty flag timed out
     FifoTimeout,
@@ -412,7 +401,7 @@ trait SealedInstance: crate::rcc::SealedRccPeripheral {
 
 /// DSI instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + RccPeripheral + 'static {}
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral + 'static {}
 
 pin_trait!(TePin, Instance);
 

@@ -5,10 +5,10 @@ use defmt::{panic, *};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::usb::{Driver, Instance};
-use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
+use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
+use embassy_usb::Builder;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
-use embassy_usb::Builder;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -66,13 +66,6 @@ async fn main(_spawner: Spawner) {
     config.manufacturer = Some("Embassy");
     config.product = Some("USB-serial example");
     config.serial_number = Some("12345678");
-
-    // Required for windows compatibility.
-    // https://developer.nordicsemi.com/nRF_Connect_SDK/doc/1.9.1/kconfig/CONFIG_CDC_ACM_IAD.html#help
-    config.device_class = 0xEF;
-    config.device_sub_class = 0x02;
-    config.device_protocol = 0x01;
-    config.composite_with_iads = true;
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.

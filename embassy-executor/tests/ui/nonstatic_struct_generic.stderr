@@ -1,0 +1,11 @@
+error: task functions must not be generic
+ --> tests/ui/nonstatic_struct_generic.rs:6:1
+  |
+6 | async fn task<'a>(_x: Foo<'a>) {}
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: Arguments for tasks must live forever. Try using the `'static` lifetime.
+ --> tests/ui/nonstatic_struct_generic.rs:6:27
+  |
+6 | async fn task<'a>(_x: Foo<'a>) {}
+  |                           ^^

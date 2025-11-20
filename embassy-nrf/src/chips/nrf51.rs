@@ -1,4 +1,4 @@
-pub use nrf51_pac as pac;
+pub use nrf_pac as pac;
 
 /// The maximum buffer size that the EasyDMA can send/recv in one operation.
 pub const EASY_DMA_SIZE: usize = (1 << 14) - 1;
@@ -8,6 +8,7 @@ pub const FLASH_SIZE: usize = 128 * 1024;
 embassy_hal_internal::peripherals! {
     // RTC
     RTC0,
+    #[cfg(not(feature = "time-driver-rtc1"))]
     RTC1,
 
     // WDT
@@ -110,6 +111,15 @@ impl_timer!(TIMER2, TIMER2, TIMER2);
 
 impl_rng!(RNG, RNG, RNG);
 
+impl_rtc!(RTC0, RTC0, RTC0);
+#[cfg(not(feature = "time-driver-rtc1"))]
+impl_rtc!(RTC1, RTC1, RTC1);
+
+impl_ppi_group!(PPI_GROUP0, PPI, 0);
+impl_ppi_group!(PPI_GROUP1, PPI, 1);
+impl_ppi_group!(PPI_GROUP2, PPI, 2);
+impl_ppi_group!(PPI_GROUP3, PPI, 3);
+
 impl_pin!(P0_00, 0, 0);
 impl_pin!(P0_01, 0, 1);
 impl_pin!(P0_02, 0, 2);
@@ -145,12 +155,14 @@ impl_pin!(P0_31, 0, 31);
 
 impl_radio!(RADIO, RADIO, RADIO);
 
+impl_wdt!(WDT, WDT, WDT, 0);
+
 embassy_hal_internal::interrupt_mod!(
-    POWER_CLOCK,
+    CLOCK_POWER,
     RADIO,
     UART0,
-    SPI0_TWI0,
-    SPI1_TWI1,
+    TWISPI0,
+    TWISPI1,
     GPIOTE,
     ADC,
     TIMER0,
@@ -160,7 +172,7 @@ embassy_hal_internal::interrupt_mod!(
     TEMP,
     RNG,
     ECB,
-    CCM_AAR,
+    AAR_CCM,
     WDT,
     RTC1,
     QDEC,

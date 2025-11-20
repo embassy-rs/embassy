@@ -6,14 +6,14 @@ use defmt_rtt as _; // global logger
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::usb::{Driver, Instance};
-use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
+use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
+use embassy_usb::Builder;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
-use embassy_usb::Builder;
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs {
-    OTG_FS => usb::InterruptHandler<peripherals::USB_OTG_FS>;
+    OTG_HS => usb::InterruptHandler<peripherals::USB_OTG_HS>;
 });
 
 #[embassy_executor::main]
@@ -48,20 +48,13 @@ async fn main(_spawner: Spawner) {
     // to enable vbus_detection to comply with the USB spec. If you enable it, the board
     // has to support it or USB won't work at all. See docs on `vbus_detection` for details.
     config.vbus_detection = false;
-    let driver = Driver::new_fs(p.USB_OTG_FS, Irqs, p.PA12, p.PA11, &mut ep_out_buffer, config);
+    let driver = Driver::new_hs(p.USB_OTG_HS, Irqs, p.PA12, p.PA11, &mut ep_out_buffer, config);
 
     // Create embassy-usb Config
     let mut config = embassy_usb::Config::new(0xc0de, 0xcafe);
     config.manufacturer = Some("Embassy");
     config.product = Some("USB-serial example");
     config.serial_number = Some("12345678");
-
-    // Required for windows compatibility.
-    // https://developer.nordicsemi.com/nRF_Connect_SDK/doc/1.9.1/kconfig/CONFIG_CDC_ACM_IAD.html#help
-    config.device_class = 0xEF;
-    config.device_sub_class = 0x02;
-    config.device_protocol = 0x01;
-    config.composite_with_iads = true;
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.

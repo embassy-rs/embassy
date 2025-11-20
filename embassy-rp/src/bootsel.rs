@@ -7,21 +7,20 @@
 //!
 //! This module provides functionality to poll BOOTSEL from an embassy application.
 
+use crate::Peri;
 use crate::flash::in_ram;
 
-impl crate::peripherals::BOOTSEL {
-    /// Polls the BOOTSEL button. Returns true if the button is pressed.
-    ///
-    /// Polling isn't cheap, as this function waits for core 1 to finish it's current
-    /// task and for any DMAs from flash to complete
-    pub fn is_pressed(&mut self) -> bool {
-        let mut cs_status = Default::default();
+/// Reads the BOOTSEL button. Returns true if the button is pressed.
+///
+/// Reading isn't cheap, as this function waits for core 1 to finish it's current
+/// task and for any DMAs from flash to complete
+pub fn is_bootsel_pressed(_p: Peri<'_, crate::peripherals::BOOTSEL>) -> bool {
+    let mut cs_status = Default::default();
 
-        unsafe { in_ram(|| cs_status = ram_helpers::read_cs_status()) }.expect("Must be called from Core 0");
+    unsafe { in_ram(|| cs_status = ram_helpers::read_cs_status()) }.expect("Must be called from Core 0");
 
-        // bootsel is active low, so invert
-        !cs_status.infrompad()
-    }
+    // bootsel is active low, so invert
+    !cs_status.infrompad()
 }
 
 mod ram_helpers {
@@ -37,7 +36,7 @@ mod ram_helpers {
     /// This function must live in ram. It uses inline asm to avoid any
     /// potential calls to ABI functions that might be in flash.
     #[inline(never)]
-    #[link_section = ".data.ram_func"]
+    #[unsafe(link_section = ".data.ram_func")]
     #[cfg(target_arch = "arm")]
     pub unsafe fn read_cs_status() -> GpioStatus {
         let result: u32;
@@ -57,9 +56,9 @@ mod ram_helpers {
             "str {val}, [{cs_gpio}, $GPIO_CTRL]",
 
             // ...then wait for the state to settle...
-            "1:", // ~4000 cycle delay loop
+            "2:", // ~4000 cycle delay loop
             "subs {val}, #8",
-            "bne 1b",
+            "bne 2b",
 
             // ...we can read the current state of bootsel
             "ldr {val}, [{cs_gpio}, $GPIO_STATUS]",

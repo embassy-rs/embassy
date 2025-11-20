@@ -28,12 +28,13 @@ pub use hsi48::*;
 #[cfg_attr(any(stm32l0, stm32l1, stm32l4, stm32l5, stm32wb, stm32wl, stm32u0), path = "l.rs")]
 #[cfg_attr(stm32u5, path = "u5.rs")]
 #[cfg_attr(stm32wba, path = "wba.rs")]
+#[cfg_attr(stm32n6, path = "n6.rs")]
 mod _version;
 
 pub use _version::*;
 use stm32_metapac::RCC;
 
-pub use crate::_generated::{mux, Clocks};
+pub use crate::_generated::{Clocks, mux};
 use crate::time::Hertz;
 
 #[cfg(feature = "low-power")]
@@ -48,11 +49,28 @@ pub(crate) static mut REFCOUNT_STOP1: u32 = 0;
 /// May be read without a critical section
 pub(crate) static mut REFCOUNT_STOP2: u32 = 0;
 
+#[cfg(feature = "low-power")]
+pub(crate) static mut RCC_CONFIG: Option<Config> = None;
+
+#[cfg(backup_sram)]
+pub(crate) static mut BKSRAM_RETAINED: bool = false;
+
+#[cfg(not(feature = "_dual-core"))]
 /// Frozen clock frequencies
 ///
 /// The existence of this value indicates that the clock configuration can no longer be changed
 static mut CLOCK_FREQS: MaybeUninit<Clocks> = MaybeUninit::uninit();
 
+#[cfg(feature = "_dual-core")]
+static CLOCK_FREQS_PTR: core::sync::atomic::AtomicPtr<MaybeUninit<Clocks>> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
+
+#[cfg(feature = "_dual-core")]
+pub(crate) fn set_freqs_ptr(freqs: *mut MaybeUninit<Clocks>) {
+    CLOCK_FREQS_PTR.store(freqs, core::sync::atomic::Ordering::SeqCst);
+}
+
+#[cfg(not(feature = "_dual-core"))]
 /// Sets the clock frequencies
 ///
 /// Safety: Sets a mutable global.
@@ -61,13 +79,42 @@ pub(crate) unsafe fn set_freqs(freqs: Clocks) {
     CLOCK_FREQS = MaybeUninit::new(freqs);
 }
 
+#[cfg(feature = "_dual-core")]
+/// Sets the clock frequencies
+///
+/// Safety: Sets a mutable global.
+pub(crate) unsafe fn set_freqs(freqs: Clocks) {
+    debug!("rcc: {:?}", freqs);
+    CLOCK_FREQS_PTR
+        .load(core::sync::atomic::Ordering::SeqCst)
+        .write(MaybeUninit::new(freqs));
+}
+
+#[cfg(not(feature = "_dual-core"))]
 /// Safety: Reads a mutable global.
 pub(crate) unsafe fn get_freqs() -> &'static Clocks {
-    CLOCK_FREQS.assume_init_ref()
+    (*core::ptr::addr_of_mut!(CLOCK_FREQS)).assume_init_ref()
+}
+
+#[cfg(feature = "_dual-core")]
+/// Safety: Reads a mutable global.
+pub(crate) unsafe fn get_freqs() -> &'static Clocks {
+    unwrap!(CLOCK_FREQS_PTR.load(core::sync::atomic::Ordering::SeqCst).as_ref()).assume_init_ref()
+}
+
+/// Get the current clock configuration of the chip.
+pub fn clocks<'a>(_rcc: &'a crate::Peri<'a, crate::peripherals::RCC>) -> &'a Clocks {
+    // Safety: the existence of a `Peri<RCC>` means that `rcc::init()`
+    // has already been called, so `CLOCK_FREQS` must be initialized.
+    // The clocks could be modified again by `reinit()`, but reinit
+    // (for this reason) requires an exclusive reference to `Peri<RCC>`.
+    unsafe { get_freqs() }
 }
 
 pub(crate) trait SealedRccPeripheral {
     fn frequency() -> Hertz;
+    #[allow(dead_code)]
+    fn bus_frequency() -> Hertz;
     const RCC_INFO: RccInfo;
 }
 
@@ -138,11 +185,19 @@ impl RccInfo {
     pub(crate) fn enable_and_reset_with_cs(&self, _cs: CriticalSection) {
         if self.refcount_idx_or_0xff != 0xff {
             let refcount_idx = self.refcount_idx_or_0xff as usize;
-            unsafe {
-                crate::_generated::REFCOUNTS[refcount_idx] += 1;
-            }
-            if unsafe { crate::_generated::REFCOUNTS[refcount_idx] } > 1 {
-                return;
+
+            // Use .get_mut instead of []-operator so that we control how bounds checks happen.
+            // Otherwise, core::fmt will be pulled in here in order to format the integer in the
+            // out-of-bounds error.
+            if let Some(refcount) =
+                unsafe { (*core::ptr::addr_of_mut!(crate::_generated::REFCOUNTS)).get_mut(refcount_idx) }
+            {
+                *refcount += 1;
+                if *refcount > 1 {
+                    return;
+                }
+            } else {
+                panic!("refcount_idx out of bounds: {}", refcount_idx)
             }
         }
 
@@ -196,11 +251,19 @@ impl RccInfo {
     pub(crate) fn disable_with_cs(&self, _cs: CriticalSection) {
         if self.refcount_idx_or_0xff != 0xff {
             let refcount_idx = self.refcount_idx_or_0xff as usize;
-            unsafe {
-                crate::_generated::REFCOUNTS[refcount_idx] -= 1;
-            }
-            if unsafe { crate::_generated::REFCOUNTS[refcount_idx] } > 0 {
-                return;
+
+            // Use .get_mut instead of []-operator so that we control how bounds checks happen.
+            // Otherwise, core::fmt will be pulled in here in order to format the integer in the
+            // out-of-bounds error.
+            if let Some(refcount) =
+                unsafe { (*core::ptr::addr_of_mut!(crate::_generated::REFCOUNTS)).get_mut(refcount_idx) }
+            {
+                *refcount -= 1;
+                if *refcount > 0 {
+                    return;
+                }
+            } else {
+                panic!("refcount_idx out of bounds: {}", refcount_idx)
             }
         }
 
@@ -323,4 +386,64 @@ pub fn enable_and_reset<T: RccPeripheral>() {
 // TODO: should this be `unsafe`?
 pub fn disable<T: RccPeripheral>() {
     T::RCC_INFO.disable();
+}
+
+/// Re-initialize the `embassy-stm32` clock configuration with the provided configuration.
+///
+/// This is useful when you need to alter the CPU clock after configuring peripherals.
+/// For instance, configure an external clock via spi or i2c.
+///
+/// Please not this only re-configures the rcc and the time driver (not GPIO, EXTI, etc).
+///
+/// This should only be called after `init`.
+#[cfg(not(feature = "_dual-core"))]
+pub fn reinit(config: Config, _rcc: &'_ mut crate::Peri<'_, crate::peripherals::RCC>) {
+    critical_section::with(|cs| init_rcc(cs, config))
+}
+
+pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
+    unsafe {
+        init(config);
+
+        // must be after rcc init
+        #[cfg(feature = "_time-driver")]
+        crate::time_driver::init(_cs);
+
+        #[cfg(feature = "low-power")]
+        {
+            RCC_CONFIG = Some(config);
+            REFCOUNT_STOP2 = 0;
+            REFCOUNT_STOP1 = 0;
+        }
+    }
+}
+
+/// Calculate intermediate prescaler number used to calculate peripheral prescalers
+///
+/// This function is intended to calculate a number indicating a minimum division
+/// necessary to result in a frequency lower than the provided `freq_max`.
+///
+/// The returned value indicates the `val + 1` divider is necessary to result in
+/// the output frequency that is below the maximum provided.
+///
+/// For example:
+/// 0 = divider of 1 => no division necessary as the input frequency is below max
+/// 1 = divider of 2 => division by 2 necessary
+/// ...
+///
+/// The provided max frequency is inclusive. So if `freq_in == freq_max` the result
+/// will be 0, indicating that no division is necessary. To accomplish that we subtract
+/// 1 from the input frequency so that the integer rounding plays in our favor.
+///
+/// For example:
+/// Let the input frequency be 110 and the max frequency be 55.
+/// If we naiively do `110/55 = 2` the renult will indicate that we need a divider by 3
+/// which in reality will be rounded up to 4 as usually a 3 division is not available.
+/// In either case the resulting frequency will be either 36 or 27 which is lower than
+/// what we would want. The result should be 1.
+/// If we do the following instead `109/55 = 1` indicating that we need a divide by 2
+/// which will result in the correct 55.
+#[allow(unused)]
+pub(crate) fn raw_prescaler(freq_in: u32, freq_max: u32) -> u32 {
+    freq_in.saturating_sub(1) / freq_max
 }

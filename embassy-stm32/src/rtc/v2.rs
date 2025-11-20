@@ -11,11 +11,11 @@ impl super::Rtc {
     pub(super) fn configure(&mut self, async_psc: u8, sync_psc: u16) {
         self.write(true, |rtc| {
             rtc.cr().modify(|w| {
-                #[cfg(not(rtc_v2f2))]
+                #[cfg(not(rtc_v2_f2))]
                 w.set_bypshad(true);
-                #[cfg(rtc_v2f2)]
+                #[cfg(rtc_v2_f2)]
                 w.set_fmt(false);
-                #[cfg(not(rtc_v2f2))]
+                #[cfg(not(rtc_v2_f2))]
                 w.set_fmt(stm32_metapac::rtc::vals::Fmt::TWENTY_FOUR_HOUR);
                 w.set_osel(Osel::DISABLED);
                 w.set_pol(Pol::HIGH);
@@ -36,7 +36,7 @@ impl super::Rtc {
     ///
     /// To perform a calibration when `async_prescaler` is less then 3, `sync_prescaler`
     /// has to be reduced accordingly (see RM0351 Rev 9, sec 38.3.12).
-    #[cfg(not(rtc_v2f2))]
+    #[cfg(not(rtc_v2_f2))]
     pub fn calibrate(&mut self, mut clock_drift: f32, period: super::RtcCalibrationCyclePeriod) {
         const RTC_CALR_MIN_PPM: f32 = -487.1;
         const RTC_CALR_MAX_PPM: f32 = 488.5;
@@ -77,7 +77,7 @@ impl super::Rtc {
                     // When the offset is positive (0 to 512), the opposite of
                     // the offset (512 - offset) is masked, i.e. for the
                     // maximum offset (512), 0 pulses are masked.
-                    w.set_calp(stm32_metapac::rtc::vals::Calp::INCREASEFREQ);
+                    w.set_calp(stm32_metapac::rtc::vals::Calp::INCREASE_FREQ);
                     w.set_calm(512 - clock_drift as u16);
                 } else {
                     // Minimum (about -510.7) rounds to -511.
@@ -86,14 +86,14 @@ impl super::Rtc {
                     // When the offset is negative or zero (-511 to 0),
                     // the absolute offset is masked, i.e. for the minimum
                     // offset (-511), 511 pulses are masked.
-                    w.set_calp(stm32_metapac::rtc::vals::Calp::NOCHANGE);
+                    w.set_calp(stm32_metapac::rtc::vals::Calp::NO_CHANGE);
                     w.set_calm((clock_drift * -1.0) as u16);
                 }
             });
         })
     }
 
-    pub(super) fn write<F, R>(&self, init_mode: bool, f: F) -> R
+    pub(super) fn write<F, R>(&mut self, init_mode: bool, f: F) -> R
     where
         F: FnOnce(crate::pac::rtc::Rtc) -> R,
     {
@@ -131,10 +131,16 @@ impl SealedInstance for crate::peripherals::RTC {
     #[cfg(all(feature = "low-power", stm32f4))]
     const EXTI_WAKEUP_LINE: usize = 22;
 
+    #[cfg(all(feature = "low-power", stm32l4))]
+    const EXTI_WAKEUP_LINE: usize = 20;
+
     #[cfg(all(feature = "low-power", stm32l0))]
     const EXTI_WAKEUP_LINE: usize = 20;
 
-    #[cfg(all(feature = "low-power", stm32f4))]
+    #[cfg(all(feature = "low-power", stm32wb))]
+    const EXTI_WAKEUP_LINE: usize = 19;
+
+    #[cfg(all(feature = "low-power", any(stm32f4, stm32l4, stm32wb)))]
     type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
 
     #[cfg(all(feature = "low-power", stm32l0))]

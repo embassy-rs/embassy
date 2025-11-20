@@ -16,14 +16,14 @@ use async_io::Async;
 use clap::Parser;
 use embassy_executor::{Executor, Spawner};
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{Config, ConfigV4, Ipv4Address, Ipv4Cidr, Stack, StackResources};
+use embassy_net::{Config, ConfigV4, Ipv4Cidr, Stack, StackResources};
 use embassy_net_ppp::Runner;
 use embedded_io_async::Write;
 use futures::io::BufReader;
 use heapless::Vec;
 use log::*;
 use nix::sys::termios;
-use rand_core::{OsRng, RngCore};
+use rand_core::{OsRng, TryRngCore};
 use static_cell::StaticCell;
 
 use crate::serial_port::SerialPort;
@@ -37,19 +37,15 @@ struct Opts {
 }
 
 #[embassy_executor::task]
-async fn net_task(stack: &'static Stack<embassy_net_ppp::Device<'static>>) -> ! {
-    stack.run().await
+async fn net_task(mut runner: embassy_net::Runner<'static, embassy_net_ppp::Device<'static>>) -> ! {
+    runner.run().await
 }
 
 #[embassy_executor::task]
-async fn ppp_task(
-    stack: &'static Stack<embassy_net_ppp::Device<'static>>,
-    mut runner: Runner<'static>,
-    port: SerialPort,
-) -> ! {
+async fn ppp_task(stack: Stack<'static>, mut runner: Runner<'static>, port: SerialPort) -> ! {
     let port = Async::new(port).unwrap();
     let port = BufReader::new(port);
-    let port = adapter::FromFutures::new(port);
+    let port = embedded_io_adapters::futures_03::FromFutures::new(port);
 
     let config = embassy_net_ppp::Config {
         username: b"myuser",
@@ -64,10 +60,10 @@ async fn ppp_task(
             };
             let mut dns_servers = Vec::new();
             for s in ipv4.dns_servers.iter().flatten() {
-                let _ = dns_servers.push(Ipv4Address::from_bytes(&s.0));
+                let _ = dns_servers.push(*s);
             }
             let config = ConfigV4::Static(embassy_net::StaticConfigV4 {
-                address: Ipv4Cidr::new(Ipv4Address::from_bytes(&addr.0), 0),
+                address: Ipv4Cidr::new(addr, 0),
                 gateway: None,
                 dns_servers,
             });
@@ -93,22 +89,21 @@ async fn main_task(spawner: Spawner) {
 
     // Generate random seed
     let mut seed = [0; 8];
-    OsRng.fill_bytes(&mut seed);
+    OsRng.try_fill_bytes(&mut seed).unwrap();
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    static STACK: StaticCell<Stack<embassy_net_ppp::Device<'static>>> = StaticCell::new();
     static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
-    let stack = &*STACK.init(Stack::new(
+    let (stack, net_runner) = embassy_net::new(
         device,
         Config::default(), // don't configure IP yet
-        RESOURCES.init(StackResources::<3>::new()),
+        RESOURCES.init(StackResources::new()),
         seed,
-    ));
+    );
 
     // Launch network task
-    spawner.spawn(net_task(stack)).unwrap();
-    spawner.spawn(ppp_task(stack, runner, port)).unwrap();
+    spawner.spawn(net_task(net_runner).unwrap());
+    spawner.spawn(ppp_task(stack, runner, port).unwrap());
 
     // Then we can use it!
     let mut rx_buffer = [0; 4096];
@@ -165,56 +160,6 @@ fn main() {
 
     let executor = EXECUTOR.init(Executor::new());
     executor.run(|spawner| {
-        spawner.spawn(main_task(spawner)).unwrap();
+        spawner.spawn(main_task(spawner).unwrap());
     });
-}
-
-mod adapter {
-    use core::future::poll_fn;
-    use core::pin::Pin;
-
-    use futures::AsyncBufReadExt;
-
-    /// Adapter from `futures::io` traits.
-    #[derive(Clone)]
-    pub struct FromFutures<T: ?Sized> {
-        inner: T,
-    }
-
-    impl<T> FromFutures<T> {
-        /// Create a new adapter.
-        pub fn new(inner: T) -> Self {
-            Self { inner }
-        }
-    }
-
-    impl<T: ?Sized> embedded_io_async::ErrorType for FromFutures<T> {
-        type Error = std::io::Error;
-    }
-
-    impl<T: futures::io::AsyncRead + Unpin + ?Sized> embedded_io_async::Read for FromFutures<T> {
-        async fn read(&mut self, buf: &mut [u8]) -> Result<usize, Self::Error> {
-            poll_fn(|cx| Pin::new(&mut self.inner).poll_read(cx, buf)).await
-        }
-    }
-
-    impl<T: futures::io::AsyncBufRead + Unpin + ?Sized> embedded_io_async::BufRead for FromFutures<T> {
-        async fn fill_buf(&mut self) -> Result<&[u8], Self::Error> {
-            self.inner.fill_buf().await
-        }
-
-        fn consume(&mut self, amt: usize) {
-            Pin::new(&mut self.inner).consume(amt)
-        }
-    }
-
-    impl<T: futures::io::AsyncWrite + Unpin + ?Sized> embedded_io_async::Write for FromFutures<T> {
-        async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
-            poll_fn(|cx| Pin::new(&mut self.inner).poll_write(cx, buf)).await
-        }
-
-        async fn flush(&mut self) -> Result<(), Self::Error> {
-            poll_fn(|cx| Pin::new(&mut self.inner).poll_flush(cx)).await
-        }
-    }
 }

@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
 mod fmt;
@@ -7,21 +8,31 @@ pub use embassy_boot::{
     AlignedBuffer, BlockingFirmwareState, BlockingFirmwareUpdater, BootError, BootLoaderConfig, FirmwareState,
     FirmwareUpdater, FirmwareUpdaterConfig, State,
 };
-use embassy_rp::flash::{Blocking, Flash, ERASE_SIZE};
+use embassy_rp::Peri;
+use embassy_rp::flash::{Blocking, ERASE_SIZE, Flash};
 use embassy_rp::peripherals::{FLASH, WATCHDOG};
 use embassy_rp::watchdog::Watchdog;
 use embassy_time::Duration;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 
 /// A bootloader for RP2040 devices.
-pub struct BootLoader<const BUFFER_SIZE: usize = ERASE_SIZE>;
+pub struct BootLoader<const BUFFER_SIZE: usize = ERASE_SIZE> {
+    /// The reported state of the bootloader after preparing for boot
+    pub state: State,
+}
 
 impl<const BUFFER_SIZE: usize> BootLoader<BUFFER_SIZE> {
     /// Inspect the bootloader state and perform actions required before booting, such as swapping firmware
     pub fn prepare<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>(
         config: BootLoaderConfig<ACTIVE, DFU, STATE>,
     ) -> Self {
-        Self::try_prepare::<ACTIVE, DFU, STATE>(config).expect("Boot prepare error")
+        if let Ok(loader) = Self::try_prepare::<ACTIVE, DFU, STATE>(config) {
+            loader
+        } else {
+            // Use explicit panic instead of .expect() to ensure this gets routed via defmt/etc.
+            // properly
+            panic!("Boot prepare error")
+        }
     }
 
     /// Inspect the bootloader state and perform actions required before booting, such as swapping firmware
@@ -30,8 +41,8 @@ impl<const BUFFER_SIZE: usize> BootLoader<BUFFER_SIZE> {
     ) -> Result<Self, BootError> {
         let mut aligned_buf = AlignedBuffer([0; BUFFER_SIZE]);
         let mut boot = embassy_boot::BootLoader::new(config);
-        let _state = boot.prepare_boot(aligned_buf.as_mut())?;
-        Ok(Self)
+        let state = boot.prepare_boot(aligned_buf.as_mut())?;
+        Ok(Self { state })
     }
 
     /// Boots the application.
@@ -59,7 +70,7 @@ pub struct WatchdogFlash<'d, const SIZE: usize> {
 
 impl<'d, const SIZE: usize> WatchdogFlash<'d, SIZE> {
     /// Start a new watchdog with a given flash and watchdog peripheral and a timeout
-    pub fn start(flash: FLASH, watchdog: WATCHDOG, timeout: Duration) -> Self {
+    pub fn start(flash: Peri<'static, FLASH>, watchdog: Peri<'static, WATCHDOG>, timeout: Duration) -> Self {
         let flash = Flash::<_, Blocking, SIZE>::new_blocking(flash);
         let mut watchdog = Watchdog::new(watchdog);
         watchdog.start(timeout);

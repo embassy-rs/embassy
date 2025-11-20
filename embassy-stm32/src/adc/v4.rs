@@ -1,10 +1,13 @@
+#[cfg(not(stm32u5))]
+use pac::adc::vals::{Adcaldif, Boost};
 #[allow(unused)]
-use pac::adc::vals::{Adcaldif, Boost, Difsel, Exten, Pcsel};
+use pac::adc::vals::{Adstp, Difsel, Dmngt, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
 
-use super::{blocking_delay_us, Adc, AdcChannel, Instance, Resolution, SampleTime};
+use super::{Adc, Averaging, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt, blocking_delay_us};
+use crate::adc::ConversionMode;
 use crate::time::Hertz;
-use crate::{pac, rcc, Peripheral};
+use crate::{Peri, pac, rcc};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -16,131 +19,238 @@ pub const VREF_CALIB_MV: u32 = 3300;
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(60);
 #[cfg(stm32h7)]
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(50);
+#[cfg(stm32u5)]
+const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
 
 #[cfg(stm32g4)]
-const VREF_CHANNEL: u8 = 18;
+impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
+    const CHANNEL: u8 = 18;
+}
 #[cfg(stm32g4)]
-const TEMP_CHANNEL: u8 = 16;
+impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
+    const CHANNEL: u8 = 16;
+}
 
 #[cfg(stm32h7)]
-const VREF_CHANNEL: u8 = 19;
+impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
+    const CHANNEL: u8 = 19;
+}
 #[cfg(stm32h7)]
-const TEMP_CHANNEL: u8 = 18;
+impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
+    const CHANNEL: u8 = 18;
+}
 
 // TODO this should be 14 for H7a/b/35
-const VBAT_CHANNEL: u8 = 17;
+#[cfg(not(stm32u5))]
+impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
+    const CHANNEL: u8 = 17;
+}
 
-// NOTE: Vrefint/Temperature/Vbat are not available on all ADCs, this currently cannot be modeled with stm32-data, so these are available from the software on all ADCs
-/// Internal voltage reference channel.
-pub struct VrefInt;
-impl<T: Instance> AdcChannel<T> for VrefInt {}
-impl<T: Instance> super::SealedAdcChannel<T> for VrefInt {
-    fn channel(&self) -> u8 {
-        VREF_CHANNEL
+#[cfg(stm32u5)]
+impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
+    const CHANNEL: u8 = 0;
+}
+#[cfg(stm32u5)]
+impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
+    const CHANNEL: u8 = 19;
+}
+#[cfg(stm32u5)]
+impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
+    const CHANNEL: u8 = 18;
+}
+
+fn from_ker_ck(frequency: Hertz) -> Presc {
+    let raw_prescaler = rcc::raw_prescaler(frequency.0, MAX_ADC_CLK_FREQ.0);
+    match raw_prescaler {
+        0 => Presc::DIV1,
+        1 => Presc::DIV2,
+        2..=3 => Presc::DIV4,
+        4..=5 => Presc::DIV6,
+        6..=7 => Presc::DIV8,
+        8..=9 => Presc::DIV10,
+        10..=11 => Presc::DIV12,
+        _ => unimplemented!(),
     }
 }
 
-/// Internal temperature channel.
-pub struct Temperature;
-impl<T: Instance> AdcChannel<T> for Temperature {}
-impl<T: Instance> super::SealedAdcChannel<T> for Temperature {
-    fn channel(&self) -> u8 {
-        TEMP_CHANNEL
+/// Adc configuration
+#[derive(Default)]
+pub struct AdcConfig {
+    pub resolution: Option<Resolution>,
+    pub averaging: Option<Averaging>,
+}
+
+impl<T: Instance> super::SealedAnyInstance for T {
+    fn dr() -> *mut u16 {
+        T::regs().dr().as_ptr() as *mut u16
     }
-}
 
-/// Internal battery voltage channel.
-pub struct Vbat;
-impl<T: Instance> AdcChannel<T> for Vbat {}
-impl<T: Instance> super::SealedAdcChannel<T> for Vbat {
-    fn channel(&self) -> u8 {
-        VBAT_CHANNEL
+    fn enable() {
+        T::regs().isr().write(|w| w.set_adrdy(true));
+        T::regs().cr().modify(|w| w.set_aden(true));
+        while !T::regs().isr().read().adrdy() {}
+        T::regs().isr().write(|w| w.set_adrdy(true));
     }
-}
 
-// NOTE (unused): The prescaler enum closely copies the hardware capabilities,
-// but high prescaling doesn't make a lot of sense in the current implementation and is ommited.
-#[allow(unused)]
-enum Prescaler {
-    NotDivided,
-    DividedBy2,
-    DividedBy4,
-    DividedBy6,
-    DividedBy8,
-    DividedBy10,
-    DividedBy12,
-    DividedBy16,
-    DividedBy32,
-    DividedBy64,
-    DividedBy128,
-    DividedBy256,
-}
+    fn start() {
+        // Start conversion
+        T::regs().cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
+    }
 
-impl Prescaler {
-    fn from_ker_ck(frequency: Hertz) -> Self {
-        let raw_prescaler = frequency.0 / MAX_ADC_CLK_FREQ.0;
-        match raw_prescaler {
-            0 => Self::NotDivided,
-            1 => Self::DividedBy2,
-            2..=3 => Self::DividedBy4,
-            4..=5 => Self::DividedBy6,
-            6..=7 => Self::DividedBy8,
-            8..=9 => Self::DividedBy10,
-            10..=11 => Self::DividedBy12,
-            _ => unimplemented!(),
+    fn stop() {
+        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
+            T::regs().cr().modify(|reg| {
+                reg.set_adstp(Adstp::STOP);
+            });
+            while T::regs().cr().read().adstart() {}
+        }
+
+        // Reset configuration.
+        T::regs().cfgr().modify(|reg| {
+            reg.set_cont(false);
+            reg.set_dmngt(Dmngt::from_bits(0));
+        });
+    }
+
+    fn convert() -> u16 {
+        T::regs().isr().modify(|reg| {
+            reg.set_eos(true);
+            reg.set_eoc(true);
+        });
+
+        // Start conversion
+        T::regs().cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
+
+        while !T::regs().isr().read().eos() {
+            // spin
+        }
+
+        T::regs().dr().read().0 as u16
+    }
+
+    fn configure_dma(conversion_mode: ConversionMode) {
+        match conversion_mode {
+            ConversionMode::Singular => {
+                T::regs().isr().modify(|reg| {
+                    reg.set_ovr(true);
+                });
+                T::regs().cfgr().modify(|reg| {
+                    reg.set_cont(true);
+                    reg.set_dmngt(Dmngt::DMA_ONE_SHOT);
+                });
+            }
+            #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
+            _ => unreachable!(),
         }
     }
 
-    fn divisor(&self) -> u32 {
-        match self {
-            Prescaler::NotDivided => 1,
-            Prescaler::DividedBy2 => 2,
-            Prescaler::DividedBy4 => 4,
-            Prescaler::DividedBy6 => 6,
-            Prescaler::DividedBy8 => 8,
-            Prescaler::DividedBy10 => 10,
-            Prescaler::DividedBy12 => 12,
-            Prescaler::DividedBy16 => 16,
-            Prescaler::DividedBy32 => 32,
-            Prescaler::DividedBy64 => 64,
-            Prescaler::DividedBy128 => 128,
-            Prescaler::DividedBy256 => 256,
-        }
-    }
+    fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+        // Set sequence length
+        T::regs().sqr1().modify(|w| {
+            w.set_l(sequence.len() as u8 - 1);
+        });
 
-    fn presc(&self) -> Presc {
-        match self {
-            Prescaler::NotDivided => Presc::DIV1,
-            Prescaler::DividedBy2 => Presc::DIV2,
-            Prescaler::DividedBy4 => Presc::DIV4,
-            Prescaler::DividedBy6 => Presc::DIV6,
-            Prescaler::DividedBy8 => Presc::DIV8,
-            Prescaler::DividedBy10 => Presc::DIV10,
-            Prescaler::DividedBy12 => Presc::DIV12,
-            Prescaler::DividedBy16 => Presc::DIV16,
-            Prescaler::DividedBy32 => Presc::DIV32,
-            Prescaler::DividedBy64 => Presc::DIV64,
-            Prescaler::DividedBy128 => Presc::DIV128,
-            Prescaler::DividedBy256 => Presc::DIV256,
+        // Configure channels and ranks
+        for (i, ((channel, _), sample_time)) in sequence.enumerate() {
+            let sample_time = sample_time.into();
+            if channel <= 9 {
+                T::regs().smpr(0).modify(|reg| reg.set_smp(channel as _, sample_time));
+            } else {
+                T::regs()
+                    .smpr(1)
+                    .modify(|reg| reg.set_smp((channel - 10) as _, sample_time));
+            }
+
+            #[cfg(any(stm32h7, stm32u5))]
+            {
+                T::regs().cfgr2().modify(|w| w.set_lshift(0));
+                T::regs()
+                    .pcsel()
+                    .modify(|w| w.set_pcsel(channel as _, Pcsel::PRESELECTED));
+            }
+
+            match i {
+                0..=3 => {
+                    T::regs().sqr1().modify(|w| {
+                        w.set_sq(i, channel);
+                    });
+                }
+                4..=8 => {
+                    T::regs().sqr2().modify(|w| {
+                        w.set_sq(i - 4, channel);
+                    });
+                }
+                9..=13 => {
+                    T::regs().sqr3().modify(|w| {
+                        w.set_sq(i - 9, channel);
+                    });
+                }
+                14..=15 => {
+                    T::regs().sqr4().modify(|w| {
+                        w.set_sq(i - 14, channel);
+                    });
+                }
+                _ => unreachable!(),
+            }
         }
     }
 }
 
-impl<'d, T: Instance> Adc<'d, T> {
+impl<'d, T: Instance + super::AnyInstance> Adc<'d, T> {
+    pub fn new_with_config(adc: Peri<'d, T>, config: AdcConfig) -> Self {
+        let s = Self::new(adc);
+
+        // Set the ADC resolution.
+        if let Some(resolution) = config.resolution {
+            T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
+        }
+
+        // Set hardware averaging.
+        if let Some(averaging) = config.averaging {
+            let (enable, samples, right_shift) = match averaging {
+                Averaging::Disabled => (false, 0, 0),
+                Averaging::Samples2 => (true, 1, 1),
+                Averaging::Samples4 => (true, 3, 2),
+                Averaging::Samples8 => (true, 7, 3),
+                Averaging::Samples16 => (true, 15, 4),
+                Averaging::Samples32 => (true, 31, 5),
+                Averaging::Samples64 => (true, 63, 6),
+                Averaging::Samples128 => (true, 127, 7),
+                Averaging::Samples256 => (true, 255, 8),
+                Averaging::Samples512 => (true, 511, 9),
+                Averaging::Samples1024 => (true, 1023, 10),
+            };
+
+            T::regs().cfgr2().modify(|reg| {
+                reg.set_rovse(enable);
+                reg.set_ovsr(samples);
+                reg.set_ovss(right_shift);
+            })
+        }
+
+        s
+    }
+
     /// Create a new ADC driver.
-    pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
-        embassy_hal_internal::into_ref!(adc);
+    pub fn new(adc: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
 
-        let prescaler = Prescaler::from_ker_ck(T::frequency());
+        let prescaler = from_ker_ck(T::frequency());
 
-        T::common_regs().ccr().modify(|w| w.set_presc(prescaler.presc()));
+        T::common_regs().ccr().modify(|w| w.set_presc(prescaler));
 
-        let frequency = Hertz(T::frequency().0 / prescaler.divisor());
-        info!("ADC frequency set to {} Hz", frequency.0);
+        let frequency = T::frequency() / prescaler;
+        info!("ADC frequency set to {}", frequency);
 
         if frequency > MAX_ADC_CLK_FREQ {
-            panic!("Maximal allowed frequency for the ADC is {} MHz and it varies with different packages, refer to ST docs for more information.", MAX_ADC_CLK_FREQ.0 /  1_000_000 );
+            panic!(
+                "Maximal allowed frequency for the ADC is {} MHz and it varies with different packages, refer to ST docs for more information.",
+                MAX_ADC_CLK_FREQ.0 / 1_000_000
+            );
         }
 
         #[cfg(stm32h7)]
@@ -156,63 +266,41 @@ impl<'d, T: Instance> Adc<'d, T> {
             };
             T::regs().cr().modify(|w| w.set_boost(boost));
         }
-        let mut s = Self {
-            adc,
-            sample_time: SampleTime::from_bits(0),
-        };
-        s.power_up();
-        s.configure_differential_inputs();
 
-        s.calibrate();
-        blocking_delay_us(1);
-
-        s.enable();
-        s.configure();
-
-        s
-    }
-
-    fn power_up(&mut self) {
         T::regs().cr().modify(|reg| {
             reg.set_deeppwd(false);
             reg.set_advregen(true);
         });
 
         blocking_delay_us(10);
-    }
 
-    fn configure_differential_inputs(&mut self) {
         T::regs().difsel().modify(|w| {
             for n in 0..20 {
-                w.set_difsel(n, Difsel::SINGLEENDED);
+                w.set_difsel(n, Difsel::SINGLE_ENDED);
             }
         });
-    }
 
-    fn calibrate(&mut self) {
         T::regs().cr().modify(|w| {
-            w.set_adcaldif(Adcaldif::SINGLEENDED);
+            #[cfg(not(adc_u5))]
+            w.set_adcaldif(Adcaldif::SINGLE_ENDED);
             w.set_adcallin(true);
         });
 
         T::regs().cr().modify(|w| w.set_adcal(true));
 
         while T::regs().cr().read().adcal() {}
-    }
 
-    fn enable(&mut self) {
-        T::regs().isr().write(|w| w.set_adrdy(true));
-        T::regs().cr().modify(|w| w.set_aden(true));
-        while !T::regs().isr().read().adrdy() {}
-        T::regs().isr().write(|w| w.set_adrdy(true));
-    }
+        blocking_delay_us(1);
 
-    fn configure(&mut self) {
+        T::enable();
+
         // single conversion mode, software trigger
         T::regs().cfgr().modify(|w| {
             w.set_cont(false);
             w.set_exten(Exten::DISABLED);
         });
+
+        Self { adc }
     }
 
     /// Enable reading the voltage reference internal channel.
@@ -240,70 +328,5 @@ impl<'d, T: Instance> Adc<'d, T> {
         });
 
         Vbat {}
-    }
-
-    /// Set the ADC sample time.
-    pub fn set_sample_time(&mut self, sample_time: SampleTime) {
-        self.sample_time = sample_time;
-    }
-
-    /// Set the ADC resolution.
-    pub fn set_resolution(&mut self, resolution: Resolution) {
-        T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
-    }
-
-    /// Perform a single conversion.
-    fn convert(&mut self) -> u16 {
-        T::regs().isr().modify(|reg| {
-            reg.set_eos(true);
-            reg.set_eoc(true);
-        });
-
-        // Start conversion
-        T::regs().cr().modify(|reg| {
-            reg.set_adstart(true);
-        });
-
-        while !T::regs().isr().read().eos() {
-            // spin
-        }
-
-        T::regs().dr().read().0 as u16
-    }
-
-    /// Read an ADC channel.
-    pub fn read(&mut self, channel: &mut impl AdcChannel<T>) -> u16 {
-        channel.setup();
-
-        self.read_channel(channel.channel())
-    }
-
-    fn read_channel(&mut self, channel: u8) -> u16 {
-        // Configure channel
-        Self::set_channel_sample_time(channel, self.sample_time);
-
-        #[cfg(stm32h7)]
-        {
-            T::regs().cfgr2().modify(|w| w.set_lshift(0));
-            T::regs()
-                .pcsel()
-                .write(|w| w.set_pcsel(channel as _, Pcsel::PRESELECTED));
-        }
-
-        T::regs().sqr1().write(|reg| {
-            reg.set_sq(0, channel);
-            reg.set_l(0);
-        });
-
-        self.convert()
-    }
-
-    fn set_channel_sample_time(ch: u8, sample_time: SampleTime) {
-        let sample_time = sample_time.into();
-        if ch <= 9 {
-            T::regs().smpr(0).modify(|reg| reg.set_smp(ch as _, sample_time));
-        } else {
-            T::regs().smpr(1).modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
-        }
     }
 }

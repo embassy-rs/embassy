@@ -10,9 +10,9 @@ use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver, Instance, InterruptHandler};
+use embassy_usb::UsbDevice;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
-use embassy_usb::UsbDevice;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -37,13 +37,6 @@ async fn main(spawner: Spawner) {
         config.serial_number = Some("12345678");
         config.max_power = 100;
         config.max_packet_size_0 = 64;
-
-        // Required for windows compatibility.
-        // https://developer.nordicsemi.com/nRF_Connect_SDK/doc/1.9.1/kconfig/CONFIG_CDC_ACM_IAD.html#help
-        config.device_class = 0xEF;
-        config.device_sub_class = 0x02;
-        config.device_protocol = 0x01;
-        config.composite_with_iads = true;
         config
     };
 
@@ -76,7 +69,7 @@ async fn main(spawner: Spawner) {
     let usb = builder.build();
 
     // Run the USB device.
-    unwrap!(spawner.spawn(usb_task(usb)));
+    spawner.spawn(unwrap!(usb_task(usb)));
 
     // Do stuff with the class!
     loop {

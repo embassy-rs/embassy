@@ -4,22 +4,12 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{AnyPin, Level, Output, Speed};
-use embassy_stm32::low_power::Executor;
 use embassy_stm32::rcc::LsConfig;
-use embassy_stm32::rtc::{Rtc, RtcConfig};
-use embassy_stm32::Config;
+use embassy_stm32::{Config, Peri, low_power};
 use embassy_time::Timer;
-use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-#[cortex_m_rt::entry]
-fn main() -> ! {
-    Executor::take().run(|spawner| {
-        unwrap!(spawner.spawn(async_main(spawner)));
-    })
-}
-
-#[embassy_executor::task]
+#[embassy_executor::main(executor = "low_power::Executor")]
 async fn async_main(spawner: Spawner) {
     let mut config = Config::default();
     config.rcc.ls = LsConfig::default_lsi();
@@ -28,18 +18,12 @@ async fn async_main(spawner: Spawner) {
     // config.enable_debug_during_sleep = false;
     let p = embassy_stm32::init(config);
 
-    // give the RTC to the executor...
-    let rtc = Rtc::new(p.RTC, RtcConfig::default());
-    static RTC: StaticCell<Rtc> = StaticCell::new();
-    let rtc = RTC.init(rtc);
-    embassy_stm32::low_power::stop_with_rtc(rtc);
-
-    unwrap!(spawner.spawn(blinky(p.PC7.into())));
-    unwrap!(spawner.spawn(timeout()));
+    spawner.spawn(unwrap!(blinky(p.PC7.into())));
+    spawner.spawn(unwrap!(timeout()));
 }
 
 #[embassy_executor::task]
-async fn blinky(led: AnyPin) -> ! {
+async fn blinky(led: Peri<'static, AnyPin>) -> ! {
     let mut led = Output::new(led, Level::Low, Speed::Low);
     loop {
         info!("high");

@@ -18,18 +18,21 @@
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 
-use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 
-use crate::{peripherals, Peripheral};
+use crate::pac::common::{RW, Reg, W};
+use crate::pac::{self};
 
 #[cfg_attr(feature = "_dppi", path = "dppi.rs")]
 #[cfg_attr(feature = "_ppi", path = "ppi.rs")]
 mod _version;
+
+#[allow(unused_imports)]
 pub(crate) use _version::*;
 
 /// PPI channel driver.
 pub struct Ppi<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> {
-    ch: PeripheralRef<'d, C>,
+    ch: Peri<'d, C>,
     #[cfg(feature = "_dppi")]
     events: [Event<'d>; EVENT_COUNT],
     #[cfg(feature = "_dppi")]
@@ -38,19 +41,17 @@ pub struct Ppi<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize
 
 /// PPI channel group driver.
 pub struct PpiGroup<'d, G: Group> {
-    g: PeripheralRef<'d, G>,
+    g: Peri<'d, G>,
 }
 
 impl<'d, G: Group> PpiGroup<'d, G> {
     /// Create a new PPI group driver.
     ///
     /// The group is initialized as containing no channels.
-    pub fn new(g: impl Peripheral<P = G> + 'd) -> Self {
-        into_ref!(g);
-
-        let r = regs();
+    pub fn new(g: Peri<'d, G>) -> Self {
+        let r = g.regs();
         let n = g.number();
-        r.chg[n].write(|w| unsafe { w.bits(0) });
+        r.chg(n).write(|_| ());
 
         Self { g }
     }
@@ -62,10 +63,10 @@ impl<'d, G: Group> PpiGroup<'d, G> {
         &mut self,
         ch: &Ppi<'_, C, EVENT_COUNT, TASK_COUNT>,
     ) {
-        let r = regs();
+        let r = self.g.regs();
         let ng = self.g.number();
         let nc = ch.ch.number();
-        r.chg[ng].modify(|r, w| unsafe { w.bits(r.bits() | 1 << nc) });
+        r.chg(ng).modify(|w| w.set_ch(nc, true));
     }
 
     /// Remove a PPI channel from this group.
@@ -75,22 +76,22 @@ impl<'d, G: Group> PpiGroup<'d, G> {
         &mut self,
         ch: &Ppi<'_, C, EVENT_COUNT, TASK_COUNT>,
     ) {
-        let r = regs();
+        let r = self.g.regs();
         let ng = self.g.number();
         let nc = ch.ch.number();
-        r.chg[ng].modify(|r, w| unsafe { w.bits(r.bits() & !(1 << nc)) });
+        r.chg(ng).modify(|w| w.set_ch(nc, false));
     }
 
     /// Enable all the channels in this group.
     pub fn enable_all(&mut self) {
         let n = self.g.number();
-        regs().tasks_chg[n].en.write(|w| unsafe { w.bits(1) });
+        self.g.regs().tasks_chg(n).en().write_value(1);
     }
 
     /// Disable all the channels in this group.
     pub fn disable_all(&mut self) {
         let n = self.g.number();
-        regs().tasks_chg[n].dis.write(|w| unsafe { w.bits(1) });
+        self.g.regs().tasks_chg(n).dis().write_value(1);
     }
 
     /// Get a reference to the "enable all" task.
@@ -98,7 +99,7 @@ impl<'d, G: Group> PpiGroup<'d, G> {
     /// When triggered, it will enable all the channels in this group.
     pub fn task_enable_all(&self) -> Task<'d> {
         let n = self.g.number();
-        Task::from_reg(&regs().tasks_chg[n].en)
+        Task::from_reg(self.g.regs().tasks_chg(n).en())
     }
 
     /// Get a reference to the "disable all" task.
@@ -106,15 +107,23 @@ impl<'d, G: Group> PpiGroup<'d, G> {
     /// When triggered, it will disable all the channels in this group.
     pub fn task_disable_all(&self) -> Task<'d> {
         let n = self.g.number();
-        Task::from_reg(&regs().tasks_chg[n].dis)
+        Task::from_reg(self.g.regs().tasks_chg(n).dis())
+    }
+}
+impl<G: Group> PpiGroup<'static, G> {
+    /// Persist this group's configuration for the rest of the program's lifetime. This method
+    /// should be preferred over [`core::mem::forget()`] because the `'static` bound prevents
+    /// accidental reuse of the underlying peripheral.
+    pub fn persist(self) {
+        core::mem::forget(self);
     }
 }
 
 impl<'d, G: Group> Drop for PpiGroup<'d, G> {
     fn drop(&mut self) {
-        let r = regs();
+        let r = self.g.regs();
         let n = self.g.number();
-        r.chg[n].write(|w| unsafe { w.bits(0) });
+        r.chg(n).write(|_| ());
     }
 }
 
@@ -143,11 +152,8 @@ impl<'d> Task<'d> {
         unsafe { self.0.as_ptr().write_volatile(1) };
     }
 
-    pub(crate) fn from_reg<T>(reg: &T) -> Self {
-        Self(
-            unsafe { NonNull::new_unchecked(reg as *const _ as *mut _) },
-            PhantomData,
-        )
+    pub(crate) fn from_reg(reg: Reg<u32, W>) -> Self {
+        Self(unsafe { NonNull::new_unchecked(reg.as_ptr()) }, PhantomData)
     }
 
     /// Address of subscription register for this task.
@@ -178,11 +184,8 @@ impl<'d> Event<'d> {
         Self(ptr, PhantomData)
     }
 
-    pub(crate) fn from_reg<T>(reg: &'d T) -> Self {
-        Self(
-            unsafe { NonNull::new_unchecked(reg as *const _ as *mut _) },
-            PhantomData,
-        )
+    pub(crate) fn from_reg(reg: Reg<u32, RW>) -> Self {
+        Self(unsafe { NonNull::new_unchecked(reg.as_ptr()) }, PhantomData)
     }
 
     /// Describes whether this Event is currently in a triggered state.
@@ -210,39 +213,35 @@ unsafe impl Send for Event<'_> {}
 // ======================
 //       traits
 
-pub(crate) trait SealedChannel {}
-pub(crate) trait SealedGroup {}
+pub(crate) trait SealedChannel {
+    #[cfg(feature = "_dppi")]
+    fn regs(&self) -> pac::dppic::Dppic;
+}
+pub(crate) trait SealedGroup {
+    #[cfg(feature = "_dppi")]
+    fn regs(&self) -> pac::dppic::Dppic;
+    #[cfg(not(feature = "_dppi"))]
+    fn regs(&self) -> pac::ppi::Ppi;
+}
 
 /// Interface for PPI channels.
 #[allow(private_bounds)]
-pub trait Channel: SealedChannel + Peripheral<P = Self> + Sized + 'static {
+pub trait Channel: SealedChannel + PeripheralType + Sized + 'static {
     /// Returns the number of the channel
     fn number(&self) -> usize;
 }
 
 /// Interface for PPI channels that can be configured.
-pub trait ConfigurableChannel: Channel + Into<AnyConfigurableChannel> {
-    /// Convert into a type erased configurable channel.
-    fn degrade(self) -> AnyConfigurableChannel;
-}
+pub trait ConfigurableChannel: Channel + Into<AnyConfigurableChannel> {}
 
 /// Interface for PPI channels that cannot be configured.
-pub trait StaticChannel: Channel + Into<AnyStaticChannel> {
-    /// Convert into a type erased static channel.
-    fn degrade(self) -> AnyStaticChannel;
-}
+pub trait StaticChannel: Channel + Into<AnyStaticChannel> {}
 
 /// Interface for a group of PPI channels.
 #[allow(private_bounds)]
-pub trait Group: SealedGroup + Peripheral<P = Self> + Into<AnyGroup> + Sized + 'static {
+pub trait Group: SealedGroup + PeripheralType + Into<AnyGroup> + Sized + 'static {
     /// Returns the number of the group.
     fn number(&self) -> usize;
-    /// Convert into a type erased group.
-    fn degrade(self) -> AnyGroup {
-        AnyGroup {
-            number: self.number() as u8,
-        }
-    }
 }
 
 // ======================
@@ -252,79 +251,82 @@ pub trait Group: SealedGroup + Peripheral<P = Self> + Into<AnyGroup> + Sized + '
 /// This can be used to have fewer generic parameters in some places.
 pub struct AnyStaticChannel {
     pub(crate) number: u8,
+    #[cfg(feature = "_dppi")]
+    pub(crate) regs: pac::dppic::Dppic,
 }
 impl_peripheral!(AnyStaticChannel);
-impl SealedChannel for AnyStaticChannel {}
+impl SealedChannel for AnyStaticChannel {
+    #[cfg(feature = "_dppi")]
+    fn regs(&self) -> pac::dppic::Dppic {
+        self.regs
+    }
+}
 impl Channel for AnyStaticChannel {
     fn number(&self) -> usize {
         self.number as usize
     }
 }
-impl StaticChannel for AnyStaticChannel {
-    fn degrade(self) -> AnyStaticChannel {
-        self
-    }
-}
+impl StaticChannel for AnyStaticChannel {}
 
 /// The any configurable channel can represent any configurable channel at runtime.
 /// This can be used to have fewer generic parameters in some places.
 pub struct AnyConfigurableChannel {
     pub(crate) number: u8,
+    #[cfg(feature = "_dppi")]
+    pub(crate) regs: pac::dppic::Dppic,
 }
 impl_peripheral!(AnyConfigurableChannel);
-impl SealedChannel for AnyConfigurableChannel {}
+impl SealedChannel for AnyConfigurableChannel {
+    #[cfg(feature = "_dppi")]
+    fn regs(&self) -> pac::dppic::Dppic {
+        self.regs
+    }
+}
 impl Channel for AnyConfigurableChannel {
     fn number(&self) -> usize {
         self.number as usize
     }
 }
-impl ConfigurableChannel for AnyConfigurableChannel {
-    fn degrade(self) -> AnyConfigurableChannel {
-        self
-    }
-}
+impl ConfigurableChannel for AnyConfigurableChannel {}
 
-#[cfg(not(feature = "nrf51"))]
+#[cfg(not(feature = "_nrf51"))]
 macro_rules! impl_ppi_channel {
-    ($type:ident, $number:expr) => {
-        impl crate::ppi::SealedChannel for peripherals::$type {}
+    ($type:ident, $inst:ident, $number:expr) => {
+        impl crate::ppi::SealedChannel for peripherals::$type {
+            #[cfg(feature = "_dppi")]
+            fn regs(&self) -> pac::dppic::Dppic {
+                pac::$inst
+            }
+        }
         impl crate::ppi::Channel for peripherals::$type {
             fn number(&self) -> usize {
                 $number
             }
         }
     };
-    ($type:ident, $number:expr => static) => {
-        impl_ppi_channel!($type, $number);
-        impl crate::ppi::StaticChannel for peripherals::$type {
-            fn degrade(self) -> crate::ppi::AnyStaticChannel {
-                use crate::ppi::Channel;
-                crate::ppi::AnyStaticChannel {
-                    number: self.number() as u8,
-                }
-            }
-        }
-
+    ($type:ident, $inst:ident, $number:expr => static) => {
+        impl_ppi_channel!($type, $inst, $number);
+        impl crate::ppi::StaticChannel for peripherals::$type {}
         impl From<peripherals::$type> for crate::ppi::AnyStaticChannel {
             fn from(val: peripherals::$type) -> Self {
-                crate::ppi::StaticChannel::degrade(val)
+                Self {
+                    number: crate::ppi::Channel::number(&val) as u8,
+                    #[cfg(feature = "_dppi")]
+                    regs: pac::$inst,
+                }
             }
         }
     };
-    ($type:ident, $number:expr => configurable) => {
-        impl_ppi_channel!($type, $number);
-        impl crate::ppi::ConfigurableChannel for peripherals::$type {
-            fn degrade(self) -> crate::ppi::AnyConfigurableChannel {
-                use crate::ppi::Channel;
-                crate::ppi::AnyConfigurableChannel {
-                    number: self.number() as u8,
-                }
-            }
-        }
-
+    ($type:ident, $inst:ident, $number:expr => configurable) => {
+        impl_ppi_channel!($type, $inst, $number);
+        impl crate::ppi::ConfigurableChannel for peripherals::$type {}
         impl From<peripherals::$type> for crate::ppi::AnyConfigurableChannel {
             fn from(val: peripherals::$type) -> Self {
-                crate::ppi::ConfigurableChannel::degrade(val)
+                Self {
+                    number: crate::ppi::Channel::number(&val) as u8,
+                    #[cfg(feature = "_dppi")]
+                    regs: pac::$inst,
+                }
             }
         }
     };
@@ -335,38 +337,54 @@ macro_rules! impl_ppi_channel {
 
 /// A type erased PPI group.
 pub struct AnyGroup {
-    number: u8,
+    pub(crate) number: u8,
+    #[cfg(feature = "_dppi")]
+    pub(crate) regs: pac::dppic::Dppic,
+    #[cfg(not(feature = "_dppi"))]
+    pub(crate) regs: pac::ppi::Ppi,
 }
 impl_peripheral!(AnyGroup);
-impl SealedGroup for AnyGroup {}
+impl SealedGroup for AnyGroup {
+    #[cfg(feature = "_dppi")]
+    fn regs(&self) -> pac::dppic::Dppic {
+        self.regs
+    }
+    #[cfg(not(feature = "_dppi"))]
+    fn regs(&self) -> pac::ppi::Ppi {
+        self.regs
+    }
+}
 impl Group for AnyGroup {
     fn number(&self) -> usize {
         self.number as usize
     }
 }
 
-macro_rules! impl_group {
-    ($type:ident, $number:expr) => {
-        impl SealedGroup for peripherals::$type {}
-        impl Group for peripherals::$type {
+macro_rules! impl_ppi_group {
+    ($type:ident, $inst:ident, $number:expr) => {
+        impl crate::ppi::SealedGroup for crate::peripherals::$type {
+            #[cfg(feature = "_dppi")]
+            fn regs(&self) -> pac::dppic::Dppic {
+                pac::$inst
+            }
+            #[cfg(not(feature = "_dppi"))]
+            fn regs(&self) -> pac::ppi::Ppi {
+                pac::$inst
+            }
+        }
+        impl crate::ppi::Group for crate::peripherals::$type {
             fn number(&self) -> usize {
                 $number
             }
         }
 
-        impl From<peripherals::$type> for crate::ppi::AnyGroup {
-            fn from(val: peripherals::$type) -> Self {
-                crate::ppi::Group::degrade(val)
+        impl From<crate::peripherals::$type> for crate::ppi::AnyGroup {
+            fn from(val: crate::peripherals::$type) -> Self {
+                Self {
+                    number: crate::ppi::Group::number(&val) as u8,
+                    regs: pac::$inst,
+                }
             }
         }
     };
 }
-
-impl_group!(PPI_GROUP0, 0);
-impl_group!(PPI_GROUP1, 1);
-impl_group!(PPI_GROUP2, 2);
-impl_group!(PPI_GROUP3, 3);
-#[cfg(not(feature = "nrf51"))]
-impl_group!(PPI_GROUP4, 4);
-#[cfg(not(feature = "nrf51"))]
-impl_group!(PPI_GROUP5, 5);

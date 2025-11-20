@@ -4,8 +4,8 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::sdmmc::{DataBlock, Sdmmc};
-use embassy_stm32::time::{mhz, Hertz};
-use embassy_stm32::{bind_interrupts, peripherals, sdmmc, Config};
+use embassy_stm32::time::{Hertz, mhz};
+use embassy_stm32::{Config, bind_interrupts, peripherals, sdmmc};
 use {defmt_rtt as _, panic_probe as _};
 
 /// This is a safeguard to not overwrite any data on the SD card.
@@ -59,7 +59,7 @@ async fn main(_spawner: Spawner) {
 
     let mut err = None;
     loop {
-        match sdmmc.init_card(mhz(24)).await {
+        match sdmmc.init_sd_card(mhz(24)).await {
             Ok(_) => break,
             Err(e) => {
                 if err != Some(e) {

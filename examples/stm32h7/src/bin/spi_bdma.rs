@@ -9,19 +9,26 @@ use defmt::*;
 use embassy_executor::Executor;
 use embassy_stm32::mode::Async;
 use embassy_stm32::time::mhz;
-use embassy_stm32::{spi, Config};
+use embassy_stm32::{Config, spi};
+use grounded::uninit::GroundedArrayCell;
 use heapless::String;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 // Defined in memory.x
-#[link_section = ".ram_d3"]
-static mut RAM_D3: [u8; 64 * 1024] = [0u8; 64 * 1024];
+#[unsafe(link_section = ".ram_d3")]
+static mut RAM_D3: GroundedArrayCell<u8, 256> = GroundedArrayCell::uninit();
 
 #[embassy_executor::task]
-async fn main_task(mut spi: spi::Spi<'static, Async>) {
-    let read_buffer = unsafe { &mut RAM_D3[0..128] };
-    let write_buffer = unsafe { &mut RAM_D3[128..256] };
+async fn main_task(mut spi: spi::Spi<'static, Async, spi::mode::Master>) {
+    let (read_buffer, write_buffer) = unsafe {
+        let ram = &mut *core::ptr::addr_of_mut!(RAM_D3);
+        ram.initialize_all_copied(0);
+        (
+            ram.get_subslice_mut_unchecked(0, 128),
+            ram.get_subslice_mut_unchecked(128, 128),
+        )
+    };
 
     for n in 0u32.. {
         let mut write: String<128> = String::new();
@@ -73,6 +80,6 @@ fn main() -> ! {
     let executor = EXECUTOR.init(Executor::new());
 
     executor.run(|spawner| {
-        unwrap!(spawner.spawn(main_task(spi)));
+        spawner.spawn(unwrap!(main_task(spi)));
     })
 }

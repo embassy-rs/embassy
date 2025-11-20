@@ -11,10 +11,13 @@ impl super::Chip for W5100S {}
 impl super::SealedChip for W5100S {
     type Address = u16;
 
+    const CHIP_VERSION: u8 = 0x51;
+
     const COMMON_MODE: Self::Address = 0x00;
     const COMMON_MAC: Self::Address = 0x09;
     const COMMON_SOCKET_INTR: Self::Address = 0x16;
     const COMMON_PHY_CFG: Self::Address = 0x3c;
+    const COMMON_VERSION: Self::Address = 0x80;
 
     const SOCKET_MODE: Self::Address = SOCKET_BASE + 0x00;
     const SOCKET_COMMAND: Self::Address = SOCKET_BASE + 0x01;
@@ -26,6 +29,7 @@ impl super::SealedChip for W5100S {
     const SOCKET_RX_DATA_READ_PTR: Self::Address = SOCKET_BASE + 0x28;
     const SOCKET_INTR_MASK: Self::Address = SOCKET_BASE + 0x2C;
     const SOCKET_INTR: Self::Address = SOCKET_BASE + 0x02;
+    const SOCKET_INTR_CLR: Self::Address = SOCKET_BASE + 0x02;
 
     const SOCKET_MODE_VALUE: u8 = (1 << 2) | (1 << 6);
 

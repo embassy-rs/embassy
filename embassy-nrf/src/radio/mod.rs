@@ -6,7 +6,6 @@
 #![macro_use]
 
 /// Bluetooth Low Energy Radio driver.
-pub mod ble;
 #[cfg(any(
     feature = "nrf52811",
     feature = "nrf52820",
@@ -19,11 +18,11 @@ pub mod ieee802154;
 
 use core::marker::PhantomData;
 
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
-use pac::radio::state::STATE_A as RadioState;
-pub use pac::radio::txpower::TXPOWER_A as TxPower;
+pub use pac::radio::vals::Txpower as TxPower;
 
-use crate::{interrupt, pac, Peripheral};
+use crate::{interrupt, pac};
 
 /// RADIO error.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -52,7 +51,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let r = T::regs();
         let s = T::state();
         // clear all interrupts
-        r.intenclr.write(|w| w.bits(0xffff_ffff));
+        r.intenclr().write(|w| w.0 = 0xffff_ffff);
         s.event_waker.wake();
     }
 }
@@ -70,17 +69,18 @@ impl State {
 }
 
 pub(crate) trait SealedInstance {
-    fn regs() -> &'static crate::pac::radio::RegisterBlock;
+    fn regs() -> crate::pac::radio::Radio;
     fn state() -> &'static State;
 }
 
 macro_rules! impl_radio {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::radio::SealedInstance for peripherals::$type {
-            fn regs() -> &'static pac::radio::RegisterBlock {
-                unsafe { &*pac::$pac_type::ptr() }
+            fn regs() -> crate::pac::radio::Radio {
+                pac::$pac_type
             }
 
+            #[allow(unused)]
             fn state() -> &'static crate::radio::State {
                 static STATE: crate::radio::State = crate::radio::State::new();
                 &STATE
@@ -94,15 +94,7 @@ macro_rules! impl_radio {
 
 /// Radio peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
-}
-
-/// Get the state of the radio
-pub(crate) fn state(radio: &pac::radio::RegisterBlock) -> RadioState {
-    match radio.state.read().state().variant() {
-        Some(state) => state,
-        None => unreachable!(),
-    }
 }

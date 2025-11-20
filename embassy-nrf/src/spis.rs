@@ -3,20 +3,22 @@
 #![macro_use]
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
-pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
-pub use pac::spis0::config::ORDER_A as BitOrder;
+pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
+pub use pac::spis::vals::Order as BitOrder;
 
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
-use crate::gpio::{self, AnyPin, Pin as GpioPin, SealedPin as _};
+use crate::gpio::{self, AnyPin, OutputDrive, Pin as GpioPin, SealedPin as _, convert_drive};
 use crate::interrupt::typelevel::Interrupt;
+use crate::pac::gpio::vals as gpiovals;
+use crate::pac::spis::vals;
 use crate::util::slice_in_ram_or;
-use crate::{interrupt, pac, Peripheral};
+use crate::{interrupt, pac};
 
 /// SPIS error
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -54,6 +56,9 @@ pub struct Config {
 
     /// Automatically make the firmware side acquire the semaphore on transfer end.
     pub auto_acquire: bool,
+
+    /// Drive strength for the MISO line.
+    pub miso_drive: OutputDrive,
 }
 
 impl Default for Config {
@@ -64,6 +69,7 @@ impl Default for Config {
             orc: 0x00,
             def: 0x00,
             auto_acquire: true,
+            miso_drive: OutputDrive::HighDrive,
         }
     }
 }
@@ -78,137 +84,126 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let r = T::regs();
         let s = T::state();
 
-        if r.events_end.read().bits() != 0 {
+        if r.events_end().read() != 0 {
             s.waker.wake();
-            r.intenclr.write(|w| w.end().clear());
+            r.intenclr().write(|w| w.set_end(true));
         }
 
-        if r.events_acquired.read().bits() != 0 {
+        if r.events_acquired().read() != 0 {
             s.waker.wake();
-            r.intenclr.write(|w| w.acquired().clear());
+            r.intenclr().write(|w| w.set_acquired(true));
         }
     }
 }
 
-/// SPIS driver.
-pub struct Spis<'d, T: Instance> {
-    _p: PeripheralRef<'d, T>,
+/// Serial Peripheral Interface in slave mode.
+pub struct Spis<'d> {
+    r: pac::spis::Spis,
+    state: &'static State,
+    _p: PhantomData<&'d ()>,
 }
 
-impl<'d, T: Instance> Spis<'d, T> {
+impl<'d> Spis<'d> {
     /// Create a new SPIS driver.
-    pub fn new(
-        spis: impl Peripheral<P = T> + 'd,
+    pub fn new<T: Instance>(
+        spis: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        cs: impl Peripheral<P = impl GpioPin> + 'd,
-        sck: impl Peripheral<P = impl GpioPin> + 'd,
-        miso: impl Peripheral<P = impl GpioPin> + 'd,
-        mosi: impl Peripheral<P = impl GpioPin> + 'd,
+        cs: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl GpioPin>,
+        miso: Peri<'d, impl GpioPin>,
+        mosi: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(cs, sck, miso, mosi);
         Self::new_inner(
             spis,
-            cs.map_into(),
-            Some(sck.map_into()),
-            Some(miso.map_into()),
-            Some(mosi.map_into()),
+            cs.into(),
+            Some(sck.into()),
+            Some(miso.into()),
+            Some(mosi.into()),
             config,
         )
     }
 
     /// Create a new SPIS driver, capable of TX only (MISO only).
-    pub fn new_txonly(
-        spis: impl Peripheral<P = T> + 'd,
+    pub fn new_txonly<T: Instance>(
+        spis: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        cs: impl Peripheral<P = impl GpioPin> + 'd,
-        sck: impl Peripheral<P = impl GpioPin> + 'd,
-        miso: impl Peripheral<P = impl GpioPin> + 'd,
+        cs: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl GpioPin>,
+        miso: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(cs, sck, miso);
-        Self::new_inner(
-            spis,
-            cs.map_into(),
-            Some(sck.map_into()),
-            Some(miso.map_into()),
-            None,
-            config,
-        )
+        Self::new_inner(spis, cs.into(), Some(sck.into()), Some(miso.into()), None, config)
     }
 
     /// Create a new SPIS driver, capable of RX only (MOSI only).
-    pub fn new_rxonly(
-        spis: impl Peripheral<P = T> + 'd,
+    pub fn new_rxonly<T: Instance>(
+        spis: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        cs: impl Peripheral<P = impl GpioPin> + 'd,
-        sck: impl Peripheral<P = impl GpioPin> + 'd,
-        mosi: impl Peripheral<P = impl GpioPin> + 'd,
+        cs: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl GpioPin>,
+        mosi: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(cs, sck, mosi);
-        Self::new_inner(
-            spis,
-            cs.map_into(),
-            Some(sck.map_into()),
-            None,
-            Some(mosi.map_into()),
-            config,
-        )
+        Self::new_inner(spis, cs.into(), Some(sck.into()), None, Some(mosi.into()), config)
     }
 
     /// Create a new SPIS driver, capable of TX only (MISO only) without SCK pin.
-    pub fn new_txonly_nosck(
-        spis: impl Peripheral<P = T> + 'd,
+    pub fn new_txonly_nosck<T: Instance>(
+        spis: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        cs: impl Peripheral<P = impl GpioPin> + 'd,
-        miso: impl Peripheral<P = impl GpioPin> + 'd,
+        cs: Peri<'d, impl GpioPin>,
+        miso: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(cs, miso);
-        Self::new_inner(spis, cs.map_into(), None, Some(miso.map_into()), None, config)
+        Self::new_inner(spis, cs.into(), None, Some(miso.into()), None, config)
     }
 
-    fn new_inner(
-        spis: impl Peripheral<P = T> + 'd,
-        cs: PeripheralRef<'d, AnyPin>,
-        sck: Option<PeripheralRef<'d, AnyPin>>,
-        miso: Option<PeripheralRef<'d, AnyPin>>,
-        mosi: Option<PeripheralRef<'d, AnyPin>>,
+    fn new_inner<T: Instance>(
+        _spis: Peri<'d, T>,
+        cs: Peri<'d, AnyPin>,
+        sck: Option<Peri<'d, AnyPin>>,
+        miso: Option<Peri<'d, AnyPin>>,
+        mosi: Option<Peri<'d, AnyPin>>,
         config: Config,
     ) -> Self {
         compiler_fence(Ordering::SeqCst);
 
-        into_ref!(spis, cs);
-
         let r = T::regs();
 
         // Configure pins.
-        cs.conf().write(|w| w.input().connect().drive().h0h1());
-        r.psel.csn.write(|w| unsafe { w.bits(cs.psel_bits()) });
+        cs.conf().write(|w| w.set_input(gpiovals::Input::CONNECT));
+        r.psel().csn().write_value(cs.psel_bits());
         if let Some(sck) = &sck {
-            sck.conf().write(|w| w.input().connect().drive().h0h1());
-            r.psel.sck.write(|w| unsafe { w.bits(sck.psel_bits()) });
+            sck.conf().write(|w| w.set_input(gpiovals::Input::CONNECT));
+            r.psel().sck().write_value(sck.psel_bits());
         }
         if let Some(mosi) = &mosi {
-            mosi.conf().write(|w| w.input().connect().drive().h0h1());
-            r.psel.mosi.write(|w| unsafe { w.bits(mosi.psel_bits()) });
+            mosi.conf().write(|w| w.set_input(gpiovals::Input::CONNECT));
+            r.psel().mosi().write_value(mosi.psel_bits());
         }
         if let Some(miso) = &miso {
-            miso.conf().write(|w| w.dir().output().drive().h0h1());
-            r.psel.miso.write(|w| unsafe { w.bits(miso.psel_bits()) });
+            miso.conf().write(|w| {
+                w.set_dir(gpiovals::Dir::OUTPUT);
+                convert_drive(w, config.miso_drive);
+            });
+            r.psel().miso().write_value(miso.psel_bits());
         }
 
         // Enable SPIS instance.
-        r.enable.write(|w| w.enable().enabled());
+        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
 
-        let mut spis = Self { _p: spis };
+        let mut spis = Self {
+            r: T::regs(),
+            state: T::state(),
+            _p: PhantomData,
+        };
 
         // Apply runtime peripheral configuration
-        Self::set_config(&mut spis, &config).unwrap();
+        spis.set_config(&config).unwrap();
 
         // Disable all events interrupts.
-        r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
+        r.intenclr().write(|w| w.0 = 0xFFFF_FFFF);
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -223,50 +218,50 @@ impl<'d, T: Instance> Spis<'d, T> {
 
         compiler_fence(Ordering::SeqCst);
 
-        let r = T::regs();
+        let r = self.r;
 
         // Set up the DMA write.
         if tx.len() > EASY_DMA_SIZE {
             return Err(Error::TxBufferTooLong);
         }
-        r.txd.ptr.write(|w| unsafe { w.ptr().bits(tx as *const u8 as _) });
-        r.txd.maxcnt.write(|w| unsafe { w.maxcnt().bits(tx.len() as _) });
+        r.dma().tx().ptr().write_value(tx as *const u8 as _);
+        r.dma().tx().maxcnt().write(|w| w.set_maxcnt(tx.len() as _));
 
         // Set up the DMA read.
         if rx.len() > EASY_DMA_SIZE {
             return Err(Error::RxBufferTooLong);
         }
-        r.rxd.ptr.write(|w| unsafe { w.ptr().bits(rx as *mut u8 as _) });
-        r.rxd.maxcnt.write(|w| unsafe { w.maxcnt().bits(rx.len() as _) });
+        r.dma().rx().ptr().write_value(rx as *mut u8 as _);
+        r.dma().rx().maxcnt().write(|w| w.set_maxcnt(rx.len() as _));
 
         // Reset end event.
-        r.events_end.reset();
+        r.events_end().write_value(0);
 
         // Release the semaphore.
-        r.tasks_release.write(|w| unsafe { w.bits(1) });
+        r.tasks_release().write_value(1);
 
         Ok(())
     }
 
     fn blocking_inner_from_ram(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(usize, usize), Error> {
         compiler_fence(Ordering::SeqCst);
-        let r = T::regs();
+        let r = self.r;
 
         // Acquire semaphore.
-        if r.semstat.read().bits() != 1 {
-            r.events_acquired.reset();
-            r.tasks_acquire.write(|w| unsafe { w.bits(1) });
+        if r.semstat().read().0 != 1 {
+            r.events_acquired().write_value(0);
+            r.tasks_acquire().write_value(1);
             // Wait until CPU has acquired the semaphore.
-            while r.semstat.read().bits() != 1 {}
+            while r.semstat().read().0 != 1 {}
         }
 
         self.prepare(rx, tx)?;
 
         // Wait for 'end' event.
-        while r.events_end.read().bits() == 0 {}
+        while r.events_end().read() == 0 {}
 
-        let n_rx = r.rxd.amount.read().bits() as usize;
-        let n_tx = r.txd.amount.read().bits() as usize;
+        let n_rx = r.dma().rx().amount().read().0 as usize;
+        let n_tx = r.dma().tx().amount().read().0 as usize;
 
         compiler_fence(Ordering::SeqCst);
 
@@ -287,26 +282,29 @@ impl<'d, T: Instance> Spis<'d, T> {
     }
 
     async fn async_inner_from_ram(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(usize, usize), Error> {
-        let r = T::regs();
-        let s = T::state();
+        let r = self.r;
+        let s = self.state;
 
         // Clear status register.
-        r.status.write(|w| w.overflow().clear().overread().clear());
+        r.status().write(|w| {
+            w.set_overflow(true);
+            w.set_overread(true);
+        });
 
         // Acquire semaphore.
-        if r.semstat.read().bits() != 1 {
+        if r.semstat().read().0 != 1 {
             // Reset and enable the acquire event.
-            r.events_acquired.reset();
-            r.intenset.write(|w| w.acquired().set());
+            r.events_acquired().write_value(0);
+            r.intenset().write(|w| w.set_acquired(true));
 
             // Request acquiring the SPIS semaphore.
-            r.tasks_acquire.write(|w| unsafe { w.bits(1) });
+            r.tasks_acquire().write_value(1);
 
             // Wait until CPU has acquired the semaphore.
             poll_fn(|cx| {
                 s.waker.register(cx.waker());
-                if r.events_acquired.read().bits() == 1 {
-                    r.events_acquired.reset();
+                if r.events_acquired().read() == 1 {
+                    r.events_acquired().write_value(0);
                     return Poll::Ready(());
                 }
                 Poll::Pending
@@ -317,19 +315,19 @@ impl<'d, T: Instance> Spis<'d, T> {
         self.prepare(rx, tx)?;
 
         // Wait for 'end' event.
-        r.intenset.write(|w| w.end().set());
+        r.intenset().write(|w| w.set_end(true));
         poll_fn(|cx| {
             s.waker.register(cx.waker());
-            if r.events_end.read().bits() != 0 {
-                r.events_end.reset();
+            if r.events_end().read() != 0 {
+                r.events_end().write_value(0);
                 return Poll::Ready(());
             }
             Poll::Pending
         })
         .await;
 
-        let n_rx = r.rxd.amount.read().bits() as usize;
-        let n_tx = r.txd.amount.read().bits() as usize;
+        let n_rx = r.dma().rx().amount().read().0 as usize;
+        let n_tx = r.dma().tx().amount().read().0 as usize;
 
         compiler_fence(Ordering::SeqCst);
 
@@ -428,27 +426,27 @@ impl<'d, T: Instance> Spis<'d, T> {
 
     /// Checks if last transaction overread.
     pub fn is_overread(&mut self) -> bool {
-        T::regs().status.read().overread().is_present()
+        self.r.status().read().overread()
     }
 
     /// Checks if last transaction overflowed.
     pub fn is_overflow(&mut self) -> bool {
-        T::regs().status.read().overflow().is_present()
+        self.r.status().read().overflow()
     }
 }
 
-impl<'d, T: Instance> Drop for Spis<'d, T> {
+impl<'d> Drop for Spis<'d> {
     fn drop(&mut self) {
         trace!("spis drop");
 
         // Disable
-        let r = T::regs();
-        r.enable.write(|w| w.enable().disabled());
+        let r = self.r;
+        r.enable().write(|w| w.set_enable(vals::Enable::DISABLED));
 
-        gpio::deconfigure_pin(r.psel.sck.read().bits());
-        gpio::deconfigure_pin(r.psel.csn.read().bits());
-        gpio::deconfigure_pin(r.psel.miso.read().bits());
-        gpio::deconfigure_pin(r.psel.mosi.read().bits());
+        gpio::deconfigure_pin(r.psel().sck().read());
+        gpio::deconfigure_pin(r.psel().csn().read());
+        gpio::deconfigure_pin(r.psel().miso().read());
+        gpio::deconfigure_pin(r.psel().mosi().read());
 
         trace!("spis drop: done");
     }
@@ -467,13 +465,13 @@ impl State {
 }
 
 pub(crate) trait SealedInstance {
-    fn regs() -> &'static pac::spis0::RegisterBlock;
+    fn regs() -> pac::spis::Spis;
     fn state() -> &'static State;
 }
 
 /// SPIS peripheral instance
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static {
+pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
@@ -481,8 +479,8 @@ pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static {
 macro_rules! impl_spis {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::spis::SealedInstance for peripherals::$type {
-            fn regs() -> &'static pac::spis0::RegisterBlock {
-                unsafe { &*pac::$pac_type::ptr() }
+            fn regs() -> pac::spis::Spis {
+                pac::$pac_type
             }
             fn state() -> &'static crate::spis::State {
                 static STATE: crate::spis::State = crate::spis::State::new();
@@ -497,51 +495,46 @@ macro_rules! impl_spis {
 
 // ====================
 
-impl<'d, T: Instance> SetConfig for Spis<'d, T> {
+impl<'d> SetConfig for Spis<'d> {
     type Config = Config;
     type ConfigError = ();
     fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
-        let r = T::regs();
+        let r = self.r;
         // Configure mode.
         let mode = config.mode;
-        r.config.write(|w| {
+        r.config().write(|w| {
+            w.set_order(config.bit_order);
             match mode {
                 MODE_0 => {
-                    w.order().variant(config.bit_order);
-                    w.cpol().active_high();
-                    w.cpha().leading();
+                    w.set_cpol(vals::Cpol::ACTIVE_HIGH);
+                    w.set_cpha(vals::Cpha::LEADING);
                 }
                 MODE_1 => {
-                    w.order().variant(config.bit_order);
-                    w.cpol().active_high();
-                    w.cpha().trailing();
+                    w.set_cpol(vals::Cpol::ACTIVE_HIGH);
+                    w.set_cpha(vals::Cpha::TRAILING);
                 }
                 MODE_2 => {
-                    w.order().variant(config.bit_order);
-                    w.cpol().active_low();
-                    w.cpha().leading();
+                    w.set_cpol(vals::Cpol::ACTIVE_LOW);
+                    w.set_cpha(vals::Cpha::LEADING);
                 }
                 MODE_3 => {
-                    w.order().variant(config.bit_order);
-                    w.cpol().active_low();
-                    w.cpha().trailing();
+                    w.set_cpol(vals::Cpol::ACTIVE_LOW);
+                    w.set_cpha(vals::Cpha::TRAILING);
                 }
             }
-
-            w
         });
 
         // Set over-read character.
         let orc = config.orc;
-        r.orc.write(|w| unsafe { w.orc().bits(orc) });
+        r.orc().write(|w| w.set_orc(orc));
 
         // Set default character.
         let def = config.def;
-        r.def.write(|w| unsafe { w.def().bits(def) });
+        r.def().write(|w| w.set_def(def));
 
         // Configure auto-acquire on 'transfer end' event.
         let auto_acquire = config.auto_acquire;
-        r.shorts.write(|w| w.end_acquire().bit(auto_acquire));
+        r.shorts().write(|w| w.set_end_acquire(auto_acquire));
 
         Ok(())
     }

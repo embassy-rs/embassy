@@ -1,7 +1,7 @@
 [package]
 name = "embassy-hal-internal"
-version = "0.1.0"
-edition = "2021"
+version = "0.3.0"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Internal implementation details for Embassy HALs. DO NOT USE DIRECTLY."
 repository = "https://github.com/embassy-rs/embassy"
@@ -13,6 +13,9 @@ categories = [
 ]
 
 [features]
+
+defmt = ["dep:defmt"]
+log = ["dep:log"]
 
 # Define the number of NVIC priority bits.
 prio-bits-0 = []
@@ -28,7 +31,7 @@ prio-bits-8 = []
 cortex-m = ["dep:cortex-m", "dep:critical-section"]
 
 [dependencies]
-defmt = { version = "0.3", optional = true }
+defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
 num-traits = { version = "0.2.14", default-features = false }

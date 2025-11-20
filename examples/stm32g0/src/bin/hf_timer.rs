@@ -3,12 +3,12 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
+use embassy_stm32::Config as PeripheralConfig;
 use embassy_stm32::gpio::OutputType;
 use embassy_stm32::time::khz;
+use embassy_stm32::timer::Channel;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, ComplementaryPwmPin};
 use embassy_stm32::timer::simple_pwm::PwmPin;
-use embassy_stm32::timer::Channel;
-use embassy_stm32::Config as PeripheralConfig;
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -16,7 +16,9 @@ async fn main(_spawner: Spawner) {
     let mut config = PeripheralConfig::default();
     {
         use embassy_stm32::rcc::*;
-        config.rcc.hsi = true;
+        config.rcc.hsi = Some(Hsi {
+            sys_div: HsiSysDiv::DIV1,
+        });
         config.rcc.pll = Some(Pll {
             source: PllSource::HSI,
             prediv: PllPreDiv::DIV1,
@@ -35,8 +37,8 @@ async fn main(_spawner: Spawner) {
     }
     let p = embassy_stm32::init(config);
 
-    let ch1 = PwmPin::new_ch1(p.PA8, OutputType::PushPull);
-    let ch1n = ComplementaryPwmPin::new_ch1(p.PA7, OutputType::PushPull);
+    let ch1 = PwmPin::new(p.PA8, OutputType::PushPull);
+    let ch1n = ComplementaryPwmPin::new(p.PA7, OutputType::PushPull);
 
     let mut pwm = ComplementaryPwm::new(
         p.TIM1,

@@ -3,16 +3,15 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_net::StackResources;
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{Stack, StackResources};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::usb::Driver;
-use embassy_stm32::{bind_interrupts, peripherals, rng, usb, Config};
+use embassy_stm32::{Config, bind_interrupts, peripherals, rng, usb};
 use embassy_usb::class::cdc_ncm::embassy_net::{Device, Runner, State as NetState};
 use embassy_usb::class::cdc_ncm::{CdcNcmClass, State};
 use embassy_usb::{Builder, UsbDevice};
 use embedded_io_async::Write;
-use rand_core::RngCore;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -36,8 +35,8 @@ async fn usb_ncm_task(class: Runner<'static, MyDriver, MTU>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn net_task(stack: &'static Stack<Device<'static, MTU>>) -> ! {
-    stack.run().await
+async fn net_task(mut runner: embassy_net::Runner<'static, Device<'static, MTU>>) -> ! {
+    runner.run().await
 }
 
 #[embassy_executor::main]
@@ -72,12 +71,6 @@ async fn main(spawner: Spawner) {
     config.max_power = 100;
     config.max_packet_size_0 = 64;
 
-    // Required for Windows support.
-    config.composite_with_iads = true;
-    config.device_class = 0xEF;
-    config.device_sub_class = 0x02;
-    config.device_protocol = 0x01;
-
     // Create embassy-usb DeviceBuilder using the driver and config.
     static CONFIG_DESC: StaticCell<[u8; 256]> = StaticCell::new();
     static BOS_DESC: StaticCell<[u8; 256]> = StaticCell::new();
@@ -103,11 +96,11 @@ async fn main(spawner: Spawner) {
     // Build the builder.
     let usb = builder.build();
 
-    unwrap!(spawner.spawn(usb_task(usb)));
+    spawner.spawn(unwrap!(usb_task(usb)));
 
     static NET_STATE: StaticCell<NetState<MTU, 4, 4>> = StaticCell::new();
     let (runner, device) = class.into_embassy_net_device::<MTU, 4, 4>(NET_STATE.init(NetState::new()), our_mac_addr);
-    unwrap!(spawner.spawn(usb_ncm_task(runner)));
+    spawner.spawn(unwrap!(usb_ncm_task(runner)));
 
     let config = embassy_net::Config::dhcpv4(Default::default());
     //let config = embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
@@ -121,16 +114,10 @@ async fn main(spawner: Spawner) {
     let seed = rng.next_u64();
 
     // Init network stack
-    static STACK: StaticCell<Stack<Device<'static, MTU>>> = StaticCell::new();
-    static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
-    let stack = &*STACK.init(Stack::new(
-        device,
-        config,
-        RESOURCES.init(StackResources::<2>::new()),
-        seed,
-    ));
+    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
+    let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
 
-    unwrap!(spawner.spawn(net_task(stack)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     // And now we can use it!
 

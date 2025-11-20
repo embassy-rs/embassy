@@ -13,7 +13,7 @@ use {defmt_rtt as _, panic_probe as _};
 static CHANNEL: Channel<ThreadModeRawMutex, [u8; 8], 1> = Channel::new();
 
 bind_interrupts!(struct Irqs {
-    UARTE0_UART0 => uarte::InterruptHandler<UARTE0>;
+    UARTE0 => uarte::InterruptHandler<UARTE0>;
 });
 
 #[embassy_executor::main]
@@ -23,14 +23,14 @@ async fn main(spawner: Spawner) {
     config.parity = uarte::Parity::EXCLUDED;
     config.baudrate = uarte::Baudrate::BAUD115200;
 
-    let uart = uarte::Uarte::new(p.UARTE0, Irqs, p.P0_08, p.P0_06, config);
+    let uart = uarte::Uarte::new(p.UARTE0, p.P0_08, p.P0_06, Irqs, config);
     let (mut tx, rx) = uart.split();
 
     info!("uarte initialized!");
 
     // Spawn a task responsible purely for reading
 
-    unwrap!(spawner.spawn(reader(rx)));
+    spawner.spawn(unwrap!(reader(rx)));
 
     // Message must be in SRAM
     {
@@ -52,7 +52,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn reader(mut rx: UarteRx<'static, UARTE0>) {
+async fn reader(mut rx: UarteRx<'static>) {
     let mut buf = [0; 8];
     loop {
         info!("reading...");

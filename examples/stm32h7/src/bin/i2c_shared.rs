@@ -8,10 +8,11 @@ use embassy_embedded_hal::shared_bus::blocking::i2c::I2cDevice;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::{self, I2c};
 use embassy_stm32::mode::Async;
-use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::NoopMutex;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_time::{Duration, Timer};
+use embedded_hal_1::i2c::I2c as _;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -23,7 +24,7 @@ const SHTC3_WAKEUP: [u8; 2] = [0x35, 0x17];
 const SHTC3_MEASURE_RH_FIRST: [u8; 2] = [0x5c, 0x24];
 const SHTC3_SLEEP: [u8; 2] = [0xb0, 0x98];
 
-static I2C_BUS: StaticCell<NoopMutex<RefCell<I2c<'static, Async>>>> = StaticCell::new();
+static I2C_BUS: StaticCell<NoopMutex<RefCell<I2c<'static, Async, i2c::Master>>>> = StaticCell::new();
 
 bind_interrupts!(struct Irqs {
     I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
@@ -31,7 +32,7 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::task]
-async fn temperature(mut i2c: impl embedded_hal_1::i2c::I2c + 'static) {
+async fn temperature(mut i2c: I2cDevice<'static, NoopRawMutex, I2c<'static, Async, i2c::Master>>) {
     let mut data = [0u8; 2];
 
     loop {
@@ -48,7 +49,7 @@ async fn temperature(mut i2c: impl embedded_hal_1::i2c::I2c + 'static) {
 }
 
 #[embassy_executor::task]
-async fn humidity(mut i2c: impl embedded_hal_1::i2c::I2c + 'static) {
+async fn humidity(mut i2c: I2cDevice<'static, NoopRawMutex, I2c<'static, Async, i2c::Master>>) {
     let mut data = [0u8; 6];
 
     loop {
@@ -88,24 +89,15 @@ async fn humidity(mut i2c: impl embedded_hal_1::i2c::I2c + 'static) {
 async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
 
-    let i2c = I2c::new(
-        p.I2C1,
-        p.PB8,
-        p.PB9,
-        Irqs,
-        p.DMA1_CH4,
-        p.DMA1_CH5,
-        Hertz(100_000),
-        Default::default(),
-    );
+    let i2c = I2c::new(p.I2C1, p.PB8, p.PB9, Irqs, p.DMA1_CH4, p.DMA1_CH5, Default::default());
     let i2c_bus = NoopMutex::new(RefCell::new(i2c));
     let i2c_bus = I2C_BUS.init(i2c_bus);
 
     // Device 1, using embedded-hal-async compatible driver for TMP117
     let i2c_dev1 = I2cDevice::new(i2c_bus);
-    spawner.spawn(temperature(i2c_dev1)).unwrap();
+    spawner.spawn(temperature(i2c_dev1).unwrap());
 
     // Device 2, using embedded-hal-async compatible driver for SHTC3
     let i2c_dev2 = I2cDevice::new(i2c_bus);
-    spawner.spawn(humidity(i2c_dev2)).unwrap();
+    spawner.spawn(humidity(i2c_dev2).unwrap());
 }

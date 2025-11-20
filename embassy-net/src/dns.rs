@@ -9,7 +9,7 @@ pub use smoltcp::socket::dns::{DnsQuery, Socket};
 pub(crate) use smoltcp::socket::dns::{GetQueryResultError, StartQueryError};
 pub use smoltcp::wire::{DnsQueryType, IpAddress};
 
-use crate::{Driver, Stack};
+use crate::Stack;
 
 /// Errors returned by DnsSocket.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -44,21 +44,15 @@ impl From<StartQueryError> for Error {
 /// This exists only for compatibility with crates that use `embedded-nal-async`.
 /// Prefer using [`Stack::dns_query`](crate::Stack::dns_query) directly if you're
 /// not using `embedded-nal-async`.
-pub struct DnsSocket<'a, D>
-where
-    D: Driver + 'static,
-{
-    stack: &'a Stack<D>,
+pub struct DnsSocket<'a> {
+    stack: Stack<'a>,
 }
 
-impl<'a, D> DnsSocket<'a, D>
-where
-    D: Driver + 'static,
-{
+impl<'a> DnsSocket<'a> {
     /// Create a new DNS socket using the provided stack.
     ///
     /// NOTE: If using DHCP, make sure it has reconfigured the stack to ensure the DNS servers are updated.
-    pub fn new(stack: &'a Stack<D>) -> Self {
+    pub fn new(stack: Stack<'a>) -> Self {
         Self { stack }
     }
 
@@ -72,18 +66,18 @@ where
     }
 }
 
-impl<'a, D> embedded_nal_async::Dns for DnsSocket<'a, D>
-where
-    D: Driver + 'static,
-{
+impl<'a> embedded_nal_async::Dns for DnsSocket<'a> {
     type Error = Error;
 
     async fn get_host_by_name(
         &self,
         host: &str,
         addr_type: embedded_nal_async::AddrType,
-    ) -> Result<embedded_nal_async::IpAddr, Self::Error> {
-        use embedded_nal_async::{AddrType, IpAddr};
+    ) -> Result<core::net::IpAddr, Self::Error> {
+        use core::net::IpAddr;
+
+        use embedded_nal_async::AddrType;
+
         let (qtype, secondary_qtype) = match addr_type {
             AddrType::IPv4 => (DnsQueryType::A, None),
             AddrType::IPv6 => (DnsQueryType::Aaaa, None),
@@ -107,20 +101,20 @@ where
         if let Some(first) = addrs.get(0) {
             Ok(match first {
                 #[cfg(feature = "proto-ipv4")]
-                IpAddress::Ipv4(addr) => IpAddr::V4(addr.0.into()),
+                IpAddress::Ipv4(addr) => IpAddr::V4(*addr),
                 #[cfg(feature = "proto-ipv6")]
-                IpAddress::Ipv6(addr) => IpAddr::V6(addr.0.into()),
+                IpAddress::Ipv6(addr) => IpAddr::V6(*addr),
             })
         } else {
             Err(Error::Failed)
         }
     }
 
-    async fn get_host_by_address(
-        &self,
-        _addr: embedded_nal_async::IpAddr,
-        _result: &mut [u8],
-    ) -> Result<usize, Self::Error> {
+    async fn get_host_by_address(&self, _addr: core::net::IpAddr, _result: &mut [u8]) -> Result<usize, Self::Error> {
         todo!()
     }
+}
+
+fn _assert_covariant<'a, 'b: 'a>(x: DnsSocket<'b>) -> DnsSocket<'a> {
+    x
 }

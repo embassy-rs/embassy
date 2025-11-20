@@ -1,18 +1,18 @@
 //! A queue for sending values between asynchronous tasks.
 //!
 //! Similar to a [`Channel`](crate::channel::Channel), however [`PriorityChannel`] sifts higher priority items to the front of the queue.
-//! Priority is determined by the `Ord` trait. Priority behavior is determined by the [`Kind`](heapless::binary_heap::Kind) parameter of the channel.
+//! Priority is determined by the `Ord` trait. Priority behavior is determined by the [`Kind`] parameter of the channel.
 
 use core::cell::RefCell;
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-pub use heapless::binary_heap::{Kind, Max, Min};
 use heapless::BinaryHeap;
+pub use heapless::binary_heap::{Kind, Max, Min};
 
-use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
+use crate::blocking_mutex::raw::RawMutex;
 use crate::channel::{DynamicChannel, DynamicReceiver, DynamicSender, TryReceiveError, TrySendError};
 use crate::waitqueue::WakerRegistration;
 
@@ -70,6 +70,48 @@ where
     /// See [`PriorityChannel::poll_ready_to_send()`]
     pub fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> Poll<()> {
         self.channel.poll_ready_to_send(cx)
+    }
+
+    /// Returns the maximum number of elements the channel can hold.
+    ///
+    /// See [`PriorityChannel::capacity()`]
+    pub const fn capacity(&self) -> usize {
+        self.channel.capacity()
+    }
+
+    /// Returns the free capacity of the channel.
+    ///
+    /// See [`PriorityChannel::free_capacity()`]
+    pub fn free_capacity(&self) -> usize {
+        self.channel.free_capacity()
+    }
+
+    /// Clears all elements in the channel.
+    ///
+    /// See [`PriorityChannel::clear()`]
+    pub fn clear(&self) {
+        self.channel.clear();
+    }
+
+    /// Returns the number of elements currently in the channel.
+    ///
+    /// See [`PriorityChannel::len()`]
+    pub fn len(&self) -> usize {
+        self.channel.len()
+    }
+
+    /// Returns whether the channel is empty.
+    ///
+    /// See [`PriorityChannel::is_empty()`]
+    pub fn is_empty(&self) -> bool {
+        self.channel.is_empty()
+    }
+
+    /// Returns whether the channel is full.
+    ///
+    /// See [`PriorityChannel::is_full()`]
+    pub fn is_full(&self) -> bool {
+        self.channel.is_full()
     }
 }
 
@@ -133,6 +175,16 @@ where
         self.channel.try_receive()
     }
 
+    /// Peek at the next value without removing it from the queue.
+    ///
+    /// See [`PriorityChannel::try_peek()`]
+    pub fn try_peek(&self) -> Result<T, TryReceiveError>
+    where
+        T: Clone,
+    {
+        self.channel.try_peek_with_context(None)
+    }
+
     /// Allows a poll_fn to poll until the channel is ready to receive
     ///
     /// See [`PriorityChannel::poll_ready_to_receive()`]
@@ -145,6 +197,59 @@ where
     /// See [`PriorityChannel::poll_receive()`]
     pub fn poll_receive(&self, cx: &mut Context<'_>) -> Poll<T> {
         self.channel.poll_receive(cx)
+    }
+
+    /// Removes the elements from the channel that satisfy the predicate.
+    ///
+    /// See [`PriorityChannel::remove_if()`]
+    pub fn remove_if<F>(&self, predicate: F)
+    where
+        F: Fn(&T) -> bool,
+        T: Clone,
+    {
+        self.channel.remove_if(predicate)
+    }
+
+    /// Returns the maximum number of elements the channel can hold.
+    ///
+    /// See [`PriorityChannel::capacity()`]
+    pub const fn capacity(&self) -> usize {
+        self.channel.capacity()
+    }
+
+    /// Returns the free capacity of the channel.
+    ///
+    /// See [`PriorityChannel::free_capacity()`]
+    pub fn free_capacity(&self) -> usize {
+        self.channel.free_capacity()
+    }
+
+    /// Clears all elements in the channel.
+    ///
+    /// See [`PriorityChannel::clear()`]
+    pub fn clear(&self) {
+        self.channel.clear();
+    }
+
+    /// Returns the number of elements currently in the channel.
+    ///
+    /// See [`PriorityChannel::len()`]
+    pub fn len(&self) -> usize {
+        self.channel.len()
+    }
+
+    /// Returns whether the channel is empty.
+    ///
+    /// See [`PriorityChannel::is_empty()`]
+    pub fn is_empty(&self) -> bool {
+        self.channel.is_empty()
+    }
+
+    /// Returns whether the channel is full.
+    ///
+    /// See [`PriorityChannel::is_full()`]
+    pub fn is_full(&self) -> bool {
+        self.channel.is_full()
     }
 }
 
@@ -248,6 +353,31 @@ where
         self.try_receive_with_context(None)
     }
 
+    fn try_peek(&mut self) -> Result<T, TryReceiveError>
+    where
+        T: Clone,
+    {
+        self.try_peek_with_context(None)
+    }
+
+    fn try_peek_with_context(&mut self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError>
+    where
+        T: Clone,
+    {
+        if self.queue.len() == self.queue.capacity() {
+            self.senders_waker.wake();
+        }
+
+        if let Some(message) = self.queue.peek() {
+            Ok(message.clone())
+        } else {
+            if let Some(cx) = cx {
+                self.receiver_waker.register(cx.waker());
+            }
+            Err(TryReceiveError::Empty)
+        }
+    }
+
     fn try_receive_with_context(&mut self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError> {
         if self.queue.len() == self.queue.capacity() {
             self.senders_waker.wake();
@@ -316,6 +446,9 @@ where
     }
 
     fn clear(&mut self) {
+        if self.queue.len() == self.queue.capacity() {
+            self.senders_waker.wake();
+        }
         self.queue.clear();
     }
 
@@ -340,7 +473,7 @@ where
 /// received from the channel.
 ///
 /// Sent data may be reordered based on their priority within the channel.
-/// For example, in a [`Max`](heapless::binary_heap::Max) [`PriorityChannel`]
+/// For example, in a [`Max`] [`PriorityChannel`]
 /// containing `u32`'s, data sent in the following order `[1, 2, 3]` will be received as `[3, 2, 1]`.
 pub struct PriorityChannel<M, T, K, const N: usize>
 where
@@ -378,6 +511,13 @@ where
 
     fn try_receive_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError> {
         self.lock(|c| c.try_receive_with_context(cx))
+    }
+
+    fn try_peek_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError>
+    where
+        T: Clone,
+    {
+        self.lock(|c| c.try_peek_with_context(cx))
     }
 
     /// Poll the channel for the next message
@@ -450,6 +590,37 @@ where
         self.lock(|c| c.try_receive())
     }
 
+    /// Peek at the next value without removing it from the queue.
+    ///
+    /// This method will either receive a copy of the message from the channel immediately or return
+    /// an error if the channel is empty.
+    pub fn try_peek(&self) -> Result<T, TryReceiveError>
+    where
+        T: Clone,
+    {
+        self.lock(|c| c.try_peek())
+    }
+
+    /// Removes elements from the channel based on the given predicate.
+    pub fn remove_if<F>(&self, predicate: F)
+    where
+        F: Fn(&T) -> bool,
+        T: Clone,
+    {
+        self.lock(|c| {
+            let mut new_heap = BinaryHeap::<T, K, N>::new();
+            for item in c.queue.iter() {
+                if !predicate(item) {
+                    match new_heap.push(item.clone()) {
+                        Ok(_) => (),
+                        Err(_) => panic!("Error pushing item to heap"),
+                    }
+                }
+            }
+            c.queue = new_heap;
+        });
+    }
+
     /// Returns the maximum number of elements the channel can hold.
     pub const fn capacity(&self) -> usize {
         N
@@ -497,6 +668,13 @@ where
 
     fn try_receive_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError> {
         PriorityChannel::try_receive_with_context(self, cx)
+    }
+
+    fn try_peek_with_context(&self, cx: Option<&mut Context<'_>>) -> Result<T, TryReceiveError>
+    where
+        T: Clone,
+    {
+        PriorityChannel::try_peek_with_context(self, cx)
     }
 
     fn poll_ready_to_send(&self, cx: &mut Context<'_>) -> Poll<()> {
@@ -587,6 +765,8 @@ mod tests {
     fn simple_send_and_receive() {
         let c = PriorityChannel::<NoopRawMutex, u32, Max, 3>::new();
         assert!(c.try_send(1).is_ok());
+        assert_eq!(c.try_peek().unwrap(), 1);
+        assert_eq!(c.try_peek().unwrap(), 1);
         assert_eq!(c.try_receive().unwrap(), 1);
     }
 
@@ -607,6 +787,8 @@ mod tests {
         let r: DynamicReceiver<'_, u32> = c.receiver().into();
 
         assert!(s.try_send(1).is_ok());
+        assert_eq!(r.try_peek().unwrap(), 1);
+        assert_eq!(r.try_peek().unwrap(), 1);
         assert_eq!(r.try_receive().unwrap(), 1);
     }
 
@@ -617,11 +799,13 @@ mod tests {
         static CHANNEL: StaticCell<PriorityChannel<CriticalSectionRawMutex, u32, Max, 3>> = StaticCell::new();
         let c = &*CHANNEL.init(PriorityChannel::new());
         let c2 = c;
-        assert!(executor
-            .spawn(async move {
-                assert!(c2.try_send(1).is_ok());
-            })
-            .is_ok());
+        assert!(
+            executor
+                .spawn(async move {
+                    assert!(c2.try_send(1).is_ok());
+                })
+                .is_ok()
+        );
         assert_eq!(c.receive().await, 1);
     }
 
@@ -648,13 +832,15 @@ mod tests {
         // However, I've used the debugger to observe that the send does indeed wait.
         Delay::new(Duration::from_millis(500)).await;
         assert_eq!(c.receive().await, 1);
-        assert!(executor
-            .spawn(async move {
-                loop {
-                    c.receive().await;
-                }
-            })
-            .is_ok());
+        assert!(
+            executor
+                .spawn(async move {
+                    loop {
+                        c.receive().await;
+                    }
+                })
+                .is_ok()
+        );
         send_task_1.unwrap().await;
         send_task_2.unwrap().await;
     }

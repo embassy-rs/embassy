@@ -1,17 +1,9 @@
 use core::ptr::write_volatile;
-use core::sync::atomic::{fence, Ordering};
+use core::sync::atomic::{Ordering, fence};
 
-use super::{FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
+use super::{FlashBank, FlashSector, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
-
-pub(crate) const fn is_default_layout() -> bool {
-    true
-}
-
-pub(crate) const fn get_flash_regions() -> &'static [&'static FlashRegion] {
-    &FLASH_REGIONS
-}
 
 pub(crate) unsafe fn lock() {
     #[cfg(feature = "trustzone-secure")]
@@ -38,25 +30,25 @@ pub(crate) unsafe fn enable_blocking_write() {
 
     #[cfg(feature = "trustzone-secure")]
     pac::FLASH.seccr().write(|w| {
-        w.set_pg(pac::flash::vals::SeccrPg::B_0X1);
+        w.set_pg(true);
     });
     #[cfg(not(feature = "trustzone-secure"))]
     pac::FLASH.nscr().write(|w| {
-        w.set_pg(pac::flash::vals::NscrPg::B_0X1);
+        w.set_pg(true);
     });
 }
 
 pub(crate) unsafe fn disable_blocking_write() {
     #[cfg(feature = "trustzone-secure")]
-    pac::FLASH.seccr().write(|w| w.set_pg(pac::flash::vals::SeccrPg::B_0X0));
+    pac::FLASH.seccr().write(|w| w.set_pg(false));
     #[cfg(not(feature = "trustzone-secure"))]
-    pac::FLASH.nscr().write(|w| w.set_pg(pac::flash::vals::NscrPg::B_0X0));
+    pac::FLASH.nscr().write(|w| w.set_pg(false));
 }
 
 pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
     let mut address = start_address;
     for val in buf.chunks(4) {
-        write_volatile(address as *mut u32, u32::from_le_bytes(val.try_into().unwrap()));
+        write_volatile(address as *mut u32, u32::from_le_bytes(unwrap!(val.try_into())));
         address += val.len() as u32;
 
         // prevents parallelism errors
@@ -70,12 +62,24 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     #[cfg(feature = "trustzone-secure")]
     pac::FLASH.seccr().modify(|w| {
         w.set_per(pac::flash::vals::SeccrPer::B_0X1);
-        w.set_pnb(sector.index_in_bank)
+        w.set_pnb(sector.index_in_bank);
+        // TODO: add check for bank swap
+        w.set_bker(match sector.bank {
+            FlashBank::Bank1 => false,
+            FlashBank::Bank2 => true,
+            _ => unreachable!(),
+        });
     });
     #[cfg(not(feature = "trustzone-secure"))]
     pac::FLASH.nscr().modify(|w| {
-        w.set_per(pac::flash::vals::NscrPer::B_0X1);
-        w.set_pnb(sector.index_in_bank)
+        w.set_per(true);
+        w.set_pnb(sector.index_in_bank);
+        // TODO: add check for bank swap
+        w.set_bker(match sector.bank {
+            FlashBank::Bank1 => false,
+            FlashBank::Bank2 => true,
+            _ => unreachable!(),
+        });
     });
 
     #[cfg(feature = "trustzone-secure")]
@@ -89,13 +93,9 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
 
     let ret: Result<(), Error> = blocking_wait_ready();
     #[cfg(feature = "trustzone-secure")]
-    pac::FLASH
-        .seccr()
-        .modify(|w| w.set_per(pac::flash::vals::SeccrPer::B_0X0));
+    pac::FLASH.seccr().modify(|w| w.set_per(false));
     #[cfg(not(feature = "trustzone-secure"))]
-    pac::FLASH
-        .nscr()
-        .modify(|w| w.set_per(pac::flash::vals::NscrPer::B_0X0));
+    pac::FLASH.nscr().modify(|w| w.set_per(false));
     clear_all_err();
     ret
 }

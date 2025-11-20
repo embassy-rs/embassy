@@ -1,27 +1,28 @@
 use core::marker::PhantomData;
-use core::sync::atomic::{fence, Ordering};
+use core::sync::atomic::{Ordering, fence};
 
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{into_ref, PeripheralRef};
-use stm32_metapac::FLASH_BASE;
 
 use super::{
-    family, Async, Blocking, Error, FlashBank, FlashLayout, FlashRegion, FlashSector, FLASH_SIZE, MAX_ERASE_SIZE,
-    READ_SIZE, WRITE_SIZE,
+    Async, Blocking, Error, FLASH_SIZE, FlashBank, FlashLayout, FlashRegion, FlashSector, MAX_ERASE_SIZE, READ_SIZE,
+    WRITE_SIZE, family, get_flash_regions,
 };
+use crate::_generated::FLASH_BASE;
+use crate::Peri;
 use crate::peripherals::FLASH;
-use crate::Peripheral;
 
 /// Internal flash memory driver.
 pub struct Flash<'d, MODE = Async> {
-    pub(crate) inner: PeripheralRef<'d, FLASH>,
+    pub(crate) inner: Peri<'d, FLASH>,
     pub(crate) _mode: PhantomData<MODE>,
 }
 
 impl<'d> Flash<'d, Blocking> {
     /// Create a new flash driver, usable in blocking mode.
-    pub fn new_blocking(p: impl Peripheral<P = FLASH> + 'd) -> Self {
-        into_ref!(p);
+    pub fn new_blocking(p: Peri<'d, FLASH>) -> Self {
+        #[cfg(bank_setup_configurable)]
+        // Check if the configuration matches the embassy setup
+        super::check_bank_setup();
 
         Self {
             inner: p,
@@ -35,7 +36,6 @@ impl<'d, MODE> Flash<'d, MODE> {
     ///
     /// See module-level documentation for details on how memory regions work.
     pub fn into_blocking_regions(self) -> FlashLayout<'d, Blocking> {
-        assert!(family::is_default_layout());
         FlashLayout::new(self.inner)
     }
 
@@ -102,7 +102,13 @@ pub(super) unsafe fn blocking_write(
     }
 
     let mut address = base + offset;
-    trace!("Writing {} bytes at 0x{:x}", bytes.len(), address);
+    trace!(
+        "Writing {} bytes at 0x{:x} (base=0x{:x}, offset=0x{:x})",
+        bytes.len(),
+        address,
+        base,
+        offset
+    );
 
     for chunk in bytes.chunks(WRITE_SIZE) {
         write_chunk(address, chunk)?;
@@ -125,7 +131,7 @@ pub(super) unsafe fn write_chunk_unlocked(address: u32, chunk: &[u8]) -> Result<
         family::lock();
     });
 
-    family::blocking_write(address, chunk.try_into().unwrap())
+    family::blocking_write(address, unwrap!(chunk.try_into()))
 }
 
 pub(super) unsafe fn write_chunk_with_critical_section(address: u32, chunk: &[u8]) -> Result<(), Error> {
@@ -140,7 +146,7 @@ pub(super) unsafe fn blocking_erase(
 ) -> Result<(), Error> {
     let start_address = base + from;
     let end_address = base + to;
-    let regions = family::get_flash_regions();
+    let regions = get_flash_regions();
 
     ensure_sector_aligned(start_address, end_address, regions)?;
 

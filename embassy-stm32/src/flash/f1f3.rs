@@ -1,17 +1,9 @@
 use core::ptr::write_volatile;
-use core::sync::atomic::{fence, Ordering};
+use core::sync::atomic::{Ordering, fence};
 
-use super::{FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
+use super::{FlashSector, WRITE_SIZE};
 use crate::flash::Error;
 use crate::pac;
-
-pub(crate) const fn is_default_layout() -> bool {
-    true
-}
-
-pub(crate) const fn get_flash_regions() -> &'static [&'static FlashRegion] {
-    &FLASH_REGIONS
-}
 
 pub(crate) unsafe fn lock() {
     pac::FLASH.cr().modify(|w| w.set_lock(true));
@@ -37,14 +29,16 @@ pub(crate) unsafe fn disable_blocking_write() {
 pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
     let mut address = start_address;
     for chunk in buf.chunks(2) {
-        write_volatile(address as *mut u16, u16::from_le_bytes(chunk.try_into().unwrap()));
+        write_volatile(address as *mut u16, u16::from_le_bytes(unwrap!(chunk.try_into())));
         address += chunk.len() as u32;
 
         // prevents parallelism errors
         fence(Ordering::SeqCst);
+
+        wait_ready_blocking()?;
     }
 
-    wait_ready_blocking()
+    Ok(())
 }
 
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
@@ -62,8 +56,8 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
     // BSY bit, because there is a one-cycle delay between
     // setting the STRT bit and the BSY bit being asserted
     // by hardware. See STM32F105xx, STM32F107xx device errata,
-    // section 2.2.8
-    #[cfg(stm32f1)]
+    // section 2.2.8, and also RM0316 Rev 10 section 4.2.3 for
+    // STM32F3xx series.
     pac::FLASH.cr().read();
 
     let mut ret: Result<(), Error> = wait_ready_blocking();

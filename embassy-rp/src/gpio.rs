@@ -5,24 +5,28 @@ use core::future::Future;
 use core::pin::Pin as FuturePin;
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::InterruptExt;
-use crate::pac::common::{Reg, RW};
 use crate::pac::SIO;
-use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
+use crate::pac::common::{RW, Reg};
+use crate::{RegExt, interrupt, pac, peripherals};
 
-const NEW_AW: AtomicWaker = AtomicWaker::new();
-const BANK0_PIN_COUNT: usize = 30;
-static BANK0_WAKERS: [AtomicWaker; BANK0_PIN_COUNT] = [NEW_AW; BANK0_PIN_COUNT];
+#[cfg(any(feature = "rp2040", feature = "rp235xa"))]
+pub(crate) const BANK0_PIN_COUNT: usize = 30;
+#[cfg(feature = "rp235xb")]
+pub(crate) const BANK0_PIN_COUNT: usize = 48;
+
+static BANK0_WAKERS: [AtomicWaker; BANK0_PIN_COUNT] = [const { AtomicWaker::new() }; BANK0_PIN_COUNT];
 #[cfg(feature = "qspi-as-gpio")]
 const QSPI_PIN_COUNT: usize = 6;
 #[cfg(feature = "qspi-as-gpio")]
-static QSPI_WAKERS: [AtomicWaker; QSPI_PIN_COUNT] = [NEW_AW; QSPI_PIN_COUNT];
+static QSPI_WAKERS: [AtomicWaker; QSPI_PIN_COUNT] = [const { AtomicWaker::new() }; QSPI_PIN_COUNT];
 
 /// Represents a digital input or output level.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Level {
     /// Logical low.
     Low,
@@ -50,6 +54,7 @@ impl From<Level> for bool {
 
 /// Represents a pull setting for an input.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Pull {
     /// No pull.
     None,
@@ -61,6 +66,7 @@ pub enum Pull {
 
 /// Drive strength of an output
 #[derive(Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Drive {
     /// 2 mA drive.
     _2mA,
@@ -73,6 +79,7 @@ pub enum Drive {
 }
 /// Slew rate of an output
 #[derive(Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SlewRate {
     /// Fast slew rate.
     Fast,
@@ -82,6 +89,7 @@ pub enum SlewRate {
 
 /// A GPIO bank with up to 32 pins.
 #[derive(Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Bank {
     /// Bank 0.
     Bank0 = 0,
@@ -105,6 +113,8 @@ pub struct DormantWakeConfig {
 }
 
 /// GPIO input driver.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Input<'d> {
     pin: Flex<'d>,
 }
@@ -112,7 +122,7 @@ pub struct Input<'d> {
 impl<'d> Input<'d> {
     /// Create GPIO input driver for a [Pin] with the provided [Pull] configuration.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, pull: Pull) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_input();
         pin.set_pull(pull);
@@ -141,6 +151,12 @@ impl<'d> Input<'d> {
     #[inline]
     pub fn get_level(&self) -> Level {
         self.pin.get_level()
+    }
+
+    /// Configure the input logic inversion of this pin.
+    #[inline]
+    pub fn set_inversion(&mut self, invert: bool) {
+        self.pin.set_input_inversion(invert)
     }
 
     /// Wait until the pin is high. If it is already high, return immediately.
@@ -177,6 +193,13 @@ impl<'d> Input<'d> {
     #[inline]
     pub fn dormant_wake(&mut self, cfg: DormantWakeConfig) -> DormantWake<'_> {
         self.pin.dormant_wake(cfg)
+    }
+
+    /// Set the pin's pad isolation
+    #[cfg(feature = "_rp235x")]
+    #[inline]
+    pub fn set_pad_isolation(&mut self, isolate: bool) {
+        self.pin.set_pad_isolation(isolate)
     }
 }
 
@@ -256,11 +279,11 @@ fn IO_IRQ_QSPI() {
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 struct InputFuture<'d> {
-    pin: PeripheralRef<'d, AnyPin>,
+    pin: Peri<'d, AnyPin>,
 }
 
 impl<'d> InputFuture<'d> {
-    fn new(pin: PeripheralRef<'d, AnyPin>, level: InterruptTrigger) -> Self {
+    fn new(pin: Peri<'d, AnyPin>, level: InterruptTrigger) -> Self {
         let pin_group = (pin.pin() % 8) as usize;
         // first, clear the INTR register bits. without this INTR will still
         // contain reports of previous edges, causing the IRQ to fire early
@@ -277,7 +300,7 @@ impl<'d> InputFuture<'d> {
 
         // Each INTR register is divided into 8 groups, one group for each
         // pin, and each group consists of LEVEL_LOW, LEVEL_HIGH, EDGE_LOW,
-        // and EGDE_HIGH.
+        // and EDGE_HIGH.
         pin.int_proc()
             .inte((pin.pin() / 8) as usize)
             .write_set(|w| match level {
@@ -342,6 +365,8 @@ impl<'d> Future for InputFuture<'d> {
 }
 
 /// GPIO output driver.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Output<'d> {
     pin: Flex<'d>,
 }
@@ -349,7 +374,7 @@ pub struct Output<'d> {
 impl<'d> Output<'d> {
     /// Create GPIO output driver for a [Pin] with the provided [Level].
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, initial_output: Level) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level) -> Self {
         let mut pin = Flex::new(pin);
         match initial_output {
             Level::High => pin.set_high(),
@@ -370,6 +395,12 @@ impl<'d> Output<'d> {
     #[inline]
     pub fn set_slew_rate(&mut self, slew_rate: SlewRate) {
         self.pin.set_slew_rate(slew_rate)
+    }
+
+    /// Configure the output logic inversion of this pin.
+    #[inline]
+    pub fn set_inversion(&mut self, invert: bool) {
+        self.pin.set_output_inversion(invert)
     }
 
     /// Set the output as high.
@@ -413,9 +444,18 @@ impl<'d> Output<'d> {
     pub fn toggle(&mut self) {
         self.pin.toggle()
     }
+
+    /// Set the pin's pad isolation
+    #[cfg(feature = "_rp235x")]
+    #[inline]
+    pub fn set_pad_isolation(&mut self, isolate: bool) {
+        self.pin.set_pad_isolation(isolate)
+    }
 }
 
 /// GPIO output open-drain.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct OutputOpenDrain<'d> {
     pin: Flex<'d>,
 }
@@ -423,7 +463,7 @@ pub struct OutputOpenDrain<'d> {
 impl<'d> OutputOpenDrain<'d> {
     /// Create GPIO output driver for a [Pin] in open drain mode with the provided [Level].
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, initial_output: Level) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_low();
         match initial_output {
@@ -431,6 +471,16 @@ impl<'d> OutputOpenDrain<'d> {
             Level::Low => pin.set_as_output(),
         }
         Self { pin }
+    }
+
+    /// Set the pin's pull-up.
+    #[inline]
+    pub fn set_pullup(&mut self, enable: bool) {
+        if enable {
+            self.pin.set_pull(Pull::Up);
+        } else {
+            self.pin.set_pull(Pull::None);
+        }
     }
 
     /// Set the pin's drive strength.
@@ -539,6 +589,13 @@ impl<'d> OutputOpenDrain<'d> {
     pub async fn wait_for_any_edge(&mut self) {
         self.pin.wait_for_any_edge().await;
     }
+
+    /// Set the pin's pad isolation
+    #[cfg(feature = "_rp235x")]
+    #[inline]
+    pub fn set_pad_isolation(&mut self, isolate: bool) {
+        self.pin.set_pad_isolation(isolate)
+    }
 }
 
 /// GPIO flexible pin.
@@ -546,8 +603,10 @@ impl<'d> OutputOpenDrain<'d> {
 /// This pin can be either an input or output pin. The output level register bit will remain
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Flex<'d> {
-    pin: PeripheralRef<'d, AnyPin>,
+    pin: Peri<'d, AnyPin>,
 }
 
 impl<'d> Flex<'d> {
@@ -556,23 +615,26 @@ impl<'d> Flex<'d> {
     /// The pin remains disconnected. The initial output level is unspecified, but can be changed
     /// before the pin is put into output mode.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd) -> Self {
-        into_ref!(pin);
-
+    pub fn new(pin: Peri<'d, impl Pin>) -> Self {
         pin.pad_ctrl().write(|w| {
+            #[cfg(feature = "_rp235x")]
+            w.set_iso(false);
             w.set_ie(true);
         });
 
         pin.gpio().ctrl().write(|w| {
+            #[cfg(feature = "rp2040")]
             w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::SIO_0 as _);
+            #[cfg(feature = "_rp235x")]
+            w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::SIOB_PROC_0 as _);
         });
 
-        Self { pin: pin.map_into() }
+        Self { pin: pin.into() }
     }
 
     #[inline]
     fn bit(&self) -> u32 {
-        1 << self.pin.pin()
+        1 << (self.pin.pin() % 32)
     }
 
     /// Set the pin's pull.
@@ -595,10 +657,10 @@ impl<'d> Flex<'d> {
     pub fn set_drive_strength(&mut self, strength: Drive) {
         self.pin.pad_ctrl().modify(|w| {
             w.set_drive(match strength {
-                Drive::_2mA => pac::pads::vals::Drive::_2MA,
-                Drive::_4mA => pac::pads::vals::Drive::_4MA,
-                Drive::_8mA => pac::pads::vals::Drive::_8MA,
-                Drive::_12mA => pac::pads::vals::Drive::_12MA,
+                Drive::_2mA => pac::pads::vals::Drive::_2M_A,
+                Drive::_4mA => pac::pads::vals::Drive::_4M_A,
+                Drive::_8mA => pac::pads::vals::Drive::_8M_A,
+                Drive::_12mA => pac::pads::vals::Drive::_12M_A,
             });
         });
     }
@@ -646,6 +708,30 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn toggle_set_as_output(&mut self) {
         self.pin.sio_oe().value_xor().write_value(self.bit())
+    }
+
+    /// Configure the input logic inversion of this pin.
+    #[inline]
+    pub fn set_input_inversion(&mut self, invert: bool) {
+        self.pin.gpio().ctrl().modify(|w| {
+            w.set_inover(if invert {
+                pac::io::vals::Inover::INVERT
+            } else {
+                pac::io::vals::Inover::NORMAL
+            })
+        });
+    }
+
+    /// Configure the output logic inversion of this pin.
+    #[inline]
+    pub fn set_output_inversion(&mut self, invert: bool) {
+        self.pin.gpio().ctrl().modify(|w| {
+            w.set_outover(if invert {
+                pac::io::vals::Outover::INVERT
+            } else {
+                pac::io::vals::Outover::NORMAL
+            })
+        });
     }
 
     /// Get whether the pin input level is high.
@@ -760,6 +846,15 @@ impl<'d> Flex<'d> {
             cfg,
         }
     }
+
+    /// Set the pin's pad isolation
+    #[cfg(feature = "_rp235x")]
+    #[inline]
+    pub fn set_pad_isolation(&mut self, isolate: bool) {
+        self.pin.pad_ctrl().modify(|w| {
+            w.set_iso(isolate);
+        });
+    }
 }
 
 impl<'d> Drop for Flex<'d> {
@@ -769,6 +864,8 @@ impl<'d> Drop for Flex<'d> {
         self.pin.pad_ctrl().write(|_| {});
         self.pin.gpio().ctrl().write(|w| {
             w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL as _);
+            w.set_inover(pac::io::vals::Inover::NORMAL);
+            w.set_outover(pac::io::vals::Outover::NORMAL);
         });
         self.pin.io().int_dormant_wake().inte(idx / 8).write_clear(|w| {
             w.set_edge_high(idx % 8, true);
@@ -780,8 +877,10 @@ impl<'d> Drop for Flex<'d> {
 }
 
 /// Dormant wake driver.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DormantWake<'w> {
-    pin: PeripheralRef<'w, AnyPin>,
+    pin: Peri<'w, AnyPin>,
     cfg: DormantWakeConfig,
 }
 
@@ -806,12 +905,12 @@ pub(crate) trait SealedPin: Sized {
 
     #[inline]
     fn _pin(&self) -> u8 {
-        self.pin_bank() & 0x1f
+        self.pin_bank() & 0x7f
     }
 
     #[inline]
     fn _bank(&self) -> Bank {
-        match self.pin_bank() >> 5 {
+        match self.pin_bank() >> 7 {
             #[cfg(feature = "qspi-as-gpio")]
             1 => Bank::Qspi,
             _ => Bank::Bank0,
@@ -840,15 +939,27 @@ pub(crate) trait SealedPin: Sized {
     }
 
     fn sio_out(&self) -> pac::sio::Gpio {
-        SIO.gpio_out(self._bank() as _)
+        if cfg!(feature = "rp2040") {
+            SIO.gpio_out(self._bank() as _)
+        } else {
+            SIO.gpio_out((self._pin() / 32) as _)
+        }
     }
 
     fn sio_oe(&self) -> pac::sio::Gpio {
-        SIO.gpio_oe(self._bank() as _)
+        if cfg!(feature = "rp2040") {
+            SIO.gpio_oe(self._bank() as _)
+        } else {
+            SIO.gpio_oe((self._pin() / 32) as _)
+        }
     }
 
     fn sio_in(&self) -> Reg<u32, RW> {
-        SIO.gpio_in(self._bank() as _)
+        if cfg!(feature = "rp2040") {
+            SIO.gpio_in(self._bank() as _)
+        } else {
+            SIO.gpio_in((self._pin() / 32) as _)
+        }
     }
 
     fn int_proc(&self) -> pac::io::Int {
@@ -859,14 +970,7 @@ pub(crate) trait SealedPin: Sized {
 
 /// Interface for a Pin that can be configured by an [Input] or [Output] driver, or converted to an [AnyPin].
 #[allow(private_bounds)]
-pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static {
-    /// Degrade to a generic pin struct
-    fn degrade(self) -> AnyPin {
-        AnyPin {
-            pin_bank: self.pin_bank(),
-        }
-    }
-
+pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
     /// Returns the pin number within a bank
     #[inline]
     fn pin(&self) -> u8 {
@@ -881,6 +985,8 @@ pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static
 }
 
 /// Type-erased GPIO pin
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AnyPin {
     pin_bank: u8,
 }
@@ -891,8 +997,8 @@ impl AnyPin {
     /// # Safety
     ///
     /// You must ensure that you’re only using one instance of this type at a time.
-    pub unsafe fn steal(pin_bank: u8) -> Self {
-        Self { pin_bank }
+    pub unsafe fn steal(pin_bank: u8) -> Peri<'static, Self> {
+        Peri::new_unchecked(Self { pin_bank })
     }
 }
 
@@ -913,13 +1019,15 @@ macro_rules! impl_pin {
         impl SealedPin for peripherals::$name {
             #[inline]
             fn pin_bank(&self) -> u8 {
-                ($bank as u8) * 32 + $pin_num
+                ($bank as u8) * 128 + $pin_num
             }
         }
 
         impl From<peripherals::$name> for crate::gpio::AnyPin {
             fn from(val: peripherals::$name) -> Self {
-                crate::gpio::Pin::degrade(val)
+                Self {
+                    pin_bank: val.pin_bank(),
+                }
             }
         }
     };
@@ -956,6 +1064,44 @@ impl_pin!(PIN_27, Bank::Bank0, 27);
 impl_pin!(PIN_28, Bank::Bank0, 28);
 impl_pin!(PIN_29, Bank::Bank0, 29);
 
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_30, Bank::Bank0, 30);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_31, Bank::Bank0, 31);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_32, Bank::Bank0, 32);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_33, Bank::Bank0, 33);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_34, Bank::Bank0, 34);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_35, Bank::Bank0, 35);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_36, Bank::Bank0, 36);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_37, Bank::Bank0, 37);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_38, Bank::Bank0, 38);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_39, Bank::Bank0, 39);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_40, Bank::Bank0, 40);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_41, Bank::Bank0, 41);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_42, Bank::Bank0, 42);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_43, Bank::Bank0, 43);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_44, Bank::Bank0, 44);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_45, Bank::Bank0, 45);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_46, Bank::Bank0, 46);
+#[cfg(feature = "rp235xb")]
+impl_pin!(PIN_47, Bank::Bank0, 47);
+
+// TODO rp235x bank1 as gpio support
 #[cfg(feature = "qspi-as-gpio")]
 impl_pin!(PIN_QSPI_SCLK, Bank::Qspi, 0);
 #[cfg(feature = "qspi-as-gpio")]

@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
@@ -20,10 +21,10 @@ mod config {
     include!(concat!(env!("OUT_DIR"), "/config.rs"));
 }
 
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use heapless::Vec;
 
-pub use crate::builder::{Builder, Config, FunctionBuilder, InterfaceAltBuilder, InterfaceBuilder};
+pub use crate::builder::{Builder, Config, FunctionBuilder, InterfaceAltBuilder, InterfaceBuilder, UsbVersion};
 use crate::config::{MAX_HANDLER_COUNT, MAX_INTERFACE_COUNT};
 use crate::control::{InResponse, OutResponse, Recipient, Request, RequestType};
 use crate::descriptor::{descriptor_type, lang_id};
@@ -120,7 +121,7 @@ pub trait Handler {
     /// # Returns
     ///
     /// If you didn't handle this request (for example if it's for the wrong interface), return
-    /// `None`. In this case, the the USB stack will continue calling the other handlers, to see
+    /// `None`. In this case, the USB stack will continue calling the other handlers, to see
     /// if another handles it.
     ///
     /// If you did, return `Some` with either `Accepted` or `Rejected`. This will make the USB stack
@@ -142,7 +143,7 @@ pub trait Handler {
     /// # Returns
     ///
     /// If you didn't handle this request (for example if it's for the wrong interface), return
-    /// `None`. In this case, the the USB stack will continue calling the other handlers, to see
+    /// `None`. In this case, the USB stack will continue calling the other handlers, to see
     /// if another handles it.
     ///
     /// If you did, return `Some` with either `Accepted` or `Rejected`. This will make the USB stack
@@ -190,6 +191,7 @@ struct Inner<'d, D: Driver<'d>> {
 
     config: Config<'d>,
     device_descriptor: [u8; 18],
+    device_qualifier_descriptor: [u8; 10],
     config_descriptor: &'d [u8],
     bos_descriptor: &'d [u8],
     msos_descriptor: crate::msos::MsOsDescriptorSet<'d>,
@@ -225,6 +227,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
         // This prevent further allocation by consuming the driver.
         let (bus, control) = driver.start(config.max_packet_size_0 as u16);
         let device_descriptor = descriptor::device_descriptor(&config);
+        let device_qualifier_descriptor = descriptor::device_qualifier_descriptor(&config);
 
         Self {
             control_buf,
@@ -233,6 +236,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
                 bus,
                 config,
                 device_descriptor,
+                device_qualifier_descriptor,
                 config_descriptor,
                 bos_descriptor,
                 msos_descriptor,
@@ -764,6 +768,7 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
                     }
                 }
             }
+            descriptor_type::DEVICE_QUALIFIER => InResponse::Accepted(&self.device_qualifier_descriptor),
             _ => InResponse::Rejected,
         }
     }

@@ -8,6 +8,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::rcc::WPAN_DEFAULT;
+use embassy_stm32_wpan::TlMbox;
 use embassy_stm32_wpan::hci::event::command::{CommandComplete, ReturnParameters};
 use embassy_stm32_wpan::hci::host::uart::{Packet, UartHci};
 use embassy_stm32_wpan::hci::host::{AdvertisingFilterPolicy, EncryptionKey, HostHci, OwnAddressType};
@@ -27,7 +28,7 @@ use embassy_stm32_wpan::hci::vendor::event::{self, AttributeHandle, VendorEvent}
 use embassy_stm32_wpan::hci::{BdAddr, Event};
 use embassy_stm32_wpan::lhci::LhciC1DeviceInformationCcrp;
 use embassy_stm32_wpan::sub::ble::Ble;
-use embassy_stm32_wpan::TlMbox;
+use embassy_stm32_wpan::sub::mm;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
@@ -38,7 +39,7 @@ bind_interrupts!(struct Irqs{
 const BLE_GAP_DEVICE_NAME_LENGTH: u8 = 7;
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     /*
         How to make this work:
 
@@ -57,7 +58,6 @@ async fn main(_spawner: Spawner) {
         - Select that file, the memory address, "verify download", and then "Firmware Upgrade".
         - Select "Start Wireless Stack".
         - Disconnect from the device.
-        - In the examples folder for stm32wb, modify the memory.x file to match your target device.
         - Run this example.
 
         Note: extended stack versions are not supported at this time. Do not attempt to install a stack with "extended" in the name.
@@ -71,6 +71,7 @@ async fn main(_spawner: Spawner) {
     let config = Config::default();
     let mut mbox = TlMbox::init(p.IPCC, Irqs, config);
 
+    spawner.spawn(run_mm_queue(mbox.mm_subsystem).unwrap());
     let sys_event = mbox.sys_subsystem.read().await;
     info!("sys event: {}", sys_event.payload());
 
@@ -152,11 +153,6 @@ async fn main(_spawner: Spawner) {
     let response = mbox.ble_subsystem.read().await;
     defmt::debug!("{}", response);
 
-    info!("set scan response data...");
-    mbox.ble_subsystem.le_set_scan_response_data(b"TXTX").await.unwrap();
-    let response = mbox.ble_subsystem.read().await;
-    defmt::debug!("{}", response);
-
     defmt::info!("initializing services and characteristics...");
     let mut ble_context = init_gatt_services(&mut mbox.ble_subsystem).await.unwrap();
     defmt::info!("{}", ble_context);
@@ -225,6 +221,11 @@ async fn main(_spawner: Spawner) {
             }
         }
     }
+}
+
+#[embassy_executor::task]
+async fn run_mm_queue(memory_manager: mm::MemoryManager) {
+    memory_manager.run_queue().await;
 }
 
 fn get_bd_addr() -> BdAddr {

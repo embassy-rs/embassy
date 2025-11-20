@@ -1,11 +1,11 @@
 #![macro_use]
 
 pub use defmt::*;
+use embassy_stm32::Config;
 #[allow(unused)]
 use embassy_stm32::rcc::*;
 #[allow(unused)]
 use embassy_stm32::time::Hertz;
-use embassy_stm32::Config;
 use {defmt_rtt as _, panic_probe as _};
 
 #[cfg(feature = "stm32f103c8")]
@@ -34,6 +34,8 @@ teleprobe_meta::target!(b"nucleo-stm32u5a5zj");
 teleprobe_meta::target!(b"nucleo-stm32h563zi");
 #[cfg(feature = "stm32c031c6")]
 teleprobe_meta::target!(b"nucleo-stm32c031c6");
+#[cfg(feature = "stm32c071rb")]
+teleprobe_meta::target!(b"nucleo-stm32c071rb");
 #[cfg(feature = "stm32l073rz")]
 teleprobe_meta::target!(b"nucleo-stm32l073rz");
 #[cfg(feature = "stm32l152re")]
@@ -101,7 +103,7 @@ define_peris!(
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
     @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
 );
-#[cfg(feature = "stm32f103c8")]
+#[cfg(any(feature = "stm32f100rd", feature = "stm32f103c8", feature = "stm32f107vc"))]
 define_peris!(
     UART = USART1, UART_TX = PA9, UART_RX = PA10, UART_TX_DMA = DMA1_CH4, UART_RX_DMA = DMA1_CH5,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH3, SPI_RX_DMA = DMA1_CH2,
@@ -181,6 +183,12 @@ define_peris!(
     @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
 );
 #[cfg(feature = "stm32c031c6")]
+define_peris!(
+    UART = USART1, UART_TX = PB6, UART_RX = PB7, UART_TX_DMA = DMA1_CH1, UART_RX_DMA = DMA1_CH2,
+    SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
+    @irq UART = {USART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::USART1>;},
+);
+#[cfg(feature = "stm32c071rb")]
 define_peris!(
     UART = USART1, UART_TX = PB6, UART_RX = PB7, UART_TX_DMA = DMA1_CH1, UART_RX_DMA = DMA1_CH2,
     SPI = SPI1, SPI_SCK = PA5, SPI_MOSI = PA7, SPI_MISO = PA6, SPI_TX_DMA = DMA1_CH1, SPI_RX_DMA = DMA1_CH2,
@@ -271,7 +279,7 @@ pub fn config() -> Config {
     #[allow(unused_mut)]
     let mut config = Config::default();
 
-    #[cfg(feature = "stm32c031c6")]
+    #[cfg(any(feature = "stm32c031c6", feature = "stm32c071rb"))]
     {
         config.rcc.hsi = Some(Hsi {
             sys_div: HsiSysDiv::DIV1, // 48Mhz
@@ -284,7 +292,9 @@ pub fn config() -> Config {
 
     #[cfg(feature = "stm32g071rb")]
     {
-        config.rcc.hsi = true;
+        config.rcc.hsi = Some(Hsi {
+            sys_div: HsiSysDiv::DIV1,
+        });
         config.rcc.pll = Some(Pll {
             source: PllSource::HSI,
             prediv: PllPreDiv::DIV1,
@@ -458,6 +468,8 @@ pub fn config() -> Config {
         config.rcc.apb3_pre = APBPrescaler::DIV1;
         config.rcc.sys = Sysclk::PLL1_P;
         config.rcc.voltage_scale = VoltageScale::Scale0;
+
+        config.rtc._disable_rtc = true;
     }
 
     #[cfg(feature = "stm32h503rb")]
@@ -671,6 +683,8 @@ pub fn config() -> Config {
             divp: Some(PllDiv::DIV2),  // 600Mhz
             divq: Some(PllDiv::DIV25), // 48Mhz
             divr: None,
+            divs: None,
+            divt: None,
         });
         config.rcc.sys = Sysclk::PLL1_P; // 600 Mhz
         config.rcc.ahb_pre = AHBPrescaler::DIV2; // 300 Mhz
@@ -698,4 +712,22 @@ pub fn config() -> Config {
     }
 
     config
+}
+
+#[allow(unused)]
+pub fn init() -> embassy_stm32::Peripherals {
+    init_with_config(config())
+}
+
+#[allow(unused)]
+pub fn init_with_config(config: Config) -> embassy_stm32::Peripherals {
+    #[cfg(any(feature = "stm32wl55jc", feature = "stm32h755zi"))]
+    {
+        // Not in shared memory, but we're not running the second core, so it's fine
+        static SHARED_DATA: core::mem::MaybeUninit<embassy_stm32::SharedData> = core::mem::MaybeUninit::uninit();
+        embassy_stm32::init_primary(config, &SHARED_DATA)
+    }
+
+    #[cfg(not(any(feature = "stm32wl55jc", feature = "stm32h755zi")))]
+    embassy_stm32::init(config)
 }

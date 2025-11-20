@@ -7,11 +7,11 @@ use embassy_futures::join::join;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::{Driver, Instance};
-use embassy_stm32::{bind_interrupts, peripherals, usb, Config};
+use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_time::Timer;
+use embassy_usb::Builder;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
-use embassy_usb::Builder;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -47,7 +47,7 @@ async fn main(_spawner: Spawner) {
         // Pull the D+ pin down to send a RESET condition to the USB bus.
         // This forced reset is needed only for development, without it host
         // will not reset your device when you upload new firmware.
-        let _dp = Output::new(&mut p.PA12, Level::Low, Speed::Low);
+        let _dp = Output::new(p.PA12.reborrow(), Level::Low, Speed::Low);
         Timer::after_millis(10).await;
     }
 

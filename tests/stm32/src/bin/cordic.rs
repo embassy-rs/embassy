@@ -29,7 +29,7 @@ const OUTPUT_LENGTH: usize = (INPUT_U32_COUNT - 1) * 2;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let dp = embassy_stm32::init(config());
+    let dp = init();
 
     //
     // use RNG generate random Q1.31 value
@@ -82,8 +82,8 @@ async fn main(_spawner: Spawner) {
     let cnt1 = defmt::unwrap!(
         cordic
             .async_calc_32bit(
-                &mut write_dma,
-                &mut read_dma,
+                write_dma.reborrow(),
+                read_dma.reborrow(),
                 &input_q1_31[2..],
                 &mut output_q1_31[cnt0..],
                 true,

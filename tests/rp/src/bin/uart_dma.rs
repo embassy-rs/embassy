@@ -1,13 +1,16 @@
 #![no_std]
 #![no_main]
+#[cfg(feature = "rp2040")]
 teleprobe_meta::target!(b"rpi-pico");
+#[cfg(feature = "rp235xb")]
+teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
 use defmt::{assert_eq, *};
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::UART0;
-use embassy_rp::uart::{Async, Config, Error, Instance, InterruptHandler, Parity, Uart, UartRx};
+use embassy_rp::uart::{Async, Config, Error, InterruptHandler, Parity, Uart, UartRx};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -15,13 +18,13 @@ bind_interrupts!(struct Irqs {
     UART0_IRQ => InterruptHandler<UART0>;
 });
 
-async fn read<const N: usize>(uart: &mut Uart<'_, impl Instance, Async>) -> Result<[u8; N], Error> {
+async fn read<const N: usize>(uart: &mut Uart<'_, Async>) -> Result<[u8; N], Error> {
     let mut buf = [255; N];
     uart.read(&mut buf).await?;
     Ok(buf)
 }
 
-async fn read1<const N: usize>(uart: &mut UartRx<'_, impl Instance, Async>) -> Result<[u8; N], Error> {
+async fn read1<const N: usize>(uart: &mut UartRx<'_, Async>) -> Result<[u8; N], Error> {
     let mut buf = [255; N];
     uart.read(&mut buf).await?;
     Ok(buf)
@@ -62,12 +65,12 @@ async fn main(_spawner: Spawner) {
     {
         let config = Config::default();
         let mut uart = Uart::new(
-            &mut uart,
-            &mut tx,
-            &mut rx,
+            uart.reborrow(),
+            tx.reborrow(),
+            rx.reborrow(),
             Irqs,
-            &mut p.DMA_CH0,
-            &mut p.DMA_CH1,
+            p.DMA_CH0.reborrow(),
+            p.DMA_CH1.reborrow(),
             config,
         );
 
@@ -83,12 +86,12 @@ async fn main(_spawner: Spawner) {
     {
         let config = Config::default();
         let mut uart = Uart::new(
-            &mut uart,
-            &mut tx,
-            &mut rx,
+            uart.reborrow(),
+            tx.reborrow(),
+            rx.reborrow(),
             Irqs,
-            &mut p.DMA_CH0,
-            &mut p.DMA_CH1,
+            p.DMA_CH0.reborrow(),
+            p.DMA_CH1.reborrow(),
             config,
         );
 
@@ -112,12 +115,12 @@ async fn main(_spawner: Spawner) {
     {
         let config = Config::default();
         let (mut tx, mut rx) = Uart::new(
-            &mut uart,
-            &mut tx,
-            &mut rx,
+            uart.reborrow(),
+            tx.reborrow(),
+            rx.reborrow(),
             Irqs,
-            &mut p.DMA_CH0,
-            &mut p.DMA_CH1,
+            p.DMA_CH0.reborrow(),
+            p.DMA_CH1.reborrow(),
             config,
         )
         .split();
@@ -153,12 +156,12 @@ async fn main(_spawner: Spawner) {
     // parity detection. here we bitbang to not require two uarts.
     info!("test parity error detection");
     {
-        let mut pin = Output::new(&mut tx, Level::High);
+        let mut pin = Output::new(tx.reborrow(), Level::High);
         // choose a very slow baud rate to make tests reliable even with O0
         let mut config = Config::default();
         config.baudrate = 1000;
         config.parity = Parity::ParityEven;
-        let mut uart = UartRx::new(&mut uart, &mut rx, Irqs, &mut p.DMA_CH0, config);
+        let mut uart = UartRx::new(uart.reborrow(), rx.reborrow(), Irqs, p.DMA_CH0.reborrow(), config);
 
         async fn chr(pin: &mut Output<'_>, v: u8, parity: u32) {
             send(pin, v, Some(parity != 0)).await;
@@ -199,11 +202,11 @@ async fn main(_spawner: Spawner) {
     // framing error detection. here we bitbang because there's no other way.
     info!("test framing error detection");
     {
-        let mut pin = Output::new(&mut tx, Level::High);
+        let mut pin = Output::new(tx.reborrow(), Level::High);
         // choose a very slow baud rate to make tests reliable even with O0
         let mut config = Config::default();
         config.baudrate = 1000;
-        let mut uart = UartRx::new(&mut uart, &mut rx, Irqs, &mut p.DMA_CH0, config);
+        let mut uart = UartRx::new(uart.reborrow(), rx.reborrow(), Irqs, p.DMA_CH0.reborrow(), config);
 
         async fn chr(pin: &mut Output<'_>, v: u8, good: bool) {
             if good {

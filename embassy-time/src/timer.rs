@@ -1,10 +1,9 @@
-use core::future::{poll_fn, Future};
-use core::pin::{pin, Pin};
+use core::future::{Future, poll_fn};
+use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use futures_util::future::{select, Either};
-use futures_util::stream::FusedStream;
-use futures_util::Stream;
+use futures_core::Stream;
+use futures_core::stream::FusedStream;
 
 use crate::{Duration, Instant};
 
@@ -17,11 +16,10 @@ pub struct TimeoutError;
 ///
 /// If the future completes before the timeout, its output is returned. Otherwise, on timeout,
 /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
-pub async fn with_timeout<F: Future>(timeout: Duration, fut: F) -> Result<F::Output, TimeoutError> {
-    let timeout_fut = Timer::after(timeout);
-    match select(pin!(fut), timeout_fut).await {
-        Either::Left((r, _)) => Ok(r),
-        Either::Right(_) => Err(TimeoutError),
+pub fn with_timeout<F: Future>(timeout: Duration, fut: F) -> TimeoutFuture<F> {
+    TimeoutFuture {
+        timer: Timer::after(timeout),
+        fut,
     }
 }
 
@@ -29,16 +27,75 @@ pub async fn with_timeout<F: Future>(timeout: Duration, fut: F) -> Result<F::Out
 ///
 /// If the future completes before the deadline, its output is returned. Otherwise, on timeout,
 /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
-pub async fn with_deadline<F: Future>(at: Instant, fut: F) -> Result<F::Output, TimeoutError> {
-    let timeout_fut = Timer::at(at);
-    match select(pin!(fut), timeout_fut).await {
-        Either::Left((r, _)) => Ok(r),
-        Either::Right(_) => Err(TimeoutError),
+pub fn with_deadline<F: Future>(at: Instant, fut: F) -> TimeoutFuture<F> {
+    TimeoutFuture {
+        timer: Timer::at(at),
+        fut,
+    }
+}
+
+/// Provides functions to run a given future with a timeout or a deadline.
+pub trait WithTimeout: Sized {
+    /// Output type of the future.
+    type Output;
+
+    /// Runs a given future with a timeout.
+    ///
+    /// If the future completes before the timeout, its output is returned. Otherwise, on timeout,
+    /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
+    fn with_timeout(self, timeout: Duration) -> TimeoutFuture<Self>;
+
+    /// Runs a given future with a deadline time.
+    ///
+    /// If the future completes before the deadline, its output is returned. Otherwise, on timeout,
+    /// work on the future is stopped (`poll` is no longer called), the future is dropped and `Err(TimeoutError)` is returned.
+    fn with_deadline(self, at: Instant) -> TimeoutFuture<Self>;
+}
+
+impl<F: Future> WithTimeout for F {
+    type Output = F::Output;
+
+    fn with_timeout(self, timeout: Duration) -> TimeoutFuture<Self> {
+        with_timeout(timeout, self)
+    }
+
+    fn with_deadline(self, at: Instant) -> TimeoutFuture<Self> {
+        with_deadline(at, self)
+    }
+}
+
+/// Future for the [`with_timeout`] and [`with_deadline`] functions.
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct TimeoutFuture<F> {
+    timer: Timer,
+    fut: F,
+}
+
+impl<F: Unpin> Unpin for TimeoutFuture<F> {}
+
+impl<F: Future> Future for TimeoutFuture<F> {
+    type Output = Result<F::Output, TimeoutError>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = unsafe { self.get_unchecked_mut() };
+        let fut = unsafe { Pin::new_unchecked(&mut this.fut) };
+        let timer = unsafe { Pin::new_unchecked(&mut this.timer) };
+        if let Poll::Ready(x) = fut.poll(cx) {
+            return Poll::Ready(Ok(x));
+        }
+        if let Poll::Ready(_) = timer.poll(cx) {
+            return Poll::Ready(Err(TimeoutError));
+        }
+        Poll::Pending
     }
 }
 
 /// A future that completes at a specified [Instant](struct.Instant.html).
 #[must_use = "futures do nothing unless you `.await` or poll them"]
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Timer {
     expires_at: Instant,
     yielded_once: bool,
@@ -46,6 +103,7 @@ pub struct Timer {
 
 impl Timer {
     /// Expire at specified [Instant](struct.Instant.html)
+    /// Will expire immediately if the Instant is in the past.
     pub fn at(expires_at: Instant) -> Self {
         Self {
             expires_at,
@@ -127,7 +185,7 @@ impl Future for Timer {
         if self.yielded_once && self.expires_at <= Instant::now() {
             Poll::Ready(())
         } else {
-            embassy_time_queue_driver::schedule_wake(self.expires_at.as_ticks(), cx.waker());
+            embassy_time_driver::schedule_wake(self.expires_at.as_ticks(), cx.waker());
             self.yielded_once = true;
             Poll::Pending
         }
@@ -170,6 +228,12 @@ impl Future for Timer {
 ///     }
 /// }
 /// ```
+///
+/// ## Cancel safety
+/// It is safe to cancel waiting for the next tick,
+/// meaning no tick is lost if the Future is dropped.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Ticker {
     expires_at: Instant,
     duration: Duration,
@@ -201,6 +265,9 @@ impl Ticker {
     }
 
     /// Waits for the next tick.
+    ///
+    /// ## Cancel safety
+    /// The produced Future is cancel safe, meaning no tick is lost if the Future is dropped.
     pub fn next(&mut self) -> impl Future<Output = ()> + Send + Sync + '_ {
         poll_fn(|cx| {
             if self.expires_at <= Instant::now() {
@@ -208,7 +275,7 @@ impl Ticker {
                 self.expires_at += dur;
                 Poll::Ready(())
             } else {
-                embassy_time_queue_driver::schedule_wake(self.expires_at.as_ticks(), cx.waker());
+                embassy_time_driver::schedule_wake(self.expires_at.as_ticks(), cx.waker());
                 Poll::Pending
             }
         })
@@ -225,7 +292,7 @@ impl Stream for Ticker {
             self.expires_at += dur;
             Poll::Ready(Some(()))
         } else {
-            embassy_time_queue_driver::schedule_wake(self.expires_at.as_ticks(), cx.waker());
+            embassy_time_driver::schedule_wake(self.expires_at.as_ticks(), cx.waker());
             Poll::Pending
         }
     }

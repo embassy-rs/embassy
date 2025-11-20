@@ -14,6 +14,7 @@
 //! use embassy_rp::multicore::Stack;
 //! use static_cell::StaticCell;
 //! use embassy_executor::Executor;
+//! use core::ptr::addr_of_mut;
 //!
 //! static mut CORE1_STACK: Stack<4096> = Stack::new();
 //! static EXECUTOR0: StaticCell<Executor> = StaticCell::new();
@@ -36,35 +37,59 @@
 //! fn main() -> ! {
 //!     let p = embassy_rp::init(Default::default());
 //!
-//!     embassy_rp::multicore::spawn_core1(p.CORE1, unsafe { &mut CORE1_STACK }, move || {
+//!     embassy_rp::multicore::spawn_core1(p.CORE1, unsafe { &mut *addr_of_mut!(CORE1_STACK) }, move || {
 //!         let executor1 = EXECUTOR1.init(Executor::new());
-//!         executor1.run(|spawner| spawner.spawn(core1_task()).unwrap());
+//!         executor1.run(|spawner| spawner.spawn(core1_task().unwrap()));
 //!     });
 //!
 //!     let executor0 = EXECUTOR0.init(Executor::new());
-//!     executor0.run(|spawner| spawner.spawn(core0_task()).unwrap())
+//!     executor0.run(|spawner| spawner.spawn(core0_task().unwrap()))
 //! }
 //! ```
 
 use core::mem::ManuallyDrop;
-use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
 
 use crate::interrupt::InterruptExt;
 use crate::peripherals::CORE1;
-use crate::{gpio, install_stack_guard, interrupt, pac};
+use crate::{Peri, gpio, install_stack_guard, interrupt, pac};
 
 const PAUSE_TOKEN: u32 = 0xDEADBEEF;
 const RESUME_TOKEN: u32 = !0xDEADBEEF;
 static IS_CORE1_INIT: AtomicBool = AtomicBool::new(false);
 
+/// Represents a particular CPU core (SIO_CPUID)
+#[derive(Debug, PartialEq, Eq, Clone, Copy, Hash)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum CoreId {
+    /// Core 0
+    Core0 = 0x0,
+    /// Core 1
+    Core1 = 0x1,
+}
+
+/// Gets which core we are currently executing from
+pub fn current_core() -> CoreId {
+    if pac::SIO.cpuid().read() == 0 {
+        CoreId::Core0
+    } else {
+        CoreId::Core1
+    }
+}
+
 #[inline(always)]
-fn core1_setup(stack_bottom: *mut usize) {
+unsafe fn core1_setup(stack_bottom: *mut usize) {
     if install_stack_guard(stack_bottom).is_err() {
         // currently only happens if the MPU was already set up, which
         // would indicate that the core is already in use from outside
         // embassy, somehow. trap if so since we can't deal with that.
         cortex_m::asm::udf();
     }
+
+    #[cfg(feature = "_rp235x")]
+    crate::enable_actlr_extexclall();
+
     unsafe {
         gpio::init();
     }
@@ -84,9 +109,8 @@ impl<const SIZE: usize> Stack<SIZE> {
     }
 }
 
-#[cfg(feature = "rt")]
+#[cfg(all(feature = "rt", feature = "rp2040"))]
 #[interrupt]
-#[link_section = ".data.ram_func"]
 unsafe fn SIO_IRQ_PROC1() {
     let sio = pac::SIO;
     // Clear IRQ
@@ -109,8 +133,32 @@ unsafe fn SIO_IRQ_PROC1() {
     }
 }
 
+#[cfg(all(feature = "rt", feature = "_rp235x"))]
+#[interrupt]
+unsafe fn SIO_IRQ_FIFO() {
+    let sio = pac::SIO;
+    // Clear IRQ
+    sio.fifo().st().write(|w| w.set_wof(false));
+
+    while sio.fifo().st().read().vld() {
+        // Pause CORE1 execution and disable interrupts
+        if fifo_read_wfe() == PAUSE_TOKEN {
+            cortex_m::interrupt::disable();
+            // Signal to CORE0 that execution is paused
+            fifo_write(PAUSE_TOKEN);
+            // Wait for `resume` signal from CORE0
+            while fifo_read_wfe() != RESUME_TOKEN {
+                cortex_m::asm::nop();
+            }
+            cortex_m::interrupt::enable();
+            // Signal to CORE0 that execution is resumed
+            fifo_write(RESUME_TOKEN);
+        }
+    }
+}
+
 /// Spawn a function on this core
-pub fn spawn_core1<F, const SIZE: usize>(_core1: CORE1, stack: &'static mut Stack<SIZE>, entry: F)
+pub fn spawn_core1<F, const SIZE: usize>(_core1: Peri<'static, CORE1>, stack: &'static mut Stack<SIZE>, entry: F)
 where
     F: FnOnce() -> bad::Never + Send + 'static,
 {
@@ -123,7 +171,7 @@ where
         entry: *mut ManuallyDrop<F>,
         stack_bottom: *mut usize,
     ) -> ! {
-        core1_setup(stack_bottom);
+        unsafe { core1_setup(stack_bottom) };
 
         let entry = unsafe { ManuallyDrop::take(&mut *entry) };
 
@@ -135,7 +183,21 @@ where
 
         IS_CORE1_INIT.store(true, Ordering::Release);
         // Enable fifo interrupt on CORE1 for `pause` functionality.
-        unsafe { interrupt::SIO_IRQ_PROC1.enable() };
+        #[cfg(feature = "rp2040")]
+        unsafe {
+            interrupt::SIO_IRQ_PROC1.enable()
+        };
+        #[cfg(feature = "_rp235x")]
+        unsafe {
+            interrupt::SIO_IRQ_FIFO.enable()
+        };
+
+        // Enable FPU
+        #[cfg(all(feature = "_rp235x", has_fpu))]
+        unsafe {
+            let p = cortex_m::Peripherals::steal();
+            p.SCB.cpacr.modify(|cpacr| cpacr | (3 << 20) | (3 << 22));
+        }
 
         entry()
     }

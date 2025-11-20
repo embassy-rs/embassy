@@ -10,6 +10,7 @@ use super::{PubSubBehavior, PubSubChannel};
 use crate::blocking_mutex::raw::RawMutex;
 
 /// A publisher to a channel
+#[derive(Debug)]
 pub struct Pub<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> {
     /// The channel we are a publisher for
     channel: &'a PSB,
@@ -74,6 +75,12 @@ impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Pub<'a, PSB, T> {
     pub fn is_full(&self) -> bool {
         self.channel.is_full()
     }
+
+    /// Create a [`futures_sink::Sink`] adapter for this publisher.
+    #[inline]
+    pub const fn sink(&self) -> PubSink<'a, '_, PSB, T> {
+        PubSink { publ: self, fut: None }
+    }
 }
 
 impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Drop for Pub<'a, PSB, T> {
@@ -100,6 +107,7 @@ impl<'a, T: Clone> DerefMut for DynPublisher<'a, T> {
 }
 
 /// A publisher that holds a generic reference to the channel
+#[derive(Debug)]
 pub struct Publisher<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize>(
     pub(super) Pub<'a, PubSubChannel<M, T, CAP, SUBS, PUBS>, T>,
 );
@@ -124,6 +132,7 @@ impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS:
 
 /// A publisher that can only use the `publish_immediate` function, but it doesn't have to be registered with the channel.
 /// (So an infinite amount is possible)
+#[derive(Debug)]
 pub struct ImmediatePub<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> {
     /// The channel we are a publisher for
     channel: &'a PSB,
@@ -199,6 +208,7 @@ impl<'a, T: Clone> DerefMut for DynImmediatePublisher<'a, T> {
 }
 
 /// An immediate publisher that holds a generic reference to the channel
+#[derive(Debug)]
 pub struct ImmediatePublisher<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize>(
     pub(super) ImmediatePub<'a, PubSubChannel<M, T, CAP, SUBS, PUBS>, T>,
 );
@@ -221,8 +231,71 @@ impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS:
     }
 }
 
+#[must_use = "Sinks do nothing unless polled"]
+/// [`futures_sink::Sink`] adapter for [`Pub`].
+#[derive(Debug)]
+pub struct PubSink<'a, 'p, PSB, T>
+where
+    T: Clone,
+    PSB: PubSubBehavior<T> + ?Sized,
+{
+    publ: &'p Pub<'a, PSB, T>,
+    fut: Option<PublisherWaitFuture<'p, 'a, PSB, T>>,
+}
+
+impl<'a, 'p, PSB, T> PubSink<'a, 'p, PSB, T>
+where
+    PSB: PubSubBehavior<T> + ?Sized,
+    T: Clone,
+{
+    /// Try to make progress on the pending future if we have one.
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        let Some(mut fut) = self.fut.take() else {
+            return Poll::Ready(());
+        };
+
+        if Pin::new(&mut fut).poll(cx).is_pending() {
+            self.fut = Some(fut);
+            return Poll::Pending;
+        }
+
+        Poll::Ready(())
+    }
+}
+
+impl<'a, 'p, PSB, T> futures_sink::Sink<T> for PubSink<'a, 'p, PSB, T>
+where
+    PSB: PubSubBehavior<T> + ?Sized,
+    T: Clone,
+{
+    type Error = core::convert::Infallible;
+
+    #[inline]
+    fn poll_ready(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.poll(cx).map(Ok)
+    }
+
+    #[inline]
+    fn start_send(mut self: Pin<&mut Self>, item: T) -> Result<(), Self::Error> {
+        self.fut = Some(self.publ.publish(item));
+
+        Ok(())
+    }
+
+    #[inline]
+    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.poll(cx).map(Ok)
+    }
+
+    #[inline]
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
+        self.poll(cx).map(Ok)
+    }
+}
+
 /// Future for the publisher wait action
 #[must_use = "futures do nothing unless you `.await` or poll them"]
+#[derive(Debug)]
 pub struct PublisherWaitFuture<'s, 'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> {
     /// The message we need to publish
     message: Option<T>,

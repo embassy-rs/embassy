@@ -16,18 +16,19 @@
 use core::marker::PhantomData;
 use core::sync::atomic::{AtomicI32, Ordering};
 
-use defmt::{error, info, println, unwrap, Format};
+use defmt::{Format, error, info, println, unwrap};
 use defmt_rtt as _; // global logger
 use embassy_executor::Spawner;
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_futures::yield_now;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Ipv4Address, Ipv4Cidr, Stack, StackResources, StaticConfigV4};
-use embassy_net_adin1110::{Device, Runner, ADIN1110};
+use embassy_net_adin1110::{ADIN1110, Device, Runner};
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::i2c::{self, Config as I2C_Config, I2c};
 use embassy_stm32::mode::Async;
 use embassy_stm32::rng::{self, Rng};
+use embassy_stm32::spi::mode::Master;
 use embassy_stm32::spi::{Config as SPI_Config, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, exti, pac, peripherals};
@@ -38,7 +39,6 @@ use embedded_io::Write as bWrite;
 use embedded_io_async::Write;
 use heapless::Vec;
 use panic_probe as _;
-use rand::RngCore;
 use static_cell::StaticCell;
 
 bind_interrupts!(struct Irqs {
@@ -51,16 +51,16 @@ bind_interrupts!(struct Irqs {
 // MAC-address used by the adin1110
 const MAC: [u8; 6] = [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
 // Static IP settings
-const IP_ADDRESS: Ipv4Cidr = Ipv4Cidr::new(Ipv4Address([192, 168, 1, 5]), 24);
+const IP_ADDRESS: Ipv4Cidr = Ipv4Cidr::new(Ipv4Address::new(192, 168, 1, 5), 24);
 // Listen port for the webserver
 const HTTP_LISTEN_PORT: u16 = 80;
 
-pub type SpeSpi = Spi<'static, Async>;
+pub type SpeSpi = Spi<'static, Async, Master>;
 pub type SpeSpiCs = ExclusiveDevice<SpeSpi, Output<'static>, Delay>;
 pub type SpeInt = exti::ExtiInput<'static>;
 pub type SpeRst = Output<'static>;
 pub type Adin1110T = ADIN1110<SpeSpiCs>;
-pub type TempSensI2c = I2c<'static, Async>;
+pub type TempSensI2c = I2c<'static, Async, i2c::Master>;
 
 static TEMP: AtomicI32 = AtomicI32::new(0);
 
@@ -116,7 +116,6 @@ async fn main(spawner: Spawner) {
         Irqs,
         dp.DMA1_CH6,
         dp.DMA1_CH7,
-        Hertz(100_000),
         I2C_Config::default(),
     );
 
@@ -161,7 +160,9 @@ async fn main(spawner: Spawner) {
 
     // Check the SPI mode selected with the "HW CFG" dip-switch
     if !cfg1_spi_mode {
-        error!("Driver doesn´t support SPI Protolcol \"OPEN Alliance\".\nplease use the \"Generic SPI\"! Turn On \"HW CFG\": \"SPI_CFG1\"");
+        error!(
+            "Driver doesn´t support SPI Protolcol \"OPEN Alliance\".\nplease use the \"Generic SPI\"! Turn On \"HW CFG\": \"SPI_CFG1\""
+        );
         loop {
             led_uc2_red.toggle();
             Timer::after(Duration::from_hz(10)).await;
@@ -183,11 +184,11 @@ async fn main(spawner: Spawner) {
     .await;
 
     // Start task blink_led
-    unwrap!(spawner.spawn(heartbeat_led(led_uc3_yellow)));
+    spawner.spawn(unwrap!(heartbeat_led(led_uc3_yellow)));
     // Start task temperature measurement
-    unwrap!(spawner.spawn(temp_task(temp_sens_i2c, led_uc4_blue)));
+    spawner.spawn(unwrap!(temp_task(temp_sens_i2c, led_uc4_blue)));
     // Start ethernet task
-    unwrap!(spawner.spawn(ethernet_task(runner)));
+    spawner.spawn(unwrap!(ethernet_task(runner)));
 
     let mut rng = Rng::new(dp.RNG, Irqs);
     // Generate random seed
@@ -206,17 +207,11 @@ async fn main(spawner: Spawner) {
     };
 
     // Init network stack
-    static STACK: StaticCell<Stack<Device<'static>>> = StaticCell::new();
-    static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
-    let stack = &*STACK.init(Stack::new(
-        device,
-        ip_cfg,
-        RESOURCES.init(StackResources::<2>::new()),
-        seed,
-    ));
+    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
+    let (stack, runner) = embassy_net::new(device, ip_cfg, RESOURCES.init(StackResources::new()), seed);
 
     // Launch network task
-    unwrap!(spawner.spawn(net_task(stack)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     let cfg = wait_for_config(stack).await;
     let local_addr = cfg.address.address();
@@ -279,7 +274,7 @@ async fn main(spawner: Spawner) {
     }
 }
 
-async fn wait_for_config(stack: &'static Stack<Device<'static>>) -> embassy_net::StaticConfigV4 {
+async fn wait_for_config(stack: Stack<'static>) -> embassy_net::StaticConfigV4 {
     loop {
         if let Some(config) = stack.config_v4() {
             return config;
@@ -328,8 +323,8 @@ async fn ethernet_task(runner: Runner<'static, SpeSpiCs, SpeInt, SpeRst>) -> ! {
 }
 
 #[embassy_executor::task]
-async fn net_task(stack: &'static Stack<Device<'static>>) -> ! {
-    stack.run().await
+async fn net_task(mut runner: embassy_net::Runner<'static, Device<'static>>) -> ! {
+    runner.run().await
 }
 
 // same panicking *behavior* as `panic-probe` but doesn't print a panic message

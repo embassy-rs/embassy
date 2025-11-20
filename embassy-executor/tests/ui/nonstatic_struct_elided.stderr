@@ -1,0 +1,24 @@
+error[E0726]: implicit elided lifetime not allowed here
+ --> tests/ui/nonstatic_struct_elided.rs:6:19
+  |
+6 | async fn task(_x: Foo) {}
+  |                   ^^^ expected lifetime parameter
+  |
+help: indicate the anonymous lifetime
+  |
+6 | async fn task(_x: Foo<'_>) {}
+  |                      ++++
+
+error: lifetime may not live long enough
+ --> tests/ui/nonstatic_struct_elided.rs:5:1
+  |
+5 | #[embassy_executor::task]
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^ returning this value requires that `'1` must outlive `'static`
+6 | async fn task(_x: Foo) {}
+  |               -- has type `Foo<'1>`
+  |
+  = note: this error originates in the attribute macro `embassy_executor::task` (in Nightly builds, run with -Z macro-backtrace for more info)
+help: to declare that `impl Sized` captures data from argument `_x`, you can add an explicit `'_` lifetime bound
+  |
+5 | #[embassy_executor::task] + '_
+  |                           ++++

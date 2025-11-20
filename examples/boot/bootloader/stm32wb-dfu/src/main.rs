@@ -7,18 +7,29 @@ use cortex_m_rt::{entry, exception};
 #[cfg(feature = "defmt")]
 use defmt_rtt as _;
 use embassy_boot_stm32::*;
-use embassy_stm32::flash::{Flash, BANK1_REGION, WRITE_SIZE};
+use embassy_stm32::flash::{BANK1_REGION, Flash, WRITE_SIZE};
 use embassy_stm32::rcc::WPAN_DEFAULT;
 use embassy_stm32::usb::Driver;
 use embassy_stm32::{bind_interrupts, peripherals, usb};
 use embassy_sync::blocking_mutex::Mutex;
-use embassy_usb::Builder;
+use embassy_usb::{Builder, msos};
 use embassy_usb_dfu::consts::DfuAttributes;
-use embassy_usb_dfu::{usb_dfu, Control, ResetImmediate};
+use embassy_usb_dfu::{Control, ResetImmediate, usb_dfu};
 
 bind_interrupts!(struct Irqs {
     USB_LP => usb::InterruptHandler<peripherals::USB>;
 });
+
+// This is a randomly generated GUID to allow clients on Windows to find your device.
+//
+// N.B. update to a custom GUID for your own device!
+const DEVICE_INTERFACE_GUIDS: &[&str] = &["{EAA9A5DC-30BA-44BC-9232-606CDC875321}"];
+
+// This is a randomly generated example key.
+//
+// N.B. Please replace with your own!
+#[cfg(feature = "verify")]
+static PUBLIC_SIGNING_KEY: &[u8; 32] = include_bytes!("../secrets/key.pub.short");
 
 #[entry]
 fn main() -> ! {
@@ -52,7 +63,13 @@ fn main() -> ! {
         let mut config_descriptor = [0; 256];
         let mut bos_descriptor = [0; 256];
         let mut control_buf = [0; 4096];
-        let mut state = Control::new(updater, DfuAttributes::CAN_DOWNLOAD);
+
+        #[cfg(not(feature = "verify"))]
+        let mut state = Control::new(updater, DfuAttributes::CAN_DOWNLOAD, ResetImmediate);
+
+        #[cfg(feature = "verify")]
+        let mut state = Control::new(updater, DfuAttributes::CAN_DOWNLOAD, ResetImmediate, PUBLIC_SIGNING_KEY);
+
         let mut builder = Builder::new(
             driver,
             config,
@@ -62,7 +79,28 @@ fn main() -> ! {
             &mut control_buf,
         );
 
-        usb_dfu::<_, _, _, ResetImmediate, 4096>(&mut builder, &mut state);
+        // We add MSOS headers so that the device automatically gets assigned the WinUSB driver on Windows.
+        // Otherwise users need to do this manually using a tool like Zadig.
+        //
+        // It seems these always need to be at added at the device level for this to work and for
+        // composite devices they also need to be added on the function level (as shown later).
+        //
+        builder.msos_descriptor(msos::windows_version::WIN8_1, 2);
+        builder.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
+        builder.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
+            "DeviceInterfaceGUIDs",
+            msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
+        ));
+
+        usb_dfu::<_, _, _, _, 4096>(&mut builder, &mut state, |func| {
+            // You likely don't have to add these function level headers if your USB device is not composite
+            // (i.e. if your device does not expose another interface in addition to DFU)
+            func.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
+            func.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
+                "DeviceInterfaceGUIDs",
+                msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
+            ));
+        });
 
         let mut dev = builder.build();
         embassy_futures::block_on(dev.run());
@@ -71,8 +109,8 @@ fn main() -> ! {
     unsafe { bl.load(BANK1_REGION.base + active_offset) }
 }
 
-#[no_mangle]
-#[cfg_attr(target_os = "none", link_section = ".HardFault.user")]
+#[unsafe(no_mangle)]
+#[cfg_attr(target_os = "none", unsafe(link_section = ".HardFault.user"))]
 unsafe extern "C" fn HardFault() {
     cortex_m::peripheral::SCB::sys_reset();
 }
@@ -80,7 +118,7 @@ unsafe extern "C" fn HardFault() {
 #[exception]
 unsafe fn DefaultHandler(_: i16) -> ! {
     const SCB_ICSR: *const u32 = 0xE000_ED04 as *const u32;
-    let irqn = core::ptr::read_volatile(SCB_ICSR) as u8 as i16 - 16;
+    let irqn = unsafe { core::ptr::read_volatile(SCB_ICSR) } as u8 as i16 - 16;
 
     panic!("DefaultHandler #{:?}", irqn);
 }

@@ -2,12 +2,14 @@
 
 use core::marker::PhantomData;
 
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 
 #[cfg(not(stm32l0))]
 pub mod complementary_pwm;
 pub mod input_capture;
 pub mod low_level;
+pub mod one_pulse;
 pub mod pwm_input;
 pub mod qei;
 pub mod simple_pwm;
@@ -40,6 +42,89 @@ impl Channel {
     }
 }
 
+/// Channel 1 marker type.
+pub enum Ch1 {}
+/// Channel 2 marker type.
+pub enum Ch2 {}
+/// Channel 3 marker type.
+pub enum Ch3 {}
+/// Channel 4 marker type.
+pub enum Ch4 {}
+
+/// Timer channel trait.
+#[allow(private_bounds)]
+pub trait TimerChannel: SealedTimerChannel {
+    /// The runtime channel.
+    const CHANNEL: Channel;
+}
+
+trait SealedTimerChannel {}
+
+impl TimerChannel for Ch1 {
+    const CHANNEL: Channel = Channel::Ch1;
+}
+
+impl TimerChannel for Ch2 {
+    const CHANNEL: Channel = Channel::Ch2;
+}
+
+impl TimerChannel for Ch3 {
+    const CHANNEL: Channel = Channel::Ch3;
+}
+
+impl TimerChannel for Ch4 {
+    const CHANNEL: Channel = Channel::Ch4;
+}
+
+impl SealedTimerChannel for Ch1 {}
+impl SealedTimerChannel for Ch2 {}
+impl SealedTimerChannel for Ch3 {}
+impl SealedTimerChannel for Ch4 {}
+
+/// Timer break input.
+#[derive(Clone, Copy)]
+pub enum BkIn {
+    /// Break input 1.
+    BkIn1,
+    /// Break input 2.
+    BkIn2,
+}
+
+impl BkIn {
+    /// Get the channel index (0..3)
+    pub fn index(&self) -> usize {
+        match self {
+            BkIn::BkIn1 => 0,
+            BkIn::BkIn2 => 1,
+        }
+    }
+}
+
+/// Break input 1 marker type.
+pub enum BkIn1 {}
+/// Break input 2 marker type.
+pub enum BkIn2 {}
+
+/// Timer channel trait.
+#[allow(private_bounds)]
+pub trait BreakInput: SealedBreakInput {
+    /// The runtim timer channel.
+    const INPUT: BkIn;
+}
+
+trait SealedBreakInput {}
+
+impl BreakInput for BkIn1 {
+    const INPUT: BkIn = BkIn::BkIn1;
+}
+
+impl BreakInput for BkIn2 {
+    const INPUT: BkIn = BkIn::BkIn2;
+}
+
+impl SealedBreakInput for BkIn1 {}
+impl SealedBreakInput for BkIn2 {}
+
 /// Amount of bits of a timer.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -58,15 +143,14 @@ struct State {
 
 impl State {
     const fn new() -> Self {
-        const NEW_AW: AtomicWaker = AtomicWaker::new();
         Self {
-            up_waker: NEW_AW,
-            cc_waker: [NEW_AW; 4],
+            up_waker: AtomicWaker::new(),
+            cc_waker: [const { AtomicWaker::new() }; 4],
         }
     }
 }
 
-trait SealedInstance: RccPeripheral {
+trait SealedInstance: RccPeripheral + PeripheralType {
     /// Async state for this timer
     fn state() -> &'static State;
 }
@@ -139,33 +223,20 @@ pub trait AdvancedInstance2Channel: BasicInstance + GeneralInstance2Channel + Ad
 /// Advanced 16-bit timer with 4 channels instance.
 pub trait AdvancedInstance4Channel: AdvancedInstance2Channel + GeneralInstance4Channel {}
 
-pin_trait!(Channel1Pin, GeneralInstance4Channel);
-pin_trait!(Channel2Pin, GeneralInstance4Channel);
-pin_trait!(Channel3Pin, GeneralInstance4Channel);
-pin_trait!(Channel4Pin, GeneralInstance4Channel);
-pin_trait!(ExternalTriggerPin, GeneralInstance4Channel);
+pin_trait!(TimerPin, GeneralInstance4Channel, TimerChannel, @A);
+pin_trait!(ExternalTriggerPin, GeneralInstance4Channel, @A);
 
-pin_trait!(Channel1ComplementaryPin, AdvancedInstance4Channel);
-pin_trait!(Channel2ComplementaryPin, AdvancedInstance4Channel);
-pin_trait!(Channel3ComplementaryPin, AdvancedInstance4Channel);
-pin_trait!(Channel4ComplementaryPin, AdvancedInstance4Channel);
+pin_trait!(TimerComplementaryPin, AdvancedInstance4Channel, TimerChannel, @A);
 
-pin_trait!(BreakInputPin, AdvancedInstance4Channel);
-pin_trait!(BreakInput2Pin, AdvancedInstance4Channel);
+pin_trait!(BreakInputPin, AdvancedInstance4Channel, BreakInput, @A);
 
-pin_trait!(BreakInputComparator1Pin, AdvancedInstance4Channel);
-pin_trait!(BreakInputComparator2Pin, AdvancedInstance4Channel);
-
-pin_trait!(BreakInput2Comparator1Pin, AdvancedInstance4Channel);
-pin_trait!(BreakInput2Comparator2Pin, AdvancedInstance4Channel);
+pin_trait!(BreakInputComparator1Pin, AdvancedInstance4Channel, BreakInput, @A);
+pin_trait!(BreakInputComparator2Pin, AdvancedInstance4Channel, BreakInput, @A);
 
 // Update Event trigger DMA for every timer
 dma_trait!(UpDma, BasicInstance);
 
-dma_trait!(Ch1Dma, GeneralInstance4Channel);
-dma_trait!(Ch2Dma, GeneralInstance4Channel);
-dma_trait!(Ch3Dma, GeneralInstance4Channel);
-dma_trait!(Ch4Dma, GeneralInstance4Channel);
+dma_trait!(Dma, GeneralInstance4Channel, TimerChannel);
 
 #[allow(unused)]
 macro_rules! impl_core_timer {
@@ -328,7 +399,7 @@ pub struct UpdateInterruptHandler<T: CoreInstance> {
 impl<T: CoreInstance> interrupt::typelevel::Handler<T::UpdateInterrupt> for UpdateInterruptHandler<T> {
     unsafe fn on_interrupt() {
         #[cfg(feature = "low-power")]
-        crate::low_power::on_wakeup_irq();
+        crate::low_power::Executor::on_wakeup_irq();
 
         let regs = crate::pac::timer::TimCore::from_ptr(T::regs());
 
@@ -358,7 +429,7 @@ impl<T: GeneralInstance1Channel> interrupt::typelevel::Handler<T::CaptureCompare
 {
     unsafe fn on_interrupt() {
         #[cfg(feature = "low-power")]
-        crate::low_power::on_wakeup_irq();
+        crate::low_power::Executor::on_wakeup_irq();
 
         let regs = crate::pac::timer::TimGp16::from_ptr(T::regs());
 

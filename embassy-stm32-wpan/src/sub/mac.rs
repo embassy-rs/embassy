@@ -28,32 +28,39 @@ impl Mac {
         Self { _private: () }
     }
 
-    /// `HW_IPCC_MAC_802_15_4_EvtNot`
-    ///
-    /// This function will stall if the previous `EvtBox` has not been dropped
-    pub async fn tl_read(&self) -> EvtBox<Self> {
-        // Wait for the last event box to be dropped
-        poll_fn(|cx| {
-            MAC_WAKER.register(cx.waker());
-            if MAC_EVT_OUT.load(Ordering::SeqCst) {
-                Poll::Pending
-            } else {
-                Poll::Ready(())
-            }
-        })
-        .await;
-
-        // Return a new event box
-        Ipcc::receive(channels::cpu2::IPCC_MAC_802_15_4_NOTIFICATION_ACK_CHANNEL, || unsafe {
-            // The closure is not async, therefore the closure must execute to completion (cannot be dropped)
-            // Therefore, the event box is guaranteed to be cleaned up if it's not leaked
-            MAC_EVT_OUT.store(true, Ordering::SeqCst);
-
-            Some(EvtBox::new(MAC_802_15_4_NOTIF_RSP_EVT_BUFFER.as_mut_ptr() as *mut _))
-        })
-        .await
+    pub const fn split(self) -> (MacRx, MacTx) {
+        (MacRx { _private: () }, MacTx { _private: () })
     }
 
+    pub async fn tl_write_and_get_response(&self, opcode: u16, payload: &[u8]) -> u8 {
+        MacTx { _private: () }.tl_write_and_get_response(opcode, payload).await
+    }
+
+    pub async fn tl_write(&self, opcode: u16, payload: &[u8]) {
+        MacTx { _private: () }.tl_write(opcode, payload).await
+    }
+
+    pub async fn send_command<T>(&self, cmd: &T) -> Result<(), MacError>
+    where
+        T: MacCommand,
+    {
+        MacTx { _private: () }.send_command(cmd).await
+    }
+
+    pub async fn tl_read(&self) -> EvtBox<Mac> {
+        MacRx { _private: () }.tl_read().await
+    }
+
+    pub async fn read(&self) -> Result<MacEvent<'_>, ()> {
+        MacRx { _private: () }.read().await
+    }
+}
+
+pub struct MacTx {
+    _private: (),
+}
+
+impl MacTx {
     /// `HW_IPCC_MAC_802_15_4_CmdEvtNot`
     pub async fn tl_write_and_get_response(&self, opcode: u16, payload: &[u8]) -> u8 {
         self.tl_write(opcode, payload).await;
@@ -91,6 +98,38 @@ impl Mac {
         } else {
             Err(MacError::from(response))
         }
+    }
+}
+
+pub struct MacRx {
+    _private: (),
+}
+
+impl MacRx {
+    /// `HW_IPCC_MAC_802_15_4_EvtNot`
+    ///
+    /// This function will stall if the previous `EvtBox` has not been dropped
+    pub async fn tl_read(&self) -> EvtBox<Mac> {
+        // Wait for the last event box to be dropped
+        poll_fn(|cx| {
+            MAC_WAKER.register(cx.waker());
+            if MAC_EVT_OUT.load(Ordering::SeqCst) {
+                Poll::Pending
+            } else {
+                Poll::Ready(())
+            }
+        })
+        .await;
+
+        // Return a new event box
+        Ipcc::receive(channels::cpu2::IPCC_MAC_802_15_4_NOTIFICATION_ACK_CHANNEL, || unsafe {
+            // The closure is not async, therefore the closure must execute to completion (cannot be dropped)
+            // Therefore, the event box is guaranteed to be cleaned up if it's not leaked
+            MAC_EVT_OUT.store(true, Ordering::SeqCst);
+
+            Some(EvtBox::new(MAC_802_15_4_NOTIF_RSP_EVT_BUFFER.as_mut_ptr() as *mut _))
+        })
+        .await
     }
 
     pub async fn read(&self) -> Result<MacEvent<'_>, ()> {

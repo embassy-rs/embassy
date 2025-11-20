@@ -2,228 +2,158 @@
 #[allow(unused_imports)]
 #[rustfmt::skip]
 pub mod pac {
-    // The nRF5340 has a secure and non-secure (NS) mode.
-    // To avoid cfg spam, we remove _ns or _s suffixes here.
-
-    pub use nrf5340_app_pac::NVIC_PRIO_BITS;
-
-    #[cfg(feature="rt")]
-    #[doc(no_inline)]
-    pub use nrf5340_app_pac::interrupt;
-
-    #[doc(no_inline)]
-    pub use nrf5340_app_pac::{
-        Interrupt,
-        Peripherals,
-
-        cache_s as cache,
-        cachedata_s as cachedata,
-        cacheinfo_s as cacheinfo,
-        clock_ns as clock,
-        comp_ns as comp,
-        cryptocell_s as cryptocell,
-        cti_s as cti,
-        ctrlap_ns as ctrlap,
-        dcnf_ns as dcnf,
-        dppic_ns as dppic,
-        egu0_ns as egu0,
-        ficr_s as ficr,
-        fpu_ns as fpu,
-        gpiote0_s as gpiote,
-        i2s0_ns as i2s0,
-        ipc_ns as ipc,
-        kmu_ns as kmu,
-        lpcomp_ns as lpcomp,
-        mutex_ns as mutex,
-        nfct_ns as nfct,
-        nvmc_ns as nvmc,
-        oscillators_ns as oscillators,
-        p0_ns as p0,
-        pdm0_ns as pdm,
-        power_ns as power,
-        pwm0_ns as pwm0,
-        qdec0_ns as qdec,
-        qspi_ns as qspi,
-        regulators_ns as regulators,
-        reset_ns as reset,
-        rtc0_ns as rtc0,
-        saadc_ns as saadc,
-        spim0_ns as spim0,
-        spis0_ns as spis0,
-        spu_s as spu,
-        tad_s as tad,
-        timer0_ns as timer0,
-        twim0_ns as twim0,
-        twis0_ns as twis0,
-        uarte0_ns as uarte0,
-        uicr_s as uicr,
-        usbd_ns as usbd,
-        usbregulator_ns as usbregulator,
-        vmc_ns as vmc,
-        wdt0_ns as wdt0,
-    };
-    
-    /// Non-Secure mode (NS) peripherals
-    pub mod ns {
-        #[cfg(feature = "nrf5340-app-ns")]
-        #[doc(no_inline)]
-        pub use nrf5340_app_pac::{
-            CLOCK_NS as CLOCK,
-            COMP_NS as COMP,
-            CTRLAP_NS as CTRLAP,
-            DCNF_NS as DCNF,
-            DPPIC_NS as DPPIC,
-            EGU0_NS as EGU0,
-            EGU1_NS as EGU1,
-            EGU2_NS as EGU2,
-            EGU3_NS as EGU3,
-            EGU4_NS as EGU4,
-            EGU5_NS as EGU5,
-            FPU_NS as FPU,
-            GPIOTE1_NS as GPIOTE1,
-            I2S0_NS as I2S0,
-            IPC_NS as IPC,
-            KMU_NS as KMU,
-            LPCOMP_NS as LPCOMP,
-            MUTEX_NS as MUTEX,
-            NFCT_NS as NFCT,
-            NVMC_NS as NVMC,
-            OSCILLATORS_NS as OSCILLATORS,
-            P0_NS as P0,
-            P1_NS as P1,
-            PDM0_NS as PDM0,
-            POWER_NS as POWER,
-            PWM0_NS as PWM0,
-            PWM1_NS as PWM1,
-            PWM2_NS as PWM2,
-            PWM3_NS as PWM3,
-            QDEC0_NS as QDEC0,
-            QDEC1_NS as QDEC1,
-            QSPI_NS as QSPI,
-            REGULATORS_NS as REGULATORS,
-            RESET_NS as RESET,
-            RTC0_NS as RTC0,
-            RTC1_NS as RTC1,
-            SAADC_NS as SAADC,
-            SPIM0_NS as SPIM0,
-            SPIM1_NS as SPIM1,
-            SPIM2_NS as SPIM2,
-            SPIM3_NS as SPIM3,
-            SPIM4_NS as SPIM4,
-            SPIS0_NS as SPIS0,
-            SPIS1_NS as SPIS1,
-            SPIS2_NS as SPIS2,
-            SPIS3_NS as SPIS3,
-            TIMER0_NS as TIMER0,
-            TIMER1_NS as TIMER1,
-            TIMER2_NS as TIMER2,
-            TWIM0_NS as TWIM0,
-            TWIM1_NS as TWIM1,
-            TWIM2_NS as TWIM2,
-            TWIM3_NS as TWIM3,
-            TWIS0_NS as TWIS0,
-            TWIS1_NS as TWIS1,
-            TWIS2_NS as TWIS2,
-            TWIS3_NS as TWIS3,
-            UARTE0_NS as UARTE0,
-            UARTE1_NS as UARTE1,
-            UARTE2_NS as UARTE2,
-            UARTE3_NS as UARTE3,
-            USBD_NS as USBD,
-            USBREGULATOR_NS as USBREGULATOR,
-            VMC_NS as VMC,
-            WDT0_NS as WDT0,
-            WDT1_NS as WDT1,
-        };
-    }
-
-    /// Secure mode (S) peripherals
-    pub mod s {
-        #[cfg(feature = "nrf5340-app-s")]
-        #[doc(no_inline)]
-        pub use nrf5340_app_pac::{
-            CACHEDATA_S as CACHEDATA,
-            CACHEINFO_S as CACHEINFO,
-            CACHE_S as CACHE,
-            CLOCK_S as CLOCK,
-            COMP_S as COMP,
-            CRYPTOCELL_S as CRYPTOCELL,
-            CTI_S as CTI,
-            CTRLAP_S as CTRLAP,
-            DCNF_S as DCNF,
-            DPPIC_S as DPPIC,
-            EGU0_S as EGU0,
-            EGU1_S as EGU1,
-            EGU2_S as EGU2,
-            EGU3_S as EGU3,
-            EGU4_S as EGU4,
-            EGU5_S as EGU5,
-            FICR_S as FICR,
-            FPU_S as FPU,
-            GPIOTE0_S as GPIOTE0,
-            I2S0_S as I2S0,
-            IPC_S as IPC,
-            KMU_S as KMU,
-            LPCOMP_S as LPCOMP,
-            MUTEX_S as MUTEX,
-            NFCT_S as NFCT,
-            NVMC_S as NVMC,
-            OSCILLATORS_S as OSCILLATORS,
-            P0_S as P0,
-            P1_S as P1,
-            PDM0_S as PDM0,
-            POWER_S as POWER,
-            PWM0_S as PWM0,
-            PWM1_S as PWM1,
-            PWM2_S as PWM2,
-            PWM3_S as PWM3,
-            QDEC0_S as QDEC0,
-            QDEC1_S as QDEC1,
-            QSPI_S as QSPI,
-            REGULATORS_S as REGULATORS,
-            RESET_S as RESET,
-            RTC0_S as RTC0,
-            RTC1_S as RTC1,
-            SAADC_S as SAADC,
-            SPIM0_S as SPIM0,
-            SPIM1_S as SPIM1,
-            SPIM2_S as SPIM2,
-            SPIM3_S as SPIM3,
-            SPIM4_S as SPIM4,
-            SPIS0_S as SPIS0,
-            SPIS1_S as SPIS1,
-            SPIS2_S as SPIS2,
-            SPIS3_S as SPIS3,
-            SPU_S as SPU,
-            TAD_S as TAD,
-            TIMER0_S as TIMER0,
-            TIMER1_S as TIMER1,
-            TIMER2_S as TIMER2,
-            TWIM0_S as TWIM0,
-            TWIM1_S as TWIM1,
-            TWIM2_S as TWIM2,
-            TWIM3_S as TWIM3,
-            TWIS0_S as TWIS0,
-            TWIS1_S as TWIS1,
-            TWIS2_S as TWIS2,
-            TWIS3_S as TWIS3,
-            UARTE0_S as UARTE0,
-            UARTE1_S as UARTE1,
-            UARTE2_S as UARTE2,
-            UARTE3_S as UARTE3,
-            UICR_S as UICR,
-            USBD_S as USBD,
-            USBREGULATOR_S as USBREGULATOR,
-            VMC_S as VMC,
-            WDT0_S as WDT0,
-            WDT1_S as WDT1,
-        };
-    }
+    pub use nrf_pac::*;
 
     #[cfg(feature = "_ns")]
-    pub use ns::*;
+    #[doc(no_inline)]
+    pub use nrf_pac::{
+        CLOCK_NS as CLOCK,
+        COMP_NS as COMP,
+        CTRLAP_NS as CTRLAP,
+        DCNF_NS as DCNF,
+        DPPIC_NS as DPPIC,
+        EGU0_NS as EGU0,
+        EGU1_NS as EGU1,
+        EGU2_NS as EGU2,
+        EGU3_NS as EGU3,
+        EGU4_NS as EGU4,
+        EGU5_NS as EGU5,
+        FPU_NS as FPU,
+        GPIOTE1_NS as GPIOTE1,
+        I2S0_NS as I2S0,
+        IPC_NS as IPC,
+        KMU_NS as KMU,
+        LPCOMP_NS as LPCOMP,
+        MUTEX_NS as MUTEX,
+        NFCT_NS as NFCT,
+        NVMC_NS as NVMC,
+        OSCILLATORS_NS as OSCILLATORS,
+        P0_NS as P0,
+        P1_NS as P1,
+        PDM0_NS as PDM0,
+        POWER_NS as POWER,
+        PWM0_NS as PWM0,
+        PWM1_NS as PWM1,
+        PWM2_NS as PWM2,
+        PWM3_NS as PWM3,
+        QDEC0_NS as QDEC0,
+        QDEC1_NS as QDEC1,
+        QSPI_NS as QSPI,
+        REGULATORS_NS as REGULATORS,
+        RESET_NS as RESET,
+        RTC0_NS as RTC0,
+        RTC1_NS as RTC1,
+        SAADC_NS as SAADC,
+        SPIM0_NS as SPIM0,
+        SPIM1_NS as SPIM1,
+        SPIM2_NS as SPIM2,
+        SPIM3_NS as SPIM3,
+        SPIM4_NS as SPIM4,
+        SPIS0_NS as SPIS0,
+        SPIS1_NS as SPIS1,
+        SPIS2_NS as SPIS2,
+        SPIS3_NS as SPIS3,
+        TIMER0_NS as TIMER0,
+        TIMER1_NS as TIMER1,
+        TIMER2_NS as TIMER2,
+        TWIM0_NS as TWIM0,
+        TWIM1_NS as TWIM1,
+        TWIM2_NS as TWIM2,
+        TWIM3_NS as TWIM3,
+        TWIS0_NS as TWIS0,
+        TWIS1_NS as TWIS1,
+        TWIS2_NS as TWIS2,
+        TWIS3_NS as TWIS3,
+        UARTE0_NS as UARTE0,
+        UARTE1_NS as UARTE1,
+        UARTE2_NS as UARTE2,
+        UARTE3_NS as UARTE3,
+        USBD_NS as USBD,
+        USBREGULATOR_NS as USBREGULATOR,
+        VMC_NS as VMC,
+        WDT0_NS as WDT0,
+        WDT1_NS as WDT1,
+    };
+
     #[cfg(feature = "_s")]
-    pub use s::*;
+    #[doc(no_inline)]
+    pub use nrf_pac::{
+        CACHEDATA_S as CACHEDATA,
+        CACHEINFO_S as CACHEINFO,
+        CACHE_S as CACHE,
+        CLOCK_S as CLOCK,
+        COMP_S as COMP,
+        CRYPTOCELL_S as CRYPTOCELL,
+        CTI_S as CTI,
+        CTRLAP_S as CTRLAP,
+        DCNF_S as DCNF,
+        DPPIC_S as DPPIC,
+        EGU0_S as EGU0,
+        EGU1_S as EGU1,
+        EGU2_S as EGU2,
+        EGU3_S as EGU3,
+        EGU4_S as EGU4,
+        EGU5_S as EGU5,
+        FICR_S as FICR,
+        FPU_S as FPU,
+        GPIOTE0_S as GPIOTE0,
+        I2S0_S as I2S0,
+        IPC_S as IPC,
+        KMU_S as KMU,
+        LPCOMP_S as LPCOMP,
+        MUTEX_S as MUTEX,
+        NFCT_S as NFCT,
+        NVMC_S as NVMC,
+        OSCILLATORS_S as OSCILLATORS,
+        P0_S as P0,
+        P1_S as P1,
+        PDM0_S as PDM0,
+        POWER_S as POWER,
+        PWM0_S as PWM0,
+        PWM1_S as PWM1,
+        PWM2_S as PWM2,
+        PWM3_S as PWM3,
+        QDEC0_S as QDEC0,
+        QDEC1_S as QDEC1,
+        QSPI_S as QSPI,
+        REGULATORS_S as REGULATORS,
+        RESET_S as RESET,
+        RTC0_S as RTC0,
+        RTC1_S as RTC1,
+        SAADC_S as SAADC,
+        SPIM0_S as SPIM0,
+        SPIM1_S as SPIM1,
+        SPIM2_S as SPIM2,
+        SPIM3_S as SPIM3,
+        SPIM4_S as SPIM4,
+        SPIS0_S as SPIS0,
+        SPIS1_S as SPIS1,
+        SPIS2_S as SPIS2,
+        SPIS3_S as SPIS3,
+        SPU_S as SPU,
+        TAD_S as TAD,
+        TIMER0_S as TIMER0,
+        TIMER1_S as TIMER1,
+        TIMER2_S as TIMER2,
+        TWIM0_S as TWIM0,
+        TWIM1_S as TWIM1,
+        TWIM2_S as TWIM2,
+        TWIM3_S as TWIM3,
+        TWIS0_S as TWIS0,
+        TWIS1_S as TWIS1,
+        TWIS2_S as TWIS2,
+        TWIS3_S as TWIS3,
+        UARTE0_S as UARTE0,
+        UARTE1_S as UARTE1,
+        UARTE2_S as UARTE2,
+        UARTE3_S as UARTE3,
+        UICR_S as UICR,
+        USBD_S as USBD,
+        USBREGULATOR_S as USBREGULATOR,
+        VMC_S as VMC,
+        WDT0_S as WDT0,
+        WDT1_S as WDT1,
+    };
 }
 
 /// The maximum buffer size that the EasyDMA can send/recv in one operation.
@@ -238,19 +168,25 @@ embassy_hal_internal::peripherals! {
 
     // RTC
     RTC0,
+    #[cfg(not(feature = "time-driver-rtc1"))]
     RTC1,
 
     // WDT
-    WDT,
+    WDT0,
+    WDT1,
 
     // NVMC
     NVMC,
+
+    // NFC
+    NFCT,
 
     // UARTE, TWI & SPI
     SERIAL0,
     SERIAL1,
     SERIAL2,
     SERIAL3,
+    SPIM4,
 
     // SAADC
     SAADC,
@@ -327,8 +263,13 @@ embassy_hal_internal::peripherals! {
     PPI_GROUP4,
     PPI_GROUP5,
 
+    // IPC
+    IPC,
+
     // GPIO port 0
+    #[cfg(feature = "lfxo-pins-as-gpio")]
     P0_00,
+    #[cfg(feature = "lfxo-pins-as-gpio")]
     P0_01,
     #[cfg(feature = "nfc-pins-as-gpio")]
     P0_02,
@@ -380,7 +321,17 @@ embassy_hal_internal::peripherals! {
     P1_13,
     P1_14,
     P1_15,
+
+    // EGU
+    EGU0,
+    EGU1,
+    EGU2,
+    EGU3,
+    EGU4,
+    EGU5,
 }
+
+impl_ipc!(IPC, IPC, IPC);
 
 impl_usb!(USBD, USBD, USBD);
 
@@ -393,6 +344,7 @@ impl_spim!(SERIAL0, SPIM0, SERIAL0);
 impl_spim!(SERIAL1, SPIM1, SERIAL1);
 impl_spim!(SERIAL2, SPIM2, SERIAL2);
 impl_spim!(SERIAL3, SPIM3, SERIAL3);
+impl_spim!(SPIM4, SPIM4, SPIM4);
 
 impl_spis!(SERIAL0, SPIS0, SERIAL0);
 impl_spis!(SERIAL1, SPIS1, SERIAL1);
@@ -418,6 +370,10 @@ impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);
 impl_timer!(TIMER2, TIMER2, TIMER2);
 
+impl_rtc!(RTC0, RTC0, RTC0);
+#[cfg(not(feature = "time-driver-rtc1"))]
+impl_rtc!(RTC1, RTC1, RTC1);
+
 impl_qspi!(QSPI, QSPI, QSPI);
 
 impl_pdm!(PDM0, PDM0, PDM0);
@@ -425,7 +381,9 @@ impl_pdm!(PDM0, PDM0, PDM0);
 impl_qdec!(QDEC0, QDEC0, QDEC0);
 impl_qdec!(QDEC1, QDEC1, QDEC1);
 
+#[cfg(feature = "lfxo-pins-as-gpio")]
 impl_pin!(P0_00, 0, 0);
+#[cfg(feature = "lfxo-pins-as-gpio")]
 impl_pin!(P0_01, 0, 1);
 #[cfg(feature = "nfc-pins-as-gpio")]
 impl_pin!(P0_02, 0, 2);
@@ -477,47 +435,64 @@ impl_pin!(P1_13, 1, 13);
 impl_pin!(P1_14, 1, 14);
 impl_pin!(P1_15, 1, 15);
 
-impl_ppi_channel!(PPI_CH0, 0 => configurable);
-impl_ppi_channel!(PPI_CH1, 1 => configurable);
-impl_ppi_channel!(PPI_CH2, 2 => configurable);
-impl_ppi_channel!(PPI_CH3, 3 => configurable);
-impl_ppi_channel!(PPI_CH4, 4 => configurable);
-impl_ppi_channel!(PPI_CH5, 5 => configurable);
-impl_ppi_channel!(PPI_CH6, 6 => configurable);
-impl_ppi_channel!(PPI_CH7, 7 => configurable);
-impl_ppi_channel!(PPI_CH8, 8 => configurable);
-impl_ppi_channel!(PPI_CH9, 9 => configurable);
-impl_ppi_channel!(PPI_CH10, 10 => configurable);
-impl_ppi_channel!(PPI_CH11, 11 => configurable);
-impl_ppi_channel!(PPI_CH12, 12 => configurable);
-impl_ppi_channel!(PPI_CH13, 13 => configurable);
-impl_ppi_channel!(PPI_CH14, 14 => configurable);
-impl_ppi_channel!(PPI_CH15, 15 => configurable);
-impl_ppi_channel!(PPI_CH16, 16 => configurable);
-impl_ppi_channel!(PPI_CH17, 17 => configurable);
-impl_ppi_channel!(PPI_CH18, 18 => configurable);
-impl_ppi_channel!(PPI_CH19, 19 => configurable);
-impl_ppi_channel!(PPI_CH20, 20 => configurable);
-impl_ppi_channel!(PPI_CH21, 21 => configurable);
-impl_ppi_channel!(PPI_CH22, 22 => configurable);
-impl_ppi_channel!(PPI_CH23, 23 => configurable);
-impl_ppi_channel!(PPI_CH24, 24 => configurable);
-impl_ppi_channel!(PPI_CH25, 25 => configurable);
-impl_ppi_channel!(PPI_CH26, 26 => configurable);
-impl_ppi_channel!(PPI_CH27, 27 => configurable);
-impl_ppi_channel!(PPI_CH28, 28 => configurable);
-impl_ppi_channel!(PPI_CH29, 29 => configurable);
-impl_ppi_channel!(PPI_CH30, 30 => configurable);
-impl_ppi_channel!(PPI_CH31, 31 => configurable);
+impl_ppi_channel!(PPI_CH0, DPPIC, 0 => configurable);
+impl_ppi_channel!(PPI_CH1, DPPIC, 1 => configurable);
+impl_ppi_channel!(PPI_CH2, DPPIC, 2 => configurable);
+impl_ppi_channel!(PPI_CH3, DPPIC, 3 => configurable);
+impl_ppi_channel!(PPI_CH4, DPPIC, 4 => configurable);
+impl_ppi_channel!(PPI_CH5, DPPIC, 5 => configurable);
+impl_ppi_channel!(PPI_CH6, DPPIC, 6 => configurable);
+impl_ppi_channel!(PPI_CH7, DPPIC, 7 => configurable);
+impl_ppi_channel!(PPI_CH8, DPPIC, 8 => configurable);
+impl_ppi_channel!(PPI_CH9, DPPIC, 9 => configurable);
+impl_ppi_channel!(PPI_CH10, DPPIC, 10 => configurable);
+impl_ppi_channel!(PPI_CH11, DPPIC, 11 => configurable);
+impl_ppi_channel!(PPI_CH12, DPPIC, 12 => configurable);
+impl_ppi_channel!(PPI_CH13, DPPIC, 13 => configurable);
+impl_ppi_channel!(PPI_CH14, DPPIC, 14 => configurable);
+impl_ppi_channel!(PPI_CH15, DPPIC, 15 => configurable);
+impl_ppi_channel!(PPI_CH16, DPPIC, 16 => configurable);
+impl_ppi_channel!(PPI_CH17, DPPIC, 17 => configurable);
+impl_ppi_channel!(PPI_CH18, DPPIC, 18 => configurable);
+impl_ppi_channel!(PPI_CH19, DPPIC, 19 => configurable);
+impl_ppi_channel!(PPI_CH20, DPPIC, 20 => configurable);
+impl_ppi_channel!(PPI_CH21, DPPIC, 21 => configurable);
+impl_ppi_channel!(PPI_CH22, DPPIC, 22 => configurable);
+impl_ppi_channel!(PPI_CH23, DPPIC, 23 => configurable);
+impl_ppi_channel!(PPI_CH24, DPPIC, 24 => configurable);
+impl_ppi_channel!(PPI_CH25, DPPIC, 25 => configurable);
+impl_ppi_channel!(PPI_CH26, DPPIC, 26 => configurable);
+impl_ppi_channel!(PPI_CH27, DPPIC, 27 => configurable);
+impl_ppi_channel!(PPI_CH28, DPPIC, 28 => configurable);
+impl_ppi_channel!(PPI_CH29, DPPIC, 29 => configurable);
+impl_ppi_channel!(PPI_CH30, DPPIC, 30 => configurable);
+impl_ppi_channel!(PPI_CH31, DPPIC, 31 => configurable);
 
-impl_saadc_input!(P0_13, ANALOG_INPUT0);
-impl_saadc_input!(P0_14, ANALOG_INPUT1);
-impl_saadc_input!(P0_15, ANALOG_INPUT2);
-impl_saadc_input!(P0_16, ANALOG_INPUT3);
-impl_saadc_input!(P0_17, ANALOG_INPUT4);
-impl_saadc_input!(P0_18, ANALOG_INPUT5);
-impl_saadc_input!(P0_19, ANALOG_INPUT6);
-impl_saadc_input!(P0_20, ANALOG_INPUT7);
+impl_ppi_group!(PPI_GROUP0, DPPIC, 0);
+impl_ppi_group!(PPI_GROUP1, DPPIC, 1);
+impl_ppi_group!(PPI_GROUP2, DPPIC, 2);
+impl_ppi_group!(PPI_GROUP3, DPPIC, 3);
+impl_ppi_group!(PPI_GROUP4, DPPIC, 4);
+impl_ppi_group!(PPI_GROUP5, DPPIC, 5);
+
+impl_saadc_input!(P0_04, ANALOG_INPUT0);
+impl_saadc_input!(P0_05, ANALOG_INPUT1);
+impl_saadc_input!(P0_06, ANALOG_INPUT2);
+impl_saadc_input!(P0_07, ANALOG_INPUT3);
+impl_saadc_input!(P0_25, ANALOG_INPUT4);
+impl_saadc_input!(P0_26, ANALOG_INPUT5);
+impl_saadc_input!(P0_27, ANALOG_INPUT6);
+impl_saadc_input!(P0_28, ANALOG_INPUT7);
+
+impl_egu!(EGU0, EGU0, EGU0);
+impl_egu!(EGU1, EGU1, EGU1);
+impl_egu!(EGU2, EGU2, EGU2);
+impl_egu!(EGU3, EGU3, EGU3);
+impl_egu!(EGU4, EGU4, EGU4);
+impl_egu!(EGU5, EGU5, EGU5);
+
+impl_wdt!(WDT0, WDT0, WDT0, 0);
+impl_wdt!(WDT1, WDT1, WDT1, 1);
 
 embassy_hal_internal::interrupt_mod!(
     FPU,

@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
 
@@ -83,10 +84,12 @@ pub trait Driver {
 }
 
 impl<T: ?Sized + Driver> Driver for &mut T {
-    type RxToken<'a> = T::RxToken<'a>
+    type RxToken<'a>
+        = T::RxToken<'a>
     where
         Self: 'a;
-    type TxToken<'a> = T::TxToken<'a>
+    type TxToken<'a>
+        = T::TxToken<'a>
     where
         Self: 'a;
 

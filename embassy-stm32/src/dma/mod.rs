@@ -9,6 +9,8 @@ pub use dma_bdma::*;
 #[cfg(gpdma)]
 pub(crate) mod gpdma;
 #[cfg(gpdma)]
+pub use gpdma::ringbuffered::*;
+#[cfg(gpdma)]
 pub use gpdma::*;
 
 #[cfg(dmamux)]
@@ -22,14 +24,17 @@ pub(crate) use util::*;
 pub(crate) mod ringbuffer;
 pub mod word;
 
-use embassy_hal_internal::{impl_peripheral, Peripheral};
+use embassy_hal_internal::{PeripheralType, impl_peripheral};
 
 use crate::interrupt;
 
+/// The direction of a DMA transfer.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-enum Dir {
+pub enum Dir {
+    /// Transfer from memory to a peripheral.
     MemoryToPeripheral,
+    /// Transfer from a peripheral to memory.
     PeripheralToMemory,
 }
 
@@ -41,9 +46,11 @@ pub type Request = u8;
 pub type Request = ();
 
 pub(crate) trait SealedChannel {
+    #[cfg(not(stm32n6))]
     fn id(&self) -> u8;
 }
 
+#[cfg(not(stm32n6))]
 pub(crate) trait ChannelInterrupt {
     #[cfg_attr(not(feature = "rt"), allow(unused))]
     unsafe fn on_irq();
@@ -51,18 +58,9 @@ pub(crate) trait ChannelInterrupt {
 
 /// DMA channel.
 #[allow(private_bounds)]
-pub trait Channel: SealedChannel + Peripheral<P = Self> + Into<AnyChannel> + 'static {
-    /// Type-erase (degrade) this pin into an `AnyChannel`.
-    ///
-    /// This converts DMA channel singletons (`DMA1_CH3`, `DMA2_CH1`, ...), which
-    /// are all different types, into the same type. It is useful for
-    /// creating arrays of channels, or avoiding generics.
-    #[inline]
-    fn degrade(self) -> AnyChannel {
-        AnyChannel { id: self.id() }
-    }
-}
+pub trait Channel: SealedChannel + PeripheralType + Into<AnyChannel> + 'static {}
 
+#[cfg(not(stm32n6))]
 macro_rules! dma_channel_impl {
     ($channel_peri:ident, $index:expr) => {
         impl crate::dma::SealedChannel for crate::peripherals::$channel_peri {
@@ -79,8 +77,10 @@ macro_rules! dma_channel_impl {
         impl crate::dma::Channel for crate::peripherals::$channel_peri {}
 
         impl From<crate::peripherals::$channel_peri> for crate::dma::AnyChannel {
-            fn from(x: crate::peripherals::$channel_peri) -> Self {
-                crate::dma::Channel::degrade(x)
+            fn from(val: crate::peripherals::$channel_peri) -> Self {
+                Self {
+                    id: crate::dma::SealedChannel::id(&val),
+                }
             }
         }
     };
@@ -99,6 +99,7 @@ impl AnyChannel {
 }
 
 impl SealedChannel for AnyChannel {
+    #[cfg(not(stm32n6))]
     fn id(&self) -> u8 {
         self.id
     }
@@ -107,17 +108,6 @@ impl Channel for AnyChannel {}
 
 const CHANNEL_COUNT: usize = crate::_generated::DMA_CHANNELS.len();
 static STATE: [ChannelState; CHANNEL_COUNT] = [ChannelState::NEW; CHANNEL_COUNT];
-
-/// "No DMA" placeholder.
-///
-/// You may pass this in place of a real DMA channel when creating a driver
-/// to indicate it should not use DMA.
-///
-/// This often causes async functionality to not be available on the instance,
-/// leaving only blocking functionality.
-pub struct NoDma;
-
-impl_peripheral!(NoDma);
 
 // safety: must be called only once at startup
 pub(crate) unsafe fn init(

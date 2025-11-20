@@ -1,7 +1,7 @@
 //! Inter-Process Communication Controller (IPCC)
 
 use core::future::poll_fn;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
@@ -103,9 +103,6 @@ impl Ipcc {
     pub fn enable(_config: Config) {
         rcc::enable_and_reset::<IPCC>();
         IPCC::set_cpu2(true);
-
-        // set RF wake-up clock = LSE
-        crate::pac::RCC.csr().modify(|w| w.set_rfwkpsel(0b01));
 
         let regs = IPCC::regs();
 
@@ -229,11 +226,9 @@ struct State {
 
 impl State {
     const fn new() -> Self {
-        const WAKER: AtomicWaker = AtomicWaker::new();
-
         Self {
-            rx_wakers: [WAKER; 6],
-            tx_wakers: [WAKER; 6],
+            rx_wakers: [const { AtomicWaker::new() }; 6],
+            tx_wakers: [const { AtomicWaker::new() }; 6],
         }
     }
 

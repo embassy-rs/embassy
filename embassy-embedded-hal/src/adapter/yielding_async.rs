@@ -2,7 +2,7 @@ use embassy_futures::yield_now;
 
 /// Wrapper that yields for each operation to the wrapped instance
 ///
-/// This can be used in combination with BlockingAsync<T> to enforce yields
+/// This can be used in combination with [super::BlockingAsync] to enforce yields
 /// between long running blocking operations.
 pub struct YieldingAsync<T> {
     wrapped: T,
@@ -145,6 +145,11 @@ impl<T: embedded_storage_async::nor_flash::NorFlash> embedded_storage_async::nor
         }
         Ok(())
     }
+}
+
+impl<T: embedded_storage_async::nor_flash::MultiwriteNorFlash> embedded_storage_async::nor_flash::MultiwriteNorFlash
+    for YieldingAsync<T>
+{
 }
 
 #[cfg(test)]

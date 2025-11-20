@@ -10,9 +10,8 @@ use core::f32::consts::PI;
 use common::*;
 use defmt::assert;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::Adc;
+use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::dac::{DacCh1, Value};
-use embassy_stm32::dma::NoDma;
 use embassy_time::Timer;
 use micromath::F32Ext;
 use {defmt_rtt as _, panic_probe as _};
@@ -20,14 +19,14 @@ use {defmt_rtt as _, panic_probe as _};
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     // Initialize the board and obtain a Peripherals instance
-    let p: embassy_stm32::Peripherals = embassy_stm32::init(config());
+    let p: embassy_stm32::Peripherals = init();
 
     let adc = peri!(p, ADC);
     let dac = peri!(p, DAC);
     let dac_pin = peri!(p, DAC_PIN);
     let mut adc_pin = unsafe { core::ptr::read(&dac_pin) };
 
-    let mut dac = DacCh1::new(dac, NoDma, dac_pin);
+    let mut dac = DacCh1::new_blocking(dac, dac_pin);
     let mut adc = Adc::new(adc);
 
     #[cfg(feature = "stm32h755zi")]
@@ -38,7 +37,7 @@ async fn main(_spawner: Spawner) {
     dac.set(Value::Bit8(0));
     // Now wait a little to obtain a stable value
     Timer::after_millis(30).await;
-    let offset = adc.read(&mut adc_pin);
+    let offset = adc.blocking_read(&mut adc_pin, SampleTime::from_bits(0));
 
     for v in 0..=255 {
         // First set the DAC output value
@@ -49,7 +48,10 @@ async fn main(_spawner: Spawner) {
         Timer::after_millis(30).await;
 
         // Need to steal the peripherals here because PA4 is obviously in use already
-        let measured = adc.read(&mut unsafe { embassy_stm32::Peripherals::steal() }.PA4);
+        let measured = adc.blocking_read(
+            &mut unsafe { embassy_stm32::Peripherals::steal() }.PA4,
+            SampleTime::from_bits(0),
+        );
         // Calibrate and normalize the measurement to get close to the dac_output_val
         let measured_normalized = ((measured as i32 - offset as i32) / normalization_factor) as i16;
 

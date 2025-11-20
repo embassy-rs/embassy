@@ -1,10 +1,10 @@
 //! Flexible Memory Controller (FMC) / Flexible Static Memory Controller (FSMC)
 use core::marker::PhantomData;
 
-use embassy_hal_internal::into_ref;
+use embassy_hal_internal::PeripheralType;
 
-use crate::gpio::{AFType, Pull, Speed};
-use crate::{rcc, Peripheral};
+use crate::gpio::{AfType, OutputType, Pull, Speed};
+use crate::{Peri, rcc};
 
 /// FMC driver
 pub struct Fmc<'d, T: Instance> {
@@ -21,7 +21,7 @@ where
     ///
     /// **Note:** This is currently used to provide access to some basic FMC functions
     /// for manual configuration for memory types that stm32-fmc does not support.
-    pub fn new_raw(_instance: impl Peripheral<P = T> + 'd) -> Self {
+    pub fn new_raw(_instance: Peri<'d, T>) -> Self {
         Self { peri: PhantomData }
     }
 
@@ -74,10 +74,8 @@ where
 
 macro_rules! config_pins {
     ($($pin:ident),*) => {
-        into_ref!($($pin),*);
-        $(
-            $pin.set_as_af_pull($pin.af_num(), AFType::OutputPushPull, Pull::Up);
-            $pin.set_speed(Speed::VeryHigh);
+                $(
+            set_as_af!($pin, AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up));
         )*
     };
 }
@@ -93,12 +91,12 @@ macro_rules! fmc_sdram_constructor {
     )) => {
         /// Create a new FMC instance.
         pub fn $name<CHIP: stm32_fmc::SdramChip>(
-            _instance: impl Peripheral<P = T> + 'd,
-            $($addr_pin_name: impl Peripheral<P = impl $addr_signal<T>> + 'd),*,
-            $($ba_pin_name: impl Peripheral<P = impl $ba_signal<T>> + 'd),*,
-            $($d_pin_name: impl Peripheral<P = impl $d_signal<T>> + 'd),*,
-            $($nbl_pin_name: impl Peripheral<P = impl $nbl_signal<T>> + 'd),*,
-            $($ctrl_pin_name: impl Peripheral<P = impl $ctrl_signal<T>> + 'd),*,
+            _instance: Peri<'d, T>,
+            $($addr_pin_name: Peri<'d, impl $addr_signal<T>>),*,
+            $($ba_pin_name: Peri<'d, impl $ba_signal<T>>),*,
+            $($d_pin_name: Peri<'d, impl $d_signal<T>>),*,
+            $($nbl_pin_name: Peri<'d, impl $nbl_signal<T>>),*,
+            $($ctrl_pin_name: Peri<'d, impl $ctrl_signal<T>>),*,
             chip: CHIP
         ) -> stm32_fmc::Sdram<Fmc<'d, T>, CHIP> {
 
@@ -161,6 +159,26 @@ impl<'d, T: Instance> Fmc<'d, T> {
         ]
     ));
 
+    fmc_sdram_constructor!(sdram_a13bits_d32bits_4banks_bank1: (
+        bank: stm32_fmc::SdramTargetBank::Bank1,
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin), (a12: A12Pin)
+        ],
+        ba: [(ba0: BA0Pin), (ba1: BA1Pin)],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin),
+            (d16: D16Pin), (d17: D17Pin), (d18: D18Pin), (d19: D19Pin), (d20: D20Pin), (d21: D21Pin), (d22: D22Pin), (d23: D23Pin),
+            (d24: D24Pin), (d25: D25Pin), (d26: D26Pin), (d27: D27Pin), (d28: D28Pin), (d29: D29Pin), (d30: D30Pin), (d31: D31Pin)
+        ],
+        nbl: [
+            (nbl0: NBL0Pin), (nbl1: NBL1Pin), (nbl2: NBL2Pin), (nbl3: NBL3Pin)
+        ],
+        ctrl: [
+            (sdcke: SDCKE0Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE0Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
+        ]
+    ));
+
     fmc_sdram_constructor!(sdram_a12bits_d16bits_4banks_bank2: (
         bank: stm32_fmc::SdramTargetBank::Bank2,
         addr: [
@@ -198,6 +216,62 @@ impl<'d, T: Instance> Fmc<'d, T> {
             (sdcke: SDCKE1Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE1Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
         ]
     ));
+
+    fmc_sdram_constructor!(sdram_a13bits_d32bits_4banks_bank2: (
+        bank: stm32_fmc::SdramTargetBank::Bank2,
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin), (a12: A12Pin)
+        ],
+        ba: [(ba0: BA0Pin), (ba1: BA1Pin)],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin),
+            (d16: D16Pin), (d17: D17Pin), (d18: D18Pin), (d19: D19Pin), (d20: D20Pin), (d21: D21Pin), (d22: D22Pin), (d23: D23Pin),
+            (d24: D24Pin), (d25: D25Pin), (d26: D26Pin), (d27: D27Pin), (d28: D28Pin), (d29: D29Pin), (d30: D30Pin), (d31: D31Pin)
+        ],
+        nbl: [
+            (nbl0: NBL0Pin), (nbl1: NBL1Pin), (nbl2: NBL2Pin), (nbl3: NBL3Pin)
+        ],
+        ctrl: [
+            (sdcke: SDCKE1Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE1Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
+        ]
+    ));
+
+    fmc_sdram_constructor!(sdram_a13bits_d16bits_4banks_bank1: (
+        bank: stm32_fmc::SdramTargetBank::Bank1,
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin), (a12: A12Pin)
+        ],
+        ba: [(ba0: BA0Pin), (ba1: BA1Pin)],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin)
+        ],
+        nbl: [
+            (nbl0: NBL0Pin), (nbl1: NBL1Pin)
+        ],
+        ctrl: [
+            (sdcke: SDCKE0Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE0Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
+        ]
+    ));
+
+    fmc_sdram_constructor!(sdram_a13bits_d16bits_4banks_bank2: (
+        bank: stm32_fmc::SdramTargetBank::Bank2,
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin), (a12: A12Pin)
+        ],
+        ba: [(ba0: BA0Pin), (ba1: BA1Pin)],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin)
+        ],
+        nbl: [
+            (nbl0: NBL0Pin), (nbl1: NBL1Pin)
+        ],
+        ctrl: [
+            (sdcke: SDCKE1Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE1Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
+        ]
+    ));
 }
 
 trait SealedInstance: crate::rcc::RccPeripheral {
@@ -206,7 +280,7 @@ trait SealedInstance: crate::rcc::RccPeripheral {
 
 /// FMC instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + 'static {}
+pub trait Instance: SealedInstance + PeripheralType + 'static {}
 
 foreach_peripheral!(
     (fmc, $inst:ident) => {

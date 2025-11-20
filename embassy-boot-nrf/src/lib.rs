@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
 mod fmt;
@@ -8,8 +9,7 @@ pub use embassy_boot::{
     FirmwareUpdater, FirmwareUpdaterConfig,
 };
 use embassy_nrf::nvmc::PAGE_SIZE;
-use embassy_nrf::peripherals::WDT;
-use embassy_nrf::wdt;
+use embassy_nrf::{Peri, wdt};
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 
 /// A bootloader for nRF devices.
@@ -20,7 +20,13 @@ impl<const BUFFER_SIZE: usize> BootLoader<BUFFER_SIZE> {
     pub fn prepare<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>(
         config: BootLoaderConfig<ACTIVE, DFU, STATE>,
     ) -> Self {
-        Self::try_prepare::<ACTIVE, DFU, STATE>(config).expect("Boot prepare error")
+        if let Ok(loader) = Self::try_prepare::<ACTIVE, DFU, STATE>(config) {
+            loader
+        } else {
+            // Use explicit panic instead of .expect() to ensure this gets routed via defmt/etc.
+            // properly
+            panic!("Boot prepare error")
+        }
     }
 
     /// Inspect the bootloader state and perform actions required before booting, such as swapping firmware
@@ -107,7 +113,7 @@ pub struct WatchdogFlash<FLASH> {
 
 impl<FLASH> WatchdogFlash<FLASH> {
     /// Start a new watchdog with a given flash and WDT peripheral and a timeout
-    pub fn start(flash: FLASH, wdt: WDT, config: wdt::Config) -> Self {
+    pub fn start(flash: FLASH, wdt: Peri<'static, impl wdt::Instance>, config: wdt::Config) -> Self {
         let (_wdt, [wdt]) = match wdt::Watchdog::try_new(wdt, config) {
             Ok(x) => x,
             Err(_) => {

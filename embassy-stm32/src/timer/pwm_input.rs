@@ -1,14 +1,16 @@
 //! PWM Input driver.
 
-use embassy_hal_internal::into_ref;
-
 use super::low_level::{CountingMode, InputCaptureMode, InputTISelection, SlaveMode, Timer, TriggerSource};
-use super::{Channel, Channel1Pin, Channel2Pin, GeneralInstance4Channel};
-use crate::gpio::{AFType, Pull};
+use super::{Ch1, Ch2, Channel, GeneralInstance4Channel, TimerPin};
+use crate::Peri;
+use crate::gpio::{AfType, Pull};
 use crate::time::Hertz;
-use crate::Peripheral;
 
 /// PWM Input driver.
+///
+/// Only works with CH1 or CH2
+/// Note: Not all timer peripherals are supported
+/// Double check your chips reference manual
 pub struct PwmInput<'d, T: GeneralInstance4Channel> {
     channel: Channel,
     inner: Timer<'d, T>,
@@ -16,43 +18,41 @@ pub struct PwmInput<'d, T: GeneralInstance4Channel> {
 
 impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
     /// Create a new PWM input driver.
-    pub fn new(
-        tim: impl Peripheral<P = T> + 'd,
-        pin: impl Peripheral<P = impl Channel1Pin<T>> + 'd,
-        pull_type: Pull,
+    pub fn new_ch1<#[cfg(afio)] A>(
+        tim: Peri<'d, T>,
+        pin: Peri<'d, if_afio!(impl TimerPin<T, Ch1, A>)>,
+        pull: Pull,
         freq: Hertz,
     ) -> Self {
-        into_ref!(pin);
-
-        pin.set_as_af_pull(pin.af_num(), AFType::Input, pull_type);
+        set_as_af!(pin, AfType::input(pull));
 
         Self::new_inner(tim, freq, Channel::Ch1, Channel::Ch2)
     }
 
     /// Create a new PWM input driver.
-    pub fn new_alt(
-        tim: impl Peripheral<P = T> + 'd,
-        pin: impl Peripheral<P = impl Channel2Pin<T>> + 'd,
-        pull_type: Pull,
+    pub fn new_ch2<#[cfg(afio)] A>(
+        tim: Peri<'d, T>,
+        pin: Peri<'d, if_afio!(impl TimerPin<T, Ch2, A>)>,
+        pull: Pull,
         freq: Hertz,
     ) -> Self {
-        into_ref!(pin);
-
-        pin.set_as_af_pull(pin.af_num(), AFType::Input, pull_type);
+        set_as_af!(pin, AfType::input(pull));
 
         Self::new_inner(tim, freq, Channel::Ch2, Channel::Ch1)
     }
 
-    fn new_inner(tim: impl Peripheral<P = T> + 'd, freq: Hertz, ch1: Channel, ch2: Channel) -> Self {
+    fn new_inner(tim: Peri<'d, T>, freq: Hertz, ch1: Channel, ch2: Channel) -> Self {
         let mut inner = Timer::new(tim);
 
         inner.set_counting_mode(CountingMode::EdgeAlignedUp);
         inner.set_tick_freq(freq);
         inner.enable_outputs(); // Required for advanced timers, see GeneralInstance4Channel for details
+        inner.generate_update_event();
         inner.start();
 
         // Configuration steps from ST RM0390 (STM32F446) chapter 17.3.6
         // or ST RM0008 (STM32F103) chapter 15.3.6 Input capture mode
+        // or ST RM0440 (STM32G4) chapter 30.4.8 PWM input mode
         inner.set_input_ti_selection(ch1, InputTISelection::Normal);
         inner.set_input_capture_mode(ch1, InputCaptureMode::Rising);
 

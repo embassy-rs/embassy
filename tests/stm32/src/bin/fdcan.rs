@@ -8,10 +8,11 @@ mod common;
 use common::*;
 use embassy_executor::Spawner;
 use embassy_stm32::peripherals::*;
-use embassy_stm32::{bind_interrupts, can, Config};
+use embassy_stm32::{Config, bind_interrupts, can};
 use embassy_time::Duration;
 use {defmt_rtt as _, panic_probe as _};
 
+#[path = "../can_common.rs"]
 mod can_common;
 use can_common::*;
 
@@ -102,10 +103,10 @@ fn options() -> (Config, TestOptions) {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    //let peripherals = embassy_stm32::init(config());
+    //let peripherals = init();
 
     let (config, options) = options();
-    let peripherals = embassy_stm32::init(config);
+    let peripherals = init_with_config(config);
 
     let mut can = can::CanConfigurator::new(peripherals.FDCAN1, peripherals.PB8, peripherals.PB9, Irqs1);
     let mut can2 = can::CanConfigurator::new(peripherals.FDCAN2, peripherals.PB12, peripherals.PB13, Irqs2);

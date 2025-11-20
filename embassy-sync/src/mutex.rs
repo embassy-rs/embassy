@@ -2,13 +2,13 @@
 //!
 //! This module provides a mutex that can be used to synchronize data between asynchronous tasks.
 use core::cell::{RefCell, UnsafeCell};
-use core::future::poll_fn;
+use core::future::{Future, poll_fn};
 use core::ops::{Deref, DerefMut};
 use core::task::Poll;
 use core::{fmt, mem};
 
-use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex as BlockingMutex;
+use crate::blocking_mutex::raw::RawMutex;
 use crate::waitqueue::WakerRegistration;
 
 /// Error returned by [`Mutex::try_lock`]
@@ -16,6 +16,7 @@ use crate::waitqueue::WakerRegistration;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TryLockError;
 
+#[derive(Debug)]
 struct State {
     locked: bool,
     waker: WakerRegistration,
@@ -23,7 +24,7 @@ struct State {
 
 /// Async mutex.
 ///
-/// The mutex is generic over a blocking [`RawMutex`](crate::blocking_mutex::raw::RawMutex).
+/// The mutex is generic over a blocking [`RawMutex`].
 /// The raw mutex is used to guard access to the internal "is locked" flag. It
 /// is held for very short periods only, while locking and unlocking. It is *not* held
 /// for the entire time the async Mutex is locked.
@@ -73,7 +74,7 @@ where
     /// Lock the mutex.
     ///
     /// This will wait for the mutex to be unlocked if it's already locked.
-    pub async fn lock(&self) -> MutexGuard<'_, M, T> {
+    pub fn lock(&self) -> impl Future<Output = MutexGuard<'_, M, T>> {
         poll_fn(|cx| {
             let ready = self.state.lock(|s| {
                 let mut s = s.borrow_mut();
@@ -92,7 +93,6 @@ where
                 Poll::Pending
             }
         })
-        .await
     }
 
     /// Attempt to immediately lock the mutex.
@@ -138,7 +138,7 @@ impl<M: RawMutex, T> From<T> for Mutex<M, T> {
 impl<M, T> Default for Mutex<M, T>
 where
     M: RawMutex,
-    T: ?Sized + Default,
+    T: Default,
 {
     fn default() -> Self {
         Self::new(Default::default())
@@ -172,6 +172,7 @@ where
 ///
 /// Dropping it unlocks the mutex.
 #[clippy::has_significant_drop]
+#[must_use = "if unused the Mutex will immediately unlock"]
 pub struct MutexGuard<'a, M, T>
 where
     M: RawMutex,
@@ -186,7 +187,7 @@ where
     T: ?Sized,
 {
     /// Returns a locked view over a portion of the locked data.
-    pub fn map<U>(this: Self, fun: impl FnOnce(&mut T) -> &mut U) -> MappedMutexGuard<'a, M, U> {
+    pub fn map<U: ?Sized>(this: Self, fun: impl FnOnce(&mut T) -> &mut U) -> MappedMutexGuard<'a, M, U> {
         let mutex = this.mutex;
         let value = fun(unsafe { &mut *this.mutex.inner.get() });
         // Don't run the `drop` method for MutexGuard. The ownership of the underlying
@@ -278,7 +279,7 @@ where
     T: ?Sized,
 {
     /// Returns a locked view over a portion of the locked data.
-    pub fn map<U>(this: Self, fun: impl FnOnce(&mut T) -> &mut U) -> MappedMutexGuard<'a, M, U> {
+    pub fn map<U: ?Sized>(this: Self, fun: impl FnOnce(&mut T) -> &mut U) -> MappedMutexGuard<'a, M, U> {
         let state = this.state;
         let value = fun(unsafe { &mut *this.value });
         // Don't run the `drop` method for MutexGuard. The ownership of the underlying

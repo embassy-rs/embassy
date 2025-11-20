@@ -4,15 +4,19 @@
 #[cfg_attr(any(eth_v1a, eth_v1b, eth_v1c), path = "v1/mod.rs")]
 #[cfg_attr(eth_v2, path = "v2/mod.rs")]
 mod _version;
-pub mod generic_smi;
+mod generic_phy;
+mod sma;
 
 use core::mem::MaybeUninit;
 use core::task::Context;
 
+use embassy_hal_internal::PeripheralType;
 use embassy_net_driver::{Capabilities, HardwareAddress, LinkState};
 use embassy_sync::waitqueue::AtomicWaker;
 
 pub use self::_version::{InterruptHandler, *};
+pub use self::generic_phy::*;
+pub use self::sma::{Sma, StationManagement};
 use crate::rcc::RccPeripheral;
 
 #[allow(unused)]
@@ -42,11 +46,9 @@ pub struct PacketQueue<const TX: usize, const RX: usize> {
 impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
     /// Create a new packet queue.
     pub const fn new() -> Self {
-        const NEW_TDES: TDes = TDes::new();
-        const NEW_RDES: RDes = RDes::new();
         Self {
-            tx_desc: [NEW_TDES; TX],
-            rx_desc: [NEW_RDES; RX],
+            tx_desc: [const { TDes::new() }; TX],
+            rx_desc: [const { RDes::new() }; RX],
             tx_buf: [Packet([0; TX_BUFFER_SIZE]); TX],
             rx_buf: [Packet([0; RX_BUFFER_SIZE]); RX],
         }
@@ -73,9 +75,15 @@ impl<const TX: usize, const RX: usize> PacketQueue<TX, RX> {
 
 static WAKER: AtomicWaker = AtomicWaker::new();
 
-impl<'d, T: Instance, P: PHY> embassy_net_driver::Driver for Ethernet<'d, T, P> {
-    type RxToken<'a> = RxToken<'a, 'd> where Self: 'a;
-    type TxToken<'a> = TxToken<'a, 'd> where Self: 'a;
+impl<'d, T: Instance, P: Phy> embassy_net_driver::Driver for Ethernet<'d, T, P> {
+    type RxToken<'a>
+        = RxToken<'a, 'd>
+    where
+        Self: 'a;
+    type TxToken<'a>
+        = TxToken<'a, 'd>
+    where
+        Self: 'a;
 
     fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         WAKER.register(cx.waker());
@@ -103,7 +111,7 @@ impl<'d, T: Instance, P: PHY> embassy_net_driver::Driver for Ethernet<'d, T, P> 
     }
 
     fn link_state(&mut self, cx: &mut Context) -> LinkState {
-        if self.phy.poll_link(&mut self.station_management, cx) {
+        if self.phy.poll_link(cx) {
             LinkState::Up
         } else {
             LinkState::Down
@@ -151,30 +159,26 @@ impl<'a, 'd> embassy_net_driver::TxToken for TxToken<'a, 'd> {
     }
 }
 
-/// Station Management Interface (SMI) on an ethernet PHY
-///
-/// # Safety
-///
-/// The methods cannot move out of self
-pub unsafe trait StationManagement {
-    /// Read a register over SMI.
-    fn smi_read(&mut self, phy_addr: u8, reg: u8) -> u16;
-    /// Write a register over SMI.
-    fn smi_write(&mut self, phy_addr: u8, reg: u8, val: u16);
+/// Trait for an Ethernet PHY
+pub trait Phy {
+    /// Reset PHY and wait for it to come out of reset.
+    fn phy_reset(&mut self);
+    /// PHY initialisation.
+    fn phy_init(&mut self);
+    /// Poll link to see if it is up and FD with 100Mbps
+    fn poll_link(&mut self, cx: &mut Context) -> bool;
 }
 
-/// Traits for an Ethernet PHY
-///
-/// # Safety
-///
-/// The methods cannot move S
-pub unsafe trait PHY {
-    /// Reset PHY and wait for it to come out of reset.
-    fn phy_reset<S: StationManagement>(&mut self, sm: &mut S);
-    /// PHY initialisation.
-    fn phy_init<S: StationManagement>(&mut self, sm: &mut S);
-    /// Poll link to see if it is up and FD with 100Mbps
-    fn poll_link<S: StationManagement>(&mut self, sm: &mut S, cx: &mut Context) -> bool;
+impl<'d, T: Instance, P: Phy> Ethernet<'d, T, P> {
+    /// Access the user-supplied `Phy`.
+    pub fn phy(&self) -> &P {
+        &self.phy
+    }
+
+    /// Mutably access the user-supplied `Phy`.
+    pub fn phy_mut(&mut self) -> &mut P {
+        &mut self.phy
+    }
 }
 
 trait SealedInstance {
@@ -183,7 +187,7 @@ trait SealedInstance {
 
 /// Ethernet instance.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + RccPeripheral + Send + 'static {}
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral + Send + 'static {}
 
 impl SealedInstance for crate::peripherals::ETH {
     fn regs() -> crate::pac::eth::Eth {
@@ -192,19 +196,19 @@ impl SealedInstance for crate::peripherals::ETH {
 }
 impl Instance for crate::peripherals::ETH {}
 
-pin_trait!(RXClkPin, Instance);
-pin_trait!(TXClkPin, Instance);
-pin_trait!(RefClkPin, Instance);
-pin_trait!(MDIOPin, Instance);
-pin_trait!(MDCPin, Instance);
-pin_trait!(RXDVPin, Instance);
-pin_trait!(CRSPin, Instance);
-pin_trait!(RXD0Pin, Instance);
-pin_trait!(RXD1Pin, Instance);
-pin_trait!(RXD2Pin, Instance);
-pin_trait!(RXD3Pin, Instance);
-pin_trait!(TXD0Pin, Instance);
-pin_trait!(TXD1Pin, Instance);
-pin_trait!(TXD2Pin, Instance);
-pin_trait!(TXD3Pin, Instance);
-pin_trait!(TXEnPin, Instance);
+pin_trait!(RXClkPin, Instance, @A);
+pin_trait!(TXClkPin, Instance, @A);
+pin_trait!(RefClkPin, Instance, @A);
+pin_trait!(MDIOPin, sma::Instance, @A);
+pin_trait!(MDCPin, sma::Instance, @A);
+pin_trait!(RXDVPin, Instance, @A);
+pin_trait!(CRSPin, Instance, @A);
+pin_trait!(RXD0Pin, Instance, @A);
+pin_trait!(RXD1Pin, Instance, @A);
+pin_trait!(RXD2Pin, Instance, @A);
+pin_trait!(RXD3Pin, Instance, @A);
+pin_trait!(TXD0Pin, Instance, @A);
+pin_trait!(TXD1Pin, Instance, @A);
+pin_trait!(TXD2Pin, Instance, @A);
+pin_trait!(TXD3Pin, Instance, @A);
+pin_trait!(TXEnPin, Instance, @A);

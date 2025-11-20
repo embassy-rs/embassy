@@ -1,12 +1,10 @@
 #![no_std]
 #![no_main]
 
-use core::mem;
-
 use defmt::{info, panic, unwrap};
 use embassy_executor::Spawner;
-use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
 use embassy_nrf::usb::Driver;
+use embassy_nrf::usb::vbus_detect::HardwareVbusDetect;
 use embassy_nrf::{bind_interrupts, pac, peripherals, usb};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
@@ -16,10 +14,10 @@ use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     USBD => usb::InterruptHandler<peripherals::USBD>;
-    POWER_CLOCK => usb::vbus_detect::InterruptHandler;
+    CLOCK_POWER => usb::vbus_detect::InterruptHandler;
 });
 
-type MyDriver = Driver<'static, peripherals::USBD, HardwareVbusDetect>;
+type MyDriver = Driver<'static, HardwareVbusDetect>;
 
 #[embassy_executor::task]
 async fn usb_task(mut device: UsbDevice<'static, MyDriver>) {
@@ -39,11 +37,10 @@ async fn echo_task(mut class: CdcAcmClass<'static, MyDriver>) {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
-    let clock: pac::CLOCK = unsafe { mem::transmute(()) };
 
     info!("Enabling ext hfosc...");
-    clock.tasks_hfclkstart.write(|w| unsafe { w.bits(1) });
-    while clock.events_hfclkstarted.read().bits() != 1 {}
+    pac::CLOCK.tasks_hfclkstart().write_value(1);
+    while pac::CLOCK.events_hfclkstarted().read() != 1 {}
 
     // Create the driver, from the HAL.
     let driver = Driver::new(p.USBD, Irqs, HardwareVbusDetect::new(Irqs));
@@ -55,13 +52,6 @@ async fn main(spawner: Spawner) {
     config.serial_number = Some("12345678");
     config.max_power = 100;
     config.max_packet_size_0 = 64;
-
-    // Required for windows compatibility.
-    // https://developer.nordicsemi.com/nRF_Connect_SDK/doc/1.9.1/kconfig/CONFIG_CDC_ACM_IAD.html#help
-    config.device_class = 0xEF;
-    config.device_sub_class = 0x02;
-    config.device_protocol = 0x01;
-    config.composite_with_iads = true;
 
     static STATE: StaticCell<State> = StaticCell::new();
     let state = STATE.init(State::new());
@@ -86,8 +76,8 @@ async fn main(spawner: Spawner) {
     // Build the builder.
     let usb = builder.build();
 
-    unwrap!(spawner.spawn(usb_task(usb)));
-    unwrap!(spawner.spawn(echo_task(class)));
+    spawner.spawn(unwrap!(usb_task(usb)));
+    spawner.spawn(unwrap!(echo_task(class)));
 }
 
 struct Disconnected {}

@@ -3,8 +3,8 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::Config;
+use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -28,12 +28,16 @@ async fn main(_spawner: Spawner) {
     let mut p = embassy_stm32::init(config);
     info!("Hello World!");
 
-    let mut adc = Adc::new(p.ADC2);
-    adc.set_sample_time(SampleTime::CYCLES24_5);
+    let mut adc = Adc::new(p.ADC2, Default::default());
+
+    let mut adc_temp = Adc::new(p.ADC1, Default::default());
+    let mut temperature = adc_temp.enable_temperature();
 
     loop {
-        let measured = adc.read(&mut p.PA7);
+        let measured = adc.blocking_read(&mut p.PA7, SampleTime::CYCLES24_5);
+        let temperature = adc_temp.blocking_read(&mut temperature, SampleTime::CYCLES24_5);
         info!("measured: {}", measured);
+        info!("temperature: {}", temperature);
         Timer::after_millis(500).await;
     }
 }

@@ -5,9 +5,9 @@
 #[path = "../common.rs"]
 mod common;
 
+use aes_gcm::Aes128Gcm;
 use aes_gcm::aead::heapless::Vec;
 use aes_gcm::aead::{AeadInPlace, KeyInit};
-use aes_gcm::Aes128Gcm;
 use common::*;
 use embassy_executor::Spawner;
 use embassy_stm32::cryp::{self, *};
@@ -20,7 +20,7 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p: embassy_stm32::Peripherals = embassy_stm32::init(config());
+    let p: embassy_stm32::Peripherals = init();
 
     const PAYLOAD1: &[u8] = b"payload data 1 ;zdfhzdfhS;GKJASBDG;ASKDJBAL,zdfhzdfhzdfhzdfhvljhb,jhbjhb,sdhsdghsdhsfhsghzdfhzdfhzdfhzdfdhsdthsthsdhsgaadfhhgkdgfuoyguoft6783567";
     const PAYLOAD2: &[u8] = b"payload data 2 ;SKEzdfhzdfhzbhgvljhb,jhbjhb,sdhsdghsdhsfhsghshsfhshstsdthadfhsdfjhsfgjsfgjxfgjzdhgDFghSDGHjtfjtjszftjzsdtjhstdsdhsdhsdhsdhsdthsthsdhsgfh";
@@ -72,7 +72,7 @@ async fn main(_spawner: Spawner) {
     defmt::assert!(encrypt_tag == payload_vec[ciphertext.len()..ciphertext.len() + encrypt_tag.len()]);
 
     // Decrypt in software using AES-GCM 128-bit
-    let _ = cipher.decrypt_in_place(&iv.into(), &aad, &mut payload_vec);
+    cipher.decrypt_in_place(&iv.into(), &aad, &mut payload_vec).unwrap();
 
     info!("Test OK");
     cortex_m::asm::bkpt();

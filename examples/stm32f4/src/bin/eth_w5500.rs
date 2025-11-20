@@ -4,7 +4,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{Ipv4Address, Stack, StackResources};
+use embassy_net::{Ipv4Address, StackResources};
 use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::{Device, Runner, State};
 use embassy_stm32::exti::ExtiInput;
@@ -12,8 +12,9 @@ use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::mode::Async;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::spi::Spi;
+use embassy_stm32::spi::mode::Master;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{bind_interrupts, peripherals, rng, spi, Config};
+use embassy_stm32::{Config, bind_interrupts, peripherals, rng, spi};
 use embassy_time::{Delay, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_io_async::Write;
@@ -24,15 +25,15 @@ bind_interrupts!(struct Irqs {
     HASH_RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
-type EthernetSPI = ExclusiveDevice<Spi<'static, Async>, Output<'static>, Delay>;
+type EthernetSPI = ExclusiveDevice<Spi<'static, Async, Master>, Output<'static>, Delay>;
 #[embassy_executor::task]
 async fn ethernet_task(runner: Runner<'static, W5500, EthernetSPI, ExtiInput<'static>, Output<'static>>) -> ! {
     runner.run().await
 }
 
 #[embassy_executor::task]
-async fn net_task(stack: &'static Stack<Device<'static>>) -> ! {
-    stack.run().await
+async fn net_task(mut runner: embassy_net::Runner<'static, Device<'static>>) -> ! {
+    runner.run().await
 }
 
 #[embassy_executor::main]
@@ -80,8 +81,10 @@ async fn main(spawner: Spawner) -> ! {
     let mac_addr = [0x02, 234, 3, 4, 82, 231];
     static STATE: StaticCell<State<2, 2>> = StaticCell::new();
     let state = STATE.init(State::<2, 2>::new());
-    let (device, runner) = embassy_net_wiznet::new(mac_addr, state, spi, w5500_int, w5500_reset).await;
-    unwrap!(spawner.spawn(ethernet_task(runner)));
+    let (device, runner) = embassy_net_wiznet::new(mac_addr, state, spi, w5500_int, w5500_reset)
+        .await
+        .unwrap();
+    spawner.spawn(unwrap!(ethernet_task(runner)));
 
     let config = embassy_net::Config::dhcpv4(Default::default());
     //let config = embassy_net::Config::ipv4_static(embassy_net::StaticConfigV4 {
@@ -90,17 +93,11 @@ async fn main(spawner: Spawner) -> ! {
     //    gateway: Some(Ipv4Address::new(10, 42, 0, 1)),
     //});
 
-    static STACK: StaticCell<Stack<Device>> = StaticCell::new();
-    static RESOURCES: StaticCell<StackResources<2>> = StaticCell::new();
-    let stack = &*STACK.init(Stack::new(
-        device,
-        config,
-        RESOURCES.init(StackResources::<2>::new()),
-        seed,
-    ));
+    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
+    let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
 
     // Launch network task
-    unwrap!(spawner.spawn(net_task(stack)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     // Ensure DHCP configuration is up before trying connect
     stack.wait_config_up().await;

@@ -27,7 +27,7 @@ async fn main(spawner: Spawner) {
     let mut uart_tx = UartTx::new(p.UART0, p.PIN_0, p.DMA_CH0, Config::default());
     let uart_rx = UartRx::new(p.UART1, p.PIN_5, Irqs, p.DMA_CH1, Config::default());
 
-    unwrap!(spawner.spawn(reader(uart_rx)));
+    spawner.spawn(unwrap!(reader(uart_rx)));
 
     info!("Writing...");
     loop {
@@ -39,7 +39,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn reader(mut rx: UartRx<'static, UART1, Async>) {
+async fn reader(mut rx: UartRx<'static, Async>) {
     info!("Reading...");
     loop {
         // read a total of 4 transmissions (32 / 8) and then print the result

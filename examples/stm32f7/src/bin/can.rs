@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use core::num::{NonZeroU16, NonZeroU8};
+use core::num::{NonZeroU8, NonZeroU16};
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -42,7 +42,7 @@ async fn main(spawner: Spawner) {
     // To synchronise to the bus the RX input needs to see a high level.
     // Use `mem::forget()` to release the borrow on the pin but keep the
     // pull-up resistor enabled.
-    let rx_pin = Input::new(&mut p.PA15, Pull::Up);
+    let rx_pin = Input::new(p.PA15.reborrow(), Pull::Up);
     core::mem::forget(rx_pin);
 
     static CAN: StaticCell<Can<'static>> = StaticCell::new();
@@ -64,7 +64,7 @@ async fn main(spawner: Spawner) {
 
     static CAN_TX: StaticCell<CanTx<'static>> = StaticCell::new();
     let tx = CAN_TX.init(tx);
-    spawner.spawn(send_can_message(tx)).unwrap();
+    spawner.spawn(send_can_message(tx).unwrap());
 
     loop {
         let envelope = rx.read().await.unwrap();

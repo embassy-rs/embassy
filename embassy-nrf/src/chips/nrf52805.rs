@@ -1,4 +1,4 @@
-pub use nrf52805_pac as pac;
+pub use nrf_pac as pac;
 
 /// The maximum buffer size that the EasyDMA can send/recv in one operation.
 pub const EASY_DMA_SIZE: usize = (1 << 14) - 1;
@@ -12,6 +12,7 @@ pub const APPROTECT_MIN_BUILD_CODE: u8 = b'B';
 embassy_hal_internal::peripherals! {
     // RTC
     RTC0,
+    #[cfg(not(feature="time-driver-rtc1"))]
     RTC1,
 
     // WDT
@@ -132,17 +133,21 @@ embassy_hal_internal::peripherals! {
 
     // Radio
     RADIO,
+
+    // EGU
+    EGU0,
+    EGU1,
 }
 
-impl_uarte!(UARTE0, UARTE0, UARTE0_UART0);
+impl_uarte!(UARTE0, UARTE0, UARTE0);
 
-impl_spim!(SPI0, SPIM0, SPIM0_SPIS0_SPI0);
+impl_spim!(SPI0, SPIM0, SPI0);
 
-impl_spis!(SPI0, SPIS0, SPIM0_SPIS0_SPI0);
+impl_spis!(SPI0, SPIS0, SPI0);
 
-impl_twim!(TWI0, TWIM0, TWIM0_TWIS0_TWI0);
+impl_twim!(TWI0, TWIM0, TWI0);
 
-impl_twis!(TWI0, TWIS0, TWIM0_TWIS0_TWI0);
+impl_twis!(TWI0, TWIS0, TWI0);
 
 impl_qdec!(QDEC, QDEC, QDEC);
 
@@ -151,6 +156,10 @@ impl_rng!(RNG, RNG, RNG);
 impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);
 impl_timer!(TIMER2, TIMER2, TIMER2);
+
+impl_rtc!(RTC0, RTC0, RTC0);
+#[cfg(not(feature = "time-driver-rtc1"))]
+impl_rtc!(RTC1, RTC1, RTC1);
 
 impl_pin!(P0_00, 0, 0);
 impl_pin!(P0_01, 0, 1);
@@ -186,55 +195,67 @@ impl_pin!(P0_29, 0, 29);
 impl_pin!(P0_30, 0, 30);
 impl_pin!(P0_31, 0, 31);
 
-impl_ppi_channel!(PPI_CH0, 0 => configurable);
-impl_ppi_channel!(PPI_CH1, 1 => configurable);
-impl_ppi_channel!(PPI_CH2, 2 => configurable);
-impl_ppi_channel!(PPI_CH3, 3 => configurable);
-impl_ppi_channel!(PPI_CH4, 4 => configurable);
-impl_ppi_channel!(PPI_CH5, 5 => configurable);
-impl_ppi_channel!(PPI_CH6, 6 => configurable);
-impl_ppi_channel!(PPI_CH7, 7 => configurable);
-impl_ppi_channel!(PPI_CH8, 8 => configurable);
-impl_ppi_channel!(PPI_CH9, 9 => configurable);
-impl_ppi_channel!(PPI_CH20, 20 => static);
-impl_ppi_channel!(PPI_CH21, 21 => static);
-impl_ppi_channel!(PPI_CH22, 22 => static);
-impl_ppi_channel!(PPI_CH23, 23 => static);
-impl_ppi_channel!(PPI_CH24, 24 => static);
-impl_ppi_channel!(PPI_CH25, 25 => static);
-impl_ppi_channel!(PPI_CH26, 26 => static);
-impl_ppi_channel!(PPI_CH27, 27 => static);
-impl_ppi_channel!(PPI_CH28, 28 => static);
-impl_ppi_channel!(PPI_CH29, 29 => static);
-impl_ppi_channel!(PPI_CH30, 30 => static);
-impl_ppi_channel!(PPI_CH31, 31 => static);
+impl_ppi_channel!(PPI_CH0, PPI, 0 => configurable);
+impl_ppi_channel!(PPI_CH1, PPI, 1 => configurable);
+impl_ppi_channel!(PPI_CH2, PPI, 2 => configurable);
+impl_ppi_channel!(PPI_CH3, PPI, 3 => configurable);
+impl_ppi_channel!(PPI_CH4, PPI, 4 => configurable);
+impl_ppi_channel!(PPI_CH5, PPI, 5 => configurable);
+impl_ppi_channel!(PPI_CH6, PPI, 6 => configurable);
+impl_ppi_channel!(PPI_CH7, PPI, 7 => configurable);
+impl_ppi_channel!(PPI_CH8, PPI, 8 => configurable);
+impl_ppi_channel!(PPI_CH9, PPI, 9 => configurable);
+impl_ppi_channel!(PPI_CH20, PPI, 20 => static);
+impl_ppi_channel!(PPI_CH21, PPI, 21 => static);
+impl_ppi_channel!(PPI_CH22, PPI, 22 => static);
+impl_ppi_channel!(PPI_CH23, PPI, 23 => static);
+impl_ppi_channel!(PPI_CH24, PPI, 24 => static);
+impl_ppi_channel!(PPI_CH25, PPI, 25 => static);
+impl_ppi_channel!(PPI_CH26, PPI, 26 => static);
+impl_ppi_channel!(PPI_CH27, PPI, 27 => static);
+impl_ppi_channel!(PPI_CH28, PPI, 28 => static);
+impl_ppi_channel!(PPI_CH29, PPI, 29 => static);
+impl_ppi_channel!(PPI_CH30, PPI, 30 => static);
+impl_ppi_channel!(PPI_CH31, PPI, 31 => static);
+
+impl_ppi_group!(PPI_GROUP0, PPI, 0);
+impl_ppi_group!(PPI_GROUP1, PPI, 1);
+impl_ppi_group!(PPI_GROUP2, PPI, 2);
+impl_ppi_group!(PPI_GROUP3, PPI, 3);
+impl_ppi_group!(PPI_GROUP4, PPI, 4);
+impl_ppi_group!(PPI_GROUP5, PPI, 5);
 
 impl_saadc_input!(P0_04, ANALOG_INPUT2);
 impl_saadc_input!(P0_05, ANALOG_INPUT3);
 
 impl_radio!(RADIO, RADIO, RADIO);
 
+impl_egu!(EGU0, EGU0, EGU0_SWI0);
+impl_egu!(EGU1, EGU1, EGU1_SWI1);
+
+impl_wdt!(WDT, WDT, WDT, 0);
+
 embassy_hal_internal::interrupt_mod!(
-    POWER_CLOCK,
+    CLOCK_POWER,
     RADIO,
-    UARTE0_UART0,
-    TWIM0_TWIS0_TWI0,
-    SPIM0_SPIS0_SPI0,
+    UARTE0,
+    TWI0,
+    SPI0,
     GPIOTE,
     SAADC,
     TIMER0,
     TIMER1,
     TIMER2,
-    RTC0,
     TEMP,
     RNG,
     ECB,
-    CCM_AAR,
+    AAR_CCM,
     WDT,
+    RTC0,
     RTC1,
     QDEC,
-    SWI0_EGU0,
-    SWI1_EGU1,
+    EGU0_SWI0,
+    EGU1_SWI1,
     SWI2,
     SWI3,
     SWI4,

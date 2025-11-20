@@ -2,13 +2,13 @@
 
 #![macro_use]
 
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
-use core::sync::atomic::compiler_fence;
 use core::sync::atomic::Ordering::SeqCst;
+use core::sync::atomic::compiler_fence;
 use core::task::Poll;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(feature = "time")]
 use embassy_time::{Duration, Instant};
@@ -16,8 +16,10 @@ use embassy_time::{Duration, Instant};
 use crate::chip::{EASY_DMA_SIZE, FORCE_COPY_BUFFER_SIZE};
 use crate::gpio::Pin as GpioPin;
 use crate::interrupt::typelevel::Interrupt;
+use crate::pac::gpio::vals as gpiovals;
+use crate::pac::twis::vals;
 use crate::util::slice_in_ram_or;
-use crate::{gpio, interrupt, pac, Peripheral};
+use crate::{gpio, interrupt, pac};
 
 /// TWIS config.
 #[non_exhaustive]
@@ -119,95 +121,116 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         let r = T::regs();
         let s = T::state();
 
-        if r.events_read.read().bits() != 0 || r.events_write.read().bits() != 0 {
+        if r.events_read().read() != 0 || r.events_write().read() != 0 {
             s.waker.wake();
-            r.intenclr.modify(|_r, w| w.read().clear().write().clear());
+            r.intenclr().write(|w| {
+                w.set_read(true);
+                w.set_write(true);
+            });
         }
-        if r.events_stopped.read().bits() != 0 {
+        if r.events_stopped().read() != 0 {
             s.waker.wake();
-            r.intenclr.modify(|_r, w| w.stopped().clear());
+            r.intenclr().write(|w| w.set_stopped(true));
         }
-        if r.events_error.read().bits() != 0 {
+        if r.events_error().read() != 0 {
             s.waker.wake();
-            r.intenclr.modify(|_r, w| w.error().clear());
+            r.intenclr().write(|w| w.set_error(true));
         }
     }
 }
 
 /// TWIS driver.
-pub struct Twis<'d, T: Instance> {
-    _p: PeripheralRef<'d, T>,
+pub struct Twis<'d> {
+    r: pac::twis::Twis,
+    state: &'static State,
+    _p: PhantomData<&'d ()>,
 }
 
-impl<'d, T: Instance> Twis<'d, T> {
+impl<'d> Twis<'d> {
     /// Create a new TWIS driver.
-    pub fn new(
-        twis: impl Peripheral<P = T> + 'd,
+    pub fn new<T: Instance>(
+        _twis: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        sda: impl Peripheral<P = impl GpioPin> + 'd,
-        scl: impl Peripheral<P = impl GpioPin> + 'd,
+        sda: Peri<'d, impl GpioPin>,
+        scl: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(twis, sda, scl);
-
         let r = T::regs();
 
         // Configure pins
         sda.conf().write(|w| {
-            w.dir().input();
-            w.input().connect();
-            if config.sda_high_drive {
-                w.drive().h0d1();
-            } else {
-                w.drive().s0d1();
+            w.set_dir(gpiovals::Dir::INPUT);
+            w.set_input(gpiovals::Input::CONNECT);
+            #[cfg(not(feature = "_nrf54l"))]
+            w.set_drive(match config.sda_high_drive {
+                true => gpiovals::Drive::H0D1,
+                false => gpiovals::Drive::S0D1,
+            });
+            #[cfg(feature = "_nrf54l")]
+            {
+                w.set_drive0(match config.sda_high_drive {
+                    true => gpiovals::Drive::H,
+                    false => gpiovals::Drive::S,
+                });
+                w.set_drive1(gpiovals::Drive::D);
             }
             if config.sda_pullup {
-                w.pull().pullup();
+                w.set_pull(gpiovals::Pull::PULLUP);
             }
-            w
         });
         scl.conf().write(|w| {
-            w.dir().input();
-            w.input().connect();
-            if config.scl_high_drive {
-                w.drive().h0d1();
-            } else {
-                w.drive().s0d1();
+            w.set_dir(gpiovals::Dir::INPUT);
+            w.set_input(gpiovals::Input::CONNECT);
+            #[cfg(not(feature = "_nrf54l"))]
+            w.set_drive(match config.scl_high_drive {
+                true => gpiovals::Drive::H0D1,
+                false => gpiovals::Drive::S0D1,
+            });
+            #[cfg(feature = "_nrf54l")]
+            {
+                w.set_drive0(match config.scl_high_drive {
+                    true => gpiovals::Drive::H,
+                    false => gpiovals::Drive::S,
+                });
+                w.set_drive1(gpiovals::Drive::D);
             }
-            if config.scl_pullup {
-                w.pull().pullup();
+            if config.sda_pullup {
+                w.set_pull(gpiovals::Pull::PULLUP);
             }
-            w
         });
 
         // Select pins.
-        r.psel.sda.write(|w| unsafe { w.bits(sda.psel_bits()) });
-        r.psel.scl.write(|w| unsafe { w.bits(scl.psel_bits()) });
+        r.psel().sda().write_value(sda.psel_bits());
+        r.psel().scl().write_value(scl.psel_bits());
 
         // Enable TWIS instance.
-        r.enable.write(|w| w.enable().enabled());
+        r.enable().write(|w| w.set_enable(vals::Enable::ENABLED));
 
         // Disable all events interrupts
-        r.intenclr.write(|w| unsafe { w.bits(0xFFFF_FFFF) });
+        r.intenclr().write(|w| w.0 = 0xFFFF_FFFF);
 
         // Set address
-        r.address[0].write(|w| unsafe { w.address().bits(config.address0) });
-        r.config.write(|w| w.address0().enabled());
+        r.address(0).write(|w| w.set_address(config.address0));
+        r.config().write(|w| w.set_address0(true));
         if let Some(address1) = config.address1 {
-            r.address[1].write(|w| unsafe { w.address().bits(address1) });
-            r.config.modify(|_r, w| w.address1().enabled());
+            r.address(1).write(|w| w.set_address(address1));
+            r.config().modify(|w| w.set_address1(true));
         }
 
         // Set over-read character
-        r.orc.write(|w| unsafe { w.orc().bits(config.orc) });
+        r.orc().write(|w| w.set_orc(config.orc));
 
         // Generate suspend on read event
-        r.shorts.write(|w| w.read_suspend().enabled());
+        r.shorts().write(|w| w.set_read_suspend(true));
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        Self { _p: twis }
+        Self {
+            r: T::regs(),
+            state: T::state(),
+            _p: PhantomData,
+        }
     }
 
     /// Set TX buffer, checking that it is in RAM and has suitable length.
@@ -218,24 +241,20 @@ impl<'d, T: Instance> Twis<'d, T> {
             return Err(Error::TxBufferTooLong);
         }
 
-        let r = T::regs();
+        let r = self.r;
 
-        r.txd.ptr.write(|w|
-            // We're giving the register a pointer to the stack. Since we're
-            // waiting for the I2C transaction to end before this stack pointer
-            // becomes invalid, there's nothing wrong here.
-            //
-            // The PTR field is a full 32 bits wide and accepts the full range
-            // of values.
-            w.ptr().bits(buffer.as_ptr() as u32));
-        r.txd.maxcnt.write(|w|
+        // We're giving the register a pointer to the stack. Since we're
+        // waiting for the I2C transaction to end before this stack pointer
+        // becomes invalid, there's nothing wrong here.
+        r.dma().tx().ptr().write_value(buffer.as_ptr() as u32);
+        r.dma().tx().maxcnt().write(|w|
             // We're giving it the length of the buffer, so no danger of
             // accessing invalid memory. We have verified that the length of the
             // buffer fits in an `u8`, so the cast to `u8` is also fine.
             //
             // The MAXCNT field is 8 bits wide and accepts the full range of
             // values.
-            w.maxcnt().bits(buffer.len() as _));
+            w.set_maxcnt(buffer.len() as _));
 
         Ok(())
     }
@@ -249,17 +268,13 @@ impl<'d, T: Instance> Twis<'d, T> {
             return Err(Error::RxBufferTooLong);
         }
 
-        let r = T::regs();
+        let r = self.r;
 
-        r.rxd.ptr.write(|w|
-            // We're giving the register a pointer to the stack. Since we're
-            // waiting for the I2C transaction to end before this stack pointer
-            // becomes invalid, there's nothing wrong here.
-            //
-            // The PTR field is a full 32 bits wide and accepts the full range
-            // of values.
-            w.ptr().bits(buffer.as_mut_ptr() as u32));
-        r.rxd.maxcnt.write(|w|
+        // We're giving the register a pointer to the stack. Since we're
+        // waiting for the I2C transaction to end before this stack pointer
+        // becomes invalid, there's nothing wrong here.
+        r.dma().rx().ptr().write_value(buffer.as_mut_ptr() as u32);
+        r.dma().rx().maxcnt().write(|w|
             // We're giving it the length of the buffer, so no danger of
             // accessing invalid memory. We have verified that the length of the
             // buffer fits in an `u8`, so the cast to the type of maxcnt
@@ -269,48 +284,51 @@ impl<'d, T: Instance> Twis<'d, T> {
             // type than a u8, so we use a `_` cast rather than a `u8` cast.
             // The MAXCNT field is thus at least 8 bits wide and accepts the
             // full range of values that fit in a `u8`.
-            w.maxcnt().bits(buffer.len() as _));
+            w.set_maxcnt(buffer.len() as _));
 
         Ok(())
     }
 
     fn clear_errorsrc(&mut self) {
-        let r = T::regs();
-        r.errorsrc
-            .write(|w| w.overflow().bit(true).overread().bit(true).dnack().bit(true));
+        let r = self.r;
+        r.errorsrc().write(|w| {
+            w.set_overflow(true);
+            w.set_overread(true);
+            w.set_dnack(true);
+        });
     }
 
     /// Returns matched address for latest command.
     pub fn address_match(&self) -> u8 {
-        let r = T::regs();
-        r.address[r.match_.read().bits() as usize].read().address().bits()
+        let r = self.r;
+        r.address(r.match_().read().0 as usize).read().address()
     }
 
     /// Returns the index of the address matched in the latest command.
     pub fn address_match_index(&self) -> usize {
-        T::regs().match_.read().bits() as _
+        self.r.match_().read().0 as _
     }
 
     /// Wait for read, write, stop or error
     fn blocking_listen_wait(&mut self) -> Result<Status, Error> {
-        let r = T::regs();
+        let r = self.r;
         loop {
-            if r.events_error.read().bits() != 0 {
-                r.events_error.reset();
-                r.tasks_stop.write(|w| unsafe { w.bits(1) });
-                while r.events_stopped.read().bits() == 0 {}
+            if r.events_error().read() != 0 {
+                r.events_error().write_value(0);
+                r.tasks_stop().write_value(1);
+                while r.events_stopped().read() == 0 {}
                 return Err(Error::Overflow);
             }
-            if r.events_stopped.read().bits() != 0 {
-                r.events_stopped.reset();
+            if r.events_stopped().read() != 0 {
+                r.events_stopped().write_value(0);
                 return Err(Error::Bus);
             }
-            if r.events_read.read().bits() != 0 {
-                r.events_read.reset();
+            if r.events_read().read() != 0 {
+                r.events_read().write_value(0);
                 return Ok(Status::Read);
             }
-            if r.events_write.read().bits() != 0 {
-                r.events_write.reset();
+            if r.events_write().read() != 0 {
+                r.events_write().write_value(0);
                 return Ok(Status::Write);
             }
         }
@@ -318,25 +336,25 @@ impl<'d, T: Instance> Twis<'d, T> {
 
     /// Wait for stop, repeated start or error
     fn blocking_listen_wait_end(&mut self, status: Status) -> Result<Command, Error> {
-        let r = T::regs();
+        let r = self.r;
         loop {
             // stop if an error occurred
-            if r.events_error.read().bits() != 0 {
-                r.events_error.reset();
-                r.tasks_stop.write(|w| unsafe { w.bits(1) });
+            if r.events_error().read() != 0 {
+                r.events_error().write_value(0);
+                r.tasks_stop().write_value(1);
                 return Err(Error::Overflow);
-            } else if r.events_stopped.read().bits() != 0 {
-                r.events_stopped.reset();
+            } else if r.events_stopped().read() != 0 {
+                r.events_stopped().write_value(0);
                 return match status {
                     Status::Read => Ok(Command::Read),
                     Status::Write => {
-                        let n = r.rxd.amount.read().bits() as usize;
+                        let n = r.dma().rx().amount().read().0 as usize;
                         Ok(Command::Write(n))
                     }
                 };
-            } else if r.events_read.read().bits() != 0 {
-                r.events_read.reset();
-                let n = r.rxd.amount.read().bits() as usize;
+            } else if r.events_read().read() != 0 {
+                r.events_read().write_value(0);
+                let n = r.dma().rx().amount().read().0 as usize;
                 return Ok(Command::WriteRead(n));
             }
         }
@@ -344,23 +362,23 @@ impl<'d, T: Instance> Twis<'d, T> {
 
     /// Wait for stop or error
     fn blocking_wait(&mut self) -> Result<usize, Error> {
-        let r = T::regs();
+        let r = self.r;
         loop {
             // stop if an error occurred
-            if r.events_error.read().bits() != 0 {
-                r.events_error.reset();
-                r.tasks_stop.write(|w| unsafe { w.bits(1) });
-                let errorsrc = r.errorsrc.read();
-                if errorsrc.overread().is_detected() {
+            if r.events_error().read() != 0 {
+                r.events_error().write_value(0);
+                r.tasks_stop().write_value(1);
+                let errorsrc = r.errorsrc().read();
+                if errorsrc.overread() {
                     return Err(Error::OverRead);
-                } else if errorsrc.dnack().is_received() {
+                } else if errorsrc.dnack() {
                     return Err(Error::DataNack);
                 } else {
                     return Err(Error::Bus);
                 }
-            } else if r.events_stopped.read().bits() != 0 {
-                r.events_stopped.reset();
-                let n = r.txd.amount.read().bits() as usize;
+            } else if r.events_stopped().read() != 0 {
+                r.events_stopped().write_value(0);
+                let n = r.dma().tx().amount().read().0 as usize;
                 return Ok(n);
             }
         }
@@ -369,27 +387,27 @@ impl<'d, T: Instance> Twis<'d, T> {
     /// Wait for stop or error with timeout
     #[cfg(feature = "time")]
     fn blocking_wait_timeout(&mut self, timeout: Duration) -> Result<usize, Error> {
-        let r = T::regs();
+        let r = self.r;
         let deadline = Instant::now() + timeout;
         loop {
             // stop if an error occurred
-            if r.events_error.read().bits() != 0 {
-                r.events_error.reset();
-                r.tasks_stop.write(|w| unsafe { w.bits(1) });
-                let errorsrc = r.errorsrc.read();
-                if errorsrc.overread().is_detected() {
+            if r.events_error().read() != 0 {
+                r.events_error().write_value(0);
+                r.tasks_stop().write_value(1);
+                let errorsrc = r.errorsrc().read();
+                if errorsrc.overread() {
                     return Err(Error::OverRead);
-                } else if errorsrc.dnack().is_received() {
+                } else if errorsrc.dnack() {
                     return Err(Error::DataNack);
                 } else {
                     return Err(Error::Bus);
                 }
-            } else if r.events_stopped.read().bits() != 0 {
-                r.events_stopped.reset();
-                let n = r.txd.amount.read().bits() as usize;
+            } else if r.events_stopped().read() != 0 {
+                r.events_stopped().write_value(0);
+                let n = r.dma().tx().amount().read().0 as usize;
                 return Ok(n);
             } else if Instant::now() > deadline {
-                r.tasks_stop.write(|w| unsafe { w.bits(1) });
+                r.tasks_stop().write_value(1);
                 return Err(Error::Timeout);
             }
         }
@@ -398,29 +416,29 @@ impl<'d, T: Instance> Twis<'d, T> {
     /// Wait for read, write, stop or error with timeout
     #[cfg(feature = "time")]
     fn blocking_listen_wait_timeout(&mut self, timeout: Duration) -> Result<Status, Error> {
-        let r = T::regs();
+        let r = self.r;
         let deadline = Instant::now() + timeout;
         loop {
-            if r.events_error.read().bits() != 0 {
-                r.events_error.reset();
-                r.tasks_stop.write(|w| unsafe { w.bits(1) });
-                while r.events_stopped.read().bits() == 0 {}
+            if r.events_error().read() != 0 {
+                r.events_error().write_value(0);
+                r.tasks_stop().write_value(1);
+                while r.events_stopped().read() == 0 {}
                 return Err(Error::Overflow);
             }
-            if r.events_stopped.read().bits() != 0 {
-                r.events_stopped.reset();
+            if r.events_stopped().read() != 0 {
+                r.events_stopped().write_value(0);
                 return Err(Error::Bus);
             }
-            if r.events_read.read().bits() != 0 {
-                r.events_read.reset();
+            if r.events_read().read() != 0 {
+                r.events_read().write_value(0);
                 return Ok(Status::Read);
             }
-            if r.events_write.read().bits() != 0 {
-                r.events_write.reset();
+            if r.events_write().read() != 0 {
+                r.events_write().write_value(0);
                 return Ok(Status::Write);
             }
             if Instant::now() > deadline {
-                r.tasks_stop.write(|w| unsafe { w.bits(1) });
+                r.tasks_stop().write_value(1);
                 return Err(Error::Timeout);
             }
         }
@@ -429,29 +447,29 @@ impl<'d, T: Instance> Twis<'d, T> {
     /// Wait for stop, repeated start or error with timeout
     #[cfg(feature = "time")]
     fn blocking_listen_wait_end_timeout(&mut self, status: Status, timeout: Duration) -> Result<Command, Error> {
-        let r = T::regs();
+        let r = self.r;
         let deadline = Instant::now() + timeout;
         loop {
             // stop if an error occurred
-            if r.events_error.read().bits() != 0 {
-                r.events_error.reset();
-                r.tasks_stop.write(|w| unsafe { w.bits(1) });
+            if r.events_error().read() != 0 {
+                r.events_error().write_value(0);
+                r.tasks_stop().write_value(1);
                 return Err(Error::Overflow);
-            } else if r.events_stopped.read().bits() != 0 {
-                r.events_stopped.reset();
+            } else if r.events_stopped().read() != 0 {
+                r.events_stopped().write_value(0);
                 return match status {
                     Status::Read => Ok(Command::Read),
                     Status::Write => {
-                        let n = r.rxd.amount.read().bits() as usize;
+                        let n = r.dma().rx().amount().read().0 as usize;
                         Ok(Command::Write(n))
                     }
                 };
-            } else if r.events_read.read().bits() != 0 {
-                r.events_read.reset();
-                let n = r.rxd.amount.read().bits() as usize;
+            } else if r.events_read().read() != 0 {
+                r.events_read().write_value(0);
+                let n = r.dma().rx().amount().read().0 as usize;
                 return Ok(Command::WriteRead(n));
             } else if Instant::now() > deadline {
-                r.tasks_stop.write(|w| unsafe { w.bits(1) });
+                r.tasks_stop().write_value(1);
                 return Err(Error::Timeout);
             }
         }
@@ -459,27 +477,26 @@ impl<'d, T: Instance> Twis<'d, T> {
 
     /// Wait for stop or error
     fn async_wait(&mut self) -> impl Future<Output = Result<usize, Error>> {
+        let r = self.r;
+        let s = self.state;
         poll_fn(move |cx| {
-            let r = T::regs();
-            let s = T::state();
-
             s.waker.register(cx.waker());
 
             // stop if an error occurred
-            if r.events_error.read().bits() != 0 {
-                r.events_error.reset();
-                r.tasks_stop.write(|w| unsafe { w.bits(1) });
-                let errorsrc = r.errorsrc.read();
-                if errorsrc.overread().is_detected() {
+            if r.events_error().read() != 0 {
+                r.events_error().write_value(0);
+                r.tasks_stop().write_value(1);
+                let errorsrc = r.errorsrc().read();
+                if errorsrc.overread() {
                     return Poll::Ready(Err(Error::OverRead));
-                } else if errorsrc.dnack().is_received() {
+                } else if errorsrc.dnack() {
                     return Poll::Ready(Err(Error::DataNack));
                 } else {
                     return Poll::Ready(Err(Error::Bus));
                 }
-            } else if r.events_stopped.read().bits() != 0 {
-                r.events_stopped.reset();
-                let n = r.txd.amount.read().bits() as usize;
+            } else if r.events_stopped().read() != 0 {
+                r.events_stopped().write_value(0);
+                let n = r.dma().tx().amount().read().0 as usize;
                 return Poll::Ready(Ok(n));
             }
 
@@ -489,25 +506,24 @@ impl<'d, T: Instance> Twis<'d, T> {
 
     /// Wait for read or write
     fn async_listen_wait(&mut self) -> impl Future<Output = Result<Status, Error>> {
+        let r = self.r;
+        let s = self.state;
         poll_fn(move |cx| {
-            let r = T::regs();
-            let s = T::state();
-
             s.waker.register(cx.waker());
 
             // stop if an error occurred
-            if r.events_error.read().bits() != 0 {
-                r.events_error.reset();
-                r.tasks_stop.write(|w| unsafe { w.bits(1) });
+            if r.events_error().read() != 0 {
+                r.events_error().write_value(0);
+                r.tasks_stop().write_value(1);
                 return Poll::Ready(Err(Error::Overflow));
-            } else if r.events_read.read().bits() != 0 {
-                r.events_read.reset();
+            } else if r.events_read().read() != 0 {
+                r.events_read().write_value(0);
                 return Poll::Ready(Ok(Status::Read));
-            } else if r.events_write.read().bits() != 0 {
-                r.events_write.reset();
+            } else if r.events_write().read() != 0 {
+                r.events_write().write_value(0);
                 return Poll::Ready(Ok(Status::Write));
-            } else if r.events_stopped.read().bits() != 0 {
-                r.events_stopped.reset();
+            } else if r.events_stopped().read() != 0 {
+                r.events_stopped().write_value(0);
                 return Poll::Ready(Err(Error::Bus));
             }
             Poll::Pending
@@ -516,29 +532,28 @@ impl<'d, T: Instance> Twis<'d, T> {
 
     /// Wait for stop, repeated start or error
     fn async_listen_wait_end(&mut self, status: Status) -> impl Future<Output = Result<Command, Error>> {
+        let r = self.r;
+        let s = self.state;
         poll_fn(move |cx| {
-            let r = T::regs();
-            let s = T::state();
-
             s.waker.register(cx.waker());
 
             // stop if an error occurred
-            if r.events_error.read().bits() != 0 {
-                r.events_error.reset();
-                r.tasks_stop.write(|w| unsafe { w.bits(1) });
+            if r.events_error().read() != 0 {
+                r.events_error().write_value(0);
+                r.tasks_stop().write_value(1);
                 return Poll::Ready(Err(Error::Overflow));
-            } else if r.events_stopped.read().bits() != 0 {
-                r.events_stopped.reset();
+            } else if r.events_stopped().read() != 0 {
+                r.events_stopped().write_value(0);
                 return match status {
                     Status::Read => Poll::Ready(Ok(Command::Read)),
                     Status::Write => {
-                        let n = r.rxd.amount.read().bits() as usize;
+                        let n = r.dma().rx().amount().read().0 as usize;
                         Poll::Ready(Ok(Command::Write(n)))
                     }
                 };
-            } else if r.events_read.read().bits() != 0 {
-                r.events_read.reset();
-                let n = r.rxd.amount.read().bits() as usize;
+            } else if r.events_read().read() != 0 {
+                r.events_read().write_value(0);
+                let n = r.dma().rx().amount().read().0 as usize;
                 return Poll::Ready(Ok(Command::WriteRead(n)));
             }
             Poll::Pending
@@ -546,7 +561,7 @@ impl<'d, T: Instance> Twis<'d, T> {
     }
 
     fn setup_respond_from_ram(&mut self, buffer: &[u8], inten: bool) -> Result<(), Error> {
-        let r = T::regs();
+        let r = self.r;
 
         compiler_fence(SeqCst);
 
@@ -554,19 +569,25 @@ impl<'d, T: Instance> Twis<'d, T> {
         unsafe { self.set_tx_buffer(buffer)? };
 
         // Clear events
-        r.events_stopped.reset();
-        r.events_error.reset();
+        r.events_stopped().write_value(0);
+        r.events_error().write_value(0);
         self.clear_errorsrc();
 
         if inten {
-            r.intenset.write(|w| w.stopped().set().error().set());
+            r.intenset().write(|w| {
+                w.set_stopped(true);
+                w.set_error(true);
+            });
         } else {
-            r.intenclr.write(|w| w.stopped().clear().error().clear());
+            r.intenclr().write(|w| {
+                w.set_stopped(true);
+                w.set_error(true);
+            });
         }
 
         // Start write operation.
-        r.tasks_preparetx.write(|w| unsafe { w.bits(1) });
-        r.tasks_resume.write(|w| unsafe { w.bits(1) });
+        r.tasks_preparetx().write_value(1);
+        r.tasks_resume().write_value(1);
         Ok(())
     }
 
@@ -584,48 +605,64 @@ impl<'d, T: Instance> Twis<'d, T> {
     }
 
     fn setup_listen(&mut self, buffer: &mut [u8], inten: bool) -> Result<(), Error> {
-        let r = T::regs();
+        let r = self.r;
         compiler_fence(SeqCst);
 
         // Set up the DMA read.
         unsafe { self.set_rx_buffer(buffer)? };
 
         // Clear events
-        r.events_read.reset();
-        r.events_write.reset();
-        r.events_stopped.reset();
-        r.events_error.reset();
+        r.events_read().write_value(0);
+        r.events_write().write_value(0);
+        r.events_stopped().write_value(0);
+        r.events_error().write_value(0);
         self.clear_errorsrc();
 
         if inten {
-            r.intenset
-                .write(|w| w.stopped().set().error().set().read().set().write().set());
+            r.intenset().write(|w| {
+                w.set_stopped(true);
+                w.set_error(true);
+                w.set_read(true);
+                w.set_write(true);
+            });
         } else {
-            r.intenclr
-                .write(|w| w.stopped().clear().error().clear().read().clear().write().clear());
+            r.intenclr().write(|w| {
+                w.set_stopped(true);
+                w.set_error(true);
+                w.set_read(true);
+                w.set_write(true);
+            });
         }
 
         // Start read operation.
-        r.tasks_preparerx.write(|w| unsafe { w.bits(1) });
+        r.tasks_preparerx().write_value(1);
 
         Ok(())
     }
 
     fn setup_listen_end(&mut self, inten: bool) -> Result<(), Error> {
-        let r = T::regs();
+        let r = self.r;
         compiler_fence(SeqCst);
 
         // Clear events
-        r.events_read.reset();
-        r.events_write.reset();
-        r.events_stopped.reset();
-        r.events_error.reset();
+        r.events_read().write_value(0);
+        r.events_write().write_value(0);
+        r.events_stopped().write_value(0);
+        r.events_error().write_value(0);
         self.clear_errorsrc();
 
         if inten {
-            r.intenset.write(|w| w.stopped().set().error().set().read().set());
+            r.intenset().write(|w| {
+                w.set_stopped(true);
+                w.set_error(true);
+                w.set_read(true);
+            });
         } else {
-            r.intenclr.write(|w| w.stopped().clear().error().clear().read().clear());
+            r.intenclr().write(|w| {
+                w.set_stopped(true);
+                w.set_error(true);
+                w.set_read(true);
+            });
         }
 
         Ok(())
@@ -684,7 +721,7 @@ impl<'d, T: Instance> Twis<'d, T> {
 
     /// Respond to an I2C master READ command with timeout.
     /// Returns the number of bytes written.
-    /// See [`blocking_respond_to_read`].
+    /// See [Self::blocking_respond_to_read].
     #[cfg(feature = "time")]
     pub fn blocking_respond_to_read_timeout(&mut self, buffer: &[u8], timeout: Duration) -> Result<usize, Error> {
         self.setup_respond(buffer, false)?;
@@ -737,18 +774,18 @@ impl<'d, T: Instance> Twis<'d, T> {
     }
 }
 
-impl<'a, T: Instance> Drop for Twis<'a, T> {
+impl<'a> Drop for Twis<'a> {
     fn drop(&mut self) {
         trace!("twis drop");
 
         // TODO: check for abort
 
         // disable!
-        let r = T::regs();
-        r.enable.write(|w| w.enable().disabled());
+        let r = self.r;
+        r.enable().write(|w| w.set_enable(vals::Enable::DISABLED));
 
-        gpio::deconfigure_pin(r.psel.sda.read().bits());
-        gpio::deconfigure_pin(r.psel.scl.read().bits());
+        gpio::deconfigure_pin(r.psel().sda().read());
+        gpio::deconfigure_pin(r.psel().scl().read());
 
         trace!("twis drop: done");
     }
@@ -767,13 +804,13 @@ impl State {
 }
 
 pub(crate) trait SealedInstance {
-    fn regs() -> &'static pac::twis0::RegisterBlock;
+    fn regs() -> pac::twis::Twis;
     fn state() -> &'static State;
 }
 
 /// TWIS peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static {
+pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }
@@ -781,8 +818,8 @@ pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static {
 macro_rules! impl_twis {
     ($type:ident, $pac_type:ident, $irq:ident) => {
         impl crate::twis::SealedInstance for peripherals::$type {
-            fn regs() -> &'static pac::twis0::RegisterBlock {
-                unsafe { &*pac::$pac_type::ptr() }
+            fn regs() -> pac::twis::Twis {
+                pac::$pac_type
             }
             fn state() -> &'static crate::twis::State {
                 static STATE: crate::twis::State = crate::twis::State::new();

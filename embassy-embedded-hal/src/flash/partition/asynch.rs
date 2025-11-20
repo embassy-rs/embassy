@@ -1,7 +1,7 @@
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::mutex::Mutex;
 use embedded_storage::nor_flash::ErrorType;
-use embedded_storage_async::nor_flash::{NorFlash, ReadNorFlash};
+use embedded_storage_async::nor_flash::{MultiwriteNorFlash, NorFlash, ReadNorFlash};
 
 use super::Error;
 
@@ -16,6 +16,16 @@ pub struct Partition<'a, M: RawMutex, T: NorFlash> {
     flash: &'a Mutex<M, T>,
     offset: u32,
     size: u32,
+}
+
+impl<'a, M: RawMutex, T: NorFlash> Clone for Partition<'a, M, T> {
+    fn clone(&self) -> Self {
+        Self {
+            flash: self.flash,
+            offset: self.offset,
+            size: self.size,
+        }
+    }
 }
 
 impl<'a, M: RawMutex, T: NorFlash> Partition<'a, M, T> {
@@ -89,6 +99,8 @@ impl<M: RawMutex, T: NorFlash> NorFlash for Partition<'_, M, T> {
     }
 }
 
+impl<M: RawMutex, T: MultiwriteNorFlash> MultiwriteNorFlash for Partition<'_, M, T> {}
+
 #[cfg(test)]
 mod tests {
     use embassy_sync::blocking_mutex::raw::NoopRawMutex;
@@ -107,7 +119,7 @@ mod tests {
         let mut read_buf = [0; 8];
         partition.read(4, &mut read_buf).await.unwrap();
 
-        assert!(read_buf.iter().position(|&x| x != 0xAA).is_none());
+        assert!(!read_buf.iter().any(|&x| x != 0xAA));
     }
 
     #[futures_test::test]
@@ -121,7 +133,7 @@ mod tests {
         partition.write(4, &write_buf).await.unwrap();
 
         let flash = flash.try_lock().unwrap();
-        assert!(flash.mem[132..132 + 8].iter().position(|&x| x != 0xAA).is_none());
+        assert!(!flash.mem[132..132 + 8].iter().any(|&x| x != 0xAA));
     }
 
     #[futures_test::test]
@@ -134,6 +146,6 @@ mod tests {
         partition.erase(0, 128).await.unwrap();
 
         let flash = flash.try_lock().unwrap();
-        assert!(flash.mem[128..256].iter().position(|&x| x != 0xFF).is_none());
+        assert!(!flash.mem[128..256].iter().any(|&x| x != 0xFF));
     }
 }

@@ -2,26 +2,26 @@
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin as FuturePin;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::{Context, Poll};
 
-use atomic_polyfill::{AtomicU32, AtomicU8};
-use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use atomic_polyfill::{AtomicU8, AtomicU64};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
-use fixed::types::extra::U8;
 use fixed::FixedU32;
-use pac::io::vals::Gpio0ctrlFuncsel;
-use pac::pio::vals::SmExecctrlStatusSel;
+use fixed::types::extra::U8;
 use pio::{Program, SideSet, Wrap};
 
-use crate::dma::{Channel, Transfer, Word};
+use crate::dma::{self, Channel, Transfer, Word};
 use crate::gpio::{self, AnyPin, Drive, Level, Pull, SealedPin, SlewRate};
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
-use crate::pac::dma::vals::TreqSel;
 use crate::relocate::RelocatedProgram;
-use crate::{pac, peripherals, RegExt};
+use crate::{RegExt, pac, peripherals};
 
-pub mod instr;
+mod instr;
+
+#[doc(inline)]
+pub use pio as program;
 
 /// Wakers for interrupts and FIFOs.
 pub struct Wakers([AtomicWaker; 12]);
@@ -53,6 +53,18 @@ pub enum FifoJoin {
     RxOnly,
     /// Tx fifo twice as deep. RX fifo disabled
     TxOnly,
+    /// Enable random writes (`FJOIN_RX_PUT`) from the state machine (through ISR),
+    /// and random reads from the system (using [`StateMachine::get_rxf_entry`]).
+    #[cfg(feature = "_rp235x")]
+    RxAsStatus,
+    /// Enable random reads (`FJOIN_RX_GET`) from the state machine (through OSR),
+    /// and random writes from the system (using [`StateMachine::set_rxf_entry`]).
+    #[cfg(feature = "_rp235x")]
+    RxAsControl,
+    /// FJOIN_RX_PUT | FJOIN_RX_GET: RX can be used as a scratch register,
+    /// not accessible from the CPU
+    #[cfg(feature = "_rp235x")]
+    PioScratch,
 }
 
 /// Shift direction.
@@ -86,6 +98,9 @@ pub enum StatusSource {
     TxFifoLevel = 0,
     /// All-ones if RX FIFO level < N, otherwise all-zeroes.
     RxFifoLevel = 1,
+    /// All-ones if the indexed IRQ flag is raised, otherwise all-zeroes
+    #[cfg(feature = "_rp235x")]
+    Irq = 2,
 }
 
 const RXNEMPTY_MASK: u32 = 1 << 0;
@@ -223,7 +238,7 @@ impl<'a, 'd, PIO: Instance> Drop for IrqFuture<'a, 'd, PIO> {
 
 /// Type representing a PIO pin.
 pub struct Pin<'l, PIO: Instance> {
-    pin: PeripheralRef<'l, AnyPin>,
+    pin: Peri<'l, AnyPin>,
     pio: PhantomData<PIO>,
 }
 
@@ -233,10 +248,10 @@ impl<'l, PIO: Instance> Pin<'l, PIO> {
     pub fn set_drive_strength(&mut self, strength: Drive) {
         self.pin.pad_ctrl().modify(|w| {
             w.set_drive(match strength {
-                Drive::_2mA => pac::pads::vals::Drive::_2MA,
-                Drive::_4mA => pac::pads::vals::Drive::_4MA,
-                Drive::_8mA => pac::pads::vals::Drive::_8MA,
-                Drive::_12mA => pac::pads::vals::Drive::_12MA,
+                Drive::_2mA => pac::pads::vals::Drive::_2M_A,
+                Drive::_4mA => pac::pads::vals::Drive::_4M_A,
+                Drive::_8mA => pac::pads::vals::Drive::_8M_A,
+                Drive::_12mA => pac::pads::vals::Drive::_12M_A,
             });
         });
     }
@@ -263,6 +278,18 @@ impl<'l, PIO: Instance> Pin<'l, PIO> {
     pub fn set_schmitt(&mut self, enable: bool) {
         self.pin.pad_ctrl().modify(|w| {
             w.set_schmitt(enable);
+        });
+    }
+
+    /// Configure the output logic inversion of this pin.
+    #[inline]
+    pub fn set_output_inversion(&mut self, invert: bool) {
+        self.pin.gpio().ctrl().modify(|w| {
+            w.set_outover(if invert {
+                pac::io::vals::Outover::INVERT
+            } else {
+                pac::io::vals::Outover::NORMAL
+            })
         });
     }
 
@@ -345,25 +372,62 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
         FifoInFuture::new(self)
     }
 
+    fn dreq() -> crate::pac::dma::vals::TreqSel {
+        crate::pac::dma::vals::TreqSel::from(PIO::PIO_NO * 8 + SM as u8 + 4)
+    }
+
     /// Prepare DMA transfer from RX FIFO.
     pub fn dma_pull<'a, C: Channel, W: Word>(
         &'a mut self,
-        ch: PeripheralRef<'a, C>,
+        ch: Peri<'a, C>,
         data: &'a mut [W],
+        bswap: bool,
     ) -> Transfer<'a, C> {
-        let pio_no = PIO::PIO_NO;
         let p = ch.regs();
         p.write_addr().write_value(data.as_ptr() as u32);
         p.read_addr().write_value(PIO::PIO.rxf(SM).as_ptr() as u32);
-        p.trans_count().write_value(data.len() as u32);
+        #[cfg(feature = "rp2040")]
+        p.trans_count().write(|w| *w = data.len() as u32);
+        #[cfg(feature = "_rp235x")]
+        p.trans_count().write(|w| w.set_count(data.len() as u32));
         compiler_fence(Ordering::SeqCst);
         p.ctrl_trig().write(|w| {
-            // Set RX DREQ for this statemachine
-            w.set_treq_sel(TreqSel(pio_no * 8 + SM as u8 + 4));
+            w.set_treq_sel(Self::dreq());
             w.set_data_size(W::size());
             w.set_chain_to(ch.number());
             w.set_incr_read(false);
             w.set_incr_write(true);
+            w.set_bswap(bswap);
+            w.set_en(true);
+        });
+        compiler_fence(Ordering::SeqCst);
+        Transfer::new(ch)
+    }
+
+    /// Prepare a repeated DMA transfer from RX FIFO.
+    pub fn dma_pull_repeated<'a, C: Channel, W: Word>(&'a mut self, ch: Peri<'a, C>, len: usize) -> Transfer<'a, C> {
+        // This is the read version of dma::write_repeated. This allows us to
+        // discard reads from the RX FIFO through DMA.
+
+        // static mut so it gets allocated in RAM
+        static mut DUMMY: u32 = 0;
+
+        let p = ch.regs();
+        p.write_addr().write_value(core::ptr::addr_of_mut!(DUMMY) as u32);
+        p.read_addr().write_value(PIO::PIO.rxf(SM).as_ptr() as u32);
+
+        #[cfg(feature = "rp2040")]
+        p.trans_count().write(|w| *w = len as u32);
+        #[cfg(feature = "_rp235x")]
+        p.trans_count().write(|w| w.set_count(len as u32));
+
+        compiler_fence(Ordering::SeqCst);
+        p.ctrl_trig().write(|w| {
+            w.set_treq_sel(Self::dreq());
+            w.set_data_size(W::size());
+            w.set_chain_to(ch.number());
+            w.set_incr_read(false);
+            w.set_incr_write(false);
             w.set_en(true);
         });
         compiler_fence(Ordering::SeqCst);
@@ -392,7 +456,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
         (PIO::PIO.flevel().read().0 >> (SM * 8)) as u8 & 0x0f
     }
 
-    /// Check state machine has stalled on empty TX FIFO.
+    /// Check if state machine has stalled on empty TX FIFO.
     pub fn stalled(&self) -> bool {
         let fdebug = PIO::PIO.fdebug();
         let ret = fdebug.read().txstall() & (1 << SM) != 0;
@@ -431,25 +495,41 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
         FifoOutFuture::new(self, value)
     }
 
+    fn dreq() -> crate::pac::dma::vals::TreqSel {
+        crate::pac::dma::vals::TreqSel::from(PIO::PIO_NO * 8 + SM as u8)
+    }
+
     /// Prepare a DMA transfer to TX FIFO.
-    pub fn dma_push<'a, C: Channel, W: Word>(&'a mut self, ch: PeripheralRef<'a, C>, data: &'a [W]) -> Transfer<'a, C> {
-        let pio_no = PIO::PIO_NO;
+    pub fn dma_push<'a, C: Channel, W: Word>(
+        &'a mut self,
+        ch: Peri<'a, C>,
+        data: &'a [W],
+        bswap: bool,
+    ) -> Transfer<'a, C> {
         let p = ch.regs();
         p.read_addr().write_value(data.as_ptr() as u32);
         p.write_addr().write_value(PIO::PIO.txf(SM).as_ptr() as u32);
-        p.trans_count().write_value(data.len() as u32);
+        #[cfg(feature = "rp2040")]
+        p.trans_count().write(|w| *w = data.len() as u32);
+        #[cfg(feature = "_rp235x")]
+        p.trans_count().write(|w| w.set_count(data.len() as u32));
         compiler_fence(Ordering::SeqCst);
         p.ctrl_trig().write(|w| {
-            // Set TX DREQ for this statemachine
-            w.set_treq_sel(TreqSel(pio_no * 8 + SM as u8));
+            w.set_treq_sel(Self::dreq());
             w.set_data_size(W::size());
             w.set_chain_to(ch.number());
             w.set_incr_read(true);
             w.set_incr_write(false);
+            w.set_bswap(bswap);
             w.set_en(true);
         });
         compiler_fence(Ordering::SeqCst);
         Transfer::new(ch)
+    }
+
+    /// Prepare a repeated DMA transfer to TX FIFO.
+    pub fn dma_push_repeated<'a, C: Channel, W: Word>(&'a mut self, ch: Peri<'a, C>, len: usize) -> Transfer<'a, C> {
+        unsafe { dma::write_repeated(ch, PIO::PIO.txf(SM).as_ptr(), len, Self::dreq()) }
     }
 }
 
@@ -523,6 +603,39 @@ pub struct PinConfig {
     pub out_base: u8,
 }
 
+/// Comparison level or IRQ index for the MOV x, STATUS instruction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg(feature = "_rp235x")]
+pub enum StatusN {
+    /// IRQ flag in this PIO block
+    This(u8),
+    /// IRQ flag in the next lower PIO block
+    Lower(u8),
+    /// IRQ flag in the next higher PIO block
+    Higher(u8),
+}
+
+#[cfg(feature = "_rp235x")]
+impl Default for StatusN {
+    fn default() -> Self {
+        Self::This(0)
+    }
+}
+
+#[cfg(feature = "_rp235x")]
+impl Into<crate::pac::pio::vals::ExecctrlStatusN> for StatusN {
+    fn into(self) -> crate::pac::pio::vals::ExecctrlStatusN {
+        let x = match self {
+            StatusN::This(n) => n,
+            StatusN::Lower(n) => n + 0x08,
+            StatusN::Higher(n) => n + 0x10,
+        };
+
+        crate::pac::pio::vals::ExecctrlStatusN(x)
+    }
+}
+
 /// PIO config.
 #[derive(Clone, Copy, Debug)]
 pub struct Config<'d, PIO: Instance> {
@@ -537,7 +650,12 @@ pub struct Config<'d, PIO: Instance> {
     /// Which source to use for checking status.
     pub status_sel: StatusSource,
     /// Status comparison level.
+    #[cfg(feature = "rp2040")]
     pub status_n: u8,
+    // This cfg probably shouldn't be required, but the SVD for the 2040 doesn't have the enum
+    #[cfg(feature = "_rp235x")]
+    /// Status comparison level.
+    pub status_n: StatusN,
     exec: ExecConfig,
     origin: Option<u8>,
     /// Configure FIFO allocation.
@@ -598,7 +716,7 @@ impl<'d, PIO: Instance> Config<'d, PIO> {
     /// of the program. The state machine is not started.
     ///
     /// `side_set` sets the range of pins affected by side-sets. The range must be consecutive.
-    /// Side-set pins must configured as outputs using [`StateMachine::set_pin_dirs`] to be
+    /// Sideset pins must configured as outputs using [`StateMachine::set_pin_dirs`] to be
     /// effective.
     pub fn use_program(&mut self, prog: &LoadedProgram<'d, PIO>, side_set: &[&Pin<'d, PIO>]) {
         assert!((prog.side_set.bits() - prog.side_set.optional() as u8) as usize == side_set.len());
@@ -653,7 +771,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         assert!(config.clock_divider <= 65536, "clkdiv must be <= 65536");
         assert!(config.clock_divider >= 1, "clkdiv must be >= 1");
         assert!(config.out_en_sel < 32, "out_en_sel must be < 32");
-        assert!(config.status_n < 32, "status_n must be < 32");
+        //assert!(config.status_n < 32, "status_n must be < 32");
         // sm expects 0 for 32, truncation makes that happen
         assert!(config.shift_in.threshold <= 32, "shift_in.threshold must be <= 32");
         assert!(config.shift_out.threshold <= 32, "shift_out.threshold must be <= 32");
@@ -668,11 +786,18 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
             w.set_out_sticky(config.out_sticky);
             w.set_wrap_top(config.exec.wrap_top);
             w.set_wrap_bottom(config.exec.wrap_bottom);
+            #[cfg(feature = "_rp235x")]
             w.set_status_sel(match config.status_sel {
-                StatusSource::TxFifoLevel => SmExecctrlStatusSel::TXLEVEL,
-                StatusSource::RxFifoLevel => SmExecctrlStatusSel::RXLEVEL,
+                StatusSource::TxFifoLevel => pac::pio::vals::ExecctrlStatusSel::TXLEVEL,
+                StatusSource::RxFifoLevel => pac::pio::vals::ExecctrlStatusSel::RXLEVEL,
+                StatusSource::Irq => pac::pio::vals::ExecctrlStatusSel::IRQ,
             });
-            w.set_status_n(config.status_n);
+            #[cfg(feature = "rp2040")]
+            w.set_status_sel(match config.status_sel {
+                StatusSource::TxFifoLevel => pac::pio::vals::SmExecctrlStatusSel::TXLEVEL,
+                StatusSource::RxFifoLevel => pac::pio::vals::SmExecctrlStatusSel::RXLEVEL,
+            });
+            w.set_status_n(config.status_n.into());
         });
         sm.shiftctrl().write(|w| {
             w.set_fjoin_rx(config.fifo_join == FifoJoin::RxOnly);
@@ -683,7 +808,20 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
             w.set_in_shiftdir(config.shift_in.direction == ShiftDirection::Right);
             w.set_autopull(config.shift_out.auto_fill);
             w.set_autopush(config.shift_in.auto_fill);
+
+            #[cfg(feature = "_rp235x")]
+            {
+                w.set_fjoin_rx_get(
+                    config.fifo_join == FifoJoin::RxAsControl || config.fifo_join == FifoJoin::PioScratch,
+                );
+                w.set_fjoin_rx_put(
+                    config.fifo_join == FifoJoin::RxAsStatus || config.fifo_join == FifoJoin::PioScratch,
+                );
+                w.set_in_count(config.in_count);
+            }
         });
+
+        #[cfg(feature = "rp2040")]
         sm.pinctrl().write(|w| {
             w.set_sideset_count(config.pins.sideset_count);
             w.set_set_count(config.pins.set_count);
@@ -693,9 +831,100 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
             w.set_set_base(config.pins.set_base);
             w.set_out_base(config.pins.out_base);
         });
-        if let Some(origin) = config.origin {
-            unsafe { instr::exec_jmp(self, origin) }
+
+        #[cfg(feature = "_rp235x")]
+        {
+            let mut low_ok = true;
+            let mut high_ok = true;
+
+            let in_pins = config.pins.in_base..config.pins.in_base + config.in_count;
+            let side_pins = config.pins.sideset_base..config.pins.sideset_base + config.pins.sideset_count;
+            let set_pins = config.pins.set_base..config.pins.set_base + config.pins.set_count;
+            let out_pins = config.pins.out_base..config.pins.out_base + config.pins.out_count;
+
+            for pin_range in [in_pins, side_pins, set_pins, out_pins] {
+                for pin in pin_range {
+                    low_ok &= pin < 32;
+                    high_ok &= pin >= 16;
+                }
+            }
+
+            if !low_ok && !high_ok {
+                panic!(
+                    "All pins must either be <32 or >=16, in:{:?}-{:?}, side:{:?}-{:?}, set:{:?}-{:?}, out:{:?}-{:?}",
+                    config.pins.in_base,
+                    config.pins.in_base + config.in_count - 1,
+                    config.pins.sideset_base,
+                    config.pins.sideset_base + config.pins.sideset_count - 1,
+                    config.pins.set_base,
+                    config.pins.set_base + config.pins.set_count - 1,
+                    config.pins.out_base,
+                    config.pins.out_base + config.pins.out_count - 1,
+                )
+            }
+            let shift = if low_ok { 0 } else { 16 };
+
+            sm.pinctrl().write(|w| {
+                w.set_sideset_count(config.pins.sideset_count);
+                w.set_set_count(config.pins.set_count);
+                w.set_out_count(config.pins.out_count);
+                w.set_in_base(config.pins.in_base.checked_sub(shift).unwrap_or_default());
+                w.set_sideset_base(config.pins.sideset_base.checked_sub(shift).unwrap_or_default());
+                w.set_set_base(config.pins.set_base.checked_sub(shift).unwrap_or_default());
+                w.set_out_base(config.pins.out_base.checked_sub(shift).unwrap_or_default());
+            });
+
+            PIO::PIO.gpiobase().write(|w| w.set_gpiobase(shift == 16));
         }
+
+        if let Some(origin) = config.origin {
+            unsafe { self.exec_jmp(origin) }
+        }
+    }
+
+    /// Read current instruction address for this state machine
+    pub fn get_addr(&self) -> u8 {
+        let addr = Self::this_sm().addr();
+        addr.read().addr()
+    }
+
+    /// Read TX FIFO threshold for this state machine.
+    pub fn get_tx_threshold(&self) -> u8 {
+        let shiftctrl = Self::this_sm().shiftctrl();
+        shiftctrl.read().pull_thresh()
+    }
+
+    /// Set/change the TX FIFO threshold for this state machine.
+    pub fn set_tx_threshold(&mut self, threshold: u8) {
+        assert!(threshold <= 31);
+        let shiftctrl = Self::this_sm().shiftctrl();
+        shiftctrl.modify(|w| {
+            w.set_pull_thresh(threshold);
+        });
+    }
+
+    /// Read TX FIFO threshold for this state machine.
+    pub fn get_rx_threshold(&self) -> u8 {
+        Self::this_sm().shiftctrl().read().push_thresh()
+    }
+
+    /// Set/change the RX FIFO threshold for this state machine.
+    pub fn set_rx_threshold(&mut self, threshold: u8) {
+        assert!(threshold <= 31);
+        let shiftctrl = Self::this_sm().shiftctrl();
+        shiftctrl.modify(|w| {
+            w.set_push_thresh(threshold);
+        });
+    }
+
+    /// Set/change both TX and RX FIFO thresholds for this state machine.
+    pub fn set_thresholds(&mut self, threshold: u8) {
+        assert!(threshold <= 31);
+        let shiftctrl = Self::this_sm().shiftctrl();
+        shiftctrl.modify(|w| {
+            w.set_push_thresh(threshold);
+            w.set_pull_thresh(threshold);
+        });
     }
 
     /// Set the clock divider for this state machine.
@@ -748,13 +977,23 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         self.set_enable(enabled);
     }
 
+    #[cfg(feature = "rp2040")]
+    fn pin_base() -> u8 {
+        0
+    }
+
+    #[cfg(feature = "_rp235x")]
+    fn pin_base() -> u8 {
+        if PIO::PIO.gpiobase().read().gpiobase() { 16 } else { 0 }
+    }
+
     /// Sets pin directions. This pauses the current state machine to run `SET` commands
     /// and temporarily unsets the `OUT_STICKY` bit.
     pub fn set_pin_dirs(&mut self, dir: Direction, pins: &[&Pin<'d, PIO>]) {
         self.with_paused(|sm| {
             for pin in pins {
                 Self::this_sm().pinctrl().write(|w| {
-                    w.set_set_base(pin.pin());
+                    w.set_set_base(pin.pin() - Self::pin_base());
                     w.set_set_count(1);
                 });
                 // SET PINDIRS, (dir)
@@ -769,7 +1008,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         self.with_paused(|sm| {
             for pin in pins {
                 Self::this_sm().pinctrl().write(|w| {
-                    w.set_set_base(pin.pin());
+                    w.set_set_base(pin.pin() - Self::pin_base());
                     w.set_set_count(1);
                 });
                 // SET PINS, (dir)
@@ -811,6 +1050,20 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
     /// Return both read and write handles for the state machine.
     pub fn rx_tx(&mut self) -> (&mut StateMachineRx<'d, PIO, SM>, &mut StateMachineTx<'d, PIO, SM>) {
         (&mut self.rx, &mut self.tx)
+    }
+
+    /// Return the contents of the nth entry of the RX FIFO
+    /// (should be used only when the FIFO config is set to [`FifoJoin::RxAsStatus`])
+    #[cfg(feature = "_rp235x")]
+    pub fn get_rxf_entry(&self, n: usize) -> u32 {
+        PIO::PIO.rxf_putget(SM).putget(n).read()
+    }
+
+    /// Set the contents of the nth entry of the RX FIFO
+    /// (should be used only when the FIFO config is set to [`FifoJoin::RxAsControl`])
+    #[cfg(feature = "_rp235x")]
+    pub fn set_rxf_entry(&self, n: usize, val: u32) {
+        PIO::PIO.rxf_putget(SM).putget(n).write_value(val)
     }
 }
 
@@ -898,6 +1151,9 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
         prog: &Program<SIZE>,
         origin: u8,
     ) -> Result<LoadedProgram<'d, PIO>, usize> {
+        #[cfg(not(feature = "_rp235x"))]
+        assert!(prog.version == pio::PioVersion::V0);
+
         let prog = RelocatedProgram::new_with_origin(prog, origin);
         let used_memory = self.try_write_instr(prog.origin() as _, prog.code())?;
         Ok(LoadedProgram {
@@ -956,13 +1212,29 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
     /// (i.e., have their `FUNCSEL` reset to `NULL`) when the [`Common`] *and*
     /// all [`StateMachine`]s for this block have been dropped. **Other members
     /// of [`Pio`] do not keep pin registrations alive.**
-    pub fn make_pio_pin(&mut self, pin: impl Peripheral<P = impl PioPin + 'd> + 'd) -> Pin<'d, PIO> {
-        into_ref!(pin);
+    pub fn make_pio_pin(&mut self, pin: Peri<'d, impl PioPin + 'd>) -> Pin<'d, PIO> {
+        // enable the outputs
+        pin.pad_ctrl().write(|w| w.set_od(false));
+        // especially important on the 235x, where IE defaults to 0
+        pin.pad_ctrl().write(|w| w.set_ie(true));
+
         pin.gpio().ctrl().write(|w| w.set_funcsel(PIO::FUNCSEL as _));
+        pin.pad_ctrl().write(|w| {
+            #[cfg(feature = "_rp235x")]
+            w.set_iso(false);
+            w.set_schmitt(true);
+            w.set_slewfast(false);
+            // TODO rp235x errata E9 recommends to not enable IE if we're not
+            // going to use input. Maybe add an API for the user to enable/disable this?
+            w.set_ie(true);
+            w.set_od(false);
+            w.set_pue(false);
+            w.set_pde(false);
+        });
         // we can be relaxed about this because we're &mut here and nothing is cached
         PIO::state().used_pins.fetch_or(1 << pin.pin_bank(), Ordering::Relaxed);
         Pin {
-            pin: pin.into_ref().map_into(),
+            pin: pin.into(),
             pio: PhantomData::default(),
         }
     }
@@ -1095,10 +1367,11 @@ pub struct Pio<'d, PIO: Instance> {
 
 impl<'d, PIO: Instance> Pio<'d, PIO> {
     /// Create a new instance of a PIO peripheral.
-    pub fn new(_pio: impl Peripheral<P = PIO> + 'd, _irq: impl Binding<PIO::Interrupt, InterruptHandler<PIO>>) -> Self {
+    pub fn new(_pio: Peri<'d, PIO>, _irq: impl Binding<PIO::Interrupt, InterruptHandler<PIO>>) -> Self {
         PIO::state().users.store(5, Ordering::Release);
         PIO::state().used_pins.store(0, Ordering::Release);
         PIO::Interrupt::unpend();
+
         unsafe { PIO::Interrupt::enable() };
         Self {
             common: Common {
@@ -1140,16 +1413,15 @@ impl<'d, PIO: Instance> Pio<'d, PIO> {
 // other way.
 pub struct State {
     users: AtomicU8,
-    used_pins: AtomicU32,
+    used_pins: AtomicU64,
 }
 
 fn on_pio_drop<PIO: Instance>() {
     let state = PIO::state();
     if state.users.fetch_sub(1, Ordering::AcqRel) == 1 {
         let used_pins = state.used_pins.load(Ordering::Relaxed);
-        let null = Gpio0ctrlFuncsel::NULL as _;
-        // we only have 30 pins. don't test the other two since gpio() asserts.
-        for i in 0..30 {
+        let null = pac::io::vals::Gpio0ctrlFuncsel::NULL as _;
+        for i in 0..crate::gpio::BANK0_PIN_COUNT {
             if used_pins & (1 << i) != 0 {
                 pac::IO_BANK0.gpio(i).ctrl().write(|w| w.set_funcsel(null));
             }
@@ -1164,9 +1436,7 @@ trait SealedInstance {
 
     #[inline]
     fn wakers() -> &'static Wakers {
-        const NEW_AW: AtomicWaker = AtomicWaker::new();
-        static WAKERS: Wakers = Wakers([NEW_AW; 12]);
-
+        static WAKERS: Wakers = Wakers([const { AtomicWaker::new() }; 12]);
         &WAKERS
     }
 
@@ -1174,7 +1444,7 @@ trait SealedInstance {
     fn state() -> &'static State {
         static STATE: State = State {
             users: AtomicU8::new(0),
-            used_pins: AtomicU32::new(0),
+            used_pins: AtomicU64::new(0),
         };
 
         &STATE
@@ -1183,7 +1453,7 @@ trait SealedInstance {
 
 /// PIO instance.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + Sized + Unpin {
+pub trait Instance: SealedInstance + PeripheralType + Sized + Unpin {
     /// Interrupt for this peripheral.
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
@@ -1203,6 +1473,8 @@ macro_rules! impl_pio {
 
 impl_pio!(PIO0, 0, PIO0, PIO0_0, PIO0_IRQ_0);
 impl_pio!(PIO1, 1, PIO1, PIO1_0, PIO1_IRQ_0);
+#[cfg(feature = "_rp235x")]
+impl_pio!(PIO2, 2, PIO2, PIO2_0, PIO2_IRQ_0);
 
 /// PIO pin.
 pub trait PioPin: gpio::Pin {}
@@ -1246,4 +1518,26 @@ impl_pio_pin! {
     PIN_27,
     PIN_28,
     PIN_29,
+}
+
+#[cfg(feature = "rp235xb")]
+impl_pio_pin! {
+    PIN_30,
+    PIN_31,
+    PIN_32,
+    PIN_33,
+    PIN_34,
+    PIN_35,
+    PIN_36,
+    PIN_37,
+    PIN_38,
+    PIN_39,
+    PIN_40,
+    PIN_41,
+    PIN_42,
+    PIN_43,
+    PIN_44,
+    PIN_45,
+    PIN_46,
+    PIN_47,
 }

@@ -1,23 +1,15 @@
 /// STM32H50 series flash impl. See RM0492
 use core::{
     ptr::write_volatile,
-    sync::atomic::{fence, Ordering},
+    sync::atomic::{Ordering, fence},
 };
 
 use cortex_m::interrupt;
 use pac::flash::regs::Nssr;
 use pac::flash::vals::Bksel;
 
-use super::{Error, FlashBank, FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
+use super::{Error, FlashBank, FlashSector, WRITE_SIZE};
 use crate::pac;
-
-pub(crate) const fn is_default_layout() -> bool {
-    true
-}
-
-pub(crate) const fn get_flash_regions() -> &'static [&'static FlashRegion] {
-    &FLASH_REGIONS
-}
 
 pub(crate) unsafe fn lock() {
     pac::FLASH.nscr().modify(|w| w.set_lock(true));
@@ -44,7 +36,7 @@ pub(crate) unsafe fn disable_blocking_write() {
 pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) -> Result<(), Error> {
     let mut address = start_address;
     for val in buf.chunks(4) {
-        write_volatile(address as *mut u32, u32::from_le_bytes(val.try_into().unwrap()));
+        write_volatile(address as *mut u32, u32::from_le_bytes(unwrap!(val.try_into())));
         address += val.len() as u32;
 
         // prevents parallelism errors
@@ -55,6 +47,7 @@ pub(crate) unsafe fn blocking_write(start_address: u32, buf: &[u8; WRITE_SIZE]) 
 }
 
 pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), Error> {
+    assert!(sector.bank != FlashBank::Otp);
     assert!(sector.index_in_bank < 8);
 
     while busy() {}
@@ -67,6 +60,7 @@ pub(crate) unsafe fn blocking_erase_sector(sector: &FlashSector) -> Result<(), E
                 (FlashBank::Bank2, true) => Bksel::BANK1,
                 (FlashBank::Bank2, false) => Bksel::BANK2,
                 (FlashBank::Bank1, true) => Bksel::BANK2,
+                _ => unreachable!(),
             });
             w.set_snb(sector.index_in_bank);
             w.set_ser(true);

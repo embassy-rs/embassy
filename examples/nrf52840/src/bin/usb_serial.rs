@@ -1,13 +1,11 @@
 #![no_std]
 #![no_main]
 
-use core::mem;
-
 use defmt::{info, panic};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
+use embassy_nrf::usb::Driver;
 use embassy_nrf::usb::vbus_detect::{HardwareVbusDetect, VbusDetect};
-use embassy_nrf::usb::{Driver, Instance};
 use embassy_nrf::{bind_interrupts, pac, peripherals, usb};
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
@@ -16,17 +14,16 @@ use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     USBD => usb::InterruptHandler<peripherals::USBD>;
-    POWER_CLOCK => usb::vbus_detect::InterruptHandler;
+    CLOCK_POWER => usb::vbus_detect::InterruptHandler;
 });
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
-    let clock: pac::CLOCK = unsafe { mem::transmute(()) };
 
     info!("Enabling ext hfosc...");
-    clock.tasks_hfclkstart.write(|w| unsafe { w.bits(1) });
-    while clock.events_hfclkstarted.read().bits() != 1 {}
+    pac::CLOCK.tasks_hfclkstart().write_value(1);
+    while pac::CLOCK.events_hfclkstarted().read() != 1 {}
 
     // Create the driver, from the HAL.
     let driver = Driver::new(p.USBD, Irqs, HardwareVbusDetect::new(Irqs));
@@ -38,13 +35,6 @@ async fn main(_spawner: Spawner) {
     config.serial_number = Some("12345678");
     config.max_power = 100;
     config.max_packet_size_0 = 64;
-
-    // Required for windows compatibility.
-    // https://developer.nordicsemi.com/nRF_Connect_SDK/doc/1.9.1/kconfig/CONFIG_CDC_ACM_IAD.html#help
-    config.device_class = 0xEF;
-    config.device_sub_class = 0x02;
-    config.device_protocol = 0x01;
-    config.composite_with_iads = true;
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.
@@ -99,9 +89,7 @@ impl From<EndpointError> for Disconnected {
     }
 }
 
-async fn echo<'d, T: Instance + 'd, P: VbusDetect + 'd>(
-    class: &mut CdcAcmClass<'d, Driver<'d, T, P>>,
-) -> Result<(), Disconnected> {
+async fn echo<'d, V: VbusDetect + 'd>(class: &mut CdcAcmClass<'d, Driver<'d, V>>) -> Result<(), Disconnected> {
     let mut buf = [0; 64];
     loop {
         let n = class.read_packet(&mut buf).await?;

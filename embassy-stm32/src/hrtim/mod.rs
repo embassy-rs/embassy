@@ -4,12 +4,13 @@ mod traits;
 
 use core::marker::PhantomData;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::Peri;
 pub use traits::Instance;
 
-use crate::gpio::{AFType, AnyPin};
+use crate::gpio::{AfType, AnyPin, OutputType, Speed};
+use crate::rcc;
 use crate::time::Hertz;
-use crate::{rcc, Peripheral};
+pub use crate::timer::simple_pwm::PwmPinConfig;
 
 /// HRTIM burst controller instance.
 pub struct BurstController<T: Instance> {
@@ -62,30 +63,42 @@ pub trait AdvancedChannel<T: Instance>: SealedAdvancedChannel<T> {}
 
 /// HRTIM PWM pin.
 pub struct PwmPin<'d, T, C> {
-    _pin: PeripheralRef<'d, AnyPin>,
+    _pin: Peri<'d, AnyPin>,
     phantom: PhantomData<(T, C)>,
 }
 
 /// HRTIM complementary PWM pin.
 pub struct ComplementaryPwmPin<'d, T, C> {
-    _pin: PeripheralRef<'d, AnyPin>,
+    _pin: Peri<'d, AnyPin>,
     phantom: PhantomData<(T, C)>,
 }
 
 macro_rules! advanced_channel_impl {
-    ($new_chx:ident, $channel:tt, $ch_num:expr, $pin_trait:ident, $complementary_pin_trait:ident) => {
+    ($new_chx:ident, $new_chx_with_config:ident, $channel:tt, $ch_num:expr, $pin_trait:ident, $complementary_pin_trait:ident) => {
         impl<'d, T: Instance> PwmPin<'d, T, $channel<T>> {
             #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance.")]
-            pub fn $new_chx(pin: impl Peripheral<P = impl $pin_trait<T>> + 'd) -> Self {
-                into_ref!(pin);
+            pub fn $new_chx(pin: Peri<'d, impl $pin_trait<T>>) -> Self {
                 critical_section::with(|_| {
                     pin.set_low();
-                    pin.set_as_af(pin.af_num(), AFType::OutputPushPull);
-                    #[cfg(gpio_v2)]
-                    pin.set_speed(crate::gpio::Speed::VeryHigh);
+                    set_as_af!(pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
                 });
                 PwmPin {
-                    _pin: pin.map_into(),
+                    _pin: pin.into(),
+                    phantom: PhantomData,
+                }
+            }
+
+            #[doc = concat!("Create a new ", stringify!($channel), " PWM pin instance with a specific configuration.")]
+            pub fn $new_chx_with_config(
+                pin: Peri<'d, impl $pin_trait<T>>,
+                pin_config: PwmPinConfig,
+            ) -> Self {
+                critical_section::with(|_| {
+                    pin.set_low();
+                    set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
+                });
+                PwmPin {
+                    _pin: pin.into(),
                     phantom: PhantomData,
                 }
             }
@@ -93,16 +106,28 @@ macro_rules! advanced_channel_impl {
 
         impl<'d, T: Instance> ComplementaryPwmPin<'d, T, $channel<T>> {
             #[doc = concat!("Create a new ", stringify!($channel), " complementary PWM pin instance.")]
-            pub fn $new_chx(pin: impl Peripheral<P = impl $complementary_pin_trait<T>> + 'd) -> Self {
-                into_ref!(pin);
+            pub fn $new_chx(pin: Peri<'d, impl $complementary_pin_trait<T>>) -> Self {
                 critical_section::with(|_| {
                     pin.set_low();
-                    pin.set_as_af(pin.af_num(), AFType::OutputPushPull);
-                    #[cfg(gpio_v2)]
-                    pin.set_speed(crate::gpio::Speed::VeryHigh);
+                    set_as_af!(pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
                 });
                 ComplementaryPwmPin {
-                    _pin: pin.map_into(),
+                    _pin: pin.into(),
+                    phantom: PhantomData,
+                }
+            }
+
+            #[doc = concat!("Create a new ", stringify!($channel), " complementary PWM pin instance with a specific configuration.")]
+            pub fn $new_chx_with_config(
+                pin: Peri<'d, impl $complementary_pin_trait<T>>,
+                pin_config: PwmPinConfig,
+            ) -> Self {
+                critical_section::with(|_| {
+                    pin.set_low();
+                    set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
+                });
+                ComplementaryPwmPin {
+                    _pin: pin.into(),
                     phantom: PhantomData,
                 }
             }
@@ -117,17 +142,59 @@ macro_rules! advanced_channel_impl {
     };
 }
 
-advanced_channel_impl!(new_cha, ChA, 0, ChannelAPin, ChannelAComplementaryPin);
-advanced_channel_impl!(new_chb, ChB, 1, ChannelBPin, ChannelBComplementaryPin);
-advanced_channel_impl!(new_chc, ChC, 2, ChannelCPin, ChannelCComplementaryPin);
-advanced_channel_impl!(new_chd, ChD, 3, ChannelDPin, ChannelDComplementaryPin);
-advanced_channel_impl!(new_che, ChE, 4, ChannelEPin, ChannelEComplementaryPin);
+advanced_channel_impl!(
+    new_cha,
+    new_cha_with_config,
+    ChA,
+    0,
+    ChannelAPin,
+    ChannelAComplementaryPin
+);
+advanced_channel_impl!(
+    new_chb,
+    new_chb_with_config,
+    ChB,
+    1,
+    ChannelBPin,
+    ChannelBComplementaryPin
+);
+advanced_channel_impl!(
+    new_chc,
+    new_chc_with_config,
+    ChC,
+    2,
+    ChannelCPin,
+    ChannelCComplementaryPin
+);
+advanced_channel_impl!(
+    new_chd,
+    new_chd_with_config,
+    ChD,
+    3,
+    ChannelDPin,
+    ChannelDComplementaryPin
+);
+advanced_channel_impl!(
+    new_che,
+    new_che_with_config,
+    ChE,
+    4,
+    ChannelEPin,
+    ChannelEComplementaryPin
+);
 #[cfg(hrtim_v2)]
-advanced_channel_impl!(new_chf, ChF, 5, ChannelFPin, ChannelFComplementaryPin);
+advanced_channel_impl!(
+    new_chf,
+    new_chf_with_config,
+    ChF,
+    5,
+    ChannelFPin,
+    ChannelFComplementaryPin
+);
 
 /// Struct used to divide a high resolution timer into multiple channels
 pub struct AdvancedPwm<'d, T: Instance> {
-    _inner: PeripheralRef<'d, T>,
+    _inner: Peri<'d, T>,
     /// Master instance.
     pub master: Master<T>,
     /// Burst controller.
@@ -152,7 +219,7 @@ impl<'d, T: Instance> AdvancedPwm<'d, T> {
     ///
     /// This splits the HRTIM into its constituent parts, which you can then use individually.
     pub fn new(
-        tim: impl Peripheral<P = T> + 'd,
+        tim: Peri<'d, T>,
         _cha: Option<PwmPin<'d, T, ChA<T>>>,
         _chan: Option<ComplementaryPwmPin<'d, T, ChA<T>>>,
         _chb: Option<PwmPin<'d, T, ChB<T>>>,
@@ -169,9 +236,7 @@ impl<'d, T: Instance> AdvancedPwm<'d, T> {
         Self::new_inner(tim)
     }
 
-    fn new_inner(tim: impl Peripheral<P = T> + 'd) -> Self {
-        into_ref!(tim);
-
+    fn new_inner(tim: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
 
         #[cfg(stm32f334)]
@@ -234,8 +299,6 @@ pub struct BridgeConverter<T: Instance, C: AdvancedChannel<T>> {
 impl<T: Instance, C: AdvancedChannel<T>> BridgeConverter<T, C> {
     /// Create a new HRTIM bridge converter driver.
     pub fn new(_channel: C, frequency: Hertz) -> Self {
-        use crate::pac::hrtim::vals::{Activeeffect, Inactiveeffect};
-
         T::set_channel_frequency(C::raw(), frequency);
 
         // Always enable preload
@@ -256,28 +319,16 @@ impl<T: Instance, C: AdvancedChannel<T>> BridgeConverter<T, C> {
         // Therefore, software-implemented dead time must be used when setting the duty cycles
 
         // Set output 1 to active on a period event
-        T::regs()
-            .tim(C::raw())
-            .setr(0)
-            .modify(|w| w.set_per(Activeeffect::SETACTIVE));
+        T::regs().tim(C::raw()).setr(0).modify(|w| w.set_per(true));
 
         // Set output 1 to inactive on a compare 1 event
-        T::regs()
-            .tim(C::raw())
-            .rstr(0)
-            .modify(|w| w.set_cmp(0, Inactiveeffect::SETINACTIVE));
+        T::regs().tim(C::raw()).rstr(0).modify(|w| w.set_cmp(0, true));
 
         // Set output 2 to active on a compare 2 event
-        T::regs()
-            .tim(C::raw())
-            .setr(1)
-            .modify(|w| w.set_cmp(1, Activeeffect::SETACTIVE));
+        T::regs().tim(C::raw()).setr(1).modify(|w| w.set_cmp(1, true));
 
         // Set output 2 to inactive on a compare 3 event
-        T::regs()
-            .tim(C::raw())
-            .rstr(1)
-            .modify(|w| w.set_cmp(2, Inactiveeffect::SETINACTIVE));
+        T::regs().tim(C::raw()).rstr(1).modify(|w| w.set_cmp(2, true));
 
         Self {
             timer: PhantomData,

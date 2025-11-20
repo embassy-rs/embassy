@@ -2,7 +2,7 @@
 
 HALs implement safe, idiomatic Rust APIs to use the hardware capabilities, so raw register manipulation is not needed.
 
-The embassy-rp HAL targets the Raspberry Pi RP2040 microcontroller. The HAL implements both blocking and async APIs
+The embassy-rp HAL targets the Raspberry Pi RP2040 as well as RP235x microcontroller. The HAL implements both blocking and async APIs
 for many peripherals. The benefit of using the async APIs is that the HAL takes care of waiting for peripherals to
 complete operations in low power mode and handling interrupts, so that applications can focus on more important matters.
 
@@ -23,5 +23,5 @@ The `embassy-rp` HAL implements the traits from [embedded-hal](https://crates.io
 
 This crate can run on any executor.
 
-Optionally, some features requiring [`embassy-time`](https://crates.io/crates/embassy-time) can be activated with the `time` feature. If you enable it,
+Optionally, some features requiring [`embassy-time`](https://crates.io/crates/embassy-time) can be activated with the `time-driver` feature. If you enable it,
 you must link an `embassy-time` driver in your project.

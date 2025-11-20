@@ -4,15 +4,13 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{Ipv4Address, Stack, StackResources};
-use embassy_stm32::eth::generic_smi::GenericSMI;
-use embassy_stm32::eth::{Ethernet, PacketQueue};
-use embassy_stm32::peripherals::ETH;
+use embassy_net::{Ipv4Address, StackResources};
+use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
+use embassy_stm32::peripherals::{ETH, ETH_SMA};
 use embassy_stm32::rng::Rng;
-use embassy_stm32::{bind_interrupts, eth, peripherals, rng, Config};
+use embassy_stm32::{Config, bind_interrupts, eth, peripherals, rng};
 use embassy_time::Timer;
 use embedded_io_async::Write;
-use rand_core::RngCore;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -21,11 +19,11 @@ bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
-type Device = Ethernet<'static, ETH, GenericSMI>;
+type Device = Ethernet<'static, ETH, GenericPhy<Sma<'static, ETH_SMA>>>;
 
 #[embassy_executor::task]
-async fn net_task(stack: &'static Stack<Device>) -> ! {
-    stack.run().await
+async fn net_task(mut runner: embassy_net::Runner<'static, Device>) -> ! {
+    runner.run().await
 }
 
 #[embassy_executor::main]
@@ -71,16 +69,16 @@ async fn main(spawner: Spawner) -> ! {
         p.ETH,
         Irqs,
         p.PA1,  // ref_clk
-        p.PA2,  // mdio
-        p.PC1,  // eth_mdc
         p.PA7,  // CRS_DV: Carrier Sense
         p.PC4,  // RX_D0: Received Bit 0
         p.PC5,  // RX_D1: Received Bit 1
         p.PG13, // TX_D0: Transmit Bit 0
         p.PB13, // TX_D1: Transmit Bit 1
         p.PG11, // TX_EN: Transmit Enable
-        GenericSMI::new(0),
         mac_addr,
+        p.ETH_SMA,
+        p.PA2, // mdio
+        p.PC1, // mdc
     );
 
     let config = embassy_net::Config::dhcpv4(Default::default());
@@ -91,17 +89,11 @@ async fn main(spawner: Spawner) -> ! {
     //});
 
     // Init network stack
-    static STACK: StaticCell<Stack<Device>> = StaticCell::new();
     static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
-    let stack = &*STACK.init(Stack::new(
-        device,
-        config,
-        RESOURCES.init(StackResources::<3>::new()),
-        seed,
-    ));
+    let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
 
     // Launch network task
-    unwrap!(spawner.spawn(net_task(&stack)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     // Ensure DHCP configuration is up before trying connect
     stack.wait_config_up().await;
@@ -113,7 +105,7 @@ async fn main(spawner: Spawner) -> ! {
     let mut tx_buffer = [0; 1024];
 
     loop {
-        let mut socket = TcpSocket::new(&stack, &mut rx_buffer, &mut tx_buffer);
+        let mut socket = TcpSocket::new(stack, &mut rx_buffer, &mut tx_buffer);
 
         socket.set_timeout(Some(embassy_time::Duration::from_secs(10)));
 

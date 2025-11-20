@@ -1,0 +1,5 @@
+error: Arguments for tasks must live forever. Try using the `'static` lifetime.
+ --> tests/ui/nonstatic_struct_anon.rs:6:23
+  |
+6 | async fn task(_x: Foo<'_>) {}
+  |                       ^^

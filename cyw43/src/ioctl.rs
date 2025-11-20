@@ -1,12 +1,13 @@
 use core::cell::{Cell, RefCell};
-use core::future::poll_fn;
+use core::future::{Future, poll_fn};
 use core::task::{Poll, Waker};
 
 use embassy_sync::waitqueue::WakerRegistration;
 
+use crate::consts::Ioctl;
 use crate::fmt::Bytes;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum IoctlType {
     Get = 0,
     Set = 2,
@@ -16,7 +17,7 @@ pub enum IoctlType {
 pub struct PendingIoctl {
     pub buf: *mut [u8],
     pub kind: IoctlType,
-    pub cmd: u32,
+    pub cmd: Ioctl,
     pub iface: u32,
 }
 
@@ -32,8 +33,8 @@ struct Wakers {
     runner: WakerRegistration,
 }
 
-impl Default for Wakers {
-    fn default() -> Self {
+impl Wakers {
+    const fn new() -> Self {
         Self {
             control: WakerRegistration::new(),
             runner: WakerRegistration::new(),
@@ -47,10 +48,10 @@ pub struct IoctlState {
 }
 
 impl IoctlState {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             state: Cell::new(IoctlStateInner::Done { resp_len: 0 }),
-            wakers: Default::default(),
+            wakers: RefCell::new(Wakers::new()),
         }
     }
 
@@ -70,7 +71,7 @@ impl IoctlState {
         self.wakers.borrow_mut().runner.register(waker);
     }
 
-    pub async fn wait_complete(&self) -> usize {
+    pub fn wait_complete(&self) -> impl Future<Output = usize> + '_ {
         poll_fn(|cx| {
             if let IoctlStateInner::Done { resp_len } = self.state.get() {
                 Poll::Ready(resp_len)
@@ -79,29 +80,25 @@ impl IoctlState {
                 Poll::Pending
             }
         })
-        .await
     }
 
-    pub async fn wait_pending(&self) -> PendingIoctl {
-        let pending = poll_fn(|cx| {
+    pub fn wait_pending(&self) -> impl Future<Output = PendingIoctl> + '_ {
+        poll_fn(|cx| {
             if let IoctlStateInner::Pending(pending) = self.state.get() {
+                self.state.set(IoctlStateInner::Sent { buf: pending.buf });
                 Poll::Ready(pending)
             } else {
                 self.register_runner(cx.waker());
                 Poll::Pending
             }
         })
-        .await;
-
-        self.state.set(IoctlStateInner::Sent { buf: pending.buf });
-        pending
     }
 
     pub fn cancel_ioctl(&self) {
         self.state.set(IoctlStateInner::Done { resp_len: 0 });
     }
 
-    pub async fn do_ioctl(&self, kind: IoctlType, cmd: u32, iface: u32, buf: &mut [u8]) -> usize {
+    pub async fn do_ioctl(&self, kind: IoctlType, cmd: Ioctl, iface: u32, buf: &mut [u8]) -> usize {
         self.state
             .set(IoctlStateInner::Pending(PendingIoctl { buf, kind, cmd, iface }));
         self.wake_runner();

@@ -1,15 +1,13 @@
-use core::fmt::Write as _;
-
 use clap::Parser;
 use embassy_executor::{Executor, Spawner};
 use embassy_net::tcp::TcpSocket;
-use embassy_net::{Config, Ipv4Address, Ipv4Cidr, Stack, StackResources};
+use embassy_net::{Config, Ipv4Address, Ipv4Cidr, StackResources};
 use embassy_net_tuntap::TunTapDevice;
 use embassy_time::{Duration, Timer};
 use embedded_io_async::Write as _;
 use heapless::Vec;
 use log::*;
-use rand_core::{OsRng, RngCore};
+use rand_core::{OsRng, TryRngCore};
 use static_cell::StaticCell;
 
 #[derive(Parser)]
@@ -24,18 +22,8 @@ struct Opts {
 }
 
 #[embassy_executor::task]
-async fn net_task(stack: &'static Stack<TunTapDevice>) -> ! {
-    stack.run().await
-}
-
-#[derive(Default)]
-struct StrWrite(pub heapless::Vec<u8, 30>);
-
-impl core::fmt::Write for StrWrite {
-    fn write_str(&mut self, s: &str) -> Result<(), core::fmt::Error> {
-        self.0.extend_from_slice(s.as_bytes()).unwrap();
-        Ok(())
-    }
+async fn net_task(mut runner: embassy_net::Runner<'static, TunTapDevice>) -> ! {
+    runner.run().await
 }
 
 #[embassy_executor::task]
@@ -58,21 +46,15 @@ async fn main_task(spawner: Spawner) {
 
     // Generate random seed
     let mut seed = [0; 8];
-    OsRng.fill_bytes(&mut seed);
+    OsRng.try_fill_bytes(&mut seed).unwrap();
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
-    static STACK: StaticCell<Stack<TunTapDevice>> = StaticCell::new();
     static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
-    let stack = &*STACK.init(Stack::new(
-        device,
-        config,
-        RESOURCES.init(StackResources::<3>::new()),
-        seed,
-    ));
+    let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
 
     // Launch network task
-    spawner.spawn(net_task(stack)).unwrap();
+    spawner.spawn(net_task(runner).unwrap());
 
     // Then we can use it!
     let mut rx_buffer = [0; 4096];
@@ -91,9 +73,8 @@ async fn main_task(spawner: Spawner) {
 
         // Write some quick output
         for i in 1..=5 {
-            let mut w = StrWrite::default();
-            write!(w, "{}!  ", i).unwrap();
-            let r = socket.write_all(&w.0).await;
+            let s = format!("{}!  ", i);
+            let r = socket.write_all(s.as_bytes()).await;
             if let Err(e) = r {
                 warn!("write error: {:?}", e);
                 return;
@@ -120,6 +101,6 @@ fn main() {
 
     let executor = EXECUTOR.init(Executor::new());
     executor.run(|spawner| {
-        spawner.spawn(main_task(spawner)).unwrap();
+        spawner.spawn(main_task(spawner).unwrap());
     });
 }

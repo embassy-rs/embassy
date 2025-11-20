@@ -9,12 +9,33 @@ use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use stm32_metapac::metadata::ir::BitOffset;
 use stm32_metapac::metadata::{
-    MemoryRegionKind, PeripheralRccKernelClock, PeripheralRccRegister, PeripheralRegisters, StopMode, ALL_CHIPS,
-    ALL_PERIPHERAL_VERSIONS, METADATA,
+    ALL_CHIPS, ALL_PERIPHERAL_VERSIONS, METADATA, MemoryRegion, MemoryRegionKind, PeripheralRccKernelClock,
+    PeripheralRccRegister, PeripheralRegisters, StopMode,
 };
 
 #[path = "./build_common.rs"]
 mod common;
+
+/// Helper function to handle peripheral versions with underscores.
+/// For a version like "v1_foo_bar", this generates all prefix combinations:
+/// - "kind_v1"
+/// - "kind_v1_foo"
+/// - "kind_v1_foo_bar"
+fn foreach_version_cfg(
+    cfgs: &mut common::CfgSet,
+    kind: &str,
+    version: &str,
+    mut cfg_fn: impl FnMut(&mut common::CfgSet, &str),
+) {
+    let parts: Vec<&str> = version.split('_').collect();
+
+    // Generate all possible prefix combinations
+    for i in 1..=parts.len() {
+        let partial_version = parts[0..i].join("_");
+        let cfg_name = format!("{}_{}", kind, partial_version);
+        cfg_fn(cfgs, &cfg_name);
+    }
+}
 
 fn main() {
     let mut cfgs = common::CfgSet::new();
@@ -38,24 +59,90 @@ fn main() {
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
             cfgs.enable(r.kind);
-            cfgs.enable(format!("{}_{}", r.kind, r.version));
+            foreach_version_cfg(&mut cfgs, r.kind, r.version, |cfgs, cfg_name| {
+                cfgs.enable(cfg_name);
+            });
         }
     }
 
     for &(kind, versions) in ALL_PERIPHERAL_VERSIONS.iter() {
         cfgs.declare(kind);
         for &version in versions.iter() {
-            cfgs.declare(format!("{}_{}", kind, version));
+            foreach_version_cfg(&mut cfgs, kind, version, |cfgs, cfg_name| {
+                cfgs.declare(cfg_name);
+            });
         }
     }
+
+    // ========
+    // Select the memory variant to use
+    let memory = {
+        let single_bank_selected = env::var("CARGO_FEATURE_SINGLE_BANK").is_ok();
+        let dual_bank_selected = env::var("CARGO_FEATURE_DUAL_BANK").is_ok();
+
+        let single_bank_memory = METADATA.memory.iter().find(|mem| {
+            mem.iter().any(|region| region.name.contains("BANK_1"))
+                && !mem.iter().any(|region| region.name.contains("BANK_2"))
+        });
+
+        let dual_bank_memory = METADATA.memory.iter().find(|mem| {
+            mem.iter().any(|region| region.name.contains("BANK_1"))
+                && mem.iter().any(|region| region.name.contains("BANK_2"))
+        });
+
+        cfgs.set(
+            "bank_setup_configurable",
+            single_bank_memory.is_some() && dual_bank_memory.is_some(),
+        );
+
+        match (single_bank_selected, dual_bank_selected) {
+            (true, true) => panic!("Both 'single-bank' and 'dual-bank' features enabled"),
+            (true, false) => {
+                single_bank_memory.expect("The 'single-bank' feature is not supported on this dual bank chip")
+            }
+            (false, true) => {
+                dual_bank_memory.expect("The 'dual-bank' feature is not supported on this single bank chip")
+            }
+            (false, false) => {
+                if METADATA.memory.len() != 1 {
+                    panic!(
+                        "Chip supports single and dual bank configuration. No Cargo feature to select one is enabled. Use the 'single-bank' or 'dual-bank' feature to make your selection"
+                    )
+                }
+                METADATA.memory[0]
+            }
+        }
+    };
+
+    let has_bkpsram = memory.iter().any(|m| m.name == "BKPSRAM");
 
     // ========
     // Generate singletons
 
     let mut singletons: Vec<String> = Vec::new();
+
+    // Generate one singleton per pin
+    for p in METADATA.pins {
+        singletons.push(p.name.to_string());
+    }
+
+    cfgs.declare("backup_sram");
+
+    if has_bkpsram {
+        singletons.push("BKPSRAM".to_string());
+        cfgs.enable("backup_sram")
+    }
+
+    // generate one singleton per peripheral (with many exceptions...)
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
-            if r.kind == "adccommon" || r.kind == "sai" || r.kind == "ucpd" {
+            if r.kind == "adccommon"
+                || r.kind == "sai"
+                || r.kind == "ucpd"
+                || r.kind == "otg"
+                || r.kind == "octospi"
+                || r.kind == "xspi"
+            {
                 // TODO: should we emit this for all peripherals? if so, we will need a list of all
                 // possible peripherals across all chips, so that we can declare the configs
                 // (replacing the hard-coded list of `peri_*` cfgs below)
@@ -63,13 +150,8 @@ fn main() {
             }
 
             match r.kind {
-                // Generate singletons per pin, not per port
-                "gpio" => {
-                    let port_letter = p.name.strip_prefix("GPIO").unwrap();
-                    for pin_num in 0..16 {
-                        singletons.push(format!("P{}{}", port_letter, pin_num));
-                    }
-                }
+                // handled above
+                "gpio" => {}
 
                 // No singleton for these, the HAL handles them specially.
                 "exti" => {}
@@ -87,6 +169,11 @@ fn main() {
                         }
                     }
                     singletons.push(p.name.to_string());
+                }
+
+                "eth" => {
+                    singletons.push(p.name.to_string());
+                    singletons.push("ETH_SMA".to_string());
                 }
                 //"dbgmcu" => {}
                 //"syscfg" => {}
@@ -111,6 +198,10 @@ fn main() {
         "peri_sai4",
         "peri_ucpd1",
         "peri_ucpd2",
+        "peri_usb_otg_fs",
+        "peri_usb_otg_hs",
+        "peri_octospi2",
+        "peri_xspi2",
     ]);
     cfgs.declare_all(&["mco", "mco1", "mco2"]);
 
@@ -192,7 +283,7 @@ fn main() {
                 .to_ascii_lowercase(),
         ),
         Err(GetOneError::None) => None,
-        Err(GetOneError::Multiple) => panic!("Multiple stm32xx Cargo features enabled"),
+        Err(GetOneError::Multiple) => panic!("Multiple time-driver-xxx Cargo features enabled"),
     };
 
     let time_driver_singleton = match time_driver.as_ref().map(|x| x.as_ref()) {
@@ -277,100 +368,108 @@ fn main() {
 
     // ========
     // Generate FLASH regions
-    let mut flash_regions = TokenStream::new();
-    let flash_memory_regions: Vec<_> = METADATA
-        .memory
-        .iter()
-        .filter(|x| x.kind == MemoryRegionKind::Flash && x.settings.is_some())
-        .collect();
-    for region in flash_memory_regions.iter() {
-        let region_name = format_ident!("{}", get_flash_region_name(region.name));
-        let bank_variant = format_ident!(
-            "{}",
-            if region.name.starts_with("BANK_1") {
-                "Bank1"
-            } else if region.name.starts_with("BANK_2") {
-                "Bank2"
-            } else {
-                continue;
-            }
-        );
-        let base = region.address;
-        let size = region.size;
-        let settings = region.settings.as_ref().unwrap();
-        let erase_size = settings.erase_size;
-        let write_size = settings.write_size;
-        let erase_value = settings.erase_value;
+    cfgs.declare("flash");
+    let mut has_flash = false;
+    if !chip_name.starts_with("stm32n6") {
+        cfgs.enable("flash");
+        has_flash = true;
 
-        flash_regions.extend(quote! {
-            pub const #region_name: crate::flash::FlashRegion = crate::flash::FlashRegion {
-                bank: crate::flash::FlashBank::#bank_variant,
-                base: #base,
-                size: #size,
-                erase_size: #erase_size,
-                write_size: #write_size,
-                erase_value: #erase_value,
-                _ensure_internal: (),
-            };
+        let mut flash_regions = TokenStream::new();
+        let flash_memory_regions: Vec<_> = memory
+            .iter()
+            .filter(|x| x.kind == MemoryRegionKind::Flash && x.settings.is_some())
+            .collect();
+        for region in flash_memory_regions.iter() {
+            let region_name = format_ident!("{}", get_flash_region_name(region.name));
+            let bank_variant = format_ident!(
+                "{}",
+                if region.name.starts_with("BANK_1") {
+                    "Bank1"
+                } else if region.name.starts_with("BANK_2") {
+                    "Bank2"
+                } else if region.name == "OTP" {
+                    "Otp"
+                } else {
+                    continue;
+                }
+            );
+            let base = region.address;
+            let size = region.size;
+            let settings = region.settings.as_ref().unwrap();
+            let erase_size = settings.erase_size;
+            let write_size = settings.write_size;
+            let erase_value = settings.erase_value;
+
+            flash_regions.extend(quote! {
+                pub const #region_name: crate::flash::FlashRegion = crate::flash::FlashRegion {
+                    bank: crate::flash::FlashBank::#bank_variant,
+                    base: #base,
+                    size: #size,
+                    erase_size: #erase_size,
+                    write_size: #write_size,
+                    erase_value: #erase_value,
+                    _ensure_internal: (),
+                };
+            });
+
+            let region_type = format_ident!("{}", get_flash_region_type_name(region.name));
+            flash_regions.extend(quote! {
+            #[cfg(flash)]
+            pub struct #region_type<'d, MODE = crate::flash::Async>(pub &'static crate::flash::FlashRegion, pub(crate) embassy_hal_internal::Peri<'d, crate::peripherals::FLASH>, pub(crate) core::marker::PhantomData<MODE>);
         });
+        }
 
-        let region_type = format_ident!("{}", get_flash_region_type_name(region.name));
+        let (fields, (inits, region_names)): (Vec<TokenStream>, (Vec<TokenStream>, Vec<Ident>)) = flash_memory_regions
+            .iter()
+            .map(|f| {
+                let region_name = get_flash_region_name(f.name);
+                let field_name = format_ident!("{}", region_name.to_lowercase());
+                let field_type = format_ident!("{}", get_flash_region_type_name(f.name));
+                let field = quote! {
+                    pub #field_name: #field_type<'d, MODE>
+                };
+                let region_name = format_ident!("{}", region_name);
+                let init = quote! {
+                    #field_name: #field_type(&#region_name, unsafe { p.clone_unchecked()}, core::marker::PhantomData)
+                };
+
+                (field, (init, region_name))
+            })
+            .unzip();
+
+        let regions_len = flash_memory_regions.len();
         flash_regions.extend(quote! {
             #[cfg(flash)]
-            pub struct #region_type<'d, MODE = crate::flash::Async>(pub &'static crate::flash::FlashRegion, pub(crate) embassy_hal_internal::PeripheralRef<'d, crate::peripherals::FLASH>, pub(crate) core::marker::PhantomData<MODE>);
-        });
-    }
+            pub struct FlashLayout<'d, MODE = crate::flash::Async> {
+                #(#fields),*,
+                _mode: core::marker::PhantomData<MODE>,
+            }
 
-    let (fields, (inits, region_names)): (Vec<TokenStream>, (Vec<TokenStream>, Vec<Ident>)) = flash_memory_regions
-        .iter()
-        .map(|f| {
-            let region_name = get_flash_region_name(f.name);
-            let field_name = format_ident!("{}", region_name.to_lowercase());
-            let field_type = format_ident!("{}", get_flash_region_type_name(f.name));
-            let field = quote! {
-                pub #field_name: #field_type<'d, MODE>
-            };
-            let region_name = format_ident!("{}", region_name);
-            let init = quote! {
-                #field_name: #field_type(&#region_name, unsafe { p.clone_unchecked()}, core::marker::PhantomData)
-            };
-
-            (field, (init, region_name))
-        })
-        .unzip();
-
-    let regions_len = flash_memory_regions.len();
-    flash_regions.extend(quote! {
-        #[cfg(flash)]
-        pub struct FlashLayout<'d, MODE = crate::flash::Async> {
-            #(#fields),*,
-            _mode: core::marker::PhantomData<MODE>,
-        }
-
-        #[cfg(flash)]
-        impl<'d, MODE> FlashLayout<'d, MODE> {
-            pub(crate) fn new(p: embassy_hal_internal::PeripheralRef<'d, crate::peripherals::FLASH>) -> Self {
-                Self {
-                    #(#inits),*,
-                    _mode: core::marker::PhantomData,
+            #[cfg(flash)]
+            impl<'d, MODE> FlashLayout<'d, MODE> {
+                pub(crate) fn new(p: embassy_hal_internal::Peri<'d, crate::peripherals::FLASH>) -> Self {
+                    Self {
+                        #(#inits),*,
+                        _mode: core::marker::PhantomData,
+                    }
                 }
             }
-        }
 
-        pub const FLASH_REGIONS: [&crate::flash::FlashRegion; #regions_len] = [
-            #(&#region_names),*
-        ];
-    });
+            pub const FLASH_REGIONS: [&crate::flash::FlashRegion; #regions_len] = [
+                #(&#region_names),*
+            ];
+        });
 
-    let max_erase_size = flash_memory_regions
-        .iter()
-        .map(|region| region.settings.as_ref().unwrap().erase_size)
-        .max()
-        .unwrap();
+        let max_erase_size = flash_memory_regions
+            .iter()
+            .map(|region| region.settings.as_ref().unwrap().erase_size)
+            .max()
+            .unwrap();
 
-    g.extend(quote! { pub const MAX_ERASE_SIZE: usize = #max_erase_size as usize; });
+        g.extend(quote! { pub const MAX_ERASE_SIZE: usize = #max_erase_size as usize; });
 
-    g.extend(quote! { pub mod flash_regions { #flash_regions } });
+        g.extend(quote! { pub mod flash_regions { #flash_regions } });
+    }
 
     // ========
     // Extract the rcc registers
@@ -454,6 +553,13 @@ fn main() {
                 field: "CLK48SEL",
             },
         );
+        clock_gen.chained_muxes.insert(
+            "RFWKP",
+            &PeripheralRccRegister {
+                register: "CSR",
+                field: "RFWKPSEL",
+            },
+        );
     }
     if chip_name.starts_with("stm32f7") {
         clock_gen.chained_muxes.insert(
@@ -475,13 +581,52 @@ fn main() {
     }
 
     impl<'a> ClockGen<'a> {
-        fn gen_clock(&mut self, name: &str) -> TokenStream {
-            let clock_name = format_ident!("{}", name.to_ascii_lowercase());
-            self.clock_names.insert(name.to_ascii_lowercase());
-            quote!( unsafe { crate::rcc::get_freqs().#clock_name.unwrap() } )
+        fn parse_mul_div(name: &str) -> (&str, Frac) {
+            if name == "hse_div_rtcpre" {
+                return (name, Frac { num: 1, denom: 1 });
+            }
+
+            if let Some(i) = name.find("_div_") {
+                let n = &name[..i];
+                let val: u32 = name[i + 5..].parse().unwrap();
+                (n, Frac { num: 1, denom: val })
+            } else if let Some(i) = name.find("_mul_") {
+                let n = &name[..i];
+                let val: u32 = name[i + 5..].parse().unwrap();
+                (n, Frac { num: val, denom: 1 })
+            } else {
+                (name, Frac { num: 1, denom: 1 })
+            }
         }
 
-        fn gen_mux(&mut self, mux: &PeripheralRccRegister) -> TokenStream {
+        fn gen_clock(&mut self, peripheral: &str, name: &str) -> TokenStream {
+            let name = name.to_ascii_lowercase();
+            let (name, frac) = Self::parse_mul_div(&name);
+            let clock_name = format_ident!("{}", name);
+            self.clock_names.insert(name.to_string());
+
+            let mut muldiv = quote!();
+            if frac.num != 1 {
+                let val = frac.num;
+                muldiv.extend(quote!(* #val));
+            }
+            if frac.denom != 1 {
+                let val = frac.denom;
+                muldiv.extend(quote!(/ #val));
+            }
+            quote!(unsafe {
+                unwrap!(
+                    crate::rcc::get_freqs().#clock_name.to_hertz(),
+                    "peripheral '{}' is configured to use the '{}' clock, which is not running. \
+                    Either enable it in 'config.rcc' or change 'config.rcc.mux' to use another clock",
+                    #peripheral,
+                    #name
+                )
+                #muldiv
+            })
+        }
+
+        fn gen_mux(&mut self, peripheral: &str, mux: &PeripheralRccRegister) -> TokenStream {
             let ir = &self.rcc_registers.ir;
             let fieldset_name = mux.register.to_ascii_lowercase();
             let fieldset = ir
@@ -506,9 +651,9 @@ fn main() {
             for v in enumm.variants.iter().filter(|v| v.name != "DISABLE") {
                 let variant_name = format_ident!("{}", v.name);
                 let expr = if let Some(mux) = self.chained_muxes.get(&v.name) {
-                    self.gen_mux(mux)
+                    self.gen_mux(peripheral, mux)
                 } else {
-                    self.gen_clock(v.name)
+                    self.gen_clock(peripheral, v.name)
                 };
                 match_arms.extend(quote! {
                     crate::pac::rcc::vals::#enum_name::#variant_name => #expr,
@@ -519,7 +664,11 @@ fn main() {
                 match crate::pac::RCC.#fieldset_name().read().#field_name() {
                     #match_arms
                     #[allow(unreachable_patterns)]
-                    _ => unreachable!(),
+                    _ => panic!(
+                        "attempted to use peripheral '{}' but its clock mux is not set to a valid \
+                         clock. Change 'config.rcc.mux' to another clock.",
+                        #peripheral
+                    )
                 }
             }
         }
@@ -586,9 +735,11 @@ fn main() {
             };
 
             let clock_frequency = match &rcc.kernel_clock {
-                PeripheralRccKernelClock::Mux(mux) => clock_gen.gen_mux(mux),
-                PeripheralRccKernelClock::Clock(clock) => clock_gen.gen_clock(clock),
+                PeripheralRccKernelClock::Mux(mux) => clock_gen.gen_mux(p.name, mux),
+                PeripheralRccKernelClock::Clock(clock) => clock_gen.gen_clock(p.name, clock),
             };
+
+            let bus_clock_frequency = clock_gen.gen_clock(p.name, &rcc.bus_clock);
 
             // A refcount leak can result if the same field is shared by peripherals with different stop modes
             // This condition should be checked in stm32-data
@@ -602,6 +753,9 @@ fn main() {
                 impl crate::rcc::SealedRccPeripheral for peripherals::#pname {
                     fn frequency() -> crate::time::Hertz {
                         #clock_frequency
+                    }
+                    fn bus_frequency() -> crate::time::Hertz {
+                        #bus_clock_frequency
                     }
 
                     const RCC_INFO: crate::rcc::RccInfo = unsafe {
@@ -701,13 +855,24 @@ fn main() {
     // Generate RCC
     clock_gen.clock_names.insert("sys".to_string());
     clock_gen.clock_names.insert("rtc".to_string());
+
+    // STM32F4 SPI in I2S mode receives a clock input from the dedicated I2S PLL.
+    // For this, there is an additional clock MUX, which is not present in other
+    // peripherals and does not fit the current RCC structure of stm32-data.
+    if chip_name.starts_with("stm32f4") && !chip_name.starts_with("stm32f410") {
+        clock_gen.clock_names.insert("plli2s1_p".to_string());
+        clock_gen.clock_names.insert("plli2s1_q".to_string());
+        clock_gen.clock_names.insert("plli2s1_r".to_string());
+    }
+
     let clock_idents: Vec<_> = clock_gen.clock_names.iter().map(|n| format_ident!("{}", n)).collect();
     g.extend(quote! {
         #[derive(Clone, Copy, Debug)]
         #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+        #[repr(C)]
         pub struct Clocks {
             #(
-                pub #clock_idents: Option<crate::time::Hertz>,
+                pub #clock_idents: crate::time::MaybeHertz,
             )*
         }
     });
@@ -724,7 +889,7 @@ fn main() {
                         $($(#[$m])* $k: $v,)*
                     };
                     crate::rcc::set_freqs(crate::rcc::Clocks {
-                        #( #clock_idents: all.#clock_idents, )*
+                        #( #clock_idents: all.#clock_idents.into(), )*
                     });
                 }
             };
@@ -764,7 +929,7 @@ fn main() {
 
     #[rustfmt::skip]
     let signals: HashMap<_, _> = [
-                // (kind, signal) => trait
+        // (kind, signal) => trait
         (("ucpd", "CC1"), quote!(crate::ucpd::Cc1Pin)),
         (("ucpd", "CC2"), quote!(crate::ucpd::Cc2Pin)),
         (("usart", "TX"), quote!(crate::usart::TxPin)),
@@ -848,6 +1013,7 @@ fn main() {
         (("ltdc", "B7"), quote!(crate::ltdc::B7Pin)),
         (("usb", "DP"), quote!(crate::usb::DpPin)),
         (("usb", "DM"), quote!(crate::usb::DmPin)),
+        (("usb", "SOF"), quote!(crate::usb::SofPin)),
         (("otg", "DP"), quote!(crate::usb::DpPin)),
         (("otg", "DM"), quote!(crate::usb::DmPin)),
         (("otg", "ULPI_CK"), quote!(crate::usb::UlpiClkPin)),
@@ -979,21 +1145,21 @@ fn main() {
         (("fmc", "CLK"), quote!(crate::fmc::ClkPin)),
         (("fmc", "BA0"), quote!(crate::fmc::BA0Pin)),
         (("fmc", "BA1"), quote!(crate::fmc::BA1Pin)),
-        (("timer", "CH1"), quote!(crate::timer::Channel1Pin)),
-        (("timer", "CH1N"), quote!(crate::timer::Channel1ComplementaryPin)),
-        (("timer", "CH2"), quote!(crate::timer::Channel2Pin)),
-        (("timer", "CH2N"), quote!(crate::timer::Channel2ComplementaryPin)),
-        (("timer", "CH3"), quote!(crate::timer::Channel3Pin)),
-        (("timer", "CH3N"), quote!(crate::timer::Channel3ComplementaryPin)),
-        (("timer", "CH4"), quote!(crate::timer::Channel4Pin)),
-        (("timer", "CH4N"), quote!(crate::timer::Channel4ComplementaryPin)),
+        (("timer", "CH1"), quote!(crate::timer::TimerPin<Ch1>)),
+        (("timer", "CH1N"), quote!(crate::timer::TimerComplementaryPin<Ch1>)),
+        (("timer", "CH2"), quote!(crate::timer::TimerPin<Ch2>)),
+        (("timer", "CH2N"), quote!(crate::timer::TimerComplementaryPin<Ch2>)),
+        (("timer", "CH3"), quote!(crate::timer::TimerPin<Ch3>)),
+        (("timer", "CH3N"), quote!(crate::timer::TimerComplementaryPin<Ch3>)),
+        (("timer", "CH4"), quote!(crate::timer::TimerPin<Ch4>)),
+        (("timer", "CH4N"), quote!(crate::timer::TimerComplementaryPin<Ch4>)),
         (("timer", "ETR"), quote!(crate::timer::ExternalTriggerPin)),
-        (("timer", "BKIN"), quote!(crate::timer::BreakInputPin)),
-        (("timer", "BKIN_COMP1"), quote!(crate::timer::BreakInputComparator1Pin)),
-        (("timer", "BKIN_COMP2"), quote!(crate::timer::BreakInputComparator2Pin)),
-        (("timer", "BKIN2"), quote!(crate::timer::BreakInput2Pin)),
-        (("timer", "BKIN2_COMP1"), quote!(crate::timer::BreakInput2Comparator1Pin)),
-        (("timer", "BKIN2_COMP2"), quote!(crate::timer::BreakInput2Comparator2Pin)),
+        (("timer", "BKIN"), quote!(crate::timer::BreakInputPin<BkIn1>)),
+        (("timer", "BKIN_COMP1"), quote!(crate::timer::BreakInputComparator1Pin<BkIn1>)),
+        (("timer", "BKIN_COMP2"), quote!(crate::timer::BreakInputComparator2Pin<BkIn1>)),
+        (("timer", "BKIN2"), quote!(crate::timer::BreakInputPin<BkIn2>)),
+        (("timer", "BKIN2_COMP1"), quote!(crate::timer::BreakInputComparator1Pin<BkIn2>)),
+        (("timer", "BKIN2_COMP2"), quote!(crate::timer::BreakInputComparator2Pin<BkIn2>)),
         (("hrtim", "CHA1"), quote!(crate::hrtim::ChannelAPin)),
         (("hrtim", "CHA2"), quote!(crate::hrtim::ChannelAComplementaryPin)),
         (("hrtim", "CHB1"), quote!(crate::hrtim::ChannelBPin)),
@@ -1006,6 +1172,9 @@ fn main() {
         (("hrtim", "CHE2"), quote!(crate::hrtim::ChannelEComplementaryPin)),
         (("hrtim", "CHF1"), quote!(crate::hrtim::ChannelFPin)),
         (("hrtim", "CHF2"), quote!(crate::hrtim::ChannelFComplementaryPin)),
+        (("lptim", "CH1"), quote!(crate::lptim::Channel1Pin)),
+        (("lptim", "CH2"), quote!(crate::lptim::Channel2Pin)),
+        (("lptim", "OUT"), quote!(crate::lptim::OutputPin)),
         (("sdmmc", "CK"), quote!(crate::sdmmc::CkPin)),
         (("sdmmc", "CMD"), quote!(crate::sdmmc::CmdPin)),
         (("sdmmc", "D0"), quote!(crate::sdmmc::D0Pin)),
@@ -1015,7 +1184,7 @@ fn main() {
         (("sdmmc", "D4"), quote!(crate::sdmmc::D4Pin)),
         (("sdmmc", "D5"), quote!(crate::sdmmc::D5Pin)),
         (("sdmmc", "D6"), quote!(crate::sdmmc::D6Pin)),
-        (("sdmmc", "D6"), quote!(crate::sdmmc::D7Pin)),
+        (("sdmmc", "D7"), quote!(crate::sdmmc::D7Pin)),
         (("sdmmc", "D8"), quote!(crate::sdmmc::D8Pin)),
         (("quadspi", "BK1_IO0"), quote!(crate::qspi::BK1D0Pin)),
         (("quadspi", "BK1_IO1"), quote!(crate::qspi::BK1D1Pin)),
@@ -1040,6 +1209,117 @@ fn main() {
         (("octospi", "NCS"), quote!(crate::ospi::NSSPin)),
         (("octospi", "CLK"), quote!(crate::ospi::SckPin)),
         (("octospi", "NCLK"), quote!(crate::ospi::NckPin)),
+        (("octospim", "P1_IO0"), quote!(crate::ospi::D0Pin)),
+        (("octospim", "P1_IO1"), quote!(crate::ospi::D1Pin)),
+        (("octospim", "P1_IO2"), quote!(crate::ospi::D2Pin)),
+        (("octospim", "P1_IO3"), quote!(crate::ospi::D3Pin)),
+        (("octospim", "P1_IO4"), quote!(crate::ospi::D4Pin)),
+        (("octospim", "P1_IO5"), quote!(crate::ospi::D5Pin)),
+        (("octospim", "P1_IO6"), quote!(crate::ospi::D6Pin)),
+        (("octospim", "P1_IO7"), quote!(crate::ospi::D7Pin)),
+        (("octospim", "P1_DQS"), quote!(crate::ospi::DQSPin)),
+        (("octospim", "P1_NCS"), quote!(crate::ospi::NSSPin)),
+        (("octospim", "P1_CLK"), quote!(crate::ospi::SckPin)),
+        (("octospim", "P1_NCLK"), quote!(crate::ospi::NckPin)),
+        (("octospim", "P2_IO0"), quote!(crate::ospi::D0Pin)),
+        (("octospim", "P2_IO1"), quote!(crate::ospi::D1Pin)),
+        (("octospim", "P2_IO2"), quote!(crate::ospi::D2Pin)),
+        (("octospim", "P2_IO3"), quote!(crate::ospi::D3Pin)),
+        (("octospim", "P2_IO4"), quote!(crate::ospi::D4Pin)),
+        (("octospim", "P2_IO5"), quote!(crate::ospi::D5Pin)),
+        (("octospim", "P2_IO6"), quote!(crate::ospi::D6Pin)),
+        (("octospim", "P2_IO7"), quote!(crate::ospi::D7Pin)),
+        (("octospim", "P2_DQS"), quote!(crate::ospi::DQSPin)),
+        (("octospim", "P2_NCS"), quote!(crate::ospi::NSSPin)),
+        (("octospim", "P2_CLK"), quote!(crate::ospi::SckPin)),
+        (("octospim", "P2_NCLK"), quote!(crate::ospi::NckPin)),
+        (("xspi", "IO0"), quote!(crate::xspi::D0Pin)),
+        (("xspi", "IO1"), quote!(crate::xspi::D1Pin)),
+        (("xspi", "IO2"), quote!(crate::xspi::D2Pin)),
+        (("xspi", "IO3"), quote!(crate::xspi::D3Pin)),
+        (("xspi", "IO4"), quote!(crate::xspi::D4Pin)),
+        (("xspi", "IO5"), quote!(crate::xspi::D5Pin)),
+        (("xspi", "IO6"), quote!(crate::xspi::D6Pin)),
+        (("xspi", "IO7"), quote!(crate::xspi::D7Pin)),
+        (("xspi", "IO8"), quote!(crate::xspi::D8Pin)),
+        (("xspi", "IO9"), quote!(crate::xspi::D9Pin)),
+        (("xspi", "IO10"), quote!(crate::xspi::D10Pin)),
+        (("xspi", "IO11"), quote!(crate::xspi::D11Pin)),
+        (("xspi", "IO12"), quote!(crate::xspi::D12Pin)),
+        (("xspi", "IO13"), quote!(crate::xspi::D13Pin)),
+        (("xspi", "IO14"), quote!(crate::xspi::D14Pin)),
+        (("xspi", "IO15"), quote!(crate::xspi::D15Pin)),
+        (("xspi", "DQS0"), quote!(crate::xspi::DQS0Pin)),
+        (("xspi", "DQS1"), quote!(crate::xspi::DQS1Pin)),
+        (("xspi", "NCS1"), quote!(crate::xspi::NCSPin)),
+        (("xspi", "NCS2"), quote!(crate::xspi::NCSPin)),
+        (("xspi", "CLK"), quote!(crate::xspi::CLKPin)),
+        (("xspi", "NCLK"), quote!(crate::xspi::NCLKPin)),
+        (("xspim", "P1_IO0"), quote!(crate::xspi::D0Pin)),
+        (("xspim", "P1_IO1"), quote!(crate::xspi::D1Pin)),
+        (("xspim", "P1_IO2"), quote!(crate::xspi::D2Pin)),
+        (("xspim", "P1_IO3"), quote!(crate::xspi::D3Pin)),
+        (("xspim", "P1_IO4"), quote!(crate::xspi::D4Pin)),
+        (("xspim", "P1_IO5"), quote!(crate::xspi::D5Pin)),
+        (("xspim", "P1_IO6"), quote!(crate::xspi::D6Pin)),
+        (("xspim", "P1_IO7"), quote!(crate::xspi::D7Pin)),
+        (("xspim", "P1_IO8"), quote!(crate::xspi::D8Pin)),
+        (("xspim", "P1_IO9"), quote!(crate::xspi::D9Pin)),
+        (("xspim", "P1_IO10"), quote!(crate::xspi::D10Pin)),
+        (("xspim", "P1_IO11"), quote!(crate::xspi::D11Pin)),
+        (("xspim", "P1_IO12"), quote!(crate::xspi::D12Pin)),
+        (("xspim", "P1_IO13"), quote!(crate::xspi::D13Pin)),
+        (("xspim", "P1_IO14"), quote!(crate::xspi::D14Pin)),
+        (("xspim", "P1_IO15"), quote!(crate::xspi::D15Pin)),
+        (("xspim", "P1_DQS0"), quote!(crate::xspi::DQS0Pin)),
+        (("xspim", "P1_DQS1"), quote!(crate::xspi::DQS1Pin)),
+        (("xspim", "P1_NCS1"), quote!(crate::xspi::NCSPin)),
+        (("xspim", "P1_NCS2"), quote!(crate::xspi::NCSPin)),
+        (("xspim", "P1_CLK"), quote!(crate::xspi::CLKPin)),
+        (("xspim", "P1_NCLK"), quote!(crate::xspi::NCLKPin)),
+        (("xspim", "P2_IO0"), quote!(crate::xspi::D0Pin)),
+        (("xspim", "P2_IO1"), quote!(crate::xspi::D1Pin)),
+        (("xspim", "P2_IO2"), quote!(crate::xspi::D2Pin)),
+        (("xspim", "P2_IO3"), quote!(crate::xspi::D3Pin)),
+        (("xspim", "P2_IO4"), quote!(crate::xspi::D4Pin)),
+        (("xspim", "P2_IO5"), quote!(crate::xspi::D5Pin)),
+        (("xspim", "P2_IO6"), quote!(crate::xspi::D6Pin)),
+        (("xspim", "P2_IO7"), quote!(crate::xspi::D7Pin)),
+        (("xspim", "P2_IO8"), quote!(crate::xspi::D8Pin)),
+        (("xspim", "P2_IO9"), quote!(crate::xspi::D9Pin)),
+        (("xspim", "P2_IO10"), quote!(crate::xspi::D10Pin)),
+        (("xspim", "P2_IO11"), quote!(crate::xspi::D11Pin)),
+        (("xspim", "P2_IO12"), quote!(crate::xspi::D12Pin)),
+        (("xspim", "P2_IO13"), quote!(crate::xspi::D13Pin)),
+        (("xspim", "P2_IO14"), quote!(crate::xspi::D14Pin)),
+        (("xspim", "P2_IO15"), quote!(crate::xspi::D15Pin)),
+        (("xspim", "P2_DQS0"), quote!(crate::xspi::DQS0Pin)),
+        (("xspim", "P2_DQS1"), quote!(crate::xspi::DQS1Pin)),
+        (("xspim", "P2_NCS1"), quote!(crate::xspi::NCSPin)),
+        (("xspim", "P2_NCS2"), quote!(crate::xspi::NCSPin)),
+        (("xspim", "P2_CLK"), quote!(crate::xspi::CLKPin)),
+        (("xspim", "P2_NCLK"), quote!(crate::xspi::NCLKPin)),
+        (("hspi", "IO0"), quote!(crate::hspi::D0Pin)),
+        (("hspi", "IO1"), quote!(crate::hspi::D1Pin)),
+        (("hspi", "IO2"), quote!(crate::hspi::D2Pin)),
+        (("hspi", "IO3"), quote!(crate::hspi::D3Pin)),
+        (("hspi", "IO4"), quote!(crate::hspi::D4Pin)),
+        (("hspi", "IO5"), quote!(crate::hspi::D5Pin)),
+        (("hspi", "IO6"), quote!(crate::hspi::D6Pin)),
+        (("hspi", "IO7"), quote!(crate::hspi::D7Pin)),
+        (("hspi", "IO8"), quote!(crate::hspi::D8Pin)),
+        (("hspi", "IO9"), quote!(crate::hspi::D9Pin)),
+        (("hspi", "IO10"), quote!(crate::hspi::D10Pin)),
+        (("hspi", "IO11"), quote!(crate::hspi::D11Pin)),
+        (("hspi", "IO12"), quote!(crate::hspi::D12Pin)),
+        (("hspi", "IO13"), quote!(crate::hspi::D13Pin)),
+        (("hspi", "IO14"), quote!(crate::hspi::D14Pin)),
+        (("hspi", "IO15"), quote!(crate::hspi::D15Pin)),
+        (("hspi", "DQS0"), quote!(crate::hspi::DQS0Pin)),
+        (("hspi", "DQS1"), quote!(crate::hspi::DQS1Pin)),
+        (("hspi", "NCS"), quote!(crate::hspi::NSSPin)),
+        (("hspi", "CLK"), quote!(crate::hspi::SckPin)),
+        (("hspi", "NCLK"), quote!(crate::hspi::NckPin)),
         (("tsc", "G1_IO1"), quote!(crate::tsc::G1IO1Pin)),
         (("tsc", "G1_IO2"), quote!(crate::tsc::G1IO2Pin)),
         (("tsc", "G1_IO3"), quote!(crate::tsc::G1IO3Pin)),
@@ -1074,12 +1354,16 @@ fn main() {
         (("tsc", "G8_IO4"), quote!(crate::tsc::G8IO4Pin)),
         (("lcd", "SEG"), quote!(crate::lcd::SegComPin)),
         (("lcd", "COM"), quote!(crate::lcd::SegComPin)),
+        (("dac", "OUT1"), quote!(crate::dac::DacPin<Ch1>)),
+        (("dac", "OUT2"), quote!(crate::dac::DacPin<Ch2>)),
     ].into();
 
     let mut seen_lcd_pins = HashSet::new();
 
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
+            let mut adc_pairs: BTreeMap<u8, (Option<Ident>, Option<Ident>)> = BTreeMap::new();
+
             for pin in p.pins {
                 let mut key = (regs.kind, pin.signal);
 
@@ -1113,9 +1397,93 @@ fn main() {
                         peri = format_ident!("{}", pin.signal.replace('_', ""));
                     }
 
-                    g.extend(quote! {
-                        pin_trait_impl!(#tr, #peri, #pin_name, #af);
-                    })
+                    // OCTOSPIM is special
+                    if p.name == "OCTOSPIM" {
+                        // Some chips have OCTOSPIM but not OCTOSPI2.
+                        if METADATA.peripherals.iter().any(|p| p.name == "OCTOSPI2") {
+                            peri = format_ident!("{}", "OCTOSPI2");
+                            g.extend(quote! {
+                                pin_trait_impl!(#tr, #peri, #pin_name, #af);
+                            });
+                        }
+                        peri = format_ident!("{}", "OCTOSPI1");
+                    }
+
+                    // XSPIM  is special
+                    if p.name == "XSPIM" {
+                        if pin.signal.starts_with("P1") {
+                            peri = format_ident!("{}", "XSPI1");
+                        } else if pin.signal.starts_with("P2") {
+                            peri = format_ident!("{}", "XSPI2");
+                        } else {
+                            panic! {"malformed XSPIM pin: {:?}", pin}
+                        }
+                    }
+
+                    // MDIO and MDC are special
+                    if pin.signal == "MDIO" || pin.signal == "MDC" {
+                        peri = format_ident!("{}", "ETH_SMA");
+                    }
+
+                    // XSPI NCS pin to CSSEL mapping
+                    if pin.signal.ends_with("NCS1") {
+                        g.extend(quote! {
+                            sel_trait_impl!(crate::xspi::NCSEither, #peri, #pin_name, 0);
+                        })
+                    }
+                    if pin.signal.ends_with("NCS2") {
+                        g.extend(quote! {
+                            sel_trait_impl!(crate::xspi::NCSEither, #peri, #pin_name, 1);
+                        })
+                    }
+
+                    let pin_trait_impl = if let Some(afio) = &p.afio {
+                        let values = afio
+                            .values
+                            .iter()
+                            .filter(|v| v.pins.contains(&pin.pin))
+                            .map(|v| v.value)
+                            .collect::<Vec<_>>();
+
+                        if values.is_empty() {
+                            None
+                        } else {
+                            let reg = format_ident!("{}", afio.register.to_lowercase());
+                            let setter = format_ident!("set_{}", afio.field.to_lowercase());
+                            let type_and_values = if is_bool_field("AFIO", afio.register, afio.field) {
+                                let values = values.iter().map(|&v| v > 0);
+                                quote!(AfioRemapBool, [#(#values),*])
+                            } else {
+                                quote!(AfioRemap, [#(#values),*])
+                            };
+
+                            Some(quote! {
+                                pin_trait_afio_impl!(#tr, #peri, #pin_name, {#reg, #setter, #type_and_values});
+                            })
+                        }
+                    } else {
+                        let peripherals_with_afio = [
+                            "CAN",
+                            "CEC",
+                            "ETH",
+                            "I2C",
+                            "SPI",
+                            "SUBGHZSPI",
+                            "USART",
+                            "UART",
+                            "LPUART",
+                            "TIM",
+                        ];
+                        let not_applicable = if peripherals_with_afio.iter().any(|&x| p.name.starts_with(x)) {
+                            quote!(, crate::gpio::AfioRemapNotApplicable)
+                        } else {
+                            quote!()
+                        };
+
+                        Some(quote!(pin_trait_impl!(#tr, #peri, #pin_name, #af #not_applicable);))
+                    };
+
+                    g.extend(pin_trait_impl);
                 }
 
                 // ADC is special
@@ -1134,55 +1502,81 @@ fn main() {
                     };
 
                     // H7 has differential voltage measurements
-                    let ch: Option<u8> = if pin.signal.starts_with("INP") {
-                        Some(pin.signal.strip_prefix("INP").unwrap().parse().unwrap())
+                    let ch: Option<(u8, bool)> = if pin.signal.starts_with("INP") {
+                        Some((pin.signal.strip_prefix("INP").unwrap().parse().unwrap(), false))
                     } else if pin.signal.starts_with("INN") {
-                        // TODO handle in the future when embassy supports differential measurements
-                        None
+                        Some((pin.signal.strip_prefix("INN").unwrap().parse().unwrap(), true))
                     } else if pin.signal.starts_with("IN") && pin.signal.ends_with('b') {
                         // we number STM32L1 ADC bank 1 as 0..=31, bank 2 as 32..=63
                         let signal = pin.signal.strip_prefix("IN").unwrap().strip_suffix('b').unwrap();
-                        Some(32u8 + signal.parse::<u8>().unwrap())
+                        Some((32u8 + signal.parse::<u8>().unwrap(), false))
                     } else if pin.signal.starts_with("IN") {
-                        Some(pin.signal.strip_prefix("IN").unwrap().parse().unwrap())
+                        Some((pin.signal.strip_prefix("IN").unwrap().parse().unwrap(), false))
                     } else {
                         None
                     };
-                    if let Some(ch) = ch {
+                    if let Some((ch, false)) = ch {
+                        adc_pairs.entry(ch).or_insert((None, None)).0.replace(pin_name.clone());
+
                         g.extend(quote! {
                         impl_adc_pin!( #peri, #pin_name, #ch);
                         })
                     }
+                    if let Some((ch, true)) = ch {
+                        adc_pairs.entry(ch).or_insert((None, None)).1.replace(pin_name.clone());
+                    }
                 }
 
                 if regs.kind == "opamp" {
-                    if pin.signal.starts_with("VP") {
-                        // Impl NonInvertingPin for the VP* signals (VP0, VP1, VP2, etc)
-                        let peri = format_ident!("{}", p.name);
-                        let pin_name = format_ident!("{}", pin.pin);
-                        let ch: u8 = pin.signal.strip_prefix("VP").unwrap().parse().unwrap();
-
-                        g.extend(quote! {
-                            impl_opamp_vp_pin!( #peri, #pin_name, #ch);
-                        })
+                    let peri = format_ident!("{}", p.name);
+                    let pin_name = format_ident!("{}", pin.pin);
+                    if let Some(ch_str) = pin.signal.strip_prefix("VINP") {
+                        // Impl NonInvertingPin for VINP0, VINP1 etc.
+                        if let Ok(ch) = ch_str.parse::<u8>() {
+                            g.extend(quote! {
+                                impl_opamp_vp_pin!( #peri, #pin_name, #ch );
+                            });
+                        }
+                    } else if let Some(ch_str) = pin.signal.strip_prefix("VINM") {
+                        // Impl InvertingPin for VINM0, VINM1 etc.
+                        if let Ok(ch) = ch_str.parse::<u8>() {
+                            g.extend(quote! {
+                                impl_opamp_vn_pin!( #peri, #pin_name, #ch);
+                            });
+                        }
                     } else if pin.signal == "VOUT" {
                         // Impl OutputPin for the VOUT pin
-                        let peri = format_ident!("{}", p.name);
-                        let pin_name = format_ident!("{}", pin.pin);
                         g.extend(quote! {
                             impl_opamp_vout_pin!( #peri, #pin_name );
                         })
                     }
                 }
 
-                // DAC is special
-                if regs.kind == "dac" {
+                if regs.kind == "spdifrx" {
                     let peri = format_ident!("{}", p.name);
                     let pin_name = format_ident!("{}", pin.pin);
-                    let ch: u8 = pin.signal.strip_prefix("OUT").unwrap().parse().unwrap();
+                    let af = pin.af.unwrap_or(0);
+                    let sel: u8 = pin.signal.strip_prefix("IN").unwrap().parse().unwrap();
 
                     g.extend(quote! {
-                    impl_dac_pin!( #peri, #pin_name, #ch);
+                    impl_spdifrx_pin!( #peri, #pin_name, #af, #sel);
+                    })
+                }
+            }
+
+            {
+                let peri = format_ident!("{}", p.name);
+
+                for (ch, (pin, npin)) in adc_pairs {
+                    let (pin_name, npin_name) = match (pin, npin) {
+                        (Some(pin), Some(npin)) => (pin, npin),
+                        _ => {
+                            continue;
+                        }
+                    };
+
+                    g.extend(quote! {
+                    impl_adc_pair!( #peri, #pin_name, #npin_name, #ch);
                     })
                 }
             }
@@ -1192,8 +1586,12 @@ fn main() {
     // ========
     // Generate dma_trait_impl!
 
-    let signals: HashMap<_, _> = [
+    let mut signals: HashMap<_, _> = [
         // (kind, signal) => trait
+        (("adc", "ADC"), quote!(crate::adc::RxDma)),
+        (("adc", "ADC1"), quote!(crate::adc::RxDma)),
+        (("adc", "ADC2"), quote!(crate::adc::RxDma)),
+        (("adc", "ADC3"), quote!(crate::adc::RxDma)),
         (("ucpd", "RX"), quote!(crate::ucpd::RxDma)),
         (("ucpd", "TX"), quote!(crate::ucpd::TxDma)),
         (("usart", "RX"), quote!(crate::usart::RxDma)),
@@ -1204,6 +1602,7 @@ fn main() {
         (("sai", "B"), quote!(crate::sai::Dma<B>)),
         (("spi", "RX"), quote!(crate::spi::RxDma)),
         (("spi", "TX"), quote!(crate::spi::TxDma)),
+        (("spdifrx", "RX"), quote!(crate::spdifrx::Dma)),
         (("i2c", "RX"), quote!(crate::i2c::RxDma)),
         (("i2c", "TX"), quote!(crate::i2c::TxDma)),
         (("dcmi", "DCMI"), quote!(crate::dcmi::FrameDma)),
@@ -1212,20 +1611,38 @@ fn main() {
         (("sdmmc", "RX"), quote!(crate::sdmmc::SdmmcDma)),
         (("quadspi", "QUADSPI"), quote!(crate::qspi::QuadDma)),
         (("octospi", "OCTOSPI1"), quote!(crate::ospi::OctoDma)),
-        (("dac", "CH1"), quote!(crate::dac::DacDma1)),
-        (("dac", "CH2"), quote!(crate::dac::DacDma2)),
+        (("hspi", "HSPI1"), quote!(crate::hspi::HspiDma)),
+        (("dac", "CH1"), quote!(crate::dac::Dma<Ch1>)),
+        (("dac", "CH2"), quote!(crate::dac::Dma<Ch2>)),
         (("timer", "UP"), quote!(crate::timer::UpDma)),
         (("hash", "IN"), quote!(crate::hash::Dma)),
         (("cryp", "IN"), quote!(crate::cryp::DmaIn)),
         (("cryp", "OUT"), quote!(crate::cryp::DmaOut)),
-        (("timer", "CH1"), quote!(crate::timer::Ch1Dma)),
-        (("timer", "CH2"), quote!(crate::timer::Ch2Dma)),
-        (("timer", "CH3"), quote!(crate::timer::Ch3Dma)),
-        (("timer", "CH4"), quote!(crate::timer::Ch4Dma)),
+        (("timer", "CH1"), quote!(crate::timer::Dma<Ch1>)),
+        (("timer", "CH2"), quote!(crate::timer::Dma<Ch2>)),
+        (("timer", "CH3"), quote!(crate::timer::Dma<Ch3>)),
+        (("timer", "CH4"), quote!(crate::timer::Dma<Ch4>)),
         (("cordic", "WRITE"), quote!(crate::cordic::WriteDma)), // FIXME: stm32u5a crash on Cordic driver
         (("cordic", "READ"), quote!(crate::cordic::ReadDma)),   // FIXME: stm32u5a crash on Cordic driver
     ]
     .into();
+
+    if chip_name.starts_with("stm32u5") {
+        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
+    } else {
+        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
+    }
+
+    if chip_name.starts_with("stm32wba") {
+        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
+    }
+
+    if chip_name.starts_with("stm32g4") {
+        let line_number = chip_name.chars().skip(8).next().unwrap();
+        if line_number == '3' || line_number == '4' {
+            signals.insert(("adc", "ADC5"), quote!(crate::adc::RxDma));
+        }
+    }
 
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
@@ -1277,9 +1694,25 @@ fn main() {
                             quote!(())
                         };
 
+                        let mut remap = quote!();
+                        for remap_info in ch.remap {
+                            let register = format_ident!("{}", remap_info.register.to_lowercase());
+                            let setter = format_ident!("set_{}", remap_info.field.to_lowercase());
+
+                            let value = if is_bool_field("SYSCFG", &remap_info.register, &remap_info.field) {
+                                let bool_value = format_ident!("{}", remap_info.value > 0);
+                                quote!(#bool_value)
+                            } else {
+                                let value = remap_info.value;
+                                quote!(#value.into())
+                            };
+
+                            remap.extend(quote!(crate::pac::SYSCFG.#register().modify(|w| w.#setter(#value));));
+                        }
+
                         let channel = format_ident!("{}", channel);
                         g.extend(quote! {
-                            dma_trait_impl!(#tr, #peri, #channel, #request);
+                            dma_trait_impl!(#tr, #peri, #channel, #request, {#remap});
                         });
                     }
                 }
@@ -1288,93 +1721,88 @@ fn main() {
     }
 
     // ========
-    // Generate Div/Mul impls for RCC prescalers/dividers/multipliers.
-    for e in rcc_registers.ir.enums {
-        fn is_rcc_name(e: &str) -> bool {
-            match e {
-                "Pllp" | "Pllq" | "Pllr" | "Pllm" | "Plln" => true,
-                "Timpre" | "Pllrclkpre" => false,
-                e if e.ends_with("pre") || e.ends_with("pres") || e.ends_with("div") || e.ends_with("mul") => true,
-                _ => false,
-            }
-        }
-
-        #[derive(Copy, Clone, Debug)]
-        struct Frac {
-            num: u32,
-            denom: u32,
-        }
-
-        impl Frac {
-            fn simplify(self) -> Self {
-                let d = gcd(self.num, self.denom);
-                Self {
-                    num: self.num / d,
-                    denom: self.denom / d,
+    // Generate Div/Mul impls for RCC and ADC prescalers/dividers/multipliers.
+    for (kind, psc_enums) in ["rcc", "adc", "adccommon"].iter().filter_map(|kind| {
+        METADATA
+            .peripherals
+            .iter()
+            .filter_map(|p| p.registers.as_ref())
+            .find(|r| r.kind == *kind)
+            .map(|r| (*kind, r.ir.enums))
+    }) {
+        for e in psc_enums.iter() {
+            fn is_adc_name(e: &str) -> bool {
+                match e {
+                    "Presc" | "Adc4Presc" | "Adcpre" => true,
+                    _ => false,
                 }
             }
-        }
 
-        fn gcd(a: u32, b: u32) -> u32 {
-            if b == 0 {
-                return a;
+            fn is_rcc_name(e: &str) -> bool {
+                match e {
+                    "Pllp" | "Pllq" | "Pllr" | "Plldivst" | "Pllm" | "Plln" | "Prediv1" | "Prediv2" | "Hpre5" => true,
+                    "Timpre" | "Pllrclkpre" => false,
+                    e if e.ends_with("pre") || e.ends_with("pres") || e.ends_with("div") || e.ends_with("mul") => true,
+                    _ => false,
+                }
             }
-            gcd(b, a % b)
-        }
 
-        fn parse_num(n: &str) -> Result<Frac, ()> {
-            for prefix in ["DIV", "MUL"] {
-                if let Some(n) = n.strip_prefix(prefix) {
-                    let exponent = n.find('_').map(|e| n.len() - 1 - e).unwrap_or(0) as u32;
-                    let mantissa = n.replace('_', "").parse().map_err(|_| ())?;
-                    let f = Frac {
-                        num: mantissa,
-                        denom: 10u32.pow(exponent),
+            fn parse_num(n: &str) -> Result<Frac, ()> {
+                for prefix in ["DIV", "MUL"] {
+                    if let Some(n) = n.strip_prefix(prefix) {
+                        let exponent = n.find('_').map(|e| n.len() - 1 - e).unwrap_or(0) as u32;
+                        let mantissa = n.replace('_', "").parse().map_err(|_| ())?;
+                        let f = Frac {
+                            num: mantissa,
+                            denom: 10u32.pow(exponent),
+                        };
+                        return Ok(f.simplify());
+                    }
+                }
+                Err(())
+            }
+
+            if (kind == "rcc" && is_rcc_name(e.name)) || ((kind == "adccommon" || kind == "adc") && is_adc_name(e.name))
+            {
+                let kind = format_ident!("{}", kind);
+                let enum_name = format_ident!("{}", e.name);
+                let mut muls = Vec::new();
+                let mut divs = Vec::new();
+                for v in e.variants {
+                    let Ok(val) = parse_num(v.name) else {
+                        panic!("could not parse mul/div. enum={} variant={}", e.name, v.name)
                     };
-                    return Ok(f.simplify());
+                    let variant_name = format_ident!("{}", v.name);
+                    let variant = quote!(crate::pac::#kind::vals::#enum_name::#variant_name);
+                    let num = val.num;
+                    let denom = val.denom;
+                    muls.push(quote!(#variant => self * #num / #denom,));
+                    divs.push(quote!(#variant => self * #denom / #num,));
                 }
-            }
-            Err(())
-        }
 
-        if is_rcc_name(e.name) {
-            let enum_name = format_ident!("{}", e.name);
-            let mut muls = Vec::new();
-            let mut divs = Vec::new();
-            for v in e.variants {
-                let Ok(val) = parse_num(v.name) else {
-                    panic!("could not parse mul/div. enum={} variant={}", e.name, v.name)
-                };
-                let variant_name = format_ident!("{}", v.name);
-                let variant = quote!(crate::pac::rcc::vals::#enum_name::#variant_name);
-                let num = val.num;
-                let denom = val.denom;
-                muls.push(quote!(#variant => self * #num / #denom,));
-                divs.push(quote!(#variant => self * #denom / #num,));
-            }
-
-            g.extend(quote! {
-                impl core::ops::Div<crate::pac::rcc::vals::#enum_name> for crate::time::Hertz {
-                    type Output = crate::time::Hertz;
-                    fn div(self, rhs: crate::pac::rcc::vals::#enum_name) -> Self::Output {
-                        match rhs {
-                            #(#divs)*
-                            #[allow(unreachable_patterns)]
-                            _ => unreachable!(),
+                g.extend(quote! {
+                    impl core::ops::Div<crate::pac::#kind::vals::#enum_name> for crate::time::Hertz {
+                        type Output = crate::time::Hertz;
+                        fn div(self, rhs: crate::pac::#kind::vals::#enum_name) -> Self::Output {
+                            match rhs {
+                                #(#divs)*
+                                #[allow(unreachable_patterns)]
+                                _ => unreachable!(),
+                            }
                         }
                     }
-                }
-                impl core::ops::Mul<crate::pac::rcc::vals::#enum_name> for crate::time::Hertz {
-                    type Output = crate::time::Hertz;
-                    fn mul(self, rhs: crate::pac::rcc::vals::#enum_name) -> Self::Output {
-                        match rhs {
-                            #(#muls)*
-                            #[allow(unreachable_patterns)]
-                            _ => unreachable!(),
+                    impl core::ops::Mul<crate::pac::#kind::vals::#enum_name> for crate::time::Hertz {
+                        type Output = crate::time::Hertz;
+                        fn mul(self, rhs: crate::pac::#kind::vals::#enum_name) -> Self::Output {
+                            match rhs {
+                                #(#muls)*
+                                #[allow(unreachable_patterns)]
+                                _ => unreachable!(),
+                            }
                         }
                     }
-                }
-            });
+                });
+            }
         }
     }
 
@@ -1404,8 +1832,7 @@ fn main() {
     let mut pins_table: Vec<Vec<String>> = Vec::new();
     let mut adc_table: Vec<Vec<String>> = Vec::new();
 
-    for m in METADATA
-        .memory
+    for m in memory
         .iter()
         .filter(|m| m.kind == MemoryRegionKind::Flash && m.settings.is_some())
     {
@@ -1421,43 +1848,42 @@ fn main() {
     let gpio_base = METADATA.peripherals.iter().find(|p| p.name == "GPIOA").unwrap().address as u32;
     let gpio_stride = 0x400;
 
+    for pin in METADATA.pins {
+        let port_letter = pin.name.chars().nth(1).unwrap();
+        let pname = format!("GPIO{}", port_letter);
+        let p = METADATA.peripherals.iter().find(|p| p.name == pname).unwrap();
+        assert_eq!(0, (p.address as u32 - gpio_base) % gpio_stride);
+        let port_num = (p.address as u32 - gpio_base) / gpio_stride;
+        let pin_num: u32 = pin.name[2..].parse().unwrap();
+
+        pins_table.push(vec![
+            pin.name.to_string(),
+            p.name.to_string(),
+            port_num.to_string(),
+            pin_num.to_string(),
+            format!("EXTI{}", pin_num),
+        ]);
+
+        // If we have the split pins, we need to do a little extra work:
+        // Add the "_C" variant to the table. The solution is not optimal, though.
+        // Adding them only when the corresponding GPIOx also appears.
+        // This should avoid unintended side-effects as much as possible.
+        #[cfg(feature = "_split-pins-enabled")]
+        for split_feature in &split_features {
+            if split_feature.pin_name_without_c == pin.name {
+                pins_table.push(vec![
+                    split_feature.pin_name_with_c.to_string(),
+                    p.name.to_string(),
+                    port_num.to_string(),
+                    pin_num.to_string(),
+                    format!("EXTI{}", pin_num),
+                ]);
+            }
+        }
+    }
+
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
-            if regs.kind == "gpio" {
-                let port_letter = p.name.chars().nth(4).unwrap();
-                assert_eq!(0, (p.address as u32 - gpio_base) % gpio_stride);
-                let port_num = (p.address as u32 - gpio_base) / gpio_stride;
-
-                for pin_num in 0u32..16 {
-                    let pin_name = format!("P{}{}", port_letter, pin_num);
-
-                    pins_table.push(vec![
-                        pin_name.clone(),
-                        p.name.to_string(),
-                        port_num.to_string(),
-                        pin_num.to_string(),
-                        format!("EXTI{}", pin_num),
-                    ]);
-
-                    // If we have the split pins, we need to do a little extra work:
-                    // Add the "_C" variant to the table. The solution is not optimal, though.
-                    // Adding them only when the corresponding GPIOx also appears.
-                    // This should avoid unintended side-effects as much as possible.
-                    #[cfg(feature = "_split-pins-enabled")]
-                    for split_feature in &split_features {
-                        if split_feature.pin_name_without_c == pin_name {
-                            pins_table.push(vec![
-                                split_feature.pin_name_with_c.to_string(),
-                                p.name.to_string(),
-                                port_num.to_string(),
-                                pin_num.to_string(),
-                                format!("EXTI{}", pin_num),
-                            ]);
-                        }
-                    }
-                }
-            }
-
             if regs.kind == "adc" {
                 let adc_num = p.name.strip_prefix("ADC").unwrap();
                 let mut adc_common = None;
@@ -1496,6 +1922,41 @@ fn main() {
         .flat_map(|p| &p.registers)
         .any(|p| p.kind == "dmamux");
 
+    let mut dma_irqs: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+
+    for p in METADATA.peripherals {
+        if let Some(r) = &p.registers {
+            if r.kind == "dma" || r.kind == "bdma" || r.kind == "gpdma" || r.kind == "lpdma" {
+                for irq in p.interrupts {
+                    let ch_name = format!("{}_{}", p.name, irq.signal);
+                    let ch = METADATA.dma_channels.iter().find(|c| c.name == ch_name);
+
+                    if ch.is_none() {
+                        continue;
+                    }
+                    let ch = ch.unwrap();
+
+                    // Some H7 chips have BDMA1 hardcoded for DFSDM, ie no DMAMUX. It's unsupported, skip it.
+                    if has_dmamux && ch.dmamux.is_none() {
+                        continue;
+                    }
+
+                    dma_irqs.entry(irq.interrupt).or_default().push(ch_name);
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "_dual-core")]
+    let mut dma_ch_to_irq: BTreeMap<&str, Vec<String>> = BTreeMap::new();
+
+    #[cfg(feature = "_dual-core")]
+    for (irq, channels) in &dma_irqs {
+        for channel in channels {
+            dma_ch_to_irq.entry(channel).or_default().push(irq.to_string());
+        }
+    }
+
     for (ch_idx, ch) in METADATA.dma_channels.iter().enumerate() {
         // Some H7 chips have BDMA1 hardcoded for DFSDM, ie no DMAMUX. It's unsupported, skip it.
         if has_dmamux && ch.dmamux.is_none() {
@@ -1504,6 +1965,16 @@ fn main() {
 
         let name = format_ident!("{}", ch.name);
         let idx = ch_idx as u8;
+        #[cfg(feature = "_dual-core")]
+        let irq = {
+            let irq_name = if let Some(x) = &dma_ch_to_irq.get(ch.name) {
+                format_ident!("{}", x.get(0).unwrap())
+            } else {
+                panic!("failed to find dma interrupt")
+            };
+            quote!(crate::pac::Interrupt::#irq_name)
+        };
+
         g.extend(quote!(dma_channel_impl!(#name, #idx);));
 
         let dma = format_ident!("{}", ch.dma);
@@ -1534,6 +2005,7 @@ fn main() {
             None => quote!(),
         };
 
+        #[cfg(not(feature = "_dual-core"))]
         dmas.extend(quote! {
             crate::dma::ChannelInfo {
                 dma: #dma_info,
@@ -1541,30 +2013,19 @@ fn main() {
                 #dmamux
             },
         });
+        #[cfg(feature = "_dual-core")]
+        dmas.extend(quote! {
+            crate::dma::ChannelInfo {
+                dma: #dma_info,
+                num: #ch_num,
+                irq: #irq,
+                #dmamux
+            },
+        });
     }
 
     // ========
     // Generate DMA IRQs.
-
-    let mut dma_irqs: BTreeMap<&str, Vec<String>> = BTreeMap::new();
-
-    for p in METADATA.peripherals {
-        if let Some(r) = &p.registers {
-            if r.kind == "dma" || r.kind == "bdma" || r.kind == "gpdma" {
-                for irq in p.interrupts {
-                    let ch_name = format!("{}_{}", p.name, irq.signal);
-                    let ch = METADATA.dma_channels.iter().find(|c| c.name == ch_name).unwrap();
-
-                    // Some H7 chips have BDMA1 hardcoded for DFSDM, ie no DMAMUX. It's unsupported, skip it.
-                    if has_dmamux && ch.dmamux.is_none() {
-                        continue;
-                    }
-
-                    dma_irqs.entry(irq.interrupt).or_default().push(ch_name);
-                }
-            }
-        }
-    }
 
     let dma_irqs: TokenStream = dma_irqs
         .iter()
@@ -1590,6 +2051,114 @@ fn main() {
     g.extend(quote! {
         pub(crate) const DMA_CHANNELS: &[crate::dma::ChannelInfo] = &[#dmas];
     });
+
+    // ========
+    // Generate gpio_block() function
+
+    let gpio_base = METADATA.peripherals.iter().find(|p| p.name == "GPIOA").unwrap().address as usize;
+    let gpio_stride = 0x400 as usize;
+
+    for p in METADATA.peripherals {
+        if let Some(bi) = &p.registers {
+            if bi.kind == "gpio" {
+                assert_eq!(0, (p.address as usize - gpio_base) % gpio_stride);
+            }
+        }
+    }
+
+    g.extend(quote!(
+        pub fn gpio_block(n: usize) -> crate::pac::gpio::Gpio {
+            unsafe { crate::pac::gpio::Gpio::from_ptr((#gpio_base + #gpio_stride*n) as _) }
+        }
+    ));
+
+    // ========
+    // Generate backup sram constants
+    if let Some(m) = memory.iter().find(|m| m.name == "BKPSRAM") {
+        let bkpsram_base = m.address as usize;
+        let bkpsram_size = m.size as usize;
+
+        g.extend(quote!(
+            pub const BKPSRAM_BASE: usize = #bkpsram_base;
+            pub const BKPSRAM_SIZE: usize = #bkpsram_size;
+        ));
+    }
+
+    // ========
+    // Generate flash constants
+
+    if has_flash {
+        let flash_regions: Vec<&MemoryRegion> = memory
+            .iter()
+            .filter(|x| x.kind == MemoryRegionKind::Flash && x.name.starts_with("BANK_"))
+            .collect();
+        let first_flash = flash_regions.first().unwrap();
+        let total_flash_size = flash_regions
+            .iter()
+            .map(|x| x.size)
+            .reduce(|acc, item| acc + item)
+            .unwrap();
+        let write_sizes: HashSet<_> = flash_regions
+            .iter()
+            .map(|r| r.settings.as_ref().unwrap().write_size)
+            .collect();
+        assert_eq!(1, write_sizes.len());
+
+        let flash_base = first_flash.address as usize;
+        let total_flash_size = total_flash_size as usize;
+        let write_size = (*write_sizes.iter().next().unwrap()) as usize;
+
+        g.extend(quote!(
+            pub const FLASH_BASE: usize = #flash_base;
+            pub const FLASH_SIZE: usize = #total_flash_size;
+            pub const WRITE_SIZE: usize = #write_size;
+        ));
+    }
+
+    // ========
+    // Generate EEPROM constants
+
+    cfgs.declare("eeprom");
+
+    let eeprom_memory_regions: Vec<&MemoryRegion> =
+        memory.iter().filter(|x| x.kind == MemoryRegionKind::Eeprom).collect();
+
+    if !eeprom_memory_regions.is_empty() {
+        cfgs.enable("eeprom");
+
+        let mut sorted_eeprom_regions = eeprom_memory_regions.clone();
+        sorted_eeprom_regions.sort_by_key(|r| r.address);
+
+        let first_eeprom_address = sorted_eeprom_regions[0].address;
+        let mut total_eeprom_size = 0;
+        let mut current_expected_address = first_eeprom_address;
+
+        for region in sorted_eeprom_regions.iter() {
+            if region.address != current_expected_address {
+                // For STM32L0 and STM32L1, EEPROM regions (if multiple) are expected to be contiguous.
+                // If they are not, this indicates an issue with the chip metadata or an unsupported configuration.
+                panic!(
+                    "EEPROM regions for chip {} are not contiguous, which is unexpected for L0/L1 series. \
+                    First region: '{}' at {:#X}. Found next non-contiguous region: '{}' at {:#X}. \
+                    Please verify chip metadata. Embassy currently assumes contiguous EEPROM for these series.",
+                    chip_name, sorted_eeprom_regions[0].name, first_eeprom_address, region.name, region.address
+                );
+            }
+            total_eeprom_size += region.size;
+            current_expected_address += region.size;
+        }
+
+        let eeprom_base_usize = first_eeprom_address as usize;
+        let total_eeprom_size_usize = total_eeprom_size as usize;
+
+        g.extend(quote! {
+            pub const EEPROM_BASE: usize = #eeprom_base_usize;
+            pub const EEPROM_SIZE: usize = #total_eeprom_size_usize;
+        });
+    }
+
+    // ========
+    // Generate macro-tables
 
     for irq in METADATA.interrupts {
         let name = irq.name.to_ascii_uppercase();
@@ -1685,6 +2254,11 @@ fn main() {
     }
 
     println!("cargo:rerun-if-changed=build.rs");
+
+    if cfg!(feature = "memory-x") {
+        gen_memory_x(memory, out_dir);
+        println!("cargo:rustc-link-search={}", out_dir.display());
+    }
 }
 
 enum GetOneError {
@@ -1769,4 +2343,116 @@ fn rustfmt(path: impl AsRef<Path>) {
             }
         }
     }
+}
+
+fn gen_memory_x(memory: &[MemoryRegion], out_dir: &Path) {
+    let mut memory_x = String::new();
+
+    let flash = get_memory_range(memory, MemoryRegionKind::Flash);
+    let ram = get_memory_range(memory, MemoryRegionKind::Ram);
+
+    write!(memory_x, "MEMORY\n{{\n").unwrap();
+    writeln!(
+        memory_x,
+        "    FLASH : ORIGIN = 0x{:08x}, LENGTH = {:>4}K /* {} */",
+        flash.0,
+        flash.1 / 1024,
+        flash.2
+    )
+    .unwrap();
+    writeln!(
+        memory_x,
+        "    RAM   : ORIGIN = 0x{:08x}, LENGTH = {:>4}K /* {} */",
+        ram.0,
+        ram.1 / 1024,
+        ram.2
+    )
+    .unwrap();
+    write!(memory_x, "}}").unwrap();
+
+    std::fs::write(out_dir.join("memory.x"), memory_x.as_bytes()).unwrap();
+}
+
+fn get_memory_range(memory: &[MemoryRegion], kind: MemoryRegionKind) -> (u32, u32, String) {
+    let mut mems: Vec<_> = memory.iter().filter(|m| m.kind == kind && m.size != 0).collect();
+    mems.sort_by_key(|m| m.address);
+
+    let mut start = u32::MAX;
+    let mut end = u32::MAX;
+    let mut names = Vec::new();
+    let mut best: Option<(u32, u32, String)> = None;
+    for m in mems {
+        if !mem_filter(&METADATA.name, &m.name) {
+            continue;
+        }
+
+        if m.address != end {
+            names = Vec::new();
+            start = m.address;
+            end = m.address;
+        }
+
+        end += m.size;
+        names.push(m.name.to_string());
+
+        if best.is_none() || end - start > best.as_ref().unwrap().1 {
+            best = Some((start, end - start, names.join(" + ")));
+        }
+    }
+
+    best.unwrap()
+}
+
+fn mem_filter(chip: &str, region: &str) -> bool {
+    // in STM32WB, SRAM2a/SRAM2b are reserved for the radio core.
+    if chip.starts_with("STM32WB")
+        && !chip.starts_with("STM32WBA")
+        && !chip.starts_with("STM32WB0")
+        && region.starts_with("SRAM2")
+    {
+        return false;
+    }
+
+    if region.starts_with("SDRAM_") || region.starts_with("FMC_") || region.starts_with("OCTOSPI_") {
+        return false;
+    }
+
+    true
+}
+
+#[derive(Copy, Clone, Debug)]
+struct Frac {
+    num: u32,
+    denom: u32,
+}
+
+impl Frac {
+    fn simplify(self) -> Self {
+        let d = gcd(self.num, self.denom);
+        Self {
+            num: self.num / d,
+            denom: self.denom / d,
+        }
+    }
+}
+
+fn gcd(a: u32, b: u32) -> u32 {
+    if b == 0 {
+        return a;
+    }
+    gcd(b, a % b)
+}
+
+fn is_bool_field(peripheral: &str, register: &str, field: &str) -> bool {
+    let field_metadata = METADATA
+        .peripherals
+        .iter()
+        .filter(|p| p.name == peripheral)
+        .flat_map(|p| p.registers.as_ref().unwrap().ir.fieldsets.iter())
+        .filter(|f| f.name.eq_ignore_ascii_case(register))
+        .flat_map(|f| f.fields.iter())
+        .find(|f| f.name.eq_ignore_ascii_case(field))
+        .unwrap();
+
+    field_metadata.bit_size == 1
 }

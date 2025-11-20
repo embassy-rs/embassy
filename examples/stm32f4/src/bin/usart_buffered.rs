@@ -21,7 +21,7 @@ async fn main(_spawner: Spawner) {
 
     let mut tx_buf = [0u8; 32];
     let mut rx_buf = [0u8; 32];
-    let mut buf_usart = BufferedUart::new(p.USART3, Irqs, p.PD9, p.PD8, &mut tx_buf, &mut rx_buf, config).unwrap();
+    let mut buf_usart = BufferedUart::new(p.USART3, p.PD9, p.PD8, &mut tx_buf, &mut rx_buf, Irqs, config).unwrap();
 
     loop {
         let buf = buf_usart.fill_buf().await.unwrap();

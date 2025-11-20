@@ -1,5 +1,6 @@
 use core::ops::Range;
 
+#[derive(Debug)]
 pub struct RingBuffer<const N: usize> {
     start: usize,
     end: usize,
@@ -94,11 +95,7 @@ impl<const N: usize> RingBuffer<N> {
 
     fn wrap(&self, n: usize) -> usize {
         assert!(n <= N);
-        if n == N {
-            0
-        } else {
-            n
-        }
+        if n == N { 0 } else { n }
     }
 }
 
