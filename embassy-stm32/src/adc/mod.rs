@@ -436,9 +436,9 @@ pub struct AnyAdcChannel<T> {
     is_differential: bool,
     _phantom: PhantomData<T>,
 }
-impl_peripheral!(AnyAdcChannel<T: Instance>);
-impl<T: Instance> AdcChannel<T> for AnyAdcChannel<T> {}
-impl<T: Instance> SealedAdcChannel<T> for AnyAdcChannel<T> {
+impl_peripheral!(AnyAdcChannel<T: AnyInstance>);
+impl<T: AnyInstance> AdcChannel<T> for AnyAdcChannel<T> {}
+impl<T: AnyInstance> SealedAdcChannel<T> for AnyAdcChannel<T> {
     fn channel(&self) -> u8 {
         self.channel
     }

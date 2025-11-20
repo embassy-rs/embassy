@@ -31,7 +31,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // **** ADC4 init ****
     let mut adc4 = Adc::new_adc4(p.ADC4);
-    let mut adc4_pin1 = p.PC1; // A4
+    let mut adc4_pin1 = p.PC1.degrade_adc(); // A4
     let mut adc4_pin2 = p.PC0; // A5
     adc4.set_resolution_adc4(adc4::Resolution::BITS12);
     adc4.set_averaging_adc4(adc4::Averaging::Samples256);
