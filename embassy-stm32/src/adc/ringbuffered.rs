@@ -49,8 +49,6 @@ impl<'d, T: Instance + AnyInstance> RingBufferedAdc<'d, T> {
     }
 
     pub fn stop(&mut self) {
-        T::stop();
-
         self.ring_buf.request_pause();
 
         compiler_fence(Ordering::SeqCst);
@@ -161,7 +159,7 @@ impl<'d, T: Instance + AnyInstance> RingBufferedAdc<'d, T> {
                     return Ok(len);
                 }
                 Err(_) => {
-                    self.stop();
+                    self.ring_buf.request_pause();
 
                     return Err(OverrunError);
                 }
