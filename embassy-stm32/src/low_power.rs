@@ -50,7 +50,7 @@ use critical_section::CriticalSection;
 use embassy_executor::*;
 
 use crate::interrupt;
-use crate::rcc::{REFCOUNT_STOP1, REFCOUNT_STOP2};
+use crate::rcc::{RCC_CONFIG, REFCOUNT_STOP1, REFCOUNT_STOP2};
 use crate::time_driver::get_driver;
 
 const THREAD_PENDER: usize = usize::MAX;
@@ -201,7 +201,7 @@ impl Executor {
             {
                 use crate::pac::rcc::vals::Sw;
                 use crate::pac::{PWR, RCC};
-                use crate::rcc::{RCC_CONFIG, init as init_rcc};
+                use crate::rcc::init as init_rcc;
 
                 let extscr = PWR.extscr().read();
                 if extscr.c1stop2f() || extscr.c1stopf() {
@@ -245,7 +245,7 @@ impl Executor {
     }
 
     #[cfg(all(stm32wb, feature = "low-power"))]
-    fn configure_stop_stm32wb(&self) -> Result<(), ()> {
+    fn configure_stop_stm32wb(&self, _cs: CriticalSection) -> Result<(), ()> {
         use core::task::Poll;
 
         use embassy_futures::poll_once;
@@ -303,9 +303,9 @@ impl Executor {
     }
 
     #[allow(unused_variables)]
-    fn configure_stop(&self, stop_mode: StopMode) -> Result<(), ()> {
+    fn configure_stop(&self, _cs: CriticalSection, stop_mode: StopMode) -> Result<(), ()> {
         #[cfg(all(stm32wb, feature = "low-power"))]
-        self.configure_stop_stm32wb()?;
+        self.configure_stop_stm32wb(_cs)?;
 
         #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wb, stm32wba, stm32wlex))]
         crate::pac::PWR.cr1().modify(|m| m.set_lpms(stop_mode.into()));
@@ -330,9 +330,10 @@ impl Executor {
         compiler_fence(Ordering::SeqCst);
 
         critical_section::with(|cs| {
+            let _ = unsafe { RCC_CONFIG }?;
             let stop_mode = Self::stop_mode(cs)?;
-            let _ = get_driver().pause_time(cs).ok()?;
-            self.configure_stop(stop_mode).ok()?;
+            get_driver().pause_time(cs).ok()?;
+            self.configure_stop(cs, stop_mode).ok()?;
 
             Some(())
         })
