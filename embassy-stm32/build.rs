@@ -56,12 +56,16 @@ fn main() {
 
     eprintln!("chip: {chip_name}");
 
+    cfgs.declare("unimpl_tsc");
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
             cfgs.enable(r.kind);
             foreach_version_cfg(&mut cfgs, r.kind, r.version, |cfgs, cfg_name| {
                 cfgs.enable(cfg_name);
             });
+        } else if p.name == "TSC" {
+            //Even if the registers are missing, EXTI needs to know if TSC is present in silicon to know whether the EXTI2 interrupt is shadowed by EXTI2_TSC
+            cfgs.enable("unimpl_tsc")
         }
     }
 

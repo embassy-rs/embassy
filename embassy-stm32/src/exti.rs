@@ -11,10 +11,10 @@ use futures_util::FutureExt;
 
 use crate::gpio::{AnyPin, Input, Level, Pin as GpioPin, PinNumber, Pull};
 use crate::interrupt::Interrupt as InterruptEnum;
-use crate::interrupt::typelevel::{AnyBinding, HandlerType, Interrupt as InterruptType, PrivateHandlerType};
+use crate::interrupt::typelevel::{AnyBinding, Handler, HandlerType, Interrupt as InterruptType, PrivateHandlerType};
 use crate::pac::EXTI;
 use crate::pac::exti::regs::Lines;
-use crate::{Peri, pac, peripherals};
+use crate::{Peri, pac};
 
 const EXTI_COUNT: usize = 16;
 static EXTI_WAKERS: [AtomicWaker; EXTI_COUNT] = [const { AtomicWaker::new() }; EXTI_COUNT];
@@ -109,10 +109,12 @@ impl<'d> Unpin for ExtiInput<'d> {}
 impl<'d> ExtiInput<'d> {
     /// Create an EXTI input.
     ///
-    /// The interrupt [Binding] must be type-erased to [AnyBinding] via [Binding::into_any()] in order
-    /// to support type-erased [AnyChannel] arguments.
-    ///
     /// The Binding must bind the Channel's IRQ to [InterruptHandler].
+    ///
+    /// The interrupt [Binding](crate::interrupt::typelevel::Binding) must be type-erased to [AnyBinding]
+    /// via [into_any()](crate::interrupt::typelevel::Binding::into_any()), in order to support type-erased
+    /// [AnyChannel] arguments. [bind_interrupts](crate::bind_interrupts) also generates a convenience
+    /// method as_any() for type erasure that doesn't need a trait object.
     pub fn new<T: GpioPin>(pin: Peri<'d, T>, ch: Peri<'d, T::ExtiChannel>, pull: Pull, binding: AnyBinding) -> Self {
         // Needed if using AnyPin+AnyChannel.
         assert_eq!(pin.pin(), ch.number());
@@ -354,18 +356,17 @@ macro_rules! foreach_exti_irq {
 
 ///EXTI interrupt handler. All EXTI interrupt vectors should be bound to this handler.
 ///
-/// It is generic over the [Interrupt](crate::interrupt::typelevel::Interrupt) rather
-/// than the [Instance](crate::exti::Instance) because it should not be bound multiple
+/// It is generic over the [Interrupt](InterruptType) rather
+/// than the [Channel] because it should not be bound multiple
 /// times to the same vector on chips which multiplex multiple EXTI interrupts into one vector.
 //
 // It technically doesn't need to be generic at all, except to satisfy the generic argument
-// of [Handler](crate::interrupt::typelevel::Handler). All EXTI interrupts eventually
-// land in the same on_irq() function.
+// of [Handler]. All EXTI interrupts eventually land in the same on_irq() function.
 pub struct InterruptHandler<T: crate::interrupt::typelevel::Interrupt> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: crate::interrupt::typelevel::Interrupt> crate::interrupt::typelevel::Handler<T> for InterruptHandler<T> {
+impl<T: InterruptType> Handler<T> for InterruptHandler<T> {
     const SOURCE_ID: HandlerType = HandlerType::EmbassyStm32Exti(PrivateHandlerType::new());
     unsafe fn on_interrupt() {
         on_irq()
@@ -377,10 +378,15 @@ trait SealedChannel {}
 /// EXTI channel trait.
 #[allow(private_bounds)]
 pub trait Channel: PeripheralType + SealedChannel + Sized {
-    /// Get the EXTI channel number.
+    /// EXTI channel number.
     fn number(&self) -> PinNumber;
-    /// Get the EXTI IRQ, which may be the same for multiple channels
+    /// [Enum-level Interrupt](InterruptEnum), which may be the same for multiple channels.
     fn irq(&self) -> InterruptEnum;
+    /// [Type-level Interrupt](InterruptType), which may be the same for multiple channels.
+    /// Unavailable on type-erased [AnyChannel], where it is defined as the unit type.
+    /// has no trait bound, so mostly only useful for doc reference (e.g. while writing
+    /// [bind_interrupts](crate::bind_interrupts) invocation.) Use irq() for programmatic access.
+    type INTERRUPT;
 }
 
 /// Type-erased EXTI channel.
@@ -400,24 +406,32 @@ impl Channel for AnyChannel {
     fn irq(&self) -> InterruptEnum {
         self.irq
     }
+    type INTERRUPT = bool;
 }
 
 macro_rules! impl_exti {
     ($type:ident, $number:expr) => {
-        impl SealedChannel for peripherals::$type {}
-        impl Channel for peripherals::$type {
+        impl_exti!(@inner $type, $number, crate::_generated::peripheral_interrupts::EXTI::$type);
+    };
+    ($type:ident, $number:expr, @tsc) => {
+        impl_exti!(@inner $type, $number, crate::_generated::peripheral_interrupts::TSC::GLOBAL);
+    };
+    (@inner $type:ident, $number:expr, $irq:path) => {
+        impl SealedChannel for crate::peripherals::$type {}
+        impl Channel for crate::peripherals::$type {
             fn number(&self) -> PinNumber {
                 $number
             }
             fn irq(&self) -> InterruptEnum {
-                crate::_generated::peripheral_interrupts::EXTI::$type::IRQ
+                <$irq>::IRQ
             }
+            type INTERRUPT = $irq;
         }
-        impl From<peripherals::$type> for AnyChannel {
-            fn from(_val: peripherals::$type) -> Self {
+        impl From<crate::peripherals::$type> for AnyChannel {
+            fn from(_val: crate::peripherals::$type) -> Self {
                 Self {
                     number: $number,
-                    irq: crate::_generated::peripheral_interrupts::EXTI::$type::IRQ,
+                    irq: <$irq>::IRQ,
                 }
             }
         }
@@ -426,7 +440,10 @@ macro_rules! impl_exti {
 
 impl_exti!(EXTI0, 0);
 impl_exti!(EXTI1, 1);
+#[cfg(not(any(tsc, unimpl_tsc)))]
 impl_exti!(EXTI2, 2);
+#[cfg(any(tsc, unimpl_tsc))]
+impl_exti!(EXTI2, 2, @tsc);
 impl_exti!(EXTI3, 3);
 impl_exti!(EXTI4, 4);
 impl_exti!(EXTI5, 5);

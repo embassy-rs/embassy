@@ -170,8 +170,11 @@ macro_rules! interrupt_mod {
                 /// Driver which defined the Handler. Always User for user-defined handlers.
                 #[derive(Copy, Clone)]
                 pub enum HandlerType {
+                    /// Defined in user code, or otherwise has not had its SOURCE_ID overridden.
                     User,
+                    /// Defined somewhere within Embassy.
                     Embassy(PrivateHandlerType),
+                    /// Defined by the [embassy-stm32::exti] module.
                     EmbassyStm32Exti(PrivateHandlerType),
                 }
 
@@ -184,9 +187,11 @@ macro_rules! interrupt_mod {
                     handler_source: HandlerType,
                 }
                 impl AnyBinding {
+                    /// Get the IRQ (vector number) of the interrupt.
                     pub const fn irq(&self) -> super::Interrupt {
                         self.irq
                     }
+                    /// Get the source of the handler bound to the interrupt.
                     pub const fn source(&self) -> HandlerType {
                         self.handler_source
                     }
