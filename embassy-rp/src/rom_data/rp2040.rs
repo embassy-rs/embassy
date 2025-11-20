@@ -30,7 +30,7 @@ const DATA_TABLE: *const u16 = 0x0000_0016 as _;
 /// Address of the version number of the ROM.
 const VERSION_NUMBER: *const u8 = 0x0000_0013 as _;
 
-/// Retrive rom content from a table using a code.
+/// Retrieve rom content from a table using a code.
 fn rom_table_lookup<T>(table: *const u16, tag: RomFnTableCode) -> T {
     unsafe {
         let rom_table_lookup_ptr: *const u32 = rom_hword_as_ptr(ROM_TABLE_LOOKUP_PTR);

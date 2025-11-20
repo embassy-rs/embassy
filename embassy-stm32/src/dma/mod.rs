@@ -46,9 +46,11 @@ pub type Request = u8;
 pub type Request = ();
 
 pub(crate) trait SealedChannel {
+    #[cfg(not(stm32n6))]
     fn id(&self) -> u8;
 }
 
+#[cfg(not(stm32n6))]
 pub(crate) trait ChannelInterrupt {
     #[cfg_attr(not(feature = "rt"), allow(unused))]
     unsafe fn on_irq();
@@ -58,6 +60,7 @@ pub(crate) trait ChannelInterrupt {
 #[allow(private_bounds)]
 pub trait Channel: SealedChannel + PeripheralType + Into<AnyChannel> + 'static {}
 
+#[cfg(not(stm32n6))]
 macro_rules! dma_channel_impl {
     ($channel_peri:ident, $index:expr) => {
         impl crate::dma::SealedChannel for crate::peripherals::$channel_peri {
@@ -96,6 +99,7 @@ impl AnyChannel {
 }
 
 impl SealedChannel for AnyChannel {
+    #[cfg(not(stm32n6))]
     fn id(&self) -> u8 {
         self.id
     }

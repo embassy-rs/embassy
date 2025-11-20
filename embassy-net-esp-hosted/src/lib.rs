@@ -1,27 +1,34 @@
 #![no_std]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
+#![allow(async_fn_in_trait)]
 
 use embassy_futures::select::{Either4, select4};
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
 use embassy_time::{Duration, Instant, Timer};
-use embedded_hal::digital::{InputPin, OutputPin};
-use embedded_hal_async::digital::Wait;
-use embedded_hal_async::spi::SpiDevice;
+use embedded_hal::digital::OutputPin;
 
 use crate::ioctl::{PendingIoctl, Shared};
-use crate::proto::{CtrlMsg, CtrlMsgPayload};
+use crate::proto::{CtrlMsg, CtrlMsg_};
 
+#[allow(unused)]
+#[allow(non_snake_case)]
+#[allow(non_camel_case_types)]
+#[allow(non_upper_case_globals)]
+#[allow(missing_docs)]
+#[allow(clippy::all)]
 mod proto;
 
 // must be first
 mod fmt;
 
 mod control;
+mod iface;
 mod ioctl;
 
 pub use control::*;
+pub use iface::*;
 
 const MTU: usize = 1514;
 
@@ -118,20 +125,17 @@ impl State {
 /// Type alias for network driver.
 pub type NetDriver<'a> = ch::Device<'a, MTU>;
 
-/// Create a new esp-hosted driver using the provided state, SPI peripheral and pins.
+/// Create a new esp-hosted driver using the provided state, interface, and reset pin.
 ///
 /// Returns a device handle for interfacing with embassy-net, a control handle for
 /// interacting with the driver, and a runner for communicating with the WiFi device.
-pub async fn new<'a, SPI, IN, OUT>(
+pub async fn new<'a, I, OUT>(
     state: &'a mut State,
-    spi: SPI,
-    handshake: IN,
-    ready: IN,
+    iface: I,
     reset: OUT,
-) -> (NetDriver<'a>, Control<'a>, Runner<'a, SPI, IN, OUT>)
+) -> (NetDriver<'a>, Control<'a>, Runner<'a, I, OUT>)
 where
-    SPI: SpiDevice,
-    IN: InputPin + Wait,
+    I: Interface,
     OUT: OutputPin,
 {
     let (ch_runner, device) = ch::new(&mut state.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
@@ -142,10 +146,8 @@ where
         state_ch,
         shared: &state.shared,
         next_seq: 1,
-        handshake,
-        ready,
         reset,
-        spi,
+        iface,
         heartbeat_deadline: Instant::now() + HEARTBEAT_MAX_GAP,
     };
 
@@ -153,7 +155,7 @@ where
 }
 
 /// Runner for communicating with the WiFi device.
-pub struct Runner<'a, SPI, IN, OUT> {
+pub struct Runner<'a, I, OUT> {
     ch: ch::Runner<'a, MTU>,
     state_ch: ch::StateRunner<'a>,
     shared: &'a Shared,
@@ -161,16 +163,13 @@ pub struct Runner<'a, SPI, IN, OUT> {
     next_seq: u16,
     heartbeat_deadline: Instant,
 
-    spi: SPI,
-    handshake: IN,
-    ready: IN,
+    iface: I,
     reset: OUT,
 }
 
-impl<'a, SPI, IN, OUT> Runner<'a, SPI, IN, OUT>
+impl<'a, I, OUT> Runner<'a, I, OUT>
 where
-    SPI: SpiDevice,
-    IN: InputPin + Wait,
+    I: Interface,
     OUT: OutputPin,
 {
     /// Run the packet processing.
@@ -185,11 +184,11 @@ where
         let mut rx_buf = [0u8; MAX_SPI_BUFFER_SIZE];
 
         loop {
-            self.handshake.wait_for_high().await.unwrap();
+            self.iface.wait_for_handshake().await;
 
             let ioctl = self.shared.ioctl_wait_pending();
             let tx = self.ch.tx_buf();
-            let ev = async { self.ready.wait_for_high().await.unwrap() };
+            let ev = async { self.iface.wait_for_ready().await };
             let hb = Timer::at(self.heartbeat_deadline);
 
             match select4(ioctl, tx, ev, hb).await {
@@ -243,15 +242,9 @@ where
                 trace!("tx: {:02x}", &tx_buf[..40]);
             }
 
-            self.spi.transfer(&mut rx_buf, &tx_buf).await.unwrap();
+            self.iface.transfer(&mut rx_buf, &tx_buf).await;
 
-            // The esp-hosted firmware deasserts the HANSHAKE pin a few us AFTER ending the SPI transfer
-            // If we check it again too fast, we'll see it's high from the previous transfer, and if we send it
-            // data it will get lost.
-            // Make sure we check it after 100us at minimum.
-            let delay_until = Instant::now() + Duration::from_micros(100);
             self.handle_rx(&mut rx_buf);
-            Timer::at(delay_until).await;
         }
     }
 
@@ -326,10 +319,12 @@ where
     }
 
     fn handle_event(&mut self, data: &[u8]) {
-        let Ok(event) = noproto::read::<CtrlMsg>(data) else {
+        use micropb::MessageDecode;
+        let mut event = CtrlMsg::default();
+        if event.decode_from_bytes(data).is_err() {
             warn!("failed to parse event");
             return;
-        };
+        }
 
         debug!("event: {:?}", &event);
 
@@ -339,9 +334,13 @@ where
         };
 
         match payload {
-            CtrlMsgPayload::EventEspInit(_) => self.shared.init_done(),
-            CtrlMsgPayload::EventHeartbeat(_) => self.heartbeat_deadline = Instant::now() + HEARTBEAT_MAX_GAP,
-            CtrlMsgPayload::EventStationDisconnectFromAp(e) => {
+            CtrlMsg_::Payload::EventEspInit(_) => self.shared.init_done(),
+            CtrlMsg_::Payload::EventHeartbeat(_) => self.heartbeat_deadline = Instant::now() + HEARTBEAT_MAX_GAP,
+            CtrlMsg_::Payload::EventStationConnectedToAp(e) => {
+                info!("connected, code {}", e.resp);
+                self.state_ch.set_link_state(LinkState::Up);
+            }
+            CtrlMsg_::Payload::EventStationDisconnectFromAp(e) => {
                 info!("disconnected, code {}", e.resp);
                 self.state_ch.set_link_state(LinkState::Down);
             }

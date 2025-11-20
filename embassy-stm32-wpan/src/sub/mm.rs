@@ -46,7 +46,7 @@ impl MemoryManager {
         Self { _private: () }
     }
 
-    pub async fn run_queue(&self) {
+    pub async fn run_queue(&self) -> ! {
         loop {
             poll_fn(|cx| unsafe {
                 MM_WAKER.register(cx.waker());

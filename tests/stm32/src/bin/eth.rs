@@ -7,8 +7,8 @@ mod common;
 use common::*;
 use embassy_executor::Spawner;
 use embassy_net::StackResources;
-use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue};
-use embassy_stm32::peripherals::ETH;
+use embassy_stm32::eth::{Ethernet, GenericPhy, PacketQueue, Sma};
+use embassy_stm32::peripherals::{ETH, ETH_SMA};
 use embassy_stm32::rng::Rng;
 use embassy_stm32::{bind_interrupts, eth, peripherals, rng};
 use static_cell::StaticCell;
@@ -27,7 +27,7 @@ bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
-type Device = Ethernet<'static, ETH, GenericPhy>;
+type Device = Ethernet<'static, ETH, GenericPhy<Sma<'static, ETH_SMA>>>;
 
 #[embassy_executor::task]
 async fn net_task(mut runner: embassy_net::Runner<'static, Device>) -> ! {
@@ -69,13 +69,12 @@ async fn main(spawner: Spawner) {
     const PACKET_QUEUE_SIZE: usize = 4;
 
     static PACKETS: StaticCell<PacketQueue<PACKET_QUEUE_SIZE, PACKET_QUEUE_SIZE>> = StaticCell::new();
+
     let device = Ethernet::new(
         PACKETS.init(PacketQueue::<PACKET_QUEUE_SIZE, PACKET_QUEUE_SIZE>::new()),
         p.ETH,
         Irqs,
         p.PA1,
-        p.PA2,
-        p.PC1,
         p.PA7,
         p.PC4,
         p.PC5,
@@ -85,8 +84,10 @@ async fn main(spawner: Spawner) {
         #[cfg(feature = "stm32h563zi")]
         p.PB15,
         p.PG11,
-        GenericPhy::new_auto(),
         mac_addr,
+        p.ETH_SMA,
+        p.PA2,
+        p.PC1,
     );
 
     let config = embassy_net::Config::dhcpv4(Default::default());

@@ -54,6 +54,8 @@ pub mod timer;
 
 #[cfg(adc)]
 pub mod adc;
+#[cfg(backup_sram)]
+pub mod backup_sram;
 #[cfg(can)]
 pub mod can;
 // FIXME: Cordic driver cause stm32u5a5zj crash
@@ -75,6 +77,7 @@ pub mod dts;
 pub mod eth;
 #[cfg(feature = "exti")]
 pub mod exti;
+#[cfg(flash)]
 pub mod flash;
 #[cfg(fmc)]
 pub mod fmc;
@@ -175,7 +178,6 @@ pub use crate::_generated::interrupt;
 ///     }
 /// );
 /// ```
-
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {
@@ -241,6 +243,14 @@ pub struct Config {
     /// RCC config.
     pub rcc: rcc::Config,
 
+    #[cfg(feature = "low-power")]
+    /// RTC config
+    pub rtc: rtc::RtcConfig,
+
+    #[cfg(feature = "low-power")]
+    /// Minimum time to stop
+    pub min_stop_pause: embassy_time::Duration,
+
     /// Enable debug during sleep and stop.
     ///
     /// May increase power consumption. Defaults to true.
@@ -294,6 +304,10 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             rcc: Default::default(),
+            #[cfg(feature = "low-power")]
+            rtc: Default::default(),
+            #[cfg(feature = "low-power")]
+            min_stop_pause: embassy_time::Duration::from_millis(250),
             #[cfg(dbgmcu)]
             enable_debug_during_sleep: true,
             #[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba))]
@@ -496,6 +510,16 @@ fn init_hw(config: Config) -> Peripherals {
     critical_section::with(|cs| {
         let p = Peripherals::take_with_cs(cs);
 
+        #[cfg(dbgmcu_n6)]
+        {
+            crate::pac::RCC.miscensr().write(|w| w.set_dbgens(true));
+            crate::pac::RCC.miscenr().read(); // volatile read
+            crate::pac::DBGMCU
+                .cr()
+                .modify(|w| w.set_dbgclken(stm32_metapac::dbgmcu::vals::Dbgclken::B_0X1));
+            crate::pac::DBGMCU.cr().read();
+        }
+
         #[cfg(dbgmcu)]
         crate::pac::DBGMCU.cr().modify(|cr| {
             #[cfg(dbgmcu_h5)]
@@ -510,7 +534,7 @@ fn init_hw(config: Config) -> Peripherals {
             }
             #[cfg(any(
                 dbgmcu_f1, dbgmcu_f2, dbgmcu_f3, dbgmcu_f4, dbgmcu_f7, dbgmcu_g4, dbgmcu_f7, dbgmcu_l0, dbgmcu_l1,
-                dbgmcu_l4, dbgmcu_wb, dbgmcu_wl
+                dbgmcu_l4, dbgmcu_wb, dbgmcu_wl, dbgmcu_n6
             ))]
             {
                 cr.set_dbg_sleep(config.enable_debug_during_sleep);
@@ -531,7 +555,7 @@ fn init_hw(config: Config) -> Peripherals {
         rcc::enable_and_reset_with_cs::<peripherals::SYSCFG>(cs);
         #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl)))]
         rcc::enable_and_reset_with_cs::<peripherals::PWR>(cs);
-        #[cfg(not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7, stm32h7rs)))]
+        #[cfg(all(flash, not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7, stm32h7rs))))]
         rcc::enable_and_reset_with_cs::<peripherals::FLASH>(cs);
 
         // Enable the VDDIO2 power supply on chips that have it.
@@ -591,7 +615,7 @@ fn init_hw(config: Config) -> Peripherals {
             #[cfg(ucpd)]
             ucpd::init(
                 cs,
-                #[cfg(peri_ucpd1)]
+                #[cfg(all(peri_ucpd1, not(stm32n6)))]
                 config.enable_ucpd1_dead_battery,
                 #[cfg(peri_ucpd2)]
                 config.enable_ucpd2_dead_battery,
@@ -623,8 +647,28 @@ fn init_hw(config: Config) -> Peripherals {
             exti::init(cs);
 
             rcc::init_rcc(cs, config.rcc);
+
+            #[cfg(feature = "low-power")]
+            rtc::init_rtc(cs, config.rtc, config.min_stop_pause);
+
+            #[cfg(all(stm32wb, feature = "low-power"))]
+            hsem::init_hsem(cs);
         }
 
         p
     })
+}
+
+/// Performs a busy-wait delay for a specified number of microseconds.
+#[allow(unused)]
+pub(crate) fn block_for_us(us: u64) {
+    cfg_if::cfg_if! {
+        // this does strange things on stm32wlx in low power mode depending on exactly when it's called
+        // as in sometimes 15 us (1 tick) would take > 20 seconds.
+        if #[cfg(all(feature = "time", all(not(feature = "low-power"), not(stm32wlex))))] {
+            embassy_time::block_for(embassy_time::Duration::from_micros(us));
+        } else {
+            cortex_m::asm::delay(unsafe { rcc::get_freqs().sys.to_hertz().unwrap().0 as u64 * us  / 1_000_000 } as u32);
+        }
+    }
 }

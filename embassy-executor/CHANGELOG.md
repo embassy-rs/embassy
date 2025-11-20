@@ -13,7 +13,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Upgraded rtos-trace
 - Added optional "highest priority" scheduling
 - Added optional "earliest deadline first" EDF scheduling
-- Bump `cortex-ar` to v0.3
+- Migrate `cortex-ar` to `aarch32-cpu`. The feature name `arch-cortex-ar` remains the same and
+  legacy ARM architectures are not supported.
 
 ## 0.9.1 - 2025-08-31
 
