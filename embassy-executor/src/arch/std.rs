@@ -91,4 +91,77 @@ mod thread {
             self.condvar.notify_one();
         }
     }
-}
+
+
+    /// Single-threaded std-based executor, that can be killed.
+    pub struct KillableExecutor {
+        inner: raw::Executor,
+        not_send: PhantomData<*mut ()>,
+        signaler: &'static Signaler,
+        kill_switch: &'static Signaler,
+    }
+
+    impl KillableExecutor {
+        /// Create a new Executor.
+        pub fn new() -> Self {
+            let signaler = Box::leak(Box::new(Signaler::new()));
+            let kill_switch = Box::leak(Box::new(Signaler::new()));
+            Self {
+                inner: raw::Executor::new(signaler as *mut Signaler as *mut ()),
+                not_send: PhantomData,
+                signaler,
+                kill_switch,
+            }
+        }
+
+        /// Run the executor.
+        ///
+        /// The `init` closure is called with a [`Spawner`] that spawns tasks on
+        /// this executor, and a [`Killer`] that can be used to abort the executor.
+        /// Use [`Spawner`] to spawn the initial task(s). After `init` returns,
+        /// the executor starts running the tasks.
+        ///
+        /// To spawn more tasks later, you may keep copies of the [`Spawner`] (it is `Copy`),
+        /// for example by passing it as an argument to the initial tasks.
+        ///
+        /// This function requires `&'static mut self`. This means you have to store the
+        /// Executor instance in a place where it'll live forever and grants you mutable
+        /// access. There's a few ways to do this:
+        ///
+        /// - a [StaticCell](https://docs.rs/static_cell/latest/static_cell/) (safe)
+        /// - a `static mut` (unsafe)
+        /// - a local variable in a function you know never returns (like `fn main() -> !`), upgrading its lifetime with `transmute`. (unsafe)
+        ///
+        ///
+        pub fn run(&'static mut self, init: impl FnOnce(Spawner, Killer)) {
+            let killer = Killer::new(self.kill_switch);
+
+            init(self.inner.spawner(), killer);
+
+            while !self.kill_switch.check() {
+                unsafe { self.inner.poll() };
+                self.signaler.wait();
+            }
+        }
+    }
+
+    #[derive(Copy, Clone)]
+    pub struct Killer {
+        kill_switch: &'static Signaler,
+        not_send: PhantomData<*mut ()>,
+    }
+
+    impl Killer {
+        pub fn new(kill_switch: &'static Signaler) -> Self {
+            Self {
+                kill_switch,
+                not_send: PhantomData,
+            }
+        }
+
+        pub fn kill(&self) {
+            self.kill_switch.signal();
+        }
+    }
+
+  }
