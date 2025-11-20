@@ -92,7 +92,6 @@ mod thread {
         }
     }
 
-
     /// Single-threaded std-based executor, that can be killed.
     pub struct KillableExecutor {
         inner: raw::Executor,
@@ -163,5 +162,4 @@ mod thread {
             self.kill_switch.signal();
         }
     }
-
-  }
+}
