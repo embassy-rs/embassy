@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased - ReleaseDate
 
+- fix: fix incorrect logic for buffered usart transmission complete.
 - feat: add poll_for methods to exti
 - feat: implement stop for stm32wb.
 - change: rework hsem and add HIL test for some chips.
