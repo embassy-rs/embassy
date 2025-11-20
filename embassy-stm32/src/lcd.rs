@@ -8,6 +8,11 @@ use crate::peripherals;
 use crate::rcc::{self, RccPeripheral};
 use crate::time::Hertz;
 
+#[cfg(stm32u0)]
+const NUM_SEGMENTS: u8 = 52;
+#[cfg(stm32wb)]
+const NUM_SEGMENTS: u8 = 44;
+
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
@@ -70,6 +75,18 @@ pub enum Duty {
     Eigth = 0b100,
 }
 
+impl Duty {
+    fn num_com_pins(&self) -> u8 {
+        match self {
+            Duty::Static => 1,
+            Duty::Half => 2,
+            Duty::Third => 3,
+            Duty::Quarter => 4,
+            Duty::Eigth => 8,
+        }
+    }
+}
+
 /// Whether to use the internal or external voltage source to drive the LCD
 #[repr(u8)]
 #[derive(Debug, Default, Clone, Copy)]
@@ -118,6 +135,7 @@ pub enum Drive {
 /// LCD driver.
 pub struct Lcd<'d, T: Instance> {
     _peri: PhantomData<&'d mut T>,
+    duty: Duty,
 }
 
 impl<'d, T: Instance> Lcd<'d, T> {
@@ -224,44 +242,75 @@ impl<'d, T: Instance> Lcd<'d, T> {
         // Wait for the stepup converter to be ready
         while !T::regs().sr().read().rdy() {}
 
-        Self { _peri: PhantomData }
+        Self {
+            _peri: PhantomData,
+            duty: config.duty,
+        }
     }
 
     /// Change the contrast by changing the voltage being used.
     ///
-    /// This from low at 0 to high at 7.
+    /// This is from low at 0 to high at 7.
     pub fn set_contrast_control(&mut self, value: u8) {
+        assert!((0..=7).contains(&value));
         T::regs().fcr().modify(|w| w.set_cc(value));
     }
 
     /// Change the contrast by introducing a deadtime to the signals
     /// where the voltages are held at 0V.
     ///
-    /// This from no dead time at 0 to high dead time at 7.
+    /// This is from no dead time at 0 to high dead time at 7.
     pub fn set_dead_time(&mut self, value: u8) {
+        assert!((0..=7).contains(&value));
         T::regs()
             .fcr()
             .modify(|w: &mut stm32_metapac::lcd::regs::Fcr| w.set_dead(value));
     }
 
-    /// Write frame data to the peripheral.
-    ///
-    /// What each bit means depends on the exact microcontroller you use,
-    /// which pins are connected to your LCD and also the LCD layout itself.
-    ///
-    /// This function blocks until the last update display request has been processed.
-    pub fn write_frame(&mut self, data: &[u32; 16]) {
+    pub fn write_com_segments(&mut self, com_index: u8, segments: u64) {
         while T::regs().sr().read().udr() {}
 
-        for i in 0..8 {
-            T::regs().ram_com(i).low().write_value(data[i * 2]);
-            T::regs().ram_com(i).low().write_value(data[i * 2 + 1]);
-        }
+        assert!(
+            com_index < self.duty.num_com_pins(),
+            "Com index cannot be higher than number of configured com pins (through the Duty setting in the config)"
+        );
 
+        assert!(
+            segments.leading_zeros() >= 64 - self.num_segments() as u32,
+            "Invalid segment pixel set",
+        );
+
+        T::regs()
+            .ram_com(com_index as usize)
+            .low()
+            .write_value((segments & 0xFFFF_FFFF) as u32);
+        T::regs()
+            .ram_com(com_index as usize)
+            .high()
+            .write_value(((segments >> 32) & 0xFFFF_FFFF) as u32);
+    }
+
+    pub fn submit_frame(&mut self) {
+        while T::regs().sr().read().udr() {}
         // Clear the update done flag
         T::regs().sr().write(|w| w.set_udd(true));
         // Set the update request flag
         T::regs().sr().write(|w| w.set_udr(true));
+    }
+
+    pub fn num_segments(&self) -> u8 {
+        match self.duty {
+            Duty::Eigth => NUM_SEGMENTS - 4, // With 8 coms, 4 of the segment pins turn into com pins
+            _ => NUM_SEGMENTS,
+        }
+    }
+
+    pub fn segment_pixel_mask(&self) -> u64 {
+        (1 << self.num_segments()) - 1
+    }
+
+    pub fn num_com_pins(&self) -> u8 {
+        self.duty.num_com_pins()
     }
 }
 
