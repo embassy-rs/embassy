@@ -28,15 +28,14 @@ pub enum Error {
     NBitsTooBig,
 }
 
-pub struct Mathacl<'d, T: Instance> {
-    _peri: Peri<'d, T>,
+pub struct Mathacl<'d> {
     regs: &'static Regs,
-    _phantom: PhantomData<T>,
+    _phantom: PhantomData<&'d mut ()>,
 }
 
-impl<'d, T: Instance> Mathacl<'d, T> {
+impl<'d> Mathacl<'d> {
     /// Mathacl initialization.
-    pub fn new(instance: Peri<'d, T>) -> Self {
+    pub fn new<T: Instance>(_instance: Peri<'d, T>) -> Self {
         // Init power
         T::regs().gprcm(0).rstctl().write(|w| {
             w.set_resetstkyclr(vals::Resetstkyclr::CLR);
@@ -54,7 +53,6 @@ impl<'d, T: Instance> Mathacl<'d, T> {
         cortex_m::asm::delay(16);
 
         Self {
-            _peri: instance,
             regs: T::regs(),
             _phantom: PhantomData,
         }
