@@ -3,7 +3,7 @@
 
 use embassy_executor::Spawner;
 use embassy_time::Timer;
-use hal::gpio::{Level, Output};
+use hal::gpio::{DriveStrength, Level, Output, SlewRate};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 #[embassy_executor::main]
@@ -12,9 +12,9 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("Blink example");
 
-    let mut red = Output::new(p.P3_18, Level::High);
-    let mut green = Output::new(p.P3_19, Level::High);
-    let mut blue = Output::new(p.P3_21, Level::High);
+    let mut red = Output::new(p.P3_18, Level::High, DriveStrength::Normal, SlewRate::Fast);
+    let mut green = Output::new(p.P3_19, Level::High, DriveStrength::Normal, SlewRate::Fast);
+    let mut blue = Output::new(p.P3_21, Level::High, DriveStrength::Normal, SlewRate::Fast);
 
     loop {
         defmt::info!("Toggle LEDs");

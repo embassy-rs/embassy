@@ -8,11 +8,85 @@ use core::marker::PhantomData;
 use embassy_hal_internal::{Peri, PeripheralType};
 use paste::paste;
 
+use crate::pac::port0::pcr0::{Dse, Inv, Mux, Pe, Ps, Sre};
+
 /// Logical level for GPIO pins.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Level {
     Low,
     High,
+}
+
+impl From<bool> for Level {
+    fn from(val: bool) -> Self {
+        match val {
+            true => Self::High,
+            false => Self::Low,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum Pull {
+    Disabled,
+    Up,
+    Down,
+}
+
+impl From<Pull> for (Pe, Ps) {
+    fn from(pull: Pull) -> Self {
+        match pull {
+            Pull::Disabled => (Pe::Pe0, Ps::Ps0),
+            Pull::Up => (Pe::Pe1, Ps::Ps1),
+            Pull::Down => (Pe::Pe1, Ps::Ps0),
+        }
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum SlewRate {
+    Fast,
+    Slow,
+}
+
+impl From<SlewRate> for Sre {
+    fn from(slew_rate: SlewRate) -> Self {
+        match slew_rate {
+            SlewRate::Fast => Sre::Sre0,
+            SlewRate::Slow => Sre::Sre1,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum DriveStrength {
+    Normal,
+    Double,
+}
+
+impl From<DriveStrength> for Dse {
+    fn from(strength: DriveStrength) -> Self {
+        match strength {
+            DriveStrength::Normal => Dse::Dse0,
+            DriveStrength::Double => Dse::Dse1,
+        }
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub enum Inverter {
+    Disabled,
+    Enabled,
+}
+
+impl From<Inverter> for Inv {
+    fn from(strength: Inverter) -> Self {
+        match strength {
+            Inverter::Disabled => Inv::Inv0,
+            Inverter::Enabled => Inv::Inv1,
+        }
+    }
 }
 
 pub type Gpio = crate::peripherals::GPIO0;
@@ -22,12 +96,26 @@ pub struct AnyPin {
     port: usize,
     pin: usize,
     gpio: &'static crate::pac::gpio0::RegisterBlock,
+    port_reg: &'static crate::pac::port0::RegisterBlock,
+    pcr_reg: &'static crate::pac::port0::Pcr0,
 }
 
 impl AnyPin {
     /// Create an `AnyPin` from raw components.
-    pub fn new(port: usize, pin: usize, gpio: &'static crate::pac::gpio0::RegisterBlock) -> Self {
-        Self { port, pin, gpio }
+    pub fn new(
+        port: usize,
+        pin: usize,
+        gpio: &'static crate::pac::gpio0::RegisterBlock,
+        port_reg: &'static crate::pac::port0::RegisterBlock,
+        pcr_reg: &'static crate::pac::port0::Pcr0,
+    ) -> Self {
+        Self {
+            port,
+            pin,
+            gpio,
+            port_reg,
+            pcr_reg,
+        }
     }
 
     #[inline(always)]
@@ -49,6 +137,16 @@ impl AnyPin {
     pub fn pin_index(&self) -> usize {
         self.pin
     }
+
+    #[inline(always)]
+    fn port_reg(&self) -> &'static crate::pac::port0::RegisterBlock {
+        self.port_reg
+    }
+
+    #[inline(always)]
+    fn pcr_reg(&self) -> &'static crate::pac::port0::Pcr0 {
+        self.pcr_reg
+    }
 }
 
 embassy_hal_internal::impl_peripheral!(AnyPin);
@@ -65,6 +163,20 @@ trait SealedPin {
     }
 
     fn gpio(&self) -> &'static crate::pac::gpio0::RegisterBlock;
+
+    fn port_reg(&self) -> &'static crate::pac::port0::RegisterBlock;
+
+    fn pcr_reg(&self) -> &'static crate::pac::port0::Pcr0;
+
+    fn set_function(&self, function: Mux);
+
+    fn set_pull(&self, pull: Pull);
+
+    fn set_drive_strength(&self, strength: Dse);
+
+    fn set_slew_rate(&self, slew_rate: Sre);
+
+    fn set_enable_input_buffer(&self);
 }
 
 /// GPIO pin trait.
@@ -75,19 +187,49 @@ pub trait GpioPin: SealedPin + Sized + PeripheralType + Into<AnyPin> + 'static {
         // SAFETY: This is only called within the GpioPin trait, which is only
         // implemented within this module on valid pin peripherals and thus
         // has been verified to be correct.
-        AnyPin::new(self.port(), self.pin(), self.gpio())
+        AnyPin::new(self.port(), self.pin(), self.gpio(), self.port_reg(), self.pcr_reg())
     }
 }
 
 impl SealedPin for AnyPin {
-    #[inline]
     fn pin_port(&self) -> usize {
         self.port * 32 + self.pin
     }
 
-    #[inline]
     fn gpio(&self) -> &'static crate::pac::gpio0::RegisterBlock {
         self.gpio()
+    }
+
+    fn port_reg(&self) -> &'static crate::pac::port0::RegisterBlock {
+        self.port_reg()
+    }
+
+    fn pcr_reg(&self) -> &'static crate::pac::port0::Pcr0 {
+        self.pcr_reg()
+    }
+
+    fn set_function(&self, function: Mux) {
+        self.pcr_reg().modify(|_, w| w.mux().variant(function));
+    }
+
+    fn set_pull(&self, pull: Pull) {
+        let (pull_enable, pull_select) = pull.into();
+        self.pcr_reg().modify(|_, w| {
+            w.pe().variant(pull_enable);
+            w.ps().variant(pull_select)
+        });
+    }
+
+    fn set_drive_strength(&self, strength: Dse) {
+        self.pcr_reg().modify(|_, w| w.dse().variant(strength));
+    }
+
+    fn set_slew_rate(&self, slew_rate: Sre) {
+        self.pcr_reg().modify(|_, w| w.sre().variant(slew_rate));
+    }
+
+    fn set_enable_input_buffer(&self) {
+        self.pcr_reg().modify(|_, w| w.ibe().ibe1());
     }
 }
 
@@ -95,37 +237,70 @@ impl GpioPin for AnyPin {}
 
 macro_rules! impl_pin {
     ($peri:ident, $port:expr, $pin:expr, $block:ident) => {
-        impl SealedPin for crate::peripherals::$peri {
-            #[inline]
-            fn pin_port(&self) -> usize {
-                $port * 32 + $pin
+        paste! {
+            impl SealedPin for crate::peripherals::$peri {
+                fn pin_port(&self) -> usize {
+                    $port * 32 + $pin
+                }
+
+                fn gpio(&self) -> &'static crate::pac::gpio0::RegisterBlock {
+                    unsafe { &*crate::pac::$block::ptr() }
+                }
+
+                fn port_reg(&self) -> &'static crate::pac::port0::RegisterBlock {
+                    unsafe { &*crate::pac::[<Port $port>]::ptr() }
+                }
+
+                fn pcr_reg(&self) -> &'static crate::pac::port0::Pcr0 {
+                    self.port_reg().[<pcr $pin>]()
+                }
+
+                fn set_function(&self, function: Mux) {
+                    unsafe {
+                        let port_reg = &*crate::pac::[<Port $port>]::ptr();
+                        port_reg.[<pcr $pin>]().modify(|_, w| {
+                            w.mux().variant(function)
+                        });
+                    }
+                }
+
+                fn set_pull(&self, pull: Pull) {
+                    let port_reg = unsafe {&*crate::pac::[<Port $port>]::ptr()};
+                    let (pull_enable, pull_select) = pull.into();
+                    port_reg.[<pcr $pin>]().modify(|_, w| {
+                        w.pe().variant(pull_enable);
+                        w.ps().variant(pull_select)
+                    });
+                }
+
+                fn set_drive_strength(&self, strength: Dse) {
+                    let port_reg = unsafe {&*crate::pac::[<Port $port>]::ptr()};
+                    port_reg.[<pcr $pin>]().modify(|_, w| w.dse().variant(strength));
+                }
+
+                fn set_slew_rate(&self, slew_rate: Sre) {
+                    let port_reg = unsafe {&*crate::pac::[<Port $port>]::ptr()};
+                    port_reg.[<pcr $pin>]().modify(|_, w| w.sre().variant(slew_rate));
+                }
+
+                fn set_enable_input_buffer(&self) {
+                    let port_reg = unsafe {&*crate::pac::[<Port $port>]::ptr()};
+                    port_reg.[<pcr $pin>]().modify(|_, w| w.ibe().ibe1());
+                }
             }
 
-            #[inline]
-            fn gpio(&self) -> &'static crate::pac::gpio0::RegisterBlock {
-                unsafe { &*crate::pac::$block::ptr() }
-            }
-        }
+            impl GpioPin for crate::peripherals::$peri {}
 
-        impl GpioPin for crate::peripherals::$peri {}
-
-        impl From<crate::peripherals::$peri> for AnyPin {
-            fn from(value: crate::peripherals::$peri) -> Self {
-                value.degrade()
-            }
-        }
-
-        impl crate::peripherals::$peri {
-            /// Convenience helper to obtain a type-erased handle to this pin.
-            pub fn degrade(&self) -> AnyPin {
-                AnyPin::new(self.port(), self.pin(), self.gpio())
+            impl From<crate::peripherals::$peri> for AnyPin {
+                fn from(value: crate::peripherals::$peri) -> Self {
+                    value.degrade()
+                }
             }
 
-            #[inline]
-            pub fn set_mux_gpio() {
-                paste! {
-                    let port = unsafe { crate::pac::[<Port $port>]::steal()};
-                    port.[<pcr $pin>]().write(|w| w.mux().mux00());
+                impl crate::peripherals::$peri {
+                /// Convenience helper to obtain a type-erased handle to this pin.
+                pub fn degrade(&self) -> AnyPin {
+                    AnyPin::new(self.port(), self.pin(), self.gpio(), self.port_reg(), self.pcr_reg())
                 }
             }
         }
@@ -309,6 +484,7 @@ impl<'d> Flex<'d> {
     /// The pin remains unmodified. The initial output level is unspecified, but
     /// can be changed before the pin is put into output mode.
     pub fn new(pin: Peri<'d, impl GpioPin>) -> Self {
+        pin.set_function(Mux::Mux00);
         Self {
             pin: pin.into(),
             _marker: PhantomData,
@@ -326,22 +502,22 @@ impl<'d> Flex<'d> {
     }
 
     /// Put the pin into input mode.
-    ///
-    /// The pull setting is left unchanged.
-    #[inline]
     pub fn set_as_input(&mut self) {
         let mask = self.mask();
         let gpio = self.gpio();
+
+        self.set_enable_input_buffer();
+
         gpio.pddr().modify(|r, w| unsafe { w.bits(r.bits() & !mask) });
     }
 
     /// Put the pin into output mode.
-    ///
-    /// The initial output level is left unchanged.
-    #[inline]
     pub fn set_as_output(&mut self) {
         let mask = self.mask();
         let gpio = self.gpio();
+
+        self.set_pull(Pull::Disabled);
+
         gpio.pddr().modify(|r, w| unsafe { w.bits(r.bits() | mask) });
     }
 
@@ -395,6 +571,31 @@ impl<'d> Flex<'d> {
     pub fn is_set_low(&self) -> bool {
         !self.is_set_high()
     }
+
+    /// Configure the pin pull up/down level.
+    pub fn set_pull(&mut self, pull_select: Pull) {
+        self.pin.set_pull(pull_select);
+    }
+
+    /// Configure the pin drive strength.
+    pub fn set_drive_strength(&mut self, strength: DriveStrength) {
+        self.pin.set_drive_strength(strength.into());
+    }
+
+    /// Configure the pin slew rate.
+    pub fn set_slew_rate(&mut self, slew_rate: SlewRate) {
+        self.pin.set_slew_rate(slew_rate.into());
+    }
+
+    /// Enable input buffer for the pin.
+    pub fn set_enable_input_buffer(&mut self) {
+        self.pin.set_enable_input_buffer();
+    }
+
+    /// Get pin level.
+    pub fn get_level(&self) -> Level {
+        self.is_high().into()
+    }
 }
 
 /// GPIO output driver that owns a `Flex` pin.
@@ -404,10 +605,12 @@ pub struct Output<'d> {
 
 impl<'d> Output<'d> {
     /// Create a GPIO output driver for a [GpioPin] with the provided [Level].
-    pub fn new(pin: Peri<'d, impl GpioPin>, initial: Level) -> Self {
+    pub fn new(pin: Peri<'d, impl GpioPin>, initial: Level, strength: DriveStrength, slew_rate: SlewRate) -> Self {
         let mut flex = Flex::new(pin);
         flex.set_level(initial);
         flex.set_as_output();
+        flex.set_drive_strength(strength);
+        flex.set_slew_rate(slew_rate);
         Self { flex }
     }
 
@@ -461,9 +664,12 @@ pub struct Input<'d> {
 
 impl<'d> Input<'d> {
     /// Create a GPIO input driver for a [GpioPin].
-    pub fn new(pin: Peri<'d, impl GpioPin>) -> Self {
+    pub fn new(pin: Peri<'d, impl GpioPin>, pull_select: Pull, strength: DriveStrength, slew_rate: SlewRate) -> Self {
         let mut flex = Flex::new(pin);
         flex.set_as_input();
+        flex.set_drive_strength(strength);
+        flex.set_slew_rate(slew_rate);
+        flex.set_pull(pull_select);
         Self { flex }
     }
 
@@ -483,6 +689,11 @@ impl<'d> Input<'d> {
     #[inline]
     pub fn into_flex(self) -> Flex<'d> {
         self.flex
+    }
+
+    // Get the pin level.
+    pub fn get_level(&self) -> Level {
+        self.flex.get_level()
     }
 }
 

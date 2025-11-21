@@ -1,7 +1,9 @@
 #![no_std]
-// TODO(AJM): As of 2025-11-13, we need to do a pass to ensure safety docs
-// are complete prior to release.
-#![allow(clippy::missing_safety_doc)]
+#![allow(async_fn_in_trait)]
+#![doc = include_str!("../README.md")]
+
+// //! ## Feature flags
+// #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 
 pub mod clocks; // still provide clock helpers
 pub mod gpio;
