@@ -13,15 +13,27 @@ const NUM_SEGMENTS: u8 = 52;
 #[cfg(stm32wb)]
 const NUM_SEGMENTS: u8 = 44;
 
+/// LCD configuration struct
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
+    /// Enable the voltage output buffer for higher driving capability.
+    ///
+    /// The LCD driving capability is improved as buffers prevent the LCD capacitive loads from loading the resistor
+    /// bridge unacceptably and interfering with its voltage generation.
     pub use_voltage_output_buffer: bool,
+    /// Enable SEG pin remapping. SEG[31:28] multiplexed with SEG[43:40]
     pub use_segment_muxing: bool,
+    /// Bias selector
     pub bias: Bias,
+    /// Duty selector
     pub duty: Duty,
+    /// Internal or external voltage source
     pub voltage_source: VoltageSource,
+    /// The frequency used to update the LCD with.
+    /// Should be between ~30 and ~100. Lower is better for power consumption, but has lower visual fidelity.
     pub target_fps: Hertz,
+    /// LCD driver selector
     pub drive: Drive,
 }
 
@@ -33,7 +45,7 @@ impl Default for Config {
             bias: Default::default(),
             duty: Default::default(),
             voltage_source: Default::default(),
-            target_fps: Hertz(30),
+            target_fps: Hertz(60),
             drive: Drive::Medium,
         }
     }
@@ -139,7 +151,10 @@ pub struct Lcd<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> Lcd<'d, T> {
-    /// Initialize the lcd driver
+    /// Initialize the lcd driver.
+    ///
+    /// The `pins` parameter must contain *all* segment and com pins that are connected to the LCD.
+    /// This is not further checked by this driver. Pins not routed to the LCD can be used for other purposes.
     pub fn new<const N: usize>(
         _peripheral: Peri<'d, T>,
         config: Config,
@@ -267,6 +282,13 @@ impl<'d, T: Instance> Lcd<'d, T> {
             .modify(|w: &mut stm32_metapac::lcd::regs::Fcr| w.set_dead(value));
     }
 
+    /// Write data into the display RAM. This overwrites the data already in it for the specified com index.
+    ///
+    /// The `com_index` value determines which part of the RAM is written to.
+    /// The `segments` value is a bitmap where each bit represents whether a pixel is turned on or off.
+    ///
+    /// This function waits last update request to be finished, but does not submit the buffer to the LCD with a new request.
+    /// Submission has to be done manually using [Self::submit_frame].
     pub fn write_com_segments(&mut self, com_index: u8, segments: u64) {
         while T::regs().sr().read().udr() {}
 
@@ -290,6 +312,28 @@ impl<'d, T: Instance> Lcd<'d, T> {
             .write_value(((segments >> 32) & 0xFFFF_FFFF) as u32);
     }
 
+    /// Read the data from the display RAM.
+    ///
+    /// The `com_index` value determines which part of the RAM is read from.
+    ///
+    /// This function waits for the last update request to be finished.
+    pub fn read_com_segments(&self, com_index: u8) -> u64 {
+        while T::regs().sr().read().udr() {}
+
+        assert!(
+            com_index < self.duty.num_com_pins(),
+            "Com index cannot be higher than number of configured com pins (through the Duty setting in the config)"
+        );
+
+        let low = T::regs().ram_com(com_index as usize).low().read();
+        let high = T::regs().ram_com(com_index as usize).high().read();
+
+        ((high as u64) << 32) | low as u64
+    }
+
+    /// Submit the current RAM data to the LCD.
+    ///
+    /// This function waits until the RAM is writable, but does not wait for the frame to be drawn.
     pub fn submit_frame(&mut self) {
         while T::regs().sr().read().udr() {}
         // Clear the update done flag
@@ -298,6 +342,7 @@ impl<'d, T: Instance> Lcd<'d, T> {
         T::regs().sr().write(|w| w.set_udr(true));
     }
 
+    /// Get the number of segments that are supported on this LCD
     pub fn num_segments(&self) -> u8 {
         match self.duty {
             Duty::Eigth => NUM_SEGMENTS - 4, // With 8 coms, 4 of the segment pins turn into com pins
@@ -305,10 +350,13 @@ impl<'d, T: Instance> Lcd<'d, T> {
         }
     }
 
+    /// Get the pixel mask for the current LCD setup.
+    /// This is a mask of all bits that are allowed to be set in the [Self::write_com_segments] function.
     pub fn segment_pixel_mask(&self) -> u64 {
         (1 << self.num_segments()) - 1
     }
 
+    /// Get the number of COM pins that were configured through the Drive config
     pub fn num_com_pins(&self) -> u8 {
         self.duty.num_com_pins()
     }
@@ -322,6 +370,8 @@ impl<'d, T: Instance> Drop for Lcd<'d, T> {
     }
 }
 
+/// A type-erased pin that can be configured as an LCD pin.
+/// This is used for passing pins to the new function in the array.
 pub struct LcdPin<'d, T: Instance> {
     pin: Peri<'d, AnyPin>,
     af_num: u8,
@@ -335,6 +385,7 @@ impl<'d, T: Instance, Pin: SegComPin<T>> From<Peri<'d, Pin>> for LcdPin<'d, T> {
 }
 
 impl<'d, T: Instance> LcdPin<'d, T> {
+    /// Construct an LCD pin from any pin that supports it
     pub fn new(pin: Peri<'d, impl SegComPin<T>>) -> Self {
         let af = pin.af_num();
 
