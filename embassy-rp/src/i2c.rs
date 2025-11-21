@@ -91,7 +91,7 @@ pub const FIFO_SIZE: u8 = 16;
 /// I2C driver.
 pub struct I2c<'d, M: Mode> {
     info: &'static Info,
-    phantom: PhantomData<(&'d (), M)>,
+    phantom: PhantomData<(&'d mut (), M)>,
 }
 
 impl<'d> I2c<'d, Blocking> {

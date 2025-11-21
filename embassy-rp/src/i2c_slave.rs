@@ -94,7 +94,7 @@ pub struct I2cSlave<'d> {
     info: &'static Info,
     pending_byte: Option<u8>,
     config: Config,
-    phantom: PhantomData<&'d ()>,
+    phantom: PhantomData<&'d mut ()>,
 }
 
 impl<'d> I2cSlave<'d> {
