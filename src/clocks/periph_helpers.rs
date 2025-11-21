@@ -240,12 +240,12 @@ impl SPConfHelper for LpuartConfig {
         clkdiv.modify(|_r, w| {
             w.halt().on();
             w.reset().on();
+            unsafe { w.div().bits(self.div.into_bits()) };
             w
         });
         clkdiv.modify(|_r, w| {
             w.halt().off();
             w.reset().off();
-            unsafe { w.div().bits(self.div.into_bits()) };
             w
         });
 
@@ -377,12 +377,12 @@ impl SPConfHelper for AdcConfig {
         mrcc0.mrcc_adc_clkdiv().modify(|_r, w| {
             w.halt().on();
             w.reset().on();
+            unsafe { w.div().bits(self.div.into_bits()) };
             w
         });
         mrcc0.mrcc_adc_clkdiv().modify(|_r, w| {
             w.halt().off();
             w.reset().off();
-            unsafe { w.div().bits(self.div.into_bits()) };
             w
         });
 
