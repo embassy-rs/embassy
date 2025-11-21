@@ -37,7 +37,7 @@ jobs:
         workdir: [ ".", "examples",]
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: true
 
@@ -67,7 +67,7 @@ jobs:
         workdir: ["examples"]
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: true
 
@@ -88,7 +88,7 @@ jobs:
   #   runs-on: ubuntu-latest
   #   name: semver
   #   steps:
-  #     - uses: actions/checkout@v5
+  #     - uses: actions/checkout@v6
   #       with:
   #         submodules: true
   #     - name: Install stable
@@ -106,7 +106,7 @@ jobs:
     name: nightly / doc
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: true
 
@@ -131,7 +131,7 @@ jobs:
       fail-fast: false
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: true
 
@@ -155,7 +155,7 @@ jobs:
     name: ubuntu / stable / deny
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: true
 
@@ -200,7 +200,7 @@ jobs:
 
     name: ubuntu / ${{ matrix.msrv }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           submodules: true
 
