@@ -765,6 +765,8 @@ impl<'d> UartRx<'d, Async> {
                 w.set_peie(false);
                 // disable idle line interrupt
                 w.set_idleie(false);
+                // disable uart to clear any data present
+                w.set_ue(!enable_idle_line_detection)
             });
             r.cr3().modify(|w| {
                 // disable Error Interrupt: (Frame error, Noise error, Overrun error)
@@ -772,6 +774,8 @@ impl<'d> UartRx<'d, Async> {
                 // disable DMA Rx Request
                 w.set_dmar(false);
             });
+
+            r.cr1().modify(|w| w.set_ue(true));
         });
 
         let ch = self.rx_dma.as_mut().unwrap();
