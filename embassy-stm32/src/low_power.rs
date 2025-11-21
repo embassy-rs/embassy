@@ -50,7 +50,7 @@ use critical_section::CriticalSection;
 use embassy_executor::*;
 
 use crate::interrupt;
-use crate::rcc::{REFCOUNT_STOP1, REFCOUNT_STOP2};
+use crate::rcc::{RCC_CONFIG, REFCOUNT_STOP1, REFCOUNT_STOP2};
 use crate::time_driver::get_driver;
 
 const THREAD_PENDER: usize = usize::MAX;
@@ -147,17 +147,17 @@ pub enum StopMode {
     Stop2,
 }
 
-#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32wlex, stm32u0))]
+#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32wb, stm32wlex, stm32u0))]
 use crate::pac::pwr::vals::Lpms;
 
-#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32wlex, stm32u0))]
+#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32wb, stm32wlex, stm32u0))]
 impl Into<Lpms> for StopMode {
     fn into(self) -> Lpms {
         match self {
             StopMode::Stop1 => Lpms::STOP1,
-            #[cfg(not(stm32wba))]
+            #[cfg(not(any(stm32wb, stm32wba)))]
             StopMode::Stop2 => Lpms::STOP2,
-            #[cfg(stm32wba)]
+            #[cfg(any(stm32wb, stm32wba))]
             StopMode::Stop2 => Lpms::STOP1, // TODO: WBA has no STOP2?
         }
     }
@@ -201,7 +201,7 @@ impl Executor {
             {
                 use crate::pac::rcc::vals::Sw;
                 use crate::pac::{PWR, RCC};
-                use crate::rcc::{RCC_CONFIG, init as init_rcc};
+                use crate::rcc::init as init_rcc;
 
                 let extscr = PWR.extscr().read();
                 if extscr.c1stop2f() || extscr.c1stopf() {
@@ -237,13 +237,15 @@ impl Executor {
             trace!("low power: stop 1");
             Some(StopMode::Stop1)
         } else {
-            trace!("low power: not ready to stop");
+            trace!("low power: not ready to stop (refcount_stop1: {})", unsafe {
+                REFCOUNT_STOP1
+            });
             None
         }
     }
 
     #[cfg(all(stm32wb, feature = "low-power"))]
-    fn configure_stop_stm32wb(&self, _stop_mode: StopMode) -> Result<(), ()> {
+    fn configure_stop_stm32wb(&self, _cs: CriticalSection) -> Result<(), ()> {
         use core::task::Poll;
 
         use embassy_futures::poll_once;
@@ -252,14 +254,20 @@ impl Executor {
         use crate::pac::rcc::vals::{Smps, Sw};
         use crate::pac::{PWR, RCC};
 
+        trace!("low power: trying to get sem3");
+
         let sem3_mutex = match poll_once(HardwareSemaphoreChannel::<crate::peripherals::HSEM>::new(3).lock(0)) {
             Poll::Pending => None,
             Poll::Ready(mutex) => Some(mutex),
         }
         .ok_or(())?;
 
+        trace!("low power: got sem3");
+
         let sem4_mutex = HardwareSemaphoreChannel::<crate::peripherals::HSEM>::new(4).try_lock(0);
         if let Some(sem4_mutex) = sem4_mutex {
+            trace!("low power: got sem4");
+
             if PWR.extscr().read().c2ds() {
                 drop(sem4_mutex);
             } else {
@@ -295,11 +303,11 @@ impl Executor {
     }
 
     #[allow(unused_variables)]
-    fn configure_stop(&self, stop_mode: StopMode) -> Result<(), ()> {
+    fn configure_stop(&self, _cs: CriticalSection, stop_mode: StopMode) -> Result<(), ()> {
         #[cfg(all(stm32wb, feature = "low-power"))]
-        self.configure_stop_stm32wb(stop_mode)?;
+        self.configure_stop_stm32wb(_cs)?;
 
-        #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wba, stm32wlex))]
+        #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wb, stm32wba, stm32wlex))]
         crate::pac::PWR.cr1().modify(|m| m.set_lpms(stop_mode.into()));
         #[cfg(stm32h5)]
         crate::pac::PWR.pmcr().modify(|v| {
@@ -322,9 +330,10 @@ impl Executor {
         compiler_fence(Ordering::SeqCst);
 
         critical_section::with(|cs| {
+            let _ = unsafe { RCC_CONFIG }?;
             let stop_mode = Self::stop_mode(cs)?;
-            let _ = get_driver().pause_time(cs).ok()?;
-            self.configure_stop(stop_mode).ok()?;
+            get_driver().pause_time(cs).ok()?;
+            self.configure_stop(cs, stop_mode).ok()?;
 
             Some(())
         })
