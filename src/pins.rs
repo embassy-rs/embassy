@@ -14,7 +14,7 @@ pub unsafe fn configure_uart2_pins_port2() {
             .dse()
             .dse1()
             .mux()
-            .mux11()
+            .mux3()
             .ibe()
             .ibe1()
     });
@@ -28,7 +28,7 @@ pub unsafe fn configure_uart2_pins_port2() {
             .dse()
             .dse1()
             .mux()
-            .mux11()
+            .mux3()
             .ibe()
             .ibe1()
     });
@@ -50,7 +50,7 @@ pub unsafe fn configure_adc_pins() {
             .dse()
             .dse0()
             .mux()
-            .mux00()
+            .mux0()
             .ibe()
             .ibe0()
             .inv()
