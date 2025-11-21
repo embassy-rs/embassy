@@ -351,6 +351,12 @@ impl DisplayBuffer {
     }
 }
 
+impl Default for DisplayBuffer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 enum CharSegment {
     /// North
