@@ -1352,28 +1352,28 @@ fn main() {
         (("tsc", "G8_IO2"), quote!(crate::tsc::G8IO2Pin)),
         (("tsc", "G8_IO3"), quote!(crate::tsc::G8IO3Pin)),
         (("tsc", "G8_IO4"), quote!(crate::tsc::G8IO4Pin)),
-        (("lcd", "SEG"), quote!(crate::lcd::SegComPin)),
-        (("lcd", "COM"), quote!(crate::lcd::SegComPin)),
+        (("lcd", "SEG"), quote!(crate::lcd::SegPin)),
+        (("lcd", "COM"), quote!(crate::lcd::ComPin)),
+        (("lcd", "VLCD"), quote!(crate::lcd::VlcdPin)),
         (("dac", "OUT1"), quote!(crate::dac::DacPin<Ch1>)),
         (("dac", "OUT2"), quote!(crate::dac::DacPin<Ch2>)),
     ].into();
 
-    let mut seen_lcd_pins = HashSet::new();
-
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
             let mut adc_pairs: BTreeMap<u8, (Option<Ident>, Option<Ident>)> = BTreeMap::new();
+            let mut seen_lcd_seg_pins = HashSet::new();
 
             for pin in p.pins {
                 let mut key = (regs.kind, pin.signal);
 
-                // LCD is special
+                // LCD is special. There are so many pins!
                 if regs.kind == "lcd" {
                     key.1 = pin.signal.trim_end_matches(char::is_numeric);
 
-                    // Some lcd pins have multiple lcd functions
-                    // Dedup so they don't get the trait implemented twice
-                    if !seen_lcd_pins.insert(pin.pin) {
+                    if key.1 == "SEG" && !seen_lcd_seg_pins.insert(pin.pin) {
+                        // LCD has SEG pins multiplexed in the peripheral
+                        // This means we can see them twice. We need to skip those so we're not impl'ing the trait twice
                         continue;
                     }
                 }

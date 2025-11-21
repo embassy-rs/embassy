@@ -168,6 +168,12 @@ impl<'d, T: Instance> Lcd<'d, T> {
             AfType::output(crate::gpio::OutputType::PushPull, crate::gpio::Speed::VeryHigh),
         );
 
+        assert_eq!(
+            pins.iter().filter(|pin| !pin.is_seg).count(),
+            config.duty.num_com_pins() as usize,
+            "The number of provided COM pins is not the same as the duty configures"
+        );
+
         // Set the pins
         for pin in pins {
             pin.pin.set_as_af(
@@ -375,23 +381,31 @@ impl<'d, T: Instance> Drop for Lcd<'d, T> {
 pub struct LcdPin<'d, T: Instance> {
     pin: Peri<'d, AnyPin>,
     af_num: u8,
+    is_seg: bool,
     _phantom: PhantomData<T>,
-}
-
-impl<'d, T: Instance, Pin: SegComPin<T>> From<Peri<'d, Pin>> for LcdPin<'d, T> {
-    fn from(value: Peri<'d, Pin>) -> Self {
-        Self::new(value)
-    }
 }
 
 impl<'d, T: Instance> LcdPin<'d, T> {
     /// Construct an LCD pin from any pin that supports it
-    pub fn new(pin: Peri<'d, impl SegComPin<T>>) -> Self {
+    pub fn new_seg(pin: Peri<'d, impl SegPin<T>>) -> Self {
         let af = pin.af_num();
 
         Self {
             pin: pin.into(),
             af_num: af,
+            is_seg: true,
+            _phantom: PhantomData,
+        }
+    }
+
+    /// Construct an LCD pin from any pin that supports it
+    pub fn new_com(pin: Peri<'d, impl ComPin<T>>) -> Self {
+        let af = pin.af_num();
+
+        Self {
+            pin: pin.into(),
+            af_num: af,
+            is_seg: false,
             _phantom: PhantomData,
         }
     }
@@ -405,12 +419,9 @@ trait SealedInstance: crate::rcc::SealedRccPeripheral + PeripheralType {
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + RccPeripheral + 'static {}
 
-pin_trait!(SegComPin, Instance);
+pin_trait!(SegPin, Instance);
+pin_trait!(ComPin, Instance);
 pin_trait!(VlcdPin, Instance);
-
-// TODO: pull into build.rs, but the metapack doesn't have this info
-pin_trait_impl!(crate::lcd::VlcdPin, LCD, PC3, 11);
-pin_trait_impl!(crate::lcd::VlcdPin, LCD, PB2, 11);
 
 foreach_peripheral!(
     (lcd, $inst:ident) => {
