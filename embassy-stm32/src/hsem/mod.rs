@@ -5,6 +5,8 @@ use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
+#[cfg(all(stm32wb, feature = "low-power"))]
+use critical_section::CriticalSection;
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 
@@ -78,6 +80,12 @@ impl CoreId {
     }
 }
 
+#[cfg(not(all(stm32wb, feature = "low-power")))]
+const PUB_CHANNELS: usize = 6;
+
+#[cfg(all(stm32wb, feature = "low-power"))]
+const PUB_CHANNELS: usize = 4;
+
 /// TX interrupt handler.
 pub struct HardwareSemaphoreInterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
@@ -127,7 +135,7 @@ pub struct HardwareSemaphoreChannel<'a, T: Instance> {
 }
 
 impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
-    pub(self) const fn new(number: u8) -> Self {
+    pub(crate) const fn new(number: u8) -> Self {
         core::assert!(number > 0 && number <= 6);
 
         Self {
@@ -151,17 +159,27 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
                 .ier(core_id.to_index())
                 .modify(|w| w.set_ise(self.index as usize, true));
 
-            if self.two_step_lock(process_id).is_ok() {
-                Poll::Ready(HardwareSemaphoreMutex {
-                    index: self.index,
-                    process_id: process_id,
-                    _lifetime: PhantomData,
-                })
-            } else {
-                Poll::Pending
+            match self.try_lock(process_id) {
+                Some(mutex) => Poll::Ready(mutex),
+                None => Poll::Pending,
             }
         })
         .await
+    }
+
+    /// Try to lock the semaphor
+    /// The 2-step lock procedure consists in a write to lock the semaphore, followed by a read to
+    /// check if the lock has been successful, carried out from the HSEM_Rx register.
+    pub fn try_lock(&mut self, process_id: u8) -> Option<HardwareSemaphoreMutex<'a, T>> {
+        if self.two_step_lock(process_id).is_ok() {
+            Some(HardwareSemaphoreMutex {
+                index: self.index,
+                process_id: process_id,
+                _lifetime: PhantomData,
+            })
+        } else {
+            None
+        }
     }
 
     /// Locks the semaphore.
@@ -206,9 +224,9 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
         });
     }
 
-    /// Checks if the semaphore is locked.
-    pub fn is_semaphore_locked(&self) -> bool {
-        T::regs().r(self.index as usize).read().lock()
+    /// Return the channel number
+    pub const fn channel(&self) -> u8 {
+        self.index + 1
     }
 }
 
@@ -230,15 +248,22 @@ impl<T: Instance> HardwareSemaphore<T> {
 
     /// Get a single channel, and keep the global struct
     pub const fn channel_for<'a>(&'a mut self, number: u8) -> HardwareSemaphoreChannel<'a, T> {
+        #[cfg(all(stm32wb, feature = "low-power"))]
+        core::assert!(number != 3 && number != 4);
+
         HardwareSemaphoreChannel::new(number)
     }
 
     /// Split the global struct into channels
-    pub const fn split<'a>(self) -> [HardwareSemaphoreChannel<'a, T>; 6] {
+    ///
+    /// If using low-power mode, channels 3 and 4 will not be returned
+    pub const fn split<'a>(self) -> [HardwareSemaphoreChannel<'a, T>; PUB_CHANNELS] {
         [
             HardwareSemaphoreChannel::new(1),
             HardwareSemaphoreChannel::new(2),
+            #[cfg(not(all(stm32wb, feature = "low-power")))]
             HardwareSemaphoreChannel::new(3),
+            #[cfg(not(all(stm32wb, feature = "low-power")))]
             HardwareSemaphoreChannel::new(4),
             HardwareSemaphoreChannel::new(5),
             HardwareSemaphoreChannel::new(6),
@@ -267,6 +292,16 @@ impl<T: Instance> HardwareSemaphore<T> {
     }
 }
 
+#[cfg(all(stm32wb, feature = "low-power"))]
+pub(crate) fn init_hsem(cs: CriticalSection) {
+    rcc::enable_and_reset_with_cs::<crate::peripherals::HSEM>(cs);
+
+    unsafe {
+        crate::rcc::REFCOUNT_STOP1 = 0;
+        crate::rcc::REFCOUNT_STOP2 = 0;
+    }
+}
+
 struct State {
     wakers: [AtomicWaker; 6],
 }
@@ -278,8 +313,8 @@ impl State {
         }
     }
 
-    const fn waker_for(&self, number: u8) -> &AtomicWaker {
-        &self.wakers[number as usize]
+    const fn waker_for(&self, index: u8) -> &AtomicWaker {
+        &self.wakers[index as usize]
     }
 }
 
