@@ -652,17 +652,15 @@ impl ClockOperator<'_> {
                 });
             }
 
-            // Halt and reset the div
+            // Halt and reset the div; then set our desired div.
             self.syscon.frohfdiv().write(|w| {
                 w.halt().halt();
                 w.reset().asserted();
+                unsafe { w.div().bits(d.into_bits()) };
                 w
             });
-            // Then change the div, unhalt it, and reset it
+            // Then unhalt it, and reset it
             self.syscon.frohfdiv().write(|w| {
-                unsafe {
-                    w.div().bits(d.into_bits());
-                }
                 w.halt().run();
                 w.reset().released();
                 w
@@ -743,17 +741,15 @@ impl ClockOperator<'_> {
                 });
             }
 
-            // Halt and reset the div
+            // Halt and reset the div; then set our desired div.
             self.syscon.frolfdiv().write(|w| {
                 w.halt().halt();
                 w.reset().asserted();
+                unsafe { w.div().bits(d.into_bits()) };
                 w
             });
-            // Then change the div, unhalt it, and reset it
+            // Then unhalt it, and reset it
             self.syscon.frolfdiv().write(|w| {
-                unsafe {
-                    w.div().bits(d.into_bits());
-                }
                 w.halt().run();
                 w.reset().released();
                 w
