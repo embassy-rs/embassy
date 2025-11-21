@@ -79,12 +79,17 @@ impl<T: Instance> super::SealedAnyInstance for T {
         T::regs().dr().as_ptr() as *mut u16
     }
 
-    fn enable() {}
+    fn enable() {
+        T::regs().cr2().modify(|reg| {
+            reg.set_adon(true);
+        });
+
+        blocking_delay_us(3);
+    }
 
     fn start() {
         // Begin ADC conversions
         T::regs().cr2().modify(|reg| {
-            reg.set_adon(true);
             reg.set_swstart(true);
         });
     }
@@ -198,7 +203,7 @@ impl<T: Instance> super::SealedAnyInstance for T {
 
 impl<'d, T> Adc<'d, T>
 where
-    T: Instance,
+    T: Instance + super::AnyInstance,
 {
     pub fn new(adc: Peri<'d, T>) -> Self {
         Self::new_with_config(adc, Default::default())
@@ -209,11 +214,7 @@ where
 
         let presc = from_pclk2(T::frequency());
         T::common_regs().ccr().modify(|w| w.set_adcpre(presc));
-        T::regs().cr2().modify(|reg| {
-            reg.set_adon(true);
-        });
-
-        blocking_delay_us(3);
+        T::enable();
 
         if let Some(resolution) = config.resolution {
             T::regs().cr1().modify(|reg| reg.set_res(resolution.into()));

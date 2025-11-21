@@ -32,7 +32,7 @@ stm32l552ze = ["embassy-stm32/stm32l552ze", "not-gpdma", "rng", "hash", "dual-ba
 stm32u585ai = ["embassy-stm32/stm32u585ai", "spi-v345", "chrono", "rng", "hash", "cordic"]
 stm32u5a5zj = ["embassy-stm32/stm32u5a5zj", "spi-v345", "chrono", "rng", "hash"] # FIXME: cordic test cause it crash
 stm32wb55rg = ["embassy-stm32/stm32wb55rg", "chrono", "not-gpdma", "ble", "mac" , "rng", "hsem", "stop"]
-stm32wba52cg = ["embassy-stm32/stm32wba52cg", "spi-v345", "chrono", "rng", "hash"]
+stm32wba52cg = ["embassy-stm32/stm32wba52cg", "spi-v345", "chrono", "rng", "hash", "adc"]
 stm32wl55jc = ["embassy-stm32/stm32wl55jc-cm4", "not-gpdma", "rng", "chrono", "hsem"]
 stm32f091rc = ["embassy-stm32/stm32f091rc", "cm0", "not-gpdma", "chrono"]
 stm32h503rb = ["embassy-stm32/stm32h503rb", "spi-v345", "rng", "stop"]
@@ -56,6 +56,7 @@ mac = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/mac"]
 embassy-stm32-wpan = []
 not-gpdma = []
 dac = []
+adc = []
 ucpd = []
 cordic = ["dep:num-traits"]
 hsem = []
@@ -109,6 +110,11 @@ num-traits = { version="0.2", default-features = false,features = ["libm"], opti
 name = "afio"
 path = "src/bin/afio.rs"
 required-features = [ "afio",]
+
+[[bin]]
+name = "adc"
+path = "src/bin/adc.rs"
+required-features = [ "adc",]
 
 [[bin]]
 name = "can"
