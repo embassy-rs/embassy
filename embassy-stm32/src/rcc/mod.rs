@@ -111,6 +111,32 @@ pub fn clocks<'a>(_rcc: &'a crate::Peri<'a, crate::peripherals::RCC>) -> &'a Clo
     unsafe { get_freqs() }
 }
 
+#[cfg(feature = "low-power")]
+pub(crate) fn increment_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
+    match stop_mode {
+        StopMode::Standby => {}
+        StopMode::Stop2 => unsafe {
+            REFCOUNT_STOP2 += 1;
+        },
+        StopMode::Stop1 => unsafe {
+            REFCOUNT_STOP1 += 1;
+        },
+    }
+}
+
+#[cfg(feature = "low-power")]
+pub(crate) fn decrement_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
+    match stop_mode {
+        StopMode::Standby => {}
+        StopMode::Stop2 => unsafe {
+            REFCOUNT_STOP2 -= 1;
+        },
+        StopMode::Stop1 => unsafe {
+            REFCOUNT_STOP1 -= 1;
+        },
+    }
+}
+
 pub(crate) trait SealedRccPeripheral {
     fn frequency() -> Hertz;
     #[allow(dead_code)]
@@ -141,12 +167,19 @@ pub(crate) struct RccInfo {
     stop_mode: StopMode,
 }
 
+/// Specifies a limit for the stop mode of the peripheral or the stop mode to be entered.
+/// E.g. if `StopMode::Stop1` is selected, the peripheral prevents the chip from entering Stop1 mode.
 #[cfg(feature = "low-power")]
 #[allow(dead_code)]
-pub(crate) enum StopMode {
-    Standby,
-    Stop2,
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum StopMode {
+    #[default]
+    /// Peripheral prevents chip from entering Stop1 or executor will enter Stop1
     Stop1,
+    /// Peripheral prevents chip from entering Stop2 or executor will enter Stop2
+    Stop2,
+    /// Peripheral does not prevent chip from entering Stop
+    Standby,
 }
 
 impl RccInfo {
@@ -202,15 +235,7 @@ impl RccInfo {
         }
 
         #[cfg(feature = "low-power")]
-        match self.stop_mode {
-            StopMode::Standby => {}
-            StopMode::Stop2 => unsafe {
-                REFCOUNT_STOP2 += 1;
-            },
-            StopMode::Stop1 => unsafe {
-                REFCOUNT_STOP1 += 1;
-            },
-        }
+        increment_stop_refcount(_cs, self.stop_mode);
 
         // set the xxxRST bit
         let reset_ptr = self.reset_ptr();
@@ -268,15 +293,7 @@ impl RccInfo {
         }
 
         #[cfg(feature = "low-power")]
-        match self.stop_mode {
-            StopMode::Standby => {}
-            StopMode::Stop2 => unsafe {
-                REFCOUNT_STOP2 -= 1;
-            },
-            StopMode::Stop1 => unsafe {
-                REFCOUNT_STOP1 -= 1;
-            },
-        }
+        decrement_stop_refcount(_cs, self.stop_mode);
 
         // clear the xxxEN bit
         let enable_ptr = self.enable_ptr();

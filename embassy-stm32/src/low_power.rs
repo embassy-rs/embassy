@@ -50,7 +50,8 @@ use critical_section::CriticalSection;
 use embassy_executor::*;
 
 use crate::interrupt;
-use crate::rcc::{RCC_CONFIG, REFCOUNT_STOP1, REFCOUNT_STOP2};
+pub use crate::rcc::StopMode;
+use crate::rcc::{RCC_CONFIG, REFCOUNT_STOP1, REFCOUNT_STOP2, decrement_stop_refcount, increment_stop_refcount};
 use crate::time_driver::get_driver;
 
 const THREAD_PENDER: usize = usize::MAX;
@@ -73,15 +74,8 @@ impl DeviceBusy {
 
     /// Create a new DeviceBusy.
     pub fn new(stop_mode: StopMode) -> Self {
-        critical_section::with(|_| unsafe {
-            match stop_mode {
-                StopMode::Stop1 => {
-                    crate::rcc::REFCOUNT_STOP1 += 1;
-                }
-                StopMode::Stop2 => {
-                    crate::rcc::REFCOUNT_STOP2 += 1;
-                }
-            }
+        critical_section::with(|cs| {
+            increment_stop_refcount(cs, stop_mode);
         });
 
         Self(stop_mode)
@@ -90,15 +84,8 @@ impl DeviceBusy {
 
 impl Drop for DeviceBusy {
     fn drop(&mut self) {
-        critical_section::with(|_| unsafe {
-            match self.0 {
-                StopMode::Stop1 => {
-                    crate::rcc::REFCOUNT_STOP1 -= 1;
-                }
-                StopMode::Stop2 => {
-                    crate::rcc::REFCOUNT_STOP2 -= 1;
-                }
-            }
+        critical_section::with(|cs| {
+            decrement_stop_refcount(cs, self.0);
         });
     }
 }
@@ -131,20 +118,10 @@ foreach_interrupt! {
 /// prevents entering the given stop mode.
 pub fn stop_ready(stop_mode: StopMode) -> bool {
     critical_section::with(|cs| match Executor::stop_mode(cs) {
-        Some(StopMode::Stop2) => true,
+        Some(StopMode::Standby | StopMode::Stop2) => true,
         Some(StopMode::Stop1) => stop_mode == StopMode::Stop1,
         None => false,
     })
-}
-
-/// Available Stop modes.
-#[non_exhaustive]
-#[derive(PartialEq)]
-pub enum StopMode {
-    /// STOP 1
-    Stop1,
-    /// STOP 2
-    Stop2,
 }
 
 #[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32wb, stm32wlex, stm32u0))]
@@ -156,9 +133,9 @@ impl Into<Lpms> for StopMode {
         match self {
             StopMode::Stop1 => Lpms::STOP1,
             #[cfg(not(any(stm32wb, stm32wba)))]
-            StopMode::Stop2 => Lpms::STOP2,
+            StopMode::Standby | StopMode::Stop2 => Lpms::STOP2,
             #[cfg(any(stm32wb, stm32wba))]
-            StopMode::Stop2 => Lpms::STOP1, // TODO: WBA has no STOP2?
+            StopMode::Standby | StopMode::Stop2 => Lpms::STOP1, // TODO: WBA has no STOP2?
         }
     }
 }
@@ -230,6 +207,7 @@ impl Executor {
     }
 
     fn stop_mode(_cs: CriticalSection) -> Option<StopMode> {
+        // We cannot enter standby because we will lose program state.
         if unsafe { REFCOUNT_STOP2 == 0 && REFCOUNT_STOP1 == 0 } {
             trace!("low power: stop 2");
             Some(StopMode::Stop2)
