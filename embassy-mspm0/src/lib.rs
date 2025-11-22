@@ -19,6 +19,8 @@ pub mod dma;
 pub mod gpio;
 pub mod i2c;
 pub mod i2c_target;
+#[cfg(any(mspm0g150x, mspm0g151x, mspm0g350x, mspm0g351x))]
+pub mod mathacl;
 pub mod timer;
 pub mod uart;
 pub mod wwdt;

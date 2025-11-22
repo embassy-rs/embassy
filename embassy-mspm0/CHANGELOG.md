@@ -19,3 +19,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: Add i2c target implementation (#4605)
 - fix: group irq handlers must check for NO_INTR (#4785)
 - feat: Add read_reset_cause function
+- feat: Add module Mathacl & example for mspm0g3507 (#4897)
