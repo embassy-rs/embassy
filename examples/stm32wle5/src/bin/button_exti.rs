@@ -69,12 +69,7 @@ async fn async_main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    let mut button = ExtiInput::new(
-        p.PA0,
-        p.EXTI0,
-        Pull::Up,
-        Irqs::as_any::<interrupt::typelevel::EXTI0, exti::InterruptHandler<interrupt::typelevel::EXTI0>>(),
-    );
+    let mut button = ExtiInput::new(p.PA0, p.EXTI0, Pull::Up, Irqs);
 
     info!("Press the USER button...");
 

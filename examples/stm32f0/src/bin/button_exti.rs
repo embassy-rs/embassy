@@ -19,12 +19,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     // Configure the button pin and obtain handler.
     // On the Nucleo F091RC there is a button connected to pin PC13.
-    let mut button = ExtiInput::new(
-        p.PC13,
-        p.EXTI13,
-        Pull::Down,
-        Irqs::as_any::<interrupt::typelevel::EXTI4_15, exti::InterruptHandler<interrupt::typelevel::EXTI4_15>>(),
-    );
+    let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Down, Irqs);
 
     info!("Press the USER button...");
     loop {

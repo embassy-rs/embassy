@@ -42,12 +42,7 @@ async fn main(spawner: Spawner) {
 
     // Configure the button pin and obtain handler.
     // On the Nucleo F091RC there is a button connected to pin PC13.
-    let mut button = ExtiInput::new(
-        p.PC13,
-        p.EXTI13,
-        Pull::None,
-        Irqs::as_any::<interrupt::typelevel::EXTI4_15, exti::InterruptHandler<interrupt::typelevel::EXTI4_15>>(),
-    );
+    let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::None, Irqs);
 
     // Create and initialize a delay variable to manage delay loop
     let mut del_var = 2000;

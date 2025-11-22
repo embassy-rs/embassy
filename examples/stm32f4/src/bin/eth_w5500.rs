@@ -76,12 +76,7 @@ async fn main(spawner: Spawner) -> ! {
     let cs = Output::new(p.PA4, Level::High, Speed::VeryHigh);
     let spi = unwrap!(ExclusiveDevice::new(spi, cs, Delay));
 
-    let w5500_int = ExtiInput::new(
-        p.PB0,
-        p.EXTI0,
-        Pull::Up,
-        Irqs::as_any::<interrupt::typelevel::EXTI0, exti::InterruptHandler<interrupt::typelevel::EXTI0>>(),
-    );
+    let w5500_int = ExtiInput::new(p.PB0, p.EXTI0, Pull::Up, Irqs);
     let w5500_reset = Output::new(p.PB1, Level::High, Speed::VeryHigh);
 
     let mac_addr = [0x02, 234, 3, 4, 82, 231];

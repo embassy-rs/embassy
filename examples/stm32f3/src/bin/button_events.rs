@@ -105,12 +105,7 @@ static CHANNEL: Channel<ThreadModeRawMutex, ButtonEvent, 4> = Channel::new();
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
-    let button = ExtiInput::new(
-        p.PA0,
-        p.EXTI0,
-        Pull::Down,
-        Irqs::as_any::<interrupt::typelevel::EXTI0, exti::InterruptHandler<interrupt::typelevel::EXTI0>>(),
-    );
+    let button = ExtiInput::new(p.PA0, p.EXTI0, Pull::Down, Irqs);
     info!("Press the USER button...");
     let leds = [
         Output::new(p.PE9, Level::Low, Speed::Low),

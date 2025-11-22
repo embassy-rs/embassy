@@ -16,12 +16,7 @@ bind_interrupts!(
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     let mut led = Output::new(p.PB14, Level::Low, Speed::VeryHigh);
-    let mut button = ExtiInput::new(
-        p.PC13,
-        p.EXTI13,
-        Pull::Up,
-        Irqs::as_any::<interrupt::typelevel::EXTI15_10, exti::InterruptHandler<interrupt::typelevel::EXTI15_10>>(),
-    );
+    let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Up, Irqs);
 
     loop {
         button.wait_for_any_edge().await;

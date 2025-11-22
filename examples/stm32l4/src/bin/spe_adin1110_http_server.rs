@@ -127,12 +127,7 @@ async fn main(spawner: Spawner) {
     let spe_cfg1 = Input::new(dp.PC9, Pull::None);
     let _spe_ts_capt = Output::new(dp.PC6, Level::Low, Speed::Low);
 
-    let spe_int = ExtiInput::new(
-        dp.PB11,
-        dp.EXTI11,
-        Pull::None,
-        Irqs::as_any::<interrupt::typelevel::EXTI15_10, exti::InterruptHandler<interrupt::typelevel::EXTI15_10>>(),
-    );
+    let spe_int = ExtiInput::new(dp.PB11, dp.EXTI11, Pull::None, Irqs);
 
     let spe_spi_cs_n = Output::new(dp.PB12, Level::High, Speed::High);
     let spe_spi_sclk = dp.PB13;

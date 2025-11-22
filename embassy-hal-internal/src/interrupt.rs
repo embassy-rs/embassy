@@ -124,10 +124,6 @@ macro_rules! interrupt_mod {
                     ///
                     /// This function must ONLY be called from the interrupt handler for `I`.
                     unsafe fn on_interrupt();
-
-                    /// Source ID of the Handler. No need to override the default outside of internal implementations,
-                    /// where it will always be HandlerType::User.
-                    const SOURCE_ID: HandlerType = HandlerType::User;
                 }
 
                 /// Compile-time assertion that an interrupt has been bound to a handler.
@@ -141,61 +137,7 @@ macro_rules! interrupt_mod {
                 /// to be called every time the `I` interrupt fires.
                 ///
                 /// This allows drivers to check bindings at compile-time.
-                pub unsafe trait Binding<I: Interrupt, H: Handler<I>> {
-                    /// Obtain a type-erased Binding.
-                    ///
-                    /// If using the `bind_interrupts!` macro, you will likely have to use a fully qualified path
-                    /// to call this on the output struct: `<Irqs as Binding<Interrupt, Hander>>::into_any()`
-                    fn into_any() -> AnyBinding {
-                        AnyBinding {
-                            irq: I::IRQ,
-                            handler_source: H::SOURCE_ID,
-                        }
-                    }
-                }
-
-                #[doc(hidden)]
-                #[derive(Copy, Clone)]
-                pub struct PrivateHandlerType {
-                    pub(crate) _private: (),
-                }
-                impl PrivateHandlerType {
-                    pub(crate) const fn new() -> Self {
-                        Self {
-                            _private: (),
-                        }
-                    }
-                }
-
-                /// Driver which defined the Handler. Always User for user-defined handlers.
-                #[derive(Copy, Clone)]
-                pub enum HandlerType {
-                    /// Defined in user code, or otherwise has not had its SOURCE_ID overridden.
-                    User,
-                    /// Defined somewhere within Embassy.
-                    Embassy(PrivateHandlerType),
-                    /// Defined by the [embassy-stm32::exti] module.
-                    EmbassyStm32Exti(PrivateHandlerType),
-                }
-
-                /// Type-erased Binding.
-                ///
-                /// Useful for proving a particular binding has been made to a driver which also accepts
-                /// type-erased peripheral arguments that hide the necessary Interrupt type at compile time.
-                pub struct AnyBinding {
-                    irq: super::Interrupt,
-                    handler_source: HandlerType,
-                }
-                impl AnyBinding {
-                    /// Get the IRQ (vector number) of the interrupt.
-                    pub const fn irq(&self) -> super::Interrupt {
-                        self.irq
-                    }
-                    /// Get the source of the handler bound to the interrupt.
-                    pub const fn source(&self) -> HandlerType {
-                        self.handler_source
-                    }
-                }
+                pub unsafe trait Binding<I: Interrupt, H: Handler<I>> {}
             }
         }
     };

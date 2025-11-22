@@ -124,12 +124,7 @@ async fn main(_spawner: Spawner) {
 
     let (reader, mut writer) = hid.split();
 
-    let mut button = ExtiInput::new(
-        p.PC13,
-        p.EXTI13,
-        Pull::Down,
-        Irqs::as_any::<interrupt::typelevel::EXTI15_10, exti::InterruptHandler<interrupt::typelevel::EXTI15_10>>(),
-    );
+    let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Down, Irqs);
 
     // Do stuff with the class!
     let in_fut = async {

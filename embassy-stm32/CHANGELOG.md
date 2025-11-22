@@ -74,9 +74,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix: fixing channel numbers on vbat and vddcore for adc on adc
 - adc: adding disable to vbat
 - feat: stm32/flash: add async support for h7 family
-- feat: exti brought in line with other drivers' interrupt rebinding system
-- feat: bind_interrupts generates convenience method for type erasing to AnyBinding
-- fix: exti2 now usable as a normal exti on chips with touch sensing
+- feat: exti brought in line with other drivers' interrupt rebinding system ([#4922](https://github.com/embassy-rs/embassy/pull/4922))
+- removal: ExtiInput no longer accepts AnyPin/AnyChannel; AnyChannel removed entirely
+- change: build script now generates `unimpl_tsc` cfg option when a chip has a TSC peripheral but no driver
 
 ## 0.4.0 - 2025-08-26
 

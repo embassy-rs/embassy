@@ -5,13 +5,13 @@ use core::marker::PhantomData;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::{PeripheralType, impl_peripheral};
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use futures_util::FutureExt;
 
-use crate::gpio::{AnyPin, Input, Level, Pin as GpioPin, PinNumber, Pull};
+use crate::gpio::{AnyPin, ExtiPin, Input, Level, Pin as GpioPin, PinNumber, Pull};
 use crate::interrupt::Interrupt as InterruptEnum;
-use crate::interrupt::typelevel::{AnyBinding, Handler, HandlerType, Interrupt as InterruptType, PrivateHandlerType};
+use crate::interrupt::typelevel::{Binding, Handler, Interrupt as InterruptType};
 use crate::pac::EXTI;
 use crate::pac::exti::regs::Lines;
 use crate::{Peri, pac};
@@ -110,23 +110,19 @@ impl<'d> ExtiInput<'d> {
     /// Create an EXTI input.
     ///
     /// The Binding must bind the Channel's IRQ to [InterruptHandler].
-    ///
-    /// The interrupt [Binding](crate::interrupt::typelevel::Binding) must be type-erased to [AnyBinding]
-    /// via [into_any()](crate::interrupt::typelevel::Binding::into_any()), in order to support type-erased
-    /// [AnyChannel] arguments. [bind_interrupts](crate::bind_interrupts) also generates a convenience
-    /// method as_any() for type erasure that doesn't need a trait object.
-    pub fn new<T: GpioPin>(pin: Peri<'d, T>, ch: Peri<'d, T::ExtiChannel>, pull: Pull, binding: AnyBinding) -> Self {
-        // Needed if using AnyPin+AnyChannel.
-        assert_eq!(pin.pin(), ch.number());
-        assert_eq!(ch.irq(), binding.irq());
-        assert!(matches!(binding.source(), HandlerType::EmbassyStm32Exti(_)));
-
+    pub fn new<T: ExtiPin + GpioPin>(
+        pin: Peri<'d, T>,
+        _ch: Peri<'d, T::ExtiChannel>,
+        pull: Pull,
+        _irq: impl Binding<
+            <<T as ExtiPin>::ExtiChannel as Channel>::IRQ,
+            InterruptHandler<<<T as ExtiPin>::ExtiChannel as Channel>::IRQ>,
+        >,
+    ) -> Self {
         Self {
             pin: Input::new(pin, pull),
         }
     }
-
-    //pub fn new<P: GpioPin<ExtiChannel: Channel>, I: Instance, C: Channel>(
 
     /// Get whether the pin is high.
     pub fn is_high(&self) -> bool {
@@ -367,7 +363,6 @@ pub struct InterruptHandler<T: crate::interrupt::typelevel::Interrupt> {
 }
 
 impl<T: InterruptType> Handler<T> for InterruptHandler<T> {
-    const SOURCE_ID: HandlerType = HandlerType::EmbassyStm32Exti(PrivateHandlerType::new());
     unsafe fn on_interrupt() {
         on_irq()
     }
@@ -383,30 +378,19 @@ pub trait Channel: PeripheralType + SealedChannel + Sized {
     /// [Enum-level Interrupt](InterruptEnum), which may be the same for multiple channels.
     fn irq(&self) -> InterruptEnum;
     /// [Type-level Interrupt](InterruptType), which may be the same for multiple channels.
-    /// Unavailable on type-erased [AnyChannel], where it is defined as the unit type.
-    /// has no trait bound, so mostly only useful for doc reference (e.g. while writing
-    /// [bind_interrupts](crate::bind_interrupts) invocation.) Use irq() for programmatic access.
-    type INTERRUPT;
+    type IRQ: InterruptType;
 }
 
-/// Type-erased EXTI channel.
+//Doc isn't hidden in order to surface the explanation to users, even though it's completely inoperable, not just deprecated.
+//Entire type along with doc can probably be removed after deprecation has appeared in a release once.
+/// Deprecated type-erased EXTI channel.
 ///
-/// This represents ownership over any EXTI channel, known at runtime.
+/// Support for AnyChannel was removed in order to support manually bindable EXTI interrupts via bind_interrupts; [ExtiInput::new()]
+/// must know the required IRQ at compile time, and therefore cannot support type-erased channels.
+#[deprecated = "type-erased EXTI channels are no longer supported, in order to support manually bindable EXTI interrupts (more info: https://github.com/embassy-rs/embassy/pull/4922)"]
 pub struct AnyChannel {
+    #[allow(unused)]
     number: PinNumber,
-    irq: InterruptEnum,
-}
-
-impl_peripheral!(AnyChannel);
-impl SealedChannel for AnyChannel {}
-impl Channel for AnyChannel {
-    fn number(&self) -> PinNumber {
-        self.number
-    }
-    fn irq(&self) -> InterruptEnum {
-        self.irq
-    }
-    type INTERRUPT = bool;
 }
 
 macro_rules! impl_exti {
@@ -425,16 +409,17 @@ macro_rules! impl_exti {
             fn irq(&self) -> InterruptEnum {
                 <$irq>::IRQ
             }
-            type INTERRUPT = $irq;
+            type IRQ = $irq;
         }
+
+        //Still here to surface deprecation messages to the user - remove when removing AnyChannel
+        #[allow(deprecated)]
         impl From<crate::peripherals::$type> for AnyChannel {
             fn from(_val: crate::peripherals::$type) -> Self {
-                Self {
-                    number: $number,
-                    irq: <$irq>::IRQ,
-                }
+            Self {
+                number: $number,
             }
-        }
+        }}
     };
 }
 

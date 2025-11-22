@@ -178,6 +178,10 @@ pub use crate::_generated::interrupt;
 ///     }
 /// );
 /// ```
+///
+/// Some chips collate multiple interrupt signals into a single interrupt vector. In the above example, I2C2_3 is a
+/// single vector which is activated by events and errors on both peripherals I2C2 and I2C3. Check your chip's list
+/// of interrupt vectors if you get an unexpected compile error trying to bind the standard name.
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {
@@ -194,19 +198,6 @@ macro_rules! bind_interrupts {
         #[derive(Copy, Clone)]
         $(#[$outer])*
         $vis struct $name;
-
-        impl $name {
-            #[doc = r"Convenience method to call Binding::into_any(). Unlike the trait method, can be called with a turbofish."]
-            pub fn as_any<
-                I: $crate::interrupt::typelevel::Interrupt,
-                H: $crate::interrupt::typelevel::Handler<I>
-            >() -> $crate::interrupt::typelevel::AnyBinding
-            where
-                Self: $crate::interrupt::typelevel::Binding<I, H>
-            {
-                <Self as $crate::interrupt::typelevel::Binding<I, H>>::into_any()
-            }
-        }
 
         $(
             #[allow(non_snake_case)]

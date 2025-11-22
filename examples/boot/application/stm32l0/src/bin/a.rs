@@ -30,12 +30,7 @@ async fn main(_spawner: Spawner) {
     let flash = Flash::new_blocking(p.FLASH);
     let flash = Mutex::new(BlockingAsync::new(flash));
 
-    let mut button = ExtiInput::new(
-        p.PB2,
-        p.EXTI2,
-        Pull::Up,
-        Irqs::as_any::<interrupt::typelevel::EXTI2_3, exti::InterruptHandler<interrupt::typelevel::EXTI2_3>>(),
-    );
+    let mut button = ExtiInput::new(p.PB2, p.EXTI2, Pull::Up, Irqs);
 
     let mut led = Output::new(p.PB5, Level::Low, Speed::Low);
 

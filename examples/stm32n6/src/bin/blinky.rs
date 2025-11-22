@@ -28,12 +28,7 @@ async fn main(spawner: Spawner) {
     info!("Hello World!");
 
     let mut led = Output::new(p.PG10, Level::High, Speed::Low);
-    let button = ExtiInput::new(
-        p.PC13,
-        p.EXTI13,
-        Pull::Up,
-        Irqs::as_any::<interrupt::typelevel::EXTI13, exti::InterruptHandler<interrupt::typelevel::EXTI13>>(),
-    );
+    let button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Up, Irqs);
 
     spawner.spawn(button_task(button).unwrap());
 

@@ -18,12 +18,7 @@ async fn main(_spawner: Spawner) {
     let config = Config::default();
     let p = embassy_stm32::init(config);
 
-    let mut button = ExtiInput::new(
-        p.PB2,
-        p.EXTI2,
-        Pull::Up,
-        Irqs::as_any::<interrupt::typelevel::EXTI2_3, exti::InterruptHandler<interrupt::typelevel::EXTI2_3>>(),
-    );
+    let mut button = ExtiInput::new(p.PB2, p.EXTI2, Pull::Up, Irqs);
 
     info!("Press the USER button...");
 

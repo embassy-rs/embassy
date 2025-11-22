@@ -23,12 +23,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init_primary(Default::default(), &SHARED_DATA);
     info!("Hello World!");
 
-    let mut button = ExtiInput::new(
-        p.PA0,
-        p.EXTI0,
-        Pull::Up,
-        Irqs::as_any::<interrupt::typelevel::EXTI0, exti::InterruptHandler<interrupt::typelevel::EXTI0>>(),
-    );
+    let mut button = ExtiInput::new(p.PA0, p.EXTI0, Pull::Up, Irqs);
 
     info!("Press the USER button...");
 
