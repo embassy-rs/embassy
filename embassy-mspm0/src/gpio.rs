@@ -1,12 +1,13 @@
 #![macro_use]
 
 use core::convert::Infallible;
-use core::future::Future;
-use core::pin::Pin as FuturePin;
-use core::task::{Context, Poll};
+// use core::future::Future;
+// use core::pin::Pin as FuturePin;
+// use core::task::{Context, Poll};
 
 use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
-use embassy_sync::waitqueue::AtomicWaker;
+// use embassy_sync::waitqueue::AtomicWaker;
+use maitake_sync::WaitMap;
 
 use crate::pac::gpio::vals::*;
 use crate::pac::gpio::{self};
@@ -317,19 +318,102 @@ impl<'d> Flex<'d> {
     /// Wait for the pin to undergo a transition from low to high.
     #[inline]
     pub async fn wait_for_rising_edge(&mut self) {
-        InputFuture::new(self.pin.reborrow(), Polarity::RISE).await
+        // InputFuture::new(self.pin.reborrow(), Polarity::RISE).await
+        self.wait_inner(Polarity::RISE).await
     }
 
     /// Wait for the pin to undergo a transition from high to low.
     #[inline]
     pub async fn wait_for_falling_edge(&mut self) {
-        InputFuture::new(self.pin.reborrow(), Polarity::FALL).await
+        // InputFuture::new(self.pin.reborrow(), Polarity::FALL).await
+        self.wait_inner(Polarity::FALL).await
     }
 
     /// Wait for the pin to undergo any transition, i.e low to high OR high to low.
     #[inline]
     pub async fn wait_for_any_edge(&mut self) {
-        InputFuture::new(self.pin.reborrow(), Polarity::RISE_FALL).await
+        // InputFuture::new(self.pin.reborrow(), Polarity::RISE_FALL).await
+        self.wait_inner(Polarity::RISE_FALL).await
+    }
+
+    #[inline]
+    async fn wait_inner(&mut self, polarity: Polarity) {
+        let pin = &self.pin;
+        let block = pin.block();
+
+        // Before clearing any previous edge events, we must disable events.
+        //
+        // If we don't do this, it is possible that after we clear the interrupt, the current event
+        // the hardware is listening for may not be the same event we will configure. This may result
+        // in RIS being set. Then when interrupts are unmasked and RIS is set, we may get the wrong event
+        // causing an interrupt.
+        //
+        // Selecting which polarity events happen is a RMW operation.
+        critical_section::with(|_cs| {
+            if pin.bit_index() >= 16 {
+                block.polarity31_16().modify(|w| {
+                    w.set_dio(pin.bit_index() - 16, Polarity::DISABLE);
+                });
+            } else {
+                block.polarity15_0().modify(|w| {
+                    w.set_dio(pin.bit_index(), Polarity::DISABLE);
+                });
+            };
+        });
+
+        // First clear the bit for this event. Otherwise previous edge events may be recorded.
+        block.cpu_int().iclr().write(|w| {
+            w.set_dio(pin.bit_index(), true);
+        });
+
+        // Selecting which polarity events happen is a RMW operation.
+        critical_section::with(|_cs| {
+            // Tell the hardware which pin event we want to receive.
+            if pin.bit_index() >= 16 {
+                block.polarity31_16().modify(|w| {
+                    w.set_dio(pin.bit_index() - 16, polarity);
+                });
+            } else {
+                block.polarity15_0().modify(|w| {
+                    w.set_dio(pin.bit_index(), polarity);
+                });
+            };
+        });
+
+        let key = pin.pin_port();
+
+        let result = GPIO_WAIT_MAP.wait_for(key, || {
+            if pin.block().cpu_int().ris().read().dio(pin.bit_index()) {
+                return true;
+            }
+
+            // Unmasking the interrupt is a RMW operation.
+            //
+            // Guard with a critical section in case two different threads try to unmask at the same time.
+            critical_section::with(|_cs| {
+                self.pin.block().cpu_int().imask().modify(|w| {
+                    w.set_dio(self.pin.bit_index(), true);
+                });
+            });
+
+            false
+        })
+        .await;
+
+        if let Err(err) = result {
+            use maitake_sync::wait_map::WaitError;
+
+            // FIXME: Add defmt support to maitake-sync?
+            let msg = match err {
+                WaitError::Closed => "Closed",
+                WaitError::AlreadyConsumed => "AlreadyConsumed",
+                WaitError::NeverAdded => "NeverAdded",
+                WaitError::Duplicate => "Duplicate",
+                _ => unreachable!("unknown WaitError variant"),
+            };
+
+            unreachable!("Error waiting for GPIO event: {:?}", msg);
+        }
     }
 }
 
@@ -896,37 +980,37 @@ macro_rules! impl_pin {
     };
 }
 
-// TODO: Possible micro-op for C110X, not every pin is instantiated even on the 20 pin parts.
-//       This would mean cfg guarding to just cfg guarding every pin instance.
-static PORTA_WAKERS: [AtomicWaker; 32] = [const { AtomicWaker::new() }; 32];
-#[cfg(gpio_pb)]
-static PORTB_WAKERS: [AtomicWaker; 32] = [const { AtomicWaker::new() }; 32];
-#[cfg(gpio_pc)]
-static PORTC_WAKERS: [AtomicWaker; 32] = [const { AtomicWaker::new() }; 32];
+// // TODO: Possible micro-op for C110X, not every pin is instantiated even on the 20 pin parts.
+// //       This would mean cfg guarding to just cfg guarding every pin instance.
+// static PORTA_WAKERS: [AtomicWaker; 32] = [const { AtomicWaker::new() }; 32];
+// #[cfg(gpio_pb)]
+// static PORTB_WAKERS: [AtomicWaker; 32] = [const { AtomicWaker::new() }; 32];
+// #[cfg(gpio_pc)]
+// static PORTC_WAKERS: [AtomicWaker; 32] = [const { AtomicWaker::new() }; 32];
 
 pub(crate) trait SealedPin {
     fn pin_port(&self) -> u8;
 
-    fn port(&self) -> Port {
-        match self.pin_port() / 32 {
-            0 => Port::PortA,
-            #[cfg(gpio_pb)]
-            1 => Port::PortB,
-            #[cfg(gpio_pc)]
-            2 => Port::PortC,
-            _ => unreachable!(),
-        }
-    }
+    // fn port(&self) -> Port {
+    //     match self.pin_port() / 32 {
+    //         0 => Port::PortA,
+    //         #[cfg(gpio_pb)]
+    //         1 => Port::PortB,
+    //         #[cfg(gpio_pc)]
+    //         2 => Port::PortC,
+    //         _ => unreachable!(),
+    //     }
+    // }
 
-    fn waker(&self) -> &AtomicWaker {
-        match self.port() {
-            Port::PortA => &PORTA_WAKERS[self.bit_index()],
-            #[cfg(gpio_pb)]
-            Port::PortB => &PORTB_WAKERS[self.bit_index()],
-            #[cfg(gpio_pc)]
-            Port::PortC => &PORTC_WAKERS[self.bit_index()],
-        }
-    }
+    // fn waker(&self) -> &AtomicWaker {
+    //     match self.port() {
+    //         Port::PortA => &PORTA_WAKERS[self.bit_index()],
+    //         #[cfg(gpio_pb)]
+    //         Port::PortB => &PORTB_WAKERS[self.bit_index()],
+    //         #[cfg(gpio_pc)]
+    //         Port::PortC => &PORTC_WAKERS[self.bit_index()],
+    //     }
+    // }
 
     fn _pin_cm(&self) -> u8 {
         // Some parts like the MSPM0L222x have pincm mappings all over the place.
@@ -996,84 +1080,84 @@ fn set_pf(pincm: usize, pf: u8, ty: PfType) {
     });
 }
 
-#[must_use = "futures do nothing unless you `.await` or poll them"]
-struct InputFuture<'d> {
-    pin: Peri<'d, AnyPin>,
-}
+// #[must_use = "futures do nothing unless you `.await` or poll them"]
+// struct InputFuture<'d> {
+//     pin: Peri<'d, AnyPin>,
+// }
 
-impl<'d> InputFuture<'d> {
-    fn new(pin: Peri<'d, AnyPin>, polarity: Polarity) -> Self {
-        let block = pin.block();
+// impl<'d> InputFuture<'d> {
+//     fn new(pin: Peri<'d, AnyPin>, polarity: Polarity) -> Self {
+//         let block = pin.block();
 
-        // Before clearing any previous edge events, we must disable events.
-        //
-        // If we don't do this, it is possible that after we clear the interrupt, the current event
-        // the hardware is listening for may not be the same event we will configure. This may result
-        // in RIS being set. Then when interrupts are unmasked and RIS is set, we may get the wrong event
-        // causing an interrupt.
-        //
-        // Selecting which polarity events happen is a RMW operation.
-        critical_section::with(|_cs| {
-            if pin.bit_index() >= 16 {
-                block.polarity31_16().modify(|w| {
-                    w.set_dio(pin.bit_index() - 16, Polarity::DISABLE);
-                });
-            } else {
-                block.polarity15_0().modify(|w| {
-                    w.set_dio(pin.bit_index(), Polarity::DISABLE);
-                });
-            };
-        });
+//         // Before clearing any previous edge events, we must disable events.
+//         //
+//         // If we don't do this, it is possible that after we clear the interrupt, the current event
+//         // the hardware is listening for may not be the same event we will configure. This may result
+//         // in RIS being set. Then when interrupts are unmasked and RIS is set, we may get the wrong event
+//         // causing an interrupt.
+//         //
+//         // Selecting which polarity events happen is a RMW operation.
+//         critical_section::with(|_cs| {
+//             if pin.bit_index() >= 16 {
+//                 block.polarity31_16().modify(|w| {
+//                     w.set_dio(pin.bit_index() - 16, Polarity::DISABLE);
+//                 });
+//             } else {
+//                 block.polarity15_0().modify(|w| {
+//                     w.set_dio(pin.bit_index(), Polarity::DISABLE);
+//                 });
+//             };
+//         });
 
-        // First clear the bit for this event. Otherwise previous edge events may be recorded.
-        block.cpu_int().iclr().write(|w| {
-            w.set_dio(pin.bit_index(), true);
-        });
+//         // First clear the bit for this event. Otherwise previous edge events may be recorded.
+//         block.cpu_int().iclr().write(|w| {
+//             w.set_dio(pin.bit_index(), true);
+//         });
 
-        // Selecting which polarity events happen is a RMW operation.
-        critical_section::with(|_cs| {
-            // Tell the hardware which pin event we want to receive.
-            if pin.bit_index() >= 16 {
-                block.polarity31_16().modify(|w| {
-                    w.set_dio(pin.bit_index() - 16, polarity);
-                });
-            } else {
-                block.polarity15_0().modify(|w| {
-                    w.set_dio(pin.bit_index(), polarity);
-                });
-            };
-        });
+//         // Selecting which polarity events happen is a RMW operation.
+//         critical_section::with(|_cs| {
+//             // Tell the hardware which pin event we want to receive.
+//             if pin.bit_index() >= 16 {
+//                 block.polarity31_16().modify(|w| {
+//                     w.set_dio(pin.bit_index() - 16, polarity);
+//                 });
+//             } else {
+//                 block.polarity15_0().modify(|w| {
+//                     w.set_dio(pin.bit_index(), polarity);
+//                 });
+//             };
+//         });
 
-        Self { pin }
-    }
-}
+//         Self { pin }
+//     }
+// }
 
-impl<'d> Future for InputFuture<'d> {
-    type Output = ();
+// impl<'d> Future for InputFuture<'d> {
+//     type Output = ();
 
-    fn poll(self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // We need to register/re-register the waker for each poll because any
-        // calls to wake will deregister the waker.
-        let waker = self.pin.waker();
-        waker.register(cx.waker());
+//     fn poll(self: FuturePin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+//         // We need to register/re-register the waker for each poll because any
+//         // calls to wake will deregister the waker.
+//         let waker = self.pin.waker();
+//         waker.register(cx.waker());
 
-        // The interrupt handler will mask the interrupt if the event has occurred.
-        if self.pin.block().cpu_int().ris().read().dio(self.pin.bit_index()) {
-            return Poll::Ready(());
-        }
+//         // The interrupt handler will mask the interrupt if the event has occurred.
+//         if self.pin.block().cpu_int().ris().read().dio(self.pin.bit_index()) {
+//             return Poll::Ready(());
+//         }
 
-        // Unmasking the interrupt is a RMW operation.
-        //
-        // Guard with a critical section in case two different threads try to unmask at the same time.
-        critical_section::with(|_cs| {
-            self.pin.block().cpu_int().imask().modify(|w| {
-                w.set_dio(self.pin.bit_index(), true);
-            });
-        });
+//         // Unmasking the interrupt is a RMW operation.
+//         //
+//         // Guard with a critical section in case two different threads try to unmask at the same time.
+//         critical_section::with(|_cs| {
+//             self.pin.block().cpu_int().imask().modify(|w| {
+//                 w.set_dio(self.pin.bit_index(), true);
+//             });
+//         });
 
-        Poll::Pending
-    }
-}
+//         Poll::Pending
+//     }
+// }
 
 pub(crate) fn init(gpio: gpio::Gpio) {
     gpio.gprcm().rstctl().write(|w| {
@@ -1094,14 +1178,17 @@ pub(crate) fn init(gpio: gpio::Gpio) {
 }
 
 #[cfg(feature = "rt")]
-fn irq_handler(gpio: gpio::Gpio, wakers: &[AtomicWaker; 32]) {
+fn irq_handler(gpio: gpio::Gpio, port: Port/* , wakers: &[AtomicWaker; 32]*/) {
     use crate::BitIter;
     // Only consider pins which have interrupts unmasked.
 
     let bits = gpio.cpu_int().mis().read().0;
 
     for i in BitIter(bits) {
-        wakers[i as usize].wake();
+        // wakers[i as usize].wake();
+
+        let id = ((port as u8) * 32) + i as u8;
+        let _ = GPIO_WAIT_MAP.wake(&id, ());
 
         // Notify the future that an edge event has occurred by masking the interrupt for this pin.
         gpio.cpu_int().imask().modify(|w| {
@@ -1109,6 +1196,11 @@ fn irq_handler(gpio: gpio::Gpio, wakers: &[AtomicWaker; 32]) {
         });
     }
 }
+
+/// Wait map for GPIO wakers
+///
+/// This map must **never** be closed, as the gpio wakers may run forever.
+static GPIO_WAIT_MAP: WaitMap<u8, ()> = WaitMap::new();
 
 #[cfg(all(gpioa_interrupt, gpioa_group))]
 compile_error!("gpioa_interrupt and gpioa_group are mutually exclusive cfgs");
@@ -1121,13 +1213,13 @@ compile_error!("gpiob_interrupt and gpiob_group are mutually exclusive cfgs");
 #[cfg(all(feature = "rt", gpioa_interrupt))]
 #[interrupt]
 fn GPIOA() {
-    irq_handler(pac::GPIOA, &PORTA_WAKERS);
+    irq_handler(pac::GPIOA, Port::PortA, /* &PORTA_WAKERS */);
 }
 
 #[cfg(all(feature = "rt", gpiob_interrupt))]
 #[interrupt]
 fn GPIOB() {
-    irq_handler(pac::GPIOB, &PORTB_WAKERS);
+    irq_handler(pac::GPIOB, Port::PortB /* &PORTB_WAKERS */);
 }
 
 // These symbols are weakly defined as DefaultHandler and are called by the interrupt group implementation.
@@ -1138,19 +1230,19 @@ fn GPIOB() {
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
 fn GPIOA() {
-    irq_handler(pac::GPIOA, &PORTA_WAKERS);
+    irq_handler(pac::GPIOA, Port::PortA, /* &PORTA_WAKERS */);
 }
 
 #[cfg(all(feature = "rt", gpiob_group))]
 #[unsafe(no_mangle)]
 #[allow(non_snake_case)]
 fn GPIOB() {
-    irq_handler(pac::GPIOB, &PORTB_WAKERS);
+    irq_handler(pac::GPIOB, Port::PortB, /* &PORTB_WAKERS */);
 }
 
 #[cfg(all(feature = "rt", gpioc_group))]
 #[allow(non_snake_case)]
 #[unsafe(no_mangle)]
 fn GPIOC() {
-    irq_handler(pac::GPIOC, &PORTC_WAKERS);
+    irq_handler(pac::GPIOC, Port::PortC, /* &PORTC_WAKERS */);
 }
