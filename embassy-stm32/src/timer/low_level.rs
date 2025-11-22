@@ -241,6 +241,8 @@ impl<'d, T: CoreInstance> Drop for Timer<'d, T> {
 
 impl<'d, T: CoreInstance> Timer<'d, T> {
     /// Create a new timer driver.
+    ///
+    /// Consider using [super::builder::TimerBuilder] instead
     pub fn new(tim: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
 
@@ -504,6 +506,11 @@ impl<'d, T: GeneralInstance1Channel> Timer<'d, T> {
                 regs.cr1().modify(|r| r.set_urs(vals::Urs::ANY_EVENT));
             }
         }
+    }
+
+    /// Set prescaler
+    pub fn set_prescaler(&mut self, psc: u16) {
+        self.regs_1ch().psc().write_value(psc);
     }
 }
 
