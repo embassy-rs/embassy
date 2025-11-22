@@ -152,6 +152,7 @@ pub enum Drive {
 pub struct Lcd<'d, T: Instance> {
     _peri: PhantomData<&'d mut T>,
     duty: Duty,
+    ck_div: u32,
 }
 
 impl<'d, T: Instance> Lcd<'d, T> {
@@ -227,9 +228,11 @@ impl<'d, T: Instance> Lcd<'d, T> {
             }
         }
 
+        let ck_div = lcd_clk.0 / ((1 << ps) * (div + 16));
+
         trace!(
-            "lcd_clk: {}, fps: {}, ps: {}, div: {}",
-            lcd_clk, best_fps_match, ps, div
+            "lcd_clk: {}, fps: {}, ps: {}, div: {}, ck_div: {}",
+            lcd_clk, best_fps_match, ps, div, ck_div
         );
 
         if best_fps_match == u32::MAX || ps > 0xF {
@@ -271,6 +274,7 @@ impl<'d, T: Instance> Lcd<'d, T> {
         Self {
             _peri: PhantomData,
             duty: config.duty,
+            ck_div,
         }
     }
 
@@ -371,6 +375,42 @@ impl<'d, T: Instance> Lcd<'d, T> {
     pub fn num_com_pins(&self) -> u8 {
         self.duty.num_com_pins()
     }
+
+    /// Set the blink behavior on some pixels.
+    ///
+    /// The blink frequency is an approximation. It's divided from the clock selected by the FPS.
+    /// Play with the FPS value if you want the blink frequency to be more accurate.
+    ///
+    /// If a blink frequency cannot be attained, this function will panic.
+    pub fn set_blink(&mut self, selector: BlinkSelector, freq: BlinkFreq) {
+        // Freq * 100 to be able to do integer math
+        let scaled_blink_freq = match freq {
+            BlinkFreq::Hz0_25 => 25,
+            BlinkFreq::Hz0_5 => 50,
+            BlinkFreq::Hz1 => 100,
+            BlinkFreq::Hz2 => 200,
+            BlinkFreq::Hz4 => 400,
+        };
+
+        let desired_divider = self.ck_div * 100 / scaled_blink_freq;
+        let target_divider = desired_divider.next_power_of_two();
+        let power_divisions = target_divider.trailing_zeros();
+
+        trace!(
+            "Setting LCD blink frequency -> desired_divider: {}, target_divider: {}",
+            desired_divider, target_divider
+        );
+
+        assert!(
+            (8..=1024).contains(&target_divider),
+            "LCD blink frequency cannot be attained"
+        );
+
+        T::regs().fcr().modify(|reg| {
+            reg.set_blinkf((power_divisions - 3) as u8);
+            reg.set_blink(selector as u8);
+        })
+    }
 }
 
 impl<'d, T: Instance> Drop for Lcd<'d, T> {
@@ -379,6 +419,35 @@ impl<'d, T: Instance> Drop for Lcd<'d, T> {
         T::regs().cr().modify(|w| w.set_lcden(false));
         rcc::disable::<T>();
     }
+}
+
+/// Blink frequency
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlinkFreq {
+    /// 0.25 hz
+    Hz0_25,
+    /// 0.5 hz
+    Hz0_5,
+    /// 1 hz
+    Hz1,
+    /// 2 hz
+    Hz2,
+    /// 4 hz
+    Hz4,
+}
+
+/// Blink pixel selector
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum BlinkSelector {
+    /// No pixels blink
+    None = 0b00,
+    /// The SEG0, COM0 pixel blinks if the pixel is set
+    Seg0Com0 = 0b01,
+    /// The SEG0 pixel of all COMs blinks if the pixel is set
+    Seg0ComAll = 0b10,
+    /// All pixels blink if the pixel is set
+    All = 0b11,
 }
 
 /// A type-erased pin that can be configured as an LCD pin.

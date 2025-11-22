@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::lcd::{Bias, Config, Duty, Lcd, LcdPin};
+use embassy_stm32::lcd::{Bias, BlinkFreq, BlinkSelector, Config, Duty, Lcd, LcdPin};
 use embassy_stm32::peripherals::LCD;
 use embassy_stm32::time::Hertz;
 use embassy_time::Duration;
@@ -72,6 +72,7 @@ async fn main(_spawner: Spawner) {
         ],
     );
 
+    lcd.set_blink(BlinkSelector::All, BlinkFreq::Hz4);
     {
         let mut buffer = DisplayBuffer::new();
         for i in 0..4 {
@@ -90,6 +91,8 @@ async fn main(_spawner: Spawner) {
     }
 
     embassy_time::Timer::after_millis(1000).await;
+
+    lcd.set_blink(BlinkSelector::None, BlinkFreq::Hz4);
 
     const MESSAGE: &str = "Hello embassy people. Hope you like this LCD demo :}      ";
     loop {
