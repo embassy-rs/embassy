@@ -17,14 +17,13 @@ use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::*;
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
-use embassy_rp::peripherals::SPI0;
 use embassy_rp::spi::{Async, Config as SpiConfig, Spi};
 use embassy_time::{Delay, Instant, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
-type ExclusiveSpiDevice = ExclusiveDevice<Spi<'static, SPI0, Async>, Output<'static>, Delay>;
+type ExclusiveSpiDevice = ExclusiveDevice<Spi<'static, Async>, Output<'static>, Delay>;
 
 #[embassy_executor::task]
 async fn ethernet_task(runner: Runner<'static, W5500, ExclusiveSpiDevice, Input<'static>, Output<'static>>) -> ! {
