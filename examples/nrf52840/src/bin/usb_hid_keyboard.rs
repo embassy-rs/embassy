@@ -105,7 +105,7 @@ async fn main(_spawner: Spawner) {
 
     let mut button = Input::new(p.P0_11, Pull::Up);
 
-    let (reader, mut writer) = hid.split();
+    let (mut reader, mut writer) = hid.split();
 
     // Do stuff with the class!
     let in_fut = async {
