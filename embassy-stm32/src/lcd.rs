@@ -10,15 +10,16 @@ use crate::time::Hertz;
 
 #[cfg(any(stm32u0, stm32l073, stm32l083))]
 const NUM_SEGMENTS: u8 = 52;
-#[cfg(stm32wb)]
+#[cfg(any(stm32wb, stm32l4x6, stm32l15x, stm32l162, stm32l4x3, stm32l4x6))]
 const NUM_SEGMENTS: u8 = 44;
-#[cfg(any(stm32l053, stm32l063))]
+#[cfg(any(stm32l053, stm32l063, stm32l100))]
 const NUM_SEGMENTS: u8 = 32;
 
 /// LCD configuration struct
 #[non_exhaustive]
 #[derive(Debug, Clone, Copy)]
 pub struct Config {
+    #[cfg(lcd_v2)]
     /// Enable the voltage output buffer for higher driving capability.
     ///
     /// The LCD driving capability is improved as buffers prevent the LCD capacitive loads from loading the resistor
@@ -42,6 +43,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
+            #[cfg(lcd_v2)]
             use_voltage_output_buffer: false,
             use_segment_muxing: false,
             bias: Default::default(),
@@ -249,6 +251,7 @@ impl<'d, T: Instance> Lcd<'d, T> {
 
         // Set the control register values
         T::regs().cr().modify(|w| {
+            #[cfg(lcd_v2)]
             w.set_bufen(config.use_voltage_output_buffer);
             w.set_mux_seg(config.use_segment_muxing);
             w.set_bias(config.bias as u8);
