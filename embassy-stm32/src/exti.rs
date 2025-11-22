@@ -395,40 +395,30 @@ pub struct AnyChannel {
 
 macro_rules! impl_exti {
     ($type:ident, $number:expr) => {
-        impl_exti!(@inner $type, $number, crate::_generated::peripheral_interrupts::EXTI::$type);
-    };
-    ($type:ident, $number:expr, @tsc) => {
-        impl_exti!(@inner $type, $number, crate::_generated::peripheral_interrupts::TSC::GLOBAL);
-    };
-    (@inner $type:ident, $number:expr, $irq:path) => {
         impl SealedChannel for crate::peripherals::$type {}
         impl Channel for crate::peripherals::$type {
             fn number(&self) -> PinNumber {
                 $number
             }
             fn irq(&self) -> InterruptEnum {
-                <$irq>::IRQ
+                crate::_generated::peripheral_interrupts::EXTI::$type::IRQ
             }
-            type IRQ = $irq;
+            type IRQ = crate::_generated::peripheral_interrupts::EXTI::$type;
         }
 
         //Still here to surface deprecation messages to the user - remove when removing AnyChannel
         #[allow(deprecated)]
         impl From<crate::peripherals::$type> for AnyChannel {
             fn from(_val: crate::peripherals::$type) -> Self {
-            Self {
-                number: $number,
+                Self { number: $number }
             }
-        }}
+        }
     };
 }
 
 impl_exti!(EXTI0, 0);
 impl_exti!(EXTI1, 1);
-#[cfg(not(any(tsc, unimpl_tsc)))]
 impl_exti!(EXTI2, 2);
-#[cfg(any(tsc, unimpl_tsc))]
-impl_exti!(EXTI2, 2, @tsc);
 impl_exti!(EXTI3, 3);
 impl_exti!(EXTI4, 4);
 impl_exti!(EXTI5, 5);

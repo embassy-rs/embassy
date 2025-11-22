@@ -77,7 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: stm32/flash: add async support for h7 family
 - feat: exti brought in line with other drivers' interrupt rebinding system ([#4922](https://github.com/embassy-rs/embassy/pull/4922))
 - removal: ExtiInput no longer accepts AnyPin/AnyChannel; AnyChannel removed entirely
-- change: build script now generates `unimpl_tsc` cfg option when a chip has a TSC peripheral but no driver
+- fix: build script ensures EXTI2_TSC is listed as the IRQ of EXTI2 even if the PAC doesn't
 - feat: stm32/lcd: added implementation
 
 ## 0.4.0 - 2025-08-26

@@ -56,16 +56,12 @@ fn main() {
 
     eprintln!("chip: {chip_name}");
 
-    cfgs.declare("unimpl_tsc");
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
             cfgs.enable(r.kind);
             foreach_version_cfg(&mut cfgs, r.kind, r.version, |cfgs, cfg_name| {
                 cfgs.enable(cfg_name);
             });
-        } else if p.name == "TSC" {
-            //Even if the registers are missing, EXTI needs to know if TSC is present in silicon to know whether the EXTI2 interrupt is shadowed by EXTI2_TSC
-            cfgs.enable("unimpl_tsc")
         }
     }
 
@@ -357,8 +353,13 @@ fn main() {
     // ========
     // Generate interrupt declarations
 
+    let mut exti2_tsc_shared_int_present: Option<stm32_metapac::metadata::Interrupt> = None;
     let mut irqs = Vec::new();
     for irq in METADATA.interrupts {
+        // The PAC doesn't ensure this is listed as the IRQ of EXTI2, so we must do so
+        if irq.name == "EXTI2_TSC" {
+            exti2_tsc_shared_int_present = Some(irq.clone())
+        }
         irqs.push(format_ident!("{}", irq.name));
     }
 
@@ -1816,7 +1817,19 @@ fn main() {
     for p in METADATA.peripherals {
         let mut pt = TokenStream::new();
 
+        let mut exti2_tsc_injected = false;
+        if let Some(ref irq) = exti2_tsc_shared_int_present
+            && p.name == "EXTI"
+        {
+            exti2_tsc_injected = true;
+            let iname = format_ident!("{}", irq.name);
+            let sname = format_ident!("{}", "EXTI2");
+            pt.extend(quote!(pub type #sname = crate::interrupt::typelevel::#iname;));
+        }
         for irq in p.interrupts {
+            if exti2_tsc_injected && irq.signal == "EXTI2" {
+                continue;
+            }
             let iname = format_ident!("{}", irq.interrupt);
             let sname = format_ident!("{}", irq.signal);
             pt.extend(quote!(pub type #sname = crate::interrupt::typelevel::#iname;));
