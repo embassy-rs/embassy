@@ -5,11 +5,16 @@ use defmt::*;
 #[cfg(feature = "defmt-rtt")]
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::exti::ExtiInput;
+use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::Pull;
-use embassy_stm32::low_power;
+use embassy_stm32::{bind_interrupts, interrupt, low_power};
 use panic_probe as _;
 use static_cell::StaticCell;
+
+bind_interrupts!(
+    pub struct Irqs{
+        EXTI0 => exti::InterruptHandler<interrupt::typelevel::EXTI0>;
+});
 
 #[embassy_executor::main(executor = "low_power::Executor")]
 async fn async_main(_spawner: Spawner) {
@@ -64,7 +69,7 @@ async fn async_main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    let mut button = ExtiInput::new(p.PA0, p.EXTI0, Pull::Up);
+    let mut button = ExtiInput::new(p.PA0, p.EXTI0, Pull::Up, Irqs);
 
     info!("Press the USER button...");
 

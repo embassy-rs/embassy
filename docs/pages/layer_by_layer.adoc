@@ -76,7 +76,7 @@ The async version looks very similar to the HAL version, apart from a few minor 
 * The peripheral initialization is done by the main macro, and is handed to the main task.
 * Before checking the button state, the application is awaiting a transition in the pin state (low -> high or high -> low).
 
-When `button.wait_for_any_edge().await` is called, the executor will pause the main task and put the microcontroller in sleep mode, unless there are other tasks that can run. Internally, the Embassy HAL has configured the interrupt handler for the button (in `ExtiInput`), so that whenever an interrupt is raised, the task awaiting the button will be woken up.
+When `button.wait_for_any_edge().await` is called, the executor will pause the main task and put the microcontroller in sleep mode, unless there are other tasks that can run. On this chip, interrupt signals on EXTI lines 10-15 (including the button on EXTI line 13) raise the hardware interrupt EXTI15_10. This interrupt handler has been bound (using `bind_interrupts!`) to call the `InterruptHandler` provided by the exti module, so that whenever an interrupt is raised, the task awaiting the button via `wait_for_any_edge()` will be woken up.
 
 The minimal overhead of the executor and the ability to run multiple tasks "concurrently" combined with the enormous simplification of the application, makes `async` a great fit for embedded.
 

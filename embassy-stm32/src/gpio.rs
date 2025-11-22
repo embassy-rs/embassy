@@ -812,15 +812,19 @@ pub type PinNumber = u8;
 #[cfg(stm32n6)]
 pub type PinNumber = u16;
 
-/// GPIO pin trait.
+/// Pin that can be used to configure an [ExtiInput](crate::exti::ExtiInput). This trait is lost when converting to [AnyPin].
+#[cfg(feature = "exti")]
 #[allow(private_bounds)]
-pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
+pub trait ExtiPin: PeripheralType + SealedPin {
     /// EXTI channel assigned to this pin.
     ///
     /// For example, PC4 uses EXTI4.
-    #[cfg(feature = "exti")]
     type ExtiChannel: crate::exti::Channel;
+}
 
+/// GPIO pin trait.
+#[allow(private_bounds)]
+pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
     /// Number of the pin within the port (0..31)
     #[inline]
     fn pin(&self) -> PinNumber {
@@ -834,7 +838,7 @@ pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
     }
 }
 
-/// Type-erased GPIO pin
+/// Type-erased GPIO pin.
 pub struct AnyPin {
     pin_port: PinNumber,
 }
@@ -862,10 +866,7 @@ impl AnyPin {
 }
 
 impl_peripheral!(AnyPin);
-impl Pin for AnyPin {
-    #[cfg(feature = "exti")]
-    type ExtiChannel = crate::exti::AnyChannel;
-}
+impl Pin for AnyPin {}
 impl SealedPin for AnyPin {
     #[inline]
     fn pin_port(&self) -> PinNumber {
@@ -878,7 +879,9 @@ impl SealedPin for AnyPin {
 foreach_pin!(
     ($pin_name:ident, $port_name:ident, $port_num:expr, $pin_num:expr, $exti_ch:ident) => {
         impl Pin for peripherals::$pin_name {
-            #[cfg(feature = "exti")]
+        }
+        #[cfg(feature = "exti")]
+        impl ExtiPin for peripherals::$pin_name {
             type ExtiChannel = peripherals::$exti_ch;
         }
         impl SealedPin for peripherals::$pin_name {
