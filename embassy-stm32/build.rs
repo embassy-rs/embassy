@@ -1963,6 +1963,19 @@ fn main() {
             continue;
         }
 
+        let stop_mode = METADATA
+            .peripherals
+            .iter()
+            .find(|p| p.name == ch.dma)
+            .map(|p| p.rcc.as_ref().map(|rcc| rcc.stop_mode.clone()).unwrap_or_default())
+            .unwrap_or_default();
+
+        let stop_mode = match stop_mode {
+            StopMode::Standby => quote! { Standby },
+            StopMode::Stop2 => quote! { Stop2 },
+            StopMode::Stop1 => quote! { Stop1 },
+        };
+
         let name = format_ident!("{}", ch.name);
         let idx = ch_idx as u8;
         #[cfg(feature = "_dual-core")]
@@ -1975,7 +1988,7 @@ fn main() {
             quote!(crate::pac::Interrupt::#irq_name)
         };
 
-        g.extend(quote!(dma_channel_impl!(#name, #idx);));
+        g.extend(quote!(dma_channel_impl!(#name, #idx, #stop_mode);));
 
         let dma = format_ident!("{}", ch.dma);
         let ch_num = ch.channel as usize;
