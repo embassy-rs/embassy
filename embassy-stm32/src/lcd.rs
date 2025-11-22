@@ -8,10 +8,12 @@ use crate::peripherals;
 use crate::rcc::{self, RccPeripheral};
 use crate::time::Hertz;
 
-#[cfg(stm32u0)]
+#[cfg(any(stm32u0, stm32l073, stm32l083))]
 const NUM_SEGMENTS: u8 = 52;
 #[cfg(stm32wb)]
 const NUM_SEGMENTS: u8 = 44;
+#[cfg(any(stm32l053, stm32l063))]
+const NUM_SEGMENTS: u8 = 32;
 
 /// LCD configuration struct
 #[non_exhaustive]

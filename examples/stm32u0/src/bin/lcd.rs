@@ -3,11 +3,9 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::{
-    lcd::{Bias, Config, Duty, Lcd, LcdPin},
-    peripherals::LCD,
-    time::Hertz,
-};
+use embassy_stm32::lcd::{Bias, Config, Duty, Lcd, LcdPin};
+use embassy_stm32::peripherals::LCD;
+use embassy_stm32::time::Hertz;
 use embassy_time::Duration;
 use {defmt_rtt as _, panic_probe as _};
 
