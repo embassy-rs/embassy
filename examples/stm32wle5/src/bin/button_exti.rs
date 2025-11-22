@@ -5,11 +5,9 @@ use defmt::*;
 #[cfg(feature = "defmt-rtt")]
 use defmt_rtt as _;
 use embassy_executor::Spawner;
-use embassy_stm32::bind_interrupts;
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::Pull;
-use embassy_stm32::interrupt;
-use embassy_stm32::low_power;
+use embassy_stm32::{bind_interrupts, interrupt, low_power};
 use panic_probe as _;
 use static_cell::StaticCell;
 

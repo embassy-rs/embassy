@@ -6,13 +6,11 @@ use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_stm32::bind_interrupts;
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::Pull;
-use embassy_stm32::interrupt;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::Driver;
-use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
+use embassy_stm32::{Config, bind_interrupts, interrupt, peripherals, usb};
 use embassy_usb::class::hid::{
     HidBootProtocol, HidProtocolMode, HidReaderWriter, HidSubclass, ReportId, RequestHandler, State,
 };

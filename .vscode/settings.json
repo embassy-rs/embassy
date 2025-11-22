@@ -61,4 +61,8 @@
     // "examples/stm32wl/Cargo.toml",
     // "examples/wasm/Cargo.toml",
   ],
+  "rust-analyzer.rustfmt.extraArgs": [
+    //Uncomment to run rustfmt with nightly-only settings that match the CI
+    // "+nightly"
+  ],
 }
