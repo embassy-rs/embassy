@@ -2,8 +2,8 @@
 use core::future::Future;
 use core::slice;
 
-use atomic_polyfill::AtomicU8;
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
+use portable_atomic::AtomicU8;
 
 use super::*;
 
