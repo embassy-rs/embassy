@@ -192,6 +192,8 @@ impl<'d, T: AnyInstance> Adc<'d, T> {
         #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5, adc_wba))]
         channel.setup();
 
+        // Ensure no conversions are ongoing
+        T::stop();
         #[cfg(any(adc_v2, adc_v3, adc_g0, adc_h7rs, adc_u0, adc_u5, adc_wba, adc_c0))]
         T::enable();
         T::configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());

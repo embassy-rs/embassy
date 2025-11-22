@@ -1356,6 +1356,9 @@ fn main() {
         (("tsc", "G8_IO2"), quote!(crate::tsc::G8IO2Pin)),
         (("tsc", "G8_IO3"), quote!(crate::tsc::G8IO3Pin)),
         (("tsc", "G8_IO4"), quote!(crate::tsc::G8IO4Pin)),
+        (("lcd", "SEG"), quote!(crate::lcd::SegPin)),
+        (("lcd", "COM"), quote!(crate::lcd::ComPin)),
+        (("lcd", "VLCD"), quote!(crate::lcd::VlcdPin)),
         (("dac", "OUT1"), quote!(crate::dac::DacPin<Ch1>)),
         (("dac", "OUT2"), quote!(crate::dac::DacPin<Ch2>)),
     ].into();
@@ -1363,9 +1366,22 @@ fn main() {
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
             let mut adc_pairs: BTreeMap<u8, (Option<Ident>, Option<Ident>)> = BTreeMap::new();
+            let mut seen_lcd_seg_pins = HashSet::new();
 
             for pin in p.pins {
-                let key = (regs.kind, pin.signal);
+                let mut key = (regs.kind, pin.signal);
+
+                // LCD is special. There are so many pins!
+                if regs.kind == "lcd" {
+                    key.1 = pin.signal.trim_end_matches(char::is_numeric);
+
+                    if key.1 == "SEG" && !seen_lcd_seg_pins.insert(pin.pin) {
+                        // LCD has SEG pins multiplexed in the peripheral
+                        // This means we can see them twice. We need to skip those so we're not impl'ing the trait twice
+                        continue;
+                    }
+                }
+
                 if let Some(tr) = signals.get(&key) {
                     let mut peri = format_ident!("{}", p.name);
 
@@ -1951,6 +1967,19 @@ fn main() {
             continue;
         }
 
+        let stop_mode = METADATA
+            .peripherals
+            .iter()
+            .find(|p| p.name == ch.dma)
+            .map(|p| p.rcc.as_ref().map(|rcc| rcc.stop_mode.clone()).unwrap_or_default())
+            .unwrap_or_default();
+
+        let stop_mode = match stop_mode {
+            StopMode::Standby => quote! { Standby },
+            StopMode::Stop2 => quote! { Stop2 },
+            StopMode::Stop1 => quote! { Stop1 },
+        };
+
         let name = format_ident!("{}", ch.name);
         let idx = ch_idx as u8;
         #[cfg(feature = "_dual-core")]
@@ -1963,7 +1992,7 @@ fn main() {
             quote!(crate::pac::Interrupt::#irq_name)
         };
 
-        g.extend(quote!(dma_channel_impl!(#name, #idx);));
+        g.extend(quote!(dma_channel_impl!(#name, #idx, #stop_mode);));
 
         let dma = format_ident!("{}", ch.dma);
         let ch_num = ch.channel as usize;

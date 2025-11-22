@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased - ReleaseDate
 
+- change: low power: store stop mode for dma channels
 - fix: Fixed ADC4 enable() for WBA
 - feat: allow use of anyadcchannel for adc4
 - fix: fix incorrect logic for buffered usart transmission complete.
@@ -77,6 +78,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: exti brought in line with other drivers' interrupt rebinding system ([#4922](https://github.com/embassy-rs/embassy/pull/4922))
 - removal: ExtiInput no longer accepts AnyPin/AnyChannel; AnyChannel removed entirely
 - change: build script now generates `unimpl_tsc` cfg option when a chip has a TSC peripheral but no driver
+- feat: stm32/lcd: added implementation
 
 ## 0.4.0 - 2025-08-26
 

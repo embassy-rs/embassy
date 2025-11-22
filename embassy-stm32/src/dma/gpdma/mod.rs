@@ -11,6 +11,7 @@ use linked_list::Table;
 
 use super::word::{Word, WordSize};
 use super::{AnyChannel, Channel, Dir, Request, STATE};
+use crate::dma::BusyChannel;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac;
 use crate::pac::gpdma::vals;
@@ -408,7 +409,7 @@ impl AnyChannel {
 /// Linked-list DMA transfer.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct LinkedListTransfer<'a, const ITEM_COUNT: usize> {
-    channel: Peri<'a, AnyChannel>,
+    channel: BusyChannel<'a>,
 }
 
 impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
@@ -429,7 +430,9 @@ impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
         channel.configure_linked_list(&table, options);
         channel.start();
 
-        Self { channel }
+        Self {
+            channel: BusyChannel::new(channel),
+        }
     }
 
     /// Request the transfer to pause, keeping the existing configuration for this channel.
@@ -505,7 +508,7 @@ impl<'a, const ITEM_COUNT: usize> Future for LinkedListTransfer<'a, ITEM_COUNT> 
 /// DMA transfer.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Transfer<'a> {
-    channel: Peri<'a, AnyChannel>,
+    channel: BusyChannel<'a>,
 }
 
 impl<'a> Transfer<'a> {
@@ -625,7 +628,9 @@ impl<'a> Transfer<'a> {
         );
         channel.start();
 
-        Self { channel }
+        Self {
+            channel: BusyChannel::new(channel),
+        }
     }
 
     /// Request the transfer to pause, keeping the existing configuration for this channel.

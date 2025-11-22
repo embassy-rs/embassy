@@ -95,6 +95,8 @@ pub mod i2c;
 pub mod i2s;
 #[cfg(stm32wb)]
 pub mod ipcc;
+#[cfg(lcd)]
+pub mod lcd;
 #[cfg(feature = "low-power")]
 pub mod low_power;
 #[cfg(lptim)]
