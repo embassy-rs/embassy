@@ -1,15 +1,13 @@
 #![no_std]
 #![no_main]
 
-use defmt::{panic, *};
+use defmt::*;
 use embassy_executor::Spawner;
-use embassy_futures::join::join;
-use embassy_stm32::time::Hertz;
-use embassy_stm32::{Config, peripherals};
+use embassy_stm32::Config;
 use embassy_stm32::gpio::OutputType;
+use embassy_stm32::time::Hertz;
 use embassy_stm32::time::mhz;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
-use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 // If you are trying this and your USB device doesn't connect, the most
@@ -44,7 +42,15 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(config);
     let ch1_pin = PwmPin::new(p.PE9, OutputType::PushPull);
     let ch2_pin = PwmPin::new(p.PE11, OutputType::PushPull);
-    let mut pwm = SimplePwm::new(p.TIM1, Some(ch1_pin), Some(ch2_pin), None, None, mhz(1), Default::default());
+    let mut pwm = SimplePwm::new(
+        p.TIM1,
+        Some(ch1_pin),
+        Some(ch2_pin),
+        None,
+        None,
+        mhz(1),
+        Default::default(),
+    );
     let mut ch1 = pwm.ch1();
     ch1.enable();
     info!("PWM initialized");
@@ -53,13 +59,11 @@ async fn main(_spawner: Spawner) {
     info!("PWM duty on channel 1 (D6) 50%");
     ch1.set_duty_cycle_fraction(1, 2);
     info!("PWM waveform on channel 2 (D5)");
-    const max_duty: usize = 200;
-    let mut duty = [0u16;max_duty];
-    for i in 0..max_duty {
+    const MAX_DUTY: usize = 200;
+    let mut duty = [0u16; MAX_DUTY];
+    for i in 0..MAX_DUTY {
         duty[i] = i as u16;
     }
-    pwm.waveform_continuous::<embassy_stm32::timer::Ch2>(p.DMA2_CH6, &duty).await;
-
-
+    pwm.waveform_continuous::<embassy_stm32::timer::Ch2>(p.DMA2_CH6, &duty)
+        .await;
 }
-
