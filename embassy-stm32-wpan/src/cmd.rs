@@ -1,4 +1,5 @@
 use core::ptr;
+use core::sync::atomic::{Ordering, compiler_fence};
 
 use crate::PacketHeader;
 use crate::consts::TlPacketType;
@@ -45,11 +46,11 @@ pub struct CmdPacket {
 
 impl CmdPacket {
     pub unsafe fn write_into(cmd_buf: *mut CmdPacket, packet_type: TlPacketType, cmd_code: u16, payload: &[u8]) {
-        let p_cmd_serial = &mut (*cmd_buf).cmdserial as *mut _ as *mut CmdSerialStub;
-        let p_payload = &mut (*cmd_buf).cmdserial.cmd.payload as *mut _;
+        let p_cmd_serial = (cmd_buf as *mut u8).add(size_of::<PacketHeader>());
+        let p_payload = p_cmd_serial.add(size_of::<CmdSerialStub>());
 
-        ptr::write_volatile(
-            p_cmd_serial,
+        ptr::write_unaligned(
+            p_cmd_serial as *mut _,
             CmdSerialStub {
                 ty: packet_type as u8,
                 cmd_code,
@@ -58,6 +59,8 @@ impl CmdPacket {
         );
 
         ptr::copy_nonoverlapping(payload as *const _ as *const u8, p_payload, payload.len());
+
+        compiler_fence(Ordering::Release);
     }
 }
 
@@ -87,11 +90,11 @@ pub struct AclDataPacket {
 
 impl AclDataPacket {
     pub unsafe fn write_into(cmd_buf: *mut AclDataPacket, packet_type: TlPacketType, handle: u16, payload: &[u8]) {
-        let p_cmd_serial = &mut (*cmd_buf).acl_data_serial as *mut _ as *mut AclDataSerialStub;
-        let p_payload = &mut (*cmd_buf).acl_data_serial.acl_data as *mut _;
+        let p_cmd_serial = (cmd_buf as *mut u8).add(size_of::<PacketHeader>());
+        let p_payload = p_cmd_serial.add(size_of::<AclDataSerialStub>());
 
-        ptr::write_volatile(
-            p_cmd_serial,
+        ptr::write_unaligned(
+            p_cmd_serial as *mut _,
             AclDataSerialStub {
                 ty: packet_type as u8,
                 handle: handle,
@@ -100,5 +103,7 @@ impl AclDataPacket {
         );
 
         ptr::copy_nonoverlapping(payload as *const _ as *const u8, p_payload, payload.len());
+
+        compiler_fence(Ordering::Release);
     }
 }
