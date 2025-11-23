@@ -781,7 +781,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         let cc_channel = C::CHANNEL;
 
         let original_cc_dma_on_update = self.get_cc_dma_selection() == Ccds::ON_UPDATE;
-        let original_cc_dma_enabled = self.get_c fsc_dma_enable_state(cc_channel);
+        let original_cc_dma_enabled = self.get_cc_dma_enable_state(cc_channel);
 
         // redirect CC DMA request onto Update Event
         if !original_cc_dma_on_update {
@@ -810,7 +810,12 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
 
     /// Generate a sequence of PWM waveform that will run continously
     /// You may want to start this in a new thread as this will block forever
+
     pub async fn waveform_continuous<C: TimerChannel>(&mut self, dma: Peri<'_, impl super::Dma<T, C>>, duty: &[u16]) {
+
+        #[cfg(any(bdma, gpdma))]
+        panic!("unsupported DMA");
+
         use crate::pac::timer::vals::Ccds;
 
         #[allow(clippy::let_unit_value)] // eg. stm32f334
@@ -871,6 +876,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
                 fifo_threshold: Some(FifoThreshold::Full),
                 #[cfg(not(any(bdma, gpdma)))]
                 mburst: Burst::Incr8,
+                #[cfg(not(any(bdma, gpdma)))]
                 circular: circular,
                 ..Default::default()
             };
@@ -881,7 +887,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
                         dma,
                         req,
                         duty,
-                        self.regs_1ch().ccr(channel.index()).as_ptr() as *mut u16,
+                        self.regs_gp16().ccr(channel.index()).as_ptr() as *mut u16,
                         dma_transfer_option,
                     )
                     .await
@@ -896,7 +902,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
                         dma,
                         req,
                         duty,
-                        self.regs_1ch().ccr(channel.index()).as_ptr() as *mut u32,
+                        self.regs_gp16().ccr(channel.index()).as_ptr() as *mut u32,
                         dma_transfer_option,
                     )
                     .await
