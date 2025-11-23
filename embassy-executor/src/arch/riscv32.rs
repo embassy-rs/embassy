@@ -35,6 +35,19 @@ mod thread {
             }
         }
 
+        /// Put Executor (chip) into default idle state.
+        #[inline(always)]
+        pub fn default_idle() {
+            critical_section::with(|_| {
+                // if there is work to do, loop back to polling, otherwise wait for interrupt
+                // TODO can we relax this?
+                if !SIGNAL_WORK_THREAD_MODE.swap(false, Ordering::SeqCst) {
+                    unsafe { core::arch::asm!("wfi") };
+                }
+            });
+            // if an interrupt occurred while waiting, it will be serviced here
+        }
+
         /// Run the executor.
         ///
         /// The `init` closure is called with a [`Spawner`] that spawns tasks on
@@ -57,23 +70,8 @@ mod thread {
             init(self.inner.spawner());
 
             loop {
-                unsafe {
-                    self.inner.poll();
-                    // we do not care about race conditions between the load and store operations, interrupts
-                    //will only set this value to true.
-                    critical_section::with(|_| {
-                        // if there is work to do, loop back to polling
-                        // TODO can we relax this?
-                        if SIGNAL_WORK_THREAD_MODE.load(Ordering::SeqCst) {
-                            SIGNAL_WORK_THREAD_MODE.store(false, Ordering::SeqCst);
-                        }
-                        // if not, wait for interrupt
-                        else {
-                            core::arch::asm!("wfi");
-                        }
-                    });
-                    // if an interrupt occurred while waiting, it will be serviced here
-                }
+                unsafe { self.inner.poll() };
+                Executor::default_idle();
             }
         }
     }
