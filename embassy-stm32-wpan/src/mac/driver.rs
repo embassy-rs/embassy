@@ -37,8 +37,8 @@ impl NetworkState {
 }
 
 pub struct DriverState<'d> {
-    pub mac_tx: Mutex<CriticalSectionRawMutex, MacTx>,
-    pub mac_rx: MacRx,
+    pub mac_tx: Mutex<CriticalSectionRawMutex, MacTx<'d>>,
+    pub mac_rx: MacRx<'d>,
     pub rx_event_channel: ZeroCopyPubSub<CriticalSectionRawMutex, MacEvent<'d>>,
     pub rx_data_channel: Channel<CriticalSectionRawMutex, MacEvent<'d>, 1>,
     pub tx_data_channel: Channel<CriticalSectionRawMutex, (&'d mut [u8; MTU], usize), BUF_SIZE>,
@@ -48,7 +48,7 @@ pub struct DriverState<'d> {
 }
 
 impl<'d> DriverState<'d> {
-    pub const fn new(mac: Mac) -> Self {
+    pub const fn new(mac: Mac<'d>) -> Self {
         let (mac_rx, mac_tx) = mac.split();
         let mac_tx = Mutex::new(mac_tx);
 

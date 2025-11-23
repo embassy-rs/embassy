@@ -393,9 +393,14 @@ impl<'a, T: AsRef<[u8]>> TryFrom<Frame<&'a T>> for DataRequest {
             dst_pan_id: frame.dst_pan_id().ok_or(())?.into(),
             dst_address: frame.dst_addr().ok_or(())?.into(),
             msdu_handle: frame.sequence_number().ok_or(())?,
-            ack_tx: 0x00,
+            key_source: frame.key_source().unwrap_or_default().try_into().unwrap_or_default(),
+            ack_tx: frame.ack_request() as u8,
             gts_tx: false,
-            security_level: SecurityLevel::Unsecure,
+            security_level: if frame.security_enabled() {
+                SecurityLevel::Secured
+            } else {
+                SecurityLevel::Unsecure
+            },
             ..Default::default()
         };
 

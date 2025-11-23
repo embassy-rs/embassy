@@ -19,7 +19,7 @@ bind_interrupts!(struct Irqs{
 });
 
 #[embassy_executor::task]
-async fn run_mm_queue(memory_manager: mm::MemoryManager) {
+async fn run_mm_queue(mut memory_manager: mm::MemoryManager<'static>) {
     memory_manager.run_queue().await;
 }
 
@@ -54,74 +54,72 @@ async fn main(spawner: Spawner) {
     info!("Hello World!");
 
     let config = Config::default();
-    let mbox = TlMbox::init(p.IPCC, Irqs, config);
+    let mbox = TlMbox::init(p.IPCC, Irqs, config).await;
+    let mut sys = mbox.sys_subsystem;
 
     spawner.spawn(run_mm_queue(mbox.mm_subsystem).unwrap());
 
-    let sys_event = mbox.sys_subsystem.read().await;
-    info!("sys event: {}", sys_event.payload());
-
-    core::mem::drop(sys_event);
-
-    let result = mbox.sys_subsystem.shci_c2_mac_802_15_4_init().await;
+    let result = sys.shci_c2_mac_802_15_4_init().await;
     info!("initialized mac: {}", result);
 
+    let (mut mac_rx, mut mac_tx) = mbox.mac_subsystem.split();
+
     info!("resetting");
-    mbox.mac_subsystem
+    mac_tx
         .send_command(&ResetRequest {
             set_default_pib: true,
             ..Default::default()
         })
         .await
         .unwrap();
-    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
+    defmt::info!("{:#x}", mac_rx.read().await.unwrap());
 
     info!("setting extended address");
     let extended_address: u64 = 0xACDE480000000001;
-    mbox.mac_subsystem
+    mac_tx
         .send_command(&SetRequest {
             pib_attribute_ptr: &extended_address as *const _ as *const u8,
             pib_attribute: PibId::ExtendedAddress,
         })
         .await
         .unwrap();
-    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
+    defmt::info!("{:#x}", mac_rx.read().await.unwrap());
 
     info!("setting short address");
     let short_address: u16 = 0x1122;
-    mbox.mac_subsystem
+    mac_tx
         .send_command(&SetRequest {
             pib_attribute_ptr: &short_address as *const _ as *const u8,
             pib_attribute: PibId::ShortAddress,
         })
         .await
         .unwrap();
-    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
+    defmt::info!("{:#x}", mac_rx.read().await.unwrap());
 
     info!("setting association permit");
     let association_permit: bool = true;
-    mbox.mac_subsystem
+    mac_tx
         .send_command(&SetRequest {
             pib_attribute_ptr: &association_permit as *const _ as *const u8,
             pib_attribute: PibId::AssociationPermit,
         })
         .await
         .unwrap();
-    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
+    defmt::info!("{:#x}", mac_rx.read().await.unwrap());
 
     info!("setting TX power");
     let transmit_power: i8 = 2;
-    mbox.mac_subsystem
+    mac_tx
         .send_command(&SetRequest {
             pib_attribute_ptr: &transmit_power as *const _ as *const u8,
             pib_attribute: PibId::TransmitPower,
         })
         .await
         .unwrap();
-    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
+    defmt::info!("{:#x}", mac_rx.read().await.unwrap());
 
     info!("starting FFD device");
-    mbox.mac_subsystem
+    mac_tx
         .send_command(&StartRequest {
             pan_id: PanId([0x1A, 0xAA]),
             channel_number: MacChannel::Channel16,
@@ -133,28 +131,27 @@ async fn main(spawner: Spawner) {
         })
         .await
         .unwrap();
-    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
+    defmt::info!("{:#x}", mac_rx.read().await.unwrap());
 
     info!("setting RX on when idle");
     let rx_on_while_idle: bool = true;
-    mbox.mac_subsystem
+    mac_tx
         .send_command(&SetRequest {
             pib_attribute_ptr: &rx_on_while_idle as *const _ as *const u8,
             pib_attribute: PibId::RxOnWhenIdle,
         })
         .await
         .unwrap();
-    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
+    defmt::info!("{:#x}", mac_rx.read().await.unwrap());
 
     loop {
-        let evt = mbox.mac_subsystem.read().await;
+        let evt = mac_rx.read().await;
         if let Ok(evt) = evt {
             defmt::info!("parsed mac event");
             defmt::info!("{:#x}", evt);
 
             match evt {
-                MacEvent::MlmeAssociateInd(association) => mbox
-                    .mac_subsystem
+                MacEvent::MlmeAssociateInd(association) => mac_tx
                     .send_command(&AssociateResponse {
                         device_address: association.device_address,
                         assoc_short_address: [0x33, 0x44],

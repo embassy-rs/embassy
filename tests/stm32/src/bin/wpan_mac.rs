@@ -25,7 +25,7 @@ bind_interrupts!(struct Irqs{
 });
 
 #[embassy_executor::task]
-async fn run_mm_queue(memory_manager: mm::MemoryManager) {
+async fn run_mm_queue(mut memory_manager: mm::MemoryManager<'static>) {
     memory_manager.run_queue().await;
 }
 
@@ -38,20 +38,17 @@ async fn main(spawner: Spawner) {
     info!("Hello World!");
 
     let config = Config::default();
-    let mbox = TlMbox::init(p.IPCC, Irqs, config);
+    let mbox = TlMbox::init(p.IPCC, Irqs, config).await;
+    let mut sys = mbox.sys_subsystem;
+    let (mut mac_rx, mut mac_tx) = mbox.mac_subsystem.split();
 
     spawner.spawn(run_mm_queue(mbox.mm_subsystem).unwrap());
 
-    let sys_event = mbox.sys_subsystem.read().await;
-    info!("sys event: {}", sys_event.payload());
-
-    core::mem::drop(sys_event);
-
-    let result = mbox.sys_subsystem.shci_c2_mac_802_15_4_init().await;
+    let result = sys.shci_c2_mac_802_15_4_init().await;
     info!("initialized mac: {}", result);
 
     info!("resetting");
-    mbox.mac_subsystem
+    mac_tx
         .send_command(&ResetRequest {
             set_default_pib: true,
             ..Default::default()
@@ -59,13 +56,13 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let evt = mbox.mac_subsystem.read().await.unwrap();
+        let evt = mac_rx.read().await.unwrap();
         info!("{:#x}", evt);
     }
 
     info!("setting extended address");
     let extended_address: u64 = 0xACDE480000000002;
-    mbox.mac_subsystem
+    mac_tx
         .send_command(&SetRequest {
             pib_attribute_ptr: &extended_address as *const _ as *const u8,
             pib_attribute: PibId::ExtendedAddress,
@@ -73,12 +70,12 @@ async fn main(spawner: Spawner) {
         .await
         .unwrap();
     {
-        let evt = mbox.mac_subsystem.read().await.unwrap();
+        let evt = mac_rx.read().await.unwrap();
         info!("{:#x}", evt);
     }
 
     info!("getting extended address");
-    mbox.mac_subsystem
+    mac_tx
         .send_command(&GetRequest {
             pib_attribute: PibId::ExtendedAddress,
             ..Default::default()
@@ -87,7 +84,7 @@ async fn main(spawner: Spawner) {
         .unwrap();
 
     {
-        let evt = mbox.mac_subsystem.read().await.unwrap();
+        let evt = mac_rx.read().await.unwrap();
         info!("{:#x}", evt);
 
         if let MacEvent::MlmeGetCnf(evt) = evt {
@@ -113,8 +110,8 @@ async fn main(spawner: Spawner) {
         key_index: 152,
     };
     info!("{}", a);
-    mbox.mac_subsystem.send_command(&a).await.unwrap();
-    let short_addr = if let MacEvent::MlmeAssociateCnf(conf) = mbox.mac_subsystem.read().await.unwrap() {
+    mac_tx.send_command(&a).await.unwrap();
+    let short_addr = if let MacEvent::MlmeAssociateCnf(conf) = mac_rx.read().await.unwrap() {
         conf.assoc_short_address
     } else {
         defmt::panic!()

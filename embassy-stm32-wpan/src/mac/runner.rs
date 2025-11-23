@@ -24,11 +24,11 @@ pub struct Runner<'a> {
     // therefore, we don't need to worry about overwriting events
     rx_event_channel: &'a ZeroCopyPubSub<CriticalSectionRawMutex, MacEvent<'a>>,
     rx_data_channel: &'a Channel<CriticalSectionRawMutex, MacEvent<'a>, 1>,
-    mac_rx: &'a mut MacRx,
+    mac_rx: Mutex<NoopRawMutex, &'a mut MacRx<'a>>,
 
     tx_data_channel: &'a Channel<CriticalSectionRawMutex, (&'a mut [u8; MTU], usize), BUF_SIZE>,
     tx_buf_channel: &'a Channel<CriticalSectionRawMutex, &'a mut [u8; MTU], BUF_SIZE>,
-    mac_tx: &'a Mutex<CriticalSectionRawMutex, MacTx>,
+    mac_tx: &'a Mutex<CriticalSectionRawMutex, MacTx<'a>>,
 
     #[allow(unused)]
     network_state: &'a blocking_mutex::Mutex<CriticalSectionRawMutex, RefCell<NetworkState>>,
@@ -38,10 +38,10 @@ impl<'a> Runner<'a> {
     pub(crate) fn new(
         rx_event_channel: &'a ZeroCopyPubSub<CriticalSectionRawMutex, MacEvent<'a>>,
         rx_data_channel: &'a Channel<CriticalSectionRawMutex, MacEvent<'a>, 1>,
-        mac_rx: &'a mut MacRx,
+        mac_rx: &'a mut MacRx<'a>,
         tx_data_channel: &'a Channel<CriticalSectionRawMutex, (&'a mut [u8; MTU], usize), BUF_SIZE>,
         tx_buf_channel: &'a Channel<CriticalSectionRawMutex, &'a mut [u8; MTU], BUF_SIZE>,
-        mac_tx: &'a Mutex<CriticalSectionRawMutex, MacTx>,
+        mac_tx: &'a Mutex<CriticalSectionRawMutex, MacTx<'a>>,
         tx_buf_queue: &'a mut [[u8; MTU]; BUF_SIZE],
         network_state: &'a blocking_mutex::Mutex<CriticalSectionRawMutex, RefCell<NetworkState>>,
         short_address: [u8; 2],
@@ -61,7 +61,7 @@ impl<'a> Runner<'a> {
         Self {
             rx_event_channel,
             rx_data_channel,
-            mac_rx,
+            mac_rx: Mutex::new(mac_rx),
             tx_data_channel,
             tx_buf_channel,
             mac_tx,
@@ -83,7 +83,7 @@ impl<'a> Runner<'a> {
         join::join(
             async {
                 loop {
-                    if let Ok(mac_event) = self.mac_rx.read().await {
+                    if let Ok(mac_event) = self.mac_rx.try_lock().unwrap().read().await {
                         match mac_event {
                             MacEvent::MlmeAssociateCnf(_)
                             | MacEvent::MlmeDisassociateCnf(_)

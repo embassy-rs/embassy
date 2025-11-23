@@ -5,26 +5,26 @@ use core::task::Poll;
 
 use aligned::{A4, Aligned};
 use cortex_m::interrupt;
-use embassy_stm32::ipcc::Ipcc;
+use embassy_stm32::ipcc::IpccTxChannel;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::consts::POOL_SIZE;
+use crate::evt;
 use crate::evt::EvtPacket;
 #[cfg(feature = "ble")]
 use crate::tables::BLE_SPARE_EVT_BUF;
 use crate::tables::{EVT_POOL, FREE_BUF_QUEUE, MemManagerTable, SYS_SPARE_EVT_BUF, TL_MEM_MANAGER_TABLE};
 use crate::unsafe_linked_list::LinkedListNode;
-use crate::{channels, evt};
 
 static MM_WAKER: AtomicWaker = AtomicWaker::new();
 static mut LOCAL_FREE_BUF_QUEUE: Aligned<A4, MaybeUninit<LinkedListNode>> = Aligned(MaybeUninit::uninit());
 
-pub struct MemoryManager {
-    _private: (),
+pub struct MemoryManager<'a> {
+    ipcc_mm_release_buffer_channel: IpccTxChannel<'a>,
 }
 
-impl MemoryManager {
-    pub(crate) fn new() -> Self {
+impl<'a> MemoryManager<'a> {
+    pub(crate) fn new(ipcc_mm_release_buffer_channel: IpccTxChannel<'a>) -> Self {
         unsafe {
             LinkedListNode::init_head(FREE_BUF_QUEUE.as_mut_ptr());
             LinkedListNode::init_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr());
@@ -43,10 +43,12 @@ impl MemoryManager {
             });
         }
 
-        Self { _private: () }
+        Self {
+            ipcc_mm_release_buffer_channel,
+        }
     }
 
-    pub async fn run_queue(&self) -> ! {
+    pub async fn run_queue(&mut self) -> ! {
         loop {
             poll_fn(|cx| unsafe {
                 MM_WAKER.register(cx.waker());
@@ -58,20 +60,21 @@ impl MemoryManager {
             })
             .await;
 
-            Ipcc::send(channels::cpu1::IPCC_MM_RELEASE_BUFFER_CHANNEL, || {
-                interrupt::free(|_| unsafe {
-                    // CS required while moving nodes
-                    while let Some(node_ptr) = LinkedListNode::remove_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr()) {
-                        LinkedListNode::insert_head(FREE_BUF_QUEUE.as_mut_ptr(), node_ptr);
-                    }
+            self.ipcc_mm_release_buffer_channel
+                .send(|| {
+                    interrupt::free(|_| unsafe {
+                        // CS required while moving nodes
+                        while let Some(node_ptr) = LinkedListNode::remove_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr()) {
+                            LinkedListNode::insert_head(FREE_BUF_QUEUE.as_mut_ptr(), node_ptr);
+                        }
+                    })
                 })
-            })
-            .await;
+                .await;
         }
     }
 }
 
-impl evt::MemoryManager for MemoryManager {
+impl<'a> evt::MemoryManager for MemoryManager<'a> {
     /// SAFETY: passing a pointer to something other than a managed event packet is UB
     unsafe fn drop_event_packet(evt: *mut EvtPacket) {
         interrupt::free(|_| unsafe {

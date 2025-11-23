@@ -8,5 +8,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- wpan: restructure hil and test wpan mac
 - restructure to allow embassy net driver to work.
 - First release with changelog.
