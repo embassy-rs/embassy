@@ -13,6 +13,7 @@ pub mod one_pulse;
 pub mod pwm_input;
 pub mod qei;
 pub mod simple_pwm;
+pub mod ringbuffered;
 
 use crate::interrupt;
 use crate::rcc::RccPeripheral;
