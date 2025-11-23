@@ -1,5 +1,3 @@
-use core::ptr;
-
 use embassy_stm32::ipcc::{IpccRxChannel, IpccTxChannel};
 
 use crate::cmd::CmdPacket;
