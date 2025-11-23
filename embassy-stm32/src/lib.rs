@@ -153,7 +153,7 @@ pub use crate::_generated::interrupt;
 /// Macro to bind interrupts to handlers.
 ///
 /// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
-/// and implements the right [`Binding`]s for it. You can pass this struct to drivers to
+/// and implements the right [`Binding`](crate::interrupt::typelevel::Binding)s for it. You can pass this struct to drivers to
 /// prove at compile-time that the right interrupts have been bound.
 ///
 /// Example of how to bind one interrupt:
@@ -180,6 +180,10 @@ pub use crate::_generated::interrupt;
 ///     }
 /// );
 /// ```
+///
+/// Some chips collate multiple interrupt signals into a single interrupt vector. In the above example, I2C2_3 is a
+/// single vector which is activated by events and errors on both peripherals I2C2 and I2C3. Check your chip's list
+/// of interrupt vectors if you get an unexpected compile error trying to bind the standard name.
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {
