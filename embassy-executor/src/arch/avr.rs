@@ -34,6 +34,22 @@ mod thread {
             }
         }
 
+        /// Put Executor (chip) into default idle state.
+        #[inline(always)]
+        pub fn default_idle() {
+            avr_device::interrupt::disable();
+            if !SIGNAL_WORK_THREAD_MODE.swap(false, Ordering::SeqCst) {
+                // AVR architecture guarantees that when executing SEI (enable interrupts),
+                // the instruction following SEI will be executed before any pending interrupts.
+                unsafe {
+                    avr_device::interrupt::enable();
+                    avr_device::asm::sleep();
+                };
+            } else {
+                unsafe { avr_device::interrupt::enable() };
+            }
+        }
+
         /// Run the executor.
         ///
         /// The `init` closure is called with a [`Spawner`] that spawns tasks on
@@ -56,16 +72,8 @@ mod thread {
             init(self.inner.spawner());
 
             loop {
-                unsafe {
-                    avr_device::interrupt::disable();
-                    if !SIGNAL_WORK_THREAD_MODE.swap(false, Ordering::SeqCst) {
-                        avr_device::interrupt::enable();
-                        avr_device::asm::sleep();
-                    } else {
-                        avr_device::interrupt::enable();
-                        self.inner.poll();
-                    }
-                }
+                unsafe { self.inner.poll() };
+                Executor::default_idle();
             }
         }
     }
