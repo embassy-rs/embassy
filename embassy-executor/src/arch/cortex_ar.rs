@@ -55,6 +55,12 @@ mod thread {
             }
         }
 
+        /// Put Executor (chip) into default idle state.
+        #[inline(always)]
+        pub fn default_idle() {
+            wfe();
+        }
+
         /// Run the executor.
         ///
         /// The `init` closure is called with a [`Spawner`] that spawns tasks on
@@ -77,10 +83,8 @@ mod thread {
             init(self.inner.spawner());
 
             loop {
-                unsafe {
-                    self.inner.poll();
-                }
-                wfe();
+                unsafe { self.inner.poll() };
+                Executor::default_idle();
             }
         }
     }
