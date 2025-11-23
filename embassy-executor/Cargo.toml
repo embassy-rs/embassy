@@ -172,6 +172,10 @@ trace = ["_any_trace"]
 rtos-trace = ["_any_trace", "metadata-name", "dep:rtos-trace", "embassy-time-driver"]
 _any_trace = []
 
+## Enable support for custom idle-hook. This provides an additional API (`with_idle_hook`)
+## to register a custom idle-hook for certain architectures.
+idle-hook = []
+
 ## Enable "Earliest Deadline First" Scheduler, using soft-realtime "deadlines" to prioritize
 ## tasks based on the remaining time before their deadline. Adds some overhead.
 scheduler-deadline = []
