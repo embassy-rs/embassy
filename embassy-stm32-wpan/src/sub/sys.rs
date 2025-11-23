@@ -1,5 +1,7 @@
 use core::ptr;
 
+use embassy_stm32::ipcc::{IpccRxChannel, IpccTxChannel};
+
 use crate::cmd::CmdPacket;
 use crate::consts::TlPacketType;
 use crate::evt::{CcEvt, EvtBox, EvtPacket};
@@ -8,16 +10,20 @@ use crate::shci::{SchiCommandStatus, ShciBleInitCmdParam, ShciOpcode};
 use crate::sub::mm;
 use crate::tables::{SysTable, WirelessFwInfoTable};
 use crate::unsafe_linked_list::LinkedListNode;
-use crate::{Ipcc, SYS_CMD_BUF, SYSTEM_EVT_QUEUE, TL_DEVICE_INFO_TABLE, TL_SYS_TABLE, channels};
+use crate::{SYS_CMD_BUF, SYSTEM_EVT_QUEUE, TL_DEVICE_INFO_TABLE, TL_SYS_TABLE};
 
 /// A guard that, once constructed, allows for sys commands to be sent to CPU2.
-pub struct Sys {
-    _private: (),
+pub struct Sys<'a> {
+    ipcc_system_cmd_rsp_channel: IpccTxChannel<'a>,
+    ipcc_system_event_channel: IpccRxChannel<'a>,
 }
 
-impl Sys {
+impl<'a> Sys<'a> {
     /// TL_Sys_Init
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(
+        ipcc_system_cmd_rsp_channel: IpccTxChannel<'a>,
+        ipcc_system_event_channel: IpccRxChannel<'a>,
+    ) -> Self {
         unsafe {
             LinkedListNode::init_head(SYSTEM_EVT_QUEUE.as_mut_ptr());
 
@@ -27,7 +33,10 @@ impl Sys {
             });
         }
 
-        Self { _private: () }
+        Self {
+            ipcc_system_cmd_rsp_channel,
+            ipcc_system_event_channel,
+        }
     }
 
     /// Returns CPU2 wireless firmware information (if present).
@@ -38,17 +47,22 @@ impl Sys {
         if info.version != 0 { Some(info) } else { None }
     }
 
-    pub async fn write(&self, opcode: ShciOpcode, payload: &[u8]) {
-        Ipcc::send(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL, || unsafe {
-            CmdPacket::write_into(SYS_CMD_BUF.as_mut_ptr(), TlPacketType::SysCmd, opcode as u16, payload);
-        })
-        .await;
+    pub async fn write(&mut self, opcode: ShciOpcode, payload: &[u8]) {
+        self.ipcc_system_cmd_rsp_channel
+            .send(|| unsafe {
+                CmdPacket::write_into(SYS_CMD_BUF.as_mut_ptr(), TlPacketType::SysCmd, opcode as u16, payload);
+            })
+            .await;
     }
 
     /// `HW_IPCC_SYS_CmdEvtNot`
-    pub async fn write_and_get_response(&self, opcode: ShciOpcode, payload: &[u8]) -> Result<SchiCommandStatus, ()> {
+    pub async fn write_and_get_response(
+        &mut self,
+        opcode: ShciOpcode,
+        payload: &[u8],
+    ) -> Result<SchiCommandStatus, ()> {
         self.write(opcode, payload).await;
-        Ipcc::flush(channels::cpu1::IPCC_SYSTEM_CMD_RSP_CHANNEL).await;
+        self.ipcc_system_cmd_rsp_channel.flush().await;
 
         unsafe {
             let p_event_packet = SYS_CMD_BUF.as_ptr() as *const EvtPacket;
@@ -60,26 +74,7 @@ impl Sys {
     }
 
     #[cfg(feature = "mac")]
-    pub async fn shci_c2_mac_802_15_4_init(&self) -> Result<SchiCommandStatus, ()> {
-        use crate::tables::{
-            MAC_802_15_4_CMD_BUFFER, MAC_802_15_4_NOTIF_RSP_EVT_BUFFER, Mac802_15_4Table, TL_MAC_802_15_4_TABLE,
-            TL_TRACES_TABLE, TRACES_EVT_QUEUE, TracesTable,
-        };
-
-        unsafe {
-            LinkedListNode::init_head(TRACES_EVT_QUEUE.as_mut_ptr() as *mut _);
-
-            TL_TRACES_TABLE.as_mut_ptr().write_volatile(TracesTable {
-                traces_queue: TRACES_EVT_QUEUE.as_ptr() as *const _,
-            });
-
-            TL_MAC_802_15_4_TABLE.as_mut_ptr().write_volatile(Mac802_15_4Table {
-                p_cmdrsp_buffer: MAC_802_15_4_CMD_BUFFER.as_mut_ptr().cast(),
-                p_notack_buffer: MAC_802_15_4_NOTIF_RSP_EVT_BUFFER.as_mut_ptr().cast(),
-                evt_queue: core::ptr::null_mut(),
-            });
-        };
-
+    pub async fn shci_c2_mac_802_15_4_init(&mut self) -> Result<SchiCommandStatus, ()> {
         self.write_and_get_response(ShciOpcode::Mac802_15_4Init, &[]).await
     }
 
@@ -90,7 +85,7 @@ impl Sys {
     /// `HW_IPCC_SYS_EvtNot`, aka `IoBusCallBackUserEvt` (as detailed in Figure 65), aka
     /// [crate::sub::ble::hci::host::uart::UartHci::read].
     #[cfg(feature = "ble")]
-    pub async fn shci_c2_ble_init(&self, param: ShciBleInitCmdParam) -> Result<SchiCommandStatus, ()> {
+    pub async fn shci_c2_ble_init(&mut self, param: ShciBleInitCmdParam) -> Result<SchiCommandStatus, ()> {
         self.write_and_get_response(ShciOpcode::BleInit, param.payload()).await
     }
 
@@ -99,14 +94,15 @@ impl Sys {
     /// This method takes the place of the `HW_IPCC_SYS_EvtNot`/`SysUserEvtRx`/`APPE_SysUserEvtRx`,
     /// as the embassy implementation avoids the need to call C public bindings, and instead
     /// handles the event channels directly.
-    pub async fn read(&self) -> EvtBox<mm::MemoryManager> {
-        Ipcc::receive(channels::cpu2::IPCC_SYSTEM_EVENT_CHANNEL, || unsafe {
-            if let Some(node_ptr) = LinkedListNode::remove_head(SYSTEM_EVT_QUEUE.as_mut_ptr()) {
-                Some(EvtBox::new(node_ptr.cast()))
-            } else {
-                None
-            }
-        })
-        .await
+    pub async fn read<'b>(&mut self) -> EvtBox<mm::MemoryManager<'b>> {
+        self.ipcc_system_event_channel
+            .receive(|| unsafe {
+                if let Some(node_ptr) = LinkedListNode::remove_head(SYSTEM_EVT_QUEUE.as_mut_ptr()) {
+                    Some(EvtBox::new(node_ptr.cast()))
+                } else {
+                    None
+                }
+            })
+            .await
     }
 }

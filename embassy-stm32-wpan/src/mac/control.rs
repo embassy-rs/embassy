@@ -20,7 +20,7 @@ use crate::sub::mac::MacTx;
 
 pub struct Control<'a> {
     rx_event_channel: &'a ZeroCopyPubSub<CriticalSectionRawMutex, MacEvent<'a>>,
-    mac_tx: &'a Mutex<CriticalSectionRawMutex, MacTx>,
+    mac_tx: &'a Mutex<CriticalSectionRawMutex, MacTx<'a>>,
     #[allow(unused)]
     network_state: &'a blocking_mutex::Mutex<CriticalSectionRawMutex, RefCell<NetworkState>>,
 }
@@ -28,7 +28,7 @@ pub struct Control<'a> {
 impl<'a> Control<'a> {
     pub(crate) fn new(
         rx_event_channel: &'a ZeroCopyPubSub<CriticalSectionRawMutex, MacEvent<'a>>,
-        mac_tx: &'a Mutex<CriticalSectionRawMutex, MacTx>,
+        mac_tx: &'a Mutex<CriticalSectionRawMutex, MacTx<'a>>,
         network_state: &'a blocking_mutex::Mutex<CriticalSectionRawMutex, RefCell<NetworkState>>,
     ) -> Self {
         Self {
