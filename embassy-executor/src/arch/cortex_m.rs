@@ -48,8 +48,8 @@ pub use thread::*;
 mod thread {
     pub(super) const THREAD_PENDER: usize = usize::MAX;
 
-    use core::arch::asm;
     use core::marker::PhantomData;
+    use cortex_m::asm::wfe;
 
     pub use embassy_executor_macros::main_cortex_m as main;
 
@@ -79,6 +79,12 @@ mod thread {
             }
         }
 
+        /// Put Executor (chip) into default idle state.
+        #[inline(always)]
+        pub fn default_idle() {
+            wfe();
+        }
+
         /// Run the executor.
         ///
         /// The `init` closure is called with a [`Spawner`] that spawns tasks on
@@ -101,10 +107,8 @@ mod thread {
             init(self.inner.spawner());
 
             loop {
-                unsafe {
-                    self.inner.poll();
-                    asm!("wfe");
-                };
+                unsafe { self.inner.poll() };
+                Executor::default_idle();
             }
         }
     }
