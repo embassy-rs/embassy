@@ -147,7 +147,7 @@ impl Ipcc {
             // If bit is set to 1 then interrupt is disabled; we want to enable the interrupt
             regs.cpu(0).mr().modify(|w| w.set_chfm(channel as usize, false));
 
-            compiler_fence(Ordering::SeqCst);
+            compiler_fence(Ordering::Release);
 
             if !regs.cpu(0).sr().read().chf(channel as usize) {
                 // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt

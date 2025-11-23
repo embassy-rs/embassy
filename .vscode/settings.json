@@ -5,6 +5,9 @@
   "[markdown]": {
     "editor.formatOnSave": false
   },
+  "rust-analyzer.rustfmt.extraArgs": [
+    "+nightly"
+  ],
   "rust-analyzer.check.allTargets": false,
   "rust-analyzer.check.noDefaultFeatures": true,
   "rust-analyzer.cargo.noDefaultFeatures": true,
@@ -60,9 +63,5 @@
     // "examples/stm32wb/Cargo.toml",
     // "examples/stm32wl/Cargo.toml",
     // "examples/wasm/Cargo.toml",
-  ],
-  "rust-analyzer.rustfmt.extraArgs": [
-    //Uncomment to run rustfmt with nightly-only settings that match the CI
-    // "+nightly"
   ],
 }
