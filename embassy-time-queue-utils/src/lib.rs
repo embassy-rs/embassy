@@ -23,6 +23,7 @@ pub struct Queue {
 
 impl Queue {
     /// Creates a new timer queue.
+    #[inline]
     pub const fn new() -> Self {
         Self {
             queue: QueueImpl::new(),
@@ -33,11 +34,13 @@ impl Queue {
     ///
     /// If this function returns `true`, the called should find the next expiration time and set
     /// a new alarm for that time.
+    #[inline]
     pub fn schedule_wake(&mut self, at: u64, waker: &Waker) -> bool {
         self.queue.schedule_wake(at, waker)
     }
 
     /// Dequeues expired timers and returns the next alarm time.
+    #[inline]
     pub fn next_expiration(&mut self, now: u64) -> u64 {
         self.queue.next_expiration(now)
     }
