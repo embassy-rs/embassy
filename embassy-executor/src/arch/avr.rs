@@ -19,10 +19,17 @@ mod thread {
         SIGNAL_WORK_THREAD_MODE.store(true, Ordering::SeqCst);
     }
 
-    /// avr Executor
+    /// AVR Executor
+    ///
+    /// This executor enters a low power mode using the AVR's `SLEEP` instruction by default.
+    /// If your chip (or application) requires extra steps, you may use the custom idle-hook
+    /// feature via [`Executor::with_idle_hook`]. Alternatively, you may use the [`raw::Executor`]
+    /// directly to program custom behavior.
     pub struct Executor {
         inner: raw::Executor,
         not_send: PhantomData<*mut ()>,
+        #[cfg(feature = "idle-hook")]
+        idle_hook: fn(&Executor),
     }
 
     impl Executor {
@@ -31,12 +38,24 @@ mod thread {
             Self {
                 inner: raw::Executor::new(core::ptr::null_mut()),
                 not_send: PhantomData,
+                #[cfg(feature = "idle-hook")]
+                idle_hook: Executor::default_idle,
             }
         }
 
-        /// Put Executor (chip) into default idle state.
+        /// Add idle-hook to Executor instance.
+        #[cfg(feature = "idle-hook")]
+        pub fn with_idle_hook(mut self, idle_hook: fn(&Executor)) -> Self {
+            self.idle_hook = idle_hook;
+            self
+        }
+
+        /// Put Executor into default idle state.
+        ///
+        /// This function might also be called from the application's context,
+        /// e.g. from a custom idle-hook.
         #[inline(always)]
-        pub fn default_idle() {
+        pub fn default_idle(&self) {
             avr_device::interrupt::disable();
             if !SIGNAL_WORK_THREAD_MODE.swap(false, Ordering::SeqCst) {
                 // AVR architecture guarantees that when executing SEI (enable interrupts),
@@ -67,13 +86,20 @@ mod thread {
         /// - a `static mut` (unsafe)
         /// - a local variable in a function you know never returns (like `fn main() -> !`), upgrading its lifetime with `transmute`. (unsafe)
         ///
+        /// After all tasks have been polled, this function enters an idle state by either calling
+        /// the inlined [`Executor::default_idle`] function or a custom idle-hook.
+        ///
         /// This function never returns.
         pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
             init(self.inner.spawner());
 
             loop {
                 unsafe { self.inner.poll() };
-                Executor::default_idle();
+
+                #[cfg(feature = "idle-hook")]
+                (self.idle_hook)(self);
+                #[cfg(not(feature = "idle-hook"))]
+                self.default_idle();
             }
         }
     }
