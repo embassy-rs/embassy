@@ -1,6 +1,10 @@
-use core::{mem, slice};
+use core::sync::atomic::{Ordering, compiler_fence};
+use core::{mem, ptr, slice};
 
+use crate::PacketHeader;
+use crate::cmd::CmdPacket;
 use crate::consts::{TL_CS_EVT_SIZE, TL_EVT_HEADER_SIZE, TL_PACKET_HEADER_SIZE};
+use crate::evt::{CcEvt, EvtStub};
 
 const SHCI_OGF: u16 = 0x3F;
 
@@ -19,6 +23,18 @@ pub enum SchiCommandStatus {
     ShciErrInvalidParams = 0x42,   /* only used for release < v1.13.0 */
     ShciErrInvalidParamsV2 = 0x92, /* available for release >= v1.13.0 */
     ShciFusCmdNotSupported = 0xFF,
+}
+
+impl SchiCommandStatus {
+    pub unsafe fn from_packet(cmd_buf: *const CmdPacket) -> Result<Self, ()> {
+        let p_cmd_serial = (cmd_buf as *mut u8).add(size_of::<PacketHeader>());
+        let p_evt_payload = p_cmd_serial.add(size_of::<EvtStub>());
+
+        compiler_fence(Ordering::Acquire);
+        let cc_evt = ptr::read_unaligned(p_evt_payload as *const CcEvt);
+
+        cc_evt.payload[0].try_into()
+    }
 }
 
 impl TryFrom<u8> for SchiCommandStatus {

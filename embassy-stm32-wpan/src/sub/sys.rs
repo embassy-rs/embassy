@@ -4,9 +4,10 @@ use embassy_stm32::ipcc::{IpccRxChannel, IpccTxChannel};
 
 use crate::cmd::CmdPacket;
 use crate::consts::TlPacketType;
-use crate::evt::{CcEvt, EvtBox, EvtPacket};
-#[allow(unused_imports)]
-use crate::shci::{SchiCommandStatus, ShciBleInitCmdParam, ShciOpcode};
+use crate::evt::EvtBox;
+#[cfg(feature = "ble")]
+use crate::shci::ShciBleInitCmdParam;
+use crate::shci::{SchiCommandStatus, ShciOpcode};
 use crate::sub::mm;
 use crate::tables::{SysTable, WirelessFwInfoTable};
 use crate::unsafe_linked_list::LinkedListNode;
@@ -64,13 +65,7 @@ impl<'a> Sys<'a> {
         self.write(opcode, payload).await;
         self.ipcc_system_cmd_rsp_channel.flush().await;
 
-        unsafe {
-            let p_event_packet = SYS_CMD_BUF.as_ptr() as *const EvtPacket;
-            let p_command_event = &((*p_event_packet).evt_serial.evt.payload) as *const _ as *const CcEvt;
-            let p_payload = &((*p_command_event).payload) as *const u8;
-
-            ptr::read_volatile(p_payload).try_into()
-        }
+        unsafe { SchiCommandStatus::from_packet(SYS_CMD_BUF.as_ptr()) }
     }
 
     #[cfg(feature = "mac")]
