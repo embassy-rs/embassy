@@ -812,8 +812,6 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     /// You may want to start this in a new thread as this will block forever
 
     pub async fn waveform_continuous<C: TimerChannel>(&mut self, dma: Peri<'_, impl super::Dma<T, C>>, duty: &[u16]) {
-
-
         use crate::pac::timer::vals::Ccds;
 
         #[allow(clippy::let_unit_value)] // eg. stm32f334
@@ -855,7 +853,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         req: dma::Request,
         channel: Channel,
         duty: &[u16],
-        circular: bool,
+        #[allow(unused_variables)] circular: bool,
     ) {
         let original_duty_state = self.get_compare_value(channel);
         let original_enable_state = self.get_channel_enable_state(channel);

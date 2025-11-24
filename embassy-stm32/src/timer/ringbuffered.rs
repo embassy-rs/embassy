@@ -5,9 +5,24 @@ use core::task::Waker;
 
 use super::low_level::Timer;
 use super::{Channel, GeneralInstance4Channel};
-use crate::dma::ringbuffer::Error;
 use crate::dma::WritableRingBuffer;
+use crate::dma::ringbuffer::Error;
 
+/// A PWM channel that uses a DMA ring buffer for continuous waveform generation.
+///
+/// This allows you to continuously update PWM duty cycles via DMA without blocking the CPU.
+/// The ring buffer enables smooth, uninterrupted waveform generation by automatically cycling
+/// through duty cycle values stored in memory.
+///
+/// You can write new duty cycle values to the ring buffer while it's running, enabling
+/// dynamic waveform generation for applications like motor control, LED dimming, or audio output.
+///
+/// # Example
+/// ```ignore
+/// let mut channel = pwm.ch1().into_ring_buffered_channel(dma_ch, &mut buffer);
+/// channel.start(); // Start DMA transfer
+/// channel.write(&[100, 200, 300]).ok(); // Update duty cycles
+/// ```
 pub struct RingBufferedPwmChannel<'d, T: GeneralInstance4Channel> {
     timer: ManuallyDrop<Timer<'d, T>>,
     ring_buf: WritableRingBuffer<'d, u16>,
@@ -15,7 +30,11 @@ pub struct RingBufferedPwmChannel<'d, T: GeneralInstance4Channel> {
 }
 
 impl<'d, T: GeneralInstance4Channel> RingBufferedPwmChannel<'d, T> {
-    pub(crate) fn new(timer: ManuallyDrop<Timer<'d, T>>, channel: Channel, ring_buf: WritableRingBuffer<'d, u16>) -> Self {
+    pub(crate) fn new(
+        timer: ManuallyDrop<Timer<'d, T>>,
+        channel: Channel,
+        ring_buf: WritableRingBuffer<'d, u16>,
+    ) -> Self {
         Self {
             timer,
             ring_buf,
@@ -148,5 +167,3 @@ pub struct RingBufferedPwmChannels<'d, T: GeneralInstance4Channel> {
     /// Channel 4
     pub ch4: RingBufferedPwmChannel<'d, T>,
 }
-
-

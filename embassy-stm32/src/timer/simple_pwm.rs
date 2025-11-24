@@ -6,11 +6,11 @@ use core::mem::ManuallyDrop;
 use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, Timer};
 use super::ringbuffered::RingBufferedPwmChannel;
 use super::{Ch1, Ch2, Ch3, Ch4, Channel, GeneralInstance4Channel, TimerChannel, TimerPin};
-use crate::dma::WritableRingBuffer;
 use crate::Peri;
+use crate::dma::TransferOptions;
+use crate::dma::WritableRingBuffer;
 #[cfg(not(any(bdma, gpdma)))]
 use crate::dma::{Burst, FifoThreshold};
-use crate::dma::TransferOptions;
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
@@ -379,8 +379,26 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     pub async fn waveform_continuous<C: TimerChannel>(&mut self, dma: Peri<'_, impl super::Dma<T, C>>, duty: &[u16]) {
         self.inner.waveform_continuous(dma, duty).await;
     }
-    pub fn into_ring_buffered_channel<C: TimerChannel>(self, tx_dma: Peri<'d, impl super::Dma<T, C>>, dma_buf: &'d mut [u16]) -> RingBufferedPwmChannel<'d, T> {
+
+    /// Convert this PWM channel into a ring-buffered PWM channel.
+    ///
+    /// This allows continuous PWM waveform generation using a DMA ring buffer.
+    /// The ring buffer enables dynamic updates to the PWM duty cycle without blocking.
+    ///
+    /// # Arguments
+    /// * `tx_dma` - The DMA channel to use for transferring duty cycle values
+    /// * `dma_buf` - The buffer to use as a ring buffer (must be non-empty and <= 65535 elements)
+    ///
+    /// # Panics
+    /// Panics if `dma_buf` is empty or longer than 65535 elements.
+    pub fn into_ring_buffered_channel<C: TimerChannel>(
+        self,
+        tx_dma: Peri<'d, impl super::Dma<T, C>>,
+        dma_buf: &'d mut [u16],
+    ) -> RingBufferedPwmChannel<'d, T> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
+
+        use crate::pac::timer::vals::Ccds;
 
         let channel = C::CHANNEL;
         let request = tx_dma.request();
@@ -393,6 +411,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
             ..Default::default()
         };
 
+        self.inner.set_cc_dma_selection(Ccds::ON_UPDATE);
         let ring_buf = unsafe {
             WritableRingBuffer::new(
                 tx_dma,
@@ -403,11 +422,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
             )
         };
 
-        RingBufferedPwmChannel::new(
-            unsafe { self.inner.clone_unchecked() },
-            channel,
-            ring_buf
-        )
+        RingBufferedPwmChannel::new(unsafe { self.inner.clone_unchecked() }, channel, ring_buf)
     }
 }
 
