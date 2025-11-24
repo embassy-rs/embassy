@@ -412,6 +412,8 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         };
 
         self.inner.set_cc_dma_selection(Ccds::ON_UPDATE);
+        self.inner.set_cc_dma_enable_state(channel, true);
+
         let ring_buf = unsafe {
             WritableRingBuffer::new(
                 tx_dma,
