@@ -34,7 +34,7 @@ const TC6_CHUNK_SIZE: usize = TC6_HDR_SIZE + TC6_CHUNK_PAYLOAD_SIZE;
 /// Bits 27-16: ADDR (Register Address)
 /// Bits 15-8: LEN (Length in DWORDs)
 /// Bits 7-1: Reserved
-/// Bit 0: P (Parity bit - even parity over bits 31:1)
+/// Bit 0: P (Parity bit - odd parity over bits 31:1)
 #[derive(Debug, Clone, Copy)]
 struct Tc6ControlHeader(u32);
 
@@ -45,12 +45,12 @@ impl Tc6ControlHeader {
         // DNC = 0 (control command)
         // WNR = 0 (read)
         // ADDR
-        val |= u32::from(addr) << 16;
+        val |= u32::from(addr) << 8;
         // LEN = 1 (one DWORD)
-        val |= 1u32 << 8;
+        val |= 0u32 << 1;
 
-        // Calculate even parity over bits 31:1
-        let parity = (val >> 1).count_ones() & 1;
+        // Calculate odd parity over bits 31:1
+        let parity = (val | 1u32).count_ones() & 1;
         val |= parity;
 
         Self(val)
@@ -67,8 +67,8 @@ impl Tc6ControlHeader {
         // LEN = 1 (one DWORD)
         val |= 1u32 << 8;
 
-        // Calculate even parity over bits 31:1
-        let parity = (val >> 1).count_ones() & 1;
+        // Calculate odd parity over bits 31:1
+        let parity = (val | 1u32).count_ones() & 1;
         val |= parity;
 
         Self(val)
@@ -90,7 +90,7 @@ impl Tc6ControlHeader {
 /// Bits 10-6: SWO (Start Word Offset)
 /// Bits 5-1: EV (End Valid - byte offset after frame end)
 /// Bit 0: EBO (End Byte Offset)
-/// Bit 0: P (Parity bit - even parity over bits 31:1)
+/// Bit 0: P (Parity bit - odd parity over bits 31:1)
 #[derive(Debug, Clone, Copy)]
 struct Tc6DataHeader(u32);
 
@@ -109,8 +109,8 @@ impl Tc6DataHeader {
         // EV (End Valid)
         val |= u32::from(ev) << 1;
 
-        // Calculate even parity over bits 31:1
-        let parity = (val >> 1).count_ones() & 1;
+        // Calculate odd parity over bits 31:1
+        let parity = (val | 1u32).count_ones() & 1;
         val |= parity;
 
         Self(val)
@@ -139,7 +139,7 @@ impl Tc6DataFooter {
 
     /// Check parity
     fn check_parity(&self) -> bool {
-        let parity = (self.0 >> 1).count_ones() & 1;
+        let parity = (self.0 | 1u32).count_ones() & 1;
         let expected_parity = self.0 & 1;
         parity == expected_parity
     }
@@ -161,15 +161,22 @@ impl<SPI: SpiDevice> Adin1110Protocol for Tc6<SPI> {
         let header_bytes = header.to_bytes();
 
         // Prepare buffers
-        let mut rx_buf = [0u8; 4];
+        let mut rx_buf = [0u8; 8];
 
         // Perform SPI transaction: write header, read response
         let mut ops = [Operation::Write(&header_bytes), Operation::Read(&mut rx_buf)];
 
         self.spi.transaction(&mut ops).await.map_err(AdinError::Spi)?;
 
-        // Parse response
-        let value = u32::from_be_bytes(rx_buf);
+        // Verify echoed header matches sent header
+        let echoed_header = u32::from_be_bytes([rx_buf[0], rx_buf[1], rx_buf[2], rx_buf[3]]);
+        let sent_header = u32::from_be_bytes(header_bytes);
+        if echoed_header != sent_header {
+            return Err(AdinError::SPI_TC6_HEADER_MISMATCH);
+        }
+
+        // Extract register value from bytes 4-7
+        let value = u32::from_be_bytes([rx_buf[4], rx_buf[5], rx_buf[6], rx_buf[7]]);
 
         trace!("TC6 REG Read {} = {:08x}", addr, value);
 

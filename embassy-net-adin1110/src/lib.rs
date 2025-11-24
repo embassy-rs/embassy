@@ -22,6 +22,8 @@ mod regs;
 
 use ch::driver::LinkState;
 pub use crc32::ETH_FCS;
+#[cfg(feature = "defmt")]
+use defmt::Format;
 use embassy_futures::select::{Either, select};
 use embassy_net_driver_channel as ch;
 use embassy_time::Timer;
@@ -41,7 +43,9 @@ use regs::{Config0, Config2, SpiRegisters as sr, Status0, Status1};
 use crate::regs::{LedCntrl, LedFunc, LedPol, LedPolarity};
 
 /// ADIN1110 intern PHY ID
-pub const PHYID: u32 = 0x0283_BC91;
+pub const PHYID_ADIN1110: u32 = 0x0283_BC91;
+/// ADIN2111 intern PHY ID
+pub const PHYID_ADIN2111: u32 = 0x0283_BCA1;
 
 /// Error values ADIN1110
 #[derive(Debug)]
@@ -54,12 +58,14 @@ pub enum AdinError<E> {
     FCS,
     /// SPI Header CRC error
     SPI_CRC,
-    /// Received or sended ethernet packet is too big
+    /// Received or sent ethernet packet is too big
     PACKET_TOO_BIG,
-    /// Received or sended ethernet packet is too small
+    /// Received or sent ethernet packet is too small
     PACKET_TOO_SMALL,
     /// MDIO transaction timeout
     MDIO_ACC_TIMEOUT,
+    /// The echoed TC6 header does not match what was sent
+    SPI_TC6_HEADER_MISMATCH,
 }
 
 /// Type alias `Result` type with `AdinError` as error type.
@@ -101,6 +107,11 @@ impl<const N_RX: usize, const N_TX: usize> State<N_RX, N_TX> {
         Self {
             ch_state: ch::State::new(),
         }
+    }
+}
+impl<const N_RX: usize, const N_TX: usize> Default for State<N_RX, N_TX> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -291,6 +302,7 @@ impl<P: Adin1110Protocol, INT: Wait, RST: OutputPin> Runner<'_, P, INT, RST>
 where
     ADIN1110<P>: MdioBus,
     <ADIN1110<P> as MdioBus>::Error: core::fmt::Debug,
+    P::SpiError: Format,
 {
     /// Run the driver.
     #[allow(clippy::too_many_lines)]
@@ -316,12 +328,13 @@ where
                                     rx_chan.rx_done(n);
                                 }
                                 Err(e) => match e {
-                                    AdinError::PACKET_TOO_BIG => {
-                                        error!("RX Packet too big, DROP");
-                                        self.mac.write_reg(sr::FIFO_CLR, 1).await.unwrap();
-                                    }
-                                    AdinError::PACKET_TOO_SMALL => {
-                                        error!("RX Packet too small, DROP");
+                                    AdinError::PACKET_TOO_BIG | AdinError::PACKET_TOO_SMALL => {
+                                        let size = if matches!(e, AdinError::PACKET_TOO_BIG) {
+                                            "big"
+                                        } else {
+                                            "small"
+                                        };
+                                        error!("RX Packet too {}, DROP", size);
                                         self.mac.write_reg(sr::FIFO_CLR, 1).await.unwrap();
                                     }
                                     AdinError::Spi(e) => {
@@ -616,7 +629,7 @@ pub async fn new_tc6<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: 
 
     // Check PHYID
     let id = mac.read_reg(sr::PHYID).await.unwrap();
-    assert_eq!(id, PHYID);
+    assert_eq!(id, PHYID_ADIN2111);
 
     debug!("SPE: CHIP MAC/ID: {:08x}", id);
 
@@ -644,38 +657,30 @@ pub async fn new_tc6<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: 
 
     // Config2
     let mut config2 = Config2(0x0000_0800);
-    // crc_append must be disable if tx_fcs_validation_enable is true!
+    // crc_append must be disabled if tx_fcs_validation_enable is true!
     config2.set_crc_append(!append_fcs_on_tx);
+    config2.set_port_cut_thru_en(false);
+    config2.set_p1_fwd_unk2host(true);
+    config2.set_p2_fwd_unk2host(true);
     mac.write_reg(sr::CONFIG2, config2.0).await.unwrap();
 
-    // Pin Mux Config 1
-    let led_val = (0b11 << 6) | (0b11 << 4); // | (0b00 << 1);
-    mac.write_cl45(MDIO_PHY_ADDR, RegsC45::DA1E::DIGIO_PINMUX.into(), led_val)
-        .await
-        .unwrap();
+    // Wait for Port 2 PHY to come out of reset
+    let mut crsm_irq_mask: u16;
+    let mut spin_count = 0;
+    loop {
+        spin_count += 1;
+        crsm_irq_mask = mac
+            .read_cl45(MDIO_PHY_ADDR, RegsC45::DA1E::CRSM_IRQ_MASK.into())
+            .await
+            .unwrap();
+        debug!("SPE CHIP: CRSM_IRQ_MASK {:04x}", crsm_irq_mask);
+        Timer::after_millis(1).await;
+        if crsm_irq_mask != 0 || spin_count > 100 {
+            break;
+        }
+    }
 
-    let mut led_pol = LedPolarity(0);
-    led_pol.set_led1_polarity(LedPol::ActiveLow);
-    led_pol.set_led0_polarity(LedPol::ActiveLow);
-
-    // Led Polarity Regisgere Active Low
-    mac.write_cl45(MDIO_PHY_ADDR, RegsC45::DA1E::LED_POLARITY.into(), led_pol.0)
-        .await
-        .unwrap();
-
-    // Led Both On
-    let mut led_cntr = LedCntrl(0x0);
-
-    // LED1: Yellow
-    led_cntr.set_led1_en(true);
-    led_cntr.set_led1_function(LedFunc::TxLevel2P4);
-    // LED0: Green
-    led_cntr.set_led0_en(true);
-    led_cntr.set_led0_function(LedFunc::LinkupTxRxActicity);
-
-    mac.write_cl45(MDIO_PHY_ADDR, RegsC45::DA1E::LED_CNTRL.into(), led_cntr.0)
-        .await
-        .unwrap();
+    // Bristlemouth bm_core initializes each PHY here... possible TODO
 
     // Set ADIN1110 Interrupts, RX_READY and LINK_CHANGE
     // Enable interrupts LINK_CHANGE, TX_RDY, RX_RDY(P1), SPI_ERR
@@ -703,6 +708,9 @@ pub async fn new_tc6<const N_RX: usize, const N_TX: usize, SPI: SpiDevice, INT: 
 
     // Program mac address but also sets mac filters.
     mac.set_mac_addr(&mac_addr).await.unwrap();
+
+    config0.set_sync(true);
+    mac.write_reg(sr::CONFIG0, config0.0).await.unwrap();
 
     let (runner, device) = ch::new(&mut state.ch_state, ch::driver::HardwareAddress::Ethernet(mac_addr));
     (

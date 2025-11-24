@@ -64,14 +64,8 @@ async fn main(spawner: Spawner) {
 
     let mut config = embassy_stm32::Config::default();
     {
-        use embassy_stm32::rcc::{
-            Hse, HseMode, Hsi48Config, Msirange, Pll, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk,
-        };
+        use embassy_stm32::rcc::{Msirange, Pll, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk};
         config.rcc.sys = Sysclk::PLL1_R;
-        config.rcc.hse = Some(Hse {
-            freq: Hertz(16_000_000),
-            mode: HseMode::Oscillator,
-        });
         config.rcc.pll1 = Some(Pll {
             source: PllSource::MSIS,
             prediv: PllPreDiv::DIV3,
@@ -80,7 +74,6 @@ async fn main(spawner: Spawner) {
             divq: Some(PllDiv::DIV2),
             divr: Some(PllDiv::DIV1),
         });
-        config.rcc.hsi48 = Some(Hsi48Config::default());
         config.rcc.msis = Some(Msirange::RANGE_48MHZ);
     }
 
@@ -135,6 +128,12 @@ async fn main(spawner: Spawner) {
 
     static STATE: StaticCell<embassy_net_adin1110::State<8, 8>> = StaticCell::new();
     let state = STATE.init(embassy_net_adin1110::State::<8, 8>::new());
+
+    // On the Bristlemouth dev kit PH1 controls load switches to the ADIN2111
+    let mut adin2111_en = Output::new(dp.PH1, Level::Low, Speed::Low);
+    adin2111_en.set_high();
+    // From page 22 of the ADIN2111 datasheet
+    Timer::after_millis(90).await;
 
     let (device, runner) = embassy_net_adin1110::new_tc6(MAC, state, spe_spi, spe_int, spe_reset_n, false).await;
 

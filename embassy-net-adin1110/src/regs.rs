@@ -121,6 +121,22 @@ bitfield! {
     pub struct Status1(u32);
     impl Debug;
     u32;
+    /// CRC Mismatch on a Tx Frame on Port 2
+    pub p2_txfcse, set_p2_txfcse : 24;
+    /// Rx MAC Interframe Gap Error
+    pub p2_rx_ifg_err, set_p2_rx_ifg_err : 23;
+    /// Transmit Time Stamp Capture Available C
+    pub p2_ttscac, set_p2_ttscac : 22;
+    /// Transmit Time Stamp Capture Available B
+    pub p2_ttscab, set_p2_ttscab : 21;
+    /// Transmit Time Stamp Capture Available A
+    pub p2_ttscaa, set_p2_ttscaa : 20;
+    /// PHY Interrupt for Port 2
+    pub p2_phyint, set_p2_phyint : 19;
+    /// Port 2 Rx Ready High Priority
+    pub p2_rx_rdy_hi, set_p2_rx_rdy_hi : 18;
+    /// Port 2 Rx FIFO Contains Data
+    pub p2_rx_rdy, set_p2_rx_rdy : 17;
     /// ECC Error on Reading the Frame Size from a Tx FIFO
     pub tx_ecc_err, set_tx_ecc_err: 12;
     /// ECC Error on Reading the Frame Size from an Rx FIFO
@@ -177,6 +193,18 @@ bitfield! {
     pub struct Config2(u32);
     impl Debug;
     u32;
+    /// Admit Frames with IFG Errors on Port 2
+    pub p2_rcv_ifg_err_frm, set_p2_rcv_ifg_err_frm : 16;
+    /// Rx Ports Read Order for the OPEN Alliance Data Protocol
+    pub rx_rd_order, set_rx_rd_order : 15;
+    /// Forward Frames from Port 2 Not Matching a MAC Address to Port 1
+    pub p2_fwd_unk2p1, set_p2_fwd_unk2p1 : 14;
+    /// Forward Frames from Port 1 Not Matching a MAC Address to Port 2
+    pub p1_fwd_unk2p2, set_p1_fwd_unk2p2 : 13;
+    /// Forward Frames Not Matching Any MAC Address to the Host
+    pub p2_fwd_unk2host, set_p2_fwd_unk2host : 12;
+    /// Enable Cut Through from Port to Port
+    pub port_cut_thru_en, set_port_cut_thru_en : 11;
     /// Assert TX_RDY When the Tx FIFO is Empty
     pub tx_rdy_on_empty, set_tx_rdy_on_empty : 8;
     /// Determines If the SFD is Detected in the PHY or MAC
