@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 
 [dependencies]
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
-cortex-m-rt = { version = "0.7" }
+cortex-m-rt = { version = "0.7", features = ["set-sp", "set-vtor"] }
 critical-section = "1.2.0"
 defmt = "1.0"
 defmt-rtt = "1.0"

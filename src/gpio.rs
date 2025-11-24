@@ -102,7 +102,7 @@ pub struct AnyPin {
 
 impl AnyPin {
     /// Create an `AnyPin` from raw components.
-    pub fn new(
+    fn new(
         port: usize,
         pin: usize,
         gpio: &'static crate::pac::gpio0::RegisterBlock,
@@ -151,7 +151,7 @@ impl AnyPin {
 
 embassy_hal_internal::impl_peripheral!(AnyPin);
 
-trait SealedPin {
+pub(crate) trait SealedPin {
     fn pin_port(&self) -> usize;
 
     fn port(&self) -> usize {
@@ -297,7 +297,7 @@ macro_rules! impl_pin {
                 }
             }
 
-                impl crate::peripherals::$peri {
+            impl crate::peripherals::$peri {
                 /// Convenience helper to obtain a type-erased handle to this pin.
                 pub fn degrade(&self) -> AnyPin {
                     AnyPin::new(self.port(), self.pin(), self.gpio(), self.port_reg(), self.pcr_reg())
