@@ -130,6 +130,7 @@ impl Queue {
                 // Remove it
                 prev.set(item.next.get());
                 item.next.set(None);
+                item.waker = None;
             }
         }
     }
