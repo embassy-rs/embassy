@@ -442,7 +442,7 @@ checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
 [[package]]
 name = "mcxa-pac"
 version = "0.1.0"
-source = "git+https://github.com/OpenDevicePartnership/mcxa-pac#3b36508ab1ac397861bae3431cc95c204f3ca6e9"
+source = "git+https://github.com/OpenDevicePartnership/mcxa-pac#9a857ec9780527679978b42cc60288aeef03baa2"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",

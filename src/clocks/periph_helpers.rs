@@ -225,8 +225,8 @@ impl SPConfHelper for LpuartConfig {
                 // no ClkrootFunc7, just write manually for now
                 clksel.write(|w| w.bits(0b111));
                 clkdiv.modify(|_r, w| {
-                    w.reset().on();
-                    w.halt().on();
+                    w.reset().asserted();
+                    w.halt().asserted();
                     w
                 });
                 return Ok(0);
@@ -238,18 +238,18 @@ impl SPConfHelper for LpuartConfig {
 
         // Set up clkdiv
         clkdiv.modify(|_r, w| {
-            w.halt().on();
-            w.reset().on();
+            w.halt().asserted();
+            w.reset().asserted();
             unsafe { w.div().bits(self.div.into_bits()) };
             w
         });
         clkdiv.modify(|_r, w| {
-            w.halt().off();
-            w.reset().off();
+            w.halt().deasserted();
+            w.reset().deasserted();
             w
         });
 
-        while clkdiv.read().unstab().is_on() {}
+        while clkdiv.read().unstab().is_unstable() {}
 
         Ok(freq / self.div.into_divisor())
     }
@@ -362,8 +362,8 @@ impl SPConfHelper for AdcConfig {
                     w.mux().bits(0b111)
                 });
                 mrcc0.mrcc_adc_clkdiv().modify(|_r, w| {
-                    w.reset().on();
-                    w.halt().on();
+                    w.reset().asserted();
+                    w.halt().asserted();
                     w
                 });
                 return Ok(0);
@@ -375,18 +375,18 @@ impl SPConfHelper for AdcConfig {
 
         // Set up clkdiv
         mrcc0.mrcc_adc_clkdiv().modify(|_r, w| {
-            w.halt().on();
-            w.reset().on();
+            w.halt().asserted();
+            w.reset().asserted();
             unsafe { w.div().bits(self.div.into_bits()) };
             w
         });
         mrcc0.mrcc_adc_clkdiv().modify(|_r, w| {
-            w.halt().off();
-            w.reset().off();
+            w.halt().deasserted();
+            w.reset().deasserted();
             w
         });
 
-        while mrcc0.mrcc_adc_clkdiv().read().unstab().is_on() {}
+        while mrcc0.mrcc_adc_clkdiv().read().unstab().is_unstable() {}
 
         Ok(freq / self.div.into_divisor())
     }
