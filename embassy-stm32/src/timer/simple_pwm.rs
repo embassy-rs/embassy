@@ -4,8 +4,13 @@ use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 
 use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, Timer};
+use super::ringbuffered::RingBufferedPwmChannel;
 use super::{Ch1, Ch2, Ch3, Ch4, Channel, GeneralInstance4Channel, TimerChannel, TimerPin};
+use crate::dma::WritableRingBuffer;
 use crate::Peri;
+#[cfg(not(any(bdma, gpdma)))]
+use crate::dma::{Burst, FifoThreshold};
+use crate::dma::TransferOptions;
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
@@ -373,6 +378,36 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     #[inline(always)]
     pub async fn waveform_continuous<C: TimerChannel>(&mut self, dma: Peri<'_, impl super::Dma<T, C>>, duty: &[u16]) {
         self.inner.waveform_continuous(dma, duty).await;
+    }
+    pub fn into_ring_buffered_channel<C: TimerChannel>(self, tx_dma: Peri<'d, impl super::Dma<T, C>>, dma_buf: &'d mut [u16]) -> RingBufferedPwmChannel<'d, T> {
+        assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
+
+        let channel = C::CHANNEL;
+        let request = tx_dma.request();
+
+        let opts = TransferOptions {
+            #[cfg(not(any(bdma, gpdma)))]
+            fifo_threshold: Some(FifoThreshold::Full),
+            #[cfg(not(any(bdma, gpdma)))]
+            mburst: Burst::Incr8,
+            ..Default::default()
+        };
+
+        let ring_buf = unsafe {
+            WritableRingBuffer::new(
+                tx_dma,
+                request,
+                self.inner.regs_gp16().ccr(channel.index()).as_ptr() as *mut u16,
+                dma_buf,
+                opts,
+            )
+        };
+
+        RingBufferedPwmChannel::new(
+            unsafe { self.inner.clone_unchecked() },
+            channel,
+            ring_buf
+        )
     }
 }
 

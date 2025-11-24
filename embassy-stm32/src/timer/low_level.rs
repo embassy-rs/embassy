@@ -813,8 +813,6 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
 
     pub async fn waveform_continuous<C: TimerChannel>(&mut self, dma: Peri<'_, impl super::Dma<T, C>>, duty: &[u16]) {
 
-        #[cfg(any(bdma, gpdma))]
-        panic!("unsupported DMA");
 
         use crate::pac::timer::vals::Ccds;
 
