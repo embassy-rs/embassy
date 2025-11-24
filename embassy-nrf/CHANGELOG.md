@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - changed: `gpiote::InputChannel::wait()` now takes a mutable reference to `self` to avoid interference from concurrent calls
 - changed: `gpiote::InputChannel::wait()` now ensures events are seen as soon as the function is called, even if the future is not polled
 - bugfix: use correct flash size for nRF54l
+- changed: add workaround for anomaly 66 on nrf52
 
 ## 0.8.0 - 2025-09-30
 

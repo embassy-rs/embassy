@@ -776,6 +776,30 @@ pub fn init(config: config::Config) -> Peripherals {
         }
     }
 
+    // Workaround for anomaly 66
+    #[cfg(feature = "_nrf52")]
+    {
+        let ficr = pac::FICR;
+        let temp = pac::TEMP;
+        temp.a(0).write_value(ficr.temp().a0().read().0);
+        temp.a(1).write_value(ficr.temp().a1().read().0);
+        temp.a(2).write_value(ficr.temp().a2().read().0);
+        temp.a(3).write_value(ficr.temp().a3().read().0);
+        temp.a(4).write_value(ficr.temp().a4().read().0);
+        temp.a(5).write_value(ficr.temp().a5().read().0);
+        temp.b(0).write_value(ficr.temp().b0().read().0);
+        temp.b(1).write_value(ficr.temp().b1().read().0);
+        temp.b(2).write_value(ficr.temp().b2().read().0);
+        temp.b(3).write_value(ficr.temp().b3().read().0);
+        temp.b(4).write_value(ficr.temp().b4().read().0);
+        temp.b(5).write_value(ficr.temp().b5().read().0);
+        temp.t(0).write_value(ficr.temp().t0().read().0);
+        temp.t(1).write_value(ficr.temp().t1().read().0);
+        temp.t(2).write_value(ficr.temp().t2().read().0);
+        temp.t(3).write_value(ficr.temp().t3().read().0);
+        temp.t(4).write_value(ficr.temp().t4().read().0);
+    }
+
     // GLITCHDET is only accessible for secure code
     #[cfg(all(feature = "_nrf54l", feature = "_s"))]
     {
