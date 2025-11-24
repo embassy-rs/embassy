@@ -36,7 +36,7 @@ async fn main(_spawner: Spawner) {
 
     // Create UART instance using LPUART2 with P2_2 as TX and P2_3 as RX
     unsafe {
-        embassy_mcxa_examples::init_uart2_pins(hal::pac());
+        embassy_mcxa_examples::init_uart2_pins();
     }
     let mut uart = Lpuart::new_blocking(
         p.LPUART2, // Peripheral
@@ -48,7 +48,7 @@ async fn main(_spawner: Spawner) {
     uart.write_str_blocking("\r\n=== ADC interrupt Example ===\r\n");
 
     unsafe {
-        init_adc_pins(hal::pac());
+        init_adc_pins();
     }
 
     let adc_config = LpadcConfig {

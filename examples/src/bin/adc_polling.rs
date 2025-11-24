@@ -22,10 +22,6 @@ const G_LPADC_RESULT_SHIFT: u32 = 0;
 async fn main(_spawner: Spawner) {
     let p = hal::init(hal::config::Config::default());
 
-    unsafe {
-        init_uart2_pins(hal::pac());
-    }
-
     // Create UART configuration
     let config = Config {
         baudrate_bps: 115_200,
@@ -36,7 +32,8 @@ async fn main(_spawner: Spawner) {
 
     // Create UART instance using LPUART2 with P2_2 as TX and P2_3 as RX
     unsafe {
-        init_uart2_pins(hal::pac());
+        init_uart2_pins();
+        init_adc_pins();
     }
     let mut uart = Lpuart::new_blocking(
         p.LPUART2, // Peripheral
@@ -47,10 +44,6 @@ async fn main(_spawner: Spawner) {
     .unwrap();
 
     uart.write_str_blocking("\r\n=== ADC polling Example ===\r\n");
-
-    unsafe {
-        init_adc_pins(hal::pac());
-    }
 
     let adc_config = LpadcConfig {
         enable_in_doze_mode: true,

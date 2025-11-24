@@ -322,21 +322,6 @@ embassy_hal_internal::peripherals!(
     WWDT0,
 );
 
-/// Get access to the PAC Peripherals for low-level register access.
-/// This is a lazy-initialized singleton that can be called after init().
-#[allow(static_mut_refs)]
-pub fn pac() -> &'static pac::Peripherals {
-    // SAFETY: We only call this after init(), and the PAC is a singleton.
-    // The embassy peripheral tokens ensure we don't have multiple mutable accesses.
-    unsafe {
-        static mut PAC_INSTANCE: Option<pac::Peripherals> = None;
-        if PAC_INSTANCE.is_none() {
-            PAC_INSTANCE = Some(pac::Peripherals::steal());
-        }
-        PAC_INSTANCE.as_ref().unwrap()
-    }
-}
-
 // Use cortex-m-rt's #[interrupt] attribute directly; PAC does not re-export it.
 
 // Re-export interrupt traits and types

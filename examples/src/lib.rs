@@ -9,7 +9,7 @@ use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 /// Initialize clocks and pin muxing for UART2 debug console.
 /// Safe to call multiple times; writes are idempotent for our use.
-pub unsafe fn init_uart2_pins(_p: &hal::pac::Peripherals) {
+pub unsafe fn init_uart2_pins() {
     // NOTE: Lpuart has been updated to properly enable + reset its own clocks.
     // GPIO has not.
     _ = clocks::enable_and_reset::<hal::peripherals::PORT2>(&clocks::periph_helpers::NoConfig);
@@ -17,7 +17,7 @@ pub unsafe fn init_uart2_pins(_p: &hal::pac::Peripherals) {
 }
 
 /// Initialize clocks and pin muxing for ADC.
-pub unsafe fn init_adc_pins(_p: &hal::pac::Peripherals) {
+pub unsafe fn init_adc_pins() {
     // NOTE: Lpuart has been updated to properly enable + reset its own clocks.
     // GPIO has not.
     _ = clocks::enable_and_reset::<hal::peripherals::PORT1>(&clocks::periph_helpers::NoConfig);

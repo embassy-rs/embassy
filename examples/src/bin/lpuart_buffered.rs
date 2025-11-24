@@ -32,7 +32,7 @@ async fn main(_spawner: Spawner) {
     hal::interrupt::LPUART2.configure_for_uart(hal::interrupt::Priority::P3);
 
     unsafe {
-        init_uart2_pins(hal::pac());
+        init_uart2_pins();
     }
 
     // UART configuration (enable both TX and RX)

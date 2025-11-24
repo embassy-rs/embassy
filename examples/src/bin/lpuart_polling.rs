@@ -15,7 +15,7 @@ async fn main(_spawner: Spawner) {
 
     // Board-level init for UART2 clocks and pins.
     unsafe {
-        init_uart2_pins(hal::pac());
+        init_uart2_pins();
     }
 
     // Create UART configuration
