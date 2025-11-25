@@ -220,9 +220,11 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     ///
     /// Note:
     /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
-    #[inline(always)]
     pub async fn waveform_up(&mut self, dma: Peri<'_, impl super::UpDma<T>>, channel: Channel, duty: &[u16]) {
-        self.inner.waveform_up(dma, channel, duty).await
+        self.inner.enable_channel(channel, true);
+        self.inner.enable_update_dma(true);
+        self.inner.setup_update_dma(dma, channel, duty).await;
+        self.inner.enable_update_dma(false);
     }
 
     /// Generate a multichannel sequence of PWM waveforms using DMA triggered by timer update events.
@@ -254,7 +256,6 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Also be aware that embassy timers use one of timers internally. It is possible to
     /// switch this timer by using `time-driver-timX` feature.
     ///
-    #[inline(always)]
     pub async fn waveform_up_multi_channel(
         &mut self,
         dma: Peri<'_, impl super::UpDma<T>>,
@@ -262,15 +263,11 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         ending_channel: Channel,
         duty: &[u16],
     ) {
+        self.inner.enable_update_dma(true);
         self.inner
-            .waveform_up_multi_channel(dma, starting_channel, ending_channel, duty)
+            .setup_update_dma_burst(dma, starting_channel, ending_channel, duty)
             .await;
-    }
-
-    /// Generate a sequence of PWM waveform
-    #[inline(always)]
-    pub async fn waveform<C: TimerChannel>(&mut self, dma: Peri<'_, impl super::Dma<T, C>>, duty: &[u16]) {
-        self.inner.waveform(dma, duty).await;
+        self.inner.enable_update_dma(false);
     }
 }
 
