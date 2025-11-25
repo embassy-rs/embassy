@@ -138,7 +138,7 @@ impl<'d> AonTimer<'d> {
         match config.clock_source {
             ClockSource::Xosc => {
                 powman.xosc_freq_khz_int().write(|w| {
-                    w.0 = config.clock_freq_khz | POWMAN_PASSWORD;
+                    w.0 = (config.clock_freq_khz & 0xFFFF) | POWMAN_PASSWORD;
                     *w
                 });
                 powman.xosc_freq_khz_frac().write(|w| {
@@ -148,7 +148,7 @@ impl<'d> AonTimer<'d> {
             }
             ClockSource::Lposc => {
                 powman.lposc_freq_khz_int().write(|w| {
-                    w.0 = config.clock_freq_khz | POWMAN_PASSWORD;
+                    w.0 = (config.clock_freq_khz & 0xFFFF) | POWMAN_PASSWORD;
                     *w
                 });
                 powman.lposc_freq_khz_frac().write(|w| {
