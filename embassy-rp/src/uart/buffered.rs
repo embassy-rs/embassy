@@ -1,8 +1,8 @@
 //! Buffered UART driver.
 use core::future::Future;
 use core::slice;
+use core::sync::atomic::{AtomicU8, Ordering};
 
-use atomic_polyfill::AtomicU8;
 use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 
 use super::*;
@@ -241,7 +241,11 @@ impl BufferedUartRx {
     }
 
     fn get_rx_error(state: &State) -> Option<Error> {
-        let errs = state.rx_error.swap(0, Ordering::Relaxed);
+        let errs = critical_section::with(|_| {
+            let val = state.rx_error.load(Ordering::Relaxed);
+            state.rx_error.store(0, Ordering::Relaxed);
+            val
+        });
         if errs & RXE_OVERRUN != 0 {
             Some(Error::Overrun)
         } else if errs & RXE_BREAK != 0 {
@@ -555,7 +559,10 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for BufferedInterr
                 }
                 let dr = r.uartdr().read();
                 if (dr.0 >> 8) != 0 {
-                    s.rx_error.fetch_or((dr.0 >> 8) as u8, Ordering::Relaxed);
+                    critical_section::with(|_| {
+                        let val = s.rx_error.load(Ordering::Relaxed);
+                        s.rx_error.store(val | ((dr.0 >> 8) as u8), Ordering::Relaxed);
+                    });
                     error = true;
                     // only fill the buffer with valid characters. the current character is fine
                     // if the error is an overrun, but if we add it to the buffer we'll report

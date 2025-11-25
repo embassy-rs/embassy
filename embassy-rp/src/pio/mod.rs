@@ -1,11 +1,11 @@
 //! PIO driver.
+use core::cell::Cell;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin as FuturePin;
-use core::sync::atomic::{Ordering, compiler_fence};
+use core::sync::atomic::{AtomicU8, Ordering, compiler_fence};
 use core::task::{Context, Poll};
 
-use atomic_polyfill::{AtomicU8, AtomicU64};
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use fixed::FixedU32;
@@ -1232,7 +1232,10 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
             w.set_pde(false);
         });
         // we can be relaxed about this because we're &mut here and nothing is cached
-        PIO::state().used_pins.fetch_or(1 << pin.pin_bank(), Ordering::Relaxed);
+        critical_section::with(|_| {
+            let val = PIO::state().used_pins.get();
+            PIO::state().used_pins.set(val | 1 << pin.pin_bank());
+        });
         Pin {
             pin: pin.into(),
             pio: PhantomData::default(),
@@ -1369,7 +1372,7 @@ impl<'d, PIO: Instance> Pio<'d, PIO> {
     /// Create a new instance of a PIO peripheral.
     pub fn new(_pio: Peri<'d, PIO>, _irq: impl Binding<PIO::Interrupt, InterruptHandler<PIO>>) -> Self {
         PIO::state().users.store(5, Ordering::Release);
-        PIO::state().used_pins.store(0, Ordering::Release);
+        critical_section::with(|_| PIO::state().used_pins.set(0));
         PIO::Interrupt::unpend();
 
         unsafe { PIO::Interrupt::enable() };
@@ -1413,13 +1416,20 @@ impl<'d, PIO: Instance> Pio<'d, PIO> {
 // other way.
 pub struct State {
     users: AtomicU8,
-    used_pins: AtomicU64,
+    used_pins: Cell<u64>,
 }
+
+unsafe impl Sync for State {}
 
 fn on_pio_drop<PIO: Instance>() {
     let state = PIO::state();
-    if state.users.fetch_sub(1, Ordering::AcqRel) == 1 {
-        let used_pins = state.used_pins.load(Ordering::Relaxed);
+    let users_state = critical_section::with(|_| {
+        let val = state.users.load(Ordering::Acquire) - 1;
+        state.users.store(val, Ordering::Release);
+        val
+    });
+    if users_state == 1 {
+        let used_pins = critical_section::with(|_| state.used_pins.get());
         let null = pac::io::vals::Gpio0ctrlFuncsel::NULL as _;
         for i in 0..crate::gpio::BANK0_PIN_COUNT {
             if used_pins & (1 << i) != 0 {
@@ -1444,7 +1454,7 @@ trait SealedInstance {
     fn state() -> &'static State {
         static STATE: State = State {
             users: AtomicU8::new(0),
-            used_pins: AtomicU64::new(0),
+            used_pins: Cell::new(0),
         };
 
         &STATE
