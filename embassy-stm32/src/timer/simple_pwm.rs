@@ -396,59 +396,6 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
             .await;
         self.inner.enable_update_dma(false);
     }
-    /// Generate a sequence of PWM waveform that will run continously
-    /// You may want to start this in a new thread as this will block forever
-    #[inline(always)]
-    pub async fn waveform_continuous<C: TimerChannel>(&mut self, dma: Peri<'_, impl super::Dma<T, C>>, duty: &[u16]) {
-        self.inner.waveform_continuous(dma, duty).await;
-    }
-
-    /// Convert this PWM channel into a ring-buffered PWM channel.
-    ///
-    /// This allows continuous PWM waveform generation using a DMA ring buffer.
-    /// The ring buffer enables dynamic updates to the PWM duty cycle without blocking.
-    ///
-    /// # Arguments
-    /// * `tx_dma` - The DMA channel to use for transferring duty cycle values
-    /// * `dma_buf` - The buffer to use as a ring buffer (must be non-empty and <= 65535 elements)
-    ///
-    /// # Panics
-    /// Panics if `dma_buf` is empty or longer than 65535 elements.
-    pub fn into_ring_buffered_channel<C: TimerChannel>(
-        self,
-        tx_dma: Peri<'d, impl super::Dma<T, C>>,
-        dma_buf: &'d mut [u16],
-    ) -> RingBufferedPwmChannel<'d, T> {
-        assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
-
-        use crate::pac::timer::vals::Ccds;
-
-        let channel = C::CHANNEL;
-        let request = tx_dma.request();
-
-        let opts = TransferOptions {
-            #[cfg(not(any(bdma, gpdma)))]
-            fifo_threshold: Some(FifoThreshold::Full),
-            #[cfg(not(any(bdma, gpdma)))]
-            mburst: Burst::Incr8,
-            ..Default::default()
-        };
-
-        self.inner.set_cc_dma_selection(Ccds::ON_UPDATE);
-        self.inner.set_cc_dma_enable_state(channel, true);
-
-        let ring_buf = unsafe {
-            WritableRingBuffer::new(
-                tx_dma,
-                request,
-                self.inner.regs_gp16().ccr(channel.index()).as_ptr() as *mut u16,
-                dma_buf,
-                opts,
-            )
-        };
-
-        RingBufferedPwmChannel::new(unsafe { self.inner.clone_unchecked() }, channel, ring_buf)
-    }
 }
 
 impl<'d, T: GeneralInstance4Channel> embedded_hal_1::pwm::ErrorType for SimplePwmChannel<'d, T> {
