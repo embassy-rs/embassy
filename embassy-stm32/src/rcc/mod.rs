@@ -302,6 +302,7 @@ impl RccInfo {
         increment_stop_refcount(_cs, self.stop_mode);
     }
 
+    #[allow(dead_code)]
     pub(crate) fn increment_stop_refcount(&self) {
         critical_section::with(|cs| self.increment_stop_refcount_with_cs(cs))
     }
@@ -311,6 +312,7 @@ impl RccInfo {
         decrement_stop_refcount(_cs, self.stop_mode);
     }
 
+    #[allow(dead_code)]
     pub(crate) fn decrement_stop_refcount(&self) {
         critical_section::with(|cs| self.decrement_stop_refcount_with_cs(cs))
     }
@@ -323,6 +325,7 @@ impl RccInfo {
         })
     }
 
+    #[allow(dead_code)]
     pub(crate) fn enable_and_reset_without_stop(&self) {
         critical_section::with(|cs| self.enable_and_reset_with_cs(cs))
     }
@@ -336,6 +339,7 @@ impl RccInfo {
     }
 
     // TODO: should this be `unsafe`?
+    #[allow(dead_code)]
     pub(crate) fn disable_without_stop(&self) {
         critical_section::with(|cs| self.disable_with_cs(cs))
     }
