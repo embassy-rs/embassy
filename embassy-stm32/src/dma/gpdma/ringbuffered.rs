@@ -245,9 +245,14 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
     /// Write an exact number of elements to the ringbuffer.
     pub async fn write_exact(&mut self, buffer: &[W]) -> Result<usize, Error> {
-        self.ringbuf
+        match self.ringbuf
             .write_exact(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
-            .await
+            .await {
+                Ok(n) => Ok(n),
+                Err(_) => self.ringbuf
+                              .write_exact(&mut DmaCtrlImpl(self.channel.reborrow()), buffer)
+                              .await
+            }
     }
 
     /// Wait for any ring buffer write error.
