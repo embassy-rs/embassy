@@ -15,6 +15,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added optional "earliest deadline first" EDF scheduling
 - Migrate `cortex-ar` to `aarch32-cpu`. The feature name `arch-cortex-ar` remains the same and
   legacy ARM architectures are not supported.
+- Added `idle-hook` feature for `arch-`(`cortex-m` | `cortex-ar` | `riscv32` | `avr` | `std`)
+  to enable a custom idle-hook for the thread-mode executor
 
 ## 0.9.1 - 2025-08-31
 
