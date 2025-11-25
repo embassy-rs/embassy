@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased - ReleaseDate
 
+- fix: fix incorrect handling of split interrupts in timer driver
 - change: low power: store stop mode for dma channels
 - fix: Fixed ADC4 enable() for WBA
 - feat: allow use of anyadcchannel for adc4

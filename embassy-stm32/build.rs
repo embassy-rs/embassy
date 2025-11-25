@@ -9,7 +9,7 @@ use proc_macro2::{Ident, TokenStream};
 use quote::{format_ident, quote};
 use stm32_metapac::metadata::ir::BitOffset;
 use stm32_metapac::metadata::{
-    ALL_CHIPS, ALL_PERIPHERAL_VERSIONS, METADATA, MemoryRegion, MemoryRegionKind, PeripheralRccKernelClock,
+    ALL_CHIPS, ALL_PERIPHERAL_VERSIONS, METADATA, MemoryRegion, MemoryRegionKind, Peripheral, PeripheralRccKernelClock,
     PeripheralRccRegister, PeripheralRegisters, StopMode,
 };
 
@@ -132,6 +132,9 @@ fn main() {
         singletons.push("BKPSRAM".to_string());
         cfgs.enable("backup_sram")
     }
+
+    // compile a map of peripherals
+    let peripheral_map: BTreeMap<&str, &Peripheral> = METADATA.peripherals.iter().map(|p| (p.name, p)).collect();
 
     // generate one singleton per peripheral (with many exceptions...)
     for p in METADATA.peripherals {
@@ -319,9 +322,33 @@ fn main() {
         _ => panic!("unknown time_driver {:?}", time_driver),
     };
 
-    if !time_driver_singleton.is_empty() {
+    let time_driver_irq_decl = if !time_driver_singleton.is_empty() {
         cfgs.enable(format!("time_driver_{}", time_driver_singleton.to_lowercase()));
-    }
+
+        let p = peripheral_map.get(time_driver_singleton).unwrap();
+        let irqs: BTreeSet<_> = p
+            .interrupts
+            .iter()
+            .filter(|i| i.signal == "CC" || i.signal == "UP")
+            .map(|i| i.interrupt.to_ascii_uppercase())
+            .collect();
+
+        irqs.iter()
+            .map(|i| {
+                let irq = format_ident!("{}", i);
+                quote! {
+                    #[cfg(feature = "rt")]
+                    #[interrupt]
+                    fn #irq() {
+                        crate::time_driver::get_driver().on_interrupt();
+                    }
+                }
+            })
+            .collect()
+    } else {
+        TokenStream::new()
+    };
+
     for tim in [
         "tim1", "tim2", "tim3", "tim4", "tim5", "tim8", "tim9", "tim12", "tim15", "tim20", "tim21", "tim22", "tim23",
         "tim24",
@@ -370,6 +397,8 @@ fn main() {
             )*
         );
     });
+
+    g.extend(time_driver_irq_decl);
 
     // ========
     // Generate FLASH regions
@@ -1862,7 +1891,7 @@ fn main() {
         flash_regions_table.push(row);
     }
 
-    let gpio_base = METADATA.peripherals.iter().find(|p| p.name == "GPIOA").unwrap().address as u32;
+    let gpio_base = peripheral_map.get("GPIOA").unwrap().address as u32;
     let gpio_stride = 0x400;
 
     for pin in METADATA.pins {
@@ -1980,11 +2009,11 @@ fn main() {
             continue;
         }
 
-        let stop_mode = METADATA
-            .peripherals
-            .iter()
-            .find(|p| p.name == ch.dma)
-            .map(|p| p.rcc.as_ref().map(|rcc| rcc.stop_mode.clone()).unwrap_or_default())
+        let dma_peri = peripheral_map.get(ch.dma).unwrap();
+        let stop_mode = dma_peri
+            .rcc
+            .as_ref()
+            .map(|rcc| rcc.stop_mode.clone())
             .unwrap_or_default();
 
         let stop_mode = match stop_mode {
@@ -2009,8 +2038,6 @@ fn main() {
 
         let dma = format_ident!("{}", ch.dma);
         let ch_num = ch.channel as usize;
-
-        let dma_peri = METADATA.peripherals.iter().find(|p| p.name == ch.dma).unwrap();
         let bi = dma_peri.registers.as_ref().unwrap();
 
         let dma_info = match bi.kind {
