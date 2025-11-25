@@ -17,6 +17,7 @@ use crate::gpio::{self, AnyPin, OutputDrive, Pin as GpioPin, SealedPin as _, con
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::spis::vals;
+use crate::ppi::Event;
 use crate::util::slice_in_ram_or;
 use crate::{interrupt, pac};
 
@@ -332,6 +333,20 @@ impl<'d> Spis<'d> {
         compiler_fence(Ordering::SeqCst);
 
         Ok((n_rx, n_tx))
+    }
+
+    /// Returns the ACQUIRED event, for use with PPI.
+    ///
+    /// This event will fire when the semaphore is acquired.
+    pub fn event_acquired(&self) -> Event<'d> {
+        Event::from_reg(self.r.events_acquired())
+    }
+
+    /// Returns the END event, for use with PPI.
+    ///
+    /// This event will fire when the slave transaction is complete.
+    pub fn event_end(&self) -> Event<'d> {
+        Event::from_reg(self.r.events_end())
     }
 
     async fn async_inner(&mut self, rx: &mut [u8], tx: &[u8]) -> Result<(usize, usize), Error> {
