@@ -1,7 +1,7 @@
 //! Configuration for FDCAN Module
 // Note: This file is copied and modified from fdcan crate by Richard Meadows
 
-use core::num::{NonZeroU16, NonZeroU8};
+use core::num::{NonZeroU8, NonZeroU16};
 
 /// Configures the bit timings.
 ///
@@ -360,6 +360,8 @@ pub struct FdCanConfig {
     pub global_filter: GlobalFilter,
     /// TX buffer mode (FIFO or priority queue)
     pub tx_buffer_mode: TxBufferMode,
+    /// Automatic recovery from bus off state
+    pub automatic_bus_off_recovery: bool,
 }
 
 impl FdCanConfig {
@@ -456,6 +458,16 @@ impl FdCanConfig {
         self.tx_buffer_mode = txbm;
         self
     }
+
+    /// Enables or disables automatic recovery from bus off state
+    ///
+    /// Automatic recovery is performed by clearing the INIT bit in the CCCR register if
+    /// the BO bit is active in the IR register in the IT0 interrupt.
+    #[inline]
+    pub const fn set_automatic_bus_off_recovery(mut self, enabled: bool) -> Self {
+        self.automatic_bus_off_recovery = enabled;
+        self
+    }
 }
 
 impl Default for FdCanConfig {
@@ -474,6 +486,7 @@ impl Default for FdCanConfig {
             timestamp_source: TimestampSource::None,
             global_filter: GlobalFilter::default(),
             tx_buffer_mode: TxBufferMode::Priority,
+            automatic_bus_off_recovery: true,
         }
     }
 }

@@ -1,7 +1,12 @@
 #![no_std]
 #![allow(async_fn_in_trait)]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![warn(missing_docs)]
 #![doc = include_str!("../README.md")]
+
+//! ## Feature flags
+#![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
+
 mod fmt;
 
 mod boot_loader;
@@ -341,11 +346,13 @@ mod tests {
             &mut aligned,
         );
 
-        assert!(block_on(updater.verify_and_mark_updated(
-            &public_key.to_bytes(),
-            &signature.to_bytes(),
-            firmware_len as u32,
-        ))
-        .is_ok());
+        assert!(
+            block_on(updater.verify_and_mark_updated(
+                &public_key.to_bytes(),
+                &signature.to_bytes(),
+                firmware_len as u32,
+            ))
+            .is_ok()
+        );
     }
 }

@@ -2,9 +2,9 @@
 
 use super::low_level::{CountingMode, InputCaptureMode, InputTISelection, SlaveMode, Timer, TriggerSource};
 use super::{Ch1, Ch2, Channel, GeneralInstance4Channel, TimerPin};
+use crate::Peri;
 use crate::gpio::{AfType, Pull};
 use crate::time::Hertz;
-use crate::Peri;
 
 /// PWM Input driver.
 ///
@@ -47,6 +47,7 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         inner.set_counting_mode(CountingMode::EdgeAlignedUp);
         inner.set_tick_freq(freq);
         inner.enable_outputs(); // Required for advanced timers, see GeneralInstance4Channel for details
+        inner.generate_update_event();
         inner.start();
 
         // Configuration steps from ST RM0390 (STM32F446) chapter 17.3.6

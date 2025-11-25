@@ -28,12 +28,13 @@ pub use hsi48::*;
 #[cfg_attr(any(stm32l0, stm32l1, stm32l4, stm32l5, stm32wb, stm32wl, stm32u0), path = "l.rs")]
 #[cfg_attr(stm32u5, path = "u5.rs")]
 #[cfg_attr(stm32wba, path = "wba.rs")]
+#[cfg_attr(stm32n6, path = "n6.rs")]
 mod _version;
 
 pub use _version::*;
 use stm32_metapac::RCC;
 
-pub use crate::_generated::{mux, Clocks};
+pub use crate::_generated::{Clocks, mux};
 use crate::time::Hertz;
 
 #[cfg(feature = "low-power")]
@@ -47,6 +48,12 @@ pub(crate) static mut REFCOUNT_STOP1: u32 = 0;
 ///
 /// May be read without a critical section
 pub(crate) static mut REFCOUNT_STOP2: u32 = 0;
+
+#[cfg(feature = "low-power")]
+pub(crate) static mut RCC_CONFIG: Option<Config> = None;
+
+#[cfg(backup_sram)]
+pub(crate) static mut BKSRAM_RETAINED: bool = false;
 
 #[cfg(not(feature = "_dual-core"))]
 /// Frozen clock frequencies
@@ -104,6 +111,32 @@ pub fn clocks<'a>(_rcc: &'a crate::Peri<'a, crate::peripherals::RCC>) -> &'a Clo
     unsafe { get_freqs() }
 }
 
+#[cfg(feature = "low-power")]
+pub(crate) fn increment_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
+    match stop_mode {
+        StopMode::Standby => {}
+        StopMode::Stop2 => unsafe {
+            REFCOUNT_STOP2 += 1;
+        },
+        StopMode::Stop1 => unsafe {
+            REFCOUNT_STOP1 += 1;
+        },
+    }
+}
+
+#[cfg(feature = "low-power")]
+pub(crate) fn decrement_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
+    match stop_mode {
+        StopMode::Standby => {}
+        StopMode::Stop2 => unsafe {
+            REFCOUNT_STOP2 -= 1;
+        },
+        StopMode::Stop1 => unsafe {
+            REFCOUNT_STOP1 -= 1;
+        },
+    }
+}
+
 pub(crate) trait SealedRccPeripheral {
     fn frequency() -> Hertz;
     #[allow(dead_code)]
@@ -134,12 +167,19 @@ pub(crate) struct RccInfo {
     stop_mode: StopMode,
 }
 
+/// Specifies a limit for the stop mode of the peripheral or the stop mode to be entered.
+/// E.g. if `StopMode::Stop1` is selected, the peripheral prevents the chip from entering Stop1 mode.
 #[cfg(feature = "low-power")]
 #[allow(dead_code)]
-pub(crate) enum StopMode {
-    Standby,
-    Stop2,
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum StopMode {
+    #[default]
+    /// Peripheral prevents chip from entering Stop1 or executor will enter Stop1
     Stop1,
+    /// Peripheral prevents chip from entering Stop2 or executor will enter Stop2
+    Stop2,
+    /// Peripheral does not prevent chip from entering Stop
+    Standby,
 }
 
 impl RccInfo {
@@ -195,15 +235,7 @@ impl RccInfo {
         }
 
         #[cfg(feature = "low-power")]
-        match self.stop_mode {
-            StopMode::Standby => {}
-            StopMode::Stop2 => unsafe {
-                REFCOUNT_STOP2 += 1;
-            },
-            StopMode::Stop1 => unsafe {
-                REFCOUNT_STOP1 += 1;
-            },
-        }
+        increment_stop_refcount(_cs, self.stop_mode);
 
         // set the xxxRST bit
         let reset_ptr = self.reset_ptr();
@@ -261,15 +293,7 @@ impl RccInfo {
         }
 
         #[cfg(feature = "low-power")]
-        match self.stop_mode {
-            StopMode::Standby => {}
-            StopMode::Stop2 => unsafe {
-                REFCOUNT_STOP2 -= 1;
-            },
-            StopMode::Stop1 => unsafe {
-                REFCOUNT_STOP1 -= 1;
-            },
-        }
+        decrement_stop_refcount(_cs, self.stop_mode);
 
         // clear the xxxEN bit
         let enable_ptr = self.enable_ptr();
@@ -390,7 +414,7 @@ pub fn disable<T: RccPeripheral>() {
 ///
 /// This should only be called after `init`.
 #[cfg(not(feature = "_dual-core"))]
-pub fn reinit<'a>(config: Config, _rcc: &'a mut crate::Peri<'a, crate::peripherals::RCC>) {
+pub fn reinit(config: Config, _rcc: &'_ mut crate::Peri<'_, crate::peripherals::RCC>) {
     critical_section::with(|cs| init_rcc(cs, config))
 }
 
@@ -404,8 +428,39 @@ pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
 
         #[cfg(feature = "low-power")]
         {
+            RCC_CONFIG = Some(config);
             REFCOUNT_STOP2 = 0;
             REFCOUNT_STOP1 = 0;
         }
     }
+}
+
+/// Calculate intermediate prescaler number used to calculate peripheral prescalers
+///
+/// This function is intended to calculate a number indicating a minimum division
+/// necessary to result in a frequency lower than the provided `freq_max`.
+///
+/// The returned value indicates the `val + 1` divider is necessary to result in
+/// the output frequency that is below the maximum provided.
+///
+/// For example:
+/// 0 = divider of 1 => no division necessary as the input frequency is below max
+/// 1 = divider of 2 => division by 2 necessary
+/// ...
+///
+/// The provided max frequency is inclusive. So if `freq_in == freq_max` the result
+/// will be 0, indicating that no division is necessary. To accomplish that we subtract
+/// 1 from the input frequency so that the integer rounding plays in our favor.
+///
+/// For example:
+/// Let the input frequency be 110 and the max frequency be 55.
+/// If we naiively do `110/55 = 2` the renult will indicate that we need a divider by 3
+/// which in reality will be rounded up to 4 as usually a 3 division is not available.
+/// In either case the resulting frequency will be either 36 or 27 which is lower than
+/// what we would want. The result should be 1.
+/// If we do the following instead `109/55 = 1` indicating that we need a divide by 2
+/// which will result in the correct 55.
+#[allow(unused)]
+pub(crate) fn raw_prescaler(freq_in: u32, freq_max: u32) -> u32 {
+    freq_in.saturating_sub(1) / freq_max
 }

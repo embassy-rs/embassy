@@ -3,16 +3,16 @@
 //! FIXME: Add request_pause functionality?
 //! FIXME: Stop the DMA, if a user does not queue new transfers (chain of linked-list items ends automatically).
 use core::future::poll_fn;
-use core::sync::atomic::{fence, Ordering};
+use core::sync::atomic::{Ordering, fence};
 use core::task::Waker;
 
 use embassy_hal_internal::Peri;
 
-use super::{AnyChannel, TransferOptions, STATE};
+use super::{AnyChannel, STATE, TransferOptions};
 use crate::dma::gpdma::linked_list::{RunMode, Table};
 use crate::dma::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use crate::dma::word::Word;
-use crate::dma::{Channel, Dir, Request};
+use crate::dma::{BusyChannel, Channel, Dir, Request};
 
 struct DmaCtrlImpl<'a>(Peri<'a, AnyChannel>);
 
@@ -49,7 +49,7 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
 
 /// Ringbuffer for receiving data using GPDMA linked-list mode.
 pub struct ReadableRingBuffer<'a, W: Word> {
-    channel: Peri<'a, AnyChannel>,
+    channel: BusyChannel<'a>,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
     table: Table<2>,
     options: TransferOptions,
@@ -70,7 +70,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         let table = Table::<2>::new_ping_pong::<W>(request, peri_addr, buffer, Dir::PeripheralToMemory);
 
         Self {
-            channel,
+            channel: BusyChannel::new(channel),
             ringbuf: ReadableDmaRingBuffer::new(buffer),
             table,
             options,
@@ -189,7 +189,7 @@ impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
 
 /// Ringbuffer for writing data using GPDMA linked-list mode.
 pub struct WritableRingBuffer<'a, W: Word> {
-    channel: Peri<'a, AnyChannel>,
+    channel: BusyChannel<'a>,
     ringbuf: WritableDmaRingBuffer<'a, W>,
     table: Table<2>,
     options: TransferOptions,
@@ -210,7 +210,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         let table = Table::<2>::new_ping_pong::<W>(request, peri_addr, buffer, Dir::MemoryToPeripheral);
 
         Self {
-            channel,
+            channel: BusyChannel::new(channel),
             ringbuf: WritableDmaRingBuffer::new(buffer),
             table,
             options,

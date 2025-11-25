@@ -19,8 +19,8 @@ use core::marker::PhantomData;
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
-use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::PeripheralType;
+use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::{ChannelAndRequest, TransferOptions};
@@ -28,11 +28,11 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk, Txmode};
 pub use crate::pac::ucpd::vals::{Phyccsel as CcSel, Rxordset, TypecVstateCc as CcVState};
 use crate::rcc::{self, RccPeripheral};
-use crate::{interrupt, Peri};
+use crate::{Peri, interrupt};
 
 pub(crate) fn init(
     _cs: critical_section::CriticalSection,
-    #[cfg(peri_ucpd1)] ucpd1_db_enable: bool,
+    #[cfg(all(peri_ucpd1, not(stm32n6)))] ucpd1_db_enable: bool,
     #[cfg(peri_ucpd2)] ucpd2_db_enable: bool,
 ) {
     #[cfg(stm32g0x1)]
@@ -349,6 +349,7 @@ impl<'d, T: Instance> CcPhy<'d, T> {
         critical_section::with(|cs| {
             init(
                 cs,
+                #[cfg(not(stm32n6))]
                 false,
                 #[cfg(peri_ucpd2)]
                 false,

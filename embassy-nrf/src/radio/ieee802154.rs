@@ -1,18 +1,18 @@
 //! IEEE 802.15.4 radio driver
 
 use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 
 use super::{Error, InterruptHandler, TxPower};
+use crate::Peri;
 use crate::interrupt::typelevel::Interrupt;
 use crate::interrupt::{self};
 use crate::pac::radio::vals;
 pub use crate::pac::radio::vals::State as RadioState;
 use crate::radio::Instance;
-use crate::Peri;
 
 /// Default (IEEE compliant) Start of Frame Delimiter
 pub const DEFAULT_SFD: u8 = 0xA7;
@@ -52,6 +52,7 @@ impl<'d> Radio<'d> {
         // Disable and enable to reset peripheral
         r.power().write(|w| w.set_power(false));
         r.power().write(|w| w.set_power(true));
+        errata::post_power();
 
         // Enable 802.15.4 mode
         r.mode().write(|w| w.set_mode(vals::Mode::IEEE802154_250KBIT));
@@ -540,4 +541,20 @@ fn dma_start_fence() {
 /// NOTE must be preceded by a volatile read operation
 fn dma_end_fence() {
     compiler_fence(Ordering::Acquire);
+}
+
+mod errata {
+    pub fn post_power() {
+        // Workaround for anomaly 158
+        #[cfg(feature = "_nrf5340-net")]
+        for i in 0..32 {
+            let info = crate::pac::FICR.trimcnf(i);
+            let addr = info.addr().read();
+            if addr & 0xFFFF_F000 == crate::pac::RADIO.as_ptr() as u32 {
+                unsafe {
+                    (addr as *mut u32).write_volatile(info.data().read());
+                }
+            }
+        }
+    }
 }

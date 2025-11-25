@@ -4,7 +4,7 @@ use crate::gpio::{AfType, OutputType, Speed};
 use crate::time::Hertz;
 
 #[repr(u8)]
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// Bits of the I2C OA2 register to mask out.
 pub enum AddrMask {
@@ -60,7 +60,7 @@ impl Address {
     }
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// The second Own Address register.
 pub struct OA2 {
@@ -70,7 +70,7 @@ pub struct OA2 {
     pub mask: AddrMask,
 }
 
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// The Own Address(es) of the I2C peripheral.
 pub enum OwnAddresses {
@@ -88,7 +88,7 @@ pub enum OwnAddresses {
 }
 
 /// Slave Configuration
-#[derive(Copy, Clone)]
+#[derive(Debug, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct SlaveAddrConfig {
     /// Target Address(es)

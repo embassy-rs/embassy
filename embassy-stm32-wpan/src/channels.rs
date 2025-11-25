@@ -48,9 +48,20 @@
 //!  |<----HW_IPCC_TRACES_CHANNEL----------------------|
 //!  |                                                 |
 //!
+//!
+
+#[repr(u8)]
+pub enum IpccChannel {
+    Channel1 = 1,
+    Channel2 = 2,
+    Channel3 = 3,
+    Channel4 = 4,
+    Channel5 = 5,
+    Channel6 = 6,
+}
 
 pub mod cpu1 {
-    use embassy_stm32::ipcc::IpccChannel;
+    use super::IpccChannel;
 
     pub const IPCC_BLE_CMD_CHANNEL: IpccChannel = IpccChannel::Channel1;
     pub const IPCC_SYSTEM_CMD_RSP_CHANNEL: IpccChannel = IpccChannel::Channel2;
@@ -70,7 +81,7 @@ pub mod cpu1 {
 }
 
 pub mod cpu2 {
-    use embassy_stm32::ipcc::IpccChannel;
+    use super::IpccChannel;
 
     pub const IPCC_BLE_EVENT_CHANNEL: IpccChannel = IpccChannel::Channel1;
     pub const IPCC_SYSTEM_EVENT_CHANNEL: IpccChannel = IpccChannel::Channel2;

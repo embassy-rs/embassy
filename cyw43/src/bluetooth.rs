@@ -15,7 +15,7 @@ use crate::bus::Bus;
 pub use crate::bus::SpiBusCyw43;
 use crate::consts::*;
 use crate::util::round_up;
-use crate::{util, CHIP};
+use crate::{CHIP, util};
 
 pub(crate) struct BtState {
     rx: [BtPacketBuf; 4],

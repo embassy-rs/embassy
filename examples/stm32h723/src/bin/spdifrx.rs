@@ -7,9 +7,9 @@
 
 use defmt::{info, trace};
 use embassy_executor::Spawner;
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_stm32::spdifrx::{self, Spdifrx};
-use embassy_stm32::{bind_interrupts, peripherals, sai, Peri};
+use embassy_stm32::{Peri, bind_interrupts, peripherals, sai};
 use grounded::uninit::GroundedArrayCell;
 use hal::sai::*;
 use {defmt_rtt as _, embassy_stm32 as hal, panic_probe as _};
@@ -167,7 +167,7 @@ fn new_sai_transmitter<'d>(
     sai_config.slot_count = hal::sai::word::U4(CHANNEL_COUNT as u8);
     sai_config.slot_enable = 0xFFFF; // All slots
     sai_config.data_size = sai::DataSize::Data32;
-    sai_config.frame_length = (CHANNEL_COUNT * 32) as u8;
+    sai_config.frame_length = (CHANNEL_COUNT * 32) as u16;
     sai_config.master_clock_divider = None;
 
     let (sub_block_tx, _) = hal::sai::split_subblocks(sai);

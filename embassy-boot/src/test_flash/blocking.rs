@@ -1,8 +1,8 @@
 use core::cell::RefCell;
 
 use embassy_embedded_hal::flash::partition::BlockingPartition;
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embedded_storage::nor_flash::NorFlash;
 
 use crate::BootLoaderConfig;

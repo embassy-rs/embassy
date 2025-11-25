@@ -11,9 +11,9 @@ use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use sdio_host::common_cmd::{self, Resp, ResponseLen};
-use sdio_host::emmc::{ExtCSD, EMMC};
-use sdio_host::sd::{BusWidth, CardCapacity, CardStatus, CurrentState, SDStatus, CIC, CID, CSD, OCR, RCA, SCR, SD};
-use sdio_host::{emmc_cmd, sd_cmd, Cmd};
+use sdio_host::emmc::{EMMC, ExtCSD};
+use sdio_host::sd::{BusWidth, CIC, CID, CSD, CardCapacity, CardStatus, CurrentState, OCR, RCA, SCR, SD, SDStatus};
+use sdio_host::{Cmd, emmc_cmd, sd_cmd};
 
 #[cfg(sdmmc_v1)]
 use crate::dma::ChannelAndRequest;
@@ -1032,12 +1032,13 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
 
     /// Wait for a previously started datapath transfer to complete from an interrupt.
     #[inline]
+    #[allow(unused)]
     async fn complete_datapath_transfer(block: bool) -> Result<(), Error> {
-        let regs = T::regs();
-
         let res = poll_fn(|cx| {
+            // Compiler might not be sufficiently constrained here
+            // https://github.com/embassy-rs/embassy/issues/4723
             T::state().register(cx.waker());
-            let status = regs.star().read();
+            let status = T::regs().star().read();
 
             if status.dcrcfail() {
                 return Poll::Ready(Err(Error::Crc));
@@ -1052,10 +1053,13 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
             if status.stbiterr() {
                 return Poll::Ready(Err(Error::StBitErr));
             }
+            #[cfg(sdmmc_v1)]
             let done = match block {
                 true => status.dbckend(),
                 false => status.dataend(),
             };
+            #[cfg(sdmmc_v2)]
+            let done = status.dataend();
             if done {
                 return Poll::Ready(Ok(()));
             }

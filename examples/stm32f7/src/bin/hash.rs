@@ -4,7 +4,7 @@
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::hash::*;
-use embassy_stm32::{bind_interrupts, hash, peripherals, Config};
+use embassy_stm32::{Config, bind_interrupts, hash, peripherals};
 use embassy_time::Instant;
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};

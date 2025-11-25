@@ -8,11 +8,11 @@ use core::task::{Context, Poll};
 use super::low_level::{CountingMode, FilterValue, InputCaptureMode, InputTISelection, Timer};
 use super::{CaptureCompareInterruptHandler, Channel, GeneralInstance4Channel, TimerPin};
 pub use super::{Ch1, Ch2, Ch3, Ch4};
+use crate::Peri;
 use crate::gpio::{AfType, AnyPin, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::time::Hertz;
 use crate::timer::TimerChannel;
-use crate::Peri;
 
 /// Capture pin wrapper.
 ///
@@ -60,6 +60,7 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         this.inner.set_counting_mode(counting_mode);
         this.inner.set_tick_freq(freq);
         this.inner.enable_outputs(); // Required for advanced timers, see GeneralInstance4Channel for details
+        this.inner.generate_update_event();
         this.inner.start();
 
         // enable NVIC interrupt

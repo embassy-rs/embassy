@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 #![deny(unused_must_use)]
@@ -9,12 +10,12 @@ mod fmt;
 pub mod context;
 
 use core::cell::RefCell;
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
 use core::mem::{self, MaybeUninit};
 use core::ptr::{self, addr_of, addr_of_mut, copy_nonoverlapping};
 use core::slice;
-use core::sync::atomic::{compiler_fence, fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence, fence};
 use core::task::{Poll, Waker};
 
 use cortex_m::peripheral::NVIC;
@@ -139,9 +140,7 @@ async fn new_internal<'a>(
     debug!("Setting IPC RAM as nonsecure...");
     trace!(
         "  SPU_REGION_SIZE={}, shmem_ptr=0x{:08X}, shmem_len={}",
-        SPU_REGION_SIZE,
-        shmem_ptr as usize,
-        shmem_len
+        SPU_REGION_SIZE, shmem_ptr as usize, shmem_len
     );
     let region_start = (shmem_ptr as usize - 0x2000_0000) / SPU_REGION_SIZE;
     let region_end = region_start + shmem_len / SPU_REGION_SIZE;
@@ -165,8 +164,7 @@ async fn new_internal<'a>(
     };
     trace!(
         "  Allocator: start=0x{:08X}, end=0x{:08X}",
-        alloc.start as usize,
-        alloc.end as usize
+        alloc.start as usize, alloc.end as usize
     );
 
     let cb: &mut ControlBlock = alloc.alloc().write(unsafe { mem::zeroed() });

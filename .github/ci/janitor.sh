@@ -9,7 +9,7 @@ export CARGO_HOME=/ci/cache/cargo
 export CARGO_TARGET_DIR=/ci/cache/target
 export PATH=$CARGO_HOME/bin:$PATH
 
-cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev 676e6d602bf016dc71f1e98f2c7f191d7bd20707
+cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev d015fd5e972a3e550ebef0da6748099b88a93ba6
 
 cargo embassy-devtool check-crlf
 cargo embassy-devtool check-manifest
