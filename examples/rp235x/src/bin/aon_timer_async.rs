@@ -68,7 +68,7 @@ async fn main(_spawner: Spawner) {
 
         // Wait asynchronously for the alarm
         // The CPU will enter WFI low-power mode during this time
-        info!("Waiting for alarm (CPU will enter low-power mode)...");
+        info!("Waiting for alarm...");
         aon.wait_for_alarm().await;
 
         led.set_low();
