@@ -2,38 +2,27 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa as hal;
-use embassy_mcxa::interrupt::typelevel::Handler;
+use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::lpuart::buffered::BufferedLpuart;
 use embassy_mcxa::lpuart::Config;
 use embassy_mcxa::{bind_interrupts, lpuart};
-use embassy_mcxa_examples::init_uart2_pins;
-use embedded_io_async::{Read, Write};
+use embedded_io_async::Write;
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Bind OS_EVENT for timers plus LPUART2 IRQ for the buffered driver
 bind_interrupts!(struct Irqs {
     LPUART2 => lpuart::buffered::BufferedInterruptHandler::<hal::peripherals::LPUART2>;
 });
 
-// Wrapper function for the interrupt handler
-unsafe extern "C" fn lpuart2_handler() {
-    lpuart::buffered::BufferedInterruptHandler::<hal::peripherals::LPUART2>::on_interrupt();
-}
-
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = hal::init(hal::config::Config::default());
-
-    unsafe {
-        hal::interrupt::install_irq_handler(hal::pac::Interrupt::LPUART2, lpuart2_handler);
-    }
+    let mut cfg = hal::config::Config::default();
+    cfg.clock_cfg.sirc.fro_12m_enabled = true;
+    cfg.clock_cfg.sirc.fro_lf_div = Some(Div8::no_div());
+    let p = hal::init(cfg);
 
     // Configure NVIC for LPUART2
     hal::interrupt::LPUART2.configure_for_uart(hal::interrupt::Priority::P3);
-
-    unsafe {
-        init_uart2_pins();
-    }
 
     // UART configuration (enable both TX and RX)
     let config = Config {
@@ -69,7 +58,7 @@ async fn main(_spawner: Spawner) {
     // Echo loop
     let mut buf = [0u8; 4];
     loop {
-        rx.read_exact(&mut buf[..]).await.unwrap();
-        tx.write_all(&buf[..]).await.unwrap();
+        let used = rx.read(&mut buf).await.unwrap();
+        tx.write_all(&buf[..used]).await.unwrap();
     }
 }

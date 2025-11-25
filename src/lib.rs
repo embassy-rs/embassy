@@ -88,6 +88,7 @@ embassy_hal_internal::peripherals!(
     LPUART2,
     LPUART3,
     LPUART4,
+    LPUART5,
 
     MAU0,
     MBC0,

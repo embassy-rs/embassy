@@ -21,6 +21,11 @@ impl Div8 {
         Self(n)
     }
 
+    /// Divide by one, or no division
+    pub const fn no_div() -> Self {
+        Self(0)
+    }
+
     /// Store a specific divisor value that will divide the source
     /// by `n`. e.g. `Div8::from_divisor(1)` will divide the source
     /// by 1, and `Div8::from_divisor(256)` will divide the source

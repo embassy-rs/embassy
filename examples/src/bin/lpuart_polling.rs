@@ -2,21 +2,19 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa_examples::init_uart2_pins;
+use embassy_mcxa::clocks::config::Div8;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 use crate::hal::lpuart::{Config, Lpuart};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = hal::init(hal::config::Config::default());
+    let mut cfg = hal::config::Config::default();
+    cfg.clock_cfg.sirc.fro_12m_enabled = true;
+    cfg.clock_cfg.sirc.fro_lf_div = Some(Div8::no_div());
+    let p = hal::init(cfg);
 
     defmt::info!("boot");
-
-    // Board-level init for UART2 clocks and pins.
-    unsafe {
-        init_uart2_pins();
-    }
 
     // Create UART configuration
     let config = Config {

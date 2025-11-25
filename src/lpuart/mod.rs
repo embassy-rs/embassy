@@ -5,11 +5,12 @@ use paste::paste;
 
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel, LpuartConfig};
 use crate::clocks::{enable_and_reset, ClockError, Gate, PoweredClock};
+use crate::gpio::SealedPin;
 use crate::pac::lpuart0::baud::Sbns as StopBits;
 use crate::pac::lpuart0::ctrl::{Idlecfg as IdleConfig, Ilt as IdleType, Pt as Parity, M as DataBits};
 use crate::pac::lpuart0::modir::{Txctsc as TxCtsConfig, Txctssrc as TxCtsSource};
 use crate::pac::lpuart0::stat::Msbf as MsbFirst;
-use crate::{interrupt, pac};
+use crate::{interrupt, pac, AnyPin};
 
 pub mod buffered;
 
@@ -19,55 +20,6 @@ pub mod buffered;
 
 // Stub implementation for LIB (Peripherals), GPIO, DMA and CLOCK until stable API
 // Pin and Clock initialization is currently done at the examples level.
-
-// --- START GPIO ---
-
-mod gpio {
-    use embassy_hal_internal::PeripheralType;
-    trait SealedPin {}
-
-    #[allow(private_bounds)]
-    pub trait GpioPin: SealedPin + Sized + PeripheralType + Into<AnyPin> + 'static {
-        /// Type-erase the pin.
-        fn degrade(self) -> AnyPin {
-            todo!()
-        }
-    }
-
-    // Add this macro to implement GpioPin for all pins
-    macro_rules! impl_gpio_pin {
-        ($($pin:ident),*) => {
-            $(
-                impl SealedPin for crate::peripherals::$pin {}
-
-                impl GpioPin for crate::peripherals::$pin {}
-
-                impl From<crate::peripherals::$pin> for AnyPin {
-                    // TODO: AJM: any reason we aren't using $pin?
-                    fn from(_val: crate::peripherals::$pin) -> Self {
-                        AnyPin
-                    }
-                }
-            )*
-        };
-    }
-
-    // Implement GpioPin for all pins from lib.rs
-    impl_gpio_pin!(P2_2, P2_3);
-
-    #[derive(Debug, Clone, Copy)]
-    pub struct AnyPin;
-
-    impl PeripheralType for AnyPin {}
-
-    pub enum Alt {
-        ALT3,
-    }
-}
-
-use gpio::{AnyPin, GpioPin as Pin};
-
-// --- END GPIO ---
 
 // --- START DMA ---
 mod dma {
@@ -144,8 +96,7 @@ macro_rules! impl_instance {
     };
 }
 
-// impl_instance!(0, 1, 2, 3, 4);
-impl_instance!(2);
+impl_instance!(0, 1, 2, 3, 4, 5);
 
 // ============================================================================
 // INSTANCE HELPER FUNCTIONS
@@ -391,54 +342,184 @@ pub fn has_data(regs: Regs) -> bool {
 // PIN TRAITS FOR LPUART FUNCTIONALITY
 // ============================================================================
 
-impl<T: Pin> sealed::Sealed for T {}
+impl<T: SealedPin> sealed::Sealed for T {}
 
 /// io configuration trait for Lpuart Tx configuration
-pub trait TxPin<T: Instance>: Pin + sealed::Sealed + PeripheralType {
+pub trait TxPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
     /// convert the pin to appropriate function for Lpuart Tx  usage
     fn as_tx(&self);
 }
 
 /// io configuration trait for Lpuart Rx configuration
-pub trait RxPin<T: Instance>: Pin + sealed::Sealed + PeripheralType {
+pub trait RxPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
     /// convert the pin to appropriate function for Lpuart Rx  usage
     fn as_rx(&self);
 }
 
 /// io configuration trait for Lpuart Cts
-pub trait CtsPin<T: Instance>: Pin + sealed::Sealed + PeripheralType {
+pub trait CtsPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
     /// convert the pin to appropriate function for Lpuart Cts usage
     fn as_cts(&self);
 }
 
 /// io configuration trait for Lpuart Rts
-pub trait RtsPin<T: Instance>: Pin + sealed::Sealed + PeripheralType {
+pub trait RtsPin<T: Instance>: Into<AnyPin> + sealed::Sealed + PeripheralType {
     /// convert the pin to appropriate function for Lpuart Rts usage
     fn as_rts(&self);
 }
 
-macro_rules! impl_pin_trait {
-    ($fcn:ident, $mode:ident, $($pin:ident, $alt:ident),*) => {
-        paste! {
-            $(
-                impl [<$mode:camel Pin>]<crate::peripherals::$fcn> for crate::peripherals::$pin {
-                    fn [<as_ $mode>](&self) {
-                        let _alt = gpio::Alt::$alt;
-                        // todo!("Configure pin for LPUART function")
-                    }
-                }
-            )*
+macro_rules! impl_tx_pin {
+    ($inst:ident, $pin:ident, $alt:ident) => {
+        impl TxPin<crate::peripherals::$inst> for crate::peripherals::$pin {
+            fn as_tx(&self) {
+                // TODO: Check these are right
+                self.set_pull(crate::gpio::Pull::Up);
+                self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
+                self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
+                self.set_function(crate::pac::port0::pcr0::Mux::$alt);
+                self.set_enable_input_buffer();
+            }
         }
     };
 }
 
-// Document identifier: MCXA343/344 Rev. 1DraftB ReleaseCandidate, 2025-07-10 - 6.1 MCX A173, A174 Signal Multiplexing and Pin Assignments
-// impl_pin_trait!(LPUART0, rx, P2_0, ALT2, P0_2, ALT2, P0_20, ALT3);
-// impl_pin_trait!(LPUART0, tx, P2_1, ALT2, P0_3, ALT2, P0_21, ALT3);
-// impl_pin_trait!(LPUART0, rts, P2_2, ALT2, P0_0, ALT2, P0_22, ALT3);
-// impl_pin_trait!(LPUART0, cts, P2_3, ALT2, P0_1, ALT2, P0_23, ALT3);
-impl_pin_trait!(LPUART2, rx, P2_3, ALT3);
-impl_pin_trait!(LPUART2, tx, P2_2, ALT3);
+macro_rules! impl_rx_pin {
+    ($inst:ident, $pin:ident, $alt:ident) => {
+        impl RxPin<crate::peripherals::$inst> for crate::peripherals::$pin {
+            fn as_rx(&self) {
+                // TODO: Check these are right
+                self.set_pull(crate::gpio::Pull::Up);
+                self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
+                self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
+                self.set_function(crate::pac::port0::pcr0::Mux::$alt);
+                self.set_enable_input_buffer();
+            }
+        }
+    };
+}
+
+// TODO: Macro and impls for CTS/RTS pins
+macro_rules! impl_cts_pin {
+    ($inst:ident, $pin:ident, $alt:ident) => {
+        impl CtsPin<crate::peripherals::$inst> for crate::peripherals::$pin {
+            fn as_cts(&self) {
+                todo!()
+            }
+        }
+    };
+}
+
+macro_rules! impl_rts_pin {
+    ($inst:ident, $pin:ident, $alt:ident) => {
+        impl RtsPin<crate::peripherals::$inst> for crate::peripherals::$pin {
+            fn as_rts(&self) {
+                todo!()
+            }
+        }
+    };
+}
+
+// LPUART 0
+impl_tx_pin!(LPUART0, P0_3, Mux2);
+impl_tx_pin!(LPUART0, P0_21, Mux3);
+impl_tx_pin!(LPUART0, P2_1, Mux2);
+
+impl_rx_pin!(LPUART0, P0_2, Mux2);
+impl_rx_pin!(LPUART0, P0_20, Mux3);
+impl_rx_pin!(LPUART0, P2_0, Mux2);
+
+impl_cts_pin!(LPUART0, P0_1, Mux2);
+impl_cts_pin!(LPUART0, P0_23, Mux3);
+impl_cts_pin!(LPUART0, P2_3, Mux2);
+
+impl_rts_pin!(LPUART0, P0_0, Mux2);
+impl_rts_pin!(LPUART0, P0_22, Mux3);
+impl_rts_pin!(LPUART0, P2_2, Mux2);
+
+// LPUART 1
+impl_tx_pin!(LPUART1, P1_9, Mux2);
+impl_tx_pin!(LPUART1, P2_13, Mux3);
+impl_tx_pin!(LPUART1, P3_9, Mux3);
+impl_tx_pin!(LPUART1, P3_21, Mux3);
+
+impl_rx_pin!(LPUART1, P1_8, Mux2);
+impl_rx_pin!(LPUART1, P2_12, Mux3);
+impl_rx_pin!(LPUART1, P3_8, Mux3);
+impl_rx_pin!(LPUART1, P3_20, Mux3);
+
+impl_cts_pin!(LPUART1, P1_11, Mux2);
+impl_cts_pin!(LPUART1, P2_17, Mux3);
+impl_cts_pin!(LPUART1, P3_11, Mux3);
+impl_cts_pin!(LPUART1, P3_23, Mux3);
+
+impl_rts_pin!(LPUART1, P1_10, Mux2);
+impl_rts_pin!(LPUART1, P2_15, Mux3);
+impl_rts_pin!(LPUART1, P2_16, Mux3);
+impl_rts_pin!(LPUART1, P3_10, Mux3);
+
+// LPUART 2
+impl_tx_pin!(LPUART2, P1_5, Mux3);
+impl_tx_pin!(LPUART2, P1_13, Mux3);
+impl_tx_pin!(LPUART2, P2_2, Mux3);
+impl_tx_pin!(LPUART2, P2_10, Mux3);
+impl_tx_pin!(LPUART2, P3_15, Mux2);
+
+impl_rx_pin!(LPUART2, P1_4, Mux3);
+impl_rx_pin!(LPUART2, P1_12, Mux3);
+impl_rx_pin!(LPUART2, P2_3, Mux3);
+impl_rx_pin!(LPUART2, P2_11, Mux3);
+impl_rx_pin!(LPUART2, P3_14, Mux2);
+
+impl_cts_pin!(LPUART2, P1_7, Mux3);
+impl_cts_pin!(LPUART2, P1_15, Mux3);
+impl_cts_pin!(LPUART2, P2_4, Mux3);
+impl_cts_pin!(LPUART2, P3_13, Mux2);
+
+impl_rts_pin!(LPUART2, P1_6, Mux3);
+impl_rts_pin!(LPUART2, P1_14, Mux3);
+impl_rts_pin!(LPUART2, P2_5, Mux3);
+impl_rts_pin!(LPUART2, P3_12, Mux2);
+
+// LPUART 3
+impl_tx_pin!(LPUART3, P3_1, Mux3);
+impl_tx_pin!(LPUART3, P3_12, Mux3);
+impl_tx_pin!(LPUART3, P4_5, Mux3);
+
+impl_rx_pin!(LPUART3, P3_0, Mux3);
+impl_rx_pin!(LPUART3, P3_13, Mux3);
+impl_rx_pin!(LPUART3, P4_2, Mux3);
+
+impl_cts_pin!(LPUART3, P3_7, Mux3);
+impl_cts_pin!(LPUART3, P3_14, Mux3);
+impl_cts_pin!(LPUART3, P4_6, Mux3);
+
+impl_rts_pin!(LPUART3, P3_6, Mux3);
+impl_rts_pin!(LPUART3, P3_15, Mux3);
+impl_rts_pin!(LPUART3, P4_7, Mux3);
+
+// LPUART 4
+impl_tx_pin!(LPUART4, P2_7, Mux3);
+impl_tx_pin!(LPUART4, P3_19, Mux2);
+impl_tx_pin!(LPUART4, P3_27, Mux3);
+impl_tx_pin!(LPUART4, P4_3, Mux3);
+
+impl_rx_pin!(LPUART4, P2_6, Mux3);
+impl_rx_pin!(LPUART4, P3_18, Mux2);
+impl_rx_pin!(LPUART4, P3_28, Mux3);
+impl_rx_pin!(LPUART4, P4_4, Mux3);
+
+impl_cts_pin!(LPUART4, P2_0, Mux3);
+impl_cts_pin!(LPUART4, P3_17, Mux2);
+impl_cts_pin!(LPUART4, P3_31, Mux3);
+
+impl_rts_pin!(LPUART4, P2_1, Mux3);
+impl_rts_pin!(LPUART4, P3_16, Mux2);
+impl_rts_pin!(LPUART4, P3_30, Mux3);
+
+// LPUART 5
+//
+// TODO: The datasheet doesn't list tx/rx/cts/rts pins for LPUART5
+// See https://github.com/OpenDevicePartnership/embassy-mcxa/issues/48
 
 // ============================================================================
 // ERROR TYPES AND RESULTS

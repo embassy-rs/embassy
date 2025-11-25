@@ -123,28 +123,24 @@ impl<'a> BufferedLpuart<'a> {
         config: Config,
     ) -> Result<Self> {
         // Configure pins if provided
-        let tx_pin = tx_pin.map(|pin| {
+        let tx_pin: Option<Peri<'a, AnyPin>> = tx_pin.map(|pin| {
             pin.as_tx();
-            let converted: Peri<'a, AnyPin> = pin.into();
-            converted
+            pin.into()
         });
 
-        let rx_pin = rx_pin.map(|pin| {
+        let rx_pin: Option<Peri<'a, AnyPin>> = rx_pin.map(|pin| {
             pin.as_rx();
-            let converted: Peri<'a, AnyPin> = pin.into();
-            converted
+            pin.into()
         });
 
-        let rts_pin = rts_pin.map(|pin| {
+        let rts_pin: Option<Peri<'a, AnyPin>> = rts_pin.map(|pin| {
             pin.as_rts();
-            let converted: Peri<'a, AnyPin> = pin.into();
-            converted
+            pin.into()
         });
 
-        let cts_pin = cts_pin.map(|pin| {
+        let cts_pin: Option<Peri<'a, AnyPin>> = cts_pin.map(|pin| {
             pin.as_cts();
-            let converted: Peri<'a, AnyPin> = pin.into();
-            converted
+            pin.into()
         });
 
         let state = T::buffered_state();

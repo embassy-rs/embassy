@@ -6,7 +6,6 @@ use embassy_mcxa_examples::init_adc_pins;
 use hal::adc::{LpadcConfig, TriggerPriorityPolicy};
 use hal::clocks::periph_helpers::{AdcClockSel, Div4};
 use hal::clocks::PoweredClock;
-use hal::lpuart::{Config, Lpuart};
 use hal::pac::adc1::cfg::{Pwrsel, Refsel};
 use hal::pac::adc1::cmdl1::{Adch, Mode};
 use hal::pac::adc1::ctrl::CalAvgs;
@@ -26,26 +25,7 @@ static KEEP_ADC: unsafe extern "C" fn() = ADC1;
 async fn main(_spawner: Spawner) {
     let p = hal::init(hal::config::Config::default());
 
-    // Create UART configuration
-    let config = Config {
-        baudrate_bps: 115_200,
-        enable_tx: true,
-        enable_rx: true,
-        ..Default::default()
-    };
-
-    // Create UART instance using LPUART2 with P2_2 as TX and P2_3 as RX
-    unsafe {
-        embassy_mcxa_examples::init_uart2_pins();
-    }
-    let mut uart = Lpuart::new_blocking(
-        p.LPUART2, // Peripheral
-        p.P2_2,    // TX pin
-        p.P2_3,    // RX pin
-        config,
-    )
-    .unwrap();
-    uart.write_str_blocking("\r\n=== ADC interrupt Example ===\r\n");
+    defmt::info!("ADC interrupt Example");
 
     unsafe {
         init_adc_pins();
@@ -81,7 +61,7 @@ async fn main(_spawner: Spawner) {
     conv_trigger_config.enable_hardware_trigger = false;
     adc.set_conv_trigger_config(0, &conv_trigger_config);
 
-    uart.write_str_blocking("\r\n=== ADC configuration done... ===\r\n");
+    defmt::info!("ADC configuration done...");
 
     adc.enable_interrupt(0x1);
 
@@ -98,7 +78,7 @@ async fn main(_spawner: Spawner) {
         while !adc.is_interrupt_triggered() {
             // Wait until the interrupt is triggered
         }
-        uart.write_str_blocking("\r\n*** ADC interrupt TRIGGERED! ***\r\n");
+        defmt::info!("*** ADC interrupt TRIGGERED! ***");
         //TBD need to print the value
     }
 }

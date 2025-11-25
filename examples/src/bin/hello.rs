@@ -27,9 +27,6 @@ async fn main(_spawner: Spawner) {
     };
 
     // Create UART instance using LPUART2 with P2_2 as TX and P2_3 as RX
-    unsafe {
-        embassy_mcxa_examples::init_uart2_pins();
-    }
     let mut uart = Lpuart::new_blocking(
         p.LPUART2, // Peripheral
         p.P2_2,    // TX pin

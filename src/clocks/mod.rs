@@ -928,6 +928,11 @@ pub(crate) mod gate {
     #[cfg(not(feature = "time"))]
     impl_cc_gate!(OSTIMER0, mrcc_glb_cc1, mrcc_glb_rst1, ostimer0, OsTimerConfig);
 
+    impl_cc_gate!(LPUART0, mrcc_glb_cc0, mrcc_glb_rst0, lpuart0, LpuartConfig);
+    impl_cc_gate!(LPUART1, mrcc_glb_cc0, mrcc_glb_rst0, lpuart1, LpuartConfig);
     impl_cc_gate!(LPUART2, mrcc_glb_cc0, mrcc_glb_rst0, lpuart2, LpuartConfig);
+    impl_cc_gate!(LPUART3, mrcc_glb_cc0, mrcc_glb_rst0, lpuart3, LpuartConfig);
+    impl_cc_gate!(LPUART4, mrcc_glb_cc0, mrcc_glb_rst0, lpuart4, LpuartConfig);
+    impl_cc_gate!(LPUART5, mrcc_glb_cc1, mrcc_glb_rst1, lpuart5, LpuartConfig);
     impl_cc_gate!(ADC1, mrcc_glb_cc1, mrcc_glb_rst1, adc1, AdcConfig);
 }

@@ -7,7 +7,7 @@
 #![allow(clippy::missing_safety_doc)]
 
 mod generated {
-    embassy_hal_internal::interrupt_mod!(OS_EVENT, LPUART2, RTC, ADC1);
+    embassy_hal_internal::interrupt_mod!(OS_EVENT, LPUART0, LPUART1, LPUART2, LPUART3, LPUART4, LPUART5, RTC, ADC1,);
 }
 
 use core::sync::atomic::{AtomicU16, AtomicU32, Ordering};

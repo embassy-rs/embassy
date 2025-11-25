@@ -3,7 +3,6 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa as hal;
-use hal::lpuart::{Config, Lpuart};
 use hal::rtc::{RtcDateTime, RtcInterruptEnable};
 use hal::InterruptExt;
 
@@ -24,27 +23,7 @@ static KEEP_RTC: unsafe extern "C" fn() = RTC;
 async fn main(_spawner: Spawner) {
     let p = hal::init(hal::config::Config::default());
 
-    // Create UART configuration
-    let config = Config {
-        baudrate_bps: 115_200,
-        enable_tx: true,
-        enable_rx: true,
-        ..Default::default()
-    };
-
-    // Create UART instance using LPUART2 with P2_2 as TX and P2_3 as RX
-    unsafe {
-        embassy_mcxa_examples::init_uart2_pins();
-    }
-    let mut uart = Lpuart::new_blocking(
-        p.LPUART2, // Peripheral
-        p.P2_2,    // TX pin
-        p.P2_3,    // RX pin
-        config,
-    )
-    .unwrap();
-
-    uart.write_str_blocking("\r\n=== RTC Alarm Example ===\r\n");
+    defmt::info!("=== RTC Alarm Example ===");
 
     let rtc_config = hal::rtc::get_default_config();
 
@@ -61,14 +40,14 @@ async fn main(_spawner: Spawner) {
 
     rtc.stop();
 
-    uart.write_str_blocking("Time set to: 2025-10-15 14:30:00\r\n");
+    defmt::info!("Time set to: 2025-10-15 14:30:00");
     rtc.set_datetime(now);
 
     let mut alarm = now;
     alarm.second += 10;
 
     rtc.set_alarm(alarm);
-    uart.write_str_blocking("Alarm set for: 2025-10-15 14:30:10 (+10 seconds)\r\n");
+    defmt::info!("Alarm set for: 2025-10-15 14:30:10 (+10 seconds)");
 
     rtc.set_interrupt(RtcInterruptEnable::RTC_ALARM_INTERRUPT_ENABLE);
 
@@ -82,14 +61,14 @@ async fn main(_spawner: Spawner) {
 
     rtc.start();
 
-    uart.write_str_blocking("RTC started, waiting for alarm...\r\n");
+    defmt::info!("RTC started, waiting for alarm...");
 
     loop {
         if rtc.is_alarm_triggered() {
-            uart.write_str_blocking("\r\n*** ALARM TRIGGERED! ***\r\n");
+            defmt::info!("*** ALARM TRIGGERED! ***");
             break;
         }
     }
 
-    uart.write_str_blocking("Example complete - Test PASSED!\r\n");
+    defmt::info!("Example complete - Test PASSED!");
 }

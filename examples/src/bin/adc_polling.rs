@@ -1,19 +1,15 @@
 #![no_std]
 #![no_main]
 
-use core::fmt::Write;
-
 use embassy_executor::Spawner;
-use embassy_mcxa_examples::{init_adc_pins, init_uart2_pins};
+use embassy_mcxa_examples::init_adc_pins;
 use hal::adc::{ConvResult, LpadcConfig, TriggerPriorityPolicy};
 use hal::clocks::periph_helpers::{AdcClockSel, Div4};
 use hal::clocks::PoweredClock;
-use hal::lpuart::{Config, Lpuart};
 use hal::pac::adc1::cfg::{Pwrsel, Refsel};
 use hal::pac::adc1::cmdl1::{Adch, Mode};
 use hal::pac::adc1::ctrl::CalAvgs;
 use hal::pac::adc1::tctrl::Tcmd;
-use heapless::String;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 const G_LPADC_RESULT_SHIFT: u32 = 0;
@@ -22,28 +18,11 @@ const G_LPADC_RESULT_SHIFT: u32 = 0;
 async fn main(_spawner: Spawner) {
     let p = hal::init(hal::config::Config::default());
 
-    // Create UART configuration
-    let config = Config {
-        baudrate_bps: 115_200,
-        enable_tx: true,
-        enable_rx: true,
-        ..Default::default()
-    };
-
-    // Create UART instance using LPUART2 with P2_2 as TX and P2_3 as RX
     unsafe {
-        init_uart2_pins();
         init_adc_pins();
     }
-    let mut uart = Lpuart::new_blocking(
-        p.LPUART2, // Peripheral
-        p.P2_2,    // TX pin
-        p.P2_3,    // RX pin
-        config,
-    )
-    .unwrap();
 
-    uart.write_str_blocking("\r\n=== ADC polling Example ===\r\n");
+    defmt::info!("=== ADC polling Example ===");
 
     let adc_config = LpadcConfig {
         enable_in_doze_mode: true,
@@ -75,7 +54,7 @@ async fn main(_spawner: Spawner) {
     conv_trigger_config.enable_hardware_trigger = false;
     adc.set_conv_trigger_config(0, &conv_trigger_config);
 
-    uart.write_str_blocking("\r\n=== ADC configuration done... ===\r\n");
+    defmt::info!("=== ADC configuration done... ===");
 
     loop {
         adc.do_software_trigger(1);
@@ -84,8 +63,6 @@ async fn main(_spawner: Spawner) {
             result = hal::adc::get_conv_result();
         }
         let value = result.unwrap().conv_value >> G_LPADC_RESULT_SHIFT;
-        let mut buf: String<16> = String::new(); // adjust size as needed
-        write!(buf, "\r\nvalue: {}\r\n", value).unwrap();
-        uart.write_str_blocking(&buf);
+        defmt::info!("value: {=u16}", value);
     }
 }
