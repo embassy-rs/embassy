@@ -234,9 +234,6 @@ impl RccInfo {
             }
         }
 
-        #[cfg(feature = "low-power")]
-        increment_stop_refcount(_cs, self.stop_mode);
-
         // set the xxxRST bit
         let reset_ptr = self.reset_ptr();
         if let Some(reset_ptr) = reset_ptr {
@@ -292,9 +289,6 @@ impl RccInfo {
             }
         }
 
-        #[cfg(feature = "low-power")]
-        decrement_stop_refcount(_cs, self.stop_mode);
-
         // clear the xxxEN bit
         let enable_ptr = self.enable_ptr();
         unsafe {
@@ -303,13 +297,46 @@ impl RccInfo {
         }
     }
 
+    pub(crate) fn increment_stop_refcount_with_cs(&self, _cs: CriticalSection) {
+        #[cfg(feature = "low-power")]
+        increment_stop_refcount(_cs, self.stop_mode);
+    }
+
+    pub(crate) fn increment_stop_refcount(&self) {
+        critical_section::with(|cs| self.increment_stop_refcount_with_cs(cs))
+    }
+
+    pub(crate) fn decrement_stop_refcount_with_cs(&self, _cs: CriticalSection) {
+        #[cfg(feature = "low-power")]
+        decrement_stop_refcount(_cs, self.stop_mode);
+    }
+
+    pub(crate) fn decrement_stop_refcount(&self) {
+        critical_section::with(|cs| self.decrement_stop_refcount_with_cs(cs))
+    }
+
     // TODO: should this be `unsafe`?
     pub(crate) fn enable_and_reset(&self) {
+        critical_section::with(|cs| {
+            self.enable_and_reset_with_cs(cs);
+            self.increment_stop_refcount_with_cs(cs);
+        })
+    }
+
+    pub(crate) fn enable_and_reset_without_stop(&self) {
         critical_section::with(|cs| self.enable_and_reset_with_cs(cs))
     }
 
     // TODO: should this be `unsafe`?
     pub(crate) fn disable(&self) {
+        critical_section::with(|cs| {
+            self.disable_with_cs(cs);
+            self.decrement_stop_refcount_with_cs(cs);
+        })
+    }
+
+    // TODO: should this be `unsafe`?
+    pub(crate) fn disable_without_stop(&self) {
         critical_section::with(|cs| self.disable_with_cs(cs))
     }
 
