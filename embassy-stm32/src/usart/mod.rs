@@ -491,8 +491,7 @@ impl<'d> UartTx<'d, Async> {
 
     /// Initiate an asynchronous UART write
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        self.info.rcc.increment_stop_refcount();
-        let _ = OnDrop::new(|| self.info.rcc.decrement_stop_refcount());
+        let _ = self.info.rcc.block_stop();
 
         let r = self.info.regs;
 
@@ -511,8 +510,7 @@ impl<'d> UartTx<'d, Async> {
 
     /// Wait until transmission complete
     pub async fn flush(&mut self) -> Result<(), Error> {
-        self.info.rcc.increment_stop_refcount();
-        let _ = OnDrop::new(|| self.info.rcc.decrement_stop_refcount());
+        let _ = self.info.rcc.block_stop();
 
         flush(&self.info, &self.state).await
     }
@@ -732,8 +730,7 @@ impl<'d> UartRx<'d, Async> {
 
     /// Initiate an asynchronous UART read
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        self.info.rcc.increment_stop_refcount();
-        let _ = OnDrop::new(|| self.info.rcc.decrement_stop_refcount());
+        let _ = self.info.rcc.block_stop();
 
         self.inner_read(buffer, false).await?;
 
@@ -742,8 +739,7 @@ impl<'d> UartRx<'d, Async> {
 
     /// Initiate an asynchronous read with idle line detection enabled
     pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
-        self.info.rcc.increment_stop_refcount();
-        let _ = OnDrop::new(|| self.info.rcc.decrement_stop_refcount());
+        let _ = self.info.rcc.block_stop();
 
         self.inner_read(buffer, true).await
     }
