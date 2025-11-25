@@ -7,9 +7,6 @@ use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, Timer};
 use super::ringbuffered::RingBufferedPwmChannel;
 use super::{Ch1, Ch2, Ch3, Ch4, Channel, GeneralInstance4Channel, TimerChannel, TimerPin};
 use crate::Peri;
-#[cfg(not(any(bdma, gpdma)))]
-use crate::dma::{Burst, FifoThreshold};
-use crate::dma::{TransferOptions, WritableRingBuffer};
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
