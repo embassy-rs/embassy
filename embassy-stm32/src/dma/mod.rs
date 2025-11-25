@@ -3,14 +3,12 @@
 
 #[cfg(any(bdma, dma))]
 mod dma_bdma;
-use core::ops;
 
 #[cfg(any(bdma, dma))]
 pub use dma_bdma::*;
 
 #[cfg(gpdma)]
 pub(crate) mod gpdma;
-use embassy_hal_internal::Peri;
 #[cfg(gpdma)]
 pub use gpdma::ringbuffered::*;
 #[cfg(gpdma)]
@@ -27,9 +25,10 @@ pub(crate) use util::*;
 pub(crate) mod ringbuffer;
 pub mod word;
 
-use embassy_hal_internal::{PeripheralType, impl_peripheral};
+use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 
 use crate::interrupt;
+use crate::rcc::StoppablePeripheral;
 
 /// The direction of a DMA transfer.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -47,6 +46,13 @@ pub type Request = u8;
 /// DMA request type alias. (also known as DMA channel number in some chips)
 #[cfg(not(any(dma_v2, bdma_v2, gpdma, dmamux)))]
 pub type Request = ();
+
+impl<'a> StoppablePeripheral for Peri<'a, AnyChannel> {
+    #[cfg(feature = "low-power")]
+    fn stop_mode(&self) -> crate::rcc::StopMode {
+        self.stop_mode
+    }
+}
 
 pub(crate) trait SealedChannel {
     #[cfg(not(stm32n6))]
@@ -101,44 +107,6 @@ macro_rules! dma_channel_impl {
             }
         }
     };
-}
-
-pub(crate) struct BusyChannel<'a> {
-    channel: Peri<'a, AnyChannel>,
-}
-
-impl<'a> BusyChannel<'a> {
-    pub fn new(channel: Peri<'a, AnyChannel>) -> Self {
-        #[cfg(feature = "low-power")]
-        critical_section::with(|cs| {
-            crate::rcc::increment_stop_refcount(cs, channel.stop_mode);
-        });
-
-        Self { channel }
-    }
-}
-
-impl<'a> Drop for BusyChannel<'a> {
-    fn drop(&mut self) {
-        #[cfg(feature = "low-power")]
-        critical_section::with(|cs| {
-            crate::rcc::decrement_stop_refcount(cs, self.stop_mode);
-        });
-    }
-}
-
-impl<'a> ops::Deref for BusyChannel<'a> {
-    type Target = Peri<'a, AnyChannel>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.channel
-    }
-}
-
-impl<'a> ops::DerefMut for BusyChannel<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.channel
-    }
 }
 
 /// Type-erased DMA channel.
