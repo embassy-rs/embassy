@@ -1,9 +1,8 @@
 //! PIO driver.
-use core::cell::Cell;
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin as FuturePin;
-use core::sync::atomic::{AtomicU8, Ordering, compiler_fence};
+use core::sync::atomic::{AtomicU8, AtomicU32, Ordering, compiler_fence};
 use core::task::{Context, Poll};
 
 use embassy_hal_internal::{Peri, PeripheralType};
@@ -1233,9 +1232,12 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
         });
         // we can be relaxed about this because we're &mut here and nothing is cached
         critical_section::with(|_| {
-            let val = PIO::state().used_pins.get();
-            PIO::state().used_pins.set(val | 1 << pin.pin_bank());
+            let val = PIO::state().used_pins.load(Ordering::Relaxed);
+            PIO::state()
+                .used_pins
+                .store(val | 1 << pin.pin_bank(), Ordering::Relaxed);
         });
+
         Pin {
             pin: pin.into(),
             pio: PhantomData::default(),
@@ -1372,7 +1374,7 @@ impl<'d, PIO: Instance> Pio<'d, PIO> {
     /// Create a new instance of a PIO peripheral.
     pub fn new(_pio: Peri<'d, PIO>, _irq: impl Binding<PIO::Interrupt, InterruptHandler<PIO>>) -> Self {
         PIO::state().users.store(5, Ordering::Release);
-        critical_section::with(|_| PIO::state().used_pins.set(0));
+        PIO::state().used_pins.store(0, Ordering::Release);
         PIO::Interrupt::unpend();
 
         unsafe { PIO::Interrupt::enable() };
@@ -1407,6 +1409,42 @@ impl<'d, PIO: Instance> Pio<'d, PIO> {
     }
 }
 
+struct AtomicU64 {
+    upper_32: AtomicU32,
+    lower_32: AtomicU32,
+}
+
+impl AtomicU64 {
+    const fn new(val: u64) -> Self {
+        let upper_32 = (val >> 32) as u32;
+        let lower_32 = val as u32;
+
+        Self {
+            upper_32: AtomicU32::new(upper_32),
+            lower_32: AtomicU32::new(lower_32),
+        }
+    }
+
+    fn load(&self, order: Ordering) -> u64 {
+        let (upper, lower) = critical_section::with(|_| (self.upper_32.load(order), self.lower_32.load(order)));
+
+        let upper = (upper as u64) << 32;
+        let lower = lower as u64;
+
+        upper | lower
+    }
+
+    fn store(&self, val: u64, order: Ordering) {
+        let upper_32 = (val >> 32) as u32;
+        let lower_32 = val as u32;
+
+        critical_section::with(|_| {
+            self.upper_32.store(upper_32, order);
+            self.lower_32.store(lower_32, order);
+        });
+    }
+}
+
 /// Representation of the PIO state keeping a record of which pins are assigned to
 /// each PIO.
 // make_pio_pin notionally takes ownership of the pin it is given, but the wrapped pin
@@ -1416,10 +1454,8 @@ impl<'d, PIO: Instance> Pio<'d, PIO> {
 // other way.
 pub struct State {
     users: AtomicU8,
-    used_pins: Cell<u64>,
+    used_pins: AtomicU64,
 }
-
-unsafe impl Sync for State {}
 
 fn on_pio_drop<PIO: Instance>() {
     let state = PIO::state();
@@ -1429,7 +1465,7 @@ fn on_pio_drop<PIO: Instance>() {
         val
     });
     if users_state == 1 {
-        let used_pins = critical_section::with(|_| state.used_pins.get());
+        let used_pins = state.used_pins.load(Ordering::Relaxed);
         let null = pac::io::vals::Gpio0ctrlFuncsel::NULL as _;
         for i in 0..crate::gpio::BANK0_PIN_COUNT {
             if used_pins & (1 << i) != 0 {
@@ -1454,7 +1490,7 @@ trait SealedInstance {
     fn state() -> &'static State {
         static STATE: State = State {
             users: AtomicU8::new(0),
-            used_pins: Cell::new(0),
+            used_pins: AtomicU64::new(0),
         };
 
         &STATE
