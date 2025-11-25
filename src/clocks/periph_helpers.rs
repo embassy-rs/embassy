@@ -124,6 +124,119 @@ impl SPConfHelper for NoConfig {
 }
 
 //
+// LPI2c
+//
+
+/// Selectable clocks for `Lpi2c` peripherals
+#[derive(Debug, Clone, Copy)]
+pub enum Lpi2cClockSel {
+    /// FRO12M/FRO_LF/SIRC clock source, passed through divider
+    /// "fro_lf_div"
+    FroLfDiv,
+    /// FRO180M/FRO_HF/FIRC clock source, passed through divider
+    /// "fro_hf_div"
+    FroHfDiv,
+    /// SOSC/XTAL/EXTAL clock source
+    ClkIn,
+    /// clk_1m/FRO_LF divided by 12
+    Clk1M,
+    /// Output of PLL1, passed through clock divider,
+    /// "pll1_clk_div", maybe "pll1_lf_div"?
+    Pll1ClkDiv,
+    /// Disabled
+    None,
+}
+
+/// Which instance of the `Lpi2c` is this?
+///
+/// Should not be directly selectable by end-users.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum Lpi2cInstance {
+    /// Instance 0
+    Lpi2c0,
+    /// Instance 1
+    Lpi2c1,
+    /// Instance 2
+    Lpi2c2,
+    /// Instance 3
+    Lpi2c3,
+}
+
+/// Top level configuration for `Lpi2c` instances.
+pub struct Lpi2cConfig {
+    /// Power state required for this peripheral
+    pub power: PoweredClock,
+    /// Clock source
+    pub source: Lpi2cClockSel,
+    /// Clock divisor
+    pub div: Div4,
+    /// Which instance is this?
+    // NOTE: should not be user settable
+    pub(crate) instance: Lpi2cInstance,
+}
+
+impl SPConfHelper for Lpi2cConfig {
+    fn post_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
+        // check that source is suitable
+        let mrcc0 = unsafe { pac::Mrcc0::steal() };
+        use mcxa_pac::mrcc0::mrcc_lpi2c0_clksel::Mux;
+
+        let (clkdiv, clksel) = match self.instance {
+            Lpi2cInstance::Lpi2c0 => (mrcc0.mrcc_lpi2c0_clkdiv(), mrcc0.mrcc_lpi2c0_clksel()),
+            Lpi2cInstance::Lpi2c1 => (mrcc0.mrcc_lpi2c1_clkdiv(), mrcc0.mrcc_lpi2c1_clksel()),
+            Lpi2cInstance::Lpi2c2 => (mrcc0.mrcc_lpi2c2_clkdiv(), mrcc0.mrcc_lpi2c2_clksel()),
+            Lpi2cInstance::Lpi2c3 => (mrcc0.mrcc_lpi2c3_clkdiv(), mrcc0.mrcc_lpi2c3_clksel()),
+        };
+
+        let (freq, variant) = match self.source {
+            Lpi2cClockSel::FroLfDiv => {
+                let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
+                (freq, Mux::ClkrootFunc0)
+            }
+            Lpi2cClockSel::FroHfDiv => {
+                let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
+                (freq, Mux::ClkrootFunc2)
+            }
+            Lpi2cClockSel::ClkIn => {
+                let freq = clocks.ensure_clk_in_active(&self.power)?;
+                (freq, Mux::ClkrootFunc3)
+            }
+            Lpi2cClockSel::Clk1M => {
+                let freq = clocks.ensure_clk_1m_active(&self.power)?;
+                (freq, Mux::ClkrootFunc5)
+            }
+            Lpi2cClockSel::Pll1ClkDiv => {
+                let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
+                (freq, Mux::ClkrootFunc6)
+            }
+            Lpi2cClockSel::None => unsafe {
+                // no ClkrootFunc7, just write manually for now
+                clksel.write(|w| w.bits(0b111));
+                clkdiv.modify(|_r, w| w.reset().asserted().halt().asserted());
+                return Ok(0);
+            },
+        };
+
+        // set clksel
+        clksel.modify(|_r, w| w.mux().variant(variant));
+
+        // Set up clkdiv
+        clkdiv.modify(|_r, w| {
+            unsafe { w.div().bits(self.div.into_bits()) }
+                .halt()
+                .asserted()
+                .reset()
+                .asserted()
+        });
+        clkdiv.modify(|_r, w| w.halt().deasserted().reset().deasserted());
+
+        while clkdiv.read().unstab().is_unstable() {}
+
+        Ok(freq / self.div.into_divisor())
+    }
+}
+
+//
 // LPUart
 //
 

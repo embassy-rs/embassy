@@ -553,7 +553,7 @@ impl Clocks {
                 return Err(ClockError::BadConfig {
                     clock: "main_clk",
                     reason: "not low power active",
-                })
+                });
             }
         }
 
@@ -904,7 +904,7 @@ macro_rules! impl_cc_gate {
 pub(crate) mod gate {
     #[cfg(not(feature = "time"))]
     use super::periph_helpers::OsTimerConfig;
-    use super::periph_helpers::{AdcConfig, LpuartConfig, NoConfig};
+    use super::periph_helpers::{AdcConfig, Lpi2cConfig, LpuartConfig, NoConfig};
     use super::*;
 
     // These peripherals have no additional upstream clocks or configuration required
@@ -927,6 +927,11 @@ pub(crate) mod gate {
     // clocks do not match their needs.
     #[cfg(not(feature = "time"))]
     impl_cc_gate!(OSTIMER0, mrcc_glb_cc1, mrcc_glb_rst1, ostimer0, OsTimerConfig);
+
+    impl_cc_gate!(LPI2C0, mrcc_glb_cc0, mrcc_glb_rst0, lpi2c0, Lpi2cConfig);
+    impl_cc_gate!(LPI2C1, mrcc_glb_cc0, mrcc_glb_rst0, lpi2c1, Lpi2cConfig);
+    impl_cc_gate!(LPI2C2, mrcc_glb_cc1, mrcc_glb_rst1, lpi2c2, Lpi2cConfig);
+    impl_cc_gate!(LPI2C3, mrcc_glb_cc1, mrcc_glb_rst1, lpi2c3, Lpi2cConfig);
 
     impl_cc_gate!(LPUART0, mrcc_glb_cc0, mrcc_glb_rst0, lpuart0, LpuartConfig);
     impl_cc_gate!(LPUART1, mrcc_glb_cc0, mrcc_glb_rst0, lpuart1, LpuartConfig);

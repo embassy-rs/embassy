@@ -35,7 +35,7 @@ default = []
 
 # Base defmt feature enables core + panic handler
 # Use with one logger feature: defmt-rtt (preferred) or defmt-uart (fallback)
-defmt = ["dep:defmt"]
+defmt = ["dep:defmt", "mcxa-pac/defmt"]
 
 rt = ["cortex-m-rt/device"]
 
