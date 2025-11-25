@@ -13,6 +13,7 @@ use embassy_hal_internal::Peri;
 pub use stm32_metapac::timer::vals::{FilterValue, Mms as MasterMode, Sms as SlaveMode, Ts as TriggerSource};
 
 use super::*;
+use crate::dma::{Transfer, WritableRingBuffer};
 use crate::pac::timer::vals;
 use crate::rcc;
 use crate::time::Hertz;
@@ -272,6 +273,17 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         self.regs_core().cr1().modify(|r| r.set_cen(true));
     }
 
+    /// Generate timer update event from software.
+    ///
+    /// Set URS to avoid generating interrupt or DMA request. This update event is only
+    /// used to load value from pre-load registers. If called when the timer is running,
+    /// it may disrupt the output waveform.
+    pub fn generate_update_event(&self) {
+        self.regs_core().cr1().modify(|r| r.set_urs(vals::Urs::COUNTER_ONLY));
+        self.regs_core().egr().write(|r| r.set_ug(true));
+        self.regs_core().cr1().modify(|r| r.set_urs(vals::Urs::ANY_EVENT));
+    }
+
     /// Stop the timer.
     pub fn stop(&self) {
         self.regs_core().cr1().modify(|r| r.set_cen(false));
@@ -322,10 +334,6 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
                 let regs = self.regs_core();
                 regs.psc().write_value(psc);
                 regs.arr().write(|r| r.set_arr(arr));
-
-                regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTER_ONLY));
-                regs.egr().write(|r| r.set_ug(true));
-                regs.cr1().modify(|r| r.set_urs(vals::Urs::ANY_EVENT));
             }
             #[cfg(not(stm32l0))]
             TimerBits::Bits32 => {
@@ -335,10 +343,6 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
                 let regs = self.regs_gp32_unchecked();
                 regs.psc().write_value(psc);
                 regs.arr().write_value(arr);
-
-                regs.cr1().modify(|r| r.set_urs(vals::Urs::COUNTER_ONLY));
-                regs.egr().write(|r| r.set_ug(true));
-                regs.cr1().modify(|r| r.set_urs(vals::Urs::ANY_EVENT));
             }
         }
     }
@@ -653,6 +657,167 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
             TimerBits::Bits16 => self.regs_gp16().ccr(channel.index()).read().ccr() as u32,
             #[cfg(not(stm32l0))]
             TimerBits::Bits32 => self.regs_gp32_unchecked().ccr(channel.index()).read(),
+        }
+    }
+
+    /// Setup a ring buffer for the channel
+    pub fn setup_ring_buffer<'a>(
+        &mut self,
+        dma: Peri<'a, impl super::UpDma<T>>,
+        channel: Channel,
+        dma_buf: &'a mut [u16],
+    ) -> WritableRingBuffer<'a, u16> {
+        #[allow(clippy::let_unit_value)] // eg. stm32f334
+        let req = dma.request();
+
+        unsafe {
+            use crate::dma::TransferOptions;
+            #[cfg(not(any(bdma, gpdma)))]
+            use crate::dma::{Burst, FifoThreshold};
+
+            let dma_transfer_option = TransferOptions {
+                #[cfg(not(any(bdma, gpdma)))]
+                fifo_threshold: Some(FifoThreshold::Full),
+                #[cfg(not(any(bdma, gpdma)))]
+                mburst: Burst::Incr8,
+                ..Default::default()
+            };
+
+            WritableRingBuffer::new(
+                dma,
+                req,
+                self.regs_1ch().ccr(channel.index()).as_ptr() as *mut u16,
+                dma_buf,
+                dma_transfer_option,
+            )
+        }
+    }
+
+    /// Generate a sequence of PWM waveform
+    ///
+    /// Note:
+    /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
+    pub fn setup_update_dma<'a>(
+        &mut self,
+        dma: Peri<'a, impl super::UpDma<T>>,
+        channel: Channel,
+        duty: &'a [u16],
+    ) -> Transfer<'a> {
+        #[allow(clippy::let_unit_value)] // eg. stm32f334
+        let req = dma.request();
+
+        unsafe {
+            #[cfg(not(any(bdma, gpdma)))]
+            use crate::dma::{Burst, FifoThreshold};
+            use crate::dma::{Transfer, TransferOptions};
+
+            let dma_transfer_option = TransferOptions {
+                #[cfg(not(any(bdma, gpdma)))]
+                fifo_threshold: Some(FifoThreshold::Full),
+                #[cfg(not(any(bdma, gpdma)))]
+                mburst: Burst::Incr8,
+                ..Default::default()
+            };
+
+            match self.bits() {
+                TimerBits::Bits16 => Transfer::new_write(
+                    dma,
+                    req,
+                    duty,
+                    self.regs_1ch().ccr(channel.index()).as_ptr() as *mut u16,
+                    dma_transfer_option,
+                ),
+                #[cfg(not(any(stm32l0)))]
+                TimerBits::Bits32 => {
+                    #[cfg(not(any(bdma, gpdma)))]
+                    panic!("unsupported timer bits");
+
+                    #[cfg(any(bdma, gpdma))]
+                    Transfer::new_write(
+                        dma,
+                        req,
+                        duty,
+                        self.regs_1ch().ccr(channel.index()).as_ptr() as *mut u32,
+                        dma_transfer_option,
+                    )
+                }
+            }
+        }
+    }
+
+    /// Generate a multichannel sequence of PWM waveforms using DMA triggered by timer update events.
+    ///
+    /// This method utilizes the timer's DMA burst transfer capability to update multiple CCRx registers
+    /// in sequence on each update event (UEV). The data is written via the DMAR register using the
+    /// DMA base address (DBA) and burst length (DBL) configured in the DCR register.
+    ///
+    /// The `duty` buffer must be structured as a flattened 2D array in row-major order, where each row
+    /// represents a single update event and each column corresponds to a specific timer channel (starting
+    /// from `starting_channel` up to and including `ending_channel`).
+    ///
+    /// For example, if using channels 1 through 4, a buffer of 4 update steps might look like:
+    ///
+    /// ```rust,ignore
+    /// let dma_buf: [u16; 16] = [
+    ///     ch1_duty_1, ch2_duty_1, ch3_duty_1, ch4_duty_1, // update 1
+    ///     ch1_duty_2, ch2_duty_2, ch3_duty_2, ch4_duty_2, // update 2
+    ///     ch1_duty_3, ch2_duty_3, ch3_duty_3, ch4_duty_3, // update 3
+    ///     ch1_duty_4, ch2_duty_4, ch3_duty_4, ch4_duty_4, // update 4
+    /// ];
+    /// ```
+    ///
+    /// Each group of `N` values (where `N` is number of channels) is transferred on one update event,
+    /// updating the duty cycles of all selected channels simultaneously.
+    ///
+    /// Note:
+    /// You will need to provide corresponding `TIMx_UP` DMA channel to use this method.
+    /// Also be aware that embassy timers use one of timers internally. It is possible to
+    /// switch this timer by using `time-driver-timX` feature.
+    ///
+    pub fn setup_update_dma_burst<'a>(
+        &mut self,
+        dma: Peri<'a, impl super::UpDma<T>>,
+        starting_channel: Channel,
+        ending_channel: Channel,
+        duty: &'a [u16],
+    ) -> Transfer<'a> {
+        let cr1_addr = self.regs_gp16().cr1().as_ptr() as u32;
+        let start_ch_index = starting_channel.index();
+        let end_ch_index = ending_channel.index();
+
+        assert!(start_ch_index <= end_ch_index);
+
+        let ccrx_addr = self.regs_gp16().ccr(start_ch_index).as_ptr() as u32;
+        self.regs_gp16()
+            .dcr()
+            .modify(|w| w.set_dba(((ccrx_addr - cr1_addr) / 4) as u8));
+        self.regs_gp16()
+            .dcr()
+            .modify(|w| w.set_dbl((end_ch_index - start_ch_index) as u8));
+
+        #[allow(clippy::let_unit_value)] // eg. stm32f334
+        let req = dma.request();
+
+        unsafe {
+            #[cfg(not(any(bdma, gpdma)))]
+            use crate::dma::{Burst, FifoThreshold};
+            use crate::dma::{Transfer, TransferOptions};
+
+            let dma_transfer_option = TransferOptions {
+                #[cfg(not(any(bdma, gpdma)))]
+                fifo_threshold: Some(FifoThreshold::Full),
+                #[cfg(not(any(bdma, gpdma)))]
+                mburst: Burst::Incr4,
+                ..Default::default()
+            };
+
+            Transfer::new_write(
+                dma,
+                req,
+                duty,
+                self.regs_gp16().dmar().as_ptr() as *mut u16,
+                dma_transfer_option,
+            )
         }
     }
 

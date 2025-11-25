@@ -1,9 +1,11 @@
+#![macro_use]
+
 use embassy_hal_internal::{PeripheralType, impl_peripheral};
 
+use crate::Peri;
 use crate::pac::common::{RW, Reg};
 use crate::pac::iocon::vals::{PioDigimode, PioMode};
 use crate::pac::{GPIO, IOCON, SYSCON, iocon};
-use crate::{Peri, peripherals};
 
 pub(crate) fn init() {
     // Enable clocks for GPIO, PINT, and IOCON
@@ -39,8 +41,8 @@ pub enum Pull {
 /// The LPC55 boards have two GPIO banks, each with 32 pins. This enum represents the two banks.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 pub enum Bank {
-    Bank0 = 0,
-    Bank1 = 1,
+    Gpio0 = 0,
+    Gpio1 = 1,
 }
 
 /// GPIO output driver. Internally, this is a specialized [Flex] pin.
@@ -228,8 +230,8 @@ pub(crate) trait SealedPin: Sized {
     #[inline]
     fn pio(&self) -> Reg<iocon::regs::Pio, RW> {
         match self.pin_bank() {
-            Bank::Bank0 => IOCON.pio0(self.pin_number() as usize),
-            Bank::Bank1 => IOCON.pio1(self.pin_number() as usize),
+            Bank::Gpio0 => IOCON.pio0(self.pin_number() as usize),
+            Bank::Gpio1 => IOCON.pio1(self.pin_number() as usize),
         }
     }
 }
@@ -254,8 +256,8 @@ pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
 
 /// Type-erased GPIO pin.
 pub struct AnyPin {
-    pin_bank: Bank,
-    pin_number: u8,
+    pub(crate) pin_bank: Bank,
+    pub(crate) pin_number: u8,
 }
 
 impl AnyPin {
@@ -285,12 +287,12 @@ impl SealedPin for AnyPin {
 }
 
 macro_rules! impl_pin {
-    ($name:ident, $bank:expr, $pin_num:expr) => {
-        impl Pin for peripherals::$name {}
-        impl SealedPin for peripherals::$name {
+    ($name:ident, $bank:ident, $pin_num:expr) => {
+        impl crate::gpio::Pin for peripherals::$name {}
+        impl crate::gpio::SealedPin for peripherals::$name {
             #[inline]
-            fn pin_bank(&self) -> Bank {
-                $bank
+            fn pin_bank(&self) -> crate::gpio::Bank {
+                crate::gpio::Bank::$bank
             }
 
             #[inline]
@@ -301,6 +303,8 @@ macro_rules! impl_pin {
 
         impl From<peripherals::$name> for crate::gpio::AnyPin {
             fn from(val: peripherals::$name) -> Self {
+                use crate::gpio::SealedPin;
+
                 Self {
                     pin_bank: val.pin_bank(),
                     pin_number: val.pin_number(),
@@ -309,68 +313,3 @@ macro_rules! impl_pin {
         }
     };
 }
-
-impl_pin!(PIO0_0, Bank::Bank0, 0);
-impl_pin!(PIO0_1, Bank::Bank0, 1);
-impl_pin!(PIO0_2, Bank::Bank0, 2);
-impl_pin!(PIO0_3, Bank::Bank0, 3);
-impl_pin!(PIO0_4, Bank::Bank0, 4);
-impl_pin!(PIO0_5, Bank::Bank0, 5);
-impl_pin!(PIO0_6, Bank::Bank0, 6);
-impl_pin!(PIO0_7, Bank::Bank0, 7);
-impl_pin!(PIO0_8, Bank::Bank0, 8);
-impl_pin!(PIO0_9, Bank::Bank0, 9);
-impl_pin!(PIO0_10, Bank::Bank0, 10);
-impl_pin!(PIO0_11, Bank::Bank0, 11);
-impl_pin!(PIO0_12, Bank::Bank0, 12);
-impl_pin!(PIO0_13, Bank::Bank0, 13);
-impl_pin!(PIO0_14, Bank::Bank0, 14);
-impl_pin!(PIO0_15, Bank::Bank0, 15);
-impl_pin!(PIO0_16, Bank::Bank0, 16);
-impl_pin!(PIO0_17, Bank::Bank0, 17);
-impl_pin!(PIO0_18, Bank::Bank0, 18);
-impl_pin!(PIO0_19, Bank::Bank0, 19);
-impl_pin!(PIO0_20, Bank::Bank0, 20);
-impl_pin!(PIO0_21, Bank::Bank0, 21);
-impl_pin!(PIO0_22, Bank::Bank0, 22);
-impl_pin!(PIO0_23, Bank::Bank0, 23);
-impl_pin!(PIO0_24, Bank::Bank0, 24);
-impl_pin!(PIO0_25, Bank::Bank0, 25);
-impl_pin!(PIO0_26, Bank::Bank0, 26);
-impl_pin!(PIO0_27, Bank::Bank0, 27);
-impl_pin!(PIO0_28, Bank::Bank0, 28);
-impl_pin!(PIO0_29, Bank::Bank0, 29);
-impl_pin!(PIO0_30, Bank::Bank0, 30);
-impl_pin!(PIO0_31, Bank::Bank0, 31);
-impl_pin!(PIO1_0, Bank::Bank1, 0);
-impl_pin!(PIO1_1, Bank::Bank1, 1);
-impl_pin!(PIO1_2, Bank::Bank1, 2);
-impl_pin!(PIO1_3, Bank::Bank1, 3);
-impl_pin!(PIO1_4, Bank::Bank1, 4);
-impl_pin!(PIO1_5, Bank::Bank1, 5);
-impl_pin!(PIO1_6, Bank::Bank1, 6);
-impl_pin!(PIO1_7, Bank::Bank1, 7);
-impl_pin!(PIO1_8, Bank::Bank1, 8);
-impl_pin!(PIO1_9, Bank::Bank1, 9);
-impl_pin!(PIO1_10, Bank::Bank1, 10);
-impl_pin!(PIO1_11, Bank::Bank1, 11);
-impl_pin!(PIO1_12, Bank::Bank1, 12);
-impl_pin!(PIO1_13, Bank::Bank1, 13);
-impl_pin!(PIO1_14, Bank::Bank1, 14);
-impl_pin!(PIO1_15, Bank::Bank1, 15);
-impl_pin!(PIO1_16, Bank::Bank1, 16);
-impl_pin!(PIO1_17, Bank::Bank1, 17);
-impl_pin!(PIO1_18, Bank::Bank1, 18);
-impl_pin!(PIO1_19, Bank::Bank1, 19);
-impl_pin!(PIO1_20, Bank::Bank1, 20);
-impl_pin!(PIO1_21, Bank::Bank1, 21);
-impl_pin!(PIO1_22, Bank::Bank1, 22);
-impl_pin!(PIO1_23, Bank::Bank1, 23);
-impl_pin!(PIO1_24, Bank::Bank1, 24);
-impl_pin!(PIO1_25, Bank::Bank1, 25);
-impl_pin!(PIO1_26, Bank::Bank1, 26);
-impl_pin!(PIO1_27, Bank::Bank1, 27);
-impl_pin!(PIO1_28, Bank::Bank1, 28);
-impl_pin!(PIO1_29, Bank::Bank1, 29);
-impl_pin!(PIO1_30, Bank::Bank1, 30);
-impl_pin!(PIO1_31, Bank::Bank1, 31);

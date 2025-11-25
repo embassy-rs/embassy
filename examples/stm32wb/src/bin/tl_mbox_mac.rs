@@ -16,7 +16,7 @@ bind_interrupts!(struct Irqs{
 });
 
 #[embassy_executor::task]
-async fn run_mm_queue(memory_manager: mm::MemoryManager) {
+async fn run_mm_queue(mut memory_manager: mm::MemoryManager<'static>) {
     memory_manager.run_queue().await;
 }
 
@@ -51,16 +51,12 @@ async fn main(spawner: Spawner) {
     info!("Hello World!");
 
     let config = Config::default();
-    let mbox = TlMbox::init(p.IPCC, Irqs, config);
+    let mbox = TlMbox::init(p.IPCC, Irqs, config).await;
+    let mut sys = mbox.sys_subsystem;
 
     spawner.spawn(run_mm_queue(mbox.mm_subsystem).unwrap());
 
-    let sys_event = mbox.sys_subsystem.read().await;
-    info!("sys event: {}", sys_event.payload());
-
-    core::mem::drop(sys_event);
-
-    let result = mbox.sys_subsystem.shci_c2_mac_802_15_4_init().await;
+    let result = sys.shci_c2_mac_802_15_4_init().await;
     info!("initialized mac: {}", result);
 
     //

@@ -171,7 +171,11 @@ Note that the git revision should match any other embassy patches or git depende
 
 == Can I use manual ISRs alongside Embassy?
 
-Yes! This can be useful if you need to respond to an event as fast as possible, and the latency caused by the usual “ISR, wake, return from ISR, context switch to woken task” flow is too much for your application. Simply define a `#[interrupt] fn INTERRUPT_NAME() {}` handler as you would link:https://docs.rust-embedded.org/book/start/interrupts.html[in any other embedded rust project].
+Yes! This can be useful if you need to respond to an event as fast as possible, and the latency caused by the usual “ISR, wake, return from ISR, context switch to woken task” flow is too much for your application. 
+
+You may simply define a `#[interrupt] fn INTERRUPT_NAME() {}` handler as you would link:https://docs.rust-embedded.org/book/start/interrupts.html[in any other embedded rust project].
+
+Or you may define a struct implementing the `embassy-[family]::interrupt::typelevel::Handler` trait with an on_interrupt() method, and bind it to the interrupt vector via the `bind_interrupts!` macro, which introduces only a single indirection. This allows the mixing of manual ISRs with Embassy driver-defined ISRs; handlers will be called directly in the order they appear in the macro.
 
 == How can I measure resource usage (CPU, RAM, etc.)?
 

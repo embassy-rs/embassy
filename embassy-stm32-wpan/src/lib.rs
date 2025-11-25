@@ -26,7 +26,7 @@ use core::sync::atomic::{Ordering, compiler_fence};
 
 use embassy_hal_internal::Peri;
 use embassy_stm32::interrupt;
-use embassy_stm32::ipcc::{Config, Ipcc, ReceiveInterruptHandler, TransmitInterruptHandler};
+use embassy_stm32::ipcc::{Config, Ipcc, IpccRxChannel, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::peripherals::IPCC;
 use sub::mm::MemoryManager;
 use sub::sys::Sys;
@@ -53,14 +53,13 @@ type PacketHeader = LinkedListNode;
 
 /// Transport Layer for the Mailbox interface
 pub struct TlMbox<'d> {
-    _ipcc: Peri<'d, IPCC>,
-
-    pub sys_subsystem: Sys,
-    pub mm_subsystem: MemoryManager,
+    pub sys_subsystem: Sys<'d>,
+    pub mm_subsystem: MemoryManager<'d>,
     #[cfg(feature = "ble")]
-    pub ble_subsystem: sub::ble::Ble,
+    pub ble_subsystem: sub::ble::Ble<'d>,
     #[cfg(feature = "mac")]
-    pub mac_subsystem: sub::mac::Mac,
+    pub mac_subsystem: sub::mac::Mac<'d>,
+    pub traces: IpccRxChannel<'d>,
 }
 
 impl<'d> TlMbox<'d> {
@@ -92,7 +91,7 @@ impl<'d> TlMbox<'d> {
     /// be handled by `TL_BLE_Init`; see Figure 66). This completes the procedure laid out in
     /// Figure 66.
     // TODO: document what the user should do after calling init to use the mac_802_15_4 subsystem
-    pub fn init(
+    pub async fn init(
         ipcc: Peri<'d, IPCC>,
         _irqs: impl interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C1_RX, ReceiveInterruptHandler>
         + interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C1_TX, TransmitInterruptHandler>,
@@ -185,16 +184,35 @@ impl<'d> TlMbox<'d> {
         compiler_fence(Ordering::SeqCst);
 
         // this is equivalent to `HW_IPCC_Enable`, which is called by `TL_Enable`
-        Ipcc::enable(config);
+        let [
+            (_hw_ipcc_ble_cmd_channel, _ipcc_ble_event_channel),
+            (ipcc_system_cmd_rsp_channel, ipcc_system_event_channel),
+            (_ipcc_mac_802_15_4_cmd_rsp_channel, _ipcc_mac_802_15_4_notification_ack_channel),
+            (ipcc_mm_release_buffer_channel, _ipcc_traces_channel),
+            (_ipcc_ble_lld_cmd_channel, _ipcc_ble_lld_rsp_channel),
+            (_ipcc_hci_acl_data_channel, _),
+        ] = Ipcc::new(ipcc, _irqs, config).split();
+
+        let mm = sub::mm::MemoryManager::new(ipcc_mm_release_buffer_channel);
+        let mut sys = sub::sys::Sys::new(ipcc_system_cmd_rsp_channel, ipcc_system_event_channel);
+
+        debug!("sys event: {}", sys.read().await.payload());
 
         Self {
-            _ipcc: ipcc,
-            sys_subsystem: sub::sys::Sys::new(),
+            sys_subsystem: sys,
             #[cfg(feature = "ble")]
-            ble_subsystem: sub::ble::Ble::new(),
+            ble_subsystem: sub::ble::Ble::new(
+                _hw_ipcc_ble_cmd_channel,
+                _ipcc_ble_event_channel,
+                _ipcc_hci_acl_data_channel,
+            ),
             #[cfg(feature = "mac")]
-            mac_subsystem: sub::mac::Mac::new(),
-            mm_subsystem: sub::mm::MemoryManager::new(),
+            mac_subsystem: sub::mac::Mac::new(
+                _ipcc_mac_802_15_4_cmd_rsp_channel,
+                _ipcc_mac_802_15_4_notification_ack_channel,
+            ),
+            mm_subsystem: mm,
+            traces: _ipcc_traces_channel,
         }
     }
 }

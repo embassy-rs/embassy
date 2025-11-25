@@ -3,10 +3,16 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::exti::ExtiInput;
+use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
+use embassy_stm32::{bind_interrupts, interrupt};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(
+    pub struct Irqs{
+        EXTI13 => exti::InterruptHandler<interrupt::typelevel::EXTI13>;
+});
 
 #[embassy_executor::task]
 async fn button_task(mut p: ExtiInput<'static>) {
@@ -22,7 +28,7 @@ async fn main(spawner: Spawner) {
     info!("Hello World!");
 
     let mut led = Output::new(p.PG10, Level::High, Speed::Low);
-    let button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Up);
+    let button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Up, Irqs);
 
     spawner.spawn(button_task(button).unwrap());
 

@@ -95,6 +95,8 @@ pub mod i2c;
 pub mod i2s;
 #[cfg(stm32wb)]
 pub mod ipcc;
+#[cfg(lcd)]
+pub mod lcd;
 #[cfg(feature = "low-power")]
 pub mod low_power;
 #[cfg(lptim)]
@@ -151,7 +153,7 @@ pub use crate::_generated::interrupt;
 /// Macro to bind interrupts to handlers.
 ///
 /// This defines the right interrupt handlers, and creates a unit struct (like `struct Irqs;`)
-/// and implements the right [`Binding`]s for it. You can pass this struct to drivers to
+/// and implements the right [`Binding`](crate::interrupt::typelevel::Binding)s for it. You can pass this struct to drivers to
 /// prove at compile-time that the right interrupts have been bound.
 ///
 /// Example of how to bind one interrupt:
@@ -178,6 +180,10 @@ pub use crate::_generated::interrupt;
 ///     }
 /// );
 /// ```
+///
+/// Some chips collate multiple interrupt signals into a single interrupt vector. In the above example, I2C2_3 is a
+/// single vector which is activated by events and errors on both peripherals I2C2 and I2C3. Check your chip's list
+/// of interrupt vectors if you get an unexpected compile error trying to bind the standard name.
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {
@@ -649,12 +655,26 @@ fn init_hw(config: Config) -> Peripherals {
             rcc::init_rcc(cs, config.rcc);
 
             #[cfg(feature = "low-power")]
-            crate::rtc::init_rtc(cs, config.rtc);
+            rtc::init_rtc(cs, config.rtc, config.min_stop_pause);
 
-            #[cfg(feature = "low-power")]
-            crate::time_driver::get_driver().set_min_stop_pause(cs, config.min_stop_pause);
+            #[cfg(all(stm32wb, feature = "low-power"))]
+            hsem::init_hsem(cs);
         }
 
         p
     })
+}
+
+/// Performs a busy-wait delay for a specified number of microseconds.
+#[allow(unused)]
+pub(crate) fn block_for_us(us: u64) {
+    cfg_if::cfg_if! {
+        // this does strange things on stm32wlx in low power mode depending on exactly when it's called
+        // as in sometimes 15 us (1 tick) would take > 20 seconds.
+        if #[cfg(all(feature = "time", all(not(feature = "low-power"), not(stm32wlex))))] {
+            embassy_time::block_for(embassy_time::Duration::from_micros(us));
+        } else {
+            cortex_m::asm::delay(unsafe { rcc::get_freqs().sys.to_hertz().unwrap().0 as u64 * us  / 1_000_000 } as u32);
+        }
+    }
 }

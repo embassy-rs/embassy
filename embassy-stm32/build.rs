@@ -170,6 +170,11 @@ fn main() {
                     }
                     singletons.push(p.name.to_string());
                 }
+
+                "eth" => {
+                    singletons.push(p.name.to_string());
+                    singletons.push("ETH_SMA".to_string());
+                }
                 //"dbgmcu" => {}
                 //"syscfg" => {}
                 //"dma" => {}
@@ -348,8 +353,13 @@ fn main() {
     // ========
     // Generate interrupt declarations
 
+    let mut exti2_tsc_shared_int_present: Option<stm32_metapac::metadata::Interrupt> = None;
     let mut irqs = Vec::new();
     for irq in METADATA.interrupts {
+        // The PAC doesn't ensure this is listed as the IRQ of EXTI2, so we must do so
+        if irq.name == "EXTI2_TSC" {
+            exti2_tsc_shared_int_present = Some(irq.clone())
+        }
         irqs.push(format_ident!("{}", irq.name));
     }
 
@@ -1347,6 +1357,9 @@ fn main() {
         (("tsc", "G8_IO2"), quote!(crate::tsc::G8IO2Pin)),
         (("tsc", "G8_IO3"), quote!(crate::tsc::G8IO3Pin)),
         (("tsc", "G8_IO4"), quote!(crate::tsc::G8IO4Pin)),
+        (("lcd", "SEG"), quote!(crate::lcd::SegPin)),
+        (("lcd", "COM"), quote!(crate::lcd::ComPin)),
+        (("lcd", "VLCD"), quote!(crate::lcd::VlcdPin)),
         (("dac", "OUT1"), quote!(crate::dac::DacPin<Ch1>)),
         (("dac", "OUT2"), quote!(crate::dac::DacPin<Ch2>)),
     ].into();
@@ -1354,9 +1367,22 @@ fn main() {
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
             let mut adc_pairs: BTreeMap<u8, (Option<Ident>, Option<Ident>)> = BTreeMap::new();
+            let mut seen_lcd_seg_pins = HashSet::new();
 
             for pin in p.pins {
-                let key = (regs.kind, pin.signal);
+                let mut key = (regs.kind, pin.signal);
+
+                // LCD is special. There are so many pins!
+                if regs.kind == "lcd" {
+                    key.1 = pin.signal.trim_end_matches(char::is_numeric);
+
+                    if key.1 == "SEG" && !seen_lcd_seg_pins.insert(pin.pin) {
+                        // LCD has SEG pins multiplexed in the peripheral
+                        // This means we can see them twice. We need to skip those so we're not impl'ing the trait twice
+                        continue;
+                    }
+                }
+
                 if let Some(tr) = signals.get(&key) {
                     let mut peri = format_ident!("{}", p.name);
 
@@ -1397,6 +1423,11 @@ fn main() {
                         } else {
                             panic! {"malformed XSPIM pin: {:?}", pin}
                         }
+                    }
+
+                    // MDIO and MDC are special
+                    if pin.signal == "MDIO" || pin.signal == "MDC" {
+                        peri = format_ident!("{}", "ETH_SMA");
                     }
 
                     // XSPI NCS pin to CSSEL mapping
@@ -1602,13 +1633,13 @@ fn main() {
     .into();
 
     if chip_name.starts_with("stm32u5") {
-        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma4));
+        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
     } else {
         signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
     }
 
     if chip_name.starts_with("stm32wba") {
-        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma4));
+        signals.insert(("adc", "ADC4"), quote!(crate::adc::RxDma));
     }
 
     if chip_name.starts_with("stm32g4") {
@@ -1695,70 +1726,88 @@ fn main() {
     }
 
     // ========
-    // Generate Div/Mul impls for RCC prescalers/dividers/multipliers.
-    for e in rcc_registers.ir.enums {
-        fn is_rcc_name(e: &str) -> bool {
-            match e {
-                "Pllp" | "Pllq" | "Pllr" | "Plldivst" | "Pllm" | "Plln" | "Prediv1" | "Prediv2" | "Hpre5" => true,
-                "Timpre" | "Pllrclkpre" => false,
-                e if e.ends_with("pre") || e.ends_with("pres") || e.ends_with("div") || e.ends_with("mul") => true,
-                _ => false,
+    // Generate Div/Mul impls for RCC and ADC prescalers/dividers/multipliers.
+    for (kind, psc_enums) in ["rcc", "adc", "adccommon"].iter().filter_map(|kind| {
+        METADATA
+            .peripherals
+            .iter()
+            .filter_map(|p| p.registers.as_ref())
+            .find(|r| r.kind == *kind)
+            .map(|r| (*kind, r.ir.enums))
+    }) {
+        for e in psc_enums.iter() {
+            fn is_adc_name(e: &str) -> bool {
+                match e {
+                    "Presc" | "Adc4Presc" | "Adcpre" => true,
+                    _ => false,
+                }
             }
-        }
 
-        fn parse_num(n: &str) -> Result<Frac, ()> {
-            for prefix in ["DIV", "MUL"] {
-                if let Some(n) = n.strip_prefix(prefix) {
-                    let exponent = n.find('_').map(|e| n.len() - 1 - e).unwrap_or(0) as u32;
-                    let mantissa = n.replace('_', "").parse().map_err(|_| ())?;
-                    let f = Frac {
-                        num: mantissa,
-                        denom: 10u32.pow(exponent),
+            fn is_rcc_name(e: &str) -> bool {
+                match e {
+                    "Pllp" | "Pllq" | "Pllr" | "Plldivst" | "Pllm" | "Plln" | "Prediv1" | "Prediv2" | "Hpre5" => true,
+                    "Timpre" | "Pllrclkpre" => false,
+                    e if e.ends_with("pre") || e.ends_with("pres") || e.ends_with("div") || e.ends_with("mul") => true,
+                    _ => false,
+                }
+            }
+
+            fn parse_num(n: &str) -> Result<Frac, ()> {
+                for prefix in ["DIV", "MUL"] {
+                    if let Some(n) = n.strip_prefix(prefix) {
+                        let exponent = n.find('_').map(|e| n.len() - 1 - e).unwrap_or(0) as u32;
+                        let mantissa = n.replace('_', "").parse().map_err(|_| ())?;
+                        let f = Frac {
+                            num: mantissa,
+                            denom: 10u32.pow(exponent),
+                        };
+                        return Ok(f.simplify());
+                    }
+                }
+                Err(())
+            }
+
+            if (kind == "rcc" && is_rcc_name(e.name)) || ((kind == "adccommon" || kind == "adc") && is_adc_name(e.name))
+            {
+                let kind = format_ident!("{}", kind);
+                let enum_name = format_ident!("{}", e.name);
+                let mut muls = Vec::new();
+                let mut divs = Vec::new();
+                for v in e.variants {
+                    let Ok(val) = parse_num(v.name) else {
+                        panic!("could not parse mul/div. enum={} variant={}", e.name, v.name)
                     };
-                    return Ok(f.simplify());
+                    let variant_name = format_ident!("{}", v.name);
+                    let variant = quote!(crate::pac::#kind::vals::#enum_name::#variant_name);
+                    let num = val.num;
+                    let denom = val.denom;
+                    muls.push(quote!(#variant => self * #num / #denom,));
+                    divs.push(quote!(#variant => self * #denom / #num,));
                 }
-            }
-            Err(())
-        }
 
-        if is_rcc_name(e.name) {
-            let enum_name = format_ident!("{}", e.name);
-            let mut muls = Vec::new();
-            let mut divs = Vec::new();
-            for v in e.variants {
-                let Ok(val) = parse_num(v.name) else {
-                    panic!("could not parse mul/div. enum={} variant={}", e.name, v.name)
-                };
-                let variant_name = format_ident!("{}", v.name);
-                let variant = quote!(crate::pac::rcc::vals::#enum_name::#variant_name);
-                let num = val.num;
-                let denom = val.denom;
-                muls.push(quote!(#variant => self * #num / #denom,));
-                divs.push(quote!(#variant => self * #denom / #num,));
-            }
-
-            g.extend(quote! {
-                impl core::ops::Div<crate::pac::rcc::vals::#enum_name> for crate::time::Hertz {
-                    type Output = crate::time::Hertz;
-                    fn div(self, rhs: crate::pac::rcc::vals::#enum_name) -> Self::Output {
-                        match rhs {
-                            #(#divs)*
-                            #[allow(unreachable_patterns)]
-                            _ => unreachable!(),
+                g.extend(quote! {
+                    impl core::ops::Div<crate::pac::#kind::vals::#enum_name> for crate::time::Hertz {
+                        type Output = crate::time::Hertz;
+                        fn div(self, rhs: crate::pac::#kind::vals::#enum_name) -> Self::Output {
+                            match rhs {
+                                #(#divs)*
+                                #[allow(unreachable_patterns)]
+                                _ => unreachable!(),
+                            }
                         }
                     }
-                }
-                impl core::ops::Mul<crate::pac::rcc::vals::#enum_name> for crate::time::Hertz {
-                    type Output = crate::time::Hertz;
-                    fn mul(self, rhs: crate::pac::rcc::vals::#enum_name) -> Self::Output {
-                        match rhs {
-                            #(#muls)*
-                            #[allow(unreachable_patterns)]
-                            _ => unreachable!(),
+                    impl core::ops::Mul<crate::pac::#kind::vals::#enum_name> for crate::time::Hertz {
+                        type Output = crate::time::Hertz;
+                        fn mul(self, rhs: crate::pac::#kind::vals::#enum_name) -> Self::Output {
+                            match rhs {
+                                #(#muls)*
+                                #[allow(unreachable_patterns)]
+                                _ => unreachable!(),
+                            }
                         }
                     }
-                }
-            });
+                });
+            }
         }
     }
 
@@ -1768,7 +1817,19 @@ fn main() {
     for p in METADATA.peripherals {
         let mut pt = TokenStream::new();
 
+        let mut exti2_tsc_injected = false;
+        if let Some(ref irq) = exti2_tsc_shared_int_present
+            && p.name == "EXTI"
+        {
+            exti2_tsc_injected = true;
+            let iname = format_ident!("{}", irq.name);
+            let sname = format_ident!("{}", "EXTI2");
+            pt.extend(quote!(pub type #sname = crate::interrupt::typelevel::#iname;));
+        }
         for irq in p.interrupts {
+            if exti2_tsc_injected && irq.signal == "EXTI2" {
+                continue;
+            }
             let iname = format_ident!("{}", irq.interrupt);
             let sname = format_ident!("{}", irq.signal);
             pt.extend(quote!(pub type #sname = crate::interrupt::typelevel::#iname;));
@@ -1919,6 +1980,19 @@ fn main() {
             continue;
         }
 
+        let stop_mode = METADATA
+            .peripherals
+            .iter()
+            .find(|p| p.name == ch.dma)
+            .map(|p| p.rcc.as_ref().map(|rcc| rcc.stop_mode.clone()).unwrap_or_default())
+            .unwrap_or_default();
+
+        let stop_mode = match stop_mode {
+            StopMode::Standby => quote! { Standby },
+            StopMode::Stop2 => quote! { Stop2 },
+            StopMode::Stop1 => quote! { Stop1 },
+        };
+
         let name = format_ident!("{}", ch.name);
         let idx = ch_idx as u8;
         #[cfg(feature = "_dual-core")]
@@ -1931,7 +2005,7 @@ fn main() {
             quote!(crate::pac::Interrupt::#irq_name)
         };
 
-        g.extend(quote!(dma_channel_impl!(#name, #idx);));
+        g.extend(quote!(dma_channel_impl!(#name, #idx, #stop_mode);));
 
         let dma = format_ident!("{}", ch.dma);
         let ch_num = ch.channel as usize;

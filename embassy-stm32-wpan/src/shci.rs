@@ -1,6 +1,10 @@
-use core::{mem, slice};
+use core::sync::atomic::{Ordering, compiler_fence};
+use core::{mem, ptr, slice};
 
+use crate::PacketHeader;
+use crate::cmd::CmdPacket;
 use crate::consts::{TL_CS_EVT_SIZE, TL_EVT_HEADER_SIZE, TL_PACKET_HEADER_SIZE};
+use crate::evt::{CcEvt, EvtStub};
 
 const SHCI_OGF: u16 = 0x3F;
 
@@ -19,6 +23,18 @@ pub enum SchiCommandStatus {
     ShciErrInvalidParams = 0x42,   /* only used for release < v1.13.0 */
     ShciErrInvalidParamsV2 = 0x92, /* available for release >= v1.13.0 */
     ShciFusCmdNotSupported = 0xFF,
+}
+
+impl SchiCommandStatus {
+    pub unsafe fn from_packet(cmd_buf: *const CmdPacket) -> Result<Self, ()> {
+        let p_cmd_serial = (cmd_buf as *mut u8).add(size_of::<PacketHeader>());
+        let p_evt_payload = p_cmd_serial.add(size_of::<EvtStub>());
+
+        compiler_fence(Ordering::Acquire);
+        let cc_evt = ptr::read_unaligned(p_evt_payload as *const CcEvt);
+
+        cc_evt.payload[0].try_into()
+    }
 }
 
 impl TryFrom<u8> for SchiCommandStatus {
@@ -274,69 +290,64 @@ pub struct ShciBleInitCmdParam {
     pub options: u8,
     /// Reserved for future use - shall be set to 0
     pub hw_version: u8,
-    //    /**
-    //     * Maximum number of connection-oriented channels in initiator mode.
-    //     * Range: 0 .. 64
-    //     */
-    //    pub max_coc_initiator_nbr: u8,
-    //
-    //    /**
-    //     * Minimum transmit power in dBm supported by the Controller.
-    //     * Range: -127 .. 20
-    //     */
-    //    pub min_tx_power: i8,
-    //
-    //    /**
-    //     * Maximum transmit power in dBm supported by the Controller.
-    //     * Range: -127 .. 20
-    //     */
-    //    pub max_tx_power: i8,
-    //
-    //    /**
-    //     * RX model configuration
-    //     * - bit 0:   1: agc_rssi model improved vs RF blockers    0: Legacy agc_rssi model
-    //     * - other bits: reserved ( shall be set to 0)
-    //     */
-    //    pub rx_model_config: u8,
-    //
-    //    /* Maximum number of advertising sets.
-    //     * Range: 1 .. 8 with limitation:
-    //     * This parameter is linked to max_adv_data_len such as both compliant with allocated Total memory computed with BLE_EXT_ADV_BUFFER_SIZE based
-    //     * on Max Extended advertising configuration supported.
-    //     * This parameter is considered by the CPU2 when Options has SHCI_C2_BLE_INIT_OPTIONS_EXT_ADV flag set
-    //     */
-    //    pub max_adv_set_nbr: u8,
-    //
-    //    /* Maximum advertising data length (in bytes)
-    //     * Range: 31 .. 1650 with limitation:
-    //     * This parameter is linked to max_adv_set_nbr such as both compliant with allocated Total memory computed with BLE_EXT_ADV_BUFFER_SIZE based
-    //     * on Max Extended advertising configuration supported.
-    //     * This parameter is considered by the CPU2 when Options has SHCI_C2_BLE_INIT_OPTIONS_EXT_ADV flag set
-    //     */
-    //    pub max_adv_data_len: u16,
-    //
-    //    /* RF TX Path Compensation Value (16-bit signed integer). Units: 0.1 dB.
-    //     * Range: -1280 .. 1280
-    //     */
-    //    pub tx_path_compens: i16,
-    //
-    //    /* RF RX Path Compensation Value (16-bit signed integer). Units: 0.1 dB.
-    //     * Range: -1280 .. 1280
-    //     */
-    //    pub rx_path_compens: i16,
-    //
-    //    /* BLE core specification version (8-bit unsigned integer).
-    //     * values as: 11(5.2), 12(5.3)
-    //     */
-    //    pub ble_core_version: u8,
-    //
-    //    /**
-    //     * Options flags extension
-    //     * - bit 0:   1: appearance Writable              0: appearance Read-Only
-    //     * - bit 1:   1: Enhanced ATT supported           0: Enhanced ATT not supported
-    //     * - other bits: reserved ( shall be set to 0)
-    //     */
-    //    pub options_extension: u8,
+    ///
+    /// Maximum number of connection-oriented channels in initiator mode.
+    /// Range: 0 .. 64
+    pub max_coc_initiator_nbr: u8,
+
+    ///
+    /// Minimum transmit power in dBm supported by the Controller.
+    /// Range: -127 .. 20
+    pub min_tx_power: i8,
+
+    ///
+    /// Maximum transmit power in dBm supported by the Controller.
+    /// Range: -127 .. 20
+    pub max_tx_power: i8,
+
+    ///
+    /// RX model configuration
+    /// - bit 0:   1: agc_rssi model improved vs RF blockers    0: Legacy agc_rssi model
+    /// - other bits: reserved ( shall be set to 0)
+    pub rx_model_config: u8,
+
+    /// Maximum number of advertising sets.
+    /// Range: 1 .. 8 with limitation:
+    /// This parameter is linked to max_adv_data_len such as both compliant with allocated Total memory computed with BLE_EXT_ADV_BUFFER_SIZE based
+    /// on Max Extended advertising configuration supported.
+    /// This parameter is considered by the CPU2 when Options has SHCI_C2_BLE_INIT_OPTIONS_EXT_ADV flag set
+    pub max_adv_set_nbr: u8,
+
+    /// Maximum advertising data length (in bytes)
+    /// Range: 31 .. 1650 with limitation:
+    /// This parameter is linked to max_adv_set_nbr such as both compliant with allocated Total memory computed with BLE_EXT_ADV_BUFFER_SIZE based
+    /// on Max Extended advertising configuration supported.
+    /// This parameter is considered by the CPU2 when Options has SHCI_C2_BLE_INIT_OPTIONS_EXT_ADV flag set
+    pub max_adv_data_len: u16,
+
+    /// RF TX Path Compensation Value (16-bit signed integer). Units: 0.1 dB.
+    /// Range: -1280 .. 1280
+    pub tx_path_compens: i16,
+
+    //// RF RX Path Compensation Value (16-bit signed integer). Units: 0.1 dB.
+    /// Range: -1280 .. 1280
+    pub rx_path_compens: i16,
+
+    /// BLE core specification version (8-bit unsigned integer).
+    /// values as: 11(5.2), 12(5.3)
+    pub ble_core_version: u8,
+
+    /// Options flags extension
+    /// - bit 0:   1: appearance Writable              0: appearance Read-Only
+    /// - bit 1:   1: Enhanced ATT supported           0: Enhanced ATT not supported
+    /// - other bits: reserved ( shall be set to 0)
+    pub options_extension: u8,
+
+    /// MaxAddEattBearers
+    /// Maximum number of bearers that can be created for Enhanced ATT
+    /// in addition to the number of links
+    ///     - Range: 0 .. 4
+    pub max_add_eatt_bearers: u8,
 }
 
 impl ShciBleInitCmdParam {
@@ -351,7 +362,7 @@ impl Default for ShciBleInitCmdParam {
             p_ble_buffer_address: 0,
             ble_buffer_size: 0,
             num_attr_record: 68,
-            num_attr_serv: 8,
+            num_attr_serv: 4,
             attr_value_arr_size: 1344,
             num_of_links: 2,
             extended_packet_length_enable: 1,
@@ -366,6 +377,17 @@ impl Default for ShciBleInitCmdParam {
             viterbi_enable: 1,
             options: 0,
             hw_version: 0,
+            max_coc_initiator_nbr: 32,
+            min_tx_power: -40,
+            max_tx_power: 6,
+            rx_model_config: 0,
+            max_adv_set_nbr: 2,
+            max_adv_data_len: 1650,
+            tx_path_compens: 0,
+            rx_path_compens: 0,
+            ble_core_version: 11,
+            options_extension: 0,
+            max_add_eatt_bearers: 4,
         }
     }
 }

@@ -191,93 +191,93 @@ pub struct RefTable {
 
 // --------------------- ref table ---------------------
 #[unsafe(link_section = "TL_REF_TABLE")]
-pub static mut TL_REF_TABLE: MaybeUninit<RefTable> = MaybeUninit::uninit();
+pub static mut TL_REF_TABLE: MaybeUninit<RefTable> = MaybeUninit::zeroed();
 
 #[unsafe(link_section = "MB_MEM1")]
-pub static mut TL_DEVICE_INFO_TABLE: Aligned<A4, MaybeUninit<DeviceInfoTable>> = Aligned(MaybeUninit::uninit());
+pub static mut TL_DEVICE_INFO_TABLE: Aligned<A4, MaybeUninit<DeviceInfoTable>> = Aligned(MaybeUninit::zeroed());
 
 #[unsafe(link_section = "MB_MEM1")]
-pub static mut TL_BLE_TABLE: Aligned<A4, MaybeUninit<BleTable>> = Aligned(MaybeUninit::uninit());
+pub static mut TL_BLE_TABLE: Aligned<A4, MaybeUninit<BleTable>> = Aligned(MaybeUninit::zeroed());
 
 #[unsafe(link_section = "MB_MEM1")]
-pub static mut TL_THREAD_TABLE: Aligned<A4, MaybeUninit<ThreadTable>> = Aligned(MaybeUninit::uninit());
+pub static mut TL_THREAD_TABLE: Aligned<A4, MaybeUninit<ThreadTable>> = Aligned(MaybeUninit::zeroed());
 
 #[unsafe(link_section = "MB_MEM1")]
-pub static mut TL_LLD_TESTS_TABLE: Aligned<A4, MaybeUninit<LldTestsTable>> = Aligned(MaybeUninit::uninit());
+pub static mut TL_LLD_TESTS_TABLE: Aligned<A4, MaybeUninit<LldTestsTable>> = Aligned(MaybeUninit::zeroed());
 
 #[unsafe(link_section = "MB_MEM1")]
-pub static mut TL_BLE_LLD_TABLE: Aligned<A4, MaybeUninit<BleLldTable>> = Aligned(MaybeUninit::uninit());
+pub static mut TL_BLE_LLD_TABLE: Aligned<A4, MaybeUninit<BleLldTable>> = Aligned(MaybeUninit::zeroed());
 
 #[unsafe(link_section = "MB_MEM1")]
-pub static mut TL_SYS_TABLE: Aligned<A4, MaybeUninit<SysTable>> = Aligned(MaybeUninit::uninit());
+pub static mut TL_SYS_TABLE: Aligned<A4, MaybeUninit<SysTable>> = Aligned(MaybeUninit::zeroed());
 
 #[unsafe(link_section = "MB_MEM1")]
-pub static mut TL_MEM_MANAGER_TABLE: Aligned<A4, MaybeUninit<MemManagerTable>> = Aligned(MaybeUninit::uninit());
+pub static mut TL_MEM_MANAGER_TABLE: Aligned<A4, MaybeUninit<MemManagerTable>> = Aligned(MaybeUninit::zeroed());
 
 #[unsafe(link_section = "MB_MEM1")]
-pub static mut TL_TRACES_TABLE: Aligned<A4, MaybeUninit<TracesTable>> = Aligned(MaybeUninit::uninit());
+pub static mut TL_TRACES_TABLE: Aligned<A4, MaybeUninit<TracesTable>> = Aligned(MaybeUninit::zeroed());
 
 #[unsafe(link_section = "MB_MEM1")]
-pub static mut TL_MAC_802_15_4_TABLE: Aligned<A4, MaybeUninit<Mac802_15_4Table>> = Aligned(MaybeUninit::uninit());
+pub static mut TL_MAC_802_15_4_TABLE: Aligned<A4, MaybeUninit<Mac802_15_4Table>> = Aligned(MaybeUninit::zeroed());
 
 #[unsafe(link_section = "MB_MEM1")]
-pub static mut TL_ZIGBEE_TABLE: Aligned<A4, MaybeUninit<ZigbeeTable>> = Aligned(MaybeUninit::uninit());
+pub static mut TL_ZIGBEE_TABLE: Aligned<A4, MaybeUninit<ZigbeeTable>> = Aligned(MaybeUninit::zeroed());
 
 // --------------------- tables ---------------------
 #[unsafe(link_section = "MB_MEM1")]
-pub static mut FREE_BUF_QUEUE: Aligned<A4, MaybeUninit<LinkedListNode>> = Aligned(MaybeUninit::uninit());
+pub static mut FREE_BUF_QUEUE: Aligned<A4, MaybeUninit<LinkedListNode>> = Aligned(MaybeUninit::zeroed());
 
 #[allow(dead_code)]
 #[unsafe(link_section = "MB_MEM1")]
-pub static mut TRACES_EVT_QUEUE: Aligned<A4, MaybeUninit<LinkedListNode>> = Aligned(MaybeUninit::uninit());
+pub static mut TRACES_EVT_QUEUE: Aligned<A4, MaybeUninit<LinkedListNode>> = Aligned(MaybeUninit::zeroed());
 
 #[unsafe(link_section = "MB_MEM2")]
 pub static mut CS_BUFFER: Aligned<A4, MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + TL_CS_EVT_SIZE]>> =
-    Aligned(MaybeUninit::uninit());
+    Aligned(MaybeUninit::zeroed());
 
 #[unsafe(link_section = "MB_MEM2")]
-pub static mut EVT_QUEUE: Aligned<A4, MaybeUninit<LinkedListNode>> = Aligned(MaybeUninit::uninit());
+pub static mut EVT_QUEUE: Aligned<A4, MaybeUninit<LinkedListNode>> = Aligned(MaybeUninit::zeroed());
 
 #[unsafe(link_section = "MB_MEM2")]
-pub static mut SYSTEM_EVT_QUEUE: Aligned<A4, MaybeUninit<LinkedListNode>> = Aligned(MaybeUninit::uninit());
+pub static mut SYSTEM_EVT_QUEUE: Aligned<A4, MaybeUninit<LinkedListNode>> = Aligned(MaybeUninit::zeroed());
 
 // --------------------- app tables ---------------------
 #[cfg(feature = "mac")]
 #[unsafe(link_section = "MB_MEM2")]
-pub static mut MAC_802_15_4_CMD_BUFFER: Aligned<A4, MaybeUninit<CmdPacket>> = Aligned(MaybeUninit::uninit());
+pub static mut MAC_802_15_4_CMD_BUFFER: Aligned<A4, MaybeUninit<CmdPacket>> = Aligned(MaybeUninit::zeroed());
 
 #[cfg(feature = "mac")]
 #[unsafe(link_section = "MB_MEM2")]
 pub static mut MAC_802_15_4_NOTIF_RSP_EVT_BUFFER: MaybeUninit<
     Aligned<A4, [u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]>,
-> = MaybeUninit::uninit();
+> = MaybeUninit::zeroed();
 
 #[unsafe(link_section = "MB_MEM2")]
-pub static mut EVT_POOL: Aligned<A4, MaybeUninit<[u8; POOL_SIZE]>> = Aligned(MaybeUninit::uninit());
+pub static mut EVT_POOL: Aligned<A4, MaybeUninit<[u8; POOL_SIZE]>> = Aligned(MaybeUninit::zeroed());
 
 #[unsafe(link_section = "MB_MEM2")]
-pub static mut SYS_CMD_BUF: Aligned<A4, MaybeUninit<CmdPacket>> = Aligned(MaybeUninit::uninit());
+pub static mut SYS_CMD_BUF: Aligned<A4, MaybeUninit<CmdPacket>> = Aligned(MaybeUninit::zeroed());
 
 #[unsafe(link_section = "MB_MEM2")]
 pub static mut SYS_SPARE_EVT_BUF: Aligned<A4, MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]>> =
-    Aligned(MaybeUninit::uninit());
+    Aligned(MaybeUninit::zeroed());
 
 #[cfg(feature = "mac")]
 #[unsafe(link_section = "MB_MEM2")]
 pub static mut MAC_802_15_4_CNFINDNOT: Aligned<A4, MaybeUninit<[u8; C_SIZE_CMD_STRING]>> =
-    Aligned(MaybeUninit::uninit());
+    Aligned(MaybeUninit::zeroed());
 
 #[cfg(feature = "ble")]
 #[unsafe(link_section = "MB_MEM1")]
-pub static mut BLE_CMD_BUFFER: Aligned<A4, MaybeUninit<CmdPacket>> = Aligned(MaybeUninit::uninit());
+pub static mut BLE_CMD_BUFFER: Aligned<A4, MaybeUninit<CmdPacket>> = Aligned(MaybeUninit::zeroed());
 
 #[cfg(feature = "ble")]
 #[unsafe(link_section = "MB_MEM2")]
 pub static mut BLE_SPARE_EVT_BUF: Aligned<A4, MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]>> =
-    Aligned(MaybeUninit::uninit());
+    Aligned(MaybeUninit::zeroed());
 
 #[cfg(feature = "ble")]
 #[unsafe(link_section = "MB_MEM2")]
 //                                                 fuck these "magic" numbers from ST ---v---v
 pub static mut HCI_ACL_DATA_BUFFER: Aligned<A4, MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + 5 + 251]>> =
-    Aligned(MaybeUninit::uninit());
+    Aligned(MaybeUninit::zeroed());

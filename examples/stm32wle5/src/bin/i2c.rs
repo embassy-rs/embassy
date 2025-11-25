@@ -6,9 +6,8 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::I2c;
-use embassy_stm32::low_power::Executor;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{bind_interrupts, i2c, peripherals};
+use embassy_stm32::{bind_interrupts, i2c, low_power, peripherals};
 use embassy_time::{Duration, Timer};
 use panic_probe as _;
 use static_cell::StaticCell;
@@ -18,15 +17,7 @@ bind_interrupts!(struct IrqsI2C{
     I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
 });
 
-#[cortex_m_rt::entry]
-fn main() -> ! {
-    info!("main: Starting!");
-    Executor::take().run(|spawner| {
-        spawner.spawn(unwrap!(async_main(spawner)));
-    });
-}
-
-#[embassy_executor::task]
+#[embassy_executor::main(executor = "low_power::Executor")]
 async fn async_main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
     // enable HSI clock
