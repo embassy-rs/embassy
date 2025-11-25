@@ -12,6 +12,7 @@ pub mod low_level;
 pub mod one_pulse;
 pub mod pwm_input;
 pub mod qei;
+pub mod ringbuffered;
 pub mod simple_pwm;
 
 use crate::interrupt;

@@ -13,7 +13,7 @@ use embassy_hal_internal::Peri;
 pub use stm32_metapac::timer::vals::{FilterValue, Mms as MasterMode, Sms as SlaveMode, Ts as TriggerSource};
 
 use super::*;
-use crate::dma::Transfer;
+use crate::dma::{Transfer, WritableRingBuffer};
 use crate::pac::timer::vals;
 use crate::rcc;
 use crate::time::Hertz;
@@ -657,6 +657,39 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
             TimerBits::Bits16 => self.regs_gp16().ccr(channel.index()).read().ccr() as u32,
             #[cfg(not(stm32l0))]
             TimerBits::Bits32 => self.regs_gp32_unchecked().ccr(channel.index()).read(),
+        }
+    }
+
+    /// Setup a ring buffer for the channel
+    pub fn setup_ring_buffer<'a>(
+        &mut self,
+        dma: Peri<'a, impl super::UpDma<T>>,
+        channel: Channel,
+        dma_buf: &'a mut [u16],
+    ) -> WritableRingBuffer<'a, u16> {
+        #[allow(clippy::let_unit_value)] // eg. stm32f334
+        let req = dma.request();
+
+        unsafe {
+            use crate::dma::TransferOptions;
+            #[cfg(not(any(bdma, gpdma)))]
+            use crate::dma::{Burst, FifoThreshold};
+
+            let dma_transfer_option = TransferOptions {
+                #[cfg(not(any(bdma, gpdma)))]
+                fifo_threshold: Some(FifoThreshold::Full),
+                #[cfg(not(any(bdma, gpdma)))]
+                mburst: Burst::Incr8,
+                ..Default::default()
+            };
+
+            WritableRingBuffer::new(
+                dma,
+                req,
+                self.regs_1ch().ccr(channel.index()).as_ptr() as *mut u16,
+                dma_buf,
+                dma_transfer_option,
+            )
         }
     }
 
