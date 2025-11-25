@@ -47,7 +47,7 @@
 //!
 //! # Example - WFI/WFE Wake (Default)
 //!
-//! ```no_run
+//! ```rust,ignore
 //! use embassy_rp::aon_timer::{AonTimer, Config, ClockSource, AlarmWakeMode};
 //! use embassy_rp::bind_interrupts;
 //! use embassy_time::Duration;
@@ -74,7 +74,7 @@
 //!
 //! # Example - DORMANT Wake
 //!
-//! ```no_run
+//! ```rust,ignore
 //! use embassy_rp::aon_timer::{AonTimer, Config, ClockSource, AlarmWakeMode};
 //! use embassy_rp::bind_interrupts;
 //! use embassy_time::Duration;
@@ -100,7 +100,7 @@
 //!
 //! # Example - Runtime Wake Mode Change
 //!
-//! ```no_run
+//! ```rust,ignore
 //! use embassy_rp::aon_timer::{AonTimer, Config, ClockSource, AlarmWakeMode};
 //! use embassy_rp::bind_interrupts;
 //! use embassy_time::Duration;
