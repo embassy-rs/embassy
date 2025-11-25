@@ -266,12 +266,6 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
             .waveform_up_multi_channel(dma, starting_channel, ending_channel, duty)
             .await;
     }
-
-    /// Generate a sequence of PWM waveform
-    #[inline(always)]
-    pub async fn waveform<C: TimerChannel>(&mut self, dma: Peri<'_, impl super::Dma<T, C>>, duty: &[u16]) {
-        self.inner.waveform(dma, duty).await;
-    }
 }
 
 impl<'d, T: AdvancedInstance4Channel> embedded_hal_02::Pwm for ComplementaryPwm<'d, T> {

@@ -771,43 +771,6 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         }
     }
 
-    /// Generate a sequence of PWM waveform
-    pub async fn waveform<C: TimerChannel>(&mut self, dma: Peri<'_, impl super::Dma<T, C>>, duty: &[u16]) {
-        use crate::pac::timer::vals::Ccds;
-
-        #[allow(clippy::let_unit_value)] // eg. stm32f334
-        let req = dma.request();
-
-        let cc_channel = C::CHANNEL;
-
-        let original_cc_dma_on_update = self.get_cc_dma_selection() == Ccds::ON_UPDATE;
-        let original_cc_dma_enabled = self.get_cc_dma_enable_state(cc_channel);
-
-        // redirect CC DMA request onto Update Event
-        if !original_cc_dma_on_update {
-            self.set_cc_dma_selection(Ccds::ON_UPDATE)
-        }
-
-        if !original_cc_dma_enabled {
-            self.set_cc_dma_enable_state(cc_channel, true);
-        }
-
-        self.waveform_helper(dma, req, cc_channel, duty).await;
-
-        // Since DMA is closed before timer Capture Compare Event trigger DMA is turn off,
-        // this can almost always trigger a DMA FIFO error.
-        //
-        // optional TODO:
-        // clean FEIF after disable UDE
-        if !original_cc_dma_enabled {
-            self.set_cc_dma_enable_state(cc_channel, false);
-        }
-
-        if !original_cc_dma_on_update {
-            self.set_cc_dma_selection(Ccds::ON_COMPARE)
-        }
-    }
-
     async fn waveform_helper(
         &mut self,
         dma: Peri<'_, impl dma::Channel>,
