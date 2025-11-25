@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add fix #4822 in PIO onewire. Change to disable the state machine before setting y register ([#4824](https://github.com/embassy-rs/embassy/pull/4824))
 - Add PIO::Ws2812 color order support
 - Add TX-only, no SCK SPI support
+- Remove atomic-polyfill with critical-section instead ([#4948](https://github.com/embassy-rs/embassy/pull/4948))
 
 ## 0.8.0 - 2025-08-26
 
@@ -116,4 +117,3 @@ Small release fixing a few gnarly bugs, upgrading is strongly recommended.
 - rename the Channel trait to Slice and the PwmPin to PwmChannel
 - i2c: Fix race condition that appears on fast repeated transfers.
 - Add a basic "read to break" function
-
