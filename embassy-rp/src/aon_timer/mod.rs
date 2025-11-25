@@ -8,14 +8,36 @@
 //! - Async alarm waiting with interrupt support (POWMAN_IRQ_TIMER)
 //! - Choice of XOSC or LPOSC clock sources
 //!
-//! # Wake from Low Power
+//! # Alarm Wake Modes
 //!
-//! The AON Timer supports two wake scenarios:
+//! The AON Timer supports multiple wake modes via the [`AlarmWakeMode`] enum:
 //!
-//! - **WFI/WFE (light sleep)**: Alarm triggers `POWMAN_IRQ_TIMER` interrupt to wake.
-//!   Use `wait_for_alarm().await` for async waiting with CPU in low-power mode.
-//! - **DORMANT mode (deep sleep)**: Hardware alarm event wakes directly without interrupt.
-//!   No CPU clock running, so interrupts cannot fire. This requires using LPOSC as the clock source.
+//! - **`WfiOnly` (default)**: Alarm triggers `POWMAN_IRQ_TIMER` interrupt to wake from
+//!   WFI/WFE (light sleep). Use `wait_for_alarm().await` for async waiting. Works with
+//!   both XOSC and LPOSC clock sources.
+//!
+//! - **`DormantOnly`**: Hardware power-up wake from DORMANT (deep sleep). Sets the
+//!   `PWRUP_ON_ALARM` bit to trigger hardware power-up event (no interrupt, since CPU
+//!   clock is stopped). **Requirements:**
+//!   - Must use LPOSC clock source (XOSC is powered down in DORMANT)
+//!   - Requires Secure privilege level (TIMER register is Secure-only)
+//!
+//! - **`Both`**: Enables both interrupt wake (WFI/WFE) and hardware power-up wake (DORMANT).
+//!   Subject to the same requirements as `DormantOnly` for DORMANT support.
+//!
+//! - **`Disabled`**: Alarm flag is set but no wake mechanisms are enabled. Use `alarm_fired()`
+//!   to manually poll the alarm status.
+//!
+//! You can set the wake mode either in [`Config`] at initialization, or at runtime via
+//! [`AonTimer::set_wake_mode()`].
+//!
+//! # Security Considerations
+//!
+//! The TIMER register (including the `PWRUP_ON_ALARM` bit) is **Secure-only** per the
+//! RP2350 datasheet. Setting wake modes that involve DORMANT wake (`DormantOnly` or `Both`)
+//! may fail silently or have no effect when running in Non-secure contexts. Methods
+//! `enable_dormant_wake()`, `disable_dormant_wake()`, and `set_wake_mode()` that configure
+//! DORMANT wake are subject to this restriction.
 //!
 //! # Important Notes
 //!
@@ -23,10 +45,10 @@
 //! - Timer must be stopped before setting the counter value
 //! - Resolution is 1ms (1 kHz tick rate)
 //!
-//! # Example
+//! # Example - WFI/WFE Wake (Default)
 //!
 //! ```no_run
-//! use embassy_rp::aon_timer::{AonTimer, Config, ClockSource};
+//! use embassy_rp::aon_timer::{AonTimer, Config, ClockSource, AlarmWakeMode};
 //! use embassy_rp::bind_interrupts;
 //! use embassy_time::Duration;
 //!
@@ -38,22 +60,67 @@
 //! let config = Config {
 //!     clock_source: ClockSource::Xosc,
 //!     clock_freq_khz: 12000, // 12 MHz
+//!     alarm_wake_mode: AlarmWakeMode::WfiOnly, // Default
 //! };
 //!
 //! let mut timer = AonTimer::new(p.POWMAN, Irqs, config);
-//!
-//! // Set counter to 0 (or any starting value in milliseconds)
 //! timer.set_counter(0);
-//!
-//! // Start the timer
 //! timer.start();
 //!
-//! // Read current value in milliseconds
-//! let ms = timer.now();
-//!
-//! // Set an alarm and wait asynchronously
+//! // Set an alarm and wait asynchronously (interrupt-based wake)
 //! timer.set_alarm_after(Duration::from_secs(5)).unwrap();
-//! timer.wait_for_alarm().await;  // CPU enters low-power mode
+//! timer.wait_for_alarm().await;  // CPU enters WFI low-power mode
+//! ```
+//!
+//! # Example - DORMANT Wake
+//!
+//! ```no_run
+//! use embassy_rp::aon_timer::{AonTimer, Config, ClockSource, AlarmWakeMode};
+//! use embassy_rp::bind_interrupts;
+//! use embassy_time::Duration;
+//!
+//! bind_interrupts!(struct Irqs {
+//!     POWMAN_IRQ_TIMER => embassy_rp::aon_timer::InterruptHandler;
+//! });
+//!
+//! let config = Config {
+//!     clock_source: ClockSource::Lposc,  // Required for DORMANT
+//!     clock_freq_khz: 32,                // ~32 kHz LPOSC
+//!     alarm_wake_mode: AlarmWakeMode::DormantOnly,
+//! };
+//!
+//! let mut timer = AonTimer::new(p.POWMAN, Irqs, config);
+//! timer.set_counter(0);
+//! timer.start();
+//!
+//! // Set alarm for DORMANT wake (hardware power-up)
+//! timer.set_alarm_after(Duration::from_secs(10)).unwrap();
+//! // Enter DORMANT mode here - alarm will wake via power-up event
+//! ```
+//!
+//! # Example - Runtime Wake Mode Change
+//!
+//! ```no_run
+//! use embassy_rp::aon_timer::{AonTimer, Config, ClockSource, AlarmWakeMode};
+//! use embassy_rp::bind_interrupts;
+//! use embassy_time::Duration;
+//!
+//! bind_interrupts!(struct Irqs {
+//!     POWMAN_IRQ_TIMER => embassy_rp::aon_timer::InterruptHandler;
+//! });
+//!
+//! let mut timer = AonTimer::new(p.POWMAN, Irqs, Config::default());
+//! timer.set_counter(0);
+//! timer.start();
+//!
+//! // Use WFI wake initially
+//! timer.set_alarm_after(Duration::from_secs(5)).unwrap();
+//! timer.wait_for_alarm().await;
+//!
+//! // Switch to both wake modes at runtime
+//! timer.set_wake_mode(AlarmWakeMode::Both);
+//! timer.set_alarm_after(Duration::from_secs(10)).unwrap();
+//! // Now supports both WFI and DORMANT wake
 //! ```
 
 use core::future::poll_fn;
@@ -73,6 +140,42 @@ const POWMAN_PASSWORD: u32 = 0x5AFE << 16;
 static WAKER: AtomicWaker = AtomicWaker::new();
 static ALARM_OCCURRED: AtomicBool = AtomicBool::new(false);
 
+/// Alarm wake mode configuration
+///
+/// Controls which low-power wake mechanisms are enabled for the alarm.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum AlarmWakeMode {
+    /// Wake from WFI/WFE only (interrupt-based via POWMAN_IRQ_TIMER)
+    ///
+    /// This is the default and most common mode. The alarm triggers an interrupt
+    /// that wakes the CPU from light sleep (WFI/WFE). Works with both XOSC and LPOSC.
+    WfiOnly,
+
+    /// Wake from DORMANT mode only (hardware power-up via PWRUP_ON_ALARM)
+    ///
+    /// The alarm wakes the chip from deep sleep (DORMANT) by triggering a hardware
+    /// power-up event. No interrupt is used since the CPU clock is stopped in DORMANT.
+    ///
+    /// **Requirements:**
+    /// - Must use LPOSC clock source (XOSC is powered down in DORMANT)
+    /// - Requires Secure privilege level (TIMER register is Secure-only)
+    /// - May fail silently in Non-secure contexts
+    DormantOnly,
+
+    /// Wake from both WFI/WFE and DORMANT modes
+    ///
+    /// Enables both interrupt-based wake (WFI/WFE) and hardware power-up wake (DORMANT).
+    /// Subject to the same requirements as DormantOnly for DORMANT wake support.
+    Both,
+
+    /// Alarm fires but doesn't wake (manual polling only)
+    ///
+    /// The alarm flag is set in hardware but no wake mechanisms are enabled.
+    /// Use `alarm_fired()` to manually poll the alarm status.
+    Disabled,
+}
+
 /// AON Timer configuration
 #[derive(Clone, Copy)]
 pub struct Config {
@@ -80,6 +183,11 @@ pub struct Config {
     pub clock_source: ClockSource,
     /// Clock frequency in kHz
     pub clock_freq_khz: u32,
+    /// Alarm wake mode
+    ///
+    /// Controls which low-power wake mechanisms are enabled for alarms.
+    /// See [`AlarmWakeMode`] for details on each mode.
+    pub alarm_wake_mode: AlarmWakeMode,
 }
 
 impl Default for Config {
@@ -87,6 +195,7 @@ impl Default for Config {
         Self {
             clock_source: ClockSource::Xosc,
             clock_freq_khz: 12000, // 12 MHz XOSC
+            alarm_wake_mode: AlarmWakeMode::WfiOnly,
         }
     }
 }
@@ -117,10 +226,17 @@ pub struct AonTimer<'d> {
 impl<'d> AonTimer<'d> {
     /// Create a new AON Timer instance
     ///
-    /// This configures the clock source and frequency but does not start the timer.
-    /// Call `start()` to begin counting.
+    /// This configures the clock source, frequency, and alarm wake mode but does not
+    /// start the timer. Call `start()` to begin counting.
     ///
-    /// For async alarm support, you must bind the `POWMAN_IRQ_TIMER` interrupt:
+    /// The wake mode in `config.alarm_wake_mode` determines how alarms wake the CPU:
+    /// - `WfiOnly` (default): Interrupt-based wake from WFI/WFE
+    /// - `DormantOnly`: Hardware power-up wake from DORMANT (requires LPOSC + Secure mode)
+    /// - `Both`: Both interrupt and hardware power-up wake
+    /// - `Disabled`: No automatic wake (manual polling only)
+    ///
+    /// For interrupt-based wake modes (`WfiOnly` or `Both`), you must bind the
+    /// `POWMAN_IRQ_TIMER` interrupt:
     /// ```rust,ignore
     /// bind_interrupts!(struct Irqs {
     ///     POWMAN_IRQ_TIMER => aon_timer::InterruptHandler;
@@ -229,6 +345,9 @@ impl<'d> AonTimer<'d> {
     ///
     /// Note: Timer must be stopped before calling this function.
     pub fn set_counter(&mut self, value_ms: u64) {
+        if self.is_running() {
+            panic!("timer must be stopped before setting counter");
+        }
         let powman = pac::POWMAN;
         // Write the 64-bit value in 4x 16-bit chunks
         powman.set_time_15to0().write(|w| {
@@ -253,6 +372,12 @@ impl<'d> AonTimer<'d> {
     ///
     /// The alarm will fire when the counter reaches this value.
     /// Returns an error if the alarm time is in the past.
+    ///
+    /// The wake behavior depends on the configured `alarm_wake_mode`:
+    /// - `WfiOnly`: Alarm triggers interrupt wake from WFI/WFE
+    /// - `DormantOnly`: Alarm triggers power-up from DORMANT mode
+    /// - `Both`: Alarm triggers both interrupt and power-up wake
+    /// - `Disabled`: Alarm flag is set but no wake occurs
     pub fn set_alarm(&mut self, alarm_ms: u64) -> Result<(), Error> {
         // Check if alarm is in the past
         let current_ms = self.now();
@@ -269,9 +394,28 @@ impl<'d> AonTimer<'d> {
         // Clear any pending alarm flag
         self.clear_alarm();
 
-        // Enable the alarm and interrupt
+        // Configure wake mode based on configuration
+        match self.config.alarm_wake_mode {
+            AlarmWakeMode::WfiOnly => {
+                self.disable_dormant_wake();
+                self.enable_alarm_interrupt();
+            }
+            AlarmWakeMode::DormantOnly => {
+                self.enable_dormant_wake();
+                self.disable_alarm_interrupt();
+            }
+            AlarmWakeMode::Both => {
+                self.enable_dormant_wake();
+                self.enable_alarm_interrupt();
+            }
+            AlarmWakeMode::Disabled => {
+                self.disable_dormant_wake();
+                self.disable_alarm_interrupt();
+            }
+        }
+
+        // Enable the alarm
         self.enable_alarm();
-        self.enable_alarm_interrupt();
 
         Ok(())
     }
@@ -348,6 +492,76 @@ impl<'d> AonTimer<'d> {
         });
     }
 
+    /// Enable DORMANT mode wake on alarm
+    ///
+    /// Sets the TIMER.PWRUP_ON_ALARM bit to allow the alarm to wake the chip from
+    /// DORMANT (deep sleep) mode. This is a hardware power-up event, distinct from
+    /// interrupt-based WFI/WFE wake.
+    ///
+    /// **Security Note**: The TIMER register is Secure-only per the RP2350 datasheet.
+    /// This method may fail silently or have no effect when called from Non-secure contexts.
+    ///
+    /// **Clock Source**: DORMANT wake requires LPOSC as the clock source, since XOSC
+    /// is powered down in DORMANT mode.
+    pub fn enable_dormant_wake(&mut self) {
+        let powman = pac::POWMAN;
+        powman.timer().modify(|w| {
+            w.0 = (w.0 & 0x0000FFFF) | POWMAN_PASSWORD;
+            w.set_pwrup_on_alarm(true);
+            *w
+        });
+    }
+
+    /// Disable DORMANT mode wake on alarm
+    ///
+    /// Clears the TIMER.PWRUP_ON_ALARM bit. The alarm will no longer wake the chip
+    /// from DORMANT mode, but can still wake from WFI/WFE via interrupts.
+    ///
+    /// **Security Note**: The TIMER register is Secure-only per the RP2350 datasheet.
+    /// This method may fail silently or have no effect when called from Non-secure contexts.
+    pub fn disable_dormant_wake(&mut self) {
+        let powman = pac::POWMAN;
+        powman.timer().modify(|w| {
+            w.0 = (w.0 & 0x0000FFFF) | POWMAN_PASSWORD;
+            w.set_pwrup_on_alarm(false);
+            *w
+        });
+    }
+
+    /// Set the alarm wake mode
+    ///
+    /// Configures which low-power wake mechanisms are enabled for the alarm.
+    /// This immediately updates the hardware configuration.
+    ///
+    /// # Arguments
+    /// * `mode` - The desired wake mode (see [`AlarmWakeMode`])
+    ///
+    /// # Security Note
+    /// Setting modes that involve DORMANT wake (DormantOnly or Both) requires
+    /// Secure privilege level. These modes may fail silently in Non-secure contexts.
+    pub fn set_wake_mode(&mut self, mode: AlarmWakeMode) {
+        match mode {
+            AlarmWakeMode::WfiOnly => {
+                self.enable_alarm_interrupt();
+                self.disable_dormant_wake();
+            }
+            AlarmWakeMode::DormantOnly => {
+                self.disable_alarm_interrupt();
+                self.enable_dormant_wake();
+            }
+            AlarmWakeMode::Both => {
+                self.enable_alarm_interrupt();
+                self.enable_dormant_wake();
+            }
+            AlarmWakeMode::Disabled => {
+                self.disable_alarm_interrupt();
+                self.disable_dormant_wake();
+            }
+        }
+        // Update stored config
+        self.config.alarm_wake_mode = mode;
+    }
+
     /// Set an alarm to fire after a duration from now
     ///
     /// This is a convenience method that sets the alarm to `now() + duration`.
@@ -369,14 +583,23 @@ impl<'d> AonTimer<'d> {
     ///
     /// This function will wait until the AON Timer alarm is triggered.
     /// If the alarm is already triggered, it will return immediately.
-    /// The CPU will enter WFI (Wait For Interrupt) low-power mode while waiting.
+    ///
+    /// **Wake Mode Behavior:**
+    /// - `WfiOnly` or `Both`: CPU enters WFI (Wait For Interrupt) low-power mode while
+    ///   waiting. The alarm interrupt will wake the CPU and this function will return.
+    /// - `DormantOnly` or `Disabled`: This function will NOT automatically wake from
+    ///   DORMANT mode. For DORMANT wake, the hardware power-up event will restart the
+    ///   chip, not resume this async function.
+    ///
+    /// This method is primarily intended for `WfiOnly` and `Both` wake modes where
+    /// interrupt-based wake is available.
     ///
     /// # Example
     /// ```rust,ignore
     /// // Set alarm for 5 seconds from now
     /// timer.set_alarm_after(Duration::from_secs(5)).unwrap();
     ///
-    /// // Wait for the alarm (CPU enters low power mode)
+    /// // Wait for the alarm (CPU enters WFI low-power mode)
     /// timer.wait_for_alarm().await;
     /// ```
     pub async fn wait_for_alarm(&mut self) {

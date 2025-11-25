@@ -9,7 +9,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::aon_timer::{AonTimer, ClockSource, Config};
+use embassy_rp::aon_timer::{AlarmWakeMode, AonTimer, ClockSource, Config};
 use embassy_rp::{bind_interrupts, gpio};
 use embassy_time::{Duration, Timer};
 use gpio::{Level, Output};
@@ -33,6 +33,7 @@ async fn main(_spawner: Spawner) {
     let config = Config {
         clock_source: ClockSource::Xosc,
         clock_freq_khz: 12000,
+        alarm_wake_mode: AlarmWakeMode::WfiOnly,
     };
 
     let mut aon = AonTimer::new(p.POWMAN, Irqs, config);
