@@ -111,6 +111,7 @@ pub enum Error {
 /// AON Timer driver
 pub struct AonTimer<'d> {
     _phantom: PhantomData<&'d ()>,
+    config: Config,
 }
 
 impl<'d> AonTimer<'d> {
@@ -161,7 +162,10 @@ impl<'d> AonTimer<'d> {
         interrupt::POWMAN_IRQ_TIMER.unpend();
         unsafe { interrupt::POWMAN_IRQ_TIMER.enable() };
 
-        Self { _phantom: PhantomData }
+        Self {
+            _phantom: PhantomData,
+            config,
+        }
     }
 
     /// Start the timer
@@ -171,7 +175,10 @@ impl<'d> AonTimer<'d> {
         let powman = pac::POWMAN;
         powman.timer().modify(|w| {
             w.0 = (w.0 & 0x0000FFFF) | POWMAN_PASSWORD;
-            w.set_use_xosc(true); // TODO: Use configured clock source
+            match self.config.clock_source {
+                ClockSource::Lposc => w.set_use_lposc(true),
+                ClockSource::Xosc => w.set_use_xosc(true),
+            }
             w.set_run(true);
             *w
         });
@@ -278,14 +285,13 @@ impl<'d> AonTimer<'d> {
     }
 
     /// Disable the alarm interrupt (INTE.TIMER)
-    fn disable_alarm_interrupt(&mut self) {
+    pub fn disable_alarm_interrupt(&mut self) {
         let powman = pac::POWMAN;
         powman.inte().modify(|w| w.set_timer(false));
     }
 
     /// Set the internal alarm value in milliseconds
-    ///
-    /// Note: Use `set_alarm()` instead for the public API. This is a low-level helper.
+    #[inline(always)]
     fn set_alarm_value(&mut self, value: u64) {
         let powman = pac::POWMAN;
         powman.alarm_time_15to0().write(|w| {
@@ -404,6 +410,7 @@ pub struct InterruptHandler {
 }
 
 impl interrupt::typelevel::Handler<interrupt::typelevel::POWMAN_IRQ_TIMER> for InterruptHandler {
+    #[inline(always)]
     unsafe fn on_interrupt() {
         let powman = crate::pac::POWMAN;
 
