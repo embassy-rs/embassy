@@ -33,5 +33,5 @@ skip-include = []
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv6m-none-eabi", features = ["skip-include"], artifact-dir = "out/examples/boot/stm32l0" }
+  { target = "thumbv6m-none-eabi", features = ["skip-include"], artifact-dir = "out/examples/boot/stm32l0", env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" } }
 ]

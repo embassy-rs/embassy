@@ -64,5 +64,5 @@ debug = true
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv6m-none-eabi", artifact-dir = "out/examples/rp" }
+  { target = "thumbv6m-none-eabi", artifact-dir = "out/examples/rp", env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" } }
 ]

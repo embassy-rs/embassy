@@ -102,6 +102,6 @@ overflow-checks = false
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv6m-none-eabi", features = ["rp2040"], artifact-dir = "out/tests/rpi-pico" },
+  { target = "thumbv6m-none-eabi", features = ["rp2040"], artifact-dir = "out/tests/rpi-pico", env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" } },
   { target = "thumbv8m.main-none-eabihf", features = ["rp235xb"], artifact-dir = "out/tests/pimoroni-pico-plus-2" }
 ]

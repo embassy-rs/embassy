@@ -11,13 +11,13 @@ documentation = "https://docs.embassy.dev/embassy-usb"
 
 [package.metadata.embassy]
 build = [
-    {target = "thumbv6m-none-eabi", features = []},
-    {target = "thumbv6m-none-eabi", features = ["log"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt"]},
-    {target = "thumbv6m-none-eabi", features = ["usbd-hid"]},
-    {target = "thumbv6m-none-eabi", features = ["max-interface-count-1"]},
-    {target = "thumbv6m-none-eabi", features = ["max-interface-count-8"]},
-    {target = "thumbv6m-none-eabi", features = ["max-handler-count-8"]},
+    {target = "thumbv6m-none-eabi", features = [], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["log"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["defmt"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["usbd-hid"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["max-interface-count-1"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["max-interface-count-8"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["max-handler-count-8"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
 ]
 
 [package.metadata.embassy_docs]

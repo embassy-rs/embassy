@@ -35,5 +35,5 @@ opt-level = 's'
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv6m-none-eabi" }
+  { target = "thumbv6m-none-eabi", env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" } }
 ]

@@ -14,20 +14,20 @@ publish = false
 
 [package.metadata.embassy]
 build = [
-    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0c1104dgs20", "time-driver-any"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0c1106rgz", "time-driver-any"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g1107ycj", "time-driver-any"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g1505pt", "time-driver-any"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g1519rhb", "time-driver-any"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g3105rhb", "time-driver-any"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g3507pm", "time-driver-any"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g3519pz", "time-driver-any"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0h3216pt", "time-driver-any"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1306rhb", "time-driver-any"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l2228pn", "time-driver-any"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1345dgs28", "time-driver-any"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1106dgs28", "time-driver-any"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1228pt", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0c1104dgs20", "time-driver-any"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0c1106rgz", "time-driver-any"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g1107ycj", "time-driver-any"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g1505pt", "time-driver-any"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g1519rhb", "time-driver-any"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g3105rhb", "time-driver-any"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g3507pm", "time-driver-any"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g3519pz", "time-driver-any"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0h3216pt", "time-driver-any"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1306rhb", "time-driver-any"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l2228pn", "time-driver-any"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1345dgs28", "time-driver-any"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1106dgs28", "time-driver-any"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1228pt", "time-driver-any"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
 ]
 
 [package.metadata.embassy_docs]

@@ -11,7 +11,7 @@ documentation = "https://docs.embassy.dev/embassy-nrf"
 
 [package.metadata.embassy]
 build = [
-    {target = "thumbv6m-none-eabi", features = ["gpiote", "nrf51", "time", "time-driver-rtc1"]},
+    {target = "thumbv6m-none-eabi", features = ["gpiote", "nrf51", "time", "time-driver-rtc1"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
     {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52805", "time", "time-driver-rtc1"]},
     {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52810", "time", "time-driver-rtc1"]},
     {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52811", "time", "time-driver-rtc1"]},
@@ -35,9 +35,9 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["defmt", "gpiote", "nrf52840", "time-driver-rtc1"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "gpiote", "nrf52840", "time", "time-driver-rtc1"]},
     {target = "thumbv7em-none-eabi", features = ["defmt", "gpiote", "nrf52840", "time", "time-driver-rtc1","qspi-multiwrite-flash"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "nrf51", "time", "time-driver-rtc1"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "nrf51", "time"]},
-    {target = "thumbv6m-none-eabi", features = ["nrf51", "time"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "nrf51", "time", "time-driver-rtc1"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "nrf51", "time"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["nrf51", "time"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
 ]
 
 [package.metadata.embassy_docs]
@@ -80,7 +80,7 @@ unstable-pac = []
 gpiote = []
 
 ## Use RTC1 as the time driver for `embassy-time`, with a tick rate of 32.768khz
-## 
+##
 ## Note: For nRF54L, it's actually RTC30
 time-driver-rtc1 = ["_time-driver"]
 

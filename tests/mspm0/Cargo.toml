@@ -64,5 +64,5 @@ overflow-checks = false
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv6m-none-eabi", features = ["mspm0g3507"], artifact-dir = "out/tests/mspm0g3507" }
+  { target = "thumbv6m-none-eabi", features = ["mspm0g3507"], artifact-dir = "out/tests/mspm0g3507", env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" } }
 ]

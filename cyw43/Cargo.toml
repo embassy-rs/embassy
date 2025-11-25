@@ -40,13 +40,13 @@ bt-hci = { version = "0.6.0", optional = true }
 
 [package.metadata.embassy]
 build = [
-    {target = "thumbv6m-none-eabi", features = []},
-    {target = "thumbv6m-none-eabi", features = ["log"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt"]},
-    {target = "thumbv6m-none-eabi", features = ["firmware-logs", "log"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "firmware-logs"]},
-    {target = "thumbv6m-none-eabi", features = ["bluetooth", "firmware-logs", "log"]},
-    {target = "thumbv6m-none-eabi", features = ["bluetooth", "defmt", "firmware-logs"]},
+    {target = "thumbv6m-none-eabi", features = [], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["log"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["defmt"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["firmware-logs", "log"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "firmware-logs"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["bluetooth", "firmware-logs", "log"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["bluetooth", "defmt", "firmware-logs"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
 ]
 
 [package.metadata.embassy_docs]

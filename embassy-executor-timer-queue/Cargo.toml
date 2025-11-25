@@ -37,5 +37,5 @@ target = "x86_64-unknown-linux-gnu"
 [package.metadata.embassy]
 build = [
     {target = "thumbv7em-none-eabi", features = []},
-    {target = "thumbv6m-none-eabi", features = []},
+    {target = "thumbv6m-none-eabi", features = [], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
 ]

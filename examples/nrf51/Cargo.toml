@@ -22,5 +22,5 @@ debug = 2
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv6m-none-eabi", artifact-dir = "out/examples/nrf51" }
+  { target = "thumbv6m-none-eabi", artifact-dir = "out/examples/nrf51", env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" } }
 ]

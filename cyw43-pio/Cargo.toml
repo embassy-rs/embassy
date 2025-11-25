@@ -20,7 +20,7 @@ defmt = ["dep:defmt"]
 
 [package.metadata.embassy]
 build = [
-    {target = "thumbv6m-none-eabi", features = ["embassy-rp/rp2040"]},
+    {target = "thumbv6m-none-eabi", features = ["embassy-rp/rp2040"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
 ]
 
 [package.metadata.embassy_docs]

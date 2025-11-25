@@ -29,10 +29,10 @@ embassy-executor-timer-queue = { version = "0.1", path = "../embassy-executor-ti
 
 #! By default this crate uses a timer queue implementation that is faster but depends on `embassy-executor`.
 #! It will panic if you try to await any timer when using another executor.
-#! 
+#!
 #! Alternatively, you can choose to use a "generic" timer queue implementation that works on any executor.
 #! To enable it, enable any of the features below.
-#! 
+#!
 #! The features also set how many timers are used for the generic queue. At most one
 #! `generic-queue-*` feature can be enabled. If none is enabled, a default of 64 timers is used.
 #!
@@ -54,8 +54,8 @@ _generic-queue = []
 
 [package.metadata.embassy]
 build = [
-    {target = "thumbv6m-none-eabi", features = []},
-    {target = "thumbv6m-none-eabi", features = ["generic-queue-8"]},
+    {target = "thumbv6m-none-eabi", features = [], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
+    {target = "thumbv6m-none-eabi", features = ["generic-queue-8"], env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }},
     # Xtensa builds
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s2-none-elf", features = []},
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s2-none-elf", features = ["generic-queue-8"]},

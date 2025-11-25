@@ -34,5 +34,5 @@ codegen-units = 1
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv6m-none-eabi", artifact-dir = "out/examples/mspm0c1104", env = { DEFMT_RTT_BUFFER_SIZE = "72" }}
+  { target = "thumbv6m-none-eabi", artifact-dir = "out/examples/mspm0c1104", env = { DEFMT_RTT_BUFFER_SIZE = "72", RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" }}
 ]

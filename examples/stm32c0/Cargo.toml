@@ -27,5 +27,5 @@ debug = 2
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv6m-none-eabi", artifact-dir = "out/examples/stm32c0" }
+  { target = "thumbv6m-none-eabi", artifact-dir = "out/examples/stm32c0", env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" } }
 ]

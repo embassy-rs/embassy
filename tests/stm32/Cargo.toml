@@ -262,9 +262,9 @@ build = [
   { target = "thumbv7em-none-eabi", features = ["stm32f429zi"], artifact-dir = "out/tests/stm32f429zi" },
   { target = "thumbv7em-none-eabi", features = ["stm32f446re"], artifact-dir = "out/tests/stm32f446re" },
   { target = "thumbv7em-none-eabi", features = ["stm32g491re"], artifact-dir = "out/tests/stm32g491re" },
-  { target = "thumbv6m-none-eabi", features = ["stm32g071rb"], artifact-dir = "out/tests/stm32g071rb" },
-  { target = "thumbv6m-none-eabi", features = ["stm32c031c6"], artifact-dir = "out/tests/stm32c031c6" },
-  { target = "thumbv6m-none-eabi", features = ["stm32c071rb"], artifact-dir = "out/tests/stm32c071rb" },
+  { target = "thumbv6m-none-eabi", features = ["stm32g071rb"], artifact-dir = "out/tests/stm32g071rb", env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" } },
+  { target = "thumbv6m-none-eabi", features = ["stm32c031c6"], artifact-dir = "out/tests/stm32c031c6", env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" } },
+  { target = "thumbv6m-none-eabi", features = ["stm32c071rb"], artifact-dir = "out/tests/stm32c071rb", env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" } },
   { target = "thumbv7em-none-eabi", features = ["stm32h755zi"], artifact-dir = "out/tests/stm32h755zi" },
   { target = "thumbv7em-none-eabi", features = ["stm32h753zi"], artifact-dir = "out/tests/stm32h753zi" },
   { target = "thumbv7em-none-eabi", features = ["stm32h7a3zi"], artifact-dir = "out/tests/stm32h7a3zi" },
@@ -273,7 +273,7 @@ build = [
   { target = "thumbv8m.main-none-eabihf", features = ["stm32u585ai"], artifact-dir = "out/tests/stm32u585ai" },
   { target = "thumbv8m.main-none-eabihf", features = ["stm32u5a5zj"], artifact-dir = "out/tests/stm32u5a5zj" },
   { target = "thumbv8m.main-none-eabihf", features = ["stm32wba52cg"], artifact-dir = "out/tests/stm32wba52cg" },
-  { target = "thumbv6m-none-eabi", features = ["stm32l073rz"], artifact-dir = "out/tests/stm32l073rz" },
+  { target = "thumbv6m-none-eabi", features = ["stm32l073rz"], artifact-dir = "out/tests/stm32l073rz", env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" } },
   { target = "thumbv7m-none-eabi", features = ["stm32l152re"], artifact-dir = "out/tests/stm32l152re" },
   { target = "thumbv7em-none-eabi", features = ["stm32l4a6zg"], artifact-dir = "out/tests/stm32l4a6zg" },
   { target = "thumbv7em-none-eabi", features = ["stm32l4r5zi"], artifact-dir = "out/tests/stm32l4r5zi" },
@@ -284,7 +284,7 @@ build = [
   { target = "thumbv7em-none-eabi", features = ["stm32l496zg"], artifact-dir = "out/tests/stm32l496zg" },
   { target = "thumbv7em-none-eabi", features = ["stm32wl55jc"], artifact-dir = "out/tests/stm32wl55jc" },
   { target = "thumbv7em-none-eabi", features = ["stm32h7s3l8"], artifact-dir = "out/tests/stm32h7s3l8" },
-  { target = "thumbv6m-none-eabi", features = ["stm32f091rc"], artifact-dir = "out/tests/stm32f091rc" },
+  { target = "thumbv6m-none-eabi", features = ["stm32f091rc"], artifact-dir = "out/tests/stm32f091rc", env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" } },
   { target = "thumbv8m.main-none-eabihf", features = ["stm32h503rb"], artifact-dir = "out/tests/stm32h503rb" },
-  { target = "thumbv6m-none-eabi", features = ["stm32u083rc"], artifact-dir = "out/tests/stm32u083rc" }
+  { target = "thumbv6m-none-eabi", features = ["stm32u083rc"], artifact-dir = "out/tests/stm32u083rc", env = { RUSTFLAGS = "--cfg portable_atomic_unsafe_assume_single_core" } }
 ]
