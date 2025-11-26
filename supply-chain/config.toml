@@ -7,6 +7,9 @@ version = "0.10"
 [imports.OpenDevicePartnership]
 url = "https://raw.githubusercontent.com/OpenDevicePartnership/rust-crate-audits/main/audits.toml"
 
+[imports.bytecode-alliance]
+url = "https://raw.githubusercontent.com/bytecodealliance/wasmtime/main/supply-chain/audits.toml"
+
 [imports.google]
 url = "https://raw.githubusercontent.com/google/rust-crate-audits/main/audits.toml"
 
@@ -89,10 +92,6 @@ criteria = "safe-to-deploy"
 version = "1.0.0"
 criteria = "safe-to-deploy"
 
-[[exemptions.embedded-io]]
-version = "0.6.1"
-criteria = "safe-to-deploy"
-
 [[exemptions.embedded-io-async]]
 version = "0.6.1"
 criteria = "safe-to-deploy"
@@ -105,24 +104,12 @@ criteria = "safe-to-deploy"
 version = "0.4.1"
 criteria = "safe-to-deploy"
 
-[[exemptions.futures-core]]
-version = "0.3.31"
-criteria = "safe-to-deploy"
-
-[[exemptions.futures-sink]]
-version = "0.3.31"
-criteria = "safe-to-deploy"
-
 [[exemptions.hash32]]
 version = "0.3.1"
 criteria = "safe-to-deploy"
 
 [[exemptions.heapless]]
 version = "0.8.0"
-criteria = "safe-to-deploy"
-
-[[exemptions.paste]]
-version = "1.0.15"
 criteria = "safe-to-deploy"
 
 [[exemptions.proc-macro-error-attr2]]

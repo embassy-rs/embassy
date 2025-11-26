@@ -8,7 +8,8 @@
 
 mod generated {
     embassy_hal_internal::interrupt_mod!(
-        OS_EVENT, LPUART0, LPI2C0, LPI2C1, LPI2C2, LPI2C3, LPUART1, LPUART2, LPUART3, LPUART4, LPUART5, RTC, ADC1,
+        OS_EVENT, RTC, ADC1, GPIO0, GPIO1, GPIO2, GPIO3, GPIO4, LPI2C0, LPI2C1, LPI2C2, LPI2C3, LPUART0, LPUART1,
+        LPUART2, LPUART3, LPUART4, LPUART5,
     );
 }
 
@@ -289,6 +290,196 @@ impl InterruptExt for Adc {
     #[inline]
     fn is_pending(&self) -> bool {
         cortex_m::peripheral::NVIC::is_pending(Interrupt::ADC1)
+    }
+}
+
+pub struct Gpio0;
+pub const GPIO0: Gpio0 = Gpio0;
+
+impl InterruptExt for Gpio0 {
+    /// Clear any pending GPIO0 in NVIC.
+    #[inline]
+    fn unpend(&self) {
+        cortex_m::peripheral::NVIC::unpend(Interrupt::GPIO0);
+    }
+
+    /// Set NVIC priority for GPIO0.
+    #[inline]
+    fn set_priority(&self, priority: Priority) {
+        unsafe {
+            let mut nvic = cortex_m::peripheral::Peripherals::steal().NVIC;
+            nvic.set_priority(Interrupt::GPIO0, u8::from(priority));
+        }
+    }
+
+    /// Enable GPIO0 in NVIC.
+    #[inline]
+    unsafe fn enable(&self) {
+        cortex_m::peripheral::NVIC::unmask(Interrupt::GPIO0);
+    }
+
+    /// Disable GPIO0 in NVIC.
+    #[inline]
+    unsafe fn disable(&self) {
+        cortex_m::peripheral::NVIC::mask(Interrupt::GPIO0);
+    }
+
+    /// Check if GPIO0 is pending in NVIC.
+    #[inline]
+    fn is_pending(&self) -> bool {
+        cortex_m::peripheral::NVIC::is_pending(Interrupt::GPIO0)
+    }
+}
+
+pub struct Gpio1;
+pub const GPIO1: Gpio1 = Gpio1;
+
+impl InterruptExt for Gpio1 {
+    /// Clear any pending GPIO1 in NVIC.
+    #[inline]
+    fn unpend(&self) {
+        cortex_m::peripheral::NVIC::unpend(Interrupt::GPIO1);
+    }
+
+    /// Set NVIC priority for GPIO1.
+    #[inline]
+    fn set_priority(&self, priority: Priority) {
+        unsafe {
+            let mut nvic = cortex_m::peripheral::Peripherals::steal().NVIC;
+            nvic.set_priority(Interrupt::GPIO1, u8::from(priority));
+        }
+    }
+
+    /// Enable GPIO1 in NVIC.
+    #[inline]
+    unsafe fn enable(&self) {
+        cortex_m::peripheral::NVIC::unmask(Interrupt::GPIO1);
+    }
+
+    /// Disable GPIO1 in NVIC.
+    #[inline]
+    unsafe fn disable(&self) {
+        cortex_m::peripheral::NVIC::mask(Interrupt::GPIO1);
+    }
+
+    /// Check if GPIO1 is pending in NVIC.
+    #[inline]
+    fn is_pending(&self) -> bool {
+        cortex_m::peripheral::NVIC::is_pending(Interrupt::GPIO1)
+    }
+}
+
+pub struct Gpio2;
+pub const GPIO2: Gpio2 = Gpio2;
+
+impl InterruptExt for Gpio2 {
+    /// Clear any pending GPIO2 in NVIC.
+    #[inline]
+    fn unpend(&self) {
+        cortex_m::peripheral::NVIC::unpend(Interrupt::GPIO2);
+    }
+
+    /// Set NVIC priority for GPIO2.
+    #[inline]
+    fn set_priority(&self, priority: Priority) {
+        unsafe {
+            let mut nvic = cortex_m::peripheral::Peripherals::steal().NVIC;
+            nvic.set_priority(Interrupt::GPIO2, u8::from(priority));
+        }
+    }
+
+    /// Enable GPIO2 in NVIC.
+    #[inline]
+    unsafe fn enable(&self) {
+        cortex_m::peripheral::NVIC::unmask(Interrupt::GPIO2);
+    }
+
+    /// Disable GPIO2 in NVIC.
+    #[inline]
+    unsafe fn disable(&self) {
+        cortex_m::peripheral::NVIC::mask(Interrupt::GPIO2);
+    }
+
+    /// Check if GPIO2 is pending in NVIC.
+    #[inline]
+    fn is_pending(&self) -> bool {
+        cortex_m::peripheral::NVIC::is_pending(Interrupt::GPIO2)
+    }
+}
+
+pub struct Gpio3;
+pub const GPIO3: Gpio3 = Gpio3;
+
+impl InterruptExt for Gpio3 {
+    /// Clear any pending GPIO3 in NVIC.
+    #[inline]
+    fn unpend(&self) {
+        cortex_m::peripheral::NVIC::unpend(Interrupt::GPIO3);
+    }
+
+    /// Set NVIC priority for GPIO3.
+    #[inline]
+    fn set_priority(&self, priority: Priority) {
+        unsafe {
+            let mut nvic = cortex_m::peripheral::Peripherals::steal().NVIC;
+            nvic.set_priority(Interrupt::GPIO3, u8::from(priority));
+        }
+    }
+
+    /// Enable GPIO3 in NVIC.
+    #[inline]
+    unsafe fn enable(&self) {
+        cortex_m::peripheral::NVIC::unmask(Interrupt::GPIO3);
+    }
+
+    /// Disable GPIO3 in NVIC.
+    #[inline]
+    unsafe fn disable(&self) {
+        cortex_m::peripheral::NVIC::mask(Interrupt::GPIO3);
+    }
+
+    /// Check if GPIO3 is pending in NVIC.
+    #[inline]
+    fn is_pending(&self) -> bool {
+        cortex_m::peripheral::NVIC::is_pending(Interrupt::GPIO3)
+    }
+}
+
+pub struct Gpio4;
+pub const GPIO4: Gpio4 = Gpio4;
+
+impl InterruptExt for Gpio4 {
+    /// Clear any pending GPIO4 in NVIC.
+    #[inline]
+    fn unpend(&self) {
+        cortex_m::peripheral::NVIC::unpend(Interrupt::GPIO4);
+    }
+
+    /// Set NVIC priority for GPIO4.
+    #[inline]
+    fn set_priority(&self, priority: Priority) {
+        unsafe {
+            let mut nvic = cortex_m::peripheral::Peripherals::steal().NVIC;
+            nvic.set_priority(Interrupt::GPIO4, u8::from(priority));
+        }
+    }
+
+    /// Enable GPIO4 in NVIC.
+    #[inline]
+    unsafe fn enable(&self) {
+        cortex_m::peripheral::NVIC::unmask(Interrupt::GPIO4);
+    }
+
+    /// Disable GPIO4 in NVIC.
+    #[inline]
+    unsafe fn disable(&self) {
+        cortex_m::peripheral::NVIC::mask(Interrupt::GPIO4);
+    }
+
+    /// Check if GPIO4 is pending in NVIC.
+    #[inline]
+    fn is_pending(&self) -> bool {
+        cortex_m::peripheral::NVIC::is_pending(Interrupt::GPIO4)
     }
 }
 
