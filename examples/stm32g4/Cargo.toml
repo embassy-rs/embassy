@@ -13,7 +13,7 @@ embassy-executor = { path = "../../embassy-executor", features = ["arch-cortex-m
 embassy-time = { path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-usb = { path = "../../embassy-usb", features = ["defmt"] }
 embassy-futures = { path = "../../embassy-futures" }
-usbd-hid = "0.8.1"
+usbd-hid = "0.9.0"
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"

@@ -8,8 +8,9 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use super::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use super::word::{Word, WordSize};
-use super::{AnyChannel, BusyChannel, Channel, Dir, Request, STATE};
+use super::{AnyChannel, Channel, Dir, Request, STATE};
 use crate::interrupt::typelevel::Interrupt;
+use crate::rcc::BusyPeripheral;
 use crate::{interrupt, pac};
 
 pub(crate) struct ChannelInfo {
@@ -602,7 +603,7 @@ impl AnyChannel {
 /// DMA transfer.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Transfer<'a> {
-    channel: BusyChannel<'a>,
+    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
 }
 
 impl<'a> Transfer<'a> {
@@ -714,7 +715,7 @@ impl<'a> Transfer<'a> {
         );
         channel.start();
         Self {
-            channel: BusyChannel::new(channel),
+            channel: BusyPeripheral::new(channel),
         }
     }
 
@@ -818,7 +819,7 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
 
 /// Ringbuffer for receiving data using DMA circular mode.
 pub struct ReadableRingBuffer<'a, W: Word> {
-    channel: BusyChannel<'a>,
+    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
 }
 
@@ -855,7 +856,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         );
 
         Self {
-            channel: BusyChannel::new(channel),
+            channel: BusyPeripheral::new(channel),
             ringbuf: ReadableDmaRingBuffer::new(buffer),
         }
     }
@@ -974,7 +975,7 @@ impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
 
 /// Ringbuffer for writing data using DMA circular mode.
 pub struct WritableRingBuffer<'a, W: Word> {
-    channel: BusyChannel<'a>,
+    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
     ringbuf: WritableDmaRingBuffer<'a, W>,
 }
 
@@ -1011,7 +1012,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         );
 
         Self {
-            channel: BusyChannel::new(channel),
+            channel: BusyPeripheral::new(channel),
             ringbuf: WritableDmaRingBuffer::new(buffer),
         }
     }

@@ -13,9 +13,10 @@ use embassy_hal_internal::Peri;
 pub use stm32_metapac::timer::vals::{FilterValue, Mms as MasterMode, Sms as SlaveMode, Ts as TriggerSource};
 
 use super::*;
+use crate::dma::{Transfer, WritableRingBuffer};
 use crate::pac::timer::vals;
+use crate::rcc;
 use crate::time::Hertz;
-use crate::{dma, rcc};
 
 /// Input capture mode.
 #[derive(Clone, Copy)]
@@ -659,29 +660,88 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         }
     }
 
+    /// Setup a ring buffer for the channel
+    pub fn setup_ring_buffer<'a>(
+        &mut self,
+        dma: Peri<'a, impl super::UpDma<T>>,
+        channel: Channel,
+        dma_buf: &'a mut [u16],
+    ) -> WritableRingBuffer<'a, u16> {
+        #[allow(clippy::let_unit_value)] // eg. stm32f334
+        let req = dma.request();
+
+        unsafe {
+            use crate::dma::TransferOptions;
+            #[cfg(not(any(bdma, gpdma)))]
+            use crate::dma::{Burst, FifoThreshold};
+
+            let dma_transfer_option = TransferOptions {
+                #[cfg(not(any(bdma, gpdma)))]
+                fifo_threshold: Some(FifoThreshold::Full),
+                #[cfg(not(any(bdma, gpdma)))]
+                mburst: Burst::Incr8,
+                ..Default::default()
+            };
+
+            WritableRingBuffer::new(
+                dma,
+                req,
+                self.regs_1ch().ccr(channel.index()).as_ptr() as *mut u16,
+                dma_buf,
+                dma_transfer_option,
+            )
+        }
+    }
+
     /// Generate a sequence of PWM waveform
     ///
     /// Note:
     /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
-    pub async fn waveform_up(&mut self, dma: Peri<'_, impl super::UpDma<T>>, channel: Channel, duty: &[u16]) {
+    pub fn setup_update_dma<'a>(
+        &mut self,
+        dma: Peri<'a, impl super::UpDma<T>>,
+        channel: Channel,
+        duty: &'a [u16],
+    ) -> Transfer<'a> {
         #[allow(clippy::let_unit_value)] // eg. stm32f334
         let req = dma.request();
 
-        let original_update_dma_state = self.get_update_dma_state();
+        unsafe {
+            #[cfg(not(any(bdma, gpdma)))]
+            use crate::dma::{Burst, FifoThreshold};
+            use crate::dma::{Transfer, TransferOptions};
 
-        if !original_update_dma_state {
-            self.enable_update_dma(true);
-        }
+            let dma_transfer_option = TransferOptions {
+                #[cfg(not(any(bdma, gpdma)))]
+                fifo_threshold: Some(FifoThreshold::Full),
+                #[cfg(not(any(bdma, gpdma)))]
+                mburst: Burst::Incr8,
+                ..Default::default()
+            };
 
-        self.waveform_helper(dma, req, channel, duty).await;
+            match self.bits() {
+                TimerBits::Bits16 => Transfer::new_write(
+                    dma,
+                    req,
+                    duty,
+                    self.regs_1ch().ccr(channel.index()).as_ptr() as *mut u16,
+                    dma_transfer_option,
+                ),
+                #[cfg(not(any(stm32l0)))]
+                TimerBits::Bits32 => {
+                    #[cfg(not(any(bdma, gpdma)))]
+                    panic!("unsupported timer bits");
 
-        // Since DMA is closed before timer update event trigger DMA is turn off,
-        // this can almost always trigger a DMA FIFO error.
-        //
-        // optional TODO:
-        // clean FEIF after disable UDE
-        if !original_update_dma_state {
-            self.enable_update_dma(false);
+                    #[cfg(any(bdma, gpdma))]
+                    Transfer::new_write(
+                        dma,
+                        req,
+                        duty,
+                        self.regs_1ch().ccr(channel.index()).as_ptr() as *mut u32,
+                        dma_transfer_option,
+                    )
+                }
+            }
         }
     }
 
@@ -714,13 +774,13 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     /// Also be aware that embassy timers use one of timers internally. It is possible to
     /// switch this timer by using `time-driver-timX` feature.
     ///
-    pub async fn waveform_up_multi_channel(
+    pub fn setup_update_dma_burst<'a>(
         &mut self,
-        dma: Peri<'_, impl super::UpDma<T>>,
+        dma: Peri<'a, impl super::UpDma<T>>,
         starting_channel: Channel,
         ending_channel: Channel,
-        duty: &[u16],
-    ) {
+        duty: &'a [u16],
+    ) -> Transfer<'a> {
         let cr1_addr = self.regs_gp16().cr1().as_ptr() as u32;
         let start_ch_index = starting_channel.index();
         let end_ch_index = ending_channel.index();
@@ -737,11 +797,6 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
 
         #[allow(clippy::let_unit_value)] // eg. stm32f334
         let req = dma.request();
-
-        let original_update_dma_state = self.get_update_dma_state();
-        if !original_update_dma_state {
-            self.enable_update_dma(true);
-        }
 
         unsafe {
             #[cfg(not(any(bdma, gpdma)))]
@@ -763,113 +818,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
                 self.regs_gp16().dmar().as_ptr() as *mut u16,
                 dma_transfer_option,
             )
-            .await
-        };
-
-        if !original_update_dma_state {
-            self.enable_update_dma(false);
         }
-    }
-
-    /// Generate a sequence of PWM waveform
-    pub async fn waveform<C: TimerChannel>(&mut self, dma: Peri<'_, impl super::Dma<T, C>>, duty: &[u16]) {
-        use crate::pac::timer::vals::Ccds;
-
-        #[allow(clippy::let_unit_value)] // eg. stm32f334
-        let req = dma.request();
-
-        let cc_channel = C::CHANNEL;
-
-        let original_cc_dma_on_update = self.get_cc_dma_selection() == Ccds::ON_UPDATE;
-        let original_cc_dma_enabled = self.get_cc_dma_enable_state(cc_channel);
-
-        // redirect CC DMA request onto Update Event
-        if !original_cc_dma_on_update {
-            self.set_cc_dma_selection(Ccds::ON_UPDATE)
-        }
-
-        if !original_cc_dma_enabled {
-            self.set_cc_dma_enable_state(cc_channel, true);
-        }
-
-        self.waveform_helper(dma, req, cc_channel, duty).await;
-
-        // Since DMA is closed before timer Capture Compare Event trigger DMA is turn off,
-        // this can almost always trigger a DMA FIFO error.
-        //
-        // optional TODO:
-        // clean FEIF after disable UDE
-        if !original_cc_dma_enabled {
-            self.set_cc_dma_enable_state(cc_channel, false);
-        }
-
-        if !original_cc_dma_on_update {
-            self.set_cc_dma_selection(Ccds::ON_COMPARE)
-        }
-    }
-
-    async fn waveform_helper(
-        &mut self,
-        dma: Peri<'_, impl dma::Channel>,
-        req: dma::Request,
-        channel: Channel,
-        duty: &[u16],
-    ) {
-        let original_duty_state = self.get_compare_value(channel);
-        let original_enable_state = self.get_channel_enable_state(channel);
-
-        if !original_enable_state {
-            self.enable_channel(channel, true);
-        }
-
-        unsafe {
-            #[cfg(not(any(bdma, gpdma)))]
-            use crate::dma::{Burst, FifoThreshold};
-            use crate::dma::{Transfer, TransferOptions};
-
-            let dma_transfer_option = TransferOptions {
-                #[cfg(not(any(bdma, gpdma)))]
-                fifo_threshold: Some(FifoThreshold::Full),
-                #[cfg(not(any(bdma, gpdma)))]
-                mburst: Burst::Incr8,
-                ..Default::default()
-            };
-
-            match self.bits() {
-                TimerBits::Bits16 => {
-                    Transfer::new_write(
-                        dma,
-                        req,
-                        duty,
-                        self.regs_1ch().ccr(channel.index()).as_ptr() as *mut u16,
-                        dma_transfer_option,
-                    )
-                    .await
-                }
-                #[cfg(not(any(stm32l0)))]
-                TimerBits::Bits32 => {
-                    #[cfg(not(any(bdma, gpdma)))]
-                    panic!("unsupported timer bits");
-
-                    #[cfg(any(bdma, gpdma))]
-                    Transfer::new_write(
-                        dma,
-                        req,
-                        duty,
-                        self.regs_1ch().ccr(channel.index()).as_ptr() as *mut u32,
-                        dma_transfer_option,
-                    )
-                    .await
-                }
-            };
-        };
-
-        // restore output compare state
-        if !original_enable_state {
-            self.enable_channel(channel, false);
-        }
-
-        self.set_compare_value(channel, original_duty_state);
     }
 
     /// Get capture value for a channel.

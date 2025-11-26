@@ -4,6 +4,7 @@ use core::marker::PhantomData;
 use core::mem::ManuallyDrop;
 
 use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, Timer};
+use super::ringbuffered::RingBufferedPwmChannel;
 use super::{Ch1, Ch2, Ch3, Ch4, Channel, GeneralInstance4Channel, TimerChannel, TimerPin};
 use crate::Peri;
 #[cfg(gpio_v2)]
@@ -157,6 +158,33 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
     /// Set the output compare mode for a given channel.
     pub fn set_output_compare_mode(&mut self, mode: OutputCompareMode) {
         self.timer.set_output_compare_mode(self.channel, mode);
+    }
+
+    /// Convert this PWM channel into a ring-buffered PWM channel.
+    ///
+    /// This allows continuous PWM waveform generation using a DMA ring buffer.
+    /// The ring buffer enables dynamic updates to the PWM duty cycle without blocking.
+    ///
+    /// # Arguments
+    /// * `tx_dma` - The DMA channel to use for transferring duty cycle values
+    /// * `dma_buf` - The buffer to use as a ring buffer (must be non-empty and <= 65535 elements)
+    ///
+    /// # Panics
+    /// Panics if `dma_buf` is empty or longer than 65535 elements.
+    pub fn into_ring_buffered_channel(
+        mut self,
+        tx_dma: Peri<'d, impl super::UpDma<T>>,
+        dma_buf: &'d mut [u16],
+    ) -> RingBufferedPwmChannel<'d, T> {
+        assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
+
+        self.timer.enable_update_dma(true);
+
+        RingBufferedPwmChannel::new(
+            unsafe { self.timer.clone_unchecked() },
+            self.channel,
+            self.timer.setup_ring_buffer(tx_dma, self.channel, dma_buf),
+        )
     }
 }
 
@@ -316,9 +344,11 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// You will need to provide corresponding `TIMx_UP` DMA channel to use this method.
     /// Also be aware that embassy timers use one of timers internally. It is possible to
     /// switch this timer by using `time-driver-timX` feature.
-    #[inline(always)]
     pub async fn waveform_up(&mut self, dma: Peri<'_, impl super::UpDma<T>>, channel: Channel, duty: &[u16]) {
-        self.inner.waveform_up(dma, channel, duty).await;
+        self.inner.enable_channel(channel, true);
+        self.inner.enable_update_dma(true);
+        self.inner.setup_update_dma(dma, channel, duty).await;
+        self.inner.enable_update_dma(false);
     }
 
     /// Generate a multichannel sequence of PWM waveforms using DMA triggered by timer update events.
@@ -350,7 +380,6 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// Also be aware that embassy timers use one of timers internally. It is possible to
     /// switch this timer by using `time-driver-timX` feature.
     ///
-    #[inline(always)]
     pub async fn waveform_up_multi_channel(
         &mut self,
         dma: Peri<'_, impl super::UpDma<T>>,
@@ -358,15 +387,11 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         ending_channel: Channel,
         duty: &[u16],
     ) {
+        self.inner.enable_update_dma(true);
         self.inner
-            .waveform_up_multi_channel(dma, starting_channel, ending_channel, duty)
+            .setup_update_dma_burst(dma, starting_channel, ending_channel, duty)
             .await;
-    }
-
-    /// Generate a sequence of PWM waveform
-    #[inline(always)]
-    pub async fn waveform<C: TimerChannel>(&mut self, dma: Peri<'_, impl super::Dma<T, C>>, duty: &[u16]) {
-        self.inner.waveform(dma, duty).await;
+        self.inner.enable_update_dma(false);
     }
 }
 
