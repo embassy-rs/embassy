@@ -65,6 +65,7 @@ rm out/tests/pimoroni-pico-plus-2/pwm
 # flaky
 rm out/tests/rpi-pico/pwm
 rm out/tests/rpi-pico/cyw43-perf
+rm out/tests/rpi-pico/uart_buffered
 
 # tests are implemented but the HIL test farm doesn't actually have these boards, yet
 rm -rf out/tests/stm32c071rb

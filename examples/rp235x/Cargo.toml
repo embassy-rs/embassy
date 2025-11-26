@@ -46,7 +46,7 @@ display-interface = "0.5.0"
 byte-slice-cast = { version = "1.2.0", default-features = false }
 smart-leds = "0.3.0"
 heapless = "0.8"
-usbd-hid = "0.8.1"
+usbd-hid = "0.9.0"
 
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = "1.0"

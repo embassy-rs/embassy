@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased - ReleaseDate
 
+- fix: fix incorrect handling of split interrupts in timer driver
+- feat: allow granular stop for regular usart
 - feat: Add continuous waveform method to SimplePWM
 - change: remove waveform timer method
 - change: low power: store stop mode for dma channels

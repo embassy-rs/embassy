@@ -14,11 +14,11 @@ use stm32_metapac::timer::{TimGp16, regs};
 
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::timer::vals;
+use crate::peripherals;
 use crate::rcc::{self, SealedRccPeripheral};
 #[cfg(feature = "low-power")]
 use crate::rtc::Rtc;
 use crate::timer::{CoreInstance, GeneralInstance1Channel};
-use crate::{interrupt, peripherals};
 
 // NOTE regarding ALARM_COUNT:
 //
@@ -55,121 +55,6 @@ type T = peripherals::TIM22;
 type T = peripherals::TIM23;
 #[cfg(time_driver_tim24)]
 type T = peripherals::TIM24;
-
-foreach_interrupt! {
-    (TIM1, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim1)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM2, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim2)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM3, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim3)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM4, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim4)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM5, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim5)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM8, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim8)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM9, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim9)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM12, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim12)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM15, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim15)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM20, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim20)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM21, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim21)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM22, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim22)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM23, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim23)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM24, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim24)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-}
 
 fn regs_gp16() -> TimGp16 {
     unsafe { TimGp16::from_ptr(T::regs()) }
@@ -282,7 +167,11 @@ impl RtcDriver {
         r.cnt().write(|w| w.set_cnt(self.saved_count.load(Ordering::SeqCst)));
 
         <T as GeneralInstance1Channel>::CaptureCompareInterrupt::unpend();
-        unsafe { <T as GeneralInstance1Channel>::CaptureCompareInterrupt::enable() };
+        <T as CoreInstance>::UpdateInterrupt::unpend();
+        unsafe {
+            <T as GeneralInstance1Channel>::CaptureCompareInterrupt::enable();
+            <T as CoreInstance>::UpdateInterrupt::enable();
+        }
     }
 
     fn init(&'static self, cs: CriticalSection) {
@@ -290,7 +179,7 @@ impl RtcDriver {
         regs_gp16().cr1().modify(|w| w.set_cen(true));
     }
 
-    fn on_interrupt(&self) {
+    pub(crate) fn on_interrupt(&self) {
         let r = regs_gp16();
 
         critical_section::with(|cs| {
@@ -508,7 +397,6 @@ impl Driver for RtcDriver {
     }
 }
 
-#[cfg(feature = "low-power")]
 pub(crate) const fn get_driver() -> &'static RtcDriver {
     &DRIVER
 }
