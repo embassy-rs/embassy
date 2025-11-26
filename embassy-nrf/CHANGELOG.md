@@ -8,7 +8,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
-- added: Add basic RTC support for nRF54L
 - changed: apply trimming values from FICR.TRIMCNF on nrf53/54l
 - changed: do not panic on BufferedUarte overrun
 - added: allow direct access to the input pin of `gpiote::InputChannel`
@@ -29,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - bugfix: use correct flash size for nRF54l
 - changed: add workaround for anomaly 66 on nrf52
 - added: expose PPI events available on SPIS peripheral
+- added: add basic GRTC time driver support for nRF54L
 
 ## 0.8.0 - 2025-09-30
 
