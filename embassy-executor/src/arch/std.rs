@@ -23,6 +23,8 @@ mod thread {
         inner: raw::Executor,
         not_send: PhantomData<*mut ()>,
         signaler: &'static Signaler,
+        #[cfg(feature = "idle-hook")]
+        idle_hook: fn(&Executor),
     }
 
     impl Executor {
@@ -33,10 +35,22 @@ mod thread {
                 inner: raw::Executor::new(signaler as *mut Signaler as *mut ()),
                 not_send: PhantomData,
                 signaler,
+                #[cfg(feature = "idle-hook")]
+                idle_hook: Executor::default_idle,
             }
         }
 
+        /// Add idle-hook to Executor instance.
+        #[cfg(feature = "idle-hook")]
+        pub fn with_idle_hook(mut self, idle_hook: fn(&Executor)) -> Self {
+            self.idle_hook = idle_hook;
+            self
+        }
+
         /// Put Executor into default idle state.
+        ///
+        /// This function might also be called from the application's context,
+        /// e.g. from a custom idle-hook.
         #[inline(always)]
         pub fn default_idle(&self) {
             self.signaler.wait();
@@ -59,12 +73,19 @@ mod thread {
         /// - a `static mut` (unsafe)
         /// - a local variable in a function you know never returns (like `fn main() -> !`), upgrading its lifetime with `transmute`. (unsafe)
         ///
+        /// After all tasks have been polled, this function enters an idle state by either calling
+        /// the inlined [`Executor::default_idle`] function or a custom idle-hook.
+        ///
         /// This function never returns.
         pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
             init(self.inner.spawner());
 
             loop {
                 unsafe { self.inner.poll() };
+
+                #[cfg(feature = "idle-hook")]
+                (self.idle_hook)(self);
+                #[cfg(not(feature = "idle-hook"))]
                 self.default_idle();
             }
         }
