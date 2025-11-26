@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - fix: ringuffered DMA does retry in write_exact if failed
+- feat: allow granular stop for regular usart
 - feat: Add continuous waveform method to SimplePWM
 - change: remove waveform timer method
 - change: low power: store stop mode for dma channels

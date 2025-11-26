@@ -11,10 +11,10 @@ use linked_list::Table;
 
 use super::word::{Word, WordSize};
 use super::{AnyChannel, Channel, Dir, Request, STATE};
-use crate::dma::BusyChannel;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac;
 use crate::pac::gpdma::vals;
+use crate::rcc::BusyPeripheral;
 
 pub mod linked_list;
 pub mod ringbuffered;
@@ -409,7 +409,7 @@ impl AnyChannel {
 /// Linked-list DMA transfer.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct LinkedListTransfer<'a, const ITEM_COUNT: usize> {
-    channel: BusyChannel<'a>,
+    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
 }
 
 impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
@@ -431,7 +431,7 @@ impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
         channel.start();
 
         Self {
-            channel: BusyChannel::new(channel),
+            channel: BusyPeripheral::new(channel),
         }
     }
 
@@ -508,7 +508,7 @@ impl<'a, const ITEM_COUNT: usize> Future for LinkedListTransfer<'a, ITEM_COUNT> 
 /// DMA transfer.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Transfer<'a> {
-    channel: BusyChannel<'a>,
+    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
 }
 
 impl<'a> Transfer<'a> {
@@ -629,7 +629,7 @@ impl<'a> Transfer<'a> {
         channel.start();
 
         Self {
-            channel: BusyChannel::new(channel),
+            channel: BusyPeripheral::new(channel),
         }
     }
 
