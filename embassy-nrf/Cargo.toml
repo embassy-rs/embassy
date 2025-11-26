@@ -25,6 +25,8 @@ build = [
     {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf5340-net", "time", "time-driver-rtc1"]},
     {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l15-app-s", "time", "time-driver-grtc"]},
     {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l15-app-ns", "time", "time-driver-grtc"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l15-app-s", "time", "time-driver-grtc"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l15-app-ns", "time", "time-driver-grtc"]},
     {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52840", "time"]},
     {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52840", "time-driver-rtc1"]},
     {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52840", "time", "time-driver-rtc1"]},
@@ -80,6 +82,10 @@ unstable-pac = []
 gpiote = []
 
 ## Use RTC1 as the time driver for `embassy-time`, with a tick rate of 32.768khz
+time-driver-rtc1 = ["_time-driver", "embassy-time-driver?/tick-hz-32_768"]
+
+## Use GRTC (CC n=1, GRTC_1 irq) as the time driver for `embassy-time`, with a tick rate of 1 MHz
+time-driver-grtc = ["_time-driver", "embassy-time-driver?/tick-hz-1_000_000"]
 time-driver-rtc1 = ["_time-driver", "embassy-time-driver?/tick-hz-32_768"]
 
 ## Use GRTC (CC n=1, GRTC_1 irq) as the time driver for `embassy-time`, with a tick rate of 1 MHz
@@ -154,6 +160,7 @@ _nrf5340 = ["_gpio-p1", "_dppi"]
 _nrf54l15-app = ["_nrf54l15", "nrf-pac/nrf54l15-app"]
 _nrf54l15 = ["_nrf54l", "_gpio-p1", "_gpio-p2"]
 _nrf54l = ["_dppi", "_grtc"]
+_nrf54l = ["_dppi", "_grtc"]
 
 _nrf9160 = ["nrf-pac/nrf9160", "_dppi", "_spi-v1"]
 _nrf9120 = ["nrf-pac/nrf9120", "_dppi", "_spi-v1"]
@@ -161,6 +168,7 @@ _nrf52 = ["_ppi"]
 _nrf51 = ["_ppi", "_spi-v1"]
 _nrf91 = []
 
+_time-driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils", "embassy-embedded-hal/time"]
 _time-driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils", "embassy-embedded-hal/time"]
 
 _net-driver = ["dep:embassy-net-driver-channel","dep:embassy-futures"]
@@ -174,6 +182,7 @@ _dppi = []
 _gpio-p1 = []
 _gpio-p2 = []
 _spi-v1 = []
+_grtc = []
 _grtc = []
 
 # Errata workarounds
@@ -202,7 +211,7 @@ embedded-io-async = { version = "0.7" }
 rand-core-06 = { package = "rand_core", version = "0.6" }
 rand-core-09 = { package = "rand_core", version = "0.9" }
 
-nrf-pac = { version = "0.1.0", git = "https://github.com/embassy-rs/nrf-pac.git", rev = "176dc4afe1dd8df78f3cbda4479ab5151aa32252" }
+nrf-pac = { version = "0.1.0", git = "https://github.com/embassy-rs/nrf-pac.git", rev = "0068816c482932e3c59964817610ef41e79a6843" }
 
 defmt = { version = "1.0.1", optional = true }
 bitflags = "2.4.2"
