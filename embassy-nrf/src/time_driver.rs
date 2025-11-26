@@ -182,15 +182,10 @@ impl RtcDriver {
         while r.counter().read().0 != 0 {}
 
         #[cfg(feature = "_grtc")]
-        {
-            // According to datasheet, we need to wait for STATUS.LFTIMER.READY
-            // before the timer is actually started
-            loop {
-                if r.status().lftimer().read().ready() {
-                    break;
-                }
+        loop {
+            if r.status().lftimer().read().ready() {
+                break;
             }
-            // Keep SYSCOUNTER[0] always active so we can read it anytime without BUSY waits
         }
 
         #[cfg(feature = "_grtc")]
