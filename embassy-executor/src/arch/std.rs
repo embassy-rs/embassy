@@ -36,6 +36,12 @@ mod thread {
             }
         }
 
+        /// Put Executor into default idle state.
+        #[inline(always)]
+        pub fn default_idle(&self) {
+            self.signaler.wait();
+        }
+
         /// Run the executor.
         ///
         /// The `init` closure is called with a [`Spawner`] that spawns tasks on
@@ -59,7 +65,7 @@ mod thread {
 
             loop {
                 unsafe { self.inner.poll() };
-                self.signaler.wait()
+                self.default_idle();
             }
         }
     }
