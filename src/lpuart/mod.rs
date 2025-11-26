@@ -517,9 +517,17 @@ impl_rts_pin!(LPUART4, P3_16, Mux2);
 impl_rts_pin!(LPUART4, P3_30, Mux3);
 
 // LPUART 5
-//
-// TODO: The datasheet doesn't list tx/rx/cts/rts pins for LPUART5
-// See https://github.com/OpenDevicePartnership/embassy-mcxa/issues/48
+impl_tx_pin!(LPUART5, P1_10, Mux8);
+impl_tx_pin!(LPUART5, P1_17, Mux8);
+
+impl_rx_pin!(LPUART5, P1_11, Mux8);
+impl_rx_pin!(LPUART5, P1_16, Mux8);
+
+impl_cts_pin!(LPUART5, P1_12, Mux8);
+impl_cts_pin!(LPUART5, P1_19, Mux8);
+
+impl_rts_pin!(LPUART5, P1_13, Mux8);
+impl_rts_pin!(LPUART5, P1_18, Mux8);
 
 // ============================================================================
 // ERROR TYPES AND RESULTS
