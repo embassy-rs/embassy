@@ -47,7 +47,7 @@ rt = [ "rp-pac/rt" ]
 defmt = ["dep:defmt", "embassy-usb-driver/defmt", "embassy-hal-internal/defmt"]
 ## Enable log support
 log = ["dep:log"]
-## Enable chrono support  
+## Enable chrono support
 chrono = ["dep:chrono"]
 
 ## Configure the [`critical-section`](https://docs.rs/critical-section) crate to use an implementation that is safe for multicore use on rp2040.
@@ -159,7 +159,6 @@ embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
 embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal" }
 embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
-atomic-polyfill = "1.0.1"
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 nb = "1.1.0"
