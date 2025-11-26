@@ -15,22 +15,10 @@ use crate::{interrupt, pac, AnyPin};
 pub mod buffered;
 
 // ============================================================================
-// STUB IMPLEMENTATION
+// DMA INTEGRATION
 // ============================================================================
 
-// Stub implementation for LIB (Peripherals), GPIO, DMA and CLOCK until stable API
-// Pin and Clock initialization is currently done at the examples level.
-
-// --- START DMA ---
-mod dma {
-    pub struct Channel<'d> {
-        pub(super) _lifetime: core::marker::PhantomData<&'d ()>,
-    }
-}
-
-use dma::Channel;
-
-// --- END DMA ---
+use crate::dma::{Channel as DmaChannelTrait, DmaChannel, EnableInterrupt};
 
 // ============================================================================
 // MISC
@@ -694,7 +682,6 @@ pub struct Lpuart<'a, M: Mode> {
 pub struct LpuartTx<'a, M: Mode> {
     info: Info,
     _tx_pin: Peri<'a, AnyPin>,
-    _tx_dma: Option<Channel<'a>>,
     mode: PhantomData<(&'a (), M)>,
 }
 
@@ -702,8 +689,29 @@ pub struct LpuartTx<'a, M: Mode> {
 pub struct LpuartRx<'a, M: Mode> {
     info: Info,
     _rx_pin: Peri<'a, AnyPin>,
-    _rx_dma: Option<Channel<'a>>,
     mode: PhantomData<(&'a (), M)>,
+}
+
+/// Lpuart TX driver with DMA support.
+pub struct LpuartTxDma<'a, C: DmaChannelTrait> {
+    info: Info,
+    _tx_pin: Peri<'a, AnyPin>,
+    tx_dma: DmaChannel<C>,
+}
+
+/// Lpuart RX driver with DMA support.
+pub struct LpuartRxDma<'a, C: DmaChannelTrait> {
+    info: Info,
+    _rx_pin: Peri<'a, AnyPin>,
+    rx_dma: DmaChannel<C>,
+}
+
+/// Lpuart driver with DMA support for both TX and RX.
+pub struct LpuartDma<'a, TxC: DmaChannelTrait, RxC: DmaChannelTrait> {
+    #[allow(dead_code)]
+    info: Info,
+    tx: LpuartTxDma<'a, TxC>,
+    rx: LpuartRxDma<'a, RxC>,
 }
 
 // ============================================================================
@@ -796,8 +804,8 @@ impl<'a> Lpuart<'a, Blocking> {
 
         Ok(Self {
             info: T::info(),
-            tx: LpuartTx::new_inner(T::info(), tx_pin, None),
-            rx: LpuartRx::new_inner(T::info(), rx_pin, None),
+            tx: LpuartTx::new_inner(T::info(), tx_pin),
+            rx: LpuartRx::new_inner(T::info(), rx_pin),
         })
     }
 }
@@ -807,11 +815,10 @@ impl<'a> Lpuart<'a, Blocking> {
 // ----------------------------------------------------------------------------
 
 impl<'a, M: Mode> LpuartTx<'a, M> {
-    fn new_inner(info: Info, tx_pin: Peri<'a, AnyPin>, tx_dma: Option<Channel<'a>>) -> Self {
+    fn new_inner(info: Info, tx_pin: Peri<'a, AnyPin>) -> Self {
         Self {
             info,
             _tx_pin: tx_pin,
-            _tx_dma: tx_dma,
             mode: PhantomData,
         }
     }
@@ -830,7 +837,7 @@ impl<'a> LpuartTx<'a, Blocking> {
 
         Lpuart::<Blocking>::init::<T>(Some(&tx_pin), None, None, None, config)?;
 
-        Ok(Self::new_inner(T::info(), tx_pin, None))
+        Ok(Self::new_inner(T::info(), tx_pin))
     }
 
     fn write_byte_internal(&mut self, byte: u8) -> Result<()> {
@@ -909,11 +916,10 @@ impl<'a> LpuartTx<'a, Blocking> {
 // ----------------------------------------------------------------------------
 
 impl<'a, M: Mode> LpuartRx<'a, M> {
-    fn new_inner(info: Info, rx_pin: Peri<'a, AnyPin>, rx_dma: Option<Channel<'a>>) -> Self {
+    fn new_inner(info: Info, rx_pin: Peri<'a, AnyPin>) -> Self {
         Self {
             info,
             _rx_pin: rx_pin,
-            _rx_dma: rx_dma,
             mode: PhantomData,
         }
     }
@@ -932,7 +938,7 @@ impl<'a> LpuartRx<'a, Blocking> {
 
         Lpuart::<Blocking>::init::<T>(None, Some(&rx_pin), None, None, config)?;
 
-        Ok(Self::new_inner(T::info(), rx_pin, None))
+        Ok(Self::new_inner(T::info(), rx_pin))
     }
 
     fn read_byte_internal(&mut self) -> Result<u8> {
@@ -1027,10 +1033,373 @@ impl<'a> Lpuart<'a, Blocking> {
 }
 
 // ============================================================================
-// ASYNC MODE IMPLEMENTATIONS
+// ASYNC MODE IMPLEMENTATIONS (DMA-based)
 // ============================================================================
 
-// TODO: Implement async mode for LPUART
+/// Maximum bytes per DMA transfer (eDMA CITER/BITER are 15-bit fields).
+const DMA_MAX_TRANSFER_SIZE: usize = 0x7FFF;
+
+/// Guard struct that ensures DMA is stopped if the async future is cancelled.
+///
+/// This implements the RAII pattern: if the future is dropped before completion
+/// (e.g., due to a timeout), the DMA transfer is automatically aborted to prevent
+/// use-after-free when the buffer goes out of scope.
+struct TxDmaGuard<'a, C: DmaChannelTrait> {
+    dma: &'a DmaChannel<C>,
+    regs: Regs,
+}
+
+impl<'a, C: DmaChannelTrait> TxDmaGuard<'a, C> {
+    fn new(dma: &'a DmaChannel<C>, regs: Regs) -> Self {
+        Self { dma, regs }
+    }
+
+    /// Complete the transfer normally (don't abort on drop).
+    fn complete(self) {
+        // Cleanup
+        self.regs.baud().modify(|_, w| w.tdmae().disabled());
+        unsafe {
+            self.dma.disable_request();
+            self.dma.clear_done();
+        }
+        // Don't run drop since we've cleaned up
+        core::mem::forget(self);
+    }
+}
+
+impl<C: DmaChannelTrait> Drop for TxDmaGuard<'_, C> {
+    fn drop(&mut self) {
+        // Abort the DMA transfer if still running
+        unsafe {
+            self.dma.disable_request();
+            self.dma.clear_done();
+            self.dma.clear_interrupt();
+        }
+        // Disable UART TX DMA request
+        self.regs.baud().modify(|_, w| w.tdmae().disabled());
+    }
+}
+
+/// Guard struct for RX DMA transfers.
+struct RxDmaGuard<'a, C: DmaChannelTrait> {
+    dma: &'a DmaChannel<C>,
+    regs: Regs,
+}
+
+impl<'a, C: DmaChannelTrait> RxDmaGuard<'a, C> {
+    fn new(dma: &'a DmaChannel<C>, regs: Regs) -> Self {
+        Self { dma, regs }
+    }
+
+    /// Complete the transfer normally (don't abort on drop).
+    fn complete(self) {
+        // Ensure DMA writes are visible to CPU
+        cortex_m::asm::dsb();
+        // Cleanup
+        self.regs.baud().modify(|_, w| w.rdmae().disabled());
+        unsafe {
+            self.dma.disable_request();
+            self.dma.clear_done();
+        }
+        // Don't run drop since we've cleaned up
+        core::mem::forget(self);
+    }
+}
+
+impl<C: DmaChannelTrait> Drop for RxDmaGuard<'_, C> {
+    fn drop(&mut self) {
+        // Abort the DMA transfer if still running
+        unsafe {
+            self.dma.disable_request();
+            self.dma.clear_done();
+            self.dma.clear_interrupt();
+        }
+        // Disable UART RX DMA request
+        self.regs.baud().modify(|_, w| w.rdmae().disabled());
+    }
+}
+
+impl<'a, C: DmaChannelTrait> LpuartTxDma<'a, C> {
+    /// Create a new LPUART TX driver with DMA support.
+    pub fn new<T: Instance>(
+        _inner: Peri<'a, T>,
+        tx_pin: Peri<'a, impl TxPin<T>>,
+        tx_dma_ch: Peri<'a, C>,
+        config: Config,
+    ) -> Result<Self> {
+        tx_pin.as_tx();
+        let tx_pin: Peri<'a, AnyPin> = tx_pin.into();
+
+        Lpuart::<Blocking>::init::<T>(Some(&tx_pin), None, None, None, config)?;
+
+        Ok(Self {
+            info: T::info(),
+            _tx_pin: tx_pin,
+            tx_dma: DmaChannel::new(tx_dma_ch),
+        })
+    }
+
+    /// Write data using DMA.
+    ///
+    /// This configures the DMA channel for a memory-to-peripheral transfer
+    /// and waits for completion asynchronously. Large buffers are automatically
+    /// split into chunks that fit within the DMA transfer limit.
+    ///
+    /// # Safety
+    ///
+    /// If the returned future is dropped before completion (e.g., due to a timeout),
+    /// the DMA transfer is automatically aborted to prevent use-after-free.
+    ///
+    /// # Arguments
+    /// * `edma` - Reference to the EDMA TCD register block
+    /// * `request_source` - DMA request source number (e.g., `dma::DMA_REQ_LPUART2_TX`)
+    /// * `buf` - Data buffer to transmit
+    pub async fn write_dma(&mut self, request_source: u8, buf: &[u8]) -> Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+
+        let mut total = 0;
+        for chunk in buf.chunks(DMA_MAX_TRANSFER_SIZE) {
+            total += self.write_dma_inner(request_source, chunk).await?;
+        }
+
+        Ok(total)
+    }
+
+    /// Internal helper to write a single chunk (max 0x7FFF bytes) using DMA.
+    async fn write_dma_inner(&mut self, request_source: u8, buf: &[u8]) -> Result<usize> {
+        let len = buf.len();
+        let peri_addr = self.info.regs.data().as_ptr() as *mut u8;
+
+        unsafe {
+            // Clean up channel state
+            self.tx_dma.disable_request();
+            self.tx_dma.clear_done();
+            self.tx_dma.clear_interrupt();
+
+            // Set DMA request source
+            self.tx_dma.set_request_source(request_source);
+
+            // Configure TCD for memory-to-peripheral transfer
+            self.tx_dma
+                .setup_write_to_peripheral(buf, peri_addr, EnableInterrupt::Yes);
+
+            // Enable UART TX DMA request
+            self.info.regs.baud().modify(|_, w| w.tdmae().enabled());
+
+            // Enable DMA channel request
+            self.tx_dma.enable_request();
+        }
+
+        // Create guard that will abort DMA if this future is dropped
+        let guard = TxDmaGuard::new(&self.tx_dma, self.info.regs);
+
+        // Wait for completion asynchronously
+        core::future::poll_fn(|cx| {
+            self.tx_dma.waker().register(cx.waker());
+            if self.tx_dma.is_done() {
+                core::task::Poll::Ready(())
+            } else {
+                core::task::Poll::Pending
+            }
+        })
+        .await;
+
+        // Transfer completed successfully - clean up without aborting
+        guard.complete();
+
+        Ok(len)
+    }
+
+    /// Blocking write (fallback when DMA is not needed)
+    pub fn blocking_write(&mut self, buf: &[u8]) -> Result<()> {
+        for &byte in buf {
+            while self.info.regs.stat().read().tdre().is_txdata() {}
+            self.info.regs.data().modify(|_, w| unsafe { w.bits(u32::from(byte)) });
+        }
+        Ok(())
+    }
+
+    /// Flush TX blocking
+    pub fn blocking_flush(&mut self) -> Result<()> {
+        while self.info.regs.water().read().txcount().bits() != 0 {}
+        while self.info.regs.stat().read().tc().is_active() {}
+        Ok(())
+    }
+}
+
+impl<'a, C: DmaChannelTrait> LpuartRxDma<'a, C> {
+    /// Create a new LPUART RX driver with DMA support.
+    pub fn new<T: Instance>(
+        _inner: Peri<'a, T>,
+        rx_pin: Peri<'a, impl RxPin<T>>,
+        rx_dma_ch: Peri<'a, C>,
+        config: Config,
+    ) -> Result<Self> {
+        rx_pin.as_rx();
+        let rx_pin: Peri<'a, AnyPin> = rx_pin.into();
+
+        Lpuart::<Blocking>::init::<T>(None, Some(&rx_pin), None, None, config)?;
+
+        Ok(Self {
+            info: T::info(),
+            _rx_pin: rx_pin,
+            rx_dma: DmaChannel::new(rx_dma_ch),
+        })
+    }
+
+    /// Read data using DMA.
+    ///
+    /// This configures the DMA channel for a peripheral-to-memory transfer
+    /// and waits for completion asynchronously. Large buffers are automatically
+    /// split into chunks that fit within the DMA transfer limit.
+    ///
+    /// # Safety
+    ///
+    /// If the returned future is dropped before completion (e.g., due to a timeout),
+    /// the DMA transfer is automatically aborted to prevent use-after-free.
+    ///
+    /// # Arguments
+    /// * `request_source` - DMA request source number (e.g., `dma::DMA_REQ_LPUART2_RX`)
+    /// * `buf` - Buffer to receive data into
+    pub async fn read_dma(&mut self, request_source: u8, buf: &mut [u8]) -> Result<usize> {
+        if buf.is_empty() {
+            return Ok(0);
+        }
+
+        let mut total = 0;
+        for chunk in buf.chunks_mut(DMA_MAX_TRANSFER_SIZE) {
+            total += self.read_dma_inner(request_source, chunk).await?;
+        }
+
+        Ok(total)
+    }
+
+    /// Internal helper to read a single chunk (max 0x7FFF bytes) using DMA.
+    async fn read_dma_inner(&mut self, request_source: u8, buf: &mut [u8]) -> Result<usize> {
+        let len = buf.len();
+        let peri_addr = self.info.regs.data().as_ptr() as *const u8;
+
+        unsafe {
+            // Clean up channel state
+            self.rx_dma.disable_request();
+            self.rx_dma.clear_done();
+            self.rx_dma.clear_interrupt();
+
+            // Set DMA request source
+            self.rx_dma.set_request_source(request_source);
+
+            // Configure TCD for peripheral-to-memory transfer
+            self.rx_dma
+                .setup_read_from_peripheral(peri_addr, buf, EnableInterrupt::Yes);
+
+            // Enable UART RX DMA request
+            self.info.regs.baud().modify(|_, w| w.rdmae().enabled());
+
+            // Enable DMA channel request
+            self.rx_dma.enable_request();
+        }
+
+        // Create guard that will abort DMA if this future is dropped
+        let guard = RxDmaGuard::new(&self.rx_dma, self.info.regs);
+
+        // Wait for completion asynchronously
+        core::future::poll_fn(|cx| {
+            self.rx_dma.waker().register(cx.waker());
+            if self.rx_dma.is_done() {
+                core::task::Poll::Ready(())
+            } else {
+                core::task::Poll::Pending
+            }
+        })
+        .await;
+
+        // Transfer completed successfully - clean up without aborting
+        guard.complete();
+
+        Ok(len)
+    }
+
+    /// Blocking read (fallback when DMA is not needed)
+    pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<()> {
+        for byte in buf.iter_mut() {
+            loop {
+                if has_data(self.info.regs) {
+                    *byte = (self.info.regs.data().read().bits() & 0xFF) as u8;
+                    break;
+                }
+                check_and_clear_rx_errors(self.info.regs)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl<'a, TxC: DmaChannelTrait, RxC: DmaChannelTrait> LpuartDma<'a, TxC, RxC> {
+    /// Create a new LPUART driver with DMA support for both TX and RX.
+    pub fn new<T: Instance>(
+        _inner: Peri<'a, T>,
+        tx_pin: Peri<'a, impl TxPin<T>>,
+        rx_pin: Peri<'a, impl RxPin<T>>,
+        tx_dma_ch: Peri<'a, TxC>,
+        rx_dma_ch: Peri<'a, RxC>,
+        config: Config,
+    ) -> Result<Self> {
+        tx_pin.as_tx();
+        rx_pin.as_rx();
+
+        let tx_pin: Peri<'a, AnyPin> = tx_pin.into();
+        let rx_pin: Peri<'a, AnyPin> = rx_pin.into();
+
+        Lpuart::<Blocking>::init::<T>(Some(&tx_pin), Some(&rx_pin), None, None, config)?;
+
+        Ok(Self {
+            info: T::info(),
+            tx: LpuartTxDma {
+                info: T::info(),
+                _tx_pin: tx_pin,
+                tx_dma: DmaChannel::new(tx_dma_ch),
+            },
+            rx: LpuartRxDma {
+                info: T::info(),
+                _rx_pin: rx_pin,
+                rx_dma: DmaChannel::new(rx_dma_ch),
+            },
+        })
+    }
+
+    /// Split into separate TX and RX drivers
+    pub fn split(self) -> (LpuartTxDma<'a, TxC>, LpuartRxDma<'a, RxC>) {
+        (self.tx, self.rx)
+    }
+
+    /// Write data using DMA
+    pub async fn write_dma(&mut self, request_source: u8, buf: &[u8]) -> Result<usize> {
+        self.tx.write_dma(request_source, buf).await
+    }
+
+    /// Read data using DMA
+    pub async fn read_dma(&mut self, request_source: u8, buf: &mut [u8]) -> Result<usize> {
+        self.rx.read_dma(request_source, buf).await
+    }
+}
+
+// ============================================================================
+// EMBEDDED-IO-ASYNC TRAIT IMPLEMENTATIONS
+// ============================================================================
+
+impl<C: DmaChannelTrait> embedded_io::ErrorType for LpuartTxDma<'_, C> {
+    type Error = Error;
+}
+
+impl<C: DmaChannelTrait> embedded_io::ErrorType for LpuartRxDma<'_, C> {
+    type Error = Error;
+}
+
+impl<TxC: DmaChannelTrait, RxC: DmaChannelTrait> embedded_io::ErrorType for LpuartDma<'_, TxC, RxC> {
+    type Error = Error;
+}
 
 // ============================================================================
 // EMBEDDED-HAL 0.2 TRAIT IMPLEMENTATIONS

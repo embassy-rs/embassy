@@ -1,6 +1,11 @@
 //! Pin configuration helpers (separate from peripheral drivers).
 use crate::pac;
 
+/// Configure pins for ADC usage.
+///
+/// # Safety
+///
+/// Must be called after PORT clocks are enabled.
 pub unsafe fn configure_adc_pins() {
     // P1_10 = ADC1_A8
     let port1 = &*pac::Port1::ptr();
