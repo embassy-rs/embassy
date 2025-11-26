@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## Unreleased - ReleaseDate
 
 - Add support for USB HID Boot Protocol Mode 
+- `HidReader::run` does not consume itself anymore and only requires `&mut self`
 
 ## 0.5.1 - 2025-08-26
 
