@@ -62,7 +62,7 @@ embedded-hal = { version = "1.0" }
 embedded-hal-nb = { version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 embedded-io = "0.6.1"
-embedded-io-async = "0.6.1"
+embedded-io-async = "0.7"
 
 defmt = { version = "1.0.1", optional = true }
 fixed = "1.29"

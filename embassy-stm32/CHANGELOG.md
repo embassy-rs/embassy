@@ -84,6 +84,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - removal: ExtiInput no longer accepts AnyPin/AnyChannel; AnyChannel removed entirely
 - fix: build script ensures EXTI2_TSC is listed as the IRQ of EXTI2 even if the PAC doesn't
 - feat: stm32/lcd: added implementation
+- Upgrade heapless to 0.9, drop support for defmt-03 in favor of defmt (1.x).
+- Upgrade embedded-io-async to 0.7.x.
 
 ## 0.4.0 - 2025-08-26
 

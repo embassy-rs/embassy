@@ -33,7 +33,7 @@ embassy-net = { version = "0.7.1", path = "../../embassy-net", features = [
     "dhcpv4",
     "medium-ethernet",
 ] }
-embedded-io-async = { version = "0.6.1" }
+embedded-io-async = { version = "0.7" }
 embassy-usb = { version = "0.5.1", path = "../../embassy-usb", features = [
     "defmt",
 ] }
@@ -49,7 +49,7 @@ cortex-m = { version = "0.7.6", features = [
 cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
-heapless = { version = "0.8", default-features = false }
+heapless = { version = "0.9", default-features = false }
 nb = "1.0.0"
 critical-section = "1.1"
 embedded-storage = "0.3.1"

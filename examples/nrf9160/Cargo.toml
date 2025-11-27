@@ -15,13 +15,13 @@ embassy-net = { version = "0.7.1", path = "../../embassy-net", features = ["defm
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 
-heapless = "0.8"
+heapless = "0.9"
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 static_cell = { version = "2" }
 embedded-io = "0.6.1"
-embedded-io-async = { version = "0.6.1", features = ["defmt-03"] }
+embedded-io-async = { version = "0.7", features = ["defmt"] }
 
 [profile.release]
 debug = 2

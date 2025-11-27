@@ -12,7 +12,7 @@ embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = ["de
 embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-net = { version = "0.7.1", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet"] }
-embedded-io-async = { version = "0.6.1" }
+embedded-io-async = { version = "0.7" }
 embassy-usb = { version = "0.5.0", path = "../../embassy-usb", features = ["defmt"] }
 embassy-futures = { version = "0.1.0", path = "../../embassy-futures" }
 
@@ -23,7 +23,7 @@ cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-sing
 cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
-heapless = { version = "0.8", default-features = false }
+heapless = { version = "0.9", default-features = false }
 nb = "1.0.0"
 critical-section = "1.1"
 embedded-storage = "0.3.1"

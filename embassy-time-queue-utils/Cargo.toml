@@ -21,7 +21,7 @@ categories = [
 links = "embassy-time-queue"
 
 [dependencies]
-heapless = "0.8"
+heapless = "0.9"
 embassy-executor-timer-queue = { version = "0.1", path = "../embassy-executor-timer-queue", features = ["timer-item-size-6-words"] }
 
 [features]

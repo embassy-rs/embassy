@@ -20,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add PIO::Ws2812 color order support
 - Add TX-only, no SCK SPI support
 - Remove atomic-polyfill with critical-section instead ([#4948](https://github.com/embassy-rs/embassy/pull/4948))
+- Upgrade heapless to 0.9, drop support for defmt-03 in favor of defmt (1.x).
+- Upgrade embedded-io-async to 0.7.x.
 
 ## 0.8.0 - 2025-08-26
 

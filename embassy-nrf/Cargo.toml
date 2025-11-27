@@ -195,7 +195,7 @@ embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["un
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 embedded-io = { version = "0.6.0" }
-embedded-io-async = { version = "0.6.1" }
+embedded-io-async = { version = "0.7" }
 
 rand-core-06 = { package = "rand_core", version = "0.6" }
 rand-core-09 = { package = "rand_core", version = "0.9" }
