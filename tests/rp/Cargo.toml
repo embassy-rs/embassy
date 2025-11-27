@@ -16,7 +16,7 @@ teleprobe-meta = "1.1"
 embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", ] }
-embassy-rp = { version = "0.8.0", path = "../../embassy-rp", features = [ "defmt", "unstable-pac", "time-driver", "critical-section-impl", "intrinsics", "rom-v2-intrinsics", "run-from-ram"]  }
+embassy-rp = { version = "0.9.0", path = "../../embassy-rp", features = [ "defmt", "unstable-pac", "time-driver", "critical-section-impl", "intrinsics", "rom-v2-intrinsics", "run-from-ram"]  }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
 embassy-net = { version = "0.7.1", path = "../../embassy-net", features = ["defmt",  "tcp", "udp", "dhcpv4", "medium-ethernet"] }
 embassy-net-wiznet = { version = "0.2.1", path = "../../embassy-net-wiznet", features = ["defmt"] }
