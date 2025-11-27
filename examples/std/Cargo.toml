@@ -13,7 +13,7 @@ embassy-net = { version = "0.7.1", path = "../../embassy-net", features=[ "log",
 embassy-net-tuntap = { version = "0.1.0", path = "../../embassy-net-tuntap" }
 embassy-net-ppp = { version = "0.2.1", path = "../../embassy-net-ppp", features = ["log"]}
 embedded-io-async = { version = "0.7" }
-embedded-io-adapters = { version = "0.6.1", features = ["futures-03"] }
+embedded-io-adapters = { version = "0.7", features = ["futures-03"] }
 critical-section = { version = "1.1", features = ["std"] }
 
 async-io = "1.6.0"
