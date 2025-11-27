@@ -1,6 +1,6 @@
 [package]
 name = "cyw43"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 description = "Rust driver for the CYW43439 WiFi chip, used in the Raspberry Pi Pico W."
 keywords = ["embedded", "cyw43", "embassy-net", "embedded-hal-async", "wifi"]
