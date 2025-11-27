@@ -153,6 +153,7 @@ pub mod reset;
 #[cfg(not(feature = "_nrf54l"))]
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod rng;
+#[cfg(not(feature = "_nrf54l"))]
 pub mod rtc;
 #[cfg(not(any(feature = "_nrf51", feature = "nrf52820", feature = "_nrf5340-net")))]
 pub mod saadc;
