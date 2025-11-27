@@ -24,6 +24,11 @@ pub struct Control<'a> {
     shared: &'a Shared,
 }
 
+/// Handle for managing firmware update.
+pub struct UpdateControl<'a, 'd> {
+    control: &'a mut Control<'d>,
+}
+
 /// WiFi mode.
 #[allow(unused)]
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -144,6 +149,13 @@ impl<'a> Control<'a> {
         ioctl!(self, ReqDisconnectAp, RespDisconnectAp, req, resp);
         self.state_ch.set_link_state(LinkState::Down);
         Ok(())
+    }
+
+    /// Initiate a firmware update.
+    pub async fn update(&mut self) -> Result<UpdateControl<'_, 'a>, Error> {
+        let req = proto::CtrlMsg_Req_OTABegin {};
+        ioctl!(self, ReqOtaBegin, RespOtaBegin, req, resp);
+        Ok(UpdateControl { control: self })
     }
 
     /// duration in seconds, clamped to [10, 3600]
