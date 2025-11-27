@@ -19,7 +19,10 @@ pub struct NominalBitTiming {
 }
 
 /// Calculate nominal CAN bit timing based on CAN bitrate and periphial clock frequency
-pub fn calc_can_timings(periph_clock: crate::time::Hertz, can_bitrate: u32) -> Result<NominalBitTiming, TimingCalcError> {
+pub fn calc_can_timings(
+    periph_clock: crate::time::Hertz,
+    can_bitrate: u32,
+) -> Result<NominalBitTiming, TimingCalcError> {
     const BS1_MAX: u8 = 16;
     const BS2_MAX: u8 = 8;
     const MAX_SAMPLE_POINT_PERMILL: u16 = 900;
@@ -101,7 +104,10 @@ pub fn calc_can_timings(periph_clock: crate::time::Hertz, can_bitrate: u32) -> R
     let calculated = periph_clock / (prescaler * (1 + bs1 + bs2) as u32);
     // Check if final bitrate matches the requested
     if can_bitrate != calculated {
-        return Err(TimingCalcError::NoMatch { requested: can_bitrate, final_calculated: calculated });
+        return Err(TimingCalcError::NoMatch {
+            requested: can_bitrate,
+            final_calculated: calculated,
+        });
     }
 
     // One is recommended by DS-015, CANOpen, and DeviceNet
