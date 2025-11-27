@@ -1,5 +1,6 @@
 //! Pre-built pio programs for common interfaces
 
+pub mod clk;
 pub mod clock_divider;
 pub mod hd44780;
 pub mod i2s;
