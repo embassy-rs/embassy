@@ -742,4 +742,5 @@ embassy_hal_internal::interrupt_mod!(
     WDT31,
     GPIOTE30_0,
     GPIOTE30_1,
+    CLOCK_POWER,
 );
