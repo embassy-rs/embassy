@@ -23,10 +23,10 @@ cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
-embedded-io-async = { version = "0.6.1" }
+embedded-io-async = { version = "0.7" }
 embedded-nal-async = "0.8.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
-heapless = { version = "0.8", default-features = false }
+heapless = { version = "0.9", default-features = false }
 critical-section = "1.1"
 micromath = "2.0.0"
 stm32-fmc = "0.3.0"
