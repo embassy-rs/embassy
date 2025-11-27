@@ -82,3 +82,40 @@ pub enum RefCountOp {
     /// Notify sender destroyed
     NotifySenderDestroyed,
 }
+
+/// Error returned when calculating the can timing fails
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TimingCalcError {
+    /// Bitrate is lower than 1000
+    BitrateTooLow {
+        /// The set bitrate
+        bitrate: u32,
+    },
+    /// No solution possible
+    NoSolution {
+        /// The sum of BS1 and BS2
+        bs1_bs2_sum: u8,
+    },
+    /// Prescaler is not 1 < prescaler < 1024
+    InvalidPrescaler {
+        /// The calculated prescaler value
+        prescaler: u32,
+    },
+    /// BS1 or BS2 are not in the range 0 < BSx < BSx_MAX
+    BSNotInRange {
+        /// The value of BS1
+        bs1: u8,
+        /// The value of BS2
+        bs2: u8,
+    },
+    /// Final bitrate doesn't match the requested bitrate
+    NoMatch {
+        /// The requested bitrate
+        requested: u32,
+        /// The calculated bitrate
+        final_calculated: u32,
+    },
+    /// core::num::NonZeroUxx::new error
+    CoreNumNew,
+}
