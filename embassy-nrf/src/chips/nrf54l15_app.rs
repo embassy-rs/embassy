@@ -26,7 +26,6 @@ pub mod pac {
         PPIB10_NS as PPIB10,
         PPIB11_NS as PPIB11,
         TIMER10_NS as TIMER10,
-        RTC10_NS as RTC10,
         EGU10_NS as EGU10,
         RADIO_NS as RADIO,
         DPPIC20_NS as DPPIC20,
@@ -76,7 +75,6 @@ pub mod pac {
         TWIM30_NS as TWIM30,
         TWIS30_NS as TWIS30,
         UARTE30_NS as UARTE30,
-        RTC30_NS as RTC30,
         COMP_NS as COMP,
         LPCOMP_NS as LPCOMP,
         WDT31_NS as WDT31,
@@ -127,7 +125,6 @@ pub mod pac {
         PPIB10_S as PPIB10,
         PPIB11_S as PPIB11,
         TIMER10_S as TIMER10,
-        RTC10_S as RTC10,
         EGU10_S as EGU10,
         RADIO_S as RADIO,
         SPU20_S as SPU20,
@@ -180,7 +177,6 @@ pub mod pac {
         TWIM30_S as TWIM30,
         TWIS30_S as TWIS30,
         UARTE30_S as UARTE30,
-        RTC30_S as RTC30,
         COMP_S as COMP,
         LPCOMP_S as LPCOMP,
         WDT30_S as WDT30,
@@ -417,11 +413,19 @@ embassy_hal_internal::peripherals! {
     P2_10,
 
     // GRTC
-    GRTC,
-
-    // RTC
-    RTC10,
-    RTC30,
+    GRTC_CH0,
+    #[cfg(not(feature = "time-driver-grtc"))]
+    GRTC_CH1,
+    GRTC_CH2,
+    GRTC_CH3,
+    GRTC_CH4,
+    GRTC_CH5,
+    GRTC_CH6,
+    GRTC_CH7,
+    GRTC_CH8,
+    GRTC_CH9,
+    GRTC_CH10,
+    GRTC_CH11,
 
     // PWM
     PWM20,
@@ -547,9 +551,6 @@ cfg_if::cfg_if! {
         impl_gpiote_pin!(P1_16, GPIOTE20);
     }
 }
-
-impl_rtc!(RTC10, RTC10, RTC10);
-impl_rtc!(RTC30, RTC30, RTC30);
 
 #[cfg(feature = "_ns")]
 impl_wdt!(WDT, WDT31, WDT31, 0);
@@ -703,7 +704,6 @@ embassy_hal_internal::interrupt_mod!(
     TIMER00,
     SPU10,
     TIMER10,
-    RTC10,
     EGU10,
     RADIO_0,
     RADIO_1,
@@ -737,7 +737,6 @@ embassy_hal_internal::interrupt_mod!(
     GRTC_3,
     SPU30,
     SERIAL30,
-    RTC30,
     COMP_LPCOMP,
     WDT30,
     WDT31,

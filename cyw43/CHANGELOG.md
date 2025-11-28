@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.6.0 - 2025-11-27
+
 - Updated documentation for Control::join() #4678
 - Bump bt-hci to 0.6.0.
 - Add error handling to HCI transport implementation.
