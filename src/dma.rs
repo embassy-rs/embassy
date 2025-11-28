@@ -104,13 +104,64 @@ use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
 use core::ptr::NonNull;
-use core::sync::atomic::{fence, AtomicUsize, Ordering};
+use core::sync::atomic::{fence, AtomicBool, AtomicUsize, Ordering};
 use core::task::{Context, Poll};
 
+use crate::clocks::Gate;
 use crate::pac;
 use crate::pac::Interrupt;
+use crate::peripherals::DMA0;
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
+
+/// Static flag to track whether DMA has been initialized.
+static DMA_INITIALIZED: AtomicBool = AtomicBool::new(false);
+
+/// Ensure DMA is initialized (clock enabled, reset released, controller configured).
+///
+/// This function is idempotent - it will only initialize DMA once, even if called
+/// multiple times. It is automatically called when creating a DmaChannel.
+///
+/// # Safety
+///
+/// This function accesses hardware registers and must be called from a context
+/// where such access is safe (typically during system initialization or with
+/// interrupts properly managed).
+pub fn ensure_init() {
+    // Fast path: already initialized
+    if DMA_INITIALIZED.load(Ordering::Acquire) {
+        return;
+    }
+
+    // Slow path: initialize DMA
+    // Use compare_exchange to ensure only one caller initializes
+    if DMA_INITIALIZED
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+        .is_ok()
+    {
+        // We won the race - initialize DMA
+        unsafe {
+            // Enable DMA0 clock and release reset
+            DMA0::enable_clock();
+            DMA0::release_reset();
+
+            // Configure DMA controller
+            let dma = &(*pac::Dma0::ptr());
+            dma.mp_csr().modify(|_, w| {
+                w.edbg()
+                    .enable()
+                    .erca()
+                    .enable()
+                    .halt()
+                    .normal_operation()
+                    .gclc()
+                    .available()
+                    .gmrc()
+                    .available()
+            });
+        }
+    }
+}
 
 // ============================================================================
 // Phase 1: Foundation Types (Embassy-aligned)
@@ -471,23 +522,30 @@ pub struct DmaChannel<C: Channel> {
 // 3. Call [`disable_request()`](DmaChannel::disable_request), [`clear_done()`](DmaChannel::clear_done),
 //    [`clear_interrupt()`](DmaChannel::clear_interrupt) for cleanup
 //
-// **Use case:** Peripheral drivers (like LPUART) that implement their own `poll_fn`-based
-// completion mechanism and cannot use the `Transfer` Future approach.
+// **Use case:** Peripheral drivers (like LPUART) that need fine-grained control over
+// DMA setup before starting a `Transfer`.
 //
 // ============================================================================
 
 impl<C: Channel> DmaChannel<C> {
     /// Wrap a DMA channel token (takes ownership of the Peri wrapper).
+    ///
+    /// This automatically initializes the DMA controller if not already done
+    /// (enables clock, releases reset, configures controller).
     #[inline]
     pub fn new(_ch: embassy_hal_internal::Peri<'_, C>) -> Self {
+        ensure_init();
         Self {
             _ch: core::marker::PhantomData,
         }
     }
 
     /// Wrap a DMA channel token directly (for internal use).
+    ///
+    /// This automatically initializes the DMA controller if not already done.
     #[inline]
     pub fn from_token(_ch: C) -> Self {
+        ensure_init();
         Self {
             _ch: core::marker::PhantomData,
         }
@@ -520,6 +578,11 @@ impl<C: Channel> DmaChannel<C> {
     /// Return a reference to the underlying TCD register block.
     ///
     /// This steals the eDMA pointer internally since MCXA276 has only one eDMA instance.
+    ///
+    /// # Note
+    ///
+    /// This is exposed for advanced use cases that need direct TCD access.
+    /// For most use cases, prefer the higher-level transfer methods.
     #[inline]
     pub fn tcd(&self) -> &'static pac::edma_0_tcd0::Tcd {
         // Safety: MCXA276 has a single eDMA instance
@@ -862,7 +925,7 @@ impl<C: Channel> DmaChannel<C> {
     ///
     /// unsafe {
     ///     // Configure the transfer
-    ///     dma_ch.setup_write(&data, uart_tx_addr, true);
+    ///     dma_ch.setup_write(&data, uart_tx_addr, EnableInterrupt::Yes);
     ///
     ///     // Start when peripheral is ready
     ///     dma_ch.enable_request();
@@ -1027,7 +1090,7 @@ impl<C: Channel> DmaChannel<C> {
     ///
     /// unsafe {
     ///     // Configure the transfer
-    ///     dma_ch.setup_read(uart_rx_addr, &mut buf, true);
+    ///     dma_ch.setup_read(uart_rx_addr, &mut buf, EnableInterrupt::Yes);
     ///
     ///     // Start when peripheral is ready
     ///     dma_ch.enable_request();
@@ -1602,39 +1665,6 @@ impl<C: Channel> DmaChannel<C> {
         t.tcd_csr().write(|w| w.bits(tcd.csr));
         t.tcd_biter_elinkno().write(|w| w.biter().bits(tcd.biter));
     }
-}
-
-// ============================================================================
-// Global DMA Initialization
-// ============================================================================
-
-/// Basic global DMA0 init.
-///
-/// This enables debug mode and round-robin arbitration and makes sure
-/// the controller is not halted. Clock gate and reset must be handled
-/// separately via `crate::clocks` and `crate::reset`.
-///
-/// # Safety
-///
-/// Must be called after DMA clock is enabled and reset is released.
-/// Should only be called once during system initialization.
-pub unsafe fn init(peripherals: &pac::Peripherals) {
-    let dma = &peripherals.dma0;
-
-    dma.mp_csr().modify(|_, w| {
-        w.edbg()
-            .enable()
-            .erca()
-            .enable()
-            // Leave HAE/ECX/CX at reset defaults.
-            .halt()
-            .normal_operation()
-            // Allow per-channel linking and master-ID replication if used.
-            .gclc()
-            .available()
-            .gmrc()
-            .available()
-    });
 }
 
 /// In-memory representation of a Transfer Control Descriptor (TCD).
@@ -2420,11 +2450,8 @@ pub unsafe fn on_interrupt(ch_index: usize) {
     t.ch_int().write(|w| w.int().clear_bit_by_one());
 
     // If DONE is set, this is a complete-transfer interrupt
-    let done = t.ch_csr().read().done().bit_is_set();
-    if done {
-        waker(ch_index).wake();
-    } else {
-        // Also wake the complete waker in case we're polling for progress
+    // Only wake the full-transfer waker when the transfer is actually complete
+    if t.ch_csr().read().done().bit_is_set() {
         waker(ch_index).wake();
     }
 }

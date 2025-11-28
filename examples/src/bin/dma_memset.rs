@@ -4,7 +4,6 @@
 //! The source address stays fixed while the destination increments.
 //!
 //! # Embassy-style features demonstrated:
-//! - `dma::edma_tcd()` accessor for simplified register access
 //! - `DmaChannel::is_done()` and `clear_done()` helper methods
 //! - No need to pass register block around
 
@@ -13,9 +12,8 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::clocks::Gate;
-use embassy_mcxa::dma::{edma_tcd, DmaChannel, DmaCh0InterruptHandler};
-use embassy_mcxa::{bind_interrupts, dma};
+use embassy_mcxa::dma::{DmaChannel, DmaCh0InterruptHandler};
+use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
 use embassy_mcxa::pac;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
@@ -79,19 +77,7 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("DMA memset example starting...");
 
-    // Enable DMA0 clock and release reset
-    unsafe {
-        hal::peripherals::DMA0::enable_clock();
-        hal::peripherals::DMA0::release_reset();
-    }
-
-    let pac_periphs = unsafe { pac::Peripherals::steal() };
-
-    unsafe {
-        dma::init(&pac_periphs);
-    }
-
-    // Enable DMA interrupt
+    // Enable DMA interrupt (DMA clock/reset/init is handled automatically by HAL)
     unsafe {
         cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA_CH0);
     }
@@ -139,14 +125,11 @@ async fn main(_spawner: Spawner) {
     // Create DMA channel using Embassy-style API
     let dma_ch0 = DmaChannel::new(p.DMA_CH0);
 
-    // Use edma_tcd() accessor instead of passing register block around
-    let edma = edma_tcd();
-
     // Configure memset transfer using direct TCD access:
     // Source stays fixed (soff = 0, reads same pattern repeatedly)
     // Destination increments (doff = 4)
     unsafe {
-        let t = edma.tcd(0);
+        let t = dma_ch0.tcd();
 
         // Reset channel state
         t.ch_csr().write(|w| {
@@ -190,14 +173,14 @@ async fn main(_spawner: Spawner) {
         cortex_m::asm::dsb();
 
         tx.blocking_write(b"Triggering transfer...\r\n").unwrap();
-        dma_ch0.trigger_start(edma);
+        dma_ch0.trigger_start();
     }
 
     // Wait for completion using channel helper method
-    while !dma_ch0.is_done(edma) {
+    while !dma_ch0.is_done() {
         cortex_m::asm::nop();
     }
-    unsafe { dma_ch0.clear_done(edma); }
+    unsafe { dma_ch0.clear_done(); }
 
     tx.blocking_write(b"\r\nEDMA memset example finish.\r\n\r\n")
         .unwrap();

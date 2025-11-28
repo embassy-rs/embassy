@@ -8,20 +8,18 @@
 //! - Channel 2: Transfers SRC_BUFFER to DEST_BUFFER2 (triggered by CH0 major link)
 //!
 //! # Embassy-style features demonstrated:
-//! - `dma::edma_tcd()` accessor for simplified register access
 //! - `DmaChannel::new()` for channel creation
 //! - `DmaChannel::is_done()` and `clear_done()` helper methods
 //! - Channel linking with `set_minor_link()` and `set_major_link()`
+//! - Standard `DmaCh*InterruptHandler` with `bind_interrupts!` macro
 
 #![no_std]
 #![no_main]
 
-use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::clocks::Gate;
-use embassy_mcxa::dma::{edma_tcd, DmaChannel};
-use embassy_mcxa::{bind_interrupts, dma};
+use embassy_mcxa::dma::{self, DmaChannel, DmaCh0InterruptHandler, DmaCh1InterruptHandler, DmaCh2InterruptHandler};
+use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
 use embassy_mcxa::pac;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
@@ -32,49 +30,12 @@ static mut DEST_BUFFER0: [u32; 4] = [0; 4];
 static mut DEST_BUFFER1: [u32; 4] = [0; 4];
 static mut DEST_BUFFER2: [u32; 4] = [0; 4];
 
-static DMA_CH2_DONE: AtomicBool = AtomicBool::new(false);
-
-// Custom DMA interrupt handlers for channel linking
-// CH0 and CH1 just clear flags, CH2 signals completion
-
-pub struct Ch0Handler;
-impl embassy_mcxa::interrupt::typelevel::Handler<embassy_mcxa::interrupt::typelevel::DMA_CH0> for Ch0Handler {
-    unsafe fn on_interrupt() {
-        let edma = edma_tcd();
-        edma.tcd(0).ch_int().write(|w| w.int().clear_bit_by_one());
-        if edma.tcd(0).ch_csr().read().done().bit_is_set() {
-            edma.tcd(0).ch_csr().write(|w| w.done().clear_bit_by_one());
-        }
-    }
-}
-
-pub struct Ch1Handler;
-impl embassy_mcxa::interrupt::typelevel::Handler<embassy_mcxa::interrupt::typelevel::DMA_CH1> for Ch1Handler {
-    unsafe fn on_interrupt() {
-        let edma = edma_tcd();
-        edma.tcd(1).ch_int().write(|w| w.int().clear_bit_by_one());
-        if edma.tcd(1).ch_csr().read().done().bit_is_set() {
-            edma.tcd(1).ch_csr().write(|w| w.done().clear_bit_by_one());
-        }
-    }
-}
-
-pub struct Ch2Handler;
-impl embassy_mcxa::interrupt::typelevel::Handler<embassy_mcxa::interrupt::typelevel::DMA_CH2> for Ch2Handler {
-    unsafe fn on_interrupt() {
-        let edma = edma_tcd();
-        edma.tcd(2).ch_int().write(|w| w.int().clear_bit_by_one());
-        if edma.tcd(2).ch_csr().read().done().bit_is_set() {
-            edma.tcd(2).ch_csr().write(|w| w.done().clear_bit_by_one());
-        }
-        DMA_CH2_DONE.store(true, Ordering::Release);
-    }
-}
-
+// Bind DMA channel interrupts using Embassy-style macro
+// The standard handlers call on_interrupt() which wakes wakers and clears flags
 bind_interrupts!(struct Irqs {
-    DMA_CH0 => Ch0Handler;
-    DMA_CH1 => Ch1Handler;
-    DMA_CH2 => Ch2Handler;
+    DMA_CH0 => DmaCh0InterruptHandler;
+    DMA_CH1 => DmaCh1InterruptHandler;
+    DMA_CH2 => DmaCh2InterruptHandler;
 });
 
 /// Helper to write a u32 as decimal ASCII to UART
@@ -125,21 +86,12 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("DMA channel link example starting...");
 
-    // Enable DMA0 clock and release reset
-    unsafe {
-        hal::peripherals::DMA0::enable_clock();
-        hal::peripherals::DMA0::release_reset();
-    }
+    // Ensure DMA is initialized (clock/reset/init handled automatically by HAL)
+    dma::ensure_init();
 
     let pac_periphs = unsafe { pac::Peripherals::steal() };
-
-    unsafe {
-        dma::init(&pac_periphs);
-    }
-
-    // Use edma_tcd() accessor instead of passing register block around
-    let edma = edma_tcd();
     let dma0 = &pac_periphs.dma0;
+    let edma = unsafe { &*pac::Edma0Tcd0::ptr() };
 
     // Clear any residual state
     for i in 0..3 {
@@ -206,7 +158,7 @@ async fn main(_spawner: Spawner) {
 
     let ch0 = DmaChannel::new(p.DMA_CH0);
     let ch1 = DmaChannel::new(p.DMA_CH1);
-    let _ch2 = DmaChannel::new(p.DMA_CH2);
+    let ch2 = DmaChannel::new(p.DMA_CH2);
 
     // Configure channels using direct TCD access (advanced feature demo)
     // This example demonstrates channel linking which requires direct TCD manipulation
@@ -291,8 +243,8 @@ async fn main(_spawner: Spawner) {
             2,     // count (major loop = 2 iterations)
             false, // no interrupt
         );
-        ch0.set_minor_link(edma, 1); // Link to CH1 after each minor loop
-        ch0.set_major_link(edma, 2); // Link to CH2 after major loop
+        ch0.set_minor_link(1); // Link to CH1 after each minor loop
+        ch0.set_major_link(2); // Link to CH2 after major loop
 
         // Channel 1: Transfer 16 bytes (triggered by CH0 minor link)
         configure_tcd(
@@ -322,32 +274,35 @@ async fn main(_spawner: Spawner) {
     tx.blocking_write(b"Triggering Channel 0 (1st minor loop)...\r\n").unwrap();
 
     // Trigger first minor loop of CH0
-    unsafe { ch0.trigger_start(edma); }
+    unsafe { ch0.trigger_start(); }
 
     // Wait for CH1 to complete (triggered by CH0 minor link)
-    while !ch1.is_done(edma) {
+    while !ch1.is_done() {
         cortex_m::asm::nop();
     }
-    unsafe { ch1.clear_done(edma); }
+    unsafe { ch1.clear_done(); }
 
     tx.blocking_write(b"CH1 done (via minor link).\r\n").unwrap();
     tx.blocking_write(b"Triggering Channel 0 (2nd minor loop)...\r\n").unwrap();
 
     // Trigger second minor loop of CH0
-    unsafe { ch0.trigger_start(edma); }
+    unsafe { ch0.trigger_start(); }
 
     // Wait for CH0 major loop to complete
-    while !ch0.is_done(edma) {
+    while !ch0.is_done() {
         cortex_m::asm::nop();
     }
-    unsafe { ch0.clear_done(edma); }
+    unsafe { ch0.clear_done(); }
 
     tx.blocking_write(b"CH0 major loop done.\r\n").unwrap();
 
     // Wait for CH2 to complete (triggered by CH0 major link)
-    while !DMA_CH2_DONE.load(Ordering::Acquire) {
+    // Using is_done() instead of AtomicBool - the standard interrupt handler
+    // clears the interrupt flag and wakes wakers, but DONE bit remains set
+    while !ch2.is_done() {
         cortex_m::asm::nop();
     }
+    unsafe { ch2.clear_done(); }
 
     tx.blocking_write(b"CH2 done (via major link).\r\n\r\n").unwrap();
 

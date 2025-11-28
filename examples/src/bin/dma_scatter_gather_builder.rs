@@ -22,9 +22,8 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::clocks::Gate;
 use embassy_mcxa::dma::{DmaChannel, DmaCh0InterruptHandler, ScatterGatherBuilder};
-use embassy_mcxa::{bind_interrupts, dma};
+use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
 use embassy_mcxa::pac;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
@@ -81,20 +80,7 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("DMA Scatter-Gather Builder example starting...");
 
-    // Enable DMA0 clock and release reset
-    unsafe {
-        hal::peripherals::DMA0::enable_clock();
-        hal::peripherals::DMA0::release_reset();
-    }
-
-    let pac_periphs = unsafe { pac::Peripherals::steal() };
-
-    // Initialize DMA
-    unsafe {
-        dma::init(&pac_periphs);
-    }
-
-    // Enable DMA interrupt
+    // Enable DMA interrupt (DMA clock/reset/init is handled automatically by HAL)
     unsafe {
         cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA_CH0);
     }

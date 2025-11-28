@@ -50,10 +50,14 @@ pub struct Info {
 pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<MrccPeriphConfig = LpuartConfig> {
     const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpuartInstance;
     type Interrupt: interrupt::typelevel::Interrupt;
+    /// DMA request source for TX
+    const TX_DMA_REQ: u8;
+    /// DMA request source for RX
+    const RX_DMA_REQ: u8;
 }
 
 macro_rules! impl_instance {
-    ($($n:expr),*) => {
+    ($($n:expr, $tx_req:expr, $rx_req:expr);* $(;)?) => {
         $(
             paste!{
                 impl SealedInstance for crate::peripherals::[<LPUART $n>] {
@@ -78,13 +82,29 @@ macro_rules! impl_instance {
                     const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpuartInstance
                         = crate::clocks::periph_helpers::LpuartInstance::[<Lpuart $n>];
                     type Interrupt = crate::interrupt::typelevel::[<LPUART $n>];
+                    const TX_DMA_REQ: u8 = $tx_req;
+                    const RX_DMA_REQ: u8 = $rx_req;
                 }
             }
         )*
     };
 }
 
-impl_instance!(0, 1, 2, 3, 4, 5);
+// DMA request sources from MCXA276 reference manual
+// LPUART0: RX=21, TX=22
+// LPUART1: RX=23, TX=24
+// LPUART2: RX=25, TX=26
+// LPUART3: RX=27, TX=28
+// LPUART4: RX=29, TX=30
+// LPUART5: RX=31, TX=32
+impl_instance!(
+    0, 22, 21;
+    1, 24, 23;
+    2, 26, 25;
+    3, 28, 27;
+    4, 30, 29;
+    5, 32, 31;
+);
 
 // ============================================================================
 // INSTANCE HELPER FUNCTIONS
@@ -693,25 +713,25 @@ pub struct LpuartRx<'a, M: Mode> {
 }
 
 /// Lpuart TX driver with DMA support.
-pub struct LpuartTxDma<'a, C: DmaChannelTrait> {
+pub struct LpuartTxDma<'a, T: Instance, C: DmaChannelTrait> {
     info: Info,
     _tx_pin: Peri<'a, AnyPin>,
     tx_dma: DmaChannel<C>,
+    _instance: core::marker::PhantomData<T>,
 }
 
 /// Lpuart RX driver with DMA support.
-pub struct LpuartRxDma<'a, C: DmaChannelTrait> {
+pub struct LpuartRxDma<'a, T: Instance, C: DmaChannelTrait> {
     info: Info,
     _rx_pin: Peri<'a, AnyPin>,
     rx_dma: DmaChannel<C>,
+    _instance: core::marker::PhantomData<T>,
 }
 
 /// Lpuart driver with DMA support for both TX and RX.
-pub struct LpuartDma<'a, TxC: DmaChannelTrait, RxC: DmaChannelTrait> {
-    #[allow(dead_code)]
-    info: Info,
-    tx: LpuartTxDma<'a, TxC>,
-    rx: LpuartRxDma<'a, RxC>,
+pub struct LpuartDma<'a, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> {
+    tx: LpuartTxDma<'a, T, TxC>,
+    rx: LpuartRxDma<'a, T, RxC>,
 }
 
 // ============================================================================
@@ -1119,9 +1139,9 @@ impl<C: DmaChannelTrait> Drop for RxDmaGuard<'_, C> {
     }
 }
 
-impl<'a, C: DmaChannelTrait> LpuartTxDma<'a, C> {
+impl<'a, T: Instance, C: DmaChannelTrait> LpuartTxDma<'a, T, C> {
     /// Create a new LPUART TX driver with DMA support.
-    pub fn new<T: Instance>(
+    pub fn new(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
         tx_dma_ch: Peri<'a, C>,
@@ -1130,12 +1150,13 @@ impl<'a, C: DmaChannelTrait> LpuartTxDma<'a, C> {
         tx_pin.as_tx();
         let tx_pin: Peri<'a, AnyPin> = tx_pin.into();
 
-        Lpuart::<Blocking>::init::<T>(Some(&tx_pin), None, None, None, config)?;
+        Lpuart::<Async>::init::<T>(Some(&tx_pin), None, None, None, config)?;
 
         Ok(Self {
             info: T::info(),
             _tx_pin: tx_pin,
             tx_dma: DmaChannel::new(tx_dma_ch),
+            _instance: core::marker::PhantomData,
         })
     }
 
@@ -1145,30 +1166,30 @@ impl<'a, C: DmaChannelTrait> LpuartTxDma<'a, C> {
     /// and waits for completion asynchronously. Large buffers are automatically
     /// split into chunks that fit within the DMA transfer limit.
     ///
+    /// The DMA request source is automatically derived from the LPUART instance type.
+    ///
     /// # Safety
     ///
     /// If the returned future is dropped before completion (e.g., due to a timeout),
     /// the DMA transfer is automatically aborted to prevent use-after-free.
     ///
     /// # Arguments
-    /// * `edma` - Reference to the EDMA TCD register block
-    /// * `request_source` - DMA request source number (e.g., `dma::DMA_REQ_LPUART2_TX`)
     /// * `buf` - Data buffer to transmit
-    pub async fn write_dma(&mut self, request_source: u8, buf: &[u8]) -> Result<usize> {
+    pub async fn write_dma(&mut self, buf: &[u8]) -> Result<usize> {
         if buf.is_empty() {
             return Ok(0);
         }
 
         let mut total = 0;
         for chunk in buf.chunks(DMA_MAX_TRANSFER_SIZE) {
-            total += self.write_dma_inner(request_source, chunk).await?;
+            total += self.write_dma_inner(chunk).await?;
         }
 
         Ok(total)
     }
 
     /// Internal helper to write a single chunk (max 0x7FFF bytes) using DMA.
-    async fn write_dma_inner(&mut self, request_source: u8, buf: &[u8]) -> Result<usize> {
+    async fn write_dma_inner(&mut self, buf: &[u8]) -> Result<usize> {
         let len = buf.len();
         let peri_addr = self.info.regs.data().as_ptr() as *mut u8;
 
@@ -1178,8 +1199,8 @@ impl<'a, C: DmaChannelTrait> LpuartTxDma<'a, C> {
             self.tx_dma.clear_done();
             self.tx_dma.clear_interrupt();
 
-            // Set DMA request source
-            self.tx_dma.set_request_source(request_source);
+            // Set DMA request source from instance type
+            self.tx_dma.set_request_source(T::TX_DMA_REQ);
 
             // Configure TCD for memory-to-peripheral transfer
             self.tx_dma
@@ -1229,9 +1250,9 @@ impl<'a, C: DmaChannelTrait> LpuartTxDma<'a, C> {
     }
 }
 
-impl<'a, C: DmaChannelTrait> LpuartRxDma<'a, C> {
+impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
     /// Create a new LPUART RX driver with DMA support.
-    pub fn new<T: Instance>(
+    pub fn new(
         _inner: Peri<'a, T>,
         rx_pin: Peri<'a, impl RxPin<T>>,
         rx_dma_ch: Peri<'a, C>,
@@ -1240,12 +1261,13 @@ impl<'a, C: DmaChannelTrait> LpuartRxDma<'a, C> {
         rx_pin.as_rx();
         let rx_pin: Peri<'a, AnyPin> = rx_pin.into();
 
-        Lpuart::<Blocking>::init::<T>(None, Some(&rx_pin), None, None, config)?;
+        Lpuart::<Async>::init::<T>(None, Some(&rx_pin), None, None, config)?;
 
         Ok(Self {
             info: T::info(),
             _rx_pin: rx_pin,
             rx_dma: DmaChannel::new(rx_dma_ch),
+            _instance: core::marker::PhantomData,
         })
     }
 
@@ -1255,29 +1277,30 @@ impl<'a, C: DmaChannelTrait> LpuartRxDma<'a, C> {
     /// and waits for completion asynchronously. Large buffers are automatically
     /// split into chunks that fit within the DMA transfer limit.
     ///
+    /// The DMA request source is automatically derived from the LPUART instance type.
+    ///
     /// # Safety
     ///
     /// If the returned future is dropped before completion (e.g., due to a timeout),
     /// the DMA transfer is automatically aborted to prevent use-after-free.
     ///
     /// # Arguments
-    /// * `request_source` - DMA request source number (e.g., `dma::DMA_REQ_LPUART2_RX`)
     /// * `buf` - Buffer to receive data into
-    pub async fn read_dma(&mut self, request_source: u8, buf: &mut [u8]) -> Result<usize> {
+    pub async fn read_dma(&mut self, buf: &mut [u8]) -> Result<usize> {
         if buf.is_empty() {
             return Ok(0);
         }
 
         let mut total = 0;
         for chunk in buf.chunks_mut(DMA_MAX_TRANSFER_SIZE) {
-            total += self.read_dma_inner(request_source, chunk).await?;
+            total += self.read_dma_inner(chunk).await?;
         }
 
         Ok(total)
     }
 
     /// Internal helper to read a single chunk (max 0x7FFF bytes) using DMA.
-    async fn read_dma_inner(&mut self, request_source: u8, buf: &mut [u8]) -> Result<usize> {
+    async fn read_dma_inner(&mut self, buf: &mut [u8]) -> Result<usize> {
         let len = buf.len();
         let peri_addr = self.info.regs.data().as_ptr() as *const u8;
 
@@ -1287,8 +1310,8 @@ impl<'a, C: DmaChannelTrait> LpuartRxDma<'a, C> {
             self.rx_dma.clear_done();
             self.rx_dma.clear_interrupt();
 
-            // Set DMA request source
-            self.rx_dma.set_request_source(request_source);
+            // Set DMA request source from instance type
+            self.rx_dma.set_request_source(T::RX_DMA_REQ);
 
             // Configure TCD for peripheral-to-memory transfer
             self.rx_dma
@@ -1336,9 +1359,9 @@ impl<'a, C: DmaChannelTrait> LpuartRxDma<'a, C> {
     }
 }
 
-impl<'a, TxC: DmaChannelTrait, RxC: DmaChannelTrait> LpuartDma<'a, TxC, RxC> {
+impl<'a, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> LpuartDma<'a, T, TxC, RxC> {
     /// Create a new LPUART driver with DMA support for both TX and RX.
-    pub fn new<T: Instance>(
+    pub fn new(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
         rx_pin: Peri<'a, impl RxPin<T>>,
@@ -1352,36 +1375,37 @@ impl<'a, TxC: DmaChannelTrait, RxC: DmaChannelTrait> LpuartDma<'a, TxC, RxC> {
         let tx_pin: Peri<'a, AnyPin> = tx_pin.into();
         let rx_pin: Peri<'a, AnyPin> = rx_pin.into();
 
-        Lpuart::<Blocking>::init::<T>(Some(&tx_pin), Some(&rx_pin), None, None, config)?;
+        Lpuart::<Async>::init::<T>(Some(&tx_pin), Some(&rx_pin), None, None, config)?;
 
         Ok(Self {
-            info: T::info(),
             tx: LpuartTxDma {
                 info: T::info(),
                 _tx_pin: tx_pin,
                 tx_dma: DmaChannel::new(tx_dma_ch),
+                _instance: core::marker::PhantomData,
             },
             rx: LpuartRxDma {
                 info: T::info(),
                 _rx_pin: rx_pin,
                 rx_dma: DmaChannel::new(rx_dma_ch),
+                _instance: core::marker::PhantomData,
             },
         })
     }
 
     /// Split into separate TX and RX drivers
-    pub fn split(self) -> (LpuartTxDma<'a, TxC>, LpuartRxDma<'a, RxC>) {
+    pub fn split(self) -> (LpuartTxDma<'a, T, TxC>, LpuartRxDma<'a, T, RxC>) {
         (self.tx, self.rx)
     }
 
     /// Write data using DMA
-    pub async fn write_dma(&mut self, request_source: u8, buf: &[u8]) -> Result<usize> {
-        self.tx.write_dma(request_source, buf).await
+    pub async fn write_dma(&mut self, buf: &[u8]) -> Result<usize> {
+        self.tx.write_dma(buf).await
     }
 
     /// Read data using DMA
-    pub async fn read_dma(&mut self, request_source: u8, buf: &mut [u8]) -> Result<usize> {
-        self.rx.read_dma(request_source, buf).await
+    pub async fn read_dma(&mut self, buf: &mut [u8]) -> Result<usize> {
+        self.rx.read_dma(buf).await
     }
 }
 
@@ -1389,15 +1413,15 @@ impl<'a, TxC: DmaChannelTrait, RxC: DmaChannelTrait> LpuartDma<'a, TxC, RxC> {
 // EMBEDDED-IO-ASYNC TRAIT IMPLEMENTATIONS
 // ============================================================================
 
-impl<C: DmaChannelTrait> embedded_io::ErrorType for LpuartTxDma<'_, C> {
+impl<T: Instance, C: DmaChannelTrait> embedded_io::ErrorType for LpuartTxDma<'_, T, C> {
     type Error = Error;
 }
 
-impl<C: DmaChannelTrait> embedded_io::ErrorType for LpuartRxDma<'_, C> {
+impl<T: Instance, C: DmaChannelTrait> embedded_io::ErrorType for LpuartRxDma<'_, T, C> {
     type Error = Error;
 }
 
-impl<TxC: DmaChannelTrait, RxC: DmaChannelTrait> embedded_io::ErrorType for LpuartDma<'_, TxC, RxC> {
+impl<T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> embedded_io::ErrorType for LpuartDma<'_, T, TxC, RxC> {
     type Error = Error;
 }
 

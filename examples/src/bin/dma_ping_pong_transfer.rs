@@ -4,7 +4,9 @@
 //!
 //! ## Approach 1: Scatter/Gather with linked TCDs (manual)
 //! - Two TCDs link to each other for alternating transfers
-//! - Uses custom interrupt handler with AtomicBool flag
+//! - Uses custom handler that delegates to on_interrupt() then signals completion
+//! - Note: With ESG=1, DONE bit is cleared by hardware when next TCD loads,
+//!   so we need an AtomicBool to track completion
 //!
 //! ## Approach 2: Half-transfer interrupt with wait_half() (NEW!)
 //! - Single continuous transfer over entire buffer
@@ -12,9 +14,10 @@
 //! - Application can process first half while second half is being filled
 //!
 //! # Embassy-style features demonstrated:
-//! - `dma::edma_tcd()` accessor for simplified register access
 //! - `DmaChannel::new()` for channel creation
 //! - Scatter/gather with linked TCDs
+//! - Custom handler that delegates to HAL's `on_interrupt()` (best practice)
+//! - Standard `DmaCh1InterruptHandler` with `bind_interrupts!` macro
 //! - NEW: `wait_half()` for half-transfer interrupt handling
 
 #![no_std]
@@ -23,9 +26,8 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::clocks::Gate;
-use embassy_mcxa::dma::{edma_tcd, DmaChannel, DmaCh1InterruptHandler, Tcd, TransferOptions};
-use embassy_mcxa::{bind_interrupts, dma};
+use embassy_mcxa::dma::{self, DmaChannel, DmaCh1InterruptHandler, Tcd, TransferOptions};
+use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
 use embassy_mcxa::pac;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
@@ -56,30 +58,31 @@ static mut TCD_POOL: TcdPool = TcdPool([Tcd {
     biter: 0,
 }; 2]);
 
+// AtomicBool to track scatter/gather completion
+// Note: With ESG=1, DONE bit is cleared by hardware when next TCD loads,
+// so we need this flag to detect when each transfer completes
 static TRANSFER_DONE: AtomicBool = AtomicBool::new(false);
 
-// Custom DMA interrupt handler for ping-pong transfer
-// We need a custom handler because we signal completion via TRANSFER_DONE flag
-// and don't clear DONE bit when using Scatter/Gather (ESG=1)
+// Custom handler for scatter/gather that delegates to HAL's on_interrupt()
+// This follows the "interrupts as threads" pattern - the handler does minimal work
+// (delegates to HAL + sets a flag) and the main task does the actual processing
 pub struct PingPongDmaHandler;
 
 impl embassy_mcxa::interrupt::typelevel::Handler<embassy_mcxa::interrupt::typelevel::DMA_CH0> for PingPongDmaHandler {
     unsafe fn on_interrupt() {
-        let edma = edma_tcd();
-
-        // Clear interrupt flag
-        edma.tcd(0).ch_int().write(|w| w.int().clear_bit_by_one());
-
-        // Do NOT clear DONE bit when using Scatter/Gather (ESG=1),
-        // as the hardware loads the next TCD which resets the status.
-
+        // Delegate to HAL's on_interrupt() which clears INT flag and wakes wakers
+        dma::on_interrupt(0);
+        // Signal completion for polling (needed because ESG clears DONE bit)
         TRANSFER_DONE.store(true, Ordering::Release);
     }
 }
 
+// Bind DMA channel interrupts
+// CH0: Custom handler for scatter/gather (delegates to on_interrupt + sets flag)
+// CH1: Standard handler for wait_half() demo
 bind_interrupts!(struct Irqs {
     DMA_CH0 => PingPongDmaHandler;
-    DMA_CH1 => DmaCh1InterruptHandler;  // For wait_half() demo
+    DMA_CH1 => DmaCh1InterruptHandler;
 });
 
 /// Helper to write a u32 as decimal ASCII to UART
@@ -130,22 +133,7 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("DMA ping-pong transfer example starting...");
 
-    // Enable DMA0 clock and release reset
-    unsafe {
-        hal::peripherals::DMA0::enable_clock();
-        hal::peripherals::DMA0::release_reset();
-    }
-
-    let pac_periphs = unsafe { pac::Peripherals::steal() };
-
-    unsafe {
-        dma::init(&pac_periphs);
-    }
-
-    // Use edma_tcd() accessor instead of passing register block around
-    let edma = edma_tcd();
-
-    // Enable DMA interrupt
+    // Enable DMA interrupt (DMA clock/reset/init is handled automatically by HAL)
     unsafe {
         cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA_CH0);
     }
@@ -228,14 +216,14 @@ async fn main(_spawner: Spawner) {
         };
 
         // Load TCD0 into hardware registers
-        dma_ch0.load_tcd(edma, &tcds[0]);
+        dma_ch0.load_tcd(&tcds[0]);
     }
 
     tx.blocking_write(b"Triggering first half transfer...\r\n").unwrap();
 
     // Trigger first transfer (first half: SRC[0..4] -> DST[0..4])
     unsafe {
-        dma_ch0.trigger_start(edma);
+        dma_ch0.trigger_start();
     }
 
     // Wait for first half
@@ -249,7 +237,7 @@ async fn main(_spawner: Spawner) {
 
     // Trigger second transfer (second half: SRC[4..8] -> DST[4..8])
     unsafe {
-        dma_ch0.trigger_start(edma);
+        dma_ch0.trigger_start();
     }
 
     // Wait for second half

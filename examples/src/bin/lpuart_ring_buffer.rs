@@ -20,8 +20,7 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::clocks::Gate;
-use embassy_mcxa::dma::{self, DmaChannel, DmaCh0InterruptHandler, DmaCh1InterruptHandler, DMA_REQ_LPUART2_RX};
+use embassy_mcxa::dma::{DmaChannel, DmaCh0InterruptHandler, DmaCh1InterruptHandler, DMA_REQ_LPUART2_RX};
 use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
 use embassy_mcxa::{bind_interrupts, pac};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
@@ -56,20 +55,7 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("LPUART Ring Buffer DMA example starting...");
 
-    // Enable DMA0 clock and release reset
-    unsafe {
-        hal::peripherals::DMA0::enable_clock();
-        hal::peripherals::DMA0::release_reset();
-    }
-
-    let pac_periphs = unsafe { pac::Peripherals::steal() };
-
-    // Initialize DMA
-    unsafe {
-        dma::init(&pac_periphs);
-    }
-
-    // Enable DMA interrupts
+    // Enable DMA interrupts (DMA clock/reset/init is handled automatically by HAL)
     unsafe {
         cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA_CH0);
         cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA_CH1);
@@ -99,11 +85,10 @@ async fn main(_spawner: Spawner) {
 
     // Create DMA channel for RX
     let dma_ch_rx = DmaChannel::new(p.DMA_CH0);
-    let edma = dma::edma_tcd();
 
     // Configure the DMA mux for LPUART2 RX
     unsafe {
-        dma_ch_rx.set_request_source(edma, DMA_REQ_LPUART2_RX);
+        dma_ch_rx.set_request_source(DMA_REQ_LPUART2_RX);
     }
 
     tx.blocking_write(b"Setting up circular DMA for UART RX...\r\n").unwrap();
@@ -117,7 +102,7 @@ async fn main(_spawner: Spawner) {
 
     // Enable DMA requests to start continuous reception
     unsafe {
-        dma_ch_rx.enable_request(edma);
+        dma_ch_rx.enable_request();
     }
 
     tx.blocking_write(b"Ring buffer ready! Type characters to see them echoed.\r\n").unwrap();

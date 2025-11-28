@@ -5,9 +5,9 @@
 //! then automatically loads the second TCD to transfer the second half.
 //!
 //! # Embassy-style features demonstrated:
-//! - `dma::edma_tcd()` accessor for simplified register access
 //! - `DmaChannel::new()` for channel creation
 //! - Scatter/gather with chained TCDs
+//! - Custom handler that delegates to HAL's `on_interrupt()` (best practice)
 
 #![no_std]
 #![no_main]
@@ -15,9 +15,8 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::clocks::Gate;
-use embassy_mcxa::dma::{edma_tcd, DmaChannel, Tcd};
-use embassy_mcxa::{bind_interrupts, dma};
+use embassy_mcxa::dma::{self, DmaChannel, Tcd};
+use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
 use embassy_mcxa::pac;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
@@ -44,30 +43,27 @@ static mut TCD_POOL: TcdPool = TcdPool([Tcd {
     biter: 0,
 }; 2]);
 
+// AtomicBool to track scatter/gather completion
+// Note: With ESG=1, DONE bit is cleared by hardware when next TCD loads,
+// so we need this flag to detect when each transfer completes
 static TRANSFER_DONE: AtomicBool = AtomicBool::new(false);
 
-// Custom DMA interrupt handler for scatter-gather transfer
-// We need a custom handler because we signal completion via TRANSFER_DONE flag
-// and need to conditionally clear DONE bit based on ESG status
+// Custom handler for scatter/gather that delegates to HAL's on_interrupt()
+// This follows the "interrupts as threads" pattern - the handler does minimal work
+// (delegates to HAL + sets a flag) and the main task does the actual processing
 pub struct ScatterGatherDmaHandler;
 
 impl embassy_mcxa::interrupt::typelevel::Handler<embassy_mcxa::interrupt::typelevel::DMA_CH0> for ScatterGatherDmaHandler {
     unsafe fn on_interrupt() {
-        let edma = edma_tcd();
-
-        // Clear interrupt flag
-        edma.tcd(0).ch_int().write(|w| w.int().clear_bit_by_one());
-
-        // If ESG=1 (Scatter/Gather), the hardware loads the next TCD and clears DONE.
-        // If ESG=0 (Last TCD), DONE remains set and must be cleared.
-        if edma.tcd(0).ch_csr().read().done().bit_is_set() {
-            edma.tcd(0).ch_csr().write(|w| w.done().clear_bit_by_one());
-        }
-
+        // Delegate to HAL's on_interrupt() which clears INT flag and wakes wakers
+        dma::on_interrupt(0);
+        // Signal completion for polling (needed because ESG clears DONE bit)
         TRANSFER_DONE.store(true, Ordering::Release);
     }
 }
 
+// Bind DMA channel interrupt
+// Custom handler for scatter/gather (delegates to on_interrupt + sets flag)
 bind_interrupts!(struct Irqs {
     DMA_CH0 => ScatterGatherDmaHandler;
 });
@@ -120,20 +116,8 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("DMA scatter-gather transfer example starting...");
 
-    // Enable DMA0 clock and release reset
-    unsafe {
-        hal::peripherals::DMA0::enable_clock();
-        hal::peripherals::DMA0::release_reset();
-    }
-
-    let pac_periphs = unsafe { pac::Peripherals::steal() };
-
-    unsafe {
-        dma::init(&pac_periphs);
-    }
-
-    // Use edma_tcd() accessor instead of passing register block around
-    let edma = edma_tcd();
+    // Ensure DMA is initialized (clock/reset/init handled automatically by HAL)
+    dma::ensure_init();
 
     // Enable DMA interrupt
     unsafe {
@@ -213,7 +197,7 @@ async fn main(_spawner: Spawner) {
         }
 
         // Load TCD0 into hardware registers
-        dma_ch0.load_tcd(edma, &tcds[0]);
+        dma_ch0.load_tcd(&tcds[0]);
     }
 
     tx.blocking_write(b"Triggering first half transfer...\r\n").unwrap();
@@ -221,7 +205,7 @@ async fn main(_spawner: Spawner) {
     // Trigger first transfer (first half: SRC[0..4] -> DST[0..4])
     // TCD0 is currently loaded.
     unsafe {
-        dma_ch0.trigger_start(edma);
+        dma_ch0.trigger_start();
     }
 
     // Wait for first half
@@ -236,7 +220,7 @@ async fn main(_spawner: Spawner) {
     // Trigger second transfer (second half: SRC[4..8] -> DST[4..8])
     // TCD1 should have been loaded by the scatter/gather engine.
     unsafe {
-        dma_ch0.trigger_start(edma);
+        dma_ch0.trigger_start();
     }
 
     // Wait for second half
