@@ -263,6 +263,11 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         ending_channel: Channel,
         duty: &[T::Word],
     ) {
+        [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
+            .iter()
+            .filter(|ch| ch.index() >= starting_channel.index())
+            .filter(|ch| ch.index() <= ending_channel.index())
+            .for_each(|ch| self.inner.enable_channel(*ch, true));
         self.inner.enable_update_dma(true);
         self.inner
             .setup_update_dma_burst(dma, starting_channel, ending_channel, duty)
