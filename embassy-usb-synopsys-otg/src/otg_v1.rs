@@ -1268,6 +1268,17 @@ pub mod regs {
         pub fn set_otepdis(&mut self, val: bool) {
             self.0 = (self.0 & !(0x01 << 4usize)) | (((val as u32) & 0x01) << 4usize);
         }
+        #[doc = "STSPHSRX"]
+        #[inline(always)]
+        pub const fn stsphsrx(&self) -> bool {
+            let val = (self.0 >> 5usize) & 0x01;
+            val != 0
+        }
+        #[doc = "STSPHSRX"]
+        #[inline(always)]
+        pub fn set_stsphsrx(&mut self, val: bool) {
+            self.0 = (self.0 & !(0x01 << 5usize)) | (((val as u32) & 0x01) << 5usize);
+        }
         #[doc = "B2BSTUP"]
         #[inline(always)]
         pub const fn b2bstup(&self) -> bool {
@@ -3389,6 +3400,12 @@ pub mod regs {
         #[inline(always)]
         pub fn set_frmnum(&mut self, val: u8) {
             self.0 = (self.0 & !(0x0f << 21usize)) | (((val as u32) & 0x0f) << 21usize);
+        }
+        #[doc = "Status phase start (device mode)"]
+        #[inline(always)]
+        pub const fn stsphst(&self) -> u8 {
+            let val = (self.0 >> 27usize) & 0x01;
+            val as u8
         }
     }
     impl Default for Grxsts {
