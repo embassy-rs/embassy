@@ -13,19 +13,23 @@ use micromath::F32Ext;
 use crate::Peri;
 use crate::pac::mathacl::{Mathacl as Regs, vals};
 
+const ERROR_TOLERANCE: f32 = 0.00001;
+
 pub enum Precision {
     High = 31,
     Medium = 15,
     Low = 1,
 }
 
-/// Serial error
+/// Error type for Mathacl operations.
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
     ValueInWrongRange,
-    NBitsTooBig,
+    DivideByZero,
+    FaultIQTypeFormat,
+    IQTypeError(IQTypeError),
 }
 
 pub struct Mathacl<'d> {
@@ -60,31 +64,33 @@ impl<'d> Mathacl<'d> {
 
     /// Internal helper SINCOS function.
     fn sincos(&mut self, rad: f32, precision: Precision, sin: bool) -> Result<f32, Error> {
+        if rad > PI || rad < -PI {
+            return Err(Error::ValueInWrongRange);
+        }
+
+        // make division using mathacl
+        let native = self.div_iq(IQType::from_f32(rad, 15, true)?, IQType::from_f32(PI, 15, true)?)?;
+
         self.regs.ctl().write(|w| {
             w.set_func(vals::Func::SINCOS);
             w.set_numiter(precision as u8);
         });
 
-        if rad > PI || rad < -PI {
-            return Err(Error::ValueInWrongRange);
-        }
-
-        // TODO: make f32 division on CPU
-        let native = rad / PI;
-
-        match signed_f32_to_register(native, 0) {
-            Ok(val) => self.regs.op1().write(|w| {
-                w.set_data(val);
-            }),
-            Err(er) => return Err(er),
-        };
+        // integer part has to be 0 bits
+        self.regs.op1().write(|w| {
+            w.set_data(IQType::from_f32(native, 0, true).unwrap().to_reg());
+        });
 
         // check if done
         while self.regs.status().read().busy() == vals::Busy::NOTDONE {}
 
         match sin {
-            true => register_to_signed_f32(self.regs.res2().read().data(), 0),
-            false => register_to_signed_f32(self.regs.res1().read().data(), 0),
+            true => Ok(IQType::from_reg(self.regs.res2().read().data(), 0, true)
+                .unwrap()
+                .to_f32()),
+            false => Ok(IQType::from_reg(self.regs.res1().read().data(), 0, true)
+                .unwrap()
+                .to_f32()),
         }
     }
 
@@ -96,6 +102,104 @@ impl<'d> Mathacl<'d> {
     /// Calsulates trigonometric cosine operation in the range [-1,1) with a give precision.
     pub fn cos(&mut self, rad: f32, precision: Precision) -> Result<f32, Error> {
         self.sincos(rad, precision, false)
+    }
+
+    pub fn div_i32(&mut self, dividend: i32, divisor: i32) -> Result<i32, Error> {
+        if divisor == 0 {
+            return Err(Error::DivideByZero);
+        } else if dividend == 0 {
+            return Ok(0);
+        }
+        let signed = true;
+
+        self.regs.ctl().write(|w| {
+            w.set_func(vals::Func::DIV);
+            w.set_optype(signed);
+        });
+
+        self.regs.op2().write(|w| {
+            w.set_data(divisor as u32);
+        });
+
+        self.regs.op1().write(|w| {
+            w.set_data(dividend as u32);
+        });
+
+        // check if done
+        while self.regs.status().read().busy() == vals::Busy::NOTDONE {}
+
+        // read quotient
+        Ok(self.regs.res1().read().data() as i32)
+    }
+
+    pub fn div_u32(&mut self, dividend: u32, divisor: u32) -> Result<u32, Error> {
+        if divisor == 0 {
+            return Err(Error::DivideByZero);
+        } else if dividend == 0 {
+            return Ok(0);
+        }
+        let signed = false;
+
+        self.regs.ctl().write(|w| {
+            w.set_func(vals::Func::DIV);
+            w.set_optype(signed);
+        });
+
+        self.regs.op2().write(|w| {
+            w.set_data(divisor);
+        });
+
+        self.regs.op1().write(|w| {
+            w.set_data(dividend);
+        });
+
+        // check if done
+        while self.regs.status().read().busy() == vals::Busy::NOTDONE {}
+
+        // read quotient
+        Ok(self.regs.res1().read().data())
+    }
+
+    /// Divide function (DIV) computes with a known dividend and divisor.
+    pub fn div_iq(&mut self, dividend: IQType, divisor: IQType) -> Result<f32, Error> {
+        let divisor_value = divisor.to_f32();
+        if -ERROR_TOLERANCE < divisor_value && divisor_value < ERROR_TOLERANCE {
+            return Err(Error::DivideByZero);
+        }
+
+        // check if both numbers have the same number of bits
+        if dividend.f_bits != divisor.f_bits {
+            return Err(Error::FaultIQTypeFormat);
+        }
+
+        // dividen and divisor must have the same signedness
+        if dividend.signed ^ divisor.signed {
+            return Err(Error::FaultIQTypeFormat);
+        }
+
+        self.regs.ctl().write(|w| {
+            w.set_func(vals::Func::DIV);
+            w.set_optype(dividend.signed);
+            w.set_qval(dividend.f_bits.into());
+        });
+
+        self.regs.op2().write(|w| {
+            w.set_data(divisor.to_reg());
+        });
+
+        self.regs.op1().write(|w| {
+            w.set_data(dividend.to_reg());
+        });
+
+        // check if done
+        while self.regs.status().read().busy() == vals::Busy::NOTDONE {}
+
+        // read quotient
+        return Ok(
+            IQType::from_reg(self.regs.res1().read().data(), dividend.i_bits.into(), dividend.signed)
+                .unwrap()
+                .to_f32(),
+        );
     }
 }
 
@@ -119,104 +223,154 @@ macro_rules! impl_mathacl_instance {
     };
 }
 
-/// Convert f32 data to understandable by M0 format.
-fn signed_f32_to_register(data: f32, n_bits: u8) -> Result<u32, Error> {
-    let mut res: u32 = 0;
-    // check if negative
-    let negative = data < 0.0;
-
-    // absolute value for extraction
-    let abs = data.abs();
-
-    // total integer bit count
-    let total_bits = 31;
-
-    // Validate n_bits
-    if n_bits > 31 {
-        return Err(Error::NBitsTooBig);
-    }
-
-    // number of fractional bits
-    let shift = total_bits - n_bits;
-
-    // Compute masks
-    let (n_mask, m_mask) = if n_bits == 0 {
-        (0, 0x7FFFFFFF)
-    } else if n_bits == 31 {
-        (0x7FFFFFFF, 0)
-    } else {
-        ((1u32 << n_bits) - 1, (1u32 << shift) - 1)
-    };
-
-    // calc. integer(n) & fractional(m) parts
-    let n = abs.floor() as u32;
-    let mut m = ((abs - abs.floor()) * (1u32 << shift) as f32).round() as u32;
-
-    // Handle trimming integer part
-    if n_bits == 0 && n > 0 {
-        m = 0x7FFFFFFF;
-    }
-
-    // calculate result
-    if n_bits > 0 {
-        res = n << shift & n_mask;
-    }
-    if shift > 0 {
-        res = res | m & m_mask;
-    }
-
-    // if negative, do 2’s compliment
-    if negative {
-        res = !res + 1;
-    }
-    Ok(res)
+/// Error type for Mathacl operations.
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum IQTypeError {
+    FaultySignParameter,
+    IntPartIsTrimmed,
 }
 
-/// Reversely converts M0-register format to native f32.
-fn register_to_signed_f32(data: u32, n_bits: u8) -> Result<f32, Error> {
-    // Validate n_bits
-    if n_bits > 31 {
-        return Err(Error::NBitsTooBig);
+impl From<IQTypeError> for Error {
+    fn from(e: IQTypeError) -> Self {
+        Error::IQTypeError(e)
+    }
+}
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub struct IQType {
+    i_bits: u8,
+    f_bits: u8,
+    negative: bool,
+    signed: bool,
+    i_data: u32,
+    f_data: u32,
+}
+
+/// IQType implements 32-bit fixed point numbers with configurable integer and fractional parts.
+impl IQType {
+    pub fn from_reg(data: u32, i_bits: u8, signed: bool) -> Result<Self, IQTypeError> {
+        // check if negative
+        let negative = signed && ((1u32 << 31) & data != 0);
+
+        // total bit count
+        let total_bits = if signed { 31 } else { 32 };
+
+        // number of fractional bits
+        let f_bits = total_bits - i_bits;
+
+        // Compute masks
+        let max_mask = if signed { 0x7FFFFFFF } else { 0xFFFFFFFF };
+        let (i_mask, f_mask) = if i_bits == 0 {
+            (0, max_mask)
+        } else if i_bits == total_bits {
+            (max_mask, 0)
+        } else {
+            ((1u32 << i_bits) - 1, (1u32 << f_bits) - 1)
+        };
+
+        // Compute i_data and f_data
+        let mut i_data = if i_bits == 0 {
+            0
+        } else if i_bits == total_bits {
+            data & i_mask
+        } else {
+            (data >> f_bits) & i_mask
+        };
+        let mut f_data = data & f_mask;
+
+        // if negative, do 2’s compliment
+        if negative {
+            i_data = !i_data & i_mask;
+            f_data = (!f_data & f_mask) + 1;
+        }
+
+        Ok(Self {
+            i_bits,
+            f_bits,
+            negative,
+            signed,
+            i_data,
+            f_data,
+        })
     }
 
-    // total integer bit count
-    let total_bits = 31;
+    pub fn from_f32(data: f32, i_bits: u8, signed: bool) -> Result<Self, IQTypeError> {
+        // check if negative
+        let negative = data < 0.0;
 
-    let negative = (data >> 31) == 1;
+        if !signed && negative {
+            return Err(IQTypeError::FaultySignParameter);
+        }
 
-    // number of fractional bits
-    let shift = total_bits - n_bits;
+        // absolute value
+        let abs = if data < 0.0 { -data } else { data };
 
-    // Compute masks
-    let (n_mask, m_mask) = if n_bits == 0 {
-        (0, 0x7FFFFFFF)
-    } else if n_bits == 31 {
-        (0x7FFFFFFF, 0)
-    } else {
-        ((1u32 << n_bits) - 1, (1u32 << shift) - 1)
-    };
+        // total bit count
+        let total_bits = if signed { 31 } else { 32 };
 
-    // Compute n and m
-    let mut n = if n_bits == 0 {
-        0
-    } else if shift >= 32 {
-        data & n_mask
-    } else {
-        (data >> shift) & n_mask
-    };
-    let mut m = data & m_mask;
+        // number of fractional bits
+        let f_bits: u8 = total_bits - i_bits;
 
-    // if negative, do 2’s compliment
-    if negative {
-        n = !n & n_mask;
-        m = (!m & m_mask) + 1;
+        let abs_floor = abs.floor();
+        let i_data = abs_floor as u32;
+        let f_data = ((abs - abs_floor) * (1u32 << f_bits) as f32).round() as u32;
+
+        // Handle trimming integer part
+        if i_bits == 0 && i_data > 0 {
+            return Err(IQTypeError::IntPartIsTrimmed);
+        }
+
+        Ok(Self {
+            i_bits,
+            f_bits,
+            negative,
+            signed,
+            i_data,
+            f_data,
+        })
     }
 
-    let mut value = (n as f32) + (m as f32) / (1u32 << shift) as f32;
-    if negative {
-        value = -value;
+    pub fn to_f32(&self) -> f32 {
+        let mut value = (self.i_data as f32) + (self.f_data as f32) / (1u32 << self.f_bits as u8) as f32;
+        if self.negative {
+            value = -value;
+        }
+        return value;
     }
-    return Ok(value);
+
+    pub fn to_reg(&self) -> u32 {
+        let mut res: u32 = 0;
+
+        // total bit count
+        let total_bits: u8 = if self.signed { 31 } else { 32 };
+
+        // Compute masks
+        let max_mask = if self.signed { 0x7FFFFFFF } else { 0xFFFFFFFF };
+        let (i_mask, f_mask) = if self.i_bits == 0 {
+            (0, max_mask)
+        } else if self.i_bits == total_bits {
+            (max_mask, 0)
+        } else {
+            ((1u32 << self.i_bits) - 1, (1u32 << self.f_bits) - 1)
+        };
+
+        // calculate result
+        if self.i_bits > 0 {
+            res = self.i_data << self.f_bits & (i_mask << self.f_bits);
+        }
+
+        if self.f_bits > 0 {
+            res = (self.f_data & f_mask) | res;
+        }
+
+        // if negative, do 2’s compliment
+        if self.negative {
+            res = !res + 1;
+        }
+        res
+    }
 }
 
 #[cfg(test)]
@@ -224,32 +378,79 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mathacl_convert_func_errors() {
-        assert_eq!(signed_f32_to_register(0.0, 32), Err(Error::NBitsTooBig));
-        assert_eq!(register_to_signed_f32(0, 32), Err(Error::NBitsTooBig));
-    }
-
-    #[test]
-    fn mathacl_signed_f32_to_register() {
+    fn mathacl_iqtype_errors() {
+        // integer part trimmed
         let mut test_float = 1.0;
-        assert_eq!(signed_f32_to_register(test_float, 0).unwrap(), 0x7FFFFFFF);
-
-        test_float = 0.0;
-        assert_eq!(signed_f32_to_register(test_float, 0).unwrap(), 0x0);
-
+        assert_eq!(
+            IQType::from_f32(test_float, 0, true),
+            Err(IQTypeError::IntPartIsTrimmed)
+        );
+        // negative value for unsigned type
         test_float = -1.0;
-        assert_eq!(signed_f32_to_register(test_float, 0).unwrap(), 0x80000001);
+        assert_eq!(
+            IQType::from_f32(test_float, 1, false),
+            Err(IQTypeError::FaultySignParameter)
+        );
     }
 
     #[test]
-    fn mathacl_register_to_signed_f32() {
+    fn mathacl_iqtype_f32_to_f32() {
+        assert_eq!(IQType::from_f32(0.0, 15, true).unwrap().to_f32(), 0.0);
+        assert_eq!(IQType::from_f32(0.0, 16, false).unwrap().to_f32(), 0.0);
+
+        assert_eq!(IQType::from_f32(1.5, 16, false).unwrap().to_f32(), 1.5);
+        assert_eq!(IQType::from_f32(1.5, 15, true).unwrap().to_f32(), 1.5);
+        assert_eq!(IQType::from_f32(-1.5, 15, true).unwrap().to_f32(), -1.5);
+    }
+
+    #[test]
+    fn mathacl_iqtype_reg_to_reg() {
+        assert_eq!(IQType::from_reg(0x0, 15, true).unwrap().to_reg(), 0x0);
+        assert_eq!(IQType::from_reg(0x0, 16, false).unwrap().to_reg(), 0x0);
+
+        assert_eq!(IQType::from_reg(0x00018000, 15, true).unwrap().to_reg(), 0x00018000);
+        assert_eq!(IQType::from_reg(0x00018000, 16, false).unwrap().to_reg(), 0x00018000);
+        assert_eq!(IQType::from_reg(0xFFFE5556, 15, true).unwrap().to_reg(), 0xFFFE5556);
+    }
+
+    #[test]
+    fn mathacl_iqtype_f32_to_register() {
+        let mut test_float = 0.0;
+        assert_eq!(IQType::from_f32(test_float, 15, true).unwrap().to_reg(), 0x0);
+        assert_eq!(IQType::from_f32(test_float, 16, false).unwrap().to_reg(), 0x0);
+
+        test_float = 1.5;
+        assert_eq!(IQType::from_f32(test_float, 15, true).unwrap().to_reg(), 0x00018000);
+        assert_eq!(IQType::from_f32(test_float, 16, false).unwrap().to_reg(), 0x00018000);
+
+        test_float = -1.5;
+        assert_eq!(IQType::from_f32(test_float, 15, true).unwrap().to_reg(), 0xFFFE8000);
+
+        test_float = 1.666657;
+        assert_eq!(IQType::from_f32(test_float, 15, true).unwrap().to_reg(), 0x0001AAAA);
+        assert_eq!(IQType::from_f32(test_float, 16, false).unwrap().to_reg(), 0x0001AAAA);
+
+        test_float = -1.666657;
+        assert_eq!(IQType::from_f32(test_float, 15, true).unwrap().to_reg(), 0xFFFE5556);
+    }
+
+    #[test]
+    fn mathacl_iqtype_register_to_signed_f32() {
         let mut test_u32: u32 = 0x7FFFFFFF;
-        assert_eq!(register_to_signed_f32(test_u32, 0u8).unwrap(), 1.0);
+
+        let mut result = IQType::from_reg(test_u32, 0, true).unwrap().to_f32();
+        assert!(result < 1.0 + ERROR_TOLERANCE && result > 1.0 - ERROR_TOLERANCE);
 
         test_u32 = 0x0;
-        assert_eq!(register_to_signed_f32(test_u32, 0u8).unwrap(), 0.0);
+        result = IQType::from_reg(test_u32, 0, true).unwrap().to_f32();
+        assert!(result < 0.0 + ERROR_TOLERANCE && result > 0.0 - ERROR_TOLERANCE);
 
-        test_u32 = 0x80000001;
-        assert_eq!(register_to_signed_f32(test_u32, 0u8).unwrap(), -1.0);
+        test_u32 = 0x0001AAAA;
+        result = IQType::from_reg(test_u32, 15, true).unwrap().to_f32();
+        assert!(result < 1.666657 + ERROR_TOLERANCE && result > 1.666657 - ERROR_TOLERANCE);
+
+        test_u32 = 0xFFFE5556;
+        result = IQType::from_reg(test_u32, 15, true).unwrap().to_f32();
+        assert!(result < -1.666657 + ERROR_TOLERANCE && result > -1.666657 - ERROR_TOLERANCE);
     }
 }

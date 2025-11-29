@@ -21,3 +21,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: Add read_reset_cause function
 - feat: Add module Mathacl & example for mspm0g3507 (#4897)
 - feat: Add MSPM0G5187 supportt
+- feat: add CPU accelerated division function (#4966)
