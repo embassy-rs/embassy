@@ -15,6 +15,8 @@ pub mod qei;
 pub mod ringbuffered;
 pub mod simple_pwm;
 
+use crate::dma::word::Word;
+use crate::fmt::Debuggable;
 use crate::interrupt;
 use crate::rcc::RccPeripheral;
 
@@ -163,7 +165,12 @@ pub trait CoreInstance: SealedInstance + 'static {
     type UpdateInterrupt: interrupt::typelevel::Interrupt;
 
     /// Amount of bits this timer has.
-    const BITS: TimerBits;
+    type Word: Word
+        + TryInto<u16, Error: Debuggable>
+        + From<u16>
+        + TryFrom<u32, Error: Debuggable>
+        + Into<u32>
+        + TryFrom<u64, Error: Debuggable>;
 
     /// Registers for this timer.
     ///
@@ -241,7 +248,7 @@ dma_trait!(Dma, GeneralInstance4Channel, TimerChannel);
 
 #[allow(unused)]
 macro_rules! impl_core_timer {
-    ($inst:ident, $bits:expr) => {
+    ($inst:ident, $bits:ident) => {
         impl SealedInstance for crate::peripherals::$inst {
             fn state() -> &'static State {
                 static STATE: State = State::new();
@@ -251,8 +258,7 @@ macro_rules! impl_core_timer {
 
         impl CoreInstance for crate::peripherals::$inst {
             type UpdateInterrupt = crate::_generated::peripheral_interrupts::$inst::UP;
-
-            const BITS: TimerBits = $bits;
+            type Word = $bits;
 
             fn regs() -> *mut () {
                 crate::pac::$inst.as_ptr()
@@ -306,13 +312,13 @@ macro_rules! impl_general_4ch_blank_sealed {
 
 foreach_interrupt! {
     ($inst:ident, timer, TIM_BASIC, UP, $irq:ident) => {
-        impl_core_timer!($inst, TimerBits::Bits16);
+        impl_core_timer!($inst, u16);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
     };
 
     ($inst:ident, timer, TIM_1CH, UP, $irq:ident) => {
-        impl_core_timer!($inst, TimerBits::Bits16);
+        impl_core_timer!($inst, u16);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
         impl_general_1ch!($inst);
@@ -322,7 +328,7 @@ foreach_interrupt! {
     };
 
     ($inst:ident, timer, TIM_2CH, UP, $irq:ident) => {
-        impl_core_timer!($inst, TimerBits::Bits16);
+        impl_core_timer!($inst, u16);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
         impl_general_1ch!($inst);
@@ -332,7 +338,7 @@ foreach_interrupt! {
     };
 
     ($inst:ident, timer, TIM_GP16, UP, $irq:ident) => {
-        impl_core_timer!($inst, TimerBits::Bits16);
+        impl_core_timer!($inst, u16);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
         impl_general_1ch!($inst);
@@ -342,7 +348,7 @@ foreach_interrupt! {
     };
 
     ($inst:ident, timer, TIM_GP32, UP, $irq:ident) => {
-        impl_core_timer!($inst, TimerBits::Bits32);
+        impl_core_timer!($inst, u32);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
         impl_general_1ch!($inst);
@@ -353,7 +359,7 @@ foreach_interrupt! {
     };
 
     ($inst:ident, timer, TIM_1CH_CMP, UP, $irq:ident) => {
-        impl_core_timer!($inst, TimerBits::Bits16);
+        impl_core_timer!($inst, u16);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
         impl_general_1ch!($inst);
@@ -366,7 +372,7 @@ foreach_interrupt! {
     };
 
     ($inst:ident, timer, TIM_2CH_CMP, UP, $irq:ident) => {
-        impl_core_timer!($inst, TimerBits::Bits16);
+        impl_core_timer!($inst, u16);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
         impl_general_1ch!($inst);
@@ -379,7 +385,7 @@ foreach_interrupt! {
     };
 
     ($inst:ident, timer, TIM_ADV, UP, $irq:ident) => {
-        impl_core_timer!($inst, TimerBits::Bits16);
+        impl_core_timer!($inst, u16);
         impl BasicNoCr2Instance for crate::peripherals::$inst {}
         impl BasicInstance for crate::peripherals::$inst {}
         impl_general_1ch!($inst);

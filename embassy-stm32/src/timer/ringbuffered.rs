@@ -25,7 +25,7 @@ use crate::dma::ringbuffer::Error;
 /// ```
 pub struct RingBufferedPwmChannel<'d, T: GeneralInstance4Channel> {
     timer: ManuallyDrop<Timer<'d, T>>,
-    ring_buf: WritableRingBuffer<'d, u16>,
+    ring_buf: WritableRingBuffer<'d, T::Word>,
     channel: Channel,
 }
 
@@ -33,7 +33,7 @@ impl<'d, T: GeneralInstance4Channel> RingBufferedPwmChannel<'d, T> {
     pub(crate) fn new(
         timer: ManuallyDrop<Timer<'d, T>>,
         channel: Channel,
-        ring_buf: WritableRingBuffer<'d, u16>,
+        ring_buf: WritableRingBuffer<'d, T::Word>,
     ) -> Self {
         Self {
             timer,
@@ -55,18 +55,18 @@ impl<'d, T: GeneralInstance4Channel> RingBufferedPwmChannel<'d, T> {
     }
 
     /// Write elements directly to the raw buffer. This can be used to fill the buffer before starting the DMA transfer.
-    pub fn write_immediate(&mut self, buf: &[u16]) -> Result<(usize, usize), Error> {
+    pub fn write_immediate(&mut self, buf: &[T::Word]) -> Result<(usize, usize), Error> {
         self.ring_buf.write_immediate(buf)
     }
 
     /// Write elements from the ring buffer
     /// Return a tuple of the length written and the length remaining in the buffer
-    pub fn write(&mut self, buf: &[u16]) -> Result<(usize, usize), Error> {
+    pub fn write(&mut self, buf: &[T::Word]) -> Result<(usize, usize), Error> {
         self.ring_buf.write(buf)
     }
 
     /// Write an exact number of elements to the ringbuffer.
-    pub async fn write_exact(&mut self, buffer: &[u16]) -> Result<usize, Error> {
+    pub async fn write_exact(&mut self, buffer: &[T::Word]) -> Result<usize, Error> {
         self.ring_buf.write_exact(buffer).await
     }
 
@@ -140,7 +140,7 @@ impl<'d, T: GeneralInstance4Channel> RingBufferedPwmChannel<'d, T> {
     ///
     /// This value depends on the configured frequency and the timer's clock rate from RCC.
     pub fn max_duty_cycle(&self) -> u16 {
-        let max = self.timer.get_max_compare_value();
+        let max: u32 = self.timer.get_max_compare_value().into();
         assert!(max < u16::MAX as u32);
         max as u16 + 1
     }

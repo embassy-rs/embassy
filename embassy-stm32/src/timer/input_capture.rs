@@ -97,7 +97,7 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
 
     /// Get capture value for a channel.
     pub fn get_capture_value(&self, channel: Channel) -> u32 {
-        self.inner.get_capture_value(channel)
+        self.inner.get_capture_value(channel).into()
     }
 
     /// Get input interrupt.
