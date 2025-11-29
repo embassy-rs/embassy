@@ -73,6 +73,9 @@ struct Args {
     entry: Option<String>,
     #[darling(default)]
     executor: Option<String>,
+    #[cfg(feature = "idle-hook")]
+    #[darling(default)]
+    idle_hook: Option<String>,
 }
 
 pub fn run(args: TokenStream, item: TokenStream, arch: &Arch) -> TokenStream {
@@ -167,6 +170,22 @@ For example: `#[embassy_executor::main(entry = ..., executor = \"some_crate::Exe
         TokenStream::new()
     });
 
+    #[cfg(feature = "idle-hook")]
+    let idle_hook = args.idle_hook.as_deref().and_then(|s| match TokenStream::from_str(s) {
+        Ok(x) => Some(x),
+        Err(e) => {
+            error(&mut errors, &f.sig, e);
+            None
+        }
+    });
+    #[cfg(not(feature = "idle-hook"))]
+    let idle_hook = Option::<TokenStream>::None;
+
+    let with_idle_hook = match idle_hook {
+        Some(x) => quote! { .with_idle_hook(#x) },
+        None => quote! {},
+    };
+
     let f_body = f.body;
     let out = &f.sig.output;
 
@@ -186,7 +205,7 @@ For example: `#[embassy_executor::main(entry = ..., executor = \"some_crate::Exe
                     unsafe { ::core::mem::transmute(t) }
                 }
 
-                let mut executor = #executor::new();
+                let mut executor = #executor::new()#with_idle_hook;
                 let executor = unsafe { __make_static(&mut executor) };
                 executor.run(|spawner| {
                     let main_task = __embassy_main(spawner).unwrap();
