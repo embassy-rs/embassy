@@ -545,9 +545,12 @@ impl<'d, D: Driver<'d>> embedded_io_async::Read for BufferedReceiver<'d, D> {
             return self.receiver.read_packet(buf).await;
         }
 
-        // Otherwise read a packet into the internal buffer, and return some of it to the caller
-        self.start = 0;
+        // Otherwise read a packet into the internal buffer, and return some of it to the caller.
+        //
+        // It's important that `start` and `end` be updated in this order so they're left in a
+        // consistent state if the `read` future is dropped mid-execution, e.g. from a timeout.
         self.end = self.receiver.read_packet(&mut self.buffer).await?;
+        self.start = 0;
         return Ok(self.read_from_buffer(buf));
     }
 }
