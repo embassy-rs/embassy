@@ -41,6 +41,7 @@ pub struct ConstGenericQueue<const QUEUE_SIZE: usize> {
 
 impl<const QUEUE_SIZE: usize> ConstGenericQueue<QUEUE_SIZE> {
     /// Creates a new timer queue.
+    #[inline]
     pub const fn new() -> Self {
         Self { queue: Vec::new() }
     }
@@ -49,6 +50,7 @@ impl<const QUEUE_SIZE: usize> ConstGenericQueue<QUEUE_SIZE> {
     ///
     /// If this function returns `true`, the called should find the next expiration time and set
     /// a new alarm for that time.
+    #[inline]
     pub fn schedule_wake(&mut self, at: u64, waker: &Waker) -> bool {
         self.queue
             .iter_mut()
@@ -81,6 +83,7 @@ impl<const QUEUE_SIZE: usize> ConstGenericQueue<QUEUE_SIZE> {
     }
 
     /// Dequeues expired timers and returns the next alarm time.
+    #[inline]
     pub fn next_expiration(&mut self, now: u64) -> u64 {
         let mut next_alarm = u64::MAX;
 
@@ -127,6 +130,7 @@ pub struct Queue {
 
 impl Queue {
     /// Creates a new timer queue.
+    #[inline]
     pub const fn new() -> Self {
         Self {
             queue: ConstGenericQueue::new(),
@@ -137,11 +141,13 @@ impl Queue {
     ///
     /// If this function returns `true`, the called should find the next expiration time and set
     /// a new alarm for that time.
+    #[inline]
     pub fn schedule_wake(&mut self, at: u64, waker: &Waker) -> bool {
         self.queue.schedule_wake(at, waker)
     }
 
     /// Dequeues expired timers and returns the next alarm time.
+    #[inline]
     pub fn next_expiration(&mut self, now: u64) -> u64 {
         self.queue.next_expiration(now)
     }
