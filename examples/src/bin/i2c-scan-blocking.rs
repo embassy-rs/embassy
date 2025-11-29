@@ -2,7 +2,7 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa::gpio::{DriveStrength, Pull, SlewRate};
+use embassy_mcxa::gpio::Pull;
 use embassy_mcxa::Input;
 use embassy_time::Timer;
 use hal::clocks::config::Div8;
@@ -25,7 +25,7 @@ async fn main(_spawner: Spawner) {
     // Note: P0_2 is connected to P1_8 on the FRDM_MCXA276 via a resistor, and
     // defaults to SWO on the debug peripheral. Explicitly make it a high-z
     // input.
-    let _pin = Input::new(p.P0_2, Pull::Disabled, DriveStrength::Normal, SlewRate::Slow);
+    let _pin = Input::new(p.P0_2, Pull::Disabled);
     let mut i2c = I2c::new_blocking(p.LPI2C2, p.P1_9, p.P1_8, config).unwrap();
 
     for addr in 0x01..=0x7f {
