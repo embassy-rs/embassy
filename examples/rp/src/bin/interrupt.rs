@@ -35,7 +35,7 @@ async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
     let adc = Adc::new_blocking(p.ADC, Default::default());
-    let p26 = adc::Channel::new_pin(p.PIN_26, Pull::None);
+    let p26 = adc::Channel::new_pin(&adc, p.PIN_26, Pull::None);
     ADC.lock(|a| a.borrow_mut().replace((adc, p26)));
 
     let pwm = Pwm::new_output_b(p.PWM_SLICE4, p.PIN_25, Default::default());
