@@ -86,6 +86,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: stm32/lcd: added implementation
 - change: add error messages to can timing calculations ([#4961](https://github.com/embassy-rs/embassy/pull/4961))
 - fix: stm32/i2c v2: add stop flag on stop received
+- fix: stm32l47*/stm32l48* adc analog pin setup
 
 ## 0.4.0 - 2025-08-26
 
