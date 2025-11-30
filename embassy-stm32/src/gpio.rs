@@ -684,7 +684,11 @@ fn set_as_analog(pin_port: PinNumber) {
     });
 
     #[cfg(gpio_v2)]
-    r.moder().modify(|w| w.set_moder(n, vals::Moder::ANALOG));
+    {
+        #[cfg(any(stm32l47x, stm32l48x))]
+        r.ascr().modify(|w| w.set_asc(n, true));
+        r.moder().modify(|w| w.set_moder(n, vals::Moder::ANALOG));
+    }
 }
 
 #[inline(never)]
