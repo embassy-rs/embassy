@@ -85,6 +85,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix: build script ensures EXTI2_TSC is listed as the IRQ of EXTI2 even if the PAC doesn't
 - feat: stm32/lcd: added implementation
 - change: add error messages to can timing calculations ([#4961](https://github.com/embassy-rs/embassy/pull/4961))
+- feat: stm32/spi bidirectional mode 
 
 ## 0.4.0 - 2025-08-26
 
