@@ -72,6 +72,10 @@ pub struct Config {
     /// signal rise/fall speed (slew rate) - defaults to `Medium`.
     /// Increase for high SPI speeds. Change to `Low` to reduce ringing.
     pub gpio_speed: Speed,
+    /// If True sets SSOE to zero even if SPI is in Master Mode.
+    /// NSS output enabled (SSM = 0, SSOE = 1): The NSS signal is driven low when the master starts the communication and is kept low until the SPI is disabled.
+    /// NSS output disabled (SSM = 0, SSOE = 0): For devices set as slave, the NSS pin acts as a classical NSS input: the slave is selected when NSS is low and deselected when NSS high.
+    pub nss_output_disable: bool,
 }
 
 impl Default for Config {
@@ -82,6 +86,7 @@ impl Default for Config {
             frequency: Hertz(1_000_000),
             miso_pull: Pull::None,
             gpio_speed: Speed::VeryHigh,
+            nss_output_disable: false,
         }
     }
 }
@@ -217,11 +222,33 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
 
         self.info.rcc.enable_and_reset();
 
+        /*
+        - Software NSS management (SSM = 1)
+        The slave select information is driven internally by the value of the SSI bit in the
+        SPI_CR1 register. The external NSS pin remains free for other application uses.
+
+        - Hardware NSS management (SSM = 0)
+        Two configurations are possible depending on the NSS output configuration (SSOE bit
+        in register SPI_CR1).
+
+        -- NSS output enabled (SSM = 0, SSOE = 1)
+          This configuration is used only when the device operates in master mode. The
+          NSS signal is driven low when the master starts the communication and is kept
+          low until the SPI is disabled.
+
+        -- NSS output disabled (SSM = 0, SSOE = 0)
+            This configuration allows multimaster capability for devices operating in master
+            mode. For devices set as slave, the NSS pin acts as a classical NSS input: the
+            slave is selected when NSS is low and deselected when NSS high
+         */
+        let ssm = self.nss.is_none();
+
         let regs = self.info.regs;
         #[cfg(any(spi_v1, spi_v2))]
         {
+            let ssoe = CM::MASTER == vals::Mstr::MASTER && !config.nss_output_disable;
             regs.cr2().modify(|w| {
-                w.set_ssoe(false);
+                w.set_ssoe(ssoe);
             });
             regs.cr1().modify(|w| {
                 w.set_cpha(cpha);
@@ -232,7 +259,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
                 w.set_spe(true);
                 w.set_lsbfirst(lsbfirst);
                 w.set_ssi(CM::MASTER == vals::Mstr::MASTER);
-                w.set_ssm(CM::MASTER == vals::Mstr::MASTER);
+                w.set_ssm(ssm);
                 w.set_crcen(false);
                 w.set_bidimode(vals::Bidimode::UNIDIRECTIONAL);
                 // we're doing "fake rxonly", by actually writing one
@@ -244,11 +271,12 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         }
         #[cfg(spi_v3)]
         {
+            let ssoe = CM::MASTER == vals::Mstr::MASTER && !config.nss_output_disable;
             regs.cr2().modify(|w| {
                 let (ds, frxth) = <u8 as SealedWord>::CONFIG;
                 w.set_frxth(frxth);
                 w.set_ds(ds);
-                w.set_ssoe(false);
+                w.set_ssoe(ssoe);
             });
             regs.cr1().modify(|w| {
                 w.set_cpha(cpha);
@@ -258,7 +286,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
                 w.set_br(br);
                 w.set_lsbfirst(lsbfirst);
                 w.set_ssi(CM::MASTER == vals::Mstr::MASTER);
-                w.set_ssm(CM::MASTER == vals::Mstr::MASTER);
+                w.set_ssm(ssm);
                 w.set_crcen(false);
                 w.set_bidimode(vals::Bidimode::UNIDIRECTIONAL);
                 w.set_spe(true);
@@ -266,14 +294,14 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         }
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         {
+            let ssoe = CM::MASTER == vals::Master::MASTER && !config.nss_output_disable;
             regs.ifcr().write(|w| w.0 = 0xffff_ffff);
             regs.cfg2().modify(|w| {
-                //w.set_ssoe(true);
-                w.set_ssoe(false);
+                w.set_ssoe(ssoe);
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
                 w.set_lsbfirst(lsbfirst);
-                w.set_ssm(CM::MASTER == vals::Master::MASTER);
+                w.set_ssm(ssm);
                 w.set_master(CM::MASTER);
                 w.set_comm(vals::Comm::FULL_DUPLEX);
                 w.set_ssom(vals::Ssom::ASSERTED);
@@ -357,6 +385,11 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         let cfg1 = self.info.regs.cfg1().read();
 
+        #[cfg(any(spi_v1, spi_v2, spi_v3))]
+        let ssoe = self.info.regs.cr2().read().ssoe();
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        let ssoe = cfg.ssoe();
+
         let polarity = if cfg.cpol() == vals::Cpol::IDLE_LOW {
             Polarity::IdleLow
         } else {
@@ -386,12 +419,16 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
 
         let frequency = compute_frequency(self.kernel_clock, br);
 
+        // NSS output disabled if SSOE=0 or if SSM=1 software slave management enabled
+        let nss_output_disable = !ssoe || cfg.ssm();
+
         Config {
             mode: Mode { polarity, phase },
             bit_order,
             frequency,
             miso_pull,
             gpio_speed: self.gpio_speed,
+            nss_output_disable,
         }
     }
 
