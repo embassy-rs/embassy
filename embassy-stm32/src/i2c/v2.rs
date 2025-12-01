@@ -1673,6 +1673,22 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
         Ok(())
     }
 
+    /// Respond to a write command.
+    ///
+    /// Returns total number of bytes received.
+    pub fn blocking_respond_to_write(&self, read: &mut [u8]) -> Result<usize, Error> {
+        let timeout = self.timeout();
+        self.slave_read_internal(read, timeout)
+    }
+
+    /// Respond to a read command.
+    pub fn blocking_respond_to_read(&mut self, write: &[u8]) -> Result<(), Error> {
+        let timeout = self.timeout();
+        self.slave_write_internal(write, timeout)
+    }
+}
+
+impl<'d> I2c<'d, Async, MultiMaster> {
     /// Listen for incoming I2C messages.
     ///
     /// The listen method is an asynchronous method but it does not require DMA to be asynchronous.
@@ -1713,22 +1729,6 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
         .await
     }
 
-    /// Respond to a write command.
-    ///
-    /// Returns total number of bytes received.
-    pub fn blocking_respond_to_write(&self, read: &mut [u8]) -> Result<usize, Error> {
-        let timeout = self.timeout();
-        self.slave_read_internal(read, timeout)
-    }
-
-    /// Respond to a read command.
-    pub fn blocking_respond_to_read(&mut self, write: &[u8]) -> Result<(), Error> {
-        let timeout = self.timeout();
-        self.slave_write_internal(write, timeout)
-    }
-}
-
-impl<'d> I2c<'d, Async, MultiMaster> {
     /// Respond to a write command.
     ///
     /// Returns the total number of bytes received.
