@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased - ReleaseDate
 
+- fix: fix incorrect handling of split interrupts in timer driver
+- feat: allow granular stop for regular usart
 - feat: Add continuous waveform method to SimplePWM
 - change: remove waveform timer method
 - change: low power: store stop mode for dma channels
@@ -82,6 +84,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - removal: ExtiInput no longer accepts AnyPin/AnyChannel; AnyChannel removed entirely
 - fix: build script ensures EXTI2_TSC is listed as the IRQ of EXTI2 even if the PAC doesn't
 - feat: stm32/lcd: added implementation
+- change: add error messages to can timing calculations ([#4961](https://github.com/embassy-rs/embassy/pull/4961))
 
 ## 0.4.0 - 2025-08-26
 

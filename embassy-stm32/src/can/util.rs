@@ -2,6 +2,8 @@
 
 use core::num::{NonZeroU8, NonZeroU16};
 
+use crate::can::enums::TimingCalcError;
+
 /// Shared struct to represent bit timings used by calc_can_timings.
 #[derive(Clone, Copy, Debug)]
 pub struct NominalBitTiming {
@@ -17,7 +19,10 @@ pub struct NominalBitTiming {
 }
 
 /// Calculate nominal CAN bit timing based on CAN bitrate and periphial clock frequency
-pub fn calc_can_timings(periph_clock: crate::time::Hertz, can_bitrate: u32) -> Option<NominalBitTiming> {
+pub fn calc_can_timings(
+    periph_clock: crate::time::Hertz,
+    can_bitrate: u32,
+) -> Result<NominalBitTiming, TimingCalcError> {
     const BS1_MAX: u8 = 16;
     const BS2_MAX: u8 = 8;
     const MAX_SAMPLE_POINT_PERMILL: u16 = 900;
@@ -25,7 +30,7 @@ pub fn calc_can_timings(periph_clock: crate::time::Hertz, can_bitrate: u32) -> O
     let periph_clock = periph_clock.0;
 
     if can_bitrate < 1000 {
-        return None;
+        return Err(TimingCalcError::BitrateTooLow { bitrate: can_bitrate });
     }
 
     // Ref. "Automatic Baudrate Detection in CANopen Networks", U. Koppe, MicroControl GmbH & Co. KG
@@ -53,14 +58,14 @@ pub fn calc_can_timings(periph_clock: crate::time::Hertz, can_bitrate: u32) -> O
     let mut bs1_bs2_sum = max_quanta_per_bit - 1;
     while (prescaler_bs % (1 + bs1_bs2_sum) as u32) != 0 {
         if bs1_bs2_sum <= 2 {
-            return None; // No solution
+            return Err(TimingCalcError::NoSolution { bs1_bs2_sum }); // No solution
         }
         bs1_bs2_sum -= 1;
     }
 
     let prescaler = prescaler_bs / (1 + bs1_bs2_sum) as u32;
     if (prescaler < 1) || (prescaler > 1024) {
-        return None; // No solution
+        return Err(TimingCalcError::InvalidPrescaler { prescaler }); // No solution
     }
 
     // Now we have a constraint: (BS1 + BS2) == bs1_bs2_sum.
@@ -93,22 +98,26 @@ pub fn calc_can_timings(periph_clock: crate::time::Hertz, can_bitrate: u32) -> O
 
     // Check is BS1 and BS2 are in range
     if (bs1 < 1) || (bs1 > BS1_MAX) || (bs2 < 1) || (bs2 > BS2_MAX) {
-        return None;
+        return Err(TimingCalcError::BSNotInRange { bs1, bs2 });
     }
 
+    let calculated = periph_clock / (prescaler * (1 + bs1 + bs2) as u32);
     // Check if final bitrate matches the requested
-    if can_bitrate != (periph_clock / (prescaler * (1 + bs1 + bs2) as u32)) {
-        return None;
+    if can_bitrate != calculated {
+        return Err(TimingCalcError::NoMatch {
+            requested: can_bitrate,
+            final_calculated: calculated,
+        });
     }
 
     // One is recommended by DS-015, CANOpen, and DeviceNet
-    let sync_jump_width = core::num::NonZeroU8::new(1)?;
+    let sync_jump_width = core::num::NonZeroU8::new(1).ok_or(TimingCalcError::CoreNumNew)?;
 
-    let seg1 = core::num::NonZeroU8::new(bs1)?;
-    let seg2 = core::num::NonZeroU8::new(bs2)?;
-    let nz_prescaler = core::num::NonZeroU16::new(prescaler as u16)?;
+    let seg1 = core::num::NonZeroU8::new(bs1).ok_or(TimingCalcError::CoreNumNew)?;
+    let seg2 = core::num::NonZeroU8::new(bs2).ok_or(TimingCalcError::CoreNumNew)?;
+    let nz_prescaler = core::num::NonZeroU16::new(prescaler as u16).ok_or(TimingCalcError::CoreNumNew)?;
 
-    Some(NominalBitTiming {
+    Ok(NominalBitTiming {
         sync_jump_width,
         prescaler: nz_prescaler,
         seg1,

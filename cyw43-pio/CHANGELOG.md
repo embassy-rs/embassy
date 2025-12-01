@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.9.0 - 2025-11-27
+
 - Select pio program based on core clock speed #4792
 
 ## 0.8.0 - 2025-08-28

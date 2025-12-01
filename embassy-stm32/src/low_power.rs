@@ -51,7 +51,7 @@ use embassy_executor::*;
 
 use crate::interrupt;
 pub use crate::rcc::StopMode;
-use crate::rcc::{RCC_CONFIG, REFCOUNT_STOP1, REFCOUNT_STOP2, decrement_stop_refcount, increment_stop_refcount};
+use crate::rcc::{BusyPeripheral, RCC_CONFIG, REFCOUNT_STOP1, REFCOUNT_STOP2};
 use crate::time_driver::get_driver;
 
 const THREAD_PENDER: usize = usize::MAX;
@@ -59,7 +59,9 @@ const THREAD_PENDER: usize = usize::MAX;
 static mut EXECUTOR_TAKEN: bool = false;
 
 /// Prevent the device from going into the stop mode if held
-pub struct DeviceBusy(StopMode);
+pub struct DeviceBusy {
+    _stop_mode: BusyPeripheral<StopMode>,
+}
 
 impl DeviceBusy {
     /// Create a new DeviceBusy with stop1.
@@ -74,19 +76,9 @@ impl DeviceBusy {
 
     /// Create a new DeviceBusy.
     pub fn new(stop_mode: StopMode) -> Self {
-        critical_section::with(|cs| {
-            increment_stop_refcount(cs, stop_mode);
-        });
-
-        Self(stop_mode)
-    }
-}
-
-impl Drop for DeviceBusy {
-    fn drop(&mut self) {
-        critical_section::with(|cs| {
-            decrement_stop_refcount(cs, self.0);
-        });
+        Self {
+            _stop_mode: BusyPeripheral::new(stop_mode),
+        }
     }
 }
 

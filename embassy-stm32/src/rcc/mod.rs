@@ -4,6 +4,7 @@
 #![allow(missing_docs)] // TODO
 
 use core::mem::MaybeUninit;
+use core::ops;
 
 mod bd;
 pub use bd::*;
@@ -112,7 +113,7 @@ pub fn clocks<'a>(_rcc: &'a crate::Peri<'a, crate::peripherals::RCC>) -> &'a Clo
 }
 
 #[cfg(feature = "low-power")]
-pub(crate) fn increment_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
+fn increment_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
     match stop_mode {
         StopMode::Standby => {}
         StopMode::Stop2 => unsafe {
@@ -125,7 +126,7 @@ pub(crate) fn increment_stop_refcount(_cs: CriticalSection, stop_mode: StopMode)
 }
 
 #[cfg(feature = "low-power")]
-pub(crate) fn decrement_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
+fn decrement_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
     match stop_mode {
         StopMode::Standby => {}
         StopMode::Stop2 => unsafe {
@@ -182,6 +183,12 @@ pub enum StopMode {
     Standby,
 }
 
+#[cfg(feature = "low-power")]
+type BusyRccPeripheral = BusyPeripheral<StopMode>;
+
+#[cfg(not(feature = "low-power"))]
+type BusyRccPeripheral = ();
+
 impl RccInfo {
     /// Safety:
     /// - `reset_offset_and_bit`, if set, must correspond to valid xxxRST bit
@@ -233,9 +240,6 @@ impl RccInfo {
                 panic!("refcount_idx out of bounds: {}", refcount_idx)
             }
         }
-
-        #[cfg(feature = "low-power")]
-        increment_stop_refcount(_cs, self.stop_mode);
 
         // set the xxxRST bit
         let reset_ptr = self.reset_ptr();
@@ -292,9 +296,6 @@ impl RccInfo {
             }
         }
 
-        #[cfg(feature = "low-power")]
-        decrement_stop_refcount(_cs, self.stop_mode);
-
         // clear the xxxEN bit
         let enable_ptr = self.enable_ptr();
         unsafe {
@@ -303,14 +304,61 @@ impl RccInfo {
         }
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn increment_stop_refcount_with_cs(&self, _cs: CriticalSection) {
+        #[cfg(feature = "low-power")]
+        increment_stop_refcount(_cs, self.stop_mode);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn increment_stop_refcount(&self) {
+        #[cfg(feature = "low-power")]
+        critical_section::with(|cs| self.increment_stop_refcount_with_cs(cs))
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn decrement_stop_refcount_with_cs(&self, _cs: CriticalSection) {
+        #[cfg(feature = "low-power")]
+        decrement_stop_refcount(_cs, self.stop_mode);
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn decrement_stop_refcount(&self) {
+        #[cfg(feature = "low-power")]
+        critical_section::with(|cs| self.decrement_stop_refcount_with_cs(cs))
+    }
+
     // TODO: should this be `unsafe`?
     pub(crate) fn enable_and_reset(&self) {
+        critical_section::with(|cs| {
+            self.enable_and_reset_with_cs(cs);
+            self.increment_stop_refcount_with_cs(cs);
+        })
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn enable_and_reset_without_stop(&self) {
         critical_section::with(|cs| self.enable_and_reset_with_cs(cs))
     }
 
     // TODO: should this be `unsafe`?
     pub(crate) fn disable(&self) {
+        critical_section::with(|cs| {
+            self.disable_with_cs(cs);
+            self.decrement_stop_refcount_with_cs(cs);
+        })
+    }
+
+    // TODO: should this be `unsafe`?
+    #[allow(dead_code)]
+    pub(crate) fn disable_without_stop(&self) {
         critical_section::with(|cs| self.disable_with_cs(cs))
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn block_stop(&self) -> BusyRccPeripheral {
+        #[cfg(feature = "low-power")]
+        BusyPeripheral::new(self.stop_mode)
     }
 
     fn reset_ptr(&self) -> Option<*mut u32> {
@@ -323,6 +371,53 @@ impl RccInfo {
 
     fn enable_ptr(&self) -> *mut u32 {
         unsafe { (RCC.as_ptr() as *mut u32).add(self.enable_offset as _) }
+    }
+}
+
+pub(crate) trait StoppablePeripheral {
+    #[cfg(feature = "low-power")]
+    #[allow(dead_code)]
+    fn stop_mode(&self) -> StopMode;
+}
+
+#[cfg(feature = "low-power")]
+impl<'a> StoppablePeripheral for StopMode {
+    fn stop_mode(&self) -> StopMode {
+        *self
+    }
+}
+
+pub(crate) struct BusyPeripheral<T: StoppablePeripheral> {
+    peripheral: T,
+}
+
+impl<T: StoppablePeripheral> BusyPeripheral<T> {
+    pub fn new(peripheral: T) -> Self {
+        #[cfg(feature = "low-power")]
+        critical_section::with(|cs| increment_stop_refcount(cs, peripheral.stop_mode()));
+
+        Self { peripheral }
+    }
+}
+
+impl<T: StoppablePeripheral> Drop for BusyPeripheral<T> {
+    fn drop(&mut self) {
+        #[cfg(feature = "low-power")]
+        critical_section::with(|cs| decrement_stop_refcount(cs, self.peripheral.stop_mode()));
+    }
+}
+
+impl<T: StoppablePeripheral> ops::Deref for BusyPeripheral<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.peripheral
+    }
+}
+
+impl<T: StoppablePeripheral> ops::DerefMut for BusyPeripheral<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.peripheral
     }
 }
 

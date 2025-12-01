@@ -491,6 +491,8 @@ impl<'d> UartTx<'d, Async> {
 
     /// Initiate an asynchronous UART write
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        let _ = self.info.rcc.block_stop();
+
         let r = self.info.regs;
 
         half_duplex_set_rx_tx_before_write(&r, self.duplex == Duplex::Half(HalfDuplexReadback::Readback));
@@ -508,6 +510,8 @@ impl<'d> UartTx<'d, Async> {
 
     /// Wait until transmission complete
     pub async fn flush(&mut self) -> Result<(), Error> {
+        let _ = self.info.rcc.block_stop();
+
         flush(&self.info, &self.state).await
     }
 }
@@ -569,7 +573,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
         let state = self.state;
         state.tx_rx_refcount.store(1, Ordering::Relaxed);
 
-        info.rcc.enable_and_reset();
+        info.rcc.enable_and_reset_without_stop();
 
         info.regs.cr3().modify(|w| {
             w.set_ctse(self.cts.is_some());
@@ -726,6 +730,8 @@ impl<'d> UartRx<'d, Async> {
 
     /// Initiate an asynchronous UART read
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        let _ = self.info.rcc.block_stop();
+
         self.inner_read(buffer, false).await?;
 
         Ok(())
@@ -733,6 +739,8 @@ impl<'d> UartRx<'d, Async> {
 
     /// Initiate an asynchronous read with idle line detection enabled
     pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        let _ = self.info.rcc.block_stop();
+
         self.inner_read(buffer, true).await
     }
 
@@ -1004,7 +1012,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
             .eager_reads
             .store(config.eager_reads.unwrap_or(0), Ordering::Relaxed);
 
-        info.rcc.enable_and_reset();
+        info.rcc.enable_and_reset_without_stop();
 
         info.regs.cr3().write(|w| {
             w.set_rtse(self.rts.is_some());
@@ -1143,7 +1151,7 @@ fn drop_tx_rx(info: &Info, state: &State) {
         refcount == 1
     });
     if is_last_drop {
-        info.rcc.disable();
+        info.rcc.disable_without_stop();
     }
 }
 
@@ -1506,7 +1514,7 @@ impl<'d, M: Mode> Uart<'d, M> {
             .eager_reads
             .store(config.eager_reads.unwrap_or(0), Ordering::Relaxed);
 
-        info.rcc.enable_and_reset();
+        info.rcc.enable_and_reset_without_stop();
 
         info.regs.cr3().write(|w| {
             w.set_rtse(self.rx.rts.is_some());
