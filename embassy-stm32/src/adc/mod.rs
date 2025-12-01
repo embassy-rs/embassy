@@ -77,7 +77,7 @@ trait SealedInstance {
 }
 
 pub(crate) trait SealedAdcChannel<T> {
-    #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5, adc_wba))]
+    #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u5, adc_wba))]
     fn setup(&mut self) {}
 
     #[allow(unused)]
@@ -185,11 +185,11 @@ pub enum RegularConversionMode {
 
 impl<'d, T: AnyInstance> Adc<'d, T> {
     #[cfg(any(
-        adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_u5, adc_v4, adc_wba, adc_c0
+        adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_u5, adc_v3, adc_v4, adc_wba, adc_c0
     ))]
     /// Read an ADC pin.
     pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: T::SampleTime) -> u16 {
-        #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5, adc_wba))]
+        #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u5, adc_wba))]
         channel.setup();
 
         // Ensure no conversions are ongoing
@@ -418,7 +418,7 @@ pub trait Instance: SealedInstance + crate::PeripheralType + crate::rcc::RccPeri
 pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
     #[allow(unused_mut)]
     fn degrade_adc(mut self) -> AnyAdcChannel<T> {
-        #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5, adc_wba))]
+        #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u5, adc_wba))]
         self.setup();
 
         AnyAdcChannel {
@@ -554,7 +554,7 @@ macro_rules! impl_adc_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {
         impl crate::adc::AdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {}
         impl crate::adc::SealedAdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {
-            #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5, adc_wba))]
+            #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u5, adc_wba))]
             fn setup(&mut self) {
                 <crate::peripherals::$pin as crate::gpio::SealedPin>::set_as_analog(self);
             }
@@ -582,7 +582,7 @@ macro_rules! impl_adc_pair {
                 crate::Peri<'_, crate::peripherals::$npin>,
             )
         {
-            #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v4, adc_u5, adc_wba))]
+            #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u5, adc_wba))]
             fn setup(&mut self) {
                 <crate::peripherals::$pin as crate::gpio::SealedPin>::set_as_analog(&mut self.0);
                 <crate::peripherals::$npin as crate::gpio::SealedPin>::set_as_analog(&mut self.1);
