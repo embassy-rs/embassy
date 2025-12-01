@@ -2,27 +2,29 @@
 #![no_main]
 
 use embassy_executor::Spawner;
+use embassy_mcxa::clocks::config::Div8;
 use hal::lpuart::{Blocking, Config, Lpuart};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 /// Simple helper to write a byte as hex to UART
 fn write_hex_byte(uart: &mut Lpuart<'_, Blocking>, byte: u8) {
     const HEX_DIGITS: &[u8] = b"0123456789ABCDEF";
-    uart.write_byte(HEX_DIGITS[(byte >> 4) as usize]);
-    uart.write_byte(HEX_DIGITS[(byte & 0xF) as usize]);
+    let _ = uart.write_byte(HEX_DIGITS[(byte >> 4) as usize]);
+    let _ = uart.write_byte(HEX_DIGITS[(byte & 0xF) as usize]);
 }
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = hal::init(hal::config::Config::default());
+    let mut cfg = hal::config::Config::default();
+    cfg.clock_cfg.sirc.fro_12m_enabled = true;
+    cfg.clock_cfg.sirc.fro_lf_div = Some(Div8::no_div());
+    let p = hal::init(cfg);
 
     defmt::info!("boot");
 
     // Create UART configuration
     let config = Config {
         baudrate_bps: 115_200,
-        enable_tx: true,
-        enable_rx: true,
         ..Default::default()
     };
 
@@ -97,7 +99,7 @@ async fn main(_spawner: Spawner) {
             // Regular character
             buffer[buf_idx] = byte;
             buf_idx += 1;
-            uart.write_byte(byte);
+            let _ = uart.write_byte(byte);
         }
     }
 }

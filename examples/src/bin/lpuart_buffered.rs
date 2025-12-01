@@ -27,8 +27,6 @@ async fn main(_spawner: Spawner) {
     // UART configuration (enable both TX and RX)
     let config = Config {
         baudrate_bps: 115_200,
-        enable_tx: true,
-        enable_rx: true,
         rx_fifo_watermark: 0,
         tx_fifo_watermark: 0,
         ..Default::default()
