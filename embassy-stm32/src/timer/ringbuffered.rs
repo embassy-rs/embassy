@@ -7,6 +7,7 @@ use super::low_level::Timer;
 use super::{Channel, GeneralInstance4Channel};
 use crate::dma::WritableRingBuffer;
 use crate::dma::ringbuffer::Error;
+use crate::dma::word::Word;
 
 /// A PWM channel that uses a DMA ring buffer for continuous waveform generation.
 ///
@@ -23,17 +24,17 @@ use crate::dma::ringbuffer::Error;
 /// channel.start(); // Start DMA transfer
 /// channel.write(&[100, 200, 300]).ok(); // Update duty cycles
 /// ```
-pub struct RingBufferedPwmChannel<'d, T: GeneralInstance4Channel> {
+pub struct RingBufferedPwmChannel<'d, T: GeneralInstance4Channel, W: Word + Into<T::Word>> {
     timer: ManuallyDrop<Timer<'d, T>>,
-    ring_buf: WritableRingBuffer<'d, T::Word>,
+    ring_buf: WritableRingBuffer<'d, W>,
     channel: Channel,
 }
 
-impl<'d, T: GeneralInstance4Channel> RingBufferedPwmChannel<'d, T> {
+impl<'d, T: GeneralInstance4Channel, W: Word + Into<T::Word>> RingBufferedPwmChannel<'d, T, W> {
     pub(crate) fn new(
         timer: ManuallyDrop<Timer<'d, T>>,
         channel: Channel,
-        ring_buf: WritableRingBuffer<'d, T::Word>,
+        ring_buf: WritableRingBuffer<'d, W>,
     ) -> Self {
         Self {
             timer,
@@ -55,18 +56,18 @@ impl<'d, T: GeneralInstance4Channel> RingBufferedPwmChannel<'d, T> {
     }
 
     /// Write elements directly to the raw buffer. This can be used to fill the buffer before starting the DMA transfer.
-    pub fn write_immediate(&mut self, buf: &[T::Word]) -> Result<(usize, usize), Error> {
+    pub fn write_immediate(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
         self.ring_buf.write_immediate(buf)
     }
 
     /// Write elements from the ring buffer
     /// Return a tuple of the length written and the length remaining in the buffer
-    pub fn write(&mut self, buf: &[T::Word]) -> Result<(usize, usize), Error> {
+    pub fn write(&mut self, buf: &[W]) -> Result<(usize, usize), Error> {
         self.ring_buf.write(buf)
     }
 
     /// Write an exact number of elements to the ringbuffer.
-    pub async fn write_exact(&mut self, buffer: &[T::Word]) -> Result<usize, Error> {
+    pub async fn write_exact(&mut self, buffer: &[W]) -> Result<usize, Error> {
         self.ring_buf.write_exact(buffer).await
     }
 
@@ -154,16 +155,4 @@ impl<'d, T: GeneralInstance4Channel> RingBufferedPwmChannel<'d, T> {
     pub fn set_output_compare_mode(&mut self, mode: super::low_level::OutputCompareMode) {
         self.timer.set_output_compare_mode(self.channel, mode);
     }
-}
-
-/// A group of four [`SimplePwmChannel`]s, obtained from [`SimplePwm::split`].
-pub struct RingBufferedPwmChannels<'d, T: GeneralInstance4Channel> {
-    /// Channel 1
-    pub ch1: RingBufferedPwmChannel<'d, T>,
-    /// Channel 2
-    pub ch2: RingBufferedPwmChannel<'d, T>,
-    /// Channel 3
-    pub ch3: RingBufferedPwmChannel<'d, T>,
-    /// Channel 4
-    pub ch4: RingBufferedPwmChannel<'d, T>,
 }

@@ -7,6 +7,7 @@ use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, Timer};
 use super::ringbuffered::RingBufferedPwmChannel;
 use super::{Ch1, Ch2, Ch3, Ch4, Channel, GeneralInstance4Channel, TimerChannel, TimerPin};
 use crate::Peri;
+use crate::dma::word::Word;
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
@@ -171,11 +172,11 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
     ///
     /// # Panics
     /// Panics if `dma_buf` is empty or longer than 65535 elements.
-    pub fn into_ring_buffered_channel(
+    pub fn into_ring_buffered_channel<W: Word + Into<T::Word>>(
         mut self,
         tx_dma: Peri<'d, impl super::UpDma<T>>,
-        dma_buf: &'d mut [T::Word],
-    ) -> RingBufferedPwmChannel<'d, T> {
+        dma_buf: &'d mut [W],
+    ) -> RingBufferedPwmChannel<'d, T, W> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
 
         self.timer.enable_update_dma(true);
@@ -344,8 +345,14 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// You will need to provide corresponding `TIMx_UP` DMA channel to use this method.
     /// Also be aware that embassy timers use one of timers internally. It is possible to
     /// switch this timer by using `time-driver-timX` feature.
-    pub async fn waveform_up(&mut self, dma: Peri<'_, impl super::UpDma<T>>, channel: Channel, duty: &[T::Word]) {
+    pub async fn waveform_up<W: Word + Into<T::Word>>(
+        &mut self,
+        dma: Peri<'_, impl super::UpDma<T>>,
+        channel: Channel,
+        duty: &[W],
+    ) {
         self.inner.enable_channel(channel, true);
+        self.inner.set_compare_value(channel, 0.into());
         self.inner.enable_update_dma(true);
         self.inner.setup_update_dma(dma, channel, duty).await;
         self.inner.enable_update_dma(false);
@@ -380,18 +387,21 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// Also be aware that embassy timers use one of timers internally. It is possible to
     /// switch this timer by using `time-driver-timX` feature.
     ///
-    pub async fn waveform_up_multi_channel(
+    pub async fn waveform_up_multi_channel<W: Word + Into<T::Word>>(
         &mut self,
         dma: Peri<'_, impl super::UpDma<T>>,
         starting_channel: Channel,
         ending_channel: Channel,
-        duty: &[T::Word],
+        duty: &[W],
     ) {
         [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
             .iter()
             .filter(|ch| ch.index() >= starting_channel.index())
             .filter(|ch| ch.index() <= ending_channel.index())
-            .for_each(|ch| self.inner.enable_channel(*ch, true));
+            .for_each(|ch| {
+                self.inner.enable_channel(*ch, true);
+                self.inner.set_compare_value(*ch, 0.into());
+            });
         self.inner.enable_update_dma(true);
         self.inner
             .setup_update_dma_burst(dma, starting_channel, ending_channel, duty)

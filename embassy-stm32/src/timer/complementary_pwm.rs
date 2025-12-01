@@ -8,6 +8,7 @@ use super::low_level::{CountingMode, OutputPolarity, Timer};
 use super::simple_pwm::PwmPin;
 use super::{AdvancedInstance4Channel, Ch1, Ch2, Ch3, Ch4, Channel, TimerComplementaryPin};
 use crate::Peri;
+use crate::dma::word::Word;
 use crate::gpio::{AnyPin, OutputType};
 use crate::time::Hertz;
 use crate::timer::TimerChannel;
@@ -220,8 +221,14 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     ///
     /// Note:
     /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
-    pub async fn waveform_up(&mut self, dma: Peri<'_, impl super::UpDma<T>>, channel: Channel, duty: &[T::Word]) {
+    pub async fn waveform_up<W: Word + Into<T::Word>>(
+        &mut self,
+        dma: Peri<'_, impl super::UpDma<T>>,
+        channel: Channel,
+        duty: &[W],
+    ) {
         self.inner.enable_channel(channel, true);
+        self.inner.set_compare_value(channel, 0.into());
         self.inner.enable_update_dma(true);
         self.inner.setup_update_dma(dma, channel, duty).await;
         self.inner.enable_update_dma(false);
@@ -256,18 +263,21 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Also be aware that embassy timers use one of timers internally. It is possible to
     /// switch this timer by using `time-driver-timX` feature.
     ///
-    pub async fn waveform_up_multi_channel(
+    pub async fn waveform_up_multi_channel<W: Word + Into<T::Word>>(
         &mut self,
         dma: Peri<'_, impl super::UpDma<T>>,
         starting_channel: Channel,
         ending_channel: Channel,
-        duty: &[T::Word],
+        duty: &[W],
     ) {
         [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
             .iter()
             .filter(|ch| ch.index() >= starting_channel.index())
             .filter(|ch| ch.index() <= ending_channel.index())
-            .for_each(|ch| self.inner.enable_channel(*ch, true));
+            .for_each(|ch| {
+                self.inner.enable_channel(*ch, true);
+                self.inner.set_compare_value(*ch, 0.into());
+            });
         self.inner.enable_update_dma(true);
         self.inner
             .setup_update_dma_burst(dma, starting_channel, ending_channel, duty)

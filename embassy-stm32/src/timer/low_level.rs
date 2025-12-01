@@ -628,12 +628,12 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     }
 
     /// Setup a ring buffer for the channel
-    pub fn setup_ring_buffer<'a>(
+    pub fn setup_ring_buffer<'a, W: Word + Into<T::Word>>(
         &mut self,
         dma: Peri<'a, impl super::UpDma<T>>,
         channel: Channel,
-        dma_buf: &'a mut [T::Word],
-    ) -> WritableRingBuffer<'a, T::Word> {
+        dma_buf: &'a mut [W],
+    ) -> WritableRingBuffer<'a, W> {
         #[allow(clippy::let_unit_value)] // eg. stm32f334
         let req = dma.request();
 
@@ -653,7 +653,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
             WritableRingBuffer::new(
                 dma,
                 req,
-                self.regs_1ch().ccr(channel.index()).as_ptr() as *mut T::Word,
+                self.regs_1ch().ccr(channel.index()).as_ptr() as *mut W,
                 dma_buf,
                 dma_transfer_option,
             )
@@ -664,11 +664,11 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     ///
     /// Note:
     /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
-    pub fn setup_update_dma<'a>(
+    pub fn setup_update_dma<'a, W: Word + Into<T::Word>>(
         &mut self,
         dma: Peri<'a, impl super::UpDma<T>>,
         channel: Channel,
-        duty: &'a [T::Word],
+        duty: &'a [W],
     ) -> Transfer<'a> {
         #[allow(clippy::let_unit_value)] // eg. stm32f334
         let req = dma.request();
@@ -690,7 +690,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
                 dma,
                 req,
                 duty,
-                self.regs_gp16().ccr(channel.index()).as_ptr() as *mut T::Word,
+                self.regs_gp16().ccr(channel.index()).as_ptr() as *mut W,
                 dma_transfer_option,
             )
         }
@@ -725,12 +725,12 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     /// Also be aware that embassy timers use one of timers internally. It is possible to
     /// switch this timer by using `time-driver-timX` feature.
     ///
-    pub fn setup_update_dma_burst<'a>(
+    pub fn setup_update_dma_burst<'a, W: Word + Into<T::Word>>(
         &mut self,
         dma: Peri<'a, impl super::UpDma<T>>,
         starting_channel: Channel,
         ending_channel: Channel,
-        duty: &'a [T::Word],
+        duty: &'a [W],
     ) -> Transfer<'a> {
         let cr1_addr = self.regs_gp16().cr1().as_ptr() as u32;
         let start_ch_index = starting_channel.index();
@@ -766,7 +766,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
                 dma,
                 req,
                 duty,
-                self.regs_gp16().dmar().as_ptr() as *mut T::Word,
+                self.regs_gp16().dmar().as_ptr() as *mut W,
                 dma_transfer_option,
             )
         }
