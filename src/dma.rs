@@ -107,12 +107,13 @@ use core::ptr::NonNull;
 use core::sync::atomic::{fence, AtomicBool, AtomicUsize, Ordering};
 use core::task::{Context, Poll};
 
+use embassy_hal_internal::PeripheralType;
+use embassy_sync::waitqueue::AtomicWaker;
+
 use crate::clocks::Gate;
 use crate::pac;
 use crate::pac::Interrupt;
 use crate::peripherals::DMA0;
-use embassy_hal_internal::PeripheralType;
-use embassy_sync::waitqueue::AtomicWaker;
 
 /// Static flag to track whether DMA has been initialized.
 static DMA_INITIALIZED: AtomicBool = AtomicBool::new(false);

@@ -13,12 +13,12 @@
 #![no_main]
 
 use core::sync::atomic::{AtomicBool, Ordering};
+
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::dma::{self, DmaChannel, Tcd};
-use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
-use embassy_mcxa::pac;
+use embassy_mcxa::{bind_interrupts, pac};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Source and destination buffers
@@ -29,19 +29,21 @@ static mut DST: [u32; 8] = [0; 8];
 #[repr(C, align(32))]
 struct TcdPool([Tcd; 2]);
 
-static mut TCD_POOL: TcdPool = TcdPool([Tcd {
-    saddr: 0,
-    soff: 0,
-    attr: 0,
-    nbytes: 0,
-    slast: 0,
-    daddr: 0,
-    doff: 0,
-    citer: 0,
-    dlast_sga: 0,
-    csr: 0,
-    biter: 0,
-}; 2]);
+static mut TCD_POOL: TcdPool = TcdPool(
+    [Tcd {
+        saddr: 0,
+        soff: 0,
+        attr: 0,
+        nbytes: 0,
+        slast: 0,
+        daddr: 0,
+        doff: 0,
+        citer: 0,
+        dlast_sga: 0,
+        csr: 0,
+        biter: 0,
+    }; 2],
+);
 
 // AtomicBool to track scatter/gather completion
 // Note: With ESG=1, DONE bit is cleared by hardware when next TCD loads,
@@ -53,7 +55,9 @@ static TRANSFER_DONE: AtomicBool = AtomicBool::new(false);
 // (delegates to HAL + sets a flag) and the main task does the actual processing
 pub struct ScatterGatherDmaHandler;
 
-impl embassy_mcxa::interrupt::typelevel::Handler<embassy_mcxa::interrupt::typelevel::DMA_CH0> for ScatterGatherDmaHandler {
+impl embassy_mcxa::interrupt::typelevel::Handler<embassy_mcxa::interrupt::typelevel::DMA_CH0>
+    for ScatterGatherDmaHandler
+{
     unsafe fn on_interrupt() {
         // Delegate to HAL's on_interrupt() which clears INT flag and wakes wakers
         dma::on_interrupt(0);
@@ -161,10 +165,7 @@ async fn main(_spawner: Spawner) {
     // TCD0 transfers first half (SRC[0..4] -> DST[0..4]), then loads TCD1.
     // TCD1 transfers second half (SRC[4..8] -> DST[4..8]), last TCD.
     unsafe {
-        let tcds = core::slice::from_raw_parts_mut(
-            core::ptr::addr_of_mut!(TCD_POOL.0) as *mut Tcd,
-            2,
-        );
+        let tcds = core::slice::from_raw_parts_mut(core::ptr::addr_of_mut!(TCD_POOL.0) as *mut Tcd, 2);
         let src_ptr = core::ptr::addr_of!(SRC) as *const u32;
         let dst_ptr = core::ptr::addr_of_mut!(DST) as *mut u32;
 
@@ -262,4 +263,3 @@ async fn main(_spawner: Spawner) {
         cortex_m::asm::wfe();
     }
 }
-

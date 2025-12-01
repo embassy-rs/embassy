@@ -48,8 +48,7 @@ async fn main(_spawner: Spawner) {
 
     // Create UART instance with DMA channels
     let mut lpuart = LpuartDma::new(
-        p.LPUART2,
-        p.P2_2,    // TX pin
+        p.LPUART2, p.P2_2,    // TX pin
         p.P2_3,    // RX pin
         p.DMA_CH0, // TX DMA channel
         p.DMA_CH1, // RX DMA channel
@@ -82,4 +81,3 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("Example complete");
 }
-

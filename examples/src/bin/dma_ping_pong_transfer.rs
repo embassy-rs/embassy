@@ -24,12 +24,12 @@
 #![no_main]
 
 use core::sync::atomic::{AtomicBool, Ordering};
+
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::dma::{self, DmaChannel, DmaCh1InterruptHandler, Tcd, TransferOptions};
-use embassy_mcxa::bind_interrupts;
+use embassy_mcxa::dma::{self, DmaCh1InterruptHandler, DmaChannel, Tcd, TransferOptions};
 use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
-use embassy_mcxa::pac;
+use embassy_mcxa::{bind_interrupts, pac};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Source and destination buffers for Approach 1 (scatter/gather)
@@ -44,19 +44,21 @@ static mut DST2: [u32; 8] = [0; 8];
 #[repr(C, align(32))]
 struct TcdPool([Tcd; 2]);
 
-static mut TCD_POOL: TcdPool = TcdPool([Tcd {
-    saddr: 0,
-    soff: 0,
-    attr: 0,
-    nbytes: 0,
-    slast: 0,
-    daddr: 0,
-    doff: 0,
-    citer: 0,
-    dlast_sga: 0,
-    csr: 0,
-    biter: 0,
-}; 2]);
+static mut TCD_POOL: TcdPool = TcdPool(
+    [Tcd {
+        saddr: 0,
+        soff: 0,
+        attr: 0,
+        nbytes: 0,
+        slast: 0,
+        daddr: 0,
+        doff: 0,
+        citer: 0,
+        dlast_sga: 0,
+        csr: 0,
+        biter: 0,
+    }; 2],
+);
 
 // AtomicBool to track scatter/gather completion
 // Note: With ESG=1, DONE bit is cleared by hardware when next TCD loads,
@@ -289,7 +291,8 @@ async fn main(_spawner: Spawner) {
     // - True async/await support
     // - Good for streaming data processing
 
-    tx.blocking_write(b"--- Approach 2: wait_half() demo ---\r\n\r\n").unwrap();
+    tx.blocking_write(b"--- Approach 2: wait_half() demo ---\r\n\r\n")
+        .unwrap();
 
     // Enable DMA CH1 interrupt
     unsafe {
@@ -310,10 +313,11 @@ async fn main(_spawner: Spawner) {
 
     // Configure transfer with half-transfer interrupt enabled
     let mut options = TransferOptions::default();
-    options.half_transfer_interrupt = true;    // Enable half-transfer interrupt
+    options.half_transfer_interrupt = true; // Enable half-transfer interrupt
     options.complete_transfer_interrupt = true;
 
-    tx.blocking_write(b"Starting transfer with half_transfer_interrupt...\r\n").unwrap();
+    tx.blocking_write(b"Starting transfer with half_transfer_interrupt...\r\n")
+        .unwrap();
 
     unsafe {
         let src = &*core::ptr::addr_of!(SRC2);
@@ -327,10 +331,12 @@ async fn main(_spawner: Spawner) {
         let half_ok = transfer.wait_half().await;
 
         if half_ok {
-            tx.blocking_write(b"Half-transfer complete! First half of DST2: ").unwrap();
+            tx.blocking_write(b"Half-transfer complete! First half of DST2: ")
+                .unwrap();
             print_buffer(&mut tx, core::ptr::addr_of!(DST2) as *const u32, 4);
             tx.blocking_write(b"\r\n").unwrap();
-            tx.blocking_write(b"(Processing first half while second half transfers...)\r\n").unwrap();
+            tx.blocking_write(b"(Processing first half while second half transfers...)\r\n")
+                .unwrap();
         }
 
         // Wait for complete transfer
@@ -363,10 +369,10 @@ async fn main(_spawner: Spawner) {
         defmt::info!("PASS: Approach 2 verified.");
     }
 
-    tx.blocking_write(b"\r\n=== All ping-pong demos complete ===\r\n").unwrap();
+    tx.blocking_write(b"\r\n=== All ping-pong demos complete ===\r\n")
+        .unwrap();
 
     loop {
         cortex_m::asm::wfe();
     }
 }
-

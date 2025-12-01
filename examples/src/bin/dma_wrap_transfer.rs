@@ -12,10 +12,9 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::dma::{DmaChannel, DmaCh0InterruptHandler};
-use embassy_mcxa::bind_interrupts;
+use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaChannel};
 use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
-use embassy_mcxa::pac;
+use embassy_mcxa::{bind_interrupts, pac};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Bind DMA channel 0 interrupt using Embassy-style macro
@@ -93,8 +92,7 @@ async fn main(_spawner: Spawner) {
     let lpuart = Lpuart::new_blocking(p.LPUART2, p.P2_2, p.P2_3, config).unwrap();
     let (mut tx, _rx) = lpuart.split();
 
-    tx.blocking_write(b"EDMA wrap transfer example begin.\r\n\r\n")
-        .unwrap();
+    tx.blocking_write(b"EDMA wrap transfer example begin.\r\n\r\n").unwrap();
 
     // Initialize buffers
     unsafe {
@@ -127,18 +125,25 @@ async fn main(_spawner: Spawner) {
 
         // Reset channel state
         t.ch_csr().write(|w| {
-            w.erq().disable()
-                .earq().disable()
-                .eei().no_error()
-                .ebw().disable()
-                .done().clear_bit_by_one()
+            w.erq()
+                .disable()
+                .earq()
+                .disable()
+                .eei()
+                .no_error()
+                .ebw()
+                .disable()
+                .done()
+                .clear_bit_by_one()
         });
         t.ch_es().write(|w| w.bits(0));
         t.ch_int().write(|w| w.int().clear_bit_by_one());
 
         // Source/destination addresses
-        t.tcd_saddr().write(|w| w.saddr().bits(core::ptr::addr_of!(SRC.0) as u32));
-        t.tcd_daddr().write(|w| w.daddr().bits(core::ptr::addr_of_mut!(DST) as u32));
+        t.tcd_saddr()
+            .write(|w| w.saddr().bits(core::ptr::addr_of!(SRC.0) as u32));
+        t.tcd_daddr()
+            .write(|w| w.daddr().bits(core::ptr::addr_of_mut!(DST) as u32));
 
         // Offsets: both increment by 4 bytes
         t.tcd_soff().write(|w| w.soff().bits(4));
@@ -147,10 +152,14 @@ async fn main(_spawner: Spawner) {
         // Attributes: 32-bit transfers (size = 2)
         // SMOD = 4 (2^4 = 16 byte modulo for source), DMOD = 0 (disabled)
         t.tcd_attr().write(|w| {
-            w.ssize().bits(2)
-                .dsize().bits(2)
-                .smod().bits(4)  // Source modulo: 2^4 = 16 bytes
-                .dmod().bits(0)  // Dest modulo: disabled
+            w.ssize()
+                .bits(2)
+                .dsize()
+                .bits(2)
+                .smod()
+                .bits(4) // Source modulo: 2^4 = 16 bytes
+                .dmod()
+                .bits(0) // Dest modulo: disabled
         });
 
         // Transfer 32 bytes total in one minor loop
@@ -179,7 +188,9 @@ async fn main(_spawner: Spawner) {
     while !dma_ch0.is_done() {
         cortex_m::asm::nop();
     }
-    unsafe { dma_ch0.clear_done(); }
+    unsafe {
+        dma_ch0.clear_done();
+    }
 
     tx.blocking_write(b"\r\nEDMA wrap transfer example finish.\r\n\r\n")
         .unwrap();
@@ -211,4 +222,3 @@ async fn main(_spawner: Spawner) {
         cortex_m::asm::wfe();
     }
 }
-

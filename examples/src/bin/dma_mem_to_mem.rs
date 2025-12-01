@@ -15,10 +15,9 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::dma::{DmaChannel, DmaCh0InterruptHandler, TransferOptions};
-use embassy_mcxa::bind_interrupts;
+use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaChannel, TransferOptions};
 use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
-use embassy_mcxa::pac;
+use embassy_mcxa::{bind_interrupts, pac};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Bind DMA channel 0 interrupt using Embassy-style macro
@@ -147,8 +146,7 @@ async fn main(_spawner: Spawner) {
         transfer.await;
     }
 
-    tx.blocking_write(b"DMA mem-to-mem transfer complete!\r\n\r\n")
-        .unwrap();
+    tx.blocking_write(b"DMA mem-to-mem transfer complete!\r\n\r\n").unwrap();
     tx.blocking_write(b"Destination Buffer (after):  ").unwrap();
     print_buffer(&mut tx, &raw const DEST_BUFFER);
     tx.blocking_write(b"\r\n").unwrap();
@@ -181,7 +179,8 @@ async fn main(_spawner: Spawner) {
     // - Incrementing destination address
     // - Uses the same Transfer future pattern
 
-    tx.blocking_write(b"--- Demonstrating memset() feature ---\r\n\r\n").unwrap();
+    tx.blocking_write(b"--- Demonstrating memset() feature ---\r\n\r\n")
+        .unwrap();
 
     tx.blocking_write(b"Memset Buffer (before):      ").unwrap();
     print_buffer(&mut tx, &raw const MEMSET_BUFFER);
@@ -230,4 +229,3 @@ async fn main(_spawner: Spawner) {
         cortex_m::asm::wfe();
     }
 }
-

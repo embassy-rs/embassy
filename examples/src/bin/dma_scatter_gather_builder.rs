@@ -22,10 +22,9 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::dma::{DmaChannel, DmaCh0InterruptHandler, ScatterGatherBuilder};
-use embassy_mcxa::bind_interrupts;
+use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaChannel, ScatterGatherBuilder};
 use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
-use embassy_mcxa::pac;
+use embassy_mcxa::{bind_interrupts, pac};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Bind DMA channel 0 interrupt
@@ -97,7 +96,8 @@ async fn main(_spawner: Spawner) {
     let (mut tx, _rx) = lpuart.split();
 
     tx.blocking_write(b"DMA Scatter-Gather Builder Example\r\n").unwrap();
-    tx.blocking_write(b"===================================\r\n\r\n").unwrap();
+    tx.blocking_write(b"===================================\r\n\r\n")
+        .unwrap();
 
     // Show source buffers
     tx.blocking_write(b"Source buffers:\r\n").unwrap();
@@ -125,7 +125,8 @@ async fn main(_spawner: Spawner) {
     // Create DMA channel
     let dma_ch0 = DmaChannel::new(p.DMA_CH0);
 
-    tx.blocking_write(b"Building scatter-gather chain with builder API...\r\n").unwrap();
+    tx.blocking_write(b"Building scatter-gather chain with builder API...\r\n")
+        .unwrap();
 
     // =========================================================================
     // ScatterGatherBuilder API demonstration
@@ -159,7 +160,8 @@ async fn main(_spawner: Spawner) {
     }
 
     tx.blocking_write(b"Added 3 transfer segments to chain.\r\n").unwrap();
-    tx.blocking_write(b"Starting scatter-gather transfer with .await...\r\n\r\n").unwrap();
+    tx.blocking_write(b"Starting scatter-gather transfer with .await...\r\n\r\n")
+        .unwrap();
 
     // Build and execute the scatter-gather chain
     // The build() method:
@@ -222,7 +224,8 @@ async fn main(_spawner: Spawner) {
         defmt::error!("FAIL: Mismatch detected!");
     }
 
-    tx.blocking_write(b"\r\n=== Scatter-Gather Builder example complete ===\r\n").unwrap();
+    tx.blocking_write(b"\r\n=== Scatter-Gather Builder example complete ===\r\n")
+        .unwrap();
 
     loop {
         cortex_m::asm::wfe();

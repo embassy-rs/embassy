@@ -18,10 +18,9 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::dma::{self, DmaChannel, DmaCh0InterruptHandler, DmaCh1InterruptHandler, DmaCh2InterruptHandler};
-use embassy_mcxa::bind_interrupts;
+use embassy_mcxa::dma::{self, DmaCh0InterruptHandler, DmaCh1InterruptHandler, DmaCh2InterruptHandler, DmaChannel};
 use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
-use embassy_mcxa::pac;
+use embassy_mcxa::{bind_interrupts, pac};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Buffers
@@ -104,10 +103,14 @@ async fn main(_spawner: Spawner) {
 
     // Clear Global Halt/Error state
     dma0.mp_csr().modify(|_, w| {
-        w.halt().normal_operation()
-            .hae().normal_operation()
-            .ecx().normal_operation()
-            .cx().normal_operation()
+        w.halt()
+            .normal_operation()
+            .hae()
+            .normal_operation()
+            .ecx()
+            .normal_operation()
+            .cx()
+            .normal_operation()
     });
 
     unsafe {
@@ -126,8 +129,7 @@ async fn main(_spawner: Spawner) {
     let lpuart = Lpuart::new_blocking(p.LPUART2, p.P2_2, p.P2_3, config).unwrap();
     let (mut tx, _rx) = lpuart.split();
 
-    tx.blocking_write(b"EDMA channel link example begin.\r\n\r\n")
-        .unwrap();
+    tx.blocking_write(b"EDMA channel link example begin.\r\n\r\n").unwrap();
 
     // Initialize buffers
     unsafe {
@@ -180,11 +182,16 @@ async fn main(_spawner: Spawner) {
 
         // Reset channel state
         t.ch_csr().write(|w| {
-            w.erq().disable()
-                .earq().disable()
-                .eei().no_error()
-                .ebw().disable()
-                .done().clear_bit_by_one()
+            w.erq()
+                .disable()
+                .earq()
+                .disable()
+                .eei()
+                .no_error()
+                .ebw()
+                .disable()
+                .done()
+                .clear_bit_by_one()
         });
         t.ch_es().write(|w| w.bits(0));
         t.ch_int().write(|w| w.int().clear_bit_by_one());
@@ -211,8 +218,10 @@ async fn main(_spawner: Spawner) {
 
         // Major loop: reset source address after major loop
         let total_bytes = nbytes * count as u32;
-        t.tcd_slast_sda().write(|w| w.slast_sda().bits(-(total_bytes as i32) as u32));
-        t.tcd_dlast_sga().write(|w| w.dlast_sga().bits(-(total_bytes as i32) as u32));
+        t.tcd_slast_sda()
+            .write(|w| w.slast_sda().bits(-(total_bytes as i32) as u32));
+        t.tcd_dlast_sga()
+            .write(|w| w.dlast_sga().bits(-(total_bytes as i32) as u32));
 
         // Major loop count
         t.tcd_biter_elinkno().write(|w| w.biter().bits(count));
@@ -229,7 +238,6 @@ async fn main(_spawner: Spawner) {
     }
 
     unsafe {
-
         // Channel 0: Transfer 16 bytes total (8 bytes per minor loop, 2 major iterations)
         // Minor Link -> Channel 1
         // Major Link -> Channel 2
@@ -265,34 +273,44 @@ async fn main(_spawner: Spawner) {
             core::ptr::addr_of!(SRC_BUFFER) as u32,
             core::ptr::addr_of_mut!(DEST_BUFFER2) as u32,
             4,
-            16, // full buffer in one minor loop
-            1,  // 1 major iteration
+            16,   // full buffer in one minor loop
+            1,    // 1 major iteration
             true, // enable interrupt
         );
     }
 
-    tx.blocking_write(b"Triggering Channel 0 (1st minor loop)...\r\n").unwrap();
+    tx.blocking_write(b"Triggering Channel 0 (1st minor loop)...\r\n")
+        .unwrap();
 
     // Trigger first minor loop of CH0
-    unsafe { ch0.trigger_start(); }
+    unsafe {
+        ch0.trigger_start();
+    }
 
     // Wait for CH1 to complete (triggered by CH0 minor link)
     while !ch1.is_done() {
         cortex_m::asm::nop();
     }
-    unsafe { ch1.clear_done(); }
+    unsafe {
+        ch1.clear_done();
+    }
 
     tx.blocking_write(b"CH1 done (via minor link).\r\n").unwrap();
-    tx.blocking_write(b"Triggering Channel 0 (2nd minor loop)...\r\n").unwrap();
+    tx.blocking_write(b"Triggering Channel 0 (2nd minor loop)...\r\n")
+        .unwrap();
 
     // Trigger second minor loop of CH0
-    unsafe { ch0.trigger_start(); }
+    unsafe {
+        ch0.trigger_start();
+    }
 
     // Wait for CH0 major loop to complete
     while !ch0.is_done() {
         cortex_m::asm::nop();
     }
-    unsafe { ch0.clear_done(); }
+    unsafe {
+        ch0.clear_done();
+    }
 
     tx.blocking_write(b"CH0 major loop done.\r\n").unwrap();
 
@@ -302,12 +320,13 @@ async fn main(_spawner: Spawner) {
     while !ch2.is_done() {
         cortex_m::asm::nop();
     }
-    unsafe { ch2.clear_done(); }
+    unsafe {
+        ch2.clear_done();
+    }
 
     tx.blocking_write(b"CH2 done (via major link).\r\n\r\n").unwrap();
 
-    tx.blocking_write(b"EDMA channel link example finish.\r\n\r\n")
-        .unwrap();
+    tx.blocking_write(b"EDMA channel link example finish.\r\n\r\n").unwrap();
 
     tx.blocking_write(b"DEST0 (after):   ").unwrap();
     print_buffer(&mut tx, core::ptr::addr_of!(DEST_BUFFER0) as *const u32, 4);
@@ -330,9 +349,15 @@ async fn main(_spawner: Spawner) {
         let dst2_ptr = core::ptr::addr_of!(DEST_BUFFER2) as *const u32;
 
         for i in 0..4 {
-            if *dst0_ptr.add(i) != *src_ptr.add(i) { success = false; }
-            if *dst1_ptr.add(i) != *src_ptr.add(i) { success = false; }
-            if *dst2_ptr.add(i) != *src_ptr.add(i) { success = false; }
+            if *dst0_ptr.add(i) != *src_ptr.add(i) {
+                success = false;
+            }
+            if *dst1_ptr.add(i) != *src_ptr.add(i) {
+                success = false;
+            }
+            if *dst2_ptr.add(i) != *src_ptr.add(i) {
+                success = false;
+            }
         }
     }
 
@@ -348,4 +373,3 @@ async fn main(_spawner: Spawner) {
         cortex_m::asm::wfe();
     }
 }
-

@@ -20,7 +20,7 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::dma::{DmaChannel, DmaCh0InterruptHandler, DmaCh1InterruptHandler, DMA_REQ_LPUART2_RX};
+use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaCh1InterruptHandler, DmaChannel, DMA_REQ_LPUART2_RX};
 use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
 use embassy_mcxa::{bind_interrupts, pac};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
@@ -91,7 +91,8 @@ async fn main(_spawner: Spawner) {
         dma_ch_rx.set_request_source(DMA_REQ_LPUART2_RX);
     }
 
-    tx.blocking_write(b"Setting up circular DMA for UART RX...\r\n").unwrap();
+    tx.blocking_write(b"Setting up circular DMA for UART RX...\r\n")
+        .unwrap();
 
     // Set up the ring buffer with circular DMA
     // This configures the DMA for continuous reception
@@ -105,8 +106,10 @@ async fn main(_spawner: Spawner) {
         dma_ch_rx.enable_request();
     }
 
-    tx.blocking_write(b"Ring buffer ready! Type characters to see them echoed.\r\n").unwrap();
-    tx.blocking_write(b"The DMA continuously receives in the background.\r\n\r\n").unwrap();
+    tx.blocking_write(b"Ring buffer ready! Type characters to see them echoed.\r\n")
+        .unwrap();
+    tx.blocking_write(b"The DMA continuously receives in the background.\r\n\r\n")
+        .unwrap();
 
     // Main loop: read from ring buffer and echo back
     let mut read_buf = [0u8; 16];
@@ -144,4 +147,3 @@ async fn main(_spawner: Spawner) {
         }
     }
 }
-
