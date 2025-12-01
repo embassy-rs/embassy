@@ -359,6 +359,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
     }
 
     /// Set SPI direction
+    #[cfg(any(spi_v1, spi_v2, spi_v3))]
     pub fn set_direction(&mut self, dir: Option<Direction>) {
         let (bidimode, bidioe) = match dir {
             Some(Direction::Transmit) => (vals::Bidimode::BIDIRECTIONAL, vals::Bidioe::TRANSMIT),
@@ -731,7 +732,8 @@ impl<'d> Spi<'d, Async, Master> {
         )
     }
 
-    /// Create a new SPI driver, in bidirectional mode
+    /// Create a new SPI driver, in bidirectional mode, specifically in tranmit mode    
+    #[cfg(any(spi_v1, spi_v2, spi_v3))]
     pub fn new_bidi<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         sck: Peri<'d, if_afio!(impl SckPin<T, A>)>,
