@@ -8,6 +8,7 @@ use super::low_level::{CountingMode, OutputPolarity, Timer};
 use super::simple_pwm::PwmPin;
 use super::{AdvancedInstance4Channel, Ch1, Ch2, Ch3, Ch4, Channel, TimerComplementaryPin};
 use crate::Peri;
+use crate::dma::word::Word;
 use crate::gpio::{AnyPin, OutputType};
 use crate::time::Hertz;
 use crate::timer::TimerChannel;
@@ -176,20 +177,20 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Get max duty value.
     ///
     /// This value depends on the configured frequency and the timer's clock rate from RCC.
-    pub fn get_max_duty(&self) -> u16 {
+    pub fn get_max_duty(&self) -> u32 {
         if self.inner.get_counting_mode().is_center_aligned() {
-            self.inner.get_max_compare_value() as u16
+            self.inner.get_max_compare_value().into()
         } else {
-            self.inner.get_max_compare_value() as u16 + 1
+            self.inner.get_max_compare_value().into() + 1
         }
     }
 
     /// Set the duty for a given channel.
     ///
     /// The value ranges from 0 for 0% duty, to [`get_max_duty`](Self::get_max_duty) for 100% duty, both included.
-    pub fn set_duty(&mut self, channel: Channel, duty: u16) {
+    pub fn set_duty(&mut self, channel: Channel, duty: u32) {
         assert!(duty <= self.get_max_duty());
-        self.inner.set_compare_value(channel, duty as _)
+        self.inner.set_compare_value(channel, unwrap!(duty.try_into()))
     }
 
     /// Set the output polarity for a given channel.
@@ -220,8 +221,14 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     ///
     /// Note:
     /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
-    pub async fn waveform_up(&mut self, dma: Peri<'_, impl super::UpDma<T>>, channel: Channel, duty: &[u16]) {
+    pub async fn waveform_up<W: Word + Into<T::Word>>(
+        &mut self,
+        dma: Peri<'_, impl super::UpDma<T>>,
+        channel: Channel,
+        duty: &[W],
+    ) {
         self.inner.enable_channel(channel, true);
+        self.inner.clamp_compare_value::<W>(channel);
         self.inner.enable_update_dma(true);
         self.inner.setup_update_dma(dma, channel, duty).await;
         self.inner.enable_update_dma(false);
@@ -256,13 +263,21 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Also be aware that embassy timers use one of timers internally. It is possible to
     /// switch this timer by using `time-driver-timX` feature.
     ///
-    pub async fn waveform_up_multi_channel(
+    pub async fn waveform_up_multi_channel<W: Word + Into<T::Word>>(
         &mut self,
         dma: Peri<'_, impl super::UpDma<T>>,
         starting_channel: Channel,
         ending_channel: Channel,
-        duty: &[u16],
+        duty: &[W],
     ) {
+        [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
+            .iter()
+            .filter(|ch| ch.index() >= starting_channel.index())
+            .filter(|ch| ch.index() <= ending_channel.index())
+            .for_each(|ch| {
+                self.inner.enable_channel(*ch, true);
+                self.inner.clamp_compare_value::<W>(*ch);
+            });
         self.inner.enable_update_dma(true);
         self.inner
             .setup_update_dma_burst(dma, starting_channel, ending_channel, duty)
@@ -291,20 +306,20 @@ impl<'d, T: AdvancedInstance4Channel> embedded_hal_02::Pwm for ComplementaryPwm<
     }
 
     fn get_duty(&self, channel: Self::Channel) -> Self::Duty {
-        self.inner.get_compare_value(channel) as u16
+        unwrap!(self.inner.get_compare_value(channel).try_into())
     }
 
     fn get_max_duty(&self) -> Self::Duty {
         if self.inner.get_counting_mode().is_center_aligned() {
-            self.inner.get_max_compare_value() as u16
+            unwrap!(self.inner.get_max_compare_value().try_into())
         } else {
-            self.inner.get_max_compare_value() as u16 + 1
+            unwrap!(self.inner.get_max_compare_value().try_into()) + 1
         }
     }
 
     fn set_duty(&mut self, channel: Self::Channel, duty: Self::Duty) {
-        assert!(duty <= self.get_max_duty());
-        self.inner.set_compare_value(channel, duty as u32)
+        assert!(duty <= unwrap!(self.get_max_duty().try_into()));
+        self.inner.set_compare_value(channel, unwrap!(duty.try_into()))
     }
 
     fn set_period<P>(&mut self, period: P)
