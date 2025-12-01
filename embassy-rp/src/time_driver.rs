@@ -10,6 +10,8 @@ use embassy_time_queue_utils::Queue;
 use pac::TIMER;
 #[cfg(feature = "_rp235x")]
 use pac::TIMER0 as TIMER;
+#[cfg(all(feature = "_rp235x", feature = "timer-src-clk-sys"))]
+use rp_pac::timer::vals::ClkSys;
 
 use crate::interrupt::InterruptExt;
 use crate::{interrupt, pac};
@@ -128,6 +130,16 @@ pub unsafe fn init() {
     #[cfg(feature = "_rp235x")]
     {
         interrupt::TIMER0_IRQ_0.enable();
+    }
+    #[cfg(all(feature = "_rp235x", feature = "timer-src-clk-sys"))]
+    {
+        // The PAC currently only defines `TIMER0` as `TIMER` even though the RP2350 also has
+        // `TIMER1`.
+        let timer_0 = TIMER;
+        // Switch `SOURCE` to `CLK_SYS` (instead of 1 µs tick)
+        timer_0.source().write(|w| w.set_clk_sys(ClkSys::CLK_SYS));
+        // Lock configuration--`TIMER0` now read-only (until reset)
+        timer_0.locked().write(|w| w.set_locked(true));
     }
 }
 
