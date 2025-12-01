@@ -1600,7 +1600,8 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
             for byte in chunk {
                 // Wait until we have received something
                 match self.wait_rxne(timeout) {
-                    Ok(ReceiveResult::StopReceived) | Ok(ReceiveResult::NewStart) => {
+                    Ok(ReceiveResult::StopReceived) => {}
+                    Ok(ReceiveResult::NewStart) => {
                         trace!("--- Slave RX transmission end (early)");
                         return Ok(total_len - remaining_len); // Return N bytes read
                     }

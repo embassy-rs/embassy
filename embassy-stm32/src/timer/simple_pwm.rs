@@ -7,6 +7,7 @@ use super::low_level::{CountingMode, OutputCompareMode, OutputPolarity, Timer};
 use super::ringbuffered::RingBufferedPwmChannel;
 use super::{Ch1, Ch2, Ch3, Ch4, Channel, GeneralInstance4Channel, TimerChannel, TimerPin};
 use crate::Peri;
+use crate::dma::word::Word;
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
@@ -98,18 +99,16 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
     /// Get max duty value.
     ///
     /// This value depends on the configured frequency and the timer's clock rate from RCC.
-    pub fn max_duty_cycle(&self) -> u16 {
-        let max = self.timer.get_max_compare_value();
-        assert!(max < u16::MAX as u32);
-        max as u16 + 1
+    pub fn max_duty_cycle(&self) -> u32 {
+        self.timer.get_max_compare_value().into() + 1
     }
 
     /// Set the duty for a given channel.
     ///
     /// The value ranges from 0 for 0% duty, to [`max_duty_cycle`](Self::max_duty_cycle) for 100% duty, both included.
-    pub fn set_duty_cycle(&mut self, duty: u16) {
+    pub fn set_duty_cycle(&mut self, duty: u32) {
         assert!(duty <= (*self).max_duty_cycle());
-        self.timer.set_compare_value(self.channel, duty.into())
+        self.timer.set_compare_value(self.channel, unwrap!(duty.try_into()))
     }
 
     /// Set the duty cycle to 0%, or always inactive.
@@ -126,21 +125,21 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
     ///
     /// The caller is responsible for ensuring that `num` is less than or equal to `denom`,
     /// and that `denom` is not zero.
-    pub fn set_duty_cycle_fraction(&mut self, num: u16, denom: u16) {
+    pub fn set_duty_cycle_fraction(&mut self, num: u32, denom: u32) {
         assert!(denom != 0);
         assert!(num <= denom);
         let duty = u32::from(num) * u32::from(self.max_duty_cycle()) / u32::from(denom);
 
         // This is safe because we know that `num <= denom`, so `duty <= self.max_duty_cycle()` (u16)
         #[allow(clippy::cast_possible_truncation)]
-        self.set_duty_cycle(duty as u16);
+        self.set_duty_cycle(unwrap!(duty.try_into()));
     }
 
     /// Set the duty cycle to `percent / 100`
     ///
     /// The caller is responsible for ensuring that `percent` is less than or equal to 100.
     pub fn set_duty_cycle_percent(&mut self, percent: u8) {
-        self.set_duty_cycle_fraction(u16::from(percent), 100)
+        self.set_duty_cycle_fraction(percent as u32, 100)
     }
 
     /// Get the duty for a given channel.
@@ -171,13 +170,14 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
     ///
     /// # Panics
     /// Panics if `dma_buf` is empty or longer than 65535 elements.
-    pub fn into_ring_buffered_channel(
+    pub fn into_ring_buffered_channel<W: Word + Into<T::Word>>(
         mut self,
         tx_dma: Peri<'d, impl super::UpDma<T>>,
-        dma_buf: &'d mut [u16],
-    ) -> RingBufferedPwmChannel<'d, T> {
+        dma_buf: &'d mut [W],
+    ) -> RingBufferedPwmChannel<'d, T, W> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
 
+        self.timer.clamp_compare_value::<W>(self.channel);
         self.timer.enable_update_dma(true);
 
         RingBufferedPwmChannel::new(
@@ -332,10 +332,8 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// Get max duty value.
     ///
     /// This value depends on the configured frequency and the timer's clock rate from RCC.
-    pub fn max_duty_cycle(&self) -> u16 {
-        let max = self.inner.get_max_compare_value();
-        assert!(max < u16::MAX as u32);
-        max as u16 + 1
+    pub fn max_duty_cycle(&self) -> u32 {
+        self.inner.get_max_compare_value().into() + 1
     }
 
     /// Generate a sequence of PWM waveform
@@ -344,8 +342,14 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// You will need to provide corresponding `TIMx_UP` DMA channel to use this method.
     /// Also be aware that embassy timers use one of timers internally. It is possible to
     /// switch this timer by using `time-driver-timX` feature.
-    pub async fn waveform_up(&mut self, dma: Peri<'_, impl super::UpDma<T>>, channel: Channel, duty: &[u16]) {
+    pub async fn waveform_up<W: Word + Into<T::Word>>(
+        &mut self,
+        dma: Peri<'_, impl super::UpDma<T>>,
+        channel: Channel,
+        duty: &[W],
+    ) {
         self.inner.enable_channel(channel, true);
+        self.inner.clamp_compare_value::<W>(channel);
         self.inner.enable_update_dma(true);
         self.inner.setup_update_dma(dma, channel, duty).await;
         self.inner.enable_update_dma(false);
@@ -380,13 +384,21 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// Also be aware that embassy timers use one of timers internally. It is possible to
     /// switch this timer by using `time-driver-timX` feature.
     ///
-    pub async fn waveform_up_multi_channel(
+    pub async fn waveform_up_multi_channel<W: Word + Into<T::Word>>(
         &mut self,
         dma: Peri<'_, impl super::UpDma<T>>,
         starting_channel: Channel,
         ending_channel: Channel,
-        duty: &[u16],
+        duty: &[W],
     ) {
+        [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
+            .iter()
+            .filter(|ch| ch.index() >= starting_channel.index())
+            .filter(|ch| ch.index() <= ending_channel.index())
+            .for_each(|ch| {
+                self.inner.enable_channel(*ch, true);
+                self.inner.clamp_compare_value::<W>(*ch);
+            });
         self.inner.enable_update_dma(true);
         self.inner
             .setup_update_dma_burst(dma, starting_channel, ending_channel, duty)
@@ -401,11 +413,11 @@ impl<'d, T: GeneralInstance4Channel> embedded_hal_1::pwm::ErrorType for SimplePw
 
 impl<'d, T: GeneralInstance4Channel> embedded_hal_1::pwm::SetDutyCycle for SimplePwmChannel<'d, T> {
     fn max_duty_cycle(&self) -> u16 {
-        self.max_duty_cycle()
+        unwrap!(self.max_duty_cycle().try_into())
     }
 
     fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Self::Error> {
-        self.set_duty_cycle(duty);
+        self.set_duty_cycle(duty.into());
         Ok(())
     }
 
@@ -420,7 +432,7 @@ impl<'d, T: GeneralInstance4Channel> embedded_hal_1::pwm::SetDutyCycle for Simpl
     }
 
     fn set_duty_cycle_fraction(&mut self, num: u16, denom: u16) -> Result<(), Self::Error> {
-        self.set_duty_cycle_fraction(num, denom);
+        self.set_duty_cycle_fraction(num.into(), denom.into());
         Ok(())
     }
 
@@ -448,16 +460,16 @@ impl<'d, T: GeneralInstance4Channel> embedded_hal_02::Pwm for SimplePwm<'d, T> {
     }
 
     fn get_duty(&self, channel: Self::Channel) -> Self::Duty {
-        self.inner.get_compare_value(channel)
+        self.inner.get_compare_value(channel).into()
     }
 
     fn get_max_duty(&self) -> Self::Duty {
-        self.inner.get_max_compare_value() + 1
+        self.inner.get_max_compare_value().into() + 1
     }
 
     fn set_duty(&mut self, channel: Self::Channel, duty: Self::Duty) {
         assert!(duty <= self.max_duty_cycle() as u32);
-        self.inner.set_compare_value(channel, duty)
+        self.inner.set_compare_value(channel, unwrap!(duty.try_into()))
     }
 
     fn set_period<P>(&mut self, period: P)
