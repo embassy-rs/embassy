@@ -10,7 +10,7 @@ use super::responses::{
 };
 use crate::evt::{EvtBox, MemoryManager};
 use crate::mac::opcodes::OpcodeM0ToM4;
-use crate::sub::mac::{self, Mac};
+use crate::sub::mac::{self, MacRx};
 
 pub(crate) trait ParseableMacEvent: Sized {
     fn from_buffer<'a>(buf: &'a [u8]) -> Result<&'a Self, ()> {
@@ -53,7 +53,7 @@ pub enum MacEvent<'a> {
 }
 
 impl<'a> MacEvent<'a> {
-    pub(crate) fn new(event_box: EvtBox<Mac>) -> Result<Self, ()> {
+    pub(crate) fn new(event_box: EvtBox<MacRx>) -> Result<Self, ()> {
         let payload = event_box.payload();
         let opcode = u16::from_le_bytes(payload[0..2].try_into().unwrap());
 
@@ -148,6 +148,6 @@ unsafe impl<'a> Send for MacEvent<'a> {}
 
 impl<'a> Drop for MacEvent<'a> {
     fn drop(&mut self) {
-        unsafe { mac::Mac::drop_event_packet(ptr::null_mut()) };
+        unsafe { mac::MacRx::drop_event_packet(ptr::null_mut()) };
     }
 }

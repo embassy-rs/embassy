@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased - ReleaseDate
 
+- change: stm32: use typelevel timer type to allow dma for 32 bit timers
+- fix: fix incorrect handling of split interrupts in timer driver
+- feat: allow granular stop for regular usart
+- feat: Add continuous waveform method to SimplePWM
+- change: remove waveform timer method
+- change: low power: store stop mode for dma channels
+- fix: Fixed ADC4 enable() for WBA
+- feat: allow use of anyadcchannel for adc4
+- fix: fix incorrect logic for buffered usart transmission complete.
+- feat: add poll_for methods to exti
+- feat: implement stop for stm32wb.
+- change: rework hsem and add HIL test for some chips.
+- change: stm32/eth: ethernet no longer has a hard dependency on station management, and station management can be used independently ([#4871](https://github.com/embassy-rs/embassy/pull/4871))
+- feat: allow embassy_executor::main for low power
+- feat: Add waveform methods to ComplementaryPwm
+- fix: Avoid generating timer update events when updating the frequency ([#4890](https://github.com/embassy-rs/embassy/pull/4890))
+- chore: cleanup low-power add time
+- fix: Allow setting SAI peripheral `frame_length` to `256`
+- fix: flash erase on dual-bank STM32Gxxx
+- feat: Add support for STM32N657X0
 - feat: timer: Add 32-bit timer support to SimplePwm waveform_up method following waveform pattern ([#4717](https://github.com/embassy-rs/embassy/pull/4717))
 - feat: Add support for injected ADC measurements for g4 ([#4840](https://github.com/embassy-rs/embassy/pull/4840))
 - feat: Implement into_ring_buffered for g4 ([#4840](https://github.com/embassy-rs/embassy/pull/4840))
@@ -25,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: Configurable gpio speed for QSPI
 - feat: derive Clone, Copy and defmt::Format for all *SPI-related configs
 - fix: handle address and data-length errors in OSPI
-- feat: Allow OSPI DMA writes larger than 64kB using chunking
+- feat: Allow OSPI/HSPI/XSPI DMA writes larger than 64kB using chunking
 - feat: More ADC enums for g0 PAC, API change for oversampling, allow separate sample times
 - feat: Add USB CRS sync support for STM32C071
 - fix: RTC register definition for STM32L4P5 and L4Q5 as they use v3 register map.
@@ -36,13 +56,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: stm32/usart: add `eager_reads` option to control if buffered readers return as soon as possible or after more data is available ([#4668](https://github.com/embassy-rs/embassy/pull/4668))
 - feat: stm32/usart: add `de_assertion_time` and `de_deassertion_time` config options
 - change: stm32/uart: BufferedUartRx now returns all available bytes from the internal buffer
+- fix: Properly set the transfer size for OSPI/HSPI/XSPI transfers with word sizes other than 8 bits.
+- fix: stm32/adc: Calculate the ADC prescaler in a way that it allows for the max frequency to be reached
 - fix: Prevent a HardFault crash on STM32H5 devices by changing `uid()` to return `[u8; 12]` by value instead of a reference. (Fixes #2696)
 - change: timer: added output compare values
 - feat: timer: add ability to set master mode
 - fix: sdmmc: don't wait for DBCKEND flag on sdmmc_v2 devices as it never fires (Fixes #4723)
 - fix: usart: fix race condition in ringbuffered usart
 - feat: Add backup_sram::init() for H5 devices to access BKPSRAM
-- feat: Add I2C MultiMaster (Slave) support for I2C v1
+- feat: stm32/i2c v1: Add I2C MultiMaster (Slave) support
+- feat: stm32/i2c v2: Add transaction() and blocking_transaction() methods with contract-compliant operation merging
 - feat: stm32/fdcan: add ability to control automatic recovery from bus off ([#4821](https://github.com/embassy-rs/embassy/pull/4821))
 - low-power: update rtc api to allow reconfig
 - adc: consolidate ringbuffer
@@ -52,6 +75,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: stm32/dsi support zero parameter commands in `write_cmd` ([#4847](https://github.com/embassy-rs/embassy/pull/4847))
 - feat: stm32/spi: added support for slave mode ([#4388](https://github.com/embassy-rs/embassy/pull/4388))
 - chore: Updated stm32-metapac and stm32-data dependencies
+- adc: reogranize and cleanup somewhat. require sample_time to be passed on conversion
+- fix: stm32/i2c v2 slave: prevent misaligned reads, error false positives, and incorrect counts of bytes read/written
+- feat: add flash support for c0 family ([#4874](https://github.com/embassy-rs/embassy/pull/4874))
+- fix: fixing channel numbers on vbat and vddcore for adc on adc
+- adc: adding disable to vbat
+- feat: stm32/flash: add async support for h7 family
+- feat: exti brought in line with other drivers' interrupt rebinding system ([#4922](https://github.com/embassy-rs/embassy/pull/4922))
+- removal: ExtiInput no longer accepts AnyPin/AnyChannel; AnyChannel removed entirely
+- fix: build script ensures EXTI2_TSC is listed as the IRQ of EXTI2 even if the PAC doesn't
+- feat: stm32/lcd: added implementation
+- change: add error messages to can timing calculations ([#4961](https://github.com/embassy-rs/embassy/pull/4961))
+- fix: stm32/i2c v2: add stop flag on stop received
+- fix: stm32l47*/stm32l48* adc analog pin setup
 
 ## 0.4.0 - 2025-08-26
 

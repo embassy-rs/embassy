@@ -67,6 +67,7 @@ pub struct EvtSerial {
 pub struct EvtStub {
     pub kind: u8,
     pub evt_code: u8,
+    pub payload_len: u8,
 }
 
 /// This format shall be used for all events (asynchronous and command response) reported

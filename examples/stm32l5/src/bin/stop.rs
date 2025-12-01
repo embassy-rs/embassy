@@ -4,20 +4,12 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{AnyPin, Level, Output, Speed};
-use embassy_stm32::low_power::Executor;
 use embassy_stm32::rcc::LsConfig;
-use embassy_stm32::{Config, Peri};
+use embassy_stm32::{Config, Peri, low_power};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
-#[cortex_m_rt::entry]
-fn main() -> ! {
-    Executor::take().run(|spawner| {
-        spawner.spawn(unwrap!(async_main(spawner)));
-    })
-}
-
-#[embassy_executor::task]
+#[embassy_executor::main(executor = "low_power::Executor")]
 async fn async_main(spawner: Spawner) {
     let mut config = Config::default();
     config.rcc.ls = LsConfig::default_lsi();

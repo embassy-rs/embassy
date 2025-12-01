@@ -69,92 +69,85 @@ async fn main(spawner: Spawner) {
     info!("Hello World!");
 
     let config = Config::default();
-    let mut mbox = TlMbox::init(p.IPCC, Irqs, config);
+    let mbox = TlMbox::init(p.IPCC, Irqs, config).await;
+    let mut sys = mbox.sys_subsystem;
+    let mut ble = mbox.ble_subsystem;
 
     spawner.spawn(run_mm_queue(mbox.mm_subsystem).unwrap());
-    let sys_event = mbox.sys_subsystem.read().await;
-    info!("sys event: {}", sys_event.payload());
 
-    let _ = mbox.sys_subsystem.shci_c2_ble_init(Default::default()).await;
+    let _ = sys.shci_c2_ble_init(Default::default()).await;
 
     info!("resetting BLE...");
-    mbox.ble_subsystem.reset().await;
-    let response = mbox.ble_subsystem.read().await;
+    ble.reset().await;
+    let response = ble.read().await;
     defmt::debug!("{}", response);
 
     info!("config public address...");
-    mbox.ble_subsystem
-        .write_config_data(&ConfigData::public_address(get_bd_addr()).build())
+    ble.write_config_data(&ConfigData::public_address(get_bd_addr()).build())
         .await;
-    let response = mbox.ble_subsystem.read().await;
+    let response = ble.read().await;
     defmt::debug!("{}", response);
 
     info!("config random address...");
-    mbox.ble_subsystem
-        .write_config_data(&ConfigData::random_address(get_random_addr()).build())
+    ble.write_config_data(&ConfigData::random_address(get_random_addr()).build())
         .await;
-    let response = mbox.ble_subsystem.read().await;
+    let response = ble.read().await;
     defmt::debug!("{}", response);
 
     info!("config identity root...");
-    mbox.ble_subsystem
-        .write_config_data(&ConfigData::identity_root(&get_irk()).build())
+    ble.write_config_data(&ConfigData::identity_root(&get_irk()).build())
         .await;
-    let response = mbox.ble_subsystem.read().await;
+    let response = ble.read().await;
     defmt::debug!("{}", response);
 
     info!("config encryption root...");
-    mbox.ble_subsystem
-        .write_config_data(&ConfigData::encryption_root(&get_erk()).build())
+    ble.write_config_data(&ConfigData::encryption_root(&get_erk()).build())
         .await;
-    let response = mbox.ble_subsystem.read().await;
+    let response = ble.read().await;
     defmt::debug!("{}", response);
 
     info!("config tx power level...");
-    mbox.ble_subsystem.set_tx_power_level(PowerLevel::ZerodBm).await;
-    let response = mbox.ble_subsystem.read().await;
+    ble.set_tx_power_level(PowerLevel::ZerodBm).await;
+    let response = ble.read().await;
     defmt::debug!("{}", response);
 
     info!("GATT init...");
-    mbox.ble_subsystem.init_gatt().await;
-    let response = mbox.ble_subsystem.read().await;
+    ble.init_gatt().await;
+    let response = ble.read().await;
     defmt::debug!("{}", response);
 
     info!("GAP init...");
-    mbox.ble_subsystem
-        .init_gap(Role::PERIPHERAL, false, BLE_GAP_DEVICE_NAME_LENGTH)
-        .await;
-    let response = mbox.ble_subsystem.read().await;
+    ble.init_gap(Role::PERIPHERAL, false, BLE_GAP_DEVICE_NAME_LENGTH).await;
+    let response = ble.read().await;
     defmt::debug!("{}", response);
 
     info!("set IO capabilities...");
-    mbox.ble_subsystem.set_io_capability(IoCapability::DisplayConfirm).await;
-    let response = mbox.ble_subsystem.read().await;
+    ble.set_io_capability(IoCapability::DisplayConfirm).await;
+    let response = ble.read().await;
     defmt::debug!("{}", response);
 
     info!("set authentication requirements...");
-    mbox.ble_subsystem
-        .set_authentication_requirement(&AuthenticationRequirements {
-            bonding_required: false,
-            keypress_notification_support: false,
-            mitm_protection_required: false,
-            encryption_key_size_range: (8, 16),
-            fixed_pin: Pin::Requested,
-            identity_address_type: AddressType::Public,
-            secure_connection_support: SecureConnectionSupport::Optional,
-        })
-        .await
-        .unwrap();
-    let response = mbox.ble_subsystem.read().await;
+    ble.set_authentication_requirement(&AuthenticationRequirements {
+        bonding_required: false,
+        keypress_notification_support: false,
+        mitm_protection_required: false,
+        encryption_key_size_range: (8, 16),
+        fixed_pin: Pin::Requested,
+        identity_address_type: AddressType::Public,
+        secure_connection_support: SecureConnectionSupport::Optional,
+    })
+    .await
+    .unwrap();
+    let response = ble.read().await;
     defmt::debug!("{}", response);
 
     info!("set scan response data...");
-    mbox.ble_subsystem.le_set_scan_response_data(b"TXTX").await.unwrap();
-    let response = mbox.ble_subsystem.read().await;
+    ble.le_set_scan_response_data(b"TXTX").await.unwrap();
+    let response = ble.read().await;
     defmt::debug!("{}", response);
 
     defmt::info!("initializing services and characteristics...");
-    let mut ble_context = init_gatt_services(&mut mbox.ble_subsystem).await.unwrap();
+    let mut ble_context = init_gatt_services(&mut ble).await.unwrap();
     defmt::info!("{}", ble_context);
 
     let discovery_params = DiscoverableParameters {
@@ -168,12 +161,12 @@ async fn main(spawner: Spawner) {
     };
 
     info!("set discoverable...");
-    mbox.ble_subsystem.set_discoverable(&discovery_params).await.unwrap();
-    let response = mbox.ble_subsystem.read().await;
+    ble.set_discoverable(&discovery_params).await.unwrap();
+    let response = ble.read().await;
     defmt::debug!("{}", response);
 
     loop {
-        let response = mbox.ble_subsystem.read().await;
+        let response = ble.read().await;
         defmt::debug!("{}", response);
 
         if let Ok(Packet::Event(event)) = response {
@@ -184,24 +177,23 @@ async fn main(spawner: Spawner) {
                 Event::DisconnectionComplete(_) => {
                     defmt::info!("disconnected");
                     ble_context.is_subscribed = false;
-                    mbox.ble_subsystem.set_discoverable(&discovery_params).await.unwrap();
+                    ble.set_discoverable(&discovery_params).await.unwrap();
                 }
                 Event::Vendor(vendor_event) => match vendor_event {
                     VendorEvent::AttReadPermitRequest(read_req) => {
                         defmt::info!("read request received {}, allowing", read_req);
-                        mbox.ble_subsystem.allow_read(read_req.conn_handle).await
+                        ble.allow_read(read_req.conn_handle).await
                     }
                     VendorEvent::AttWritePermitRequest(write_req) => {
                         defmt::info!("write request received {}, allowing", write_req);
-                        mbox.ble_subsystem
-                            .write_response(&WriteResponseParameters {
-                                conn_handle: write_req.conn_handle,
-                                attribute_handle: write_req.attribute_handle,
-                                status: Ok(()),
-                                value: write_req.value(),
-                            })
-                            .await
-                            .unwrap()
+                        ble.write_response(&WriteResponseParameters {
+                            conn_handle: write_req.conn_handle,
+                            attribute_handle: write_req.attribute_handle,
+                            status: Ok(()),
+                            value: write_req.value(),
+                        })
+                        .await
+                        .unwrap()
                     }
                     VendorEvent::GattAttributeModified(attribute) => {
                         defmt::info!("{}", ble_context);
@@ -224,7 +216,7 @@ async fn main(spawner: Spawner) {
 }
 
 #[embassy_executor::task]
-async fn run_mm_queue(memory_manager: mm::MemoryManager) {
+async fn run_mm_queue(mut memory_manager: mm::MemoryManager<'static>) {
     memory_manager.run_queue().await;
 }
 
@@ -285,7 +277,7 @@ pub struct CharHandles {
     pub notify: AttributeHandle,
 }
 
-pub async fn init_gatt_services(ble_subsystem: &mut Ble) -> Result<BleContext, ()> {
+pub async fn init_gatt_services<'a>(ble_subsystem: &mut Ble<'a>) -> Result<BleContext, ()> {
     let service_handle = gatt_add_service(ble_subsystem, Uuid::Uuid16(0x500)).await?;
 
     let read = gatt_add_char(
@@ -322,7 +314,7 @@ pub async fn init_gatt_services(ble_subsystem: &mut Ble) -> Result<BleContext, (
     })
 }
 
-async fn gatt_add_service(ble_subsystem: &mut Ble, uuid: Uuid) -> Result<AttributeHandle, ()> {
+async fn gatt_add_service<'a>(ble_subsystem: &mut Ble<'a>, uuid: Uuid) -> Result<AttributeHandle, ()> {
     ble_subsystem
         .add_service(&AddServiceParameters {
             uuid,
@@ -348,8 +340,8 @@ async fn gatt_add_service(ble_subsystem: &mut Ble, uuid: Uuid) -> Result<Attribu
     }
 }
 
-async fn gatt_add_char(
-    ble_subsystem: &mut Ble,
+async fn gatt_add_char<'a>(
+    ble_subsystem: &mut Ble<'a>,
     service_handle: AttributeHandle,
     characteristic_uuid: Uuid,
     characteristic_properties: CharacteristicProperty,

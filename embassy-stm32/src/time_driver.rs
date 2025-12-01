@@ -14,11 +14,11 @@ use stm32_metapac::timer::{TimGp16, regs};
 
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::timer::vals;
+use crate::peripherals;
 use crate::rcc::{self, SealedRccPeripheral};
 #[cfg(feature = "low-power")]
 use crate::rtc::Rtc;
 use crate::timer::{CoreInstance, GeneralInstance1Channel};
-use crate::{interrupt, peripherals};
 
 // NOTE regarding ALARM_COUNT:
 //
@@ -56,121 +56,6 @@ type T = peripherals::TIM23;
 #[cfg(time_driver_tim24)]
 type T = peripherals::TIM24;
 
-foreach_interrupt! {
-    (TIM1, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim1)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM2, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim2)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM3, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim3)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM4, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim4)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM5, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim5)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM8, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim8)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM9, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim9)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM12, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim12)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM15, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim15)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM20, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim20)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM21, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim21)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM22, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim22)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM23, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim23)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-    (TIM24, timer, $block:ident, CC, $irq:ident) => {
-        #[cfg(time_driver_tim24)]
-        #[cfg(feature = "rt")]
-        #[interrupt]
-        fn $irq() {
-            DRIVER.on_interrupt()
-        }
-    };
-}
-
 fn regs_gp16() -> TimGp16 {
     unsafe { TimGp16::from_ptr(T::regs()) }
 }
@@ -194,6 +79,11 @@ fn regs_gp16() -> TimGp16 {
 // `period` is a 32bit integer, so It overflows on 2^32 * 2^15 / 32768 seconds of uptime, which is 136 years.
 fn calc_now(period: u32, counter: u16) -> u64 {
     ((period as u64) << 15) + ((counter as u32 ^ ((period & 1) << 15)) as u64)
+}
+
+#[cfg(feature = "low-power")]
+fn calc_period_counter(ticks: u64) -> (u32, u16) {
+    (2 * (ticks >> 16) as u32 + (ticks as u16 >= 0x8000) as u32, ticks as u16)
 }
 
 struct AlarmState {
@@ -240,7 +130,7 @@ embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
 impl RtcDriver {
     /// initialize the timer, but don't start it.  Used for chips like stm32wle5
     /// for low power where the timer config is lost in STOP2.
-    fn init_timer(&'static self, cs: critical_section::CriticalSection) {
+    pub(crate) fn init_timer(&'static self, cs: critical_section::CriticalSection) {
         let r = regs_gp16();
 
         rcc::enable_and_reset_with_cs::<T>(cs);
@@ -277,7 +167,11 @@ impl RtcDriver {
         r.cnt().write(|w| w.set_cnt(self.saved_count.load(Ordering::SeqCst)));
 
         <T as GeneralInstance1Channel>::CaptureCompareInterrupt::unpend();
-        unsafe { <T as GeneralInstance1Channel>::CaptureCompareInterrupt::enable() };
+        <T as CoreInstance>::UpdateInterrupt::unpend();
+        unsafe {
+            <T as GeneralInstance1Channel>::CaptureCompareInterrupt::enable();
+            <T as CoreInstance>::UpdateInterrupt::enable();
+        }
     }
 
     fn init(&'static self, cs: CriticalSection) {
@@ -285,7 +179,7 @@ impl RtcDriver {
         regs_gp16().cr1().modify(|w| w.set_cen(true));
     }
 
-    fn on_interrupt(&self) {
+    pub(crate) fn on_interrupt(&self) {
         let r = regs_gp16();
 
         critical_section::with(|cs| {
@@ -358,34 +252,10 @@ impl RtcDriver {
     #[cfg(feature = "low-power")]
     /// Add the given offset to the current time
     fn add_time(&self, offset: embassy_time::Duration, cs: CriticalSection) {
-        let offset = offset.as_ticks();
-        let cnt = regs_gp16().cnt().read().cnt() as u32;
-        let period = self.period.load(Ordering::SeqCst);
-
-        // Correct the race, if it exists
-        let period = if period & 1 == 1 && cnt < u16::MAX as u32 / 2 {
-            period + 1
-        } else {
-            period
-        };
-
-        // Normalize to the full overflow
-        let period = (period / 2) * 2;
-
-        // Add the offset
-        let period = period + 2 * (offset / u16::MAX as u64) as u32;
-        let cnt = cnt + (offset % u16::MAX as u64) as u32;
-
-        let (cnt, period) = if cnt > u16::MAX as u32 {
-            (cnt - u16::MAX as u32, period + 2)
-        } else {
-            (cnt, period)
-        };
-
-        let period = if cnt > u16::MAX as u32 / 2 { period + 1 } else { period };
+        let (period, counter) = calc_period_counter(self.now() + offset.as_ticks());
 
         self.period.store(period, Ordering::SeqCst);
-        regs_gp16().cnt().write(|w| w.set_cnt(cnt as u16));
+        regs_gp16().cnt().write(|w| w.set_cnt(counter));
 
         // Now, recompute alarm
         let alarm = self.alarm.borrow(cs);
@@ -399,13 +269,15 @@ impl RtcDriver {
     #[cfg(feature = "low-power")]
     /// Stop the wakeup alarm, if enabled, and add the appropriate offset
     fn stop_wakeup_alarm(&self, cs: CriticalSection) {
-        if let Some(offset) = self.rtc.borrow(cs).borrow_mut().as_mut().unwrap().stop_wakeup_alarm(cs) {
+        if !regs_gp16().cr1().read().cen()
+            && let Some(offset) = self.rtc.borrow(cs).borrow_mut().as_mut().unwrap().stop_wakeup_alarm(cs)
+        {
             self.add_time(offset, cs);
         }
     }
 
     /*
-        Low-power public functions: all create or require a critical section
+        Low-power public functions: all require a critical section
     */
     #[cfg(feature = "low-power")]
     pub(crate) fn set_min_stop_pause(&self, cs: CriticalSection, min_stop_pause: embassy_time::Duration) {
@@ -422,49 +294,36 @@ impl RtcDriver {
 
     #[cfg(feature = "low-power")]
     /// Pause the timer if ready; return err if not
-    pub(crate) fn pause_time(&self) -> Result<(), ()> {
-        critical_section::with(|cs| {
-            /*
-                If the wakeup timer is currently running, then we need to stop it and
-                add the elapsed time to the current time, as this will impact the result
-                of `time_until_next_alarm`.
-            */
-            self.stop_wakeup_alarm(cs);
+    pub(crate) fn pause_time(&self, cs: CriticalSection) -> Result<(), ()> {
+        self.stop_wakeup_alarm(cs);
 
-            let time_until_next_alarm = self.time_until_next_alarm(cs);
-            if time_until_next_alarm < self.min_stop_pause.borrow(cs).get() {
-                trace!(
-                    "time_until_next_alarm < self.min_stop_pause ({})",
-                    time_until_next_alarm
-                );
-                Err(())
-            } else {
-                self.rtc
-                    .borrow(cs)
-                    .borrow_mut()
-                    .as_mut()
-                    .unwrap()
-                    .start_wakeup_alarm(time_until_next_alarm, cs);
+        let time_until_next_alarm = self.time_until_next_alarm(cs);
+        if time_until_next_alarm < self.min_stop_pause.borrow(cs).get() {
+            trace!(
+                "time_until_next_alarm < self.min_stop_pause ({})",
+                time_until_next_alarm
+            );
+            Err(())
+        } else {
+            self.rtc
+                .borrow(cs)
+                .borrow_mut()
+                .as_mut()
+                .unwrap()
+                .start_wakeup_alarm(time_until_next_alarm, cs);
 
-                regs_gp16().cr1().modify(|w| w.set_cen(false));
-                // save the count for the timer as its lost in STOP2 for stm32wlex
-                #[cfg(stm32wlex)]
-                self.saved_count
-                    .store(regs_gp16().cnt().read().cnt() as u16, Ordering::SeqCst);
-                Ok(())
-            }
-        })
+            regs_gp16().cr1().modify(|w| w.set_cen(false));
+            // save the count for the timer as its lost in STOP2 for stm32wlex
+            #[cfg(stm32wlex)]
+            self.saved_count
+                .store(regs_gp16().cnt().read().cnt() as u16, Ordering::SeqCst);
+            Ok(())
+        }
     }
 
     #[cfg(feature = "low-power")]
     /// Resume the timer with the given offset
     pub(crate) fn resume_time(&self, cs: CriticalSection) {
-        if regs_gp16().cr1().read().cen() {
-            // Time isn't currently stopped
-
-            return;
-        }
-
         self.stop_wakeup_alarm(cs);
 
         regs_gp16().cr1().modify(|w| w.set_cen(true));
@@ -538,16 +397,10 @@ impl Driver for RtcDriver {
     }
 }
 
-#[cfg(feature = "low-power")]
 pub(crate) const fn get_driver() -> &'static RtcDriver {
     &DRIVER
 }
 
 pub(crate) fn init(cs: CriticalSection) {
     DRIVER.init(cs)
-}
-
-#[cfg(all(feature = "low-power", stm32wlex))]
-pub(crate) fn init_timer(cs: CriticalSection) {
-    DRIVER.init_timer(cs)
 }

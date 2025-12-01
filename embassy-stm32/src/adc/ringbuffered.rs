@@ -4,7 +4,7 @@ use core::sync::atomic::{Ordering, compiler_fence};
 #[allow(unused_imports)]
 use embassy_hal_internal::Peri;
 
-use crate::adc::Adc;
+use crate::adc::AnyInstance;
 #[allow(unused_imports)]
 use crate::adc::{Instance, RxDma};
 #[allow(unused_imports)]
@@ -19,7 +19,7 @@ pub struct RingBufferedAdc<'d, T: Instance> {
     ring_buf: ReadableRingBuffer<'d, u16>,
 }
 
-impl<'d, T: Instance> RingBufferedAdc<'d, T> {
+impl<'d, T: Instance + AnyInstance> RingBufferedAdc<'d, T> {
     pub(crate) fn new(dma: Peri<'d, impl RxDma<T>>, dma_buf: &'d mut [u16]) -> Self {
         //dma side setup
         let opts = TransferOptions {
@@ -45,12 +45,10 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
         compiler_fence(Ordering::SeqCst);
         self.ring_buf.start();
 
-        Adc::<T>::start();
+        T::start();
     }
 
     pub fn stop(&mut self) {
-        Adc::<T>::stop();
-
         self.ring_buf.request_pause();
 
         compiler_fence(Ordering::SeqCst);
@@ -161,7 +159,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
                     return Ok(len);
                 }
                 Err(_) => {
-                    self.stop();
+                    self.ring_buf.request_pause();
 
                     return Err(OverrunError);
                 }
@@ -170,9 +168,9 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     }
 }
 
-impl<T: Instance> Drop for RingBufferedAdc<'_, T> {
+impl<T: Instance + AnyInstance> Drop for RingBufferedAdc<'_, T> {
     fn drop(&mut self) {
-        Adc::<T>::teardown_adc();
+        T::stop();
 
         compiler_fence(Ordering::SeqCst);
 

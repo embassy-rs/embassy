@@ -5,6 +5,9 @@
   "[markdown]": {
     "editor.formatOnSave": false
   },
+  "rust-analyzer.rustfmt.extraArgs": [
+    "+nightly"
+  ],
   "rust-analyzer.check.allTargets": false,
   "rust-analyzer.check.noDefaultFeatures": true,
   "rust-analyzer.cargo.noDefaultFeatures": true,

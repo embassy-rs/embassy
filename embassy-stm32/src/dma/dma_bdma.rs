@@ -10,6 +10,7 @@ use super::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBu
 use super::word::{Word, WordSize};
 use super::{AnyChannel, Channel, Dir, Request, STATE};
 use crate::interrupt::typelevel::Interrupt;
+use crate::rcc::BusyPeripheral;
 use crate::{interrupt, pac};
 
 pub(crate) struct ChannelInfo {
@@ -602,7 +603,7 @@ impl AnyChannel {
 /// DMA transfer.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Transfer<'a> {
-    channel: Peri<'a, AnyChannel>,
+    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
 }
 
 impl<'a> Transfer<'a> {
@@ -713,7 +714,9 @@ impl<'a> Transfer<'a> {
             _request, dir, peri_addr, mem_addr, mem_len, incr_mem, mem_size, peri_size, options,
         );
         channel.start();
-        Self { channel }
+        Self {
+            channel: BusyPeripheral::new(channel),
+        }
     }
 
     /// Request the transfer to pause, keeping the existing configuration for this channel.
@@ -816,7 +819,7 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
 
 /// Ringbuffer for receiving data using DMA circular mode.
 pub struct ReadableRingBuffer<'a, W: Word> {
-    channel: Peri<'a, AnyChannel>,
+    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
 }
 
@@ -853,7 +856,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         );
 
         Self {
-            channel,
+            channel: BusyPeripheral::new(channel),
             ringbuf: ReadableDmaRingBuffer::new(buffer),
         }
     }
@@ -972,7 +975,7 @@ impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
 
 /// Ringbuffer for writing data using DMA circular mode.
 pub struct WritableRingBuffer<'a, W: Word> {
-    channel: Peri<'a, AnyChannel>,
+    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
     ringbuf: WritableDmaRingBuffer<'a, W>,
 }
 
@@ -1009,7 +1012,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         );
 
         Self {
-            channel,
+            channel: BusyPeripheral::new(channel),
             ringbuf: WritableDmaRingBuffer::new(buffer),
         }
     }

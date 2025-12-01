@@ -47,6 +47,7 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
         inner.set_counting_mode(CountingMode::EdgeAlignedUp);
         inner.set_tick_freq(freq);
         inner.enable_outputs(); // Required for advanced timers, see GeneralInstance4Channel for details
+        inner.generate_update_event();
         inner.start();
 
         // Configuration steps from ST RM0390 (STM32F446) chapter 17.3.6
@@ -90,16 +91,18 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
 
     /// Get the period tick count
     pub fn get_period_ticks(&self) -> u32 {
-        self.inner.get_capture_value(self.channel)
+        self.inner.get_capture_value(self.channel).into()
     }
 
     /// Get the pulse width tick count
     pub fn get_width_ticks(&self) -> u32 {
-        self.inner.get_capture_value(match self.channel {
-            Channel::Ch1 => Channel::Ch2,
-            Channel::Ch2 => Channel::Ch1,
-            _ => panic!("Invalid channel for PWM input"),
-        })
+        self.inner
+            .get_capture_value(match self.channel {
+                Channel::Ch1 => Channel::Ch2,
+                Channel::Ch2 => Channel::Ch1,
+                _ => panic!("Invalid channel for PWM input"),
+            })
+            .into()
     }
 
     /// Get the duty cycle in 100%

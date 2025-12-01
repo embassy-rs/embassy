@@ -8,6 +8,7 @@ use super::low_level::{CountingMode, OutputPolarity, Timer};
 use super::simple_pwm::PwmPin;
 use super::{AdvancedInstance4Channel, Ch1, Ch2, Ch3, Ch4, Channel, TimerComplementaryPin};
 use crate::Peri;
+use crate::dma::word::Word;
 use crate::gpio::{AnyPin, OutputType};
 use crate::time::Hertz;
 use crate::timer::TimerChannel;
@@ -77,8 +78,6 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
 
         this.inner.set_counting_mode(counting_mode);
         this.set_frequency(freq);
-        this.inner.start();
-
         this.inner.enable_outputs();
 
         [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
@@ -88,6 +87,10 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
                 this.inner.set_output_compare_preload(channel, true);
             });
         this.inner.set_autoreload_preload(true);
+
+        // Generate update event so pre-load registers are written to the shadow registers
+        this.inner.generate_update_event();
+        this.inner.start();
 
         this
     }
@@ -160,8 +163,8 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
 
     /// Set PWM frequency.
     ///
-    /// Note: when you call this, the max duty value changes, so you will have to
-    /// call `set_duty` on all channels with the duty calculated based on the new max duty.
+    /// Note: that the frequency will not be applied in the timer until an update event
+    /// occurs.
     pub fn set_frequency(&mut self, freq: Hertz) {
         let multiplier = if self.inner.get_counting_mode().is_center_aligned() {
             2u8
@@ -174,20 +177,20 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Get max duty value.
     ///
     /// This value depends on the configured frequency and the timer's clock rate from RCC.
-    pub fn get_max_duty(&self) -> u16 {
+    pub fn get_max_duty(&self) -> u32 {
         if self.inner.get_counting_mode().is_center_aligned() {
-            self.inner.get_max_compare_value() as u16
+            self.inner.get_max_compare_value().into()
         } else {
-            self.inner.get_max_compare_value() as u16 + 1
+            self.inner.get_max_compare_value().into() + 1
         }
     }
 
     /// Set the duty for a given channel.
     ///
     /// The value ranges from 0 for 0% duty, to [`get_max_duty`](Self::get_max_duty) for 100% duty, both included.
-    pub fn set_duty(&mut self, channel: Channel, duty: u16) {
+    pub fn set_duty(&mut self, channel: Channel, duty: u32) {
         assert!(duty <= self.get_max_duty());
-        self.inner.set_compare_value(channel, duty as _)
+        self.inner.set_compare_value(channel, unwrap!(duty.try_into()))
     }
 
     /// Set the output polarity for a given channel.
@@ -218,60 +221,68 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     ///
     /// Note:
     /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
-    pub async fn waveform_up(&mut self, dma: Peri<'_, impl super::UpDma<T>>, channel: Channel, duty: &[u16]) {
-        #[allow(clippy::let_unit_value)] // eg. stm32f334
-        let req = dma.request();
+    pub async fn waveform_up<W: Word + Into<T::Word>>(
+        &mut self,
+        dma: Peri<'_, impl super::UpDma<T>>,
+        channel: Channel,
+        duty: &[W],
+    ) {
+        self.inner.enable_channel(channel, true);
+        self.inner.clamp_compare_value::<W>(channel);
+        self.inner.enable_update_dma(true);
+        self.inner.setup_update_dma(dma, channel, duty).await;
+        self.inner.enable_update_dma(false);
+    }
 
-        let original_duty_state = self.inner.get_compare_value(channel);
-        let original_enable_state = self.inner.get_channel_enable_state(channel);
-        let original_update_dma_state = self.inner.get_update_dma_state();
-
-        if !original_update_dma_state {
-            self.inner.enable_update_dma(true);
-        }
-
-        if !original_enable_state {
-            self.inner.enable_channel(channel, true);
-        }
-
-        unsafe {
-            #[cfg(not(any(bdma, gpdma)))]
-            use crate::dma::{Burst, FifoThreshold};
-            use crate::dma::{Transfer, TransferOptions};
-
-            let dma_transfer_option = TransferOptions {
-                #[cfg(not(any(bdma, gpdma)))]
-                fifo_threshold: Some(FifoThreshold::Full),
-                #[cfg(not(any(bdma, gpdma)))]
-                mburst: Burst::Incr8,
-                ..Default::default()
-            };
-
-            Transfer::new_write(
-                dma,
-                req,
-                duty,
-                self.inner.regs_gp16().ccr(channel.index()).as_ptr() as *mut u16,
-                dma_transfer_option,
-            )
-            .await
-        };
-
-        // restore output compare state
-        if !original_enable_state {
-            self.inner.enable_channel(channel, false);
-        }
-
-        self.inner.set_compare_value(channel, original_duty_state);
-
-        // Since DMA is closed before timer update event trigger DMA is turn off,
-        // this can almost always trigger a DMA FIFO error.
-        //
-        // optional TODO:
-        // clean FEIF after disable UDE
-        if !original_update_dma_state {
-            self.inner.enable_update_dma(false);
-        }
+    /// Generate a multichannel sequence of PWM waveforms using DMA triggered by timer update events.
+    ///
+    /// This method utilizes the timer's DMA burst transfer capability to update multiple CCRx registers
+    /// in sequence on each update event (UEV). The data is written via the DMAR register using the
+    /// DMA base address (DBA) and burst length (DBL) configured in the DCR register.
+    ///
+    /// The `duty` buffer must be structured as a flattened 2D array in row-major order, where each row
+    /// represents a single update event and each column corresponds to a specific timer channel (starting
+    /// from `starting_channel` up to and including `ending_channel`).
+    ///
+    /// For example, if using channels 1 through 4, a buffer of 4 update steps might look like:
+    ///
+    /// ```rust,ignore
+    /// let dma_buf: [u16; 16] = [
+    ///     ch1_duty_1, ch2_duty_1, ch3_duty_1, ch4_duty_1, // update 1
+    ///     ch1_duty_2, ch2_duty_2, ch3_duty_2, ch4_duty_2, // update 2
+    ///     ch1_duty_3, ch2_duty_3, ch3_duty_3, ch4_duty_3, // update 3
+    ///     ch1_duty_4, ch2_duty_4, ch3_duty_4, ch4_duty_4, // update 4
+    /// ];
+    /// ```
+    ///
+    /// Each group of `N` values (where `N` is number of channels) is transferred on one update event,
+    /// updating the duty cycles of all selected channels simultaneously.
+    ///
+    /// Note:
+    /// You will need to provide corresponding `TIMx_UP` DMA channel to use this method.
+    /// Also be aware that embassy timers use one of timers internally. It is possible to
+    /// switch this timer by using `time-driver-timX` feature.
+    ///
+    pub async fn waveform_up_multi_channel<W: Word + Into<T::Word>>(
+        &mut self,
+        dma: Peri<'_, impl super::UpDma<T>>,
+        starting_channel: Channel,
+        ending_channel: Channel,
+        duty: &[W],
+    ) {
+        [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
+            .iter()
+            .filter(|ch| ch.index() >= starting_channel.index())
+            .filter(|ch| ch.index() <= ending_channel.index())
+            .for_each(|ch| {
+                self.inner.enable_channel(*ch, true);
+                self.inner.clamp_compare_value::<W>(*ch);
+            });
+        self.inner.enable_update_dma(true);
+        self.inner
+            .setup_update_dma_burst(dma, starting_channel, ending_channel, duty)
+            .await;
+        self.inner.enable_update_dma(false);
     }
 }
 
@@ -295,20 +306,20 @@ impl<'d, T: AdvancedInstance4Channel> embedded_hal_02::Pwm for ComplementaryPwm<
     }
 
     fn get_duty(&self, channel: Self::Channel) -> Self::Duty {
-        self.inner.get_compare_value(channel) as u16
+        unwrap!(self.inner.get_compare_value(channel).try_into())
     }
 
     fn get_max_duty(&self) -> Self::Duty {
         if self.inner.get_counting_mode().is_center_aligned() {
-            self.inner.get_max_compare_value() as u16
+            unwrap!(self.inner.get_max_compare_value().try_into())
         } else {
-            self.inner.get_max_compare_value() as u16 + 1
+            unwrap!(self.inner.get_max_compare_value().try_into()) + 1
         }
     }
 
     fn set_duty(&mut self, channel: Self::Channel, duty: Self::Duty) {
-        assert!(duty <= self.get_max_duty());
-        self.inner.set_compare_value(channel, duty as u32)
+        assert!(duty <= unwrap!(self.get_max_duty().try_into()));
+        self.inner.set_compare_value(channel, unwrap!(duty.try_into()))
     }
 
     fn set_period<P>(&mut self, period: P)

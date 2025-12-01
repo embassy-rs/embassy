@@ -7,8 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## Unreleased - ReleaseDate
-
 - Add AON Timer driver for RP2350 with configurable clock sources and alarm wake modes
+
+## 0.9.0 - 2025-11-27
+- Add documentation for pio `get_x` about autopush.
 - Fix several minor typos in documentation
 - Add PIO SPI
 - Add PIO I2S input
@@ -18,6 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add reset_to_usb_boot for rp235x ([#4705](https://github.com/embassy-rs/embassy/pull/4705))
 - Add fix #4822 in PIO onewire. Change to disable the state machine before setting y register ([#4824](https://github.com/embassy-rs/embassy/pull/4824))
 - Add PIO::Ws2812 color order support
+- Add TX-only, no SCK SPI support
+- Remove atomic-polyfill with critical-section instead ([#4948](https://github.com/embassy-rs/embassy/pull/4948))
 
 ## 0.8.0 - 2025-08-26
 

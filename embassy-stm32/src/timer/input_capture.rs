@@ -60,6 +60,7 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         this.inner.set_counting_mode(counting_mode);
         this.inner.set_tick_freq(freq);
         this.inner.enable_outputs(); // Required for advanced timers, see GeneralInstance4Channel for details
+        this.inner.generate_update_event();
         this.inner.start();
 
         // enable NVIC interrupt
@@ -96,7 +97,7 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
 
     /// Get capture value for a channel.
     pub fn get_capture_value(&self, channel: Channel) -> u32 {
-        self.inner.get_capture_value(channel)
+        self.inner.get_capture_value(channel).into()
     }
 
     /// Get input interrupt.

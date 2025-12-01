@@ -2,6 +2,8 @@
 
 use core::{mem, slice};
 
+use smoltcp::wire::ieee802154::Frame;
+
 use super::opcodes::OpcodeM4ToM0;
 use super::typedefs::{
     AddressMode, Capabilities, DisassociationReason, GtsCharacteristics, KeyIdMode, MacAddress, MacChannel, MacStatus,
@@ -376,6 +378,35 @@ impl DataRequest {
         self.msdu_length = buf.len() as u8;
 
         self
+    }
+}
+
+impl<'a, T: AsRef<[u8]>> TryFrom<Frame<&'a T>> for DataRequest {
+    type Error = ();
+
+    fn try_from(frame: Frame<&'a T>) -> Result<Self, Self::Error> {
+        // TODO: map the rest of these
+
+        let mut request = DataRequest {
+            src_addr_mode: frame.src_addressing_mode().try_into()?,
+            dst_addr_mode: frame.dst_addressing_mode().try_into()?,
+            dst_pan_id: frame.dst_pan_id().ok_or(())?.into(),
+            dst_address: frame.dst_addr().ok_or(())?.into(),
+            msdu_handle: frame.sequence_number().ok_or(())?,
+            key_source: frame.key_source().unwrap_or_default().try_into().unwrap_or_default(),
+            ack_tx: frame.ack_request() as u8,
+            gts_tx: false,
+            security_level: if frame.security_enabled() {
+                SecurityLevel::Secured
+            } else {
+                SecurityLevel::Unsecure
+            },
+            ..Default::default()
+        };
+
+        request.set_buffer(frame.payload().ok_or(())?);
+
+        Ok(request)
     }
 }
 
