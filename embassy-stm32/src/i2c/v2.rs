@@ -1673,6 +1673,54 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
         Ok(())
     }
 
+    /// Listen for incoming I2C messages.
+    ///
+    /// This method blocks until the slave address is matched by a master.
+    pub fn blocking_listen(&mut self) -> Result<SlaveCommand, Error> {
+        let timeout = self.timeout();
+
+        self.info.regs.cr1().modify(|reg| {
+            reg.set_addrie(true);
+            trace!("Enable ADDRIE");
+        });
+
+        loop {
+            let isr = self.info.regs.isr().read();
+            if isr.addr() {
+                break;
+            }
+            timeout.check()?;
+        }
+
+        trace!("ADDR triggered (address match)");
+
+        // we do not clear the address flag here as it will be cleared by the dma read/write
+        // if we clear it here the clock stretching will stop and the master will read in data before the slave is ready to send it
+        self.slave_command()
+    }
+
+    /// Determine the received slave command.
+    fn slave_command(&self) -> Result<SlaveCommand, Error> {
+        let isr = self.info.regs.isr().read();
+
+        match isr.dir() {
+            i2c::vals::Dir::WRITE => {
+                trace!("DIR: write");
+                Ok(SlaveCommand {
+                    kind: SlaveCommandKind::Write,
+                    address: self.determine_matched_address()?,
+                })
+            }
+            i2c::vals::Dir::READ => {
+                trace!("DIR: read");
+                Ok(SlaveCommand {
+                    kind: SlaveCommandKind::Read,
+                    address: self.determine_matched_address()?,
+                })
+            }
+        }
+    }
+
     /// Respond to a write command.
     ///
     /// Returns total number of bytes received.
@@ -1708,22 +1756,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 trace!("ADDR triggered (address match)");
                 // we do not clear the address flag here as it will be cleared by the dma read/write
                 // if we clear it here the clock stretching will stop and the master will read in data before the slave is ready to send it
-                match isr.dir() {
-                    i2c::vals::Dir::WRITE => {
-                        trace!("DIR: write");
-                        Poll::Ready(Ok(SlaveCommand {
-                            kind: SlaveCommandKind::Write,
-                            address: self.determine_matched_address()?,
-                        }))
-                    }
-                    i2c::vals::Dir::READ => {
-                        trace!("DIR: read");
-                        Poll::Ready(Ok(SlaveCommand {
-                            kind: SlaveCommandKind::Read,
-                            address: self.determine_matched_address()?,
-                        }))
-                    }
-                }
+                Poll::Ready(self.slave_command())
             }
         })
         .await
