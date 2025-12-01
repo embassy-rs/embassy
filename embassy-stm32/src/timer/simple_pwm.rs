@@ -179,6 +179,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
     ) -> RingBufferedPwmChannel<'d, T, W> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
 
+        self.timer.clamp_compare_value::<W>(self.channel);
         self.timer.enable_update_dma(true);
 
         RingBufferedPwmChannel::new(
@@ -352,7 +353,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         duty: &[W],
     ) {
         self.inner.enable_channel(channel, true);
-        self.inner.set_compare_value(channel, 0.into());
+        self.inner.clamp_compare_value::<W>(channel);
         self.inner.enable_update_dma(true);
         self.inner.setup_update_dma(dma, channel, duty).await;
         self.inner.enable_update_dma(false);
@@ -400,7 +401,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
             .filter(|ch| ch.index() <= ending_channel.index())
             .for_each(|ch| {
                 self.inner.enable_channel(*ch, true);
-                self.inner.set_compare_value(*ch, 0.into());
+                self.inner.clamp_compare_value::<W>(*ch);
             });
         self.inner.enable_update_dma(true);
         self.inner

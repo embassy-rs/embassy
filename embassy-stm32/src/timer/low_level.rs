@@ -627,6 +627,18 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         return unwrap!(self.regs_gp32_unchecked().ccr(channel.index()).read().ccr().try_into());
     }
 
+    pub(crate) fn clamp_compare_value<W: Word>(&mut self, channel: Channel) {
+        self.set_compare_value(
+            channel,
+            unwrap!(
+                self.get_compare_value(channel)
+                    .into()
+                    .clamp(0, W::max() as u32)
+                    .try_into()
+            ),
+        );
+    }
+
     /// Setup a ring buffer for the channel
     pub fn setup_ring_buffer<'a, W: Word + Into<T::Word>>(
         &mut self,

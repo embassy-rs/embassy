@@ -228,7 +228,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         duty: &[W],
     ) {
         self.inner.enable_channel(channel, true);
-        self.inner.set_compare_value(channel, 0.into());
+        self.inner.clamp_compare_value::<W>(channel);
         self.inner.enable_update_dma(true);
         self.inner.setup_update_dma(dma, channel, duty).await;
         self.inner.enable_update_dma(false);
@@ -276,7 +276,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
             .filter(|ch| ch.index() <= ending_channel.index())
             .for_each(|ch| {
                 self.inner.enable_channel(*ch, true);
-                self.inner.set_compare_value(*ch, 0.into());
+                self.inner.clamp_compare_value::<W>(*ch);
             });
         self.inner.enable_update_dma(true);
         self.inner

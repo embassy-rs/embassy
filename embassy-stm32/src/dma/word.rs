@@ -31,6 +31,10 @@ pub trait Word: SealedWord + Default + Copy + 'static {
     fn size() -> WordSize;
     /// Amount of bits of this word size.
     fn bits() -> usize;
+    /// Maximum value of this type.
+    fn max() -> usize {
+        (1 << Self::bits()) - 1
+    }
 }
 
 macro_rules! impl_word {
