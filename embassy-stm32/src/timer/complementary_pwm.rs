@@ -177,20 +177,20 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Get max duty value.
     ///
     /// This value depends on the configured frequency and the timer's clock rate from RCC.
-    pub fn get_max_duty(&self) -> u16 {
+    pub fn get_max_duty(&self) -> u32 {
         if self.inner.get_counting_mode().is_center_aligned() {
-            unwrap!(self.inner.get_max_compare_value().try_into())
+            self.inner.get_max_compare_value().into()
         } else {
-            unwrap!(self.inner.get_max_compare_value().try_into()) + 1
+            self.inner.get_max_compare_value().into() + 1
         }
     }
 
     /// Set the duty for a given channel.
     ///
     /// The value ranges from 0 for 0% duty, to [`get_max_duty`](Self::get_max_duty) for 100% duty, both included.
-    pub fn set_duty(&mut self, channel: Channel, duty: u16) {
+    pub fn set_duty(&mut self, channel: Channel, duty: u32) {
         assert!(duty <= self.get_max_duty());
-        self.inner.set_compare_value(channel, duty.into())
+        self.inner.set_compare_value(channel, unwrap!(duty.try_into()))
     }
 
     /// Set the output polarity for a given channel.
@@ -318,7 +318,7 @@ impl<'d, T: AdvancedInstance4Channel> embedded_hal_02::Pwm for ComplementaryPwm<
     }
 
     fn set_duty(&mut self, channel: Self::Channel, duty: Self::Duty) {
-        assert!(duty <= self.get_max_duty());
+        assert!(duty <= unwrap!(self.get_max_duty().try_into()));
         self.inner.set_compare_value(channel, unwrap!(duty.try_into()))
     }
 
