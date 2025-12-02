@@ -1,4 +1,4 @@
-use std::sync::{Condvar, Mutex};
+use std::sync::{Condvar, LazyLock, Mutex};
 use std::thread;
 use std::time::{Duration as StdDuration, Instant as StdInstant};
 
@@ -8,54 +8,40 @@ use embassy_time_queue_utils::Queue;
 #[derive(Debug)]
 struct TimeDriver {
     signaler: Signaler,
-    inner: Mutex<Inner>,
-}
-
-#[derive(Debug)]
-struct Inner {
-    zero_instant: Option<StdInstant>,
-    queue: Queue,
+    queue: Mutex<Queue>,
+    zero_instant: LazyLock<StdInstant>,
 }
 
 embassy_time_driver::time_driver_impl!(static DRIVER: TimeDriver = TimeDriver {
-    inner: Mutex::new(Inner{
-        zero_instant: None,
-        queue: Queue::new(),
-    }),
+    zero_instant: LazyLock::new(|| init()),
+    queue: Mutex::new(Queue::new()),
     signaler: Signaler::new(),
 });
 
-impl Inner {
-    fn init(&mut self) -> StdInstant {
-        *self.zero_instant.get_or_insert_with(|| {
-            thread::spawn(alarm_thread);
-            StdInstant::now()
-        })
-    }
+fn init() -> StdInstant {
+    thread::spawn(alarm_thread);
+    StdInstant::now()
 }
 
 impl Driver for TimeDriver {
     fn now(&self) -> u64 {
-        let mut inner = self.inner.lock().unwrap();
-        let zero = inner.init();
-        StdInstant::now().duration_since(zero).as_micros() as u64
+        StdInstant::now().duration_since(*self.zero_instant).as_micros() as u64
     }
 
     fn schedule_wake(&self, at: u64, waker: &core::task::Waker) {
-        let mut inner = self.inner.lock().unwrap();
-        inner.init();
-        if inner.queue.schedule_wake(at, waker) {
+        let mut queue = self.queue.lock().unwrap();
+        if queue.schedule_wake(at, waker) {
             self.signaler.signal();
         }
     }
 }
 
 fn alarm_thread() {
-    let zero = DRIVER.inner.lock().unwrap().zero_instant.unwrap();
+    let zero = *DRIVER.zero_instant;
     loop {
         let now = DRIVER.now();
 
-        let next_alarm = DRIVER.inner.lock().unwrap().queue.next_expiration(now);
+        let next_alarm = DRIVER.queue.lock().unwrap().next_expiration(now);
 
         // Ensure we don't overflow
         let until = zero
