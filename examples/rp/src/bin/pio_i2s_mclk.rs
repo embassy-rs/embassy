@@ -13,12 +13,12 @@
 use core::mem;
 
 use embassy_executor::Spawner;
+use embassy_rp::bind_interrupts;
 use embassy_rp::bootsel::is_bootsel_pressed;
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::pio_programs::clk::PioClkProgram;
 use embassy_rp::pio_programs::i2s::{PioI2sOut, PioI2sOutProgram};
-use embassy_rp::{Peri, bind_interrupts};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -28,20 +28,25 @@ bind_interrupts!(struct Irqs {
 
 const SAMPLE_RATE: u32 = 48_000;
 const BIT_DEPTH: u32 = 16;
+const MASTER_CLOCK_MULTIPLIER: u32 = 8;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut p = embassy_rp::init(Default::default());
 
     // Setup pio state machine for i2s output
-    let Pio { mut common, sm0, .. } = Pio::new(p.PIO0, Irqs);
+    let Pio {
+        mut common, sm0, sm1, ..
+    } = Pio::new(p.PIO0, Irqs);
 
+    let master_clock_pin = p.PIN_17;
     let bit_clock_pin = p.PIN_18;
     let left_right_clock_pin = p.PIN_19;
     let data_pin = p.PIN_20;
 
-    let program = PioI2sOutProgram::new(&mut common);
-    let mut i2s = PioI2sOut::<PIO0, 0, 0>::new(
+    let program_clk = PioClkProgram::new(&mut common);
+    let program_i2s = PioI2sOutProgram::new(&mut common);
+    let mut i2s = PioI2sOut::new(
         &mut common,
         sm0,
         p.DMA_CH0,
@@ -50,13 +55,8 @@ async fn main(_spawner: Spawner) {
         left_right_clock_pin,
         SAMPLE_RATE,
         BIT_DEPTH,
-        &program,
-        None::<(
-            embassy_rp::pio::StateMachine<'_, PIO0, 0>,
-            Peri<'_, embassy_rp::peripherals::PIN_18>,
-            u32,
-            &PioClkProgram<'_, PIO0>,
-        )>,
+        &program_i2s,
+        Some((sm1, master_clock_pin, MASTER_CLOCK_MULTIPLIER, &program_clk)),
     );
     i2s.start(&mut common);
 

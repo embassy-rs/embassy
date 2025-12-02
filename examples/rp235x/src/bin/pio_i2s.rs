@@ -13,11 +13,12 @@
 use core::mem;
 
 use embassy_executor::Spawner;
-use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::{Input, Pull};
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{InterruptHandler, Pio};
+use embassy_rp::pio_programs::clk::PioClkProgram;
 use embassy_rp::pio_programs::i2s::{PioI2sOut, PioI2sOutProgram};
+use embassy_rp::{Peri, bind_interrupts};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -40,7 +41,7 @@ async fn main(_spawner: Spawner) {
     let data_pin = p.PIN_20;
 
     let program = PioI2sOutProgram::new(&mut common);
-    let mut i2s = PioI2sOut::new(
+    let mut i2s = PioI2sOut::<PIO0, 0, 0>::new(
         &mut common,
         sm0,
         p.DMA_CH0,
@@ -50,7 +51,14 @@ async fn main(_spawner: Spawner) {
         SAMPLE_RATE,
         BIT_DEPTH,
         &program,
+        None::<(
+            embassy_rp::pio::StateMachine<'_, PIO0, 0>,
+            Peri<'_, embassy_rp::peripherals::PIN_18>,
+            u32,
+            &PioClkProgram<'_, PIO0>,
+        )>,
     );
+    i2s.start(&mut common);
 
     let fade_input = Input::new(p.PIN_0, Pull::Up);
 
