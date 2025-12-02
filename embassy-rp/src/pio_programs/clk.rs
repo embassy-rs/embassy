@@ -7,7 +7,8 @@ use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
 
 /// Clock generator PIO program
 pub struct PioClkProgram<'a, PIO: Instance> {
-    prg: LoadedProgram<'a, PIO>,
+    /// Actual program
+    pub prg: LoadedProgram<'a, PIO>,
 }
 
 impl<'a, PIO: Instance> PioClkProgram<'a, PIO> {
