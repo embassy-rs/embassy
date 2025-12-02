@@ -24,6 +24,7 @@ pub struct Shared(RefCell<SharedInner>);
 struct SharedInner {
     ioctl: IoctlState,
     is_init: bool,
+    is_ota: bool,
     control_waker: WakerRegistration,
     runner_waker: WakerRegistration,
 }
@@ -33,6 +34,7 @@ impl Shared {
         Self(RefCell::new(SharedInner {
             ioctl: IoctlState::Done { resp_len: 0 },
             is_init: false,
+            is_ota: false,
             control_waker: WakerRegistration::new(),
             runner_waker: WakerRegistration::new(),
         }))
@@ -99,11 +101,26 @@ impl Shared {
         }
     }
 
+    // ota
+    pub fn ota_done(&self) {
+        let mut this = self.0.borrow_mut();
+        this.is_ota = true;
+        this.is_init = false;
+        this.runner_waker.wake();
+    }
+
+    // check if ota is in progress
+    pub fn is_ota(&self) -> bool {
+        let this = self.0.borrow();
+        this.is_ota
+    }
+
     // // // // // // // // // // // // // // // // // // // //
 
     pub fn init_done(&self) {
         let mut this = self.0.borrow_mut();
         this.is_init = true;
+        this.is_ota = false;
         this.control_waker.wake();
     }
 

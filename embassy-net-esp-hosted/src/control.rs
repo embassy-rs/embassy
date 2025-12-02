@@ -24,6 +24,11 @@ pub struct Control<'a> {
     shared: &'a Shared,
 }
 
+/// Handle for managing firmware update.
+pub struct UpdateControl<'a, 'd> {
+    control: &'a mut Control<'d>,
+}
+
 /// WiFi mode.
 #[allow(unused)]
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -146,6 +151,13 @@ impl<'a> Control<'a> {
         Ok(())
     }
 
+    /// Initiate a firmware update.
+    pub async fn update(&mut self) -> Result<UpdateControl<'_, 'a>, Error> {
+        let req = proto::CtrlMsg_Req_OTABegin {};
+        ioctl!(self, ReqOtaBegin, RespOtaBegin, req, resp);
+        Ok(UpdateControl { control: self })
+    }
+
     /// duration in seconds, clamped to [10, 3600]
     async fn set_heartbeat(&mut self, duration: u32) -> Result<(), Error> {
         let req = proto::CtrlMsg_Req_ConfigHeartbeat {
@@ -175,7 +187,8 @@ impl<'a> Control<'a> {
     async fn ioctl(&mut self, msg: &mut CtrlMsg) -> Result<(), Error> {
         debug!("ioctl req: {:?}", &msg);
 
-        let mut buf = [0u8; 128];
+        // Theoretical max overhead is 29 bytes. Biggest message is OTA write with 256 bytes.
+        let mut buf = [0u8; 256 + 29];
         let buf_len = buf.len();
 
         let mut encoder = PbEncoder::new(&mut buf[..]);
@@ -212,6 +225,37 @@ impl<'a> Control<'a> {
         })?;
         debug!("ioctl resp: {:?}", msg);
 
+        Ok(())
+    }
+}
+
+impl<'a, 'd> UpdateControl<'a, 'd> {
+    /// Write slice of firmware to a device.
+    ///
+    /// The slice is split into chunks that can be sent across
+    /// the ioctl protocol to the wifi adapter.
+    pub async fn write(&mut self, data: &[u8]) -> Result<(), Error> {
+        let this = &mut self.control;
+        for chunk in data.chunks(256) {
+            let req = proto::CtrlMsg_Req_OTAWrite {
+                ota_data: heapless::Vec::from_slice(chunk).unwrap(),
+            };
+            ioctl!(this, ReqOtaWrite, RespOtaWrite, req, resp);
+        }
+        Ok(())
+    }
+
+    /// End the OTA session.
+    ///
+    /// NOTE: Will reset the wifi adapter after 5 seconds.
+    pub async fn finish(self) -> Result<(), Error> {
+        let this = self.control;
+        let req = proto::CtrlMsg_Req_OTAEnd {};
+        ioctl!(this, ReqOtaEnd, RespOtaEnd, req, resp);
+        // Ensures that run loop awaits reset
+        this.shared.ota_done();
+        // Wait for re-init
+        this.init().await?;
         Ok(())
     }
 }
