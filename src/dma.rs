@@ -341,22 +341,97 @@ pub enum EnableInterrupt {
 pub const DMA_MAX_TRANSFER_SIZE: usize = 0x7FFF;
 
 // ============================================================================
-// DMA Request Source Constants
+// DMA Request Source Types (Type-Safe API)
 // ============================================================================
 
-/// DMA request source numbers for LPUART peripherals on DMA0.
-pub const DMA_REQ_LPUART0_RX: u8 = 21;
-pub const DMA_REQ_LPUART0_TX: u8 = 22;
-pub const DMA_REQ_LPUART1_RX: u8 = 23;
-pub const DMA_REQ_LPUART1_TX: u8 = 24;
-pub const DMA_REQ_LPUART2_RX: u8 = 25;
-pub const DMA_REQ_LPUART2_TX: u8 = 26;
-pub const DMA_REQ_LPUART3_RX: u8 = 27;
-pub const DMA_REQ_LPUART3_TX: u8 = 28;
-pub const DMA_REQ_LPUART4_RX: u8 = 29;
-pub const DMA_REQ_LPUART4_TX: u8 = 30;
-pub const DMA_REQ_LPUART5_RX: u8 = 31;
-pub const DMA_REQ_LPUART5_TX: u8 = 32;
+/// Trait for type-safe DMA request sources.
+///
+/// Each peripheral that can trigger DMA requests implements this trait
+/// with marker types that encode the correct request source number at
+/// compile time. This prevents using the wrong request source for a
+/// peripheral.
+///
+/// # Example
+///
+/// ```ignore
+/// // The LPUART2 RX request source is automatically derived from the type:
+/// channel.set_request_source::<Lpuart2RxRequest>();
+/// ```
+///
+/// This trait is sealed and cannot be implemented outside this crate.
+#[allow(private_bounds)]
+pub trait DmaRequest: sealed::SealedDmaRequest {
+    /// The hardware request source number for the DMA mux.
+    const REQUEST_NUMBER: u8;
+}
+
+/// Macro to define a DMA request type.
+///
+/// Creates a zero-sized marker type that implements `DmaRequest` with
+/// the specified request number.
+macro_rules! define_dma_request {
+    ($(#[$meta:meta])* $name:ident = $num:expr) => {
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone)]
+        pub struct $name;
+
+        impl sealed::SealedDmaRequest for $name {}
+
+        impl DmaRequest for $name {
+            const REQUEST_NUMBER: u8 = $num;
+        }
+    };
+}
+
+// LPUART DMA request sources (from MCXA276 reference manual Table 4-8)
+define_dma_request!(
+    /// DMA request source for LPUART0 RX.
+    Lpuart0RxRequest = 21
+);
+define_dma_request!(
+    /// DMA request source for LPUART0 TX.
+    Lpuart0TxRequest = 22
+);
+define_dma_request!(
+    /// DMA request source for LPUART1 RX.
+    Lpuart1RxRequest = 23
+);
+define_dma_request!(
+    /// DMA request source for LPUART1 TX.
+    Lpuart1TxRequest = 24
+);
+define_dma_request!(
+    /// DMA request source for LPUART2 RX.
+    Lpuart2RxRequest = 25
+);
+define_dma_request!(
+    /// DMA request source for LPUART2 TX.
+    Lpuart2TxRequest = 26
+);
+define_dma_request!(
+    /// DMA request source for LPUART3 RX.
+    Lpuart3RxRequest = 27
+);
+define_dma_request!(
+    /// DMA request source for LPUART3 TX.
+    Lpuart3TxRequest = 28
+);
+define_dma_request!(
+    /// DMA request source for LPUART4 RX.
+    Lpuart4RxRequest = 29
+);
+define_dma_request!(
+    /// DMA request source for LPUART4 TX.
+    Lpuart4TxRequest = 30
+);
+define_dma_request!(
+    /// DMA request source for LPUART5 RX.
+    Lpuart5RxRequest = 31
+);
+define_dma_request!(
+    /// DMA request source for LPUART5 TX.
+    Lpuart5TxRequest = 32
+);
 
 // ============================================================================
 // Channel Trait (Sealed Pattern)
@@ -372,6 +447,9 @@ mod sealed {
         /// Interrupt vector for this channel.
         fn interrupt(&self) -> Interrupt;
     }
+
+    /// Sealed trait for DMA request sources.
+    pub trait SealedDmaRequest {}
 }
 
 /// Marker trait implemented by HAL peripheral tokens that map to a DMA0
@@ -1452,26 +1530,40 @@ impl<C: Channel> DmaChannel<C> {
         cortex_m::asm::dsb();
     }
 
-    /// Configure the integrated channel MUX to use the given request
-    /// source value (for example [`DMA_REQ_LPUART2_TX`] or
-    /// [`DMA_REQ_LPUART2_RX`]).
+    /// Configure the integrated channel MUX to use the given typed
+    /// DMA request source (e.g., [`Lpuart2TxRequest`] or [`Lpuart2RxRequest`]).
+    ///
+    /// This is the type-safe version that uses marker types to ensure
+    /// compile-time verification of request source validity.
     ///
     /// # Safety
     ///
-    /// Caller must ensure the request source mapping matches the
-    /// peripheral that will drive this channel.
+    /// The channel must be properly configured before enabling requests.
+    /// The caller must ensure the DMA request source matches the peripheral
+    /// that will drive this channel.
     ///
     /// # Note
     ///
     /// The NXP SDK requires a two-step write sequence: first clear
     /// the mux to 0, then set the actual source. This is a hardware
     /// requirement on eDMA4 for the mux to properly latch.
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// use embassy_mcxa::dma::{DmaChannel, Lpuart2RxRequest};
+    ///
+    /// // Type-safe: compiler verifies this is a valid DMA request type
+    /// unsafe {
+    ///     channel.set_request_source::<Lpuart2RxRequest>();
+    /// }
+    /// ```
     #[inline]
-    pub unsafe fn set_request_source(&self, request: u8) {
+    pub unsafe fn set_request_source<R: DmaRequest>(&self) {
         // Two-step write per NXP SDK: clear to 0, then set actual source.
         self.tcd().ch_mux().write(|w| w.src().bits(0));
         cortex_m::asm::dsb(); // Ensure the clear completes before setting new source
-        self.tcd().ch_mux().write(|w| w.src().bits(request));
+        self.tcd().ch_mux().write(|w| w.src().bits(R::REQUEST_NUMBER));
     }
 
     /// Enable hardware requests for this channel (ERQ=1).

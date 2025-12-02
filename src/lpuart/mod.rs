@@ -18,7 +18,9 @@ pub mod buffered;
 // DMA INTEGRATION
 // ============================================================================
 
-use crate::dma::{Channel as DmaChannelTrait, DmaChannel, EnableInterrupt, RingBuffer, DMA_MAX_TRANSFER_SIZE};
+use crate::dma::{
+    Channel as DmaChannelTrait, DmaChannel, DmaRequest, EnableInterrupt, RingBuffer, DMA_MAX_TRANSFER_SIZE,
+};
 
 // ============================================================================
 // MISC
@@ -50,14 +52,14 @@ pub struct Info {
 pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<MrccPeriphConfig = LpuartConfig> {
     const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpuartInstance;
     type Interrupt: interrupt::typelevel::Interrupt;
-    /// DMA request source for TX
-    const TX_DMA_REQ: u8;
-    /// DMA request source for RX
-    const RX_DMA_REQ: u8;
+    /// Type-safe DMA request source for TX
+    type TxDmaRequest: DmaRequest;
+    /// Type-safe DMA request source for RX
+    type RxDmaRequest: DmaRequest;
 }
 
 macro_rules! impl_instance {
-    ($($n:expr, $tx_req:expr, $rx_req:expr);* $(;)?) => {
+    ($($n:expr);* $(;)?) => {
         $(
             paste!{
                 impl SealedInstance for crate::peripherals::[<LPUART $n>] {
@@ -82,29 +84,23 @@ macro_rules! impl_instance {
                     const CLOCK_INSTANCE: crate::clocks::periph_helpers::LpuartInstance
                         = crate::clocks::periph_helpers::LpuartInstance::[<Lpuart $n>];
                     type Interrupt = crate::interrupt::typelevel::[<LPUART $n>];
-                    const TX_DMA_REQ: u8 = $tx_req;
-                    const RX_DMA_REQ: u8 = $rx_req;
+                    type TxDmaRequest = crate::dma::[<Lpuart $n TxRequest>];
+                    type RxDmaRequest = crate::dma::[<Lpuart $n RxRequest>];
                 }
             }
         )*
     };
 }
 
-// DMA request sources from MCXA276 reference manual
-// LPUART0: RX=21, TX=22
-// LPUART1: RX=23, TX=24
-// LPUART2: RX=25, TX=26
-// LPUART3: RX=27, TX=28
-// LPUART4: RX=29, TX=30
-// LPUART5: RX=31, TX=32
-impl_instance!(
-    0, 22, 21;
-    1, 24, 23;
-    2, 26, 25;
-    3, 28, 27;
-    4, 30, 29;
-    5, 32, 31;
-);
+// DMA request sources are now type-safe via associated types.
+// The request source numbers are defined in src/dma.rs:
+// LPUART0: RX=21, TX=22 -> Lpuart0RxRequest, Lpuart0TxRequest
+// LPUART1: RX=23, TX=24 -> Lpuart1RxRequest, Lpuart1TxRequest
+// LPUART2: RX=25, TX=26 -> Lpuart2RxRequest, Lpuart2TxRequest
+// LPUART3: RX=27, TX=28 -> Lpuart3RxRequest, Lpuart3TxRequest
+// LPUART4: RX=29, TX=30 -> Lpuart4RxRequest, Lpuart4TxRequest
+// LPUART5: RX=31, TX=32 -> Lpuart5RxRequest, Lpuart5TxRequest
+impl_instance!(0; 1; 2; 3; 4; 5);
 
 // ============================================================================
 // INSTANCE HELPER FUNCTIONS
@@ -1196,8 +1192,8 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartTxDma<'a, T, C> {
             self.tx_dma.clear_done();
             self.tx_dma.clear_interrupt();
 
-            // Set DMA request source from instance type
-            self.tx_dma.set_request_source(T::TX_DMA_REQ);
+            // Set DMA request source from instance type (type-safe)
+            self.tx_dma.set_request_source::<T::TxDmaRequest>();
 
             // Configure TCD for memory-to-peripheral transfer
             self.tx_dma
@@ -1307,8 +1303,8 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
             self.rx_dma.clear_done();
             self.rx_dma.clear_interrupt();
 
-            // Set DMA request source from instance type
-            self.rx_dma.set_request_source(T::RX_DMA_REQ);
+            // Set DMA request source from instance type (type-safe)
+            self.rx_dma.set_request_source::<T::RxDmaRequest>();
 
             // Configure TCD for peripheral-to-memory transfer
             self.rx_dma
@@ -1398,8 +1394,8 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
         // Get the peripheral data register address
         let peri_addr = self.info.regs.data().as_ptr() as *const u8;
 
-        // Configure DMA request source for this LPUART instance
-        self.rx_dma.set_request_source(T::RX_DMA_REQ);
+        // Configure DMA request source for this LPUART instance (type-safe)
+        self.rx_dma.set_request_source::<T::RxDmaRequest>();
 
         // Enable RX DMA request in the LPUART peripheral
         self.info.regs.baud().modify(|_, w| w.rdmae().enabled());
