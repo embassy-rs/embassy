@@ -42,7 +42,7 @@ impl DerefMut for DataBlock {
 
 /// Command Block buffer for SDMMC command transfers.
 ///
-/// This is a 16-word array, exposed so that DMA commpatible memory can be used if required.
+/// This is a 16-word array, exposed so that DMA compatible memory can be used if required.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CmdBlock(pub [u32; 16]);
