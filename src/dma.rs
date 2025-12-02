@@ -118,17 +118,14 @@ use crate::peripherals::DMA0;
 /// Static flag to track whether DMA has been initialized.
 static DMA_INITIALIZED: AtomicBool = AtomicBool::new(false);
 
-/// Ensure DMA is initialized (clock enabled, reset released, controller configured).
+/// Initialize DMA controller (clock enabled, reset released, controller configured).
 ///
-/// This function is idempotent - it will only initialize DMA once, even if called
-/// multiple times. It is automatically called when creating a DmaChannel.
+/// This function is intended to be called during HAL initialization (`hal::init()`).
+/// It is idempotent - it will only initialize DMA once, even if called multiple times.
 ///
-/// # Safety
-///
-/// This function accesses hardware registers and must be called from a context
-/// where such access is safe (typically during system initialization or with
-/// interrupts properly managed).
-pub fn ensure_init() {
+/// The function enables the DMA0 clock, releases reset, and configures the controller
+/// for normal operation with round-robin arbitration.
+pub fn init() {
     // Fast path: already initialized
     if DMA_INITIALIZED.load(Ordering::Acquire) {
         return;
@@ -334,6 +331,16 @@ pub enum EnableInterrupt {
 }
 
 // ============================================================================
+// DMA Constants
+// ============================================================================
+
+/// Maximum bytes per DMA transfer (eDMA4 CITER/BITER are 15-bit fields).
+///
+/// This is a hardware limitation of the eDMA4 controller. Transfers larger
+/// than this must be split into multiple DMA operations.
+pub const DMA_MAX_TRANSFER_SIZE: usize = 0x7FFF;
+
+// ============================================================================
 // DMA Request Source Constants
 // ============================================================================
 
@@ -531,11 +538,9 @@ pub struct DmaChannel<C: Channel> {
 impl<C: Channel> DmaChannel<C> {
     /// Wrap a DMA channel token (takes ownership of the Peri wrapper).
     ///
-    /// This automatically initializes the DMA controller if not already done
-    /// (enables clock, releases reset, configures controller).
+    /// Note: DMA is initialized during `hal::init()` via `dma::init()`.
     #[inline]
     pub fn new(_ch: embassy_hal_internal::Peri<'_, C>) -> Self {
-        ensure_init();
         Self {
             _ch: core::marker::PhantomData,
         }
@@ -543,10 +548,9 @@ impl<C: Channel> DmaChannel<C> {
 
     /// Wrap a DMA channel token directly (for internal use).
     ///
-    /// This automatically initializes the DMA controller if not already done.
+    /// Note: DMA is initialized during `hal::init()` via `dma::init()`.
     #[inline]
     pub fn from_token(_ch: C) -> Self {
-        ensure_init();
         Self {
             _ch: core::marker::PhantomData,
         }
@@ -2204,6 +2208,9 @@ impl<C: Channel> DmaChannel<C> {
 
         // Enable the channel request
         t.ch_csr().modify(|_, w| w.erq().enable());
+
+        // Enable NVIC interrupt for this channel so async wakeups work
+        self.enable_interrupt();
 
         RingBuffer::new(self.as_any(), buf)
     }

@@ -120,8 +120,7 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("DMA scatter-gather transfer example starting...");
 
-    // Ensure DMA is initialized (clock/reset/init handled automatically by HAL)
-    dma::ensure_init();
+    // DMA is initialized during hal::init() - no need to call ensure_init()
 
     // Enable DMA interrupt
     unsafe {

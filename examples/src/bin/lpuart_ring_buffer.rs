@@ -1,18 +1,18 @@
 //! LPUART Ring Buffer DMA example for MCXA276.
 //!
-//! This example demonstrates using the new `RingBuffer` API for continuous
-//! circular DMA reception from a UART peripheral.
+//! This example demonstrates using the high-level `LpuartRxDma::setup_ring_buffer()`
+//! API for continuous circular DMA reception from a UART peripheral.
 //!
 //! # Features demonstrated:
-//! - `setup_circular_read()` for continuous peripheral-to-memory DMA
+//! - `LpuartRxDma::setup_ring_buffer()` for continuous peripheral-to-memory DMA
 //! - `RingBuffer` for async reading of received data
 //! - Handling of potential overrun conditions
 //! - Half-transfer and complete-transfer interrupts for timely wakeups
 //!
 //! # How it works:
-//! 1. Set up a circular DMA transfer from LPUART RX to a ring buffer
-//! 2. DMA continuously writes received bytes into the buffer, wrapping around
-//! 3. Application asynchronously reads data as it arrives
+//! 1. Create an `LpuartRxDma` driver with a DMA channel
+//! 2. Call `setup_ring_buffer()` which handles all low-level DMA configuration
+//! 3. Application asynchronously reads data as it arrives via `ring_buf.read()`
 //! 4. Both half-transfer and complete-transfer interrupts wake the reader
 
 #![no_std]
@@ -20,9 +20,9 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaCh1InterruptHandler, DmaChannel, DMA_REQ_LPUART2_RX};
-use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
-use embassy_mcxa::{bind_interrupts, pac};
+use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaCh1InterruptHandler};
+use embassy_mcxa::lpuart::{Config, LpuartDma, LpuartTxDma};
+use embassy_mcxa::bind_interrupts;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Bind DMA channel interrupts
@@ -35,7 +35,10 @@ bind_interrupts!(struct Irqs {
 static mut RX_RING_BUFFER: [u8; 64] = [0; 64];
 
 /// Helper to write a byte as hex to UART
-fn write_hex(tx: &mut LpuartTx<'_, Blocking>, byte: u8) {
+fn write_hex<T: embassy_mcxa::lpuart::Instance, C: embassy_mcxa::dma::Channel>(
+    tx: &mut LpuartTxDma<'_, T, C>,
+    byte: u8,
+) {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
     let buf = [HEX[(byte >> 4) as usize], HEX[(byte & 0x0F) as usize]];
     tx.blocking_write(&buf).ok();
@@ -55,12 +58,6 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("LPUART Ring Buffer DMA example starting...");
 
-    // Enable DMA interrupts (DMA clock/reset/init is handled automatically by HAL)
-    unsafe {
-        cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA_CH0);
-        cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA_CH1);
-    }
-
     // Create UART configuration
     let config = Config {
         baudrate_bps: 115_200,
@@ -69,41 +66,27 @@ async fn main(_spawner: Spawner) {
         ..Default::default()
     };
 
-    // Create blocking UART for TX (we'll use DMA for RX only)
-    let lpuart = Lpuart::new_blocking(p.LPUART2, p.P2_2, p.P2_3, config).unwrap();
-    let (mut tx, _rx) = lpuart.split();
+    // Create LPUART with DMA support for both TX and RX, then split
+    // This is the proper Embassy pattern - create once, split into TX and RX
+    let lpuart = LpuartDma::new(p.LPUART2, p.P2_2, p.P2_3, p.DMA_CH1, p.DMA_CH0, config).unwrap();
+    let (mut tx, rx) = lpuart.split();
 
     tx.blocking_write(b"LPUART Ring Buffer DMA Example\r\n").unwrap();
     tx.blocking_write(b"==============================\r\n\r\n").unwrap();
-
-    // Get LPUART2 RX data register address for DMA
-    let lpuart2 = unsafe { &*pac::Lpuart2::ptr() };
-    let rx_data_addr = lpuart2.data().as_ptr() as *const u8;
-
-    // Enable RX DMA request in LPUART
-    lpuart2.baud().modify(|_, w| w.rdmae().enabled());
-
-    // Create DMA channel for RX
-    let dma_ch_rx = DmaChannel::new(p.DMA_CH0);
-
-    // Configure the DMA mux for LPUART2 RX
-    unsafe {
-        dma_ch_rx.set_request_source(DMA_REQ_LPUART2_RX);
-    }
 
     tx.blocking_write(b"Setting up circular DMA for UART RX...\r\n")
         .unwrap();
 
     // Set up the ring buffer with circular DMA
-    // This configures the DMA for continuous reception
+    // The HAL handles: DMA request source, RDMAE enable, circular transfer config, NVIC enable
     let ring_buf = unsafe {
         let buf = &mut *core::ptr::addr_of_mut!(RX_RING_BUFFER);
-        dma_ch_rx.setup_circular_read(rx_data_addr, buf)
+        rx.setup_ring_buffer(buf)
     };
 
     // Enable DMA requests to start continuous reception
     unsafe {
-        dma_ch_rx.enable_request();
+        rx.enable_dma_request();
     }
 
     tx.blocking_write(b"Ring buffer ready! Type characters to see them echoed.\r\n")

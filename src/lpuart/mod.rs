@@ -18,7 +18,7 @@ pub mod buffered;
 // DMA INTEGRATION
 // ============================================================================
 
-use crate::dma::{Channel as DmaChannelTrait, DmaChannel, EnableInterrupt};
+use crate::dma::{Channel as DmaChannelTrait, DmaChannel, EnableInterrupt, RingBuffer, DMA_MAX_TRANSFER_SIZE};
 
 // ============================================================================
 // MISC
@@ -1056,9 +1056,6 @@ impl<'a> Lpuart<'a, Blocking> {
 // ASYNC MODE IMPLEMENTATIONS (DMA-based)
 // ============================================================================
 
-/// Maximum bytes per DMA transfer (eDMA CITER/BITER are 15-bit fields).
-const DMA_MAX_TRANSFER_SIZE: usize = 0x7FFF;
-
 /// Guard struct that ensures DMA is stopped if the async future is cancelled.
 ///
 /// This implements the RAII pattern: if the future is dropped before completion
@@ -1356,6 +1353,68 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
             }
         }
         Ok(())
+    }
+
+    /// Set up a ring buffer for continuous DMA reception.
+    ///
+    /// This configures the DMA channel for circular operation, enabling continuous
+    /// reception of data without gaps. The DMA will continuously write received
+    /// bytes into the buffer, wrapping around when it reaches the end.
+    ///
+    /// This method encapsulates all the low-level setup:
+    /// - Configures the DMA request source for this LPUART instance
+    /// - Enables the RX DMA request in the LPUART peripheral
+    /// - Sets up the circular DMA transfer
+    /// - Enables the NVIC interrupt for async wakeups
+    ///
+    /// # Arguments
+    ///
+    /// * `buf` - Destination buffer for received data (power-of-2 size is ideal for efficiency)
+    ///
+    /// # Returns
+    ///
+    /// A [`RingBuffer`] that can be used to asynchronously read received data.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// static mut RX_BUF: [u8; 64] = [0; 64];
+    ///
+    /// let rx = LpuartRxDma::new(p.LPUART2, p.P2_3, p.DMA_CH0, config).unwrap();
+    /// let ring_buf = unsafe { rx.setup_ring_buffer(&mut RX_BUF) };
+    ///
+    /// // Read data as it arrives
+    /// let mut buf = [0u8; 16];
+    /// let n = ring_buf.read(&mut buf).await.unwrap();
+    /// ```
+    ///
+    /// # Safety
+    ///
+    /// - The buffer must remain valid for the lifetime of the returned RingBuffer.
+    /// - Only one RingBuffer should exist per LPUART RX channel at a time.
+    /// - The caller must ensure the static buffer is not accessed elsewhere while
+    ///   the ring buffer is active.
+    pub unsafe fn setup_ring_buffer<'b>(&self, buf: &'b mut [u8]) -> RingBuffer<'b, u8> {
+        // Get the peripheral data register address
+        let peri_addr = self.info.regs.data().as_ptr() as *const u8;
+
+        // Configure DMA request source for this LPUART instance
+        self.rx_dma.set_request_source(T::RX_DMA_REQ);
+
+        // Enable RX DMA request in the LPUART peripheral
+        self.info.regs.baud().modify(|_, w| w.rdmae().enabled());
+
+        // Set up circular DMA transfer (this also enables NVIC interrupt)
+        self.rx_dma.setup_circular_read(peri_addr, buf)
+    }
+
+    /// Enable the DMA channel request.
+    ///
+    /// Call this after `setup_ring_buffer()` to start continuous reception.
+    /// This is separated from setup to allow for any additional configuration
+    /// before starting the transfer.
+    pub unsafe fn enable_dma_request(&self) {
+        self.rx_dma.enable_request();
     }
 }
 

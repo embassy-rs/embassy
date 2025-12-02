@@ -373,6 +373,9 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
         crate::gpio::init();
     }
 
+    // Initialize DMA controller (clock, reset, configuration)
+    crate::dma::init();
+
     // Initialize embassy-time global driver backed by OSTIMER0
     #[cfg(feature = "time")]
     crate::ostimer::time_driver::init(crate::config::Config::default().time_interrupt_priority, 1_000_000);

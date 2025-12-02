@@ -18,7 +18,7 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::dma::{self, DmaCh0InterruptHandler, DmaCh1InterruptHandler, DmaCh2InterruptHandler, DmaChannel};
+use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaCh1InterruptHandler, DmaCh2InterruptHandler, DmaChannel};
 use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
 use embassy_mcxa::{bind_interrupts, pac};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
@@ -85,8 +85,7 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("DMA channel link example starting...");
 
-    // Ensure DMA is initialized (clock/reset/init handled automatically by HAL)
-    dma::ensure_init();
+    // DMA is initialized during hal::init() - no need to call ensure_init()
 
     let pac_periphs = unsafe { pac::Peripherals::steal() };
     let dma0 = &pac_periphs.dma0;

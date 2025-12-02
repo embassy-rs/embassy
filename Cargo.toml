@@ -46,3 +46,9 @@ time = [
     "dep:embassy-time",
     "dep:embassy-time-driver",
 ]
+
+[lints.rust]
+# The `rt` cfg is checked by embassy_hal_internal::interrupt_mod! macro
+# even though it's defined in the macro's crate, not ours. This suppresses
+# the "unexpected cfg condition value" warning.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(feature, values(\"rt\"))"] }
