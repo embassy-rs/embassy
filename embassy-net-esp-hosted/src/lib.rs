@@ -238,8 +238,9 @@ where
                     if self.shared.is_ota() {
                         self.heartbeat_deadline = Instant::now() + HEARTBEAT_MAX_GAP;
                         continue;
+                    } else {
+                        panic!("heartbeat from esp32 stopped")
                     }
-                    panic!("heartbeat from esp32 stopped")
                 }
             }
 

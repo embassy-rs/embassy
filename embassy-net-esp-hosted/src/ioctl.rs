@@ -106,7 +106,6 @@ impl Shared {
         let mut this = self.0.borrow_mut();
         this.is_ota = true;
         this.is_init = false;
-        this.runner_waker.wake();
     }
 
     // check if ota is in progress

@@ -1,3 +1,4 @@
+use core::marker::PhantomData;
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
 use heapless::String;
@@ -24,9 +25,15 @@ pub struct Control<'a> {
     shared: &'a Shared,
 }
 
-/// Handle for managing firmware update.
-pub struct UpdateControl<'a, 'd> {
-    control: &'a mut Control<'d>,
+/// Token required for doing an update
+pub struct OtaToken {
+    _d: PhantomData<()>,
+}
+
+impl OtaToken {
+    fn new() -> Self {
+        Self { _d: PhantomData }
+    }
 }
 
 /// WiFi mode.
@@ -152,10 +159,43 @@ impl<'a> Control<'a> {
     }
 
     /// Initiate a firmware update.
-    pub async fn update(&mut self) -> Result<UpdateControl<'_, 'a>, Error> {
+    ///
+    /// Returns a token needed for writing and finishing.
+    pub async fn ota_begin(&mut self) -> Result<OtaToken, Error> {
         let req = proto::CtrlMsg_Req_OTABegin {};
         ioctl!(self, ReqOtaBegin, RespOtaBegin, req, resp);
-        Ok(UpdateControl { control: self })
+        Ok(OtaToken::new())
+    }
+
+    /// Write slice of firmware to a device.
+    ///
+    /// Token is required as proof that ota_begin was called.
+    ///
+    /// The slice is split into chunks that can be sent across
+    /// the ioctl protocol to the wifi adapter.
+    pub async fn ota_write(&mut self, _token: &OtaToken, data: &[u8]) -> Result<(), Error> {
+        for chunk in data.chunks(256) {
+            let req = proto::CtrlMsg_Req_OTAWrite {
+                ota_data: heapless::Vec::from_slice(chunk).unwrap(),
+            };
+            ioctl!(self, ReqOtaWrite, RespOtaWrite, req, resp);
+        }
+        Ok(())
+    }
+
+    /// End the OTA session.
+    ///
+    /// Token is required as proof that ota_begin was called.
+    ///
+    /// NOTE: Will reset the wifi adapter after 5 seconds.
+    pub async fn ota_end(&mut self, _token: OtaToken) -> Result<(), Error> {
+        let req = proto::CtrlMsg_Req_OTAEnd {};
+        ioctl!(self, ReqOtaEnd, RespOtaEnd, req, resp);
+        // Ensures that run loop awaits reset
+        self.shared.ota_done();
+        // Wait for re-init
+        self.init().await?;
+        Ok(())
     }
 
     /// duration in seconds, clamped to [10, 3600]
@@ -225,37 +265,6 @@ impl<'a> Control<'a> {
         })?;
         debug!("ioctl resp: {:?}", msg);
 
-        Ok(())
-    }
-}
-
-impl<'a, 'd> UpdateControl<'a, 'd> {
-    /// Write slice of firmware to a device.
-    ///
-    /// The slice is split into chunks that can be sent across
-    /// the ioctl protocol to the wifi adapter.
-    pub async fn write(&mut self, data: &[u8]) -> Result<(), Error> {
-        let this = &mut self.control;
-        for chunk in data.chunks(256) {
-            let req = proto::CtrlMsg_Req_OTAWrite {
-                ota_data: heapless::Vec::from_slice(chunk).unwrap(),
-            };
-            ioctl!(this, ReqOtaWrite, RespOtaWrite, req, resp);
-        }
-        Ok(())
-    }
-
-    /// End the OTA session.
-    ///
-    /// NOTE: Will reset the wifi adapter after 5 seconds.
-    pub async fn finish(self) -> Result<(), Error> {
-        let this = self.control;
-        let req = proto::CtrlMsg_Req_OTAEnd {};
-        ioctl!(this, ReqOtaEnd, RespOtaEnd, req, resp);
-        // Ensures that run loop awaits reset
-        this.shared.ota_done();
-        // Wait for re-init
-        this.init().await?;
         Ok(())
     }
 }
