@@ -1,13 +1,12 @@
 //! Pio backed I2S output and output drivers
 
-use fixed::traits::ToFixed;
-
 use crate::Peri;
 use crate::dma::{AnyChannel, Channel, Transfer};
 use crate::gpio::Pull;
 use crate::pio::{
     Common, Config, Direction, FifoJoin, Instance, LoadedProgram, PioPin, ShiftConfig, ShiftDirection, StateMachine,
 };
+use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
 
 /// This struct represents an I2S receiver & controller driver program
 pub struct PioI2sInProgram<'d, PIO: Instance> {
@@ -15,6 +14,8 @@ pub struct PioI2sInProgram<'d, PIO: Instance> {
 }
 
 impl<'d, PIO: Instance> PioI2sInProgram<'d, PIO> {
+    const CRITICAL_LOOP_LEN: u32 = 2;
+
     /// Load the input program into the given pio
     pub fn new(common: &mut Common<'d, PIO>) -> Self {
         let prg = pio::pio_asm! {
@@ -32,6 +33,11 @@ impl<'d, PIO: Instance> PioI2sInProgram<'d, PIO> {
         };
         let prg = common.load_program(&prg.program);
         Self { prg }
+    }
+
+    /// Return number of cycles that the program needs to recive one Bit of data
+    pub fn critical_loop_len(&self) -> u32 {
+        Self::CRITICAL_LOOP_LEN
     }
 }
 
@@ -72,7 +78,7 @@ impl<'d, P: Instance, const S: usize> PioI2sIn<'d, P, S> {
             cfg.use_program(&program.prg, &[&bit_clock_pin, &left_right_clock_pin]);
             cfg.set_in_pins(&[&data_pin]);
             let clock_frequency = sample_rate * bit_depth * channels;
-            cfg.clock_divider = (crate::clocks::clk_sys_freq() as f64 / clock_frequency as f64 / 2.).to_fixed();
+            cfg.clock_divider = calculate_pio_clock_divider(clock_frequency * program.critical_loop_len());
             cfg.shift_in = ShiftConfig {
                 threshold: 32,
                 direction: ShiftDirection::Left,
@@ -106,6 +112,8 @@ pub struct PioI2sOutProgram<'d, PIO: Instance> {
 }
 
 impl<'d, PIO: Instance> PioI2sOutProgram<'d, PIO> {
+    const CRITICAL_LOOP_LEN: u32 = 2;
+
     /// Load the program into the given pio
     pub fn new(common: &mut Common<'d, PIO>) -> Self {
         let prg = pio::pio_asm!(
@@ -125,6 +133,11 @@ impl<'d, PIO: Instance> PioI2sOutProgram<'d, PIO> {
         let prg = common.load_program(&prg.program);
 
         Self { prg }
+    }
+
+    /// Return number of cycles that the program needs to generate one Bit Clock
+    pub fn critical_loop_len(&self) -> u32 {
+        Self::CRITICAL_LOOP_LEN
     }
 }
 
@@ -156,7 +169,7 @@ impl<'d, P: Instance, const S: usize> PioI2sOut<'d, P, S> {
             cfg.use_program(&program.prg, &[&bit_clock_pin, &left_right_clock_pin]);
             cfg.set_out_pins(&[&data_pin]);
             let clock_frequency = sample_rate * bit_depth * 2;
-            cfg.clock_divider = (crate::clocks::clk_sys_freq() as f64 / clock_frequency as f64 / 2.).to_fixed();
+            cfg.clock_divider = calculate_pio_clock_divider(clock_frequency * program.critical_loop_len());
             cfg.shift_out = ShiftConfig {
                 threshold: 32,
                 direction: ShiftDirection::Left,
