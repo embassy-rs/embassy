@@ -177,7 +177,6 @@ impl<'a> Control<'a> {
     pub async fn ota_end(&mut self) -> Result<(), Error> {
         let req = proto::CtrlMsg_Req_OTAEnd {};
         ioctl!(self, ReqOtaEnd, RespOtaEnd, req, resp);
-        // Ensures that run loop awaits reset
         self.shared.ota_done();
         // Wait for re-init
         self.init().await?;
