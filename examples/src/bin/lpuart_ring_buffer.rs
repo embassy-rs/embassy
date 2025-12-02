@@ -19,10 +19,10 @@
 #![no_main]
 
 use embassy_executor::Spawner;
+use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaCh1InterruptHandler};
 use embassy_mcxa::lpuart::{Config, LpuartDma, LpuartTxDma};
-use embassy_mcxa::bind_interrupts;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Bind DMA channel interrupts
@@ -61,8 +61,6 @@ async fn main(_spawner: Spawner) {
     // Create UART configuration
     let config = Config {
         baudrate_bps: 115_200,
-        enable_tx: true,
-        enable_rx: true,
         ..Default::default()
     };
 

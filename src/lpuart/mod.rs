@@ -207,8 +207,8 @@ pub fn clear_all_status_flags(regs: Regs) {
 }
 
 /// Configure hardware flow control if enabled
-pub fn configure_flow_control(regs: Regs, config: &Config) {
-    if config.enable_rx_rts || config.enable_tx_cts {
+pub fn configure_flow_control(regs: Regs, enable_tx_cts: bool, enable_rx_rts: bool, config: &Config) {
+    if enable_rx_rts || enable_tx_cts {
         regs.modir().modify(|_, w| {
             let mut w = w;
 
@@ -216,13 +216,13 @@ pub fn configure_flow_control(regs: Regs, config: &Config) {
             w = w.txctsc().variant(config.tx_cts_config);
             w = w.txctssrc().variant(config.tx_cts_source);
 
-            if config.enable_rx_rts {
+            if enable_rx_rts {
                 w = w.rxrtse().enabled();
             } else {
                 w = w.rxrtse().disabled();
             }
 
-            if config.enable_tx_cts {
+            if enable_tx_cts {
                 w = w.txctse().enabled();
             } else {
                 w = w.txctse().disabled();
@@ -590,17 +590,13 @@ pub struct Config {
     /// Number of data bits
     pub data_bits_count: DataBits,
     /// MSB First or LSB First configuration
-    pub msb_firs: MsbFirst,
+    pub msb_first: MsbFirst,
     /// Number of stop bits
     pub stop_bits_count: StopBits,
     /// TX FIFO watermark
     pub tx_fifo_watermark: u8,
     /// RX FIFO watermark
     pub rx_fifo_watermark: u8,
-    /// RX RTS enable
-    pub enable_rx_rts: bool,
-    /// TX CTS enable
-    pub enable_tx_cts: bool,
     /// TX CTS source
     pub tx_cts_source: TxCtsSource,
     /// TX CTS configure
@@ -609,10 +605,6 @@ pub struct Config {
     pub rx_idle_type: IdleType,
     /// RX IDLE configuration
     pub rx_idle_config: IdleConfig,
-    /// Enable transmitter
-    pub enable_tx: bool,
-    /// Enable receiver
-    pub enable_rx: bool,
     /// Swap TXD and RXD pins
     pub swap_txd_rxd: bool,
 }
@@ -623,18 +615,14 @@ impl Default for Config {
             baudrate_bps: 115_200u32,
             parity_mode: None,
             data_bits_count: DataBits::Data8,
-            msb_firs: MsbFirst::LsbFirst,
+            msb_first: MsbFirst::LsbFirst,
             stop_bits_count: StopBits::One,
             tx_fifo_watermark: 0,
             rx_fifo_watermark: 1,
-            enable_rx_rts: false,
-            enable_tx_cts: false,
             tx_cts_source: TxCtsSource::Cts,
             tx_cts_config: TxCtsConfig::Start,
             rx_idle_type: IdleType::FromStart,
             rx_idle_config: IdleConfig::Idle1,
-            enable_tx: false,
-            enable_rx: false,
             swap_txd_rxd: false,
             power: PoweredClock::NormalEnabledDeepSleepDisabled,
             source: LpuartClockSel::FroLfDiv,
@@ -698,6 +686,7 @@ pub struct Lpuart<'a, M: Mode> {
 pub struct LpuartTx<'a, M: Mode> {
     info: Info,
     _tx_pin: Peri<'a, AnyPin>,
+    _cts_pin: Option<Peri<'a, AnyPin>>,
     mode: PhantomData<(&'a (), M)>,
 }
 
@@ -705,6 +694,7 @@ pub struct LpuartTx<'a, M: Mode> {
 pub struct LpuartRx<'a, M: Mode> {
     info: Info,
     _rx_pin: Peri<'a, AnyPin>,
+    _rts_pin: Option<Peri<'a, AnyPin>>,
     mode: PhantomData<(&'a (), M)>,
 }
 
@@ -736,10 +726,10 @@ pub struct LpuartDma<'a, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait
 
 impl<'a, M: Mode> Lpuart<'a, M> {
     fn init<T: Instance>(
-        _tx: Option<&Peri<'a, AnyPin>>,
-        _rx: Option<&Peri<'a, AnyPin>>,
-        _rts: Option<&Peri<'a, AnyPin>>,
-        _cts: Option<&Peri<'a, AnyPin>>,
+        enable_tx: bool,
+        enable_rx: bool,
+        enable_tx_cts: bool,
+        enable_rx_rts: bool,
         config: Config,
     ) -> Result<()> {
         let regs = T::info().regs;
@@ -761,9 +751,9 @@ impl<'a, M: Mode> Lpuart<'a, M> {
         configure_control_settings(regs, &config);
         configure_fifo(regs, &config);
         clear_all_status_flags(regs);
-        configure_flow_control(regs, &config);
-        configure_bit_order(regs, config.msb_firs);
-        enable_transceiver(regs, config.enable_tx, config.enable_rx);
+        configure_flow_control(regs, enable_tx_cts, enable_rx_rts, &config);
+        configure_bit_order(regs, config.msb_first);
+        enable_transceiver(regs, enable_rx, enable_tx);
 
         Ok(())
     }
@@ -800,7 +790,7 @@ impl<'a, M: Mode> Lpuart<'a, M> {
 // ============================================================================
 
 impl<'a> Lpuart<'a, Blocking> {
-    /// Create a new blocking LPUART instance with TX and RX pins.
+    /// Create a new blocking LPUART instance with RX/TX pins.
     pub fn new_blocking<T: Instance>(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -811,17 +801,38 @@ impl<'a> Lpuart<'a, Blocking> {
         tx_pin.as_tx();
         rx_pin.as_rx();
 
-        // Convert pins to AnyPin
-        let tx_pin: Peri<'a, AnyPin> = tx_pin.into();
-        let rx_pin: Peri<'a, AnyPin> = rx_pin.into();
-
         // Initialize the peripheral
-        Self::init::<T>(Some(&tx_pin), Some(&rx_pin), None, None, config)?;
+        Self::init::<T>(true, true, false, false, config)?;
 
         Ok(Self {
             info: T::info(),
-            tx: LpuartTx::new_inner(T::info(), tx_pin),
-            rx: LpuartRx::new_inner(T::info(), rx_pin),
+            tx: LpuartTx::new_inner(T::info(), tx_pin.into(), None),
+            rx: LpuartRx::new_inner(T::info(), rx_pin.into(), None),
+        })
+    }
+
+    /// Create a new blocking LPUART instance with RX, TX and RTS/CTS flow control pins
+    pub fn new_blocking_with_rtscts<T: Instance>(
+        _inner: Peri<'a, T>,
+        tx_pin: Peri<'a, impl TxPin<T>>,
+        rx_pin: Peri<'a, impl RxPin<T>>,
+        cts_pin: Peri<'a, impl CtsPin<T>>,
+        rts_pin: Peri<'a, impl RtsPin<T>>,
+        config: Config,
+    ) -> Result<Self> {
+        // Configure the pins for LPUART usage
+        rx_pin.as_rx();
+        tx_pin.as_tx();
+        rts_pin.as_rts();
+        cts_pin.as_cts();
+
+        // Initialize the peripheral with flow control
+        Self::init::<T>(true, true, true, true, config)?;
+
+        Ok(Self {
+            info: T::info(),
+            rx: LpuartRx::new_inner(T::info(), rx_pin.into(), Some(rts_pin.into())),
+            tx: LpuartTx::new_inner(T::info(), tx_pin.into(), Some(cts_pin.into())),
         })
     }
 }
@@ -831,29 +842,45 @@ impl<'a> Lpuart<'a, Blocking> {
 // ----------------------------------------------------------------------------
 
 impl<'a, M: Mode> LpuartTx<'a, M> {
-    fn new_inner(info: Info, tx_pin: Peri<'a, AnyPin>) -> Self {
+    fn new_inner(info: Info, tx_pin: Peri<'a, AnyPin>, cts_pin: Option<Peri<'a, AnyPin>>) -> Self {
         Self {
             info,
             _tx_pin: tx_pin,
+            _cts_pin: cts_pin,
             mode: PhantomData,
         }
     }
 }
 
 impl<'a> LpuartTx<'a, Blocking> {
-    /// Create a new blocking LPUART which can only send data.
+    /// Create a new blocking LPUART transmitter instance
     pub fn new_blocking<T: Instance>(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
         config: Config,
     ) -> Result<Self> {
+        // Configure the pins for LPUART usage
         tx_pin.as_tx();
 
-        let tx_pin: Peri<'a, AnyPin> = tx_pin.into();
+        // Initialize the peripheral
+        Lpuart::<Blocking>::init::<T>(true, false, false, false, config)?;
 
-        Lpuart::<Blocking>::init::<T>(Some(&tx_pin), None, None, None, config)?;
+        Ok(Self::new_inner(T::info(), tx_pin.into(), None))
+    }
 
-        Ok(Self::new_inner(T::info(), tx_pin))
+    /// Create a new blocking LPUART transmitter instance with CTS flow control
+    pub fn new_blocking_with_cts<T: Instance>(
+        _inner: Peri<'a, T>,
+        tx_pin: Peri<'a, impl TxPin<T>>,
+        cts_pin: Peri<'a, impl CtsPin<T>>,
+        config: Config,
+    ) -> Result<Self> {
+        tx_pin.as_tx();
+        cts_pin.as_cts();
+
+        Lpuart::<Blocking>::init::<T>(true, false, true, false, config)?;
+
+        Ok(Self::new_inner(T::info(), tx_pin.into(), Some(cts_pin.into())))
     }
 
     fn write_byte_internal(&mut self, byte: u8) -> Result<()> {
@@ -932,17 +959,18 @@ impl<'a> LpuartTx<'a, Blocking> {
 // ----------------------------------------------------------------------------
 
 impl<'a, M: Mode> LpuartRx<'a, M> {
-    fn new_inner(info: Info, rx_pin: Peri<'a, AnyPin>) -> Self {
+    fn new_inner(info: Info, rx_pin: Peri<'a, AnyPin>, rts_pin: Option<Peri<'a, AnyPin>>) -> Self {
         Self {
             info,
             _rx_pin: rx_pin,
+            _rts_pin: rts_pin,
             mode: PhantomData,
         }
     }
 }
 
 impl<'a> LpuartRx<'a, Blocking> {
-    /// Create a new blocking LPUART which can only receive data.
+    /// Create a new blocking LPUART Receiver instance
     pub fn new_blocking<T: Instance>(
         _inner: Peri<'a, T>,
         rx_pin: Peri<'a, impl RxPin<T>>,
@@ -950,11 +978,24 @@ impl<'a> LpuartRx<'a, Blocking> {
     ) -> Result<Self> {
         rx_pin.as_rx();
 
-        let rx_pin: Peri<'a, AnyPin> = rx_pin.into();
+        Lpuart::<Blocking>::init::<T>(false, true, false, false, config)?;
 
-        Lpuart::<Blocking>::init::<T>(None, Some(&rx_pin), None, None, config)?;
+        Ok(Self::new_inner(T::info(), rx_pin.into(), None))
+    }
 
-        Ok(Self::new_inner(T::info(), rx_pin))
+    /// Create a new blocking LPUART Receiver instance with RTS flow control
+    pub fn new_blocking_with_rts<T: Instance>(
+        _inner: Peri<'a, T>,
+        rx_pin: Peri<'a, impl RxPin<T>>,
+        rts_pin: Peri<'a, impl RtsPin<T>>,
+        config: Config,
+    ) -> Result<Self> {
+        rx_pin.as_rx();
+        rts_pin.as_rts();
+
+        Lpuart::<Blocking>::init::<T>(false, true, false, true, config)?;
+
+        Ok(Self::new_inner(T::info(), rx_pin.into(), Some(rts_pin.into())))
     }
 
     fn read_byte_internal(&mut self) -> Result<u8> {
@@ -1016,8 +1057,8 @@ impl<'a> Lpuart<'a, Blocking> {
         self.tx.blocking_write(buf)
     }
 
-    pub fn write_byte(&mut self, byte: u8) {
-        _ = self.tx.write_byte(byte);
+    pub fn write_byte(&mut self, byte: u8) -> Result<()> {
+        self.tx.write_byte(byte)
     }
 
     pub fn read_byte_blocking(&mut self) -> u8 {
@@ -1143,7 +1184,8 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartTxDma<'a, T, C> {
         tx_pin.as_tx();
         let tx_pin: Peri<'a, AnyPin> = tx_pin.into();
 
-        Lpuart::<Async>::init::<T>(Some(&tx_pin), None, None, None, config)?;
+        // Initialize LPUART with TX enabled, RX disabled, no flow control
+        Lpuart::<Async>::init::<T>(true, false, false, false, config)?;
 
         Ok(Self {
             info: T::info(),
@@ -1254,7 +1296,8 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
         rx_pin.as_rx();
         let rx_pin: Peri<'a, AnyPin> = rx_pin.into();
 
-        Lpuart::<Async>::init::<T>(None, Some(&rx_pin), None, None, config)?;
+        // Initialize LPUART with TX disabled, RX enabled, no flow control
+        Lpuart::<Async>::init::<T>(false, true, false, false, config)?;
 
         Ok(Self {
             info: T::info(),
@@ -1430,7 +1473,8 @@ impl<'a, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> LpuartDma<'a, 
         let tx_pin: Peri<'a, AnyPin> = tx_pin.into();
         let rx_pin: Peri<'a, AnyPin> = rx_pin.into();
 
-        Lpuart::<Async>::init::<T>(Some(&tx_pin), Some(&rx_pin), None, None, config)?;
+        // Initialize LPUART with both TX and RX enabled, no flow control
+        Lpuart::<Async>::init::<T>(true, true, false, false, config)?;
 
         Ok(Self {
             tx: LpuartTxDma {

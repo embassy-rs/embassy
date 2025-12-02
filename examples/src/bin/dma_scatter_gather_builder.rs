@@ -87,8 +87,6 @@ async fn main(_spawner: Spawner) {
     // Create UART for debug output
     let config = Config {
         baudrate_bps: 115_200,
-        enable_tx: true,
-        enable_rx: false,
         ..Default::default()
     };
 

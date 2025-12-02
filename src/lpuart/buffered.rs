@@ -16,11 +16,11 @@ use crate::interrupt;
 
 /// State for buffered LPUART operations
 pub struct State {
-    rx_waker: AtomicWaker,
-    rx_buf: RingBuffer,
     tx_waker: AtomicWaker,
     tx_buf: RingBuffer,
     tx_done: AtomicBool,
+    rx_waker: AtomicWaker,
+    rx_buf: RingBuffer,
     initialized: AtomicBool,
 }
 
@@ -34,11 +34,11 @@ impl State {
     /// Create a new state instance
     pub const fn new() -> Self {
         Self {
-            rx_waker: AtomicWaker::new(),
-            rx_buf: RingBuffer::new(),
             tx_waker: AtomicWaker::new(),
             tx_buf: RingBuffer::new(),
             tx_done: AtomicBool::new(true),
+            rx_waker: AtomicWaker::new(),
+            rx_buf: RingBuffer::new(),
             initialized: AtomicBool::new(false),
         }
     }
@@ -58,6 +58,7 @@ pub struct BufferedLpuartTx<'a> {
     info: Info,
     state: &'static State,
     _tx_pin: Peri<'a, AnyPin>,
+    _cts_pin: Option<Peri<'a, AnyPin>>,
 }
 
 /// Buffered LPUART RX driver
@@ -65,6 +66,7 @@ pub struct BufferedLpuartRx<'a> {
     info: Info,
     state: &'static State,
     _rx_pin: Peri<'a, AnyPin>,
+    _rts_pin: Option<Peri<'a, AnyPin>>,
 }
 
 // ============================================================================
@@ -72,143 +74,41 @@ pub struct BufferedLpuartRx<'a> {
 // ============================================================================
 
 impl<'a> BufferedLpuart<'a> {
-    /// Create a new buffered LPUART instance
-    pub fn new<T: Instance>(
-        _inner: Peri<'a, T>,
-        tx_pin: Peri<'a, impl TxPin<T>>,
-        rx_pin: Peri<'a, impl RxPin<T>>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, BufferedInterruptHandler<T>> + 'a,
-        tx_buffer: &'a mut [u8],
-        rx_buffer: &'a mut [u8],
-        config: Config,
-    ) -> Result<Self> {
-        // Configure pins
-        tx_pin.as_tx();
-        rx_pin.as_rx();
-
-        // Convert pins to AnyPin
-        let tx_pin: Peri<'a, AnyPin> = tx_pin.into();
-        let rx_pin: Peri<'a, AnyPin> = rx_pin.into();
-
+    /// Common initialization logic
+    fn init_common<T: Instance>(
+        _inner: &Peri<'a, T>,
+        tx_buffer: Option<&'a mut [u8]>,
+        rx_buffer: Option<&'a mut [u8]>,
+        config: &Config,
+        enable_tx: bool,
+        enable_rx: bool,
+        enable_rts: bool,
+        enable_cts: bool,
+    ) -> Result<&'static State> {
         let state = T::buffered_state();
 
-        // Initialize the peripheral
-        Self::init::<T>(Some(&tx_pin), Some(&rx_pin), None, None, tx_buffer, rx_buffer, config)?;
-
-        Ok(Self {
-            tx: BufferedLpuartTx {
-                info: T::info(),
-                state,
-                _tx_pin: tx_pin,
-            },
-            rx: BufferedLpuartRx {
-                info: T::info(),
-                state,
-                _rx_pin: rx_pin,
-            },
-        })
-    }
-
-    /// Create a new buffered LPUART with flexible pin configuration
-    #[allow(clippy::too_many_arguments)]
-    pub fn new_with_pins<T: Instance>(
-        _inner: Peri<'a, T>,
-        tx_pin: Option<Peri<'a, impl TxPin<T>>>,
-        rx_pin: Option<Peri<'a, impl RxPin<T>>>,
-        rts_pin: Option<Peri<'a, impl RtsPin<T>>>,
-        cts_pin: Option<Peri<'a, impl CtsPin<T>>>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, BufferedInterruptHandler<T>> + 'a,
-        tx_buffer: &'a mut [u8],
-        rx_buffer: &'a mut [u8],
-        config: Config,
-    ) -> Result<Self> {
-        // Configure pins if provided
-        let tx_pin: Option<Peri<'a, AnyPin>> = tx_pin.map(|pin| {
-            pin.as_tx();
-            pin.into()
-        });
-
-        let rx_pin: Option<Peri<'a, AnyPin>> = rx_pin.map(|pin| {
-            pin.as_rx();
-            pin.into()
-        });
-
-        let rts_pin: Option<Peri<'a, AnyPin>> = rts_pin.map(|pin| {
-            pin.as_rts();
-            pin.into()
-        });
-
-        let cts_pin: Option<Peri<'a, AnyPin>> = cts_pin.map(|pin| {
-            pin.as_cts();
-            pin.into()
-        });
-
-        let state = T::buffered_state();
-
-        // Initialize the peripheral
-        Self::init::<T>(
-            tx_pin.as_ref(),
-            rx_pin.as_ref(),
-            rts_pin.as_ref(),
-            cts_pin.as_ref(),
-            tx_buffer,
-            rx_buffer,
-            config,
-        )?;
-
-        // Create TX and RX instances
-        let (tx, rx) = if let (Some(tx_pin), Some(rx_pin)) = (tx_pin, rx_pin) {
-            (
-                BufferedLpuartTx {
-                    info: T::info(),
-                    state,
-                    _tx_pin: tx_pin,
-                },
-                BufferedLpuartRx {
-                    info: T::info(),
-                    state,
-                    _rx_pin: rx_pin,
-                },
-            )
-        } else {
-            return Err(Error::InvalidArgument);
-        };
-
-        Ok(Self { tx, rx })
-    }
-
-    fn init<T: Instance>(
-        _tx: Option<&Peri<'a, AnyPin>>,
-        _rx: Option<&Peri<'a, AnyPin>>,
-        _rts: Option<&Peri<'a, AnyPin>>,
-        _cts: Option<&Peri<'a, AnyPin>>,
-        tx_buffer: &'a mut [u8],
-        rx_buffer: &'a mut [u8],
-        mut config: Config,
-    ) -> Result<()> {
-        let regs = T::info().regs;
-        let state = T::buffered_state();
-
-        // Check if already initialized
         if state.initialized.load(Ordering::Relaxed) {
             return Err(Error::InvalidArgument);
         }
 
-        // Initialize ring buffers
-        assert!(!tx_buffer.is_empty());
-        unsafe { state.tx_buf.init(tx_buffer.as_mut_ptr(), tx_buffer.len()) }
+        // Initialize buffers
+        if let Some(tx_buffer) = tx_buffer {
+            if tx_buffer.is_empty() {
+                return Err(Error::InvalidArgument);
+            }
+            unsafe { state.tx_buf.init(tx_buffer.as_mut_ptr(), tx_buffer.len()) };
+        }
 
-        assert!(!rx_buffer.is_empty());
-        unsafe { state.rx_buf.init(rx_buffer.as_mut_ptr(), rx_buffer.len()) }
+        if let Some(rx_buffer) = rx_buffer {
+            if rx_buffer.is_empty() {
+                return Err(Error::InvalidArgument);
+            }
+            unsafe { state.rx_buf.init(rx_buffer.as_mut_ptr(), rx_buffer.len()) };
+        }
 
-        // Mark as initialized
         state.initialized.store(true, Ordering::Relaxed);
 
-        // Enable TX and RX for buffered operation
-        config.enable_tx = true;
-        config.enable_rx = true;
-
-        // Enable clocks
+        // Enable clocks and initialize hardware
         let conf = LpuartConfig {
             power: config.power,
             source: config.source,
@@ -217,6 +117,68 @@ impl<'a> BufferedLpuart<'a> {
         };
         let clock_freq = unsafe { enable_and_reset::<T>(&conf).map_err(Error::ClockSetup)? };
 
+        Self::init_hardware(
+            T::info().regs,
+            *config,
+            clock_freq,
+            enable_tx,
+            enable_rx,
+            enable_rts,
+            enable_cts,
+        )?;
+
+        Ok(state)
+    }
+
+    /// Helper for full-duplex initialization
+    fn new_inner<T: Instance>(
+        inner: Peri<'a, T>,
+        tx_pin: Peri<'a, AnyPin>,
+        rx_pin: Peri<'a, AnyPin>,
+        rts_pin: Option<Peri<'a, AnyPin>>,
+        cts_pin: Option<Peri<'a, AnyPin>>,
+        tx_buffer: &'a mut [u8],
+        rx_buffer: &'a mut [u8],
+        config: Config,
+    ) -> Result<(BufferedLpuartTx<'a>, BufferedLpuartRx<'a>)> {
+        let state = Self::init_common::<T>(
+            &inner,
+            Some(tx_buffer),
+            Some(rx_buffer),
+            &config,
+            true,
+            true,
+            rts_pin.is_some(),
+            cts_pin.is_some(),
+        )?;
+
+        let tx = BufferedLpuartTx {
+            info: T::info(),
+            state,
+            _tx_pin: tx_pin,
+            _cts_pin: cts_pin,
+        };
+
+        let rx = BufferedLpuartRx {
+            info: T::info(),
+            state,
+            _rx_pin: rx_pin,
+            _rts_pin: rts_pin,
+        };
+
+        Ok((tx, rx))
+    }
+
+    /// Common hardware initialization logic
+    fn init_hardware(
+        regs: &'static mcxa_pac::lpuart0::RegisterBlock,
+        config: Config,
+        clock_freq: u32,
+        enable_tx: bool,
+        enable_rx: bool,
+        enable_rts: bool,
+        enable_cts: bool,
+    ) -> Result<()> {
         // Perform standard initialization
         perform_software_reset(regs);
         disable_transceiver(regs);
@@ -225,8 +187,8 @@ impl<'a> BufferedLpuart<'a> {
         configure_control_settings(regs, &config);
         configure_fifo(regs, &config);
         clear_all_status_flags(regs);
-        configure_flow_control(regs, &config);
-        configure_bit_order(regs, config.msb_firs);
+        configure_flow_control(regs, enable_rts, enable_cts, &config);
+        configure_bit_order(regs, config.msb_first);
 
         // Enable interrupts for buffered operation
         cortex_m::interrupt::free(|_| {
@@ -245,15 +207,125 @@ impl<'a> BufferedLpuart<'a> {
         });
 
         // Enable the transceiver
-        enable_transceiver(regs, config.enable_tx, config.enable_rx);
-
-        // Enable the interrupt
-        // unsafe {
-        //     // TODO: Used the propper interrupt enable method for the specific LPUART instance
-        //     // T::Interrupt::enable();
-        // }
+        enable_transceiver(regs, enable_rx, enable_tx);
 
         Ok(())
+    }
+
+    /// Create a new full duplex buffered LPUART
+    pub fn new<T: Instance>(
+        inner: Peri<'a, T>,
+        tx_pin: Peri<'a, impl TxPin<T>>,
+        rx_pin: Peri<'a, impl RxPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, BufferedInterruptHandler<T>> + 'a,
+        tx_buffer: &'a mut [u8],
+        rx_buffer: &'a mut [u8],
+        config: Config,
+    ) -> Result<Self> {
+        tx_pin.as_tx();
+        rx_pin.as_rx();
+
+        let (tx, rx) = Self::new_inner::<T>(
+            inner,
+            tx_pin.into(),
+            rx_pin.into(),
+            None,
+            None,
+            tx_buffer,
+            rx_buffer,
+            config,
+        )?;
+
+        Ok(Self { tx, rx })
+    }
+
+    /// Create a new buffered LPUART instance with RTS/CTS flow control
+    pub fn new_with_rtscts<T: Instance>(
+        inner: Peri<'a, T>,
+        tx_pin: Peri<'a, impl TxPin<T>>,
+        rx_pin: Peri<'a, impl RxPin<T>>,
+        rts_pin: Peri<'a, impl RtsPin<T>>,
+        cts_pin: Peri<'a, impl CtsPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, BufferedInterruptHandler<T>> + 'a,
+        tx_buffer: &'a mut [u8],
+        rx_buffer: &'a mut [u8],
+        config: Config,
+    ) -> Result<Self> {
+        tx_pin.as_tx();
+        rx_pin.as_rx();
+        rts_pin.as_rts();
+        cts_pin.as_cts();
+
+        let (tx, rx) = Self::new_inner::<T>(
+            inner,
+            tx_pin.into(),
+            rx_pin.into(),
+            Some(rts_pin.into()),
+            Some(cts_pin.into()),
+            tx_buffer,
+            rx_buffer,
+            config,
+        )?;
+
+        Ok(Self { tx, rx })
+    }
+
+    /// Create a new buffered LPUART with only RTS flow control (RX flow control)
+    pub fn new_with_rts<T: Instance>(
+        inner: Peri<'a, T>,
+        tx_pin: Peri<'a, impl TxPin<T>>,
+        rx_pin: Peri<'a, impl RxPin<T>>,
+        rts_pin: Peri<'a, impl RtsPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, BufferedInterruptHandler<T>> + 'a,
+        tx_buffer: &'a mut [u8],
+        rx_buffer: &'a mut [u8],
+        config: Config,
+    ) -> Result<Self> {
+        tx_pin.as_tx();
+        rx_pin.as_rx();
+        rts_pin.as_rts();
+
+        let (tx, rx) = Self::new_inner::<T>(
+            inner,
+            tx_pin.into(),
+            rx_pin.into(),
+            Some(rts_pin.into()),
+            None,
+            tx_buffer,
+            rx_buffer,
+            config,
+        )?;
+
+        Ok(Self { tx, rx })
+    }
+
+    /// Create a new buffered LPUART with only CTS flow control (TX flow control)
+    pub fn new_with_cts<T: Instance>(
+        inner: Peri<'a, T>,
+        tx_pin: Peri<'a, impl TxPin<T>>,
+        rx_pin: Peri<'a, impl RxPin<T>>,
+        cts_pin: Peri<'a, impl CtsPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, BufferedInterruptHandler<T>> + 'a,
+        tx_buffer: &'a mut [u8],
+        rx_buffer: &'a mut [u8],
+        config: Config,
+    ) -> Result<Self> {
+        tx_pin.as_tx();
+        rx_pin.as_rx();
+        cts_pin.as_cts();
+
+        let (tx, rx) = Self::new_inner::<T>(
+            inner,
+            tx_pin.into(),
+            rx_pin.into(),
+            None,
+            Some(cts_pin.into()),
+            tx_buffer,
+            rx_buffer,
+            config,
+        )?;
+
+        Ok(Self { tx, rx })
     }
 
     /// Split the buffered LPUART into separate TX and RX parts
@@ -272,51 +344,62 @@ impl<'a> BufferedLpuart<'a> {
 // ============================================================================
 
 impl<'a> BufferedLpuartTx<'a> {
-    /// Create a new TX-only buffered LPUART
+    /// Helper for TX-only initialization
+    fn new_inner<T: Instance>(
+        inner: Peri<'a, T>,
+        tx_pin: Peri<'a, AnyPin>,
+        cts_pin: Option<Peri<'a, AnyPin>>,
+        tx_buffer: &'a mut [u8],
+        config: Config,
+    ) -> Result<BufferedLpuartTx<'a>> {
+        let state = BufferedLpuart::init_common::<T>(
+            &inner,
+            Some(tx_buffer),
+            None,
+            &config,
+            true,
+            false,
+            false,
+            cts_pin.is_some(),
+        )?;
+
+        Ok(BufferedLpuartTx {
+            info: T::info(),
+            state,
+            _tx_pin: tx_pin,
+            _cts_pin: cts_pin,
+        })
+    }
+
     pub fn new<T: Instance>(
-        _inner: Peri<'a, T>,
+        inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, BufferedInterruptHandler<T>> + 'a,
         tx_buffer: &'a mut [u8],
         config: Config,
     ) -> Result<Self> {
         tx_pin.as_tx();
-        let tx_pin: Peri<'a, AnyPin> = tx_pin.into();
 
-        let info = T::info();
-        let state = T::buffered_state();
-
-        // Check if already initialized
-        if state.initialized.load(Ordering::Relaxed) {
-            return Err(Error::InvalidArgument);
-        }
-
-        // Initialize TX ring buffer only
-        unsafe {
-            let tx_buf = &state.tx_buf as *const _ as *mut RingBuffer;
-            (*tx_buf).init(tx_buffer.as_mut_ptr(), tx_buffer.len());
-        }
-
-        state.initialized.store(true, Ordering::Relaxed);
-
-        // Initialize with TX only
-        BufferedLpuart::init::<T>(
-            Some(&tx_pin),
-            None,
-            None,
-            None,
-            tx_buffer,
-            &mut [], // Empty RX buffer
-            config,
-        )?;
-
-        Ok(Self {
-            info,
-            state,
-            _tx_pin: tx_pin,
-        })
+        Self::new_inner::<T>(inner, tx_pin.into(), None, tx_buffer, config)
     }
 
+    /// Create a new TX-only buffered LPUART with CTS flow control
+    pub fn new_with_cts<T: Instance>(
+        inner: Peri<'a, T>,
+        tx_pin: Peri<'a, impl TxPin<T>>,
+        cts_pin: Peri<'a, impl CtsPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, BufferedInterruptHandler<T>> + 'a,
+        tx_buffer: &'a mut [u8],
+        config: Config,
+    ) -> Result<Self> {
+        tx_pin.as_tx();
+        cts_pin.as_cts();
+
+        Self::new_inner::<T>(inner, tx_pin.into(), Some(cts_pin.into()), tx_buffer, config)
+    }
+}
+
+impl<'a> BufferedLpuartTx<'a> {
     /// Write data asynchronously
     pub async fn write(&mut self, buf: &[u8]) -> Result<usize> {
         let mut written = 0;
@@ -401,51 +484,63 @@ impl<'a> BufferedLpuartTx<'a> {
 // ============================================================================
 
 impl<'a> BufferedLpuartRx<'a> {
+    /// Helper for RX-only initialization
+    fn new_inner<T: Instance>(
+        inner: Peri<'a, T>,
+        rx_pin: Peri<'a, AnyPin>,
+        rts_pin: Option<Peri<'a, AnyPin>>,
+        rx_buffer: &'a mut [u8],
+        config: Config,
+    ) -> Result<BufferedLpuartRx<'a>> {
+        let state = BufferedLpuart::init_common::<T>(
+            &inner,
+            None,
+            Some(rx_buffer),
+            &config,
+            false,
+            true,
+            rts_pin.is_some(),
+            false,
+        )?;
+
+        Ok(BufferedLpuartRx {
+            info: T::info(),
+            state,
+            _rx_pin: rx_pin,
+            _rts_pin: rts_pin,
+        })
+    }
+
     /// Create a new RX-only buffered LPUART
     pub fn new<T: Instance>(
-        _inner: Peri<'a, T>,
+        inner: Peri<'a, T>,
         rx_pin: Peri<'a, impl RxPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, BufferedInterruptHandler<T>> + 'a,
         rx_buffer: &'a mut [u8],
         config: Config,
     ) -> Result<Self> {
         rx_pin.as_rx();
-        let rx_pin: Peri<'a, AnyPin> = rx_pin.into();
 
-        let info = T::info();
-        let state = T::buffered_state();
-
-        // Check if already initialized
-        if state.initialized.load(Ordering::Relaxed) {
-            return Err(Error::InvalidArgument);
-        }
-
-        // Initialize RX ring buffer only
-        unsafe {
-            let rx_buf = &state.rx_buf as *const _ as *mut RingBuffer;
-            (*rx_buf).init(rx_buffer.as_mut_ptr(), rx_buffer.len());
-        }
-
-        state.initialized.store(true, Ordering::Relaxed);
-
-        // Initialize with RX only
-        BufferedLpuart::init::<T>(
-            None,
-            Some(&rx_pin),
-            None,
-            None,
-            &mut [], // Empty TX buffer
-            rx_buffer,
-            config,
-        )?;
-
-        Ok(Self {
-            info,
-            state,
-            _rx_pin: rx_pin,
-        })
+        Self::new_inner::<T>(inner, rx_pin.into(), None, rx_buffer, config)
     }
 
+    /// Create a new RX-only buffered LPUART with RTS flow control
+    pub fn new_with_rts<T: Instance>(
+        inner: Peri<'a, T>,
+        rx_pin: Peri<'a, impl RxPin<T>>,
+        rts_pin: Peri<'a, impl RtsPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, BufferedInterruptHandler<T>> + 'a,
+        rx_buffer: &'a mut [u8],
+        config: Config,
+    ) -> Result<Self> {
+        rx_pin.as_rx();
+        rts_pin.as_rts();
+
+        Self::new_inner::<T>(inner, rx_pin.into(), Some(rts_pin.into()), rx_buffer, config)
+    }
+}
+
+impl<'a> BufferedLpuartRx<'a> {
     /// Read data asynchronously
     pub async fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         if buf.is_empty() {

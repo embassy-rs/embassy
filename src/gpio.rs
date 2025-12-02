@@ -818,11 +818,10 @@ pub struct Input<'d> {
 
 impl<'d> Input<'d> {
     /// Create a GPIO input driver for a [GpioPin].
-    pub fn new(pin: Peri<'d, impl GpioPin>, pull_select: Pull, strength: DriveStrength, slew_rate: SlewRate) -> Self {
+    ///
+    pub fn new(pin: Peri<'d, impl GpioPin>, pull_select: Pull) -> Self {
         let mut flex = Flex::new(pin);
         flex.set_as_input();
-        flex.set_drive_strength(strength);
-        flex.set_slew_rate(slew_rate);
         flex.set_pull(pull_select);
         Self { flex }
     }
@@ -840,8 +839,13 @@ impl<'d> Input<'d> {
     }
 
     /// Expose the inner `Flex` if callers need to reconfigure the pin.
+    ///
+    /// Since Drive Strength and Slew Rate are not set when creating the Input
+    /// pin, they need to be set when converting
     #[inline]
-    pub fn into_flex(self) -> Flex<'d> {
+    pub fn into_flex(mut self, strength: DriveStrength, slew_rate: SlewRate) -> Flex<'d> {
+        self.flex.set_drive_strength(strength);
+        self.flex.set_slew_rate(slew_rate);
         self.flex
     }
 

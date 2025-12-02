@@ -83,8 +83,6 @@ async fn main(_spawner: Spawner) {
 
     let config = Config {
         baudrate_bps: 115_200,
-        enable_tx: true,
-        enable_rx: false,
         ..Default::default()
     };
 
