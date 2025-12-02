@@ -11,11 +11,18 @@ pub struct PioClkProgram<'a, PIO: Instance> {
 }
 
 impl<'a, PIO: Instance> PioClkProgram<'a, PIO> {
+    const CRITICAL_LOOP_LEN: u32 = 2;
+
     /// Load the program into PIO instruction memory
     pub fn new(common: &mut Common<'a, PIO>) -> Self {
         let prg = pio_asm!("set pins 0", "set pins 1");
         let prg = common.load_program(&prg.program);
         Self { prg }
+    }
+
+    /// Return number of cycles that the program needs to generate single clock
+    pub fn critical_loop_len(&self) -> u32 {
+        Self::CRITICAL_LOOP_LEN
     }
 }
 
@@ -38,8 +45,7 @@ impl<'d, T: Instance, const SM: usize> PioClk<'d, T, SM> {
         sm.set_pin_dirs(Direction::Out, &[&pin]);
 
         let mut cfg = Config::default();
-        let program_critical_loop_len = 2;
-        let sm_frequency = frequency * program_critical_loop_len;
+        let sm_frequency = frequency * program.critical_loop_len();
         cfg.clock_divider = calculate_pio_clock_divider(sm_frequency);
         cfg.set_set_pins(&[&pin]);
         cfg.use_program(&program.prg, &[]);
