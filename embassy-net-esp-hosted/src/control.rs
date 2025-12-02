@@ -1,4 +1,3 @@
-use core::marker::PhantomData;
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
 use heapless::String;
@@ -23,17 +22,6 @@ pub enum Error {
 pub struct Control<'a> {
     state_ch: ch::StateRunner<'a>,
     shared: &'a Shared,
-}
-
-/// Token required for doing an update
-pub struct OtaToken {
-    _d: PhantomData<()>,
-}
-
-impl OtaToken {
-    fn new() -> Self {
-        Self { _d: PhantomData }
-    }
 }
 
 /// WiFi mode.
@@ -159,21 +147,19 @@ impl<'a> Control<'a> {
     }
 
     /// Initiate a firmware update.
-    ///
-    /// Returns a token needed for writing and finishing.
-    pub async fn ota_begin(&mut self) -> Result<OtaToken, Error> {
+    pub async fn ota_begin(&mut self) -> Result<(), Error> {
         let req = proto::CtrlMsg_Req_OTABegin {};
         ioctl!(self, ReqOtaBegin, RespOtaBegin, req, resp);
-        Ok(OtaToken::new())
+        Ok(())
     }
 
     /// Write slice of firmware to a device.
     ///
-    /// Token is required as proof that ota_begin was called.
+    /// [`ota_begin`] must be called first.
     ///
     /// The slice is split into chunks that can be sent across
     /// the ioctl protocol to the wifi adapter.
-    pub async fn ota_write(&mut self, _token: &OtaToken, data: &[u8]) -> Result<(), Error> {
+    pub async fn ota_write(&mut self, data: &[u8]) -> Result<(), Error> {
         for chunk in data.chunks(256) {
             let req = proto::CtrlMsg_Req_OTAWrite {
                 ota_data: heapless::Vec::from_slice(chunk).unwrap(),
@@ -185,10 +171,10 @@ impl<'a> Control<'a> {
 
     /// End the OTA session.
     ///
-    /// Token is required as proof that ota_begin was called.
+    /// [`ota_begin`] must be called first.
     ///
     /// NOTE: Will reset the wifi adapter after 5 seconds.
-    pub async fn ota_end(&mut self, _token: OtaToken) -> Result<(), Error> {
+    pub async fn ota_end(&mut self) -> Result<(), Error> {
         let req = proto::CtrlMsg_Req_OTAEnd {};
         ioctl!(self, ReqOtaEnd, RespOtaEnd, req, resp);
         // Ensures that run loop awaits reset
