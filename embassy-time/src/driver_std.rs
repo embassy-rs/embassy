@@ -31,7 +31,10 @@ impl Driver for TimeDriver {
     fn schedule_wake(&self, at: u64, waker: &core::task::Waker) {
         let mut queue = self.queue.lock().unwrap();
         if queue.schedule_wake(at, waker) {
-            self.signaler.signal();
+            let next_alarm = critical_section::with(|_cs| queue.next_expiration(self.now()));
+            if next_alarm < u64::MAX {
+                self.signaler.signal();
+            }
         }
     }
 }
