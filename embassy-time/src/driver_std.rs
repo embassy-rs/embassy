@@ -41,7 +41,7 @@ fn alarm_thread() {
     loop {
         let now = DRIVER.now();
 
-        let next_alarm = DRIVER.queue.lock().unwrap().next_expiration(now);
+        let next_alarm = critical_section::with(|_cs| DRIVER.queue.lock().unwrap().next_expiration(now));
 
         // Ensure we don't overflow
         let until = zero
