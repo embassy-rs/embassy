@@ -366,6 +366,16 @@ impl<'d> ControlChanged<'d> {
     pub async fn control_changed(&self) {
         self.control.changed().await;
     }
+
+    /// Gets the DTR (data terminal ready) state
+    pub fn dtr(&self) -> bool {
+        self.control.dtr.load(Ordering::Relaxed)
+    }
+
+    /// Gets the RTS (request to send) state
+    pub fn rts(&self) -> bool {
+        self.control.rts.load(Ordering::Relaxed)
+    }
 }
 
 /// CDC ACM class packet sender.
