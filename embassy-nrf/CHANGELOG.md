@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - changed: add workaround for anomaly 66 on nrf52
 - added: expose PPI events available on SPIS peripheral
 - added: add basic GRTC time driver support for nRF54L
+* added: support for nrf54l10 and nrf54l05
 
 ## 0.8.0 - 2025-09-30
 
