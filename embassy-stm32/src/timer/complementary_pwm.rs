@@ -2,14 +2,13 @@
 
 use core::marker::PhantomData;
 
-pub use stm32_metapac::timer::vals::{Ckd, Mms2, Ossi, Ossr};
-
 use super::low_level::{CountingMode, OutputPolarity, Timer};
 use super::simple_pwm::PwmPin;
 use super::{AdvancedInstance4Channel, Ch1, Ch2, Ch3, Ch4, Channel, TimerComplementaryPin};
 use crate::Peri;
 use crate::dma::word::Word;
 use crate::gpio::{AnyPin, OutputType};
+pub use crate::pac::timer::vals::{Ccds, Ckd, Mms2, Ossi, Ossr};
 use crate::time::Hertz;
 use crate::timer::TimerChannel;
 use crate::timer::low_level::OutputCompareMode;
@@ -215,6 +214,25 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
 
         self.inner.set_dead_time_clock_division(ckd);
         self.inner.set_dead_time_value(value);
+    }
+
+    /// Generate a sequence of PWM waveform
+    ///
+    /// Note:
+    /// The DMA channel provided does not need to correspond to the requested channel.
+    pub async fn waveform<C: TimerChannel, W: Word + Into<T::Word>>(
+        &mut self,
+        dma: Peri<'_, impl super::Dma<T, C>>,
+        channel: Channel,
+        duty: &[W],
+    ) {
+        self.inner.enable_channel(channel, true);
+        self.inner.enable_channel(C::CHANNEL, true);
+        self.inner.clamp_compare_value::<W>(channel);
+        self.inner.set_cc_dma_selection(Ccds::ON_UPDATE);
+        self.inner.set_cc_dma_enable_state(C::CHANNEL, true);
+        self.inner.setup_channel_update_dma(dma, channel, duty).await;
+        self.inner.set_cc_dma_enable_state(C::CHANNEL, false);
     }
 
     /// Generate a sequence of PWM waveform
