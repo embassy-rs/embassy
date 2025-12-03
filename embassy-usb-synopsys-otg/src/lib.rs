@@ -479,7 +479,7 @@ impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Driver<'d> for Driver<'d
         self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
-    fn start(mut self, control_max_packet_size: u16) -> (Self::Bus, Self::ControlPipe) {
+    fn start(mut self, control_max_packet_size: u16, _enable_sof_interrupts: bool) -> (Self::Bus, Self::ControlPipe) {
         let ep_out = self
             .alloc_endpoint(EndpointType::Control, None, control_max_packet_size, 0)
             .unwrap();

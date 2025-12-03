@@ -111,6 +111,9 @@ pub trait Handler {
         let _ = alternate_setting;
     }
 
+    /// Called when a SOF token is processed.
+    fn sof(&mut self) {}
+
     /// Called when a control request is received with direction HostToDevice.
     ///
     /// # Arguments
@@ -225,7 +228,7 @@ impl<'d, D: Driver<'d>> UsbDevice<'d, D> {
     ) -> UsbDevice<'d, D> {
         // Start the USB bus.
         // This prevent further allocation by consuming the driver.
-        let (bus, control) = driver.start(config.max_packet_size_0 as u16);
+        let (bus, control) = driver.start(config.max_packet_size_0 as u16, config.enable_sof_interrupts);
         let device_descriptor = descriptor::device_descriptor(&config);
         let device_qualifier_descriptor = descriptor::device_qualifier_descriptor(&config);
 
@@ -493,6 +496,12 @@ impl<'d, D: Driver<'d>> Inner<'d, D> {
 
                 for h in &mut self.handlers {
                     h.enabled(false);
+                }
+            }
+            Event::SOF => {
+                trace!("usb: start of frame");
+                for h in &mut self.handlers {
+                    h.sof();
                 }
             }
         }

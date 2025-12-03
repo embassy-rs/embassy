@@ -117,6 +117,18 @@ pub struct Config<'a> {
     /// Default: 100mA
     /// Max: 500mA
     pub max_power: u16,
+
+    /// Whether to enable SOF interrupts
+    ///
+    /// Start of Frame can be a useful event on the bus, happening either every
+    /// 1ms for USB LS and FS, or every 125µs for USB HS. This can be used as a
+    /// free extra timer in a lot of cases, and as a way to process events at
+    /// the end of the frame if things needed deferring. However, this can be
+    /// a significant amount of interrupt traffic, so only enable this if you
+    /// really need this style of handling.
+    ///
+    /// Default: `false`
+    pub enable_sof_interrupts: bool,
 }
 
 impl<'a> Config<'a> {
@@ -138,6 +150,7 @@ impl<'a> Config<'a> {
             supports_remote_wakeup: false,
             composite_with_iads: true,
             max_power: 100,
+            enable_sof_interrupts: false,
         }
     }
 }
