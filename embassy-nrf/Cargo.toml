@@ -25,6 +25,10 @@ build = [
     {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf5340-net", "time", "time-driver-rtc1"]},
     {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l15-app-s", "time", "time-driver-grtc"]},
     {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l15-app-ns", "time", "time-driver-grtc"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l10-app-s", "time", "time-driver-grtc"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l10-app-ns", "time", "time-driver-grtc"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l05-app-s", "time", "time-driver-grtc"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l05-app-ns", "time", "time-driver-grtc"]},
     {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52840", "time"]},
     {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52840", "time-driver-rtc1"]},
     {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52840", "time", "time-driver-rtc1"]},
@@ -130,6 +134,14 @@ nrf5340-net = ["_nrf5340-net"]
 nrf54l15-app-s = ["_nrf54l15-app", "_s", "_multi_wdt"]
 ## nRF54L15 application core in Non-Secure mode
 nrf54l15-app-ns = ["_nrf54l15-app", "_ns"]
+## nRF54L10 application core in Secure mode
+nrf54l10-app-s = ["_nrf54l10-app", "_s", "_multi_wdt"]
+## nRF54L10 application core in Non-Secure mode
+nrf54l10-app-ns = ["_nrf54l10-app", "_ns"]
+## nRF54L05 application core in Secure mode
+nrf54l05-app-s = ["_nrf54l05-app", "_s", "_multi_wdt"]
+## nRF54L05 application core in Non-Secure mode
+nrf54l05-app-ns = ["_nrf54l05-app", "_ns"]
 
 ## nRF9160 in Secure mode
 nrf9160-s = ["_nrf9160", "_s", "_nrf91"]
@@ -153,6 +165,10 @@ _nrf5340-net = ["_nrf5340", "nrf-pac/nrf5340-net"]
 _nrf5340 = ["_gpio-p1", "_dppi"]
 _nrf54l15-app = ["_nrf54l15", "nrf-pac/nrf54l15-app"]
 _nrf54l15 = ["_nrf54l", "_gpio-p1", "_gpio-p2"]
+_nrf54l10-app = ["_nrf54l10", "nrf-pac/nrf54l10-app"]
+_nrf54l10 = ["_nrf54l", "_gpio-p1", "_gpio-p2"]
+_nrf54l05-app = ["_nrf54l05", "nrf-pac/nrf54l05-app"]
+_nrf54l05 = ["_nrf54l", "_gpio-p1", "_gpio-p2"]
 _nrf54l = ["_dppi", "_grtc"]
 
 _nrf9160 = ["nrf-pac/nrf9160", "_dppi", "_spi-v1"]
@@ -202,7 +218,7 @@ embedded-io-async = { version = "0.6.1" }
 rand-core-06 = { package = "rand_core", version = "0.6" }
 rand-core-09 = { package = "rand_core", version = "0.9" }
 
-nrf-pac = { version = "0.1.0", git = "https://github.com/embassy-rs/nrf-pac.git", rev = "176dc4afe1dd8df78f3cbda4479ab5151aa32252" }
+nrf-pac = { version = "0.1.0", git = "https://github.com/embassy-rs/nrf-pac.git", rev = "52fd51ce762a3d3a81660dea62947e6d2d1e9d91" }
 
 defmt = { version = "1.0.1", optional = true }
 bitflags = "2.4.2"
