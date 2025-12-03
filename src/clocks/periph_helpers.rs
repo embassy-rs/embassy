@@ -41,6 +41,50 @@ pub trait SPConfHelper {
     fn post_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError>;
 }
 
+/// Copy and paste macro that:
+///
+/// * Sets the clocksel mux to `$selvar`
+/// * Resets and halts the div, and applies the calculated div4 bits
+/// * Releases reset + halt
+/// * Waits for the div to stabilize
+/// * Returns `Ok($freq / $conf.div.into_divisor())`
+///
+/// Assumes:
+///
+/// * self is a configuration struct that has a field called `div`, which
+///   is a `Div4`
+///
+/// usage:
+///
+/// ```rust
+/// apply_div4!(self, clksel, clkdiv, variant, freq)
+/// ```
+///
+/// In the future if we make all the clksel+clkdiv pairs into commonly derivedFrom
+/// registers, or if we put some kind of simple trait around those regs, we could
+/// do this with something other than a macro, but for now, this is harm-reduction
+/// to avoid incorrect copy + paste
+macro_rules! apply_div4 {
+    ($conf:ident, $selreg:ident, $divreg:ident, $selvar:ident, $freq:ident) => {{
+        // set clksel
+        $selreg.modify(|_r, w| w.mux().variant($selvar));
+
+        // Set up clkdiv
+        $divreg.modify(|_r, w| {
+            unsafe { w.div().bits($conf.div.into_bits()) }
+                .halt()
+                .asserted()
+                .reset()
+                .asserted()
+        });
+        $divreg.modify(|_r, w| w.halt().deasserted().reset().deasserted());
+
+        while $divreg.read().unstab().is_unstable() {}
+
+        Ok($freq / $conf.div.into_divisor())
+    }};
+}
+
 // config types
 
 /// This type represents a divider in the range 1..=16.
@@ -217,22 +261,7 @@ impl SPConfHelper for Lpi2cConfig {
             },
         };
 
-        // set clksel
-        clksel.modify(|_r, w| w.mux().variant(variant));
-
-        // Set up clkdiv
-        clkdiv.modify(|_r, w| {
-            unsafe { w.div().bits(self.div.into_bits()) }
-                .halt()
-                .asserted()
-                .reset()
-                .asserted()
-        });
-        clkdiv.modify(|_r, w| w.halt().deasserted().reset().deasserted());
-
-        while clkdiv.read().unstab().is_unstable() {}
-
-        Ok(freq / self.div.into_divisor())
+        apply_div4!(self, clksel, clkdiv, variant, freq)
     }
 }
 
@@ -347,24 +376,7 @@ impl SPConfHelper for LpuartConfig {
         };
 
         // set clksel
-        clksel.modify(|_r, w| w.mux().variant(variant));
-
-        // Set up clkdiv
-        clkdiv.modify(|_r, w| {
-            w.halt().asserted();
-            w.reset().asserted();
-            unsafe { w.div().bits(self.div.into_bits()) };
-            w
-        });
-        clkdiv.modify(|_r, w| {
-            w.halt().deasserted();
-            w.reset().deasserted();
-            w
-        });
-
-        while clkdiv.read().unstab().is_unstable() {}
-
-        Ok(freq / self.div.into_divisor())
+        apply_div4!(self, clksel, clkdiv, variant, freq)
     }
 }
 
@@ -482,25 +494,9 @@ impl SPConfHelper for AdcConfig {
                 return Ok(0);
             }
         };
+        let clksel = mrcc0.mrcc_adc_clksel();
+        let clkdiv = mrcc0.mrcc_adc_clkdiv();
 
-        // set clksel
-        mrcc0.mrcc_adc_clksel().modify(|_r, w| w.mux().variant(variant));
-
-        // Set up clkdiv
-        mrcc0.mrcc_adc_clkdiv().modify(|_r, w| {
-            w.halt().asserted();
-            w.reset().asserted();
-            unsafe { w.div().bits(self.div.into_bits()) };
-            w
-        });
-        mrcc0.mrcc_adc_clkdiv().modify(|_r, w| {
-            w.halt().deasserted();
-            w.reset().deasserted();
-            w
-        });
-
-        while mrcc0.mrcc_adc_clkdiv().read().unstab().is_unstable() {}
-
-        Ok(freq / self.div.into_divisor())
+        apply_div4!(self, clksel, clkdiv, variant, freq)
     }
 }

@@ -7,9 +7,26 @@
 #![allow(clippy::missing_safety_doc)]
 
 mod generated {
+    #[rustfmt::skip]
     embassy_hal_internal::interrupt_mod!(
-        OS_EVENT, RTC, ADC1, GPIO0, GPIO1, GPIO2, GPIO3, GPIO4, LPI2C0, LPI2C1, LPI2C2, LPI2C3, LPUART0, LPUART1,
-        LPUART2, LPUART3, LPUART4, LPUART5,
+        ADC1,
+        GPIO0,
+        GPIO1,
+        GPIO2,
+        GPIO3,
+        GPIO4,
+        LPI2C0,
+        LPI2C1,
+        LPI2C2,
+        LPI2C3,
+        LPUART0,
+        LPUART1,
+        LPUART2,
+        LPUART3,
+        LPUART4,
+        LPUART5,
+        OS_EVENT,
+        RTC,
     );
 }
 
