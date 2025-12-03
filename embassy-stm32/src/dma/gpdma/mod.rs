@@ -238,6 +238,11 @@ impl AnyChannel {
         // "Preceding reads and writes cannot be moved past subsequent writes."
         fence(Ordering::SeqCst);
 
+        if ch.cr().read().en() {
+            ch.cr().modify(|w| w.set_susp(true));
+            while !ch.sr().read().suspf() {}
+        }
+
         ch.cr().write(|w| w.set_reset(true));
         ch.fcr().write(|w| {
             // Clear all irqs
