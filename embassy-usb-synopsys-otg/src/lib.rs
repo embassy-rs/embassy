@@ -30,7 +30,14 @@ pub unsafe fn on_interrupt<const MAX_EP_COUNT: usize>(r: Otg, state: &State<MAX_
     trace!("irq");
 
     let ints = r.gintsts().read();
-    if ints.wkupint() || ints.usbsusp() || ints.usbrst() || ints.enumdne() || ints.otgint() || ints.srqint() {
+    if ints.wkupint()
+        || ints.usbsusp()
+        || ints.usbrst()
+        || ints.enumdne()
+        || ints.otgint()
+        || ints.srqint()
+        || ints.sof()
+    {
         // Mask interrupts and notify `Bus` to process them
         r.gintmsk().write(|w| {
             w.set_iepint(true);
@@ -479,7 +486,7 @@ impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Driver<'d> for Driver<'d
         self.alloc_endpoint(ep_type, ep_addr, max_packet_size, interval_ms)
     }
 
-    fn start(mut self, control_max_packet_size: u16, _enable_sof_interrupts: bool) -> (Self::Bus, Self::ControlPipe) {
+    fn start(mut self, control_max_packet_size: u16, enable_sof_interrupts: bool) -> (Self::Bus, Self::ControlPipe) {
         let ep_out = self
             .alloc_endpoint(EndpointType::Control, None, control_max_packet_size, 0)
             .unwrap();
@@ -500,6 +507,7 @@ impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Driver<'d> for Driver<'d
                 ep_out: self.ep_out,
                 inited: false,
                 instance: self.instance,
+                enable_sof_interrupts,
             },
             ControlPipe {
                 max_packet_size: control_max_packet_size,
@@ -519,6 +527,7 @@ pub struct Bus<'d, const MAX_EP_COUNT: usize> {
     ep_out: [Option<EndpointData>; MAX_EP_COUNT],
     instance: OtgInstance<'d, MAX_EP_COUNT>,
     inited: bool,
+    enable_sof_interrupts: bool,
 }
 
 impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
@@ -533,6 +542,7 @@ impl<'d, const MAX_EP_COUNT: usize> Bus<'d, MAX_EP_COUNT> {
             w.set_rxflvlm(true);
             w.set_srqim(true);
             w.set_otgint(true);
+            w.set_sofm(self.enable_sof_interrupts);
         });
     }
 
@@ -866,6 +876,13 @@ impl<'d, const MAX_EP_COUNT: usize> embassy_usb_driver::Bus for Bus<'d, MAX_EP_C
                 regs.gintsts().write(|w| w.set_wkupint(true)); // clear
                 self.restore_irqs();
                 return Poll::Ready(Event::Resume);
+            }
+
+            if ints.sof() {
+                trace!("sof");
+                regs.gintsts().write(|w| w.set_sof(true)); // clear
+                self.restore_irqs();
+                return Poll::Ready(Event::SOF);
             }
 
             Poll::Pending
