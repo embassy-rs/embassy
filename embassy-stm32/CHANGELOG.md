@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## Unreleased - ReleaseDate
 
+- fix: stm32: GPDMA driver reset ignored during channel configuration
 - fix: stm32: SPI driver SSOE and SSM manegment, add `nss_output_disable` to SPI Config
 - change: stm32: use typelevel timer type to allow dma for 32 bit timers
 - fix: fix incorrect handling of split interrupts in timer driver
