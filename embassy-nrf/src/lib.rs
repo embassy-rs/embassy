@@ -25,6 +25,10 @@
     feature = "nrf5340-net",
     feature = "nrf54l15-app-s",
     feature = "nrf54l15-app-ns",
+    feature = "nrf54l10-app-s",
+    feature = "nrf54l10-app-ns",
+    feature = "nrf54l05-app-s",
+    feature = "nrf54l05-app-ns",
     feature = "nrf9160-s",
     feature = "nrf9160-ns",
     feature = "nrf9120-s",
@@ -49,6 +53,10 @@ compile_error!(
     nrf5340-net,
     nrf54l15-app-s,
     nrf54l15-app-ns,
+    nrf54l10-app-s,
+    nrf54l10-app-ns,
+    nrf54l05-app-s,
+    nrf54l05-app-ns,
     nrf9160-s,
     nrf9160-ns,
     nrf9120-s,
@@ -99,9 +107,9 @@ pub mod ipc;
 pub mod nfct;
 #[cfg(not(feature = "_nrf54l"))]
 pub mod nvmc;
-#[cfg(feature = "nrf54l15-app-s")]
+#[cfg(all(feature = "_nrf54l", feature = "_s"))]
 pub mod rramc;
-#[cfg(feature = "nrf54l15-app-s")]
+#[cfg(all(feature = "_nrf54l", feature = "_s"))]
 pub use rramc as nvmc;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(
@@ -192,6 +200,8 @@ pub mod wdt;
 #[cfg_attr(feature = "_nrf5340-app", path = "chips/nrf5340_app.rs")]
 #[cfg_attr(feature = "_nrf5340-net", path = "chips/nrf5340_net.rs")]
 #[cfg_attr(feature = "_nrf54l15-app", path = "chips/nrf54l15_app.rs")]
+#[cfg_attr(feature = "_nrf54l10-app", path = "chips/nrf54l10_app.rs")]
+#[cfg_attr(feature = "_nrf54l05-app", path = "chips/nrf54l05_app.rs")]
 #[cfg_attr(feature = "_nrf9160", path = "chips/nrf9160.rs")]
 #[cfg_attr(feature = "_nrf9120", path = "chips/nrf9120.rs")]
 mod chip;
