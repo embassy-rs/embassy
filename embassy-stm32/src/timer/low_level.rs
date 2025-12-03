@@ -686,6 +686,9 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     }
 
     /// Generate a sequence of PWM waveform
+    ///
+    /// Note:
+    /// The DMA channel provided does not need to correspond to the requested channel.
     pub fn setup_channel_update_dma<'a, C: TimerChannel, W: Word + Into<T::Word>>(
         &mut self,
         dma: Peri<'a, impl super::Dma<T, C>>,

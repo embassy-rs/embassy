@@ -340,9 +340,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
     /// Generate a sequence of PWM waveform
     ///
     /// Note:
-    /// You will need to provide corresponding `TIMx_UP` DMA channel to use this method.
-    /// Also be aware that embassy timers use one of timers internally. It is possible to
-    /// switch this timer by using `time-driver-timX` feature.
+    /// The DMA channel provided does not need to correspond to the requested channel.
     pub async fn waveform<C: TimerChannel, W: Word + Into<T::Word>>(
         &mut self,
         dma: Peri<'_, impl super::Dma<T, C>>,
