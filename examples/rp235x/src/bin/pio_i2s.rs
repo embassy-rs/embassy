@@ -5,7 +5,7 @@
 //!   bclk : GPIO 18
 //!   lrc  : GPIO 19
 //!   din  : GPIO 20
-//! Then hold down the boot select button to trigger a rising triangle waveform.
+//! Then short GPIO 0 to GND to trigger a rising triangle waveform.
 
 #![no_std]
 #![no_main]
@@ -70,7 +70,7 @@ async fn main(_spawner: Spawner) {
         // but don't await the returned future, yet
         let dma_future = i2s.write(front_buffer);
 
-        // fade in audio when bootsel is pressed
+        // fade in audio when GPIO 0 pin is shorted to GND
         let fade_target = if fade_input.is_low() { i32::MAX } else { 0 };
 
         // fill back buffer with fresh audio samples before awaiting the dma future
