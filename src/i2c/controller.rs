@@ -1,13 +1,15 @@
 //! LPI2C controller driver
 
+use core::future::Future;
 use core::marker::PhantomData;
 
 use embassy_hal_internal::Peri;
 use mcxa_pac::lpi2c0::mtdr::Cmd;
 
-use super::{Blocking, Error, Instance, Mode, Result, SclPin, SdaPin};
+use super::{Async, Blocking, Error, Instance, InterruptHandler, Mode, Result, SclPin, SdaPin};
 use crate::clocks::periph_helpers::{Div4, Lpi2cClockSel, Lpi2cConfig};
 use crate::clocks::{enable_and_reset, PoweredClock};
+use crate::interrupt::typelevel::Interrupt;
 use crate::AnyPin;
 
 /// Bus speed (nominal SCL, no clock stretching)
@@ -199,9 +201,6 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
     }
 
     fn status(&mut self) -> Result<()> {
-        // Wait for TxFIFO to be drained
-        while !self.is_tx_fifo_empty() {}
-
         let msr = T::regs().msr().read();
         T::regs().msr().write(|w| {
             w.epf()
@@ -228,6 +227,8 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
             Err(Error::AddressNack)
         } else if msr.alf().bit_is_set() {
             Err(Error::ArbitrationLoss)
+        } else if msr.fef().bit_is_set() {
+            Err(Error::FifoError)
         } else {
             Ok(())
         }
@@ -259,6 +260,9 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
         let addr_rw = address << 1 | if read { 1 } else { 0 };
         self.send_cmd(if self.is_hs { Cmd::StartHs } else { Cmd::Start }, addr_rw);
 
+        // Wait for TxFIFO to be drained
+        while !self.is_tx_fifo_empty() {}
+
         // Check controller status
         self.status()
     }
@@ -268,17 +272,21 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
         while self.is_tx_fifo_full() {}
 
         self.send_cmd(Cmd::Stop, 0);
+
+        // Wait for TxFIFO to be drained
+        while !self.is_tx_fifo_empty() {}
+
         self.status()
     }
 
     fn blocking_read_internal(&mut self, address: u8, read: &mut [u8], send_stop: SendStop) -> Result<()> {
-        self.start(address, true)?;
-
         if read.is_empty() {
             return Err(Error::InvalidReadBufferLength);
         }
 
         for chunk in read.chunks_mut(256) {
+            self.start(address, true)?;
+
             // Wait until we have space in the TxFIFO
             while self.is_tx_fifo_full() {}
 
@@ -290,10 +298,10 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
 
                 *byte = T::regs().mrdr().read().data().bits();
             }
+        }
 
-            if send_stop == SendStop::Yes {
-                self.stop()?;
-            }
+        if send_stop == SendStop::Yes {
+            self.stop()?;
         }
 
         Ok(())
@@ -348,6 +356,201 @@ impl<'d, T: Instance, M: Mode> I2c<'d, T, M> {
     pub fn blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<()> {
         self.blocking_write_internal(address, write, SendStop::No)?;
         self.blocking_read_internal(address, read, SendStop::Yes)
+    }
+}
+
+impl<'d, T: Instance> I2c<'d, T, Async> {
+    /// Create a new async instance of the I2C Controller bus driver.
+    pub fn new_async(
+        peri: Peri<'d, T>,
+        scl: Peri<'d, impl SclPin<T>>,
+        sda: Peri<'d, impl SdaPin<T>>,
+        _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        config: Config,
+    ) -> Result<Self> {
+        T::Interrupt::unpend();
+
+        // Safety: `_irq` ensures an Interrupt Handler exists.
+        unsafe { T::Interrupt::enable() };
+
+        Self::new_inner(peri, scl, sda, config)
+    }
+
+    fn enable_rx_ints(&mut self) {
+        T::regs().mier().write(|w| {
+            w.rdie()
+                .enabled()
+                .ndie()
+                .enabled()
+                .alie()
+                .enabled()
+                .feie()
+                .enabled()
+                .pltie()
+                .enabled()
+        });
+    }
+
+    fn enable_tx_ints(&mut self) {
+        T::regs().mier().write(|w| {
+            w.tdie()
+                .enabled()
+                .ndie()
+                .enabled()
+                .alie()
+                .enabled()
+                .feie()
+                .enabled()
+                .pltie()
+                .enabled()
+        });
+    }
+
+    async fn async_start(&mut self, address: u8, read: bool) -> Result<()> {
+        if address >= 0x80 {
+            return Err(Error::AddressOutOfRange(address));
+        }
+
+        // send the start command
+        let addr_rw = address << 1 | if read { 1 } else { 0 };
+        self.send_cmd(if self.is_hs { Cmd::StartHs } else { Cmd::Start }, addr_rw);
+
+        T::wait_cell()
+            .wait_for(|| {
+                // enable interrupts
+                self.enable_tx_ints();
+                // if the command FIFO is empty, we're done sending start
+                self.is_tx_fifo_empty()
+            })
+            .await
+            .map_err(|_| Error::Other)?;
+
+        self.status()
+    }
+
+    async fn async_stop(&mut self) -> Result<()> {
+        // send the stop command
+        self.send_cmd(Cmd::Stop, 0);
+
+        T::wait_cell()
+            .wait_for(|| {
+                // enable interrupts
+                self.enable_tx_ints();
+                // if the command FIFO is empty, we're done sending stop
+                self.is_tx_fifo_empty()
+            })
+            .await
+            .map_err(|_| Error::Other)?;
+
+        self.status()
+    }
+
+    async fn async_read_internal(&mut self, address: u8, read: &mut [u8], send_stop: SendStop) -> Result<()> {
+        if read.is_empty() {
+            return Err(Error::InvalidReadBufferLength);
+        }
+
+        for chunk in read.chunks_mut(256) {
+            self.async_start(address, true).await?;
+
+            // send receive command
+            self.send_cmd(Cmd::Receive, (chunk.len() - 1) as u8);
+
+            T::wait_cell()
+                .wait_for(|| {
+                    // enable interrupts
+                    self.enable_tx_ints();
+                    // if the command FIFO is empty, we're done sending start
+                    self.is_tx_fifo_empty()
+                })
+                .await
+                .map_err(|_| Error::Other)?;
+
+            for byte in chunk.iter_mut() {
+                T::wait_cell()
+                    .wait_for(|| {
+                        // enable interrupts
+                        self.enable_rx_ints();
+                        // it the rx FIFO is not empty, we need to read a byte
+                        !self.is_rx_fifo_empty()
+                    })
+                    .await
+                    .map_err(|_| Error::ReadFail)?;
+
+                *byte = T::regs().mrdr().read().data().bits();
+            }
+        }
+
+        if send_stop == SendStop::Yes {
+            self.async_stop().await?;
+        }
+
+        Ok(())
+    }
+
+    async fn async_write_internal(&mut self, address: u8, write: &[u8], send_stop: SendStop) -> Result<()> {
+        self.async_start(address, false).await?;
+
+        // Usually, embassy HALs error out with an empty write,
+        // however empty writes are useful for writing I2C scanning
+        // logic through write probing. That is, we send a start with
+        // R/w bit cleared, but instead of writing any data, just send
+        // the stop onto the bus. This has the effect of checking if
+        // the resulting address got an ACK but causing no
+        // side-effects to the device on the other end.
+        //
+        // Because of this, we are not going to error out in case of
+        // empty writes.
+        #[cfg(feature = "defmt")]
+        if write.is_empty() {
+            defmt::trace!("Empty write, write probing?");
+        }
+
+        for byte in write {
+            T::wait_cell()
+                .wait_for(|| {
+                    // enable interrupts
+                    self.enable_tx_ints();
+                    // initiate trasmit
+                    self.send_cmd(Cmd::Transmit, *byte);
+                    // it the rx FIFO is not empty, we're done transmiting
+                    self.is_tx_fifo_empty()
+                })
+                .await
+                .map_err(|_| Error::WriteFail)?;
+        }
+
+        if send_stop == SendStop::Yes {
+            self.async_stop().await?;
+        }
+
+        Ok(())
+    }
+
+    // Public API: Async
+
+    /// Read from address into buffer asynchronously.
+    pub fn async_read<'a>(
+        &mut self,
+        address: u8,
+        read: &'a mut [u8],
+    ) -> impl Future<Output = Result<()>> + use<'_, 'a, 'd, T> {
+        self.async_read_internal(address, read, SendStop::Yes)
+    }
+
+    /// Write to address from buffer asynchronously.
+    pub fn async_write<'a>(
+        &mut self,
+        address: u8,
+        write: &'a [u8],
+    ) -> impl Future<Output = Result<()>> + use<'_, 'a, 'd, T> {
+        self.async_write_internal(address, write, SendStop::Yes)
+    }
+
+    /// Write to address from bytes and read from address into buffer asynchronously.
+    pub async fn async_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<()> {
+        self.async_write_internal(address, write, SendStop::No).await?;
+        self.async_read_internal(address, read, SendStop::Yes).await
     }
 }
 
@@ -438,6 +641,38 @@ impl<'d, T: Instance, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, T, M> {
             match last {
                 embedded_hal_1::i2c::Operation::Read(buf) => self.blocking_read_internal(address, buf, SendStop::Yes),
                 embedded_hal_1::i2c::Operation::Write(buf) => self.blocking_write_internal(address, buf, SendStop::Yes),
+            }
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl<'d, T: Instance> embedded_hal_async::i2c::I2c for I2c<'d, T, Async> {
+    async fn transaction(
+        &mut self,
+        address: u8,
+        operations: &mut [embedded_hal_async::i2c::Operation<'_>],
+    ) -> Result<()> {
+        if let Some((last, rest)) = operations.split_last_mut() {
+            for op in rest {
+                match op {
+                    embedded_hal_async::i2c::Operation::Read(buf) => {
+                        self.async_read_internal(address, buf, SendStop::No).await?
+                    }
+                    embedded_hal_async::i2c::Operation::Write(buf) => {
+                        self.async_write_internal(address, buf, SendStop::No).await?
+                    }
+                }
+            }
+
+            match last {
+                embedded_hal_async::i2c::Operation::Read(buf) => {
+                    self.async_read_internal(address, buf, SendStop::Yes).await
+                }
+                embedded_hal_async::i2c::Operation::Write(buf) => {
+                    self.async_write_internal(address, buf, SendStop::Yes).await
+                }
             }
         } else {
             Ok(())

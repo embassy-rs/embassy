@@ -3,7 +3,7 @@
 use core::marker::PhantomData;
 
 use embassy_hal_internal::PeripheralType;
-use embassy_sync::waitqueue::AtomicWaker;
+use maitake_sync::WaitCell;
 use paste::paste;
 
 use crate::clocks::periph_helpers::Lpi2cConfig;
@@ -22,6 +22,8 @@ pub mod controller;
 pub enum Error {
     /// Clock configuration error.
     ClockSetup(ClockError),
+    /// FIFO Error
+    FifoError,
     /// Reading for I2C failed.
     ReadFail,
     /// Writing to I2C failed.
@@ -47,11 +49,32 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        let waker = T::waker();
+        if T::regs().mier().read().bits() != 0 {
+            T::regs().mier().write(|w| {
+                w.tdie()
+                    .disabled()
+                    .rdie()
+                    .disabled()
+                    .epie()
+                    .disabled()
+                    .sdie()
+                    .disabled()
+                    .ndie()
+                    .disabled()
+                    .alie()
+                    .disabled()
+                    .feie()
+                    .disabled()
+                    .pltie()
+                    .disabled()
+                    .dmie()
+                    .disabled()
+                    .stie()
+                    .disabled()
+            });
 
-        waker.wake();
-
-        todo!()
+            T::wait_cell().wake();
+        }
     }
 }
 
@@ -64,7 +87,7 @@ impl<T: GpioPin> sealed::Sealed for T {}
 
 trait SealedInstance {
     fn regs() -> &'static pac::lpi2c0::RegisterBlock;
-    fn waker() -> &'static AtomicWaker;
+    fn wait_cell() -> &'static WaitCell;
 }
 
 /// I2C Instance
@@ -85,9 +108,9 @@ macro_rules! impl_instance {
                         unsafe { &*pac::[<Lpi2c $n>]::ptr() }
                     }
 
-                    fn waker() -> &'static AtomicWaker {
-                        static WAKER: AtomicWaker = AtomicWaker::new();
-                        &WAKER
+                    fn wait_cell() -> &'static WaitCell {
+                        static WAIT_CELL: WaitCell = WaitCell::new();
+                        &WAIT_CELL
                     }
                 }
 
