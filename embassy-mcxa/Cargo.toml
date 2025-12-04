@@ -7,6 +7,7 @@ description = "Embassy Hardware Abstraction Layer (HAL) for NXP MCXA series of M
 repository = "https://github.com/embassy-rs/embassy"
 keywords = ["embedded", "hal", "nxp", "mcxa", "embassy"]
 categories = ["embedded", "hardware-support", "no-std"]
+documentation = "https://docs.embassy.dev/embassy-mcxa"
 
 [dependencies]
 cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
