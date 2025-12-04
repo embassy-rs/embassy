@@ -1,6 +1,6 @@
 //! Example of using mathematical calculations performed by the MSPM0G3507 chip.
 //!
-//! It prints the result of basics trigonometric calculation.
+//! It prints the result of basics mathematical calculation.
 
 #![no_std]
 #![no_main]
@@ -22,15 +22,22 @@ async fn main(_spawner: Spawner) -> ! {
     let mut macl = Mathacl::new(d.MATHACL);
 
     // value radians [-PI; PI]
-    let rads = PI * 0.5;
-    match macl.sin(rads, Precision::High) {
-        Ok(res) => info!("sin({}) = {}", rads, res),
+    let mut op1 = PI * 0.5;
+    match macl.sin(op1, Precision::High) {
+        Ok(res) => info!("sin({}) = {}", op1, res),
         Err(e) => error!("sin Error: {:?}", e),
     }
 
-    match macl.cos(rads, Precision::Medium) {
-        Ok(res) => info!("cos({}) = {}", rads, res),
+    match macl.cos(op1, Precision::Medium) {
+        Ok(res) => info!("cos({}) = {}", op1, res),
         Err(e) => error!("cos Error: {:?}", e),
+    }
+
+    op1 = 1.0;
+    let op2 = 3.0;
+    match macl.div(op1, op2) {
+        Ok(res) => info!("{}/{} = {}", op1, op2, res),
+        Err(e) => error!("div Error: {:?}", e),
     }
 
     loop {
