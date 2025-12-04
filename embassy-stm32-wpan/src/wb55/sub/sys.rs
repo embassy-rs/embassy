@@ -3,13 +3,13 @@ use embassy_stm32::ipcc::{IpccRxChannel, IpccTxChannel};
 use crate::cmd::CmdPacket;
 use crate::consts::TlPacketType;
 use crate::evt::EvtBox;
-#[cfg(feature = "ble")]
+#[cfg(feature = "wb55_ble")]
 use crate::shci::ShciBleInitCmdParam;
 use crate::shci::{SchiCommandStatus, ShciOpcode};
 use crate::sub::mm;
 use crate::tables::{SysTable, WirelessFwInfoTable};
 use crate::unsafe_linked_list::LinkedListNode;
-use crate::{SYS_CMD_BUF, SYSTEM_EVT_QUEUE, TL_DEVICE_INFO_TABLE, TL_SYS_TABLE};
+use crate::wb55::{SYS_CMD_BUF, SYSTEM_EVT_QUEUE, TL_DEVICE_INFO_TABLE, TL_SYS_TABLE};
 
 /// A guard that, once constructed, allows for sys commands to be sent to CPU2.
 pub struct Sys<'a> {
@@ -66,7 +66,7 @@ impl<'a> Sys<'a> {
         unsafe { SchiCommandStatus::from_packet(SYS_CMD_BUF.as_ptr()) }
     }
 
-    #[cfg(feature = "mac")]
+    #[cfg(feature = "wb55_mac")]
     pub async fn shci_c2_mac_802_15_4_init(&mut self) -> Result<SchiCommandStatus, ()> {
         self.write_and_get_response(ShciOpcode::Mac802_15_4Init, &[]).await
     }
@@ -77,7 +77,7 @@ impl<'a> Sys<'a> {
     /// AN5289, Figures 65 and 66). It should only be called after CPU2 sends a system event, via
     /// `HW_IPCC_SYS_EvtNot`, aka `IoBusCallBackUserEvt` (as detailed in Figure 65), aka
     /// [crate::sub::ble::hci::host::uart::UartHci::read].
-    #[cfg(feature = "ble")]
+    #[cfg(feature = "wb55_ble")]
     pub async fn shci_c2_ble_init(&mut self, param: ShciBleInitCmdParam) -> Result<SchiCommandStatus, ()> {
         self.write_and_get_response(ShciOpcode::BleInit, param.payload()).await
     }

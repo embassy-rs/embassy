@@ -1,8 +1,8 @@
 use core::ptr;
 use core::sync::atomic::{Ordering, compiler_fence};
 
-use crate::PacketHeader;
 use crate::consts::TlPacketType;
+use crate::wb55::PacketHeader;
 
 #[derive(Copy, Clone)]
 #[repr(C, packed)]
