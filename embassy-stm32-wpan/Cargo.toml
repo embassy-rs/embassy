@@ -20,10 +20,10 @@ build = [
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-stm32-wpan-v$VERSION/embassy-stm32-wpan/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-stm32-wpan/src/"
 target = "thumbv7em-none-eabihf"
-features = ["stm32wb55rg", "ble", "mac"]
+features = ["stm32wb55rg", "wb55_ble", "wb55_mac"]
 
 [package.metadata.docs.rs]
-features = ["stm32wb55rg", "ble", "mac"]
+features = ["stm32wb55rg", "wb55_ble", "wb55_mac"]
 
 [dependencies]
 embassy-stm32 = { version = "0.4.0", path = "../embassy-stm32" }
@@ -34,6 +34,7 @@ embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal" }
 embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal" }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver", optional=true }
 smoltcp = { version = "0.12.0", optional=true, default-features = false }
+stm32-bindings = { version = "0.1.1", optional=true, default-features = false }
 
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.17", optional = true }
@@ -52,24 +53,63 @@ bitflags = { version = "2.3.3", optional = true }
 [features]
 defmt = ["dep:defmt", "embassy-sync/defmt", "embassy-embedded-hal/defmt", "embassy-hal-internal/defmt", "stm32wb-hci?/defmt"]
 
-ble = ["dep:stm32wb-hci"]
-mac = ["dep:bitflags", "dep:embassy-net-driver", "dep:smoltcp", "smoltcp/medium-ieee802154"]
+wb55 = []
+wb55_ble = ["dep:stm32wb-hci"]
+wb55_mac = ["dep:bitflags", "dep:embassy-net-driver", "dep:smoltcp", "smoltcp/medium-ieee802154"]
+
+wba = [ "dep:stm32-bindings" ]
+wba_ble = [ "stm32-bindings/wba_wpan_mac" ]
+wba_mac = [ "stm32-bindings/wba_wpan_ble" ]
 
 extended = []
 
-stm32wb10cc = [ "embassy-stm32/stm32wb10cc" ]
-stm32wb15cc = [ "embassy-stm32/stm32wb15cc" ]
-stm32wb30ce = [ "embassy-stm32/stm32wb30ce" ]
-stm32wb35cc = [ "embassy-stm32/stm32wb35cc" ]
-stm32wb35ce = [ "embassy-stm32/stm32wb35ce" ]
-stm32wb50cg = [ "embassy-stm32/stm32wb50cg" ]
-stm32wb55cc = [ "embassy-stm32/stm32wb55cc" ]
-stm32wb55ce = [ "embassy-stm32/stm32wb55ce" ]
-stm32wb55cg = [ "embassy-stm32/stm32wb55cg" ]
-stm32wb55rc = [ "embassy-stm32/stm32wb55rc" ]
-stm32wb55re = [ "embassy-stm32/stm32wb55re" ]
-stm32wb55rg = [ "embassy-stm32/stm32wb55rg" ]
-stm32wb55vc = [ "embassy-stm32/stm32wb55vc" ]
-stm32wb55ve = [ "embassy-stm32/stm32wb55ve" ]
-stm32wb55vg = [ "embassy-stm32/stm32wb55vg" ]
-stm32wb55vy = [ "embassy-stm32/stm32wb55vy" ]
+stm32wb10cc = [ "embassy-stm32/stm32wb10cc" , "wb55" ]
+stm32wb15cc = [ "embassy-stm32/stm32wb15cc" , "wb55" ]
+stm32wb30ce = [ "embassy-stm32/stm32wb30ce" , "wb55" ]
+stm32wb35cc = [ "embassy-stm32/stm32wb35cc" , "wb55" ]
+stm32wb35ce = [ "embassy-stm32/stm32wb35ce" , "wb55" ]
+stm32wb50cg = [ "embassy-stm32/stm32wb50cg" , "wb55" ]
+stm32wb55cc = [ "embassy-stm32/stm32wb55cc" , "wb55" ]
+stm32wb55ce = [ "embassy-stm32/stm32wb55ce" , "wb55" ]
+stm32wb55cg = [ "embassy-stm32/stm32wb55cg" , "wb55" ]
+stm32wb55rc = [ "embassy-stm32/stm32wb55rc" , "wb55" ]
+stm32wb55re = [ "embassy-stm32/stm32wb55re" , "wb55" ]
+stm32wb55rg = [ "embassy-stm32/stm32wb55rg" , "wb55" ]
+stm32wb55vc = [ "embassy-stm32/stm32wb55vc" , "wb55" ]
+stm32wb55ve = [ "embassy-stm32/stm32wb55ve" , "wb55" ]
+stm32wb55vg = [ "embassy-stm32/stm32wb55vg" , "wb55" ]
+stm32wb55vy = [ "embassy-stm32/stm32wb55vy" , "wb55" ]
+stm32wba50ke = [ "embassy-stm32/stm32wba50ke", "wba" ]
+stm32wba50kg = [ "embassy-stm32/stm32wba50kg", "wba" ]
+stm32wba52ce = [ "embassy-stm32/stm32wba52ce", "wba" ]
+stm32wba52cg = [ "embassy-stm32/stm32wba52cg", "wba" ]
+stm32wba52ke = [ "embassy-stm32/stm32wba52ke", "wba" ]
+stm32wba52kg = [ "embassy-stm32/stm32wba52kg", "wba" ]
+stm32wba54ce = [ "embassy-stm32/stm32wba54ce", "wba" ]
+stm32wba54cg = [ "embassy-stm32/stm32wba54cg", "wba" ]
+stm32wba54ke = [ "embassy-stm32/stm32wba54ke", "wba" ]
+stm32wba54kg = [ "embassy-stm32/stm32wba54kg", "wba" ]
+stm32wba55ce = [ "embassy-stm32/stm32wba55ce", "wba" ]
+stm32wba55cg = [ "embassy-stm32/stm32wba55cg", "wba" ]
+stm32wba55he = [ "embassy-stm32/stm32wba55he", "wba" ]
+stm32wba55hg = [ "embassy-stm32/stm32wba55hg", "wba" ]
+stm32wba55ue = [ "embassy-stm32/stm32wba55ue", "wba" ]
+stm32wba55ug = [ "embassy-stm32/stm32wba55ug", "wba" ]
+stm32wba62cg = [ "embassy-stm32/stm32wba62cg", "wba" ]
+stm32wba62ci = [ "embassy-stm32/stm32wba62ci", "wba" ]
+stm32wba62mg = [ "embassy-stm32/stm32wba62mg", "wba" ]
+stm32wba62mi = [ "embassy-stm32/stm32wba62mi", "wba" ]
+stm32wba62pg = [ "embassy-stm32/stm32wba62pg", "wba" ]
+stm32wba62pi = [ "embassy-stm32/stm32wba62pi", "wba" ]
+stm32wba63cg = [ "embassy-stm32/stm32wba63cg", "wba" ]
+stm32wba63ci = [ "embassy-stm32/stm32wba63ci", "wba" ]
+stm32wba64cg = [ "embassy-stm32/stm32wba64cg", "wba" ]
+stm32wba64ci = [ "embassy-stm32/stm32wba64ci", "wba" ]
+stm32wba65cg = [ "embassy-stm32/stm32wba65cg", "wba" ]
+stm32wba65ci = [ "embassy-stm32/stm32wba65ci", "wba" ]
+stm32wba65mg = [ "embassy-stm32/stm32wba65mg", "wba" ]
+stm32wba65mi = [ "embassy-stm32/stm32wba65mi", "wba" ]
+stm32wba65pg = [ "embassy-stm32/stm32wba65pg", "wba" ]
+stm32wba65pi = [ "embassy-stm32/stm32wba65pi", "wba" ]
+stm32wba65rg = [ "embassy-stm32/stm32wba65rg", "wba" ]
+stm32wba65ri = [ "embassy-stm32/stm32wba65ri", "wba" ]

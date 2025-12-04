@@ -1,10 +1,10 @@
 use core::sync::atomic::{Ordering, compiler_fence};
 use core::{mem, ptr, slice};
 
-use crate::PacketHeader;
 use crate::cmd::CmdPacket;
 use crate::consts::{TL_CS_EVT_SIZE, TL_EVT_HEADER_SIZE, TL_PACKET_HEADER_SIZE};
 use crate::evt::{CcEvt, EvtStub};
+use crate::wb55::PacketHeader;
 
 const SHCI_OGF: u16 = 0x3F;
 

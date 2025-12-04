@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 embassy-stm32 = { version = "0.4.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wba55cg", "time-driver-any", "memory-x", "exti"]  }
+embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", features = ["defmt", "stm32wba55cg"] }
 embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
@@ -21,6 +22,11 @@ embedded-hal = "1.0.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.8", default-features = false }
 static_cell = "2"
+
+[features]
+default = ["ble", "mac"]
+mac = ["embassy-stm32-wpan/wba_mac", "dep:embassy-net"]
+ble = ["embassy-stm32-wpan/wba_ble"]
 
 [profile.release]
 debug = 2
