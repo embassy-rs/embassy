@@ -31,14 +31,17 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "scheduler-priority", "scheduler-deadline"]},
     {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "scheduler-deadline"]},
     {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "embassy-time-driver", "scheduler-priority", "scheduler-deadline", "trace"]},
+    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "embassy-time-driver", "scheduler-priority", "scheduler-deadline", "trace", "idle-hook"]},
     {target = "thumbv7em-none-eabi", features = ["arch-spin"]},
     {target = "thumbv7em-none-eabi", features = ["arch-spin", "scheduler-deadline"]},
     {target = "armv7a-none-eabi", features = ["arch-cortex-ar", "executor-thread"]},
     {target = "armv7r-none-eabi", features = ["arch-cortex-ar", "executor-thread"]},
     {target = "armv7r-none-eabihf", features = ["arch-cortex-ar", "executor-thread"]},
+    {target = "armv7a-none-eabi", features = ["arch-cortex-ar", "executor-thread", "idle-hook"]},
     {target = "riscv32imac-unknown-none-elf", features = ["arch-riscv32"]},
     {target = "riscv32imac-unknown-none-elf", features = ["arch-riscv32", "executor-thread"]},
     {target = "riscv32imac-unknown-none-elf", features = ["arch-riscv32", "executor-thread", "trace"]},
+    {target = "riscv32imac-unknown-none-elf", features = ["arch-riscv32", "executor-thread", "trace", "idle-hook"]},
     # Nightly builds
     {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly"]},
     {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "log"]},
@@ -171,6 +174,12 @@ trace = ["_any_trace"]
 ## Enable support for rtos-trace framework
 rtos-trace = ["_any_trace", "metadata-name", "dep:rtos-trace", "embassy-time-driver"]
 _any_trace = []
+
+## Enable support for custom idle-hook. This provides an additional method (`with_idle_hook`)
+## to the executor of certain architectures to register a custom idle-hook.
+## The idle-hook feature of embassy-executor-macros allows to pass the custom idle-hook
+## directly via #[embassy_executor::main(idle_hook = "custom_idle_hook")].
+idle-hook = ["embassy-executor-macros/idle-hook"]
 
 ## Enable "Earliest Deadline First" Scheduler, using soft-realtime "deadlines" to prioritize
 ## tasks based on the remaining time before their deadline. Adds some overhead.
