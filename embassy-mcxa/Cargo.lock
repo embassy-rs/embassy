@@ -430,7 +430,7 @@ dependencies = [
 [[package]]
 name = "mcxa-pac"
 version = "0.1.0"
-source = "git+https://github.com/OpenDevicePartnership/mcxa-pac#e18dfb52500ca77b8d8326662b966a80251182ca"
+source = "git+https://github.com/OpenDevicePartnership/mcxa-pac#e7dfed8740b449b6ac646bab8ac6776a3c099267"
 dependencies = [
  "cortex-m",
  "cortex-m-rt",
