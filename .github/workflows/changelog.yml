@@ -1,362 +1,362 @@
-name: Changelog check
-
-on:
-  pull_request:
-    # We will not track changes for the following packages/directories.
-    paths-ignore:
-      - "/examples/"
-      - "/docs/"
-      - "/out/"
-      - "/tests/"
-      - "/release/"
-      - "/cyw43-firmware/"
-    # Run on labeled/unlabeled in addition to defaults to detect
-    # adding/removing skip-changelog labels.
-    types: [opened, reopened, labeled, unlabeled, synchronize]
-
-jobs:
-  changelog:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v4
-
-      - name: Check which package is modified
-        uses: dorny/paths-filter@v3
-        id: changes
-        with:
-          filters: |
-            cyw43:
-            - 'cyw43/**'
-            cyw43-pio:
-            - 'cyw43-pio/**'
-            embassy-boot:
-            - 'embassy-boot/**'
-            embassy-boot-nrf:
-            - 'embassy-boot-nrf/**'
-            embassy-boot-rp:
-            - 'embassy-boot-rp/**'
-            embassy-boot-stm32:
-            - 'embassy-boot-stm32/**'
-            embassy-embedded-hal:
-            - 'embassy-embedded-hal/**'
-            embassy-executor:
-            - 'embassy-executor/**'
-            embassy-executor-macros:
-            - 'embassy-executor-macros/**'
-            embassy-executor-timer-queue:
-            - 'embassy-executor-timer-queue/**'
-            embassy-futures:
-            - 'embassy-futures/**'
-            embassy-imxrt:
-            - 'embassy-imxrt/**'
-            embassy-mspm0:
-            - 'embassy-mspm0/**'
-            embassy-net:
-            - 'embassy-net/**'
-            embassy-net-adin1110:
-            - 'embassy-net-adin1110/**'
-            embassy-net-driver:
-            - 'embassy-net-driver/**'
-            embassy-net-driver-channel:
-            - 'embassy-net-driver-channel/**'
-            embassy-net-enc28j60:
-            - 'embassy-net-enc28j60/**'
-            embassy-net-esp-hosted:
-            - 'embassy-net-esp-hosted/**'
-            embassy-net-nrf91:
-            - 'embassy-net-nrf91/**'
-            embassy-net-ppp:
-            - 'embassy-net-ppp/**'
-            embassy-net-tuntap:
-            - 'embassy-net-tuntap/**'
-            embassy-net-wiznet:
-            - 'embassy-net-wiznet/**'
-            embassy-nrf:
-            - 'embassy-nrf/**'
-            embassy-nxp:
-            - 'embassy-nxp/**'
-            embassy-rp:
-            - 'embassy-rp/**'
-            embassy-stm32:
-            - 'embassy-stm32/**'
-            embassy-stm32-wpan:
-            - 'embassy-stm32-wpan/**'
-            embassy-sync:
-            - 'embassy-sync/**'
-            embassy-time:
-            - 'embassy-time/**'
-            embassy-time-driver:
-            - 'embassy-time-driver/**'
-            embassy-time-queue-utils:
-            - 'embassy-time-queue-utils/**'
-            embassy-usb:
-            - 'embassy-usb/**'
-            embassy-usb-dfu:
-            - 'embassy-usb-dfu/**'
-            embassy-usb-driver:
-            - 'embassy-usb-driver/**'
-            embassy-usb-logger:
-            - 'embassy-usb-logger/**'
-            embassy-usb-synopsys-otg:
-            - 'embassy-usb-synopsys-otg/**'
-      - name: Check that changelog updated (cyw43)
-        if: steps.changes.outputs.cyw43 == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: cyw43/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the cyw43/CHANGELOG.md file."
-      - name: Check that changelog updated (cyw43-pio)
-        if: steps.changes.outputs.cyw43-pio == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: cyw43-pio/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the cyw43-pio/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-boot)
-        if: steps.changes.outputs.embassy-boot == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-boot/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-boot/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-boot-nrf)
-        if: steps.changes.outputs.embassy-boot-nrf == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-boot-nrf/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-boot-nrf/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-boot-rp)
-        if: steps.changes.outputs.embassy-boot-rp == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-boot-rp/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-boot-rp/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-boot-stm32)
-        if: steps.changes.outputs.embassy-boot-stm32 == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-boot-stm32/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-boot-stm32/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-embedded-hal)
-        if: steps.changes.outputs.embassy-embedded-hal == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-embedded-hal/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-embedded-hal/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-executor)
-        if: steps.changes.outputs.embassy-executor == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-executor/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-executor/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-executor-macros)
-        if: steps.changes.outputs.embassy-executor-macros == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-executor/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-executor/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-executor-timer-queue)
-        if: steps.changes.outputs.embassy-executor-timer-queue == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-executor-timer-queue/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-executor-timer-queue/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-futures)
-        if: steps.changes.outputs.embassy-futures == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-futures/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-futures/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-imxrt)
-        if: steps.changes.outputs.embassy-imxrt == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-imxrt/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-imxrt/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-mspm0)
-        if: steps.changes.outputs.embassy-mspm0 == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-mspm0/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-mspm0/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-net)
-        if: steps.changes.outputs.embassy-net == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-net/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-net/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-net-adin1110)
-        if: steps.changes.outputs.embassy-net-adin1110 == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-net-adin1110/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-net-adin1110/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-net-driver)
-        if: steps.changes.outputs.embassy-net-driver == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-net-driver/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-net-driver/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-net-driver-channel)
-        if: steps.changes.outputs.embassy-net-driver-channel == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-net-driver-channel/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-net-driver-channel/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-net-enc28j60)
-        if: steps.changes.outputs.embassy-net-enc28j60 == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-net-enc28j60/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-net-enc28j60/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-net-esp-hosted)
-        if: steps.changes.outputs.embassy-net-esp-hosted == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-net-esp-hosted/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-net-esp-hosted/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-net-nrf91)
-        if: steps.changes.outputs.embassy-net-nrf91 == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-net-nrf91/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-net-nrf91/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-net-ppp)
-        if: steps.changes.outputs.embassy-net-ppp == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-net-ppp/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-net-ppp/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-net-tuntap)
-        if: steps.changes.outputs.embassy-net-tuntap == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-net-tuntap/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-net-tuntap/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-net-wiznet)
-        if: steps.changes.outputs.embassy-net-wiznet == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-net-wiznet/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-net-wiznet/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-nrf)
-        if: steps.changes.outputs.embassy-nrf == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-nrf/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-nrf/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-nxp)
-        if: steps.changes.outputs.embassy-nxp == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-nxp/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-nxp/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-rp)
-        if: steps.changes.outputs.embassy-rp == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-rp/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-rp/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-stm32)
-        if: steps.changes.outputs.embassy-stm32 == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-stm32/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-stm32/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-stm32-wpan)
-        if: steps.changes.outputs.embassy-stm32-wpan == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-stm32-wpan/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-stm32-wpan/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-sync)
-        if: steps.changes.outputs.embassy-sync == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-sync/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-sync/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-time)
-        if: steps.changes.outputs.embassy-time == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-time/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-time/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-time-driver)
-        if: steps.changes.outputs.embassy-time-driver == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-time-driver/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-time-driver/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-time-queue-utils)
-        if: steps.changes.outputs.embassy-time-queue-utils == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-time-queue-utils/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-time-queue-utils/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-usb)
-        if: steps.changes.outputs.embassy-usb == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-usb/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-usb/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-usb-dfu)
-        if: steps.changes.outputs.embassy-usb-dfu == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-usb-dfu/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-usb-dfu/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-usb-driver)
-        if: steps.changes.outputs.embassy-usb-driver == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-usb-driver/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-usb-driver/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-usb-logger)
-        if: steps.changes.outputs.embassy-usb-logger == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-usb-logger/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-usb-logger/CHANGELOG.md file."
-      - name: Check that changelog updated (embassy-usb-synopsys-otg)
-        if: steps.changes.outputs.embassy-usb-synopsys-otg == 'true'
-        uses: dangoslen/changelog-enforcer@v3
-        with:
-          changeLogPath: embassy-usb-synopsys-otg/CHANGELOG.md
-          skipLabels: "skip-changelog"
-          missingUpdateErrorMessage: "Please add a changelog entry in the embassy-usb-synopsys-otg/CHANGELOG.md file."
+# name: Changelog check
+# 
+# on:
+#   pull_request:
+#     # We will not track changes for the following packages/directories.
+#     paths-ignore:
+#       - "/examples/"
+#       - "/docs/"
+#       - "/out/"
+#       - "/tests/"
+#       - "/release/"
+#       - "/cyw43-firmware/"
+#     # Run on labeled/unlabeled in addition to defaults to detect
+#     # adding/removing skip-changelog labels.
+#     types: [opened, reopened, labeled, unlabeled, synchronize]
+# 
+# jobs:
+#   changelog:
+#     runs-on: ubuntu-latest
+# 
+#     steps:
+#       - name: Checkout sources
+#         uses: actions/checkout@v4
+# 
+#       - name: Check which package is modified
+#         uses: dorny/paths-filter@v3
+#         id: changes
+#         with:
+#           filters: |
+#             cyw43:
+#             - 'cyw43/**'
+#             cyw43-pio:
+#             - 'cyw43-pio/**'
+#             embassy-boot:
+#             - 'embassy-boot/**'
+#             embassy-boot-nrf:
+#             - 'embassy-boot-nrf/**'
+#             embassy-boot-rp:
+#             - 'embassy-boot-rp/**'
+#             embassy-boot-stm32:
+#             - 'embassy-boot-stm32/**'
+#             embassy-embedded-hal:
+#             - 'embassy-embedded-hal/**'
+#             embassy-executor:
+#             - 'embassy-executor/**'
+#             embassy-executor-macros:
+#             - 'embassy-executor-macros/**'
+#             embassy-executor-timer-queue:
+#             - 'embassy-executor-timer-queue/**'
+#             embassy-futures:
+#             - 'embassy-futures/**'
+#             embassy-imxrt:
+#             - 'embassy-imxrt/**'
+#             embassy-mspm0:
+#             - 'embassy-mspm0/**'
+#             embassy-net:
+#             - 'embassy-net/**'
+#             embassy-net-adin1110:
+#             - 'embassy-net-adin1110/**'
+#             embassy-net-driver:
+#             - 'embassy-net-driver/**'
+#             embassy-net-driver-channel:
+#             - 'embassy-net-driver-channel/**'
+#             embassy-net-enc28j60:
+#             - 'embassy-net-enc28j60/**'
+#             embassy-net-esp-hosted:
+#             - 'embassy-net-esp-hosted/**'
+#             embassy-net-nrf91:
+#             - 'embassy-net-nrf91/**'
+#             embassy-net-ppp:
+#             - 'embassy-net-ppp/**'
+#             embassy-net-tuntap:
+#             - 'embassy-net-tuntap/**'
+#             embassy-net-wiznet:
+#             - 'embassy-net-wiznet/**'
+#             embassy-nrf:
+#             - 'embassy-nrf/**'
+#             embassy-nxp:
+#             - 'embassy-nxp/**'
+#             embassy-rp:
+#             - 'embassy-rp/**'
+#             embassy-stm32:
+#             - 'embassy-stm32/**'
+#             embassy-stm32-wpan:
+#             - 'embassy-stm32-wpan/**'
+#             embassy-sync:
+#             - 'embassy-sync/**'
+#             embassy-time:
+#             - 'embassy-time/**'
+#             embassy-time-driver:
+#             - 'embassy-time-driver/**'
+#             embassy-time-queue-utils:
+#             - 'embassy-time-queue-utils/**'
+#             embassy-usb:
+#             - 'embassy-usb/**'
+#             embassy-usb-dfu:
+#             - 'embassy-usb-dfu/**'
+#             embassy-usb-driver:
+#             - 'embassy-usb-driver/**'
+#             embassy-usb-logger:
+#             - 'embassy-usb-logger/**'
+#             embassy-usb-synopsys-otg:
+#             - 'embassy-usb-synopsys-otg/**'
+#       - name: Check that changelog updated (cyw43)
+#         if: steps.changes.outputs.cyw43 == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: cyw43/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the cyw43/CHANGELOG.md file."
+#       - name: Check that changelog updated (cyw43-pio)
+#         if: steps.changes.outputs.cyw43-pio == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: cyw43-pio/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the cyw43-pio/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-boot)
+#         if: steps.changes.outputs.embassy-boot == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-boot/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-boot/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-boot-nrf)
+#         if: steps.changes.outputs.embassy-boot-nrf == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-boot-nrf/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-boot-nrf/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-boot-rp)
+#         if: steps.changes.outputs.embassy-boot-rp == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-boot-rp/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-boot-rp/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-boot-stm32)
+#         if: steps.changes.outputs.embassy-boot-stm32 == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-boot-stm32/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-boot-stm32/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-embedded-hal)
+#         if: steps.changes.outputs.embassy-embedded-hal == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-embedded-hal/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-embedded-hal/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-executor)
+#         if: steps.changes.outputs.embassy-executor == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-executor/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-executor/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-executor-macros)
+#         if: steps.changes.outputs.embassy-executor-macros == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-executor/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-executor/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-executor-timer-queue)
+#         if: steps.changes.outputs.embassy-executor-timer-queue == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-executor-timer-queue/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-executor-timer-queue/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-futures)
+#         if: steps.changes.outputs.embassy-futures == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-futures/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-futures/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-imxrt)
+#         if: steps.changes.outputs.embassy-imxrt == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-imxrt/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-imxrt/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-mspm0)
+#         if: steps.changes.outputs.embassy-mspm0 == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-mspm0/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-mspm0/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-net)
+#         if: steps.changes.outputs.embassy-net == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-net/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-net/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-net-adin1110)
+#         if: steps.changes.outputs.embassy-net-adin1110 == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-net-adin1110/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-net-adin1110/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-net-driver)
+#         if: steps.changes.outputs.embassy-net-driver == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-net-driver/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-net-driver/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-net-driver-channel)
+#         if: steps.changes.outputs.embassy-net-driver-channel == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-net-driver-channel/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-net-driver-channel/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-net-enc28j60)
+#         if: steps.changes.outputs.embassy-net-enc28j60 == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-net-enc28j60/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-net-enc28j60/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-net-esp-hosted)
+#         if: steps.changes.outputs.embassy-net-esp-hosted == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-net-esp-hosted/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-net-esp-hosted/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-net-nrf91)
+#         if: steps.changes.outputs.embassy-net-nrf91 == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-net-nrf91/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-net-nrf91/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-net-ppp)
+#         if: steps.changes.outputs.embassy-net-ppp == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-net-ppp/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-net-ppp/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-net-tuntap)
+#         if: steps.changes.outputs.embassy-net-tuntap == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-net-tuntap/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-net-tuntap/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-net-wiznet)
+#         if: steps.changes.outputs.embassy-net-wiznet == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-net-wiznet/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-net-wiznet/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-nrf)
+#         if: steps.changes.outputs.embassy-nrf == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-nrf/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-nrf/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-nxp)
+#         if: steps.changes.outputs.embassy-nxp == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-nxp/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-nxp/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-rp)
+#         if: steps.changes.outputs.embassy-rp == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-rp/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-rp/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-stm32)
+#         if: steps.changes.outputs.embassy-stm32 == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-stm32/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-stm32/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-stm32-wpan)
+#         if: steps.changes.outputs.embassy-stm32-wpan == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-stm32-wpan/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-stm32-wpan/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-sync)
+#         if: steps.changes.outputs.embassy-sync == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-sync/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-sync/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-time)
+#         if: steps.changes.outputs.embassy-time == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-time/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-time/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-time-driver)
+#         if: steps.changes.outputs.embassy-time-driver == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-time-driver/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-time-driver/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-time-queue-utils)
+#         if: steps.changes.outputs.embassy-time-queue-utils == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-time-queue-utils/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-time-queue-utils/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-usb)
+#         if: steps.changes.outputs.embassy-usb == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-usb/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-usb/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-usb-dfu)
+#         if: steps.changes.outputs.embassy-usb-dfu == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-usb-dfu/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-usb-dfu/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-usb-driver)
+#         if: steps.changes.outputs.embassy-usb-driver == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-usb-driver/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-usb-driver/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-usb-logger)
+#         if: steps.changes.outputs.embassy-usb-logger == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-usb-logger/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-usb-logger/CHANGELOG.md file."
+#       - name: Check that changelog updated (embassy-usb-synopsys-otg)
+#         if: steps.changes.outputs.embassy-usb-synopsys-otg == 'true'
+#         uses: dangoslen/changelog-enforcer@v3
+#         with:
+#           changeLogPath: embassy-usb-synopsys-otg/CHANGELOG.md
+#           skipLabels: "skip-changelog"
+#           missingUpdateErrorMessage: "Please add a changelog entry in the embassy-usb-synopsys-otg/CHANGELOG.md file."
