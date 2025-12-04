@@ -4,13 +4,13 @@ use embassy_hal_internal::{Peri, PeripheralType};
 use paste::paste;
 
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel, LpuartConfig};
-use crate::clocks::{enable_and_reset, ClockError, Gate, PoweredClock};
+use crate::clocks::{ClockError, Gate, PoweredClock, enable_and_reset};
 use crate::gpio::SealedPin;
 use crate::pac::lpuart0::baud::Sbns as StopBits;
-use crate::pac::lpuart0::ctrl::{Idlecfg as IdleConfig, Ilt as IdleType, Pt as Parity, M as DataBits};
+use crate::pac::lpuart0::ctrl::{Idlecfg as IdleConfig, Ilt as IdleType, M as DataBits, Pt as Parity};
 use crate::pac::lpuart0::modir::{Txctsc as TxCtsConfig, Txctssrc as TxCtsSource};
 use crate::pac::lpuart0::stat::Msbf as MsbFirst;
-use crate::{interrupt, pac, AnyPin};
+use crate::{AnyPin, interrupt, pac};
 
 pub mod buffered;
 

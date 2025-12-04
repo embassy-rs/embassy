@@ -9,7 +9,7 @@ use core::marker::PhantomData;
 use embassy_hal_internal::Peri;
 
 pub use crate::clocks::periph_helpers::Div4;
-use crate::clocks::{with_clocks, ClockError, PoweredClock};
+use crate::clocks::{ClockError, PoweredClock, with_clocks};
 use crate::pac::mrcc0::mrcc_clkout_clksel::Mux;
 use crate::peripherals::CLKOUT;
 

@@ -3,8 +3,8 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::lpuart::buffered::BufferedLpuart;
 use embassy_mcxa::lpuart::Config;
+use embassy_mcxa::lpuart::buffered::BufferedLpuart;
 use embassy_mcxa::{bind_interrupts, lpuart};
 use embedded_io_async::Write;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
