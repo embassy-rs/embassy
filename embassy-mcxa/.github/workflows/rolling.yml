@@ -1,0 +1,58 @@
+# This workflow runs every morning at midnight. It will run cargo hack
+# and a build with msrv. If any dependency breaks our crate, we will
+# know ASAP.
+#
+# - check: build with all features
+# - msrv: check that the msrv specified in the crate is correct
+permissions:
+  contents: read
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+
+name: rolling
+jobs:
+
+  check:
+    runs-on: ubuntu-latest
+    name: ubuntu / stable / features
+    strategy:
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+      - name: Install stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv8m.main-none-eabihf
+
+      - name: cargo install cargo-hack
+        uses: taiki-e/install-action@cargo-hack
+      - name: cargo check
+        run: |
+          cargo update
+          cargo check --all-features
+
+  msrv:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        msrv: ["1.91"]
+
+    name: ubuntu / ${{ matrix.msrv }} (${{ matrix.commit }})
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          submodules: true
+      - name: Install ${{ matrix.msrv }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.msrv }}
+          targets: thumbv8m.main-none-eabihf
+      - name: cargo +${{ matrix.msrv }} check
+        run: |
+          cargo update
+          cargo check --all-features
