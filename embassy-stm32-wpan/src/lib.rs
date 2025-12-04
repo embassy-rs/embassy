@@ -18,6 +18,14 @@
 // #![warn(missing_docs)]
 #![allow(static_mut_refs)] // TODO: Fix
 
+#[cfg(feature = "wb55")]
 mod wb55;
 
+#[cfg(feature = "wb55")]
 pub use wb55::*;
+
+#[cfg(feature = "wba")]
+mod wba;
+
+#[cfg(feature = "wba")]
+pub use wba::*;
