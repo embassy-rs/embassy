@@ -333,7 +333,6 @@ pub use interrupt::InterruptExt;
 pub use mcxa_pac as pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use mcxa_pac as pac;
-pub use rtc::Rtc0 as Rtc0Token;
 
 /// Initialize HAL with configuration (mirrors embassy-imxrt style). Minimal: just take peripherals.
 /// Also applies configurable NVIC priority for the OSTIMER OS_EVENT interrupt (no enabling).
