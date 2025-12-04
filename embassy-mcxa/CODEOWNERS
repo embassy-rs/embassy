@@ -1,5 +1,0 @@
-* @jamesmunns @felipebalbi
-
-# Any changes in the supply-chain folder needs approval
-# from auditors as it relates to cargo vet
-**/supply-chain @OpenDevicePartnership/crate-auditors
