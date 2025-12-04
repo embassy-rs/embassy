@@ -667,10 +667,11 @@ mod consts {
     pub const APPROTECT_DISABLED: u32 = 0x0000_005a;
 }
 
+/// Result from writing UICR.
 #[cfg(not(any(feature = "_nrf51", feature = "_nrf54l")))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-enum WriteResult {
+pub enum WriteResult {
     /// Word was written successfully, needs reset.
     Written,
     /// Word was already set to the value we wanted to write, nothing was done.
@@ -679,13 +680,21 @@ enum WriteResult {
     Failed,
 }
 
+/// Write the UICR value at the provided address, ensuring that flash
+/// settings are correctly apply to persist the value.
+///
+/// Safety: the address must be a valid UICR register.
 #[cfg(not(any(feature = "_nrf51", feature = "_nrf54l")))]
-unsafe fn uicr_write(address: *mut u32, value: u32) -> WriteResult {
+pub unsafe fn uicr_write(address: *mut u32, value: u32) -> WriteResult {
     uicr_write_masked(address, value, 0xFFFF_FFFF)
 }
 
 #[cfg(not(any(feature = "_nrf51", feature = "_nrf54l")))]
-unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> WriteResult {
+/// Write the UICR value at the provided address, ensuring that flash
+/// settings are correctly apply to persist the value.
+///
+/// Safety: the address must be a valid UICR register.
+pub unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> WriteResult {
     let curr_val = address.read_volatile();
     if curr_val & mask == value & mask {
         return WriteResult::Noop;
