@@ -25,7 +25,8 @@ use core::marker::PhantomData;
 #[allow(unused)]
 #[cfg(not(any(adc_f3v3, adc_wba)))]
 pub use _version::*;
-use embassy_hal_internal::{PeripheralType, impl_peripheral};
+#[allow(unused)]
+use embassy_hal_internal::PeripheralType;
 #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
 use embassy_sync::waitqueue::AtomicWaker;
 #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
@@ -241,10 +242,10 @@ impl<'d, T: AnyInstance> Adc<'d, T> {
     /// in order or require the sequence to have the same sample time for all channnels, depending
     /// on the number and properties of the channels in the sequence. This method will panic if
     /// the hardware cannot deliver the requested configuration.
-    pub async fn read(
+    pub async fn read<'a, 'b: 'a>(
         &mut self,
         rx_dma: embassy_hal_internal::Peri<'_, impl RxDma<T>>,
-        sequence: impl ExactSizeIterator<Item = (&mut AnyAdcChannel<T>, T::SampleTime)>,
+        sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<'b, T>, T::SampleTime)>,
         readings: &mut [u16],
     ) {
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
@@ -313,11 +314,11 @@ impl<'d, T: AnyInstance> Adc<'d, T> {
     /// in order or require the sequence to have the same sample time for all channnels, depending
     /// on the number and properties of the channels in the sequence. This method will panic if
     /// the hardware cannot deliver the requested configuration.
-    pub fn into_ring_buffered<'a>(
+    pub fn into_ring_buffered<'a, 'b>(
         self,
         dma: embassy_hal_internal::Peri<'a, impl RxDma<T>>,
         dma_buf: &'a mut [u16],
-        sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<T>, T::SampleTime)>,
+        sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<'b, T>, T::SampleTime)>,
         mode: RegularConversionMode,
     ) -> RingBufferedAdc<'a, T> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
@@ -417,7 +418,10 @@ pub trait Instance: SealedInstance + crate::PeripheralType + crate::rcc::RccPeri
 #[allow(private_bounds)]
 pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
     #[allow(unused_mut)]
-    fn degrade_adc(mut self) -> AnyAdcChannel<T> {
+    fn degrade_adc<'a>(mut self) -> AnyAdcChannel<'a, T>
+    where
+        Self: 'a,
+    {
         #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u5, adc_wba))]
         self.setup();
 
@@ -433,14 +437,13 @@ pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
 ///
 /// This is useful in scenarios where you need the ADC channels to have the same type, such as
 /// storing them in an array.
-pub struct AnyAdcChannel<T> {
+pub struct AnyAdcChannel<'a, T> {
     channel: u8,
     is_differential: bool,
-    _phantom: PhantomData<T>,
+    _phantom: PhantomData<&'a mut T>,
 }
-impl_peripheral!(AnyAdcChannel<T: AnyInstance>);
-impl<T: AnyInstance> AdcChannel<T> for AnyAdcChannel<T> {}
-impl<T: AnyInstance> SealedAdcChannel<T> for AnyAdcChannel<T> {
+impl<T: AnyInstance> AdcChannel<T> for AnyAdcChannel<'_, T> {}
+impl<T: AnyInstance> SealedAdcChannel<T> for AnyAdcChannel<'_, T> {
     fn channel(&self) -> u8 {
         self.channel
     }
@@ -450,7 +453,7 @@ impl<T: AnyInstance> SealedAdcChannel<T> for AnyAdcChannel<T> {
     }
 }
 
-impl<T> AnyAdcChannel<T> {
+impl<T> AnyAdcChannel<'_, T> {
     #[allow(unused)]
     pub fn get_hw_channel(&self) -> u8 {
         self.channel

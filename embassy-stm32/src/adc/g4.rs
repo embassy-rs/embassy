@@ -409,10 +409,10 @@ impl<'d, T: Instance + AnyInstance> Adc<'d, T> {
     ///   `InjectedAdc<T, N>` to enforce bounds at compile time.
     pub fn setup_injected_conversions<'a, const N: usize>(
         self,
-        sequence: [(AnyAdcChannel<T>, SampleTime); N],
+        sequence: [(AnyAdcChannel<'a, T>, SampleTime); N],
         trigger: ConversionTrigger,
         interrupt: bool,
-    ) -> InjectedAdc<T, N> {
+    ) -> InjectedAdc<'a, T, N> {
         assert!(N != 0, "Read sequence cannot be empty");
         assert!(
             N <= NR_INJECTED_RANKS,
@@ -424,8 +424,8 @@ impl<'d, T: Instance + AnyInstance> Adc<'d, T> {
 
         T::regs().jsqr().modify(|w| w.set_jl(N as u8 - 1));
 
-        for (n, (channel, sample_time)) in sequence.into_iter().enumerate() {
-            let sample_time = sample_time.into();
+        for (n, (channel, sample_time)) in sequence.iter().enumerate() {
+            let sample_time = sample_time.clone().into();
             if channel.channel() <= 9 {
                 T::regs()
                     .smpr()
@@ -487,16 +487,16 @@ impl<'d, T: Instance + AnyInstance> Adc<'d, T> {
     /// This function is `unsafe` because it clones the ADC peripheral handle unchecked. Both the
     /// `RingBufferedAdc` and `InjectedAdc` take ownership of the handle and drop it independently.
     /// Ensure no other code concurrently accesses the same ADC instance in a conflicting way.
-    pub fn into_ring_buffered_and_injected<'a, const N: usize>(
+    pub fn into_ring_buffered_and_injected<'a, 'b, const N: usize>(
         self,
         dma: Peri<'a, impl RxDma<T>>,
         dma_buf: &'a mut [u16],
-        regular_sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<T>, T::SampleTime)>,
+        regular_sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<'b, T>, T::SampleTime)>,
         regular_conversion_mode: RegularConversionMode,
-        injected_sequence: [(AnyAdcChannel<T>, SampleTime); N],
+        injected_sequence: [(AnyAdcChannel<'b, T>, SampleTime); N],
         injected_trigger: ConversionTrigger,
         injected_interrupt: bool,
-    ) -> (super::RingBufferedAdc<'a, T>, InjectedAdc<T, N>) {
+    ) -> (super::RingBufferedAdc<'a, T>, InjectedAdc<'b, T, N>) {
         unsafe {
             (
                 Self {
@@ -531,7 +531,7 @@ impl<'d, T: Instance + AnyInstance> Adc<'d, T> {
     }
 }
 
-impl<T: Instance, const N: usize> InjectedAdc<T, N> {
+impl<'a, T: Instance, const N: usize> InjectedAdc<'a, T, N> {
     /// Read sampled data from all injected ADC injected ranks
     /// Clear the JEOS flag to allow a new injected sequence
     pub(super) fn read_injected_data() -> [u16; N] {
