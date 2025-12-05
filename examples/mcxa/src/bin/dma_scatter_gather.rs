@@ -20,6 +20,7 @@ use embassy_mcxa::dma::{self, DmaChannel, Tcd};
 use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
 use embassy_mcxa::{bind_interrupts, pac};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use core::fmt::Write as _;
 
 // Source and destination buffers
 static mut SRC: [u32; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
@@ -72,38 +73,10 @@ bind_interrupts!(struct Irqs {
     DMA_CH0 => ScatterGatherDmaHandler;
 });
 
-/// Helper to write a u32 as decimal ASCII to UART
-fn write_u32(tx: &mut LpuartTx<'_, Blocking>, val: u32) {
-    let mut buf = [0u8; 10];
-    let mut n = val;
-    let mut i = buf.len();
-
-    if n == 0 {
-        tx.blocking_write(b"0").ok();
-        return;
-    }
-
-    while n > 0 {
-        i -= 1;
-        buf[i] = b'0' + (n % 10) as u8;
-        n /= 10;
-    }
-
-    tx.blocking_write(&buf[i..]).ok();
-}
 
 /// Helper to print a buffer to UART
 fn print_buffer(tx: &mut LpuartTx<'_, Blocking>, buf_ptr: *const u32, len: usize) {
-    tx.blocking_write(b"[").ok();
-    unsafe {
-        for i in 0..len {
-            write_u32(tx, *buf_ptr.add(i));
-            if i < len - 1 {
-                tx.blocking_write(b", ").ok();
-            }
-        }
-    }
-    tx.blocking_write(b"]").ok();
+    write!(tx, "{:?}", unsafe { core::slice::from_raw_parts(buf_ptr, len) }).ok();
 }
 
 #[embassy_executor::main]

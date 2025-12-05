@@ -26,6 +26,7 @@ use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaChannel, ScatterGatherBuilder
 use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
 use embassy_mcxa::{bind_interrupts, pac};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use core::fmt::Write as _;
 
 // Bind DMA channel 0 interrupt
 bind_interrupts!(struct Irqs {
@@ -42,27 +43,9 @@ static mut DST1: [u32; 4] = [0; 4];
 static mut DST2: [u32; 4] = [0; 4];
 static mut DST3: [u32; 4] = [0; 4];
 
-/// Helper to write a u32 as hex to UART
-fn write_hex(tx: &mut LpuartTx<'_, Blocking>, val: u32) {
-    const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    for i in (0..8).rev() {
-        let nibble = ((val >> (i * 4)) & 0xF) as usize;
-        tx.blocking_write(&[HEX[nibble]]).ok();
-    }
-}
-
 /// Helper to print a buffer to UART
 fn print_buffer(tx: &mut LpuartTx<'_, Blocking>, buf_ptr: *const u32, len: usize) {
-    tx.blocking_write(b"[").ok();
-    unsafe {
-        for i in 0..len {
-            write_hex(tx, *buf_ptr.add(i));
-            if i < len - 1 {
-                tx.blocking_write(b", ").ok();
-            }
-        }
-    }
-    tx.blocking_write(b"]").ok();
+    write!(tx, "{:08X?}", unsafe { core::slice::from_raw_parts(buf_ptr, len) }).ok();
 }
 
 #[embassy_executor::main]

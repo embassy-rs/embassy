@@ -1706,6 +1706,12 @@ impl embedded_hal_nb::serial::Write for LpuartTx<'_, Blocking> {
     }
 }
 
+impl core::fmt::Write for LpuartTx<'_, Blocking> {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        self.blocking_write(s.as_bytes()).map_err(|_| core::fmt::Error)
+    }
+}
+
 impl embedded_hal_nb::serial::Read for Lpuart<'_, Blocking> {
     fn read(&mut self) -> nb::Result<u8, Self::Error> {
         embedded_hal_nb::serial::Read::read(&mut self.rx)

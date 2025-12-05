@@ -19,6 +19,7 @@ use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaChannel, TransferOptions};
 use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
 use embassy_mcxa::{bind_interrupts, pac};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+use core::fmt::Write as _;
 
 // Bind DMA channel 0 interrupt using Embassy-style macro
 bind_interrupts!(struct Irqs {
@@ -32,40 +33,10 @@ static mut SRC_BUFFER: [u32; BUFFER_LENGTH] = [0; BUFFER_LENGTH];
 static mut DEST_BUFFER: [u32; BUFFER_LENGTH] = [0; BUFFER_LENGTH];
 static mut MEMSET_BUFFER: [u32; BUFFER_LENGTH] = [0; BUFFER_LENGTH];
 
-/// Helper to write a u32 as decimal ASCII to UART
-fn write_u32(tx: &mut LpuartTx<'_, Blocking>, val: u32) {
-    let mut buf = [0u8; 10]; // u32 max is 4294967295 (10 digits)
-    let mut n = val;
-    let mut i = buf.len();
-
-    if n == 0 {
-        tx.blocking_write(b"0").ok();
-        return;
-    }
-
-    while n > 0 {
-        i -= 1;
-        buf[i] = b'0' + (n % 10) as u8;
-        n /= 10;
-    }
-
-    tx.blocking_write(&buf[i..]).ok();
-}
-
 /// Helper to print a buffer as [v1, v2, v3, v4] to UART
 /// Takes a raw pointer to avoid warnings about shared references to mutable statics
 fn print_buffer(tx: &mut LpuartTx<'_, Blocking>, buf_ptr: *const [u32; BUFFER_LENGTH]) {
-    tx.blocking_write(b"[").ok();
-    unsafe {
-        let buf = &*buf_ptr;
-        for (i, val) in buf.iter().enumerate() {
-            write_u32(tx, *val);
-            if i < buf.len() - 1 {
-                tx.blocking_write(b", ").ok();
-            }
-        }
-    }
-    tx.blocking_write(b"]").ok();
+    write!(tx, "{:?}", unsafe { &*buf_ptr }).ok();
 }
 
 #[embassy_executor::main]
