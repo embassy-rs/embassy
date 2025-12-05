@@ -32,12 +32,6 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("LPUART DMA example starting...");
 
-    // Enable DMA interrupts (per-channel, as needed)
-    unsafe {
-        cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA_CH0);
-        cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA_CH1);
-    }
-
     // Create UART configuration
     let config = Config {
         baudrate_bps: 115_200,

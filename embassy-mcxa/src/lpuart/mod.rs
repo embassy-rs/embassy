@@ -1187,10 +1187,14 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartTxDma<'a, T, C> {
         // Initialize LPUART with TX enabled, RX disabled, no flow control
         Lpuart::<Async>::init::<T>(true, false, false, false, config)?;
 
+        // Enable interrupt
+        let tx_dma = DmaChannel::new(tx_dma_ch);
+        tx_dma.enable_interrupt();
+
         Ok(Self {
             info: T::info(),
             _tx_pin: tx_pin,
-            tx_dma: DmaChannel::new(tx_dma_ch),
+            tx_dma,
             _instance: core::marker::PhantomData,
         })
     }
@@ -1299,10 +1303,14 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
         // Initialize LPUART with TX disabled, RX enabled, no flow control
         Lpuart::<Async>::init::<T>(false, true, false, false, config)?;
 
+        // Enable dma interrupt
+        let rx_dma = DmaChannel::new(rx_dma_ch);
+        rx_dma.enable_interrupt();
+
         Ok(Self {
             info: T::info(),
             _rx_pin: rx_pin,
-            rx_dma: DmaChannel::new(rx_dma_ch),
+            rx_dma,
             _instance: core::marker::PhantomData,
         })
     }
@@ -1476,17 +1484,23 @@ impl<'a, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> LpuartDma<'a, 
         // Initialize LPUART with both TX and RX enabled, no flow control
         Lpuart::<Async>::init::<T>(true, true, false, false, config)?;
 
+        // Enable DMA interrupts
+        let tx_dma = DmaChannel::new(tx_dma_ch);
+        let rx_dma = DmaChannel::new(rx_dma_ch);
+        tx_dma.enable_interrupt();
+        rx_dma.enable_interrupt();
+
         Ok(Self {
             tx: LpuartTxDma {
                 info: T::info(),
                 _tx_pin: tx_pin,
-                tx_dma: DmaChannel::new(tx_dma_ch),
+                tx_dma,
                 _instance: core::marker::PhantomData,
             },
             rx: LpuartRxDma {
                 info: T::info(),
                 _rx_pin: rx_pin,
-                rx_dma: DmaChannel::new(rx_dma_ch),
+                rx_dma,
                 _instance: core::marker::PhantomData,
             },
         })
