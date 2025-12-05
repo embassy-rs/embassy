@@ -1,0 +1,61 @@
+[package]
+name = "embassy-mcxa"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Embassy Hardware Abstraction Layer (HAL) for NXP MCXA series of MCUs"
+repository = "https://github.com/embassy-rs/embassy"
+keywords = ["embedded", "hal", "nxp", "mcxa", "embassy"]
+categories = ["embedded", "hardware-support", "no-std"]
+documentation = "https://docs.embassy.dev/embassy-mcxa"
+
+[package.metadata.embassy]
+build = [
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "time", "unstable-pac"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "time", "unstable-pac"]},
+]
+
+[dependencies]
+cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
+# If you would like "device" to be an optional feature, please open an issue.
+cortex-m-rt = { version = "0.7", features = ["device"] }
+critical-section = "1.2.0"
+defmt = { version = "1.0", optional = true }
+embassy-embedded-hal = "0.5.0"
+embassy-hal-internal = { version = "0.3.0", features = ["cortex-m", "prio-bits-3"] }
+embassy-sync = "0.7.2"
+embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
+embedded-hal-async = { version = "1.0" }
+embedded-hal-nb = { version = "1.0" }
+embedded-io = "0.6"
+embedded-io-async = { version = "0.6.1" }
+heapless = "0.8"
+mcxa-pac = { git = "https://github.com/OpenDevicePartnership/mcxa-pac", features = ["rt", "critical-section"], version = "0.1.0", rev = "e7dfed8740b449b6ac646bab8ac6776a3c099267" }
+nb = "1.1.0"
+paste = "1.0.15"
+maitake-sync = { version = "0.2.2", default-features = false, features = ["critical-section", "no-cache-pad"] }
+
+# `time` dependencies
+embassy-time = { version = "0.5.0", optional = true }
+embassy-time-driver = { version = "0.2.1", optional = true }
+
+[features]
+default = ["rt"]
+
+# Base defmt feature enables core + panic handler
+# Use with one logger feature: defmt-rtt (preferred) or defmt-uart (fallback)
+defmt = ["dep:defmt", "mcxa-pac/defmt"]
+
+unstable-pac = []
+
+# dummy feature to silence embassy-hal-internal lint
+#
+# This feature makes no change to embassy-mcxa's operation.
+rt = []
+
+# Embassy time
+time = [
+    "dep:embassy-time",
+    "dep:embassy-time-driver",
+]
