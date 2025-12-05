@@ -16,23 +16,23 @@ async fn main(_spawner: Spawner) {
     let buf = b"123456789";
 
     let mut crc = Crc::new_ccitt_false(p.CRC0.reborrow());
-    let sum = crc.feed_bytes(buf);
+    let sum = crc.feed(buf);
     assert_eq!(sum, 0x29b1);
 
     let mut crc = Crc::new_maxim(p.CRC0.reborrow());
-    let sum = crc.feed_bytes(buf);
+    let sum = crc.feed(buf);
     assert_eq!(sum, 0x44c2);
 
     let mut crc = Crc::new_kermit(p.CRC0.reborrow());
-    let sum = crc.feed_bytes(buf);
+    let sum = crc.feed(buf);
     assert_eq!(sum, 0x2189);
 
     let mut crc = Crc::new_iso_hdlc(p.CRC0.reborrow());
-    let sum = crc.feed_bytes(buf);
+    let sum = crc.feed(buf);
     assert_eq!(sum, 0xcbf4_3926);
 
     let mut crc = Crc::new_posix(p.CRC0.reborrow());
-    let sum = crc.feed_bytes(buf);
+    let sum = crc.feed(buf);
     assert_eq!(sum, 0x765e_7680);
 
     defmt::info!("CRC successful");

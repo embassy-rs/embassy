@@ -222,7 +222,15 @@ impl<'d> Crc<'d, Crc16> {
     }
 
     /// Feeds a slice of bytes into the CRC peripheral. Returns the computed checksum.
-    pub fn feed_bytes(&mut self, bytes: &[u8]) -> u16 {
+    ///
+    /// The input is split using [`align_to::<u32>`] into:
+    /// - `prefix`: unaligned leading bytes,
+    /// - `data`: aligned `u32` words,
+    /// - `suffix`: trailing bytes.
+    ///
+    /// This allows efficient 32‑bit writes where possible, falling back to byte writes
+    /// for the remainder.
+    pub fn feed(&mut self, bytes: &[u8]) -> u16 {
         let (prefix, data, suffix) = unsafe { bytes.align_to::<u32>() };
 
         for b in prefix {
@@ -325,7 +333,15 @@ impl<'d> Crc<'d, Crc32> {
     }
 
     /// Feeds a slice of bytes into the CRC peripheral. Returns the computed checksum.
-    pub fn feed_bytes(&mut self, bytes: &[u8]) -> u32 {
+    ///
+    /// The input is split using [`align_to::<u32>`] into:
+    /// - `prefix`: unaligned leading bytes,
+    /// - `data`: aligned `u32` words,
+    /// - `suffix`: trailing bytes.
+    ///
+    /// This allows efficient 32‑bit writes where possible, falling back to byte writes
+    /// for the remainder.
+    pub fn feed(&mut self, bytes: &[u8]) -> u32 {
         let (prefix, data, suffix) = unsafe { bytes.align_to::<u32>() };
 
         for b in prefix {
