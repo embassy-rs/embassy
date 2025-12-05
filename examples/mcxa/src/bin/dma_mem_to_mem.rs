@@ -18,6 +18,7 @@ use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaChannel, TransferOptions};
 use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
 use embassy_mcxa::{bind_interrupts, pac};
+use static_cell::ConstStaticCell;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 use core::fmt::Write as _;
 
@@ -29,14 +30,14 @@ bind_interrupts!(struct Irqs {
 const BUFFER_LENGTH: usize = 4;
 
 // Buffers in RAM (static mut is automatically placed in .bss/.data)
-static mut SRC_BUFFER: [u32; BUFFER_LENGTH] = [0; BUFFER_LENGTH];
-static mut DEST_BUFFER: [u32; BUFFER_LENGTH] = [0; BUFFER_LENGTH];
-static mut MEMSET_BUFFER: [u32; BUFFER_LENGTH] = [0; BUFFER_LENGTH];
+static SRC_BUFFER: ConstStaticCell<[u32; BUFFER_LENGTH]> = ConstStaticCell::new([1, 2, 3, 4]);
+static DEST_BUFFER: ConstStaticCell<[u32; BUFFER_LENGTH]> = ConstStaticCell::new([0; BUFFER_LENGTH]);
+static MEMSET_BUFFER: ConstStaticCell<[u32; BUFFER_LENGTH]> = ConstStaticCell::new([0; BUFFER_LENGTH]);
 
 /// Helper to print a buffer as [v1, v2, v3, v4] to UART
 /// Takes a raw pointer to avoid warnings about shared references to mutable statics
-fn print_buffer(tx: &mut LpuartTx<'_, Blocking>, buf_ptr: *const [u32; BUFFER_LENGTH]) {
-    write!(tx, "{:?}", unsafe { &*buf_ptr }).ok();
+fn print_buffer(tx: &mut LpuartTx<'_, Blocking>, buf_ptr: &[u32; BUFFER_LENGTH]) {
+    write!(tx, "{:?}", buf_ptr).ok();
 }
 
 #[embassy_executor::main]
@@ -70,18 +71,16 @@ async fn main(_spawner: Spawner) {
     tx.blocking_write(b"EDMA memory to memory example begin.\r\n\r\n")
         .unwrap();
 
-    // Initialize buffers
-    unsafe {
-        SRC_BUFFER = [1, 2, 3, 4];
-        DEST_BUFFER = [0; BUFFER_LENGTH];
-    }
+    let src = SRC_BUFFER.take();
+    let dst = DEST_BUFFER.take();
+    let mst = MEMSET_BUFFER.take();
 
     tx.blocking_write(b"Source Buffer:            ").unwrap();
-    print_buffer(&mut tx, &raw const SRC_BUFFER);
+    print_buffer(&mut tx, src);
     tx.blocking_write(b"\r\n").unwrap();
 
     tx.blocking_write(b"Destination Buffer (before): ").unwrap();
-    print_buffer(&mut tx, &raw const DEST_BUFFER);
+    print_buffer(&mut tx, dst);
     tx.blocking_write(b"\r\n").unwrap();
 
     tx.blocking_write(b"Configuring DMA with Embassy-style API...\r\n")
@@ -106,30 +105,17 @@ async fn main(_spawner: Spawner) {
     // Using async `.await` - the executor can run other tasks while waiting!
 
     // Perform type-safe memory-to-memory transfer using Embassy-style async API
-    unsafe {
-        let src = &*core::ptr::addr_of!(SRC_BUFFER);
-        let dst = &mut *core::ptr::addr_of_mut!(DEST_BUFFER);
-
-        // Using async `.await` - the executor can run other tasks while waiting!
-        let transfer = dma_ch0.mem_to_mem(src, dst, options);
-        transfer.await;
-    }
+    // Using async `.await` - the executor can run other tasks while waiting!
+    let transfer = dma_ch0.mem_to_mem(src, dst, options);
+    transfer.await;
 
     tx.blocking_write(b"DMA mem-to-mem transfer complete!\r\n\r\n").unwrap();
     tx.blocking_write(b"Destination Buffer (after):  ").unwrap();
-    print_buffer(&mut tx, &raw const DEST_BUFFER);
+    print_buffer(&mut tx, dst);
     tx.blocking_write(b"\r\n").unwrap();
 
     // Verify data
-    let mut mismatch = false;
-    unsafe {
-        for i in 0..BUFFER_LENGTH {
-            if SRC_BUFFER[i] != DEST_BUFFER[i] {
-                mismatch = true;
-                break;
-            }
-        }
-    }
+    let mut mismatch = src != dst;
 
     if mismatch {
         tx.blocking_write(b"FAIL: mem_to_mem mismatch!\r\n").unwrap();
@@ -152,37 +138,24 @@ async fn main(_spawner: Spawner) {
         .unwrap();
 
     tx.blocking_write(b"Memset Buffer (before):      ").unwrap();
-    print_buffer(&mut tx, &raw const MEMSET_BUFFER);
+    print_buffer(&mut tx, mst);
     tx.blocking_write(b"\r\n").unwrap();
 
     // Fill buffer with a pattern value using DMA memset
     let pattern: u32 = 0xDEADBEEF;
     tx.blocking_write(b"Filling with pattern 0xDEADBEEF...\r\n").unwrap();
 
-    unsafe {
-        let dst = &mut *core::ptr::addr_of_mut!(MEMSET_BUFFER);
-
-        // Using blocking_wait() for demonstration - also shows non-async usage
-        let transfer = dma_ch0.memset(&pattern, dst, options);
-        transfer.blocking_wait();
-    }
+    // Using blocking_wait() for demonstration - also shows non-async usage
+    let transfer = dma_ch0.memset(&pattern, mst, options);
+    transfer.blocking_wait();
 
     tx.blocking_write(b"DMA memset complete!\r\n\r\n").unwrap();
     tx.blocking_write(b"Memset Buffer (after):       ").unwrap();
-    print_buffer(&mut tx, &raw const MEMSET_BUFFER);
+    print_buffer(&mut tx, mst);
     tx.blocking_write(b"\r\n").unwrap();
 
     // Verify memset result
-    let mut memset_ok = true;
-    unsafe {
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..BUFFER_LENGTH {
-            if MEMSET_BUFFER[i] != pattern {
-                memset_ok = false;
-                break;
-            }
-        }
-    }
+    let memset_ok = mst.iter().all(|&v| v == pattern);
 
     if !memset_ok {
         tx.blocking_write(b"FAIL: memset mismatch!\r\n").unwrap();
@@ -193,8 +166,4 @@ async fn main(_spawner: Spawner) {
     }
 
     tx.blocking_write(b"=== All DMA tests complete ===\r\n").unwrap();
-
-    loop {
-        cortex_m::asm::wfe();
-    }
 }
