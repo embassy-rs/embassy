@@ -10,6 +10,14 @@ mod generated {
     #[rustfmt::skip]
     embassy_hal_internal::interrupt_mod!(
         ADC1,
+        DMA_CH0,
+        DMA_CH1,
+        DMA_CH2,
+        DMA_CH3,
+        DMA_CH4,
+        DMA_CH5,
+        DMA_CH6,
+        DMA_CH7,
         GPIO0,
         GPIO1,
         GPIO2,

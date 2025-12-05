@@ -6,6 +6,7 @@
 // #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 
 pub mod clocks; // still provide clock helpers
+pub mod dma;
 pub mod gpio;
 pub mod pins; // pin mux helpers
 
@@ -51,6 +52,14 @@ embassy_hal_internal::peripherals!(
 
     DBGMAILBOX,
     DMA0,
+    DMA_CH0,
+    DMA_CH1,
+    DMA_CH2,
+    DMA_CH3,
+    DMA_CH4,
+    DMA_CH5,
+    DMA_CH6,
+    DMA_CH7,
     EDMA0_TCD0,
     EIM0,
     EQDC0,
@@ -362,6 +371,9 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
     unsafe {
         crate::gpio::init();
     }
+
+    // Initialize DMA controller (clock, reset, configuration)
+    crate::dma::init();
 
     // Initialize embassy-time global driver backed by OSTIMER0
     #[cfg(feature = "time")]
