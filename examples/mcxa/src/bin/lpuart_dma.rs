@@ -14,7 +14,7 @@ use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaCh1InterruptHandler};
 use embassy_mcxa::lpuart::{Config, LpuartDma};
-use embassy_mcxa::{bind_interrupts, pac};
+use embassy_mcxa::bind_interrupts;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Bind DMA channel interrupts using Embassy-style macro

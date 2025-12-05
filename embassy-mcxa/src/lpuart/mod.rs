@@ -1,16 +1,17 @@
+use core::future::Future;
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use paste::paste;
 
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel, LpuartConfig};
-use crate::clocks::{ClockError, Gate, PoweredClock, enable_and_reset};
+use crate::clocks::{enable_and_reset, ClockError, Gate, PoweredClock};
 use crate::gpio::SealedPin;
 use crate::pac::lpuart0::baud::Sbns as StopBits;
-use crate::pac::lpuart0::ctrl::{Idlecfg as IdleConfig, Ilt as IdleType, M as DataBits, Pt as Parity};
+use crate::pac::lpuart0::ctrl::{Idlecfg as IdleConfig, Ilt as IdleType, Pt as Parity, M as DataBits};
 use crate::pac::lpuart0::modir::{Txctsc as TxCtsConfig, Txctssrc as TxCtsSource};
 use crate::pac::lpuart0::stat::Msbf as MsbFirst;
-use crate::{AnyPin, interrupt, pac};
+use crate::{interrupt, pac, AnyPin};
 
 pub mod buffered;
 
@@ -720,6 +721,12 @@ pub struct LpuartDma<'a, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait
     rx: LpuartRxDma<'a, T, RxC>,
 }
 
+/// Lpuart RX driver with ring-buffered DMA support.
+pub struct LpuartRxRingDma<'peri, 'ring, T: Instance, C: DmaChannelTrait> {
+    _inner: LpuartRxDma<'peri, T, C>,
+    ring: RingBuffer<'ring, u8>,
+}
+
 // ============================================================================
 // LPUART CORE IMPLEMENTATION
 // ============================================================================
@@ -1402,6 +1409,14 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
         Ok(())
     }
 
+    pub fn into_ring_dma_rx<'buf>(self, buf: &'buf mut [u8]) -> LpuartRxRingDma<'a, 'buf, T, C> {
+        unsafe {
+            let ring = self.setup_ring_buffer(buf);
+            self.enable_dma_request();
+            LpuartRxRingDma { _inner: self, ring }
+        }
+    }
+
     /// Set up a ring buffer for continuous DMA reception.
     ///
     /// This configures the DMA channel for circular operation, enabling continuous
@@ -1441,7 +1456,7 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
     /// - Only one RingBuffer should exist per LPUART RX channel at a time.
     /// - The caller must ensure the static buffer is not accessed elsewhere while
     ///   the ring buffer is active.
-    pub unsafe fn setup_ring_buffer<'b>(&self, buf: &'b mut [u8]) -> RingBuffer<'b, u8> {
+    unsafe fn setup_ring_buffer<'b>(&self, buf: &'b mut [u8]) -> RingBuffer<'b, u8> {
         // Get the peripheral data register address
         let peri_addr = self.info.regs.data().as_ptr() as *const u8;
 
@@ -1460,8 +1475,23 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
     /// Call this after `setup_ring_buffer()` to start continuous reception.
     /// This is separated from setup to allow for any additional configuration
     /// before starting the transfer.
-    pub unsafe fn enable_dma_request(&self) {
+    unsafe fn enable_dma_request(&self) {
         self.rx_dma.enable_request();
+    }
+}
+
+impl<'peri, 'buf, T: Instance, C: DmaChannelTrait> LpuartRxRingDma<'peri, 'buf, T, C> {
+    /// Read from the ring buffer
+    pub fn read<'d>(
+        &mut self,
+        dst: &'d mut [u8],
+    ) -> impl Future<Output = core::result::Result<usize, crate::dma::Error>> + use<'_, 'buf, 'd, T, C> {
+        self.ring.read(dst)
+    }
+
+    /// Clear the current contents of the ring buffer
+    pub fn clear(&mut self) {
+        self.ring.clear();
     }
 }
 

@@ -2170,7 +2170,14 @@ impl<'a, W: Word> RingBuffer<'a, W> {
     /// Stop the DMA transfer and consume the ring buffer.
     ///
     /// Returns any remaining unread data count.
-    pub fn stop(self) -> usize {
+    pub fn stop(mut self) -> usize {
+        let res = self.teardown();
+        drop(self);
+        res
+    }
+
+    /// Stop the DMA transfer. Intended to be called by `stop()` or `Drop`.
+    fn teardown(&mut self) -> usize {
         let available = self.available();
 
         // Disable the channel
@@ -2184,6 +2191,12 @@ impl<'a, W: Word> RingBuffer<'a, W> {
         fence(Ordering::SeqCst);
 
         available
+    }
+}
+
+impl<'a, W: Word> Drop for RingBuffer<'a, W> {
+    fn drop(&mut self) {
+        self.teardown();
     }
 }
 

@@ -23,6 +23,7 @@ use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaCh1InterruptHandler};
 use embassy_mcxa::lpuart::{Config, LpuartDma, LpuartTxDma};
+use static_cell::ConstStaticCell;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Bind DMA channel interrupts
@@ -32,7 +33,7 @@ bind_interrupts!(struct Irqs {
 });
 
 // Ring buffer for RX - power of 2 is ideal for modulo efficiency
-static mut RX_RING_BUFFER: [u8; 64] = [0; 64];
+static RX_RING_BUFFER: ConstStaticCell<[u8; 64]> = ConstStaticCell::new([0; 64]);
 
 /// Helper to write a byte as hex to UART
 fn write_hex<T: embassy_mcxa::lpuart::Instance, C: embassy_mcxa::dma::Channel>(
@@ -75,17 +76,9 @@ async fn main(_spawner: Spawner) {
     tx.blocking_write(b"Setting up circular DMA for UART RX...\r\n")
         .unwrap();
 
+    let buf = RX_RING_BUFFER.take();
     // Set up the ring buffer with circular DMA
-    // The HAL handles: DMA request source, RDMAE enable, circular transfer config, NVIC enable
-    let ring_buf = unsafe {
-        let buf = &mut *core::ptr::addr_of_mut!(RX_RING_BUFFER);
-        rx.setup_ring_buffer(buf)
-    };
-
-    // Enable DMA requests to start continuous reception
-    unsafe {
-        rx.enable_dma_request();
-    }
+    let mut ring_buf = rx.into_ring_dma_rx(buf);
 
     tx.blocking_write(b"Ring buffer ready! Type characters to see them echoed.\r\n")
         .unwrap();
