@@ -2,9 +2,10 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa_examples::init_adc_pins;
-use hal::adc::{ConvResult, LpadcConfig, TriggerPriorityPolicy};
+use hal::adc::{Adc, ConvResult, LpadcConfig, TriggerPriorityPolicy};
 use hal::clocks::PoweredClock;
+use hal::config::Config;
+use hal::clocks::config::Div8;
 use hal::clocks::periph_helpers::{AdcClockSel, Div4};
 use hal::pac::adc1::cfg::{Pwrsel, Refsel};
 use hal::pac::adc1::cmdl1::{Adch, Mode};
@@ -16,11 +17,10 @@ const G_LPADC_RESULT_SHIFT: u32 = 0;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = hal::init(hal::config::Config::default());
-
-    unsafe {
-        init_adc_pins();
-    }
+    let mut config = Config::default();
+    config.clock_cfg.sirc.fro_lf_div = Div8::from_divisor(1);
+    
+    let p = hal::init(config);
 
     defmt::info!("=== ADC polling Example ===");
 
@@ -39,7 +39,7 @@ async fn main(_spawner: Spawner) {
         source: AdcClockSel::FroLfDiv,
         div: Div4::no_div(),
     };
-    let adc = hal::adc::Adc::<hal::adc::Adc1>::new(p.ADC1, adc_config);
+    let adc = Adc::new_polling(p.ADC1, p.P1_10, adc_config);
 
     adc.do_offset_calibration();
     adc.do_auto_calibration();
@@ -60,7 +60,7 @@ async fn main(_spawner: Spawner) {
         adc.do_software_trigger(1);
         let mut result: Option<ConvResult> = None;
         while result.is_none() {
-            result = hal::adc::get_conv_result();
+            result = adc.get_conv_result();
         }
         let value = result.unwrap().conv_value >> G_LPADC_RESULT_SHIFT;
         defmt::info!("value: {=u16}", value);
