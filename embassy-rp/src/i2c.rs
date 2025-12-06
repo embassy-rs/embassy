@@ -94,6 +94,14 @@ pub struct I2c<'d, M: Mode> {
     phantom: PhantomData<(&'d mut (), M)>,
 }
 
+impl<M: Mode> core::fmt::Debug for I2c<'_, M> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("I2c")
+            .field("phantom", &self.phantom)
+            .finish_non_exhaustive()
+    }
+}
+
 impl<'d> I2c<'d, Blocking> {
     /// Create a new driver instance in blocking mode.
     pub fn new_blocking<T: Instance>(
