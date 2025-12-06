@@ -923,6 +923,8 @@ pub(crate) mod gate {
     impl_cc_gate!(GPIO3, mrcc_glb_cc2, mrcc_glb_rst2, gpio3, NoConfig);
     impl_cc_gate!(GPIO4, mrcc_glb_cc2, mrcc_glb_rst2, gpio4, NoConfig);
 
+    impl_cc_gate!(CRC0, mrcc_glb_cc0, mrcc_glb_rst0, crc0, NoConfig);
+
     // These peripherals DO have meaningful configuration, and could fail if the system
     // clocks do not match their needs.
     #[cfg(not(feature = "time"))]
