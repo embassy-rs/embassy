@@ -12,7 +12,8 @@ use super::{
     Adc, AnyAdcChannel, ConversionMode, Instance, RegularConversionMode, Resolution, RxDma, SampleTime,
     blocking_delay_us,
 };
-use crate::adc::{AnyInstance, SealedAdcChannel};
+use crate::adc::{AdcRegs, BasicAdcRegs, SealedAdcChannel};
+use crate::pac::adc::regs::{Smpr, Smpr2, Sqr1, Sqr2, Sqr3, Sqr4};
 use crate::time::Hertz;
 use crate::{Peri, pac, rcc};
 
@@ -68,79 +69,77 @@ pub struct ConversionTrigger {
     pub edge: Exten,
 }
 
-impl<T: Instance> super::SealedAnyInstance for T {
-    fn dr() -> *mut u16 {
-        T::regs().dr().as_ptr() as *mut u16
+impl super::AdcRegs for crate::pac::adc::Adc {
+    fn data(&self) -> *mut u16 {
+        crate::pac::adc::Adc::dr(*self).as_ptr() as *mut u16
     }
 
-    fn enable() {
+    fn enable(&self) {
         // Make sure bits are off
-        while T::regs().cr().read().addis() {
+        while self.cr().read().addis() {
             // spin
         }
 
-        if !T::regs().cr().read().aden() {
+        if !self.cr().read().aden() {
             // Enable ADC
-            T::regs().isr().modify(|reg| {
+            self.isr().modify(|reg| {
                 reg.set_adrdy(true);
             });
-            T::regs().cr().modify(|reg| {
+            self.cr().modify(|reg| {
                 reg.set_aden(true);
             });
 
-            while !T::regs().isr().read().adrdy() {
+            while !self.isr().read().adrdy() {
                 // spin
             }
         }
     }
 
-    fn start() {
-        T::regs().cr().modify(|reg| {
+    fn start(&self) {
+        self.cr().modify(|reg| {
             reg.set_adstart(true);
         });
     }
 
-    fn stop() {
-        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
-            T::regs().cr().modify(|reg| {
+    fn stop(&self) {
+        if self.cr().read().adstart() && !self.cr().read().addis() {
+            self.cr().modify(|reg| {
                 reg.set_adstp(Adstp::STOP);
             });
             // The software must poll ADSTART until the bit is reset before assuming the
             // ADC is completely stopped
-            while T::regs().cr().read().adstart() {}
+            while self.cr().read().adstart() {}
         }
 
         // Disable dma control and continuous conversion, if enabled
-        T::regs().cfgr().modify(|reg| {
+        self.cfgr().modify(|reg| {
             reg.set_cont(false);
             reg.set_dmaen(Dmaen::DISABLE);
         });
     }
 
-    fn convert() -> u16 {
-        T::regs().isr().modify(|reg| {
+    fn convert(&self) {
+        self.isr().modify(|reg| {
             reg.set_eos(true);
             reg.set_eoc(true);
         });
 
         // Start conversion
-        T::regs().cr().modify(|reg| {
+        self.cr().modify(|reg| {
             reg.set_adstart(true);
         });
 
-        while !T::regs().isr().read().eos() {
+        while !self.isr().read().eos() {
             // spin
         }
-
-        T::regs().dr().read().0 as u16
     }
 
-    fn configure_dma(conversion_mode: ConversionMode) {
-        T::regs().isr().modify(|reg| {
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
+        self.isr().modify(|reg| {
             reg.set_ovr(true);
         });
 
-        T::regs().cfgr().modify(|reg| {
+        self.cfgr().modify(|reg| {
             reg.set_discen(false); // Convert all channels for each trigger
             reg.set_dmacfg(match conversion_mode {
                 ConversionMode::Singular => Dmacfg::ONE_SHOT,
@@ -152,43 +151,41 @@ impl<T: Instance> super::SealedAnyInstance for T {
         if let ConversionMode::Repeated(mode) = conversion_mode {
             match mode {
                 RegularConversionMode::Continuous => {
-                    T::regs().cfgr().modify(|reg| {
+                    self.cfgr().modify(|reg| {
                         reg.set_cont(true);
                     });
                 }
                 RegularConversionMode::Triggered(trigger) => {
-                    T::regs().cfgr().modify(|r| {
+                    self.cfgr().modify(|r| {
                         r.set_cont(false); // New trigger is neede for each sample to be read
                     });
 
-                    T::regs().cfgr().modify(|r| {
+                    self.cfgr().modify(|r| {
                         r.set_extsel(trigger.channel);
                         r.set_exten(trigger.edge);
                     });
 
                     // Regular conversions uses DMA so no need to generate interrupt
-                    T::regs().ier().modify(|r| r.set_eosie(false));
+                    self.ier().modify(|r| r.set_eosie(false));
                 }
             }
         }
     }
 
-    fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
-        T::regs().cr().modify(|w| w.set_aden(false));
-
-        // Set sequence length
-        T::regs().sqr1().modify(|w| {
-            w.set_l(sequence.len() as u8 - 1);
-        });
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+        self.cr().modify(|w| w.set_aden(false));
 
         #[cfg(stm32g4)]
         let mut difsel = DifselReg::default();
-        let mut smpr = T::regs().smpr().read();
-        let mut smpr2 = T::regs().smpr2().read();
-        let mut sqr1 = T::regs().sqr1().read();
-        let mut sqr2 = T::regs().sqr2().read();
-        let mut sqr3 = T::regs().sqr3().read();
-        let mut sqr4 = T::regs().sqr4().read();
+        let mut smpr = Smpr::default();
+        let mut smpr2 = Smpr2::default();
+        let mut sqr1 = Sqr1::default();
+        let mut sqr2 = Sqr2::default();
+        let mut sqr3 = Sqr3::default();
+        let mut sqr4 = Sqr4::default();
+
+        // Set sequence length
+        sqr1.set_l(sequence.len() as u8 - 1);
 
         // Configure channels and ranks
         for (_i, ((ch, is_differential), sample_time)) in sequence.enumerate() {
@@ -230,18 +227,18 @@ impl<T: Instance> super::SealedAnyInstance for T {
             }
         }
 
-        T::regs().smpr().write_value(smpr);
-        T::regs().smpr2().write_value(smpr2);
-        T::regs().sqr1().write_value(sqr1);
-        T::regs().sqr2().write_value(sqr2);
-        T::regs().sqr3().write_value(sqr3);
-        T::regs().sqr4().write_value(sqr4);
+        self.smpr().write_value(smpr);
+        self.smpr2().write_value(smpr2);
+        self.sqr1().write_value(sqr1);
+        self.sqr2().write_value(sqr2);
+        self.sqr3().write_value(sqr3);
+        self.sqr4().write_value(sqr4);
         #[cfg(stm32g4)]
-        T::regs().difsel().write_value(difsel);
+        self.difsel().write_value(difsel);
     }
 }
 
-impl<'d, T: Instance + AnyInstance> Adc<'d, T> {
+impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     /// Create a new ADC driver.
     pub fn new(adc: Peri<'d, T>, config: AdcConfig) -> Self {
         rcc::enable_and_reset::<T>();
@@ -293,7 +290,7 @@ impl<'d, T: Instance + AnyInstance> Adc<'d, T> {
 
         blocking_delay_us(20);
 
-        T::enable();
+        T::regs().enable();
 
         // single conversion mode, software trigger
         T::regs().cfgr().modify(|w| {
@@ -420,7 +417,7 @@ impl<'d, T: Instance + AnyInstance> Adc<'d, T> {
             NR_INJECTED_RANKS
         );
 
-        T::enable();
+        T::regs().enable();
 
         T::regs().jsqr().modify(|w| w.set_jl(N as u8 - 1));
 
@@ -491,7 +488,7 @@ impl<'d, T: Instance + AnyInstance> Adc<'d, T> {
         self,
         dma: Peri<'a, impl RxDma<T>>,
         dma_buf: &'a mut [u16],
-        regular_sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<'b, T>, T::SampleTime)>,
+        regular_sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         regular_conversion_mode: RegularConversionMode,
         injected_sequence: [(AnyAdcChannel<'b, T>, SampleTime); N],
         injected_trigger: ConversionTrigger,
@@ -531,7 +528,7 @@ impl<'d, T: Instance + AnyInstance> Adc<'d, T> {
     }
 }
 
-impl<'a, T: Instance, const N: usize> InjectedAdc<'a, T, N> {
+impl<'a, T: Instance<Regs = crate::pac::adc::Adc>, const N: usize> InjectedAdc<'a, T, N> {
     /// Read sampled data from all injected ADC injected ranks
     /// Clear the JEOS flag to allow a new injected sequence
     pub(super) fn read_injected_data() -> [u16; N] {

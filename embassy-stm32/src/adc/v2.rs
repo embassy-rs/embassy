@@ -1,7 +1,7 @@
 use core::sync::atomic::{Ordering, compiler_fence};
 
 use super::{ConversionMode, Temperature, Vbat, VrefInt, blocking_delay_us};
-use crate::adc::{Adc, Instance, Resolution, SampleTime};
+use crate::adc::{Adc, AdcRegs, Instance, Resolution, SampleTime};
 use crate::pac::adc::vals;
 pub use crate::pac::adccommon::vals::Adcpre;
 use crate::time::Hertz;
@@ -74,28 +74,28 @@ pub struct AdcConfig {
     pub resolution: Option<Resolution>,
 }
 
-impl<T: Instance> super::SealedAnyInstance for T {
-    fn dr() -> *mut u16 {
-        T::regs().dr().as_ptr() as *mut u16
+impl super::AdcRegs for crate::pac::adc::Adc {
+    fn data(&self) -> *mut u16 {
+        crate::pac::adc::Adc::dr(*self).as_ptr() as *mut u16
     }
 
-    fn enable() {
-        T::regs().cr2().modify(|reg| {
+    fn enable(&self) {
+        self.cr2().modify(|reg| {
             reg.set_adon(true);
         });
 
         blocking_delay_us(3);
     }
 
-    fn start() {
+    fn start(&self) {
         // Begin ADC conversions
-        T::regs().cr2().modify(|reg| {
+        self.cr2().modify(|reg| {
             reg.set_swstart(true);
         });
     }
 
-    fn stop() {
-        let r = T::regs();
+    fn stop(&self) {
+        let r = self;
 
         // Stop ADC
         r.cr2().modify(|reg| {
@@ -114,36 +114,34 @@ impl<T: Instance> super::SealedAnyInstance for T {
             w.set_ovrie(false);
         });
 
-        clear_interrupt_flags(r);
+        clear_interrupt_flags(*r);
 
         compiler_fence(Ordering::SeqCst);
     }
 
-    fn convert() -> u16 {
+    fn convert(&self) {
         // clear end of conversion flag
-        T::regs().sr().modify(|reg| {
+        self.sr().modify(|reg| {
             reg.set_eoc(false);
         });
 
         // Start conversion
-        T::regs().cr2().modify(|reg| {
+        self.cr2().modify(|reg| {
             reg.set_swstart(true);
         });
 
-        while T::regs().sr().read().strt() == false {
+        while self.sr().read().strt() == false {
             // spin //wait for actual start
         }
-        while T::regs().sr().read().eoc() == false {
+        while self.sr().read().eoc() == false {
             // spin //wait for finish
         }
-
-        T::regs().dr().read().0 as u16
     }
 
-    fn configure_dma(conversion_mode: ConversionMode) {
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
         match conversion_mode {
             ConversionMode::Repeated(_) => {
-                let r = T::regs();
+                let r = self;
 
                 // Clear all interrupts
                 r.sr().modify(|regs| {
@@ -177,25 +175,25 @@ impl<T: Instance> super::SealedAnyInstance for T {
         }
     }
 
-    fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
-        T::regs().cr2().modify(|reg| {
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+        self.cr2().modify(|reg| {
             reg.set_adon(true);
         });
 
         // Check the sequence is long enough
-        T::regs().sqr1().modify(|r| {
+        self.sqr1().modify(|r| {
             r.set_l((sequence.len() - 1).try_into().unwrap());
         });
 
         for (i, ((ch, _), sample_time)) in sequence.enumerate() {
             // Set the channel in the right sequence field.
-            T::regs().sqr3().modify(|w| w.set_sq(i, ch));
+            self.sqr3().modify(|w| w.set_sq(i, ch));
 
             let sample_time = sample_time.into();
             if ch <= 9 {
-                T::regs().smpr2().modify(|reg| reg.set_smp(ch as _, sample_time));
+                self.smpr2().modify(|reg| reg.set_smp(ch as _, sample_time));
             } else {
-                T::regs().smpr1().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
+                self.smpr1().modify(|reg| reg.set_smp((ch - 10) as _, sample_time));
             }
         }
     }
@@ -203,7 +201,7 @@ impl<T: Instance> super::SealedAnyInstance for T {
 
 impl<'d, T> Adc<'d, T>
 where
-    T: Instance + super::AnyInstance,
+    T: Instance<Regs = crate::pac::adc::Adc>,
 {
     pub fn new(adc: Peri<'d, T>) -> Self {
         Self::new_with_config(adc, Default::default())
@@ -214,7 +212,7 @@ where
 
         let presc = from_pclk2(T::frequency());
         T::common_regs().ccr().modify(|w| w.set_adcpre(presc));
-        T::enable();
+        T::regs().enable();
 
         if let Some(resolution) = config.resolution {
             T::regs().cr1().modify(|reg| reg.set_res(resolution.into()));
@@ -259,9 +257,7 @@ where
 
 impl<'d, T: Instance> Drop for Adc<'d, T> {
     fn drop(&mut self) {
-        T::regs().cr2().modify(|reg| {
-            reg.set_adon(false);
-        });
+        T::regs().stop();
 
         rcc::disable::<T>();
     }
