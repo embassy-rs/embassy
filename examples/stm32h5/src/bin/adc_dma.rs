@@ -66,7 +66,7 @@ async fn adc2_task(
     adc_task(adc, dma, pin1, pin2).await;
 }
 
-async fn adc_task<'a, T: adc::Instance>(
+async fn adc_task<'a, T: adc::DefaultInstance>(
     adc: Peri<'a, T>,
     mut dma: Peri<'a, impl RxDma<T>>,
     pin1: impl AdcChannel<T>,

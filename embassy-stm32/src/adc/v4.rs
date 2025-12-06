@@ -5,7 +5,7 @@ use pac::adc::vals::{Adstp, Difsel, Dmngt, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
 
 use super::{Adc, Averaging, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt, blocking_delay_us};
-use crate::adc::ConversionMode;
+use crate::adc::{AdcRegs, ConversionMode};
 use crate::time::Hertz;
 use crate::{Peri, pac, rcc};
 
@@ -80,65 +80,63 @@ pub struct AdcConfig {
     pub averaging: Option<Averaging>,
 }
 
-impl<T: Instance> super::SealedAnyInstance for T {
-    fn dr() -> *mut u16 {
-        T::regs().dr().as_ptr() as *mut u16
+impl AdcRegs for crate::pac::adc::Adc {
+    fn data(&self) -> *mut u16 {
+        crate::pac::adc::Adc::dr(*self).as_ptr() as *mut u16
     }
 
-    fn enable() {
-        T::regs().isr().write(|w| w.set_adrdy(true));
-        T::regs().cr().modify(|w| w.set_aden(true));
-        while !T::regs().isr().read().adrdy() {}
-        T::regs().isr().write(|w| w.set_adrdy(true));
+    fn enable(&self) {
+        self.isr().write(|w| w.set_adrdy(true));
+        self.cr().modify(|w| w.set_aden(true));
+        while !self.isr().read().adrdy() {}
+        self.isr().write(|w| w.set_adrdy(true));
     }
 
-    fn start() {
+    fn start(&self) {
         // Start conversion
-        T::regs().cr().modify(|reg| {
+        self.cr().modify(|reg| {
             reg.set_adstart(true);
         });
     }
 
-    fn stop() {
-        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
-            T::regs().cr().modify(|reg| {
+    fn stop(&self) {
+        if self.cr().read().adstart() && !self.cr().read().addis() {
+            self.cr().modify(|reg| {
                 reg.set_adstp(Adstp::STOP);
             });
-            while T::regs().cr().read().adstart() {}
+            while self.cr().read().adstart() {}
         }
 
         // Reset configuration.
-        T::regs().cfgr().modify(|reg| {
+        self.cfgr().modify(|reg| {
             reg.set_cont(false);
             reg.set_dmngt(Dmngt::from_bits(0));
         });
     }
 
-    fn convert() -> u16 {
-        T::regs().isr().modify(|reg| {
+    fn convert(&self) {
+        self.isr().modify(|reg| {
             reg.set_eos(true);
             reg.set_eoc(true);
         });
 
         // Start conversion
-        T::regs().cr().modify(|reg| {
+        self.cr().modify(|reg| {
             reg.set_adstart(true);
         });
 
-        while !T::regs().isr().read().eos() {
+        while !self.isr().read().eos() {
             // spin
         }
-
-        T::regs().dr().read().0 as u16
     }
 
-    fn configure_dma(conversion_mode: ConversionMode) {
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
         match conversion_mode {
             ConversionMode::Singular => {
-                T::regs().isr().modify(|reg| {
+                self.isr().modify(|reg| {
                     reg.set_ovr(true);
                 });
-                T::regs().cfgr().modify(|reg| {
+                self.cfgr().modify(|reg| {
                     reg.set_cont(true);
                     reg.set_dmngt(Dmngt::DMA_ONE_SHOT);
                 });
@@ -148,9 +146,9 @@ impl<T: Instance> super::SealedAnyInstance for T {
         }
     }
 
-    fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
         // Set sequence length
-        T::regs().sqr1().modify(|w| {
+        self.sqr1().modify(|w| {
             w.set_l(sequence.len() as u8 - 1);
         });
 
@@ -158,39 +156,35 @@ impl<T: Instance> super::SealedAnyInstance for T {
         for (i, ((channel, _), sample_time)) in sequence.enumerate() {
             let sample_time = sample_time.into();
             if channel <= 9 {
-                T::regs().smpr(0).modify(|reg| reg.set_smp(channel as _, sample_time));
+                self.smpr(0).modify(|reg| reg.set_smp(channel as _, sample_time));
             } else {
-                T::regs()
-                    .smpr(1)
-                    .modify(|reg| reg.set_smp((channel - 10) as _, sample_time));
+                self.smpr(1).modify(|reg| reg.set_smp((channel - 10) as _, sample_time));
             }
 
             #[cfg(any(stm32h7, stm32u5))]
             {
-                T::regs().cfgr2().modify(|w| w.set_lshift(0));
-                T::regs()
-                    .pcsel()
-                    .modify(|w| w.set_pcsel(channel as _, Pcsel::PRESELECTED));
+                self.cfgr2().modify(|w| w.set_lshift(0));
+                self.pcsel().modify(|w| w.set_pcsel(channel as _, Pcsel::PRESELECTED));
             }
 
             match i {
                 0..=3 => {
-                    T::regs().sqr1().modify(|w| {
+                    self.sqr1().modify(|w| {
                         w.set_sq(i, channel);
                     });
                 }
                 4..=8 => {
-                    T::regs().sqr2().modify(|w| {
+                    self.sqr2().modify(|w| {
                         w.set_sq(i - 4, channel);
                     });
                 }
                 9..=13 => {
-                    T::regs().sqr3().modify(|w| {
+                    self.sqr3().modify(|w| {
                         w.set_sq(i - 9, channel);
                     });
                 }
                 14..=15 => {
-                    T::regs().sqr4().modify(|w| {
+                    self.sqr4().modify(|w| {
                         w.set_sq(i - 14, channel);
                     });
                 }
@@ -200,7 +194,7 @@ impl<T: Instance> super::SealedAnyInstance for T {
     }
 }
 
-impl<'d, T: Instance + super::AnyInstance> Adc<'d, T> {
+impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     pub fn new_with_config(adc: Peri<'d, T>, config: AdcConfig) -> Self {
         let s = Self::new(adc);
 
@@ -292,7 +286,7 @@ impl<'d, T: Instance + super::AnyInstance> Adc<'d, T> {
 
         blocking_delay_us(1);
 
-        T::enable();
+        T::regs().enable();
 
         // single conversion mode, software trigger
         T::regs().cfgr().modify(|w| {
