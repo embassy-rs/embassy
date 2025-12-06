@@ -71,7 +71,7 @@ fn from_pclk2(freq: Hertz) -> Adcpre {
 /// ADC configuration
 #[derive(Default)]
 pub struct AdcConfig {
-    resolution: Option<Resolution>,
+    pub resolution: Option<Resolution>,
 }
 
 impl<T: Instance> super::SealedAnyInstance for T {
