@@ -73,7 +73,7 @@ pub(crate) unsafe fn on_interrupt<T: Instance>() {
     // restore the clocks to their last configured state as
     // much is lost in STOP modes
     #[cfg(all(feature = "low-power", stm32wlex))]
-    crate::low_power::Executor::on_wakeup_irq();
+    crate::low_power::Executor::on_wakeup_irq_or_event();
 
     let regs = T::info().regs;
     let isr = regs.isr().read();
