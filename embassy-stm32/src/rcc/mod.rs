@@ -12,6 +12,7 @@ pub use bd::*;
 #[cfg(any(mco, mco1, mco2))]
 mod mco;
 use critical_section::CriticalSection;
+use embassy_hal_internal::{Peri, PeripheralType};
 #[cfg(any(mco, mco1, mco2))]
 pub use mco::*;
 
@@ -381,9 +382,16 @@ pub(crate) trait StoppablePeripheral {
 }
 
 #[cfg(feature = "low-power")]
-impl<'a> StoppablePeripheral for StopMode {
+impl StoppablePeripheral for StopMode {
     fn stop_mode(&self) -> StopMode {
         *self
+    }
+}
+
+impl<'a, T: StoppablePeripheral + PeripheralType> StoppablePeripheral for Peri<'a, T> {
+    #[cfg(feature = "low-power")]
+    fn stop_mode(&self) -> StopMode {
+        T::stop_mode(&self)
     }
 }
 
