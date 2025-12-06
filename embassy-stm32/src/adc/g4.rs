@@ -13,6 +13,7 @@ use super::{
     blocking_delay_us,
 };
 use crate::adc::{AdcRegs, BasicAdcRegs, SealedAdcChannel};
+use crate::pac::adc::regs::{Smpr, Smpr2, Sqr1, Sqr2, Sqr3, Sqr4};
 use crate::time::Hertz;
 use crate::{Peri, pac, rcc};
 
@@ -174,19 +175,17 @@ impl super::AdcRegs for crate::pac::adc::Adc {
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
         self.cr().modify(|w| w.set_aden(false));
 
-        // Set sequence length
-        self.sqr1().modify(|w| {
-            w.set_l(sequence.len() as u8 - 1);
-        });
-
         #[cfg(stm32g4)]
         let mut difsel = DifselReg::default();
-        let mut smpr = self.smpr().read();
-        let mut smpr2 = self.smpr2().read();
-        let mut sqr1 = self.sqr1().read();
-        let mut sqr2 = self.sqr2().read();
-        let mut sqr3 = self.sqr3().read();
-        let mut sqr4 = self.sqr4().read();
+        let mut smpr = Smpr::default();
+        let mut smpr2 = Smpr2::default();
+        let mut sqr1 = Sqr1::default();
+        let mut sqr2 = Sqr2::default();
+        let mut sqr3 = Sqr3::default();
+        let mut sqr4 = Sqr4::default();
+
+        // Set sequence length
+        sqr1.set_l(sequence.len() as u8 - 1);
 
         // Configure channels and ranks
         for (_i, ((ch, is_differential), sample_time)) in sequence.enumerate() {
