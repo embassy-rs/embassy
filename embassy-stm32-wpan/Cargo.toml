@@ -34,7 +34,7 @@ embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal" }
 embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal" }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver", optional=true }
 smoltcp = { version = "0.12.0", optional=true, default-features = false }
-stm32-bindings = { version = "0.1.1", optional=true, default-features = false }
+stm32-bindings = { version = "0.1.3", optional=true, default-features = false }
 
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.17", optional = true }
@@ -58,8 +58,8 @@ wb55_ble = ["dep:stm32wb-hci"]
 wb55_mac = ["dep:bitflags", "dep:embassy-net-driver", "dep:smoltcp", "smoltcp/medium-ieee802154"]
 
 wba = [ "dep:stm32-bindings" ]
-wba_ble = [ "stm32-bindings/wba_wpan_mac" ]
-wba_mac = [ "stm32-bindings/wba_wpan_ble" ]
+wba_ble = [ "stm32-bindings/wba_wpan_mac" , "stm32-bindings/wba_wpan" ]
+wba_mac = [ "stm32-bindings/wba_wpan_ble" , "stm32-bindings/lib_wba5_linklayer15_4", "stm32-bindings/lib_wba_mac_lib" , "stm32-bindings/wba_wpan" ]
 
 extended = []
 
