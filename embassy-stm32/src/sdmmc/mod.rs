@@ -675,7 +675,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
         d7: Option<Peri<'d, AnyPin>>,
         config: Config,
     ) -> Self {
-        rcc::enable_and_reset::<T>();
+        rcc::enable_and_reset_without_stop::<T>();
 
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
@@ -1075,6 +1075,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
     /// Read a data block.
     #[inline]
     pub async fn read_block(&mut self, block_idx: u32, buffer: &mut DataBlock) -> Result<(), Error> {
+        let _scoped_block_stop = T::RCC_INFO.block_stop();
         let card_capacity = self.card()?.get_capacity();
 
         // NOTE(unsafe) DataBlock uses align 4
@@ -1114,6 +1115,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
     /// Read multiple data blocks.
     #[inline]
     pub async fn read_blocks(&mut self, block_idx: u32, blocks: &mut [DataBlock]) -> Result<(), Error> {
+        let _scoped_block_stop = T::RCC_INFO.block_stop();
         let card_capacity = self.card()?.get_capacity();
 
         // NOTE(unsafe) reinterpret buffer as &mut [u32]
@@ -1160,6 +1162,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
 
     /// Write a data block.
     pub async fn write_block(&mut self, block_idx: u32, buffer: &DataBlock) -> Result<(), Error> {
+        let _scoped_block_stop = T::RCC_INFO.block_stop();
         let card = self.card.as_mut().ok_or(Error::NoCard)?;
 
         // NOTE(unsafe) DataBlock uses align 4
@@ -1216,6 +1219,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
 
     /// Write multiple data blocks.
     pub async fn write_blocks(&mut self, block_idx: u32, blocks: &[DataBlock]) -> Result<(), Error> {
+        let _scoped_block_stop = T::RCC_INFO.block_stop();
         let card = self.card.as_mut().ok_or(Error::NoCard)?;
 
         // NOTE(unsafe) reinterpret buffer as &[u32]
@@ -1302,6 +1306,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
     }
 
     async fn init_internal(&mut self, freq: Hertz, mut card: SdmmcPeripheral) -> Result<(), Error> {
+        let _scoped_block_stop = T::RCC_INFO.block_stop();
         let regs = T::regs();
         let ker_ck = T::frequency();
 
@@ -1553,6 +1558,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
     ///
     /// SD only.
     async fn switch_signalling_mode(&mut self, signalling: Signalling) -> Result<Signalling, Error> {
+        let _scoped_block_stop = T::RCC_INFO.block_stop();
         let _ = self.card.as_mut().ok_or(Error::NoCard)?.get_sd_card();
         // NB PLSS v7_10 4.3.10.4: "the use of SET_BLK_LEN command is not
         // necessary"
@@ -1622,6 +1628,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
     ///
     /// SD only.
     async fn get_scr(&mut self, card: &mut Card) -> Result<(), Error> {
+        let _scoped_block_stop = T::RCC_INFO.block_stop();
         // Read the 64-bit SCR register
         Self::cmd(common_cmd::set_block_length(8), false)?; // CMD16
         Self::cmd(common_cmd::app_cmd(card.rca), false)?;
@@ -1665,6 +1672,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
     ///
     /// SD only.
     async fn read_sd_status(&mut self) -> Result<(), Error> {
+        let _scoped_block_stop = T::RCC_INFO.block_stop();
         let card = self.card.as_mut().ok_or(Error::NoCard)?.get_sd_card();
         let rca = card.rca;
 
@@ -1718,6 +1726,7 @@ impl<'d, T: Instance> Sdmmc<'d, T> {
     ///
     /// eMMC only.
     async fn read_ext_csd(&mut self) -> Result<(), Error> {
+        let _scoped_block_stop = T::RCC_INFO.block_stop();
         let card = self.card.as_mut().ok_or(Error::NoCard)?.get_emmc();
 
         // Note: cmd_block can't be used because ExtCSD is too long to fit.
@@ -1845,6 +1854,7 @@ impl<'d, T: Instance> block_device_driver::BlockDevice<512> for Sdmmc<'d, T> {
         block_address: u32,
         buf: &mut [aligned::Aligned<Self::Align, [u8; 512]>],
     ) -> Result<(), Self::Error> {
+        let _scoped_block_stop = T::RCC_INFO.block_stop();
         // TODO: I think block_address needs to be adjusted by the partition start offset
         if buf.len() == 1 {
             let block = unsafe { &mut *(&mut buf[0] as *mut _ as *mut crate::sdmmc::DataBlock) };
@@ -1862,6 +1872,7 @@ impl<'d, T: Instance> block_device_driver::BlockDevice<512> for Sdmmc<'d, T> {
         block_address: u32,
         buf: &[aligned::Aligned<Self::Align, [u8; 512]>],
     ) -> Result<(), Self::Error> {
+        let _scoped_block_stop = T::RCC_INFO.block_stop();
         // TODO: I think block_address needs to be adjusted by the partition start offset
         if buf.len() == 1 {
             let block = unsafe { &*(&buf[0] as *const _ as *const crate::sdmmc::DataBlock) };

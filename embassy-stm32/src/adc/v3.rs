@@ -388,7 +388,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
 impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     /// Enable the voltage regulator
     fn init_regulator() {
-        rcc::enable_and_reset::<T>();
+        rcc::enable_and_reset_without_stop::<T>();
         T::regs().cr().modify(|reg| {
             #[cfg(not(any(adc_g0, adc_u0)))]
             reg.set_deeppwd(false);

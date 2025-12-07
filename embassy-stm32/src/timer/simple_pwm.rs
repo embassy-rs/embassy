@@ -347,6 +347,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         channel: Channel,
         duty: &[W],
     ) {
+        let _scoped_block_stop = T::RCC_INFO.block_stop();
         self.inner.enable_channel(channel, true);
         self.inner.enable_channel(C::CHANNEL, true);
         self.inner.clamp_compare_value::<W>(channel);
@@ -368,6 +369,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         channel: Channel,
         duty: &[W],
     ) {
+        let _scoped_block_stop = T::RCC_INFO.block_stop();
         self.inner.enable_channel(channel, true);
         self.inner.clamp_compare_value::<W>(channel);
         self.inner.enable_update_dma(true);
@@ -411,6 +413,7 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         ending_channel: Channel,
         duty: &[W],
     ) {
+        let _scoped_block_stop = T::RCC_INFO.block_stop();
         [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
             .iter()
             .filter(|ch| ch.index() >= starting_channel.index())

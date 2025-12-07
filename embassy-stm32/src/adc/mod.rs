@@ -251,6 +251,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         readings: &mut [u16],
     ) {
+        let _scoped_block_stop = T::RCC_INFO.block_stop();
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
         assert!(
             sequence.len() == readings.len(),
