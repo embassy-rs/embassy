@@ -172,10 +172,6 @@ impl Executor {
         critical_section::with(|cs| {
             #[cfg(stm32wlex)]
             {
-                use crate::pac::rcc::vals::Sw;
-                use crate::pac::{PWR, RCC};
-                use crate::rcc::init as init_rcc;
-
                 let es = crate::pac::PWR.extscr().read();
                 match (es.c1stopf(), es.c1stop2f()) {
                     (true, false) => debug!("low power: wake from STOP1"),
@@ -187,14 +183,11 @@ impl Executor {
                     w.set_c1cssf(false);
                 });
 
-                let extscr = PWR.extscr().read();
-                if extscr.c1stop2f() || extscr.c1stopf() {
+                if es.c1stop2f() || es.c1stopf() {
                     // when we wake from any stop mode we need to re-initialize the rcc
-                    while RCC.cfgr().read().sws() != Sw::MSI {}
+                    crate::rcc::init(RCC_CONFIG.unwrap());
 
-                    init_rcc(RCC_CONFIG.unwrap());
-
-                    if extscr.c1stop2f() {
+                    if es.c1stop2f() {
                         // when we wake from STOP2, we need to re-initialize the time driver
                         get_driver().init_timer(cs);
                         // reset the refcounts for STOP2 and STOP1 (initializing the time driver will increment one of them for the timer)
@@ -354,6 +347,8 @@ impl Executor {
             unsafe {
                 self.inner.poll();
                 self.configure_pwr();
+                #[cfg(feature = "defmt")]
+                defmt::flush();
                 asm!("wfe");
                 Self::on_wakeup_irq_or_event();
             };
