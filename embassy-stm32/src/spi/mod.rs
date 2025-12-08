@@ -230,7 +230,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         let cpol = config.raw_polarity();
         let lsbfirst = config.raw_byte_order();
 
-        self.info.rcc.enable_and_reset();
+        self.info.rcc.enable_and_reset_without_stop();
 
         /*
         - Software NSS management (SSM = 1)
@@ -848,6 +848,7 @@ impl<'d> Spi<'d, Async, Master> {
 impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
     /// SPI write, using DMA.
     pub async fn write<W: Word>(&mut self, data: &[W]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         if data.is_empty() {
             return Ok(());
         }
@@ -879,6 +880,7 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
     /// SPI read, using DMA.
     #[cfg(any(spi_v4, spi_v5, spi_v6))]
     pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         if data.is_empty() {
             return Ok(());
         }
@@ -966,6 +968,7 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
     /// SPI read, using DMA.
     #[cfg(any(spi_v1, spi_v2, spi_v3))]
     pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         if data.is_empty() {
             return Ok(());
         }
@@ -1013,6 +1016,7 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
     }
 
     async fn transfer_inner<W: Word>(&mut self, read: *mut [W], write: *const [W]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         assert_eq!(read.len(), write.len());
         if read.len() == 0 {
             return Ok(());
@@ -1064,6 +1068,8 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
     /// The transfer runs for `max(read.len(), write.len())` bytes. If `read` is shorter extra bytes are ignored.
     /// If `write` is shorter it is padded with zero bytes.
     pub async fn transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
+
         self.transfer_inner(read, write).await
     }
 
@@ -1071,6 +1077,8 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
     ///
     /// This writes the contents of `data` on MOSI, and puts the received data on MISO in `data`, at the same time.
     pub async fn transfer_in_place<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
+
         self.transfer_inner(data, data).await
     }
 }
