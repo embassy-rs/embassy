@@ -498,6 +498,16 @@ pub fn enable_and_reset<T: RccPeripheral>() {
     T::RCC_INFO.enable_and_reset();
 }
 
+/// Enables and resets peripheral `T` without incrementing the stop refcount.
+///
+/// # Safety
+///
+/// Peripheral must not be in use.
+// TODO: should this be `unsafe`?
+pub fn enable_and_reset_without_stop<T: RccPeripheral>() {
+    T::RCC_INFO.enable_and_reset_without_stop();
+}
+
 /// Disables peripheral `T`.
 ///
 /// # Safety
