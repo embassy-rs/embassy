@@ -101,17 +101,17 @@ impl Default for LpadcConfig {
 /// Defines the parameters for a single ADC conversion operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConvCommandConfig {
-    pub sample_channel_mode: Ctype,
-    pub channel_number: Adch,
-    pub chained_next_command_number: Next,
+    pub sample_channel_mode: u8,
+    pub channel_number: u8,
+    pub chained_next_command_number: u8,
     pub enable_auto_channel_increment: bool,
     pub loop_count: u8,
-    pub hardware_average_mode: Avgs,
-    pub sample_time_mode: Sts,
-    pub hardware_compare_mode: Cmpen,
+    pub hardware_average_mode: u8,
+    pub sample_time_mode: u8,
+    pub hardware_compare_mode: u8,
     pub hardware_compare_value_high: u32,
     pub hardware_compare_value_low: u32,
-    pub conversion_resolution_mode: Mode,
+    pub conversion_resolution_mode: u8,
     pub enable_wait_trigger: bool,
 }
 
@@ -361,17 +361,17 @@ impl<'a, I: Instance> Adc<'a, I> {
     /// Default conversion command configuration
     pub fn get_default_conv_command_config(&self) -> ConvCommandConfig {
         ConvCommandConfig {
-            sample_channel_mode: Ctype::SingleEndedASideChannel,
-            channel_number: Adch::SelectCh0,
-            chained_next_command_number: Next::NoNextCmdTerminateOnFinish,
+            sample_channel_mode: Ctype::SingleEndedASideChannel as u8,
+            channel_number: Adch::SelectCh0 as u8,
+            chained_next_command_number: Next::NoNextCmdTerminateOnFinish as u8,
             enable_auto_channel_increment: false,
             loop_count: 0,
-            hardware_average_mode: Avgs::NoAverage,
-            sample_time_mode: Sts::Sample3p5,
-            hardware_compare_mode: Cmpen::DisabledAlwaysStoreResult,
+            hardware_average_mode: Avgs::NoAverage as u8,
+            sample_time_mode: Sts::Sample3p5 as u8,
+            hardware_compare_mode: Cmpen::DisabledAlwaysStoreResult as u8,
             hardware_compare_value_high: 0,
             hardware_compare_value_low: 0,
-            conversion_resolution_mode: Mode::Data12Bits,
+            conversion_resolution_mode: Mode::Data12Bits as u8,
             enable_wait_trigger: false,
         }
     }
@@ -382,40 +382,48 @@ impl<'a, I: Instance> Adc<'a, I> {
     /// Commands define how conversions are performed (channel, resolution, etc.).
     ///
     /// # Arguments
-    /// * `index` - Command index (currently only 1 is supported)
+    /// * `index` - Command index
     /// * `config` - Command configuration
-    ///TBD Need to add cmdlx and cmdhx with x {2..7}
     pub fn set_conv_command_config(&self, index: u32, config: &ConvCommandConfig) {
         let adc = &*I::ptr();
 
+        macro_rules! write_cmd {
+            ($idx:expr) => {{
+                paste! {
+                    adc.[<cmdl $idx>]().write(|w| unsafe {
+                        w.adch()
+                            .bits(config.channel_number)
+                            .mode()
+                            .bit(config.conversion_resolution_mode != 0)
+                    });
+                    adc.[<cmdh $idx>]().write(|w| unsafe {
+                        w.next()
+                            .bits(config.chained_next_command_number)
+                            .loop_()
+                            .bits(config.loop_count)
+                            .avgs()
+                            .bits(config.hardware_average_mode)
+                            .sts()
+                            .bits(config.sample_time_mode)
+                            .cmpen()
+                            .bits(config.hardware_compare_mode)
+                            .wait_trig()
+                            .bit(config.enable_wait_trigger)
+                            .lwi()
+                            .bit(config.enable_auto_channel_increment)
+                    });
+                }
+            }};
+        }
+
         match index {
-            1 => {
-                adc.cmdl1().write(|w| {
-                    w.adch()
-                        .variant(config.channel_number)
-                        .mode()
-                        .variant(config.conversion_resolution_mode)
-                });
-                adc.cmdh1().write(|w| unsafe {
-                    w.next()
-                        .variant(config.chained_next_command_number)
-                        .loop_()
-                        .bits(config.loop_count)
-                        .avgs()
-                        .variant(config.hardware_average_mode)
-                        .sts()
-                        .variant(config.sample_time_mode)
-                        .cmpen()
-                        .variant(config.hardware_compare_mode);
-                    if config.enable_wait_trigger {
-                        w.wait_trig().enabled();
-                    }
-                    if config.enable_auto_channel_increment {
-                        w.lwi().enabled();
-                    }
-                    w
-                });
-            }
+            1 => write_cmd!(1),
+            2 => write_cmd!(2),
+            3 => write_cmd!(3),
+            4 => write_cmd!(4),
+            5 => write_cmd!(5),
+            6 => write_cmd!(6),
+            7 => write_cmd!(7),
             _ => panic!("Invalid command index: must be between 1 and 7"),
         }
     }
