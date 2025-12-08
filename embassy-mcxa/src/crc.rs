@@ -1,9 +1,9 @@
-//! Cyclic Redundandy Check (CRC)
+//! Cyclic Redundancy Check (CRC)
 
 use core::marker::PhantomData;
 
 use embassy_hal_internal::Peri;
-use mcxa_pac::crc0::ctrl::{Fxor, Tot, Totr};
+use mcxa_pac::crc0::ctrl::{Fxor, Tcrc, Tot, Totr};
 
 use crate::clocks::enable_and_reset;
 use crate::clocks::periph_helpers::NoConfig;
@@ -27,12 +27,7 @@ impl<'d, M: Mode> Crc<'d, M> {
 
     // Configure the underlying peripheral. `f` is expected to set the
     // operating mode to either 16- or 32-bits.
-    fn configure<F>(config: Config, f: F)
-    where
-        F: FnOnce(),
-    {
-        f();
-
+    fn configure(config: Config, width: Tcrc) {
         Self::regs().ctrl().modify(|_, w| {
             w.fxor()
                 .variant(config.complement_out.into())
@@ -42,6 +37,8 @@ impl<'d, M: Mode> Crc<'d, M> {
                 .variant(config.reflect_in.into())
                 .was()
                 .data()
+                .tcrc()
+                .variant(width)
         });
 
         Self::regs().gpoly32().write(|w| unsafe { w.bits(config.polynomial) });
@@ -56,49 +53,26 @@ impl<'d, M: Mode> Crc<'d, M> {
     }
 
     /// Read the computed CRC value
-    fn read_crc<W: Word>(&mut self) -> W {
+    fn finalize_inner<W: Word>(self) -> W {
         // Reference manual states:
         //
         // "After writing all the data, you must wait for at least two
         // clock cycles to read the data from CRC Data (DATA)
         // register."
         cortex_m::asm::delay(2);
-
-        let ctrl = Self::regs().ctrl().read();
-
-        if W::is_16bit() {
-            // if transposition is enabled, result sits in the upper 16 bits
-            if ctrl.totr().is_byts_trnps() || ctrl.totr().is_byts_bts_trnps() {
-                W::from_u32(Self::regs().data32().read().bits() >> 16)
-            } else {
-                W::from_u16(Self::regs().data16().read().bits())
-            }
-        } else {
-            W::from_u32(Self::regs().data32().read().bits())
-        }
+        W::read(Self::regs())
     }
 
     fn feed_word<W: Word>(&mut self, word: W) {
-        if W::is_32bit() {
-            Self::regs().data32().write(|w| unsafe { w.bits(word.to_u32()) });
-        } else if W::is_16bit() {
-            Self::regs().data16().write(|w| unsafe { w.bits(word.to_u16()) });
-        } else {
-            Self::regs().data8().write(|w| unsafe { w.bits(word.to_u8()) });
-        }
+        W::write(Self::regs(), word);
     }
 
-    /// Feeds a slice of `Word`s into the CRC peripheral. Returns the
-    /// computed checksum.
+    /// Feeds a slice of `Word`s into the CRC peripheral. Returns the computed
+    /// checksum.
     ///
-    /// The input is split using [`align_to::<u32>`] into:
-    /// - `prefix`: unaligned leading data,
-    /// - `data`: aligned `u32` words,
-    /// - `suffix`: trailing data.
-    ///
-    /// This allows efficient 32‑bit writes where possible, falling
-    /// back to `Word` writes for the remainder.
-    fn feed_inner<W: Word, R: Word>(&mut self, data: &[W]) -> R {
+    /// The input is strided efficiently into as many `u32`s as possible,
+    /// falling back to smaller writes for the remainder.
+    fn feed_inner<W: Word>(&mut self, data: &[W]) {
         let (prefix, aligned, suffix) = unsafe { data.align_to::<u32>() };
 
         for w in prefix {
@@ -112,8 +86,6 @@ impl<'d, M: Mode> Crc<'d, M> {
         for w in suffix {
             self.feed_word(*w);
         }
-
-        self.read_crc::<R>()
     }
 }
 
@@ -121,11 +93,7 @@ impl<'d> Crc<'d, Crc16> {
     /// Instantiates a new CRC peripheral driver in 16-bit mode
     pub fn new_crc16(peri: Peri<'d, CRC0>, config: Config) -> Self {
         let inst = Self::new_inner(peri);
-
-        Self::configure(config, || {
-            Self::regs().ctrl().modify(|_, w| w.tcrc().b16());
-        });
-
+        Self::configure(config, Tcrc::B16);
         inst
     }
 
@@ -249,17 +217,18 @@ impl<'d> Crc<'d, Crc16> {
         Self::new_algorithm16(peri, Algorithm16::Xmodem)
     }
 
-    /// Feeds a slice of bytes into the CRC peripheral. Returns the computed checksum.
+    /// Feeds a slice of `Word`s into the CRC peripheral.
     ///
-    /// The input is split using `align_to::<u32>` into:
-    /// - `prefix`: unaligned leading bytes,
-    /// - `data`: aligned `u32` words,
-    /// - `suffix`: trailing bytes.
-    ///
-    /// This allows efficient 32‑bit writes where possible, falling back to byte writes
-    /// for the remainder.
-    pub fn feed<W: Word>(&mut self, data: &[W]) -> u16 {
-        self.feed_inner(data)
+    /// The input is strided efficiently into as many `u32`s as possible,
+    /// falling back to smaller writes for the remainder.
+    pub fn feed<W: Word>(&mut self, data: &[W]) {
+        self.feed_inner(data);
+    }
+
+    /// Finalizes the CRC calculation and reads the resulting CRC from the
+    /// hardware consuming `self`.
+    pub fn finalize(self) -> u16 {
+        self.finalize_inner()
     }
 }
 
@@ -267,11 +236,7 @@ impl<'d> Crc<'d, Crc32> {
     /// Instantiates a new CRC peripheral driver in 32-bit mode
     pub fn new_crc32(peri: Peri<'d, CRC0>, config: Config) -> Self {
         let inst = Self::new_inner(peri);
-
-        Self::configure(config, || {
-            Self::regs().ctrl().modify(|_, w| w.tcrc().b32());
-        });
-
+        Self::configure(config, Tcrc::B32);
         inst
     }
 
@@ -325,18 +290,18 @@ impl<'d> Crc<'d, Crc32> {
         Self::new_algorithm32(peri, Algorithm32::Xfer)
     }
 
-    /// Feeds a slice of `Word`s into the CRC peripheral. Returns the
-    /// computed checksum.
+    /// Feeds a slice of `Word`s into the CRC peripheral.
     ///
-    /// The input is split using `align_to::<u32>` into:
-    /// - `prefix`: unaligned leading bytes,
-    /// - `data`: aligned `u32` words,
-    /// - `suffix`: trailing bytes.
-    ///
-    /// This allows efficient 32‑bit writes where possible, falling
-    /// back to `Word` writes for the remainder.
-    pub fn feed<W: Word>(&mut self, data: &[W]) -> u32 {
-        self.feed_inner(data)
+    /// The input is strided efficiently into as many `u32`s as possible,
+    /// falling back to smaller writes for the remainder.
+    pub fn feed<W: Word>(&mut self, data: &[W]) {
+        self.feed_inner(data);
+    }
+
+    /// Finalizes the CRC calculation and reads the resulting CRC from the
+    /// hardware consuming `self`.
+    pub fn finalize(self) -> u32 {
+        self.finalize_inner()
     }
 }
 
@@ -344,29 +309,8 @@ mod sealed {
     pub trait SealedMode {}
 
     pub trait SealedWord: Copy {
-        const WIDTH: u8;
-
-        #[inline]
-        fn is_8bit() -> bool {
-            Self::WIDTH == 8
-        }
-
-        #[inline]
-        fn is_16bit() -> bool {
-            Self::WIDTH == 16
-        }
-
-        #[inline]
-        fn is_32bit() -> bool {
-            Self::WIDTH == 32
-        }
-
-        fn from_u8(x: u8) -> Self;
-        fn from_u16(x: u16) -> Self;
-        fn from_u32(x: u32) -> Self;
-        fn to_u8(self) -> u8;
-        fn to_u16(self) -> u16;
-        fn to_u32(self) -> u32;
+        fn write(regs: &'static crate::pac::crc0::RegisterBlock, word: Self);
+        fn read(regs: &'static crate::pac::crc0::RegisterBlock) -> Self;
     }
 }
 
@@ -389,38 +333,16 @@ impl Mode for Crc32 {}
 pub trait Word: sealed::SealedWord {}
 
 macro_rules! impl_word {
-    ($t:ty, $width:literal) => {
+    ($t:ty, $width:literal, $write:expr, $read:expr) => {
         impl sealed::SealedWord for $t {
-            const WIDTH: u8 = $width;
-
             #[inline]
-            fn from_u8(x: u8) -> Self {
-                x as $t
+            fn write(regs: &'static crate::pac::crc0::RegisterBlock, word: Self) {
+                $write(regs, word)
             }
 
             #[inline]
-            fn from_u16(x: u16) -> Self {
-                x as $t
-            }
-
-            #[inline]
-            fn from_u32(x: u32) -> Self {
-                x as $t
-            }
-
-            #[inline]
-            fn to_u8(self) -> u8 {
-                self as u8
-            }
-
-            #[inline]
-            fn to_u16(self) -> u16 {
-                self as u16
-            }
-
-            #[inline]
-            fn to_u32(self) -> u32 {
-                self as u32
+            fn read(regs: &'static crate::pac::crc0::RegisterBlock) -> Self {
+                $read(regs)
             }
         }
 
@@ -428,9 +350,39 @@ macro_rules! impl_word {
     };
 }
 
-impl_word!(u8, 8);
-impl_word!(u16, 16);
-impl_word!(u32, 32);
+impl_word!(
+    u8,
+    8,
+    |regs: &'static crate::pac::crc0::RegisterBlock, word| {
+        regs.data8().write(|w| unsafe { w.bits(word) });
+    },
+    |regs: &'static crate::pac::crc0::RegisterBlock| { regs.data8().read().bits() }
+);
+impl_word!(
+    u16,
+    16,
+    |regs: &'static crate::pac::crc0::RegisterBlock, word| {
+        regs.data16().write(|w| unsafe { w.bits(word) });
+    },
+    |regs: &'static crate::pac::crc0::RegisterBlock| {
+        let ctrl = regs.ctrl().read();
+
+        // if transposition is enabled, result sits in the upper 16 bits
+        if ctrl.totr().is_byts_trnps() || ctrl.totr().is_byts_bts_trnps() {
+            (regs.data32().read().bits() >> 16) as u16
+        } else {
+            regs.data16().read().bits()
+        }
+    }
+);
+impl_word!(
+    u32,
+    32,
+    |regs: &'static crate::pac::crc0::RegisterBlock, word| {
+        regs.data32().write(|w| unsafe { w.bits(word) });
+    },
+    |regs: &'static crate::pac::crc0::RegisterBlock| { regs.data32().read().bits() }
+);
 
 /// CRC configuration.
 #[derive(Copy, Clone, Debug)]
