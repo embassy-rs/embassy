@@ -177,9 +177,11 @@ pub(crate) enum Security {
 }
 
 #[allow(non_camel_case_types)]
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, PartialEq, num_enum::FromPrimitive)]
 #[repr(u8)]
 pub enum EStatus {
+    #[num_enum(default)]
+    Unknown = 0xFF,
     /// operation was successful
     SUCCESS = 0,
     /// operation failed
