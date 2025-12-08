@@ -188,7 +188,7 @@ impl<'a, I: Instance> Adc<'a, I> {
 
     /// Internal initialization function shared by `new` and `new_polling`.
     fn new_inner(_inst: Peri<'a, I>, pin: Peri<'a, impl AdcPin<I>>, config: LpadcConfig) -> Self {
-        let adc = &*I::ptr();
+        let adc = I::ptr();
 
         let _clock_freq = unsafe {
             enable_and_reset::<I>(&AdcConfig {
@@ -287,14 +287,14 @@ impl<'a, I: Instance> Adc<'a, I> {
 
     /// Deinitialize the ADC peripheral.
     pub fn deinit(&self) {
-        let adc = &*I::ptr();
+        let adc = I::ptr();
         adc.ctrl().modify(|_, w| w.adcen().disabled());
     }
 
     /// Perform offset calibration.
     /// Waits for calibration to complete before returning.
     pub fn do_offset_calibration(&self) {
-        let adc = &*I::ptr();
+        let adc = I::ptr();
         // Enable calibration mode
         adc.ctrl()
             .modify(|_, w| w.calofs().offset_calibration_request_pending());
@@ -330,7 +330,7 @@ impl<'a, I: Instance> Adc<'a, I> {
 
     /// Perform automatic gain calibration.
     pub fn do_auto_calibration(&self) {
-        let adc = &*I::ptr();
+        let adc = I::ptr();
         adc.ctrl().modify(|_, w| w.cal_req().calibration_request_pending());
 
         while adc.gcc0().read().rdy().is_gain_cal_not_valid() {}
@@ -359,7 +359,7 @@ impl<'a, I: Instance> Adc<'a, I> {
     /// # Arguments
     /// * `trigger_id_mask` - Bitmask of trigger IDs to activate (bit N = trigger N)
     pub fn do_software_trigger(&self, trigger_id_mask: u32) {
-        let adc = &*I::ptr();
+        let adc = I::ptr();
         adc.swtrig().write(|w| unsafe { w.bits(trigger_id_mask) });
     }
 
@@ -391,7 +391,7 @@ impl<'a, I: Instance> Adc<'a, I> {
     /// * `index` - Command index
     /// * `config` - Command configuration
     pub fn set_conv_command_config(&self, index: u32, config: &ConvCommandConfig) {
-        let adc = &*I::ptr();
+        let adc = I::ptr();
 
         macro_rules! write_cmd {
             ($idx:expr) => {{
@@ -456,7 +456,7 @@ impl<'a, I: Instance> Adc<'a, I> {
     /// * `trigger_id` - Trigger index (0-15)
     /// * `config` - Trigger configuration
     pub fn set_conv_trigger_config(&self, trigger_id: usize, config: &ConvTriggerConfig) {
-        let adc = &*I::ptr();
+        let adc = I::ptr();
         let tctrl = &adc.tctrl(trigger_id);
 
         tctrl.write(|w| unsafe {
@@ -475,7 +475,7 @@ impl<'a, I: Instance> Adc<'a, I> {
     ///
     /// Clears all pending conversion results from the FIFO.
     pub fn do_reset_fifo(&self) {
-        let adc = &*I::ptr();
+        let adc = I::ptr();
         adc.ctrl().modify(|_, w| w.rstfifo0().trigger_reset());
     }
 
@@ -486,7 +486,7 @@ impl<'a, I: Instance> Adc<'a, I> {
     /// # Arguments
     /// * `mask` - Bitmask of interrupt sources to enable
     pub fn enable_interrupt(&self, mask: u32) {
-        let adc = &*I::ptr();
+        let adc = I::ptr();
         adc.ie().modify(|r, w| unsafe { w.bits(r.bits() | mask) });
     }
 
@@ -497,7 +497,7 @@ impl<'a, I: Instance> Adc<'a, I> {
     /// # Arguments
     /// * `mask` - Bitmask of interrupt sources to disable
     pub fn disable_interrupt(&self, mask: u32) {
-        let adc = &*I::ptr();
+        let adc = I::ptr();
         adc.ie().modify(|r, w| unsafe { w.bits(r.bits() & !mask) });
     }
 
@@ -510,7 +510,7 @@ impl<'a, I: Instance> Adc<'a, I> {
     /// - `Some(ConvResult)` if a result is available
     /// - `Err(AdcError::FifoEmpty)` if the FIFO is empty
     pub fn get_conv_result(&self) -> Result<ConvResult, AdcError> {
-        let adc = &*I::ptr();
+        let adc = I::ptr();
         let fifo = adc.resfifo0().read().bits();
         const VALID_MASK: u32 = 1 << 31;
         if fifo & VALID_MASK == 0 {
