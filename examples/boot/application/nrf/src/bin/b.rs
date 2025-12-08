@@ -15,6 +15,8 @@ async fn main(_spawner: Spawner) {
 
     // nRF91 DK
     // let mut led = Output::new(p.P0_02, Level::Low, OutputDrive::Standard);
+    // nrf54l15 dk
+    // let mut led = Output::new(p.P1_10, Level::Low, OutputDrive::Standard);
 
     loop {
         led.set_high();
