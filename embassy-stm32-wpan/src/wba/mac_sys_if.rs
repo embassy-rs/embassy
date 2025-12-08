@@ -1,4 +1,6 @@
-use crate::bindings::mac::mac_baremetal_run;
+#![cfg(feature = "wba")]
+#![allow(non_snake_case)]
+
 //
 // /* USER CODE BEGIN Header */
 // /**
@@ -113,16 +115,28 @@ use crate::bindings::mac::mac_baremetal_run;
 // }
 //
 
-/**
- * @brief  Mac Layer Initialisation
- * @param  None
- * @retval None
- */
+use super::util_seq;
+use crate::bindings::mac;
+
+/// Placeholder value used by the original ST middleware when registering tasks.
+const UTIL_SEQ_RFU: u32 = 0;
+
+/// Bit mask identifying the MAC layer task within the sequencer.
+const TASK_MAC_LAYER_MASK: u32 = 1 << mac::CFG_TASK_ID_T_CFG_TASK_MAC_LAYER;
+
+/// Sequencer priority assigned to the MAC layer task.
+const TASK_PRIO_MAC_LAYER: u32 = mac::CFG_SEQ_PRIO_ID_T_CFG_SEQ_PRIO_0 as u32;
+
+/// Event flag consumed by the MAC task while waiting on notifications.
+const EVENT_MAC_LAYER_MASK: u32 = 1 << 0;
+
+/// Registers the MAC bare-metal runner with the lightweight sequencer.
+///
+/// Mirrors the behaviour of the reference implementation:
+/// `UTIL_SEQ_RegTask(TASK_MAC_LAYER, UTIL_SEQ_RFU, mac_baremetal_run);`
 #[unsafe(no_mangle)]
-pub extern "C" fn MacSys_Init() {
-    unsafe {
-        mac_baremetal_run();
-    }
+pub unsafe extern "C" fn MacSys_Init() {
+    util_seq::UTIL_SEQ_RegTask(TASK_MAC_LAYER_MASK, UTIL_SEQ_RFU, Some(mac::mac_baremetal_run));
 }
 
 /**
@@ -131,10 +145,8 @@ pub extern "C" fn MacSys_Init() {
  * @retval None
  */
 #[unsafe(no_mangle)]
-pub extern "C" fn MacSys_Resume() {
-    unsafe {
-        mac_baremetal_run();
-    }
+pub unsafe extern "C" fn MacSys_Resume() {
+    util_seq::UTIL_SEQ_ResumeTask(TASK_MAC_LAYER_MASK);
 }
 
 /**
@@ -143,10 +155,8 @@ pub extern "C" fn MacSys_Resume() {
  * @retval None
  */
 #[unsafe(no_mangle)]
-pub extern "C" fn MacSys_SemaphoreSet() {
-    unsafe {
-        mac_baremetal_run();
-    }
+pub unsafe extern "C" fn MacSys_SemaphoreSet() {
+    util_seq::UTIL_SEQ_SetTask(TASK_MAC_LAYER_MASK, TASK_PRIO_MAC_LAYER);
 }
 
 /**
@@ -155,11 +165,7 @@ pub extern "C" fn MacSys_SemaphoreSet() {
  * @retval None
  */
 #[unsafe(no_mangle)]
-pub extern "C" fn MacSys_SemaphoreWait() {
-    unsafe {
-        mac_baremetal_run();
-    }
-}
+pub unsafe extern "C" fn MacSys_SemaphoreWait() {}
 
 /**
  * @brief  MAC Layer set Event.
@@ -167,10 +173,8 @@ pub extern "C" fn MacSys_SemaphoreWait() {
  * @retval None
  */
 #[unsafe(no_mangle)]
-pub extern "C" fn MacSys_EventSet() {
-    unsafe {
-        mac_baremetal_run();
-    }
+pub unsafe extern "C" fn MacSys_EventSet() {
+    util_seq::UTIL_SEQ_SetEvt(EVENT_MAC_LAYER_MASK);
 }
 
 /**
@@ -179,8 +183,6 @@ pub extern "C" fn MacSys_EventSet() {
  * @retval None
  */
 #[unsafe(no_mangle)]
-pub extern "C" fn MacSys_EventWait() {
-    unsafe {
-        mac_baremetal_run();
-    }
+pub unsafe extern "C" fn MacSys_EventWait() {
+    util_seq::UTIL_SEQ_WaitEvt(EVENT_MAC_LAYER_MASK);
 }
