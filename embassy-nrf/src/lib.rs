@@ -29,6 +29,7 @@
     feature = "nrf54l10-app-ns",
     feature = "nrf54l05-app-s",
     feature = "nrf54l05-app-ns",
+    feature = "nrf54lm20-app-s",
     feature = "nrf9160-s",
     feature = "nrf9160-ns",
     feature = "nrf9120-s",
@@ -57,6 +58,7 @@ compile_error!(
     nrf54l10-app-ns,
     nrf54l05-app-s,
     nrf54l05-app-ns,
+    nrf54lm20-app-s,
     nrf9160-s,
     nrf9160-ns,
     nrf9120-s,
@@ -202,6 +204,7 @@ pub mod wdt;
 #[cfg_attr(feature = "_nrf54l15-app", path = "chips/nrf54l15_app.rs")]
 #[cfg_attr(feature = "_nrf54l10-app", path = "chips/nrf54l10_app.rs")]
 #[cfg_attr(feature = "_nrf54l05-app", path = "chips/nrf54l05_app.rs")]
+#[cfg_attr(feature = "_nrf54lm20-app", path = "chips/nrf54lm20_app.rs")]
 #[cfg_attr(feature = "_nrf9160", path = "chips/nrf9160.rs")]
 #[cfg_attr(feature = "_nrf9120", path = "chips/nrf9120.rs")]
 mod chip;
