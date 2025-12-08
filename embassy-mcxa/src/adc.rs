@@ -10,11 +10,11 @@ use maitake_sync::WaitCell;
 use paste::paste;
 
 use crate::clocks::periph_helpers::{AdcClockSel, AdcConfig, Div4};
-use crate::clocks::{Gate, PoweredClock, enable_and_reset};
+use crate::clocks::{Gate, PoweredClock, enable_and_reset, ClockError};
 
 use crate::pac::adc1::cfg::{HptExdi, Pwrsel, Refsel, Tcmdres, Tprictrl, Tres};
 use crate::pac::adc1::cmdh1::{Avgs, Cmpen, Next, Sts};
-use crate::pac::adc1::cmdl1::{Adch, Ctype, Mode};
+use crate::pac::adc1::cmdl1::{Adch, Mode};
 use crate::pac::adc1::ctrl::CalAvgs;
 use crate::pac::adc1::tctrl::{Tcmd, Tpri};
 
@@ -123,14 +123,19 @@ pub struct ConvTriggerConfig {
     pub enable_hardware_trigger: bool,
 }
 
+/// Shorthand for `Result<T>`.
+pub type Result<T> = core::result::Result<T, Error>;
+
 /// ADC Error types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum AdcError {
+pub enum Error {
     /// FIFO is empty, no conversion result available
     FifoEmpty,
     /// Invalid configuration
     InvalidConfig,
+    /// Clock configuration error.
+    ClockSetup(ClockError),
 }
 
 /// Result of an ADC conversion.
@@ -150,11 +155,28 @@ pub struct InterruptHandler<I: Instance> {
 }
 
 /// ADC driver instance.
-pub struct Adc<'a, I: Instance> {
+pub struct Adc<'a, I: Instance, M: ModeAdc> {
     _inst: PhantomData<&'a mut I>,
+    _phantom: PhantomData<M>,
 }
 
-impl<'a, I: Instance> Adc<'a, I> {
+impl<'a, I: Instance> Adc<'a, I, Blocking> {
+    /// Create a new blocking instance of the ADC driver.
+    /// # Arguments
+    /// * `_inst` - ADC peripheral instance
+    /// * `pin` - GPIO pin to use for ADC
+    /// * `config` - ADC configuration
+    pub fn new_blocking(
+        _inst: Peri<'a, I>,
+        pin: Peri<'a,
+        impl AdcPin<I>>,
+        config: LpadcConfig
+    ) -> Result<Self> {
+        Self::new_inner(_inst, pin, config)
+    }
+}
+
+impl<'a, I: Instance> Adc<'a, I, Async> {
     /// Initialize ADC with interrupt support.
     ///
     /// # Arguments
@@ -162,12 +184,12 @@ impl<'a, I: Instance> Adc<'a, I> {
     /// * `pin` - GPIO pin to use for ADC
     /// * `_irq` - Interrupt binding for this ADC instance
     /// * `config` - ADC configuration
-    pub fn new(
+    pub fn new_async(
         _inst: Peri<'a, I>,
         pin: Peri<'a, impl AdcPin<I>>,
         _irq: impl crate::interrupt::typelevel::Binding<I::Interrupt, InterruptHandler<I>> + 'a,
         config: LpadcConfig,
-    ) -> Self {
+    ) -> Result<Self> {
         let adc = Self::new_inner(_inst, pin, config);
 
         I::Interrupt::unpend();
@@ -176,28 +198,48 @@ impl<'a, I: Instance> Adc<'a, I> {
         adc
     }
 
-    /// Initialize ADC without interrupt support (for polling mode).
+    /// Read ADC value asynchronously.
     ///
-    /// # Arguments
-    /// * `_inst` - ADC peripheral instance
-    /// * `pin` - GPIO pin to use for ADC input
-    /// * `config` - ADC configuration
-    pub fn new_polling(_inst: Peri<'a, I>, pin: Peri<'a, impl AdcPin<I>>, config: LpadcConfig) -> Self {
-        Self::new_inner(_inst, pin, config)
-    }
+    /// Performs a single ADC conversion and returns the result when the ADC interrupt is triggered.
+    ///
+    /// The function:
+    /// 1. Enables the FIFO watermark interrupt
+    /// 2. Triggers a software conversion on trigger 0
+    /// 3. Waits for the conversion to complete
+    /// 4. Returns the conversion result
+    ///
+    /// # Returns
+    /// 16-bit ADC conversion value
+    pub async fn read(&mut self) -> Result<u16> {
+        let wait = I::wait_cell().subscribe().await;
 
-    /// Internal initialization function shared by `new` and `new_polling`.
-    fn new_inner(_inst: Peri<'a, I>, pin: Peri<'a, impl AdcPin<I>>, config: LpadcConfig) -> Self {
+        Adc::<'a, I, Async>::enable_interrupt(self, 0x1);
+        Adc::<'a, I, Async>::do_software_trigger(self, 1);
+
+        let _ = wait.await;
+
+        let result = Adc::<'a, I, Async>::get_conv_result(self).unwrap().conv_value >> G_LPADC_RESULT_SHIFT;
+        Ok(result)
+    }
+}
+
+   
+
+impl<'a, I: Instance, M: ModeAdc> Adc<'a, I, M> {
+    /// Internal initialization function shared by `new_async` and `new_blocking`.
+    fn new_inner(
+        _inst: Peri<'a, I>,
+        pin: Peri<'a, impl AdcPin<I>>,
+        config: LpadcConfig
+    ) -> Result<Self> {
         let adc = I::ptr();
 
-        let _clock_freq = unsafe {
-            enable_and_reset::<I>(&AdcConfig {
+         _ = unsafe { enable_and_reset::<I>(&AdcConfig {
                 power: config.power,
                 source: config.source,
                 div: config.div,
             })
-            .expect("Adc Init should not fail")
-        };
+            .map_err(Error::ClockSetup)? };
 
         pin.mux();
 
@@ -282,7 +324,10 @@ impl<'a, I: Instance> Adc<'a, I> {
         // Enable ADC
         adc.ctrl().modify(|_, w| w.adcen().enabled());
 
-        Self { _inst: PhantomData }
+        Ok(Self { 
+            _inst: PhantomData,
+            _phantom: PhantomData, 
+        })
     }
 
     /// Deinitialize the ADC peripheral.
@@ -508,13 +553,13 @@ impl<'a, I: Instance> Adc<'a, I> {
     ///
     /// # Returns
     /// - `Some(ConvResult)` if a result is available
-    /// - `Err(AdcError::FifoEmpty)` if the FIFO is empty
-    pub fn get_conv_result(&self) -> Result<ConvResult, AdcError> {
+    /// - `Err(Error::FifoEmpty)` if the FIFO is empty
+    pub fn get_conv_result(&self) -> Result<ConvResult> {
         let adc = I::ptr();
         let fifo = adc.resfifo0().read().bits();
         const VALID_MASK: u32 = 1 << 31;
         if fifo & VALID_MASK == 0 {
-            return Err(AdcError::FifoEmpty);
+            return Err(Error::FifoEmpty);
         }
 
         Ok(ConvResult {
@@ -523,30 +568,6 @@ impl<'a, I: Instance> Adc<'a, I> {
             trigger_id_source: (fifo >> 16) & 0x0F,
             conv_value: (fifo & 0xFFFF) as u16,
         })
-    }
-
-    /// Read ADC value asynchronously.
-    ///
-    /// Performs a single ADC conversion and returns the result when the ADC interrupt is triggered.
-    ///
-    /// The function:
-    /// 1. Enables the FIFO watermark interrupt
-    /// 2. Triggers a software conversion on trigger 0
-    /// 3. Waits for the conversion to complete
-    /// 4. Returns the conversion result
-    ///
-    /// # Returns
-    /// 16-bit ADC conversion value
-    pub async fn read(&mut self) -> Result<u16, AdcError> {
-        let wait = I::wait_cell().subscribe().await;
-
-        self.enable_interrupt(0x1);
-        self.do_software_trigger(1);
-
-        let _ = wait.await;
-
-        let result = self.get_conv_result().unwrap().conv_value >> G_LPADC_RESULT_SHIFT;
-        Ok(result)
     }
 }
 
@@ -606,6 +627,20 @@ pub trait AdcPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
     /// Set the given pin to the correct muxing state
     fn mux(&self);
 }
+
+/// Driver mode.
+#[allow(private_bounds)]
+pub trait ModeAdc: sealed::Sealed {}
+
+/// Blocking mode.
+pub struct Blocking;
+impl sealed::Sealed for Blocking {}
+impl ModeAdc for Blocking {}
+
+/// Async mode.
+pub struct Async;
+impl sealed::Sealed for Async {}
+impl ModeAdc for Async {}
 
 macro_rules! impl_pin {
     ($pin:ident, $peri:ident, $func:ident, $trait:ident) => {

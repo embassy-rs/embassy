@@ -44,7 +44,7 @@ async fn main(_spawner: Spawner) {
         source: AdcClockSel::FroLfDiv,
         div: Div4::no_div(),
     };
-    let mut adc = Adc::new(p.ADC1, p.P1_10, Irqs, adc_config);
+    let mut adc = Adc::new_async(p.ADC1, p.P1_10, Irqs, adc_config).unwrap();
 
     adc.do_offset_calibration();
     adc.do_auto_calibration();

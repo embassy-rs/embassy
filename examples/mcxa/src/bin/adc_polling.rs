@@ -2,7 +2,7 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use hal::adc::{Adc, ConvResult, LpadcConfig, TriggerPriorityPolicy};
+use hal::adc::{Adc, LpadcConfig, TriggerPriorityPolicy};
 use hal::clocks::PoweredClock;
 use hal::config::Config;
 use hal::clocks::config::Div8;
@@ -39,7 +39,7 @@ async fn main(_spawner: Spawner) {
         source: AdcClockSel::FroLfDiv,
         div: Div4::no_div(),
     };
-    let adc = Adc::new_polling(p.ADC1, p.P1_10, adc_config);
+    let adc = Adc::new_blocking(p.ADC1, p.P1_10, adc_config).unwrap();
 
     adc.do_offset_calibration();
     adc.do_auto_calibration();
@@ -58,11 +58,15 @@ async fn main(_spawner: Spawner) {
 
     loop {
         adc.do_software_trigger(1);
-        let mut result: Option<ConvResult> = None;
-        while result.is_none() {
-            result = adc.get_conv_result();
-        }
-        let value = result.unwrap().conv_value >> G_LPADC_RESULT_SHIFT;
-        defmt::info!("value: {=u16}", value);
+        let result = loop {
+            match adc.get_conv_result() {
+                Ok(res) => break res,
+                Err(_) => {
+                    // Conversion not ready, continue polling
+                }
+            }
+        };
+        let value = result.conv_value >> G_LPADC_RESULT_SHIFT;
+        defmt::info!("ADC value: {=u16}", value);
     }
 }
