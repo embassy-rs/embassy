@@ -62,7 +62,13 @@ async fn main(_spawner: Spawner) {
     defmt::info!("ADC configuration done...");
 
     loop {
-        let value = adc.read().await;
-        defmt::info!("*** ADC interrupt TRIGGERED! *** -- value: {}", value);
+       match adc.read().await {
+            Ok(value) => {
+                defmt::info!("*** ADC interrupt TRIGGERED! *** -- value: {}", value);
+            }
+            Err(e) => {
+                defmt::error!("ADC read error: {:?}", e);
+            }
+        }
     }
 }

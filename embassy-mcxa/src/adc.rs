@@ -123,6 +123,16 @@ pub struct ConvTriggerConfig {
     pub enable_hardware_trigger: bool,
 }
 
+/// ADC Error types
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum AdcError {
+    /// FIFO is empty, no conversion result available
+    FifoEmpty,
+    /// Invalid configuration
+    InvalidConfig,
+}
+
 /// Result of an ADC conversion.
 ///
 /// Contains the conversion value and metadata about the conversion.
@@ -498,16 +508,16 @@ impl<'a, I: Instance> Adc<'a, I> {
     ///
     /// # Returns
     /// - `Some(ConvResult)` if a result is available
-    /// - `None` if the FIFO is empty
-    pub fn get_conv_result(&self) -> Option<ConvResult> {
+    /// - `Err(AdcError::FifoEmpty)` if the FIFO is empty
+    pub fn get_conv_result(&self) -> Result<ConvResult, AdcError> {
         let adc = &*I::ptr();
         let fifo = adc.resfifo0().read().bits();
         const VALID_MASK: u32 = 1 << 31;
         if fifo & VALID_MASK == 0 {
-            return None;
+            return Err(AdcError::FifoEmpty);
         }
 
-        Some(ConvResult {
+        Ok(ConvResult {
             command_id_source: (fifo >> 24) & 0x0F,
             loop_count_index: (fifo >> 20) & 0x0F,
             trigger_id_source: (fifo >> 16) & 0x0F,
@@ -527,7 +537,7 @@ impl<'a, I: Instance> Adc<'a, I> {
     ///
     /// # Returns
     /// 16-bit ADC conversion value
-    pub async fn read(&mut self) -> u16 {
+    pub async fn read(&mut self) -> Result<u16, AdcError> {
         let wait = I::wait_cell().subscribe().await;
 
         self.enable_interrupt(0x1);
@@ -535,8 +545,8 @@ impl<'a, I: Instance> Adc<'a, I> {
 
         let _ = wait.await;
 
-        let result = self.get_conv_result();
-        result.unwrap().conv_value >> G_LPADC_RESULT_SHIFT
+        let result = self.get_conv_result().unwrap().conv_value >> G_LPADC_RESULT_SHIFT;
+        Ok(result)
     }
 }
 
