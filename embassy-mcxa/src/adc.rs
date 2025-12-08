@@ -435,8 +435,16 @@ impl<'a, I: Instance, M: ModeAdc> Adc<'a, I, M> {
     /// # Arguments
     /// * `index` - Command index
     /// * `config` - Command configuration
-    pub fn set_conv_command_config(&self, index: u32, config: &ConvCommandConfig) {
+    /// 
+    /// # Returns
+    /// * `Ok(())` if the command was configured successfully
+    /// * `Err(Error::InvalidConfig)` if the index is out of range
+    pub fn set_conv_command_config(&self, index: u32, config: &ConvCommandConfig) -> Result<()> {
         let adc = I::ptr();
+
+        if index < 1 || index > 7 {
+            return Err(Error::InvalidConfig);
+        }
 
         macro_rules! write_cmd {
             ($idx:expr) => {{
@@ -475,8 +483,10 @@ impl<'a, I: Instance, M: ModeAdc> Adc<'a, I, M> {
             5 => write_cmd!(5),
             6 => write_cmd!(6),
             7 => write_cmd!(7),
-            _ => panic!("Invalid command index: must be between 1 and 7"),
+            _ => unreachable!(),
         }
+
+        Ok(())
     }
 
     /// Get default conversion trigger configuration.
