@@ -9,7 +9,7 @@ publish = false
 embassy-sync = { version = "0.7.2", path = "../../../../embassy-sync" }
 embassy-executor = { version = "0.9.0", path = "../../../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "arch-cortex-m", "executor-thread"] }
 embassy-time = { version = "0.5.0", path = "../../../../embassy-time", features = [] }
-embassy-nrf = { version = "0.8.0", path = "../../../../embassy-nrf", features = ["time-driver-rtc1", "gpiote", ] }
+embassy-nrf = { version = "0.8.0", path = "../../../../embassy-nrf", features = ["gpiote", ] }
 embassy-boot = { version = "0.6.1", path = "../../../../embassy-boot", features = [] }
 embassy-boot-nrf = { version = "0.9.0", path = "../../../../embassy-boot-nrf", features = [] }
 embassy-embedded-hal = { version = "0.5.0", path = "../../../../embassy-embedded-hal" }
@@ -33,12 +33,14 @@ defmt = [
       "embassy-boot-nrf/defmt",
       "embassy-sync/defmt",
 ]
+nrf54 = ["embassy-nrf/time-driver-grtc"]
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv7em-none-eabi", features = ["embassy-nrf/nrf52840", "skip-include"], artifact-dir = "out/examples/boot/nrf52840" },
-  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9160-ns", "skip-include"], artifact-dir = "out/examples/boot/nrf9160" },
-  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9120-ns", "skip-include"], artifact-dir = "out/examples/boot/nrf9120" },
-  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9151-ns", "skip-include"], artifact-dir = "out/examples/boot/nrf9151" },
-  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9161-ns", "skip-include"], artifact-dir = "out/examples/boot/nrf9161" }
+  { target = "thumbv7em-none-eabi", features = ["embassy-nrf/nrf52840", "embassy-nrf/time-driver-rtc1", "skip-include"], artifact-dir = "out/examples/boot/nrf52840" },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9160-ns", "embassy-nrf/time-driver-rtc1", "skip-include"], artifact-dir = "out/examples/boot/nrf9160" },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9120-ns", "embassy-nrf/time-driver-rtc1", "skip-include"], artifact-dir = "out/examples/boot/nrf9120" },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9151-ns", "embassy-nrf/time-driver-rtc1", "skip-include"], artifact-dir = "out/examples/boot/nrf9151" },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9161-ns", "embassy-nrf/time-driver-rtc1", "skip-include"], artifact-dir = "out/examples/boot/nrf9161" },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf54l15-app-s", "nrf54", "skip-include"], artifact-dir = "out/examples/boot/nrf54l15" }
 ]
