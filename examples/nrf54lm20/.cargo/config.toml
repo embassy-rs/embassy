@@ -1,7 +1,6 @@
 [target.'cfg(all(target_arch = "arm", target_os = "none"))']
-# runner = "probe-rs run --chip nrf54lm20"
-# probe-rs doesn't support nRF54LM20A right now, so jlink is needed
-runner = "./run.sh"
+# Note: it needs the latest git version of probe-rs
+runner = "probe-rs run --chip nrf54lm20a"
 
 [build]
 target = "thumbv8m.main-none-eabihf"
