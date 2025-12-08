@@ -16,27 +16,20 @@
 #![no_std]
 #![no_main]
 
+use core::fmt::Write as _;
+
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaCh1InterruptHandler, DmaCh2InterruptHandler, DmaChannel};
+use embassy_mcxa::dma::DmaChannel;
 use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
-use embassy_mcxa::{bind_interrupts, pac};
+use embassy_mcxa::pac;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
-use core::fmt::Write as _;
 
 // Buffers
 static mut SRC_BUFFER: [u32; 4] = [1, 2, 3, 4];
 static mut DEST_BUFFER0: [u32; 4] = [0; 4];
 static mut DEST_BUFFER1: [u32; 4] = [0; 4];
 static mut DEST_BUFFER2: [u32; 4] = [0; 4];
-
-// Bind DMA channel interrupts using Embassy-style macro
-// The standard handlers call on_interrupt() which wakes wakers and clears flags
-bind_interrupts!(struct Irqs {
-    DMA_CH0 => DmaCh0InterruptHandler;
-    DMA_CH1 => DmaCh1InterruptHandler;
-    DMA_CH2 => DmaCh2InterruptHandler;
-});
 
 /// Helper to print a buffer to UART
 fn print_buffer(tx: &mut LpuartTx<'_, Blocking>, buf_ptr: *const u32, len: usize) {
@@ -83,12 +76,6 @@ async fn main(_spawner: Spawner) {
             .cx()
             .normal_operation()
     });
-
-    unsafe {
-        cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA_CH0);
-        cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA_CH1);
-        cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA_CH2);
-    }
 
     let config = Config {
         baudrate_bps: 115_200,

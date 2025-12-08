@@ -10,29 +10,25 @@
 #![no_std]
 #![no_main]
 
-use embassy_executor::Spawner;
-use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaChannel};
-use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
-use embassy_mcxa::{bind_interrupts, pac};
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 use core::fmt::Write as _;
 
-// Bind DMA channel 0 interrupt using Embassy-style macro
-bind_interrupts!(struct Irqs {
-    DMA_CH0 => DmaCh0InterruptHandler;
-});
+use embassy_executor::Spawner;
+use embassy_mcxa::clocks::config::Div8;
+use embassy_mcxa::dma::DmaChannel;
+use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
+use static_cell::ConstStaticCell;
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 const BUFFER_LENGTH: usize = 16;
 const HALF_BUFF_LENGTH: usize = BUFFER_LENGTH / 2;
 
 // Buffers in RAM
-static mut SRC_BUFFER: [u32; HALF_BUFF_LENGTH] = [0; HALF_BUFF_LENGTH];
-static mut DEST_BUFFER: [u32; BUFFER_LENGTH] = [0; BUFFER_LENGTH];
+static SRC_BUFFER: ConstStaticCell<[u32; HALF_BUFF_LENGTH]> = ConstStaticCell::new([0; HALF_BUFF_LENGTH]);
+static DEST_BUFFER: ConstStaticCell<[u32; BUFFER_LENGTH]> = ConstStaticCell::new([0; BUFFER_LENGTH]);
 
 /// Helper to print a buffer to UART
-fn print_buffer(tx: &mut LpuartTx<'_, Blocking>, buf_ptr: *const u32, len: usize) {
-    write!(tx, "{:?}", unsafe { core::slice::from_raw_parts(buf_ptr, len) }).ok();
+fn print_buffer(tx: &mut LpuartTx<'_, Blocking>, buf: &[u32]) {
+    write!(tx, "{:?}", buf).ok();
 }
 
 #[embassy_executor::main]
@@ -49,11 +45,6 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("DMA interleave transfer example starting...");
 
-    // Enable DMA interrupt (DMA clock/reset/init is handled automatically by HAL)
-    unsafe {
-        cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA_CH0);
-    }
-
     let config = Config {
         baudrate_bps: 115_200,
         ..Default::default()
@@ -66,17 +57,16 @@ async fn main(_spawner: Spawner) {
         .unwrap();
 
     // Initialize buffers
-    unsafe {
-        SRC_BUFFER = [1, 2, 3, 4, 5, 6, 7, 8];
-        DEST_BUFFER = [0; BUFFER_LENGTH];
-    }
+    let src = SRC_BUFFER.take();
+    *src = [1, 2, 3, 4, 5, 6, 7, 8];
+    let dst = DEST_BUFFER.take();
 
     tx.blocking_write(b"Source Buffer:              ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(SRC_BUFFER) as *const u32, HALF_BUFF_LENGTH);
+    print_buffer(&mut tx, src);
     tx.blocking_write(b"\r\n").unwrap();
 
     tx.blocking_write(b"Destination Buffer (before): ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(DEST_BUFFER) as *const u32, BUFFER_LENGTH);
+    print_buffer(&mut tx, dst);
     tx.blocking_write(b"\r\n").unwrap();
 
     tx.blocking_write(b"Configuring DMA with Embassy-style API...\r\n")
@@ -109,10 +99,8 @@ async fn main(_spawner: Spawner) {
         t.ch_int().write(|w| w.int().clear_bit_by_one());
 
         // Source/destination addresses
-        t.tcd_saddr()
-            .write(|w| w.saddr().bits(core::ptr::addr_of_mut!(SRC_BUFFER) as u32));
-        t.tcd_daddr()
-            .write(|w| w.daddr().bits(core::ptr::addr_of_mut!(DEST_BUFFER) as u32));
+        t.tcd_saddr().write(|w| w.saddr().bits(src.as_ptr() as u32));
+        t.tcd_daddr().write(|w| w.daddr().bits(dst.as_mut_ptr() as u32));
 
         // Custom offsets for interleaving
         t.tcd_soff().write(|w| w.soff().bits(4)); // src: +4 bytes per read
@@ -156,21 +144,15 @@ async fn main(_spawner: Spawner) {
     tx.blocking_write(b"\r\nEDMA interleave transfer example finish.\r\n\r\n")
         .unwrap();
     tx.blocking_write(b"Destination Buffer (after):  ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(DEST_BUFFER) as *const u32, BUFFER_LENGTH);
+    print_buffer(&mut tx, dst);
     tx.blocking_write(b"\r\n\r\n").unwrap();
 
     // Verify: Even indices should match SRC_BUFFER[i/2], odd indices should be 0
     let mut mismatch = false;
-    unsafe {
-        for i in 0..BUFFER_LENGTH {
-            if i % 2 == 0 {
-                if DEST_BUFFER[i] != SRC_BUFFER[i / 2] {
-                    mismatch = true;
-                }
-            } else if DEST_BUFFER[i] != 0 {
-                mismatch = true;
-            }
-        }
+    let diter = dst.chunks_exact(2);
+    let siter = src.iter();
+    for (ch, src) in diter.zip(siter) {
+        mismatch |= !matches!(ch, [a, 0] if a == src);
     }
 
     if mismatch {

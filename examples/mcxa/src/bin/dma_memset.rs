@@ -12,27 +12,15 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaChannel};
-use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
-use embassy_mcxa::{bind_interrupts, pac};
+use embassy_mcxa::dma::DmaChannel;
+use static_cell::ConstStaticCell;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
-use core::fmt::Write as _;
-
-// Bind DMA channel 0 interrupt using Embassy-style macro
-bind_interrupts!(struct Irqs {
-    DMA_CH0 => DmaCh0InterruptHandler;
-});
 
 const BUFFER_LENGTH: usize = 4;
 
 // Buffers in RAM
-static mut PATTERN: u32 = 0;
-static mut DEST_BUFFER: [u32; BUFFER_LENGTH] = [0; BUFFER_LENGTH];
-
-/// Helper to print a buffer to UART
-fn print_buffer(tx: &mut LpuartTx<'_, Blocking>, buf_ptr: *const u32, len: usize) {
-    write!(tx, "{:?}", unsafe { core::slice::from_raw_parts(buf_ptr, len) }).ok();
-}
+static PATTERN: u32 = 0xDEADBEEF;
+static DEST_BUFFER: ConstStaticCell<[u32; BUFFER_LENGTH]> = ConstStaticCell::new([0; BUFFER_LENGTH]);
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -47,48 +35,14 @@ async fn main(_spawner: Spawner) {
     let p = hal::init(cfg);
 
     defmt::info!("DMA memset example starting...");
-
-    // Enable DMA interrupt (DMA clock/reset/init is handled automatically by HAL)
-    unsafe {
-        cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA_CH0);
-    }
-
-    let config = Config {
-        baudrate_bps: 115_200,
-        ..Default::default()
-    };
-
-    let lpuart = Lpuart::new_blocking(p.LPUART2, p.P2_2, p.P2_3, config).unwrap();
-    let (mut tx, _rx) = lpuart.split();
-
-    tx.blocking_write(b"EDMA memset example begin.\r\n\r\n").unwrap();
+    defmt::info!("EDMA memset example begin.");
 
     // Initialize buffers
-    unsafe {
-        PATTERN = 0xDEADBEEF;
-        DEST_BUFFER = [0; BUFFER_LENGTH];
-    }
-
-    tx.blocking_write(b"Pattern value:              0x").unwrap();
-    // Print pattern in hex
-    unsafe {
-        let hex_chars = b"0123456789ABCDEF";
-        let mut hex_buf = [0u8; 8];
-        let mut val = PATTERN;
-        for i in (0..8).rev() {
-            hex_buf[i] = hex_chars[(val & 0xF) as usize];
-            val >>= 4;
-        }
-        tx.blocking_write(&hex_buf).ok();
-    }
-    tx.blocking_write(b"\r\n").unwrap();
-
-    tx.blocking_write(b"Destination Buffer (before): ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(DEST_BUFFER) as *const u32, BUFFER_LENGTH);
-    tx.blocking_write(b"\r\n").unwrap();
-
-    tx.blocking_write(b"Configuring DMA with Embassy-style API...\r\n")
-        .unwrap();
+    let pat = &PATTERN;
+    let dst = DEST_BUFFER.take();
+    defmt::info!("Pattern Value: {=u32}", pat);
+    defmt::info!("Destination Buffer (before): {=[?]}", dst.as_slice());
+    defmt::info!("Configuring DMA with Embassy-style API...");
 
     // Create DMA channel using Embassy-style API
     let dma_ch0 = DmaChannel::new(p.DMA_CH0);
@@ -116,11 +70,9 @@ async fn main(_spawner: Spawner) {
         t.ch_int().write(|w| w.int().clear_bit_by_one());
 
         // Source address (pattern) - fixed
-        t.tcd_saddr()
-            .write(|w| w.saddr().bits(core::ptr::addr_of_mut!(PATTERN) as u32));
+        t.tcd_saddr().write(|w| w.saddr().bits(pat as *const _ as u32));
         // Destination address - increments
-        t.tcd_daddr()
-            .write(|w| w.daddr().bits(core::ptr::addr_of_mut!(DEST_BUFFER) as u32));
+        t.tcd_daddr().write(|w| w.daddr().bits(dst.as_mut_ptr() as u32));
 
         // Source offset = 0 (stays fixed), Dest offset = 4 (increments)
         t.tcd_soff().write(|w| w.soff().bits(0));
@@ -147,7 +99,7 @@ async fn main(_spawner: Spawner) {
 
         cortex_m::asm::dsb();
 
-        tx.blocking_write(b"Triggering transfer...\r\n").unwrap();
+        defmt::info!("Triggering transfer...");
         dma_ch0.trigger_start();
     }
 
@@ -159,32 +111,15 @@ async fn main(_spawner: Spawner) {
         dma_ch0.clear_done();
     }
 
-    tx.blocking_write(b"\r\nEDMA memset example finish.\r\n\r\n").unwrap();
-    tx.blocking_write(b"Destination Buffer (after):  ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(DEST_BUFFER) as *const u32, BUFFER_LENGTH);
-    tx.blocking_write(b"\r\n\r\n").unwrap();
+    defmt::info!("EDMA memset example finish.");
+    defmt::info!("Destination Buffer (after): {=[?]}", dst.as_slice());
 
     // Verify: All elements should equal PATTERN
-    let mut mismatch = false;
-    unsafe {
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..BUFFER_LENGTH {
-            if DEST_BUFFER[i] != PATTERN {
-                mismatch = true;
-                break;
-            }
-        }
-    }
+    let mismatch = dst.iter().any(|i| *i != *pat);
 
     if mismatch {
-        tx.blocking_write(b"FAIL: Mismatch detected!\r\n").unwrap();
         defmt::error!("FAIL: Mismatch detected!");
     } else {
-        tx.blocking_write(b"PASS: Data verified.\r\n").unwrap();
         defmt::info!("PASS: Data verified.");
-    }
-
-    loop {
-        cortex_m::asm::wfe();
     }
 }

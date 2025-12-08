@@ -4,13 +4,13 @@
 use embassy_executor::Spawner;
 use embassy_mcxa_examples::init_adc_pins;
 use hal::adc::{LpadcConfig, TriggerPriorityPolicy};
-use hal::clocks::PoweredClock;
 use hal::clocks::periph_helpers::{AdcClockSel, Div4};
+use hal::clocks::PoweredClock;
 use hal::pac::adc1::cfg::{Pwrsel, Refsel};
 use hal::pac::adc1::cmdl1::{Adch, Mode};
 use hal::pac::adc1::ctrl::CalAvgs;
 use hal::pac::adc1::tctrl::Tcmd;
-use hal::{InterruptExt, bind_interrupts};
+use hal::{bind_interrupts, InterruptExt};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(struct Irqs {

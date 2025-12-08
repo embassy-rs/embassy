@@ -19,18 +19,10 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaCh1InterruptHandler};
 use embassy_mcxa::lpuart::{Config, LpuartDma, LpuartTxDma};
 use static_cell::ConstStaticCell;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
-
-// Bind DMA channel interrupts
-bind_interrupts!(struct Irqs {
-    DMA_CH0 => DmaCh0InterruptHandler;
-    DMA_CH1 => DmaCh1InterruptHandler;
-});
 
 // Ring buffer for RX - power of 2 is ideal for modulo efficiency
 static RX_RING_BUFFER: ConstStaticCell<[u8; 64]> = ConstStaticCell::new([0; 64]);

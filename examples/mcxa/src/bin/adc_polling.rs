@@ -4,8 +4,8 @@
 use embassy_executor::Spawner;
 use embassy_mcxa_examples::init_adc_pins;
 use hal::adc::{ConvResult, LpadcConfig, TriggerPriorityPolicy};
-use hal::clocks::PoweredClock;
 use hal::clocks::periph_helpers::{AdcClockSel, Div4};
+use hal::clocks::PoweredClock;
 use hal::pac::adc1::cfg::{Pwrsel, Refsel};
 use hal::pac::adc1::cmdl1::{Adch, Mode};
 use hal::pac::adc1::ctrl::CalAvgs;

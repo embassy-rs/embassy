@@ -618,16 +618,9 @@ impl<C: Channel> DmaChannel<C> {
     /// Note: DMA is initialized during `hal::init()` via `dma::init()`.
     #[inline]
     pub fn new(_ch: embassy_hal_internal::Peri<'_, C>) -> Self {
-        Self {
-            _ch: core::marker::PhantomData,
+        unsafe {
+            cortex_m::peripheral::NVIC::unmask(C::INTERRUPT);
         }
-    }
-
-    /// Wrap a DMA channel token directly (for internal use).
-    ///
-    /// Note: DMA is initialized during `hal::init()` via `dma::init()`.
-    #[inline]
-    pub fn from_token(_ch: C) -> Self {
         Self {
             _ch: core::marker::PhantomData,
         }
@@ -740,7 +733,8 @@ impl<C: Channel> DmaChannel<C> {
     #[inline]
     fn set_even_transfer_size(t: &'static pac::edma_0_tcd0::Tcd, sz: WordSize) {
         let hw_size = sz.to_hw_size();
-        t.tcd_attr().write(|w| unsafe { w.ssize().bits(hw_size).dsize().bits(hw_size) } );
+        t.tcd_attr()
+            .write(|w| unsafe { w.ssize().bits(hw_size).dsize().bits(hw_size) });
     }
 
     #[inline]
@@ -1068,7 +1062,7 @@ impl<C: Channel> DmaChannel<C> {
 
         // Addresses
         Self::set_source_ptr(t, buf.as_ptr());
-        t.tcd_daddr().write(|w| w.daddr().bits(peri_addr as u32));
+        Self::set_dest_ptr(t, peri_addr);
 
         // Offsets: Source increments, Dest fixed
         Self::set_source_increment(t, size);
@@ -2357,7 +2351,7 @@ impl<W: Word> ScatterGatherBuilder<W> {
 
         // Reset channel state - clear DONE, disable requests, clear errors
         // This ensures the channel is in a clean state before loading the TCD
-        Self::reset_channel_state(t);
+        DmaChannel::<C>::reset_channel_state(t);
 
         // Memory barrier to ensure channel state is reset before loading TCD
         cortex_m::asm::dsb();
@@ -2441,38 +2435,28 @@ pub unsafe fn on_interrupt(ch_index: usize) {
 }
 
 // ============================================================================
-// Type-level Interrupt Handlers for bind_interrupts! macro
+// Type-level Interrupt Handlers
 // ============================================================================
 
 /// Macro to generate DMA channel interrupt handlers.
-///
-/// This generates handler structs that implement the `Handler` trait for use
-/// with the `bind_interrupts!` macro.
 macro_rules! impl_dma_interrupt_handler {
-    ($name:ident, $irq:ident, $ch:expr) => {
-        /// Interrupt handler for DMA channel.
-        ///
-        /// Use this with the `bind_interrupts!` macro:
-        /// ```ignore
-        /// bind_interrupts!(struct Irqs {
-        #[doc = concat!("     ", stringify!($irq), " => dma::", stringify!($name), ";")]
-        /// });
-        /// ```
-        pub struct $name;
-
-        impl crate::interrupt::typelevel::Handler<crate::interrupt::typelevel::$irq> for $name {
-            unsafe fn on_interrupt() {
+    ($irq:ident, $ch:expr) => {
+        #[interrupt]
+        fn $irq() {
+            unsafe {
                 on_interrupt($ch);
             }
         }
     };
 }
 
-impl_dma_interrupt_handler!(DmaCh0InterruptHandler, DMA_CH0, 0);
-impl_dma_interrupt_handler!(DmaCh1InterruptHandler, DMA_CH1, 1);
-impl_dma_interrupt_handler!(DmaCh2InterruptHandler, DMA_CH2, 2);
-impl_dma_interrupt_handler!(DmaCh3InterruptHandler, DMA_CH3, 3);
-impl_dma_interrupt_handler!(DmaCh4InterruptHandler, DMA_CH4, 4);
-impl_dma_interrupt_handler!(DmaCh5InterruptHandler, DMA_CH5, 5);
-impl_dma_interrupt_handler!(DmaCh6InterruptHandler, DMA_CH6, 6);
-impl_dma_interrupt_handler!(DmaCh7InterruptHandler, DMA_CH7, 7);
+use crate::pac::interrupt;
+
+impl_dma_interrupt_handler!(DMA_CH0, 0);
+impl_dma_interrupt_handler!(DMA_CH1, 1);
+impl_dma_interrupt_handler!(DMA_CH2, 2);
+impl_dma_interrupt_handler!(DMA_CH3, 3);
+impl_dma_interrupt_handler!(DMA_CH4, 4);
+impl_dma_interrupt_handler!(DMA_CH5, 5);
+impl_dma_interrupt_handler!(DMA_CH6, 6);
+impl_dma_interrupt_handler!(DMA_CH7, 7);

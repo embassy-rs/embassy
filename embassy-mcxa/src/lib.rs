@@ -400,41 +400,6 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
     peripherals
 }
 
-// /// Optional hook called by cortex-m-rt before RAM init.
-// /// We proactively mask and clear all NVIC IRQs to avoid wedges from stale state
-// /// left by soft resets/debug sessions.
-// ///
-// /// NOTE: Manual VTOR setup is required for RAM execution. The cortex-m-rt 'set-vtor'
-// /// feature is incompatible with our setup because it expects __vector_table to be
-// /// defined differently than how our RAM-based linker script arranges it.
-// #[no_mangle]
-// pub unsafe extern "C" fn __pre_init() {
-//     // Set the VTOR to point to the interrupt vector table in RAM
-//     // This is required since code runs from RAM on this MCU
-//     crate::interrupt::vtor_set_ram_vector_base(0x2000_0000 as *const u32);
-
-//     // Mask and clear pending for all NVIC lines (0..127) to avoid stale state across runs.
-//     let nvic = &*cortex_m::peripheral::NVIC::PTR;
-//     for i in 0..4 {
-//         // 4 words x 32 = 128 IRQs
-//         nvic.icer[i].write(0xFFFF_FFFF);
-//         nvic.icpr[i].write(0xFFFF_FFFF);
-//     }
-//     // Do NOT touch peripheral registers here: clocks may be off and accesses can fault.
-//     crate::interrupt::clear_default_handler_snapshot();
-// }
-
-/// Internal helper to dispatch a type-level interrupt handler.
-#[inline(always)]
-#[doc(hidden)]
-pub unsafe fn __handle_interrupt<T, H>()
-where
-    T: crate::interrupt::typelevel::Interrupt,
-    H: crate::interrupt::typelevel::Handler<T>,
-{
-    H::on_interrupt();
-}
-
 /// Macro to bind interrupts to handlers, similar to embassy-imxrt.
 ///
 /// Example:

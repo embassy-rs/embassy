@@ -20,18 +20,13 @@
 #![no_std]
 #![no_main]
 
-use embassy_executor::Spawner;
-use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaChannel, ScatterGatherBuilder};
-use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
-use embassy_mcxa::{bind_interrupts, pac};
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 use core::fmt::Write as _;
 
-// Bind DMA channel 0 interrupt
-bind_interrupts!(struct Irqs {
-    DMA_CH0 => DmaCh0InterruptHandler;
-});
+use embassy_executor::Spawner;
+use embassy_mcxa::clocks::config::Div8;
+use embassy_mcxa::dma::{DmaChannel, ScatterGatherBuilder};
+use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Source buffers (multiple segments)
 static mut SRC1: [u32; 4] = [0x11111111, 0x22222222, 0x33333333, 0x44444444];
@@ -61,11 +56,6 @@ async fn main(_spawner: Spawner) {
     let p = hal::init(cfg);
 
     defmt::info!("DMA Scatter-Gather Builder example starting...");
-
-    // Enable DMA interrupt (DMA clock/reset/init is handled automatically by HAL)
-    unsafe {
-        cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA_CH0);
-    }
 
     // Create UART for debug output
     let config = Config {

@@ -23,15 +23,15 @@
 #![no_std]
 #![no_main]
 
+use core::fmt::Write as _;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::dma::{self, DmaCh1InterruptHandler, DmaChannel, Tcd, TransferOptions};
+use embassy_mcxa::dma::{self, DmaChannel, Tcd, TransferOptions};
 use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
 use embassy_mcxa::{bind_interrupts, pac};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
-use core::fmt::Write as _;
 
 // Source and destination buffers for Approach 1 (scatter/gather)
 static mut SRC: [u32; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
@@ -85,7 +85,6 @@ impl embassy_mcxa::interrupt::typelevel::Handler<embassy_mcxa::interrupt::typele
 // CH1: Standard handler for wait_half() demo
 bind_interrupts!(struct Irqs {
     DMA_CH0 => PingPongDmaHandler;
-    DMA_CH1 => DmaCh1InterruptHandler;
 });
 
 /// Helper to print a buffer to UART

@@ -10,18 +10,13 @@
 #![no_std]
 #![no_main]
 
-use embassy_executor::Spawner;
-use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaChannel};
-use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
-use embassy_mcxa::{bind_interrupts, pac};
-use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 use core::fmt::Write as _;
 
-// Bind DMA channel 0 interrupt using Embassy-style macro
-bind_interrupts!(struct Irqs {
-    DMA_CH0 => DmaCh0InterruptHandler;
-});
+use embassy_executor::Spawner;
+use embassy_mcxa::clocks::config::Div8;
+use embassy_mcxa::dma::DmaChannel;
+use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Source buffer: 4 words (16 bytes), aligned to 16 bytes for modulo
 #[repr(align(16))]
@@ -48,11 +43,6 @@ async fn main(_spawner: Spawner) {
     let p = hal::init(cfg);
 
     defmt::info!("DMA wrap transfer example starting...");
-
-    // Enable DMA interrupt (DMA clock/reset/init is handled automatically by HAL)
-    unsafe {
-        cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA_CH0);
-    }
 
     let config = Config {
         baudrate_bps: 115_200,

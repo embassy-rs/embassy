@@ -12,16 +12,8 @@
 
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaCh1InterruptHandler};
 use embassy_mcxa::lpuart::{Config, LpuartDma};
-use embassy_mcxa::bind_interrupts;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
-
-// Bind DMA channel interrupts using Embassy-style macro
-bind_interrupts!(struct Irqs {
-    DMA_CH0 => DmaCh0InterruptHandler;
-    DMA_CH1 => DmaCh1InterruptHandler;
-});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -40,7 +32,8 @@ async fn main(_spawner: Spawner) {
 
     // Create UART instance with DMA channels
     let mut lpuart = LpuartDma::new(
-        p.LPUART2, p.P2_2,    // TX pin
+        p.LPUART2, // Instance
+        p.P2_2,    // TX pin
         p.P2_3,    // RX pin
         p.DMA_CH0, // TX DMA channel
         p.DMA_CH1, // RX DMA channel
