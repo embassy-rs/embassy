@@ -143,9 +143,9 @@ pub enum Error {
 /// Contains the conversion value and metadata about the conversion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConvResult {
-    pub command_id_source: u32,
-    pub loop_count_index: u32,
-    pub trigger_id_source: u32,
+    pub command_id_source: u8,
+    pub loop_count_index: u8,
+    pub trigger_id_source: u8,
     pub conv_value: u16,
 }
 
@@ -566,17 +566,16 @@ impl<'a, I: Instance, M: ModeAdc> Adc<'a, I, M> {
     /// - `Err(Error::FifoEmpty)` if the FIFO is empty
     pub fn get_conv_result(&self) -> Result<ConvResult> {
         let adc = I::ptr();
-        let fifo = adc.resfifo0().read().bits();
-        const VALID_MASK: u32 = 1 << 31;
-        if fifo & VALID_MASK == 0 {
+        let fifo = adc.resfifo0().read();
+        if !fifo.valid().is_valid() {
             return Err(Error::FifoEmpty);
         }
 
         Ok(ConvResult {
-            command_id_source: (fifo >> 24) & 0x0F,
-            loop_count_index: (fifo >> 20) & 0x0F,
-            trigger_id_source: (fifo >> 16) & 0x0F,
-            conv_value: (fifo & 0xFFFF) as u16,
+            command_id_source: fifo.cmdsrc().bits(),
+            loop_count_index: fifo.loopcnt().bits(),
+            trigger_id_source: fifo.tsrc().bits(),
+            conv_value: fifo.d().bits(),
         })
     }
 }
