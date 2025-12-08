@@ -25,8 +25,7 @@ impl<'d, M: Mode> Crc<'d, M> {
         }
     }
 
-    // Configure the underlying peripheral. `f` is expected to set the
-    // operating mode to either 16- or 32-bits.
+    // Configure the underlying peripheral according to the reference manual.
     fn configure(config: Config, width: Tcrc) {
         Self::regs().ctrl().modify(|_, w| {
             w.fxor()
@@ -350,39 +349,40 @@ macro_rules! impl_word {
     };
 }
 
-impl_word!(
-    u8,
-    8,
-    |regs: &'static crate::pac::crc0::RegisterBlock, word| {
-        regs.data8().write(|w| unsafe { w.bits(word) });
-    },
-    |regs: &'static crate::pac::crc0::RegisterBlock| { regs.data8().read().bits() }
-);
-impl_word!(
-    u16,
-    16,
-    |regs: &'static crate::pac::crc0::RegisterBlock, word| {
-        regs.data16().write(|w| unsafe { w.bits(word) });
-    },
-    |regs: &'static crate::pac::crc0::RegisterBlock| {
-        let ctrl = regs.ctrl().read();
+impl_word!(u8, 8, write_u8, read_u8);
+impl_word!(u16, 16, write_u16, read_u16);
+impl_word!(u32, 32, write_u32, read_u32);
 
-        // if transposition is enabled, result sits in the upper 16 bits
-        if ctrl.totr().is_byts_trnps() || ctrl.totr().is_byts_bts_trnps() {
-            (regs.data32().read().bits() >> 16) as u16
-        } else {
-            regs.data16().read().bits()
-        }
+fn write_u8(regs: &'static crate::pac::crc0::RegisterBlock, word: u8) {
+    regs.data8().write(|w| unsafe { w.bits(word) });
+}
+
+fn read_u8(regs: &'static crate::pac::crc0::RegisterBlock) -> u8 {
+    regs.data8().read().bits()
+}
+
+fn write_u16(regs: &'static crate::pac::crc0::RegisterBlock, word: u16) {
+    regs.data16().write(|w| unsafe { w.bits(word) });
+}
+
+fn read_u16(regs: &'static crate::pac::crc0::RegisterBlock) -> u16 {
+    let ctrl = regs.ctrl().read();
+
+    // if transposition is enabled, result sits in the upper 16 bits
+    if ctrl.totr().is_byts_trnps() || ctrl.totr().is_byts_bts_trnps() {
+        (regs.data32().read().bits() >> 16) as u16
+    } else {
+        regs.data16().read().bits()
     }
-);
-impl_word!(
-    u32,
-    32,
-    |regs: &'static crate::pac::crc0::RegisterBlock, word| {
-        regs.data32().write(|w| unsafe { w.bits(word) });
-    },
-    |regs: &'static crate::pac::crc0::RegisterBlock| { regs.data32().read().bits() }
-);
+}
+
+fn write_u32(regs: &'static crate::pac::crc0::RegisterBlock, word: u32) {
+    regs.data32().write(|w| unsafe { w.bits(word) });
+}
+
+fn read_u32(regs: &'static crate::pac::crc0::RegisterBlock) -> u32 {
+    regs.data32().read().bits()
+}
 
 /// CRC configuration.
 #[derive(Copy, Clone, Debug)]
