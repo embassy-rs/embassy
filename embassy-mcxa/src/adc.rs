@@ -18,8 +18,6 @@ use crate::pac::adc1::cmdl1::{Adch, Ctype, Mode};
 use crate::pac::adc1::ctrl::CalAvgs;
 use crate::pac::adc1::tctrl::{Tcmd, Tpri};
 
-/// Global wait cell for alarm notifications
-static WAKER: WaitCell = WaitCell::new();
 
 const G_LPADC_RESULT_SHIFT: u32 = 0;
 
@@ -532,7 +530,7 @@ impl<'a, I: Instance> Adc<'a, I> {
     /// # Returns
     /// 16-bit ADC conversion value
     pub async fn read(&mut self) -> u16 {
-        let wait = WAKER.subscribe().await;
+        let wait = I::wait_cell().subscribe().await;
 
         self.enable_interrupt(0x1);
         self.do_software_trigger(1);
@@ -547,7 +545,7 @@ impl<'a, I: Instance> Adc<'a, I> {
 impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         T::ptr().ie().modify(|r, w| w.bits(r.bits() & !0x1));
-        WAKER.wake();
+        T::wait_cell().wake();
     }
 }
 
@@ -560,6 +558,7 @@ impl<I: GpioPin> sealed::Sealed for I {}
 
 trait SealedInstance {
     fn ptr() -> &'static pac::adc0::RegisterBlock;
+    fn wait_cell() -> &'static WaitCell;
 }
 
 /// ADC Instance
@@ -576,6 +575,11 @@ macro_rules! impl_instance {
                 impl SealedInstance for crate::peripherals::[<ADC $n>] {
                     fn ptr() -> &'static pac::adc0::RegisterBlock {
                         unsafe { &*pac::[<Adc $n>]::ptr() }
+                    }
+
+                    fn wait_cell() -> &'static WaitCell {
+                        static WAIT_CELL: WaitCell = WaitCell::new();
+                        &WAIT_CELL
                     }
 
                 }
