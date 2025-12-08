@@ -99,17 +99,16 @@ impl Default for LpadcConfig {
 /// Defines the parameters for a single ADC conversion operation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ConvCommandConfig {
-    pub sample_channel_mode: u8,
-    pub channel_number: u8,
-    pub chained_next_command_number: u8,
+    pub channel_number: Adch,
+    pub chained_next_command_number: Next,
     pub enable_auto_channel_increment: bool,
     pub loop_count: u8,
-    pub hardware_average_mode: u8,
-    pub sample_time_mode: u8,
-    pub hardware_compare_mode: u8,
+    pub hardware_average_mode: Avgs,
+    pub sample_time_mode: Sts,
+    pub hardware_compare_mode: Cmpen,
     pub hardware_compare_value_high: u32,
     pub hardware_compare_value_low: u32,
-    pub conversion_resolution_mode: u8,
+    pub conversion_resolution_mode: Mode,
     pub enable_wait_trigger: bool,
 }
 
@@ -359,17 +358,16 @@ impl<'a, I: Instance> Adc<'a, I> {
     /// Default conversion command configuration
     pub fn get_default_conv_command_config(&self) -> ConvCommandConfig {
         ConvCommandConfig {
-            sample_channel_mode: Ctype::SingleEndedASideChannel as u8,
-            channel_number: Adch::SelectCh0 as u8,
-            chained_next_command_number: Next::NoNextCmdTerminateOnFinish as u8,
+            channel_number: Adch::SelectCh0,
+            chained_next_command_number: Next::NoNextCmdTerminateOnFinish,
             enable_auto_channel_increment: false,
             loop_count: 0,
-            hardware_average_mode: Avgs::NoAverage as u8,
-            sample_time_mode: Sts::Sample3p5 as u8,
-            hardware_compare_mode: Cmpen::DisabledAlwaysStoreResult as u8,
+            hardware_average_mode: Avgs::NoAverage,
+            sample_time_mode: Sts::Sample3p5,
+            hardware_compare_mode: Cmpen::DisabledAlwaysStoreResult,
             hardware_compare_value_high: 0,
             hardware_compare_value_low: 0,
-            conversion_resolution_mode: Mode::Data12Bits as u8,
+            conversion_resolution_mode: Mode::Data12Bits,
             enable_wait_trigger: false,
         }
     }
@@ -390,21 +388,21 @@ impl<'a, I: Instance> Adc<'a, I> {
                 paste! {
                     adc.[<cmdl $idx>]().write(|w| unsafe {
                         w.adch()
-                            .bits(config.channel_number)
+                            .bits(config.channel_number.into())
                             .mode()
-                            .bit(config.conversion_resolution_mode != 0)
+                            .bit(config.conversion_resolution_mode.into())
                     });
                     adc.[<cmdh $idx>]().write(|w| unsafe {
                         w.next()
-                            .bits(config.chained_next_command_number)
+                            .bits(config.chained_next_command_number.into())
                             .loop_()
                             .bits(config.loop_count)
                             .avgs()
-                            .bits(config.hardware_average_mode)
+                            .bits(config.hardware_average_mode.into())
                             .sts()
-                            .bits(config.sample_time_mode)
+                            .bits(config.sample_time_mode.into())
                             .cmpen()
-                            .bits(config.hardware_compare_mode)
+                            .bits(config.hardware_compare_mode.into())
                             .wait_trig()
                             .bit(config.enable_wait_trigger)
                             .lwi()

@@ -50,8 +50,8 @@ async fn main(_spawner: Spawner) {
     adc.do_auto_calibration();
 
     let mut conv_command_config = adc.get_default_conv_command_config();
-    conv_command_config.channel_number = Adch::SelectCorrespondingChannel8 as u8;
-    conv_command_config.conversion_resolution_mode = Mode::Data16Bits as u8;
+    conv_command_config.channel_number = Adch::SelectCorrespondingChannel8;
+    conv_command_config.conversion_resolution_mode = Mode::Data16Bits;
     adc.set_conv_command_config(1, &conv_command_config);
 
     let mut conv_trigger_config = adc.get_default_conv_trigger_config();
