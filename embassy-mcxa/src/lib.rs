@@ -19,6 +19,7 @@ pub mod interrupt;
 pub mod lpuart;
 pub mod ostimer;
 pub mod rtc;
+pub mod trng;
 
 pub use crate::pac::NVIC_PRIO_BITS;
 
