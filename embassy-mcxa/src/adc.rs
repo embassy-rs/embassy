@@ -3,11 +3,11 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 
-use paste::paste;
-use crate::pac;
-use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::gpio::{GpioPin, SealedPin};
+use crate::interrupt::typelevel::{Handler, Interrupt};
+use crate::pac;
 use maitake_sync::WaitCell;
+use paste::paste;
 
 use crate::clocks::periph_helpers::{AdcClockSel, AdcConfig, Div4};
 use crate::clocks::{Gate, PoweredClock, enable_and_reset};
@@ -42,8 +42,8 @@ pub enum TriggerPriorityPolicy {
 /// Configuration for the LPADC peripheral.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LpadcConfig {
-    /// Control system transition to Stop and Wait power modes while ADC is converting. 
-    /// When enabled in Doze mode, immediate entries to Wait or Stop are allowed. 
+    /// Control system transition to Stop and Wait power modes while ADC is converting.
+    /// When enabled in Doze mode, immediate entries to Wait or Stop are allowed.
     /// When disabled, the ADC will wait for the current averaging iteration/FIFO storage to complete before acknowledging stop or wait mode entry.
     pub enable_in_doze_mode: bool,
     /// Auto-Calibration Averages.
@@ -58,14 +58,14 @@ pub struct LpadcConfig {
     pub power_level_mode: Pwrsel,
     /// Trigger priority policy for handling multiple triggers
     pub trigger_priority_policy: TriggerPriorityPolicy,
-    /// Enables the ADC pausing function. When enabled, a programmable delay is inserted during command execution sequencing between LOOP iterations, 
+    /// Enables the ADC pausing function. When enabled, a programmable delay is inserted during command execution sequencing between LOOP iterations,
     /// between commands in a sequence, and between conversions when command is executing in "Compare Until True" configuration.
     pub enable_conv_pause: bool,
-    /// Controls the duration of pausing during command execution sequencing. The pause delay is a count of (convPauseDelay*4) ADCK cycles. 
+    /// Controls the duration of pausing during command execution sequencing. The pause delay is a count of (convPauseDelay*4) ADCK cycles.
     /// Only available when ADC pausing function is enabled. The available value range is in 9-bit.
     pub conv_pause_delay: u16,
-    /// FIFO watermark level for interrupt generation. 
-    /// When the number of datawords stored in the ADC Result FIFO is greater than the value in this field, 
+    /// FIFO watermark level for interrupt generation.
+    /// When the number of datawords stored in the ADC Result FIFO is greater than the value in this field,
     /// the ready flag would be asserted to indicate stored data has reached the programmable threshold.
     pub fifo_watermark: u8,
     /// Power configuration (normal/deep sleep behavior)
@@ -114,7 +114,6 @@ pub struct ConvCommandConfig {
     pub conversion_resolution_mode: Mode,
     pub enable_wait_trigger: bool,
 }
-
 
 /// Configuration for a conversion trigger.
 ///
@@ -166,7 +165,7 @@ impl<'a, I: Instance> Adc<'a, I> {
 
         I::Interrupt::unpend();
         unsafe { I::Interrupt::enable() };
-        
+
         adc
     }
 
@@ -176,20 +175,12 @@ impl<'a, I: Instance> Adc<'a, I> {
     /// * `_inst` - ADC peripheral instance
     /// * `pin` - GPIO pin to use for ADC input
     /// * `config` - ADC configuration
-    pub fn new_polling(
-        _inst: Peri<'a, I>,
-        pin: Peri<'a, impl AdcPin<I>>,
-        config: LpadcConfig,
-    ) -> Self {
+    pub fn new_polling(_inst: Peri<'a, I>, pin: Peri<'a, impl AdcPin<I>>, config: LpadcConfig) -> Self {
         Self::new_inner(_inst, pin, config)
     }
 
     /// Internal initialization function shared by `new` and `new_polling`.
-    fn new_inner(
-        _inst: Peri<'a, I>,
-        pin: Peri<'a, impl AdcPin<I>>,
-        config: LpadcConfig,
-    ) -> Self {
+    fn new_inner(_inst: Peri<'a, I>, pin: Peri<'a, impl AdcPin<I>>, config: LpadcConfig) -> Self {
         let adc = &*I::ptr();
 
         let _clock_freq = unsafe {
@@ -284,9 +275,7 @@ impl<'a, I: Instance> Adc<'a, I> {
         // Enable ADC
         adc.ctrl().modify(|_, w| w.adcen().enabled());
 
-        Self {
-            _inst: PhantomData,
-        }
+        Self { _inst: PhantomData }
     }
 
     /// Deinitialize the ADC peripheral.
@@ -565,7 +554,6 @@ trait SealedInstance {
     fn ptr() -> &'static pac::adc0::RegisterBlock;
 }
 
-
 /// ADC Instance
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + PeripheralType + Gate<MrccPeriphConfig = AdcConfig> {
@@ -600,17 +588,17 @@ pub trait AdcPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
 }
 
 macro_rules! impl_pin {
-        ($pin:ident, $peri:ident, $func:ident, $trait:ident) => {
-            impl $trait<crate::peripherals::$peri> for crate::peripherals::$pin {
-                fn mux(&self) {
-                    self.set_pull(crate::gpio::Pull::Disabled);
-                    self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
-                    self.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
-                    self.set_function(crate::pac::port0::pcr0::Mux::$func);
-                }
+    ($pin:ident, $peri:ident, $func:ident, $trait:ident) => {
+        impl $trait<crate::peripherals::$peri> for crate::peripherals::$pin {
+            fn mux(&self) {
+                self.set_pull(crate::gpio::Pull::Disabled);
+                self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
+                self.set_drive_strength(crate::gpio::DriveStrength::Normal.into());
+                self.set_function(crate::pac::port0::pcr0::Mux::$func);
             }
-        };
-    }
+        }
+    };
+}
 
 impl_pin!(P2_0, ADC0, Mux0, AdcPin);
 impl_pin!(P2_4, ADC0, Mux0, AdcPin);
