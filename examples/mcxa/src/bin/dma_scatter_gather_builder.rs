@@ -25,23 +25,18 @@ use core::fmt::Write as _;
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::dma::{DmaChannel, ScatterGatherBuilder};
-use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
+use static_cell::ConstStaticCell;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Source buffers (multiple segments)
-static mut SRC1: [u32; 4] = [0x11111111, 0x22222222, 0x33333333, 0x44444444];
-static mut SRC2: [u32; 4] = [0xAAAAAAAA, 0xBBBBBBBB, 0xCCCCCCCC, 0xDDDDDDDD];
-static mut SRC3: [u32; 4] = [0x12345678, 0x9ABCDEF0, 0xFEDCBA98, 0x76543210];
+static SRC1: ConstStaticCell<[u32; 4]> = ConstStaticCell::new([0x11111111, 0x22222222, 0x33333333, 0x44444444]);
+static SRC2: ConstStaticCell<[u32; 4]> = ConstStaticCell::new([0xAAAAAAAA, 0xBBBBBBBB, 0xCCCCCCCC, 0xDDDDDDDD]);
+static SRC3: ConstStaticCell<[u32; 4]> = ConstStaticCell::new([0x12345678, 0x9ABCDEF0, 0xFEDCBA98, 0x76543210]);
 
 // Destination buffers (one per segment)
-static mut DST1: [u32; 4] = [0; 4];
-static mut DST2: [u32; 4] = [0; 4];
-static mut DST3: [u32; 4] = [0; 4];
-
-/// Helper to print a buffer to UART
-fn print_buffer(tx: &mut LpuartTx<'_, Blocking>, buf_ptr: *const u32, len: usize) {
-    write!(tx, "{:08X?}", unsafe { core::slice::from_raw_parts(buf_ptr, len) }).ok();
-}
+static DST1: ConstStaticCell<[u32; 4]> = ConstStaticCell::new([0; 4]);
+static DST2: ConstStaticCell<[u32; 4]> = ConstStaticCell::new([0; 4]);
+static DST3: ConstStaticCell<[u32; 4]> = ConstStaticCell::new([0; 4]);
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -57,47 +52,30 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("DMA Scatter-Gather Builder example starting...");
 
-    // Create UART for debug output
-    let config = Config {
-        baudrate_bps: 115_200,
-        ..Default::default()
-    };
-
-    let lpuart = Lpuart::new_blocking(p.LPUART2, p.P2_2, p.P2_3, config).unwrap();
-    let (mut tx, _rx) = lpuart.split();
-
-    tx.blocking_write(b"DMA Scatter-Gather Builder Example\r\n").unwrap();
-    tx.blocking_write(b"===================================\r\n\r\n")
-        .unwrap();
+    defmt::info!("DMA Scatter-Gather Builder Example");
+    defmt::info!("===================================");
+    let src1 = SRC1.take();
+    let src2 = SRC2.take();
+    let src3 = SRC3.take();
+    let dst1 = DST1.take();
+    let dst2 = DST2.take();
+    let dst3 = DST3.take();
 
     // Show source buffers
-    tx.blocking_write(b"Source buffers:\r\n").unwrap();
-    tx.blocking_write(b"  SRC1: ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(SRC1) as *const u32, 4);
-    tx.blocking_write(b"\r\n").unwrap();
-    tx.blocking_write(b"  SRC2: ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(SRC2) as *const u32, 4);
-    tx.blocking_write(b"\r\n").unwrap();
-    tx.blocking_write(b"  SRC3: ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(SRC3) as *const u32, 4);
-    tx.blocking_write(b"\r\n\r\n").unwrap();
+    defmt::info!("Source buffers:");
+    defmt::info!("  SRC1: {=[?]}", src1.as_slice());
+    defmt::info!("  SRC2: {=[?]}", src2.as_slice());
+    defmt::info!("  SRC3: {=[?]}", src3.as_slice());
 
-    tx.blocking_write(b"Destination buffers (before):\r\n").unwrap();
-    tx.blocking_write(b"  DST1: ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(DST1) as *const u32, 4);
-    tx.blocking_write(b"\r\n").unwrap();
-    tx.blocking_write(b"  DST2: ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(DST2) as *const u32, 4);
-    tx.blocking_write(b"\r\n").unwrap();
-    tx.blocking_write(b"  DST3: ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(DST3) as *const u32, 4);
-    tx.blocking_write(b"\r\n\r\n").unwrap();
+    defmt::info!("Destination buffers (before):");
+    defmt::info!("  DST1: {=[?]}", dst1.as_slice());
+    defmt::info!("  DST2: {=[?]}", dst2.as_slice());
+    defmt::info!("  DST3: {=[?]}", dst3.as_slice());
 
     // Create DMA channel
     let dma_ch0 = DmaChannel::new(p.DMA_CH0);
 
-    tx.blocking_write(b"Building scatter-gather chain with builder API...\r\n")
-        .unwrap();
+    defmt::info!("Building scatter-gather chain with builder API...");
 
     // =========================================================================
     // ScatterGatherBuilder API demonstration
@@ -112,27 +90,24 @@ async fn main(_spawner: Spawner) {
     let mut builder = ScatterGatherBuilder::<u32>::new();
 
     // Add three transfer segments - the builder handles TCD linking automatically
-    unsafe {
-        let src1 = &*core::ptr::addr_of!(SRC1);
-        let dst1 = &mut *core::ptr::addr_of_mut!(DST1);
-        builder.add_transfer(src1, dst1);
-    }
+    builder.add_transfer(src1, dst1);
+    builder.add_transfer(src2, dst2);
+    builder.add_transfer(src3, dst3);
 
-    unsafe {
-        let src2 = &*core::ptr::addr_of!(SRC2);
-        let dst2 = &mut *core::ptr::addr_of_mut!(DST2);
-        builder.add_transfer(src2, dst2);
-    }
+    defmt::info!("Added 3 transfer segments to chain.");
+    defmt::info!("Starting scatter-gather transfer with .await...");
 
-    unsafe {
-        let src3 = &*core::ptr::addr_of!(SRC3);
-        let dst3 = &mut *core::ptr::addr_of_mut!(DST3);
-        builder.add_transfer(src3, dst3);
-    }
-
-    tx.blocking_write(b"Added 3 transfer segments to chain.\r\n").unwrap();
-    tx.blocking_write(b"Starting scatter-gather transfer with .await...\r\n\r\n")
-        .unwrap();
+    // TODO START
+    defmt::info!("Destination buffers (after):");
+    defmt::info!("  DST1: {=[?]}", dst1.as_slice());
+    defmt::info!("  DST2: {=[?]}", dst2.as_slice());
+    defmt::info!("  DST3: {=[?]}", dst3.as_slice());
+    // TODO: If we want to make the `builder.build()` below safe, the above prints SHOULD NOT
+    // compile. We need to make sure that the lifetime of the builder reflects that it is
+    // "consuming" the slices until the builder is dropped, since we can access them to print here,
+    // that means that the borrow checker isn't enforcing that yet.
+    todo!("ABOVE CODE SHOULDN'T COMPILE");
+    // TODO END
 
     // Build and execute the scatter-gather chain
     // The build() method:
@@ -145,60 +120,31 @@ async fn main(_spawner: Spawner) {
         transfer.blocking_wait();
     }
 
-    tx.blocking_write(b"Scatter-gather transfer complete!\r\n\r\n").unwrap();
+    defmt::info!("Scatter-gather transfer complete!");
 
     // Show results
-    tx.blocking_write(b"Destination buffers (after):\r\n").unwrap();
-    tx.blocking_write(b"  DST1: ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(DST1) as *const u32, 4);
-    tx.blocking_write(b"\r\n").unwrap();
-    tx.blocking_write(b"  DST2: ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(DST2) as *const u32, 4);
-    tx.blocking_write(b"\r\n").unwrap();
-    tx.blocking_write(b"  DST3: ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(DST3) as *const u32, 4);
-    tx.blocking_write(b"\r\n\r\n").unwrap();
+    defmt::info!("Destination buffers (after):");
+    defmt::info!("  DST1: {=[?]}", dst1.as_slice());
+    defmt::info!("  DST2: {=[?]}", dst2.as_slice());
+    defmt::info!("  DST3: {=[?]}", dst3.as_slice());
+
+    let comps = [
+        (src1, dst1),
+        (src2, dst2),
+        (src3, dst3),
+    ];
 
     // Verify all three segments
     let mut all_ok = true;
-    unsafe {
-        let src1 = core::ptr::addr_of!(SRC1) as *const u32;
-        let dst1 = core::ptr::addr_of!(DST1) as *const u32;
-        for i in 0..4 {
-            if *src1.add(i) != *dst1.add(i) {
-                all_ok = false;
-            }
-        }
-
-        let src2 = core::ptr::addr_of!(SRC2) as *const u32;
-        let dst2 = core::ptr::addr_of!(DST2) as *const u32;
-        for i in 0..4 {
-            if *src2.add(i) != *dst2.add(i) {
-                all_ok = false;
-            }
-        }
-
-        let src3 = core::ptr::addr_of!(SRC3) as *const u32;
-        let dst3 = core::ptr::addr_of!(DST3) as *const u32;
-        for i in 0..4 {
-            if *src3.add(i) != *dst3.add(i) {
-                all_ok = false;
-            }
-        }
+    for (src, dst) in comps {
+        all_ok &= src == dst;
     }
 
     if all_ok {
-        tx.blocking_write(b"PASS: All segments verified!\r\n").unwrap();
         defmt::info!("PASS: All segments verified!");
     } else {
-        tx.blocking_write(b"FAIL: Mismatch detected!\r\n").unwrap();
         defmt::error!("FAIL: Mismatch detected!");
     }
 
-    tx.blocking_write(b"\r\n=== Scatter-Gather Builder example complete ===\r\n")
-        .unwrap();
-
-    loop {
-        cortex_m::asm::wfe();
-    }
+    defmt::info!("=== Scatter-Gather Builder example complete ===");
 }

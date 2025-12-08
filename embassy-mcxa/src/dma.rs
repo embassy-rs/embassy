@@ -2225,22 +2225,25 @@ pub const MAX_SCATTER_GATHER_TCDS: usize = 16;
 /// let transfer = unsafe { builder.build(&dma_ch).unwrap() };
 /// transfer.await;
 /// ```
-pub struct ScatterGatherBuilder<W: Word> {
+pub struct ScatterGatherBuilder<'a, W: Word> {
     /// TCD pool (must be 32-byte aligned)
     tcds: [Tcd; MAX_SCATTER_GATHER_TCDS],
     /// Number of TCDs configured
     count: usize,
     /// Phantom marker for word type
     _phantom: core::marker::PhantomData<W>,
+
+    _plt: core::marker::PhantomData<&'a mut W>,
 }
 
-impl<W: Word> ScatterGatherBuilder<W> {
+impl<W: Word> ScatterGatherBuilder<'_, W> {
     /// Create a new scatter-gather builder.
-    pub fn new() -> Self {
-        Self {
+    pub fn new() -> ScatterGatherBuilder<'static, W> {
+        ScatterGatherBuilder {
             tcds: [Tcd::default(); MAX_SCATTER_GATHER_TCDS],
             count: 0,
             _phantom: core::marker::PhantomData,
+            _plt: core::marker::PhantomData,
         }
     }
 
@@ -2254,7 +2257,7 @@ impl<W: Word> ScatterGatherBuilder<W> {
     /// # Panics
     ///
     /// Panics if the maximum number of segments (16) is exceeded.
-    pub fn add_transfer(&mut self, src: &[W], dst: &mut [W]) -> &mut Self {
+    pub fn add_transfer<'a>(mut self, src: &'a [W], dst: &'a mut [W]) -> &'a mut Self {
         assert!(self.count < MAX_SCATTER_GATHER_TCDS, "Too many scatter-gather segments");
         assert!(!src.is_empty());
         assert!(dst.len() >= src.len());
