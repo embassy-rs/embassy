@@ -12,6 +12,7 @@ pub mod pins; // pin mux helpers
 pub mod adc;
 pub mod clkout;
 pub mod config;
+pub mod crc;
 pub mod i2c;
 pub mod interrupt;
 pub mod lpuart;
