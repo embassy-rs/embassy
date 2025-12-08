@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - added: add basic GRTC time driver support for nRF54L
 * added: support for nrf54l10 and nrf54l05
 * added: expose uicr write functions
+* added: support for nrf54lm20a
 
 ## 0.8.0 - 2025-09-30
 

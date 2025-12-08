@@ -29,6 +29,7 @@ build = [
     {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l10-app-ns", "time", "time-driver-grtc"]},
     {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l05-app-s", "time", "time-driver-grtc"]},
     {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l05-app-ns", "time", "time-driver-grtc"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54lm20-app-s", "time", "time-driver-grtc"]},
     {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52840", "time"]},
     {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52840", "time-driver-rtc1"]},
     {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52840", "time", "time-driver-rtc1"]},
@@ -142,6 +143,8 @@ nrf54l10-app-ns = ["_nrf54l10-app", "_ns"]
 nrf54l05-app-s = ["_nrf54l05-app", "_s", "_multi_wdt"]
 ## nRF54L05 application core in Non-Secure mode
 nrf54l05-app-ns = ["_nrf54l05-app", "_ns"]
+## nRF54LM20 application core in Secure mode
+nrf54lm20-app-s = ["_nrf54lm20-app", "_s", "_multi_wdt"]
 
 ## nRF9160 in Secure mode
 nrf9160-s = ["_nrf9160", "_s", "_nrf91"]
@@ -169,6 +172,8 @@ _nrf54l10-app = ["_nrf54l10", "nrf-pac/nrf54l10-app"]
 _nrf54l10 = ["_nrf54l", "_gpio-p1", "_gpio-p2"]
 _nrf54l05-app = ["_nrf54l05", "nrf-pac/nrf54l05-app"]
 _nrf54l05 = ["_nrf54l", "_gpio-p1", "_gpio-p2"]
+_nrf54lm20-app = ["_nrf54lm20", "nrf-pac/nrf54lm20a-app"]
+_nrf54lm20 = ["_nrf54l", "_gpio-p1", "_gpio-p2"]
 _nrf54l = ["_dppi", "_grtc"]
 
 _nrf9160 = ["nrf-pac/nrf9160", "_dppi", "_spi-v1"]
