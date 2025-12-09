@@ -20,8 +20,6 @@
 #![no_std]
 #![no_main]
 
-use core::fmt::Write as _;
-
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::dma::{DmaChannel, ScatterGatherBuilder};
@@ -97,28 +95,14 @@ async fn main(_spawner: Spawner) {
     defmt::info!("Added 3 transfer segments to chain.");
     defmt::info!("Starting scatter-gather transfer with .await...");
 
-    // TODO START
-    defmt::info!("Destination buffers (after):");
-    defmt::info!("  DST1: {=[?]}", dst1.as_slice());
-    defmt::info!("  DST2: {=[?]}", dst2.as_slice());
-    defmt::info!("  DST3: {=[?]}", dst3.as_slice());
-    // TODO: If we want to make the `builder.build()` below safe, the above prints SHOULD NOT
-    // compile. We need to make sure that the lifetime of the builder reflects that it is
-    // "consuming" the slices until the builder is dropped, since we can access them to print here,
-    // that means that the borrow checker isn't enforcing that yet.
-    todo!("ABOVE CODE SHOULDN'T COMPILE");
-    // TODO END
-
     // Build and execute the scatter-gather chain
     // The build() method:
     // - Links all TCDs together with ESG bit
     // - Sets INTMAJOR on all TCDs
     // - Loads the first TCD into hardware
     // - Returns a Transfer future
-    unsafe {
-        let transfer = builder.build(&dma_ch0).expect("Failed to build scatter-gather");
-        transfer.blocking_wait();
-    }
+    let transfer = builder.build(&dma_ch0).expect("Failed to build scatter-gather");
+    transfer.blocking_wait();
 
     defmt::info!("Scatter-gather transfer complete!");
 

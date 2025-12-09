@@ -2236,9 +2236,9 @@ pub struct ScatterGatherBuilder<'a, W: Word> {
     _plt: core::marker::PhantomData<&'a mut W>,
 }
 
-impl<W: Word> ScatterGatherBuilder<'_, W> {
+impl<'a, W: Word> ScatterGatherBuilder<'a, W> {
     /// Create a new scatter-gather builder.
-    pub fn new() -> ScatterGatherBuilder<'static, W> {
+    pub fn new() -> Self {
         ScatterGatherBuilder {
             tcds: [Tcd::default(); MAX_SCATTER_GATHER_TCDS],
             count: 0,
@@ -2257,7 +2257,7 @@ impl<W: Word> ScatterGatherBuilder<'_, W> {
     /// # Panics
     ///
     /// Panics if the maximum number of segments (16) is exceeded.
-    pub fn add_transfer<'a>(mut self, src: &'a [W], dst: &'a mut [W]) -> &'a mut Self {
+    pub fn add_transfer<'b: 'a>(&mut self, src: &'b [W], dst: &'b mut [W]) -> &mut Self {
         assert!(self.count < MAX_SCATTER_GATHER_TCDS, "Too many scatter-gather segments");
         assert!(!src.is_empty());
         assert!(dst.len() >= src.len());
@@ -2300,12 +2300,7 @@ impl<W: Word> ScatterGatherBuilder<'_, W> {
     /// # Returns
     ///
     /// A `Transfer` future that completes when the entire chain has executed.
-    ///
-    /// # Safety
-    ///
-    /// All source and destination buffers passed to `add_transfer()` must
-    /// remain valid for the duration of the transfer.
-    pub unsafe fn build<C: Channel>(&mut self, channel: &DmaChannel<C>) -> Result<Transfer<'_>, Error> {
+    pub fn build<C: Channel>(&mut self, channel: &DmaChannel<C>) -> Result<Transfer<'a>, Error> {
         if self.count == 0 {
             return Err(Error::Configuration);
         }
@@ -2360,7 +2355,9 @@ impl<W: Word> ScatterGatherBuilder<'_, W> {
         cortex_m::asm::dsb();
 
         // Load first TCD into hardware
-        channel.load_tcd(&self.tcds[0]);
+        unsafe {
+            channel.load_tcd(&self.tcds[0]);
+        }
 
         // Memory barrier before setting START
         cortex_m::asm::dsb();
@@ -2377,7 +2374,7 @@ impl<W: Word> ScatterGatherBuilder<'_, W> {
     }
 }
 
-impl<W: Word> Default for ScatterGatherBuilder<W> {
+impl<W: Word> Default for ScatterGatherBuilder<'_, W> {
     fn default() -> Self {
         Self::new()
     }
