@@ -6,6 +6,7 @@
 // #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 
 pub mod clocks; // still provide clock helpers
+pub mod dma;
 pub mod gpio;
 pub mod pins; // pin mux helpers
 
@@ -52,6 +53,14 @@ embassy_hal_internal::peripherals!(
 
     DBGMAILBOX,
     DMA0,
+    DMA_CH0,
+    DMA_CH1,
+    DMA_CH2,
+    DMA_CH3,
+    DMA_CH4,
+    DMA_CH5,
+    DMA_CH6,
+    DMA_CH7,
     EDMA0_TCD0,
     EIM0,
     EQDC0,
@@ -364,6 +373,9 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
         crate::gpio::init();
     }
 
+    // Initialize DMA controller (clock, reset, configuration)
+    crate::dma::init();
+
     // Initialize embassy-time global driver backed by OSTIMER0
     #[cfg(feature = "time")]
     crate::ostimer::time_driver::init(crate::config::Config::default().time_interrupt_priority, 1_000_000);
@@ -387,41 +399,6 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
     }
 
     peripherals
-}
-
-// /// Optional hook called by cortex-m-rt before RAM init.
-// /// We proactively mask and clear all NVIC IRQs to avoid wedges from stale state
-// /// left by soft resets/debug sessions.
-// ///
-// /// NOTE: Manual VTOR setup is required for RAM execution. The cortex-m-rt 'set-vtor'
-// /// feature is incompatible with our setup because it expects __vector_table to be
-// /// defined differently than how our RAM-based linker script arranges it.
-// #[no_mangle]
-// pub unsafe extern "C" fn __pre_init() {
-//     // Set the VTOR to point to the interrupt vector table in RAM
-//     // This is required since code runs from RAM on this MCU
-//     crate::interrupt::vtor_set_ram_vector_base(0x2000_0000 as *const u32);
-
-//     // Mask and clear pending for all NVIC lines (0..127) to avoid stale state across runs.
-//     let nvic = &*cortex_m::peripheral::NVIC::PTR;
-//     for i in 0..4 {
-//         // 4 words x 32 = 128 IRQs
-//         nvic.icer[i].write(0xFFFF_FFFF);
-//         nvic.icpr[i].write(0xFFFF_FFFF);
-//     }
-//     // Do NOT touch peripheral registers here: clocks may be off and accesses can fault.
-//     crate::interrupt::clear_default_handler_snapshot();
-// }
-
-/// Internal helper to dispatch a type-level interrupt handler.
-#[inline(always)]
-#[doc(hidden)]
-pub unsafe fn __handle_interrupt<T, H>()
-where
-    T: crate::interrupt::typelevel::Interrupt,
-    H: crate::interrupt::typelevel::Handler<T>,
-{
-    H::on_interrupt();
 }
 
 /// Macro to bind interrupts to handlers, similar to embassy-imxrt.

@@ -399,6 +399,10 @@ pub unsafe fn assert_reset<G: Gate>() {
 }
 
 /// Check whether the peripheral is held in reset.
+///
+/// # Safety
+///
+/// Must be called with a valid peripheral gate type.
 #[inline]
 pub unsafe fn is_reset_released<G: Gate>() -> bool {
     G::is_reset_released()
@@ -942,4 +946,7 @@ pub(crate) mod gate {
     impl_cc_gate!(LPUART4, mrcc_glb_cc0, mrcc_glb_rst0, lpuart4, LpuartConfig);
     impl_cc_gate!(LPUART5, mrcc_glb_cc1, mrcc_glb_rst1, lpuart5, LpuartConfig);
     impl_cc_gate!(ADC1, mrcc_glb_cc1, mrcc_glb_rst1, adc1, AdcConfig);
+
+    // DMA0 peripheral - uses NoConfig since it has no selectable clock source
+    impl_cc_gate!(DMA0, mrcc_glb_cc0, mrcc_glb_rst0, dma0, NoConfig);
 }
