@@ -27,12 +27,10 @@
 #![no_std]
 #![no_main]
 
-use core::sync::atomic::{AtomicBool, Ordering};
-
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
-use embassy_mcxa::dma::{self, DmaChannel, Tcd, TransferOptions};
-use embassy_mcxa::{bind_interrupts, pac};
+use embassy_mcxa::dma::{DmaChannel, Tcd, TransferOptions};
+use embassy_mcxa::pac;
 use static_cell::ConstStaticCell;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
@@ -63,32 +61,6 @@ static TCD_POOL: ConstStaticCell<TcdPool> = ConstStaticCell::new(TcdPool(
         biter: 0,
     }; 2],
 ));
-
-// AtomicBool to track scatter/gather completion
-// Note: With ESG=1, DONE bit is cleared by hardware when next TCD loads,
-// so we need this flag to detect when each transfer completes
-static TRANSFER_DONE: AtomicBool = AtomicBool::new(false);
-
-// Custom handler for scatter/gather that delegates to HAL's on_interrupt()
-// This follows the "interrupts as threads" pattern - the handler does minimal work
-// (delegates to HAL + sets a flag) and the main task does the actual processing
-pub struct PingPongDmaHandler;
-
-impl embassy_mcxa::interrupt::typelevel::Handler<embassy_mcxa::interrupt::typelevel::DMA_CH0> for PingPongDmaHandler {
-    unsafe fn on_interrupt() {
-        // Delegate to HAL's on_interrupt() which clears INT flag and wakes wakers
-        dma::on_interrupt(0);
-        // Signal completion for polling (needed because ESG clears DONE bit)
-        TRANSFER_DONE.store(true, Ordering::Release);
-    }
-}
-
-// Bind DMA channel interrupts
-// CH0: Custom handler for scatter/gather (delegates to on_interrupt + sets flag)
-// CH1: Standard handler for wait_half() demo
-bind_interrupts!(struct Irqs {
-    DMA_CH0 => PingPongDmaHandler;
-});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -121,12 +93,12 @@ async fn main(_spawner: Spawner) {
     // This sets up TCD0 and TCD1 in RAM, and loads TCD0 into the channel.
     // TCD0 transfers first half (SRC[0..4] -> DST[0..4]), links to TCD1.
     // TCD1 transfers second half (SRC[4..8] -> DST[4..8]), links to TCD0.
+    let tcds = &mut TCD_POOL.take().0;
+
+    let half_len = 4usize;
+    let half_bytes = (half_len * 4) as u32;
+
     unsafe {
-        let tcds = &mut TCD_POOL.take().0;
-
-        let half_len = 4usize;
-        let half_bytes = (half_len * 4) as u32;
-
         let tcd0_addr = &tcds[0] as *const _ as u32;
         let tcd1_addr = &tcds[1] as *const _ as u32;
 
@@ -171,11 +143,13 @@ async fn main(_spawner: Spawner) {
         dma_ch0.trigger_start();
     }
 
+    let tcd = dma_ch0.tcd();
     // Wait for first half
-    while !TRANSFER_DONE.load(Ordering::Acquire) {
-        cortex_m::asm::nop();
+    loop {
+        if tcd.tcd_saddr().read().bits() != src.as_ptr() as u32 {
+            break;
+        }
     }
-    TRANSFER_DONE.store(false, Ordering::Release);
 
     defmt::info!("First half transferred.");
     defmt::info!("Triggering second half transfer...");
@@ -186,10 +160,11 @@ async fn main(_spawner: Spawner) {
     }
 
     // Wait for second half
-    while !TRANSFER_DONE.load(Ordering::Acquire) {
-        cortex_m::asm::nop();
+    loop {
+        if tcd.tcd_saddr().read().bits() != unsafe { src.as_ptr().add(half_len) } as u32 {
+            break;
+        }
     }
-    TRANSFER_DONE.store(false, Ordering::Release);
 
     defmt::info!("Second half transferred.");
 

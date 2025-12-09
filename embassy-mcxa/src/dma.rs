@@ -1659,6 +1659,7 @@ impl<C: Channel> DmaChannel<C> {
 /// This matches the hardware layout (32 bytes).
 #[repr(C, align(32))]
 #[derive(Clone, Copy, Debug, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Tcd {
     pub saddr: u32,
     pub soff: i16,

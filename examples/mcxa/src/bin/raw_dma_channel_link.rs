@@ -15,7 +15,6 @@
 //! - `DmaChannel::new()` for channel creation
 //! - `DmaChannel::is_done()` and `clear_done()` helper methods
 //! - Channel linking with `set_minor_link()` and `set_major_link()`
-//! - Standard `DmaCh*InterruptHandler` with `bind_interrupts!` macro
 
 #![no_std]
 #![no_main]
