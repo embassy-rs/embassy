@@ -40,7 +40,7 @@ mod generated {
 
 use core::sync::atomic::{AtomicU16, AtomicU32, Ordering};
 
-pub use generated::interrupt::{Priority, typelevel};
+pub use generated::interrupt::{typelevel, Priority};
 
 use crate::pac::Interrupt;
 

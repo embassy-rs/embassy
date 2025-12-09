@@ -32,7 +32,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_hal_internal::{Peri, PeripheralType};
 
 use crate::clocks::periph_helpers::{OsTimerConfig, OstimerClockSel};
-use crate::clocks::{Gate, PoweredClock, assert_reset, enable_and_reset, is_reset_released, release_reset};
+use crate::clocks::{assert_reset, enable_and_reset, is_reset_released, release_reset, Gate, PoweredClock};
 use crate::interrupt::InterruptExt;
 use crate::pac;
 
@@ -521,11 +521,11 @@ pub mod time_driver {
     use embassy_time_driver as etd;
 
     use super::{
-        ALARM_ACTIVE, ALARM_CALLBACK, ALARM_FLAG, ALARM_TARGET_TIME, EVTIMER_HI_MASK, EVTIMER_HI_SHIFT,
-        LOW_32_BIT_MASK, Regs, bin_to_gray, now_ticks_read,
+        bin_to_gray, now_ticks_read, Regs, ALARM_ACTIVE, ALARM_CALLBACK, ALARM_FLAG, ALARM_TARGET_TIME,
+        EVTIMER_HI_MASK, EVTIMER_HI_SHIFT, LOW_32_BIT_MASK,
     };
     use crate::clocks::periph_helpers::{OsTimerConfig, OstimerClockSel};
-    use crate::clocks::{PoweredClock, enable_and_reset};
+    use crate::clocks::{enable_and_reset, PoweredClock};
     use crate::pac;
 
     #[allow(non_camel_case_types)]

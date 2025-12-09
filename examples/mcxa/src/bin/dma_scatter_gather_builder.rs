@@ -112,11 +112,7 @@ async fn main(_spawner: Spawner) {
     defmt::info!("  DST2: {=[?]}", dst2.as_slice());
     defmt::info!("  DST3: {=[?]}", dst3.as_slice());
 
-    let comps = [
-        (src1, dst1),
-        (src2, dst2),
-        (src3, dst3),
-    ];
+    let comps = [(src1, dst1), (src2, dst2), (src3, dst3)];
 
     // Verify all three segments
     let mut all_ok = true;

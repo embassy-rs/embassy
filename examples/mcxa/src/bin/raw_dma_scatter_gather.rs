@@ -1,5 +1,9 @@
 //! DMA scatter-gather transfer example for MCXA276.
 //!
+//! NOTE: this is a "raw dma" example! It exists as a proof of concept, as we don't have
+//! a high-level and safe API for. It should not be taken as typical, recommended, or
+//! stable usage!
+//!
 //! This example demonstrates using DMA with scatter/gather to chain multiple
 //! transfer descriptors. The first TCD transfers the first half of the buffer,
 //! then automatically loads the second TCD to transfer the second half.
@@ -12,25 +16,24 @@
 #![no_std]
 #![no_main]
 
-use core::fmt::Write as _;
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use embassy_executor::Spawner;
+use embassy_mcxa::bind_interrupts;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::dma::{self, DmaChannel, Tcd};
-use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
-use embassy_mcxa::{bind_interrupts, pac};
+use static_cell::ConstStaticCell;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Source and destination buffers
-static mut SRC: [u32; 8] = [1, 2, 3, 4, 5, 6, 7, 8];
-static mut DST: [u32; 8] = [0; 8];
+static SRC: ConstStaticCell<[u32; 8]> = ConstStaticCell::new([1, 2, 3, 4, 5, 6, 7, 8]);
+static DST: ConstStaticCell<[u32; 8]> = ConstStaticCell::new([0; 8]);
 
 // TCD pool for scatter/gather - must be 32-byte aligned
 #[repr(C, align(32))]
 struct TcdPool([Tcd; 2]);
 
-static mut TCD_POOL: TcdPool = TcdPool(
+static TCD_POOL: ConstStaticCell<TcdPool> = ConstStaticCell::new(TcdPool(
     [Tcd {
         saddr: 0,
         soff: 0,
@@ -44,7 +47,7 @@ static mut TCD_POOL: TcdPool = TcdPool(
         csr: 0,
         biter: 0,
     }; 2],
-);
+));
 
 // AtomicBool to track scatter/gather completion
 // Note: With ESG=1, DONE bit is cleared by hardware when next TCD loads,
@@ -73,11 +76,6 @@ bind_interrupts!(struct Irqs {
     DMA_CH0 => ScatterGatherDmaHandler;
 });
 
-/// Helper to print a buffer to UART
-fn print_buffer(tx: &mut LpuartTx<'_, Blocking>, buf_ptr: *const u32, len: usize) {
-    write!(tx, "{:?}", unsafe { core::slice::from_raw_parts(buf_ptr, len) }).ok();
-}
-
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     // Small delay to allow probe-rs to attach after reset
@@ -92,40 +90,15 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("DMA scatter-gather transfer example starting...");
 
-    // DMA is initialized during hal::init() - no need to call ensure_init()
-
-    // Enable DMA interrupt
-    unsafe {
-        cortex_m::peripheral::NVIC::unmask(pac::Interrupt::DMA_CH0);
-    }
-
-    let config = Config {
-        baudrate_bps: 115_200,
-        ..Default::default()
-    };
-
-    let lpuart = Lpuart::new_blocking(p.LPUART2, p.P2_2, p.P2_3, config).unwrap();
-    let (mut tx, _rx) = lpuart.split();
-
-    tx.blocking_write(b"EDMA scatter-gather transfer example begin.\r\n\r\n")
-        .unwrap();
+    defmt::info!("EDMA scatter-gather transfer example begin.");
 
     // Initialize buffers
-    unsafe {
-        SRC = [1, 2, 3, 4, 5, 6, 7, 8];
-        DST = [0; 8];
-    }
+    let src = SRC.take();
+    let dst = DST.take();
 
-    tx.blocking_write(b"Source Buffer:              ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(SRC) as *const u32, 8);
-    tx.blocking_write(b"\r\n").unwrap();
-
-    tx.blocking_write(b"Destination Buffer (before): ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(DST) as *const u32, 8);
-    tx.blocking_write(b"\r\n").unwrap();
-
-    tx.blocking_write(b"Configuring scatter-gather DMA with Embassy-style API...\r\n")
-        .unwrap();
+    defmt::info!("Source Buffer: {=[?]}", src.as_slice());
+    defmt::info!("Destination Buffer (before): {=[?]}", dst.as_slice());
+    defmt::info!("Configuring scatter-gather DMA with Embassy-style API...");
 
     let dma_ch0 = DmaChannel::new(p.DMA_CH0);
 
@@ -134,9 +107,9 @@ async fn main(_spawner: Spawner) {
     // TCD0 transfers first half (SRC[0..4] -> DST[0..4]), then loads TCD1.
     // TCD1 transfers second half (SRC[4..8] -> DST[4..8]), last TCD.
     unsafe {
-        let tcds = core::slice::from_raw_parts_mut(core::ptr::addr_of_mut!(TCD_POOL.0) as *mut Tcd, 2);
-        let src_ptr = core::ptr::addr_of!(SRC) as *const u32;
-        let dst_ptr = core::ptr::addr_of_mut!(DST) as *mut u32;
+        let tcds = &mut TCD_POOL.take().0;
+        let src_ptr = src.as_ptr();
+        let dst_ptr = dst.as_mut_ptr();
 
         let num_tcds = 2usize;
         let chunk_len = 4usize; // 8 / 2
@@ -170,7 +143,7 @@ async fn main(_spawner: Spawner) {
         dma_ch0.load_tcd(&tcds[0]);
     }
 
-    tx.blocking_write(b"Triggering first half transfer...\r\n").unwrap();
+    defmt::info!("Triggering first half transfer...");
 
     // Trigger first transfer (first half: SRC[0..4] -> DST[0..4])
     // TCD0 is currently loaded.
@@ -184,8 +157,8 @@ async fn main(_spawner: Spawner) {
     }
     TRANSFER_DONE.store(false, Ordering::Release);
 
-    tx.blocking_write(b"First half transferred.\r\n").unwrap();
-    tx.blocking_write(b"Triggering second half transfer...\r\n").unwrap();
+    defmt::info!("First half transferred.");
+    defmt::info!("Triggering second half transfer...");
 
     // Trigger second transfer (second half: SRC[4..8] -> DST[4..8])
     // TCD1 should have been loaded by the scatter/gather engine.
@@ -199,36 +172,17 @@ async fn main(_spawner: Spawner) {
     }
     TRANSFER_DONE.store(false, Ordering::Release);
 
-    tx.blocking_write(b"Second half transferred.\r\n\r\n").unwrap();
+    defmt::info!("Second half transferred.");
 
-    tx.blocking_write(b"EDMA scatter-gather transfer example finish.\r\n\r\n")
-        .unwrap();
-    tx.blocking_write(b"Destination Buffer (after):  ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(DST) as *const u32, 8);
-    tx.blocking_write(b"\r\n\r\n").unwrap();
+    defmt::info!("EDMA scatter-gather transfer example finish.");
+    defmt::info!("Destination Buffer (after): {=[?]}", dst.as_slice());
 
     // Verify: DST should match SRC
-    let mut mismatch = false;
-    unsafe {
-        let src_ptr = core::ptr::addr_of!(SRC) as *const u32;
-        let dst_ptr = core::ptr::addr_of!(DST) as *const u32;
-        for i in 0..8 {
-            if *src_ptr.add(i) != *dst_ptr.add(i) {
-                mismatch = true;
-                break;
-            }
-        }
-    }
+    let mismatch = src != dst;
 
     if mismatch {
-        tx.blocking_write(b"FAIL: Mismatch detected!\r\n").unwrap();
         defmt::error!("FAIL: Mismatch detected!");
     } else {
-        tx.blocking_write(b"PASS: Data verified.\r\n").unwrap();
         defmt::info!("PASS: Data verified.");
-    }
-
-    loop {
-        cortex_m::asm::wfe();
     }
 }

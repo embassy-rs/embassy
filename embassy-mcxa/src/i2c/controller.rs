@@ -3,15 +3,15 @@
 use core::future::Future;
 use core::marker::PhantomData;
 
-use embassy_hal_internal::Peri;
 use embassy_hal_internal::drop::OnDrop;
+use embassy_hal_internal::Peri;
 use mcxa_pac::lpi2c0::mtdr::Cmd;
 
 use super::{Async, Blocking, Error, Instance, InterruptHandler, Mode, Result, SclPin, SdaPin};
-use crate::AnyPin;
 use crate::clocks::periph_helpers::{Div4, Lpi2cClockSel, Lpi2cConfig};
-use crate::clocks::{PoweredClock, enable_and_reset};
+use crate::clocks::{enable_and_reset, PoweredClock};
 use crate::interrupt::typelevel::Interrupt;
+use crate::AnyPin;
 
 /// Bus speed (nominal SCL, no clock stretching)
 #[derive(Clone, Copy, Default, PartialEq)]

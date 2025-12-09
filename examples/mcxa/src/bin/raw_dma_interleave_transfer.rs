@@ -1,5 +1,9 @@
 //! DMA interleaved transfer example for MCXA276.
 //!
+//! NOTE: this is a "raw dma" example! It exists as a proof of concept, as we don't have
+//! a high-level and safe API for. It should not be taken as typical, recommended, or
+//! stable usage!
+//!
 //! This example demonstrates using DMA with custom source/destination offsets
 //! to interleave data during transfer.
 //!
@@ -10,12 +14,9 @@
 #![no_std]
 #![no_main]
 
-use core::fmt::Write as _;
-
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::dma::DmaChannel;
-use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
 use static_cell::ConstStaticCell;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
@@ -25,11 +26,6 @@ const HALF_BUFF_LENGTH: usize = BUFFER_LENGTH / 2;
 // Buffers in RAM
 static SRC_BUFFER: ConstStaticCell<[u32; HALF_BUFF_LENGTH]> = ConstStaticCell::new([0; HALF_BUFF_LENGTH]);
 static DEST_BUFFER: ConstStaticCell<[u32; BUFFER_LENGTH]> = ConstStaticCell::new([0; BUFFER_LENGTH]);
-
-/// Helper to print a buffer to UART
-fn print_buffer(tx: &mut LpuartTx<'_, Blocking>, buf: &[u32]) {
-    write!(tx, "{:?}", buf).ok();
-}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -45,32 +41,17 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("DMA interleave transfer example starting...");
 
-    let config = Config {
-        baudrate_bps: 115_200,
-        ..Default::default()
-    };
-
-    let lpuart = Lpuart::new_blocking(p.LPUART2, p.P2_2, p.P2_3, config).unwrap();
-    let (mut tx, _rx) = lpuart.split();
-
-    tx.blocking_write(b"EDMA interleave transfer example begin.\r\n\r\n")
-        .unwrap();
+    defmt::info!("EDMA interleave transfer example begin.");
 
     // Initialize buffers
     let src = SRC_BUFFER.take();
     *src = [1, 2, 3, 4, 5, 6, 7, 8];
     let dst = DEST_BUFFER.take();
 
-    tx.blocking_write(b"Source Buffer:              ").unwrap();
-    print_buffer(&mut tx, src);
-    tx.blocking_write(b"\r\n").unwrap();
+    defmt::info!("Source Buffer: {=[?]}", src.as_slice());
+    defmt::info!("Destination Buffer (before): {=[?]}", dst.as_slice());
 
-    tx.blocking_write(b"Destination Buffer (before): ").unwrap();
-    print_buffer(&mut tx, dst);
-    tx.blocking_write(b"\r\n").unwrap();
-
-    tx.blocking_write(b"Configuring DMA with Embassy-style API...\r\n")
-        .unwrap();
+    defmt::info!("Configuring DMA with Embassy-style API...");
 
     // Create DMA channel using Embassy-style API
     let dma_ch0 = DmaChannel::new(p.DMA_CH0);
@@ -129,7 +110,7 @@ async fn main(_spawner: Spawner) {
 
         cortex_m::asm::dsb();
 
-        tx.blocking_write(b"Triggering transfer...\r\n").unwrap();
+        defmt::info!("Triggering transfer...");
         dma_ch0.trigger_start();
     }
 
@@ -141,11 +122,8 @@ async fn main(_spawner: Spawner) {
         dma_ch0.clear_done();
     }
 
-    tx.blocking_write(b"\r\nEDMA interleave transfer example finish.\r\n\r\n")
-        .unwrap();
-    tx.blocking_write(b"Destination Buffer (after):  ").unwrap();
-    print_buffer(&mut tx, dst);
-    tx.blocking_write(b"\r\n\r\n").unwrap();
+    defmt::info!("EDMA interleave transfer example finish.");
+    defmt::info!("Destination Buffer (after): {=[?]}", dst.as_slice());
 
     // Verify: Even indices should match SRC_BUFFER[i/2], odd indices should be 0
     let mut mismatch = false;
@@ -156,14 +134,8 @@ async fn main(_spawner: Spawner) {
     }
 
     if mismatch {
-        tx.blocking_write(b"FAIL: Mismatch detected!\r\n").unwrap();
         defmt::error!("FAIL: Mismatch detected!");
     } else {
-        tx.blocking_write(b"PASS: Data verified.\r\n").unwrap();
         defmt::info!("PASS: Data verified.");
-    }
-
-    loop {
-        cortex_m::asm::wfe();
     }
 }

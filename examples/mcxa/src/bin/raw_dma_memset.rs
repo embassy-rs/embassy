@@ -1,5 +1,9 @@
 //! DMA memset example for MCXA276.
 //!
+//! NOTE: this is a "raw dma" example! It exists as a proof of concept, as we don't have
+//! a high-level and safe API for. It should not be taken as typical, recommended, or
+//! stable usage!
+//!
 //! This example demonstrates using DMA to fill a buffer with a repeated pattern.
 //! The source address stays fixed while the destination increments.
 //!

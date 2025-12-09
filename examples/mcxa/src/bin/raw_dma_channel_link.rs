@@ -1,5 +1,9 @@
 //! DMA channel linking example for MCXA276.
 //!
+//! NOTE: this is a "raw dma" example! It exists as a proof of concept, as we don't have
+//! a high-level and safe API for. It should not be taken as typical, recommended, or
+//! stable usage!
+//!
 //! This example demonstrates DMA channel linking (minor and major loop linking):
 //! - Channel 0: Transfers SRC_BUFFER to DEST_BUFFER0, with:
 //!   - Minor Link to Channel 1 (triggers CH1 after each minor loop)
@@ -16,25 +20,18 @@
 #![no_std]
 #![no_main]
 
-use core::fmt::Write as _;
-
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::dma::DmaChannel;
-use embassy_mcxa::lpuart::{Blocking, Config, Lpuart, LpuartTx};
 use embassy_mcxa::pac;
+use static_cell::ConstStaticCell;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Buffers
-static mut SRC_BUFFER: [u32; 4] = [1, 2, 3, 4];
-static mut DEST_BUFFER0: [u32; 4] = [0; 4];
-static mut DEST_BUFFER1: [u32; 4] = [0; 4];
-static mut DEST_BUFFER2: [u32; 4] = [0; 4];
-
-/// Helper to print a buffer to UART
-fn print_buffer(tx: &mut LpuartTx<'_, Blocking>, buf_ptr: *const u32, len: usize) {
-    write!(tx, "{:?}", unsafe { core::slice::from_raw_parts(buf_ptr, len) }).ok();
-}
+static SRC_BUFFER: ConstStaticCell<[u32; 4]> = ConstStaticCell::new([1, 2, 3, 4]);
+static DEST_BUFFER0: ConstStaticCell<[u32; 4]> = ConstStaticCell::new([0; 4]);
+static DEST_BUFFER1: ConstStaticCell<[u32; 4]> = ConstStaticCell::new([0; 4]);
+static DEST_BUFFER2: ConstStaticCell<[u32; 4]> = ConstStaticCell::new([0; 4]);
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -77,42 +74,20 @@ async fn main(_spawner: Spawner) {
             .normal_operation()
     });
 
-    let config = Config {
-        baudrate_bps: 115_200,
-        ..Default::default()
-    };
-
-    let lpuart = Lpuart::new_blocking(p.LPUART2, p.P2_2, p.P2_3, config).unwrap();
-    let (mut tx, _rx) = lpuart.split();
-
-    tx.blocking_write(b"EDMA channel link example begin.\r\n\r\n").unwrap();
+    defmt::info!("EDMA channel link example begin.");
 
     // Initialize buffers
-    unsafe {
-        SRC_BUFFER = [1, 2, 3, 4];
-        DEST_BUFFER0 = [0; 4];
-        DEST_BUFFER1 = [0; 4];
-        DEST_BUFFER2 = [0; 4];
-    }
+    let src = SRC_BUFFER.take();
+    let dst0 = DEST_BUFFER0.take();
+    let dst1 = DEST_BUFFER1.take();
+    let dst2 = DEST_BUFFER2.take();
 
-    tx.blocking_write(b"Source Buffer:   ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(SRC_BUFFER) as *const u32, 4);
-    tx.blocking_write(b"\r\n").unwrap();
+    defmt::info!("Source Buffer: {=[?]}", src.as_slice());
+    defmt::info!("DEST0 (before): {=[?]}", dst0.as_slice());
+    defmt::info!("DEST1 (before): {=[?]}", dst1.as_slice());
+    defmt::info!("DEST2 (before): {=[?]}", dst2.as_slice());
 
-    tx.blocking_write(b"DEST0 (before):  ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(DEST_BUFFER0) as *const u32, 4);
-    tx.blocking_write(b"\r\n").unwrap();
-
-    tx.blocking_write(b"DEST1 (before):  ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(DEST_BUFFER1) as *const u32, 4);
-    tx.blocking_write(b"\r\n").unwrap();
-
-    tx.blocking_write(b"DEST2 (before):  ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(DEST_BUFFER2) as *const u32, 4);
-    tx.blocking_write(b"\r\n\r\n").unwrap();
-
-    tx.blocking_write(b"Configuring DMA channels with Embassy-style API...\r\n")
-        .unwrap();
+    defmt::info!("Configuring DMA channels with Embassy-style API...");
 
     let ch0 = DmaChannel::new(p.DMA_CH0);
     let ch1 = DmaChannel::new(p.DMA_CH1);
@@ -200,8 +175,8 @@ async fn main(_spawner: Spawner) {
         configure_tcd(
             edma,
             0,
-            core::ptr::addr_of!(SRC_BUFFER) as u32,
-            core::ptr::addr_of_mut!(DEST_BUFFER0) as u32,
+            src.as_ptr() as u32,
+            dst0.as_mut_ptr() as u32,
             4,     // src width
             8,     // nbytes (minor loop = 2 words)
             2,     // count (major loop = 2 iterations)
@@ -214,8 +189,8 @@ async fn main(_spawner: Spawner) {
         configure_tcd(
             edma,
             1,
-            core::ptr::addr_of!(SRC_BUFFER) as u32,
-            core::ptr::addr_of_mut!(DEST_BUFFER1) as u32,
+            src.as_ptr() as u32,
+            dst1.as_mut_ptr() as u32,
             4,
             16, // full buffer in one minor loop
             1,  // 1 major iteration
@@ -226,8 +201,8 @@ async fn main(_spawner: Spawner) {
         configure_tcd(
             edma,
             2,
-            core::ptr::addr_of!(SRC_BUFFER) as u32,
-            core::ptr::addr_of_mut!(DEST_BUFFER2) as u32,
+            src.as_ptr() as u32,
+            dst2.as_mut_ptr() as u32,
             4,
             16,   // full buffer in one minor loop
             1,    // 1 major iteration
@@ -235,8 +210,7 @@ async fn main(_spawner: Spawner) {
         );
     }
 
-    tx.blocking_write(b"Triggering Channel 0 (1st minor loop)...\r\n")
-        .unwrap();
+    defmt::info!("Triggering Channel 0 (1st minor loop)...");
 
     // Trigger first minor loop of CH0
     unsafe {
@@ -251,9 +225,8 @@ async fn main(_spawner: Spawner) {
         ch1.clear_done();
     }
 
-    tx.blocking_write(b"CH1 done (via minor link).\r\n").unwrap();
-    tx.blocking_write(b"Triggering Channel 0 (2nd minor loop)...\r\n")
-        .unwrap();
+    defmt::info!("CH1 done (via minor link).");
+    defmt::info!("Triggering Channel 0 (2nd minor loop)...");
 
     // Trigger second minor loop of CH0
     unsafe {
@@ -268,7 +241,7 @@ async fn main(_spawner: Spawner) {
         ch0.clear_done();
     }
 
-    tx.blocking_write(b"CH0 major loop done.\r\n").unwrap();
+    defmt::info!("CH0 major loop done.");
 
     // Wait for CH2 to complete (triggered by CH0 major link)
     // Using is_done() instead of AtomicBool - the standard interrupt handler
@@ -280,48 +253,23 @@ async fn main(_spawner: Spawner) {
         ch2.clear_done();
     }
 
-    tx.blocking_write(b"CH2 done (via major link).\r\n\r\n").unwrap();
+    defmt::info!("CH2 done (via major link).");
 
-    tx.blocking_write(b"EDMA channel link example finish.\r\n\r\n").unwrap();
+    defmt::info!("EDMA channel link example finish.");
 
-    tx.blocking_write(b"DEST0 (after):   ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(DEST_BUFFER0) as *const u32, 4);
-    tx.blocking_write(b"\r\n").unwrap();
-
-    tx.blocking_write(b"DEST1 (after):   ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(DEST_BUFFER1) as *const u32, 4);
-    tx.blocking_write(b"\r\n").unwrap();
-
-    tx.blocking_write(b"DEST2 (after):   ").unwrap();
-    print_buffer(&mut tx, core::ptr::addr_of!(DEST_BUFFER2) as *const u32, 4);
-    tx.blocking_write(b"\r\n\r\n").unwrap();
+    defmt::info!("DEST0 (after): {=[?]}", dst0.as_slice());
+    defmt::info!("DEST1 (after): {=[?]}", dst1.as_slice());
+    defmt::info!("DEST2 (after): {=[?]}", dst2.as_slice());
 
     // Verify all buffers match source
     let mut success = true;
-    unsafe {
-        let src_ptr = core::ptr::addr_of!(SRC_BUFFER) as *const u32;
-        let dst0_ptr = core::ptr::addr_of!(DEST_BUFFER0) as *const u32;
-        let dst1_ptr = core::ptr::addr_of!(DEST_BUFFER1) as *const u32;
-        let dst2_ptr = core::ptr::addr_of!(DEST_BUFFER2) as *const u32;
-
-        for i in 0..4 {
-            if *dst0_ptr.add(i) != *src_ptr.add(i) {
-                success = false;
-            }
-            if *dst1_ptr.add(i) != *src_ptr.add(i) {
-                success = false;
-            }
-            if *dst2_ptr.add(i) != *src_ptr.add(i) {
-                success = false;
-            }
-        }
+    for sli in [dst0, dst1, dst2] {
+        success &= sli == src;
     }
 
     if success {
-        tx.blocking_write(b"PASS: Data verified.\r\n").unwrap();
         defmt::info!("PASS: Data verified.");
     } else {
-        tx.blocking_write(b"FAIL: Mismatch detected!\r\n").unwrap();
         defmt::error!("FAIL: Mismatch detected!");
     }
 

@@ -108,7 +108,11 @@ impl Div4 {
     /// by 1, and `Div4::from_raw(15)` will divide the source by
     /// 16.
     pub const fn from_raw(n: u8) -> Option<Self> {
-        if n > 0b1111 { None } else { Some(Self(n)) }
+        if n > 0b1111 {
+            None
+        } else {
+            Some(Self(n))
+        }
     }
 
     /// Store a specific divisor value that will divide the source
