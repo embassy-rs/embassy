@@ -449,23 +449,23 @@ impl<'a, I: Instance, M: ModeAdc> Adc<'a, I, M> {
         macro_rules! write_cmd {
             ($idx:expr) => {{
                 paste! {
-                    adc.[<cmdl $idx>]().write(|w| unsafe {
+                    adc.[<cmdl $idx>]().write(|w| {
                         w.adch()
-                            .bits(config.channel_number.into())
+                            .variant(config.channel_number)
                             .mode()
-                            .bit(config.conversion_resolution_mode.into())
+                            .variant(config.conversion_resolution_mode)
                     });
                     adc.[<cmdh $idx>]().write(|w| unsafe {
                         w.next()
-                            .bits(config.chained_next_command_number.into())
+                            .variant(config.chained_next_command_number)
                             .loop_()
                             .bits(config.loop_count)
                             .avgs()
-                            .bits(config.hardware_average_mode.into())
+                            .variant(config.hardware_average_mode)
                             .sts()
-                            .bits(config.sample_time_mode.into())
+                            .variant(config.sample_time_mode)
                             .cmpen()
-                            .bits(config.hardware_compare_mode.into())
+                            .variant(config.hardware_compare_mode)
                             .wait_trig()
                             .bit(config.enable_wait_trigger)
                             .lwi()
