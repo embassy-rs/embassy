@@ -1774,7 +1774,7 @@ impl<'a> Transfer<'a> {
     ///
     /// The transfer must be configured with `TransferOptions::half_transfer_interrupt = true`
     /// for this method to work correctly.
-    pub async fn wait_half(&mut self) -> bool {
+    pub async fn wait_half(&mut self) -> Result<bool, TransferErrorRaw> {
         use core::future::poll_fn;
 
         poll_fn(|cx| {
@@ -1783,19 +1783,27 @@ impl<'a> Transfer<'a> {
             // Register the half-transfer waker
             state.half_waker.register(cx.waker());
 
-            // Check if we're past the half-way point
+            // Check if there's an error
             let t = self.channel.tcd();
+            let es = t.ch_es().read();
+            if es.err().is_error() {
+                // Currently, all error fields are in the lowest 8 bits, as-casting truncates
+                let errs = es.bits() as u8;
+                return Poll::Ready(Err(TransferErrorRaw(errs)))
+            }
+
+            // Check if we're past the half-way point
             let biter = t.tcd_biter_elinkno().read().biter().bits();
             let citer = t.tcd_citer_elinkno().read().citer().bits();
             let half_point = biter / 2;
 
             if self.channel.is_done() {
                 // Transfer completed before half-transfer
-                Poll::Ready(false)
+                Poll::Ready(Ok(false))
             } else if citer <= half_point {
                 // We're past the half-way point
                 fence(Ordering::SeqCst);
-                Poll::Ready(true)
+                Poll::Ready(Ok(true))
             } else {
                 Poll::Pending
             }
@@ -1820,10 +1828,142 @@ impl<'a> Transfer<'a> {
     }
 }
 
+/// Raw transfer error bits. Can be queried or all errors can be iterated over
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Copy, Clone, Debug)]
+pub struct TransferErrorRaw(u8);
+
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Copy, Clone, Debug)]
+pub struct TransferErrorRawIter(u8);
+
+impl TransferErrorRaw {
+    const MAP: &[(u8, TransferError)] = &[
+        (1 << 0, TransferError::DestinationBus),
+        (1 << 1, TransferError::SourceBus),
+        (1 << 2, TransferError::ScatterGatherConfiguration),
+        (1 << 3, TransferError::NbytesCiterConfiguration),
+        (1 << 4, TransferError::DestinationOffset),
+        (1 << 5, TransferError::DestinationAddress),
+        (1 << 6, TransferError::SourceOffset),
+        (1 << 7, TransferError::SourceAddress),
+    ];
+
+    /// Convert to an iterator of contained errors
+    pub fn err_iter(self) -> TransferErrorRawIter {
+        TransferErrorRawIter(self.0)
+    }
+
+    /// Destination Bus Error
+    #[inline]
+    pub fn has_destination_bus_err(&self) -> bool {
+        (self.0 & (1 << 0)) != 0
+    }
+
+    /// Source Bus Error
+    #[inline]
+    pub fn has_source_bus_err(&self) -> bool {
+        (self.0 & (1 << 1)) != 0
+    }
+
+    /// Indicates that `TCDn_DLAST_SGA` is not on a 32-byte boundary. This field is
+    /// checked at the beginning of a scatter/gather operation after major loop completion
+    /// if `TCDn_CSR[ESG]` is enabled.
+    #[inline]
+    pub fn has_scatter_gather_configuration_err(&self) -> bool {
+        (self.0 & (1 << 2)) != 0
+    }
+
+    /// This error indicates that one of the following has occurred:
+    ///
+    /// * `TCDn_NBYTES` is not a multiple of `TCDn_ATTR[SSIZE]` and `TCDn_ATTR[DSIZE]`
+    /// * `TCDn_CITER[CITER]` is equal to zero
+    /// * `TCDn_CITER[ELINK]` is not equal to `TCDn_BITER[ELINK]`
+    #[inline]
+    pub fn has_nbytes_citer_configuration_err(&self) -> bool {
+        (self.0 & (1 << 3)) != 0
+    }
+
+    /// `TCDn_DOFF` is inconsistent with `TCDn_ATTR[DSIZE]`.
+    #[inline]
+    pub fn has_destination_offset_err(&self) -> bool {
+        (self.0 & (1 << 4)) != 0
+    }
+
+    /// `TCDn_DADDR` is inconsistent with `TCDn_ATTR[DSIZE]`.
+    #[inline]
+    pub fn has_destination_address_err(&self) -> bool {
+        (self.0 & (1 << 5)) != 0
+    }
+
+    /// `TCDn_SOFF` is inconsistent with `TCDn_ATTR[SSIZE]`.
+    #[inline]
+    pub fn has_source_offset_err(&self) -> bool {
+        (self.0 & (1 << 6)) != 0
+    }
+
+    /// `TCDn_SADDR` is inconsistent with `TCDn_ATTR[SSIZE]`
+    #[inline]
+    pub fn has_source_address_err(&self) -> bool {
+        (self.0 & (1 << 7)) != 0
+    }
+
+}
+
+impl Iterator for TransferErrorRawIter {
+    type Item = TransferError;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.0 == 0 {
+            return None;
+        }
+
+        for (mask, var) in TransferErrorRaw::MAP {
+            // If the bit is set...
+            if self.0 | mask != 0 {
+                // clear the bit
+                self.0 &= !mask;
+                // and return the answer
+                return Some(*var);
+            }
+        }
+
+        // Shouldn't happen, but oh well.
+        None
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TransferError {
+    /// `TCDn_SADDR` is inconsistent with `TCDn_ATTR[SSIZE]`
+    SourceAddress,
+    /// `TCDn_SOFF` is inconsistent with `TCDn_ATTR[SSIZE]`.
+    SourceOffset,
+    /// `TCDn_DADDR` is inconsistent with `TCDn_ATTR[DSIZE]`.
+    DestinationAddress,
+    /// `TCDn_DOFF` is inconsistent with `TCDn_ATTR[DSIZE]`.
+    DestinationOffset,
+    /// This error indicates that one of the following has occurred:
+    ///
+    /// * `TCDn_NBYTES` is not a multiple of `TCDn_ATTR[SSIZE]` and `TCDn_ATTR[DSIZE]`
+    /// * `TCDn_CITER[CITER]` is equal to zero
+    /// * `TCDn_CITER[ELINK]` is not equal to `TCDn_BITER[ELINK]`
+    NbytesCiterConfiguration,
+    /// Indicates that `TCDn_DLAST_SGA` is not on a 32-byte boundary. This field is
+    /// checked at the beginning of a scatter/gather operation after major loop completion
+    /// if `TCDn_CSR[ESG]` is enabled.
+    ScatterGatherConfiguration,
+    /// Source Bus Error
+    SourceBus,
+    /// Destination Bus Error
+    DestinationBus,
+}
+
 impl<'a> Unpin for Transfer<'a> {}
 
 impl<'a> Future for Transfer<'a> {
-    type Output = ();
+    type Output = Result<(), TransferErrorRaw>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let state = &STATES[self.channel.index];
@@ -1836,7 +1976,15 @@ impl<'a> Future for Transfer<'a> {
         if done {
             // Ensure all DMA writes are visible before returning
             fence(Ordering::SeqCst);
-            Poll::Ready(())
+
+            let es = self.channel.tcd().ch_es().read();
+            if es.err().is_error() {
+                // Currently, all error fields are in the lowest 8 bits, as-casting truncates
+                let errs = es.bits() as u8;
+                Poll::Ready(Err(TransferErrorRaw(errs)))
+            } else {
+                Poll::Ready(Ok(()))
+            }
         } else {
             Poll::Pending
         }

@@ -221,13 +221,13 @@ async fn main(_spawner: Spawner) {
 
     // Wait for half-transfer (first 4 elements)
     defmt::info!("Waiting for first half...");
-    let _ok = transfer.wait_half().await;
+    let _ok = transfer.wait_half().await.unwrap();
 
     defmt::info!("Half-transfer complete!");
 
     // Wait for complete transfer
     defmt::info!("Waiting for second half...");
-    transfer.await;
+    transfer.await.unwrap();
 
     defmt::info!("Transfer complete! Full DST2: {=[?]}", dst2.as_slice());
 
