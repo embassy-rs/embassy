@@ -12,7 +12,15 @@ documentation = "https://docs.embassy.dev/embassy-mcxa"
 [package.metadata.embassy]
 build = [
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "time", "unstable-pac"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "time", "unstable-pac"]},
+]
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-mcxa-v$VERSION/embassy-mcxa/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-mcxa/src/"
+
+features = ["defmt", "time", "unstable-pac"]
+flavors = [
+    { name = "mcx-a256", target = "thumbv8m.main-none-eabihf" },
 ]
 
 [dependencies]
