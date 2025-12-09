@@ -773,7 +773,12 @@ impl<C: Channel> DmaChannel<C> {
     ///
     /// The source and destination buffers must remain valid for the
     /// duration of the transfer.
-    pub fn mem_to_mem<W: Word>(&self, src: &[W], dst: &mut [W], options: TransferOptions) -> Result<Transfer<'_>, Error> {
+    pub fn mem_to_mem<W: Word>(
+        &self,
+        src: &[W],
+        dst: &mut [W],
+        options: TransferOptions,
+    ) -> Result<Transfer<'_>, Error> {
         let mut invalid = false;
         invalid |= src.is_empty();
         invalid |= src.len() > dst.len();
@@ -1789,7 +1794,7 @@ impl<'a> Transfer<'a> {
             if es.err().is_error() {
                 // Currently, all error fields are in the lowest 8 bits, as-casting truncates
                 let errs = es.bits() as u8;
-                return Poll::Ready(Err(TransferErrorRaw(errs)))
+                return Poll::Ready(Err(TransferErrorRaw(errs)));
             }
 
             // Check if we're past the half-way point
@@ -1907,7 +1912,6 @@ impl TransferErrorRaw {
     pub fn has_source_address_err(&self) -> bool {
         (self.0 & (1 << 7)) != 0
     }
-
 }
 
 impl Iterator for TransferErrorRawIter {
