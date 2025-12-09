@@ -10,14 +10,13 @@ use maitake_sync::WaitCell;
 use paste::paste;
 
 use crate::clocks::periph_helpers::{AdcClockSel, AdcConfig, Div4};
-use crate::clocks::{Gate, PoweredClock, enable_and_reset, ClockError};
+use crate::clocks::{ClockError, Gate, PoweredClock, enable_and_reset};
 
 use crate::pac::adc1::cfg::{HptExdi, Pwrsel, Refsel, Tcmdres, Tprictrl, Tres};
 use crate::pac::adc1::cmdh1::{Avgs, Cmpen, Next, Sts};
 use crate::pac::adc1::cmdl1::{Adch, Mode};
 use crate::pac::adc1::ctrl::CalAvgs;
 use crate::pac::adc1::tctrl::{Tcmd, Tpri};
-
 
 const G_LPADC_RESULT_SHIFT: u32 = 0;
 
@@ -166,12 +165,7 @@ impl<'a, I: Instance> Adc<'a, I, Blocking> {
     /// * `_inst` - ADC peripheral instance
     /// * `pin` - GPIO pin to use for ADC
     /// * `config` - ADC configuration
-    pub fn new_blocking(
-        _inst: Peri<'a, I>,
-        pin: Peri<'a,
-        impl AdcPin<I>>,
-        config: LpadcConfig
-    ) -> Result<Self> {
+    pub fn new_blocking(_inst: Peri<'a, I>, pin: Peri<'a, impl AdcPin<I>>, config: LpadcConfig) -> Result<Self> {
         Self::new_inner(_inst, pin, config)
     }
 }
@@ -223,23 +217,19 @@ impl<'a, I: Instance> Adc<'a, I, Async> {
     }
 }
 
-   
-
 impl<'a, I: Instance, M: ModeAdc> Adc<'a, I, M> {
     /// Internal initialization function shared by `new_async` and `new_blocking`.
-    fn new_inner(
-        _inst: Peri<'a, I>,
-        pin: Peri<'a, impl AdcPin<I>>,
-        config: LpadcConfig
-    ) -> Result<Self> {
+    fn new_inner(_inst: Peri<'a, I>, pin: Peri<'a, impl AdcPin<I>>, config: LpadcConfig) -> Result<Self> {
         let adc = I::ptr();
 
-         _ = unsafe { enable_and_reset::<I>(&AdcConfig {
+        _ = unsafe {
+            enable_and_reset::<I>(&AdcConfig {
                 power: config.power,
                 source: config.source,
                 div: config.div,
             })
-            .map_err(Error::ClockSetup)? };
+            .map_err(Error::ClockSetup)?
+        };
 
         pin.mux();
 
@@ -324,9 +314,9 @@ impl<'a, I: Instance, M: ModeAdc> Adc<'a, I, M> {
         // Enable ADC
         adc.ctrl().modify(|_, w| w.adcen().enabled());
 
-        Ok(Self { 
+        Ok(Self {
             _inst: PhantomData,
-            _phantom: PhantomData, 
+            _phantom: PhantomData,
         })
     }
 
@@ -435,7 +425,7 @@ impl<'a, I: Instance, M: ModeAdc> Adc<'a, I, M> {
     /// # Arguments
     /// * `index` - Command index
     /// * `config` - Command configuration
-    /// 
+    ///
     /// # Returns
     /// * `Ok(())` if the command was configured successfully
     /// * `Err(Error::InvalidConfig)` if the index is out of range

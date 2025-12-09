@@ -4,9 +4,9 @@
 use embassy_executor::Spawner;
 use hal::adc::{Adc, LpadcConfig, TriggerPriorityPolicy};
 use hal::clocks::PoweredClock;
-use hal::config::Config;
 use hal::clocks::config::Div8;
 use hal::clocks::periph_helpers::{AdcClockSel, Div4};
+use hal::config::Config;
 use hal::pac::adc1::cfg::{Pwrsel, Refsel};
 use hal::pac::adc1::cmdl1::{Adch, Mode};
 use hal::pac::adc1::ctrl::CalAvgs;
@@ -19,7 +19,7 @@ const G_LPADC_RESULT_SHIFT: u32 = 0;
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     config.clock_cfg.sirc.fro_lf_div = Div8::from_divisor(1);
-    
+
     let p = hal::init(config);
 
     defmt::info!("=== ADC polling Example ===");
