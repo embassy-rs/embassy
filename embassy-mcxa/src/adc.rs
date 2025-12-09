@@ -630,7 +630,7 @@ macro_rules! impl_instance {
     };
 }
 
-impl_instance!(0, 1); //ADC2 and ADC3 missing in the PAC ??
+impl_instance!(0, 1, 2, 3);
 
 pub trait AdcPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
     /// Set the given pin to the correct muxing state
