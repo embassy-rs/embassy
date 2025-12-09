@@ -104,7 +104,7 @@ use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin;
 use core::ptr::NonNull;
-use core::sync::atomic::{fence, AtomicBool, AtomicUsize, Ordering};
+use core::sync::atomic::{fence, AtomicUsize, Ordering};
 use core::task::{Context, Poll};
 
 use embassy_hal_internal::PeripheralType;
@@ -115,49 +115,32 @@ use crate::pac;
 use crate::pac::Interrupt;
 use crate::peripherals::DMA0;
 
-/// Static flag to track whether DMA has been initialized.
-static DMA_INITIALIZED: AtomicBool = AtomicBool::new(false);
-
 /// Initialize DMA controller (clock enabled, reset released, controller configured).
 ///
-/// This function is intended to be called during HAL initialization (`hal::init()`).
-/// It is idempotent - it will only initialize DMA once, even if called multiple times.
+/// This function is intended to be called ONCE during HAL initialization (`hal::init()`).
 ///
 /// The function enables the DMA0 clock, releases reset, and configures the controller
 /// for normal operation with round-robin arbitration.
-pub fn init() {
-    // Fast path: already initialized
-    if DMA_INITIALIZED.load(Ordering::Acquire) {
-        return;
-    }
+pub(crate) fn init() {
+    unsafe {
+        // Enable DMA0 clock and release reset
+        DMA0::enable_clock();
+        DMA0::release_reset();
 
-    // Slow path: initialize DMA
-    // Use compare_exchange to ensure only one caller initializes
-    if DMA_INITIALIZED
-        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-        .is_ok()
-    {
-        // We won the race - initialize DMA
-        unsafe {
-            // Enable DMA0 clock and release reset
-            DMA0::enable_clock();
-            DMA0::release_reset();
-
-            // Configure DMA controller
-            let dma = &(*pac::Dma0::ptr());
-            dma.mp_csr().modify(|_, w| {
-                w.edbg()
-                    .enable()
-                    .erca()
-                    .enable()
-                    .halt()
-                    .normal_operation()
-                    .gclc()
-                    .available()
-                    .gmrc()
-                    .available()
-            });
-        }
+        // Configure DMA controller
+        let dma = &(*pac::Dma0::ptr());
+        dma.mp_csr().modify(|_, w| {
+            w.edbg()
+                .enable()
+                .erca()
+                .enable()
+                .halt()
+                .normal_operation()
+                .gclc()
+                .available()
+                .gmrc()
+                .available()
+        });
     }
 }
 
