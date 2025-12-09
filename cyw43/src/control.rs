@@ -548,6 +548,14 @@ impl<'a> Control<'a> {
         n
     }
 
+    /// Retrieve the latest RSSI value
+    pub async fn get_rssi(&mut self) -> i32 {
+        let mut rssi_buf = [0u8; 4];
+        let n = self.ioctl(IoctlType::Get, Ioctl::GetRssi, 0, &mut rssi_buf).await;
+        assert_eq!(n, 4);
+        i32::from_ne_bytes(rssi_buf)
+    }
+
     async fn set_iovar_u32x2(&mut self, name: &str, val1: u32, val2: u32) {
         let mut buf = [0; 8];
         buf[0..4].copy_from_slice(&val1.to_le_bytes());
