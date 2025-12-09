@@ -217,7 +217,7 @@ async fn main(_spawner: Spawner) {
     defmt::info!("Starting transfer with half_transfer_interrupt...");
 
     // Create the transfer
-    let mut transfer = dma_ch1.mem_to_mem(src2, dst2, options);
+    let mut transfer = dma_ch1.mem_to_mem(src2, dst2, options).unwrap();
 
     // Wait for half-transfer (first 4 elements)
     defmt::info!("Waiting for first half...");

@@ -773,10 +773,14 @@ impl<C: Channel> DmaChannel<C> {
     ///
     /// The source and destination buffers must remain valid for the
     /// duration of the transfer.
-    pub fn mem_to_mem<W: Word>(&self, src: &[W], dst: &mut [W], options: TransferOptions) -> Transfer<'_> {
-        assert!(!src.is_empty());
-        assert!(dst.len() >= src.len());
-        assert!(src.len() <= 0x7fff);
+    pub fn mem_to_mem<W: Word>(&self, src: &[W], dst: &mut [W], options: TransferOptions) -> Result<Transfer<'_>, Error> {
+        let mut invalid = false;
+        invalid |= src.is_empty();
+        invalid |= src.len() > dst.len();
+        invalid |= src.len() > 0x7fff;
+        if invalid {
+            return Err(Error::Configuration);
+        }
 
         let size = W::size();
         let byte_count = (src.len() * size.bytes()) as u32;
@@ -837,7 +841,7 @@ impl<C: Channel> DmaChannel<C> {
                 .set_bit() // Start the channel
         });
 
-        Transfer::new(self.as_any())
+        Ok(Transfer::new(self.as_any()))
     }
 
     /// Fill a memory buffer with a pattern value (memset).

@@ -70,7 +70,7 @@ async fn main(_spawner: Spawner) {
 
     // Perform type-safe memory-to-memory transfer using Embassy-style async API
     // Using async `.await` - the executor can run other tasks while waiting!
-    let transfer = dma_ch0.mem_to_mem(src, dst, options);
+    let transfer = dma_ch0.mem_to_mem(src, dst, options).unwrap();
     transfer.await;
 
     defmt::info!("DMA mem-to-mem transfer complete!");
