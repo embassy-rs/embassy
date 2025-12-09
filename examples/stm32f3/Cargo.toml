@@ -27,8 +27,7 @@ embedded-storage = "0.3.1"
 static_cell = "2"
 
 [profile.release]
-debug = false
-opt-level = 'z'
+debug = 2
 
 [package.metadata.embassy]
 build = [
