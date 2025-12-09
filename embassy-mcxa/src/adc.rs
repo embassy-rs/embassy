@@ -4,7 +4,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_hal_internal::{Peri, PeripheralType};
 
 use crate::clocks::periph_helpers::{AdcClockSel, AdcConfig, Div4};
-use crate::clocks::{enable_and_reset, Gate, PoweredClock};
+use crate::clocks::{Gate, PoweredClock, enable_and_reset};
 use crate::pac;
 use crate::pac::adc1::cfg::{HptExdi, Pwrsel, Refsel, Tcmdres, Tprictrl, Tres};
 use crate::pac::adc1::cmdh1::{Avgs, Cmpen, Next, Sts};
