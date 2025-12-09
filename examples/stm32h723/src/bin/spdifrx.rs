@@ -168,7 +168,6 @@ fn new_sai_transmitter<'d>(
     sai_config.slot_enable = 0xFFFF; // All slots
     sai_config.data_size = sai::DataSize::Data32;
     sai_config.frame_length = (CHANNEL_COUNT * 32) as u16;
-    sai_config.master_clock_divider = None;
 
     let (sub_block_tx, _) = hal::sai::split_subblocks(sai);
     Sai::new_asynchronous(sub_block_tx, sck, sd, fs, dma, buf, sai_config)
