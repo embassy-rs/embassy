@@ -1,6 +1,9 @@
 #[cfg(feature = "executor-interrupt")]
 compile_error!("`executor-interrupt` is not supported with `arch-spin`.");
 
+#[cfg(feature = "idle-hook")]
+compile_error!("`idle-hook` is not supported with `arch-spin`.");
+
 #[cfg(feature = "executor-thread")]
 pub use thread::*;
 #[cfg(feature = "executor-thread")]
