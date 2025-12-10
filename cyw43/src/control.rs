@@ -14,6 +14,7 @@ use crate::{PowerManagementMode, countries, events};
 
 /// Join errors.
 #[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum JoinError {
     /// Network not found.
     NetworkNotFound,
