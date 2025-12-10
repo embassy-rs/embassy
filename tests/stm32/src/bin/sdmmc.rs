@@ -7,7 +7,7 @@ mod common;
 use common::*;
 use defmt::assert_eq;
 use embassy_executor::Spawner;
-use embassy_stm32::sdmmc::{DataBlock, Sdmmc};
+use embassy_stm32::sdmmc::{CmdBlock, DataBlock, Sdmmc, StorageDevice};
 use embassy_stm32::time::mhz;
 use embassy_stm32::{bind_interrupts, peripherals, sdmmc};
 use {defmt_rtt as _, panic_probe as _};
@@ -54,43 +54,36 @@ async fn main(_spawner: Spawner) {
         Default::default(),
     );
 
-    let mut err = None;
-    loop {
-        match s.init_sd_card(mhz(24)).await {
-            Ok(_) => break,
-            Err(e) => {
-                if err != Some(e) {
-                    info!("waiting for card: {:?}", e);
-                    err = Some(e);
-                }
-            }
-        }
-    }
+    let mut cmd_block = CmdBlock::new();
 
-    let card = unwrap!(s.card());
+    let mut storage = StorageDevice::new_sd_card(&mut s, &mut cmd_block, mhz(24))
+        .await
+        .unwrap();
 
-    info!("Card: {:#?}", Debug2Format(card));
-    info!("Clock: {}", s.clock());
+    let card = storage.card();
+
+    info!("Card: {:#?}", Debug2Format(&card));
+    info!("Clock: {}", storage.sdmmc.clock());
 
     info!("writing pattern1...");
-    s.write_block(block_idx, &pattern1).await.unwrap();
+    storage.write_block(block_idx, &pattern1).await.unwrap();
 
     info!("reading...");
-    s.read_block(block_idx, &mut block).await.unwrap();
+    storage.read_block(block_idx, &mut block).await.unwrap();
     assert_eq!(block, pattern1);
 
     info!("writing pattern2...");
-    s.write_block(block_idx, &pattern2).await.unwrap();
+    storage.write_block(block_idx, &pattern2).await.unwrap();
 
     info!("reading...");
-    s.read_block(block_idx, &mut block).await.unwrap();
+    storage.read_block(block_idx, &mut block).await.unwrap();
     assert_eq!(block, pattern2);
 
     info!("writing blocks [pattern1, pattern2]...");
-    s.write_blocks(block_idx, &patterns).await.unwrap();
+    storage.write_blocks(block_idx, &patterns).await.unwrap();
 
     info!("reading blocks...");
-    s.read_blocks(block_idx, &mut blocks).await.unwrap();
+    storage.read_blocks(block_idx, &mut blocks).await.unwrap();
     assert_eq!(&blocks, &patterns);
 
     drop(s);
