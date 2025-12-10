@@ -17,6 +17,6 @@ cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked
 cargo embassy-devtool doc -o webroot
 
 export KUBECONFIG=/ci/secrets/kubeconfig.yml
-POD=$(kubectl -n embassy get po -l app=docserver -o jsonpath={.items[0].metadata.name})
+POD=$(kubectl get po -l app=docserver -o jsonpath={.items[0].metadata.name})
 kubectl cp webroot/crates $POD:/data
 kubectl cp webroot/static $POD:/data
