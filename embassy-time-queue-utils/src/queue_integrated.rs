@@ -47,6 +47,7 @@ unsafe impl Sync for Queue {}
 
 impl Queue {
     /// Creates a new timer queue.
+    #[inline]
     pub const fn new() -> Self {
         Self { head: Cell::new(None) }
     }
@@ -55,12 +56,22 @@ impl Queue {
     ///
     /// If this function returns `true`, the called should find the next expiration time and set
     /// a new alarm for that time.
+    #[inline]
     pub fn schedule_wake(&mut self, at: u64, waker: &Waker) -> bool {
         let item = unsafe {
             // Safety: the `&mut self`, along with the Safety note of the Queue, are sufficient to
             // ensure that this function creates the only mutable reference to the queue item.
             TimerQueueItem::from_embassy_waker(waker)
         };
+        self.schedule_wake_queue_item(at, item, waker)
+    }
+
+    /// Schedules a task to run at a specific time, using its integrated queue item.
+    ///
+    /// If this function returns `true`, the called should find the next expiration time and set
+    /// a new alarm for that time.
+    #[inline]
+    pub fn schedule_wake_queue_item(&mut self, at: u64, item: &mut TimerQueueItem, waker: &Waker) -> bool {
         let item = unsafe { item.as_mut::<QueueItem>() };
         match item.waker.as_ref() {
             Some(_) if at <= item.expires_at => {
@@ -98,6 +109,7 @@ impl Queue {
     ///
     /// The provided callback will be called for each expired task. Tasks that never expire
     /// will be removed, but the callback will not be called.
+    #[inline]
     pub fn next_expiration(&mut self, now: u64) -> u64 {
         let mut next_expiration = u64::MAX;
 
