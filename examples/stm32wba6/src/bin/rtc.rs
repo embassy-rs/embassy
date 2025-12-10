@@ -45,7 +45,7 @@ async fn main(_spawner: Spawner) {
     let mut rtc = Rtc::new(p.RTC, RtcConfig::default());
 
     // Setting datetime
-    let initial_datetime = DateTime::from(2025, 12, 9, DayOfWeek::Tuesday, 11, 00, 00, 0).unwrap();
+    let initial_datetime = DateTime::from(1970, 1, 1, DayOfWeek::Thursday, 0, 00, 00, 0).unwrap();
     match rtc.0.set_datetime(initial_datetime) {
         Ok(()) => info!("RTC set successfully."),
         Err(e) => error!("Failed to set RTC date/time: {:?}", e),
