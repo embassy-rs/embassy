@@ -39,7 +39,7 @@ embedded-hal-nb = { version = "1.0" }
 embedded-io = "0.6"
 embedded-io-async = { version = "0.6.1" }
 heapless = "0.8"
-mcxa-pac = { git = "https://github.com/OpenDevicePartnership/mcxa-pac", features = ["rt", "critical-section"], version = "0.1.0", rev = "e7dfed8740b449b6ac646bab8ac6776a3c099267" }
+mcxa-pac = { git = "https://github.com/OpenDevicePartnership/mcxa-pac", features = ["rt", "critical-section"], version = "0.1.0", rev = "02bd04a21ef8f8f67f88239ff5df765bb7e60fd8" }
 nb = "1.1.0"
 paste = "1.0.15"
 maitake-sync = { version = "0.2.2", default-features = false, features = ["critical-section", "no-cache-pad"] }

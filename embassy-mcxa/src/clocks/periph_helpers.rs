@@ -427,6 +427,7 @@ impl SPConfHelper for OsTimerConfig {
 
 /// Selectable clocks for the ADC peripheral
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum AdcClockSel {
     /// Divided `fro_lf`/`clk_12m`/FRO12M source
     FroLfDiv,

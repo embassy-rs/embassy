@@ -2,10 +2,11 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa_examples::init_adc_pins;
-use hal::adc::{ConvResult, LpadcConfig, TriggerPriorityPolicy};
+use hal::adc::{Adc, LpadcConfig, TriggerPriorityPolicy};
 use hal::clocks::PoweredClock;
+use hal::clocks::config::Div8;
 use hal::clocks::periph_helpers::{AdcClockSel, Div4};
+use hal::config::Config;
 use hal::pac::adc1::cfg::{Pwrsel, Refsel};
 use hal::pac::adc1::cmdl1::{Adch, Mode};
 use hal::pac::adc1::ctrl::CalAvgs;
@@ -16,11 +17,10 @@ const G_LPADC_RESULT_SHIFT: u32 = 0;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = hal::init(hal::config::Config::default());
+    let mut config = Config::default();
+    config.clock_cfg.sirc.fro_lf_div = Div8::from_divisor(1);
 
-    unsafe {
-        init_adc_pins();
-    }
+    let p = hal::init(config);
 
     defmt::info!("=== ADC polling Example ===");
 
@@ -39,7 +39,7 @@ async fn main(_spawner: Spawner) {
         source: AdcClockSel::FroLfDiv,
         div: Div4::no_div(),
     };
-    let adc = hal::adc::Adc::<hal::adc::Adc1>::new(p.ADC1, adc_config);
+    let adc = Adc::new_blocking(p.ADC1, p.P1_10, adc_config).unwrap();
 
     adc.do_offset_calibration();
     adc.do_auto_calibration();
@@ -47,7 +47,7 @@ async fn main(_spawner: Spawner) {
     let mut conv_command_config = adc.get_default_conv_command_config();
     conv_command_config.channel_number = Adch::SelectCorrespondingChannel8;
     conv_command_config.conversion_resolution_mode = Mode::Data16Bits;
-    adc.set_conv_command_config(1, &conv_command_config);
+    adc.set_conv_command_config(1, &conv_command_config).unwrap();
 
     let mut conv_trigger_config = adc.get_default_conv_trigger_config();
     conv_trigger_config.target_command_id = Tcmd::ExecuteCmd1;
@@ -58,11 +58,15 @@ async fn main(_spawner: Spawner) {
 
     loop {
         adc.do_software_trigger(1);
-        let mut result: Option<ConvResult> = None;
-        while result.is_none() {
-            result = hal::adc::get_conv_result();
-        }
-        let value = result.unwrap().conv_value >> G_LPADC_RESULT_SHIFT;
-        defmt::info!("value: {=u16}", value);
+        let result = loop {
+            match adc.get_conv_result() {
+                Ok(res) => break res,
+                Err(_) => {
+                    // Conversion not ready, continue polling
+                }
+            }
+        };
+        let value = result.conv_value >> G_LPADC_RESULT_SHIFT;
+        defmt::info!("ADC value: {=u16}", value);
     }
 }

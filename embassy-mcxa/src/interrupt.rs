@@ -9,7 +9,10 @@
 mod generated {
     #[rustfmt::skip]
     embassy_hal_internal::interrupt_mod!(
+        ADC0,
         ADC1,
+        ADC2,
+        ADC3,
         DMA_CH0,
         DMA_CH1,
         DMA_CH2,
@@ -277,44 +280,6 @@ impl InterruptExt for Rtc {
     #[inline]
     fn is_pending(&self) -> bool {
         cortex_m::peripheral::NVIC::is_pending(Interrupt::RTC)
-    }
-}
-
-pub struct Adc;
-pub const ADC1: Adc = Adc;
-
-impl InterruptExt for Adc {
-    /// Clear any pending ADC1 in NVIC.
-    #[inline]
-    fn unpend(&self) {
-        cortex_m::peripheral::NVIC::unpend(Interrupt::ADC1);
-    }
-
-    /// Set NVIC priority for ADC1.
-    #[inline]
-    fn set_priority(&self, priority: Priority) {
-        unsafe {
-            let mut nvic = cortex_m::peripheral::Peripherals::steal().NVIC;
-            nvic.set_priority(Interrupt::ADC1, u8::from(priority));
-        }
-    }
-
-    /// Enable ADC1 in NVIC.
-    #[inline]
-    unsafe fn enable(&self) {
-        cortex_m::peripheral::NVIC::unmask(Interrupt::ADC1);
-    }
-
-    /// Disable ADC1 in NVIC.
-    #[inline]
-    unsafe fn disable(&self) {
-        cortex_m::peripheral::NVIC::mask(Interrupt::ADC1);
-    }
-
-    /// Check if ADC1 is pending in NVIC.
-    #[inline]
-    fn is_pending(&self) -> bool {
-        cortex_m::peripheral::NVIC::is_pending(Interrupt::ADC1)
     }
 }
 
