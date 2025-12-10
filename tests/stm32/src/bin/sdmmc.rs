@@ -56,14 +56,58 @@ async fn main(_spawner: Spawner) {
 
     let mut cmd_block = CmdBlock::new();
 
-    let mut storage = StorageDevice::new_sd_card(&mut s, &mut cmd_block, mhz(24))
-        .await
-        .unwrap();
+    let mut storage = loop {
+        if let Ok(storage) = StorageDevice::new_sd_card(&mut s, &mut cmd_block, mhz(24)).await {
+            break storage;
+        }
+    };
 
     let card = storage.card();
 
     info!("Card: {:#?}", Debug2Format(&card));
     info!("Clock: {}", storage.sdmmc.clock());
+
+    // card_type: HighCapacity,
+    // ocr: OCR: Operation Conditions Register {
+    // Voltage Window (mV): (2700, 3600),
+    // S18A (UHS-I only): true,
+    // Over 2TB flag (SDUC only): false,
+    // UHS-II Card: false,
+    // Card Capacity Status (CSS): \"SDHC/SDXC/SDUC\",
+    // Busy: false },
+    // rca: 43690,
+    // cid: CID: Card Identification { Manufacturer ID: 3,
+    // OEM ID: \"SD\",
+    // Product Name: \"SL08G\",
+    // Product Revision: 128,
+    // Product Serial Number: 701445767,
+    // Manufacturing Date: (9,
+    // 2015) },
+    // csd: CSD: Card Specific Data { Transfer Rate: 50,
+    // Block Count: 15523840,
+    // Card Size (bytes): 7948206080,
+    // Read I (@min VDD): 100 mA,
+    // Write I (@min VDD): 10 mA,
+    // Read I (@max VDD): 5 mA,
+    // Write I (@max VDD): 45 mA,
+    // Erase Size (Blocks): 1 },
+    // scr: SCR: SD CARD Configuration Register { Version: Unknown,
+    // 1-bit width: false,
+    // 4-bit width: true },
+    // status: SD Status { Bus Width: One,
+    // Secured Mode: false,
+    // SD Memory Card Type: 0,
+    // Protected Area Size (B): 0,
+    // Speed Class: 0,
+    // Video Speed Class: 0,
+    // Application Performance Class: 0,
+    // Move Performance (MB/s): 0,
+    // AU Size: 0,
+    // Erase Size (units of AU): 0,
+    // Erase Timeout (s): 0,
+    // Discard Support: false } }
+
+    defmt::assert!(card.scr.bus_width_four());
 
     info!("writing pattern1...");
     storage.write_block(block_idx, &pattern1).await.unwrap();

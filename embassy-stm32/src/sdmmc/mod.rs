@@ -5,14 +5,16 @@ use core::default::Default;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
+use core::slice;
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
-use sdio_host::common_cmd::{self, Resp, ResponseLen};
+use sdio_host::common_cmd::{self, R1, R2, R3, Resp, ResponseLen, Rz};
 use sdio_host::emmc::{EMMC, ExtCSD};
 use sdio_host::sd::{BusWidth, CIC, CID, CSD, CardCapacity, CardStatus, CurrentState, OCR, RCA, SCR, SD, SDStatus};
+use sdio_host::sd_cmd::{R6, R7};
 use sdio_host::{Cmd, emmc_cmd, sd_cmd};
 
 #[cfg(sdmmc_v1)]
@@ -23,7 +25,7 @@ use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::sdmmc::Sdmmc as RegBlock;
 use crate::rcc::{self, RccInfo, RccPeripheral, SealedRccPeripheral};
-use crate::time::Hertz;
+use crate::time::{Hertz, mhz};
 use crate::{interrupt, peripherals};
 
 /// Interrupt handler.
@@ -58,6 +60,57 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             }
         });
     }
+}
+
+struct U128(pub u128);
+
+trait TypedResp: Resp {
+    type Word: From<U128>;
+}
+
+impl From<U128> for () {
+    fn from(value: U128) -> Self {
+        match value.0 {
+            0 => (),
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl From<U128> for u32 {
+    fn from(value: U128) -> Self {
+        unwrap!(value.0.try_into())
+    }
+}
+
+impl From<U128> for u128 {
+    fn from(value: U128) -> Self {
+        value.0
+    }
+}
+
+impl TypedResp for Rz {
+    type Word = ();
+}
+
+impl TypedResp for R1 {
+    type Word = u32;
+}
+
+impl TypedResp for R2 {
+    type Word = u128;
+}
+
+impl TypedResp for R3 {
+    type Word = u32;
+}
+
+impl TypedResp for R6 {
+    type Word = u32;
+}
+
+impl TypedResp for R7 {
+    type Word = u32;
 }
 
 /// Frequency used for SD Card initialization. Must be no higher than 400 kHz.
@@ -102,6 +155,11 @@ impl DerefMut for DataBlock {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
+}
+
+fn slice8_mut(x: &mut [u32]) -> &mut [u8] {
+    let len = x.len() * 4;
+    unsafe { slice::from_raw_parts_mut(x.as_mut_ptr() as _, len) }
 }
 
 /// Command Block buffer for SDMMC command transfers.
@@ -190,9 +248,224 @@ pub struct StorageDevice<'a, 'b, T: Addressable> {
 impl<'a, 'b> StorageDevice<'a, 'b, Card> {
     /// Create a new SD card
     pub async fn new_sd_card(sdmmc: &'a mut Sdmmc<'b>, cmd_block: &mut CmdBlock, freq: Hertz) -> Result<Self, Error> {
-        let info = sdmmc.init_sd_card(cmd_block, freq).await?;
+        let mut s = Self {
+            info: Card::default(),
+            sdmmc,
+        };
 
-        Ok(Self { info, sdmmc })
+        s.acquire(cmd_block, freq).await?;
+
+        Ok(s)
+    }
+
+    /// Initializes the card into a known state (or at least tries to).
+    pub async fn acquire(&mut self, cmd_block: &mut CmdBlock, freq: Hertz) -> Result<(), Error> {
+        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+        let regs = self.sdmmc.info.regs;
+
+        let _bus_width = match self.sdmmc.bus_width() {
+            BusWidth::Eight => return Err(Error::BusWidth),
+            bus_width => bus_width,
+        };
+
+        // While the SD/SDIO card or eMMC is in identification mode,
+        // the SDMMC_CK frequency must be no more than 400 kHz.
+        self.sdmmc.init_idle()?;
+
+        // Check if cards supports CMD8 (with pattern)
+        self.sdmmc.cmd(sd_cmd::send_if_cond(1, 0xAA), false)?;
+        let cic = CIC::from(regs.respr(0).read().cardstatus());
+
+        if cic.pattern() != 0xAA {
+            return Err(Error::UnsupportedCardVersion);
+        }
+
+        if cic.voltage_accepted() & 1 == 0 {
+            return Err(Error::UnsupportedVoltage);
+        }
+
+        let ocr = loop {
+            // Signal that next command is a app command
+            self.sdmmc.cmd(common_cmd::app_cmd(0), false)?; // CMD55
+
+            // 3.2-3.3V
+            let voltage_window = 1 << 5;
+            // Initialize card
+            match self
+                .sdmmc
+                .cmd(sd_cmd::sd_send_op_cond(true, false, true, voltage_window), false)
+            {
+                // ACMD41
+                Ok(_) => (),
+                Err(Error::Crc) => (),
+                Err(err) => return Err(err),
+            }
+
+            let ocr: OCR<SD> = regs.respr(0).read().cardstatus().into();
+            if !ocr.is_busy() {
+                // Power up done
+                break ocr;
+            }
+        };
+
+        if ocr.high_capacity() {
+            // Card is SDHC or SDXC or SDUC
+            self.info.card_type = CardCapacity::HighCapacity;
+        } else {
+            self.info.card_type = CardCapacity::StandardCapacity;
+        }
+        self.info.ocr = ocr;
+
+        self.info.cid = self.sdmmc.get_cid()?.into();
+
+        self.sdmmc.cmd(sd_cmd::send_relative_address(), false)?;
+        let rca = RCA::<SD>::from(regs.respr(0).read().cardstatus());
+        self.info.rca = rca.address();
+
+        self.info.csd = self.sdmmc.get_csd(self.info.get_address())?.into();
+        self.sdmmc.select_card(Some(self.info.get_address()))?;
+
+        self.info.scr = self.get_scr(cmd_block).await?;
+
+        let (bus_width, acmd_arg) = if !self.info.scr.bus_width_four() {
+            (BusWidth::One, 0)
+        } else {
+            (BusWidth::Four, 2)
+        };
+
+        self.sdmmc.cmd(common_cmd::app_cmd(self.info.rca), false)?;
+        self.sdmmc.cmd(sd_cmd::cmd6(acmd_arg), false)?;
+
+        self.sdmmc.clkcr_set_clkdiv(freq.clamp(mhz(0), mhz(25)), bus_width)?;
+
+        // Read status
+        self.info.status = self.read_sd_status(cmd_block).await?;
+
+        if freq > mhz(25) {
+            // Switch to SDR25
+            self.sdmmc.signalling = self.switch_signalling_mode(cmd_block, Signalling::SDR25).await?;
+
+            if self.sdmmc.signalling == Signalling::SDR25 {
+                // Set final clock frequency
+                self.sdmmc.clkcr_set_clkdiv(freq, bus_width)?;
+
+                if self.sdmmc.read_status(&self.info)?.state() != CurrentState::Transfer {
+                    return Err(Error::SignalingSwitchFailed);
+                }
+            }
+
+            // Read status after signalling change
+            self.read_sd_status(cmd_block).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Switch mode using CMD6.
+    ///
+    /// Attempt to set a new signalling mode. The selected
+    /// signalling mode is returned. Expects the current clock
+    /// frequency to be > 12.5MHz.
+    ///
+    /// SD only.
+    async fn switch_signalling_mode(
+        &self,
+        cmd_block: &mut CmdBlock,
+        signalling: Signalling,
+    ) -> Result<Signalling, Error> {
+        // NB PLSS v7_10 4.3.10.4: "the use of SET_BLK_LEN command is not
+        // necessary"
+
+        let set_function = 0x8000_0000
+            | match signalling {
+                // See PLSS v7_10 Table 4-11
+                Signalling::DDR50 => 0xFF_FF04,
+                Signalling::SDR104 => 0xFF_1F03,
+                Signalling::SDR50 => 0xFF_1F02,
+                Signalling::SDR25 => 0xFF_FF01,
+                Signalling::SDR12 => 0xFF_FF00,
+            };
+
+        // Arm `OnDrop` after the buffer, so it will be dropped first
+        let on_drop = OnDrop::new(|| self.sdmmc.on_drop());
+
+        let transfer = self.sdmmc.prepare_datapath_read(cmd_block.as_mut(), 64, 6);
+        self.sdmmc.cmd(sd_cmd::cmd6(set_function), true)?; // CMD6
+
+        self.sdmmc.complete_datapath_transfer(transfer, true).await?;
+
+        // Host is allowed to use the new functions at least 8
+        // clocks after the end of the switch command
+        // transaction. We know the current clock period is < 80ns,
+        // so a total delay of 640ns is required here
+        for _ in 0..300 {
+            cortex_m::asm::nop();
+        }
+
+        on_drop.defuse();
+
+        // Function Selection of Function Group 1
+        let selection = (u32::from_be(cmd_block[4]) >> 24) & 0xF;
+
+        match selection {
+            0 => Ok(Signalling::SDR12),
+            1 => Ok(Signalling::SDR25),
+            2 => Ok(Signalling::SDR50),
+            3 => Ok(Signalling::SDR104),
+            4 => Ok(Signalling::DDR50),
+            _ => Err(Error::UnsupportedCardType),
+        }
+    }
+
+    /// Reads the SCR register.
+    ///
+    /// SD only.
+    async fn get_scr(&self, cmd_block: &mut CmdBlock) -> Result<SCR, Error> {
+        // Read the 64-bit SCR register
+        self.sdmmc.cmd(common_cmd::set_block_length(8), false)?; // CMD16
+        self.sdmmc.cmd(common_cmd::app_cmd(self.info.rca), false)?;
+
+        let scr = &mut cmd_block.0[..2];
+
+        // Arm `OnDrop` after the buffer, so it will be dropped first
+        let on_drop = OnDrop::new(|| self.sdmmc.on_drop());
+
+        let transfer = self.sdmmc.prepare_datapath_read(scr, 8, 3);
+        self.sdmmc.cmd(sd_cmd::send_scr(), true)?;
+
+        self.sdmmc.complete_datapath_transfer(transfer, true).await?;
+
+        on_drop.defuse();
+
+        Ok(SCR(u64::from_be_bytes(unwrap!(slice8_mut(scr).try_into()))))
+    }
+
+    /// Reads the SD Status (ACMD13)
+    ///
+    /// SD only.
+    async fn read_sd_status(&self, cmd_block: &mut CmdBlock) -> Result<SDStatus, Error> {
+        let rca = self.info.rca;
+
+        self.sdmmc.cmd(common_cmd::set_block_length(64), false)?; // CMD16
+        self.sdmmc.cmd(common_cmd::app_cmd(rca), false)?; // APP
+
+        let status = cmd_block;
+
+        // Arm `OnDrop` after the buffer, so it will be dropped first
+        let on_drop = OnDrop::new(|| self.sdmmc.on_drop());
+
+        let transfer = self.sdmmc.prepare_datapath_read(status.as_mut(), 64, 6);
+        self.sdmmc.cmd(sd_cmd::sd_status(), true)?;
+
+        self.sdmmc.complete_datapath_transfer(transfer, true).await?;
+
+        on_drop.defuse();
+
+        for byte in status.iter_mut() {
+            *byte = u32::from_be(*byte);
+        }
+
+        Ok(status.0.into())
     }
 }
 
@@ -200,37 +473,282 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
 impl<'a, 'b> StorageDevice<'a, 'b, Emmc> {
     /// Create a new EMMC card
     pub async fn new_emmc(sdmmc: &'a mut Sdmmc<'b>, cmd_block: &mut CmdBlock, freq: Hertz) -> Result<Self, Error> {
-        let info = sdmmc.init_emmc(cmd_block, freq).await?;
+        let mut s = Self {
+            info: Emmc::default(),
+            sdmmc,
+        };
 
-        Ok(Self { info, sdmmc })
+        s.acquire(cmd_block, freq).await?;
+
+        Ok(s)
+    }
+
+    async fn acquire(&mut self, _cmd_block: &mut CmdBlock, freq: Hertz) -> Result<(), Error> {
+        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+        let regs = self.sdmmc.info.regs;
+
+        let bus_width = self.sdmmc.bus_width();
+
+        // While the SD/SDIO card or eMMC is in identification mode,
+        // the SDMMC_CK frequency must be no more than 400 kHz.
+        self.sdmmc.init_idle()?;
+
+        let ocr = loop {
+            let high_voltage = 0b0 << 7;
+            let access_mode = 0b10 << 29;
+            let op_cond = high_voltage | access_mode | 0b1_1111_1111 << 15;
+            // Initialize card
+            match self.sdmmc.cmd(emmc_cmd::send_op_cond(op_cond), false) {
+                Ok(_) => (),
+                Err(Error::Crc) => (),
+                Err(err) => return Err(err),
+            }
+            let ocr: OCR<EMMC> = regs.respr(0).read().cardstatus().into();
+            if !ocr.is_busy() {
+                // Power up done
+                break ocr;
+            }
+        };
+
+        self.info.capacity = if ocr.access_mode() == 0b10 {
+            // Card is SDHC or SDXC or SDUC
+            CardCapacity::HighCapacity
+        } else {
+            CardCapacity::StandardCapacity
+        };
+        self.info.ocr = ocr;
+
+        self.info.cid = self.sdmmc.get_cid()?.into();
+
+        self.info.rca = 1u16.into();
+        self.sdmmc
+            .cmd(emmc_cmd::assign_relative_address(self.info.rca), false)?;
+
+        self.info.csd = self.sdmmc.get_csd(self.info.get_address())?.into();
+        self.sdmmc.select_card(Some(self.info.get_address()))?;
+
+        let (widbus, _) = bus_width_vals(bus_width);
+
+        // Write bus width to ExtCSD byte 183
+        self.sdmmc.cmd(
+            emmc_cmd::modify_ext_csd(emmc_cmd::AccessMode::WriteByte, 183, widbus),
+            false,
+        )?;
+
+        // Wait for ready after R1b response
+        loop {
+            let status = self.sdmmc.read_status(&self.info)?;
+
+            if status.ready_for_data() {
+                break;
+            }
+        }
+
+        self.sdmmc.clkcr_set_clkdiv(freq.clamp(mhz(0), mhz(25)), bus_width)?;
+        self.info.ext_csd = self.read_ext_csd().await?;
+
+        Ok(())
+    }
+
+    /// Gets the EXT_CSD register.
+    ///
+    /// eMMC only.
+    async fn read_ext_csd(&self) -> Result<ExtCSD, Error> {
+        // Note: cmd_block can't be used because ExtCSD is too long to fit.
+        let mut data_block = DataBlock([0u8; 512]);
+
+        // NOTE(unsafe) DataBlock uses align 4
+        let buffer = unsafe { &mut *((&mut data_block.0) as *mut [u8; 512] as *mut [u32; 128]) };
+
+        self.sdmmc.cmd(common_cmd::set_block_length(512), false).unwrap(); // CMD16
+
+        let transfer = self.sdmmc.prepare_datapath_read(buffer, 512, 9);
+        self.sdmmc.cmd(emmc_cmd::send_ext_csd(), true)?;
+
+        // Arm `OnDrop` after the buffer, so it will be dropped first
+        let on_drop = OnDrop::new(|| self.sdmmc.on_drop());
+
+        self.sdmmc.complete_datapath_transfer(transfer, true).await?;
+
+        on_drop.defuse();
+
+        Ok(unsafe { core::mem::transmute::<_, [u32; 128]>(data_block.0) }.into())
     }
 }
 
 /// Card or Emmc storage device
-impl<'a, 'b, T: Addressable> StorageDevice<'a, 'b, T> {
+impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
     /// Write a block
-    pub fn card(&self) -> T {
+    pub fn card(&self) -> A {
         self.info.clone()
     }
 
-    /// Write a block
-    pub async fn write_block(&mut self, block_idx: u32, buffer: &DataBlock) -> Result<(), Error> {
-        self.sdmmc.write_block(&mut self.info, block_idx, buffer).await
-    }
-
-    /// Write a block
-    pub async fn write_blocks(&mut self, block_idx: u32, blocks: &[DataBlock]) -> Result<(), Error> {
-        self.sdmmc.write_blocks(&mut self.info, block_idx, blocks).await
-    }
-
-    /// Read a block
+    /// Read a data block.
+    #[inline]
     pub async fn read_block(&mut self, block_idx: u32, buffer: &mut DataBlock) -> Result<(), Error> {
-        self.sdmmc.read_block(&mut self.info, block_idx, buffer).await
+        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+        let card_capacity = self.info.get_capacity();
+
+        // NOTE(unsafe) DataBlock uses align 4
+        let buffer = unsafe { &mut *((&mut buffer.0) as *mut [u8; 512] as *mut [u32; 128]) };
+
+        // Always read 1 block of 512 bytes
+        // SDSC cards are byte addressed hence the blockaddress is in multiples of 512 bytes
+        let address = match card_capacity {
+            CardCapacity::StandardCapacity => block_idx * 512,
+            _ => block_idx,
+        };
+        self.sdmmc.cmd(common_cmd::set_block_length(512), false)?; // CMD16
+
+        let on_drop = OnDrop::new(|| self.sdmmc.on_drop());
+
+        let transfer = self.sdmmc.prepare_datapath_read(buffer, 512, 9);
+        self.sdmmc.cmd(common_cmd::read_single_block(address), true)?;
+
+        self.sdmmc.complete_datapath_transfer(transfer, true).await?;
+
+        on_drop.defuse();
+
+        Ok(())
     }
 
-    /// Read a block
+    /// Read multiple data blocks.
+    #[inline]
     pub async fn read_blocks(&mut self, block_idx: u32, blocks: &mut [DataBlock]) -> Result<(), Error> {
-        self.sdmmc.read_blocks(&mut self.info, block_idx, blocks).await
+        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+        let card_capacity = self.info.get_capacity();
+
+        // NOTE(unsafe) reinterpret buffer as &mut [u32]
+        let buffer = unsafe {
+            let ptr = blocks.as_mut_ptr() as *mut u32;
+            let len = blocks.len() * 128;
+            core::slice::from_raw_parts_mut(ptr, len)
+        };
+
+        // Always read 1 block of 512 bytes
+        // SDSC cards are byte addressed hence the blockaddress is in multiples of 512 bytes
+        let address = match card_capacity {
+            CardCapacity::StandardCapacity => block_idx * 512,
+            _ => block_idx,
+        };
+        self.sdmmc.cmd(common_cmd::set_block_length(512), false)?; // CMD16
+
+        let on_drop = OnDrop::new(|| self.sdmmc.on_drop());
+        let transfer = self.sdmmc.prepare_datapath_read(buffer, 512 * blocks.len() as u32, 9);
+        self.sdmmc.cmd(common_cmd::read_multiple_blocks(address), true)?;
+
+        self.sdmmc.complete_datapath_transfer(transfer, false).await?;
+
+        self.sdmmc.cmd(common_cmd::stop_transmission(), false)?; // CMD12
+        self.sdmmc.clear_interrupt_flags();
+
+        on_drop.defuse();
+
+        Ok(())
+    }
+
+    /// Write a data block.
+    pub async fn write_block(&mut self, block_idx: u32, buffer: &DataBlock) -> Result<(), Error>
+    where
+        CardStatus<A::Ext>: From<u32>,
+    {
+        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+
+        // NOTE(unsafe) DataBlock uses align 4
+        let buffer = unsafe { &*((&buffer.0) as *const [u8; 512] as *const [u32; 128]) };
+
+        // Always read 1 block of 512 bytes
+        //  cards are byte addressed hence the blockaddress is in multiples of 512 bytes
+        let address = match self.info.get_capacity() {
+            CardCapacity::StandardCapacity => block_idx * 512,
+            _ => block_idx,
+        };
+        self.sdmmc.cmd(common_cmd::set_block_length(512), false)?; // CMD16
+
+        let on_drop = OnDrop::new(|| self.sdmmc.on_drop());
+
+        // sdmmc_v1 uses different cmd/dma order than v2, but only for writes
+        #[cfg(sdmmc_v1)]
+        self.sdmmc.cmd(common_cmd::write_single_block(address), true)?;
+
+        let transfer = self.sdmmc.prepare_datapath_write(buffer, 512, 9);
+
+        #[cfg(sdmmc_v2)]
+        self.sdmmc.cmd(common_cmd::write_single_block(address), true)?;
+
+        self.sdmmc.complete_datapath_transfer(transfer, true).await?;
+
+        on_drop.defuse();
+
+        // TODO: Make this configurable
+        let mut timeout: u32 = 0x00FF_FFFF;
+
+        while timeout > 0 {
+            let ready_for_data = self.sdmmc.read_status(&self.info)?.ready_for_data();
+            if ready_for_data {
+                return Ok(());
+            }
+            timeout -= 1;
+        }
+
+        Err(Error::SoftwareTimeout)
+    }
+
+    /// Write multiple data blocks.
+    pub async fn write_blocks(&mut self, block_idx: u32, blocks: &[DataBlock]) -> Result<(), Error>
+    where
+        CardStatus<A::Ext>: From<u32>,
+    {
+        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+
+        // NOTE(unsafe) reinterpret buffer as &[u32]
+        let buffer = unsafe {
+            let ptr = blocks.as_ptr() as *const u32;
+            let len = blocks.len() * 128;
+            core::slice::from_raw_parts(ptr, len)
+        };
+
+        // Always read 1 block of 512 bytes
+        // SDSC cards are byte addressed hence the blockaddress is in multiples of 512 bytes
+        let address = match self.info.get_capacity() {
+            CardCapacity::StandardCapacity => block_idx * 512,
+            _ => block_idx,
+        };
+
+        self.sdmmc.cmd(common_cmd::set_block_length(512), false)?; // CMD16
+
+        let block_count = blocks.len();
+
+        let on_drop = OnDrop::new(|| self.sdmmc.on_drop());
+
+        #[cfg(sdmmc_v1)]
+        self.sdmmc.cmd(common_cmd::write_multiple_blocks(address), true)?; // CMD25
+
+        // Setup write command
+        let transfer = self.sdmmc.prepare_datapath_write(buffer, 512 * block_count as u32, 9);
+
+        #[cfg(sdmmc_v2)]
+        self.sdmmc.cmd(common_cmd::write_multiple_blocks(address), true)?; // CMD25
+
+        self.sdmmc.complete_datapath_transfer(transfer, false).await?;
+
+        self.sdmmc.cmd(common_cmd::stop_transmission(), false)?; // CMD12
+        self.sdmmc.clear_interrupt_flags();
+
+        on_drop.defuse();
+
+        // TODO: Make this configurable
+        let mut timeout: u32 = 0x00FF_FFFF;
+
+        while timeout > 0 {
+            let ready_for_data = self.sdmmc.read_status(&self.info)?.ready_for_data();
+
+            if ready_for_data {
+                return Ok(());
+            }
+            timeout -= 1;
+        }
+        Err(Error::SoftwareTimeout)
     }
 }
 
@@ -251,138 +769,6 @@ pub struct Card {
     pub scr: SCR,
     /// SD Status
     pub status: SDStatus,
-}
-
-impl Card {
-    /// Switch mode using CMD6.
-    ///
-    /// Attempt to set a new signalling mode. The selected
-    /// signalling mode is returned. Expects the current clock
-    /// frequency to be > 12.5MHz.
-    ///
-    /// SD only.
-    async fn switch_signalling_mode<'a>(
-        &mut self,
-        sdmmc: &mut Sdmmc<'a>,
-        cmd_block: &mut CmdBlock,
-        signalling: Signalling,
-    ) -> Result<Signalling, Error> {
-        // NB PLSS v7_10 4.3.10.4: "the use of SET_BLK_LEN command is not
-        // necessary"
-
-        let set_function = 0x8000_0000
-            | match signalling {
-                // See PLSS v7_10 Table 4-11
-                Signalling::DDR50 => 0xFF_FF04,
-                Signalling::SDR104 => 0xFF_1F03,
-                Signalling::SDR50 => 0xFF_1F02,
-                Signalling::SDR25 => 0xFF_FF01,
-                Signalling::SDR12 => 0xFF_FF00,
-            };
-
-        // Arm `OnDrop` after the buffer, so it will be dropped first
-        let on_drop = OnDrop::new(|| sdmmc.on_drop());
-
-        let transfer = sdmmc.prepare_datapath_read(&sdmmc.config, cmd_block.as_mut(), 64, 6);
-        sdmmc.enable_interrupts();
-        sdmmc.cmd(sd_cmd::cmd6(set_function), true)?; // CMD6
-
-        let res = sdmmc.complete_datapath_transfer(true).await;
-
-        // Host is allowed to use the new functions at least 8
-        // clocks after the end of the switch command
-        // transaction. We know the current clock period is < 80ns,
-        // so a total delay of 640ns is required here
-        for _ in 0..300 {
-            cortex_m::asm::nop();
-        }
-
-        match res {
-            Ok(_) => {
-                on_drop.defuse();
-                sdmmc.stop_datapath();
-                drop(transfer);
-
-                // Function Selection of Function Group 1
-                let selection = (u32::from_be(cmd_block[4]) >> 24) & 0xF;
-
-                match selection {
-                    0 => Ok(Signalling::SDR12),
-                    1 => Ok(Signalling::SDR25),
-                    2 => Ok(Signalling::SDR50),
-                    3 => Ok(Signalling::SDR104),
-                    4 => Ok(Signalling::DDR50),
-                    _ => Err(Error::UnsupportedCardType),
-                }
-            }
-            Err(e) => Err(e),
-        }
-    }
-
-    /// Reads the SCR register.
-    ///
-    /// SD only.
-    async fn get_scr<'a>(&mut self, sdmmc: &mut Sdmmc<'a>, cmd_block: &mut CmdBlock) -> Result<(), Error> {
-        // Read the 64-bit SCR register
-        sdmmc.cmd(common_cmd::set_block_length(8), false)?; // CMD16
-        sdmmc.cmd(common_cmd::app_cmd(self.rca), false)?;
-
-        let scr = &mut cmd_block.0[..2];
-
-        // Arm `OnDrop` after the buffer, so it will be dropped first
-        let on_drop = OnDrop::new(|| sdmmc.on_drop());
-
-        let transfer = sdmmc.prepare_datapath_read(&sdmmc.config, scr, 8, 3);
-        sdmmc.enable_interrupts();
-        sdmmc.cmd(sd_cmd::send_scr(), true)?;
-
-        let res = sdmmc.complete_datapath_transfer(true).await;
-
-        if res.is_ok() {
-            on_drop.defuse();
-            sdmmc.stop_datapath();
-            drop(transfer);
-
-            unsafe {
-                let scr_bytes = &*(&scr as *const _ as *const [u8; 8]);
-                self.scr = SCR(u64::from_be_bytes(*scr_bytes));
-            }
-        }
-        res
-    }
-
-    /// Reads the SD Status (ACMD13)
-    ///
-    /// SD only.
-    async fn read_sd_status<'a>(&mut self, sdmmc: &mut Sdmmc<'a>, cmd_block: &mut CmdBlock) -> Result<(), Error> {
-        let rca = self.rca;
-
-        sdmmc.cmd(common_cmd::set_block_length(64), false)?; // CMD16
-        sdmmc.cmd(common_cmd::app_cmd(rca), false)?; // APP
-
-        let status = cmd_block;
-
-        // Arm `OnDrop` after the buffer, so it will be dropped first
-        let on_drop = OnDrop::new(|| sdmmc.on_drop());
-
-        let transfer = sdmmc.prepare_datapath_read(&sdmmc.config, status.as_mut(), 64, 6);
-        sdmmc.enable_interrupts();
-        sdmmc.cmd(sd_cmd::sd_status(), true)?;
-
-        let res = sdmmc.complete_datapath_transfer(true).await;
-
-        if res.is_ok() {
-            on_drop.defuse();
-            sdmmc.stop_datapath();
-            drop(transfer);
-
-            for byte in status.iter_mut() {
-                *byte = u32::from_be(*byte);
-            }
-            self.status = status.0.into();
-        }
-        res
-    }
 }
 
 impl Addressable for Card {
@@ -419,40 +805,6 @@ pub struct Emmc {
     pub csd: CSD<EMMC>,
     /// Extended Card Specific Data
     pub ext_csd: ExtCSD,
-}
-
-impl Emmc {
-    /// Gets the EXT_CSD register.
-    ///
-    /// eMMC only.
-    async fn read_ext_csd<'a>(&mut self, sdmmc: &mut Sdmmc<'a>) -> Result<(), Error> {
-        // Note: cmd_block can't be used because ExtCSD is too long to fit.
-        let mut data_block = DataBlock([0u8; 512]);
-
-        // NOTE(unsafe) DataBlock uses align 4
-        let buffer = unsafe { &mut *((&mut data_block.0) as *mut [u8; 512] as *mut [u32; 128]) };
-
-        sdmmc.cmd(common_cmd::set_block_length(512), false).unwrap(); // CMD16
-
-        let transfer = sdmmc.prepare_datapath_read(&sdmmc.config, buffer, 512, 9);
-        sdmmc.enable_interrupts();
-        sdmmc.cmd(emmc_cmd::send_ext_csd(), true)?;
-
-        // Arm `OnDrop` after the buffer, so it will be dropped first
-        let on_drop = OnDrop::new(|| sdmmc.on_drop());
-
-        let res = sdmmc.complete_datapath_transfer(true).await;
-
-        if res.is_ok() {
-            on_drop.defuse();
-            sdmmc.stop_datapath();
-            drop(transfer);
-
-            self.ext_csd = unsafe { core::mem::transmute::<_, [u32; 128]>(data_block.0) }.into();
-        }
-
-        res
-    }
 }
 
 impl Addressable for Emmc {
@@ -516,6 +868,15 @@ fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(bool, u8, Hertz), Error> {
     Ok((false, clk_div, clk_f))
 }
 
+fn bus_width_vals(bus_width: BusWidth) -> (u8, u32) {
+    match bus_width {
+        BusWidth::One => (0, 1u32),
+        BusWidth::Four => (1, 4u32),
+        BusWidth::Eight => (2, 8u32),
+        _ => panic!("Invalid Bus Width"),
+    }
+}
+
 /// Calculate clock divisor. Returns a SDMMC_CK less than or equal to
 /// `sdmmc_ck` in Hertz.
 ///
@@ -576,25 +937,6 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             data_transfer_timeout: 5_000_000,
-        }
-    }
-}
-
-/// Peripheral that can be operated over SDMMC
-#[derive(Clone, Copy, Debug)]
-pub enum SdmmcPeripheral {
-    /// SD Card
-    SdCard(Card),
-    /// eMMC memory
-    Emmc(Emmc),
-}
-
-impl SdmmcPeripheral {
-    /// Get this peripheral's address on the SDMMC bus
-    fn get_address(&self) -> u16 {
-        match self {
-            Self::SdCard(c) => c.rca,
-            Self::Emmc(e) => e.rca,
         }
     }
 }
@@ -989,17 +1331,19 @@ impl<'d> Sdmmc<'d> {
         while self.data_active() || self.cmd_active() {}
     }
 
+    fn bus_width(&self) -> BusWidth {
+        match (self.d3.is_some(), self.d7.is_some()) {
+            (true, true) => BusWidth::Eight,
+            (true, false) => BusWidth::Four,
+            _ => BusWidth::One,
+        }
+    }
+
     /// # Safety
     ///
     /// `buffer` must be valid for the whole transfer and word aligned
     #[allow(unused_variables)]
-    fn prepare_datapath_read<'a>(
-        &'a self,
-        config: &Config,
-        buffer: &'a mut [u32],
-        length_bytes: u32,
-        block_size: u8,
-    ) -> Transfer<'a> {
+    fn prepare_datapath_read<'a>(&'a self, buffer: &'a mut [u32], length_bytes: u32, block_size: u8) -> Transfer<'a> {
         assert!(block_size <= 14, "Block size up to 2^14 bytes");
         let regs = self.info.regs;
 
@@ -1033,6 +1377,8 @@ impl<'d> Sdmmc<'d> {
                 w.set_dten(true);
             }
         });
+
+        self.enable_interrupts();
 
         transfer
     }
@@ -1075,6 +1421,8 @@ impl<'d> Sdmmc<'d> {
             }
         });
 
+        self.enable_interrupts();
+
         transfer
     }
 
@@ -1091,18 +1439,23 @@ impl<'d> Sdmmc<'d> {
         regs.idmactrlr().modify(|w| w.set_idmaen(false));
     }
 
-    /// Sets the CLKDIV field in CLKCR. Updates clock field in self
-    fn clkcr_set_clkdiv(&mut self, freq: u32, width: BusWidth) -> Result<(), Error> {
+    fn init_idle(&mut self) -> Result<(), Error> {
         let regs = self.info.regs;
 
-        let width_u32 = match width {
-            BusWidth::One => 1u32,
-            BusWidth::Four => 4u32,
-            BusWidth::Eight => 8u32,
-            _ => panic!("Invalid Bus Width"),
-        };
+        self.clkcr_set_clkdiv(SD_INIT_FREQ, BusWidth::One)?;
+        regs.dtimer()
+            .write(|w| w.set_datatime(self.config.data_transfer_timeout));
 
-        let (_bypass, clkdiv, new_clock) = clk_div(self.ker_clk, freq)?;
+        regs.power().modify(|w| w.set_pwrctrl(PowerCtrl::On as u8));
+        self.cmd(common_cmd::idle(), false)
+    }
+
+    /// Sets the CLKDIV field in CLKCR. Updates clock field in self
+    fn clkcr_set_clkdiv(&mut self, freq: Hertz, width: BusWidth) -> Result<(), Error> {
+        let regs = self.info.regs;
+
+        let (widbus, width_u32) = bus_width_vals(width);
+        let (_bypass, clkdiv, new_clock) = clk_div(self.ker_clk, freq.0)?;
 
         // Enforce AHB and SDMMC_CK clock relation. See RM0433 Rev 7
         // Section 55.5.8
@@ -1110,15 +1463,24 @@ impl<'d> Sdmmc<'d> {
         assert!(self.ker_clk.0 > 3 * sdmmc_bus_bandwidth / 32);
         self.clock = new_clock;
 
-        // CPSMACT and DPSMACT must be 0 to set CLKDIV
+        // CPSMACT and DPSMACT must be 0 to set CLKDIV or WIDBUS
         self.wait_idle();
         regs.clkcr().modify(|w| {
             w.set_clkdiv(clkdiv);
             #[cfg(sdmmc_v1)]
             w.set_bypass(_bypass);
+            w.set_widbus(widbus);
         });
 
         Ok(())
+    }
+
+    fn get_cid(&self) -> Result<u128, Error> {
+        self.cmd(common_cmd::all_send_cid(), false) // CMD2
+    }
+
+    fn get_csd(&self, address: u16) -> Result<u128, Error> {
+        self.cmd(common_cmd::send_csd(address), false)
     }
 
     /// Query the card status (CMD13, returns R1)
@@ -1126,13 +1488,9 @@ impl<'d> Sdmmc<'d> {
     where
         CardStatus<A::Ext>: From<u32>,
     {
-        let regs = self.info.regs;
         let rca = card.get_address();
 
-        self.cmd(common_cmd::card_status(rca, false), false)?; // CMD13
-
-        let r1 = regs.respr(0).read().cardstatus();
-        Ok(r1.into())
+        Ok(self.cmd(common_cmd::card_status(rca, false), false)?.into()) // CMD13
     }
 
     /// Select one card and place it into the _Tranfer State_
@@ -1143,11 +1501,17 @@ impl<'d> Sdmmc<'d> {
         // Determine Relative Card Address (RCA) of given card
         let rca = rca.unwrap_or(0);
 
-        let r = self.cmd(common_cmd::select_card(rca), false);
-        match (r, rca) {
-            (Err(Error::Timeout), 0) => Ok(()),
-            _ => r,
+        let resp = self.cmd(common_cmd::select_card(rca), false);
+
+        if let Err(Error::Timeout) = resp
+            && rca == 0
+        {
+            return Ok(());
         }
+
+        resp?;
+
+        Ok(())
     }
 
     /// Clear flags in interrupt clear register
@@ -1186,7 +1550,7 @@ impl<'d> Sdmmc<'d> {
 
     /// Send command to card
     #[allow(unused_variables)]
-    fn cmd<R: Resp>(&self, cmd: Cmd<R>, data: bool) -> Result<(), Error> {
+    fn cmd<R: TypedResp>(&self, cmd: Cmd<R>, data: bool) -> Result<R::Word, Error> {
         let regs = self.info.regs;
 
         self.clear_interrupt_flags();
@@ -1233,7 +1597,20 @@ impl<'d> Sdmmc<'d> {
         } else if status.ccrcfail() {
             return Err(Error::Crc);
         }
-        Ok(())
+
+        Ok(match R::LENGTH {
+            ResponseLen::Zero => U128(0u128),
+            ResponseLen::R48 => U128(self.info.regs.respr(0).read().cardstatus() as u128),
+            ResponseLen::R136 => {
+                let cid0 = self.info.regs.respr(0).read().cardstatus() as u128;
+                let cid1 = self.info.regs.respr(1).read().cardstatus() as u128;
+                let cid2 = self.info.regs.respr(2).read().cardstatus() as u128;
+                let cid3 = self.info.regs.respr(3).read().cardstatus() as u128;
+
+                U128((cid0 << 96) | (cid1 << 64) | (cid2 << 32) | (cid3))
+            }
+        }
+        .into())
     }
 
     fn on_drop(&self) {
@@ -1272,7 +1649,7 @@ impl<'d> Sdmmc<'d> {
     /// Wait for a previously started datapath transfer to complete from an interrupt.
     #[inline]
     #[allow(unused)]
-    async fn complete_datapath_transfer(&self, block: bool) -> Result<(), Error> {
+    async fn complete_datapath_transfer(&self, transfer: Transfer<'_>, block: bool) -> Result<(), Error> {
         let res = poll_fn(|cx| {
             // Compiler might not be sufficiently constrained here
             // https://github.com/embassy-rs/embassy/issues/4723
@@ -1307,497 +1684,16 @@ impl<'d> Sdmmc<'d> {
         .await;
 
         self.clear_interrupt_flags();
+        self.stop_datapath();
+
+        drop(transfer);
 
         res
-    }
-
-    /// Read a data block.
-    #[inline]
-    pub async fn read_block(
-        &mut self,
-        card: &mut impl Addressable,
-        block_idx: u32,
-        buffer: &mut DataBlock,
-    ) -> Result<(), Error> {
-        let _scoped_block_stop = self.info.rcc.block_stop();
-        let card_capacity = card.get_capacity();
-
-        // NOTE(unsafe) DataBlock uses align 4
-        let buffer = unsafe { &mut *((&mut buffer.0) as *mut [u8; 512] as *mut [u32; 128]) };
-
-        // Always read 1 block of 512 bytes
-        // SDSC cards are byte addressed hence the blockaddress is in multiples of 512 bytes
-        let address = match card_capacity {
-            CardCapacity::StandardCapacity => block_idx * 512,
-            _ => block_idx,
-        };
-        self.cmd(common_cmd::set_block_length(512), false)?; // CMD16
-
-        let on_drop = OnDrop::new(|| self.on_drop());
-
-        let transfer = self.prepare_datapath_read(&self.config, buffer, 512, 9);
-        self.enable_interrupts();
-        self.cmd(common_cmd::read_single_block(address), true)?;
-
-        let res = self.complete_datapath_transfer(true).await;
-
-        if res.is_ok() {
-            on_drop.defuse();
-            self.stop_datapath();
-            drop(transfer);
-        }
-        res
-    }
-
-    /// Read multiple data blocks.
-    #[inline]
-    pub async fn read_blocks(
-        &mut self,
-        card: &mut impl Addressable,
-        block_idx: u32,
-        blocks: &mut [DataBlock],
-    ) -> Result<(), Error> {
-        let _scoped_block_stop = self.info.rcc.block_stop();
-        let card_capacity = card.get_capacity();
-
-        // NOTE(unsafe) reinterpret buffer as &mut [u32]
-        let buffer = unsafe {
-            let ptr = blocks.as_mut_ptr() as *mut u32;
-            let len = blocks.len() * 128;
-            core::slice::from_raw_parts_mut(ptr, len)
-        };
-
-        // Always read 1 block of 512 bytes
-        // SDSC cards are byte addressed hence the blockaddress is in multiples of 512 bytes
-        let address = match card_capacity {
-            CardCapacity::StandardCapacity => block_idx * 512,
-            _ => block_idx,
-        };
-        self.cmd(common_cmd::set_block_length(512), false)?; // CMD16
-
-        let on_drop = OnDrop::new(|| self.on_drop());
-
-        let transfer = self.prepare_datapath_read(&self.config, buffer, 512 * blocks.len() as u32, 9);
-        self.enable_interrupts();
-
-        self.cmd(common_cmd::read_multiple_blocks(address), true)?;
-
-        let res = self.complete_datapath_transfer(false).await;
-
-        self.cmd(common_cmd::stop_transmission(), false)?; // CMD12
-        self.clear_interrupt_flags();
-
-        if res.is_ok() {
-            on_drop.defuse();
-            self.stop_datapath();
-            drop(transfer);
-        }
-        res
-    }
-
-    /// Write a data block.
-    pub async fn write_block<A: Addressable>(
-        &mut self,
-        card: &mut A,
-        block_idx: u32,
-        buffer: &DataBlock,
-    ) -> Result<(), Error>
-    where
-        CardStatus<A::Ext>: From<u32>,
-    {
-        let _scoped_block_stop = self.info.rcc.block_stop();
-
-        // NOTE(unsafe) DataBlock uses align 4
-        let buffer = unsafe { &*((&buffer.0) as *const [u8; 512] as *const [u32; 128]) };
-
-        // Always read 1 block of 512 bytes
-        //  cards are byte addressed hence the blockaddress is in multiples of 512 bytes
-        let address = match card.get_capacity() {
-            CardCapacity::StandardCapacity => block_idx * 512,
-            _ => block_idx,
-        };
-        self.cmd(common_cmd::set_block_length(512), false)?; // CMD16
-
-        let on_drop = OnDrop::new(|| self.on_drop());
-
-        // sdmmc_v1 uses different cmd/dma order than v2, but only for writes
-        #[cfg(sdmmc_v1)]
-        self.cmd(common_cmd::write_single_block(address), true)?;
-
-        let transfer = self.prepare_datapath_write(buffer, 512, 9);
-        self.enable_interrupts();
-
-        #[cfg(sdmmc_v2)]
-        self.cmd(common_cmd::write_single_block(address), true)?;
-
-        let res = self.complete_datapath_transfer(true).await;
-
-        match res {
-            Ok(_) => {
-                on_drop.defuse();
-                self.stop_datapath();
-                drop(transfer);
-
-                // TODO: Make this configurable
-                let mut timeout: u32 = 0x00FF_FFFF;
-
-                while timeout > 0 {
-                    let ready_for_data = self.read_status(card)?.ready_for_data();
-                    if ready_for_data {
-                        return Ok(());
-                    }
-                    timeout -= 1;
-                }
-                Err(Error::SoftwareTimeout)
-            }
-            Err(e) => Err(e),
-        }
-    }
-
-    /// Write multiple data blocks.
-    pub async fn write_blocks<A: Addressable>(
-        &mut self,
-        card: &mut A,
-        block_idx: u32,
-        blocks: &[DataBlock],
-    ) -> Result<(), Error>
-    where
-        CardStatus<A::Ext>: From<u32>,
-    {
-        let _scoped_block_stop = self.info.rcc.block_stop();
-
-        // NOTE(unsafe) reinterpret buffer as &[u32]
-        let buffer = unsafe {
-            let ptr = blocks.as_ptr() as *const u32;
-            let len = blocks.len() * 128;
-            core::slice::from_raw_parts(ptr, len)
-        };
-
-        // Always read 1 block of 512 bytes
-        // SDSC cards are byte addressed hence the blockaddress is in multiples of 512 bytes
-        let address = match card.get_capacity() {
-            CardCapacity::StandardCapacity => block_idx * 512,
-            _ => block_idx,
-        };
-
-        self.cmd(common_cmd::set_block_length(512), false)?; // CMD16
-
-        let block_count = blocks.len();
-
-        let on_drop = OnDrop::new(|| self.on_drop());
-
-        #[cfg(sdmmc_v1)]
-        self.cmd(common_cmd::write_multiple_blocks(address), true)?; // CMD25
-
-        // Setup write command
-        let transfer = self.prepare_datapath_write(buffer, 512 * block_count as u32, 9);
-        self.enable_interrupts();
-
-        #[cfg(sdmmc_v2)]
-        self.cmd(common_cmd::write_multiple_blocks(address), true)?; // CMD25
-
-        let res = self.complete_datapath_transfer(false).await;
-
-        self.cmd(common_cmd::stop_transmission(), false)?; // CMD12
-        self.clear_interrupt_flags();
-
-        match res {
-            Ok(_) => {
-                on_drop.defuse();
-                self.stop_datapath();
-                drop(transfer);
-
-                // TODO: Make this configurable
-                let mut timeout: u32 = 0x00FF_FFFF;
-
-                while timeout > 0 {
-                    let ready_for_data = self.read_status(card)?.ready_for_data();
-
-                    if ready_for_data {
-                        return Ok(());
-                    }
-                    timeout -= 1;
-                }
-                Err(Error::SoftwareTimeout)
-            }
-            Err(e) => Err(e),
-        }
     }
 
     /// Get the current SDMMC bus clock
     pub fn clock(&self) -> Hertz {
         self.clock
-    }
-
-    async fn init_internal(
-        &mut self,
-        cmd_block: &mut CmdBlock,
-        freq: Hertz,
-        card: &mut SdmmcPeripheral,
-    ) -> Result<(), Error> {
-        let _scoped_block_stop = self.info.rcc.block_stop();
-
-        let regs = self.info.regs;
-
-        let bus_width = match (self.d3.is_some(), self.d7.is_some()) {
-            (true, true) => {
-                if matches!(card, SdmmcPeripheral::SdCard(_)) {
-                    return Err(Error::BusWidth);
-                }
-                BusWidth::Eight
-            }
-            (true, false) => BusWidth::Four,
-            _ => BusWidth::One,
-        };
-
-        // While the SD/SDIO card or eMMC is in identification mode,
-        // the SDMMC_CK frequency must be no more than 400 kHz.
-        let (_bypass, clkdiv, init_clock) = unwrap!(clk_div(self.ker_clk, SD_INIT_FREQ.0));
-        self.clock = init_clock;
-
-        // CPSMACT and DPSMACT must be 0 to set WIDBUS
-        self.wait_idle();
-
-        regs.clkcr().modify(|w| {
-            w.set_widbus(0);
-            w.set_clkdiv(clkdiv);
-            #[cfg(sdmmc_v1)]
-            w.set_bypass(_bypass);
-        });
-        regs.dtimer()
-            .write(|w| w.set_datatime(self.config.data_transfer_timeout));
-
-        regs.power().modify(|w| w.set_pwrctrl(PowerCtrl::On as u8));
-        self.cmd(common_cmd::idle(), false)?;
-
-        match card {
-            SdmmcPeripheral::SdCard(card) => {
-                // Check if cards supports CMD8 (with pattern)
-                self.cmd(sd_cmd::send_if_cond(1, 0xAA), false)?;
-                let cic = CIC::from(regs.respr(0).read().cardstatus());
-
-                if cic.pattern() != 0xAA {
-                    return Err(Error::UnsupportedCardVersion);
-                }
-
-                if cic.voltage_accepted() & 1 == 0 {
-                    return Err(Error::UnsupportedVoltage);
-                }
-
-                let ocr = loop {
-                    // Signal that next command is a app command
-                    self.cmd(common_cmd::app_cmd(0), false)?; // CMD55
-
-                    // 3.2-3.3V
-                    let voltage_window = 1 << 5;
-                    // Initialize card
-                    match self.cmd(sd_cmd::sd_send_op_cond(true, false, true, voltage_window), false) {
-                        // ACMD41
-                        Ok(_) => (),
-                        Err(Error::Crc) => (),
-                        Err(err) => return Err(err),
-                    }
-                    let ocr: OCR<SD> = regs.respr(0).read().cardstatus().into();
-                    if !ocr.is_busy() {
-                        // Power up done
-                        break ocr;
-                    }
-                };
-
-                if ocr.high_capacity() {
-                    // Card is SDHC or SDXC or SDUC
-                    card.card_type = CardCapacity::HighCapacity;
-                } else {
-                    card.card_type = CardCapacity::StandardCapacity;
-                }
-                card.ocr = ocr;
-            }
-            SdmmcPeripheral::Emmc(emmc) => {
-                let ocr = loop {
-                    let high_voltage = 0b0 << 7;
-                    let access_mode = 0b10 << 29;
-                    let op_cond = high_voltage | access_mode | 0b1_1111_1111 << 15;
-                    // Initialize card
-                    match self.cmd(emmc_cmd::send_op_cond(op_cond), false) {
-                        Ok(_) => (),
-                        Err(Error::Crc) => (),
-                        Err(err) => return Err(err),
-                    }
-                    let ocr: OCR<EMMC> = regs.respr(0).read().cardstatus().into();
-                    if !ocr.is_busy() {
-                        // Power up done
-                        break ocr;
-                    }
-                };
-
-                emmc.capacity = if ocr.access_mode() == 0b10 {
-                    // Card is SDHC or SDXC or SDUC
-                    CardCapacity::HighCapacity
-                } else {
-                    CardCapacity::StandardCapacity
-                };
-                emmc.ocr = ocr;
-            }
-        }
-
-        self.cmd(common_cmd::all_send_cid(), false)?; // CMD2
-        let cid0 = regs.respr(0).read().cardstatus() as u128;
-        let cid1 = regs.respr(1).read().cardstatus() as u128;
-        let cid2 = regs.respr(2).read().cardstatus() as u128;
-        let cid3 = regs.respr(3).read().cardstatus() as u128;
-        let cid = (cid0 << 96) | (cid1 << 64) | (cid2 << 32) | (cid3);
-
-        match card {
-            SdmmcPeripheral::SdCard(card) => {
-                card.cid = cid.into();
-
-                self.cmd(sd_cmd::send_relative_address(), false)?;
-                let rca = RCA::<SD>::from(regs.respr(0).read().cardstatus());
-                card.rca = rca.address();
-            }
-            SdmmcPeripheral::Emmc(emmc) => {
-                emmc.cid = cid.into();
-
-                emmc.rca = 1u16.into();
-                self.cmd(emmc_cmd::assign_relative_address(emmc.rca), false)?;
-            }
-        }
-
-        self.cmd(common_cmd::send_csd(card.get_address()), false)?;
-        let csd0 = regs.respr(0).read().cardstatus() as u128;
-        let csd1 = regs.respr(1).read().cardstatus() as u128;
-        let csd2 = regs.respr(2).read().cardstatus() as u128;
-        let csd3 = regs.respr(3).read().cardstatus() as u128;
-        let csd = (csd0 << 96) | (csd1 << 64) | (csd2 << 32) | (csd3);
-
-        self.select_card(Some(card.get_address()))?;
-
-        let bus_width = match card {
-            SdmmcPeripheral::SdCard(card) => {
-                card.csd = csd.into();
-
-                card.get_scr(self, cmd_block).await?;
-
-                if !card.scr.bus_width_four() {
-                    BusWidth::One
-                } else {
-                    BusWidth::Four
-                }
-            }
-            SdmmcPeripheral::Emmc(emmc) => {
-                emmc.csd = csd.into();
-
-                bus_width
-            }
-        };
-
-        // Set bus width
-        let widbus = match bus_width {
-            BusWidth::Eight => 2,
-            BusWidth::Four => 1,
-            BusWidth::One => 0,
-            _ => unreachable!(),
-        };
-
-        match card {
-            SdmmcPeripheral::SdCard(card) => {
-                let acmd_arg = match bus_width {
-                    BusWidth::Four if card.scr.bus_width_four() => 2,
-                    _ => 0,
-                };
-                self.cmd(common_cmd::app_cmd(card.rca), false)?;
-                self.cmd(sd_cmd::cmd6(acmd_arg), false)?;
-            }
-            SdmmcPeripheral::Emmc(emmc) => {
-                // Write bus width to ExtCSD byte 183
-                self.cmd(
-                    emmc_cmd::modify_ext_csd(emmc_cmd::AccessMode::WriteByte, 183, widbus),
-                    false,
-                )?;
-
-                // Wait for ready after R1b response
-                loop {
-                    let status = self.read_status(emmc)?;
-
-                    if status.ready_for_data() {
-                        break;
-                    }
-                }
-            }
-        }
-
-        // CPSMACT and DPSMACT must be 0 to set WIDBUS
-        self.wait_idle();
-
-        regs.clkcr().modify(|w| w.set_widbus(widbus));
-
-        // Set Clock
-        if freq.0 <= 25_000_000 {
-            // Final clock frequency
-            self.clkcr_set_clkdiv(freq.0, bus_width)?;
-        } else {
-            // Switch to max clock for SDR12
-            self.clkcr_set_clkdiv(25_000_000, bus_width)?;
-        }
-
-        match card {
-            SdmmcPeripheral::SdCard(card) => {
-                // Read status
-                card.read_sd_status(self, cmd_block).await?;
-
-                if freq.0 > 25_000_000 {
-                    // Switch to SDR25
-                    self.signalling = card.switch_signalling_mode(self, cmd_block, Signalling::SDR25).await?;
-
-                    if self.signalling == Signalling::SDR25 {
-                        // Set final clock frequency
-                        self.clkcr_set_clkdiv(freq.0, bus_width)?;
-
-                        if self.read_status(card)?.state() != CurrentState::Transfer {
-                            return Err(Error::SignalingSwitchFailed);
-                        }
-                    }
-                }
-
-                // Read status after signalling change
-                card.read_sd_status(self, cmd_block).await?;
-            }
-            SdmmcPeripheral::Emmc(emmc) => {
-                emmc.read_ext_csd(self).await?;
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Initializes card (if present) and sets the bus at the specified frequency.
-    ///
-    /// SD only.
-    async fn init_sd_card(&mut self, cmd_block: &mut CmdBlock, freq: Hertz) -> Result<Card, Error> {
-        let mut card = SdmmcPeripheral::SdCard(Card::default());
-        self.init_internal(cmd_block, freq, &mut card).await?;
-
-        let card = match card {
-            SdmmcPeripheral::SdCard(card) => card,
-            _ => unreachable!(),
-        };
-
-        Ok(card)
-    }
-
-    /// Initializes eMMC and sets the bus at the specified frequency.
-    ///
-    /// eMMC only.
-    async fn init_emmc(&mut self, cmd_block: &mut CmdBlock, freq: Hertz) -> Result<Emmc, Error> {
-        let mut card = SdmmcPeripheral::Emmc(Emmc::default());
-        self.init_internal(cmd_block, freq, &mut card).await?;
-
-        let card = match card {
-            SdmmcPeripheral::Emmc(card) => card,
-            _ => unreachable!(),
-        };
-
-        Ok(card)
     }
 }
 
