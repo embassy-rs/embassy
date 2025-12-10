@@ -2,16 +2,14 @@
 use core::marker::PhantomData;
 
 use embassy_hal_internal::{Peri, PeripheralType};
-
-use crate::gpio::{GpioPin, SealedPin};
-use crate::interrupt::typelevel::{Handler, Interrupt};
-use crate::pac;
 use maitake_sync::WaitCell;
 use paste::paste;
 
 use crate::clocks::periph_helpers::{AdcClockSel, AdcConfig, Div4};
 use crate::clocks::{ClockError, Gate, PoweredClock, enable_and_reset};
-
+use crate::gpio::{GpioPin, SealedPin};
+use crate::interrupt::typelevel::{Handler, Interrupt};
+use crate::pac;
 use crate::pac::adc1::cfg::{HptExdi, Pwrsel, Refsel, Tcmdres, Tprictrl, Tres};
 use crate::pac::adc1::cmdh1::{Avgs, Cmpen, Next, Sts};
 use crate::pac::adc1::cmdl1::{Adch, Mode};
