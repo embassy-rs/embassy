@@ -17,6 +17,7 @@ pub mod i2c;
 pub mod interrupt;
 pub mod lpuart;
 pub mod ostimer;
+pub mod reset_reason;
 pub mod rtc;
 
 pub use crate::pac::NVIC_PRIO_BITS;
