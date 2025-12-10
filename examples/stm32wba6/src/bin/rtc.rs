@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 
-// use chrono::{NaiveDate, NaiveDateTime};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
