@@ -2,13 +2,15 @@
 #![no_main]
 
 use embassy_executor::Spawner;
+use embassy_mcxa::adc::{ConvCommandConfig, ConvTriggerConfig};
+use embassy_time::{Duration, Ticker};
 use hal::adc::{Adc, LpadcConfig, TriggerPriorityPolicy};
 use hal::clocks::PoweredClock;
 use hal::clocks::config::Div8;
 use hal::clocks::periph_helpers::{AdcClockSel, Div4};
 use hal::config::Config;
 use hal::pac::adc1::cfg::{Pwrsel, Refsel};
-use hal::pac::adc1::cmdl1::{Adch, Mode};
+use hal::pac::adc1::cmdl1::Mode;
 use hal::pac::adc1::ctrl::CalAvgs;
 use hal::pac::adc1::tctrl::Tcmd;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
@@ -34,7 +36,6 @@ async fn main(_spawner: Spawner) {
         trigger_priority_policy: TriggerPriorityPolicy::ConvPreemptImmediatelyNotAutoResumed,
         enable_conv_pause: false,
         conv_pause_delay: 0,
-        fifo_watermark: 0,
         power: PoweredClock::NormalEnabledDeepSleepDisabled,
         source: AdcClockSel::FroLfDiv,
         div: Div4::no_div(),
@@ -44,20 +45,25 @@ async fn main(_spawner: Spawner) {
     adc.do_offset_calibration();
     adc.do_auto_calibration();
 
-    let mut conv_command_config = adc.get_default_conv_command_config();
-    conv_command_config.channel_number = Adch::SelectCorrespondingChannel8;
-    conv_command_config.conversion_resolution_mode = Mode::Data16Bits;
+    let conv_command_config = ConvCommandConfig {
+        conversion_resolution_mode: Mode::Data16Bits,
+        ..ConvCommandConfig::default()
+    };
     adc.set_conv_command_config(1, &conv_command_config).unwrap();
 
-    let mut conv_trigger_config = adc.get_default_conv_trigger_config();
-    conv_trigger_config.target_command_id = Tcmd::ExecuteCmd1;
-    conv_trigger_config.enable_hardware_trigger = false;
-    adc.set_conv_trigger_config(0, &conv_trigger_config);
+    let conv_trigger_config = ConvTriggerConfig {
+        target_command_id: Tcmd::ExecuteCmd1,
+        enable_hardware_trigger: false,
+        ..Default::default()
+    };
+    adc.set_conv_trigger_config(0, &conv_trigger_config).unwrap();
 
     defmt::info!("=== ADC configuration done... ===");
+    let mut tick = Ticker::every(Duration::from_millis(100));
 
     loop {
-        adc.do_software_trigger(1);
+        tick.next().await;
+        adc.do_software_trigger(1).unwrap();
         let result = loop {
             match adc.get_conv_result() {
                 Ok(res) => break res,
