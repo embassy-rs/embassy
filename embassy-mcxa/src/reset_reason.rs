@@ -7,47 +7,45 @@
 /// Reads the most recent reset reason from the Core Mode Controller
 /// (CMC).
 pub fn reset_reason() -> ResetReason {
-    critical_section::with(|_| {
-        let regs = unsafe { &*crate::pac::Cmc::steal() };
+    let regs = unsafe { &*crate::pac::Cmc::steal() };
 
-        let srs = regs.srs().read();
+    let srs = regs.srs().read();
 
-        if srs.wakeup().is_enabled() {
-            ResetReason::WakeUp
-        } else if srs.por().bit_is_set() {
-            ResetReason::Por
-        } else if srs.vd().bit_is_set() {
-            ResetReason::VoltageDetect
-        } else if srs.warm().bit_is_set() {
-            ResetReason::Warm
-        } else if srs.fatal().bit_is_set() {
-            ResetReason::Fatal
-        } else if srs.pin().bit_is_set() {
-            ResetReason::Pin
-        } else if srs.dap().bit_is_set() {
-            ResetReason::Dap
-        } else if srs.rstack().bit_is_set() {
-            ResetReason::ResetAckTimeout
-        } else if srs.lpack().bit_is_set() {
-            ResetReason::LowPowerAckTimeout
-        } else if srs.scg().bit_is_set() {
-            ResetReason::SystemClockGeneration
-        } else if srs.wwdt0().bit_is_set() {
-            ResetReason::Wwdt0
-        } else if srs.sw().bit_is_set() {
-            ResetReason::Software
-        } else if srs.lockup().bit_is_set() {
-            ResetReason::Lockup
-        } else if srs.cdog0().bit_is_set() {
-            ResetReason::Cdog0
-        } else if srs.cdog1().bit_is_set() {
-            ResetReason::Cdog1
-        } else if srs.jtag().bit_is_set() {
-            ResetReason::Jtag
-        } else {
-            ResetReason::Tamper
-        }
-    })
+    if srs.wakeup().is_enabled() {
+        ResetReason::WakeUp
+    } else if srs.por().bit_is_set() {
+        ResetReason::Por
+    } else if srs.vd().bit_is_set() {
+        ResetReason::VoltageDetect
+    } else if srs.warm().bit_is_set() {
+        ResetReason::Warm
+    } else if srs.fatal().bit_is_set() {
+        ResetReason::Fatal
+    } else if srs.pin().bit_is_set() {
+        ResetReason::Pin
+    } else if srs.dap().bit_is_set() {
+        ResetReason::Dap
+    } else if srs.rstack().bit_is_set() {
+        ResetReason::ResetAckTimeout
+    } else if srs.lpack().bit_is_set() {
+        ResetReason::LowPowerAckTimeout
+    } else if srs.scg().bit_is_set() {
+        ResetReason::SystemClockGeneration
+    } else if srs.wwdt0().bit_is_set() {
+        ResetReason::Wwdt0
+    } else if srs.sw().bit_is_set() {
+        ResetReason::Software
+    } else if srs.lockup().bit_is_set() {
+        ResetReason::Lockup
+    } else if srs.cdog0().bit_is_set() {
+        ResetReason::Cdog0
+    } else if srs.cdog1().bit_is_set() {
+        ResetReason::Cdog1
+    } else if srs.jtag().bit_is_set() {
+        ResetReason::Jtag
+    } else {
+        ResetReason::Tamper
+    }
 }
 
 /// Indicates the type and source of the most recent reset.
