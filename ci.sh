@@ -67,6 +67,8 @@ rm out/tests/rpi-pico/pwm
 rm out/tests/rpi-pico/cyw43-perf
 rm out/tests/rpi-pico/uart_buffered
 
+rm out/tests/stm32h563zi/usart_dma
+
 # tests are implemented but the HIL test farm doesn't actually have these boards, yet
 rm -rf out/tests/stm32c071rb
 rm -rf out/tests/stm32f100rd

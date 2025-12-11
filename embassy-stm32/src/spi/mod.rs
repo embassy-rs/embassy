@@ -64,6 +64,16 @@ pub enum Direction {
     Receive,
 }
 
+/// Slave Select (SS) pin polarity.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SlaveSelectPolarity {
+    /// SS active high
+    ActiveHigh,
+    /// SS active low
+    ActiveLow,
+}
+
 /// SPI configuration.
 #[non_exhaustive]
 #[derive(Copy, Clone)]
@@ -86,6 +96,9 @@ pub struct Config {
     /// NSS output enabled (SSM = 0, SSOE = 1): The NSS signal is driven low when the master starts the communication and is kept low until the SPI is disabled.
     /// NSS output disabled (SSM = 0, SSOE = 0): For devices set as slave, the NSS pin acts as a classical NSS input: the slave is selected when NSS is low and deselected when NSS high.
     pub nss_output_disable: bool,
+    /// Slave Select (SS) pin polarity.
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    pub nss_polarity: SlaveSelectPolarity,
 }
 
 impl Default for Config {
@@ -97,6 +110,8 @@ impl Default for Config {
             miso_pull: Pull::None,
             gpio_speed: Speed::VeryHigh,
             nss_output_disable: false,
+            #[cfg(any(spi_v4, spi_v5, spi_v6))]
+            nss_polarity: SlaveSelectPolarity::ActiveHigh,
         }
     }
 }
@@ -120,6 +135,14 @@ impl Config {
         match self.bit_order {
             BitOrder::LsbFirst => vals::Lsbfirst::LSBFIRST,
             BitOrder::MsbFirst => vals::Lsbfirst::MSBFIRST,
+        }
+    }
+
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    fn raw_nss_polarity(&self) -> vals::Ssiop {
+        match self.nss_polarity {
+            SlaveSelectPolarity::ActiveHigh => vals::Ssiop::ACTIVE_HIGH,
+            SlaveSelectPolarity::ActiveLow => vals::Ssiop::ACTIVE_LOW,
         }
     }
 
@@ -305,6 +328,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         {
             let ssoe = CM::MASTER == vals::Master::MASTER && !config.nss_output_disable;
+            let ssiop = config.raw_nss_polarity();
             regs.ifcr().write(|w| w.0 = 0xffff_ffff);
             regs.cfg2().modify(|w| {
                 w.set_ssoe(ssoe);
@@ -318,7 +342,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
                 w.set_midi(0);
                 w.set_mssi(0);
                 w.set_afcntr(true);
-                w.set_ssiop(vals::Ssiop::ACTIVE_HIGH);
+                w.set_ssiop(ssiop);
             });
             regs.cfg1().modify(|w| {
                 w.set_crcen(false);
@@ -366,6 +390,8 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
 
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         {
+            let ssiop = config.raw_nss_polarity();
+
             self.info.regs.cr1().modify(|w| {
                 w.set_spe(false);
             });
@@ -374,6 +400,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
                 w.set_lsbfirst(lsbfirst);
+                w.set_ssiop(ssiop);
             });
             self.info.regs.cfg1().modify(|w| {
                 w.set_mbr(br);
@@ -446,6 +473,13 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         // NSS output disabled if SSOE=0 or if SSM=1 software slave management enabled
         let nss_output_disable = !ssoe || cfg.ssm();
 
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        let nss_polarity = if cfg.ssiop() == vals::Ssiop::ACTIVE_LOW {
+            SlaveSelectPolarity::ActiveLow
+        } else {
+            SlaveSelectPolarity::ActiveHigh
+        };
+
         Config {
             mode: Mode { polarity, phase },
             bit_order,
@@ -453,6 +487,8 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
             miso_pull,
             gpio_speed: self.gpio_speed,
             nss_output_disable,
+            #[cfg(any(spi_v4, spi_v5, spi_v6))]
+            nss_polarity,
         }
     }
 
@@ -769,7 +805,7 @@ impl<'d> Spi<'d, Async, Master> {
         )
     }
 
-    /// Create a new SPI driver, in bidirectional mode, specifically in tranmit mode    
+    /// Create a new SPI driver, in bidirectional mode, specifically in tranmit mode
     #[cfg(any(spi_v1, spi_v2, spi_v3))]
     pub fn new_bidi<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,

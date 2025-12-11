@@ -8,7 +8,6 @@
 pub mod clocks; // still provide clock helpers
 pub mod dma;
 pub mod gpio;
-pub mod pins; // pin mux helpers
 
 pub mod adc;
 pub mod clkout;
@@ -18,15 +17,19 @@ pub mod i2c;
 pub mod interrupt;
 pub mod lpuart;
 pub mod ostimer;
+pub mod reset_reason;
 pub mod rtc;
 pub mod trng;
 
+use crate::interrupt::InterruptExt;
 pub use crate::pac::NVIC_PRIO_BITS;
 
 #[rustfmt::skip]
 embassy_hal_internal::peripherals!(
     ADC0,
     ADC1,
+    ADC2,
+    ADC3,
 
     AOI0,
     AOI1,
@@ -337,9 +340,6 @@ embassy_hal_internal::peripherals!(
 // Use cortex-m-rt's #[interrupt] attribute directly; PAC does not re-export it.
 
 // Re-export interrupt traits and types
-pub use adc::Adc1 as Adc1Token;
-pub use gpio::{AnyPin, Flex, Gpio as GpioToken, Input, Level, Output};
-pub use interrupt::InterruptExt;
 #[cfg(feature = "unstable-pac")]
 pub use mcxa_pac as pac;
 #[cfg(not(feature = "unstable-pac"))]
@@ -354,8 +354,6 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
     crate::interrupt::OS_EVENT.set_priority(cfg.time_interrupt_priority);
     // Apply user-configured priority early; enabling is left to examples/apps
     crate::interrupt::RTC.set_priority(cfg.rtc_interrupt_priority);
-    // Apply user-configured priority early; enabling is left to examples/apps
-    crate::interrupt::ADC1.set_priority(cfg.adc_interrupt_priority);
     // Apply user-configured priority early; enabling is left to examples/apps
     crate::interrupt::GPIO0.set_priority(cfg.gpio_interrupt_priority);
     // Apply user-configured priority early; enabling is left to examples/apps

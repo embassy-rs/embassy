@@ -8,9 +8,9 @@ use embassy_hal_internal::drop::OnDrop;
 use mcxa_pac::lpi2c0::mtdr::Cmd;
 
 use super::{Async, Blocking, Error, Instance, InterruptHandler, Mode, Result, SclPin, SdaPin};
-use crate::AnyPin;
 use crate::clocks::periph_helpers::{Div4, Lpi2cClockSel, Lpi2cConfig};
 use crate::clocks::{PoweredClock, enable_and_reset};
+use crate::gpio::AnyPin;
 use crate::interrupt::typelevel::Interrupt;
 
 /// Bus speed (nominal SCL, no clock stretching)

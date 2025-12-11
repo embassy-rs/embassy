@@ -200,11 +200,11 @@ aligned = "0.4.1"
 heapless = "0.9.1"
 
 #stm32-metapac = { version = "18" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-f61ed017ef12ec84ff04c49e3147694bda3b29cb" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-497fb3042b49b765d8974aac87b8ab4fa3566d74" }
 
 [build-dependencies]
 #stm32-metapac = { version = "18", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-f61ed017ef12ec84ff04c49e3147694bda3b29cb", default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-497fb3042b49b765d8974aac87b8ab4fa3566d74", default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.36"
 quote = "1.0.15"

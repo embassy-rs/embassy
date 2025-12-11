@@ -98,7 +98,7 @@ async fn main(spawner: Spawner) {
         {
             Ok(_) => break,
             Err(err) => {
-                panic!("join failed with status={}", err.status);
+                panic!("join failed: {:?}", err);
             }
         }
     }

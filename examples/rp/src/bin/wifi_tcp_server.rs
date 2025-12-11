@@ -101,7 +101,7 @@ async fn main(spawner: Spawner) {
         .join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()))
         .await
     {
-        info!("join failed with status={}", err.status);
+        info!("join failed: {:?}", err);
     }
 
     info!("waiting for link...");
