@@ -952,4 +952,6 @@ pub(crate) mod gate {
 
     // DMA0 peripheral - uses NoConfig since it has no selectable clock source
     impl_cc_gate!(DMA0, mrcc_glb_cc0, mrcc_glb_rst0, dma0, NoConfig);
+    // TRNG peripheral - uses NoConfig since it has no selectable clock source
+    impl_cc_gate!(TRNG0, mrcc_glb_cc1, mrcc_glb_rst1, trng0, NoConfig);
 }

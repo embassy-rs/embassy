@@ -19,6 +19,7 @@ pub mod lpuart;
 pub mod ostimer;
 pub mod reset_reason;
 pub mod rtc;
+pub mod trng;
 
 use crate::interrupt::InterruptExt;
 pub use crate::pac::NVIC_PRIO_BITS;

@@ -38,6 +38,7 @@ mod generated {
         LPUART5,
         OS_EVENT,
         RTC,
+        TRNG0
     );
 }
 
