@@ -203,7 +203,7 @@ pub fn get_default_config() -> RtcConfig {
 }
 /// Minimal RTC handle for a specific instance I (store the zero-sized token like embassy)
 pub struct Rtc<'a> {
-    _inst: core::marker::PhantomData<&'a ()>,
+    _inst: core::marker::PhantomData<&'a mut ()>,
     info: &'static pac::rtc0::RegisterBlock,
 }
 
