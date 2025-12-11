@@ -177,6 +177,8 @@ impl<'d> Trng<'d> {
         regs().mctl().modify(|_, w| w.prgm().disable());
 
         let _ = regs().ent(7).read().bits();
+
+        Self::start();
     }
 
     fn start() {
@@ -188,7 +190,11 @@ impl<'d> Trng<'d> {
     }
 
     fn blocking_wait_for_generation() {
-        while regs().mctl().read().ent_val().bit_is_clear() {}
+        while regs().mctl().read().ent_val().bit_is_clear() {
+            if regs().mctl().read().err().bit_is_set() {
+                regs().mctl().modify(|_, w| w.err().clear_bit_by_one());
+            }
+        }
     }
 
     fn fill_chunk(chunk: &mut [u8]) {
@@ -211,45 +217,36 @@ impl<'d> Trng<'d> {
             return; // nothing to fill
         }
 
-        Self::start();
         for chunk in buf.chunks_mut(32) {
             Self::blocking_wait_for_generation();
             Self::fill_chunk(chunk);
         }
-        Self::stop();
     }
 
     /// Return a random u32, blocking version.
     pub fn blocking_next_u32(&mut self) -> u32 {
-        Self::start();
         Self::blocking_wait_for_generation();
-        let result = regs().ent(0).read().bits();
-
         // New random bytes are generated only after reading ENT7
-        let _ = regs().ent(7).read().bits();
-        Self::stop();
-
-        result
+        regs().ent(7).read().bits()
     }
 
     /// Return a random u64, blocking version.
     pub fn blocking_next_u64(&mut self) -> u64 {
-        Self::start();
         Self::blocking_wait_for_generation();
 
-        let mut result = u64::from(regs().ent(0).read().bits()) << 32;
-        result |= u64::from(regs().ent(1).read().bits());
-
+        let mut result = u64::from(regs().ent(6).read().bits()) << 32;
         // New random bytes are generated only after reading ENT7
-        let _ = regs().ent(7).read().bits();
-        Self::stop();
-
+        result |= u64::from(regs().ent(7).read().bits());
         result
     }
 }
 
 impl Drop for Trng<'_> {
     fn drop(&mut self) {
+        // wait until allowed to stop
+        while regs().mctl().read().tstop_ok().bit_is_clear() {}
+        // stop
+        Self::stop();
         // reset the TRNG
         regs().mctl().write(|w| w.rst_def().set_bit());
     }
@@ -394,10 +391,8 @@ impl<'d> AsyncTrng<'d> {
     pub async fn async_next_u32(&mut self) -> Result<u32, Error> {
         Trng::start();
         Self::wait_for_generation().await?;
-        let result = regs().ent(0).read().bits();
-
         // New random bytes are generated only after reading ENT7
-        let _ = regs().ent(7).read().bits();
+        let result = regs().ent(7).read().bits();
         Trng::stop();
 
         Ok(result)
@@ -408,11 +403,10 @@ impl<'d> AsyncTrng<'d> {
         Trng::start();
         Self::wait_for_generation().await?;
 
-        let mut result = u64::from(regs().ent(0).read().bits()) << 32;
-        result |= u64::from(regs().ent(1).read().bits());
-
+        let mut result = u64::from(regs().ent(6).read().bits()) << 32;
         // New random bytes are generated only after reading ENT7
-        let _ = regs().ent(7).read().bits();
+        result |= u64::from(regs().ent(7).read().bits());
+
         Trng::stop();
 
         Ok(result)
@@ -508,7 +502,6 @@ impl Handler<typelevel::TRNG0> for InterruptHandler {
                     .intg_flt()
                     .clear_bit()
             });
-
             WAIT_CELL.wake();
         }
     }
