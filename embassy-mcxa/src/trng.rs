@@ -1,7 +1,7 @@
 //! True Random Number Generator
 
-use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_hal_internal::Peri;
+use embassy_hal_internal::interrupt::InterruptExt;
 use maitake_sync::WaitCell;
 use mcxa_pac::trng0::osc2_ctl::TrngEntCtl;
 
