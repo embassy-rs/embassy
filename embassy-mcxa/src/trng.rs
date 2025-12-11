@@ -448,7 +448,7 @@ pub enum Error {
     InvalidBuffer,
 }
 
-/// I2C interrupt handler.
+/// TRNG interrupt handler.
 pub struct InterruptHandler;
 
 impl Handler<typelevel::TRNG0> for InterruptHandler {
