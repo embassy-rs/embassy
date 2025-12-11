@@ -173,20 +173,29 @@ pub struct InterruptHandler<I: Instance> {
 }
 
 /// ADC driver instance.
-pub struct Adc<'a, I: Instance, M: ModeAdc> {
-    _inst: PhantomData<&'a mut I>,
-    _phantom: PhantomData<M>,
-    index: u8,
+pub struct Adc<'a, M: ModeAdc> {
+    _inst: PhantomData<&'a mut ()>,
+    mode: M,
+
+    // The channel index of the pin used to create our ADC instance
+    channel_idx: u8,
+
+    // The register block of the ADC instance
+    info: &'static pac::adc0::RegisterBlock,
 }
 
-impl<'a, I: Instance> Adc<'a, I, Blocking> {
+impl<'a> Adc<'a, Blocking> {
     /// Create a new blocking instance of the ADC driver.
     /// # Arguments
     /// * `_inst` - ADC peripheral instance
     /// * `pin` - GPIO pin to use for ADC
     /// * `config` - ADC configuration
-    pub fn new_blocking(_inst: Peri<'a, I>, pin: Peri<'a, impl AdcPin<I>>, config: LpadcConfig) -> Result<Self> {
-        Self::new_inner(_inst, pin, config)
+    pub fn new_blocking<I: Instance>(
+        _inst: Peri<'a, I>,
+        pin: Peri<'a, impl AdcPin<I>>,
+        config: LpadcConfig,
+    ) -> Result<Self> {
+        Self::new_inner(_inst, pin, config, Blocking)
     }
 
     /// Enable ADC interrupts.
@@ -196,8 +205,7 @@ impl<'a, I: Instance> Adc<'a, I, Blocking> {
     /// # Arguments
     /// * `mask` - Bitmask of interrupt sources to enable
     pub fn enable_interrupt(&mut self, mask: u32) {
-        let adc = I::ptr();
-        adc.ie().modify(|r, w| unsafe { w.bits(r.bits() | mask) });
+        self.info.ie().modify(|r, w| unsafe { w.bits(r.bits() | mask) });
     }
 
     /// Disable ADC interrupts.
@@ -207,15 +215,14 @@ impl<'a, I: Instance> Adc<'a, I, Blocking> {
     /// # Arguments
     /// * `mask` - Bitmask of interrupt sources to disable
     pub fn disable_interrupt(&mut self, mask: u32) {
-        let adc = I::ptr();
-        adc.ie().modify(|r, w| unsafe { w.bits(r.bits() & !mask) });
+        self.info.ie().modify(|r, w| unsafe { w.bits(r.bits() & !mask) });
     }
 
     pub fn set_fifo_watermark(&mut self, watermark: u8) -> Result<()> {
         if watermark > 0b111 {
             return Err(Error::InvalidConfig);
         }
-        I::ptr().fctrl0().modify(|_r, w| unsafe { w.fwmark().bits(watermark) });
+        self.info.fctrl0().modify(|_r, w| unsafe { w.fwmark().bits(watermark) });
         Ok(())
     }
 
@@ -234,8 +241,7 @@ impl<'a, I: Instance> Adc<'a, I, Blocking> {
         if trigger_id_mask > 0b1111 {
             return Err(Error::InvalidConfig);
         }
-        let adc = I::ptr();
-        adc.swtrig().write(|w| unsafe { w.bits(trigger_id_mask as u32) });
+        self.info.swtrig().write(|w| unsafe { w.bits(trigger_id_mask as u32) });
         Ok(())
     }
 
@@ -271,8 +277,7 @@ impl<'a, I: Instance> Adc<'a, I, Blocking> {
     ///
     /// Clears all pending conversion results from the FIFO.
     pub fn do_reset_fifo(&self) {
-        let adc = I::ptr();
-        adc.ctrl().modify(|_, w| w.rstfifo0().trigger_reset());
+        self.info.ctrl().modify(|_, w| w.rstfifo0().trigger_reset());
     }
 
     /// Get conversion result from FIFO.
@@ -288,7 +293,7 @@ impl<'a, I: Instance> Adc<'a, I, Blocking> {
     }
 }
 
-impl<'a, I: Instance> Adc<'a, I, Async> {
+impl<'a> Adc<'a, Async> {
     /// Initialize ADC with interrupt support.
     ///
     /// # Arguments
@@ -296,13 +301,13 @@ impl<'a, I: Instance> Adc<'a, I, Async> {
     /// * `pin` - GPIO pin to use for ADC
     /// * `_irq` - Interrupt binding for this ADC instance
     /// * `config` - ADC configuration
-    pub fn new_async(
+    pub fn new_async<I: Instance>(
         _inst: Peri<'a, I>,
         pin: Peri<'a, impl AdcPin<I>>,
         _irq: impl crate::interrupt::typelevel::Binding<I::Interrupt, InterruptHandler<I>> + 'a,
         config: LpadcConfig,
     ) -> Result<Self> {
-        let adc = Self::new_inner(_inst, pin, config)?;
+        let adc = Self::new_inner(_inst, pin, config, Async { waiter: I::wait_cell() })?;
 
         I::Interrupt::unpend();
         unsafe { I::Interrupt::enable() };
@@ -343,24 +348,26 @@ impl<'a, I: Instance> Adc<'a, I, Async> {
     pub fn set_averages(&mut self, avgs: Avgs) {
         // TODO: we should probably return a result or wait for idle?
         // "A write to a CMD buffer while that CMD buffer is controlling the ADC operation may cause unpredictable behavior."
-        I::ptr().cmdh1().modify(|_r, w| w.avgs().variant(avgs));
+        self.info.cmdh1().modify(|_r, w| w.avgs().variant(avgs));
     }
 
     /// Set the sample time
     pub fn set_sample_time(&mut self, st: Sts) {
         // TODO: we should probably return a result or wait for idle?
         // "A write to a CMD buffer while that CMD buffer is controlling the ADC operation may cause unpredictable behavior."
-        I::ptr().cmdh1().modify(|_r, w| w.sts().variant(st));
+        self.info.cmdh1().modify(|_r, w| w.sts().variant(st));
     }
 
     pub fn set_resolution(&mut self, mode: Mode) {
         // TODO: we should probably return a result or wait for idle?
         // "A write to a CMD buffer while that CMD buffer is controlling the ADC operation may cause unpredictable behavior."
-        I::ptr().cmdl1().modify(|_r, w| w.mode().variant(mode));
+        self.info.cmdl1().modify(|_r, w| w.mode().variant(mode));
     }
 
-    fn wait_idle(&mut self) -> impl Future<Output = core::result::Result<(), maitake_sync::Closed>> + use<'_, I> {
-        I::wait_cell().wait_for(|| I::ptr().ie().read().fwmie0().bit_is_clear())
+    fn wait_idle(&mut self) -> impl Future<Output = core::result::Result<(), maitake_sync::Closed>> + use<'_> {
+        self.mode
+            .waiter
+            .wait_for(|| self.info.ie().read().fwmie0().bit_is_clear())
     }
 
     /// Read ADC value asynchronously.
@@ -376,18 +383,16 @@ impl<'a, I: Instance> Adc<'a, I, Async> {
     /// # Returns
     /// 16-bit ADC conversion value
     pub async fn read(&mut self) -> Result<u16> {
-        let adc = I::ptr();
-
         // If we cancelled a previous read, we might still be busy, wait
         // until the interrupt is cleared (done by the interrupt)
         _ = self.wait_idle().await;
 
         // Clear the fifo
-        adc.ctrl().modify(|_, w| w.rstfifo0().trigger_reset());
+        self.info.ctrl().modify(|_, w| w.rstfifo0().trigger_reset());
 
         // Trigger a new conversion
-        adc.ie().modify(|_r, w| w.fwmie0().set_bit());
-        adc.swtrig().write(|w| w.swt0().set_bit());
+        self.info.ie().modify(|_r, w| w.fwmie0().set_bit());
+        self.info.swtrig().write(|w| w.swt0().set_bit());
 
         // Wait for completion
         _ = self.wait_idle().await;
@@ -396,9 +401,14 @@ impl<'a, I: Instance> Adc<'a, I, Async> {
     }
 }
 
-impl<'a, I: Instance, M: ModeAdc> Adc<'a, I, M> {
+impl<'a, M: ModeAdc> Adc<'a, M> {
     /// Internal initialization function shared by `new_async` and `new_blocking`.
-    fn new_inner<P: AdcPin<I>>(_inst: Peri<'a, I>, pin: Peri<'a, P>, config: LpadcConfig) -> Result<Self> {
+    fn new_inner<I: Instance, P: AdcPin<I>>(
+        _inst: Peri<'a, I>,
+        pin: Peri<'a, P>,
+        config: LpadcConfig,
+        mode: M,
+    ) -> Result<Self> {
         let adc = I::ptr();
 
         _ = unsafe {
@@ -488,21 +498,22 @@ impl<'a, I: Instance, M: ModeAdc> Adc<'a, I, M> {
 
         Ok(Self {
             _inst: PhantomData,
-            _phantom: PhantomData,
-            index: P::CHANNEL,
+            mode,
+            channel_idx: P::CHANNEL,
+            info: adc,
         })
     }
 
     /// Perform offset calibration.
     /// Waits for calibration to complete before returning.
     pub fn do_offset_calibration(&self) {
-        let adc = I::ptr();
         // Enable calibration mode
-        adc.ctrl()
+        self.info
+            .ctrl()
             .modify(|_, w| w.calofs().offset_calibration_request_pending());
 
         // Wait for calibration to complete (polling status register)
-        while adc.stat().read().cal_rdy().is_not_set() {}
+        while self.info.stat().read().cal_rdy().is_not_set() {}
     }
 
     /// Calculate gain conversion result from gain adjustment factor.
@@ -532,12 +543,13 @@ impl<'a, I: Instance, M: ModeAdc> Adc<'a, I, M> {
 
     /// Perform automatic gain calibration.
     pub fn do_auto_calibration(&self) {
-        let adc = I::ptr();
-        adc.ctrl().modify(|_, w| w.cal_req().calibration_request_pending());
+        self.info
+            .ctrl()
+            .modify(|_, w| w.cal_req().calibration_request_pending());
 
-        while adc.gcc0().read().rdy().is_gain_cal_not_valid() {}
+        while self.info.gcc0().read().rdy().is_gain_cal_not_valid() {}
 
-        let mut gcca = adc.gcc0().read().gain_cal().bits() as u32;
+        let mut gcca = self.info.gcc0().read().gain_cal().bits() as u32;
         if gcca & 0x8000 != 0 {
             gcca |= !0xFFFF;
         }
@@ -545,31 +557,31 @@ impl<'a, I: Instance, M: ModeAdc> Adc<'a, I, M> {
         let gcra = 131072.0 / (131072.0 - gcca as f32);
 
         // Write to GCR0
-        adc.gcr0().write(|w| unsafe { w.bits(self.get_gain_conv_result(gcra)) });
+        self.info
+            .gcr0()
+            .write(|w| unsafe { w.bits(self.get_gain_conv_result(gcra)) });
 
-        adc.gcr0().modify(|_, w| w.rdy().set_bit());
+        self.info.gcr0().modify(|_, w| w.rdy().set_bit());
 
         // Wait for calibration to complete (polling status register)
-        while adc.stat().read().cal_rdy().is_not_set() {}
+        while self.info.stat().read().cal_rdy().is_not_set() {}
     }
 
     fn set_conv_command_config_inner(&self, index: usize, config: &ConvCommandConfig) -> Result<()> {
-        let adc = I::ptr();
-
         let (cmdl, cmdh) = match index {
-            1 => (adc.cmdl1(), adc.cmdh1()),
-            2 => (adc.cmdl2(), adc.cmdh2()),
-            3 => (adc.cmdl3(), adc.cmdh3()),
-            4 => (adc.cmdl4(), adc.cmdh4()),
-            5 => (adc.cmdl5(), adc.cmdh5()),
-            6 => (adc.cmdl6(), adc.cmdh6()),
-            7 => (adc.cmdl7(), adc.cmdh7()),
+            1 => (self.info.cmdl1(), self.info.cmdh1()),
+            2 => (self.info.cmdl2(), self.info.cmdh2()),
+            3 => (self.info.cmdl3(), self.info.cmdh3()),
+            4 => (self.info.cmdl4(), self.info.cmdh4()),
+            5 => (self.info.cmdl5(), self.info.cmdh5()),
+            6 => (self.info.cmdl6(), self.info.cmdh6()),
+            7 => (self.info.cmdl7(), self.info.cmdh7()),
             _ => return Err(Error::InvalidConfig),
         };
 
         cmdl.write(|w| {
             unsafe {
-                w.adch().bits(self.index);
+                w.adch().bits(self.channel_idx);
             }
             w.mode().variant(config.conversion_resolution_mode)
         });
@@ -591,14 +603,12 @@ impl<'a, I: Instance, M: ModeAdc> Adc<'a, I, M> {
     }
 
     fn set_conv_trigger_config_inner(&self, trigger_id: usize, config: &ConvTriggerConfig) -> Result<()> {
-        let adc = I::ptr();
-
         // 0..4 are valid
         if trigger_id >= 4 {
             return Err(Error::InvalidConfig);
         }
 
-        let tctrl = &adc.tctrl(trigger_id);
+        let tctrl = &self.info.tctrl(trigger_id);
 
         tctrl.write(|w| {
             w.tcmd().variant(config.target_command_id);
@@ -625,8 +635,7 @@ impl<'a, I: Instance, M: ModeAdc> Adc<'a, I, M> {
     /// - `Some(ConvResult)` if a result is available
     /// - `Err(Error::FifoEmpty)` if the FIFO is empty
     fn get_conv_result_inner(&self) -> Result<ConvResult> {
-        let adc = I::ptr();
-        let fifo = adc.resfifo0().read();
+        let fifo = self.info.resfifo0().read();
         if !fifo.valid().is_valid() {
             return Err(Error::FifoEmpty);
         }
@@ -709,7 +718,9 @@ impl sealed::Sealed for Blocking {}
 impl ModeAdc for Blocking {}
 
 /// Async mode.
-pub struct Async;
+pub struct Async {
+    waiter: &'static WaitCell,
+}
 impl sealed::Sealed for Async {}
 impl ModeAdc for Async {}
 
