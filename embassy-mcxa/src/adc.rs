@@ -439,9 +439,7 @@ impl<'a, M: ModeAdc> Adc<'a, M> {
             .modify(|_, w| w.cal_avgs().variant(config.conversion_average_mode));
 
         adc.cfg().write(|w| unsafe {
-            if config.enable_analog_preliminary {
-                w.pwren().pre_enabled();
-            }
+            w.pwren().bit(config.enable_analog_preliminary);
 
             w.pudly()
                 .bits(config.power_up_delay)
