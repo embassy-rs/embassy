@@ -316,12 +316,12 @@ impl<'a> Adc<'a, Async> {
             chained_next_command_number: Next::NoNextCmdTerminateOnFinish,
             enable_auto_channel_increment: false,
             loop_count: 0,
-            hardware_average_mode: Avgs::NoAverage, // todo: good config?
-            sample_time_mode: Sts::Sample3p5,       // todo: good config?
+            hardware_average_mode: Avgs::NoAverage,
+            sample_time_mode: Sts::Sample3p5,
             hardware_compare_mode: Cmpen::DisabledAlwaysStoreResult,
             hardware_compare_value_high: 0,
             hardware_compare_value_low: 0,
-            conversion_resolution_mode: Mode::Data16Bits, // todo: good config?
+            conversion_resolution_mode: Mode::Data16Bits,
             enable_wait_trigger: false,
         };
 
