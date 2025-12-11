@@ -3,7 +3,8 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::sdmmc::{CmdBlock, DataBlock, Sdmmc, StorageDevice};
+use embassy_stm32::sdmmc::Sdmmc;
+use embassy_stm32::sdmmc::sd::{CmdBlock, DataBlock, StorageDevice};
 use embassy_stm32::time::{Hertz, mhz};
 use embassy_stm32::{Config, bind_interrupts, peripherals, sdmmc};
 use {defmt_rtt as _, panic_probe as _};
@@ -72,7 +73,7 @@ async fn main(_spawner: Spawner) {
     let block_idx = 16;
 
     // SDMMC uses `DataBlock` instead of `&[u8]` to ensure 4 byte alignment required by the hardware.
-    let mut block = DataBlock([0u8; 512]);
+    let mut block = DataBlock::new();
 
     storage.read_block(block_idx, &mut block).await.unwrap();
     info!("Read: {=[u8]:X}...{=[u8]:X}", block[..8], block[512 - 8..]);
