@@ -1,0 +1,177 @@
+use core::ops::{Deref, DerefMut};
+
+use sdio_host::common_cmd::{R1, Rz, cmd};
+use sdio_host::sd::BusWidth;
+use sdio_host::sd_cmd;
+
+use crate::sdmmc::{Error, Sdmmc, block_size, slice8_mut, slice8_ref};
+use crate::time::Hertz;
+
+/// Aligned data block for SDMMC transfers.
+///
+/// This is a 64-byte array, aligned to 4 bytes to satisfy DMA requirements.
+#[repr(align(4))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct DataBlock(pub [u32; 16]);
+
+impl DataBlock {
+    /// Create a new DataBlock
+    pub const fn new() -> Self {
+        DataBlock([0u32; 16])
+    }
+}
+
+impl Deref for DataBlock {
+    type Target = [u8; 64];
+
+    fn deref(&self) -> &Self::Target {
+        unwrap!(slice8_ref(&self.0[..]).try_into())
+    }
+}
+
+impl DerefMut for DataBlock {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unwrap!(slice8_mut(&mut self.0[..]).try_into())
+    }
+}
+
+/// Storage Device
+pub struct SerialDataInterface<'a, 'b> {
+    /// Inner member
+    pub sdmmc: &'a mut Sdmmc<'b>,
+}
+
+/// Card Storage Device
+impl<'a, 'b> SerialDataInterface<'a, 'b> {
+    /// Create a new SD card
+    pub async fn new(sdmmc: &'a mut Sdmmc<'b>, freq: Hertz) -> Result<Self, Error> {
+        let mut s = Self { sdmmc };
+
+        s.acquire(freq).await?;
+
+        Ok(s)
+    }
+
+    /// Initializes the card into a known state (or at least tries to).
+    async fn acquire(&mut self, _freq: Hertz) -> Result<(), Error> {
+        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+
+        let _bus_width = match self.sdmmc.bus_width() {
+            BusWidth::Eight => return Err(Error::BusWidth),
+            bus_width => bus_width,
+        };
+
+        // While the SD/SDIO card or eMMC is in identification mode,
+        // the SDMMC_CK frequency must be no more than 400 kHz.
+        self.sdmmc.init_idle()?;
+
+        self.sdmmc.cmd(cmd::<Rz>(5, 0), false)?;
+
+        // Get RCA
+        let rca = self.sdmmc.cmd(sd_cmd::send_relative_address(), false)?;
+
+        // Select the card with RCA
+        self.sdmmc.select_card(Some(rca.try_into().unwrap()))?;
+
+        Ok(())
+    }
+
+    /// Set the bus to the 4-bit high-speed frequency
+    pub fn set_bus_to_high_speed(&mut self, frequency: Hertz) -> Result<(), Error> {
+        self.sdmmc.clkcr_set_clkdiv(frequency, BusWidth::Four)?;
+
+        Ok(())
+    }
+
+    /// Run cmd52
+    pub async fn cmd52(&mut self, arg: u32) -> Result<u32, Error> {
+        self.sdmmc.cmd(cmd::<R1>(52, arg), false)
+    }
+
+    /// Read in block mode using cmd53
+    pub async fn cmd53_block_read(&mut self, arg: u32, blocks: &mut [DataBlock]) -> Result<(), Error> {
+        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+
+        // NOTE(unsafe) reinterpret buffer as &mut [u32]
+        let buffer = unsafe {
+            core::slice::from_raw_parts_mut(
+                blocks.as_mut_ptr() as *mut u32,
+                blocks.len() * size_of::<DataBlock>() / size_of::<u32>(),
+            )
+        };
+
+        let transfer = self
+            .sdmmc
+            .prepare_datapath_read(buffer, block_size(size_of::<DataBlock>()), false);
+        self.sdmmc.cmd(cmd::<Rz>(53, arg), true)?;
+
+        self.sdmmc.complete_datapath_transfer(transfer, false).await?;
+        self.sdmmc.clear_interrupt_flags();
+
+        Ok(())
+    }
+
+    /// Read in multibyte mode using cmd53
+    pub async fn cmd53_byte_read(&mut self, arg: u32, buffer: &mut [u32]) -> Result<(), Error> {
+        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+
+        let transfer = self
+            .sdmmc
+            .prepare_datapath_read(buffer, block_size(size_of::<DataBlock>()), true);
+        self.sdmmc.cmd(cmd::<Rz>(53, arg), true)?;
+
+        self.sdmmc.complete_datapath_transfer(transfer, false).await?;
+        self.sdmmc.clear_interrupt_flags();
+
+        Ok(())
+    }
+
+    /// Write in block mode using cmd53
+    pub async fn cmd53_block_write(&mut self, arg: u32, blocks: &[DataBlock]) -> Result<(), Error> {
+        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+
+        // NOTE(unsafe) reinterpret buffer as &mut [u32]
+        let buffer = unsafe {
+            core::slice::from_raw_parts_mut(
+                blocks.as_ptr() as *mut u32,
+                blocks.len() * size_of::<DataBlock>() / size_of::<u32>(),
+            )
+        };
+
+        #[cfg(sdmmc_v1)]
+        self.sdmmc.cmd(cmd::<Rz>(53, arg), true)?;
+
+        let transfer = self
+            .sdmmc
+            .prepare_datapath_read(buffer, block_size(size_of::<DataBlock>()), false);
+
+        #[cfg(sdmmc_v2)]
+        self.sdmmc.cmd(cmd::<Rz>(53, arg), true)?;
+
+        self.sdmmc.complete_datapath_transfer(transfer, false).await?;
+        self.sdmmc.clear_interrupt_flags();
+
+        Ok(())
+    }
+
+    /// Write in multibyte mode using cmd53
+    pub async fn cmd53_byte_write(&mut self, arg: u32, buffer: &[u32]) -> Result<(), Error> {
+        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+
+        #[cfg(sdmmc_v1)]
+        self.sdmmc.cmd(cmd::<Rz>(53, arg), true)?;
+
+        let transfer = self
+            .sdmmc
+            .prepare_datapath_write(buffer, block_size(size_of::<DataBlock>()), true);
+
+        #[cfg(sdmmc_v2)]
+        self.sdmmc.cmd(cmd::<Rz>(53, arg), true)?;
+
+        self.sdmmc.complete_datapath_transfer(transfer, false).await?;
+        self.sdmmc.clear_interrupt_flags();
+
+        Ok(())
+    }
+}

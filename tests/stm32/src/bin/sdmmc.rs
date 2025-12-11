@@ -7,7 +7,8 @@ mod common;
 use common::*;
 use defmt::assert_eq;
 use embassy_executor::Spawner;
-use embassy_stm32::sdmmc::{CmdBlock, DataBlock, Sdmmc, StorageDevice};
+use embassy_stm32::sdmmc::Sdmmc;
+use embassy_stm32::sdmmc::sd::{CmdBlock, DataBlock, StorageDevice};
 use embassy_stm32::time::mhz;
 use embassy_stm32::{bind_interrupts, peripherals, sdmmc};
 use {defmt_rtt as _, panic_probe as _};
@@ -28,16 +29,16 @@ async fn main(_spawner: Spawner) {
     // Arbitrary block index
     let block_idx = 16;
 
-    let mut pattern1 = DataBlock([0u8; 512]);
-    let mut pattern2 = DataBlock([0u8; 512]);
+    let mut pattern1 = DataBlock::new();
+    let mut pattern2 = DataBlock::new();
     for i in 0..512 {
         pattern1[i] = i as u8;
         pattern2[i] = !i as u8;
     }
     let patterns = [pattern1.clone(), pattern2.clone()];
 
-    let mut block = DataBlock([0u8; 512]);
-    let mut blocks = [DataBlock([0u8; 512]), DataBlock([0u8; 512])];
+    let mut block = DataBlock::new();
+    let mut blocks = [DataBlock::new(), DataBlock::new()];
 
     // ======== Try 4bit. ==============
     info!("initializing in 4-bit mode...");
