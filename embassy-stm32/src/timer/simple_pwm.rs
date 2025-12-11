@@ -97,6 +97,11 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
         self.timer.get_channel_enable_state(self.channel)
     }
 
+    /// Get the frequency of the PWM channel.
+    pub fn get_frequency(&self) -> Hertz {
+        self.timer.get_frequency()
+    }
+
     /// Get max duty value.
     ///
     /// This value depends on the configured frequency and the timer's clock rate from RCC.
@@ -328,6 +333,11 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
             1u8
         };
         self.inner.set_frequency_internal(freq * multiplier, 16);
+    }
+
+    /// Get the PWM driver frequency.
+    pub fn get_frequency(&self) -> Hertz {
+        self.inner.get_frequency()
     }
 
     /// Get max duty value.
