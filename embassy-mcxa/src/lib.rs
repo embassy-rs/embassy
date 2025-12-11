@@ -20,6 +20,7 @@ pub mod ostimer;
 pub mod reset_reason;
 pub mod rtc;
 
+use crate::interrupt::InterruptExt;
 pub use crate::pac::NVIC_PRIO_BITS;
 
 #[rustfmt::skip]
@@ -338,8 +339,6 @@ embassy_hal_internal::peripherals!(
 // Use cortex-m-rt's #[interrupt] attribute directly; PAC does not re-export it.
 
 // Re-export interrupt traits and types
-pub use gpio::{AnyPin, Flex, Gpio as GpioToken, Input, Level, Output};
-pub use interrupt::InterruptExt;
 #[cfg(feature = "unstable-pac")]
 pub use mcxa_pac as pac;
 #[cfg(not(feature = "unstable-pac"))]
