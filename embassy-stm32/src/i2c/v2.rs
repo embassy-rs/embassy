@@ -1680,43 +1680,50 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
 
     /// Listen for incoming I2C messages.
     ///
-    /// The listen method is an asynchronous method but it does not require DMA to be asynchronous.
-    pub async fn listen(&mut self) -> Result<SlaveCommand, Error> {
-        let _scoped_block_stop = self.info.rcc.block_stop();
-        let state = self.state;
+    /// This method blocks until the slave address is matched by a master.
+    pub fn blocking_listen(&mut self) -> Result<SlaveCommand, Error> {
+        let timeout = self.timeout();
+
         self.info.regs.cr1().modify(|reg| {
             reg.set_addrie(true);
             trace!("Enable ADDRIE");
         });
 
-        poll_fn(|cx| {
-            state.waker.register(cx.waker());
+        loop {
             let isr = self.info.regs.isr().read();
-            if !isr.addr() {
-                Poll::Pending
-            } else {
-                trace!("ADDR triggered (address match)");
-                // we do not clear the address flag here as it will be cleared by the dma read/write
-                // if we clear it here the clock stretching will stop and the master will read in data before the slave is ready to send it
-                match isr.dir() {
-                    i2c::vals::Dir::WRITE => {
-                        trace!("DIR: write");
-                        Poll::Ready(Ok(SlaveCommand {
-                            kind: SlaveCommandKind::Write,
-                            address: self.determine_matched_address()?,
-                        }))
-                    }
-                    i2c::vals::Dir::READ => {
-                        trace!("DIR: read");
-                        Poll::Ready(Ok(SlaveCommand {
-                            kind: SlaveCommandKind::Read,
-                            address: self.determine_matched_address()?,
-                        }))
-                    }
-                }
+            if isr.addr() {
+                break;
             }
-        })
-        .await
+            timeout.check()?;
+        }
+
+        trace!("ADDR triggered (address match)");
+
+        // we do not clear the address flag here as it will be cleared by the dma read/write
+        // if we clear it here the clock stretching will stop and the master will read in data before the slave is ready to send it
+        self.slave_command()
+    }
+
+    /// Determine the received slave command.
+    fn slave_command(&self) -> Result<SlaveCommand, Error> {
+        let isr = self.info.regs.isr().read();
+
+        match isr.dir() {
+            i2c::vals::Dir::WRITE => {
+                trace!("DIR: write");
+                Ok(SlaveCommand {
+                    kind: SlaveCommandKind::Write,
+                    address: self.determine_matched_address()?,
+                })
+            }
+            i2c::vals::Dir::READ => {
+                trace!("DIR: read");
+                Ok(SlaveCommand {
+                    kind: SlaveCommandKind::Read,
+                    address: self.determine_matched_address()?,
+                })
+            }
+        }
     }
 
     /// Respond to a write command.
@@ -1735,6 +1742,32 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
 }
 
 impl<'d> I2c<'d, Async, MultiMaster> {
+    /// Listen for incoming I2C messages.
+    ///
+    /// The listen method is an asynchronous method but it does not require DMA to be asynchronous.
+    pub async fn listen(&mut self) -> Result<SlaveCommand, Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
+        let state = self.state;
+        self.info.regs.cr1().modify(|reg| {
+            reg.set_addrie(true);
+            trace!("Enable ADDRIE");
+        });
+
+        poll_fn(|cx| {
+            state.waker.register(cx.waker());
+            let isr = self.info.regs.isr().read();
+            if !isr.addr() {
+                Poll::Pending
+            } else {
+                trace!("ADDR triggered (address match)");
+                // we do not clear the address flag here as it will be cleared by the dma read/write
+                // if we clear it here the clock stretching will stop and the master will read in data before the slave is ready to send it
+                Poll::Ready(self.slave_command())
+            }
+        })
+        .await
+    }
+
     /// Respond to a write command.
     ///
     /// Returns the total number of bytes received.
