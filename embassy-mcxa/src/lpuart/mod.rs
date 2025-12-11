@@ -6,12 +6,12 @@ use paste::paste;
 
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel, LpuartConfig};
 use crate::clocks::{ClockError, Gate, PoweredClock, enable_and_reset};
-use crate::gpio::SealedPin;
+use crate::gpio::{AnyPin, SealedPin};
 use crate::pac::lpuart0::baud::Sbns as StopBits;
 use crate::pac::lpuart0::ctrl::{Idlecfg as IdleConfig, Ilt as IdleType, M as DataBits, Pt as Parity};
 use crate::pac::lpuart0::modir::{Txctsc as TxCtsConfig, Txctssrc as TxCtsSource};
 use crate::pac::lpuart0::stat::Msbf as MsbFirst;
-use crate::{AnyPin, interrupt, pac};
+use crate::{interrupt, pac};
 
 pub mod buffered;
 

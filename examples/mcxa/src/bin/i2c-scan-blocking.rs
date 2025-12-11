@@ -2,8 +2,7 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa::Input;
-use embassy_mcxa::gpio::Pull;
+use embassy_mcxa::gpio::{Input, Pull};
 use embassy_time::Timer;
 use hal::clocks::config::Div8;
 use hal::config::Config;
