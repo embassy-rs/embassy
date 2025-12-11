@@ -1,5 +1,7 @@
 //! True Random Number Generator
 
+use core::marker::PhantomData;
+
 use embassy_hal_internal::Peri;
 use embassy_hal_internal::interrupt::InterruptExt;
 use maitake_sync::WaitCell;
@@ -13,73 +15,39 @@ use crate::peripherals::TRNG0;
 
 static WAIT_CELL: WaitCell = WaitCell::new();
 
-/// TRNG Driver
-pub struct Trng<'d> {
-    _peri: Peri<'d, TRNG0>,
+#[allow(private_bounds)]
+pub trait Mode: sealed::SealedMode {}
+
+mod sealed {
+    pub trait SealedMode {}
 }
 
-impl<'d> Trng<'d> {
-    /// Instantiates a new TRNG peripheral driver with 128 samples of entropy.
-    pub fn new_128(_peri: Peri<'d, TRNG0>) -> Self {
-        Self::new_inner(
-            _peri,
-            Config {
-                sample_size: 128,
-                retry_count: 1,
-                long_run_limit_max: 29,
-                monobit_limit_max: 94,
-                monobit_limit_range: 61,
-                run_length1_limit_max: 39,
-                run_length1_limit_range: 39,
-                run_length2_limit_max: 24,
-                run_length2_limit_range: 25,
-                run_length3_limit_max: 17,
-                run_length3_limit_range: 18,
-                ..Default::default()
-            },
-        )
-    }
+macro_rules! define_mode {
+    ($mode:ident) => {
+        pub struct $mode;
+        impl sealed::SealedMode for $mode {}
+        impl Mode for $mode {}
+    };
+}
 
-    /// Instantiates a new TRNG peripheral driver with  256 samples of entropy.
-    pub fn new_256(_peri: Peri<'d, TRNG0>) -> Self {
-        Self::new_inner(
-            _peri,
-            Config {
-                sample_size: 256,
-                retry_count: 1,
-                long_run_limit_max: 31,
-                monobit_limit_max: 171,
-                monobit_limit_range: 86,
-                run_length1_limit_max: 63,
-                run_length1_limit_range: 56,
-                run_length2_limit_max: 38,
-                run_length2_limit_range: 38,
-                run_length3_limit_max: 25,
-                run_length3_limit_range: 26,
-                ..Default::default()
-            },
-        )
-    }
+define_mode!(Blocking);
+define_mode!(Async);
 
-    /// Instantiates a new TRNG peripheral driver with 512 samples of entropy.
-    pub fn new_512(_peri: Peri<'d, TRNG0>) -> Self {
-        Self::new_inner(_peri, Default::default())
-    }
+/// TRNG Driver
+pub struct Trng<'d, M: Mode> {
+    _peri: Peri<'d, TRNG0>,
+    _phantom: PhantomData<M>,
+}
 
-    /// Instantiates a new TRNG peripheral driver.
-    ///
-    /// NOTE: this constructor makes not attempt at validating the
-    /// parameters. If you get this wrong, the security guarantees of
-    /// the TRNG with regards to entropy may be violated
-    pub fn new_with_custom_config(_peri: Peri<'d, TRNG0>, config: Config) -> Self {
-        Self::new_inner(_peri, config)
-    }
-
+impl<'d, M: Mode> Trng<'d, M> {
     fn new_inner(_peri: Peri<'d, TRNG0>, config: Config) -> Self {
         _ = unsafe { enable_and_reset::<TRNG0>(&NoConfig) };
 
         Self::configure(config);
-        Self { _peri }
+        Self {
+            _peri,
+            _phantom: PhantomData,
+        }
     }
 
     fn configure(config: Config) {
@@ -241,31 +209,11 @@ impl<'d> Trng<'d> {
     }
 }
 
-impl Drop for Trng<'_> {
-    fn drop(&mut self) {
-        // wait until allowed to stop
-        while regs().mctl().read().tstop_ok().bit_is_clear() {}
-        // stop
-        Self::stop();
-        // reset the TRNG
-        regs().mctl().write(|w| w.rst_def().set_bit());
-    }
-}
-
-/// TRNG Async Driver
-pub struct AsyncTrng<'d> {
-    _peri: Peri<'d, TRNG0>,
-}
-
-impl<'d> AsyncTrng<'d> {
+impl<'d> Trng<'d, Blocking> {
     /// Instantiates a new TRNG peripheral driver with 128 samples of entropy.
-    pub fn new_128(
-        _peri: Peri<'d, TRNG0>,
-        _irq: impl crate::interrupt::typelevel::Binding<typelevel::TRNG0, InterruptHandler> + 'd,
-    ) -> Self {
+    pub fn new_blocking_128(_peri: Peri<'d, TRNG0>) -> Self {
         Self::new_inner(
             _peri,
-            _irq,
             Config {
                 sample_size: 128,
                 retry_count: 1,
@@ -283,14 +231,10 @@ impl<'d> AsyncTrng<'d> {
         )
     }
 
-    /// Instantiates a new TRNG peripheral driver with 256 samples of entropy.
-    pub fn new_256(
-        _peri: Peri<'d, TRNG0>,
-        _irq: impl crate::interrupt::typelevel::Binding<typelevel::TRNG0, InterruptHandler> + 'd,
-    ) -> Self {
+    /// Instantiates a new TRNG peripheral driver with  256 samples of entropy.
+    pub fn new_blocking_256(_peri: Peri<'d, TRNG0>) -> Self {
         Self::new_inner(
             _peri,
-            _irq,
             Config {
                 sample_size: 256,
                 retry_count: 1,
@@ -309,16 +253,95 @@ impl<'d> AsyncTrng<'d> {
     }
 
     /// Instantiates a new TRNG peripheral driver with 512 samples of entropy.
-    pub fn new_512(
-        _peri: Peri<'d, TRNG0>,
-        _irq: impl crate::interrupt::typelevel::Binding<typelevel::TRNG0, InterruptHandler> + 'd,
-    ) -> Self {
-        Self::new_inner(_peri, _irq, Default::default())
+    pub fn new_blocking_512(_peri: Peri<'d, TRNG0>) -> Self {
+        Self::new_inner(_peri, Default::default())
     }
 
     /// Instantiates a new TRNG peripheral driver.
     ///
-    /// NOTE: this constructor makes not attempt at validating the
+    /// NOTE: this constructor makes no attempt at validating the
+    /// parameters. If you get this wrong, the security guarantees of
+    /// the TRNG with regards to entropy may be violated
+    pub fn new_blocking_with_custom_config(_peri: Peri<'d, TRNG0>, config: Config) -> Self {
+        Self::new_inner(_peri, config)
+    }
+}
+
+impl<'d> Trng<'d, Async> {
+    /// Instantiates a new TRNG peripheral driver with 128 samples of entropy.
+    pub fn new_128(
+        _peri: Peri<'d, TRNG0>,
+        _irq: impl crate::interrupt::typelevel::Binding<typelevel::TRNG0, InterruptHandler> + 'd,
+    ) -> Self {
+        let inst = Self::new_inner(
+            _peri,
+            Config {
+                sample_size: 128,
+                retry_count: 1,
+                long_run_limit_max: 29,
+                monobit_limit_max: 94,
+                monobit_limit_range: 61,
+                run_length1_limit_max: 39,
+                run_length1_limit_range: 39,
+                run_length2_limit_max: 24,
+                run_length2_limit_range: 25,
+                run_length3_limit_max: 17,
+                run_length3_limit_range: 18,
+                ..Default::default()
+            },
+        );
+        crate::pac::Interrupt::TRNG0.unpend();
+        unsafe {
+            crate::pac::Interrupt::TRNG0.enable();
+        }
+        inst
+    }
+
+    /// Instantiates a new TRNG peripheral driver with 256 samples of entropy.
+    pub fn new_256(
+        _peri: Peri<'d, TRNG0>,
+        _irq: impl crate::interrupt::typelevel::Binding<typelevel::TRNG0, InterruptHandler> + 'd,
+    ) -> Self {
+        let inst = Self::new_inner(
+            _peri,
+            Config {
+                sample_size: 256,
+                retry_count: 1,
+                long_run_limit_max: 31,
+                monobit_limit_max: 171,
+                monobit_limit_range: 86,
+                run_length1_limit_max: 63,
+                run_length1_limit_range: 56,
+                run_length2_limit_max: 38,
+                run_length2_limit_range: 38,
+                run_length3_limit_max: 25,
+                run_length3_limit_range: 26,
+                ..Default::default()
+            },
+        );
+        crate::pac::Interrupt::TRNG0.unpend();
+        unsafe {
+            crate::pac::Interrupt::TRNG0.enable();
+        }
+        inst
+    }
+
+    /// Instantiates a new TRNG peripheral driver with 512 samples of entropy.
+    pub fn new_512(
+        _peri: Peri<'d, TRNG0>,
+        _irq: impl crate::interrupt::typelevel::Binding<typelevel::TRNG0, InterruptHandler> + 'd,
+    ) -> Self {
+        let inst = Self::new_inner(_peri, Default::default());
+        crate::pac::Interrupt::TRNG0.unpend();
+        unsafe {
+            crate::pac::Interrupt::TRNG0.enable();
+        }
+        inst
+    }
+
+    /// Instantiates a new TRNG peripheral driver.
+    ///
+    /// NOTE: this constructor makes no attempt at validating the
     /// parameters. If you get this wrong, the security guarantees of
     /// the TRNG with regards to entropy may be violated
     pub fn new_with_custom_config(
@@ -326,24 +349,12 @@ impl<'d> AsyncTrng<'d> {
         _irq: impl crate::interrupt::typelevel::Binding<typelevel::TRNG0, InterruptHandler> + 'd,
         config: Config,
     ) -> Self {
-        Self::new_inner(_peri, _irq, config)
-    }
-
-    fn new_inner(
-        _peri: Peri<'d, TRNG0>,
-        _irq: impl crate::interrupt::typelevel::Binding<typelevel::TRNG0, InterruptHandler> + 'd,
-        config: Config,
-    ) -> Self {
-        _ = unsafe { enable_and_reset::<TRNG0>(&NoConfig) };
-
-        Trng::configure(config);
-
+        let inst = Self::new_inner(_peri, config);
         crate::pac::Interrupt::TRNG0.unpend();
         unsafe {
             crate::pac::Interrupt::TRNG0.enable();
         }
-
-        Self { _peri }
+        inst
     }
 
     fn enable_ints() {
@@ -377,88 +388,39 @@ impl<'d> AsyncTrng<'d> {
             return Ok(()); // nothing to fill
         }
 
-        Trng::start();
         for chunk in buf.chunks_mut(32) {
             Self::wait_for_generation().await?;
-            Trng::fill_chunk(chunk);
+            Self::fill_chunk(chunk);
         }
-        Trng::stop();
 
         Ok(())
     }
 
     /// Return a random u32, async version.
     pub async fn async_next_u32(&mut self) -> Result<u32, Error> {
-        Trng::start();
         Self::wait_for_generation().await?;
         // New random bytes are generated only after reading ENT7
-        let result = regs().ent(7).read().bits();
-        Trng::stop();
-
-        Ok(result)
+        Ok(regs().ent(7).read().bits())
     }
 
     /// Return a random u64, async version.
     pub async fn async_next_u64(&mut self) -> Result<u64, Error> {
-        Trng::start();
         Self::wait_for_generation().await?;
 
         let mut result = u64::from(regs().ent(6).read().bits()) << 32;
         // New random bytes are generated only after reading ENT7
         result |= u64::from(regs().ent(7).read().bits());
 
-        Trng::stop();
-
         Ok(result)
-    }
-
-    // Blocking API
-
-    /// Fill the buffer with random bytes, blocking version.
-    pub fn blocking_fill_bytes(&mut self, buf: &mut [u8]) {
-        if buf.is_empty() {
-            return; // nothing to fill
-        }
-
-        Trng::start();
-        for chunk in buf.chunks_mut(32) {
-            Trng::blocking_wait_for_generation();
-            Trng::fill_chunk(chunk);
-        }
-        Trng::stop();
-    }
-
-    /// Return a random u32, blocking version.
-    pub fn blocking_next_u32(&mut self) -> u32 {
-        Trng::start();
-        Trng::blocking_wait_for_generation();
-        let result = regs().ent(0).read().bits();
-
-        // New random bytes are generated only after reading ENT7
-        let _ = regs().ent(7).read().bits();
-        Trng::stop();
-
-        result
-    }
-
-    /// Return a random u64, blocking version.
-    pub fn blocking_next_u64(&mut self) -> u64 {
-        Trng::start();
-        Trng::blocking_wait_for_generation();
-
-        let mut result = u64::from(regs().ent(0).read().bits()) << 32;
-        result |= u64::from(regs().ent(1).read().bits());
-
-        // New random bytes are generated only after reading ENT7
-        let _ = regs().ent(7).read().bits();
-        Trng::stop();
-
-        result
     }
 }
 
-impl Drop for AsyncTrng<'_> {
+impl<M: Mode> Drop for Trng<'_, M> {
     fn drop(&mut self) {
+        // wait until allowed to stop
+        while regs().mctl().read().tstop_ok().bit_is_clear() {}
+        // stop
+        Self::stop();
         // reset the TRNG
         regs().mctl().write(|w| w.rst_def().set_bit());
     }
@@ -678,7 +640,7 @@ impl From<OscMode> for TrngEntCtl {
     }
 }
 
-impl<'d> rand_core_06::RngCore for Trng<'d> {
+impl<'d, M: Mode> rand_core_06::RngCore for Trng<'d, M> {
     fn next_u32(&mut self) -> u32 {
         self.blocking_next_u32()
     }
@@ -697,9 +659,9 @@ impl<'d> rand_core_06::RngCore for Trng<'d> {
     }
 }
 
-impl<'d> rand_core_06::CryptoRng for Trng<'d> {}
+impl<'d, M: Mode> rand_core_06::CryptoRng for Trng<'d, M> {}
 
-impl<'d> rand_core_09::RngCore for Trng<'d> {
+impl<'d, M: Mode> rand_core_09::RngCore for Trng<'d, M> {
     fn next_u32(&mut self) -> u32 {
         self.blocking_next_u32()
     }
@@ -713,41 +675,4 @@ impl<'d> rand_core_09::RngCore for Trng<'d> {
     }
 }
 
-impl<'d> rand_core_09::CryptoRng for Trng<'d> {}
-
-impl<'d> rand_core_06::RngCore for AsyncTrng<'d> {
-    fn next_u32(&mut self) -> u32 {
-        self.blocking_next_u32()
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        self.blocking_next_u64()
-    }
-
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.blocking_fill_bytes(dest);
-    }
-
-    fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), rand_core_06::Error> {
-        self.blocking_fill_bytes(dest);
-        Ok(())
-    }
-}
-
-impl<'d> rand_core_06::CryptoRng for AsyncTrng<'d> {}
-
-impl<'d> rand_core_09::RngCore for AsyncTrng<'d> {
-    fn next_u32(&mut self) -> u32 {
-        self.blocking_next_u32()
-    }
-
-    fn next_u64(&mut self) -> u64 {
-        self.blocking_next_u64()
-    }
-
-    fn fill_bytes(&mut self, dest: &mut [u8]) {
-        self.blocking_fill_bytes(dest);
-    }
-}
-
-impl<'d> rand_core_09::CryptoRng for AsyncTrng<'d> {}
+impl<'d, M: Mode> rand_core_09::CryptoRng for Trng<'d, M> {}
