@@ -1,7 +1,7 @@
 //! True Random Number Generator
 
-use embassy_hal_internal::Peri;
 use embassy_hal_internal::interrupt::InterruptExt;
+use embassy_hal_internal::Peri;
 use maitake_sync::WaitCell;
 use mcxa_pac::trng0::osc2_ctl::TrngEntCtl;
 
@@ -19,8 +19,63 @@ pub struct Trng<'d> {
 }
 
 impl<'d> Trng<'d> {
+    /// Instantiates a new TRNG peripheral driver with 128 samples of entropy.
+    pub fn new_128(_peri: Peri<'d, TRNG0>) -> Self {
+        Self::new_inner(
+            _peri,
+            Config {
+                sample_size: 128,
+                retry_count: 1,
+                long_run_limit_max: 29,
+                monobit_limit_max: 94,
+                monobit_limit_range: 61,
+                run_length1_limit_max: 39,
+                run_length1_limit_range: 39,
+                run_length2_limit_max: 24,
+                run_length2_limit_range: 25,
+                run_length3_limit_max: 17,
+                run_length3_limit_range: 18,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Instantiates a new TRNG peripheral driver with  256 samples of entropy.
+    pub fn new_256(_peri: Peri<'d, TRNG0>) -> Self {
+        Self::new_inner(
+            _peri,
+            Config {
+                sample_size: 256,
+                retry_count: 1,
+                long_run_limit_max: 31,
+                monobit_limit_max: 171,
+                monobit_limit_range: 86,
+                run_length1_limit_max: 63,
+                run_length1_limit_range: 56,
+                run_length2_limit_max: 38,
+                run_length2_limit_range: 38,
+                run_length3_limit_max: 25,
+                run_length3_limit_range: 26,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Instantiates a new TRNG peripheral driver with 512 samples of entropy.
+    pub fn new_512(_peri: Peri<'d, TRNG0>) -> Self {
+        Self::new_inner(_peri, Default::default())
+    }
+
     /// Instantiates a new TRNG peripheral driver.
-    pub fn new(_peri: Peri<'d, TRNG0>, config: Config) -> Self {
+    ///
+    /// NOTE: this constructor makes not attempt at validating the
+    /// parameters. If you get this wrong, the security guarantees of
+    /// the TRNG with regards to entropy may be violated
+    pub fn new_with_custom_config(_peri: Peri<'d, TRNG0>, config: Config) -> Self {
+        Self::new_inner(_peri, config)
+    }
+
+    fn new_inner(_peri: Peri<'d, TRNG0>, config: Config) -> Self {
         _ = unsafe { enable_and_reset::<TRNG0>(&NoConfig) };
 
         Self::configure(config);
@@ -36,49 +91,49 @@ impl<'d> Trng<'d> {
             w.mono_max()
                 .bits(config.monobit_limit_max)
                 .mono_rng()
-                .bits(config.monobit_limit_max - config.monobit_limit_min)
+                .bits(config.monobit_limit_range)
         });
 
         regs().scr1l().write(|w| unsafe {
             w.run1_max()
                 .bits(config.run_length1_limit_max)
                 .run1_rng()
-                .bits(config.run_length1_limit_max - config.run_length1_limit_min)
+                .bits(config.run_length1_limit_range)
         });
 
         regs().scr2l().write(|w| unsafe {
             w.run2_max()
                 .bits(config.run_length2_limit_max)
                 .run2_rng()
-                .bits(config.run_length2_limit_max - config.run_length2_limit_min)
+                .bits(config.run_length2_limit_range)
         });
 
         regs().scr3l().write(|w| unsafe {
             w.run3_max()
                 .bits(config.run_length3_limit_max)
                 .run3_rng()
-                .bits(config.run_length3_limit_max - config.run_length3_limit_min)
+                .bits(config.run_length3_limit_range)
         });
 
         regs().scr4l().write(|w| unsafe {
             w.run4_max()
                 .bits(config.run_length4_limit_max)
                 .run4_rng()
-                .bits(config.run_length4_limit_max - config.run_length4_limit_min)
+                .bits(config.run_length4_limit_range)
         });
 
         regs().scr5l().write(|w| unsafe {
             w.run5_max()
                 .bits(config.run_length5_limit_max)
                 .run5_rng()
-                .bits(config.run_length5_limit_max - config.run_length5_limit_min)
+                .bits(config.run_length5_limit_range)
         });
 
         regs().scr6pl().write(|w| unsafe {
             w.run6p_max()
                 .bits(config.run_length6_limit_max)
                 .run6p_rng()
-                .bits(config.run_length6_limit_max - config.run_length6_limit_min)
+                .bits(config.run_length6_limit_range)
         });
 
         regs()
@@ -206,8 +261,78 @@ pub struct AsyncTrng<'d> {
 }
 
 impl<'d> AsyncTrng<'d> {
+    /// Instantiates a new TRNG peripheral driver with 128 samples of entropy.
+    pub fn new_128(
+        _peri: Peri<'d, TRNG0>,
+        _irq: impl crate::interrupt::typelevel::Binding<typelevel::TRNG0, InterruptHandler> + 'd,
+    ) -> Self {
+        Self::new_inner(
+            _peri,
+            _irq,
+            Config {
+                sample_size: 128,
+                retry_count: 1,
+                long_run_limit_max: 29,
+                monobit_limit_max: 94,
+                monobit_limit_range: 61,
+                run_length1_limit_max: 39,
+                run_length1_limit_range: 39,
+                run_length2_limit_max: 24,
+                run_length2_limit_range: 25,
+                run_length3_limit_max: 17,
+                run_length3_limit_range: 18,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Instantiates a new TRNG peripheral driver with 256 samples of entropy.
+    pub fn new_256(
+        _peri: Peri<'d, TRNG0>,
+        _irq: impl crate::interrupt::typelevel::Binding<typelevel::TRNG0, InterruptHandler> + 'd,
+    ) -> Self {
+        Self::new_inner(
+            _peri,
+            _irq,
+            Config {
+                sample_size: 256,
+                retry_count: 1,
+                long_run_limit_max: 31,
+                monobit_limit_max: 171,
+                monobit_limit_range: 86,
+                run_length1_limit_max: 63,
+                run_length1_limit_range: 56,
+                run_length2_limit_max: 38,
+                run_length2_limit_range: 38,
+                run_length3_limit_max: 25,
+                run_length3_limit_range: 26,
+                ..Default::default()
+            },
+        )
+    }
+
+    /// Instantiates a new TRNG peripheral driver with 512 samples of entropy.
+    pub fn new_512(
+        _peri: Peri<'d, TRNG0>,
+        _irq: impl crate::interrupt::typelevel::Binding<typelevel::TRNG0, InterruptHandler> + 'd,
+    ) -> Self {
+        Self::new_inner(_peri, _irq, Default::default())
+    }
+
     /// Instantiates a new TRNG peripheral driver.
-    pub fn new(
+    ///
+    /// NOTE: this constructor makes not attempt at validating the
+    /// parameters. If you get this wrong, the security guarantees of
+    /// the TRNG with regards to entropy may be violated
+    pub fn new_with_custom_config(
+        _peri: Peri<'d, TRNG0>,
+        _irq: impl crate::interrupt::typelevel::Binding<typelevel::TRNG0, InterruptHandler> + 'd,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(_peri, _irq, config)
+    }
+
+    fn new_inner(
         _peri: Peri<'d, TRNG0>,
         _irq: impl crate::interrupt::typelevel::Binding<typelevel::TRNG0, InterruptHandler> + 'd,
         config: Config,
@@ -413,44 +538,44 @@ pub struct Config {
     /// Statistical check monobit max limit
     pub monobit_limit_max: u16,
 
-    /// Statistical check monobit min limit
-    pub monobit_limit_min: u16,
+    /// Statistical check monobit range
+    pub monobit_limit_range: u16,
 
     /// Statistical check run length 1 limit max
     pub run_length1_limit_max: u16,
 
-    /// Statistical check run length 1 limit min
-    pub run_length1_limit_min: u16,
+    /// Statistical check run length 1 limit range
+    pub run_length1_limit_range: u16,
 
     /// Statistical check run length 2 limit max
     pub run_length2_limit_max: u16,
 
-    /// Statistical check run length 2 limit min
-    pub run_length2_limit_min: u16,
+    /// Statistical check run length 2 limit range
+    pub run_length2_limit_range: u16,
 
     /// Statistical check run length 3 limit max
     pub run_length3_limit_max: u16,
 
-    /// Statistical check run length 3 limit min
-    pub run_length3_limit_min: u16,
+    /// Statistical check run length 3 limit range
+    pub run_length3_limit_range: u16,
 
     /// Statistical check run length 4 limit max
     pub run_length4_limit_max: u16,
 
-    /// Statistical check run length 4 limit min
-    pub run_length4_limit_min: u16,
+    /// Statistical check run length 4 limit range
+    pub run_length4_limit_range: u16,
 
     /// Statistical check run length 5 limit max
     pub run_length5_limit_max: u16,
 
-    /// Statistical check run length 5 limit min
-    pub run_length5_limit_min: u16,
+    /// Statistical check run length 5 limit range
+    pub run_length5_limit_range: u16,
 
     /// Statistical check run length 6 limit max
     pub run_length6_limit_max: u16,
 
-    /// Statistical check run length 6 limit min
-    pub run_length6_limit_min: u16,
+    /// Statistical check run length 6 limit range
+    pub run_length6_limit_range: u16,
 
     /// Retry count
     pub retry_count: u8,
@@ -471,32 +596,47 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            sample_size: 1024,
+            sample_size: 512,
             entropy_delay: 32_000,
             self_test: SelfTest::Enabled,
             freq_counter_max: 75_000,
             freq_counter_min: 30_000,
-            monobit_limit_max: 596,
-            monobit_limit_min: 427,
-            run_length1_limit_max: 187,
-            run_length1_limit_min: 57,
-            run_length2_limit_max: 105,
-            run_length2_limit_min: 28,
-            run_length3_limit_max: 97,
-            run_length3_limit_min: 33,
+            monobit_limit_max: 317,
+            monobit_limit_range: 122,
+            run_length1_limit_max: 107,
+            run_length1_limit_range: 80,
+            run_length2_limit_max: 62,
+            run_length2_limit_range: 55,
+            run_length3_limit_max: 39,
+            run_length3_limit_range: 39,
             run_length4_limit_max: 0,
-            run_length4_limit_min: 0,
+            run_length4_limit_range: 0,
             run_length5_limit_max: 0,
-            run_length5_limit_min: 0,
+            run_length5_limit_range: 0,
             run_length6_limit_max: 0,
-            run_length6_limit_min: 0,
-            retry_count: 2,
+            run_length6_limit_range: 0,
+            retry_count: 1,
             long_run_limit_max: 32,
             sparse_bit_limit: 0,
             poker_limit_max: 0,
             osc_mode: OscMode::DualOscs,
         }
     }
+}
+
+/// Sample size.
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum SampleSize {
+    /// 128 bits
+    _128,
+
+    /// 256 bits
+    _256,
+
+    /// 512 bits
+    _512,
 }
 
 /// Enable or disable internal self-tests.
