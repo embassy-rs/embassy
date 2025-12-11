@@ -1,15 +1,13 @@
 use embassy_futures::select::{Either4, select4};
 use embassy_net_driver_channel as ch;
 use embassy_time::{Duration, Timer, block_for};
-use embedded_hal_1::digital::OutputPin;
 
-use crate::bus::Bus;
-pub use crate::bus::SpiBusCyw43;
-use crate::consts::*;
+use crate::consts::{BACKPLANE_FORCE_ALP, BACKPLANE_FORCE_HW_CLKREQ_OFF, *};
 use crate::events::{Event, Events, Status};
 use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 use crate::nvram::NVRAM;
+pub use crate::spi::SpiBusCyw43;
 use crate::structs::*;
 use crate::util::slice8_mut;
 use crate::{CHIP, Core, MTU, events};
@@ -34,10 +32,40 @@ impl Default for LogState {
     }
 }
 
+pub(crate) trait SealedBus {
+    async fn init(&mut self, bluetooth_enabled: bool);
+    async fn wlan_read(&mut self, buf: &mut [u32], len_in_u8: u32);
+    async fn wlan_write(&mut self, buf: &[u32]);
+    #[allow(unused)]
+    async fn bp_read(&mut self, addr: u32, data: &mut [u8]);
+    async fn bp_write(&mut self, addr: u32, data: &[u8]);
+    async fn bp_read8(&mut self, addr: u32) -> u8;
+    async fn bp_write8(&mut self, addr: u32, val: u8);
+    async fn bp_read16(&mut self, addr: u32) -> u16;
+    #[allow(unused)]
+    async fn bp_write16(&mut self, addr: u32, val: u16);
+    #[allow(unused)]
+    async fn bp_read32(&mut self, addr: u32) -> u32;
+    async fn bp_write32(&mut self, addr: u32, val: u32);
+    async fn read8(&mut self, func: u32, addr: u32) -> u8;
+    async fn write8(&mut self, func: u32, addr: u32, val: u8);
+    async fn read16(&mut self, func: u32, addr: u32) -> u16;
+    async fn write16(&mut self, func: u32, addr: u32, val: u16);
+    async fn read32(&mut self, func: u32, addr: u32) -> u32;
+    #[allow(unused)]
+    async fn write32(&mut self, func: u32, addr: u32, val: u32);
+    async fn wait_for_event(&mut self);
+    fn status(&self) -> u32;
+}
+
+#[allow(private_bounds)]
+pub trait Bus: SealedBus {}
+impl<T: SealedBus> Bus for T {}
+
 /// Driver communicating with the WiFi chip.
-pub struct Runner<'a, PWR, SPI> {
+pub struct Runner<'a, BUS> {
     ch: ch::Runner<'a, MTU>,
-    pub(crate) bus: Bus<PWR, SPI>,
+    pub(crate) bus: BUS,
 
     ioctl_state: &'a IoctlState,
     ioctl_id: u16,
@@ -53,14 +81,13 @@ pub struct Runner<'a, PWR, SPI> {
     pub(crate) bt: Option<crate::bluetooth::BtRunner<'a>>,
 }
 
-impl<'a, PWR, SPI> Runner<'a, PWR, SPI>
+impl<'a, BUS> Runner<'a, BUS>
 where
-    PWR: OutputPin,
-    SPI: SpiBusCyw43,
+    BUS: Bus,
 {
     pub(crate) fn new(
         ch: ch::Runner<'a, MTU>,
-        bus: Bus<PWR, SPI>,
+        bus: BUS,
         ioctl_state: &'a IoctlState,
         events: &'a Events,
         #[cfg(feature = "bluetooth")] bt: Option<crate::bluetooth::BtRunner<'a>>,
@@ -85,6 +112,18 @@ where
 
         // Init ALP (Active Low Power) clock
         debug!("init alp");
+        self.bus
+            .write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, BACKPLANE_ALP_AVAIL_REQ)
+            .await;
+
+        self.bus
+            .write8(
+                FUNC_BACKPLANE,
+                REG_BACKPLANE_CHIP_CLOCK_CSR,
+                BACKPLANE_FORCE_HW_CLKREQ_OFF | BACKPLANE_ALP_AVAIL_REQ | BACKPLANE_FORCE_ALP,
+            )
+            .await;
+
         self.bus
             .write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, BACKPLANE_ALP_AVAIL_REQ)
             .await;
