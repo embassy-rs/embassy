@@ -91,16 +91,18 @@ impl<'d, T: GeneralInstance4Channel> PwmInput<'d, T> {
 
     /// Get the period tick count
     pub fn get_period_ticks(&self) -> u32 {
-        self.inner.get_capture_value(self.channel)
+        self.inner.get_capture_value(self.channel).into()
     }
 
     /// Get the pulse width tick count
     pub fn get_width_ticks(&self) -> u32 {
-        self.inner.get_capture_value(match self.channel {
-            Channel::Ch1 => Channel::Ch2,
-            Channel::Ch2 => Channel::Ch1,
-            _ => panic!("Invalid channel for PWM input"),
-        })
+        self.inner
+            .get_capture_value(match self.channel {
+                Channel::Ch1 => Channel::Ch2,
+                Channel::Ch2 => Channel::Ch1,
+                _ => panic!("Invalid channel for PWM input"),
+            })
+            .into()
     }
 
     /// Get the duty cycle in 100%

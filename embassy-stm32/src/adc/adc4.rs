@@ -5,7 +5,7 @@ use pac::adc::vals::{Adc4Dmacfg as Dmacfg, Adc4Exten as Exten, Adc4OversamplingR
 use pac::adc::vals::{Chselrmod, Cont, Dmacfg, Exten, OversamplingRatio, Ovss, Smpsel};
 
 use super::blocking_delay_us;
-use crate::adc::ConversionMode;
+use crate::adc::{AdcRegs, ConversionMode, Instance};
 #[cfg(stm32u5)]
 pub use crate::pac::adc::regs::Adc4Chselrmod0 as Chselr;
 #[cfg(stm32wba)]
@@ -90,135 +90,112 @@ fn from_ker_ck(frequency: Hertz) -> Presc {
     }
 }
 
-pub trait SealedInstance {
-    #[allow(unused)]
-    fn regs() -> crate::pac::adc::Adc4;
-}
+impl AdcRegs for crate::pac::adc::Adc4 {
+    fn data(&self) -> *mut u16 {
+        crate::pac::adc::Adc4::dr(*self).as_ptr() as *mut u16
+    }
 
-pub trait Instance: SealedInstance + crate::PeripheralType + crate::rcc::RccPeripheral {
-    type Interrupt: crate::interrupt::typelevel::Interrupt;
-}
+    fn enable(&self) {
+        if !self.cr().read().aden() || !self.isr().read().adrdy() {
+            self.isr().write(|w| w.set_adrdy(true));
+            self.cr().modify(|w| w.set_aden(true));
+            while !self.isr().read().adrdy() {}
+        }
+    }
 
-foreach_adc!(
-    (ADC4, $common_inst:ident, $clock:ident) => {
-        use crate::peripherals::ADC4;
+    fn start(&self) {
+        // Start conversion
+        self.cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
+    }
 
-        impl super::BasicAnyInstance for ADC4 {
-            type SampleTime = SampleTime;
+    fn stop(&self) {
+        let cr = self.cr().read();
+        if cr.adstart() {
+            self.cr().modify(|w| w.set_adstp(true));
+            while self.cr().read().adstart() {}
         }
 
-        impl super::SealedAnyInstance for ADC4 {
-            fn dr() -> *mut u16 {
-                ADC4::regs().dr().as_ptr() as *mut u16
-            }
+        if cr.aden() || cr.adstart() {
+            self.cr().modify(|w| w.set_addis(true));
+            while self.cr().read().aden() {}
+        }
 
-            fn enable() {
-                if !ADC4::regs().cr().read().aden()  || !ADC4::regs().isr().read().adrdy() {
-                    ADC4::regs().isr().write(|w| w.set_adrdy(true));
-                    ADC4::regs().cr().modify(|w| w.set_aden(true));
-                    while !ADC4::regs().isr().read().adrdy() {}
-                }
-            }
+        // Reset configuration.
+        self.cfgr1().modify(|reg| {
+            reg.set_dmaen(false);
+        });
+    }
 
-            fn start() {
-                // Start conversion
-                ADC4::regs().cr().modify(|reg| {
-                    reg.set_adstart(true);
-                });
-            }
-
-            fn stop() {
-                let cr = ADC4::regs().cr().read();
-                if cr.adstart() {
-                    ADC4::regs().cr().modify(|w| w.set_adstp(true));
-                    while ADC4::regs().cr().read().adstart() {}
-                }
-
-                if cr.aden() || cr.adstart() {
-                    ADC4::regs().cr().modify(|w| w.set_addis(true));
-                    while ADC4::regs().cr().read().aden() {}
-                }
-
-                // Reset configuration.
-                ADC4::regs().cfgr1().modify(|reg| {
-                    reg.set_dmaen(false);
-                });
-            }
-
-            fn configure_dma(conversion_mode: ConversionMode) {
-                match conversion_mode {
-                    ConversionMode::Singular => {
-                        ADC4::regs().isr().modify(|reg| {
-                            reg.set_ovr(true);
-                            reg.set_eos(true);
-                            reg.set_eoc(true);
-                        });
-
-                        ADC4::regs().cfgr1().modify(|reg| {
-                            reg.set_dmaen(true);
-                            reg.set_dmacfg(Dmacfg::ONE_SHOT);
-                            #[cfg(stm32u5)]
-                            reg.set_chselrmod(false);
-                            #[cfg(stm32wba)]
-                            reg.set_chselrmod(Chselrmod::ENABLE_INPUT)
-                        });
-                    }
-                    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
-                    _ => unreachable!(),
-                }
-            }
-
-            fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
-                let mut prev_channel: i16 = -1;
-                #[cfg(stm32wba)]
-                ADC4::regs().chselr().write_value(Chselr(0_u32));
-                #[cfg(stm32u5)]
-                ADC4::regs().chselrmod0().write_value(Chselr(0_u32));
-                for (_i, ((channel, _), sample_time)) in sequence.enumerate() {
-                    ADC4::regs().smpr().modify(|w| {
-                        w.set_smp(_i, sample_time);
-                    });
-
-                    let channel_num = channel;
-                    if channel_num as i16 <= prev_channel {
-                        return;
-                    };
-                    prev_channel = channel_num as i16;
-
-                    #[cfg(stm32wba)]
-                    ADC4::regs().chselr().modify(|w| {
-                        w.set_chsel0(channel as usize, true);
-                    });
-                    #[cfg(stm32u5)]
-                    ADC4::regs().chselrmod0().modify(|w| {
-                        w.set_chsel(channel as usize, true);
-                    });
-                }
-            }
-
-            fn convert() -> u16 {
-                // Reset interrupts
-                ADC4::regs().isr().modify(|reg| {
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
+        match conversion_mode {
+            ConversionMode::Singular => {
+                self.isr().modify(|reg| {
+                    reg.set_ovr(true);
                     reg.set_eos(true);
                     reg.set_eoc(true);
                 });
 
-                // Start conversion
-                ADC4::regs().cr().modify(|reg| {
-                    reg.set_adstart(true);
+                self.cfgr1().modify(|reg| {
+                    reg.set_dmaen(true);
+                    reg.set_dmacfg(Dmacfg::ONE_SHOT);
+                    #[cfg(stm32u5)]
+                    reg.set_chselrmod(false);
+                    #[cfg(stm32wba)]
+                    reg.set_chselrmod(Chselrmod::ENABLE_INPUT)
                 });
-
-                while !ADC4::regs().isr().read().eos() {
-                    // spin
-                }
-
-                ADC4::regs().dr().read().0 as u16
             }
+            #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
+            _ => unreachable!(),
         }
+    }
 
-        impl super::AnyInstance for ADC4 {}
-    };
-);
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+        let mut prev_channel: i16 = -1;
+        #[cfg(stm32wba)]
+        self.chselr().write_value(Chselr(0_u32));
+        #[cfg(stm32u5)]
+        self.chselrmod0().write_value(Chselr(0_u32));
+        for (_i, ((channel, _), sample_time)) in sequence.enumerate() {
+            self.smpr().modify(|w| {
+                w.set_smp(_i, sample_time);
+            });
+
+            let channel_num = channel;
+            if channel_num as i16 <= prev_channel {
+                return;
+            };
+            prev_channel = channel_num as i16;
+
+            #[cfg(stm32wba)]
+            self.chselr().modify(|w| {
+                w.set_chsel0(channel as usize, true);
+            });
+            #[cfg(stm32u5)]
+            self.chselrmod0().modify(|w| {
+                w.set_chsel(channel as usize, true);
+            });
+        }
+    }
+
+    fn convert(&self) {
+        // Reset interrupts
+        self.isr().modify(|reg| {
+            reg.set_eos(true);
+            reg.set_eoc(true);
+        });
+
+        // Start conversion
+        self.cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
+
+        while !self.isr().read().eos() {
+            // spin
+        }
+    }
+}
 
 pub struct Adc4<'d, T: Instance> {
     #[allow(unused)]
@@ -231,7 +208,7 @@ pub enum Adc4Error {
     DMAError,
 }
 
-impl<'d, T: Instance + super::AnyInstance> super::Adc<'d, T> {
+impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
     /// Create a new ADC driver.
     pub fn new_adc4(adc: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
@@ -267,7 +244,7 @@ impl<'d, T: Instance + super::AnyInstance> super::Adc<'d, T> {
 
         blocking_delay_us(1);
 
-        T::enable();
+        T::regs().enable();
 
         // single conversion mode, software trigger
         T::regs().cfgr1().modify(|w| {

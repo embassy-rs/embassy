@@ -4,19 +4,19 @@ use core::sync::atomic::{Ordering, compiler_fence};
 #[allow(unused_imports)]
 use embassy_hal_internal::Peri;
 
-use super::{AnyAdcChannel, SampleTime};
+use super::{AdcRegs, AnyAdcChannel, SampleTime};
+use crate::adc::Adc;
 #[allow(unused_imports)]
 use crate::adc::Instance;
-use crate::adc::{Adc, AnyInstance};
 
 /// Injected ADC sequence with owned channels.
-pub struct InjectedAdc<T: Instance, const N: usize> {
-    _channels: [(AnyAdcChannel<T>, SampleTime); N],
+pub struct InjectedAdc<'a, T: Instance<Regs = crate::pac::adc::Adc>, const N: usize> {
+    _channels: [(AnyAdcChannel<'a, T>, SampleTime); N],
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance, const N: usize> InjectedAdc<T, N> {
-    pub(crate) fn new(channels: [(AnyAdcChannel<T>, SampleTime); N]) -> Self {
+impl<'a, T: Instance<Regs = crate::pac::adc::Adc>, const N: usize> InjectedAdc<'a, T, N> {
+    pub(crate) fn new(channels: [(AnyAdcChannel<'a, T>, SampleTime); N]) -> Self {
         Self {
             _channels: channels,
             _phantom: PhantomData,
@@ -36,9 +36,9 @@ impl<T: Instance, const N: usize> InjectedAdc<T, N> {
     }
 }
 
-impl<T: Instance + AnyInstance, const N: usize> Drop for InjectedAdc<T, N> {
+impl<'a, T: Instance<Regs = crate::pac::adc::Adc>, const N: usize> Drop for InjectedAdc<'a, T, N> {
     fn drop(&mut self) {
-        T::stop();
+        T::regs().stop();
         compiler_fence(Ordering::SeqCst);
     }
 }

@@ -529,6 +529,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
     /// Write.
     pub async fn write(&mut self, address: u8, write_buffer: &[u8]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         self.write_frame(address, write_buffer, FrameOptions::FirstAndLastFrame)
             .await?;
 
@@ -537,6 +538,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
     /// Read.
     pub async fn read(&mut self, address: u8, read_buffer: &mut [u8]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         self.read_frame(address, read_buffer, FrameOptions::FirstAndLastFrame)
             .await?;
 
@@ -701,6 +703,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
     /// Write, restart, read.
     pub async fn write_read(&mut self, address: u8, write_buffer: &[u8], read_buffer: &mut [u8]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         // Check empty read buffer before starting transaction. Otherwise, we would not generate the
         // stop condition below.
         if read_buffer.is_empty() {
@@ -719,6 +722,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
     pub async fn transaction(&mut self, address: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         for (op, frame) in operation_frames(operations)? {
             match op {
                 Operation::Read(read_buffer) => self.read_frame(address, read_buffer, frame).await?,
@@ -1357,6 +1361,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
     /// (Read/Write) and the matched address. This method will suspend until
     /// an address match occurs.
     pub async fn listen(&mut self) -> Result<SlaveCommand, Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         trace!("I2C slave: starting async listen for address match");
         let state = self.state;
         let info = self.info;
@@ -1421,6 +1426,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
     ///
     /// Returns the number of bytes stored in the buffer (not total received).
     pub async fn respond_to_write(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         trace!("I2C slave: starting respond_to_write, buffer_len={}", buffer.len());
 
         if buffer.is_empty() {
@@ -1454,6 +1460,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
     ///
     /// Returns the total number of bytes transmitted (data + padding).
     pub async fn respond_to_read(&mut self, data: &[u8]) -> Result<usize, Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         trace!("I2C slave: starting respond_to_read, data_len={}", data.len());
 
         if data.is_empty() {

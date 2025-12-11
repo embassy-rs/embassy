@@ -1,0 +1,453 @@
+//! RTC DateTime driver.
+use core::marker::PhantomData;
+
+use embassy_hal_internal::{Peri, PeripheralType};
+use maitake_sync::WaitCell;
+
+use crate::clocks::with_clocks;
+use crate::interrupt::typelevel::{Handler, Interrupt};
+use crate::pac;
+use crate::pac::rtc0::cr::Um;
+
+type Regs = pac::rtc0::RegisterBlock;
+
+/// Global wait cell for alarm notifications
+static WAKER: WaitCell = WaitCell::new();
+
+/// RTC interrupt handler.
+pub struct InterruptHandler<I: Instance> {
+    _phantom: PhantomData<I>,
+}
+
+/// Trait for RTC peripheral instances
+pub trait Instance: PeripheralType {
+    type Interrupt: Interrupt;
+    fn ptr() -> *const Regs;
+}
+
+/// Token for RTC0
+pub type Rtc0 = crate::peripherals::RTC0;
+impl Instance for crate::peripherals::RTC0 {
+    type Interrupt = crate::interrupt::typelevel::RTC;
+    #[inline(always)]
+    fn ptr() -> *const Regs {
+        pac::Rtc0::ptr()
+    }
+}
+
+/// Number of days in a standard year
+const DAYS_IN_A_YEAR: u32 = 365;
+/// Number of seconds in a day
+const SECONDS_IN_A_DAY: u32 = 86400;
+/// Number of seconds in an hour
+const SECONDS_IN_A_HOUR: u32 = 3600;
+/// Number of seconds in a minute
+const SECONDS_IN_A_MINUTE: u32 = 60;
+/// Unix epoch start year
+const YEAR_RANGE_START: u16 = 1970;
+
+/// Date and time structure for RTC operations
+#[derive(Debug, Clone, Copy)]
+pub struct RtcDateTime {
+    pub year: u16,
+    pub month: u8,
+    pub day: u8,
+    pub hour: u8,
+    pub minute: u8,
+    pub second: u8,
+}
+#[derive(Copy, Clone)]
+pub struct RtcConfig {
+    #[allow(dead_code)]
+    wakeup_select: bool,
+    update_mode: Um,
+    #[allow(dead_code)]
+    supervisor_access: bool,
+    compensation_interval: u8,
+    compensation_time: u8,
+}
+
+/// RTC interrupt enable flags
+#[derive(Copy, Clone)]
+pub struct RtcInterruptEnable;
+impl RtcInterruptEnable {
+    pub const RTC_TIME_INVALID_INTERRUPT_ENABLE: u32 = 1 << 0;
+    pub const RTC_TIME_OVERFLOW_INTERRUPT_ENABLE: u32 = 1 << 1;
+    pub const RTC_ALARM_INTERRUPT_ENABLE: u32 = 1 << 2;
+    pub const RTC_SECONDS_INTERRUPT_ENABLE: u32 = 1 << 4;
+}
+
+/// Converts a DateTime structure to Unix timestamp (seconds since 1970-01-01)
+///
+/// # Arguments
+///
+/// * `datetime` - The date and time to convert
+///
+/// # Returns
+///
+/// Unix timestamp as u32
+///
+/// # Note
+///
+/// This function handles leap years correctly.
+pub fn convert_datetime_to_seconds(datetime: &RtcDateTime) -> u32 {
+    let month_days: [u16; 13] = [0, 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
+
+    let mut seconds = (datetime.year as u32 - 1970) * DAYS_IN_A_YEAR;
+    seconds += (datetime.year as u32 / 4) - (1970 / 4);
+    seconds += month_days[datetime.month as usize] as u32;
+    seconds += datetime.day as u32 - 1;
+
+    if (datetime.year & 3 == 0) && (datetime.month <= 2) {
+        seconds -= 1;
+    }
+
+    seconds = seconds * SECONDS_IN_A_DAY
+        + (datetime.hour as u32 * SECONDS_IN_A_HOUR)
+        + (datetime.minute as u32 * SECONDS_IN_A_MINUTE)
+        + datetime.second as u32;
+
+    seconds
+}
+
+/// Converts Unix timestamp to DateTime structure
+///
+/// # Arguments
+///
+/// * `seconds` - Unix timestamp (seconds since 1970-01-01)
+///
+/// # Returns
+///
+/// RtcDateTime structure with the converted date and time
+///
+/// # Note
+///
+/// This function handles leap years correctly.
+pub fn convert_seconds_to_datetime(seconds: u32) -> RtcDateTime {
+    let mut seconds_remaining = seconds;
+    let mut days = seconds_remaining / SECONDS_IN_A_DAY + 1;
+    seconds_remaining %= SECONDS_IN_A_DAY;
+
+    let hour = (seconds_remaining / SECONDS_IN_A_HOUR) as u8;
+    seconds_remaining %= SECONDS_IN_A_HOUR;
+    let minute = (seconds_remaining / SECONDS_IN_A_MINUTE) as u8;
+    let second = (seconds_remaining % SECONDS_IN_A_MINUTE) as u8;
+
+    let mut year = YEAR_RANGE_START;
+    let mut days_in_year = DAYS_IN_A_YEAR;
+
+    while days > days_in_year {
+        days -= days_in_year;
+        year += 1;
+
+        days_in_year = if year.is_multiple_of(4) {
+            DAYS_IN_A_YEAR + 1
+        } else {
+            DAYS_IN_A_YEAR
+        };
+    }
+
+    let days_per_month = [
+        31,
+        if year.is_multiple_of(4) { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+
+    let mut month = 1;
+    for (m, month_days) in days_per_month.iter().enumerate() {
+        let m = m + 1;
+        if days <= *month_days as u32 {
+            month = m;
+            break;
+        } else {
+            days -= *month_days as u32;
+        }
+    }
+
+    let day = days as u8;
+
+    RtcDateTime {
+        year,
+        month: month as u8,
+        day,
+        hour,
+        minute,
+        second,
+    }
+}
+
+/// Returns default RTC configuration
+///
+/// # Returns
+///
+/// RtcConfig with sensible default values:
+/// - No wakeup selection
+/// - Update mode 0 (immediate updates)
+/// - No supervisor access restriction
+/// - No compensation
+pub fn get_default_config() -> RtcConfig {
+    RtcConfig {
+        wakeup_select: false,
+        update_mode: Um::Um0,
+        supervisor_access: false,
+        compensation_interval: 0,
+        compensation_time: 0,
+    }
+}
+/// Minimal RTC handle for a specific instance I (store the zero-sized token like embassy)
+pub struct Rtc<'a, I: Instance> {
+    _inst: core::marker::PhantomData<&'a mut I>,
+}
+
+impl<'a, I: Instance> Rtc<'a, I> {
+    /// Create a new instance of the real time clock.
+    pub fn new(
+        _inst: Peri<'a, I>,
+        _irq: impl crate::interrupt::typelevel::Binding<I::Interrupt, InterruptHandler<I>> + 'a,
+        config: RtcConfig,
+    ) -> Self {
+        let rtc = unsafe { &*I::ptr() };
+
+        // The RTC is NOT gated by the MRCC, but we DO need to make sure the 16k clock
+        // on the vsys domain is active
+        let clocks = with_clocks(|c| c.clk_16k_vsys.clone());
+        match clocks {
+            None => panic!("Clocks have not been initialized"),
+            Some(None) => panic!("Clocks initialized, but clk_16k_vsys not active"),
+            Some(Some(_)) => {}
+        }
+
+        // RTC reset
+        rtc.cr().modify(|_, w| w.swr().set_bit());
+        rtc.cr().modify(|_, w| w.swr().clear_bit());
+        rtc.tsr().write(|w| unsafe { w.bits(1) });
+
+        rtc.cr().modify(|_, w| w.um().variant(config.update_mode));
+
+        rtc.tcr().modify(|_, w| unsafe {
+            w.cir()
+                .bits(config.compensation_interval)
+                .tcr()
+                .bits(config.compensation_time)
+        });
+
+        // Enable RTC interrupt
+        I::Interrupt::unpend();
+        unsafe { I::Interrupt::enable() };
+
+        Self {
+            _inst: core::marker::PhantomData,
+        }
+    }
+
+    /// Set the current date and time
+    ///
+    /// # Arguments
+    ///
+    /// * `datetime` - The date and time to set
+    ///
+    /// # Note
+    ///
+    /// The datetime is converted to Unix timestamp and written to the time seconds register.
+    pub fn set_datetime(&self, datetime: RtcDateTime) {
+        let rtc = unsafe { &*I::ptr() };
+        let seconds = convert_datetime_to_seconds(&datetime);
+        rtc.tsr().write(|w| unsafe { w.bits(seconds) });
+    }
+
+    /// Get the current date and time
+    ///
+    /// # Returns
+    ///
+    /// Current date and time as RtcDateTime
+    ///
+    /// # Note
+    ///
+    /// Reads the current Unix timestamp from the time seconds register and converts it.
+    pub fn get_datetime(&self) -> RtcDateTime {
+        let rtc = unsafe { &*I::ptr() };
+        let seconds = rtc.tsr().read().bits();
+        convert_seconds_to_datetime(seconds)
+    }
+
+    /// Set the alarm date and time
+    ///
+    /// # Arguments
+    ///
+    /// * `alarm` - The date and time when the alarm should trigger
+    ///
+    /// # Note
+    ///
+    /// This function:
+    /// - Clears any existing alarm by writing 0 to the alarm register
+    /// - Waits for the clear operation to complete
+    /// - Sets the new alarm time
+    /// - Waits for the write operation to complete
+    /// - Uses timeouts to prevent infinite loops
+    /// - Enables the alarm interrupt after setting
+    pub fn set_alarm(&self, alarm: RtcDateTime) {
+        let rtc = unsafe { &*I::ptr() };
+        let seconds = convert_datetime_to_seconds(&alarm);
+
+        rtc.tar().write(|w| unsafe { w.bits(0) });
+        let mut timeout = 10000;
+        while rtc.tar().read().bits() != 0 && timeout > 0 {
+            timeout -= 1;
+        }
+
+        rtc.tar().write(|w| unsafe { w.bits(seconds) });
+
+        let mut timeout = 10000;
+        while rtc.tar().read().bits() != seconds && timeout > 0 {
+            timeout -= 1;
+        }
+
+        self.set_interrupt(RtcInterruptEnable::RTC_ALARM_INTERRUPT_ENABLE);
+    }
+
+    /// Get the current alarm date and time
+    ///
+    /// # Returns
+    ///
+    /// Alarm date and time as RtcDateTime
+    ///
+    /// # Note
+    ///
+    /// Reads the alarm timestamp from the time alarm register and converts it.
+    pub fn get_alarm(&self) -> RtcDateTime {
+        let rtc = unsafe { &*I::ptr() };
+        let alarm_seconds = rtc.tar().read().bits();
+        convert_seconds_to_datetime(alarm_seconds)
+    }
+
+    /// Start the RTC time counter
+    ///
+    /// # Note
+    ///
+    /// Sets the Time Counter Enable (TCE) bit in the status register.
+    pub fn start(&self) {
+        let rtc = unsafe { &*I::ptr() };
+        rtc.sr().modify(|_, w| w.tce().set_bit());
+    }
+
+    /// Stop the RTC time counter
+    ///
+    /// # Note
+    ///
+    /// Clears the Time Counter Enable (TCE) bit in the status register.
+    pub fn stop(&self) {
+        let rtc = unsafe { &*I::ptr() };
+        rtc.sr().modify(|_, w| w.tce().clear_bit());
+    }
+
+    /// Enable specific RTC interrupts
+    ///
+    /// # Arguments
+    ///
+    /// * `mask` - Bitmask of interrupts to enable (use RtcInterruptEnable constants)
+    ///
+    /// # Note
+    ///
+    /// This function enables the specified interrupt types and resets the alarm occurred flag.
+    /// Available interrupts:
+    /// - Time Invalid Interrupt
+    /// - Time Overflow Interrupt  
+    /// - Alarm Interrupt
+    /// - Seconds Interrupt
+    pub fn set_interrupt(&self, mask: u32) {
+        let rtc = unsafe { &*I::ptr() };
+
+        if (RtcInterruptEnable::RTC_TIME_INVALID_INTERRUPT_ENABLE & mask) != 0 {
+            rtc.ier().modify(|_, w| w.tiie().tiie_1());
+        }
+        if (RtcInterruptEnable::RTC_TIME_OVERFLOW_INTERRUPT_ENABLE & mask) != 0 {
+            rtc.ier().modify(|_, w| w.toie().toie_1());
+        }
+        if (RtcInterruptEnable::RTC_ALARM_INTERRUPT_ENABLE & mask) != 0 {
+            rtc.ier().modify(|_, w| w.taie().taie_1());
+        }
+        if (RtcInterruptEnable::RTC_SECONDS_INTERRUPT_ENABLE & mask) != 0 {
+            rtc.ier().modify(|_, w| w.tsie().tsie_1());
+        }
+    }
+
+    /// Disable specific RTC interrupts
+    ///
+    /// # Arguments
+    ///
+    /// * `mask` - Bitmask of interrupts to disable (use RtcInterruptEnable constants)
+    ///
+    /// # Note
+    ///
+    /// This function disables the specified interrupt types.
+    pub fn disable_interrupt(&self, mask: u32) {
+        let rtc = unsafe { &*I::ptr() };
+
+        if (RtcInterruptEnable::RTC_TIME_INVALID_INTERRUPT_ENABLE & mask) != 0 {
+            rtc.ier().modify(|_, w| w.tiie().tiie_0());
+        }
+        if (RtcInterruptEnable::RTC_TIME_OVERFLOW_INTERRUPT_ENABLE & mask) != 0 {
+            rtc.ier().modify(|_, w| w.toie().toie_0());
+        }
+        if (RtcInterruptEnable::RTC_ALARM_INTERRUPT_ENABLE & mask) != 0 {
+            rtc.ier().modify(|_, w| w.taie().taie_0());
+        }
+        if (RtcInterruptEnable::RTC_SECONDS_INTERRUPT_ENABLE & mask) != 0 {
+            rtc.ier().modify(|_, w| w.tsie().tsie_0());
+        }
+    }
+
+    /// Clear the alarm interrupt flag
+    ///
+    /// # Note
+    ///
+    /// This function clears the Time Alarm Interrupt Enable bit.
+    pub fn clear_alarm_flag(&self) {
+        let rtc = unsafe { &*I::ptr() };
+        rtc.ier().modify(|_, w| w.taie().clear_bit());
+    }
+
+    /// Wait for an RTC alarm to trigger.
+    ///
+    /// # Arguments
+    ///
+    /// * `alarm` - The date and time when the alarm should trigger
+    /// This function will wait until the RTC alarm is triggered.
+    /// If no alarm is scheduled, it will wait indefinitely until one is scheduled and triggered.
+    pub async fn wait_for_alarm(&mut self, alarm: RtcDateTime) {
+        let wait = WAKER.subscribe().await;
+
+        self.set_alarm(alarm);
+        self.start();
+
+        // REVISIT: propagate error?
+        let _ = wait.await;
+
+        // Clear the interrupt and disable the alarm after waking up
+        self.disable_interrupt(RtcInterruptEnable::RTC_ALARM_INTERRUPT_ENABLE);
+    }
+}
+
+/// RTC interrupt handler
+///
+/// This struct implements the interrupt handler for RTC events.
+impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let rtc = &*pac::Rtc0::ptr();
+        // Check if this is actually a time alarm interrupt
+        let sr = rtc.sr().read();
+        if sr.taf().bit_is_set() {
+            rtc.ier().modify(|_, w| w.taie().clear_bit());
+            WAKER.wake();
+        }
+    }
+}

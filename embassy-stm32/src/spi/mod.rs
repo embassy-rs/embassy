@@ -54,6 +54,16 @@ pub enum BitOrder {
     MsbFirst,
 }
 
+/// SPI Direction.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Direction {
+    /// Transmit
+    Transmit,
+    /// Receive
+    Receive,
+}
+
 /// SPI configuration.
 #[non_exhaustive]
 #[derive(Copy, Clone)]
@@ -72,6 +82,10 @@ pub struct Config {
     /// signal rise/fall speed (slew rate) - defaults to `Medium`.
     /// Increase for high SPI speeds. Change to `Low` to reduce ringing.
     pub gpio_speed: Speed,
+    /// If True sets SSOE to zero even if SPI is in Master Mode.
+    /// NSS output enabled (SSM = 0, SSOE = 1): The NSS signal is driven low when the master starts the communication and is kept low until the SPI is disabled.
+    /// NSS output disabled (SSM = 0, SSOE = 0): For devices set as slave, the NSS pin acts as a classical NSS input: the slave is selected when NSS is low and deselected when NSS high.
+    pub nss_output_disable: bool,
 }
 
 impl Default for Config {
@@ -82,6 +96,7 @@ impl Default for Config {
             frequency: Hertz(1_000_000),
             miso_pull: Pull::None,
             gpio_speed: Speed::VeryHigh,
+            nss_output_disable: false,
         }
     }
 }
@@ -215,13 +230,35 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         let cpol = config.raw_polarity();
         let lsbfirst = config.raw_byte_order();
 
-        self.info.rcc.enable_and_reset();
+        self.info.rcc.enable_and_reset_without_stop();
+
+        /*
+        - Software NSS management (SSM = 1)
+        The slave select information is driven internally by the value of the SSI bit in the
+        SPI_CR1 register. The external NSS pin remains free for other application uses.
+
+        - Hardware NSS management (SSM = 0)
+        Two configurations are possible depending on the NSS output configuration (SSOE bit
+        in register SPI_CR1).
+
+        -- NSS output enabled (SSM = 0, SSOE = 1)
+          This configuration is used only when the device operates in master mode. The
+          NSS signal is driven low when the master starts the communication and is kept
+          low until the SPI is disabled.
+
+        -- NSS output disabled (SSM = 0, SSOE = 0)
+            This configuration allows multimaster capability for devices operating in master
+            mode. For devices set as slave, the NSS pin acts as a classical NSS input: the
+            slave is selected when NSS is low and deselected when NSS high
+         */
+        let ssm = self.nss.is_none();
 
         let regs = self.info.regs;
         #[cfg(any(spi_v1, spi_v2))]
         {
+            let ssoe = CM::MASTER == vals::Mstr::MASTER && !config.nss_output_disable;
             regs.cr2().modify(|w| {
-                w.set_ssoe(false);
+                w.set_ssoe(ssoe);
             });
             regs.cr1().modify(|w| {
                 w.set_cpha(cpha);
@@ -232,7 +269,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
                 w.set_spe(true);
                 w.set_lsbfirst(lsbfirst);
                 w.set_ssi(CM::MASTER == vals::Mstr::MASTER);
-                w.set_ssm(CM::MASTER == vals::Mstr::MASTER);
+                w.set_ssm(ssm);
                 w.set_crcen(false);
                 w.set_bidimode(vals::Bidimode::UNIDIRECTIONAL);
                 // we're doing "fake rxonly", by actually writing one
@@ -244,11 +281,12 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         }
         #[cfg(spi_v3)]
         {
+            let ssoe = CM::MASTER == vals::Mstr::MASTER && !config.nss_output_disable;
             regs.cr2().modify(|w| {
                 let (ds, frxth) = <u8 as SealedWord>::CONFIG;
                 w.set_frxth(frxth);
                 w.set_ds(ds);
-                w.set_ssoe(false);
+                w.set_ssoe(ssoe);
             });
             regs.cr1().modify(|w| {
                 w.set_cpha(cpha);
@@ -258,7 +296,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
                 w.set_br(br);
                 w.set_lsbfirst(lsbfirst);
                 w.set_ssi(CM::MASTER == vals::Mstr::MASTER);
-                w.set_ssm(CM::MASTER == vals::Mstr::MASTER);
+                w.set_ssm(ssm);
                 w.set_crcen(false);
                 w.set_bidimode(vals::Bidimode::UNIDIRECTIONAL);
                 w.set_spe(true);
@@ -266,14 +304,14 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         }
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         {
+            let ssoe = CM::MASTER == vals::Master::MASTER && !config.nss_output_disable;
             regs.ifcr().write(|w| w.0 = 0xffff_ffff);
             regs.cfg2().modify(|w| {
-                //w.set_ssoe(true);
-                w.set_ssoe(false);
+                w.set_ssoe(ssoe);
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
                 w.set_lsbfirst(lsbfirst);
-                w.set_ssm(CM::MASTER == vals::Master::MASTER);
+                w.set_ssm(ssm);
                 w.set_master(CM::MASTER);
                 w.set_comm(vals::Comm::FULL_DUPLEX);
                 w.set_ssom(vals::Ssom::ASSERTED);
@@ -348,6 +386,20 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         Ok(())
     }
 
+    /// Set SPI direction
+    #[cfg(any(spi_v1, spi_v2, spi_v3))]
+    pub fn set_direction(&mut self, dir: Option<Direction>) {
+        let (bidimode, bidioe) = match dir {
+            Some(Direction::Transmit) => (vals::Bidimode::BIDIRECTIONAL, vals::Bidioe::TRANSMIT),
+            Some(Direction::Receive) => (vals::Bidimode::BIDIRECTIONAL, vals::Bidioe::RECEIVE),
+            None => (vals::Bidimode::UNIDIRECTIONAL, vals::Bidioe::TRANSMIT),
+        };
+        self.info.regs.cr1().modify(|w| {
+            w.set_bidimode(bidimode);
+            w.set_bidioe(bidioe);
+        });
+    }
+
     /// Get current SPI configuration.
     pub fn get_current_config(&self) -> Config {
         #[cfg(any(spi_v1, spi_v2, spi_v3))]
@@ -356,6 +408,11 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         let cfg = self.info.regs.cfg2().read();
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         let cfg1 = self.info.regs.cfg1().read();
+
+        #[cfg(any(spi_v1, spi_v2, spi_v3))]
+        let ssoe = self.info.regs.cr2().read().ssoe();
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        let ssoe = cfg.ssoe();
 
         let polarity = if cfg.cpol() == vals::Cpol::IDLE_LOW {
             Polarity::IdleLow
@@ -386,12 +443,16 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
 
         let frequency = compute_frequency(self.kernel_clock, br);
 
+        // NSS output disabled if SSOE=0 or if SSM=1 software slave management enabled
+        let nss_output_disable = !ssoe || cfg.ssm();
+
         Config {
             mode: Mode { polarity, phase },
             bit_order,
             frequency,
             miso_pull,
             gpio_speed: self.gpio_speed,
+            nss_output_disable,
         }
     }
 
@@ -708,6 +769,30 @@ impl<'d> Spi<'d, Async, Master> {
         )
     }
 
+    /// Create a new SPI driver, in bidirectional mode, specifically in tranmit mode    
+    #[cfg(any(spi_v1, spi_v2, spi_v3))]
+    pub fn new_bidi<T: Instance, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, if_afio!(impl SckPin<T, A>)>,
+        sdio: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
+        tx_dma: Peri<'d, impl TxDma<T>>,
+        rx_dma: Peri<'d, impl RxDma<T>>,
+        config: Config,
+    ) -> Self {
+        let mut this = Self::new_inner(
+            peri,
+            new_pin!(sck, config.sck_af()),
+            new_pin!(sdio, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            None,
+            None,
+            new_dma!(tx_dma),
+            new_dma!(rx_dma),
+            config,
+        );
+        this.set_direction(Some(Direction::Transmit));
+        this
+    }
+
     /// Create a new SPI driver, in TX-only mode, without SCK pin.
     ///
     /// This can be useful for bit-banging non-SPI protocols.
@@ -763,6 +848,7 @@ impl<'d> Spi<'d, Async, Master> {
 impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
     /// SPI write, using DMA.
     pub async fn write<W: Word>(&mut self, data: &[W]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         if data.is_empty() {
             return Ok(());
         }
@@ -794,6 +880,7 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
     /// SPI read, using DMA.
     #[cfg(any(spi_v4, spi_v5, spi_v6))]
     pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         if data.is_empty() {
             return Ok(());
         }
@@ -881,6 +968,7 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
     /// SPI read, using DMA.
     #[cfg(any(spi_v1, spi_v2, spi_v3))]
     pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         if data.is_empty() {
             return Ok(());
         }
@@ -928,6 +1016,7 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
     }
 
     async fn transfer_inner<W: Word>(&mut self, read: *mut [W], write: *const [W]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         assert_eq!(read.len(), write.len());
         if read.len() == 0 {
             return Ok(());
@@ -979,6 +1068,8 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
     /// The transfer runs for `max(read.len(), write.len())` bytes. If `read` is shorter extra bytes are ignored.
     /// If `write` is shorter it is padded with zero bytes.
     pub async fn transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
+
         self.transfer_inner(read, write).await
     }
 
@@ -986,6 +1077,8 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
     ///
     /// This writes the contents of `data` on MOSI, and puts the received data on MISO in `data`, at the same time.
     pub async fn transfer_in_place<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
+
         self.transfer_inner(data, data).await
     }
 }

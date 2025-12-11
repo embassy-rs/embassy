@@ -27,7 +27,7 @@ Embassy provides implementations of both async and blocking APIs where it makes 
 The Embassy project maintains HALs for select hardware, but you can still use HALs from other projects with Embassy.
 
 * link:https://docs.embassy.dev/embassy-stm32/[embassy-stm32], for all STM32 microcontroller families.
-* link:https://docs.embassy.dev/embassy-nrf/[embassy-nrf], for the Nordic Semiconductor nRF52, nRF53, nRF91 series.
+* link:https://docs.embassy.dev/embassy-nrf/[embassy-nrf], for the Nordic Semiconductor nRF52, nRF53, nRF54, nRF91 series.
 * link:https://docs.embassy.dev/embassy-rp/[embassy-rp], for the Raspberry Pi RP2040 as well as RP235x microcontroller.
 * link:https://docs.embassy.dev/embassy-mspm0/[embassy-mspm0], for the Texas Instruments MSPM0 microcontrollers.
 * link:https://github.com/esp-rs/esp-hal[esp-hal], for the Espressif Systems ESP32 series of chips.
@@ -42,7 +42,9 @@ as they implement both the link:https://github.com/rust-embedded/embedded-hal[Em
 The link:https://docs.embassy.dev/embassy-net/[embassy-net] network stack implements extensive networking functionality, including Ethernet, IP, TCP, UDP, ICMP and DHCP. Async drastically simplifies managing timeouts and serving multiple connections concurrently. Several drivers for WiFi and Ethernet chips can be found.
 
 === Bluetooth
-The link:https://github.com/embassy-rs/nrf-softdevice[nrf-softdevice] crate provides Bluetooth Low Energy 4.x and 5.x support for nRF52 microcontrollers.
+
+* The link:https://github.com/embassy-rs/trouble[trouble] crate provides a Bluetooth Low Energy 4.x and 5.x Host that runs on any microcontroller implementing the link:https://github.com/embassy-rs/bt-hci[bt-hci] traits (currently `nRF52`, `nrf54`, `rp2040`, `rp23xx` and `esp32` and `serial` controllers are supported).
+* The link:https://github.com/embassy-rs/nrf-softdevice[nrf-softdevice] crate provides Bluetooth Low Energy 4.x and 5.x support for nRF52 microcontrollers.
 
 === LoRa
 link:https://github.com/lora-rs/lora-rs[lora-rs] supports LoRa networking on a wide range of LoRa radios, fully integrated with a Rust LoRaWAN implementation. It provides four crates — lora-phy, lora-modulation, lorawan-encoding, and lorawan-device — and basic examples for various development boards. It has support for STM32WL wireless microcontrollers or Semtech SX127x transceivers, among others.

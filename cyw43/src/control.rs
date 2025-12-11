@@ -436,6 +436,9 @@ impl<'a> Control<'a> {
         // Set wifi up again
         self.up().await;
 
+        // Disable authentication
+        self.ioctl_set_u32(Ioctl::SetAuth, 0, AUTH_OPEN).await;
+
         // Turn on AP mode
         self.ioctl_set_u32(Ioctl::SetAp, 0, 1).await;
 
@@ -470,8 +473,6 @@ impl<'a> Control<'a> {
             pfi.passphrase[..passphrase.as_bytes().len()].copy_from_slice(passphrase.as_bytes());
             self.ioctl(IoctlType::Set, Ioctl::SetWsecPmk, 0, &mut pfi.to_bytes())
                 .await;
-        } else {
-            self.ioctl_set_u32(Ioctl::SetAuth, 0, 0).await;
         }
 
         // Change mutlicast rate from 1 Mbps to 11 Mbps
@@ -545,6 +546,14 @@ impl<'a> Control<'a> {
         }
 
         n
+    }
+
+    /// Retrieve the latest RSSI value
+    pub async fn get_rssi(&mut self) -> i32 {
+        let mut rssi_buf = [0u8; 4];
+        let n = self.ioctl(IoctlType::Get, Ioctl::GetRssi, 0, &mut rssi_buf).await;
+        assert_eq!(n, 4);
+        i32::from_ne_bytes(rssi_buf)
     }
 
     async fn set_iovar_u32x2(&mut self, name: &str, val1: u32, val2: u32) {

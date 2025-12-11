@@ -4,7 +4,7 @@ use core::sync::atomic::{Ordering, compiler_fence};
 #[allow(unused_imports)]
 use embassy_hal_internal::Peri;
 
-use crate::adc::AnyInstance;
+use super::AdcRegs;
 #[allow(unused_imports)]
 use crate::adc::{Instance, RxDma};
 #[allow(unused_imports)]
@@ -19,7 +19,7 @@ pub struct RingBufferedAdc<'d, T: Instance> {
     ring_buf: ReadableRingBuffer<'d, u16>,
 }
 
-impl<'d, T: Instance + AnyInstance> RingBufferedAdc<'d, T> {
+impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     pub(crate) fn new(dma: Peri<'d, impl RxDma<T>>, dma_buf: &'d mut [u16]) -> Self {
         //dma side setup
         let opts = TransferOptions {
@@ -31,8 +31,7 @@ impl<'d, T: Instance + AnyInstance> RingBufferedAdc<'d, T> {
         // Safety: we forget the struct before this function returns.
         let request = dma.request();
 
-        let ring_buf =
-            unsafe { ReadableRingBuffer::new(dma, request, T::regs().dr().as_ptr() as *mut u16, dma_buf, opts) };
+        let ring_buf = unsafe { ReadableRingBuffer::new(dma, request, T::regs().data(), dma_buf, opts) };
 
         Self {
             _phantom: PhantomData,
@@ -45,7 +44,7 @@ impl<'d, T: Instance + AnyInstance> RingBufferedAdc<'d, T> {
         compiler_fence(Ordering::SeqCst);
         self.ring_buf.start();
 
-        T::start();
+        T::regs().start();
     }
 
     pub fn stop(&mut self) {
@@ -117,15 +116,15 @@ impl<'d, T: Instance + AnyInstance> RingBufferedAdc<'d, T> {
             self.start();
         }
 
-        #[cfg(adc_v2)]
-        {
-            // Clear overrun flag if set.
-            if T::regs().sr().read().ovr() {
-                self.stop();
-
-                return Err(OverrunError);
-            }
-        }
+        //        #[cfg(adc_v2)]
+        //        {
+        //            // Clear overrun flag if set.
+        //            if T::regs().sr().read().ovr() {
+        //                self.stop();
+        //
+        //                return Err(OverrunError);
+        //            }
+        //        }
 
         self.ring_buf.read_exact(measurements).await.map_err(|_| OverrunError)
     }
@@ -143,15 +142,16 @@ impl<'d, T: Instance + AnyInstance> RingBufferedAdc<'d, T> {
             self.start();
         }
 
-        #[cfg(adc_v2)]
-        {
-            // Clear overrun flag if set.
-            if T::regs().sr().read().ovr() {
-                self.stop();
+        //        #[cfg(adc_v2)]
+        //        {
+        //            // Clear overrun flag if set.
+        //            if T::regs().sr().read().ovr() {
+        //                self.stop();
+        //
+        //                return Err(OverrunError);
+        //            }
+        //        }
 
-                return Err(OverrunError);
-            }
-        }
         loop {
             match self.ring_buf.read(buf) {
                 Ok((0, _)) => {}
@@ -168,9 +168,9 @@ impl<'d, T: Instance + AnyInstance> RingBufferedAdc<'d, T> {
     }
 }
 
-impl<T: Instance + AnyInstance> Drop for RingBufferedAdc<'_, T> {
+impl<T: Instance> Drop for RingBufferedAdc<'_, T> {
     fn drop(&mut self) {
-        T::stop();
+        T::regs().stop();
 
         compiler_fence(Ordering::SeqCst);
 

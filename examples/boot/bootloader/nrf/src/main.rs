@@ -28,7 +28,10 @@ fn main() -> ! {
     wdt_config.action_during_sleep = SleepConfig::RUN;
     wdt_config.action_during_debug_halt = HaltConfig::PAUSE;
 
+    #[cfg(not(feature = "nrf54"))]
     let flash = WatchdogFlash::start(Nvmc::new(p.NVMC), p.WDT, wdt_config);
+    #[cfg(feature = "nrf54")]
+    let flash = WatchdogFlash::start(Nvmc::new(p.RRAMC), p.WDT0, wdt_config);
     let flash = Mutex::new(RefCell::new(flash));
 
     let config = BootLoaderConfig::from_linkerfile_blocking(&flash, &flash, &flash);

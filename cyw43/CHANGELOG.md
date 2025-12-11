@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Reset WPA security before creating secure AP
+
 ## 0.6.0 - 2025-11-27
 
 - Updated documentation for Control::join() #4678

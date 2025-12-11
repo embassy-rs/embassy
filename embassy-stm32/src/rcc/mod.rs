@@ -12,6 +12,7 @@ pub use bd::*;
 #[cfg(any(mco, mco1, mco2))]
 mod mco;
 use critical_section::CriticalSection;
+use embassy_hal_internal::{Peri, PeripheralType};
 #[cfg(any(mco, mco1, mco2))]
 pub use mco::*;
 
@@ -172,7 +173,7 @@ pub(crate) struct RccInfo {
 /// E.g. if `StopMode::Stop1` is selected, the peripheral prevents the chip from entering Stop1 mode.
 #[cfg(feature = "low-power")]
 #[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Default, defmt::Format)]
 pub enum StopMode {
     #[default]
     /// Peripheral prevents chip from entering Stop1 or executor will enter Stop1
@@ -381,9 +382,16 @@ pub(crate) trait StoppablePeripheral {
 }
 
 #[cfg(feature = "low-power")]
-impl<'a> StoppablePeripheral for StopMode {
+impl StoppablePeripheral for StopMode {
     fn stop_mode(&self) -> StopMode {
         *self
+    }
+}
+
+impl<'a, T: StoppablePeripheral + PeripheralType> StoppablePeripheral for Peri<'a, T> {
+    #[cfg(feature = "low-power")]
+    fn stop_mode(&self) -> StopMode {
+        T::stop_mode(&self)
     }
 }
 
@@ -488,6 +496,16 @@ pub fn disable_with_cs<T: RccPeripheral>(cs: CriticalSection) {
 // TODO: should this be `unsafe`?
 pub fn enable_and_reset<T: RccPeripheral>() {
     T::RCC_INFO.enable_and_reset();
+}
+
+/// Enables and resets peripheral `T` without incrementing the stop refcount.
+///
+/// # Safety
+///
+/// Peripheral must not be in use.
+// TODO: should this be `unsafe`?
+pub fn enable_and_reset_without_stop<T: RccPeripheral>() {
+    T::RCC_INFO.enable_and_reset_without_stop();
 }
 
 /// Disables peripheral `T`.

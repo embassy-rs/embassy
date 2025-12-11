@@ -4,7 +4,7 @@ use aligned::{A4, Aligned};
 use bit_field::BitField;
 
 use crate::cmd::{AclDataPacket, CmdPacket};
-#[cfg(feature = "mac")]
+#[cfg(feature = "wb55_mac")]
 use crate::consts::C_SIZE_CMD_STRING;
 use crate::consts::{POOL_SIZE, TL_CS_EVT_SIZE, TL_EVT_HEADER_SIZE, TL_PACKET_HEADER_SIZE};
 use crate::unsafe_linked_list::LinkedListNode;
@@ -242,11 +242,11 @@ pub static mut EVT_QUEUE: Aligned<A4, MaybeUninit<LinkedListNode>> = Aligned(May
 pub static mut SYSTEM_EVT_QUEUE: Aligned<A4, MaybeUninit<LinkedListNode>> = Aligned(MaybeUninit::zeroed());
 
 // --------------------- app tables ---------------------
-#[cfg(feature = "mac")]
+#[cfg(feature = "wb55_mac")]
 #[unsafe(link_section = "MB_MEM2")]
 pub static mut MAC_802_15_4_CMD_BUFFER: Aligned<A4, MaybeUninit<CmdPacket>> = Aligned(MaybeUninit::zeroed());
 
-#[cfg(feature = "mac")]
+#[cfg(feature = "wb55_mac")]
 #[unsafe(link_section = "MB_MEM2")]
 pub static mut MAC_802_15_4_NOTIF_RSP_EVT_BUFFER: MaybeUninit<
     Aligned<A4, [u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]>,
@@ -262,21 +262,21 @@ pub static mut SYS_CMD_BUF: Aligned<A4, MaybeUninit<CmdPacket>> = Aligned(MaybeU
 pub static mut SYS_SPARE_EVT_BUF: Aligned<A4, MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]>> =
     Aligned(MaybeUninit::zeroed());
 
-#[cfg(feature = "mac")]
+#[cfg(feature = "wb55_mac")]
 #[unsafe(link_section = "MB_MEM2")]
 pub static mut MAC_802_15_4_CNFINDNOT: Aligned<A4, MaybeUninit<[u8; C_SIZE_CMD_STRING]>> =
     Aligned(MaybeUninit::zeroed());
 
-#[cfg(feature = "ble")]
+#[cfg(feature = "wb55_ble")]
 #[unsafe(link_section = "MB_MEM1")]
 pub static mut BLE_CMD_BUFFER: Aligned<A4, MaybeUninit<CmdPacket>> = Aligned(MaybeUninit::zeroed());
 
-#[cfg(feature = "ble")]
+#[cfg(feature = "wb55_ble")]
 #[unsafe(link_section = "MB_MEM2")]
 pub static mut BLE_SPARE_EVT_BUF: Aligned<A4, MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + TL_EVT_HEADER_SIZE + 255]>> =
     Aligned(MaybeUninit::zeroed());
 
-#[cfg(feature = "ble")]
+#[cfg(feature = "wb55_ble")]
 #[unsafe(link_section = "MB_MEM2")]
 //                                                 fuck these "magic" numbers from ST ---v---v
 pub static mut HCI_ACL_DATA_BUFFER: Aligned<A4, MaybeUninit<[u8; TL_PACKET_HEADER_SIZE + 5 + 251]>> =

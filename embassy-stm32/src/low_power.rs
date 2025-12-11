@@ -88,7 +88,7 @@ foreach_interrupt! {
         #[interrupt]
         #[allow(non_snake_case)]
         unsafe fn $irq() {
-            Executor::on_wakeup_irq();
+            Executor::on_wakeup_irq_or_event();
         }
     };
 }
@@ -99,7 +99,7 @@ foreach_interrupt! {
         #[interrupt]
         #[allow(non_snake_case)]
         unsafe fn $irq() {
-            Executor::on_wakeup_irq();
+            Executor::on_wakeup_irq_or_event();
         }
     };
 }
@@ -164,22 +164,30 @@ impl Executor {
         }
     }
 
-    pub(crate) unsafe fn on_wakeup_irq() {
+    pub(crate) unsafe fn on_wakeup_irq_or_event() {
+        if !get_driver().is_stopped() {
+            return;
+        }
+
         critical_section::with(|cs| {
             #[cfg(stm32wlex)]
             {
-                use crate::pac::rcc::vals::Sw;
-                use crate::pac::{PWR, RCC};
-                use crate::rcc::init as init_rcc;
+                let es = crate::pac::PWR.extscr().read();
+                match (es.c1stopf(), es.c1stop2f()) {
+                    (true, false) => debug!("low power: wake from STOP1"),
+                    (false, true) => debug!("low power: wake from STOP2"),
+                    (true, true) => debug!("low power: wake from STOP1 and STOP2 ???"),
+                    (false, false) => trace!("low power: stop mode not entered"),
+                };
+                crate::pac::PWR.extscr().modify(|w| {
+                    w.set_c1cssf(false);
+                });
 
-                let extscr = PWR.extscr().read();
-                if extscr.c1stop2f() || extscr.c1stopf() {
+                if es.c1stop2f() || es.c1stopf() {
                     // when we wake from any stop mode we need to re-initialize the rcc
-                    while RCC.cfgr().read().sws() != Sw::MSI {}
+                    crate::rcc::init(RCC_CONFIG.unwrap());
 
-                    init_rcc(RCC_CONFIG.unwrap());
-
-                    if extscr.c1stop2f() {
+                    if es.c1stop2f() {
                         // when we wake from STOP2, we need to re-initialize the time driver
                         get_driver().init_timer(cs);
                         // reset the refcounts for STOP2 and STOP1 (initializing the time driver will increment one of them for the timer)
@@ -190,7 +198,8 @@ impl Executor {
                 }
             }
             get_driver().resume_time(cs);
-            trace!("low power: resume");
+
+            trace!("low power: resume time");
         });
     }
 
@@ -201,10 +210,8 @@ impl Executor {
     fn stop_mode(_cs: CriticalSection) -> Option<StopMode> {
         // We cannot enter standby because we will lose program state.
         if unsafe { REFCOUNT_STOP2 == 0 && REFCOUNT_STOP1 == 0 } {
-            trace!("low power: stop 2");
             Some(StopMode::Stop2)
         } else if unsafe { REFCOUNT_STOP1 == 0 } {
-            trace!("low power: stop 1");
             Some(StopMode::Stop1)
         } else {
             trace!("low power: not ready to stop (refcount_stop1: {})", unsafe {
@@ -305,9 +312,11 @@ impl Executor {
             get_driver().pause_time(cs).ok()?;
             self.configure_stop(cs, stop_mode).ok()?;
 
-            Some(())
+            Some(stop_mode)
         })
-        .map(|_| {
+        .map(|stop_mode| {
+            trace!("low power: enter stop: {}", stop_mode);
+
             #[cfg(not(feature = "low-power-debug-with-sleep"))]
             Self::get_scb().set_sleepdeep();
         });
@@ -338,20 +347,10 @@ impl Executor {
             unsafe {
                 self.inner.poll();
                 self.configure_pwr();
+                #[cfg(feature = "defmt")]
+                defmt::flush();
                 asm!("wfe");
-                #[cfg(stm32wlex)]
-                {
-                    let es = crate::pac::PWR.extscr().read();
-                    match (es.c1stopf(), es.c1stop2f()) {
-                        (true, false) => debug!("low power: wake from STOP1"),
-                        (false, true) => debug!("low power: wake from STOP2"),
-                        (true, true) => debug!("low power: wake from STOP1 and STOP2 ???"),
-                        (false, false) => trace!("low power: stop mode not entered"),
-                    };
-                    crate::pac::PWR.extscr().modify(|w| {
-                        w.set_c1cssf(false);
-                    });
-                }
+                Self::on_wakeup_irq_or_event();
             };
         }
     }

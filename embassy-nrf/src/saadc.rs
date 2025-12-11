@@ -195,6 +195,7 @@ impl<'d, const N: usize> Saadc<'d, N> {
                 w.set_resp(cc.resistor.into());
                 #[cfg(not(feature = "_nrf54l"))]
                 w.set_resn(vals::Resn::BYPASS);
+                #[cfg(not(feature = "_nrf54l"))]
                 w.set_burst(!matches!(oversample, Oversample::BYPASS));
             });
         }
