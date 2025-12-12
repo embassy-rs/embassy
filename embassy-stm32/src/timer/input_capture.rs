@@ -159,9 +159,9 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
 }
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
-struct InputCaptureFuture<T: GeneralInstance4Channel> {
-    channel: Channel,
-    phantom: PhantomData<T>,
+pub(crate) struct InputCaptureFuture<T: GeneralInstance4Channel> {
+    pub(crate) channel: Channel,
+    pub(crate) phantom: PhantomData<T>,
 }
 
 impl<T: GeneralInstance4Channel> Drop for InputCaptureFuture<T> {
