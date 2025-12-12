@@ -1,5 +1,6 @@
 //! Implements Flexcomm interface wrapper for easier usage across modules
 
+pub mod spi;
 pub mod uart;
 
 use paste::paste;

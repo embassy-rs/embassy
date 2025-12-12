@@ -5,7 +5,10 @@ use sdio_host::emmc::{EMMC, ExtCSD};
 use sdio_host::sd::{BusWidth, CIC, CID, CSD, CardCapacity, CardStatus, CurrentState, OCR, RCA, SCR, SD, SDStatus};
 use sdio_host::{common_cmd, emmc_cmd, sd_cmd};
 
-use crate::sdmmc::{BlockSize, Error, Sdmmc, Signalling, block_size, bus_width_vals, slice8_mut, slice8_ref};
+use crate::sdmmc::{
+    BlockSize, DatapathMode, Error, Sdmmc, Signalling, aligned_mut, aligned_ref, block_size, bus_width_vals,
+    slice8_mut, slice8_ref,
+};
 use crate::time::{Hertz, mhz};
 
 /// Aligned data block for SDMMC transfers.
@@ -230,10 +233,8 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
             };
 
         let buffer = &mut cmd_block.0[..64 / 4];
-
-        let transfer = self
-            .sdmmc
-            .prepare_datapath_read(buffer, block_size(size_of_val(buffer)), false);
+        let mode = DatapathMode::Block(block_size(size_of_val(buffer)));
+        let transfer = self.sdmmc.prepare_datapath_read(aligned_mut(buffer), mode);
 
         self.sdmmc.cmd(sd_cmd::cmd6(set_function), true)?; // CMD6
 
@@ -272,7 +273,9 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
 
         // Arm `OnDrop` after the buffer, so it will be dropped first
 
-        let transfer = self.sdmmc.prepare_datapath_read(scr, BlockSize::Size8, false);
+        let transfer = self
+            .sdmmc
+            .prepare_datapath_read(aligned_mut(scr), DatapathMode::Block(BlockSize::Size8));
         self.sdmmc.cmd(sd_cmd::send_scr(), true)?;
 
         self.sdmmc.complete_datapath_transfer(transfer, true).await?;
@@ -290,10 +293,9 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
         self.sdmmc.cmd(common_cmd::app_cmd(rca), false)?; // APP
 
         let buffer = &mut cmd_block.as_mut()[..64 / 4];
+        let mode = DatapathMode::Block(block_size(size_of_val(buffer)));
 
-        let transfer = self
-            .sdmmc
-            .prepare_datapath_read(buffer, block_size(size_of_val(buffer)), false);
+        let transfer = self.sdmmc.prepare_datapath_read(aligned_mut(buffer), mode);
         self.sdmmc.cmd(sd_cmd::sd_status(), true)?;
 
         self.sdmmc.complete_datapath_transfer(transfer, true).await?;
@@ -398,9 +400,10 @@ impl<'a, 'b> StorageDevice<'a, 'b, Emmc> {
             .cmd(common_cmd::set_block_length(size_of::<DataBlock>() as u32), false)
             .unwrap(); // CMD16
 
-        let transfer = self
-            .sdmmc
-            .prepare_datapath_read(&mut data_block.0, block_size(size_of::<DataBlock>()), false);
+        let transfer = self.sdmmc.prepare_datapath_read(
+            aligned_mut(&mut data_block.0),
+            DatapathMode::Block(block_size(size_of::<DataBlock>())),
+        );
         self.sdmmc.cmd(emmc_cmd::send_ext_csd(), true)?;
 
         self.sdmmc.complete_datapath_transfer(transfer, true).await?;
@@ -418,7 +421,7 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
 
     /// Read a data block.
     #[inline]
-    pub async fn read_block(&mut self, block_idx: u32, buffer: &mut DataBlock) -> Result<(), Error> {
+    pub async fn read_block(&mut self, block_idx: u32, data_block: &mut DataBlock) -> Result<(), Error> {
         let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
         let card_capacity = self.info.get_capacity();
 
@@ -431,9 +434,10 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
         self.sdmmc
             .cmd(common_cmd::set_block_length(size_of::<DataBlock>() as u32), false)?; // CMD16
 
-        let transfer = self
-            .sdmmc
-            .prepare_datapath_read(&mut buffer.0, block_size(size_of::<DataBlock>()), false);
+        let transfer = self.sdmmc.prepare_datapath_read(
+            aligned_mut(&mut data_block.0),
+            DatapathMode::Block(block_size(size_of::<DataBlock>())),
+        );
         self.sdmmc.cmd(common_cmd::read_single_block(address), true)?;
 
         self.sdmmc.complete_datapath_transfer(transfer, true).await?;
@@ -464,9 +468,10 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
         self.sdmmc
             .cmd(common_cmd::set_block_length(size_of::<DataBlock>() as u32), false)?; // CMD16
 
-        let transfer = self
-            .sdmmc
-            .prepare_datapath_read(buffer, block_size(size_of::<DataBlock>()), false);
+        let transfer = self.sdmmc.prepare_datapath_read(
+            aligned_mut(buffer),
+            DatapathMode::Block(block_size(size_of::<DataBlock>())),
+        );
         self.sdmmc.cmd(common_cmd::read_multiple_blocks(address), true)?;
 
         self.sdmmc.complete_datapath_transfer(transfer, false).await?;
@@ -497,9 +502,10 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
         #[cfg(sdmmc_v1)]
         self.sdmmc.cmd(common_cmd::write_single_block(address), true)?;
 
-        let transfer = self
-            .sdmmc
-            .prepare_datapath_write(&buffer.0, block_size(size_of::<DataBlock>()), false);
+        let transfer = self.sdmmc.prepare_datapath_write(
+            aligned_ref(&buffer.0),
+            DatapathMode::Block(block_size(size_of::<DataBlock>())),
+        );
 
         #[cfg(sdmmc_v2)]
         self.sdmmc.cmd(common_cmd::write_single_block(address), true)?;
@@ -548,10 +554,10 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
         self.sdmmc.cmd(common_cmd::write_multiple_blocks(address), true)?; // CMD25
 
         // Setup write command
-        let transfer = self
-            .sdmmc
-            .prepare_datapath_write(buffer, block_size(size_of::<DataBlock>()), false);
-
+        let transfer = self.sdmmc.prepare_datapath_write(
+            aligned_ref(buffer),
+            DatapathMode::Block(block_size(size_of::<DataBlock>())),
+        );
         #[cfg(sdmmc_v2)]
         self.sdmmc.cmd(common_cmd::write_multiple_blocks(address), true)?; // CMD25
 

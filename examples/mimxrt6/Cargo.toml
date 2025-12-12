@@ -21,6 +21,8 @@ embedded-hal-async = "1.0.0"
 
 mimxrt600-fcb = "0.2.2"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
+embedded-hal-bus = "0.3.0"
+is31fl3743b-driver = { version = "0.1.1", features = ["is_blocking"] }
 
 # cargo build/run
 [profile.dev]

@@ -5,6 +5,10 @@ error[E0277]: task futures must resolve to `()` or `!`
   | ^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `TaskReturnValue` is not implemented for `u32`
   |
   = note: use `async fn` or change the return type to `impl Future<Output = ()>`
-  = help: the following other types implement trait `TaskReturnValue`:
-            ()
-            <fn() -> ! as HasOutput>::Output
+help: the following other types implement trait `TaskReturnValue`
+ --> src/lib.rs
+  |
+  |     impl TaskReturnValue for () {}
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^ `()`
+  |     impl TaskReturnValue for Never {}
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `<fn() -> ! as HasOutput>::Output`
