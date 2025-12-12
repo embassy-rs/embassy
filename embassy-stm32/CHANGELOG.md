@@ -93,6 +93,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - stm32: Add blocking_listen for blocking I2C driver
 - fix: stm32l47*/stm32l48* adc analog pin setup
 - fix: keep stm32/sai: make NODIV independent of MCKDIV
+- fix: instantiation with Spi::new did not apply IO driver strength from config (speed)
 
 ## 0.4.0 - 2025-08-26
 
