@@ -36,7 +36,7 @@ rm -rf out/tests/nrf5340-dk
 rm -rf out/tests/mspm0g3507
 
 # rm out/tests/stm32wb55rg/wpan_mac
-rm out/tests/stm32wb55rg/wpan_ble
+# rm out/tests/stm32wb55rg/wpan_ble
 
 # unstable, I think it's running out of RAM?
 rm out/tests/stm32f207zg/eth
