@@ -20,6 +20,20 @@ macro_rules! WRITE_BYTES_PAD {
     };
 }
 
+const fn aligned_mut(x: &mut [u32]) -> &mut Aligned<A4, [u8]> {
+    let len = x.len() * 4;
+    unsafe { core::mem::transmute(slice::from_raw_parts_mut(x.as_mut_ptr() as *mut u8, len)) }
+}
+
+const fn aligned_mut_half_word(x: &mut [u32; 1]) -> &mut Aligned<A4, [u8]> {
+    unsafe { core::mem::transmute(slice::from_raw_parts_mut(x.as_mut_ptr() as *mut u8, 2)) }
+}
+
+const fn aligned_ref(x: &[u32]) -> &Aligned<A4, [u8]> {
+    let len = x.len() * 4;
+    unsafe { core::mem::transmute(slice::from_raw_parts(x.as_ptr() as *mut u8, len)) }
+}
+
 /// Custom Spi Trait that _only_ supports the bus operation of the cyw43
 /// Implementors are expected to hold the CS pin low during an operation.
 pub trait SdioBusCyw43<const SIZE: usize> {
@@ -36,19 +50,13 @@ pub trait SdioBusCyw43<const SIZE: usize> {
     async fn cmd53_block_read(&mut self, arg: u32, blocks: &mut [Aligned<A4, [u8; SIZE]>]) -> Result<(), Self::Error>;
 
     /// Doc
-    async fn cmd53_byte_read(&mut self, arg: u32, buffer: &mut [u32]) -> Result<(), Self::Error>;
-
-    /// Doc
-    async fn cmd53_byte_read_half_word(&mut self, arg: u32, buffer: &mut [u32; 1]) -> Result<(), Self::Error>;
+    async fn cmd53_byte_read(&mut self, arg: u32, buffer: &mut Aligned<A4, [u8]>) -> Result<(), Self::Error>;
 
     /// Doc
     async fn cmd53_block_write(&mut self, arg: u32, blocks: &[Aligned<A4, [u8; SIZE]>]) -> Result<(), Self::Error>;
 
     /// Doc
-    async fn cmd53_byte_write(&mut self, arg: u32, buffer: &[u32]) -> Result<(), Self::Error>;
-
-    /// Doc
-    async fn cmd53_byte_write_half_word(&mut self, arg: u32, buffer: &[u32; 1]) -> Result<(), Self::Error>;
+    async fn cmd53_byte_write(&mut self, arg: u32, buffer: &Aligned<A4, [u8]>) -> Result<(), Self::Error>;
 
     /// Wait for events from the Device. A typical implementation would wait for the IRQ pin to be high.
     /// The default implementation always reports ready, resulting in active polling of the device.
@@ -198,8 +206,9 @@ where
 
     async fn cmd53_write_half_word(&mut self, func: u32, addr: u32, buf: &[u32; 1]) -> isize {
         let arg = self.cmd53_arg(false, func, addr, 2);
+        let buf = &aligned_ref(buf)[..2];
 
-        let _res = self.sdio.cmd53_byte_write_half_word(arg, buf).await;
+        let _res = self.sdio.cmd53_byte_write(arg, buf).await;
 
         0
     }
@@ -208,7 +217,7 @@ where
         let arg = self.cmd53_arg(true, func, addr, size_of_val(buf) as u32);
 
         let _res = if size_of_val(buf) <= 64 {
-            self.sdio.cmd53_byte_write(arg, buf).await
+            self.sdio.cmd53_byte_write(arg, aligned_ref(buf)).await
         } else {
             self.sdio
                 .cmd53_block_write(arg, unsafe {
@@ -222,8 +231,9 @@ where
 
     async fn cmd53_read_half_word(&mut self, func: u32, addr: u32, buf: &mut [u32; 1]) -> isize {
         let arg = self.cmd53_arg(false, func, addr, 2);
+        let buf = &mut aligned_mut_half_word(buf);
 
-        let _res = self.sdio.cmd53_byte_read_half_word(arg, buf).await;
+        let _res = self.sdio.cmd53_byte_read(arg, buf).await;
 
         0
     }
@@ -232,7 +242,7 @@ where
         let arg = self.cmd53_arg(false, func, addr, size_of_val(buf) as u32);
 
         let _res = if size_of_val(buf) <= 64 {
-            self.sdio.cmd53_byte_read(arg, buf).await
+            self.sdio.cmd53_byte_read(arg, aligned_mut(buf)).await
         } else {
             self.sdio
                 .cmd53_block_read(arg, unsafe {

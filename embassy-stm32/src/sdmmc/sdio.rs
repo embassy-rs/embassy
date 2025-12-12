@@ -157,15 +157,13 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
     }
 
     /// Write in multibyte mode using cmd53
-    pub async fn cmd53_byte_write(&mut self, arg: u32, buffer: &[u32]) -> Result<(), Error> {
+    pub async fn cmd53_byte_write(&mut self, arg: u32, buffer: &Aligned<A4, [u8]>) -> Result<(), Error> {
         let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
 
         #[cfg(sdmmc_v1)]
         self.sdmmc.cmd(cmd::<Rz>(53, arg), true)?;
 
-        let transfer = self
-            .sdmmc
-            .prepare_datapath_write(aligned_ref(buffer), DatapathMode::Byte);
+        let transfer = self.sdmmc.prepare_datapath_write(buffer, DatapathMode::Byte);
 
         #[cfg(sdmmc_v2)]
         self.sdmmc.cmd(cmd::<Rz>(53, arg), true)?;
@@ -174,5 +172,47 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
         self.sdmmc.clear_interrupt_flags();
 
         Ok(())
+    }
+}
+
+#[cfg(feature = "cyw43")]
+impl<'a, 'b> cyw43::SdioBusCyw43<64> for SerialDataInterface<'a, 'b> {
+    /// The error type for the BlockDevice implementation.
+    type Error = Error;
+
+    /// Doc
+    fn set_bus_to_high_speed(&mut self, frequency: u32) -> Result<(), Self::Error> {
+        self.set_bus_to_high_speed(Hertz(frequency))
+    }
+
+    /// Doc
+    async fn cmd52(&mut self, arg: u32) -> Result<u32, Self::Error> {
+        self.cmd52(arg).await
+    }
+
+    /// Doc
+    async fn cmd53_block_read(&mut self, arg: u32, blocks: &mut [Aligned<A4, [u8; 64]>]) -> Result<(), Self::Error> {
+        let blocks: &mut [DataBlock] =
+            unsafe { core::slice::from_raw_parts_mut(blocks.as_mut_ptr() as *mut DataBlock, blocks.len()) };
+
+        self.cmd53_block_read(arg, blocks).await
+    }
+
+    /// Doc
+    async fn cmd53_byte_read(&mut self, arg: u32, buffer: &mut Aligned<A4, [u8]>) -> Result<(), Self::Error> {
+        self.cmd53_byte_read(arg, buffer).await
+    }
+
+    /// Doc
+    async fn cmd53_block_write(&mut self, arg: u32, blocks: &[Aligned<A4, [u8; 64]>]) -> Result<(), Self::Error> {
+        let blocks: &[DataBlock] =
+            unsafe { core::slice::from_raw_parts(blocks.as_ptr() as *const DataBlock, blocks.len()) };
+
+        self.cmd53_block_write(arg, blocks).await
+    }
+
+    /// Doc
+    async fn cmd53_byte_write(&mut self, arg: u32, buffer: &Aligned<A4, [u8]>) -> Result<(), Self::Error> {
+        self.cmd53_byte_write(arg, buffer).await
     }
 }
