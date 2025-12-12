@@ -14,7 +14,7 @@ export PATH=$CARGO_HOME/bin:$PATH
 export CARGO_NET_GIT_FETCH_WITH_CLI=true
 
 cargo install espup --locked
-espup install --toolchain-version 1.88.0.0
+espup install --toolchain-version 1.90.0.0
 
 # Restore lockfiles
 if [ -f /ci/cache/lockfiles.tar ]; then
