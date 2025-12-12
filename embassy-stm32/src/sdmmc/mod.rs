@@ -7,6 +7,7 @@ use core::marker::PhantomData;
 use core::slice;
 use core::task::Poll;
 
+use aligned::{A4, Aligned};
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use sdio_host::Cmd;
@@ -139,14 +140,36 @@ impl Default for Signalling {
     }
 }
 
+const fn aligned_mut(x: &mut [u32]) -> &mut Aligned<A4, [u8]> {
+    let len = x.len() * 4;
+    unsafe { core::mem::transmute(slice::from_raw_parts_mut(x.as_mut_ptr() as _, len)) }
+}
+
 const fn slice8_mut(x: &mut [u32]) -> &mut [u8] {
     let len = x.len() * 4;
     unsafe { slice::from_raw_parts_mut(x.as_mut_ptr() as _, len) }
 }
 
+#[allow(unused)]
+const fn slice32_mut(x: &mut Aligned<A4, [u8]>) -> &mut [u32] {
+    let len = (size_of_val(x) + 4 - 1) / 4;
+    unsafe { slice::from_raw_parts_mut(x as *mut Aligned<A4, [u8]> as *mut _, len) }
+}
+
+const fn aligned_ref(x: &[u32]) -> &Aligned<A4, [u8]> {
+    let len = x.len() * 4;
+    unsafe { core::mem::transmute(slice::from_raw_parts(x.as_ptr() as _, len)) }
+}
+
 const fn slice8_ref(x: &[u32]) -> &[u8] {
     let len = x.len() * 4;
     unsafe { slice::from_raw_parts(x.as_ptr() as _, len) }
+}
+
+#[allow(unused)]
+const fn slice32_ref(x: &Aligned<A4, [u8]>) -> &[u32] {
+    let len = (size_of_val(x) + 4 - 1) / 4;
+    unsafe { slice::from_raw_parts(x as *const Aligned<A4, [u8]> as *const _, len) }
 }
 
 /// Errors
@@ -185,6 +208,11 @@ pub enum Error {
 enum PowerCtrl {
     Off = 0b00,
     On = 0b11,
+}
+
+enum DatapathMode {
+    Block(BlockSize),
+    Byte,
 }
 
 fn get_waitresp_val(rlen: ResponseLen) -> u8 {
@@ -768,11 +796,15 @@ impl<'d> Sdmmc<'d> {
     #[allow(unused_variables)]
     fn prepare_datapath_read<'a>(
         &'a self,
-        buffer: &'a mut [u32],
-        block_size: BlockSize,
-        byte_mode: bool,
+        buffer: &'a mut Aligned<A4, [u8]>,
+        mode: DatapathMode,
     ) -> WrappedTransfer<'a> {
         let regs = self.info.regs;
+
+        let (byte_mode, block_size) = match mode {
+            DatapathMode::Block(block_size) => (false, block_size as u8),
+            DatapathMode::Byte => (true, 0),
+        };
 
         // Command AND Data state machines must be idle
         self.wait_idle();
@@ -783,8 +815,11 @@ impl<'d> Sdmmc<'d> {
         // SAFETY: No other functions use the dma
         #[cfg(sdmmc_v1)]
         let transfer = unsafe {
-            self.dma
-                .read_unchecked(regs.fifor().as_ptr() as *mut u32, buffer, DMA_TRANSFER_OPTIONS)
+            self.dma.read_unchecked(
+                regs.fifor().as_ptr() as *mut u32,
+                slice32_mut(buffer),
+                DMA_TRANSFER_OPTIONS,
+            )
         };
         #[cfg(sdmmc_v2)]
         let transfer = {
@@ -817,13 +852,13 @@ impl<'d> Sdmmc<'d> {
     /// # Safety
     ///
     /// `buffer` must be valid for the whole transfer and word aligned
-    fn prepare_datapath_write<'a>(
-        &'a self,
-        buffer: &'a [u32],
-        block_size: BlockSize,
-        byte_mode: bool,
-    ) -> WrappedTransfer<'a> {
+    fn prepare_datapath_write<'a>(&'a self, buffer: &'a Aligned<A4, [u8]>, mode: DatapathMode) -> WrappedTransfer<'a> {
         let regs = self.info.regs;
+
+        let (byte_mode, block_size) = match mode {
+            DatapathMode::Block(block_size) => (false, block_size as u8),
+            DatapathMode::Byte => (true, 0),
+        };
 
         // Command AND Data state machines must be idle
         self.wait_idle();
@@ -834,8 +869,11 @@ impl<'d> Sdmmc<'d> {
         // SAFETY: No other functions use the dma
         #[cfg(sdmmc_v1)]
         let transfer = unsafe {
-            self.dma
-                .write_unchecked(buffer, regs.fifor().as_ptr() as *mut u32, DMA_TRANSFER_OPTIONS)
+            self.dma.write_unchecked(
+                slice32_ref(buffer),
+                regs.fifor().as_ptr() as *mut u32,
+                DMA_TRANSFER_OPTIONS,
+            )
         };
         #[cfg(sdmmc_v2)]
         let transfer = {

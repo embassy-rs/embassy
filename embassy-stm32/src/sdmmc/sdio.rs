@@ -1,10 +1,11 @@
 use core::ops::{Deref, DerefMut};
 
+use aligned::{A4, Aligned};
 use sdio_host::common_cmd::{R1, Rz, cmd};
 use sdio_host::sd::BusWidth;
 use sdio_host::sd_cmd;
 
-use crate::sdmmc::{Error, Sdmmc, block_size, slice8_mut, slice8_ref};
+use crate::sdmmc::{DatapathMode, Error, Sdmmc, aligned_mut, aligned_ref, block_size, slice8_mut, slice8_ref};
 use crate::time::Hertz;
 
 /// Aligned data block for SDMMC transfers.
@@ -39,7 +40,7 @@ impl DerefMut for DataBlock {
 /// Storage Device
 pub struct SerialDataInterface<'a, 'b> {
     /// Inner member
-    pub sdmmc: &'a mut Sdmmc<'b>,
+    sdmmc: &'a mut Sdmmc<'b>,
 }
 
 /// Card Storage Device
@@ -101,9 +102,10 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
             )
         };
 
-        let transfer = self
-            .sdmmc
-            .prepare_datapath_read(buffer, block_size(size_of::<DataBlock>()), false);
+        let transfer = self.sdmmc.prepare_datapath_read(
+            aligned_mut(buffer),
+            DatapathMode::Block(block_size(size_of::<DataBlock>())),
+        );
         self.sdmmc.cmd(cmd::<Rz>(53, arg), true)?;
 
         self.sdmmc.complete_datapath_transfer(transfer, false).await?;
@@ -113,12 +115,10 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
     }
 
     /// Read in multibyte mode using cmd53
-    pub async fn cmd53_byte_read(&mut self, arg: u32, buffer: &mut [u32]) -> Result<(), Error> {
+    pub async fn cmd53_byte_read(&mut self, arg: u32, buffer: &mut Aligned<A4, [u8]>) -> Result<(), Error> {
         let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
 
-        let transfer = self
-            .sdmmc
-            .prepare_datapath_read(buffer, block_size(size_of::<DataBlock>()), true);
+        let transfer = self.sdmmc.prepare_datapath_read(buffer, DatapathMode::Byte);
         self.sdmmc.cmd(cmd::<Rz>(53, arg), true)?;
 
         self.sdmmc.complete_datapath_transfer(transfer, false).await?;
@@ -142,9 +142,10 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
         #[cfg(sdmmc_v1)]
         self.sdmmc.cmd(cmd::<Rz>(53, arg), true)?;
 
-        let transfer = self
-            .sdmmc
-            .prepare_datapath_read(buffer, block_size(size_of::<DataBlock>()), false);
+        let transfer = self.sdmmc.prepare_datapath_write(
+            aligned_ref(buffer),
+            DatapathMode::Block(block_size(size_of::<DataBlock>())),
+        );
 
         #[cfg(sdmmc_v2)]
         self.sdmmc.cmd(cmd::<Rz>(53, arg), true)?;
@@ -164,7 +165,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
 
         let transfer = self
             .sdmmc
-            .prepare_datapath_write(buffer, block_size(size_of::<DataBlock>()), true);
+            .prepare_datapath_write(aligned_ref(buffer), DatapathMode::Byte);
 
         #[cfg(sdmmc_v2)]
         self.sdmmc.cmd(cmd::<Rz>(53, arg), true)?;
