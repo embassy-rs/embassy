@@ -7,8 +7,7 @@ teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
 use defmt::{assert, *};
 use embassy_executor::Spawner;
-use embassy_futures::select::{select, Either};
-use embassy_rp::aon_timer::{AonTimer, AlarmWakeMode, ClockSource, Config, Error};
+use embassy_rp::aon_timer::{AlarmWakeMode, AonTimer, ClockSource, Config, Error};
 use embassy_rp::bind_interrupts;
 use embassy_time::{Duration, Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
