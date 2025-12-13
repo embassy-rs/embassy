@@ -4,7 +4,6 @@ use core::mem::MaybeUninit;
 use core::task::Poll;
 
 use aligned::{A4, Aligned};
-use cortex_m::interrupt;
 use embassy_stm32::ipcc::IpccTxChannel;
 use embassy_sync::waitqueue::AtomicWaker;
 
@@ -52,7 +51,7 @@ impl<'a> MemoryManager<'a> {
         loop {
             poll_fn(|cx| unsafe {
                 MM_WAKER.register(cx.waker());
-                if LinkedListNode::is_empty(LOCAL_FREE_BUF_QUEUE.as_mut_ptr()) {
+                if critical_section::with(|cs| LinkedListNode::is_empty(cs, LOCAL_FREE_BUF_QUEUE.as_mut_ptr())) {
                     Poll::Pending
                 } else {
                     Poll::Ready(())
@@ -62,10 +61,9 @@ impl<'a> MemoryManager<'a> {
 
             self.ipcc_mm_release_buffer_channel
                 .send(|| {
-                    interrupt::free(|_| unsafe {
-                        // CS required while moving nodes
-                        while let Some(node_ptr) = LinkedListNode::remove_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr()) {
-                            LinkedListNode::insert_head(FREE_BUF_QUEUE.as_mut_ptr(), node_ptr);
+                    critical_section::with(|cs| unsafe {
+                        while let Some(node_ptr) = LinkedListNode::remove_head(cs, LOCAL_FREE_BUF_QUEUE.as_mut_ptr()) {
+                            LinkedListNode::insert_head(cs, FREE_BUF_QUEUE.as_mut_ptr(), node_ptr);
                         }
                     })
                 })
@@ -77,8 +75,8 @@ impl<'a> MemoryManager<'a> {
 impl<'a> evt::MemoryManager for MemoryManager<'a> {
     /// SAFETY: passing a pointer to something other than a managed event packet is UB
     unsafe fn drop_event_packet(evt: *mut EvtPacket) {
-        interrupt::free(|_| unsafe {
-            LinkedListNode::insert_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), evt as *mut _);
+        critical_section::with(|cs| unsafe {
+            LinkedListNode::insert_head(cs, LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), evt as *mut _);
         });
 
         MM_WAKER.wake();

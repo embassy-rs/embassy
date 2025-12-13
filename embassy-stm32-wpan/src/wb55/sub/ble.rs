@@ -73,7 +73,9 @@ impl<'a> Ble<'a> {
     pub async fn tl_read(&mut self) -> EvtBox<Self> {
         self.ipcc_ble_event_channel
             .receive(|| unsafe {
-                if let Some(node_ptr) = LinkedListNode::remove_head(EVT_QUEUE.as_mut_ptr()) {
+                if let Some(node_ptr) =
+                    critical_section::with(|cs| LinkedListNode::remove_head(cs, EVT_QUEUE.as_mut_ptr()))
+                {
                     Some(EvtBox::new(node_ptr.cast()))
                 } else {
                     None
