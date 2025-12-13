@@ -148,6 +148,7 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
     /// The 2-step lock procedure consists in a write to lock the semaphore, followed by a read to
     /// check if the lock has been successful, carried out from the HSEM_Rx register.
     pub async fn lock(&mut self, process_id: u8) -> HardwareSemaphoreMutex<'a, T> {
+        let _scoped_block_stop = T::RCC_INFO.block_stop();
         let core_id = CoreId::current();
 
         poll_fn(|cx| {
@@ -241,7 +242,7 @@ impl<T: Instance> HardwareSemaphore<T> {
         _peripheral: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, HardwareSemaphoreInterruptHandler<T>> + 'd,
     ) -> Self {
-        rcc::enable_and_reset::<T>();
+        rcc::enable_and_reset_without_stop::<T>();
 
         HardwareSemaphore { _type: PhantomData }
     }

@@ -208,7 +208,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().enable();
         T::regs().convert();
 
-        unsafe { *T::regs().data() }
+        unsafe { core::ptr::read_volatile(T::regs().data()) }
     }
 
     #[cfg(any(adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_c0))]
