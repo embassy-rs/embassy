@@ -325,6 +325,16 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
                 w.set_spe(true);
             });
         }
+        #[cfg(gpio_v2)]
+        {
+            self.gpio_speed = config.gpio_speed;
+            if let Some(sck) = self.sck.as_ref() {
+                sck.set_speed(config.gpio_speed);
+            }
+            if let Some(mosi) = self.mosi.as_ref() {
+                mosi.set_speed(config.gpio_speed);
+            }
+        }
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         {
             let ssoe = CM::MASTER == vals::Master::MASTER && !config.nss_output_disable;
