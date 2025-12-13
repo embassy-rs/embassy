@@ -28,6 +28,7 @@ pub mod block;
 #[cfg(feature = "rp2040")]
 pub mod bootsel;
 pub mod clocks;
+pub(crate) mod datetime;
 pub mod dma;
 pub mod flash;
 #[cfg(feature = "rp2040")]

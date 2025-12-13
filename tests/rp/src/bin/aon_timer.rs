@@ -5,9 +5,9 @@ teleprobe_meta::target!(b"rpi-pico-2");
 #[cfg(feature = "rp235xb")]
 teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
-use defmt::{assert, *};
+use defmt::{assert, assert_eq, *};
 use embassy_executor::Spawner;
-use embassy_rp::aon_timer::{AlarmWakeMode, AonTimer, ClockSource, Config, Error};
+use embassy_rp::aon_timer::{AlarmWakeMode, AonTimer, ClockSource, Config, DateTime, DayOfWeek, Error};
 use embassy_rp::bind_interrupts;
 use embassy_time::{Duration, Instant, Timer};
 use {defmt_rtt as _, panic_probe as _};
@@ -226,6 +226,122 @@ async fn main(_spawner: Spawner) {
         let drift = (timer_elapsed as i64) - (wall_elapsed as i64);
 
         assert!(drift.abs() < 100);
+
+        timer.stop();
+    }
+
+    // DateTime tests
+    {
+        info!("DateTime: Set and read");
+        let mut timer = AonTimer::new(p.POWMAN.reborrow(), Irqs, Config::default());
+
+        let dt = DateTime {
+            year: 2024,
+            month: 1,
+            day: 1,
+            day_of_week: DayOfWeek::Monday,
+            hour: 0,
+            minute: 0,
+            second: 0,
+        };
+
+        timer.set_datetime(dt).unwrap();
+        timer.start();
+
+        Timer::after_millis(10).await;
+
+        let read_dt = timer.now_as_datetime().unwrap();
+        assert_eq!(read_dt.year, 2024);
+        assert_eq!(read_dt.month, 1);
+        assert_eq!(read_dt.day, 1);
+
+        timer.stop();
+    }
+
+    {
+        info!("DateTime: Alarm");
+        let mut timer = AonTimer::new(p.POWMAN.reborrow(), Irqs, Config::default());
+
+        let start = DateTime {
+            year: 2024,
+            month: 6,
+            day: 15,
+            day_of_week: DayOfWeek::Saturday,
+            hour: 10,
+            minute: 30,
+            second: 0,
+        };
+
+        timer.set_datetime(start).unwrap();
+        timer.start();
+
+        Timer::after_millis(50).await;
+
+        let alarm = DateTime {
+            year: 2024,
+            month: 6,
+            day: 15,
+            day_of_week: DayOfWeek::Saturday,
+            hour: 10,
+            minute: 30,
+            second: 1,
+        };
+
+        timer.set_alarm_at_datetime(alarm).unwrap();
+        timer.wait_for_alarm().await;
+
+        let final_dt = timer.now_as_datetime().unwrap();
+        assert!(final_dt.second >= 1);
+
+        timer.stop();
+    }
+
+    {
+        info!("DateTime: Epoch boundary");
+        let mut timer = AonTimer::new(p.POWMAN.reborrow(), Irqs, Config::default());
+
+        let epoch = DateTime {
+            year: 1970,
+            month: 1,
+            day: 1,
+            day_of_week: DayOfWeek::Thursday,
+            hour: 0,
+            minute: 0,
+            second: 0,
+        };
+
+        timer.set_datetime(epoch).unwrap();
+        timer.start();
+
+        let counter = timer.now();
+        assert!(counter < 100);
+
+        timer.stop();
+    }
+
+    {
+        info!("DateTime: Leap year");
+        let mut timer = AonTimer::new(p.POWMAN.reborrow(), Irqs, Config::default());
+
+        let leap_day = DateTime {
+            year: 2024,
+            month: 2,
+            day: 29,
+            day_of_week: DayOfWeek::Thursday,
+            hour: 0,
+            minute: 0,
+            second: 0,
+        };
+
+        timer.set_datetime(leap_day).unwrap();
+        timer.start();
+
+        Timer::after_millis(10).await;
+
+        let read = timer.now_as_datetime().unwrap();
+        assert_eq!(read.year, 2024);
+        assert_eq!(read.month, 2);
+        assert_eq!(read.day, 29);
 
         timer.stop();
     }

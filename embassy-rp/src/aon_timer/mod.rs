@@ -122,6 +122,51 @@
 //! timer.set_alarm_after(Duration::from_secs(10)).unwrap();
 //! // Now supports both WFI and DORMANT wake
 //! ```
+//!
+//! # Example - Using DateTime with AON Timer
+//!
+//! ```rust,ignore
+//! use embassy_rp::aon_timer::{AonTimer, Config, DateTime, DayOfWeek};
+//! use embassy_rp::bind_interrupts;
+//!
+//! bind_interrupts!(struct Irqs {
+//!     POWMAN_IRQ_TIMER => embassy_rp::aon_timer::InterruptHandler;
+//! });
+//!
+//! let mut timer = AonTimer::new(p.POWMAN, Irqs, Config::default());
+//!
+//! // Set timer to a specific DateTime (e.g., 2024-06-15 12:30:00 UTC)
+//! let start_time = DateTime {
+//!     year: 2024,
+//!     month: 6,
+//!     day: 15,
+//!     day_of_week: DayOfWeek::Saturday,
+//!     hour: 12,
+//!     minute: 30,
+//!     second: 0,
+//! };
+//! timer.set_datetime(start_time).unwrap();
+//! timer.start();
+//!
+//! // Later, read current DateTime
+//! let current = timer.now_as_datetime().unwrap();
+//! info!("Current time: {}-{:02}-{:02} {:02}:{:02}:{:02}",
+//!       current.year, current.month, current.day,
+//!       current.hour, current.minute, current.second);
+//!
+//! // Set alarm for specific DateTime (1 hour later)
+//! let alarm_time = DateTime {
+//!     year: 2024,
+//!     month: 6,
+//!     day: 15,
+//!     day_of_week: DayOfWeek::Saturday,
+//!     hour: 13,
+//!     minute: 30,
+//!     second: 0,
+//! };
+//! timer.set_alarm_at_datetime(alarm_time).unwrap();
+//! timer.wait_for_alarm().await;
+//! ```
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
@@ -134,6 +179,8 @@ use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::Duration;
 
 use crate::{interrupt, pac};
+
+pub use crate::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
 
 const POWMAN_PASSWORD: u32 = 0x5AFE << 16;
 
@@ -215,6 +262,8 @@ pub enum ClockSource {
 pub enum Error {
     /// The alarm time is in the past
     AlarmInPast,
+    /// DateTime conversion error
+    DateTime(DateTimeError),
 }
 
 /// AON Timer driver
@@ -250,7 +299,6 @@ impl<'d> AonTimer<'d> {
     ) -> Self {
         let powman = pac::POWMAN;
 
-        // Configure clock source and frequency
         match config.clock_source {
             ClockSource::Xosc => {
                 powman.xosc_freq_khz_int().write(|w| {
@@ -274,7 +322,6 @@ impl<'d> AonTimer<'d> {
             }
         }
 
-        // Enable the POWMAN_IRQ_TIMER interrupt
         interrupt::POWMAN_IRQ_TIMER.unpend();
         unsafe { interrupt::POWMAN_IRQ_TIMER.enable() };
 
@@ -349,7 +396,6 @@ impl<'d> AonTimer<'d> {
             panic!("timer must be stopped before setting counter");
         }
         let powman = pac::POWMAN;
-        // Write the 64-bit value in 4x 16-bit chunks
         powman.set_time_15to0().write(|w| {
             w.0 = ((value_ms & 0xFFFF) as u32) | POWMAN_PASSWORD;
             *w
@@ -379,22 +425,15 @@ impl<'d> AonTimer<'d> {
     /// - `Both`: Alarm triggers both interrupt and power-up wake
     /// - `Disabled`: Alarm flag is set but no wake occurs
     pub fn set_alarm(&mut self, alarm_ms: u64) -> Result<(), Error> {
-        // Check if alarm is in the past
         let current_ms = self.now();
         if alarm_ms <= current_ms {
             return Err(Error::AlarmInPast);
         }
 
-        // Disable alarm before setting new time
         self.disable_alarm();
-
-        // Set alarm value
         self.set_alarm_value(alarm_ms);
-
-        // Clear any pending alarm flag
         self.clear_alarm();
 
-        // Configure wake mode based on configuration
         match self.config.alarm_wake_mode {
             AlarmWakeMode::WfiOnly => {
                 self.disable_dormant_wake();
@@ -414,7 +453,6 @@ impl<'d> AonTimer<'d> {
             }
         }
 
-        // Enable the alarm
         self.enable_alarm();
 
         Ok(())
@@ -558,7 +596,6 @@ impl<'d> AonTimer<'d> {
                 self.disable_dormant_wake();
             }
         }
-        // Update stored config
         self.config.alarm_wake_mode = mode;
     }
 
@@ -577,6 +614,49 @@ impl<'d> AonTimer<'d> {
     /// the time since the counter was last set to 0.
     pub fn elapsed(&self) -> Duration {
         Duration::from_millis(self.now())
+    }
+
+    /// Set the counter from a DateTime (Unix epoch)
+    ///
+    /// # Errors
+    /// Returns error if DateTime is before 1970-01-01.
+    ///
+    /// # Panics
+    /// Panics if timer is running.
+    pub fn set_datetime(&mut self, dt: DateTime) -> Result<(), DateTimeError> {
+        #[cfg(feature = "chrono")]
+        let millis = crate::datetime::timestamp_millis(&dt)?;
+        #[cfg(not(feature = "chrono"))]
+        let millis = dt.timestamp_millis()?;
+
+        self.set_counter(millis);
+        Ok(())
+    }
+
+    /// Get the current counter value as a DateTime (Unix epoch)
+    ///
+    /// # Errors
+    /// Returns error if counter value cannot be represented as valid DateTime.
+    pub fn now_as_datetime(&self) -> Result<DateTime, DateTimeError> {
+        let millis = self.now();
+
+        #[cfg(feature = "chrono")]
+        return crate::datetime::from_timestamp_millis(millis);
+        #[cfg(not(feature = "chrono"))]
+        return DateTime::from_timestamp_millis(millis);
+    }
+
+    /// Set an alarm for a specific DateTime
+    ///
+    /// # Errors
+    /// Returns error if DateTime conversion fails or alarm time is in the past.
+    pub fn set_alarm_at_datetime(&mut self, dt: DateTime) -> Result<(), Error> {
+        #[cfg(feature = "chrono")]
+        let alarm_ms = crate::datetime::timestamp_millis(&dt).map_err(Error::DateTime)?;
+        #[cfg(not(feature = "chrono"))]
+        let alarm_ms = dt.timestamp_millis().map_err(Error::DateTime)?;
+
+        self.set_alarm(alarm_ms)
     }
 
     /// Wait asynchronously for the alarm to fire
@@ -606,7 +686,6 @@ impl<'d> AonTimer<'d> {
         poll_fn(|cx| {
             WAKER.register(cx.waker());
 
-            // Atomically check and clear the alarm occurred flag
             if critical_section::with(|_| {
                 let occurred = ALARM_OCCURRED.load(Ordering::SeqCst);
                 if occurred {
@@ -614,7 +693,6 @@ impl<'d> AonTimer<'d> {
                 }
                 occurred
             }) {
-                // Clear the interrupt flag in hardware
                 self.clear_alarm();
 
                 compiler_fence(Ordering::SeqCst);
@@ -637,20 +715,16 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::POWMAN_IRQ_TIMER> for I
     unsafe fn on_interrupt() {
         let powman = crate::pac::POWMAN;
 
-        // Disable the alarm interrupt to prevent re-entry
         powman.inte().modify(|w| w.set_timer(false));
 
-        // Disable the alarm
         powman.timer().modify(|w| {
             w.0 = (w.0 & 0x0000FFFF) | POWMAN_PASSWORD;
             w.set_alarm_enab(false);
             *w
         });
 
-        // Clear the interrupt flag in INTR
         powman.intr().modify(|w| w.set_timer(true));
 
-        // Set the alarm occurred flag and wake the waker
         ALARM_OCCURRED.store(true, Ordering::SeqCst);
         WAKER.wake();
     }
