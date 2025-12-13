@@ -87,10 +87,12 @@ impl<'a> Sys<'a> {
     /// This method takes the place of the `HW_IPCC_SYS_EvtNot`/`SysUserEvtRx`/`APPE_SysUserEvtRx`,
     /// as the embassy implementation avoids the need to call C public bindings, and instead
     /// handles the event channels directly.
-    pub async fn read<'b>(&mut self) -> EvtBox<mm::MemoryManager<'b>> {
+    pub async fn read(&mut self) -> EvtBox<mm::MemoryManager<'_>> {
         self.ipcc_system_event_channel
             .receive(|| unsafe {
-                if let Some(node_ptr) = LinkedListNode::remove_head(SYSTEM_EVT_QUEUE.as_mut_ptr()) {
+                if let Some(node_ptr) =
+                    critical_section::with(|cs| LinkedListNode::remove_head(cs, SYSTEM_EVT_QUEUE.as_mut_ptr()))
+                {
                     Some(EvtBox::new(node_ptr.cast()))
                 } else {
                     None
