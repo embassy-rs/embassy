@@ -178,9 +178,8 @@ use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::Duration;
 
-use crate::{interrupt, pac};
-
 pub use crate::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
+use crate::{interrupt, pac};
 
 const POWMAN_PASSWORD: u32 = 0x5AFE << 16;
 
