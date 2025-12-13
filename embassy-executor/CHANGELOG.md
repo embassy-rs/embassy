@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Added optional "earliest deadline first" EDF scheduling
 - Migrate `cortex-ar` to `aarch32-cpu`. The feature name `arch-cortex-ar` remains the same and
   legacy ARM architectures are not supported.
+- Added `run_until` to `arch-std` variant of `Executor`.
 
 ## 0.9.1 - 2025-08-31
 

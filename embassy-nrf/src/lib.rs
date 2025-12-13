@@ -845,9 +845,9 @@ pub fn init(config: config::Config) -> Peripherals {
                     // Chips with a certain chip type-specific build code or higher have an
                     // improved APPROTECT ("hardware and software controlled access port protection")
                     // which needs explicit action by the firmware to keep it unlocked
-                    // See https://devzone.nordicsemi.com/nordic/nordic-blog/b/blog/posts/working-with-the-nrf52-series-improved-approtect
+                    // See https://docs.nordicsemi.com/bundle/ps_nrf52840/page/dif.html#d402e184
 
-                    // UICR.APPROTECT = SwDisabled
+                    // UICR.APPROTECT = HwDisabled
                     let res = uicr_write(consts::UICR_APPROTECT, consts::APPROTECT_DISABLED);
                     needs_reset |= res == WriteResult::Written;
                     // APPROTECT.DISABLE = SwDisabled
