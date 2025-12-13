@@ -1,18 +1,18 @@
-//! Raw sockets.
+//! Raw Ethernet sockets.
 
 use core::future::{Future, poll_fn};
 use core::mem;
 use core::task::{Context, Poll};
 
-use embassy_net_driver::Driver;
 use smoltcp::iface::{Interface, SocketHandle};
-use smoltcp::socket::raw;
-pub use smoltcp::socket::raw::PacketMetadata;
+use smoltcp::socket::eth;
+pub use smoltcp::socket::eth::EthMetadata;
+pub use smoltcp::socket::eth::PacketMetadata;
 pub use smoltcp::wire::{IpProtocol, IpVersion};
 
 use crate::Stack;
 
-/// Error returned by [`RawSocket::recv`] and [`RawSocket::send`].
+/// Error returned by [`EthSocket::recv`] and [`EthSocket::send`].
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum RecvError {
@@ -20,18 +20,17 @@ pub enum RecvError {
     Truncated,
 }
 
-/// An Raw socket.
-pub struct RawSocket<'a> {
+/// An Raw Ethernet socket.
+pub struct EthSocket<'a> {
     stack: Stack<'a>,
     handle: SocketHandle,
 }
 
-impl<'a> RawSocket<'a> {
-    /// Create a new Raw socket using the provided stack and buffers.
-    pub fn new<D: Driver>(
+impl<'a> EthSocket<'a> {
+    /// Create a new Raw Ethernet socket using the provided stack and buffers.
+    pub fn new(
         stack: Stack<'a>,
-        ip_version: Option<IpVersion>,
-        ip_protocol: Option<IpProtocol>,
+        eth_type: Option<u16>,
         rx_meta: &'a mut [PacketMetadata],
         rx_buffer: &'a mut [u8],
         tx_meta: &'a mut [PacketMetadata],
@@ -42,20 +41,19 @@ impl<'a> RawSocket<'a> {
             let rx_buffer: &'static mut [u8] = unsafe { mem::transmute(rx_buffer) };
             let tx_meta: &'static mut [PacketMetadata] = unsafe { mem::transmute(tx_meta) };
             let tx_buffer: &'static mut [u8] = unsafe { mem::transmute(tx_buffer) };
-            i.sockets.add(raw::Socket::new(
-                ip_version,
-                ip_protocol,
-                raw::PacketBuffer::new(rx_meta, rx_buffer),
-                raw::PacketBuffer::new(tx_meta, tx_buffer),
+            i.sockets.add(eth::Socket::new(
+                eth_type,
+                eth::PacketBuffer::new(rx_meta, rx_buffer),
+                eth::PacketBuffer::new(tx_meta, tx_buffer),
             ))
         });
 
         Self { stack, handle }
     }
 
-    fn with_mut<R>(&self, f: impl FnOnce(&mut raw::Socket, &mut Interface) -> R) -> R {
+    fn with_mut<R>(&self, f: impl FnOnce(&mut eth::Socket, &mut Interface) -> R) -> R {
         self.stack.with_mut(|i| {
-            let socket = i.sockets.get_mut::<raw::Socket>(self.handle);
+            let socket = i.sockets.get_mut::<eth::Socket>(self.handle);
             let res = f(socket, &mut i.iface);
             i.waker.wake();
             res
@@ -73,7 +71,7 @@ impl<'a> RawSocket<'a> {
     /// Receive a datagram.
     ///
     /// This method will wait until a datagram is received.
-    pub async fn recv(&self, buf: &mut [u8]) -> Result<usize, RecvError> {
+    pub async fn recv(&self, buf: &mut [u8]) -> Result<(usize, EthMetadata), RecvError> {
         poll_fn(move |cx| self.poll_recv(buf, cx)).await
     }
 
@@ -99,12 +97,12 @@ impl<'a> RawSocket<'a> {
     ///
     /// When no datagram is available, this method will return `Poll::Pending` and
     /// register the current task to be notified when a datagram is received.
-    pub fn poll_recv(&self, buf: &mut [u8], cx: &mut Context<'_>) -> Poll<Result<usize, RecvError>> {
+    pub fn poll_recv(&self, buf: &mut [u8], cx: &mut Context<'_>) -> Poll<Result<(usize, EthMetadata), RecvError>> {
         self.with_mut(|s, _| match s.recv_slice(buf) {
             Ok(n) => Poll::Ready(Ok(n)),
             // No data ready
-            Err(raw::RecvError::Truncated) => Poll::Ready(Err(RecvError::Truncated)),
-            Err(raw::RecvError::Exhausted) => {
+            Err(eth::RecvError::Truncated) => Poll::Ready(Err(RecvError::Truncated)),
+            Err(eth::RecvError::Exhausted) => {
                 s.register_recv_waker(cx.waker());
                 Poll::Pending
             }
@@ -141,8 +139,8 @@ impl<'a> RawSocket<'a> {
     /// Send a datagram.
     ///
     /// This method will wait until the datagram has been sent.`
-    pub fn send<'s>(&'s self, buf: &'s [u8]) -> impl Future<Output = ()> + 's {
-        poll_fn(|cx| self.poll_send(buf, cx))
+    pub fn send<'s>(&'s self, buf: &'s [u8], meta: EthMetadata) -> impl Future<Output = ()> + 's {
+        poll_fn(move |cx| self.poll_send(buf, cx, meta))
     }
 
     /// Send a datagram.
@@ -151,11 +149,11 @@ impl<'a> RawSocket<'a> {
     ///
     /// When the socket's send buffer is full, this method will return `Poll::Pending`
     /// and register the current task to be notified when the buffer has space available.
-    pub fn poll_send(&self, buf: &[u8], cx: &mut Context<'_>) -> Poll<()> {
-        self.with_mut(|s, _| match s.send_slice(buf) {
+    pub fn poll_send(&self, buf: &[u8], cx: &mut Context<'_>, meta: EthMetadata) -> Poll<()> {
+        self.with_mut(|s, _| match s.send_slice(buf, meta) {
             // Entire datagram has been sent
             Ok(()) => Poll::Ready(()),
-            Err(raw::SendError::BufferFull) => {
+            Err(eth::SendError::BufferFull) => {
                 s.register_send_waker(cx.waker());
                 Poll::Pending
             }
@@ -179,12 +177,12 @@ impl<'a> RawSocket<'a> {
     }
 }
 
-impl Drop for RawSocket<'_> {
+impl Drop for EthSocket<'_> {
     fn drop(&mut self) {
         self.stack.with_mut(|i| i.sockets.remove(self.handle));
     }
 }
 
-fn _assert_covariant<'a, 'b: 'a>(x: RawSocket<'b>) -> RawSocket<'a> {
+fn _assert_covariant<'a, 'b: 'a>(x: EthSocket<'b>) -> EthSocket<'a> {
     x
 }
