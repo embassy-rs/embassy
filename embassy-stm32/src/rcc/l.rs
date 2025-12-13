@@ -135,7 +135,14 @@ pub const WPAN_DEFAULT: Config = Config {
     apb1_pre: APBPrescaler::DIV1,
     apb2_pre: APBPrescaler::DIV1,
 
-    mux: super::mux::ClockMux::default(),
+    mux: {
+        use crate::pac::rcc::vals::Rfwkpsel;
+
+        let mut mux = super::mux::ClockMux::default();
+
+        mux.rfwkpsel = Rfwkpsel::LSE;
+        mux
+    },
 };
 
 fn msi_enable(range: MSIRange) {

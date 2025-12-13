@@ -10,6 +10,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::typelevel::Interrupt;
 use crate::peripherals::IPCC;
+use crate::rcc::SealedRccPeripheral;
 use crate::{interrupt, rcc};
 
 /// Interrupt handler.
@@ -223,11 +224,8 @@ impl Ipcc {
         rcc::enable_and_reset::<IPCC>();
         IPCC::set_cpu2(true);
 
-        #[cfg(stm32wb)]
-        // DO NOT REMOVE THIS UNLESS YOU FIX THE EXAMPLES AND TEST FIRST
-        crate::pac::RCC
-            .csr()
-            .modify(|w| w.set_rfwkpsel(stm32_metapac::rcc::vals::Rfwkpsel::LSE));
+        // Verify rfwkpsel is set
+        let _ = IPCC::frequency();
 
         let regs = IPCC::regs();
 
