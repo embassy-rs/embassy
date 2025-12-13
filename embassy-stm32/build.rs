@@ -950,6 +950,24 @@ fn main() {
             }
         }
 
+        for p in METADATA.peripherals {
+            // only set GPIOs to analog mode for GPIOs that are not version 1
+            // version 1 uses 0b00 for analog mode instead of 0b11 and has no ALTERNATE mode (0b10 for v2)
+            if p.registers.is_some() && p.registers.as_ref().unwrap().kind == "gpio" && p.registers.as_ref().unwrap().version != "v1" {
+                let port = format_ident!("{}", p.name);
+                let value = if p.name == "GPIOA" {
+                    // GPIOA is special because it has a special mode for PA13 and PA14 which are SWDIO and SWDCLK
+                    // and we leave those as ALTERNATE mode (0b10)
+                    0b11_10_10_11_11_11_11_11_11_11_11_11_11_11_11_11_u32
+                } else {
+                    u32::MAX
+                };
+                gg.extend(quote! {
+                    crate::pac::#port.moder().modify(|w| w.0 = #value);
+                })
+            }
+        }
+
         let fname = format_ident!("init_{}", kind);
         g.extend(quote! {
             pub unsafe fn #fname(){
