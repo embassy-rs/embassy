@@ -953,7 +953,10 @@ fn main() {
         if kind == "gpio" {
             for p in METADATA.peripherals {
                 // set all GPIOs to analog mode except for PA13 and PA14 which are SWDIO and SWDCLK
-                if p.registers.is_some() && p.registers.as_ref().unwrap().kind == "gpio" {
+                if p.registers.is_some()
+                    && p.registers.as_ref().unwrap().kind == "gpio"
+                    && p.registers.as_ref().unwrap().version != "v1"
+                {
                     let port = format_ident!("{}", p.name);
                     if p.name == "GPIOA" {
                         gg.extend(quote! {
