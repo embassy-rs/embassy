@@ -950,21 +950,54 @@ fn main() {
             }
         }
 
-        for p in METADATA.peripherals {
-            // only set GPIOs to analog mode for GPIOs that are not version 1
-            // version 1 uses 0b00 for analog mode instead of 0b11 and has no ALTERNATE mode (0b10 for v2)
-            if p.registers.is_some() && p.registers.as_ref().unwrap().kind == "gpio" && p.registers.as_ref().unwrap().version != "v1" {
-                let port = format_ident!("{}", p.name);
-                let value = if p.name == "GPIOA" {
-                    // GPIOA is special because it has a special mode for PA13 and PA14 which are SWDIO and SWDCLK
-                    // and we leave those as ALTERNATE mode (0b10)
-                    0b11_10_10_11_11_11_11_11_11_11_11_11_11_11_11_11_u32
-                } else {
-                    u32::MAX
-                };
-                gg.extend(quote! {
-                    crate::pac::#port.moder().modify(|w| w.0 = #value);
-                })
+        if kind == "gpio" {
+            for p in METADATA.peripherals {
+                // set all GPIOs to analog mode except for PA13 and PA14 which are SWDIO and SWDCLK
+                if p.registers.is_some() && p.registers.as_ref().unwrap().kind == "gpio" {
+                    let port = format_ident!("{}", p.name);
+                    if p.name == "GPIOA" {
+                        gg.extend(quote! {
+                            // leave PA13 and PA14 as unchanged
+                            crate::pac::#port.moder().modify(|w| {
+                                w.set_moder(0, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(1, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(2, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(3, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(4, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(5, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(6, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(7, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(8, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(9, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(10, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(11, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(12, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(15, crate::pac::gpio::vals::Moder::ANALOG);
+                            });
+                        });
+                    } else {
+                        gg.extend(quote! {
+                            crate::pac::#port.moder().modify(|w| {
+                                w.set_moder(0, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(1, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(2, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(3, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(4, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(5, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(6, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(7, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(8, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(9, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(10, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(11, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(12, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(13, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(14, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(15, crate::pac::gpio::vals::Moder::ANALOG);
+                            });
+                        });
+                    }
+                }
             }
         }
 
