@@ -65,11 +65,10 @@ async fn async_main(_spawner: Spawner) {
         config
     });
 
-    let _device_busy = low_power::DeviceBusy::new_stop2();
     loop {
         let mut buffer = [0; 2];
         // read the temperature register of the onboard lm75
-        match i2c.write_read(0x48, &[0x00], &mut buffer).await {
+        match i2c.read(0x48, &mut buffer).await {
             Ok(_) => info!("--> {:?}", buffer),
             Err(e) => info!("--> Error: {:?}", e),
         }
