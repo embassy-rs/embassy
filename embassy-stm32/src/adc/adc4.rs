@@ -28,7 +28,15 @@ impl<'d, T: Instance> super::SealedSpecialConverter<super::VrefInt> for Adc4<'d,
     const CHANNEL: u8 = 0;
 }
 
+impl super::SealedSpecialConverter<super::VrefInt> for crate::peripherals::ADC4 {
+    const CHANNEL: u8 = 0;
+}
+
 impl<'d, T: Instance> super::SealedSpecialConverter<super::Temperature> for Adc4<'d, T> {
+    const CHANNEL: u8 = 13;
+}
+
+impl super::SealedSpecialConverter<super::Temperature> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 13;
 }
 
@@ -36,11 +44,25 @@ impl<'d, T: Instance> super::SealedSpecialConverter<super::Vcore> for Adc4<'d, T
     const CHANNEL: u8 = 12;
 }
 
+impl super::SealedSpecialConverter<super::Vcore> for crate::peripherals::ADC4 {
+    const CHANNEL: u8 = 12;
+}
+
 impl<'d, T: Instance> super::SealedSpecialConverter<super::Vbat> for Adc4<'d, T> {
     const CHANNEL: u8 = 14;
 }
 
+#[cfg(stm32u5)]
+impl super::SealedSpecialConverter<super::Vbat> for crate::peripherals::ADC4 {
+    const CHANNEL: u8 = 14;
+}
+
 impl<'d, T: Instance> super::SealedSpecialConverter<super::Dac> for Adc4<'d, T> {
+    const CHANNEL: u8 = 21;
+}
+
+#[cfg(stm32u5)]
+impl super::SealedSpecialConverter<super::Dac> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 21;
 }
 
