@@ -29,7 +29,7 @@ pub fn calculate_pio_clock_divider(target_hz: u32) -> fixed::FixedU32<U8> {
 /// A fixed-point divider value suitable for use in a PIO state machine configuration
 pub const fn calculate_pio_clock_divider_value(sys_hz: u32, target_hz: u32) -> fixed::FixedU32<U8> {
     // Requires a non-zero frequency
-    assert!(target_hz > 0, "PIO clock frequency cannot be zero");
+    core::assert!(target_hz > 0);
 
     // Compute the integer and fractional part of the divider.
     // Doing it this way allows us to avoid u64 division while
@@ -41,9 +41,9 @@ pub const fn calculate_pio_clock_divider_value(sys_hz: u32, target_hz: u32) -> f
     let result = integer << 8 | frac;
 
     // Ensure the result will fit in 16+8 bits.
-    assert!(result <= 0xffff_ff, "pio clock divider too big");
+    core::assert!(result <= 0xffff_ff);
     // The clock divider can't be used to go faster than the system clock.
-    assert!(result >= 0x0001_00, "pio clock divider cannot be less than 1");
+    core::assert!(result >= 0x0001_00);
 
     fixed::FixedU32::from_bits(result)
 }
