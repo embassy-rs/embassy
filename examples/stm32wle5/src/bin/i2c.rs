@@ -40,24 +40,6 @@ async fn async_main(_spawner: Spawner) {
     // Initialize STM32WL peripherals (use default config like wio-e5-async example)
     let p = embassy_stm32::init(config);
 
-    // start with all GPIOs as analog to reduce power consumption
-    for r in [
-        embassy_stm32::pac::GPIOA,
-        embassy_stm32::pac::GPIOB,
-        embassy_stm32::pac::GPIOC,
-        embassy_stm32::pac::GPIOH,
-    ] {
-        r.moder().modify(|w| {
-            for i in 0..16 {
-                // don't reset these if probe-rs should stay connected!
-                #[cfg(feature = "defmt-rtt")]
-                if config.enable_debug_during_sleep && r == embassy_stm32::pac::GPIOA && [13, 14].contains(&i) {
-                    continue;
-                }
-                w.set_moder(i, embassy_stm32::pac::gpio::vals::Moder::ANALOG);
-            }
-        });
-    }
     #[cfg(feature = "defmt-serial")]
     {
         use embassy_stm32::mode::Blocking;
@@ -79,14 +61,15 @@ async fn async_main(_spawner: Spawner) {
     let mut i2c = I2c::new(p.I2C2, p.PB15, p.PA15, IrqsI2C, p.DMA1_CH6, p.DMA1_CH7, {
         let mut config = i2c::Config::default();
         config.frequency = Hertz::khz(100);
-        config.timeout = Duration::from_millis(500);
+        config.timeout = Duration::from_millis(1000);
         config
     });
 
+    let _device_busy = low_power::DeviceBusy::new_stop2();
     loop {
         let mut buffer = [0; 2];
         // read the temperature register of the onboard lm75
-        match i2c.read(0x48, &mut buffer).await {
+        match i2c.write_read(0x48, &[0x00], &mut buffer).await {
             Ok(_) => info!("--> {:?}", buffer),
             Err(e) => info!("--> Error: {:?}", e),
         }
