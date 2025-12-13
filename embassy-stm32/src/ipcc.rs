@@ -85,6 +85,7 @@ impl<'a> IpccTxChannel<'a> {
 
     /// Send data to an IPCC channel. The closure is called to write the data when appropriate.
     pub async fn send(&mut self, f: impl FnOnce()) {
+        let _scoped_block_stop = IPCC::RCC_INFO.block_stop();
         let regs = IPCC::regs();
 
         self.flush().await;
@@ -99,6 +100,7 @@ impl<'a> IpccTxChannel<'a> {
 
     /// Wait for the tx channel to become clear
     pub async fn flush(&mut self) {
+        let _scoped_block_stop = IPCC::RCC_INFO.block_stop();
         let regs = IPCC::regs();
 
         // This is a race, but is nice for debugging
@@ -144,6 +146,7 @@ impl<'a> IpccRxChannel<'a> {
 
     /// Receive data from an IPCC channel. The closure is called to read the data when appropriate.
     pub async fn receive<R>(&mut self, mut f: impl FnMut() -> Option<R>) -> R {
+        let _scoped_block_stop = IPCC::RCC_INFO.block_stop();
         let regs = IPCC::regs();
 
         loop {
@@ -221,7 +224,7 @@ impl Ipcc {
         + 'd,
         _config: Config,
     ) -> Self {
-        rcc::enable_and_reset::<IPCC>();
+        rcc::enable_and_reset_without_stop::<IPCC>();
         IPCC::set_cpu2(true);
 
         // Verify rfwkpsel is set
