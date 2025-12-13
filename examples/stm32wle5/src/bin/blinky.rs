@@ -32,24 +32,6 @@ async fn async_main(_spawner: Spawner) {
     // Initialize STM32WL peripherals (use default config like wio-e5-async example)
     let p = embassy_stm32::init(config);
 
-    // start with all GPIOs as analog to reduce power consumption
-    for r in [
-        embassy_stm32::pac::GPIOA,
-        embassy_stm32::pac::GPIOB,
-        embassy_stm32::pac::GPIOC,
-        embassy_stm32::pac::GPIOH,
-    ] {
-        r.moder().modify(|w| {
-            for i in 0..16 {
-                // don't reset these if probe-rs should stay connected!
-                #[cfg(feature = "defmt-rtt")]
-                if config.enable_debug_during_sleep && r == embassy_stm32::pac::GPIOA && [13, 14].contains(&i) {
-                    continue;
-                }
-                w.set_moder(i, embassy_stm32::pac::gpio::vals::Moder::ANALOG);
-            }
-        });
-    }
     #[cfg(feature = "defmt-serial")]
     {
         use embassy_stm32::mode::Blocking;
@@ -67,10 +49,10 @@ async fn async_main(_spawner: Spawner) {
     loop {
         info!("low");
         led.set_low();
-        Timer::after_millis(500).await;
+        Timer::after_millis(15000).await;
 
         info!("high");
         led.set_high();
-        Timer::after_millis(500).await;
+        Timer::after_millis(15000).await;
     }
 }
