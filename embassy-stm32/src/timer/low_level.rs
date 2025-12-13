@@ -13,7 +13,7 @@ use embassy_hal_internal::Peri;
 pub use stm32_metapac::timer::vals::{FilterValue, Mms as MasterMode, Sms as SlaveMode, Ts as TriggerSource};
 
 use super::*;
-use crate::dma::{Transfer, WritableRingBuffer};
+use crate::dma::{self, Transfer, WritableRingBuffer};
 use crate::pac::timer::vals;
 use crate::rcc;
 use crate::time::Hertz;
@@ -682,9 +682,29 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         channel: Channel,
         duty: &'a [W],
     ) -> Transfer<'a> {
-        #[allow(clippy::let_unit_value)] // eg. stm32f334
-        let req = dma.request();
+        self.setup_update_dma_inner(dma.request(), dma, channel, duty)
+    }
 
+    /// Generate a sequence of PWM waveform
+    ///
+    /// Note:
+    /// The DMA channel provided does not need to correspond to the requested channel.
+    pub fn setup_channel_update_dma<'a, C: TimerChannel, W: Word + Into<T::Word>>(
+        &mut self,
+        dma: Peri<'a, impl super::Dma<T, C>>,
+        channel: Channel,
+        duty: &'a [W],
+    ) -> Transfer<'a> {
+        self.setup_update_dma_inner(dma.request(), dma, channel, duty)
+    }
+
+    fn setup_update_dma_inner<'a, W: Word + Into<T::Word>>(
+        &mut self,
+        request: dma::Request,
+        dma: Peri<'a, impl dma::Channel>,
+        channel: Channel,
+        duty: &'a [W],
+    ) -> Transfer<'a> {
         unsafe {
             #[cfg(not(any(bdma, gpdma)))]
             use crate::dma::{Burst, FifoThreshold};
@@ -700,7 +720,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
 
             Transfer::new_write(
                 dma,
-                req,
+                request,
                 duty,
                 self.regs_gp16().ccr(channel.index()).as_ptr() as *mut W,
                 dma_transfer_option,

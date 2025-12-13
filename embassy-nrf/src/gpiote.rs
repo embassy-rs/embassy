@@ -33,14 +33,18 @@ const CHANNELS_PER_PORT: usize = 8;
     feature = "nrf52833",
     feature = "nrf52840",
     feature = "_nrf5340",
-    feature = "_nrf54l"
+    feature = "_nrf54l15",
+    feature = "_nrf54l10",
+    feature = "_nrf54l05"
 ))]
 const PIN_COUNT: usize = 48;
+#[cfg(feature = "_nrf54lm20")]
+const PIN_COUNT: usize = 66;
 #[cfg(not(any(
     feature = "nrf52833",
     feature = "nrf52840",
     feature = "_nrf5340",
-    feature = "_nrf54l"
+    feature = "_nrf54l",
 )))]
 const PIN_COUNT: usize = 32;
 

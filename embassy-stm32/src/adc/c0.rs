@@ -4,7 +4,7 @@ use pac::adccommon::vals::Presc;
 use stm32_metapac::adc::vals::{SampleTime, Scandir};
 
 use super::{Adc, Instance, Resolution, blocking_delay_us};
-use crate::adc::{AnyInstance, ConversionMode};
+use crate::adc::{AdcRegs, ConversionMode};
 use crate::time::Hertz;
 use crate::{Peri, pac, rcc};
 
@@ -43,52 +43,52 @@ fn from_ker_ck(frequency: Hertz) -> Presc {
     }
 }
 
-impl<T: Instance> super::SealedAnyInstance for T {
-    fn dr() -> *mut u16 {
-        T::regs().dr().as_ptr() as *mut u16
+impl AdcRegs for crate::pac::adc::Adc {
+    fn data(&self) -> *mut u16 {
+        crate::pac::adc::Adc::dr(*self).as_ptr() as *mut u16
     }
 
-    fn enable() {
-        T::regs().isr().modify(|w| w.set_adrdy(true));
-        T::regs().cr().modify(|w| w.set_aden(true));
+    fn enable(&self) {
+        self.isr().modify(|w| w.set_adrdy(true));
+        self.cr().modify(|w| w.set_aden(true));
         // ADRDY is "ADC ready". Wait until it will be True.
-        while !T::regs().isr().read().adrdy() {}
+        while !self.isr().read().adrdy() {}
     }
 
-    fn start() {
+    fn start(&self) {
         // Start conversion
-        T::regs().cr().modify(|reg| {
+        self.cr().modify(|reg| {
             reg.set_adstart(true);
         });
     }
 
-    fn stop() {
-        if T::regs().cr().read().adstart() && !T::regs().cr().read().addis() {
-            T::regs().cr().modify(|reg| {
+    fn stop(&self) {
+        if self.cr().read().adstart() && !self.cr().read().addis() {
+            self.cr().modify(|reg| {
                 reg.set_adstp(Adstp::STOP);
             });
-            while T::regs().cr().read().adstart() {}
+            while self.cr().read().adstart() {}
         }
 
         // Reset configuration.
-        T::regs().cfgr1().modify(|reg| {
+        self.cfgr1().modify(|reg| {
             reg.set_cont(false);
             reg.set_dmacfg(Dmacfg::from_bits(0));
             reg.set_dmaen(false);
         });
     }
 
-    fn configure_dma(conversion_mode: super::ConversionMode) {
+    fn configure_dma(&self, conversion_mode: super::ConversionMode) {
         match conversion_mode {
             ConversionMode::Singular => {
                 // Enable overrun control, so no new DMA requests will be generated until
                 // previous DR values is read.
-                T::regs().isr().modify(|reg| {
+                self.isr().modify(|reg| {
                     reg.set_ovr(true);
                 });
 
                 // Set continuous mode with oneshot dma.
-                T::regs().cfgr1().modify(|reg| {
+                self.cfgr1().modify(|reg| {
                     reg.set_discen(false);
                     reg.set_cont(true);
                     reg.set_dmacfg(Dmacfg::DMA_ONE_SHOT);
@@ -99,7 +99,7 @@ impl<T: Instance> super::SealedAnyInstance for T {
         }
     }
 
-    fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>) {
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>) {
         let mut needs_hw = sequence.len() == 1 || sequence.len() > CHSELR_SQ_SIZE;
         let mut is_ordered_up = true;
         let mut is_ordered_down = true;
@@ -109,7 +109,7 @@ impl<T: Instance> super::SealedAnyInstance for T {
         let mut last_channel: u8 = 0;
         let mut sample_time: Self::SampleTime = SampleTime::CYCLES2_5;
 
-        T::regs().chselr_sq().write(|w| {
+        self.chselr_sq().write(|w| {
             for (i, ((channel, _), _sample_time)) in sequence.enumerate() {
                 assert!(
                     sample_time == _sample_time || i == 0,
@@ -146,42 +146,40 @@ impl<T: Instance> super::SealedAnyInstance for T {
             );
 
             // Set required channels for multi-convert.
-            unsafe { (T::regs().chselr().as_ptr() as *mut u32).write_volatile(hw_channel_selection) }
+            unsafe { (self.chselr().as_ptr() as *mut u32).write_volatile(hw_channel_selection) }
         }
 
-        T::regs().smpr().modify(|w| {
+        self.smpr().modify(|w| {
             w.smpsel(0);
             w.set_smp1(sample_time);
         });
 
-        T::regs().cfgr1().modify(|reg| {
+        self.cfgr1().modify(|reg| {
             reg.set_chselrmod(!needs_hw);
             reg.set_align(Align::RIGHT);
             reg.set_scandir(if is_ordered_up { Scandir::UP } else { Scandir::BACK });
         });
 
         // Trigger and wait for the channel selection procedure to complete.
-        T::regs().isr().modify(|w| w.set_ccrdy(false));
-        while !T::regs().isr().read().ccrdy() {}
+        self.isr().modify(|w| w.set_ccrdy(false));
+        while !self.isr().read().ccrdy() {}
     }
 
-    fn convert() -> u16 {
+    fn convert(&self) {
         // Set single conversion mode.
-        T::regs().cfgr1().modify(|w| w.set_cont(false));
+        self.cfgr1().modify(|w| w.set_cont(false));
 
         // Start conversion
-        T::regs().cr().modify(|reg| {
+        self.cr().modify(|reg| {
             reg.set_adstart(true);
         });
 
         // Waiting for End Of Conversion (EOC).
-        while !T::regs().isr().read().eoc() {}
-
-        T::regs().dr().read().data() as u16
+        while !self.isr().read().eoc() {}
     }
 }
 
-impl<'d, T: AnyInstance> Adc<'d, T> {
+impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     /// Create a new ADC driver.
     pub fn new(adc: Peri<'d, T>, resolution: Resolution) -> Self {
         rcc::enable_and_reset::<T>();
@@ -225,7 +223,7 @@ impl<'d, T: AnyInstance> Adc<'d, T> {
 
         T::regs().cfgr1().modify(|w| w.set_autoff(autoff_value));
 
-        T::enable();
+        T::regs().enable();
 
         // single conversion mode, software trigger
         T::regs().cfgr1().modify(|w| {

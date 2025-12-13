@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add an `Interface` trait to allow using other interface transports.
 - Switch to `micropb` for protobuf.
 - Update protos to latest `esp-hosted-fg`.
+- Add support for OTA firmware updates.
 
 ## 0.2.1 - 2025-08-26
 

@@ -32,6 +32,8 @@ micromath = "2.0.0"
 stm32-fmc = "0.3.0"
 embedded-storage = "0.3.1"
 static_cell = "2"
+hmac = "0.12.1"
+sha2 = { version = "0.10.9", default-features = false }
 
 
 # cargo build/run

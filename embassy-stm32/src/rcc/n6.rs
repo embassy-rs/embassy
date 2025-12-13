@@ -1003,6 +1003,24 @@ pub(crate) unsafe fn init(config: Config) {
         p.SCB.cpacr.modify(|w| w | (3 << 20) | (3 << 22));
     }
 
+    // TODO: ugly workaround for DMA accesses until RIF is properly implemented
+    debug!("deactivating RIF");
+    const RISAF3_BASE_NS: *mut u32 = stm32_metapac::RNG.wrapping_byte_offset(0x8000) as _; // AHB3PERIPH_BASE_NS + 0x8000UL
+    const RISAF3_REG0_CFGR: *mut u32 = RISAF3_BASE_NS.wrapping_byte_offset(0x40);
+    const RISAF3_REG0_ENDR: *mut u32 = RISAF3_BASE_NS.wrapping_byte_offset(0x48);
+    const RISAF3_REG0_CIDCFGR: *mut u32 = RISAF3_BASE_NS.wrapping_byte_offset(0x4C);
+    const RISAF3_REG1_CFGR: *mut u32 = RISAF3_BASE_NS.wrapping_byte_offset(0x80);
+    const RISAF3_REG1_ENDR: *mut u32 = RISAF3_BASE_NS.wrapping_byte_offset(0x88);
+    const RISAF3_REG1_CIDCFGR: *mut u32 = RISAF3_BASE_NS.wrapping_byte_offset(0x8C);
+    unsafe {
+        *RISAF3_REG0_CIDCFGR = 0x000F000F; /* RW for everyone */
+        *RISAF3_REG0_ENDR = 0xFFFFFFFF; /* all-encompassing */
+        *RISAF3_REG0_CFGR = 0x00000101; /* enabled, secure, unprivileged for everyone */
+        *RISAF3_REG1_CIDCFGR = 0x00FF00FF; /* RW for everyone */
+        *RISAF3_REG1_ENDR = 0xFFFFFFFF; /* all-encompassing */
+        *RISAF3_REG1_CFGR = 0x00000001; /* enabled, non-secure, unprivileged*/
+    }
+
     debug!("setting power supply config");
 
     power_supply_config(config.supply_config);
@@ -1039,7 +1057,9 @@ pub(crate) unsafe fn init(config: Config) {
         i2s_ckin: None,
         ic8: None,
         ic9: None,
+        ic10: None,
         ic14: None,
+        ic15: None,
         ic17: None,
         ic20: None,
     );

@@ -11,6 +11,7 @@ use crate::dma::word::Word;
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
 use crate::gpio::{AfType, AnyPin, OutputType, Speed};
+use crate::pac::timer::vals::Ccds;
 use crate::time::Hertz;
 
 /// PWM pin wrapper.
@@ -94,6 +95,11 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
     /// Check whether given channel is enabled
     pub fn is_enabled(&self) -> bool {
         self.timer.get_channel_enable_state(self.channel)
+    }
+
+    /// Get the frequency of the PWM channel.
+    pub fn get_frequency(&self) -> Hertz {
+        self.timer.get_frequency()
     }
 
     /// Get max duty value.
@@ -329,11 +335,35 @@ impl<'d, T: GeneralInstance4Channel> SimplePwm<'d, T> {
         self.inner.set_frequency_internal(freq * multiplier, 16);
     }
 
+    /// Get the PWM driver frequency.
+    pub fn get_frequency(&self) -> Hertz {
+        self.inner.get_frequency()
+    }
+
     /// Get max duty value.
     ///
     /// This value depends on the configured frequency and the timer's clock rate from RCC.
     pub fn max_duty_cycle(&self) -> u32 {
         self.inner.get_max_compare_value().into() + 1
+    }
+
+    /// Generate a sequence of PWM waveform
+    ///
+    /// Note:
+    /// The DMA channel provided does not need to correspond to the requested channel.
+    pub async fn waveform<C: TimerChannel, W: Word + Into<T::Word>>(
+        &mut self,
+        dma: Peri<'_, impl super::Dma<T, C>>,
+        channel: Channel,
+        duty: &[W],
+    ) {
+        self.inner.enable_channel(channel, true);
+        self.inner.enable_channel(C::CHANNEL, true);
+        self.inner.clamp_compare_value::<W>(channel);
+        self.inner.set_cc_dma_selection(Ccds::ON_UPDATE);
+        self.inner.set_cc_dma_enable_state(C::CHANNEL, true);
+        self.inner.setup_channel_update_dma(dma, channel, duty).await;
+        self.inner.set_cc_dma_enable_state(C::CHANNEL, false);
     }
 
     /// Generate a sequence of PWM waveform

@@ -174,7 +174,7 @@ impl<'d> Twim<'d> {
                 });
                 w.set_drive1(gpiovals::Drive::D);
             }
-            if config.sda_pullup {
+            if config.scl_pullup {
                 w.set_pull(gpiovals::Pull::PULLUP);
             }
         });

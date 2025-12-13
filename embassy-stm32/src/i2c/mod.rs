@@ -226,7 +226,7 @@ impl<'d, M: Mode> I2c<'d, M, Master> {
     }
 
     fn enable_and_init(&mut self, config: Config) {
-        self.info.rcc.enable_and_reset();
+        self.info.rcc.enable_and_reset_without_stop();
         self.init(config);
     }
 }

@@ -26,8 +26,8 @@ static_cell = "2"
 
 [features]
 default = ["ble", "mac"]
-mac = ["embassy-stm32-wpan/mac", "dep:embassy-net"]
-ble = ["embassy-stm32-wpan/ble"]
+mac = ["embassy-stm32-wpan/wb55_mac", "dep:embassy-net"]
+ble = ["embassy-stm32-wpan/wb55_ble"]
 
 [[bin]] 
 name = "tl_mbox_ble"

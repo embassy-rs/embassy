@@ -223,6 +223,12 @@ impl Ipcc {
         rcc::enable_and_reset::<IPCC>();
         IPCC::set_cpu2(true);
 
+        #[cfg(stm32wb)]
+        // DO NOT REMOVE THIS UNLESS YOU FIX THE EXAMPLES AND TEST FIRST
+        crate::pac::RCC
+            .csr()
+            .modify(|w| w.set_rfwkpsel(stm32_metapac::rcc::vals::Rfwkpsel::LSE));
+
         let regs = IPCC::regs();
 
         regs.cpu(0).cr().modify(|w| {

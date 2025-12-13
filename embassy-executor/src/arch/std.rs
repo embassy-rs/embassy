@@ -55,11 +55,24 @@ mod thread {
         ///
         /// This function never returns.
         pub fn run(&'static mut self, init: impl FnOnce(Spawner)) -> ! {
+            self.run_until(init, || false);
+            unreachable!()
+        }
+
+        /// Run the executor until a flag is raised.
+        ///
+        /// This function is identical to `Executor::run()` apart from offering a `done` flag to stop execution.
+        pub fn run_until(&'static mut self, init: impl FnOnce(Spawner), mut done: impl FnMut() -> bool) {
             init(self.inner.spawner());
 
             loop {
                 unsafe { self.inner.poll() };
-                self.signaler.wait()
+
+                if done() {
+                    break;
+                }
+
+                self.signaler.wait();
             }
         }
     }
