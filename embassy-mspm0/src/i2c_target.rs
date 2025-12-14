@@ -12,12 +12,13 @@ use embassy_embedded_hal::SetConfig;
 use mspm0_metapac::i2c::vals::CpuIntIidxStat;
 
 use crate::gpio::{AnyPin, SealedPin};
-use crate::interrupt::InterruptExt;
-use crate::mode::{Async, Blocking, Mode};
-use crate::pac::{self, i2c::vals};
-use crate::{i2c, i2c_target, interrupt, Peri};
 // Re-use I2c controller types
 use crate::i2c::{ClockSel, ConfigError, Info, Instance, InterruptHandler, SclPin, SdaPin, State};
+use crate::interrupt::InterruptExt;
+use crate::mode::{Async, Blocking, Mode};
+use crate::pac::i2c::vals;
+use crate::pac::{self};
+use crate::{Peri, i2c, i2c_target, interrupt};
 
 #[non_exhaustive]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
