@@ -57,7 +57,7 @@ wb55 = []
 wb55_ble = ["dep:stm32wb-hci"]
 wb55_mac = ["dep:bitflags", "dep:embassy-net-driver", "dep:smoltcp", "smoltcp/medium-ieee802154"]
 
-wba = [ "dep:stm32-bindings" ]
+wba = [ "dep:stm32-bindings", "dep:embassy-time" ]
 wba_ble = [ "stm32-bindings/wba_wpan_mac" , "stm32-bindings/wba_wpan" ]
 wba_mac = [ "stm32-bindings/wba_wpan_mac", "stm32-bindings/wba_wpan_ble" , "stm32-bindings/lib_wba5_linklayer15_4", "stm32-bindings/lib_wba_mac_lib" , "stm32-bindings/wba_wpan" ]
 
