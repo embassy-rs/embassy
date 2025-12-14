@@ -841,6 +841,7 @@ impl<'d> embedded_hal_async::digital::Wait for OutputOpenDrain<'d> {
     }
 }
 
+#[cfg_attr(mspm0g518x, allow(dead_code))]
 #[derive(Copy, Clone)]
 pub struct PfType {
     pull: Pull,
@@ -948,6 +949,7 @@ pub(crate) trait SealedPin {
         });
     }
 
+    #[cfg_attr(mspm0g518x, allow(dead_code))]
     fn update_pf(&self, ty: PfType) {
         let pincm = pac::IOMUX.pincm(self._pin_cm() as usize);
         let pf = pincm.read().pf();
@@ -955,6 +957,7 @@ pub(crate) trait SealedPin {
         set_pf(self._pin_cm() as usize, pf, ty);
     }
 
+    #[cfg_attr(mspm0g518x, allow(dead_code))]
     fn set_as_pf(&self, pf: u8, ty: PfType) {
         set_pf(self._pin_cm() as usize, pf, ty)
     }
@@ -967,6 +970,7 @@ pub(crate) trait SealedPin {
     ///
     /// Note that this also disables the internal weak pull-up and pull-down resistors.
     #[inline]
+    #[cfg_attr(mspm0g518x, allow(dead_code))]
     fn set_as_disconnected(&self) {
         self.set_as_analog();
     }
