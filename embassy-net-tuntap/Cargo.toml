@@ -1,6 +1,6 @@
 [package]
 name = "embassy-net-tuntap"
-version = "0.1.0"
+version = "0.1.1"
 description = "embassy-net driver for Linux TUN/TAP interfaces."
 keywords = ["embedded", "tuntap", "embassy-net", "ethernet", "async"]
 categories = ["embedded", "hardware-support", "network-programming", "asynchronous"]
@@ -11,7 +11,7 @@ documentation = "https://docs.embassy.dev/embassy-net-tuntap"
 
 [dependencies]
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
-async-io = "1.6.0"
+async-io = "2.6.0"
 log = "0.4.14"
 libc = "0.2.101"
 
