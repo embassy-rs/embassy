@@ -193,7 +193,7 @@ document-features = "0.2.7"
 
 static_assertions = { version = "1.1" }
 volatile-register = { version = "0.2.1" }
-bitflags = "2.4.2"
+bitflags = "2.10.0"
 
 block-device-driver = { version = "0.2" }
 aligned = "0.4.1"
