@@ -4,7 +4,7 @@
 use embassy_executor::Spawner;
 use embassy_mcxa::clkout::{ClockOut, ClockOutSel, Config, Div4};
 use embassy_mcxa::clocks::PoweredClock;
-use embassy_mcxa::clocks::config::{SoscConfig, SoscMode, SoscRange};
+use embassy_mcxa::clocks::config::{SoscConfig, SoscMode};
 use embassy_mcxa::gpio::{DriveStrength, Level, Output, SlewRate};
 use embassy_time::Timer;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
@@ -16,7 +16,6 @@ async fn main(_spawner: Spawner) {
     cfg.clock_cfg.sosc = Some(SoscConfig {
         mode: SoscMode::CrystalOscillator,
         frequency: 8_000_000,
-        range: SoscRange::Mhz8To16,
         power: PoweredClock::NormalEnabledDeepSleepDisabled,
     });
 
