@@ -1,6 +1,6 @@
 [package]
 name = "embassy-nrf"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Embassy Hardware Abstraction Layer (HAL) for nRF series microcontrollers"
@@ -223,7 +223,7 @@ embedded-io-async = { version = "0.6.1" }
 rand-core-06 = { package = "rand_core", version = "0.6" }
 rand-core-09 = { package = "rand_core", version = "0.9" }
 
-nrf-pac = { version = "0.1.0", git = "https://github.com/embassy-rs/nrf-pac.git", rev = "52fd51ce762a3d3a81660dea62947e6d2d1e9d91" }
+nrf-pac = { version = "0.2.0" }
 
 defmt = { version = "1.0.1", optional = true }
 bitflags = "2.4.2"
