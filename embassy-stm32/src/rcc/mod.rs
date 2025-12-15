@@ -312,6 +312,15 @@ impl RccInfo {
     }
 
     #[allow(dead_code)]
+    fn increment_minimum_stop_refcount_with_cs(&self, _cs: CriticalSection) {
+        #[cfg(all(stm32wlex, feature = "low-power"))]
+        match self.stop_mode {
+            StopMode::Stop1 | StopMode::Stop2 => increment_stop_refcount(_cs, StopMode::Stop2),
+            _ => {}
+        }
+    }
+
+    #[allow(dead_code)]
     pub(crate) fn increment_stop_refcount(&self) {
         #[cfg(feature = "low-power")]
         critical_section::with(|cs| self.increment_stop_refcount_with_cs(cs))
@@ -321,6 +330,15 @@ impl RccInfo {
     pub(crate) fn decrement_stop_refcount_with_cs(&self, _cs: CriticalSection) {
         #[cfg(feature = "low-power")]
         decrement_stop_refcount(_cs, self.stop_mode);
+    }
+
+    #[allow(dead_code)]
+    fn decrement_minimum_stop_refcount_with_cs(&self, _cs: CriticalSection) {
+        #[cfg(all(stm32wlex, feature = "low-power"))]
+        match self.stop_mode {
+            StopMode::Stop1 | StopMode::Stop2 => decrement_stop_refcount(_cs, StopMode::Stop2),
+            _ => {}
+        }
     }
 
     #[allow(dead_code)]
@@ -339,7 +357,10 @@ impl RccInfo {
 
     #[allow(dead_code)]
     pub(crate) fn enable_and_reset_without_stop(&self) {
-        critical_section::with(|cs| self.enable_and_reset_with_cs(cs))
+        critical_section::with(|cs| {
+            self.enable_and_reset_with_cs(cs);
+            self.increment_minimum_stop_refcount_with_cs(cs);
+        })
     }
 
     // TODO: should this be `unsafe`?
@@ -353,7 +374,10 @@ impl RccInfo {
     // TODO: should this be `unsafe`?
     #[allow(dead_code)]
     pub(crate) fn disable_without_stop(&self) {
-        critical_section::with(|cs| self.disable_with_cs(cs))
+        critical_section::with(|cs| {
+            self.disable_with_cs(cs);
+            self.decrement_minimum_stop_refcount_with_cs(cs);
+        })
     }
 
     #[allow(dead_code)]
