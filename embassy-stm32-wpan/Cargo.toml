@@ -46,7 +46,7 @@ critical-section = "1.2"
 
 bit_field = "0.10.2"
 stm32-device-signature = { version = "0.3.3", features = ["stm32wb5x"] }
-stm32wb-hci = { version = "0.17.0", optional = true }
+stm32wb-hci = { version = "0.17.3", optional = true }
 futures-util = { version = "0.3.30", default-features = false }
 bitflags = { version = "2.3.3", optional = true }
 
