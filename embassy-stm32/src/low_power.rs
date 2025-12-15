@@ -170,10 +170,12 @@ impl Executor {
         }
 
         critical_section::with(|cs| {
-            #[cfg(stm32wlex)]
+            #[cfg(all(stm32wb, feature = "low-power"))]
+            //#[cfg(stm32wlex)]
             {
+                info!(">>>>>>>>>>>>>>critical_section<<<<<<<<<<<<<<<<<<<<<");
                 let es = crate::pac::PWR.extscr().read();
-                match (es.c1stopf(), es.c1stop2f()) {
+                match (es.c1stopf(), es.c2stopf() ) {   //c1stop2f
                     (true, false) => debug!("low power: wake from STOP1"),
                     (false, true) => debug!("low power: wake from STOP2"),
                     (true, true) => debug!("low power: wake from STOP1 and STOP2 ???"),
@@ -183,17 +185,19 @@ impl Executor {
                     w.set_c1cssf(false);
                 });
 
-                if es.c1stop2f() || es.c1stopf() {
+                if es.c2stopf() || es.c1stopf() { //c1stop2f
                     // when we wake from any stop mode we need to re-initialize the rcc
                     crate::rcc::init(RCC_CONFIG.unwrap());
 
-                    if es.c1stop2f() {
+                    if es.c2stopf() { //c1stop2f
                         // when we wake from STOP2, we need to re-initialize the time driver
                         get_driver().init_timer(cs);
                         // reset the refcounts for STOP2 and STOP1 (initializing the time driver will increment one of them for the timer)
                         // and given that we just woke from STOP2, we can reset them
                         REFCOUNT_STOP2 = 0;
                         REFCOUNT_STOP1 = 0;
+
+                       
                     }
                 }
             }
@@ -221,71 +225,118 @@ impl Executor {
         }
     }
 
-    #[cfg(all(stm32wb, feature = "low-power"))]
-    fn configure_stop_stm32wb(&self, _cs: CriticalSection) -> Result<(), ()> {
-        use core::task::Poll;
+    // #[cfg(all(stm32wb, feature = "low-power"))]
+    // fn configure_stop_stm32wb(&self, _cs: CriticalSection) -> Result<(), ()> {
+    //     info!("configure_stop_stm32wb");
+    //     use core::task::Poll;
 
-        use embassy_futures::poll_once;
+    //     use embassy_futures::poll_once;
 
-        use crate::hsem::HardwareSemaphoreChannel;
-        use crate::pac::rcc::vals::{Smps, Sw};
-        use crate::pac::{PWR, RCC};
+    //     use crate::hsem::HardwareSemaphoreChannel;
+    //     use crate::pac::rcc::vals::{Smps, Sw};
+    //     use crate::pac::{PWR, RCC};
 
-        trace!("low power: trying to get sem3");
+    //     trace!("low power: trying to get sem3");
 
-        let sem3_mutex = match poll_once(HardwareSemaphoreChannel::<crate::peripherals::HSEM>::new(3).lock(0)) {
-            Poll::Pending => None,
-            Poll::Ready(mutex) => Some(mutex),
-        }
-        .ok_or(())?;
+    //     let sem3_mutex = match poll_once(HardwareSemaphoreChannel::<crate::peripherals::HSEM>::new(3).lock(0)) {
+    //         Poll::Pending => None,
+    //         Poll::Ready(mutex) => Some(mutex),
+    //     }
+    //     .ok_or(())?;
 
-        trace!("low power: got sem3");
+    //     trace!("low power: got sem3");
 
-        let sem4_mutex = HardwareSemaphoreChannel::<crate::peripherals::HSEM>::new(4).try_lock(0);
-        if let Some(sem4_mutex) = sem4_mutex {
-            trace!("low power: got sem4");
+    //     let sem4_mutex = HardwareSemaphoreChannel::<crate::peripherals::HSEM>::new(4).try_lock(0);
+    //     if let Some(sem4_mutex) = sem4_mutex {
+    //         trace!("low power: got sem4");
 
-            if PWR.extscr().read().c2ds() {
-                drop(sem4_mutex);
-            } else {
-                return Ok(());
-            }
-        }
+    //         if PWR.extscr().read().c2ds() {
+    //             drop(sem4_mutex);
+    //         } else {
+    //             return Ok(());
+    //         }
+    //     }
+        
 
-        // Sem4 not granted
-        // Set HSION
-        RCC.cr().modify(|w| {
-            w.set_hsion(true);
-        });
+    //     // Sem4 not granted
+    //     // Set HSION
+    //     RCC.cr().modify(|w| {
+    //         w.set_hsion(true);
+    //     });
 
-        // Wait for HSIRDY
-        while !RCC.cr().read().hsirdy() {}
+    //     // Wait for HSIRDY
+    //     while !RCC.cr().read().hsirdy() {}
 
-        // Set SW to HSI
-        RCC.cfgr().modify(|w| {
-            w.set_sw(Sw::HSI);
-        });
+    //     // Set SW to HSI
+    //     RCC.cfgr().modify(|w| {
+    //         w.set_sw(Sw::HSI);
+    //     });
 
-        // Wait for SWS to report HSI
-        while !RCC.cfgr().read().sws().eq(&Sw::HSI) {}
+    //     // Wait for SWS to report HSI
+    //     while !RCC.cfgr().read().sws().eq(&Sw::HSI) {}
 
-        // Set SMPSSEL to HSI
-        RCC.smpscr().modify(|w| {
-            w.set_smpssel(Smps::HSI);
-        });
+    //     // Set SMPSSEL to HSI
+    //     RCC.smpscr().modify(|w| {
+    //         w.set_smpssel(Smps::HSI);
+    //     });
 
-        drop(sem3_mutex);
+    //     drop(sem3_mutex);
 
-        Ok(())
-    }
+
+
+
+
+    //     Ok(())
+    // }
+
+#[cfg(all(stm32wb, feature = "low-power"))]
+fn configure_stop_stm32wb(&self, _cs: CriticalSection) -> Result<(), ()> {
+    use crate::pac::{PWR, RCC};
+    
+    // turn off SMPS without semaphores
+    info!("STM32WB: Disabling SMPS for low-power");
+    
+    // on PWR
+    RCC.apb1enr1().modify(|r| r.0 |= 1 << 28);
+    cortex_m::asm::dsb();
+    
+    // off SMPS, on Bypass
+    PWR.cr5().modify(|r| {
+        let mut val = r.0;
+        val &= !(1 << 15); // sdeb = 0 (off SMPS)
+        val |= 1 << 14;    // sdben = 1 (on Bypass)
+        r.0 = val
+    });
+    
+    cortex_m::asm::delay(1000);
+    info!("SMPS disabled");
+    
+    Ok(())
+}
 
     #[allow(unused_variables)]
     fn configure_stop(&self, _cs: CriticalSection, stop_mode: StopMode) -> Result<(), ()> {
+        info!("configure stop!!!");
         #[cfg(all(stm32wb, feature = "low-power"))]
+        
         self.configure_stop_stm32wb(_cs)?;
 
         #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wb, stm32wba, stm32wlex))]
         crate::pac::PWR.cr1().modify(|m| m.set_lpms(stop_mode.into()));
+        
+        // #[cfg(stm32wb)]
+        // info!("CORE2 in STOP!");
+        // crate::pac::PWR.c2cr1().modify(|m| {
+        //     m.set_lpms({
+        //         let stop_mode: Lpms = stop_mode.into();
+
+        //         stop_mode as u8
+        //     })
+        // });
+
+
+
+
         #[cfg(stm32h5)]
         crate::pac::PWR.pmcr().modify(|v| {
             use crate::pac::pwr::vals;
