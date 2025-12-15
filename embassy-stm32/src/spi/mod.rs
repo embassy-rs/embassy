@@ -1126,7 +1126,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Drop for Spi<'d, M, CM> {
         self.miso.as_ref().map(|x| x.set_as_disconnected());
         self.nss.as_ref().map(|x| x.set_as_disconnected());
 
-        self.info.rcc.disable();
+        self.info.rcc.disable_without_stop();
     }
 }
 

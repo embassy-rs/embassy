@@ -142,34 +142,34 @@ impl Default for Signalling {
 
 const fn aligned_mut(x: &mut [u32]) -> &mut Aligned<A4, [u8]> {
     let len = x.len() * 4;
-    unsafe { core::mem::transmute(slice::from_raw_parts_mut(x.as_mut_ptr() as _, len)) }
+    unsafe { core::mem::transmute(slice::from_raw_parts_mut(x.as_mut_ptr() as *mut u8, len)) }
 }
 
 const fn slice8_mut(x: &mut [u32]) -> &mut [u8] {
     let len = x.len() * 4;
-    unsafe { slice::from_raw_parts_mut(x.as_mut_ptr() as _, len) }
+    unsafe { slice::from_raw_parts_mut(x.as_mut_ptr() as *mut u8, len) }
 }
 
 #[allow(unused)]
 const fn slice32_mut(x: &mut Aligned<A4, [u8]>) -> &mut [u32] {
     let len = (size_of_val(x) + 4 - 1) / 4;
-    unsafe { slice::from_raw_parts_mut(x as *mut Aligned<A4, [u8]> as *mut _, len) }
+    unsafe { slice::from_raw_parts_mut(x as *mut Aligned<A4, [u8]> as *mut u32, len) }
 }
 
 const fn aligned_ref(x: &[u32]) -> &Aligned<A4, [u8]> {
     let len = x.len() * 4;
-    unsafe { core::mem::transmute(slice::from_raw_parts(x.as_ptr() as _, len)) }
+    unsafe { core::mem::transmute(slice::from_raw_parts(x.as_ptr() as *const u8, len)) }
 }
 
 const fn slice8_ref(x: &[u32]) -> &[u8] {
     let len = x.len() * 4;
-    unsafe { slice::from_raw_parts(x.as_ptr() as _, len) }
+    unsafe { slice::from_raw_parts(x.as_ptr() as *const u8, len) }
 }
 
 #[allow(unused)]
 const fn slice32_ref(x: &Aligned<A4, [u8]>) -> &[u32] {
     let len = (size_of_val(x) + 4 - 1) / 4;
-    unsafe { slice::from_raw_parts(x as *const Aligned<A4, [u8]> as *const _, len) }
+    unsafe { slice::from_raw_parts(x as *const Aligned<A4, [u8]> as *const u32, len) }
 }
 
 /// Errors
@@ -1179,6 +1179,7 @@ impl<'d> Drop for Sdmmc<'d> {
     fn drop(&mut self) {
         // T::Interrupt::disable();
         self.on_drop();
+        self.info.rcc.disable_without_stop();
 
         critical_section::with(|_| {
             self.clk.set_as_disconnected();
