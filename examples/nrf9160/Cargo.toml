@@ -8,7 +8,7 @@ publish = false
 [dependencies]
 embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-nrf = { version = "0.8.0", path = "../../embassy-nrf", features = ["defmt", "nrf9160-s", "time-driver-rtc1", "gpiote", "unstable-pac", "time"] }
+embassy-nrf = { version = "0.9.0", path = "../../embassy-nrf", features = ["defmt", "nrf9160-s", "time-driver-rtc1", "gpiote", "unstable-pac", "time"] }
 embassy-net-nrf91 = { version = "0.1.0", path = "../../embassy-net-nrf91", features = ["defmt"] }
 embassy-net = { version = "0.7.1", path = "../../embassy-net", features = ["defmt", "tcp", "proto-ipv4", "medium-ip"] }
 
