@@ -343,6 +343,16 @@ pub(crate) unsafe fn init(config: Config) {
 
     let hsi48 = config.hsi48.map(super::init_hsi48);
 
+    // There's a possibility that a bootloader that ran before us has configured the system clock
+    // source to be PLL1_R. In that case we'd get forever stuck on (de)configuring PLL1 as the chip
+    // prohibits disabling PLL1 when it's used as a source for system clock. Change the system
+    // clock source to MSIS which doesn't suffer from this conflict. The correct source per the
+    // provided config is then set further down.
+    // See https://github.com/embassy-rs/embassy/issues/5072
+    let default_system_clock_source = Config::default().sys;
+    RCC.cfgr1().modify(|w| w.set_sw(default_system_clock_source));
+    while RCC.cfgr1().read().sws() != default_system_clock_source {}
+
     let pll_input = PllInput { hse, hsi, msi: msis };
     let pll1 = init_pll(PllInstance::Pll1, config.pll1, &pll_input, config.voltage_range);
     let pll2 = init_pll(PllInstance::Pll2, config.pll2, &pll_input, config.voltage_range);
