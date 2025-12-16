@@ -1009,10 +1009,6 @@ pub(crate) fn drop_tx_rx(r: pac::uarte::Uarte, s: &State) {
         gpio::deconfigure_pin(r.psel().rts().read());
         gpio::deconfigure_pin(r.psel().cts().read());
 
-        r.intenclr().write(|w| {
-            w.0 = 0xFFFF_FFFF;
-        });
-
         r.psel().rxd().write(|w| {
             w.set_pin(0x1F);
             w.set_connect(nrf_pac::shared::vals::Connect::DISCONNECTED);
@@ -1029,20 +1025,6 @@ pub(crate) fn drop_tx_rx(r: pac::uarte::Uarte, s: &State) {
             w.set_pin(0x1F);
             w.set_connect(nrf_pac::shared::vals::Connect::DISCONNECTED);
         });
-
-        r.events_cts().write_value(0);
-        r.events_ncts().write_value(0);
-        r.events_rxdrdy().write_value(0);
-        r.events_txdrdy().write_value(0);
-        r.events_txstopped().write_value(0);
-        r.events_rxto().write_value(0);
-
-        r.dma().rx().ptr().write_value(0);
-        r.dma().rx().maxcnt().write(|w| w.set_maxcnt(0));
-        r.dma().tx().ptr().write_value(0);
-        r.dma().tx().maxcnt().write(|w| w.set_maxcnt(0));
-
-        r.baudrate().write(|w| w.set_baudrate(Baudrate::BAUD250000));
 
         trace!("uarte tx and rx drop: done");
     }

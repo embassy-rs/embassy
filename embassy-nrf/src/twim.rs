@@ -742,8 +742,6 @@ impl<'a> Drop for Twim<'a> {
             w.set_connect(nrf_pac::shared::vals::Connect::DISCONNECTED);
         });
 
-        r.frequency().write(|w| w.set_frequency(Frequency::K250));
-
         trace!("twim drop: done");
     }
 }
