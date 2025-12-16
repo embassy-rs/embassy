@@ -732,6 +732,18 @@ impl<'a> Drop for Twim<'a> {
         gpio::deconfigure_pin(r.psel().sda().read());
         gpio::deconfigure_pin(r.psel().scl().read());
 
+        r.psel().sda().write(|w| {
+            w.set_pin(0x1F);
+            w.set_connect(nrf_pac::shared::vals::Connect::DISCONNECTED);
+        });
+
+        r.psel().scl().write(|w| {
+            w.set_pin(0x1F);
+            w.set_connect(nrf_pac::shared::vals::Connect::DISCONNECTED);
+        });
+
+        r.frequency().write(|w| w.set_frequency(Frequency::K250));
+
         trace!("twim drop: done");
     }
 }
