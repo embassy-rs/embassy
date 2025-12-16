@@ -4,8 +4,8 @@ compile_error!("`arch-cortex-ar` does not support the legacy ARM profile, WFE/SE
 #[cfg(feature = "executor-interrupt")]
 compile_error!("`executor-interrupt` is not supported with `arch-cortex-ar`.");
 
+#[cfg(all(feature = "pender", any(feature = "executor-thread", feature = "executor-interrupt")))]
 #[unsafe(export_name = "__pender")]
-#[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
 fn __pender(context: *mut ()) {
     // `context` is always `usize::MAX` created by `Executor::run`.
     let context = context as usize;

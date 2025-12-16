@@ -15,6 +15,7 @@ mod thread {
     use crate::raw::util::UninitCell;
     use crate::{Spawner, raw};
 
+    #[cfg(feature = "pender")]
     #[unsafe(export_name = "__pender")]
     fn __pender(context: *mut ()) {
         let signaler: &'static WasmContext = unsafe { std::mem::transmute(context) };

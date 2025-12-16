@@ -1,5 +1,5 @@
+#[cfg(all(feature = "pender", any(feature = "executor-thread", feature = "executor-interrupt")))]
 #[unsafe(export_name = "__pender")]
-#[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
 fn __pender(context: *mut ()) {
     unsafe {
         // Safety: `context` is either `usize::MAX` created by `Executor::run`, or a valid interrupt

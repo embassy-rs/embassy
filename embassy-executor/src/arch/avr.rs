@@ -14,6 +14,7 @@ mod thread {
 
     static SIGNAL_WORK_THREAD_MODE: AtomicBool = AtomicBool::new(false);
 
+    #[cfg(feature = "pender")]
     #[unsafe(export_name = "__pender")]
     fn __pender(_context: *mut ()) {
         SIGNAL_WORK_THREAD_MODE.store(true, Ordering::SeqCst);

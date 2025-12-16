@@ -81,7 +81,7 @@ flavors = [
 [package.metadata.docs.rs]
 default-target = "thumbv7em-none-eabi"
 targets = ["thumbv7em-none-eabi"]
-features = ["defmt", "arch-cortex-m", "executor-thread", "executor-interrupt", "scheduler-deadline", "scheduler-priority", "embassy-time-driver"]
+features = ["pender", "defmt", "arch-cortex-m", "executor-thread", "executor-interrupt", "scheduler-deadline", "scheduler-priority", "embassy-time-driver"]
 
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
@@ -137,6 +137,8 @@ log = ["dep:log"]
 # being an complicated advanced and undocumented feature.
 # See: https://github.com/embassy-rs/embassy/pull/1263
 turbowakers = []
+
+pender = []
 
 #! ### Architecture
 _arch = [] # some arch was picked

@@ -11,6 +11,7 @@ mod thread {
 
     use crate::{Spawner, raw};
 
+    #[cfg(feature = "pender")]
     #[unsafe(export_name = "__pender")]
     fn __pender(_context: *mut ()) {}
 
