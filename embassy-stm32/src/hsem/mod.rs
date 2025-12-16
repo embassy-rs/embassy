@@ -94,16 +94,13 @@ pub struct HardwareSemaphoreInterruptHandler<T: Instance> {
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for HardwareSemaphoreInterruptHandler<T> {
     unsafe fn on_interrupt() {
         let core_id = CoreId::current();
+        let isr = T::regs().isr(core_id.to_index()).read();
 
         for number in 0..5 {
-            if T::regs().isr(core_id.to_index()).read().isf(number as usize) {
+            if isr.isf(number as usize) {
                 T::regs()
                     .icr(core_id.to_index())
                     .write(|w| w.set_isc(number as usize, true));
-
-                T::regs()
-                    .ier(core_id.to_index())
-                    .modify(|w| w.set_ise(number as usize, false));
 
                 T::state().waker_for(number).wake();
             }
@@ -120,6 +117,18 @@ pub struct HardwareSemaphoreMutex<'a, T: Instance> {
 
 impl<'a, T: Instance> Drop for HardwareSemaphoreMutex<'a, T> {
     fn drop(&mut self) {
+        let core_id = CoreId::current();
+
+        T::regs()
+            .icr(core_id.to_index())
+            .write(|w| w.set_isc(self.index as usize, true));
+
+        critical_section::with(|_| {
+            T::regs()
+                .ier(core_id.to_index())
+                .modify(|w| w.set_ise(self.index as usize, false));
+        });
+
         HardwareSemaphoreChannel::<'a, T> {
             index: self.index,
             _lifetime: PhantomData,
@@ -156,9 +165,11 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
 
             compiler_fence(Ordering::SeqCst);
 
-            T::regs()
-                .ier(core_id.to_index())
-                .modify(|w| w.set_ise(self.index as usize, true));
+            critical_section::with(|_| {
+                T::regs()
+                    .ier(core_id.to_index())
+                    .modify(|w| w.set_ise(self.index as usize, true));
+            });
 
             match self.try_lock(process_id) {
                 Some(mutex) => Poll::Ready(mutex),
