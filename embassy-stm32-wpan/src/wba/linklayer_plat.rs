@@ -82,7 +82,10 @@ use core::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, AtomicU32, Ordering};
 use cortex_m::asm::{dsb, isb};
 use cortex_m::interrupt::InterruptNumber;
 use cortex_m::peripheral::NVIC;
-use cortex_m::register::{basepri, primask};
+use cortex_m::register::basepri;
+use critical_section;
+#[cfg(feature = "defmt")]
+use defmt::trace;
 use embassy_stm32::NVIC_PRIO_BITS;
 use embassy_time::{Duration, block_for};
 
@@ -123,7 +126,6 @@ static RADIO_CALLBACK: AtomicPtr<()> = AtomicPtr::new(ptr::null_mut());
 static LOW_ISR_CALLBACK: AtomicPtr<()> = AtomicPtr::new(ptr::null_mut());
 
 static IRQ_COUNTER: AtomicI32 = AtomicI32::new(0);
-static PRIMASK_SNAPSHOT: AtomicU32 = AtomicU32::new(0);
 
 static PRIO_HIGH_ISR_COUNTER: AtomicI32 = AtomicI32::new(0);
 static PRIO_LOW_ISR_COUNTER: AtomicI32 = AtomicI32::new(0);
@@ -136,6 +138,10 @@ static RADIO_SLEEP_TIMER_VAL: AtomicU32 = AtomicU32::new(0);
 
 static PRNG_STATE: AtomicU32 = AtomicU32::new(0);
 static PRNG_INIT: AtomicBool = AtomicBool::new(false);
+
+// Critical-section restore token for IRQ enable/disable pairing.
+// Only written when the IRQ disable counter transitions 0->1, and consumed when it transitions 1->0.
+static mut CS_RESTORE_STATE: Option<critical_section::RestoreState> = None;
 
 unsafe extern "C" {
     static SystemCoreClock: u32;
@@ -281,6 +287,19 @@ pub unsafe fn run_radio_sw_low_isr() {
 //   */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_ClockInit() {
+    //   uint32_t linklayer_slp_clk_src = LL_RCC_RADIOSLEEPSOURCE_NONE;
+    //
+    //   /* Get the Link Layer sleep timer clock source */
+    //   linklayer_slp_clk_src = LL_RCC_RADIO_GetSleepTimerClockSource();
+    //   if(linklayer_slp_clk_src == LL_RCC_RADIOSLEEPSOURCE_NONE)
+    //   {
+    //     /* If there is no clock source defined, should be selected before */
+    //     assert_param(0);
+    //   }
+    //
+    //   /* Enable AHB5ENR peripheral clock (bus CLK) */
+    //   __HAL_RCC_RADIO_CLK_ENABLE();
+    trace!("LINKLAYER_PLAT_ClockInit: get_slptmr_value");
     let _ = link_layer::ll_intf_cmn_get_slptmr_value();
 }
 
@@ -291,6 +310,56 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_ClockInit() {
 //   */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_DelayUs(delay: u32) {
+    //   static uint8_t lock = 0;
+    //   uint32_t t0;
+    //   uint32_t primask_bit;
+    //
+    //   /* Enter critical section */
+    //   primask_bit= __get_PRIMASK();
+    //   __disable_irq();
+    //
+    //   if (lock == 0U)
+    //   {
+    //     /* Initialize counter */
+    //     /* Reset cycle counter to prevent overflow
+    //        As a us counter, it is assumed than even with re-entrancy,
+    //        overflow will never happen before re-initializing this counter */
+    //     DWT->CYCCNT = 0U;
+    //     /* Enable DWT by safety but should be useless (as already set) */
+    //     SET_BIT(DCB->DEMCR, DCB_DEMCR_TRCENA_Msk);
+    //     /* Enable counter */
+    //     SET_BIT(DWT->CTRL, DWT_CTRL_CYCCNTENA_Msk);
+    //   }
+    //   /* Increment 're-entrance' counter */
+    //   lock++;
+    //   /* Get starting time stamp */
+    //   t0 = DWT->CYCCNT;
+    //   /* Exit critical section */
+    //  __set_PRIMASK(primask_bit);
+    //
+    //   /* Turn us into cycles */
+    //   delay = delay * (SystemCoreClock / 1000000U);
+    //   delay += t0;
+    //
+    //   /* Busy waiting loop */
+    //   while (DWT->CYCCNT < delay)
+    //   {
+    //   };
+    //
+    //   /* Enter critical section */
+    //   primask_bit= __get_PRIMASK();
+    //   __disable_irq();
+    //   if (lock == 1U)
+    //   {
+    //     /* Disable counter */
+    //     CLEAR_BIT(DWT->CTRL, DWT_CTRL_CYCCNTENA_Msk);
+    //   }
+    //   /* Decrement 're-entrance' counter */
+    //   lock--;
+    //   /* Exit critical section */
+    //  __set_PRIMASK(primask_bit);
+    //
+    trace!("LINKLAYER_PLAT_DelayUs: delay={}", delay);
     block_for(Duration::from_micros(u64::from(delay)));
 }
 
@@ -313,8 +382,10 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_Assert(condition: u8) {
 //   */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_WaitHclkRdy() {
+    trace!("LINKLAYER_PLAT_WaitHclkRdy");
     if AHB5_SWITCHED_OFF.swap(false, Ordering::AcqRel) {
         let reference = RADIO_SLEEP_TIMER_VAL.load(Ordering::Acquire);
+        trace!("LINKLAYER_PLAT_WaitHclkRdy: reference={}", reference);
         while reference == link_layer::ll_intf_cmn_get_slptmr_value() {
             spin_loop();
         }
@@ -329,6 +400,18 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_WaitHclkRdy() {
 //   */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_NotifyWFIEnter() {
+    //   /* Check if Radio state will allow the AHB5 clock to be cut */
+    //
+    //   /* AHB5 clock will be cut in the following cases:
+    //    * - 2.4GHz radio is not in ACTIVE mode (in SLEEP or DEEPSLEEP mode).
+    //    * - RADIOSMEN and STRADIOCLKON bits are at 0.
+    //    */
+    //   if((LL_PWR_GetRadioMode() != LL_PWR_RADIO_ACTIVE_MODE) ||
+    //      ((__HAL_RCC_RADIO_IS_CLK_SLEEP_ENABLED() == 0) && (LL_RCC_RADIO_IsEnabledSleepTimerClock() == 0)))
+    //   {
+    //     AHB5_SwitchedOff = 1;
+    //   }
+    trace!("LINKLAYER_PLAT_NotifyWFIEnter");
     AHB5_SWITCHED_OFF.store(true, Ordering::Release);
 }
 
@@ -341,7 +424,10 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_NotifyWFIEnter() {
 //   */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_NotifyWFIExit() {
+    trace!("LINKLAYER_PLAT_NotifyWFIExit");
+    //   /* Check if AHB5 clock has been turned of and needs resynchronisation */
     if AHB5_SWITCHED_OFF.load(Ordering::Acquire) {
+        //     /* Read sleep register as earlier as possible */
         let value = link_layer::ll_intf_cmn_get_slptmr_value();
         RADIO_SLEEP_TIMER_VAL.store(value, Ordering::Release);
     }
@@ -353,7 +439,29 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_NotifyWFIExit() {
 //   * @retval None
 //   */
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn LINKLAYER_PLAT_AclkCtrl(_enable: u8) {}
+pub unsafe extern "C" fn LINKLAYER_PLAT_AclkCtrl(_enable: u8) {
+    trace!("LINKLAYER_PLAT_AclkCtrl: enable={}", _enable);
+    if _enable != 0 {
+        // #if (CFG_SCM_SUPPORTED == 1)
+        //     /* SCM HSE BEGIN */
+        //     /* Polling on HSE32 activation */
+        //     SCM_HSE_WaitUntilReady();
+        //     /* Enable RADIO baseband clock (active CLK) */
+        //     HAL_RCCEx_EnableRadioBBClock();
+        //     /* SCM HSE END */
+        // #else
+        //     /* Enable RADIO baseband clock (active CLK) */
+        //     HAL_RCCEx_EnableRadioBBClock();
+        //     /* Polling on HSE32 activation */
+        //     while ( LL_RCC_HSE_IsReady() == 0);
+        // #endif /* CFG_SCM_SUPPORTED */
+        // NOTE: Add a proper assertion once a typed `Radio` peripheral exists in embassy-stm32
+        // that exposes the baseband clock enable status via RCC.
+    } else {
+        //     /* Disable RADIO baseband clock (active CLK) */
+        //     HAL_RCCEx_DisableRadioBBClock();
+    }
+}
 
 // /**
 //   * @brief  Link Layer RNG request.
@@ -363,6 +471,25 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_AclkCtrl(_enable: u8) {}
 //   */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_GetRNG(ptr_rnd: *mut u8, len: u32) {
+    //   uint32_t nb_remaining_rng = len;
+    //   uint32_t generated_rng;
+    //
+    //   /* Get the requested RNGs (4 bytes by 4bytes) */
+    //   while(nb_remaining_rng >= 4)
+    //   {
+    //     generated_rng = 0;
+    //     HW_RNG_Get(1, &generated_rng);
+    //     memcpy((ptr_rnd+(len-nb_remaining_rng)), &generated_rng, 4);
+    //     nb_remaining_rng -=4;
+    //   }
+    //
+    //   /* Get the remaining number of RNGs */
+    //   if(nb_remaining_rng>0){
+    //     generated_rng = 0;
+    //     HW_RNG_Get(1, &generated_rng);
+    //     memcpy((ptr_rnd+(len-nb_remaining_rng)), &generated_rng, nb_remaining_rng);
+    //   }
+    trace!("LINKLAYER_PLAT_GetRNG: ptr_rnd={:?}, len={}", ptr_rnd, len);
     if ptr_rnd.is_null() || len == 0 {
         return;
     }
@@ -380,6 +507,7 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_GetRNG(ptr_rnd: *mut u8, len: u32) {
 //   */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_SetupRadioIT(intr_cb: Option<Callback>) {
+    trace!("LINKLAYER_PLAT_SetupRadioIT: intr_cb={:?}", intr_cb);
     store_callback(&RADIO_CALLBACK, intr_cb);
 
     if intr_cb.is_some() {
@@ -397,6 +525,7 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_SetupRadioIT(intr_cb: Option<Callback>) 
 //   */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_SetupSwLowIT(intr_cb: Option<Callback>) {
+    trace!("LINKLAYER_PLAT_SetupSwLowIT: intr_cb={:?}", intr_cb);
     store_callback(&LOW_ISR_CALLBACK, intr_cb);
 
     if intr_cb.is_some() {
@@ -414,16 +543,31 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_SetupSwLowIT(intr_cb: Option<Callback>) 
 //   */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_TriggerSwLowIT(priority: u8) {
+    trace!("LINKLAYER_PLAT_TriggerSwLowIT: priority={}", priority);
     let active = nvic_get_active(RADIO_SW_LOW_INTR_NUM);
 
+    //   /* Check if a SW low interrupt as already been raised.
+    //    * Nested call far radio low isr are not supported
+    //    **/
     if !active {
         let prio = if priority == 0 {
+            //     /* No nested SW low ISR, default behavior */
             pack_priority(mac::RADIO_SW_LOW_INTR_PRIO)
         } else {
             pack_priority(mac::RADIO_INTR_PRIO_LOW)
         };
         nvic_set_priority(RADIO_SW_LOW_INTR_NUM, prio);
     } else if priority != 0 {
+        //     /* Nested call detected */
+        //     /* No change for SW radio low interrupt priority for the moment */
+        //
+        //     if(priority != 0)
+        //     {
+        //       /* At the end of current SW radio low ISR, this pending SW low interrupt
+        //        * will run with RADIO_INTR_PRIO_LOW priority
+        //        **/
+        //       radio_sw_low_isr_is_running_high_prio = 1;
+        //     }
         RADIO_SW_LOW_ISR_RUNNING_HIGH_PRIO.store(true, Ordering::Release);
     }
 
@@ -437,12 +581,18 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_TriggerSwLowIT(priority: u8) {
 //   */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_EnableIRQ() {
+    trace!("LINKLAYER_PLAT_EnableIRQ");
+    //   irq_counter = max(0,irq_counter-1);
+    //
+    //   if(irq_counter == 0)
+    //   {
+    //     /* When irq_counter reaches 0, restore primask bit */
+    //     __set_PRIMASK(primask_bit);
+    //   }
     if counter_release(&IRQ_COUNTER) {
-        let snapshot = PRIMASK_SNAPSHOT.swap(0, Ordering::Relaxed);
-        if snapshot != 0 {
-            cortex_m::interrupt::disable();
-        } else {
-            cortex_m::interrupt::enable();
+        // When the counter reaches zero, restore prior interrupt state using the captured token.
+        if let Some(token) = CS_RESTORE_STATE.take() {
+            critical_section::release(token);
         }
     }
 }
@@ -454,11 +604,18 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_EnableIRQ() {
 //   */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_DisableIRQ() {
+    trace!("LINKLAYER_PLAT_DisableIRQ");
+    //   if(irq_counter == 0)
+    //   {
+    //     /* Save primask bit at first interrupt disablement */
+    //     primask_bit= __get_PRIMASK();
+    //   }
+    //   __disable_irq();
+    //   irq_counter ++;
     if counter_acquire(&IRQ_COUNTER) {
-        let snapshot = if primask::read().is_active() { 1 } else { 0 };
-        PRIMASK_SNAPSHOT.store(snapshot, Ordering::Relaxed);
+        // Capture and disable using critical-section API on first disable.
+        CS_RESTORE_STATE = Some(critical_section::acquire());
     }
-    cortex_m::interrupt::disable();
 }
 
 // /**
@@ -473,6 +630,40 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_DisableIRQ() {
 //   */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_EnableSpecificIRQ(isr_type: u8) {
+    trace!("LINKLAYER_PLAT_EnableSpecificIRQ: isr_type={}", isr_type);
+    //   if( (isr_type & LL_HIGH_ISR_ONLY) != 0 )
+    //   {
+    //     prio_high_isr_counter--;
+    //     if(prio_high_isr_counter == 0)
+    //     {
+    //       /* When specific counter for link layer high ISR reaches 0, interrupt is enabled */
+    //       HAL_NVIC_EnableIRQ(RADIO_INTR_NUM);
+    //       /* USER CODE BEGIN LINKLAYER_PLAT_EnableSpecificIRQ_1 */
+    //
+    //       /* USER CODE END LINKLAYER_PLAT_EnableSpecificIRQ_1 */
+    //     }
+    //   }
+    //
+    //   if( (isr_type & LL_LOW_ISR_ONLY) != 0 )
+    //   {
+    //     prio_low_isr_counter--;
+    //     if(prio_low_isr_counter == 0)
+    //     {
+    //       /* When specific counter for link layer SW low ISR reaches 0, interrupt is enabled */
+    //       HAL_NVIC_EnableIRQ(RADIO_SW_LOW_INTR_NUM);
+    //     }
+    //
+    //   }
+    //
+    //   if( (isr_type & SYS_LOW_ISR) != 0 )
+    //   {
+    //     prio_sys_isr_counter--;
+    //     if(prio_sys_isr_counter == 0)
+    //     {
+    //       /* Restore basepri value */
+    //       __set_BASEPRI(local_basepri_value);
+    //     }
+    //   }
     if (isr_type & link_layer::LL_HIGH_ISR_ONLY as u8) != 0 {
         if counter_release(&PRIO_HIGH_ISR_COUNTER) {
             nvic_enable(mac::RADIO_INTR_NUM);
@@ -505,6 +696,42 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_EnableSpecificIRQ(isr_type: u8) {
 //   */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_DisableSpecificIRQ(isr_type: u8) {
+    //   if( (isr_type & LL_HIGH_ISR_ONLY) != 0 )
+    //   {
+    //     prio_high_isr_counter++;
+    //     if(prio_high_isr_counter == 1)
+    //     {
+    //       /* USER CODE BEGIN LINKLAYER_PLAT_DisableSpecificIRQ_1 */
+    //
+    //       /* USER CODE END LINKLAYER_PLAT_DisableSpecificIRQ_1 */
+    //       /* When specific counter for link layer high ISR value is 1, interrupt is disabled */
+    //       HAL_NVIC_DisableIRQ(RADIO_INTR_NUM);
+    //     }
+    //   }
+    //
+    //   if( (isr_type & LL_LOW_ISR_ONLY) != 0 )
+    //   {
+    //     prio_low_isr_counter++;
+    //     if(prio_low_isr_counter == 1)
+    //     {
+    //       /* When specific counter for link layer SW low ISR value is 1, interrupt is disabled */
+    //       HAL_NVIC_DisableIRQ(RADIO_SW_LOW_INTR_NUM);
+    //     }
+    //   }
+    //
+    //   if( (isr_type & SYS_LOW_ISR) != 0 )
+    //   {
+    //     prio_sys_isr_counter++;
+    //     if(prio_sys_isr_counter == 1)
+    //     {
+    //       /* Save basepri register value */
+    //       local_basepri_value = __get_BASEPRI();
+    //
+    //       /* Mask all other interrupts with lower priority that link layer SW low ISR */
+    //       __set_BASEPRI_MAX(RADIO_INTR_PRIO_LOW<<4);
+    //     }
+    //   }
+    trace!("LINKLAYER_PLAT_DisableSpecificIRQ: isr_type={}", isr_type);
     if (isr_type & link_layer::LL_HIGH_ISR_ONLY as u8) != 0 {
         if counter_acquire(&PRIO_HIGH_ISR_COUNTER) {
             nvic_disable(mac::RADIO_INTR_NUM);
@@ -533,6 +760,7 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_DisableSpecificIRQ(isr_type: u8) {
 //   */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_EnableRadioIT() {
+    trace!("LINKLAYER_PLAT_EnableRadioIT");
     nvic_enable(mac::RADIO_INTR_NUM);
 }
 
@@ -543,6 +771,7 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_EnableRadioIT() {
 //   */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_DisableRadioIT() {
+    trace!("LINKLAYER_PLAT_DisableRadioIT");
     nvic_disable(mac::RADIO_INTR_NUM);
 }
 
@@ -553,6 +782,12 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_DisableRadioIT() {
 //   */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_StartRadioEvt() {
+    trace!("LINKLAYER_PLAT_StartRadioEvt");
+    //   __HAL_RCC_RADIO_CLK_SLEEP_ENABLE();
+    //   NVIC_SetPriority(RADIO_INTR_NUM, RADIO_INTR_PRIO_HIGH);
+    // #if (CFG_SCM_SUPPORTED == 1)
+    //   scm_notifyradiostate(SCM_RADIO_ACTIVE);
+    // #endif /* CFG_SCM_SUPPORTED */
     nvic_set_priority(mac::RADIO_INTR_NUM, pack_priority(mac::RADIO_INTR_PRIO_HIGH));
     nvic_enable(mac::RADIO_INTR_NUM);
 }
@@ -564,6 +799,13 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_StartRadioEvt() {
 //   */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_StopRadioEvt() {
+    trace!("LINKLAYER_PLAT_StopRadioEvt");
+    // {
+    //   __HAL_RCC_RADIO_CLK_SLEEP_DISABLE();
+    //   NVIC_SetPriority(RADIO_INTR_NUM, RADIO_INTR_PRIO_LOW);
+    // #if (CFG_SCM_SUPPORTED == 1)
+    //   scm_notifyradiostate(SCM_RADIO_NOT_ACTIVE);
+    // #endif /* CFG_SCM_SUPPORTED */
     nvic_set_priority(mac::RADIO_INTR_NUM, pack_priority(mac::RADIO_INTR_PRIO_LOW));
 }
 
@@ -573,7 +815,18 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_StopRadioEvt() {
 //   * @retval None
 //   */
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn LINKLAYER_PLAT_RCOStartClbr() {}
+pub unsafe extern "C" fn LINKLAYER_PLAT_RCOStartClbr() {
+    trace!("LINKLAYER_PLAT_RCOStartClbr");
+    // #if (CFG_LPM_LEVEL != 0)
+    //   PWR_DisableSleepMode();
+    //   /* Disabling stop mode prevents also from entering in standby */
+    //   UTIL_LPM_SetStopMode(1U << CFG_LPM_LL_HW_RCO_CLBR, UTIL_LPM_DISABLE);
+    // #endif /* (CFG_LPM_LEVEL != 0) */
+    // #if (CFG_SCM_SUPPORTED == 1)
+    //   scm_setsystemclock(SCM_USER_LL_HW_RCO_CLBR, HSE_32MHZ);
+    //   while (LL_PWR_IsActiveFlag_VOS() == 0);
+    // #endif /* (CFG_SCM_SUPPORTED == 1) */
+}
 
 // /**
 //   * @brief  Link Layer notification for RCO calibration end.
@@ -581,7 +834,16 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_RCOStartClbr() {}
 //   * @retval None
 //   */
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn LINKLAYER_PLAT_RCOStopClbr() {}
+pub unsafe extern "C" fn LINKLAYER_PLAT_RCOStopClbr() {
+    trace!("LINKLAYER_PLAT_RCOStopClbr");
+    // #if (CFG_LPM_LEVEL != 0)
+    //   PWR_EnableSleepMode();
+    //   UTIL_LPM_SetStopMode(1U << CFG_LPM_LL_HW_RCO_CLBR, UTIL_LPM_ENABLE);
+    // #endif /* (CFG_LPM_LEVEL != 0) */
+    // #if (CFG_SCM_SUPPORTED == 1)
+    //   scm_setsystemclock(SCM_USER_LL_HW_RCO_CLBR, HSE_16MHZ);
+    // #endif /* (CFG_SCM_SUPPORTED == 1) */
+}
 
 // /**
 //   * @brief  Link Layer requests temperature.
@@ -589,7 +851,12 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_RCOStopClbr() {}
 //   * @retval None
 //   */
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn LINKLAYER_PLAT_RequestTemperature() {}
+pub unsafe extern "C" fn LINKLAYER_PLAT_RequestTemperature() {
+    trace!("LINKLAYER_PLAT_RequestTemperature");
+    // #if (USE_TEMPERATURE_BASED_RADIO_CALIBRATION == 1)
+    //   ll_sys_bg_temperature_measurement();
+    // #endif /* USE_TEMPERATURE_BASED_RADIO_CALIBRATION */
+}
 
 // /**
 //   * @brief  PHY Start calibration.
@@ -597,7 +864,9 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_RequestTemperature() {}
 //   * @retval None
 //   */
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn LINKLAYER_PLAT_PhyStartClbr() {}
+pub unsafe extern "C" fn LINKLAYER_PLAT_PhyStartClbr() {
+    trace!("LINKLAYER_PLAT_PhyStartClbr");
+}
 
 // /**
 //   * @brief  PHY Stop calibration.
@@ -605,7 +874,9 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_PhyStartClbr() {}
 //   * @retval None
 //   */
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn LINKLAYER_PLAT_PhyStopClbr() {}
+pub unsafe extern "C" fn LINKLAYER_PLAT_PhyStopClbr() {
+    trace!("LINKLAYER_PLAT_PhyStopClbr");
+}
 
 // /**
 //  * @brief Notify the upper layer that new Link Layer timings have been applied.
@@ -613,7 +884,9 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_PhyStopClbr() {}
 //  * @retval None.
 //  */
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn LINKLAYER_PLAT_SCHLDR_TIMING_UPDATE_NOT(_timings: *const link_layer::Evnt_timing_t) {}
+pub unsafe extern "C" fn LINKLAYER_PLAT_SCHLDR_TIMING_UPDATE_NOT(_timings: *const link_layer::Evnt_timing_t) {
+    trace!("LINKLAYER_PLAT_SCHLDR_TIMING_UPDATE_NOT: timings={:?}", _timings);
+}
 
 // /**
 //   * @brief  Get the ST company ID.
