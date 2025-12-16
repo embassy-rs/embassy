@@ -10,7 +10,7 @@ embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = ["lo
 embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-std", "executor-thread", "log"] }
 embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["log", "std", ] }
 embassy-net = { version = "0.7.1", path = "../../embassy-net", features=[ "log", "medium-ethernet", "medium-ip", "tcp", "udp", "dns", "dhcpv4", "proto-ipv6"] }
-embassy-net-tuntap = { version = "0.1.0", path = "../../embassy-net-tuntap" }
+embassy-net-tuntap = { version = "0.1.1", path = "../../embassy-net-tuntap" }
 embassy-net-ppp = { version = "0.2.1", path = "../../embassy-net-ppp", features = ["log"]}
 embedded-io-async = { version = "0.6.1" }
 embedded-io-adapters = { version = "0.6.1", features = ["futures-03"] }
