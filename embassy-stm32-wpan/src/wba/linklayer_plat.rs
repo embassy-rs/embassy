@@ -1,6 +1,3 @@
-#[allow(dead_code)]
-fn test_fn() {}
-
 // /* USER CODE BEGIN Header */
 // /**
 //   ******************************************************************************
@@ -72,131 +69,352 @@ fn test_fn() {}
 // uint8_t AHB5_SwitchedOff = 0;
 // uint32_t radio_sleep_timer_val = 0;
 //
+// /* USER CODE BEGIN LINKLAYER_PLAT 0 */
+//
+// /* USER CODE END LINKLAYER_PLAT 0 */
+#![cfg(feature = "wba")]
+#![allow(clippy::missing_safety_doc)]
+
+use core::hint::spin_loop;
+use core::ptr;
+use core::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, AtomicU32, Ordering};
+
+use cortex_m::asm::{dsb, isb};
+use cortex_m::interrupt::InterruptNumber;
+use cortex_m::peripheral::NVIC;
+use cortex_m::register::basepri;
+use critical_section;
+#[cfg(feature = "defmt")]
+use defmt::trace;
+use embassy_stm32::NVIC_PRIO_BITS;
+use embassy_time::{Duration, block_for};
+
+use super::bindings::{link_layer, mac};
+
+// Missing constant from stm32-bindings - RADIO_SW_LOW interrupt number
+// For STM32WBA, this is typically RADIO_IRQ_BUSY (interrupt 43)
+const RADIO_SW_LOW_INTR_NUM: u32 = 43;
+
+type Callback = unsafe extern "C" fn();
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[repr(transparent)]
+struct RawInterrupt(u16);
+
+impl RawInterrupt {
+    #[inline(always)]
+    fn new(irq: u32) -> Self {
+        debug_assert!(irq <= u16::MAX as u32);
+        Self(irq as u16)
+    }
+}
+
+impl From<u32> for RawInterrupt {
+    #[inline(always)]
+    fn from(value: u32) -> Self {
+        Self::new(value)
+    }
+}
+
+unsafe impl InterruptNumber for RawInterrupt {
+    fn number(self) -> u16 {
+        self.0
+    }
+}
+
+static RADIO_CALLBACK: AtomicPtr<()> = AtomicPtr::new(ptr::null_mut());
+static LOW_ISR_CALLBACK: AtomicPtr<()> = AtomicPtr::new(ptr::null_mut());
+
+static IRQ_COUNTER: AtomicI32 = AtomicI32::new(0);
+
+static PRIO_HIGH_ISR_COUNTER: AtomicI32 = AtomicI32::new(0);
+static PRIO_LOW_ISR_COUNTER: AtomicI32 = AtomicI32::new(0);
+static PRIO_SYS_ISR_COUNTER: AtomicI32 = AtomicI32::new(0);
+static LOCAL_BASEPRI_VALUE: AtomicU32 = AtomicU32::new(0);
+
+static RADIO_SW_LOW_ISR_RUNNING_HIGH_PRIO: AtomicBool = AtomicBool::new(false);
+static AHB5_SWITCHED_OFF: AtomicBool = AtomicBool::new(false);
+static RADIO_SLEEP_TIMER_VAL: AtomicU32 = AtomicU32::new(0);
+
+static PRNG_STATE: AtomicU32 = AtomicU32::new(0);
+static PRNG_INIT: AtomicBool = AtomicBool::new(false);
+
+// Critical-section restore token for IRQ enable/disable pairing.
+// Only written when the IRQ disable counter transitions 0->1, and consumed when it transitions 1->0.
+static mut CS_RESTORE_STATE: Option<critical_section::RestoreState> = None;
+
+unsafe extern "C" {
+    static SystemCoreClock: u32;
+}
+
+#[inline(always)]
+fn read_system_core_clock() -> u32 {
+    unsafe { ptr::read_volatile(&SystemCoreClock) }
+}
+
+#[inline(always)]
+fn store_callback(slot: &AtomicPtr<()>, cb: Option<Callback>) {
+    let ptr = cb.map_or(ptr::null_mut(), |f| f as *mut ());
+    slot.store(ptr, Ordering::Release);
+}
+
+#[inline(always)]
+fn load_callback(slot: &AtomicPtr<()>) -> Option<Callback> {
+    let ptr = slot.load(Ordering::Acquire);
+    if ptr.is_null() {
+        None
+    } else {
+        Some(unsafe { core::mem::transmute::<*mut (), Callback>(ptr) })
+    }
+}
+
+#[inline(always)]
+fn priority_shift() -> u8 {
+    8 - NVIC_PRIO_BITS as u8
+}
+
+fn pack_priority(raw: u32) -> u8 {
+    let shift = priority_shift();
+    let priority_bits = NVIC_PRIO_BITS as u32;
+    let mask = if priority_bits >= 32 {
+        u32::MAX
+    } else {
+        (1u32 << priority_bits) - 1
+    };
+    let clamped = raw & mask;
+    (clamped << u32::from(shift)) as u8
+}
+
+#[inline(always)]
+fn counter_release(counter: &AtomicI32) -> bool {
+    counter.fetch_sub(1, Ordering::SeqCst) <= 1
+}
+
+#[inline(always)]
+fn counter_acquire(counter: &AtomicI32) -> bool {
+    counter.fetch_add(1, Ordering::SeqCst) == 0
+}
+
+unsafe fn nvic_enable(irq: u32) {
+    NVIC::unmask(RawInterrupt::new(irq));
+    dsb();
+    isb();
+}
+
+unsafe fn nvic_disable(irq: u32) {
+    NVIC::mask(RawInterrupt::new(irq));
+    dsb();
+    isb();
+}
+
+unsafe fn nvic_set_pending(irq: u32) {
+    NVIC::pend(RawInterrupt::new(irq));
+    dsb();
+    isb();
+}
+
+unsafe fn nvic_get_active(irq: u32) -> bool {
+    NVIC::is_active(RawInterrupt::new(irq))
+}
+
+unsafe fn nvic_set_priority(irq: u32, priority: u8) {
+    // STM32WBA is ARMv8-M, which uses byte-accessible IPR registers
+    let nvic = &*NVIC::PTR;
+    nvic.ipr[irq as usize].write(priority);
+
+    dsb();
+    isb();
+}
+
+#[inline(always)]
+fn set_basepri_max(value: u8) {
+    unsafe {
+        if basepri::read() < value {
+            basepri::write(value);
+        }
+    }
+}
+
+fn prng_next() -> u32 {
+    #[inline]
+    fn xorshift(mut x: u32) -> u32 {
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        x
+    }
+
+    if !PRNG_INIT.load(Ordering::Acquire) {
+        let seed = unsafe {
+            let timer = link_layer::ll_intf_cmn_get_slptmr_value();
+            let core_clock = read_system_core_clock();
+            timer ^ core_clock ^ 0x6C8E_9CF5
+        };
+        PRNG_STATE.store(seed, Ordering::Relaxed);
+        PRNG_INIT.store(true, Ordering::Release);
+    }
+
+    let mut current = PRNG_STATE.load(Ordering::Relaxed);
+    loop {
+        let next = xorshift(current);
+        match PRNG_STATE.compare_exchange_weak(current, next, Ordering::AcqRel, Ordering::Relaxed) {
+            Ok(_) => return next,
+            Err(v) => current = v,
+        }
+    }
+}
+
+pub unsafe fn run_radio_high_isr() {
+    if let Some(cb) = load_callback(&RADIO_CALLBACK) {
+        cb();
+    }
+}
+
+pub unsafe fn run_radio_sw_low_isr() {
+    if let Some(cb) = load_callback(&LOW_ISR_CALLBACK) {
+        cb();
+    }
+
+    if RADIO_SW_LOW_ISR_RUNNING_HIGH_PRIO.swap(false, Ordering::AcqRel) {
+        nvic_set_priority(RADIO_SW_LOW_INTR_NUM, pack_priority(mac::RADIO_SW_LOW_INTR_PRIO));
+    }
+}
+
 // /**
 //   * @brief  Configure the necessary clock sources for the radio.
 //   * @param  None
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_ClockInit()
-// {
-//   uint32_t linklayer_slp_clk_src = LL_RCC_RADIOSLEEPSOURCE_NONE;
-//
-//   /* Get the Link Layer sleep timer clock source */
-//   linklayer_slp_clk_src = LL_RCC_RADIO_GetSleepTimerClockSource();
-//   if(linklayer_slp_clk_src == LL_RCC_RADIOSLEEPSOURCE_NONE)
-//   {
-//     /* If there is no clock source defined, should be selected before */
-//     assert_param(0);
-//   }
-//
-//   /* Enable AHB5ENR peripheral clock (bus CLK) */
-//   __HAL_RCC_RADIO_CLK_ENABLE();
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_ClockInit() {
+    //   uint32_t linklayer_slp_clk_src = LL_RCC_RADIOSLEEPSOURCE_NONE;
+    //
+    //   /* Get the Link Layer sleep timer clock source */
+    //   linklayer_slp_clk_src = LL_RCC_RADIO_GetSleepTimerClockSource();
+    //   if(linklayer_slp_clk_src == LL_RCC_RADIOSLEEPSOURCE_NONE)
+    //   {
+    //     /* If there is no clock source defined, should be selected before */
+    //     assert_param(0);
+    //   }
+    //
+    //   /* Enable AHB5ENR peripheral clock (bus CLK) */
+    //   __HAL_RCC_RADIO_CLK_ENABLE();
+    trace!("LINKLAYER_PLAT_ClockInit: get_slptmr_value");
+    let _ = link_layer::ll_intf_cmn_get_slptmr_value();
+}
+
 // /**
 //   * @brief  Link Layer active waiting loop.
 //   * @param  delay: delay in us
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_DelayUs(uint32_t delay)
-// {
-//   static uint8_t lock = 0;
-//   uint32_t t0;
-//   uint32_t primask_bit;
-//
-//   /* Enter critical section */
-//   primask_bit= __get_PRIMASK();
-//   __disable_irq();
-//
-//   if (lock == 0U)
-//   {
-//     /* Initialize counter */
-//     /* Reset cycle counter to prevent overflow
-//        As a us counter, it is assumed than even with re-entrancy,
-//        overflow will never happen before re-initializing this counter */
-//     DWT->CYCCNT = 0U;
-//     /* Enable DWT by safety but should be useless (as already set) */
-//     SET_BIT(DCB->DEMCR, DCB_DEMCR_TRCENA_Msk);
-//     /* Enable counter */
-//     SET_BIT(DWT->CTRL, DWT_CTRL_CYCCNTENA_Msk);
-//   }
-//   /* Increment 're-entrance' counter */
-//   lock++;
-//   /* Get starting time stamp */
-//   t0 = DWT->CYCCNT;
-//   /* Exit critical section */
-//  __set_PRIMASK(primask_bit);
-//
-//   /* Turn us into cycles */
-//   delay = delay * (SystemCoreClock / 1000000U);
-//   delay += t0;
-//
-//   /* Busy waiting loop */
-//   while (DWT->CYCCNT < delay)
-//   {
-//   };
-//
-//   /* Enter critical section */
-//   primask_bit= __get_PRIMASK();
-//   __disable_irq();
-//   if (lock == 1U)
-//   {
-//     /* Disable counter */
-//     CLEAR_BIT(DWT->CTRL, DWT_CTRL_CYCCNTENA_Msk);
-//   }
-//   /* Decrement 're-entrance' counter */
-//   lock--;
-//   /* Exit critical section */
-//  __set_PRIMASK(primask_bit);
-//
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_DelayUs(delay: u32) {
+    //   static uint8_t lock = 0;
+    //   uint32_t t0;
+    //   uint32_t primask_bit;
+    //
+    //   /* Enter critical section */
+    //   primask_bit= __get_PRIMASK();
+    //   __disable_irq();
+    //
+    //   if (lock == 0U)
+    //   {
+    //     /* Initialize counter */
+    //     /* Reset cycle counter to prevent overflow
+    //        As a us counter, it is assumed than even with re-entrancy,
+    //        overflow will never happen before re-initializing this counter */
+    //     DWT->CYCCNT = 0U;
+    //     /* Enable DWT by safety but should be useless (as already set) */
+    //     SET_BIT(DCB->DEMCR, DCB_DEMCR_TRCENA_Msk);
+    //     /* Enable counter */
+    //     SET_BIT(DWT->CTRL, DWT_CTRL_CYCCNTENA_Msk);
+    //   }
+    //   /* Increment 're-entrance' counter */
+    //   lock++;
+    //   /* Get starting time stamp */
+    //   t0 = DWT->CYCCNT;
+    //   /* Exit critical section */
+    //  __set_PRIMASK(primask_bit);
+    //
+    //   /* Turn us into cycles */
+    //   delay = delay * (SystemCoreClock / 1000000U);
+    //   delay += t0;
+    //
+    //   /* Busy waiting loop */
+    //   while (DWT->CYCCNT < delay)
+    //   {
+    //   };
+    //
+    //   /* Enter critical section */
+    //   primask_bit= __get_PRIMASK();
+    //   __disable_irq();
+    //   if (lock == 1U)
+    //   {
+    //     /* Disable counter */
+    //     CLEAR_BIT(DWT->CTRL, DWT_CTRL_CYCCNTENA_Msk);
+    //   }
+    //   /* Decrement 're-entrance' counter */
+    //   lock--;
+    //   /* Exit critical section */
+    //  __set_PRIMASK(primask_bit);
+    //
+    trace!("LINKLAYER_PLAT_DelayUs: delay={}", delay);
+    block_for(Duration::from_micros(u64::from(delay)));
+}
+
 // /**
 //   * @brief  Link Layer assertion API
 //   * @param  condition: conditional statement to be checked.
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_Assert(uint8_t condition)
-// {
-//   assert_param(condition);
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_Assert(condition: u8) {
+    if condition == 0 {
+        panic!("LINKLAYER_PLAT assertion failed");
+    }
+}
+
 // /**
 //   * @brief  Enable/disable the Link Layer active clock (baseband clock).
 //   * @param  enable: boolean value to enable (1) or disable (0) the clock.
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_WaitHclkRdy(void)
-// {
-//   /* Wait on radio bus clock readiness if it has been turned of */
-//   if (AHB5_SwitchedOff == 1)
-//   {
-//     AHB5_SwitchedOff = 0;
-//     while (radio_sleep_timer_val == ll_intf_cmn_get_slptmr_value());
-//   }
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_WaitHclkRdy() {
+    trace!("LINKLAYER_PLAT_WaitHclkRdy");
+    if AHB5_SWITCHED_OFF.swap(false, Ordering::AcqRel) {
+        let reference = RADIO_SLEEP_TIMER_VAL.load(Ordering::Acquire);
+        trace!("LINKLAYER_PLAT_WaitHclkRdy: reference={}", reference);
+        while reference == link_layer::ll_intf_cmn_get_slptmr_value() {
+            spin_loop();
+        }
+    }
+}
+
 // /**
 //   * @brief  Notify the Link Layer platform layer the system will enter in WFI
 //   *         and AHB5 clock may be turned of regarding the 2.4Ghz radio state.
 //   * @param  None
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_NotifyWFIEnter(void)
-// {
-//   /* Check if Radio state will allow the AHB5 clock to be cut */
-//
-//   /* AHB5 clock will be cut in the following cases:
-//    * - 2.4GHz radio is not in ACTIVE mode (in SLEEP or DEEPSLEEP mode).
-//    * - RADIOSMEN and STRADIOCLKON bits are at 0.
-//    */
-//   if((LL_PWR_GetRadioMode() != LL_PWR_RADIO_ACTIVE_MODE) ||
-//      ((__HAL_RCC_RADIO_IS_CLK_SLEEP_ENABLED() == 0) && (LL_RCC_RADIO_IsEnabledSleepTimerClock() == 0)))
-//   {
-//     AHB5_SwitchedOff = 1;
-//   }
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_NotifyWFIEnter() {
+    //   /* Check if Radio state will allow the AHB5 clock to be cut */
+    //
+    //   /* AHB5 clock will be cut in the following cases:
+    //    * - 2.4GHz radio is not in ACTIVE mode (in SLEEP or DEEPSLEEP mode).
+    //    * - RADIOSMEN and STRADIOCLKON bits are at 0.
+    //    */
+    //   if((LL_PWR_GetRadioMode() != LL_PWR_RADIO_ACTIVE_MODE) ||
+    //      ((__HAL_RCC_RADIO_IS_CLK_SLEEP_ENABLED() == 0) && (LL_RCC_RADIO_IsEnabledSleepTimerClock() == 0)))
+    //   {
+    //     AHB5_SwitchedOff = 1;
+    //   }
+    trace!("LINKLAYER_PLAT_NotifyWFIEnter");
+    AHB5_SWITCHED_OFF.store(true, Ordering::Release);
+}
+
 // /**
 //   * @brief  Notify the Link Layer platform layer the system exited WFI and AHB5
 //   *         clock may be resynchronized as is may have been turned of during
@@ -204,172 +422,202 @@ fn test_fn() {}
 //   * @param  None
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_NotifyWFIExit(void)
-// {
-//   /* Check if AHB5 clock has been turned of and needs resynchronisation */
-//   if (AHB5_SwitchedOff)
-//   {
-//     /* Read sleep register as earlier as possible */
-//     radio_sleep_timer_val = ll_intf_cmn_get_slptmr_value();
-//   }
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_NotifyWFIExit() {
+    trace!("LINKLAYER_PLAT_NotifyWFIExit");
+    //   /* Check if AHB5 clock has been turned of and needs resynchronisation */
+    if AHB5_SWITCHED_OFF.load(Ordering::Acquire) {
+        //     /* Read sleep register as earlier as possible */
+        let value = link_layer::ll_intf_cmn_get_slptmr_value();
+        RADIO_SLEEP_TIMER_VAL.store(value, Ordering::Release);
+    }
+}
+
 // /**
 //   * @brief  Active wait on bus clock readiness.
 //   * @param  None
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_AclkCtrl(uint8_t enable)
-// {
-//   if(enable != 0u)
-//   {
-// #if (CFG_SCM_SUPPORTED == 1)
-//     /* SCM HSE BEGIN */
-//     /* Polling on HSE32 activation */
-//     SCM_HSE_WaitUntilReady();
-//     /* Enable RADIO baseband clock (active CLK) */
-//     HAL_RCCEx_EnableRadioBBClock();
-//     /* SCM HSE END */
-// #else
-//     /* Enable RADIO baseband clock (active CLK) */
-//     HAL_RCCEx_EnableRadioBBClock();
-//     /* Polling on HSE32 activation */
-//     while ( LL_RCC_HSE_IsReady() == 0);
-// #endif /* CFG_SCM_SUPPORTED */
-//   }
-//   else
-//   {
-//     /* Disable RADIO baseband clock (active CLK) */
-//     HAL_RCCEx_DisableRadioBBClock();
-//   }
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_AclkCtrl(_enable: u8) {
+    trace!("LINKLAYER_PLAT_AclkCtrl: enable={}", _enable);
+    if _enable != 0 {
+        // #if (CFG_SCM_SUPPORTED == 1)
+        //     /* SCM HSE BEGIN */
+        //     /* Polling on HSE32 activation */
+        //     SCM_HSE_WaitUntilReady();
+        //     /* Enable RADIO baseband clock (active CLK) */
+        //     HAL_RCCEx_EnableRadioBBClock();
+        //     /* SCM HSE END */
+        // #else
+        //     /* Enable RADIO baseband clock (active CLK) */
+        //     HAL_RCCEx_EnableRadioBBClock();
+        //     /* Polling on HSE32 activation */
+        //     while ( LL_RCC_HSE_IsReady() == 0);
+        // #endif /* CFG_SCM_SUPPORTED */
+        // NOTE: Add a proper assertion once a typed `Radio` peripheral exists in embassy-stm32
+        // that exposes the baseband clock enable status via RCC.
+    } else {
+        //     /* Disable RADIO baseband clock (active CLK) */
+        //     HAL_RCCEx_DisableRadioBBClock();
+    }
+}
+
 // /**
 //   * @brief  Link Layer RNG request.
 //   * @param  ptr_rnd: pointer to the variable that hosts the number.
 //   * @param  len: number of byte of anthropy to get.
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_GetRNG(uint8_t *ptr_rnd, uint32_t len)
-// {
-//   uint32_t nb_remaining_rng = len;
-//   uint32_t generated_rng;
-//
-//   /* Get the requested RNGs (4 bytes by 4bytes) */
-//   while(nb_remaining_rng >= 4)
-//   {
-//     generated_rng = 0;
-//     HW_RNG_Get(1, &generated_rng);
-//     memcpy((ptr_rnd+(len-nb_remaining_rng)), &generated_rng, 4);
-//     nb_remaining_rng -=4;
-//   }
-//
-//   /* Get the remaining number of RNGs */
-//   if(nb_remaining_rng>0){
-//     generated_rng = 0;
-//     HW_RNG_Get(1, &generated_rng);
-//     memcpy((ptr_rnd+(len-nb_remaining_rng)), &generated_rng, nb_remaining_rng);
-//   }
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_GetRNG(ptr_rnd: *mut u8, len: u32) {
+    //   uint32_t nb_remaining_rng = len;
+    //   uint32_t generated_rng;
+    //
+    //   /* Get the requested RNGs (4 bytes by 4bytes) */
+    //   while(nb_remaining_rng >= 4)
+    //   {
+    //     generated_rng = 0;
+    //     HW_RNG_Get(1, &generated_rng);
+    //     memcpy((ptr_rnd+(len-nb_remaining_rng)), &generated_rng, 4);
+    //     nb_remaining_rng -=4;
+    //   }
+    //
+    //   /* Get the remaining number of RNGs */
+    //   if(nb_remaining_rng>0){
+    //     generated_rng = 0;
+    //     HW_RNG_Get(1, &generated_rng);
+    //     memcpy((ptr_rnd+(len-nb_remaining_rng)), &generated_rng, nb_remaining_rng);
+    //   }
+    trace!("LINKLAYER_PLAT_GetRNG: ptr_rnd={:?}, len={}", ptr_rnd, len);
+    if ptr_rnd.is_null() || len == 0 {
+        return;
+    }
+
+    for i in 0..len {
+        let byte = (prng_next() >> ((i & 3) * 8)) as u8;
+        ptr::write_volatile(ptr_rnd.add(i as usize), byte);
+    }
+}
+
 // /**
 //   * @brief  Initialize Link Layer radio high priority interrupt.
 //   * @param  intr_cb: function pointer to assign for the radio high priority ISR routine.
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_SetupRadioIT(void (*intr_cb)())
-// {
-//   radio_callback = intr_cb;
-//   HAL_NVIC_SetPriority((IRQn_Type) RADIO_INTR_NUM, RADIO_INTR_PRIO_HIGH, 0);
-//   HAL_NVIC_EnableIRQ((IRQn_Type) RADIO_INTR_NUM);
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_SetupRadioIT(intr_cb: Option<Callback>) {
+    trace!("LINKLAYER_PLAT_SetupRadioIT: intr_cb={:?}", intr_cb);
+    store_callback(&RADIO_CALLBACK, intr_cb);
+
+    if intr_cb.is_some() {
+        nvic_set_priority(mac::RADIO_INTR_NUM, pack_priority(mac::RADIO_INTR_PRIO_HIGH));
+        nvic_enable(mac::RADIO_INTR_NUM);
+    } else {
+        nvic_disable(mac::RADIO_INTR_NUM);
+    }
+}
+
 // /**
 //   * @brief  Initialize Link Layer SW low priority interrupt.
 //   * @param  intr_cb: function pointer to assign for the SW low priority ISR routine.
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_SetupSwLowIT(void (*intr_cb)())
-// {
-//   low_isr_callback = intr_cb;
-//
-//   HAL_NVIC_SetPriority((IRQn_Type) RADIO_SW_LOW_INTR_NUM, RADIO_SW_LOW_INTR_PRIO, 0);
-//   HAL_NVIC_EnableIRQ((IRQn_Type) RADIO_SW_LOW_INTR_NUM);
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_SetupSwLowIT(intr_cb: Option<Callback>) {
+    trace!("LINKLAYER_PLAT_SetupSwLowIT: intr_cb={:?}", intr_cb);
+    store_callback(&LOW_ISR_CALLBACK, intr_cb);
+
+    if intr_cb.is_some() {
+        nvic_set_priority(RADIO_SW_LOW_INTR_NUM, pack_priority(mac::RADIO_SW_LOW_INTR_PRIO));
+        nvic_enable(RADIO_SW_LOW_INTR_NUM);
+    } else {
+        nvic_disable(RADIO_SW_LOW_INTR_NUM);
+    }
+}
+
 // /**
 //   * @brief  Trigger the link layer SW low interrupt.
 //   * @param  None
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_TriggerSwLowIT(uint8_t priority)
-// {
-//   uint8_t low_isr_priority = RADIO_INTR_PRIO_LOW;
-//
-//   /* Check if a SW low interrupt as already been raised.
-//    * Nested call far radio low isr are not supported
-//    **/
-//
-//   if(NVIC_GetActive(RADIO_SW_LOW_INTR_NUM) == 0)
-//   {
-//     /* No nested SW low ISR, default behavior */
-//
-//     if(priority == 0)
-//     {
-//       low_isr_priority = RADIO_SW_LOW_INTR_PRIO;
-//     }
-//
-//     HAL_NVIC_SetPriority((IRQn_Type) RADIO_SW_LOW_INTR_NUM, low_isr_priority, 0);
-//   }
-//   else
-//   {
-//     /* Nested call detected */
-//     /* No change for SW radio low interrupt priority for the moment */
-//
-//     if(priority != 0)
-//     {
-//       /* At the end of current SW radio low ISR, this pending SW low interrupt
-//        * will run with RADIO_INTR_PRIO_LOW priority
-//        **/
-//       radio_sw_low_isr_is_running_high_prio = 1;
-//     }
-//   }
-//
-//   HAL_NVIC_SetPendingIRQ((IRQn_Type) RADIO_SW_LOW_INTR_NUM);
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_TriggerSwLowIT(priority: u8) {
+    trace!("LINKLAYER_PLAT_TriggerSwLowIT: priority={}", priority);
+    let active = nvic_get_active(RADIO_SW_LOW_INTR_NUM);
+
+    //   /* Check if a SW low interrupt as already been raised.
+    //    * Nested call far radio low isr are not supported
+    //    **/
+    if !active {
+        let prio = if priority == 0 {
+            //     /* No nested SW low ISR, default behavior */
+            pack_priority(mac::RADIO_SW_LOW_INTR_PRIO)
+        } else {
+            pack_priority(mac::RADIO_INTR_PRIO_LOW)
+        };
+        nvic_set_priority(RADIO_SW_LOW_INTR_NUM, prio);
+    } else if priority != 0 {
+        //     /* Nested call detected */
+        //     /* No change for SW radio low interrupt priority for the moment */
+        //
+        //     if(priority != 0)
+        //     {
+        //       /* At the end of current SW radio low ISR, this pending SW low interrupt
+        //        * will run with RADIO_INTR_PRIO_LOW priority
+        //        **/
+        //       radio_sw_low_isr_is_running_high_prio = 1;
+        //     }
+        RADIO_SW_LOW_ISR_RUNNING_HIGH_PRIO.store(true, Ordering::Release);
+    }
+
+    nvic_set_pending(RADIO_SW_LOW_INTR_NUM);
+}
+
 // /**
 //   * @brief  Enable interrupts.
 //   * @param  None
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_EnableIRQ(void)
-// {
-//   irq_counter = max(0,irq_counter-1);
-//
-//   if(irq_counter == 0)
-//   {
-//     /* When irq_counter reaches 0, restore primask bit */
-//     __set_PRIMASK(primask_bit);
-//   }
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_EnableIRQ() {
+    trace!("LINKLAYER_PLAT_EnableIRQ");
+    //   irq_counter = max(0,irq_counter-1);
+    //
+    //   if(irq_counter == 0)
+    //   {
+    //     /* When irq_counter reaches 0, restore primask bit */
+    //     __set_PRIMASK(primask_bit);
+    //   }
+    if counter_release(&IRQ_COUNTER) {
+        // When the counter reaches zero, restore prior interrupt state using the captured token.
+        if let Some(token) = CS_RESTORE_STATE.take() {
+            critical_section::release(token);
+        }
+    }
+}
+
 // /**
 //   * @brief  Disable interrupts.
 //   * @param  None
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_DisableIRQ(void)
-// {
-//   if(irq_counter == 0)
-//   {
-//     /* Save primask bit at first interrupt disablement */
-//     primask_bit= __get_PRIMASK();
-//   }
-//   __disable_irq();
-//   irq_counter ++;
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_DisableIRQ() {
+    trace!("LINKLAYER_PLAT_DisableIRQ");
+    //   if(irq_counter == 0)
+    //   {
+    //     /* Save primask bit at first interrupt disablement */
+    //     primask_bit= __get_PRIMASK();
+    //   }
+    //   __disable_irq();
+    //   irq_counter ++;
+    if counter_acquire(&IRQ_COUNTER) {
+        // Capture and disable using critical-section API on first disable.
+        CS_RESTORE_STATE = Some(critical_section::acquire());
+    }
+}
+
 // /**
 //   * @brief  Enable specific interrupt group.
 //   * @param  isr_type: mask for interrupt group to enable.
@@ -380,43 +628,62 @@ fn test_fn() {}
 //   *              lower priority that link layer SW low interrupt.
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_EnableSpecificIRQ(uint8_t isr_type)
-// {
-//   if( (isr_type & LL_HIGH_ISR_ONLY) != 0 )
-//   {
-//     prio_high_isr_counter--;
-//     if(prio_high_isr_counter == 0)
-//     {
-//       /* When specific counter for link layer high ISR reaches 0, interrupt is enabled */
-//       HAL_NVIC_EnableIRQ(RADIO_INTR_NUM);
-//       /* USER CODE BEGIN LINKLAYER_PLAT_EnableSpecificIRQ_1 */
-//
-//       /* USER CODE END LINKLAYER_PLAT_EnableSpecificIRQ_1 */
-//     }
-//   }
-//
-//   if( (isr_type & LL_LOW_ISR_ONLY) != 0 )
-//   {
-//     prio_low_isr_counter--;
-//     if(prio_low_isr_counter == 0)
-//     {
-//       /* When specific counter for link layer SW low ISR reaches 0, interrupt is enabled */
-//       HAL_NVIC_EnableIRQ(RADIO_SW_LOW_INTR_NUM);
-//     }
-//
-//   }
-//
-//   if( (isr_type & SYS_LOW_ISR) != 0 )
-//   {
-//     prio_sys_isr_counter--;
-//     if(prio_sys_isr_counter == 0)
-//     {
-//       /* Restore basepri value */
-//       __set_BASEPRI(local_basepri_value);
-//     }
-//   }
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_EnableSpecificIRQ(isr_type: u8) {
+    trace!("LINKLAYER_PLAT_EnableSpecificIRQ: isr_type={}", isr_type);
+    //   if( (isr_type & LL_HIGH_ISR_ONLY) != 0 )
+    //   {
+    //     prio_high_isr_counter--;
+    //     if(prio_high_isr_counter == 0)
+    //     {
+    //       /* When specific counter for link layer high ISR reaches 0, interrupt is enabled */
+    //       HAL_NVIC_EnableIRQ(RADIO_INTR_NUM);
+    //       /* USER CODE BEGIN LINKLAYER_PLAT_EnableSpecificIRQ_1 */
+    //
+    //       /* USER CODE END LINKLAYER_PLAT_EnableSpecificIRQ_1 */
+    //     }
+    //   }
+    //
+    //   if( (isr_type & LL_LOW_ISR_ONLY) != 0 )
+    //   {
+    //     prio_low_isr_counter--;
+    //     if(prio_low_isr_counter == 0)
+    //     {
+    //       /* When specific counter for link layer SW low ISR reaches 0, interrupt is enabled */
+    //       HAL_NVIC_EnableIRQ(RADIO_SW_LOW_INTR_NUM);
+    //     }
+    //
+    //   }
+    //
+    //   if( (isr_type & SYS_LOW_ISR) != 0 )
+    //   {
+    //     prio_sys_isr_counter--;
+    //     if(prio_sys_isr_counter == 0)
+    //     {
+    //       /* Restore basepri value */
+    //       __set_BASEPRI(local_basepri_value);
+    //     }
+    //   }
+    if (isr_type & link_layer::LL_HIGH_ISR_ONLY as u8) != 0 {
+        if counter_release(&PRIO_HIGH_ISR_COUNTER) {
+            nvic_enable(mac::RADIO_INTR_NUM);
+        }
+    }
+
+    if (isr_type & link_layer::LL_LOW_ISR_ONLY as u8) != 0 {
+        if counter_release(&PRIO_LOW_ISR_COUNTER) {
+            nvic_enable(RADIO_SW_LOW_INTR_NUM);
+        }
+    }
+
+    if (isr_type & link_layer::SYS_LOW_ISR as u8) != 0 {
+        if counter_release(&PRIO_SYS_ISR_COUNTER) {
+            let stored = LOCAL_BASEPRI_VALUE.load(Ordering::Relaxed) as u8;
+            basepri::write(stored);
+        }
+    }
+}
+
 // /**
 //   * @brief  Disable specific interrupt group.
 //   * @param  isr_type: mask for interrupt group to disable.
@@ -427,219 +694,220 @@ fn test_fn() {}
 //   *              lower priority that link layer SW low interrupt.
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_DisableSpecificIRQ(uint8_t isr_type)
-// {
-//   if( (isr_type & LL_HIGH_ISR_ONLY) != 0 )
-//   {
-//     prio_high_isr_counter++;
-//     if(prio_high_isr_counter == 1)
-//     {
-//       /* USER CODE BEGIN LINKLAYER_PLAT_DisableSpecificIRQ_1 */
-//
-//       /* USER CODE END LINKLAYER_PLAT_DisableSpecificIRQ_1 */
-//       /* When specific counter for link layer high ISR value is 1, interrupt is disabled */
-//       HAL_NVIC_DisableIRQ(RADIO_INTR_NUM);
-//     }
-//   }
-//
-//   if( (isr_type & LL_LOW_ISR_ONLY) != 0 )
-//   {
-//     prio_low_isr_counter++;
-//     if(prio_low_isr_counter == 1)
-//     {
-//       /* When specific counter for link layer SW low ISR value is 1, interrupt is disabled */
-//       HAL_NVIC_DisableIRQ(RADIO_SW_LOW_INTR_NUM);
-//     }
-//   }
-//
-//   if( (isr_type & SYS_LOW_ISR) != 0 )
-//   {
-//     prio_sys_isr_counter++;
-//     if(prio_sys_isr_counter == 1)
-//     {
-//       /* Save basepri register value */
-//       local_basepri_value = __get_BASEPRI();
-//
-//       /* Mask all other interrupts with lower priority that link layer SW low ISR */
-//       __set_BASEPRI_MAX(RADIO_INTR_PRIO_LOW<<4);
-//     }
-//   }
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_DisableSpecificIRQ(isr_type: u8) {
+    //   if( (isr_type & LL_HIGH_ISR_ONLY) != 0 )
+    //   {
+    //     prio_high_isr_counter++;
+    //     if(prio_high_isr_counter == 1)
+    //     {
+    //       /* USER CODE BEGIN LINKLAYER_PLAT_DisableSpecificIRQ_1 */
+    //
+    //       /* USER CODE END LINKLAYER_PLAT_DisableSpecificIRQ_1 */
+    //       /* When specific counter for link layer high ISR value is 1, interrupt is disabled */
+    //       HAL_NVIC_DisableIRQ(RADIO_INTR_NUM);
+    //     }
+    //   }
+    //
+    //   if( (isr_type & LL_LOW_ISR_ONLY) != 0 )
+    //   {
+    //     prio_low_isr_counter++;
+    //     if(prio_low_isr_counter == 1)
+    //     {
+    //       /* When specific counter for link layer SW low ISR value is 1, interrupt is disabled */
+    //       HAL_NVIC_DisableIRQ(RADIO_SW_LOW_INTR_NUM);
+    //     }
+    //   }
+    //
+    //   if( (isr_type & SYS_LOW_ISR) != 0 )
+    //   {
+    //     prio_sys_isr_counter++;
+    //     if(prio_sys_isr_counter == 1)
+    //     {
+    //       /* Save basepri register value */
+    //       local_basepri_value = __get_BASEPRI();
+    //
+    //       /* Mask all other interrupts with lower priority that link layer SW low ISR */
+    //       __set_BASEPRI_MAX(RADIO_INTR_PRIO_LOW<<4);
+    //     }
+    //   }
+    trace!("LINKLAYER_PLAT_DisableSpecificIRQ: isr_type={}", isr_type);
+    if (isr_type & link_layer::LL_HIGH_ISR_ONLY as u8) != 0 {
+        if counter_acquire(&PRIO_HIGH_ISR_COUNTER) {
+            nvic_disable(mac::RADIO_INTR_NUM);
+        }
+    }
+
+    if (isr_type & link_layer::LL_LOW_ISR_ONLY as u8) != 0 {
+        if counter_acquire(&PRIO_LOW_ISR_COUNTER) {
+            nvic_disable(RADIO_SW_LOW_INTR_NUM);
+        }
+    }
+
+    if (isr_type & link_layer::SYS_LOW_ISR as u8) != 0 {
+        if counter_acquire(&PRIO_SYS_ISR_COUNTER) {
+            let current = basepri::read();
+            LOCAL_BASEPRI_VALUE.store(current.into(), Ordering::Relaxed);
+            set_basepri_max(pack_priority(mac::RADIO_INTR_PRIO_LOW));
+        }
+    }
+}
+
 // /**
 //   * @brief  Enable link layer high priority ISR only.
 //   * @param  None
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_EnableRadioIT(void)
-// {
-//   /* USER CODE BEGIN LINKLAYER_PLAT_EnableRadioIT_1 */
-//
-//   /* USER CODE END LINKLAYER_PLAT_EnableRadioIT_1 */
-//
-//   HAL_NVIC_EnableIRQ((IRQn_Type) RADIO_INTR_NUM);
-//
-//   /* USER CODE BEGIN LINKLAYER_PLAT_EnableRadioIT_2 */
-//
-//   /* USER CODE END LINKLAYER_PLAT_EnableRadioIT_2 */
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_EnableRadioIT() {
+    trace!("LINKLAYER_PLAT_EnableRadioIT");
+    nvic_enable(mac::RADIO_INTR_NUM);
+}
+
 // /**
 //   * @brief  Disable link layer high priority ISR only.
 //   * @param  None
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_DisableRadioIT(void)
-// {
-//   /* USER CODE BEGIN LINKLAYER_PLAT_DisableRadioIT_1 */
-//
-//   /* USER CODE END LINKLAYER_PLAT_DisableRadioIT_1 */
-//
-//   HAL_NVIC_DisableIRQ((IRQn_Type) RADIO_INTR_NUM);
-//
-//   /* USER CODE BEGIN LINKLAYER_PLAT_DisableRadioIT_2 */
-//
-//   /* USER CODE END LINKLAYER_PLAT_DisableRadioIT_2 */
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_DisableRadioIT() {
+    trace!("LINKLAYER_PLAT_DisableRadioIT");
+    nvic_disable(mac::RADIO_INTR_NUM);
+}
+
 // /**
 //   * @brief  Link Layer notification for radio activity start.
 //   * @param  None
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_StartRadioEvt(void)
-// {
-//   __HAL_RCC_RADIO_CLK_SLEEP_ENABLE();
-//   NVIC_SetPriority(RADIO_INTR_NUM, RADIO_INTR_PRIO_HIGH);
-// #if (CFG_SCM_SUPPORTED == 1)
-//   scm_notifyradiostate(SCM_RADIO_ACTIVE);
-// #endif /* CFG_SCM_SUPPORTED */
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_StartRadioEvt() {
+    trace!("LINKLAYER_PLAT_StartRadioEvt");
+    //   __HAL_RCC_RADIO_CLK_SLEEP_ENABLE();
+    //   NVIC_SetPriority(RADIO_INTR_NUM, RADIO_INTR_PRIO_HIGH);
+    // #if (CFG_SCM_SUPPORTED == 1)
+    //   scm_notifyradiostate(SCM_RADIO_ACTIVE);
+    // #endif /* CFG_SCM_SUPPORTED */
+    nvic_set_priority(mac::RADIO_INTR_NUM, pack_priority(mac::RADIO_INTR_PRIO_HIGH));
+    nvic_enable(mac::RADIO_INTR_NUM);
+}
+
 // /**
 //   * @brief  Link Layer notification for radio activity end.
 //   * @param  None
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_StopRadioEvt(void)
-// {
-//   __HAL_RCC_RADIO_CLK_SLEEP_DISABLE();
-//   NVIC_SetPriority(RADIO_INTR_NUM, RADIO_INTR_PRIO_LOW);
-// #if (CFG_SCM_SUPPORTED == 1)
-//   scm_notifyradiostate(SCM_RADIO_NOT_ACTIVE);
-// #endif /* CFG_SCM_SUPPORTED */
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_StopRadioEvt() {
+    trace!("LINKLAYER_PLAT_StopRadioEvt");
+    // {
+    //   __HAL_RCC_RADIO_CLK_SLEEP_DISABLE();
+    //   NVIC_SetPriority(RADIO_INTR_NUM, RADIO_INTR_PRIO_LOW);
+    // #if (CFG_SCM_SUPPORTED == 1)
+    //   scm_notifyradiostate(SCM_RADIO_NOT_ACTIVE);
+    // #endif /* CFG_SCM_SUPPORTED */
+    nvic_set_priority(mac::RADIO_INTR_NUM, pack_priority(mac::RADIO_INTR_PRIO_LOW));
+}
+
 // /**
 //   * @brief  Link Layer notification for RCO calibration start.
 //   * @param  None
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_RCOStartClbr(void)
-// {
-// #if (CFG_LPM_LEVEL != 0)
-//   PWR_DisableSleepMode();
-//   /* Disabling stop mode prevents also from entering in standby */
-//   UTIL_LPM_SetStopMode(1U << CFG_LPM_LL_HW_RCO_CLBR, UTIL_LPM_DISABLE);
-// #endif /* (CFG_LPM_LEVEL != 0) */
-// #if (CFG_SCM_SUPPORTED == 1)
-//   scm_setsystemclock(SCM_USER_LL_HW_RCO_CLBR, HSE_32MHZ);
-//   while (LL_PWR_IsActiveFlag_VOS() == 0);
-// #endif /* (CFG_SCM_SUPPORTED == 1) */
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_RCOStartClbr() {
+    trace!("LINKLAYER_PLAT_RCOStartClbr");
+    // #if (CFG_LPM_LEVEL != 0)
+    //   PWR_DisableSleepMode();
+    //   /* Disabling stop mode prevents also from entering in standby */
+    //   UTIL_LPM_SetStopMode(1U << CFG_LPM_LL_HW_RCO_CLBR, UTIL_LPM_DISABLE);
+    // #endif /* (CFG_LPM_LEVEL != 0) */
+    // #if (CFG_SCM_SUPPORTED == 1)
+    //   scm_setsystemclock(SCM_USER_LL_HW_RCO_CLBR, HSE_32MHZ);
+    //   while (LL_PWR_IsActiveFlag_VOS() == 0);
+    // #endif /* (CFG_SCM_SUPPORTED == 1) */
+}
+
 // /**
 //   * @brief  Link Layer notification for RCO calibration end.
 //   * @param  None
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_RCOStopClbr(void)
-// {
-// #if (CFG_LPM_LEVEL != 0)
-//   PWR_EnableSleepMode();
-//   UTIL_LPM_SetStopMode(1U << CFG_LPM_LL_HW_RCO_CLBR, UTIL_LPM_ENABLE);
-// #endif /* (CFG_LPM_LEVEL != 0) */
-// #if (CFG_SCM_SUPPORTED == 1)
-//   scm_setsystemclock(SCM_USER_LL_HW_RCO_CLBR, HSE_16MHZ);
-// #endif /* (CFG_SCM_SUPPORTED == 1) */
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_RCOStopClbr() {
+    trace!("LINKLAYER_PLAT_RCOStopClbr");
+    // #if (CFG_LPM_LEVEL != 0)
+    //   PWR_EnableSleepMode();
+    //   UTIL_LPM_SetStopMode(1U << CFG_LPM_LL_HW_RCO_CLBR, UTIL_LPM_ENABLE);
+    // #endif /* (CFG_LPM_LEVEL != 0) */
+    // #if (CFG_SCM_SUPPORTED == 1)
+    //   scm_setsystemclock(SCM_USER_LL_HW_RCO_CLBR, HSE_16MHZ);
+    // #endif /* (CFG_SCM_SUPPORTED == 1) */
+}
+
 // /**
 //   * @brief  Link Layer requests temperature.
 //   * @param  None
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_RequestTemperature(void)
-// {
-// #if (USE_TEMPERATURE_BASED_RADIO_CALIBRATION == 1)
-//   ll_sys_bg_temperature_measurement();
-// #endif /* USE_TEMPERATURE_BASED_RADIO_CALIBRATION */
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_RequestTemperature() {
+    trace!("LINKLAYER_PLAT_RequestTemperature");
+    // #if (USE_TEMPERATURE_BASED_RADIO_CALIBRATION == 1)
+    //   ll_sys_bg_temperature_measurement();
+    // #endif /* USE_TEMPERATURE_BASED_RADIO_CALIBRATION */
+}
+
 // /**
 //   * @brief  PHY Start calibration.
 //   * @param  None
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_PhyStartClbr(void)
-// {
-//   /* USER CODE BEGIN LINKLAYER_PLAT_PhyStartClbr_0 */
-//
-//   /* USER CODE END LINKLAYER_PLAT_PhyStartClbr_0 */
-//
-//   /* USER CODE BEGIN LINKLAYER_PLAT_PhyStartClbr_1 */
-//
-//   /* USER CODE END LINKLAYER_PLAT_PhyStartClbr_1 */
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_PhyStartClbr() {
+    trace!("LINKLAYER_PLAT_PhyStartClbr");
+}
+
 // /**
 //   * @brief  PHY Stop calibration.
 //   * @param  None
 //   * @retval None
 //   */
-// void LINKLAYER_PLAT_PhyStopClbr(void)
-// {
-//   /* USER CODE BEGIN LINKLAYER_PLAT_PhyStopClbr_0 */
-//
-//   /* USER CODE END LINKLAYER_PLAT_PhyStopClbr_0 */
-//
-//   /* USER CODE BEGIN LINKLAYER_PLAT_PhyStopClbr_1 */
-//
-//   /* USER CODE END LINKLAYER_PLAT_PhyStopClbr_1 */
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_PhyStopClbr() {
+    trace!("LINKLAYER_PLAT_PhyStopClbr");
+}
+
 // /**
 //  * @brief Notify the upper layer that new Link Layer timings have been applied.
 //  * @param evnt_timing[in]: Evnt_timing_t pointer to structure contains drift time , execution time and scheduling time
 //  * @retval None.
 //  */
-// void LINKLAYER_PLAT_SCHLDR_TIMING_UPDATE_NOT(Evnt_timing_t * p_evnt_timing)
-// {
-//   /* USER CODE BEGIN LINKLAYER_PLAT_SCHLDR_TIMING_UPDATE_NOT_0 */
-//
-//   /* USER CODE END LINKLAYER_PLAT_SCHLDR_TIMING_UPDATE_NOT_0 */
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_SCHLDR_TIMING_UPDATE_NOT(_timings: *const link_layer::Evnt_timing_t) {
+    trace!("LINKLAYER_PLAT_SCHLDR_TIMING_UPDATE_NOT: timings={:?}", _timings);
+}
+
 // /**
 //   * @brief  Get the ST company ID.
 //   * @param  None
 //   * @retval Company ID
 //   */
-// uint32_t LINKLAYER_PLAT_GetSTCompanyID(void)
-// {
-//   return LL_FLASH_GetSTCompanyID();
-// }
-//
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_GetSTCompanyID() -> u32 {
+    // STMicroelectronics Bluetooth SIG Company Identifier
+    // TODO: Pull in update from latest stm32-generated-data
+    0x0030
+}
+
 // /**
 //   * @brief  Get the Unique Device Number (UDN).
 //   * @param  None
 //   * @retval UDN
 //   */
-// uint32_t LINKLAYER_PLAT_GetUDN(void)
-// {
-//   return LL_FLASH_GetUDN();
-// }
-//
-// /* USER CODE BEGIN LINKLAYER_PLAT 0 */
-//
-// /* USER CODE END LINKLAYER_PLAT 0 */
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_PLAT_GetUDN() -> u32 {
+    // Read the first 32 bits of the STM32 unique 96-bit ID
+    let uid = embassy_stm32::uid::uid();
+    u32::from_le_bytes([uid[0], uid[1], uid[2], uid[3]])
+}
