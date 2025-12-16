@@ -16,6 +16,8 @@ use crate::peripherals::DMA0;
 use crate::sealed::Sealed;
 use crate::{BitIter, interrupt, pac, peripherals};
 
+pub(crate) const MAX_CHUNK_SIZE: usize = 1024;
+
 #[cfg(feature = "rt")]
 #[interrupt]
 fn DMA0() {
