@@ -43,7 +43,7 @@
 use core::arch::asm;
 use core::marker::PhantomData;
 use core::mem;
-use core::sync::atomic::{Ordering, compiler_fence};
+use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
 
 use cortex_m::peripheral::SCB;
 use critical_section::CriticalSection;
@@ -56,7 +56,27 @@ use crate::time_driver::get_driver;
 
 const THREAD_PENDER: usize = usize::MAX;
 
-static mut EXECUTOR_TAKEN: bool = false;
+static EXECUTOR_TAKEN: AtomicBool = AtomicBool::new(false);
+#[cfg(feature = "low-power-pender")]
+static TASKS_PENDING: AtomicBool = AtomicBool::new(false);
+
+#[cfg(feature = "low-power-pender")]
+#[unsafe(export_name = "__pender")]
+fn __pender(context: *mut ()) {
+    unsafe {
+        // Safety: `context` is either `usize::MAX` created by `Executor::run`, or a valid interrupt
+        // request number given to `InterruptExecutor::start`.
+
+        let context = context as usize;
+
+        // Try to make Rust optimize the branching away if we only use thread mode.
+        if context == THREAD_PENDER {
+            TASKS_PENDING.store(true, Ordering::Release);
+            core::arch::asm!("sev");
+            return;
+        }
+    }
+}
 
 /// Prevent the device from going into the stop mode if held
 pub struct DeviceBusy {
@@ -150,12 +170,10 @@ pub struct Executor {
 impl Executor {
     /// Create a new Executor.
     pub fn new() -> Self {
-        unsafe {
-            if EXECUTOR_TAKEN {
-                panic!("Low power executor can only be taken once.");
-            } else {
-                EXECUTOR_TAKEN = true;
-            }
+        if EXECUTOR_TAKEN.load(Ordering::Acquire) {
+            panic!("Low power executor can only be taken once.");
+        } else {
+            EXECUTOR_TAKEN.store(true, Ordering::Release);
         }
 
         Self {
@@ -338,7 +356,14 @@ impl Executor {
             w.set_c1cssf(true);
         });
 
-        compiler_fence(Ordering::SeqCst);
+        #[cfg(feature = "low-power-pender")]
+        if TASKS_PENDING.load(Ordering::Acquire) {
+            TASKS_PENDING.store(false, Ordering::Release);
+
+            return;
+        }
+
+        compiler_fence(Ordering::Acquire);
 
         critical_section::with(|cs| {
             let _ = unsafe { RCC_CONFIG }?;
