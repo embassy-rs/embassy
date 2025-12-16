@@ -29,17 +29,14 @@ const CHANNEL_COUNT: usize = 12;
 /// Max channels per port
 const CHANNELS_PER_PORT: usize = 8;
 
-#[cfg(any(
-    feature = "nrf52833",
-    feature = "nrf52840",
-    feature = "_nrf5340",
-    feature = "_nrf54l15",
-    feature = "_nrf54l10",
-    feature = "_nrf54l05"
-))]
+#[cfg(any(feature = "nrf52833", feature = "nrf52840", feature = "_nrf5340"))]
 const PIN_COUNT: usize = 48;
+#[cfg(any(feature = "_nrf54l15", feature = "_nrf54l10", feature = "_nrf54l05"))]
+// Highest pin index is P2.10 => (2 * 32 + 10) = 74
+const PIN_COUNT: usize = 75;
 #[cfg(feature = "_nrf54lm20")]
-const PIN_COUNT: usize = 66;
+// Highest pin index is P3.12 => (3 * 32 + 12) = 108
+const PIN_COUNT: usize = 109;
 #[cfg(not(any(
     feature = "nrf52833",
     feature = "nrf52840",
