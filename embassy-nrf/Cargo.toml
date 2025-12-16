@@ -226,7 +226,7 @@ rand-core-09 = { package = "rand_core", version = "0.9" }
 nrf-pac = { version = "0.2.0" }
 
 defmt = { version = "1.0.1", optional = true }
-bitflags = "2.4.2"
+bitflags = "2.10.0"
 log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"

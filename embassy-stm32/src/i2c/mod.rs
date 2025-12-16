@@ -129,7 +129,7 @@ impl<'d> Drop for I2CDropGuard<'d> {
             x.set_as_disconnected()
         }
 
-        self.info.rcc.disable();
+        self.info.rcc.disable_without_stop();
     }
 }
 

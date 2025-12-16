@@ -13,6 +13,23 @@ use crate::{Peri, interrupt, pac, peripherals, rcc};
 
 static RNG_WAKER: AtomicWaker = AtomicWaker::new();
 
+/// WBA-specific health test configuration values for RNG
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
+enum Htcfg {
+    /// WBA-specific health test configuration (0x0000AAC7)
+    /// Corresponds to configuration A, B, and C thresholds as recommended in the reference manual
+    WbaRecommended = 0x0000_AAC7,
+}
+
+impl Htcfg {
+    /// Convert to the raw u32 value for register access
+    #[allow(dead_code)]
+    fn value(self) -> u32 {
+        self as u32
+    }
+}
+
 /// RNG error
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -100,7 +117,7 @@ impl<'d, T: Instance> Rng<'d, T> {
         // wait for CONDRST to be set
         while !T::regs().cr().read().condrst() {}
 
-        // TODO for WBA6, the HTCR reg is different
+        // Set health test configuration values
         #[cfg(not(rng_wba6))]
         {
             // magic number must be written immediately before every read or write access to HTCR
@@ -110,6 +127,12 @@ impl<'d, T: Instance> Rng<'d, T> {
             T::regs()
                 .htcr()
                 .write(|w| w.set_htcfg(pac::rng::vals::Htcfg::RECOMMENDED));
+        }
+        #[cfg(rng_wba6)]
+        {
+            // For WBA6, set RNG_HTCR0 to the recommended value for configurations A, B, and C
+            // This value corresponds to the health test thresholds specified in the reference manual
+            T::regs().htcr(0).write(|w| w.0 = Htcfg::WbaRecommended.value());
         }
 
         // finish conditioning
