@@ -1,11 +1,11 @@
 use core::cell::RefCell;
 
 use embassy_embedded_hal::flash::partition::BlockingPartition;
-use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embedded_storage::nor_flash::{NorFlash, NorFlashError, NorFlashErrorKind};
 
-use crate::{State, DFU_DETACH_MAGIC, REVERT_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC};
+use crate::{DFU_DETACH_MAGIC, REVERT_MAGIC, STATE_ERASE_VALUE, SWAP_MAGIC, State};
 
 /// Errors returned by bootloader
 #[derive(PartialEq, Eq, Debug)]
@@ -94,7 +94,7 @@ impl<'a, ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>
         dfu_flash: &'a Mutex<NoopRawMutex, RefCell<DFU>>,
         state_flash: &'a Mutex<NoopRawMutex, RefCell<STATE>>,
     ) -> Self {
-        extern "C" {
+        unsafe extern "C" {
             static __bootloader_state_start: u32;
             static __bootloader_state_end: u32;
             static __bootloader_active_start: u32;
@@ -135,10 +135,12 @@ pub struct BootLoader<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> {
     dfu: DFU,
     /// The state partition has the following format:
     /// All ranges are in multiples of WRITE_SIZE bytes.
-    /// | Range    | Description                                                                      |
-    /// | 0..1     | Magic indicating bootloader state. BOOT_MAGIC means boot, SWAP_MAGIC means swap. |
-    /// | 1..2     | Progress validity. ERASE_VALUE means valid, !ERASE_VALUE means invalid.          |
-    /// | 2..2 + N | Progress index used while swapping or reverting      
+    /// N = Active partition size divided by WRITE_SIZE.
+    /// | Range              | Description                                                                      |
+    /// | 0..1               | Magic indicating bootloader state. BOOT_MAGIC means boot, SWAP_MAGIC means swap. |
+    /// | 1..2               | Progress validity. ERASE_VALUE means valid, !ERASE_VALUE means invalid.          |
+    /// | 2..(2 + 2N)        | Progress index used while swapping                                               |
+    /// | (2 + 2N)..(2 + 4N) | Progress index used while reverting
     state: STATE,
 }
 
@@ -429,7 +431,7 @@ fn assert_partitions<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash>(
     assert_eq!(dfu.capacity() as u32 % page_size, 0);
     // DFU partition has to be bigger than ACTIVE partition to handle swap algorithm
     assert!(dfu.capacity() as u32 - active.capacity() as u32 >= page_size);
-    assert!(2 + 2 * (active.capacity() as u32 / page_size) <= state.capacity() as u32 / STATE::WRITE_SIZE as u32);
+    assert!(2 + 4 * (active.capacity() as u32 / page_size) <= state.capacity() as u32 / STATE::WRITE_SIZE as u32);
 }
 
 #[cfg(test)]

@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = "2024"
 name = "embassy-rp-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
@@ -11,14 +11,14 @@ embassy-embedded-hal = { version = "0.5.0", path = "../../embassy-embedded-hal",
 embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
-embassy-rp = { version = "0.8.0", path = "../../embassy-rp", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp2040"] }
+embassy-rp = { version = "0.9.0", path = "../../embassy-rp", features = ["defmt", "unstable-pac", "time-driver", "critical-section-impl", "rp2040"] }
 embassy-usb = { version = "0.5.1", path = "../../embassy-usb", features = ["defmt"] }
 embassy-net = { version = "0.7.1", path = "../../embassy-net", features = ["defmt", "icmp", "tcp", "udp", "raw", "dhcpv4", "medium-ethernet", "dns", "proto-ipv4", "proto-ipv6", "multicast"] }
 embassy-net-wiznet = { version = "0.2.1", path = "../../embassy-net-wiznet", features = ["defmt"] }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
 embassy-usb-logger = { version = "0.5.1", path = "../../embassy-usb-logger" }
-cyw43 = { version = "0.5.0", path = "../../cyw43", features = ["defmt", "firmware-logs"] }
-cyw43-pio = { version = "0.8.0", path = "../../cyw43-pio", features = ["defmt"] }
+cyw43 = { version = "0.6.0", path = "../../cyw43", features = ["defmt", "firmware-logs"] }
+cyw43-pio = { version = "0.9.0", path = "../../cyw43-pio", features = ["defmt"] }
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
@@ -45,7 +45,7 @@ display-interface = "0.5.0"
 byte-slice-cast = { version = "1.2.0", default-features = false }
 smart-leds = "0.4.0"
 heapless = "0.8"
-usbd-hid = "0.8.1"
+usbd-hid = "0.9.0"
 
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = "1.0"

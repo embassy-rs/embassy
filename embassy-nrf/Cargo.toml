@@ -1,7 +1,7 @@
 [package]
 name = "embassy-nrf"
-version = "0.8.0"
-edition = "2021"
+version = "0.9.0"
+edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Embassy Hardware Abstraction Layer (HAL) for nRF series microcontrollers"
 keywords = ["embedded", "async", "nordic", "nrf", "embedded-hal"]
@@ -23,8 +23,13 @@ build = [
     {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf5340-app-s", "time", "time-driver-rtc1"]},
     {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf5340-app-ns", "time", "time-driver-rtc1"]},
     {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf5340-net", "time", "time-driver-rtc1"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l15-app-s", "time", "time-driver-rtc1"]},
-    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l15-app-ns", "time", "time-driver-rtc1"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l15-app-s", "time", "time-driver-grtc"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l15-app-ns", "time", "time-driver-grtc"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l10-app-s", "time", "time-driver-grtc"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l10-app-ns", "time", "time-driver-grtc"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l05-app-s", "time", "time-driver-grtc"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54l05-app-ns", "time", "time-driver-grtc"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["gpiote", "nrf54lm20-app-s", "time", "time-driver-grtc"]},
     {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52840", "time"]},
     {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52840", "time-driver-rtc1"]},
     {target = "thumbv7em-none-eabi", features = ["gpiote", "nrf52840", "time", "time-driver-rtc1"]},
@@ -80,7 +85,10 @@ unstable-pac = []
 gpiote = []
 
 ## Use RTC1 as the time driver for `embassy-time`, with a tick rate of 32.768khz
-time-driver-rtc1 = ["_time-driver"]
+time-driver-rtc1 = ["_time-driver", "embassy-time-driver?/tick-hz-32_768"]
+
+## Use GRTC (CC n=1, GRTC_1 irq) as the time driver for `embassy-time`, with a tick rate of 1 MHz
+time-driver-grtc = ["_time-driver", "embassy-time-driver?/tick-hz-1_000_000"]
 
 ## Enable embassy-net 802.15.4 driver
 net-driver = ["_net-driver"]
@@ -102,17 +110,17 @@ qspi-multiwrite-flash = []
 
 #! ### Chip selection features
 ## nRF51
-nrf51 = ["nrf-pac/nrf51", "_nrf51"]
+nrf51 = ["nrf-pac/nrf51", "_nrf51", "_spi-v1"]
 ## nRF52805
-nrf52805 = ["nrf-pac/nrf52805", "_nrf52"]
+nrf52805 = ["nrf-pac/nrf52805", "_nrf52", "_spi-v1"]
 ## nRF52810
-nrf52810 = ["nrf-pac/nrf52810", "_nrf52"]
+nrf52810 = ["nrf-pac/nrf52810", "_nrf52", "_spi-v1"]
 ## nRF52811
-nrf52811 = ["nrf-pac/nrf52811", "_nrf52"]
+nrf52811 = ["nrf-pac/nrf52811", "_nrf52", "_spi-v1"]
 ## nRF52820
-nrf52820 = ["nrf-pac/nrf52820", "_nrf52"]
+nrf52820 = ["nrf-pac/nrf52820", "_nrf52", "_spi-v1"]
 ## nRF52832
-nrf52832 = ["nrf-pac/nrf52832", "_nrf52", "_nrf52832_anomaly_109"]
+nrf52832 = ["nrf-pac/nrf52832", "_nrf52", "_nrf52832_anomaly_109", "_spi-v1"]
 ## nRF52833
 nrf52833 = ["nrf-pac/nrf52833", "_nrf52", "_gpio-p1"]
 ## nRF52840
@@ -127,6 +135,16 @@ nrf5340-net = ["_nrf5340-net"]
 nrf54l15-app-s = ["_nrf54l15-app", "_s", "_multi_wdt"]
 ## nRF54L15 application core in Non-Secure mode
 nrf54l15-app-ns = ["_nrf54l15-app", "_ns"]
+## nRF54L10 application core in Secure mode
+nrf54l10-app-s = ["_nrf54l10-app", "_s", "_multi_wdt"]
+## nRF54L10 application core in Non-Secure mode
+nrf54l10-app-ns = ["_nrf54l10-app", "_ns"]
+## nRF54L05 application core in Secure mode
+nrf54l05-app-s = ["_nrf54l05-app", "_s", "_multi_wdt"]
+## nRF54L05 application core in Non-Secure mode
+nrf54l05-app-ns = ["_nrf54l05-app", "_ns"]
+## nRF54LM20 application core in Secure mode
+nrf54lm20-app-s = ["_nrf54lm20-app", "_s", "_multi_wdt"]
 
 ## nRF9160 in Secure mode
 nrf9160-s = ["_nrf9160", "_s", "_nrf91"]
@@ -150,15 +168,21 @@ _nrf5340-net = ["_nrf5340", "nrf-pac/nrf5340-net"]
 _nrf5340 = ["_gpio-p1", "_dppi"]
 _nrf54l15-app = ["_nrf54l15", "nrf-pac/nrf54l15-app"]
 _nrf54l15 = ["_nrf54l", "_gpio-p1", "_gpio-p2"]
-_nrf54l = ["_dppi"]
+_nrf54l10-app = ["_nrf54l10", "nrf-pac/nrf54l10-app"]
+_nrf54l10 = ["_nrf54l", "_gpio-p1", "_gpio-p2"]
+_nrf54l05-app = ["_nrf54l05", "nrf-pac/nrf54l05-app"]
+_nrf54l05 = ["_nrf54l", "_gpio-p1", "_gpio-p2"]
+_nrf54lm20-app = ["_nrf54lm20", "nrf-pac/nrf54lm20a-app"]
+_nrf54lm20 = ["_nrf54l", "_gpio-p1", "_gpio-p2"]
+_nrf54l = ["_dppi", "_grtc"]
 
-_nrf9160 = ["nrf-pac/nrf9160", "_dppi"]
-_nrf9120 = ["nrf-pac/nrf9120", "_dppi"]
+_nrf9160 = ["nrf-pac/nrf9160", "_dppi", "_spi-v1"]
+_nrf9120 = ["nrf-pac/nrf9120", "_dppi", "_spi-v1"]
 _nrf52 = ["_ppi"]
-_nrf51 = ["_ppi"]
+_nrf51 = ["_ppi", "_spi-v1"]
 _nrf91 = []
 
-_time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-32_768", "dep:embassy-time-queue-utils", "embassy-embedded-hal/time"]
+_time-driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils", "embassy-embedded-hal/time"]
 
 _net-driver = ["dep:embassy-net-driver-channel","dep:embassy-futures"]
 
@@ -170,6 +194,8 @@ _ppi = []
 _dppi = []
 _gpio-p1 = []
 _gpio-p2 = []
+_spi-v1 = []
+_grtc = []
 
 # Errata workarounds
 _nrf52832_anomaly_109 = []
@@ -197,10 +223,10 @@ embedded-io-async = { version = "0.6.1" }
 rand-core-06 = { package = "rand_core", version = "0.6" }
 rand-core-09 = { package = "rand_core", version = "0.9" }
 
-nrf-pac = "0.1.0"
+nrf-pac = { version = "0.2.0" }
 
 defmt = { version = "1.0.1", optional = true }
-bitflags = "2.4.2"
+bitflags = "2.10.0"
 log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"

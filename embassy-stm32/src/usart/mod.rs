@@ -4,15 +4,16 @@
 
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicU8, AtomicUsize, Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::PeripheralType;
+use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::waitqueue::AtomicWaker;
-use futures_util::future::{select, Either};
+use futures_util::future::{Either, select};
 
+use crate::Peri;
 use crate::dma::ChannelAndRequest;
 use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::interrupt::typelevel::Interrupt as _;
@@ -25,7 +26,6 @@ use crate::pac::usart::Usart as Regs;
 use crate::pac::usart::{regs, vals};
 use crate::rcc::{RccInfo, SealedRccPeripheral};
 use crate::time::Hertz;
-use crate::Peri;
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {
@@ -185,6 +185,12 @@ pub enum ConfigError {
     RxOrTxNotEnabled,
     /// Data bits and parity combination not supported
     DataParityNotSupported,
+    /// DE assertion time too high
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    DeAssertionTimeTooHigh,
+    /// DE deassertion time too high
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    DeDeassertionTimeTooHigh,
 }
 
 #[non_exhaustive]
@@ -205,6 +211,21 @@ pub struct Config {
     ///
     /// If false: the error is ignored and cleared
     pub detect_previous_overrun: bool,
+
+    /// If `None` (the default) then read-like calls on `BufferedUartRx` and `RingBufferedUartRx`
+    /// typically only wake/return after line idle or after the buffer is at least half full
+    /// (for `BufferedUartRx`) or the DMA buffer is written at the half or full positions
+    /// (for `RingBufferedUartRx`), though it may also wake/return earlier in some circumstances.
+    ///
+    /// If `Some(n)` then such reads are also woken/return as soon as at least `n` words are
+    /// available in the buffer, in addition to waking/returning when the conditions described
+    /// above are met. `Some(0)` is treated as `None`. Setting this for `RingBufferedUartRx`
+    /// will trigger an interrupt for every received word to check the buffer level, which may
+    /// impact performance at high data rates.
+    ///
+    /// Has no effect on plain `Uart` or `UartRx` reads, which are specified to either
+    /// return a single word, a full buffer, or after line idle.
+    pub eager_reads: Option<usize>,
 
     /// Set this to true if the line is considered noise free.
     /// This will increase the receiver’s tolerance to clock deviations,
@@ -239,6 +260,14 @@ pub struct Config {
     /// Set the pin configuration for the DE pin.
     pub de_config: OutputConfig,
 
+    /// Set DE assertion time before the first start bit, 0-31 16ths of a bit period.
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    pub de_assertion_time: u8,
+
+    /// Set DE deassertion time after the last stop bit, 0-31 16ths of a bit period.
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    pub de_deassertion_time: u8,
+
     // private: set by new_half_duplex, not by the user.
     duplex: Duplex,
 }
@@ -270,6 +299,7 @@ impl Default for Config {
             parity: Parity::ParityNone,
             // historical behavior
             detect_previous_overrun: false,
+            eager_reads: None,
             #[cfg(not(usart_v1))]
             assume_noise_free: false,
             #[cfg(any(usart_v3, usart_v4))]
@@ -283,6 +313,10 @@ impl Default for Config {
             tx_config: OutputConfig::PushPull,
             rts_config: OutputConfig::PushPull,
             de_config: OutputConfig::PushPull,
+            #[cfg(not(any(usart_v1, usart_v2)))]
+            de_assertion_time: 0,
+            #[cfg(not(any(usart_v1, usart_v2)))]
+            de_deassertion_time: 0,
             duplex: Duplex::Full,
         }
     }
@@ -457,6 +491,8 @@ impl<'d> UartTx<'d, Async> {
 
     /// Initiate an asynchronous UART write
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
+
         let r = self.info.regs;
 
         half_duplex_set_rx_tx_before_write(&r, self.duplex == Duplex::Half(HalfDuplexReadback::Readback));
@@ -474,6 +510,8 @@ impl<'d> UartTx<'d, Async> {
 
     /// Wait until transmission complete
     pub async fn flush(&mut self) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
+
         flush(&self.info, &self.state).await
     }
 }
@@ -535,7 +573,7 @@ impl<'d, M: Mode> UartTx<'d, M> {
         let state = self.state;
         state.tx_rx_refcount.store(1, Ordering::Relaxed);
 
-        info.rcc.enable_and_reset();
+        info.rcc.enable_and_reset_without_stop();
 
         info.regs.cr3().modify(|w| {
             w.set_ctse(self.cts.is_some());
@@ -692,6 +730,8 @@ impl<'d> UartRx<'d, Async> {
 
     /// Initiate an asynchronous UART read
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
+
         self.inner_read(buffer, false).await?;
 
         Ok(())
@@ -699,6 +739,8 @@ impl<'d> UartRx<'d, Async> {
 
     /// Initiate an asynchronous read with idle line detection enabled
     pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
+
         self.inner_read(buffer, true).await
     }
 
@@ -966,8 +1008,11 @@ impl<'d, M: Mode> UartRx<'d, M> {
         let info = self.info;
         let state = self.state;
         state.tx_rx_refcount.store(1, Ordering::Relaxed);
+        state
+            .eager_reads
+            .store(config.eager_reads.unwrap_or(0), Ordering::Relaxed);
 
-        info.rcc.enable_and_reset();
+        info.rcc.enable_and_reset_without_stop();
 
         info.regs.cr3().write(|w| {
             w.set_rtse(self.rts.is_some());
@@ -982,6 +1027,9 @@ impl<'d, M: Mode> UartRx<'d, M> {
 
     /// Reconfigure the driver
     pub fn set_config(&mut self, config: &Config) -> Result<(), ConfigError> {
+        self.state
+            .eager_reads
+            .store(config.eager_reads.unwrap_or(0), Ordering::Relaxed);
         reconfigure(self.info, self.kernel_clock, config)
     }
 
@@ -1103,7 +1151,7 @@ fn drop_tx_rx(info: &Info, state: &State) {
         refcount == 1
     });
     if is_last_drop {
-        info.rcc.disable();
+        info.rcc.disable_without_stop();
     }
 }
 
@@ -1462,8 +1510,11 @@ impl<'d, M: Mode> Uart<'d, M> {
         let info = self.rx.info;
         let state = self.rx.state;
         state.tx_rx_refcount.store(2, Ordering::Relaxed);
+        state
+            .eager_reads
+            .store(config.eager_reads.unwrap_or(0), Ordering::Relaxed);
 
-        info.rcc.enable_and_reset();
+        info.rcc.enable_and_reset_without_stop();
 
         info.regs.cr3().write(|w| {
             w.set_rtse(self.rx.rts.is_some());
@@ -1690,6 +1741,16 @@ fn configure(
         return Err(ConfigError::RxOrTxNotEnabled);
     }
 
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    let dem = r.cr3().read().dem();
+
+    #[cfg(not(any(usart_v1, usart_v2)))]
+    if config.de_assertion_time > 31 {
+        return Err(ConfigError::DeAssertionTimeTooHigh);
+    } else if config.de_deassertion_time > 31 {
+        return Err(ConfigError::DeDeassertionTimeTooHigh);
+    }
+
     // UART must be disabled during configuration.
     r.cr1().modify(|w| {
         w.set_ue(false);
@@ -1736,6 +1797,20 @@ fn configure(
             w.set_te(enable_tx);
             // enable receiver
             w.set_re(enable_rx);
+        }
+
+        #[cfg(not(any(usart_v1, usart_v2)))]
+        if dem {
+            w.set_deat(if over8 {
+                config.de_assertion_time / 2
+            } else {
+                config.de_assertion_time
+            });
+            w.set_dedt(if over8 {
+                config.de_assertion_time / 2
+            } else {
+                config.de_assertion_time
+            });
         }
 
         // configure word size and parity, since the parity bit is inserted into the MSB position,
@@ -2022,6 +2097,7 @@ struct State {
     rx_waker: AtomicWaker,
     tx_waker: AtomicWaker,
     tx_rx_refcount: AtomicU8,
+    eager_reads: AtomicUsize,
 }
 
 impl State {
@@ -2030,6 +2106,7 @@ impl State {
             rx_waker: AtomicWaker::new(),
             tx_waker: AtomicWaker::new(),
             tx_rx_refcount: AtomicU8::new(0),
+            eager_reads: AtomicUsize::new(0),
         }
     }
 }

@@ -12,11 +12,11 @@ export CARGO_TARGET_DIR=/ci/cache/target
 export PATH=$CARGO_HOME/bin:$PATH
 mv rust-toolchain-nightly.toml rust-toolchain.toml
 
-cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev 676e6d602bf016dc71f1e98f2c7f191d7bd20707
+cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev c60400e213f7eb0296581183140ec147dd7a848b
 
 cargo embassy-devtool doc -o webroot
 
 export KUBECONFIG=/ci/secrets/kubeconfig.yml
-POD=$(kubectl -n embassy get po -l app=docserver -o jsonpath={.items[0].metadata.name})
+POD=$(kubectl get po -l app=docserver -o jsonpath={.items[0].metadata.name})
 kubectl cp webroot/crates $POD:/data
 kubectl cp webroot/static $POD:/data

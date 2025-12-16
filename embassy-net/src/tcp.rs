@@ -8,7 +8,7 @@
 //! Incoming connections when no socket is listening are rejected. To accept many incoming
 //! connections, create many sockets and put them all into listening mode.
 
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::mem;
 use core::task::{Context, Poll};
 
@@ -18,8 +18,8 @@ use smoltcp::socket::tcp;
 pub use smoltcp::socket::tcp::State;
 use smoltcp::wire::{IpEndpoint, IpListenEndpoint};
 
-use crate::time::duration_to_smoltcp;
 use crate::Stack;
+use crate::time::duration_to_smoltcp;
 
 /// Error returned by TcpSocket read/write functions.
 #[derive(PartialEq, Eq, Clone, Copy, Debug)]
@@ -371,6 +371,20 @@ impl<'a> TcpSocket<'a> {
     /// Set the hop limit field in the IP header of sent packets.
     pub fn set_hop_limit(&mut self, hop_limit: Option<u8>) {
         self.io.with_mut(|s, _| s.set_hop_limit(hop_limit))
+    }
+
+    /// Enable or disable Nagles's algorithm.
+    ///
+    /// By default, Nagle's algorithm is enabled.
+    /// When enabled, Nagle’s Algorithm prevents sending segments smaller
+    /// than MSS if there is data in flight (sent but not acknowledged).
+    /// In other words, it ensures at most only one segment smaller than
+    /// MSS is in flight at a time.
+    /// It ensures better network utilization by preventing sending many
+    /// very small packets, at the cost of increased latency in some
+    /// situations, particularly when the remote peer has ACK delay enabled.
+    pub fn set_nagle_enabled(&mut self, enabled: bool) {
+        self.io.with_mut(|s, _| s.set_nagle_enabled(enabled))
     }
 
     /// Get the local endpoint of the socket.

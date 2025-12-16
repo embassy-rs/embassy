@@ -1,12 +1,12 @@
 //! embassy-net IEEE 802.15.4 driver
 
-use embassy_futures::select::{select3, Either3};
+use embassy_futures::select::{Either3, select3};
 use embassy_net_driver_channel::driver::LinkState;
 use embassy_net_driver_channel::{self as ch};
 use embassy_time::{Duration, Ticker};
 
-use crate::radio::ieee802154::{Packet, Radio};
 use crate::radio::InterruptHandler;
+use crate::radio::ieee802154::{Packet, Radio};
 use crate::{self as nrf, interrupt};
 
 /// MTU for the nrf radio.

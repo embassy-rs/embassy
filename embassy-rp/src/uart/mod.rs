@@ -1,10 +1,10 @@
 //! UART driver.
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicU16, Ordering};
 use core::task::Poll;
 
-use atomic_polyfill::{AtomicU16, Ordering};
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Delay, Timer};
@@ -16,7 +16,7 @@ use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel::{Binding, Interrupt as _};
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::pac::io::vals::{Inover, Outover};
-use crate::{interrupt, pac, peripherals, RegExt};
+use crate::{RegExt, interrupt, pac, peripherals};
 
 mod buffered;
 pub use buffered::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, BufferedUartTx};
@@ -315,7 +315,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
     }
 
     /// Returns Ok(len) if no errors occurred. Returns Err((len, err)) if an error was
-    /// encountered. in both cases, `len` is the number of *good* bytes copied into
+    /// encountered. In both cases, `len` is the number of *good* bytes copied into
     /// `buffer`.
     fn drain_fifo(&mut self, buffer: &mut [u8]) -> Result<usize, (usize, Error)> {
         let r = self.info.regs;
@@ -456,7 +456,12 @@ impl<'d> UartRx<'d, Async> {
             transfer,
             poll_fn(|cx| {
                 self.dma_state.rx_err_waker.register(cx.waker());
-                match self.dma_state.rx_errs.swap(0, Ordering::Relaxed) {
+                let rx_errs = critical_section::with(|_| {
+                    let val = self.dma_state.rx_errs.load(Ordering::Relaxed);
+                    self.dma_state.rx_errs.store(0, Ordering::Relaxed);
+                    val
+                });
+                match rx_errs {
                     0 => Poll::Pending,
                     e => Poll::Ready(Uartris(e as u32)),
                 }
@@ -468,7 +473,11 @@ impl<'d> UartRx<'d, Async> {
             Either::First(()) => {
                 // We're here because the DMA finished, BUT if an error occurred on the LAST
                 // byte, then we may still need to grab the error state!
-                Uartris(self.dma_state.rx_errs.swap(0, Ordering::Relaxed) as u32)
+                Uartris(critical_section::with(|_| {
+                    let val = self.dma_state.rx_errs.load(Ordering::Relaxed);
+                    self.dma_state.rx_errs.store(0, Ordering::Relaxed);
+                    val
+                }) as u32)
             }
             Either::Second(e) => {
                 // We're here because we errored, which means this is the error that
@@ -616,7 +625,12 @@ impl<'d> UartRx<'d, Async> {
                 transfer,
                 poll_fn(|cx| {
                     self.dma_state.rx_err_waker.register(cx.waker());
-                    match self.dma_state.rx_errs.swap(0, Ordering::Relaxed) {
+                    let rx_errs = critical_section::with(|_| {
+                        let val = self.dma_state.rx_errs.load(Ordering::Relaxed);
+                        self.dma_state.rx_errs.store(0, Ordering::Relaxed);
+                        val
+                    });
+                    match rx_errs {
                         0 => Poll::Pending,
                         e => Poll::Ready(Uartris(e as u32)),
                     }
@@ -629,7 +643,11 @@ impl<'d> UartRx<'d, Async> {
                 Either::First(()) => {
                     // We're here because the DMA finished, BUT if an error occurred on the LAST
                     // byte, then we may still need to grab the error state!
-                    Uartris(self.dma_state.rx_errs.swap(0, Ordering::Relaxed) as u32)
+                    Uartris(critical_section::with(|_| {
+                        let val = self.dma_state.rx_errs.load(Ordering::Relaxed);
+                        self.dma_state.rx_errs.store(0, Ordering::Relaxed);
+                        val
+                    }) as u32)
                 }
                 Either::Second(e) => {
                     // We're here because we errored, which means this is the error that
@@ -863,11 +881,7 @@ impl<'d, M: Mode> Uart<'d, M> {
         if let Some(pin) = &tx {
             let funcsel = {
                 let pin_number = ((pin.gpio().as_ptr() as u32) & 0x1FF) / 8;
-                if (pin_number % 4) == 0 {
-                    2
-                } else {
-                    11
-                }
+                if (pin_number % 4) == 0 { 2 } else { 11 }
             };
             pin.gpio().ctrl().write(|w| {
                 w.set_funcsel(funcsel);
@@ -886,11 +900,7 @@ impl<'d, M: Mode> Uart<'d, M> {
         if let Some(pin) = &rx {
             let funcsel = {
                 let pin_number = ((pin.gpio().as_ptr() as u32) & 0x1FF) / 8;
-                if ((pin_number - 1) % 4) == 0 {
-                    2
-                } else {
-                    11
-                }
+                if ((pin_number - 1) % 4) == 0 { 2 } else { 11 }
             };
             pin.gpio().ctrl().write(|w| {
                 w.set_funcsel(funcsel);

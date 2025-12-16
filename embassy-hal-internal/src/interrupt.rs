@@ -1,6 +1,6 @@
 //! Interrupt handling for cortex-m devices.
 use core::mem;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 
 use cortex_m::interrupt::InterruptNumber;
 use cortex_m::peripheral::NVIC;

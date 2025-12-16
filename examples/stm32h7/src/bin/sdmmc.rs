@@ -4,8 +4,9 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::sdmmc::Sdmmc;
+use embassy_stm32::sdmmc::sd::{CmdBlock, StorageDevice};
 use embassy_stm32::time::mhz;
-use embassy_stm32::{bind_interrupts, peripherals, sdmmc, Config};
+use embassy_stm32::{Config, bind_interrupts, peripherals, sdmmc};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -13,7 +14,7 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) -> ! {
+async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     {
         use embassy_stm32::rcc::*;
@@ -53,11 +54,13 @@ async fn main(_spawner: Spawner) -> ! {
     // Should print 400kHz for initialization
     info!("Configured clock: {}", sdmmc.clock().0);
 
-    unwrap!(sdmmc.init_sd_card(mhz(25)).await);
+    let mut cmd_block = CmdBlock::new();
 
-    let card = unwrap!(sdmmc.card());
+    let storage = StorageDevice::new_sd_card(&mut sdmmc, &mut cmd_block, mhz(25))
+        .await
+        .unwrap();
 
-    info!("Card: {:#?}", Debug2Format(card));
+    let card = storage.card();
 
-    loop {}
+    info!("Card: {:#?}", Debug2Format(&card));
 }

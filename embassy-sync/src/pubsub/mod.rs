@@ -10,8 +10,8 @@ use heapless::Deque;
 
 use self::publisher::{ImmediatePub, Pub};
 use self::subscriber::Sub;
-use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
+use crate::blocking_mutex::raw::RawMutex;
 use crate::waitqueue::MultiWakerRegistration;
 
 pub mod publisher;

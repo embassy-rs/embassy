@@ -2,7 +2,7 @@
 
 #![macro_use]
 
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
 use core::ptr;
 use core::task::Poll;

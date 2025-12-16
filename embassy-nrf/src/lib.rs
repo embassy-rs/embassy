@@ -1,5 +1,6 @@
 #![no_std]
 #![allow(async_fn_in_trait)]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![cfg_attr(
     docsrs,
     doc = "<div style='padding:30px;background:#810;color:#fff;text-align:center;'><p>You might want to <a href='https://docs.embassy.dev/embassy-nrf'>browse the `embassy-nrf` documentation on the Embassy website</a> instead.</p><p>The documentation here on `docs.rs` is built for a single chip only (nRF52840 in particular), while on the Embassy website you can pick your exact chip from the top menu. Available peripherals and their APIs change depending on the chip.</p></div>\n\n"
@@ -24,6 +25,11 @@
     feature = "nrf5340-net",
     feature = "nrf54l15-app-s",
     feature = "nrf54l15-app-ns",
+    feature = "nrf54l10-app-s",
+    feature = "nrf54l10-app-ns",
+    feature = "nrf54l05-app-s",
+    feature = "nrf54l05-app-ns",
+    feature = "nrf54lm20-app-s",
     feature = "nrf9160-s",
     feature = "nrf9160-ns",
     feature = "nrf9120-s",
@@ -48,6 +54,11 @@ compile_error!(
     nrf5340-net,
     nrf54l15-app-s,
     nrf54l15-app-ns,
+    nrf54l10-app-s,
+    nrf54l10-app-ns,
+    nrf54l05-app-s,
+    nrf54l05-app-ns,
+    nrf54lm20-app-s,
     nrf9160-s,
     nrf9160-ns,
     nrf9120-s,
@@ -75,14 +86,12 @@ pub(crate) mod util;
 #[cfg(feature = "_time-driver")]
 mod time_driver;
 
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod buffered_uarte;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod egu;
 pub mod gpio;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(feature = "gpiote")]
 pub mod gpiote;
 #[cfg(not(feature = "_nrf54l"))] // TODO
@@ -100,9 +109,9 @@ pub mod ipc;
 pub mod nfct;
 #[cfg(not(feature = "_nrf54l"))]
 pub mod nvmc;
-#[cfg(feature = "nrf54l15-app-s")]
+#[cfg(all(feature = "_nrf54l", feature = "_s"))]
 pub mod rramc;
-#[cfg(feature = "nrf54l15-app-s")]
+#[cfg(all(feature = "_nrf54l", feature = "_s"))]
 pub use rramc as nvmc;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(
@@ -118,9 +127,7 @@ pub mod pdm;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(feature = "nrf52840", feature = "nrf9160-s", feature = "nrf9160-ns"))]
 pub mod power;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod ppi;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(
     feature = "_nrf51",
     feature = "nrf52805",
@@ -148,34 +155,29 @@ pub mod radio;
 #[cfg(feature = "_net-driver")]
 pub mod embassy_net_802154_driver;
 
+#[cfg(all(feature = "_nrf54l", feature = "_s"))]
+pub mod cracen;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(feature = "_nrf5340")]
 pub mod reset;
-#[cfg(not(feature = "_nrf54l"))] // TODO
+#[cfg(not(feature = "_nrf54l"))]
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod rng;
-#[cfg(not(feature = "_nrf54l"))] // TODO
+#[cfg(not(feature = "_nrf54l"))]
 pub mod rtc;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(any(feature = "_nrf51", feature = "nrf52820", feature = "_nrf5340-net")))]
 pub mod saadc;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod spim;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod spis;
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod temp;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 pub mod timer;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod twim;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod twis;
-#[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(not(feature = "_nrf51"))]
 pub mod uarte;
 #[cfg(not(feature = "_nrf54l"))] // TODO
@@ -200,6 +202,9 @@ pub mod wdt;
 #[cfg_attr(feature = "_nrf5340-app", path = "chips/nrf5340_app.rs")]
 #[cfg_attr(feature = "_nrf5340-net", path = "chips/nrf5340_net.rs")]
 #[cfg_attr(feature = "_nrf54l15-app", path = "chips/nrf54l15_app.rs")]
+#[cfg_attr(feature = "_nrf54l10-app", path = "chips/nrf54l10_app.rs")]
+#[cfg_attr(feature = "_nrf54l05-app", path = "chips/nrf54l05_app.rs")]
+#[cfg_attr(feature = "_nrf54lm20-app", path = "chips/nrf54lm20_app.rs")]
 #[cfg_attr(feature = "_nrf9160", path = "chips/nrf9160.rs")]
 #[cfg_attr(feature = "_nrf9120", path = "chips/nrf9120.rs")]
 mod chip;
@@ -252,7 +257,7 @@ macro_rules! bind_interrupts {
 
         $(
             #[allow(non_snake_case)]
-            #[no_mangle]
+            #[unsafe(no_mangle)]
             $(#[cfg($cond_irq)])?
             unsafe extern "C" fn $irq() {
                 unsafe {
@@ -284,7 +289,7 @@ macro_rules! bind_interrupts {
 pub use chip::pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use chip::pac;
-pub use chip::{peripherals, Peripherals, EASY_DMA_SIZE};
+pub use chip::{EASY_DMA_SIZE, Peripherals, peripherals};
 pub use embassy_hal_internal::{Peri, PeripheralType};
 
 pub use crate::chip::interrupt;
@@ -293,6 +298,15 @@ pub use crate::pac::NVIC_PRIO_BITS;
 
 pub mod config {
     //! Configuration options used when initializing the HAL.
+
+    /// Clock speed
+    #[cfg(feature = "_nrf54l")]
+    pub enum ClockSpeed {
+        /// Run at 128 MHz.
+        CK128,
+        /// Run at 64 MHz.
+        CK64,
+    }
 
     /// High frequency clock source.
     pub enum HfclkSource {
@@ -406,9 +420,10 @@ pub mod config {
     /// Settings for the internal capacitors.
     #[cfg(feature = "nrf5340-app-s")]
     pub struct InternalCapacitors {
-        /// Config for the internal capacitors on pins XC1 and XC2.
+        /// Config for the internal capacitors on pins XC1 and XC2. Pass `None` to not touch it.
         pub hfxo: Option<HfxoCapacitance>,
-        /// Config for the internal capacitors between pins XL1 and XL2.
+        /// Config for the internal capacitors between pins XL1 and XL2. Pass `None` to not touch
+        /// it.
         pub lfxo: Option<LfxoCapacitance>,
     }
 
@@ -416,6 +431,8 @@ pub mod config {
     #[cfg(feature = "nrf5340-app-s")]
     #[derive(Copy, Clone)]
     pub enum HfxoCapacitance {
+        /// Use external capacitors
+        External,
         /// 7.0 pF
         _7_0pF,
         /// 7.5 pF
@@ -475,8 +492,9 @@ pub mod config {
     #[cfg(feature = "nrf5340-app-s")]
     impl HfxoCapacitance {
         /// The capacitance value times two.
-        pub(crate) const fn value2(self) -> i32 {
+        pub(crate) fn value2(self) -> i32 {
             match self {
+                HfxoCapacitance::External => unreachable!(),
                 HfxoCapacitance::_7_0pF => 14,
                 HfxoCapacitance::_7_5pF => 15,
                 HfxoCapacitance::_8_0pF => 16,
@@ -506,11 +524,17 @@ pub mod config {
                 HfxoCapacitance::_20_0pF => 40,
             }
         }
+
+        pub(crate) fn external(self) -> bool {
+            matches!(self, Self::External)
+        }
     }
 
     /// Internal capacitance value for the LFXO.
     #[cfg(feature = "nrf5340-app-s")]
     pub enum LfxoCapacitance {
+        /// Use external capacitors
+        External = 0,
         /// 6 pF
         _6pF = 1,
         /// 7 pF
@@ -523,6 +547,7 @@ pub mod config {
     impl From<LfxoCapacitance> for super::pac::oscillators::vals::Intcap {
         fn from(t: LfxoCapacitance) -> Self {
             match t {
+                LfxoCapacitance::External => Self::EXTERNAL,
                 LfxoCapacitance::_6pF => Self::C6PF,
                 LfxoCapacitance::_7pF => Self::C7PF,
                 LfxoCapacitance::_9pF => Self::C9PF,
@@ -552,6 +577,9 @@ pub mod config {
         pub time_interrupt_priority: crate::interrupt::Priority,
         /// Enable or disable the debug port.
         pub debug: Debug,
+        /// Clock speed configuration.
+        #[cfg(feature = "_nrf54l")]
+        pub clock_speed: ClockSpeed,
     }
 
     impl Default for Config {
@@ -592,6 +620,8 @@ pub mod config {
                 debug: Debug::NotConfigured,
                 #[cfg(not(feature = "_ns"))]
                 debug: Debug::Allowed,
+                #[cfg(feature = "_nrf54l")]
+                clock_speed: ClockSpeed::CK64,
             }
         }
     }
@@ -640,10 +670,11 @@ mod consts {
     pub const APPROTECT_DISABLED: u32 = 0x0000_005a;
 }
 
+/// Result from writing UICR.
 #[cfg(not(any(feature = "_nrf51", feature = "_nrf54l")))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-enum WriteResult {
+pub enum WriteResult {
     /// Word was written successfully, needs reset.
     Written,
     /// Word was already set to the value we wanted to write, nothing was done.
@@ -652,13 +683,21 @@ enum WriteResult {
     Failed,
 }
 
+/// Write the UICR value at the provided address, ensuring that flash
+/// settings are correctly apply to persist the value.
+///
+/// Safety: the address must be a valid UICR register.
 #[cfg(not(any(feature = "_nrf51", feature = "_nrf54l")))]
-unsafe fn uicr_write(address: *mut u32, value: u32) -> WriteResult {
+pub unsafe fn uicr_write(address: *mut u32, value: u32) -> WriteResult {
     uicr_write_masked(address, value, 0xFFFF_FFFF)
 }
 
 #[cfg(not(any(feature = "_nrf51", feature = "_nrf54l")))]
-unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> WriteResult {
+/// Write the UICR value at the provided address, ensuring that flash
+/// settings are correctly apply to persist the value.
+///
+/// Safety: the address must be a valid UICR register.
+pub unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> WriteResult {
     let curr_val = address.read_volatile();
     if curr_val & mask == value & mask {
         return WriteResult::Noop;
@@ -698,6 +737,23 @@ pub fn init(config: config::Config) -> Peripherals {
     #[allow(unused_mut)]
     let mut needs_reset = false;
 
+    // set clock speed
+    #[cfg(feature = "_nrf54l")]
+    {
+        #[cfg(feature = "_s")]
+        let regs = pac::OSCILLATORS_S;
+        #[cfg(feature = "_ns")]
+        let regs = pac::OSCILLATORS_NS;
+
+        use pac::oscillators::vals::Freq;
+        regs.pll().freq().write(|w| {
+            w.set_freq(match config.clock_speed {
+                config::ClockSpeed::CK64 => Freq::CK64M,
+                config::ClockSpeed::CK128 => Freq::CK128M,
+            });
+        });
+    }
+
     // Workaround used in the nrf mdk: file system_nrf91.c , function SystemInit(), after `#if !defined(NRF_SKIP_UICR_HFXO_WORKAROUND)`
     #[cfg(all(feature = "_nrf91", feature = "_s"))]
     {
@@ -718,6 +774,53 @@ pub fn init(config: config::Config) -> Peripherals {
             }
             needs_reset = true;
         }
+    }
+
+    // Apply trimming values from the FICR.
+    #[cfg(any(
+        all(feature = "_nrf5340-app", feature = "_s"),
+        all(feature = "_nrf54l", feature = "_s"),
+        feature = "_nrf5340-net",
+    ))]
+    {
+        #[cfg(feature = "_nrf5340")]
+        let n = 32;
+        #[cfg(feature = "_nrf54l")]
+        let n = 64;
+        for i in 0..n {
+            let info = pac::FICR.trimcnf(i);
+            let addr = info.addr().read();
+            if addr == 0 || addr == 0xFFFF_FFFF {
+                break;
+            }
+            unsafe {
+                (addr as *mut u32).write_volatile(info.data().read());
+            }
+        }
+    }
+
+    // Workaround for anomaly 66
+    #[cfg(feature = "_nrf52")]
+    {
+        let ficr = pac::FICR;
+        let temp = pac::TEMP;
+        temp.a(0).write_value(ficr.temp().a0().read().0);
+        temp.a(1).write_value(ficr.temp().a1().read().0);
+        temp.a(2).write_value(ficr.temp().a2().read().0);
+        temp.a(3).write_value(ficr.temp().a3().read().0);
+        temp.a(4).write_value(ficr.temp().a4().read().0);
+        temp.a(5).write_value(ficr.temp().a5().read().0);
+        temp.b(0).write_value(ficr.temp().b0().read().0);
+        temp.b(1).write_value(ficr.temp().b1().read().0);
+        temp.b(2).write_value(ficr.temp().b2().read().0);
+        temp.b(3).write_value(ficr.temp().b3().read().0);
+        temp.b(4).write_value(ficr.temp().b4().read().0);
+        temp.b(5).write_value(ficr.temp().b5().read().0);
+        temp.t(0).write_value(ficr.temp().t0().read().0);
+        temp.t(1).write_value(ficr.temp().t1().read().0);
+        temp.t(2).write_value(ficr.temp().t2().read().0);
+        temp.t(3).write_value(ficr.temp().t3().read().0);
+        temp.t(4).write_value(ficr.temp().t4().read().0);
     }
 
     // GLITCHDET is only accessible for secure code
@@ -742,9 +845,9 @@ pub fn init(config: config::Config) -> Peripherals {
                     // Chips with a certain chip type-specific build code or higher have an
                     // improved APPROTECT ("hardware and software controlled access port protection")
                     // which needs explicit action by the firmware to keep it unlocked
-                    // See https://devzone.nordicsemi.com/nordic/nordic-blog/b/blog/posts/working-with-the-nrf52-series-improved-approtect
+                    // See https://docs.nordicsemi.com/bundle/ps_nrf52840/page/dif.html#d402e184
 
-                    // UICR.APPROTECT = SwDisabled
+                    // UICR.APPROTECT = HwDisabled
                     let res = uicr_write(consts::UICR_APPROTECT, consts::APPROTECT_DISABLED);
                     needs_reset |= res == WriteResult::Written;
                     // APPROTECT.DISABLE = SwDisabled
@@ -899,7 +1002,7 @@ pub fn init(config: config::Config) -> Peripherals {
         }
     }
 
-    #[cfg(any(feature = "_nrf52", feature = "_nrf5340-app"))]
+    #[cfg(any(feature = "_nrf52", all(feature = "_nrf5340-app", feature = "_s")))]
     unsafe {
         let value = if cfg!(feature = "nfc-pins-as-gpio") { 0 } else { 1 };
         let res = uicr_write_masked(consts::UICR_NFCPINS, value, 1);
@@ -953,17 +1056,21 @@ pub fn init(config: config::Config) -> Peripherals {
     #[cfg(feature = "nrf5340-app-s")]
     {
         if let Some(cap) = config.internal_capacitors.hfxo {
-            let mut slope = pac::FICR.xosc32mtrim().read().slope() as i32;
-            let offset = pac::FICR.xosc32mtrim().read().offset() as i32;
-            // slope is a signed 5-bit integer
-            if slope >= 16 {
-                slope -= 32;
+            if cap.external() {
+                pac::OSCILLATORS.xosc32mcaps().write(|w| w.set_enable(false));
+            } else {
+                let mut slope = pac::FICR.xosc32mtrim().read().slope() as i32;
+                let offset = pac::FICR.xosc32mtrim().read().offset() as i32;
+                // slope is a signed 5-bit integer
+                if slope >= 16 {
+                    slope -= 32;
+                }
+                let capvalue = (((slope + 56) * (cap.value2() - 14)) + ((offset - 8) << 4) + 32) >> 6;
+                pac::OSCILLATORS.xosc32mcaps().write(|w| {
+                    w.set_capvalue(capvalue as u8);
+                    w.set_enable(true);
+                });
             }
-            let capvalue = (((slope + 56) * (cap.value2() - 14)) + ((offset - 8) << 4) + 32) >> 6;
-            pac::OSCILLATORS.xosc32mcaps().write(|w| {
-                w.set_capvalue(capvalue as u8);
-                w.set_enable(true);
-            });
         }
         if let Some(cap) = config.internal_capacitors.lfxo {
             pac::OSCILLATORS.xosc32ki().intcap().write(|w| w.set_intcap(cap.into()));
@@ -1115,7 +1222,6 @@ pub fn init(config: config::Config) -> Peripherals {
     }
 
     // Init GPIOTE
-    #[cfg(not(feature = "_nrf54l"))] // TODO
     #[cfg(feature = "gpiote")]
     gpiote::init(config.gpiote_interrupt_priority);
 

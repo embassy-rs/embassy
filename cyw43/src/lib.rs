@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
 #![allow(async_fn_in_trait)]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![deny(unused_must_use)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
@@ -30,7 +31,7 @@ use ioctl::IoctlState;
 use crate::bus::Bus;
 pub use crate::bus::SpiBusCyw43;
 pub use crate::control::{
-    AddMulticastAddressError, Control, Error as ControlError, JoinAuth, JoinOptions, ScanOptions, ScanType, Scanner,
+    AddMulticastAddressError, Control, JoinAuth, JoinError, JoinOptions, ScanOptions, ScanType, Scanner,
 };
 pub use crate::runner::Runner;
 pub use crate::structs::BssInfo;

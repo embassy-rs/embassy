@@ -6,9 +6,9 @@ pub use crate::pac::rcc::vals::{
     Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
 };
 use crate::pac::rcc::vals::{Hseext, Msipllfast, Msipllsel, Msirgsel, Pllmboost, Pllrge};
-#[cfg(all(peri_usb_otg_hs))]
-pub use crate::pac::{syscfg::vals::Usbrefcksel, SYSCFG};
 use crate::pac::{FLASH, PWR, RCC};
+#[cfg(all(peri_usb_otg_hs))]
+pub use crate::pac::{SYSCFG, syscfg::vals::Usbrefcksel};
 use crate::rcc::LSI_FREQ;
 use crate::time::Hertz;
 
@@ -343,6 +343,16 @@ pub(crate) unsafe fn init(config: Config) {
 
     let hsi48 = config.hsi48.map(super::init_hsi48);
 
+    // There's a possibility that a bootloader that ran before us has configured the system clock
+    // source to be PLL1_R. In that case we'd get forever stuck on (de)configuring PLL1 as the chip
+    // prohibits disabling PLL1 when it's used as a source for system clock. Change the system
+    // clock source to MSIS which doesn't suffer from this conflict. The correct source per the
+    // provided config is then set further down.
+    // See https://github.com/embassy-rs/embassy/issues/5072
+    let default_system_clock_source = Config::default().sys;
+    RCC.cfgr1().modify(|w| w.set_sw(default_system_clock_source));
+    while RCC.cfgr1().read().sws() != default_system_clock_source {}
+
     let pll_input = PllInput { hse, hsi, msi: msis };
     let pll1 = init_pll(PllInstance::Pll1, config.pll1, &pll_input, config.voltage_range);
     let pll2 = init_pll(PllInstance::Pll2, config.pll2, &pll_input, config.voltage_range);
@@ -442,7 +452,10 @@ pub(crate) unsafe fn init(config: Config) {
             Hertz(24_000_000) => Usbrefcksel::MHZ24,
             Hertz(26_000_000) => Usbrefcksel::MHZ26,
             Hertz(32_000_000) => Usbrefcksel::MHZ32,
-            _ => panic!("cannot select OTG_HS reference clock with source frequency of {}, must be one of 16, 19.2, 20, 24, 26, 32 MHz", clk_val),
+            _ => panic!(
+                "cannot select OTG_HS reference clock with source frequency of {}, must be one of 16, 19.2, 20, 24, 26, 32 MHz",
+                clk_val
+            ),
         },
         None => Usbrefcksel::MHZ24,
     };

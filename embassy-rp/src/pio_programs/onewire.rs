@@ -1,11 +1,11 @@
 //! OneWire pio driver
 
+use crate::Peri;
 use crate::clocks::clk_sys_freq;
 use crate::gpio::Level;
 use crate::pio::{
     Common, Config, Direction, Instance, LoadedProgram, PioPin, ShiftConfig, ShiftDirection, StateMachine,
 };
-use crate::Peri;
 
 /// This struct represents a onewire driver program
 pub struct PioOneWireProgram<'a, PIO: Instance> {
@@ -163,7 +163,11 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
 
     /// Write bytes to the onewire bus
     pub async fn write_bytes(&mut self, data: &[u8]) {
-        unsafe { self.sm.set_y(u32::MAX as u32) };
+        unsafe {
+            self.sm.set_enable(false);
+            self.sm.set_y(u32::MAX as u32);
+            self.sm.set_enable(true);
+        }
         let (rx, tx) = self.sm.rx_tx();
         for b in data {
             tx.wait_push(*b as u32).await;
@@ -175,7 +179,11 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
 
     /// Write bytes to the onewire bus, then apply a strong pullup
     pub async fn write_bytes_pullup(&mut self, data: &[u8], pullup_time: embassy_time::Duration) {
-        unsafe { self.sm.set_y(data.len() as u32 * 8 - 1) };
+        unsafe {
+            self.sm.set_enable(false);
+            self.sm.set_y(data.len() as u32 * 8 - 1);
+            self.sm.set_enable(true);
+        };
         let (rx, tx) = self.sm.rx_tx();
         for b in data {
             tx.wait_push(*b as u32).await;
@@ -195,7 +203,11 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
 
     /// Read bytes from the onewire bus
     pub async fn read_bytes(&mut self, data: &mut [u8]) {
-        unsafe { self.sm.set_y(u32::MAX as u32) };
+        unsafe {
+            self.sm.set_enable(false);
+            self.sm.set_y(u32::MAX as u32);
+            self.sm.set_enable(true);
+        };
         let (rx, tx) = self.sm.rx_tx();
         for b in data {
             // Write all 1's so that we can read what the device responds
@@ -321,11 +333,7 @@ impl PioOneWireSearch {
 
     /// Search for the next address on the bus
     pub async fn next<PIO: Instance, const SM: usize>(&mut self, pio: &mut PioOneWire<'_, PIO, SM>) -> Option<u64> {
-        if self.finished {
-            None
-        } else {
-            pio.search(self).await
-        }
+        if self.finished { None } else { pio.search(self).await }
     }
 
     /// Is finished when all devices have been found

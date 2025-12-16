@@ -1,4 +1,4 @@
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::marker::PhantomData;
 use core::slice;
 use core::sync::atomic::{AtomicU8, Ordering};
@@ -14,7 +14,7 @@ use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel::Binding;
 use crate::pac::uart::Uart as Regs;
 use crate::uart::{Config, ConfigError, CtsPin, Error, Info, Instance, RtsPin, RxPin, State, TxPin};
-use crate::{interrupt, Peri};
+use crate::{Peri, interrupt};
 
 /// Interrupt handler.
 pub struct BufferedInterruptHandler<T: Instance> {

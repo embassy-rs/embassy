@@ -157,7 +157,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
 
     /// Private function to apply SPI configuration (phase, polarity, frequency) settings.
     ///
-    /// Driver should be disabled before making changes and reenabled after the modifications
+    /// Driver should be disabled before making changes and re-enabled after the modifications
     /// are applied.
     fn apply_config(inner: &Peri<'d, T>, config: &Config) {
         let p = inner.regs();
@@ -308,6 +308,11 @@ impl<'d, T: Instance> Spi<'d, T, Blocking> {
         )
     }
 
+    /// Create an SPI driver in blocking mode supporting writes only, without SCK pin.
+    pub fn new_blocking_txonly_nosck(inner: Peri<'d, T>, mosi: Peri<'d, impl MosiPin<T> + 'd>, config: Config) -> Self {
+        Self::new_inner(inner, None, Some(mosi.into()), None, None, None, None, config)
+    }
+
     /// Create an SPI driver in blocking mode supporting reads only.
     pub fn new_blocking_rxonly(
         inner: Peri<'d, T>,
@@ -362,6 +367,26 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         Self::new_inner(
             inner,
             Some(clk.into()),
+            Some(mosi.into()),
+            None,
+            None,
+            Some(tx_dma.into()),
+            None,
+            config,
+        )
+    }
+
+    /// Create an SPI driver in async mode supporting DMA write operations only,
+    /// without SCK pin.
+    pub fn new_txonly_nosck(
+        inner: Peri<'d, T>,
+        mosi: Peri<'d, impl MosiPin<T> + 'd>,
+        tx_dma: Peri<'d, impl Channel>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            inner,
+            None,
             Some(mosi.into()),
             None,
             None,

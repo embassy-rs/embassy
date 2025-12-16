@@ -135,7 +135,14 @@ pub const WPAN_DEFAULT: Config = Config {
     apb1_pre: APBPrescaler::DIV1,
     apb2_pre: APBPrescaler::DIV1,
 
-    mux: super::mux::ClockMux::default(),
+    mux: {
+        use crate::pac::rcc::vals::Rfwkpsel;
+
+        let mut mux = super::mux::ClockMux::default();
+
+        mux.rfwkpsel = Rfwkpsel::LSE;
+        mux
+    },
 };
 
 fn msi_enable(range: MSIRange) {
@@ -499,9 +506,9 @@ pub use pll::*;
 
 #[cfg(any(stm32l0, stm32l1))]
 mod pll {
-    use super::{pll_enable, PllInstance};
-    pub use crate::pac::rcc::vals::{Plldiv as PllDiv, Pllmul as PllMul, Pllsrc as PllSource};
+    use super::{PllInstance, pll_enable};
     use crate::pac::RCC;
+    pub use crate::pac::rcc::vals::{Plldiv as PllDiv, Pllmul as PllMul, Pllsrc as PllSource};
     use crate::time::Hertz;
 
     #[derive(Clone, Copy)]
@@ -563,11 +570,11 @@ mod pll {
 
 #[cfg(any(stm32l4, stm32l5, stm32wb, stm32wl, stm32u0))]
 mod pll {
-    use super::{pll_enable, PllInstance};
+    use super::{PllInstance, pll_enable};
+    use crate::pac::RCC;
     pub use crate::pac::rcc::vals::{
         Pllm as PllPreDiv, Plln as PllMul, Pllp as PllPDiv, Pllq as PllQDiv, Pllr as PllRDiv, Pllsrc as PllSource,
     };
-    use crate::pac::RCC;
     use crate::time::Hertz;
 
     #[derive(Clone, Copy)]

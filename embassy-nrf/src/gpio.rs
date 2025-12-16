@@ -5,10 +5,10 @@ use core::convert::Infallible;
 use core::hint::unreachable_unchecked;
 
 use cfg_if::cfg_if;
-use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
+use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 
 use crate::pac;
-use crate::pac::common::{Reg, RW};
+use crate::pac::common::{RW, Reg};
 use crate::pac::gpio;
 use crate::pac::gpio::vals;
 #[cfg(not(feature = "_nrf51"))]
@@ -585,7 +585,6 @@ impl SealedPin for AnyPin {
 // ====================
 
 #[cfg(not(feature = "_nrf51"))]
-#[cfg_attr(feature = "_nrf54l", allow(unused))] // TODO
 pub(crate) trait PselBits {
     fn psel_bits(&self) -> pac::shared::regs::Psel;
 }
@@ -602,7 +601,6 @@ impl<'a, P: Pin> PselBits for Option<Peri<'a, P>> {
 }
 
 #[cfg(not(feature = "_nrf51"))]
-#[cfg_attr(feature = "_nrf54l", allow(unused))] // TODO
 pub(crate) const DISCONNECTED: Psel = Psel(1 << 31);
 
 #[cfg(not(feature = "_nrf51"))]

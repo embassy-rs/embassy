@@ -8,6 +8,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.9.0 - 2025-12-15
+
+- changed: apply trimming values from FICR.TRIMCNF on nrf53/54l
+- changed: do not panic on BufferedUarte overrun
+- added: allow direct access to the input pin of `gpiote::InputChannel`
+- bugfix: use DETECTMODE_SEC in GPIOTE in secure mode
+- added: allow configuring the idle state of GPIO pins connected to PWM channels
+- changed: allow configuring the PWM peripheral in the constructor of `SimplePwm`
+- changed: support setting duty cycles with inverted polarity in `SimplePwm`
+- added: support setting the duty cycles of all channels at once in `SimplePwm`
+- changed: updated to nrf-pac with nrf52/nrf53/nrf91 register layout more similar to nrf54
+- added: support for nrf54l peripherals: uart, gpiote, twim, twis, spim, spis, dppi, pwm, saadc, cracen
+- added: support for changing nrf54l clock speed
+- bugfix: Do not write to UICR from non-secure code on nrf53
+- bugfix: Add delay to uart init anomaly fix
+- changed: `BufferedUarte::read_ready` now uses the same definition for 'empty' so following read calls will not block when true is returned
+- added: add `gpiote::InputChannel::wait_for_high()` and `wait_for_low()` to wait for specific signal level
+- changed: `gpiote::InputChannel::wait()` now takes a mutable reference to `self` to avoid interference from concurrent calls
+- changed: `gpiote::InputChannel::wait()` now ensures events are seen as soon as the function is called, even if the future is not polled
+- bugfix: use correct flash size for nRF54l
+- changed: add workaround for anomaly 66 on nrf52
+- added: expose PPI events available on SPIS peripheral
+- added: add basic GRTC time driver support for nRF54L
+* added: support for nrf54l10 and nrf54l05
+* added: expose uicr write functions
+* added: support for nrf54lm20a
+- added: support buffered rram for nrf54
+
 ## 0.8.0 - 2025-09-30
 
 - changed: Remove `T: Instance` generic params in all drivers.

@@ -6,15 +6,15 @@ use core::ptr;
 
 use embassy_embedded_hal::SetConfig;
 use embassy_futures::join::join;
-pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
+pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Polarity};
 
-use crate::dma::{word, ChannelAndRequest};
+use crate::Peri;
+use crate::dma::{ChannelAndRequest, word};
 use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
-use crate::pac::spi::{regs, vals, Spi as Regs};
+use crate::pac::spi::{Spi as Regs, regs, vals};
 use crate::rcc::{RccInfo, SealedRccPeripheral};
 use crate::time::Hertz;
-use crate::Peri;
 
 /// SPI error.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -54,6 +54,26 @@ pub enum BitOrder {
     MsbFirst,
 }
 
+/// SPI Direction.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Direction {
+    /// Transmit
+    Transmit,
+    /// Receive
+    Receive,
+}
+
+/// Slave Select (SS) pin polarity.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SlaveSelectPolarity {
+    /// SS active high
+    ActiveHigh,
+    /// SS active low
+    ActiveLow,
+}
+
 /// SPI configuration.
 #[non_exhaustive]
 #[derive(Copy, Clone)]
@@ -72,6 +92,13 @@ pub struct Config {
     /// signal rise/fall speed (slew rate) - defaults to `Medium`.
     /// Increase for high SPI speeds. Change to `Low` to reduce ringing.
     pub gpio_speed: Speed,
+    /// If True sets SSOE to zero even if SPI is in Master Mode.
+    /// NSS output enabled (SSM = 0, SSOE = 1): The NSS signal is driven low when the master starts the communication and is kept low until the SPI is disabled.
+    /// NSS output disabled (SSM = 0, SSOE = 0): For devices set as slave, the NSS pin acts as a classical NSS input: the slave is selected when NSS is low and deselected when NSS high.
+    pub nss_output_disable: bool,
+    /// Slave Select (SS) pin polarity.
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    pub nss_polarity: SlaveSelectPolarity,
 }
 
 impl Default for Config {
@@ -82,6 +109,9 @@ impl Default for Config {
             frequency: Hertz(1_000_000),
             miso_pull: Pull::None,
             gpio_speed: Speed::VeryHigh,
+            nss_output_disable: false,
+            #[cfg(any(spi_v4, spi_v5, spi_v6))]
+            nss_polarity: SlaveSelectPolarity::ActiveHigh,
         }
     }
 }
@@ -108,6 +138,14 @@ impl Config {
         }
     }
 
+    #[cfg(any(spi_v4, spi_v5, spi_v6))]
+    fn raw_nss_polarity(&self) -> vals::Ssiop {
+        match self.nss_polarity {
+            SlaveSelectPolarity::ActiveHigh => vals::Ssiop::ACTIVE_HIGH,
+            SlaveSelectPolarity::ActiveLow => vals::Ssiop::ACTIVE_LOW,
+        }
+    }
+
     #[cfg(gpio_v1)]
     fn sck_af(&self) -> AfType {
         AfType::output(OutputType::PushPull, self.gpio_speed)
@@ -125,26 +163,69 @@ impl Config {
         )
     }
 }
+
+/// SPI communication mode
+pub mod mode {
+    use stm32_metapac::spi::vals;
+
+    trait SealedMode {}
+
+    /// Trait for SPI communication mode operations.
+    #[allow(private_bounds)]
+    pub trait CommunicationMode: SealedMode {
+        /// Spi communication mode
+        #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+        const MASTER: vals::Mstr;
+        /// Spi communication mode
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        const MASTER: vals::Master;
+    }
+
+    /// Mode allowing for SPI master operations.
+    pub struct Master;
+    /// Mode allowing for SPI slave operations.
+    pub struct Slave;
+
+    impl SealedMode for Master {}
+    impl CommunicationMode for Master {
+        #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+        const MASTER: vals::Mstr = vals::Mstr::MASTER;
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        const MASTER: vals::Master = vals::Master::MASTER;
+    }
+
+    impl SealedMode for Slave {}
+    impl CommunicationMode for Slave {
+        #[cfg(not(any(spi_v4, spi_v5, spi_v6)))]
+        const MASTER: vals::Mstr = vals::Mstr::SLAVE;
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        const MASTER: vals::Master = vals::Master::SLAVE;
+    }
+}
+use mode::{CommunicationMode, Master, Slave};
+
 /// SPI driver.
-pub struct Spi<'d, M: PeriMode> {
+pub struct Spi<'d, M: PeriMode, CM: CommunicationMode> {
     pub(crate) info: &'static Info,
     kernel_clock: Hertz,
     sck: Option<Peri<'d, AnyPin>>,
     mosi: Option<Peri<'d, AnyPin>>,
     miso: Option<Peri<'d, AnyPin>>,
+    nss: Option<Peri<'d, AnyPin>>,
     tx_dma: Option<ChannelAndRequest<'d>>,
     rx_dma: Option<ChannelAndRequest<'d>>,
-    _phantom: PhantomData<M>,
+    _phantom: PhantomData<(M, CM)>,
     current_word_size: word_impl::Config,
     gpio_speed: Speed,
 }
 
-impl<'d, M: PeriMode> Spi<'d, M> {
+impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
         sck: Option<Peri<'d, AnyPin>>,
         mosi: Option<Peri<'d, AnyPin>>,
         miso: Option<Peri<'d, AnyPin>>,
+        nss: Option<Peri<'d, AnyPin>>,
         tx_dma: Option<ChannelAndRequest<'d>>,
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
@@ -155,6 +236,7 @@ impl<'d, M: PeriMode> Spi<'d, M> {
             sck,
             mosi,
             miso,
+            nss,
             tx_dma,
             rx_dma,
             current_word_size: <u8 as SealedWord>::CONFIG,
@@ -171,24 +253,46 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         let cpol = config.raw_polarity();
         let lsbfirst = config.raw_byte_order();
 
-        self.info.rcc.enable_and_reset();
+        self.info.rcc.enable_and_reset_without_stop();
+
+        /*
+        - Software NSS management (SSM = 1)
+        The slave select information is driven internally by the value of the SSI bit in the
+        SPI_CR1 register. The external NSS pin remains free for other application uses.
+
+        - Hardware NSS management (SSM = 0)
+        Two configurations are possible depending on the NSS output configuration (SSOE bit
+        in register SPI_CR1).
+
+        -- NSS output enabled (SSM = 0, SSOE = 1)
+          This configuration is used only when the device operates in master mode. The
+          NSS signal is driven low when the master starts the communication and is kept
+          low until the SPI is disabled.
+
+        -- NSS output disabled (SSM = 0, SSOE = 0)
+            This configuration allows multimaster capability for devices operating in master
+            mode. For devices set as slave, the NSS pin acts as a classical NSS input: the
+            slave is selected when NSS is low and deselected when NSS high
+         */
+        let ssm = self.nss.is_none();
 
         let regs = self.info.regs;
         #[cfg(any(spi_v1, spi_v2))]
         {
+            let ssoe = CM::MASTER == vals::Mstr::MASTER && !config.nss_output_disable;
             regs.cr2().modify(|w| {
-                w.set_ssoe(false);
+                w.set_ssoe(ssoe);
             });
             regs.cr1().modify(|w| {
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
 
-                w.set_mstr(vals::Mstr::MASTER);
+                w.set_mstr(CM::MASTER);
                 w.set_br(br);
                 w.set_spe(true);
                 w.set_lsbfirst(lsbfirst);
-                w.set_ssi(true);
-                w.set_ssm(true);
+                w.set_ssi(CM::MASTER == vals::Mstr::MASTER);
+                w.set_ssm(ssm);
                 w.set_crcen(false);
                 w.set_bidimode(vals::Bidimode::UNIDIRECTIONAL);
                 // we're doing "fake rxonly", by actually writing one
@@ -200,21 +304,22 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         }
         #[cfg(spi_v3)]
         {
+            let ssoe = CM::MASTER == vals::Mstr::MASTER && !config.nss_output_disable;
             regs.cr2().modify(|w| {
                 let (ds, frxth) = <u8 as SealedWord>::CONFIG;
                 w.set_frxth(frxth);
                 w.set_ds(ds);
-                w.set_ssoe(false);
+                w.set_ssoe(ssoe);
             });
             regs.cr1().modify(|w| {
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
 
-                w.set_mstr(vals::Mstr::MASTER);
+                w.set_mstr(CM::MASTER);
                 w.set_br(br);
                 w.set_lsbfirst(lsbfirst);
-                w.set_ssi(true);
-                w.set_ssm(true);
+                w.set_ssi(CM::MASTER == vals::Mstr::MASTER);
+                w.set_ssm(ssm);
                 w.set_crcen(false);
                 w.set_bidimode(vals::Bidimode::UNIDIRECTIONAL);
                 w.set_spe(true);
@@ -222,21 +327,22 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         }
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         {
+            let ssoe = CM::MASTER == vals::Master::MASTER && !config.nss_output_disable;
+            let ssiop = config.raw_nss_polarity();
             regs.ifcr().write(|w| w.0 = 0xffff_ffff);
             regs.cfg2().modify(|w| {
-                //w.set_ssoe(true);
-                w.set_ssoe(false);
+                w.set_ssoe(ssoe);
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
                 w.set_lsbfirst(lsbfirst);
-                w.set_ssm(true);
-                w.set_master(vals::Master::MASTER);
+                w.set_ssm(ssm);
+                w.set_master(CM::MASTER);
                 w.set_comm(vals::Comm::FULL_DUPLEX);
                 w.set_ssom(vals::Ssom::ASSERTED);
                 w.set_midi(0);
                 w.set_mssi(0);
                 w.set_afcntr(true);
-                w.set_ssiop(vals::Ssiop::ACTIVE_HIGH);
+                w.set_ssiop(ssiop);
             });
             regs.cfg1().modify(|w| {
                 w.set_crcen(false);
@@ -284,6 +390,8 @@ impl<'d, M: PeriMode> Spi<'d, M> {
 
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         {
+            let ssiop = config.raw_nss_polarity();
+
             self.info.regs.cr1().modify(|w| {
                 w.set_spe(false);
             });
@@ -292,6 +400,7 @@ impl<'d, M: PeriMode> Spi<'d, M> {
                 w.set_cpha(cpha);
                 w.set_cpol(cpol);
                 w.set_lsbfirst(lsbfirst);
+                w.set_ssiop(ssiop);
             });
             self.info.regs.cfg1().modify(|w| {
                 w.set_mbr(br);
@@ -304,6 +413,20 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         Ok(())
     }
 
+    /// Set SPI direction
+    #[cfg(any(spi_v1, spi_v2, spi_v3))]
+    pub fn set_direction(&mut self, dir: Option<Direction>) {
+        let (bidimode, bidioe) = match dir {
+            Some(Direction::Transmit) => (vals::Bidimode::BIDIRECTIONAL, vals::Bidioe::TRANSMIT),
+            Some(Direction::Receive) => (vals::Bidimode::BIDIRECTIONAL, vals::Bidioe::RECEIVE),
+            None => (vals::Bidimode::UNIDIRECTIONAL, vals::Bidioe::TRANSMIT),
+        };
+        self.info.regs.cr1().modify(|w| {
+            w.set_bidimode(bidimode);
+            w.set_bidioe(bidioe);
+        });
+    }
+
     /// Get current SPI configuration.
     pub fn get_current_config(&self) -> Config {
         #[cfg(any(spi_v1, spi_v2, spi_v3))]
@@ -312,6 +435,11 @@ impl<'d, M: PeriMode> Spi<'d, M> {
         let cfg = self.info.regs.cfg2().read();
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         let cfg1 = self.info.regs.cfg1().read();
+
+        #[cfg(any(spi_v1, spi_v2, spi_v3))]
+        let ssoe = self.info.regs.cr2().read().ssoe();
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        let ssoe = cfg.ssoe();
 
         let polarity = if cfg.cpol() == vals::Cpol::IDLE_LOW {
             Polarity::IdleLow
@@ -342,12 +470,25 @@ impl<'d, M: PeriMode> Spi<'d, M> {
 
         let frequency = compute_frequency(self.kernel_clock, br);
 
+        // NSS output disabled if SSOE=0 or if SSM=1 software slave management enabled
+        let nss_output_disable = !ssoe || cfg.ssm();
+
+        #[cfg(any(spi_v4, spi_v5, spi_v6))]
+        let nss_polarity = if cfg.ssiop() == vals::Ssiop::ACTIVE_LOW {
+            SlaveSelectPolarity::ActiveLow
+        } else {
+            SlaveSelectPolarity::ActiveHigh
+        };
+
         Config {
             mode: Mode { polarity, phase },
             bit_order,
             frequency,
             miso_pull,
             gpio_speed: self.gpio_speed,
+            nss_output_disable,
+            #[cfg(any(spi_v4, spi_v5, spi_v6))]
+            nss_polarity,
         }
     }
 
@@ -469,7 +610,30 @@ impl<'d, M: PeriMode> Spi<'d, M> {
     }
 }
 
-impl<'d> Spi<'d, Blocking> {
+impl<'d> Spi<'d, Blocking, Slave> {
+    /// Create a new blocking SPI slave driver.
+    pub fn new_blocking_slave<T: Instance, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, if_afio!(impl SckPin<T, A>)>,
+        mosi: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
+        miso: Peri<'d, if_afio!(impl MisoPin<T, A>)>,
+        cs: Peri<'d, if_afio!(impl CsPin<T, A>)>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(sck, config.sck_af()),
+            new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(miso, AfType::input(config.miso_pull)),
+            new_pin!(cs, AfType::input(Pull::None)),
+            None,
+            None,
+            config,
+        )
+    }
+}
+
+impl<'d> Spi<'d, Blocking, Master> {
     /// Create a new blocking SPI driver.
     pub fn new_blocking<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
@@ -483,6 +647,7 @@ impl<'d> Spi<'d, Blocking> {
             new_pin!(sck, config.sck_af()),
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(miso, AfType::input(config.miso_pull)),
+            None,
             None,
             None,
             config,
@@ -503,6 +668,7 @@ impl<'d> Spi<'d, Blocking> {
             new_pin!(miso, AfType::input(config.miso_pull)),
             None,
             None,
+            None,
             config,
         )
     }
@@ -518,6 +684,7 @@ impl<'d> Spi<'d, Blocking> {
             peri,
             new_pin!(sck, config.sck_af()),
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            None,
             None,
             None,
             None,
@@ -540,12 +707,38 @@ impl<'d> Spi<'d, Blocking> {
             None,
             None,
             None,
+            None,
             config,
         )
     }
 }
 
-impl<'d> Spi<'d, Async> {
+impl<'d> Spi<'d, Async, Slave> {
+    /// Create a new SPI slave driver.
+    pub fn new_slave<T: Instance, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, if_afio!(impl SckPin<T, A>)>,
+        mosi: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
+        miso: Peri<'d, if_afio!(impl MisoPin<T, A>)>,
+        cs: Peri<'d, if_afio!(impl CsPin<T, A>)>,
+        tx_dma: Peri<'d, impl TxDma<T>>,
+        rx_dma: Peri<'d, impl RxDma<T>>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(sck, config.sck_af()),
+            new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            new_pin!(miso, AfType::input(config.miso_pull)),
+            new_pin!(cs, AfType::input(Pull::None)),
+            new_dma!(tx_dma),
+            new_dma!(rx_dma),
+            config,
+        )
+    }
+}
+
+impl<'d> Spi<'d, Async, Master> {
     /// Create a new SPI driver.
     pub fn new<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
@@ -561,6 +754,7 @@ impl<'d> Spi<'d, Async> {
             new_pin!(sck, config.sck_af()),
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
             new_pin!(miso, AfType::input(config.miso_pull)),
+            None,
             new_dma!(tx_dma),
             new_dma!(rx_dma),
             config,
@@ -581,6 +775,7 @@ impl<'d> Spi<'d, Async> {
             new_pin!(sck, config.sck_af()),
             None,
             new_pin!(miso, AfType::input(config.miso_pull)),
+            None,
             #[cfg(any(spi_v1, spi_v2, spi_v3))]
             new_dma!(tx_dma),
             #[cfg(any(spi_v4, spi_v5, spi_v6))]
@@ -603,10 +798,35 @@ impl<'d> Spi<'d, Async> {
             new_pin!(sck, config.sck_af()),
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
             None,
+            None,
             new_dma!(tx_dma),
             None,
             config,
         )
+    }
+
+    /// Create a new SPI driver, in bidirectional mode, specifically in tranmit mode
+    #[cfg(any(spi_v1, spi_v2, spi_v3))]
+    pub fn new_bidi<T: Instance, #[cfg(afio)] A>(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, if_afio!(impl SckPin<T, A>)>,
+        sdio: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
+        tx_dma: Peri<'d, impl TxDma<T>>,
+        rx_dma: Peri<'d, impl RxDma<T>>,
+        config: Config,
+    ) -> Self {
+        let mut this = Self::new_inner(
+            peri,
+            new_pin!(sck, config.sck_af()),
+            new_pin!(sdio, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            None,
+            None,
+            new_dma!(tx_dma),
+            new_dma!(rx_dma),
+            config,
+        );
+        this.set_direction(Some(Direction::Transmit));
+        this
     }
 
     /// Create a new SPI driver, in TX-only mode, without SCK pin.
@@ -622,6 +842,7 @@ impl<'d> Spi<'d, Async> {
             peri,
             None,
             new_pin!(mosi, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            None,
             None,
             new_dma!(tx_dma),
             None,
@@ -646,7 +867,7 @@ impl<'d> Spi<'d, Async> {
         config.bit_order = BitOrder::MsbFirst;
         config.frequency = freq;
 
-        Self::new_inner(peri, None, None, None, new_dma!(tx_dma), new_dma!(rx_dma), config)
+        Self::new_inner(peri, None, None, None, None, new_dma!(tx_dma), new_dma!(rx_dma), config)
     }
 
     #[allow(dead_code)]
@@ -656,11 +877,14 @@ impl<'d> Spi<'d, Async> {
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Self {
-        Self::new_inner(peri, None, None, None, tx_dma, rx_dma, config)
+        Self::new_inner(peri, None, None, None, None, tx_dma, rx_dma, config)
     }
+}
 
+impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
     /// SPI write, using DMA.
     pub async fn write<W: Word>(&mut self, data: &[W]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         if data.is_empty() {
             return Ok(());
         }
@@ -692,6 +916,7 @@ impl<'d> Spi<'d, Async> {
     /// SPI read, using DMA.
     #[cfg(any(spi_v4, spi_v5, spi_v6))]
     pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         if data.is_empty() {
             return Ok(());
         }
@@ -779,6 +1004,7 @@ impl<'d> Spi<'d, Async> {
     /// SPI read, using DMA.
     #[cfg(any(spi_v1, spi_v2, spi_v3))]
     pub async fn read<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         if data.is_empty() {
             return Ok(());
         }
@@ -826,6 +1052,7 @@ impl<'d> Spi<'d, Async> {
     }
 
     async fn transfer_inner<W: Word>(&mut self, read: *mut [W], write: *const [W]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         assert_eq!(read.len(), write.len());
         if read.len() == 0 {
             return Ok(());
@@ -877,6 +1104,8 @@ impl<'d> Spi<'d, Async> {
     /// The transfer runs for `max(read.len(), write.len())` bytes. If `read` is shorter extra bytes are ignored.
     /// If `write` is shorter it is padded with zero bytes.
     pub async fn transfer<W: Word>(&mut self, read: &mut [W], write: &[W]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
+
         self.transfer_inner(read, write).await
     }
 
@@ -884,17 +1113,20 @@ impl<'d> Spi<'d, Async> {
     ///
     /// This writes the contents of `data` on MOSI, and puts the received data on MISO in `data`, at the same time.
     pub async fn transfer_in_place<W: Word>(&mut self, data: &mut [W]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
+
         self.transfer_inner(data, data).await
     }
 }
 
-impl<'d, M: PeriMode> Drop for Spi<'d, M> {
+impl<'d, M: PeriMode, CM: CommunicationMode> Drop for Spi<'d, M, CM> {
     fn drop(&mut self) {
         self.sck.as_ref().map(|x| x.set_as_disconnected());
         self.mosi.as_ref().map(|x| x.set_as_disconnected());
         self.miso.as_ref().map(|x| x.set_as_disconnected());
+        self.nss.as_ref().map(|x| x.set_as_disconnected());
 
-        self.info.rcc.disable();
+        self.info.rcc.disable_without_stop();
     }
 }
 
@@ -1127,7 +1359,7 @@ fn write_word<W: Word>(regs: Regs, tx_word: W) -> Result<(), Error> {
 // some marker traits. For details, see https://github.com/rust-embedded/embedded-hal/pull/289
 macro_rules! impl_blocking {
     ($w:ident) => {
-        impl<'d, M: PeriMode> embedded_hal_02::blocking::spi::Write<$w> for Spi<'d, M> {
+        impl<'d, M: PeriMode, CM: CommunicationMode> embedded_hal_02::blocking::spi::Write<$w> for Spi<'d, M, CM> {
             type Error = Error;
 
             fn write(&mut self, words: &[$w]) -> Result<(), Self::Error> {
@@ -1135,7 +1367,7 @@ macro_rules! impl_blocking {
             }
         }
 
-        impl<'d, M: PeriMode> embedded_hal_02::blocking::spi::Transfer<$w> for Spi<'d, M> {
+        impl<'d, M: PeriMode, CM: CommunicationMode> embedded_hal_02::blocking::spi::Transfer<$w> for Spi<'d, M, CM> {
             type Error = Error;
 
             fn transfer<'w>(&mut self, words: &'w mut [$w]) -> Result<&'w [$w], Self::Error> {
@@ -1149,11 +1381,11 @@ macro_rules! impl_blocking {
 impl_blocking!(u8);
 impl_blocking!(u16);
 
-impl<'d, M: PeriMode> embedded_hal_1::spi::ErrorType for Spi<'d, M> {
+impl<'d, M: PeriMode, CM: CommunicationMode> embedded_hal_1::spi::ErrorType for Spi<'d, M, CM> {
     type Error = Error;
 }
 
-impl<'d, W: Word, M: PeriMode> embedded_hal_1::spi::SpiBus<W> for Spi<'d, M> {
+impl<'d, W: Word, M: PeriMode, CM: CommunicationMode> embedded_hal_1::spi::SpiBus<W> for Spi<'d, M, CM> {
     fn flush(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
@@ -1186,7 +1418,7 @@ impl embedded_hal_1::spi::Error for Error {
     }
 }
 
-impl<'d, W: Word> embedded_hal_async::spi::SpiBus<W> for Spi<'d, Async> {
+impl<'d, W: Word, CM: CommunicationMode> embedded_hal_async::spi::SpiBus<W> for Spi<'d, Async, CM> {
     async fn flush(&mut self) -> Result<(), Self::Error> {
         Ok(())
     }
@@ -1328,7 +1560,7 @@ foreach_peripheral!(
     };
 );
 
-impl<'d, M: PeriMode> SetConfig for Spi<'d, M> {
+impl<'d, M: PeriMode, CM: CommunicationMode> SetConfig for Spi<'d, M, CM> {
     type Config = Config;
     type ConfigError = ();
     fn set_config(&mut self, config: &Self::Config) -> Result<(), ()> {
