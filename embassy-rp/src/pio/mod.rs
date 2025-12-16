@@ -1,6 +1,7 @@
 //! PIO driver.
 use core::future::Future;
 use core::marker::PhantomData;
+use core::ops::ControlFlow;
 use core::pin::Pin as FuturePin;
 use core::sync::atomic::{AtomicU8, AtomicU32, Ordering, compiler_fence};
 use core::task::{Context, Poll};
@@ -529,6 +530,95 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
     /// Prepare a repeated DMA transfer to TX FIFO.
     pub fn dma_push_repeated<'a, C: Channel, W: Word>(&'a mut self, ch: Peri<'a, C>, len: usize) -> Transfer<'a, C> {
         unsafe { dma::write_repeated(ch, PIO::PIO.txf(SM).as_ptr(), len, Self::dreq()) }
+    }
+
+    /// Feed the TX FIFO a continuous stream of data using a 2 alternating buffers.
+    ///
+    /// The initial data in each buffer isn't immediately sent. Instead, the callback will be called once before the DMA
+    /// transfer starts, to initialize the first buffer. After this, the callback will be called each time a new
+    /// transfer starts to provide the data that will be sent with the transfer after it. The user is responsible for
+    /// ensuring that the callback finishes in time for the buffers to swap.
+    pub async fn dma_push_ping_pong<'a, C1: Channel, C2: Channel, W: Word, F>(
+        &'a mut self,
+        mut ch1: Peri<'a, C1>,
+        mut ch2: Peri<'a, C2>,
+        data1: &'a mut [W],
+        data2: &'a mut [W],
+        mut fill_buffer_callback: F,
+    ) where
+        F: FnMut(&mut [W]) -> ControlFlow<()>,
+    {
+        let init_dma_channel = |regs: pac::dma::Channel, chain_target: u8, buffer: &[W]| {
+            regs.read_addr().write_value(buffer.as_ptr() as u32);
+            regs.write_addr().write_value(PIO::PIO.txf(SM).as_ptr() as u32);
+
+            #[cfg(feature = "rp2040")]
+            regs.trans_count().write(|w| *w = buffer.len() as u32);
+            #[cfg(feature = "_rp235x")]
+            regs.trans_count().write(|w| w.set_count(buffer.len() as u32));
+
+            // don't use trigger register since we don't want the channel to start yet
+            regs.al1_ctrl().write(|w| {
+                // SAFETY: this register is an alias for ctrl_trig, see embassy-rs/rp-pac#12
+                let w: &mut rp_pac::dma::regs::CtrlTrig = unsafe { core::mem::transmute(w) };
+                w.set_treq_sel(Self::dreq());
+                w.set_data_size(W::size());
+                w.set_incr_read(true);
+                w.set_incr_write(false);
+                w.set_en(true);
+
+                // trigger other channel when finished
+                w.set_chain_to(chain_target);
+            });
+        };
+
+        // initialize both DMA channels
+        init_dma_channel(ch1.regs(), ch2.number(), data1);
+        init_dma_channel(ch2.regs(), ch1.number(), data2);
+
+        trace!("Fill initial ping buffer");
+        if let ControlFlow::Break(()) = fill_buffer_callback(data1) {
+            return;
+        }
+
+        // trigger ping dma channel by writing to a TRIG register
+        ch1.regs().ctrl_trig().modify(|_| {});
+
+        loop {
+            trace!("Fill pong buffer");
+            if let ControlFlow::Break(()) = fill_buffer_callback(data2) {
+                break;
+            }
+
+            trace!("Waiting for ping transfer to finish");
+            Transfer::new(ch1.reborrow()).await;
+
+            // re-init DMA 1 (without triggering it)
+            ch1.regs().read_addr().write_value(data1.as_ptr() as u32);
+
+            trace!("Fill ping buffer");
+            if let ControlFlow::Break(()) = fill_buffer_callback(data1) {
+                break;
+            }
+
+            trace!("Waiting for pong transfer");
+            Transfer::new(ch2.reborrow()).await;
+
+            // re-init DMA 2 (without triggering it)
+            ch2.regs().read_addr().write_value(data2.as_ptr() as u32);
+        }
+
+        // turn off DMA channels
+        ch1.regs().al1_ctrl().modify(|w| {
+            // SAFETY: this register is an alias for ctrl_trig, see embassy-rs/rp-pac#12
+            let w: &mut rp_pac::dma::regs::CtrlTrig = unsafe { core::mem::transmute(w) };
+            w.set_en(false);
+        });
+        ch2.regs().al1_ctrl().modify(|w| {
+            // SAFETY: this register is an alias for ctrl_trig, see embassy-rs/rp-pac#12
+            let w: &mut rp_pac::dma::regs::CtrlTrig = unsafe { core::mem::transmute(w) };
+            w.set_en(false);
+        });
     }
 }
 
