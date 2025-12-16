@@ -241,7 +241,8 @@ log = ["dep:log"]
 chrono = ["dep:chrono"]
 
 exti = []
-low-power = [ "dep:embassy-executor", "embassy-executor?/arch-cortex-m", "time" ]
+low-power = [ "dep:embassy-executor", "time" ]
+low-power-pender = [ ]
 low-power-debug-with-sleep = []
 
 ## Automatically generate `memory.x` file based on the memory map from [`stm32-metapac`](https://docs.rs/stm32-metapac/)
