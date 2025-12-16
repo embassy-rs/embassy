@@ -5,7 +5,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::mode::Async;
 use embassy_stm32::usart::{Config, Uart, UartRx};
-use embassy_stm32::{bind_interrupts, peripherals, usart};
+use embassy_stm32::{bind_interrupts, low_power, peripherals, usart};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use {defmt_rtt as _, panic_probe as _};
@@ -16,7 +16,7 @@ bind_interrupts!(struct Irqs {
 
 static CHANNEL: Channel<ThreadModeRawMutex, [u8; 8], 1> = Channel::new();
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "low_power::Executor")]
 async fn main(spawner: Spawner) -> ! {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");

@@ -7,7 +7,7 @@ use embassy_net::StackResources;
 use embassy_net::tcp::TcpSocket;
 use embassy_stm32::rng::Rng;
 use embassy_stm32::usb::Driver;
-use embassy_stm32::{Config, bind_interrupts, peripherals, rng, usb};
+use embassy_stm32::{Config, bind_interrupts, low_power, peripherals, rng, usb};
 use embassy_usb::class::cdc_ncm::embassy_net::{Device, Runner, State as NetState};
 use embassy_usb::class::cdc_ncm::{CdcNcmClass, State};
 use embassy_usb::{Builder, UsbDevice};
@@ -39,7 +39,7 @@ async fn net_task(mut runner: embassy_net::Runner<'static, Device<'static, MTU>>
     runner.run().await
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "low_power::Executor")]
 async fn main(spawner: Spawner) {
     let mut config = Config::default();
     {

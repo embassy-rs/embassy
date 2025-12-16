@@ -4,10 +4,11 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::low_power;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "low_power::Executor")]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");

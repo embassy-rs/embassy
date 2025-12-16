@@ -12,7 +12,7 @@ use embassy_stm32::rcc::{
 };
 use embassy_stm32::rng::Rng;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{Config, bind_interrupts, eth, peripherals, rng};
+use embassy_stm32::{Config, bind_interrupts, eth, low_power, peripherals, rng};
 use embassy_time::Timer;
 use embedded_io_async::Write;
 use static_cell::StaticCell;
@@ -30,7 +30,7 @@ async fn net_task(mut runner: embassy_net::Runner<'static, Device>) -> ! {
     runner.run().await
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "low_power::Executor")]
 async fn main(spawner: Spawner) -> ! {
     let mut config = Config::default();
     config.rcc.hsi = None;

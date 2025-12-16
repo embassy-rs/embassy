@@ -6,7 +6,7 @@ use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::usb::{Driver, Instance};
-use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
+use embassy_stm32::{Config, bind_interrupts, low_power, peripherals, usb};
 use embassy_usb::Builder;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, State};
 use embassy_usb::driver::EndpointError;
@@ -16,7 +16,7 @@ bind_interrupts!(struct Irqs {
     USB_DRD_FS => usb::InterruptHandler<peripherals::USB>;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "low_power::Executor")]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     {

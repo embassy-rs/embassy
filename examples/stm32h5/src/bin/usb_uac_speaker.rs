@@ -6,7 +6,7 @@ use core::cell::{Cell, RefCell};
 use defmt::{panic, *};
 use embassy_executor::Spawner;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{Config, bind_interrupts, interrupt, peripherals, timer, usb};
+use embassy_stm32::{Config, bind_interrupts, interrupt, low_power, peripherals, timer, usb};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::{CriticalSectionRawMutex, NoopRawMutex};
 use embassy_sync::signal::Signal;
@@ -246,7 +246,7 @@ fn TIM5() {
 //
 // See https://embassy.dev/book/#_the_usb_examples_are_not_working_on_my_board_is_there_anything_else_i_need_to_configure
 // for more information.
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "low_power::Executor")]
 async fn main(spawner: Spawner) {
     let mut config = Config::default();
     {

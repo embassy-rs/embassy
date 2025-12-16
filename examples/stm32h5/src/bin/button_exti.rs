@@ -5,7 +5,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::Pull;
-use embassy_stm32::{bind_interrupts, interrupt};
+use embassy_stm32::{bind_interrupts, interrupt, low_power};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(
@@ -13,7 +13,7 @@ bind_interrupts!(
         EXTI13 => exti::InterruptHandler<interrupt::typelevel::EXTI13>;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "low_power::Executor")]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");

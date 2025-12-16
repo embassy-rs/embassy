@@ -3,9 +3,9 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::rcc::WPAN_DEFAULT;
+use embassy_stm32::{bind_interrupts, low_power};
 use embassy_stm32_wpan::TlMbox;
 use embassy_stm32_wpan::mac::commands::{AssociateResponse, ResetRequest, SetRequest, StartRequest};
 use embassy_stm32_wpan::mac::event::MacEvent;
@@ -23,7 +23,7 @@ async fn run_mm_queue(mut memory_manager: mm::MemoryManager<'static>) {
     memory_manager.run_queue().await;
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "low_power::Executor")]
 async fn main(spawner: Spawner) {
     /*
         How to make this work:

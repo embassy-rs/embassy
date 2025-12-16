@@ -3,12 +3,12 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::Config;
 use embassy_stm32::adc::{Adc, SampleTime};
+use embassy_stm32::{Config, low_power};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "low_power::Executor")]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     {

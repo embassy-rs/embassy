@@ -5,9 +5,9 @@ use core::time::Duration;
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::rcc::WPAN_DEFAULT;
+use embassy_stm32::{bind_interrupts, low_power};
 use embassy_stm32_wpan::TlMbox;
 use embassy_stm32_wpan::hci::event::command::{CommandComplete, ReturnParameters};
 use embassy_stm32_wpan::hci::host::uart::{Packet, UartHci};
@@ -38,7 +38,7 @@ bind_interrupts!(struct Irqs{
 
 const BLE_GAP_DEVICE_NAME_LENGTH: u8 = 7;
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "low_power::Executor")]
 async fn main(spawner: Spawner) {
     /*
         How to make this work:

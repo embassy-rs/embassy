@@ -7,7 +7,7 @@ use defmt::{Format, error, info};
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::Output;
 use embassy_stm32::ucpd::{self, CcPhy, CcPull, CcSel, CcVState, Ucpd};
-use embassy_stm32::{Config, bind_interrupts, peripherals};
+use embassy_stm32::{Config, bind_interrupts, low_power, peripherals};
 use embassy_time::{Duration, with_timeout};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -50,7 +50,7 @@ async fn wait_attached<T: ucpd::Instance>(cc_phy: &mut CcPhy<'_, T>) -> CableOri
     }
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "low_power::Executor")]
 async fn main(_spawner: Spawner) {
     let config = Config::default();
     let p = embassy_stm32::init(config);

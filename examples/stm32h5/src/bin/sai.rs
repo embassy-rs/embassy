@@ -3,10 +3,10 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_stm32::{Config, sai};
+use embassy_stm32::{Config, low_power, sai};
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "low_power::Executor")]
 async fn main(_spawner: Spawner) {
     info!("Hello world.");
 

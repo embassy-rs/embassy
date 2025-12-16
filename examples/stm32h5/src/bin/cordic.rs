@@ -4,9 +4,10 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::cordic::{self, utils};
+use embassy_stm32::low_power;
 use {defmt_rtt as _, panic_probe as _};
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "low_power::Executor")]
 async fn main(_spawner: Spawner) {
     let mut dp = embassy_stm32::init(Default::default());
 

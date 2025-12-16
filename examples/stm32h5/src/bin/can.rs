@@ -4,7 +4,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::peripherals::*;
-use embassy_stm32::{Config, bind_interrupts, can, rcc};
+use embassy_stm32::{Config, bind_interrupts, can, low_power, rcc};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -13,7 +13,7 @@ bind_interrupts!(struct Irqs {
     FDCAN1_IT1 => can::IT1InterruptHandler<FDCAN1>;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "low_power::Executor")]
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     config.rcc.hse = Some(rcc::Hse {

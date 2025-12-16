@@ -7,11 +7,11 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{Ipv6Cidr, StackResources, StaticConfigV6};
-use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::peripherals::RNG;
 use embassy_stm32::rcc::WPAN_DEFAULT;
 use embassy_stm32::rng::InterruptHandler as RngInterruptHandler;
+use embassy_stm32::{bind_interrupts, low_power};
 use embassy_stm32_wpan::TlMbox;
 use embassy_stm32_wpan::mac::{Driver, DriverState, Runner};
 use embassy_stm32_wpan::sub::mm;
@@ -41,7 +41,7 @@ async fn run_net(mut runner: embassy_net::Runner<'static, Driver<'static>>) -> !
     runner.run().await
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "low_power::Executor")]
 async fn main(spawner: Spawner) {
     /*
         How to make this work:
