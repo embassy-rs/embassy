@@ -26,7 +26,7 @@ bind_interrupts!(struct Irqs {
     CAN1_TX => TxInterruptHandler<CAN1>;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "common::Executor")]
 async fn main(_spawner: Spawner) {
     let p = init();
     info!("Hello World!");

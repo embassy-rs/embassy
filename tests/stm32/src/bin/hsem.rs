@@ -15,7 +15,7 @@ bind_interrupts!(struct Irqs{
     HSEM => HardwareSemaphoreInterruptHandler<HSEM>;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "common::Executor")]
 async fn main(_spawner: Spawner) {
     let p: embassy_stm32::Peripherals = init();
 

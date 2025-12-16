@@ -101,7 +101,7 @@ fn options() -> (Config, TestOptions) {
     )
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "common::Executor")]
 async fn main(_spawner: Spawner) {
     //let peripherals = init();
 

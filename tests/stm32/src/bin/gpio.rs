@@ -8,7 +8,7 @@ use defmt::assert;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Flex, Input, Level, Output, OutputOpenDrain, Pull, Speed};
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "common::Executor")]
 async fn main(_spawner: Spawner) {
     let p = init();
     info!("Hello World!");

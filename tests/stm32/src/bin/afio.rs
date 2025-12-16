@@ -41,7 +41,7 @@ bind_interrupts!(struct Irqs {
     TIM1_CC => embassy_stm32::timer::CaptureCompareInterruptHandler<embassy_stm32::peripherals::TIM1>;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "common::Executor")]
 async fn main(_spawner: Spawner) {
     let mut p = init();
     info!("Hello World!");

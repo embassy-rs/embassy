@@ -27,7 +27,7 @@ const INPUT_U8_COUNT: usize = 4 * INPUT_U32_COUNT;
 // And all calculation generate 2 results.
 const OUTPUT_LENGTH: usize = (INPUT_U32_COUNT - 1) * 2;
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "common::Executor")]
 async fn main(_spawner: Spawner) {
     let dp = init();
 

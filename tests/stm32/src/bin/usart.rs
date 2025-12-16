@@ -10,7 +10,7 @@ use embassy_stm32::mode::Blocking;
 use embassy_stm32::usart::{Config, ConfigError, Error, Uart};
 use embassy_time::{Duration, Instant, block_for};
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "common::Executor")]
 async fn main(_spawner: Spawner) {
     let p = init();
     info!("Hello World!");

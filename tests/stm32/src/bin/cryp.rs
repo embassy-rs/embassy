@@ -18,7 +18,7 @@ bind_interrupts!(struct Irqs {
     CRYP => cryp::InterruptHandler<peripherals::CRYP>;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "common::Executor")]
 async fn main(_spawner: Spawner) {
     let p: embassy_stm32::Peripherals = init();
 

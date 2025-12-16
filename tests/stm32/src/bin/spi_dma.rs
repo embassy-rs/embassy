@@ -12,7 +12,7 @@ use embassy_stm32::spi::mode::Master;
 use embassy_stm32::spi::{self, Spi, Word};
 use embassy_stm32::time::Hertz;
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "common::Executor")]
 async fn main(_spawner: Spawner) {
     let p = init();
     info!("Hello World!");

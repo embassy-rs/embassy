@@ -29,7 +29,7 @@ async fn run_mm_queue(mut memory_manager: mm::MemoryManager<'static>) {
     memory_manager.run_queue().await;
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "common::Executor")]
 async fn main(spawner: Spawner) {
     let mut config = config();
     config.rcc = WPAN_DEFAULT;

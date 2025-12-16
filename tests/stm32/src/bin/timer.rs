@@ -8,7 +8,7 @@ use defmt::assert;
 use embassy_executor::Spawner;
 use embassy_time::{Instant, Timer};
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "common::Executor")]
 async fn main(_spawner: Spawner) {
     let _p = init();
     info!("Hello World!");

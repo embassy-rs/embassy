@@ -17,7 +17,7 @@ bind_interrupts!(struct Irqs {
     SDIO => sdmmc::InterruptHandler<peripherals::SDIO>;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "common::Executor")]
 async fn main(_spawner: Spawner) {
     info!("Hello World!");
 

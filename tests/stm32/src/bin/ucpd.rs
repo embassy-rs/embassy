@@ -100,7 +100,7 @@ async fn sink(
     unwrap!(pd_phy.transmit_hardreset().await);
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "common::Executor")]
 async fn main(_spawner: Spawner) {
     let p = init();
     info!("Hello World!");

@@ -122,7 +122,7 @@ fn test_sizes(hw_hasher: &mut Hash<'_, peripherals::HASH, Blocking>) {
     }
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "common::Executor")]
 async fn main(_spawner: Spawner) {
     let p: embassy_stm32::Peripherals = init();
     let mut hw_hasher = Hash::new_blocking(p.HASH, Irqs);

@@ -8,6 +8,12 @@ use embassy_stm32::rcc::*;
 use embassy_stm32::time::Hertz;
 use {defmt_rtt as _, panic_probe as _};
 
+#[cfg(feature = "stop")]
+pub type Executor = embassy_stm32::low_power::Executor;
+
+#[cfg(not(feature = "stop"))]
+pub type Executor = embassy_executor::Executor;
+
 #[cfg(feature = "stm32f103c8")]
 teleprobe_meta::target!(b"bluepill-stm32f103c8");
 #[cfg(feature = "stm32g491re")]

@@ -15,7 +15,7 @@ use embassy_stm32::rtc::Rtc;
 #[cfg(not(feature = "stop"))]
 use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_time::Timer;
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "common::Executor")]
 async fn main(_spawner: Spawner) {
     let mut config = config();
     config.rcc.ls = LsConfig::default_lse();

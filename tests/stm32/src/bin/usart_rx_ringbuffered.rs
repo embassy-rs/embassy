@@ -16,7 +16,7 @@ use rand_core::{RngCore, SeedableRng};
 
 const DMA_BUF_SIZE: usize = 256;
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "common::Executor")]
 async fn main(spawner: Spawner) {
     let p = init();
     info!("Hello World!");
