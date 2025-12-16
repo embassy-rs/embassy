@@ -5,7 +5,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
 use embassy_stm32::rcc::{Sysclk, mux};
-use embassy_stm32_wpan::bindings::mac::ST_MAC_callbacks_t;
+use embassy_stm32_wpan::bindings::mac::{ST_MAC_callbacks_t, ST_MAC_init};
 use {defmt_rtt as _, panic_probe as _};
 
 static _MAC_CALLBACKS: ST_MAC_callbacks_t = ST_MAC_callbacks_t {
@@ -50,9 +50,9 @@ async fn main(_spawner: Spawner) {
     let _p = embassy_stm32::init(config);
     info!("Hello World!");
 
-    //    let status = unsafe { ST_MAC_init(&_MAC_CALLBACKS as *const _ as *mut _) };
-    //
-    //    info!("mac init: {}", status);
+    let status = unsafe { ST_MAC_init(&_MAC_CALLBACKS as *const _ as *mut _) };
+
+    info!("mac init: {}", status);
 
     cortex_m::asm::bkpt();
 }

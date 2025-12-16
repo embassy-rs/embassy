@@ -102,7 +102,6 @@ type Callback = unsafe extern "C" fn();
 struct RawInterrupt(u16);
 
 impl RawInterrupt {
-    #[inline(always)]
     fn new(irq: u32) -> Self {
         debug_assert!(irq <= u16::MAX as u32);
         Self(irq as u16)
@@ -110,7 +109,6 @@ impl RawInterrupt {
 }
 
 impl From<u32> for RawInterrupt {
-    #[inline(always)]
     fn from(value: u32) -> Self {
         Self::new(value)
     }
@@ -143,22 +141,15 @@ static PRNG_INIT: AtomicBool = AtomicBool::new(false);
 // Only written when the IRQ disable counter transitions 0->1, and consumed when it transitions 1->0.
 static mut CS_RESTORE_STATE: Option<critical_section::RestoreState> = None;
 
-unsafe extern "C" {
-    static SystemCoreClock: u32;
-}
-
-#[inline(always)]
 fn read_system_core_clock() -> u32 {
-    unsafe { ptr::read_volatile(&SystemCoreClock) }
+    0
 }
 
-#[inline(always)]
 fn store_callback(slot: &AtomicPtr<()>, cb: Option<Callback>) {
     let ptr = cb.map_or(ptr::null_mut(), |f| f as *mut ());
     slot.store(ptr, Ordering::Release);
 }
 
-#[inline(always)]
 fn load_callback(slot: &AtomicPtr<()>) -> Option<Callback> {
     let ptr = slot.load(Ordering::Acquire);
     if ptr.is_null() {
@@ -168,7 +159,6 @@ fn load_callback(slot: &AtomicPtr<()>) -> Option<Callback> {
     }
 }
 
-#[inline(always)]
 fn priority_shift() -> u8 {
     8 - NVIC_PRIO_BITS as u8
 }
@@ -185,12 +175,10 @@ fn pack_priority(raw: u32) -> u8 {
     (clamped << u32::from(shift)) as u8
 }
 
-#[inline(always)]
 fn counter_release(counter: &AtomicI32) -> bool {
     counter.fetch_sub(1, Ordering::SeqCst) <= 1
 }
 
-#[inline(always)]
 fn counter_acquire(counter: &AtomicI32) -> bool {
     counter.fetch_add(1, Ordering::SeqCst) == 0
 }
@@ -226,7 +214,6 @@ unsafe fn nvic_set_priority(irq: u32, priority: u8) {
     isb();
 }
 
-#[inline(always)]
 fn set_basepri_max(value: u8) {
     unsafe {
         if basepri::read() < value {
@@ -895,6 +882,7 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_SCHLDR_TIMING_UPDATE_NOT(_timings: *cons
 //   */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_GetSTCompanyID() -> u32 {
+    trace!("LINKLAYER_PLAT_GetSTCompanyID");
     // STMicroelectronics Bluetooth SIG Company Identifier
     // TODO: Pull in update from latest stm32-generated-data
     0x0030
@@ -907,7 +895,26 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_GetSTCompanyID() -> u32 {
 //   */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_GetUDN() -> u32 {
+    trace!("LINKLAYER_PLAT_GetUDN");
     // Read the first 32 bits of the STM32 unique 96-bit ID
     let uid = embassy_stm32::uid::uid();
     u32::from_le_bytes([uid[0], uid[1], uid[2], uid[3]])
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_DEBUG_SIGNAL_SET() {
+    trace!("LINKLAYER_DEBUG_SIGNAL_SET");
+    todo!()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_DEBUG_SIGNAL_RESET() {
+    trace!("LINKLAYER_DEBUG_SIGNAL_RESET");
+    todo!()
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn LINKLAYER_DEBUG_SIGNAL_TOGGLE() {
+    trace!("LINKLAYER_DEBUG_SIGNAL_TOGGLE");
+    todo!()
 }
