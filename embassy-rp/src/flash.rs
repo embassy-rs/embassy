@@ -433,7 +433,12 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> embedded_storage_async::nor_flash
     const ERASE_SIZE: usize = ERASE_SIZE;
 
     async fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
-        self.blocking_erase(from, to)
+        for start in (from..to).step_by(8192) {
+            self.blocking_erase(start, (start + 8192).min(to))?;
+            embassy_futures::yield_now().await;
+        }
+
+        Ok(())
     }
 
     async fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
