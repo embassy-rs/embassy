@@ -286,6 +286,11 @@ pub fn config() -> Config {
     #[allow(unused_mut)]
     let mut config = Config::default();
 
+    #[cfg(feature = "stop")]
+    {
+        config.rtc._disable_rtc = true;
+    }
+
     #[cfg(any(feature = "stm32c031c6", feature = "stm32c071rb"))]
     {
         config.rcc.hsi = Some(Hsi {
@@ -475,8 +480,6 @@ pub fn config() -> Config {
         config.rcc.apb3_pre = APBPrescaler::DIV1;
         config.rcc.sys = Sysclk::PLL1_P;
         config.rcc.voltage_scale = VoltageScale::Scale0;
-
-        config.rtc._disable_rtc = true;
     }
 
     #[cfg(feature = "stm32h503rb")]

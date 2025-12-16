@@ -307,7 +307,8 @@ impl Executor {
         compiler_fence(Ordering::SeqCst);
 
         critical_section::with(|cs| {
-            let _ = unsafe { RCC_CONFIG }?;
+            unsafe { RCC_CONFIG }?;
+            get_driver().has_rtc(cs).then_some(())?;
             let stop_mode = Self::stop_mode(cs)?;
             get_driver().pause_time(cs).ok()?;
             self.configure_stop(cs, stop_mode).ok()?;

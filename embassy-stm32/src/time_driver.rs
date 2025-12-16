@@ -335,6 +335,12 @@ impl RtcDriver {
         !regs_gp16().cr1().read().cen()
     }
 
+    #[cfg(feature = "low-power")]
+    /// Returns whether time is currently stopped
+    pub(crate) fn has_rtc(&self, cs: CriticalSection) -> bool {
+        self.rtc.borrow(cs).borrow().is_some()
+    }
+
     fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
         let r = regs_gp16();
 
