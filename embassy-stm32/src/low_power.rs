@@ -124,9 +124,9 @@ impl Into<Lpms> for StopMode {
     fn into(self) -> Lpms {
         match self {
             StopMode::Stop1 => Lpms::STOP1,
-            #[cfg(not(any(stm32wb, stm32wba)))]
+            #[cfg(not(stm32wba))]
             StopMode::Standby | StopMode::Stop2 => Lpms::STOP2,
-            #[cfg(any(stm32wb, stm32wba))]
+            #[cfg(stm32wba)]
             StopMode::Standby | StopMode::Stop2 => Lpms::STOP1, // TODO: WBA has no STOP2?
         }
     }
@@ -170,24 +170,44 @@ impl Executor {
         }
 
         critical_section::with(|cs| {
-            #[cfg(stm32wlex)]
+            #[cfg(any(stm32wlex, stm32wb))]
             {
                 let es = crate::pac::PWR.extscr().read();
+                #[cfg(stm32wlex)]
                 match (es.c1stopf(), es.c1stop2f()) {
                     (true, false) => debug!("low power: wake from STOP1"),
                     (false, true) => debug!("low power: wake from STOP2"),
                     (true, true) => debug!("low power: wake from STOP1 and STOP2 ???"),
                     (false, false) => trace!("low power: stop mode not entered"),
                 };
+
+                #[cfg(stm32wb)]
+                match (es.c1stopf(), es.c2stopf()) {
+                    (true, false) => debug!("low power: cpu1 wake from STOP"),
+                    (false, true) => debug!("low power: cpu2 wake from STOP"),
+                    (true, true) => debug!("low power: cpu1 and cpu2 wake from STOP"),
+                    (false, false) => trace!("low power: stop mode not entered"),
+                };
                 crate::pac::PWR.extscr().modify(|w| {
                     w.set_c1cssf(false);
                 });
 
-                if es.c1stop2f() || es.c1stopf() {
+                let has_stopped2 = {
+                    #[cfg(stm32wb)]
+                    {
+                        es.c2stopf()
+                    }
+
+                    #[cfg(stm32wlex)]
+                    {
+                        es.c1stop2f()
+                    }
+                };
+
+                if es.c1stopf() || has_stopped2 {
                     // when we wake from any stop mode we need to re-initialize the rcc
                     crate::rcc::init(RCC_CONFIG.unwrap());
-
-                    if es.c1stop2f() {
+                    if has_stopped2 {
                         // when we wake from STOP2, we need to re-initialize the time driver
                         get_driver().init_timer(cs);
                         // reset the refcounts for STOP2 and STOP1 (initializing the time driver will increment one of them for the timer)
@@ -275,6 +295,20 @@ impl Executor {
         });
 
         drop(sem3_mutex);
+
+        // on PWR
+        RCC.apb1enr1().modify(|r| r.0 |= 1 << 28);
+        cortex_m::asm::dsb();
+
+        // off SMPS, on Bypass
+        PWR.cr5().modify(|r| {
+            let mut val = r.0;
+            val &= !(1 << 15); // sdeb = 0 (off SMPS)
+            val |= 1 << 14; // sdben = 1 (on Bypass)
+            r.0 = val
+        });
+
+        cortex_m::asm::delay(1000);
 
         Ok(())
     }
