@@ -94,6 +94,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix: stm32l47*/stm32l48* adc analog pin setup
 - fix: keep stm32/sai: make NODIV independent of MCKDIV
 - fix: Source system clock from MSIS before (de)configuring PLLs on STM32U5
+- feat: adc: allow DMA reads to loop through enabled channels
 
 ## 0.4.0 - 2025-08-26
 
