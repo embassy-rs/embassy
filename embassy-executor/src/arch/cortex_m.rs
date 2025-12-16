@@ -1,3 +1,10 @@
+#[cfg(feature = "__thread_pending")]
+use core::sync::atomic;
+
+#[cfg(feature = "__thread_pending")]
+/// Boolean that is reset when __pend is called
+pub static __THREAD_PENDING: atomic::AtomicBool = atomic::AtomicBool::new(false);
+
 #[unsafe(export_name = "__pender")]
 #[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
 fn __pender(context: *mut ()) {
@@ -10,6 +17,9 @@ fn __pender(context: *mut ()) {
         #[cfg(feature = "executor-thread")]
         // Try to make Rust optimize the branching away if we only use thread mode.
         if !cfg!(feature = "executor-interrupt") || context == THREAD_PENDER {
+            #[cfg(feature = "__thread_pending")]
+            __THREAD_PENDING.store(true, atomic::Ordering::Release);
+
             core::arch::asm!("sev");
             return;
         }

@@ -171,6 +171,7 @@ trace = ["_any_trace"]
 ## Enable support for rtos-trace framework
 rtos-trace = ["_any_trace", "metadata-name", "dep:rtos-trace", "embassy-time-driver"]
 _any_trace = []
+__thread_pending = []
 
 ## Enable "Earliest Deadline First" Scheduler, using soft-realtime "deadlines" to prioritize
 ## tasks based on the remaining time before their deadline. Adds some overhead.

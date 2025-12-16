@@ -55,7 +55,6 @@ use crate::rcc::{BusyPeripheral, RCC_CONFIG, REFCOUNT_STOP1, REFCOUNT_STOP2};
 use crate::time_driver::get_driver;
 
 const THREAD_PENDER: usize = usize::MAX;
-
 static mut EXECUTOR_TAKEN: bool = false;
 
 /// Prevent the device from going into the stop mode if held
@@ -298,13 +297,19 @@ impl Executor {
 
     fn configure_pwr(&self) {
         Self::get_scb().clear_sleepdeep();
+
+        if __THREAD_PENDING.load(Ordering::Acquire) {
+            __THREAD_PENDING.store(false, Ordering::Release);
+            return;
+        }
+
         // Clear any previous stop flags
         #[cfg(stm32wlex)]
         crate::pac::PWR.extscr().modify(|w| {
             w.set_c1cssf(true);
         });
 
-        compiler_fence(Ordering::SeqCst);
+        compiler_fence(Ordering::Acquire);
 
         critical_section::with(|cs| {
             let _ = unsafe { RCC_CONFIG }?;
