@@ -5,8 +5,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
 use embassy_stm32::rcc::*;
-use embassy_stm32::rtc::DayOfWeek;
-use embassy_stm32::rtc::{DateTime, Rtc, RtcApi, RtcConfig, RtcError, RtcInstance, RtcTimeProvider};
+use embassy_stm32::rtc::{DateTime, DayOfWeek, Rtc, RtcApi, RtcConfig, RtcError, RtcInstance, RtcTimeProvider};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
