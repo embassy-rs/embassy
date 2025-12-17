@@ -77,7 +77,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rtc_new() {
+    fn test_rtc_instantiates_correctly() {
         let mock = MockRtc::new();
         let _rtc = Rtc::new(mock);
         // Just verify it compiles and can be created
