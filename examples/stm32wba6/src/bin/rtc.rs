@@ -116,20 +116,20 @@ async fn main(_spawner: Spawner) {
     let mut my_rtc = Rtc::new(stm32_rtc);
 
     // Setting datetime using API format
-    // let initial_datetime = DateTime {
-    //     year: 2022,
-    //     month: 12,
-    //     day: 18,
-    //     week_day: 7, // Saturday
-    //     hour: 0,
-    //     minute: 0,
-    //     second: 0,
-    // };
+    let initial_datetime = DateTime {
+        year: 2022,
+        month: 12,
+        day: 18,
+        week_day: 7, // Saturday
+        hour: 0,
+        minute: 0,
+        second: 0,
+    };
 
-    // match my_rtc.set_date_time(initial_datetime) {
-    //     Ok(()) => info!("RTC set successfully."),
-    //     Err(e) => error!("Failed to set RTC date/time: {:?}", e),
-    // }
+    match my_rtc.set_date_time(initial_datetime) {
+        Ok(()) => info!("RTC set successfully."),
+        Err(e) => error!("Failed to set RTC date/time: {:?}", e),
+    }
 
     // Reading datetime every 1s
     loop {
@@ -140,7 +140,6 @@ async fn main(_spawner: Spawner) {
             ),
             Err(e) => error!("Failed to get RTC date/time: {:?}", e),
         }
-        info!("Testing ...");
         Timer::after_millis(1000).await;
     }
 }
