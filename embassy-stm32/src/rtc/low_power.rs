@@ -27,6 +27,17 @@ foreach_interrupt! {
 
 fn unpend_wakeup_alarm() {
     critical_section::with(|_| {
+        #[cfg(any(
+            rtc_v2f0, rtc_v2f2, rtc_v2f3, rtc_v2f4, rtc_v2f7, rtc_v2h7, rtc_v2l0, rtc_v2l1, rtc_v2l4, rtc_v2wb
+        ))]
+        RTC::regs().isr().modify(|w| w.set_wutf(false));
+
+        #[cfg(any(rtc_v3, rtc_v3u5, rtc_v3l5))]
+        {
+            use crate::pac::rtc::vals::Calrf;
+            RTC::regs().scr().write(|w| w.set_cwutf(Calrf::CLEAR));
+        }
+
         // Check RM for EXTI and/or NVIC section, "Event event input mapping" or "EXTI interrupt/event mapping" or something similar,
         // there is a table for every "Event input" / "EXTI Line".
         // If you find the EXTI line related to "RTC wakeup" marks as "Configurable" (not "Direct"),
