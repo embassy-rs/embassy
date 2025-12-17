@@ -1847,3 +1847,7 @@ stm32wle5cc = [ "stm32-metapac/stm32wle5cc" ]
 stm32wle5j8 = [ "stm32-metapac/stm32wle5j8" ]
 stm32wle5jb = [ "stm32-metapac/stm32wle5jb" ]
 stm32wle5jc = [ "stm32-metapac/stm32wle5jc" ]
+
+
+# host tests should use this — it must NOT enable PAC or cortex-m-rt
+test-mock = []

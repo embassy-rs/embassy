@@ -2,11 +2,11 @@
 #![no_main]
 
 use defmt::*;
-use embassy_examples_common::rtc_api::*;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
 use embassy_stm32::rcc::*;
-use embassy_stm32::rtc::{DateTime as EmbassyDateTime, DayOfWeek, Rtc as EmbassyRtc, RtcConfig, RtcTimeProvider};
+use embassy_stm32::rtc::DayOfWeek;
+use embassy_stm32::rtc::{DateTime, Rtc, RtcApi, RtcConfig, RtcError, RtcInstance, RtcTimeProvider};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -36,69 +36,22 @@ pub fn pll_init(config: &mut Config) {
 
 // STM32-specific wrapper that implements RtcInstance
 pub struct Stm32Rtc {
-    rtc_tuple: (EmbassyRtc, RtcTimeProvider),
+    rtc_tuple: (Rtc, RtcTimeProvider),
 }
 
 impl Stm32Rtc {
-    pub fn new(rtc_tuple: (EmbassyRtc, RtcTimeProvider)) -> Self {
+    pub fn new(rtc_tuple: (Rtc, RtcTimeProvider)) -> Self {
         Self { rtc_tuple }
-    }
-
-    fn embassy_to_api_datetime(embassy_dt: &EmbassyDateTime) -> DateTime {
-        DateTime {
-            year: embassy_dt.year(),
-            month: embassy_dt.month(),
-            day: embassy_dt.day(),
-            week_day: embassy_dt.day_of_week() as u8,
-            hour: embassy_dt.hour(),
-            minute: embassy_dt.minute(),
-            second: embassy_dt.second(),
-        }
-    }
-
-    fn api_to_embassy_datetime_impl(api_dt: &DateTime) -> Result<EmbassyDateTime, RtcError> {
-        let day_of_week = match api_dt.week_day {
-            1 => DayOfWeek::Monday,
-            2 => DayOfWeek::Tuesday,
-            3 => DayOfWeek::Wednesday,
-            4 => DayOfWeek::Thursday,
-            5 => DayOfWeek::Friday,
-            6 => DayOfWeek::Saturday,
-            7 => DayOfWeek::Sunday,
-            _ => return Err(RtcError::InvalidInput),
-        };
-
-        EmbassyDateTime::from(
-            api_dt.year,
-            api_dt.month,
-            api_dt.day,
-            day_of_week,
-            api_dt.hour,
-            api_dt.minute,
-            api_dt.second,
-            0, // microseconds
-        )
-        .map_err(|_| RtcError::InvalidInput)
     }
 }
 
 impl RtcInstance for Stm32Rtc {
     fn set_date_time(&mut self, new_date_time: DateTime) -> Result<(), RtcError> {
-        println!("set_date_time ...");
-        let embassy_dt = Self::api_to_embassy_datetime_impl(&new_date_time)?;
-        println!("setting {:?} ", embassy_dt);
-        self.rtc_tuple
-            .0
-            .set_datetime(embassy_dt)
-            .map_err(|_| RtcError::HardwareError)
+        self.rtc_tuple.0.set_datetime(new_date_time)
     }
 
     fn get_date_time(&mut self) -> Result<DateTime, RtcError> {
-        self.rtc_tuple
-            .1
-            .now()
-            .map(|dt| Self::embassy_to_api_datetime(&dt))
-            .map_err(|_| RtcError::HardwareError)
+        self.rtc_tuple.1.now()
     }
 }
 
@@ -110,21 +63,13 @@ async fn main(_spawner: Spawner) {
 
     let p = embassy_stm32::init(config);
 
-    let rtc_tuple = EmbassyRtc::new(p.RTC, RtcConfig::default());
+    let rtc_tuple = Rtc::new(p.RTC, RtcConfig::default());
 
     let stm32_rtc = Stm32Rtc::new(rtc_tuple);
-    let mut my_rtc = Rtc::new(stm32_rtc);
+    let mut my_rtc = RtcApi::new(stm32_rtc);
 
     // Setting datetime using API format
-    let initial_datetime = DateTime {
-        year: 2022,
-        month: 12,
-        day: 18,
-        week_day: 7, // Saturday
-        hour: 0,
-        minute: 0,
-        second: 0,
-    };
+    let initial_datetime = DateTime::from(2022, 12, 18, DayOfWeek::Sunday, 0, 0, 0, 0).unwrap();
 
     match my_rtc.set_date_time(initial_datetime) {
         Ok(()) => info!("RTC set successfully."),
@@ -136,7 +81,13 @@ async fn main(_spawner: Spawner) {
         match my_rtc.get_date_time() {
             Ok(result) => info!(
                 "Date: {} {}/{}/{} Time: {}:{}:{}",
-                result.week_day, result.year, result.month, result.day, result.hour, result.minute, result.second
+                result.day_of_week(),
+                result.year(),
+                result.month(),
+                result.day(),
+                result.hour(),
+                result.minute(),
+                result.second(),
             ),
             Err(e) => error!("Failed to get RTC date/time: {:?}", e),
         }

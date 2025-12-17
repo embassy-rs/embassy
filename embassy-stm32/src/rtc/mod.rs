@@ -392,3 +392,126 @@ pub(crate) fn init_rtc(cs: CriticalSection, config: RtcConfig, min_stop_pause: e
 
     trace!("low power: stop with rtc configured");
 }
+
+/// Abstraction over a Real-Time Clock (RTC) peripheral.
+///
+/// This trait defines the minimal interface required to set and retrieve
+/// calendar date and time information from an RTC implementation.
+///
+/// Implementations may represent hardware-backed RTCs (for example, STM32
+/// RTC peripherals) or software mocks used for testing.
+pub trait RtcInstance {
+    /// Set the current date and time of the RTC.
+    ///
+    /// The provided [`DateTime`] must be valid for the underlying RTC
+    /// implementation (for example, STM32 RTCs typically only support
+    /// years in the range 2000–2099).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RtcError`] if the date/time could not be written to the RTC.
+    fn set_date_time(&mut self, new_date_time: DateTime) -> Result<(), RtcError>;
+    /// Retrieve the current date and time from the RTC.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RtcError`] if the date/time could not be read from the RTC.
+    fn get_date_time(&mut self) -> Result<DateTime, RtcError>;
+}
+
+/// High-level RTC API wrapper.
+///
+/// This type provides a convenient, implementation-agnostic interface
+/// for interacting with an RTC. It is generic over an [`RtcInstance`],
+/// allowing the same API to be used with real hardware peripherals or
+/// mock implementations for testing.
+pub struct RtcApi<T: RtcInstance> {
+    peripheral: T,
+}
+
+impl<T: RtcInstance> RtcApi<T> {
+    /// Create a new [`RtcApi`] from the given RTC peripheral.
+    ///
+    /// The supplied `peripheral` must implement [`RtcInstance`].
+    pub fn new(peripheral: T) -> Self {
+        Self { peripheral }
+    }
+
+    /// Set the current date and time of the RTC.
+    ///
+    /// This forwards the request to the underlying [`RtcInstance`]
+    /// implementation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RtcError`] if the date/time could not be written to the RTC.
+    pub fn set_date_time(&mut self, new_date_time: DateTime) -> Result<(), RtcError> {
+        self.peripheral.set_date_time(new_date_time)
+    }
+
+    /// Retrieve the current date and time from the RTC.
+    ///
+    /// This forwards the request to the underlying [`RtcInstance`]
+    /// implementation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RtcError`] if the date/time could not be read from the RTC.
+    pub fn get_date_time(&mut self) -> Result<DateTime, RtcError> {
+        self.peripheral.get_date_time()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct MockRtc {
+        date_time: DateTime,
+    }
+
+    impl MockRtc {
+        fn new() -> Self {
+            Self {
+                date_time: DateTime::new(2000, 1, 1, 1, 0, 0, 0, 0),
+            }
+        }
+    }
+
+    impl RtcInstance for MockRtc {
+        fn set_date_time(&mut self, new_date_time: DateTime) -> Result<(), RtcError> {
+            self.date_time = new_date_time;
+            Ok(())
+        }
+
+        fn get_date_time(&mut self) -> Result<DateTime, RtcError> {
+            Ok(self.date_time)
+        }
+    }
+
+    #[test]
+    fn test_rtc_instantiates_correctly() {
+        let mock = MockRtc::new();
+        let _rtc = RtcApi::new(mock);
+        assert!(true);
+    }
+
+    #[test]
+    fn test_rtc_defaults_to_correct_date() {
+        let mock = MockRtc::new();
+        let mut rtc = RtcApi::new(mock);
+
+        let expected_value = DateTime::new(2000, 1, 1, 1, 0, 0, 0, 0);
+        assert_eq!(rtc.get_date_time().unwrap(), expected_value);
+    }
+
+    #[test]
+    fn test_rtc_updates_date_time_correctly() {
+        let mock = MockRtc::new();
+        let mut rtc = RtcApi::new(mock);
+
+        let expected_value = DateTime::new(2022, 12, 18, 7, 0, 0, 0, 0);
+        rtc.set_date_time(expected_value).unwrap();
+        assert_eq!(rtc.get_date_time().unwrap(), expected_value);
+    }
+}
