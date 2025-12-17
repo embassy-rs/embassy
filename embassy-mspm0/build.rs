@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Write;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -324,13 +324,18 @@ fn get_singletons(cfgs: &mut common::CfgSet) -> Vec<Singleton> {
             });
         }
 
+        // TODO: Why does C1104 generate duplicate pins?
+        let mut gpio_singletons = BTreeSet::new();
+
         // Generate each GPIO pin singleton
         if peripheral.name.starts_with("GPIO") {
             for pin in peripheral.pins {
                 let singleton = make_valid_identifier(&pin.signal);
-                singletons.push(singleton);
+                gpio_singletons.insert(singleton);
             }
         }
+
+        singletons.extend(gpio_singletons);
     }
 
     // DMA channels get their own singletons
