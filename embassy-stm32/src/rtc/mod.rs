@@ -473,7 +473,7 @@ mod tests {
     impl MockRtc {
         fn new() -> Self {
             Self {
-                date_time: DateTime::new(2000, 1, 1, 1, 0, 0, 0, 0),
+                date_time: DateTime::from(2000, 1, 1, DayOfWeek::Saturday, 0, 0, 0, 0).unwrap(),
             }
         }
     }
@@ -485,8 +485,30 @@ mod tests {
         }
 
         fn get_date_time(&mut self) -> Result<DateTime, RtcError> {
-            Ok(self.date_time)
+            // Reconstruct DateTime from fields since it doesn't implement Clone
+            Ok(DateTime::from(
+                self.date_time.year(),
+                self.date_time.month(),
+                self.date_time.day(),
+                self.date_time.day_of_week(),
+                self.date_time.hour(),
+                self.date_time.minute(),
+                self.date_time.second(),
+                self.date_time.microsecond(),
+            )
+            .unwrap())
         }
+    }
+
+    fn assert_datetime_eq(actual: &DateTime, expected: &DateTime) {
+        assert_eq!(actual.year(), expected.year(), "year mismatch");
+        assert_eq!(actual.month(), expected.month(), "month mismatch");
+        assert_eq!(actual.day(), expected.day(), "day mismatch");
+        assert_eq!(actual.day_of_week(), expected.day_of_week(), "day_of_week mismatch");
+        assert_eq!(actual.hour(), expected.hour(), "hour mismatch");
+        assert_eq!(actual.minute(), expected.minute(), "minute mismatch");
+        assert_eq!(actual.second(), expected.second(), "second mismatch");
+        assert_eq!(actual.microsecond(), expected.microsecond(), "microsecond mismatch");
     }
 
     #[test]
@@ -501,8 +523,9 @@ mod tests {
         let mock = MockRtc::new();
         let mut rtc = RtcApi::new(mock);
 
-        let expected_value = DateTime::new(2000, 1, 1, 1, 0, 0, 0, 0);
-        assert_eq!(rtc.get_date_time().unwrap(), expected_value);
+        let expected_value = DateTime::from(2000, 1, 1, DayOfWeek::Saturday, 0, 0, 0, 0).unwrap();
+        let actual = rtc.get_date_time().unwrap();
+        assert_datetime_eq(&actual, &expected_value);
     }
 
     #[test]
@@ -510,8 +533,22 @@ mod tests {
         let mock = MockRtc::new();
         let mut rtc = RtcApi::new(mock);
 
-        let expected_value = DateTime::new(2022, 12, 18, 7, 0, 0, 0, 0);
-        rtc.set_date_time(expected_value).unwrap();
-        assert_eq!(rtc.get_date_time().unwrap(), expected_value);
+        let expected_value = DateTime::from(2022, 12, 18, DayOfWeek::Sunday, 7, 0, 0, 0).unwrap();
+        rtc.set_date_time(
+            DateTime::from(
+                expected_value.year(),
+                expected_value.month(),
+                expected_value.day(),
+                expected_value.day_of_week(),
+                expected_value.hour(),
+                expected_value.minute(),
+                expected_value.second(),
+                expected_value.microsecond(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let actual = rtc.get_date_time().unwrap();
+        assert_datetime_eq(&actual, &expected_value);
     }
 }
