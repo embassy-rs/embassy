@@ -22,7 +22,12 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("Watchdog example");
 
-    let mut watchdog = Watchdog::new(p.WWDT0, Irqs);
+    let wwdt_config = hal::wwdt::Config {
+        timeout: Duration::from_millis(1050),
+        warning: Some(Duration::from_micros(4000)),
+    };
+
+    let mut watchdog = Watchdog::new(p.WWDT0, Irqs, wwdt_config).unwrap();
     let mut led = Output::new(p.P3_18, Level::High, DriveStrength::Normal, SlewRate::Fast);
 
     // Set the LED high for 2 seconds so we know when we're about to start the watchdog
@@ -30,8 +35,8 @@ async fn main(_spawner: Spawner) {
     Timer::after_secs(2).await;
 
     // Set to watchdog to generate interrupt if it's not fed within 1.05 seconds, and start it.
-    // The warning interrupt will trigger 4us before the timeout.
-    watchdog.start(Duration::from_millis(1050), Some(Duration::from_micros(4000)));
+    // The warning interrupt will trigger 4ms before the timeout.
+    watchdog.start();
     defmt::info!("Started the watchdog timer");
 
     // Blink once a second for 5 seconds, feed the watchdog timer once a second to avoid a reset
