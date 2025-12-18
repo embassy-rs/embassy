@@ -119,6 +119,28 @@ pub struct ClocksConfig {
     pub sirc: SircConfig,
     /// FRO16K clock source
     pub fro16k: Option<Fro16KConfig>,
+    /// SOSC, clk_in clock source
+    pub sosc: Option<SoscConfig>,
+}
+
+/// The mode of the external reference clock
+#[derive(Copy, Clone)]
+pub enum SoscMode {
+    /// Passive crystal oscillators
+    CrystalOscillator,
+    /// Active external reference clock
+    ActiveClock,
+}
+
+// SOSC/clk_in configuration
+#[derive(Copy, Clone)]
+pub struct SoscConfig {
+    /// Mode of the external reference clock
+    pub mode: SoscMode,
+    /// Specific frequency of the external reference clock
+    pub frequency: u32,
+    /// Power state of the external reference clock
+    pub power: PoweredClock,
 }
 
 // FIRC/FRO180M
@@ -199,6 +221,7 @@ impl Default for ClocksConfig {
                 vsys_domain_active: true,
                 vdd_core_domain_active: true,
             }),
+            sosc: None,
         }
     }
 }

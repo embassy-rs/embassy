@@ -38,7 +38,7 @@ bind_interrupts!(struct Irqs{
 
 const BLE_GAP_DEVICE_NAME_LENGTH: u8 = 7;
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     /*
         How to make this work:

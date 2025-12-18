@@ -41,7 +41,7 @@ async fn run_net(mut runner: embassy_net::Runner<'static, Driver<'static>>) -> !
     runner.run().await
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     /*
         How to make this work:

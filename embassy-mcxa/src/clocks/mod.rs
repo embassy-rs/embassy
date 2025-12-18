@@ -87,6 +87,7 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     operator.configure_firc_clocks()?;
     operator.configure_sirc_clocks()?;
     operator.configure_fro16k_clocks()?;
+    operator.configure_sosc()?;
 
     // For now, just use FIRC as the main/cpu clock, which should already be
     // the case on reset
@@ -136,6 +137,7 @@ pub fn with_clocks<R: 'static, F: FnOnce(&Clocks) -> R>(f: F) -> Option<R> {
 #[non_exhaustive]
 pub struct Clocks {
     /// The `clk_in` is a clock provided by an external oscillator
+    /// AKA SOSC
     pub clk_in: Option<Clock>,
 
     // FRO180M stuff
@@ -485,8 +487,20 @@ impl Clocks {
     }
 
     /// Ensure the `clk_in` clock is active and valid at the given power state.
-    pub fn ensure_clk_in_active(&self, _at_level: &PoweredClock) -> Result<u32, ClockError> {
-        Err(ClockError::NotImplemented { clock: "clk_in" })
+    pub fn ensure_clk_in_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
+        let Some(clk) = self.clk_in.as_ref() else {
+            return Err(ClockError::BadConfig {
+                clock: "clk_in",
+                reason: "required but not active",
+            });
+        };
+        if !clk.power.meets_requirement_of(at_level) {
+            return Err(ClockError::BadConfig {
+                clock: "clk_in",
+                reason: "not low power active",
+            });
+        }
+        Ok(clk.frequency)
     }
 
     /// Ensure the `clk_16k_vsys` clock is active and valid at the given power state.
@@ -848,6 +862,116 @@ impl ClockOperator<'_> {
             });
         }
         self.vbat0.froclke().modify(|_r, w| unsafe { w.clke().bits(bits) });
+
+        Ok(())
+    }
+
+    /// Configure the SOSC/clk_in oscillator
+    fn configure_sosc(&mut self) -> Result<(), ClockError> {
+        let Some(parts) = self.config.sosc.as_ref() else {
+            return Ok(());
+        };
+
+        let scg0 = unsafe { pac::Scg0::steal() };
+
+        // TODO: Config for the LDO? For now, if we have Sosc, just enable
+        // using the default settings:
+        // LDOBYPASS: 0/not bypassed
+        // VOUT_SEL: 0b100: 1.1v
+        // LDOEN: 0/Disabled
+        scg0.ldocsr().modify(|_r, w| w.ldoen().enabled());
+        while scg0.ldocsr().read().vout_ok().is_disabled() {}
+
+        // TODO: something something pins? This seems to work when the pins are
+        // not enabled, even if GPIO hasn't been initialized at all yet.
+        let eref = match parts.mode {
+            config::SoscMode::CrystalOscillator => pac::scg0::sosccfg::Erefs::Internal,
+            config::SoscMode::ActiveClock => pac::scg0::sosccfg::Erefs::External,
+        };
+        let freq = parts.frequency;
+
+        // TODO: Fix PAC names here
+        //
+        // #[doc = "0: Frequency range select of 8-16 MHz."]
+        // Freq16to20mhz = 0,
+        // #[doc = "1: Frequency range select of 16-25 MHz."]
+        // LowFreq = 1,
+        // #[doc = "2: Frequency range select of 25-40 MHz."]
+        // MediumFreq = 2,
+        // #[doc = "3: Frequency range select of 40-50 MHz."]
+        // HighFreq = 3,
+        let range = match freq {
+            0..8_000_000 => {
+                return Err(ClockError::BadConfig {
+                    clock: "clk_in",
+                    reason: "freq too low",
+                });
+            }
+            8_000_000..16_000_000 => pac::scg0::sosccfg::Range::Freq16to20mhz,
+            16_000_000..25_000_000 => pac::scg0::sosccfg::Range::LowFreq,
+            25_000_000..40_000_000 => pac::scg0::sosccfg::Range::MediumFreq,
+            40_000_000..50_000_001 => pac::scg0::sosccfg::Range::HighFreq,
+            50_000_001.. => {
+                return Err(ClockError::BadConfig {
+                    clock: "clk_in",
+                    reason: "freq too high",
+                });
+            }
+        };
+
+        // Set source/erefs and range
+        scg0.sosccfg().modify(|_r, w| {
+            w.erefs().variant(eref);
+            w.range().variant(range);
+            w
+        });
+
+        // Disable lock
+        scg0.sosccsr().modify(|_r, w| w.lk().clear_bit());
+
+        // TODO: We could enable the SOSC clock monitor. There are some things to
+        // figure out first:
+        //
+        // * This requires SIRC to be enabled, not sure which branch. Maybe fro12m_root?
+        // * If SOSC needs to work in deep sleep, AND the monitor is enabled:
+        //   * SIRC also need needs to be low power
+        // * We need to decide if we need an interrupt or a reset if the monitor trips
+
+        // Apply remaining config
+        scg0.sosccsr().modify(|_r, w| {
+            // For now, just disable the monitor. See above.
+            w.sosccm().disabled();
+
+            // Set deep sleep mode
+            match parts.power {
+                PoweredClock::NormalEnabledDeepSleepDisabled => {
+                    w.soscsten().clear_bit();
+                }
+                PoweredClock::AlwaysEnabled => {
+                    w.soscsten().set_bit();
+                }
+            }
+
+            // Enable SOSC
+            w.soscen().enabled()
+        });
+
+        // Wait for SOSC to be valid, check for errors
+        while !scg0.sosccsr().read().soscvld().bit_is_set() {}
+        if scg0.sosccsr().read().soscerr().is_enabled_and_error() {
+            return Err(ClockError::BadConfig {
+                clock: "clk_in",
+                reason: "soscerr is set",
+            });
+        }
+
+        // Re-lock the sosc
+        scg0.sosccsr().modify(|_r, w| w.lk().set_bit());
+
+        self.clocks.clk_in = Some(Clock {
+            frequency: freq,
+            power: parts.power,
+        });
 
         Ok(())
     }

@@ -110,10 +110,6 @@ impl<'d> MsOsDescriptorWriter<'d> {
             !self.is_empty(),
             "device features may only be added after the header is written"
         );
-        assert!(
-            self.config_mark.is_none(),
-            "device features must be added before the first configuration subset"
-        );
         self.write(desc);
     }
 

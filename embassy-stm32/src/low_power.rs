@@ -3,31 +3,31 @@
 //! The STM32 line of microcontrollers support various deep-sleep modes which exploit clock-gating
 //! to reduce power consumption. `embassy-stm32` provides a low-power executor, [`Executor`] which
 //! can use knowledge of which peripherals are currently blocked upon to transparently and safely
-//! enter such low-power modes (currently, only `STOP2`) when idle.
+//! enter such low-power modes including `STOP1` and `STOP2` when idle.
 //!
 //! The executor determines which peripherals are active by their RCC state; consequently,
-//! low-power states can only be entered if all peripherals have been `drop`'d. There are a few
-//! exceptions to this rule:
+//! low-power states can only be entered if peripherals which block stop have been `drop`'d and if
+//! peripherals that do not block stop are busy. Peripherals which never block stop include:
 //!
 //!  * `GPIO`
 //!  * `RTC`
 //!
+//! Other peripherals which block stop when busy include (this list may be stale):
+//!
+//!  * `I2C`
+//!  * `USART`
+//!
 //! Since entering and leaving low-power modes typically incurs a significant latency, the
 //! low-power executor will only attempt to enter when the next timer event is at least
-//! [`time_driver::min_stop_pause`] in the future.
+//! [`config.min_stop_pause`] in the future.
 //!
-//! Currently there is no macro analogous to `embassy_executor::main` for this executor;
-//! consequently one must define their entrypoint manually. Moreover, you must relinquish control
-//! of the `RTC` peripheral to the executor. This will typically look like
 //!
 //! ```rust,no_run
 //! use embassy_executor::Spawner;
-//! use embassy_stm32::low_power;
-//! use embassy_stm32::rtc::{Rtc, RtcConfig};
 //! use embassy_time::Duration;
 //!
-//! #[embassy_executor::main(executor = "low_power::Executor")]
-//! async fn async_main(spawner: Spawner) {
+//! #[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
+//! async fn main(spawner: Spawner) {
 //!     // initialize the platform...
 //!     let mut config = embassy_stm32::Config::default();
 //!     // the default value, but can be adjusted
@@ -210,7 +210,7 @@ impl Executor {
                     w.set_c1cssf(false);
                 });
 
-                let has_stopped2 = {
+                let _has_stopped2 = {
                     #[cfg(stm32wb)]
                     {
                         es.c2stopf()
@@ -222,10 +222,11 @@ impl Executor {
                     }
                 };
 
-                if es.c1stopf() || has_stopped2 {
+                #[cfg(not(stm32wb))]
+                if es.c1stopf() || _has_stopped2 {
                     // when we wake from any stop mode we need to re-initialize the rcc
                     crate::rcc::init(RCC_CONFIG.unwrap());
-                    if has_stopped2 {
+                    if _has_stopped2 {
                         // when we wake from STOP2, we need to re-initialize the time driver
                         get_driver().init_timer(cs);
                         // reset the refcounts for STOP2 and STOP1 (initializing the time driver will increment one of them for the timer)
