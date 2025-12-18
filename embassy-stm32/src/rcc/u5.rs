@@ -467,6 +467,11 @@ pub(crate) unsafe fn init(config: Config) {
     let lse = config.ls.lse.map(|l| l.frequency);
     let lsi = config.ls.lsi.then_some(LSI_FREQ);
 
+    // Disable HSI if not used
+    if !config.hsi {
+        RCC.cr().modify(|w| w.set_hsion(false));
+    }
+
     config.mux.init();
 
     set_clocks!(
