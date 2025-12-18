@@ -121,7 +121,11 @@ pub struct ClocksConfig {
     pub fro16k: Option<Fro16KConfig>,
     /// SOSC, clk_in clock source
     pub sosc: Option<SoscConfig>,
+    /// SPLL
+    pub spll: Option<SpllConfig>,
 }
+
+// SOSC
 
 /// The mode of the external reference clock
 #[derive(Copy, Clone)]
@@ -142,6 +146,67 @@ pub struct SoscConfig {
     /// Power state of the external reference clock
     pub power: PoweredClock,
 }
+
+// SPLL
+
+// Fin: 32kHz to 150MHz
+// Fcco: 275MHz to 550MHz
+// Fout: 4.3MHz to 2x Max CPU Frequency
+
+pub struct SpllConfig {
+    pub source: SpllSource,
+    pub mode: SpllMode,
+    pub power: PoweredClock,
+}
+
+pub enum SpllSource {
+    /// External Oscillator (8-50M)
+    Sosc,
+    /// Fast Internal Oscillator (45M)
+    // NOTE: Figure 69 says "firc_45mhz"/"clk_45m", not "fro_hf_gated",
+    // so this is is always 45MHz.
+    Firc,
+    /// S Internal Oscillator (12M)
+    Sirc,
+
+    // TODO: the reference manual hints that ROSC is possible,
+    // however the minimum input frequency is 32K, but ROSC is 16K.
+    // Some diagrams show this option, and some diagrams omit it.
+    //
+    // /// Realtime Internal Oscillator (16K Osc)
+    // Rosc,
+}
+
+/// N: 1..=255
+/// M: 1..=65535
+/// P: 1..=31
+pub enum SpllMode {
+    /// Fout = M x Fin
+    Mode1a {
+        m_mult: u16,
+    },
+    /// if !bypass_p2_div: Fout = (M / (2 x P)) x Fin
+    /// if  bypass_p2_div: Fout = (M /    P   ) x Fin
+    Mode1b {
+        m_mult: u16,
+        p_div: u8,
+        bypass_p2_div: bool,
+    },
+    /// Fout = (M / N) x Fin
+    Mode1c {
+        m_mult: u16,
+        n_div: u8,
+    },
+    /// if !bypass_p2_div: Fout = (M / (N x 2 x P)) x Fin
+    /// if  bypass_p2_div: Fout = (M / (  N x P  )) x Fin
+    Mode1d {
+        m_mult: u16,
+        n_div: u8,
+        p_div: u8,
+        bypass_p2_div: bool,
+    }
+}
+
 
 // FIRC/FRO180M
 
@@ -222,6 +287,7 @@ impl Default for ClocksConfig {
                 vdd_core_domain_active: true,
             }),
             sosc: None,
+            spll: None,
         }
     }
 }

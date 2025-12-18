@@ -88,6 +88,7 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     operator.configure_sirc_clocks()?;
     operator.configure_fro16k_clocks()?;
     operator.configure_sosc()?;
+    operator.configure_spll()?;
 
     // For now, just use FIRC as the main/cpu clock, which should already be
     // the case on reset
@@ -825,7 +826,7 @@ impl ClockOperator<'_> {
         Ok(())
     }
 
-    /// Configure the FRO16K/clk_16k clock family
+    /// Configure the ROSC/FRO16K/clk_16k clock family
     fn configure_fro16k_clocks(&mut self) -> Result<(), ClockError> {
         let Some(fro16k) = self.config.fro16k.as_ref() else {
             return Ok(());
@@ -866,21 +867,30 @@ impl ClockOperator<'_> {
         Ok(())
     }
 
+    fn ensure_ldo_active(&mut self) {
+        // TODO: Config for the LDO? For now, just enable
+        // using the default settings:
+        // LDOBYPASS: 0/not bypassed
+        // VOUT_SEL: 0b100: 1.1v
+        // LDOEN: 0/Disabled
+        let already_enabled = {
+            let ldocsr = self.scg0.ldocsr().read();
+            ldocsr.ldoen().is_enabled() && ldocsr.vout_ok().is_enabled()
+        };
+        if !already_enabled {
+            self.scg0.ldocsr().modify(|_r, w| w.ldoen().enabled());
+            while self.scg0.ldocsr().read().vout_ok().is_disabled() {}
+        }
+    }
+
     /// Configure the SOSC/clk_in oscillator
     fn configure_sosc(&mut self) -> Result<(), ClockError> {
         let Some(parts) = self.config.sosc.as_ref() else {
             return Ok(());
         };
 
-        let scg0 = unsafe { pac::Scg0::steal() };
-
-        // TODO: Config for the LDO? For now, if we have Sosc, just enable
-        // using the default settings:
-        // LDOBYPASS: 0/not bypassed
-        // VOUT_SEL: 0b100: 1.1v
-        // LDOEN: 0/Disabled
-        scg0.ldocsr().modify(|_r, w| w.ldoen().enabled());
-        while scg0.ldocsr().read().vout_ok().is_disabled() {}
+        // Enable (and wait for) LDO to be active
+        self.ensure_ldo_active();
 
         // TODO: something something pins? This seems to work when the pins are
         // not enabled, even if GPIO hasn't been initialized at all yet.
@@ -920,14 +930,14 @@ impl ClockOperator<'_> {
         };
 
         // Set source/erefs and range
-        scg0.sosccfg().modify(|_r, w| {
+        self.scg0.sosccfg().modify(|_r, w| {
             w.erefs().variant(eref);
             w.range().variant(range);
             w
         });
 
         // Disable lock
-        scg0.sosccsr().modify(|_r, w| w.lk().clear_bit());
+        self.scg0.sosccsr().modify(|_r, w| w.lk().clear_bit());
 
         // TODO: We could enable the SOSC clock monitor. There are some things to
         // figure out first:
@@ -938,7 +948,7 @@ impl ClockOperator<'_> {
         // * We need to decide if we need an interrupt or a reset if the monitor trips
 
         // Apply remaining config
-        scg0.sosccsr().modify(|_r, w| {
+        self.scg0.sosccsr().modify(|_r, w| {
             // For now, just disable the monitor. See above.
             w.sosccm().disabled();
 
@@ -957,8 +967,8 @@ impl ClockOperator<'_> {
         });
 
         // Wait for SOSC to be valid, check for errors
-        while !scg0.sosccsr().read().soscvld().bit_is_set() {}
-        if scg0.sosccsr().read().soscerr().is_enabled_and_error() {
+        while !self.scg0.sosccsr().read().soscvld().bit_is_set() {}
+        if self.scg0.sosccsr().read().soscerr().is_enabled_and_error() {
             return Err(ClockError::BadConfig {
                 clock: "clk_in",
                 reason: "soscerr is set",
@@ -966,11 +976,287 @@ impl ClockOperator<'_> {
         }
 
         // Re-lock the sosc
-        scg0.sosccsr().modify(|_r, w| w.lk().set_bit());
+        self.scg0.sosccsr().modify(|_r, w| w.lk().set_bit());
 
         self.clocks.clk_in = Some(Clock {
             frequency: freq,
             power: parts.power,
+        });
+
+        Ok(())
+    }
+
+    fn configure_spll(&mut self) -> Result<(), ClockError> {
+        // # Vocab
+        //
+        // | Name   | Meaning                                                     |
+        // | :---   | :---                                                        |
+        // | Fin    | Frequency of clkin                                          |
+        // | clkout | Output clock of the PLL                                     |
+        // | Fout   | Frequency of clkout (depends on mode)                       |
+        // | clkref | PLL Reference clock, the input clock to the PFD             |
+        // | Fref   | Frequency of clkref, Fref = Fin / N                         |
+        // | Fcco   | Frequency of the output clock of the CCO, Fcco = M * Fref   |
+        // | N      | Predivider value                                            |
+        // | M      | Feedback divider value                                      |
+        // | P      | Postdivider value                                           |
+        // | Tpon   | PLL start-up time                                           |
+
+        let Some(cfg) = self.config.spll.as_ref() else {
+            return Ok(());
+        };
+
+        let res = match cfg.source {
+            config::SpllSource::Sosc => self
+                .clocks
+                .clk_in
+                .as_ref()
+                .map(|c| (c, pac::scg0::spllctrl::Source::Sosc))
+                .ok_or("sosc not active"),
+            config::SpllSource::Firc => self
+                .clocks
+                .clk_45m
+                .as_ref()
+                .map(|c| (c, pac::scg0::spllctrl::Source::Firc))
+                .ok_or("firc not active"),
+            config::SpllSource::Sirc => self
+                .clocks
+                .fro_12m
+                .as_ref()
+                .map(|c| (c, pac::scg0::spllctrl::Source::Sirc))
+                .ok_or("sirc not active"),
+        };
+        let (clk, variant) = res.map_err(|s| ClockError::BadConfig {
+            clock: "spll",
+            reason: s,
+        })?;
+        if !clk.power.meets_requirement_of(&cfg.power) {
+            return Err(ClockError::BadConfig { clock: "spll", reason: "needs low power source" });
+        }
+
+        // Bandwidth calc
+        //
+        // > In normal applications, you must calculate the bandwidth manually by using the feedback divider M (ranging from 1 to 216-1),
+        // > Equation 1, and Equation 2. The PLL is automatically stable in such case. In normal applications, SPLLCTRL[BANDDIRECT] must
+        // > be 0; in this case, the bandwidth changes as a function of M.
+        let f_in = clk.frequency;
+        let bp_pre: bool;
+        let bp_post: bool;
+        let bp_post2: bool;
+        let m: u16;
+        let p: Option<u8>;
+        let n: Option<u8>;
+
+        // Calculate both Fout and Fcco so we can ensure they don't overflow
+        // and are in range
+        let fout: Option<u32>;
+        let fcco: Option<u32>;
+
+        match cfg.mode {
+            // Fout = M x Fin
+            config::SpllMode::Mode1a { m_mult } => {
+                bp_pre = true;
+                bp_post = true;
+                bp_post2 = false;
+                m = m_mult;
+                p = None;
+                n = None;
+                fcco = f_in.checked_mul(m_mult as u32);
+                fout = fcco;
+            }
+            // if !bypass_p2_div: Fout = (M / (2 x P)) x Fin
+            // if  bypass_p2_div: Fout = (M /    P   ) x Fin
+            config::SpllMode::Mode1b {
+                m_mult,
+                p_div,
+                bypass_p2_div,
+            } => {
+                bp_pre = true;
+                bp_post = false;
+                bp_post2 = bypass_p2_div;
+                m = m_mult;
+                p = Some(p_div);
+                n = None;
+                let mut div = p_div as u32;
+                if !bypass_p2_div {
+                    div *= 2;
+                }
+                fcco = f_in.checked_mul(m_mult as u32);
+                fout = (f_in / div).checked_mul(m_mult as u32);
+            }
+            // Fout = (M / N) x Fin
+            config::SpllMode::Mode1c { m_mult, n_div } => {
+                bp_pre = false;
+                bp_post = true;
+                bp_post2 = false;
+                m = m_mult;
+                p = None;
+                n = Some(n_div);
+                fcco = (f_in / (n_div as u32)).checked_mul(m_mult as u32);
+                fout = fcco;
+            }
+            // if !bypass_p2_div: Fout = (M / (N x 2 x P)) x Fin
+            // if  bypass_p2_div: Fout = (M / (  N x P  )) x Fin
+            config::SpllMode::Mode1d {
+                m_mult,
+                n_div,
+                p_div,
+                bypass_p2_div,
+            } => {
+                bp_pre = false;
+                bp_post = false;
+                bp_post2 = bypass_p2_div;
+                m = m_mult;
+                p = Some(p_div);
+                n = Some(n_div);
+                // This can't overflow: u8 x u8 (x 2) always fits in u32
+                let mut div = (p_div as u32) * (n_div as u32);
+                if !bypass_p2_div {
+                    div *= 2;
+                }
+                fcco = (f_in / (n_div as u32)).checked_mul(m_mult as u32);
+                fout = (f_in / div).checked_mul(m_mult as u32);
+            }
+        };
+        let fcco = fcco.ok_or(ClockError::BadConfig {
+            clock: "spll",
+            reason: "fcco invalid",
+        })?;
+        let fout = fout.ok_or(ClockError::BadConfig {
+            clock: "spll",
+            reason: "fout invalid",
+        })?;
+        // Fcco: 275MHz to 550MHz
+        if !(275_000_000..=550_000_000).contains(&fcco) {
+            return Err(ClockError::BadConfig {
+                clock: "spll",
+                reason: "fcco invalid",
+            });
+        }
+        // Fout: 4.3MHz to 2x Max CPU Frequency
+
+        // TODO: Different for different CPUs?
+        const CPU_MAX_FREQ: u32 = 180_000_000;
+        if !(4_300_000..=(2 * CPU_MAX_FREQ)).contains(&fout) {
+            return Err(ClockError::BadConfig {
+                clock: "spll",
+                reason: "fout invalid",
+            });
+        }
+
+        // TODO:
+        assert!(clk.frequency != 0);
+        assert!(m >= 1);
+        if let Some(p) = p.as_ref() {
+            assert!(*p >= 1);
+        }
+        if let Some(n) = n.as_ref() {
+            assert!(*n >= 1);
+        }
+
+        // A = floor(m / 4) + 1
+        let selp_a = (m / 4) + 1;
+        // SELP = A  if A <  31
+        //      = 31 if A >= 31
+        let selp = selp_a.min(31);
+
+        // A = 1                    if        M >= 8000
+        //   = floor(8000 / M)      if 8000 > M >= 122
+        //   = 2 x floor(M / 4) / 3 if 122  > M >= 1
+        let seli_a = if m >= 8000 {
+            1
+        } else if m >= 122 {
+            8000 / m
+        } else {
+            (2 * (m / 4)) / 3
+        };
+        // SELI = A  if A <  63
+        //      = 63 if A >= 63
+        let seli = seli_a.min(63);
+        // SELR must be 0.
+        let selr = 0;
+
+        self.scg0.spllctrl().modify(|_r, w| {
+            w.source().variant(variant);
+            unsafe {
+                w.selp().bits(selp as u8);
+                w.seli().bits(seli as u8);
+                w.selr().bits(selr);
+            }
+            w
+        });
+
+        if let Some(n) = n {
+            self.scg0.spllndiv().modify(|_r, w| unsafe { w.ndiv().bits(n) });
+        }
+        if let Some(p) = p {
+            self.scg0.spllpdiv().modify(|_r, w| unsafe { w.pdiv().bits(p) });
+        }
+        self.scg0.spllmdiv().modify(|_r, w| unsafe { w.mdiv().bits(m) });
+
+        self.scg0.spllctrl().modify(|_r, w| {
+            w.bypassprediv().bit(bp_pre);
+            w.bypasspostdiv().bit(bp_post);
+            w.bypasspostdiv2().bit(bp_post2);
+
+            // TODO: support FRM?
+            w.frm().disabled();
+
+            w
+        });
+
+        // Unlock
+        self.scg0.spllcsr().modify(|_r, w| w.lk().write_enabled());
+
+        // TODO: Support clock monitors?
+        // self.scg0.spllcsr().modify(|_r, w| w.spllcm().?);
+
+        self.scg0.trim_lock().write(|w| unsafe {
+            w.trim_lock_key().bits(0x5a5a);
+            w.trim_unlock().not_locked()
+        });
+
+        // SPLLLOCK_CNFG: The lock time programmed in this register must be
+        // equal to meet the PLL 500μs lock time plus the 300 refclk count startup.
+        //
+        // LOCK_TIME = 500μs/T ref + 300, F ref = F in /N (input frequency divided by pre-divider ratio).
+        //
+        // 500us is 1/2000th of a second, therefore Fref / 2000 is the number of cycles in 500us.
+        let f_ref = if let Some(n) = n { f_in / (n as u32) } else { f_in };
+        let lock_time = f_ref.div_ceil(2000) + 300;
+        self.scg0
+            .splllock_cnfg()
+            .write(|w| unsafe { w.lock_time().bits(lock_time) });
+
+        // TODO: Support Spread spectrum?
+
+        self.scg0.spllcsr().modify(|_r, w| {
+            w.spllclken().enabled();
+            w.spllpwren().enabled();
+            w.spllsten().bit(matches!(cfg.power, PoweredClock::AlwaysEnabled));
+            w
+        });
+
+        // Wait for SPLL to set up
+        loop {
+            let csr = self.scg0.spllcsr().read();
+            if csr.spll_lock().is_enabled_and_valid() {
+                if csr.spllerr().is_enabled_and_error() {
+                    return Err(ClockError::BadConfig {
+                        clock: "spll",
+                        reason: "spllerr is set",
+                    });
+                }
+                break;
+            }
+        }
+
+        // Re-lock SPLL CSR
+        self.scg0.spllcsr().modify(|_r, w| w.lk().write_disabled());
+
+        self.clocks.pll1_clk = Some(Clock {
+            frequency: fout,
+            power: cfg.power,
         });
 
         Ok(())
