@@ -978,6 +978,9 @@ impl ClockOperator<'_> {
             return Ok(());
         };
 
+        // Ensure the LDO is active
+        self.ensure_ldo_active();
+
         // match on the source, ensure it is active already
         let res = match cfg.source {
             config::SpllSource::Sosc => self
