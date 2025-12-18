@@ -121,7 +121,11 @@ pub struct ClocksConfig {
     pub fro16k: Option<Fro16KConfig>,
     /// SOSC, clk_in clock source
     pub sosc: Option<SoscConfig>,
+    /// SPLL
+    pub spll: Option<SpllConfig>,
 }
+
+// SOSC
 
 /// The mode of the external reference clock
 #[derive(Copy, Clone)]
@@ -132,7 +136,7 @@ pub enum SoscMode {
     ActiveClock,
 }
 
-// SOSC/clk_in configuration
+/// SOSC/clk_in configuration
 #[derive(Copy, Clone)]
 pub struct SoscConfig {
     /// Mode of the external reference clock
@@ -141,6 +145,114 @@ pub struct SoscConfig {
     pub frequency: u32,
     /// Power state of the external reference clock
     pub power: PoweredClock,
+}
+
+// SPLL
+
+/// PLL1/SPLL configuration
+pub struct SpllConfig {
+    /// Input clock source for the PLL1/SPLL
+    pub source: SpllSource,
+    /// Mode of operation for the PLL1/SPLL
+    pub mode: SpllMode,
+    /// Power state of the SPLL
+    pub power: PoweredClock,
+    /// Is the "pll1_clk_div" clock enabled?
+    pub pll1_clk_div: Option<Div8>,
+}
+
+/// Input clock source for the PLL1/SPLL
+pub enum SpllSource {
+    /// External Oscillator (8-50MHz)
+    Sosc,
+    /// Fast Internal Oscillator (45MHz)
+    // NOTE: Figure 69 says "firc_45mhz"/"clk_45m", not "fro_hf_gated",
+    // so this is is always 45MHz.
+    Firc,
+    /// S Internal Oscillator (12M)
+    Sirc,
+    // TODO: the reference manual hints that ROSC is possible,
+    // however the minimum input frequency is 32K, but ROSC is 16K.
+    // Some diagrams show this option, and some diagrams omit it.
+    // SVD shows it as "reserved".
+    //
+    // /// Realtime Internal Oscillator (16K Osc)
+    // Rosc,
+}
+
+/// Mode of operation for the SPLL/PLL1
+///
+/// NOTE: Currently, only "Mode 1" normal operational modes are implemented,
+/// as described in the Reference Manual.
+#[non_exhaustive]
+pub enum SpllMode {
+    /// Mode 1a does not use the Pre/Post dividers.
+    ///
+    /// `Fout = m_mult x SpllSource`
+    ///
+    /// Both of the following constraints must be met:
+    ///
+    /// * Fout: 275MHz to 550MHz
+    /// * Fout: 4.3MHz to 2x Max CPU Frequency
+    Mode1a {
+        /// PLL Multiplier. Must be in the range 1..=65535.
+        m_mult: u16,
+    },
+
+    /// Mode 1b does not use the Pre-divider.
+    ///
+    /// * `if !bypass_p2_div: Fout = (M / (2 x P)) x Fin`
+    /// * `if  bypass_p2_div: Fout = (M /    P   ) x Fin`
+    ///
+    /// Both of the following constraints must be met:
+    ///
+    /// * Fcco: 275MHz to 550MHz
+    ///   * `Fcco = m_mult x SpllSource`
+    /// * Fout: 4.3MHz to 2x Max CPU Frequency
+    Mode1b {
+        /// PLL Multiplier. `m_mult` must be in the range 1..=65535.
+        m_mult: u16,
+        /// Post Divider. `p_div` must be in the range 1..=31.
+        p_div: u8,
+        /// Bonus post divider
+        bypass_p2_div: bool,
+    },
+
+    /// Mode 1c does use the Pre-divider, but does not use the Post-divider
+    ///
+    /// `Fout = (M / N) x Fin`
+    ///
+    /// Both of the following constraints must be met:
+    ///
+    /// * Fout: 275MHz to 550MHz
+    /// * Fout: 4.3MHz to 2x Max CPU Frequency
+    Mode1c {
+        /// PLL Multiplier. `m_mult` must be in the range 1..=65535.
+        m_mult: u16,
+        /// Pre Divider. `n_div` must be in the range 1..=255.
+        n_div: u8,
+    },
+
+    /// Mode 1b uses both the Pre and Post dividers.
+    ///
+    /// * `if !bypass_p2_div: Fout = (M / (N x 2 x P)) x Fin`
+    /// * `if  bypass_p2_div: Fout = (M / (  N x P  )) x Fin`
+    ///
+    /// Both of the following constraints must be met:
+    ///
+    /// * Fcco: 275MHz to 550MHz
+    ///   * `Fcco = (m_mult x SpllSource) / (n_div x p_div (x 2))`
+    /// * Fout: 4.3MHz to 2x Max CPU Frequency
+    Mode1d {
+        /// PLL Multiplier. `m_mult` must be in the range 1..=65535.
+        m_mult: u16,
+        /// Pre Divider. `n_div` must be in the range 1..=255.
+        n_div: u8,
+        /// Post Divider. `p_div` must be in the range 1..=31.
+        p_div: u8,
+        /// Bonus post divider
+        bypass_p2_div: bool,
+    },
 }
 
 // FIRC/FRO180M
@@ -222,6 +334,7 @@ impl Default for ClocksConfig {
                 vdd_core_domain_active: true,
             }),
             sosc: None,
+            spll: None,
         }
     }
 }
