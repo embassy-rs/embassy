@@ -1,4 +1,4 @@
-#![cfg_attr(not(any(feature = "arch-std", feature = "arch-wasm")), no_std)]
+#![cfg_attr(not(any(feature = "platform-std", feature = "platform-wasm")), no_std)]
 #![allow(clippy::new_without_default)]
 #![allow(unsafe_op_in_unsafe_fn)]
 #![doc = include_str!("../README.md")]
@@ -25,30 +25,30 @@ macro_rules! check_at_most_one {
     };
 }
 check_at_most_one!(
-    "arch-avr",
-    "arch-cortex-m",
-    "arch-cortex-ar",
-    "arch-riscv32",
-    "arch-std",
-    "arch-wasm",
-    "arch-spin",
+    "platform-avr",
+    "platform-cortex-m",
+    "platform-aarch32",
+    "platform-riscv32",
+    "platform-std",
+    "platform-wasm",
+    "platform-spin",
 );
 
-#[cfg(feature = "_arch")]
-#[cfg_attr(feature = "arch-avr", path = "arch/avr.rs")]
-#[cfg_attr(feature = "arch-cortex-m", path = "arch/cortex_m.rs")]
-#[cfg_attr(feature = "arch-cortex-ar", path = "arch/cortex_ar.rs")]
-#[cfg_attr(feature = "arch-riscv32", path = "arch/riscv32.rs")]
-#[cfg_attr(feature = "arch-std", path = "arch/std.rs")]
-#[cfg_attr(feature = "arch-wasm", path = "arch/wasm.rs")]
-#[cfg_attr(feature = "arch-spin", path = "arch/spin.rs")]
-mod arch;
+#[cfg(feature = "_platform")]
+#[cfg_attr(feature = "platform-avr", path = "platform/avr.rs")]
+#[cfg_attr(feature = "platform-cortex-m", path = "platform/cortex_m.rs")]
+#[cfg_attr(feature = "platform-aarch32", path = "platform/aarch32.rs")]
+#[cfg_attr(feature = "platform-riscv32", path = "platform/riscv32.rs")]
+#[cfg_attr(feature = "platform-std", path = "platform/std.rs")]
+#[cfg_attr(feature = "platform-wasm", path = "platform/wasm.rs")]
+#[cfg_attr(feature = "platform-spin", path = "platform/spin.rs")]
+mod platform;
 
-#[cfg(feature = "_arch")]
-#[allow(unused_imports)] // don't warn if the module is empty.
-pub use arch::*;
-#[cfg(not(feature = "_arch"))]
+#[cfg(not(feature = "_platform"))]
 pub use embassy_executor_macros::main_unspecified as main;
+#[cfg(feature = "_platform")]
+#[allow(unused_imports)] // don't warn if the module is empty.
+pub use platform::*;
 
 pub mod raw;
 

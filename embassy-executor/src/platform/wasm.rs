@@ -1,5 +1,5 @@
 #[cfg(feature = "executor-interrupt")]
-compile_error!("`executor-interrupt` is not supported with `arch-wasm`.");
+compile_error!("`executor-interrupt` is not supported with `platform-wasm`.");
 
 #[cfg(feature = "executor-thread")]
 pub use thread::*;

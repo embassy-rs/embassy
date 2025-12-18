@@ -7,6 +7,6 @@ fn main() {
 
     // This is used to exclude legacy architecture support. The raw executor needs to be used for
     // those architectures because SEV/WFE are not supported.
-    #[cfg(feature = "arch-cortex-ar")]
+    #[cfg(feature = "platform-aarch32")]
     arm_targets::process();
 }

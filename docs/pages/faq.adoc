@@ -31,7 +31,7 @@ You are likely missing some features of the `embassy-executor` crate.
 
 For Cortex-M targets, check whether ALL of the following features are enabled in your `Cargo.toml` for the `embassy-executor` crate:
 
-* `arch-cortex-m`
+* `platform-cortex-m`
 * `executor-thread`
 
 For ESP32, consider using the executors and `#[main]` macro provided by your appropriate link:https://crates.io/crates/esp-hal-common[HAL crate].
@@ -128,7 +128,7 @@ Another common error you may experience is:
 
 There are two possible causes to this error:
 
-* You are using `embassy-executor` withuout enabling one of the architecture-specific features, but you are using a HAL that does not bring its own executors. For example, for Cortex-M (like the RP2040), you need to enable the `arch-cortex-m` feature of `embassy-executor`.
+* You are using `embassy-executor` withuout enabling one of the architecture-specific features, but you are using a HAL that does not bring its own executors. For example, for Cortex-M (like the RP2040), you need to enable the `platform-cortex-m` feature of `embassy-executor`.
 * You are not using `embassy-executor`. In this case, you need to enable the one of the `generic-queue-X` features of `embassy-time`.
 
 == Error: `Only one package in the dependency graph may specify the same links value.`

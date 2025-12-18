@@ -82,7 +82,7 @@ At the time of writing, embassy is already published to crates.io. Therefore, de
 ----
 [dependencies]
 embassy-stm32 = { version = "0.1.0", features =  ["defmt", "time-driver-any", "stm32g474re", "memory-x", "unstable-pac", "exti"] }
-embassy-executor = { version = "0.6.3", features = ["nightly", "arch-cortex-m", "executor-thread", "defmt"] }
+embassy-executor = { version = "0.6.3", features = ["nightly", "platform-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.3.2", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 ----
 
@@ -102,7 +102,7 @@ An example Cargo.toml file might look as follows:
 ----
 [dependencies]
 embassy-stm32 = {version = "0.1.0", features =  ["defmt", "time-driver-any", "stm32g474re", "memory-x", "unstable-pac", "exti"]}
-embassy-executor = { version = "0.3.3", features = ["nightly", "arch-cortex-m", "executor-thread", "defmt"] }
+embassy-executor = { version = "0.3.3", features = ["nightly", "platform-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.2", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 
 [patch.crates-io]

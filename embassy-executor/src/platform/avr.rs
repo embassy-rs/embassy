@@ -1,18 +1,17 @@
 #[cfg(feature = "executor-interrupt")]
-compile_error!("`executor-interrupt` is not supported with `arch-riscv32`.");
+compile_error!("`executor-interrupt` is not supported with `platform-avr`.");
 
 #[cfg(feature = "executor-thread")]
 pub use thread::*;
 #[cfg(feature = "executor-thread")]
 mod thread {
     use core::marker::PhantomData;
-    use core::sync::atomic::{AtomicBool, Ordering};
 
-    pub use embassy_executor_macros::main_riscv as main;
+    pub use embassy_executor_macros::main_avr as main;
+    use portable_atomic::{AtomicBool, Ordering};
 
     use crate::{Spawner, raw};
 
-    /// global atomic used to keep track of whether there is work to do since sev() is not available on RISCV
     static SIGNAL_WORK_THREAD_MODE: AtomicBool = AtomicBool::new(false);
 
     #[unsafe(export_name = "__pender")]
@@ -20,7 +19,7 @@ mod thread {
         SIGNAL_WORK_THREAD_MODE.store(true, Ordering::SeqCst);
     }
 
-    /// RISCV32 Executor
+    /// avr Executor
     pub struct Executor {
         inner: raw::Executor,
         not_send: PhantomData<*mut ()>,
@@ -58,21 +57,14 @@ mod thread {
 
             loop {
                 unsafe {
-                    self.inner.poll();
-                    // we do not care about race conditions between the load and store operations, interrupts
-                    //will only set this value to true.
-                    critical_section::with(|_| {
-                        // if there is work to do, loop back to polling
-                        // TODO can we relax this?
-                        if SIGNAL_WORK_THREAD_MODE.load(Ordering::SeqCst) {
-                            SIGNAL_WORK_THREAD_MODE.store(false, Ordering::SeqCst);
-                        }
-                        // if not, wait for interrupt
-                        else {
-                            core::arch::asm!("wfi");
-                        }
-                    });
-                    // if an interrupt occurred while waiting, it will be serviced here
+                    avr_device::interrupt::disable();
+                    if !SIGNAL_WORK_THREAD_MODE.swap(false, Ordering::SeqCst) {
+                        avr_device::interrupt::enable();
+                        avr_device::asm::sleep();
+                    } else {
+                        avr_device::interrupt::enable();
+                        self.inner.poll();
+                    }
                 }
             }
         }

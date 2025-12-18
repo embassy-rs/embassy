@@ -1,25 +1,46 @@
+#[cfg(arm_profile = "legacy")]
+compile_error!("`platform-aarch32` does not support the legacy ARM profile, WFE/SEV are not available.");
+
 #[cfg(feature = "executor-interrupt")]
-compile_error!("`executor-interrupt` is not supported with `arch-avr`.");
+compile_error!("`executor-interrupt` is not supported with `platform-aarch32`.");
+
+#[unsafe(export_name = "__pender")]
+#[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
+fn __pender(context: *mut ()) {
+    // `context` is always `usize::MAX` created by `Executor::run`.
+    let context = context as usize;
+
+    #[cfg(feature = "executor-thread")]
+    // Try to make Rust optimize the branching away if we only use thread mode.
+    if !cfg!(feature = "executor-interrupt") || context == THREAD_PENDER {
+        aarch32_cpu::asm::sev();
+        return;
+    }
+}
 
 #[cfg(feature = "executor-thread")]
 pub use thread::*;
 #[cfg(feature = "executor-thread")]
 mod thread {
+    pub(super) const THREAD_PENDER: usize = usize::MAX;
+
     use core::marker::PhantomData;
 
-    pub use embassy_executor_macros::main_avr as main;
-    use portable_atomic::{AtomicBool, Ordering};
+    use aarch32_cpu::asm::wfe;
+    pub use embassy_executor_macros::main_aarch32 as main;
 
     use crate::{Spawner, raw};
 
-    static SIGNAL_WORK_THREAD_MODE: AtomicBool = AtomicBool::new(false);
-
-    #[unsafe(export_name = "__pender")]
-    fn __pender(_context: *mut ()) {
-        SIGNAL_WORK_THREAD_MODE.store(true, Ordering::SeqCst);
-    }
-
-    /// avr Executor
+    /// Thread mode executor, using WFE/SEV.
+    ///
+    /// This is the simplest and most common kind of executor. It runs on
+    /// thread mode (at the lowest priority level), and uses the `WFE` ARM instruction
+    /// to sleep when it has no more work to do. When a task is woken, a `SEV` instruction
+    /// is executed, to make the `WFE` exit from sleep and poll the task.
+    ///
+    /// This executor allows for ultra low power consumption for chips where `WFE`
+    /// triggers low-power sleep without extra steps. If your chip requires extra steps,
+    /// you may use [`raw::Executor`] directly to program custom behavior.
     pub struct Executor {
         inner: raw::Executor,
         not_send: PhantomData<*mut ()>,
@@ -29,7 +50,7 @@ mod thread {
         /// Create a new Executor.
         pub fn new() -> Self {
             Self {
-                inner: raw::Executor::new(core::ptr::null_mut()),
+                inner: raw::Executor::new(THREAD_PENDER as *mut ()),
                 not_send: PhantomData,
             }
         }
@@ -57,15 +78,9 @@ mod thread {
 
             loop {
                 unsafe {
-                    avr_device::interrupt::disable();
-                    if !SIGNAL_WORK_THREAD_MODE.swap(false, Ordering::SeqCst) {
-                        avr_device::interrupt::enable();
-                        avr_device::asm::sleep();
-                    } else {
-                        avr_device::interrupt::enable();
-                        self.inner.poll();
-                    }
+                    self.inner.poll();
                 }
+                wfe();
             }
         }
     }
