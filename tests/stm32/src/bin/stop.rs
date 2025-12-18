@@ -60,10 +60,12 @@ async fn async_main(spawner: Spawner) {
 
     let (rtc, _time_provider) = Rtc::new(p.RTC);
 
+    info!("set datetime");
     critical_section::with(|cs| {
         rtc.borrow_mut(cs).set_datetime(now.into()).expect("datetime not set");
     });
 
+    info!("spawn");
     spawner.spawn(task_1().unwrap());
     spawner.spawn(task_2().unwrap());
 }

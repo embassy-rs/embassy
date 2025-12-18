@@ -1,63 +1,11 @@
-#[cfg(feature = "time")]
-use embassy_time::{Duration, TICK_HZ};
+use chrono::{DateTime, NaiveDateTime, TimeDelta, Utc};
+use embassy_time::{Duration, Instant, TICK_HZ};
 
-use super::{DateTimeError, Rtc, RtcError, bcd2_to_byte};
+use super::Rtc;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::rtc::vals::Wucksel;
 use crate::peripherals::RTC;
 use crate::rtc::{RtcTimeProvider, SealedInstance};
-
-/// Represents an instant in time that can be substracted to compute a duration
-pub(super) struct RtcInstant {
-    /// 0..59
-    second: u8,
-    /// 0..256
-    subsecond: u16,
-}
-
-impl RtcInstant {
-    #[cfg(not(rtc_v2_f2))]
-    const fn from(second: u8, subsecond: u16) -> Result<Self, DateTimeError> {
-        if second > 59 {
-            Err(DateTimeError::InvalidSecond)
-        } else {
-            Ok(Self { second, subsecond })
-        }
-    }
-}
-
-#[cfg(feature = "defmt")]
-impl defmt::Format for RtcInstant {
-    fn format(&self, fmt: defmt::Formatter) {
-        defmt::write!(
-            fmt,
-            "{}:{}",
-            self.second,
-            RTC::regs().prer().read().prediv_s() - self.subsecond,
-        )
-    }
-}
-
-#[cfg(feature = "time")]
-impl core::ops::Sub for RtcInstant {
-    type Output = embassy_time::Duration;
-
-    fn sub(self, rhs: Self) -> Self::Output {
-        let second = if self.second < rhs.second {
-            self.second + 60
-        } else {
-            self.second
-        };
-
-        let psc = RTC::regs().prer().read().prediv_s() as u32;
-
-        let self_ticks = second as u32 * (psc + 1) + (psc - self.subsecond as u32);
-        let other_ticks = rhs.second as u32 * (psc + 1) + (psc - rhs.subsecond as u32);
-        let rtc_ticks = self_ticks - other_ticks;
-
-        Duration::from_ticks(((rtc_ticks * TICK_HZ as u32) / (psc + 1)) as u64)
-    }
-}
 
 fn wucksel_compute_min(val: u32) -> (Wucksel, u32) {
     *[
@@ -72,22 +20,15 @@ fn wucksel_compute_min(val: u32) -> (Wucksel, u32) {
 }
 
 impl Rtc {
-    /// Return the current instant.
-    fn instant(&self) -> Result<RtcInstant, RtcError> {
-        RtcTimeProvider::new().read(|_, tr, ss| {
-            let second = bcd2_to_byte((tr.st(), tr.su()));
+    pub(super) fn calc_epoch(&self) -> DateTime<Utc> {
+        let now: NaiveDateTime = RtcTimeProvider::new().now().unwrap().into();
 
-            RtcInstant::from(second, ss).map_err(RtcError::InvalidDateTime)
-        })
+        now.and_utc() - TimeDelta::microseconds(Instant::now().as_micros().try_into().unwrap())
     }
 
     /// start the wakeup alarm and with a duration that is as close to but less than
     /// the requested duration, and record the instant the wakeup alarm was started
-    pub(crate) fn start_wakeup_alarm(
-        &mut self,
-        requested_duration: embassy_time::Duration,
-        cs: critical_section::CriticalSection,
-    ) {
+    pub(crate) fn start_wakeup_alarm(&mut self, requested_duration: embassy_time::Duration) {
         // Panic if the rcc mod knows we're not using low-power rtc
         #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
         unsafe { crate::rcc::get_freqs() }.rtc.to_hertz().unwrap();
@@ -122,27 +63,19 @@ impl Rtc {
             regs.cr().modify(|w| w.set_wutie(true));
         });
 
-        let instant = self.instant().unwrap();
         trace!(
-            "rtc: start wakeup alarm for {} ms (psc: {}, ticks: {}) at {}",
+            "rtc: start wakeup alarm for {} ms (psc: {}, ticks: {})",
             Duration::from_ticks(rtc_ticks as u64 * TICK_HZ * prescaler as u64 / rtc_hz).as_millis(),
             prescaler as u32,
             rtc_ticks,
-            instant,
         );
-
-        assert!(self.stop_time.borrow(cs).replace(Some(instant)).is_none())
     }
 
     /// stop the wakeup alarm and return the time elapsed since `start_wakeup_alarm`
     /// was called, otherwise none
-    pub(crate) fn stop_wakeup_alarm(
-        &mut self,
-        cs: critical_section::CriticalSection,
-    ) -> Option<embassy_time::Duration> {
-        let instant = self.instant().unwrap();
+    pub(crate) fn stop_wakeup_alarm(&mut self) -> embassy_time::Instant {
         if RTC::regs().cr().read().wute() {
-            trace!("rtc: stop wakeup alarm at {}", instant);
+            trace!("rtc: stop wakeup alarm");
 
             self.write(false, |regs| {
                 regs.cr().modify(|w| w.set_wutie(false));
@@ -166,10 +99,13 @@ impl Rtc {
             });
         }
 
-        self.stop_time.borrow(cs).take().map(|stop_time| instant - stop_time)
+        let datetime: NaiveDateTime = RtcTimeProvider::new().now().expect("failed to read now").into();
+        let offset = datetime.and_utc() - self.epoch;
+
+        Instant::from_micros(offset.num_microseconds().unwrap().try_into().unwrap())
     }
 
-    pub(crate) fn enable_wakeup_line(&self) {
+    pub(super) fn enable_wakeup_line(&mut self) {
         <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::unpend();
         unsafe { <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::enable() };
 
