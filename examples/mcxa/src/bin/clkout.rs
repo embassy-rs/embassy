@@ -19,7 +19,8 @@ async fn main(_spawner: Spawner) {
         power: PoweredClock::NormalEnabledDeepSleepDisabled,
     });
     cfg.clock_cfg.spll = Some(SpllConfig {
-        source: SpllSource::Sirc, // 12MHz
+        source: SpllSource::Sirc,
+        // 12MHz
         // 12 x 32 => 384MHz
         // 384 / (16 x 2) => 12.0MHz
         mode: SpllMode::Mode1b {
