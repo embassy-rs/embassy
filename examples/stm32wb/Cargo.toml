@@ -7,10 +7,10 @@ publish = false
 
 [dependencies]
 # Change stm32wb55rg to your chip name in both dependencies, if necessary.
-embassy-stm32 = { version = "0.4.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wb55rg", "time-driver-any", "memory-x", "exti", "low-power"]  }
+embassy-stm32 = { version = "0.4.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wb55rg", "time-driver-any", "memory-x", "exti", "low-power-pender"]  }
 embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", features = ["defmt", "stm32wb55rg"] }
 embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = ["defmt"] }
-embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
+embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["defmt"] }
 embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-net = { version = "0.7.1", path = "../../embassy-net", features = ["defmt", "udp", "proto-ipv6", "medium-ieee802154", ], optional = true }
 
