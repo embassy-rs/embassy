@@ -1,20 +1,26 @@
 #[cfg(feature = "executor-interrupt")]
-compile_error!("`executor-interrupt` is not supported with `arch-spin`.");
+compile_error!("`executor-interrupt` is not supported with `platform-riscv32`.");
 
 #[cfg(feature = "executor-thread")]
 pub use thread::*;
 #[cfg(feature = "executor-thread")]
 mod thread {
     use core::marker::PhantomData;
+    use core::sync::atomic::{AtomicBool, Ordering};
 
-    pub use embassy_executor_macros::main_spin as main;
+    pub use embassy_executor_macros::main_riscv as main;
 
     use crate::{Spawner, raw};
 
-    #[unsafe(export_name = "__pender")]
-    fn __pender(_context: *mut ()) {}
+    /// global atomic used to keep track of whether there is work to do since sev() is not available on RISCV
+    static SIGNAL_WORK_THREAD_MODE: AtomicBool = AtomicBool::new(false);
 
-    /// Spin Executor
+    #[unsafe(export_name = "__pender")]
+    fn __pender(_context: *mut ()) {
+        SIGNAL_WORK_THREAD_MODE.store(true, Ordering::SeqCst);
+    }
+
+    /// RISCV32 Executor
     pub struct Executor {
         inner: raw::Executor,
         not_send: PhantomData<*mut ()>,
@@ -51,7 +57,23 @@ mod thread {
             init(self.inner.spawner());
 
             loop {
-                unsafe { self.inner.poll() };
+                unsafe {
+                    self.inner.poll();
+                    // we do not care about race conditions between the load and store operations, interrupts
+                    //will only set this value to true.
+                    critical_section::with(|_| {
+                        // if there is work to do, loop back to polling
+                        // TODO can we relax this?
+                        if SIGNAL_WORK_THREAD_MODE.load(Ordering::SeqCst) {
+                            SIGNAL_WORK_THREAD_MODE.store(false, Ordering::SeqCst);
+                        }
+                        // if not, wait for interrupt
+                        else {
+                            core::arch::asm!("wfi");
+                        }
+                    });
+                    // if an interrupt occurred while waiting, it will be serviced here
+                }
             }
         }
     }

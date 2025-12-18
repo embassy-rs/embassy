@@ -34,7 +34,7 @@ use core::marker::PhantomData;
 use core::mem;
 use core::pin::Pin;
 use core::ptr::NonNull;
-#[cfg(not(feature = "arch-avr"))]
+#[cfg(not(feature = "platform-avr"))]
 use core::sync::atomic::AtomicPtr;
 use core::sync::atomic::Ordering;
 use core::task::{Context, Poll, Waker};
@@ -42,7 +42,7 @@ use core::task::{Context, Poll, Waker};
 #[cfg(feature = "scheduler-deadline")]
 pub(crate) use deadline::Deadline;
 use embassy_executor_timer_queue::TimerQueueItem;
-#[cfg(feature = "arch-avr")]
+#[cfg(feature = "platform-avr")]
 use portable_atomic::AtomicPtr;
 
 use self::run_queue::{RunQueue, RunQueueItem};
@@ -493,9 +493,9 @@ impl SyncExecutor {
 ///   that "want to run").
 /// - You must supply a pender function, as shown below. The executor will call it to notify you
 ///   it has work to do. You must arrange for `poll()` to be called as soon as possible.
-/// - Enabling `arch-xx` features will define a pender function for you. This means that you
-///   are limited to using the executors provided to you by the architecture/platform
-///   implementation. If you need a different executor, you must not enable `arch-xx` features.
+/// - Enabling `platform-xx` features will define a pender function for you. This means that you
+///   are limited to using the executors provided to you by the platform
+///   implementation. If you need a different executor, you must not enable `platform-xx` features.
 ///
 /// The pender can be called from *any* context: any thread, any interrupt priority
 /// level, etc. It may be called synchronously from any `Executor` method call as well.

@@ -13,55 +13,55 @@ enum Flavor {
     Wasm,
 }
 
-pub(crate) struct Arch {
+pub(crate) struct Platform {
     default_entry: Option<&'static str>,
     flavor: Flavor,
     executor_required: bool,
 }
 
-pub static ARCH_AVR: Arch = Arch {
+pub static PLATFORM_AVR: Platform = Platform {
     default_entry: Some("avr_device::entry"),
     flavor: Flavor::Standard,
     executor_required: false,
 };
 
-pub static ARCH_RISCV: Arch = Arch {
+pub static PLATFORM_RISCV: Platform = Platform {
     default_entry: Some("riscv_rt::entry"),
     flavor: Flavor::Standard,
     executor_required: false,
 };
 
-pub static ARCH_CORTEX_M: Arch = Arch {
+pub static PLATFORM_CORTEX_M: Platform = Platform {
     default_entry: Some("cortex_m_rt::entry"),
     flavor: Flavor::Standard,
     executor_required: false,
 };
 
-pub static ARCH_CORTEX_AR: Arch = Arch {
+pub static PLATFORM_AARCH32: Platform = Platform {
     default_entry: None,
     flavor: Flavor::Standard,
     executor_required: false,
 };
 
-pub static ARCH_SPIN: Arch = Arch {
+pub static PLATFORM_SPIN: Platform = Platform {
     default_entry: None,
     flavor: Flavor::Standard,
     executor_required: false,
 };
 
-pub static ARCH_STD: Arch = Arch {
+pub static PLATFORM_STD: Platform = Platform {
     default_entry: None,
     flavor: Flavor::Standard,
     executor_required: false,
 };
 
-pub static ARCH_WASM: Arch = Arch {
+pub static PLATFORM_WASM: Platform = Platform {
     default_entry: Some("wasm_bindgen::prelude::wasm_bindgen(start)"),
     flavor: Flavor::Wasm,
     executor_required: false,
 };
 
-pub static ARCH_UNSPECIFIED: Arch = Arch {
+pub static PLATFORM_UNSPECIFIED: Platform = Platform {
     default_entry: None,
     flavor: Flavor::Standard,
     executor_required: true,
@@ -75,7 +75,7 @@ struct Args {
     executor: Option<String>,
 }
 
-pub fn run(args: TokenStream, item: TokenStream, arch: &Arch) -> TokenStream {
+pub fn run(args: TokenStream, item: TokenStream, platform: &Platform) -> TokenStream {
     let mut errors = TokenStream::new();
 
     // If any of the steps for this macro fail, we still want to expand to an item that is as close
@@ -133,7 +133,7 @@ pub fn run(args: TokenStream, item: TokenStream, arch: &Arch) -> TokenStream {
         error(&mut errors, &f.sig, "main function must have 1 argument: the spawner.");
     }
 
-    let entry = match (args.entry.as_deref(), arch.default_entry.as_deref()) {
+    let entry = match (args.entry.as_deref(), platform.default_entry.as_deref()) {
         (None, None) => TokenStream::new(),
         (Some(x), _) | (None, Some(x)) if x == "" => TokenStream::new(),
         (Some(x), _) | (None, Some(x)) => match TokenStream::from_str(x) {
@@ -145,13 +145,13 @@ pub fn run(args: TokenStream, item: TokenStream, arch: &Arch) -> TokenStream {
         },
     };
 
-    let executor = match (args.executor.as_deref(), arch.executor_required) {
+    let executor = match (args.executor.as_deref(), platform.executor_required) {
         (None, true) => {
             error(
                 &mut errors,
                 &f.sig,
                 "\
-No architecture selected for embassy-executor. Make sure you've enabled one of the `arch-*` features in your Cargo.toml.
+No platform selected for embassy-executor. Make sure you've enabled one of the `platform-*` features in your Cargo.toml.
 
 Alternatively, if you would like to use a custom executor implementation, specify it with the `executor` argument.
 For example: `#[embassy_executor::main(entry = ..., executor = \"some_crate::Executor\")]",
@@ -178,7 +178,7 @@ For example: `#[embassy_executor::main(entry = ..., executor = \"some_crate::Exe
         quote!()
     };
 
-    let (main_ret, mut main_body) = match arch.flavor {
+    let (main_ret, mut main_body) = match platform.flavor {
         Flavor::Standard => (
             quote!(!),
             quote! {

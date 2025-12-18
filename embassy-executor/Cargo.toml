@@ -18,52 +18,52 @@ build = [
     {target = "thumbv7em-none-eabi", features = ["log"]},
     {target = "thumbv7em-none-eabi", features = ["defmt"]},
     {target = "thumbv6m-none-eabi", features = ["defmt"]},
-    {target = "thumbv6m-none-eabi", features = ["arch-cortex-m", "defmt", "executor-interrupt", "executor-thread"]},
-    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m"]},
-    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "rtos-trace"]},
-    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-thread"]},
-    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt"]},
-    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread"]},
-    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "embassy-time-driver"]},
-    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "embassy-time-driver", "scheduler-priority"]},
-    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "embassy-time-driver", "scheduler-priority", "scheduler-deadline"]},
-    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "embassy-time-driver", "scheduler-deadline"]},
-    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "scheduler-priority", "scheduler-deadline"]},
-    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "scheduler-deadline"]},
-    {target = "thumbv7em-none-eabi", features = ["arch-cortex-m", "executor-interrupt", "executor-thread", "embassy-time-driver", "scheduler-priority", "scheduler-deadline", "trace"]},
-    {target = "thumbv7em-none-eabi", features = ["arch-spin"]},
-    {target = "thumbv7em-none-eabi", features = ["arch-spin", "scheduler-deadline"]},
-    {target = "armv7a-none-eabi", features = ["arch-cortex-ar", "executor-thread"]},
-    {target = "armv7r-none-eabi", features = ["arch-cortex-ar", "executor-thread"]},
-    {target = "armv7r-none-eabihf", features = ["arch-cortex-ar", "executor-thread"]},
-    {target = "riscv32imac-unknown-none-elf", features = ["arch-riscv32"]},
-    {target = "riscv32imac-unknown-none-elf", features = ["arch-riscv32", "executor-thread"]},
-    {target = "riscv32imac-unknown-none-elf", features = ["arch-riscv32", "executor-thread", "trace"]},
+    {target = "thumbv6m-none-eabi", features = ["platform-cortex-m", "defmt", "executor-interrupt", "executor-thread"]},
+    {target = "thumbv7em-none-eabi", features = ["platform-cortex-m"]},
+    {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "rtos-trace"]},
+    {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "executor-thread"]},
+    {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "executor-interrupt"]},
+    {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "executor-interrupt", "executor-thread"]},
+    {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "executor-interrupt", "executor-thread", "embassy-time-driver"]},
+    {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "executor-interrupt", "executor-thread", "embassy-time-driver", "scheduler-priority"]},
+    {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "executor-interrupt", "executor-thread", "embassy-time-driver", "scheduler-priority", "scheduler-deadline"]},
+    {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "executor-interrupt", "executor-thread", "embassy-time-driver", "scheduler-deadline"]},
+    {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "executor-interrupt", "executor-thread", "scheduler-priority", "scheduler-deadline"]},
+    {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "executor-interrupt", "executor-thread", "scheduler-deadline"]},
+    {target = "thumbv7em-none-eabi", features = ["platform-cortex-m", "executor-interrupt", "executor-thread", "embassy-time-driver", "scheduler-priority", "scheduler-deadline", "trace"]},
+    {target = "thumbv7em-none-eabi", features = ["platform-spin"]},
+    {target = "thumbv7em-none-eabi", features = ["platform-spin", "scheduler-deadline"]},
+    {target = "armv7a-none-eabi", features = ["platform-aarch32", "executor-thread"]},
+    {target = "armv7r-none-eabi", features = ["platform-aarch32", "executor-thread"]},
+    {target = "armv7r-none-eabihf", features = ["platform-aarch32", "executor-thread"]},
+    {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32"]},
+    {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32", "executor-thread"]},
+    {target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32", "executor-thread", "trace"]},
     # Nightly builds
     {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly"]},
     {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "log"]},
     {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "defmt"]},
     {group = "nightly", target = "thumbv6m-none-eabi", features = ["nightly", "defmt"]},
-    {group = "nightly", target = "thumbv6m-none-eabi", features = ["nightly", "defmt", "arch-cortex-m", "executor-thread", "executor-interrupt"]},
-    {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "arch-cortex-m"]},
-    {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "arch-cortex-m", "executor-thread"]},
-    {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "arch-cortex-m", "executor-interrupt"]},
-    {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "arch-cortex-m", "executor-thread", "executor-interrupt"]},
-    {group = "nightly", target = "riscv32imac-unknown-none-elf", features = ["nightly", "arch-riscv32"]},
-    {group = "nightly", target = "riscv32imac-unknown-none-elf", features = ["nightly", "arch-riscv32", "executor-thread"]},
-    {group = "nightly", target = "armv7a-none-eabi", features = ["nightly", "arch-cortex-ar", "executor-thread"]},
-    {group = "nightly", target = "avr-none", features = ["nightly", "arch-avr", "avr-device/atmega328p"], build-std = ["core", "alloc"], env = { RUSTFLAGS = "-Ctarget-cpu=atmega328p" }},
+    {group = "nightly", target = "thumbv6m-none-eabi", features = ["nightly", "defmt", "platform-cortex-m", "executor-thread", "executor-interrupt"]},
+    {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "platform-cortex-m"]},
+    {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "platform-cortex-m", "executor-thread"]},
+    {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "platform-cortex-m", "executor-interrupt"]},
+    {group = "nightly", target = "thumbv7em-none-eabi", features = ["nightly", "platform-cortex-m", "executor-thread", "executor-interrupt"]},
+    {group = "nightly", target = "riscv32imac-unknown-none-elf", features = ["nightly", "platform-riscv32"]},
+    {group = "nightly", target = "riscv32imac-unknown-none-elf", features = ["nightly", "platform-riscv32", "executor-thread"]},
+    {group = "nightly", target = "armv7a-none-eabi", features = ["nightly", "platform-aarch32", "executor-thread"]},
+    {group = "nightly", target = "avr-none", features = ["nightly", "platform-avr", "avr-device/atmega328p"], build-std = ["core", "alloc"], env = { RUSTFLAGS = "-Ctarget-cpu=atmega328p" }},
     # Xtensa builds
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = []},
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["log"]},
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt"]},
     {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s2-none-elf", features = ["defmt"]},
-    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt", "arch-spin", "executor-thread"]},
-    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s2-none-elf", features = ["defmt", "arch-spin", "executor-thread"]},
-    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s3-none-elf", features = ["defmt", "arch-spin", "executor-thread"]},
-    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["arch-spin"]},
-    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["arch-spin", "rtos-trace"]},
-    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["arch-spin", "executor-thread"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["defmt", "platform-spin", "executor-thread"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s2-none-elf", features = ["defmt", "platform-spin", "executor-thread"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s3-none-elf", features = ["defmt", "platform-spin", "executor-thread"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["platform-spin"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["platform-spin", "rtos-trace"]},
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32-none-elf", features = ["platform-spin", "executor-thread"]},
 ]
 
 
@@ -72,16 +72,16 @@ src_base = "https://github.com/embassy-rs/embassy/blob/embassy-executor-v$VERSIO
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-executor/src/"
 features = ["defmt", "scheduler-deadline", "scheduler-priority"]
 flavors = [
-    { name = "std",             target = "x86_64-unknown-linux-gnu",     features = ["arch-std", "executor-thread"] },
-    { name = "wasm",            target = "wasm32-unknown-unknown",       features = ["arch-wasm", "executor-thread"] },
-    { name = "cortex-m",        target = "thumbv7em-none-eabi",          features = ["arch-cortex-m", "executor-thread", "executor-interrupt"] },
-    { name = "riscv32",         target = "riscv32imac-unknown-none-elf", features = ["arch-riscv32", "executor-thread"] },
+    { name = "std",             target = "x86_64-unknown-linux-gnu",     features = ["platform-std", "executor-thread"] },
+    { name = "wasm",            target = "wasm32-unknown-unknown",       features = ["platform-wasm", "executor-thread"] },
+    { name = "cortex-m",        target = "thumbv7em-none-eabi",          features = ["platform-cortex-m", "executor-thread", "executor-interrupt"] },
+    { name = "riscv32",         target = "riscv32imac-unknown-none-elf", features = ["platform-riscv32", "executor-thread"] },
 ]
 
 [package.metadata.docs.rs]
 default-target = "thumbv7em-none-eabi"
 targets = ["thumbv7em-none-eabi"]
-features = ["defmt", "arch-cortex-m", "executor-thread", "executor-interrupt", "scheduler-deadline", "scheduler-priority", "embassy-time-driver"]
+features = ["defmt", "platform-cortex-m", "executor-thread", "executor-interrupt", "scheduler-deadline", "scheduler-priority", "embassy-time-driver"]
 
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
@@ -98,17 +98,17 @@ document-features = "0.2.7"
 # needed for AVR
 portable-atomic = { version = "1.5", optional = true }
 
-# arch-cortex-m dependencies
+# platform-cortex-m dependencies
 cortex-m = { version = "0.7.6", optional = true }
 
-# arch-cortex-ar dependencies
+# platform-aarch32 dependencies
 aarch32-cpu = { version = "0.1", optional = true }
 
-# arch-wasm dependencies
+# platform-wasm dependencies
 wasm-bindgen = { version = "0.2.82", optional = true }
 js-sys = { version = "0.3", optional = true }
 
-# arch-avr dependencies
+# platform-avr dependencies
 avr-device = { version = "0.7.0", optional = true }
 
 
@@ -138,22 +138,22 @@ log = ["dep:log"]
 # See: https://github.com/embassy-rs/embassy/pull/1263
 turbowakers = []
 
-#! ### Architecture
-_arch = [] # some arch was picked
+#! ### Platform
+_platform = [] # some platform was picked
 ## std
-arch-std = ["_arch"]
+platform-std = ["_platform"]
 ## Cortex-M
-arch-cortex-m = ["_arch", "dep:cortex-m"]
-## Cortex-A/R
-arch-cortex-ar = ["_arch", "dep:aarch32-cpu", "dep:arm-targets"]
+platform-cortex-m = ["_platform", "dep:cortex-m"]
+## AArch32 (Cortex-A, Cortex-R)
+platform-aarch32 = ["_platform", "dep:aarch32-cpu", "dep:arm-targets"]
 ## RISC-V 32
-arch-riscv32 = ["_arch"]
+platform-riscv32 = ["_platform"]
 ## WASM
-arch-wasm = ["_arch", "dep:wasm-bindgen", "dep:js-sys"]
+platform-wasm = ["_platform", "dep:wasm-bindgen", "dep:js-sys"]
 ## AVR
-arch-avr = ["_arch", "dep:portable-atomic", "dep:avr-device"]
+platform-avr = ["_platform", "dep:portable-atomic", "dep:avr-device"]
 ## spin (architecture agnostic; never sleeps)
-arch-spin = ["_arch"]
+platform-spin = ["_platform"]
 
 #! ### Metadata
 
@@ -162,7 +162,7 @@ metadata-name = ["embassy-executor-macros/metadata-name"]
 
 #! ### Executor
 
-## Enable the thread-mode executor (using WFE/SEV in Cortex-M, WFI in other embedded archs)
+## Enable the thread-mode executor (using WFE/SEV in ARM, WFI in other embedded archs)
 executor-thread = []
 ## Enable the interrupt-mode executor (available in Cortex-M only)
 executor-interrupt = []

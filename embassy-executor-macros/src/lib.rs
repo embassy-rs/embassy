@@ -44,7 +44,7 @@ pub fn task(args: TokenStream, item: TokenStream) -> TokenStream {
 
 #[proc_macro_attribute]
 pub fn main_avr(args: TokenStream, item: TokenStream) -> TokenStream {
-    main::run(args.into(), item.into(), &main::ARCH_AVR).into()
+    main::run(args.into(), item.into(), &main::PLATFORM_AVR).into()
 }
 
 /// Creates a new `executor` instance and declares an application entry point for Cortex-M spawning the corresponding function body as an async task.
@@ -67,7 +67,7 @@ pub fn main_avr(args: TokenStream, item: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro_attribute]
 pub fn main_cortex_m(args: TokenStream, item: TokenStream) -> TokenStream {
-    main::run(args.into(), item.into(), &main::ARCH_CORTEX_M).into()
+    main::run(args.into(), item.into(), &main::PLATFORM_CORTEX_M).into()
 }
 
 /// Creates a new `executor` instance and declares an application entry point for Cortex-A/R
@@ -91,8 +91,8 @@ pub fn main_cortex_m(args: TokenStream, item: TokenStream) -> TokenStream {
 /// }
 /// ```
 #[proc_macro_attribute]
-pub fn main_cortex_ar(args: TokenStream, item: TokenStream) -> TokenStream {
-    main::run(args.into(), item.into(), &main::ARCH_CORTEX_AR).into()
+pub fn main_aarch32(args: TokenStream, item: TokenStream) -> TokenStream {
+    main::run(args.into(), item.into(), &main::PLATFORM_AARCH32).into()
 }
 
 /// Creates a new `executor` instance and declares an architecture agnostic application entry point spawning
@@ -117,7 +117,7 @@ pub fn main_cortex_ar(args: TokenStream, item: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro_attribute]
 pub fn main_spin(args: TokenStream, item: TokenStream) -> TokenStream {
-    main::run(args.into(), item.into(), &main::ARCH_SPIN).into()
+    main::run(args.into(), item.into(), &main::PLATFORM_SPIN).into()
 }
 
 /// Creates a new `executor` instance and declares an application entry point for RISC-V spawning the corresponding function body as an async task.
@@ -150,7 +150,7 @@ pub fn main_spin(args: TokenStream, item: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro_attribute]
 pub fn main_riscv(args: TokenStream, item: TokenStream) -> TokenStream {
-    main::run(args.into(), item.into(), &main::ARCH_RISCV).into()
+    main::run(args.into(), item.into(), &main::PLATFORM_RISCV).into()
 }
 
 /// Creates a new `executor` instance and declares an application entry point for STD spawning the corresponding function body as an async task.
@@ -173,7 +173,7 @@ pub fn main_riscv(args: TokenStream, item: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro_attribute]
 pub fn main_std(args: TokenStream, item: TokenStream) -> TokenStream {
-    main::run(args.into(), item.into(), &main::ARCH_STD).into()
+    main::run(args.into(), item.into(), &main::PLATFORM_STD).into()
 }
 
 /// Creates a new `executor` instance and declares an application entry point for WASM spawning the corresponding function body as an async task.
@@ -196,10 +196,10 @@ pub fn main_std(args: TokenStream, item: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro_attribute]
 pub fn main_wasm(args: TokenStream, item: TokenStream) -> TokenStream {
-    main::run(args.into(), item.into(), &main::ARCH_WASM).into()
+    main::run(args.into(), item.into(), &main::PLATFORM_WASM).into()
 }
 
-/// Creates a new `executor` instance and declares an application entry point for an unspecified architecture, spawning the corresponding function body as an async task.
+/// Creates a new `executor` instance and declares an application entry point for an unspecified platform, spawning the corresponding function body as an async task.
 ///
 /// The following restrictions apply:
 ///
@@ -220,5 +220,5 @@ pub fn main_wasm(args: TokenStream, item: TokenStream) -> TokenStream {
 /// ```
 #[proc_macro_attribute]
 pub fn main_unspecified(args: TokenStream, item: TokenStream) -> TokenStream {
-    main::run(args.into(), item.into(), &main::ARCH_UNSPECIFIED).into()
+    main::run(args.into(), item.into(), &main::PLATFORM_UNSPECIFIED).into()
 }
