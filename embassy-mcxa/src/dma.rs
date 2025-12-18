@@ -1924,7 +1924,7 @@ impl Iterator for TransferErrorRawIter {
 
         for (mask, var) in TransferErrorRaw::MAP {
             // If the bit is set...
-            if self.0 | mask != 0 {
+            if self.0 & mask != 0 {
                 // clear the bit
                 self.0 &= !mask;
                 // and return the answer
