@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- bugfix: avoid hang if calling now() before syscounter is enabled on nrf54
+
 ## 0.9.0 - 2025-12-15
 
 - changed: apply trimming values from FICR.TRIMCNF on nrf53/54l
