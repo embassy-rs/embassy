@@ -180,8 +180,11 @@ impl_pin!(P1_12, LPI2C1, Mux2, SdaPin);
 impl_pin!(P1_13, LPI2C1, Mux2, SclPin);
 impl_pin!(P1_14, LPI2C1, Mux2, SclPin);
 impl_pin!(P1_15, LPI2C1, Mux2, SdaPin);
-impl_pin!(P1_30, LPI2C0, Mux3, SdaPin);
-impl_pin!(P1_31, LPI2C0, Mux3, SclPin);
+// NOTE: P1_30 and P1_31 are typically used for the external oscillator
+// For now, we just don't give users these pins.
+//
+// impl_pin!(P1_30, LPI2C0, Mux3, SdaPin);
+// impl_pin!(P1_31, LPI2C0, Mux3, SclPin);
 impl_pin!(P3_27, LPI2C3, Mux2, SclPin);
 impl_pin!(P3_28, LPI2C3, Mux2, SdaPin);
 // impl_pin!(P3_29, LPI2C3, Mux2, HreqPin); What is this HREQ pin?

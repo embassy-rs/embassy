@@ -81,7 +81,7 @@ fn GPIO4() {
     irq_handler(4, crate::pac::Gpio4::ptr());
 }
 
-pub(crate) unsafe fn init() {
+pub(crate) unsafe fn interrupt_init() {
     use embassy_hal_internal::interrupt::InterruptExt;
 
     crate::pac::interrupt::GPIO0.enable();
@@ -320,8 +320,12 @@ impl GpioPin for AnyPin {}
 
 macro_rules! impl_pin {
     ($peri:ident, $port:expr, $pin:expr, $block:ident) => {
+        impl_pin!(crate::peripherals, $peri, $port, $pin, $block);
+    };
+
+    ($perip:path, $peri:ident, $port:expr, $pin:expr, $block:ident) => {
         paste! {
-            impl SealedPin for crate::peripherals::$peri {
+            impl SealedPin for $perip::$peri {
                 fn pin_port(&self) -> usize {
                     $port * 32 + $pin
                 }
@@ -372,15 +376,15 @@ macro_rules! impl_pin {
                 }
             }
 
-            impl GpioPin for crate::peripherals::$peri {}
+            impl GpioPin for $perip::$peri {}
 
-            impl From<crate::peripherals::$peri> for AnyPin {
-                fn from(value: crate::peripherals::$peri) -> Self {
+            impl From<$perip::$peri> for AnyPin {
+                fn from(value: $perip::$peri) -> Self {
                     value.degrade()
                 }
             }
 
-            impl crate::peripherals::$peri {
+            impl $perip::$peri {
                 /// Convenience helper to obtain a type-erased handle to this pin.
                 pub fn degrade(&self) -> AnyPin {
                     AnyPin::new(self.port(), self.pin(), self.gpio(), self.port_reg(), self.pcr_reg())
@@ -453,8 +457,8 @@ impl_pin!(P1_26, 1, 26, Gpio1);
 impl_pin!(P1_27, 1, 27, Gpio1);
 impl_pin!(P1_28, 1, 28, Gpio1);
 impl_pin!(P1_29, 1, 29, Gpio1);
-impl_pin!(P1_30, 1, 30, Gpio1);
-impl_pin!(P1_31, 1, 31, Gpio1);
+impl_pin!(crate::internal_peripherals, P1_30, 1, 30, Gpio1);
+impl_pin!(crate::internal_peripherals, P1_31, 1, 31, Gpio1);
 
 impl_pin!(P2_0, 2, 0, Gpio2);
 impl_pin!(P2_1, 2, 1, Gpio2);

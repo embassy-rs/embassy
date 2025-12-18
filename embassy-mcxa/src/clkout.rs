@@ -20,6 +20,7 @@ pub struct ClockOut<'a> {
 }
 
 /// Selected clock source to output
+#[derive(Copy, Clone)]
 pub enum ClockOutSel {
     /// 12MHz Internal Oscillator
     Fro12M,
@@ -36,6 +37,7 @@ pub enum ClockOutSel {
 }
 
 /// Configuration for the ClockOut
+#[derive(Copy, Clone)]
 pub struct Config {
     /// Selected Source Clock
     pub sel: ClockOutSel,
@@ -157,6 +159,12 @@ mod sealed {
                 fn mux(&self) {
                     self.set_function(crate::pac::port0::pcr0::Mux::$func);
                     self.set_pull(Pull::Disabled);
+
+                    // TODO: we may want to expose these as options to allow the slew rate
+                    // and drive strength for clocks if they are particularly high speed.
+                    //
+                    // self.set_drive_strength(crate::pac::port0::pcr0::Dse::Dse1);
+                    // self.set_slew_rate(crate::pac::port0::pcr0::Sre::Sre0);
                 }
             }
         };
