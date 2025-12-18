@@ -251,8 +251,8 @@ impl RtcDriver {
 
     #[cfg(feature = "low-power")]
     /// Add the given offset to the current time
-    fn add_time(&self, offset: embassy_time::Duration, cs: CriticalSection) {
-        let (period, counter) = calc_period_counter(self.now() + offset.as_ticks());
+    fn set_time(&self, instant: u64, cs: CriticalSection) {
+        let (period, counter) = calc_period_counter(core::cmp::max(self.now(), instant));
 
         self.period.store(period, Ordering::SeqCst);
         regs_gp16().cnt().write(|w| w.set_cnt(counter));
@@ -269,10 +269,17 @@ impl RtcDriver {
     #[cfg(feature = "low-power")]
     /// Stop the wakeup alarm, if enabled, and add the appropriate offset
     fn stop_wakeup_alarm(&self, cs: CriticalSection) {
-        if !regs_gp16().cr1().read().cen()
-            && let Some(offset) = self.rtc.borrow(cs).borrow_mut().as_mut().unwrap().stop_wakeup_alarm(cs)
-        {
-            self.add_time(offset, cs);
+        if !regs_gp16().cr1().read().cen() {
+            self.set_time(
+                self.rtc
+                    .borrow(cs)
+                    .borrow_mut()
+                    .as_mut()
+                    .unwrap()
+                    .stop_wakeup_alarm()
+                    .as_ticks(),
+                cs,
+            );
         }
     }
 
@@ -287,7 +294,7 @@ impl RtcDriver {
     #[cfg(feature = "low-power")]
     /// Set the rtc but panic if it's already been set
     pub(crate) fn set_rtc(&self, cs: CriticalSection, mut rtc: Rtc) {
-        rtc.stop_wakeup_alarm(cs);
+        rtc.stop_wakeup_alarm();
 
         assert!(self.rtc.borrow(cs).replace(Some(rtc)).is_none());
     }
@@ -310,7 +317,7 @@ impl RtcDriver {
                 .borrow_mut()
                 .as_mut()
                 .unwrap()
-                .start_wakeup_alarm(time_until_next_alarm, cs);
+                .start_wakeup_alarm(time_until_next_alarm);
 
             regs_gp16().cr1().modify(|w| w.set_cen(false));
             // save the count for the timer as its lost in STOP2 for stm32wlex

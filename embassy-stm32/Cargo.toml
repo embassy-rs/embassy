@@ -241,7 +241,7 @@ log = ["dep:log"]
 chrono = ["dep:chrono"]
 
 exti = []
-low-power = [ "dep:embassy-executor", "time" ]
+low-power = [ "dep:embassy-executor", "time", "chrono" ]
 low-power-pender = [ "low-power" ]
 low-power-debug-with-sleep = [ "low-power" ]
 
