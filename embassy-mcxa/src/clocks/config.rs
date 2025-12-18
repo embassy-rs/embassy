@@ -157,6 +157,8 @@ pub struct SpllConfig {
     pub source: SpllSource,
     pub mode: SpllMode,
     pub power: PoweredClock,
+    /// Is the "pll1_clk_div" clock enabled?
+    pub pll1_clk_div: Option<Div8>,
 }
 
 pub enum SpllSource {
@@ -168,7 +170,6 @@ pub enum SpllSource {
     Firc,
     /// S Internal Oscillator (12M)
     Sirc,
-
     // TODO: the reference manual hints that ROSC is possible,
     // however the minimum input frequency is 32K, but ROSC is 16K.
     // Some diagrams show this option, and some diagrams omit it.
@@ -182,9 +183,7 @@ pub enum SpllSource {
 /// P: 1..=31
 pub enum SpllMode {
     /// Fout = M x Fin
-    Mode1a {
-        m_mult: u16,
-    },
+    Mode1a { m_mult: u16 },
     /// if !bypass_p2_div: Fout = (M / (2 x P)) x Fin
     /// if  bypass_p2_div: Fout = (M /    P   ) x Fin
     Mode1b {
@@ -193,10 +192,7 @@ pub enum SpllMode {
         bypass_p2_div: bool,
     },
     /// Fout = (M / N) x Fin
-    Mode1c {
-        m_mult: u16,
-        n_div: u8,
-    },
+    Mode1c { m_mult: u16, n_div: u8 },
     /// if !bypass_p2_div: Fout = (M / (N x 2 x P)) x Fin
     /// if  bypass_p2_div: Fout = (M / (  N x P  )) x Fin
     Mode1d {
@@ -204,9 +200,8 @@ pub enum SpllMode {
         n_div: u8,
         p_div: u8,
         bypass_p2_div: bool,
-    }
+    },
 }
-
 
 // FIRC/FRO180M
 

@@ -200,6 +200,9 @@ pub struct Clocks {
 
     /// `pll1_clk` is the output of the main system PLL, `pll1`.
     pub pll1_clk: Option<Clock>,
+
+    /// `pll1_clk_div` is a configurable frequency clock, sourced from `pll1_clk`
+    pub pll1_clk_div: Option<Clock>,
 }
 
 /// `ClockError` is the main error returned when configuring or checking clock state
@@ -548,13 +551,37 @@ impl Clocks {
     }
 
     /// Ensure the `pll1_clk` clock is active and valid at the given power state.
-    pub fn ensure_pll1_clk_active(&self, _at_level: &PoweredClock) -> Result<u32, ClockError> {
-        Err(ClockError::NotImplemented { clock: "pll1_clk" })
+    pub fn ensure_pll1_clk_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
+        let Some(clk) = self.pll1_clk.as_ref() else {
+            return Err(ClockError::BadConfig {
+                clock: "spll",
+                reason: "required but not active",
+            });
+        };
+        if !clk.power.meets_requirement_of(at_level) {
+            return Err(ClockError::BadConfig {
+                clock: "spll",
+                reason: "not low power active",
+            });
+        }
+        Ok(clk.frequency)
     }
 
     /// Ensure the `pll1_clk_div` clock is active and valid at the given power state.
-    pub fn ensure_pll1_clk_div_active(&self, _at_level: &PoweredClock) -> Result<u32, ClockError> {
-        Err(ClockError::NotImplemented { clock: "pll1_clk_div" })
+    pub fn ensure_pll1_clk_div_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
+        let Some(clk) = self.pll1_clk_div.as_ref() else {
+            return Err(ClockError::BadConfig {
+                clock: "spll",
+                reason: "required but not active",
+            });
+        };
+        if !clk.power.meets_requirement_of(at_level) {
+            return Err(ClockError::BadConfig {
+                clock: "spll",
+                reason: "not low power active",
+            });
+        }
+        Ok(clk.frequency)
     }
 
     /// Ensure the `CPU_CLK` or `SYSTEM_CLK` is active
@@ -1031,7 +1058,10 @@ impl ClockOperator<'_> {
             reason: s,
         })?;
         if !clk.power.meets_requirement_of(&cfg.power) {
-            return Err(ClockError::BadConfig { clock: "spll", reason: "needs low power source" });
+            return Err(ClockError::BadConfig {
+                clock: "spll",
+                reason: "needs low power source",
+            });
         }
 
         // Bandwidth calc
@@ -1118,9 +1148,20 @@ impl ClockOperator<'_> {
                 fout = (f_in / div).checked_mul(m_mult as u32);
             }
         };
+
+        defmt::debug!("f_in: {:?}", f_in);
+        defmt::debug!("bp_pre: {:?}", bp_pre);
+        defmt::debug!("bp_post: {:?}", bp_post);
+        defmt::debug!("bp_post2: {:?}", bp_post2);
+        defmt::debug!("m: {:?}", m);
+        defmt::debug!("p: {:?}", p);
+        defmt::debug!("n: {:?}", n);
+        defmt::debug!("fout: {:?}", fout);
+        defmt::debug!("fcco: {:?}", fcco);
+
         let fcco = fcco.ok_or(ClockError::BadConfig {
             clock: "spll",
-            reason: "fcco invalid",
+            reason: "fcco invalid1",
         })?;
         let fout = fout.ok_or(ClockError::BadConfig {
             clock: "spll",
@@ -1130,7 +1171,7 @@ impl ClockOperator<'_> {
         if !(275_000_000..=550_000_000).contains(&fcco) {
             return Err(ClockError::BadConfig {
                 clock: "spll",
-                reason: "fcco invalid",
+                reason: "fcco invalid2",
             });
         }
         // Fout: 4.3MHz to 2x Max CPU Frequency
@@ -1149,6 +1190,7 @@ impl ClockOperator<'_> {
         assert!(m >= 1);
         if let Some(p) = p.as_ref() {
             assert!(*p >= 1);
+            assert!(*p <= 31);
         }
         if let Some(n) = n.as_ref() {
             assert!(*n >= 1);
@@ -1254,10 +1296,37 @@ impl ClockOperator<'_> {
         // Re-lock SPLL CSR
         self.scg0.spllcsr().modify(|_r, w| w.lk().write_disabled());
 
+        // Store clock state
         self.clocks.pll1_clk = Some(Clock {
             frequency: fout,
             power: cfg.power,
         });
+
+        // Do we enable the `pll1_clk_div` output?
+        if let Some(d) = cfg.pll1_clk_div.as_ref() {
+            // Halt and reset the div; then set our desired div.
+            self.syscon.pll1clkdiv().write(|w| {
+                w.halt().halt();
+                w.reset().asserted();
+                unsafe { w.div().bits(d.into_bits()) };
+                w
+            });
+            // Then unhalt it, and reset it
+            self.syscon.pll1clkdiv().write(|w| {
+                w.halt().run();
+                w.reset().released();
+                w
+            });
+
+            // Wait for clock to stabilize
+            while self.syscon.pll1clkdiv().read().unstab().is_ongoing() {}
+
+            // Store off the clock info
+            self.clocks.pll1_clk_div = Some(Clock {
+                frequency: fout / d.into_divisor(),
+                power: cfg.power,
+            });
+        }
 
         Ok(())
     }
