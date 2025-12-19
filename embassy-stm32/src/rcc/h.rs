@@ -671,6 +671,12 @@ pub(crate) unsafe fn init(config: Config) {
         RCC.cr().modify(|w| w.set_hsion(false));
     }
 
+    // Disable the HSI48, if not used
+    #[cfg(crs)]
+    if config.hsi48.is_none() {
+        super::disable_hsi48();
+    }
+
     // IO compensation cell - Requires CSI clock and SYSCFG
     #[cfg(any(stm32h7))] // TODO h5, h7rs
     if csi.is_some() {
