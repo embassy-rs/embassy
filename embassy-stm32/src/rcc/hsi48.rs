@@ -80,7 +80,7 @@ pub(crate) fn disable_hsi48() {
     let r = RCC.cr2();
 
     r.modify(|w| w.set_hsi48on(false));
-    
+
     // Disable VREFINT reference for HSI48 oscillator
     #[cfg(stm32l0)]
     crate::pac::SYSCFG.cfgr3().modify(|w| {
