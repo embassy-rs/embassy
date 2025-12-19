@@ -32,13 +32,18 @@ pub(crate) unsafe fn from_task(p: TaskRef) -> Waker {
 ///
 /// Panics if the waker is not created by the Embassy executor.
 pub fn task_from_waker(waker: &Waker) -> TaskRef {
+    unwrap!(
+        try_task_from_waker(waker),
+        "Found waker not created by the Embassy executor. Unless the generic timer queue is enabled, `embassy_time::Timer` only works with the Embassy executor."
+    )
+}
+
+pub(crate) fn try_task_from_waker(waker: &Waker) -> Option<TaskRef> {
     // make sure to compare vtable addresses. Doing `==` on the references
     // will compare the contents, which is slower.
     if waker.vtable() as *const _ != &VTABLE as *const _ {
-        panic!(
-            "Found waker not created by the Embassy executor. `embassy_time::Timer` only works with the Embassy executor."
-        )
+        return None;
     }
     // safety: our wakers are always created with `TaskRef::as_ptr`
-    unsafe { TaskRef::from_ptr(waker.data() as *const TaskHeader) }
+    Some(unsafe { TaskRef::from_ptr(waker.data() as *const TaskHeader) })
 }
