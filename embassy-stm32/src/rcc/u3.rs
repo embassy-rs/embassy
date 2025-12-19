@@ -118,10 +118,7 @@ impl MsiAutoCalibration {
     }
 
     fn is_fast(&self) -> bool {
-        matches!(
-            self,
-            MsiAutoCalibration::MsisFast | MsiAutoCalibration::MsikFast
-        )
+        matches!(self, MsiAutoCalibration::MsisFast | MsiAutoCalibration::MsikFast)
     }
 }
 
@@ -239,14 +236,10 @@ pub(crate) unsafe fn init(config: Config) {
                     Some(lse_config.frequency)
                 }
                 // improper configuration
-                _ => panic!(
-                    "MSIx auto-calibration is enabled for a source that has not been configured."
-                ),
+                _ => panic!("MSIx auto-calibration is enabled for a source that has not been configured."),
             }
         } else {
-            panic!(
-                "LSE frequency more than 5% off from 32.768 kHz, cannot use for MSI auto-calibration"
-            );
+            panic!("LSE frequency more than 5% off from 32.768 kHz, cannot use for MSI auto-calibration");
         }
     } else {
         None
@@ -527,10 +520,7 @@ struct MsiFraction {
 
 impl MsiFraction {
     const fn new(numerator: u32, denominator: u32) -> Self {
-        Self {
-            numerator,
-            denominator,
-        }
+        Self { numerator, denominator }
     }
 
     /// Calculate the calibrated frequency given an LSE frequency

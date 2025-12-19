@@ -393,10 +393,7 @@ mod dual_core {
     ///
     /// The `shared_data` is used to coordinate the init with the second core. Read the [SharedData] docs
     /// for more information on its requirements.
-    pub fn init_primary(
-        config: Config,
-        shared_data: &'static MaybeUninit<SharedData>,
-    ) -> Peripherals {
+    pub fn init_primary(config: Config, shared_data: &'static MaybeUninit<SharedData>) -> Peripherals {
         let shared_data = unsafe { shared_data.assume_init_ref() };
 
         // Write the flag as soon as possible. Reading this flag uninitialized in the `init_secondary`
@@ -409,9 +406,7 @@ mod dual_core {
 
         unsafe { *shared_data.config.get() }.write(config.into());
 
-        shared_data
-            .init_flag
-            .store(INIT_DONE_FLAG, Ordering::SeqCst);
+        shared_data.init_flag.store(INIT_DONE_FLAG, Ordering::SeqCst);
 
         p
     }
@@ -425,9 +420,7 @@ mod dual_core {
     ///
     /// The `shared_data` is used to coordinate the init with the second core. Read the [SharedData] docs
     /// for more information on its requirements.
-    pub fn try_init_secondary(
-        shared_data: &'static MaybeUninit<SharedData>,
-    ) -> Option<Peripherals> {
+    pub fn try_init_secondary(shared_data: &'static MaybeUninit<SharedData>) -> Option<Peripherals> {
         let shared_data = unsafe { shared_data.assume_init_ref() };
 
         if shared_data.init_flag.load(Ordering::SeqCst) != INIT_DONE_FLAG {
@@ -544,16 +537,15 @@ fn init_hw(config: Config) -> Peripherals {
                 cr.set_standby(config.enable_debug_during_sleep);
             }
             #[cfg(any(
-                dbgmcu_f0, dbgmcu_c0, dbgmcu_g0, dbgmcu_u0, dbgmcu_u3, dbgmcu_u5, dbgmcu_wba,
-                dbgmcu_l5
+                dbgmcu_f0, dbgmcu_c0, dbgmcu_g0, dbgmcu_u0, dbgmcu_u3, dbgmcu_u5, dbgmcu_wba, dbgmcu_l5
             ))]
             {
                 cr.set_dbg_stop(config.enable_debug_during_sleep);
                 cr.set_dbg_standby(config.enable_debug_during_sleep);
             }
             #[cfg(any(
-                dbgmcu_f1, dbgmcu_f2, dbgmcu_f3, dbgmcu_f4, dbgmcu_f7, dbgmcu_g4, dbgmcu_f7,
-                dbgmcu_l0, dbgmcu_l1, dbgmcu_l4, dbgmcu_wb, dbgmcu_wl, dbgmcu_n6
+                dbgmcu_f1, dbgmcu_f2, dbgmcu_f3, dbgmcu_f4, dbgmcu_f7, dbgmcu_g4, dbgmcu_f7, dbgmcu_l0, dbgmcu_l1,
+                dbgmcu_l4, dbgmcu_wb, dbgmcu_wl, dbgmcu_n6
             ))]
             {
                 cr.set_dbg_sleep(config.enable_debug_during_sleep);
@@ -574,10 +566,7 @@ fn init_hw(config: Config) -> Peripherals {
         rcc::enable_and_reset_with_cs::<peripherals::SYSCFG>(cs);
         #[cfg(not(any(stm32h5, stm32h7, stm32h7rs, stm32wb, stm32wl)))]
         rcc::enable_and_reset_with_cs::<peripherals::PWR>(cs);
-        #[cfg(all(
-            flash,
-            not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7, stm32h7rs))
-        ))]
+        #[cfg(all(flash, not(any(stm32f2, stm32f4, stm32f7, stm32l0, stm32h5, stm32h7, stm32h7rs))))]
         rcc::enable_and_reset_with_cs::<peripherals::FLASH>(cs);
 
         // Enable the VDDIO2 power supply on chips that have it.

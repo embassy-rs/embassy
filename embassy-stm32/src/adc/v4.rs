@@ -218,9 +218,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
 
         // Set the ADC resolution.
         if let Some(resolution) = config.resolution {
-            T::regs()
-                .cfgr()
-                .modify(|reg| reg.set_res(resolution.into()));
+            T::regs().cfgr().modify(|reg| reg.set_res(resolution.into()));
         }
 
         // Set hardware averaging.

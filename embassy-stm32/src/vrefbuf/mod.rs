@@ -69,9 +69,7 @@ impl<'d, T: Instance> VoltageReferenceBuffer<'d, T> {
             "Vrefbuf configured with voltage scale {} and impedance mode {}",
             voltage_scale as u8, impedance_mode as u8,
         );
-        VoltageReferenceBuffer {
-            vrefbuf: PhantomData,
-        }
+        VoltageReferenceBuffer { vrefbuf: PhantomData }
     }
 }
 

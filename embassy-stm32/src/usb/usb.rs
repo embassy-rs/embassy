@@ -9,8 +9,7 @@ use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
-    Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType,
-    Event, Unsupported,
+    Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
 };
 
 use crate::pac::USBRAM;
@@ -209,9 +208,7 @@ mod btable {
 
     pub(super) fn write_in_len_tx<T: Instance>(index: usize, addr: u16, len: u16) {
         assert_eq!(addr & 0b11, 0);
-        USBRAM
-            .mem(index * 2)
-            .write_value((addr as u32) | ((len as u32) << 16));
+        USBRAM.mem(index * 2).write_value((addr as u32) | ((len as u32) << 16));
     }
 
     pub(super) fn write_in_len_rx<T: Instance>(index: usize, addr: u16, len: u16) {
@@ -269,9 +266,7 @@ impl<T: Instance> EndpointBuffer<T> {
             let val = u16::from_le_bytes(val);
             #[cfg(any(usbram_32_2048, usbram_32_1024))]
             let val = u32::from_le_bytes(val);
-            USBRAM
-                .mem(self.addr as usize / USBRAM_ALIGN + i)
-                .write_value(val);
+            USBRAM.mem(self.addr as usize / USBRAM_ALIGN + i).write_value(val);
         }
     }
 }
@@ -326,9 +321,7 @@ impl<'d, T: Instance> Driver<'d, T> {
         });
 
         // wait t_STARTUP = 1us
-        cortex_m::asm::delay(
-            unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 / 1_000_000,
-        );
+        cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 / 1_000_000);
 
         #[cfg(not(usb_v4))]
         regs.btable().write(|w| w.set_btable(0));
@@ -654,9 +647,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                                 true => Stat::STALL,
                             };
                             let mut w = invariant(r);
-                            w.set_stat_tx(Stat::from_bits(
-                                r.stat_tx().to_bits() ^ want_stat.to_bits(),
-                            ));
+                            w.set_stat_tx(Stat::from_bits(r.stat_tx().to_bits() ^ want_stat.to_bits()));
                             reg.write_value(w);
                         }
                     }
@@ -675,9 +666,7 @@ impl<'d, T: Instance> driver::Bus for Bus<'d, T> {
                                 true => Stat::STALL,
                             };
                             let mut w = invariant(r);
-                            w.set_stat_rx(Stat::from_bits(
-                                r.stat_rx().to_bits() ^ want_stat.to_bits(),
-                            ));
+                            w.set_stat_rx(Stat::from_bits(r.stat_rx().to_bits() ^ want_stat.to_bits()));
                             reg.write_value(w);
                         }
                     }
@@ -1077,12 +1066,7 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         }
     }
 
-    async fn data_out(
-        &mut self,
-        buf: &mut [u8],
-        first: bool,
-        last: bool,
-    ) -> Result<usize, EndpointError> {
+    async fn data_out(&mut self, buf: &mut [u8], first: bool, last: bool) -> Result<usize, EndpointError> {
         let regs = T::regs();
 
         // When a SETUP is received, Stat/Stat is set to NAK.
@@ -1224,12 +1208,8 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         let epr = regs.epr(0).read();
         regs.epr(0).write(|w| {
             w.set_ep_type(EpType::CONTROL);
-            w.set_stat_rx(Stat::from_bits(
-                epr.stat_rx().to_bits() ^ Stat::STALL.to_bits(),
-            ));
-            w.set_stat_tx(Stat::from_bits(
-                epr.stat_tx().to_bits() ^ Stat::VALID.to_bits(),
-            ));
+            w.set_stat_rx(Stat::from_bits(epr.stat_rx().to_bits() ^ Stat::STALL.to_bits()));
+            w.set_stat_tx(Stat::from_bits(epr.stat_tx().to_bits() ^ Stat::VALID.to_bits()));
             w.set_ctr_rx(true); // don't clear
             w.set_ctr_tx(true); // don't clear
         });
@@ -1259,12 +1239,8 @@ impl<'d, T: Instance> driver::ControlPipe for ControlPipe<'d, T> {
         let epr = regs.epr(0).read();
         regs.epr(0).write(|w| {
             w.set_ep_type(EpType::CONTROL);
-            w.set_stat_rx(Stat::from_bits(
-                epr.stat_rx().to_bits() ^ Stat::STALL.to_bits(),
-            ));
-            w.set_stat_tx(Stat::from_bits(
-                epr.stat_tx().to_bits() ^ Stat::STALL.to_bits(),
-            ));
+            w.set_stat_rx(Stat::from_bits(epr.stat_rx().to_bits() ^ Stat::STALL.to_bits()));
+            w.set_stat_tx(Stat::from_bits(epr.stat_tx().to_bits() ^ Stat::STALL.to_bits()));
             w.set_ctr_rx(true); // don't clear
             w.set_ctr_tx(true); // don't clear
         });

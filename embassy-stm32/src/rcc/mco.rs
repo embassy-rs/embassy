@@ -49,7 +49,6 @@ pub use crate::pac::rcc::vals::Mcopre as McoPrescaler;
     rcc_n6
 )))]
 pub use crate::pac::rcc::vals::Mcosel as McoSource;
-
 use crate::{Peri, peripherals};
 
 #[cfg(any(stm32f1, rcc_f0v1, rcc_f3v1, rcc_f37))]

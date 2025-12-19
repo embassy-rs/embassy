@@ -634,7 +634,9 @@ macro_rules! impl_adc_pair {
                 crate::Peri<'_, crate::peripherals::$npin>,
             )
         {
-            #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba))]
+            #[cfg(any(
+                adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba
+            ))]
             fn setup(&mut self) {
                 <crate::peripherals::$pin as crate::gpio::SealedPin>::set_as_analog(&mut self.0);
                 <crate::peripherals::$npin as crate::gpio::SealedPin>::set_as_analog(&mut self.1);
