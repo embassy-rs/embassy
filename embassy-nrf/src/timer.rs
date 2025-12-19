@@ -210,6 +210,13 @@ impl<'d> Timer<'d> {
         self.r.tasks_clear().write_value(1)
     }
 
+    /// Shuts down the timer.
+    /// This task is deprecated, but needed to workaround errata 78
+    #[cfg(any(feature = "_nrf51", feature = "_nrf52", feature = "_nrf5340", feature = "_nrf91"))]
+    pub fn shutdown(&self) {
+        self.r.tasks_shutdown().write_value(1)
+    }
+
     /// Returns the START task, for use with PPI.
     ///
     /// When triggered, this task starts the timer.
