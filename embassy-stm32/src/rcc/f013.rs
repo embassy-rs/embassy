@@ -480,6 +480,12 @@ pub(crate) unsafe fn init(config: Config) {
     };
      */
 
+    // Disable the HSI48, if not used
+    #[cfg(crs)]
+    if config.hsi48.is_none() {
+        super::disable_hsi48();
+    }
+
     config.mux.init();
 
     set_clocks!(
