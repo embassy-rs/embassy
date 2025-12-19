@@ -1430,6 +1430,11 @@ impl<'d, PIO: Instance> Pio<'d, PIO> {
             _pio: PhantomData,
         }
     }
+
+    /// Access the PIO registers.
+    pub fn regs(&self) -> &rp_pac::pio::Pio {
+        PIO::PIO
+    }
 }
 
 struct AtomicU64 {
