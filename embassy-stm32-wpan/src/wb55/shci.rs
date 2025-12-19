@@ -12,6 +12,28 @@ const fn opcode(ogf: u16, ocf: u16) -> isize {
     ((ogf << 10) + ocf) as isize
 }
 
+pub(crate) trait SealedSchiFromPacket: Sized {
+    unsafe fn from_packet(cmd_buf: *const CmdPacket) -> Result<Self, ()>;
+}
+
+#[allow(private_bounds)]
+pub trait SchiFromPacket: SealedSchiFromPacket {}
+impl<T: SealedSchiFromPacket> SchiFromPacket for T {}
+
+trait ShciFromEventSerial: TryFrom<u8, Error = ()> {}
+
+impl<T: ShciFromEventSerial> SealedSchiFromPacket for T {
+    unsafe fn from_packet(cmd_buf: *const CmdPacket) -> Result<Self, ()> {
+        let p_cmd_serial = (cmd_buf as *mut u8).add(size_of::<PacketHeader>());
+        let p_evt_payload = p_cmd_serial.add(size_of::<EvtStub>());
+
+        compiler_fence(Ordering::Acquire);
+        let cc_evt = ptr::read_unaligned(p_evt_payload as *const CcEvt);
+
+        cc_evt.payload[0].try_into()
+    }
+}
+
 #[allow(dead_code)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SchiCommandStatus {
@@ -25,37 +47,20 @@ pub enum SchiCommandStatus {
     ShciFusCmdNotSupported = 0xFF,
 }
 
-impl SchiCommandStatus {
-    pub unsafe fn from_packet(cmd_buf: *const CmdPacket) -> Result<Self, ()> {
-        let p_cmd_serial = (cmd_buf as *mut u8).add(size_of::<PacketHeader>());
-        let p_evt_payload = p_cmd_serial.add(size_of::<EvtStub>());
-
-        compiler_fence(Ordering::Acquire);
-        let cc_evt = ptr::read_unaligned(p_evt_payload as *const CcEvt);
-
-        cc_evt.payload[0].try_into()
-    }
-}
-
+impl ShciFromEventSerial for SchiCommandStatus {}
 impl TryFrom<u8> for SchiCommandStatus {
     type Error = ();
 
     fn try_from(v: u8) -> Result<Self, Self::Error> {
         match v {
-            x if x == SchiCommandStatus::ShciSuccess as u8 => Ok(SchiCommandStatus::ShciSuccess),
-            x if x == SchiCommandStatus::ShciUnknownCmd as u8 => Ok(SchiCommandStatus::ShciUnknownCmd),
-            x if x == SchiCommandStatus::ShciMemoryCapacityExceededErrCode as u8 => {
-                Ok(SchiCommandStatus::ShciMemoryCapacityExceededErrCode)
-            }
-            x if x == SchiCommandStatus::ShciErrUnsupportedFeature as u8 => {
-                Ok(SchiCommandStatus::ShciErrUnsupportedFeature)
-            }
-            x if x == SchiCommandStatus::ShciErrInvalidHciCmdParams as u8 => {
-                Ok(SchiCommandStatus::ShciErrInvalidHciCmdParams)
-            }
-            x if x == SchiCommandStatus::ShciErrInvalidParams as u8 => Ok(SchiCommandStatus::ShciErrInvalidParams), /* only used for release < v1.13.0 */
-            x if x == SchiCommandStatus::ShciErrInvalidParamsV2 as u8 => Ok(SchiCommandStatus::ShciErrInvalidParamsV2), /* available for release >= v1.13.0 */
-            x if x == SchiCommandStatus::ShciFusCmdNotSupported as u8 => Ok(SchiCommandStatus::ShciFusCmdNotSupported),
+            0x00 => Ok(Self::ShciSuccess),
+            0x01 => Ok(Self::ShciUnknownCmd),
+            0x07 => Ok(Self::ShciMemoryCapacityExceededErrCode),
+            0x11 => Ok(Self::ShciErrUnsupportedFeature),
+            0x12 => Ok(Self::ShciErrInvalidHciCmdParams),
+            0x42 => Ok(Self::ShciErrInvalidParams), /* only used for release < v1.13.0 */
+            0x92 => Ok(Self::ShciErrInvalidParamsV2), /* available for release >= v1.13.0 */
+            0xFF => Ok(Self::ShciFusCmdNotSupported),
             _ => Err(()),
         }
     }
@@ -105,6 +110,71 @@ pub enum ShciOpcode {
     ConcurrentGetNextBleEvtTime = opcode(SHCI_OGF, 0x76),
     ConcurrentEnableNext802_15_4EvtNotification = opcode(SHCI_OGF, 0x77),
     Mac802_15_4DeInit = opcode(SHCI_OGF, 0x78),
+}
+
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ShciFusGetStateErrorCode {
+    FusStateErrorNoError = 0x00,
+    FusStateErrorImgNotFound = 0x01,
+    FusStateErrorImgCorrupt = 0x02,
+    FusStateErrorImgNotAuthentic = 0x03,
+    FusStateErrorImgNotEnoughSpace = 0x04,
+    FusStateErrorImageUsrAbort = 0x05,
+    FusStateErrorImageErsError = 0x06,
+    FusStateErrorImageWrtError = 0x07,
+    FusStateErrorAuthTagStNotFound = 0x08,
+    FusStateErrorAuthTagCustNotFound = 0x09,
+    FusStateErrorAuthKeyLocked = 0x0A,
+    FusStateErrorFwRollbackError = 0x11,
+    FusStateErrorStateNotRunning = 0xFE,
+    FusStateErrorErrUnknown = 0xFF,
+}
+
+impl ShciFromEventSerial for ShciFusGetStateErrorCode {}
+impl TryFrom<u8> for ShciFusGetStateErrorCode {
+    type Error = ();
+
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
+        match v {
+            0x00 => Ok(Self::FusStateErrorNoError),
+            0x01 => Ok(Self::FusStateErrorImgNotFound),
+            0x02 => Ok(Self::FusStateErrorImgCorrupt),
+            0x03 => Ok(Self::FusStateErrorImgNotAuthentic),
+            0x04 => Ok(Self::FusStateErrorImgNotEnoughSpace),
+            0x05 => Ok(Self::FusStateErrorImageUsrAbort),
+            0x06 => Ok(Self::FusStateErrorImageErsError),
+            0x07 => Ok(Self::FusStateErrorImageWrtError),
+            0x08 => Ok(Self::FusStateErrorAuthTagStNotFound),
+            0x09 => Ok(Self::FusStateErrorAuthTagCustNotFound),
+            0x0A => Ok(Self::FusStateErrorAuthKeyLocked),
+            0x11 => Ok(Self::FusStateErrorFwRollbackError),
+            0xFE => Ok(Self::FusStateErrorStateNotRunning),
+            0xFF => Ok(Self::FusStateErrorErrUnknown),
+            _ => Err(()),
+        }
+    }
+}
+
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum SchiSysEventReady {
+    WirelessFwRunning = 0x00,
+    FusFwRunning = 0x01,
+    NvmBackupRunning = 0x10,
+    NvmRestoreRunning = 0x11,
+}
+
+impl TryFrom<u8> for SchiSysEventReady {
+    type Error = ();
+
+    fn try_from(v: u8) -> Result<Self, Self::Error> {
+        match v {
+            0x00 => Ok(Self::WirelessFwRunning),
+            0x01 => Ok(Self::FusFwRunning),
+            0x10 => Ok(Self::NvmBackupRunning),
+            0x11 => Ok(Self::NvmRestoreRunning),
+            _ => Err(()),
+        }
+    }
 }
 
 pub const SHCI_C2_CONFIG_EVTMASK1_BIT0_ERROR_NOTIF_ENABLE: u8 = 1 << 0;
