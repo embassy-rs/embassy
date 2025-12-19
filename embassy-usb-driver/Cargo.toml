@@ -19,6 +19,7 @@ target = "thumbv7em-none-eabi"
 features = ["defmt"]
 
 [dependencies]
+# TODO: remove before releasing embassy-usb-driver v0.3
 embedded-io-async = "0.6.1"
 defmt = { version = "1", optional = true }
 

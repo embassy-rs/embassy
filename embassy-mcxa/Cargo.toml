@@ -36,8 +36,8 @@ embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-async = { version = "1.0" }
 embedded-hal-nb = { version = "1.0" }
-embedded-io = "0.6"
-embedded-io-async = { version = "0.6.1" }
+embedded-io = "0.7"
+embedded-io-async = { version = "0.7.0" }
 heapless = "0.8"
 mcxa-pac = { version = "0.1.0", features = ["rt", "critical-section"] }
 nb = "1.1.0"

@@ -436,6 +436,10 @@ impl embedded_io_async::Write for BufferedUart<'_> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         self.tx.write_inner(buf).await
     }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        self.tx.flush_inner().await
+    }
 }
 
 impl embedded_io_async::Write for BufferedUartTx<'_> {

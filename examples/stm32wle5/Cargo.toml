@@ -15,7 +15,7 @@ embassy-embedded-hal = { version = "0.5.0", path = "../../embassy-embedded-hal" 
 
 defmt = "1.0.1"
 defmt-rtt = { version = "1.1.0", optional = true }
-defmt-serial = { version = "0.10.0", optional = true }
+defmt-serial = { git = "https://github.com/gauteh/defmt-serial", rev = "411ae7fa909b4fd2667885aff687e009b9108190", optional = true }
 
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"

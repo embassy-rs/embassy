@@ -10,7 +10,7 @@ repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/cyw43"
 
 [features]
-defmt = ["dep:defmt", "heapless/defmt-03", "embassy-time/defmt", "bt-hci?/defmt", "embedded-io-async?/defmt-03"]
+defmt = ["dep:defmt", "heapless/defmt-03", "embassy-time/defmt", "bt-hci?/defmt", "embedded-io-async?/defmt"]
 log = ["dep:log"]
 bluetooth = ["dep:bt-hci", "dep:embedded-io-async"]
 
@@ -35,8 +35,8 @@ num_enum = { version = "0.5.7", default-features = false }
 heapless = "0.8.0"
 
 # Bluetooth deps
-embedded-io-async = { version = "0.6.0", optional = true }
-bt-hci = { version = "0.6.0", optional = true }
+embedded-io-async = { version = "0.7.0", optional = true }
+bt-hci = { git = "https://github.com/embassy-rs/bt-hci", rev = "51791fd4d422449dd0eca5ddead32886101215f7", optional = true }
 
 [package.metadata.embassy]
 build = [

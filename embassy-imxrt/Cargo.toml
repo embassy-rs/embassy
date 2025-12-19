@@ -85,8 +85,8 @@ cfg-if = "1.0.0"
 cortex-m-rt = ">=0.7.3,<0.8"
 cortex-m = "0.7.6"
 critical-section = "1.1"
-embedded-io = { version = "0.6.1" }
-embedded-io-async = { version = "0.6.1" }
+embedded-io = { version = "0.7.1" }
+embedded-io-async = { version = "0.7.0" }
 fixed = "1.23.1"
 
 rand-core-06 = { package = "rand_core", version = "0.6" }

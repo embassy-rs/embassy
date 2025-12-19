@@ -24,7 +24,7 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.8", default-features = false }
 portable-atomic = { version = "1.5", features = ["unsafe-assume-single-core"] }
 
-embedded-io-async = { version = "0.6.1" }
+embedded-io-async = { version = "0.7.0" }
 
 [profile.release]
 debug = 2
