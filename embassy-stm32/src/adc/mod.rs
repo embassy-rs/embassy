@@ -12,7 +12,7 @@
 #[cfg_attr(adc_l0, path = "v1.rs")]
 #[cfg_attr(adc_v2, path = "v2.rs")]
 #[cfg_attr(any(adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0), path = "v3.rs")]
-#[cfg_attr(any(adc_v4, adc_u5), path = "v4.rs")]
+#[cfg_attr(any(adc_v4, adc_u5, adc_u3), path = "v4.rs")]
 #[cfg_attr(adc_g4, path = "g4.rs")]
 #[cfg_attr(adc_c0, path = "c0.rs")]
 mod _version;
@@ -126,7 +126,7 @@ trait SealedInstance: BasicInstance {
 }
 
 pub(crate) trait SealedAdcChannel<T> {
-    #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u5, adc_wba))]
+    #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u5, adc_u3, adc_wba))]
     fn setup(&mut self) {}
 
     #[allow(unused)]
@@ -138,7 +138,7 @@ pub(crate) trait SealedAdcChannel<T> {
     }
 }
 
-#[cfg(any(adc_c0, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5))]
+#[cfg(any(adc_c0, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3))]
 /// Number of samples used for averaging.
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -152,18 +152,20 @@ pub enum Averaging {
     Samples64,
     Samples128,
     Samples256,
-    #[cfg(any(adc_c0, adc_v4, adc_u5))]
+    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3))]
     Samples512,
-    #[cfg(any(adc_c0, adc_v4, adc_u5))]
+    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3))]
     Samples1024,
 }
 
 #[cfg(any(
-    adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_c0
+    adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0
 ))]
 pub(crate) enum ConversionMode {
     // Should match the cfg on "read" below
-    #[cfg(any(adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_c0))]
+    #[cfg(any(
+        adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0
+    ))]
     Singular,
     // Should match the cfg on "into_ring_buffered" below
     #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
@@ -184,7 +186,7 @@ pub enum RegularConversionMode {
 
 impl<'d, T: Instance> Adc<'d, T> {
     #[cfg(any(
-        adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_u5, adc_v3, adc_v4, adc_wba, adc_c0
+        adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_u3, adc_u5, adc_v3, adc_v4, adc_wba, adc_c0
     ))]
     /// Read an ADC pin.
     pub fn blocking_read(
@@ -192,12 +194,12 @@ impl<'d, T: Instance> Adc<'d, T> {
         channel: &mut impl AdcChannel<T>,
         sample_time: <T::Regs as BasicAdcRegs>::SampleTime,
     ) -> u16 {
-        #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u5, adc_wba))]
+        #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba))]
         channel.setup();
 
         // Ensure no conversions are ongoing
         T::regs().stop();
-        #[cfg(any(adc_v2, adc_v3, adc_g0, adc_h7rs, adc_u0, adc_u5, adc_wba, adc_c0))]
+        #[cfg(any(adc_v2, adc_v3, adc_g0, adc_h7rs, adc_u0, adc_u3, adc_u5, adc_wba, adc_c0))]
         T::regs().enable();
         T::regs().configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
 
@@ -211,7 +213,9 @@ impl<'d, T: Instance> Adc<'d, T> {
         unsafe { core::ptr::read_volatile(T::regs().data()) }
     }
 
-    #[cfg(any(adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_c0))]
+    #[cfg(any(
+        adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0
+    ))]
     /// Read one or multiple ADC regular channels using DMA.
     ///
     /// `readings` must have a length that is a multiple of the length of the `sequence` iterator.
@@ -263,7 +267,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         // Ensure no conversions are ongoing
         T::regs().stop();
-        #[cfg(any(adc_g0, adc_v3, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_c0))]
+        #[cfg(any(adc_g0, adc_v3, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_c0))]
         T::regs().enable();
 
         T::regs().configure_sequence(
@@ -401,7 +405,7 @@ impl SpecialChannel for Dac {}
 /// ADC instance.
 #[cfg(not(any(
     adc_f1, adc_v1, adc_l0, adc_v2, adc_v3, adc_v4, adc_g4, adc_f3v1, adc_f3v2, adc_g0, adc_u0, adc_h5, adc_h7rs,
-    adc_u5, adc_c0, adc_wba,
+    adc_u5, adc_u3, adc_c0, adc_wba,
 )))]
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + crate::PeripheralType {
@@ -410,7 +414,7 @@ pub trait Instance: SealedInstance + crate::PeripheralType {
 /// ADC instance.
 #[cfg(any(
     adc_f1, adc_v1, adc_l0, adc_v2, adc_v3, adc_v4, adc_g4, adc_f3v1, adc_f3v2, adc_g0, adc_u0, adc_h5, adc_h7rs,
-    adc_u5, adc_c0, adc_wba,
+    adc_u5, adc_u3, adc_c0, adc_wba,
 ))]
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + crate::PeripheralType + crate::rcc::RccPeripheral {
@@ -425,7 +429,7 @@ pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
     where
         Self: 'a,
     {
-        #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u5, adc_wba))]
+        #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba))]
         self.setup();
 
         AnyAdcChannel {
@@ -600,7 +604,9 @@ macro_rules! impl_adc_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {
         impl crate::adc::AdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {}
         impl crate::adc::SealedAdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {
-            #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u5, adc_wba))]
+            #[cfg(any(
+                adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba
+            ))]
             fn setup(&mut self) {
                 <crate::peripherals::$pin as crate::gpio::SealedPin>::set_as_analog(self);
             }
@@ -628,7 +634,7 @@ macro_rules! impl_adc_pair {
                 crate::Peri<'_, crate::peripherals::$npin>,
             )
         {
-            #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u5, adc_wba))]
+            #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba))]
             fn setup(&mut self) {
                 <crate::peripherals::$pin as crate::gpio::SealedPin>::set_as_analog(&mut self.0);
                 <crate::peripherals::$npin as crate::gpio::SealedPin>::set_as_analog(&mut self.1);

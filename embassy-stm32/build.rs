@@ -97,12 +97,10 @@ fn main() {
 
         match (single_bank_selected, dual_bank_selected) {
             (true, true) => panic!("Both 'single-bank' and 'dual-bank' features enabled"),
-            (true, false) => {
-                single_bank_memory.expect("The 'single-bank' feature is not supported on this dual bank chip")
-            }
-            (false, true) => {
-                dual_bank_memory.expect("The 'dual-bank' feature is not supported on this single bank chip")
-            }
+            (true, false) => single_bank_memory
+                .expect("The 'single-bank' feature is not supported on this dual bank chip"),
+            (false, true) => dual_bank_memory
+                .expect("The 'dual-bank' feature is not supported on this single bank chip"),
             (false, false) => {
                 if METADATA.memory.len() != 1 {
                     panic!(
@@ -350,8 +348,8 @@ fn main() {
     };
 
     for tim in [
-        "tim1", "tim2", "tim3", "tim4", "tim5", "tim8", "tim9", "tim12", "tim15", "tim20", "tim21", "tim22", "tim23",
-        "tim24",
+        "tim1", "tim2", "tim3", "tim4", "tim5", "tim8", "tim9", "tim12", "tim15", "tim20", "tim21",
+        "tim22", "tim23", "tim24",
     ] {
         cfgs.declare(format!("time_driver_{}", tim));
     }
@@ -514,7 +512,12 @@ fn main() {
         .filter_map(|p| p.registers.as_ref())
         .find(|r| r.kind == "rcc")
         .unwrap();
-    let rcc_block = rcc_registers.ir.blocks.iter().find(|b| b.name == "Rcc").unwrap();
+    let rcc_block = rcc_registers
+        .ir
+        .blocks
+        .iter()
+        .find(|b| b.name == "Rcc")
+        .unwrap();
 
     // ========
     // Generate RccPeripheral impls
@@ -570,7 +573,7 @@ fn main() {
             },
         );
     }
-    if chip_name.starts_with("stm32u5") {
+    if chip_name.starts_with("stm32u5") || chip_name.starts_with("stm32U3") {
         clock_gen.chained_muxes.insert(
             "ICLK",
             &PeripheralRccRegister {
@@ -669,7 +672,11 @@ fn main() {
                 .find(|i| i.name.eq_ignore_ascii_case(&fieldset_name))
                 .unwrap();
             let field_name = mux.field.to_ascii_lowercase();
-            let field = fieldset.fields.iter().find(|i| i.name == field_name).unwrap();
+            let field = fieldset
+                .fields
+                .iter()
+                .find(|i| i.name == field_name)
+                .unwrap();
             let enum_name = field.enumm.unwrap();
             let enumm = ir.enums.iter().find(|i| i.name == enum_name).unwrap();
 
@@ -757,7 +764,10 @@ fn main() {
             };
             let enable_offset_and_bit = get_offset_and_bit(en_reg);
 
-            let needs_refcount = *rcc_field_count.get(&(en_reg.register, en_reg.field)).unwrap() > 1;
+            let needs_refcount = *rcc_field_count
+                .get(&(en_reg.register, en_reg.field))
+                .unwrap()
+                > 1;
             let refcount_idx = if needs_refcount {
                 let next_refcount_idx = refcount_idxs.len() as u8;
                 let refcount_idx = *refcount_idxs
@@ -853,7 +863,11 @@ fn main() {
         })
     }
 
-    let enum_names: BTreeSet<_> = clock_gen.muxes.iter().map(|(_, _, enum_name)| enum_name).collect();
+    let enum_names: BTreeSet<_> = clock_gen
+        .muxes
+        .iter()
+        .map(|(_, _, enum_name)| enum_name)
+        .collect();
 
     g.extend(quote! {
         pub mod mux {
@@ -899,7 +913,11 @@ fn main() {
         clock_gen.clock_names.insert("plli2s1_r".to_string());
     }
 
-    let clock_idents: Vec<_> = clock_gen.clock_names.iter().map(|n| format_ident!("{}", n)).collect();
+    let clock_idents: Vec<_> = clock_gen
+        .clock_names
+        .iter()
+        .map(|n| format_ident!("{}", n))
+        .collect();
     g.extend(quote! {
         #[derive(Clone, Copy, Debug)]
         #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -1471,7 +1489,9 @@ fn main() {
 
                     let pin_name = {
                         // If we encounter a _C pin but the split_feature for this pin is not enabled, skip it
-                        if pin.pin.ends_with("_C") && !split_features.iter().any(|x| x.pin_name_with_c == pin.pin) {
+                        if pin.pin.ends_with("_C")
+                            && !split_features.iter().any(|x| x.pin_name_with_c == pin.pin)
+                        {
                             continue;
                         }
 
@@ -1538,12 +1558,13 @@ fn main() {
                         } else {
                             let reg = format_ident!("{}", afio.register.to_lowercase());
                             let setter = format_ident!("set_{}", afio.field.to_lowercase());
-                            let type_and_values = if is_bool_field("AFIO", afio.register, afio.field) {
-                                let values = values.iter().map(|&v| v > 0);
-                                quote!(AfioRemapBool, [#(#values),*])
-                            } else {
-                                quote!(AfioRemap, [#(#values),*])
-                            };
+                            let type_and_values =
+                                if is_bool_field("AFIO", afio.register, afio.field) {
+                                    let values = values.iter().map(|&v| v > 0);
+                                    quote!(AfioRemapBool, [#(#values),*])
+                                } else {
+                                    quote!(AfioRemap, [#(#values),*])
+                                };
 
                             Some(quote! {
                                 pin_trait_afio_impl!(#tr, #peri, #pin_name, {#reg, #setter, #type_and_values});
@@ -1562,11 +1583,12 @@ fn main() {
                             "LPUART",
                             "TIM",
                         ];
-                        let not_applicable = if peripherals_with_afio.iter().any(|&x| p.name.starts_with(x)) {
-                            quote!(, crate::gpio::AfioRemapNotApplicable)
-                        } else {
-                            quote!()
-                        };
+                        let not_applicable =
+                            if peripherals_with_afio.iter().any(|&x| p.name.starts_with(x)) {
+                                quote!(, crate::gpio::AfioRemapNotApplicable)
+                            } else {
+                                quote!()
+                            };
 
                         Some(quote!(pin_trait_impl!(#tr, #peri, #pin_name, #af #not_applicable);))
                     };
@@ -1583,7 +1605,9 @@ fn main() {
                     let peri = format_ident!("{}", p.name);
                     let pin_name = {
                         // If we encounter a _C pin but the split_feature for this pin is not enabled, skip it
-                        if pin.pin.ends_with("_C") && !split_features.iter().any(|x| x.pin_name_with_c == pin.pin) {
+                        if pin.pin.ends_with("_C")
+                            && !split_features.iter().any(|x| x.pin_name_with_c == pin.pin)
+                        {
                             continue;
                         }
                         format_ident!("{}", pin.pin)
@@ -1591,27 +1615,49 @@ fn main() {
 
                     // H7 has differential voltage measurements
                     let ch: Option<(u8, bool)> = if pin.signal.starts_with("INP") {
-                        Some((pin.signal.strip_prefix("INP").unwrap().parse().unwrap(), false))
+                        Some((
+                            pin.signal.strip_prefix("INP").unwrap().parse().unwrap(),
+                            false,
+                        ))
                     } else if pin.signal.starts_with("INN") {
-                        Some((pin.signal.strip_prefix("INN").unwrap().parse().unwrap(), true))
+                        Some((
+                            pin.signal.strip_prefix("INN").unwrap().parse().unwrap(),
+                            true,
+                        ))
                     } else if pin.signal.starts_with("IN") && pin.signal.ends_with('b') {
                         // we number STM32L1 ADC bank 1 as 0..=31, bank 2 as 32..=63
-                        let signal = pin.signal.strip_prefix("IN").unwrap().strip_suffix('b').unwrap();
+                        let signal = pin
+                            .signal
+                            .strip_prefix("IN")
+                            .unwrap()
+                            .strip_suffix('b')
+                            .unwrap();
                         Some((32u8 + signal.parse::<u8>().unwrap(), false))
                     } else if pin.signal.starts_with("IN") {
-                        Some((pin.signal.strip_prefix("IN").unwrap().parse().unwrap(), false))
+                        Some((
+                            pin.signal.strip_prefix("IN").unwrap().parse().unwrap(),
+                            false,
+                        ))
                     } else {
                         None
                     };
                     if let Some((ch, false)) = ch {
-                        adc_pairs.entry(ch).or_insert((None, None)).0.replace(pin_name.clone());
+                        adc_pairs
+                            .entry(ch)
+                            .or_insert((None, None))
+                            .0
+                            .replace(pin_name.clone());
 
                         g.extend(quote! {
                         impl_adc_pin!( #peri, #pin_name, #ch);
                         })
                     }
                     if let Some((ch, true)) = ch {
-                        adc_pairs.entry(ch).or_insert((None, None)).1.replace(pin_name.clone());
+                        adc_pairs
+                            .entry(ch)
+                            .or_insert((None, None))
+                            .1
+                            .replace(pin_name.clone());
                     }
                 }
 
@@ -1711,7 +1757,7 @@ fn main() {
         (("timer", "CH3"), quote!(crate::timer::Dma<Ch3>)),
         (("timer", "CH4"), quote!(crate::timer::Dma<Ch4>)),
         (("cordic", "WRITE"), quote!(crate::cordic::WriteDma)), // FIXME: stm32u5a crash on Cordic driver
-        (("cordic", "READ"), quote!(crate::cordic::ReadDma)),   // FIXME: stm32u5a crash on Cordic driver
+        (("cordic", "READ"), quote!(crate::cordic::ReadDma)), // FIXME: stm32u5a crash on Cordic driver
     ]
     .into();
 
@@ -1787,13 +1833,15 @@ fn main() {
                             let register = format_ident!("{}", remap_info.register.to_lowercase());
                             let setter = format_ident!("set_{}", remap_info.field.to_lowercase());
 
-                            let value = if is_bool_field("SYSCFG", &remap_info.register, &remap_info.field) {
-                                let bool_value = format_ident!("{}", remap_info.value > 0);
-                                quote!(#bool_value)
-                            } else {
-                                let value = remap_info.value;
-                                quote!(#value.into())
-                            };
+                            let value =
+                                if is_bool_field("SYSCFG", &remap_info.register, &remap_info.field)
+                                {
+                                    let bool_value = format_ident!("{}", remap_info.value > 0);
+                                    quote!(#bool_value)
+                                } else {
+                                    let value = remap_info.value;
+                                    quote!(#value.into())
+                                };
 
                             remap.extend(quote!(crate::pac::SYSCFG.#register().modify(|w| w.#setter(#value));));
                         }
@@ -1828,9 +1876,16 @@ fn main() {
 
             fn is_rcc_name(e: &str) -> bool {
                 match e {
-                    "Pllp" | "Pllq" | "Pllr" | "Plldivst" | "Pllm" | "Plln" | "Prediv1" | "Prediv2" | "Hpre5" => true,
+                    "Pllp" | "Pllq" | "Pllr" | "Plldivst" | "Pllm" | "Plln" | "Prediv1"
+                    | "Prediv2" | "Hpre5" => true,
                     "Timpre" | "Pllrclkpre" => false,
-                    e if e.ends_with("pre") || e.ends_with("pres") || e.ends_with("div") || e.ends_with("mul") => true,
+                    e if e.ends_with("pre")
+                        || e.ends_with("pres")
+                        || e.ends_with("div")
+                        || e.ends_with("mul") =>
+                    {
+                        true
+                    }
                     _ => false,
                 }
             }
@@ -1850,7 +1905,8 @@ fn main() {
                 Err(())
             }
 
-            if (kind == "rcc" && is_rcc_name(e.name)) || ((kind == "adccommon" || kind == "adc") && is_adc_name(e.name))
+            if (kind == "rcc" && is_rcc_name(e.name))
+                || ((kind == "adccommon" || kind == "adc") && is_adc_name(e.name))
             {
                 let kind = format_ident!("{}", kind);
                 let enum_name = format_ident!("{}", e.name);
@@ -1858,7 +1914,10 @@ fn main() {
                 let mut divs = Vec::new();
                 for v in e.variants {
                     let Ok(val) = parse_num(v.name) else {
-                        panic!("could not parse mul/div. enum={} variant={}", e.name, v.name)
+                        panic!(
+                            "could not parse mul/div. enum={} variant={}",
+                            e.name, v.name
+                        )
                     };
                     let variant_name = format_ident!("{}", v.name);
                     let variant = quote!(crate::pac::#kind::vals::#enum_name::#variant_name);
@@ -1951,7 +2010,11 @@ fn main() {
     for pin in METADATA.pins {
         let port_letter = pin.name.chars().nth(1).unwrap();
         let pname = format!("GPIO{}", port_letter);
-        let p = METADATA.peripherals.iter().find(|p| p.name == pname).unwrap();
+        let p = METADATA
+            .peripherals
+            .iter()
+            .find(|p| p.name == pname)
+            .unwrap();
         assert_eq!(0, (p.address as u32 - gpio_base) % gpio_stride);
         let port_num = (p.address as u32 - gpio_base) / gpio_stride;
         let pin_num: u32 = pin.name[2..].parse().unwrap();
@@ -1988,14 +2051,22 @@ fn main() {
                 let adc_num = p.name.strip_prefix("ADC").unwrap();
                 let mut adc_common = None;
                 for p2 in METADATA.peripherals {
-                    if let Some(common_nums) = p2.name.strip_prefix("ADC").and_then(|s| s.strip_suffix("_COMMON")) {
+                    if let Some(common_nums) = p2
+                        .name
+                        .strip_prefix("ADC")
+                        .and_then(|s| s.strip_suffix("_COMMON"))
+                    {
                         if common_nums.contains(adc_num) {
                             adc_common = Some(p2);
                         }
                     }
                 }
                 let adc_common = adc_common.map(|p| p.name).unwrap_or("none");
-                let row = vec![p.name.to_string(), adc_common.to_string(), "adc".to_string()];
+                let row = vec![
+                    p.name.to_string(),
+                    adc_common.to_string(),
+                    "adc".to_string(),
+                ];
                 adc_table.push(row);
             }
 
@@ -2053,7 +2124,10 @@ fn main() {
     #[cfg(feature = "_dual-core")]
     for (irq, channels) in &dma_irqs {
         for channel in channels {
-            dma_ch_to_irq.entry(channel).or_default().push(irq.to_string());
+            dma_ch_to_irq
+                .entry(channel)
+                .or_default()
+                .push(irq.to_string());
         }
     }
 
@@ -2098,7 +2172,9 @@ fn main() {
             "dma" => quote!(crate::dma::DmaInfo::Dma(crate::pac::#dma)),
             "bdma" => quote!(crate::dma::DmaInfo::Bdma(crate::pac::#dma)),
             "gpdma" => quote!(crate::pac::#dma),
-            "lpdma" => quote!(unsafe { crate::pac::gpdma::Gpdma::from_ptr(crate::pac::#dma.as_ptr())}),
+            "lpdma" => {
+                quote!(unsafe { crate::pac::gpdma::Gpdma::from_ptr(crate::pac::#dma.as_ptr())})
+            }
             _ => panic!("bad dma channel kind {}", bi.kind),
         };
 
@@ -2166,7 +2242,12 @@ fn main() {
     // ========
     // Generate gpio_block() function
 
-    let gpio_base = METADATA.peripherals.iter().find(|p| p.name == "GPIOA").unwrap().address as usize;
+    let gpio_base = METADATA
+        .peripherals
+        .iter()
+        .find(|p| p.name == "GPIOA")
+        .unwrap()
+        .address as usize;
     let gpio_stride = 0x400 as usize;
 
     for p in METADATA.peripherals {
@@ -2231,8 +2312,10 @@ fn main() {
 
     cfgs.declare("eeprom");
 
-    let eeprom_memory_regions: Vec<&MemoryRegion> =
-        memory.iter().filter(|x| x.kind == MemoryRegionKind::Eeprom).collect();
+    let eeprom_memory_regions: Vec<&MemoryRegion> = memory
+        .iter()
+        .filter(|x| x.kind == MemoryRegionKind::Eeprom)
+        .collect();
 
     if !eeprom_memory_regions.is_empty() {
         cfgs.enable("eeprom");
@@ -2252,7 +2335,11 @@ fn main() {
                     "EEPROM regions for chip {} are not contiguous, which is unexpected for L0/L1 series. \
                     First region: '{}' at {:#X}. Found next non-contiguous region: '{}' at {:#X}. \
                     Please verify chip metadata. Embassy currently assumes contiguous EEPROM for these series.",
-                    chip_name, sorted_eeprom_regions[0].name, first_eeprom_address, region.name, region.address
+                    chip_name,
+                    sorted_eeprom_regions[0].name,
+                    first_eeprom_address,
+                    region.name,
+                    region.address
                 );
             }
             total_eeprom_size += region.size;
@@ -2485,7 +2572,10 @@ fn gen_memory_x(memory: &[MemoryRegion], out_dir: &Path) {
 }
 
 fn get_memory_range(memory: &[MemoryRegion], kind: MemoryRegionKind) -> (u32, u32, String) {
-    let mut mems: Vec<_> = memory.iter().filter(|m| m.kind == kind && m.size != 0).collect();
+    let mut mems: Vec<_> = memory
+        .iter()
+        .filter(|m| m.kind == kind && m.size != 0)
+        .collect();
     mems.sort_by_key(|m| m.address);
 
     let mut start = u32::MAX;
@@ -2524,7 +2614,8 @@ fn mem_filter(chip: &str, region: &str) -> bool {
         return false;
     }
 
-    if region.starts_with("SDRAM_") || region.starts_with("FMC_") || region.starts_with("OCTOSPI_") {
+    if region.starts_with("SDRAM_") || region.starts_with("FMC_") || region.starts_with("OCTOSPI_")
+    {
         return false;
     }
 
