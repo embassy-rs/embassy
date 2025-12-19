@@ -280,7 +280,10 @@ impl Executor {
     }
 
     #[cfg(all(stm32wb, feature = "low-power"))]
-    fn configure_stop_stm32wb(&self, _cs: CriticalSection) -> Result<(), ()> {
+    fn configure_stop_stm32wb(
+        &self,
+        _cs: CriticalSection,
+    ) -> Result<crate::hsem::HardwareSemaphoreMutex<'_, crate::peripherals::HSEM>, ()> {
         use core::task::Poll;
 
         use embassy_futures::poll_once;
@@ -306,7 +309,7 @@ impl Executor {
             if PWR.extscr().read().c2ds() {
                 drop(sem4_mutex);
             } else {
-                return Ok(());
+                return Ok(sem3_mutex);
             }
         }
 
@@ -332,29 +335,33 @@ impl Executor {
             w.set_smpssel(Smps::HSI);
         });
 
-        drop(sem3_mutex);
-
-        // on PWR
-        RCC.apb1enr1().modify(|r| r.0 |= 1 << 28);
-        cortex_m::asm::dsb();
-
-        // off SMPS, on Bypass
-        PWR.cr5().modify(|r| {
-            let mut val = r.0;
-            val &= !(1 << 15); // sdeb = 0 (off SMPS)
-            val |= 1 << 14; // sdben = 1 (on Bypass)
-            r.0 = val
-        });
-
-        cortex_m::asm::delay(1000);
-
-        Ok(())
+        Ok(sem3_mutex)
     }
 
     #[allow(unused_variables)]
     fn configure_stop(&self, _cs: CriticalSection, stop_mode: StopMode) -> Result<(), ()> {
-        #[cfg(all(stm32wb, feature = "low-power"))]
-        self.configure_stop_stm32wb(_cs)?;
+        #[cfg(stm32wb)]
+        let mutex = {
+            use crate::pac::{PWR, RCC};
+
+            let mutex = self.configure_stop_stm32wb(_cs)?;
+
+            // on PWR
+            RCC.apb1enr1().modify(|r| r.0 |= 1 << 28);
+            cortex_m::asm::dsb();
+
+            // off SMPS, on Bypass
+            PWR.cr5().modify(|r| {
+                let mut val = r.0;
+                val &= !(1 << 15); // sdeb = 0 (off SMPS)
+                val |= 1 << 14; // sdben = 1 (on Bypass)
+                r.0 = val
+            });
+
+            cortex_m::asm::delay(1000);
+
+            mutex
+        };
 
         #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wb, stm32wba, stm32wl))]
         crate::pac::PWR.cr1().modify(|m| m.set_lpms(stop_mode.into()));
@@ -364,6 +371,9 @@ impl Executor {
             v.set_lpms(vals::Lpms::STOP);
             v.set_svos(vals::Svos::SCALE3);
         });
+
+        #[cfg(stm32wb)]
+        drop(mutex);
 
         Ok(())
     }
