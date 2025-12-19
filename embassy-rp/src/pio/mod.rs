@@ -1498,6 +1498,12 @@ impl<'d, PIO: Instance> Pio<'d, PIO> {
             _pio: PhantomData,
         }
     }
+
+    /// Get the PIO register block.
+    #[cfg(feature = "unstable-pac")]
+    pub fn regs(&self) -> &rp_pac::pio::Pio {
+        PIO::PIO
+    }
 }
 
 struct AtomicU64 {
