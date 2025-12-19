@@ -294,7 +294,14 @@ impl<'l, PIO: Instance> Pin<'l, PIO> {
 
     /// Set the pin's input sync bypass.
     pub fn set_input_sync_bypass(&mut self, bypass: bool) {
-        let mask = 1 << self.pin();
+        #[cfg(feature = "rp2040")]
+        let offset = 0;
+
+        #[cfg(feature = "_rp235x")]
+        let offset = if PIO::PIO.gpiobase().read().gpiobase() { 16 } else { 0 };
+
+        let mask = 1 << self.pin() - offset;
+
         if bypass {
             PIO::PIO.input_sync_bypass().write_set(|w| *w = mask);
         } else {
