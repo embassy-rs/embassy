@@ -1,3 +1,4 @@
+// This example is configured for the nucleo-wl55jc board. Curret monitor should show just a few microamps when the device is in stop2 mode.
 #![no_std]
 #![no_main]
 
@@ -18,9 +19,6 @@ static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 #[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
 async fn async_main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
-    // enable HSI clock
-    // config.rcc.hsi = true;
-    // enable LSI clock for RTC
     config.rcc.ls = embassy_stm32::rcc::LsConfig::default_lsi();
     config.rcc.msi = Some(embassy_stm32::rcc::MSIRange::RANGE4M);
     config.rcc.sys = embassy_stm32::rcc::Sysclk::MSI;
