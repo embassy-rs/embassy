@@ -191,7 +191,6 @@ pub(crate) unsafe fn init(config: Config) {
         super::disable_hsi48();
     }
 
-
     config.mux.init();
 
     set_clocks!(

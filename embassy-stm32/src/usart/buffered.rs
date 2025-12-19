@@ -602,7 +602,7 @@ impl<'d> BufferedUartRx<'d> {
     }
 
     fn blocking_read(&self, buf: &mut [u8]) -> Result<usize, Error> {
-        loop {
+
             let state = self.state;
             let mut rx_reader = unsafe { state.rx_buf.reader() };
             let mut buf_len = 0;
@@ -622,8 +622,8 @@ impl<'d> BufferedUartRx<'d> {
 
                 data = rx_reader.pop_slice();
             }
-            return Ok(buf_len);
-        }
+            Ok(buf_len)
+        
     }
 
     async fn fill_buf(&self) -> Result<&[u8], Error> {
