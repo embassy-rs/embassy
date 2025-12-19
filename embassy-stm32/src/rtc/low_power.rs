@@ -114,11 +114,11 @@ impl Rtc {
             use crate::pac::EXTI;
             EXTI.rtsr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
 
-            #[cfg(not(stm32wb))]
+            #[cfg(not(any(stm32wb, stm32wl5x)))]
             {
                 EXTI.imr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
             }
-            #[cfg(stm32wb)]
+            #[cfg(any(stm32wb, stm32wl5x))]
             {
                 EXTI.cpu(0).imr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
             }

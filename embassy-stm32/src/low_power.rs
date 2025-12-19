@@ -136,10 +136,10 @@ pub fn stop_ready(stop_mode: StopMode) -> bool {
     })
 }
 
-#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32wb, stm32wlex, stm32u0))]
+#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32wb, stm32wl, stm32u0))]
 use crate::pac::pwr::vals::Lpms;
 
-#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32wb, stm32wlex, stm32u0))]
+#[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba, stm32wb, stm32wl, stm32u0))]
 impl Into<Lpms> for StopMode {
     fn into(self) -> Lpms {
         match self {
@@ -184,19 +184,28 @@ impl Executor {
 
     pub(crate) unsafe fn on_wakeup_irq_or_event() {
         if !get_driver().is_stopped() {
+            trace!("low power: time driver not stopped!");
             return;
         }
 
         critical_section::with(|cs| {
-            #[cfg(any(stm32wlex, stm32wb))]
+            #[cfg(any(stm32wl, stm32wb))]
             {
                 let es = crate::pac::PWR.extscr().read();
-                #[cfg(stm32wlex)]
+                #[cfg(stm32wl)]
                 match (es.c1stopf(), es.c1stop2f()) {
-                    (true, false) => debug!("low power: wake from STOP1"),
-                    (false, true) => debug!("low power: wake from STOP2"),
-                    (true, true) => debug!("low power: wake from STOP1 and STOP2 ???"),
-                    (false, false) => trace!("low power: stop mode not entered"),
+                    (true, false) => debug!("low power: cpu1 wake from STOP1"),
+                    (false, true) => debug!("low power: cpu1 wake from STOP2"),
+                    (true, true) => debug!("low power: cpu1 wake from STOP1 and STOP2 ???"),
+                    (false, false) => trace!("low power: cpu1 stop mode not entered"),
+                };
+                #[cfg(stm32wl5x)]
+                // TODO: only for the current cpu
+                match (es.c2stopf(), es.c2stop2f()) {
+                    (true, false) => debug!("low power: cpu2 wake from STOP1"),
+                    (false, true) => debug!("low power: cpu2 wake from STOP2"),
+                    (true, true) => debug!("low power: cpu2 wake from STOP1 and STOP2 ???"),
+                    (false, false) => trace!("low power: cpu2 stop mode not entered"),
                 };
 
                 #[cfg(stm32wb)]
@@ -206,9 +215,6 @@ impl Executor {
                     (true, true) => debug!("low power: cpu1 and cpu2 wake from STOP"),
                     (false, false) => trace!("low power: stop mode not entered"),
                 };
-                crate::pac::PWR.extscr().modify(|w| {
-                    w.set_c1cssf(false);
-                });
 
                 let _has_stopped2 = {
                     #[cfg(stm32wb)]
@@ -219,6 +225,12 @@ impl Executor {
                     #[cfg(stm32wlex)]
                     {
                         es.c1stop2f()
+                    }
+
+                    #[cfg(stm32wl5x)]
+                    {
+                        // TODO: I think we could just use c1stop2f() here as it won't enter a stop mode unless BOTH cpus will enter it.
+                        es.c1stop2f() | es.c2stop2f()
                     }
                 };
 
@@ -235,6 +247,13 @@ impl Executor {
                         REFCOUNT_STOP1 = 0;
                     }
                 }
+                // Clear all stop flags
+                #[cfg(stm32wl)]
+                crate::pac::PWR.extscr().modify(|w| {
+                    w.set_c1cssf(true);
+                    #[cfg(stm32wl5x)]
+                    w.set_c2cssf(true);
+                });
             }
             get_driver().resume_time(cs);
 
@@ -337,7 +356,7 @@ impl Executor {
         #[cfg(all(stm32wb, feature = "low-power"))]
         self.configure_stop_stm32wb(_cs)?;
 
-        #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wb, stm32wba, stm32wlex))]
+        #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u0, stm32wb, stm32wba, stm32wl))]
         crate::pac::PWR.cr1().modify(|m| m.set_lpms(stop_mode.into()));
         #[cfg(stm32h5)]
         crate::pac::PWR.pmcr().modify(|v| {
@@ -352,9 +371,11 @@ impl Executor {
     fn configure_pwr(&self) {
         Self::get_scb().clear_sleepdeep();
         // Clear any previous stop flags
-        #[cfg(stm32wlex)]
+        #[cfg(stm32wl)]
         crate::pac::PWR.extscr().modify(|w| {
             w.set_c1cssf(true);
+            #[cfg(stm32wl5x)]
+            w.set_c2cssf(true);
         });
 
         #[cfg(feature = "low-power-pender")]
