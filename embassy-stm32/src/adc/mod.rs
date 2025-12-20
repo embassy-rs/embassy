@@ -76,7 +76,9 @@ trait_set::trait_set! {
     pub trait DefaultInstance = Instance;
 }
 
-#[cfg(any(adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_g4, adc_c0))]
+#[cfg(any(
+    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_g4, adc_c0
+))]
 trait_set::trait_set! {
     pub trait DefaultInstance = Instance<Regs = crate::pac::adc::Adc>;
 }
@@ -91,7 +93,7 @@ pub trait BasicAdcRegs {
 }
 
 #[cfg(any(
-    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_g4, adc_c0
+    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0
 ))]
 trait AdcRegs: BasicAdcRegs {
     fn enable(&self);
@@ -106,7 +108,7 @@ trait AdcRegs: BasicAdcRegs {
 #[allow(private_bounds)]
 pub trait BasicInstance {
     #[cfg(any(
-        adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_g4, adc_c0
+        adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0
     ))]
     type Regs: AdcRegs;
 }
@@ -115,7 +117,7 @@ trait SealedInstance: BasicInstance {
     #[cfg(any(adc_f1, adc_f3v1, adc_f3v2, adc_v1, adc_l0))]
     fn regs() -> crate::pac::adc::Adc;
     #[cfg(any(
-        adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_g4, adc_c0
+        adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0
     ))]
     fn regs() -> Self::Regs;
     #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3v3, adc_f3v2, adc_g0)))]
@@ -564,14 +566,14 @@ foreach_adc!(
     ($inst:ident, $common_inst:ident, $clock:ident) => {
         impl crate::adc::BasicInstance for peripherals::$inst {
             #[cfg(any(
-                adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_g4, adc_c0
+                adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0
             ))]
             type Regs = crate::pac::adc::Adc;
         }
 
         impl crate::adc::SealedInstance for peripherals::$inst {
             #[cfg(any(
-                adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_g4, adc_c0
+                adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0
             ))]
             fn regs() -> Self::Regs {
                 crate::pac::$inst

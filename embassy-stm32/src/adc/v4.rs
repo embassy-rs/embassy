@@ -8,7 +8,7 @@ use pac::adc::vals::{Adstp, Dmngt, Exten, Pcsel};
 use pac::adccommon::vals::Presc;
 
 use super::{Adc, Averaging, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt, blocking_delay_us};
-#[cfg(stm32u5)]
+#[cfg(any(stm32u5, stm32u3))]
 use crate::adc::DefaultInstance;
 use crate::adc::{AdcRegs, ConversionMode};
 use crate::time::Hertz;
@@ -67,12 +67,12 @@ impl<T: DefaultInstance> super::SealedSpecialConverter<super::Vbat> for T {
 }
 
 #[cfg(stm32u3)]
-impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
+impl<T: DefaultInstance> super::SealedSpecialConverter<super::Vbat> for T {
     const CHANNEL: u8 = 16;
 }
 
 #[cfg(stm32u3)]
-impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
+impl<T: DefaultInstance> super::SealedSpecialConverter<super::Temperature> for T {
     const CHANNEL: u8 = 17;
 }
 
