@@ -1017,7 +1017,7 @@ impl ClockOperator<'_> {
 
         // Bandwidth calc
         //
-        // > In normal applications, you must calculate the bandwidth manually by using the feedback divider M (ranging from 1 to 216-1),
+        // > In normal applications, you must calculate the bandwidth manually by using the feedback divider M (ranging from 1 to (2^16)-1),
         // > Equation 1, and Equation 2. The PLL is automatically stable in such case. In normal applications, SPLLCTRL[BANDDIRECT] must
         // > be 0; in this case, the bandwidth changes as a function of M.
         if clk.frequency == 0 {
