@@ -163,14 +163,9 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
         self.info.ocr = ocr;
 
         self.info.cid = self.sdmmc.get_cid()?.into();
-
-        self.sdmmc.cmd(sd_cmd::send_relative_address(), false)?;
-        let rca = RCA::<SD>::from(regs.respr(0).read().cardstatus());
-        self.info.rca = rca.address();
-
+        self.info.rca = RCA::<SD>::from(self.sdmmc.cmd(sd_cmd::send_relative_address(), false)?).address();
         self.info.csd = self.sdmmc.get_csd(self.info.get_address())?.into();
         self.sdmmc.select_card(Some(self.info.get_address()))?;
-
         self.info.scr = self.get_scr(cmd_block).await?;
 
         let (bus_width, acmd_arg) = if !self.info.scr.bus_width_four() {
@@ -189,9 +184,9 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
 
         if freq > mhz(25) {
             // Switch to SDR25
-            self.sdmmc.signalling = self.switch_signalling_mode(cmd_block, Signalling::SDR25).await?;
+            let signalling = self.switch_signalling_mode(cmd_block, Signalling::SDR25).await?;
 
-            if self.sdmmc.signalling == Signalling::SDR25 {
+            if signalling == Signalling::SDR25 {
                 // Set final clock frequency
                 self.sdmmc.clkcr_set_clkdiv(freq, bus_width)?;
 
@@ -288,20 +283,20 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
     /// SD only.
     async fn read_sd_status(&self, cmd_block: &mut CmdBlock) -> Result<SDStatus, Error> {
         let rca = self.info.rca;
+        let buffer = &mut aligned_mut(&mut cmd_block.0)[..64];
 
-        self.sdmmc.cmd(common_cmd::set_block_length(64), false)?; // CMD16
+        self.sdmmc
+            .cmd(common_cmd::set_block_length(size_of_val(buffer) as u32), false)?; // CMD16
         self.sdmmc.cmd(common_cmd::app_cmd(rca), false)?; // APP
 
-        let buffer = &mut cmd_block.as_mut()[..64 / 4];
         let mode = DatapathMode::Block(block_size(size_of_val(buffer)));
+        let transfer = self.sdmmc.prepare_datapath_read(buffer, mode);
 
-        let transfer = self.sdmmc.prepare_datapath_read(aligned_mut(buffer), mode);
         self.sdmmc.cmd(sd_cmd::sd_status(), true)?;
-
         self.sdmmc.complete_datapath_transfer(transfer, true).await?;
 
-        for byte in cmd_block.iter_mut() {
-            *byte = u32::from_be(*byte);
+        for word in cmd_block.iter_mut() {
+            *word = u32::from_be(*word);
         }
 
         Ok(cmd_block.0.into())
@@ -356,10 +351,9 @@ impl<'a, 'b> StorageDevice<'a, 'b, Emmc> {
             CardCapacity::StandardCapacity
         };
         self.info.ocr = ocr;
-
         self.info.cid = self.sdmmc.get_cid()?.into();
-
         self.info.rca = 1u16.into();
+
         self.sdmmc
             .cmd(emmc_cmd::assign_relative_address(self.info.rca), false)?;
 
@@ -578,6 +572,12 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
             timeout -= 1;
         }
         Err(Error::SoftwareTimeout)
+    }
+}
+
+impl<'a, 'b, A: Addressable> Drop for StorageDevice<'a, 'b, A> {
+    fn drop(&mut self) {
+        self.sdmmc.on_drop();
     }
 }
 
