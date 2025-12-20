@@ -73,6 +73,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - low-power: update rtc api to allow reconfig
 - adc: consolidate ringbuffer
 - feat: Added RTC low-power support for STM32WLEx ([#4716](https://github.com/embassy-rs/embassy/pull/4716))
+- feat: Added low-power support for STM32WL5x ([#5108](https://github.com/embassy-rs/embassy/pull/5108))
 - fix: Correct STM32WBA VREFBUFTRIM values
 - low_power: remove stop_with rtc and initialize in init if low-power feature enabled.
 - feat: stm32/dsi support zero parameter commands in `write_cmd` ([#4847](https://github.com/embassy-rs/embassy/pull/4847))
