@@ -371,7 +371,10 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
         FifoInFuture::new(self)
     }
 
-    fn dreq() -> crate::pac::dma::vals::TreqSel {
+    /// Get the Data Request value for the RX FIFO.
+    ///
+    /// This value can be used to configure DMA channel pacing.
+    pub fn dreq(&self) -> crate::pac::dma::vals::TreqSel {
         crate::pac::dma::vals::TreqSel::from(PIO::PIO_NO * 8 + SM as u8 + 4)
     }
 
@@ -391,7 +394,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
         p.trans_count().write(|w| w.set_count(data.len() as u32));
         compiler_fence(Ordering::SeqCst);
         p.ctrl_trig().write(|w| {
-            w.set_treq_sel(Self::dreq());
+            w.set_treq_sel(self.dreq());
             w.set_data_size(W::size());
             w.set_chain_to(ch.number());
             w.set_incr_read(false);
@@ -422,7 +425,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
 
         compiler_fence(Ordering::SeqCst);
         p.ctrl_trig().write(|w| {
-            w.set_treq_sel(Self::dreq());
+            w.set_treq_sel(self.dreq());
             w.set_data_size(W::size());
             w.set_chain_to(ch.number());
             w.set_incr_read(false);
@@ -494,7 +497,10 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
         FifoOutFuture::new(self, value)
     }
 
-    fn dreq() -> crate::pac::dma::vals::TreqSel {
+    /// Get the Data Request value for the TX FIFO.
+    ///
+    /// This value can be used to configure DMA channel pacing.
+    pub fn dreq(&self) -> crate::pac::dma::vals::TreqSel {
         crate::pac::dma::vals::TreqSel::from(PIO::PIO_NO * 8 + SM as u8)
     }
 
@@ -514,7 +520,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
         p.trans_count().write(|w| w.set_count(data.len() as u32));
         compiler_fence(Ordering::SeqCst);
         p.ctrl_trig().write(|w| {
-            w.set_treq_sel(Self::dreq());
+            w.set_treq_sel(self.dreq());
             w.set_data_size(W::size());
             w.set_chain_to(ch.number());
             w.set_incr_read(true);
@@ -528,7 +534,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
 
     /// Prepare a repeated DMA transfer to TX FIFO.
     pub fn dma_push_repeated<'a, C: Channel, W: Word>(&'a mut self, ch: Peri<'a, C>, len: usize) -> Transfer<'a, C> {
-        unsafe { dma::write_repeated(ch, PIO::PIO.txf(SM).as_ptr(), len, Self::dreq()) }
+        unsafe { dma::write_repeated(ch, PIO::PIO.txf(SM).as_ptr(), len, self.dreq()) }
     }
 }
 
