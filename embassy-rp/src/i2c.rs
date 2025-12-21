@@ -514,7 +514,7 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
         self.sda.sio_in().read() & (1 << (self.sda.pin() % 32)) == 0
     }
 
-    fn setup(&self, addr: u16) -> Result<(), Error> {
+    fn setup(&self, addr: u16, ignore_lockup: bool) -> Result<(), Error> {
         if addr >= 0x80 {
             return Err(Error::AddressOutOfRange(addr));
         }
@@ -522,11 +522,13 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
         let p = T::regs();
         p.ic_enable().write(|w| w.set_enable(false));
 
-        if self.is_sda_low() {
-            return Err(Error::SDAHeldLow);
-        }
-        if self.is_scl_low() {
-            return Err(Error::SCLHeldLow);
+        if !ignore_lockup {
+            if self.is_sda_low() {
+                return Err(Error::SDAHeldLow);
+            }
+            if self.is_scl_low() {
+                return Err(Error::SCLHeldLow);
+            }
         }
 
         p.ic_tar().write(|w| w.set_ic_tar(addr));
@@ -535,7 +537,7 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
     }
 
     async fn setup_with_recovery(&mut self, addr: u16) -> Result<(), Error> {
-        let setup_result = self.setup(addr);
+        let setup_result = self.setup(addr, false);
         if setup_result == Err(Error::SDAHeldLow) {
             #[cfg(feature = "defmt")]
             defmt::warn!("SDA held low, attempting recovery");
@@ -580,7 +582,7 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
             drop(on_drop);
 
             self.read_and_clear_abort_reason().ok();
-            self.setup(addr)
+            self.setup(addr, false)
         } else {
             setup_result
         }
@@ -707,20 +709,20 @@ impl<'d, T: Instance + 'd, M: Mode> I2c<'d, T, M> {
 
     /// Read from address into buffer blocking caller until done.
     pub fn blocking_read(&mut self, address: impl Into<u16>, read: &mut [u8]) -> Result<(), Error> {
-        self.setup(address.into())?;
+        self.setup(address.into(), true)?;
         self.read_blocking_internal(read, true, true)
         // Automatic Stop
     }
 
     /// Write to address from buffer blocking caller until done.
     pub fn blocking_write(&mut self, address: impl Into<u16>, write: &[u8]) -> Result<(), Error> {
-        self.setup(address.into())?;
+        self.setup(address.into(), true)?;
         self.write_blocking_internal(write, true)
     }
 
     /// Write to address from bytes and read from address into buffer blocking caller until done.
     pub fn blocking_write_read(&mut self, address: impl Into<u16>, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
-        self.setup(address.into())?;
+        self.setup(address.into(), true)?;
         self.write_blocking_internal(write, false)?;
         self.read_blocking_internal(read, true, true)
         // Automatic Stop
@@ -759,7 +761,7 @@ impl<'d, T: Instance, M: Mode> embedded_hal_02::blocking::i2c::Transactional for
         address: u8,
         operations: &mut [embedded_hal_02::blocking::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
-        self.setup(address.into())?;
+        self.setup(address.into(), false)?;
         for i in 0..operations.len() {
             let last = i == operations.len() - 1;
             match &mut operations[i] {
@@ -815,7 +817,7 @@ impl<'d, T: Instance, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, T, M> {
         address: u8,
         operations: &mut [embedded_hal_1::i2c::Operation<'_>],
     ) -> Result<(), Self::Error> {
-        self.setup(address.into())?;
+        self.setup(address.into(), false)?;
         for i in 0..operations.len() {
             let last = i == operations.len() - 1;
             match &mut operations[i] {
