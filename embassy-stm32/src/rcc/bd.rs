@@ -274,8 +274,10 @@ impl LsConfig {
             ok &= lsecfgr.lsebyp() == lse_byp;
         }
         #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
-        if let Some(lse_sysen) = lse_sysen {
-            ok &= reg.lsesysen() == lse_sysen;
+        if let Some(lse_sysen) = lse_sysen
+            && !lse_sysen
+        {
+            ok &= !reg.lsesysen();
         }
         #[cfg(not(any(rcc_f1, rcc_f1cl, rcc_f100, rcc_f2, rcc_f4, rcc_f410, rcc_l1, rcc_n6)))]
         if let Some(lse_drv) = lse_drv {
@@ -284,6 +286,20 @@ impl LsConfig {
         #[cfg(rcc_n6)]
         if let Some(lse_drv) = lse_drv {
             ok &= lsecfgr.lsedrv() == lse_drv.into();
+        }
+
+        // After a power-on reset LSESYSEN will be set to 0
+        // even if VBAT was present and kept the RTC running
+        #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
+        if ok
+            && let Some(lse_sysen) = lse_sysen
+            && lse_sysen
+        {
+            bdcr().modify(|w| {
+                w.set_lsesysen(true);
+            });
+
+            while !bdcr().read().lsesysrdy() {}
         }
 
         // if configuration is OK, we're done.
