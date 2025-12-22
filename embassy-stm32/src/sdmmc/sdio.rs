@@ -1,12 +1,41 @@
 use core::ops::{Deref, DerefMut};
 
 use aligned::{A4, Aligned};
-use sdio_host::common_cmd::{R1, Rz, cmd};
-use sdio_host::sd::BusWidth;
-use sdio_host::sd_cmd;
+use sdio_host::common_cmd::{R1, Resp, Rz, cmd};
+use sdio_host::sd::{BusWidth, OCR, SD};
+use sdio_host::{Cmd, sd_cmd};
 
-use crate::sdmmc::{DatapathMode, Error, Sdmmc, aligned_mut, aligned_ref, block_size, slice8_mut, slice8_ref};
+use crate::sdmmc::{
+    CommandResponse, DatapathMode, Error, Sdmmc, TypedResp, aligned_mut, aligned_ref, block_size, slice8_mut,
+    slice8_ref,
+};
 use crate::time::Hertz;
+
+/// R4: OCR register
+pub struct R4;
+
+impl Resp for R4 {}
+
+impl TypedResp for R4 {
+    type Word = u32;
+}
+
+impl From<CommandResponse<R4>> for OCR<SD> {
+    fn from(value: CommandResponse<R4>) -> Self {
+        OCR::<SD>::from(value.0)
+    }
+}
+
+/// ACMD5: IO Op Command
+///
+/// * `switch_to_1_8v_request` - Switch to 1.8V signaling
+/// * `voltage_window` - 9-bit bitfield that represents the voltage window
+/// supported by the host. Use 0x1FF to indicate support for the full range of
+/// voltages
+pub fn io_send_op_cond(switch_to_1_8v_request: bool, voltage_window: u16) -> Cmd<R4> {
+    let arg: u32 = u32::from(switch_to_1_8v_request) << 24 | u32::from(voltage_window & 0x1FF) << 15;
+    cmd(41, arg)
+}
 
 /// Aligned data block for SDMMC transfers.
 ///
@@ -67,13 +96,14 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
         // the SDMMC_CK frequency must be no more than 400 kHz.
         self.sdmmc.init_idle()?;
 
-        self.sdmmc.cmd(cmd::<Rz>(5, 0), false)?;
+        // Get IO OCR
+        let _ocr: OCR<SD> = self.sdmmc.cmd(io_send_op_cond(false, 0x0), false, false)?.into();
 
         // Get RCA
-        let rca = self.sdmmc.cmd(sd_cmd::send_relative_address(), false)?;
+        let rca = self.sdmmc.cmd(sd_cmd::send_relative_address(), true, false)?;
 
         // Select the card with RCA
-        self.sdmmc.select_card(Some(rca.try_into().unwrap()))?;
+        self.sdmmc.select_card(Some(rca.0.try_into().unwrap()))?;
 
         Ok(())
     }
@@ -87,7 +117,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
 
     /// Run cmd52
     pub async fn cmd52(&mut self, arg: u32) -> Result<u32, Error> {
-        self.sdmmc.cmd(cmd::<R1>(52, arg), false)
+        self.sdmmc.cmd(cmd::<R1>(52, arg), true, false).map(|r| r.0)
     }
 
     /// Read in block mode using cmd53
@@ -106,7 +136,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
             aligned_mut(buffer),
             DatapathMode::Block(block_size(size_of::<DataBlock>())),
         );
-        self.sdmmc.cmd(cmd::<Rz>(53, arg), true)?;
+        self.sdmmc.cmd(cmd::<Rz>(53, arg), true, true)?;
 
         self.sdmmc.complete_datapath_transfer(transfer, false).await?;
         self.sdmmc.clear_interrupt_flags();
@@ -119,7 +149,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
         let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
 
         let transfer = self.sdmmc.prepare_datapath_read(buffer, DatapathMode::Byte);
-        self.sdmmc.cmd(cmd::<Rz>(53, arg), true)?;
+        self.sdmmc.cmd(cmd::<Rz>(53, arg), true, true)?;
 
         self.sdmmc.complete_datapath_transfer(transfer, false).await?;
         self.sdmmc.clear_interrupt_flags();
@@ -140,7 +170,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
         };
 
         #[cfg(sdmmc_v1)]
-        self.sdmmc.cmd(cmd::<Rz>(53, arg), true)?;
+        self.sdmmc.cmd(cmd::<Rz>(53, arg), true, true)?;
 
         let transfer = self.sdmmc.prepare_datapath_write(
             aligned_ref(buffer),
@@ -148,7 +178,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
         );
 
         #[cfg(sdmmc_v2)]
-        self.sdmmc.cmd(cmd::<Rz>(53, arg), true)?;
+        self.sdmmc.cmd(cmd::<Rz>(53, arg), true, true)?;
 
         self.sdmmc.complete_datapath_transfer(transfer, false).await?;
         self.sdmmc.clear_interrupt_flags();
@@ -161,14 +191,14 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
         let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
 
         #[cfg(sdmmc_v1)]
-        self.sdmmc.cmd(cmd::<Rz>(53, arg), true)?;
+        self.sdmmc.cmd(cmd::<Rz>(53, arg), true, true)?;
 
         let transfer = self
             .sdmmc
             .prepare_datapath_write(aligned_ref(buffer), DatapathMode::Byte);
 
         #[cfg(sdmmc_v2)]
-        self.sdmmc.cmd(cmd::<Rz>(53, arg), true)?;
+        self.sdmmc.cmd(cmd::<Rz>(53, arg), true, true)?;
 
         self.sdmmc.complete_datapath_transfer(transfer, false).await?;
         self.sdmmc.clear_interrupt_flags();
