@@ -671,13 +671,5 @@ fn init_hw(config: Config) -> Peripherals {
 /// Performs a busy-wait delay for a specified number of microseconds.
 #[allow(unused)]
 pub(crate) fn block_for_us(us: u64) {
-    cfg_if::cfg_if! {
-        // this does strange things on stm32wlx in low power mode depending on exactly when it's called
-        // as in sometimes 15 us (1 tick) would take > 20 seconds.
-        if #[cfg(all(feature = "time", all(not(feature = "low-power"), not(stm32wlex))))] {
-            embassy_time::block_for(embassy_time::Duration::from_micros(us));
-        } else {
-            cortex_m::asm::delay(unsafe { rcc::get_freqs().sys.to_hertz().unwrap().0 as u64 * us  / 1_000_000 } as u32);
-        }
-    }
+    cortex_m::asm::delay(unsafe { rcc::get_freqs().sys.to_hertz().unwrap().0 as u64 * us / 1_000_000 } as u32);
 }

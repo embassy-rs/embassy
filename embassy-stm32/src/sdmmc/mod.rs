@@ -12,7 +12,7 @@ use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use sdio_host::Cmd;
 use sdio_host::common_cmd::{self, R1, R2, R3, Resp, ResponseLen, Rz};
-use sdio_host::sd::{BusWidth, CardStatus};
+use sdio_host::sd::{BusWidth, CID, CSD, CardStatus, OCR, RCA};
 use sdio_host::sd_cmd::{R6, R7};
 
 #[cfg(sdmmc_v1)]
@@ -23,9 +23,8 @@ use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::sdmmc::Sdmmc as RegBlock;
 use crate::rcc::{self, RccInfo, RccPeripheral, SealedRccPeripheral};
-use crate::sdmmc::sd::Addressable;
 use crate::time::Hertz;
-use crate::{interrupt, peripherals};
+use crate::{block_for_us, interrupt, peripherals};
 
 /// Module for SD and EMMC cards
 pub mod sd;
@@ -69,6 +68,8 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
 struct U128(pub u128);
 
+struct CommandResponse<R: TypedResp>(R::Word);
+
 trait TypedResp: Resp {
     type Word: From<U128>;
 }
@@ -102,16 +103,46 @@ impl TypedResp for R1 {
     type Word = u32;
 }
 
+impl<E> From<CommandResponse<R1>> for CardStatus<E> {
+    fn from(value: CommandResponse<R1>) -> Self {
+        CardStatus::<E>::from(value.0)
+    }
+}
+
 impl TypedResp for R2 {
     type Word = u128;
+}
+
+impl<E> From<CommandResponse<R2>> for CID<E> {
+    fn from(value: CommandResponse<R2>) -> Self {
+        CID::<E>::from(value.0)
+    }
+}
+
+impl<E> From<CommandResponse<R2>> for CSD<E> {
+    fn from(value: CommandResponse<R2>) -> Self {
+        CSD::<E>::from(value.0)
+    }
 }
 
 impl TypedResp for R3 {
     type Word = u32;
 }
 
+impl<E> From<CommandResponse<R3>> for OCR<E> {
+    fn from(value: CommandResponse<R3>) -> Self {
+        OCR::<E>::from(value.0)
+    }
+}
+
 impl TypedResp for R6 {
     type Word = u32;
+}
+
+impl<E> From<CommandResponse<R6>> for RCA<E> {
+    fn from(value: CommandResponse<R6>) -> Self {
+        RCA::<E>::from(value.0)
+    }
 }
 
 impl TypedResp for R7 {
@@ -229,18 +260,18 @@ fn get_waitresp_val(rlen: ResponseLen) -> u8 {
 /// Returns `(bypass, clk_div, clk_f)`, where `bypass` enables clock divisor bypass (only sdmmc_v1),
 /// `clk_div` is the divisor register value and `clk_f` is the resulting new clock frequency.
 #[cfg(sdmmc_v1)]
-fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(bool, u8, Hertz), Error> {
+fn clk_div(ker_ck: Hertz, sdmmc_ck: Hertz) -> Result<(bool, u8, Hertz), Error> {
     // sdmmc_v1 maximum clock is 50 MHz
-    if sdmmc_ck > 50_000_000 {
+    if sdmmc_ck.0 > 50_000_000 {
         return Err(Error::BadClock);
     }
 
     // bypass divisor
-    if ker_ck.0 <= sdmmc_ck {
+    if ker_ck.0 <= sdmmc_ck.0 {
         return Ok((true, 0, ker_ck));
     }
 
-    let clk_div = match ker_ck.0.div_ceil(sdmmc_ck) {
+    let clk_div = match ker_ck.0.div_ceil(sdmmc_ck.0) {
         0 | 1 => Ok(0),
         x @ 2..=258 => Ok((x - 2) as u8),
         _ => Err(Error::BadClock),
@@ -306,8 +337,8 @@ const fn block_size(bytes: usize) -> BlockSize {
 /// Returns `(bypass, clk_div, clk_f)`, where `bypass` enables clock divisor bypass (only sdmmc_v1),
 /// `clk_div` is the divisor register value and `clk_f` is the resulting new clock frequency.
 #[cfg(sdmmc_v2)]
-fn clk_div(ker_ck: Hertz, sdmmc_ck: u32) -> Result<(bool, u16, Hertz), Error> {
-    match ker_ck.0.div_ceil(sdmmc_ck) {
+fn clk_div(ker_ck: Hertz, sdmmc_ck: Hertz) -> Result<(bool, u16, Hertz), Error> {
+    match ker_ck.0.div_ceil(sdmmc_ck.0) {
         0 | 1 => Ok((false, 0, ker_ck)),
         x @ 2..=2046 => {
             // SDMMC_CK frequency = SDMMCCLK / [CLKDIV * 2]
@@ -910,7 +941,7 @@ impl<'d> Sdmmc<'d> {
         regs.idmactrlr().modify(|w| w.set_idmaen(false));
     }
 
-    fn init_idle(&mut self) -> Result<(), Error> {
+    fn init_idle(&mut self) -> Result<CommandResponse<Rz>, Error> {
         let regs = self.info.regs;
 
         self.clkcr_set_clkdiv(SD_INIT_FREQ, BusWidth::One)?;
@@ -918,7 +949,11 @@ impl<'d> Sdmmc<'d> {
             .write(|w| w.set_datatime(self.config.data_transfer_timeout));
 
         regs.power().modify(|w| w.set_pwrctrl(PowerCtrl::On as u8));
-        self.cmd(common_cmd::idle(), false)
+
+        // Wait 74 cycles
+        block_for_us((74_000_000 / SD_INIT_FREQ.0) as u64);
+
+        self.cmd(common_cmd::idle(), true, false)
     }
 
     /// Sets the CLKDIV field in CLKCR. Updates clock field in self
@@ -926,7 +961,7 @@ impl<'d> Sdmmc<'d> {
         let regs = self.info.regs;
 
         let (widbus, width_u32) = bus_width_vals(width);
-        let (_bypass, clkdiv, new_clock) = clk_div(self.ker_clk, freq.0)?;
+        let (_bypass, clkdiv, new_clock) = clk_div(self.ker_clk, freq)?;
 
         trace!("sdmmc: set clock to {}", new_clock);
 
@@ -947,22 +982,17 @@ impl<'d> Sdmmc<'d> {
         Ok(())
     }
 
-    fn get_cid(&self) -> Result<u128, Error> {
-        self.cmd(common_cmd::all_send_cid(), false) // CMD2
+    fn get_cid(&self) -> Result<CommandResponse<R2>, Error> {
+        self.cmd(common_cmd::all_send_cid(), true, false) // CMD2
     }
 
-    fn get_csd(&self, address: u16) -> Result<u128, Error> {
-        self.cmd(common_cmd::send_csd(address), false)
+    fn get_csd(&self, address: u16) -> Result<CommandResponse<R2>, Error> {
+        self.cmd(common_cmd::send_csd(address), true, false)
     }
 
     /// Query the card status (CMD13, returns R1)
-    fn read_status<A: Addressable>(&self, card: &A) -> Result<CardStatus<A::Ext>, Error>
-    where
-        CardStatus<A::Ext>: From<u32>,
-    {
-        Ok(self
-            .cmd(common_cmd::card_status(card.get_address(), false), false)?
-            .into()) // CMD13
+    fn read_status(&self, address: u16) -> Result<CommandResponse<R1>, Error> {
+        self.cmd(common_cmd::card_status(address, false), true, false)
     }
 
     /// Select one card and place it into the _Tranfer State_
@@ -970,7 +1000,7 @@ impl<'d> Sdmmc<'d> {
     /// If `None` is specifed for `card`, all cards are put back into
     /// _Stand-by State_
     fn select_card(&self, rca: Option<u16>) -> Result<(), Error> {
-        match self.cmd(common_cmd::select_card(rca.unwrap_or(0)), false) {
+        match self.cmd(common_cmd::select_card(rca.unwrap_or(0)), true, false) {
             Err(Error::Timeout) if rca == None => Ok(()),
             result => result.map(|_| ()),
         }
@@ -1012,7 +1042,7 @@ impl<'d> Sdmmc<'d> {
 
     /// Send command to card
     #[allow(unused_variables)]
-    fn cmd<R: TypedResp>(&self, cmd: Cmd<R>, data: bool) -> Result<R::Word, Error> {
+    fn cmd<R: TypedResp>(&self, cmd: Cmd<R>, check_crc: bool, data: bool) -> Result<CommandResponse<R>, Error> {
         let regs = self.info.regs;
 
         self.clear_interrupt_flags();
@@ -1056,23 +1086,25 @@ impl<'d> Sdmmc<'d> {
 
         if status.ctimeout() {
             return Err(Error::Timeout);
-        } else if status.ccrcfail() {
+        } else if check_crc && status.ccrcfail() {
             return Err(Error::Crc);
         }
 
-        Ok(match R::LENGTH {
-            ResponseLen::Zero => U128(0u128),
-            ResponseLen::R48 => U128(self.info.regs.respr(0).read().cardstatus() as u128),
-            ResponseLen::R136 => {
-                let cid0 = self.info.regs.respr(0).read().cardstatus() as u128;
-                let cid1 = self.info.regs.respr(1).read().cardstatus() as u128;
-                let cid2 = self.info.regs.respr(2).read().cardstatus() as u128;
-                let cid3 = self.info.regs.respr(3).read().cardstatus() as u128;
+        Ok(CommandResponse(
+            match R::LENGTH {
+                ResponseLen::Zero => U128(0u128),
+                ResponseLen::R48 => U128(self.info.regs.respr(0).read().cardstatus() as u128),
+                ResponseLen::R136 => {
+                    let cid0 = self.info.regs.respr(0).read().cardstatus() as u128;
+                    let cid1 = self.info.regs.respr(1).read().cardstatus() as u128;
+                    let cid2 = self.info.regs.respr(2).read().cardstatus() as u128;
+                    let cid3 = self.info.regs.respr(3).read().cardstatus() as u128;
 
-                U128((cid0 << 96) | (cid1 << 64) | (cid2 << 32) | (cid3))
+                    U128((cid0 << 96) | (cid1 << 64) | (cid2 << 32) | (cid3))
+                }
             }
-        }
-        .into())
+            .into(),
+        ))
     }
 
     fn on_drop(&self) {
