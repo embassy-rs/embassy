@@ -242,6 +242,14 @@ impl RccInfo {
             }
         }
 
+        // on dual core some peripherals should only be enabled once (IPCC for instance)
+        // TODO: maybe this should be only the main core? Some other way?
+        #[cfg(stm32wl5x)]
+        if unsafe { self.enable_ptr().read_volatile() & (1u32 << self.enable_bit) } != 0 {
+            warn!("Peripheral {} is already enabled", self.enable_bit);
+            return;
+        }
+
         // set the xxxRST bit
         let reset_ptr = self.reset_ptr();
         if let Some(reset_ptr) = reset_ptr {

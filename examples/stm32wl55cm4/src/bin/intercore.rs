@@ -1,0 +1,67 @@
+#![no_std]
+#![no_main]
+
+//! STM32H7 Primary Core (CM4) Intercore Communication Example
+//!
+//! This example demonstrates reliable communication between the Cortex-M7 and
+//! Cortex-M4 cores using a shared memory region configured as non-cacheable
+//! via MPU settings.
+//!
+//! The CM4 core handles:
+//! - MPU configuration to make shared memory non-cacheable
+//! - Clock initialization
+//! - Toggling LED states in shared memory
+//!
+//! Usage:
+//! 1. Flash the CM0+ (secondary) core binary first
+//! 2. Then flash this CM4 (primary) core binary
+//! 3. The system will start with CM4 toggling LED states and CM0+ responding by
+//!    physically toggling the LEDs
+
+use core::mem::MaybeUninit;
+
+// use cortex_m::asm;
+// use cortex_m::peripheral::MPU;
+use defmt::*;
+use embassy_executor::Spawner;
+use embassy_stm32::ipcc::{Config as IPCCConfig, Ipcc, ReceiveInterruptHandler, TransmitInterruptHandler};
+use embassy_stm32::{Config, SharedData, bind_interrupts};
+use embassy_time::Timer;
+use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs{
+    IPCC_C1_RX => ReceiveInterruptHandler;
+    IPCC_C1_TX => TransmitInterruptHandler;
+});
+
+#[unsafe(link_section = ".shared_data")]
+static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
+
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) -> ! {
+    // Configure the clock system
+    let config = Config::default();
+
+    // Initialize the CM4 core
+    let p = embassy_stm32::init_primary(config, &SHARED_DATA);
+    info!("CM4 core initialized");
+
+    let ipcc = Ipcc::new(p.IPCC, Irqs, IPCCConfig::default());
+    let [ch1, _ch2, _ch3, _ch4, _ch5, _ch6] = ipcc.split();
+    let (mut tx, mut _rx) = ch1;
+
+    // TODO: this and other peripherals that should be enabled for the secondary core should be in init(Config)
+    info! {"CM4: enable IPCC for C2"}
+    embassy_stm32::pac::RCC.c2ahb3enr().modify(|w| w.set_ipccen(true));
+
+    // TODO: should this be in init(Config)? Or should the user have more control over when this is set?
+    info!("CM4: Setting C2BOOT");
+    embassy_stm32::pac::PWR.cr4().modify(|w| w.set_c2boot(true));
+
+    info!("CM4: Starting main loop");
+    loop {
+        Timer::after_millis(500).await;
+        info!("CM4: Send!");
+        tx.send(|| {}).await;
+    }
+}

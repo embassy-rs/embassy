@@ -13,16 +13,29 @@ use crate::peripherals::IPCC;
 use crate::rcc::SealedRccPeripheral;
 use crate::{interrupt, rcc};
 
+cfg_if::cfg_if! {
+    if #[cfg(feature = "_core-cm0p")] {
+        const CPU: usize = 1;
+        const OTHER_CPU: usize = 0;
+    } else {
+        const CPU: usize = 0;
+        const OTHER_CPU: usize = 1;
+    }
+}
+
 /// Interrupt handler.
+#[cfg(not(feature = "_core-cm0p"))]
 pub struct ReceiveInterruptHandler {}
 
+#[cfg(not(feature = "_core-cm0p"))]
 impl interrupt::typelevel::Handler<interrupt::typelevel::IPCC_C1_RX> for ReceiveInterruptHandler {
     unsafe fn on_interrupt() {
         let regs = IPCC::regs();
 
-        // Status register gives channel occupied status. For rx, use cpu1.
-        let sr = regs.cpu(1).sr().read();
-        regs.cpu(0).mr().modify(|w| {
+        trace!("ipcc: rx interrupt");
+        // Status register gives channel occupied status. For rx, use the other.
+        let sr = regs.cpu(OTHER_CPU).sr().read();
+        regs.cpu(CPU).mr().modify(|w| {
             for index in 0..5 {
                 if sr.chf(index as usize) {
                     // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt
@@ -37,17 +50,55 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::IPCC_C1_RX> for Receive
 }
 
 /// TX interrupt handler.
+#[cfg(not(feature = "_core-cm0p"))]
 pub struct TransmitInterruptHandler {}
 
+#[cfg(not(feature = "_core-cm0p"))]
 impl interrupt::typelevel::Handler<interrupt::typelevel::IPCC_C1_TX> for TransmitInterruptHandler {
     unsafe fn on_interrupt() {
         let regs = IPCC::regs();
 
+        trace!("ipcc: rx interrupt");
         // Status register gives channel occupied status. For tx, use cpu0.
-        let sr = regs.cpu(0).sr().read();
-        regs.cpu(0).mr().modify(|w| {
+        let sr = regs.cpu(CPU).sr().read();
+        regs.cpu(CPU).mr().modify(|w| {
             for index in 0..5 {
                 if !sr.chf(index as usize) {
+                    // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt
+                    w.set_chfm(index as usize, true);
+
+                    // There shouldn't be a race because the channel is masked only if the interrupt has fired
+                    IPCC::state().tx_waker_for(index).wake();
+                }
+            }
+        });
+    }
+}
+
+/// TX/RX interrupt handler
+#[cfg(feature = "_core-cm0p")]
+pub struct InterruptHandler {}
+
+#[cfg(feature = "_core-cm0p")]
+impl interrupt::typelevel::Handler<interrupt::typelevel::IPCC_C2_RX_C2_TX> for InterruptHandler {
+    unsafe fn on_interrupt() {
+        let regs = IPCC::regs();
+
+        // Status register gives channel occupied status. For rx, use the other.
+        let rx_sr = regs.cpu(OTHER_CPU).sr().read();
+        // Status register gives channel occupied status. For tx, use cpu0.
+        let tx_sr = regs.cpu(CPU).sr().read();
+
+        regs.cpu(CPU).mr().modify(|w| {
+            for index in 0..5 {
+                if rx_sr.chf(index as usize) {
+                    // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt
+                    w.set_chom(index as usize, true);
+
+                    // There shouldn't be a race because the channel is masked only if the interrupt has fired
+                    IPCC::state().rx_waker_for(index).wake();
+                }
+                if !tx_sr.chf(index as usize) {
                     // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt
                     w.set_chfm(index as usize, true);
 
@@ -95,7 +146,7 @@ impl<'a> IpccTxChannel<'a> {
         compiler_fence(Ordering::SeqCst);
 
         trace!("ipcc: ch {}: send data", self.index as u8);
-        regs.cpu(0).scr().write(|w| w.set_chs(self.index as usize, true));
+        regs.cpu(CPU).scr().write(|w| w.set_chs(self.index as usize, true));
     }
 
     /// Wait for the tx channel to become clear
@@ -104,20 +155,20 @@ impl<'a> IpccTxChannel<'a> {
         let regs = IPCC::regs();
 
         // This is a race, but is nice for debugging
-        if regs.cpu(0).sr().read().chf(self.index as usize) {
+        if regs.cpu(CPU).sr().read().chf(self.index as usize) {
             trace!("ipcc: ch {}: wait for tx free", self.index as u8);
         }
 
         poll_fn(|cx| {
             IPCC::state().tx_waker_for(self.index).register(cx.waker());
             // If bit is set to 1 then interrupt is disabled; we want to enable the interrupt
-            regs.cpu(0).mr().modify(|w| w.set_chfm(self.index as usize, false));
+            regs.cpu(CPU).mr().modify(|w| w.set_chfm(self.index as usize, false));
 
             compiler_fence(Ordering::SeqCst);
 
-            if !regs.cpu(0).sr().read().chf(self.index as usize) {
+            if !regs.cpu(CPU).sr().read().chf(self.index as usize) {
                 // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt
-                regs.cpu(0).mr().modify(|w| w.set_chfm(self.index as usize, true));
+                regs.cpu(CPU).mr().modify(|w| w.set_chfm(self.index as usize, true));
 
                 Poll::Ready(())
             } else {
@@ -151,20 +202,20 @@ impl<'a> IpccRxChannel<'a> {
 
         loop {
             // This is a race, but is nice for debugging
-            if !regs.cpu(1).sr().read().chf(self.index as usize) {
+            if !regs.cpu(OTHER_CPU).sr().read().chf(self.index as usize) {
                 trace!("ipcc: ch {}: wait for rx occupied", self.index as u8);
             }
 
             poll_fn(|cx| {
                 IPCC::state().rx_waker_for(self.index).register(cx.waker());
                 // If bit is set to 1 then interrupt is disabled; we want to enable the interrupt
-                regs.cpu(0).mr().modify(|w| w.set_chom(self.index as usize, false));
+                regs.cpu(CPU).mr().modify(|w| w.set_chom(self.index as usize, false));
 
                 compiler_fence(Ordering::SeqCst);
 
-                if regs.cpu(1).sr().read().chf(self.index as usize) {
+                if regs.cpu(OTHER_CPU).sr().read().chf(self.index as usize) {
                     // If bit is set to 1 then interrupt is disabled; we want to disable the interrupt
-                    regs.cpu(0).mr().modify(|w| w.set_chfm(self.index as usize, true));
+                    regs.cpu(CPU).mr().modify(|w| w.set_chfm(self.index as usize, true));
 
                     Poll::Ready(())
                 } else {
@@ -175,15 +226,16 @@ impl<'a> IpccRxChannel<'a> {
 
             trace!("ipcc: ch {}: read data", self.index as u8);
 
-            match f() {
-                Some(ret) => return ret,
-                None => {}
-            }
+            let ret = f();
 
             trace!("ipcc: ch {}: clear rx", self.index as u8);
             compiler_fence(Ordering::SeqCst);
             // If the channel is clear and the read function returns none, fetch more data
-            regs.cpu(0).scr().write(|w| w.set_chc(self.index as usize, true));
+            regs.cpu(CPU).scr().write(|w| w.set_chc(self.index as usize, true));
+            match ret {
+                Some(ret) => return ret,
+                None => {}
+            }
         }
     }
 }
@@ -217,6 +269,7 @@ pub struct Ipcc {
 
 impl Ipcc {
     /// Creates a new HardwareSemaphore instance.
+    #[cfg(not(feature = "_core-cm0p"))]
     pub fn new<'d>(
         _peripheral: Peri<'d, crate::peripherals::IPCC>,
         _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C1_RX, ReceiveInterruptHandler>
@@ -225,14 +278,14 @@ impl Ipcc {
         _config: Config,
     ) -> Self {
         rcc::enable_and_reset_without_stop::<IPCC>();
-        IPCC::set_cpu2(true);
+        // IPCC::set_cpu2(true);
 
         // Verify rfwkpsel is set
         let _ = IPCC::frequency();
 
         let regs = IPCC::regs();
 
-        regs.cpu(0).cr().modify(|w| {
+        regs.cpu(CPU).cr().modify(|w| {
             w.set_rxoie(true);
             w.set_txfie(true);
         });
@@ -243,6 +296,35 @@ impl Ipcc {
 
         unsafe { crate::interrupt::typelevel::IPCC_C1_RX::enable() };
         unsafe { crate::interrupt::typelevel::IPCC_C1_TX::enable() };
+
+        info!("Ipcc::new CPU CR: {}", regs.cpu(CPU).cr().read());
+        info!("Ipcc::new OTHER_CPU CR: {}", regs.cpu(OTHER_CPU).cr().read());
+
+        Self { _private: () }
+    }
+
+    /// Creates a new HardwareSemaphore instance.
+    #[cfg(feature = "_core-cm0p")]
+    pub fn new<'d>(
+        _peripheral: Peri<'d, crate::peripherals::IPCC>,
+        _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C2_RX_C2_TX, InterruptHandler> + 'd,
+        _config: Config,
+    ) -> Self {
+        rcc::enable_and_reset_without_stop::<IPCC>();
+
+        // Verify rfwkpsel is set
+        let _ = IPCC::frequency();
+
+        let regs = IPCC::regs();
+
+        regs.cpu(CPU).cr().modify(|w| {
+            w.set_rxoie(true);
+            w.set_txfie(true);
+        });
+
+        // enable interrupts
+        crate::interrupt::typelevel::IPCC_C2_RX_C2_TX::unpend();
+        unsafe { crate::interrupt::typelevel::IPCC_C2_RX_C2_TX::enable() };
 
         Self { _private: () }
     }
@@ -286,9 +368,9 @@ impl SealedInstance for crate::peripherals::IPCC {
         crate::pac::IPCC
     }
 
-    fn set_cpu2(enabled: bool) {
-        crate::pac::PWR.cr4().modify(|w| w.set_c2boot(enabled));
-    }
+    // fn set_cpu2(enabled: bool) {
+    //     crate::pac::PWR.cr4().modify(|w| w.set_c2boot(enabled));
+    // }
 
     fn state() -> &'static State {
         static STATE: State = State::new();
@@ -320,6 +402,6 @@ impl State {
 
 trait SealedInstance: crate::rcc::RccPeripheral {
     fn regs() -> crate::pac::ipcc::Ipcc;
-    fn set_cpu2(enabled: bool);
+    // fn set_cpu2(enabled: bool);
     fn state() -> &'static State;
 }
