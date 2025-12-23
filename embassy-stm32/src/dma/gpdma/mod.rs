@@ -201,7 +201,13 @@ impl AnyChannel {
 
         if sr.suspf() {
             // Disable all xxIEs to prevent the irq from firing again.
-            ch.cr().write(|_| {});
+            ch.cr().modify(|w| w.set_dteie(false));
+            ch.cr().modify(|w| w.set_htie(false));
+            ch.cr().modify(|w| w.set_suspie(false));
+            ch.cr().modify(|w| w.set_tcie(false));
+            ch.cr().modify(|w| w.set_toie(false));
+            ch.cr().modify(|w| w.set_uleie(false));
+            ch.cr().modify(|w| w.set_useie(false));
         }
         state.waker.wake();
     }
