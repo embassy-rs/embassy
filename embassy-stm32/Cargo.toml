@@ -97,6 +97,7 @@ build = [
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32wba55ug", "time", "time-driver-any"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32wba62cg", "time", "time-driver-any"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "low-power", "stm32wba65ri", "time", "time-driver-any"]},
+    {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32u385rg", "time", "time-driver-any"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32u5f9zj", "time", "time-driver-any"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32u5g9nj", "time", "time-driver-any"]},
     {target = "thumbv8m.main-none-eabihf", features = ["defmt", "exti", "stm32n657x0", "time", "time-driver-any"]},
@@ -135,6 +136,7 @@ flavors = [
     { regex_feature = "stm32l5...e", target = "thumbv8m.main-none-eabihf", features = ["low-power", "dual-bank"] },
     { regex_feature = "stm32l5.*", target = "thumbv8m.main-none-eabihf", features = ["low-power"] },
     { regex_feature = "stm32u0.*", target = "thumbv6m-none-eabi" },
+    { regex_feature = "stm32u3.*", target = "thumbv8m.main-none-eabihf"},
     { regex_feature = "stm32u5.*", target = "thumbv8m.main-none-eabihf" },
     { regex_feature = "stm32wb.*", target = "thumbv7em-none-eabi" },
     { regex_feature = "stm32wba.*", target = "thumbv8m.main-none-eabihf" },
@@ -200,13 +202,13 @@ aligned = "0.4.3"
 heapless = "0.9.1"
 
 #stm32-metapac = { version = "18" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-c0123f4251e21282c3f26114d2f6f9360c1191f1" }
-#stm32-metapac = { path = "../../stm32-data/build/stm32-metapac" }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-24369dbbc177b111de7d6a14403123a46fbc4bfb" }
+# stm32-metapac = { path = "../../stm32-data/build/stm32-metapac" }
 
 [build-dependencies]
 #stm32-metapac = { version = "18", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-c0123f4251e21282c3f26114d2f6f9360c1191f1", default-features = false, features = ["metadata"] }
-#stm32-metapac = { path = "../../stm32-data/build/stm32-metapac", default-features = false, features = ["metadata"] }
+stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-24369dbbc177b111de7d6a14403123a46fbc4bfb", default-features = false, features = ["metadata"] }
+# stm32-metapac = { path = "../../stm32-data/build/stm32-metapac", default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.36"
 quote = "1.0.15"
@@ -1703,6 +1705,18 @@ stm32u083hc = [ "stm32-metapac/stm32u083hc" ]
 stm32u083kc = [ "stm32-metapac/stm32u083kc" ]
 stm32u083mc = [ "stm32-metapac/stm32u083mc" ]
 stm32u083rc = [ "stm32-metapac/stm32u083rc" ]
+stm32u375ce = [ "stm32-metapac/stm32u375ce" ]
+stm32u375cg = [ "stm32-metapac/stm32u375cg" ]
+stm32u375ke = [ "stm32-metapac/stm32u375ke" ]
+stm32u375kg = [ "stm32-metapac/stm32u375kg" ]
+stm32u375re = [ "stm32-metapac/stm32u375re" ]
+stm32u375rg = [ "stm32-metapac/stm32u375rg" ]
+stm32u375ve = [ "stm32-metapac/stm32u375ve" ]
+stm32u375vg = [ "stm32-metapac/stm32u375vg" ]
+stm32u385cg = [ "stm32-metapac/stm32u385cg" ]
+stm32u385kg = [ "stm32-metapac/stm32u385kg" ]
+stm32u385rg = [ "stm32-metapac/stm32u385rg" ]
+stm32u385vg = [ "stm32-metapac/stm32u385vg" ]
 stm32u535cb = [ "stm32-metapac/stm32u535cb" ]
 stm32u535cc = [ "stm32-metapac/stm32u535cc" ]
 stm32u535ce = [ "stm32-metapac/stm32u535ce" ]

@@ -271,11 +271,11 @@ pub struct Config {
     /// which needs to be enabled before these pins can be used.
     ///
     /// May increase power consumption. Defaults to true.
-    #[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba))]
+    #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u3, stm32wba))]
     pub enable_independent_io_supply: bool,
 
     /// On the U5 series all analog peripherals are powered by a separate supply.
-    #[cfg(stm32u5)]
+    #[cfg(any(stm32u5, stm32u3))]
     pub enable_independent_analog_supply: bool,
 
     /// BDMA interrupt priority.
@@ -319,9 +319,9 @@ impl Default for Config {
             min_stop_pause: embassy_time::Duration::from_millis(250),
             #[cfg(dbgmcu)]
             enable_debug_during_sleep: true,
-            #[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba))]
+            #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u3, stm32wba))]
             enable_independent_io_supply: true,
-            #[cfg(stm32u5)]
+            #[cfg(any(stm32u5, stm32u3))]
             enable_independent_analog_supply: true,
             #[cfg(bdma)]
             bdma_interrupt_priority: Priority::P0,
@@ -536,7 +536,9 @@ fn init_hw(config: Config) -> Peripherals {
                 cr.set_stop(config.enable_debug_during_sleep);
                 cr.set_standby(config.enable_debug_during_sleep);
             }
-            #[cfg(any(dbgmcu_f0, dbgmcu_c0, dbgmcu_g0, dbgmcu_u0, dbgmcu_u5, dbgmcu_wba, dbgmcu_l5))]
+            #[cfg(any(
+                dbgmcu_f0, dbgmcu_c0, dbgmcu_g0, dbgmcu_u0, dbgmcu_u3, dbgmcu_u5, dbgmcu_wba, dbgmcu_l5
+            ))]
             {
                 cr.set_dbg_stop(config.enable_debug_during_sleep);
                 cr.set_dbg_standby(config.enable_debug_during_sleep);
@@ -589,7 +591,7 @@ fn init_hw(config: Config) -> Peripherals {
                 });
             });
         }
-        #[cfg(stm32u5)]
+        #[cfg(any(stm32u5, stm32u3))]
         {
             crate::pac::PWR.svmcr().modify(|w| {
                 w.set_io2sv(config.enable_independent_io_supply);

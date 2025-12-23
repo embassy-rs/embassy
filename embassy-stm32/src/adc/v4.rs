@@ -1,11 +1,14 @@
-#[cfg(not(stm32u5))]
+#[cfg(not(stm32u3))]
+use pac::adc::vals::Difsel;
+#[cfg(not(any(stm32u5, stm32u3)))]
 use pac::adc::vals::{Adcaldif, Boost};
 #[allow(unused)]
-use pac::adc::vals::{Adstp, Difsel, Dmngt, Exten, Pcsel};
+use pac::adc::vals::{Adstp, Dmngt, Exten, Pcsel};
+#[cfg(not(stm32u3))]
 use pac::adccommon::vals::Presc;
 
 use super::{Adc, Averaging, Instance, Resolution, SampleTime, Temperature, Vbat, VrefInt, blocking_delay_us};
-#[cfg(stm32u5)]
+#[cfg(any(stm32u5, stm32u3))]
 use crate::adc::DefaultInstance;
 use crate::adc::{AdcRegs, ConversionMode};
 use crate::time::Hertz;
@@ -23,6 +26,8 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(60);
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(50);
 #[cfg(stm32u5)]
 const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
+#[cfg(stm32u3)]
+const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(48);
 
 #[cfg(stm32g4)]
 impl<T: Instance> super::SealedSpecialConverter<super::VrefInt> for T {
@@ -43,12 +48,12 @@ impl<T: Instance> super::SealedSpecialConverter<super::Temperature> for T {
 }
 
 // TODO this should be 14 for H7a/b/35
-#[cfg(not(stm32u5))]
+#[cfg(not(any(stm32u5, stm32u3)))]
 impl<T: Instance> super::SealedSpecialConverter<super::Vbat> for T {
     const CHANNEL: u8 = 17;
 }
 
-#[cfg(stm32u5)]
+#[cfg(any(stm32u5, stm32u3))]
 impl<T: DefaultInstance> super::SealedSpecialConverter<super::VrefInt> for T {
     const CHANNEL: u8 = 0;
 }
@@ -61,6 +66,17 @@ impl<T: DefaultInstance> super::SealedSpecialConverter<super::Vbat> for T {
     const CHANNEL: u8 = 18;
 }
 
+#[cfg(stm32u3)]
+impl<T: DefaultInstance> super::SealedSpecialConverter<super::Vbat> for T {
+    const CHANNEL: u8 = 16;
+}
+
+#[cfg(stm32u3)]
+impl<T: DefaultInstance> super::SealedSpecialConverter<super::Temperature> for T {
+    const CHANNEL: u8 = 17;
+}
+
+#[cfg(not(stm32u3))]
 fn from_ker_ck(frequency: Hertz) -> Presc {
     let raw_prescaler = rcc::raw_prescaler(frequency.0, MAX_ADC_CLK_FREQ.0);
     match raw_prescaler {
@@ -166,7 +182,7 @@ impl AdcRegs for crate::pac::adc::Adc {
                 self.smpr(1).modify(|reg| reg.set_smp((channel - 10) as _, sample_time));
             }
 
-            #[cfg(any(stm32h7, stm32u5))]
+            #[cfg(any(stm32h7, stm32u5, stm32u3))]
             {
                 self.cfgr2().modify(|w| w.set_lshift(0));
                 self.pcsel().modify(|w| w.set_pcsel(channel as _, Pcsel::PRESELECTED));
@@ -238,11 +254,16 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     pub fn new(adc: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
 
+        #[cfg(not(stm32u3))]
         let prescaler = from_ker_ck(T::frequency());
-
+        #[cfg(not(stm32u3))]
         T::common_regs().ccr().modify(|w| w.set_presc(prescaler));
-
+        #[cfg(not(stm32u3))]
         let frequency = T::frequency() / prescaler;
+
+        #[cfg(stm32u3)]
+        let frequency = T::frequency();
+
         info!("ADC frequency set to {}", frequency);
 
         if frequency > MAX_ADC_CLK_FREQ {
@@ -273,12 +294,14 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
 
         blocking_delay_us(10);
 
+        #[cfg(not(stm32u3))]
         T::regs().difsel().modify(|w| {
             for n in 0..20 {
                 w.set_difsel(n, Difsel::SINGLE_ENDED);
             }
         });
 
+        #[cfg(not(stm32u3))]
         T::regs().cr().modify(|w| {
             #[cfg(not(adc_u5))]
             w.set_adcaldif(Adcaldif::SINGLE_ENDED);

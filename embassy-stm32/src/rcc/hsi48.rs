@@ -39,9 +39,11 @@ pub(crate) fn init_hsi48(config: Hsi48Config) -> Hertz {
     });
 
     // Enable HSI48
-    #[cfg(not(any(stm32u5, stm32g0, stm32h5, stm32h7, stm32h7rs, stm32u5, stm32wba, stm32f0, stm32c071)))]
+    #[cfg(not(any(
+        stm32u5, stm32u3, stm32g0, stm32h5, stm32h7, stm32h7rs, stm32u5, stm32wba, stm32f0, stm32c071
+    )))]
     let r = RCC.crrcr();
-    #[cfg(any(stm32u5, stm32g0, stm32h5, stm32h7, stm32h7rs, stm32u5, stm32wba, stm32c071))]
+    #[cfg(any(stm32u5, stm32u3, stm32g0, stm32h5, stm32h7, stm32h7rs, stm32u5, stm32wba, stm32c071))]
     let r = RCC.cr();
     #[cfg(any(stm32f0))]
     let r = RCC.cr2();
@@ -72,9 +74,9 @@ pub(crate) fn disable_hsi48() {
     rcc::disable::<crate::peripherals::CRS>();
 
     // Disable HSI48
-    #[cfg(not(any(stm32u5, stm32g0, stm32h5, stm32h7, stm32h7rs, stm32u5, stm32wba, stm32f0, stm32c071)))]
+    #[cfg(not(any(stm32u5, stm32g0, stm32h5, stm32h7, stm32h7rs, stm32u3, stm32wba, stm32f0, stm32c071)))]
     let r = RCC.crrcr();
-    #[cfg(any(stm32u5, stm32g0, stm32h5, stm32h7, stm32h7rs, stm32u5, stm32wba, stm32c071))]
+    #[cfg(any(stm32u5, stm32g0, stm32h5, stm32h7, stm32h7rs, stm32u3, stm32wba, stm32c071))]
     let r = RCC.cr();
     #[cfg(any(stm32f0))]
     let r = RCC.cr2();

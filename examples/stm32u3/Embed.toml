@@ -1,0 +1,5 @@
+[default.general]
+chip = "STM32U385RGTxQ"
+
+[default.rtt]
+enabled = true

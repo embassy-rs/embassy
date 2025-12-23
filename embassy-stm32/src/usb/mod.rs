@@ -78,7 +78,7 @@ fn common_init<T: Instance>() {
         while !crate::pac::PWR.csr2().read().usb33rdy() {}
     }
 
-    #[cfg(stm32u5)]
+    #[cfg(any(stm32u5, stm32u3))]
     {
         // Enable USB power
         critical_section::with(|_| {

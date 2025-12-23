@@ -25,7 +25,7 @@ pub struct LseConfig {
     pub frequency: Hertz,
     pub mode: LseMode,
     /// If peripherals other than RTC/TAMP or RCC functions need the lse this bit must be set
-    #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba))]
+    #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba))]
     pub peripherals_clocked: bool,
 }
 
@@ -71,10 +71,10 @@ fn unlock() {
     #[cfg(any(stm32f0, stm32f1, stm32f2, stm32f3, stm32l0, stm32l1))]
     let cr = crate::pac::PWR.cr();
     #[cfg(not(any(
-        stm32f0, stm32f1, stm32f2, stm32f3, stm32l0, stm32l1, stm32u5, stm32h5, stm32wba, stm32n6
+        stm32f0, stm32f1, stm32f2, stm32f3, stm32l0, stm32l1, stm32u5, stm32u3, stm32h5, stm32wba, stm32n6
     )))]
     let cr = crate::pac::PWR.cr1();
-    #[cfg(any(stm32u5, stm32h5, stm32wba, stm32n6))]
+    #[cfg(any(stm32u5, stm32u3, stm32h5, stm32wba, stm32n6))]
     let cr = crate::pac::PWR.dbpcr();
 
     cr.modify(|w| w.set_dbp(true));
@@ -118,7 +118,7 @@ impl LsConfig {
             lse: Some(LseConfig {
                 frequency: Hertz(32_768),
                 mode: LseMode::Oscillator(LseDrive::MediumHigh),
-                #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba))]
+                #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba))]
                 peripherals_clocked: false,
             }),
             lsi: false,
