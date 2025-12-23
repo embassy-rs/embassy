@@ -1,8 +1,6 @@
 #![allow(non_snake_case)]
 
 use core::cell::{Cell, RefCell};
-#[cfg(all(feature = "low-power", stm32wlex))]
-use core::sync::atomic::AtomicU16;
 use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
 
 use critical_section::CriticalSection;
@@ -109,9 +107,6 @@ pub(crate) struct RtcDriver {
     #[cfg(feature = "low-power")]
     /// The minimum pause time beyond which the executor will enter a low-power state.
     min_stop_pause: Mutex<CriticalSectionRawMutex, Cell<embassy_time::Duration>>,
-    /// Saved count for the timer (its value is lost when entering STOP2)
-    #[cfg(all(feature = "low-power", stm32wlex))]
-    saved_count: AtomicU16,
     queue: Mutex<CriticalSectionRawMutex, RefCell<Queue>>,
 }
 
@@ -122,8 +117,6 @@ embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     rtc: Mutex::const_new(CriticalSectionRawMutex::new(), RefCell::new(None)),
     #[cfg(feature = "low-power")]
     min_stop_pause: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(embassy_time::Duration::from_millis(0))),
-    #[cfg(all(feature = "low-power", stm32wlex))]
-    saved_count: AtomicU16::new(0),
     queue: Mutex::new(RefCell::new(Queue::new()))
 });
 
@@ -162,9 +155,6 @@ impl RtcDriver {
             w.set_uie(true);
             w.set_ccie(0, true);
         });
-
-        #[cfg(all(feature = "low-power", stm32wlex))]
-        r.cnt().write(|w| w.set_cnt(self.saved_count.load(Ordering::SeqCst)));
 
         <T as GeneralInstance1Channel>::CaptureCompareInterrupt::unpend();
         <T as CoreInstance>::UpdateInterrupt::unpend();
@@ -250,7 +240,7 @@ impl RtcDriver {
     }
 
     #[cfg(feature = "low-power")]
-    /// Add the given offset to the current time
+    /// Set the current time and recompute any passed alarms
     fn set_time(&self, instant: u64, cs: CriticalSection) {
         let (period, counter) = calc_period_counter(core::cmp::max(self.now(), instant));
 
@@ -263,23 +253,6 @@ impl RtcDriver {
         if !self.set_alarm(cs, alarm.timestamp.get()) {
             // If the alarm timestamp has passed, we need to trigger it
             self.trigger_alarm(cs);
-        }
-    }
-
-    #[cfg(feature = "low-power")]
-    /// Stop the wakeup alarm, if enabled, and add the appropriate offset
-    fn stop_wakeup_alarm(&self, cs: CriticalSection) {
-        if !regs_gp16().cr1().read().cen() {
-            self.set_time(
-                self.rtc
-                    .borrow(cs)
-                    .borrow_mut()
-                    .as_mut()
-                    .unwrap()
-                    .stop_wakeup_alarm()
-                    .as_ticks(),
-                cs,
-            );
         }
     }
 
@@ -302,7 +275,7 @@ impl RtcDriver {
     #[cfg(feature = "low-power")]
     /// Pause the timer if ready; return err if not
     pub(crate) fn pause_time(&self, cs: CriticalSection) -> Result<(), ()> {
-        self.stop_wakeup_alarm(cs);
+        assert!(regs_gp16().cr1().read().cen());
 
         let time_until_next_alarm = self.time_until_next_alarm(cs);
         if time_until_next_alarm < self.min_stop_pause.borrow(cs).get() {
@@ -320,10 +293,6 @@ impl RtcDriver {
                 .start_wakeup_alarm(time_until_next_alarm);
 
             regs_gp16().cr1().modify(|w| w.set_cen(false));
-            // save the count for the timer as its lost in STOP2 for stm32wlex
-            #[cfg(stm32wlex)]
-            self.saved_count
-                .store(regs_gp16().cnt().read().cnt() as u16, Ordering::SeqCst);
             Ok(())
         }
     }
@@ -331,7 +300,18 @@ impl RtcDriver {
     #[cfg(feature = "low-power")]
     /// Resume the timer with the given offset
     pub(crate) fn resume_time(&self, cs: CriticalSection) {
-        self.stop_wakeup_alarm(cs);
+        assert!(!regs_gp16().cr1().read().cen());
+
+        self.set_time(
+            self.rtc
+                .borrow(cs)
+                .borrow_mut()
+                .as_mut()
+                .unwrap()
+                .stop_wakeup_alarm()
+                .as_ticks(),
+            cs,
+        );
 
         regs_gp16().cr1().modify(|w| w.set_cen(true));
     }
