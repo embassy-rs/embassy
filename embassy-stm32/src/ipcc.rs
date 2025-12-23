@@ -112,10 +112,20 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::IPCC_C2_RX_C2_TX> for I
 
 /// IPCC config.
 #[non_exhaustive]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 pub struct Config {
-    // TODO: add IPCC peripheral configuration, if any, here
-    // reserved for future use
+    /// Boot CPU2 is true (default is true)
+    #[cfg(not(feature = "_core-cm0p"))]
+    pub c2_boot: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            #[cfg(not(feature = "_core-cm0p"))]
+            c2_boot: true,
+        }
+    }
 }
 
 /// IPCC TX Channel
@@ -278,17 +288,9 @@ impl Ipcc {
         _config: Config,
     ) -> Self {
         rcc::enable_and_reset_without_stop::<IPCC>();
-        // IPCC::set_cpu2(true);
+        IPCC::set_cpu2(_config.c2_boot);
 
-        // Verify rfwkpsel is set
-        let _ = IPCC::frequency();
-
-        let regs = IPCC::regs();
-
-        regs.cpu(CPU).cr().modify(|w| {
-            w.set_rxoie(true);
-            w.set_txfie(true);
-        });
+        Self::init(_config);
 
         // enable interrupts
         crate::interrupt::typelevel::IPCC_C1_RX::unpend();
@@ -296,9 +298,6 @@ impl Ipcc {
 
         unsafe { crate::interrupt::typelevel::IPCC_C1_RX::enable() };
         unsafe { crate::interrupt::typelevel::IPCC_C1_TX::enable() };
-
-        info!("Ipcc::new CPU CR: {}", regs.cpu(CPU).cr().read());
-        info!("Ipcc::new OTHER_CPU CR: {}", regs.cpu(OTHER_CPU).cr().read());
 
         Self { _private: () }
     }
@@ -312,6 +311,16 @@ impl Ipcc {
     ) -> Self {
         rcc::enable_and_reset_without_stop::<IPCC>();
 
+        Self::init(_config);
+
+        // enable interrupts
+        crate::interrupt::typelevel::IPCC_C2_RX_C2_TX::unpend();
+        unsafe { crate::interrupt::typelevel::IPCC_C2_RX_C2_TX::enable() };
+
+        Self { _private: () }
+    }
+
+    fn init(_config: Config) {
         // Verify rfwkpsel is set
         let _ = IPCC::frequency();
 
@@ -321,12 +330,6 @@ impl Ipcc {
             w.set_rxoie(true);
             w.set_txfie(true);
         });
-
-        // enable interrupts
-        crate::interrupt::typelevel::IPCC_C2_RX_C2_TX::unpend();
-        unsafe { crate::interrupt::typelevel::IPCC_C2_RX_C2_TX::enable() };
-
-        Self { _private: () }
     }
 
     /// Split into a tx and rx channel
@@ -368,9 +371,10 @@ impl SealedInstance for crate::peripherals::IPCC {
         crate::pac::IPCC
     }
 
-    // fn set_cpu2(enabled: bool) {
-    //     crate::pac::PWR.cr4().modify(|w| w.set_c2boot(enabled));
-    // }
+    #[cfg(not(feature = "_core-cm0p"))]
+    fn set_cpu2(enabled: bool) {
+        crate::pac::PWR.cr4().modify(|w| w.set_c2boot(enabled));
+    }
 
     fn state() -> &'static State {
         static STATE: State = State::new();
@@ -402,6 +406,7 @@ impl State {
 
 trait SealedInstance: crate::rcc::RccPeripheral {
     fn regs() -> crate::pac::ipcc::Ipcc;
-    // fn set_cpu2(enabled: bool);
+    #[cfg(not(feature = "_core-cm0p"))]
+    fn set_cpu2(enabled: bool);
     fn state() -> &'static State;
 }

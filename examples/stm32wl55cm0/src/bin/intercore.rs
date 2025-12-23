@@ -23,7 +23,7 @@ static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 #[embassy_executor::task]
 async fn blink_heartbeat(mut led: Output<'static>) {
     loop {
-        // info!("CM0+ heartbeat");
+        info!("CM0+ heartbeat");
         led.set_level(Level::High);
         Timer::after_millis(100).await;
         led.set_level(Level::Low);
@@ -62,5 +62,6 @@ async fn main(_spawner: Spawner) -> ! {
             Some(())
         })
         .await;
+        info!("CM0+ Recieve!");
     }
 }

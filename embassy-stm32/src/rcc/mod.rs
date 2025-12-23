@@ -242,28 +242,44 @@ impl RccInfo {
             }
         }
 
-        // on dual core some peripherals should only be enabled once (IPCC for instance)
-        // TODO: maybe this should be only the main core? Some other way?
-        #[cfg(stm32wl5x)]
-        if unsafe { self.enable_ptr().read_volatile() & (1u32 << self.enable_bit) } != 0 {
-            warn!("Peripheral {} is already enabled", self.enable_bit);
-            return;
-        }
-
         // set the xxxRST bit
         let reset_ptr = self.reset_ptr();
         if let Some(reset_ptr) = reset_ptr {
+            #[cfg(not(stm32wl5x))]
             unsafe {
                 let val = reset_ptr.read_volatile();
                 reset_ptr.write_volatile(val | 1u32 << self.reset_bit);
+            }
+
+            // on stm32wl5x each CPU has its own peripheral enable bits and if the othert CPU has enabled the peripheral we don;t want to reset it
+            // as that would reset the configuration that the other CPU has set up.
+            // TODO: race condition!
+            #[cfg(stm32wl5x)]
+            if unsafe { !self.is_enabled_by_other_core() } {
+                unsafe {
+                    let val = reset_ptr.read_volatile();
+                    reset_ptr.write_volatile(val | 1u32 << self.reset_bit);
+                }
+                trace!("rcc: reset 0x{:x}:{}", self.enable_offset, self.enable_bit);
             }
         }
 
         // set the xxxEN bit
         let enable_ptr = self.enable_ptr();
         unsafe {
-            let val = enable_ptr.read_volatile();
-            enable_ptr.write_volatile(val | 1u32 << self.enable_bit);
+            #[cfg(not(all(stm32wl5x, feature = "_core-cm0p")))]
+            {
+                let val = enable_ptr.read_volatile();
+                enable_ptr.write_volatile(val | 1u32 << self.enable_bit);
+            }
+            // second core enable for stm32wl5x is at offset 0x100
+            #[cfg(all(stm32wl5x, feature = "_core-cm0p"))]
+            {
+                let enable_ptr = enable_ptr.add(0x100 / 4);
+                let val = enable_ptr.read_volatile();
+                enable_ptr.write_volatile(val | 1u32 << self.enable_bit);
+            }
+            trace!("rcc: enabled 0x{:x}:{}", self.enable_offset, self.enable_bit);
         }
 
         // we must wait two peripheral clock cycles before the clock is active
@@ -308,8 +324,19 @@ impl RccInfo {
         // clear the xxxEN bit
         let enable_ptr = self.enable_ptr();
         unsafe {
-            let val = enable_ptr.read_volatile();
-            enable_ptr.write_volatile(val & !(1u32 << self.enable_bit));
+            #[cfg(not(all(stm32wl5x, feature = "_core-cm0p")))]
+            {
+                let val = enable_ptr.read_volatile();
+                enable_ptr.write_volatile(val & !(1u32 << self.enable_bit));
+            }
+            // second core enable for stm32wl5x is at offset 0x100
+            #[cfg(all(stm32wl5x, feature = "_core-cm0p"))]
+            {
+                let enable_ptr = enable_ptr.add(0x100 / 4);
+                let val = enable_ptr.read_volatile();
+                enable_ptr.write_volatile(val & !(1u32 << self.enable_bit));
+            }
+            trace!("rcc: disabled 0x{:x}:{}", self.enable_offset, self.enable_bit);
         }
     }
 
@@ -404,6 +431,15 @@ impl RccInfo {
 
     fn enable_ptr(&self) -> *mut u32 {
         unsafe { (RCC.as_ptr() as *mut u32).add(self.enable_offset as _) }
+    }
+
+    #[cfg(stm32wl5x)]
+    unsafe fn is_enabled_by_other_core(&self) -> bool {
+        let ptr = self.enable_ptr();
+        #[cfg(feature = "_core-cm4")]
+        let ptr = ptr.add(0x100);
+
+        (ptr.read_volatile() & (1u32 << self.enable_bit)) != 0
     }
 }
 

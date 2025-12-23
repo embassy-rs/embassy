@@ -20,8 +20,6 @@
 
 use core::mem::MaybeUninit;
 
-// use cortex_m::asm;
-// use cortex_m::peripheral::MPU;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::ipcc::{Config as IPCCConfig, Ipcc, ReceiveInterruptHandler, TransmitInterruptHandler};
@@ -39,24 +37,13 @@ static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
-    // Configure the clock system
-    let config = Config::default();
-
     // Initialize the CM4 core
-    let p = embassy_stm32::init_primary(config, &SHARED_DATA);
+    let p = embassy_stm32::init_primary(Config::default(), &SHARED_DATA);
     info!("CM4 core initialized");
 
     let ipcc = Ipcc::new(p.IPCC, Irqs, IPCCConfig::default());
     let [ch1, _ch2, _ch3, _ch4, _ch5, _ch6] = ipcc.split();
     let (mut tx, mut _rx) = ch1;
-
-    // TODO: this and other peripherals that should be enabled for the secondary core should be in init(Config)
-    info! {"CM4: enable IPCC for C2"}
-    embassy_stm32::pac::RCC.c2ahb3enr().modify(|w| w.set_ipccen(true));
-
-    // TODO: should this be in init(Config)? Or should the user have more control over when this is set?
-    info!("CM4: Setting C2BOOT");
-    embassy_stm32::pac::PWR.cr4().modify(|w| w.set_c2boot(true));
 
     info!("CM4: Starting main loop");
     loop {
