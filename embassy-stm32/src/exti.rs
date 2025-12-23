@@ -273,7 +273,7 @@ impl<'a> ExtiInputFuture<'a> {
             EXTI.ftsr(0).modify(|w| w.set_line(pin, falling));
 
             // clear pending bit
-            #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6)))]
+            #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6)))]
             EXTI.pr(0).write(|w| w.set_line(pin, true));
             #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6))]
             {
