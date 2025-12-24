@@ -4,6 +4,7 @@ use embedded_hal_1::digital::OutputPin;
 use futures::FutureExt;
 
 use crate::consts::*;
+use crate::runner::{BusType, SealedBus};
 use crate::util::slice8_mut;
 
 /// Custom Spi Trait that _only_ supports the bus operation of the cyw43
@@ -27,14 +28,15 @@ pub trait SpiBusCyw43 {
     }
 }
 
-pub(crate) struct Bus<PWR, SPI> {
+/// Doc
+pub struct SpiBus<PWR, SPI> {
     backplane_window: u32,
     pwr: PWR,
     spi: SPI,
     status: u32,
 }
 
-impl<PWR, SPI> Bus<PWR, SPI>
+impl<PWR, SPI> SpiBus<PWR, SPI>
 where
     PWR: OutputPin,
     SPI: SpiBusCyw43,
@@ -48,7 +50,109 @@ where
         }
     }
 
-    pub async fn init(&mut self, bluetooth_enabled: bool) {
+    async fn backplane_readn(&mut self, addr: u32, len: u32) -> u32 {
+        trace!("backplane_readn addr = {:08x} len = {}", addr, len);
+
+        self.backplane_set_window(addr).await;
+
+        let mut bus_addr = addr & BACKPLANE_ADDRESS_MASK;
+        if len == 4 {
+            bus_addr |= BACKPLANE_ADDRESS_32BIT_FLAG;
+        }
+
+        let val = self.readn(FUNC_BACKPLANE, bus_addr, len).await;
+
+        trace!("backplane_readn addr = {:08x} len = {} val = {:08x}", addr, len, val);
+
+        return val;
+    }
+
+    async fn backplane_writen(&mut self, addr: u32, val: u32, len: u32) {
+        trace!("backplane_writen addr = {:08x} len = {} val = {:08x}", addr, len, val);
+
+        self.backplane_set_window(addr).await;
+
+        let mut bus_addr = addr & BACKPLANE_ADDRESS_MASK;
+        if len == 4 {
+            bus_addr |= BACKPLANE_ADDRESS_32BIT_FLAG;
+        }
+        self.writen(FUNC_BACKPLANE, bus_addr, val, len).await;
+    }
+
+    async fn backplane_set_window(&mut self, addr: u32) {
+        let new_window = addr & !BACKPLANE_ADDRESS_MASK;
+
+        if (new_window >> 24) as u8 != (self.backplane_window >> 24) as u8 {
+            self.write8(
+                FUNC_BACKPLANE,
+                REG_BACKPLANE_BACKPLANE_ADDRESS_HIGH,
+                (new_window >> 24) as u8,
+            )
+            .await;
+        }
+        if (new_window >> 16) as u8 != (self.backplane_window >> 16) as u8 {
+            self.write8(
+                FUNC_BACKPLANE,
+                REG_BACKPLANE_BACKPLANE_ADDRESS_MID,
+                (new_window >> 16) as u8,
+            )
+            .await;
+        }
+        if (new_window >> 8) as u8 != (self.backplane_window >> 8) as u8 {
+            self.write8(
+                FUNC_BACKPLANE,
+                REG_BACKPLANE_BACKPLANE_ADDRESS_LOW,
+                (new_window >> 8) as u8,
+            )
+            .await;
+        }
+        self.backplane_window = new_window;
+    }
+
+    async fn readn(&mut self, func: u32, addr: u32, len: u32) -> u32 {
+        let cmd = cmd_word(READ, INC_ADDR, func, addr, len);
+        let mut buf = [0; 2];
+        // if we are reading from the backplane, we need an extra word for the response delay
+        let len = if func == FUNC_BACKPLANE { 2 } else { 1 };
+
+        self.status = self.spi.cmd_read(cmd, &mut buf[..len]).await;
+
+        // if we read from the backplane, the result is in the second word, after the response delay
+        if func == FUNC_BACKPLANE { buf[1] } else { buf[0] }
+    }
+
+    async fn writen(&mut self, func: u32, addr: u32, val: u32, len: u32) {
+        let cmd = cmd_word(WRITE, INC_ADDR, func, addr, len);
+
+        self.status = self.spi.cmd_write(&[cmd, val]).await;
+    }
+
+    async fn read32_swapped(&mut self, func: u32, addr: u32) -> u32 {
+        let cmd = cmd_word(READ, INC_ADDR, func, addr, 4);
+        let cmd = swap16(cmd);
+        let mut buf = [0; 1];
+
+        self.status = self.spi.cmd_read(cmd, &mut buf).await;
+
+        swap16(buf[0])
+    }
+
+    async fn write32_swapped(&mut self, func: u32, addr: u32, val: u32) {
+        let cmd = cmd_word(WRITE, INC_ADDR, func, addr, 4);
+        let buf = [swap16(cmd), swap16(val)];
+
+        self.status = self.spi.cmd_write(&buf).await;
+    }
+}
+
+impl<PWR, SPI> SealedBus for SpiBus<PWR, SPI>
+where
+    PWR: OutputPin,
+    SPI: SpiBusCyw43,
+{
+    const TYPE: BusType = BusType::Spi;
+
+    async fn init(&mut self, bluetooth_enabled: bool) {
         // Reset
         trace!("WL_REG off/on");
         self.pwr.set_low().unwrap();
@@ -135,14 +239,14 @@ where
         self.write16(FUNC_BUS, REG_BUS_INTERRUPT_ENABLE, val).await;
     }
 
-    pub async fn wlan_read(&mut self, buf: &mut [u32], len_in_u8: u32) {
+    async fn wlan_read(&mut self, buf: &mut [u32], len_in_u8: u32) {
         let cmd = cmd_word(READ, INC_ADDR, FUNC_WLAN, 0, len_in_u8);
         let len_in_u32 = (len_in_u8 as usize + 3) / 4;
 
         self.status = self.spi.cmd_read(cmd, &mut buf[..len_in_u32]).await;
     }
 
-    pub async fn wlan_write(&mut self, buf: &[u32]) {
+    async fn wlan_write(&mut self, buf: &[u32]) {
         let cmd = cmd_word(WRITE, INC_ADDR, FUNC_WLAN, 0, buf.len() as u32 * 4);
         //TODO try to remove copy?
         let mut cmd_buf = [0_u32; 513];
@@ -153,7 +257,7 @@ where
     }
 
     #[allow(unused)]
-    pub async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8]) {
+    async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8]) {
         trace!("bp_read addr = {:08x}", addr);
 
         // It seems the HW force-aligns the addr
@@ -188,7 +292,7 @@ where
         }
     }
 
-    pub async fn bp_write(&mut self, mut addr: u32, mut data: &[u8]) {
+    async fn bp_write(&mut self, mut addr: u32, mut data: &[u8]) {
         trace!("bp_write addr = {:08x}", addr);
 
         // It seems the HW force-aligns the addr
@@ -220,158 +324,64 @@ where
         }
     }
 
-    pub async fn bp_read8(&mut self, addr: u32) -> u8 {
+    async fn bp_read8(&mut self, addr: u32) -> u8 {
         self.backplane_readn(addr, 1).await as u8
     }
 
-    pub async fn bp_write8(&mut self, addr: u32, val: u8) {
+    async fn bp_write8(&mut self, addr: u32, val: u8) {
         self.backplane_writen(addr, val as u32, 1).await
     }
 
-    pub async fn bp_read16(&mut self, addr: u32) -> u16 {
+    async fn bp_read16(&mut self, addr: u32) -> u16 {
         self.backplane_readn(addr, 2).await as u16
     }
 
     #[allow(unused)]
-    pub async fn bp_write16(&mut self, addr: u32, val: u16) {
+    async fn bp_write16(&mut self, addr: u32, val: u16) {
         self.backplane_writen(addr, val as u32, 2).await
     }
 
     #[allow(unused)]
-    pub async fn bp_read32(&mut self, addr: u32) -> u32 {
+    async fn bp_read32(&mut self, addr: u32) -> u32 {
         self.backplane_readn(addr, 4).await
     }
 
-    pub async fn bp_write32(&mut self, addr: u32, val: u32) {
+    async fn bp_write32(&mut self, addr: u32, val: u32) {
         self.backplane_writen(addr, val, 4).await
     }
 
-    async fn backplane_readn(&mut self, addr: u32, len: u32) -> u32 {
-        trace!("backplane_readn addr = {:08x} len = {}", addr, len);
-
-        self.backplane_set_window(addr).await;
-
-        let mut bus_addr = addr & BACKPLANE_ADDRESS_MASK;
-        if len == 4 {
-            bus_addr |= BACKPLANE_ADDRESS_32BIT_FLAG;
-        }
-
-        let val = self.readn(FUNC_BACKPLANE, bus_addr, len).await;
-
-        trace!("backplane_readn addr = {:08x} len = {} val = {:08x}", addr, len, val);
-
-        return val;
-    }
-
-    async fn backplane_writen(&mut self, addr: u32, val: u32, len: u32) {
-        trace!("backplane_writen addr = {:08x} len = {} val = {:08x}", addr, len, val);
-
-        self.backplane_set_window(addr).await;
-
-        let mut bus_addr = addr & BACKPLANE_ADDRESS_MASK;
-        if len == 4 {
-            bus_addr |= BACKPLANE_ADDRESS_32BIT_FLAG;
-        }
-        self.writen(FUNC_BACKPLANE, bus_addr, val, len).await;
-    }
-
-    async fn backplane_set_window(&mut self, addr: u32) {
-        let new_window = addr & !BACKPLANE_ADDRESS_MASK;
-
-        if (new_window >> 24) as u8 != (self.backplane_window >> 24) as u8 {
-            self.write8(
-                FUNC_BACKPLANE,
-                REG_BACKPLANE_BACKPLANE_ADDRESS_HIGH,
-                (new_window >> 24) as u8,
-            )
-            .await;
-        }
-        if (new_window >> 16) as u8 != (self.backplane_window >> 16) as u8 {
-            self.write8(
-                FUNC_BACKPLANE,
-                REG_BACKPLANE_BACKPLANE_ADDRESS_MID,
-                (new_window >> 16) as u8,
-            )
-            .await;
-        }
-        if (new_window >> 8) as u8 != (self.backplane_window >> 8) as u8 {
-            self.write8(
-                FUNC_BACKPLANE,
-                REG_BACKPLANE_BACKPLANE_ADDRESS_LOW,
-                (new_window >> 8) as u8,
-            )
-            .await;
-        }
-        self.backplane_window = new_window;
-    }
-
-    pub async fn read8(&mut self, func: u32, addr: u32) -> u8 {
+    async fn read8(&mut self, func: u32, addr: u32) -> u8 {
         self.readn(func, addr, 1).await as u8
     }
 
-    pub async fn write8(&mut self, func: u32, addr: u32, val: u8) {
+    async fn write8(&mut self, func: u32, addr: u32, val: u8) {
         self.writen(func, addr, val as u32, 1).await
     }
 
-    pub async fn read16(&mut self, func: u32, addr: u32) -> u16 {
+    async fn read16(&mut self, func: u32, addr: u32) -> u16 {
         self.readn(func, addr, 2).await as u16
     }
 
     #[allow(unused)]
-    pub async fn write16(&mut self, func: u32, addr: u32, val: u16) {
+    async fn write16(&mut self, func: u32, addr: u32, val: u16) {
         self.writen(func, addr, val as u32, 2).await
     }
 
-    pub async fn read32(&mut self, func: u32, addr: u32) -> u32 {
-        self.readn(func, addr, 4).await
+    async fn read32(&mut self, func: u32, addr: u32) -> u32 {
+        if func == BUS_FUNCTION && addr == SPI_STATUS_REGISTER {
+            self.status
+        } else {
+            self.readn(func, addr, 4).await
+        }
     }
 
     #[allow(unused)]
-    pub async fn write32(&mut self, func: u32, addr: u32, val: u32) {
+    async fn write32(&mut self, func: u32, addr: u32, val: u32) {
         self.writen(func, addr, val, 4).await
     }
 
-    async fn readn(&mut self, func: u32, addr: u32, len: u32) -> u32 {
-        let cmd = cmd_word(READ, INC_ADDR, func, addr, len);
-        let mut buf = [0; 2];
-        // if we are reading from the backplane, we need an extra word for the response delay
-        let len = if func == FUNC_BACKPLANE { 2 } else { 1 };
-
-        self.status = self.spi.cmd_read(cmd, &mut buf[..len]).await;
-
-        // if we read from the backplane, the result is in the second word, after the response delay
-        if func == FUNC_BACKPLANE { buf[1] } else { buf[0] }
-    }
-
-    async fn writen(&mut self, func: u32, addr: u32, val: u32, len: u32) {
-        let cmd = cmd_word(WRITE, INC_ADDR, func, addr, len);
-
-        self.status = self.spi.cmd_write(&[cmd, val]).await;
-    }
-
-    async fn read32_swapped(&mut self, func: u32, addr: u32) -> u32 {
-        let cmd = cmd_word(READ, INC_ADDR, func, addr, 4);
-        let cmd = swap16(cmd);
-        let mut buf = [0; 1];
-
-        self.status = self.spi.cmd_read(cmd, &mut buf).await;
-
-        swap16(buf[0])
-    }
-
-    async fn write32_swapped(&mut self, func: u32, addr: u32, val: u32) {
-        let cmd = cmd_word(WRITE, INC_ADDR, func, addr, 4);
-        let buf = [swap16(cmd), swap16(val)];
-
-        self.status = self.spi.cmd_write(&buf).await;
-    }
-
-    pub async fn wait_for_event(&mut self) {
+    async fn wait_for_event(&mut self) {
         self.spi.wait_for_event().await;
-    }
-
-    pub fn status(&self) -> u32 {
-        self.status
     }
 }
 

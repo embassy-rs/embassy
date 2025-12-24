@@ -7,6 +7,11 @@ pub(crate) fn slice8_mut(x: &mut [u32]) -> &mut [u8] {
     unsafe { slice::from_raw_parts_mut(x.as_mut_ptr() as _, len) }
 }
 
+pub(crate) fn slice16_mut(x: &mut [u32]) -> &mut [u16] {
+    let len = x.len() * 2;
+    unsafe { slice::from_raw_parts_mut(x.as_mut_ptr() as _, len) }
+}
+
 pub(crate) fn is_aligned(a: u32, x: u32) -> bool {
     (a & (x - 1)) == 0
 }

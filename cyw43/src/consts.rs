@@ -34,6 +34,9 @@ pub(crate) const CMD_ERR_CHK_EN: u32 = 0x20;
 pub(crate) const DATA_ERR_CHK_EN: u32 = 0x40;
 
 // SPI_STATUS_REGISTER bits
+pub(crate) const SPI_STATUS_REGISTER: u32 = 0x00000008;
+pub(crate) const INITIAL_READ: u32 = 0x04;
+
 pub(crate) const STATUS_DATA_NOT_AVAILABLE: u32 = 0x00000001;
 pub(crate) const STATUS_UNDERFLOW: u32 = 0x00000002;
 pub(crate) const STATUS_OVERFLOW: u32 = 0x00000004;
@@ -69,8 +72,18 @@ pub(crate) const I_HMB_SW_MASK: u32 = 0x000000f0;
 pub(crate) const I_HMB_FC_CHANGE: u32 = 1 << 5;
 pub(crate) const SDIO_INT_STATUS: u32 = 0x20;
 pub(crate) const SDIO_INT_HOST_MASK: u32 = 0x24;
+pub(crate) const SDIO_FUNCTION_INT_MASK: u32 = 0x34;
+pub(crate) const SDIO_TO_SB_MAILBOX: u32 = 0x40;
+pub(crate) const SDIO_TO_SB_MAILBOX_DATA: u32 = 0x48;
+pub(crate) const SDIO_TO_HOST_MAILBOX_DATA: u32 = 0x4C;
+
+pub(crate) const SMB_DEV_INT: u32 = 1 << 3;
+pub(crate) const SMB_INT_ACK: u32 = 1 << 1;
+pub(crate) const I_HMB_HOST_INT: u32 = 1 << 7;
+pub(crate) const I_HMB_DATA_FWHALT: u32 = 0x0010;
 
 pub(crate) const SPI_F2_WATERMARK: u8 = 0x20;
+pub(crate) const SDIO_F2_WATERMARK: u8 = 0x08;
 
 pub(crate) const BACKPLANE_WINDOW_SIZE: usize = 0x8000;
 pub(crate) const BACKPLANE_ADDRESS_MASK: u32 = 0x7FFF;
@@ -79,6 +92,9 @@ pub(crate) const BACKPLANE_MAX_TRANSFER_SIZE: usize = 64;
 // Active Low Power (ALP) clock constants
 pub(crate) const BACKPLANE_ALP_AVAIL_REQ: u8 = 0x08;
 pub(crate) const BACKPLANE_ALP_AVAIL: u8 = 0x40;
+pub(crate) const BACKPLANE_FORCE_HW_CLKREQ_OFF: u8 = 0x20;
+pub(crate) const BACKPLANE_FORCE_ALP: u8 = 0x01;
+pub(crate) const BACKPLANE_FORCE_HT: u32 = 0x02;
 
 // Broadcom AMBA (Advanced Microcontroller Bus Architecture) Interconnect
 // (AI) pub (crate) constants
@@ -166,6 +182,40 @@ pub(crate) const BTSDIO_OFFSET_HOST2BT_IN: u32 = 0x00002000;
 pub(crate) const BTSDIO_OFFSET_HOST2BT_OUT: u32 = 0x00002004;
 pub(crate) const BTSDIO_OFFSET_BT2HOST_IN: u32 = 0x00002008;
 pub(crate) const BTSDIO_OFFSET_BT2HOST_OUT: u32 = 0x0000200C;
+
+pub(crate) const BUS_FUNCTION: u32 = 0;
+pub(crate) const BACKPLANE_FUNCTION: u32 = 1;
+pub(crate) const WLAN_FUNCTION: u32 = 2;
+
+pub(crate) const SDIOD_CCCR_IOEN: u32 = 0x02;
+pub(crate) const SDIOD_CCCR_IORDY: u32 = 0x03;
+pub(crate) const SDIOD_CCCR_INTEN: u32 = 0x04;
+pub(crate) const SDIOD_CCCR_BICTRL: u32 = 0x07;
+pub(crate) const SDIOD_CCCR_BLKSIZE_0: u32 = 0x10;
+pub(crate) const SDIOD_CCCR_SPEED_CONTROL: u32 = 0x13;
+pub(crate) const SDIOD_CCCR_BRCM_CARDCAP: u32 = 0xf0;
+pub(crate) const SDIOD_SEP_INT_CTL: u32 = 0xf2;
+pub(crate) const SDIOD_CCCR_F1BLKSIZE_0: u32 = 0x110;
+pub(crate) const SDIOD_CCCR_F2BLKSIZE_0: u32 = 0x210;
+pub(crate) const SDIOD_CCCR_F2BLKSIZE_1: u32 = 0x211;
+pub(crate) const INTR_CTL_MASTER_EN: u32 = 0x01;
+pub(crate) const INTR_CTL_FUNC1_EN: u32 = 0x02;
+pub(crate) const INTR_CTL_FUNC2_EN: u32 = 0x04;
+pub(crate) const SDIO_FUNC_ENABLE_1: u32 = 0x02;
+pub(crate) const SDIO_FUNC_ENABLE_2: u32 = 0x04;
+pub(crate) const SDIO_FUNC_READY_1: u32 = 0x02;
+pub(crate) const SDIO_FUNC_READY_2: u32 = 0x04;
+pub(crate) const SDIO_64B_BLOCK: u32 = 64;
+pub(crate) const SDIO_CHIP_CLOCK_CSR: u32 = 0x1000e;
+pub(crate) const SDIO_PULL_UP: u32 = 0x1000f;
+
+// SDIOD_SEP_INT_CTL bits
+pub(crate) const SEP_INTR_CTL_MASK: u32 = 0x01; // out-of-band interrupt mask
+pub(crate) const SEP_INTR_CTL_EN: u32 = 0x02; // out-of-band interrupt output enable
+pub(crate) const SEP_INTR_CTL_POL: u32 = 0x04; // out-of-band interrupt polarity
+
+pub(crate) const CHIPCOMMON_BASE_ADDRESS: u32 = 0x18000000;
+pub(crate) const SDIO_BASE_ADDRESS: u32 = 0x18002000;
 
 // Security type (authentication and encryption types are combined using bit mask)
 #[allow(non_camel_case_types)]

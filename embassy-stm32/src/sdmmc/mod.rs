@@ -1085,6 +1085,8 @@ impl<'d> Sdmmc<'d> {
         }
 
         if status.ctimeout() {
+            trace!("ctimeout: {}", cmd.cmd);
+
             return Err(Error::Timeout);
         } else if check_crc && status.ccrcfail() {
             return Err(Error::Crc);
