@@ -2094,8 +2094,8 @@ mod tests {
         assert!(!invalid_config.is_valid(12_000_000));
 
         // Test a valid high VCO configuration
-        invalid_config.fbdiv = 133; // 12MHz * 133 = 1596MHz, first integer below the limit
-        assert!(invalid_config.is_valid(12_000_000));
+        invalid_config.fbdiv = 160; // 10MHz * 160 = 1600MHz, exactly at the limit
+        assert!(invalid_config.is_valid(10_000_000));
     }
 
     #[cfg(feature = "rp2040")]
