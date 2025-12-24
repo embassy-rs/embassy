@@ -377,6 +377,16 @@ impl<'a> Control<'a> {
     }
 
     async fn wait_for_join(&mut self, i: SsidInfo, secure_network: bool) -> Result<(), JoinError> {
+        struct UnsubscribeOnDrop<'a>(&'a Events);
+
+        impl Drop for UnsubscribeOnDrop<'_> {
+            fn drop(&mut self) {
+                self.0.mask.disable_all();
+            }
+        }
+
+        let _uod = UnsubscribeOnDrop(&self.events);
+
         self.events.mask.enable(&[Event::SET_SSID, Event::AUTH, Event::PSK_SUP]);
         let mut subscriber = self.events.queue.subscriber().unwrap();
         // the actual join operation starts here
@@ -409,7 +419,6 @@ impl<'a> Control<'a> {
             };
         };
 
-        self.events.mask.disable_all();
         match result {
             Ok(()) => {
                 self.state_ch.set_link_state(LinkState::Up);
