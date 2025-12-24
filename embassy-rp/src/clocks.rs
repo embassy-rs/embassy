@@ -2094,7 +2094,7 @@ mod tests {
         assert!(!invalid_config.is_valid(12_000_000));
 
         // Test a valid high VCO configuration
-        invalid_config.fbdiv = 134; // 12MHz * 134 = 1608MHz, first integer above the limit
+        invalid_config.fbdiv = 133; // 12MHz * 133 = 1596MHz, first integer below the limit
         assert!(invalid_config.is_valid(12_000_000));
     }
 
