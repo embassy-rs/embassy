@@ -111,6 +111,11 @@ impl Watchdog {
         self.enable(true);
     }
 
+    /// Stop the watchdog timer
+    pub fn stop(&mut self) {
+        self.enable(false);
+    }
+
     /// Trigger a system reset
     pub fn trigger_reset(&mut self) {
         self.configure_wdog_reset_triggers();
