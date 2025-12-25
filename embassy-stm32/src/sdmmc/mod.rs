@@ -1182,7 +1182,9 @@ impl<'d> Sdmmc<'d> {
         self.clear_interrupt_flags();
         self.stop_datapath();
 
-        transfer.defuse();
+        if !res.is_err() {
+            transfer.defuse();
+        }
         drop(transfer);
 
         res
