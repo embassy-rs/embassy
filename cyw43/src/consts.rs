@@ -82,6 +82,19 @@ pub(crate) const SMB_INT_ACK: u32 = 1 << 1;
 pub(crate) const I_HMB_HOST_INT: u32 = 1 << 7;
 pub(crate) const I_HMB_DATA_FWHALT: u32 = 0x0010;
 
+pub(crate) const HOSTINTMASK: u32 = 0x000000F0;
+pub(crate) const BUS_SD_DATA_WIDTH_MASK: u32 = 0x03;
+pub(crate) const BUS_SD_DATA_WIDTH_4BIT: u32 = 0x02;
+pub(crate) const SDIO_SPEED_EHS: u32 = 0x02;
+pub(crate) const SDIOD_CCCR_BRCM_CARDCAP_SECURE_MODE: u32 = 0x80;
+pub(crate) const SBSDIO_DEVICE_CTL: u32 = 0x10009;
+pub(crate) const SBSDIO_DEVCTL_ADDR_RST: u32 = 0x40;
+pub(crate) const SDIO_CORE_CHIPID_REG: u32 = 0x330;
+
+pub(crate) const SBSDIO_FUNC1_SBADDRLOW: u32 = 0x1000A;
+pub(crate) const SBSDIO_FUNC1_SBADDRMID: u32 = 0x1000B;
+pub(crate) const SBSDIO_FUNC1_SBADDRHIGH: u32 = 0x1000C;
+
 pub(crate) const SPI_F2_WATERMARK: u8 = 0x20;
 pub(crate) const SDIO_F2_WATERMARK: u8 = 0x08;
 

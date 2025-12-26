@@ -20,6 +20,8 @@ use crate::util::slice8_mut;
 //     };
 // }
 
+const SDIO_DEBUG: bool = false;
+
 const fn aligned_mut(x: &mut [u32]) -> &mut Aligned<A4, [u8]> {
     let len = x.len() * 4;
     unsafe { core::mem::transmute(slice::from_raw_parts_mut(x.as_mut_ptr() as *mut u8, len)) }
@@ -206,7 +208,13 @@ where
     async fn cmd52(&mut self, write: bool, func: u32, addr: u32, val: u8) -> u8 {
         let arg: u32 = (write as u32) << 31 | func << 28 | (addr & 0x1ffff) << 9 | (val as u32 & 0xff);
 
-        self.sdio.cmd52(arg).await.unwrap_or(u16::MAX) as u8
+        let result = self.sdio.cmd52(arg).await.unwrap_or(u16::MAX) as u8;
+
+        if SDIO_DEBUG {
+            trace!("cmd52: 0x{:08x} 0x{:08x}", arg, result);
+        }
+
+        result
     }
 
     fn cmd53_arg(&mut self, write: bool, func: u32, addr: u32, mode: Mode, len: usize) -> u32 {
@@ -222,6 +230,11 @@ where
 
     async fn cmd53_write_half_word(&mut self, func: u32, addr: u32, buf: &[u32; 1]) {
         let arg = self.cmd53_arg(false, func, addr, Mode::Byte, 2);
+
+        if SDIO_DEBUG {
+            trace!("cmd53: 0x{:08x} 0x{:08x}", arg, buf[0]);
+        }
+
         let buf = &aligned_ref(buf)[..2];
 
         if self.sdio.cmd53_byte_write(arg, buf).await.is_err() {
@@ -237,6 +250,14 @@ where
         };
 
         let arg = self.cmd53_arg(true, func, addr, mode, size_of_val(buf));
+
+        if SDIO_DEBUG {
+            if buf.len() == 1 {
+                trace!("cmd53: 0x{:08x} 0x{:08x}", arg, buf[0]);
+            } else {
+                trace!("cmd53 bulk: 0x{:08x}", arg);
+            }
+        }
 
         if size_of_val(buf) <= 64 {
             if self.sdio.cmd53_byte_write(arg, aligned_ref(buf)).await.is_err() {
@@ -256,12 +277,16 @@ where
         }
     }
 
-    async fn cmd53_read_half_word(&mut self, func: u32, addr: u32, buf: &mut [u32; 1]) {
+    async fn cmd53_read_half_word(&mut self, func: u32, addr: u32, orig_buf: &mut [u32; 1]) {
         let arg = self.cmd53_arg(false, func, addr, Mode::Byte, 2);
-        let buf = &mut aligned_mut(buf)[..2];
+        let buf = &mut aligned_mut(orig_buf)[..2];
 
         if self.sdio.cmd53_byte_read(arg, buf).await.is_err() {
             debug!("cmd53 byte read failed");
+        }
+
+        if SDIO_DEBUG {
+            trace!("cmd53: 0x{:08x} 0x{:08x}", arg, orig_buf[0]);
         }
     }
 
@@ -288,6 +313,14 @@ where
                 .is_err()
             {
                 debug!("cmd53 block read failed");
+            }
+        }
+
+        if SDIO_DEBUG {
+            if buf.len() == 1 {
+                trace!("cmd53: 0x{:08x} 0x{:08x}", arg, buf[0]);
+            } else {
+                trace!("cmd53 bulk: 0x{:08x}", arg);
             }
         }
     }
@@ -338,42 +371,54 @@ where
     const TYPE: BusType = BusType::Sdio;
 
     async fn init(&mut self, _bluetooth_enabled: bool) {
+        // whd_bus_sdio_init
+
         // set up backplane
         let mut reg: u32 = 0;
-        for i in 0..100 {
+        for _ in 0..500 {
             self.write_reg_u8(BUS_FUNCTION, SDIOD_CCCR_IOEN, SDIO_FUNC_ENABLE_1 as u8)
                 .await;
-            if i != 0 {
-                Timer::after_millis(1).await;
-            }
 
             reg = self.read_reg_u8(BUS_FUNCTION, SDIOD_CCCR_IOEN).await as u32;
             if reg == SDIO_FUNC_ENABLE_1 {
                 break;
             }
+
+            Timer::after_millis(1).await;
         }
 
         if reg != SDIO_FUNC_ENABLE_1 {
-            trace!("no response from CYW43\n");
+            debug!("timeout while setting up the backplane");
             return;
         }
 
-        trace!("backplane is up");
+        debug!("backplane is up");
 
-        // set the bus to 4-bits
-        // (we don't need to change our local SDIO config until we need cmd53)
+        // Read the bus width and set to 4 bits (1-bit bus is not currently supported)
         let reg = self.read_reg_u8(BUS_FUNCTION, SDIOD_CCCR_BICTRL).await as u32;
 
-        self.write_reg_u8(BUS_FUNCTION, SDIOD_CCCR_BICTRL, ((reg & !3) | 2) as u8)
-            .await;
+        self.write_reg_u8(
+            BUS_FUNCTION,
+            SDIOD_CCCR_BICTRL,
+            ((reg & !BUS_SD_DATA_WIDTH_MASK) | BUS_SD_DATA_WIDTH_4BIT) as u8,
+        )
+        .await;
 
-        // set the block size
-        self.write_reg_u8(BUS_FUNCTION, SDIOD_CCCR_BLKSIZE_0, SDIO_64B_BLOCK as u8)
-            .await;
-        let reg = self.read_reg_u8(BUS_FUNCTION, SDIOD_CCCR_BLKSIZE_0).await as u32;
+        // Set the block size
+        let mut reg: u32 = 0;
+        for _ in 0..500 {
+            self.write_reg_u8(BUS_FUNCTION, SDIOD_CCCR_BLKSIZE_0, SDIO_64B_BLOCK as u8)
+                .await;
+            reg = self.read_reg_u8(BUS_FUNCTION, SDIOD_CCCR_BLKSIZE_0).await as u32;
+            if reg == SDIO_64B_BLOCK {
+                break;
+            }
+
+            Timer::after_millis(1).await;
+        }
+
         if reg != SDIO_64B_BLOCK {
-            trace!("can't set block size\n");
-
+            debug!("timeout while setting block size");
             return;
         }
 
@@ -397,16 +442,16 @@ where
 
         // enable more than 25MHz bus
         let reg = self.read_reg_u8(BUS_FUNCTION, SDIOD_CCCR_SPEED_CONTROL).await as u32;
-        if reg & 1 > 0 {
-            self.write_reg_u8(BUS_FUNCTION, SDIOD_CCCR_SPEED_CONTROL, (reg | 2) as u8)
+        if reg & 1 != 0 {
+            self.write_reg_u8(BUS_FUNCTION, SDIOD_CCCR_SPEED_CONTROL, (reg | SDIO_SPEED_EHS) as u8)
                 .await;
 
             self.sdio.set_bus_to_high_speed(50_000_000).unwrap();
         }
 
-        // wait for backplane to be ready
+        // Wait till the backplane is ready
         let mut reg: u32 = 0;
-        for _ in 0..10 {
+        for _ in 0..500 {
             reg = self.read_reg_u8(BUS_FUNCTION, SDIOD_CCCR_IORDY).await as u32;
             if (reg & SDIO_FUNC_READY_1) != 0 {
                 break;
@@ -416,7 +461,7 @@ where
         }
 
         if (reg & SDIO_FUNC_READY_1) == 0 {
-            trace!("timeout waiting for backplane\n");
+            debug!("timeout while waiting for backplane to be ready");
 
             return;
         }
