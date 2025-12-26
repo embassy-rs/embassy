@@ -2,6 +2,7 @@
 #![no_main]
 
 use core::mem::MaybeUninit;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use defmt::*;
 #[cfg(feature = "defmt-rtt")]
@@ -19,6 +20,8 @@ bind_interrupts!(struct Irqs{
 
 #[unsafe(link_section = ".shared_data")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
+#[unsafe(link_section = ".shared_data")]
+static LED_STATE: AtomicBool = AtomicBool::new(false);
 
 #[embassy_executor::task]
 async fn blink_heartbeat(mut led: Output<'static>) {
@@ -57,11 +60,8 @@ async fn main(_spawner: Spawner) -> ! {
     _spawner.spawn(blink_heartbeat(red_led).unwrap());
 
     loop {
-        rx.receive(|| {
-            blue_led.toggle();
-            Some(())
-        })
-        .await;
-        info!("CM0+ Recieve!");
+        let state = rx.receive(|| Some(LED_STATE.load(Ordering::Relaxed))).await;
+        info!("CM0+ Recieve: {}", state);
+        blue_led.set_level(if state { Level::High } else { Level::Low });
     }
 }

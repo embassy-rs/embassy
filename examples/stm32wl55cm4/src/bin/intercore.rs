@@ -4,21 +4,21 @@
 //! STM32H7 Primary Core (CM4) Intercore Communication Example
 //!
 //! This example demonstrates reliable communication between the Cortex-M7 and
-//! Cortex-M4 cores using a shared memory region configured as non-cacheable
-//! via MPU settings.
+//! Cortex-M4 cores using a shared memory region
 //!
 //! The CM4 core handles:
 //! - MPU configuration to make shared memory non-cacheable
 //! - Clock initialization
-//! - Toggling LED states in shared memory
+//! - Toggling LED state in shared memory
 //!
 //! Usage:
 //! 1. Flash the CM0+ (secondary) core binary first
 //! 2. Then flash this CM4 (primary) core binary
-//! 3. The system will start with CM4 toggling LED states and CM0+ responding by
-//!    physically toggling the LEDs
+//! 3. The system will start with CM4 toggling LED state and CM0+ responding by
+//!    physically toggling the LED
 
 use core::mem::MaybeUninit;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -34,6 +34,8 @@ bind_interrupts!(struct Irqs{
 
 #[unsafe(link_section = ".shared_data")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
+#[unsafe(link_section = ".shared_data")]
+static LED_STATE: AtomicBool = AtomicBool::new(false);
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
@@ -47,8 +49,12 @@ async fn main(_spawner: Spawner) -> ! {
 
     info!("CM4: Starting main loop");
     loop {
-        Timer::after_millis(500).await;
-        info!("CM4: Send!");
-        tx.send(|| {}).await;
+        Timer::after_millis(1500).await;
+        tx.send(|| {
+            let new_led_state = !LED_STATE.load(Ordering::Relaxed);
+            info!("CM4: Send! New LED state: {}", new_led_state);
+            LED_STATE.store(new_led_state, Ordering::Relaxed);
+        })
+        .await;
     }
 }
