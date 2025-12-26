@@ -278,7 +278,7 @@ pub struct Ipcc {
 }
 
 impl Ipcc {
-    /// Creates a new HardwareSemaphore instance.
+    /// Creates a new Ipcc instance.
     #[cfg(not(feature = "_core-cm0p"))]
     pub fn new<'d>(
         _peripheral: Peri<'d, crate::peripherals::IPCC>,
@@ -302,7 +302,7 @@ impl Ipcc {
         Self { _private: () }
     }
 
-    /// Creates a new HardwareSemaphore instance.
+    /// Creates a new Ipcc instance.
     #[cfg(feature = "_core-cm0p")]
     pub fn new<'d>(
         _peripheral: Peri<'d, crate::peripherals::IPCC>,

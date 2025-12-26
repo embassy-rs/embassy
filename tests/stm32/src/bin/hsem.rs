@@ -32,7 +32,9 @@ async fn main(_spawner: Spawner) {
 
     #[cfg(feature = "stm32wb55rg")]
     let [_channel1, _channel2, mut channel5, _channel6] = hsem.split();
-    #[cfg(not(feature = "stm32wb55rg"))]
+    #[cfg(feature = "stm32wl55jc")]
+    let [_channel1, _channel2, _channel4, mut channel5, _channel6] = hsem.split();
+    #[cfg(not(any(feature = "stm32wb55rg", feature = "stm32wl55jc")))]
     let [_channel1, _channel2, _channel3, _channel4, mut channel5, _channel6] = hsem.split();
 
     info!("Locking channel 5");

@@ -222,6 +222,18 @@ impl RccInfo {
         }
     }
 
+    #[cfg(stm32wl5x)]
+    fn wait_for_lock(&self) -> crate::hsem::HardwareSemaphoreMutex<'_, crate::peripherals::HSEM> {
+        use crate::hsem::HardwareSemaphoreChannel;
+        use crate::peripherals::HSEM;
+        let mut sem = HardwareSemaphoreChannel::<HSEM>::new(3);
+        loop {
+            if let Some(lock) = sem.try_lock(0) {
+                return lock;
+            }
+        }
+    }
+
     // TODO: should this be `unsafe`?
     pub(crate) fn enable_and_reset_with_cs(&self, _cs: CriticalSection) {
         if self.refcount_idx_or_0xff != 0xff {
@@ -253,14 +265,18 @@ impl RccInfo {
 
             // on stm32wl5x each CPU has its own peripheral enable bits and if the othert CPU has enabled the peripheral we don;t want to reset it
             // as that would reset the configuration that the other CPU has set up.
-            // TODO: race condition!
+            // we hold a hardware lock to prevent the other CPU from enabling the peripheral while we are resetting it.
             #[cfg(stm32wl5x)]
-            if unsafe { !self.is_enabled_by_other_core() } {
-                unsafe {
-                    let val = reset_ptr.read_volatile();
-                    reset_ptr.write_volatile(val | 1u32 << self.reset_bit);
+            {
+                let lock = self.wait_for_lock();
+                if unsafe { !self.is_enabled_by_other_core() } {
+                    unsafe {
+                        let val = reset_ptr.read_volatile();
+                        reset_ptr.write_volatile(val | 1u32 << self.reset_bit);
+                    }
+                    trace!("rcc: reset 0x{:x}:{}", self.enable_offset, self.enable_bit);
                 }
-                trace!("rcc: reset 0x{:x}:{}", self.enable_offset, self.enable_bit);
+                drop(lock);
             }
         }
 
