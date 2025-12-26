@@ -118,12 +118,22 @@ where
 
         // Init ALP (Active Low Power) clock
         debug!("init alp");
-        self.bus
-            .write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, BACKPLANE_ALP_AVAIL_REQ)
-            .await;
-
         match BUS::TYPE {
             BusType::Spi => {
+                self.bus
+                    .write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, BACKPLANE_ALP_AVAIL_REQ)
+                    .await;
+
+                // Not present in whd driver
+                debug!("set f2 watermark");
+                self.bus
+                    .write8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK, 0x10)
+                    .await;
+                let watermark = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK).await;
+                debug!("watermark = {:02x}", watermark);
+                assert!(watermark == 0x10);
+            }
+            BusType::Sdio => {
                 self.bus
                     .write8(
                         FUNC_BACKPLANE,
@@ -131,21 +141,8 @@ where
                         BACKPLANE_FORCE_HW_CLKREQ_OFF | BACKPLANE_ALP_AVAIL_REQ | BACKPLANE_FORCE_ALP,
                     )
                     .await;
-
-                self.bus
-                    .write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, BACKPLANE_ALP_AVAIL_REQ)
-                    .await;
             }
-            BusType::Sdio => {}
         }
-
-        debug!("set f2 watermark");
-        self.bus
-            .write8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK, 0x10)
-            .await;
-        let watermark = self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_FUNCTION2_WATERMARK).await;
-        debug!("watermark = {:02x}", watermark);
-        assert!(watermark == 0x10);
 
         debug!("waiting for clock...");
         while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_ALP_AVAIL == 0 {}
@@ -155,12 +152,13 @@ where
         debug!("clear request for ALP");
         self.bus.write8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR, 0).await;
 
-        let chip_id = self.bus.bp_read16(0x1800_0000).await;
-        debug!("chip ID: {}", chip_id);
-
-        match BUS::TYPE {
-            BusType::Spi => {}
+        let chip_id = match BUS::TYPE {
+            BusType::Spi => self.bus.bp_read16(CHIPCOMMON_BASE_ADDRESS).await,
             BusType::Sdio => {
+                // Disable the extra sdio pull-ups
+                // self.bus.write8(BACKPLANE_FUNCTION, SDIO_PULL_UP, 0).await;
+
+                // Enable f1 and f2
                 self.bus
                     .write8(
                         BUS_FUNCTION,
@@ -169,14 +167,19 @@ where
                     )
                     .await;
 
+                // Enable out-of-band interrupt signal
+                // whd_bus_sdio_init_oob_intr
+
+                // Note: only GPIO0 using rising edge is currently supported
                 self.bus
                     .write8(
                         BUS_FUNCTION,
                         SDIOD_SEP_INT_CTL,
-                        (SEP_INTR_CTL_MASK | SEP_INTR_CTL_EN) as u8,
+                        (SEP_INTR_CTL_MASK | SEP_INTR_CTL_EN | SEP_INTR_CTL_POL) as u8,
                     )
                     .await;
 
+                // Enable f2 interrupt only
                 self.bus
                     .write8(
                         BUS_FUNCTION,
@@ -186,8 +189,37 @@ where
                     .await;
 
                 self.bus.read8(BUS_FUNCTION, SDIOD_CCCR_IORDY).await;
+
+                let reg = self.bus.read8(BUS_FUNCTION, SDIOD_CCCR_BRCM_CARDCAP).await;
+                if reg & SDIOD_CCCR_BRCM_CARDCAP_SECURE_MODE as u8 != 0 {
+                    debug!("chip supports bootloader handshake");
+
+                    let devctrl = self.bus.read8(FUNC_BACKPLANE, SBSDIO_DEVICE_CTL).await;
+
+                    self.bus
+                        .write8(
+                            FUNC_BACKPLANE,
+                            SBSDIO_DEVICE_CTL,
+                            devctrl | SBSDIO_DEVCTL_ADDR_RST as u8,
+                        )
+                        .await;
+
+                    let addr_low = self.bus.read8(BACKPLANE_FUNCTION, SBSDIO_FUNC1_SBADDRLOW).await as u32;
+                    let addr_mid = self.bus.read8(BACKPLANE_FUNCTION, SBSDIO_FUNC1_SBADDRMID).await as u32;
+                    let addr_high = self.bus.read8(BACKPLANE_FUNCTION, SBSDIO_FUNC1_SBADDRHIGH).await as u32;
+
+                    let reg_addr = ((addr_low << 8) | (addr_mid << 16) | (addr_high << 24)) + SDIO_CORE_CHIPID_REG;
+
+                    self.bus.write8(FUNC_BACKPLANE, SBSDIO_DEVICE_CTL, devctrl).await;
+
+                    self.bus.bp_read16(reg_addr).await
+                } else {
+                    self.bus.bp_read16(CHIPCOMMON_BASE_ADDRESS).await
+                }
             }
-        }
+        };
+
+        debug!("chip ID: {}", chip_id);
 
         // Upload firmware.
         self.core_disable(Core::WLAN).await;
