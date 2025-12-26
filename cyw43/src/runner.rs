@@ -476,6 +476,15 @@ where
                 }
             } else {
                 warn!("TX stalled");
+                match BUS::TYPE {
+                    BusType::Sdio => {
+                        // whd_bus_sdio_poke_wlan
+                        self.bus
+                            .bp_write32(CHIP.sdiod_core_base_address + SDIO_TO_SB_MAILBOX, SMB_DEV_INT)
+                            .await;
+                    }
+                    BusType::Spi => {}
+                }
                 self.bus.wait_for_event().await;
                 self.handle_irq(&mut buf).await;
             }
@@ -484,25 +493,32 @@ where
 
     /// Wait for IRQ on F2 packet available
     async fn handle_irq(&mut self, buf: &mut [u32; 512]) {
-        // Receive stuff
-        let irq = self.bus.read16(FUNC_BUS, REG_BUS_INTERRUPT).await;
-        if irq != 0 {
-            trace!("irq{}", FormatInterrupt(irq));
-        }
+        match BUS::TYPE {
+            BusType::Sdio => {
+                self.check_status(buf).await;
+            }
+            BusType::Spi => {
+                // Receive stuff
+                let irq = self.bus.read16(FUNC_BUS, REG_BUS_INTERRUPT).await;
+                if irq != 0 {
+                    trace!("irq{}", FormatInterrupt(irq));
+                }
 
-        if irq & IRQ_F2_PACKET_AVAILABLE != 0 {
-            self.check_status(buf).await;
-        }
+                if irq & IRQ_F2_PACKET_AVAILABLE != 0 {
+                    self.check_status(buf).await;
+                }
 
-        if irq & IRQ_DATA_UNAVAILABLE != 0 {
-            // this seems to be ignorable with no ill effects.
-            trace!("IRQ DATA_UNAVAILABLE, clearing...");
-            self.bus.write16(FUNC_BUS, REG_BUS_INTERRUPT, 1).await;
-        }
+                if irq & IRQ_DATA_UNAVAILABLE != 0 {
+                    // this seems to be ignorable with no ill effects.
+                    trace!("IRQ DATA_UNAVAILABLE, clearing...");
+                    self.bus.write16(FUNC_BUS, REG_BUS_INTERRUPT, 1).await;
+                }
 
-        #[cfg(feature = "bluetooth")]
-        if let Some(bt) = &mut self.bt {
-            bt.handle_irq(&mut self.bus).await;
+                #[cfg(feature = "bluetooth")]
+                if let Some(bt) = &mut self.bt {
+                    bt.handle_irq(&mut self.bus).await;
+                }
+            }
         }
     }
 
@@ -524,11 +540,6 @@ where
                     }
                 }
                 BusType::Sdio => {
-                    // whd_bus_sdio_poke_wlan
-                    self.bus
-                        .bp_write32(CHIP.sdiod_core_base_address + SDIO_TO_SB_MAILBOX, SMB_DEV_INT)
-                        .await;
-
                     // whd_bus_sdio_packet_available_to_read
                     let status = self.bus.bp_read32(CHIP.sdiod_core_base_address + SDIO_INT_STATUS).await;
                     if status & I_HMB_HOST_INT == 0 {
@@ -553,7 +564,11 @@ where
                         break;
                     }
 
-                    // TODO: clear irqs
+                    if status & HOSTINTMASK != 0 {
+                        self.bus
+                            .bp_write32(CHIP.sdiod_core_base_address + SDIO_INT_STATUS, status & HOSTINTMASK)
+                            .await;
+                    }
 
                     trace!("pkt ready...");
                     let mut hwtag = &mut buf[..4];
@@ -561,14 +576,14 @@ where
                     {
                         let hwtag = slice16_mut(&mut hwtag);
                         if (hwtag[0] | hwtag[1]) == 0 || (hwtag[0] ^ hwtag[1]) != 0xFFFF {
-                            trace!("hwtag mismatch");
+                            trace!("hwtag mismatch (hwtag[0] = {}, hwtag[1] = {})", hwtag[0], hwtag[1]);
                             break;
                         }
                     }
 
                     if slice16_mut(&mut hwtag)[0] == 12 {
                         self.bus.wlan_read(&mut hwtag[1..], 8).await;
-                        let Some((sdpcm_header, _)) = SdpcmHeader::parse(slice8_mut(&mut hwtag)) else {
+                        let Some(sdpcm_header) = SdpcmHeader::parse_header(slice8_mut(&mut hwtag)) else {
                             trace!("failed to parse sdpcm header");
                             break;
                         };

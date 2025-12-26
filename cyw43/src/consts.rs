@@ -82,6 +82,8 @@ pub(crate) const SMB_INT_ACK: u32 = 1 << 1;
 pub(crate) const I_HMB_HOST_INT: u32 = 1 << 7;
 pub(crate) const I_HMB_DATA_FWHALT: u32 = 0x0010;
 
+pub(crate) const HOSTINTMASK: u32 = 0x000000F0;
+
 pub(crate) const SPI_F2_WATERMARK: u8 = 0x20;
 pub(crate) const SDIO_F2_WATERMARK: u8 = 0x08;
 
