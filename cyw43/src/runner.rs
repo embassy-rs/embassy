@@ -254,7 +254,7 @@ where
         assert!(self.core_is_up(Core::WLAN).await);
 
         // wait until HT clock is available; takes about 29ms
-        debug!("wait for HT clock");
+        debug!("waiting for HT clock...");
         while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & 0x80 == 0 {}
 
         // "Set up the interrupt mask and enable interrupts"
