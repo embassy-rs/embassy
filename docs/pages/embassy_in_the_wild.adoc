@@ -4,6 +4,8 @@ Here are known examples of real-world projects which make use of Embassy. Feel f
 
 _newer entries at the top_
 
+* link:https://github.com/tendan/remote_rc_bt_esp32[ESPress WheeLE: Remote-Controlled Rover via Bluetooth LE]
+** Robust, energy-efficient, and safety-focused remote control solution for small-scale robotic platforms using instructions received via Bluetooth LE.
 * link:https://github.com/thataquarel/protovolt[ProtoV MINI: A USB-C mini lab power supply]
 ** A dual-channel USB PD powered breadboard power supply based on the RP2040, running embedded graphics. Open-source schematics and firmware.
 * link:https://github.com/Dawson-HEP/opentrig/[Opentrig: A particle physics trigger and data acquisition system]
