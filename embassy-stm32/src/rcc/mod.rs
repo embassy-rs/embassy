@@ -52,8 +52,12 @@ pub(crate) static mut REFCOUNT_STOP1: u32 = 0;
 /// May be read without a critical section
 pub(crate) static mut REFCOUNT_STOP2: u32 = 0;
 
-#[cfg(feature = "low-power")]
+#[cfg(all(feature = "low-power", not(feature = "_dual-core")))]
 pub(crate) static mut RCC_CONFIG: Option<Config> = None;
+
+#[cfg(all(feature = "low-power", feature = "_dual-core"))]
+static RCC_CONFIG_PTR: core::sync::atomic::AtomicPtr<MaybeUninit<Option<Config>>> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 #[cfg(backup_sram)]
 pub(crate) static mut BKSRAM_RETAINED: bool = false;
@@ -71,6 +75,11 @@ static CLOCK_FREQS_PTR: core::sync::atomic::AtomicPtr<MaybeUninit<Clocks>> =
 #[cfg(feature = "_dual-core")]
 pub(crate) fn set_freqs_ptr(freqs: *mut MaybeUninit<Clocks>) {
     CLOCK_FREQS_PTR.store(freqs, core::sync::atomic::Ordering::SeqCst);
+}
+
+#[cfg(all(feature = "low-power", feature = "_dual-core"))]
+pub(crate) fn set_rcc_config_ptr(config: *mut MaybeUninit<Option<Config>>) {
+    RCC_CONFIG_PTR.store(config, core::sync::atomic::Ordering::SeqCst);
 }
 
 #[cfg(not(feature = "_dual-core"))]
@@ -103,6 +112,32 @@ pub(crate) unsafe fn get_freqs() -> &'static Clocks {
 /// Safety: Reads a mutable global.
 pub(crate) unsafe fn get_freqs() -> &'static Clocks {
     unwrap!(CLOCK_FREQS_PTR.load(core::sync::atomic::Ordering::SeqCst).as_ref()).assume_init_ref()
+}
+
+#[cfg(all(feature = "low-power", not(feature = "_dual-core")))]
+/// Safety: Reads a mutable global.
+pub(crate) unsafe fn get_rcc_config() -> Option<Config> {
+    RCC_CONFIG
+}
+
+#[cfg(all(feature = "low-power", feature = "_dual-core"))]
+/// Safety: Reads a mutable global.
+pub(crate) unsafe fn get_rcc_config() -> Option<Config> {
+    unwrap!(RCC_CONFIG_PTR.load(core::sync::atomic::Ordering::SeqCst).as_ref()).assume_init()
+}
+
+#[cfg(all(feature = "low-power", not(feature = "_dual-core")))]
+/// Safety: Sets a mutable global.
+pub(crate) unsafe fn set_rcc_config(config: Option<Config>) {
+    RCC_CONFIG = config;
+}
+
+#[cfg(all(feature = "low-power", feature = "_dual-core"))]
+/// Safety: Sets a mutable global.
+pub(crate) unsafe fn set_rcc_config(config: Option<Config>) {
+    RCC_CONFIG_PTR
+        .load(core::sync::atomic::Ordering::SeqCst)
+        .write(MaybeUninit::new(config));
 }
 
 /// Get the current clock configuration of the chip.
@@ -174,7 +209,8 @@ pub(crate) struct RccInfo {
 /// E.g. if `StopMode::Stop1` is selected, the peripheral prevents the chip from entering Stop1 mode.
 #[cfg(feature = "low-power")]
 #[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Default, defmt::Format)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum StopMode {
     #[default]
     /// Peripheral prevents chip from entering Stop1 or executor will enter Stop1
@@ -223,18 +259,6 @@ impl RccInfo {
         }
     }
 
-    #[cfg(stm32wl5x)]
-    fn wait_for_lock(&self) -> crate::hsem::HardwareSemaphoreMutex<'_, crate::peripherals::HSEM> {
-        use crate::hsem::HardwareSemaphoreChannel;
-        use crate::peripherals::HSEM;
-        let mut sem = HardwareSemaphoreChannel::<HSEM>::new(3);
-        loop {
-            if let Some(lock) = sem.try_lock(0) {
-                return lock;
-            }
-        }
-    }
-
     // TODO: should this be `unsafe`?
     pub(crate) fn enable_and_reset_with_cs(&self, _cs: CriticalSection) {
         if self.refcount_idx_or_0xff != 0xff {
@@ -269,7 +293,7 @@ impl RccInfo {
             // we hold a hardware lock to prevent the other CPU from enabling the peripheral while we are resetting it.
             #[cfg(stm32wl5x)]
             {
-                let lock = self.wait_for_lock();
+                let lock = wait_for_lock();
                 if unsafe { !self.is_enabled_by_other_core() } {
                     unsafe {
                         let val = reset_ptr.read_volatile();
@@ -544,6 +568,18 @@ mod util {
     }
 }
 
+#[cfg(stm32wl5x)]
+pub(crate) fn wait_for_lock() -> crate::hsem::HardwareSemaphoreMutex<'static, crate::peripherals::HSEM> {
+    use crate::hsem::HardwareSemaphoreChannel;
+    use crate::peripherals::HSEM;
+    let mut sem = HardwareSemaphoreChannel::<HSEM>::new(3);
+    loop {
+        if let Some(lock) = sem.try_lock(0) {
+            return lock;
+        }
+    }
+}
+
 /// Get the kernel clock frequency of the peripheral `T`.
 ///
 /// # Panics
@@ -626,9 +662,12 @@ pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
 
         #[cfg(feature = "low-power")]
         {
-            RCC_CONFIG = Some(config);
-            REFCOUNT_STOP2 = 0;
-            REFCOUNT_STOP1 = 0;
+            set_rcc_config(Some(config));
+            #[cfg(not(feature = "_lp-time-driver"))]
+            {
+                REFCOUNT_STOP2 = 0;
+                REFCOUNT_STOP1 = 0;
+            }
         }
     }
 }

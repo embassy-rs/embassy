@@ -219,6 +219,7 @@ impl Rtc {
         (RtcContainer::new(), RtcTimeProvider::new())
     }
 
+    #[cfg(not(feature = "_lp-time-driver"))]
     pub(self) fn new_inner(rtc_config: RtcConfig) -> Self {
         #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
         crate::rcc::enable_and_reset::<RTC>();
@@ -251,6 +252,7 @@ impl Rtc {
         this
     }
 
+    #[cfg(not(feature = "_lp-time-driver"))]
     fn frequency() -> Hertz {
         let freqs = unsafe { crate::rcc::get_freqs() };
         freqs.rtc.to_hertz().unwrap()
@@ -361,6 +363,7 @@ trait SealedInstance {
     const BACKUP_REGISTER_COUNT: usize;
 
     #[cfg(feature = "low-power")]
+    #[cfg(not(feature = "_lp-time-driver"))]
     #[cfg(not(any(stm32wba, stm32u5, stm32u3, stm32u0)))]
     const EXTI_WAKEUP_LINE: usize;
 
@@ -386,7 +389,7 @@ trait SealedInstance {
     // fn apply_config(&mut self, rtc_config: RtcConfig);
 }
 
-#[cfg(feature = "low-power")]
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
 pub(crate) fn init_rtc(cs: CriticalSection, config: RtcConfig, min_stop_pause: embassy_time::Duration) {
     use crate::time_driver::get_driver;
 

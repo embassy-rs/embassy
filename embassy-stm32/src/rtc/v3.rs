@@ -1,4 +1,6 @@
-use stm32_metapac::rtc::vals::{Calp, Calw8, Calw16, Fmt, Key, Osel, Pol, TampalrmType};
+use stm32_metapac::rtc::vals::{Calp, Calw8, Calw16, Key};
+#[cfg(not(feature = "_lp-time-driver"))]
+use stm32_metapac::rtc::vals::{Fmt, Osel, Pol, TampalrmType};
 
 use super::RtcCalibrationCyclePeriod;
 use crate::pac::rtc::Rtc;
@@ -8,6 +10,7 @@ use crate::rtc::SealedInstance;
 impl super::Rtc {
     /// Applies the RTC config
     /// It this changes the RTC clock source the time will be reset
+    #[cfg(not(feature = "_lp-time-driver"))]
     pub(super) fn configure(&mut self, async_psc: u8, sync_psc: u16) {
         self.write(true, |rtc| {
             rtc.cr().modify(|w| {
@@ -130,6 +133,7 @@ impl SealedInstance for crate::peripherals::RTC {
     const BACKUP_REGISTER_COUNT: usize = 32;
 
     #[cfg(feature = "low-power")]
+    #[cfg(not(feature = "_lp-time-driver"))]
     cfg_if::cfg_if!(
         if #[cfg(any(stm32g4, stm32wl))] {
             const EXTI_WAKEUP_LINE: usize = 20;
@@ -143,7 +147,10 @@ impl SealedInstance for crate::peripherals::RTC {
     #[cfg(feature = "low-power")]
     cfg_if::cfg_if!(
         if #[cfg(any(stm32g4, stm32wl))] {
+            #[cfg(not(feature = "_core-cm0p"))]
             type WakeupInterrupt = crate::interrupt::typelevel::RTC_WKUP;
+            #[cfg(feature = "_core-cm0p")]
+            type WakeupInterrupt = crate::interrupt::typelevel::RTC_LSECSS;
         } else if #[cfg(any(stm32g0, stm32u0))] {
             type WakeupInterrupt = crate::interrupt::typelevel::RTC_TAMP;
         } else if #[cfg(any(stm32l5, stm32h5, stm32u3, stm32u5, stm32wba))] {
