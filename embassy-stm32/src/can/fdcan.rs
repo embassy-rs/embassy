@@ -340,9 +340,9 @@ impl<'d> Can<'d> {
         TxMode::write(&self.info, frame).await
     }
 
-    /// Returns the next received message frame
-    pub async fn read(&mut self) -> Result<Envelope, BusError> {
-        RxMode::read_classic(&self.info).await
+    /// Returns the next received message frame from the desired FIFO
+    pub async fn read(&mut self, fifo: Fifo) -> Result<Envelope, BusError> {
+        RxMode::read_classic(&self.info, fifo).await
     }
 
     /// Queues the message to be sent but exerts backpressure.  If a lower-priority
@@ -353,9 +353,9 @@ impl<'d> Can<'d> {
         TxMode::write_fd(&self.info, frame).await
     }
 
-    /// Returns the next received message frame
-    pub async fn read_fd(&mut self) -> Result<FdEnvelope, BusError> {
-        RxMode::read_fd(&self.info).await
+    /// Returns the next received message frame from the desired FIFO
+    pub async fn read_fd(&mut self, fifo: Fifo) -> Result<FdEnvelope, BusError> {
+        RxMode::read_fd(&self.info, fifo).await
     }
 
     /// Split instance into separate portions: Tx(write), Rx(read), common properties
@@ -587,14 +587,14 @@ pub struct CanRx<'d> {
 }
 
 impl<'d> CanRx<'d> {
-    /// Returns the next received message frame
-    pub async fn read(&mut self) -> Result<Envelope, BusError> {
-        RxMode::read_classic(&self.info).await
+    /// Returns the next received message frame from the desired FIFO
+    pub async fn read(&mut self, fifo: Fifo) -> Result<Envelope, BusError> {
+        RxMode::read_classic(&self.info, fifo).await
     }
 
-    /// Returns the next received message frame
-    pub async fn read_fd(&mut self) -> Result<FdEnvelope, BusError> {
-        RxMode::read_fd(&self.info).await
+    /// Returns the next received message frame from the desired FIFO
+    pub async fn read_fd(&mut self, fifo: Fifo) -> Result<FdEnvelope, BusError> {
+        RxMode::read_fd(&self.info, fifo).await
     }
 }
 
@@ -622,6 +622,20 @@ impl<'c, 'd> CanTx<'d> {
     pub async fn write_fd(&mut self, frame: &FdFrame) -> Option<FdFrame> {
         TxMode::write_fd(&self.info, frame).await
     }
+}
+
+/// Receive FIFO selection.
+///
+/// Each FDCAN peripheral has two independent receive FIFOs where incoming
+/// messages can be routed based on filter configuration.
+#[repr(u8)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Fifo {
+    /// Receive FIFO 0
+    Fifo0 = 0,
+    /// Receive FIFO 1
+    Fifo1 = 1,
 }
 
 enum RxMode {
@@ -690,11 +704,12 @@ impl RxMode {
         }
     }
 
-    fn read<F: CanHeader>(info: &'static Info, ns_per_timer_tick: u64) -> Option<Result<(F, Timestamp), BusError>> {
-        if let Some((msg, ts)) = info.regs.read(0) {
-            let ts = info.regs.calc_timestamp(ns_per_timer_tick, ts);
-            Some(Ok((msg, ts)))
-        } else if let Some((msg, ts)) = info.regs.read(1) {
+    fn read<F: CanHeader>(
+        info: &'static Info,
+        ns_per_timer_tick: u64,
+        fifo: Fifo,
+    ) -> Option<Result<(F, Timestamp), BusError>> {
+        if let Some((msg, ts)) = info.regs.read(fifo as usize) {
             let ts = info.regs.calc_timestamp(ns_per_timer_tick, ts);
             Some(Ok((msg, ts)))
         } else if let Some(err) = info.regs.curr_error() {
@@ -705,7 +720,7 @@ impl RxMode {
         }
     }
 
-    async fn read_async<F: CanHeader>(info: &'static Info) -> Result<(F, Timestamp), BusError> {
+    async fn read_async<F: CanHeader>(info: &'static Info, fifo: Fifo) -> Result<(F, Timestamp), BusError> {
         poll_fn(move |cx| {
             let ns_per_timer_tick = info.state.lock(|s| {
                 let state = s.borrow_mut();
@@ -713,7 +728,7 @@ impl RxMode {
                 state.rx_mode.register(cx.waker());
                 state.ns_per_timer_tick
             });
-            match RxMode::read::<_>(info, ns_per_timer_tick) {
+            match RxMode::read::<_>(info, ns_per_timer_tick, fifo) {
                 Some(result) => Poll::Ready(result),
                 None => Poll::Pending,
             }
@@ -721,15 +736,15 @@ impl RxMode {
         .await
     }
 
-    async fn read_classic(info: &'static Info) -> Result<Envelope, BusError> {
-        match RxMode::read_async::<_>(info).await {
+    async fn read_classic(info: &'static Info, fifo: Fifo) -> Result<Envelope, BusError> {
+        match RxMode::read_async::<_>(info, fifo).await {
             Ok((frame, ts)) => Ok(Envelope { ts, frame }),
             Err(e) => Err(e),
         }
     }
 
-    async fn read_fd(info: &'static Info) -> Result<FdEnvelope, BusError> {
-        match RxMode::read_async::<_>(info).await {
+    async fn read_fd(info: &'static Info, fifo: Fifo) -> Result<FdEnvelope, BusError> {
+        match RxMode::read_async::<_>(info, fifo).await {
             Ok((frame, ts)) => Ok(FdEnvelope { ts, frame }),
             Err(e) => Err(e),
         }
