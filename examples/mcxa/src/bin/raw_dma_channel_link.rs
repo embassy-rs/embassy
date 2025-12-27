@@ -108,63 +108,65 @@ async fn main(_spawner: Spawner) {
         count: u16,
         enable_int: bool,
     ) {
-        let t = edma.tcd(ch);
+        unsafe {
+            let t = edma.tcd(ch);
 
-        // Reset channel state
-        t.ch_csr().write(|w| {
-            w.erq()
-                .disable()
-                .earq()
-                .disable()
-                .eei()
-                .no_error()
-                .ebw()
-                .disable()
-                .done()
-                .clear_bit_by_one()
-        });
-        t.ch_es().write(|w| w.bits(0));
-        t.ch_int().write(|w| w.int().clear_bit_by_one());
+            // Reset channel state
+            t.ch_csr().write(|w| {
+                w.erq()
+                    .disable()
+                    .earq()
+                    .disable()
+                    .eei()
+                    .no_error()
+                    .ebw()
+                    .disable()
+                    .done()
+                    .clear_bit_by_one()
+            });
+            t.ch_es().write(|w| w.bits(0));
+            t.ch_int().write(|w| w.int().clear_bit_by_one());
 
-        // Source/destination addresses
-        t.tcd_saddr().write(|w| w.saddr().bits(src));
-        t.tcd_daddr().write(|w| w.daddr().bits(dst));
+            // Source/destination addresses
+            t.tcd_saddr().write(|w| w.saddr().bits(src));
+            t.tcd_daddr().write(|w| w.daddr().bits(dst));
 
-        // Offsets: increment by width
-        t.tcd_soff().write(|w| w.soff().bits(width as u16));
-        t.tcd_doff().write(|w| w.doff().bits(width as u16));
+            // Offsets: increment by width
+            t.tcd_soff().write(|w| w.soff().bits(width as u16));
+            t.tcd_doff().write(|w| w.doff().bits(width as u16));
 
-        // Attributes: size = log2(width)
-        let size = match width {
-            1 => 0,
-            2 => 1,
-            4 => 2,
-            _ => 0,
-        };
-        t.tcd_attr().write(|w| w.ssize().bits(size).dsize().bits(size));
+            // Attributes: size = log2(width)
+            let size = match width {
+                1 => 0,
+                2 => 1,
+                4 => 2,
+                _ => 0,
+            };
+            t.tcd_attr().write(|w| w.ssize().bits(size).dsize().bits(size));
 
-        // Number of bytes per minor loop
-        t.tcd_nbytes_mloffno().write(|w| w.nbytes().bits(nbytes));
+            // Number of bytes per minor loop
+            t.tcd_nbytes_mloffno().write(|w| w.nbytes().bits(nbytes));
 
-        // Major loop: reset source address after major loop
-        let total_bytes = nbytes * count as u32;
-        t.tcd_slast_sda()
-            .write(|w| w.slast_sda().bits(-(total_bytes as i32) as u32));
-        t.tcd_dlast_sga()
-            .write(|w| w.dlast_sga().bits(-(total_bytes as i32) as u32));
+            // Major loop: reset source address after major loop
+            let total_bytes = nbytes * count as u32;
+            t.tcd_slast_sda()
+                .write(|w| w.slast_sda().bits(-(total_bytes as i32) as u32));
+            t.tcd_dlast_sga()
+                .write(|w| w.dlast_sga().bits(-(total_bytes as i32) as u32));
 
-        // Major loop count
-        t.tcd_biter_elinkno().write(|w| w.biter().bits(count));
-        t.tcd_citer_elinkno().write(|w| w.citer().bits(count));
+            // Major loop count
+            t.tcd_biter_elinkno().write(|w| w.biter().bits(count));
+            t.tcd_citer_elinkno().write(|w| w.citer().bits(count));
 
-        // Control/status: enable interrupt if requested
-        if enable_int {
-            t.tcd_csr().write(|w| w.intmajor().set_bit());
-        } else {
-            t.tcd_csr().write(|w| w.intmajor().clear_bit());
+            // Control/status: enable interrupt if requested
+            if enable_int {
+                t.tcd_csr().write(|w| w.intmajor().set_bit());
+            } else {
+                t.tcd_csr().write(|w| w.intmajor().clear_bit());
+            }
+
+            cortex_m::asm::dsb();
         }
-
-        cortex_m::asm::dsb();
     }
 
     unsafe {

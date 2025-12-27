@@ -332,9 +332,11 @@ pub trait Gate {
 /// This peripheral must not yet be in use prior to calling `enable_and_reset`.
 #[inline]
 pub unsafe fn enable_and_reset<G: Gate>(cfg: &G::MrccPeriphConfig) -> Result<u32, ClockError> {
-    let freq = enable::<G>(cfg).inspect_err(|_| disable::<G>())?;
-    pulse_reset::<G>();
-    Ok(freq)
+    unsafe {
+        let freq = enable::<G>(cfg).inspect_err(|_| disable::<G>())?;
+        pulse_reset::<G>();
+        Ok(freq)
+    }
 }
 
 /// Enable the clock gate for the given peripheral.
@@ -347,19 +349,21 @@ pub unsafe fn enable_and_reset<G: Gate>(cfg: &G::MrccPeriphConfig) -> Result<u32
 /// This peripheral must not yet be in use prior to calling `enable`.
 #[inline]
 pub unsafe fn enable<G: Gate>(cfg: &G::MrccPeriphConfig) -> Result<u32, ClockError> {
-    G::enable_clock();
-    while !G::is_clock_enabled() {}
-    core::arch::asm!("dsb sy; isb sy", options(nomem, nostack, preserves_flags));
+    unsafe {
+        G::enable_clock();
+        while !G::is_clock_enabled() {}
+        core::arch::asm!("dsb sy; isb sy", options(nomem, nostack, preserves_flags));
 
-    let freq = critical_section::with(|cs| {
-        let clocks = CLOCKS.borrow_ref(cs);
-        let clocks = clocks.as_ref().ok_or(ClockError::NeverInitialized)?;
-        cfg.post_enable_config(clocks)
-    });
+        let freq = critical_section::with(|cs| {
+            let clocks = CLOCKS.borrow_ref(cs);
+            let clocks = clocks.as_ref().ok_or(ClockError::NeverInitialized)?;
+            cfg.post_enable_config(clocks)
+        });
 
-    freq.inspect_err(|_e| {
-        G::disable_clock();
-    })
+        freq.inspect_err(|_e| {
+            G::disable_clock();
+        })
+    }
 }
 
 /// Disable the clock gate for the given peripheral.
@@ -370,7 +374,9 @@ pub unsafe fn enable<G: Gate>(cfg: &G::MrccPeriphConfig) -> Result<u32, ClockErr
 #[allow(dead_code)]
 #[inline]
 pub unsafe fn disable<G: Gate>() {
-    G::disable_clock();
+    unsafe {
+        G::disable_clock();
+    }
 }
 
 /// Check whether a gate is currently enabled.
@@ -389,7 +395,9 @@ pub fn is_clock_enabled<G: Gate>() -> bool {
 /// This peripheral must not yet be in use prior to calling `release_reset`.
 #[inline]
 pub unsafe fn release_reset<G: Gate>() {
-    G::release_reset();
+    unsafe {
+        G::release_reset();
+    }
 }
 
 /// Assert a reset line for the given peripheral set.
@@ -401,7 +409,9 @@ pub unsafe fn release_reset<G: Gate>() {
 /// This peripheral must not yet be in use prior to calling `assert_reset`.
 #[inline]
 pub unsafe fn assert_reset<G: Gate>() {
-    G::assert_reset();
+    unsafe {
+        G::assert_reset();
+    }
 }
 
 /// Check whether the peripheral is held in reset.
@@ -423,10 +433,12 @@ pub unsafe fn is_reset_released<G: Gate>() -> bool {
 /// This peripheral must not yet be in use prior to calling `release_reset`.
 #[inline]
 pub unsafe fn pulse_reset<G: Gate>() {
-    G::assert_reset();
-    cortex_m::asm::nop();
-    cortex_m::asm::nop();
-    G::release_reset();
+    unsafe {
+        G::assert_reset();
+        cortex_m::asm::nop();
+        cortex_m::asm::nop();
+        G::release_reset();
+    }
 }
 
 //
