@@ -305,6 +305,9 @@ fn main() {
         Some("tim22") => "TIM22",
         Some("tim23") => "TIM23",
         Some("tim24") => "TIM24",
+        Some("lptim1") => "LPTIM1",
+        Some("lptim2") => "LPTIM2",
+        Some("lptim3") => "LPTIM3",
         Some("any") => {
             // Order of TIM candidators:
             // 1. 2CH -> 2CH_CMP -> GP16 -> GP32 -> ADV
@@ -329,7 +332,7 @@ fn main() {
         let irqs: BTreeSet<_> = p
             .interrupts
             .iter()
-            .filter(|i| i.signal == "CC" || i.signal == "UP")
+            .filter(|i| i.signal == "CC" || i.signal == "UP" || i.signal == "GLOBAL")
             .map(|i| i.interrupt.to_ascii_uppercase())
             .collect();
 
@@ -350,8 +353,8 @@ fn main() {
     };
 
     for tim in [
-        "tim1", "tim2", "tim3", "tim4", "tim5", "tim8", "tim9", "tim12", "tim15", "tim20", "tim21", "tim22", "tim23",
-        "tim24",
+        "lptim1", "lptim2", "lptim3", "tim1", "tim2", "tim3", "tim4", "tim5", "tim8", "tim9", "tim12", "tim15",
+        "tim20", "tim21", "tim22", "tim23", "tim24",
     ] {
         cfgs.declare(format!("time_driver_{}", tim));
     }
@@ -942,10 +945,18 @@ fn main() {
                     let en = rcc.enable.as_ref().unwrap();
                     let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
                     let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
-
                     gg.extend(quote! {
                         crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
-                    })
+                    });
+                    // enable for both cores or if the primary core goes in stop mode devices become unavailable!
+                    // particularly problematic for GPIOs and DMA
+                    if chip_name.starts_with("stm32wl5") {
+                        // second core clock enable registers start with "c2"
+                        let en_reg = format_ident!("c2{}", en.register.to_ascii_lowercase());
+                        gg.extend(quote! {
+                            crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
+                        });
+                    }
                 }
             }
         }

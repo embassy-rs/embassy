@@ -30,11 +30,12 @@ async fn blink_heartbeat(mut led: Output<'static>) {
         led.set_level(Level::High);
         Timer::after_millis(100).await;
         led.set_level(Level::Low);
-        Timer::after_millis(900).await;
+        Timer::after_millis(4900).await;
     }
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
+// #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
     // Initialize the secondary core
     let p = embassy_stm32::init_secondary(&SHARED_DATA);
