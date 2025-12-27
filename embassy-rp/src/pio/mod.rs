@@ -1472,8 +1472,8 @@ pub struct State {
 fn on_pio_drop<PIO: Instance>() {
     let state = PIO::state();
     let users_state = critical_section::with(|_| {
-        let val = state.users.load(Ordering::Acquire) - 1;
-        state.users.store(val, Ordering::Release);
+        let val = state.users.load(Ordering::Acquire);
+        state.users.store(val - 1, Ordering::Release);
         val
     });
     if users_state == 1 {
