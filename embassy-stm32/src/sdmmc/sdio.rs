@@ -1,8 +1,8 @@
 use core::ops::{Deref, DerefMut};
 
 use aligned::{A4, Aligned};
-use sdio_host::common_cmd::{R1, Resp, Rz, cmd};
-use sdio_host::sd::{BusWidth, OCR, SD};
+use sdio_host::common_cmd::{R1, Resp, cmd};
+use sdio_host::sd::{BusWidth, OCR, RCA, SD};
 use sdio_host::{Cmd, sd_cmd};
 
 use crate::sdmmc::{
@@ -26,6 +26,15 @@ impl From<CommandResponse<R4>> for OCR<SD> {
     }
 }
 
+/// R5: IO_RW_DIRECT Response
+pub struct R5;
+
+impl Resp for R5 {}
+
+impl TypedResp for R5 {
+    type Word = u32;
+}
+
 /// ACMD5: IO Op Command
 ///
 /// * `switch_to_1_8v_request` - Switch to 1.8V signaling
@@ -34,7 +43,7 @@ impl From<CommandResponse<R4>> for OCR<SD> {
 /// voltages
 pub fn io_send_op_cond(switch_to_1_8v_request: bool, voltage_window: u16) -> Cmd<R4> {
     let arg: u32 = u32::from(switch_to_1_8v_request) << 24 | u32::from(voltage_window & 0x1FF) << 15;
-    cmd(41, arg)
+    cmd(5, arg)
 }
 
 /// Aligned data block for SDMMC transfers.
@@ -97,13 +106,30 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
         self.sdmmc.init_idle()?;
 
         // Get IO OCR
-        let _ocr: OCR<SD> = self.sdmmc.cmd(io_send_op_cond(false, 0x0), false, false)?.into();
+        let ocr: OCR<SD> = self.sdmmc.cmd(io_send_op_cond(false, 0x0), false, false)?.into();
+
+        if ocr.v18_allowed() {
+            trace!("v18 allowed");
+        } else {
+            trace!("v18 not  allowed");
+        }
+
+        if ocr.is_busy() {
+            trace!("is busy");
+        } else {
+            trace!("is not busy");
+        }
+
+        trace!("sent cmd5");
 
         // Get RCA
-        let rca = self.sdmmc.cmd(sd_cmd::send_relative_address(), true, false)?;
+        let rca: RCA<SD> = self.sdmmc.cmd(sd_cmd::send_relative_address(), true, false)?.into();
+        trace!("got rca");
 
         // Select the card with RCA
-        self.sdmmc.select_card(Some(rca.0.try_into().unwrap()))?;
+        self.sdmmc.select_card(Some(rca.address()))?;
+
+        trace!("selected card");
 
         Ok(())
     }
@@ -116,8 +142,10 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
     }
 
     /// Run cmd52
-    pub async fn cmd52(&mut self, arg: u32) -> Result<u32, Error> {
-        self.sdmmc.cmd(cmd::<R1>(52, arg), true, false).map(|r| r.0)
+    pub async fn cmd52(&mut self, arg: u32) -> Result<u16, Error> {
+        self.sdmmc
+            .cmd(cmd::<R5>(52, arg), true, false)
+            .map(|r| r.0.try_into().unwrap())
     }
 
     /// Read in block mode using cmd53
@@ -136,7 +164,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
             aligned_mut(buffer),
             DatapathMode::Block(block_size(size_of::<DataBlock>())),
         );
-        self.sdmmc.cmd(cmd::<Rz>(53, arg), true, true)?;
+        self.sdmmc.cmd(cmd::<R1>(53, arg), true, true)?;
 
         self.sdmmc.complete_datapath_transfer(transfer, false).await?;
         self.sdmmc.clear_interrupt_flags();
@@ -148,11 +176,17 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
     pub async fn cmd53_byte_read(&mut self, arg: u32, buffer: &mut Aligned<A4, [u8]>) -> Result<(), Error> {
         let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
 
+        // trace!("byte read start (len): {:#x} ({})", arg, buffer.len());
+
         let transfer = self.sdmmc.prepare_datapath_read(buffer, DatapathMode::Byte);
-        self.sdmmc.cmd(cmd::<Rz>(53, arg), true, true)?;
+        self.sdmmc.cmd(cmd::<R1>(53, arg), true, true)?;
+
+        // trace!("byte read before complete");
 
         self.sdmmc.complete_datapath_transfer(transfer, false).await?;
         self.sdmmc.clear_interrupt_flags();
+
+        // trace!("byte read stop");
 
         Ok(())
     }
@@ -170,7 +204,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
         };
 
         #[cfg(sdmmc_v1)]
-        self.sdmmc.cmd(cmd::<Rz>(53, arg), true, true)?;
+        self.sdmmc.cmd(cmd::<R1>(53, arg), true, true)?;
 
         let transfer = self.sdmmc.prepare_datapath_write(
             aligned_ref(buffer),
@@ -178,7 +212,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
         );
 
         #[cfg(sdmmc_v2)]
-        self.sdmmc.cmd(cmd::<Rz>(53, arg), true, true)?;
+        self.sdmmc.cmd(cmd::<R1>(53, arg), true, true)?;
 
         self.sdmmc.complete_datapath_transfer(transfer, false).await?;
         self.sdmmc.clear_interrupt_flags();
@@ -187,22 +221,62 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
     }
 
     /// Write in multibyte mode using cmd53
-    pub async fn cmd53_byte_write(&mut self, arg: u32, buffer: &[u32]) -> Result<(), Error> {
+    pub async fn cmd53_byte_write(&mut self, arg: u32, buffer: &Aligned<A4, [u8]>) -> Result<(), Error> {
         let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
 
         #[cfg(sdmmc_v1)]
-        self.sdmmc.cmd(cmd::<Rz>(53, arg), true, true)?;
+        self.sdmmc.cmd(cmd::<R1>(53, arg), true, true)?;
 
-        let transfer = self
-            .sdmmc
-            .prepare_datapath_write(aligned_ref(buffer), DatapathMode::Byte);
+        let transfer = self.sdmmc.prepare_datapath_write(buffer, DatapathMode::Byte);
 
         #[cfg(sdmmc_v2)]
-        self.sdmmc.cmd(cmd::<Rz>(53, arg), true, true)?;
+        self.sdmmc.cmd(cmd::<R1>(53, arg), true, true)?;
 
         self.sdmmc.complete_datapath_transfer(transfer, false).await?;
         self.sdmmc.clear_interrupt_flags();
 
         Ok(())
+    }
+}
+
+#[cfg(feature = "cyw43")]
+impl<'a, 'b> cyw43::SdioBusCyw43<64> for SerialDataInterface<'a, 'b> {
+    /// The error type for the BlockDevice implementation.
+    type Error = Error;
+
+    /// Doc
+    fn set_bus_to_high_speed(&mut self, frequency: u32) -> Result<(), Self::Error> {
+        self.set_bus_to_high_speed(Hertz(frequency))
+    }
+
+    /// Doc
+    async fn cmd52(&mut self, arg: u32) -> Result<u16, Self::Error> {
+        self.cmd52(arg).await
+    }
+
+    /// Doc
+    async fn cmd53_block_read(&mut self, arg: u32, blocks: &mut [Aligned<A4, [u8; 64]>]) -> Result<(), Self::Error> {
+        let blocks: &mut [DataBlock] =
+            unsafe { core::slice::from_raw_parts_mut(blocks.as_mut_ptr() as *mut DataBlock, blocks.len()) };
+
+        self.cmd53_block_read(arg, blocks).await
+    }
+
+    /// Doc
+    async fn cmd53_byte_read(&mut self, arg: u32, buffer: &mut Aligned<A4, [u8]>) -> Result<(), Self::Error> {
+        self.cmd53_byte_read(arg, buffer).await
+    }
+
+    /// Doc
+    async fn cmd53_block_write(&mut self, arg: u32, blocks: &[Aligned<A4, [u8; 64]>]) -> Result<(), Self::Error> {
+        let blocks: &[DataBlock] =
+            unsafe { core::slice::from_raw_parts(blocks.as_ptr() as *const DataBlock, blocks.len()) };
+
+        self.cmd53_block_write(arg, blocks).await
+    }
+
+    /// Doc
+    async fn cmd53_byte_write(&mut self, arg: u32, buffer: &Aligned<A4, [u8]>) -> Result<(), Self::Error> {
+        self.cmd53_byte_write(arg, buffer).await
     }
 }

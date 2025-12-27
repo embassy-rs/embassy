@@ -2,7 +2,7 @@
 #![no_main]
 teleprobe_meta::target!(b"rpi-pico");
 
-use cyw43::JoinOptions;
+use cyw43::{JoinOptions, SpiBus};
 use cyw43_pio::{DEFAULT_CLOCK_DIVIDER, PioSpi};
 use defmt::{panic, *};
 use embassy_executor::Spawner;
@@ -25,7 +25,7 @@ const WIFI_NETWORK: &str = "EmbassyTestWPA2";
 const WIFI_PASSWORD: &str = "V8YxhKt5CdIAJFud";
 
 #[embassy_executor::task]
-async fn wifi_task(runner: cyw43::Runner<'static, Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>) -> ! {
+async fn wifi_task(runner: cyw43::Runner<'static, SpiBus<Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>>) -> ! {
     runner.run().await
 }
 
