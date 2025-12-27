@@ -368,8 +368,11 @@ where
     }
 
     async fn read32(&mut self, func: u32, addr: u32) -> u32 {
-        if func == BUS_FUNCTION && addr == SPI_STATUS_REGISTER {
-            self.status
+        if func == BUS_FUNCTION && addr == SPI_STATUS_REGISTER && self.status != 0 {
+            let status = self.status;
+            self.status = 0;
+
+            status
         } else {
             self.readn(func, addr, 4).await
         }
