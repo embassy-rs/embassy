@@ -1232,10 +1232,10 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
         });
         // we can be relaxed about this because we're &mut here and nothing is cached
         critical_section::with(|_| {
-            let val = PIO::state().used_pins.load(Ordering::Relaxed);
+            let old_val = PIO::state().used_pins.load(Ordering::Relaxed);
             PIO::state()
                 .used_pins
-                .store(val | 1 << pin.pin_bank(), Ordering::Relaxed);
+                .store(old_val | 1 << pin.pin_bank(), Ordering::Relaxed);
         });
 
         Pin {
@@ -1459,12 +1459,12 @@ pub struct State {
 
 fn on_pio_drop<PIO: Instance>() {
     let state = PIO::state();
-    let users_state = critical_section::with(|_| {
-        let val = state.users.load(Ordering::Acquire);
-        state.users.store(val - 1, Ordering::Release);
-        val
+    let old_users_state = critical_section::with(|_| {
+        let old_val = state.users.load(Ordering::Acquire);
+        state.users.store(old_val - 1, Ordering::Release);
+        old_val
     });
-    if users_state == 1 {
+    if old_users_state == 1 {
         let used_pins = state.used_pins.load(Ordering::Relaxed);
         let null = pac::io::vals::Gpio0ctrlFuncsel::NULL as _;
         for i in 0..crate::gpio::BANK0_PIN_COUNT {
