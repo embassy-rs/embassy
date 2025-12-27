@@ -1477,28 +1477,32 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
     /// - Only one RingBuffer should exist per LPUART RX channel at a time.
     /// - The caller must ensure the static buffer is not accessed elsewhere while
     ///   the ring buffer is active.
-    unsafe fn setup_ring_buffer<'b>(&self, buf: &'b mut [u8]) -> RingBuffer<'b, u8> { unsafe {
-        // Get the peripheral data register address
-        let peri_addr = self.info.regs.data().as_ptr() as *const u8;
+    unsafe fn setup_ring_buffer<'b>(&self, buf: &'b mut [u8]) -> RingBuffer<'b, u8> {
+        unsafe {
+            // Get the peripheral data register address
+            let peri_addr = self.info.regs.data().as_ptr() as *const u8;
 
-        // Configure DMA request source for this LPUART instance (type-safe)
-        self.rx_dma.set_request_source::<T::RxDmaRequest>();
+            // Configure DMA request source for this LPUART instance (type-safe)
+            self.rx_dma.set_request_source::<T::RxDmaRequest>();
 
-        // Enable RX DMA request in the LPUART peripheral
-        self.info.regs.baud().modify(|_, w| w.rdmae().enabled());
+            // Enable RX DMA request in the LPUART peripheral
+            self.info.regs.baud().modify(|_, w| w.rdmae().enabled());
 
-        // Set up circular DMA transfer (this also enables NVIC interrupt)
-        self.rx_dma.setup_circular_read(peri_addr, buf)
-    }}
+            // Set up circular DMA transfer (this also enables NVIC interrupt)
+            self.rx_dma.setup_circular_read(peri_addr, buf)
+        }
+    }
 
     /// Enable the DMA channel request.
     ///
     /// Call this after `setup_ring_buffer()` to start continuous reception.
     /// This is separated from setup to allow for any additional configuration
     /// before starting the transfer.
-    unsafe fn enable_dma_request(&self) { unsafe {
-        self.rx_dma.enable_request();
-    }}
+    unsafe fn enable_dma_request(&self) {
+        unsafe {
+            self.rx_dma.enable_request();
+        }
+    }
 }
 
 impl<'peri, 'buf, T: Instance, C: DmaChannelTrait> LpuartRxRingDma<'peri, 'buf, T, C> {

@@ -966,9 +966,9 @@ impl<C: Channel> DmaChannel<C> {
     ///
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for writes.
-    pub unsafe fn write<W: Word>(&self, buf: &[W], peri_addr: *mut W, options: TransferOptions) -> Transfer<'_> { unsafe {
-        self.write_to_peripheral(buf, peri_addr, options)
-    }}
+    pub unsafe fn write<W: Word>(&self, buf: &[W], peri_addr: *mut W, options: TransferOptions) -> Transfer<'_> {
+        unsafe { self.write_to_peripheral(buf, peri_addr, options) }
+    }
 
     /// Configure a memory-to-peripheral DMA transfer without starting it.
     ///
@@ -1017,9 +1017,7 @@ impl<C: Channel> DmaChannel<C> {
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for writes.
     pub unsafe fn setup_write<W: Word>(&self, buf: &[W], peri_addr: *mut W, enable_interrupt: EnableInterrupt) {
-        unsafe {
-            self.setup_write_to_peripheral(buf, peri_addr, enable_interrupt)
-        }
+        unsafe { self.setup_write_to_peripheral(buf, peri_addr, enable_interrupt) }
     }
 
     /// Write data from memory to a peripheral register.
@@ -1119,9 +1117,9 @@ impl<C: Channel> DmaChannel<C> {
     ///
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for reads.
-    pub unsafe fn read<W: Word>(&self, peri_addr: *const W, buf: &mut [W], options: TransferOptions) -> Transfer<'_> { unsafe {
-        self.read_from_peripheral(peri_addr, buf, options)
-    }}
+    pub unsafe fn read<W: Word>(&self, peri_addr: *const W, buf: &mut [W], options: TransferOptions) -> Transfer<'_> {
+        unsafe { self.read_from_peripheral(peri_addr, buf, options) }
+    }
 
     /// Configure a peripheral-to-memory DMA transfer without starting it.
     ///
@@ -1171,9 +1169,7 @@ impl<C: Channel> DmaChannel<C> {
     /// - The buffer must remain valid for the duration of the transfer.
     /// - The peripheral address must be valid for reads.
     pub unsafe fn setup_read<W: Word>(&self, peri_addr: *const W, buf: &mut [W], enable_interrupt: EnableInterrupt) {
-        unsafe {
-            self.setup_read_from_peripheral(peri_addr, buf, enable_interrupt)
-        }
+        unsafe { self.setup_read_from_peripheral(peri_addr, buf, enable_interrupt) }
     }
 
     /// Read data from a peripheral register to memory.
@@ -1462,12 +1458,14 @@ impl<C: Channel> DmaChannel<C> {
     /// }
     /// ```
     #[inline]
-    pub unsafe fn set_request_source<R: DmaRequest>(&self) { unsafe {
-        // Two-step write per NXP SDK: clear to 0, then set actual source.
-        self.tcd().ch_mux().write(|w| w.src().bits(0));
-        cortex_m::asm::dsb(); // Ensure the clear completes before setting new source
-        self.tcd().ch_mux().write(|w| w.src().bits(R::REQUEST_NUMBER));
-    }}
+    pub unsafe fn set_request_source<R: DmaRequest>(&self) {
+        unsafe {
+            // Two-step write per NXP SDK: clear to 0, then set actual source.
+            self.tcd().ch_mux().write(|w| w.src().bits(0));
+            cortex_m::asm::dsb(); // Ensure the clear completes before setting new source
+            self.tcd().ch_mux().write(|w| w.src().bits(R::REQUEST_NUMBER));
+        }
+    }
 
     /// Enable hardware requests for this channel (ERQ=1).
     ///
@@ -1552,11 +1550,13 @@ impl<C: Channel> DmaChannel<C> {
     /// # Safety
     ///
     /// The channel must be properly configured before setting up linking.
-    pub unsafe fn set_major_link(&self, link_ch: usize) { unsafe {
-        let t = self.tcd();
-        t.tcd_csr()
-            .modify(|_, w| w.majorelink().enable().majorlinkch().bits(link_ch as u8));
-    }}
+    pub unsafe fn set_major_link(&self, link_ch: usize) {
+        unsafe {
+            let t = self.tcd();
+            t.tcd_csr()
+                .modify(|_, w| w.majorelink().enable().majorlinkch().bits(link_ch as u8));
+        }
+    }
 
     /// Disable Major Loop Linking.
     ///
@@ -1588,32 +1588,34 @@ impl<C: Channel> DmaChannel<C> {
     /// # Safety
     ///
     /// The channel must be properly configured before setting up linking.
-    pub unsafe fn set_minor_link(&self, link_ch: usize) { unsafe {
-        let t = self.tcd();
+    pub unsafe fn set_minor_link(&self, link_ch: usize) {
+        unsafe {
+            let t = self.tcd();
 
-        // Read current CITER (assuming ELINKNO format initially)
-        let current_citer = t.tcd_citer_elinkno().read().citer().bits();
-        let current_biter = t.tcd_biter_elinkno().read().biter().bits();
+            // Read current CITER (assuming ELINKNO format initially)
+            let current_citer = t.tcd_citer_elinkno().read().citer().bits();
+            let current_biter = t.tcd_biter_elinkno().read().biter().bits();
 
-        // Write back using ELINKYES format
-        t.tcd_citer_elinkyes().write(|w| {
-            w.citer()
-                .bits(current_citer)
-                .elink()
-                .enable()
-                .linkch()
-                .bits(link_ch as u8)
-        });
+            // Write back using ELINKYES format
+            t.tcd_citer_elinkyes().write(|w| {
+                w.citer()
+                    .bits(current_citer)
+                    .elink()
+                    .enable()
+                    .linkch()
+                    .bits(link_ch as u8)
+            });
 
-        t.tcd_biter_elinkyes().write(|w| {
-            w.biter()
-                .bits(current_biter)
-                .elink()
-                .enable()
-                .linkch()
-                .bits(link_ch as u8)
-        });
-    }}
+            t.tcd_biter_elinkyes().write(|w| {
+                w.biter()
+                    .bits(current_biter)
+                    .elink()
+                    .enable()
+                    .linkch()
+                    .bits(link_ch as u8)
+            });
+        }
+    }
 
     /// Disable Minor Loop Linking.
     ///
@@ -1625,22 +1627,24 @@ impl<C: Channel> DmaChannel<C> {
     ///
     /// The caller must ensure this doesn't disrupt an active transfer that
     /// depends on the linking.
-    pub unsafe fn clear_minor_link(&self) { unsafe {
-        let t = self.tcd();
+    pub unsafe fn clear_minor_link(&self) {
+        unsafe {
+            let t = self.tcd();
 
-        // Read current CITER (could be in either format, but we only need the count)
-        // Note: In ELINKYES format, citer is 9 bits; in ELINKNO, it's 15 bits.
-        // We read from ELINKNO which will give us the combined value.
-        let current_citer = t.tcd_citer_elinkno().read().citer().bits();
-        let current_biter = t.tcd_biter_elinkno().read().biter().bits();
+            // Read current CITER (could be in either format, but we only need the count)
+            // Note: In ELINKYES format, citer is 9 bits; in ELINKNO, it's 15 bits.
+            // We read from ELINKNO which will give us the combined value.
+            let current_citer = t.tcd_citer_elinkno().read().citer().bits();
+            let current_biter = t.tcd_biter_elinkno().read().biter().bits();
 
-        // Write back using ELINKNO format (disabling link)
-        t.tcd_citer_elinkno()
-            .write(|w| w.citer().bits(current_citer).elink().disable());
+            // Write back using ELINKNO format (disabling link)
+            t.tcd_citer_elinkno()
+                .write(|w| w.citer().bits(current_citer).elink().disable());
 
-        t.tcd_biter_elinkno()
-            .write(|w| w.biter().bits(current_biter).elink().disable());
-    }}
+            t.tcd_biter_elinkno()
+                .write(|w| w.biter().bits(current_biter).elink().disable());
+        }
+    }
 
     /// Load a TCD from memory into the hardware channel registers.
     ///
@@ -1651,20 +1655,22 @@ impl<C: Channel> DmaChannel<C> {
     ///
     /// - The TCD must be properly initialized.
     /// - The caller must ensure no concurrent access to the same channel.
-    pub unsafe fn load_tcd(&self, tcd: &Tcd) { unsafe {
-        let t = self.tcd();
-        t.tcd_saddr().write(|w| w.saddr().bits(tcd.saddr));
-        t.tcd_soff().write(|w| w.soff().bits(tcd.soff as u16));
-        t.tcd_attr().write(|w| w.bits(tcd.attr));
-        t.tcd_nbytes_mloffno().write(|w| w.nbytes().bits(tcd.nbytes));
-        t.tcd_slast_sda().write(|w| w.slast_sda().bits(tcd.slast as u32));
-        t.tcd_daddr().write(|w| w.daddr().bits(tcd.daddr));
-        t.tcd_doff().write(|w| w.doff().bits(tcd.doff as u16));
-        t.tcd_citer_elinkno().write(|w| w.citer().bits(tcd.citer));
-        t.tcd_dlast_sga().write(|w| w.dlast_sga().bits(tcd.dlast_sga as u32));
-        t.tcd_csr().write(|w| w.bits(tcd.csr));
-        t.tcd_biter_elinkno().write(|w| w.biter().bits(tcd.biter));
-    }}
+    pub unsafe fn load_tcd(&self, tcd: &Tcd) {
+        unsafe {
+            let t = self.tcd();
+            t.tcd_saddr().write(|w| w.saddr().bits(tcd.saddr));
+            t.tcd_soff().write(|w| w.soff().bits(tcd.soff as u16));
+            t.tcd_attr().write(|w| w.bits(tcd.attr));
+            t.tcd_nbytes_mloffno().write(|w| w.nbytes().bits(tcd.nbytes));
+            t.tcd_slast_sda().write(|w| w.slast_sda().bits(tcd.slast as u32));
+            t.tcd_daddr().write(|w| w.daddr().bits(tcd.daddr));
+            t.tcd_doff().write(|w| w.doff().bits(tcd.doff as u16));
+            t.tcd_citer_elinkno().write(|w| w.citer().bits(tcd.citer));
+            t.tcd_dlast_sga().write(|w| w.dlast_sga().bits(tcd.dlast_sga as u32));
+            t.tcd_csr().write(|w| w.bits(tcd.csr));
+            t.tcd_biter_elinkno().write(|w| w.biter().bits(tcd.biter));
+        }
+    }
 }
 
 /// In-memory representation of a Transfer Control Descriptor (TCD).
@@ -2087,9 +2093,9 @@ impl<'a, W: Word> RingBuffer<'a, W> {
     /// portion of the buffer being accessed, or that the access is
     /// appropriately synchronized.
     #[inline]
-    unsafe fn buf_slice(&self) -> &[W] { unsafe {
-        self.buf.as_ref()
-    }}
+    unsafe fn buf_slice(&self) -> &[W] {
+        unsafe { self.buf.as_ref() }
+    }
 
     /// Get the current DMA write position in the buffer.
     ///
@@ -2272,73 +2278,75 @@ impl<C: Channel> DmaChannel<C> {
     /// - The buffer must remain valid for the lifetime of the returned RingBuffer.
     /// - The peripheral address must be valid for reads.
     /// - The peripheral's DMA request must be configured to trigger this channel.
-    pub unsafe fn setup_circular_read<'a, W: Word>(&self, peri_addr: *const W, buf: &'a mut [W]) -> RingBuffer<'a, W> { unsafe {
-        assert!(!buf.is_empty());
-        assert!(buf.len() <= 0x7fff);
-        // For circular mode, buffer size should ideally be power of 2
-        // but we don't enforce it
+    pub unsafe fn setup_circular_read<'a, W: Word>(&self, peri_addr: *const W, buf: &'a mut [W]) -> RingBuffer<'a, W> {
+        unsafe {
+            assert!(!buf.is_empty());
+            assert!(buf.len() <= 0x7fff);
+            // For circular mode, buffer size should ideally be power of 2
+            // but we don't enforce it
 
-        let size = W::size();
-        let byte_size = size.bytes();
+            let size = W::size();
+            let byte_size = size.bytes();
 
-        let t = self.tcd();
+            let t = self.tcd();
 
-        // Reset channel state
-        Self::reset_channel_state(t);
+            // Reset channel state
+            Self::reset_channel_state(t);
 
-        // Source: peripheral register, fixed
-        Self::set_source_ptr(t, peri_addr);
-        Self::set_source_fixed(t);
+            // Source: peripheral register, fixed
+            Self::set_source_ptr(t, peri_addr);
+            Self::set_source_fixed(t);
 
-        // Destination: memory buffer, incrementing
-        Self::set_dest_ptr(t, buf.as_mut_ptr());
-        Self::set_dest_increment(t, size);
+            // Destination: memory buffer, incrementing
+            Self::set_dest_ptr(t, buf.as_mut_ptr());
+            Self::set_dest_increment(t, size);
 
-        // Transfer attributes
-        Self::set_even_transfer_size(t, size);
+            // Transfer attributes
+            Self::set_even_transfer_size(t, size);
 
-        // Minor loop: transfer one word per request
-        Self::set_minor_loop_ct_no_offsets(t, byte_size as u32);
+            // Minor loop: transfer one word per request
+            Self::set_minor_loop_ct_no_offsets(t, byte_size as u32);
 
-        // Major loop count = buffer size
-        let count = buf.len() as u16;
-        Self::set_major_loop_ct_elinkno(t, count);
+            // Major loop count = buffer size
+            let count = buf.len() as u16;
+            Self::set_major_loop_ct_elinkno(t, count);
 
-        // After major loop: reset destination to buffer start (circular)
-        let buf_bytes = (buf.len() * byte_size) as i32;
-        t.tcd_slast_sda().write(|w| w.slast_sda().bits(0)); // Source doesn't change
-        t.tcd_dlast_sga().write(|w| w.dlast_sga().bits((-buf_bytes) as u32));
+            // After major loop: reset destination to buffer start (circular)
+            let buf_bytes = (buf.len() * byte_size) as i32;
+            t.tcd_slast_sda().write(|w| w.slast_sda().bits(0)); // Source doesn't change
+            t.tcd_dlast_sga().write(|w| w.dlast_sga().bits((-buf_bytes) as u32));
 
-        // Control/status: enable both half and complete interrupts, NO DREQ (continuous)
-        t.tcd_csr().write(|w| {
-            w.intmajor()
-                .enable()
-                .inthalf()
-                .enable()
-                .dreq()
-                .channel_not_affected() // Don't clear ERQ on complete (circular)
-                .esg()
-                .normal_format()
-                .majorelink()
-                .disable()
-                .eeop()
-                .disable()
-                .esda()
-                .disable()
-                .bwc()
-                .no_stall()
-        });
+            // Control/status: enable both half and complete interrupts, NO DREQ (continuous)
+            t.tcd_csr().write(|w| {
+                w.intmajor()
+                    .enable()
+                    .inthalf()
+                    .enable()
+                    .dreq()
+                    .channel_not_affected() // Don't clear ERQ on complete (circular)
+                    .esg()
+                    .normal_format()
+                    .majorelink()
+                    .disable()
+                    .eeop()
+                    .disable()
+                    .esda()
+                    .disable()
+                    .bwc()
+                    .no_stall()
+            });
 
-        cortex_m::asm::dsb();
+            cortex_m::asm::dsb();
 
-        // Enable the channel request
-        t.ch_csr().modify(|_, w| w.erq().enable());
+            // Enable the channel request
+            t.ch_csr().modify(|_, w| w.erq().enable());
 
-        // Enable NVIC interrupt for this channel so async wakeups work
-        self.enable_interrupt();
+            // Enable NVIC interrupt for this channel so async wakeups work
+            self.enable_interrupt();
 
-        RingBuffer::new(self.as_any(), buf)
-    }}
+            RingBuffer::new(self.as_any(), buf)
+        }
+    }
 }
 
 // ============================================================================
@@ -2547,36 +2555,38 @@ pub struct ScatterGatherResult {
 ///
 /// # Safety
 /// Must be called from the correct DMA channel interrupt context.
-pub unsafe fn on_interrupt(ch_index: usize) { unsafe {
-    let p = pac::Peripherals::steal();
-    let edma = &p.edma_0_tcd0;
-    let t = edma.tcd(ch_index);
+pub unsafe fn on_interrupt(ch_index: usize) {
+    unsafe {
+        let p = pac::Peripherals::steal();
+        let edma = &p.edma_0_tcd0;
+        let t = edma.tcd(ch_index);
 
-    // Read TCD CSR to determine interrupt source
-    let csr = t.tcd_csr().read();
+        // Read TCD CSR to determine interrupt source
+        let csr = t.tcd_csr().read();
 
-    // Check if this is a half-transfer interrupt
-    // INTHALF is set and we're at or past the half-way point
-    if csr.inthalf().bit_is_set() {
-        let biter = t.tcd_biter_elinkno().read().biter().bits();
-        let citer = t.tcd_citer_elinkno().read().citer().bits();
-        let half_point = biter / 2;
+        // Check if this is a half-transfer interrupt
+        // INTHALF is set and we're at or past the half-way point
+        if csr.inthalf().bit_is_set() {
+            let biter = t.tcd_biter_elinkno().read().biter().bits();
+            let citer = t.tcd_citer_elinkno().read().citer().bits();
+            let half_point = biter / 2;
 
-        if citer <= half_point && citer > 0 {
-            // Half-transfer interrupt - wake half_waker
-            half_waker(ch_index).wake();
+            if citer <= half_point && citer > 0 {
+                // Half-transfer interrupt - wake half_waker
+                half_waker(ch_index).wake();
+            }
+        }
+
+        // Clear INT flag
+        t.ch_int().write(|w| w.int().clear_bit_by_one());
+
+        // If DONE is set, this is a complete-transfer interrupt
+        // Only wake the full-transfer waker when the transfer is actually complete
+        if t.ch_csr().read().done().bit_is_set() {
+            waker(ch_index).wake();
         }
     }
-
-    // Clear INT flag
-    t.ch_int().write(|w| w.int().clear_bit_by_one());
-
-    // If DONE is set, this is a complete-transfer interrupt
-    // Only wake the full-transfer waker when the transfer is actually complete
-    if t.ch_csr().read().done().bit_is_set() {
-        waker(ch_index).wake();
-    }
-}}
+}
 
 // ============================================================================
 // Type-level Interrupt Handlers
