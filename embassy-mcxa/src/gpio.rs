@@ -81,7 +81,7 @@ fn GPIO4() {
     irq_handler(4, crate::pac::Gpio4::ptr());
 }
 
-pub(crate) unsafe fn interrupt_init() {
+pub(crate) unsafe fn interrupt_init() { unsafe {
     use embassy_hal_internal::interrupt::InterruptExt;
 
     crate::pac::interrupt::GPIO0.enable();
@@ -91,7 +91,7 @@ pub(crate) unsafe fn interrupt_init() {
     crate::pac::interrupt::GPIO4.enable();
 
     cortex_m::interrupt::enable();
-}
+}}
 
 /// Logical level for GPIO pins.
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]

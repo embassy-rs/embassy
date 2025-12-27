@@ -431,7 +431,7 @@ impl<'a> Rtc<'a> {
 ///
 /// This struct implements the interrupt handler for RTC events.
 impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
-    unsafe fn on_interrupt() {
+    unsafe fn on_interrupt() { unsafe {
         let rtc = &*pac::Rtc0::ptr();
         // Check if this is actually a time alarm interrupt
         let sr = rtc.sr().read();
@@ -439,5 +439,5 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
             rtc.ier().modify(|_, w| w.taie().clear_bit());
             WAKER.wake();
         }
-    }
+    }}
 }

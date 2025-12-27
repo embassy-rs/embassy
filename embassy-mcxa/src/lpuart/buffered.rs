@@ -623,7 +623,7 @@ pub struct BufferedInterruptHandler<T: Instance> {
 }
 
 impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for BufferedInterruptHandler<T> {
-    unsafe fn on_interrupt() {
+    unsafe fn on_interrupt() { unsafe {
         let regs = T::info().regs;
         let state = T::buffered_state();
 
@@ -728,7 +728,7 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Buffere
                 regs.ctrl().modify(|_, w| w.tcie().disabled());
             });
         }
-    }
+    }}
 }
 
 // ============================================================================
