@@ -254,12 +254,18 @@ where
         SpiBus::new(pwr, spi),
         &state.ioctl_state,
         &state.net.events,
+        &state.net.secure_network,
         #[cfg(feature = "bluetooth")]
         None,
     );
 
     runner.init(firmware, None).await;
-    let control = Control::new(state_ch, &state.net.events, &state.ioctl_state);
+    let control = Control::new(
+        state_ch,
+        &state.net.events,
+        &state.ioctl_state,
+        &state.net.secure_network,
+    );
 
     (device, control, runner)
 }
