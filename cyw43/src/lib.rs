@@ -24,6 +24,8 @@ mod spi;
 mod structs;
 mod util;
 
+use core::sync::atomic::AtomicBool;
+
 use embassy_net_driver_channel as ch;
 use embedded_hal_1::digital::OutputPin;
 use events::Events;
@@ -122,6 +124,7 @@ pub struct State {
 struct NetState {
     ch: ch::State<MTU, 4, 4>,
     events: Events,
+    secure_network: AtomicBool,
 }
 
 impl State {
@@ -132,6 +135,7 @@ impl State {
             net: NetState {
                 ch: ch::State::new(),
                 events: Events::new(),
+                secure_network: AtomicBool::new(false),
             },
             #[cfg(feature = "bluetooth")]
             bt: bluetooth::BtState::new(),
@@ -250,12 +254,18 @@ where
         SpiBus::new(pwr, spi),
         &state.ioctl_state,
         &state.net.events,
+        &state.net.secure_network,
         #[cfg(feature = "bluetooth")]
         None,
     );
 
     runner.init(firmware, None).await;
-    let control = Control::new(state_ch, &state.net.events, &state.ioctl_state);
+    let control = Control::new(
+        state_ch,
+        &state.net.events,
+        &state.ioctl_state,
+        &state.net.secure_network,
+    );
 
     (device, control, runner)
 }
@@ -280,12 +290,18 @@ where
         SdioBus::new(sdio),
         &state.ioctl_state,
         &state.net.events,
+        &state.net.secure_network,
         #[cfg(feature = "bluetooth")]
         None,
     );
 
     runner.init(firmware, None).await;
-    let control = Control::new(state_ch, &state.net.events, &state.ioctl_state);
+    let control = Control::new(
+        state_ch,
+        &state.net.events,
+        &state.ioctl_state,
+        &state.net.secure_network,
+    );
 
     (device, control, runner)
 }
@@ -320,12 +336,18 @@ where
         SpiBus::new(pwr, spi),
         &state.ioctl_state,
         &state.net.events,
+        &state.net.secure_network,
         #[cfg(feature = "bluetooth")]
         Some(bt_runner),
     );
 
     runner.init(wifi_firmware, Some(bluetooth_firmware)).await;
-    let control = Control::new(state_ch, &state.net.events, &state.ioctl_state);
+    let control = Control::new(
+        state_ch,
+        &state.net.events,
+        &state.ioctl_state,
+        &state.net.secure_network,
+    );
 
     (device, bt_driver, control, runner)
 }

@@ -1,8 +1,10 @@
 use core::cmp::{max, min};
 use core::iter::zip;
+use core::sync::atomic::AtomicBool;
+use core::sync::atomic::Ordering::Relaxed;
 
 use embassy_net_driver_channel as ch;
-use embassy_net_driver_channel::driver::{HardwareAddress, LinkState};
+use embassy_net_driver_channel::driver::HardwareAddress;
 use embassy_time::{Duration, Timer};
 
 use crate::consts::*;
@@ -38,6 +40,7 @@ pub struct Control<'a> {
     state_ch: ch::StateRunner<'a>,
     events: &'a Events,
     ioctl_state: &'a IoctlState,
+    secure_network: &'a AtomicBool,
 }
 
 /// WiFi scan type.
@@ -159,11 +162,17 @@ impl<'a> Default for JoinOptions<'a> {
 }
 
 impl<'a> Control<'a> {
-    pub(crate) fn new(state_ch: ch::StateRunner<'a>, event_sub: &'a Events, ioctl_state: &'a IoctlState) -> Self {
+    pub(crate) fn new(
+        state_ch: ch::StateRunner<'a>,
+        event_sub: &'a Events,
+        ioctl_state: &'a IoctlState,
+        secure_network: &'a AtomicBool,
+    ) -> Self {
         Self {
             state_ch,
             events: event_sub,
             ioctl_state,
+            secure_network,
         }
     }
 
@@ -373,6 +382,7 @@ impl<'a> Control<'a> {
         i.ssid[..ssid.len()].copy_from_slice(ssid.as_bytes());
 
         let secure_network = options.auth != JoinAuth::Open;
+        self.secure_network.store(secure_network, Relaxed);
         self.wait_for_join(i, secure_network).await
     }
 
@@ -420,10 +430,7 @@ impl<'a> Control<'a> {
         };
 
         match result {
-            Ok(()) => {
-                self.state_ch.set_link_state(LinkState::Up);
-                debug!("JOINED");
-            }
+            Ok(()) => debug!("JOINED"),
             Err(JoinError::JoinFailure(status)) => debug!("JOIN failed: status={}", status),
             Err(JoinError::NetworkNotFound) => debug!("JOIN failed: network not found"),
             Err(JoinError::AuthenticationFailure) => debug!("JOIN failed: authentication failure"),

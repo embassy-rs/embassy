@@ -1,5 +1,9 @@
+use core::sync::atomic::AtomicBool;
+use core::sync::atomic::Ordering::Relaxed;
+
 use embassy_futures::select::{Either4, select4};
 use embassy_net_driver_channel as ch;
+use embassy_net_driver_channel::driver::LinkState;
 use embassy_time::{Duration, Timer, block_for};
 
 use crate::consts::*;
@@ -80,6 +84,11 @@ pub struct Runner<'a, BUS> {
 
     events: &'a Events,
 
+    secure_network: &'a AtomicBool,
+    join_ok: bool,
+    key_exchange_ok: bool,
+    auth_ok: bool,
+
     #[cfg(feature = "firmware-logs")]
     log: LogState,
 
@@ -96,6 +105,7 @@ where
         bus: BUS,
         ioctl_state: &'a IoctlState,
         events: &'a Events,
+        secure_network: &'a AtomicBool,
         #[cfg(feature = "bluetooth")] bt: Option<crate::bluetooth::BtRunner<'a>>,
     ) -> Self {
         Self {
@@ -106,6 +116,10 @@ where
             sdpcm_seq: 0,
             sdpcm_seq_max: 1,
             events,
+            secure_network,
+            join_ok: false,
+            key_exchange_ok: false,
+            auth_ok: false,
             #[cfg(feature = "firmware-logs")]
             log: LogState::default(),
             #[cfg(feature = "bluetooth")]
@@ -707,17 +721,93 @@ where
                     return;
                 }
 
-                let evt_type = events::Event::from(event_packet.msg.event_type as u8);
+                let event_type = Event::from(event_packet.msg.event_type as u8);
+                let status = EStatus::from(event_packet.msg.status as u8);
                 debug!(
                     "=== EVENT {:?}: {:?} {:02x}",
-                    evt_type,
+                    event_type,
                     event_packet.msg,
                     Bytes(evt_data)
                 );
 
-                if self.events.mask.is_enabled(evt_type) {
+                let update_link_status = match (
+                    event_type,
+                    status,
+                    event_packet.msg.flags,
+                    event_packet.msg.reason,
+                    event_packet.msg.auth_type,
+                ) {
+                    // Events indicating that the link is down
+                    // Event LINK with flag 0 indicates link down. reason = 1: loss of signal (e.g. out of range), reason = 2: controlled network shutdown
+                    // Event AUTH with status FAIL, reason 16, and auth_type 3 is specific for WPA3 networks
+                    (Event::LINK, EStatus::SUCCESS, 0, ..)
+                    | (Event::DEAUTH, EStatus::SUCCESS, ..)
+                    | (Event::AUTH, EStatus::FAIL, _, 16, 3) => {
+                        self.auth_ok = false;
+                        self.join_ok = false;
+                        self.key_exchange_ok = false;
+                        true
+                    }
+                    // Update auth flag. Ignore unsolicited events.
+                    // When changing passwords on a WPA3 AP which we are already connected to, or we roam to, PSK_SUP events indicating
+                    // success are still sent. Only the AUTH events indicate failure and this flag helps cover that scenario
+                    (Event::AUTH, status, ..) if status != EStatus::UNSOLICITED => {
+                        self.auth_ok = status == EStatus::SUCCESS;
+                        debug!("auth_ok flag: {}", self.auth_ok as u8);
+                        false
+                    }
+                    // Successfully joined the network. Open or WPA3 networks are now fully connected - WPA1/2 networks additionally require a successful key exchange.
+                    (Event::JOIN, EStatus::SUCCESS, ..) => {
+                        self.join_ok = true;
+                        true
+                    }
+
+                    // Key exchange events (PSK_SUP) for secure networks
+                    // The status codes for PSK_SUP events seem to have different meanings from other event types
+
+                    // Successful key exchange, indicated by a PSK_SUP event with status 6 "UNSOLICITED"
+                    // Disregard if auth_ok is false, which can happen in WPA3 networks
+                    (Event::PSK_SUP, EStatus::UNSOLICITED, 0, 0, _) => {
+                        if self.auth_ok {
+                            self.key_exchange_ok = true;
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                    // Ignore PSK_SUP events with reason 14 as they are often sent when the device roams from one AP to another
+                    (Event::PSK_SUP, _, _, 14, _) => false,
+                    // Other PSK_SUP events indicate key exchange errors
+                    (Event::PSK_SUP, ..) => {
+                        self.key_exchange_ok = false;
+                        true
+                    }
+                    _ => false,
+                };
+
+                if update_link_status {
+                    let secure_network = self.secure_network.load(Relaxed);
+                    let link_state = if self.join_ok && (!secure_network || self.key_exchange_ok) {
+                        LinkState::Up
+                    } else {
+                        LinkState::Down
+                    };
+
+                    self.ch.set_link_state(link_state);
+
+                    debug!(
+                        "link_ok: {}, secure_network: {}, auth_ok: {}, password_ok: {}, link_state {}",
+                        self.join_ok as u8,
+                        secure_network as u8,
+                        self.auth_ok as u8,
+                        self.key_exchange_ok as u8,
+                        link_state as u8
+                    );
+                }
+
+                if self.events.mask.is_enabled(event_type) {
                     let status = event_packet.msg.status;
-                    let event_payload = match evt_type {
+                    let event_payload = match event_type {
                         Event::ESCAN_RESULT if status == EStatus::PARTIAL => {
                             let Some((_, bss_info)) = ScanResults::parse(evt_data) else {
                                 return;
@@ -738,13 +828,7 @@ where
                     self.events
                         .queue
                         .immediate_publisher()
-                        .publish_immediate(events::Message::new(
-                            Status {
-                                event_type: evt_type,
-                                status,
-                            },
-                            event_payload,
-                        ));
+                        .publish_immediate(events::Message::new(Status { event_type, status }, event_payload));
                 }
             }
             CHANNEL_TYPE_DATA => {
