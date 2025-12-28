@@ -14,7 +14,7 @@ use crate::nvram::NVRAM;
 pub use crate::spi::SpiBusCyw43;
 use crate::structs::*;
 use crate::util::{slice8_mut, slice16_mut};
-use crate::{CHIP, Core, MTU, events};
+use crate::{CHIP, Core, MTU, events, try_until};
 
 #[cfg(feature = "firmware-logs")]
 struct LogState {
@@ -127,7 +127,7 @@ where
         }
     }
 
-    pub(crate) async fn init(&mut self, wifi_fw: &[u8], bt_fw: Option<&[u8]>) {
+    pub(crate) async fn init(&mut self, wifi_fw: &[u8], bt_fw: Option<&[u8]>) -> Result<(), ()> {
         self.bus.init(bt_fw.is_some()).await;
 
         // Init ALP (Active Low Power) clock
@@ -159,7 +159,15 @@ where
         }
 
         debug!("waiting for clock...");
-        while self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_ALP_AVAIL == 0 {}
+        if !try_until(
+            async || self.bus.read8(FUNC_BACKPLANE, REG_BACKPLANE_CHIP_CLOCK_CSR).await & BACKPLANE_ALP_AVAIL != 0,
+            Duration::from_millis(100),
+        )
+        .await
+        {
+            debug!("timeout while waiting for alp clock!");
+            return Err(());
+        }
         debug!("clock ok");
 
         // clear request for ALP
@@ -313,9 +321,17 @@ where
 
         // wait for F2 to be ready
         debug!("waiting for F2 to be ready...");
-        match BUS::TYPE {
-            BusType::Sdio => while self.bus.read8(FUNC_BUS, SDIOD_CCCR_IORDY).await as u32 & SDIO_FUNC_READY_2 == 0 {},
-            BusType::Spi => while self.bus.read32(FUNC_BUS, REG_BUS_STATUS).await & STATUS_F2_RX_READY == 0 {},
+        if !try_until(
+            async || match BUS::TYPE {
+                BusType::Sdio => self.bus.read8(FUNC_BUS, SDIOD_CCCR_IORDY).await as u32 & SDIO_FUNC_READY_2 != 0,
+                BusType::Spi => self.bus.read32(FUNC_BUS, REG_BUS_STATUS).await & STATUS_F2_RX_READY != 0,
+            },
+            Duration::from_millis(1000),
+        )
+        .await
+        {
+            debug!("timeout while waiting for function 2 to be ready");
+            return Err(());
         }
 
         // Some random configs related to sleep.
@@ -357,6 +373,8 @@ where
         }
 
         debug!("cyw43 runner init done");
+
+        Ok(())
     }
 
     #[cfg(feature = "firmware-logs")]

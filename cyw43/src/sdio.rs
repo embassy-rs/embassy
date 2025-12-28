@@ -2,10 +2,11 @@ use core::slice;
 
 use aligned::{A4, Aligned};
 use embassy_futures::yield_now;
-use embassy_time::{Duration, Timer};
+use embassy_time::Duration;
 
 use crate::consts::*;
 use crate::runner::{BusType, SealedBus};
+use crate::try_until;
 use crate::util::slice8_mut;
 
 // macro_rules! ALIGN_UINT {
@@ -45,22 +46,22 @@ pub trait SdioBusCyw43<const SIZE: usize> {
     /// The error type for the BlockDevice implementation.
     type Error: core::fmt::Debug;
 
-    /// Doc
+    /// Set the bus to high speed 4-bit frequency
     fn set_bus_to_high_speed(&mut self, frequency: u32) -> Result<(), Self::Error>;
 
-    /// Doc
+    /// Issue CMD52
     async fn cmd52(&mut self, arg: u32) -> Result<u16, Self::Error>;
 
-    /// Doc
+    /// Issue CMD53 in block read mode
     async fn cmd53_block_read(&mut self, arg: u32, blocks: &mut [Aligned<A4, [u8; SIZE]>]) -> Result<(), Self::Error>;
 
-    /// Doc
+    /// Issue CMD53 in byte read mode
     async fn cmd53_byte_read(&mut self, arg: u32, buffer: &mut Aligned<A4, [u8]>) -> Result<(), Self::Error>;
 
-    /// Doc
+    /// Issue CMD53 in block write mode
     async fn cmd53_block_write(&mut self, arg: u32, blocks: &[Aligned<A4, [u8; SIZE]>]) -> Result<(), Self::Error>;
 
-    /// Doc
+    /// Issue CMD53 in byte write mode
     async fn cmd53_byte_write(&mut self, arg: u32, buffer: &Aligned<A4, [u8]>) -> Result<(), Self::Error>;
 
     /// Wait for events from the Device. A typical implementation would wait for the IRQ pin to be high.
@@ -119,7 +120,7 @@ where
         }
     }
 
-    async fn backplane_readn(&mut self, addr: u32, size: u32) -> u32 {
+    async fn backplane_readn(&mut self, addr: u32, size: usize) -> u32 {
         trace!("backplane_readn addr = {:08x} len = {}", addr, size);
 
         self.backplane_set_window(addr).await;
@@ -129,7 +130,7 @@ where
             bus_addr |= BACKPLANE_ADDRESS_32BIT_FLAG;
         }
 
-        let val = self.read_reg(FUNC_BACKPLANE, bus_addr, size as usize).await;
+        let val = self.read_reg(FUNC_BACKPLANE, bus_addr, size).await;
 
         trace!("backplane_readn addr = {:08x} len = {} val = {:08x}", addr, size, val);
 
@@ -138,7 +139,7 @@ where
         return val;
     }
 
-    async fn backplane_writen(&mut self, addr: u32, val: u32, size: u32) {
+    async fn backplane_writen(&mut self, addr: u32, val: u32, size: usize) {
         trace!("backplane_writen addr = {:08x} len = {} val = {:08x}", addr, size, val);
 
         self.backplane_set_window(addr).await;
@@ -148,8 +149,7 @@ where
             bus_addr |= BACKPLANE_ADDRESS_32BIT_FLAG;
         }
 
-        self.write_reg(FUNC_BACKPLANE, bus_addr, size as usize, val).await;
-
+        self.write_reg(FUNC_BACKPLANE, bus_addr, size, val).await;
         self.backplane_set_window(CHIPCOMMON_BASE_ADDRESS).await;
     }
 
@@ -259,21 +259,23 @@ where
             }
         }
 
-        if size_of_val(buf) <= 64 {
+        if size_of_val(buf) <= BLOCK_SIZE {
             if self.sdio.cmd53_byte_write(arg, aligned_ref(buf)).await.is_err() {
                 debug!("cmd53 byte write failed");
             }
-        } else {
+        } else if size_of_val(buf) % BLOCK_SIZE == 0 {
             if self
                 .sdio
                 .cmd53_block_write(arg, unsafe {
-                    slice::from_raw_parts(buf.as_ptr() as *const _, buf.len() / (64 * size_of::<u32>()))
+                    slice::from_raw_parts(buf.as_ptr() as *const _, size_of_val(buf) / BLOCK_SIZE)
                 })
                 .await
                 .is_err()
             {
                 debug!("cmd53 block write failed");
             }
+        } else {
+            unreachable!()
         }
     }
 
@@ -299,21 +301,23 @@ where
 
         let arg = self.cmd53_arg(false, func, addr, mode, size_of_val(buf));
 
-        if size_of_val(buf) <= 64 {
+        if size_of_val(buf) <= BLOCK_SIZE {
             if self.sdio.cmd53_byte_read(arg, aligned_mut(buf)).await.is_err() {
                 debug!("cmd53 byte read failed (size: {})", size_of_val(buf));
             }
-        } else {
+        } else if size_of_val(buf) % BLOCK_SIZE == 0 {
             if self
                 .sdio
                 .cmd53_block_read(arg, unsafe {
-                    slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut _, buf.len() / (64 * size_of::<u32>()))
+                    slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut _, size_of_val(buf) / BLOCK_SIZE)
                 })
                 .await
                 .is_err()
             {
                 debug!("cmd53 block read failed");
             }
+        } else {
+            unreachable!()
         }
 
         if SDIO_DEBUG {
@@ -374,20 +378,17 @@ where
         // whd_bus_sdio_init
 
         // set up backplane
-        let mut reg: u32 = 0;
-        for _ in 0..500 {
-            self.write_reg_u8(BUS_FUNCTION, SDIOD_CCCR_IOEN, SDIO_FUNC_ENABLE_1 as u8)
-                .await;
+        if !try_until(
+            async || {
+                self.write_reg_u8(BUS_FUNCTION, SDIOD_CCCR_IOEN, SDIO_FUNC_ENABLE_1 as u8)
+                    .await;
 
-            reg = self.read_reg_u8(BUS_FUNCTION, SDIOD_CCCR_IOEN).await as u32;
-            if reg == SDIO_FUNC_ENABLE_1 {
-                break;
-            }
-
-            Timer::after_millis(1).await;
-        }
-
-        if reg != SDIO_FUNC_ENABLE_1 {
+                self.read_reg_u8(BUS_FUNCTION, SDIOD_CCCR_IOEN).await as u32 == SDIO_FUNC_ENABLE_1
+            },
+            Duration::from_millis(500),
+        )
+        .await
+        {
             debug!("timeout while setting up the backplane");
             return;
         }
@@ -405,19 +406,17 @@ where
         .await;
 
         // Set the block size
-        let mut reg: u32 = 0;
-        for _ in 0..500 {
-            self.write_reg_u8(BUS_FUNCTION, SDIOD_CCCR_BLKSIZE_0, SDIO_64B_BLOCK as u8)
-                .await;
-            reg = self.read_reg_u8(BUS_FUNCTION, SDIOD_CCCR_BLKSIZE_0).await as u32;
-            if reg == SDIO_64B_BLOCK {
-                break;
-            }
+        if !try_until(
+            async || {
+                self.write_reg_u8(BUS_FUNCTION, SDIOD_CCCR_BLKSIZE_0, SDIO_64B_BLOCK as u8)
+                    .await;
 
-            Timer::after_millis(1).await;
-        }
-
-        if reg != SDIO_64B_BLOCK {
+                self.read_reg_u8(BUS_FUNCTION, SDIOD_CCCR_BLKSIZE_0).await as u32 == SDIO_64B_BLOCK
+            },
+            Duration::from_millis(500),
+        )
+        .await
+        {
             debug!("timeout while setting block size");
             return;
         }
@@ -450,32 +449,57 @@ where
         }
 
         // Wait till the backplane is ready
-        let mut reg: u32 = 0;
-        for _ in 0..500 {
-            reg = self.read_reg_u8(BUS_FUNCTION, SDIOD_CCCR_IORDY).await as u32;
-            if (reg & SDIO_FUNC_READY_1) != 0 {
-                break;
-            }
-
-            Timer::after(Duration::from_millis(1)).await;
-        }
-
-        if (reg & SDIO_FUNC_READY_1) == 0 {
+        if !try_until(
+            async || self.read_reg_u8(BUS_FUNCTION, SDIOD_CCCR_IORDY).await as u32 & SDIO_FUNC_READY_1 != 0,
+            Duration::from_millis(500),
+        )
+        .await
+        {
             debug!("timeout while waiting for backplane to be ready");
-
             return;
         }
     }
 
     async fn wlan_read(&mut self, buf: &mut [u32], len_in_u8: u32) {
-        let len_in_u32 = len_in_u8 as usize / size_of::<u32>();
+        let len_in_u32 = (len_in_u8 as usize + 3) / 4;
         let buf = &mut buf[..len_in_u32];
 
-        self.read_words(WLAN_FUNCTION, 0, buf).await;
+        // If this assertion is violated, internal API changes may be required
+        assert!(len_in_u8 % 4 == 0);
+
+        let byte_part = size_of_val(buf) % BLOCK_SIZE;
+        let block_part = size_of_val(buf) - byte_part;
+        let mut address = 0usize;
+
+        if block_part > 0 {
+            self.read_words(WLAN_FUNCTION, address as u32, &mut buf[..block_part / size_of::<u32>()])
+                .await;
+
+            address += block_part;
+        }
+
+        if byte_part > 0 {
+            self.read_words(WLAN_FUNCTION, address as u32, &mut buf[block_part / size_of::<u32>()..])
+                .await;
+        }
     }
 
     async fn wlan_write(&mut self, buf: &[u32]) {
-        self.write_words(WLAN_FUNCTION, 0, buf).await;
+        let byte_part = size_of_val(buf) % BLOCK_SIZE;
+        let block_part = size_of_val(buf) - byte_part;
+        let mut address = 0usize;
+
+        if block_part > 0 {
+            self.write_words(WLAN_FUNCTION, address as u32, &buf[..block_part / size_of::<u32>()])
+                .await;
+
+            address += block_part;
+        }
+
+        if byte_part > 0 {
+            self.write_words(WLAN_FUNCTION, address as u32, &buf[block_part / size_of::<u32>()..])
+                .await;
+        }
     }
 
     #[allow(unused)]
