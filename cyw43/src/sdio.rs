@@ -267,7 +267,7 @@ where
             if self
                 .sdio
                 .cmd53_block_write(arg, unsafe {
-                    slice::from_raw_parts(buf.as_ptr() as *const _, buf.len() / (BLOCK_SIZE * size_of::<u32>()))
+                    slice::from_raw_parts(buf.as_ptr() as *const _, size_of_val(buf) / BLOCK_SIZE)
                 })
                 .await
                 .is_err()
@@ -309,7 +309,7 @@ where
             if self
                 .sdio
                 .cmd53_block_read(arg, unsafe {
-                    slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut _, buf.len() / (BLOCK_SIZE * size_of::<u32>()))
+                    slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut _, size_of_val(buf) / BLOCK_SIZE)
                 })
                 .await
                 .is_err()
@@ -461,14 +461,45 @@ where
     }
 
     async fn wlan_read(&mut self, buf: &mut [u32], len_in_u8: u32) {
-        let len_in_u32 = len_in_u8 as usize / size_of::<u32>();
+        let len_in_u32 = (len_in_u8 as usize + 3) / 4;
         let buf = &mut buf[..len_in_u32];
 
-        self.read_words(WLAN_FUNCTION, 0, buf).await;
+        // If this assertion is violated, internal API changes may be required
+        assert!(len_in_u8 % 4 == 0);
+
+        let byte_part = size_of_val(buf) % BLOCK_SIZE;
+        let block_part = size_of_val(buf) - byte_part;
+        let mut address = 0usize;
+
+        if block_part > 0 {
+            self.read_words(WLAN_FUNCTION, address as u32, &mut buf[..block_part / size_of::<u32>()])
+                .await;
+
+            address += block_part;
+        }
+
+        if byte_part > 0 {
+            self.read_words(WLAN_FUNCTION, address as u32, &mut buf[block_part / size_of::<u32>()..])
+                .await;
+        }
     }
 
     async fn wlan_write(&mut self, buf: &[u32]) {
-        self.write_words(WLAN_FUNCTION, 0, buf).await;
+        let byte_part = size_of_val(buf) % BLOCK_SIZE;
+        let block_part = size_of_val(buf) - byte_part;
+        let mut address = 0usize;
+
+        if block_part > 0 {
+            self.write_words(WLAN_FUNCTION, address as u32, &buf[..block_part / size_of::<u32>()])
+                .await;
+
+            address += block_part;
+        }
+
+        if byte_part > 0 {
+            self.write_words(WLAN_FUNCTION, address as u32, &buf[block_part / size_of::<u32>()..])
+                .await;
+        }
     }
 
     #[allow(unused)]
