@@ -27,6 +27,7 @@ mod util;
 use core::sync::atomic::AtomicBool;
 
 use embassy_net_driver_channel as ch;
+use embassy_time::{Duration, Ticker};
 use embedded_hal_1::digital::OutputPin;
 use events::Events;
 use ioctl::IoctlState;
@@ -259,7 +260,7 @@ where
         None,
     );
 
-    runner.init(firmware, None).await;
+    runner.init(firmware, None).await.unwrap();
     let control = Control::new(
         state_ch,
         &state.net.events,
@@ -295,7 +296,7 @@ where
         None,
     );
 
-    runner.init(firmware, None).await;
+    runner.init(firmware, None).await.unwrap();
     let control = Control::new(
         state_ch,
         &state.net.events,
@@ -341,7 +342,7 @@ where
         Some(bt_runner),
     );
 
-    runner.init(wifi_firmware, Some(bluetooth_firmware)).await;
+    runner.init(wifi_firmware, Some(bluetooth_firmware)).await.unwrap();
     let control = Control::new(
         state_ch,
         &state.net.events,
@@ -350,4 +351,20 @@ where
     );
 
     (device, bt_driver, control, runner)
+}
+
+async fn try_until(mut func: impl AsyncFnMut() -> bool, duration: Duration) -> bool {
+    let tick = Duration::from_millis(1);
+    let mut ticker = Ticker::every(tick);
+    let ticks = duration.as_ticks() / tick.as_ticks();
+
+    for _ in 0..ticks {
+        if func().await {
+            return true;
+        }
+
+        ticker.next().await;
+    }
+
+    false
 }
