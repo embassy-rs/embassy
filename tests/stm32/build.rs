@@ -12,6 +12,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         // too little RAM to run from RAM.
         feature = "stm32f103c8", // 20 kb
         feature = "stm32c031c6", // 6 kb
+        feature = "stm32c071rb", // 24 kb
         feature = "stm32l073rz", // 20 kb
         feature = "stm32h503rb", // 32 kb
         // no VTOR, so interrupts can't work when running from RAM

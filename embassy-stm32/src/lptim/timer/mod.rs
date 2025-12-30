@@ -115,6 +115,31 @@ impl<'d, T: Instance> Timer<'d, T> {
             .ccmr(0)
             .modify(|w| w.set_ccsel(channel.index(), direction.into()));
     }
+
+    /// Enable the timer interrupt.
+    pub fn enable_interrupt(&self) {
+        T::regs().dier().modify(|w| w.set_arrmie(true));
+    }
+
+    /// Disable the timer interrupt.
+    pub fn disable_interrupt(&self) {
+        T::regs().dier().modify(|w| w.set_arrmie(false));
+    }
+
+    /// Check if the timer interrupt is enabled.
+    pub fn is_interrupt_enabled(&self) -> bool {
+        T::regs().dier().read().arrmie()
+    }
+
+    /// Check if the timer interrupt is pending.
+    pub fn is_interrupt_pending(&self) -> bool {
+        T::regs().isr().read().arrm()
+    }
+
+    /// Clear the timer interrupt.
+    pub fn clear_interrupt(&self) {
+        T::regs().icr().write(|w| w.set_arrmcf(true));
+    }
 }
 
 #[cfg(not(any(lptim_v2a, lptim_v2b)))]
@@ -127,5 +152,30 @@ impl<'d, T: Instance> Timer<'d, T> {
     /// Get compare value for a channel.
     pub fn get_compare_value(&self) -> u16 {
         T::regs().cmp().read().cmp()
+    }
+
+    /// Enable the timer interrupt.
+    pub fn enable_interrupt(&self) {
+        T::regs().ier().modify(|w| w.set_arrmie(true));
+    }
+
+    /// Disable the timer interrupt.
+    pub fn disable_interrupt(&self) {
+        T::regs().ier().modify(|w| w.set_arrmie(false));
+    }
+
+    /// Check if the timer interrupt is enabled.
+    pub fn is_interrupt_enabled(&self) -> bool {
+        T::regs().ier().read().arrmie()
+    }
+
+    /// Check if the timer interrupt is pending.
+    pub fn is_interrupt_pending(&self) -> bool {
+        T::regs().isr().read().arrm()
+    }
+
+    /// Clear the timer interrupt.
+    pub fn clear_interrupt(&self) {
+        T::regs().icr().write(|w| w.set_arrmcf(true));
     }
 }

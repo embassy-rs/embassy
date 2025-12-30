@@ -32,8 +32,8 @@ use embedded_hal_1::digital::OutputPin;
 use embedded_hal_1::spi::Operation;
 use embedded_hal_async::spi;
 
-use crate::shared_bus::SpiDeviceError;
 use crate::SetConfig;
+use crate::shared_bus::SpiDeviceError;
 
 /// SPI device on a shared bus.
 pub struct SpiDevice<'a, M: RawMutex, BUS, CS> {
@@ -112,11 +112,11 @@ where
         cs_drop.defuse();
         let cs_res = self.cs.set_high();
 
-        let op_res = op_res.map_err(SpiDeviceError::Spi)?;
+        op_res.map_err(SpiDeviceError::Spi)?;
         flush_res.map_err(SpiDeviceError::Spi)?;
         cs_res.map_err(SpiDeviceError::Cs)?;
 
-        Ok(op_res)
+        Ok(())
     }
 }
 
@@ -203,10 +203,10 @@ where
         cs_drop.defuse();
         let cs_res = self.cs.set_high();
 
-        let op_res = op_res.map_err(SpiDeviceError::Spi)?;
+        op_res.map_err(SpiDeviceError::Spi)?;
         flush_res.map_err(SpiDeviceError::Spi)?;
         cs_res.map_err(SpiDeviceError::Cs)?;
 
-        Ok(op_res)
+        Ok(())
     }
 }

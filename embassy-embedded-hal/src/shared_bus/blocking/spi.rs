@@ -19,13 +19,13 @@
 
 use core::cell::RefCell;
 
-use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::RawMutex;
 use embedded_hal_1::digital::OutputPin;
 use embedded_hal_1::spi::{self, Operation, SpiBus};
 
-use crate::shared_bus::SpiDeviceError;
 use crate::SetConfig;
+use crate::shared_bus::SpiDeviceError;
 
 /// SPI device on a shared bus.
 pub struct SpiDevice<'a, M: RawMutex, BUS, CS> {
@@ -82,11 +82,11 @@ where
             let flush_res = bus.flush();
             let cs_res = self.cs.set_high();
 
-            let op_res = op_res.map_err(SpiDeviceError::Spi)?;
+            op_res.map_err(SpiDeviceError::Spi)?;
             flush_res.map_err(SpiDeviceError::Spi)?;
             cs_res.map_err(SpiDeviceError::Cs)?;
 
-            Ok(op_res)
+            Ok(())
         })
     }
 }
@@ -158,10 +158,10 @@ where
             let flush_res = bus.flush();
             let cs_res = self.cs.set_high();
 
-            let op_res = op_res.map_err(SpiDeviceError::Spi)?;
+            op_res.map_err(SpiDeviceError::Spi)?;
             flush_res.map_err(SpiDeviceError::Spi)?;
             cs_res.map_err(SpiDeviceError::Cs)?;
-            Ok(op_res)
+            Ok(())
         })
     }
 }

@@ -8,6 +8,7 @@ use embassy_time::{Duration, Timer};
 use futures_util::FutureExt;
 
 use super::{Phy, StationManagement};
+use crate::block_for_us as blocking_delay_us;
 
 #[allow(dead_code)]
 mod phy_consts {
@@ -43,21 +44,23 @@ mod phy_consts {
 use self::phy_consts::*;
 
 /// Generic SMI Ethernet PHY implementation
-pub struct GenericPhy {
+pub struct GenericPhy<SM: StationManagement> {
     phy_addr: u8,
+    sm: SM,
     #[cfg(feature = "time")]
     poll_interval: Duration,
 }
 
-impl GenericPhy {
+impl<SM: StationManagement> GenericPhy<SM> {
     /// Construct the PHY. It assumes the address `phy_addr` in the SMI communication
     ///
     /// # Panics
     /// `phy_addr` must be in range `0..32`
-    pub fn new(phy_addr: u8) -> Self {
+    pub fn new(sm: SM, phy_addr: u8) -> Self {
         assert!(phy_addr < 32);
         Self {
             phy_addr,
+            sm,
             #[cfg(feature = "time")]
             poll_interval: Duration::from_millis(500),
         }
@@ -67,8 +70,9 @@ impl GenericPhy {
     ///
     /// # Panics
     /// Initialization panics if PHY didn't respond on any address
-    pub fn new_auto() -> Self {
+    pub fn new_auto(sm: SM) -> Self {
         Self {
+            sm,
             phy_addr: 0xFF,
             #[cfg(feature = "time")]
             poll_interval: Duration::from_millis(500),
@@ -76,27 +80,14 @@ impl GenericPhy {
     }
 }
 
-// TODO: Factor out to shared functionality
-fn blocking_delay_us(us: u32) {
-    #[cfg(feature = "time")]
-    embassy_time::block_for(Duration::from_micros(us as u64));
-    #[cfg(not(feature = "time"))]
-    {
-        let freq = unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 as u64;
-        let us = us as u64;
-        let cycles = freq * us / 1_000_000;
-        cortex_m::asm::delay(cycles as u32);
-    }
-}
-
-impl Phy for GenericPhy {
-    fn phy_reset<S: StationManagement>(&mut self, sm: &mut S) {
+impl<SM: StationManagement> Phy for GenericPhy<SM> {
+    fn phy_reset(&mut self) {
         // Detect SMI address
         if self.phy_addr == 0xFF {
             for addr in 0..32 {
-                sm.smi_write(addr, PHY_REG_BCR, PHY_REG_BCR_RESET);
+                self.sm.smi_write(addr, PHY_REG_BCR, PHY_REG_BCR_RESET);
                 for _ in 0..10 {
-                    if sm.smi_read(addr, PHY_REG_BCR) & PHY_REG_BCR_RESET != PHY_REG_BCR_RESET {
+                    if self.sm.smi_read(addr, PHY_REG_BCR) & PHY_REG_BCR_RESET != PHY_REG_BCR_RESET {
                         trace!("Found ETH PHY on address {}", addr);
                         self.phy_addr = addr;
                         return;
@@ -108,30 +99,30 @@ impl Phy for GenericPhy {
             panic!("PHY did not respond");
         }
 
-        sm.smi_write(self.phy_addr, PHY_REG_BCR, PHY_REG_BCR_RESET);
-        while sm.smi_read(self.phy_addr, PHY_REG_BCR) & PHY_REG_BCR_RESET == PHY_REG_BCR_RESET {}
+        self.sm.smi_write(self.phy_addr, PHY_REG_BCR, PHY_REG_BCR_RESET);
+        while self.sm.smi_read(self.phy_addr, PHY_REG_BCR) & PHY_REG_BCR_RESET == PHY_REG_BCR_RESET {}
     }
 
-    fn phy_init<S: StationManagement>(&mut self, sm: &mut S) {
+    fn phy_init(&mut self) {
         // Clear WU CSR
-        self.smi_write_ext(sm, PHY_REG_WUCSR, 0);
+        self.smi_write_ext(PHY_REG_WUCSR, 0);
 
         // Enable auto-negotiation
-        sm.smi_write(
+        self.sm.smi_write(
             self.phy_addr,
             PHY_REG_BCR,
             PHY_REG_BCR_AN | PHY_REG_BCR_ANRST | PHY_REG_BCR_100M,
         );
     }
 
-    fn poll_link<S: StationManagement>(&mut self, sm: &mut S, cx: &mut Context) -> bool {
+    fn poll_link(&mut self, cx: &mut Context) -> bool {
         #[cfg(not(feature = "time"))]
         cx.waker().wake_by_ref();
 
         #[cfg(feature = "time")]
         let _ = Timer::after(self.poll_interval).poll_unpin(cx);
 
-        let bsr = sm.smi_read(self.phy_addr, PHY_REG_BSR);
+        let bsr = self.sm.smi_read(self.phy_addr, PHY_REG_BSR);
 
         // No link without autonegotiate
         if bsr & PHY_REG_BSR_ANDONE == 0 {
@@ -148,7 +139,7 @@ impl Phy for GenericPhy {
 }
 
 /// Public functions for the PHY
-impl GenericPhy {
+impl<SM: StationManagement> GenericPhy<SM> {
     /// Set the SMI polling interval.
     #[cfg(feature = "time")]
     pub fn set_poll_interval(&mut self, poll_interval: Duration) {
@@ -156,10 +147,15 @@ impl GenericPhy {
     }
 
     // Writes a value to an extended PHY register in MMD address space
-    fn smi_write_ext<S: StationManagement>(&mut self, sm: &mut S, reg_addr: u16, reg_data: u16) {
-        sm.smi_write(self.phy_addr, PHY_REG_CTL, 0x0003); // set address
-        sm.smi_write(self.phy_addr, PHY_REG_ADDAR, reg_addr);
-        sm.smi_write(self.phy_addr, PHY_REG_CTL, 0x4003); // set data
-        sm.smi_write(self.phy_addr, PHY_REG_ADDAR, reg_data);
+    fn smi_write_ext(&mut self, reg_addr: u16, reg_data: u16) {
+        self.sm.smi_write(self.phy_addr, PHY_REG_CTL, 0x0003); // set address
+        self.sm.smi_write(self.phy_addr, PHY_REG_ADDAR, reg_addr);
+        self.sm.smi_write(self.phy_addr, PHY_REG_CTL, 0x4003); // set data
+        self.sm.smi_write(self.phy_addr, PHY_REG_ADDAR, reg_data);
+    }
+
+    /// Access the underlying station management.
+    pub fn station_management(&mut self) -> &mut SM {
+        &mut self.sm
     }
 }

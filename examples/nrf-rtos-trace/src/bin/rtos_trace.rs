@@ -63,7 +63,7 @@ async fn main(spawner: Spawner) {
         ::log::set_max_level(::log::LevelFilter::Trace);
     }
 
-    spawner.spawn(run1()).unwrap();
-    spawner.spawn(run2()).unwrap();
-    spawner.spawn(run3()).unwrap();
+    spawner.spawn(run1().unwrap());
+    spawner.spawn(run2().unwrap());
+    spawner.spawn(run3().unwrap());
 }

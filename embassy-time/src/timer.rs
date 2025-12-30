@@ -1,9 +1,9 @@
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use futures_util::stream::FusedStream;
-use futures_util::Stream;
+use futures_core::Stream;
+use futures_core::stream::FusedStream;
 
 use crate::{Duration, Instant};
 
@@ -66,6 +66,8 @@ impl<F: Future> WithTimeout for F {
 
 /// Future for the [`with_timeout`] and [`with_deadline`] functions.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct TimeoutFuture<F> {
     timer: Timer,
     fut: F,
@@ -92,6 +94,8 @@ impl<F: Future> Future for TimeoutFuture<F> {
 
 /// A future that completes at a specified [Instant](struct.Instant.html).
 #[must_use = "futures do nothing unless you `.await` or poll them"]
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Timer {
     expires_at: Instant,
     yielded_once: bool,
@@ -99,6 +103,7 @@ pub struct Timer {
 
 impl Timer {
     /// Expire at specified [Instant](struct.Instant.html)
+    /// Will expire immediately if the Instant is in the past.
     pub fn at(expires_at: Instant) -> Self {
         Self {
             expires_at,
@@ -227,6 +232,8 @@ impl Future for Timer {
 /// ## Cancel safety
 /// It is safe to cancel waiting for the next tick,
 /// meaning no tick is lost if the Future is dropped.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Ticker {
     expires_at: Instant,
     duration: Duration,
@@ -246,7 +253,7 @@ impl Ticker {
     }
 
     /// Reset the ticker at the deadline.
-    /// If the deadline is in the past, the ticker will fire instantly.
+    /// If the deadline is in the past, the ticker will fire before the next scheduled tick.
     pub fn reset_at(&mut self, deadline: Instant) {
         self.expires_at = deadline + self.duration;
     }

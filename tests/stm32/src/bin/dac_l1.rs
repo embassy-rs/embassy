@@ -10,7 +10,7 @@ use core::f32::consts::PI;
 use common::*;
 use defmt::assert;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::Adc;
+use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::dac::{DacCh1, Value};
 use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::Timer;
@@ -47,7 +47,7 @@ async fn main(_spawner: Spawner) {
     dac.set(Value::Bit8(0));
     // Now wait a little to obtain a stable value
     Timer::after_millis(30).await;
-    let offset = adc.read(&mut adc_pin).await;
+    let offset = adc.read(&mut adc_pin, SampleTime::from_bits(0)).await;
 
     for v in 0..=255 {
         // First set the DAC output value
@@ -58,7 +58,12 @@ async fn main(_spawner: Spawner) {
         Timer::after_millis(30).await;
 
         // Need to steal the peripherals here because PA4 is obviously in use already
-        let measured = adc.read(&mut unsafe { embassy_stm32::Peripherals::steal() }.PA4).await;
+        let measured = adc
+            .read(
+                &mut unsafe { embassy_stm32::Peripherals::steal() }.PA4,
+                SampleTime::from_bits(0),
+            )
+            .await;
         // Calibrate and normalize the measurement to get close to the dac_output_val
         let measured_normalized = ((measured as i32 - offset as i32) / normalization_factor) as i16;
 

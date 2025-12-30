@@ -15,14 +15,14 @@ use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::ltdc::{self, Ltdc, LtdcConfiguration, LtdcLayer, LtdcLayerConfig, PolarityActive, PolarityEdge};
 use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::{Duration, Timer};
+use embedded_graphics::Pixel;
 use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::geometry::{OriginDimensions, Point, Size};
 use embedded_graphics::image::Image;
-use embedded_graphics::pixelcolor::raw::RawU24;
 use embedded_graphics::pixelcolor::Rgb888;
+use embedded_graphics::pixelcolor::raw::RawU24;
 use embedded_graphics::prelude::*;
 use embedded_graphics::primitives::Rectangle;
-use embedded_graphics::Pixel;
 use heapless::{Entry, FnvIndexMap};
 use tinybmp::Bmp;
 use {defmt_rtt as _, panic_probe as _};
@@ -47,7 +47,7 @@ async fn main(spawner: Spawner) {
 
     // blink the led on another task
     let led = Output::new(p.PC3, Level::High, Speed::Low);
-    unwrap!(spawner.spawn(led_task(led)));
+    spawner.spawn(unwrap!(led_task(led)));
 
     // numbers from STMicroelectronics/STM32CubeH7 STM32H735G-DK C-based example
     const RK043FN48H_HSYNC: u16 = 41; // Horizontal synchronization

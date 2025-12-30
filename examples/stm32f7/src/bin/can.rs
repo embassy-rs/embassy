@@ -1,7 +1,7 @@
 #![no_std]
 #![no_main]
 
-use core::num::{NonZeroU16, NonZeroU8};
+use core::num::{NonZeroU8, NonZeroU16};
 
 use defmt::*;
 use embassy_executor::Spawner;
@@ -64,7 +64,7 @@ async fn main(spawner: Spawner) {
 
     static CAN_TX: StaticCell<CanTx<'static>> = StaticCell::new();
     let tx = CAN_TX.init(tx);
-    spawner.spawn(send_can_message(tx)).unwrap();
+    spawner.spawn(send_can_message(tx).unwrap());
 
     loop {
         let envelope = rx.read().await.unwrap();

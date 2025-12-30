@@ -2,8 +2,8 @@
 #![no_main]
 teleprobe_meta::target!(b"rpi-pico");
 
-use cyw43::JoinOptions;
-use cyw43_pio::{PioSpi, DEFAULT_CLOCK_DIVIDER};
+use cyw43::{JoinOptions, SpiBus};
+use cyw43_pio::{DEFAULT_CLOCK_DIVIDER, PioSpi};
 use defmt::{panic, *};
 use embassy_executor::Spawner;
 use embassy_net::{Config, StackResources};
@@ -25,7 +25,7 @@ const WIFI_NETWORK: &str = "EmbassyTestWPA2";
 const WIFI_PASSWORD: &str = "V8YxhKt5CdIAJFud";
 
 #[embassy_executor::task]
-async fn wifi_task(runner: cyw43::Runner<'static, Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>) -> ! {
+async fn wifi_task(runner: cyw43::Runner<'static, SpiBus<Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>>) -> ! {
     runner.run().await
 }
 
@@ -70,7 +70,7 @@ async fn main(spawner: Spawner) {
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init(cyw43::State::new());
     let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw).await;
-    unwrap!(spawner.spawn(wifi_task(runner)));
+    spawner.spawn(unwrap!(wifi_task(runner)));
 
     control.init(clm).await;
     control
@@ -89,7 +89,7 @@ async fn main(spawner: Spawner) {
         seed,
     );
 
-    unwrap!(spawner.spawn(net_task(runner)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     loop {
         match control
@@ -98,7 +98,7 @@ async fn main(spawner: Spawner) {
         {
             Ok(_) => break,
             Err(err) => {
-                panic!("join failed with status={}", err.status);
+                panic!("join failed: {:?}", err);
             }
         }
     }

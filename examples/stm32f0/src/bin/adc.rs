@@ -19,11 +19,10 @@ async fn main(_spawner: Spawner) {
     info!("Hello World!");
 
     let mut adc = Adc::new(p.ADC1, Irqs);
-    adc.set_sample_time(SampleTime::CYCLES71_5);
     let mut pin = p.PA1;
 
     let mut vrefint = adc.enable_vref();
-    let vrefint_sample = adc.read(&mut vrefint).await;
+    let vrefint_sample = adc.read(&mut vrefint, SampleTime::CYCLES13_5).await;
     let convert_to_millivolts = |sample| {
         // From https://www.st.com/resource/en/datasheet/stm32f031c6.pdf
         // 6.3.4 Embedded reference voltage
@@ -33,7 +32,7 @@ async fn main(_spawner: Spawner) {
     };
 
     loop {
-        let v = adc.read(&mut pin).await;
+        let v = adc.read(&mut pin, SampleTime::CYCLES13_5).await;
         info!("--> {} - {} mV", v, convert_to_millivolts(v));
         Timer::after_millis(100).await;
     }

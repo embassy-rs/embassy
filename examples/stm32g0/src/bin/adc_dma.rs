@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, AdcChannel as _, SampleTime};
+use embassy_stm32::adc::{Adc, AdcChannel as _, Clock, Presc, SampleTime};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -17,7 +17,7 @@ async fn main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    let mut adc = Adc::new(p.ADC1);
+    let mut adc = Adc::new_with_clock(p.ADC1, Clock::Async { div: Presc::DIV1 });
 
     let mut dma = p.DMA1_CH1;
     let mut vrefint_channel = adc.enable_vrefint().degrade_adc();

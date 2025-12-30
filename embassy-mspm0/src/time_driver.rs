@@ -1,5 +1,5 @@
 use core::cell::{Cell, RefCell};
-use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
 use core::task::Waker;
 
 use critical_section::{CriticalSection, Mutex};
@@ -16,6 +16,8 @@ use crate::timer::SealedTimer;
 compile_error!("TIMG12 and TIMG13 are not supported by the time driver yet");
 
 // Currently TIMG12 and TIMG13 are excluded because those are 32-bit timers.
+#[cfg(time_driver_timb0)]
+type T = peripherals::TIMB0;
 #[cfg(time_driver_timg0)]
 type T = peripherals::TIMG0;
 #[cfg(time_driver_timg1)]
@@ -332,6 +334,8 @@ embassy_time_driver::time_driver_impl!(static DRIVER: TimxDriver = TimxDriver {
 pub(crate) fn init(cs: CriticalSection) {
     DRIVER.init(cs);
 }
+
+// TODO: TIMB0
 
 #[cfg(time_driver_timg0)]
 #[interrupt]

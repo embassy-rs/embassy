@@ -3,8 +3,8 @@
 
 use cortex_m_rt::entry;
 use defmt::*;
-use embassy_stm32::dac::{DacCh1, Value};
 use embassy_stm32::Config;
+use embassy_stm32::dac::{DacCh1, Value};
 use {defmt_rtt as _, panic_probe as _};
 
 #[entry]

@@ -160,7 +160,7 @@ pub enum TriggerSel {
 }
 
 /// Trigger selection for L4+, L5, U5, H7.
-#[cfg(any(stm32l4_plus, stm32l5, stm32u5, stm32h7))]
+#[cfg(any(stm32l4_plus, stm32l5, stm32u5, stm32u3, stm32h7))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum TriggerSel {
@@ -168,9 +168,11 @@ pub enum TriggerSel {
     Tim1 = 1,
     Tim2 = 2,
     Tim4 = 3,
+    #[cfg(not(stm32u3))]
     Tim5 = 4,
     Tim6 = 5,
     Tim7 = 6,
+    #[cfg(not(stm32u3))]
     Tim8 = 7,
     Tim15 = 8,
     #[cfg(all(stm32h7, hrtim))]
@@ -178,9 +180,9 @@ pub enum TriggerSel {
     #[cfg(all(stm32h7, hrtim))]
     Hrtim1DacTrg2 = 10,
     Lptim1 = 11,
-    #[cfg(not(stm32u5))]
+    #[cfg(not(any(stm32u5, stm32u3)))]
     Lptim2 = 12,
-    #[cfg(stm32u5)]
+    #[cfg(any(stm32u5, stm32u3))]
     Lptim3 = 12,
     Exti9 = 13,
     #[cfg(any(stm32h7ax, stm32h7bx))]

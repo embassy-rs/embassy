@@ -1,14 +1,14 @@
 use core::marker::PhantomData;
-use core::sync::atomic::{fence, Ordering};
+use core::sync::atomic::{Ordering, fence};
 
 use embassy_hal_internal::drop::OnDrop;
 
 use super::{
-    family, get_flash_regions, Async, Blocking, Error, FlashBank, FlashLayout, FlashRegion, FlashSector, FLASH_SIZE,
-    MAX_ERASE_SIZE, READ_SIZE, WRITE_SIZE,
+    Async, Blocking, Error, FLASH_SIZE, FlashBank, FlashLayout, FlashRegion, FlashSector, MAX_ERASE_SIZE, READ_SIZE,
+    WRITE_SIZE, family, get_flash_regions,
 };
-use crate::Peri;
 use crate::_generated::FLASH_BASE;
+use crate::Peri;
 use crate::peripherals::FLASH;
 
 /// Internal flash memory driver.
@@ -102,7 +102,13 @@ pub(super) unsafe fn blocking_write(
     }
 
     let mut address = base + offset;
-    trace!("Writing {} bytes at 0x{:x}", bytes.len(), address);
+    trace!(
+        "Writing {} bytes at 0x{:x} (base=0x{:x}, offset=0x{:x})",
+        bytes.len(),
+        address,
+        base,
+        offset
+    );
 
     for chunk in bytes.chunks(WRITE_SIZE) {
         write_chunk(address, chunk)?;

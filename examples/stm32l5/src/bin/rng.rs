@@ -5,7 +5,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::rcc::{Pll, PllMul, PllPreDiv, PllRDiv, PllSource, Sysclk};
 use embassy_stm32::rng::Rng;
-use embassy_stm32::{bind_interrupts, peripherals, rng, Config};
+use embassy_stm32::{Config, bind_interrupts, peripherals, rng};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {

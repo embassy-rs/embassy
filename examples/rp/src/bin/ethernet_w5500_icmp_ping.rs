@@ -12,8 +12,8 @@ use core::str::FromStr;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::yield_now;
-use embassy_net::icmp::ping::{PingManager, PingParams};
 use embassy_net::icmp::PacketMetadata;
+use embassy_net::icmp::ping::{PingManager, PingParams};
 use embassy_net::{Ipv4Cidr, Stack, StackResources};
 use embassy_net_wiznet::chip::W5500;
 use embassy_net_wiznet::*;
@@ -63,7 +63,7 @@ async fn main(spawner: Spawner) {
     )
     .await
     .unwrap();
-    unwrap!(spawner.spawn(ethernet_task(runner)));
+    spawner.spawn(unwrap!(ethernet_task(runner)));
 
     // Generate random seed
     let seed = rng.next_u64();
@@ -78,7 +78,7 @@ async fn main(spawner: Spawner) {
     );
 
     // Launch network task
-    unwrap!(spawner.spawn(net_task(runner)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     info!("Waiting for DHCP...");
     let cfg = wait_for_config(stack).await;
@@ -99,7 +99,7 @@ async fn main(spawner: Spawner) {
     // Create the ping manager instance
     let mut ping_manager = PingManager::new(stack, &mut rx_meta, &mut rx_buffer, &mut tx_meta, &mut tx_buffer);
     let addr = "192.168.8.1"; // Address to ping to
-                              // Create the PingParams with the target address
+    // Create the PingParams with the target address
     let mut ping_params = PingParams::new(Ipv4Addr::from_str(addr).unwrap());
     // (optional) Set custom properties of the ping
     ping_params.set_payload(b"Hello, Ping!"); // custom payload

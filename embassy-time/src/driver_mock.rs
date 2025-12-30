@@ -28,6 +28,7 @@ use crate::{Duration, Instant};
 ///     assert_eq!(true, has_a_second_passed(reference));
 /// }
 /// ```
+#[derive(Debug)]
 pub struct MockDriver(CsMutex<RefCell<InnerMockDriver>>);
 
 embassy_time_driver::time_driver_impl!(static DRIVER: MockDriver = MockDriver::new());
@@ -80,6 +81,7 @@ impl Driver for MockDriver {
     }
 }
 
+#[derive(Debug)]
 struct InnerMockDriver {
     now: Instant,
     queue: Queue,

@@ -207,6 +207,16 @@ macro_rules! error {
 }
 
 #[cfg(feature = "defmt")]
+trait_set::trait_set! {
+    pub trait Debuggable = Debug + defmt::Format;
+}
+
+#[cfg(not(feature = "defmt"))]
+trait_set::trait_set! {
+    pub trait Debuggable = Debug;
+}
+
+#[cfg(feature = "defmt")]
 #[collapse_debuginfo(yes)]
 macro_rules! unwrap {
     ($($x:tt)*) => {

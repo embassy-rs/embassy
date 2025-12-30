@@ -1,5 +1,5 @@
 use super::{Channel, ConfigurableChannel, Event, Ppi, Task};
-use crate::{pac, Peri};
+use crate::{Peri, pac};
 
 impl<'d> Task<'d> {
     fn reg_val(&self) -> u32 {
@@ -65,6 +65,15 @@ impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Ppi<'d, 
     pub fn disable(&mut self) {
         let n = self.ch.number();
         regs().chenclr().write(|w| w.set_ch(n, true));
+    }
+}
+
+impl<C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Ppi<'static, C, EVENT_COUNT, TASK_COUNT> {
+    /// Persist the channel's configuration for the rest of the program's lifetime. This method
+    /// should be preferred over [`core::mem::forget()`] because the `'static` bound prevents
+    /// accidental reuse of the underlying peripheral.
+    pub fn persist(self) {
+        core::mem::forget(self);
     }
 }
 

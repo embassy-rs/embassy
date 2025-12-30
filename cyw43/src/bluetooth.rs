@@ -3,18 +3,18 @@ use core::future::Future;
 use core::mem::MaybeUninit;
 
 use bt_hci::transport::WithIndicator;
-use bt_hci::{ControllerToHostPacket, FromHciBytes, HostToControllerPacket, PacketKind, WriteHci};
+use bt_hci::{ControllerToHostPacket, FromHciBytes, FromHciBytesError, HostToControllerPacket, PacketKind, WriteHci};
 use embassy_futures::yield_now;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::zerocopy_channel;
 use embassy_time::{Duration, Timer};
-use embedded_hal_1::digital::OutputPin;
+use embedded_io_async::ErrorKind;
 
-use crate::bus::Bus;
-pub use crate::bus::SpiBusCyw43;
 use crate::consts::*;
+use crate::runner::Bus;
+pub use crate::spi::SpiBusCyw43;
 use crate::util::round_up;
-use crate::{util, CHIP};
+use crate::{CHIP, util};
 
 pub(crate) struct BtState {
     rx: [BtPacketBuf; 4],
@@ -165,7 +165,7 @@ pub(crate) fn read_firmware_patch_line(p_btfw_cb: &mut CybtFwCb, hfd: &mut HexFi
 }
 
 impl<'a> BtRunner<'a> {
-    pub(crate) async fn init_bluetooth(&mut self, bus: &mut Bus<impl OutputPin, impl SpiBusCyw43>, firmware: &[u8]) {
+    pub(crate) async fn init_bluetooth(&mut self, bus: &mut impl Bus, firmware: &[u8]) {
         trace!("init_bluetooth");
         bus.bp_write32(CHIP.bluetooth_base_address + BT2WLAN_PWRUP_ADDR, BT2WLAN_PWRUP_WAKE)
             .await;
@@ -178,11 +178,7 @@ impl<'a> BtRunner<'a> {
         self.bt_toggle_intr(bus).await;
     }
 
-    pub(crate) async fn upload_bluetooth_firmware(
-        &mut self,
-        bus: &mut Bus<impl OutputPin, impl SpiBusCyw43>,
-        firmware: &[u8],
-    ) {
+    pub(crate) async fn upload_bluetooth_firmware(&mut self, bus: &mut impl Bus, firmware: &[u8]) {
         // read version
         let version_length = firmware[0];
         let _version = &firmware[1..=version_length as usize];
@@ -258,7 +254,7 @@ impl<'a> BtRunner<'a> {
         }
     }
 
-    pub(crate) async fn wait_bt_ready(&mut self, bus: &mut Bus<impl OutputPin, impl SpiBusCyw43>) {
+    pub(crate) async fn wait_bt_ready(&mut self, bus: &mut impl Bus) {
         trace!("wait_bt_ready");
         let mut success = false;
         for _ in 0..300 {
@@ -273,7 +269,7 @@ impl<'a> BtRunner<'a> {
         assert!(success == true);
     }
 
-    pub(crate) async fn wait_bt_awake(&mut self, bus: &mut Bus<impl OutputPin, impl SpiBusCyw43>) {
+    pub(crate) async fn wait_bt_awake(&mut self, bus: &mut impl Bus) {
         trace!("wait_bt_awake");
         let mut success = false;
         for _ in 0..300 {
@@ -288,7 +284,7 @@ impl<'a> BtRunner<'a> {
         assert!(success == true);
     }
 
-    pub(crate) async fn bt_set_host_ready(&mut self, bus: &mut Bus<impl OutputPin, impl SpiBusCyw43>) {
+    pub(crate) async fn bt_set_host_ready(&mut self, bus: &mut impl Bus) {
         trace!("bt_set_host_ready");
         let old_val = bus.bp_read32(HOST_CTRL_REG_ADDR).await;
         // TODO: do we need to swap endianness on this read?
@@ -298,7 +294,7 @@ impl<'a> BtRunner<'a> {
 
     // TODO: use this
     #[allow(dead_code)]
-    pub(crate) async fn bt_set_awake(&mut self, bus: &mut Bus<impl OutputPin, impl SpiBusCyw43>, awake: bool) {
+    pub(crate) async fn bt_set_awake(&mut self, bus: &mut impl Bus, awake: bool) {
         trace!("bt_set_awake");
         let old_val = bus.bp_read32(HOST_CTRL_REG_ADDR).await;
         // TODO: do we need to swap endianness on this read?
@@ -310,7 +306,7 @@ impl<'a> BtRunner<'a> {
         bus.bp_write32(HOST_CTRL_REG_ADDR, new_val).await;
     }
 
-    pub(crate) async fn bt_toggle_intr(&mut self, bus: &mut Bus<impl OutputPin, impl SpiBusCyw43>) {
+    pub(crate) async fn bt_toggle_intr(&mut self, bus: &mut impl Bus) {
         trace!("bt_toggle_intr");
         let old_val = bus.bp_read32(HOST_CTRL_REG_ADDR).await;
         // TODO: do we need to swap endianness on this read?
@@ -320,14 +316,14 @@ impl<'a> BtRunner<'a> {
 
     // TODO: use this
     #[allow(dead_code)]
-    pub(crate) async fn bt_set_intr(&mut self, bus: &mut Bus<impl OutputPin, impl SpiBusCyw43>) {
+    pub(crate) async fn bt_set_intr(&mut self, bus: &mut impl Bus) {
         trace!("bt_set_intr");
         let old_val = bus.bp_read32(HOST_CTRL_REG_ADDR).await;
         let new_val = old_val | BTSDIO_REG_DATA_VALID_BITMASK;
         bus.bp_write32(HOST_CTRL_REG_ADDR, new_val).await;
     }
 
-    pub(crate) async fn init_bt_buffers(&mut self, bus: &mut Bus<impl OutputPin, impl SpiBusCyw43>) {
+    pub(crate) async fn init_bt_buffers(&mut self, bus: &mut impl Bus) {
         trace!("init_bt_buffers");
         self.addr = bus.bp_read32(WLAN_RAM_BASE_REG_ADDR).await;
         assert!(self.addr != 0);
@@ -338,13 +334,13 @@ impl<'a> BtRunner<'a> {
         bus.bp_write32(self.addr + BTSDIO_OFFSET_BT2HOST_OUT, 0).await;
     }
 
-    async fn bt_bus_request(&mut self, bus: &mut Bus<impl OutputPin, impl SpiBusCyw43>) {
+    async fn bt_bus_request(&mut self, bus: &mut impl Bus) {
         // TODO: CYW43_THREAD_ENTER mutex?
         self.bt_set_awake(bus, true).await;
         self.wait_bt_awake(bus).await;
     }
 
-    pub(crate) async fn hci_write(&mut self, bus: &mut Bus<impl OutputPin, impl SpiBusCyw43>) {
+    pub(crate) async fn hci_write(&mut self, bus: &mut impl Bus) {
         self.bt_bus_request(bus).await;
 
         // NOTE(unwrap): we only call this when we do have a packet in the queue.
@@ -403,7 +399,7 @@ impl<'a> BtRunner<'a> {
         self.tx_chan.receive_done();
     }
 
-    async fn bt_has_work(&mut self, bus: &mut Bus<impl OutputPin, impl SpiBusCyw43>) -> bool {
+    async fn bt_has_work(&mut self, bus: &mut impl Bus) -> bool {
         let int_status = bus.bp_read32(CHIP.sdiod_core_base_address + SDIO_INT_STATUS).await;
         if int_status & I_HMB_FC_CHANGE != 0 {
             bus.bp_write32(
@@ -416,7 +412,7 @@ impl<'a> BtRunner<'a> {
         return false;
     }
 
-    pub(crate) async fn handle_irq(&mut self, bus: &mut Bus<impl OutputPin, impl SpiBusCyw43>) {
+    pub(crate) async fn handle_irq(&mut self, bus: &mut impl Bus) {
         if self.bt_has_work(bus).await {
             loop {
                 // Check if we have data.
@@ -472,8 +468,41 @@ impl<'a> BtRunner<'a> {
     }
 }
 
+/// HCI transport error.
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[derive(Debug)]
+pub enum Error {
+    /// I/O error.
+    Io(ErrorKind),
+}
+
+impl From<FromHciBytesError> for Error {
+    fn from(e: FromHciBytesError) -> Self {
+        match e {
+            FromHciBytesError::InvalidSize => Error::Io(ErrorKind::InvalidInput),
+            FromHciBytesError::InvalidValue => Error::Io(ErrorKind::InvalidData),
+        }
+    }
+}
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(self, f)
+    }
+}
+
+impl core::error::Error for Error {}
+
 impl<'d> embedded_io_async::ErrorType for BtDriver<'d> {
-    type Error = core::convert::Infallible;
+    type Error = Error;
+}
+
+impl embedded_io_async::Error for Error {
+    fn kind(&self) -> ErrorKind {
+        match self {
+            Self::Io(e) => *e,
+        }
+    }
 }
 
 impl<'d> bt_hci::transport::Transport for BtDriver<'d> {
@@ -486,9 +515,9 @@ impl<'d> bt_hci::transport::Transport for BtDriver<'d> {
             rx[..n].copy_from_slice(&buf.buf[..n]);
             ch.receive_done();
 
-            let kind = PacketKind::from_hci_bytes_complete(&rx[..1]).unwrap();
-            let (res, _) = ControllerToHostPacket::from_hci_bytes_with_kind(kind, &rx[1..n]).unwrap();
-            Ok(res)
+            let kind = PacketKind::from_hci_bytes_complete(&rx[..1])?;
+            let (pkt, _) = ControllerToHostPacket::from_hci_bytes_with_kind(kind, &rx[1..n])?;
+            Ok(pkt)
         }
     }
 
@@ -499,7 +528,9 @@ impl<'d> bt_hci::transport::Transport for BtDriver<'d> {
             let buf = ch.send().await;
             let buf_len = buf.buf.len();
             let mut slice = &mut buf.buf[..];
-            WithIndicator::new(val).write_hci(&mut slice).unwrap();
+            WithIndicator::new(val)
+                .write_hci(&mut slice)
+                .map_err(|_| Error::Io(ErrorKind::Other))?;
             buf.len = buf_len - slice.len();
             ch.send_done();
             Ok(())

@@ -1,10 +1,10 @@
 //! UART driver.
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicU16, Ordering};
 use core::task::Poll;
 
-use atomic_polyfill::{AtomicU16, Ordering};
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Delay, Timer};
@@ -16,7 +16,7 @@ use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel::{Binding, Interrupt as _};
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::pac::io::vals::{Inover, Outover};
-use crate::{interrupt, pac, peripherals, RegExt};
+use crate::{RegExt, interrupt, pac, peripherals};
 
 mod buffered;
 pub use buffered::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, BufferedUartTx};
@@ -117,6 +117,14 @@ pub enum Error {
     /// Triggered when the received character didn't have a valid stop bit.
     Framing,
 }
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(self, f)
+    }
+}
+
+impl core::error::Error for Error {}
 
 /// Read To Break error
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -315,7 +323,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
     }
 
     /// Returns Ok(len) if no errors occurred. Returns Err((len, err)) if an error was
-    /// encountered. in both cases, `len` is the number of *good* bytes copied into
+    /// encountered. In both cases, `len` is the number of *good* bytes copied into
     /// `buffer`.
     fn drain_fifo(&mut self, buffer: &mut [u8]) -> Result<usize, (usize, Error)> {
         let r = self.info.regs;
@@ -456,7 +464,12 @@ impl<'d> UartRx<'d, Async> {
             transfer,
             poll_fn(|cx| {
                 self.dma_state.rx_err_waker.register(cx.waker());
-                match self.dma_state.rx_errs.swap(0, Ordering::Relaxed) {
+                let rx_errs = critical_section::with(|_| {
+                    let val = self.dma_state.rx_errs.load(Ordering::Relaxed);
+                    self.dma_state.rx_errs.store(0, Ordering::Relaxed);
+                    val
+                });
+                match rx_errs {
                     0 => Poll::Pending,
                     e => Poll::Ready(Uartris(e as u32)),
                 }
@@ -468,7 +481,11 @@ impl<'d> UartRx<'d, Async> {
             Either::First(()) => {
                 // We're here because the DMA finished, BUT if an error occurred on the LAST
                 // byte, then we may still need to grab the error state!
-                Uartris(self.dma_state.rx_errs.swap(0, Ordering::Relaxed) as u32)
+                Uartris(critical_section::with(|_| {
+                    let val = self.dma_state.rx_errs.load(Ordering::Relaxed);
+                    self.dma_state.rx_errs.store(0, Ordering::Relaxed);
+                    val
+                }) as u32)
             }
             Either::Second(e) => {
                 // We're here because we errored, which means this is the error that
@@ -495,52 +512,58 @@ impl<'d> UartRx<'d, Async> {
         unreachable!("unrecognized rx error");
     }
 
-    /// Read from the UART, waiting for a line break.
+    /// Read from the UART, waiting for a break.
     ///
     /// We read until one of the following occurs:
     ///
-    /// * We read `buffer.len()` bytes without a line break
+    /// * We read `buffer.len()` bytes without a break
     ///     * returns `Err(ReadToBreakError::MissingBreak(buffer.len()))`
-    /// * We read `n` bytes then a line break occurs
+    /// * We read `n` bytes then a break occurs
     ///     * returns `Ok(n)`
-    /// * We encounter some error OTHER than a line break
+    /// * We encounter some error OTHER than a break
     ///     * returns `Err(ReadToBreakError::Other(error))`
     ///
     /// **NOTE**: you MUST provide a buffer one byte larger than your largest expected
     /// message to reliably detect the framing on one single call to `read_to_break()`.
     ///
-    /// * If you expect a message of 20 bytes + line break, and provide a 20-byte buffer:
+    /// * If you expect a message of 20 bytes + break, and provide a 20-byte buffer:
     ///     * The first call to `read_to_break()` will return `Err(ReadToBreakError::MissingBreak(20))`
-    ///     * The next call to `read_to_break()` will immediately return `Ok(0)`, from the "stale" line break
-    /// * If you expect a message of 20 bytes + line break, and provide a 21-byte buffer:
+    ///     * The next call to `read_to_break()` will immediately return `Ok(0)`, from the "stale" break
+    /// * If you expect a message of 20 bytes + break, and provide a 21-byte buffer:
     ///     * The first call to `read_to_break()` will return `Ok(20)`.
     ///     * The next call to `read_to_break()` will work as expected
+    ///
+    /// **NOTE**: In the UART context, a break refers to a break condition (the line being held low for
+    /// for longer than a single character), not an ASCII line break.
     pub async fn read_to_break(&mut self, buffer: &mut [u8]) -> Result<usize, ReadToBreakError> {
         self.read_to_break_with_count(buffer, 0).await
     }
 
-    /// Read from the UART, waiting for a line break as soon as at least `min_count` bytes have been read.
+    /// Read from the UART, waiting for a break as soon as at least `min_count` bytes have been read.
     ///
     /// We read until one of the following occurs:
     ///
-    /// * We read `buffer.len()` bytes without a line break
+    /// * We read `buffer.len()` bytes without a break
     ///     * returns `Err(ReadToBreakError::MissingBreak(buffer.len()))`
-    /// * We read `n > min_count` bytes then a line break occurs
+    /// * We read `n > min_count` bytes then a break occurs
     ///     * returns `Ok(n)`
-    /// * We encounter some error OTHER than a line break
+    /// * We encounter some error OTHER than a break
     ///     * returns `Err(ReadToBreakError::Other(error))`
     ///
-    /// If a line break occurs before `min_count` bytes have been read, the break will be ignored and the read will continue
+    /// If a break occurs before `min_count` bytes have been read, the break will be ignored and the read will continue
     ///
     /// **NOTE**: you MUST provide a buffer one byte larger than your largest expected
     /// message to reliably detect the framing on one single call to `read_to_break()`.
     ///
-    /// * If you expect a message of 20 bytes + line break, and provide a 20-byte buffer:
+    /// * If you expect a message of 20 bytes + break, and provide a 20-byte buffer:
     ///     * The first call to `read_to_break()` will return `Err(ReadToBreakError::MissingBreak(20))`
     ///     * The next call to `read_to_break()` will immediately return `Ok(0)`, from the "stale" line break
-    /// * If you expect a message of 20 bytes + line break, and provide a 21-byte buffer:
+    /// * If you expect a message of 20 bytes + break, and provide a 21-byte buffer:
     ///     * The first call to `read_to_break()` will return `Ok(20)`.
     ///     * The next call to `read_to_break()` will work as expected
+    ///
+    /// **NOTE**: In the UART context, a break refers to a break condition (the line being held low for
+    /// for longer than a single character), not an ASCII line break.
     pub async fn read_to_break_with_count(
         &mut self,
         buffer: &mut [u8],
@@ -610,7 +633,12 @@ impl<'d> UartRx<'d, Async> {
                 transfer,
                 poll_fn(|cx| {
                     self.dma_state.rx_err_waker.register(cx.waker());
-                    match self.dma_state.rx_errs.swap(0, Ordering::Relaxed) {
+                    let rx_errs = critical_section::with(|_| {
+                        let val = self.dma_state.rx_errs.load(Ordering::Relaxed);
+                        self.dma_state.rx_errs.store(0, Ordering::Relaxed);
+                        val
+                    });
+                    match rx_errs {
                         0 => Poll::Pending,
                         e => Poll::Ready(Uartris(e as u32)),
                     }
@@ -623,7 +651,11 @@ impl<'d> UartRx<'d, Async> {
                 Either::First(()) => {
                     // We're here because the DMA finished, BUT if an error occurred on the LAST
                     // byte, then we may still need to grab the error state!
-                    Uartris(self.dma_state.rx_errs.swap(0, Ordering::Relaxed) as u32)
+                    Uartris(critical_section::with(|_| {
+                        let val = self.dma_state.rx_errs.load(Ordering::Relaxed);
+                        self.dma_state.rx_errs.store(0, Ordering::Relaxed);
+                        val
+                    }) as u32)
                 }
                 Either::Second(e) => {
                     // We're here because we errored, which means this is the error that
@@ -857,11 +889,7 @@ impl<'d, M: Mode> Uart<'d, M> {
         if let Some(pin) = &tx {
             let funcsel = {
                 let pin_number = ((pin.gpio().as_ptr() as u32) & 0x1FF) / 8;
-                if (pin_number % 4) == 0 {
-                    2
-                } else {
-                    11
-                }
+                if (pin_number % 4) == 0 { 2 } else { 11 }
             };
             pin.gpio().ctrl().write(|w| {
                 w.set_funcsel(funcsel);
@@ -880,11 +908,7 @@ impl<'d, M: Mode> Uart<'d, M> {
         if let Some(pin) = &rx {
             let funcsel = {
                 let pin_number = ((pin.gpio().as_ptr() as u32) & 0x1FF) / 8;
-                if ((pin_number - 1) % 4) == 0 {
-                    2
-                } else {
-                    11
-                }
+                if ((pin_number - 1) % 4) == 0 { 2 } else { 11 }
             };
             pin.gpio().ctrl().write(|w| {
                 w.set_funcsel(funcsel);

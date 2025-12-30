@@ -6,7 +6,7 @@
 
 use embassy_executor::Spawner;
 use embassy_nrf::egu::{Egu, TriggerNumber};
-use embassy_nrf::gpio::{Input, Level, Output, OutputDrive, Pull};
+use embassy_nrf::gpio::{Level, OutputDrive, Pull};
 use embassy_nrf::gpiote::{InputChannel, InputChannelPolarity, OutputChannel, OutputChannelPolarity};
 use embassy_nrf::peripherals::{PPI_CH0, PPI_CH1, PPI_CH2};
 use embassy_nrf::ppi::Ppi;
@@ -17,12 +17,15 @@ use {defmt_rtt as _, panic_probe as _};
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
 
-    let led1 = Output::new(p.P0_13, Level::High, OutputDrive::Standard);
-    let btn1 = Input::new(p.P0_11, Pull::Up);
-
     let mut egu1 = Egu::new(p.EGU0);
-    let led1 = OutputChannel::new(p.GPIOTE_CH0, led1, OutputChannelPolarity::Toggle);
-    let btn1 = InputChannel::new(p.GPIOTE_CH1, btn1, InputChannelPolarity::LoToHi);
+    let led1 = OutputChannel::new(
+        p.GPIOTE_CH0,
+        p.P0_13,
+        Level::High,
+        OutputDrive::Standard,
+        OutputChannelPolarity::Toggle,
+    );
+    let btn1 = InputChannel::new(p.GPIOTE_CH1, p.P0_11, Pull::Up, InputChannelPolarity::LoToHi);
 
     let trigger0 = egu1.trigger(TriggerNumber::Trigger0);
     let trigger1 = egu1.trigger(TriggerNumber::Trigger1);

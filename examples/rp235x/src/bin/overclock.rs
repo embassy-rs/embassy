@@ -12,7 +12,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::clocks::{clk_sys_freq, core_voltage, ClockConfig, CoreVoltage};
+use embassy_rp::clocks::{ClockConfig, CoreVoltage, clk_sys_freq, core_voltage};
 use embassy_rp::config::Config;
 use embassy_rp::gpio::{Level, Output};
 use embassy_time::{Duration, Instant, Timer};

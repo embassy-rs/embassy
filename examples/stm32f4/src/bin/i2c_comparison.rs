@@ -10,7 +10,6 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::I2c;
-use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, i2c, peripherals};
 use embassy_time::Instant;
 use futures_util::future::try_join3;
@@ -48,38 +47,11 @@ async fn main(_spawner: Spawner) {
     info!("Setting up peripherals.");
     let p = embassy_stm32::init(Default::default());
 
-    let mut i2c1 = I2c::new(
-        p.I2C1,
-        p.PB8,
-        p.PB7,
-        Irqs,
-        p.DMA1_CH6,
-        p.DMA1_CH0,
-        Hertz(100_000),
-        Default::default(),
-    );
+    let mut i2c1 = I2c::new(p.I2C1, p.PB8, p.PB7, Irqs, p.DMA1_CH6, p.DMA1_CH0, Default::default());
 
-    let mut i2c2 = I2c::new(
-        p.I2C2,
-        p.PB10,
-        p.PB11,
-        Irqs,
-        p.DMA1_CH7,
-        p.DMA1_CH3,
-        Hertz(100_000),
-        Default::default(),
-    );
+    let mut i2c2 = I2c::new(p.I2C2, p.PB10, p.PB11, Irqs, p.DMA1_CH7, p.DMA1_CH3, Default::default());
 
-    let mut i2c3 = I2c::new(
-        p.I2C3,
-        p.PA8,
-        p.PC9,
-        Irqs,
-        p.DMA1_CH4,
-        p.DMA1_CH2,
-        Hertz(100_000),
-        Default::default(),
-    );
+    let mut i2c3 = I2c::new(p.I2C3, p.PA8, p.PC9, Irqs, p.DMA1_CH4, p.DMA1_CH2, Default::default());
 
     let a1454_read_sensor_command = [0x1F];
     let mut i2c1_buffer: [u8; 4] = [0, 0, 0, 0];

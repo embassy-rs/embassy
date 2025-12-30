@@ -8,6 +8,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     #[cfg(feature = "mspm0g3507")]
     let memory_x = include_bytes!("memory_g3507.x");
 
+    #[cfg(feature = "mspm0g3519")]
+    let memory_x = include_bytes!("memory_g3519.x");
+
     fs::write(out.join("memory.x"), memory_x).unwrap();
 
     println!("cargo:rustc-link-search={}", out.display());

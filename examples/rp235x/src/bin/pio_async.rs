@@ -7,7 +7,7 @@ use embassy_executor::Spawner;
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::program::pio_asm;
 use embassy_rp::pio::{Common, Config, InterruptHandler, Irq, Pio, PioPin, ShiftDirection, StateMachine};
-use embassy_rp::{bind_interrupts, Peri};
+use embassy_rp::{Peri, bind_interrupts};
 use fixed::traits::ToFixed;
 use fixed_macro::types::U56F8;
 use {defmt_rtt as _, panic_probe as _};
@@ -125,7 +125,7 @@ async fn main(spawner: Spawner) {
     setup_pio_task_sm0(&mut common, &mut sm0, p.PIN_0);
     setup_pio_task_sm1(&mut common, &mut sm1);
     setup_pio_task_sm2(&mut common, &mut sm2);
-    spawner.spawn(pio_task_sm0(sm0)).unwrap();
-    spawner.spawn(pio_task_sm1(sm1)).unwrap();
-    spawner.spawn(pio_task_sm2(irq3, sm2)).unwrap();
+    spawner.spawn(pio_task_sm0(sm0).unwrap());
+    spawner.spawn(pio_task_sm1(sm1).unwrap());
+    spawner.spawn(pio_task_sm2(irq3, sm2).unwrap());
 }

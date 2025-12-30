@@ -15,9 +15,9 @@
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::OutputType;
 use embassy_stm32::time::khz;
+use embassy_stm32::timer::Channel;
 use embassy_stm32::timer::low_level::CountingMode;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
-use embassy_stm32::timer::Channel;
 use embassy_time::{Duration, Ticker, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -50,7 +50,7 @@ async fn main(_spawner: Spawner) {
 
     let mut ws2812_pwm = SimplePwm::new(
         dp.TIM3,
-        Some(PwmPin::new_ch1(dp.PB4, OutputType::PushPull)),
+        Some(PwmPin::new(dp.PB4, OutputType::PushPull)),
         None,
         None,
         None,
@@ -61,7 +61,7 @@ async fn main(_spawner: Spawner) {
     // construct ws2812 non-return-to-zero (NRZ) code bit by bit
     // ws2812 only need 24 bits for each LED, but we add one bit more to keep PWM output low
 
-    let max_duty = ws2812_pwm.max_duty_cycle();
+    let max_duty = ws2812_pwm.max_duty_cycle() as u16;
     let n0 = 8 * max_duty / 25; // ws2812 Bit 0 high level timing
     let n1 = 2 * n0; // ws2812 Bit 1 high level timing
 

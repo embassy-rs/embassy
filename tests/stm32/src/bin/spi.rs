@@ -8,6 +8,7 @@ use defmt::assert_eq;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::mode::Blocking;
+use embassy_stm32::spi::mode::Master;
 use embassy_stm32::spi::{self, Spi, Word};
 use embassy_stm32::time::Hertz;
 
@@ -65,7 +66,7 @@ async fn main(_spawner: Spawner) {
     cortex_m::asm::bkpt();
 }
 
-fn test_txrx<W: Word + From<u8> + defmt::Format + Eq>(spi: &mut Spi<'_, Blocking>)
+fn test_txrx<W: Word + From<u8> + defmt::Format + Eq>(spi: &mut Spi<'_, Blocking, Master>)
 where
     W: core::ops::Not<Output = W>,
 {
@@ -109,7 +110,7 @@ where
     spi.blocking_write::<u8>(&[]).unwrap();
 }
 
-fn test_rx<W: Word + From<u8> + defmt::Format + Eq>(spi: &mut Spi<'_, Blocking>, mosi_out: &mut Output<'_>)
+fn test_rx<W: Word + From<u8> + defmt::Format + Eq>(spi: &mut Spi<'_, Blocking, Master>, mosi_out: &mut Output<'_>)
 where
     W: core::ops::Not<Output = W>,
 {
@@ -125,7 +126,7 @@ where
     spi.blocking_read::<u8>(&mut []).unwrap();
 }
 
-fn test_tx<W: Word + From<u8> + defmt::Format + Eq>(spi: &mut Spi<'_, Blocking>)
+fn test_tx<W: Word + From<u8> + defmt::Format + Eq>(spi: &mut Spi<'_, Blocking, Master>)
 where
     W: core::ops::Not<Output = W>,
 {

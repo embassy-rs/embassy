@@ -14,9 +14,9 @@
 use assign_resources::assign_resources;
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_rp::Peri;
 use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::{self, PIN_20, PIN_21};
-use embassy_rp::Peri;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -26,15 +26,13 @@ async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
     // 1) Assigning a resource to a task by passing parts of the peripherals.
-    spawner
-        .spawn(double_blinky_manually_assigned(spawner, p.PIN_20, p.PIN_21))
-        .unwrap();
+    spawner.spawn(double_blinky_manually_assigned(spawner, p.PIN_20, p.PIN_21).unwrap());
 
     // 2) Using the assign-resources macro to assign resources to a task.
     // we perform the split, see further below for the definition of the resources struct
     let r = split_resources!(p);
     // and then we can use them
-    spawner.spawn(double_blinky_macro_assigned(spawner, r.leds)).unwrap();
+    spawner.spawn(double_blinky_macro_assigned(spawner, r.leds).unwrap());
 }
 
 // 1) Assigning a resource to a task by passing parts of the peripherals.

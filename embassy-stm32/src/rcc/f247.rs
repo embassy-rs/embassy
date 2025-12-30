@@ -1,13 +1,13 @@
 use stm32_metapac::flash::vals::Latency;
 
+#[cfg(any(stm32f4, stm32f7))]
+use crate::pac::PWR;
 #[cfg(any(stm32f413, stm32f423, stm32f412))]
 pub use crate::pac::rcc::vals::Plli2ssrc as Plli2sSource;
 pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Pllm as PllPreDiv, Plln as PllMul, Pllp as PllPDiv, Pllq as PllQDiv, Pllr as PllRDiv,
     Pllsrc as PllSource, Ppre as APBPrescaler, Sw as Sysclk,
 };
-#[cfg(any(stm32f4, stm32f7))]
-use crate::pac::PWR;
 use crate::pac::{FLASH, RCC};
 use crate::time::Hertz;
 
@@ -108,8 +108,8 @@ pub struct Config {
     pub voltage: VoltageScale,
 }
 
-impl Default for Config {
-    fn default() -> Self {
+impl Config {
+    pub const fn new() -> Self {
         Self {
             hsi: true,
             hse: None,
@@ -127,12 +127,18 @@ impl Default for Config {
             apb1_pre: APBPrescaler::DIV1,
             apb2_pre: APBPrescaler::DIV1,
 
-            ls: Default::default(),
+            ls: crate::rcc::LsConfig::new(),
 
             #[cfg(stm32f2)]
             voltage: VoltageScale::Range3,
-            mux: Default::default(),
+            mux: super::mux::ClockMux::default(),
         }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

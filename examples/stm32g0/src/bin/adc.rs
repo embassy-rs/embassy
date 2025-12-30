@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{Adc, SampleTime};
+use embassy_stm32::adc::{Adc, Clock, Presc, SampleTime};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -12,12 +12,11 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    let mut adc = Adc::new(p.ADC1);
-    adc.set_sample_time(SampleTime::CYCLES79_5);
+    let mut adc = Adc::new_with_clock(p.ADC1, Clock::Async { div: Presc::DIV1 });
     let mut pin = p.PA1;
 
     let mut vrefint = adc.enable_vrefint();
-    let vrefint_sample = adc.blocking_read(&mut vrefint);
+    let vrefint_sample = adc.blocking_read(&mut vrefint, SampleTime::CYCLES79_5);
     let convert_to_millivolts = |sample| {
         // From https://www.st.com/resource/en/datasheet/stm32g031g8.pdf
         // 6.3.3 Embedded internal reference voltage
@@ -27,7 +26,7 @@ async fn main(_spawner: Spawner) {
     };
 
     loop {
-        let v = adc.blocking_read(&mut pin);
+        let v = adc.blocking_read(&mut pin, SampleTime::CYCLES79_5);
         info!("--> {} - {} mV", v, convert_to_millivolts(v));
         Timer::after_millis(100).await;
     }

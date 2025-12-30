@@ -1,13 +1,13 @@
 #![no_std]
 #![no_main]
 
+use aes_gcm::Aes128Gcm;
 use aes_gcm::aead::heapless::Vec;
 use aes_gcm::aead::{AeadInPlace, KeyInit};
-use aes_gcm::Aes128Gcm;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::cryp::{self, *};
-use embassy_stm32::{bind_interrupts, peripherals, Config};
+use embassy_stm32::{Config, bind_interrupts, peripherals};
 use embassy_time::Instant;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -68,7 +68,9 @@ async fn main(_spawner: Spawner) -> ! {
     );
 
     // Decrypt in software using AES-GCM 128-bit
-    let _ = cipher.decrypt_in_place(&iv.into(), aad.into(), &mut payload_vec);
+    cipher
+        .decrypt_in_place(&iv.into(), aad.into(), &mut payload_vec)
+        .unwrap();
 
     let sw_end_time = Instant::now();
     let sw_execution_time = sw_end_time - sw_start_time;

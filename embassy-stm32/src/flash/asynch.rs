@@ -1,17 +1,17 @@
 use core::marker::PhantomData;
-use core::sync::atomic::{fence, Ordering};
+use core::sync::atomic::{Ordering, fence};
 
 use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::mutex::Mutex;
 
 use super::{
-    blocking_read, ensure_sector_aligned, family, get_flash_regions, get_sector, Async, Error, Flash, FlashLayout,
-    FLASH_BASE, FLASH_SIZE, WRITE_SIZE,
+    Async, Error, FLASH_BASE, FLASH_SIZE, Flash, FlashLayout, WRITE_SIZE, blocking_read, ensure_sector_aligned, family,
+    get_flash_regions, get_sector,
 };
 use crate::interrupt::InterruptExt;
 use crate::peripherals::FLASH;
-use crate::{interrupt, Peri};
+use crate::{Peri, interrupt};
 
 pub(super) static REGION_ACCESS: Mutex<CriticalSectionRawMutex, ()> = Mutex::new(());
 

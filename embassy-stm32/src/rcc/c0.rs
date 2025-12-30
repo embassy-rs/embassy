@@ -49,6 +49,10 @@ pub struct Config {
     /// System Clock Configuration
     pub sys: Sysclk,
 
+    /// HSI48 Configuration
+    #[cfg(crs)]
+    pub hsi48: Option<super::Hsi48Config>,
+
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
 
@@ -59,9 +63,8 @@ pub struct Config {
     pub mux: super::mux::ClockMux,
 }
 
-impl Default for Config {
-    #[inline]
-    fn default() -> Config {
+impl Config {
+    pub const fn new() -> Self {
         Config {
             hsi: Some(Hsi {
                 sys_div: HsiSysDiv::DIV4,
@@ -69,11 +72,19 @@ impl Default for Config {
             }),
             hse: None,
             sys: Sysclk::HSISYS,
+            #[cfg(crs)]
+            hsi48: Some(crate::rcc::Hsi48Config::new()),
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
-            ls: Default::default(),
-            mux: Default::default(),
+            ls: crate::rcc::LsConfig::new(),
+            mux: super::mux::ClockMux::default(),
         }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Config {
+        Self::new()
     }
 }
 
@@ -121,6 +132,10 @@ pub(crate) unsafe fn init(config: Config) {
             Some(hse.freq)
         }
     };
+
+    // Configure HSI48 if required
+    #[cfg(crs)]
+    let hsi48 = config.hsi48.map(super::init_hsi48);
 
     let rtc = config.ls.init();
 
@@ -170,6 +185,12 @@ pub(crate) unsafe fn init(config: Config) {
         RCC.cr().modify(|w| w.set_hsion(false));
     }
 
+    // Disable the HSI48, if not used
+    #[cfg(crs)]
+    if config.hsi48.is_none() {
+        super::disable_hsi48();
+    }
+
     config.mux.init();
 
     set_clocks!(
@@ -180,6 +201,8 @@ pub(crate) unsafe fn init(config: Config) {
         hsi: hsi,
         hsiker: hsiker,
         hse: hse,
+        #[cfg(crs)]
+        hsi48: hsi48,
         rtc: rtc,
 
         // TODO

@@ -8,7 +8,7 @@ teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_rp::clocks::{clk_sys_freq, core_voltage, ClockConfig, CoreVoltage};
+use embassy_rp::clocks::{ClockConfig, CoreVoltage, clk_sys_freq, core_voltage};
 use embassy_rp::config::Config;
 use embassy_time::Instant;
 use {defmt_rtt as _, panic_probe as _};

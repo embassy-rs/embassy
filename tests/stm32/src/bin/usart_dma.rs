@@ -7,7 +7,7 @@ use common::*;
 use defmt::assert_eq;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
-use embassy_stm32::usart::{Config, Uart};
+use embassy_stm32::usart::{Config, Error, Uart};
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -32,6 +32,7 @@ async fn main(_spawner: Spawner) {
 
     let (mut tx, mut rx) = usart.split();
 
+    let mut noise_count = 0;
     for n in 0..42 {
         for i in 0..LEN {
             tx_buf[i] = (i ^ n) as u8;
@@ -40,16 +41,29 @@ async fn main(_spawner: Spawner) {
         let tx_fut = async {
             tx.write(&tx_buf).await.unwrap();
         };
+
+        let mut is_noisy = false;
         let rx_fut = async {
-            rx.read(&mut rx_buf).await.unwrap();
+            match rx.read(&mut rx_buf).await {
+                Ok(()) => {}
+                Err(Error::Noise) => is_noisy = true,
+                _ => defmt::panic!(),
+            }
         };
 
         // note: rx needs to be polled first, to workaround this bug:
         // https://github.com/embassy-rs/embassy/issues/1426
         join(rx_fut, tx_fut).await;
 
+        if is_noisy {
+            noise_count += 1;
+            continue;
+        }
+
         assert_eq!(tx_buf, rx_buf);
     }
+
+    defmt::assert!(noise_count < 3);
 
     // Test flush doesn't hang. Check multiple combinations of async+blocking.
     tx.write(&tx_buf).await.unwrap();

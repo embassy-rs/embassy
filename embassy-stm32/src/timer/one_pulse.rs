@@ -7,17 +7,16 @@ use core::pin::Pin;
 use core::task::{Context, Poll};
 
 use super::low_level::{
-    CountingMode, FilterValue, InputCaptureMode, InputTISelection, SlaveMode, Timer, TriggerSource,
+    CountingMode, FilterValue, InputCaptureMode, InputTISelection, SlaveMode, Timer, TriggerSource as Ts,
 };
-use super::{
-    CaptureCompareInterruptHandler, Channel, Channel1Pin, Channel2Pin, ExternalTriggerPin, GeneralInstance4Channel,
-};
+use super::{CaptureCompareInterruptHandler, Channel, ExternalTriggerPin, GeneralInstance4Channel, TimerPin};
 pub use super::{Ch1, Ch2};
+use crate::Peri;
 use crate::gpio::{AfType, AnyPin, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::pac::timer::vals::Etp;
 use crate::time::Hertz;
-use crate::Peri;
+use crate::timer::TimerChannel;
 
 /// External input marker type.
 pub enum Ext {}
@@ -44,28 +43,46 @@ impl From<ExternalTriggerPolarity> for Etp {
 ///
 /// This wraps a pin to make it usable as a timer trigger.
 pub struct TriggerPin<'d, T, C> {
-    _pin: Peri<'d, AnyPin>,
+    #[allow(unused)]
+    pin: Peri<'d, AnyPin>,
     phantom: PhantomData<(T, C)>,
 }
 
-macro_rules! channel_impl {
-    ($new_chx:ident, $channel:ident, $pin_trait:ident) => {
-        impl<'d, T: GeneralInstance4Channel> TriggerPin<'d, T, $channel> {
-            #[doc = concat!("Create a new ", stringify!($channel), " trigger pin instance.")]
-            pub fn $new_chx(pin: Peri<'d, impl $pin_trait<T>>, pull: Pull) -> Self {
-                pin.set_as_af(pin.af_num(), AfType::input(pull));
-                TriggerPin {
-                    _pin: pin.into(),
-                    phantom: PhantomData,
-                }
-            }
+trait SealedTriggerSource {}
+
+/// Marker trait for a trigger source.
+#[expect(private_bounds)]
+pub trait TriggerSource: SealedTriggerSource {}
+
+impl TriggerSource for Ch1 {}
+impl TriggerSource for Ch2 {}
+impl TriggerSource for Ext {}
+
+impl SealedTriggerSource for Ch1 {}
+impl SealedTriggerSource for Ch2 {}
+impl SealedTriggerSource for Ext {}
+
+impl<'d, T: GeneralInstance4Channel, C: TriggerSource + TimerChannel> TriggerPin<'d, T, C> {
+    /// Create a new Channel trigger pin instance.
+    pub fn new<#[cfg(afio)] A>(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, pull: Pull) -> Self {
+        set_as_af!(pin, AfType::input(pull));
+        TriggerPin {
+            pin: pin.into(),
+            phantom: PhantomData,
         }
-    };
+    }
 }
 
-channel_impl!(new_ch1, Ch1, Channel1Pin);
-channel_impl!(new_ch2, Ch2, Channel2Pin);
-channel_impl!(new_ext, Ext, ExternalTriggerPin);
+impl<'d, T: GeneralInstance4Channel> TriggerPin<'d, T, Ext> {
+    /// Create a new external trigger pin instance.
+    pub fn new_external<#[cfg(afio)] A>(pin: Peri<'d, if_afio!(impl ExternalTriggerPin<T, A>)>, pull: Pull) -> Self {
+        set_as_af!(pin, AfType::input(pull));
+        TriggerPin {
+            pin: pin.into(),
+            phantom: PhantomData,
+        }
+    }
+}
 
 /// One pulse driver.
 ///
@@ -79,9 +96,10 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
     ///
     /// The pulse is triggered by a channel 1 input pin on both rising and
     /// falling edges. Channel 1 will unusable as an output.
+    #[allow(unused)]
     pub fn new_ch1_edge_detect(
         tim: Peri<'d, T>,
-        _pin: TriggerPin<'d, T, Ch1>,
+        pin: TriggerPin<'d, T, Ch1>,
         _irq: impl Binding<T::CaptureCompareInterrupt, CaptureCompareInterruptHandler<T>> + 'd,
         freq: Hertz,
         pulse_end: u32,
@@ -89,7 +107,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
     ) -> Self {
         let mut this = Self { inner: Timer::new(tim) };
 
-        this.inner.set_trigger_source(TriggerSource::TI1F_ED);
+        this.inner.set_trigger_source(Ts::TI1F_ED);
         this.inner
             .set_input_ti_selection(Channel::Ch1, InputTISelection::Normal);
         this.inner
@@ -114,7 +132,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
     ) -> Self {
         let mut this = Self { inner: Timer::new(tim) };
 
-        this.inner.set_trigger_source(TriggerSource::TI1FP1);
+        this.inner.set_trigger_source(Ts::TI1FP1);
         this.inner
             .set_input_ti_selection(Channel::Ch1, InputTISelection::Normal);
         this.inner
@@ -131,7 +149,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
     /// as an output.
     pub fn new_ch2(
         tim: Peri<'d, T>,
-        _pin: TriggerPin<'d, T, Ch1>,
+        _pin: TriggerPin<'d, T, Ch2>,
         _irq: impl Binding<T::CaptureCompareInterrupt, CaptureCompareInterruptHandler<T>> + 'd,
         freq: Hertz,
         pulse_end: u32,
@@ -140,7 +158,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
     ) -> Self {
         let mut this = Self { inner: Timer::new(tim) };
 
-        this.inner.set_trigger_source(TriggerSource::TI2FP2);
+        this.inner.set_trigger_source(Ts::TI2FP2);
         this.inner
             .set_input_ti_selection(Channel::Ch2, InputTISelection::Normal);
         this.inner
@@ -172,7 +190,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
             // No filtering
             r.set_etf(FilterValue::NO_FILTER);
         });
-        this.inner.set_trigger_source(TriggerSource::ETRF);
+        this.inner.set_trigger_source(Ts::ETRF);
         this.new_inner(freq, pulse_end, counting_mode);
 
         this
@@ -181,7 +199,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
     fn new_inner(&mut self, freq: Hertz, pulse_end: u32, counting_mode: CountingMode) {
         self.inner.set_counting_mode(counting_mode);
         self.inner.set_tick_freq(freq);
-        self.inner.set_max_compare_value(pulse_end);
+        self.inner.set_max_compare_value(unwrap!(pulse_end.try_into()));
         self.inner.regs_core().cr1().modify(|r| r.set_opm(true));
         // Required for advanced timers, see GeneralInstance4Channel for details
         self.inner.enable_outputs();
@@ -193,14 +211,14 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
 
     /// Get the end of the pulse in ticks from the trigger.
     pub fn pulse_end(&self) -> u32 {
-        let max = self.inner.get_max_compare_value();
+        let max: u32 = self.inner.get_max_compare_value().into();
         assert!(max < u32::MAX);
         max + 1
     }
 
     /// Set the end of the pulse in ticks from the trigger.
     pub fn set_pulse_end(&mut self, ticks: u32) {
-        self.inner.set_max_compare_value(ticks)
+        self.inner.set_max_compare_value(unwrap!(ticks.try_into()))
     }
 
     /// Reset the timer on each trigger
@@ -309,7 +327,7 @@ pub struct OnePulseChannel<'d, T: GeneralInstance4Channel> {
 impl<'d, T: GeneralInstance4Channel> OnePulseChannel<'d, T> {
     /// Get the end of the pulse in ticks from the trigger.
     pub fn pulse_end(&self) -> u32 {
-        let max = self.inner.get_max_compare_value();
+        let max: u32 = self.inner.get_max_compare_value().into();
         assert!(max < u32::MAX);
         max + 1
     }
@@ -321,13 +339,13 @@ impl<'d, T: GeneralInstance4Channel> OnePulseChannel<'d, T> {
 
     /// Get the start of the pulse in ticks from the trigger.
     pub fn pulse_delay(&mut self) -> u32 {
-        self.inner.get_compare_value(self.channel)
+        self.inner.get_compare_value(self.channel).into()
     }
 
     /// Set the start of the pulse in ticks from the trigger.
     pub fn set_pulse_delay(&mut self, delay: u32) {
         assert!(delay <= self.pulse_end());
-        self.inner.set_compare_value(self.channel, delay);
+        self.inner.set_compare_value(self.channel, unwrap!(delay.try_into()));
     }
 
     /// Set the pulse width in ticks.

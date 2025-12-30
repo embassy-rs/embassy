@@ -4,6 +4,9 @@
 #[cfg(feature = "mspm0g3507")]
 teleprobe_meta::target!(b"lp-mspm0g3507");
 
+#[cfg(feature = "mspm0g3519")]
+teleprobe_meta::target!(b"lp-mspm0g3519");
+
 use defmt::{assert_eq, unwrap, *};
 use embassy_executor::Spawner;
 use embassy_mspm0::mode::Blocking;
@@ -23,7 +26,7 @@ async fn main(_spawner: Spawner) {
 
     // TODO: Allow creating a looped-back UART (so pins are not needed).
     // Do not select default UART since the virtual COM port is attached to UART0.
-    #[cfg(feature = "mspm0g3507")]
+    #[cfg(any(feature = "mspm0g3507", feature = "mspm0g3519"))]
     let (mut tx, mut rx, mut uart) = (p.PA8, p.PA9, p.UART1);
 
     const MFCLK_BUAD_RATES: &[u32] = &[1200, 2400, 4800, 9600, 19200, 38400, 57600, 115200];

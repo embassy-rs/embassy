@@ -2,7 +2,6 @@
 #[cfg(any(cryp_v2, cryp_v3, cryp_v4))]
 use core::cmp::min;
 use core::marker::PhantomData;
-use core::ptr;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
@@ -1237,7 +1236,10 @@ impl<'d, T: Instance, M: Mode> Cryp<'d, T, M> {
         }
         if C::REQUIRES_PADDING {
             if last_block_remainder != 0 {
-                panic!("Input must be a multiple of {} bytes in ECB and CBC modes. Consider padding or ciphertext stealing.", C::BLOCK_SIZE);
+                panic!(
+                    "Input must be a multiple of {} bytes in ECB and CBC modes. Consider padding or ciphertext stealing.",
+                    C::BLOCK_SIZE
+                );
             }
         }
         if last_block {
@@ -1704,7 +1706,10 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         }
         if C::REQUIRES_PADDING {
             if last_block_remainder != 0 {
-                panic!("Input must be a multiple of {} bytes in ECB and CBC modes. Consider padding or ciphertext stealing.", C::BLOCK_SIZE);
+                panic!(
+                    "Input must be a multiple of {} bytes in ECB and CBC modes. Consider padding or ciphertext stealing.",
+                    C::BLOCK_SIZE
+                );
             }
         }
         if last_block {
@@ -1814,14 +1819,11 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         assert_eq!(blocks.len() % block_size, 0);
         // Configure DMA to transfer input to crypto core.
         let dst_ptr: *mut u32 = T::regs().din().as_ptr();
-        let num_words = blocks.len() / 4;
-        let src_ptr: *const [u8] = ptr::slice_from_raw_parts(blocks.as_ptr().cast(), num_words);
         let options = TransferOptions {
-            #[cfg(not(gpdma))]
             priority: crate::dma::Priority::High,
             ..Default::default()
         };
-        let dma_transfer = unsafe { dma.write_raw(src_ptr, dst_ptr, options) };
+        let dma_transfer = unsafe { dma.write_raw(blocks, dst_ptr, options) };
         T::regs().dmacr().modify(|w| w.set_dien(true));
         // Wait for the transfer to complete.
         dma_transfer.await;
@@ -1836,14 +1838,11 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         assert_eq!((blocks.len() * 4) % block_size, 0);
         // Configure DMA to transfer input to crypto core.
         let dst_ptr: *mut u32 = T::regs().din().as_ptr();
-        let num_words = blocks.len();
-        let src_ptr: *const [u32] = ptr::slice_from_raw_parts(blocks.as_ptr().cast(), num_words);
         let options = TransferOptions {
-            #[cfg(not(gpdma))]
             priority: crate::dma::Priority::High,
             ..Default::default()
         };
-        let dma_transfer = unsafe { dma.write_raw(src_ptr, dst_ptr, options) };
+        let dma_transfer = unsafe { dma.write_raw(blocks, dst_ptr, options) };
         T::regs().dmacr().modify(|w| w.set_dien(true));
         // Wait for the transfer to complete.
         dma_transfer.await;
@@ -1857,14 +1856,11 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         assert_eq!(blocks.len() % block_size, 0);
         // Configure DMA to get output from crypto core.
         let src_ptr = T::regs().dout().as_ptr();
-        let num_words = blocks.len() / 4;
-        let dst_ptr = ptr::slice_from_raw_parts_mut(blocks.as_mut_ptr().cast(), num_words);
         let options = TransferOptions {
-            #[cfg(not(gpdma))]
             priority: crate::dma::Priority::VeryHigh,
             ..Default::default()
         };
-        let dma_transfer = unsafe { dma.read_raw(src_ptr, dst_ptr, options) };
+        let dma_transfer = unsafe { dma.read_raw(src_ptr, blocks, options) };
         T::regs().dmacr().modify(|w| w.set_doen(true));
         // Wait for the transfer to complete.
         dma_transfer.await;

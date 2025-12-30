@@ -1,5 +1,5 @@
 //! Clock configuration for the `RT6xx`
-use core::sync::atomic::{AtomicU32, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 
 use paste::paste;
 

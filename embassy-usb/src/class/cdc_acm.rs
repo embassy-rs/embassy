@@ -1,7 +1,7 @@
 //! CDC-ACM class implementation, aka Serial over USB.
 
 use core::cell::{Cell, RefCell};
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::mem::{self, MaybeUninit};
 use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
@@ -32,6 +32,30 @@ const REQ_GET_ENCAPSULATED_COMMAND: u8 = 0x01;
 const REQ_SET_LINE_CODING: u8 = 0x20;
 const REQ_GET_LINE_CODING: u8 = 0x21;
 const REQ_SET_CONTROL_LINE_STATE: u8 = 0x22;
+
+/// CDC ACM error.
+#[derive(Clone, Debug)]
+pub enum CdcAcmError {
+    /// USB is not connected.
+    NotConnected,
+}
+
+impl core::fmt::Display for CdcAcmError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {
+            Self::NotConnected => f.write_str("NotConnected"),
+        }
+    }
+}
+
+impl core::error::Error for CdcAcmError {}
+impl embedded_io_async::Error for CdcAcmError {
+    fn kind(&self) -> embedded_io_async::ErrorKind {
+        match *self {
+            Self::NotConnected => embedded_io_async::ErrorKind::NotConnected,
+        }
+    }
+}
 
 /// Internal state for CDC-ACM
 pub struct State<'a> {
@@ -254,14 +278,14 @@ impl<'d, D: Driver<'d>> CdcAcmClass<'d, D> {
             ],
         );
 
-        let comm_ep = alt.endpoint_interrupt_in(8, 255);
+        let comm_ep = alt.endpoint_interrupt_in(None, 8, 255);
 
         // Data interface
         let mut iface = func.interface();
         let data_if = iface.interface_number();
         let mut alt = iface.alt_setting(USB_CLASS_CDC_DATA, 0x00, CDC_PROTOCOL_NONE, None);
-        let read_ep = alt.endpoint_bulk_out(max_packet_size);
-        let write_ep = alt.endpoint_bulk_in(max_packet_size);
+        let read_ep = alt.endpoint_bulk_out(None, max_packet_size);
+        let write_ep = alt.endpoint_bulk_in(None, max_packet_size);
 
         drop(func);
 
@@ -366,6 +390,16 @@ impl<'d> ControlChanged<'d> {
     pub async fn control_changed(&self) {
         self.control.changed().await;
     }
+
+    /// Gets the DTR (data terminal ready) state
+    pub fn dtr(&self) -> bool {
+        self.control.dtr.load(Ordering::Relaxed)
+    }
+
+    /// Gets the RTS (request to send) state
+    pub fn rts(&self) -> bool {
+        self.control.rts.load(Ordering::Relaxed)
+    }
 }
 
 /// CDC ACM class packet sender.
@@ -411,14 +445,21 @@ impl<'d, D: Driver<'d>> Sender<'d, D> {
 }
 
 impl<'d, D: Driver<'d>> embedded_io_async::ErrorType for Sender<'d, D> {
-    type Error = EndpointError;
+    type Error = CdcAcmError;
 }
 
 impl<'d, D: Driver<'d>> embedded_io_async::Write for Sender<'d, D> {
     async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
         let len = core::cmp::min(buf.len(), self.max_packet_size() as usize);
-        self.write_packet(&buf[..len]).await?;
-        Ok(len)
+        match self.write_packet(&buf[..len]).await {
+            Ok(()) => Ok(len),
+            Err(EndpointError::BufferOverflow) => unreachable!(),
+            Err(EndpointError::Disabled) => Err(CdcAcmError::NotConnected),
+        }
+    }
+
+    async fn flush(&mut self) -> Result<(), Self::Error> {
+        Ok(())
     }
 }
 
@@ -501,7 +542,7 @@ impl<'d, D: Driver<'d>> BufferedReceiver<'d, D> {
     fn read_from_buffer(&mut self, buf: &mut [u8]) -> usize {
         let available = &self.buffer[self.start..self.end];
         let len = core::cmp::min(available.len(), buf.len());
-        buf[..len].copy_from_slice(&self.buffer[..len]);
+        buf[..len].copy_from_slice(&available[..len]);
         self.start += len;
         len
     }
@@ -529,7 +570,7 @@ impl<'d, D: Driver<'d>> BufferedReceiver<'d, D> {
 }
 
 impl<'d, D: Driver<'d>> embedded_io_async::ErrorType for BufferedReceiver<'d, D> {
-    type Error = EndpointError;
+    type Error = CdcAcmError;
 }
 
 impl<'d, D: Driver<'d>> embedded_io_async::Read for BufferedReceiver<'d, D> {
@@ -542,12 +583,23 @@ impl<'d, D: Driver<'d>> embedded_io_async::Read for BufferedReceiver<'d, D> {
         // If the caller's buffer is large enough to contain an entire packet, read directly into
         // that instead of buffering the packet internally.
         if buf.len() > self.receiver.max_packet_size() as usize {
-            return self.receiver.read_packet(buf).await;
+            return match self.receiver.read_packet(buf).await {
+                Ok(n) => Ok(n),
+                Err(EndpointError::BufferOverflow) => unreachable!(),
+                Err(EndpointError::Disabled) => Err(CdcAcmError::NotConnected),
+            };
         }
 
-        // Otherwise read a packet into the internal buffer, and return some of it to the caller
+        // Otherwise read a packet into the internal buffer, and return some of it to the caller.
+        //
+        // It's important that `start` and `end` be updated in this order so they're left in a
+        // consistent state if the `read` future is dropped mid-execution, e.g. from a timeout.
+        match self.receiver.read_packet(&mut self.buffer).await {
+            Ok(n) => self.end = n,
+            Err(EndpointError::BufferOverflow) => unreachable!(),
+            Err(EndpointError::Disabled) => return Err(CdcAcmError::NotConnected),
+        }
         self.start = 0;
-        self.end = self.receiver.read_packet(&mut self.buffer).await?;
         return Ok(self.read_from_buffer(buf));
     }
 }

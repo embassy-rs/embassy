@@ -52,7 +52,7 @@ async fn ppp_task(stack: Stack<'static>, mut runner: Runner<'static>, port: Seri
         password: b"mypass",
     };
 
-    runner
+    let r = runner
         .run(port, config, |ipv4| {
             let Some(addr) = ipv4.address else {
                 warn!("PPP did not provide an IP address.");
@@ -69,9 +69,10 @@ async fn ppp_task(stack: Stack<'static>, mut runner: Runner<'static>, port: Seri
             });
             stack.set_config_v4(config);
         })
-        .await
-        .unwrap();
-    unreachable!()
+        .await;
+    match r {
+        Err(e) => panic!("{:?}", e),
+    }
 }
 
 #[embassy_executor::task]
@@ -102,8 +103,8 @@ async fn main_task(spawner: Spawner) {
     );
 
     // Launch network task
-    spawner.spawn(net_task(net_runner)).unwrap();
-    spawner.spawn(ppp_task(stack, runner, port)).unwrap();
+    spawner.spawn(net_task(net_runner).unwrap());
+    spawner.spawn(ppp_task(stack, runner, port).unwrap());
 
     // Then we can use it!
     let mut rx_buffer = [0; 4096];
@@ -160,6 +161,6 @@ fn main() {
 
     let executor = EXECUTOR.init(Executor::new());
     executor.run(|spawner| {
-        spawner.spawn(main_task(spawner)).unwrap();
+        spawner.spawn(main_task(spawner).unwrap());
     });
 }

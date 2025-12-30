@@ -2,21 +2,20 @@
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin as FuturePin;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{AtomicU8, AtomicU32, Ordering, compiler_fence};
 use core::task::{Context, Poll};
 
-use atomic_polyfill::{AtomicU64, AtomicU8};
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
-use fixed::types::extra::U8;
 use fixed::FixedU32;
+use fixed::types::extra::U8;
 use pio::{Program, SideSet, Wrap};
 
-use crate::dma::{Channel, Transfer, Word};
+use crate::dma::{self, Channel, Transfer, Word};
 use crate::gpio::{self, AnyPin, Drive, Level, Pull, SealedPin, SlewRate};
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::relocate::RelocatedProgram;
-use crate::{pac, peripherals, RegExt};
+use crate::{RegExt, pac, peripherals};
 
 mod instr;
 
@@ -62,7 +61,7 @@ pub enum FifoJoin {
     #[cfg(feature = "_rp235x")]
     RxAsControl,
     /// FJOIN_RX_PUT | FJOIN_RX_GET: RX can be used as a scratch register,
-    /// not accesible from the CPU
+    /// not accessible from the CPU
     #[cfg(feature = "_rp235x")]
     PioScratch,
 }
@@ -98,6 +97,9 @@ pub enum StatusSource {
     TxFifoLevel = 0,
     /// All-ones if RX FIFO level < N, otherwise all-zeroes.
     RxFifoLevel = 1,
+    /// All-ones if the indexed IRQ flag is raised, otherwise all-zeroes
+    #[cfg(feature = "_rp235x")]
+    Irq = 2,
 }
 
 const RXNEMPTY_MASK: u32 = 1 << 0;
@@ -278,6 +280,18 @@ impl<'l, PIO: Instance> Pin<'l, PIO> {
         });
     }
 
+    /// Configure the output logic inversion of this pin.
+    #[inline]
+    pub fn set_output_inversion(&mut self, invert: bool) {
+        self.pin.gpio().ctrl().modify(|w| {
+            w.set_outover(if invert {
+                pac::io::vals::Outover::INVERT
+            } else {
+                pac::io::vals::Outover::NORMAL
+            })
+        });
+    }
+
     /// Set the pin's input sync bypass.
     pub fn set_input_sync_bypass(&mut self, bypass: bool) {
         let mask = 1 << self.pin();
@@ -357,6 +371,10 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
         FifoInFuture::new(self)
     }
 
+    fn dreq() -> crate::pac::dma::vals::TreqSel {
+        crate::pac::dma::vals::TreqSel::from(PIO::PIO_NO * 8 + SM as u8 + 4)
+    }
+
     /// Prepare DMA transfer from RX FIFO.
     pub fn dma_pull<'a, C: Channel, W: Word>(
         &'a mut self,
@@ -364,7 +382,6 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
         data: &'a mut [W],
         bswap: bool,
     ) -> Transfer<'a, C> {
-        let pio_no = PIO::PIO_NO;
         let p = ch.regs();
         p.write_addr().write_value(data.as_ptr() as u32);
         p.read_addr().write_value(PIO::PIO.rxf(SM).as_ptr() as u32);
@@ -374,13 +391,42 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
         p.trans_count().write(|w| w.set_count(data.len() as u32));
         compiler_fence(Ordering::SeqCst);
         p.ctrl_trig().write(|w| {
-            // Set RX DREQ for this statemachine
-            w.set_treq_sel(crate::pac::dma::vals::TreqSel::from(pio_no * 8 + SM as u8 + 4));
+            w.set_treq_sel(Self::dreq());
             w.set_data_size(W::size());
             w.set_chain_to(ch.number());
             w.set_incr_read(false);
             w.set_incr_write(true);
             w.set_bswap(bswap);
+            w.set_en(true);
+        });
+        compiler_fence(Ordering::SeqCst);
+        Transfer::new(ch)
+    }
+
+    /// Prepare a repeated DMA transfer from RX FIFO.
+    pub fn dma_pull_repeated<'a, C: Channel, W: Word>(&'a mut self, ch: Peri<'a, C>, len: usize) -> Transfer<'a, C> {
+        // This is the read version of dma::write_repeated. This allows us to
+        // discard reads from the RX FIFO through DMA.
+
+        // static mut so it gets allocated in RAM
+        static mut DUMMY: u32 = 0;
+
+        let p = ch.regs();
+        p.write_addr().write_value(core::ptr::addr_of_mut!(DUMMY) as u32);
+        p.read_addr().write_value(PIO::PIO.rxf(SM).as_ptr() as u32);
+
+        #[cfg(feature = "rp2040")]
+        p.trans_count().write(|w| *w = len as u32);
+        #[cfg(feature = "_rp235x")]
+        p.trans_count().write(|w| w.set_count(len as u32));
+
+        compiler_fence(Ordering::SeqCst);
+        p.ctrl_trig().write(|w| {
+            w.set_treq_sel(Self::dreq());
+            w.set_data_size(W::size());
+            w.set_chain_to(ch.number());
+            w.set_incr_read(false);
+            w.set_incr_write(false);
             w.set_en(true);
         });
         compiler_fence(Ordering::SeqCst);
@@ -409,7 +455,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
         (PIO::PIO.flevel().read().0 >> (SM * 8)) as u8 & 0x0f
     }
 
-    /// Check state machine has stalled on empty TX FIFO.
+    /// Check if state machine has stalled on empty TX FIFO.
     pub fn stalled(&self) -> bool {
         let fdebug = PIO::PIO.fdebug();
         let ret = fdebug.read().txstall() & (1 << SM) != 0;
@@ -448,6 +494,10 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
         FifoOutFuture::new(self, value)
     }
 
+    fn dreq() -> crate::pac::dma::vals::TreqSel {
+        crate::pac::dma::vals::TreqSel::from(PIO::PIO_NO * 8 + SM as u8)
+    }
+
     /// Prepare a DMA transfer to TX FIFO.
     pub fn dma_push<'a, C: Channel, W: Word>(
         &'a mut self,
@@ -455,7 +505,6 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
         data: &'a [W],
         bswap: bool,
     ) -> Transfer<'a, C> {
-        let pio_no = PIO::PIO_NO;
         let p = ch.regs();
         p.read_addr().write_value(data.as_ptr() as u32);
         p.write_addr().write_value(PIO::PIO.txf(SM).as_ptr() as u32);
@@ -465,8 +514,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
         p.trans_count().write(|w| w.set_count(data.len() as u32));
         compiler_fence(Ordering::SeqCst);
         p.ctrl_trig().write(|w| {
-            // Set TX DREQ for this statemachine
-            w.set_treq_sel(crate::pac::dma::vals::TreqSel::from(pio_no * 8 + SM as u8));
+            w.set_treq_sel(Self::dreq());
             w.set_data_size(W::size());
             w.set_chain_to(ch.number());
             w.set_incr_read(true);
@@ -476,6 +524,11 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
         });
         compiler_fence(Ordering::SeqCst);
         Transfer::new(ch)
+    }
+
+    /// Prepare a repeated DMA transfer to TX FIFO.
+    pub fn dma_push_repeated<'a, C: Channel, W: Word>(&'a mut self, ch: Peri<'a, C>, len: usize) -> Transfer<'a, C> {
+        unsafe { dma::write_repeated(ch, PIO::PIO.txf(SM).as_ptr(), len, Self::dreq()) }
     }
 }
 
@@ -736,6 +789,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
             w.set_status_sel(match config.status_sel {
                 StatusSource::TxFifoLevel => pac::pio::vals::ExecctrlStatusSel::TXLEVEL,
                 StatusSource::RxFifoLevel => pac::pio::vals::ExecctrlStatusSel::RXLEVEL,
+                StatusSource::Irq => pac::pio::vals::ExecctrlStatusSel::IRQ,
             });
             #[cfg(feature = "rp2040")]
             w.set_status_sel(match config.status_sel {
@@ -922,13 +976,23 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         self.set_enable(enabled);
     }
 
+    #[cfg(feature = "rp2040")]
+    fn pin_base() -> u8 {
+        0
+    }
+
+    #[cfg(feature = "_rp235x")]
+    fn pin_base() -> u8 {
+        if PIO::PIO.gpiobase().read().gpiobase() { 16 } else { 0 }
+    }
+
     /// Sets pin directions. This pauses the current state machine to run `SET` commands
     /// and temporarily unsets the `OUT_STICKY` bit.
     pub fn set_pin_dirs(&mut self, dir: Direction, pins: &[&Pin<'d, PIO>]) {
         self.with_paused(|sm| {
             for pin in pins {
                 Self::this_sm().pinctrl().write(|w| {
-                    w.set_set_base(pin.pin());
+                    w.set_set_base(pin.pin() - Self::pin_base());
                     w.set_set_count(1);
                 });
                 // SET PINDIRS, (dir)
@@ -943,7 +1007,7 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         self.with_paused(|sm| {
             for pin in pins {
                 Self::this_sm().pinctrl().write(|w| {
-                    w.set_set_base(pin.pin());
+                    w.set_set_base(pin.pin() - Self::pin_base());
                     w.set_set_count(1);
                 });
                 // SET PINS, (dir)
@@ -1167,7 +1231,13 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
             w.set_pde(false);
         });
         // we can be relaxed about this because we're &mut here and nothing is cached
-        PIO::state().used_pins.fetch_or(1 << pin.pin_bank(), Ordering::Relaxed);
+        critical_section::with(|_| {
+            let val = PIO::state().used_pins.load(Ordering::Relaxed);
+            PIO::state()
+                .used_pins
+                .store(val | 1 << pin.pin_bank(), Ordering::Relaxed);
+        });
+
         Pin {
             pin: pin.into(),
             pio: PhantomData::default(),
@@ -1306,6 +1376,7 @@ impl<'d, PIO: Instance> Pio<'d, PIO> {
         PIO::state().users.store(5, Ordering::Release);
         PIO::state().used_pins.store(0, Ordering::Release);
         PIO::Interrupt::unpend();
+
         unsafe { PIO::Interrupt::enable() };
         Self {
             common: Common {
@@ -1338,6 +1409,42 @@ impl<'d, PIO: Instance> Pio<'d, PIO> {
     }
 }
 
+struct AtomicU64 {
+    upper_32: AtomicU32,
+    lower_32: AtomicU32,
+}
+
+impl AtomicU64 {
+    const fn new(val: u64) -> Self {
+        let upper_32 = (val >> 32) as u32;
+        let lower_32 = val as u32;
+
+        Self {
+            upper_32: AtomicU32::new(upper_32),
+            lower_32: AtomicU32::new(lower_32),
+        }
+    }
+
+    fn load(&self, order: Ordering) -> u64 {
+        let (upper, lower) = critical_section::with(|_| (self.upper_32.load(order), self.lower_32.load(order)));
+
+        let upper = (upper as u64) << 32;
+        let lower = lower as u64;
+
+        upper | lower
+    }
+
+    fn store(&self, val: u64, order: Ordering) {
+        let upper_32 = (val >> 32) as u32;
+        let lower_32 = val as u32;
+
+        critical_section::with(|_| {
+            self.upper_32.store(upper_32, order);
+            self.lower_32.store(lower_32, order);
+        });
+    }
+}
+
 /// Representation of the PIO state keeping a record of which pins are assigned to
 /// each PIO.
 // make_pio_pin notionally takes ownership of the pin it is given, but the wrapped pin
@@ -1352,7 +1459,12 @@ pub struct State {
 
 fn on_pio_drop<PIO: Instance>() {
     let state = PIO::state();
-    if state.users.fetch_sub(1, Ordering::AcqRel) == 1 {
+    let users_state = critical_section::with(|_| {
+        let val = state.users.load(Ordering::Acquire) - 1;
+        state.users.store(val, Ordering::Release);
+        val
+    });
+    if users_state == 1 {
         let used_pins = state.used_pins.load(Ordering::Relaxed);
         let null = pac::io::vals::Gpio0ctrlFuncsel::NULL as _;
         for i in 0..crate::gpio::BANK0_PIN_COUNT {

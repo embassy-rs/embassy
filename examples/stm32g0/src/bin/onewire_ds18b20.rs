@@ -267,7 +267,7 @@ where
         }
 
         match Self::crc8(&data) == 0 {
-            true => Ok(((data[1] as u16) << 8 | data[0] as u16) as f32 / 16.),
+            true => Ok(((data[1] as i16) << 8 | data[0] as i16) as f32 / 16.),
             false => Err(()),
         }
     }

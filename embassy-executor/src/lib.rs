@@ -1,5 +1,6 @@
 #![cfg_attr(not(any(feature = "arch-std", feature = "arch-wasm")), no_std)]
 #![allow(clippy::new_without_default)]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
@@ -54,6 +55,9 @@ pub mod raw;
 mod spawner;
 pub use spawner::*;
 
+mod metadata;
+pub use metadata::*;
+
 /// Implementation details for embassy macros.
 /// Do not use. Used for macros and HALs only. Not covered by semver guarantees.
 #[doc(hidden)]
@@ -65,8 +69,17 @@ pub mod _export {
 
     use crate::raw::TaskPool;
 
+    trait TaskReturnValue {}
+    impl TaskReturnValue for () {}
+    impl TaskReturnValue for Never {}
+
+    #[diagnostic::on_unimplemented(
+        message = "task futures must resolve to `()` or `!`",
+        note = "use `async fn` or change the return type to `impl Future<Output = ()>`"
+    )]
+    #[allow(private_bounds)]
     pub trait TaskFn<Args>: Copy {
-        type Fut: Future + 'static;
+        type Fut: Future<Output: TaskReturnValue> + 'static;
     }
 
     macro_rules! task_fn_impl {
@@ -74,7 +87,7 @@ pub mod _export {
             impl<F, Fut, $($Tn,)*> TaskFn<($($Tn,)*)> for F
             where
                 F: Copy + FnOnce($($Tn,)*) -> Fut,
-                Fut: Future + 'static,
+                Fut: Future<Output: TaskReturnValue> + 'static,
             {
                 type Fut = Fut;
             }
@@ -205,4 +218,42 @@ pub mod _export {
         Align268435456: 268435456,
         Align536870912: 536870912,
     );
+
+    #[allow(dead_code)]
+    pub trait HasOutput {
+        type Output;
+    }
+
+    impl<O> HasOutput for fn() -> O {
+        type Output = O;
+    }
+
+    #[allow(dead_code)]
+    pub type Never = <fn() -> ! as HasOutput>::Output;
+}
+
+/// Implementation details for embassy macros.
+/// Do not use. Used for macros and HALs only. Not covered by semver guarantees.
+#[doc(hidden)]
+#[cfg(feature = "nightly")]
+pub mod _export {
+    #[diagnostic::on_unimplemented(
+        message = "task futures must resolve to `()` or `!`",
+        note = "use `async fn` or change the return type to `impl Future<Output = ()>`"
+    )]
+    pub trait TaskReturnValue {}
+    impl TaskReturnValue for () {}
+    impl TaskReturnValue for Never {}
+
+    #[allow(dead_code)]
+    pub trait HasOutput {
+        type Output;
+    }
+
+    impl<O> HasOutput for fn() -> O {
+        type Output = O;
+    }
+
+    #[allow(dead_code)]
+    pub type Never = <fn() -> ! as HasOutput>::Output;
 }

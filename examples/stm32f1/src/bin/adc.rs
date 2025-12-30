@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::Adc;
+use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_stm32::peripherals::ADC1;
 use embassy_stm32::{adc, bind_interrupts};
 use embassy_time::Timer;
@@ -22,7 +22,7 @@ async fn main(_spawner: Spawner) {
     let mut pin = p.PB1;
 
     let mut vrefint = adc.enable_vref();
-    let vrefint_sample = adc.read(&mut vrefint).await;
+    let vrefint_sample = adc.read(&mut vrefint, SampleTime::CYCLES13_5).await;
     let convert_to_millivolts = |sample| {
         // From http://www.st.com/resource/en/datasheet/CD00161566.pdf
         // 5.3.4 Embedded reference voltage
@@ -32,7 +32,7 @@ async fn main(_spawner: Spawner) {
     };
 
     loop {
-        let v = adc.read(&mut pin).await;
+        let v = adc.read(&mut pin, SampleTime::CYCLES13_5).await;
         info!("--> {} - {} mV", v, convert_to_millivolts(v));
         Timer::after_millis(100).await;
     }

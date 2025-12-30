@@ -105,7 +105,7 @@ async fn main(spawner: Spawner) {
     config.addr = DEV_ADDR as u16;
     let device = i2c_slave::I2cSlave::new(p.I2C1, d_scl, d_sda, Irqs, config);
 
-    unwrap!(spawner.spawn(device_task(device)));
+    spawner.spawn(unwrap!(device_task(device)));
 
     let c_sda = p.PIN_0;
     let c_scl = p.PIN_1;
@@ -113,5 +113,5 @@ async fn main(spawner: Spawner) {
     config.frequency = 1_000_000;
     let controller = i2c::I2c::new_async(p.I2C0, c_scl, c_sda, Irqs, config);
 
-    unwrap!(spawner.spawn(controller_task(controller)));
+    spawner.spawn(unwrap!(controller_task(controller)));
 }

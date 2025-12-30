@@ -2,9 +2,9 @@
 
 use core::mem::{self, MaybeUninit};
 
+use crate::Peri;
 use crate::pio::{Common, Config, Direction, Instance, Irq, LoadedProgram, PioPin, StateMachine};
 use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
-use crate::Peri;
 
 /// This struct represents a Stepper driver program loaded into pio instruction memory.
 pub struct PioStepperProgram<'a, PIO: Instance> {

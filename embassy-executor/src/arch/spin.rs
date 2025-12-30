@@ -9,9 +9,9 @@ mod thread {
 
     pub use embassy_executor_macros::main_spin as main;
 
-    use crate::{raw, Spawner};
+    use crate::{Spawner, raw};
 
-    #[export_name = "__pender"]
+    #[unsafe(export_name = "__pender")]
     fn __pender(_context: *mut ()) {}
 
     /// Spin Executor

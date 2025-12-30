@@ -1,18 +1,18 @@
 //! A queue for sending values between asynchronous tasks.
 //!
 //! Similar to a [`Channel`](crate::channel::Channel), however [`PriorityChannel`] sifts higher priority items to the front of the queue.
-//! Priority is determined by the `Ord` trait. Priority behavior is determined by the [`Kind`](heapless::binary_heap::Kind) parameter of the channel.
+//! Priority is determined by the `Ord` trait. Priority behavior is determined by the [`Kind`] parameter of the channel.
 
 use core::cell::RefCell;
 use core::future::Future;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-pub use heapless::binary_heap::{Kind, Max, Min};
 use heapless::BinaryHeap;
+pub use heapless::binary_heap::{Kind, Max, Min};
 
-use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
+use crate::blocking_mutex::raw::RawMutex;
 use crate::channel::{DynamicChannel, DynamicReceiver, DynamicSender, TryReceiveError, TrySendError};
 use crate::waitqueue::WakerRegistration;
 
@@ -473,7 +473,7 @@ where
 /// received from the channel.
 ///
 /// Sent data may be reordered based on their priority within the channel.
-/// For example, in a [`Max`](heapless::binary_heap::Max) [`PriorityChannel`]
+/// For example, in a [`Max`] [`PriorityChannel`]
 /// containing `u32`'s, data sent in the following order `[1, 2, 3]` will be received as `[3, 2, 1]`.
 pub struct PriorityChannel<M, T, K, const N: usize>
 where
@@ -799,11 +799,13 @@ mod tests {
         static CHANNEL: StaticCell<PriorityChannel<CriticalSectionRawMutex, u32, Max, 3>> = StaticCell::new();
         let c = &*CHANNEL.init(PriorityChannel::new());
         let c2 = c;
-        assert!(executor
-            .spawn(async move {
-                assert!(c2.try_send(1).is_ok());
-            })
-            .is_ok());
+        assert!(
+            executor
+                .spawn(async move {
+                    assert!(c2.try_send(1).is_ok());
+                })
+                .is_ok()
+        );
         assert_eq!(c.receive().await, 1);
     }
 
@@ -830,13 +832,15 @@ mod tests {
         // However, I've used the debugger to observe that the send does indeed wait.
         Delay::new(Duration::from_millis(500)).await;
         assert_eq!(c.receive().await, 1);
-        assert!(executor
-            .spawn(async move {
-                loop {
-                    c.receive().await;
-                }
-            })
-            .is_ok());
+        assert!(
+            executor
+                .spawn(async move {
+                    loop {
+                        c.receive().await;
+                    }
+                })
+                .is_ok()
+        );
         send_task_1.unwrap().await;
         send_task_2.unwrap().await;
     }
