@@ -93,24 +93,6 @@ pub struct SdpcmHeader {
 impl_bytes!(SdpcmHeader);
 
 impl SdpcmHeader {
-    pub fn parse_header(packet: &mut [u8]) -> Option<&mut Self> {
-        let packet_len = packet.len();
-        if packet_len < Self::SIZE {
-            warn!("packet too short, len={}", packet.len());
-            return None;
-        }
-        let sdpcm_header = packet.split_at_mut(Self::SIZE).0;
-        let sdpcm_header = Self::from_bytes_mut(sdpcm_header.try_into().unwrap());
-        trace!("rx {:?}", sdpcm_header);
-
-        if sdpcm_header.len != !sdpcm_header.len_inv {
-            warn!("len inv mismatch");
-            return None;
-        }
-
-        Some(sdpcm_header)
-    }
-
     pub fn parse(packet: &mut [u8]) -> Option<(&mut Self, &mut [u8])> {
         let packet_len = packet.len();
         if packet_len < Self::SIZE {

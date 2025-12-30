@@ -11,7 +11,7 @@ documentation = "https://docs.embassy.dev/cyw43"
 
 [features]
 defmt = ["dep:defmt", "heapless/defmt-03", "embassy-time/defmt", "bt-hci?/defmt", "embedded-io-async?/defmt"]
-log = ["dep:log"]
+log = ["dep:log", "dep:derive_more", "derive_more/display"]
 bluetooth = ["dep:bt-hci", "dep:embedded-io-async"]
 
 # Fetch console logs from the WiFi firmware and forward them to `log` or `defmt`.
@@ -25,6 +25,7 @@ embassy-net-driver-channel = { version = "0.3.2", path = "../embassy-net-driver-
 
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.17", optional = true }
+derive_more = { version = "2.1.1", optional = true, default-features =false }
 
 cortex-m = "0.7.6"
 cortex-m-rt = "0.7.0"

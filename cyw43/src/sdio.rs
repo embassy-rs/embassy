@@ -1,13 +1,12 @@
 use core::slice;
 
 use aligned::{A4, Aligned};
-use embassy_futures::yield_now;
-use embassy_time::Duration;
+use embassy_time::{Duration, Timer};
 
 use crate::consts::*;
 use crate::runner::{BusType, SealedBus};
 use crate::try_until;
-use crate::util::slice8_mut;
+use crate::util::{aligned_mut, aligned_ref, slice8_mut};
 
 // macro_rules! ALIGN_UINT {
 //     ($val:expr, $align:expr) => {
@@ -23,22 +22,45 @@ use crate::util::slice8_mut;
 
 const SDIO_DEBUG: bool = false;
 
-const fn aligned_mut(x: &mut [u32]) -> &mut Aligned<A4, [u8]> {
-    let len = x.len() * 4;
-    unsafe { core::mem::transmute(slice::from_raw_parts_mut(x.as_mut_ptr() as *mut u8, len)) }
-}
-
-const fn aligned_ref(x: &[u32]) -> &Aligned<A4, [u8]> {
-    let len = x.len() * 4;
-    unsafe { core::mem::transmute(slice::from_raw_parts(x.as_ptr() as *mut u8, len)) }
-}
-
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "log", derive(derive_more::Display))]
 enum Mode {
     Block,
     Byte,
 }
 
+#[derive(Clone, Copy, PartialEq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[cfg_attr(feature = "log", derive(derive_more::Display))]
+enum Word {
+    U8,
+    U16,
+    U32,
+}
+
 const BLOCK_SIZE: usize = BACKPLANE_MAX_TRANSFER_SIZE;
+
+fn block_mode(buf: &Aligned<A4, [u8]>) -> Mode {
+    if size_of_val(buf) <= BLOCK_SIZE {
+        Mode::Byte
+    } else if size_of_val(buf) % BLOCK_SIZE == 0 {
+        Mode::Block
+    } else {
+        unreachable!()
+    }
+}
+
+fn cmd53_arg(write: bool, func: u32, addr: u32, mode: Mode, len: usize) -> u32 {
+    let (len, block_mode) = match mode {
+        Mode::Block => (len / BLOCK_SIZE, 1u32),
+        Mode::Byte => (len, 0u32),
+    };
+
+    let op_code = 1;
+
+    (write as u32) << 31 | func << 28 | block_mode << 27 | op_code << 26 | (addr & 0x1ffff) << 9 | len as u32
+}
 
 /// Custom Spi Trait that _only_ supports the bus operation of the cyw43
 /// Implementors are expected to hold the CS pin low during an operation.
@@ -67,7 +89,7 @@ pub trait SdioBusCyw43<const SIZE: usize> {
     /// Wait for events from the Device. A typical implementation would wait for the IRQ pin to be high.
     /// The default implementation always reports ready, resulting in active polling of the device.
     async fn wait_for_event(&mut self) {
-        yield_now().await;
+        Timer::after_millis(800).await;
     }
 }
 
@@ -120,36 +142,45 @@ where
         }
     }
 
-    async fn backplane_readn(&mut self, addr: u32, size: usize) -> u32 {
-        trace!("backplane_readn addr = {:08x} len = {}", addr, size);
+    async fn backplane_readn(&mut self, addr: u32, word: Word) -> u32 {
+        trace!("backplane_readn addr = {:08x} len = {}", addr, word);
 
         self.backplane_set_window(addr).await;
 
         let mut bus_addr = addr & BACKPLANE_ADDRESS_MASK;
-        if size == 4 {
+        if word == Word::U32 {
             bus_addr |= BACKPLANE_ADDRESS_32BIT_FLAG;
         }
 
-        let val = self.read_reg(FUNC_BACKPLANE, bus_addr, size).await;
+        let val = match word {
+            Word::U8 => self.read8(FUNC_BACKPLANE, bus_addr).await as u32,
+            Word::U16 => self.read16(FUNC_BACKPLANE, bus_addr).await as u32,
+            Word::U32 => self.read32(FUNC_BACKPLANE, bus_addr).await,
+        };
 
-        trace!("backplane_readn addr = {:08x} len = {} val = {:08x}", addr, size, val);
+        trace!("backplane_readn addr = {:08x} len = {} val = {:08x}", addr, word, val);
 
         self.backplane_set_window(CHIPCOMMON_BASE_ADDRESS).await;
 
         return val;
     }
 
-    async fn backplane_writen(&mut self, addr: u32, val: u32, size: usize) {
-        trace!("backplane_writen addr = {:08x} len = {} val = {:08x}", addr, size, val);
+    async fn backplane_writen(&mut self, addr: u32, val: u32, word: Word) {
+        trace!("backplane_writen addr = {:08x} len = {} val = {:08x}", addr, word, val);
 
         self.backplane_set_window(addr).await;
 
         let mut bus_addr = addr & BACKPLANE_ADDRESS_MASK;
-        if size == 4 {
+        if word == Word::U32 {
             bus_addr |= BACKPLANE_ADDRESS_32BIT_FLAG;
         }
 
-        self.write_reg(FUNC_BACKPLANE, bus_addr, size, val).await;
+        let _ = match word {
+            Word::U8 => self.write8(FUNC_BACKPLANE, bus_addr, val.try_into().unwrap()).await,
+            Word::U16 => self.write16(FUNC_BACKPLANE, bus_addr, val.try_into().unwrap()).await,
+            Word::U32 => self.write32(FUNC_BACKPLANE, bus_addr, val).await,
+        };
+
         self.backplane_set_window(CHIPCOMMON_BASE_ADDRESS).await;
     }
 
@@ -183,28 +214,6 @@ where
         self.backplane_window = new_window;
     }
 
-    async fn read_reg(&mut self, func: u32, reg: u32, size: usize) -> u32 {
-        assert!(func == BACKPLANE_FUNCTION);
-
-        match size {
-            1 => self.read_reg_u8(func, reg).await as u32,
-            2 => self.read_reg_u16(func, reg).await as u32,
-            4 => self.read_reg_u32(func, reg).await,
-            _ => unreachable!(),
-        }
-    }
-
-    async fn write_reg(&mut self, func: u32, reg: u32, size: usize, val: u32) {
-        assert!(func == BACKPLANE_FUNCTION);
-
-        let _ = match size {
-            1 => self.write_reg_u8(func, reg, val.try_into().unwrap()).await,
-            2 => self.write_reg_u16(func, reg, val.try_into().unwrap()).await,
-            4 => self.write_reg_u32(func, reg, val).await,
-            _ => unreachable!(),
-        };
-    }
-
     async fn cmd52(&mut self, write: bool, func: u32, addr: u32, val: u8) -> u8 {
         let arg: u32 = (write as u32) << 31 | func << 28 | (addr & 0x1ffff) << 9 | (val as u32 & 0xff);
 
@@ -217,154 +226,70 @@ where
         result
     }
 
-    fn cmd53_arg(&mut self, write: bool, func: u32, addr: u32, mode: Mode, len: usize) -> u32 {
-        let (len, block_mode) = match mode {
-            Mode::Block => (len / BLOCK_SIZE, 1u32),
-            Mode::Byte => (len, 0u32),
-        };
-
-        let op_code = 1;
-
-        (write as u32) << 31 | func << 28 | block_mode << 27 | op_code << 26 | (addr & 0x1ffff) << 9 | len as u32
-    }
-
-    async fn cmd53_write_half_word(&mut self, func: u32, addr: u32, buf: &[u32; 1]) {
-        let arg = self.cmd53_arg(false, func, addr, Mode::Byte, 2);
+    async fn cmd53_write(&mut self, func: u32, addr: u32, buf: &Aligned<A4, [u8]>) {
+        let mode = block_mode(buf);
+        let arg = cmd53_arg(true, func, addr, mode, buf.len());
 
         if SDIO_DEBUG {
-            trace!("cmd53: 0x{:08x} 0x{:08x}", arg, buf[0]);
-        }
-
-        let buf = &aligned_ref(buf)[..2];
-
-        if self.sdio.cmd53_byte_write(arg, buf).await.is_err() {
-            debug!("cmd53 byte write failed");
-        }
-    }
-
-    async fn cmd53_write(&mut self, func: u32, addr: u32, buf: &[u32]) {
-        let mode = if buf.len() >= BLOCK_SIZE {
-            Mode::Block
-        } else {
-            Mode::Byte
-        };
-
-        let arg = self.cmd53_arg(true, func, addr, mode, size_of_val(buf));
-
-        if SDIO_DEBUG {
-            if buf.len() == 1 {
-                trace!("cmd53: 0x{:08x} 0x{:08x}", arg, buf[0]);
+            if buf.len() == 4 {
+                // trace!("cmd53: 0x{:08x} 0x{:08x}", arg, slice32_ref(&buf[0..4])[0]);
             } else {
                 trace!("cmd53 bulk: 0x{:08x}", arg);
             }
         }
 
-        if size_of_val(buf) <= BLOCK_SIZE {
-            if self.sdio.cmd53_byte_write(arg, aligned_ref(buf)).await.is_err() {
-                debug!("cmd53 byte write failed");
+        match mode {
+            Mode::Byte => {
+                if self.sdio.cmd53_byte_write(arg, buf).await.is_err() {
+                    debug!("cmd53 byte write failed");
+                }
             }
-        } else if size_of_val(buf) % BLOCK_SIZE == 0 {
-            if self
-                .sdio
-                .cmd53_block_write(arg, unsafe {
-                    slice::from_raw_parts(buf.as_ptr() as *const _, size_of_val(buf) / BLOCK_SIZE)
-                })
-                .await
-                .is_err()
-            {
-                debug!("cmd53 block write failed");
+            Mode::Block => {
+                if self
+                    .sdio
+                    .cmd53_block_write(arg, unsafe {
+                        slice::from_raw_parts(buf.as_ptr() as *const _, size_of_val(buf) / BLOCK_SIZE)
+                    })
+                    .await
+                    .is_err()
+                {
+                    debug!("cmd53 block write failed");
+                }
             }
-        } else {
-            unreachable!()
         }
     }
 
-    async fn cmd53_read_half_word(&mut self, func: u32, addr: u32, orig_buf: &mut [u32; 1]) {
-        let arg = self.cmd53_arg(false, func, addr, Mode::Byte, 2);
-        let buf = &mut aligned_mut(orig_buf)[..2];
+    async fn cmd53_read(&mut self, func: u32, addr: u32, buf: &mut Aligned<A4, [u8]>) {
+        let mode = block_mode(buf);
+        let arg = cmd53_arg(false, func, addr, mode, buf.len());
 
-        if self.sdio.cmd53_byte_read(arg, buf).await.is_err() {
-            debug!("cmd53 byte read failed");
+        match mode {
+            Mode::Byte => {
+                if self.sdio.cmd53_byte_read(arg, buf).await.is_err() {
+                    debug!("cmd53 byte read failed (size: {})", size_of_val(buf));
+                }
+            }
+            Mode::Block => {
+                if self
+                    .sdio
+                    .cmd53_block_read(arg, unsafe {
+                        slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut _, size_of_val(buf) / BLOCK_SIZE)
+                    })
+                    .await
+                    .is_err()
+                {
+                    debug!("cmd53 block read failed");
+                }
+            }
         }
 
         if SDIO_DEBUG {
-            trace!("cmd53: 0x{:08x} 0x{:08x}", arg, orig_buf[0]);
-        }
-    }
-
-    async fn cmd53_read(&mut self, func: u32, addr: u32, buf: &mut [u32]) {
-        let mode = if buf.len() > BLOCK_SIZE {
-            Mode::Block
-        } else {
-            Mode::Byte
-        };
-
-        let arg = self.cmd53_arg(false, func, addr, mode, size_of_val(buf));
-
-        if size_of_val(buf) <= BLOCK_SIZE {
-            if self.sdio.cmd53_byte_read(arg, aligned_mut(buf)).await.is_err() {
-                debug!("cmd53 byte read failed (size: {})", size_of_val(buf));
-            }
-        } else if size_of_val(buf) % BLOCK_SIZE == 0 {
-            if self
-                .sdio
-                .cmd53_block_read(arg, unsafe {
-                    slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut _, size_of_val(buf) / BLOCK_SIZE)
-                })
-                .await
-                .is_err()
-            {
-                debug!("cmd53 block read failed");
-            }
-        } else {
-            unreachable!()
-        }
-
-        if SDIO_DEBUG {
-            if buf.len() == 1 {
-                trace!("cmd53: 0x{:08x} 0x{:08x}", arg, buf[0]);
+            if buf.len() == 4 {
+                // trace!("cmd53: 0x{:08x} 0x{:08x}", arg, slice32_ref(&buf[0..4])[0]);
             } else {
                 trace!("cmd53 bulk: 0x{:08x}", arg);
             }
         }
-    }
-
-    async fn read_words(&mut self, func: u32, addr: u32, buf: &mut [u32]) {
-        self.cmd53_read(func, addr, buf).await;
-    }
-
-    async fn write_words(&mut self, func: u32, addr: u32, buf: &[u32]) {
-        self.cmd53_write(func, addr, buf).await;
-    }
-
-    async fn read_reg_u8(&mut self, func: u32, reg: u32) -> u8 {
-        self.cmd52(false, func, reg, 0).await
-    }
-
-    async fn read_reg_u16(&mut self, func: u32, reg: u32) -> u16 {
-        let mut val = [0u32];
-        self.cmd53_read_half_word(func, reg, &mut val).await;
-
-        val[0] as u16
-    }
-
-    async fn read_reg_u32(&mut self, func: u32, reg: u32) -> u32 {
-        let mut val = [0u32];
-        self.cmd53_read(func, reg, &mut val).await;
-
-        val[0]
-    }
-
-    async fn write_reg_u8(&mut self, func: u32, reg: u32, val: u8) {
-        self.cmd52(true, func, reg, val).await;
-    }
-
-    async fn write_reg_u16(&mut self, func: u32, reg: u32, val: u16) {
-        self.cmd53_write_half_word(func, reg, &[val as u32]).await;
-    }
-
-    async fn write_reg_u32(&mut self, func: u32, reg: u32, val: u32) {
-        self.cmd53_write(func, reg, &[val]).await;
     }
 }
 
@@ -380,10 +305,10 @@ where
         // set up backplane
         if !try_until(
             async || {
-                self.write_reg_u8(BUS_FUNCTION, SDIOD_CCCR_IOEN, SDIO_FUNC_ENABLE_1 as u8)
+                self.write8(BUS_FUNCTION, SDIOD_CCCR_IOEN, SDIO_FUNC_ENABLE_1 as u8)
                     .await;
 
-                self.read_reg_u8(BUS_FUNCTION, SDIOD_CCCR_IOEN).await as u32 == SDIO_FUNC_ENABLE_1
+                self.read8(BUS_FUNCTION, SDIOD_CCCR_IOEN).await as u32 == SDIO_FUNC_ENABLE_1
             },
             Duration::from_millis(500),
         )
@@ -396,9 +321,9 @@ where
         debug!("backplane is up");
 
         // Read the bus width and set to 4 bits (1-bit bus is not currently supported)
-        let reg = self.read_reg_u8(BUS_FUNCTION, SDIOD_CCCR_BICTRL).await as u32;
+        let reg = self.read8(BUS_FUNCTION, SDIOD_CCCR_BICTRL).await as u32;
 
-        self.write_reg_u8(
+        self.write8(
             BUS_FUNCTION,
             SDIOD_CCCR_BICTRL,
             ((reg & !BUS_SD_DATA_WIDTH_MASK) | BUS_SD_DATA_WIDTH_4BIT) as u8,
@@ -408,10 +333,10 @@ where
         // Set the block size
         if !try_until(
             async || {
-                self.write_reg_u8(BUS_FUNCTION, SDIOD_CCCR_BLKSIZE_0, SDIO_64B_BLOCK as u8)
+                self.write8(BUS_FUNCTION, SDIOD_CCCR_BLKSIZE_0, SDIO_64B_BLOCK as u8)
                     .await;
 
-                self.read_reg_u8(BUS_FUNCTION, SDIOD_CCCR_BLKSIZE_0).await as u32 == SDIO_64B_BLOCK
+                self.read8(BUS_FUNCTION, SDIOD_CCCR_BLKSIZE_0).await as u32 == SDIO_64B_BLOCK
             },
             Duration::from_millis(500),
         )
@@ -421,16 +346,16 @@ where
             return;
         }
 
-        self.write_reg_u8(BUS_FUNCTION, SDIOD_CCCR_BLKSIZE_0, SDIO_64B_BLOCK as u8)
+        self.write8(BUS_FUNCTION, SDIOD_CCCR_BLKSIZE_0, SDIO_64B_BLOCK as u8)
             .await;
-        self.write_reg_u8(BUS_FUNCTION, SDIOD_CCCR_F1BLKSIZE_0, SDIO_64B_BLOCK as u8)
+        self.write8(BUS_FUNCTION, SDIOD_CCCR_F1BLKSIZE_0, SDIO_64B_BLOCK as u8)
             .await;
-        self.write_reg_u8(BUS_FUNCTION, SDIOD_CCCR_F2BLKSIZE_0, SDIO_64B_BLOCK as u8)
+        self.write8(BUS_FUNCTION, SDIOD_CCCR_F2BLKSIZE_0, SDIO_64B_BLOCK as u8)
             .await;
-        self.write_reg_u8(BUS_FUNCTION, SDIOD_CCCR_F2BLKSIZE_1, 0).await;
+        self.write8(BUS_FUNCTION, SDIOD_CCCR_F2BLKSIZE_1, 0).await;
 
         // Enable/Disable Client interrupts
-        self.write_reg_u8(
+        self.write8(
             BUS_FUNCTION,
             SDIOD_CCCR_INTEN,
             (INTR_CTL_MASTER_EN | INTR_CTL_FUNC1_EN | INTR_CTL_FUNC2_EN) as u8,
@@ -440,9 +365,9 @@ where
         self.sdio.set_bus_to_high_speed(25_000_000).unwrap();
 
         // enable more than 25MHz bus
-        let reg = self.read_reg_u8(BUS_FUNCTION, SDIOD_CCCR_SPEED_CONTROL).await as u32;
+        let reg = self.read8(BUS_FUNCTION, SDIOD_CCCR_SPEED_CONTROL).await as u32;
         if reg & 1 != 0 {
-            self.write_reg_u8(BUS_FUNCTION, SDIOD_CCCR_SPEED_CONTROL, (reg | SDIO_SPEED_EHS) as u8)
+            self.write8(BUS_FUNCTION, SDIOD_CCCR_SPEED_CONTROL, (reg | SDIO_SPEED_EHS) as u8)
                 .await;
 
             self.sdio.set_bus_to_high_speed(50_000_000).unwrap();
@@ -450,7 +375,7 @@ where
 
         // Wait till the backplane is ready
         if !try_until(
-            async || self.read_reg_u8(BUS_FUNCTION, SDIOD_CCCR_IORDY).await as u32 & SDIO_FUNC_READY_1 != 0,
+            async || self.read8(BUS_FUNCTION, SDIOD_CCCR_IORDY).await as u32 & SDIO_FUNC_READY_1 != 0,
             Duration::from_millis(500),
         )
         .await
@@ -460,44 +385,42 @@ where
         }
     }
 
-    async fn wlan_read(&mut self, buf: &mut [u32], len_in_u8: u32) {
-        let len_in_u32 = (len_in_u8 as usize + 3) / 4;
-        let buf = &mut buf[..len_in_u32];
-
-        // If this assertion is violated, internal API changes may be required
-        assert!(len_in_u8 % 4 == 0);
-
+    async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) {
         let byte_part = size_of_val(buf) % BLOCK_SIZE;
         let block_part = size_of_val(buf) - byte_part;
         let mut address = 0usize;
 
+        // trace!("size of val: {}", size_of_val(buf));
+        // trace!("block part: {}", block_part);
+        // trace!("byte part: {}", byte_part);
+
         if block_part > 0 {
-            self.read_words(WLAN_FUNCTION, address as u32, &mut buf[..block_part / size_of::<u32>()])
+            self.cmd53_read(WLAN_FUNCTION, address as u32, &mut buf[..block_part])
                 .await;
 
             address += block_part;
         }
 
         if byte_part > 0 {
-            self.read_words(WLAN_FUNCTION, address as u32, &mut buf[block_part / size_of::<u32>()..])
+            self.cmd53_read(WLAN_FUNCTION, address as u32, &mut buf[block_part..])
                 .await;
         }
     }
 
-    async fn wlan_write(&mut self, buf: &[u32]) {
+    async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>) {
         let byte_part = size_of_val(buf) % BLOCK_SIZE;
         let block_part = size_of_val(buf) - byte_part;
         let mut address = 0usize;
 
         if block_part > 0 {
-            self.write_words(WLAN_FUNCTION, address as u32, &buf[..block_part / size_of::<u32>()])
+            self.cmd53_write(WLAN_FUNCTION, address as u32, &buf[..block_part])
                 .await;
 
             address += block_part;
         }
 
         if byte_part > 0 {
-            self.write_words(WLAN_FUNCTION, address as u32, &buf[block_part / size_of::<u32>()..])
+            self.cmd53_write(WLAN_FUNCTION, address as u32, &buf[block_part..])
                 .await;
         }
     }
@@ -530,8 +453,12 @@ where
 
             self.backplane_set_window(addr).await;
 
-            self.write_words(BACKPLANE_FUNCTION, addr & BACKPLANE_ADDRESS_MASK as u32, &buf)
-                .await;
+            self.cmd53_write(
+                BACKPLANE_FUNCTION,
+                addr & BACKPLANE_ADDRESS_MASK as u32,
+                &aligned_ref(&buf),
+            )
+            .await;
 
             // Advance ptr.
             addr += len as u32;
@@ -542,58 +469,61 @@ where
     }
 
     async fn bp_read8(&mut self, addr: u32) -> u8 {
-        self.backplane_readn(addr, 1).await as u8
+        self.backplane_readn(addr, Word::U8).await as u8
     }
 
     async fn bp_write8(&mut self, addr: u32, val: u8) {
-        self.backplane_writen(addr, val as u32, 1).await
+        self.backplane_writen(addr, val as u32, Word::U8).await
     }
 
     async fn bp_read16(&mut self, addr: u32) -> u16 {
-        self.backplane_readn(addr, 2).await as u16
+        self.backplane_readn(addr, Word::U16).await as u16
     }
 
     #[allow(unused)]
     async fn bp_write16(&mut self, addr: u32, val: u16) {
-        self.backplane_writen(addr, val as u32, 2).await
+        self.backplane_writen(addr, val as u32, Word::U16).await
     }
 
     #[allow(unused)]
     async fn bp_read32(&mut self, addr: u32) -> u32 {
-        self.backplane_readn(addr, 4).await
+        self.backplane_readn(addr, Word::U32).await
     }
 
     async fn bp_write32(&mut self, addr: u32, val: u32) {
-        self.backplane_writen(addr, val, 4).await
+        self.backplane_writen(addr, val, Word::U32).await
     }
 
     async fn read8(&mut self, func: u32, addr: u32) -> u8 {
-        self.read_reg_u8(func, addr).await as u8
+        self.cmd52(false, func, addr, 0).await.into()
     }
 
     async fn write8(&mut self, func: u32, addr: u32, val: u8) {
-        self.write_reg_u8(func, addr, val).await;
+        self.cmd52(true, func, addr, val).await;
     }
 
     async fn read16(&mut self, func: u32, addr: u32) -> u16 {
         let mut val = [0u32];
-        self.cmd53_read_half_word(func, addr, &mut val).await;
+        self.cmd53_read(func, addr, &mut aligned_mut(&mut val)[..2]).await;
 
         u16::from_be_bytes(val[0].to_be_bytes()[..2].try_into().unwrap())
     }
 
     #[allow(unused)]
     async fn write16(&mut self, func: u32, addr: u32, val: u16) {
-        self.cmd53_write_half_word(func, addr, &[val as u32]).await;
+        self.cmd53_write(func, addr, &aligned_ref(&[val as u32])[..2]).await;
     }
 
     async fn read32(&mut self, func: u32, addr: u32) -> u32 {
-        self.read_reg_u32(func, addr).await
+        let mut val = [0u32];
+        self.cmd53_read(func, addr, &mut aligned_mut(&mut val)).await;
+
+        val[0]
     }
 
     #[allow(unused)]
     async fn write32(&mut self, func: u32, addr: u32, val: u32) {
-        self.write_reg_u32(func, addr, val).await;
+        self.cmd53_write(func, addr, &aligned_ref(&[val])).await;
     }
 
     async fn wait_for_event(&mut self) {

@@ -154,10 +154,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
 
         // NOTE(unsafe) reinterpret buffer as &mut [u32]
         let buffer = unsafe {
-            core::slice::from_raw_parts_mut(
-                blocks.as_mut_ptr() as *mut u32,
-                blocks.len() * size_of::<DataBlock>() / size_of::<u32>(),
-            )
+            core::slice::from_raw_parts_mut(blocks.as_mut_ptr() as *mut u32, size_of_val(blocks) / size_of::<u32>())
         };
 
         let transfer = self.sdmmc.prepare_datapath_read(
@@ -197,10 +194,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
 
         // NOTE(unsafe) reinterpret buffer as &mut [u32]
         let buffer = unsafe {
-            core::slice::from_raw_parts_mut(
-                blocks.as_ptr() as *mut u32,
-                blocks.len() * size_of::<DataBlock>() / size_of::<u32>(),
-            )
+            core::slice::from_raw_parts_mut(blocks.as_ptr() as *mut u32, size_of_val(blocks) / size_of::<u32>())
         };
 
         #[cfg(sdmmc_v1)]
