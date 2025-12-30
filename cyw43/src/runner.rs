@@ -1,6 +1,7 @@
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering::Relaxed;
 
+use aligned::{A4, Aligned};
 use embassy_futures::select::{Either4, select4};
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
@@ -13,7 +14,7 @@ use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 use crate::nvram::NVRAM;
 pub use crate::spi::SpiBusCyw43;
 use crate::structs::*;
-use crate::util::{slice8_mut, slice16_mut};
+use crate::util::{aligned_mut, aligned_ref, slice8_mut, slice16_mut};
 use crate::{CHIP, Core, MTU, events, try_until};
 
 #[cfg(feature = "firmware-logs")]
@@ -45,8 +46,8 @@ pub(crate) trait SealedBus {
     const TYPE: BusType;
 
     async fn init(&mut self, bluetooth_enabled: bool);
-    async fn wlan_read(&mut self, buf: &mut [u32], len_in_u8: u32);
-    async fn wlan_write(&mut self, buf: &[u32]);
+    async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>);
+    async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>);
     #[allow(unused)]
     async fn bp_read(&mut self, addr: u32, data: &mut [u8]);
     async fn bp_write(&mut self, addr: u32, data: &[u8]);
@@ -519,7 +520,7 @@ where
 
                         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
-                        self.bus.wlan_write(&buf[..(total_len / 4)]).await;
+                        self.bus.wlan_write(&aligned_ref(&buf)[..total_len]).await;
                         self.ch.tx_done();
                         self.check_status(&mut buf).await;
                     }
@@ -559,7 +560,33 @@ where
     async fn handle_irq(&mut self, buf: &mut [u32; 512]) {
         match BUS::TYPE {
             BusType::Sdio => {
-                self.check_status(buf).await;
+                // whd_bus_sdio_packet_available_to_read
+                let irq = self.bus.bp_read32(CHIP.sdiod_core_base_address + SDIO_INT_STATUS).await;
+                if irq & I_HMB_HOST_INT == 0 {
+                    return;
+                }
+
+                let hmb_data = self
+                    .bus
+                    .bp_read32(CHIP.sdiod_core_base_address + SDIO_TO_HOST_MAILBOX_DATA)
+                    .await;
+                self.bus
+                    .bp_write32(CHIP.sdiod_core_base_address + SDIO_TO_SB_MAILBOX, SMB_INT_ACK)
+                    .await;
+
+                trace!("hmb ack");
+                if hmb_data & I_HMB_DATA_FWHALT != 0 {
+                    debug!("hmb data fault");
+                }
+
+                // Clear irq must be done here to avoid a race
+                if irq & HOSTINTMASK != 0 {
+                    self.bus
+                        .bp_write32(CHIP.sdiod_core_base_address + SDIO_INT_STATUS, irq & HOSTINTMASK)
+                        .await;
+
+                    self.check_status(buf).await;
+                }
             }
             BusType::Spi => {
                 // Receive stuff
@@ -596,7 +623,7 @@ where
 
                     if status & STATUS_F2_PKT_AVAILABLE != 0 {
                         let len = (status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT;
-                        self.bus.wlan_read(buf, len).await;
+                        self.bus.wlan_read(&mut aligned_mut(buf)[..len as usize]).await;
                         trace!("rx {:02x}", Bytes(&slice8_mut(buf)[..(len as usize).min(48)]));
                         self.rx(&mut slice8_mut(buf)[..len as usize]);
                     } else {
@@ -604,71 +631,41 @@ where
                     }
                 }
                 BusType::Sdio => {
-                    // whd_bus_sdio_packet_available_to_read
-                    let status = self.bus.bp_read32(CHIP.sdiod_core_base_address + SDIO_INT_STATUS).await;
-                    if status & I_HMB_HOST_INT == 0 {
-                        trace!("pkt not available to read");
+                    self.bus.wlan_read(&mut aligned_mut(&mut buf[..1])).await;
+                    let (len, len_inv) = {
+                        let hwtag = slice16_mut(&mut buf[..1]);
+
+                        (hwtag[0], hwtag[1])
+                    };
+
+                    if (len | len_inv) == 0 || (len ^ len_inv) != 0xFFFF {
+                        trace!("hwtag mismatch (hwtag[0] = {}, hwtag[1] = {})", len, len_inv);
                         break;
-                    }
-
-                    let hmb_data = self
-                        .bus
-                        .bp_read32(CHIP.sdiod_core_base_address + SDIO_TO_HOST_MAILBOX_DATA)
-                        .await;
-                    if hmb_data > 0 {
-                        self.bus
-                            .bp_write32(CHIP.sdiod_core_base_address + SDIO_TO_SB_MAILBOX, SMB_INT_ACK)
-                            .await;
-
-                        trace!("hmb ack");
-                    }
-
-                    if hmb_data & I_HMB_DATA_FWHALT != 0 {
-                        trace!("hmb data fault");
-                        break;
-                    }
-
-                    if status & HOSTINTMASK != 0 {
-                        self.bus
-                            .bp_write32(CHIP.sdiod_core_base_address + SDIO_INT_STATUS, status & HOSTINTMASK)
-                            .await;
                     }
 
                     trace!("pkt ready...");
-                    let mut hwtag = &mut buf[..4];
-                    self.bus.wlan_read(&mut hwtag, INITIAL_READ).await;
-                    {
-                        let hwtag = slice16_mut(&mut hwtag);
-                        if (hwtag[0] | hwtag[1]) == 0 || (hwtag[0] ^ hwtag[1]) != 0xFFFF {
-                            trace!("hwtag mismatch (hwtag[0] = {}, hwtag[1] = {})", hwtag[0], hwtag[1]);
-                            break;
-                        }
+                    let len = len as usize;
+                    if len > INITIAL_READ as usize {
+                        self.bus
+                            .wlan_read(&mut aligned_mut(&mut buf[1..])[..len - INITIAL_READ as usize])
+                            .await;
+                    } else {
+                        // TODO: investigate this condition
+                        trace!("no extra space required");
+                        continue;
                     }
 
-                    if slice16_mut(&mut hwtag)[0] == 12 {
-                        self.bus.wlan_read(&mut hwtag[1..], 8).await;
-                        let Some(sdpcm_header) = SdpcmHeader::parse_header(slice8_mut(&mut hwtag)) else {
-                            trace!("failed to parse sdpcm header");
+                    if len == SdpcmHeader::SIZE {
+                        let Some((sdpcm_header, _)) = SdpcmHeader::parse(slice8_mut(&mut buf[..3])) else {
+                            debug!("failed to parse sdpcm header");
                             break;
                         };
 
                         self.update_credit(&sdpcm_header);
-
-                        break;
+                    } else if len > SdpcmHeader::SIZE {
+                        trace!("rx {:02x}", Bytes(&slice8_mut(buf)[..len.min(48)]));
+                        self.rx(&mut slice8_mut(buf)[..len]);
                     }
-
-                    if slice16_mut(&mut hwtag)[0] <= INITIAL_READ as u16 {
-                        trace!("no extra space required");
-                        break;
-                    }
-
-                    let extra_space_required = slice16_mut(&mut hwtag)[0] - INITIAL_READ as u16;
-
-                    self.bus.wlan_read(&mut buf[1..], extra_space_required as u32).await;
-                    let len = INITIAL_READ as usize + extra_space_required as usize;
-
-                    trace!("rx {:02x}", Bytes(&slice8_mut(buf)[..len.min(48)]));
-                    self.rx(&mut slice8_mut(buf)[..len as usize]);
                 }
             }
         }
@@ -916,11 +913,10 @@ where
         buf8[SdpcmHeader::SIZE..][..CdcHeader::SIZE].copy_from_slice(&cdc_header.to_bytes());
         buf8[SdpcmHeader::SIZE + CdcHeader::SIZE..][..data.len()].copy_from_slice(data);
 
-        let total_len = (total_len + 3) & !3; // round up to 4byte
-
+        let total_len = (total_len + 3) & !3; // round up to 4byte,
         trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
 
-        self.bus.wlan_write(&buf[..total_len / 4]).await;
+        self.bus.wlan_write(&aligned_ref(buf)[..total_len]).await;
     }
 
     async fn core_disable(&mut self, core: Core) {

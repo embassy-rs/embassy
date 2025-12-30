@@ -1,3 +1,4 @@
+use aligned::{A4, Aligned};
 use embassy_futures::yield_now;
 use embassy_time::Timer;
 use embedded_hal_1::digital::OutputPin;
@@ -5,7 +6,7 @@ use futures::FutureExt;
 
 use crate::consts::*;
 use crate::runner::{BusType, SealedBus};
-use crate::util::slice8_mut;
+use crate::util::{slice8_mut, slice32_mut, slice32_ref};
 
 /// Custom Spi Trait that _only_ supports the bus operation of the cyw43
 /// Implementors are expected to hold the CS pin low during an operation.
@@ -239,14 +240,18 @@ where
         self.write16(FUNC_BUS, REG_BUS_INTERRUPT_ENABLE, val).await;
     }
 
-    async fn wlan_read(&mut self, buf: &mut [u32], len_in_u8: u32) {
+    async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) {
+        let len_in_u8 = buf.len() as u32;
+        let buf = slice32_mut(buf);
+
         let cmd = cmd_word(READ, INC_ADDR, FUNC_WLAN, 0, len_in_u8);
         let len_in_u32 = (len_in_u8 as usize + 3) / 4;
 
         self.status = self.spi.cmd_read(cmd, &mut buf[..len_in_u32]).await;
     }
 
-    async fn wlan_write(&mut self, buf: &[u32]) {
+    async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>) {
+        let buf = slice32_ref(buf);
         let cmd = cmd_word(WRITE, INC_ADDR, FUNC_WLAN, 0, buf.len() as u32 * 4);
         //TODO try to remove copy?
         let mut cmd_buf = [0_u32; 513];
