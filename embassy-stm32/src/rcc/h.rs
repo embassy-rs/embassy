@@ -72,6 +72,10 @@ pub struct Pll {
     /// PLL multiplication factor.
     pub mul: PllMul,
 
+    #[cfg(any(stm32h7, stm32h7rs))]
+    /// PLL Fractional multiplier.
+    pub fracn: Option<u16>,
+
     /// PLL P division factor. If None, PLL P output is disabled.
     /// On PLL1, it must be even for most series (in particular,
     /// it cannot be 1 in series other than stm32h7, stm32h7rs23/733,
@@ -872,10 +876,21 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
             w.set_divm(num, config.prediv);
             w.set_pllsrc(config.source);
         });
+
+        if let Some(fracn) = config.fracn {
+            RCC.pllfracr(num).modify(|w| {
+                w.set_fracn(fracn)
+            })
+        }
+
         RCC.pllcfgr().modify(|w| {
             w.set_pllvcosel(num, vco_range);
             w.set_pllrge(num, ref_range);
-            w.set_pllfracen(num, false);
+            if config.fracn.is_some() {
+                w.set_pllfracen(num, true);
+            } else {
+                w.set_pllfracen(num, false);
+            }
             w.set_divpen(num, p.is_some());
             w.set_divqen(num, q.is_some());
             w.set_divren(num, r.is_some());
