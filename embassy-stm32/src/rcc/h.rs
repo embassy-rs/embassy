@@ -830,7 +830,14 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
     // be chosen when the reference clock frequency is lower than 2 MHz.
     let wide_allowed = ref_range != Pllrge::RANGE1;
 
+    #[cfg(any(stm32h7, stm32h7rs))]
+    let vco_clk = match config.fracn {
+        Some(fracn) => ref_clk * ((config.mul.to_bits()+1) + (fracn/8192)),
+        None => ref_clk * config.mul,
+    };
+    #[cfg(not(any(stm32h7, stm32h7rs)))]
     let vco_clk = ref_clk * config.mul;
+
     let vco_range = if VCO_RANGE.contains(&vco_clk) {
         Pllvcosel::MEDIUM_VCO
     } else if wide_allowed && VCO_WIDE_RANGE.contains(&vco_clk) {
