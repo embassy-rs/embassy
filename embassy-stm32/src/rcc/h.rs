@@ -832,7 +832,7 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
 
     #[cfg(any(stm32h7, stm32h7rs))]
     let vco_clk = match config.fracn {
-        Some(fracn) => ref_clk * ((config.mul.to_bits()+1) + (fracn/8192)),
+        Some(fracn) => Hertz::hz((ref_clk.0 as f32 * ((config.mul.to_bits()+1) as f32 + (fracn as f32 / 8192.0))) as u32),
         None => ref_clk * config.mul,
     };
     #[cfg(not(any(stm32h7, stm32h7rs)))]
