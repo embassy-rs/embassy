@@ -1,6 +1,9 @@
+#[cfg(feature = "cyw43")]
 use core::future::poll_fn;
 use core::ops::{Deref, DerefMut};
+#[cfg(feature = "cyw43")]
 use core::sync::atomic::{Ordering, compiler_fence};
+#[cfg(feature = "cyw43")]
 use core::task::Poll;
 
 use aligned::{A4, Aligned};
