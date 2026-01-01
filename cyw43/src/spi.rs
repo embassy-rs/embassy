@@ -262,7 +262,7 @@ where
     }
 
     #[allow(unused)]
-    async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8]) {
+    async fn bp_read(&mut self, mut addr: u32, mut data: &mut Aligned<A4, [u8]>) {
         trace!("bp_read addr = {:08x}", addr);
 
         // It seems the HW force-aligns the addr
@@ -297,7 +297,7 @@ where
         }
     }
 
-    async fn bp_write(&mut self, mut addr: u32, mut data: &[u8]) {
+    async fn bp_write(&mut self, mut addr: u32, mut data: &Aligned<A4, [u8]>) {
         trace!("bp_write addr = {:08x}", addr);
 
         // It seems the HW force-aligns the addr
@@ -373,7 +373,7 @@ where
     }
 
     async fn read32(&mut self, func: u32, addr: u32) -> u32 {
-        if func == BUS_FUNCTION && addr == SPI_STATUS_REGISTER && self.status != 0 {
+        if func == FUNC_BUS && addr == SPI_STATUS_REGISTER && self.status != 0 {
             let status = self.status;
             self.status = 0;
 

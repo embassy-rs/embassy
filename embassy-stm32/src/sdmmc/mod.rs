@@ -39,28 +39,45 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        T::state().waker.wake();
+        T::state().tx_waker.wake();
         let status = T::info().regs.star().read();
+        #[cfg(sdmmc_v1)]
+        if status.dcrcfail() || status.dtimeout() || status.dataend() || status.dbckend() || status.stbiterr() {
+            T::state().tx_waker.wake();
+        }
+
+        #[cfg(sdmmc_v2)]
+        if status.dcrcfail() || status.dtimeout() || status.dataend() || status.dbckend() || status.dabort() {
+            T::state().tx_waker.wake();
+        }
+
+        if status.sdioit() {
+            T::state().it_waker.wake();
+        }
+
         T::info().regs.maskr().modify(|w| {
+            if status.sdioit() {
+                w.set_sdioitie(false);
+            }
             if status.dcrcfail() {
-                w.set_dcrcfailie(false)
+                w.set_dcrcfailie(false);
             }
             if status.dtimeout() {
-                w.set_dtimeoutie(false)
+                w.set_dtimeoutie(false);
             }
             if status.dataend() {
-                w.set_dataendie(false)
+                w.set_dataendie(false);
             }
             if status.dbckend() {
-                w.set_dbckendie(false)
+                w.set_dbckendie(false);
             }
             #[cfg(sdmmc_v1)]
             if status.stbiterr() {
-                w.set_stbiterre(false)
+                w.set_stbiterre(false);
             }
             #[cfg(sdmmc_v2)]
             if status.dabort() {
-                w.set_dabortie(false)
+                w.set_dabortie(false);
             }
         });
     }
@@ -699,16 +716,18 @@ impl<'d> Sdmmc<'d> {
 impl<'d> Sdmmc<'d> {
     fn enable_interrupts(&self) {
         let regs = self.info.regs;
-        regs.maskr().write(|w| {
-            w.set_dcrcfailie(true);
-            w.set_dtimeoutie(true);
-            w.set_dataendie(true);
-            w.set_dbckendie(true);
+        critical_section::with(|_| {
+            regs.maskr().modify(|w| {
+                w.set_dcrcfailie(true);
+                w.set_dtimeoutie(true);
+                w.set_dataendie(true);
+                w.set_dbckendie(true);
 
-            #[cfg(sdmmc_v1)]
-            w.set_stbiterre(true);
-            #[cfg(sdmmc_v2)]
-            w.set_dabortie(true);
+                #[cfg(sdmmc_v1)]
+                w.set_stbiterre(true);
+                #[cfg(sdmmc_v2)]
+                w.set_dabortie(true);
+            });
         });
     }
 
@@ -1021,7 +1040,6 @@ impl<'d> Sdmmc<'d> {
             w.set_cmdsentc(true);
             w.set_dataendc(true);
             w.set_dbckendc(true);
-            w.set_sdioitc(true);
             #[cfg(sdmmc_v1)]
             w.set_stbiterrc(true);
 
@@ -1149,7 +1167,7 @@ impl<'d> Sdmmc<'d> {
         let res = poll_fn(|cx| {
             // Compiler might not be sufficiently constrained here
             // https://github.com/embassy-rs/embassy/issues/4723
-            self.state.waker.register(cx.waker());
+            self.state.tx_waker.register(cx.waker());
             let status = self.info.regs.star().read();
 
             if status.dcrcfail() {
@@ -1236,13 +1254,15 @@ struct Info {
 }
 
 struct State {
-    waker: AtomicWaker,
+    tx_waker: AtomicWaker,
+    it_waker: AtomicWaker,
 }
 
 impl State {
     const fn new() -> Self {
         Self {
-            waker: AtomicWaker::new(),
+            tx_waker: AtomicWaker::new(),
+            it_waker: AtomicWaker::new(),
         }
     }
 }
