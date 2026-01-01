@@ -102,6 +102,7 @@ pub(crate) const BACKPLANE_WINDOW_SIZE: usize = 0x8000;
 pub(crate) const BACKPLANE_ADDRESS_MASK: u32 = 0x7FFF;
 pub(crate) const BACKPLANE_ADDRESS_32BIT_FLAG: u32 = 0x08000;
 pub(crate) const BACKPLANE_MAX_TRANSFER_SIZE: usize = 64;
+pub(crate) const BLOCK_BUFFER_SIZE: usize = 1024;
 // Active Low Power (ALP) clock constants
 pub(crate) const BACKPLANE_ALP_AVAIL_REQ: u8 = 0x08;
 pub(crate) const BACKPLANE_ALP_AVAIL: u8 = 0x40;
@@ -195,10 +196,6 @@ pub(crate) const BTSDIO_OFFSET_HOST2BT_IN: u32 = 0x00002000;
 pub(crate) const BTSDIO_OFFSET_HOST2BT_OUT: u32 = 0x00002004;
 pub(crate) const BTSDIO_OFFSET_BT2HOST_IN: u32 = 0x00002008;
 pub(crate) const BTSDIO_OFFSET_BT2HOST_OUT: u32 = 0x0000200C;
-
-pub(crate) const BUS_FUNCTION: u32 = 0;
-pub(crate) const BACKPLANE_FUNCTION: u32 = 1;
-pub(crate) const WLAN_FUNCTION: u32 = 2;
 
 pub(crate) const SDIOD_CCCR_IOEN: u32 = 0x02;
 pub(crate) const SDIOD_CCCR_IORDY: u32 = 0x03;

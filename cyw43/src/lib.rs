@@ -26,9 +26,10 @@ mod util;
 
 use core::sync::atomic::AtomicBool;
 
+pub use aligned::{A4, Aligned};
 use embassy_net_driver_channel as ch;
-use embassy_time::{Duration, Ticker};
-use embedded_hal_1::digital::OutputPin;
+use embedded_hal_1::digital::{InputPin, OutputPin};
+use embedded_hal_async::digital::Wait;
 use events::Events;
 use ioctl::IoctlState;
 
@@ -241,7 +242,7 @@ pub async fn new<'a, PWR, SPI>(
     state: &'a mut State,
     pwr: PWR,
     spi: SPI,
-    firmware: &[u8],
+    firmware: &Aligned<A4, [u8]>,
 ) -> (NetDriver<'a>, Control<'a>, Runner<'a, SpiBus<PWR, SPI>>)
 where
     PWR: OutputPin,
@@ -275,20 +276,22 @@ where
 ///
 /// Returns a handle to the network device, control handle and a runner for driving the low level
 /// stack.
-pub async fn new_sdio<'a, SDIO>(
+pub async fn new_sdio<'a, SDIO, PIN>(
     state: &'a mut State,
     sdio: SDIO,
-    firmware: &[u8],
-) -> (NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>>)
+    pin: PIN,
+    firmware: &Aligned<A4, [u8]>,
+) -> (NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO, PIN>>)
 where
     SDIO: SdioBusCyw43<64>,
+    PIN: Wait + InputPin,
 {
     let (ch_runner, device) = ch::new(&mut state.net.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
     let state_ch = ch_runner.state_runner();
 
     let mut runner = Runner::new(
         ch_runner,
-        SdioBus::new(sdio),
+        SdioBus::new(sdio, pin),
         &state.ioctl_state,
         &state.net.events,
         &state.net.secure_network,
@@ -316,8 +319,8 @@ pub async fn new_with_bluetooth<'a, PWR, SPI>(
     state: &'a mut State,
     pwr: PWR,
     spi: SPI,
-    wifi_firmware: &[u8],
-    bluetooth_firmware: &[u8],
+    wifi_firmware: &Aligned<A4, [u8]>,
+    bluetooth_firmware: &Aligned<A4, [u8]>,
 ) -> (
     NetDriver<'a>,
     bluetooth::BtDriver<'a>,
@@ -353,18 +356,14 @@ where
     (device, bt_driver, control, runner)
 }
 
-async fn try_until(mut func: impl AsyncFnMut() -> bool, duration: Duration) -> bool {
-    let tick = Duration::from_millis(1);
-    let mut ticker = Ticker::every(tick);
-    let ticks = duration.as_ticks() / tick.as_ticks();
+/// Include bytes aligned to A4 in the binary
+#[macro_export]
+macro_rules! aligned_bytes {
+    ($path:expr) => {{
+        {
+            static BYTES: &cyw43::Aligned<cyw43::A4, [u8]> = &cyw43::Aligned(*include_bytes!($path));
 
-    for _ in 0..ticks {
-        if func().await {
-            return true;
+            BYTES
         }
-
-        ticker.next().await;
-    }
-
-    false
+    }};
 }
