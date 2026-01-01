@@ -902,7 +902,7 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
                 w.set_pllfracen(num, false);
             }
 
-            #[cfg(not(stm32h743zi))]
+            #[cfg(not(stm32h743))]
             w.set_pllfracen(num, false);
 
             w.set_divpen(num, p.is_some());
