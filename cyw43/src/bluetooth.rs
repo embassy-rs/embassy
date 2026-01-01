@@ -1,7 +1,8 @@
 use core::cell::RefCell;
 use core::future::Future;
-use core::mem::MaybeUninit;
+use core::mem::{self, MaybeUninit};
 
+use aligned::{A4, Aligned};
 use bt_hci::transport::WithIndicator;
 use bt_hci::{ControllerToHostPacket, FromHciBytes, FromHciBytesError, HostToControllerPacket, PacketKind, WriteHci};
 use embassy_futures::yield_now;
@@ -186,7 +187,7 @@ impl<'a> BtRunner<'a> {
         let firmware = &firmware[version_length as usize + 2..];
         // buffers
         let mut data_buffer: [u8; 0x100] = [0; 0x100];
-        let mut aligned_data_buffer: [u8; 0x100] = [0; 0x100];
+        let mut aligned_data_buffer: Aligned<A4, [u8; 0x100]> = Aligned([0; 0x100]);
         // structs
         let mut btfw_cb = CybtFwCb {
             p_next_line_start: firmware,
@@ -250,7 +251,8 @@ impl<'a> BtRunner<'a> {
             assert!(dest_start_addr % 4 == 0);
             assert!(dest_end_addr % 4 == 0);
             assert!(aligned_data_buffer_index % 4 == 0);
-            bus.bp_write(dest_start_addr, buffer_to_write).await;
+            bus.bp_write(dest_start_addr, unsafe { mem::transmute(buffer_to_write) })
+                .await;
         }
     }
 
@@ -363,7 +365,7 @@ impl<'a> BtRunner<'a> {
         }
 
         // Build header
-        let mut header = [0u8; 4];
+        let mut header = Aligned([0u8; 4]);
         header[0] = len as u8;
         header[1] = (len >> 8) as u8;
         header[2] = (len >> 16) as u8;
@@ -380,13 +382,15 @@ impl<'a> BtRunner<'a> {
             // wraparound
             let n = BTSDIO_FWBUF_SIZE - self.h2b_write_pointer;
             let addr = self.addr + BTSDIO_OFFSET_HOST_WRITE_BUF + self.h2b_write_pointer;
-            bus.bp_write(addr, &payload[..n as usize]).await;
+            bus.bp_write(addr, unsafe { mem::transmute(&payload[..n as usize]) })
+                .await;
             let addr = self.addr + BTSDIO_OFFSET_HOST_WRITE_BUF;
-            bus.bp_write(addr, &payload[n as usize..]).await;
+            bus.bp_write(addr, unsafe { mem::transmute(&payload[n as usize..]) })
+                .await;
         } else {
             // no wraparound
             let addr = self.addr + BTSDIO_OFFSET_HOST_WRITE_BUF + self.h2b_write_pointer;
-            bus.bp_write(addr, payload).await;
+            bus.bp_write(addr, unsafe { mem::transmute(payload) }).await;
         }
         self.h2b_write_pointer = (self.h2b_write_pointer + payload.len() as u32) % BTSDIO_FWBUF_SIZE;
 
@@ -423,7 +427,7 @@ impl<'a> BtRunner<'a> {
                 }
 
                 // read header
-                let mut header = [0u8; 4];
+                let mut header = Aligned([0u8; 4]);
                 let addr = self.addr + BTSDIO_OFFSET_HOST_READ_BUF + self.b2h_read_pointer;
                 bus.bp_read(addr, &mut header).await;
 
@@ -441,19 +445,22 @@ impl<'a> BtRunner<'a> {
 
                 buf.buf[0] = header[3]; // hci packet type
                 let payload = &mut buf.buf[1..][..rounded_len as usize];
+                let payload_len = payload.len();
                 if self.b2h_read_pointer as usize + payload.len() > BTSDIO_FWBUF_SIZE as usize {
                     // wraparound
                     let n = BTSDIO_FWBUF_SIZE - self.b2h_read_pointer;
                     let addr = self.addr + BTSDIO_OFFSET_HOST_READ_BUF + self.b2h_read_pointer;
-                    bus.bp_read(addr, &mut payload[..n as usize]).await;
+                    bus.bp_read(addr, unsafe { mem::transmute(&mut payload[..n as usize]) })
+                        .await;
                     let addr = self.addr + BTSDIO_OFFSET_HOST_READ_BUF;
-                    bus.bp_read(addr, &mut payload[n as usize..]).await;
+                    bus.bp_read(addr, unsafe { mem::transmute(&mut payload[n as usize..]) })
+                        .await;
                 } else {
                     // no wraparound
                     let addr = self.addr + BTSDIO_OFFSET_HOST_READ_BUF + self.b2h_read_pointer;
-                    bus.bp_read(addr, payload).await;
+                    bus.bp_read(addr, unsafe { mem::transmute(payload) }).await;
                 }
-                self.b2h_read_pointer = (self.b2h_read_pointer + payload.len() as u32) % BTSDIO_FWBUF_SIZE;
+                self.b2h_read_pointer = (self.b2h_read_pointer + payload_len as u32) % BTSDIO_FWBUF_SIZE;
                 bus.bp_write32(self.addr + BTSDIO_OFFSET_BT2HOST_OUT, self.b2h_read_pointer)
                     .await;
 
