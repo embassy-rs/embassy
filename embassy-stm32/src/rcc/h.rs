@@ -72,7 +72,7 @@ pub struct Pll {
     /// PLL multiplication factor.
     pub mul: PllMul,
 
-    #[cfg(any(stm32h7, stm32h7rs))]
+    #[cfg(any(stm32h743))]
     /// PLL Fractional multiplier.
     pub fracn: Option<u16>,
 
@@ -830,12 +830,12 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
     // be chosen when the reference clock frequency is lower than 2 MHz.
     let wide_allowed = ref_range != Pllrge::RANGE1;
 
-    #[cfg(stm32h743zi)]
+    #[cfg(stm32h743)]
     let vco_clk = match config.fracn {
         Some(fracn) => Hertz::hz((ref_clk.0 as f32 * ((config.mul.to_bits()+1) as f32 + (fracn as f32 / 8192.0))) as u32),
         None => ref_clk * config.mul,
     };
-    #[cfg(not(stm32h743zi))]
+    #[cfg(not(stm32h743))]
     let vco_clk = ref_clk * config.mul;
 
     let vco_range = if VCO_RANGE.contains(&vco_clk) {
@@ -884,7 +884,7 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
             w.set_pllsrc(config.source);
         });
 
-        #[cfg(stm32h743zi)]
+        #[cfg(stm32h743)]
         if let Some(fracn) = config.fracn {
             RCC.pllfracr(num).modify(|w| {
                 w.set_fracn(fracn)
@@ -895,7 +895,7 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
             w.set_pllvcosel(num, vco_range);
             w.set_pllrge(num, ref_range);
 
-            #[cfg(stm32h743zi)]
+            #[cfg(stm32h743)]
             if config.fracn.is_some() {
                 w.set_pllfracen(num, true);
             } else {
