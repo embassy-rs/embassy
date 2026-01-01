@@ -69,7 +69,7 @@ async fn main(spawner: Spawner) {
 
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init(cyw43::State::new());
-    let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw).await;
+    let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, unsafe { core::mem::transmute(fw) }).await;
     spawner.spawn(unwrap!(wifi_task(runner)));
 
     control.init(clm).await;
