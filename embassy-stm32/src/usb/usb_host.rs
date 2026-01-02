@@ -7,7 +7,9 @@ use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Instant, Timer};
-use embassy_usb_driver::host::{channel, ChannelError, DeviceEvent, HostError, UsbChannel, UsbHostDriver, TimeoutConfig};
+use embassy_usb_driver::host::{
+    channel, ChannelError, DeviceEvent, HostError, TimeoutConfig, UsbChannel, UsbHostDriver,
+};
 use embassy_usb_driver::{EndpointType, Speed};
 use stm32_metapac::common::{Reg, RW};
 use stm32_metapac::usb::regs::Epr;
@@ -16,8 +18,8 @@ use super::{DmPin, DpPin, Instance};
 use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
 use crate::pac::USBRAM;
-use crate::{interrupt, Peri};
 use crate::peripherals::USB;
+use crate::{interrupt, Peri};
 
 /// The number of registers is 8, allowing up to 16 mono-
 /// directional/single-buffer or up to 7 double-buffer endpoints in any combination. For

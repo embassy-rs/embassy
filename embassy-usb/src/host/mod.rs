@@ -9,11 +9,8 @@ use core::num::NonZeroU8;
 
 use embassy_time::Timer;
 use embassy_usb_driver::host::channel::{Control, InOut};
-use embassy_usb_driver::{
-    host::{channel, ChannelError, HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver},
-    Speed,
-};
-use embassy_usb_driver::{EndpointInfo, EndpointType};
+use embassy_usb_driver::host::{channel, ChannelError, HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver};
+use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
 
 use crate::control::Request;
 use crate::handlers::EnumerationInfo;
@@ -76,12 +73,7 @@ pub trait ControlChannelExt<D: channel::Direction>: UsbChannel<channel::Control,
     /// Request the underlying bytes for a descriptor of a specific type.
     /// bytes.len() determines how many bytes are read at maximum.
     /// This can be used for descriptors of varying length, which are parsed by the caller.
-    async fn request_descriptor_bytes(
-        &mut self,
-        desc_type: u8,
-        index: u8,
-        buf: &mut [u8],
-    ) -> Result<usize, HostError>
+    async fn request_descriptor_bytes(&mut self, desc_type: u8, index: u8, buf: &mut [u8]) -> Result<usize, HostError>
     where
         D: channel::IsIn,
     {

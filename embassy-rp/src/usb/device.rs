@@ -1,10 +1,9 @@
-
 use core::future::poll_fn;
 use core::marker::PhantomData;
-use core::task::Poll;
 use core::slice;
-use atomic_polyfill::{compiler_fence, Ordering};
+use core::task::Poll;
 
+use atomic_polyfill::{compiler_fence, Ordering};
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
@@ -12,15 +11,9 @@ use embassy_usb_driver::{
     Direction, EndpointAddress, EndpointAllocError, EndpointError, EndpointInfo, EndpointType, Event, Unsupported,
 };
 
+use super::{Dir, In, Instance, Out};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::{interrupt, pac, peripherals, Peri, RegExt};
-
-use super::{
-    Instance, 
-    In,
-    Out,
-    Dir,
-};
 
 const EP_COUNT: usize = 16;
 const EP_MEMORY_SIZE: usize = 4096;

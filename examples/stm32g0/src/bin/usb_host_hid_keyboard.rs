@@ -89,15 +89,7 @@ async fn main(_spawner: Spawner) {
     // i2c
     // SCL: PB8
     // SDA: PB9
-    let mut i2c = I2c::new(
-        p.I2C1,
-        p.PB8,
-        p.PB9,
-        Irqs,
-        p.DMA1_CH1,
-        p.DMA1_CH2,
-        Default::default(),
-    );
+    let mut i2c = I2c::new(p.I2C1, p.PB8, p.PB9, Irqs, p.DMA1_CH1, p.DMA1_CH2, Default::default());
 
     let i2c_address: u8 = 0x68 >> 1; //0b00110_100; // 7 bits address 0110 10x
 

@@ -1,16 +1,13 @@
 //! Host driver for basic keyboard HID inputs
 
-use super::{EnumerationInfo, HandlerEvent, RegisterError, UsbHostHandler};
-use crate::host::{
-    descriptor::{InterfaceDescriptor, USBDescriptor, DEFAULT_MAX_DESCRIPTOR_SIZE},
-    ControlChannelExt,
-};
 use core::num::NonZeroU8;
 
-use embassy_usb_driver::{
-    host::{channel, HostError, UsbChannel, UsbHostDriver},
-    Direction, EndpointInfo, EndpointType,
-};
+use embassy_usb_driver::host::{channel, HostError, UsbChannel, UsbHostDriver};
+use embassy_usb_driver::{Direction, EndpointInfo, EndpointType};
+
+use super::{EnumerationInfo, HandlerEvent, RegisterError, UsbHostHandler};
+use crate::host::descriptor::{InterfaceDescriptor, USBDescriptor, DEFAULT_MAX_DESCRIPTOR_SIZE};
+use crate::host::ControlChannelExt;
 
 #[repr(C)]
 #[derive(Debug)]

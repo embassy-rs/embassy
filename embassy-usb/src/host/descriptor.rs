@@ -1,6 +1,8 @@
-use crate::descriptor::descriptor_type;
-use embassy_usb_driver::{host::HostError, Direction, EndpointInfo, EndpointType};
+use embassy_usb_driver::host::HostError;
+use embassy_usb_driver::{Direction, EndpointInfo, EndpointType};
 use heapless::Vec;
+
+use crate::descriptor::descriptor_type;
 
 pub(crate) const DEFAULT_MAX_DESCRIPTOR_SIZE: usize = 512;
 pub type StringIndex = u8;
@@ -560,9 +562,10 @@ impl USBDescriptor for EndpointDescriptor {
 
 #[cfg(test)]
 mod test {
+    use heapless::Vec;
+
     use super::{ConfigurationDescriptor, USBDescriptor};
     use crate::host::EndpointDescriptor;
-    use heapless::Vec;
 
     #[test]
     fn test_parse_extended_endpoint_descriptor() {

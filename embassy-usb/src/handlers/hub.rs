@@ -5,24 +5,15 @@
 
 use core::num::NonZeroU8;
 
-use super::{EnumerationInfo, HandlerEvent, RegisterError, UsbHostHandler};
-use crate::{
-    control::Request,
-    host::{
-        descriptor::{
-            InterfaceDescriptor, USBDescriptor,
-            DEFAULT_MAX_DESCRIPTOR_SIZE,
-        },
-        ControlChannelExt,
-    },
-};
-
 use embassy_time::Timer;
-use embassy_usb_driver::{
-    host::{channel, HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver},
-    Direction, EndpointInfo, EndpointType, Speed,
-};
+use embassy_usb_driver::host::{channel, HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver};
+use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
+
+use super::{EnumerationInfo, HandlerEvent, RegisterError, UsbHostHandler};
+use crate::control::Request;
+use crate::host::descriptor::{InterfaceDescriptor, USBDescriptor, DEFAULT_MAX_DESCRIPTOR_SIZE};
+use crate::host::ControlChannelExt;
 
 pub struct HubHandler<H: UsbHostDriver, const MAX_PORTS: usize> {
     interrupt_channel: H::Channel<channel::Interrupt, channel::In>,

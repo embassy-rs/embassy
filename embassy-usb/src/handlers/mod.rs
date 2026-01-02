@@ -2,13 +2,9 @@
 
 use core::num::NonZeroU8;
 
-use embassy_usb_driver::{
-    host::{
-        channel::{self, IsIn, IsOut},
-        HostError, UsbChannel, UsbHostDriver,
-    },
-    Speed,
-};
+use embassy_usb_driver::host::channel::{self, IsIn, IsOut};
+use embassy_usb_driver::host::{HostError, UsbChannel, UsbHostDriver};
+use embassy_usb_driver::Speed;
 
 use crate::host::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor};
 use crate::host::ControlChannelExt;
