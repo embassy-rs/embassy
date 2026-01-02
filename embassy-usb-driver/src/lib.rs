@@ -438,3 +438,13 @@ impl embedded_io_async::Error for EndpointError {
         }
     }
 }
+
+impl core::fmt::Display for EndpointError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::BufferOverflow => write!(f, "Buffer overflow"),
+            Self::Disabled => write!(f, "Endpoint disabled"),
+        }
+    }
+}
+impl core::error::Error for EndpointError {}
