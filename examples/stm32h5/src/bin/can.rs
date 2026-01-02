@@ -42,7 +42,8 @@ async fn main(_spawner: Spawner) {
         info!("Writing frame");
         _ = can.write(&frame).await;
 
-        match can.read().await {
+        // The default global filter places all frames into fifo0
+        match can.read(can::Fifo::Fifo0).await {
             Ok(envelope) => {
                 let (rx_frame, ts) = envelope.parts();
                 let delta = (ts - last_read_ts).as_millis();
@@ -74,7 +75,7 @@ async fn main(_spawner: Spawner) {
         info!("Writing frame");
         _ = tx.write(&frame).await;
 
-        match rx.read().await {
+        match rx.read(can::Fifo::Fifo0).await {
             Ok(envelope) => {
                 let (rx_frame, ts) = envelope.parts();
                 let delta = (ts - last_read_ts).as_millis();
