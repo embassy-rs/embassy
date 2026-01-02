@@ -75,6 +75,10 @@ use crate::gpio::{AnyPin, SealedPin};
 use crate::pac::common::{RW, Reg};
 use crate::{Peri, pac, reset};
 
+// VCO range from 750 MHz to 1600 MHz (RP2040 datasheet 20 February 2025 2.18.1, RP2350 datasheet 29 July 2025 8.6.1)
+static VCO_MIN: u32 = 750_000_000;
+static VCO_MAX: u32 = 1_600_000_000;
+
 // NOTE: all gpin handling is commented out for future reference.
 // gpin is not usually safe to use during the boot init() call, so it won't
 // be very useful until we have runtime clock reconfiguration. once this
@@ -708,7 +712,7 @@ impl PllConfig {
         let vco_freq = ref_freq * self.fbdiv as u32;
 
         // Check VCO frequency range
-        vco_freq >= 750_000_000 && vco_freq <= 1_800_000_000
+        vco_freq >= VCO_MIN && vco_freq <= VCO_MAX
     }
 }
 
@@ -869,7 +873,7 @@ pub struct RtcClkConfig {
 /// based on the input frequency.
 ///
 /// This function searches for the best PLL configuration to achieve the requested target frequency
-/// while staying within the VCO frequency range of 750MHz to 1800MHz. It prioritizes stability
+/// while staying within the VCO frequency range of 750MHz to 1600MHz. It prioritizes stability
 /// over exact frequency matching by using larger divisors where possible.
 ///
 /// # Parameters
@@ -900,7 +904,7 @@ fn find_pll_params(input_hz: u32, target_hz: u32) -> Option<PllConfig> {
         let vco_freq = reference_freq * fbdiv;
 
         // Check VCO frequency is within valid range
-        if vco_freq < 750_000_000 || vco_freq > 1_800_000_000 {
+        if vco_freq < VCO_MIN as u64 || vco_freq > VCO_MAX as u64 {
             continue;
         }
 
@@ -930,7 +934,7 @@ fn find_pll_params(input_hz: u32, target_hz: u32) -> Option<PllConfig> {
     for fbdiv in (16..=320).rev() {
         let vco_freq = reference_freq * fbdiv;
 
-        if vco_freq < 750_000_000 || vco_freq > 1_800_000_000 {
+        if vco_freq < VCO_MIN as u64 || vco_freq > VCO_MAX as u64 {
             continue;
         }
 
@@ -1489,8 +1493,8 @@ fn configure_pll(p: pac::pll::Pll, input_freq: u32, config: PllConfig) -> Result
     // Calculate VCO frequency
     let vco_freq = ref_freq.saturating_mul(config.fbdiv as u32);
 
-    // VCO (Voltage Controlled Oscillator) frequency must be between 750MHz and 1800MHz
-    assert!(vco_freq >= 750_000_000 && vco_freq <= 1_800_000_000);
+    // VCO (Voltage Controlled Oscillator) frequency must be between 750MHz and 1600MHz
+    assert!(vco_freq >= VCO_MIN && vco_freq <= VCO_MAX);
 
     // We follow the SDK's approach to PLL configuration which is:
     // 1. Power down PLL
@@ -1999,7 +2003,7 @@ mod tests {
             assert_eq!(output_freq, 48_000_000);
 
             // Verify VCO frequency is in valid range
-            assert!(vco_freq >= 750_000_000 && vco_freq <= 1_800_000_000);
+            assert!(vco_freq >= VCO_MIN as u64 && vco_freq <= VCO_MAX as u64);
 
             // Test overclocked configuration for 200 MHz
             let params = find_pll_params(12_000_000, 200_000_000).unwrap();
@@ -2007,7 +2011,7 @@ mod tests {
             let vco_freq = 12_000_000 as u64 * params.fbdiv as u64;
             let output_freq = (vco_freq / ((params.post_div1 * params.post_div2) as u64)) as u32;
             assert_eq!(output_freq, 200_000_000);
-            assert!(vco_freq >= 750_000_000 && vco_freq <= 1_800_000_000); // VCO in valid range
+            assert!(vco_freq >= VCO_MIN as u64 && vco_freq <= VCO_MAX as u64); // VCO in valid range
 
             // Test non-standard crystal with 16 MHz
             let params = find_pll_params(16_000_000, 125_000_000).unwrap();
@@ -2034,7 +2038,7 @@ mod tests {
                 error_percentage
             );
 
-            assert!(vco_freq >= 750_000_000 && vco_freq <= 1_800_000_000);
+            assert!(vco_freq >= VCO_MIN as u64 && vco_freq <= VCO_MAX as u64);
         }
     }
 
@@ -2089,12 +2093,12 @@ mod tests {
         invalid_config = valid_config;
         invalid_config.fbdiv = 200;
         invalid_config.refdiv = 1;
-        // This should be INVALID: 12MHz * 200 = 2400MHz exceeds max VCO of 1800MHz
+        // This should be INVALID: 12MHz * 200 = 2400MHz exceeds max VCO of 1600MHz
         assert!(!invalid_config.is_valid(12_000_000));
 
         // Test a valid high VCO configuration
-        invalid_config.fbdiv = 150; // 12MHz * 150 = 1800MHz, exactly at the limit
-        assert!(invalid_config.is_valid(12_000_000));
+        invalid_config.fbdiv = 160; // 10MHz * 160 = 1600MHz, exactly at the limit
+        assert!(invalid_config.is_valid(10_000_000));
     }
 
     #[cfg(feature = "rp2040")]
