@@ -8,7 +8,7 @@ use super::{
 };
 use crate::dma::Transfer;
 use crate::time::Hertz;
-use crate::{pac, rcc, Peripheral};
+use crate::{pac, rcc, Peri};
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
@@ -48,7 +48,7 @@ impl<T: Instance> SealedAdcChannel<T> for Temperature {
     }
 }
 
-#[derive(Debug)]
+#[derive(Copy, Clone, Debug)]
 pub enum Prescaler {
     NotDivided,
     DividedBy2,
@@ -138,6 +138,8 @@ impl<'a> defmt::Format for Prescaler {
 /// Number of samples used for averaging.
 /// TODO: Implement hardware averaging setting.
 #[allow(unused)]
+#[derive(Copy, Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Averaging {
     Disabled,
     Samples2,
@@ -154,8 +156,7 @@ pub enum Averaging {
 
 impl<'d, T: Instance> Adc<'d, T> {
     /// Create a new ADC driver.
-    pub fn new(adc: impl Peripheral<P = T> + 'd, sample_time: SampleTime, resolution: Resolution) -> Self {
-        embassy_hal_internal::into_ref!(adc);
+    pub fn new(adc: Peri<'d, T>, sample_time: SampleTime, resolution: Resolution) -> Self {
         rcc::enable_and_reset::<T>();
 
         T::regs().cfgr2().modify(|w| w.set_ckmode(Ckmode::SYSCLK));
@@ -164,7 +165,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::common_regs().ccr().modify(|w| w.set_presc(prescaler.presc()));
 
         let frequency = Hertz(T::frequency().0 / prescaler.divisor());
-        debug!("ADC frequency set to {} Hz", frequency.0);
+        debug!("ADC frequency set to {}", frequency);
 
         if frequency > MAX_ADC_CLK_FREQ {
             panic!("Maximal allowed frequency for the ADC is {} MHz and it varies with different packages, refer to ST docs for more information.", MAX_ADC_CLK_FREQ.0 /  1_000_000 );
@@ -319,7 +320,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         Self::apply_channel_conf()
     }
 
-    async fn dma_convert(&mut self, rx_dma: &mut impl RxDma<T>, readings: &mut [u16]) {
+    async fn dma_convert(&mut self, rx_dma: Peri<'_, impl RxDma<T>>, readings: &mut [u16]) {
         // Enable overrun control, so no new DMA requests will be generated until
         // previous DR values is read.
         T::regs().isr().modify(|reg| {
@@ -374,7 +375,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// TODO(chudsaviet): externalize generic code and merge with read().
     pub async fn read_in_hw_order(
         &mut self,
-        rx_dma: &mut impl RxDma<T>,
+        rx_dma: Peri<'_, impl RxDma<T>>,
         hw_channel_selection: u32,
         scandir: Scandir,
         readings: &mut [u16],
@@ -415,7 +416,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     // For other channels, use `read_in_hw_order()` or blocking read.
     pub async fn read(
         &mut self,
-        rx_dma: &mut impl RxDma<T>,
+        rx_dma: Peri<'_, impl RxDma<T>>,
         channel_sequence: impl ExactSizeIterator<Item = &mut AnyAdcChannel<T>>,
         readings: &mut [u16],
     ) {

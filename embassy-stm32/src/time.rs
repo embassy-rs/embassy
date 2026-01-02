@@ -5,12 +5,18 @@ use core::ops::{Div, Mul};
 
 /// Hertz
 #[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Hertz(pub u32);
 
 impl Display for Hertz {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         write!(f, "{} Hz", self.0)
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl defmt::Format for Hertz {
+    fn format(&self, f: defmt::Formatter) {
+        defmt::write!(f, "{=u32} Hz", self.0)
     }
 }
 

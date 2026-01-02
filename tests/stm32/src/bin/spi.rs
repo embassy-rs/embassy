@@ -25,10 +25,10 @@ async fn main(_spawner: Spawner) {
     spi_config.frequency = Hertz(1_000_000);
 
     let mut spi = Spi::new_blocking(
-        &mut spi_peri,
-        &mut sck,  // Arduino D13
-        &mut mosi, // Arduino D11
-        &mut miso, // Arduino D12
+        spi_peri.reborrow(),
+        sck.reborrow(),  // Arduino D13
+        mosi.reborrow(), // Arduino D11
+        miso.reborrow(), // Arduino D12
         spi_config,
     );
 
@@ -43,20 +43,20 @@ async fn main(_spawner: Spawner) {
     defmt::assert!(!embassy_stm32::pac::RCC.apb2enr().read().spi1en());
 
     // test rx-only configuration
-    let mut spi = Spi::new_blocking_rxonly(&mut spi_peri, &mut sck, &mut miso, spi_config);
-    let mut mosi_out = Output::new(&mut mosi, Level::Low, Speed::VeryHigh);
+    let mut spi = Spi::new_blocking_rxonly(spi_peri.reborrow(), sck.reborrow(), miso.reborrow(), spi_config);
+    let mut mosi_out = Output::new(mosi.reborrow(), Level::Low, Speed::VeryHigh);
 
     test_rx::<u8>(&mut spi, &mut mosi_out);
     test_rx::<u16>(&mut spi, &mut mosi_out);
     drop(spi);
     drop(mosi_out);
 
-    let mut spi = Spi::new_blocking_txonly(&mut spi_peri, &mut sck, &mut mosi, spi_config);
+    let mut spi = Spi::new_blocking_txonly(spi_peri.reborrow(), sck.reborrow(), mosi.reborrow(), spi_config);
     test_tx::<u8>(&mut spi);
     test_tx::<u16>(&mut spi);
     drop(spi);
 
-    let mut spi = Spi::new_blocking_txonly_nosck(&mut spi_peri, &mut mosi, spi_config);
+    let mut spi = Spi::new_blocking_txonly_nosck(spi_peri.reborrow(), mosi.reborrow(), spi_config);
     test_tx::<u8>(&mut spi);
     test_tx::<u16>(&mut spi);
     drop(spi);

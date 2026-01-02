@@ -5,12 +5,12 @@ use core::future::Future;
 use core::pin::Pin as FuturePin;
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::{impl_peripheral, into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::pac::gpio::vals::*;
 use crate::pac::gpio::{self};
-#[cfg(all(feature = "rt", feature = "mspm0c110x"))]
+#[cfg(all(feature = "rt", any(mspm0c110x, mspm0c1105_c1106, mspm0l110x)))]
 use crate::pac::interrupt;
 use crate::pac::{self};
 
@@ -74,7 +74,7 @@ pub enum Port {
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
 pub struct Flex<'d> {
-    pin: PeripheralRef<'d, AnyPin>,
+    pin: Peri<'d, AnyPin>,
 }
 
 impl<'d> Flex<'d> {
@@ -83,11 +83,9 @@ impl<'d> Flex<'d> {
     /// The pin remains disconnected. The initial output level is unspecified, but can be changed
     /// before the pin is put into output mode.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd) -> Self {
-        into_ref!(pin);
-
+    pub fn new(pin: Peri<'d, impl Pin>) -> Self {
         // Pin will be in disconnected state.
-        Self { pin: pin.map_into() }
+        Self { pin: pin.into() }
     }
 
     /// Set the pin's pull.
@@ -210,8 +208,8 @@ impl<'d> Flex<'d> {
     /// or technical reference manual for additional details.
     #[inline]
     pub fn set_pf_unchecked(&mut self, pf: u8) {
-        // Per SLAU893, PF is only 5 bits
-        assert!((pf & 0x3F) != 0, "PF is out of range");
+        // Per SLAU893 and SLAU846B, PF is only 6 bits
+        assert_eq!(pf & 0xC0, 0, "PF is out of range");
 
         let pincm = pac::IOMUX.pincm(self.pin.pin_cm() as usize);
 
@@ -225,13 +223,13 @@ impl<'d> Flex<'d> {
     /// Get whether the pin input level is high.
     #[inline]
     pub fn is_high(&self) -> bool {
-        !self.is_low()
+        self.pin.block().din31_0().read().dio(self.pin.bit_index())
     }
 
     /// Get whether the pin input level is low.
     #[inline]
     pub fn is_low(&self) -> bool {
-        self.pin.block().din31_0().read().dio(self.pin.bit_index())
+        !self.is_high()
     }
 
     /// Returns current pin level
@@ -273,22 +271,22 @@ impl<'d> Flex<'d> {
         }
     }
 
-    /// Get the current pin input level.
+    /// Get the current pin output level.
     #[inline]
     pub fn get_output_level(&self) -> Level {
-        self.is_high().into()
+        self.is_set_high().into()
     }
 
     /// Is the output level high?
     #[inline]
     pub fn is_set_high(&self) -> bool {
-        !self.is_set_low()
+        self.pin.block().dout31_0().read().dio(self.pin.bit_index())
     }
 
     /// Is the output level low?
     #[inline]
     pub fn is_set_low(&self) -> bool {
-        (self.pin.block().dout31_0().read().0 & self.pin.bit_index() as u32) == 0
+        !self.is_set_high()
     }
 
     /// Wait until the pin is high. If it is already high, return immediately.
@@ -345,7 +343,7 @@ pub struct Input<'d> {
 impl<'d> Input<'d> {
     /// Create GPIO input driver for a [Pin] with the provided [Pull] configuration.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, pull: Pull) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_input();
         pin.set_pull(pull);
@@ -421,7 +419,7 @@ pub struct Output<'d> {
 impl<'d> Output<'d> {
     /// Create GPIO output driver for a [Pin] with the provided [Level] configuration.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, initial_output: Level) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_output();
         pin.set_level(initial_output);
@@ -491,7 +489,7 @@ pub struct OutputOpenDrain<'d> {
 impl<'d> OutputOpenDrain<'d> {
     /// Create a new GPIO open drain output driver for a [Pin] with the provided [Level].
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, initial_output: Level) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_level(initial_output);
         pin.set_as_input_output();
@@ -599,7 +597,7 @@ impl<'d> OutputOpenDrain<'d> {
 
 /// Type-erased GPIO pin
 pub struct AnyPin {
-    pin_port: u8,
+    pub(crate) pin_port: u8,
 }
 
 impl AnyPin {
@@ -608,8 +606,8 @@ impl AnyPin {
     /// # Safety
     /// - `pin_port` should not in use by another driver.
     #[inline]
-    pub unsafe fn steal(pin_port: u8) -> Self {
-        Self { pin_port }
+    pub unsafe fn steal(pin_port: u8) -> Peri<'static, Self> {
+        Peri::new_unchecked(Self { pin_port })
     }
 }
 
@@ -625,13 +623,7 @@ impl SealedPin for AnyPin {
 
 /// Interface for a Pin that can be configured by an [Input] or [Output] driver, or converted to an [AnyPin].
 #[allow(private_bounds)]
-pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static {
-    fn degrade(self) -> AnyPin {
-        AnyPin {
-            pin_port: self.pin_port(),
-        }
-    }
-
+pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
     /// The index of this pin in PINCM (pin control management) registers.
     #[inline]
     fn pin_cm(&self) -> u8 {
@@ -844,6 +836,31 @@ impl<'d> embedded_hal_async::digital::Wait for OutputOpenDrain<'d> {
     }
 }
 
+#[derive(Copy, Clone)]
+pub struct PfType {
+    pull: Pull,
+    input: bool,
+    invert: bool,
+}
+
+impl PfType {
+    pub const fn input(pull: Pull, invert: bool) -> Self {
+        Self {
+            pull,
+            input: true,
+            invert,
+        }
+    }
+
+    pub const fn output(pull: Pull, invert: bool) -> Self {
+        Self {
+            pull,
+            input: false,
+            invert,
+        }
+    }
+}
+
 /// The pin function to disconnect peripherals from the pin.
 ///
 /// This is also the pin function used to connect to analog peripherals, such as an ADC.
@@ -866,7 +883,9 @@ macro_rules! impl_pin {
 
         impl From<crate::peripherals::$name> for crate::gpio::AnyPin {
             fn from(val: crate::peripherals::$name) -> Self {
-                crate::gpio::Pin::degrade(val)
+                Self {
+                    pin_port: crate::gpio::SealedPin::pin_port(&val),
+                }
             }
         }
     };
@@ -914,6 +933,40 @@ pub(crate) trait SealedPin {
     }
 
     #[inline]
+    fn set_as_analog(&self) {
+        let pincm = pac::IOMUX.pincm(self._pin_cm() as usize);
+
+        pincm.modify(|w| {
+            w.set_pf(DISCONNECT_PF);
+            w.set_pipu(false);
+            w.set_pipd(false);
+        });
+    }
+
+    fn update_pf(&self, ty: PfType) {
+        let pincm = pac::IOMUX.pincm(self._pin_cm() as usize);
+        let pf = pincm.read().pf();
+
+        set_pf(self._pin_cm() as usize, pf, ty);
+    }
+
+    fn set_as_pf(&self, pf: u8, ty: PfType) {
+        set_pf(self._pin_cm() as usize, pf, ty)
+    }
+
+    /// Set the pin as "disconnected", ie doing nothing and consuming the lowest
+    /// amount of power possible.
+    ///
+    /// This is currently the same as [`Self::set_as_analog()`] but is semantically different
+    /// really. Drivers should `set_as_disconnected()` pins when dropped.
+    ///
+    /// Note that this also disables the internal weak pull-up and pull-down resistors.
+    #[inline]
+    fn set_as_disconnected(&self) {
+        self.set_as_analog();
+    }
+
+    #[inline]
     fn block(&self) -> gpio::Gpio {
         match self.pin_port() / 32 {
             0 => pac::GPIOA,
@@ -926,24 +979,53 @@ pub(crate) trait SealedPin {
     }
 }
 
+#[inline(never)]
+fn set_pf(pincm: usize, pf: u8, ty: PfType) {
+    pac::IOMUX.pincm(pincm).modify(|w| {
+        w.set_pf(pf);
+        w.set_pc(true);
+        w.set_pipu(ty.pull == Pull::Up);
+        w.set_pipd(ty.pull == Pull::Down);
+        w.set_inena(ty.input);
+        w.set_inv(ty.invert);
+    });
+}
+
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 struct InputFuture<'d> {
-    pin: PeripheralRef<'d, AnyPin>,
+    pin: Peri<'d, AnyPin>,
 }
 
 impl<'d> InputFuture<'d> {
-    fn new(pin: PeripheralRef<'d, AnyPin>, polarity: Polarity) -> Self {
+    fn new(pin: Peri<'d, AnyPin>, polarity: Polarity) -> Self {
         let block = pin.block();
+
+        // Before clearing any previous edge events, we must disable events.
+        //
+        // If we don't do this, it is possible that after we clear the interrupt, the current event
+        // the hardware is listening for may not be the same event we will configure. This may result
+        // in RIS being set. Then when interrupts are unmasked and RIS is set, we may get the wrong event
+        // causing an interrupt.
+        //
+        // Selecting which polarity events happen is a RMW operation.
+        critical_section::with(|_cs| {
+            if pin.bit_index() >= 16 {
+                block.polarity31_16().modify(|w| {
+                    w.set_dio(pin.bit_index() - 16, Polarity::DISABLE);
+                });
+            } else {
+                block.polarity15_0().modify(|w| {
+                    w.set_dio(pin.bit_index(), Polarity::DISABLE);
+                });
+            };
+        });
 
         // First clear the bit for this event. Otherwise previous edge events may be recorded.
         block.cpu_int().iclr().write(|w| {
             w.set_dio(pin.bit_index(), true);
         });
 
-        // Selecting which polarity events happens is a RMW operation.
-        //
-        // Guard with a critical section in case two different threads try to select events at the
-        // same time.
+        // Selecting which polarity events happen is a RMW operation.
         critical_section::with(|_cs| {
             // Tell the hardware which pin event we want to receive.
             if pin.bit_index() >= 16 {
@@ -1008,7 +1090,9 @@ pub(crate) fn init(gpio: gpio::Gpio) {
 
 #[cfg(feature = "rt")]
 fn irq_handler(gpio: gpio::Gpio, wakers: &[AtomicWaker; 32]) {
+    use crate::BitIter;
     // Only consider pins which have interrupts unmasked.
+
     let bits = gpio.cpu_int().mis().read().0;
 
     for i in BitIter(bits) {
@@ -1021,40 +1105,42 @@ fn irq_handler(gpio: gpio::Gpio, wakers: &[AtomicWaker; 32]) {
     }
 }
 
-struct BitIter(u32);
-
-impl Iterator for BitIter {
-    type Item = u32;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match self.0.trailing_zeros() {
-            32 => None,
-            b => {
-                self.0 &= !(1 << b);
-                Some(b)
-            }
-        }
-    }
-}
-
-// C110x has a dedicated interrupt just for GPIOA, as it does not have a GROUP1 interrupt.
-#[cfg(all(feature = "rt", feature = "mspm0c110x"))]
+// C110x and L110x have a dedicated interrupts just for GPIOA.
+//
+// These chips do not have a GROUP1 interrupt.
+#[cfg(all(feature = "rt", any(mspm0c110x, mspm0c1105_c1106, mspm0l110x)))]
 #[interrupt]
 fn GPIOA() {
-    gpioa_interrupt();
-}
-
-#[cfg(feature = "rt")]
-pub(crate) fn gpioa_interrupt() {
     irq_handler(pac::GPIOA, &PORTA_WAKERS);
 }
 
-#[cfg(all(feature = "rt", gpio_pb))]
-pub(crate) fn gpiob_interrupt() {
+#[cfg(all(feature = "rt", mspm0c1105_c1106))]
+#[interrupt]
+fn GPIOB() {
+    irq_handler(pac::GPIOB, &PORTB_WAKERS);
+}
+
+// These symbols are weakly defined as DefaultHandler and are called by the interrupt group implementation.
+//
+// Defining these as no_mangle is required so that the linker will pick these over the default handler.
+
+#[cfg(all(feature = "rt", not(any(mspm0c110x, mspm0c1105_c1106, mspm0l110x))))]
+#[no_mangle]
+#[allow(non_snake_case)]
+fn GPIOA() {
+    irq_handler(pac::GPIOA, &PORTA_WAKERS);
+}
+
+#[cfg(all(feature = "rt", gpio_pb, not(mspm0c1105_c1106)))]
+#[no_mangle]
+#[allow(non_snake_case)]
+fn GPIOB() {
     irq_handler(pac::GPIOB, &PORTB_WAKERS);
 }
 
 #[cfg(all(feature = "rt", gpio_pc))]
-pub(crate) fn gpioc_interrupt() {
+#[allow(non_snake_case)]
+#[no_mangle]
+fn GPIOC() {
     irq_handler(pac::GPIOC, &PORTC_WAKERS);
 }

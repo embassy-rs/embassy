@@ -10,14 +10,14 @@ use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::{AnyPin, Pin as GpioPin, PselBits};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::i2s::vals;
 use crate::util::slice_in_ram_or;
-use crate::{interrupt, pac, Peripheral, EASY_DMA_SIZE};
+use crate::{interrupt, pac, EASY_DMA_SIZE};
 
 /// Type alias for `MultiBuffering` with 2 buffers.
 pub type DoubleBuffering<S, const NS: usize> = MultiBuffering<S, 2, NS>;
@@ -406,12 +406,12 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
 /// I2S driver.
 pub struct I2S<'d, T: Instance> {
-    i2s: PeripheralRef<'d, T>,
-    mck: Option<PeripheralRef<'d, AnyPin>>,
-    sck: PeripheralRef<'d, AnyPin>,
-    lrck: PeripheralRef<'d, AnyPin>,
-    sdin: Option<PeripheralRef<'d, AnyPin>>,
-    sdout: Option<PeripheralRef<'d, AnyPin>>,
+    i2s: Peri<'d, T>,
+    mck: Option<Peri<'d, AnyPin>>,
+    sck: Peri<'d, AnyPin>,
+    lrck: Peri<'d, AnyPin>,
+    sdin: Option<Peri<'d, AnyPin>>,
+    sdout: Option<Peri<'d, AnyPin>>,
     master_clock: Option<MasterClock>,
     config: Config,
 }
@@ -419,20 +419,19 @@ pub struct I2S<'d, T: Instance> {
 impl<'d, T: Instance> I2S<'d, T> {
     /// Create a new I2S in master mode
     pub fn new_master(
-        i2s: impl Peripheral<P = T> + 'd,
+        i2s: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        mck: impl Peripheral<P = impl GpioPin> + 'd,
-        sck: impl Peripheral<P = impl GpioPin> + 'd,
-        lrck: impl Peripheral<P = impl GpioPin> + 'd,
+        mck: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl GpioPin>,
+        lrck: Peri<'d, impl GpioPin>,
         master_clock: MasterClock,
         config: Config,
     ) -> Self {
-        into_ref!(i2s, mck, sck, lrck);
         Self {
             i2s,
-            mck: Some(mck.map_into()),
-            sck: sck.map_into(),
-            lrck: lrck.map_into(),
+            mck: Some(mck.into()),
+            sck: sck.into(),
+            lrck: lrck.into(),
             sdin: None,
             sdout: None,
             master_clock: Some(master_clock),
@@ -442,18 +441,17 @@ impl<'d, T: Instance> I2S<'d, T> {
 
     /// Create a new I2S in slave mode
     pub fn new_slave(
-        i2s: impl Peripheral<P = T> + 'd,
+        i2s: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        sck: impl Peripheral<P = impl GpioPin> + 'd,
-        lrck: impl Peripheral<P = impl GpioPin> + 'd,
+        sck: Peri<'d, impl GpioPin>,
+        lrck: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(i2s, sck, lrck);
         Self {
             i2s,
             mck: None,
-            sck: sck.map_into(),
-            lrck: lrck.map_into(),
+            sck: sck.into(),
+            lrck: lrck.into(),
             sdin: None,
             sdout: None,
             master_clock: None,
@@ -464,10 +462,10 @@ impl<'d, T: Instance> I2S<'d, T> {
     /// I2S output only
     pub fn output<S: Sample, const NB: usize, const NS: usize>(
         mut self,
-        sdout: impl Peripheral<P = impl GpioPin> + 'd,
+        sdout: Peri<'d, impl GpioPin>,
         buffers: MultiBuffering<S, NB, NS>,
     ) -> OutputStream<'d, T, S, NB, NS> {
-        self.sdout = Some(sdout.into_ref().map_into());
+        self.sdout = Some(sdout.into());
         OutputStream {
             _p: self.build(),
             buffers,
@@ -477,10 +475,10 @@ impl<'d, T: Instance> I2S<'d, T> {
     /// I2S input only
     pub fn input<S: Sample, const NB: usize, const NS: usize>(
         mut self,
-        sdin: impl Peripheral<P = impl GpioPin> + 'd,
+        sdin: Peri<'d, impl GpioPin>,
         buffers: MultiBuffering<S, NB, NS>,
     ) -> InputStream<'d, T, S, NB, NS> {
-        self.sdin = Some(sdin.into_ref().map_into());
+        self.sdin = Some(sdin.into());
         InputStream {
             _p: self.build(),
             buffers,
@@ -490,13 +488,13 @@ impl<'d, T: Instance> I2S<'d, T> {
     /// I2S full duplex (input and output)
     pub fn full_duplex<S: Sample, const NB: usize, const NS: usize>(
         mut self,
-        sdin: impl Peripheral<P = impl GpioPin> + 'd,
-        sdout: impl Peripheral<P = impl GpioPin> + 'd,
+        sdin: Peri<'d, impl GpioPin>,
+        sdout: Peri<'d, impl GpioPin>,
         buffers_out: MultiBuffering<S, NB, NS>,
         buffers_in: MultiBuffering<S, NB, NS>,
     ) -> FullDuplexStream<'d, T, S, NB, NS> {
-        self.sdout = Some(sdout.into_ref().map_into());
-        self.sdin = Some(sdin.into_ref().map_into());
+        self.sdout = Some(sdout.into());
+        self.sdin = Some(sdin.into());
 
         FullDuplexStream {
             _p: self.build(),
@@ -505,7 +503,7 @@ impl<'d, T: Instance> I2S<'d, T> {
         }
     }
 
-    fn build(self) -> PeripheralRef<'d, T> {
+    fn build(self) -> Peri<'d, T> {
         self.apply_config();
         self.select_pins();
         self.setup_interrupt();
@@ -702,7 +700,7 @@ impl<'d, T: Instance> I2S<'d, T> {
 
 /// I2S output
 pub struct OutputStream<'d, T: Instance, S: Sample, const NB: usize, const NS: usize> {
-    _p: PeripheralRef<'d, T>,
+    _p: Peri<'d, T>,
     buffers: MultiBuffering<S, NB, NS>,
 }
 
@@ -756,7 +754,7 @@ impl<'d, T: Instance, S: Sample, const NB: usize, const NS: usize> OutputStream<
 
 /// I2S input
 pub struct InputStream<'d, T: Instance, S: Sample, const NB: usize, const NS: usize> {
-    _p: PeripheralRef<'d, T>,
+    _p: Peri<'d, T>,
     buffers: MultiBuffering<S, NB, NS>,
 }
 
@@ -811,7 +809,7 @@ impl<'d, T: Instance, S: Sample, const NB: usize, const NS: usize> InputStream<'
 
 /// I2S full duplex stream (input & output)
 pub struct FullDuplexStream<'d, T: Instance, S: Sample, const NB: usize, const NS: usize> {
-    _p: PeripheralRef<'d, T>,
+    _p: Peri<'d, T>,
     buffers_out: MultiBuffering<S, NB, NS>,
     buffers_in: MultiBuffering<S, NB, NS>,
 }
@@ -1148,7 +1146,7 @@ pub(crate) trait SealedInstance {
 
 /// I2S peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

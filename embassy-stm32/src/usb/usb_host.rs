@@ -5,10 +5,9 @@ use core::marker::PhantomData;
 use core::sync::atomic::{AtomicU16, AtomicU32, Ordering};
 use core::task::Poll;
 
-use embassy_hal_internal::into_ref;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Instant, Timer};
-use embassy_usb_driver::host::{channel, ChannelError, DeviceEvent, HostError, UsbChannel, UsbHostDriver};
+use embassy_usb_driver::host::{channel, ChannelError, DeviceEvent, HostError, UsbChannel, UsbHostDriver, TimeoutConfig};
 use embassy_usb_driver::{EndpointType, Speed};
 use stm32_metapac::common::{Reg, RW};
 use stm32_metapac::usb::regs::Epr;
@@ -17,7 +16,8 @@ use super::{DmPin, DpPin, Instance};
 use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
 use crate::pac::USBRAM;
-use crate::{interrupt, Peripheral};
+use crate::{interrupt, Peri};
+use crate::peripherals::USB;
 
 /// The number of registers is 8, allowing up to 16 mono-
 /// directional/single-buffer or up to 7 double-buffer endpoints in any combination. For
@@ -240,13 +240,11 @@ pub struct UsbHost<'d, I: Instance> {
 impl<'d, I: Instance> UsbHost<'d, I> {
     /// Create a new USB driver.
     pub fn new(
-        _usb: impl Peripheral<P = I> + 'd,
+        _usb: Peri<'d, USB>,
         _irq: impl interrupt::typelevel::Binding<I::Interrupt, USBHostInterruptHandler<I>> + 'd,
-        dp: impl Peripheral<P = impl DpPin<I>> + 'd,
-        dm: impl Peripheral<P = impl DmPin<I>> + 'd,
+        dp: Peri<'d, impl DpPin<I>>,
+        dm: Peri<'d, impl DmPin<I>>,
     ) -> Self {
-        into_ref!(dp, dm);
-
         super::super::common_init::<I>();
 
         let regs = I::regs();
@@ -621,7 +619,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         let mut status = [0u8; 0];
         self.read(&mut status).await?;
 
-        Ok()
+        Ok(())
     }
 
     fn retarget_channel(
@@ -662,6 +660,10 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
         D: channel::IsOut,
     {
         self.write(buf).await
+    }
+
+    async fn set_timeout(&mut self, _: TimeoutConfig) {
+        //TODO: Implement.
     }
 }
 

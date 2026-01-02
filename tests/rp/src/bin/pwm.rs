@@ -33,7 +33,7 @@ async fn main(_spawner: Spawner) {
 
     // Test free-running clock
     {
-        let pwm = Pwm::new_free(&mut p.PWM_SLICE3, cfg.clone());
+        let pwm = Pwm::new_free(p.PWM_SLICE3.reborrow(), cfg.clone());
         cortex_m::asm::delay(125);
         let ctr = pwm.counter();
         assert!(ctr > 0);
@@ -50,8 +50,8 @@ async fn main(_spawner: Spawner) {
 
         // Test output from A
         {
-            let pin1 = Input::new(&mut p9, Pull::None);
-            let _pwm = Pwm::new_output_a(&mut p.PWM_SLICE3, &mut p6, cfg.clone());
+            let pin1 = Input::new(p9.reborrow(), Pull::None);
+            let _pwm = Pwm::new_output_a(p.PWM_SLICE3.reborrow(), p6.reborrow(), cfg.clone());
             Timer::after_millis(1).await;
             assert_eq!(pin1.is_low(), invert_a);
             Timer::after_millis(5).await;
@@ -64,8 +64,8 @@ async fn main(_spawner: Spawner) {
 
         // Test output from B
         {
-            let pin2 = Input::new(&mut p11, Pull::None);
-            let _pwm = Pwm::new_output_b(&mut p.PWM_SLICE3, &mut p7, cfg.clone());
+            let pin2 = Input::new(p11.reborrow(), Pull::None);
+            let _pwm = Pwm::new_output_b(p.PWM_SLICE3.reborrow(), p7.reborrow(), cfg.clone());
             Timer::after_millis(1).await;
             assert_ne!(pin2.is_low(), invert_a);
             Timer::after_millis(5).await;
@@ -78,9 +78,9 @@ async fn main(_spawner: Spawner) {
 
         // Test output from A+B
         {
-            let pin1 = Input::new(&mut p9, Pull::None);
-            let pin2 = Input::new(&mut p11, Pull::None);
-            let _pwm = Pwm::new_output_ab(&mut p.PWM_SLICE3, &mut p6, &mut p7, cfg.clone());
+            let pin1 = Input::new(p9.reborrow(), Pull::None);
+            let pin2 = Input::new(p11.reborrow(), Pull::None);
+            let _pwm = Pwm::new_output_ab(p.PWM_SLICE3.reborrow(), p6.reborrow(), p7.reborrow(), cfg.clone());
             Timer::after_millis(1).await;
             assert_eq!(pin1.is_low(), invert_a);
             assert_ne!(pin2.is_low(), invert_a);
@@ -99,8 +99,14 @@ async fn main(_spawner: Spawner) {
     // Test level-gated
     #[cfg(feature = "rp2040")]
     {
-        let mut pin2 = Output::new(&mut p11, Level::Low);
-        let pwm = Pwm::new_input(&mut p.PWM_SLICE3, &mut p7, Pull::None, InputMode::Level, cfg.clone());
+        let mut pin2 = Output::new(p11.reborrow(), Level::Low);
+        let pwm = Pwm::new_input(
+            p.PWM_SLICE3.reborrow(),
+            p7.reborrow(),
+            Pull::None,
+            InputMode::Level,
+            cfg.clone(),
+        );
         assert_eq!(pwm.counter(), 0);
         Timer::after_millis(5).await;
         assert_eq!(pwm.counter(), 0);
@@ -117,10 +123,10 @@ async fn main(_spawner: Spawner) {
     // Test rising-gated
     #[cfg(feature = "rp2040")]
     {
-        let mut pin2 = Output::new(&mut p11, Level::Low);
+        let mut pin2 = Output::new(p11.reborrow(), Level::Low);
         let pwm = Pwm::new_input(
-            &mut p.PWM_SLICE3,
-            &mut p7,
+            p.PWM_SLICE3.reborrow(),
+            p7.reborrow(),
             Pull::None,
             InputMode::RisingEdge,
             cfg.clone(),
@@ -139,10 +145,10 @@ async fn main(_spawner: Spawner) {
     // Test falling-gated
     #[cfg(feature = "rp2040")]
     {
-        let mut pin2 = Output::new(&mut p11, Level::High);
+        let mut pin2 = Output::new(p11.reborrow(), Level::High);
         let pwm = Pwm::new_input(
-            &mut p.PWM_SLICE3,
-            &mut p7,
+            p.PWM_SLICE3.reborrow(),
+            p7.reborrow(),
             Pull::None,
             InputMode::FallingEdge,
             cfg.clone(),
@@ -160,10 +166,10 @@ async fn main(_spawner: Spawner) {
 
     // pull-down
     {
-        let pin2 = Input::new(&mut p11, Pull::None);
+        let pin2 = Input::new(p11.reborrow(), Pull::None);
         Pwm::new_input(
-            &mut p.PWM_SLICE3,
-            &mut p7,
+            p.PWM_SLICE3.reborrow(),
+            p7.reborrow(),
             Pull::Down,
             InputMode::FallingEdge,
             cfg.clone(),
@@ -174,10 +180,10 @@ async fn main(_spawner: Spawner) {
 
     // pull-up
     {
-        let pin2 = Input::new(&mut p11, Pull::None);
+        let pin2 = Input::new(p11.reborrow(), Pull::None);
         Pwm::new_input(
-            &mut p.PWM_SLICE3,
-            &mut p7,
+            p.PWM_SLICE3.reborrow(),
+            p7.reborrow(),
             Pull::Up,
             InputMode::FallingEdge,
             cfg.clone(),

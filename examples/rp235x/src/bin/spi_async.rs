@@ -1,4 +1,4 @@
-//! This example shows how to use SPI (Serial Peripheral Interface) in the RP2040 chip.
+//! This example shows how to use SPI (Serial Peripheral Interface) in the RP235x chip.
 //! No specific hardware is specified in this example. If you connect pin 11 and 12 you should get the same data back.
 
 #![no_std]

@@ -8,6 +8,7 @@ pub const FLASH_SIZE: usize = 128 * 1024;
 embassy_hal_internal::peripherals! {
     // RTC
     RTC0,
+    #[cfg(not(feature = "time-driver-rtc1"))]
     RTC1,
 
     // WDT
@@ -110,6 +111,10 @@ impl_timer!(TIMER2, TIMER2, TIMER2);
 
 impl_rng!(RNG, RNG, RNG);
 
+impl_rtc!(RTC0, RTC0, RTC0);
+#[cfg(not(feature = "time-driver-rtc1"))]
+impl_rtc!(RTC1, RTC1, RTC1);
+
 impl_pin!(P0_00, 0, 0);
 impl_pin!(P0_01, 0, 1);
 impl_pin!(P0_02, 0, 2);
@@ -144,6 +149,8 @@ impl_pin!(P0_30, 0, 30);
 impl_pin!(P0_31, 0, 31);
 
 impl_radio!(RADIO, RADIO, RADIO);
+
+impl_wdt!(WDT, WDT, WDT, 0);
 
 embassy_hal_internal::interrupt_mod!(
     CLOCK_POWER,

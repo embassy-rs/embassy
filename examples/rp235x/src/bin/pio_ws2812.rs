@@ -1,4 +1,4 @@
-//! This example shows powerful PIO module in the RP2040 chip to communicate with WS2812 LED modules.
+//! This example shows powerful PIO module in the RP235x chip to communicate with WS2812 LED modules.
 //! See (https://www.sparkfun.com/categories/tags/ws2812)
 
 #![no_std]

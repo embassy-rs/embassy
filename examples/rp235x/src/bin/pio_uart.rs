@@ -1,10 +1,10 @@
-//! This example shows how to use the PIO module in the RP2040 chip to implement a duplex UART.
+//! This example shows how to use the PIO module in the RP235x chip to implement a duplex UART.
 //! The PIO module is a very powerful peripheral that can be used to implement many different
 //! protocols. It is a very flexible state machine that can be programmed to do almost anything.
 //!
 //! This example opens up a USB device that implements a CDC ACM serial port. It then uses the
 //! PIO module to implement a UART that is connected to the USB serial port. This allows you to
-//! communicate with a device connected to the RP2040 over USB serial.
+//! communicate with a device connected to the RP235x over USB serial.
 
 #![no_std]
 #![no_main]
@@ -16,7 +16,7 @@ use embassy_futures::join::{join, join3};
 use embassy_rp::peripherals::{PIO0, USB};
 use embassy_rp::pio_programs::uart::{PioUartRx, PioUartRxProgram, PioUartTx, PioUartTxProgram};
 use embassy_rp::usb::{Driver, Instance, InterruptHandler};
-use embassy_rp::{bind_interrupts, pio};
+use embassy_rp::{bind_interrupts, pio, PeripheralType};
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::pipe::Pipe;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender, State};
@@ -131,7 +131,7 @@ impl From<EndpointError> for Disconnected {
 }
 
 /// Read from the USB and write it to the UART TX pipe
-async fn usb_read<'d, T: Instance + 'd>(
+async fn usb_read<'d, T: Instance + PeripheralType + 'd>(
     usb_rx: &mut Receiver<'d, Driver<'d, T>>,
     uart_pipe_writer: &mut embassy_sync::pipe::Writer<'_, NoopRawMutex, 20>,
 ) -> Result<(), Disconnected> {
@@ -145,7 +145,7 @@ async fn usb_read<'d, T: Instance + 'd>(
 }
 
 /// Read from the USB TX pipe and write it to the USB
-async fn usb_write<'d, T: Instance + 'd>(
+async fn usb_write<'d, T: Instance + PeripheralType + 'd>(
     usb_tx: &mut Sender<'d, Driver<'d, T>>,
     usb_pipe_reader: &mut embassy_sync::pipe::Reader<'_, NoopRawMutex, 20>,
 ) -> Result<(), Disconnected> {

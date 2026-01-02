@@ -8,20 +8,19 @@
 //! This module provides functionality to poll BOOTSEL from an embassy application.
 
 use crate::flash::in_ram;
+use crate::Peri;
 
-impl crate::peripherals::BOOTSEL {
-    /// Polls the BOOTSEL button. Returns true if the button is pressed.
-    ///
-    /// Polling isn't cheap, as this function waits for core 1 to finish it's current
-    /// task and for any DMAs from flash to complete
-    pub fn is_pressed(&mut self) -> bool {
-        let mut cs_status = Default::default();
+/// Reads the BOOTSEL button. Returns true if the button is pressed.
+///
+/// Reading isn't cheap, as this function waits for core 1 to finish it's current
+/// task and for any DMAs from flash to complete
+pub fn is_bootsel_pressed(_p: Peri<'_, crate::peripherals::BOOTSEL>) -> bool {
+    let mut cs_status = Default::default();
 
-        unsafe { in_ram(|| cs_status = ram_helpers::read_cs_status()) }.expect("Must be called from Core 0");
+    unsafe { in_ram(|| cs_status = ram_helpers::read_cs_status()) }.expect("Must be called from Core 0");
 
-        // bootsel is active low, so invert
-        !cs_status.infrompad()
-    }
+    // bootsel is active low, so invert
+    !cs_status.infrompad()
 }
 
 mod ram_helpers {

@@ -104,9 +104,6 @@ impl Ipcc {
         rcc::enable_and_reset::<IPCC>();
         IPCC::set_cpu2(true);
 
-        // set RF wake-up clock = LSE
-        crate::pac::RCC.csr().modify(|w| w.set_rfwkpsel(0b01));
-
         let regs = IPCC::regs();
 
         regs.cpu(0).cr().modify(|w| {

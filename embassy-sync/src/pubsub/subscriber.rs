@@ -10,6 +10,7 @@ use super::{PubSubBehavior, PubSubChannel, WaitResult};
 use crate::blocking_mutex::raw::RawMutex;
 
 /// A subscriber to a channel
+#[derive(Debug)]
 pub struct Sub<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> {
     /// The message id of the next message we are yet to receive
     next_message_id: u64,
@@ -115,7 +116,7 @@ impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> Unpin for Sub<'a, PSB, T> {}
 
 /// Warning: The stream implementation ignores lag results and returns all messages.
 /// This might miss some messages without you knowing it.
-impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> futures_util::Stream for Sub<'a, PSB, T> {
+impl<'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> futures_core::Stream for Sub<'a, PSB, T> {
     type Item = T;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -151,6 +152,7 @@ impl<'a, T: Clone> DerefMut for DynSubscriber<'a, T> {
 }
 
 /// A subscriber that holds a generic reference to the channel
+#[derive(Debug)]
 pub struct Subscriber<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS: usize>(
     pub(super) Sub<'a, PubSubChannel<M, T, CAP, SUBS, PUBS>, T>,
 );
@@ -175,6 +177,7 @@ impl<'a, M: RawMutex, T: Clone, const CAP: usize, const SUBS: usize, const PUBS:
 
 /// Future for the subscriber wait action
 #[must_use = "futures do nothing unless you `.await` or poll them"]
+#[derive(Debug)]
 pub struct SubscriberWaitFuture<'s, 'a, PSB: PubSubBehavior<T> + ?Sized, T: Clone> {
     subscriber: &'s mut Sub<'a, PSB, T>,
 }

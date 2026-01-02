@@ -9,14 +9,14 @@ use embassy_executor::Spawner;
 use embassy_rp::gpio::Pull;
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::program::pio_asm;
-use embassy_rp::{bind_interrupts, pio};
+use embassy_rp::{bind_interrupts, pio, Peri};
 use embassy_time::Timer;
 use fixed::traits::ToFixed;
 use pio::{Common, Config, FifoJoin, Instance, InterruptHandler, Pio, PioPin, ShiftDirection, StateMachine};
 use {defmt_rtt as _, panic_probe as _};
 
 // Program metadata for `picotool info`
-#[link_section = ".bi_entries"]
+#[unsafe(link_section = ".bi_entries")]
 #[used]
 pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
     embassy_rp::binary_info::rp_program_name!(c"example_pio_rotary_encoder_rxf"),
@@ -37,8 +37,8 @@ impl<'d, T: Instance, const SM: usize> PioEncoder<'d, T, SM> {
     pub fn new(
         pio: &mut Common<'d, T>,
         mut sm: StateMachine<'d, T, SM>,
-        pin_a: impl PioPin,
-        pin_b: impl PioPin,
+        pin_a: Peri<'d, impl PioPin>,
+        pin_b: Peri<'d, impl PioPin>,
     ) -> Self {
         let mut pin_a = pio.make_pio_pin(pin_a);
         let mut pin_b = pio.make_pio_pin(pin_b);
@@ -88,8 +88,8 @@ impl<'d, T: Instance, const SM: usize> PioEncoder<'d, T, SM> {
         Self { sm }
     }
 
-    pub async fn read(&mut self) -> u32 {
-        self.sm.get_rxf_entry(0)
+    pub async fn read(&mut self) -> i32 {
+        self.sm.get_rxf_entry(0) as i32
     }
 }
 

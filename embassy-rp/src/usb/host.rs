@@ -1,13 +1,13 @@
 use core::{future::poll_fn, marker::PhantomData, task::Poll};
 
 use atomic_polyfill::{AtomicU16, AtomicUsize, Ordering};
-use embassy_hal_internal::Peripheral;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::host::{
     channel, ChannelError, DeviceEvent, HostError, SetupPacket, TimeoutConfig, UsbChannel, UsbHostDriver,
 };
 use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
 
+use crate::{Peri, PeripheralType};
 use crate::RegExt;
 use crate::{
     interrupt::{
@@ -16,6 +16,7 @@ use crate::{
     },
     usb::EP_MEMORY_SIZE,
 };
+use crate::peripherals::USB;
 use rp_pac::usb_dpram::vals::EpControlEndpointType;
 
 use super::{EndpointBuffer, Instance, BUS_WAKER, DPRAM_DATA_OFFSET, EP_IN_WAKERS, EP_MEMORY};
@@ -38,7 +39,7 @@ pub struct Driver<'d, T: Instance> {
 
 impl<'d, T: Instance> Driver<'d, T> {
     /// Create a new USB driver.
-    pub fn new(_usb: impl Peripheral<P = T> + 'd, _irq: impl Binding<T::Interrupt, InterruptHandler<T>>) -> Self {
+    pub fn new(_usb: Peri<'d, USB>, _irq: impl Binding<T::Interrupt, InterruptHandler<T>>) -> Self {
         let regs = T::regs();
         unsafe {
             // FIXME(magic):

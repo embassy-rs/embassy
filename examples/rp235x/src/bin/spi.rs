@@ -1,4 +1,4 @@
-//! This example shows how to use SPI (Serial Peripheral Interface) in the RP2040 chip.
+//! This example shows how to use SPI (Serial Peripheral Interface) in the RP235x chip.
 //!
 //! Example for resistive touch sensor in Waveshare Pico-ResTouch
 

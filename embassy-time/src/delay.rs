@@ -1,3 +1,5 @@
+use core::future::Future;
+
 use super::{Duration, Instant};
 use crate::Timer;
 
@@ -13,7 +15,8 @@ pub fn block_for(duration: Duration) {
 /// the amount provided, but accuracy can be affected by many factors, including interrupt usage.
 /// Make sure to use a suitable tick rate for your use case. The tick rate is defined by the currently
 /// active driver.
-#[derive(Clone)]
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Delay;
 
 impl embedded_hal_1::delay::DelayNs for Delay {
@@ -31,16 +34,16 @@ impl embedded_hal_1::delay::DelayNs for Delay {
 }
 
 impl embedded_hal_async::delay::DelayNs for Delay {
-    async fn delay_ns(&mut self, ns: u32) {
-        Timer::after_nanos(ns as _).await
+    fn delay_ns(&mut self, ns: u32) -> impl Future<Output = ()> {
+        Timer::after_nanos(ns as _)
     }
 
-    async fn delay_us(&mut self, us: u32) {
-        Timer::after_micros(us as _).await
+    fn delay_us(&mut self, us: u32) -> impl Future<Output = ()> {
+        Timer::after_micros(us as _)
     }
 
-    async fn delay_ms(&mut self, ms: u32) {
-        Timer::after_millis(ms as _).await
+    fn delay_ms(&mut self, ms: u32) -> impl Future<Output = ()> {
+        Timer::after_millis(ms as _)
     }
 }
 

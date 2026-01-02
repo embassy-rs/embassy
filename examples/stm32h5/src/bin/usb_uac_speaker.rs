@@ -366,9 +366,9 @@ async fn main(spawner: Spawner) {
     }
 
     // Launch USB audio tasks.
-    unwrap!(spawner.spawn(usb_control_task(control_monitor)));
-    unwrap!(spawner.spawn(usb_streaming_task(stream, sender)));
-    unwrap!(spawner.spawn(usb_feedback_task(feedback)));
-    unwrap!(spawner.spawn(usb_task(usb_device)));
-    unwrap!(spawner.spawn(audio_receiver_task(receiver)));
+    spawner.spawn(unwrap!(usb_control_task(control_monitor)));
+    spawner.spawn(unwrap!(usb_streaming_task(stream, sender)));
+    spawner.spawn(unwrap!(usb_feedback_task(feedback)));
+    spawner.spawn(unwrap!(usb_task(usb_device)));
+    spawner.spawn(unwrap!(audio_receiver_task(receiver)));
 }

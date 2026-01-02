@@ -59,6 +59,7 @@ pub const FLASH_SIZE: usize = 256 * 1024;
 embassy_hal_internal::peripherals! {
     // RTC
     RTC0,
+    #[cfg(not(feature = "time-driver-rtc1"))]
     RTC1,
 
     // WDT
@@ -141,6 +142,9 @@ embassy_hal_internal::peripherals! {
     PPI_GROUP4,
     PPI_GROUP5,
 
+    // IPC
+    IPC,
+
     // GPIO port 0
     P0_00,
     P0_01,
@@ -198,7 +202,12 @@ embassy_hal_internal::peripherals! {
 
     // EGU
     EGU0,
+
+    // TEMP
+    TEMP,
 }
+
+impl_ipc!(IPC, IPC, IPC);
 
 impl_uarte!(SERIAL0, UARTE0, SERIAL0);
 impl_spim!(SERIAL0, SPIM0, SERIAL0);
@@ -209,6 +218,10 @@ impl_twis!(SERIAL0, TWIS0, SERIAL0);
 impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);
 impl_timer!(TIMER2, TIMER2, TIMER2);
+
+impl_rtc!(RTC0, RTC0, RTC0);
+#[cfg(not(feature = "time-driver-rtc1"))]
+impl_rtc!(RTC1, RTC1, RTC1);
 
 impl_rng!(RNG, RNG, RNG);
 
@@ -298,6 +311,8 @@ impl_ppi_channel!(PPI_CH31, 31 => configurable);
 impl_radio!(RADIO, RADIO, RADIO);
 
 impl_egu!(EGU0, EGU0, EGU0);
+
+impl_wdt!(WDT, WDT, WDT, 0);
 
 embassy_hal_internal::interrupt_mod!(
     CLOCK_POWER,

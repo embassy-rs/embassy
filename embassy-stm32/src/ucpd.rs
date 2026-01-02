@@ -20,15 +20,15 @@ use core::sync::atomic::{AtomicBool, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{into_ref, Peripheral};
+use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::{ChannelAndRequest, TransferOptions};
-use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk, Txmode};
 pub use crate::pac::ucpd::vals::{Phyccsel as CcSel, Rxordset, TypecVstateCc as CcVState};
 use crate::rcc::{self, RccPeripheral};
+use crate::{interrupt, Peri};
 
 pub(crate) fn init(
     _cs: critical_section::CriticalSection,
@@ -122,13 +122,12 @@ pub struct Ucpd<'d, T: Instance> {
 impl<'d, T: Instance> Ucpd<'d, T> {
     /// Creates a new UCPD driver instance.
     pub fn new(
-        _peri: impl Peripheral<P = T> + 'd,
+        _peri: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        cc1: impl Peripheral<P = impl Cc1Pin<T>> + 'd,
-        cc2: impl Peripheral<P = impl Cc2Pin<T>> + 'd,
+        cc1: Peri<'d, impl Cc1Pin<T>>,
+        cc2: Peri<'d, impl Cc2Pin<T>>,
         config: Config,
     ) -> Self {
-        into_ref!(cc1, cc2);
         cc1.set_as_analog();
         cc2.set_as_analog();
 
@@ -194,6 +193,18 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             });
         }
 
+        // Software trim according to RM0456, p. 3480/3462
+        #[cfg(stm32u5)]
+        {
+            let trim_rd_cc1 = unsafe { *(0x0BFA_0544 as *const u8) & 0xF };
+            let trim_rd_cc2 = unsafe { *(0x0BFA_0546 as *const u8) & 0xF };
+
+            r.cfgr3().write(|w| {
+                w.set_trim_cc1_rd(trim_rd_cc1);
+                w.set_trim_cc2_rd(trim_rd_cc2);
+            });
+        }
+
         Self {
             cc_phy: CcPhy { _lifetime: PhantomData },
         }
@@ -208,8 +219,8 @@ impl<'d, T: Instance> Ucpd<'d, T> {
     /// and a Power Delivery (PD) PHY with receiver and transmitter.
     pub fn split_pd_phy(
         self,
-        rx_dma: impl Peripheral<P = impl RxDma<T>> + 'd,
-        tx_dma: impl Peripheral<P = impl TxDma<T>> + 'd,
+        rx_dma: Peri<'d, impl RxDma<T>>,
+        tx_dma: Peri<'d, impl TxDma<T>>,
         cc_sel: CcSel,
     ) -> (CcPhy<'d, T>, PdPhy<'d, T>) {
         let r = T::REGS;
@@ -229,7 +240,6 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         // Both parts must be dropped before the peripheral can be disabled.
         T::state().drop_not_ready.store(true, Ordering::Relaxed);
 
-        into_ref!(rx_dma, tx_dma);
         let rx_dma_req = rx_dma.request();
         let tx_dma_req = tx_dma.request();
         (
@@ -237,11 +247,11 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             PdPhy {
                 _lifetime: PhantomData,
                 rx_dma: ChannelAndRequest {
-                    channel: rx_dma.map_into(),
+                    channel: rx_dma.into(),
                     request: rx_dma_req,
                 },
                 tx_dma: ChannelAndRequest {
-                    channel: tx_dma.map_into(),
+                    channel: tx_dma.into(),
                     request: tx_dma_req,
                 },
             },
@@ -313,6 +323,25 @@ impl<'d, T: Instance> CcPhy<'d, T> {
 
                 w.set_trim_cc1_rp(trim_3a0_cc1 as u8);
                 w.set_trim_cc2_rp(trim_3a0_cc2 as u8);
+            }
+        });
+
+        // Software trim according to RM0456, p. 3480/3462
+        #[cfg(stm32u5)]
+        T::REGS.cfgr3().modify(|w| match cc_pull {
+            CcPull::Source1_5A => {
+                let trim_1a5_cc1 = unsafe { *(0x0BFA_07A7 as *const u8) & 0xF };
+                let trim_1a5_cc2 = unsafe { *(0x0BFA_07A8 as *const u8) & 0xF };
+
+                w.set_trim_cc1_rp(trim_1a5_cc1);
+                w.set_trim_cc2_rp(trim_1a5_cc2);
+            }
+            _ => {
+                let trim_3a0_cc1 = unsafe { *(0x0BFA_0545 as *const u8) & 0xF };
+                let trim_3a0_cc2 = unsafe { *(0x0BFA_0547 as *const u8) & 0xF };
+
+                w.set_trim_cc1_rp(trim_3a0_cc1);
+                w.set_trim_cc2_rp(trim_3a0_cc2);
             }
         });
 
@@ -461,14 +490,14 @@ impl<'d, T: Instance> PdPhy<'d, T> {
             let sr = r.sr().read();
 
             if sr.rxhrstdet() {
-                dma.request_stop();
+                dma.request_pause();
 
                 // Clean and re-enable hard reset receive interrupt.
                 r.icr().write(|w| w.set_rxhrstdetcf(true));
                 r.imr().modify(|w| w.set_rxhrstdetie(true));
                 Poll::Ready(Err(RxError::HardReset))
             } else if sr.rxmsgend() {
-                dma.request_stop();
+                dma.request_pause();
                 // Should be read immediately on interrupt.
                 rxpaysz = r.rx_payszr().read().rxpaysz().into();
 
@@ -689,7 +718,7 @@ trait SealedInstance {
 
 /// UCPD instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + RccPeripheral {
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral {
     /// Interrupt for this instance.
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }

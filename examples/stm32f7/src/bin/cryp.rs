@@ -68,7 +68,9 @@ async fn main(_spawner: Spawner) -> ! {
     );
 
     // Decrypt in software using AES-GCM 128-bit
-    let _ = cipher.decrypt_in_place(&iv.into(), aad.into(), &mut payload_vec);
+    cipher
+        .decrypt_in_place(&iv.into(), aad.into(), &mut payload_vec)
+        .unwrap();
 
     let sw_end_time = Instant::now();
     let sw_execution_time = sw_end_time - sw_start_time;

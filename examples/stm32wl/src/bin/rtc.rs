@@ -12,7 +12,7 @@ use embassy_stm32::{Config, SharedData};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
-#[link_section = ".shared_data"]
+#[unsafe(link_section = ".shared_data")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 
 #[embassy_executor::main]

@@ -2,12 +2,12 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::into_ref;
-
 use super::blocking_delay_us;
 use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
+use crate::interrupt::typelevel::Interrupt;
+use crate::interrupt::{self};
 use crate::time::Hertz;
-use crate::{interrupt, rcc, Peripheral};
+use crate::{rcc, Peri};
 
 pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;
@@ -22,12 +22,9 @@ pub struct InterruptHandler<T: Instance> {
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         if T::regs().sr().read().eoc() {
-            T::regs().cr1().modify(|w| w.set_eocie(false));
-        } else {
-            return;
+            T::regs().cr1().modify(|w| w.set_eocie(false)); // End of Convert interrupt disable
+            T::state().waker.wake();
         }
-
-        T::state().waker.wake();
     }
 }
 
@@ -48,8 +45,7 @@ impl<T: Instance> super::SealedAdcChannel<T> for Temperature {
 }
 
 impl<'d, T: Instance> Adc<'d, T> {
-    pub fn new(adc: impl Peripheral<P = T> + 'd) -> Self {
-        into_ref!(adc);
+    pub fn new(adc: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
         T::regs().cr2().modify(|reg| reg.set_adon(true));
 
@@ -71,6 +67,9 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         // One cycle after calibration
         blocking_delay_us((1_000_000 * 1) / Self::freq().0 + 1);
+
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         Self {
             adc,

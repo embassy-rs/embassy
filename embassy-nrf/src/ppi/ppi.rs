@@ -1,7 +1,5 @@
-use embassy_hal_internal::into_ref;
-
 use super::{Channel, ConfigurableChannel, Event, Ppi, Task};
-use crate::{pac, Peripheral};
+use crate::{pac, Peri};
 
 impl<'d> Task<'d> {
     fn reg_val(&self) -> u32 {
@@ -21,9 +19,7 @@ pub(crate) fn regs() -> pac::ppi::Ppi {
 #[cfg(not(feature = "_nrf51"))] // Not for nrf51 because of the fork task
 impl<'d, C: super::StaticChannel> Ppi<'d, C, 0, 1> {
     /// Configure PPI channel to trigger `task`.
-    pub fn new_zero_to_one(ch: impl Peripheral<P = C> + 'd, task: Task) -> Self {
-        into_ref!(ch);
-
+    pub fn new_zero_to_one(ch: Peri<'d, C>, task: Task) -> Self {
         let r = regs();
         let n = ch.number();
         r.fork(n).tep().write_value(task.reg_val());
@@ -34,9 +30,7 @@ impl<'d, C: super::StaticChannel> Ppi<'d, C, 0, 1> {
 
 impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 1> {
     /// Configure PPI channel to trigger `task` on `event`.
-    pub fn new_one_to_one(ch: impl Peripheral<P = C> + 'd, event: Event<'d>, task: Task<'d>) -> Self {
-        into_ref!(ch);
-
+    pub fn new_one_to_one(ch: Peri<'d, C>, event: Event<'d>, task: Task<'d>) -> Self {
         let r = regs();
         let n = ch.number();
         r.ch(n).eep().write_value(event.reg_val());
@@ -49,9 +43,7 @@ impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 1> {
 #[cfg(not(feature = "_nrf51"))] // Not for nrf51 because of the fork task
 impl<'d, C: ConfigurableChannel> Ppi<'d, C, 1, 2> {
     /// Configure PPI channel to trigger both `task1` and `task2` on `event`.
-    pub fn new_one_to_two(ch: impl Peripheral<P = C> + 'd, event: Event<'d>, task1: Task<'d>, task2: Task<'d>) -> Self {
-        into_ref!(ch);
-
+    pub fn new_one_to_two(ch: Peri<'d, C>, event: Event<'d>, task1: Task<'d>, task2: Task<'d>) -> Self {
         let r = regs();
         let n = ch.number();
         r.ch(n).eep().write_value(event.reg_val());
@@ -73,6 +65,15 @@ impl<'d, C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Ppi<'d, 
     pub fn disable(&mut self) {
         let n = self.ch.number();
         regs().chenclr().write(|w| w.set_ch(n, true));
+    }
+}
+
+impl<C: Channel, const EVENT_COUNT: usize, const TASK_COUNT: usize> Ppi<'static, C, EVENT_COUNT, TASK_COUNT> {
+    /// Persist the channel's configuration for the rest of the program's lifetime. This method
+    /// should be preferred over [`core::mem::forget()`] because the `'static` bound prevents
+    /// accidental reuse of the underlying peripheral.
+    pub fn persist(self) {
+        core::mem::forget(self);
     }
 }
 

@@ -4,13 +4,13 @@ use core::future::poll_fn;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::Peri;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::InterruptExt;
 use crate::peripherals::DTS;
 use crate::time::Hertz;
-use crate::{interrupt, pac, rcc, Peripheral};
+use crate::{interrupt, pac, rcc};
 
 mod tsel;
 pub use tsel::TriggerSel;
@@ -72,7 +72,7 @@ const MAX_DTS_CLK_FREQ: Hertz = Hertz::mhz(1);
 
 /// Digital temperature sensor driver.
 pub struct Dts<'d> {
-    _peri: PeripheralRef<'d, DTS>,
+    _peri: Peri<'d, DTS>,
 }
 
 static WAKER: AtomicWaker = AtomicWaker::new();
@@ -80,11 +80,10 @@ static WAKER: AtomicWaker = AtomicWaker::new();
 impl<'d> Dts<'d> {
     /// Create a new temperature sensor driver.
     pub fn new(
-        _peri: impl Peripheral<P = DTS> + 'd,
+        _peri: Peri<'d, DTS>,
         _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::DTS, InterruptHandler> + 'd,
         config: Config,
     ) -> Self {
-        into_ref!(_peri);
         rcc::enable_and_reset::<DTS>();
 
         let prescaler = rcc::frequency::<DTS>() / MAX_DTS_CLK_FREQ;

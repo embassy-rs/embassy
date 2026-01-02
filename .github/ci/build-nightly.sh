@@ -7,6 +7,7 @@ set -euo pipefail
 export RUSTUP_HOME=/ci/cache/rustup
 export CARGO_HOME=/ci/cache/cargo
 export CARGO_TARGET_DIR=/ci/cache/target
+export PATH=$CARGO_HOME/bin:$PATH
 mv rust-toolchain-nightly.toml rust-toolchain.toml
 
 # needed for "dumb HTTP" transport support
@@ -21,6 +22,8 @@ fi
 
 hashtime restore /ci/cache/filetime.json || true
 hashtime save /ci/cache/filetime.json
+
+cargo install --git https://github.com/embassy-rs/cargo-embassy-devtool --locked --rev 3ca80f7065acbe0b69b7da463fab60e744f9de79
 
 ./ci-nightly.sh
 

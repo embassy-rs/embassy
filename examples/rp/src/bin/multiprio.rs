@@ -130,16 +130,16 @@ fn main() -> ! {
     // High-priority executor: SWI_IRQ_1, priority level 2
     interrupt::SWI_IRQ_1.set_priority(Priority::P2);
     let spawner = EXECUTOR_HIGH.start(interrupt::SWI_IRQ_1);
-    unwrap!(spawner.spawn(run_high()));
+    spawner.spawn(unwrap!(run_high()));
 
     // Medium-priority executor: SWI_IRQ_0, priority level 3
     interrupt::SWI_IRQ_0.set_priority(Priority::P3);
     let spawner = EXECUTOR_MED.start(interrupt::SWI_IRQ_0);
-    unwrap!(spawner.spawn(run_med()));
+    spawner.spawn(unwrap!(run_med()));
 
     // Low priority executor: runs in thread mode, using WFE/SEV
     let executor = EXECUTOR_LOW.init(Executor::new());
     executor.run(|spawner| {
-        unwrap!(spawner.spawn(run_low()));
+        spawner.spawn(unwrap!(run_low()));
     });
 }

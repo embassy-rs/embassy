@@ -1,0 +1,17 @@
+[target.thumbv8m.main-none-eabihf]
+runner = 'probe-rs run --chip MIMXRT685SFVKB'
+
+rustflags = [
+  "-C", "linker=flip-link",
+  "-C", "link-arg=-Tlink.x",
+  "-C", "link-arg=-Tdefmt.x",
+  # This is needed if your flash or ram addresses are not aligned to 0x10000 in memory.x
+  # See https://github.com/rust-embedded/cortex-m-quickstart/pull/95
+  "-C", "link-arg=--nmagic",
+]
+
+[build]
+target = "thumbv8m.main-none-eabihf" # Cortex-M33
+
+[env]
+DEFMT_LOG = "trace"

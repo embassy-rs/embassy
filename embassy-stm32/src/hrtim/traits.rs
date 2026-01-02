@@ -1,3 +1,5 @@
+use embassy_hal_internal::PeripheralType;
+
 use crate::rcc::RccPeripheral;
 use crate::time::Hertz;
 
@@ -153,7 +155,7 @@ pub(crate) trait SealedInstance: RccPeripheral {
 
 /// HRTIM instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + 'static {}
+pub trait Instance: SealedInstance + PeripheralType + 'static {}
 
 foreach_interrupt! {
     ($inst:ident, hrtim, HRTIM, MASTER, $irq:ident) => {

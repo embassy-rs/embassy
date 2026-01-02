@@ -30,7 +30,7 @@ async fn my_task() {
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let _p = embassy_nrf::init(Default::default());
-    unwrap!(spawner.spawn(my_task()));
+    spawner.spawn(unwrap!(my_task()));
 
     loop {
         Timer::after_millis(300).await;

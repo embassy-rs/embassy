@@ -22,6 +22,7 @@ use self::raw::RawMutex;
 ///
 /// In all cases, the blocking mutex is intended to be short lived and not held across await points.
 /// Use the async [`Mutex`](crate::mutex::Mutex) if you need a lock that is held across await points.
+#[derive(Debug)]
 pub struct Mutex<R, T: ?Sized> {
     // NOTE: `raw` must be FIRST, so when using ThreadModeMutex the "can't drop in non-thread-mode" gets
     // to run BEFORE dropping `data`.
@@ -47,6 +48,23 @@ impl<R: RawMutex, T> Mutex<R, T> {
         self.raw.lock(|| {
             let ptr = self.data.get() as *const T;
             let inner = unsafe { &*ptr };
+            f(inner)
+        })
+    }
+
+    /// Creates a critical section and grants temporary mutable access to the protected data.
+    ///
+    /// # Safety
+    ///
+    /// This method is marked unsafe because calling this method re-entrantly, i.e. within
+    /// another `lock_mut` or `lock` closure, violates Rust's aliasing rules. Calling this
+    /// method at the same time from different tasks is safe. For a safe alternative with
+    /// mutable access that never causes UB, use a `RefCell` in a `Mutex`.
+    pub unsafe fn lock_mut<U>(&self, f: impl FnOnce(&mut T) -> U) -> U {
+        self.raw.lock(|| {
+            let ptr = self.data.get() as *mut T;
+            // Safety: we have exclusive access to the data, as long as this mutex is not locked re-entrantly
+            let inner = unsafe { &mut *ptr };
             f(inner)
         })
     }

@@ -12,6 +12,9 @@ use mspm0_metapac::tim::{Counterregs16, Tim};
 use crate::peripherals;
 use crate::timer::SealedTimer;
 
+#[cfg(any(time_driver_timg12, time_driver_timg13))]
+compile_error!("TIMG12 and TIMG13 are not supported by the time driver yet");
+
 // Currently TIMG12 and TIMG13 are excluded because those are 32-bit timers.
 #[cfg(time_driver_timg0)]
 type T = peripherals::TIMG0;

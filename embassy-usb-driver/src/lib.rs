@@ -170,6 +170,7 @@ pub trait Driver<'a> {
     fn alloc_endpoint_out(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointOut, EndpointAllocError>;
@@ -187,6 +188,7 @@ pub trait Driver<'a> {
     fn alloc_endpoint_in(
         &mut self,
         ep_type: EndpointType,
+        ep_addr: Option<EndpointAddress>,
         max_packet_size: u16,
         interval_ms: u8,
     ) -> Result<Self::EndpointIn, EndpointAllocError>;
@@ -268,6 +270,22 @@ pub trait EndpointOut: Endpoint {
     ///
     /// This should also clear any NAK flags and prepare the endpoint to receive the next packet.
     async fn read(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError>;
+
+    /// Read until the buffer is full or we receive a short packet from the USB host returning the
+    /// actual length of the entire data block.
+    ///
+    /// This should also clear any NAK flags and prepare the endpoint to receive the next packet or
+    /// data block.
+    async fn read_transfer(&mut self, buf: &mut [u8]) -> Result<usize, EndpointError> {
+        let mut n = 0;
+        loop {
+            let i = self.read(&mut buf[n..]).await?;
+            n += i;
+            if i < self.info().max_packet_size as usize {
+                return Ok(n);
+            }
+        }
+    }
 }
 
 /// USB control pipe trait.
@@ -381,6 +399,20 @@ pub trait ControlPipe {
 pub trait EndpointIn: Endpoint {
     /// Write a single packet of data to the endpoint.
     async fn write(&mut self, buf: &[u8]) -> Result<(), EndpointError>;
+
+    /// Write all the data from buf to the endpoint one wMaxPacketSize chunk at a time.
+    ///
+    /// If the buffer size is evenly divisible by wMaxPacketSize, this will also ensure the
+    /// terminating zero-length-packet is transmitted.
+    async fn write_transfer(&mut self, buf: &[u8], needs_zlp: bool) -> Result<(), EndpointError> {
+        for chunk in buf.chunks(self.info().max_packet_size as usize) {
+            self.write(chunk).await?;
+        }
+        if needs_zlp && buf.len() % self.info().max_packet_size as usize == 0 {
+            self.write(&[]).await?;
+        }
+        Ok(())
+    }
 }
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
@@ -428,4 +460,13 @@ pub enum EndpointError {
 
     /// The endpoint is disabled.
     Disabled,
+}
+
+impl embedded_io_async::Error for EndpointError {
+    fn kind(&self) -> embedded_io_async::ErrorKind {
+        match self {
+            Self::BufferOverflow => embedded_io_async::ErrorKind::OutOfMemory,
+            Self::Disabled => embedded_io_async::ErrorKind::NotConnected,
+        }
+    }
 }

@@ -21,6 +21,7 @@ use core::sync::atomic::{AtomicBool, Ordering};
 /// let reference = VALUE.get();
 /// assert_eq!(reference, &20);
 /// ```
+#[derive(Debug)]
 pub struct LazyLock<T, F = fn() -> T> {
     init: AtomicBool,
     data: UnsafeCell<Data<T, F>>,
@@ -31,7 +32,12 @@ union Data<T, F> {
     f: ManuallyDrop<F>,
 }
 
-unsafe impl<T, F> Sync for LazyLock<T, F> {}
+unsafe impl<T, F> Sync for LazyLock<T, F>
+where
+    T: Sync,
+    F: Sync,
+{
+}
 
 impl<T, F: FnOnce() -> T> LazyLock<T, F> {
     /// Create a new uninitialized `StaticLock`.
@@ -50,6 +56,14 @@ impl<T, F: FnOnce() -> T> LazyLock<T, F> {
     pub fn get(&self) -> &T {
         self.ensure_init_fast();
         unsafe { &(*self.data.get()).value }
+    }
+
+    /// Get a mutable reference to the underlying value, initializing it if it
+    /// has not been done already.
+    #[inline]
+    pub fn get_mut(&mut self) -> &mut T {
+        self.ensure_init_fast();
+        unsafe { &mut (*self.data.get()).value }
     }
 
     /// Consume the `LazyLock`, returning the underlying value. The
@@ -117,6 +131,13 @@ mod tests {
         assert_eq!(reference, &20);
     }
     #[test]
+    fn test_lazy_lock_mutation() {
+        let mut value: LazyLock<u32> = LazyLock::new(|| 20);
+        *value.get_mut() = 21;
+        let reference = value.get();
+        assert_eq!(reference, &21);
+    }
+    #[test]
     fn test_lazy_lock_into_inner() {
         let lazy: LazyLock<u32> = LazyLock::new(|| 20);
         let value = lazy.into_inner();
@@ -124,6 +145,7 @@ mod tests {
     }
 
     static DROP_CHECKER: AtomicU32 = AtomicU32::new(0);
+    #[derive(Debug)]
     struct DropCheck;
 
     impl Drop for DropCheck {

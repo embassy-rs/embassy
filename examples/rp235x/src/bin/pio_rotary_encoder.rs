@@ -1,4 +1,4 @@
-//! This example shows how to use the PIO module in the RP2040 to read a quadrature rotary encoder.
+//! This example shows how to use the PIO module in the RP235x to read a quadrature rotary encoder.
 
 #![no_std]
 #![no_main]
@@ -50,6 +50,6 @@ async fn main(spawner: Spawner) {
     let encoder0 = PioEncoder::new(&mut common, sm0, p.PIN_4, p.PIN_5, &prg);
     let encoder1 = PioEncoder::new(&mut common, sm1, p.PIN_6, p.PIN_7, &prg);
 
-    spawner.must_spawn(encoder_0(encoder0));
-    spawner.must_spawn(encoder_1(encoder1));
+    spawner.spawn(encoder_0(encoder0).unwrap());
+    spawner.spawn(encoder_1(encoder1).unwrap());
 }

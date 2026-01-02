@@ -1,6 +1,6 @@
 [package]
 name = "embassy-time"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2021"
 description = "Instant and Duration for embedded no-std systems, with async timer support"
 repository = "https://github.com/embassy-rs/embassy"
@@ -14,6 +14,13 @@ categories = [
     "asynchronous",
 ]
 
+[package.metadata.embassy]
+build = [
+    {target = "thumbv6m-none-eabi", features = ["defmt", "defmt-timestamp-uptime", "mock-driver"]},
+    # Xtensa builds
+    {group = "xtensa", build-std = ["core", "alloc"],  target = "xtensa-esp32s2-none-elf", features = ["defmt", "defmt-timestamp-uptime", "mock-driver"]},
+]
+
 [package.metadata.embassy_docs]
 src_base = "https://github.com/embassy-rs/embassy/blob/embassy-time-v$VERSION/embassy-time/src/"
 src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-time/src/"
@@ -24,6 +31,11 @@ target = "x86_64-unknown-linux-gnu"
 features = ["defmt", "std"]
 
 [features]
+## Enable defmt
+defmt = ["dep:defmt"]
+## Enable log  
+log = ["dep:log"]
+
 ## Display the time since startup next to defmt log messages.
 ## At most 1 `defmt-timestamp-uptime-*` feature can be used.
 ## `defmt-timestamp-uptime` is provided for backwards compatibility (provides the same format as `uptime-us`).
@@ -45,7 +57,7 @@ defmt-timestamp-uptime-tus = ["defmt"]
 ## Create a `MockDriver` that can be manually advanced for testing purposes.
 mock-driver = ["tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 ## Create a time driver for `std` environments.
-std = ["tick-hz-1_000_000", "critical-section/std", "dep:embassy-time-queue-utils"]
+std = ["tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 ## Create a time driver for WASM.
 wasm = ["dep:wasm-bindgen", "dep:js-sys", "dep:wasm-timer", "tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 
@@ -274,6 +286,8 @@ tick-hz-128_000_000 = ["embassy-time-driver/tick-hz-128_000_000"]
 tick-hz-130_000_000 = ["embassy-time-driver/tick-hz-130_000_000"]
 ## 131.072MHz Tick Rate
 tick-hz-131_072_000 = ["embassy-time-driver/tick-hz-131_072_000"]
+## 133.0MHz Tick Rate
+tick-hz-133_000_000 = ["embassy-time-driver/tick-hz-133_000_000"]
 ## 140.0MHz Tick Rate
 tick-hz-140_000_000 = ["embassy-time-driver/tick-hz-140_000_000"]
 ## 144.0MHz Tick Rate
@@ -415,17 +429,17 @@ tick-hz-5_242_880_000 = ["embassy-time-driver/tick-hz-5_242_880_000"]
 #! </details>
 
 [dependencies]
-embassy-time-driver = { version = "0.2", path = "../embassy-time-driver" }
-embassy-time-queue-utils = { version = "0.1", path = "../embassy-time-queue-utils", optional = true}
+embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver" }
+embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils", optional = true}
 
-defmt = { version = "0.3", optional = true }
+defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6" }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 
-futures-util = { version = "0.3.17", default-features = false }
+futures-core = { version = "0.3.31", default-features = false }
 critical-section = "1.1"
 cfg-if = "1.0.0"
 
@@ -439,4 +453,4 @@ wasm-timer = { version = "0.2.5", optional = true }
 [dev-dependencies]
 serial_test = "0.9"
 critical-section = { version = "1.1", features = ["std"] }
-embassy-executor = { version = "0.7.0", path = "../embassy-executor" }
+embassy-executor = { version = "0.9.0", path = "../embassy-executor" }

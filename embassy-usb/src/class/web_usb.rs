@@ -84,7 +84,7 @@ impl<'d> Control<'d> {
 }
 
 impl<'d> Handler for Control<'d> {
-    fn control_in(&mut self, req: Request, _data: &mut [u8]) -> Option<InResponse> {
+    fn control_in(&mut self, req: Request, _data: &mut [u8]) -> Option<InResponse<'_>> {
         let landing_value = if self.landing_url.is_some() { 1 } else { 0 };
         if req.request_type == RequestType::Vendor
             && req.recipient == Recipient::Device

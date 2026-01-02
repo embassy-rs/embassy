@@ -6,18 +6,18 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::gpio::{AnyPin, Pin as GpioPin, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::qdec::vals;
-use crate::{interrupt, pac, Peripheral};
+use crate::{interrupt, pac};
 
 /// Quadrature decoder driver.
 pub struct Qdec<'d, T: Instance> {
-    _p: PeripheralRef<'d, T>,
+    _p: Peri<'d, T>,
 }
 
 /// QDEC config
@@ -62,34 +62,32 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 impl<'d, T: Instance> Qdec<'d, T> {
     /// Create a new QDEC.
     pub fn new(
-        qdec: impl Peripheral<P = T> + 'd,
+        qdec: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        a: impl Peripheral<P = impl GpioPin> + 'd,
-        b: impl Peripheral<P = impl GpioPin> + 'd,
+        a: Peri<'d, impl GpioPin>,
+        b: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(qdec, a, b);
-        Self::new_inner(qdec, a.map_into(), b.map_into(), None, config)
+        Self::new_inner(qdec, a.into(), b.into(), None, config)
     }
 
     /// Create a new QDEC, with a pin for LED output.
     pub fn new_with_led(
-        qdec: impl Peripheral<P = T> + 'd,
+        qdec: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        a: impl Peripheral<P = impl GpioPin> + 'd,
-        b: impl Peripheral<P = impl GpioPin> + 'd,
-        led: impl Peripheral<P = impl GpioPin> + 'd,
+        a: Peri<'d, impl GpioPin>,
+        b: Peri<'d, impl GpioPin>,
+        led: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(qdec, a, b, led);
-        Self::new_inner(qdec, a.map_into(), b.map_into(), Some(led.map_into()), config)
+        Self::new_inner(qdec, a.into(), b.into(), Some(led.into()), config)
     }
 
     fn new_inner(
-        p: PeripheralRef<'d, T>,
-        a: PeripheralRef<'d, AnyPin>,
-        b: PeripheralRef<'d, AnyPin>,
-        led: Option<PeripheralRef<'d, AnyPin>>,
+        p: Peri<'d, T>,
+        a: Peri<'d, AnyPin>,
+        b: Peri<'d, AnyPin>,
+        led: Option<Peri<'d, AnyPin>>,
         config: Config,
     ) -> Self {
         let r = T::regs();
@@ -272,7 +270,7 @@ pub(crate) trait SealedInstance {
 
 /// qdec peripheral instance.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

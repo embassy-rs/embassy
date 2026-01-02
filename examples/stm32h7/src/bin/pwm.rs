@@ -36,7 +36,7 @@ async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(config);
     info!("Hello World!");
 
-    let ch1_pin = PwmPin::new_ch1(p.PA6, OutputType::PushPull);
+    let ch1_pin = PwmPin::new(p.PA6, OutputType::PushPull);
     let mut pwm = SimplePwm::new(p.TIM3, Some(ch1_pin), None, None, None, khz(10), Default::default());
     let mut ch1 = pwm.ch1();
     ch1.enable();

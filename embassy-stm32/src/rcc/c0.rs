@@ -3,6 +3,7 @@ pub use crate::pac::rcc::vals::{
     Hpre as AHBPrescaler, Hsidiv as HsiSysDiv, Hsikerdiv as HsiKerDiv, Ppre as APBPrescaler, Sw as Sysclk,
 };
 use crate::pac::{FLASH, RCC};
+use crate::rcc::LSI_FREQ;
 use crate::time::Hertz;
 
 /// HSI speed
@@ -48,6 +49,10 @@ pub struct Config {
     /// System Clock Configuration
     pub sys: Sysclk,
 
+    /// HSI48 Configuration
+    #[cfg(crs)]
+    pub hsi48: Option<super::Hsi48Config>,
+
     pub ahb_pre: AHBPrescaler,
     pub apb1_pre: APBPrescaler,
 
@@ -58,9 +63,8 @@ pub struct Config {
     pub mux: super::mux::ClockMux,
 }
 
-impl Default for Config {
-    #[inline]
-    fn default() -> Config {
+impl Config {
+    pub const fn new() -> Self {
         Config {
             hsi: Some(Hsi {
                 sys_div: HsiSysDiv::DIV4,
@@ -68,11 +72,19 @@ impl Default for Config {
             }),
             hse: None,
             sys: Sysclk::HSISYS,
+            #[cfg(crs)]
+            hsi48: Some(crate::rcc::Hsi48Config::new()),
             ahb_pre: AHBPrescaler::DIV1,
             apb1_pre: APBPrescaler::DIV1,
-            ls: Default::default(),
-            mux: Default::default(),
+            ls: crate::rcc::LsConfig::new(),
+            mux: super::mux::ClockMux::default(),
         }
+    }
+}
+
+impl Default for Config {
+    fn default() -> Config {
+        Self::new()
     }
 }
 
@@ -121,9 +133,20 @@ pub(crate) unsafe fn init(config: Config) {
         }
     };
 
+    // Configure HSI48 if required
+    #[cfg(crs)]
+    let hsi48 = config.hsi48.map(super::init_hsi48);
+
+    let rtc = config.ls.init();
+
     let sys = match config.sys {
         Sysclk::HSISYS => unwrap!(hsisys),
         Sysclk::HSE => unwrap!(hse),
+        Sysclk::LSI => {
+            assert!(config.ls.lsi);
+            LSI_FREQ
+        }
+        Sysclk::LSE => unwrap!(config.ls.lse).frequency,
         _ => unreachable!(),
     };
 
@@ -162,8 +185,6 @@ pub(crate) unsafe fn init(config: Config) {
         RCC.cr().modify(|w| w.set_hsion(false));
     }
 
-    let rtc = config.ls.init();
-
     config.mux.init();
 
     set_clocks!(
@@ -174,6 +195,8 @@ pub(crate) unsafe fn init(config: Config) {
         hsi: hsi,
         hsiker: hsiker,
         hse: hse,
+        #[cfg(crs)]
+        hsi48: hsi48,
         rtc: rtc,
 
         // TODO

@@ -54,7 +54,7 @@ async fn main(_s: Spawner) {
     for chunk in APP_B.chunks(4096) {
         buf.0[..chunk.len()].copy_from_slice(chunk);
         defmt::info!("writing block at offset {}", offset);
-        writer.write(offset, &buf.0[..]).unwrap();
+        writer.write(offset, &buf.0[..chunk.len()]).unwrap();
         offset += chunk.len() as u32;
     }
     watchdog.feed();

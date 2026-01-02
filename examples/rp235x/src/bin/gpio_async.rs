@@ -1,4 +1,4 @@
-//! This example shows how async gpio can be used with a RP2040.
+//! This example shows how async gpio can be used with a RP235x.
 //!
 //! The LED on the RP Pico W board is connected differently. See wifi_blinky.rs.
 

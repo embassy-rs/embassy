@@ -70,7 +70,7 @@ async fn main(spawner: Spawner) {
     )
     .await;
 
-    unwrap!(spawner.spawn(wifi_task(runner)));
+    spawner.spawn(unwrap!(wifi_task(runner)));
 
     unwrap!(control.init().await);
     unwrap!(control.connect(WIFI_NETWORK, WIFI_PASSWORD).await);
@@ -92,7 +92,7 @@ async fn main(spawner: Spawner) {
     static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
     let (stack, runner) = embassy_net::new(device, config, RESOURCES.init(StackResources::new()), seed);
 
-    unwrap!(spawner.spawn(net_task(runner)));
+    spawner.spawn(unwrap!(net_task(runner)));
 
     // And now we can use it!
 

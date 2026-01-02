@@ -168,10 +168,12 @@ embassy_hal_internal::peripherals! {
 
     // RTC
     RTC0,
+    #[cfg(not(feature = "time-driver-rtc1"))]
     RTC1,
 
     // WDT
-    WDT,
+    WDT0,
+    WDT1,
 
     // NVMC
     NVMC,
@@ -261,6 +263,9 @@ embassy_hal_internal::peripherals! {
     PPI_GROUP4,
     PPI_GROUP5,
 
+    // IPC
+    IPC,
+
     // GPIO port 0
     #[cfg(feature = "lfxo-pins-as-gpio")]
     P0_00,
@@ -326,6 +331,8 @@ embassy_hal_internal::peripherals! {
     EGU5,
 }
 
+impl_ipc!(IPC, IPC, IPC);
+
 impl_usb!(USBD, USBD, USBD);
 
 impl_uarte!(SERIAL0, UARTE0, SERIAL0);
@@ -362,6 +369,10 @@ impl_pwm!(PWM3, PWM3, PWM3);
 impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);
 impl_timer!(TIMER2, TIMER2, TIMER2);
+
+impl_rtc!(RTC0, RTC0, RTC0);
+#[cfg(not(feature = "time-driver-rtc1"))]
+impl_rtc!(RTC1, RTC1, RTC1);
 
 impl_qspi!(QSPI, QSPI, QSPI);
 
@@ -457,14 +468,14 @@ impl_ppi_channel!(PPI_CH29, 29 => configurable);
 impl_ppi_channel!(PPI_CH30, 30 => configurable);
 impl_ppi_channel!(PPI_CH31, 31 => configurable);
 
-impl_saadc_input!(P0_13, ANALOG_INPUT0);
-impl_saadc_input!(P0_14, ANALOG_INPUT1);
-impl_saadc_input!(P0_15, ANALOG_INPUT2);
-impl_saadc_input!(P0_16, ANALOG_INPUT3);
-impl_saadc_input!(P0_17, ANALOG_INPUT4);
-impl_saadc_input!(P0_18, ANALOG_INPUT5);
-impl_saadc_input!(P0_19, ANALOG_INPUT6);
-impl_saadc_input!(P0_20, ANALOG_INPUT7);
+impl_saadc_input!(P0_04, ANALOG_INPUT0);
+impl_saadc_input!(P0_05, ANALOG_INPUT1);
+impl_saadc_input!(P0_06, ANALOG_INPUT2);
+impl_saadc_input!(P0_07, ANALOG_INPUT3);
+impl_saadc_input!(P0_25, ANALOG_INPUT4);
+impl_saadc_input!(P0_26, ANALOG_INPUT5);
+impl_saadc_input!(P0_27, ANALOG_INPUT6);
+impl_saadc_input!(P0_28, ANALOG_INPUT7);
 
 impl_egu!(EGU0, EGU0, EGU0);
 impl_egu!(EGU1, EGU1, EGU1);
@@ -472,6 +483,9 @@ impl_egu!(EGU2, EGU2, EGU2);
 impl_egu!(EGU3, EGU3, EGU3);
 impl_egu!(EGU4, EGU4, EGU4);
 impl_egu!(EGU5, EGU5, EGU5);
+
+impl_wdt!(WDT0, WDT0, WDT0, 0);
+impl_wdt!(WDT1, WDT1, WDT1, 1);
 
 embassy_hal_internal::interrupt_mod!(
     FPU,

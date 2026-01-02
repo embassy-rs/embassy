@@ -6,11 +6,11 @@
 
 #![macro_use]
 
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 
+use crate::pac;
 use crate::pac::timer::vals;
 use crate::ppi::{Event, Task};
-use crate::{pac, Peripheral};
 
 pub(crate) trait SealedInstance {
     /// The number of CC registers this instance has.
@@ -20,7 +20,7 @@ pub(crate) trait SealedInstance {
 
 /// Basic Timer instance.
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static + Send {
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send {
     /// Interrupt for this peripheral.
     type Interrupt: crate::interrupt::typelevel::Interrupt;
 }
@@ -84,29 +84,27 @@ pub enum Frequency {
 
 /// Timer driver.
 pub struct Timer<'d, T: Instance> {
-    _p: PeripheralRef<'d, T>,
+    _p: Peri<'d, T>,
 }
 
 impl<'d, T: Instance> Timer<'d, T> {
     /// Create a new `Timer` driver.
     ///
-    /// This can be useful for triggering tasks via PPI
+    /// This can be useful for triggering tasks via PPI.
     /// `Uarte` uses this internally.
-    pub fn new(timer: impl Peripheral<P = T> + 'd) -> Self {
+    pub fn new(timer: Peri<'d, T>) -> Self {
         Self::new_inner(timer, false)
     }
 
     /// Create a new `Timer` driver in counter mode.
     ///
-    /// This can be useful for triggering tasks via PPI
+    /// This can be useful for triggering tasks via PPI.
     /// `Uarte` uses this internally.
-    pub fn new_counter(timer: impl Peripheral<P = T> + 'd) -> Self {
+    pub fn new_counter(timer: Peri<'d, T>) -> Self {
         Self::new_inner(timer, true)
     }
 
-    fn new_inner(timer: impl Peripheral<P = T> + 'd, _is_counter: bool) -> Self {
-        into_ref!(timer);
-
+    fn new_inner(timer: Peri<'d, T>, is_counter: bool) -> Self {
         let regs = T::regs();
 
         let this = Self { _p: timer };
@@ -116,7 +114,7 @@ impl<'d, T: Instance> Timer<'d, T> {
         this.stop();
 
         regs.mode().write(|w| {
-            w.set_mode(match _is_counter {
+            w.set_mode(match is_counter {
                 #[cfg(not(feature = "_nrf51"))]
                 true => vals::Mode::LOW_POWER_COUNTER,
                 #[cfg(feature = "_nrf51")]
@@ -220,6 +218,21 @@ impl<'d, T: Instance> Timer<'d, T> {
     }
 }
 
+impl<T: Instance> Timer<'static, T> {
+    /// Persist the timer's configuration for the rest of the program's lifetime. This method
+    /// should be preferred over [`core::mem::forget()`] because the `'static` bound prevents
+    /// accidental reuse of the underlying peripheral.
+    pub fn persist(self) {
+        core::mem::forget(self);
+    }
+}
+
+impl<'d, T: Instance> Drop for Timer<'d, T> {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
 /// A representation of a timer's Capture/Compare (CC) register.
 ///
 /// A CC register holds a 32-bit value.
@@ -229,7 +242,7 @@ impl<'d, T: Instance> Timer<'d, T> {
 /// When the register's CAPTURE task is triggered, the timer will store the current value of its counter in the register
 pub struct Cc<'d, T: Instance> {
     n: usize,
-    _p: PeripheralRef<'d, T>,
+    _p: Peri<'d, T>,
 }
 
 impl<'d, T: Instance> Cc<'d, T> {

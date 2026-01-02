@@ -17,6 +17,7 @@ use embassy_rp::peripherals::{PIO0, USB};
 use embassy_rp::pio_programs::uart::{PioUartRx, PioUartRxProgram, PioUartTx, PioUartTxProgram};
 use embassy_rp::usb::{Driver, Instance, InterruptHandler};
 use embassy_rp::{bind_interrupts, pio};
+use embassy_rp::PeripheralType;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::pipe::Pipe;
 use embassy_usb::class::cdc_acm::{CdcAcmClass, Receiver, Sender, State};
@@ -133,7 +134,7 @@ impl From<EndpointError> for Disconnected {
 }
 
 /// Read from the USB and write it to the UART TX pipe
-async fn usb_read<'d, T: Instance + 'd>(
+async fn usb_read<'d, T: Instance + PeripheralType + 'd>(
     usb_rx: &mut Receiver<'d, Driver<'d, T>>,
     uart_pipe_writer: &mut embassy_sync::pipe::Writer<'_, NoopRawMutex, 20>,
 ) -> Result<(), Disconnected> {
@@ -147,7 +148,7 @@ async fn usb_read<'d, T: Instance + 'd>(
 }
 
 /// Read from the USB TX pipe and write it to the USB
-async fn usb_write<'d, T: Instance + 'd>(
+async fn usb_write<'d, T: Instance + PeripheralType + 'd>(
     usb_tx: &mut Sender<'d, Driver<'d, T>>,
     usb_pipe_reader: &mut embassy_sync::pipe::Reader<'_, NoopRawMutex, 20>,
 ) -> Result<(), Disconnected> {

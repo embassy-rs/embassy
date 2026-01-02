@@ -1,4 +1,4 @@
-//! This example shows how to use Watchdog in the RP2040 chip.
+//! This example shows how to use Watchdog in the RP235x chip.
 //!
 //! It does not work with the RP Pico W board. See wifi_blinky.rs or connect external LED and resistor.
 

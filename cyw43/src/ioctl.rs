@@ -33,8 +33,8 @@ struct Wakers {
     runner: WakerRegistration,
 }
 
-impl Default for Wakers {
-    fn default() -> Self {
+impl Wakers {
+    const fn new() -> Self {
         Self {
             control: WakerRegistration::new(),
             runner: WakerRegistration::new(),
@@ -48,10 +48,10 @@ pub struct IoctlState {
 }
 
 impl IoctlState {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             state: Cell::new(IoctlStateInner::Done { resp_len: 0 }),
-            wakers: Default::default(),
+            wakers: RefCell::new(Wakers::new()),
         }
     }
 

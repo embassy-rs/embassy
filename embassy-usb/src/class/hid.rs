@@ -133,9 +133,9 @@ fn build<'d, D: Driver<'d>>(
         ],
     );
 
-    let ep_in = alt.endpoint_interrupt_in(config.max_packet_size, config.poll_ms);
+    let ep_in = alt.endpoint_interrupt_in(None, config.max_packet_size, config.poll_ms);
     let ep_out = if with_out_endpoint {
-        Some(alt.endpoint_interrupt_out(config.max_packet_size, config.poll_ms))
+        Some(alt.endpoint_interrupt_out(None, config.max_packet_size, config.poll_ms))
     } else {
         None
     };

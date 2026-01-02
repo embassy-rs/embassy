@@ -125,7 +125,7 @@ impl<C: Chip, SPI: SpiDevice> WiznetDevice<C, SPI> {
 
     async fn reset_interrupt(&mut self, code: Interrupt) -> Result<(), SPI::Error> {
         let data = [code as u8];
-        self.bus_write(C::SOCKET_INTR, &data).await
+        self.bus_write(C::SOCKET_INTR_CLR, &data).await
     }
 
     async fn get_tx_write_ptr(&mut self) -> Result<u16, SPI::Error> {

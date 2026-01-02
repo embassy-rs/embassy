@@ -4,13 +4,12 @@ use core::future::poll_fn;
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{into_ref, PeripheralRef};
 use embassy_sync::waitqueue::AtomicWaker;
 use fixed::types::I30F2;
 
 use crate::interrupt::InterruptExt;
 use crate::peripherals::TEMP;
-use crate::{interrupt, pac, Peripheral};
+use crate::{interrupt, pac, Peri};
 
 /// Interrupt handler.
 pub struct InterruptHandler {
@@ -27,7 +26,7 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::TEMP> for InterruptHand
 
 /// Builtin temperature sensor driver.
 pub struct Temp<'d> {
-    _peri: PeripheralRef<'d, TEMP>,
+    _peri: Peri<'d, TEMP>,
 }
 
 static WAKER: AtomicWaker = AtomicWaker::new();
@@ -35,11 +34,9 @@ static WAKER: AtomicWaker = AtomicWaker::new();
 impl<'d> Temp<'d> {
     /// Create a new temperature sensor driver.
     pub fn new(
-        _peri: impl Peripheral<P = TEMP> + 'd,
+        _peri: Peri<'d, TEMP>,
         _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::TEMP, InterruptHandler> + 'd,
     ) -> Self {
-        into_ref!(_peri);
-
         // Enable interrupt that signals temperature values
         interrupt::TEMP.unpend();
         unsafe { interrupt::TEMP.enable() };

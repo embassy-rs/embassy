@@ -8,7 +8,7 @@ use embassy_embedded_hal::shared_bus::asynch::i2c::I2cDevice;
 use embassy_embedded_hal::shared_bus::asynch::spi::SpiDevice;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
-use embassy_rp::gpio::{AnyPin, Level, Output};
+use embassy_rp::gpio::{Level, Output};
 use embassy_rp::i2c::{self, I2c, InterruptHandler};
 use embassy_rp::peripherals::{I2C1, SPI1};
 use embassy_rp::spi::{self, Spi};
@@ -35,8 +35,8 @@ async fn main(spawner: Spawner) {
     static I2C_BUS: StaticCell<I2c1Bus> = StaticCell::new();
     let i2c_bus = I2C_BUS.init(Mutex::new(i2c));
 
-    spawner.must_spawn(i2c_task_a(i2c_bus));
-    spawner.must_spawn(i2c_task_b(i2c_bus));
+    spawner.spawn(i2c_task_a(i2c_bus).unwrap());
+    spawner.spawn(i2c_task_b(i2c_bus).unwrap());
 
     // Shared SPI bus
     let spi_cfg = spi::Config::default();
@@ -45,11 +45,11 @@ async fn main(spawner: Spawner) {
     let spi_bus = SPI_BUS.init(Mutex::new(spi));
 
     // Chip select pins for the SPI devices
-    let cs_a = Output::new(AnyPin::from(p.PIN_0), Level::High);
-    let cs_b = Output::new(AnyPin::from(p.PIN_1), Level::High);
+    let cs_a = Output::new(p.PIN_0, Level::High);
+    let cs_b = Output::new(p.PIN_1, Level::High);
 
-    spawner.must_spawn(spi_task_a(spi_bus, cs_a));
-    spawner.must_spawn(spi_task_b(spi_bus, cs_b));
+    spawner.spawn(spi_task_a(spi_bus, cs_a).unwrap());
+    spawner.spawn(spi_task_b(spi_bus, cs_b).unwrap());
 }
 
 #[embassy_executor::task]

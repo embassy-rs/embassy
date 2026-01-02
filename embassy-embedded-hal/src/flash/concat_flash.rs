@@ -1,5 +1,7 @@
-use embedded_storage::nor_flash::{ErrorType, NorFlash, NorFlashError, ReadNorFlash};
-use embedded_storage_async::nor_flash::{NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash};
+use embedded_storage::nor_flash::{ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, ReadNorFlash};
+use embedded_storage_async::nor_flash::{
+    MultiwriteNorFlash as AsyncMultiwriteNorFlash, NorFlash as AsyncNorFlash, ReadNorFlash as AsyncReadNorFlash,
+};
 
 /// Convenience helper for concatenating two consecutive flashes into one.
 /// This is especially useful if used with "flash regions", where one may
@@ -116,6 +118,14 @@ where
     }
 }
 
+impl<First, Second, E> MultiwriteNorFlash for ConcatFlash<First, Second>
+where
+    First: MultiwriteNorFlash<Error = E>,
+    Second: MultiwriteNorFlash<Error = E>,
+    E: NorFlashError,
+{
+}
+
 impl<First, Second, E> AsyncReadNorFlash for ConcatFlash<First, Second>
 where
     First: AsyncReadNorFlash<Error = E>,
@@ -183,6 +193,14 @@ where
 
         Ok(())
     }
+}
+
+impl<First, Second, E> AsyncMultiwriteNorFlash for ConcatFlash<First, Second>
+where
+    First: AsyncMultiwriteNorFlash<Error = E>,
+    Second: AsyncMultiwriteNorFlash<Error = E>,
+    E: NorFlashError,
+{
 }
 
 #[cfg(test)]

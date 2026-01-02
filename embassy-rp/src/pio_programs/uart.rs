@@ -10,15 +10,16 @@ use crate::gpio::Level;
 use crate::pio::{
     Common, Config, Direction as PioDirection, FifoJoin, Instance, LoadedProgram, PioPin, ShiftDirection, StateMachine,
 };
+use crate::Peri;
 
 /// This struct represents a uart tx program loaded into pio instruction memory.
-pub struct PioUartTxProgram<'a, PIO: Instance> {
-    prg: LoadedProgram<'a, PIO>,
+pub struct PioUartTxProgram<'d, PIO: Instance> {
+    prg: LoadedProgram<'d, PIO>,
 }
 
-impl<'a, PIO: Instance> PioUartTxProgram<'a, PIO> {
+impl<'d, PIO: Instance> PioUartTxProgram<'d, PIO> {
     /// Load the uart tx program into the given pio
-    pub fn new(common: &mut Common<'a, PIO>) -> Self {
+    pub fn new(common: &mut Common<'d, PIO>) -> Self {
         let prg = pio::pio_asm!(
             r#"
                 .side_set 1 opt
@@ -41,18 +42,18 @@ impl<'a, PIO: Instance> PioUartTxProgram<'a, PIO> {
 }
 
 /// PIO backed Uart transmitter
-pub struct PioUartTx<'a, PIO: Instance, const SM: usize> {
-    sm_tx: StateMachine<'a, PIO, SM>,
+pub struct PioUartTx<'d, PIO: Instance, const SM: usize> {
+    sm_tx: StateMachine<'d, PIO, SM>,
 }
 
-impl<'a, PIO: Instance, const SM: usize> PioUartTx<'a, PIO, SM> {
+impl<'d, PIO: Instance, const SM: usize> PioUartTx<'d, PIO, SM> {
     /// Configure a pio state machine to use the loaded tx program.
     pub fn new(
         baud: u32,
-        common: &mut Common<'a, PIO>,
-        mut sm_tx: StateMachine<'a, PIO, SM>,
-        tx_pin: impl PioPin,
-        program: &PioUartTxProgram<'a, PIO>,
+        common: &mut Common<'d, PIO>,
+        mut sm_tx: StateMachine<'d, PIO, SM>,
+        tx_pin: Peri<'d, impl PioPin>,
+        program: &PioUartTxProgram<'d, PIO>,
     ) -> Self {
         let tx_pin = common.make_pio_pin(tx_pin);
         sm_tx.set_pins(Level::High, &[&tx_pin]);
@@ -92,13 +93,13 @@ impl<PIO: Instance, const SM: usize> Write for PioUartTx<'_, PIO, SM> {
 }
 
 /// This struct represents a Uart Rx program loaded into pio instruction memory.
-pub struct PioUartRxProgram<'a, PIO: Instance> {
-    prg: LoadedProgram<'a, PIO>,
+pub struct PioUartRxProgram<'d, PIO: Instance> {
+    prg: LoadedProgram<'d, PIO>,
 }
 
-impl<'a, PIO: Instance> PioUartRxProgram<'a, PIO> {
+impl<'d, PIO: Instance> PioUartRxProgram<'d, PIO> {
     /// Load the uart rx program into the given pio
-    pub fn new(common: &mut Common<'a, PIO>) -> Self {
+    pub fn new(common: &mut Common<'d, PIO>) -> Self {
         let prg = pio::pio_asm!(
             r#"
                 ; Slightly more fleshed-out 8n1 UART receiver which handles framing errors and
@@ -130,18 +131,18 @@ impl<'a, PIO: Instance> PioUartRxProgram<'a, PIO> {
 }
 
 /// PIO backed Uart reciever
-pub struct PioUartRx<'a, PIO: Instance, const SM: usize> {
-    sm_rx: StateMachine<'a, PIO, SM>,
+pub struct PioUartRx<'d, PIO: Instance, const SM: usize> {
+    sm_rx: StateMachine<'d, PIO, SM>,
 }
 
-impl<'a, PIO: Instance, const SM: usize> PioUartRx<'a, PIO, SM> {
+impl<'d, PIO: Instance, const SM: usize> PioUartRx<'d, PIO, SM> {
     /// Configure a pio state machine to use the loaded rx program.
     pub fn new(
         baud: u32,
-        common: &mut Common<'a, PIO>,
-        mut sm_rx: StateMachine<'a, PIO, SM>,
-        rx_pin: impl PioPin,
-        program: &PioUartRxProgram<'a, PIO>,
+        common: &mut Common<'d, PIO>,
+        mut sm_rx: StateMachine<'d, PIO, SM>,
+        rx_pin: Peri<'d, impl PioPin>,
+        program: &PioUartRxProgram<'d, PIO>,
     ) -> Self {
         let mut cfg = Config::default();
         cfg.use_program(&program.prg, &[]);

@@ -10,16 +10,16 @@ use embassy_rp::dma::Channel;
 use embassy_rp::gpio::{Drive, Level, Output, Pull, SlewRate};
 use embassy_rp::pio::program::pio_asm;
 use embassy_rp::pio::{Common, Config, Direction, Instance, Irq, PioPin, ShiftDirection, StateMachine};
-use embassy_rp::{Peripheral, PeripheralRef};
+use embassy_rp::Peri;
 use fixed::types::extra::U8;
 use fixed::FixedU32;
 
 /// SPI comms driven by PIO.
-pub struct PioSpi<'d, PIO: Instance, const SM: usize, DMA> {
+pub struct PioSpi<'d, PIO: Instance, const SM: usize, DMA: Channel> {
     cs: Output<'d>,
     sm: StateMachine<'d, PIO, SM>,
     irq: Irq<'d, PIO, 0>,
-    dma: PeripheralRef<'d, DMA>,
+    dma: Peri<'d, DMA>,
     wrap_target: u8,
 }
 
@@ -48,20 +48,16 @@ where
     PIO: Instance,
 {
     /// Create a new instance of PioSpi.
-    pub fn new<DIO, CLK>(
+    pub fn new(
         common: &mut Common<'d, PIO>,
         mut sm: StateMachine<'d, PIO, SM>,
         clock_divider: FixedU32<U8>,
         irq: Irq<'d, PIO, 0>,
         cs: Output<'d>,
-        dio: DIO,
-        clk: CLK,
-        dma: impl Peripheral<P = DMA> + 'd,
-    ) -> Self
-    where
-        DIO: PioPin,
-        CLK: PioPin,
-    {
+        dio: Peri<'d, impl PioPin>,
+        clk: Peri<'d, impl PioPin>,
+        dma: Peri<'d, DMA>,
+    ) -> Self {
         let loaded_program = if clock_divider < DEFAULT_CLOCK_DIVIDER {
             let overclock_program = pio_asm!(
                 ".side_set 1"
@@ -146,7 +142,7 @@ where
             cs,
             sm,
             irq,
-            dma: dma.into_ref(),
+            dma: dma,
             wrap_target: loaded_program.wrap.target,
         }
     }

@@ -23,7 +23,7 @@ mod fmt;
 use core::mem::MaybeUninit;
 use core::sync::atomic::{compiler_fence, Ordering};
 
-use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::Peri;
 use embassy_stm32::interrupt;
 use embassy_stm32::ipcc::{Config, Ipcc, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::peripherals::IPCC;
@@ -52,7 +52,7 @@ type PacketHeader = LinkedListNode;
 
 /// Transport Layer for the Mailbox interface
 pub struct TlMbox<'d> {
-    _ipcc: PeripheralRef<'d, IPCC>,
+    _ipcc: Peri<'d, IPCC>,
 
     pub sys_subsystem: Sys,
     pub mm_subsystem: MemoryManager,
@@ -92,13 +92,11 @@ impl<'d> TlMbox<'d> {
     /// Figure 66.
     // TODO: document what the user should do after calling init to use the mac_802_15_4 subsystem
     pub fn init(
-        ipcc: impl Peripheral<P = IPCC> + 'd,
+        ipcc: Peri<'d, IPCC>,
         _irqs: impl interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C1_RX, ReceiveInterruptHandler>
             + interrupt::typelevel::Binding<interrupt::typelevel::IPCC_C1_TX, TransmitInterruptHandler>,
         config: Config,
     ) -> Self {
-        into_ref!(ipcc);
-
         // this is an inlined version of TL_Init from the STM32WB firmware as requested by AN5289.
         // HW_IPCC_Init is not called, and its purpose is (presumably?) covered by this
         // implementation

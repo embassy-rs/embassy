@@ -4,10 +4,10 @@
 use core::convert::Infallible;
 
 use critical_section::CriticalSection;
-use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
+use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
 
 use crate::pac::gpio::{self, vals};
-use crate::{peripherals, Peripheral};
+use crate::peripherals;
 
 /// GPIO flexible pin.
 ///
@@ -15,7 +15,7 @@ use crate::{peripherals, Peripheral};
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
 pub struct Flex<'d> {
-    pub(crate) pin: PeripheralRef<'d, AnyPin>,
+    pub(crate) pin: Peri<'d, AnyPin>,
 }
 
 impl<'d> Flex<'d> {
@@ -25,10 +25,9 @@ impl<'d> Flex<'d> {
     /// before the pin is put into output mode.
     ///
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd) -> Self {
-        into_ref!(pin);
+    pub fn new(pin: Peri<'d, impl Pin>) -> Self {
         // Pin will be in disconnected state.
-        Self { pin: pin.map_into() }
+        Self { pin: pin.into() }
     }
 
     /// Put the pin into input mode.
@@ -151,9 +150,13 @@ impl<'d> Flex<'d> {
     /// This puts the pin into the AF mode, with the requested number and AF type. This is
     /// completely unchecked, it can attach the pin to literally any peripheral, so use with care.
     #[inline]
-    pub fn set_as_af_unchecked(&mut self, af_num: u8, af_type: AfType) {
+    pub fn set_as_af_unchecked(&mut self, #[cfg(not(afio))] af_num: u8, af_type: AfType) {
         critical_section::with(|_| {
-            self.pin.set_as_af(af_num, af_type);
+            self.pin.set_as_af(
+                #[cfg(not(afio))]
+                af_num,
+                af_type,
+            );
         });
     }
 
@@ -310,7 +313,7 @@ pub struct Input<'d> {
 impl<'d> Input<'d> {
     /// Create GPIO input driver for a [Pin] with the provided [Pull] configuration.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, pull: Pull) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_input(pull);
         Self { pin }
@@ -375,7 +378,7 @@ pub struct Output<'d> {
 impl<'d> Output<'d> {
     /// Create GPIO output driver for a [Pin] with the provided [Level] and [Speed] configuration.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, initial_output: Level, speed: Speed) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level, speed: Speed) -> Self {
         let mut pin = Flex::new(pin);
         match initial_output {
             Level::High => pin.set_high(),
@@ -440,7 +443,7 @@ pub struct OutputOpenDrain<'d> {
 impl<'d> OutputOpenDrain<'d> {
     /// Create a new GPIO open drain output driver for a [Pin] with the provided [Level] and [Speed].
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, initial_output: Level, speed: Speed) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level, speed: Speed) -> Self {
         let mut pin = Flex::new(pin);
         match initial_output {
             Level::High => pin.set_high(),
@@ -454,7 +457,7 @@ impl<'d> OutputOpenDrain<'d> {
     /// and [Pull].
     #[inline]
     #[cfg(gpio_v2)]
-    pub fn new_pull(pin: impl Peripheral<P = impl Pin> + 'd, initial_output: Level, speed: Speed, pull: Pull) -> Self {
+    pub fn new_pull(pin: Peri<'d, impl Pin>, initial_output: Level, speed: Speed, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
         match initial_output {
             Level::High => pin.set_high(),
@@ -589,7 +592,7 @@ impl AfType {
 
 #[inline(never)]
 #[cfg(gpio_v1)]
-fn set_as_af(pin_port: u8, _af_num: u8, af_type: AfType) {
+fn set_as_af(pin_port: u8, af_type: AfType) {
     let pin = unsafe { AnyPin::steal(pin_port) };
     let r = pin.block();
     let n = pin._pin() as usize;
@@ -711,6 +714,18 @@ fn get_pull(pin_port: u8) -> Pull {
     };
 }
 
+#[cfg(afio)]
+/// Holds the AFIO remap value for a peripheral's pin
+pub struct AfioRemap<const V: u8>;
+
+#[cfg(afio)]
+/// Holds the AFIO remap value for a peripheral's pin
+pub struct AfioRemapBool<const V: bool>;
+
+#[cfg(afio)]
+/// Placeholder for a peripheral's pin which cannot be remapped via AFIO.
+pub struct AfioRemapNotApplicable;
+
 pub(crate) trait SealedPin {
     fn pin_port(&self) -> u8;
 
@@ -744,8 +759,13 @@ pub(crate) trait SealedPin {
     }
 
     #[inline]
-    fn set_as_af(&self, af_num: u8, af_type: AfType) {
-        set_as_af(self.pin_port(), af_num, af_type)
+    fn set_as_af(&self, #[cfg(not(afio))] af_num: u8, af_type: AfType) {
+        set_as_af(
+            self.pin_port(),
+            #[cfg(not(afio))]
+            af_num,
+            af_type,
+        )
     }
 
     #[inline]
@@ -780,7 +800,7 @@ pub(crate) trait SealedPin {
 
 /// GPIO pin trait.
 #[allow(private_bounds)]
-pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static {
+pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
     /// EXTI channel assigned to this pin.
     ///
     /// For example, PC4 uses EXTI4.
@@ -798,18 +818,6 @@ pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static
     fn port(&self) -> u8 {
         self._port()
     }
-
-    /// Type-erase (degrade) this pin into an `AnyPin`.
-    ///
-    /// This converts pin singletons (`PA5`, `PB6`, ...), which
-    /// are all different types, into the same type. It is useful for
-    /// creating arrays of pins, or avoiding generics.
-    #[inline]
-    fn degrade(self) -> AnyPin {
-        AnyPin {
-            pin_port: self.pin_port(),
-        }
-    }
 }
 
 /// Type-erased GPIO pin
@@ -822,8 +830,8 @@ impl AnyPin {
     ///
     /// `pin_port` is `port_num * 16 + pin_num`, where `port_num` is 0 for port `A`, 1 for port `B`, etc...
     #[inline]
-    pub unsafe fn steal(pin_port: u8) -> Self {
-        Self { pin_port }
+    pub unsafe fn steal(pin_port: u8) -> Peri<'static, Self> {
+        Peri::new_unchecked(Self { pin_port })
     }
 
     #[inline]
@@ -867,8 +875,10 @@ foreach_pin!(
         }
 
         impl From<peripherals::$pin_name> for AnyPin {
-            fn from(x: peripherals::$pin_name) -> Self {
-                x.degrade()
+            fn from(val: peripherals::$pin_name) -> Self {
+                Self {
+                    pin_port: val.pin_port(),
+                }
             }
         }
     };

@@ -5,11 +5,13 @@ use std::time::{Duration as StdDuration, Instant as StdInstant};
 use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 
+#[derive(Debug)]
 struct TimeDriver {
     signaler: Signaler,
     inner: Mutex<Inner>,
 }
 
+#[derive(Debug)]
 struct Inner {
     zero_instant: Option<StdInstant>,
     queue: Queue,
@@ -64,6 +66,7 @@ fn alarm_thread() {
     }
 }
 
+#[derive(Debug)]
 struct Signaler {
     mutex: Mutex<bool>,
     condvar: Condvar,

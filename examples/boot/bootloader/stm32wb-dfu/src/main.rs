@@ -20,8 +20,16 @@ bind_interrupts!(struct Irqs {
     USB_LP => usb::InterruptHandler<peripherals::USB>;
 });
 
-// This is a randomly generated GUID to allow clients on Windows to find our device
+// This is a randomly generated GUID to allow clients on Windows to find your device.
+//
+// N.B. update to a custom GUID for your own device!
 const DEVICE_INTERFACE_GUIDS: &[&str] = &["{EAA9A5DC-30BA-44BC-9232-606CDC875321}"];
+
+// This is a randomly generated example key.
+//
+// N.B. Please replace with your own!
+#[cfg(feature = "verify")]
+static PUBLIC_SIGNING_KEY: &[u8; 32] = include_bytes!("../secrets/key.pub.short");
 
 #[entry]
 fn main() -> ! {
@@ -55,7 +63,13 @@ fn main() -> ! {
         let mut config_descriptor = [0; 256];
         let mut bos_descriptor = [0; 256];
         let mut control_buf = [0; 4096];
-        let mut state = Control::new(updater, DfuAttributes::CAN_DOWNLOAD);
+
+        #[cfg(not(feature = "verify"))]
+        let mut state = Control::new(updater, DfuAttributes::CAN_DOWNLOAD, ResetImmediate);
+
+        #[cfg(feature = "verify")]
+        let mut state = Control::new(updater, DfuAttributes::CAN_DOWNLOAD, ResetImmediate, PUBLIC_SIGNING_KEY);
+
         let mut builder = Builder::new(
             driver,
             config,
@@ -68,7 +82,8 @@ fn main() -> ! {
         // We add MSOS headers so that the device automatically gets assigned the WinUSB driver on Windows.
         // Otherwise users need to do this manually using a tool like Zadig.
         //
-        // It seems it is important for the DFU class that these headers be on the Device level.
+        // It seems these always need to be at added at the device level for this to work and for
+        // composite devices they also need to be added on the function level (as shown later).
         //
         builder.msos_descriptor(msos::windows_version::WIN8_1, 2);
         builder.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
@@ -77,7 +92,15 @@ fn main() -> ! {
             msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
         ));
 
-        usb_dfu::<_, _, _, ResetImmediate, 4096>(&mut builder, &mut state);
+        usb_dfu::<_, _, _, _, 4096>(&mut builder, &mut state, |func| {
+            // You likely don't have to add these function level headers if your USB device is not composite
+            // (i.e. if your device does not expose another interface in addition to DFU)
+            func.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));
+            func.msos_feature(msos::RegistryPropertyFeatureDescriptor::new(
+                "DeviceInterfaceGUIDs",
+                msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
+            ));
+        });
 
         let mut dev = builder.build();
         embassy_futures::block_on(dev.run());

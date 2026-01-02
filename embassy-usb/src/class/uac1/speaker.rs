@@ -268,9 +268,10 @@ impl<'d, D: Driver<'d>> Speaker<'d, D> {
 
         alt.descriptor(CS_INTERFACE, &format_descriptor);
 
-        let streaming_endpoint = alt.alloc_endpoint_out(EndpointType::Isochronous, max_packet_size, 1);
+        let streaming_endpoint = alt.alloc_endpoint_out(EndpointType::Isochronous, None, max_packet_size, 1);
         let feedback_endpoint = alt.alloc_endpoint_in(
             EndpointType::Isochronous,
+            None,
             4, // Feedback packets are 24 bit (10.14 format).
             1,
         );
@@ -348,7 +349,7 @@ pub struct AudioSettings {
 impl Default for AudioSettings {
     fn default() -> Self {
         AudioSettings {
-            muted: [true; MAX_AUDIO_CHANNEL_COUNT],
+            muted: [false; MAX_AUDIO_CHANNEL_COUNT],
             volume_8q8_db: [MAX_VOLUME_DB * VOLUME_STEPS_PER_DB; MAX_AUDIO_CHANNEL_COUNT],
         }
     }

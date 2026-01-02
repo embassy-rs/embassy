@@ -11,7 +11,7 @@ async fn main(_spawner: Spawner) {
     let mut dp = embassy_stm32::init(Default::default());
 
     let mut cordic = cordic::Cordic::new(
-        &mut dp.CORDIC,
+        dp.CORDIC.reborrow(),
         unwrap!(cordic::Config::new(
             cordic::Function::Sin,
             Default::default(),
@@ -59,8 +59,8 @@ async fn main(_spawner: Spawner) {
     let cnt1 = unwrap!(
         cordic
             .async_calc_32bit(
-                &mut dp.GPDMA1_CH0,
-                &mut dp.GPDMA1_CH1,
+                dp.GPDMA1_CH0.reborrow(),
+                dp.GPDMA1_CH1.reborrow(),
                 &input_buf[..arg1.len() - 1], // limit input buf to its actual length
                 &mut output_u32,
                 true,

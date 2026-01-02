@@ -14,7 +14,7 @@ bind_interrupts!(struct Irqs{
     RNG => rng::InterruptHandler<peripherals::RNG>;
 });
 
-#[link_section = ".shared_data"]
+#[unsafe(link_section = ".shared_data")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 
 #[embassy_executor::main]

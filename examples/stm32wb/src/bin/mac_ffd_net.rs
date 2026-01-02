@@ -62,7 +62,7 @@ async fn main(spawner: Spawner) {
     let config = Config::default();
     let mbox = TlMbox::init(p.IPCC, Irqs, config);
 
-    spawner.spawn(run_mm_queue(mbox.mm_subsystem)).unwrap();
+    spawner.spawn(run_mm_queue(mbox.mm_subsystem).unwrap());
 
     let sys_event = mbox.sys_subsystem.read().await;
     info!("sys event: {}", sys_event.payload());
@@ -168,7 +168,7 @@ async fn main(spawner: Spawner) {
     static RUNNER: StaticCell<Runner> = StaticCell::new();
     let runner = RUNNER.init(Runner::new(mbox.mac_subsystem, tx_queue));
 
-    spawner.spawn(run_mac(runner)).unwrap();
+    spawner.spawn(run_mac(runner).unwrap());
 
     let (driver, control) = mac::new(runner).await;
 

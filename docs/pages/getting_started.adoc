@@ -66,7 +66,7 @@ If everything worked correctly, you should see a blinking LED on your board, and
 [source]
 ----
     Finished dev [unoptimized + debuginfo] target(s) in 1m 56s
-     Running `probe-run --chip STM32F407VGTx target/thumbv7em-none-eabi/debug/blinky`
+     Running `probe-rs run --chip STM32F407VGTx target/thumbv7em-none-eabi/debug/blinky`
 (HOST) INFO  flashing program (71.36 KiB)
 (HOST) INFO  success!
 ────────────────────────────────────────────────────────────────────────────────

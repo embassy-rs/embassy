@@ -3,11 +3,12 @@
 #![macro_use]
 
 use core::future::poll_fn;
+use core::marker::PhantomData;
 use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
+use embassy_hal_internal::{impl_peripheral, Peri};
 use embassy_sync::waitqueue::AtomicWaker;
 pub(crate) use vals::Psel as InputChannel;
 
@@ -15,7 +16,7 @@ use crate::interrupt::InterruptExt;
 use crate::pac::saadc::vals;
 use crate::ppi::{ConfigurableChannel, Event, Ppi, Task};
 use crate::timer::{Frequency, Instance as TimerInstance, Timer};
-use crate::{interrupt, pac, peripherals, Peripheral};
+use crate::{interrupt, pac, peripherals};
 
 /// SAADC error
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,37 +88,32 @@ pub struct ChannelConfig<'d> {
     /// Acquisition time in microseconds.
     pub time: Time,
     /// Positive channel to sample
-    p_channel: PeripheralRef<'d, AnyInput>,
+    p_channel: AnyInput<'d>,
     /// An optional negative channel to sample
-    n_channel: Option<PeripheralRef<'d, AnyInput>>,
+    n_channel: Option<AnyInput<'d>>,
 }
 
 impl<'d> ChannelConfig<'d> {
     /// Default configuration for single ended channel sampling.
-    pub fn single_ended(input: impl Peripheral<P = impl Input> + 'd) -> Self {
-        into_ref!(input);
+    pub fn single_ended(input: impl Input + 'd) -> Self {
         Self {
             reference: Reference::INTERNAL,
             gain: Gain::GAIN1_6,
             resistor: Resistor::BYPASS,
             time: Time::_10US,
-            p_channel: input.map_into(),
+            p_channel: input.degrade_saadc(),
             n_channel: None,
         }
     }
     /// Default configuration for differential channel sampling.
-    pub fn differential(
-        p_input: impl Peripheral<P = impl Input> + 'd,
-        n_input: impl Peripheral<P = impl Input> + 'd,
-    ) -> Self {
-        into_ref!(p_input, n_input);
+    pub fn differential(p_input: impl Input + 'd, n_input: impl Input + 'd) -> Self {
         Self {
             reference: Reference::INTERNAL,
             gain: Gain::GAIN1_6,
             resistor: Resistor::BYPASS,
             time: Time::_10US,
-            p_channel: p_input.map_into(),
-            n_channel: Some(n_input.map_into()),
+            p_channel: p_input.degrade_saadc(),
+            n_channel: Some(n_input.degrade_saadc()),
         }
     }
 }
@@ -133,19 +129,17 @@ pub enum CallbackResult {
 
 /// One-shot and continuous SAADC.
 pub struct Saadc<'d, const N: usize> {
-    _p: PeripheralRef<'d, peripherals::SAADC>,
+    _p: Peri<'d, peripherals::SAADC>,
 }
 
 impl<'d, const N: usize> Saadc<'d, N> {
     /// Create a new SAADC driver.
     pub fn new(
-        saadc: impl Peripheral<P = peripherals::SAADC> + 'd,
+        saadc: Peri<'d, peripherals::SAADC>,
         _irq: impl interrupt::typelevel::Binding<interrupt::typelevel::SAADC, InterruptHandler> + 'd,
         config: Config,
         channel_configs: [ChannelConfig; N],
     ) -> Self {
-        into_ref!(saadc);
-
         let r = pac::SAADC;
 
         let Config { resolution, oversample } = config;
@@ -284,9 +278,9 @@ impl<'d, const N: usize> Saadc<'d, N> {
 
     pub async fn run_task_sampler<F, T: TimerInstance, const N0: usize>(
         &mut self,
-        timer: &mut T,
-        ppi_ch1: &mut impl ConfigurableChannel,
-        ppi_ch2: &mut impl ConfigurableChannel,
+        timer: Peri<'_, T>,
+        ppi_ch1: Peri<'_, impl ConfigurableChannel>,
+        ppi_ch2: Peri<'_, impl ConfigurableChannel>,
         frequency: Frequency,
         sample_counter: u32,
         bufs: &mut [[[i16; N]; N0]; 2],
@@ -465,6 +459,10 @@ impl<'d, const N: usize> Drop for Saadc<'d, N> {
     fn drop(&mut self) {
         let r = Self::regs();
         r.enable().write(|w| w.set_enable(false));
+        for i in 0..N {
+            r.ch(i).pselp().write(|w| w.set_pselp(InputChannel::NC));
+            r.ch(i).pseln().write(|w| w.set_pseln(InputChannel::NC));
+        }
     }
 }
 
@@ -651,14 +649,18 @@ pub(crate) trait SealedInput {
 
 /// An input that can be used as either or negative end of a ADC differential in the SAADC periperhal.
 #[allow(private_bounds)]
-pub trait Input: SealedInput + Into<AnyInput> + Peripheral<P = Self> + Sized + 'static {
+pub trait Input: SealedInput + Sized {
     /// Convert this SAADC input to a type-erased `AnyInput`.
     ///
     /// This allows using several inputs  in situations that might require
     /// them to be the same type, like putting them in an array.
-    fn degrade_saadc(self) -> AnyInput {
+    fn degrade_saadc<'a>(self) -> AnyInput<'a>
+    where
+        Self: 'a,
+    {
         AnyInput {
             channel: self.channel(),
+            _phantom: core::marker::PhantomData,
         }
     }
 }
@@ -667,23 +669,36 @@ pub trait Input: SealedInput + Into<AnyInput> + Peripheral<P = Self> + Sized + '
 ///
 /// This allows using several inputs  in situations that might require
 /// them to be the same type, like putting them in an array.
-pub struct AnyInput {
+pub struct AnyInput<'a> {
     channel: InputChannel,
+    _phantom: PhantomData<&'a ()>,
 }
 
-impl_peripheral!(AnyInput);
+impl<'a> AnyInput<'a> {
+    /// Reborrow into a "child" AnyInput.
+    ///
+    /// `self` will stay borrowed until the child AnyInput is dropped.
+    pub fn reborrow(&mut self) -> AnyInput<'_> {
+        // safety: we're returning the clone inside a new Peripheral that borrows
+        // self, so user code can't use both at the same time.
+        Self {
+            channel: self.channel,
+            _phantom: PhantomData,
+        }
+    }
+}
 
-impl SealedInput for AnyInput {
+impl SealedInput for AnyInput<'_> {
     fn channel(&self) -> InputChannel {
         self.channel
     }
 }
 
-impl Input for AnyInput {}
+impl Input for AnyInput<'_> {}
 
 macro_rules! impl_saadc_input {
     ($pin:ident, $ch:ident) => {
-        impl_saadc_input!(@local, crate::peripherals::$pin, $ch);
+        impl_saadc_input!(@local, crate::Peri<'_, crate::peripherals::$pin>, $ch);
     };
     (@local, $pin:ty, $ch:ident) => {
         impl crate::saadc::SealedInput for $pin {
@@ -692,12 +707,6 @@ macro_rules! impl_saadc_input {
             }
         }
         impl crate::saadc::Input for $pin {}
-
-        impl From<$pin> for crate::saadc::AnyInput {
-            fn from(val: $pin) -> Self {
-                crate::saadc::Input::degrade_saadc(val)
-            }
-        }
     };
 }
 

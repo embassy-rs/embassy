@@ -11,7 +11,7 @@ use {defmt_rtt as _, panic_probe as _};
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
-    spawner.must_spawn(adc_task(p));
+    spawner.spawn(adc_task(p).unwrap());
 }
 
 #[embassy_executor::task]

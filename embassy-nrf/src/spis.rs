@@ -7,7 +7,7 @@ use core::sync::atomic::{compiler_fence, Ordering};
 use core::task::Poll;
 
 use embassy_embedded_hal::SetConfig;
-use embassy_hal_internal::{into_ref, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 pub use embedded_hal_02::spi::{Mode, Phase, Polarity, MODE_0, MODE_1, MODE_2, MODE_3};
 pub use pac::spis::vals::Order as BitOrder;
@@ -18,7 +18,7 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::spis::vals;
 use crate::util::slice_in_ram_or;
-use crate::{interrupt, pac, Peripheral};
+use crate::{interrupt, pac};
 
 /// SPIS error
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -98,94 +98,74 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
 /// SPIS driver.
 pub struct Spis<'d, T: Instance> {
-    _p: PeripheralRef<'d, T>,
+    _p: Peri<'d, T>,
 }
 
 impl<'d, T: Instance> Spis<'d, T> {
     /// Create a new SPIS driver.
     pub fn new(
-        spis: impl Peripheral<P = T> + 'd,
+        spis: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        cs: impl Peripheral<P = impl GpioPin> + 'd,
-        sck: impl Peripheral<P = impl GpioPin> + 'd,
-        miso: impl Peripheral<P = impl GpioPin> + 'd,
-        mosi: impl Peripheral<P = impl GpioPin> + 'd,
+        cs: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl GpioPin>,
+        miso: Peri<'d, impl GpioPin>,
+        mosi: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(cs, sck, miso, mosi);
         Self::new_inner(
             spis,
-            cs.map_into(),
-            Some(sck.map_into()),
-            Some(miso.map_into()),
-            Some(mosi.map_into()),
+            cs.into(),
+            Some(sck.into()),
+            Some(miso.into()),
+            Some(mosi.into()),
             config,
         )
     }
 
     /// Create a new SPIS driver, capable of TX only (MISO only).
     pub fn new_txonly(
-        spis: impl Peripheral<P = T> + 'd,
+        spis: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        cs: impl Peripheral<P = impl GpioPin> + 'd,
-        sck: impl Peripheral<P = impl GpioPin> + 'd,
-        miso: impl Peripheral<P = impl GpioPin> + 'd,
+        cs: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl GpioPin>,
+        miso: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(cs, sck, miso);
-        Self::new_inner(
-            spis,
-            cs.map_into(),
-            Some(sck.map_into()),
-            Some(miso.map_into()),
-            None,
-            config,
-        )
+        Self::new_inner(spis, cs.into(), Some(sck.into()), Some(miso.into()), None, config)
     }
 
     /// Create a new SPIS driver, capable of RX only (MOSI only).
     pub fn new_rxonly(
-        spis: impl Peripheral<P = T> + 'd,
+        spis: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        cs: impl Peripheral<P = impl GpioPin> + 'd,
-        sck: impl Peripheral<P = impl GpioPin> + 'd,
-        mosi: impl Peripheral<P = impl GpioPin> + 'd,
+        cs: Peri<'d, impl GpioPin>,
+        sck: Peri<'d, impl GpioPin>,
+        mosi: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(cs, sck, mosi);
-        Self::new_inner(
-            spis,
-            cs.map_into(),
-            Some(sck.map_into()),
-            None,
-            Some(mosi.map_into()),
-            config,
-        )
+        Self::new_inner(spis, cs.into(), Some(sck.into()), None, Some(mosi.into()), config)
     }
 
     /// Create a new SPIS driver, capable of TX only (MISO only) without SCK pin.
     pub fn new_txonly_nosck(
-        spis: impl Peripheral<P = T> + 'd,
+        spis: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        cs: impl Peripheral<P = impl GpioPin> + 'd,
-        miso: impl Peripheral<P = impl GpioPin> + 'd,
+        cs: Peri<'d, impl GpioPin>,
+        miso: Peri<'d, impl GpioPin>,
         config: Config,
     ) -> Self {
-        into_ref!(cs, miso);
-        Self::new_inner(spis, cs.map_into(), None, Some(miso.map_into()), None, config)
+        Self::new_inner(spis, cs.into(), None, Some(miso.into()), None, config)
     }
 
     fn new_inner(
-        spis: impl Peripheral<P = T> + 'd,
-        cs: PeripheralRef<'d, AnyPin>,
-        sck: Option<PeripheralRef<'d, AnyPin>>,
-        miso: Option<PeripheralRef<'d, AnyPin>>,
-        mosi: Option<PeripheralRef<'d, AnyPin>>,
+        spis: Peri<'d, T>,
+        cs: Peri<'d, AnyPin>,
+        sck: Option<Peri<'d, AnyPin>>,
+        miso: Option<Peri<'d, AnyPin>>,
+        mosi: Option<Peri<'d, AnyPin>>,
         config: Config,
     ) -> Self {
         compiler_fence(Ordering::SeqCst);
-
-        into_ref!(spis, cs);
 
         let r = T::regs();
 
@@ -485,7 +465,7 @@ pub(crate) trait SealedInstance {
 
 /// SPIS peripheral instance
 #[allow(private_bounds)]
-pub trait Instance: Peripheral<P = Self> + SealedInstance + 'static {
+pub trait Instance: SealedInstance + PeripheralType + 'static {
     /// Interrupt for this peripheral.
     type Interrupt: interrupt::typelevel::Interrupt;
 }

@@ -10,7 +10,6 @@ use embassy_rp::gpio::{Level, Output};
 use embassy_rp::peripherals::TRNG;
 use embassy_rp::trng::Trng;
 use embassy_time::Timer;
-use rand::RngCore;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
@@ -33,8 +32,8 @@ async fn main(_spawner: Spawner) {
         info!("Random bytes async {}", &randomness);
         trng.blocking_fill_bytes(&mut randomness);
         info!("Random bytes blocking {}", &randomness);
-        let random_u32 = trng.next_u32();
-        let random_u64 = trng.next_u64();
+        let random_u32 = trng.blocking_next_u32();
+        let random_u64 = trng.blocking_next_u64();
         info!("Random u32 {} u64 {}", random_u32, random_u64);
         // Random number of blinks between 0 and 31
         let blinks = random_u32 % 32;

@@ -10,6 +10,7 @@ pub use embassy_boot::{
 use embassy_rp::flash::{Blocking, Flash, ERASE_SIZE};
 use embassy_rp::peripherals::{FLASH, WATCHDOG};
 use embassy_rp::watchdog::Watchdog;
+use embassy_rp::Peri;
 use embassy_time::Duration;
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
 
@@ -68,7 +69,7 @@ pub struct WatchdogFlash<'d, const SIZE: usize> {
 
 impl<'d, const SIZE: usize> WatchdogFlash<'d, SIZE> {
     /// Start a new watchdog with a given flash and watchdog peripheral and a timeout
-    pub fn start(flash: FLASH, watchdog: WATCHDOG, timeout: Duration) -> Self {
+    pub fn start(flash: Peri<'static, FLASH>, watchdog: Peri<'static, WATCHDOG>, timeout: Duration) -> Self {
         let flash = Flash::<_, Blocking, SIZE>::new_blocking(flash);
         let mut watchdog = Watchdog::new(watchdog);
         watchdog.start(timeout);

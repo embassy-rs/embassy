@@ -3,14 +3,13 @@ use core::marker::PhantomData;
 use core::task::Poll;
 
 use embassy_futures::yield_now;
-use embassy_hal_internal::into_ref;
 use embassy_time::Instant;
 
 use super::Resolution;
 use crate::adc::{Adc, AdcChannel, Instance, SampleTime};
 use crate::interrupt::typelevel::Interrupt;
 use crate::time::Hertz;
-use crate::{interrupt, rcc, Peripheral};
+use crate::{interrupt, rcc, Peri};
 
 const ADC_FREQ: Hertz = crate::rcc::HSI_FREQ;
 
@@ -18,6 +17,7 @@ pub const VDDA_CALIB_MV: u32 = 3300;
 pub const ADC_MAX: u32 = (1 << 12) - 1;
 pub const VREF_INT: u32 = 1230;
 
+#[derive(Copy, Clone)]
 pub enum AdcPowerMode {
     AlwaysOn,
     DelayOff,
@@ -25,6 +25,7 @@ pub enum AdcPowerMode {
     DelayIdleOff,
 }
 
+#[derive(Copy, Clone)]
 pub enum Prescaler {
     Div1,
     Div2,
@@ -138,11 +139,9 @@ impl<T: Instance> Drop for Temperature<T> {
 
 impl<'d, T: Instance> Adc<'d, T> {
     pub fn new(
-        adc: impl Peripheral<P = T> + 'd,
+        adc: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
-        into_ref!(adc);
-
         rcc::enable_and_reset::<T>();
 
         //let r = T::regs();

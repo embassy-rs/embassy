@@ -35,12 +35,18 @@ pub mod multicore;
 #[cfg(feature = "_rp235x")]
 pub mod otp;
 pub mod pio_programs;
+#[cfg(feature = "_rp235x")]
+pub mod psram;
 pub mod pwm;
+#[cfg(feature = "_rp235x")]
+pub mod qmi_cs1;
 mod reset;
 pub mod rom_data;
 #[cfg(feature = "rp2040")]
 pub mod rtc;
 pub mod spi;
+mod spinlock;
+pub mod spinlock_mutex;
 #[cfg(feature = "time-driver")]
 pub mod time_driver;
 #[cfg(feature = "_rp235x")]
@@ -54,7 +60,7 @@ pub mod pio;
 pub(crate) mod relocate;
 
 // Reexports
-pub use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+pub use embassy_hal_internal::{Peri, PeripheralType};
 #[cfg(feature = "unstable-pac")]
 pub use rp_pac as pac;
 #[cfg(not(feature = "unstable-pac"))]
@@ -158,15 +164,18 @@ embassy_hal_internal::interrupt_mod!(
 /// ```rust,ignore
 /// use embassy_rp::{bind_interrupts, usb, peripherals};
 ///
-/// bind_interrupts!(struct Irqs {
-///     USBCTRL_IRQ => usb::InterruptHandler<peripherals::USB>;
-/// });
+/// bind_interrupts!(
+///     /// Binds the USB Interrupts.
+///     struct Irqs {
+///         USBCTRL_IRQ => usb::InterruptHandler<peripherals::USB>;
+///     }
+/// );
 /// ```
 ///
 // developer note: this macro can't be in `embassy-hal-internal` due to the use of `$crate`.
 #[macro_export]
 macro_rules! bind_interrupts {
-    ($vis:vis struct $name:ident {
+    ($(#[$attr:meta])* $vis:vis struct $name:ident {
         $(
             $(#[cfg($cond_irq:meta)])?
             $irq:ident => $(
@@ -176,6 +185,7 @@ macro_rules! bind_interrupts {
         )*
     }) => {
         #[derive(Copy, Clone)]
+        $(#[$attr])*
         $vis struct $name;
 
         $(
@@ -183,11 +193,13 @@ macro_rules! bind_interrupts {
             #[no_mangle]
             $(#[cfg($cond_irq)])?
             unsafe extern "C" fn $irq() {
-                $(
-                    $(#[cfg($cond_handler)])?
-                    <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
+                unsafe {
+                    $(
+                        $(#[cfg($cond_handler)])?
+                        <$handler as $crate::interrupt::typelevel::Handler<$crate::interrupt::typelevel::$irq>>::on_interrupt();
 
-                )*
+                    )*
+                }
             }
 
             $(#[cfg($cond_irq)])?
@@ -373,6 +385,8 @@ embassy_hal_internal::peripherals! {
     SPI0,
     SPI1,
 
+    QMI_CS1,
+
     I2C0,
     I2C1,
 
@@ -551,18 +565,10 @@ unsafe fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
 #[cfg(all(feature = "_rp235x", not(feature = "_test")))]
 #[inline(always)]
 unsafe fn install_stack_guard(stack_bottom: *mut usize) -> Result<(), ()> {
-    let core = unsafe { cortex_m::Peripherals::steal() };
+    // The RP2350 arm cores are cortex-m33 and can use the MSPLIM register to guard the end of stack.
+    // We'll need to do something else for the riscv cores.
+    cortex_m::register::msplim::write(stack_bottom.addr() as u32);
 
-    // Fail if MPU is already configured
-    if core.MPU.ctrl.read() != 0 {
-        return Err(());
-    }
-
-    unsafe {
-        core.MPU.ctrl.write(5); // enable mpu with background default map
-        core.MPU.rbar.write(stack_bottom as u32 & !0xff); // set address
-        core.MPU.rlar.write(1); // enable region
-    }
     Ok(())
 }
 

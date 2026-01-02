@@ -1,4 +1,4 @@
-//! This example shows powerful PIO module in the RP2040 chip to communicate with a HD44780 display.
+//! This example shows powerful PIO module in the RP235x chip to communicate with a HD44780 display.
 //! See (https://www.sparkfun.com/datasheets/LCD/HD44780.pdf)
 
 #![no_std]
@@ -30,7 +30,7 @@ async fn main(_spawner: Spawner) {
     //   db6 = PIN5
     //   db7 = PIN6
     // additionally a pwm signal for a bias voltage charge pump is provided on pin 15,
-    // allowing direct connection of the display to the RP2040 without level shifters.
+    // allowing direct connection of the display to the RP235x without level shifters.
     let p = embassy_rp::init(Default::default());
 
     let _pwm = Pwm::new_output_b(p.PWM_SLICE7, p.PIN_15, {

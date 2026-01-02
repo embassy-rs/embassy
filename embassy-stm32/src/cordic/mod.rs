@@ -1,7 +1,7 @@
 //! coordinate rotation digital computer (CORDIC)
 
 use embassy_hal_internal::drop::OnDrop;
-use embassy_hal_internal::{into_ref, Peripheral, PeripheralRef};
+use embassy_hal_internal::{Peri, PeripheralType};
 
 use crate::pac::cordic::vals;
 use crate::{dma, peripherals, rcc};
@@ -16,7 +16,7 @@ pub mod utils;
 
 /// CORDIC driver
 pub struct Cordic<'d, T: Instance> {
-    peri: PeripheralRef<'d, T>,
+    peri: Peri<'d, T>,
     config: Config,
 }
 
@@ -137,7 +137,7 @@ trait SealedInstance {
 
 /// CORDIC instance trait
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + Peripheral<P = Self> + crate::rcc::RccPeripheral {}
+pub trait Instance: SealedInstance + PeripheralType + crate::rcc::RccPeripheral {}
 
 /// CORDIC configuration
 #[derive(Debug)]
@@ -198,10 +198,8 @@ impl<'d, T: Instance> Cordic<'d, T> {
     /// Note:  
     /// If you need a peripheral -> CORDIC -> peripheral mode,  
     /// you may want to set Cordic into [Mode::ZeroOverhead] mode, and add extra arguments with [Self::extra_config]
-    pub fn new(peri: impl Peripheral<P = T> + 'd, config: Config) -> Self {
+    pub fn new(peri: Peri<'d, T>, config: Config) -> Self {
         rcc::enable_and_reset::<T>();
-
-        into_ref!(peri);
 
         let mut instance = Self { peri, config };
 
@@ -378,8 +376,8 @@ impl<'d, T: Instance> Cordic<'d, T> {
     /// If you want to make sure ARG2 is set to +1, consider run [.reconfigure()](Self::reconfigure).
     pub async fn async_calc_32bit(
         &mut self,
-        write_dma: impl Peripheral<P = impl WriteDma<T>>,
-        read_dma: impl Peripheral<P = impl ReadDma<T>>,
+        mut write_dma: Peri<'_, impl WriteDma<T>>,
+        mut read_dma: Peri<'_, impl ReadDma<T>>,
         arg: &[u32],
         res: &mut [u32],
         arg1_only: bool,
@@ -392,8 +390,6 @@ impl<'d, T: Instance> Cordic<'d, T> {
         let res_cnt = Self::check_arg_res_length_32bit(arg.len(), res.len(), arg1_only, res1_only)?;
 
         let active_res_buf = &mut res[..res_cnt];
-
-        into_ref!(write_dma, read_dma);
 
         self.peri
             .set_argument_count(if arg1_only { AccessCount::One } else { AccessCount::Two });
@@ -416,7 +412,7 @@ impl<'d, T: Instance> Cordic<'d, T> {
 
         unsafe {
             let write_transfer = dma::Transfer::new_write(
-                &mut write_dma,
+                write_dma.reborrow(),
                 write_req,
                 arg,
                 T::regs().wdata().as_ptr() as *mut _,
@@ -424,7 +420,7 @@ impl<'d, T: Instance> Cordic<'d, T> {
             );
 
             let read_transfer = dma::Transfer::new_read(
-                &mut read_dma,
+                read_dma.reborrow(),
                 read_req,
                 T::regs().rdata().as_ptr() as *mut _,
                 active_res_buf,
@@ -519,8 +515,8 @@ impl<'d, T: Instance> Cordic<'d, T> {
     /// User will take respond to merge two u16 arguments into one u32 data, and/or split one u32 data into two u16 results.
     pub async fn async_calc_16bit(
         &mut self,
-        write_dma: impl Peripheral<P = impl WriteDma<T>>,
-        read_dma: impl Peripheral<P = impl ReadDma<T>>,
+        mut write_dma: Peri<'_, impl WriteDma<T>>,
+        mut read_dma: Peri<'_, impl ReadDma<T>>,
         arg: &[u32],
         res: &mut [u32],
     ) -> Result<usize, CordicError> {
@@ -535,8 +531,6 @@ impl<'d, T: Instance> Cordic<'d, T> {
         let res_cnt = arg.len();
 
         let active_res_buf = &mut res[..res_cnt];
-
-        into_ref!(write_dma, read_dma);
 
         // In q1.15 mode, 1 write/read to access 2 arguments/results
         self.peri.set_argument_count(AccessCount::One);
@@ -557,7 +551,7 @@ impl<'d, T: Instance> Cordic<'d, T> {
 
         unsafe {
             let write_transfer = dma::Transfer::new_write(
-                &mut write_dma,
+                write_dma.reborrow(),
                 write_req,
                 arg,
                 T::regs().wdata().as_ptr() as *mut _,
@@ -565,7 +559,7 @@ impl<'d, T: Instance> Cordic<'d, T> {
             );
 
             let read_transfer = dma::Transfer::new_read(
-                &mut read_dma,
+                read_dma.reborrow(),
                 read_req,
                 T::regs().rdata().as_ptr() as *mut _,
                 active_res_buf,

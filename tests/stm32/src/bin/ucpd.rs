@@ -9,7 +9,7 @@ use defmt::{assert, assert_eq};
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::ucpd::{self, CcPhy, CcPull, CcSel, CcVState, RxError, Ucpd};
-use embassy_stm32::{bind_interrupts, peripherals};
+use embassy_stm32::{bind_interrupts, peripherals, Peri};
 use embassy_time::Timer;
 
 bind_interrupts!(struct Irqs {
@@ -28,8 +28,8 @@ async fn wait_for_vstate<T: ucpd::Instance>(cc_phy: &mut CcPhy<'_, T>, vstate: C
 
 async fn source(
     mut ucpd: Ucpd<'static, peripherals::UCPD1>,
-    rx_dma: peripherals::DMA1_CH1,
-    tx_dma: peripherals::DMA1_CH2,
+    rx_dma: Peri<'static, peripherals::DMA1_CH1>,
+    tx_dma: Peri<'static, peripherals::DMA1_CH2>,
 ) {
     debug!("source: setting default current pull-up");
     ucpd.cc_phy().set_pull(CcPull::SourceDefaultUsb);
@@ -65,8 +65,8 @@ async fn source(
 
 async fn sink(
     mut ucpd: Ucpd<'static, peripherals::UCPD2>,
-    rx_dma: peripherals::DMA1_CH3,
-    tx_dma: peripherals::DMA1_CH4,
+    rx_dma: Peri<'static, peripherals::DMA1_CH3>,
+    tx_dma: Peri<'static, peripherals::DMA1_CH4>,
 ) {
     debug!("sink: setting pull down");
     ucpd.cc_phy().set_pull(CcPull::Sink);

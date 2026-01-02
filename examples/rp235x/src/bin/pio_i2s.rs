@@ -1,5 +1,5 @@
 //! This example shows generating audio and sending it to a connected i2s DAC using the PIO
-//! module of the RP2040.
+//! module of the RP235x.
 //!
 //! Connect the i2s DAC as follows:
 //!   bclk : GPIO 18
@@ -27,7 +27,6 @@ bind_interrupts!(struct Irqs {
 
 const SAMPLE_RATE: u32 = 48_000;
 const BIT_DEPTH: u32 = 16;
-const CHANNELS: u32 = 2;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -50,7 +49,6 @@ async fn main(_spawner: Spawner) {
         left_right_clock_pin,
         SAMPLE_RATE,
         BIT_DEPTH,
-        CHANNELS,
         &program,
     );
 

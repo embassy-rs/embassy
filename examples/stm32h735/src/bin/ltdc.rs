@@ -47,7 +47,7 @@ async fn main(spawner: Spawner) {
 
     // blink the led on another task
     let led = Output::new(p.PC3, Level::High, Speed::Low);
-    unwrap!(spawner.spawn(led_task(led)));
+    spawner.spawn(unwrap!(led_task(led)));
 
     // numbers from STMicroelectronics/STM32CubeH7 STM32H735G-DK C-based example
     const RK043FN48H_HSYNC: u16 = 41; // Horizontal synchronization

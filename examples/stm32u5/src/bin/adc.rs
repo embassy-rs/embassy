@@ -72,7 +72,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     let mut measurements = [0u16; 2];
 
     adc1.read(
-        &mut p.GPDMA1_CH0,
+        p.GPDMA1_CH0.reborrow(),
         [
             (&mut degraded11, adc::SampleTime::CYCLES160_5),
             (&mut degraded12, adc::SampleTime::CYCLES160_5),
@@ -96,7 +96,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // The channels must be in ascending order and can't repeat for ADC4
     adc4.read(
-        &mut p.GPDMA1_CH1,
+        p.GPDMA1_CH1.reborrow(),
         [&mut degraded42, &mut degraded41].into_iter(),
         &mut measurements,
     )

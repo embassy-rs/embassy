@@ -12,7 +12,6 @@ use defmt::assert;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::Adc;
 use embassy_stm32::dac::{DacCh1, Value};
-use embassy_stm32::dma::NoDma;
 use embassy_time::Timer;
 use micromath::F32Ext;
 use {defmt_rtt as _, panic_probe as _};
@@ -27,7 +26,7 @@ async fn main(_spawner: Spawner) {
     let dac_pin = peri!(p, DAC_PIN);
     let mut adc_pin = unsafe { core::ptr::read(&dac_pin) };
 
-    let mut dac = DacCh1::new(dac, NoDma, dac_pin);
+    let mut dac = DacCh1::new_blocking(dac, dac_pin);
     let mut adc = Adc::new(adc);
 
     #[cfg(feature = "stm32h755zi")]

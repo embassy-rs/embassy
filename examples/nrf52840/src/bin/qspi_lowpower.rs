@@ -37,14 +37,14 @@ async fn main(_p: Spawner) {
         });
 
         let mut q = qspi::Qspi::new(
-            &mut p.QSPI,
+            p.QSPI.reborrow(),
             Irqs,
-            &mut p.P0_19,
-            &mut p.P0_17,
-            &mut p.P0_20,
-            &mut p.P0_21,
-            &mut p.P0_22,
-            &mut p.P0_23,
+            p.P0_19.reborrow(),
+            p.P0_17.reborrow(),
+            p.P0_20.reborrow(),
+            p.P0_21.reborrow(),
+            p.P0_22.reborrow(),
+            p.P0_23.reborrow(),
             config,
         );
 

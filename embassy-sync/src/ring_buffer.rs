@@ -1,5 +1,6 @@
 use core::ops::Range;
 
+#[derive(Debug)]
 pub struct RingBuffer<const N: usize> {
     start: usize,
     end: usize,

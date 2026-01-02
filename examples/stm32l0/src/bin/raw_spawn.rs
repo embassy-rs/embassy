@@ -42,8 +42,8 @@ fn main() -> ! {
     let run2_task = unsafe { make_static(&run2_task) };
 
     executor.run(|spawner| {
-        unwrap!(spawner.spawn(run1_task.spawn(|| run1())));
-        unwrap!(spawner.spawn(run2_task.spawn(|| run2())));
+        spawner.spawn(unwrap!(run1_task.spawn(|| run1())));
+        spawner.spawn(unwrap!(run2_task.spawn(|| run2())));
     });
 }
 

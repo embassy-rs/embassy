@@ -95,7 +95,7 @@ async fn main(_spawner: Spawner) {
 
     let style = MonoTextStyle::new(&FONT_10X20, Rgb565::GREEN);
     Text::new(
-        "Hello embedded_graphics \n + embassy + RP2040!",
+        "Hello embedded_graphics \n + embassy + RP235x!",
         Point::new(20, 200),
         style,
     )

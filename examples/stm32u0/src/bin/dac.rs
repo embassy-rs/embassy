@@ -3,7 +3,6 @@
 
 use defmt::*;
 use embassy_stm32::dac::{DacCh1, Value};
-use embassy_stm32::dma::NoDma;
 use {defmt_rtt as _, panic_probe as _};
 
 #[cortex_m_rt::entry]
@@ -11,7 +10,7 @@ fn main() -> ! {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");
 
-    let mut dac = DacCh1::new(p.DAC1, NoDma, p.PA4);
+    let mut dac = DacCh1::new_blocking(p.DAC1, p.PA4);
 
     loop {
         for v in 0..=255 {

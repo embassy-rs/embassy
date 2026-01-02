@@ -7,7 +7,6 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::I2c;
-use embassy_stm32::time::Hertz;
 use embassy_stm32::{bind_interrupts, i2c, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -23,16 +22,7 @@ async fn main(_spawner: Spawner) {
     info!("Hello world!");
     let p = embassy_stm32::init(Default::default());
 
-    let mut i2c = I2c::new(
-        p.I2C1,
-        p.PB8,
-        p.PB7,
-        Irqs,
-        p.DMA1_CH6,
-        p.DMA1_CH0,
-        Hertz(100_000),
-        Default::default(),
-    );
+    let mut i2c = I2c::new(p.I2C1, p.PB8, p.PB7, Irqs, p.DMA1_CH6, p.DMA1_CH0, Default::default());
 
     loop {
         let a1454_read_sensor_command = [0x1F];

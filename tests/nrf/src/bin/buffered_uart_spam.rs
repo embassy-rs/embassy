@@ -27,7 +27,11 @@ async fn main(_spawner: Spawner) {
 
     let mut rx_buffer = [0u8; 1024];
 
-    mem::forget(Output::new(&mut peri!(p, PIN_A), Level::High, OutputDrive::Standard));
+    mem::forget(Output::new(
+        peri!(p, PIN_A).reborrow(),
+        Level::High,
+        OutputDrive::Standard,
+    ));
 
     let mut u = BufferedUarteRx::new(
         peri!(p, UART0),

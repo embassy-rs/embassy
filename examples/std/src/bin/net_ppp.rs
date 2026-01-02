@@ -23,7 +23,7 @@ use futures::io::BufReader;
 use heapless::Vec;
 use log::*;
 use nix::sys::termios;
-use rand_core::{OsRng, RngCore};
+use rand_core::{OsRng, TryRngCore};
 use static_cell::StaticCell;
 
 use crate::serial_port::SerialPort;
@@ -89,7 +89,7 @@ async fn main_task(spawner: Spawner) {
 
     // Generate random seed
     let mut seed = [0; 8];
-    OsRng.fill_bytes(&mut seed);
+    OsRng.try_fill_bytes(&mut seed).unwrap();
     let seed = u64::from_le_bytes(seed);
 
     // Init network stack
@@ -102,8 +102,8 @@ async fn main_task(spawner: Spawner) {
     );
 
     // Launch network task
-    spawner.spawn(net_task(net_runner)).unwrap();
-    spawner.spawn(ppp_task(stack, runner, port)).unwrap();
+    spawner.spawn(net_task(net_runner).unwrap());
+    spawner.spawn(ppp_task(stack, runner, port).unwrap());
 
     // Then we can use it!
     let mut rx_buffer = [0; 4096];
@@ -160,6 +160,6 @@ fn main() {
 
     let executor = EXECUTOR.init(Executor::new());
     executor.run(|spawner| {
-        spawner.spawn(main_task(spawner)).unwrap();
+        spawner.spawn(main_task(spawner).unwrap());
     });
 }

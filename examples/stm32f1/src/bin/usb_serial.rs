@@ -47,7 +47,7 @@ async fn main(_spawner: Spawner) {
         // Pull the D+ pin down to send a RESET condition to the USB bus.
         // This forced reset is needed only for development, without it host
         // will not reset your device when you upload new firmware.
-        let _dp = Output::new(&mut p.PA12, Level::Low, Speed::Low);
+        let _dp = Output::new(p.PA12.reborrow(), Level::Low, Speed::Low);
         Timer::after_millis(10).await;
     }
 

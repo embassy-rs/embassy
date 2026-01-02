@@ -5,13 +5,13 @@ use core::future::Future;
 use core::pin::Pin as FuturePin;
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::{impl_peripheral, into_ref, PeripheralRef};
+use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::InterruptExt;
 use crate::pac::common::{Reg, RW};
 use crate::pac::SIO;
-use crate::{interrupt, pac, peripherals, Peripheral, RegExt};
+use crate::{interrupt, pac, peripherals, RegExt};
 
 #[cfg(any(feature = "rp2040", feature = "rp235xa"))]
 pub(crate) const BANK0_PIN_COUNT: usize = 30;
@@ -26,6 +26,7 @@ static QSPI_WAKERS: [AtomicWaker; QSPI_PIN_COUNT] = [const { AtomicWaker::new() 
 
 /// Represents a digital input or output level.
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Level {
     /// Logical low.
     Low,
@@ -53,6 +54,7 @@ impl From<Level> for bool {
 
 /// Represents a pull setting for an input.
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Pull {
     /// No pull.
     None,
@@ -64,6 +66,7 @@ pub enum Pull {
 
 /// Drive strength of an output
 #[derive(Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Drive {
     /// 2 mA drive.
     _2mA,
@@ -76,6 +79,7 @@ pub enum Drive {
 }
 /// Slew rate of an output
 #[derive(Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum SlewRate {
     /// Fast slew rate.
     Fast,
@@ -85,6 +89,7 @@ pub enum SlewRate {
 
 /// A GPIO bank with up to 32 pins.
 #[derive(Debug, Eq, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Bank {
     /// Bank 0.
     Bank0 = 0,
@@ -108,6 +113,8 @@ pub struct DormantWakeConfig {
 }
 
 /// GPIO input driver.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Input<'d> {
     pin: Flex<'d>,
 }
@@ -115,7 +122,7 @@ pub struct Input<'d> {
 impl<'d> Input<'d> {
     /// Create GPIO input driver for a [Pin] with the provided [Pull] configuration.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, pull: Pull) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, pull: Pull) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_as_input();
         pin.set_pull(pull);
@@ -144,6 +151,12 @@ impl<'d> Input<'d> {
     #[inline]
     pub fn get_level(&self) -> Level {
         self.pin.get_level()
+    }
+
+    /// Configure the input logic inversion of this pin.
+    #[inline]
+    pub fn set_inversion(&mut self, invert: bool) {
+        self.pin.set_input_inversion(invert)
     }
 
     /// Wait until the pin is high. If it is already high, return immediately.
@@ -266,11 +279,11 @@ fn IO_IRQ_QSPI() {
 
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 struct InputFuture<'d> {
-    pin: PeripheralRef<'d, AnyPin>,
+    pin: Peri<'d, AnyPin>,
 }
 
 impl<'d> InputFuture<'d> {
-    fn new(pin: PeripheralRef<'d, AnyPin>, level: InterruptTrigger) -> Self {
+    fn new(pin: Peri<'d, AnyPin>, level: InterruptTrigger) -> Self {
         let pin_group = (pin.pin() % 8) as usize;
         // first, clear the INTR register bits. without this INTR will still
         // contain reports of previous edges, causing the IRQ to fire early
@@ -352,6 +365,8 @@ impl<'d> Future for InputFuture<'d> {
 }
 
 /// GPIO output driver.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Output<'d> {
     pin: Flex<'d>,
 }
@@ -359,7 +374,7 @@ pub struct Output<'d> {
 impl<'d> Output<'d> {
     /// Create GPIO output driver for a [Pin] with the provided [Level].
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, initial_output: Level) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level) -> Self {
         let mut pin = Flex::new(pin);
         match initial_output {
             Level::High => pin.set_high(),
@@ -380,6 +395,12 @@ impl<'d> Output<'d> {
     #[inline]
     pub fn set_slew_rate(&mut self, slew_rate: SlewRate) {
         self.pin.set_slew_rate(slew_rate)
+    }
+
+    /// Configure the output logic inversion of this pin.
+    #[inline]
+    pub fn set_inversion(&mut self, invert: bool) {
+        self.pin.set_output_inversion(invert)
     }
 
     /// Set the output as high.
@@ -433,6 +454,8 @@ impl<'d> Output<'d> {
 }
 
 /// GPIO output open-drain.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct OutputOpenDrain<'d> {
     pin: Flex<'d>,
 }
@@ -440,7 +463,7 @@ pub struct OutputOpenDrain<'d> {
 impl<'d> OutputOpenDrain<'d> {
     /// Create GPIO output driver for a [Pin] in open drain mode with the provided [Level].
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd, initial_output: Level) -> Self {
+    pub fn new(pin: Peri<'d, impl Pin>, initial_output: Level) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_low();
         match initial_output {
@@ -580,8 +603,10 @@ impl<'d> OutputOpenDrain<'d> {
 /// This pin can be either an input or output pin. The output level register bit will remain
 /// set while not in output mode, so the pin's level will be 'remembered' when it is not in output
 /// mode.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Flex<'d> {
-    pin: PeripheralRef<'d, AnyPin>,
+    pin: Peri<'d, AnyPin>,
 }
 
 impl<'d> Flex<'d> {
@@ -590,9 +615,7 @@ impl<'d> Flex<'d> {
     /// The pin remains disconnected. The initial output level is unspecified, but can be changed
     /// before the pin is put into output mode.
     #[inline]
-    pub fn new(pin: impl Peripheral<P = impl Pin> + 'd) -> Self {
-        into_ref!(pin);
-
+    pub fn new(pin: Peri<'d, impl Pin>) -> Self {
         pin.pad_ctrl().write(|w| {
             #[cfg(feature = "_rp235x")]
             w.set_iso(false);
@@ -606,7 +629,7 @@ impl<'d> Flex<'d> {
             w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::SIOB_PROC_0 as _);
         });
 
-        Self { pin: pin.map_into() }
+        Self { pin: pin.into() }
     }
 
     #[inline]
@@ -685,6 +708,30 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn toggle_set_as_output(&mut self) {
         self.pin.sio_oe().value_xor().write_value(self.bit())
+    }
+
+    /// Configure the input logic inversion of this pin.
+    #[inline]
+    pub fn set_input_inversion(&mut self, invert: bool) {
+        self.pin.gpio().ctrl().modify(|w| {
+            w.set_inover(if invert {
+                pac::io::vals::Inover::INVERT
+            } else {
+                pac::io::vals::Inover::NORMAL
+            })
+        });
+    }
+
+    /// Configure the output logic inversion of this pin.
+    #[inline]
+    pub fn set_output_inversion(&mut self, invert: bool) {
+        self.pin.gpio().ctrl().modify(|w| {
+            w.set_outover(if invert {
+                pac::io::vals::Outover::INVERT
+            } else {
+                pac::io::vals::Outover::NORMAL
+            })
+        });
     }
 
     /// Get whether the pin input level is high.
@@ -817,6 +864,8 @@ impl<'d> Drop for Flex<'d> {
         self.pin.pad_ctrl().write(|_| {});
         self.pin.gpio().ctrl().write(|w| {
             w.set_funcsel(pac::io::vals::Gpio0ctrlFuncsel::NULL as _);
+            w.set_inover(pac::io::vals::Inover::NORMAL);
+            w.set_outover(pac::io::vals::Outover::NORMAL);
         });
         self.pin.io().int_dormant_wake().inte(idx / 8).write_clear(|w| {
             w.set_edge_high(idx % 8, true);
@@ -828,8 +877,10 @@ impl<'d> Drop for Flex<'d> {
 }
 
 /// Dormant wake driver.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct DormantWake<'w> {
-    pin: PeripheralRef<'w, AnyPin>,
+    pin: Peri<'w, AnyPin>,
     cfg: DormantWakeConfig,
 }
 
@@ -919,14 +970,7 @@ pub(crate) trait SealedPin: Sized {
 
 /// Interface for a Pin that can be configured by an [Input] or [Output] driver, or converted to an [AnyPin].
 #[allow(private_bounds)]
-pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static {
-    /// Degrade to a generic pin struct
-    fn degrade(self) -> AnyPin {
-        AnyPin {
-            pin_bank: self.pin_bank(),
-        }
-    }
-
+pub trait Pin: PeripheralType + Into<AnyPin> + SealedPin + Sized + 'static {
     /// Returns the pin number within a bank
     #[inline]
     fn pin(&self) -> u8 {
@@ -941,6 +985,8 @@ pub trait Pin: Peripheral<P = Self> + Into<AnyPin> + SealedPin + Sized + 'static
 }
 
 /// Type-erased GPIO pin
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct AnyPin {
     pin_bank: u8,
 }
@@ -951,8 +997,8 @@ impl AnyPin {
     /// # Safety
     ///
     /// You must ensure that you’re only using one instance of this type at a time.
-    pub unsafe fn steal(pin_bank: u8) -> Self {
-        Self { pin_bank }
+    pub unsafe fn steal(pin_bank: u8) -> Peri<'static, Self> {
+        Peri::new_unchecked(Self { pin_bank })
     }
 }
 
@@ -979,7 +1025,9 @@ macro_rules! impl_pin {
 
         impl From<peripherals::$name> for crate::gpio::AnyPin {
             fn from(val: peripherals::$name) -> Self {
-                crate::gpio::Pin::degrade(val)
+                Self {
+                    pin_bank: val.pin_bank(),
+                }
             }
         }
     };

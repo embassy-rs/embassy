@@ -8,16 +8,8 @@ use cortex_m::interrupt;
 use pac::flash::regs::Nssr;
 use pac::flash::vals::Bksel;
 
-use super::{Error, FlashBank, FlashRegion, FlashSector, FLASH_REGIONS, WRITE_SIZE};
+use super::{Error, FlashBank, FlashSector, WRITE_SIZE};
 use crate::pac;
-
-pub(crate) const fn is_default_layout() -> bool {
-    true
-}
-
-pub(crate) const fn get_flash_regions() -> &'static [&'static FlashRegion] {
-    &FLASH_REGIONS
-}
 
 pub(crate) unsafe fn lock() {
     pac::FLASH.nscr().modify(|w| w.set_lock(true));

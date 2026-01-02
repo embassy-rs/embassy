@@ -5,7 +5,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{AfType, Level, Output, OutputType, Speed};
 use embassy_stm32::i2c::{self, I2c};
-use embassy_stm32::time::{mhz, Hertz};
+use embassy_stm32::time::mhz;
 use embassy_stm32::usb::UsbHost;
 use embassy_stm32::{bind_interrupts, pac, peripherals, usb, Config};
 use embassy_time::Timer;
@@ -96,7 +96,6 @@ async fn main(_spawner: Spawner) {
         Irqs,
         p.DMA1_CH1,
         p.DMA1_CH2,
-        Hertz(100_000),
         Default::default(),
     );
 
@@ -132,8 +131,8 @@ async fn main(_spawner: Spawner) {
 
     println!("Found device with speed = {:?}", speed);
 
-    let enum_info = usbhost.enumerate_root(speed, 1).await.unwrap();
-    let mut kbd = KbdHandler::try_register(&usbhost, enum_info)
+    let enum_info = usbhost.enumerate_root_bare(speed, 1).await.unwrap();
+    let mut kbd = KbdHandler::try_register(&usbhost, &enum_info)
         .await
         .expect("Couldn't register keyboard");
 
