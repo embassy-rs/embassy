@@ -23,6 +23,9 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.8", default-features = false }
 static_cell = "2"
 
+[dev-dependencies]
+embassy-stm32 = { version = "0.4.0", path = "../../embassy-stm32", features = ["stm32wba65ri"] }
+
 [profile.release]
 debug = 2
 
