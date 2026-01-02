@@ -15,7 +15,7 @@ use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::interrupt::{self};
 use crate::peripherals::USB;
 use crate::usb::EP_MEMORY_SIZE;
-use crate::{Peri, PeripheralType, RegExt};
+use crate::{Peri, RegExt};
 
 const MAIN_BUFFER_SIZE: usize = 1024;
 
