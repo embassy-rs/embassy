@@ -241,18 +241,18 @@ impl BufferedUartRx {
     }
 
     fn get_rx_error(state: &State) -> Option<Error> {
-        let errs = critical_section::with(|_| {
-            let val = state.rx_error.load(Ordering::Relaxed);
+        let old_errs = critical_section::with(|_| {
+            let old_val = state.rx_error.load(Ordering::Relaxed);
             state.rx_error.store(0, Ordering::Relaxed);
-            val
+            old_val
         });
-        if errs & RXE_OVERRUN != 0 {
+        if old_errs & RXE_OVERRUN != 0 {
             Some(Error::Overrun)
-        } else if errs & RXE_BREAK != 0 {
+        } else if old_errs & RXE_BREAK != 0 {
             Some(Error::Break)
-        } else if errs & RXE_PARITY != 0 {
+        } else if old_errs & RXE_PARITY != 0 {
             Some(Error::Parity)
-        } else if errs & RXE_FRAMING != 0 {
+        } else if old_errs & RXE_FRAMING != 0 {
             Some(Error::Framing)
         } else {
             None
@@ -560,8 +560,8 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for BufferedInterr
                 let dr = r.uartdr().read();
                 if (dr.0 >> 8) != 0 {
                     critical_section::with(|_| {
-                        let val = s.rx_error.load(Ordering::Relaxed);
-                        s.rx_error.store(val | ((dr.0 >> 8) as u8), Ordering::Relaxed);
+                        let old_val = s.rx_error.load(Ordering::Relaxed);
+                        s.rx_error.store(old_val | ((dr.0 >> 8) as u8), Ordering::Relaxed);
                     });
                     error = true;
                     // only fill the buffer with valid characters. the current character is fine

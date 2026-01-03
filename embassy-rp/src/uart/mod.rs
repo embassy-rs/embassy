@@ -464,12 +464,12 @@ impl<'d> UartRx<'d, Async> {
             transfer,
             poll_fn(|cx| {
                 self.dma_state.rx_err_waker.register(cx.waker());
-                let rx_errs = critical_section::with(|_| {
-                    let val = self.dma_state.rx_errs.load(Ordering::Relaxed);
+                let old_rx_errs = critical_section::with(|_| {
+                    let old_val = self.dma_state.rx_errs.load(Ordering::Relaxed);
                     self.dma_state.rx_errs.store(0, Ordering::Relaxed);
-                    val
+                    old_val
                 });
-                match rx_errs {
+                match old_rx_errs {
                     0 => Poll::Pending,
                     e => Poll::Ready(Uartris(e as u32)),
                 }
@@ -482,9 +482,9 @@ impl<'d> UartRx<'d, Async> {
                 // We're here because the DMA finished, BUT if an error occurred on the LAST
                 // byte, then we may still need to grab the error state!
                 Uartris(critical_section::with(|_| {
-                    let val = self.dma_state.rx_errs.load(Ordering::Relaxed);
+                    let old_val = self.dma_state.rx_errs.load(Ordering::Relaxed);
                     self.dma_state.rx_errs.store(0, Ordering::Relaxed);
-                    val
+                    old_val
                 }) as u32)
             }
             Either::Second(e) => {
@@ -633,12 +633,12 @@ impl<'d> UartRx<'d, Async> {
                 transfer,
                 poll_fn(|cx| {
                     self.dma_state.rx_err_waker.register(cx.waker());
-                    let rx_errs = critical_section::with(|_| {
-                        let val = self.dma_state.rx_errs.load(Ordering::Relaxed);
+                    let old_rx_errs = critical_section::with(|_| {
+                        let old_val = self.dma_state.rx_errs.load(Ordering::Relaxed);
                         self.dma_state.rx_errs.store(0, Ordering::Relaxed);
-                        val
+                        old_val
                     });
-                    match rx_errs {
+                    match old_rx_errs {
                         0 => Poll::Pending,
                         e => Poll::Ready(Uartris(e as u32)),
                     }
@@ -652,9 +652,9 @@ impl<'d> UartRx<'d, Async> {
                     // We're here because the DMA finished, BUT if an error occurred on the LAST
                     // byte, then we may still need to grab the error state!
                     Uartris(critical_section::with(|_| {
-                        let val = self.dma_state.rx_errs.load(Ordering::Relaxed);
+                        let old_val = self.dma_state.rx_errs.load(Ordering::Relaxed);
                         self.dma_state.rx_errs.store(0, Ordering::Relaxed);
-                        val
+                        old_val
                     }) as u32)
                 }
                 Either::Second(e) => {
