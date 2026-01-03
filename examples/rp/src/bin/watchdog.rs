@@ -26,8 +26,9 @@ async fn main(_spawner: Spawner) {
     Timer::after_secs(2).await;
 
     // Set to watchdog to reset if it's not fed within 1.05 seconds, and start it
-    watchdog.start(Duration::from_millis(1_050));
+    watchdog.start(Duration::from_millis(5_050));
     info!("Started the watchdog timer");
+    Timer::after_millis(4_000).await;
 
     // Blink once a second for 5 seconds, feed the watchdog timer once a second to avoid a reset
     for _ in 1..=5 {
@@ -36,7 +37,7 @@ async fn main(_spawner: Spawner) {
         led.set_high();
         Timer::after_millis(500).await;
         info!("Feeding watchdog");
-        watchdog.feed();
+        watchdog.feed(Duration::from_millis(1_050));
     }
 
     info!("Stopped feeding, device will reset in 1.05 seconds");
