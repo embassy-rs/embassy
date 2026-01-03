@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## Unreleased - ReleaseDate
+- Add `dma_push_ping_pong` for PIO to allow sending continuous double-buffered data ([#4784](https://github.com/embassy-rs/embassy/pull/4784))
 
 ## 0.9.0 - 2025-11-27
 
