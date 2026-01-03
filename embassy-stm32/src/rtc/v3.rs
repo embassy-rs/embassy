@@ -1,5 +1,5 @@
 use stm32_metapac::rtc::vals::{Calp, Calw8, Calw16, Key};
-#[cfg(not(feature = "_lp-time-driver"))]
+#[cfg(not(all(feature = "low-power", feature = "_lp-time-driver")))]
 use stm32_metapac::rtc::vals::{Fmt, Osel, Pol, TampalrmType};
 
 use super::RtcCalibrationCyclePeriod;
@@ -10,7 +10,7 @@ use crate::rtc::SealedInstance;
 impl super::Rtc {
     /// Applies the RTC config
     /// It this changes the RTC clock source the time will be reset
-    #[cfg(not(feature = "_lp-time-driver"))]
+    #[cfg(not(all(feature = "low-power", feature = "_lp-time-driver")))]
     pub(super) fn configure(&mut self, async_psc: u8, sync_psc: u16) {
         self.write(true, |rtc| {
             rtc.cr().modify(|w| {

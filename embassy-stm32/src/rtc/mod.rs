@@ -219,7 +219,7 @@ impl Rtc {
         (RtcContainer::new(), RtcTimeProvider::new())
     }
 
-    #[cfg(not(feature = "_lp-time-driver"))]
+    #[cfg(not(all(feature = "low-power", feature = "_lp-time-driver")))]
     pub(self) fn new_inner(rtc_config: RtcConfig) -> Self {
         #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
         crate::rcc::enable_and_reset::<RTC>();
@@ -252,7 +252,7 @@ impl Rtc {
         this
     }
 
-    #[cfg(not(feature = "_lp-time-driver"))]
+    #[cfg(not(all(feature = "low-power", feature = "_lp-time-driver")))]
     fn frequency() -> Hertz {
         let freqs = unsafe { crate::rcc::get_freqs() };
         freqs.rtc.to_hertz().unwrap()

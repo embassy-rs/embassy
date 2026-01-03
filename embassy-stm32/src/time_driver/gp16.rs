@@ -1,6 +1,8 @@
 #![allow(non_snake_case)]
 
-use core::cell::{Cell, RefCell};
+#[cfg(feature = "low-power")]
+use core::cell::Cell;
+use core::cell::RefCell;
 use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
 
 use critical_section::CriticalSection;
@@ -10,6 +12,7 @@ use embassy_time_driver::{Driver, TICK_HZ};
 use embassy_time_queue_utils::Queue;
 use stm32_metapac::timer::{TimGp16, regs};
 
+use super::AlarmState;
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::timer::vals;
 use crate::peripherals;
@@ -82,20 +85,6 @@ fn calc_now(period: u32, counter: u16) -> u64 {
 #[cfg(feature = "low-power")]
 fn calc_period_counter(ticks: u64) -> (u32, u16) {
     (2 * (ticks >> 16) as u32 + (ticks as u16 >= 0x8000) as u32, ticks as u16)
-}
-
-struct AlarmState {
-    timestamp: Cell<u64>,
-}
-
-unsafe impl Send for AlarmState {}
-
-impl AlarmState {
-    const fn new() -> Self {
-        Self {
-            timestamp: Cell::new(u64::MAX),
-        }
-    }
 }
 
 pub(crate) struct RtcDriver {

@@ -1,6 +1,8 @@
 #![allow(non_snake_case)]
 
-use core::cell::{Cell, RefCell};
+#[cfg(feature = "low-power")]
+use core::cell::Cell;
+use core::cell::RefCell;
 #[cfg(feature = "low-power")]
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
@@ -12,6 +14,7 @@ use embassy_time_driver::{Driver, TICK_HZ};
 use embassy_time_queue_utils::Queue;
 use stm32_metapac::lptim::{Lptim, regs};
 
+use super::AlarmState;
 use crate::interrupt::typelevel::Interrupt;
 use crate::lptim::SealedInstance;
 use crate::pac::lptim::vals;
@@ -28,20 +31,6 @@ type T = peripherals::LPTIM3;
 
 fn regs_lptim() -> Lptim {
     T::regs()
-}
-
-struct AlarmState {
-    timestamp: Cell<u64>,
-}
-
-unsafe impl Send for AlarmState {}
-
-impl AlarmState {
-    const fn new() -> Self {
-        Self {
-            timestamp: Cell::new(u64::MAX),
-        }
-    }
 }
 
 pub(crate) struct RtcDriver {
