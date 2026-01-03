@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- Add set_baudrate() to BufferedUartTx.
+
 ## 0.9.0 - 2025-11-27
 
 - Add documentation for pio `get_x` about autopush.
