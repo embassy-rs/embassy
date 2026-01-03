@@ -12,7 +12,7 @@ use embassy_usb_driver::{
 
 use super::{Dir, In, Instance, Out};
 use crate::interrupt::typelevel::{Binding, Interrupt};
-use crate::{interrupt, pac, peripherals, Peri, PeripheralType, RegExt};
+use crate::{interrupt, pac, Peri, PeripheralType, RegExt};
 
 const EP_COUNT: usize = 16;
 const EP_MEMORY_SIZE: usize = 4096;
