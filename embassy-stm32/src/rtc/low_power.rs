@@ -109,7 +109,7 @@ impl Rtc {
         <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::unpend();
         unsafe { <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::enable() };
 
-        #[cfg(not(any(stm32u5, stm32u0, stm32wba)))]
+        #[cfg(not(any(stm32u5, stm32u3, stm32u0, stm32wba)))]
         {
             use crate::pac::EXTI;
             EXTI.rtsr(0).modify(|w| w.set_line(RTC::EXTI_WAKEUP_LINE, true));
