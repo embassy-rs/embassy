@@ -82,15 +82,17 @@ fn GPIO4() {
 }
 
 pub(crate) unsafe fn interrupt_init() {
-    use embassy_hal_internal::interrupt::InterruptExt;
+    unsafe {
+        use embassy_hal_internal::interrupt::InterruptExt;
 
-    crate::pac::interrupt::GPIO0.enable();
-    crate::pac::interrupt::GPIO1.enable();
-    crate::pac::interrupt::GPIO2.enable();
-    crate::pac::interrupt::GPIO3.enable();
-    crate::pac::interrupt::GPIO4.enable();
+        crate::pac::interrupt::GPIO0.enable();
+        crate::pac::interrupt::GPIO1.enable();
+        crate::pac::interrupt::GPIO2.enable();
+        crate::pac::interrupt::GPIO3.enable();
+        crate::pac::interrupt::GPIO4.enable();
 
-    cortex_m::interrupt::enable();
+        cortex_m::interrupt::enable();
+    }
 }
 
 /// Logical level for GPIO pins.

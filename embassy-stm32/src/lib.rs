@@ -93,7 +93,7 @@ pub mod hspi;
 pub mod i2c;
 #[cfg(any(spi_v1_i2s, spi_v2_i2s, spi_v3_i2s, spi_v4_i2s, spi_v5_i2s))]
 pub mod i2s;
-#[cfg(stm32wb)]
+#[cfg(any(stm32wb, stm32wl5x))]
 pub mod ipcc;
 #[cfg(lcd)]
 pub mod lcd;

@@ -160,6 +160,7 @@ embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver" }
 embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
 embassy-usb-synopsys-otg = { version = "0.3.1", path = "../embassy-usb-synopsys-otg" }
 embassy-executor = { version = "0.9.0", path = "../embassy-executor", optional = true }
+cyw43 = { version = "0.6.0", path = "../cyw43", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
@@ -243,6 +244,8 @@ defmt = [
 log = ["dep:log"]
 ## Enable chrono support
 chrono = ["dep:chrono"]
+## Enable cyw
+cyw43 = ["dep:cyw43"]
 
 exti = []
 low-power = [ "dep:embassy-executor", "time", "chrono" ]

@@ -143,7 +143,9 @@ impl InterruptExt for OsEvent {
     /// Enable OS_EVENT in NVIC.
     #[inline]
     unsafe fn enable(&self) {
-        cortex_m::peripheral::NVIC::unmask(Interrupt::OS_EVENT);
+        unsafe {
+            cortex_m::peripheral::NVIC::unmask(Interrupt::OS_EVENT);
+        }
     }
 
     /// Disable OS_EVENT in NVIC.
@@ -205,7 +207,9 @@ impl InterruptExt for Lpuart2 {
     /// Enable LPUART2 in NVIC.
     #[inline]
     unsafe fn enable(&self) {
-        cortex_m::peripheral::NVIC::unmask(Interrupt::LPUART2);
+        unsafe {
+            cortex_m::peripheral::NVIC::unmask(Interrupt::LPUART2);
+        }
     }
 
     /// Disable LPUART2 in NVIC.
@@ -242,7 +246,9 @@ impl Lpuart2 {
     /// Install LPUART2 handler into the RAM vector table.
     /// Safety: See `install_irq_handler`.
     pub unsafe fn install_handler(&self, handler: unsafe extern "C" fn()) {
-        install_irq_handler(Interrupt::LPUART2, handler);
+        unsafe {
+            install_irq_handler(Interrupt::LPUART2, handler);
+        }
     }
 }
 
@@ -268,7 +274,9 @@ impl InterruptExt for Rtc {
     /// Enable RTC in NVIC.
     #[inline]
     unsafe fn enable(&self) {
-        cortex_m::peripheral::NVIC::unmask(Interrupt::RTC);
+        unsafe {
+            cortex_m::peripheral::NVIC::unmask(Interrupt::RTC);
+        }
     }
 
     /// Disable RTC in NVIC.
@@ -306,7 +314,9 @@ impl InterruptExt for Gpio0 {
     /// Enable GPIO0 in NVIC.
     #[inline]
     unsafe fn enable(&self) {
-        cortex_m::peripheral::NVIC::unmask(Interrupt::GPIO0);
+        unsafe {
+            cortex_m::peripheral::NVIC::unmask(Interrupt::GPIO0);
+        }
     }
 
     /// Disable GPIO0 in NVIC.
@@ -344,7 +354,9 @@ impl InterruptExt for Gpio1 {
     /// Enable GPIO1 in NVIC.
     #[inline]
     unsafe fn enable(&self) {
-        cortex_m::peripheral::NVIC::unmask(Interrupt::GPIO1);
+        unsafe {
+            cortex_m::peripheral::NVIC::unmask(Interrupt::GPIO1);
+        }
     }
 
     /// Disable GPIO1 in NVIC.
@@ -382,7 +394,9 @@ impl InterruptExt for Gpio2 {
     /// Enable GPIO2 in NVIC.
     #[inline]
     unsafe fn enable(&self) {
-        cortex_m::peripheral::NVIC::unmask(Interrupt::GPIO2);
+        unsafe {
+            cortex_m::peripheral::NVIC::unmask(Interrupt::GPIO2);
+        }
     }
 
     /// Disable GPIO2 in NVIC.
@@ -420,7 +434,9 @@ impl InterruptExt for Gpio3 {
     /// Enable GPIO3 in NVIC.
     #[inline]
     unsafe fn enable(&self) {
-        cortex_m::peripheral::NVIC::unmask(Interrupt::GPIO3);
+        unsafe {
+            cortex_m::peripheral::NVIC::unmask(Interrupt::GPIO3);
+        }
     }
 
     /// Disable GPIO3 in NVIC.
@@ -458,7 +474,9 @@ impl InterruptExt for Gpio4 {
     /// Enable GPIO4 in NVIC.
     #[inline]
     unsafe fn enable(&self) {
-        cortex_m::peripheral::NVIC::unmask(Interrupt::GPIO4);
+        unsafe {
+            cortex_m::peripheral::NVIC::unmask(Interrupt::GPIO4);
+        }
     }
 
     /// Disable GPIO4 in NVIC.
@@ -478,7 +496,9 @@ impl InterruptExt for Gpio4 {
 /// Pass a pointer to the first word in the RAM table (stack pointer slot 0).
 /// Safety: Caller must ensure the RAM table is valid and aligned as required by the core.
 pub unsafe fn vtor_set_ram_vector_base(base: *const u32) {
-    core::ptr::write_volatile(0xE000_ED08 as *mut u32, base as u32);
+    unsafe {
+        core::ptr::write_volatile(0xE000_ED08 as *mut u32, base as u32);
+    }
 }
 
 /// Install an interrupt handler into the current VTOR-based vector table.
@@ -486,52 +506,60 @@ pub unsafe fn vtor_set_ram_vector_base(base: *const u32) {
 /// Safety: Caller must ensure VTOR points at a writable RAM table and that `handler`
 /// has the correct ABI and lifetime.
 pub unsafe fn install_irq_handler(irq: Interrupt, handler: unsafe extern "C" fn()) {
-    let vtor_base = core::ptr::read_volatile(0xE000_ED08 as *const u32) as *mut u32;
-    let idx = 16 + (irq as isize as usize);
-    core::ptr::write_volatile(vtor_base.add(idx), handler as usize as u32);
+    unsafe {
+        let vtor_base = core::ptr::read_volatile(0xE000_ED08 as *const u32) as *mut u32;
+        let idx = 16 + (irq as isize as usize);
+        core::ptr::write_volatile(vtor_base.add(idx), handler as usize as u32);
+    }
 }
 
 impl OsEvent {
     /// Convenience to install the OS_EVENT handler into the RAM vector table.
     /// Safety: See `install_irq_handler`.
     pub unsafe fn install_handler(&self, handler: extern "C" fn()) {
-        install_irq_handler(Interrupt::OS_EVENT, handler);
+        unsafe {
+            install_irq_handler(Interrupt::OS_EVENT, handler);
+        }
     }
 }
 
 /// Install OS_EVENT handler by raw address. Useful to avoid fn pointer type mismatches.
 /// Safety: Caller must ensure the address is a valid `extern "C" fn()` handler.
 pub unsafe fn os_event_install_handler_raw(handler_addr: usize) {
-    let vtor_base = core::ptr::read_volatile(0xE000_ED08 as *const u32) as *mut u32;
-    let idx = 16 + (Interrupt::OS_EVENT as isize as usize);
-    core::ptr::write_volatile(vtor_base.add(idx), handler_addr as u32);
+    unsafe {
+        let vtor_base = core::ptr::read_volatile(0xE000_ED08 as *const u32) as *mut u32;
+        let idx = 16 + (Interrupt::OS_EVENT as isize as usize);
+        core::ptr::write_volatile(vtor_base.add(idx), handler_addr as u32);
+    }
 }
 
 /// Provide a conservative default IRQ handler that avoids wedging the system.
 /// It clears all NVIC pending bits and returns, so spurious or reserved IRQs
 /// don’t trap the core in an infinite WFI loop during bring-up.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn DefaultHandler() {
-    let active = core::ptr::read_volatile(0xE000_ED04 as *const u32) & 0x1FF;
-    let cfsr = core::ptr::read_volatile(0xE000_ED28 as *const u32);
-    let hfsr = core::ptr::read_volatile(0xE000_ED2C as *const u32);
+    unsafe {
+        let active = core::ptr::read_volatile(0xE000_ED04 as *const u32) & 0x1FF;
+        let cfsr = core::ptr::read_volatile(0xE000_ED28 as *const u32);
+        let hfsr = core::ptr::read_volatile(0xE000_ED2C as *const u32);
 
-    let sp = cortex_m::register::msp::read();
-    let stacked = sp as *const u32;
-    // Stacked registers follow ARMv8-M procedure call standard order
-    let stacked_pc = unsafe { stacked.add(6).read() };
-    let stacked_lr = unsafe { stacked.add(5).read() };
+        let sp = cortex_m::register::msp::read();
+        let stacked = sp as *const u32;
+        // Stacked registers follow ARMv8-M procedure call standard order
+        let stacked_pc = stacked.add(6).read();
+        let stacked_lr = stacked.add(5).read();
 
-    LAST_DEFAULT_VECTOR.store(active as u16, Ordering::Relaxed);
-    LAST_DEFAULT_CFSR.store(cfsr, Ordering::Relaxed);
-    LAST_DEFAULT_HFSR.store(hfsr, Ordering::Relaxed);
-    LAST_DEFAULT_COUNT.fetch_add(1, Ordering::Relaxed);
-    LAST_DEFAULT_PC.store(stacked_pc, Ordering::Relaxed);
-    LAST_DEFAULT_LR.store(stacked_lr, Ordering::Relaxed);
-    LAST_DEFAULT_SP.store(sp, Ordering::Relaxed);
+        LAST_DEFAULT_VECTOR.store(active as u16, Ordering::Relaxed);
+        LAST_DEFAULT_CFSR.store(cfsr, Ordering::Relaxed);
+        LAST_DEFAULT_HFSR.store(hfsr, Ordering::Relaxed);
+        LAST_DEFAULT_COUNT.fetch_add(1, Ordering::Relaxed);
+        LAST_DEFAULT_PC.store(stacked_pc, Ordering::Relaxed);
+        LAST_DEFAULT_LR.store(stacked_lr, Ordering::Relaxed);
+        LAST_DEFAULT_SP.store(sp, Ordering::Relaxed);
 
-    // Do nothing here: on some MCUs/TrustZone setups, writing NVIC from a spurious
-    // handler can fault if targeting the Secure bank. Just return.
-    cortex_m::asm::dsb();
-    cortex_m::asm::isb();
+        // Do nothing here: on some MCUs/TrustZone setups, writing NVIC from a spurious
+        // handler can fault if targeting the Secure bank. Just return.
+        cortex_m::asm::dsb();
+        cortex_m::asm::isb();
+    }
 }

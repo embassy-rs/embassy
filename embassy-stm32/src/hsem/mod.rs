@@ -80,8 +80,11 @@ impl CoreId {
     }
 }
 
-#[cfg(not(all(stm32wb, feature = "low-power")))]
+#[cfg(all(not(all(stm32wb, feature = "low-power")), not(stm32wl5x)))]
 const PUB_CHANNELS: usize = 6;
+
+#[cfg(stm32wl5x)]
+const PUB_CHANNELS: usize = 5;
 
 #[cfg(all(stm32wb, feature = "low-power"))]
 const PUB_CHANNELS: usize = 4;
@@ -273,7 +276,7 @@ impl<T: Instance> HardwareSemaphore<T> {
         [
             HardwareSemaphoreChannel::new(1),
             HardwareSemaphoreChannel::new(2),
-            #[cfg(not(all(stm32wb, feature = "low-power")))]
+            #[cfg(all(not(all(stm32wb, feature = "low-power")), not(stm32wl5x)))]
             HardwareSemaphoreChannel::new(3),
             #[cfg(not(all(stm32wb, feature = "low-power")))]
             HardwareSemaphoreChannel::new(4),
