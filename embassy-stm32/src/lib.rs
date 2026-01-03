@@ -47,8 +47,6 @@ pub mod dma;
 pub mod gpio;
 pub mod rcc;
 #[cfg(feature = "_time-driver")]
-#[cfg_attr(feature = "_lp-time-driver", path = "time_driver_lp.rs")]
-#[cfg_attr(not(feature = "_lp-time-driver"), path = "time_driver.rs")]
 mod time_driver;
 pub mod timer;
 
