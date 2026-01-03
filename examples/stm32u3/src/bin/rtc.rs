@@ -25,7 +25,6 @@ async fn main(_spawner: Spawner) {
 
     rtc.set_datetime(now.into()).expect("datetime not set");
 
-
     // In reality the delay would be much longer
     Timer::after_millis(20000).await;
 

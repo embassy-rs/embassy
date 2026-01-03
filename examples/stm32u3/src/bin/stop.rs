@@ -2,8 +2,8 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_stm32::low_power;
 use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::low_power;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
