@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+## 0.3.2 - 2025-10-16
+
+- add STSPHSRX & STSPHST handler
+
 ## 0.3.1 - 2025-08-26
 
 - Improve receive performance, more efficient copy from FIFO
