@@ -26,7 +26,7 @@ features = ["stm32wb55rg", "wb55_ble", "wb55_mac"]
 features = ["stm32wb55rg", "wb55_ble", "wb55_mac"]
 
 [dependencies]
-embassy-stm32 = { version = "0.4.0", path = "../embassy-stm32" }
+embassy-stm32 = { version = "0.5.0", path = "../embassy-stm32" }
 embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
 embassy-time = { version = "0.5.0", path = "../embassy-time", optional = true }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }

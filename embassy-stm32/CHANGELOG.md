@@ -7,8 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## Unreleased - ReleaseDate
-- Add `receive_waveform` method in `InputCapture`, allowing asynchronous input capture with DMA.
 
+## 0.5.0 - 2026-01-04
+- Add `receive_waveform` method in `InputCapture`, allowing asynchronous input capture with DMA.
 - fix: stm32: GPDMA driver reset ignored during channel configuration
 - fix: stm32: SPI driver SSOE and SSM manegment, add `nss_output_disable` to SPI Config
 - change: stm32: use typelevel timer type to allow dma for 32 bit timers
@@ -98,6 +99,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix: keep stm32/sai: make NODIV independent of MCKDIV
 - fix: Source system clock from MSIS before (de)configuring PLLs on STM32U5
 - feat: adc: allow DMA reads to loop through enabled channels
+- chore: update to embedded-io 0.7
 
 ## 0.4.0 - 2025-08-26
 
