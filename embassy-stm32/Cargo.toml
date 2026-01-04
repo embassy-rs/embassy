@@ -202,13 +202,13 @@ block-device-driver = { version = "0.2" }
 aligned = "0.4.3"
 heapless = "0.9.1"
 
-#stm32-metapac = { version = "18" }
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-96e15adc78a3f44583c25e6c86ae8d4f3e1f2b8c" }
+stm32-metapac = { version = "19" }
+#stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-96e15adc78a3f44583c25e6c86ae8d4f3e1f2b8c" }
 # stm32-metapac = { path = "../../stm32-data/build/stm32-metapac" }
 
 [build-dependencies]
-#stm32-metapac = { version = "18", default-features = false, features = ["metadata"]}
-stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-96e15adc78a3f44583c25e6c86ae8d4f3e1f2b8c", default-features = false, features = ["metadata"] }
+stm32-metapac = { version = "19", default-features = false, features = ["metadata"]}
+#stm32-metapac = { git = "https://github.com/embassy-rs/stm32-data-generated", tag = "stm32-data-96e15adc78a3f44583c25e6c86ae8d4f3e1f2b8c", default-features = false, features = ["metadata"] }
 # stm32-metapac = { path = "../../stm32-data/build/stm32-metapac", default-features = false, features = ["metadata"] }
 
 proc-macro2 = "1.0.36"
