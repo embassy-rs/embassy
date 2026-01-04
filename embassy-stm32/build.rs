@@ -1712,6 +1712,8 @@ fn main() {
         (("timer", "CH4"), quote!(crate::timer::Dma<Ch4>)),
         (("cordic", "WRITE"), quote!(crate::cordic::WriteDma)), // FIXME: stm32u5a crash on Cordic driver
         (("cordic", "READ"), quote!(crate::cordic::ReadDma)),   // FIXME: stm32u5a crash on Cordic driver
+        (("xspi", "RX"), quote!(crate::xspi::XDma)),
+        (("xspi", "RX"), quote!(crate::xspi::XDma)),
     ]
     .into();
 
