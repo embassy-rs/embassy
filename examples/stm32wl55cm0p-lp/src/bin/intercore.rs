@@ -4,6 +4,7 @@
 use core::mem::MaybeUninit;
 use core::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(feature = "defmt")]
 use defmt::*;
 #[cfg(feature = "defmt-rtt")]
 use defmt_rtt as _;
@@ -18,14 +19,16 @@ bind_interrupts!(struct Irqs{
     IPCC_C2_RX_C2_TX => InterruptHandler;
 });
 
-#[unsafe(link_section = ".shared_data")]
+#[unsafe(link_section = ".shared_data.0")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
-#[unsafe(link_section = ".shared_data")]
+#[unsafe(link_section = ".shared_data.1")]
+#[unsafe(no_mangle)] // make sure the symbol is not optimized out!
 static LED_STATE: AtomicBool = AtomicBool::new(false);
 
 #[embassy_executor::task]
 async fn blink_heartbeat(mut led: Output<'static>) {
     loop {
+        #[cfg(feature = "defmt")]
         info!("CM0+ heartbeat");
         led.set_level(Level::High);
         Timer::after_millis(100).await;
@@ -37,6 +40,8 @@ async fn blink_heartbeat(mut led: Output<'static>) {
 #[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
 // #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
+    #[cfg(feature = "defmt")]
+    defmt::info!("CM0+ core starting up!");
     // Initialize the secondary core
     let p = embassy_stm32::init_secondary(&SHARED_DATA);
     #[cfg(feature = "defmt-serial")]
@@ -49,6 +54,7 @@ async fn main(_spawner: Spawner) -> ! {
         static SERIAL: StaticCell<Uart<'static, Blocking>> = StaticCell::new();
         defmt_serial::defmt_serial(SERIAL.init(uart));
     }
+    #[cfg(feature = "defmt")]
     info!("CM0+ core initialized!");
 
     let ipcc = Ipcc::new(p.IPCC, Irqs, IPCCConfig::default());
@@ -61,7 +67,8 @@ async fn main(_spawner: Spawner) -> ! {
     _spawner.spawn(blink_heartbeat(red_led).unwrap());
 
     loop {
-        let state = rx.receive(|| Some(LED_STATE.load(Ordering::Relaxed))).await;
+        let state = rx.receive(|| Some(LED_STATE.load(Ordering::SeqCst))).await;
+        #[cfg(feature = "defmt")]
         info!("CM0+ Recieve: {}", state);
         blue_led.set_level(if state { Level::High } else { Level::Low });
     }

@@ -1,37 +1,54 @@
 [package]
 edition = "2024"
-name = "embassy-stm32wl55cm4-examples"
+name = "embassy-stm32wl55cm0p-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-# Change stm32h743bi to your chip name, if necessary.
+# Change stm32wl55jc-cm0 to your chip name, if necessary.
 embassy-stm32 = { version = "0.5.0", path = "../../embassy-stm32", features = [
   "defmt",
-  "stm32wl55jc-cm4",
-  "time-driver-tim2",
+  "stm32wl55jc-cm0p",
+  "time-driver-lptim1",
   "exti",
-  "memory-x",
   "unstable-pac",
   "chrono",
   "low-power-pender",
-]}
-embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = ["defmt"] }
+] }
+embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = [
+  "defmt",
+] }
 embassy-embedded-hal = { version = "0.5.0", path = "../../embassy-embedded-hal" }
 embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = [
   "defmt",
-]}
-embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-1_000"] }
-embassy-net = { version = "0.8.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", "proto-ipv6", "dns"] }
-embassy-usb = { version = "0.5.1", path = "../../embassy-usb", features = ["defmt"] }
+] }
+embassy-time = { version = "0.5.0", path = "../../embassy-time", features = [
+  "defmt",
+  "defmt-timestamp-uptime",
+  "tick-hz-1_000",
+] }
+embassy-net = { version = "0.8.0", path = "../../embassy-net", features = [
+  "defmt",
+  "tcp",
+  "dhcpv4",
+  "medium-ethernet",
+  "proto-ipv6",
+  "dns",
+] }
+embassy-usb = { version = "0.5.1", path = "../../embassy-usb", features = [
+  "defmt",
+] }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
 
 defmt = "1.0.1"
 defmt-rtt = { version = "1.0.0", optional = true }
 defmt-serial = { git = "https://github.com/gauteh/defmt-serial", rev = "411ae7fa909b4fd2667885aff687e009b9108190", optional = true }
 
-cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
+cortex-m = { version = "0.7.6", features = [
+  "inline-asm",
+  "critical-section-single-core",
+] }
 cortex-m-rt = "0.7.0"
 embedded-hal = "1.0.0"
 embedded-hal-async = { version = "1.0" }
@@ -39,7 +56,7 @@ embedded-nal-async = "0.9.0"
 embedded-io-async = { version = "0.7.0" }
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 heapless = { version = "0.9", default-features = false }
-critical-section = "1.1"
+portable-atomic = { version = "1.5", features = ["unsafe-assume-single-core"] }
 micromath = "2.0.0"
 stm32-fmc = "0.4.0"
 embedded-storage = "0.3.1"
@@ -48,9 +65,10 @@ chrono = { version = "^0.4", default-features = false }
 grounded = "0.2.0"
 
 [features]
-default = ["defmt-rtt"]
+default = ["defmt-serial"]
 defmt-serial = ["dep:defmt-serial"]
 defmt-rtt = ["dep:defmt-rtt"]
+# cargo build/run
 
 # cargo test
 [profile.test]
@@ -58,8 +76,8 @@ codegen-units = 1
 debug = 2
 debug-assertions = true # <-
 incremental = false
-opt-level = 3 # <-
-overflow-checks = true # <-
+opt-level = 3           # <-
+overflow-checks = true  # <-
 
 # cargo build/run --release
 [profile.release]
@@ -67,8 +85,8 @@ codegen-units = 16
 debug = 2
 debug-assertions = false # <-
 incremental = false
-opt-level = 3 # <-
-overflow-checks = false # <-
+opt-level = 3            # <-
+overflow-checks = false  # <-
 
 # cargo test --release
 [profile.bench]
@@ -77,10 +95,10 @@ debug = 2
 debug-assertions = false # <-
 incremental = false
 lto = 'fat'
-opt-level = 3 # <-
-overflow-checks = false # <-
+opt-level = 3            # <-
+overflow-checks = false  # <-
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv7em-none-eabi", artifact-dir = "out/examples/stm32wl55cm4" }
+  { target = "thumbv6m-none-eabi", artifact-dir = "out/examples/stm32wl55cm0p" },
 ]

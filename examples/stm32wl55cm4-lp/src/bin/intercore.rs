@@ -24,9 +24,10 @@ use defmt::*;
 #[cfg(feature = "defmt-rtt")]
 use defmt_rtt as _;
 use embassy_executor::Spawner;
+use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::ipcc::{Config as IPCCConfig, Ipcc, ReceiveInterruptHandler, TransmitInterruptHandler};
 use embassy_stm32::{Config, SharedData, bind_interrupts};
-use embassy_time::Timer;
+use embassy_time::{Duration, Timer};
 use panic_probe as _;
 
 bind_interrupts!(struct Irqs{
@@ -37,15 +38,25 @@ bind_interrupts!(struct Irqs{
 #[unsafe(link_section = ".shared_data.0")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 #[unsafe(link_section = ".shared_data.1")]
-#[unsafe(no_mangle)]
+#[unsafe(no_mangle)] // make sure the symbol is not optimized out!
 static LED_STATE: AtomicBool = AtomicBool::new(false);
 
+#[embassy_executor::task]
+async fn blink_heartbeat(mut led: Output<'static>) {
+    loop {
+        info!("CM4 heartbeat");
+        led.set_level(Level::High);
+        Timer::after_millis(100).await;
+        led.set_level(Level::Low);
+        Timer::after_millis(4900).await;
+    }
+}
 #[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
 // #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
     // Initialize the CM4 core
     let mut config = Config::default();
-    config.rcc.ls.lsi = true;
+    config.min_stop_pause = Duration::from_millis(50);
     let _p = embassy_stm32::init_primary(config, &SHARED_DATA);
     #[cfg(feature = "defmt-serial")]
     {
@@ -57,7 +68,6 @@ async fn main(_spawner: Spawner) -> ! {
         static SERIAL: StaticCell<Uart<'static, Blocking>> = StaticCell::new();
         defmt_serial::defmt_serial(SERIAL.init(uart));
     }
-    info!("RCC.ccipr: {:?}", embassy_stm32::pac::RCC.ccipr().read());
     info!("CM4 core initialized");
     info!(
         "CM4 second core enabled: {}",
@@ -71,14 +81,17 @@ async fn main(_spawner: Spawner) -> ! {
         embassy_stm32::pac::PWR.cr4().read().c2boot()
     );
 
+    let green_led = Output::new(_p.PB9, Level::High, Speed::Low);
+    _spawner.spawn(blink_heartbeat(green_led).unwrap());
+
     info!("CM4: Starting main loop");
     loop {
         info!("CM4: Sending message!!!");
         tx.send(|| {
             info!("CM4: Getting new LED state!!!");
-            let new_led_state = !LED_STATE.load(Ordering::Relaxed);
+            let new_led_state = !LED_STATE.load(Ordering::SeqCst);
             info!("CM4: Send! New LED state: {}", new_led_state);
-            LED_STATE.store(new_led_state, Ordering::Relaxed);
+            LED_STATE.store(new_led_state, Ordering::SeqCst);
         })
         .await;
         info!("CM4: sleeping!!!");
