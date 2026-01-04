@@ -74,7 +74,7 @@ embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
 embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver", optional = true }
 embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils", optional = true }
 embassy-time = { version = "0.5.0", path = "../embassy-time", optional = true }
-embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
+embassy-hal-internal = { version = "0.4.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
 embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal", default-features = false }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 
