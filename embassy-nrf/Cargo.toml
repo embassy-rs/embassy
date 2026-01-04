@@ -208,7 +208,7 @@ embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver", opti
 embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils", optional = true }
 embassy-time = { version = "0.5.0", path = "../embassy-time", optional = true }
 embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
-embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
+embassy-hal-internal = { version = "0.4.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
 embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal", default-features = false }
 embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
 embassy-net-driver-channel = { version = "0.3.2", path = "../embassy-net-driver-channel", optional = true}
