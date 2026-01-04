@@ -65,5 +65,5 @@ overflow-checks = false # <-
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv7em-none-eabi", artifact-dir = "out/examples/stm32h755cm7" }
+  { target = "thumbv7em-none-eabi", artifact-dir = "out/examples/stm32h755cm4" }
 ]

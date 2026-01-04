@@ -1,6 +1,6 @@
 [package]
 edition = "2024"
-name = "embassy-stm32wl-examples"
+name = "embassy-stm32wle5-examples"
 version = "0.1.0"
 license = "MIT OR Apache-2.0"
 publish = false
@@ -29,7 +29,7 @@ debug = 2
 
 [package.metadata.embassy]
 build = [
-  { target = "thumbv7em-none-eabi", artifact-dir = "out/examples/stm32wl" }
+  { target = "thumbv7em-none-eabi", artifact-dir = "out/examples/stm32wle5" }
 ]
 
 [features]
