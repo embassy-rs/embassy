@@ -9,8 +9,8 @@ publish = false
 embassy-sync = { version = "0.7.2", path = "../../../../embassy-sync" }
 embassy-executor = { version = "0.9.0", path = "../../../../embassy-executor", features = ["arch-cortex-m", "executor-thread"] }
 embassy-time = { version = "0.5.0", path = "../../../../embassy-time", features = [ "tick-hz-32_768"] }
-embassy-stm32 = { version = "0.4.0", path = "../../../../embassy-stm32", features = ["stm32wba65ri", "time-driver-any", "exti"]  }
-embassy-boot-stm32 = { version = "0.6.0", path = "../../../../embassy-boot-stm32", features = [] }
+embassy-stm32 = { version = "0.5.0", path = "../../../../embassy-stm32", features = ["stm32wba65ri", "time-driver-any", "exti"]  }
+embassy-boot-stm32 = { version = "0.7.0", path = "../../../../embassy-boot-stm32", features = [] }
 embassy-embedded-hal = { version = "0.5.0", path = "../../../../embassy-embedded-hal" }
 embassy-usb = { version = "0.5.1", path = "../../../../embassy-usb" }
 embassy-usb-dfu = { version = "0.2.0", path = "../../../../embassy-usb-dfu", features = ["application", "cortex-m"] }
