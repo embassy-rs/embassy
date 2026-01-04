@@ -5,7 +5,7 @@ use chrono::{NaiveDate, NaiveDateTime};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
-use embassy_stm32::rtc::{Rtc, RtcConfig};
+use embassy_stm32::rtc::Rtc;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -20,10 +20,12 @@ async fn main(_spawner: Spawner) {
         .and_hms_opt(10, 30, 15)
         .unwrap();
 
-    let (mut rtc, time_provider) = Rtc::new(p.RTC, RtcConfig::default());
+    let (rtc, time_provider) = Rtc::new(p.RTC);
     info!("Got RTC! {:?}", now.and_utc().timestamp());
 
-    rtc.set_datetime(now.into()).expect("datetime not set");
+    critical_section::with(|cs| {
+        rtc.borrow_mut(cs).set_datetime(now.into()).expect("datetime not set");
+    });
 
     // In reality the delay would be much longer
     Timer::after_millis(20000).await;
