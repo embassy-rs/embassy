@@ -26,8 +26,8 @@ mod util;
 
 use core::sync::atomic::AtomicBool;
 
+pub use aligned::{A4, Aligned};
 use embassy_net_driver_channel as ch;
-use embassy_time::{Duration, Ticker};
 use embedded_hal_1::digital::OutputPin;
 use events::Events;
 use ioctl::IoctlState;
@@ -278,7 +278,7 @@ where
 pub async fn new_sdio<'a, SDIO>(
     state: &'a mut State,
     sdio: SDIO,
-    firmware: &[u8],
+    firmware: &Aligned<A4, [u8]>,
 ) -> (NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>>)
 where
     SDIO: SdioBusCyw43<64>,
@@ -353,18 +353,14 @@ where
     (device, bt_driver, control, runner)
 }
 
-async fn try_until(mut func: impl AsyncFnMut() -> bool, duration: Duration) -> bool {
-    let tick = Duration::from_millis(1);
-    let mut ticker = Ticker::every(tick);
-    let ticks = duration.as_ticks() / tick.as_ticks();
+/// Include bytes aligned to A4 in the binary
+#[macro_export]
+macro_rules! aligned_bytes {
+    ($path:expr) => {{
+        {
+            static BYTES: &cyw43::Aligned<cyw43::A4, [u8]> = &cyw43::Aligned(*include_bytes!($path));
 
-    for _ in 0..ticks {
-        if func().await {
-            return true;
+            BYTES
         }
-
-        ticker.next().await;
-    }
-
-    false
+    }};
 }

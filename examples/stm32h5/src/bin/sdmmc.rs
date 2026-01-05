@@ -1,26 +1,26 @@
 #![no_std]
 #![no_main]
 
+use cyw43::aligned_bytes;
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
+use embassy_stm32::exti::ExtiInput;
+use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::sdmmc::Sdmmc;
-use embassy_stm32::sdmmc::sd::CmdBlock;
 use embassy_stm32::sdmmc::sdio::SerialDataInterface;
 use embassy_stm32::time::mhz;
-use embassy_stm32::{Config, bind_interrupts, peripherals, sdmmc};
+use embassy_stm32::{Config, bind_interrupts, exti, interrupt, peripherals, sdmmc};
 use embassy_time::Timer;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     SDMMC1 => sdmmc::InterruptHandler<peripherals::SDMMC1>;
+    EXTI1 => exti::InterruptHandler<interrupt::typelevel::EXTI1>;
 });
 
 #[embassy_executor::task]
-async fn cyw43_task(
-    runner: cyw43::Runner<'static, cyw43::SdioBus<&'static mut SerialDataInterface<'static, 'static>>>,
-) -> ! {
+async fn cyw43_task(runner: cyw43::Runner<'static, cyw43::SdioBus<SerialDataInterface<'static, 'static>>>) -> ! {
     runner.run().await
 }
 
@@ -62,15 +62,17 @@ async fn main(spawner: Spawner) {
     let mut _bt_reg = Output::new(p.PG3, Level::Low, Speed::High);
     let mut _sdio_reset = Output::new(p.PD11, Level::Low, Speed::High);
 
-    let sdio_clk = Input::new(unsafe { p.PC12.clone_unchecked() }, Pull::None);
-    let sdio_cmd = Input::new(unsafe { p.PD2.clone_unchecked() }, Pull::None);
-    let sdio_data0 = Input::new(unsafe { p.PC8.clone_unchecked() }, Pull::None);
-    let sdio_data1 = Input::new(unsafe { p.PC9.clone_unchecked() }, Pull::None);
-    let sdio_data2 = Input::new(unsafe { p.PC10.clone_unchecked() }, Pull::None);
-    let sdio_data3 = Input::new(unsafe { p.PC11.clone_unchecked() }, Pull::None);
+    let _wl_wake_host = ExtiInput::new(p.PD1, p.EXTI1, Pull::Down, Irqs);
 
-    let fw = include_bytes!("../../../../cyw43-firmware/43439A0.bin");
-    let clm = include_bytes!("../../../../cyw43-firmware/43439A0_clm.bin");
+    // let sdio_clk = Input::new(unsafe { p.PC12.clone_unchecked() }, Pull::None);
+    // let sdio_cmd = Input::new(unsafe { p.PD2.clone_unchecked() }, Pull::None);
+    // let sdio_data0 = Input::new(unsafe { p.PC8.clone_unchecked() }, Pull::None);
+    // let sdio_data1 = Input::new(unsafe { p.PC9.clone_unchecked() }, Pull::None);
+    // let sdio_data2 = Input::new(unsafe { p.PC10.clone_unchecked() }, Pull::None);
+    // let sdio_data3 = Input::new(unsafe { p.PC11.clone_unchecked() }, Pull::None);
+
+    let fw = aligned_bytes!("../../../../cyw43-firmware/43439A0.bin");
+    let clm = aligned_bytes!("../../../../cyw43-firmware/43439A0_clm.bin");
 
     let sdmmc = Sdmmc::new_4bit(
         p.SDMMC1,
@@ -92,60 +94,54 @@ async fn main(spawner: Spawner) {
         // let _out5 = Output::new(p.PC10.reborrow(), Level::High, Speed::High);
         // let _out6 = Output::new(p.PC11.reborrow(), Level::High, Speed::High);
 
-        if sdio_clk.is_high() {
-            trace!("sdio_clk is high");
-        } else {
-            trace!("sdio_clk is not high");
-        }
-        if sdio_cmd.is_high() {
-            trace!("sdio_cmd is high");
-        } else {
-            trace!("sdio_cmd is not high");
-        }
-
-        if sdio_data0.is_high() {
-            trace!("sdio_data0 is high");
-        } else {
-            trace!("sdio_data0 is not high");
-        }
-        if sdio_data1.is_high() {
-            trace!("sdio_data1 is high");
-        } else {
-            trace!("sdio_data1 is not high");
-        }
-
-        if sdio_data2.is_high() {
-            trace!("sdio_data2 is high");
-        } else {
-            trace!("sdio_data2 is not high");
-        }
-
-        if sdio_data3.is_high() {
-            trace!("sdio_data3 is high");
-        } else {
-            trace!("sdio_data3 is not high");
-        }
+        //        if sdio_clk.is_high() {
+        //            trace!("sdio_clk is high");
+        //        } else {
+        //            trace!("sdio_clk is not high");
+        //        }
+        //        if sdio_cmd.is_high() {
+        //            trace!("sdio_cmd is high");
+        //        } else {
+        //            trace!("sdio_cmd is not high");
+        //        }
+        //
+        //        if sdio_data0.is_high() {
+        //            trace!("sdio_data0 is high");
+        //        } else {
+        //            trace!("sdio_data0 is not high");
+        //        }
+        //        if sdio_data1.is_high() {
+        //            trace!("sdio_data1 is high");
+        //        } else {
+        //            trace!("sdio_data1 is not high");
+        //        }
+        //
+        //        if sdio_data2.is_high() {
+        //            trace!("sdio_data2 is high");
+        //        } else {
+        //            trace!("sdio_data2 is not high");
+        //        }
+        //
+        //        if sdio_data3.is_high() {
+        //            trace!("sdio_data3 is high");
+        //        } else {
+        //            trace!("sdio_data3 is not high");
+        //        }
 
         trace!("WL_REG off/on");
         wl_reg.set_low();
         Timer::after_millis(250).await;
         wl_reg.set_high();
-        Timer::after_millis(250).await;
+        Timer::after_millis(10).await;
     }
 
     static SDMMC: StaticCell<Sdmmc<'static>> = StaticCell::new();
-    static SDIO: StaticCell<SerialDataInterface<'static, 'static>> = StaticCell::new();
+    static STATE: StaticCell<cyw43::State> = StaticCell::new();
 
     let sdmmc = SDMMC.init(sdmmc);
-
-    let _cmd_block = CmdBlock::new();
+    let state = STATE.init(cyw43::State::new());
 
     let sdio = SerialDataInterface::new(sdmmc, mhz(50)).await.unwrap();
-
-    let sdio = SDIO.init(sdio);
-
-    static STATE: StaticCell<cyw43::State> = StaticCell::new();
-    let state = STATE.init(cyw43::State::new());
 
     info!("new sdio");
 
