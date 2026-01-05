@@ -74,7 +74,7 @@ pub mod pac {
         EGU4_S as EGU4,
         EGU5_S as EGU5,
         FICR_S as FICR,
-        FPU_S as FPU,
+        FPU_NS as FPU,
         GPIOTE0_S as GPIOTE0,
         I2S_S as I2S,
         IPC_S as IPC,
