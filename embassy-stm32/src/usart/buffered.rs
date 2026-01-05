@@ -688,6 +688,10 @@ impl<'d> BufferedUartTx<'d> {
 
             let empty = state.tx_buf.is_empty();
 
+            if state.tx_buf.len() < buf.len() {
+                return Poll::Ready(Err(Error::BufferTooLong));
+            }
+
             if state.tx_buf.len() - state.tx_buf.available() < buf.len() {
                 return Poll::Pending;
             }
