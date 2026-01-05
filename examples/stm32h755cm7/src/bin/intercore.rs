@@ -97,7 +97,7 @@ mod shared {
         }
     }
 
-    #[link_section = ".ram_d3"]
+    #[unsafe(link_section = ".ram_d3")]
     pub static SHARED_LED_STATE: SharedLedState = SharedLedState::new();
 
     // Memory region constants for MPU configuration
@@ -106,7 +106,7 @@ mod shared {
     pub const SRAM4_REGION_NUMBER: u8 = 0;
 }
 
-#[link_section = ".ram_d3"]
+#[unsafe(link_section = ".ram_d3")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 
 /// Configure MPU to make SRAM4 region non-cacheable

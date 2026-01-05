@@ -4,7 +4,7 @@ use core::mem::MaybeUninit;
 
 use crate::driver::{Driver, Endpoint, EndpointError, EndpointIn, EndpointOut};
 use crate::types::StringIndex;
-use crate::{msos, Builder, Handler};
+use crate::{Builder, Handler, msos};
 
 /// State for the CMSIS-DAP v2 USB class.
 pub struct State {

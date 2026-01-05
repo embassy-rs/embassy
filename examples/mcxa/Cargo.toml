@@ -1,0 +1,35 @@
+[package]
+name = "embassy-mcxa-examples"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
+cortex-m-rt = { version = "0.7", features = ["set-sp", "set-vtor"] }
+crc = "3.4.0"
+critical-section = "1.2.0"
+defmt = "1.0"
+defmt-rtt = "1.0"
+embassy-embedded-hal = "0.5.0"
+embassy-executor = { version = "0.9.0", features = ["arch-cortex-m", "executor-interrupt", "executor-thread"], default-features = false }
+embassy-mcxa = { path = "../../embassy-mcxa", features = ["defmt", "unstable-pac", "time"] }
+embassy-sync = "0.7.2"
+embassy-time = "0.5.0"
+embassy-time-driver = "0.2.1"
+embedded-io-async = "0.7.0"
+heapless = "0.9.2"
+panic-probe = { version = "1.0", features = ["print-defmt"] }
+rand_core = "0.9"
+static_cell = "2.1.1"
+tmp108 = "0.4.0"
+
+[profile.release]
+lto = true # better optimizations
+debug = 2  # enough information for defmt/rtt locations
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv8m.main-none-eabihf", artifact-dir = "out/examples/mcxa" }
+]

@@ -1,11 +1,11 @@
 //! Time Driver.
 use core::cell::{Cell, RefCell};
 #[cfg(feature = "time-driver-rtc")]
-use core::sync::atomic::{compiler_fence, AtomicU32, Ordering};
+use core::sync::atomic::{AtomicU32, Ordering, compiler_fence};
 
 use critical_section::CriticalSection;
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 

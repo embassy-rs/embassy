@@ -3,8 +3,8 @@
 
 use cortex_m_rt::entry;
 use defmt::*;
-use embassy_stm32::dac::{DacCh1, Value};
 use embassy_stm32::Config;
+use embassy_stm32::dac::{DacCh1, Value};
 use {defmt_rtt as _, panic_probe as _};
 
 #[entry]
@@ -20,6 +20,7 @@ fn main() -> ! {
             source: PllSource::HSI,
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL50,
+            fracn: None,
             divp: Some(PllDiv::DIV2),
             divq: Some(PllDiv::DIV8), // 100mhz
             divr: None,
@@ -28,6 +29,7 @@ fn main() -> ! {
             source: PllSource::HSI,
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL50,
+            fracn: None,
             divp: Some(PllDiv::DIV8), // 100mhz
             divq: None,
             divr: None,

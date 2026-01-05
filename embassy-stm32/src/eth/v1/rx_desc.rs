@@ -1,4 +1,4 @@
-use core::sync::atomic::{compiler_fence, fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence, fence};
 
 use stm32_metapac::eth::vals::{Rpd, Rps};
 use vcell::VolatileCell;

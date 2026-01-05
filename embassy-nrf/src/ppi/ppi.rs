@@ -1,5 +1,5 @@
 use super::{Channel, ConfigurableChannel, Event, Ppi, Task};
-use crate::{pac, Peri};
+use crate::{Peri, pac};
 
 impl<'d> Task<'d> {
     fn reg_val(&self) -> u32 {

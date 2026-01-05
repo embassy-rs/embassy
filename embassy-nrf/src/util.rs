@@ -15,9 +15,5 @@ pub(crate) fn slice_in_ram<T>(slice: *const [T]) -> bool {
 
 /// Return an error if slice is not in RAM. Skips check if slice is zero-length.
 pub(crate) fn slice_in_ram_or<T, E>(slice: *const [T], err: E) -> Result<(), E> {
-    if slice_in_ram(slice) {
-        Ok(())
-    } else {
-        Err(err)
-    }
+    if slice_in_ram(slice) { Ok(()) } else { Err(err) }
 }

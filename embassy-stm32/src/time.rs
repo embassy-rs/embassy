@@ -4,7 +4,7 @@ use core::fmt::Display;
 use core::ops::{Div, Mul};
 
 /// Hertz
-#[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Debug)]
+#[derive(Eq, PartialEq, Ord, PartialOrd, Clone, Copy, Debug, Default)]
 pub struct Hertz(pub u32);
 
 impl Display for Hertz {

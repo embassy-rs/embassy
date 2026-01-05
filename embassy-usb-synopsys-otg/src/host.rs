@@ -8,8 +8,8 @@ use embassy_usb_driver::host::channel::{self, Direction, Type};
 use embassy_usb_driver::host::{ChannelError, DeviceEvent, HostError, SetupPacket, UsbChannel, UsbHostDriver};
 use embassy_usb_driver::{EndpointInfo, EndpointType};
 
-use crate::otg_v1::vals::{Dpid, Eptyp};
 use crate::otg_v1::Otg;
+use crate::otg_v1::vals::{Dpid, Eptyp};
 
 extern crate alloc;
 
@@ -352,8 +352,7 @@ impl<T: Type, D: Direction> OtgChannel<T, D> {
 
             trace!(
                 "Polling wait_for_txresult: ch_idx={}, hcintr={}",
-                self.channel_idx,
-                hcintr.0
+                self.channel_idx, hcintr.0
             );
 
             if hcintr.stall() {

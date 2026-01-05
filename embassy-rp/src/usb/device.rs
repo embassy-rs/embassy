@@ -1,9 +1,9 @@
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::slice;
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
-use atomic_polyfill::{compiler_fence, Ordering};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver as driver;
 use embassy_usb_driver::{
@@ -12,7 +12,7 @@ use embassy_usb_driver::{
 
 use super::{Dir, In, Instance, Out};
 use crate::interrupt::typelevel::{Binding, Interrupt};
-use crate::{interrupt, pac, Peri, PeripheralType, RegExt};
+use crate::{Peri, PeripheralType, RegExt, interrupt, pac};
 
 const EP_COUNT: usize = 16;
 const EP_MEMORY_SIZE: usize = 4096;
@@ -499,11 +499,7 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, In> {
         poll_fn(|cx| {
             EP_IN_WAKERS[index].register(cx.waker());
             let val = T::dpram().ep_in_control(self.info.addr.index() - 1).read();
-            if val.enable() {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
+            if val.enable() { Poll::Ready(()) } else { Poll::Pending }
         })
         .await;
         trace!("wait_enabled IN OK");
@@ -521,11 +517,7 @@ impl<'d, T: Instance> driver::Endpoint for Endpoint<'d, T, Out> {
         poll_fn(|cx| {
             EP_OUT_WAKERS[index].register(cx.waker());
             let val = T::dpram().ep_out_control(self.info.addr.index() - 1).read();
-            if val.enable() {
-                Poll::Ready(())
-            } else {
-                Poll::Pending
-            }
+            if val.enable() { Poll::Ready(()) } else { Poll::Pending }
         })
         .await;
         trace!("wait_enabled OUT OK");

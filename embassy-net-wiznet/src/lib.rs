@@ -6,7 +6,7 @@
 pub mod chip;
 mod device;
 
-use embassy_futures::select::{select3, Either3};
+use embassy_futures::select::{Either3, select3};
 use embassy_net_driver_channel as ch;
 use embassy_net_driver_channel::driver::LinkState;
 use embassy_time::{Duration, Ticker, Timer};

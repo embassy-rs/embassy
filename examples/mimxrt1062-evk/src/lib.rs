@@ -55,6 +55,6 @@ pub const SERIAL_NOR_CONFIGURATION_BLOCK: nor::ConfigurationBlock =
         .sector_size(4096)
         .ip_cmd_serial_clk_freq(nor::SerialClockFrequency::MHz30);
 
-#[no_mangle]
-#[cfg_attr(all(target_arch = "arm", target_os = "none"), link_section = ".fcb")]
+#[unsafe(no_mangle)]
+#[cfg_attr(all(target_arch = "arm", target_os = "none"), unsafe(link_section = ".fcb"))]
 pub static FLEXSPI_CONFIGURATION_BLOCK: nor::ConfigurationBlock = SERIAL_NOR_CONFIGURATION_BLOCK;

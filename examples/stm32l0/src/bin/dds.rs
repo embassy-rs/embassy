@@ -12,7 +12,7 @@ use embassy_stm32::time::hz;
 use embassy_stm32::timer::low_level::{Timer as LLTimer, *};
 use embassy_stm32::timer::simple_pwm::PwmPin;
 use embassy_stm32::timer::{Ch3, Channel};
-use embassy_stm32::{interrupt, pac, Config};
+use embassy_stm32::{Config, interrupt, pac};
 use panic_probe as _;
 
 const DDS_SINE_DATA: [u8; 256] = [

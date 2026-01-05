@@ -1,5 +1,5 @@
 [package]
-edition = "2021"
+edition = "2024"
 name = "stm32wba6-dfu-bootloader-example"
 version = "0.1.0"
 description = "Example USB DFUbootloader for the STM32WBA series of chips"

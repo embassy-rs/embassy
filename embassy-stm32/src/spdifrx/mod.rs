@@ -13,7 +13,7 @@ use crate::gpio::{AfType, AnyPin, Pull, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::spdifrx::Spdifrx as Regs;
 use crate::rcc::{RccInfo, SealedRccPeripheral};
-use crate::{interrupt, peripherals, Peri};
+use crate::{Peri, interrupt, peripherals};
 
 /// Possible S/PDIF preamble types.
 #[allow(dead_code)]

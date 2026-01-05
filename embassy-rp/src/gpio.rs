@@ -5,13 +5,13 @@ use core::future::Future;
 use core::pin::Pin as FuturePin;
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
+use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::InterruptExt;
-use crate::pac::common::{Reg, RW};
 use crate::pac::SIO;
-use crate::{interrupt, pac, peripherals, RegExt};
+use crate::pac::common::{RW, Reg};
+use crate::{RegExt, interrupt, pac, peripherals};
 
 #[cfg(any(feature = "rp2040", feature = "rp235xa"))]
 pub(crate) const BANK0_PIN_COUNT: usize = 30;
@@ -300,7 +300,7 @@ impl<'d> InputFuture<'d> {
 
         // Each INTR register is divided into 8 groups, one group for each
         // pin, and each group consists of LEVEL_LOW, LEVEL_HIGH, EDGE_LOW,
-        // and EGDE_HIGH.
+        // and EDGE_HIGH.
         pin.int_proc()
             .inte((pin.pin() / 8) as usize)
             .write_set(|w| match level {

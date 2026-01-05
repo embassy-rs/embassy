@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::Adc;
+use embassy_stm32::adc::{Adc, SampleTime};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -16,7 +16,7 @@ async fn main(_spawner: Spawner) {
     let mut pin = p.PA3;
 
     let mut vrefint = adc.enable_vrefint();
-    let vrefint_sample = adc.blocking_read(&mut vrefint);
+    let vrefint_sample = adc.blocking_read(&mut vrefint, SampleTime::CYCLES112);
     let convert_to_millivolts = |sample| {
         // From http://www.st.com/resource/en/datasheet/DM00273119.pdf
         // 6.3.27 Reference voltage
@@ -26,7 +26,7 @@ async fn main(_spawner: Spawner) {
     };
 
     loop {
-        let v = adc.blocking_read(&mut pin);
+        let v = adc.blocking_read(&mut pin, SampleTime::CYCLES112);
         info!("--> {} - {} mV", v, convert_to_millivolts(v));
         Timer::after_millis(100).await;
     }

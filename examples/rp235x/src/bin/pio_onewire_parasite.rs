@@ -63,7 +63,7 @@ async fn main(_spawner: Spawner) {
             let mut data = [0; 9];
             onewire.read_bytes(&mut data).await;
             if crc8(&data) == 0 {
-                let temp = ((data[1] as u32) << 8 | data[0] as u32) as f32 / 16.;
+                let temp = ((data[1] as i16) << 8 | data[0] as i16) as f32 / 16.;
                 info!("Read device {:x}: {} deg C", device, temp);
             } else {
                 warn!("Reading device {:x} failed. {:02x}", device, data);

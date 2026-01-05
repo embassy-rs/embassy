@@ -11,7 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## 0.2.1 - 2025-08-26
 
 - Allow inlining on time driver boundary
-- add 133MHz tick rate to support PR2040 @ 133MHz when `TIMERx`'s `SOURCE` is set to `SYSCLK`
+- Add 133MHz tick rate to support PR2040 @ 133MHz when `TIMERx`'s `SOURCE` is set to `SYSCLK`
+- Add 375KHz tick rate support
 
 ## 0.2.0 - 2025-01-02
 

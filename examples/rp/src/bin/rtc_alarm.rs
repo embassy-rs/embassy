@@ -5,7 +5,7 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use embassy_rp::bind_interrupts;
 use embassy_rp::rtc::{DateTime, DateTimeFilter, DayOfWeek, Rtc};
 use embassy_time::Timer;

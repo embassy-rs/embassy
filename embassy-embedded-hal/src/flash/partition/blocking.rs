@@ -1,7 +1,7 @@
 use core::cell::RefCell;
 
-use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::RawMutex;
 use embedded_storage::nor_flash::{ErrorType, MultiwriteNorFlash, NorFlash, ReadNorFlash};
 
 use super::Error;

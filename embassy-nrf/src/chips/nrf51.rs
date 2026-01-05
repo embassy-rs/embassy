@@ -115,6 +115,11 @@ impl_rtc!(RTC0, RTC0, RTC0);
 #[cfg(not(feature = "time-driver-rtc1"))]
 impl_rtc!(RTC1, RTC1, RTC1);
 
+impl_ppi_group!(PPI_GROUP0, PPI, 0);
+impl_ppi_group!(PPI_GROUP1, PPI, 1);
+impl_ppi_group!(PPI_GROUP2, PPI, 2);
+impl_ppi_group!(PPI_GROUP3, PPI, 3);
+
 impl_pin!(P0_00, 0, 0);
 impl_pin!(P0_01, 0, 1);
 impl_pin!(P0_02, 0, 2);

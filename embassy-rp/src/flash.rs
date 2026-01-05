@@ -6,8 +6,8 @@ use core::task::{Context, Poll};
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use embedded_storage::nor_flash::{
-    check_erase, check_read, check_write, ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind,
-    ReadNorFlash,
+    ErrorType, MultiwriteNorFlash, NorFlash, NorFlashError, NorFlashErrorKind, ReadNorFlash, check_erase, check_read,
+    check_write,
 };
 
 use crate::dma::{AnyChannel, Channel, Transfer};
@@ -627,7 +627,7 @@ mod ram_helpers {
     /// Length of data must be a multiple of 4096
     /// addr must be aligned to 4096
     #[inline(never)]
-    #[link_section = ".data.ram_func"]
+    #[unsafe(link_section = ".data.ram_func")]
     #[cfg(feature = "rp2040")]
     unsafe fn write_flash_inner(addr: u32, len: u32, data: Option<&[u8]>, ptrs: *const FlashFunctionPointers) {
         #[cfg(target_arch = "arm")]
@@ -692,7 +692,7 @@ mod ram_helpers {
     /// Length of data must be a multiple of 4096
     /// addr must be aligned to 4096
     #[inline(never)]
-    #[link_section = ".data.ram_func"]
+    #[unsafe(link_section = ".data.ram_func")]
     #[cfg(feature = "_rp235x")]
     unsafe fn write_flash_inner(addr: u32, len: u32, data: Option<&[u8]>, ptrs: *const FlashFunctionPointers) {
         let data = data.map(|d| d.as_ptr()).unwrap_or(core::ptr::null());
@@ -811,7 +811,7 @@ mod ram_helpers {
     ///
     /// Credit: taken from `rp2040-flash` (also licensed Apache+MIT)
     #[inline(never)]
-    #[link_section = ".data.ram_func"]
+    #[unsafe(link_section = ".data.ram_func")]
     #[cfg(feature = "rp2040")]
     unsafe fn read_flash_inner(cmd: FlashCommand, ptrs: *const FlashFunctionPointers) {
         #[cfg(target_arch = "arm")]

@@ -8,7 +8,7 @@
 use core::str::from_utf8;
 
 use cyw43::JoinOptions;
-use cyw43_pio::{PioSpi, DEFAULT_CLOCK_DIVIDER};
+use cyw43_pio::{DEFAULT_CLOCK_DIVIDER, PioSpi};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_net::tcp::TcpSocket;
@@ -31,7 +31,9 @@ const WIFI_NETWORK: &str = "ssid"; // change to your network SSID
 const WIFI_PASSWORD: &str = "pwd"; // change to your network password
 
 #[embassy_executor::task]
-async fn cyw43_task(runner: cyw43::Runner<'static, Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>) -> ! {
+async fn cyw43_task(
+    runner: cyw43::Runner<'static, cyw43::SpiBus<Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>>,
+) -> ! {
     runner.run().await
 }
 
@@ -101,7 +103,7 @@ async fn main(spawner: Spawner) {
         .join(WIFI_NETWORK, JoinOptions::new(WIFI_PASSWORD.as_bytes()))
         .await
     {
-        info!("join failed with status={}", err.status);
+        info!("join failed: {:?}", err);
     }
 
     info!("waiting for link...");

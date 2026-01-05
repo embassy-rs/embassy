@@ -6,7 +6,7 @@ use pio::InstructionOperands;
 
 use crate::gpio::Level;
 use crate::pio::{Common, Config, Direction, Instance, LoadedProgram, Pin, PioPin, StateMachine};
-use crate::{clocks, Peri};
+use crate::{Peri, clocks};
 
 /// This converts the duration provided into the number of cycles the PIO needs to run to make it take the same time
 fn to_pio_cycles(duration: Duration) -> u32 {
@@ -67,7 +67,7 @@ impl<'d, T: Instance, const SM: usize> PioPwm<'d, T, SM> {
         Self { sm, pin }
     }
 
-    /// Enable's the PIO program, continuing the wave generation from the PIO program.
+    /// Enables the PIO program, continuing the wave generation from the PIO program.
     pub fn start(&mut self) {
         self.sm.set_enable(true);
     }

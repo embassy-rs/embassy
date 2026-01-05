@@ -1,16 +1,16 @@
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
 use core::task::Poll;
 
-use atomic_polyfill::{AtomicU16, AtomicUsize, Ordering};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::host::{
-    channel, ChannelError, DeviceEvent, HostError, SetupPacket, TimeoutConfig, UsbChannel, UsbHostDriver,
+    ChannelError, DeviceEvent, HostError, SetupPacket, TimeoutConfig, UsbChannel, UsbHostDriver, channel,
 };
 use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
 use rp_pac::usb_dpram::vals::EpControlEndpointType;
 
-use super::{EndpointBuffer, Instance, BUS_WAKER, DPRAM_DATA_OFFSET, EP_IN_WAKERS, EP_MEMORY};
+use super::{BUS_WAKER, DPRAM_DATA_OFFSET, EP_IN_WAKERS, EP_MEMORY, EndpointBuffer, Instance};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::interrupt::{self};
 use crate::peripherals::USB;
@@ -770,7 +770,11 @@ impl<'d, T: Instance> UsbHostDriver for Driver<'d, T> {
 
             Ok(Channel::new(free_index as _, addr, 64, endpoint, dev_addr, pre))
         } else {
-            let index = self.channel_index.fetch_add(1, Ordering::Relaxed);
+            let index = critical_section::with(|_| {
+                let old_val = self.channel_index.load(Ordering::Relaxed);
+                self.channel_index.store(old_val + 1, Ordering::Relaxed);
+                old_val
+            });
             Ok(Channel::new(
                 index,
                 DPRAM_DATA_OFFSET,

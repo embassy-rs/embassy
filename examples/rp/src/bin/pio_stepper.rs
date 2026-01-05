@@ -10,7 +10,7 @@ use embassy_rp::bind_interrupts;
 use embassy_rp::peripherals::PIO0;
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::pio_programs::stepper::{PioStepper, PioStepperProgram};
-use embassy_time::{with_timeout, Duration, Timer};
+use embassy_time::{Duration, Timer, with_timeout};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {

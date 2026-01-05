@@ -3,10 +3,10 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_stm32::Config;
 use embassy_stm32::gpio::OutputType;
 use embassy_stm32::time::khz;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
-use embassy_stm32::Config;
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -21,6 +21,7 @@ async fn main(_spawner: Spawner) {
             source: PllSource::HSI,
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL50,
+            fracn: None,
             divp: Some(PllDiv::DIV2),
             divq: None,
             divr: None,

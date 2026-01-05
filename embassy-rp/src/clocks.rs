@@ -72,8 +72,8 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use pac::clocks::vals::*;
 
 use crate::gpio::{AnyPin, SealedPin};
-use crate::pac::common::{Reg, RW};
-use crate::{pac, reset, Peri};
+use crate::pac::common::{RW, Reg};
+use crate::{Peri, pac, reset};
 
 // NOTE: all gpin handling is commented out for future reference.
 // gpin is not usually safe to use during the boot init() call, so it won't
@@ -267,7 +267,7 @@ impl CoreVoltage {
     }
 }
 
-/// CLock configuration.
+/// Clock configuration.
 #[non_exhaustive]
 pub struct ClockConfig {
     /// Ring oscillator configuration.
@@ -1647,6 +1647,9 @@ pub enum GpoutSrc {
     Rosc = ClkGpoutCtrlAuxsrc::ROSC_CLKSRC as _,
     /// XOSC.
     Xosc = ClkGpoutCtrlAuxsrc::XOSC_CLKSRC as _,
+    /// LPOSC.
+    #[cfg(feature = "_rp235x")]
+    Lposc = ClkGpoutCtrlAuxsrc::LPOSC_CLKSRC as _,
     /// SYS.
     Sys = ClkGpoutCtrlAuxsrc::CLK_SYS as _,
     /// USB.

@@ -4,6 +4,7 @@
 #![allow(missing_docs)] // TODO
 
 use core::mem::MaybeUninit;
+use core::ops;
 
 mod bd;
 pub use bd::*;
@@ -11,6 +12,7 @@ pub use bd::*;
 #[cfg(any(mco, mco1, mco2))]
 mod mco;
 use critical_section::CriticalSection;
+use embassy_hal_internal::{Peri, PeripheralType};
 #[cfg(any(mco, mco1, mco2))]
 pub use mco::*;
 
@@ -26,14 +28,16 @@ pub use hsi48::*;
 #[cfg_attr(stm32g4, path = "g4.rs")]
 #[cfg_attr(any(stm32h5, stm32h7, stm32h7rs), path = "h.rs")]
 #[cfg_attr(any(stm32l0, stm32l1, stm32l4, stm32l5, stm32wb, stm32wl, stm32u0), path = "l.rs")]
+#[cfg_attr(stm32u3, path = "u3.rs")]
 #[cfg_attr(stm32u5, path = "u5.rs")]
 #[cfg_attr(stm32wba, path = "wba.rs")]
+#[cfg_attr(stm32n6, path = "n6.rs")]
 mod _version;
 
 pub use _version::*;
 use stm32_metapac::RCC;
 
-pub use crate::_generated::{mux, Clocks};
+pub use crate::_generated::{Clocks, mux};
 use crate::time::Hertz;
 
 #[cfg(feature = "low-power")]
@@ -47,6 +51,12 @@ pub(crate) static mut REFCOUNT_STOP1: u32 = 0;
 ///
 /// May be read without a critical section
 pub(crate) static mut REFCOUNT_STOP2: u32 = 0;
+
+#[cfg(feature = "low-power")]
+pub(crate) static mut RCC_CONFIG: Option<Config> = None;
+
+#[cfg(backup_sram)]
+pub(crate) static mut BKSRAM_RETAINED: bool = false;
 
 #[cfg(not(feature = "_dual-core"))]
 /// Frozen clock frequencies
@@ -104,6 +114,32 @@ pub fn clocks<'a>(_rcc: &'a crate::Peri<'a, crate::peripherals::RCC>) -> &'a Clo
     unsafe { get_freqs() }
 }
 
+#[cfg(feature = "low-power")]
+fn increment_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
+    match stop_mode {
+        StopMode::Standby => {}
+        StopMode::Stop2 => unsafe {
+            REFCOUNT_STOP2 += 1;
+        },
+        StopMode::Stop1 => unsafe {
+            REFCOUNT_STOP1 += 1;
+        },
+    }
+}
+
+#[cfg(feature = "low-power")]
+fn decrement_stop_refcount(_cs: CriticalSection, stop_mode: StopMode) {
+    match stop_mode {
+        StopMode::Standby => {}
+        StopMode::Stop2 => unsafe {
+            REFCOUNT_STOP2 -= 1;
+        },
+        StopMode::Stop1 => unsafe {
+            REFCOUNT_STOP1 -= 1;
+        },
+    }
+}
+
 pub(crate) trait SealedRccPeripheral {
     fn frequency() -> Hertz;
     #[allow(dead_code)]
@@ -134,13 +170,26 @@ pub(crate) struct RccInfo {
     stop_mode: StopMode,
 }
 
+/// Specifies a limit for the stop mode of the peripheral or the stop mode to be entered.
+/// E.g. if `StopMode::Stop1` is selected, the peripheral prevents the chip from entering Stop1 mode.
 #[cfg(feature = "low-power")]
 #[allow(dead_code)]
-pub(crate) enum StopMode {
-    Standby,
-    Stop2,
+#[derive(Debug, Clone, Copy, PartialEq, Default, defmt::Format)]
+pub enum StopMode {
+    #[default]
+    /// Peripheral prevents chip from entering Stop1 or executor will enter Stop1
     Stop1,
+    /// Peripheral prevents chip from entering Stop2 or executor will enter Stop2
+    Stop2,
+    /// Peripheral does not prevent chip from entering Stop
+    Standby,
 }
+
+#[cfg(feature = "low-power")]
+type BusyRccPeripheral = BusyPeripheral<StopMode>;
+
+#[cfg(not(feature = "low-power"))]
+type BusyRccPeripheral = ();
 
 impl RccInfo {
     /// Safety:
@@ -174,6 +223,18 @@ impl RccInfo {
         }
     }
 
+    #[cfg(stm32wl5x)]
+    fn wait_for_lock(&self) -> crate::hsem::HardwareSemaphoreMutex<'_, crate::peripherals::HSEM> {
+        use crate::hsem::HardwareSemaphoreChannel;
+        use crate::peripherals::HSEM;
+        let mut sem = HardwareSemaphoreChannel::<HSEM>::new(3);
+        loop {
+            if let Some(lock) = sem.try_lock(0) {
+                return lock;
+            }
+        }
+    }
+
     // TODO: should this be `unsafe`?
     pub(crate) fn enable_and_reset_with_cs(&self, _cs: CriticalSection) {
         if self.refcount_idx_or_0xff != 0xff {
@@ -194,31 +255,48 @@ impl RccInfo {
             }
         }
 
-        #[cfg(feature = "low-power")]
-        match self.stop_mode {
-            StopMode::Standby => {}
-            StopMode::Stop2 => unsafe {
-                REFCOUNT_STOP2 += 1;
-            },
-            StopMode::Stop1 => unsafe {
-                REFCOUNT_STOP1 += 1;
-            },
-        }
-
         // set the xxxRST bit
         let reset_ptr = self.reset_ptr();
         if let Some(reset_ptr) = reset_ptr {
+            #[cfg(not(stm32wl5x))]
             unsafe {
                 let val = reset_ptr.read_volatile();
                 reset_ptr.write_volatile(val | 1u32 << self.reset_bit);
+            }
+
+            // on stm32wl5x each CPU has its own peripheral enable bits and if the othert CPU has enabled the peripheral we don;t want to reset it
+            // as that would reset the configuration that the other CPU has set up.
+            // we hold a hardware lock to prevent the other CPU from enabling the peripheral while we are resetting it.
+            #[cfg(stm32wl5x)]
+            {
+                let lock = self.wait_for_lock();
+                if unsafe { !self.is_enabled_by_other_core() } {
+                    unsafe {
+                        let val = reset_ptr.read_volatile();
+                        reset_ptr.write_volatile(val | 1u32 << self.reset_bit);
+                    }
+                    trace!("rcc: reset 0x{:x}:{}", self.enable_offset, self.enable_bit);
+                }
+                drop(lock);
             }
         }
 
         // set the xxxEN bit
         let enable_ptr = self.enable_ptr();
         unsafe {
-            let val = enable_ptr.read_volatile();
-            enable_ptr.write_volatile(val | 1u32 << self.enable_bit);
+            #[cfg(not(all(stm32wl5x, feature = "_core-cm0p")))]
+            {
+                let val = enable_ptr.read_volatile();
+                enable_ptr.write_volatile(val | 1u32 << self.enable_bit);
+            }
+            // second core enable for stm32wl5x is at offset 0x100
+            #[cfg(all(stm32wl5x, feature = "_core-cm0p"))]
+            {
+                let enable_ptr = enable_ptr.add(0x100 / 4);
+                let val = enable_ptr.read_volatile();
+                enable_ptr.write_volatile(val | 1u32 << self.enable_bit);
+            }
+            trace!("rcc: enabled 0x{:x}:{}", self.enable_offset, self.enable_bit);
         }
 
         // we must wait two peripheral clock cycles before the clock is active
@@ -260,33 +338,104 @@ impl RccInfo {
             }
         }
 
-        #[cfg(feature = "low-power")]
-        match self.stop_mode {
-            StopMode::Standby => {}
-            StopMode::Stop2 => unsafe {
-                REFCOUNT_STOP2 -= 1;
-            },
-            StopMode::Stop1 => unsafe {
-                REFCOUNT_STOP1 -= 1;
-            },
-        }
-
         // clear the xxxEN bit
         let enable_ptr = self.enable_ptr();
         unsafe {
-            let val = enable_ptr.read_volatile();
-            enable_ptr.write_volatile(val & !(1u32 << self.enable_bit));
+            #[cfg(not(all(stm32wl5x, feature = "_core-cm0p")))]
+            {
+                let val = enable_ptr.read_volatile();
+                enable_ptr.write_volatile(val & !(1u32 << self.enable_bit));
+            }
+            // second core enable for stm32wl5x is at offset 0x100
+            #[cfg(all(stm32wl5x, feature = "_core-cm0p"))]
+            {
+                let enable_ptr = enable_ptr.add(0x100 / 4);
+                let val = enable_ptr.read_volatile();
+                enable_ptr.write_volatile(val & !(1u32 << self.enable_bit));
+            }
+            trace!("rcc: disabled 0x{:x}:{}", self.enable_offset, self.enable_bit);
         }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn increment_stop_refcount_with_cs(&self, _cs: CriticalSection) {
+        #[cfg(feature = "low-power")]
+        increment_stop_refcount(_cs, self.stop_mode);
+    }
+
+    #[allow(dead_code)]
+    fn increment_minimum_stop_refcount_with_cs(&self, _cs: CriticalSection) {
+        #[cfg(all(any(stm32wl, stm32wb), feature = "low-power"))]
+        match self.stop_mode {
+            StopMode::Stop1 | StopMode::Stop2 => increment_stop_refcount(_cs, StopMode::Stop2),
+            _ => {}
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn increment_stop_refcount(&self) {
+        #[cfg(feature = "low-power")]
+        critical_section::with(|cs| self.increment_stop_refcount_with_cs(cs))
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn decrement_stop_refcount_with_cs(&self, _cs: CriticalSection) {
+        #[cfg(feature = "low-power")]
+        decrement_stop_refcount(_cs, self.stop_mode);
+    }
+
+    #[allow(dead_code)]
+    fn decrement_minimum_stop_refcount_with_cs(&self, _cs: CriticalSection) {
+        #[cfg(all(any(stm32wl, stm32wb), feature = "low-power"))]
+        match self.stop_mode {
+            StopMode::Stop1 | StopMode::Stop2 => decrement_stop_refcount(_cs, StopMode::Stop2),
+            _ => {}
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn decrement_stop_refcount(&self) {
+        #[cfg(feature = "low-power")]
+        critical_section::with(|cs| self.decrement_stop_refcount_with_cs(cs))
     }
 
     // TODO: should this be `unsafe`?
     pub(crate) fn enable_and_reset(&self) {
-        critical_section::with(|cs| self.enable_and_reset_with_cs(cs))
+        critical_section::with(|cs| {
+            self.enable_and_reset_with_cs(cs);
+            self.increment_stop_refcount_with_cs(cs);
+        })
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn enable_and_reset_without_stop(&self) {
+        critical_section::with(|cs| {
+            self.enable_and_reset_with_cs(cs);
+            self.increment_minimum_stop_refcount_with_cs(cs);
+        })
     }
 
     // TODO: should this be `unsafe`?
     pub(crate) fn disable(&self) {
-        critical_section::with(|cs| self.disable_with_cs(cs))
+        critical_section::with(|cs| {
+            self.disable_with_cs(cs);
+            self.decrement_stop_refcount_with_cs(cs);
+        })
+    }
+
+    // TODO: should this be `unsafe`?
+    #[allow(dead_code)]
+    pub(crate) fn disable_without_stop(&self) {
+        critical_section::with(|cs| {
+            self.disable_with_cs(cs);
+            self.decrement_minimum_stop_refcount_with_cs(cs);
+        })
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn block_stop(&self) -> BusyRccPeripheral {
+        #[cfg(feature = "low-power")]
+        BusyPeripheral::new(self.stop_mode)
     }
 
     fn reset_ptr(&self) -> Option<*mut u32> {
@@ -299,6 +448,69 @@ impl RccInfo {
 
     fn enable_ptr(&self) -> *mut u32 {
         unsafe { (RCC.as_ptr() as *mut u32).add(self.enable_offset as _) }
+    }
+
+    #[cfg(stm32wl5x)]
+    unsafe fn is_enabled_by_other_core(&self) -> bool {
+        let ptr = self.enable_ptr();
+        #[cfg(feature = "_core-cm4")]
+        let ptr = ptr.add(0x100);
+
+        (ptr.read_volatile() & (1u32 << self.enable_bit)) != 0
+    }
+}
+
+pub(crate) trait StoppablePeripheral {
+    #[cfg(feature = "low-power")]
+    #[allow(dead_code)]
+    fn stop_mode(&self) -> StopMode;
+}
+
+#[cfg(feature = "low-power")]
+impl StoppablePeripheral for StopMode {
+    fn stop_mode(&self) -> StopMode {
+        *self
+    }
+}
+
+impl<'a, T: StoppablePeripheral + PeripheralType> StoppablePeripheral for Peri<'a, T> {
+    #[cfg(feature = "low-power")]
+    fn stop_mode(&self) -> StopMode {
+        T::stop_mode(&self)
+    }
+}
+
+pub(crate) struct BusyPeripheral<T: StoppablePeripheral> {
+    peripheral: T,
+}
+
+impl<T: StoppablePeripheral> BusyPeripheral<T> {
+    pub fn new(peripheral: T) -> Self {
+        #[cfg(feature = "low-power")]
+        critical_section::with(|cs| increment_stop_refcount(cs, peripheral.stop_mode()));
+
+        Self { peripheral }
+    }
+}
+
+impl<T: StoppablePeripheral> Drop for BusyPeripheral<T> {
+    fn drop(&mut self) {
+        #[cfg(feature = "low-power")]
+        critical_section::with(|cs| decrement_stop_refcount(cs, self.peripheral.stop_mode()));
+    }
+}
+
+impl<T: StoppablePeripheral> ops::Deref for BusyPeripheral<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        &self.peripheral
+    }
+}
+
+impl<T: StoppablePeripheral> ops::DerefMut for BusyPeripheral<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.peripheral
     }
 }
 
@@ -371,6 +583,16 @@ pub fn enable_and_reset<T: RccPeripheral>() {
     T::RCC_INFO.enable_and_reset();
 }
 
+/// Enables and resets peripheral `T` without incrementing the stop refcount.
+///
+/// # Safety
+///
+/// Peripheral must not be in use.
+// TODO: should this be `unsafe`?
+pub fn enable_and_reset_without_stop<T: RccPeripheral>() {
+    T::RCC_INFO.enable_and_reset_without_stop();
+}
+
 /// Disables peripheral `T`.
 ///
 /// # Safety
@@ -390,7 +612,7 @@ pub fn disable<T: RccPeripheral>() {
 ///
 /// This should only be called after `init`.
 #[cfg(not(feature = "_dual-core"))]
-pub fn reinit<'a>(config: Config, _rcc: &'a mut crate::Peri<'a, crate::peripherals::RCC>) {
+pub fn reinit(config: Config, _rcc: &'_ mut crate::Peri<'_, crate::peripherals::RCC>) {
     critical_section::with(|cs| init_rcc(cs, config))
 }
 
@@ -404,8 +626,39 @@ pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
 
         #[cfg(feature = "low-power")]
         {
+            RCC_CONFIG = Some(config);
             REFCOUNT_STOP2 = 0;
             REFCOUNT_STOP1 = 0;
         }
     }
+}
+
+/// Calculate intermediate prescaler number used to calculate peripheral prescalers
+///
+/// This function is intended to calculate a number indicating a minimum division
+/// necessary to result in a frequency lower than the provided `freq_max`.
+///
+/// The returned value indicates the `val + 1` divider is necessary to result in
+/// the output frequency that is below the maximum provided.
+///
+/// For example:
+/// 0 = divider of 1 => no division necessary as the input frequency is below max
+/// 1 = divider of 2 => division by 2 necessary
+/// ...
+///
+/// The provided max frequency is inclusive. So if `freq_in == freq_max` the result
+/// will be 0, indicating that no division is necessary. To accomplish that we subtract
+/// 1 from the input frequency so that the integer rounding plays in our favor.
+///
+/// For example:
+/// Let the input frequency be 110 and the max frequency be 55.
+/// If we naiively do `110/55 = 2` the renult will indicate that we need a divider by 3
+/// which in reality will be rounded up to 4 as usually a 3 division is not available.
+/// In either case the resulting frequency will be either 36 or 27 which is lower than
+/// what we would want. The result should be 1.
+/// If we do the following instead `109/55 = 1` indicating that we need a divide by 2
+/// which will result in the correct 55.
+#[allow(unused)]
+pub(crate) fn raw_prescaler(freq_in: u32, freq_max: u32) -> u32 {
+    freq_in.saturating_sub(1) / freq_max
 }

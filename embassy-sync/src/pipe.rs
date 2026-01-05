@@ -7,8 +7,8 @@ use core::ops::Range;
 use core::pin::Pin;
 use core::task::{Context, Poll};
 
-use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
+use crate::blocking_mutex::raw::RawMutex;
 use crate::ring_buffer::RingBuffer;
 use crate::waitqueue::WakerRegistration;
 
@@ -393,7 +393,7 @@ where
     /// Attempt to immediately write some bytes to the pipe.
     ///
     /// This method will either write a nonzero amount of bytes to the pipe immediately,
-    /// or return an error if the pipe is empty. See [`write`](Self::write) for a variant
+    /// or return an error if the pipe is full. See [`write`](Self::write) for a variant
     /// that waits instead of returning an error.
     pub fn try_write(&self, buf: &[u8]) -> Result<usize, TryWriteError> {
         self.try_write_with_context(None, buf)

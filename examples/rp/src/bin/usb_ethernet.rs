@@ -7,8 +7,8 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_net::tcp::TcpSocket;
 use embassy_net::StackResources;
+use embassy_net::tcp::TcpSocket;
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::peripherals::USB;
 use embassy_rp::usb::{Driver, InterruptHandler};

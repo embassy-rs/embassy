@@ -8,7 +8,7 @@ use embedded_storage::nor_flash::{
 
 use crate::pac::nvmc::vals;
 use crate::peripherals::NVMC;
-use crate::{pac, Peri};
+use crate::{Peri, pac};
 
 #[cfg(not(feature = "_nrf5340-net"))]
 /// Erase size of NVMC flash in bytes.

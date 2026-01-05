@@ -1,7 +1,5 @@
 #![cfg_attr(feature = "nightly", feature(impl_trait_in_assoc_type))]
 
-use core::future::Future;
-
 use embassy_executor::SendSpawner;
 
 #[embassy_executor::task]

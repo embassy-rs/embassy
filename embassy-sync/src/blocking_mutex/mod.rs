@@ -135,9 +135,9 @@ impl<T> Mutex<raw::NoopRawMutex, T> {
 // There's still a ThreadModeRawMutex for use with the generic Mutex (handy with Channel, for example),
 // but that will require T: Send even though it shouldn't be needed.
 
-#[cfg(any(cortex_m, feature = "std"))]
+#[cfg(any(cortex_m, doc, feature = "std"))]
 pub use thread_mode_mutex::*;
-#[cfg(any(cortex_m, feature = "std"))]
+#[cfg(any(cortex_m, doc, feature = "std"))]
 mod thread_mode_mutex {
     use super::*;
 

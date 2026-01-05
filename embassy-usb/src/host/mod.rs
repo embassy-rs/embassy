@@ -9,7 +9,7 @@ use core::num::NonZeroU8;
 
 use embassy_time::Timer;
 use embassy_usb_driver::host::channel::{Control, InOut};
-use embassy_usb_driver::host::{channel, ChannelError, HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver};
+use embassy_usb_driver::host::{ChannelError, HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{EndpointInfo, EndpointType, Speed};
 
 use crate::control::Request;

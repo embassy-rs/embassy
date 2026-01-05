@@ -4,7 +4,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_mspm0::adc::{self, Adc, Vrsel};
-use embassy_mspm0::{bind_interrupts, peripherals, Config};
+use embassy_mspm0::{Config, bind_interrupts, peripherals};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_halt as _};
 

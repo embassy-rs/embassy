@@ -1,11 +1,11 @@
 use core::marker::PhantomData;
 use core::ops::BitOr;
 
+use super::Instance;
 use super::errors::GroupError;
 use super::io_pin::*;
-use super::Instance;
-use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 use crate::Peri;
+use crate::gpio::{AfType, AnyPin, OutputType, Speed};
 
 /// Pin type definition to control IO parameters
 #[derive(PartialEq, Clone, Copy)]

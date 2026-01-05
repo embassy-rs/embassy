@@ -1,5 +1,6 @@
 #![no_std]
 #![allow(async_fn_in_trait)]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
@@ -242,7 +243,7 @@ pub trait Bus {
     ///
     /// # Errors
     ///
-    /// * [`Unsupported`](crate::Unsupported) - This UsbBus implementation doesn't support
+    /// * [`Unsupported`] - This UsbBus implementation doesn't support
     ///   simulating a disconnect or it has not been enabled at creation time.
     fn force_reset(&mut self) -> Result<(), Unsupported> {
         Err(Unsupported)
@@ -252,7 +253,7 @@ pub trait Bus {
     ///
     /// # Errors
     ///
-    /// * [`Unsupported`](crate::Unsupported) - This UsbBus implementation doesn't support
+    /// * [`Unsupported`] - This UsbBus implementation doesn't support
     ///   remote wakeup or it has not been enabled at creation time.
     async fn remote_wakeup(&mut self) -> Result<(), Unsupported>;
 }
@@ -467,6 +468,7 @@ pub enum EndpointError {
     Disabled,
 }
 
+// TODO: remove before releasing embassy-usb-driver v0.3
 impl embedded_io_async::Error for EndpointError {
     fn kind(&self) -> embedded_io_async::ErrorKind {
         match self {
@@ -475,3 +477,13 @@ impl embedded_io_async::Error for EndpointError {
         }
     }
 }
+
+impl core::fmt::Display for EndpointError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::BufferOverflow => write!(f, "Buffer overflow"),
+            Self::Disabled => write!(f, "Endpoint disabled"),
+        }
+    }
+}
+impl core::error::Error for EndpointError {}

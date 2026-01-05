@@ -7,8 +7,8 @@
 //!
 //! This module provides functionality to poll BOOTSEL from an embassy application.
 
-use crate::flash::in_ram;
 use crate::Peri;
+use crate::flash::in_ram;
 
 /// Reads the BOOTSEL button. Returns true if the button is pressed.
 ///
@@ -36,7 +36,7 @@ mod ram_helpers {
     /// This function must live in ram. It uses inline asm to avoid any
     /// potential calls to ABI functions that might be in flash.
     #[inline(never)]
-    #[link_section = ".data.ram_func"]
+    #[unsafe(link_section = ".data.ram_func")]
     #[cfg(target_arch = "arm")]
     pub unsafe fn read_cs_status() -> GpioStatus {
         let result: u32;

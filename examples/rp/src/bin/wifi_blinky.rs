@@ -5,7 +5,7 @@
 #![no_std]
 #![no_main]
 
-use cyw43_pio::{PioSpi, DEFAULT_CLOCK_DIVIDER};
+use cyw43_pio::{DEFAULT_CLOCK_DIVIDER, PioSpi};
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
@@ -21,7 +21,9 @@ bind_interrupts!(struct Irqs {
 });
 
 #[embassy_executor::task]
-async fn cyw43_task(runner: cyw43::Runner<'static, Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>) -> ! {
+async fn cyw43_task(
+    runner: cyw43::Runner<'static, cyw43::SpiBus<Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>>,
+) -> ! {
     runner.run().await
 }
 

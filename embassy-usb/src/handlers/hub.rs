@@ -6,14 +6,14 @@
 use core::num::NonZeroU8;
 
 use embassy_time::Timer;
-use embassy_usb_driver::host::{channel, HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver};
+use embassy_usb_driver::host::{HostError, RequestType, SetupPacket, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType, Speed};
 use zerocopy::{FromBytes, Immutable, IntoBytes, KnownLayout};
 
 use super::{EnumerationInfo, HandlerEvent, RegisterError, UsbHostHandler};
 use crate::control::Request;
-use crate::host::descriptor::{InterfaceDescriptor, USBDescriptor, DEFAULT_MAX_DESCRIPTOR_SIZE};
 use crate::host::ControlChannelExt;
+use crate::host::descriptor::{DEFAULT_MAX_DESCRIPTOR_SIZE, InterfaceDescriptor, USBDescriptor};
 
 pub struct HubHandler<H: UsbHostDriver, const MAX_PORTS: usize> {
     interrupt_channel: H::Channel<channel::Interrupt, channel::In>,
@@ -123,8 +123,7 @@ impl<H: UsbHostDriver, const MAX_PORTS: usize> UsbHostHandler for HubHandler<H, 
             while let Some(port) = hub_changes.take_port_change() {
                 trace!(
                     "HUB {}: port {} is changed, requesting status",
-                    self.device_address,
-                    port
+                    self.device_address, port
                 );
 
                 // Get status

@@ -2,7 +2,7 @@
 mod filter;
 
 use core::future::poll_fn;
-use core::sync::atomic::{compiler_fence, AtomicBool, Ordering};
+use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_hal_internal::{Peri, PeripheralType};
@@ -47,7 +47,7 @@ impl<'d, T: Instance> Rtc<'d, T> {
         Self { inner }
     }
 
-    /// Enable or disable the leap year check. The rp2040 chip will always add a Feb 29th on every year that is divisable by 4, but this may be incorrect (e.g. on century years). This function allows you to disable this check.
+    /// Enable or disable the leap year check. The rp2040 chip will always add a Feb 29th on every year that is divisible by 4, but this may be incorrect (e.g. on century years). This function allows you to disable this check.
     ///
     /// Leap year checking is enabled by default.
     pub fn set_leap_year_check(&mut self, leap_year_check_enabled: bool) {

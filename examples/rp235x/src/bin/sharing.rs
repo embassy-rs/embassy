@@ -52,7 +52,7 @@ bind_interrupts!(struct Irqs {
 
 #[interrupt]
 unsafe fn SWI_IRQ_0() {
-    EXECUTOR_HI.on_interrupt()
+    unsafe { EXECUTOR_HI.on_interrupt() }
 }
 
 #[entry]

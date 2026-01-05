@@ -114,19 +114,11 @@ fn sqrt<F: Float + ROMFunctions>(f: F) -> F {
 }
 
 fn ln<F: Float + ROMFunctions>(f: F) -> F {
-    if is_negative_nonzero_or_nan(f) {
-        F::NAN
-    } else {
-        f.ln()
-    }
+    if is_negative_nonzero_or_nan(f) { F::NAN } else { f.ln() }
 }
 
 fn exp<F: Float + ROMFunctions>(f: F) -> F {
-    if f.is_nan() {
-        F::NAN
-    } else {
-        f.exp()
-    }
+    if f.is_nan() { F::NAN } else { f.exp() }
 }
 
 fn sin<F: Float + ROMFunctions>(f: F) -> F {

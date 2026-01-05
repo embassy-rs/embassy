@@ -1,7 +1,7 @@
 use std::str::FromStr;
 
-use darling::export::NestedMeta;
 use darling::FromMeta;
+use darling::export::NestedMeta;
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::visit::{self, Visit};
@@ -287,7 +287,11 @@ fn check_arg_ty(errors: &mut TokenStream, ty: &Type) {
         }
 
         fn visit_type_impl_trait(&mut self, i: &'ast syn::TypeImplTrait) {
-            error(self.errors, i, "`impl Trait` is not allowed in task arguments. It is syntax sugar for generics, and tasks can't be generic.");
+            error(
+                self.errors,
+                i,
+                "`impl Trait` is not allowed in task arguments. It is syntax sugar for generics, and tasks can't be generic.",
+            );
         }
     }
 

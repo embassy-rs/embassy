@@ -2,8 +2,8 @@
 
 use core::marker::PhantomData;
 use core::slice;
+use core::sync::atomic::{Ordering, compiler_fence};
 
-use atomic_polyfill::{compiler_fence, Ordering};
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_usb_driver::Direction;
 

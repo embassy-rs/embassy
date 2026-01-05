@@ -130,6 +130,10 @@ impl Queue {
                 // Remove it
                 prev.set(item.next.get());
                 item.next.set(None);
+                // Presence of a waker is used by schedule_wake to determine
+                // if the item is part of the queue or not,
+                // so ensure there is no waker for items removed from the queue.
+                item.waker = None;
             }
         }
     }

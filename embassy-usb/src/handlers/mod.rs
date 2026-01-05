@@ -2,12 +2,12 @@
 
 use core::num::NonZeroU8;
 
+use embassy_usb_driver::Speed;
 use embassy_usb_driver::host::channel::{self, IsIn, IsOut};
 use embassy_usb_driver::host::{HostError, UsbChannel, UsbHostDriver};
-use embassy_usb_driver::Speed;
 
-use crate::host::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor};
 use crate::host::ControlChannelExt;
+use crate::host::descriptor::{ConfigurationDescriptor, DeviceDescriptor, USBDescriptor};
 
 pub mod hub;
 pub mod kbd;
@@ -139,8 +139,7 @@ impl EnumerationInfo {
 
         trace!(
             "Full Configuration Descriptor [{}]: {:?}",
-            cfg_desc_short.total_len,
-            dest_buffer
+            cfg_desc_short.total_len, dest_buffer
         );
 
         let cfg_desc =

@@ -6,9 +6,9 @@
 
 use embassy_hal_internal::PeripheralType;
 
-use crate::pac::wwdt::{vals, Wwdt as Regs};
-use crate::pac::{self};
 use crate::Peri;
+use crate::pac::wwdt::{Wwdt as Regs, vals};
+use crate::pac::{self};
 
 /// Possible watchdog timeout values.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

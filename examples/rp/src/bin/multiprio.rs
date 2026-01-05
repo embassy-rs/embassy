@@ -61,7 +61,7 @@ use defmt::{info, unwrap};
 use embassy_executor::{Executor, InterruptExecutor};
 use embassy_rp::interrupt;
 use embassy_rp::interrupt::{InterruptExt, Priority};
-use embassy_time::{Instant, Timer, TICK_HZ};
+use embassy_time::{Instant, TICK_HZ, Timer};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -113,12 +113,12 @@ static EXECUTOR_LOW: StaticCell<Executor> = StaticCell::new();
 
 #[interrupt]
 unsafe fn SWI_IRQ_1() {
-    EXECUTOR_HIGH.on_interrupt()
+    unsafe { EXECUTOR_HIGH.on_interrupt() }
 }
 
 #[interrupt]
 unsafe fn SWI_IRQ_0() {
-    EXECUTOR_MED.on_interrupt()
+    unsafe { EXECUTOR_MED.on_interrupt() }
 }
 
 #[entry]

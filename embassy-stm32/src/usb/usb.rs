@@ -17,11 +17,11 @@ use embassy_usb_driver::{
 #[cfg(usb_v4)]
 pub use usb_host::*;
 
+use crate::pac::USBRAM;
 use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
-use crate::pac::USBRAM;
 use crate::rcc::RccPeripheral;
-use crate::{interrupt, Peri};
+use crate::{Peri, interrupt};
 
 /// Interrupt handler.
 pub struct InterruptHandler<T: Instance> {

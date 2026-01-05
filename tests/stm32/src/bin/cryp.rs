@@ -5,9 +5,9 @@
 #[path = "../common.rs"]
 mod common;
 
+use aes_gcm::Aes128Gcm;
 use aes_gcm::aead::heapless::Vec;
 use aes_gcm::aead::{AeadInPlace, KeyInit};
-use aes_gcm::Aes128Gcm;
 use common::*;
 use embassy_executor::Spawner;
 use embassy_stm32::cryp::{self, *};

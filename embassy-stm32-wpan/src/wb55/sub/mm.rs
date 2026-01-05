@@ -1,0 +1,84 @@
+//! Memory manager routines
+use core::future::poll_fn;
+use core::mem::MaybeUninit;
+use core::task::Poll;
+
+use aligned::{A4, Aligned};
+use embassy_stm32::ipcc::IpccTxChannel;
+use embassy_sync::waitqueue::AtomicWaker;
+
+use crate::consts::POOL_SIZE;
+use crate::evt;
+use crate::evt::EvtPacket;
+#[cfg(feature = "wb55_ble")]
+use crate::tables::BLE_SPARE_EVT_BUF;
+use crate::tables::{EVT_POOL, FREE_BUF_QUEUE, MemManagerTable, SYS_SPARE_EVT_BUF, TL_MEM_MANAGER_TABLE};
+use crate::unsafe_linked_list::LinkedListNode;
+
+static MM_WAKER: AtomicWaker = AtomicWaker::new();
+static mut LOCAL_FREE_BUF_QUEUE: Aligned<A4, MaybeUninit<LinkedListNode>> = Aligned(MaybeUninit::uninit());
+
+pub struct MemoryManager<'a> {
+    ipcc_mm_release_buffer_channel: IpccTxChannel<'a>,
+}
+
+impl<'a> MemoryManager<'a> {
+    pub(crate) fn new(ipcc_mm_release_buffer_channel: IpccTxChannel<'a>) -> Self {
+        unsafe {
+            LinkedListNode::init_head(FREE_BUF_QUEUE.as_mut_ptr());
+            LinkedListNode::init_head(LOCAL_FREE_BUF_QUEUE.as_mut_ptr());
+
+            TL_MEM_MANAGER_TABLE.as_mut_ptr().write_volatile(MemManagerTable {
+                #[cfg(feature = "wb55_ble")]
+                spare_ble_buffer: BLE_SPARE_EVT_BUF.as_ptr().cast(),
+                #[cfg(not(feature = "wb55_ble"))]
+                spare_ble_buffer: core::ptr::null(),
+                spare_sys_buffer: SYS_SPARE_EVT_BUF.as_ptr().cast(),
+                blepool: EVT_POOL.as_ptr().cast(),
+                blepoolsize: POOL_SIZE as u32,
+                pevt_free_buffer_queue: FREE_BUF_QUEUE.as_mut_ptr(),
+                traces_evt_pool: core::ptr::null(),
+                tracespoolsize: 0,
+            });
+        }
+
+        Self {
+            ipcc_mm_release_buffer_channel,
+        }
+    }
+
+    pub async fn run_queue(&mut self) -> ! {
+        loop {
+            poll_fn(|cx| unsafe {
+                MM_WAKER.register(cx.waker());
+                if critical_section::with(|cs| LinkedListNode::is_empty(cs, LOCAL_FREE_BUF_QUEUE.as_mut_ptr())) {
+                    Poll::Pending
+                } else {
+                    Poll::Ready(())
+                }
+            })
+            .await;
+
+            self.ipcc_mm_release_buffer_channel
+                .send(|| {
+                    critical_section::with(|cs| unsafe {
+                        while let Some(node_ptr) = LinkedListNode::remove_head(cs, LOCAL_FREE_BUF_QUEUE.as_mut_ptr()) {
+                            LinkedListNode::insert_head(cs, FREE_BUF_QUEUE.as_mut_ptr(), node_ptr);
+                        }
+                    })
+                })
+                .await;
+        }
+    }
+}
+
+impl<'a> evt::MemoryManager for MemoryManager<'a> {
+    /// SAFETY: passing a pointer to something other than a managed event packet is UB
+    unsafe fn drop_event_packet(evt: *mut EvtPacket) {
+        critical_section::with(|cs| unsafe {
+            LinkedListNode::insert_head(cs, LOCAL_FREE_BUF_QUEUE.as_mut_ptr(), evt as *mut _);
+        });
+
+        MM_WAKER.wake();
+    }
+}

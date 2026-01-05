@@ -1,13 +1,13 @@
 //! A synchronization primitive for controlling access to a pool of resources.
 use core::cell::{Cell, RefCell};
 use core::convert::Infallible;
-use core::future::{poll_fn, Future};
+use core::future::{Future, poll_fn};
 use core::task::{Poll, Waker};
 
 use heapless::Deque;
 
-use crate::blocking_mutex::raw::RawMutex;
 use crate::blocking_mutex::Mutex;
+use crate::blocking_mutex::raw::RawMutex;
 use crate::waitqueue::WakerRegistration;
 
 /// An asynchronous semaphore.

@@ -8,18 +8,18 @@ use core::task::Poll;
 use embassy_sync::waitqueue::AtomicWaker;
 use embassy_time::{Duration, Instant, Timer};
 use embassy_usb_driver::host::{
-    channel, ChannelError, DeviceEvent, HostError, TimeoutConfig, UsbChannel, UsbHostDriver,
+    ChannelError, DeviceEvent, HostError, TimeoutConfig, UsbChannel, UsbHostDriver, channel,
 };
 use embassy_usb_driver::{EndpointType, Speed};
-use stm32_metapac::common::{Reg, RW};
+use stm32_metapac::common::{RW, Reg};
 use stm32_metapac::usb::regs::Epr;
 
 use super::{DmPin, DpPin, Instance};
+use crate::pac::USBRAM;
 use crate::pac::usb::regs;
 use crate::pac::usb::vals::{EpType, Stat};
-use crate::pac::USBRAM;
 use crate::peripherals::USB;
-use crate::{interrupt, Peri};
+use crate::{Peri, interrupt};
 
 /// The number of registers is 8, allowing up to 16 mono-
 /// directional/single-buffer or up to 7 double-buffer endpoints in any combination. For
@@ -630,9 +630,7 @@ impl<'d, I: Instance, T: channel::Type, D: channel::Direction> UsbChannel<T, D> 
     ) -> Result<(), embassy_usb_driver::host::HostError> {
         trace!(
             "retarget_channel: addr: {:?} ep_type: {:?} index: {}",
-            addr,
-            endpoint.ep_type,
-            self.index
+            addr, endpoint.ep_type, self.index
         );
         let eptype = endpoint.ep_type;
         let index = self.index;

@@ -2,7 +2,7 @@ use embassy_futures::yield_now;
 
 /// Wrapper that yields for each operation to the wrapped instance
 ///
-/// This can be used in combination with BlockingAsync<T> to enforce yields
+/// This can be used in combination with [super::BlockingAsync] to enforce yields
 /// between long running blocking operations.
 pub struct YieldingAsync<T> {
     wrapped: T,

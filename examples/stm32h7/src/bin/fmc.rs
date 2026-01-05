@@ -3,8 +3,8 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::fmc::Fmc;
 use embassy_stm32::Config;
+use embassy_stm32::fmc::Fmc;
 use embassy_time::{Delay, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -19,6 +19,7 @@ async fn main(_spawner: Spawner) {
             source: PllSource::HSI,
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL50,
+            fracn: None,
             divp: Some(PllDiv::DIV2),
             divq: Some(PllDiv::DIV8), // 100mhz
             divr: None,

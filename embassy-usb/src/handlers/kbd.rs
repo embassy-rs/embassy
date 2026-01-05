@@ -2,12 +2,12 @@
 
 use core::num::NonZeroU8;
 
-use embassy_usb_driver::host::{channel, HostError, UsbChannel, UsbHostDriver};
+use embassy_usb_driver::host::{HostError, UsbChannel, UsbHostDriver, channel};
 use embassy_usb_driver::{Direction, EndpointInfo, EndpointType};
 
 use super::{EnumerationInfo, HandlerEvent, RegisterError, UsbHostHandler};
-use crate::host::descriptor::{InterfaceDescriptor, USBDescriptor, DEFAULT_MAX_DESCRIPTOR_SIZE};
 use crate::host::ControlChannelExt;
+use crate::host::descriptor::{DEFAULT_MAX_DESCRIPTOR_SIZE, InterfaceDescriptor, USBDescriptor};
 
 #[repr(C)]
 #[derive(Debug)]

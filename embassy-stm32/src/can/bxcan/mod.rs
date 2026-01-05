@@ -5,8 +5,8 @@ use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::task::Poll;
 
-use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_hal_internal::PeripheralType;
+use embassy_hal_internal::interrupt::InterruptExt;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::waitqueue::AtomicWaker;
@@ -22,7 +22,7 @@ use crate::can::enums::{BusError, RefCountOp, TryReadError};
 use crate::gpio::{AfType, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::{self, RccPeripheral};
-use crate::{interrupt, peripherals, Peri};
+use crate::{Peri, interrupt, peripherals};
 
 /// Interrupt handler.
 pub struct TxInterruptHandler<T: Instance> {
@@ -186,10 +186,10 @@ impl<'d> Can<'d> {
         rx: Peri<'d, if_afio!(impl RxPin<T, A>)>,
         tx: Peri<'d, if_afio!(impl TxPin<T, A>)>,
         _irqs: impl interrupt::typelevel::Binding<T::TXInterrupt, TxInterruptHandler<T>>
-            + interrupt::typelevel::Binding<T::RX0Interrupt, Rx0InterruptHandler<T>>
-            + interrupt::typelevel::Binding<T::RX1Interrupt, Rx1InterruptHandler<T>>
-            + interrupt::typelevel::Binding<T::SCEInterrupt, SceInterruptHandler<T>>
-            + 'd,
+        + interrupt::typelevel::Binding<T::RX0Interrupt, Rx0InterruptHandler<T>>
+        + interrupt::typelevel::Binding<T::RX1Interrupt, Rx1InterruptHandler<T>>
+        + interrupt::typelevel::Binding<T::SCEInterrupt, SceInterruptHandler<T>>
+        + 'd,
     ) -> Self {
         let info = T::info();
         let regs = &T::info().regs;

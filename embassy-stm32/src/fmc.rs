@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 use embassy_hal_internal::PeripheralType;
 
 use crate::gpio::{AfType, OutputType, Pull, Speed};
-use crate::{rcc, Peri};
+use crate::{Peri, rcc};
 
 /// FMC driver
 pub struct Fmc<'d, T: Instance> {
@@ -231,6 +231,42 @@ impl<'d, T: Instance> Fmc<'d, T> {
         ],
         nbl: [
             (nbl0: NBL0Pin), (nbl1: NBL1Pin), (nbl2: NBL2Pin), (nbl3: NBL3Pin)
+        ],
+        ctrl: [
+            (sdcke: SDCKE1Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE1Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
+        ]
+    ));
+
+    fmc_sdram_constructor!(sdram_a13bits_d16bits_4banks_bank1: (
+        bank: stm32_fmc::SdramTargetBank::Bank1,
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin), (a12: A12Pin)
+        ],
+        ba: [(ba0: BA0Pin), (ba1: BA1Pin)],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin)
+        ],
+        nbl: [
+            (nbl0: NBL0Pin), (nbl1: NBL1Pin)
+        ],
+        ctrl: [
+            (sdcke: SDCKE0Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE0Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
+        ]
+    ));
+
+    fmc_sdram_constructor!(sdram_a13bits_d16bits_4banks_bank2: (
+        bank: stm32_fmc::SdramTargetBank::Bank2,
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin), (a12: A12Pin)
+        ],
+        ba: [(ba0: BA0Pin), (ba1: BA1Pin)],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin)
+        ],
+        nbl: [
+            (nbl0: NBL0Pin), (nbl1: NBL1Pin)
         ],
         ctrl: [
             (sdcke: SDCKE1Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE1Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)

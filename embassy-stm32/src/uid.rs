@@ -1,8 +1,8 @@
 //! Unique ID (UID)
 
 /// Get this device's unique 96-bit ID.
-pub fn uid() -> &'static [u8; 12] {
-    unsafe { &*crate::pac::UID.uid(0).as_ptr().cast::<[u8; 12]>() }
+pub fn uid() -> [u8; 12] {
+    unsafe { *crate::pac::UID.uid(0).as_ptr().cast::<[u8; 12]>() }
 }
 
 /// Get this device's unique 96-bit ID, encoded into a string of 24 hexadecimal ASCII digits.

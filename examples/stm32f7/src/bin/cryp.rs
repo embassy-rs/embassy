@@ -1,13 +1,13 @@
 #![no_std]
 #![no_main]
 
+use aes_gcm::Aes128Gcm;
 use aes_gcm::aead::heapless::Vec;
 use aes_gcm::aead::{AeadInPlace, KeyInit};
-use aes_gcm::Aes128Gcm;
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::cryp::{self, *};
-use embassy_stm32::{bind_interrupts, peripherals, Config};
+use embassy_stm32::{Config, bind_interrupts, peripherals};
 use embassy_time::Instant;
 use {defmt_rtt as _, panic_probe as _};
 

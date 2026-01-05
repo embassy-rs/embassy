@@ -8,7 +8,7 @@ use crate::mode::{Async, Blocking, Mode as PeriMode};
 #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
 use crate::pac::dac;
 use crate::rcc::{self, RccPeripheral};
-use crate::{peripherals, Peri};
+use crate::{Peri, peripherals};
 
 mod tsel;
 use embassy_hal_internal::PeripheralType;

@@ -2,10 +2,10 @@
 
 use core::future::Future;
 use core::pin::Pin;
-use core::sync::atomic::{compiler_fence, Ordering};
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::{impl_peripheral, Peri, PeripheralType};
+use embassy_hal_internal::{Peri, PeripheralType, impl_peripheral};
 use embassy_sync::waitqueue::AtomicWaker;
 use pac::dma0::channel::cfg::Periphreqen;
 use pac::dma0::channel::xfercfg::{Dstinc, Srcinc, Width};
@@ -14,7 +14,9 @@ use crate::clocks::enable_and_reset;
 use crate::interrupt::InterruptExt;
 use crate::peripherals::DMA0;
 use crate::sealed::Sealed;
-use crate::{interrupt, pac, peripherals, BitIter};
+use crate::{BitIter, interrupt, pac, peripherals};
+
+pub(crate) const MAX_CHUNK_SIZE: usize = 1024;
 
 #[cfg(feature = "rt")]
 #[interrupt]
@@ -69,7 +71,7 @@ pub(crate) unsafe fn init() {
 ///
 /// SAFETY: Slice must point to a valid location reachable by DMA.
 pub unsafe fn read<'a, C: Channel, W: Word>(ch: Peri<'a, C>, from: *const W, to: *mut [W]) -> Transfer<'a, C> {
-    let count = ((to.len() / W::size() as usize) - 1) as isize;
+    let count = (to.len().div_ceil(W::size() as usize) - 1) as isize;
 
     copy_inner(
         ch,
@@ -87,7 +89,7 @@ pub unsafe fn read<'a, C: Channel, W: Word>(ch: Peri<'a, C>, from: *const W, to:
 ///
 /// SAFETY: Slice must point to a valid location reachable by DMA.
 pub unsafe fn write<'a, C: Channel, W: Word>(ch: Peri<'a, C>, from: *const [W], to: *mut W) -> Transfer<'a, C> {
-    let count = ((from.len() / W::size() as usize) - 1) as isize;
+    let count = (from.len().div_ceil(W::size() as usize) - 1) as isize;
 
     copy_inner(
         ch,
@@ -109,7 +111,7 @@ pub unsafe fn copy<'a, C: Channel, W: Word>(ch: Peri<'a, C>, from: &[W], to: &mu
     let to_len = to.len();
     assert_eq!(from_len, to_len);
 
-    let count = ((from_len / W::size() as usize) - 1) as isize;
+    let count = (from_len.div_ceil(W::size() as usize) - 1) as isize;
 
     copy_inner(
         ch,

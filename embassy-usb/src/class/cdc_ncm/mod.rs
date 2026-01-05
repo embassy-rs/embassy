@@ -14,7 +14,7 @@
 //!   This is due to regex spaghetti: <https://android.googlesource.com/platform/frameworks/base/+/refs/tags/android-mainline-12.0.0_r84/core/res/res/values/config.xml#417>
 //!   and this nonsense in the linux kernel: <https://github.com/torvalds/linux/blob/c00c5e1d157bec0ef0b0b59aa5482eb8dc7e8e49/drivers/net/usb/usbnet.c#L1751-L1757>
 
-use core::mem::{size_of, MaybeUninit};
+use core::mem::{MaybeUninit, size_of};
 use core::ptr::{addr_of, copy_nonoverlapping};
 
 use crate::control::{self, InResponse, OutResponse, Recipient, Request, RequestType};

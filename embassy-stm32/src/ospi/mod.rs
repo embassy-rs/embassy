@@ -12,14 +12,14 @@ use embassy_hal_internal::PeripheralType;
 pub use enums::*;
 use stm32_metapac::octospi::vals::{PhaseMode, SizeInBits};
 
-use crate::dma::{word, ChannelAndRequest};
+use crate::dma::{ChannelAndRequest, word};
 use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
-use crate::pac::octospi::{vals, Octospi as Regs};
+use crate::pac::octospi::{Octospi as Regs, vals};
 #[cfg(octospim_v1)]
 use crate::pac::octospim::Octospim;
 use crate::rcc::{self, RccPeripheral};
-use crate::{peripherals, Peri};
+use crate::{Peri, peripherals};
 
 /// OPSI driver config.
 #[derive(Clone, Copy)]
@@ -451,7 +451,7 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
         }
 
         T::REGS.cr().modify(|w| {
-            w.set_fmode(0.into());
+            w.set_fmode(vals::FunctionalMode::INDIRECT_WRITE);
         });
 
         // Configure alternate bytes
@@ -577,7 +577,8 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
             w.set_dmaen(false);
         });
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
 
         let current_address = T::REGS.ar().read().address();
         let current_instruction = T::REGS.ir().read().instruction();
@@ -616,7 +617,8 @@ impl<'d, T: Instance, M: PeriMode> Ospi<'d, T, M> {
             w.set_dmaen(false);
         });
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
 
         T::REGS
             .cr()
@@ -1153,7 +1155,8 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
 
         let current_address = T::REGS.ar().read().address();
         let current_instruction = T::REGS.ir().read().instruction();
@@ -1168,16 +1171,18 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
             T::REGS.ar().write(|v| v.set_address(current_address));
         }
 
-        let transfer = unsafe {
-            self.dma
-                .as_mut()
-                .unwrap()
-                .read(T::REGS.dr().as_ptr() as *mut W, buf, Default::default())
-        };
+        for chunk in buf.chunks_mut(0xFFFF / W::size().bytes()) {
+            let transfer = unsafe {
+                self.dma
+                    .as_mut()
+                    .unwrap()
+                    .read(T::REGS.dr().as_ptr() as *mut W, chunk, Default::default())
+            };
 
-        T::REGS.cr().modify(|w| w.set_dmaen(true));
+            T::REGS.cr().modify(|w| w.set_dmaen(true));
 
-        transfer.blocking_wait();
+            transfer.blocking_wait();
+        }
 
         finish_dma(T::REGS);
 
@@ -1193,13 +1198,14 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
         T::REGS
             .cr()
             .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_WRITE));
 
         // TODO: implement this using a LinkedList DMA to offload the whole transfer off the CPU.
-        for chunk in buf.chunks(0xFFFF) {
+        for chunk in buf.chunks(0xFFFF / W::size().bytes()) {
             let transfer = unsafe {
                 self.dma
                     .as_mut()
@@ -1226,7 +1232,8 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
 
         let current_address = T::REGS.ar().read().address();
         let current_instruction = T::REGS.ir().read().instruction();
@@ -1241,16 +1248,18 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
             T::REGS.ar().write(|v| v.set_address(current_address));
         }
 
-        let transfer = unsafe {
-            self.dma
-                .as_mut()
-                .unwrap()
-                .read(T::REGS.dr().as_ptr() as *mut W, buf, Default::default())
-        };
+        for chunk in buf.chunks_mut(0xFFFF / W::size().bytes()) {
+            let transfer = unsafe {
+                self.dma
+                    .as_mut()
+                    .unwrap()
+                    .read(T::REGS.dr().as_ptr() as *mut W, chunk, Default::default())
+            };
 
-        T::REGS.cr().modify(|w| w.set_dmaen(true));
+            T::REGS.cr().modify(|w| w.set_dmaen(true));
 
-        transfer.await;
+            transfer.await;
+        }
 
         finish_dma(T::REGS);
 
@@ -1266,13 +1275,14 @@ impl<'d, T: Instance> Ospi<'d, T, Async> {
         // Wait for peripheral to be free
         while T::REGS.sr().read().busy() {}
 
-        self.configure_command(&transaction, Some(buf.len()))?;
+        let transfer_size_bytes = buf.len() * W::size().bytes();
+        self.configure_command(&transaction, Some(transfer_size_bytes))?;
         T::REGS
             .cr()
             .modify(|v| v.set_fmode(vals::FunctionalMode::INDIRECT_WRITE));
 
         // TODO: implement this using a LinkedList DMA to offload the whole transfer off the CPU.
-        for chunk in buf.chunks(0xFFFF) {
+        for chunk in buf.chunks(0xFFFF / W::size().bytes()) {
             let transfer = unsafe {
                 self.dma
                     .as_mut()

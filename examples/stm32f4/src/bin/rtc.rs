@@ -4,8 +4,8 @@
 use chrono::{NaiveDate, NaiveDateTime};
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_stm32::Config;
+use embassy_stm32::rtc::{Rtc, RtcConfig};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -21,12 +21,12 @@ async fn main(_spawner: Spawner) {
         .and_hms_opt(10, 30, 15)
         .unwrap();
 
-    let mut rtc = Rtc::new(p.RTC, RtcConfig::default());
+    let (mut rtc, time_provider) = Rtc::new(p.RTC, RtcConfig::default());
 
     rtc.set_datetime(now.into()).expect("datetime not set");
 
     loop {
-        let now: NaiveDateTime = rtc.now().unwrap().into();
+        let now: NaiveDateTime = time_provider.now().unwrap().into();
 
         info!("{}", now.and_utc().timestamp());
 

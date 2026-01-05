@@ -15,8 +15,6 @@ use crate::types::InterfaceNumber;
 use crate::{Builder, Handler};
 
 const USB_CLASS_HID: u8 = 0x03;
-const USB_SUBCLASS_NONE: u8 = 0x00;
-const USB_PROTOCOL_NONE: u8 = 0x00;
 
 // HID
 const HID_DESC_DESCTYPE_HID: u8 = 0x21;
@@ -30,6 +28,52 @@ const HID_REQ_GET_REPORT: u8 = 0x01;
 const HID_REQ_SET_REPORT: u8 = 0x09;
 const HID_REQ_GET_PROTOCOL: u8 = 0x03;
 const HID_REQ_SET_PROTOCOL: u8 = 0x0b;
+
+/// Get/Set Protocol mapping
+/// See (7.2.5 and 7.2.6): <https://www.usb.org/sites/default/files/hid1_11.pdf>
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum HidProtocolMode {
+    /// Hid Boot Protocol Mode
+    Boot = 0,
+    /// Hid Report Protocol Mode
+    Report = 1,
+}
+
+impl From<u8> for HidProtocolMode {
+    fn from(mode: u8) -> HidProtocolMode {
+        if mode == HidProtocolMode::Boot as u8 {
+            HidProtocolMode::Boot
+        } else {
+            HidProtocolMode::Report
+        }
+    }
+}
+
+/// USB HID interface subclass values.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum HidSubclass {
+    /// No subclass, standard HID device.
+    No = 0,
+    /// Boot interface subclass, supports BIOS boot protocol.
+    Boot = 1,
+}
+
+/// USB HID protocol values.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum HidBootProtocol {
+    /// No boot protocol.
+    None = 0,
+    /// Keyboard boot protocol.
+    Keyboard = 1,
+    /// Mouse boot protocol.
+    Mouse = 2,
+}
 
 /// Configuration for the HID class.
 pub struct Config<'d> {
@@ -48,6 +92,12 @@ pub struct Config<'d> {
 
     /// Max packet size for both the IN and OUT endpoints.
     pub max_packet_size: u16,
+
+    /// The HID subclass of this interface
+    pub hid_subclass: HidSubclass,
+
+    /// The HID boot protocol of this interface
+    pub hid_boot_protocol: HidBootProtocol,
 }
 
 /// Report ID
@@ -109,10 +159,15 @@ fn build<'d, D: Driver<'d>>(
 ) -> (Option<D::EndpointOut>, D::EndpointIn, &'d AtomicUsize) {
     let len = config.report_descriptor.len();
 
-    let mut func = builder.function(USB_CLASS_HID, USB_SUBCLASS_NONE, USB_PROTOCOL_NONE);
+    let mut func = builder.function(USB_CLASS_HID, config.hid_subclass as u8, config.hid_boot_protocol as u8);
     let mut iface = func.interface();
     let if_num = iface.interface_number();
-    let mut alt = iface.alt_setting(USB_CLASS_HID, USB_SUBCLASS_NONE, USB_PROTOCOL_NONE, None);
+    let mut alt = iface.alt_setting(
+        USB_CLASS_HID,
+        config.hid_subclass as u8,
+        config.hid_boot_protocol as u8,
+        None,
+    );
 
     // HID descriptor
     alt.descriptor(
@@ -389,6 +444,23 @@ pub trait RequestHandler {
         OutResponse::Rejected
     }
 
+    /// Gets the current hid protocol.
+    ///
+    /// Returns `Report` protocol by default.
+    fn get_protocol(&self) -> HidProtocolMode {
+        HidProtocolMode::Report
+    }
+
+    /// Sets the current hid protocol to `protocol`.
+    ///
+    /// Accepts only `Report` protocol by default.
+    fn set_protocol(&mut self, protocol: HidProtocolMode) -> OutResponse {
+        match protocol {
+            HidProtocolMode::Report => OutResponse::Accepted,
+            HidProtocolMode::Boot => OutResponse::Rejected,
+        }
+    }
+
     /// Get the idle rate for `id`.
     ///
     /// If `id` is `None`, get the idle rate for all reports. Returning `None`
@@ -482,11 +554,14 @@ impl<'d> Handler for Control<'d> {
                 _ => Some(OutResponse::Rejected),
             },
             HID_REQ_SET_PROTOCOL => {
-                if req.value == 1 {
-                    Some(OutResponse::Accepted)
-                } else {
-                    warn!("HID Boot Protocol is unsupported.");
-                    Some(OutResponse::Rejected) // UNSUPPORTED: Boot Protocol
+                let hid_protocol = HidProtocolMode::from(req.value as u8);
+                match (self.request_handler.as_mut(), hid_protocol) {
+                    (Some(request_handler), hid_protocol) => Some(request_handler.set_protocol(hid_protocol)),
+                    (None, HidProtocolMode::Report) => Some(OutResponse::Accepted),
+                    (None, HidProtocolMode::Boot) => {
+                        info!("Received request to switch to Boot protocol mode, but it is disabled by default.");
+                        Some(OutResponse::Rejected)
+                    }
                 }
             }
             _ => Some(OutResponse::Rejected),
@@ -539,8 +614,12 @@ impl<'d> Handler for Control<'d> {
                         }
                     }
                     HID_REQ_GET_PROTOCOL => {
-                        // UNSUPPORTED: Boot Protocol
-                        buf[0] = 1;
+                        if let Some(request_handler) = self.request_handler.as_mut() {
+                            buf[0] = request_handler.get_protocol() as u8;
+                        } else {
+                            // Return `Report` protocol mode by default
+                            buf[0] = HidProtocolMode::Report as u8;
+                        }
                         Some(InResponse::Accepted(&buf[0..1]))
                     }
                     _ => Some(InResponse::Rejected),

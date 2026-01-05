@@ -1,4 +1,5 @@
 #![no_std]
+#![allow(unsafe_op_in_unsafe_fn)]
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
@@ -26,7 +27,7 @@ mod config {
     include!(concat!(env!("OUT_DIR"), "/config.rs"));
 }
 
-use embassy_futures::select::{select, Either};
+use embassy_futures::select::{Either, select};
 use heapless::Vec;
 use host::descriptor::ConfigurationDescriptor;
 
