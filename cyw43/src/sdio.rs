@@ -20,8 +20,6 @@ use crate::util::{aligned_mut, aligned_ref, slice8_mut};
 //     };
 // }
 
-const SDIO_DEBUG: bool = false;
-
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[cfg_attr(feature = "log", derive(derive_more::Display))]
@@ -40,16 +38,6 @@ enum Word {
 }
 
 const BLOCK_SIZE: usize = BACKPLANE_MAX_TRANSFER_SIZE;
-
-fn block_mode(buf: &Aligned<A4, [u8]>) -> Mode {
-    if size_of_val(buf) <= BLOCK_SIZE {
-        Mode::Byte
-    } else if size_of_val(buf) % BLOCK_SIZE == 0 {
-        Mode::Block
-    } else {
-        unreachable!()
-    }
-}
 
 fn cmd53_arg(write: bool, func: u32, addr: u32, mode: Mode, len: usize) -> u32 {
     let (len, block_mode) = match mode {
@@ -219,75 +207,75 @@ where
 
         let result = self.sdio.cmd52(arg).await.unwrap_or(u16::MAX) as u8;
 
-        if SDIO_DEBUG {
-            trace!("cmd52: 0x{:08x} 0x{:08x}", arg, result);
-        }
-
         result
     }
 
-    async fn cmd53_write(&mut self, func: u32, addr: u32, buf: &Aligned<A4, [u8]>) {
-        let mode = block_mode(buf);
-        let arg = cmd53_arg(true, func, addr, mode, buf.len());
+    async fn cmd53_write(&mut self, func: u32, mut addr: u32, buf: &Aligned<A4, [u8]>) {
+        let byte_part = size_of_val(buf) % BLOCK_SIZE;
+        let block_part = size_of_val(buf) - byte_part;
 
-        if SDIO_DEBUG {
-            if buf.len() == 4 {
-                // trace!("cmd53: 0x{:08x} 0x{:08x}", arg, slice32_ref(&buf[0..4])[0]);
-            } else {
-                trace!("cmd53 bulk: 0x{:08x}", arg);
+        if block_part > 0 {
+            let buf = &buf[..block_part];
+
+            if self
+                .sdio
+                .cmd53_block_write(cmd53_arg(true, func, addr, Mode::Block, buf.len()), unsafe {
+                    slice::from_raw_parts(buf.as_ptr() as *mut _, size_of_val(buf) / BLOCK_SIZE)
+                })
+                .await
+                .is_err()
+            {
+                debug!("cmd53 block read failed");
             }
+
+            addr += block_part as u32;
         }
 
-        match mode {
-            Mode::Byte => {
-                if self.sdio.cmd53_byte_write(arg, buf).await.is_err() {
-                    debug!("cmd53 byte write failed");
-                }
-            }
-            Mode::Block => {
-                if self
-                    .sdio
-                    .cmd53_block_write(arg, unsafe {
-                        slice::from_raw_parts(buf.as_ptr() as *const _, size_of_val(buf) / BLOCK_SIZE)
-                    })
-                    .await
-                    .is_err()
-                {
-                    debug!("cmd53 block write failed");
-                }
+        if byte_part > 0 {
+            let buf = &buf[block_part..];
+
+            if self
+                .sdio
+                .cmd53_byte_write(cmd53_arg(true, func, addr, Mode::Byte, buf.len()), buf)
+                .await
+                .is_err()
+            {
+                debug!("cmd53 byte read failed (size: {})", size_of_val(buf));
             }
         }
     }
 
-    async fn cmd53_read(&mut self, func: u32, addr: u32, buf: &mut Aligned<A4, [u8]>) {
-        let mode = block_mode(buf);
-        let arg = cmd53_arg(false, func, addr, mode, buf.len());
+    async fn cmd53_read(&mut self, func: u32, mut addr: u32, buf: &mut Aligned<A4, [u8]>) {
+        let byte_part = size_of_val(buf) % BLOCK_SIZE;
+        let block_part = size_of_val(buf) - byte_part;
 
-        match mode {
-            Mode::Byte => {
-                if self.sdio.cmd53_byte_read(arg, buf).await.is_err() {
-                    debug!("cmd53 byte read failed (size: {})", size_of_val(buf));
-                }
+        if block_part > 0 {
+            let buf = &mut buf[..block_part];
+
+            if self
+                .sdio
+                .cmd53_block_read(cmd53_arg(false, func, addr, Mode::Block, buf.len()), unsafe {
+                    slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut _, size_of_val(buf) / BLOCK_SIZE)
+                })
+                .await
+                .is_err()
+            {
+                debug!("cmd53 block read failed");
             }
-            Mode::Block => {
-                if self
-                    .sdio
-                    .cmd53_block_read(arg, unsafe {
-                        slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut _, size_of_val(buf) / BLOCK_SIZE)
-                    })
-                    .await
-                    .is_err()
-                {
-                    debug!("cmd53 block read failed");
-                }
-            }
+
+            addr += block_part as u32;
         }
 
-        if SDIO_DEBUG {
-            if buf.len() == 4 {
-                // trace!("cmd53: 0x{:08x} 0x{:08x}", arg, slice32_ref(&buf[0..4])[0]);
-            } else {
-                trace!("cmd53 bulk: 0x{:08x}", arg);
+        if byte_part > 0 {
+            let buf = &mut buf[block_part..];
+
+            if self
+                .sdio
+                .cmd53_byte_read(cmd53_arg(false, func, addr, Mode::Byte, buf.len()), buf)
+                .await
+                .is_err()
+            {
+                debug!("cmd53 byte read failed (size: {})", size_of_val(buf));
             }
         }
     }
@@ -386,43 +374,11 @@ where
     }
 
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) {
-        let byte_part = size_of_val(buf) % BLOCK_SIZE;
-        let block_part = size_of_val(buf) - byte_part;
-        let mut address = 0usize;
-
-        // trace!("size of val: {}", size_of_val(buf));
-        // trace!("block part: {}", block_part);
-        // trace!("byte part: {}", byte_part);
-
-        if block_part > 0 {
-            self.cmd53_read(WLAN_FUNCTION, address as u32, &mut buf[..block_part])
-                .await;
-
-            address += block_part;
-        }
-
-        if byte_part > 0 {
-            self.cmd53_read(WLAN_FUNCTION, address as u32, &mut buf[block_part..])
-                .await;
-        }
+        self.cmd53_read(WLAN_FUNCTION, 0, buf).await;
     }
 
     async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>) {
-        let byte_part = size_of_val(buf) % BLOCK_SIZE;
-        let block_part = size_of_val(buf) - byte_part;
-        let mut address = 0usize;
-
-        if block_part > 0 {
-            self.cmd53_write(WLAN_FUNCTION, address as u32, &buf[..block_part])
-                .await;
-
-            address += block_part;
-        }
-
-        if byte_part > 0 {
-            self.cmd53_write(WLAN_FUNCTION, address as u32, &buf[block_part..])
-                .await;
-        }
+        self.cmd53_write(WLAN_FUNCTION, 0, buf).await;
     }
 
     #[allow(unused)]
@@ -527,6 +483,7 @@ where
     }
 
     async fn wait_for_event(&mut self) {
-        self.sdio.wait_for_event().await;
+        Timer::after(Duration::from_millis(250)).await;
+        // self.sdio.wait_for_event().await;
     }
 }
