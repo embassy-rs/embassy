@@ -5,8 +5,7 @@ use embassy_time::{Duration, Timer};
 
 use crate::consts::*;
 use crate::runner::{BusType, SealedBus};
-use crate::try_until;
-use crate::util::{aligned_mut, aligned_ref, slice8_mut};
+use crate::util::{aligned_mut, aligned_ref, slice32_mut, slice32_ref, try_until};
 
 // macro_rules! ALIGN_UINT {
 //     ($val:expr, $align:expr) => {
@@ -293,10 +292,9 @@ where
         // set up backplane
         if !try_until(
             async || {
-                self.write8(BUS_FUNCTION, SDIOD_CCCR_IOEN, SDIO_FUNC_ENABLE_1 as u8)
-                    .await;
+                self.write8(FUNC_BUS, SDIOD_CCCR_IOEN, SDIO_FUNC_ENABLE_1 as u8).await;
 
-                self.read8(BUS_FUNCTION, SDIOD_CCCR_IOEN).await as u32 == SDIO_FUNC_ENABLE_1
+                self.read8(FUNC_BUS, SDIOD_CCCR_IOEN).await as u32 == SDIO_FUNC_ENABLE_1
             },
             Duration::from_millis(500),
         )
@@ -309,10 +307,10 @@ where
         debug!("backplane is up");
 
         // Read the bus width and set to 4 bits (1-bit bus is not currently supported)
-        let reg = self.read8(BUS_FUNCTION, SDIOD_CCCR_BICTRL).await as u32;
+        let reg = self.read8(FUNC_BUS, SDIOD_CCCR_BICTRL).await as u32;
 
         self.write8(
-            BUS_FUNCTION,
+            FUNC_BUS,
             SDIOD_CCCR_BICTRL,
             ((reg & !BUS_SD_DATA_WIDTH_MASK) | BUS_SD_DATA_WIDTH_4BIT) as u8,
         )
@@ -321,10 +319,9 @@ where
         // Set the block size
         if !try_until(
             async || {
-                self.write8(BUS_FUNCTION, SDIOD_CCCR_BLKSIZE_0, SDIO_64B_BLOCK as u8)
-                    .await;
+                self.write8(FUNC_BUS, SDIOD_CCCR_BLKSIZE_0, SDIO_64B_BLOCK as u8).await;
 
-                self.read8(BUS_FUNCTION, SDIOD_CCCR_BLKSIZE_0).await as u32 == SDIO_64B_BLOCK
+                self.read8(FUNC_BUS, SDIOD_CCCR_BLKSIZE_0).await as u32 == SDIO_64B_BLOCK
             },
             Duration::from_millis(500),
         )
@@ -334,17 +331,16 @@ where
             return;
         }
 
-        self.write8(BUS_FUNCTION, SDIOD_CCCR_BLKSIZE_0, SDIO_64B_BLOCK as u8)
+        self.write8(FUNC_BUS, SDIOD_CCCR_BLKSIZE_0, SDIO_64B_BLOCK as u8).await;
+        self.write8(FUNC_BUS, SDIOD_CCCR_F1BLKSIZE_0, SDIO_64B_BLOCK as u8)
             .await;
-        self.write8(BUS_FUNCTION, SDIOD_CCCR_F1BLKSIZE_0, SDIO_64B_BLOCK as u8)
+        self.write8(FUNC_BUS, SDIOD_CCCR_F2BLKSIZE_0, SDIO_64B_BLOCK as u8)
             .await;
-        self.write8(BUS_FUNCTION, SDIOD_CCCR_F2BLKSIZE_0, SDIO_64B_BLOCK as u8)
-            .await;
-        self.write8(BUS_FUNCTION, SDIOD_CCCR_F2BLKSIZE_1, 0).await;
+        self.write8(FUNC_BUS, SDIOD_CCCR_F2BLKSIZE_1, 0).await;
 
         // Enable/Disable Client interrupts
         self.write8(
-            BUS_FUNCTION,
+            FUNC_BUS,
             SDIOD_CCCR_INTEN,
             (INTR_CTL_MASTER_EN | INTR_CTL_FUNC1_EN | INTR_CTL_FUNC2_EN) as u8,
         )
@@ -353,9 +349,9 @@ where
         self.sdio.set_bus_to_high_speed(25_000_000).unwrap();
 
         // enable more than 25MHz bus
-        let reg = self.read8(BUS_FUNCTION, SDIOD_CCCR_SPEED_CONTROL).await as u32;
+        let reg = self.read8(FUNC_BUS, SDIOD_CCCR_SPEED_CONTROL).await as u32;
         if reg & 1 != 0 {
-            self.write8(BUS_FUNCTION, SDIOD_CCCR_SPEED_CONTROL, (reg | SDIO_SPEED_EHS) as u8)
+            self.write8(FUNC_BUS, SDIOD_CCCR_SPEED_CONTROL, (reg | SDIO_SPEED_EHS) as u8)
                 .await;
 
             self.sdio.set_bus_to_high_speed(50_000_000).unwrap();
@@ -363,7 +359,7 @@ where
 
         // Wait till the backplane is ready
         if !try_until(
-            async || self.read8(BUS_FUNCTION, SDIOD_CCCR_IORDY).await as u32 & SDIO_FUNC_READY_1 != 0,
+            async || self.read8(FUNC_BUS, SDIOD_CCCR_IORDY).await as u32 & SDIO_FUNC_READY_1 != 0,
             Duration::from_millis(500),
         )
         .await
@@ -374,52 +370,83 @@ where
     }
 
     async fn wlan_read(&mut self, buf: &mut Aligned<A4, [u8]>) {
-        self.cmd53_read(WLAN_FUNCTION, 0, buf).await;
+        self.cmd53_read(FUNC_WLAN, 0, buf).await;
     }
 
     async fn wlan_write(&mut self, buf: &Aligned<A4, [u8]>) {
-        self.cmd53_write(WLAN_FUNCTION, 0, buf).await;
+        self.cmd53_write(FUNC_WLAN, 0, buf).await;
     }
 
     #[allow(unused)]
     async fn bp_read(&mut self, mut addr: u32, mut data: &mut [u8]) {
-        unimplemented!()
-    }
-
-    /// A.K.A. cyw43_download_resource
-    async fn bp_write(&mut self, mut addr: u32, mut data: &[u8]) {
-        trace!("bp_write addr = {:08x}", addr);
+        trace!("bp_read addr = {:08x}, len = {}", addr, data.len());
 
         // It seems the HW force-aligns the addr
         // to 2 if data.len() >= 2
         // to 4 if data.len() >= 4
         // To simplify, enforce 4-align for now.
         assert!(addr % 4 == 0);
+        assert!(data.as_ptr() as u32 % 4 == 0);
 
-        let mut buf = [0u32; BACKPLANE_MAX_TRANSFER_SIZE / 4];
+        // align buffer len
+        // note: safe because align is checked above
+        let mut data = aligned_mut(slice32_mut(unsafe { core::mem::transmute(data) }));
 
         while !data.is_empty() {
             // Ensure transfer doesn't cross a window boundary.
             let window_offs = addr & BACKPLANE_ADDRESS_MASK;
             let window_remaining = BACKPLANE_WINDOW_SIZE - window_offs as usize;
 
-            let len = data.len().min(BACKPLANE_MAX_TRANSFER_SIZE).min(window_remaining);
-
-            slice8_mut(&mut buf)[..len].copy_from_slice(&data[..len]);
+            let len = data.len().min(BLOCK_BUFFER_SIZE).min(window_remaining);
+            let buf = &mut data[..len];
 
             self.backplane_set_window(addr).await;
 
-            self.cmd53_write(
-                BACKPLANE_FUNCTION,
-                addr & BACKPLANE_ADDRESS_MASK as u32,
-                &aligned_ref(&buf),
-            )
-            .await;
+            self.cmd53_read(FUNC_BACKPLANE, addr & BACKPLANE_ADDRESS_MASK as u32, buf)
+                .await;
+
+            // Advance ptr.
+            addr += len as u32;
+            data = &mut data[len..];
+        }
+
+        self.backplane_set_window(CHIPCOMMON_BASE_ADDRESS).await;
+    }
+
+    /// A.K.A. cyw43_download_resource
+    async fn bp_write(&mut self, mut addr: u32, data: &[u8]) {
+        trace!("bp_write addr = {:08x}, len = {}", addr, data.len());
+
+        // It seems the HW force-aligns the addr
+        // to 2 if data.len() >= 2
+        // to 4 if data.len() >= 4
+        // To simplify, enforce 4-align for now.
+        assert!(addr % 4 == 0);
+        assert!(data.as_ptr() as u32 % 4 == 0);
+
+        // align buffer len
+        // note: safe because align is checked above
+        let mut data = aligned_ref(slice32_ref(unsafe { core::mem::transmute(data) }));
+
+        while !data.is_empty() {
+            // Ensure transfer doesn't cross a window boundary.
+            let window_offs = addr & BACKPLANE_ADDRESS_MASK;
+            let window_remaining = BACKPLANE_WINDOW_SIZE - window_offs as usize;
+
+            let len = data.len().min(BLOCK_BUFFER_SIZE).min(window_remaining);
+            let buf = &data[..len];
+
+            self.backplane_set_window(addr).await;
+
+            self.cmd53_write(FUNC_BACKPLANE, addr & BACKPLANE_ADDRESS_MASK as u32, buf)
+                .await;
 
             // Advance ptr.
             addr += len as u32;
             data = &data[len..];
         }
+
+        self.backplane_set_window(CHIPCOMMON_BASE_ADDRESS).await;
 
         // TODO: implement verify download
     }

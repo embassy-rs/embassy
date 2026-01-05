@@ -1,4 +1,7 @@
-pub static NVRAM: &'static [u8] = b"
+use aligned::{A4, Aligned};
+
+pub static NVRAM: &'static Aligned<A4, [u8]> = &Aligned(
+    *b"
     NVRAMRev=$Rev$\x00\
     manfid=0x2d0\x00\
     prodid=0x0727\x00\
@@ -45,4 +48,5 @@ pub static NVRAM: &'static [u8] = b"
     spurconfig=0x3\x00\
     glitch_based_crsmin=1\x00\
     btc_mode=1\x00\
-    \x00";
+    \x00",
+);

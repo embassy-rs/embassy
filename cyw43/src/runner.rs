@@ -14,8 +14,8 @@ use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 use crate::nvram::NVRAM;
 pub use crate::spi::SpiBusCyw43;
 use crate::structs::*;
-use crate::util::{aligned_mut, aligned_ref, slice8_mut, slice16_mut};
-use crate::{CHIP, Core, MTU, events, try_until};
+use crate::util::{aligned_mut, aligned_ref, slice8_mut, slice16_mut, try_until};
+use crate::{CHIP, Core, MTU, events};
 
 #[cfg(feature = "firmware-logs")]
 struct LogState {
@@ -179,12 +179,12 @@ where
             BusType::Spi => self.bus.bp_read16(CHIPCOMMON_BASE_ADDRESS).await,
             BusType::Sdio => {
                 // Disable the extra sdio pull-ups
-                // self.bus.write8(BACKPLANE_FUNCTION, SDIO_PULL_UP, 0).await;
+                // self.bus.write8(FUNC_BACKPLANE, SDIO_PULL_UP, 0).await;
 
                 // Enable f1 and f2
                 self.bus
                     .write8(
-                        BUS_FUNCTION,
+                        FUNC_BUS,
                         SDIOD_CCCR_IOEN,
                         (SDIO_FUNC_ENABLE_1 | SDIO_FUNC_ENABLE_2) as u8,
                     )
@@ -196,7 +196,7 @@ where
                 // Note: only GPIO0 using rising edge is currently supported
                 self.bus
                     .write8(
-                        BUS_FUNCTION,
+                        FUNC_BUS,
                         SDIOD_SEP_INT_CTL,
                         (SEP_INTR_CTL_MASK | SEP_INTR_CTL_EN | SEP_INTR_CTL_POL) as u8,
                     )
@@ -205,15 +205,15 @@ where
                 // Enable f2 interrupt only
                 self.bus
                     .write8(
-                        BUS_FUNCTION,
+                        FUNC_BUS,
                         SDIOD_CCCR_INTEN,
                         (INTR_CTL_MASTER_EN | INTR_CTL_FUNC2_EN) as u8,
                     )
                     .await;
 
-                self.bus.read8(BUS_FUNCTION, SDIOD_CCCR_IORDY).await;
+                self.bus.read8(FUNC_BUS, SDIOD_CCCR_IORDY).await;
 
-                let reg = self.bus.read8(BUS_FUNCTION, SDIOD_CCCR_BRCM_CARDCAP).await;
+                let reg = self.bus.read8(FUNC_BUS, SDIOD_CCCR_BRCM_CARDCAP).await;
                 if reg & SDIOD_CCCR_BRCM_CARDCAP_SECURE_MODE as u8 != 0 {
                     debug!("chip supports bootloader handshake");
 
@@ -227,9 +227,9 @@ where
                         )
                         .await;
 
-                    let addr_low = self.bus.read8(BACKPLANE_FUNCTION, SBSDIO_FUNC1_SBADDRLOW).await as u32;
-                    let addr_mid = self.bus.read8(BACKPLANE_FUNCTION, SBSDIO_FUNC1_SBADDRMID).await as u32;
-                    let addr_high = self.bus.read8(BACKPLANE_FUNCTION, SBSDIO_FUNC1_SBADDRHIGH).await as u32;
+                    let addr_low = self.bus.read8(FUNC_BACKPLANE, SBSDIO_FUNC1_SBADDRLOW).await as u32;
+                    let addr_mid = self.bus.read8(FUNC_BACKPLANE, SBSDIO_FUNC1_SBADDRMID).await as u32;
+                    let addr_high = self.bus.read8(FUNC_BACKPLANE, SBSDIO_FUNC1_SBADDRHIGH).await as u32;
 
                     let reg_addr = ((addr_low << 8) | (addr_mid << 16) | (addr_high << 24)) + SDIO_CORE_CHIPID_REG;
 
@@ -386,8 +386,8 @@ where
         let shared_addr = self.bus.bp_read32(addr).await;
         debug!("shared_addr {:08x}", shared_addr);
 
-        let mut shared = [0; SharedMemData::SIZE];
-        self.bus.bp_read(shared_addr, &mut shared).await;
+        let mut shared: Aligned<A4, [u8; _]> = Aligned([0; SharedMemData::SIZE]);
+        self.bus.bp_read(shared_addr, &mut shared[..]).await;
         let shared = SharedMemData::from_bytes(&shared);
 
         self.log.addr = shared.console_addr + 8;
@@ -396,8 +396,8 @@ where
     #[cfg(feature = "firmware-logs")]
     async fn log_read(&mut self) {
         // Read log struct
-        let mut log = [0; SharedMemLog::SIZE];
-        self.bus.bp_read(self.log.addr, &mut log).await;
+        let mut log: Aligned<A4, [u8; _]> = Aligned([0; SharedMemLog::SIZE]);
+        self.bus.bp_read(self.log.addr, &mut log[..]).await;
         let log = SharedMemLog::from_bytes(&log);
 
         let idx = log.idx as usize;
@@ -409,8 +409,8 @@ where
 
         // Read entire buf for now. We could read only what we need, but then we
         // run into annoying alignment issues in `bp_read`.
-        let mut buf = [0; 0x400];
-        self.bus.bp_read(log.buf, &mut buf).await;
+        let mut buf: Aligned<A4, [u8; _]> = Aligned([0; 0x400]);
+        self.bus.bp_read(log.buf, &mut buf[..]).await;
 
         while self.log.last_idx != idx as usize {
             let b = buf[self.log.last_idx];
@@ -618,7 +618,7 @@ where
         loop {
             match BUS::TYPE {
                 BusType::Spi => {
-                    let status = self.bus.read32(BUS_FUNCTION, SPI_STATUS_REGISTER).await;
+                    let status = self.bus.read32(FUNC_BUS, SPI_STATUS_REGISTER).await;
                     trace!("check status{}", FormatStatus(status));
 
                     if status & STATUS_F2_PKT_AVAILABLE != 0 {
