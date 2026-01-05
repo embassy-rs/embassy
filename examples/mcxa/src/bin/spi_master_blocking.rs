@@ -49,7 +49,8 @@ fn write_u32(tx: &mut LpuartTx<'_, Blocking>, val: u32) {
 /// Print a byte as two hex digits
 fn print_hex_byte(tx: &mut LpuartTx<'_, Blocking>, b: u8) {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    tx.blocking_write(&[HEX[(b >> 4) as usize], HEX[(b & 0x0F) as usize]]).ok();
+    tx.blocking_write(&[HEX[(b >> 4) as usize], HEX[(b & 0x0F) as usize]])
+        .ok();
 }
 
 /// Print a hex dump of data (16 bytes per line)
@@ -86,7 +87,8 @@ fn main() -> ! {
 
     tx.blocking_write(b"\r\n=== LPSPI Blocking Master Example ===\r\n").ok();
     tx.blocking_write(b"LPSPI board to board polling example.\r\n").ok();
-    tx.blocking_write(b"Please make sure you make the correct line connection.\r\n\r\n").ok();
+    tx.blocking_write(b"Please make sure you make the correct line connection.\r\n\r\n")
+        .ok();
     tx.blocking_write(b"LPSPI_master --  LPSPI_slave\r\n").ok();
     tx.blocking_write(b"   CLK       --    CLK\r\n").ok();
     tx.blocking_write(b"   PCS       --    PCS\r\n").ok();
@@ -176,4 +178,3 @@ fn main() -> ! {
         loop_count = loop_count.wrapping_add(1);
     }
 }
-

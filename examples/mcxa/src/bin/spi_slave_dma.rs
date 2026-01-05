@@ -43,9 +43,9 @@ use embassy_executor::Spawner;
 use embassy_mcxa as hal;
 use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaCh1InterruptHandler};
 use embassy_mcxa::spi::{SlaveConfig, SpiSlaveDma};
+use hal::bind_interrupts;
 use hal::clocks::config::Div8;
 use hal::lpuart::{Blocking, Config as UartConfig, Lpuart, LpuartTx};
-use hal::bind_interrupts;
 // defmt_rtt is still required for linking even if not used
 use {defmt_rtt as _, panic_probe as _};
 
@@ -103,9 +103,11 @@ async fn main(_spawner: Spawner) {
     let (mut tx, _rx) = lpuart.split();
 
     tx.blocking_write(b"\r\n").ok();
-    tx.blocking_write(b"=============================================\r\n").ok();
+    tx.blocking_write(b"=============================================\r\n")
+        .ok();
     tx.blocking_write(b"LPSPI Board-to-Board DMA Slave Example\r\n").ok();
-    tx.blocking_write(b"=============================================\r\n").ok();
+    tx.blocking_write(b"=============================================\r\n")
+        .ok();
     tx.blocking_write(b"\r\n").ok();
 
     // SPI slave configuration (default: 8-bit, CPOL=0, CPHA=0, MSB first)
@@ -113,8 +115,7 @@ async fn main(_spawner: Spawner) {
 
     // Create SPI slave with DMA using LPSPI1
     let mut spi = match SpiSlaveDma::new(
-        p.LPSPI1,
-        p.P3_10,   // SCK (driven by master)
+        p.LPSPI1, p.P3_10,   // SCK (driven by master)
         p.P3_8,    // SDO/MosiPin (slave sends)
         p.P3_9,    // SDI/MisoPin (slave receives)
         p.P3_11,   // CS (PCS0 - driven by master)
@@ -159,4 +160,3 @@ async fn main(_spawner: Spawner) {
         tx.blocking_write(b" sent.\r\n\r\n").ok();
     }
 }
-

@@ -26,10 +26,10 @@ use embassy_executor::Spawner;
 use embassy_mcxa as hal;
 use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaCh1InterruptHandler};
 use embassy_time::Timer;
+use hal::bind_interrupts;
 use hal::clocks::config::Div8;
 use hal::lpuart::{Blocking, Config as UartConfig, Lpuart, LpuartTx};
 use hal::spi::{Config, SpiDma};
-use hal::bind_interrupts;
 // defmt_rtt is still required for linking even if not used
 use {defmt_rtt as _, panic_probe as _};
 
@@ -45,7 +45,8 @@ const TRANSFER_BAUDRATE: u32 = 500_000;
 /// Print a single hex byte
 fn print_hex_byte(tx: &mut LpuartTx<'_, Blocking>, b: u8) {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    tx.blocking_write(&[HEX[(b >> 4) as usize], HEX[(b & 0xF) as usize]]).ok();
+    tx.blocking_write(&[HEX[(b >> 4) as usize], HEX[(b & 0xF) as usize]])
+        .ok();
 }
 
 /// Print a buffer as hex dump (16 bytes per line)
@@ -104,7 +105,8 @@ async fn main(_spawner: Spawner) {
     let (mut tx, _rx) = lpuart.split();
 
     tx.blocking_write(b"\r\n=== LPSPI DMA Master Example ===\r\n").ok();
-    tx.blocking_write(b"Protocol: Half-duplex (TX-only then RX-only via DMA)\r\n").ok();
+    tx.blocking_write(b"Protocol: Half-duplex (TX-only then RX-only via DMA)\r\n")
+        .ok();
     tx.blocking_write(b"Connection (LPSPI1):\r\n").ok();
     tx.blocking_write(b"  P3_10 (SCK)  -> Slave SCK\r\n").ok();
     tx.blocking_write(b"  P3_11 (PCS)  -> Slave PCS\r\n").ok();
@@ -117,13 +119,10 @@ async fn main(_spawner: Spawner) {
         .bits_per_frame(8);
 
     // Create SPI master with DMA
-    let mut spi = match SpiDma::new(
-        p.LPSPI1, p.P3_10, p.P3_8, p.P3_9, p.P3_11,
-        p.DMA_CH0, p.DMA_CH1,
-        config,
-    ) {
+    let mut spi = match SpiDma::new(p.LPSPI1, p.P3_10, p.P3_8, p.P3_9, p.P3_11, p.DMA_CH0, p.DMA_CH1, config) {
         Ok(s) => {
-            tx.blocking_write(b"SPI DMA Master initialized successfully.\r\n\r\n").ok();
+            tx.blocking_write(b"SPI DMA Master initialized successfully.\r\n\r\n")
+                .ok();
             s
         }
         Err(_) => {
@@ -198,7 +197,8 @@ async fn main(_spawner: Spawner) {
         if error_count == 0 {
             tx.blocking_write(b"\r\nLPSPI DMA transfer all data matched!\r\n").ok();
         } else {
-            tx.blocking_write(b"\r\nError occurred in LPSPI DMA transfer! Errors: ").ok();
+            tx.blocking_write(b"\r\nError occurred in LPSPI DMA transfer! Errors: ")
+                .ok();
             print_u32(&mut tx, error_count);
             tx.blocking_write(b"\r\n").ok();
         }
@@ -207,10 +207,10 @@ async fn main(_spawner: Spawner) {
         tx.blocking_write(b"Master received:").ok();
         print_hex_dump(&mut tx, &rx_data);
 
-        tx.blocking_write(b"\r\nWaiting 2 seconds for next transfer...\r\n\r\n").ok();
+        tx.blocking_write(b"\r\nWaiting 2 seconds for next transfer...\r\n\r\n")
+            .ok();
         Timer::after_secs(2).await;
 
         loop_count += 1;
     }
 }
-

@@ -55,7 +55,7 @@
 use core::future::poll_fn;
 use core::hint::spin_loop;
 use core::marker::PhantomData;
-use core::sync::atomic::{compiler_fence, AtomicBool, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicU8, Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_hal_internal::{Peri, PeripheralType};
@@ -63,7 +63,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use paste::paste;
 
 use crate::clocks::periph_helpers::{Div4, LpspiClockSel, LpspiConfig};
-use crate::clocks::{enable_and_reset, ClockError, Gate, PoweredClock};
+use crate::clocks::{ClockError, Gate, PoweredClock, enable_and_reset};
 use crate::gpio::{AnyPin, GpioPin, SealedPin};
 use crate::{interrupt, pac};
 
@@ -307,7 +307,8 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         // Check for errors (TEF = transmit error, REF = receive error) - only if interrupts enabled
         if (sr.tef().bit() && ier.teie().bit()) || (sr.ref_().bit() && ier.reie().bit()) {
             // Clear error flags
-            regs.sr().write(|w| w.tef().clear_bit_by_one().ref_().clear_bit_by_one());
+            regs.sr()
+                .write(|w| w.tef().clear_bit_by_one().ref_().clear_bit_by_one());
             // Disable error interrupts to prevent re-entry
             regs.ier().modify(|_, w| w.teie().disable().reie().disable());
             state.set_transfer_state(TransferState::Error);
@@ -704,9 +705,8 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         // Clear CONT/CONTC at end for PCS de-assertion.
         if is_pcs_continuous {
             spin_wait_while(|| Self::get_tx_fifo_count() >= Self::get_fifo_size())?;
-            spi.tcr().modify(|r, w| unsafe {
-                w.bits(r.bits() & !((1 << 21) | (1 << 20)))
-            });
+            spi.tcr()
+                .modify(|r, w| unsafe { w.bits(r.bits() & !((1 << 21) | (1 << 20))) });
         }
 
         // Wait for transfer complete
@@ -791,9 +791,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
             if tx_remaining > 0 || rx_idx < rx.len() {
                 poll_fn(|cx| {
                     state.waker.register(cx.waker());
-                    if Self::get_rx_fifo_count() > 0
-                        || Self::get_tx_fifo_count() < Self::get_fifo_size()
-                    {
+                    if Self::get_rx_fifo_count() > 0 || Self::get_tx_fifo_count() < Self::get_fifo_size() {
                         Poll::Ready(())
                     } else {
                         spi.ier().modify(|_, w| w.rdie().enable());
@@ -807,9 +805,8 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         // Clear CONT/CONTC at end for PCS de-assertion.
         if is_pcs_continuous {
             spin_wait_while(|| Self::get_tx_fifo_count() >= Self::get_fifo_size())?;
-            spi.tcr().modify(|r, w| unsafe {
-                w.bits(r.bits() & !((1 << 21) | (1 << 20)))
-            });
+            spi.tcr()
+                .modify(|r, w| unsafe { w.bits(r.bits() & !((1 << 21) | (1 << 20))) });
         }
 
         spi.ier().modify(|_, w| w.rdie().disable());
@@ -892,9 +889,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
             if tx_idx < len || rx_idx < len {
                 poll_fn(|cx| {
                     state.waker.register(cx.waker());
-                    if Self::get_rx_fifo_count() > 0
-                        || Self::get_tx_fifo_count() < Self::get_fifo_size()
-                    {
+                    if Self::get_rx_fifo_count() > 0 || Self::get_tx_fifo_count() < Self::get_fifo_size() {
                         Poll::Ready(())
                     } else {
                         spi.ier().modify(|_, w| w.rdie().enable());
@@ -908,9 +903,8 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         // Clear CONT/CONTC at end for PCS de-assertion.
         if is_pcs_continuous {
             spin_wait_while(|| Self::get_tx_fifo_count() >= Self::get_fifo_size())?;
-            spi.tcr().modify(|r, w| unsafe {
-                w.bits(r.bits() & !((1 << 21) | (1 << 20)))
-            });
+            spi.tcr()
+                .modify(|r, w| unsafe { w.bits(r.bits() & !((1 << 21) | (1 << 20))) });
         }
 
         spi.ier().modify(|_, w| w.rdie().disable());
@@ -978,12 +972,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         // 3) Configure as master mode with standard pin config (SIN in, SOUT out)
         // Also set PCS polarity to active low (PCS0 asserted low)
         spi.cfgr1().write(|w| unsafe {
-            w.master()
-                .master_mode()
-                .pincfg()
-                .sin_in_sout_out()
-                .pcspol()
-                .bits(0) // PCS0 active low
+            w.master().master_mode().pincfg().sin_in_sout_out().pcspol().bits(0) // PCS0 active low
         });
 
         // 4) Set baud rate via CCR
@@ -1072,16 +1061,8 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
     fn apply_transfer_tcr(&self, continuous_pcs: bool, rx_mask: bool, tx_mask: bool) {
         let spi = T::regs();
         spi.tcr().modify(|_, w| {
-            let w = if tx_mask {
-                w.txmsk().mask()
-            } else {
-                w.txmsk().normal()
-            };
-            let w = if rx_mask {
-                w.rxmsk().mask()
-            } else {
-                w.rxmsk().normal()
-            };
+            let w = if tx_mask { w.txmsk().mask() } else { w.txmsk().normal() };
+            let w = if rx_mask { w.rxmsk().mask() } else { w.rxmsk().normal() };
             let w = if continuous_pcs {
                 w.contc().continue_().cont().enabled()
             } else {
@@ -1274,9 +1255,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
 impl embedded_hal_1::spi::Error for Error {
     fn kind(&self) -> embedded_hal_1::spi::ErrorKind {
         match *self {
-            Self::TransferError | Self::TxFifoError | Self::RxFifoError => {
-                embedded_hal_1::spi::ErrorKind::Other
-            }
+            Self::TransferError | Self::TxFifoError | Self::RxFifoError => embedded_hal_1::spi::ErrorKind::Other,
             _ => embedded_hal_1::spi::ErrorKind::Other,
         }
     }
@@ -1496,8 +1475,7 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
         let needs_tcr_update = (tcr & TCR_TXMSK) == 0 || (tcr & TCR_RXMSK) != 0;
 
         if needs_tcr_update {
-            let new_tcr = (tcr & !(TCR_CONT | TCR_CONTC | TCR_RXMSK | TCR_TXMSK | TCR_PCS_MASK))
-                | TCR_TXMSK; // Set TXMSK=1 (mask TX), RXMSK=0 (normal RX)
+            let new_tcr = (tcr & !(TCR_CONT | TCR_CONTC | TCR_RXMSK | TCR_TXMSK | TCR_PCS_MASK)) | TCR_TXMSK; // Set TXMSK=1 (mask TX), RXMSK=0 (normal RX)
             spi.tcr().write(|w| unsafe { w.bits(new_tcr) });
 
             // Wait for TCR to be written to FIFO
@@ -1562,8 +1540,7 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
         let needs_tcr_update = (tcr & TCR_RXMSK) == 0 || (tcr & TCR_TXMSK) != 0;
 
         if needs_tcr_update {
-            let new_tcr = (tcr & !(TCR_CONT | TCR_CONTC | TCR_RXMSK | TCR_TXMSK | TCR_PCS_MASK))
-                | TCR_RXMSK; // Set RXMSK=1 (mask RX), TXMSK=0 (normal TX)
+            let new_tcr = (tcr & !(TCR_CONT | TCR_CONTC | TCR_RXMSK | TCR_TXMSK | TCR_PCS_MASK)) | TCR_RXMSK; // Set RXMSK=1 (mask RX), TXMSK=0 (normal TX)
             spi.tcr().write(|w| unsafe { w.bits(new_tcr) });
 
             // Wait for TCR to be written to FIFO
@@ -1779,12 +1756,8 @@ impl<'d, T: Instance, M: Mode> SpiSlave<'d, T, M> {
         spi.cfgr1().modify(|_, w| unsafe { w.pcspol().bits(0) });
 
         // 3) Configure CFGR1 for slave
-        spi.cfgr1().modify(|_, w| {
-            w.outcfg()
-                .retain_lastvalue()
-                .pincfg()
-                .sin_in_sout_out()
-        });
+        spi.cfgr1()
+            .modify(|_, w| w.outcfg().retain_lastvalue().pincfg().sin_in_sout_out());
 
         // 4) Set FIFO watermarks
         spi.fcr().write(|w| unsafe { w.txwater().bits(0).rxwater().bits(0) });
@@ -1924,15 +1897,15 @@ macro_rules! impl_spi_pin {
 
 // LPSPI0 pins on PORT1 (ALT2) - per reference board pin mux
 impl_spi_pin!(P1_0, LPSPI0, Mux2, MosiPin); // LPSPI0_SDO (SOUT)
-impl_spi_pin!(P1_1, LPSPI0, Mux2, SckPin);  // LPSPI0_SCK
+impl_spi_pin!(P1_1, LPSPI0, Mux2, SckPin); // LPSPI0_SCK
 impl_spi_pin!(P1_2, LPSPI0, Mux2, MisoPin); // LPSPI0_SDI (SIN)
-impl_spi_pin!(P1_3, LPSPI0, Mux2, CsPin);   // LPSPI0_PCS0
+impl_spi_pin!(P1_3, LPSPI0, Mux2, CsPin); // LPSPI0_PCS0
 
 // LPSPI1 pins on PORT3 (ALT2)
-impl_spi_pin!(P3_8, LPSPI1, Mux2, MosiPin);  // LPSPI1_SOUT
-impl_spi_pin!(P3_9, LPSPI1, Mux2, MisoPin);  // LPSPI1_SIN
-impl_spi_pin!(P3_10, LPSPI1, Mux2, SckPin);  // LPSPI1_SCK
-impl_spi_pin!(P3_11, LPSPI1, Mux2, CsPin);   // LPSPI1_PCS0
+impl_spi_pin!(P3_8, LPSPI1, Mux2, MosiPin); // LPSPI1_SOUT
+impl_spi_pin!(P3_9, LPSPI1, Mux2, MisoPin); // LPSPI1_SIN
+impl_spi_pin!(P3_10, LPSPI1, Mux2, SckPin); // LPSPI1_SCK
+impl_spi_pin!(P3_11, LPSPI1, Mux2, CsPin); // LPSPI1_PCS0
 
 // =============================================================================
 // SPI DMA SUPPORT
@@ -2230,7 +2203,26 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
     /// Debug: Returns key register values after DMA is started
     /// Returns (tx_csr, tx_saddr, tx_daddr, tx_citer, tx_biter, tx_nbytes, rx_csr, rx_saddr, rx_daddr, rx_citer, rx_biter, rx_nbytes, tcr, der, tdr_addr, rdr_addr)
     #[allow(dead_code)]
-    pub fn debug_dma_state(&self) -> (u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32, u32) {
+    pub fn debug_dma_state(
+        &self,
+    ) -> (
+        u32,
+        u32,
+        u32,
+        u32,
+        u32,
+        u32,
+        u32,
+        u32,
+        u32,
+        u32,
+        u32,
+        u32,
+        u32,
+        u32,
+        u32,
+        u32,
+    ) {
         let spi = Self::regs();
         let tcr = spi.tcr().read().bits();
         let der = spi.der().read().bits();
@@ -2252,9 +2244,10 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
         let rx_biter = self.rx_dma.biter();
         let rx_nbytes = self.rx_dma.nbytes();
 
-        (tx_csr, tx_saddr, tx_daddr, tx_citer, tx_biter, tx_nbytes,
-         rx_csr, rx_saddr, rx_daddr, rx_citer, rx_biter, rx_nbytes,
-         tcr, der, tdr_addr, rdr_addr)
+        (
+            tx_csr, tx_saddr, tx_daddr, tx_citer, tx_biter, tx_nbytes, rx_csr, rx_saddr, rx_daddr, rx_citer, rx_biter,
+            rx_nbytes, tcr, der, tdr_addr, rdr_addr,
+        )
     }
 
     /// Debug: Returns extended DMA state including error status and DMAMUX source
@@ -2468,7 +2461,8 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
         //   - RX DMA is requested as soon as any data appears in the RX FIFO.
         let fifo_size = Self::get_fifo_size();
         let tx_watermark = if fifo_size >= 1 { fifo_size - 1 } else { 0 };
-        spi.fcr().write(|w| unsafe { w.txwater().bits(tx_watermark as u8).rxwater().bits(0) });
+        spi.fcr()
+            .write(|w| unsafe { w.txwater().bits(tx_watermark as u8).rxwater().bits(0) });
 
         // Clear NOSTALL:
         //   CFGR1.NOSTALL = 0 -> LPSPI stalls when TX FIFO empty or RX FIFO full.
@@ -2498,7 +2492,7 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
         // In BYSW mode with 1-byte frames, use RDR+3 so that the single
         // byte we move by DMA ends up in the MSB of the 32-bit receive register.
         // LPSPI then presents that MSB as the 8-bit frame.
-        let rdr_addr = Self::rdr_addr() as u32 + 3;  // RDR+3 for byte swap
+        let rdr_addr = Self::rdr_addr() as u32 + 3; // RDR+3 for byte swap
 
         static mut DUMMY_RX_SINK: u8 = 0;
 
@@ -2525,16 +2519,18 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
             let rx_tcd = self.rx_dma.tcd();
             rx_tcd.tcd_saddr().write(|w| w.saddr().bits(rdr_addr));
             rx_tcd.tcd_soff().write(|w| w.soff().bits(0));
-            rx_tcd.tcd_attr().write(|w| w.bits(0x0000));           // 8-bit src and dst
+            rx_tcd.tcd_attr().write(|w| w.bits(0x0000)); // 8-bit src and dst
             rx_tcd.tcd_nbytes_mloffno().write(|w| w.nbytes().bits(1));
             rx_tcd.tcd_slast_sda().write(|w| w.slast_sda().bits(0));
-            rx_tcd.tcd_daddr().write(|w| w.daddr().bits((&raw mut DUMMY_RX_SINK) as *mut u8 as u32));
+            rx_tcd
+                .tcd_daddr()
+                .write(|w| w.daddr().bits((&raw mut DUMMY_RX_SINK) as *mut u8 as u32));
             rx_tcd.tcd_doff().write(|w| w.doff().bits(0));
             rx_tcd.tcd_citer_elinkno().write(|w| w.citer().bits(data_len as u16));
             rx_tcd.tcd_dlast_sga().write(|w| w.dlast_sga().bits(0));
             // DREQ=1 causes EDMA to clear ERQ and set DONE when the major loop
             // completes; INTMAJOR=1 generates the interrupt that wakes our waker.
-            rx_tcd.tcd_csr().write(|w| w.bits(0x000A));            // DREQ=1 (bit 3), INTMAJOR=1 (bit 1)
+            rx_tcd.tcd_csr().write(|w| w.bits(0x000A)); // DREQ=1 (bit 3), INTMAJOR=1 (bit 1)
             rx_tcd.tcd_biter_elinkno().write(|w| w.biter().bits(data_len as u16));
 
             // Program DMAMUX for this channel to LPSPI1 RX (request source 17).
@@ -2660,7 +2656,8 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
         // 3. Set FIFO watermarks: TX=fifoSize-1, RX=0
         let fifo_size = Self::get_fifo_size();
         let tx_watermark = if fifo_size >= 1 { fifo_size - 1 } else { 0 };
-        spi.fcr().write(|w| unsafe { w.txwater().bits(tx_watermark as u8).rxwater().bits(0) });
+        spi.fcr()
+            .write(|w| unsafe { w.txwater().bits(tx_watermark as u8).rxwater().bits(0) });
 
         // 4. Clear NOSTALL - transfers stall when TX FIFO empty or RX FIFO full
         clear_nostall(spi);
@@ -2798,7 +2795,8 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
         // 3. Set FIFO watermarks: TX=fifoSize-1, RX=0
         let fifo_size = Self::get_fifo_size();
         let tx_watermark = if fifo_size >= 1 { fifo_size - 1 } else { 0 };
-        spi.fcr().write(|w| unsafe { w.txwater().bits(tx_watermark as u8).rxwater().bits(0) });
+        spi.fcr()
+            .write(|w| unsafe { w.txwater().bits(tx_watermark as u8).rxwater().bits(0) });
 
         // 4. Clear NOSTALL - transfers stall when TX FIFO empty or RX FIFO full
         clear_nostall(spi);
@@ -2942,12 +2940,8 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiSlaveDma<'d
         spi.cfgr1().modify(|_, w| unsafe { w.pcspol().bits(0) });
 
         // 3) Configure CFGR1 for slave
-        spi.cfgr1().modify(|_, w| {
-            w.outcfg()
-                .retain_lastvalue()
-                .pincfg()
-                .sin_in_sout_out()
-        });
+        spi.cfgr1()
+            .modify(|_, w| w.outcfg().retain_lastvalue().pincfg().sin_in_sout_out());
 
         // 4) Set FIFO watermarks
         spi.fcr().write(|w| unsafe { w.txwater().bits(0).rxwater().bits(0) });
@@ -3074,7 +3068,8 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiSlaveDma<'d
         // 3. Set FIFO watermarks: TX=fifoSize-1, RX=0
         let fifo_size = Self::get_fifo_size();
         let tx_watermark = if fifo_size >= 1 { fifo_size - 1 } else { 0 };
-        spi.fcr().write(|w| unsafe { w.txwater().bits(tx_watermark as u8).rxwater().bits(0) });
+        spi.fcr()
+            .write(|w| unsafe { w.txwater().bits(tx_watermark as u8).rxwater().bits(0) });
 
         // 4. Clear NOSTALL - transfers stall when TX FIFO empty or RX FIFO full
         clear_nostall(spi);
@@ -3086,9 +3081,12 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiSlaveDma<'d
         // RX must never be masked in slave DMA mode because RX DMA completion is
         // used as the transfer-finished signal.
         spi.tcr().modify(|_, w| {
-            w.txmsk().mask()    // Mask TX - slave not sending
-             .rxmsk().normal()  // RX unmasked - always receive
-             .bysw().enabled()  // Enable byte swap for correct byte ordering
+            w.txmsk()
+                .mask() // Mask TX - slave not sending
+                .rxmsk()
+                .normal() // RX unmasked - always receive
+                .bysw()
+                .enabled() // Enable byte swap for correct byte ordering
         });
 
         // 7. Wait for TCR write to take effect - TCR shares the FIFO!
@@ -3175,7 +3173,8 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiSlaveDma<'d
         // 3. Set FIFO watermarks: TX=fifoSize-1, RX=0
         let fifo_size = Self::get_fifo_size();
         let tx_watermark = if fifo_size >= 1 { fifo_size - 1 } else { 0 };
-        spi.fcr().write(|w| unsafe { w.txwater().bits(tx_watermark as u8).rxwater().bits(0) });
+        spi.fcr()
+            .write(|w| unsafe { w.txwater().bits(tx_watermark as u8).rxwater().bits(0) });
 
         // 4. Clear NOSTALL - transfers stall when TX FIFO empty or RX FIFO full
         clear_nostall(spi);
@@ -3183,13 +3182,16 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiSlaveDma<'d
         // 5. Enable module for TCR configuration to take effect
         spi.cr().modify(|_, w| w.men().enabled());
 
-           // 6. Configure TCR: enable byte swap, keep RX unmasked.
-           // RX must never be masked in slave DMA mode because RX DMA completion is
-           // used as the transfer-finished signal.
+        // 6. Configure TCR: enable byte swap, keep RX unmasked.
+        // RX must never be masked in slave DMA mode because RX DMA completion is
+        // used as the transfer-finished signal.
         spi.tcr().modify(|_, w| {
-            w.txmsk().normal()  // TX unmasked - send data
-               .rxmsk().normal()  // RX unmasked - REQUIRED for slave DMA (used for completion)
-             .bysw().enabled()  // Enable byte swap for correct byte ordering
+            w.txmsk()
+                .normal() // TX unmasked - send data
+                .rxmsk()
+                .normal() // RX unmasked - REQUIRED for slave DMA (used for completion)
+                .bysw()
+                .enabled() // Enable byte swap for correct byte ordering
         });
 
         // 7. Wait for TCR write to take effect - TCR shares the FIFO!
@@ -3226,7 +3228,9 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiSlaveDma<'d
             rx_tcd.tcd_attr().write(|w| w.bits(0x0000));
             rx_tcd.tcd_nbytes_mloffno().write(|w| w.nbytes().bits(1));
             rx_tcd.tcd_slast_sda().write(|w| w.slast_sda().bits(0));
-            rx_tcd.tcd_daddr().write(|w| w.daddr().bits((&raw mut DUMMY_RX_SINK) as *mut u8 as u32));
+            rx_tcd
+                .tcd_daddr()
+                .write(|w| w.daddr().bits((&raw mut DUMMY_RX_SINK) as *mut u8 as u32));
             rx_tcd.tcd_doff().write(|w| w.doff().bits(0));
             rx_tcd.tcd_citer_elinkno().write(|w| w.citer().bits(data.len() as u16));
             rx_tcd.tcd_dlast_sga().write(|w| w.dlast_sga().bits(0));
@@ -3308,7 +3312,8 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiSlaveDma<'d
         // 3. Set FIFO watermarks: TX=fifoSize-1, RX=0
         let fifo_size = Self::get_fifo_size();
         let tx_watermark = if fifo_size >= 1 { fifo_size - 1 } else { 0 };
-        spi.fcr().write(|w| unsafe { w.txwater().bits(tx_watermark as u8).rxwater().bits(0) });
+        spi.fcr()
+            .write(|w| unsafe { w.txwater().bits(tx_watermark as u8).rxwater().bits(0) });
 
         // 4. Clear NOSTALL
         clear_nostall(spi);
@@ -3317,11 +3322,8 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiSlaveDma<'d
         spi.cr().modify(|_, w| w.men().enabled());
 
         // 6. Configure TCR for full duplex with byte swap
-        spi.tcr().modify(|_, w| {
-            w.rxmsk().normal()
-             .txmsk().normal()
-             .bysw().enabled()
-        });
+        spi.tcr()
+            .modify(|_, w| w.rxmsk().normal().txmsk().normal().bysw().enabled());
 
         // 7. Wait for TCR write to take effect - TCR shares the FIFO!
         spin_wait_while(|| spi.fsr().read().txcount().bits() > 0)?;
@@ -3387,4 +3389,3 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiSlaveDma<'d
         Ok(())
     }
 }
-

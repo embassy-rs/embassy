@@ -41,7 +41,8 @@ bind_interrupts!(struct Irqs {
 /// Print a single hex byte
 fn print_hex_byte(tx: &mut LpuartTx<'_, Blocking>, b: u8) {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    tx.blocking_write(&[HEX[(b >> 4) as usize], HEX[(b & 0xF) as usize]]).ok();
+    tx.blocking_write(&[HEX[(b >> 4) as usize], HEX[(b & 0xF) as usize]])
+        .ok();
 }
 
 /// Print a buffer as hex dump (16 bytes per line)
@@ -93,8 +94,10 @@ async fn main(_spawner: Spawner) {
     let lpuart = Lpuart::new_blocking(p.LPUART2, p.P2_2, p.P2_3, uart_config).unwrap();
     let (mut tx, _rx) = lpuart.split();
 
-    tx.blocking_write(b"\r\nLPSPI Interrupt Master Example (Async)\r\n").ok();
-    tx.blocking_write(b"Protocol: Half-duplex (TX-only then RX-only)\r\n").ok();
+    tx.blocking_write(b"\r\nLPSPI Interrupt Master Example (Async)\r\n")
+        .ok();
+    tx.blocking_write(b"Protocol: Half-duplex (TX-only then RX-only)\r\n")
+        .ok();
     tx.blocking_write(b"Connection: LPSPI1 master\r\n").ok();
     tx.blocking_write(b"  P3_10 (SCK)  -> Slave SCK\r\n").ok();
     tx.blocking_write(b"  P3_11 (PCS)  -> Slave PCS\r\n").ok();
@@ -108,13 +111,11 @@ async fn main(_spawner: Spawner) {
 
     // Create async SPI master using LPSPI1
     let mut spi = match Spi::new_async(
-        p.LPSPI1,
-        p.P3_10, // SCK
+        p.LPSPI1, p.P3_10, // SCK
         p.P3_8,  // MOSI (SOUT/SDO)
         p.P3_9,  // MISO (SIN/SDI)
         p.P3_11, // CS (PCS0)
-        Irqs,
-        config,
+        Irqs, config,
     ) {
         Ok(s) => {
             tx.blocking_write(b"SPI Master initialized successfully.\r\n").ok();
@@ -180,7 +181,8 @@ async fn main(_spawner: Spawner) {
         if error_count == 0 {
             tx.blocking_write(b"\r\nLPSPI transfer all data matched!\r\n").ok();
         } else {
-            tx.blocking_write(b"\r\nError occurred in LPSPI transfer! Errors: ").ok();
+            tx.blocking_write(b"\r\nError occurred in LPSPI transfer! Errors: ")
+                .ok();
             print_u32(&mut tx, error_count);
             tx.blocking_write(b"\r\n").ok();
         }
@@ -189,10 +191,10 @@ async fn main(_spawner: Spawner) {
         tx.blocking_write(b"Master received:").ok();
         print_hex_dump(&mut tx, &rx_data);
 
-        tx.blocking_write(b"\r\nWaiting 2 seconds for next transfer...\r\n\r\n").ok();
+        tx.blocking_write(b"\r\nWaiting 2 seconds for next transfer...\r\n\r\n")
+            .ok();
         Timer::after_secs(2).await;
 
         loop_count += 1;
     }
 }
-
