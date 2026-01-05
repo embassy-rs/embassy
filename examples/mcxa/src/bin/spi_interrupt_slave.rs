@@ -36,7 +36,8 @@ const TRANSFER_SIZE: usize = 64;
 /// Print a byte as two hex digits
 fn print_hex_byte(tx: &mut LpuartTx<'_, Blocking>, b: u8) {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    tx.blocking_write(&[HEX[(b >> 4) as usize], HEX[(b & 0x0F) as usize]]).ok();
+    tx.blocking_write(&[HEX[(b >> 4) as usize], HEX[(b & 0x0F) as usize]])
+        .ok();
 }
 
 /// Print a u32 as decimal
@@ -92,8 +93,10 @@ async fn main(_spawner: Spawner) {
     let (mut tx, _rx) = lpuart.split();
 
     // Print startup banner
-    tx.blocking_write(b"\r\nLPSPI Interrupt Slave Example (Async)\r\n").unwrap();
-    tx.blocking_write(b"Protocol: Half-duplex (RX-only then TX-only)\r\n").ok();
+    tx.blocking_write(b"\r\nLPSPI Interrupt Slave Example (Async)\r\n")
+        .unwrap();
+    tx.blocking_write(b"Protocol: Half-duplex (RX-only then TX-only)\r\n")
+        .ok();
 
     // Create SPI slave configuration
     let config = SlaveConfig::new().bits_per_frame(8);
@@ -101,7 +104,8 @@ async fn main(_spawner: Spawner) {
     // Create async SPI slave instance FIRST (before enabling interrupt)
     let mut spi = match SpiSlave::new_async(p.LPSPI1, p.P3_10, p.P3_8, p.P3_9, p.P3_11, Irqs, config) {
         Ok(s) => {
-            tx.blocking_write(b"SPI Slave (async) initialized successfully.\r\n").ok();
+            tx.blocking_write(b"SPI Slave (async) initialized successfully.\r\n")
+                .ok();
             s
         }
         Err(_e) => {
@@ -148,4 +152,3 @@ async fn main(_spawner: Spawner) {
         loop_count += 1;
     }
 }
-

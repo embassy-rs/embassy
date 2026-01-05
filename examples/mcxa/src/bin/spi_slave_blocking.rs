@@ -31,7 +31,8 @@ const TRANSFER_SIZE: usize = 64;
 /// Print a byte as two hex digits
 fn print_hex_byte(tx: &mut LpuartTx<'_, Blocking>, b: u8) {
     const HEX: &[u8; 16] = b"0123456789ABCDEF";
-    tx.blocking_write(&[HEX[(b >> 4) as usize], HEX[(b & 0x0F) as usize]]).ok();
+    tx.blocking_write(&[HEX[(b >> 4) as usize], HEX[(b & 0x0F) as usize]])
+        .ok();
 }
 
 /// Print a hex dump of data (16 bytes per line)
@@ -67,7 +68,8 @@ fn main() -> ! {
     let (mut tx, _rx) = lpuart.split();
 
     // Print startup banner
-    tx.blocking_write(b"\r\nLPSPI board to board polling example.\r\n").unwrap();
+    tx.blocking_write(b"\r\nLPSPI board to board polling example.\r\n")
+        .unwrap();
     tx.blocking_write(b"SPI Slave (Rust) running...\r\n\r\n").unwrap();
 
     // Create SPI slave configuration
@@ -99,7 +101,8 @@ fn main() -> ! {
         // Receive data from master
         match spi.blocking_read(&mut slave_rx_data) {
             Ok(()) => {
-                tx.blocking_write(b"This is LPSPI slave transfer completed callback.\r\n").ok();
+                tx.blocking_write(b"This is LPSPI slave transfer completed callback.\r\n")
+                    .ok();
                 tx.blocking_write(b"It's a successful transfer.\r\n\r\n").ok();
             }
             Err(_e) => {
@@ -111,7 +114,8 @@ fn main() -> ! {
         // Echo data back to master
         match spi.blocking_write(&slave_rx_data) {
             Ok(()) => {
-                tx.blocking_write(b"This is LPSPI slave transfer completed callback.\r\n").ok();
+                tx.blocking_write(b"This is LPSPI slave transfer completed callback.\r\n")
+                    .ok();
                 tx.blocking_write(b"It's a successful transfer.\r\n\r\n").ok();
             }
             Err(_e) => {
@@ -124,4 +128,3 @@ fn main() -> ! {
         print_hex_dump(&mut tx, &slave_rx_data);
     }
 }
-
