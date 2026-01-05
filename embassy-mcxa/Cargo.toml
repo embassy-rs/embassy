@@ -29,9 +29,9 @@ cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 cortex-m-rt = { version = "0.7", features = ["device"] }
 critical-section = "1.2.0"
 defmt = { version = "1.0", optional = true }
-embassy-embedded-hal = "0.5.0"
+embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal" }
 embassy-hal-internal = { version = "0.4.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
-embassy-sync = "0.7.2"
+embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-async = { version = "1.0" }
@@ -45,8 +45,8 @@ paste = "1.0.15"
 maitake-sync = { version = "0.2.2", default-features = false, features = ["critical-section", "no-cache-pad"] }
 
 # `time` dependencies
-embassy-time = { version = "0.5.0", optional = true }
-embassy-time-driver = { version = "0.2.1", optional = true }
+embassy-time = { version = "0.5.0", path = "../embassy-time", optional = true }
+embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver", optional = true }
 
 rand-core-06 = { package = "rand_core", version = "0.6" }
 rand-core-09 = { package = "rand_core", version = "0.9" }
