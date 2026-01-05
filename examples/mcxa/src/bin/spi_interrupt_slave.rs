@@ -109,7 +109,9 @@ async fn main(_spawner: Spawner) {
         }
         Err(_e) => {
             tx.blocking_write(b"SPI Slave initialization FAILED!\r\n").ok();
-            loop {}
+            loop {
+                cortex_m::asm::wfi();
+            }
         }
     };
 

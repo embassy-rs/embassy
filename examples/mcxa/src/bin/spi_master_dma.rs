@@ -127,7 +127,9 @@ async fn main(_spawner: Spawner) {
         }
         Err(_) => {
             tx.blocking_write(b"SPI DMA Master init FAILED!\r\n").ok();
-            loop {}
+            loop {
+                cortex_m::asm::wfi();
+            }
         }
     };
 

@@ -85,8 +85,8 @@ async fn main(_spawner: Spawner) {
     let mut tx_buf = [0u8; TRANSFER_SIZE];
     let mut rx_buf = [0u8; TRANSFER_SIZE];
 
-    for i in 0..TRANSFER_SIZE {
-        tx_buf[i] = i as u8;
+    for (i, byte) in tx_buf.iter_mut().enumerate() {
+        *byte = i as u8;
     }
 
     if spi.transfer(&tx_buf, &mut rx_buf).await.is_err() {
