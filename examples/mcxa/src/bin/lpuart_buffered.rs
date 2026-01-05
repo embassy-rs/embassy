@@ -21,9 +21,6 @@ async fn main(_spawner: Spawner) {
     cfg.clock_cfg.sirc.fro_lf_div = Some(Div8::no_div());
     let p = hal::init(cfg);
 
-    // Configure NVIC for LPUART2
-    hal::interrupt::LPUART2.configure_for_uart(hal::interrupt::Priority::P3);
-
     // UART configuration (enable both TX and RX)
     let config = Config {
         baudrate_bps: 115_200,

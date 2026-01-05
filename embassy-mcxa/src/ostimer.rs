@@ -526,6 +526,7 @@ pub mod time_driver {
     };
     use crate::clocks::periph_helpers::{OsTimerConfig, OstimerClockSel};
     use crate::clocks::{PoweredClock, enable_and_reset};
+    use crate::interrupt::InterruptExt;
     use crate::pac;
 
     #[allow(non_camel_case_types)]
@@ -675,7 +676,12 @@ pub mod time_driver {
         super::prime_match_registers(r);
 
         // Configure NVIC for timer operation
-        crate::interrupt::OS_EVENT.configure_for_timer(priority);
+        crate::interrupt::OS_EVENT.set_priority(priority);
+        crate::interrupt::OS_EVENT.unpend();
+
+        unsafe {
+            crate::interrupt::OS_EVENT.enable();
+        }
 
         // Note: The embassy_time_driver macro automatically registers the driver
         // The frequency parameter is accepted for future compatibility

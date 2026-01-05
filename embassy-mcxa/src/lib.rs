@@ -14,7 +14,6 @@ pub mod clkout;
 pub mod config;
 pub mod crc;
 pub mod i2c;
-pub mod interrupt;
 pub mod lpuart;
 pub mod ostimer;
 pub mod reset_reason;
@@ -345,6 +344,40 @@ embassy_hal_internal::peripherals!(
     WAKETIMER0,
     WUU0,
     WWDT0,
+);
+
+#[rustfmt::skip]
+embassy_hal_internal::interrupt_mod!(
+    ADC0,
+    ADC1,
+    ADC2,
+    ADC3,
+    DMA_CH0,
+    DMA_CH1,
+    DMA_CH2,
+    DMA_CH3,
+    DMA_CH4,
+    DMA_CH5,
+    DMA_CH6,
+    DMA_CH7,
+    GPIO0,
+    GPIO1,
+    GPIO2,
+    GPIO3,
+    GPIO4,
+    LPI2C0,
+    LPI2C1,
+    LPI2C2,
+    LPI2C3,
+    LPUART0,
+    LPUART1,
+    LPUART2,
+    LPUART3,
+    LPUART4,
+    LPUART5,
+    OS_EVENT,
+    RTC,
+    TRNG0
 );
 
 // See commented out items above to understand why we create the instances
