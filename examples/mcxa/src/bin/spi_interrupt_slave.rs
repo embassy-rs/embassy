@@ -18,12 +18,11 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa as hal;
 use hal::clocks::config::Div8;
 use hal::lpuart::{Blocking, Config as UartConfig, Lpuart, LpuartTx};
 use hal::spi::{InterruptHandler, SlaveConfig, SpiSlave};
 use hal::{bind_interrupts, interrupt};
-use {defmt_rtt as _, panic_probe as _};
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Bind LPSPI1 interrupt for async SPI slave operations
 bind_interrupts!(struct Irqs {

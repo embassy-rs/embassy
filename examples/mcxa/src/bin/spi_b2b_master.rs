@@ -16,13 +16,12 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa as hal;
 use embassy_time::Timer;
 use hal::clocks::config::Div8;
 use hal::lpuart::{Blocking, Config as UartConfig, Lpuart, LpuartTx};
 use hal::spi::{Config, InterruptHandler, Spi};
 use hal::{bind_interrupts, interrupt};
-use {defmt_rtt as _, panic_probe as _};
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 /// Transfer size in bytes
 const TRANSFER_SIZE: usize = 64;
