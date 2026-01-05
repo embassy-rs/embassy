@@ -19,11 +19,10 @@
 #![no_std]
 #![no_main]
 
-use embassy_mcxa as hal;
 use hal::clocks::config::Div8;
 use hal::lpuart::{Blocking, Config as UartConfig, Lpuart, LpuartTx};
 use hal::spi::{self, SpiSlave};
-use {defmt_rtt as _, panic_probe as _};
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 /// Transfer size matching the reference example
 const TRANSFER_SIZE: usize = 64;
