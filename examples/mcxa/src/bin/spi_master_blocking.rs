@@ -113,7 +113,9 @@ fn main() -> ! {
         }
         Err(_) => {
             tx.blocking_write(b"SPI Master initialization FAILED!\r\n").ok();
-            loop {}
+            loop {
+                cortex_m::asm::wfi();
+            }
         }
     };
 
@@ -124,8 +126,8 @@ fn main() -> ! {
         let mut master_tx_data: [u8; TRANSFER_SIZE] = [0; TRANSFER_SIZE];
         let mut master_rx_data: [u8; TRANSFER_SIZE] = [0; TRANSFER_SIZE];
 
-        for i in 0..TRANSFER_SIZE {
-            master_tx_data[i] = ((i as u32 + loop_count) % 256) as u8;
+        for (i, byte) in master_tx_data.iter_mut().enumerate() {
+            *byte = ((i as u32 + loop_count) % 256) as u8;
         }
 
         // Print transmit buffer

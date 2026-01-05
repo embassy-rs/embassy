@@ -122,7 +122,9 @@ async fn main(_spawner: Spawner) {
         }
         Err(_) => {
             tx.blocking_write(b"SPI Master init FAILED!\r\n").ok();
-            loop {}
+            loop {
+                cortex_m::asm::wfi();
+            }
         }
     };
 
@@ -141,8 +143,8 @@ async fn main(_spawner: Spawner) {
         let mut tx_data = [0u8; TRANSFER_SIZE];
         let mut rx_data = [0u8; TRANSFER_SIZE];
 
-        for i in 0..TRANSFER_SIZE {
-            tx_data[i] = ((i as u32 + loop_count) % 256) as u8;
+        for (i, byte) in tx_data.iter_mut().enumerate() {
+            *byte = ((i as u32 + loop_count) % 256) as u8;
         }
 
         // Print transmit data
@@ -151,7 +153,7 @@ async fn main(_spawner: Spawner) {
 
         // Step 1: TX-only transfer (send data to slave, ignore RX)
         tx.blocking_write(b"Sending to slave...").ok();
-        if let Err(_) = spi.write(&tx_data).await {
+        if spi.write(&tx_data).await.is_err() {
             tx.blocking_write(b" FAILED!\r\n").ok();
             continue;
         }
@@ -163,7 +165,7 @@ async fn main(_spawner: Spawner) {
 
         // Step 3: RX-only transfer (receive echo from slave)
         tx.blocking_write(b"Receiving from slave...").ok();
-        if let Err(_) = spi.read(&mut rx_data).await {
+        if spi.read(&mut rx_data).await.is_err() {
             tx.blocking_write(b" FAILED!\r\n").ok();
             continue;
         }
