@@ -785,3 +785,95 @@ impl SPConfHelper for AdcConfig {
         apply_div4!(self, clksel, clkdiv, variant, freq)
     }
 }
+
+//
+// LPSPI
+//
+
+/// Selectable clocks for `Lpspi` peripherals
+#[derive(Debug, Clone, Copy)]
+pub enum LpspiClockSel {
+    /// FRO12M/FRO_LF/SIRC clock source, passed through divider
+    /// "fro_lf_div"
+    FroLfDiv,
+    /// FRO180M/FRO_HF/FIRC clock source, passed through divider
+    /// "fro_hf_div"
+    FroHfDiv,
+    /// SOSC/XTAL/EXTAL clock source
+    ClkIn,
+    /// clk_1m/FRO_LF divided by 12
+    Clk1M,
+    /// Output of PLL1, passed through clock divider,
+    /// "pll1_clk_div", maybe "pll1_lf_div"?
+    Pll1ClkDiv,
+    /// Disabled
+    None,
+}
+
+/// Which instance of the `Lpspi` is this?
+///
+/// Should not be directly selectable by end-users.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum LpspiInstance {
+    /// Instance 0
+    Lpspi0,
+    /// Instance 1
+    Lpspi1,
+}
+
+/// Top level configuration for `Lpspi` instances.
+pub struct LpspiConfig {
+    /// Power state required for this peripheral
+    pub power: PoweredClock,
+    /// Clock source
+    pub source: LpspiClockSel,
+    /// Clock divisor
+    pub div: Div4,
+    /// Which instance is this?
+    // NOTE: should not be user settable
+    pub(crate) instance: LpspiInstance,
+}
+
+impl SPConfHelper for LpspiConfig {
+    fn post_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
+        // check that source is suitable
+        let mrcc0 = unsafe { pac::Mrcc0::steal() };
+        use mcxa_pac::mrcc0::mrcc_lpspi0_clksel::Mux;
+
+        let (clkdiv, clksel) = match self.instance {
+            LpspiInstance::Lpspi0 => (mrcc0.mrcc_lpspi0_clkdiv(), mrcc0.mrcc_lpspi0_clksel()),
+            LpspiInstance::Lpspi1 => (mrcc0.mrcc_lpspi1_clkdiv(), mrcc0.mrcc_lpspi1_clksel()),
+        };
+
+        let (freq, variant) = match self.source {
+            LpspiClockSel::FroLfDiv => {
+                let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
+                (freq, Mux::ClkrootFunc0)
+            }
+            LpspiClockSel::FroHfDiv => {
+                let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
+                (freq, Mux::ClkrootFunc2)
+            }
+            LpspiClockSel::ClkIn => {
+                let freq = clocks.ensure_clk_in_active(&self.power)?;
+                (freq, Mux::ClkrootFunc3)
+            }
+            LpspiClockSel::Clk1M => {
+                let freq = clocks.ensure_clk_1m_active(&self.power)?;
+                (freq, Mux::ClkrootFunc5)
+            }
+            LpspiClockSel::Pll1ClkDiv => {
+                let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
+                (freq, Mux::ClkrootFunc6)
+            }
+            LpspiClockSel::None => unsafe {
+                // no ClkrootFunc7, just write manually for now
+                clksel.write(|w| w.bits(0b111));
+                clkdiv.modify(|_r, w| w.reset().asserted().halt().asserted());
+                return Ok(0);
+            },
+        };
+
+        apply_div4!(self, clksel, clkdiv, variant, freq)
+    }
+}
