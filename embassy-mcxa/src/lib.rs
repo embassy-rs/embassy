@@ -486,7 +486,7 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
 
     // Initialize embassy-time global driver backed by OSTIMER0
     #[cfg(feature = "time")]
-    crate::ostimer::time_driver::init(crate::config::Config::default().time_interrupt_priority, 1_000_000);
+    crate::ostimer::time_driver::init(1_000_000);
 
     // Enable GPIO clocks
     unsafe {

@@ -662,7 +662,7 @@ pub mod time_driver {
     ///
     /// Note: The frequency parameter is currently accepted for API compatibility.
     /// The embassy_time_driver macro handles driver registration automatically.
-    pub fn init(priority: crate::interrupt::Priority, frequency_hz: u64) {
+    pub fn init(frequency_hz: u64) {
         let _clock_freq = unsafe {
             enable_and_reset::<_OSTIMER0_TIME_DRIVER>(&OsTimerConfig {
                 power: PoweredClock::AlwaysEnabled,
@@ -676,7 +676,6 @@ pub mod time_driver {
         super::prime_match_registers(r);
 
         // Configure NVIC for timer operation
-        crate::interrupt::OS_EVENT.set_priority(priority);
         crate::interrupt::OS_EVENT.unpend();
 
         unsafe {
