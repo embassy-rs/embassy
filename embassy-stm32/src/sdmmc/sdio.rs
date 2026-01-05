@@ -1,4 +1,10 @@
+#[cfg(feature = "cyw43")]
+use core::future::poll_fn;
 use core::ops::{Deref, DerefMut};
+#[cfg(feature = "cyw43")]
+use core::sync::atomic::{Ordering, compiler_fence};
+#[cfg(feature = "cyw43")]
+use core::task::Poll;
 
 use aligned::{A4, Aligned};
 use sdio_host::common_cmd::{R1, Resp, cmd};
@@ -106,30 +112,17 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
         self.sdmmc.init_idle()?;
 
         // Get IO OCR
-        let ocr: OCR<SD> = self.sdmmc.cmd(io_send_op_cond(false, 0x0), false, false)?.into();
+        let _ocr: OCR<SD> = self.sdmmc.cmd(io_send_op_cond(false, 0x0), false, false)?.into();
 
-        if ocr.v18_allowed() {
-            trace!("v18 allowed");
-        } else {
-            trace!("v18 not  allowed");
-        }
-
-        if ocr.is_busy() {
-            trace!("is busy");
-        } else {
-            trace!("is not busy");
-        }
-
-        trace!("sent cmd5");
+        // UDB-based SDIO does not support io volt switch sequence
 
         // Get RCA
         let rca: RCA<SD> = self.sdmmc.cmd(sd_cmd::send_relative_address(), true, false)?.into();
-        trace!("got rca");
+        trace!("sdio: got rca {}", rca.address());
 
         // Select the card with RCA
         self.sdmmc.select_card(Some(rca.address()))?;
-
-        trace!("selected card");
+        trace!("sdio: selected card {}", rca.address());
 
         Ok(())
     }
@@ -233,6 +226,12 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
     }
 }
 
+impl<'a, 'b> Drop for SerialDataInterface<'a, 'b> {
+    fn drop(&mut self) {
+        self.sdmmc.on_drop();
+    }
+}
+
 #[cfg(feature = "cyw43")]
 impl<'a, 'b> cyw43::SdioBusCyw43<64> for SerialDataInterface<'a, 'b> {
     /// The error type for the BlockDevice implementation.
@@ -272,5 +271,33 @@ impl<'a, 'b> cyw43::SdioBusCyw43<64> for SerialDataInterface<'a, 'b> {
     /// Doc
     async fn cmd53_byte_write(&mut self, arg: u32, buffer: &Aligned<A4, [u8]>) -> Result<(), Self::Error> {
         self.cmd53_byte_write(arg, buffer).await
+    }
+
+    async fn wait_for_event(&mut self) {
+        poll_fn(|cx| {
+            self.sdmmc.state.it_waker.register(cx.waker());
+
+            compiler_fence(Ordering::Release);
+
+            let status = self.sdmmc.info.regs.star().read();
+            let icr = self.sdmmc.info.regs.icr();
+            let maskr = self.sdmmc.info.regs.maskr();
+
+            if status.sdioit() {
+                icr.write(|w| w.set_sdioitc(true));
+
+                trace!("sdio wfe ready");
+
+                Poll::Ready(())
+            } else {
+                trace!("sdio wfe not ready");
+
+                // Note maskr could be modified from irq
+                critical_section::with(|_| maskr.modify(|w| w.set_sdioitie(true)));
+
+                Poll::Pending
+            }
+        })
+        .await;
     }
 }
