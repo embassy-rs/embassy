@@ -335,6 +335,21 @@ where
             return Err(());
         }
 
+        match BUS::TYPE {
+            BusType::Sdio => {
+                self.bus
+                    .write8(FUNC_BACKPLANE, SDIO_SLEEP_CSR, SBSDIO_SLPCSR_KEEP_WL_KS as u8)
+                    .await;
+
+                self.bus
+                    .write8(FUNC_BACKPLANE, SDIO_SLEEP_CSR, SBSDIO_SLPCSR_KEEP_WL_KS as u8)
+                    .await;
+
+                assert!(self.bus.read8(FUNC_BACKPLANE, SDIO_SLEEP_CSR).await & SBSDIO_SLPCSR_KEEP_WL_KS as u8 != 0);
+            }
+            BusType::Spi => {}
+        }
+
         // Some random configs related to sleep.
         // These aren't needed if we don't want to sleep the bus.
         // TODO do we need to sleep the bus to read the irq line, due to
@@ -560,6 +575,9 @@ where
     async fn handle_irq(&mut self, buf: &mut [u32; 512]) {
         match BUS::TYPE {
             BusType::Sdio => {
+                // TODO: get irqs working
+                self.check_status(buf).await;
+
                 // whd_bus_sdio_packet_available_to_read
                 let irq = self.bus.bp_read32(CHIP.sdiod_core_base_address + SDIO_INT_STATUS).await;
                 if irq & I_HMB_HOST_INT == 0 {
@@ -584,8 +602,6 @@ where
                     self.bus
                         .bp_write32(CHIP.sdiod_core_base_address + SDIO_INT_STATUS, irq & HOSTINTMASK)
                         .await;
-
-                    self.check_status(buf).await;
                 }
             }
             BusType::Spi => {
