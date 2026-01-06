@@ -14,7 +14,6 @@ pub mod clkout;
 pub mod config;
 pub mod crc;
 pub mod i2c;
-pub mod interrupt;
 pub mod lpuart;
 pub mod ostimer;
 pub mod reset_reason;
@@ -347,6 +346,98 @@ embassy_hal_internal::peripherals!(
     WWDT0,
 );
 
+embassy_hal_internal::interrupt_mod!(
+    ADC0,
+    ADC1,
+    ADC2,
+    ADC3,
+    CAN0,
+    CAN1,
+    CDOG0,
+    CDOG1,
+    CMC,
+    CMP0,
+    CMP1,
+    CMP2,
+    CTIMER0,
+    CTIMER1,
+    CTIMER2,
+    CTIMER3,
+    CTIMER4,
+    DAC0,
+    DMA_CH0,
+    DMA_CH1,
+    DMA_CH2,
+    DMA_CH3,
+    DMA_CH4,
+    DMA_CH5,
+    DMA_CH6,
+    DMA_CH7,
+    EQDC0_COMPARE,
+    EQDC0_HOME,
+    EQDC0_INDEX,
+    EQDC0_WATCHDOG,
+    EQDC1_COMPARE,
+    EQDC1_HOME,
+    EQDC1_INDEX,
+    EQDC1_WATCHDOG,
+    ERM0_MULTI_BIT,
+    ERM0_SINGLE_BIT,
+    FLEXIO,
+    FLEXPWM0_FAULT,
+    FLEXPWM0_RELOAD_ERROR,
+    FLEXPWM0_SUBMODULE0,
+    FLEXPWM0_SUBMODULE1,
+    FLEXPWM0_SUBMODULE2,
+    FLEXPWM0_SUBMODULE3,
+    FLEXPWM1_FAULT,
+    FLEXPWM1_RELOAD_ERROR,
+    FLEXPWM1_SUBMODULE0,
+    FLEXPWM1_SUBMODULE1,
+    FLEXPWM1_SUBMODULE2,
+    FLEXPWM1_SUBMODULE3,
+    FMU0,
+    FREQME0,
+    GLIKEY0,
+    GPIO0,
+    GPIO1,
+    GPIO2,
+    GPIO3,
+    GPIO4,
+    I3C0,
+    LPI2C0,
+    LPI2C1,
+    LPI2C2,
+    LPI2C3,
+    LPSPI0,
+    LPSPI1,
+    LPTMR0,
+    LPUART0,
+    LPUART1,
+    LPUART2,
+    LPUART3,
+    LPUART4,
+    LPUART5,
+    MAU,
+    MBC0,
+    OS_EVENT,
+    PKC,
+    RTC,
+    RTC_1HZ,
+    SCG0,
+    SGI,
+    SLCD,
+    SMARTDMA,
+    SPC0,
+    TDET,
+    TRNG0,
+    USB0,
+    UTICK0,
+    WAKETIMER0,
+    WUU0,
+    WWDT0,
+);
+
 // See commented out items above to understand why we create the instances
 // here but don't give them to the user.
 pub(crate) mod internal_peripherals {
@@ -395,7 +486,7 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
 
     // Initialize embassy-time global driver backed by OSTIMER0
     #[cfg(feature = "time")]
-    crate::ostimer::time_driver::init(crate::config::Config::default().time_interrupt_priority, 1_000_000);
+    crate::ostimer::time_driver::init();
 
     // Enable GPIO clocks
     unsafe {

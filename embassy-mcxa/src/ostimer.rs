@@ -526,6 +526,7 @@ pub mod time_driver {
     };
     use crate::clocks::periph_helpers::{OsTimerConfig, OstimerClockSel};
     use crate::clocks::{PoweredClock, enable_and_reset};
+    use crate::interrupt::InterruptExt;
     use crate::pac;
 
     #[allow(non_camel_case_types)]
@@ -654,14 +655,7 @@ pub mod time_driver {
     }
 
     /// Install the global embassy-time driver and configure NVIC priority for OS_EVENT.
-    ///
-    /// # Parameters
-    /// * `priority` - Interrupt priority for the OSTIMER interrupt
-    /// * `frequency_hz` - Actual OSTIMER clock frequency in Hz (stored for future use)
-    ///
-    /// Note: The frequency parameter is currently accepted for API compatibility.
-    /// The embassy_time_driver macro handles driver registration automatically.
-    pub fn init(priority: crate::interrupt::Priority, frequency_hz: u64) {
+    pub fn init() {
         let _clock_freq = unsafe {
             enable_and_reset::<_OSTIMER0_TIME_DRIVER>(&OsTimerConfig {
                 power: PoweredClock::AlwaysEnabled,
@@ -675,11 +669,11 @@ pub mod time_driver {
         super::prime_match_registers(r);
 
         // Configure NVIC for timer operation
-        crate::interrupt::OS_EVENT.configure_for_timer(priority);
+        crate::interrupt::OS_EVENT.unpend();
 
-        // Note: The embassy_time_driver macro automatically registers the driver
-        // The frequency parameter is accepted for future compatibility
-        let _ = frequency_hz; // Suppress unused parameter warning
+        unsafe {
+            crate::interrupt::OS_EVENT.enable();
+        }
     }
 
     // Export the global time driver expected by embassy-time
