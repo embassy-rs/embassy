@@ -55,11 +55,12 @@
 use core::future::poll_fn;
 use core::hint::spin_loop;
 use core::marker::PhantomData;
-use core::sync::atomic::{AtomicBool, AtomicU8, Ordering, compiler_fence};
+use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
 use embassy_hal_internal::{Peri, PeripheralType};
-use embassy_sync::waitqueue::AtomicWaker;
+pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode as SpiMode, Phase, Polarity};
+use maitake_sync::WaitCell;
 use paste::paste;
 
 use crate::clocks::periph_helpers::{Div4, LpspiClockSel, LpspiConfig};
@@ -73,9 +74,6 @@ use crate::{interrupt, pac};
 
 /// All clearable status flags (TEF, REF, DMF, FCF, WCF, TCF)
 const LPSPI_ALL_STATUS_FLAGS: u32 = 0x3F00;
-
-/// CFGR1.NOSTALL bit position
-const CFGR1_NOSTALL: u32 = 0x8;
 
 /// TCR register bit masks
 const TCR_CONT: u32 = 1 << 21;
@@ -104,31 +102,11 @@ fn clear_status_flags(spi: &pac::lpspi0::RegisterBlock) {
     spi.sr().write(|w| unsafe { w.bits(LPSPI_ALL_STATUS_FLAGS) });
 }
 
-/// Clear NOSTALL bit in CFGR1
+/// Clear NOSTALL bit in CFGR1 (disables "no stall" mode, meaning LPSPI will stall
+/// when TX FIFO is empty or RX FIFO is full, preventing data loss)
 #[inline]
 fn clear_nostall(spi: &pac::lpspi0::RegisterBlock) {
-    spi.cfgr1().modify(|r, w| unsafe { w.bits(r.bits() & !CFGR1_NOSTALL) });
-}
-
-/// Get TX FIFO count
-#[inline]
-#[allow(dead_code)]
-fn get_tx_fifo_count(spi: &pac::lpspi0::RegisterBlock) -> u8 {
-    spi.fsr().read().txcount().bits()
-}
-
-/// Get RX FIFO count
-#[inline]
-#[allow(dead_code)]
-fn get_rx_fifo_count(spi: &pac::lpspi0::RegisterBlock) -> u8 {
-    spi.fsr().read().rxcount().bits()
-}
-
-/// Wait for TX FIFO to be empty
-#[inline]
-#[allow(dead_code)]
-fn wait_tx_fifo_empty(spi: &pac::lpspi0::RegisterBlock) {
-    while get_tx_fifo_count(spi) != 0 {}
+    spi.cfgr1().modify(|_, w| w.nostall().disable());
 }
 
 /// Read TCR with errata workaround (ERR050606)
@@ -136,20 +114,39 @@ fn wait_tx_fifo_empty(spi: &pac::lpspi0::RegisterBlock) {
 /// and loop until we get consistent values.
 #[inline]
 fn read_tcr_with_errata_workaround(spi: &pac::lpspi0::RegisterBlock) -> u32 {
-    let mut tcr_values = [0u32; 2];
-    tcr_values[0] = spi.tcr().read().bits();
-    let mut i = 0usize;
+    let mut last = spi.tcr().read().bits();
     loop {
-        i = (i + 1) % 2;
         // Read SR to force a different register access (errata workaround)
-        let _ = spi.sr().read().bits();
-        tcr_values[i] = spi.tcr().read().bits();
-        if tcr_values[0] == tcr_values[1] {
-            break;
+        let _ = spi.sr().read();
+        let now = spi.tcr().read().bits();
+        if now == last {
+            break now;
         }
-        tcr_values[0] = tcr_values[i];
+        last = now;
     }
-    tcr_values[0]
+}
+
+/// Common setup sequence for async SPI transfers: disable module, flush FIFOs, clear status,
+/// disable interrupts, clear NOSTALL, and re-enable.
+#[inline]
+fn prepare_for_transfer(spi: &pac::lpspi0::RegisterBlock) {
+    spi.cr().modify(|_, w| w.men().disabled());
+    flush_fifos(spi);
+    clear_status_flags(spi);
+    spi.ier().write(|w| w); // Disable all interrupts
+    clear_nostall(spi);
+    spi.cr().modify(|_, w| w.men().enabled());
+}
+
+/// Common setup sequence for blocking SPI transfers: disable module, flush FIFOs,
+/// clear status, clear NOSTALL, and re-enable. Does not touch IER (no interrupts used).
+#[inline]
+fn prepare_for_blocking_transfer(spi: &pac::lpspi0::RegisterBlock) {
+    spi.cr().modify(|_, w| w.men().disabled());
+    flush_fifos(spi);
+    clear_status_flags(spi);
+    clear_nostall(spi);
+    spi.cr().modify(|_, w| w.men().enabled());
 }
 
 // =============================================================================
@@ -233,46 +230,12 @@ impl From<u8> for TransferState {
     }
 }
 
-/// State for interrupt-driven SPI operations
-pub struct State {
-    /// Waker for async operations
-    waker: AtomicWaker,
-    /// Current transfer state
-    transfer_state: AtomicU8,
-    /// Whether this instance is initialized
-    initialized: AtomicBool,
-}
 
-impl State {
-    /// Create a new state instance
-    pub const fn new() -> Self {
-        Self {
-            waker: AtomicWaker::new(),
-            transfer_state: AtomicU8::new(TransferState::Idle as u8),
-            initialized: AtomicBool::new(false),
-        }
-    }
 
-    /// Get the current transfer state
-    #[inline]
-    pub fn get_transfer_state(&self) -> TransferState {
-        TransferState::from(self.transfer_state.load(Ordering::Acquire))
-    }
-
-    /// Set the transfer state
-    #[inline]
-    pub fn set_transfer_state(&self, state: TransferState) {
-        self.transfer_state.store(state as u8, Ordering::Release);
-    }
-}
-
-impl Default for State {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// Simple interrupt handler (wakes the waker on any interrupt).
+/// Interrupt handler for SPI async operations.
+///
+/// Disables all interrupts and wakes the WaitCell. The async code
+/// will check status flags to determine what happened.
 pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
@@ -280,57 +243,13 @@ pub struct InterruptHandler<T: Instance> {
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let regs = T::regs();
-        let state = T::state();
 
-        // Read status and interrupt enable registers
-        let sr = regs.sr().read();
-        let ier = regs.ier().read();
-
-        // Check for transfer complete flag (TCF) - only if interrupt is enabled
-        if sr.tcf().bit() && ier.tcie().bit() {
-            // Clear the flag by writing 1 to it (w1c)
-            regs.sr().write(|w| w.tcf().clear_bit_by_one());
-            // Disable TCF interrupt to prevent re-entry
-            regs.ier().modify(|_, w| w.tcie().disable());
-            state.set_transfer_state(TransferState::Complete);
-            state.waker.wake();
-        }
-
-        // Check for frame complete flag (FCF) - only if interrupt is enabled
-        if sr.fcf().bit() && ier.fcie().bit() {
-            // Don't clear the flag here - let the async code check it
-            // Just disable the interrupt to prevent re-entry and wake the task
-            regs.ier().modify(|_, w| w.fcie().disable());
-            state.waker.wake();
-        }
-
-        // Check for errors (TEF = transmit error, REF = receive error) - only if interrupts enabled
-        if (sr.tef().bit() && ier.teie().bit()) || (sr.ref_().bit() && ier.reie().bit()) {
-            // Clear error flags
-            regs.sr()
-                .write(|w| w.tef().clear_bit_by_one().ref_().clear_bit_by_one());
-            // Disable error interrupts to prevent re-entry
-            regs.ier().modify(|_, w| w.teie().disable().reie().disable());
-            state.set_transfer_state(TransferState::Error);
-            state.waker.wake();
-        }
-
-        // Check for RX data available (FIFO has data) - only if interrupt is enabled
-        // RDF is read-only and clears when RX FIFO count <= watermark.
-        // We must disable the interrupt to prevent infinite re-entry.
-        if sr.rdf().bit() && ier.rdie().bit() {
-            // Disable RX interrupt - the async read() will re-enable after draining FIFO
-            regs.ier().modify(|_, w| w.rdie().disable());
-            state.waker.wake();
-        }
-
-        // Check for TX FIFO ready - only if interrupt is enabled
-        // TDF is read-only and clears when TX FIFO count > watermark.
-        // We must disable the interrupt to prevent infinite re-entry.
-        if sr.tdf().bit() && ier.tdie().bit() {
-            // Disable TX interrupt - the async write() will re-enable after filling FIFO
-            regs.ier().modify(|_, w| w.tdie().disable());
-            state.waker.wake();
+        // If any interrupts are enabled, disable them all and wake the task.
+        // The async code will check status flags to determine what happened.
+        if regs.ier().read().bits() != 0 {
+            // Disable all interrupts
+            regs.ier().write(|w| w);
+            T::wait_cell().wake();
         }
     }
 }
@@ -344,7 +263,7 @@ impl<T: GpioPin> sealed::Sealed for T {}
 
 trait SealedInstance {
     fn regs() -> &'static pac::lpspi0::RegisterBlock;
-    fn state() -> &'static State;
+    fn wait_cell() -> &'static WaitCell;
 }
 
 use crate::dma::{Channel as DmaChannelTrait, DmaChannel, DmaRequest, EnableInterrupt};
@@ -371,9 +290,9 @@ macro_rules! impl_instance {
                         unsafe { &*pac::[<Lpspi $n>]::ptr() }
                     }
 
-                    fn state() -> &'static State {
-                        static STATE: State = State::new();
-                        &STATE
+                    fn wait_cell() -> &'static WaitCell {
+                        static WAIT_CELL: WaitCell = WaitCell::new();
+                        &WAIT_CELL
                     }
                 }
 
@@ -390,28 +309,6 @@ macro_rules! impl_instance {
 }
 
 impl_instance!(0, 1);
-
-/// Clock polarity
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Polarity {
-    /// Clock is low when idle (CPOL=0)
-    #[default]
-    IdleLow,
-    /// Clock is high when idle (CPOL=1)
-    IdleHigh,
-}
-
-/// Clock phase
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Phase {
-    /// Data is captured on the first clock edge (CPHA=0)
-    #[default]
-    CaptureOnFirstTransition,
-    /// Data is captured on the second clock edge (CPHA=1)
-    CaptureOnSecondTransition,
-}
 
 /// Bit order
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
@@ -459,7 +356,8 @@ pub struct Config {
     pub phase: Phase,
     /// Bit order
     pub bit_order: BitOrder,
-    /// Bits per frame (8-4096, typically 8)
+    /// Bits per frame (1-4096, typically 8).
+    /// Values outside this range will be clamped: 0 becomes 1, >4096 becomes 4096.
     pub bits_per_frame: u16,
     /// Chip select to use
     pub chip_select: ChipSelect,
@@ -485,50 +383,50 @@ impl Config {
     }
 
     /// Set clock polarity
-    pub fn polarity(mut self, pol: Polarity) -> Self {
+    pub fn polarity(&mut self, pol: Polarity) -> &mut Self {
         self.polarity = pol;
         self
     }
 
     /// Set clock phase
-    pub fn phase(mut self, ph: Phase) -> Self {
+    pub fn phase(&mut self, ph: Phase) -> &mut Self {
         self.phase = ph;
         self
     }
 
     /// Set bit order
-    pub fn bit_order(mut self, order: BitOrder) -> Self {
+    pub fn bit_order(&mut self, order: BitOrder) -> &mut Self {
         self.bit_order = order;
         self
     }
 
-    /// Set bits per frame
-    pub fn bits_per_frame(mut self, bits: u16) -> Self {
+    /// Set bits per frame (valid range: 1-4096, will be clamped)
+    pub fn bits_per_frame(&mut self, bits: u16) -> &mut Self {
         self.bits_per_frame = bits;
         self
     }
 
     /// Set chip select
-    pub fn chip_select(mut self, cs: ChipSelect) -> Self {
+    pub fn chip_select(&mut self, cs: ChipSelect) -> &mut Self {
         self.chip_select = cs;
         self
     }
 
     /// Set SCK divider. Baud = src_clk / (prescaler * (SCKDIV + 2))
-    pub fn sck_div(mut self, div: u8) -> Self {
+    pub fn sck_div(&mut self, div: u8) -> &mut Self {
         self.sck_div = div;
         self
     }
 
     /// Set prescaler (0-7, divide by 1,2,4,8,16,32,64,128)
-    pub fn prescaler(mut self, prescaler: u8) -> Self {
+    pub fn prescaler(&mut self, prescaler: u8) -> &mut Self {
         self.prescaler = prescaler.min(7);
         self
     }
 
     /// Calculate baud rate parameters for a target frequency.
     /// Returns (prescaler, sck_div) for the closest achievable baud rate.
-    pub fn for_frequency(mut self, src_hz: u32, target_hz: u32) -> Self {
+    pub fn for_frequency(&mut self, src_hz: u32, target_hz: u32) -> &mut Self {
         let (prescaler, sck_div) = compute_baud_params(src_hz, target_hz);
         self.prescaler = prescaler;
         self.sck_div = sck_div;
@@ -551,17 +449,22 @@ impl Default for Config {
 /// Returns (prescaler_value, sckdiv) where prescaler_value is 0-7 (divide by 1,2,4,8,16,32,64,128)
 /// and sckdiv is 0-255.
 /// Baud = src_hz / (prescaler * (SCKDIV + 2))
+///
+/// If baud_hz is 0, returns default values (0, 0) which gives the slowest possible baud rate.
 fn compute_baud_params(src_hz: u32, baud_hz: u32) -> (u8, u8) {
+    // Guard against division by zero - if baud_hz is 0, return slowest settings
+    if baud_hz == 0 {
+        return (0, 0);
+    }
+
     let prescalers: [u32; 8] = [1, 2, 4, 8, 16, 32, 64, 128];
     let mut best_prescaler: u8 = 0;
     let mut best_sckdiv: u8 = 0;
     let mut best_error: u32 = u32::MAX;
 
     for (i, &prescaler) in prescalers.iter().enumerate() {
+        // prescaler is always >= 1, and baud_hz > 0 (checked above), so denom > 0
         let denom = prescaler.saturating_mul(baud_hz);
-        if denom == 0 {
-            continue;
-        }
         let sckdiv_calc = (src_hz + denom / 2) / denom;
         if sckdiv_calc < 2 {
             continue;
@@ -587,8 +490,6 @@ pub struct Spi<'d, T: Instance, M: Mode> {
     _cs: Peri<'d, AnyPin>,
     _phantom: PhantomData<M>,
     chip_select: ChipSelect,
-    #[allow(dead_code)]
-    bits_per_frame: u16,
 }
 
 impl<'d, T: Instance> Spi<'d, T, Blocking> {
@@ -618,12 +519,6 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Result<Self> {
-        let state = T::state();
-
-        // Mark state as initialized
-        state.initialized.store(true, Ordering::Release);
-        state.set_transfer_state(TransferState::Idle);
-
         Self::new_inner(peri, sck, mosi, miso, cs, config)
     }
 
@@ -638,22 +533,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         }
 
         let spi = T::regs();
-        let state = T::state();
-
-        state.set_transfer_state(TransferState::InProgress);
-
-        // Disable the module while reconfiguring.
-        spi.cr().modify(|_, w| w.men().disabled());
-        // Flush FIFOs.
-        flush_fifos(spi);
-        // Clear status flags.
-        clear_status_flags(spi);
-        // Disable all interrupts.
-        spi.ier().write(|w| unsafe { w.bits(0) });
-        // Clear NOSTALL.
-        clear_nostall(spi);
-        // Re-enable.
-        spi.cr().modify(|_, w| w.men().enabled());
+        prepare_for_transfer(spi);
 
         let is_pcs_continuous = tx.len() > 1;
 
@@ -662,39 +542,29 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         Self::wait_tx_fifo_empty()?;
 
         // Second TCR write: set CONT/CONTC when needed, and set RXMSK=1 (mask RX).
-        spi.tcr().modify(|r, w| unsafe {
-            let mut val = r.bits();
-            val &= !((1 << 21) | (1 << 20) | (1 << 19)); // Clear CONT, CONTC, RXMSK
-            if is_pcs_continuous {
-                val |= (1 << 21) | (1 << 20); // Set CONT and CONTC
-            }
-            val |= 1 << 19; // Set RXMSK (mask RX since we don't want to receive)
-            w.bits(val)
-        });
+        self.apply_transfer_tcr(is_pcs_continuous, true, false);
         Self::wait_tx_fifo_empty()?;
 
-        // Fill TX FIFO.
+        // Initial FIFO fill: fill as much as possible without waiting.
+        // This pre-fill step avoids an unnecessary interrupt/wait cycle for small transfers
+        // that fit entirely in the FIFO.
         let mut tx_idx = 0usize;
         while tx_idx < tx.len() && Self::get_tx_fifo_count() < Self::get_fifo_size() {
             spi.tdr().write(|w| unsafe { w.bits(tx[tx_idx] as u32) });
             tx_idx += 1;
         }
 
-        // Enable TX interrupt.
-        spi.ier().modify(|_, w| w.tdie().enable());
-
-        // Continue sending
+        // Continue sending remaining data using interrupt-driven waits
         while tx_idx < tx.len() {
-            poll_fn(|cx| {
-                state.waker.register(cx.waker());
-                if Self::get_tx_fifo_count() < Self::get_fifo_size() {
-                    Poll::Ready(())
-                } else {
+            T::wait_cell()
+                .wait_for(|| {
+                    // Enable TX interrupt before waiting
                     spi.ier().modify(|_, w| w.tdie().enable());
-                    Poll::Pending
-                }
-            })
-            .await;
+                    // Check if FIFO has space
+                    Self::get_tx_fifo_count() < Self::get_fifo_size()
+                })
+                .await
+                .map_err(|_| Error::Timeout)?;
 
             while tx_idx < tx.len() && Self::get_tx_fifo_count() < Self::get_fifo_size() {
                 spi.tdr().write(|w| unsafe { w.bits(tx[tx_idx] as u32) });
@@ -705,16 +575,13 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         // Clear CONT/CONTC at end for PCS de-assertion.
         if is_pcs_continuous {
             spin_wait_while(|| Self::get_tx_fifo_count() >= Self::get_fifo_size())?;
-            spi.tcr()
-                .modify(|r, w| unsafe { w.bits(r.bits() & !((1 << 21) | (1 << 20))) });
+            self.apply_transfer_tcr(false, true, false);
         }
 
         // Wait for transfer complete
         Self::wait_tx_fifo_empty()?;
         spin_wait_while(|| spi.sr().read().mbf().is_busy())?;
 
-        spi.ier().modify(|_, w| w.tdie().disable());
-        state.set_transfer_state(TransferState::Complete);
         Ok(())
     }
 
@@ -729,23 +596,8 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         }
 
         let spi = T::regs();
-        let state = T::state();
         let fifo_size = Self::get_fifo_size() as usize;
-
-        state.set_transfer_state(TransferState::InProgress);
-
-        // Disable the module while reconfiguring.
-        spi.cr().modify(|_, w| w.men().disabled());
-        // Flush FIFOs.
-        flush_fifos(spi);
-        // Clear status flags.
-        clear_status_flags(spi);
-        // Disable all interrupts.
-        spi.ier().write(|w| unsafe { w.bits(0) });
-        // Clear NOSTALL.
-        clear_nostall(spi);
-        // Re-enable.
-        spi.cr().modify(|_, w| w.men().enabled());
+        prepare_for_transfer(spi);
 
         let is_pcs_continuous = rx.len() > 1;
 
@@ -753,20 +605,9 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         self.apply_transfer_tcr(false, false, false);
         Self::wait_tx_fifo_empty()?;
 
-        // Second TCR write: set CONT/CONTC when needed; RXMSK=0 (receive data).
-        spi.tcr().modify(|r, w| unsafe {
-            let mut val = r.bits();
-            val &= !((1 << 21) | (1 << 20) | (1 << 19)); // Clear CONT, CONTC, RXMSK
-            if is_pcs_continuous {
-                val |= (1 << 21) | (1 << 20); // Set CONT and CONTC
-            }
-            // RXMSK stays 0 (we want to receive)
-            w.bits(val)
-        });
+        // Second TCR write: set CONT/CONTC when needed; RXMSK=0 (receive data), TXMSK=0 (send zeros).
+        self.apply_transfer_tcr(is_pcs_continuous, false, false);
         Self::wait_tx_fifo_empty()?;
-
-        // Enable RX interrupt.
-        spi.ier().modify(|_, w| w.rdie().enable());
 
         let mut tx_remaining = rx.len();
         let mut rx_idx = 0usize;
@@ -789,35 +630,34 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
             }
 
             if tx_remaining > 0 || rx_idx < rx.len() {
-                poll_fn(|cx| {
-                    state.waker.register(cx.waker());
-                    if Self::get_rx_fifo_count() > 0 || Self::get_tx_fifo_count() < Self::get_fifo_size() {
-                        Poll::Ready(())
-                    } else {
+                T::wait_cell()
+                    .wait_for(|| {
+                        // Enable RX interrupt before waiting
                         spi.ier().modify(|_, w| w.rdie().enable());
-                        Poll::Pending
-                    }
-                })
-                .await;
+                        // Check if RX FIFO has data or TX FIFO has space
+                        Self::get_rx_fifo_count() > 0 || Self::get_tx_fifo_count() < Self::get_fifo_size()
+                    })
+                    .await
+                    .map_err(|_| Error::Timeout)?;
             }
         }
 
         // Clear CONT/CONTC at end for PCS de-assertion.
         if is_pcs_continuous {
             spin_wait_while(|| Self::get_tx_fifo_count() >= Self::get_fifo_size())?;
-            spi.tcr()
-                .modify(|r, w| unsafe { w.bits(r.bits() & !((1 << 21) | (1 << 20))) });
+            self.apply_transfer_tcr(false, false, false);
         }
 
-        spi.ier().modify(|_, w| w.rdie().disable());
-        state.set_transfer_state(TransferState::Complete);
         Ok(())
     }
 
     /// Async full-duplex transfer (interrupt-driven).
     ///
     /// Simultaneously writes TX data and reads RX data.
-    /// This is the same algorithm as async read() but sends actual TX data instead of zeros.
+    ///
+    /// If `tx` and `rx` have different lengths, only the minimum of the two
+    /// lengths will be transferred. Any extra bytes in the longer buffer
+    /// will be ignored.
     pub async fn transfer(&mut self, tx: &[u8], rx: &mut [u8]) -> Result<()> {
         let len = tx.len().min(rx.len());
         if len == 0 {
@@ -825,23 +665,8 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         }
 
         let spi = T::regs();
-        let state = T::state();
         let fifo_size = Self::get_fifo_size() as usize;
-
-        state.set_transfer_state(TransferState::InProgress);
-
-        // Disable the module while reconfiguring.
-        spi.cr().modify(|_, w| w.men().disabled());
-        // Flush FIFOs.
-        flush_fifos(spi);
-        // Clear status flags.
-        clear_status_flags(spi);
-        // Disable all interrupts.
-        spi.ier().write(|w| unsafe { w.bits(0) });
-        // Clear NOSTALL.
-        clear_nostall(spi);
-        // Re-enable.
-        spi.cr().modify(|_, w| w.men().enabled());
+        prepare_for_transfer(spi);
 
         let is_pcs_continuous = len > 1;
 
@@ -851,19 +676,8 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
 
         // Second TCR write: set CONT/CONTC when needed.
         // RXMSK=0 (receive data), TXMSK=0 (send data) - FULL DUPLEX
-        spi.tcr().modify(|r, w| unsafe {
-            let mut val = r.bits();
-            val &= !((1 << 21) | (1 << 20) | (1 << 19) | (1 << 18)); // Clear CONT, CONTC, RXMSK, TXMSK
-            if is_pcs_continuous {
-                val |= (1 << 21) | (1 << 20); // Set CONT and CONTC
-            }
-            // RXMSK=0, TXMSK=0 for full duplex
-            w.bits(val)
-        });
+        self.apply_transfer_tcr(is_pcs_continuous, false, false);
         Self::wait_tx_fifo_empty()?;
-
-        // Enable RX interrupt.
-        spi.ier().modify(|_, w| w.rdie().enable());
 
         let mut tx_idx = 0usize;
         let mut rx_idx = 0usize;
@@ -887,28 +701,24 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
 
             // Wait for more activity if needed
             if tx_idx < len || rx_idx < len {
-                poll_fn(|cx| {
-                    state.waker.register(cx.waker());
-                    if Self::get_rx_fifo_count() > 0 || Self::get_tx_fifo_count() < Self::get_fifo_size() {
-                        Poll::Ready(())
-                    } else {
+                T::wait_cell()
+                    .wait_for(|| {
+                        // Enable RX interrupt before waiting
                         spi.ier().modify(|_, w| w.rdie().enable());
-                        Poll::Pending
-                    }
-                })
-                .await;
+                        // Check if RX FIFO has data or TX FIFO has space
+                        Self::get_rx_fifo_count() > 0 || Self::get_tx_fifo_count() < Self::get_fifo_size()
+                    })
+                    .await
+                    .map_err(|_| Error::Timeout)?;
             }
         }
 
         // Clear CONT/CONTC at end for PCS de-assertion.
         if is_pcs_continuous {
             spin_wait_while(|| Self::get_tx_fifo_count() >= Self::get_fifo_size())?;
-            spi.tcr()
-                .modify(|r, w| unsafe { w.bits(r.bits() & !((1 << 21) | (1 << 20))) });
+            self.apply_transfer_tcr(false, false, false);
         }
 
-        spi.ier().modify(|_, w| w.rdie().disable());
-        state.set_transfer_state(TransferState::Complete);
         Ok(())
     }
 }
@@ -954,7 +764,6 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
             _cs,
             _phantom: PhantomData,
             chip_select: config.chip_select,
-            bits_per_frame: config.bits_per_frame,
         })
     }
 
@@ -975,7 +784,17 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
             w.master().master_mode().pincfg().sin_in_sout_out().pcspol().bits(0) // PCS0 active low
         });
 
-        // 4) Set baud rate via CCR
+        // 4) Set baud rate and timing via CCR
+        //
+        // CCR fields:
+        // - SCKDIV: SCK divider, determines the SCK frequency
+        // - DBT: Delay Between Transfers - time between PCS de-assert and next assert
+        // - PCSSCK: PCS-to-SCK Delay - time from PCS assert to first SCK edge
+        // - SCKPCS: SCK-to-PCS Delay - time from last SCK edge to PCS de-assert
+        //
+        // Using sck_div for all timing values provides balanced, symmetric timing
+        // that works well for most SPI devices. More aggressive timing (smaller
+        // delays) could be achieved but may cause issues with slower peripherals.
         spi.ccr().write(|w| unsafe {
             w.sckdiv()
                 .bits(config.sck_div)
@@ -991,28 +810,29 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         spi.fcr().write(|w| unsafe { w.txwater().bits(0).rxwater().bits(0) });
 
         // 6) Configure TCR (transfer command register)
-        let framesz = config.bits_per_frame.saturating_sub(1).min(0xFFF) as u16;
-        spi.tcr().write(|w| {
-            let w = unsafe { w.framesz().bits(framesz) };
-            let w = match config.polarity {
+        // bits_per_frame is already u16, so no cast needed
+        let framesz = config.bits_per_frame.saturating_sub(1).min(0xFFF);
+        spi.tcr().write(|w| unsafe {
+            w.framesz().bits(framesz);
+            match config.polarity {
                 Polarity::IdleLow => w.cpol().inactive_low(),
                 Polarity::IdleHigh => w.cpol().inactive_high(),
             };
-            let w = match config.phase {
+            match config.phase {
                 Phase::CaptureOnFirstTransition => w.cpha().captured(),
                 Phase::CaptureOnSecondTransition => w.cpha().changed(),
             };
-            let w = match config.bit_order {
+            match config.bit_order {
                 BitOrder::MsbFirst => w.lsbf().msb_first(),
                 BitOrder::LsbFirst => w.lsbf().lsb_first(),
             };
-            let w = match config.chip_select {
+            match config.chip_select {
                 ChipSelect::Pcs0 => w.pcs().tx_pcs0(),
                 ChipSelect::Pcs1 => w.pcs().tx_pcs1(),
                 ChipSelect::Pcs2 => w.pcs().tx_pcs2(),
                 ChipSelect::Pcs3 => w.pcs().tx_pcs3(),
             };
-            unsafe { w.prescale().bits(config.prescaler) }
+            w.prescale().bits(config.prescaler)
         });
 
         // 7) Enable the module
@@ -1078,6 +898,10 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
     }
 
     /// Transfer multiple bytes (write and read simultaneously).
+    ///
+    /// If `tx` and `rx` have different lengths, only the minimum of the two
+    /// lengths will be transferred. Any extra bytes in the longer buffer
+    /// will be ignored.
     pub fn blocking_transfer(&self, tx: &[u8], rx: &mut [u8]) -> Result<()> {
         let len = tx.len().min(rx.len());
         if len == 0 {
@@ -1085,13 +909,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         }
         let spi = T::regs();
         let fifo_size = Self::get_fifo_size();
-
-        // Disable, flush FIFOs, clear status, re-enable
-        spi.cr().modify(|_, w| w.men().disabled());
-        flush_fifos(spi);
-        clear_status_flags(spi);
-        clear_nostall(spi);
-        spi.cr().modify(|_, w| w.men().enabled());
+        prepare_for_blocking_transfer(spi);
 
         // Configure TCR for a new transfer
         self.apply_transfer_tcr(false, false, false);
@@ -1151,13 +969,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         }
         let spi = T::regs();
         let fifo_size = Self::get_fifo_size();
-
-        // Disable, flush FIFOs, clear status, re-enable
-        spi.cr().modify(|_, w| w.men().disabled());
-        flush_fifos(spi);
-        clear_status_flags(spi);
-        clear_nostall(spi);
-        spi.cr().modify(|_, w| w.men().enabled());
+        prepare_for_blocking_transfer(spi);
 
         // Configure TCR for a new transfer
         self.apply_transfer_tcr(false, false, false);
@@ -1193,13 +1005,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         }
         let spi = T::regs();
         let fifo_size = Self::get_fifo_size();
-
-        // Disable, flush FIFOs, clear status, re-enable
-        spi.cr().modify(|_, w| w.men().disabled());
-        flush_fifos(spi);
-        clear_status_flags(spi);
-        clear_nostall(spi);
-        spi.cr().modify(|_, w| w.men().enabled());
+        prepare_for_blocking_transfer(spi);
 
         // Configure TCR for a new transfer
         self.apply_transfer_tcr(false, false, false);
@@ -1292,11 +1098,11 @@ impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::SpiBus for Spi<'d, T, M> {
     }
 
     fn transfer_in_place(&mut self, words: &mut [u8]) -> core::result::Result<(), Self::Error> {
-        // Create a copy of the data to write
-        for i in 0..words.len() {
-            let tx_byte = words[i];
-            let spi = T::regs();
-            let fifo_size = Self::get_fifo_size();
+        let spi = T::regs();
+        let fifo_size = Self::get_fifo_size();
+
+        for byte in words.iter_mut() {
+            let tx_byte = *byte;
 
             // Wait for TX FIFO space
             spin_wait_while(|| Self::get_tx_fifo_count() >= fifo_size)?;
@@ -1304,7 +1110,7 @@ impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::SpiBus for Spi<'d, T, M> {
 
             // Wait for RX data
             spin_wait_while(|| Self::get_rx_fifo_count() == 0)?;
-            words[i] = spi.rdr().read().bits() as u8;
+            *byte = spi.rdr().read().bits() as u8;
         }
         Ok(())
     }
@@ -1352,22 +1158,26 @@ impl SlaveConfig {
         }
     }
 
-    pub fn polarity(mut self, polarity: Polarity) -> Self {
+    /// Set clock polarity
+    pub fn polarity(&mut self, polarity: Polarity) -> &mut Self {
         self.polarity = polarity;
         self
     }
 
-    pub fn phase(mut self, phase: Phase) -> Self {
+    /// Set clock phase
+    pub fn phase(&mut self, phase: Phase) -> &mut Self {
         self.phase = phase;
         self
     }
 
-    pub fn bit_order(mut self, order: BitOrder) -> Self {
+    /// Set bit order
+    pub fn bit_order(&mut self, order: BitOrder) -> &mut Self {
         self.bit_order = order;
         self
     }
 
-    pub fn bits_per_frame(mut self, bits: u16) -> Self {
+    /// Set bits per frame (valid range: 1-4096, will be clamped)
+    pub fn bits_per_frame(&mut self, bits: u16) -> &mut Self {
         self.bits_per_frame = bits;
         self
     }
@@ -1421,12 +1231,6 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: SlaveConfig,
     ) -> Result<Self> {
-        let state = T::state();
-
-        // Mark state as initialized
-        state.initialized.store(true, Ordering::Release);
-        state.set_transfer_state(TransferState::Idle);
-
         Self::new_inner(peri, sck, mosi, miso, cs, config)
     }
 
@@ -1464,10 +1268,6 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
         }
 
         let spi = T::regs();
-        let state = T::state();
-
-        // Reset state
-        state.set_transfer_state(TransferState::InProgress);
 
         // Configure TCR for RX-only if not already set
         // Set TXMSK=1 (mask TX, send zeros), RXMSK=0 (normal RX)
@@ -1475,15 +1275,12 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
         let needs_tcr_update = (tcr & TCR_TXMSK) == 0 || (tcr & TCR_RXMSK) != 0;
 
         if needs_tcr_update {
-            let new_tcr = (tcr & !(TCR_CONT | TCR_CONTC | TCR_RXMSK | TCR_TXMSK | TCR_PCS_MASK)) | TCR_TXMSK; // Set TXMSK=1 (mask TX), RXMSK=0 (normal RX)
+            let new_tcr = (tcr & !(TCR_CONT | TCR_CONTC | TCR_RXMSK | TCR_TXMSK | TCR_PCS_MASK)) | TCR_TXMSK;
             spi.tcr().write(|w| unsafe { w.bits(new_tcr) });
 
             // Wait for TCR to be written to FIFO
             spin_wait_while(|| Self::get_tx_fifo_count() > 0)?;
         }
-
-        // Enable RX interrupt
-        spi.ier().modify(|_, w| w.rdie().enable());
 
         let mut rx_idx = 0usize;
 
@@ -1496,26 +1293,18 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
 
             // Wait for more data if needed
             if rx_idx < rx.len() {
-                poll_fn(|cx| {
-                    state.waker.register(cx.waker());
-
-                    // Check if data is available before sleeping
-                    if Self::get_rx_fifo_count() > 0 {
-                        Poll::Ready(())
-                    } else {
-                        // Re-enable RX interrupt before sleeping
+                T::wait_cell()
+                    .wait_for(|| {
+                        // Enable RX interrupt before waiting
                         spi.ier().modify(|_, w| w.rdie().enable());
-                        Poll::Pending
-                    }
-                })
-                .await;
+                        // Check if data is available
+                        Self::get_rx_fifo_count() > 0
+                    })
+                    .await
+                    .map_err(|_| Error::Timeout)?;
             }
         }
 
-        // Disable RX interrupt (cleanup)
-        spi.ier().modify(|_, w| w.rdie().disable());
-
-        state.set_transfer_state(TransferState::Complete);
         Ok(())
     }
 
@@ -1529,18 +1318,14 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
         }
 
         let spi = T::regs();
-        let state = T::state();
         let fifo_size = Self::get_fifo_size();
-
-        // Reset state
-        state.set_transfer_state(TransferState::InProgress);
 
         // Configure TCR for TX-only (mask RX, normal TX)
         let tcr = Self::read_tcr_with_errata_workaround();
         let needs_tcr_update = (tcr & TCR_RXMSK) == 0 || (tcr & TCR_TXMSK) != 0;
 
         if needs_tcr_update {
-            let new_tcr = (tcr & !(TCR_CONT | TCR_CONTC | TCR_RXMSK | TCR_TXMSK | TCR_PCS_MASK)) | TCR_RXMSK; // Set RXMSK=1 (mask RX), TXMSK=0 (normal TX)
+            let new_tcr = (tcr & !(TCR_CONT | TCR_CONTC | TCR_RXMSK | TCR_TXMSK | TCR_PCS_MASK)) | TCR_RXMSK;
             spi.tcr().write(|w| unsafe { w.bits(new_tcr) });
 
             // Wait for TCR to be written to FIFO
@@ -1556,23 +1341,17 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
             tx_idx += 1;
         }
 
-        // Enable TX interrupt
-        spi.ier().modify(|_, w| w.tdie().enable());
-
         // Continue filling as master clocks out data
         while tx_idx < tx.len() {
-            poll_fn(|cx| {
-                state.waker.register(cx.waker());
-
-                if Self::get_tx_fifo_count() < fifo_size {
-                    Poll::Ready(())
-                } else {
-                    // Re-enable TX interrupt before sleeping
+            T::wait_cell()
+                .wait_for(|| {
+                    // Enable TX interrupt before waiting
                     spi.ier().modify(|_, w| w.tdie().enable());
-                    Poll::Pending
-                }
-            })
-            .await;
+                    // Check if FIFO has space
+                    Self::get_tx_fifo_count() < fifo_size
+                })
+                .await
+                .map_err(|_| Error::Timeout)?;
 
             // Fill FIFO as much as possible
             while tx_idx < tx.len() && Self::get_tx_fifo_count() < fifo_size {
@@ -1582,31 +1361,25 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
         }
 
         // Wait for frame complete and TX FIFO empty (TX-only completion condition).
-        // Completion condition: FCF set and TX FIFO count == 0.
         spi.sr().write(|w| w.fcf().clear_bit_by_one()); // Clear FCF first
-        spi.ier().modify(|_, w| w.tdie().disable().fcie().enable()); // Enable Frame Complete interrupt
 
-        poll_fn(|cx| {
-            state.waker.register(cx.waker());
-
-            let sr = spi.sr().read();
-            if sr.fcf().bit() && Self::get_tx_fifo_count() == 0 {
-                Poll::Ready(())
-            } else {
-                // Re-enable Frame Complete interrupt before sleeping
-                spi.ier().modify(|_, w| w.fcie().enable());
-                Poll::Pending
-            }
-        })
-        .await;
+        T::wait_cell()
+            .wait_for(|| {
+                // Enable Frame Complete interrupt before waiting
+                spi.ier().modify(|_, w| w.tdie().disable().fcie().enable());
+                // Check completion condition
+                let sr = spi.sr().read();
+                sr.fcf().bit() && Self::get_tx_fifo_count() == 0
+            })
+            .await
+            .map_err(|_| Error::Timeout)?;
 
         // Clear Frame Complete flag
         spi.sr().write(|w| w.fcf().clear_bit_by_one());
 
-        // Disable TX/FCF interrupts (cleanup, but leave RX enabled for next read)
+        // Disable interrupts (cleanup)
         spi.ier().modify(|_, w| w.tdie().disable().fcie().disable());
 
-        state.set_transfer_state(TransferState::Complete);
         Ok(())
     }
 
@@ -1621,31 +1394,19 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
         }
 
         let spi = T::regs();
-        let state = T::state();
         let fifo_size = Self::get_fifo_size();
 
-        state.set_transfer_state(TransferState::InProgress);
-
         // Prepare LPSPI for a fresh full-duplex slave transfer.
-        //
-        // This mirrors the proven-good patterns from the async master transfer and
-        // the DMA transfers:
-        //  - Disable the module
-        //  - Flush TX/RX FIFOs
-        //  - Clear all status flags
-        //  - Disable all interrupts
-        //  - Clear NOSTALL so the module can stall when FIFOs are empty/full
-        //  - Re-enable the module before (re)configuring TCR
         spi.cr().modify(|_, w| w.men().disabled());
         flush_fifos(spi);
         clear_status_flags(spi);
-        spi.ier().write(|w| unsafe { w.bits(0) });
+        // Disable all interrupts (reset value is 0).
+        spi.ier().write(|w| w);
         clear_nostall(spi);
         spi.cr().modify(|_, w| w.men().enabled());
 
         // Configure TCR for true full duplex on the slave side: RX and TX unmasked,
-        // CONT/CONTC cleared, and PCS field cleared. We preserve frame size, clock
-        // polarity/phase, and bit order from the existing TCR value.
+        // CONT/CONTC cleared, and PCS field cleared.
         let tcr = Self::read_tcr_with_errata_workaround();
 
         let needs_tcr_update = (tcr & (TCR_RXMSK | TCR_TXMSK)) != 0;
@@ -1654,7 +1415,6 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
             spi.tcr().write(|w| unsafe { w.bits(new_tcr) });
 
             // Wait for the TCR write to propagate through the shared TX FIFO path
-            // before starting the transfer (TCR shares an internal path with TX FIFO).
             while Self::get_tx_fifo_count() > 0 {
                 cortex_m::asm::nop();
             }
@@ -1673,9 +1433,6 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
             tx_idx += 1;
         }
 
-        // Enable RX and TX interrupts
-        spi.ier().modify(|_, w| w.rdie().enable().tdie().enable());
-
         while tx_idx < max_len || rx_idx < rx_len {
             // Read available RX data
             while Self::get_rx_fifo_count() > 0 && rx_idx < rx_len {
@@ -1692,23 +1449,21 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
 
             // Wait for more activity if needed
             if tx_idx < max_len || rx_idx < rx_len {
-                poll_fn(|cx| {
-                    state.waker.register(cx.waker());
-                    if Self::get_rx_fifo_count() > 0 || Self::get_tx_fifo_count() < fifo_size {
-                        Poll::Ready(())
-                    } else {
+                T::wait_cell()
+                    .wait_for(|| {
+                        // Enable RX and TX interrupts before waiting
                         spi.ier().modify(|_, w| w.rdie().enable().tdie().enable());
-                        Poll::Pending
-                    }
-                })
-                .await;
+                        // Check if RX FIFO has data or TX FIFO has space
+                        Self::get_rx_fifo_count() > 0 || Self::get_tx_fifo_count() < fifo_size
+                    })
+                    .await
+                    .map_err(|_| Error::Timeout)?;
             }
         }
 
         // Disable interrupts
         spi.ier().modify(|_, w| w.rdie().disable().tdie().disable());
 
-        state.set_transfer_state(TransferState::Complete);
         Ok(())
     }
 }
@@ -1763,14 +1518,15 @@ impl<'d, T: Instance, M: Mode> SpiSlave<'d, T, M> {
         spi.fcr().write(|w| unsafe { w.txwater().bits(0).rxwater().bits(0) });
 
         // 5) Configure TCR
-        let framesz = config.bits_per_frame.saturating_sub(1).min(0xFFF) as u16;
-        spi.tcr().write(|w| {
-            let w = unsafe { w.framesz().bits(framesz) };
-            let w = match config.polarity {
+        // bits_per_frame is already u16, so no cast needed
+        let framesz = config.bits_per_frame.saturating_sub(1).min(0xFFF);
+        spi.tcr().write(|w| unsafe {
+            w.framesz().bits(framesz);
+            match config.polarity {
                 Polarity::IdleLow => w.cpol().inactive_low(),
                 Polarity::IdleHigh => w.cpol().inactive_high(),
             };
-            let w = match config.phase {
+            match config.phase {
                 Phase::CaptureOnFirstTransition => w.cpha().captured(),
                 Phase::CaptureOnSecondTransition => w.cpha().changed(),
             };
@@ -2283,129 +2039,137 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
         transfer_len: usize,
         tcr_with_cont: u32,
     ) -> Result<()> {
-        if transfer_len == 0 || transfer_len > 0x7fff {
-            return Err(Error::TransferError);
+        // SAFETY: This function is marked unsafe because it:
+        // - Dereferences raw pointers to configure TCDs
+        // - Calls unsafe DMA channel methods
+        // All operations are valid because:
+        // - self.tcds is owned by this struct and properly aligned
+        // - The caller has exclusive access to the DMA channel
+        unsafe {
+            if transfer_len == 0 || transfer_len > 0x7fff {
+                return Err(Error::TransferError);
+            }
+
+            let spi = Self::regs();
+
+            // =========================================================================
+            // STEP 1: Compute TCR value for PCS de-assertion
+            // =========================================================================
+            //
+            // The software TCD will write this value to TCR after all data bytes
+            // have been transmitted. Clearing CONT (bit 21) and CONTC (bit 20)
+            // causes PCS to de-assert after the current frame completes.
+            //
+            // Note: later we clear CONT/CONTC for the final write to de-assert PCS.
+            let tcr_without_cont = tcr_with_cont & !0x0030_0000;
+
+            // =========================================================================
+            // STEP 2: Compute peripheral addresses for BYSW mode
+            // =========================================================================
+            //
+            // With BYSW=1 (byte swap) and 8-bit frames:
+            // - TDR+3: DMA writes to byte 3 of the 32-bit TDR register
+            // - TCR: Full 32-bit register address for the software TCD
+            //
+            // Why TDR+3? LPSPI with BYSW=1 expects the data byte in bits [31:24]
+            // of the FIFO entry. An 8-bit DMA write to TDR+3 places the byte there.
+            let tdr_addr = Self::tdr_addr() as u32 + 3;
+            let tcr_addr = spi.tcr().as_ptr() as u32;
+
+            // =========================================================================
+            // STEP 3: Configure software TCD for TCR update
+            // =========================================================================
+            //
+            // This TCD runs AFTER the main data TCD completes (via scatter/gather).
+            // It performs a single 32-bit write of tcr_without_cont to the TCR register.
+            //
+            // TCD field breakdown:
+            // - SADDR: Address of tcr_value in RAM
+            // - SOFF: 0 (no source increment - single value)
+            // - ATTR: 0x0202 (32-bit source, 32-bit destination)
+            // - NBYTES: 4 (one 32-bit word per minor loop)
+            // - DADDR: LPSPI_TCR register address
+            // - DOFF: 0 (no destination increment - fixed register)
+            // - CITER/BITER: 1 (single major loop iteration)
+            // - DLAST_SGA: 0 (no further chaining)
+            // - CSR: 0x0008 (DREQ=1 to set DONE flag, ESG=0 - final TCD)
+            //
+            // CRITICAL: CSR.DREQ=1 is required! Without it, CH_CSR.DONE never gets
+            // set and the DMA channel appears to hang.
+            let tcds = &raw mut self.tcds;
+            (*tcds).tcr_value = tcr_without_cont;
+
+            let tcr_tcd = &mut (*tcds).tcr_tcd;
+            tcr_tcd.saddr = core::ptr::addr_of!((*tcds).tcr_value) as u32;
+            tcr_tcd.soff = 0;
+            tcr_tcd.attr = 0x0202; // SSIZE=2 (32-bit), DSIZE=2 (32-bit)
+            tcr_tcd.nbytes = 4;
+            tcr_tcd.slast = 0;
+            tcr_tcd.daddr = tcr_addr;
+            tcr_tcd.doff = 0;
+            tcr_tcd.citer = 1;
+            tcr_tcd.dlast_sga = 0;
+            tcr_tcd.csr = 0x0008; // DREQ=1, ESG=0 (final TCD in chain)
+            tcr_tcd.biter = 1;
+
+            // =========================================================================
+            // STEP 4: Configure main data TCD
+            // =========================================================================
+            //
+            // This TCD transfers the actual data bytes from tx_buf to TDR+3.
+            // After all bytes are transferred, scatter/gather loads tcr_tcd.
+            //
+            // TCD field breakdown:
+            // - SADDR: tx_buf address
+            // - SOFF: 1 (increment source by 1 byte after each minor loop)
+            // - ATTR: 0x0000 (8-bit source, 8-bit destination)
+            // - NBYTES: 1 (one byte per minor loop)
+            // - DADDR: TDR+3 (for BYSW mode)
+            // - DOFF: 0 (fixed peripheral address)
+            // - CITER/BITER: transfer_len (number of bytes = major loop count)
+            // - DLAST_SGA: Address of tcr_tcd (scatter/gather target)
+            // - CSR: 0x0010 (ESG=1 to enable scatter/gather, DREQ=0)
+            //
+            // CRITICAL: CSR.ESG=1 enables scatter/gather. When the major loop
+            // completes, the DMA engine loads the TCD from DLAST_SGA instead of
+            // stopping. This is how we chain to the TCR update.
+            let data_tcd = &mut (*tcds).data_tcd;
+            data_tcd.saddr = tx_ptr as u32;
+            data_tcd.soff = if src_increment { 1 } else { 0 };
+            data_tcd.attr = 0x0000; // SSIZE=0 (8-bit), DSIZE=0 (8-bit)
+            data_tcd.nbytes = 1;
+            data_tcd.slast = 0;
+            data_tcd.daddr = tdr_addr;
+            data_tcd.doff = 0; // Fixed destination (TDR)
+            data_tcd.citer = transfer_len as u16;
+            data_tcd.dlast_sga = core::ptr::addr_of!((*tcds).tcr_tcd) as u32 as i32;
+            data_tcd.csr = 0x0010; // ESG=1, DREQ=0 (scatter/gather continues)
+            data_tcd.biter = transfer_len as u16;
+
+            // =========================================================================
+            // STEP 5: Reset DMA channel and load TCD
+            // =========================================================================
+            //
+            // Order matters here:
+            // 1. Disable ERQ to stop any pending requests
+            // 2. Clear DONE flag from previous transfer
+            // 3. Clear any pending interrupt
+            // 4. Set DMAMUX request source for LPSPI TX
+            // 5. Load the data TCD into hardware registers
+            // 6. DSB to ensure all writes are visible to DMA engine
+            self.tx_dma.disable_request();
+            self.tx_dma.clear_done();
+            self.tx_dma.clear_interrupt();
+            self.tx_dma.set_request_source::<T::TxDmaRequest>();
+
+            self.tx_dma.load_tcd(data_tcd);
+
+            // Data Synchronization Barrier: ensures all TCD writes are visible
+            // to the DMA engine before we enable requests.
+            cortex_m::asm::dsb();
+
+            Ok(())
         }
-
-        let spi = Self::regs();
-
-        // =========================================================================
-        // STEP 1: Compute TCR value for PCS de-assertion
-        // =========================================================================
-        //
-        // The software TCD will write this value to TCR after all data bytes
-        // have been transmitted. Clearing CONT (bit 21) and CONTC (bit 20)
-        // causes PCS to de-assert after the current frame completes.
-        //
-        // Note: later we clear CONT/CONTC for the final write to de-assert PCS.
-        let tcr_without_cont = tcr_with_cont & !0x0030_0000;
-
-        // =========================================================================
-        // STEP 2: Compute peripheral addresses for BYSW mode
-        // =========================================================================
-        //
-        // With BYSW=1 (byte swap) and 8-bit frames:
-        // - TDR+3: DMA writes to byte 3 of the 32-bit TDR register
-        // - TCR: Full 32-bit register address for the software TCD
-        //
-        // Why TDR+3? LPSPI with BYSW=1 expects the data byte in bits [31:24]
-        // of the FIFO entry. An 8-bit DMA write to TDR+3 places the byte there.
-        let tdr_addr = Self::tdr_addr() as u32 + 3;
-        let tcr_addr = spi.tcr().as_ptr() as u32;
-
-        // =========================================================================
-        // STEP 3: Configure software TCD for TCR update
-        // =========================================================================
-        //
-        // This TCD runs AFTER the main data TCD completes (via scatter/gather).
-        // It performs a single 32-bit write of tcr_without_cont to the TCR register.
-        //
-        // TCD field breakdown:
-        // - SADDR: Address of tcr_value in RAM
-        // - SOFF: 0 (no source increment - single value)
-        // - ATTR: 0x0202 (32-bit source, 32-bit destination)
-        // - NBYTES: 4 (one 32-bit word per minor loop)
-        // - DADDR: LPSPI_TCR register address
-        // - DOFF: 0 (no destination increment - fixed register)
-        // - CITER/BITER: 1 (single major loop iteration)
-        // - DLAST_SGA: 0 (no further chaining)
-        // - CSR: 0x0008 (DREQ=1 to set DONE flag, ESG=0 - final TCD)
-        //
-        // CRITICAL: CSR.DREQ=1 is required! Without it, CH_CSR.DONE never gets
-        // set and the DMA channel appears to hang.
-        let tcds = &raw mut self.tcds;
-        (*tcds).tcr_value = tcr_without_cont;
-
-        let tcr_tcd = &mut (*tcds).tcr_tcd;
-        tcr_tcd.saddr = core::ptr::addr_of!((*tcds).tcr_value) as u32;
-        tcr_tcd.soff = 0;
-        tcr_tcd.attr = 0x0202; // SSIZE=2 (32-bit), DSIZE=2 (32-bit)
-        tcr_tcd.nbytes = 4;
-        tcr_tcd.slast = 0;
-        tcr_tcd.daddr = tcr_addr;
-        tcr_tcd.doff = 0;
-        tcr_tcd.citer = 1;
-        tcr_tcd.dlast_sga = 0;
-        tcr_tcd.csr = 0x0008; // DREQ=1, ESG=0 (final TCD in chain)
-        tcr_tcd.biter = 1;
-
-        // =========================================================================
-        // STEP 4: Configure main data TCD
-        // =========================================================================
-        //
-        // This TCD transfers the actual data bytes from tx_buf to TDR+3.
-        // After all bytes are transferred, scatter/gather loads tcr_tcd.
-        //
-        // TCD field breakdown:
-        // - SADDR: tx_buf address
-        // - SOFF: 1 (increment source by 1 byte after each minor loop)
-        // - ATTR: 0x0000 (8-bit source, 8-bit destination)
-        // - NBYTES: 1 (one byte per minor loop)
-        // - DADDR: TDR+3 (for BYSW mode)
-        // - DOFF: 0 (fixed peripheral address)
-        // - CITER/BITER: transfer_len (number of bytes = major loop count)
-        // - DLAST_SGA: Address of tcr_tcd (scatter/gather target)
-        // - CSR: 0x0010 (ESG=1 to enable scatter/gather, DREQ=0)
-        //
-        // CRITICAL: CSR.ESG=1 enables scatter/gather. When the major loop
-        // completes, the DMA engine loads the TCD from DLAST_SGA instead of
-        // stopping. This is how we chain to the TCR update.
-        let data_tcd = &mut (*tcds).data_tcd;
-        data_tcd.saddr = tx_ptr as u32;
-        data_tcd.soff = if src_increment { 1 } else { 0 };
-        data_tcd.attr = 0x0000; // SSIZE=0 (8-bit), DSIZE=0 (8-bit)
-        data_tcd.nbytes = 1;
-        data_tcd.slast = 0;
-        data_tcd.daddr = tdr_addr;
-        data_tcd.doff = 0; // Fixed destination (TDR)
-        data_tcd.citer = transfer_len as u16;
-        data_tcd.dlast_sga = core::ptr::addr_of!((*tcds).tcr_tcd) as u32 as i32;
-        data_tcd.csr = 0x0010; // ESG=1, DREQ=0 (scatter/gather continues)
-        data_tcd.biter = transfer_len as u16;
-
-        // =========================================================================
-        // STEP 5: Reset DMA channel and load TCD
-        // =========================================================================
-        //
-        // Order matters here:
-        // 1. Disable ERQ to stop any pending requests
-        // 2. Clear DONE flag from previous transfer
-        // 3. Clear any pending interrupt
-        // 4. Set DMAMUX request source for LPSPI TX
-        // 5. Load the data TCD into hardware registers
-        // 6. DSB to ensure all writes are visible to DMA engine
-        self.tx_dma.disable_request();
-        self.tx_dma.clear_done();
-        self.tx_dma.clear_interrupt();
-        self.tx_dma.set_request_source::<T::TxDmaRequest>();
-
-        self.tx_dma.load_tcd(data_tcd);
-
-        // Data Synchronization Barrier: ensures all TCD writes are visible
-        // to the DMA engine before we enable requests.
-        cortex_m::asm::dsb();
-
-        Ok(())
     }
 
     /// Write data using DMA (TX only, discards RX).
@@ -2519,7 +2283,8 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
             let rx_tcd = self.rx_dma.tcd();
             rx_tcd.tcd_saddr().write(|w| w.saddr().bits(rdr_addr));
             rx_tcd.tcd_soff().write(|w| w.soff().bits(0));
-            rx_tcd.tcd_attr().write(|w| w.bits(0x0000)); // 8-bit src and dst
+            // SSIZE=0 (8-bit), DSIZE=0 (8-bit), SMOD=0, DMOD=0
+            rx_tcd.tcd_attr().write(|w| w.bits(0x0000));
             rx_tcd.tcd_nbytes_mloffno().write(|w| w.nbytes().bits(1));
             rx_tcd.tcd_slast_sda().write(|w| w.slast_sda().bits(0));
             rx_tcd
@@ -2528,9 +2293,10 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
             rx_tcd.tcd_doff().write(|w| w.doff().bits(0));
             rx_tcd.tcd_citer_elinkno().write(|w| w.citer().bits(data_len as u16));
             rx_tcd.tcd_dlast_sga().write(|w| w.dlast_sga().bits(0));
-            // DREQ=1 causes EDMA to clear ERQ and set DONE when the major loop
-            // completes; INTMAJOR=1 generates the interrupt that wakes our waker.
-            rx_tcd.tcd_csr().write(|w| w.bits(0x000A)); // DREQ=1 (bit 3), INTMAJOR=1 (bit 1)
+            // CSR configuration: DREQ=1 (bit 3), INTMAJOR=1 (bit 1)
+            // - DREQ=1: Clear ERQ and set DONE when major loop completes
+            // - INTMAJOR=1: Generate interrupt on major loop completion (wakes our waker)
+            rx_tcd.tcd_csr().write(|w| w.bits(0x000A));
             rx_tcd.tcd_biter_elinkno().write(|w| w.biter().bits(data_len as u16));
 
             // Program DMAMUX for this channel to LPSPI1 RX (request source 17).
@@ -2947,14 +2713,15 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiSlaveDma<'d
         spi.fcr().write(|w| unsafe { w.txwater().bits(0).rxwater().bits(0) });
 
         // 5) Configure TCR
-        let framesz = config.bits_per_frame.saturating_sub(1).min(0xFFF) as u16;
-        spi.tcr().write(|w| {
-            let w = unsafe { w.framesz().bits(framesz) };
-            let w = match config.polarity {
+        // bits_per_frame is already u16, so no cast needed
+        let framesz = config.bits_per_frame.saturating_sub(1).min(0xFFF);
+        spi.tcr().write(|w| unsafe {
+            w.framesz().bits(framesz);
+            match config.polarity {
                 Polarity::IdleLow => w.cpol().inactive_low(),
                 Polarity::IdleHigh => w.cpol().inactive_high(),
             };
-            let w = match config.phase {
+            match config.phase {
                 Phase::CaptureOnFirstTransition => w.cpha().captured(),
                 Phase::CaptureOnSecondTransition => w.cpha().changed(),
             };
@@ -3225,6 +2992,7 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiSlaveDma<'d
             let rx_tcd = self.rx_dma.tcd();
             rx_tcd.tcd_saddr().write(|w| w.saddr().bits(rdr_addr));
             rx_tcd.tcd_soff().write(|w| w.soff().bits(0));
+            // SSIZE=0 (8-bit), DSIZE=0 (8-bit), SMOD=0, DMOD=0
             rx_tcd.tcd_attr().write(|w| w.bits(0x0000));
             rx_tcd.tcd_nbytes_mloffno().write(|w| w.nbytes().bits(1));
             rx_tcd.tcd_slast_sda().write(|w| w.slast_sda().bits(0));
@@ -3234,6 +3002,7 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiSlaveDma<'d
             rx_tcd.tcd_doff().write(|w| w.doff().bits(0));
             rx_tcd.tcd_citer_elinkno().write(|w| w.citer().bits(data.len() as u16));
             rx_tcd.tcd_dlast_sga().write(|w| w.dlast_sga().bits(0));
+            // CSR configuration: DREQ=1 (bit 3), INTMAJOR=1 (bit 1)
             rx_tcd.tcd_csr().write(|w| w.bits(0x000A));
             rx_tcd.tcd_biter_elinkno().write(|w| w.biter().bits(data.len() as u16));
 

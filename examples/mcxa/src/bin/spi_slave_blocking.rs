@@ -42,7 +42,8 @@ fn main() -> ! {
     defmt::info!("SPI Slave (Rust) running...");
 
     // Create SPI slave configuration
-    let spi_config = spi::SlaveConfig::new()
+    let mut spi_config = spi::SlaveConfig::new();
+    spi_config
         .polarity(spi::Polarity::IdleLow)
         .phase(spi::Phase::CaptureOnFirstTransition)
         .bits_per_frame(8);

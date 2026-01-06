@@ -56,9 +56,8 @@ async fn main(_spawner: Spawner) {
     defmt::info!("  P3_9  (SIN)  <- Slave SOUT");
 
     // SPI configuration for 500kHz
-    let config = Config::new()
-        .for_frequency(48_000_000, TRANSFER_BAUDRATE)
-        .bits_per_frame(8);
+    let mut config = Config::new();
+    config.for_frequency(48_000_000, TRANSFER_BAUDRATE).bits_per_frame(8);
 
     // Create async SPI master using LPSPI1
     let mut spi = match Spi::new_async(
