@@ -66,6 +66,9 @@ impl<'d> Watchdog<'d> {
 
         let watchdog = Self { _peri, info };
 
+        // ensure watchdog is disabled
+        watchdog.disable();
+
         let base_frequency = crate::clocks::with_clocks(|clocks| {
             // Ensure clk_1m is active at the required power level
             clocks.ensure_clk_1m_active(&crate::clocks::PoweredClock::NormalEnabledDeepSleepDisabled)
@@ -150,15 +153,8 @@ impl<'d> Watchdog<'d> {
     /// Disable the watchdog timer.
     /// Function is blocking until the watchdog is actually stopped.
     fn disable(&self) {
-        self.info
-            .mod_()
-            .modify(|_, w| w.wden().stop());
+        self.info.mod_().modify(|_, w| w.wden().stop());
         while self.info.tc().read().count() == 0xFF {}
-    }
-
-    /// Set the watchdog protection mode to threshold (protected).
-    fn set_threshold_mode(&self) {
-        self.info.mod_().modify(|_, w| w.wdprotect().threshold());
     }
 
     /// Set the watchdog protection mode to flexible.
@@ -194,42 +190,10 @@ impl<'d> Watchdog<'d> {
         self.info.warnint().write(|w| unsafe { w.warnint().bits(warning) });
     }
 
-    /// Set the window value in clock cycles.
-    ///
-    /// # Arguments
-    ///
-    /// * `window` - Minimum number of clock cycles before feeding is allowed.
-    fn set_window_value(&self, window: u32) {
-        self.info.window().write(|w| unsafe { w.window().bits(window) });
-    }
-
     /// Lock the oscillator to prevent disabling or powering down the watchdog oscillator.
     fn lock_oscillator(&self) {
         self.info.mod_().modify(|_, w| w.lock().lock());
     }
-}
-
-// Get the watchdog status flags.
-///
-/// # Arguments
-///
-/// * `regs` - Reference to the WWDT register block
-///
-/// # Returns
-///
-/// Bitmask containing WDTOF (bit 2) and WDINT (bit 3) flags.
-unsafe fn get_status_flag(regs: &pac::wwdt0::RegisterBlock) -> u32 {
-    regs.mod_().read().bits() & (0xC)
-}
-
-/// Clear the watchdog status flags.
-///
-/// # Arguments
-///
-/// * `regs` - Reference to the WWDT register block
-/// * `flag` - Bitmask of flags to clear
-unsafe fn clear_status_flag(regs: &pac::wwdt0::RegisterBlock, flag: u32) {
-    regs.mod_().modify(|_, w| unsafe { w.bits(flag) });
 }
 
 /// WWDT0 interrupt handler.
