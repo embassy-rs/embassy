@@ -590,7 +590,7 @@ fn init_pll(instance: PllInstance, config: Option<Pll>, input: &PllInput, voltag
     };
 
     // Calculate the PLL VCO clock
-    let vco_freq = ref_freq * (pll.mul as u32);
+    let vco_freq = ref_freq * pll.mul;
     assert!(vco_freq >= vco_min && vco_freq <= vco_max);
 
     // Calculate output clocks.
