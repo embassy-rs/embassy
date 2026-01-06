@@ -47,7 +47,8 @@ async fn main(_spawner: Spawner) {
     defmt::info!("Protocol: Half-duplex (RX-only then TX-only)");
 
     // Create SPI slave configuration
-    let config = SlaveConfig::new().bits_per_frame(8);
+    let mut config = SlaveConfig::new();
+    config.bits_per_frame(8);
 
     // Create async SPI slave instance FIRST (before enabling interrupt)
     let mut spi = match SpiSlave::new_async(p.LPSPI1, p.P3_10, p.P3_8, p.P3_9, p.P3_11, Irqs, config) {

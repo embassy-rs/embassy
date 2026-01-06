@@ -52,9 +52,8 @@ async fn main(_spawner: Spawner) {
     defmt::info!("    SIN      --    SOUT");
     defmt::info!("    GND      --    GND");
 
-    let config = Config::new()
-        .for_frequency(48_000_000, TRANSFER_BAUDRATE)
-        .bits_per_frame(8);
+    let mut config = Config::new();
+    config.for_frequency(48_000_000, TRANSFER_BAUDRATE).bits_per_frame(8);
 
     let mut spi = match Spi::new_async(p.LPSPI1, p.P3_10, p.P3_8, p.P3_9, p.P3_11, Irqs, config) {
         Ok(s) => s,

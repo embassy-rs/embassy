@@ -41,7 +41,8 @@ fn main() -> ! {
     defmt::info!("   GND       --    GND");
 
     // Create SPI configuration
-    let spi_config = spi::Config::new()
+    let mut spi_config = spi::Config::new();
+    spi_config
         .polarity(spi::Polarity::IdleLow)
         .phase(spi::Phase::CaptureOnFirstTransition)
         .bit_order(spi::BitOrder::MsbFirst)

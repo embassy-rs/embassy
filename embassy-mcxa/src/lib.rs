@@ -1,11 +1,6 @@
 #![no_std]
 #![allow(async_fn_in_trait)]
 #![doc = include_str!("../README.md")]
-// Rust 2024 makes `unsafe fn` bodies safe-by-default, warning on unsafe ops
-// that aren't wrapped in an explicit `unsafe { ... }` block.
-// This HAL currently contains many intentional register-level operations in
-// `unsafe fn`s; allow the lint to keep build output usable.
-#![allow(unsafe_op_in_unsafe_fn)]
 
 // //! ## Feature flags
 // #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]

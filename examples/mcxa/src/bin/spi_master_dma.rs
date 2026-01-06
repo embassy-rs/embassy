@@ -54,9 +54,8 @@ async fn main(_spawner: Spawner) {
     defmt::info!("  P3_9  (SIN)  <- Slave SOUT");
 
     // SPI configuration
-    let config = Config::new()
-        .for_frequency(48_000_000, TRANSFER_BAUDRATE)
-        .bits_per_frame(8);
+    let mut config = Config::new();
+    config.for_frequency(48_000_000, TRANSFER_BAUDRATE).bits_per_frame(8);
 
     // Create SPI master with DMA
     let mut spi = match SpiDma::new(p.LPSPI1, p.P3_10, p.P3_8, p.P3_9, p.P3_11, p.DMA_CH0, p.DMA_CH1, config) {

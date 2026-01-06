@@ -4,6 +4,12 @@
 //! and helpers for configuring the channel MUX. The driver supports both
 //! low-level TCD configuration and higher-level async transfer APIs.
 //!
+// Allow unsafe operations in unsafe functions for this low-level DMA module.
+// The Rust 2024 edition requires explicit unsafe blocks inside unsafe fns,
+// but this module has many low-level register operations that are inherently unsafe.
+// TODO: Gradually migrate to explicit unsafe blocks for better safety documentation.
+#![allow(unsafe_op_in_unsafe_fn)]
+//!
 //! # Architecture
 //!
 //! The MCXA276 has 8 DMA channels (0-7), each with its own interrupt vector.
@@ -191,7 +197,10 @@ static DMA_INITIALIZED: AtomicBool = AtomicBool::new(false);
 ///
 /// The function enables the DMA0 clock, releases reset, and configures the controller
 /// for normal operation with round-robin arbitration.
-pub fn init() {
+///
+/// This is internal to the HAL and should not be called directly by users.
+/// Use `embassy_mcxa::init()` instead.
+pub(crate) fn init() {
     // Fast path: already initialized
     if DMA_INITIALIZED.load(Ordering::Acquire) {
         return;
@@ -860,22 +869,16 @@ impl<C: Channel> DmaChannel<C> {
     /// and that source/destination buffers remain valid for the duration
     /// of the transfer.
     pub unsafe fn start_transfer(&self) -> Transfer<'_> {
-        // Clear any previous DONE/INT flags using raw pointer writes
-        // to properly handle W1C bits
         let t = self.tcd();
 
-        // Clear DONE (W1C) - write 1 to bit 30 to clear it
-        let ch_csr_ptr = t.ch_csr().as_ptr();
-        let current = core::ptr::read_volatile(ch_csr_ptr);
-        core::ptr::write_volatile(ch_csr_ptr, current | 0x40000000);
+        // Clear DONE (W1C) - PAC's modify() handles W1C bits via ONE_TO_MODIFY_FIELDS_BITMAP
+        t.ch_csr().modify(|_, w| w.done().clear_bit_by_one());
 
         // Clear INT flag
         t.ch_int().write(|w| w.int().clear_bit_by_one());
 
-        // Enable the channel request - set ERQ (bit 0), mask out DONE to avoid clearing it
-        let current = core::ptr::read_volatile(ch_csr_ptr);
-        let new_val = (current & !0x40000000) | 0x00000001;
-        core::ptr::write_volatile(ch_csr_ptr, new_val);
+        // Enable the channel request
+        t.ch_csr().modify(|_, w| w.erq().enable());
         cortex_m::asm::dsb();
 
         Transfer::new(self.as_any())
@@ -1759,17 +1762,8 @@ impl<C: Channel> DmaChannel<C> {
     ///
     /// The channel must be properly configured before enabling requests.
     pub unsafe fn enable_request(&self) {
-        let t = self.tcd();
-        // Use a read-modify-write that preserves unrelated bits and avoids
-        // accidentally clearing DONE (W1C).
-        // ERQ is bit 0, so ERQ_MASK = 0x00000001
-        // DONE is bit 30 (W1C) - we must NOT write 1 to it, so mask it out
-        let ch_csr_ptr = t.ch_csr().as_ptr();
-        let current = core::ptr::read_volatile(ch_csr_ptr);
-        // Mask out DONE bit (0x40000000) to avoid accidentally clearing it,
-        // then OR in ERQ bit
-        let new_val = (current & !0x40000000) | 0x00000001;
-        core::ptr::write_volatile(ch_csr_ptr, new_val);
+        // PAC's modify() handles W1C bits via ONE_TO_MODIFY_FIELDS_BITMAP
+        self.tcd().ch_csr().modify(|_, w| w.erq().enable());
         cortex_m::asm::dsb();
     }
 
@@ -1779,39 +1773,24 @@ impl<C: Channel> DmaChannel<C> {
     ///
     /// Disabling requests on an active transfer may leave the transfer incomplete.
     pub unsafe fn disable_request(&self) {
-        let t = self.tcd();
-        // Clear ERQ without accidentally clearing DONE (W1C).
-        let ch_csr_ptr = t.ch_csr().as_ptr();
-        let current = core::ptr::read_volatile(ch_csr_ptr);
-        // Mask out both DONE (0x40000000) and ERQ (0x00000001)
-        // Writing 0 to DONE preserves it (W1C only clears on write 1)
-        // Writing 0 to ERQ clears it
-        let new_val = current & !0x40000001;
-        core::ptr::write_volatile(ch_csr_ptr, new_val);
+        // PAC's modify() handles W1C bits via ONE_TO_MODIFY_FIELDS_BITMAP
+        self.tcd().ch_csr().modify(|_, w| w.erq().disable());
         cortex_m::asm::dsb();
     }
 
     /// Return true if the channel's DONE flag is set.
     pub fn is_done(&self) -> bool {
-        let t = self.tcd();
-        t.ch_csr().read().done().bit_is_set()
+        self.tcd().ch_csr().read().done().bit_is_set()
     }
 
     /// Clear the DONE flag for this channel.
-    ///
-    /// Uses the standard W1C pattern: CH_CSR |= DONE_MASK (write 1 to clear).
-    /// This is a read-modify-write that preserves other bits while clearing DONE.
     ///
     /// # Safety
     ///
     /// Clearing DONE while a transfer is in progress may cause undefined behavior.
     pub unsafe fn clear_done(&self) {
-        let t = self.tcd();
-        // DONE is bit 30, so DONE_MASK = 0x40000000
-        let ch_csr_ptr = t.ch_csr().as_ptr();
-        let current = core::ptr::read_volatile(ch_csr_ptr);
-        // Write 1 to DONE bit to clear it (W1C), preserve other bits
-        core::ptr::write_volatile(ch_csr_ptr, current | 0x40000000);
+        // Use modify() with clear_bit_by_one() to properly clear the W1C bit
+        self.tcd().ch_csr().modify(|_, w| w.done().clear_bit_by_one());
         cortex_m::asm::dsb();
     }
 
@@ -2121,23 +2100,15 @@ impl<'a> Transfer<'a> {
     /// Abort the transfer.
     fn abort(&mut self) {
         let t = self.channel.tcd();
-        let ch_csr_ptr = t.ch_csr().as_ptr();
 
-        // Disable channel requests - clear ERQ, mask out DONE to avoid clearing it
-        unsafe {
-            let current = core::ptr::read_volatile(ch_csr_ptr);
-            let new_val = current & !0x40000001; // Clear both DONE mask and ERQ
-            core::ptr::write_volatile(ch_csr_ptr, new_val);
-        }
+        // Disable channel requests - PAC's modify() handles W1C bits
+        t.ch_csr().modify(|_, w| w.erq().disable());
 
         // Clear any pending interrupt
         t.ch_int().write(|w| w.int().clear_bit_by_one());
 
-        // Clear DONE flag (W1C) - write 1 to bit 30
-        unsafe {
-            let current = core::ptr::read_volatile(ch_csr_ptr);
-            core::ptr::write_volatile(ch_csr_ptr, current | 0x40000000);
-        }
+        // Clear DONE flag (W1C)
+        t.ch_csr().modify(|_, w| w.done().clear_bit_by_one());
 
         fence(Ordering::SeqCst);
     }
@@ -2391,25 +2362,14 @@ impl<'a, W: Word> RingBuffer<'a, W> {
     pub fn stop(self) -> usize {
         let available = self.available();
 
-        // Disable the channel using raw pointer writes for W1C safety
         let t = self.channel.tcd();
-        let ch_csr_ptr = t.ch_csr().as_ptr();
 
-        unsafe {
-            // Disable ERQ, mask out DONE to avoid clearing it
-            let current = core::ptr::read_volatile(ch_csr_ptr);
-            let new_val = current & !0x40000001;
-            core::ptr::write_volatile(ch_csr_ptr, new_val);
-        }
+        // Disable the channel - PAC's modify() handles W1C bits
+        t.ch_csr().modify(|_, w| w.erq().disable());
 
         // Clear flags
         t.ch_int().write(|w| w.int().clear_bit_by_one());
-
-        unsafe {
-            // Clear DONE (W1C) - write 1 to bit 30
-            let current = core::ptr::read_volatile(ch_csr_ptr);
-            core::ptr::write_volatile(ch_csr_ptr, current | 0x40000000);
-        }
+        t.ch_csr().modify(|_, w| w.done().clear_bit_by_one());
 
         fence(Ordering::SeqCst);
 
@@ -2528,15 +2488,9 @@ impl<C: Channel> DmaChannel<C> {
 
         cortex_m::asm::dsb();
 
-        // Enable the channel request using raw pointer writes for W1C safety
-        unsafe {
-            let ch_csr_ptr = t.ch_csr().as_ptr();
-            let current = core::ptr::read_volatile(ch_csr_ptr);
-            // Set ERQ (bit 0), mask out DONE (bit 30) to avoid clearing it
-            let new_val = (current & !0x40000000) | 0x00000001;
-            core::ptr::write_volatile(ch_csr_ptr, new_val);
-            cortex_m::asm::dsb();
-        }
+        // Enable the channel request - PAC's modify() handles W1C bits
+        t.ch_csr().modify(|_, w| w.erq().enable());
+        cortex_m::asm::dsb();
 
         // Enable NVIC interrupt for this channel so async wakeups work
         self.enable_interrupt();
