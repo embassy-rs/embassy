@@ -66,9 +66,6 @@ impl<'d> Watchdog<'d> {
 
         let watchdog = Self { _peri, info };
 
-        // ensure watchdog is disabled
-        watchdog.disable();
-
         let base_frequency = crate::clocks::with_clocks(|clocks| {
             // Ensure clk_1m is active at the required power level
             clocks.ensure_clk_1m_active(&crate::clocks::PoweredClock::NormalEnabledDeepSleepDisabled)
@@ -82,11 +79,6 @@ impl<'d> Watchdog<'d> {
         // Can't use enable_and_reset API here because WWDT doesn't have a reset signal.
         let mrcc = unsafe { pac::Mrcc0::steal() };
         mrcc.mrcc_glb_cc0().modify(|_, w| w.wwdt0().enabled());
-
-        crate::pac::Interrupt::WWDT0.unpend();
-        unsafe {
-            crate::pac::Interrupt::WWDT0.enable();
-        }
 
         let timeout_cycles = (frequency as u64 * config.timeout.as_micros()) / 1_000_000;
 
@@ -120,6 +112,11 @@ impl<'d> Watchdog<'d> {
 
         watchdog.lock_oscillator();
 
+        crate::pac::Interrupt::WWDT0.unpend();
+
+        // Safety: `_irq` ensures an Interrupt Handler exists.
+        unsafe { crate::pac::Interrupt::WWDT0.enable() };
+
         Ok(watchdog)
     }
 
@@ -147,13 +144,6 @@ impl<'d> Watchdog<'d> {
     /// Function is blocking until the watchdog is actually started.
     fn enable(&self) {
         self.info.mod_().modify(|_, w| w.wden().run());
-        while self.info.tc().read().count() == 0xFF {}
-    }
-
-    /// Disable the watchdog timer.
-    /// Function is blocking until the watchdog is actually stopped.
-    fn disable(&self) {
-        self.info.mod_().modify(|_, w| w.wden().stop());
         while self.info.tc().read().count() == 0xFF {}
     }
 
@@ -207,10 +197,16 @@ impl Handler<typelevel::WWDT0> for InterruptHandler {
         let wwdt = unsafe { &*pac::Wwdt0::ptr() };
 
         if wwdt.mod_().read().wdtof().bit_is_set() {
+            #[cfg(feature = "defmt")]
+            defmt::trace!("WWDT0: Timeout occurred");
+
             wwdt.mod_().modify(|_, w| w.wdtof().set_bit());
         }
 
         if wwdt.mod_().read().wdint().bit_is_set() {
+            #[cfg(feature = "defmt")]
+            defmt::trace!("WWDT0: Warning interrupt");
+
             wwdt.mod_().modify(|_, w| w.wdint().clear_bit_by_one());
         }
     }
