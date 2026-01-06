@@ -655,13 +655,6 @@ pub mod time_driver {
     }
 
     /// Install the global embassy-time driver and configure NVIC priority for OS_EVENT.
-    ///
-    /// # Parameters
-    /// * `priority` - Interrupt priority for the OSTIMER interrupt
-    /// * `frequency_hz` - Actual OSTIMER clock frequency in Hz (stored for future use)
-    ///
-    /// Note: The frequency parameter is currently accepted for API compatibility.
-    /// The embassy_time_driver macro handles driver registration automatically.
     pub fn init() {
         let _clock_freq = unsafe {
             enable_and_reset::<_OSTIMER0_TIME_DRIVER>(&OsTimerConfig {
