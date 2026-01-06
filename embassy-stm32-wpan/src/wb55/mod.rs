@@ -176,7 +176,7 @@ impl<'d> TlMbox<'d> {
         let mm = sub::mm::MemoryManager::new(ipcc_mm_release_buffer_channel);
         let mut sys = sub::sys::Sys::new(ipcc_system_cmd_rsp_channel, ipcc_system_event_channel);
 
-        debug!("sys event: {}", sys.read().await.payload());
+        debug!("sys event: {}", sys.read_ready().await);
 
         Self {
             sys_subsystem: sys,

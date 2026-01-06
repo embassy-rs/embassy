@@ -598,7 +598,7 @@ impl<'a> UartTx<'a, Async> {
             regs.fifocfg().modify(|_, w| w.dmatx().disabled());
         });
 
-        for chunk in buf.chunks(1024) {
+        for chunk in buf.chunks(dma::MAX_CHUNK_SIZE) {
             regs.fifocfg().modify(|_, w| w.dmatx().enabled());
 
             let ch = self.tx_dma.as_mut().unwrap().reborrow();
@@ -726,7 +726,7 @@ impl<'a> UartRx<'a, Async> {
             regs.fifocfg().modify(|_, w| w.dmarx().disabled());
         });
 
-        for chunk in buf.chunks_mut(1024) {
+        for chunk in buf.chunks_mut(dma::MAX_CHUNK_SIZE) {
             regs.fifocfg().modify(|_, w| w.dmarx().enabled());
 
             let ch = self.rx_dma.as_mut().unwrap().reborrow();

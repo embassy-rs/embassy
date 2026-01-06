@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- bugfix: avoid hang if calling now() before syscounter is enabled on nrf54
+
+## 0.9.0 - 2025-12-15
+
 - changed: apply trimming values from FICR.TRIMCNF on nrf53/54l
 - changed: do not panic on BufferedUarte overrun
 - added: allow direct access to the input pin of `gpiote::InputChannel`
@@ -32,6 +36,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * added: support for nrf54l10 and nrf54l05
 * added: expose uicr write functions
 * added: support for nrf54lm20a
+- added: support buffered rram for nrf54
 
 ## 0.8.0 - 2025-09-30
 

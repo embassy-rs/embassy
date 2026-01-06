@@ -4,6 +4,35 @@ use embassy_hal_internal::PeripheralType;
 
 use crate::gpio::{AfType, OutputType, Speed};
 use crate::pac::RCC;
+#[cfg(any(
+    rcc_f2,
+    rcc_f410,
+    rcc_f4,
+    rcc_f7,
+    rcc_h50,
+    rcc_h5,
+    rcc_h7ab,
+    rcc_h7rm0433,
+    rcc_h7,
+    rcc_h7rs,
+    rcc_n6
+))]
+pub use crate::pac::rcc::vals::Mco1sel as Mco1Source;
+#[cfg(any(
+    rcc_f2,
+    rcc_f410,
+    rcc_f4,
+    rcc_f7,
+    rcc_h50,
+    rcc_h5,
+    rcc_h7ab,
+    rcc_h7rm0433,
+    rcc_h7,
+    rcc_h7rs,
+    rcc_n6,
+    rcc_u3,
+))]
+pub use crate::pac::rcc::vals::Mco2sel as Mco2Source;
 #[cfg(not(any(stm32f1, rcc_f0v1, rcc_f3v1, rcc_f37)))]
 pub use crate::pac::rcc::vals::Mcopre as McoPrescaler;
 #[cfg(not(any(
@@ -20,20 +49,6 @@ pub use crate::pac::rcc::vals::Mcopre as McoPrescaler;
     rcc_n6
 )))]
 pub use crate::pac::rcc::vals::Mcosel as McoSource;
-#[cfg(any(
-    rcc_f2,
-    rcc_f410,
-    rcc_f4,
-    rcc_f7,
-    rcc_h50,
-    rcc_h5,
-    rcc_h7ab,
-    rcc_h7rm0433,
-    rcc_h7,
-    rcc_h7rs,
-    rcc_n6
-))]
-pub use crate::pac::rcc::vals::{Mco1sel as Mco1Source, Mco2sel as Mco2Source};
 use crate::{Peri, peripherals};
 
 #[cfg(any(stm32f1, rcc_f0v1, rcc_f3v1, rcc_f37))]
@@ -61,9 +76,9 @@ macro_rules! impl_peri {
             type Source = $source;
 
             unsafe fn _apply_clock_settings(source: Self::Source, _prescaler: McoPrescaler) {
-                #[cfg(not(any(stm32u5, stm32wba, stm32n6)))]
+                #[cfg(not(any(stm32u3, stm32u5, stm32wba, stm32n6)))]
                 let r = RCC.cfgr();
-                #[cfg(any(stm32u5, stm32wba))]
+                #[cfg(any(stm32u3, stm32u5, stm32wba))]
                 let r = RCC.cfgr1();
                 #[cfg(any(stm32n6))]
                 let r = RCC.ccipr5();

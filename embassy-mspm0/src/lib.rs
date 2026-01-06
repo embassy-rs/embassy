@@ -8,20 +8,23 @@
 )]
 #![doc = include_str!("../README.md")]
 
-// This mod MUST go first, so that the others see its macros.
+// These mods MUST go first, so that the others see the macros.
 pub(crate) mod fmt;
-
-// This must be declared early as well for
 mod macros;
 
 pub mod adc;
 pub mod dma;
 pub mod gpio;
+// TODO: I2C unicomm
+#[cfg(not(unicomm))]
 pub mod i2c;
+#[cfg(not(unicomm))]
 pub mod i2c_target;
 #[cfg(any(mspm0g150x, mspm0g151x, mspm0g350x, mspm0g351x))]
 pub mod mathacl;
 pub mod timer;
+// TODO: UART unicomm
+#[cfg(not(unicomm))]
 pub mod uart;
 pub mod wwdt;
 
@@ -276,7 +279,7 @@ pub enum ResetCause {
     /// WWDT0 violation
     BootrstWwdt0Violation,
     /// WWDT1 violation (G-series only)
-    #[cfg(any(mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x))]
+    #[cfg(any(mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x, mspm0g518x))]
     SysrstWwdt1Violation,
     /// BSL exit (if present)
     SysrstBslExit,
@@ -326,7 +329,8 @@ pub fn read_reset_cause() -> Result<ResetCause, u8> {
             mspm0g151x,
             mspm0g310x,
             mspm0g350x,
-            mspm0g351x
+            mspm0g351x,
+            mspm0g518x,
         )))]
         Id::BOOTNONPMUPARITY => Ok(BootrstNonPmuParityFault),
         Id::BOOTCLKFAIL => Ok(BootrstClockFault),
@@ -335,7 +339,7 @@ pub fn read_reset_cause() -> Result<ResetCause, u8> {
         Id::BOOTWWDT0 => Ok(BootrstWwdt0Violation),
         Id::SYSBSLEXIT => Ok(SysrstBslExit),
         Id::SYSBSLENTRY => Ok(SysrstBslEntry),
-        #[cfg(any(mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x))]
+        #[cfg(any(mspm0g110x, mspm0g150x, mspm0g151x, mspm0g310x, mspm0g350x, mspm0g351x, mspm0g518x))]
         Id::SYSWWDT1 => Ok(SysrstWwdt1Violation),
         #[cfg(not(any(mspm0c110x, mspm0c1105_c1106, mspm0g351x, mspm0g151x)))]
         Id::SYSFLASHECC => Ok(SysrstFlashEccError),

@@ -46,6 +46,11 @@ impl<'d, T: Instance> VoltageReferenceBuffer<'d, T> {
             use crate::pac::RCC;
             RCC.apb3enr().modify(|w| w.set_vrefen(true));
         }
+        #[cfg(rcc_u3)]
+        {
+            use crate::pac::RCC;
+            RCC.apb1enr1().modify(|w| w.set_vrefen(true));
+        }
         #[cfg(any(rcc_h7rs, rcc_h7rm0433, rcc_h7ab, rcc_h7))]
         {
             use crate::pac::RCC;

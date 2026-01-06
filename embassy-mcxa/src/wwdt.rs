@@ -6,13 +6,14 @@
 //!
 //! The FRO12M provides a 1 MHz clock (clk_1m) used as WWDT0 independant clock source. This clock is / 4 by an internal fixed divider.
 
+use embassy_hal_internal::Peri;
+use embassy_hal_internal::interrupt::InterruptExt;
+use embassy_time::Duration;
+
 use crate::interrupt::typelevel;
 use crate::interrupt::typelevel::Handler;
 use crate::pac;
 use crate::peripherals::WWDT0;
-use embassy_hal_internal::interrupt::InterruptExt;
-use embassy_hal_internal::Peri;
-use embassy_time::Duration;
 
 /// WWDT0 Error types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,15 +62,11 @@ impl<'d> Watchdog<'d> {
         _irq: impl crate::interrupt::typelevel::Binding<typelevel::WWDT0, InterruptHandler> + 'd,
         config: Config,
     ) -> Result<Self, Error> {
-
         let info = unsafe { &*pac::Wwdt0::ptr() };
 
-        let watchdog = Self {
-            _peri,
-            info,
-        };
+        let watchdog = Self { _peri, info };
 
-        let base_frequency  = crate::clocks::with_clocks(|clocks| {
+        let base_frequency = crate::clocks::with_clocks(|clocks| {
             // Ensure clk_1m is active at the required power level
             clocks.ensure_clk_1m_active(&crate::clocks::PoweredClock::NormalEnabledDeepSleepDisabled)
         })
@@ -91,7 +88,10 @@ impl<'d> Watchdog<'d> {
         let timeout_cycles = (frequency as u64 * config.timeout.as_micros()) / 1_000_000;
 
         // Ensure the value fits in u32 and is within valid range
-        // Writing a value below FFh causes 00_00FFh to load into the register. Therefore, the minimum timeout interval is TWDCLK X 256 X 4.
+        //
+        // Writing a value below FFh causes 00_00FFh to load into the
+        // register. Therefore, the minimum timeout interval is TWDCLK
+        // X 256 X 4.
         if timeout_cycles > 0xFFFFFF {
             return Err(Error::TimeoutTooLarge);
         }
@@ -101,7 +101,7 @@ impl<'d> Watchdog<'d> {
 
         watchdog.set_timeout_value(timeout_cycles as u32);
 
-        //Windows value is set to max at reset for no effect.
+        // Windows value is set to max at reset for no effect.
 
         if let Some(warning_value) = config.warning {
             let warning_cycles = (frequency as u64 * warning_value.as_micros()) / 1_000_000;
@@ -143,9 +143,7 @@ impl<'d> Watchdog<'d> {
     /// Enable the watchdog timer.
     /// Function is blocking until the watchdog is actually started.
     fn enable(&self) {
-        self.info
-            .mod_()
-            .modify(|_, w| w.wden().run());
+        self.info.mod_().modify(|_, w| w.wden().run());
         while self.info.tc().read().count() == 0xFF {}
     }
 
@@ -242,9 +240,14 @@ pub struct InterruptHandler;
 
 impl Handler<typelevel::WWDT0> for InterruptHandler {
     unsafe fn on_interrupt() {
-        let wwdt = &*pac::Wwdt0::ptr();
-        let flag = get_status_flag(wwdt);
-        defmt::info!("WWDT0 Interrupt Handler : Timeout happened");
-        clear_status_flag(wwdt, flag);
+        let wwdt = unsafe { &*pac::Wwdt0::ptr() };
+
+        if wwdt.mod_().read().wdtof().bit_is_set() {
+            wwdt.mod_().modify(|_, w| w.wdtof().set_bit());
+        }
+
+        if wwdt.mod_().read().wdint().bit_is_set() {
+            wwdt.mod_().modify(|_, w| w.wdint().clear_bit_by_one());
+        }
     }
 }

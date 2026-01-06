@@ -2,7 +2,9 @@
 #![doc = include_str!("../README.md")]
 use std::io;
 use std::io::{Read, Write};
+use std::os::fd::AsFd;
 use std::os::unix::io::{AsRawFd, RawFd};
+use std::os::unix::prelude::BorrowedFd;
 use std::task::Context;
 
 use async_io::Async;
@@ -66,6 +68,12 @@ pub struct TunTap {
 impl AsRawFd for TunTap {
     fn as_raw_fd(&self) -> RawFd {
         self.fd
+    }
+}
+
+impl AsFd for TunTap {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        unsafe { BorrowedFd::borrow_raw(self.fd) }
     }
 }
 
@@ -164,7 +172,7 @@ impl Driver for TunTapDevice {
     fn receive(&mut self, cx: &mut Context) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         let mut buf = vec![0; self.device.get_ref().mtu];
         loop {
-            match self.device.get_mut().read(&mut buf) {
+            match unsafe { self.device.get_mut() }.read(&mut buf) {
                 Ok(n) => {
                     buf.truncate(n);
                     return Some((
@@ -233,7 +241,7 @@ impl<'a> embassy_net_driver::TxToken for TxToken<'a> {
         let result = f(&mut buffer);
 
         // todo handle WouldBlock with async
-        match self.device.get_mut().write(&buffer) {
+        match unsafe { self.device.get_mut() }.write(&buffer) {
             Ok(_) => {}
             Err(e) if e.kind() == io::ErrorKind::WouldBlock => info!("transmit WouldBlock"),
             Err(e) => panic!("transmit error: {:?}", e),

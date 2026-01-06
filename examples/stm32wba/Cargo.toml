@@ -6,12 +6,12 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-embassy-stm32 = { version = "0.4.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wba52cg", "time-driver-any", "memory-x", "exti"]  }
+embassy-stm32 = { version = "0.5.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wba52cg", "time-driver-any", "memory-x", "exti"]  }
 embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", features = ["defmt", "stm32wba52cg"] }
 embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
-embassy-net = { version = "0.7.1", path = "../../embassy-net", features = ["defmt", "udp", "proto-ipv6", "medium-ieee802154", ], optional = true }
+embassy-net = { version = "0.8.0", path = "../../embassy-net", features = ["defmt", "udp", "proto-ipv6", "medium-ieee802154", ], optional = true }
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"

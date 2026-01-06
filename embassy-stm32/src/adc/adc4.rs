@@ -24,23 +24,23 @@ pub const VREF_DEFAULT_MV: u32 = 3300;
 /// VREF voltage used for factory calibration of VREFINTCAL register.
 pub const VREF_CALIB_MV: u32 = 3300;
 
-impl<'d, T: Instance> super::SealedSpecialConverter<super::VrefInt> for Adc4<'d, T> {
+impl super::SealedSpecialConverter<super::VrefInt> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 0;
 }
 
-impl<'d, T: Instance> super::SealedSpecialConverter<super::Temperature> for Adc4<'d, T> {
+impl super::SealedSpecialConverter<super::Temperature> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 13;
 }
 
-impl<'d, T: Instance> super::SealedSpecialConverter<super::Vcore> for Adc4<'d, T> {
+impl super::SealedSpecialConverter<super::Vcore> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 12;
 }
 
-impl<'d, T: Instance> super::SealedSpecialConverter<super::Vbat> for Adc4<'d, T> {
+impl super::SealedSpecialConverter<super::Vbat> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 14;
 }
 
-impl<'d, T: Instance> super::SealedSpecialConverter<super::Dac> for Adc4<'d, T> {
+impl super::SealedSpecialConverter<super::Dac> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 21;
 }
 
@@ -195,17 +195,6 @@ impl AdcRegs for crate::pac::adc::Adc4 {
             // spin
         }
     }
-}
-
-pub struct Adc4<'d, T: Instance> {
-    #[allow(unused)]
-    adc: crate::Peri<'d, T>,
-}
-
-#[derive(Copy, Clone, Debug)]
-pub enum Adc4Error {
-    InvalidSequence,
-    DMAError,
 }
 
 impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {

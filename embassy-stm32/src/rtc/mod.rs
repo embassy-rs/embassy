@@ -5,7 +5,7 @@ mod datetime;
 mod low_power;
 
 #[cfg(feature = "low-power")]
-use core::cell::{Cell, RefCell, RefMut};
+use core::cell::{RefCell, RefMut};
 #[cfg(feature = "low-power")]
 use core::ops;
 
@@ -163,7 +163,7 @@ impl<'a> ops::DerefMut for RtcBorrow<'a> {
 /// RTC driver.
 pub struct Rtc {
     #[cfg(feature = "low-power")]
-    stop_time: Mutex<CriticalSectionRawMutex, Cell<Option<low_power::RtcInstant>>>,
+    epoch: chrono::DateTime<chrono::Utc>,
     _private: (),
 }
 
@@ -225,7 +225,7 @@ impl Rtc {
 
         let mut this = Self {
             #[cfg(feature = "low-power")]
-            stop_time: Mutex::const_new(CriticalSectionRawMutex::new(), Cell::new(None)),
+            epoch: chrono::DateTime::from_timestamp_secs(0).unwrap(),
             _private: (),
         };
 
@@ -243,7 +243,10 @@ impl Rtc {
         }
 
         #[cfg(feature = "low-power")]
-        this.enable_wakeup_line();
+        {
+            this.enable_wakeup_line();
+            this.epoch = this.calc_epoch();
+        }
 
         this
     }
@@ -292,6 +295,11 @@ impl Rtc {
                 w.set_wdu(day_of_week_to_u8(t.day_of_week()));
             });
         });
+
+        #[cfg(feature = "low-power")]
+        {
+            self.epoch = self.calc_epoch();
+        }
 
         Ok(())
     }
@@ -353,7 +361,7 @@ trait SealedInstance {
     const BACKUP_REGISTER_COUNT: usize;
 
     #[cfg(feature = "low-power")]
-    #[cfg(not(any(stm32wba, stm32u5, stm32u0)))]
+    #[cfg(not(any(stm32wba, stm32u5, stm32u3, stm32u0)))]
     const EXTI_WAKEUP_LINE: usize;
 
     #[cfg(feature = "low-power")]

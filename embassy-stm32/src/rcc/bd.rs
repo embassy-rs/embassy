@@ -25,7 +25,7 @@ pub struct LseConfig {
     pub frequency: Hertz,
     pub mode: LseMode,
     /// If peripherals other than RTC/TAMP or RCC functions need the lse this bit must be set
-    #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba))]
+    #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba))]
     pub peripherals_clocked: bool,
 }
 
@@ -71,10 +71,10 @@ fn unlock() {
     #[cfg(any(stm32f0, stm32f1, stm32f2, stm32f3, stm32l0, stm32l1))]
     let cr = crate::pac::PWR.cr();
     #[cfg(not(any(
-        stm32f0, stm32f1, stm32f2, stm32f3, stm32l0, stm32l1, stm32u5, stm32h5, stm32wba, stm32n6
+        stm32f0, stm32f1, stm32f2, stm32f3, stm32l0, stm32l1, stm32u5, stm32u3, stm32h5, stm32wba, stm32n6
     )))]
     let cr = crate::pac::PWR.cr1();
-    #[cfg(any(stm32u5, stm32h5, stm32wba, stm32n6))]
+    #[cfg(any(stm32u5, stm32u3, stm32h5, stm32wba, stm32n6))]
     let cr = crate::pac::PWR.dbpcr();
 
     cr.modify(|w| w.set_dbp(true));
@@ -118,7 +118,7 @@ impl LsConfig {
             lse: Some(LseConfig {
                 frequency: Hertz(32_768),
                 mode: LseMode::Oscillator(LseDrive::MediumHigh),
-                #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba))]
+                #[cfg(any(rcc_l5, rcc_u5, rcc_u3, rcc_wle, rcc_wl5, rcc_wba))]
                 peripherals_clocked: false,
             }),
             lsi: false,
@@ -274,8 +274,10 @@ impl LsConfig {
             ok &= lsecfgr.lsebyp() == lse_byp;
         }
         #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
-        if let Some(lse_sysen) = lse_sysen {
-            ok &= reg.lsesysen() == lse_sysen;
+        if let Some(lse_sysen) = lse_sysen
+            && !lse_sysen
+        {
+            ok &= !reg.lsesysen();
         }
         #[cfg(not(any(rcc_f1, rcc_f1cl, rcc_f100, rcc_f2, rcc_f4, rcc_f410, rcc_l1, rcc_n6)))]
         if let Some(lse_drv) = lse_drv {
@@ -284,6 +286,20 @@ impl LsConfig {
         #[cfg(rcc_n6)]
         if let Some(lse_drv) = lse_drv {
             ok &= lsecfgr.lsedrv() == lse_drv.into();
+        }
+
+        // After a power-on reset LSESYSEN will be set to 0
+        // even if VBAT was present and kept the RTC running
+        #[cfg(any(rcc_l5, rcc_u5, rcc_wle, rcc_wl5, rcc_wba, rcc_u0))]
+        if ok
+            && let Some(lse_sysen) = lse_sysen
+            && lse_sysen
+        {
+            bdcr().modify(|w| {
+                w.set_lsesysen(true);
+            });
+
+            while !bdcr().read().lsesysrdy() {}
         }
 
         // if configuration is OK, we're done.

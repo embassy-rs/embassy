@@ -26,11 +26,11 @@ features = ["stm32wb55rg", "wb55_ble", "wb55_mac"]
 features = ["stm32wb55rg", "wb55_ble", "wb55_mac"]
 
 [dependencies]
-embassy-stm32 = { version = "0.4.0", path = "../embassy-stm32" }
+embassy-stm32 = { version = "0.5.0", path = "../embassy-stm32" }
 embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
 embassy-time = { version = "0.5.0", path = "../embassy-time", optional = true }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
-embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal" }
+embassy-hal-internal = { version = "0.4.0", path = "../embassy-hal-internal" }
 embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal" }
 embassy-net-driver = { version = "0.2.0", path = "../embassy-net-driver", optional=true }
 smoltcp = { version = "0.12.0", optional=true, default-features = false }
@@ -41,12 +41,12 @@ log = { version = "0.4.17", optional = true }
 
 cortex-m = "0.7.6"
 heapless = "0.8"
-aligned = "0.4.1"
-critical-section = "1.1"
+aligned = "0.4.3"
+critical-section = "1.2"
 
 bit_field = "0.10.2"
 stm32-device-signature = { version = "0.3.3", features = ["stm32wb5x"] }
-stm32wb-hci = { version = "0.17.0", optional = true }
+stm32wb-hci = { version = "0.17.3", optional = true }
 futures-util = { version = "0.3.30", default-features = false }
 bitflags = { version = "2.3.3", optional = true }
 
@@ -57,7 +57,7 @@ wb55 = []
 wb55_ble = ["dep:stm32wb-hci"]
 wb55_mac = ["dep:bitflags", "dep:embassy-net-driver", "dep:smoltcp", "smoltcp/medium-ieee802154"]
 
-wba = [ "dep:stm32-bindings" ]
+wba = [ "dep:stm32-bindings", "dep:embassy-time" ]
 wba_ble = [ "stm32-bindings/wba_wpan_mac" , "stm32-bindings/wba_wpan" ]
 wba_mac = [ "stm32-bindings/wba_wpan_mac", "stm32-bindings/wba_wpan_ble" , "stm32-bindings/lib_wba5_linklayer15_4", "stm32-bindings/lib_wba_mac_lib" , "stm32-bindings/wba_wpan" ]
 
