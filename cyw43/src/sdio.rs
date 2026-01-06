@@ -206,6 +206,8 @@ where
 
         let result = self.sdio.cmd52(arg).await.unwrap_or(u16::MAX) as u8;
 
+        // trace!("cmd52: 0x{:08x} 0x{:08x}", arg, result);
+
         result
     }
 
@@ -510,7 +512,7 @@ where
     }
 
     async fn wait_for_event(&mut self) {
-        Timer::after(Duration::from_millis(250)).await;
+        Timer::after(Duration::from_millis(10)).await;
         // self.sdio.wait_for_event().await;
     }
 }
