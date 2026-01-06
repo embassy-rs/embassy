@@ -174,7 +174,8 @@ pub(crate) struct RccInfo {
 /// E.g. if `StopMode::Stop1` is selected, the peripheral prevents the chip from entering Stop1 mode.
 #[cfg(feature = "low-power")]
 #[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Default, defmt::Format)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum StopMode {
     #[default]
     /// Peripheral prevents chip from entering Stop1 or executor will enter Stop1
