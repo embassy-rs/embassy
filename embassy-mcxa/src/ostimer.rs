@@ -662,7 +662,7 @@ pub mod time_driver {
     ///
     /// Note: The frequency parameter is currently accepted for API compatibility.
     /// The embassy_time_driver macro handles driver registration automatically.
-    pub fn init(frequency_hz: u64) {
+    pub fn init() {
         let _clock_freq = unsafe {
             enable_and_reset::<_OSTIMER0_TIME_DRIVER>(&OsTimerConfig {
                 power: PoweredClock::AlwaysEnabled,
@@ -681,10 +681,6 @@ pub mod time_driver {
         unsafe {
             crate::interrupt::OS_EVENT.enable();
         }
-
-        // Note: The embassy_time_driver macro automatically registers the driver
-        // The frequency parameter is accepted for future compatibility
-        let _ = frequency_hz; // Suppress unused parameter warning
     }
 
     // Export the global time driver expected by embassy-time
