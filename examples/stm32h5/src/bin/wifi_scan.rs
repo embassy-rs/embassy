@@ -73,6 +73,7 @@ async fn main(spawner: Spawner) {
 
     let fw = aligned_bytes!("../../../../cyw43-firmware/43439A0.bin");
     let clm = aligned_bytes!("../../../../cyw43-firmware/43439A0_clm.bin");
+    let nvram = aligned_bytes!("../../../../cyw43-firmware/nvram_sterling_lwb+.bin");
 
     let sdmmc = Sdmmc::new_4bit(
         p.SDMMC1,
@@ -145,7 +146,7 @@ async fn main(spawner: Spawner) {
 
     info!("new sdio");
 
-    let (_net_device, mut control, runner) = cyw43::new_sdio(state, sdio, fw).await;
+    let (_net_device, mut control, runner) = cyw43::new_sdio(state, sdio, fw, nvram).await;
 
     info!("spawn task");
 
@@ -154,8 +155,6 @@ async fn main(spawner: Spawner) {
     info!("init control");
 
     control.init(clm).await;
-
-    cortex_m::asm::bkpt();
 
     control
         .set_power_management(cyw43::PowerManagementMode::PowerSave)

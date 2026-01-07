@@ -2,7 +2,7 @@
 #![no_main]
 teleprobe_meta::target!(b"rpi-pico");
 
-use cyw43::{JoinOptions, SpiBus};
+use cyw43::{JoinOptions, SpiBus, aligned_bytes};
 use cyw43_pio::{DEFAULT_CLOCK_DIVIDER, PioSpi};
 use defmt::{panic, *};
 use embassy_executor::Spawner;
@@ -52,6 +52,7 @@ async fn main(spawner: Spawner) {
     let fw = unsafe { core::slice::from_raw_parts(0x101b0000 as *const u8, 231077) };
     let _btfw = unsafe { core::slice::from_raw_parts(0x101f0000 as *const u8, 6164) };
     let clm = unsafe { core::slice::from_raw_parts(0x101f8000 as *const u8, 984) };
+    let nvram = aligned_bytes!("../../../../cyw43-firmware/nvram_rp2040.bin");
 
     let pwr = Output::new(p.PIN_23, Level::Low);
     let cs = Output::new(p.PIN_25, Level::High);
@@ -69,7 +70,8 @@ async fn main(spawner: Spawner) {
 
     static STATE: StaticCell<cyw43::State> = StaticCell::new();
     let state = STATE.init(cyw43::State::new());
-    let (net_device, mut control, runner) = cyw43::new(state, pwr, spi, fw).await;
+    let (net_device, mut control, runner) =
+        cyw43::new(state, pwr, spi, unsafe { core::mem::transmute(fw) }, nvram).await;
     spawner.spawn(unwrap!(wifi_task(runner)));
 
     control.init(clm).await;
