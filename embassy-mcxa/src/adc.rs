@@ -682,9 +682,10 @@ impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
 mod sealed {
     /// Seal a trait
     pub trait Sealed {}
-}
 
-impl<I: GpioPin> sealed::Sealed for I {}
+    /// Sealed pin trait
+    pub trait SealedAdcPin<T: super::Instance> {}
+}
 
 struct Info {
     regs: &'static pac::adc0::RegisterBlock,
@@ -726,7 +727,7 @@ macro_rules! impl_instance {
 
 impl_instance!(0, 1, 2, 3);
 
-pub trait AdcPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
+pub trait AdcPin<T: Instance>: sealed::SealedAdcPin<T> + GpioPin + PeripheralType {
     /// The channel to be used
     fn channel(&self) -> u8;
 
@@ -750,6 +751,8 @@ impl Mode for Async {}
 
 macro_rules! impl_pin {
     ($pin:ident, $peri:ident, $func:ident, $channel:literal) => {
+        impl sealed::SealedAdcPin<crate::peripherals::$peri> for crate::peripherals::$pin {}
+
         impl AdcPin<crate::peripherals::$peri> for crate::peripherals::$pin {
             #[inline]
             fn channel(&self) -> u8 {
