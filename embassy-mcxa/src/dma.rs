@@ -396,14 +396,37 @@ pub enum Error {
 // MEMORY REGION VALIDATION
 // =============================================================================
 
-/// MCXA276 memory map boundaries for DMA access validation.
-/// SRAM region: 0x2000_0000 to 0x3000_0000 (read/write by DMA)
-const SRAM_LOWER: usize = 0x2000_0000;
-const SRAM_UPPER: usize = 0x3000_0000;
+/// Address range boundaries for DMA buffer access validation.
+///
+/// These are MCXA276-specific memory regions, aligned with the MCUXpresso SDK
+/// linker memory layout for FRDM-MCXA276.
+///
+/// Notes:
+/// - Main SRAM is at 0x2000_0000.
+/// - MCXA276 also exposes small SRAMX regions at 0x0400_0000.
+/// - Flash is mapped at 0x0000_0000.
+///
+/// We keep this check conservative and easy to reason about: the entire slice
+/// must fit inside a single valid region.
+const MAIN_SRAM_LOWER: usize = 0x2000_0000;
+const MAIN_SRAM_UPPER: usize = 0x2003_C000; // 240 KiB
 
-/// Flash region: 0x0000_0000 to 0x2000_0000 (read-only by DMA)
+const SRAMX0_LOWER: usize = 0x0400_0000;
+const SRAMX0_UPPER: usize = 0x0400_2000; // 8 KiB
+
+const SRAMX1_LOWER: usize = 0x0400_2000;
+const SRAMX1_UPPER: usize = 0x0400_4000; // 8 KiB
+
+// Physical flash size is 1 MiB mapped at 0x0000_0000.
+// (MCUXpresso often reserves a small top-of-flash area for configuration, but
+// DMA reads remain valid across the physical flash address window.)
 const FLASH_LOWER: usize = 0x0000_0000;
-const FLASH_UPPER: usize = 0x2000_0000;
+const FLASH_UPPER: usize = 0x0010_0000;
+
+#[inline]
+const fn slice_fits_in_range(ptr: usize, end: usize, lower: usize, upper: usize) -> bool {
+    ptr >= lower && end <= upper
+}
 
 /// Check if a slice resides entirely within RAM (SRAM).
 ///
@@ -414,8 +437,15 @@ fn slice_in_ram<T>(slice: &[T]) -> bool {
         return true;
     }
     let ptr = slice.as_ptr() as usize;
-    let end = ptr + slice.len() * core::mem::size_of::<T>();
-    ptr >= SRAM_LOWER && end <= SRAM_UPPER
+    let Some(bytes) = slice.len().checked_mul(core::mem::size_of::<T>()) else {
+        return false;
+    };
+    let Some(end) = ptr.checked_add(bytes) else {
+        return false;
+    };
+    slice_fits_in_range(ptr, end, MAIN_SRAM_LOWER, MAIN_SRAM_UPPER)
+        || slice_fits_in_range(ptr, end, SRAMX0_LOWER, SRAMX0_UPPER)
+        || slice_fits_in_range(ptr, end, SRAMX1_LOWER, SRAMX1_UPPER)
 }
 
 /// Check if a slice resides within RAM or Flash (readable by DMA).
@@ -427,13 +457,19 @@ fn slice_in_ram_or_flash<T>(slice: &[T]) -> bool {
         return true;
     }
     let ptr = slice.as_ptr() as usize;
-    let end = ptr + slice.len() * core::mem::size_of::<T>();
-    // Check SRAM
-    if ptr >= SRAM_LOWER && end <= SRAM_UPPER {
+    let Some(bytes) = slice.len().checked_mul(core::mem::size_of::<T>()) else {
+        return false;
+    };
+    let Some(end) = ptr.checked_add(bytes) else {
+        return false;
+    };
+    // Check RAM regions
+    if slice_in_ram(slice) {
         return true;
     }
+
     // Check Flash
-    ptr >= FLASH_LOWER && end <= FLASH_UPPER
+    slice_fits_in_range(ptr, end, FLASH_LOWER, FLASH_UPPER)
 }
 
 /// Validate that a source buffer is in a DMA-readable region (RAM or Flash).
