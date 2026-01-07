@@ -71,8 +71,8 @@
 //! - `examples/mcxa/src/bin/spi_slave_dma.rs`
 //! - `examples/mcxa/src/bin/spi_b2b_master.rs` / `spi_b2b_slave.rs`
 
-use core::future::poll_fn;
 use core::cell::UnsafeCell;
+use core::future::poll_fn;
 use core::hint::spin_loop;
 use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, compiler_fence};
@@ -319,8 +319,6 @@ impl SlaveIrqState {
     }
 }
 
-
-
 /// Interrupt handler for SPI async operations.
 ///
 /// Disables all interrupts and wakes the WaitCell. The async code
@@ -455,22 +453,20 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 
         // If an async SLAVE op is active, service it in the ISR (drain/fill FIFOs).
         let mut handled_slave = false;
-        T::slave_irq_state().with(|st| {
-            match st.op {
-                SlaveIrqOp::Rx => {
-                    handled_slave = true;
-                    unsafe { handle_slave_rx_irq::<T>(regs, st) };
-                }
-                SlaveIrqOp::Tx => {
-                    handled_slave = true;
-                    unsafe { handle_slave_tx_irq::<T>(regs, st) };
-                }
-                SlaveIrqOp::Transfer => {
-                    handled_slave = true;
-                    unsafe { handle_slave_transfer_irq::<T>(regs, st) };
-                }
-                SlaveIrqOp::Idle => {}
+        T::slave_irq_state().with(|st| match st.op {
+            SlaveIrqOp::Rx => {
+                handled_slave = true;
+                unsafe { handle_slave_rx_irq::<T>(regs, st) };
             }
+            SlaveIrqOp::Tx => {
+                handled_slave = true;
+                unsafe { handle_slave_tx_irq::<T>(regs, st) };
+            }
+            SlaveIrqOp::Transfer => {
+                handled_slave = true;
+                unsafe { handle_slave_transfer_irq::<T>(regs, st) };
+            }
+            SlaveIrqOp::Idle => {}
         });
 
         if handled_slave {
@@ -1697,7 +1693,8 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
 
         // Enable RX/TX data interrupts + errors.
         // RX completion is used as the end-of-transfer signal.
-        spi.ier().write(|w| w.rdie().enable().reie().enable().tdie().enable().teie().enable());
+        spi.ier()
+            .write(|w| w.rdie().enable().reie().enable().tdie().enable().teie().enable());
 
         // Sleep until ISR completes the transfer or reports an error.
         T::wait_cell()
