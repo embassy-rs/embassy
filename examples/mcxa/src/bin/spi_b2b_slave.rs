@@ -16,9 +16,9 @@
 #![no_main]
 
 use embassy_executor::Spawner;
+use hal::bind_interrupts;
 use hal::clocks::config::Div8;
 use hal::spi::{InterruptHandler, SlaveConfig, SpiSlave};
-use hal::{bind_interrupts, interrupt};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 const TRANSFER_SIZE: usize = 64;
@@ -51,8 +51,6 @@ async fn main(_spawner: Spawner) {
             return;
         }
     };
-
-    interrupt::LPSPI1.configure_for_spi(interrupt::Priority::P3);
 
     let mut tx_buf = [0u8; TRANSFER_SIZE];
     let mut rx_buf = [0u8; TRANSFER_SIZE];
