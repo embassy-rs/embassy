@@ -2,7 +2,7 @@
 
 use crate::Peri;
 use crate::pio::program::pio_asm;
-use crate::pio::{Common, Config, Direction, Instance, LoadedProgram, Pin, PioPin, StateMachine};
+use crate::pio::{Common, Config, Direction, Instance, LoadedProgram, Pin, PioBatch, PioPin, StateMachine};
 use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
 
 /// Clock generator PIO program
@@ -48,6 +48,16 @@ impl<'d, T: Instance, const SM: usize> PioClk<'d, T, SM> {
         sm.set_config(&cfg);
 
         Self { sm, pin }
+    }
+
+    /// Start at the the same as other drivers
+    pub fn start_batched(&mut self, b: &mut PioBatch<'d, T>) {
+        b.set_enable(&mut self.sm, true);
+    }
+
+    /// Stop at the the same as other drivers
+    pub fn stop_batched(&mut self, b: &mut PioBatch<'d, T>) {
+        b.set_enable(&mut self.sm, false);
     }
 
     /// Start emmiting clock
