@@ -109,9 +109,6 @@ embassy_hal_internal::peripherals!(
     MRCC0,
     OPAMP0,
 
-    #[cfg(not(feature = "time"))]
-    OSTIMER0,
-
     P0_0,
     P0_1,
     P0_2,
@@ -460,7 +457,6 @@ pub(crate) use mcxa_pac as pac;
 pub fn init(cfg: crate::config::Config) -> Peripherals {
     let peripherals = Peripherals::take();
     // Apply user-configured priority early; enabling is left to examples/apps
-    #[cfg(feature = "time")]
     crate::interrupt::OS_EVENT.set_priority(cfg.time_interrupt_priority);
     // Apply user-configured priority early; enabling is left to examples/apps
     crate::interrupt::RTC.set_priority(cfg.rtc_interrupt_priority);
@@ -486,7 +482,6 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
     crate::dma::init();
 
     // Initialize embassy-time global driver backed by OSTIMER0
-    #[cfg(feature = "time")]
     crate::ostimer::time_driver::init();
 
     // Enable GPIO clocks

@@ -489,14 +489,6 @@ pub trait Instance: Gate<MrccPeriphConfig = OsTimerConfig> + PeripheralType {
     fn ptr() -> *const Regs;
 }
 
-#[cfg(not(feature = "time"))]
-impl Instance for crate::peripherals::OSTIMER0 {
-    #[inline(always)]
-    fn ptr() -> *const Regs {
-        pac::Ostimer0::ptr()
-    }
-}
-
 #[inline(always)]
 fn bin_to_gray(x: u64) -> u64 {
     x ^ (x >> 1)
@@ -512,7 +504,6 @@ fn gray_to_bin(gray: u64) -> u64 {
     bin
 }
 
-#[cfg(feature = "time")]
 pub mod time_driver {
     use core::sync::atomic::Ordering;
     use core::task::Waker;
@@ -533,9 +524,6 @@ pub mod time_driver {
     pub(crate) struct _OSTIMER0_TIME_DRIVER {
         _x: (),
     }
-
-    // #[cfg(feature = "time")]
-    // impl_cc_gate!(_OSTIMER0_TIME_DRIVER, mrcc_glb_cc1, mrcc_glb_rst1, ostimer0, OsTimerConfig);
 
     impl crate::clocks::Gate for _OSTIMER0_TIME_DRIVER {
         type MrccPeriphConfig = crate::clocks::periph_helpers::OsTimerConfig;
@@ -728,10 +716,8 @@ pub mod time_driver {
     }
 }
 
-#[cfg(feature = "time")]
 use crate::pac::interrupt;
 
-#[cfg(feature = "time")]
 #[allow(non_snake_case)]
 #[interrupt]
 fn OS_EVENT() {

@@ -5,7 +5,6 @@ use crate::interrupt::Priority;
 
 #[non_exhaustive]
 pub struct Config {
-    #[cfg(feature = "time")]
     pub time_interrupt_priority: Priority,
     pub rtc_interrupt_priority: Priority,
     pub adc_interrupt_priority: Priority,
@@ -17,7 +16,6 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            #[cfg(feature = "time")]
             time_interrupt_priority: Priority::from(0),
             rtc_interrupt_priority: Priority::from(0),
             adc_interrupt_priority: Priority::from(0),
