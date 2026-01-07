@@ -60,6 +60,7 @@ async fn main(_spawner: Spawner) {
         CHANNELS,
         &program,
     );
+    i2s.start();
 
     // create two audio buffers (back and front) which will take turns being
     // filled with new audio data from the PIO fifo using DMA

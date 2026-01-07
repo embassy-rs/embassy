@@ -51,6 +51,7 @@ async fn main(_spawner: Spawner) {
         BIT_DEPTH,
         &program,
     );
+    i2s.start();
 
     let fade_input = Input::new(p.PIN_0, Pull::Up);
 

@@ -4,7 +4,8 @@ use crate::Peri;
 use crate::dma::{AnyChannel, Channel, Transfer};
 use crate::gpio::Pull;
 use crate::pio::{
-    Common, Config, Direction, FifoJoin, Instance, LoadedProgram, PioPin, ShiftConfig, ShiftDirection, StateMachine,
+    Common, Config, Direction, FifoJoin, Instance, LoadedProgram, PioBatch, PioPin, ShiftConfig, ShiftDirection,
+    StateMachine,
 };
 use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
 
@@ -86,9 +87,28 @@ impl<'d, P: Instance, const S: usize> PioI2sIn<'d, P, S> {
         sm.set_config(&cfg);
         sm.set_pin_dirs(Direction::In, &[&data_pin]);
         sm.set_pin_dirs(Direction::Out, &[&left_right_clock_pin, &bit_clock_pin]);
-        sm.set_enable(true);
 
         Self { dma: dma.into(), sm }
+    }
+
+    /// Start the i2s interface
+    pub fn start(&mut self) {
+        self.sm.set_enable(true);
+    }
+
+    /// Stop the i2s interface
+    pub fn stop(&mut self) {
+        self.sm.set_enable(true);
+    }
+
+    /// Start at the the same as other drivers
+    pub fn start_batched(&mut self, b: &mut PioBatch<'d, P>) {
+        b.set_enable(&mut self.sm, true);
+    }
+
+    /// Stop at the the same as other drivers
+    pub fn stop_batched(&mut self, b: &mut PioBatch<'d, P>) {
+        b.set_enable(&mut self.sm, false);
     }
 
     /// Return an in-progress dma transfer future. Awaiting it will guarantee a complete transfer.
@@ -178,9 +198,27 @@ impl<'d, P: Instance, const S: usize> PioI2sOut<'d, P, S> {
         // which results in bit_depth - 2 as register value.
         unsafe { sm.set_y(bit_depth - 2) };
 
-        sm.set_enable(true);
-
         Self { dma: dma.into(), sm }
+    }
+
+    /// Start the i2s interface
+    pub fn start(&mut self) {
+        self.sm.set_enable(true);
+    }
+
+    /// Stop the i2s interface
+    pub fn stop(&mut self) {
+        self.sm.set_enable(false);
+    }
+
+    /// Start at the the same as other drivers
+    pub fn start_batched(&mut self, b: &mut PioBatch<'d, P>) {
+        b.set_enable(&mut self.sm, true);
+    }
+
+    /// Stop at the the same as other drivers
+    pub fn stop_batched(&mut self, b: &mut PioBatch<'d, P>) {
+        b.set_enable(&mut self.sm, false);
     }
 
     /// Return an in-progress dma transfer future. Awaiting it will guarantee a complete transfer.
