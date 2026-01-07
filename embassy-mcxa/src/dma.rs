@@ -902,8 +902,10 @@ impl<C: Channel> DmaChannel<C> {
     ///
     /// # Safety
     ///
-    /// The source and destination buffers must remain valid for the
-    /// duration of the transfer.
+    /// - The source and destination buffers must remain valid for the
+    ///   duration of the transfer.
+    /// - The buffers must be in memory regions accessible by the DMA engine
+    ///   (e.g., SRAM, not flash or peripheral-mapped regions that DMA cannot read/write).
     pub unsafe fn mem_to_mem<W: Word>(&self, src: &[W], dst: &mut [W], options: TransferOptions) -> Transfer<'_> {
         self.transfer_mem_to_mem(src, dst, options)
     }
@@ -922,8 +924,10 @@ impl<C: Channel> DmaChannel<C> {
     ///
     /// # Safety
     ///
-    /// The source and destination buffers must remain valid for the
-    /// duration of the transfer.
+    /// - The source and destination buffers must remain valid for the
+    ///   duration of the transfer.
+    /// - The buffers must be in memory regions accessible by the DMA engine
+    ///   (e.g., SRAM, not flash or peripheral-mapped regions that DMA cannot read/write).
     pub unsafe fn transfer_mem_to_mem<W: Word>(
         &self,
         src: &[W],
