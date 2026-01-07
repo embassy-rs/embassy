@@ -455,8 +455,10 @@ pub use mcxa_pac as pac;
 #[cfg(not(feature = "unstable-pac"))]
 pub(crate) use mcxa_pac as pac;
 
-/// Initialize HAL with configuration (mirrors embassy-imxrt style). Minimal: just take peripherals.
-/// Also applies configurable NVIC priority for the OSTIMER OS_EVENT interrupt (no enabling).
+/// Initialize HAL with configuration (mirrors embassy-imxrt style).
+///
+/// This applies user-configured NVIC priorities (from [`crate::config::Config`]).
+/// Individual drivers or constructors may enable their interrupts as needed.
 pub fn init(cfg: crate::config::Config) -> Peripherals {
     let peripherals = Peripherals::take();
     crate::interrupt::RTC.set_priority(cfg.rtc_interrupt_priority);

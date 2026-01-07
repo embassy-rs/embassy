@@ -86,6 +86,7 @@ use paste::paste;
 use crate::clocks::periph_helpers::{Div4, LpspiClockSel, LpspiConfig};
 use crate::clocks::{ClockError, Gate, PoweredClock, enable_and_reset};
 use crate::gpio::{AnyPin, GpioPin, SealedPin};
+use crate::interrupt::typelevel::Interrupt;
 use crate::{interrupt, pac};
 
 // =============================================================================
@@ -757,6 +758,11 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Result<Self> {
+        T::Interrupt::unpend();
+
+        // Safety: `_irq` ensures an Interrupt Handler exists.
+        unsafe { T::Interrupt::enable() };
+
         Self::new_inner(peri, sck, mosi, miso, cs, config)
     }
 
@@ -1472,6 +1478,11 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: SlaveConfig,
     ) -> Result<Self> {
+        T::Interrupt::unpend();
+
+        // Safety: `_irq` ensures an Interrupt Handler exists.
+        unsafe { T::Interrupt::enable() };
+
         Self::new_inner(peri, sck, mosi, miso, cs, config)
     }
 

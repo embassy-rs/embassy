@@ -18,9 +18,9 @@
 #![no_main]
 
 use embassy_executor::Spawner;
+use hal::bind_interrupts;
 use hal::clocks::config::Div8;
 use hal::spi::{InterruptHandler, SlaveConfig, SpiSlave};
-use hal::{bind_interrupts, interrupt};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Bind LPSPI1 interrupt for async SPI slave operations
@@ -50,7 +50,7 @@ async fn main(_spawner: Spawner) {
     let mut config = SlaveConfig::new();
     config.bits_per_frame(8);
 
-    // Create async SPI slave instance FIRST (before enabling interrupt)
+    // Create async SPI slave instance (NVIC is enabled automatically)
     let mut spi = match SpiSlave::new_async(p.LPSPI1, p.P3_10, p.P3_8, p.P3_9, p.P3_11, Irqs, config) {
         Ok(s) => {
             defmt::info!("SPI Slave (async) initialized successfully.");
@@ -61,10 +61,6 @@ async fn main(_spawner: Spawner) {
             return;
         }
     };
-
-    // Configure NVIC for LPSPI1 AFTER SPI is created
-    interrupt::LPSPI1.configure_for_spi(interrupt::Priority::P3);
-    defmt::info!("NVIC configured.");
 
     // Buffers for protocol: receive TRANSFER_SIZE bytes, then echo back
     let mut rx_buf = [0u8; TRANSFER_SIZE];

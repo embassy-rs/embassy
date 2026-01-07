@@ -20,9 +20,9 @@
 
 use embassy_executor::Spawner;
 use embassy_time::Timer;
+use hal::bind_interrupts;
 use hal::clocks::config::Div8;
 use hal::spi::{Config, InterruptHandler, Spi};
-use hal::{bind_interrupts, interrupt};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 /// Transfer size in bytes
@@ -76,10 +76,6 @@ async fn main(_spawner: Spawner) {
             return;
         }
     };
-
-    // Configure NVIC priority for LPSPI1
-    interrupt::LPSPI1.configure_for_spi(interrupt::Priority::P3);
-    defmt::info!("NVIC configured.");
 
     let mut loop_count: u32 = 0;
 
