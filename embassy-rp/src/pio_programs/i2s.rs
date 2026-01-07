@@ -67,11 +67,11 @@ impl<'d, P: Instance, const S: usize> PioI2sIn<'d, P, S> {
             data_pin.set_pull(Pull::Down);
         }
         let bit_clock_pin = common.make_pio_pin(bit_clock_pin);
-        let left_right_clock_pin = common.make_pio_pin(lr_clock_pin);
+        let lr_clock_pin = common.make_pio_pin(lr_clock_pin);
 
         let cfg = {
             let mut cfg = Config::default();
-            cfg.use_program(&program.prg, &[&bit_clock_pin, &left_right_clock_pin]);
+            cfg.use_program(&program.prg, &[&bit_clock_pin, &lr_clock_pin]);
             cfg.set_in_pins(&[&data_pin]);
             let clock_frequency = sample_rate * bit_depth * channels;
             cfg.clock_divider = calculate_pio_clock_divider(clock_frequency * PIO_I2S_IN_PROGRAM_CLK_MULTIPLIER);
@@ -86,7 +86,7 @@ impl<'d, P: Instance, const S: usize> PioI2sIn<'d, P, S> {
         };
         sm.set_config(&cfg);
         sm.set_pin_dirs(Direction::In, &[&data_pin]);
-        sm.set_pin_dirs(Direction::Out, &[&left_right_clock_pin, &bit_clock_pin]);
+        sm.set_pin_dirs(Direction::Out, &[&lr_clock_pin, &bit_clock_pin]);
 
         Self { dma: dma.into(), sm }
     }
@@ -172,13 +172,13 @@ impl<'d, P: Instance, const S: usize> PioI2sOut<'d, P, S> {
     ) -> Self {
         let data_pin = common.make_pio_pin(data_pin);
         let bit_clock_pin = common.make_pio_pin(bit_clock_pin);
-        let left_right_clock_pin = common.make_pio_pin(lr_clock_pin);
+        let lr_clock_pin = common.make_pio_pin(lr_clock_pin);
 
         let bclk_frequency: u32 = sample_rate * bit_depth * 2;
 
         let cfg = {
             let mut cfg = Config::default();
-            cfg.use_program(&program.prg, &[&bit_clock_pin, &left_right_clock_pin]);
+            cfg.use_program(&program.prg, &[&bit_clock_pin, &lr_clock_pin]);
             cfg.set_out_pins(&[&data_pin]);
             cfg.clock_divider = calculate_pio_clock_divider(bclk_frequency * PIO_I2S_OUT_PROGRAM_CLK_MULTIPLIER);
             cfg.shift_out = ShiftConfig {
@@ -191,7 +191,7 @@ impl<'d, P: Instance, const S: usize> PioI2sOut<'d, P, S> {
             cfg
         };
         sm.set_config(&cfg);
-        sm.set_pin_dirs(Direction::Out, &[&data_pin, &left_right_clock_pin, &bit_clock_pin]);
+        sm.set_pin_dirs(Direction::Out, &[&data_pin, &lr_clock_pin, &bit_clock_pin]);
 
         // Set the `y` register up to configure the sample depth
         // The SM counts down to 0 and uses one clock cycle to set up the counter,
