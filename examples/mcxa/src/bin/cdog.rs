@@ -36,6 +36,7 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("Watchdog initialized");
 
+    /// First part of the example is to demonstrate how the secure counter feature of the cdog works.
     watchdog.start(0xFFFFFF, 0);
     watchdog.add(42);
     watchdog.check(42);
@@ -44,9 +45,10 @@ async fn main(_spawner: Spawner) {
     watchdog.add1();
     watchdog.start(0xFFFFFFFF, 0);
     watchdog.check(0);
-    defmt::info!("Next check should generate an interrupt");
+    defmt::info!("Next check should generate an interrupt as checked value (=1) is different than the secure counter (=0)");
     watchdog.check(1);
 
+    /// Now demonstrating how the instruction timer feature of the cdog works.
     defmt::info!("Start again the code watchdog to generate a timeout interrupt");
     watchdog.start(0xFFFFF, 0);
     while watchdog.get_instruction_timer() != 0 {
