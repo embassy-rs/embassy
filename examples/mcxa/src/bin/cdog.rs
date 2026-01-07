@@ -4,8 +4,8 @@
 use embassy_executor::Spawner;
 use embassy_time::Timer;
 use hal::bind_interrupts;
+use hal::cdog::{FaultControl, InterruptHandler, LockControl, PauseControl, Watchdog};
 use hal::config::Config;
-use hal::cdog::{InterruptHandler, Watchdog, FaultControl, PauseControl, LockControl};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(
