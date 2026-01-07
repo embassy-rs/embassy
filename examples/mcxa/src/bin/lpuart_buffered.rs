@@ -5,6 +5,7 @@ use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::lpuart::Config;
 use embassy_mcxa::lpuart::buffered::BufferedLpuart;
+use embassy_mcxa::interrupt::InterruptExt;
 use embassy_mcxa::{bind_interrupts, lpuart};
 use embedded_io_async::Write;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
@@ -20,6 +21,7 @@ async fn main(_spawner: Spawner) {
     cfg.clock_cfg.sirc.fro_12m_enabled = true;
     cfg.clock_cfg.sirc.fro_lf_div = Some(Div8::no_div());
     let p = hal::init(cfg);
+
 
     // UART configuration (enable both TX and RX)
     let config = Config {
