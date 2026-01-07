@@ -1,0 +1,58 @@
+#![no_std]
+#![no_main]
+
+use embassy_executor::Spawner;
+use embassy_time::Timer;
+use hal::bind_interrupts;
+use hal::config::Config;
+use hal::cdog::{InterruptHandler, Watchdog, FaultControl, PauseControl, LockControl};
+use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
+
+bind_interrupts!(
+    struct Irqs {
+        CDOG0 => InterruptHandler;
+    }
+);
+
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
+    let config = Config::default();
+    let p = hal::init(config);
+
+    defmt::info!("Code watchdog example");
+
+    let cdog_config = hal::cdog::Config {
+        timout: FaultControl::EnableInterrupt,
+        miscompare: FaultControl::EnableInterrupt,
+        sequence: FaultControl::EnableInterrupt,
+        state: FaultControl::EnableInterrupt,
+        address: FaultControl::EnableInterrupt,
+        irq_pause: PauseControl::PauseTimer,
+        debug_halt: PauseControl::PauseTimer,
+        lock: LockControl::Unlocked,
+    };
+
+    let mut watchdog = Watchdog::new(p.CDOG0, Irqs, cdog_config).unwrap();
+
+    defmt::info!("Watchdog initialized");
+
+    watchdog.start(0xFFFFFF, 0);
+    watchdog.add(42);
+    watchdog.check(42);
+    watchdog.sub(2);
+    watchdog.check(40);
+    watchdog.add1();
+    watchdog.start(0xFFFFFFFF, 0);
+    watchdog.check(0);
+    defmt::info!("Next check should generate an interrupt");
+    watchdog.check(1);
+
+    defmt::info!("Start again the code watchdog to generate a timeout interrupt");
+    watchdog.start(0xFFFFF, 0);
+    while watchdog.get_instruction_timer() != 0 {
+        defmt::info!("Instruction timer : {:08x}", watchdog.get_instruction_timer());
+        Timer::after_millis(100).await;
+    }
+
+    defmt::info!("** End of example **");
+}
