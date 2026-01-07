@@ -83,8 +83,6 @@ mod sealed {
     pub trait Sealed {}
 }
 
-impl<T: GpioPin> sealed::Sealed for T {}
-
 trait SealedInstance {
     fn info() -> Info;
 }
@@ -156,6 +154,8 @@ impl Mode for Async {}
 
 macro_rules! impl_pin {
     ($pin:ident, $peri:ident, $fn:ident, $trait:ident) => {
+        impl sealed::Sealed for crate::peripherals::$pin {}
+
         impl $trait<crate::peripherals::$peri> for crate::peripherals::$pin {
             fn mux(&self) {
                 self.set_pull(crate::gpio::Pull::Disabled);
