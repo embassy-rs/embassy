@@ -1,19 +1,32 @@
 //! LPSPI driver for MCXA276.
 //!
 //! This module provides SPI master and slave drivers with both blocking and async
-//! (interrupt-driven) modes following the patterns established in the LPUART driver.
+//! (interrupt-driven) modes. The async APIs are interrupt-driven: the ISR services
+//! the FIFOs and wakes the awaiting task via a `WaitCell`.
 //!
 //! # DMA Support
 //!
-//! The [`SpiDma`] struct provides DMA-based SPI transfers for high-performance
-//! data movement. The implementation uses scatter/gather DMA to handle PCS
-//! (chip select) de-assertion automatically at the end of transfers.
+//! - [`SpiDma`] provides DMA-based SPI **master** transfers.
+//! - [`SpiSlaveDma`] provides DMA-based SPI **slave** transfers.
+//!
+//! The master DMA implementation uses scatter/gather DMA to handle PCS (chip select)
+//! de-assertion automatically at the end of a burst.
 //!
 //! ## Transfer Modes
 //!
-//! - **TX-only** ([`SpiDma::write_dma`]): Transmits data while discarding received bytes.
-//! - **RX-only** ([`SpiDma::read_dma`]): Receives data while sending dummy bytes (0x00).
-//! - **Full-duplex** ([`SpiDma::transfer_dma`]): Simultaneous TX and RX.
+//! LPSPI is electrically full-duplex (every transmitted frame clocks in a received
+//! frame), but many “half-duplex” *protocols* are implemented by sequencing phases.
+//!
+//! - **TX-only**: transmit bytes while discarding the concurrently received bytes
+//!   (e.g. [`Spi::write`], [`SpiDma::write_dma`]).
+//! - **RX-only**: receive bytes by transmitting dummy bytes (0x00) to generate clocks
+//!   (e.g. [`Spi::read`], [`SpiDma::read_dma`]).
+//! - **Full-duplex**: transmit and receive at the same time
+//!   (e.g. [`Spi::transfer`], [`SpiDma::transfer_dma`]).
+//!
+//! For “write-then-read” protocols that require chip-select held across both phases,
+//! prefer a single full-duplex burst (send the command bytes followed by dummy bytes,
+//! then ignore the initial received bytes).
 //!
 //! ## Key Implementation Details
 //!
@@ -49,10 +62,17 @@
 //!
 //! # Examples
 //!
-//! See `examples/src/bin/spi_dma_master.rs` for a complete example demonstrating
-//! DMA-based SPI transfers.
+//! See the MCXA examples:
+//! - `examples/mcxa/src/bin/spi_master_blocking.rs`
+//! - `examples/mcxa/src/bin/spi_interrupt_master.rs`
+//! - `examples/mcxa/src/bin/spi_master_dma.rs`
+//! - `examples/mcxa/src/bin/spi_slave_blocking.rs`
+//! - `examples/mcxa/src/bin/spi_interrupt_slave.rs`
+//! - `examples/mcxa/src/bin/spi_slave_dma.rs`
+//! - `examples/mcxa/src/bin/spi_b2b_master.rs` / `spi_b2b_slave.rs`
 
 use core::future::poll_fn;
+use core::cell::UnsafeCell;
 use core::hint::spin_loop;
 use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, compiler_fence};
@@ -230,6 +250,74 @@ impl From<u8> for TransferState {
     }
 }
 
+// =============================================================================
+// SLAVE IRQ-DRIVEN ASYNC STATE
+// =============================================================================
+
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+#[repr(u8)]
+enum SlaveIrqOp {
+    Idle = 0,
+    Rx = 1,
+    Tx = 2,
+    Transfer = 3,
+}
+
+struct SlaveIrqStateInner {
+    op: SlaveIrqOp,
+
+    rx_ptr: *mut u8,
+    rx_len: usize,
+    rx_pos: usize,
+    rx_store_len: usize,
+
+    tx_ptr: *const u8,
+    tx_len: usize,
+    tx_pos: usize,
+    tx_source_len: usize,
+
+    error: Option<Error>,
+}
+
+impl SlaveIrqStateInner {
+    const fn new() -> Self {
+        Self {
+            op: SlaveIrqOp::Idle,
+
+            rx_ptr: core::ptr::null_mut(),
+            rx_len: 0,
+            rx_pos: 0,
+            rx_store_len: 0,
+
+            tx_ptr: core::ptr::null(),
+            tx_len: 0,
+            tx_pos: 0,
+            tx_source_len: 0,
+
+            error: None,
+        }
+    }
+}
+
+struct SlaveIrqState {
+    inner: UnsafeCell<SlaveIrqStateInner>,
+}
+
+unsafe impl Sync for SlaveIrqState {}
+
+impl SlaveIrqState {
+    const fn new() -> Self {
+        Self {
+            inner: UnsafeCell::new(SlaveIrqStateInner::new()),
+        }
+    }
+
+    #[inline]
+    fn with<R>(&'static self, f: impl FnOnce(&mut SlaveIrqStateInner) -> R) -> R {
+        critical_section::with(|_| unsafe { f(&mut *self.inner.get()) })
+    }
+}
+
 
 
 /// Interrupt handler for SPI async operations.
@@ -240,9 +328,153 @@ pub struct InterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
+#[inline]
+unsafe fn handle_slave_rx_irq<T: Instance>(regs: &pac::lpspi0::RegisterBlock, st: &mut SlaveIrqStateInner) {
+    let sr = regs.sr().read();
+
+    if sr.ref_().bit_is_set() {
+        clear_status_flags(regs);
+        st.error = Some(Error::RxFifoError);
+        st.op = SlaveIrqOp::Idle;
+        regs.ier().write(|w| w);
+        T::wait_cell().wake();
+        return;
+    }
+
+    // Drain RX FIFO into the user buffer.
+    while st.rx_pos < st.rx_len && regs.fsr().read().rxcount().bits() > 0 {
+        let byte = regs.rdr().read().bits() as u8;
+        unsafe { *st.rx_ptr.add(st.rx_pos) = byte };
+        st.rx_pos += 1;
+    }
+
+    if st.rx_pos >= st.rx_len {
+        st.op = SlaveIrqOp::Idle;
+        regs.ier().write(|w| w);
+        T::wait_cell().wake();
+    }
+}
+
+#[inline]
+unsafe fn handle_slave_tx_irq<T: Instance>(regs: &pac::lpspi0::RegisterBlock, st: &mut SlaveIrqStateInner) {
+    let sr = regs.sr().read();
+
+    if sr.tef().bit_is_set() {
+        clear_status_flags(regs);
+        st.error = Some(Error::TxFifoError);
+        st.op = SlaveIrqOp::Idle;
+        regs.ier().write(|w| w);
+        T::wait_cell().wake();
+        return;
+    }
+
+    // Refill TX FIFO as long as there is space.
+    while st.tx_pos < st.tx_len && regs.fsr().read().txcount().bits() < LPSPI_FIFO_SIZE {
+        let byte = unsafe { *st.tx_ptr.add(st.tx_pos) };
+        regs.tdr().write(|w| unsafe { w.bits(byte as u32) });
+        st.tx_pos += 1;
+    }
+
+    // Once all bytes are queued, wait for frame complete + TX FIFO empty.
+    if st.tx_pos >= st.tx_len {
+        // Reduce interrupts: we only need frame-complete (and error) now.
+        regs.ier().write(|w| w.fcie().enable().teie().enable());
+
+        let tx_empty = regs.fsr().read().txcount().bits() == 0;
+        let sr = regs.sr().read();
+        if tx_empty && sr.fcf().is_completed() {
+            regs.sr().write(|w| w.fcf().clear_bit_by_one());
+            st.op = SlaveIrqOp::Idle;
+            regs.ier().write(|w| w);
+            T::wait_cell().wake();
+        }
+    }
+}
+
+#[inline]
+unsafe fn handle_slave_transfer_irq<T: Instance>(regs: &pac::lpspi0::RegisterBlock, st: &mut SlaveIrqStateInner) {
+    let sr = regs.sr().read();
+
+    if sr.ref_().bit_is_set() {
+        clear_status_flags(regs);
+        st.error = Some(Error::RxFifoError);
+        st.op = SlaveIrqOp::Idle;
+        regs.ier().write(|w| w);
+        T::wait_cell().wake();
+        return;
+    }
+
+    if sr.tef().bit_is_set() {
+        clear_status_flags(regs);
+        st.error = Some(Error::TxFifoError);
+        st.op = SlaveIrqOp::Idle;
+        regs.ier().write(|w| w);
+        T::wait_cell().wake();
+        return;
+    }
+
+    // Drain RX FIFO into the user buffer (or discard if rx_store_len < rx_len).
+    while st.rx_pos < st.rx_len && regs.fsr().read().rxcount().bits() > 0 {
+        let byte = regs.rdr().read().bits() as u8;
+        if st.rx_pos < st.rx_store_len {
+            unsafe { *st.rx_ptr.add(st.rx_pos) = byte };
+        }
+        st.rx_pos += 1;
+    }
+
+    // Keep TX FIFO topped up so we don't underrun while master clocks data.
+    while st.tx_pos < st.tx_len && regs.fsr().read().txcount().bits() < LPSPI_FIFO_SIZE {
+        let byte = if st.tx_pos < st.tx_source_len {
+            unsafe { *st.tx_ptr.add(st.tx_pos) }
+        } else {
+            0
+        };
+        regs.tdr().write(|w| unsafe { w.bits(byte as u32) });
+        st.tx_pos += 1;
+    }
+
+    // Completion: RX-side reached the requested length.
+    // This mirrors the SDK behaviour: when both txData and rxData are provided,
+    // RX completion is used as the end-of-transfer signal.
+    if st.rx_pos >= st.rx_len {
+        st.op = SlaveIrqOp::Idle;
+        regs.ier().write(|w| w);
+        T::wait_cell().wake();
+    }
+}
+
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let regs = T::regs();
+
+        // Fast-path: ignore if nothing is armed.
+        if regs.ier().read().bits() == 0 {
+            return;
+        }
+
+        // If an async SLAVE op is active, service it in the ISR (drain/fill FIFOs).
+        let mut handled_slave = false;
+        T::slave_irq_state().with(|st| {
+            match st.op {
+                SlaveIrqOp::Rx => {
+                    handled_slave = true;
+                    unsafe { handle_slave_rx_irq::<T>(regs, st) };
+                }
+                SlaveIrqOp::Tx => {
+                    handled_slave = true;
+                    unsafe { handle_slave_tx_irq::<T>(regs, st) };
+                }
+                SlaveIrqOp::Transfer => {
+                    handled_slave = true;
+                    unsafe { handle_slave_transfer_irq::<T>(regs, st) };
+                }
+                SlaveIrqOp::Idle => {}
+            }
+        });
+
+        if handled_slave {
+            return;
+        }
 
         // If any interrupts are enabled, disable them all and wake the task.
         // The async code will check status flags to determine what happened.
@@ -264,6 +496,7 @@ impl<T: GpioPin> sealed::Sealed for T {}
 trait SealedInstance {
     fn regs() -> &'static pac::lpspi0::RegisterBlock;
     fn wait_cell() -> &'static WaitCell;
+    fn slave_irq_state() -> &'static SlaveIrqState;
 }
 
 use crate::dma::{Channel as DmaChannelTrait, DmaChannel, DmaRequest, EnableInterrupt};
@@ -293,6 +526,11 @@ macro_rules! impl_instance {
                     fn wait_cell() -> &'static WaitCell {
                         static WAIT_CELL: WaitCell = WaitCell::new();
                         &WAIT_CELL
+                    }
+
+                    fn slave_irq_state() -> &'static SlaveIrqState {
+                        static SLAVE_IRQ_STATE: SlaveIrqState = SlaveIrqState::new();
+                        &SLAVE_IRQ_STATE
                     }
                 }
 
@@ -525,8 +763,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
     /// Async write (interrupt-driven).
     ///
     /// Sends data to the slave, discarding any received data.
-    /// Matches the common non-blocking master-transfer behaviour where the
-    /// RX buffer is null (received bytes are ignored).
+    /// This is a TX-only transfer: any concurrently received bytes are ignored.
     pub async fn write(&mut self, tx: &[u8]) -> Result<()> {
         if tx.is_empty() {
             return Ok(());
@@ -588,8 +825,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
     /// Async read (interrupt-driven).
     ///
     /// Reads data from the slave by sending zeros.
-    /// Matches the common non-blocking master-transfer behaviour where the
-    /// TX buffer is null (dummy bytes are transmitted).
+    /// This is an RX-only transfer: dummy bytes (0x00) are transmitted to generate clocks.
     pub async fn read(&mut self, rx: &mut [u8]) -> Result<()> {
         if rx.is_empty() {
             return Ok(());
@@ -897,11 +1133,12 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         });
     }
 
-    /// Transfer multiple bytes (write and read simultaneously).
+    /// Full-duplex transfer (blocking).
     ///
-    /// If `tx` and `rx` have different lengths, only the minimum of the two
-    /// lengths will be transferred. Any extra bytes in the longer buffer
-    /// will be ignored.
+    /// Transmits `tx[i]` while simultaneously receiving into `rx[i]` for each frame.
+    ///
+    /// If `tx` and `rx` have different lengths, only the minimum of the two lengths
+    /// is transferred.
     pub fn blocking_transfer(&self, tx: &[u8], rx: &mut [u8]) -> Result<()> {
         let len = tx.len().min(rx.len());
         if len == 0 {
@@ -962,7 +1199,9 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         Ok(())
     }
 
-    /// Write multiple bytes (discarding received data).
+    /// TX-only transfer (blocking).
+    ///
+    /// Transmits all bytes in `tx` and discards the concurrently received bytes.
     pub fn blocking_write(&self, tx: &[u8]) -> Result<()> {
         if tx.is_empty() {
             return Ok(());
@@ -998,7 +1237,9 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         Ok(())
     }
 
-    /// Read multiple bytes (sending zeros).
+    /// RX-only transfer (blocking).
+    ///
+    /// Receives into `rx` by transmitting dummy bytes (0x00) to generate clocks.
     pub fn blocking_read(&self, rx: &mut [u8]) -> Result<()> {
         if rx.is_empty() {
             return Ok(());
@@ -1258,10 +1499,10 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
         read_tcr_with_errata_workaround(T::regs())
     }
 
-    /// Async read from master (interrupt-driven).
+    /// Async read from master.
     ///
-    /// Waits for the master to send data.
-    /// Lightweight approach: don't reset module between transfers to avoid losing data.
+    /// Interrupt-driven: arms an RX-only operation and lets the ISR drain the RX FIFO into `rx`,
+    /// waking the task when `rx` is full or an error occurs.
     pub async fn read(&mut self, rx: &mut [u8]) -> Result<()> {
         if rx.is_empty() {
             return Ok(());
@@ -1269,49 +1510,52 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
 
         let spi = T::regs();
 
-        // Configure TCR for RX-only if not already set
-        // Set TXMSK=1 (mask TX, send zeros), RXMSK=0 (normal RX)
-        let tcr = Self::read_tcr_with_errata_workaround();
-        let needs_tcr_update = (tcr & TCR_TXMSK) == 0 || (tcr & TCR_RXMSK) != 0;
+        // Prepare fresh RX-only slave transfer.
+        // CFGR1 is only safely writable with MEN=0.
+        spi.cr().modify(|_, w| w.men().disabled());
+        flush_fifos(spi);
+        clear_status_flags(spi);
+        spi.cfgr1().modify(|_, w| w.nostall().enable());
+        spi.fcr().write(|w| unsafe { w.txwater().bits(0).rxwater().bits(0) });
+        spi.cr().modify(|_, w| w.men().enabled());
 
-        if needs_tcr_update {
-            let new_tcr = (tcr & !(TCR_CONT | TCR_CONTC | TCR_RXMSK | TCR_TXMSK | TCR_PCS_MASK)) | TCR_TXMSK;
-            spi.tcr().write(|w| unsafe { w.bits(new_tcr) });
+        // Disable interrupts before arming state.
+        spi.ier().write(|w| w);
 
-            // Wait for TCR to be written to FIFO
-            spin_wait_while(|| Self::get_tx_fifo_count() > 0)?;
-        }
+        // RX-only phase: don't drive MISO (TX masked), just receive MOSI.
+        spi.tcr().modify(|_, w| w.rxmsk().normal().txmsk().mask());
 
-        let mut rx_idx = 0usize;
+        // Arm ISR state.
+        T::slave_irq_state().with(|st| {
+            st.op = SlaveIrqOp::Rx;
+            st.error = None;
+            st.rx_ptr = rx.as_mut_ptr();
+            st.rx_len = rx.len();
+            st.rx_pos = 0;
+        });
 
-        while rx_idx < rx.len() {
-            // Read any available data
-            while Self::get_rx_fifo_count() > 0 && rx_idx < rx.len() {
-                rx[rx_idx] = spi.rdr().read().bits() as u8;
-                rx_idx += 1;
-            }
+        // Enable RX data + RX error interrupts.
+        spi.ier().write(|w| w.rdie().enable().reie().enable());
 
-            // Wait for more data if needed
-            if rx_idx < rx.len() {
-                T::wait_cell()
-                    .wait_for(|| {
-                        // Enable RX interrupt before waiting
-                        spi.ier().modify(|_, w| w.rdie().enable());
-                        // Check if data is available
-                        Self::get_rx_fifo_count() > 0
-                    })
-                    .await
-                    .map_err(|_| Error::Timeout)?;
-            }
+        // Sleep until the ISR completes the transfer or reports an error.
+        T::wait_cell()
+            .wait_for(|| T::slave_irq_state().with(|st| st.op == SlaveIrqOp::Idle))
+            .await
+            .map_err(|_| Error::Timeout)?;
+
+        let err = T::slave_irq_state().with(|st| st.error.take());
+        if let Some(e) = err {
+            return Err(e);
         }
 
         Ok(())
     }
 
-    /// Async write to master (interrupt-driven).
+    /// Async write to master.
     ///
-    /// Pre-fills the TX FIFO and waits for the master to clock out the data.
-    /// Lightweight approach: don't reset module between transfers.
+    /// Interrupt-driven: pre-fills TX FIFO, then enables `TDIE` so the ISR can keep the FIFO topped up.
+    /// Completion is detected using `FCF` (frame complete) plus TX FIFO empty, similar to the MCUXpresso
+    /// transactional driver.
     pub async fn write(&mut self, tx: &[u8]) -> Result<()> {
         if tx.is_empty() {
             return Ok(());
@@ -1320,65 +1564,55 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
         let spi = T::regs();
         let fifo_size = Self::get_fifo_size();
 
-        // Configure TCR for TX-only (mask RX, normal TX)
-        let tcr = Self::read_tcr_with_errata_workaround();
-        let needs_tcr_update = (tcr & TCR_RXMSK) == 0 || (tcr & TCR_TXMSK) != 0;
+        // Prepare fresh TX-only slave transfer.
+        // CFGR1 is only safely writable with MEN=0.
+        spi.cr().modify(|_, w| w.men().disabled());
+        flush_fifos(spi);
+        clear_status_flags(spi);
+        spi.cfgr1().modify(|_, w| w.nostall().enable());
+        // Use a higher TX watermark so TDF fires before the FIFO is completely empty.
+        // This reduces underrun risk when refilling from ISR.
+        spi.fcr().write(|w| unsafe { w.txwater().bits(1).rxwater().bits(0) });
+        spi.cr().modify(|_, w| w.men().enabled());
 
-        if needs_tcr_update {
-            let new_tcr = (tcr & !(TCR_CONT | TCR_CONTC | TCR_RXMSK | TCR_TXMSK | TCR_PCS_MASK)) | TCR_RXMSK;
-            spi.tcr().write(|w| unsafe { w.bits(new_tcr) });
+        // Disable interrupts before arming state.
+        spi.ier().write(|w| w);
 
-            // Wait for TCR to be written to FIFO
-            while Self::get_tx_fifo_count() > 0 {
-                cortex_m::asm::nop();
-            }
+        // TX-only phase: don't store MOSI into RX FIFO.
+        spi.tcr().modify(|_, w| w.rxmsk().mask().txmsk().normal());
+
+        // Pre-fill TX FIFO in task context before enabling IRQs.
+        let mut prefill = 0usize;
+        while prefill < tx.len() && Self::get_tx_fifo_count() < fifo_size {
+            spi.tdr().write(|w| unsafe { w.bits(tx[prefill] as u32) });
+            prefill += 1;
         }
 
-        // Pre-fill TX FIFO
-        let mut tx_idx = 0usize;
-        while tx_idx < tx.len() && Self::get_tx_fifo_count() < fifo_size {
-            spi.tdr().write(|w| unsafe { w.bits(tx[tx_idx] as u32) });
-            tx_idx += 1;
-        }
+        // Arm ISR state (start after the prefill).
+        T::slave_irq_state().with(|st| {
+            st.op = SlaveIrqOp::Tx;
+            st.error = None;
+            st.tx_ptr = tx.as_ptr();
+            st.tx_len = tx.len();
+            st.tx_pos = prefill;
+        });
 
-        // Continue filling as master clocks out data
-        while tx_idx < tx.len() {
-            T::wait_cell()
-                .wait_for(|| {
-                    // Enable TX interrupt before waiting
-                    spi.ier().modify(|_, w| w.tdie().enable());
-                    // Check if FIFO has space
-                    Self::get_tx_fifo_count() < fifo_size
-                })
-                .await
-                .map_err(|_| Error::Timeout)?;
+        // Enable TX data + TX error + frame-complete interrupts.
+        spi.ier().write(|w| w.tdie().enable().teie().enable().fcie().enable());
 
-            // Fill FIFO as much as possible
-            while tx_idx < tx.len() && Self::get_tx_fifo_count() < fifo_size {
-                spi.tdr().write(|w| unsafe { w.bits(tx[tx_idx] as u32) });
-                tx_idx += 1;
-            }
-        }
-
-        // Wait for frame complete and TX FIFO empty (TX-only completion condition).
-        spi.sr().write(|w| w.fcf().clear_bit_by_one()); // Clear FCF first
-
+        // Sleep until ISR completes the transfer or reports an error.
         T::wait_cell()
-            .wait_for(|| {
-                // Enable Frame Complete interrupt before waiting
-                spi.ier().modify(|_, w| w.tdie().disable().fcie().enable());
-                // Check completion condition
-                let sr = spi.sr().read();
-                sr.fcf().bit() && Self::get_tx_fifo_count() == 0
-            })
+            .wait_for(|| T::slave_irq_state().with(|st| st.op == SlaveIrqOp::Idle))
             .await
             .map_err(|_| Error::Timeout)?;
 
-        // Clear Frame Complete flag
-        spi.sr().write(|w| w.fcf().clear_bit_by_one());
+        let err = T::slave_irq_state().with(|st| st.error.take());
+        if let Some(e) = err {
+            return Err(e);
+        }
 
-        // Disable interrupts (cleanup)
-        spi.ier().modify(|_, w| w.tdie().disable().fcie().disable());
+        // Ensure module is no longer busy.
+        spin_wait_while(|| spi.sr().read().mbf().is_busy())?;
 
         Ok(())
     }
@@ -1396,73 +1630,78 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
         let spi = T::regs();
         let fifo_size = Self::get_fifo_size();
 
+        let tx_len = tx.len();
+        let rx_len = rx.len();
+        let total = core::cmp::max(tx_len, rx_len);
+        if total == 0 {
+            return Ok(());
+        }
+
         // Prepare LPSPI for a fresh full-duplex slave transfer.
+        // CFGR1 is only safely writable with MEN=0.
         spi.cr().modify(|_, w| w.men().disabled());
         flush_fifos(spi);
         clear_status_flags(spi);
-        // Disable all interrupts (reset value is 0).
-        spi.ier().write(|w| w);
-        clear_nostall(spi);
+        spi.cfgr1().modify(|_, w| w.nostall().enable());
+        // Watermarks: RX as soon as there's data, TX before FIFO empties.
+        spi.fcr().write(|w| unsafe { w.txwater().bits(1).rxwater().bits(0) });
         spi.cr().modify(|_, w| w.men().enabled());
 
-        // Configure TCR for true full duplex on the slave side: RX and TX unmasked,
-        // CONT/CONTC cleared, and PCS field cleared.
+        // Disable interrupts before arming state.
+        spi.ier().write(|w| w);
+
+        // Ensure full duplex: RX and TX unmasked.
         let tcr = Self::read_tcr_with_errata_workaround();
+        let new_tcr = tcr & !(TCR_CONT | TCR_CONTC | TCR_RXMSK | TCR_TXMSK | TCR_PCS_MASK);
+        spi.tcr().write(|w| unsafe { w.bits(new_tcr) });
 
-        let needs_tcr_update = (tcr & (TCR_RXMSK | TCR_TXMSK)) != 0;
-        if needs_tcr_update {
-            let new_tcr = tcr & !(TCR_CONT | TCR_CONTC | TCR_RXMSK | TCR_TXMSK | TCR_PCS_MASK);
-            spi.tcr().write(|w| unsafe { w.bits(new_tcr) });
-
-            // Wait for the TCR write to propagate through the shared TX FIFO path
-            while Self::get_tx_fifo_count() > 0 {
-                cortex_m::asm::nop();
-            }
+        // Discard any already-buffered RX bytes.
+        while Self::get_rx_fifo_count() > 0 {
+            let _ = spi.rdr().read().bits();
         }
 
-        let tx_len = tx.len();
-        let rx_len = rx.len();
-        let max_len = core::cmp::max(tx_len, rx_len);
-        let mut tx_idx = 0usize;
-        let mut rx_idx = 0usize;
-
-        // Pre-fill TX FIFO
-        while tx_idx < max_len && Self::get_tx_fifo_count() < fifo_size {
-            let byte = if tx_idx < tx_len { tx[tx_idx] } else { 0 };
+        // Pre-fill TX FIFO in task context before enabling IRQs.
+        let mut prefill = 0usize;
+        while prefill < total && Self::get_tx_fifo_count() < fifo_size {
+            let byte = if prefill < tx_len { tx[prefill] } else { 0 };
             spi.tdr().write(|w| unsafe { w.bits(byte as u32) });
-            tx_idx += 1;
+            prefill += 1;
         }
 
-        while tx_idx < max_len || rx_idx < rx_len {
-            // Read available RX data
-            while Self::get_rx_fifo_count() > 0 && rx_idx < rx_len {
-                rx[rx_idx] = spi.rdr().read().bits() as u8;
-                rx_idx += 1;
-            }
+        // Arm ISR state.
+        T::slave_irq_state().with(|st| {
+            st.op = SlaveIrqOp::Transfer;
+            st.error = None;
 
-            // Fill TX FIFO
-            while tx_idx < max_len && Self::get_tx_fifo_count() < fifo_size {
-                let byte = if tx_idx < tx_len { tx[tx_idx] } else { 0 };
-                spi.tdr().write(|w| unsafe { w.bits(byte as u32) });
-                tx_idx += 1;
-            }
+            st.rx_ptr = rx.as_mut_ptr();
+            st.rx_len = total;
+            st.rx_pos = 0;
+            st.rx_store_len = rx_len;
 
-            // Wait for more activity if needed
-            if tx_idx < max_len || rx_idx < rx_len {
-                T::wait_cell()
-                    .wait_for(|| {
-                        // Enable RX and TX interrupts before waiting
-                        spi.ier().modify(|_, w| w.rdie().enable().tdie().enable());
-                        // Check if RX FIFO has data or TX FIFO has space
-                        Self::get_rx_fifo_count() > 0 || Self::get_tx_fifo_count() < fifo_size
-                    })
-                    .await
-                    .map_err(|_| Error::Timeout)?;
-            }
+            st.tx_ptr = tx.as_ptr();
+            st.tx_len = total;
+            st.tx_pos = prefill;
+            st.tx_source_len = tx_len;
+        });
+
+        // Enable RX/TX data interrupts + errors.
+        // RX completion is used as the end-of-transfer signal.
+        spi.ier().write(|w| w.rdie().enable().reie().enable().tdie().enable().teie().enable());
+
+        // Sleep until ISR completes the transfer or reports an error.
+        T::wait_cell()
+            .wait_for(|| T::slave_irq_state().with(|st| st.op == SlaveIrqOp::Idle))
+            .await
+            .map_err(|_| Error::Timeout)?;
+
+        let err = T::slave_irq_state().with(|st| st.error.take());
+        if let Some(e) = err {
+            return Err(e);
         }
 
-        // Disable interrupts
-        spi.ier().modify(|_, w| w.rdie().disable().tdie().disable());
+        // Wait for transfer fully complete (FIFO empty AND module not busy).
+        spin_wait_while(|| Self::get_tx_fifo_count() > 0)?;
+        spin_wait_while(|| spi.sr().read().mbf().is_busy())?;
 
         Ok(())
     }
@@ -1549,7 +1788,10 @@ impl<'d, T: Instance, M: Mode> SpiSlave<'d, T, M> {
         })
     }
 
-    /// Read bytes from master (blocking).
+    /// RX-only receive from the master (blocking).
+    ///
+    /// The SPI slave cannot generate clocks; the master must provide them.
+    /// This method blocks until `rx` is filled by frames clocked by the master.
     pub fn blocking_read(&self, rx: &mut [u8]) -> Result<()> {
         if rx.is_empty() {
             return Ok(());
@@ -1574,7 +1816,9 @@ impl<'d, T: Instance, M: Mode> SpiSlave<'d, T, M> {
         Ok(())
     }
 
-    /// Write bytes to master (blocking).
+    /// TX-only transmit to the master (blocking).
+    ///
+    /// Pre-fills the TX FIFO and then blocks while the master clocks the bytes out.
     pub fn blocking_write(&self, tx: &[u8]) -> Result<()> {
         if tx.is_empty() {
             return Ok(());
@@ -2376,7 +2620,10 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
     /// "write" phase ([`write_dma`]), the master clocks `data.len()` dummy bytes
     /// on SOUT while capturing the peer's response into `data`.
     ///
-    /// Behavioural contract (for lengths up to the internal dummy-TX buffer size):
+    /// Note: PCS is de-asserted at the end of each call. If your protocol requires PCS held
+    /// across a write+read exchange, prefer a single [`transfer_dma`] with padding.
+    ///
+    /// Behavioural contract:
     /// - Clocks exactly `data.len()` 8-bit frames while PCS remains asserted.
     /// - Uses BYSW + `RDR+3` so each received frame lands in `data[i]` with the
     ///   expected byte ordering for 8-bit frames.
@@ -2391,14 +2638,11 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
     /// - Programs RX DMA as an 8-bit peripheral-to-memory transfer from `RDR+3`
     ///   into the caller's `data` buffer with `CSR=0x000A` (DREQ+INTMAJOR).
     /// - Uses TX DMA scatter/gather (via [`setup_tx_scatter_gather`]) to send a
-    ///   buffer of 0x00 dummy bytes via `TDR+3` and then run a software TCD that
+    ///   fixed-address 0x00 dummy byte via `TDR+3` (source increment disabled) and then run a software TCD that
     ///   rewrites TCR with CONT cleared at the end of the transfer.
     /// - Programs RX first, then TX, then enables DER; completion is driven by
     ///   the RX DMA major-loop interrupt and we still wait for TX FIFO empty +
     ///   MBF=0 before return.
-    /// - Internally uses a 256-byte static dummy TX buffer; for larger logical
-    ///   reads, chunk the operation in the caller rather than issuing one huge
-    ///   `read_dma` call.
     pub async fn read_dma(&mut self, data: &mut [u8]) -> Result<()> {
         if data.is_empty() {
             return Ok(());
@@ -2532,9 +2776,10 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
     ///   completion is signalled by RX DMA major-loop interrupt and a final TX
     ///   FIFO empty + MBF=0 wait.
     ///
-    /// This method is for **true full-duplex** SPI peripherals. For half-duplex
-    /// protocols, call [`write_dma`] and [`read_dma`] separately with
-    /// appropriate delays between phases.
+    /// For half-duplex protocols (response after a command phase), you can either:
+    /// - Call [`write_dma`] then [`read_dma`] (PCS toggles between calls), or
+    /// - Use this method with padding (TX = command bytes + dummy bytes) and ignore the
+    ///   initial received bytes to keep PCS asserted for the whole exchange.
     pub async fn transfer_dma(&mut self, tx_data: &[u8], rx_data: &mut [u8]) -> Result<()> {
         if tx_data.len() != rx_data.len() {
             return Err(Error::TransferError);
