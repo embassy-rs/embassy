@@ -39,9 +39,7 @@
 //! # let src = [0u32; 4];
 //! # let mut dst = [0u32; 4];
 //! // Simple memory-to-memory transfer
-//! unsafe {
-//!     dma_ch.mem_to_mem(&src, &mut dst, TransferOptions::default()).await;
-//! }
+//! dma_ch.mem_to_mem(&src, &mut dst, TransferOptions::default())?.await;
 //! ```
 //!
 //! ## Setup Methods (For Peripheral Drivers)
@@ -390,6 +388,72 @@ pub enum Error {
     Configuration,
     /// Buffer overrun (for ring buffers).
     Overrun,
+    /// Buffer is not in a DMA-accessible memory region.
+    BufferNotAccessible,
+}
+
+// =============================================================================
+// MEMORY REGION VALIDATION
+// =============================================================================
+
+/// MCXA276 memory map boundaries for DMA access validation.
+/// SRAM region: 0x2000_0000 to 0x3000_0000 (read/write by DMA)
+const SRAM_LOWER: usize = 0x2000_0000;
+const SRAM_UPPER: usize = 0x3000_0000;
+
+/// Flash region: 0x0000_0000 to 0x2000_0000 (read-only by DMA)
+const FLASH_LOWER: usize = 0x0000_0000;
+const FLASH_UPPER: usize = 0x2000_0000;
+
+/// Check if a slice resides entirely within RAM (SRAM).
+///
+/// Returns true if the slice is in DMA-accessible RAM, or if empty.
+#[inline]
+fn slice_in_ram<T>(slice: &[T]) -> bool {
+    if slice.is_empty() {
+        return true;
+    }
+    let ptr = slice.as_ptr() as usize;
+    let end = ptr + slice.len() * core::mem::size_of::<T>();
+    ptr >= SRAM_LOWER && end <= SRAM_UPPER
+}
+
+/// Check if a slice resides within RAM or Flash (readable by DMA).
+///
+/// Returns true if the slice is in a region DMA can read from.
+#[inline]
+fn slice_in_ram_or_flash<T>(slice: &[T]) -> bool {
+    if slice.is_empty() {
+        return true;
+    }
+    let ptr = slice.as_ptr() as usize;
+    let end = ptr + slice.len() * core::mem::size_of::<T>();
+    // Check SRAM
+    if ptr >= SRAM_LOWER && end <= SRAM_UPPER {
+        return true;
+    }
+    // Check Flash
+    ptr >= FLASH_LOWER && end <= FLASH_UPPER
+}
+
+/// Validate that a source buffer is in a DMA-readable region (RAM or Flash).
+#[inline]
+fn validate_src_buffer<T>(slice: &[T]) -> Result<(), Error> {
+    if slice_in_ram_or_flash(slice) {
+        Ok(())
+    } else {
+        Err(Error::BufferNotAccessible)
+    }
+}
+
+/// Validate that a destination buffer is in a DMA-writable region (RAM only).
+#[inline]
+fn validate_dst_buffer<T>(slice: &[T]) -> Result<(), Error> {
+    if slice_in_ram(slice) {
+        Ok(())
+    } else {
+        Err(Error::BufferNotAccessible)
+    }
 }
 
 /// Whether to enable the major loop completion interrupt.
@@ -894,19 +958,26 @@ impl<C: Channel> DmaChannel<C> {
     /// the correct transfer width automatically. Uses the global eDMA TCD
     /// register accessor internally.
     ///
+    /// Returns an error if the buffers are not in DMA-accessible memory regions:
+    /// - Source must be in SRAM or Flash
+    /// - Destination must be in SRAM
+    ///
     /// # Arguments
     ///
-    /// * `src` - Source buffer
-    /// * `dst` - Destination buffer (must be at least as large as src)
+    /// * `src` - Source buffer (must be in SRAM or Flash)
+    /// * `dst` - Destination buffer (must be in SRAM, at least as large as src)
     /// * `options` - Transfer configuration options
     ///
-    /// # Safety
+    /// # Errors
     ///
-    /// - The source and destination buffers must remain valid for the
-    ///   duration of the transfer.
-    /// - The buffers must be in memory regions accessible by the DMA engine
-    ///   (e.g., SRAM, not flash or peripheral-mapped regions that DMA cannot read/write).
-    pub unsafe fn mem_to_mem<W: Word>(&self, src: &[W], dst: &mut [W], options: TransferOptions) -> Transfer<'_> {
+    /// Returns [`Error::BufferNotAccessible`] if the buffers are not in valid
+    /// DMA-accessible memory regions.
+    pub fn mem_to_mem<W: Word>(
+        &self,
+        src: &[W],
+        dst: &mut [W],
+        options: TransferOptions,
+    ) -> Result<Transfer<'_>, Error> {
         self.transfer_mem_to_mem(src, dst, options)
     }
 
@@ -915,29 +986,50 @@ impl<C: Channel> DmaChannel<C> {
     /// This is a type-safe wrapper that uses the `Word` trait to determine
     /// the correct transfer width automatically.
     ///
+    /// Returns an error if the buffers are not in DMA-accessible memory regions:
+    /// - Source must be in SRAM or Flash
+    /// - Destination must be in SRAM
+    ///
     /// # Arguments
     ///
-    /// * `edma` - Reference to the eDMA TCD register block
-    /// * `src` - Source buffer
-    /// * `dst` - Destination buffer (must be at least as large as src)
+    /// * `src` - Source buffer (must be in SRAM or Flash)
+    /// * `dst` - Destination buffer (must be in SRAM, at least as large as src)
     /// * `options` - Transfer configuration options
     ///
-    /// # Safety
+    /// # Errors
     ///
-    /// - The source and destination buffers must remain valid for the
-    ///   duration of the transfer.
-    /// - The buffers must be in memory regions accessible by the DMA engine
-    ///   (e.g., SRAM, not flash or peripheral-mapped regions that DMA cannot read/write).
-    pub unsafe fn transfer_mem_to_mem<W: Word>(
+    /// Returns [`Error::BufferNotAccessible`] if the buffers are not in valid
+    /// DMA-accessible memory regions.
+    pub fn transfer_mem_to_mem<W: Word>(
         &self,
         src: &[W],
         dst: &mut [W],
         options: TransferOptions,
-    ) -> Transfer<'_> {
+    ) -> Result<Transfer<'_>, Error> {
+        // Validate buffer accessibility
+        validate_src_buffer(src)?;
+        validate_dst_buffer(dst)?;
+
         assert!(!src.is_empty());
         assert!(dst.len() >= src.len());
         assert!(src.len() <= 0x7fff);
 
+        // SAFETY: We've validated that the buffers are in DMA-accessible memory.
+        // The register operations require unsafe for the PAC's .bits() calls.
+        unsafe { self.transfer_mem_to_mem_inner(src, dst, options) }
+    }
+
+    /// Inner implementation of mem-to-mem transfer (unsafe due to register access).
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure buffers are in DMA-accessible memory regions.
+    unsafe fn transfer_mem_to_mem_inner<W: Word>(
+        &self,
+        src: &[W],
+        dst: &mut [W],
+        options: TransferOptions,
+    ) -> Result<Transfer<'_>, Error> {
         let size = W::size();
         let byte_count = (src.len() * size.bytes()) as u32;
 
@@ -1025,7 +1117,7 @@ impl<C: Channel> DmaChannel<C> {
                 .set_bit() // Start the channel
         });
 
-        Transfer::new(self.as_any())
+        Ok(Transfer::new(self.as_any()))
     }
 
     /// Fill a memory buffer with a pattern value (memset).
@@ -1034,10 +1126,12 @@ impl<C: Channel> DmaChannel<C> {
     /// (pattern value) while the destination address increments through the buffer.
     /// It's useful for quickly filling large memory regions with a constant value.
     ///
+    /// Returns an error if the destination buffer is not in DMA-writable memory (SRAM).
+    ///
     /// # Arguments
     ///
     /// * `pattern` - Reference to the pattern value (will be read repeatedly)
-    /// * `dst` - Destination buffer to fill
+    /// * `dst` - Destination buffer to fill (must be in SRAM)
     /// * `options` - Transfer configuration options
     ///
     /// # Example
@@ -1049,19 +1143,36 @@ impl<C: Channel> DmaChannel<C> {
     /// let pattern: u32 = 0xDEADBEEF;
     /// let mut buffer = [0u32; 256];
     ///
-    /// unsafe {
-    ///     dma_ch.memset(&pattern, &mut buffer, TransferOptions::default()).await;
-    /// }
+    /// dma_ch.memset(&pattern, &mut buffer, TransferOptions::default()).await?;
     /// // buffer is now filled with 0xDEADBEEF
     /// ```
     ///
-    /// # Safety
+    /// # Errors
     ///
-    /// - The pattern and destination buffer must remain valid for the duration of the transfer.
-    pub unsafe fn memset<W: Word>(&self, pattern: &W, dst: &mut [W], options: TransferOptions) -> Transfer<'_> {
+    /// Returns [`Error::BufferNotAccessible`] if the destination buffer is not in SRAM.
+    pub fn memset<W: Word>(&self, pattern: &W, dst: &mut [W], options: TransferOptions) -> Result<Transfer<'_>, Error> {
+        // Validate destination is in DMA-writable region
+        validate_dst_buffer(dst)?;
+
         assert!(!dst.is_empty());
         assert!(dst.len() <= 0x7fff);
 
+        // SAFETY: We've validated that the buffer is in DMA-accessible memory.
+        // The register operations require unsafe for the PAC's .bits() calls.
+        unsafe { self.memset_inner(pattern, dst, options) }
+    }
+
+    /// Inner implementation of memset (unsafe due to register access).
+    ///
+    /// # Safety
+    ///
+    /// Caller must ensure buffer is in DMA-accessible memory region.
+    unsafe fn memset_inner<W: Word>(
+        &self,
+        pattern: &W,
+        dst: &mut [W],
+        options: TransferOptions,
+    ) -> Result<Transfer<'_>, Error> {
         let size = W::size();
         let byte_size = size.bytes();
         // Total bytes to transfer - all in one minor loop for software-triggered transfers
@@ -1158,7 +1269,7 @@ impl<C: Channel> DmaChannel<C> {
                 .set_bit() // Start the channel
         });
 
-        Transfer::new(self.as_any())
+        Ok(Transfer::new(self.as_any()))
     }
 
     /// Write data from memory to a peripheral register.
