@@ -17,7 +17,6 @@ mod control;
 mod countries;
 mod events;
 mod ioctl;
-mod nvram;
 mod runner;
 mod sdio;
 mod spi;
@@ -241,7 +240,8 @@ pub async fn new<'a, PWR, SPI>(
     state: &'a mut State,
     pwr: PWR,
     spi: SPI,
-    firmware: &[u8],
+    firmware: &Aligned<A4, [u8]>,
+    nvram: &Aligned<A4, [u8]>,
 ) -> (NetDriver<'a>, Control<'a>, Runner<'a, SpiBus<PWR, SPI>>)
 where
     PWR: OutputPin,
@@ -260,7 +260,7 @@ where
         None,
     );
 
-    runner.init(firmware, None).await.unwrap();
+    runner.init(firmware, nvram, None).await.unwrap();
     let control = Control::new(
         state_ch,
         &state.net.events,
@@ -279,6 +279,7 @@ pub async fn new_sdio<'a, SDIO>(
     state: &'a mut State,
     sdio: SDIO,
     firmware: &Aligned<A4, [u8]>,
+    nvram: &Aligned<A4, [u8]>,
 ) -> (NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>>)
 where
     SDIO: SdioBusCyw43<64>,
@@ -296,7 +297,7 @@ where
         None,
     );
 
-    runner.init(firmware, None).await.unwrap();
+    runner.init(firmware, nvram, None).await.unwrap();
     let control = Control::new(
         state_ch,
         &state.net.events,
@@ -316,8 +317,9 @@ pub async fn new_with_bluetooth<'a, PWR, SPI>(
     state: &'a mut State,
     pwr: PWR,
     spi: SPI,
-    wifi_firmware: &[u8],
-    bluetooth_firmware: &[u8],
+    wifi_firmware: &Aligned<A4, [u8]>,
+    bluetooth_firmware: &Aligned<A4, [u8]>,
+    nvram: &Aligned<A4, [u8]>,
 ) -> (
     NetDriver<'a>,
     bluetooth::BtDriver<'a>,
@@ -342,7 +344,10 @@ where
         Some(bt_runner),
     );
 
-    runner.init(wifi_firmware, Some(bluetooth_firmware)).await.unwrap();
+    runner
+        .init(wifi_firmware, nvram, Some(bluetooth_firmware))
+        .await
+        .unwrap();
     let control = Control::new(
         state_ch,
         &state.net.events,

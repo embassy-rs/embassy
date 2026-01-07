@@ -11,7 +11,6 @@ use crate::consts::*;
 use crate::events::{Event, Events, Status};
 use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
-use crate::nvram::NVRAM;
 pub use crate::spi::SpiBusCyw43;
 use crate::structs::*;
 use crate::util::{aligned_mut, aligned_ref, slice8_mut, slice16_mut, try_until};
@@ -128,7 +127,12 @@ where
         }
     }
 
-    pub(crate) async fn init(&mut self, wifi_fw: &[u8], bt_fw: Option<&[u8]>) -> Result<(), ()> {
+    pub(crate) async fn init(
+        &mut self,
+        wifi_fw: &Aligned<A4, [u8]>,
+        nvram: &Aligned<A4, [u8]>,
+        bt_fw: Option<&[u8]>,
+    ) -> Result<(), ()> {
         self.bus.init(bt_fw.is_some()).await;
 
         // Init ALP (Active Low Power) clock
@@ -260,9 +264,9 @@ where
 
         debug!("loading nvram");
         // Round up to 4 bytes.
-        let nvram_len = (NVRAM.len() + 3) / 4 * 4;
+        let nvram_len = (nvram.len() + 3) / 4 * 4;
         self.bus
-            .bp_write(ram_addr + CHIP.chip_ram_size - 4 - nvram_len as u32, NVRAM)
+            .bp_write(ram_addr + CHIP.chip_ram_size - 4 - nvram_len as u32, nvram)
             .await;
 
         let nvram_len_words = nvram_len as u32 / 4;
@@ -581,7 +585,7 @@ where
                 // whd_bus_sdio_packet_available_to_read
                 let irq = self.bus.bp_read32(CHIP.sdiod_core_base_address + SDIO_INT_STATUS).await;
                 if irq & I_HMB_HOST_INT == 0 {
-                    return;
+                    // return;
                 }
 
                 let hmb_data = self
@@ -599,6 +603,7 @@ where
 
                 // Clear irq must be done here to avoid a race
                 if irq & HOSTINTMASK != 0 {
+                    trace!("clear irq");
                     self.bus
                         .bp_write32(CHIP.sdiod_core_base_address + SDIO_INT_STATUS, irq & HOSTINTMASK)
                         .await;
