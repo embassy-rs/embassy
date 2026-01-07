@@ -217,8 +217,10 @@ async fn main(_spawner: Spawner) {
     defmt::info!("Starting transfer with half_transfer_interrupt...");
 
     // Create the transfer
-    // SAFETY: src2 and dst2 are static buffers that remain valid for the duration of the transfer
-    let mut transfer = unsafe { dma_ch1.mem_to_mem(src2, dst2, options) };
+    // Returns a Result - validates that buffers are in DMA-accessible memory
+    let mut transfer = dma_ch1
+        .mem_to_mem(src2, dst2, options)
+        .expect("Buffer not in DMA-accessible memory");
 
     // Wait for half-transfer (first 4 elements)
     defmt::info!("Waiting for first half...");
