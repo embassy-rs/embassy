@@ -827,8 +827,19 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// Create a new ring buffer.
     pub unsafe fn new(
         channel: Peri<'a, impl Channel>,
-        _request: Request,
+        request: Request,
         peri_addr: *mut W,
+        buffer: &'a mut [W],
+        options: TransferOptions,
+    ) -> Self {
+        Self::new_with_alignment::<W>(channel, request, peri_addr, buffer, options)
+    }
+
+    /// Create a new ring buffer with different alignment between memory and peripheral.
+    pub unsafe fn new_with_alignment<PW: Word>(
+        channel: Peri<'a, impl Channel>,
+        _request: Request,
+        peri_addr: *mut PW,
         buffer: &'a mut [W],
         mut options: TransferOptions,
     ) -> Self {
@@ -837,7 +848,8 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         let buffer_ptr = buffer.as_mut_ptr();
         let len = buffer.len();
         let dir = Dir::PeripheralToMemory;
-        let data_size = W::size();
+        let mem_data_size = W::size();
+        let peri_data_size = PW::size();
 
         options.half_transfer_ir = true;
         options.complete_transfer_ir = true;
@@ -850,8 +862,8 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
             buffer_ptr as *mut u32,
             len,
             true,
-            data_size,
-            data_size,
+            mem_data_size,
+            peri_data_size,
             options,
         );
 
@@ -983,8 +995,19 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// Create a new ring buffer.
     pub unsafe fn new(
         channel: Peri<'a, impl Channel>,
-        _request: Request,
+        request: Request,
         peri_addr: *mut W,
+        buffer: &'a mut [W],
+        options: TransferOptions,
+    ) -> Self {
+        Self::new_with_alignment::<W>(channel, request, peri_addr, buffer, options)
+    }
+
+    /// Create a new ring buffer with different alignment between memory and peripheral.
+    pub unsafe fn new_with_alignment<PW: Word>(
+        channel: Peri<'a, impl Channel>,
+        _request: Request,
+        peri_addr: *mut PW,
         buffer: &'a mut [W],
         mut options: TransferOptions,
     ) -> Self {
@@ -992,7 +1015,8 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
 
         let len = buffer.len();
         let dir = Dir::MemoryToPeripheral;
-        let data_size = W::size();
+        let mem_data_size = W::size();
+        let peri_data_size = PW::size();
         let buffer_ptr = buffer.as_mut_ptr();
 
         options.half_transfer_ir = true;
@@ -1006,8 +1030,8 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
             buffer_ptr as *mut u32,
             len,
             true,
-            data_size,
-            data_size,
+            mem_data_size,
+            peri_data_size,
             options,
         );
 
