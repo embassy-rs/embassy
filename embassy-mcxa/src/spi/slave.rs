@@ -281,11 +281,11 @@ impl<'d, T: Instance, M: Mode> SpiSlave<'d, T, M> {
         let framesz = config.bits_per_frame.saturating_sub(1).min(0xFFF);
         spi.tcr().write(|w| unsafe {
             w.framesz().bits(framesz);
-            match config.polarity {
+            match config.mode.polarity {
                 Polarity::IdleLow => w.cpol().inactive_low(),
                 Polarity::IdleHigh => w.cpol().inactive_high(),
             };
-            match config.phase {
+            match config.mode.phase {
                 Phase::CaptureOnFirstTransition => w.cpha().captured(),
                 Phase::CaptureOnSecondTransition => w.cpha().changed(),
             };

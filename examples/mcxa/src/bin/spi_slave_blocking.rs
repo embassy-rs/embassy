@@ -41,12 +41,9 @@ fn main() -> ! {
     defmt::info!("LPSPI board to board polling example.");
     defmt::info!("SPI Slave (Rust) running...");
 
-    // Create SPI slave configuration
+    // Create SPI slave configuration using MODE_0 (must match master)
     let mut spi_config = spi::SlaveConfig::new();
-    spi_config
-        .polarity(spi::Polarity::IdleLow)
-        .phase(spi::Phase::CaptureOnFirstTransition)
-        .bits_per_frame(8);
+    spi_config.mode(spi::MODE_0).bits_per_frame(8);
 
     // Create SPI slave instance with pins:
     // P3_10 = LPSPI1_SCK, P3_8 = LPSPI1_SOUT (our output to master)

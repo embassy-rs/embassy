@@ -28,6 +28,31 @@
 //! prefer a single full-duplex burst (send the command bytes followed by dummy bytes,
 //! then ignore the initial received bytes).
 //!
+//! # Chip Select Options
+//!
+//! The LPSPI hardware supports up to 4 hardware chip select pins (PCS0-PCS3). The
+//! [`ChipSelect`] enum selects which hardware PCS signal to use.
+//!
+//! For GPIO-based chip select (common with `embedded-hal` drivers), you have two options:
+//!
+//! 1. **Don't connect the hardware PCS pin** - Leave the PCS pin unconnected or use it
+//!    for another purpose. The hardware will still toggle the selected PCS signal, but
+//!    if nothing is connected, it has no effect.
+//!
+//! 2. **Use `embassy-embedded-hal::SpiDevice`** - Wrap the SPI driver with `SpiDevice`
+//!    which manages a GPIO CS pin:
+//!
+//!    ```ignore
+//!    use embassy_embedded_hal::shared_bus::blocking::spi::SpiDevice;
+//!    use embassy_sync::blocking_mutex::{NoopMutex, raw::NoopRawMutex};
+//!
+//!    let spi = Spi::new_blocking(/* ... */);
+//!    let spi_bus = NoopMutex::new(RefCell::new(spi));
+//!    let cs = Output::new(p.P1_4, Level::High);
+//!    let spi_dev = SpiDevice::new(&spi_bus, cs);
+//!    // Use spi_dev with embedded-hal drivers
+//!    ```
+//!
 //! # Examples
 //!
 //! See the MCXA examples:
