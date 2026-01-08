@@ -8,8 +8,6 @@
 //! - State: Invalid state transitions
 //! - Address: Invalid memory access
 
-use core::sync::atomic::{AtomicU32, Ordering};
-
 use embassy_hal_internal::Peri;
 use embassy_hal_internal::interrupt::InterruptExt;
 
@@ -388,7 +386,7 @@ impl<'d> Watchdog<'d> {
     ///
     /// # Arguments
     /// * `value` - The 32-bit value to store in the persistent register
-    pub fn set_persistant_value(&mut self, value: u32) {
+    pub fn set_persistent_value(&mut self, value: u32) {
         self.info
             .persistent()
             .write(|w| unsafe { w.persis().bits(value) });
@@ -399,7 +397,7 @@ impl<'d> Watchdog<'d> {
     ///
     /// # Returns
     /// The 32-bit value stored in the persistent register
-    pub fn get_persistant_value(&self) -> u32 {
+    pub fn get_persistent_value(&self) -> u32 {
         self.info.persistent().read().persis().bits()
     }
 }
@@ -439,8 +437,8 @@ impl Handler<typelevel::CDOG0> for InterruptHandler {
             flags.por_flag().bit()
         );
 
-        // Read the Secure Counter value and properly stop the cdog
-        cdog0.stop().write(|w| w.stp().bits(0));
+        // Stop the cdog
+        cdog0.stop().write(|w| unsafe { w.stp().bits(0) });
 
         //Clear all flags by writing 0
         unsafe { cdog0.flags().write_with_zero(|w| w) };
