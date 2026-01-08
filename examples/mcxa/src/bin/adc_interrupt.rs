@@ -3,7 +3,7 @@
 
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Ticker};
-use hal::adc::{Adc, InterruptHandler, LpadcConfig, TriggerPriorityPolicy};
+use hal::adc::{self, Adc, InterruptHandler, TriggerPriorityPolicy};
 use hal::bind_interrupts;
 use hal::clocks::PoweredClock;
 use hal::clocks::config::Div8;
@@ -28,7 +28,7 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("ADC interrupt Example");
 
-    let adc_config = LpadcConfig {
+    let adc_config = adc::Config {
         enable_in_doze_mode: true,
         conversion_average_mode: CalAvgs::Average128,
         enable_analog_preliminary: true,

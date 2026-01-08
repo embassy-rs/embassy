@@ -13,7 +13,7 @@ use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
 use crate::pac::adc1::cfg::{HptExdi, Pwrsel, Refsel, Tcmdres, Tprictrl, Tres};
 use crate::pac::adc1::cmdh1::{Avgs, Cmpen, Next, Sts};
-use crate::pac::adc1::cmdl1::Mode;
+use crate::pac::adc1::cmdl1::Mode as ConvMode;
 use crate::pac::adc1::ctrl::CalAvgs;
 use crate::pac::adc1::tctrl::{Tcmd, Tpri};
 
@@ -35,40 +35,66 @@ pub enum TriggerPriorityPolicy {
 
 /// Configuration for the LPADC peripheral.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct LpadcConfig {
-    /// Control system transition to Stop and Wait power modes while ADC is converting.
-    /// When enabled in Doze mode, immediate entries to Wait or Stop are allowed.
-    /// When disabled, the ADC will wait for the current averaging iteration/FIFO storage to complete before acknowledging stop or wait mode entry.
+pub struct Config {
+    /// Control system transition to Stop and Wait power modes while
+    /// ADC is converting.
+    ///
+    /// When enabled in Doze mode, immediate entries to Wait or Stop
+    /// are allowed.
+    ///
+    /// When disabled, the ADC will wait for the current averaging
+    /// iteration/FIFO storage to complete before acknowledging stop
+    /// or wait mode entry.
     pub enable_in_doze_mode: bool,
+
     /// Auto-Calibration Averages.
     pub conversion_average_mode: CalAvgs,
-    /// ADC analog circuits are pre-enabled and ready to execute conversions without startup delays(at the cost of higher DC current consumption).
+
+    /// ADC analog circuits are pre-enabled and ready to execute
+    /// conversions without startup delays(at the cost of higher DC
+    /// current consumption).
     pub enable_analog_preliminary: bool,
+
     /// Power-up delay value (in ADC clock cycles)
     pub power_up_delay: u8,
+
     /// Reference voltage source selection
     pub reference_voltage_source: Refsel,
+
     /// Power configuration selection.
     pub power_level_mode: Pwrsel,
+
     /// Trigger priority policy for handling multiple triggers
     pub trigger_priority_policy: TriggerPriorityPolicy,
-    /// Enables the ADC pausing function. When enabled, a programmable delay is inserted during command execution sequencing between LOOP iterations,
-    /// between commands in a sequence, and between conversions when command is executing in "Compare Until True" configuration.
+
+    /// Enables the ADC pausing function. When enabled, a programmable
+    /// delay is inserted during command execution sequencing between
+    /// LOOP iterations, between commands in a sequence, and between
+    /// conversions when command is executing in "Compare Until True"
+    /// configuration.
     pub enable_conv_pause: bool,
-    /// Controls the duration of pausing during command execution sequencing. The pause delay is a count of (convPauseDelay*4) ADCK cycles.
-    /// Only available when ADC pausing function is enabled. The available value range is in 9-bit.
+
+    /// Controls the duration of pausing during command execution
+    /// sequencing. The pause delay is a count of (convPauseDelay*4)
+    /// ADCK cycles.
+    ///
+    /// Only available when ADC pausing function is enabled. The
+    /// available value range is in 9-bit.
     pub conv_pause_delay: u16,
+
     /// Power configuration (normal/deep sleep behavior)
     pub power: PoweredClock,
+
     /// ADC clock source selection
     pub source: AdcClockSel,
+
     /// Clock divider for ADC clock
     pub div: Div4,
 }
 
-impl Default for LpadcConfig {
+impl Default for Config {
     fn default() -> Self {
-        LpadcConfig {
+        Self {
             enable_in_doze_mode: true,
             conversion_average_mode: CalAvgs::NoAverage,
             enable_analog_preliminary: false,
@@ -98,13 +124,13 @@ pub struct ConvCommandConfig {
     pub hardware_compare_mode: Cmpen,
     pub hardware_compare_value_high: u32,
     pub hardware_compare_value_low: u32,
-    pub conversion_resolution_mode: Mode,
+    pub conversion_resolution_mode: ConvMode,
     pub enable_wait_trigger: bool,
 }
 
 impl Default for ConvCommandConfig {
     fn default() -> Self {
-        ConvCommandConfig {
+        Self {
             chained_next_command_number: Next::NoNextCmdTerminateOnFinish,
             enable_auto_channel_increment: false,
             loop_count: 0,
@@ -113,7 +139,7 @@ impl Default for ConvCommandConfig {
             hardware_compare_mode: Cmpen::DisabledAlwaysStoreResult,
             hardware_compare_value_high: 0,
             hardware_compare_value_low: 0,
-            conversion_resolution_mode: Mode::Data12Bits,
+            conversion_resolution_mode: ConvMode::Data12Bits,
             enable_wait_trigger: false,
         }
     }
@@ -168,20 +194,15 @@ pub struct ConvResult {
 }
 
 /// ADC interrupt handler.
-pub struct InterruptHandler<I: Instance> {
-    _phantom: PhantomData<I>,
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
 }
 
 /// ADC driver instance.
-pub struct Adc<'a, M: ModeAdc> {
-    _inst: PhantomData<&'a mut ()>,
-    mode: M,
-
-    // The channel index of the pin used to create our ADC instance
+pub struct Adc<'a, M: Mode> {
+    _inst: PhantomData<&'a M>,
     channel_idx: u8,
-
-    // The register block of the ADC instance
-    info: &'static pac::adc0::RegisterBlock,
+    info: Info,
 }
 
 impl<'a> Adc<'a, Blocking> {
@@ -190,12 +211,12 @@ impl<'a> Adc<'a, Blocking> {
     /// * `_inst` - ADC peripheral instance
     /// * `pin` - GPIO pin to use for ADC
     /// * `config` - ADC configuration
-    pub fn new_blocking<I: Instance>(
-        _inst: Peri<'a, I>,
-        pin: Peri<'a, impl AdcPin<I>>,
-        config: LpadcConfig,
+    pub fn new_blocking<T: Instance>(
+        _inst: Peri<'a, T>,
+        pin: Peri<'a, impl AdcPin<T>>,
+        config: Config,
     ) -> Result<Self> {
-        Self::new_inner(_inst, pin, config, Blocking)
+        Self::new_inner(_inst, pin, config)
     }
 
     /// Enable ADC interrupts.
@@ -205,7 +226,7 @@ impl<'a> Adc<'a, Blocking> {
     /// # Arguments
     /// * `mask` - Bitmask of interrupt sources to enable
     pub fn enable_interrupt(&mut self, mask: u32) {
-        self.info.ie().modify(|r, w| unsafe { w.bits(r.bits() | mask) });
+        self.info.regs.ie().modify(|r, w| unsafe { w.bits(r.bits() | mask) });
     }
 
     /// Disable ADC interrupts.
@@ -215,14 +236,17 @@ impl<'a> Adc<'a, Blocking> {
     /// # Arguments
     /// * `mask` - Bitmask of interrupt sources to disable
     pub fn disable_interrupt(&mut self, mask: u32) {
-        self.info.ie().modify(|r, w| unsafe { w.bits(r.bits() & !mask) });
+        self.info.regs.ie().modify(|r, w| unsafe { w.bits(r.bits() & !mask) });
     }
 
     pub fn set_fifo_watermark(&mut self, watermark: u8) -> Result<()> {
         if watermark > 0b111 {
             return Err(Error::InvalidConfig);
         }
-        self.info.fctrl0().modify(|_r, w| unsafe { w.fwmark().bits(watermark) });
+        self.info
+            .regs
+            .fctrl0()
+            .modify(|_r, w| unsafe { w.fwmark().bits(watermark) });
         Ok(())
     }
 
@@ -241,7 +265,10 @@ impl<'a> Adc<'a, Blocking> {
         if trigger_id_mask > 0b1111 {
             return Err(Error::InvalidConfig);
         }
-        self.info.swtrig().write(|w| unsafe { w.bits(trigger_id_mask as u32) });
+        self.info
+            .regs
+            .swtrig()
+            .write(|w| unsafe { w.bits(trigger_id_mask as u32) });
         Ok(())
     }
 
@@ -277,7 +304,7 @@ impl<'a> Adc<'a, Blocking> {
     ///
     /// Clears all pending conversion results from the FIFO.
     pub fn do_reset_fifo(&self) {
-        self.info.ctrl().modify(|_, w| w.rstfifo0().trigger_reset());
+        self.info.regs.ctrl().modify(|_, w| w.rstfifo0().trigger_reset());
     }
 
     /// Get conversion result from FIFO.
@@ -301,16 +328,16 @@ impl<'a> Adc<'a, Async> {
     /// * `pin` - GPIO pin to use for ADC
     /// * `_irq` - Interrupt binding for this ADC instance
     /// * `config` - ADC configuration
-    pub fn new_async<I: Instance>(
-        _inst: Peri<'a, I>,
-        pin: Peri<'a, impl AdcPin<I>>,
-        _irq: impl crate::interrupt::typelevel::Binding<I::Interrupt, InterruptHandler<I>> + 'a,
-        config: LpadcConfig,
+    pub fn new_async<T: Instance>(
+        _inst: Peri<'a, T>,
+        pin: Peri<'a, impl AdcPin<T>>,
+        _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'a,
+        config: Config,
     ) -> Result<Self> {
-        let adc = Self::new_inner(_inst, pin, config, Async { waiter: I::wait_cell() })?;
+        let adc = Self::new_inner(_inst, pin, config)?;
 
-        I::Interrupt::unpend();
-        unsafe { I::Interrupt::enable() };
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
 
         let cfg = ConvCommandConfig {
             chained_next_command_number: Next::NoNextCmdTerminateOnFinish,
@@ -321,7 +348,7 @@ impl<'a> Adc<'a, Async> {
             hardware_compare_mode: Cmpen::DisabledAlwaysStoreResult,
             hardware_compare_value_high: 0,
             hardware_compare_value_low: 0,
-            conversion_resolution_mode: Mode::Data16Bits,
+            conversion_resolution_mode: ConvMode::Data16Bits,
             enable_wait_trigger: false,
         };
 
@@ -339,7 +366,7 @@ impl<'a> Adc<'a, Async> {
         _ = adc.set_conv_trigger_config_inner(0, &cfg);
 
         // We always set the watermark to 0 (trigger when 1 is available)
-        I::ptr().fctrl0().modify(|_r, w| unsafe { w.fwmark().bits(0) });
+        adc.info.regs.fctrl0().modify(|_r, w| unsafe { w.fwmark().bits(0) });
 
         Ok(adc)
     }
@@ -348,26 +375,26 @@ impl<'a> Adc<'a, Async> {
     pub fn set_averages(&mut self, avgs: Avgs) {
         // TODO: we should probably return a result or wait for idle?
         // "A write to a CMD buffer while that CMD buffer is controlling the ADC operation may cause unpredictable behavior."
-        self.info.cmdh1().modify(|_r, w| w.avgs().variant(avgs));
+        self.info.regs.cmdh1().modify(|_r, w| w.avgs().variant(avgs));
     }
 
     /// Set the sample time
     pub fn set_sample_time(&mut self, st: Sts) {
         // TODO: we should probably return a result or wait for idle?
         // "A write to a CMD buffer while that CMD buffer is controlling the ADC operation may cause unpredictable behavior."
-        self.info.cmdh1().modify(|_r, w| w.sts().variant(st));
+        self.info.regs.cmdh1().modify(|_r, w| w.sts().variant(st));
     }
 
-    pub fn set_resolution(&mut self, mode: Mode) {
+    pub fn set_resolution(&mut self, mode: ConvMode) {
         // TODO: we should probably return a result or wait for idle?
         // "A write to a CMD buffer while that CMD buffer is controlling the ADC operation may cause unpredictable behavior."
-        self.info.cmdl1().modify(|_r, w| w.mode().variant(mode));
+        self.info.regs.cmdl1().modify(|_r, w| w.mode().variant(mode));
     }
 
     fn wait_idle(&mut self) -> impl Future<Output = core::result::Result<(), maitake_sync::Closed>> + use<'_> {
-        self.mode
-            .waiter
-            .wait_for(|| self.info.ie().read().fwmie0().bit_is_clear())
+        self.info
+            .wait_cell
+            .wait_for(|| self.info.regs.ie().read().fwmie0().bit_is_clear())
     }
 
     /// Read ADC value asynchronously.
@@ -388,11 +415,11 @@ impl<'a> Adc<'a, Async> {
         _ = self.wait_idle().await;
 
         // Clear the fifo
-        self.info.ctrl().modify(|_, w| w.rstfifo0().trigger_reset());
+        self.info.regs.ctrl().modify(|_, w| w.rstfifo0().trigger_reset());
 
         // Trigger a new conversion
-        self.info.ie().modify(|_r, w| w.fwmie0().set_bit());
-        self.info.swtrig().write(|w| w.swt0().set_bit());
+        self.info.regs.ie().modify(|_r, w| w.fwmie0().set_bit());
+        self.info.regs.swtrig().write(|w| w.swt0().set_bit());
 
         // Wait for completion
         _ = self.wait_idle().await;
@@ -401,18 +428,14 @@ impl<'a> Adc<'a, Async> {
     }
 }
 
-impl<'a, M: ModeAdc> Adc<'a, M> {
+impl<'a, M: Mode> Adc<'a, M> {
     /// Internal initialization function shared by `new_async` and `new_blocking`.
-    fn new_inner<I: Instance, P: AdcPin<I>>(
-        _inst: Peri<'a, I>,
-        pin: Peri<'a, P>,
-        config: LpadcConfig,
-        mode: M,
-    ) -> Result<Self> {
-        let adc = I::ptr();
+    fn new_inner<T: Instance>(_inst: Peri<'a, T>, pin: Peri<'a, impl AdcPin<T>>, config: Config) -> Result<Self> {
+        let info = T::info();
+        let adc = info.regs;
 
         _ = unsafe {
-            enable_and_reset::<I>(&AdcConfig {
+            enable_and_reset::<T>(&AdcConfig {
                 power: config.power,
                 source: config.source,
                 div: config.div,
@@ -496,9 +519,8 @@ impl<'a, M: ModeAdc> Adc<'a, M> {
 
         Ok(Self {
             _inst: PhantomData,
-            mode,
-            channel_idx: P::CHANNEL,
-            info: adc,
+            channel_idx: pin.channel(),
+            info,
         })
     }
 
@@ -507,11 +529,12 @@ impl<'a, M: ModeAdc> Adc<'a, M> {
     pub fn do_offset_calibration(&self) {
         // Enable calibration mode
         self.info
+            .regs
             .ctrl()
             .modify(|_, w| w.calofs().offset_calibration_request_pending());
 
         // Wait for calibration to complete (polling status register)
-        while self.info.stat().read().cal_rdy().is_not_set() {}
+        while self.info.regs.stat().read().cal_rdy().is_not_set() {}
     }
 
     /// Calculate gain conversion result from gain adjustment factor.
@@ -542,12 +565,13 @@ impl<'a, M: ModeAdc> Adc<'a, M> {
     /// Perform automatic gain calibration.
     pub fn do_auto_calibration(&self) {
         self.info
+            .regs
             .ctrl()
             .modify(|_, w| w.cal_req().calibration_request_pending());
 
-        while self.info.gcc0().read().rdy().is_gain_cal_not_valid() {}
+        while self.info.regs.gcc0().read().rdy().is_gain_cal_not_valid() {}
 
-        let mut gcca = self.info.gcc0().read().gain_cal().bits() as u32;
+        let mut gcca = self.info.regs.gcc0().read().gain_cal().bits() as u32;
         if gcca & 0x8000 != 0 {
             gcca |= !0xFFFF;
         }
@@ -556,24 +580,25 @@ impl<'a, M: ModeAdc> Adc<'a, M> {
 
         // Write to GCR0
         self.info
+            .regs
             .gcr0()
             .write(|w| unsafe { w.bits(self.get_gain_conv_result(gcra)) });
 
-        self.info.gcr0().modify(|_, w| w.rdy().set_bit());
+        self.info.regs.gcr0().modify(|_, w| w.rdy().set_bit());
 
         // Wait for calibration to complete (polling status register)
-        while self.info.stat().read().cal_rdy().is_not_set() {}
+        while self.info.regs.stat().read().cal_rdy().is_not_set() {}
     }
 
     fn set_conv_command_config_inner(&self, index: usize, config: &ConvCommandConfig) -> Result<()> {
         let (cmdl, cmdh) = match index {
-            1 => (self.info.cmdl1(), self.info.cmdh1()),
-            2 => (self.info.cmdl2(), self.info.cmdh2()),
-            3 => (self.info.cmdl3(), self.info.cmdh3()),
-            4 => (self.info.cmdl4(), self.info.cmdh4()),
-            5 => (self.info.cmdl5(), self.info.cmdh5()),
-            6 => (self.info.cmdl6(), self.info.cmdh6()),
-            7 => (self.info.cmdl7(), self.info.cmdh7()),
+            1 => (self.info.regs.cmdl1(), self.info.regs.cmdh1()),
+            2 => (self.info.regs.cmdl2(), self.info.regs.cmdh2()),
+            3 => (self.info.regs.cmdl3(), self.info.regs.cmdh3()),
+            4 => (self.info.regs.cmdl4(), self.info.regs.cmdh4()),
+            5 => (self.info.regs.cmdl5(), self.info.regs.cmdh5()),
+            6 => (self.info.regs.cmdl6(), self.info.regs.cmdh6()),
+            7 => (self.info.regs.cmdl7(), self.info.regs.cmdh7()),
             _ => return Err(Error::InvalidConfig),
         };
 
@@ -606,7 +631,7 @@ impl<'a, M: ModeAdc> Adc<'a, M> {
             return Err(Error::InvalidConfig);
         }
 
-        let tctrl = &self.info.tctrl(trigger_id);
+        let tctrl = &self.info.regs.tctrl(trigger_id);
 
         tctrl.write(|w| {
             w.tcmd().variant(config.target_command_id);
@@ -633,7 +658,7 @@ impl<'a, M: ModeAdc> Adc<'a, M> {
     /// - `Some(ConvResult)` if a result is available
     /// - `Err(Error::FifoEmpty)` if the FIFO is empty
     fn get_conv_result_inner(&self) -> Result<ConvResult> {
-        let fifo = self.info.resfifo0().read();
+        let fifo = self.info.regs.resfifo0().read();
         if !fifo.valid().is_valid() {
             return Err(Error::FifoEmpty);
         }
@@ -649,21 +674,26 @@ impl<'a, M: ModeAdc> Adc<'a, M> {
 
 impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        T::ptr().ie().modify(|_r, w| w.fwmie0().clear_bit());
-        T::wait_cell().wake();
+        T::info().regs.ie().modify(|_r, w| w.fwmie0().clear_bit());
+        T::info().wait_cell.wake();
     }
 }
 
 mod sealed {
     /// Seal a trait
     pub trait Sealed {}
+
+    /// Sealed pin trait
+    pub trait SealedAdcPin<T: super::Instance> {}
 }
 
-impl<I: GpioPin> sealed::Sealed for I {}
+struct Info {
+    regs: &'static pac::adc0::RegisterBlock,
+    wait_cell: &'static WaitCell,
+}
 
 trait SealedInstance {
-    fn ptr() -> &'static pac::adc0::RegisterBlock;
-    fn wait_cell() -> &'static WaitCell;
+    fn info() -> Info;
 }
 
 /// ADC Instance
@@ -678,15 +708,13 @@ macro_rules! impl_instance {
         $(
             paste!{
                 impl SealedInstance for crate::peripherals::[<ADC $n>] {
-                    fn ptr() -> &'static pac::adc0::RegisterBlock {
-                        unsafe { &*pac::[<Adc $n>]::ptr() }
-                    }
-
-                    fn wait_cell() -> &'static WaitCell {
+                    fn info() -> Info {
                         static WAIT_CELL: WaitCell = WaitCell::new();
-                        &WAIT_CELL
+                        Info {
+                            regs: unsafe { &*pac::[<Adc $n>]::ptr() },
+                            wait_cell: &WAIT_CELL,
+                        }
                     }
-
                 }
 
                 impl Instance for crate::peripherals::[<ADC $n>] {
@@ -699,8 +727,9 @@ macro_rules! impl_instance {
 
 impl_instance!(0, 1, 2, 3);
 
-pub trait AdcPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
-    const CHANNEL: u8;
+pub trait AdcPin<T: Instance>: sealed::SealedAdcPin<T> + GpioPin + PeripheralType {
+    /// The channel to be used
+    fn channel(&self) -> u8;
 
     /// Set the given pin to the correct muxing state
     fn mux(&self);
@@ -708,25 +737,29 @@ pub trait AdcPin<Instance>: GpioPin + sealed::Sealed + PeripheralType {
 
 /// Driver mode.
 #[allow(private_bounds)]
-pub trait ModeAdc: sealed::Sealed {}
+pub trait Mode: sealed::Sealed {}
 
 /// Blocking mode.
 pub struct Blocking;
 impl sealed::Sealed for Blocking {}
-impl ModeAdc for Blocking {}
+impl Mode for Blocking {}
 
 /// Async mode.
-pub struct Async {
-    waiter: &'static WaitCell,
-}
+pub struct Async;
 impl sealed::Sealed for Async {}
-impl ModeAdc for Async {}
+impl Mode for Async {}
 
 macro_rules! impl_pin {
     ($pin:ident, $peri:ident, $func:ident, $channel:literal) => {
-        impl AdcPin<crate::peripherals::$peri> for crate::peripherals::$pin {
-            const CHANNEL: u8 = $channel;
+        impl sealed::SealedAdcPin<crate::peripherals::$peri> for crate::peripherals::$pin {}
 
+        impl AdcPin<crate::peripherals::$peri> for crate::peripherals::$pin {
+            #[inline]
+            fn channel(&self) -> u8 {
+                $channel
+            }
+
+            #[inline]
             fn mux(&self) {
                 self.set_pull(crate::gpio::Pull::Disabled);
                 self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
