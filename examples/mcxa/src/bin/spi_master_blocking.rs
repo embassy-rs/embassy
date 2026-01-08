@@ -40,11 +40,10 @@ fn main() -> ! {
     defmt::info!("   SIN       --    SOUT");
     defmt::info!("   GND       --    GND");
 
-    // Create SPI configuration
+    // Create SPI configuration using MODE_0 (CPOL=0, CPHA=0)
     let mut spi_config = spi::Config::new();
     spi_config
-        .polarity(spi::Polarity::IdleLow)
-        .phase(spi::Phase::CaptureOnFirstTransition)
+        .mode(spi::MODE_0)
         .bit_order(spi::BitOrder::MsbFirst)
         .bits_per_frame(8)
         .chip_select(spi::ChipSelect::Pcs0)

@@ -12,23 +12,26 @@ use paste::paste;
 use crate::clocks::periph_helpers::LpspiConfig;
 use crate::clocks::{ClockError, Gate};
 use crate::dma::DmaRequest;
-use crate::gpio::GpioPin;
 use crate::{interrupt, pac};
 
 // =============================================================================
-// REGISTER BIT CONSTANTS (for DMA operations requiring raw bit manipulation)
+// REGISTER BIT CONSTANTS
 // =============================================================================
+// NOTE: These constants are used for DMA scatter/gather operations where we need
+// to build TCR values programmatically for hardware TCD writes. The PAC provides
+// typed accessors for normal register operations (see apply_transfer_tcr), but
+// DMA TCDs require raw u32 values. These match the bit positions in LPSPI_TCR.
 
 /// All clearable status flags (TEF, REF, DMF, FCF, WCF, TCF)
 pub(super) const LPSPI_ALL_STATUS_FLAGS: u32 = 0x3F00;
 
-/// TCR register bit masks
-pub(super) const TCR_CONT: u32 = 1 << 21;
-pub(super) const TCR_CONTC: u32 = 1 << 20;
-pub(super) const TCR_RXMSK: u32 = 1 << 19;
-pub(super) const TCR_TXMSK: u32 = 1 << 18;
-pub(super) const TCR_BYSW: u32 = 1 << 22;
-pub(super) const TCR_PCS_MASK: u32 = 0x3 << 24;
+/// TCR register bit positions (used for DMA TCD raw value construction)
+pub(super) const TCR_CONT: u32 = 1 << 21; // Continuous transfer
+pub(super) const TCR_CONTC: u32 = 1 << 20; // Continuing command
+pub(super) const TCR_RXMSK: u32 = 1 << 19; // Receive data mask
+pub(super) const TCR_TXMSK: u32 = 1 << 18; // Transmit data mask
+pub(super) const TCR_BYSW: u32 = 1 << 22; // Byte swap
+pub(super) const TCR_PCS_MASK: u32 = 0x3 << 24; // Peripheral chip select mask
 
 /// FIFO size for MCXA276 LPSPI (4 words)
 pub(super) const LPSPI_FIFO_SIZE: u8 = 4;
@@ -404,7 +407,17 @@ pub(super) mod sealed {
     pub trait Sealed {}
 }
 
-impl<T: GpioPin> sealed::Sealed for T {}
+// Seal only the specific pins that can be used with SPI, not all GPIO pins.
+// This ensures type safety - only pins that are actually muxed into SPI functions
+// can be used with the SPI driver.
+impl sealed::Sealed for crate::peripherals::P1_0 {} // LPSPI0_SDO
+impl sealed::Sealed for crate::peripherals::P1_1 {} // LPSPI0_SCK
+impl sealed::Sealed for crate::peripherals::P1_2 {} // LPSPI0_SDI
+impl sealed::Sealed for crate::peripherals::P1_3 {} // LPSPI0_PCS0
+impl sealed::Sealed for crate::peripherals::P3_8 {} // LPSPI1_SOUT
+impl sealed::Sealed for crate::peripherals::P3_9 {} // LPSPI1_SIN
+impl sealed::Sealed for crate::peripherals::P3_10 {} // LPSPI1_SCK
+impl sealed::Sealed for crate::peripherals::P3_11 {} // LPSPI1_PCS0
 
 pub(super) trait SealedInstance {
     fn regs() -> &'static pac::lpspi0::RegisterBlock;
@@ -505,45 +518,37 @@ impl Mode for Async {}
 #[derive(Clone, Copy)]
 #[non_exhaustive]
 pub struct Config {
-    /// Clock polarity
-    pub polarity: embedded_hal_02::spi::Polarity,
-    /// Clock phase
-    pub phase: embedded_hal_02::spi::Phase,
+    /// SPI mode (combines polarity and phase).
+    /// Use MODE_0, MODE_1, MODE_2, or MODE_3 from embedded_hal.
+    pub mode: embedded_hal_02::spi::Mode,
     /// Bit order
     pub bit_order: BitOrder,
     /// Bits per frame (1-4096, typically 8).
     pub bits_per_frame: u16,
     /// Chip select to use
     pub chip_select: ChipSelect,
-    /// SCK divider (0-255). Baud = src_clk / (prescaler * (SCKDIV + 2))
+    /// SCK divider (0-255). Baud = src_clk / (prescaler.divisor() * (SCKDIV + 2))
     pub sck_div: u8,
-    /// Prescaler value (0-7, divide by 1,2,4,8,16,32,64,128)
-    pub prescaler: u8,
+    /// Clock prescaler (Div1 through Div128)
+    pub prescaler: Prescaler,
 }
 
 impl Config {
-    /// Create a new SPI configuration with default settings.
+    /// Create a new SPI configuration with default settings (MODE_0).
     pub fn new() -> Self {
         Self {
-            polarity: embedded_hal_02::spi::Polarity::IdleLow,
-            phase: embedded_hal_02::spi::Phase::CaptureOnFirstTransition,
+            mode: embedded_hal_02::spi::MODE_0,
             bit_order: BitOrder::MsbFirst,
             bits_per_frame: 8,
             chip_select: ChipSelect::Pcs0,
             sck_div: 0,
-            prescaler: 0,
+            prescaler: Prescaler::Div1,
         }
     }
 
-    /// Set clock polarity
-    pub fn polarity(&mut self, pol: embedded_hal_02::spi::Polarity) -> &mut Self {
-        self.polarity = pol;
-        self
-    }
-
-    /// Set clock phase
-    pub fn phase(&mut self, ph: embedded_hal_02::spi::Phase) -> &mut Self {
-        self.phase = ph;
+    /// Set SPI mode (MODE_0, MODE_1, MODE_2, or MODE_3).
+    pub fn mode(&mut self, mode: embedded_hal_02::spi::Mode) -> &mut Self {
+        self.mode = mode;
         self
     }
 
@@ -565,15 +570,15 @@ impl Config {
         self
     }
 
-    /// Set SCK divider. Baud = src_clk / (prescaler * (SCKDIV + 2))
+    /// Set SCK divider. Baud = src_clk / (prescaler.divisor() * (SCKDIV + 2))
     pub fn sck_div(&mut self, div: u8) -> &mut Self {
         self.sck_div = div;
         self
     }
 
-    /// Set prescaler (0-7, divide by 1,2,4,8,16,32,64,128)
-    pub fn prescaler(&mut self, prescaler: u8) -> &mut Self {
-        self.prescaler = prescaler.min(7);
+    /// Set clock prescaler (Div1 through Div128)
+    pub fn prescaler(&mut self, prescaler: Prescaler) -> &mut Self {
+        self.prescaler = prescaler;
         self
     }
 
@@ -592,32 +597,93 @@ impl Default for Config {
     }
 }
 
+/// SPI clock prescaler values.
+/// Maps to the PRESCALE field in the CCR register.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[repr(u8)]
+pub enum Prescaler {
+    /// Divide by 1
+    #[default]
+    Div1 = 0,
+    /// Divide by 2
+    Div2 = 1,
+    /// Divide by 4
+    Div4 = 2,
+    /// Divide by 8
+    Div8 = 3,
+    /// Divide by 16
+    Div16 = 4,
+    /// Divide by 32
+    Div32 = 5,
+    /// Divide by 64
+    Div64 = 6,
+    /// Divide by 128
+    Div128 = 7,
+}
+
+impl Prescaler {
+    /// Get the divisor value for this prescaler setting.
+    pub const fn divisor(self) -> u32 {
+        1 << (self as u8)
+    }
+
+    /// Convert from register value to Prescaler.
+    pub const fn from_bits(bits: u8) -> Self {
+        match bits & 0x7 {
+            0 => Self::Div1,
+            1 => Self::Div2,
+            2 => Self::Div4,
+            3 => Self::Div8,
+            4 => Self::Div16,
+            5 => Self::Div32,
+            6 => Self::Div64,
+            _ => Self::Div128,
+        }
+    }
+}
+
 /// Compute prescaler and SCKDIV for the desired baud rate.
-pub(super) fn compute_baud_params(src_hz: u32, baud_hz: u32) -> (u8, u8) {
+/// Returns (prescaler, sckdiv) where:
+/// - prescaler is a Prescaler enum value
+/// - sckdiv is 0-255
+/// Baud = src_hz / (prescaler.divisor() * (SCKDIV + 2))
+pub(super) fn compute_baud_params(src_hz: u32, baud_hz: u32) -> (Prescaler, u8) {
     if baud_hz == 0 {
-        return (0, 0);
+        return (Prescaler::Div1, 0);
     }
 
-    let prescalers: [u32; 8] = [1, 2, 4, 8, 16, 32, 64, 128];
-    let mut best_prescaler: u8 = 0;
-    let mut best_sckdiv: u8 = 0;
-    let mut best_error: u32 = u32::MAX;
+    let prescalers = [
+        Prescaler::Div1,
+        Prescaler::Div2,
+        Prescaler::Div4,
+        Prescaler::Div8,
+        Prescaler::Div16,
+        Prescaler::Div32,
+        Prescaler::Div64,
+        Prescaler::Div128,
+    ];
 
-    for (i, &prescaler) in prescalers.iter().enumerate() {
-        let denom = prescaler.saturating_mul(baud_hz);
-        let sckdiv_calc = (src_hz + denom / 2) / denom;
-        if sckdiv_calc < 2 {
-            continue;
-        }
-        let sckdiv = (sckdiv_calc - 2).min(255) as u8;
-        let actual_baud = src_hz / (prescaler * (sckdiv as u32 + 2));
-        let error = actual_baud.abs_diff(baud_hz);
-        if error < best_error {
-            best_error = error;
-            best_prescaler = i as u8;
-            best_sckdiv = sckdiv;
-        }
-    }
+    let (best_prescaler, best_sckdiv, _) = prescalers.iter().fold(
+        (Prescaler::Div1, 0u8, u32::MAX),
+        |(best_pre, best_div, best_err), &prescaler| {
+            let divisor = prescaler.divisor();
+            let denom = divisor.saturating_mul(baud_hz);
+            let sckdiv_calc = (src_hz + denom / 2) / denom;
+            if sckdiv_calc < 2 {
+                return (best_pre, best_div, best_err);
+            }
+            let sckdiv = (sckdiv_calc - 2).min(255) as u8;
+            let actual_baud = src_hz / (divisor * (sckdiv as u32 + 2));
+            let error = actual_baud.abs_diff(baud_hz);
+            if error < best_err {
+                (prescaler, sckdiv, error)
+            } else {
+                (best_pre, best_div, best_err)
+            }
+        },
+    );
+
     (best_prescaler, best_sckdiv)
 }
 
@@ -625,10 +691,8 @@ pub(super) fn compute_baud_params(src_hz: u32, baud_hz: u32) -> (u8, u8) {
 #[derive(Copy, Clone)]
 #[non_exhaustive]
 pub struct SlaveConfig {
-    /// Clock polarity (must match master)
-    pub polarity: embedded_hal_02::spi::Polarity,
-    /// Clock phase (must match master)
-    pub phase: embedded_hal_02::spi::Phase,
+    /// SPI mode (must match master). Use MODE_0, MODE_1, MODE_2, or MODE_3.
+    pub mode: embedded_hal_02::spi::Mode,
     /// Bit order (must match master)
     pub bit_order: BitOrder,
     /// Bits per frame (8 for typical use)
@@ -636,25 +700,18 @@ pub struct SlaveConfig {
 }
 
 impl SlaveConfig {
-    /// Create a new slave configuration with defaults
+    /// Create a new slave configuration with defaults (MODE_0)
     pub fn new() -> Self {
         Self {
-            polarity: embedded_hal_02::spi::Polarity::IdleLow,
-            phase: embedded_hal_02::spi::Phase::CaptureOnFirstTransition,
+            mode: embedded_hal_02::spi::MODE_0,
             bit_order: BitOrder::MsbFirst,
             bits_per_frame: 8,
         }
     }
 
-    /// Set clock polarity
-    pub fn polarity(&mut self, polarity: embedded_hal_02::spi::Polarity) -> &mut Self {
-        self.polarity = polarity;
-        self
-    }
-
-    /// Set clock phase
-    pub fn phase(&mut self, phase: embedded_hal_02::spi::Phase) -> &mut Self {
-        self.phase = phase;
+    /// Set SPI mode (MODE_0, MODE_1, MODE_2, or MODE_3)
+    pub fn mode(&mut self, mode: embedded_hal_02::spi::Mode) -> &mut Self {
+        self.mode = mode;
         self
     }
 
