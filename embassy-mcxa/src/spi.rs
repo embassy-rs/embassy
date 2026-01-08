@@ -893,11 +893,13 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
     ///
     /// Simultaneously writes TX data and reads RX data.
     ///
-    /// If `tx` and `rx` have different lengths, only the minimum of the two
-    /// lengths will be transferred. Any extra bytes in the longer buffer
-    /// will be ignored.
+    /// If `tx` and `rx` have different lengths, the transfer length is the
+    /// maximum of the two. If `tx` is shorter, zeros are transmitted for the
+    /// remaining bytes. If `rx` is shorter, extra received bytes are discarded.
     pub async fn transfer(&mut self, tx: &[u8], rx: &mut [u8]) -> Result<()> {
-        let len = tx.len().min(rx.len());
+        let tx_len = tx.len();
+        let rx_len = rx.len();
+        let len = tx_len.max(rx_len);
         if len == 0 {
             return Ok(());
         }
@@ -927,13 +929,19 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
                 && Self::get_tx_fifo_count() < Self::get_fifo_size()
                 && (len - rx_idx) - (len - tx_idx) < rx_fifo_max_bytes
             {
-                spi.tdr().write(|w| unsafe { w.bits(tx[tx_idx] as u32) });
+                // Send actual TX data or zero padding if tx is exhausted
+                let byte = if tx_idx < tx_len { tx[tx_idx] } else { 0 };
+                spi.tdr().write(|w| unsafe { w.bits(byte as u32) });
                 tx_idx += 1;
             }
 
             // Read any available RX data
             while Self::get_rx_fifo_count() > 0 && rx_idx < len {
-                rx[rx_idx] = spi.rdr().read().bits() as u8;
+                let byte = spi.rdr().read().bits() as u8;
+                // Store in rx buffer or discard if rx is exhausted
+                if rx_idx < rx_len {
+                    rx[rx_idx] = byte;
+                }
                 rx_idx += 1;
             }
 
@@ -1139,10 +1147,13 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
     ///
     /// Transmits `tx[i]` while simultaneously receiving into `rx[i]` for each frame.
     ///
-    /// If `tx` and `rx` have different lengths, only the minimum of the two lengths
-    /// is transferred.
+    /// If `tx` and `rx` have different lengths, the transfer length is the
+    /// maximum of the two. If `tx` is shorter, zeros are transmitted for the
+    /// remaining bytes. If `rx` is shorter, extra received bytes are discarded.
     pub fn blocking_transfer(&self, tx: &[u8], rx: &mut [u8]) -> Result<()> {
-        let len = tx.len().min(rx.len());
+        let tx_len = tx.len();
+        let rx_len = rx.len();
+        let len = tx_len.max(rx_len);
         if len == 0 {
             return Ok(());
         }
@@ -1172,13 +1183,19 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
             spin_wait_while(|| Self::get_tx_fifo_count() >= fifo_size)?;
 
             if rx_remaining - tx_remaining < rx_fifo_max_bytes {
-                spi.tdr().write(|w| unsafe { w.bits(tx[tx_idx] as u32) });
+                // Send actual TX data or zero padding if tx is exhausted
+                let byte = if tx_idx < tx_len { tx[tx_idx] } else { 0 };
+                spi.tdr().write(|w| unsafe { w.bits(byte as u32) });
                 tx_idx += 1;
                 tx_remaining -= 1;
             }
 
             while Self::get_rx_fifo_count() > 0 && rx_remaining > 0 {
-                rx[rx_idx] = spi.rdr().read().bits() as u8;
+                let byte = spi.rdr().read().bits() as u8;
+                // Store in rx buffer or discard if rx is exhausted
+                if rx_idx < rx_len {
+                    rx[rx_idx] = byte;
+                }
                 rx_idx += 1;
                 rx_remaining -= 1;
             }
@@ -1193,7 +1210,11 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         // Read remaining RX data
         while rx_remaining > 0 {
             spin_wait_while(|| Self::get_rx_fifo_count() == 0)?;
-            rx[rx_idx] = spi.rdr().read().bits() as u8;
+            let byte = spi.rdr().read().bits() as u8;
+            // Store in rx buffer or discard if rx is exhausted
+            if rx_idx < rx_len {
+                rx[rx_idx] = byte;
+            }
             rx_idx += 1;
             rx_remaining -= 1;
         }
@@ -1324,20 +1345,9 @@ impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::SpiBus for Spi<'d, T, M> {
     }
 
     fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> core::result::Result<(), Self::Error> {
-        // For different length buffers, we need to handle this carefully
-        let len = read.len().min(write.len());
-        if len > 0 {
-            self.blocking_transfer(&write[..len], &mut read[..len])?;
-        }
-        // If read is longer, read remaining with zeros
-        if read.len() > len {
-            self.blocking_read(&mut read[len..])?;
-        }
-        // If write is longer, write remaining discarding reads
-        if write.len() > len {
-            self.blocking_write(&write[len..])?;
-        }
-        Ok(())
+        // blocking_transfer now handles differing lengths: it transfers max(tx, rx) bytes,
+        // padding TX with zeros if shorter, discarding extra RX if shorter.
+        self.blocking_transfer(write, read)
     }
 
     fn transfer_in_place(&mut self, words: &mut [u8]) -> core::result::Result<(), Self::Error> {
