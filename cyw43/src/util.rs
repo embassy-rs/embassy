@@ -35,6 +35,16 @@ pub(crate) const fn slice32_ref(x: &Aligned<A4, [u8]>) -> &[u32] {
     unsafe { slice::from_raw_parts(x as *const Aligned<A4, [u8]> as *const u32, len) }
 }
 
+pub(crate) fn as_aligned(x: &[u8]) -> &Aligned<A4, [u8]> {
+    assert!(x.as_ptr() as u8 % 4 == 0);
+    unsafe { core::mem::transmute(x) }
+}
+
+pub(crate) fn as_aligned_mut(x: &mut [u8]) -> &mut Aligned<A4, [u8]> {
+    assert!(x.as_ptr() as u8 % 4 == 0);
+    unsafe { core::mem::transmute(x) }
+}
+
 pub(crate) fn is_aligned(a: u32, x: u32) -> bool {
     (a & (x - 1)) == 0
 }
