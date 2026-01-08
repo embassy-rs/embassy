@@ -49,8 +49,8 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        if T::regs().mier().read().bits() != 0 {
-            T::regs().mier().write(|w| {
+        if T::info().regs.mier().read().bits() != 0 {
+            T::info().regs.mier().write(|w| {
                 w.tdie()
                     .disabled()
                     .rdie()
@@ -73,7 +73,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                     .disabled()
             });
 
-            T::wait_cell().wake();
+            T::info().wait_cell.wake();
         }
     }
 }
@@ -83,11 +83,8 @@ mod sealed {
     pub trait Sealed {}
 }
 
-impl<T: GpioPin> sealed::Sealed for T {}
-
 trait SealedInstance {
-    fn regs() -> &'static pac::lpi2c0::RegisterBlock;
-    fn wait_cell() -> &'static WaitCell;
+    fn info() -> Info;
 }
 
 /// I2C Instance
@@ -99,18 +96,23 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<Mrcc
     const CLOCK_INSTANCE: crate::clocks::periph_helpers::Lpi2cInstance;
 }
 
+#[derive(Clone, Copy)]
+struct Info {
+    regs: &'static pac::lpi2c0::RegisterBlock,
+    wait_cell: &'static WaitCell,
+}
+
 macro_rules! impl_instance {
     ($($n:expr),*) => {
         $(
             paste!{
                 impl SealedInstance for crate::peripherals::[<LPI2C $n>] {
-                    fn regs() -> &'static pac::lpi2c0::RegisterBlock {
-                        unsafe { &*pac::[<Lpi2c $n>]::ptr() }
-                    }
-
-                    fn wait_cell() -> &'static WaitCell {
+                    fn info() -> Info {
                         static WAIT_CELL: WaitCell = WaitCell::new();
-                        &WAIT_CELL
+                        Info {
+                            regs: unsafe { &*pac::[<Lpi2c $n>]::ptr() },
+                            wait_cell:  &WAIT_CELL,
+                        }
                     }
                 }
 
@@ -152,6 +154,8 @@ impl Mode for Async {}
 
 macro_rules! impl_pin {
     ($pin:ident, $peri:ident, $fn:ident, $trait:ident) => {
+        impl sealed::Sealed for crate::peripherals::$pin {}
+
         impl $trait<crate::peripherals::$peri> for crate::peripherals::$pin {
             fn mux(&self) {
                 self.set_pull(crate::gpio::Pull::Disabled);
