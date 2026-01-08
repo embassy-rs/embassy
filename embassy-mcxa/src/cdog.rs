@@ -381,6 +381,27 @@ impl<'d> Watchdog<'d> {
             .reload()
             .write(|w| unsafe { w.rload().bits(instruction_timer_value) });
     }
+
+    /// Sets a persistent value in the CDOG peripheral.
+    ///
+    /// This value is stored in the 32 bits PERSISTENT register and persist through resets other than a Power-On Reset (POR).
+    ///
+    /// # Arguments
+    /// * `value` - The 32-bit value to store in the persistent register
+    pub fn set_persistant_value(&mut self, value: u32) {
+        self.info
+            .persistent()
+            .write(|w| unsafe { w.persis().bits(value) });
+    }
+
+    
+    /// Gets the persistent value from the CDOG peripheral.
+    ///
+    /// # Returns
+    /// The 32-bit value stored in the persistent register
+    pub fn get_persistant_value(&self) -> u32 {
+        self.info.persistent().read().persis().bits()
+    }
 }
 
 /// CDOG0 interrupt handler.
