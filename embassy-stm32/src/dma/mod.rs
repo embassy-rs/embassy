@@ -46,9 +46,13 @@ pub enum Dir {
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Increment {
+    /// DMA will not increment either of the addresses.
     None,
+    /// DMA will increment the peripheral address.
     Peripheral,
+    /// DMA will increment the memory address.
     Memory,
+    /// DMA will increment both peripheral and memory addresses simultaneously.
     Both
 }
 
