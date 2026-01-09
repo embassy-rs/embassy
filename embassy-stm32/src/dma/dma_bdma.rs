@@ -416,15 +416,15 @@ impl AnyChannel {
                         Increment::None => {
                             w.set_minc(false);
                             w.set_pinc(false);
-                        },
+                        }
                         Increment::Peripheral => {
                             w.set_minc(false);
                             w.set_pinc(true);
-                        },
+                        }
                         Increment::Memory => {
                             w.set_minc(true);
                             w.set_pinc(false);
-                        },
+                        }
                         Increment::Both => {
                             w.set_minc(true);
                             w.set_pinc(true);
@@ -467,15 +467,15 @@ impl AnyChannel {
                         Increment::None => {
                             w.set_minc(false);
                             w.set_pinc(false);
-                        },
+                        }
                         Increment::Peripheral => {
                             w.set_minc(false);
                             w.set_pinc(true);
-                        },
+                        }
                         Increment::Memory => {
                             w.set_minc(true);
                             w.set_pinc(false);
-                        },
+                        }
                         Increment::Both => {
                             w.set_minc(true);
                             w.set_pinc(true);
@@ -649,13 +649,7 @@ impl<'a> Transfer<'a> {
         dest_addr: *mut PW,
         options: TransferOptions,
     ) -> Self {
-        Self::new_transfer_raw(
-            channel,
-            buf as *const MW as *mut u32,
-            buf.len(),
-            dest_addr,
-            options
-        )
+        Self::new_transfer_raw(channel, buf as *const MW as *mut u32, buf.len(), dest_addr, options)
     }
 
     /// Create a new memory DMA transfer (memory to memory), using raw pointers.
