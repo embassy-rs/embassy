@@ -45,7 +45,9 @@ async fn main(_spawner: Spawner) {
     watchdog.add1();
     watchdog.start(0xFFFFFFFF, 0);
     watchdog.check(0);
-    defmt::info!("Next check should generate an interrupt as checked value (=1) is different than the secure counter (=0)");
+    defmt::info!(
+        "Next check should generate an interrupt as checked value (=1) is different than the secure counter (=0)"
+    );
     watchdog.check(1);
 
     // Now demonstrating how the instruction timer feature of the cdog works.

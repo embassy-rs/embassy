@@ -387,12 +387,9 @@ impl<'d> Watchdog<'d> {
     /// # Arguments
     /// * `value` - The 32-bit value to store in the persistent register
     pub fn set_persistent_value(&mut self, value: u32) {
-        self.info
-            .persistent()
-            .write(|w| unsafe { w.persis().bits(value) });
+        self.info.persistent().write(|w| unsafe { w.persis().bits(value) });
     }
 
-    
     /// Gets the persistent value from the CDOG peripheral.
     ///
     /// # Returns

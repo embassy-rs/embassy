@@ -10,6 +10,7 @@ pub mod dma;
 pub mod gpio;
 
 pub mod adc;
+pub mod cdog;
 pub mod clkout;
 pub mod config;
 pub mod crc;
@@ -20,7 +21,6 @@ pub mod reset_reason;
 pub mod rtc;
 pub mod trng;
 pub mod wwdt;
-pub mod cdog;
 
 use crate::interrupt::InterruptExt;
 pub use crate::pac::NVIC_PRIO_BITS;
