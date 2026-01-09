@@ -11,3 +11,5 @@ The following peripherals have a HAL implementation at present
 * GPIO
 * I2C
 * PWM
+* TACH
+* Time driver (using the CCT)
