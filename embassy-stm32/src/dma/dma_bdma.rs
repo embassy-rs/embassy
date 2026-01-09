@@ -650,7 +650,14 @@ impl<'a> Transfer<'a> {
         dest_addr: *mut PW,
         options: TransferOptions,
     ) -> Self {
-        Self::new_transfer_raw(channel, request, buf as *const MW as *mut u32, buf.len(), dest_addr, options)
+        Self::new_transfer_raw(
+            channel,
+            request,
+            buf as *const MW as *mut u32,
+            buf.len(),
+            dest_addr,
+            options,
+        )
     }
 
     /// Create a new memory DMA transfer (memory to memory), using raw pointers.
