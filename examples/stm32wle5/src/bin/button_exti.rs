@@ -7,7 +7,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::Pull;
-use embassy_stm32::{bind_interrupts, interrupt, low_power};
+use embassy_stm32::{bind_interrupts, interrupt};
 use panic_probe as _;
 use static_cell::StaticCell;
 
@@ -16,19 +16,17 @@ bind_interrupts!(
         EXTI0 => exti::InterruptHandler<interrupt::typelevel::EXTI0>;
 });
 
-#[embassy_executor::main(executor = "low_power::Executor")]
+#[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
 async fn async_main(_spawner: Spawner) {
+    // delay to allow probe-rs to connect for flashing
+    cortex_m::asm::delay(1_000_000);
     let mut config = embassy_stm32::Config::default();
-    // enable HSI clock
-    config.rcc.hsi = true;
-    // enable LSI clock for RTC
-    config.rcc.ls = embassy_stm32::rcc::LsConfig::default_lsi();
     config.rcc.msi = Some(embassy_stm32::rcc::MSIRange::RANGE4M);
     config.rcc.sys = embassy_stm32::rcc::Sysclk::MSI;
-    // enable ADC with HSI clock
-    config.rcc.mux.adcsel = embassy_stm32::pac::rcc::vals::Adcsel::HSI;
     #[cfg(feature = "defmt-serial")]
     {
+        // enable HSI clock
+        config.rcc.hsi = true;
         // disable debug during sleep to reduce power consumption since we are
         // using defmt-serial on LPUART1.
         config.enable_debug_during_sleep = false;

@@ -34,7 +34,7 @@ critical-section = "1.1"
 static_cell = "2"
 
 [features]
-default = ["defmt-serial"]
+default = ["defmt-rtt"]
 defmt-serial = ["dep:defmt-serial"]
 defmt-rtt = ["dep:defmt-rtt"]
 

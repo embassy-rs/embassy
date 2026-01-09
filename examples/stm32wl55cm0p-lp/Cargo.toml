@@ -37,7 +37,7 @@ portable-atomic = { version = "1.13", features = ["unsafe-assume-single-core"] }
 static_cell = "2"
 
 [features]
-default = ["defmt-rtt"]
+default = ["defmt-serial"]
 defmt = [
   "dep:defmt",
   "embassy-stm32/defmt",

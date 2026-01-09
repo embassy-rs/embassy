@@ -654,6 +654,87 @@ pub fn reinit(config: Config, _rcc: &'_ mut crate::Peri<'_, crate::peripherals::
 
 pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
     unsafe {
+        // if we are using a lp timer as the time driver, we need to make sure that the clock selection is sane
+        // TODO: how to share this config from the secondary core thats using a lp timer? (right now its not detected as missing!)
+        #[cfg(feature = "_lp-time-driver")]
+        let config = {
+            use crate::pac::rcc::vals::Lptimsel;
+            let mut config = config;
+            #[cfg(time_driver_lptim1)]
+            {
+                match config.mux.lptim1sel {
+                    Lptimsel::PCLK1 => {
+                        // set it to LSI
+                        config.mux.lptim1sel = Lptimsel::LSI;
+                        config.ls.lsi = true;
+                    }
+                    Lptimsel::LSI => {
+                        // ok but insure the lsi is enabled
+                        config.ls.lsi = true;
+                    }
+                    Lptimsel::HSI => {
+                        // ok but insure the hsi is enabled
+                        config.hsi = true;
+                    }
+                    Lptimsel::LSE => {
+                        // ok but insure the lse is configured!!!
+                        if config.ls.lse.is_none() {
+                            panic!("LSE is not not configured, but selected for time_driver!!!");
+                        }
+                    }
+                }
+            }
+            #[cfg(time_driver_lptim2)]
+            {
+                match config.mux.lptim2sel {
+                    Lptimsel::PCLK1 => {
+                        // set it to LSI
+                        config.mux.lptim2sel = Lptimsel::LSI;
+                        config.ls.lsi = true;
+                    }
+                    Lptimsel::LSI => {
+                        // ok but insure the lsi is enabled
+                        config.ls.lsi = true;
+                    }
+                    Lptimsel::HSI => {
+                        // ok but insure the hsi is enabled
+                        config.hsi = true;
+                    }
+                    Lptimsel::LSE => {
+                        // ok but insure the lse is configured!!!
+                        if config.ls.lse.is_none() {
+                            panic!("LSE is not not configured, but selected for time_driver!!!");
+                        }
+                    }
+                }
+            }
+            #[cfg(time_driver_lptim3)]
+            {
+                match config.mux.lptim3sel {
+                    Lptimsel::PCLK1 => {
+                        // set it to LSI
+                        config.mux.lptim3sel = Lptimsel::LSI;
+                        config.ls.lsi = true;
+                    }
+                    Lptimsel::LSI => {
+                        // ok but insure the lsi is enabled
+                        config.ls.lsi = true;
+                    }
+                    Lptimsel::HSI => {
+                        // ok but insure the hsi is enabled
+                        config.hsi = true;
+                    }
+                    Lptimsel::LSE => {
+                        // ok but insure the lse is configured!!!
+                        if config.ls.lse.is_none() {
+                            panic!("LSE is not not configured, but selected for time_driver!!!");
+                        }
+                    }
+                }
+            }
+            config
+        };
+
         init(config);
 
         // must be after rcc init

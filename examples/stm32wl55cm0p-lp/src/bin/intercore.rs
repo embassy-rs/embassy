@@ -62,7 +62,7 @@ async fn main(_spawner: Spawner) -> ! {
     let (mut _tx, mut rx) = ch1;
 
     // Set up LED
-    let mut blue_led = Output::new(p.PB15, Level::Low, Speed::Low); // LD3 (heartbeat)
+    let mut green_led = Output::new(p.PB9, Level::Low, Speed::Low); // LD3 (heartbeat)
     let red_led = Output::new(p.PB11, Level::High, Speed::Low);
     _spawner.spawn(blink_heartbeat(red_led).unwrap());
 
@@ -70,6 +70,6 @@ async fn main(_spawner: Spawner) -> ! {
         let state = rx.receive(|| Some(LED_STATE.load(Ordering::SeqCst))).await;
         #[cfg(feature = "defmt")]
         info!("CM0+ Recieve: {}", state);
-        blue_led.set_level(if state { Level::High } else { Level::Low });
+        green_led.set_level(if state { Level::High } else { Level::Low });
     }
 }

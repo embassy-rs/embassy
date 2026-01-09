@@ -48,7 +48,7 @@ async fn blink_heartbeat(mut led: Output<'static>) {
         led.set_level(Level::High);
         Timer::after_millis(100).await;
         led.set_level(Level::Low);
-        Timer::after_millis(4900).await;
+        Timer::after_millis(5900).await;
     }
 }
 #[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
@@ -57,6 +57,9 @@ async fn main(_spawner: Spawner) -> ! {
     // Initialize the CM4 core
     let mut config = Config::default();
     config.min_stop_pause = Duration::from_millis(50);
+    // Set the LPTIM1 clock source to LSI & enable for secondary core time driver
+    config.rcc.ls.lsi = true;
+    config.rcc.mux.lptim1sel = embassy_stm32::pac::rcc::vals::Lptimsel::LSI;
     let _p = embassy_stm32::init_primary(config, &SHARED_DATA);
     #[cfg(feature = "defmt-serial")]
     {
@@ -81,8 +84,8 @@ async fn main(_spawner: Spawner) -> ! {
         embassy_stm32::pac::PWR.cr4().read().c2boot()
     );
 
-    let green_led = Output::new(_p.PB9, Level::High, Speed::Low);
-    _spawner.spawn(blink_heartbeat(green_led).unwrap());
+    let blue_led = Output::new(_p.PB15, Level::High, Speed::Low);
+    _spawner.spawn(blink_heartbeat(blue_led).unwrap());
 
     info!("CM4: Starting main loop");
     loop {

@@ -6,22 +6,19 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Speed};
-use embassy_stm32::low_power;
 use embassy_time::Timer;
 use panic_probe as _;
 use static_cell::StaticCell;
 
-#[embassy_executor::main(executor = "low_power::Executor")]
+#[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
 async fn async_main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
-    // enable HSI clock
-    config.rcc.hsi = true;
-    // enable LSI clock for RTC
-    config.rcc.ls = embassy_stm32::rcc::LsConfig::default_lsi();
     config.rcc.msi = Some(embassy_stm32::rcc::MSIRange::RANGE4M);
     config.rcc.sys = embassy_stm32::rcc::Sysclk::MSI;
     #[cfg(feature = "defmt-serial")]
     {
+        // enable HSI clock
+        config.rcc.hsi = true;
         // disable debug during sleep to reduce power consumption since we are
         // using defmt-serial on LPUART1.
         config.enable_debug_during_sleep = false;
@@ -49,10 +46,10 @@ async fn async_main(_spawner: Spawner) {
     loop {
         info!("low");
         led.set_low();
-        Timer::after_millis(15000).await;
+        Timer::after_millis(5000).await;
 
         info!("high");
         led.set_high();
-        Timer::after_millis(15000).await;
+        Timer::after_millis(5000).await;
     }
 }

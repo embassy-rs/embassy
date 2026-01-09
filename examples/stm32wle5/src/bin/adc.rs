@@ -6,12 +6,11 @@ use defmt::*;
 use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, SampleTime};
-use embassy_stm32::low_power;
 use embassy_time::Timer;
 use panic_probe as _;
 use static_cell::StaticCell;
 
-#[embassy_executor::main(executor = "low_power::Executor")]
+#[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
 async fn async_main(_spawner: Spawner) {
     let mut config = embassy_stm32::Config::default();
     // enable HSI clock

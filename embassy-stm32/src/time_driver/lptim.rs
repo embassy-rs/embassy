@@ -65,33 +65,12 @@ impl RtcDriver {
     pub(crate) fn init_timer(&'static self, _cs: critical_section::CriticalSection) {
         let r = regs_lptim();
 
-        // TODO: these should be changed inside an rcc lock!
-        // Set the LPTIM1 clock source to LSI & enable
-        #[cfg(time_driver_lptim1)]
-        {
-            crate::pac::RCC.ccipr().modify(|w| {
-                w.set_lptim1sel(0b01);
-            });
-        }
-        #[cfg(time_driver_lptim2)]
-        {
-            crate::pac::RCC.ccipr().modify(|w| {
-                w.set_lptim2sel(0b01);
-            });
-        }
-        #[cfg(time_driver_lptim3)]
-        {
-            crate::pac::RCC.ccipr().modify(|w| {
-                w.set_lptim3sel(0b01);
-            });
-        }
         // we want this to increment the stop mode counter (some lp timer can't do STOP2)
         rcc::enable_and_reset_without_stop::<T>();
 
         // let timer_freq = T::frequency();
         let timer_freq = crate::time::Hertz(32000);
 
-        r.cr().modify(|w| w.set_enable(false));
         r.cnt().write(|w| w.set_cnt(0));
 
         // let psc = timer_freq.0 / TICK_HZ as u32 - 1;
@@ -105,11 +84,11 @@ impl RtcDriver {
             4 => vals::Presc::DIV4,
             2 => vals::Presc::DIV2,
             1 => vals::Presc::DIV1,
-            // TODO: we could compute the valid TICK_HZ for the valid prescalers
+            // TODO: we could compute the valid TICK_HZ for the valid prescalers to include in the panic message
             _ => panic!("Invalid prescaler: {} for timer frequency: {}Hz", psc, timer_freq.0),
         };
 
-        info!(
+        trace!(
             "init: setting presc: {} timer_freq: {}Hz TICK_HZ: {}",
             psc, timer_freq, TICK_HZ
         );
@@ -118,6 +97,7 @@ impl RtcDriver {
         // RM says timer must be enabled before setting arr or cmp
         r.cr().modify(|w| w.set_enable(true));
         r.arr().write(|w| w.set_arr(u16::MAX));
+        while !r.isr().read().arrok() {}
 
         // Enable overflow interrupts
         T::regs().ier().modify(|w| w.set_ueie(true));
@@ -128,26 +108,35 @@ impl RtcDriver {
         }
         #[cfg(feature = "low-power")]
         {
+            // TODO: use a crate constant for the core number!!!!!!
             #[cfg(feature = "_core-cm4")]
             const CPU: usize = 0;
             #[cfg(feature = "_core-cm0p")]
             const CPU: usize = 1;
-            // TODO: use a constant for the line number!!!!!!
-            #[cfg(time_driver_lptim1)]
+            // TODO: define these elsewhere?
+            #[cfg(all(any(stm32wlex, stm32wl5x), time_driver_lptim1))]
             const EXTI_WAKEUP_LINE: usize = 29;
-            #[cfg(time_driver_lptim2)]
+            #[cfg(all(any(stm32wlex, stm32wl5x), time_driver_lptim2))]
             const EXTI_WAKEUP_LINE: usize = 30;
-            #[cfg(time_driver_lptim3)]
+            #[cfg(all(any(stm32wlex, stm32wl5x), time_driver_lptim3))]
             const EXTI_WAKEUP_LINE: usize = 31;
 
-            crate::pac::EXTI
-                .cpu(CPU)
-                .imr(0)
-                .modify(|w| w.set_line(EXTI_WAKEUP_LINE, true));
-            crate::pac::EXTI
-                .cpu(CPU)
-                .emr(0)
-                .modify(|w| w.set_line(EXTI_WAKEUP_LINE, true));
+            #[cfg(any(stm32wb, stm32wl5x))]
+            {
+                crate::pac::EXTI
+                    .cpu(CPU)
+                    .imr(0)
+                    .modify(|w| w.set_line(EXTI_WAKEUP_LINE, true));
+                // TODO: from the RM: after line 22 all are reserved - try removing this
+                crate::pac::EXTI
+                    .cpu(CPU)
+                    .emr(0)
+                    .modify(|w| w.set_line(EXTI_WAKEUP_LINE, true));
+            }
+            #[cfg(not(any(stm32wb, stm32wl5x)))]
+            {
+                crate::pac::EXTI.imr(0).modify(|w| w.set_line(EXTI_WAKEUP_LINE, true));
+            }
         }
     }
 
@@ -165,11 +154,11 @@ impl RtcDriver {
             trace!("on_interrupt: sr: {:?}, ier: {:?}", sr, ier);
 
             // Clear all interrupt flags. Bits in ICR are "write 1 to clear"
+            r.icr().write_value(regs::Icr(ier.0));
             r.icr().write_value(regs::Icr(sr.0));
 
             // Overflow
             if sr.ue() {
-                trace!("on_interrupt: overflow");
                 self.next_period();
             }
 
@@ -235,6 +224,7 @@ impl RtcDriver {
     #[cfg(feature = "low-power")]
     /// Set the stopped flag
     pub(crate) fn pause_time(&self, cs: CriticalSection) -> Result<(), ()> {
+        trace!("pause_time");
         let time_until_next_alarm = self.time_until_next_alarm(cs);
         if time_until_next_alarm < self.min_stop_pause.borrow(cs).get() {
             trace!(
@@ -251,6 +241,7 @@ impl RtcDriver {
     #[cfg(feature = "low-power")]
     /// Reset the stopped flag
     pub(crate) fn resume_time(&self, _cs: CriticalSection) {
+        trace!("resume_time");
         self.is_stopped.store(false, Ordering::Relaxed);
     }
 
@@ -261,12 +252,14 @@ impl RtcDriver {
     }
 
     fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
+        trace!("set_alarm: timestamp: {}", timestamp);
         let r = regs_lptim();
 
         self.alarm.borrow(cs).timestamp.set(timestamp);
 
         let t = self.now();
         if timestamp <= t {
+            trace!("set_alarm: timestamp <= t");
             // If alarm timestamp has passed the alarm will not fire.
             // Disarm the alarm and return `false` to indicate that.
             r.ier().modify(|w| w.set_ccie(0, false));
@@ -280,6 +273,7 @@ impl RtcDriver {
         // This way, when we enable it later, the right value is already set.
         r.cmp().write(|w| w.set_cmp(timestamp as u16));
         while !r.isr().read().cmpok(0) {}
+        // r.icr().write(|w| w.set_cmpokcf(0, true));
 
         // Enable it if it'll happen soon. Otherwise, `next_period` will enable it.
         let diff = timestamp - t;
@@ -288,6 +282,7 @@ impl RtcDriver {
         // Reevaluate if the alarm timestamp is still in the future
         let t = self.now();
         if timestamp <= t {
+            trace!("set_alarm: timestamp <= t (after set)");
             // If alarm timestamp has passed since we set it, we have a race condition and
             // the alarm may or may not have fired.
             // Disarm the alarm and return `false` to indicate that.
@@ -299,6 +294,7 @@ impl RtcDriver {
             return false;
         }
 
+        trace!("set_alarm: true");
         // We're confident the alarm will ring in the future.
         true
     }
