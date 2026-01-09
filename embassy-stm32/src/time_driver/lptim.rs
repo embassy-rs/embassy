@@ -18,6 +18,7 @@ use super::AlarmState;
 use crate::interrupt::typelevel::Interrupt;
 use crate::lptim::SealedInstance;
 use crate::pac::lptim::vals;
+use crate::rcc::SealedRccPeripheral;
 #[cfg(feature = "low-power")]
 use crate::rtc::Rtc;
 use crate::{peripherals, rcc};
@@ -68,8 +69,7 @@ impl RtcDriver {
         // we want this to increment the stop mode counter (some lp timer can't do STOP2)
         rcc::enable_and_reset_without_stop::<T>();
 
-        // let timer_freq = T::frequency();
-        let timer_freq = crate::time::Hertz(32000);
+        let timer_freq = T::frequency();
 
         r.cnt().write(|w| w.set_cnt(0));
 
