@@ -202,7 +202,7 @@ pub struct InterruptHandler<T: Instance> {
 pub struct Adc<'a, M: Mode> {
     _inst: PhantomData<&'a M>,
     channel_idx: u8,
-    info: Info,
+    info: &'static Info,
 }
 
 impl<'a> Adc<'a, Blocking> {
@@ -226,7 +226,7 @@ impl<'a> Adc<'a, Blocking> {
     /// # Arguments
     /// * `mask` - Bitmask of interrupt sources to enable
     pub fn enable_interrupt(&mut self, mask: u32) {
-        self.info.regs.ie().modify(|r, w| unsafe { w.bits(r.bits() | mask) });
+        self.info.regs().ie().modify(|r, w| unsafe { w.bits(r.bits() | mask) });
     }
 
     /// Disable ADC interrupts.
@@ -236,7 +236,7 @@ impl<'a> Adc<'a, Blocking> {
     /// # Arguments
     /// * `mask` - Bitmask of interrupt sources to disable
     pub fn disable_interrupt(&mut self, mask: u32) {
-        self.info.regs.ie().modify(|r, w| unsafe { w.bits(r.bits() & !mask) });
+        self.info.regs().ie().modify(|r, w| unsafe { w.bits(r.bits() & !mask) });
     }
 
     pub fn set_fifo_watermark(&mut self, watermark: u8) -> Result<()> {
@@ -244,7 +244,7 @@ impl<'a> Adc<'a, Blocking> {
             return Err(Error::InvalidConfig);
         }
         self.info
-            .regs
+            .regs()
             .fctrl0()
             .modify(|_r, w| unsafe { w.fwmark().bits(watermark) });
         Ok(())
@@ -266,7 +266,7 @@ impl<'a> Adc<'a, Blocking> {
             return Err(Error::InvalidConfig);
         }
         self.info
-            .regs
+            .regs()
             .swtrig()
             .write(|w| unsafe { w.bits(trigger_id_mask as u32) });
         Ok(())
@@ -304,7 +304,7 @@ impl<'a> Adc<'a, Blocking> {
     ///
     /// Clears all pending conversion results from the FIFO.
     pub fn do_reset_fifo(&self) {
-        self.info.regs.ctrl().modify(|_, w| w.rstfifo0().trigger_reset());
+        self.info.regs().ctrl().modify(|_, w| w.rstfifo0().trigger_reset());
     }
 
     /// Get conversion result from FIFO.
@@ -366,7 +366,7 @@ impl<'a> Adc<'a, Async> {
         _ = adc.set_conv_trigger_config_inner(0, &cfg);
 
         // We always set the watermark to 0 (trigger when 1 is available)
-        adc.info.regs.fctrl0().modify(|_r, w| unsafe { w.fwmark().bits(0) });
+        adc.info.regs().fctrl0().modify(|_r, w| unsafe { w.fwmark().bits(0) });
 
         Ok(adc)
     }
@@ -375,26 +375,26 @@ impl<'a> Adc<'a, Async> {
     pub fn set_averages(&mut self, avgs: Avgs) {
         // TODO: we should probably return a result or wait for idle?
         // "A write to a CMD buffer while that CMD buffer is controlling the ADC operation may cause unpredictable behavior."
-        self.info.regs.cmdh1().modify(|_r, w| w.avgs().variant(avgs));
+        self.info.regs().cmdh1().modify(|_r, w| w.avgs().variant(avgs));
     }
 
     /// Set the sample time
     pub fn set_sample_time(&mut self, st: Sts) {
         // TODO: we should probably return a result or wait for idle?
         // "A write to a CMD buffer while that CMD buffer is controlling the ADC operation may cause unpredictable behavior."
-        self.info.regs.cmdh1().modify(|_r, w| w.sts().variant(st));
+        self.info.regs().cmdh1().modify(|_r, w| w.sts().variant(st));
     }
 
     pub fn set_resolution(&mut self, mode: ConvMode) {
         // TODO: we should probably return a result or wait for idle?
         // "A write to a CMD buffer while that CMD buffer is controlling the ADC operation may cause unpredictable behavior."
-        self.info.regs.cmdl1().modify(|_r, w| w.mode().variant(mode));
+        self.info.regs().cmdl1().modify(|_r, w| w.mode().variant(mode));
     }
 
     fn wait_idle(&mut self) -> impl Future<Output = core::result::Result<(), maitake_sync::Closed>> + use<'_> {
         self.info
-            .wait_cell
-            .wait_for(|| self.info.regs.ie().read().fwmie0().bit_is_clear())
+            .wait_cell()
+            .wait_for(|| self.info.regs().ie().read().fwmie0().bit_is_clear())
     }
 
     /// Read ADC value asynchronously.
@@ -415,11 +415,11 @@ impl<'a> Adc<'a, Async> {
         _ = self.wait_idle().await;
 
         // Clear the fifo
-        self.info.regs.ctrl().modify(|_, w| w.rstfifo0().trigger_reset());
+        self.info.regs().ctrl().modify(|_, w| w.rstfifo0().trigger_reset());
 
         // Trigger a new conversion
-        self.info.regs.ie().modify(|_r, w| w.fwmie0().set_bit());
-        self.info.regs.swtrig().write(|w| w.swt0().set_bit());
+        self.info.regs().ie().modify(|_r, w| w.fwmie0().set_bit());
+        self.info.regs().swtrig().write(|w| w.swt0().set_bit());
 
         // Wait for completion
         _ = self.wait_idle().await;
@@ -432,7 +432,7 @@ impl<'a, M: Mode> Adc<'a, M> {
     /// Internal initialization function shared by `new_async` and `new_blocking`.
     fn new_inner<T: Instance>(_inst: Peri<'a, T>, pin: Peri<'a, impl AdcPin<T>>, config: Config) -> Result<Self> {
         let info = T::info();
-        let adc = info.regs;
+        let adc = info.regs();
 
         _ = unsafe {
             enable_and_reset::<T>(&AdcConfig {
@@ -529,12 +529,12 @@ impl<'a, M: Mode> Adc<'a, M> {
     pub fn do_offset_calibration(&self) {
         // Enable calibration mode
         self.info
-            .regs
+            .regs()
             .ctrl()
             .modify(|_, w| w.calofs().offset_calibration_request_pending());
 
         // Wait for calibration to complete (polling status register)
-        while self.info.regs.stat().read().cal_rdy().is_not_set() {}
+        while self.info.regs().stat().read().cal_rdy().is_not_set() {}
     }
 
     /// Calculate gain conversion result from gain adjustment factor.
@@ -565,13 +565,13 @@ impl<'a, M: Mode> Adc<'a, M> {
     /// Perform automatic gain calibration.
     pub fn do_auto_calibration(&self) {
         self.info
-            .regs
+            .regs()
             .ctrl()
             .modify(|_, w| w.cal_req().calibration_request_pending());
 
-        while self.info.regs.gcc0().read().rdy().is_gain_cal_not_valid() {}
+        while self.info.regs().gcc0().read().rdy().is_gain_cal_not_valid() {}
 
-        let mut gcca = self.info.regs.gcc0().read().gain_cal().bits() as u32;
+        let mut gcca = self.info.regs().gcc0().read().gain_cal().bits() as u32;
         if gcca & 0x8000 != 0 {
             gcca |= !0xFFFF;
         }
@@ -580,25 +580,25 @@ impl<'a, M: Mode> Adc<'a, M> {
 
         // Write to GCR0
         self.info
-            .regs
+            .regs()
             .gcr0()
             .write(|w| unsafe { w.bits(self.get_gain_conv_result(gcra)) });
 
-        self.info.regs.gcr0().modify(|_, w| w.rdy().set_bit());
+        self.info.regs().gcr0().modify(|_, w| w.rdy().set_bit());
 
         // Wait for calibration to complete (polling status register)
-        while self.info.regs.stat().read().cal_rdy().is_not_set() {}
+        while self.info.regs().stat().read().cal_rdy().is_not_set() {}
     }
 
     fn set_conv_command_config_inner(&self, index: usize, config: &ConvCommandConfig) -> Result<()> {
         let (cmdl, cmdh) = match index {
-            1 => (self.info.regs.cmdl1(), self.info.regs.cmdh1()),
-            2 => (self.info.regs.cmdl2(), self.info.regs.cmdh2()),
-            3 => (self.info.regs.cmdl3(), self.info.regs.cmdh3()),
-            4 => (self.info.regs.cmdl4(), self.info.regs.cmdh4()),
-            5 => (self.info.regs.cmdl5(), self.info.regs.cmdh5()),
-            6 => (self.info.regs.cmdl6(), self.info.regs.cmdh6()),
-            7 => (self.info.regs.cmdl7(), self.info.regs.cmdh7()),
+            1 => (self.info.regs().cmdl1(), self.info.regs().cmdh1()),
+            2 => (self.info.regs().cmdl2(), self.info.regs().cmdh2()),
+            3 => (self.info.regs().cmdl3(), self.info.regs().cmdh3()),
+            4 => (self.info.regs().cmdl4(), self.info.regs().cmdh4()),
+            5 => (self.info.regs().cmdl5(), self.info.regs().cmdh5()),
+            6 => (self.info.regs().cmdl6(), self.info.regs().cmdh6()),
+            7 => (self.info.regs().cmdl7(), self.info.regs().cmdh7()),
             _ => return Err(Error::InvalidConfig),
         };
 
@@ -631,7 +631,7 @@ impl<'a, M: Mode> Adc<'a, M> {
             return Err(Error::InvalidConfig);
         }
 
-        let tctrl = &self.info.regs.tctrl(trigger_id);
+        let tctrl = &self.info.regs().tctrl(trigger_id);
 
         tctrl.write(|w| {
             w.tcmd().variant(config.target_command_id);
@@ -658,7 +658,7 @@ impl<'a, M: Mode> Adc<'a, M> {
     /// - `Some(ConvResult)` if a result is available
     /// - `Err(Error::FifoEmpty)` if the FIFO is empty
     fn get_conv_result_inner(&self) -> Result<ConvResult> {
-        let fifo = self.info.regs.resfifo0().read();
+        let fifo = self.info.regs().resfifo0().read();
         if !fifo.valid().is_valid() {
             return Err(Error::FifoEmpty);
         }
@@ -674,8 +674,8 @@ impl<'a, M: Mode> Adc<'a, M> {
 
 impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        T::info().regs.ie().modify(|_r, w| w.fwmie0().clear_bit());
-        T::info().wait_cell.wake();
+        T::info().regs().ie().modify(|_r, w| w.fwmie0().clear_bit());
+        T::info().wait_cell().wake();
     }
 }
 
@@ -688,12 +688,26 @@ mod sealed {
 }
 
 struct Info {
-    regs: &'static pac::adc0::RegisterBlock,
-    wait_cell: &'static WaitCell,
+    regs: *const pac::adc0::RegisterBlock,
+    wait_cell: WaitCell,
+}
+
+unsafe impl Sync for Info {}
+
+impl Info {
+    #[inline(always)]
+    fn regs(&self) -> &'static pac::adc0::RegisterBlock {
+        unsafe { &*self.regs }
+    }
+
+    #[inline(always)]
+    fn wait_cell(&self) -> &WaitCell {
+        &self.wait_cell
+    }
 }
 
 trait SealedInstance {
-    fn info() -> Info;
+    fn info() -> &'static Info;
 }
 
 /// ADC Instance
@@ -708,12 +722,13 @@ macro_rules! impl_instance {
         $(
             paste!{
                 impl SealedInstance for crate::peripherals::[<ADC $n>] {
-                    fn info() -> Info {
-                        static WAIT_CELL: WaitCell = WaitCell::new();
+                    fn info() -> &'static Info {
+                        static INFO: Info =
                         Info {
-                            regs: unsafe { &*pac::[<Adc $n>]::ptr() },
-                            wait_cell: &WAIT_CELL,
-                        }
+                            regs: pac::[<Adc $n>]::ptr(),
+                            wait_cell: WaitCell::new(),
+                        };
+                        &INFO
                     }
                 }
 

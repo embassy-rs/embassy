@@ -49,8 +49,8 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        if T::info().regs.mier().read().bits() != 0 {
-            T::info().regs.mier().write(|w| {
+        if T::info().regs().mier().read().bits() != 0 {
+            T::info().regs().mier().write(|w| {
                 w.tdie()
                     .disabled()
                     .rdie()
@@ -73,7 +73,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                     .disabled()
             });
 
-            T::info().wait_cell.wake();
+            T::info().wait_cell().wake();
         }
     }
 }
@@ -84,7 +84,7 @@ mod sealed {
 }
 
 trait SealedInstance {
-    fn info() -> Info;
+    fn info() -> &'static Info;
 }
 
 /// I2C Instance
@@ -96,23 +96,36 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<Mrcc
     const CLOCK_INSTANCE: crate::clocks::periph_helpers::Lpi2cInstance;
 }
 
-#[derive(Clone, Copy)]
 struct Info {
-    regs: &'static pac::lpi2c0::RegisterBlock,
-    wait_cell: &'static WaitCell,
+    regs: *const pac::lpi2c0::RegisterBlock,
+    wait_cell: WaitCell,
 }
+
+impl Info {
+    #[inline(always)]
+    fn regs(&self) -> &'static pac::lpi2c0::RegisterBlock {
+        unsafe { &*self.regs }
+    }
+
+    #[inline(always)]
+    fn wait_cell(&self) -> &WaitCell {
+        &self.wait_cell
+    }
+}
+
+unsafe impl Sync for Info {}
 
 macro_rules! impl_instance {
     ($($n:expr),*) => {
         $(
             paste!{
                 impl SealedInstance for crate::peripherals::[<LPI2C $n>] {
-                    fn info() -> Info {
-                        static WAIT_CELL: WaitCell = WaitCell::new();
-                        Info {
-                            regs: unsafe { &*pac::[<Lpi2c $n>]::ptr() },
-                            wait_cell:  &WAIT_CELL,
-                        }
+                    fn info() -> &'static Info {
+                        static INFO: Info = Info {
+                            regs: pac::[<Lpi2c $n>]::ptr(),
+                            wait_cell:  WaitCell::new(),
+                        };
+                        &INFO
                     }
                 }
 
