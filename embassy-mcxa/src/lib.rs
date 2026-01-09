@@ -108,6 +108,7 @@ embassy_hal_internal::peripherals!(
     MBC0,
     MRCC0,
     OPAMP0,
+    OSTIMER0,
 
     P0_0,
     P0_1,
@@ -456,19 +457,11 @@ pub(crate) use mcxa_pac as pac;
 /// Also applies configurable NVIC priority for the OSTIMER OS_EVENT interrupt (no enabling).
 pub fn init(cfg: crate::config::Config) -> Peripherals {
     let peripherals = Peripherals::take();
-    // Apply user-configured priority early; enabling is left to examples/apps
-    crate::interrupt::OS_EVENT.set_priority(cfg.time_interrupt_priority);
-    // Apply user-configured priority early; enabling is left to examples/apps
     crate::interrupt::RTC.set_priority(cfg.rtc_interrupt_priority);
-    // Apply user-configured priority early; enabling is left to examples/apps
     crate::interrupt::GPIO0.set_priority(cfg.gpio_interrupt_priority);
-    // Apply user-configured priority early; enabling is left to examples/apps
     crate::interrupt::GPIO1.set_priority(cfg.gpio_interrupt_priority);
-    // Apply user-configured priority early; enabling is left to examples/apps
     crate::interrupt::GPIO2.set_priority(cfg.gpio_interrupt_priority);
-    // Apply user-configured priority early; enabling is left to examples/apps
     crate::interrupt::GPIO3.set_priority(cfg.gpio_interrupt_priority);
-    // Apply user-configured priority early; enabling is left to examples/apps
     crate::interrupt::GPIO4.set_priority(cfg.gpio_interrupt_priority);
 
     // Configure clocks
@@ -482,7 +475,7 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
     crate::dma::init();
 
     // Initialize embassy-time global driver backed by OSTIMER0
-    crate::ostimer::time_driver::init();
+    crate::ostimer::init(cfg.time_interrupt_priority);
 
     // Enable GPIO clocks
     unsafe {
