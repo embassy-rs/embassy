@@ -656,18 +656,6 @@ impl<'a> Transfer<'a> {
             dest_addr,
             options
         )
-        // Self::new_inner(
-        //     channel.into(),
-        //     request,
-        //     Dir::MemoryToMemory,
-        //     buf as *const MW as *mut u32,
-        //     dest_addr as *mut u32,
-        //     buf.len(),
-        //     true,
-        //     MW::size(),
-        //     PW::size(),
-        //     options,
-        // )
     }
 
     /// Create a new memory DMA transfer (memory to memory), using raw pointers.
