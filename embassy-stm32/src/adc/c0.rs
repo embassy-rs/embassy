@@ -49,10 +49,12 @@ impl AdcRegs for crate::pac::adc::Adc {
     }
 
     fn enable(&self) {
-        self.isr().modify(|w| w.set_adrdy(true));
-        self.cr().modify(|w| w.set_aden(true));
-        // ADRDY is "ADC ready". Wait until it will be True.
-        while !self.isr().read().adrdy() {}
+        if !self.cr().read().aden() {
+            self.isr().modify(|w| w.set_adrdy(true));
+            self.cr().modify(|w| w.set_aden(true));
+            // ADRDY is "ADC ready". Wait until it will be True.
+            while !self.isr().read().adrdy() {}
+        }
     }
 
     fn start(&self) {
@@ -100,7 +102,8 @@ impl AdcRegs for crate::pac::adc::Adc {
     }
 
     fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>) {
-        let mut needs_hw = sequence.len() == 1 || sequence.len() > CHSELR_SQ_SIZE;
+        // TODO: get sequencer working
+        let mut needs_hw = sequence.len() == 1 || sequence.len() > CHSELR_SQ_SIZE || true;
         let mut is_ordered_up = true;
         let mut is_ordered_down = true;
 
