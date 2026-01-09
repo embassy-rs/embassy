@@ -1,0 +1,21 @@
+[package]
+name = "embassy-microchip-examples"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+cortex-m = { version = "0.7", features = ["critical-section-single-core", "inline-asm"] }
+cortex-m-rt = { version = "0.7", features = ["set-vtor"] }
+defmt = "1.0"
+defmt-rtt = "1.0"
+embassy-executor = { version = "0.9.1", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
+embassy-microchip = { version = "0.1.0", path = "../../embassy-microchip", features = ["mec1723n_b0_sz", "rt", "defmt", "unstable-pac"] }
+embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime"] }
+panic-probe = { version = "1.0.0", features = ["print-defmt"] }
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7em-none-eabihf", artifact-dir = "out/examples/microchip" }
+]

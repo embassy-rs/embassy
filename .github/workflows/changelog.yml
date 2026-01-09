@@ -51,6 +51,8 @@
 #             - 'embassy-futures/**'
 #             embassy-imxrt:
 #             - 'embassy-imxrt/**'
+#            embassy-microchip:
+#            - 'embassy-microchip/**'
 #             embassy-mspm0:
 #             - 'embassy-mspm0/**'
 #             embassy-net:
