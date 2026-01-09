@@ -14,6 +14,7 @@ pub mod clkout;
 pub mod config;
 pub mod crc;
 pub mod i2c;
+pub mod i3c;
 pub mod lpuart;
 pub mod ostimer;
 pub mod reset_reason;
