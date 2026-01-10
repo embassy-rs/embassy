@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- fix: don't put USB pins into alternate mode on chips where USB is an additional function
+
 ## 0.5.0 - 2026-01-04
 - Add `receive_waveform` method in `InputCapture`, allowing asynchronous input capture with DMA.
 - fix: stm32: GPDMA driver reset ignored during channel configuration
