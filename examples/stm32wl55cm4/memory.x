@@ -13,9 +13,6 @@ SECTIONS
 {
     .shared_data :
     {
-        /* force ordering of SHARED_DATA followed by LED_STATE */
-        *(.shared_data.0)
-        *(.shared_data.1)
         *(.shared_data)
     } > SHARED_RAM
 }

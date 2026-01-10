@@ -41,7 +41,6 @@ async fn blink_heartbeat(mut led: Output<'static>) {
 // #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
     #[cfg(feature = "defmt")]
-    defmt::info!("CM0+ core starting up!");
     // Initialize the secondary core
     let p = embassy_stm32::init_secondary(&SHARED_DATA);
     #[cfg(feature = "defmt-serial")]

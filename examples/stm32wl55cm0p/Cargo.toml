@@ -10,23 +10,25 @@ publish = false
 embassy-stm32 = { version = "0.5.0", path = "../../embassy-stm32", features = [
   "defmt",
   "stm32wl55jc-cm0p",
-  "time-driver-lptim1",
+  "time-driver-tim1",
   "exti",
   "unstable-pac",
   "chrono",
-  "low-power-pender",
 ] }
 embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = [
   "defmt",
 ] }
 embassy-embedded-hal = { version = "0.5.0", path = "../../embassy-embedded-hal" }
 embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = [
+  "arch-cortex-m",
+  "executor-thread",
+  "executor-interrupt",
   "defmt",
 ] }
 embassy-time = { version = "0.5.0", path = "../../embassy-time", features = [
   "defmt",
   "defmt-timestamp-uptime",
-  "tick-hz-1_000",
+  "tick-hz-32_768",
 ] }
 embassy-net = { version = "0.8.0", path = "../../embassy-net", features = [
   "defmt",

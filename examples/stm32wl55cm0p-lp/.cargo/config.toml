@@ -1,5 +1,4 @@
 [target.thumbv6m-none-eabi]
-# runner = 'probe-rs run --chip STM32WL55JC --catch-hardfault --always-print-stacktrace'
 runner = 'probe-rs run --chip STM32WL55JC --catch-hardfault --always-print-stacktrace'
 
 [build]

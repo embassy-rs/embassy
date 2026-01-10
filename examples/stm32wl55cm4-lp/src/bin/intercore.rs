@@ -72,32 +72,21 @@ async fn main(_spawner: Spawner) -> ! {
         defmt_serial::defmt_serial(SERIAL.init(uart));
     }
     info!("CM4 core initialized");
-    info!(
-        "CM4 second core enabled: {}",
-        embassy_stm32::pac::PWR.cr4().read().c2boot()
-    );
     let ipcc = Ipcc::new(_p.IPCC, Irqs, IPCCConfig::default());
     let [ch1, _ch2, _ch3, _ch4, _ch5, _ch6] = ipcc.split();
     let (mut tx, mut _rx) = ch1;
-    info!(
-        "CM4 second core enabled: {}",
-        embassy_stm32::pac::PWR.cr4().read().c2boot()
-    );
 
     let blue_led = Output::new(_p.PB15, Level::High, Speed::Low);
     _spawner.spawn(blink_heartbeat(blue_led).unwrap());
 
-    info!("CM4: Starting main loop");
     loop {
         info!("CM4: Sending message!!!");
         tx.send(|| {
-            info!("CM4: Getting new LED state!!!");
             let new_led_state = !LED_STATE.load(Ordering::SeqCst);
             info!("CM4: Send! New LED state: {}", new_led_state);
             LED_STATE.store(new_led_state, Ordering::SeqCst);
         })
         .await;
-        info!("CM4: sleeping!!!");
         Timer::after_secs(10).await;
     }
 }

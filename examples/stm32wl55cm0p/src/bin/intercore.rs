@@ -18,10 +18,9 @@ bind_interrupts!(struct Irqs{
     IPCC_C2_RX_C2_TX => InterruptHandler;
 });
 
-#[unsafe(link_section = ".shared_data.0")]
+#[unsafe(link_section = ".shared_data")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
-#[unsafe(link_section = ".shared_data.1")]
-#[unsafe(no_mangle)] // make sure the symbol is not optimized out!
+#[unsafe(link_section = ".shared_data")]
 static LED_STATE: AtomicBool = AtomicBool::new(false);
 
 #[embassy_executor::task]
@@ -31,12 +30,11 @@ async fn blink_heartbeat(mut led: Output<'static>) {
         led.set_level(Level::High);
         Timer::after_millis(100).await;
         led.set_level(Level::Low);
-        Timer::after_millis(4900).await;
+        Timer::after_millis(900).await;
     }
 }
 
-#[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
-// #[embassy_executor::main]
+#[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
     // Initialize the secondary core
     let p = embassy_stm32::init_secondary(&SHARED_DATA);
