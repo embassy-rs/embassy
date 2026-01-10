@@ -326,13 +326,13 @@ impl<'d, T: Instance> Driver<'d, T> {
         #[cfg(not(usb_v4))]
         regs.btable().write(|w| w.set_btable(0));
 
-        #[cfg(not(stm32l1))]
+        #[cfg(usb_alternate_function)]
         {
             use crate::gpio::{AfType, OutputType, Speed};
             set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
             set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
         }
-        #[cfg(stm32l1)]
+        #[cfg(not(usb_alternate_function))]
         let _ = (dp, dm); // suppress "unused" warnings.
 
         // Initialize the bus so that it signals that power is available

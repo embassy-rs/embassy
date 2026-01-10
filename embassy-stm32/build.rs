@@ -1447,6 +1447,10 @@ fn main() {
         (("dac", "OUT2"), quote!(crate::dac::DacPin<Ch2>)),
     ].into();
 
+    // On some families the USB DM/DP signals are present as alternate functions,
+    // on other as additional functions where GPIO should be left in Analog mode.
+    cfgs.declare("usb_alternate_function");
+
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
             let mut adc_pairs: BTreeMap<u8, (Option<Ident>, Option<Ident>)> = BTreeMap::new();
@@ -1523,6 +1527,15 @@ fn main() {
                         g.extend(quote! {
                             sel_trait_impl!(crate::xspi::NCSEither, #peri, #pin_name, 1);
                         })
+                    }
+
+                    // Many families have USB as an additional function, not an
+                    // alternate function, where the pin must be left in analog
+                    // mode and enabling AF will break USB.
+                    if p.name.starts_with("USB") && (pin.signal == "DM" || pin.signal == "DP") {
+                        if pin.af.is_some() {
+                            cfgs.enable("usb_alternate_function");
+                        }
                     }
 
                     let pin_trait_impl = if let Some(afio) = &p.afio {
