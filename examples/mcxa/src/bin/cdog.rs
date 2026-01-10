@@ -22,7 +22,7 @@ async fn main(_spawner: Spawner) {
     defmt::info!("** Code watchdog example **");
 
     let cdog_config = hal::cdog::Config {
-        timout: FaultControl::EnableInterrupt,
+        timeout: FaultControl::EnableInterrupt,
         miscompare: FaultControl::EnableInterrupt,
         sequence: FaultControl::EnableInterrupt,
         state: FaultControl::EnableInterrupt,
@@ -42,7 +42,6 @@ async fn main(_spawner: Spawner) {
     watchdog.check(42);
     watchdog.sub(2);
     watchdog.check(40);
-    watchdog.add1();
     watchdog.start(0xFFFFFFFF, 0);
     watchdog.check(0);
     defmt::info!(

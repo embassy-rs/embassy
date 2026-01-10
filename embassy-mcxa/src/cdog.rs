@@ -72,7 +72,7 @@ pub enum LockControl {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Config {
     /// The timeout period after which the watchdog will trigger
-    pub timout: FaultControl,
+    pub timeout: FaultControl,
     pub miscompare: FaultControl,
     pub sequence: FaultControl,
     pub state: FaultControl,
@@ -88,7 +88,7 @@ impl Default for Config {
     /// This is a safe starting point that won't trigger resets or interrupts.
     fn default() -> Self {
         Self {
-            timout: FaultControl::DisableBoth,
+            timeout: FaultControl::DisableBoth,
             miscompare: FaultControl::DisableBoth,
             sequence: FaultControl::DisableBoth,
             state: FaultControl::DisableBoth,
@@ -177,7 +177,7 @@ impl<'d> Watchdog<'d> {
         // Configure CONTROL register with the provided config
         info.control().write(|w| {
             // Timeout control
-            match config.timout {
+            match config.timeout {
                 FaultControl::EnableReset => w.timeout_ctrl().enable_reset(),
                 FaultControl::EnableInterrupt => w.timeout_ctrl().enable_interrupt(),
                 FaultControl::DisableBoth => w.timeout_ctrl().disable_both(),
@@ -279,24 +279,6 @@ impl<'d> Watchdog<'d> {
         self.info.add().write(|w| unsafe { w.ad().bits(add) });
     }
 
-    /// Increments the secure counter by 1.
-    pub fn add1(&mut self) {
-        self.secure_counter = self.secure_counter.wrapping_add(1);
-        self.info.add1().write(|w| unsafe { w.ad1().bits(1) });
-    }
-
-    /// Increments the secure counter by 16.
-    pub fn add16(&mut self) {
-        self.secure_counter = self.secure_counter.wrapping_add(16);
-        self.info.add16().write(|w| unsafe { w.ad16().bits(1) });
-    }
-
-    /// Increments the secure counter by 256.
-    pub fn add256(&mut self) {
-        self.secure_counter = self.secure_counter.wrapping_add(256);
-        self.info.add256().write(|w| unsafe { w.ad256().bits(1) });
-    }
-
     // Subtracts a value from the secure counter.
     ///
     /// # Arguments
@@ -304,24 +286,6 @@ impl<'d> Watchdog<'d> {
     pub fn sub(&mut self, sub: u32) {
         self.secure_counter = self.secure_counter.wrapping_sub(sub);
         self.info.sub().write(|w| unsafe { w.sb().bits(sub) });
-    }
-
-    /// Decrements the secure counter by 1.
-    pub fn sub1(&mut self) {
-        self.secure_counter = self.secure_counter.wrapping_sub(1);
-        self.info.sub1().write(|w| unsafe { w.sb1().bits(1) });
-    }
-
-    /// Decrements the secure counter by 16.
-    pub fn sub16(&mut self) {
-        self.secure_counter = self.secure_counter.wrapping_sub(16);
-        self.info.sub16().write(|w| unsafe { w.sb16().bits(1) });
-    }
-
-    /// Decrements the secure counter by 256.
-    pub fn sub256(&mut self) {
-        self.secure_counter = self.secure_counter.wrapping_sub(256);
-        self.info.sub256().write(|w| unsafe { w.sb256().bits(1) });
     }
 
     /// Checks the secure counter value and restarts the watchdog.
@@ -409,9 +373,6 @@ impl Handler<typelevel::CDOG0> for InterruptHandler {
     unsafe fn on_interrupt() {
         let cdog0 = unsafe { &*pac::Cdog0::ptr() };
 
-        // Safety: `_irq` ensures an Interrupt Handler exists.
-        unsafe { crate::pac::Interrupt::CDOG0.disable() };
-
         // Read the flags register
         let flags = cdog0.flags().read();
 
@@ -439,8 +400,5 @@ impl Handler<typelevel::CDOG0> for InterruptHandler {
 
         //Clear all flags by writing 0
         unsafe { cdog0.flags().write_with_zero(|w| w) };
-
-        // Safety: `_irq` ensures an Interrupt Handler exists.
-        unsafe { crate::pac::Interrupt::CDOG0.enable() };
     }
 }
