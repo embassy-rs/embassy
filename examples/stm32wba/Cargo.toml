@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 embassy-stm32 = { version = "0.5.0", path = "../../embassy-stm32", features = [ "defmt", "stm32wba52cg", "time-driver-any", "memory-x", "exti"]  }
-embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", features = ["defmt", "stm32wba52cg"] }
+embassy-stm32-wpan = { version = "0.1.0", path = "../../embassy-stm32-wpan", features = ["defmt", "stm32wba52cg", "ble-stack-basic", "linklayer-ble-basic"] }
 embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = ["defmt"] }
 embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "defmt"] }
 embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
@@ -24,9 +24,17 @@ heapless = { version = "0.8", default-features = false }
 static_cell = "2"
 
 [features]
-default = ["ble", "mac"]
+default = ["ble"]
 mac = ["embassy-stm32-wpan/wba_mac", "dep:embassy-net"]
 ble = ["embassy-stm32-wpan/wba_ble"]
+
+[[bin]]
+name = "mac_ffd"
+required-features = ["mac"]
+
+[[bin]]
+name = "ble_advertiser"
+required-features = ["ble"]
 
 [profile.release]
 debug = 2
