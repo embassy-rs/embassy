@@ -53,6 +53,8 @@ use embassy_executor::*;
 use crate::interrupt;
 pub use crate::rcc::StopMode;
 use crate::rcc::{BusyPeripheral, REFCOUNT_STOP1, REFCOUNT_STOP2};
+#[cfg(feature = "low-power")]
+use crate::time_driver::LPTimeDriver;
 use crate::time_driver::get_driver;
 
 const THREAD_PENDER: usize = usize::MAX;

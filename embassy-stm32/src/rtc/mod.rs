@@ -391,7 +391,7 @@ trait SealedInstance {
 
 #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
 pub(crate) fn init_rtc(cs: CriticalSection, config: RtcConfig, min_stop_pause: embassy_time::Duration) {
-    use crate::time_driver::get_driver;
+    use crate::time_driver::{LPTimeDriver, get_driver};
 
     #[cfg(feature = "_allow-disable-rtc")]
     if config._disable_rtc {

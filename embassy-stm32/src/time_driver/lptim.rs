@@ -197,60 +197,6 @@ impl RtcDriver {
         }
     }
 
-    /*
-        Low-power private functions: all operate within a critical seciton
-    */
-
-    #[cfg(feature = "low-power")]
-    /// Compute the approximate amount of time until the next alarm
-    fn time_until_next_alarm(&self, cs: CriticalSection) -> embassy_time::Duration {
-        let now = self.now() + 32;
-
-        embassy_time::Duration::from_ticks(self.alarm.borrow(cs).timestamp.get().saturating_sub(now))
-    }
-
-    /*
-        Low-power public functions: all require a critical section
-    */
-    #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
-    pub(crate) fn set_min_stop_pause(&self, cs: CriticalSection, min_stop_pause: embassy_time::Duration) {
-        self.min_stop_pause.borrow(cs).replace(min_stop_pause);
-    }
-
-    #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
-    /// no-op
-    pub(crate) fn set_rtc(&self, _cs: CriticalSection, mut _rtc: crate::rtc::Rtc) {}
-
-    #[cfg(feature = "low-power")]
-    /// Set the stopped flag
-    pub(crate) fn pause_time(&self, cs: CriticalSection) -> Result<(), ()> {
-        trace!("pause_time");
-        let time_until_next_alarm = self.time_until_next_alarm(cs);
-        if time_until_next_alarm < self.min_stop_pause.borrow(cs).get() {
-            trace!(
-                "time_until_next_alarm < self.min_stop_pause ({})",
-                time_until_next_alarm
-            );
-            Err(())
-        } else {
-            self.is_stopped.store(true, Ordering::Relaxed);
-            Ok(())
-        }
-    }
-
-    #[cfg(feature = "low-power")]
-    /// Reset the stopped flag
-    pub(crate) fn resume_time(&self, _cs: CriticalSection) {
-        trace!("resume_time");
-        self.is_stopped.store(false, Ordering::Relaxed);
-    }
-
-    #[cfg(feature = "low-power")]
-    /// Returns whether time is currently stopped
-    pub(crate) fn is_stopped(&self) -> bool {
-        self.is_stopped.load(Ordering::Relaxed)
-    }
-
     fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
         trace!("set_alarm: timestamp: {}", timestamp);
         let r = regs_lptim();
@@ -297,6 +243,48 @@ impl RtcDriver {
         trace!("set_alarm: true");
         // We're confident the alarm will ring in the future.
         true
+    }
+}
+
+#[cfg(feature = "low-power")]
+impl super::LPTimeDriver for RtcDriver {
+    /*
+        Low-power private functions: all operate within a critical seciton
+    */
+
+    #[cfg(feature = "low-power")]
+    /// Compute the approximate amount of time until the next alarm
+    fn time_until_next_alarm(&self, cs: CriticalSection) -> embassy_time::Duration {
+        let now = self.now() + 32;
+
+        embassy_time::Duration::from_ticks(self.alarm.borrow(cs).timestamp.get().saturating_sub(now))
+    }
+
+    /// Set the stopped flag or return an error if the time until the next alarm is less than the minimum stop pause
+    fn pause_time(&self, cs: CriticalSection) -> Result<(), ()> {
+        trace!("pause_time");
+        let time_until_next_alarm = self.time_until_next_alarm(cs);
+        if time_until_next_alarm < self.min_stop_pause.borrow(cs).get() {
+            trace!(
+                "time_until_next_alarm < self.min_stop_pause ({})",
+                time_until_next_alarm
+            );
+            Err(())
+        } else {
+            self.is_stopped.store(true, Ordering::Relaxed);
+            Ok(())
+        }
+    }
+
+    /// Reset the stopped flag
+    fn resume_time(&self, _cs: CriticalSection) {
+        trace!("resume_time");
+        self.is_stopped.store(false, Ordering::Relaxed);
+    }
+
+    /// Returns whether time is currently "stopped"
+    fn is_stopped(&self) -> bool {
+        self.is_stopped.load(Ordering::Relaxed)
     }
 }
 
