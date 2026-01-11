@@ -55,6 +55,8 @@
 #            - 'embassy-microchip/**'
 #             embassy-mspm0:
 #             - 'embassy-mspm0/**'
+#             embassy-neorv32:
+#             - 'embassy-neorv32/**'
 #             embassy-net:
 #             - 'embassy-net/**'
 #             embassy-net-adin1110:

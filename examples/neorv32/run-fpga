@@ -1,0 +1,19 @@
+#!/bin/bash
+
+# Set this to your neorv32 repo path
+BASE="$HOME/neorv32"
+
+# convert ELF to raw bin
+rust-objcopy $1 -O binary "$1.bin"
+
+# `image_gen` seems to require bin be padded to nearest 4 byte
+truncate -s $(( (($(stat -c%s "$1.bin")+3)/4)*4 )) "$1.bin"
+
+# Convert bin to fpga bootloader bin format neorv32 expects
+"$BASE/sw/image_gen/image_gen" -i "$1.bin" -o "$1-fpga" -t app_bin
+
+# Make it easier to find binary in picocom by cd'ing to the correct folder it's in
+cd -- "$(dirname -- "$1")"
+
+# Connect to bootloader over serial using picocom
+sudo picocom /dev/ttyUSB0 -b 19200 --imap lfcrlf --omap crlf --send-cmd="ascii-xfr -s -n"

@@ -1,0 +1,42 @@
+[package]
+name = "embassy-neorv32-examples"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[profile.release]
+lto = true
+codegen-units = 1
+debug = true
+opt-level = "z"
+panic = "abort"
+incremental = false
+
+[features]
+default = ["fpga"]
+
+# *Note*: The time-driver implementation relies on the CLINT mtimer which always runs at
+# CPU frequency. Unfortunately, embassy-time requires us to pick a fixed static tick rate,
+# so you MUST ensure this matches your configured CPU frequency.
+#
+# Supported tick rates: https://docs.embassy.dev/embassy-time/git/default/index.html#tick-rate
+fpga = ["embassy-time/tick-hz-50_000_000"]
+sim = ["embassy-time/tick-hz-100_000_000"]
+
+[dependencies]
+# Embassy support
+embassy-neorv32 = { version = "0.1.0", path = "../../embassy-neorv32" }
+embassy-time = { version = "0.5.0", path = "../../embassy-time" }
+embassy-executor = { version = "0.9.1", path = "../../embassy-executor", features = ["executor-thread", "arch-riscv32"] }
+embassy-sync = { version = "0.7.2", path = "../../embassy-sync" }
+
+# Runtime/arch support
+riscv = "0.16.0"
+riscv-rt = "0.17.0"
+
+[package.metadata.embassy]
+build = [
+  { target = "riscv32imc-unknown-none-elf", artifact-dir = "out/examples/neorv32" }
+]
+

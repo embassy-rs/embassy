@@ -1,0 +1,17 @@
+= Embassy NEORV32 HAL
+
+The link:https://github.com/embassy-rs/embassy/tree/main/embassy-neorv32[Embassy NEORV32 HAL] is based on the PACs (Peripheral Access Crate) from link:https://crates.io/crates/neorv32-pac[neorv32-pac].
+
+== Timer driver
+
+The NEORV32 timer driver frequency must match configured main CPU clock frequency.
+Thus, the user must supply the correct `tick-hz-*` feature for `embassy-time`.
+
+== Peripherals
+
+The following peripherals have a HAL implementation at present
+
+* UART
+* GPIO
+* DMA
+* SysInfo

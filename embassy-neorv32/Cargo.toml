@@ -1,0 +1,57 @@
+[package]
+name = "embassy-neorv32"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Embassy Hardware Abstraction Layer (HAL) for the open-source NEORV32 RISC-V microcontroller"
+repository = "https://github.com/embassy-rs/embassy"
+keywords = ["embedded", "hal", "risc-v", "neorv32","embassy"]
+categories = ["embedded", "hardware-support", "no-std"]
+documentation = "https://docs.embassy.dev/embassy-neorv32"
+
+[package.metadata.embassy]
+build = [
+    {target = "riscv32imc-unknown-none-elf", features = ["defmt"]},
+    {target = "riscv32imc-unknown-none-elf", features = ["defmt", "v-trap"]},
+]
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-neorv32-v$VERSION/embassy-neorv32/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-neorv32/src/"
+
+features = ["defmt"]
+flavors = [
+    { regex_feature = ".*", target = "riscv32imc-unknown-none-elf" }
+]
+
+[features]
+default = ["time-driver", "rt"]
+defmt = ["dep:defmt"]
+rt = ["dep:riscv-rt", "neorv32-pac/rt"]
+v-trap = ["rt", "neorv32-pac/v-trap"]
+
+# Note: CLINT MTIMER always runs at main CPU frequency, thus tick-hz-* must match
+# But main CPU frequency is configurable, so defer tick rate choice to user
+time-driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils", "rt"]
+
+[dependencies]
+neorv32-pac = { version = "0.1.0", features = [
+    "critical-section",
+] }
+riscv = { version = "0.16.0", features = ["critical-section-single-hart"] }
+riscv-rt = { version = "0.17.0", optional = true }
+critical-section = { version = "1.2.0" }
+defmt = { version = "1.0.1", optional = true }
+
+embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver", optional = true }
+embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils", optional = true }
+embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
+embassy-hal-internal = { version = "0.4.0", path = "../embassy-hal-internal" } 
+
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.7", features = [
+    "unproven",
+] }
+embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
+embedded-hal-async = "1.0"
+embedded-io = "0.7.1"
+embedded-io-async = "0.7.0"

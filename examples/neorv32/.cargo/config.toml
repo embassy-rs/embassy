@@ -1,0 +1,25 @@
+[alias]
+# Run examples
+run-sim = "run --config .cargo/runner.sim.toml --no-default-features --features sim"
+run-fpga = "run --config .cargo/runner.fpga.toml --no-default-features --features fpga"
+
+# Build examples
+build-sim = "build --no-default-features --features sim"
+build-fpga = "build --no-default-features --features fpga"
+
+# Report binary size of examples
+size-sim = "size --no-default-features --features sim,"
+size-fpga = "size --no-default-features --features fpga"
+
+# Display symbols of examples
+nm-sim = "nm --no-default-features --features sim,"
+nm-fpga = "nm --no-default-features --features fpga"
+
+# Perform objdump on examples
+objdump-sim = "objdump --no-default-features --features sim,"
+objdump-fpga = "objdump --no-default-features --features fpga"
+
+# Target can be modified depending on which extensions your NEORV32 config supports
+# imc was chosen as a reasonable default (to improve code size) but the HAL supports a minimal rv32i
+[build]
+target = "riscv32imc-unknown-none-elf"

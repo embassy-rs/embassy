@@ -18,6 +18,7 @@
   "rust-analyzer.cargo.target": "thumbv7em-none-eabi",
   //"rust-analyzer.cargo.target": "thumbv7em-none-eabihf",
   //"rust-analyzer.cargo.target": "thumbv8m.main-none-eabihf",
+  //"rust-analyzer.cargo.target": "riscv32imc-unknown-none-elf",
   "rust-analyzer.cargo.features": [
     // Comment out these features when working on the examples. Most example crates do not have any cargo features.
     "stm32f107rb",
@@ -37,6 +38,7 @@
     // "examples/mspm0g5187/Cargo.toml",
     // "examples/mspm0l1306/Cargo.toml",
     // "examples/mspm0l2228/Cargo.toml",
+    // "examples/neorv32/Cargo.toml",
     // "examples/nrf52840-rtic/Cargo.toml",
     // "examples/nrf5340/Cargo.toml",
     // "examples/nrf-rtos-trace/Cargo.toml",

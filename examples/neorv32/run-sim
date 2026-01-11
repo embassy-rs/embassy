@@ -1,0 +1,17 @@
+#!/bin/bash
+
+# Set this to your neorv32 repo path
+BASE="$HOME/neorv32"
+
+# convert ELF to raw bin
+rust-objcopy $1 -O binary "$1.bin"
+
+# `image_gen` seems to require bin be padded to nearest 4 byte
+truncate -s $(( (($(stat -c%s "$1.bin")+3)/4)*4 )) "$1.bin"
+
+# Generate the VHD image then place it in neorv32 core
+"$BASE/sw/image_gen/image_gen" -i "$1.bin" -o neorv32_application_image.vhd -t app_vhd
+mv neorv32_application_image.vhd "$BASE/rtl/core"
+
+# Run neorv32 sim script
+sh "$BASE/sim/ghdl.sh"
