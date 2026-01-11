@@ -104,13 +104,12 @@ impl AdcRegs for crate::pac::adc::Adc {
     }
 
     fn enable(&self) {
-        if self.cr().read().aden() {
-            return;
+        if !self.cr().read().aden() {
+            self.isr().write(|w| w.set_adrdy(true));
+            self.cr().modify(|w| w.set_aden(true));
+            while !self.isr().read().adrdy() {}
+            self.isr().write(|w| w.set_adrdy(true));
         }
-        self.isr().write(|w| w.set_adrdy(true));
-        self.cr().modify(|w| w.set_aden(true));
-        while !self.isr().read().adrdy() {}
-        self.isr().write(|w| w.set_adrdy(true));
     }
 
     fn start(&self) {

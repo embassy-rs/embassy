@@ -1,5 +1,5 @@
 use crate::bindings::link_layer::{
-    _NULL as NULL, DPSLP_STATE_DEEP_SLEEP_DISABLE, DPSLP_STATE_DEEP_SLEEP_ENABLE, LINKLAYER_PLAT_DisableRadioIT,
+    DPSLP_STATE_DEEP_SLEEP_DISABLE, DPSLP_STATE_DEEP_SLEEP_ENABLE, LINKLAYER_PLAT_DisableRadioIT,
     LINKLAYER_PLAT_EnableRadioIT, LL_SYS_DP_SLP_STATE_T_LL_SYS_DP_SLP_DISABLED,
     LL_SYS_DP_SLP_STATE_T_LL_SYS_DP_SLP_ENABLED, LL_SYS_STATUS_T_LL_SYS_ERROR, LL_SYS_STATUS_T_LL_SYS_OK,
     OS_TIMER_PRIO_HG_PRIO_TMR, OS_TIMER_STATE_OSTIMERSTOPPED, OS_TIMER_TYPE_OS_TIMER_ONCE, SUCCESS, ble_stat_t,
@@ -42,7 +42,7 @@ macro_rules! LL_INTERNAL_TMR_US_TO_STEPS {
 // #include "ll_intf_cmn.h"
 //
 // /* Link Layer deep sleep timer */
-static mut RADIO_DP_SLP_TMR_ID: os_timer_id = NULL as *mut _;
+static mut RADIO_DP_SLP_TMR_ID: os_timer_id = core::ptr::null_mut();
 //
 // /* Link Layer deep sleep state */
 static mut LINKLAYER_DP_SLP_STATE: ll_sys_dp_slp_state_t = LL_SYS_DP_SLP_STATE_T_LL_SYS_DP_SLP_DISABLED;
@@ -60,13 +60,13 @@ unsafe extern "C" fn ll_sys_dp_slp_init() -> ll_sys_status_t {
     RADIO_DP_SLP_TMR_ID = os_timer_create(
         Some(ll_sys_dp_slp_wakeup_evt_clbk),
         OS_TIMER_TYPE_OS_TIMER_ONCE,
-        NULL as *mut _,
+        core::ptr::null_mut(),
     );
 
     /* Set priority of deep sleep timer */
     os_timer_set_prio(RADIO_DP_SLP_TMR_ID, OS_TIMER_PRIO_HG_PRIO_TMR);
 
-    if RADIO_DP_SLP_TMR_ID != NULL as *mut _ {
+    if !RADIO_DP_SLP_TMR_ID.is_null() {
         return_status = LL_SYS_STATUS_T_LL_SYS_OK;
     }
 

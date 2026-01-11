@@ -75,6 +75,7 @@
 #![cfg(feature = "wba")]
 #![allow(clippy::missing_safety_doc)]
 
+use core::cell::RefCell;
 use core::hint::spin_loop;
 use core::ptr;
 use core::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, AtomicU32, Ordering};
@@ -83,9 +84,17 @@ use cortex_m::asm::{dsb, isb};
 use cortex_m::interrupt::InterruptNumber;
 use cortex_m::peripheral::NVIC;
 use cortex_m::register::basepri;
-use critical_section;
+use critical_section::{self, Mutex};
 #[cfg(feature = "defmt")]
-use defmt::trace;
+use defmt::{error, trace};
+#[cfg(not(feature = "defmt"))]
+macro_rules! trace {
+    ($($arg:tt)*) => {{}};
+}
+#[cfg(not(feature = "defmt"))]
+macro_rules! error {
+    ($($arg:tt)*) => {{}};
+}
 use embassy_stm32::NVIC_PRIO_BITS;
 use embassy_time::{Duration, block_for};
 
@@ -134,15 +143,58 @@ static RADIO_SW_LOW_ISR_RUNNING_HIGH_PRIO: AtomicBool = AtomicBool::new(false);
 static AHB5_SWITCHED_OFF: AtomicBool = AtomicBool::new(false);
 static RADIO_SLEEP_TIMER_VAL: AtomicU32 = AtomicU32::new(0);
 
-static PRNG_STATE: AtomicU32 = AtomicU32::new(0);
-static PRNG_INIT: AtomicBool = AtomicBool::new(false);
-
 // Critical-section restore token for IRQ enable/disable pairing.
 // Only written when the IRQ disable counter transitions 0->1, and consumed when it transitions 1->0.
 static mut CS_RESTORE_STATE: Option<critical_section::RestoreState> = None;
 
-fn read_system_core_clock() -> u32 {
-    0
+// Wrapper for the RNG pointer that implements Send
+// Safety: The pointer is only ever accessed from interrupt-disabled critical sections,
+// ensuring single-threaded access despite the raw pointer.
+struct SendPtr(*mut ());
+unsafe impl Send for SendPtr {}
+
+// Optional hardware RNG instance for true random number generation.
+// The RNG peripheral pointer is stored here to be used by LINKLAYER_PLAT_GetRNG.
+// This must be set by the application using `set_rng_instance` before the link layer requests random numbers.
+static HARDWARE_RNG: Mutex<RefCell<Option<SendPtr>>> = Mutex::new(RefCell::new(None));
+
+/// Set the hardware RNG instance to be used by the link layer.
+///
+/// This function allows the application to provide a hardware RNG peripheral
+/// that will be used for generating random numbers instead of the software PRNG.
+///
+/// # Safety
+///
+/// The caller must ensure that:
+/// - The pointer remains valid for the lifetime of the link layer usage
+/// - The RNG peripheral is properly initialized and configured
+/// - The pointer points to a valid `embassy_stm32::rng::Rng` instance
+///
+/// # Example
+///
+/// ```no_run
+/// use embassy_stm32::rng::Rng;
+/// use embassy_stm32::peripherals;
+/// use embassy_stm32::bind_interrupts;
+///
+/// bind_interrupts!(struct Irqs {
+///     RNG => embassy_stm32::rng::InterruptHandler<peripherals::RNG>;
+/// });
+///
+/// let mut rng = Rng::new(p.RNG, Irqs);
+/// embassy_stm32_wpan::wba::linklayer_plat::set_rng_instance(&mut rng as *mut _ as *mut ());
+/// ```
+pub fn set_rng_instance(rng: *mut ()) {
+    critical_section::with(|cs| {
+        HARDWARE_RNG.borrow(cs).replace(Some(SendPtr(rng)));
+    });
+}
+
+/// Clear the hardware RNG instance, falling back to software PRNG.
+pub fn clear_rng_instance() {
+    critical_section::with(|cs| {
+        HARDWARE_RNG.borrow(cs).replace(None);
+    });
 }
 
 fn store_callback(slot: &AtomicPtr<()>, cb: Option<Callback>) {
@@ -218,35 +270,6 @@ fn set_basepri_max(value: u8) {
     unsafe {
         if basepri::read() < value {
             basepri::write(value);
-        }
-    }
-}
-
-fn prng_next() -> u32 {
-    #[inline]
-    fn xorshift(mut x: u32) -> u32 {
-        x ^= x << 13;
-        x ^= x >> 17;
-        x ^= x << 5;
-        x
-    }
-
-    if !PRNG_INIT.load(Ordering::Acquire) {
-        let seed = unsafe {
-            let timer = link_layer::ll_intf_cmn_get_slptmr_value();
-            let core_clock = read_system_core_clock();
-            timer ^ core_clock ^ 0x6C8E_9CF5
-        };
-        PRNG_STATE.store(seed, Ordering::Relaxed);
-        PRNG_INIT.store(true, Ordering::Release);
-    }
-
-    let mut current = PRNG_STATE.load(Ordering::Relaxed);
-    loop {
-        let next = xorshift(current);
-        match PRNG_STATE.compare_exchange_weak(current, next, Ordering::AcqRel, Ordering::Relaxed) {
-            Ok(_) => return next,
-            Err(v) => current = v,
         }
     }
 }
@@ -421,32 +444,50 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_NotifyWFIExit() {
 }
 
 // /**
-//   * @brief  Active wait on bus clock readiness.
-//   * @param  None
+//   * @brief  Enable/disable the Link Layer active clock (baseband clock).
+//   * @param  enable: boolean value to enable (1) or disable (0) the clock.
 //   * @retval None
 //   */
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn LINKLAYER_PLAT_AclkCtrl(_enable: u8) {
-    trace!("LINKLAYER_PLAT_AclkCtrl: enable={}", _enable);
-    if _enable != 0 {
-        // #if (CFG_SCM_SUPPORTED == 1)
-        //     /* SCM HSE BEGIN */
-        //     /* Polling on HSE32 activation */
-        //     SCM_HSE_WaitUntilReady();
-        //     /* Enable RADIO baseband clock (active CLK) */
-        //     HAL_RCCEx_EnableRadioBBClock();
-        //     /* SCM HSE END */
-        // #else
-        //     /* Enable RADIO baseband clock (active CLK) */
-        //     HAL_RCCEx_EnableRadioBBClock();
-        //     /* Polling on HSE32 activation */
-        //     while ( LL_RCC_HSE_IsReady() == 0);
-        // #endif /* CFG_SCM_SUPPORTED */
-        // NOTE: Add a proper assertion once a typed `Radio` peripheral exists in embassy-stm32
-        // that exposes the baseband clock enable status via RCC.
+pub unsafe extern "C" fn LINKLAYER_PLAT_AclkCtrl(enable: u8) {
+    trace!("LINKLAYER_PLAT_AclkCtrl: enable={}", enable);
+
+    if enable != 0 {
+        // Wait for HSE to be ready before enabling radio baseband clock
+        // HSE (High-Speed External) oscillator is required for radio operation
+        // RCC_CR register, bit 17 (HSERDY) indicates HSE ready status
+        const RCC_CR: *const u32 = 0x4002_0C00 as *const u32;
+        const HSERDY_BIT: u32 = 1 << 17;
+
+        while (ptr::read_volatile(RCC_CR) & HSERDY_BIT) == 0 {
+            spin_loop();
+        }
+
+        // Enable RADIO baseband clock (active clock)
+        // RCC_RADIOENR register, bit 1 (BBCLKEN) enables the baseband clock
+        // For STM32WBA: RCC base = 0x4002_0C00, RADIOENR offset = 0xD8
+        const RCC_RADIOENR: *mut u32 = 0x4002_0CD8 as *mut u32;
+        const BBCLKEN_BIT: u32 = 1 << 1;
+
+        ptr::write_volatile(RCC_RADIOENR, ptr::read_volatile(RCC_RADIOENR) | BBCLKEN_BIT);
+
+        // Memory barrier to ensure clock is enabled before proceeding
+        dsb();
+        isb();
+
+        trace!("LINKLAYER_PLAT_AclkCtrl: radio baseband clock enabled");
     } else {
-        //     /* Disable RADIO baseband clock (active CLK) */
-        //     HAL_RCCEx_DisableRadioBBClock();
+        // Disable RADIO baseband clock (active clock)
+        const RCC_RADIOENR: *mut u32 = 0x4002_0CD8 as *mut u32;
+        const BBCLKEN_BIT: u32 = 1 << 1;
+
+        ptr::write_volatile(RCC_RADIOENR, ptr::read_volatile(RCC_RADIOENR) & !BBCLKEN_BIT);
+
+        // Memory barrier
+        dsb();
+        isb();
+
+        trace!("LINKLAYER_PLAT_AclkCtrl: radio baseband clock disabled");
     }
 }
 
@@ -458,33 +499,28 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_AclkCtrl(_enable: u8) {
 //   */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_PLAT_GetRNG(ptr_rnd: *mut u8, len: u32) {
-    //   uint32_t nb_remaining_rng = len;
-    //   uint32_t generated_rng;
-    //
-    //   /* Get the requested RNGs (4 bytes by 4bytes) */
-    //   while(nb_remaining_rng >= 4)
-    //   {
-    //     generated_rng = 0;
-    //     HW_RNG_Get(1, &generated_rng);
-    //     memcpy((ptr_rnd+(len-nb_remaining_rng)), &generated_rng, 4);
-    //     nb_remaining_rng -=4;
-    //   }
-    //
-    //   /* Get the remaining number of RNGs */
-    //   if(nb_remaining_rng>0){
-    //     generated_rng = 0;
-    //     HW_RNG_Get(1, &generated_rng);
-    //     memcpy((ptr_rnd+(len-nb_remaining_rng)), &generated_rng, nb_remaining_rng);
-    //   }
     trace!("LINKLAYER_PLAT_GetRNG: ptr_rnd={:?}, len={}", ptr_rnd, len);
     if ptr_rnd.is_null() || len == 0 {
         return;
     }
 
-    for i in 0..len {
-        let byte = (prng_next() >> ((i & 3) * 8)) as u8;
-        ptr::write_volatile(ptr_rnd.add(i as usize), byte);
-    }
+    // Get the hardware RNG instance
+    let rng_ptr = critical_section::with(|cs| HARDWARE_RNG.borrow(cs).borrow().as_ref().map(|p| p.0));
+
+    let rng_ptr = rng_ptr.expect(
+        "Hardware RNG not initialized! Call embassy_stm32_wpan::wba::set_rng_instance() before using the BLE stack.",
+    );
+
+    // Cast the void pointer back to an Rng instance
+    let rng = &mut *(rng_ptr as *mut embassy_stm32::rng::Rng<'static, embassy_stm32::peripherals::RNG>);
+
+    // Create a slice from the raw pointer
+    let dest = core::slice::from_raw_parts_mut(ptr_rnd, len as usize);
+
+    // Fill the buffer with hardware random bytes
+    rng.fill_bytes(dest);
+
+    trace!("LINKLAYER_PLAT_GetRNG: generated {} random bytes", len);
 }
 
 // /**
@@ -917,4 +953,44 @@ pub unsafe extern "C" fn LINKLAYER_DEBUG_SIGNAL_RESET() {
 pub unsafe extern "C" fn LINKLAYER_DEBUG_SIGNAL_TOGGLE() {
     trace!("LINKLAYER_DEBUG_SIGNAL_TOGGLE");
     todo!()
+}
+
+// BLE Platform functions required by BLE stack
+
+/// Initialize BLE platform layer
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn BLEPLAT_Init() {
+    trace!("BLEPLAT_Init");
+    // Platform initialization is already done in linklayer_plat_init()
+    // This function is called by BLE stack init
+}
+
+/// Get random numbers from RNG
+///
+/// # Arguments
+/// * `n` - Number of 32-bit random values to generate (1-4)
+/// * `val` - Pointer to array where random values will be stored
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn BLEPLAT_RngGet(n: u8, val: *mut u32) {
+    trace!("BLEPLAT_RngGet: n={}", n);
+
+    if val.is_null() || n == 0 || n > 4 {
+        return;
+    }
+
+    // Get RNG instance from HARDWARE_RNG
+    critical_section::with(|cs| {
+        let rng_cell = HARDWARE_RNG.borrow(cs).borrow();
+        if let Some(rng_ptr) = rng_cell.as_ref() {
+            let rng = &mut *(rng_ptr.0 as *mut embassy_stm32::rng::Rng<'static, embassy_stm32::peripherals::RNG>);
+
+            // Generate n random 32-bit values
+            for i in 0..n {
+                let dest = core::slice::from_raw_parts_mut(val.add(i as usize) as *mut u8, 4);
+                rng.fill_bytes(dest);
+            }
+        } else {
+            error!("BLEPLAT_RngGet: RNG not initialized");
+        }
+    });
 }

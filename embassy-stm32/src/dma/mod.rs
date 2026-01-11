@@ -38,6 +38,22 @@ pub enum Dir {
     MemoryToPeripheral,
     /// Transfer from a peripheral to memory.
     PeripheralToMemory,
+    /// Transfer from memory to another memory address.
+    MemoryToMemory,
+}
+
+/// Which pointer in the transfer to increment.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Increment {
+    /// DMA will not increment either of the addresses.
+    None,
+    /// DMA will increment the peripheral address.
+    Peripheral,
+    /// DMA will increment the memory address.
+    Memory,
+    /// DMA will increment both peripheral and memory addresses simultaneously.
+    Both,
 }
 
 /// DMA request type alias. (also known as DMA channel number in some chips)

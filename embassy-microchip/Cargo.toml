@@ -1,0 +1,112 @@
+[package]
+name = "embassy-microchip"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Embassy Hardware Abstraction Layer (HAL) for the MEC and CEC family of microcontrollers"
+keywords = ["embedded", "async", "microchip", "mec", "cec", "embedded-hal"]
+categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/embassy-microchip"
+
+# TODO: Remove to publish initial version
+publish = false
+
+[package.metadata.embassy]
+build = [
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mec1721n_b0_lj", "rt", "unstable-pac"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mec1721n_b0_sz", "rt", "unstable-pac"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mec1723n_b0_lj", "rt", "unstable-pac"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mec1723n_b0_sz", "rt", "unstable-pac"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mec1723n_f0_sz", "rt", "unstable-pac"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mec1723n_p0_9y", "rt", "unstable-pac"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mec1724n_b0_lj", "rt", "unstable-pac"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mec1724n_b0_sz", "rt", "unstable-pac"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mec1725n_b0_lj", "rt", "unstable-pac"]},
+    {target = "thumbv7em-none-eabihf", features = ["defmt", "mec1727n_b0_sz", "rt", "unstable-pac"]},
+]
+
+[package.metadata.embassy_docs]
+src_base = "https://github.com/embassy-rs/embassy/blob/embassy-microchip-v$VERSION/embassy-microchip/src/"
+src_base_git = "https://github.com/embassy-rs/embassy/blob/$COMMIT/embassy-microchip/src/"
+
+features = ["mec1723n_b0_sz", "defmt", "unstable-pac"]
+flavors = [
+    { regex_feature = ".*", target = "thumbv7em-none-eabihf" }
+]
+
+[package.metadata.docs.rs]
+features = ["mec1723n_b0_sz", "defmt", "unstable-pac"]
+rustdoc-args = ["--cfg", "docsrs"]
+
+[features]
+default = ["rt"]
+
+## Cortex-M runtime (enabled by default)
+rt = ["mec17xx-pac/rt"]
+
+## Enable defmt
+defmt = ["dep:defmt", "embassy-hal-internal/defmt", "embassy-sync/defmt", "mec17xx-pac/defmt"]
+
+## Reexport the PAC for the currently enabled chip at `embassy_imxrt::pac` (unstable)
+unstable-pac = []
+
+# Features starting with `_` are for internal use only. They're not intended
+# to be enabled by other crates, and are not covered by semver guarantees.
+
+#! ### Chip selection features
+## MEC1721N_B0_LJ
+mec1721n_b0_lj = ["mec17xx-pac/mec1721n_b0_sz"]
+
+## MEC1721N_B0_SZ
+mec1721n_b0_sz = ["mec17xx-pac/mec1721n_b0_sz"]
+
+## MEC1723N_B0_LJ
+mec1723n_b0_lj = ["mec17xx-pac/mec1723n_b0_lj"]
+
+## MEC1723N_B0_SZ
+mec1723n_b0_sz = ["mec17xx-pac/mec1723n_b0_sz"]
+
+## MEC1723N_F0_SZ
+mec1723n_f0_sz = ["mec17xx-pac/mec1723n_f0_sz"]
+
+## MEC1723N_P0_9Y
+mec1723n_p0_9y = ["mec17xx-pac/mec1723n_p0_9y"]
+
+## MEC1724N_B0_LJ
+mec1724n_b0_lj = ["mec17xx-pac/mec1724n_b0_lj"]
+
+## MEC1723N_B0_SZ
+mec1724n_b0_sz = ["mec17xx-pac/mec1724n_b0_sz"]
+
+## MEC1725
+mec1725n_b0_lj = ["mec17xx-pac/mec1725n_b0_lj"]
+
+## MEC1727N_B0_SZ
+mec1727n_b0_sz = ["mec17xx-pac/mec1727n_b0_sz"]
+
+[dependencies]
+cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
+cortex-m-rt = { version = "0.7", features = ["device"] }
+critical-section = "1.2.0"
+defmt = { version = "1.0", optional = true }
+document-features = "0.2.11"
+embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal" }
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
+embassy-hal-internal = { version = "0.4.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
+embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
+embassy-time = { version = "0.5.0", path = "../embassy-time" }
+embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver", features = ["tick-hz-48_000_000"] }
+embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils" }
+embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
+embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
+embedded-hal-async = { version = "1.0" }
+embedded-hal-nb = { version = "1.0" }
+embedded-io = "0.7"
+embedded-io-async = { version = "0.7.0" }
+fixed = "1.29.0"
+log = { version = "0.4.17", optional = true }
+nb = "1.0.0"
+
+# PAC
+mec17xx-pac = { version = "0.1.2", default-features = false, features = ["rt"] }
