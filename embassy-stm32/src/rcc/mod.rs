@@ -677,8 +677,11 @@ pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
                         config.hsi = true;
                     }
                     Lptimsel::LSE => {
-                        // ok but insure the lse is configured!!!
-                        if config.ls.lse.is_none() {
+                        // ok but insure the lse is configured with peripherals_clocked = true!!!
+                        if let Some(mut lse_config) = config.ls.lse {
+                            lse_config.peripherals_clocked = true;
+                            config.ls.lse = Some(lse_config);
+                        } else {
                             panic!("LSE is not not configured, but selected for time_driver!!!");
                         }
                     }
@@ -701,8 +704,11 @@ pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
                         config.hsi = true;
                     }
                     Lptimsel::LSE => {
-                        // ok but insure the lse is configured!!!
-                        if config.ls.lse.is_none() {
+                        // ok but insure the lse is configured with peripherals_clocked = true!!!
+                        if let Some(mut lse_config) = config.ls.lse {
+                            lse_config.peripherals_clocked = true;
+                            config.ls.lse = Some(lse_config);
+                        } else {
                             panic!("LSE is not not configured, but selected for time_driver!!!");
                         }
                     }
@@ -725,8 +731,11 @@ pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
                         config.hsi = true;
                     }
                     Lptimsel::LSE => {
-                        // ok but insure the lse is configured!!!
-                        if config.ls.lse.is_none() {
+                        // ok but insure the lse is configured with peripherals_clocked = true!!!
+                        if let Some(mut lse_config) = config.ls.lse {
+                            lse_config.peripherals_clocked = true;
+                            config.ls.lse = Some(lse_config);
+                        } else {
                             panic!("LSE is not not configured, but selected for time_driver!!!");
                         }
                     }

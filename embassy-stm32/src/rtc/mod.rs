@@ -1,19 +1,19 @@
 //! Real Time Clock (RTC)
 mod datetime;
 
-#[cfg(feature = "low-power")]
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
 mod low_power;
 
-#[cfg(feature = "low-power")]
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
 use core::cell::{RefCell, RefMut};
-#[cfg(feature = "low-power")]
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
 use core::ops;
 
-#[cfg(feature = "low-power")]
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
 use critical_section::CriticalSection;
-#[cfg(feature = "low-power")]
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
 use embassy_sync::blocking_mutex::Mutex;
-#[cfg(feature = "low-power")]
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 
 pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
@@ -116,13 +116,13 @@ impl RtcTimeProvider {
     }
 }
 
-#[cfg(feature = "low-power")]
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
 /// Contains an RTC driver.
 pub struct RtcContainer {
     pub(self) mutex: &'static Mutex<CriticalSectionRawMutex, RefCell<Option<Rtc>>>,
 }
 
-#[cfg(feature = "low-power")]
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
 impl RtcContainer {
     pub(self) const fn new() -> Self {
         Self {
@@ -138,13 +138,13 @@ impl RtcContainer {
     }
 }
 
-#[cfg(feature = "low-power")]
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
 /// Contains an RTC borrow.
 pub struct RtcBorrow<'a> {
     pub(self) ref_mut: RefMut<'a, Option<Rtc>>,
 }
 
-#[cfg(feature = "low-power")]
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
 impl<'a> ops::Deref for RtcBorrow<'a> {
     type Target = Rtc;
 
@@ -153,7 +153,7 @@ impl<'a> ops::Deref for RtcBorrow<'a> {
     }
 }
 
-#[cfg(feature = "low-power")]
+#[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
 impl<'a> ops::DerefMut for RtcBorrow<'a> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.ref_mut.as_mut().unwrap()
@@ -162,7 +162,7 @@ impl<'a> ops::DerefMut for RtcBorrow<'a> {
 
 /// RTC driver.
 pub struct Rtc {
-    #[cfg(feature = "low-power")]
+    #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
     epoch: chrono::DateTime<chrono::Utc>,
     _private: (),
 }
@@ -207,25 +207,24 @@ pub enum RtcCalibrationCyclePeriod {
 }
 
 impl Rtc {
-    #[cfg(not(feature = "low-power"))]
+    #[cfg(any(not(feature = "low-power"), feature = "_lp-time-driver"))]
     /// Create a new RTC instance.
     pub fn new(_rtc: Peri<'static, RTC>, rtc_config: RtcConfig) -> (Self, RtcTimeProvider) {
         (Self::new_inner(rtc_config), RtcTimeProvider::new())
     }
 
-    #[cfg(feature = "low-power")]
+    #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
     /// Create a new RTC instance.
     pub fn new(_rtc: Peri<'static, RTC>) -> (RtcContainer, RtcTimeProvider) {
         (RtcContainer::new(), RtcTimeProvider::new())
     }
 
-    #[cfg(not(all(feature = "low-power", feature = "_lp-time-driver")))]
     pub(self) fn new_inner(rtc_config: RtcConfig) -> Self {
         #[cfg(not(any(stm32l0, stm32f3, stm32l1, stm32f0, stm32f2)))]
         crate::rcc::enable_and_reset::<RTC>();
 
         let mut this = Self {
-            #[cfg(feature = "low-power")]
+            #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
             epoch: chrono::DateTime::from_timestamp_secs(0).unwrap(),
             _private: (),
         };
@@ -243,7 +242,7 @@ impl Rtc {
             while now == RtcTimeProvider::new().read(|_, _, ss| Ok(ss)).unwrap() {}
         }
 
-        #[cfg(feature = "low-power")]
+        #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
         {
             this.enable_wakeup_line();
             this.epoch = this.calc_epoch();
@@ -252,7 +251,6 @@ impl Rtc {
         this
     }
 
-    #[cfg(not(all(feature = "low-power", feature = "_lp-time-driver")))]
     fn frequency() -> Hertz {
         let freqs = unsafe { crate::rcc::get_freqs() };
         freqs.rtc.to_hertz().unwrap()
@@ -298,7 +296,7 @@ impl Rtc {
             });
         });
 
-        #[cfg(feature = "low-power")]
+        #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
         {
             self.epoch = self.calc_epoch();
         }

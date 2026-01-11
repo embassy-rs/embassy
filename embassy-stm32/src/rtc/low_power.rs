@@ -1,20 +1,12 @@
 use chrono::{DateTime, NaiveDateTime, TimeDelta, Utc};
-use embassy_time::Instant;
-#[cfg(not(feature = "_lp-time-driver"))]
-use embassy_time::{Duration, TICK_HZ};
+use embassy_time::{Duration, Instant, TICK_HZ};
 
 use super::Rtc;
-#[cfg(not(feature = "_lp-time-driver"))]
 use crate::interrupt::typelevel::Interrupt;
-#[cfg(not(feature = "_lp-time-driver"))]
 use crate::pac::rtc::vals::Wucksel;
-#[cfg(not(feature = "_lp-time-driver"))]
 use crate::peripherals::RTC;
-use crate::rtc::RtcTimeProvider;
-#[cfg(not(feature = "_lp-time-driver"))]
-use crate::rtc::SealedInstance;
+use crate::rtc::{RtcTimeProvider, SealedInstance};
 
-#[cfg(not(feature = "_lp-time-driver"))]
 fn wucksel_compute_min(val: u32) -> (Wucksel, u32) {
     *[
         (Wucksel::DIV2, 2),
@@ -36,7 +28,6 @@ impl Rtc {
 
     /// start the wakeup alarm and with a duration that is as close to but less than
     /// the requested duration, and record the instant the wakeup alarm was started
-    #[cfg(not(feature = "_lp-time-driver"))]
     pub(crate) fn start_wakeup_alarm(&mut self, requested_duration: embassy_time::Duration) {
         // Panic if the rcc mod knows we're not using low-power rtc
         #[cfg(any(rcc_wb, rcc_f4, rcc_f410))]
@@ -82,7 +73,6 @@ impl Rtc {
 
     /// stop the wakeup alarm and return the time elapsed since `start_wakeup_alarm`
     /// was called, otherwise none
-    #[cfg(not(feature = "_lp-time-driver"))]
     pub(crate) fn stop_wakeup_alarm(&mut self) -> embassy_time::Instant {
         if RTC::regs().cr().read().wute() {
             trace!("rtc: stop wakeup alarm");
@@ -115,7 +105,6 @@ impl Rtc {
         Instant::from_micros(offset.num_microseconds().unwrap().try_into().unwrap())
     }
 
-    #[cfg(not(feature = "_lp-time-driver"))]
     pub(super) fn enable_wakeup_line(&mut self) {
         <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::unpend();
         unsafe { <RTC as crate::rtc::SealedInstance>::WakeupInterrupt::enable() };

@@ -19,8 +19,6 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::lptim::SealedInstance;
 use crate::pac::lptim::vals;
 use crate::rcc::SealedRccPeripheral;
-#[cfg(feature = "low-power")]
-use crate::rtc::Rtc;
 use crate::{peripherals, rcc};
 
 #[cfg(time_driver_lptim1)]
@@ -39,8 +37,6 @@ pub(crate) struct RtcDriver {
     period: AtomicU32,
     alarm: Mutex<CriticalSectionRawMutex, AlarmState>,
     #[cfg(feature = "low-power")]
-    pub(crate) rtc: Mutex<CriticalSectionRawMutex, RefCell<Option<Rtc>>>,
-    #[cfg(feature = "low-power")]
     is_stopped: AtomicBool,
     #[cfg(feature = "low-power")]
     /// The minimum pause time beyond which the executor will enter a low-power state.
@@ -51,8 +47,6 @@ pub(crate) struct RtcDriver {
 embassy_time_driver::time_driver_impl!(static DRIVER: RtcDriver = RtcDriver {
     period: AtomicU32::new(0),
     alarm: Mutex::const_new(CriticalSectionRawMutex::new(), AlarmState::new()),
-    #[cfg(feature = "low-power")]
-    rtc: Mutex::const_new(CriticalSectionRawMutex::new(), RefCell::new(None)),
     #[cfg(feature = "low-power")]
     is_stopped: AtomicBool::new(false),
     #[cfg(feature = "low-power")]
@@ -96,8 +90,9 @@ impl RtcDriver {
 
         // RM says timer must be enabled before setting arr or cmp
         r.cr().modify(|w| w.set_enable(true));
+        trace!("init: arr: {:?}", r.arr().read());
+        // TRM says this is updated immediately if the timer is not started so no need to check for arrok! (stm32wl5 & stm32wle)
         r.arr().write(|w| w.set_arr(u16::MAX));
-        while !r.isr().read().arrok() {}
 
         // Enable overflow interrupts
         T::regs().ier().modify(|w| w.set_ueie(true));
