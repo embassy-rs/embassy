@@ -4,7 +4,7 @@ use super::enums::*;
 use super::frame::*;
 
 pub(crate) struct ClassicBufferedRxInner {
-    pub rx_sender: SendDynamicSender<'static, Result<Envelope, BusError>>,
+    pub rx_sender: SendDynamicSender<'static, Envelope>,
 }
 pub(crate) struct ClassicBufferedTxInner {
     pub tx_receiver: SendDynamicReceiver<'static, Frame>,
@@ -13,7 +13,7 @@ pub(crate) struct ClassicBufferedTxInner {
 #[cfg(any(can_fdcan_v1, can_fdcan_h7))]
 
 pub(crate) struct FdBufferedRxInner {
-    pub rx_sender: SendDynamicSender<'static, Result<FdEnvelope, BusError>>,
+    pub rx_sender: SendDynamicSender<'static, FdEnvelope>,
 }
 
 #[cfg(any(can_fdcan_v1, can_fdcan_h7))]
@@ -61,7 +61,7 @@ pub type BufferedCanSender = BufferedSender<'static, Frame>;
 
 /// Receiver that can be used for receiving CAN frames. Note, each CAN frame will only be received by one receiver.
 pub struct BufferedReceiver<'ch, ENVELOPE> {
-    pub(crate) rx_buf: embassy_sync::channel::SendDynamicReceiver<'ch, Result<ENVELOPE, BusError>>,
+    pub(crate) rx_buf: embassy_sync::channel::SendDynamicReceiver<'ch, ENVELOPE>,
     pub(crate) info: RxInfoRef,
 }
 
@@ -69,14 +69,14 @@ impl<'ch, ENVELOPE> BufferedReceiver<'ch, ENVELOPE> {
     /// Receive the next frame.
     ///
     /// See [`Channel::receive()`].
-    pub fn receive(&self) -> embassy_sync::channel::DynamicReceiveFuture<'_, Result<ENVELOPE, BusError>> {
+    pub fn receive(&self) -> embassy_sync::channel::DynamicReceiveFuture<'_, ENVELOPE> {
         self.rx_buf.receive()
     }
 
     /// Attempt to immediately receive the next frame.
     ///
     /// See [`Channel::try_receive()`]
-    pub fn try_receive(&self) -> Result<Result<ENVELOPE, BusError>, embassy_sync::channel::TryReceiveError> {
+    pub fn try_receive(&self) -> Result<ENVELOPE, embassy_sync::channel::TryReceiveError> {
         self.rx_buf.try_receive()
     }
 
@@ -90,7 +90,7 @@ impl<'ch, ENVELOPE> BufferedReceiver<'ch, ENVELOPE> {
     /// Poll the channel for the next frame
     ///
     /// See [`Channel::poll_receive()`]
-    pub fn poll_receive(&self, cx: &mut core::task::Context<'_>) -> core::task::Poll<Result<ENVELOPE, BusError>> {
+    pub fn poll_receive(&self, cx: &mut core::task::Context<'_>) -> core::task::Poll<ENVELOPE> {
         self.rx_buf.poll_receive(cx)
     }
 }
