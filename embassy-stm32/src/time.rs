@@ -37,6 +37,25 @@ impl Hertz {
     }
 }
 
+pub(crate) trait Prescaler {
+    fn num(&self) -> u32;
+    fn denom(&self) -> u32;
+}
+
+impl<T: Prescaler> Div<T> for Hertz {
+    type Output = Hertz;
+    fn div(self, rhs: T) -> Self::Output {
+        self * rhs.denom() / rhs.num()
+    }
+}
+
+impl<T: Prescaler> Mul<T> for Hertz {
+    type Output = Hertz;
+    fn mul(self, rhs: T) -> Self::Output {
+        self * rhs.num() / rhs.denom()
+    }
+}
+
 /// This is a convenience shortcut for [`Hertz::hz`]
 pub const fn hz(hertz: u32) -> Hertz {
     Hertz::hz(hertz)
