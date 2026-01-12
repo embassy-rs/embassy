@@ -98,42 +98,40 @@ impl Registers {
         self.regs.txbar().modify(|w| w.set_ar(bufidx, true));
     }
 
-    fn reg_to_error(value: u8) -> Option<BusError> {
+    fn reg_to_error(value: u8) -> Result<BusError, ()> {
         match value {
-            //0b000 => None,
-            0b001 => Some(BusError::Stuff),
-            0b010 => Some(BusError::Form),
-            0b011 => Some(BusError::Acknowledge),
-            0b100 => Some(BusError::BitRecessive),
-            0b101 => Some(BusError::BitDominant),
-            0b110 => Some(BusError::Crc),
-            //0b111 => Some(BusError::NoError),
-            _ => None,
+            0b000 => Ok(BusError::NoError),
+            0b001 => Ok(BusError::Stuff),
+            0b010 => Ok(BusError::Form),
+            0b011 => Ok(BusError::Acknowledge),
+            0b100 => Ok(BusError::BitRecessive),
+            0b101 => Ok(BusError::BitDominant),
+            0b110 => Ok(BusError::Crc),
+            0b111 => Ok(BusError::NoChange),
+            _ => Err(()),
         }
     }
 
-    pub fn curr_error(&self) -> Option<BusError> {
-        let err = { self.regs.psr().read() };
-        if err.bo() {
-            return Some(BusError::BusOff);
-        } else if err.ep() {
-            return Some(BusError::BusPassive);
-        } else if err.ew() {
-            return Some(BusError::BusWarning);
-        } else {
-            cfg_if! {
-                if #[cfg(can_fdcan_h7)] {
-                    let lec = err.lec();
-                } else {
-                    let lec = err.lec().to_bits();
-                }
-            }
-            if let Some(err) = Self::reg_to_error(lec) {
-                return Some(err);
+    /// Reads psr and returns current error mode and error code
+    pub fn curr_error(&self) -> Result<(BusErrorMode, BusError), ()> {
+        let psr = { self.regs.psr().read() };
+        cfg_if! {
+            if #[cfg(can_fdcan_h7)] {
+                let lec = psr.lec();
+            } else {
+                let lec = psr.lec().to_bits();
             }
         }
-        None
+        if let Ok(err) = Self::reg_to_error(lec) {
+            return match (psr.bo(), psr.ep()) {
+                (false, false) => Ok((BusErrorMode::ErrorActive, err)),
+                (false, true) => Ok((BusErrorMode::ErrorPassive, err)),
+                (true, _) => Ok((BusErrorMode::BusOff, err)),
+            };
+        }
+        Err(())
     }
+
     /// Returns if the tx queue is able to accept new messages without having to cancel an existing one
     #[inline]
     pub fn tx_queue_is_full(&self) -> bool {
