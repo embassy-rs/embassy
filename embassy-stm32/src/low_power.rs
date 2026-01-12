@@ -49,9 +49,12 @@ use cortex_m::peripheral::SCB;
 use critical_section::CriticalSection;
 use embassy_executor::*;
 
+#[cfg(not(feature = "_lp-time-driver"))]
 use crate::interrupt;
 pub use crate::rcc::StopMode;
-use crate::rcc::{BusyPeripheral, RCC_CONFIG, REFCOUNT_STOP1, REFCOUNT_STOP2};
+use crate::rcc::{BusyPeripheral, REFCOUNT_STOP1, REFCOUNT_STOP2};
+#[cfg(feature = "low-power")]
+use crate::time_driver::LPTimeDriver;
 use crate::time_driver::get_driver;
 
 const THREAD_PENDER: usize = usize::MAX;
@@ -102,7 +105,7 @@ impl DeviceBusy {
     }
 }
 
-#[cfg(not(stm32u0))]
+#[cfg(not(any(stm32u0, feature = "_lp-time-driver")))]
 foreach_interrupt! {
     (RTC, rtc, $block:ident, WKUP, $irq:ident) => {
         #[interrupt]
@@ -188,76 +191,102 @@ impl Executor {
             return;
         }
 
-        critical_section::with(|cs| {
+        critical_section::with(|_cs| {
             #[cfg(any(stm32wl, stm32wb))]
             {
+                // stm32wl5x is dual core and we don't want BOTH cores to re-initialize RCC so we hold a lock
+                #[cfg(stm32wl5x)]
+                let lock = crate::rcc::wait_for_lock();
+
                 let es = crate::pac::PWR.extscr().read();
+
+                // we need to re-initialize RCC if *BOTH* cores have been in some STOP mode!
+                #[cfg(stm32wl)]
+                let re_initialize_rcc = {
+                    #[cfg(stm32wl5x)]
+                    {
+                        // core 1 in any STOP mode AND core 2 in any STOP mode
+                        (es.c1stopf() || es.c1stop2f()) && (es.c2stopf() || es.c2stop2f())
+                    }
+                    #[cfg(stm32wlex)]
+                    {
+                        es.c1stop2f() || es.c1stopf()
+                    }
+                };
+
+                #[cfg(not(stm32wb))]
+                let re_initialize_timer = {
+                    #[cfg(not(feature = "_core-cm0p"))]
+                    {
+                        es.c1stop2f()
+                    }
+                    #[cfg(feature = "_core-cm0p")]
+                    {
+                        es.c2stop2f()
+                    }
+                };
+
+                #[cfg(not(stm32wb))]
+                if re_initialize_rcc {
+                    // when we wake from any stop mode we need to re-initialize the rcc
+                    crate::rcc::init(unsafe { crate::rcc::get_rcc_config() }.unwrap());
+                }
+
+                // Clear this core's stop flags
+                #[cfg(stm32wl)]
+                crate::pac::PWR.extscr().modify(|w| {
+                    #[cfg(any(stm32wlex, not(feature = "_core-cm0p")))]
+                    w.set_c1cssf(true);
+                    #[cfg(feature = "_core-cm0p")]
+                    w.set_c2cssf(true);
+                });
+
+                #[cfg(stm32wl5x)]
+                drop(lock);
+
                 #[cfg(stm32wl)]
                 match (es.c1stopf(), es.c1stop2f()) {
-                    (true, false) => debug!("low power: cpu1 wake from STOP1"),
-                    (false, true) => debug!("low power: cpu1 wake from STOP2"),
-                    (true, true) => debug!("low power: cpu1 wake from STOP1 and STOP2 ???"),
+                    (true, false) => debug!("low power: cpu1 has been in STOP1"),
+                    (false, true) => debug!("low power: cpu1 has been in STOP2"),
+                    (true, true) => debug!("low power: cpu1 has been in STOP1 and STOP2 ???"),
                     (false, false) => trace!("low power: cpu1 stop mode not entered"),
                 };
                 #[cfg(stm32wl5x)]
                 // TODO: only for the current cpu
                 match (es.c2stopf(), es.c2stop2f()) {
-                    (true, false) => debug!("low power: cpu2 wake from STOP1"),
-                    (false, true) => debug!("low power: cpu2 wake from STOP2"),
-                    (true, true) => debug!("low power: cpu2 wake from STOP1 and STOP2 ???"),
+                    (true, false) => debug!("low power: cpu2 has been in STOP1"),
+                    (false, true) => debug!("low power: cpu2 has been in STOP2"),
+                    (true, true) => debug!("low power: cpu2 has been in STOP1 and STOP2 ???"),
                     (false, false) => trace!("low power: cpu2 stop mode not entered"),
                 };
 
                 #[cfg(stm32wb)]
                 match (es.c1stopf(), es.c2stopf()) {
-                    (true, false) => debug!("low power: cpu1 wake from STOP"),
-                    (false, true) => debug!("low power: cpu2 wake from STOP"),
-                    (true, true) => debug!("low power: cpu1 and cpu2 wake from STOP"),
+                    (true, false) => debug!("low power: cpu1 has been in STOP"),
+                    (false, true) => debug!("low power: cpu2 has been in STOP"),
+                    (true, true) => debug!("low power: cpu1 and cpu2 have been in STOP"),
                     (false, false) => trace!("low power: stop mode not entered"),
                 };
 
-                let _has_stopped2 = {
-                    #[cfg(stm32wb)]
-                    {
-                        es.c2stopf()
-                    }
-
-                    #[cfg(stm32wlex)]
-                    {
-                        es.c1stop2f()
-                    }
-
-                    #[cfg(stm32wl5x)]
-                    {
-                        // TODO: I think we could just use c1stop2f() here as it won't enter a stop mode unless BOTH cpus will enter it.
-                        es.c1stop2f() | es.c2stop2f()
-                    }
-                };
-
                 #[cfg(not(stm32wb))]
-                if es.c1stopf() || _has_stopped2 {
-                    // when we wake from any stop mode we need to re-initialize the rcc
-                    crate::rcc::init(RCC_CONFIG.unwrap());
-                    if _has_stopped2 {
-                        // when we wake from STOP2, we need to re-initialize the time driver
-                        get_driver().init_timer(cs);
-                        // reset the refcounts for STOP2 and STOP1 (initializing the time driver will increment one of them for the timer)
-                        // and given that we just woke from STOP2, we can reset them
+                if re_initialize_timer {
+                    trace!("low power: re-initializing timer");
+                    // when we wake from STOP2, we need to re-initialize the time driver
+                    #[cfg(not(feature = "_lp-time-driver"))]
+                    get_driver().init_timer(_cs);
+                    // reset the refcounts for STOP2 and STOP1 (initializing the time driver will increment one of them for the timer)
+                    // and given that we just woke from STOP2, we can reset them
+                    #[cfg(not(feature = "_lp-time-driver"))]
+                    {
                         REFCOUNT_STOP2 = 0;
                         REFCOUNT_STOP1 = 0;
                     }
                 }
-                // Clear all stop flags
-                #[cfg(stm32wl)]
-                crate::pac::PWR.extscr().modify(|w| {
-                    w.set_c1cssf(true);
-                    #[cfg(stm32wl5x)]
-                    w.set_c2cssf(true);
-                });
             }
-            get_driver().resume_time(cs);
 
-            trace!("low power: resume time");
+            get_driver().resume_time(_cs);
+
+            trace!("low power: resumed");
         });
     }
 
@@ -364,7 +393,18 @@ impl Executor {
         };
 
         #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u3, stm32u0, stm32wb, stm32wba, stm32wl))]
-        crate::pac::PWR.cr1().modify(|m| m.set_lpms(stop_mode.into()));
+        {
+            #[cfg(not(feature = "_core-cm0p"))]
+            crate::pac::PWR.cr1().modify(|m| m.set_lpms(stop_mode.into()));
+            #[cfg(feature = "_core-cm0p")]
+            crate::pac::PWR.c2cr1().modify(|m| {
+                m.set_lpms(match stop_mode {
+                    StopMode::Stop1 => 1,
+                    StopMode::Stop2 => 2,
+                    StopMode::Standby => 3,
+                })
+            });
+        }
         #[cfg(stm32h5)]
         crate::pac::PWR.pmcr().modify(|v| {
             use crate::pac::pwr::vals;
@@ -383,8 +423,9 @@ impl Executor {
         // Clear any previous stop flags
         #[cfg(stm32wl)]
         crate::pac::PWR.extscr().modify(|w| {
+            #[cfg(not(feature = "_core-cm0p"))]
             w.set_c1cssf(true);
-            #[cfg(stm32wl5x)]
+            #[cfg(feature = "_core-cm0p")]
             w.set_c2cssf(true);
         });
 
@@ -398,7 +439,7 @@ impl Executor {
         compiler_fence(Ordering::Acquire);
 
         critical_section::with(|cs| {
-            let _ = unsafe { RCC_CONFIG }?;
+            let _ = unsafe { crate::rcc::get_rcc_config() }?;
             let stop_mode = Self::stop_mode(cs)?;
             get_driver().pause_time(cs).ok()?;
             self.configure_stop(cs, stop_mode).ok()?;

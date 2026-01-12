@@ -13,7 +13,7 @@ use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_time::Timer;
 use panic_probe as _;
 
-#[unsafe(link_section = ".shared_data")]
+#[unsafe(link_section = ".shared_data.0")]
 static SHARED_DATA: MaybeUninit<SharedData> = MaybeUninit::uninit();
 
 #[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
@@ -41,17 +41,20 @@ async fn async_main(_spawner: Spawner) {
         defmt_serial::defmt_serial(SERIAL.init(uart));
     }
 
+    // start the second core
+    embassy_stm32::pac::PWR.cr4().modify(|w| w.set_c2boot(true));
+
     info!("Hello World!");
 
     let mut led = Output::new(p.PB15, Level::High, Speed::Low);
 
     loop {
-        info!("low");
-        led.set_low();
-        Timer::after_millis(5000).await;
-
         info!("high");
         led.set_high();
-        Timer::after_millis(5000).await;
+        Timer::after_millis(100).await;
+
+        info!("low");
+        led.set_low();
+        Timer::after_millis(4900).await;
     }
 }

@@ -5,7 +5,7 @@ use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
-#[cfg(all(stm32wb, feature = "low-power"))]
+#[cfg(all(any(stm32wb, stm32wl5x), feature = "low-power"))]
 use critical_section::CriticalSection;
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
@@ -80,10 +80,10 @@ impl CoreId {
     }
 }
 
-#[cfg(all(not(all(stm32wb, feature = "low-power")), not(stm32wl5x)))]
+#[cfg(all(not(all(stm32wb, feature = "low-power")), not(all(stm32wl5x, feature = "low-power"))))]
 const PUB_CHANNELS: usize = 6;
 
-#[cfg(stm32wl5x)]
+#[cfg(all(stm32wl5x, feature = "low-power"))]
 const PUB_CHANNELS: usize = 5;
 
 #[cfg(all(stm32wb, feature = "low-power"))]
@@ -265,6 +265,8 @@ impl<T: Instance> HardwareSemaphore<T> {
     pub const fn channel_for<'a>(&'a mut self, number: u8) -> HardwareSemaphoreChannel<'a, T> {
         #[cfg(all(stm32wb, feature = "low-power"))]
         core::assert!(number != 3 && number != 4);
+        #[cfg(all(stm32wl5x, feature = "low-power"))]
+        core::assert!(number != 3);
 
         HardwareSemaphoreChannel::new(number)
     }
@@ -276,7 +278,7 @@ impl<T: Instance> HardwareSemaphore<T> {
         [
             HardwareSemaphoreChannel::new(1),
             HardwareSemaphoreChannel::new(2),
-            #[cfg(all(not(all(stm32wb, feature = "low-power")), not(stm32wl5x)))]
+            #[cfg(all(not(all(stm32wb, feature = "low-power")), not(all(stm32wl5x, feature = "low-power"))))]
             HardwareSemaphoreChannel::new(3),
             #[cfg(not(all(stm32wb, feature = "low-power")))]
             HardwareSemaphoreChannel::new(4),
@@ -307,10 +309,10 @@ impl<T: Instance> HardwareSemaphore<T> {
     }
 }
 
-#[cfg(all(stm32wb, feature = "low-power"))]
+#[cfg(all(any(stm32wb, stm32wl5x), feature = "low-power"))]
 pub(crate) fn init_hsem(cs: CriticalSection) {
     rcc::enable_and_reset_with_cs::<crate::peripherals::HSEM>(cs);
-
+    #[cfg(stm32wb)]
     unsafe {
         crate::rcc::REFCOUNT_STOP1 = 0;
         crate::rcc::REFCOUNT_STOP2 = 0;
