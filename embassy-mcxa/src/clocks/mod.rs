@@ -39,7 +39,7 @@ use core::cell::RefCell;
 
 use config::{ClocksConfig, FircConfig, FircFreqSel, Fro16KConfig, SircConfig};
 use mcxa_pac::scg0::firccsr::{FircFclkPeriphEn, FircSclkPeriphEn, Fircsten};
-use mcxa_pac::scg0::sirccsr::{SircClkPeriphEn, Sircsten};
+use mcxa_pac::scg0::sirccsr::Sircsten;
 use periph_helpers::SPConfHelper;
 
 use crate::pac;
@@ -77,6 +77,7 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     let mut operator = ClockOperator {
         clocks: &mut clocks,
         config: &settings,
+        sirc_forced: false,
 
         _mrcc0: unsafe { pac::Mrcc0::steal() },
         scg0: unsafe { pac::Scg0::steal() },
@@ -84,8 +85,40 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
         vbat0: unsafe { pac::Vbat0::steal() },
     };
 
+    // TODO: If we want to support changing main CPU clock + FRO45M,
+    // there are a couple of different cases we need to handle:
+    //
+    // * User wants to use FIRC as the main_clk source, no FIRC changes (default now)
+    // * User wants to use FIRC as the main_clk source, but wants to make FIRC changes, AND:
+    //   * They have enabled some other clock, maybe specifically SIRC, we can use temporarily
+    //   * They have disabled ALL OTHER clocks, we need to temporarily use SIRC, but then turn it off
+    // * User wants to use a clock that is NOT influenced by FIRC, e.g. SPLL w/ SIRC source
+    // * User wants to use a clock that IS influenced by FIRC, e.g. SPLL w/ FIRC source
+    //
+    // I think the flow tho is:
+    //
+    // * if FIRC is !default and enabled:
+    //   * enable SIRC (early)
+    //   * switch to SIRC as main_clk
+    //   * make FIRC changes
+    //   * switch back to FIRC as main_clk
+    // * If FIRC is default and enabled:
+    //   * Pretty much just leave it?
+    // * If FIRC is disabled:
+    //   * enable SIRC (early)
+    //   * switch to SIRC as main_clk
+    //   * disable FIRC
+    //
+    // Then later in boot, we'll want to:
+    //
+    // * If SIRC should be enabled, finish setting it up
+    // * switch main_clk to the desired destination
+    // * If SIRC was weird, fix SIRC
+
+    // Enable SIRC clocks FIRST, in case we need to use SIRC as main_clk for
+    // a short while.
+    operator.configure_sirc_clocks_early()?;
     operator.configure_firc_clocks()?;
-    operator.configure_sirc_clocks()?;
     operator.configure_fro16k_clocks()?;
     operator.configure_sosc()?;
     operator.configure_spll()?;
@@ -98,6 +131,9 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     // We can also assume cpu/system clk == fro_hf because div is /1.
     assert_eq!(operator.syscon.ahbclkdiv().read().div().bits(), 0);
     operator.clocks.cpu_system_clk = Some(input);
+
+    // If we were keeping SIRC enabled, now we can release it.
+    operator.configure_sirc_clocks_late();
 
     critical_section::with(|cs| {
         let mut clks = CLOCKS.borrow_ref_mut(cs);
@@ -264,6 +300,9 @@ struct ClockOperator<'a> {
     clocks: &'a mut Clocks,
     /// A reference to the requested configuration provided by the caller of [`init()`]
     config: &'a ClocksConfig,
+
+    /// SIRC is forced-on until we set `main_clk`
+    sirc_forced: bool,
 
     // We hold on to stolen peripherals
     _mrcc0: pac::Mrcc0,
@@ -592,10 +631,34 @@ impl ClockOperator<'_> {
             reason: "For now, FIRC must be enabled and in default state!",
         });
 
+        // Three options here:
+        //
+        // * Firc is disabled -> Switch main clock to SIRC and return
+        // * Firc is enabled and !default ->
+        //   * Switch main clock to SIRC
+        //   * Make FIRC changes
+        //   * Switch main clock back to FIRC
+        // * Firc is enabled and default -> nop
+        let is_default = self
+            .config
+            .firc
+            .as_ref()
+            .is_some_and(|c| matches!(c.frequency, FircFreqSel::Mhz45));
+
+        // If we are not default, then we need to switch to SIRC
+        if !is_default {
+            // Set SIRC (fro_12m) as the source
+            self.scg0.rccr().modify(|_r, w| w.scs().sirc());
+
+            // Wait for the change to complete
+            while self.scg0.csr().read().scs().is_sirc() {}
+        }
+
         // Did the user give us a FIRC config?
         let Some(firc) = self.config.firc.as_ref() else {
-            return HARDCODED_ERR;
+            return Ok(());
         };
+
         // Is the FIRC set to 45MHz (should be reset default)
         if !matches!(firc.frequency, FircFreqSel::Mhz45) {
             return HARDCODED_ERR;
@@ -721,7 +784,7 @@ impl ClockOperator<'_> {
     }
 
     /// Configure the SIRC/FRO12M clock family
-    fn configure_sirc_clocks(&mut self) -> Result<(), ClockError> {
+    fn configure_sirc_clocks_early(&mut self) -> Result<(), ClockError> {
         let SircConfig {
             power,
             fro_12m_enabled,
@@ -740,7 +803,12 @@ impl ClockOperator<'_> {
             PoweredClock::NormalEnabledDeepSleepDisabled => Sircsten::Disabled,
             PoweredClock::AlwaysEnabled => Sircsten::Enabled,
         };
-        let pclk = if *fro_12m_enabled {
+
+        // If the user wants fro_12m to be disabled, FOR now, we ignore their
+        // wish to ensure fro_12m is selectable as a main_clk source at least until
+        // we select the CPU clock. We still mark it as not enabled though, to prevent
+        // other peripherals using it, as we will gate if off at `configure_sirc_clocks_late`.
+        if *fro_12m_enabled {
             self.clocks.fro_12m = Some(Clock {
                 frequency: base_freq,
                 power: *power,
@@ -749,15 +817,15 @@ impl ClockOperator<'_> {
                 frequency: base_freq / 12,
                 power: *power,
             });
-            SircClkPeriphEn::Enabled
         } else {
-            SircClkPeriphEn::Disabled
+            self.sirc_forced = true;
         };
 
         // Set sleep/peripheral usage
         self.scg0.sirccsr().modify(|_r, w| {
             w.sircsten().variant(deep);
-            w.sirc_clk_periph_en().variant(pclk);
+            // Always on, for now at least! Will be resolved in `configure_sirc_clocks_late`
+            w.sirc_clk_periph_en().enabled();
             w
         });
 
@@ -807,6 +875,19 @@ impl ClockOperator<'_> {
         }
 
         Ok(())
+    }
+
+    fn configure_sirc_clocks_late(&mut self) {
+        // If we forced SIRC's fro_12m to be enabled, disable it now.
+        if self.sirc_forced {
+            // Allow writes
+            self.scg0.sirccsr().modify(|_r, w| w.lk().write_enabled());
+
+            self.scg0.sirccsr().modify(|_r, w| w.sirc_clk_periph_en().disabled());
+
+            // reset lock
+            self.scg0.sirccsr().modify(|_r, w| w.lk().write_disabled());
+        }
     }
 
     /// Configure the ROSC/FRO16K/clk_16k clock family
