@@ -279,32 +279,22 @@ impl RtcDriver {
 
 #[cfg(feature = "low-power")]
 impl super::LPTimeDriver for RtcDriver {
-    #[cfg(feature = "low-power")]
-    /// Compute the approximate amount of time until the next alarm
     fn time_until_next_alarm(&self, cs: CriticalSection) -> embassy_time::Duration {
         let now = self.now() + 32;
 
         embassy_time::Duration::from_ticks(self.alarm.borrow(cs).timestamp.get().saturating_sub(now))
     }
 
-    /*
-        Low-power public functions: all require a critical section
-    */
-    #[cfg(feature = "low-power")]
     fn set_min_stop_pause(&self, cs: CriticalSection, min_stop_pause: embassy_time::Duration) {
         self.min_stop_pause.borrow(cs).replace(min_stop_pause);
     }
 
-    #[cfg(feature = "low-power")]
-    /// Set the rtc but panic if it's already been set
     fn set_rtc(&self, cs: CriticalSection, mut rtc: Rtc) {
         rtc.stop_wakeup_alarm();
 
         assert!(self.rtc.borrow(cs).replace(Some(rtc)).is_none());
     }
 
-    #[cfg(feature = "low-power")]
-    /// Pause the timer if ready; return err if not
     fn pause_time(&self, cs: CriticalSection) -> Result<(), ()> {
         assert!(regs_gp16().cr1().read().cen());
 
@@ -328,8 +318,6 @@ impl super::LPTimeDriver for RtcDriver {
         }
     }
 
-    #[cfg(feature = "low-power")]
-    /// Resume the timer with the given offset
     fn resume_time(&self, cs: CriticalSection) {
         assert!(!regs_gp16().cr1().read().cen());
 
@@ -347,8 +335,6 @@ impl super::LPTimeDriver for RtcDriver {
         regs_gp16().cr1().modify(|w| w.set_cen(true));
     }
 
-    #[cfg(feature = "low-power")]
-    /// Returns whether time is currently stopped
     fn is_stopped(&self) -> bool {
         !regs_gp16().cr1().read().cen()
     }
