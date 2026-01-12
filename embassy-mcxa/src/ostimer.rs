@@ -1,5 +1,6 @@
 //! Time Driver.
 use core::cell::{Cell, RefCell};
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use critical_section::CriticalSection;
 use embassy_sync::blocking_mutex::Mutex;
@@ -142,8 +143,16 @@ impl OsTimer {
     }
 }
 
+static INIT: AtomicBool = AtomicBool::new(false);
+
 impl Driver for OsTimer {
     fn now(&self) -> u64 {
+        // Don't try to read the timer before the OsTimer is actually enabled.
+        // This leads to faults on the MCX-A.
+        if !INIT.load(Ordering::Relaxed) {
+            return 0;
+        }
+
         let mut t = os().evtimerh().read().bits() as u64;
         t <<= 32;
         t |= os().evtimerl().read().bits() as u64;
@@ -171,5 +180,6 @@ fn OS_EVENT() {
 }
 
 pub(crate) fn init(irq_prio: crate::interrupt::Priority) {
-    DRIVER.init(irq_prio)
+    DRIVER.init(irq_prio);
+    INIT.store(true, Ordering::Relaxed);
 }
