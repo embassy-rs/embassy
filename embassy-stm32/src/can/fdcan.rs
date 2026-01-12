@@ -341,7 +341,7 @@ impl<'d> Can<'d> {
     }
 
     /// Returns the next received message frame
-    pub async fn read(&mut self) -> Result<Envelope, BusError> {
+    pub async fn read(&mut self) -> Envelope {
         RxMode::read_classic(&self.info).await
     }
 
@@ -354,7 +354,7 @@ impl<'d> Can<'d> {
     }
 
     /// Returns the next received message frame
-    pub async fn read_fd(&mut self) -> Result<FdEnvelope, BusError> {
+    pub async fn read_fd(&mut self) -> FdEnvelope {
         RxMode::read_fd(&self.info).await
     }
 
@@ -408,7 +408,7 @@ impl<'d> Can<'d> {
 }
 
 /// User supplied buffer for RX Buffering
-pub type RxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Result<Envelope, BusError>, BUF_SIZE>;
+pub type RxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Envelope, BUF_SIZE>;
 
 /// User supplied buffer for TX buffering
 pub type TxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Frame, BUF_SIZE>;
@@ -469,7 +469,7 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d,
     }
 
     /// Async read frame from RX buffer.
-    pub async fn read(&mut self) -> Result<Envelope, BusError> {
+    pub async fn read(&mut self) -> Envelope {
         self.rx_buf.receive().await
     }
 
@@ -491,7 +491,7 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d,
 }
 
 /// User supplied buffer for RX Buffering
-pub type RxFdBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Result<FdEnvelope, BusError>, BUF_SIZE>;
+pub type RxFdBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, FdEnvelope, BUF_SIZE>;
 
 /// User supplied buffer for TX buffering
 pub type TxFdBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, FdFrame, BUF_SIZE>;
@@ -558,7 +558,7 @@ impl<'c, 'd, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCanFd<'
     }
 
     /// Async read frame from RX buffer.
-    pub async fn read(&mut self) -> Result<FdEnvelope, BusError> {
+    pub async fn read(&mut self) -> FdEnvelope {
         self.rx_buf.receive().await
     }
 
@@ -588,12 +588,12 @@ pub struct CanRx<'d> {
 
 impl<'d> CanRx<'d> {
     /// Returns the next received message frame
-    pub async fn read(&mut self) -> Result<Envelope, BusError> {
+    pub async fn read(&mut self) -> Envelope {
         RxMode::read_classic(&self.info).await
     }
 
     /// Returns the next received message frame
-    pub async fn read_fd(&mut self) -> Result<FdEnvelope, BusError> {
+    pub async fn read_fd(&mut self) -> FdEnvelope {
         RxMode::read_fd(&self.info).await
     }
 }
@@ -659,53 +659,46 @@ impl RxMode {
         }
     }
 
-    //async fn read_classic<T: Instance>(&self) -> Result<Envelope, BusError> {
-    fn try_read<T: Instance>(&self, ns_per_timer_tick: u64) -> Option<Result<Envelope, BusError>> {
+    fn try_read<T: Instance>(&self, ns_per_timer_tick: u64) -> Option<Envelope> {
         if let Some((frame, ts)) = T::registers().read(0) {
             let ts = T::registers().calc_timestamp(ns_per_timer_tick, ts);
-            Some(Ok(Envelope { ts, frame }))
+            Some(Envelope { ts, frame })
         } else if let Some((frame, ts)) = T::registers().read(1) {
             let ts = T::registers().calc_timestamp(ns_per_timer_tick, ts);
-            Some(Ok(Envelope { ts, frame }))
-        } else if let Some(err) = T::registers().curr_error() {
-            // TODO: this is probably wrong
-            Some(Err(err))
+            Some(Envelope { ts, frame })
         } else {
             None
         }
     }
 
-    fn try_read_fd<T: Instance>(&self, ns_per_timer_tick: u64) -> Option<Result<FdEnvelope, BusError>> {
+    fn try_read_fd<T: Instance>(&self, ns_per_timer_tick: u64) -> Option<FdEnvelope> {
         if let Some((frame, ts)) = T::registers().read(0) {
             let ts = T::registers().calc_timestamp(ns_per_timer_tick, ts);
-            Some(Ok(FdEnvelope { ts, frame }))
+            Some(FdEnvelope { ts, frame })
         } else if let Some((frame, ts)) = T::registers().read(1) {
             let ts = T::registers().calc_timestamp(ns_per_timer_tick, ts);
-            Some(Ok(FdEnvelope { ts, frame }))
-        } else if let Some(err) = T::registers().curr_error() {
-            // TODO: this is probably wrong
-            Some(Err(err))
+            Some(FdEnvelope { ts, frame })
         } else {
             None
         }
     }
 
-    fn read<F: CanHeader>(info: &'static Info, ns_per_timer_tick: u64) -> Option<Result<(F, Timestamp), BusError>> {
+    fn read<F: CanHeader>(
+        info: &'static Info,
+        ns_per_timer_tick: u64,
+    ) -> Option<(F, Timestamp)> {
         if let Some((msg, ts)) = info.regs.read(0) {
             let ts = info.regs.calc_timestamp(ns_per_timer_tick, ts);
-            Some(Ok((msg, ts)))
+            Some((msg, ts))
         } else if let Some((msg, ts)) = info.regs.read(1) {
             let ts = info.regs.calc_timestamp(ns_per_timer_tick, ts);
-            Some(Ok((msg, ts)))
-        } else if let Some(err) = info.regs.curr_error() {
-            // TODO: this is probably wrong
-            Some(Err(err))
+            Some((msg, ts))
         } else {
             None
         }
     }
 
-    async fn read_async<F: CanHeader>(info: &'static Info) -> Result<(F, Timestamp), BusError> {
+    async fn read_async<F: CanHeader>(info: &'static Info) -> (F, Timestamp) {
         poll_fn(move |cx| {
             let ns_per_timer_tick = info.state.lock(|s| {
                 let state = s.borrow_mut();
@@ -721,18 +714,14 @@ impl RxMode {
         .await
     }
 
-    async fn read_classic(info: &'static Info) -> Result<Envelope, BusError> {
-        match RxMode::read_async::<_>(info).await {
-            Ok((frame, ts)) => Ok(Envelope { ts, frame }),
-            Err(e) => Err(e),
-        }
+    async fn read_classic(info: &'static Info) -> Envelope {
+        let result = RxMode::read_async::<_>(info).await;
+        Envelope { ts: result.1, frame: result.0 }
     }
 
-    async fn read_fd(info: &'static Info) -> Result<FdEnvelope, BusError> {
-        match RxMode::read_async::<_>(info).await {
-            Ok((frame, ts)) => Ok(FdEnvelope { ts, frame }),
-            Err(e) => Err(e),
-        }
+    async fn read_fd(info: &'static Info) -> FdEnvelope {
+        let result = RxMode::read_async::<_>(info).await;
+        FdEnvelope { ts: result.1, frame: result.0 }
     }
 }
 
@@ -845,18 +834,15 @@ impl Properties {
         self.info.regs.regs.ecr().read().tec()
     }
 
-    /// Get the current bus error mode
-    pub fn bus_error_mode(&self) -> BusErrorMode {
+    /// Get the current bus error mode, and last detected bus error
+    pub fn bus_error_mode(&self) -> Result<(BusErrorMode, BusError), ()> {
         // This read will clear LEC and DLEC. This is not ideal, but protocol
         // error reporting in this driver should have a big ol' FIXME on it
         // anyway!
-        let psr = self.info.regs.regs.psr().read();
-        match (psr.bo(), psr.ep()) {
-            (false, false) => BusErrorMode::ErrorActive,
-            (false, true) => BusErrorMode::ErrorPassive,
-            (true, _) => BusErrorMode::BusOff,
-        }
+        self.info.regs.curr_error()
     }
+
+
 }
 
 struct State {
