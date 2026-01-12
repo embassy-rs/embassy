@@ -2,6 +2,8 @@
 #![no_main]
 
 use embassy_executor::Spawner;
+use embassy_mcxa::clocks::PoweredClock;
+use embassy_mcxa::clocks::config::{MainClockSource, SoscConfig, SoscMode, SpllConfig, SpllMode, SpllSource};
 use embassy_time::Timer;
 use hal::gpio::{DriveStrength, Level, Output, SlewRate};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
@@ -9,7 +11,37 @@ use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let mut cfg = hal::config::Config::default();
+
+    // FIRC completely disabled
     cfg.clock_cfg.firc = None;
+
+    // SIRC output gated
+    cfg.clock_cfg.sirc.fro_12m_enabled = false;
+    cfg.clock_cfg.sirc.fro_lf_div = None;
+
+    // SOSC enabled
+    cfg.clock_cfg.sosc = Some(SoscConfig {
+        mode: SoscMode::CrystalOscillator,
+        frequency: 8_000_000,
+        power: PoweredClock::NormalEnabledDeepSleepDisabled,
+    });
+
+    // SPLL enabled
+    cfg.clock_cfg.spll = Some(SpllConfig {
+        source: SpllSource::Sosc,
+        // 8MHz
+        // 8 x 48 => 384MHz
+        // 384 / (16 x 2) => 12.0MHz
+        mode: SpllMode::Mode1b {
+            m_mult: 48,
+            p_div: 16,
+            bypass_p2_div: false,
+        },
+        power: PoweredClock::NormalEnabledDeepSleepDisabled,
+        pll1_clk_div: None,
+    });
+
+    cfg.clock_cfg.main_clock.source = MainClockSource::SPll1;
     let p = hal::init(cfg);
 
     defmt::info!("Blink example");

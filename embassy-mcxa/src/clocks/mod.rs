@@ -37,7 +37,7 @@
 
 use core::cell::RefCell;
 
-use config::{ClocksConfig, FircConfig, FircFreqSel, Fro16KConfig, SircConfig};
+use config::{ClocksConfig, FircConfig, FircFreqSel, Fro16KConfig, MainClockSource, SircConfig};
 use mcxa_pac::scg0::firccsr::{FircFclkPeriphEn, FircSclkPeriphEn, Fircsten};
 use mcxa_pac::scg0::sirccsr::Sircsten;
 use periph_helpers::SPConfHelper;
@@ -49,6 +49,9 @@ pub mod periph_helpers;
 //
 // Statics/Consts
 //
+
+// TODO: Different for different CPUs?
+const CPU_MAX_FREQ: u32 = 180_000_000;
 
 /// The state of system core clocks.
 ///
@@ -123,14 +126,8 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     operator.configure_sosc()?;
     operator.configure_spll()?;
 
-    // For now, just use FIRC as the main/cpu clock, which should already be
-    // the case on reset
-    assert!(operator.scg0.rccr().read().scs().is_firc());
-    let input = operator.clocks.fro_hf_root.clone().unwrap();
-    operator.clocks.main_clk = Some(input.clone());
-    // We can also assume cpu/system clk == fro_hf because div is /1.
-    assert_eq!(operator.syscon.ahbclkdiv().read().div().bits(), 0);
-    operator.clocks.cpu_system_clk = Some(input);
+    // Finally, setup main clock
+    operator.configure_main_clk()?;
 
     // If we were keeping SIRC enabled, now we can release it.
     operator.configure_sirc_clocks_late();
@@ -656,6 +653,18 @@ impl ClockOperator<'_> {
 
         // Did the user give us a FIRC config?
         let Some(firc) = self.config.firc.as_ref() else {
+            // Nope, and we've already switched to fro_12m. Disable FIRC.
+            self.scg0.firccsr().modify(|_r, w| w.lk().write_enabled());
+
+            self.scg0.firccsr().modify(|_r, w| {
+                w.fircsten().disabled_in_stop_modes();
+                w.fircerr_ie().clear_bit();
+                w.fircen().disabled();
+                w
+            });
+
+            self.scg0.firccsr().modify(|_r, w| w.lk().write_disabled());
+
             return Ok(());
         };
 
@@ -804,6 +813,12 @@ impl ClockOperator<'_> {
             PoweredClock::AlwaysEnabled => Sircsten::Enabled,
         };
 
+        // clk_1m is *before* the fro_12m clock gate
+        self.clocks.clk_1m = Some(Clock {
+            frequency: base_freq / 12,
+            power: *power,
+        });
+
         // If the user wants fro_12m to be disabled, FOR now, we ignore their
         // wish to ensure fro_12m is selectable as a main_clk source at least until
         // we select the CPU clock. We still mark it as not enabled though, to prevent
@@ -811,10 +826,6 @@ impl ClockOperator<'_> {
         if *fro_12m_enabled {
             self.clocks.fro_12m = Some(Clock {
                 frequency: base_freq,
-                power: *power,
-            });
-            self.clocks.clk_1m = Some(Clock {
-                frequency: base_freq / 12,
                 power: *power,
             });
         } else {
@@ -883,6 +894,7 @@ impl ClockOperator<'_> {
             // Allow writes
             self.scg0.sirccsr().modify(|_r, w| w.lk().write_enabled());
 
+            // Disable clk_12m
             self.scg0.sirccsr().modify(|_r, w| w.sirc_clk_periph_en().disabled());
 
             // reset lock
@@ -1264,9 +1276,6 @@ impl ClockOperator<'_> {
             });
         }
 
-        // TODO: Different for different CPUs?
-        const CPU_MAX_FREQ: u32 = 180_000_000;
-
         // Fout: 4.3MHz to 2x Max CPU Frequency
         if !(4_300_000..=(2 * CPU_MAX_FREQ)).contains(&fout) {
             return Err(ClockError::BadConfig {
@@ -1406,6 +1415,67 @@ impl ClockOperator<'_> {
                 power: cfg.power,
             });
         }
+
+        Ok(())
+    }
+
+    fn configure_main_clk(&mut self) -> Result<(), ClockError> {
+        use pac::scg0::csr::Scs as ScsR;
+        use pac::scg0::rccr::Scs as ScsW;
+
+        let (var, name, clk) = match self.config.main_clock.source {
+            MainClockSource::SoscClkIn => (ScsW::Sosc, "clk_in", self.clocks.clk_in.as_ref()),
+            MainClockSource::SircFro12M => (ScsW::Sirc, "fro_12m", self.clocks.fro_12m.as_ref()),
+            MainClockSource::FircHfRoot => (ScsW::Firc, "fro_hf_root", self.clocks.fro_hf_root.as_ref()),
+            MainClockSource::RoscFro16K => (ScsW::Rosc, "fro16k", self.clocks.clk_16k_vdd_core.as_ref()),
+            MainClockSource::SPll1 => (ScsW::Spll, "pll1_clk", self.clocks.pll1_clk.as_ref()),
+        };
+        let Some(clk) = clk else {
+            return Err(ClockError::BadConfig {
+                clock: name,
+                reason: "Needed for main_clock but not enabled",
+            });
+        };
+
+        if !clk.power.meets_requirement_of(&self.config.main_clock.power) {
+            return Err(ClockError::BadConfig {
+                clock: name,
+                reason: "Needed for main_clock but not low power",
+            });
+        }
+
+        if clk.frequency > CPU_MAX_FREQ {
+            return Err(ClockError::BadConfig {
+                clock: name,
+                reason: "Exceeds max CPU frequency",
+            });
+        }
+
+        let expected = match var {
+            ScsW::Sosc => ScsR::Sosc,
+            ScsW::Sirc => ScsR::Sirc,
+            ScsW::Firc => ScsR::Firc,
+            ScsW::Rosc => ScsR::Rosc,
+            ScsW::Spll => ScsR::Spll,
+        };
+
+        // TODO: (Double) check if clock is actually valid before switching?
+        // Are we already on the right clock?
+        let now = self.scg0.csr().read().scs();
+        if now != expected {
+            // Set RCCR
+            self.scg0.rccr().modify(|_r, w| w.scs().variant(var));
+
+            // Wait for match
+            while self.scg0.csr().read().scs() != expected {}
+        }
+
+        // The main_clk is now set to the selected input clock
+        self.clocks.main_clk = Some(clk.clone());
+
+        // TODO - support ahb div
+        assert_eq!(self.config.main_clock.ahb_clk_div.into_bits(), 0);
+        self.clocks.cpu_system_clk = Some(clk.clone());
 
         Ok(())
     }
