@@ -243,11 +243,6 @@ impl RtcDriver {
 
 #[cfg(feature = "low-power")]
 impl super::LPTimeDriver for RtcDriver {
-    /*
-        Low-power private functions: all operate within a critical seciton
-    */
-
-    #[cfg(feature = "low-power")]
     /// Compute the approximate amount of time until the next alarm
     fn time_until_next_alarm(&self, cs: CriticalSection) -> embassy_time::Duration {
         let now = self.now() + 32;
