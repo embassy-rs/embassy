@@ -107,14 +107,8 @@ async fn main(_spawner: Spawner) {
         let tx_frame = Frame::new_data(unwrap!(StandardId::new(i as _)), &[i, 0, 1, 2, 3, 4, 5, 6]).unwrap();
         tx.write(&tx_frame).await;
 
-        match rx.read().await {
-            Ok(env) => {
-                handle_frame(env, "NoBuf");
-            }
-            Err(err) => {
-                defmt::println!("Error {}", err);
-            }
-        }
+        let env = rx.read().await;
+        handle_frame(env, "NoBuf")
         i += 1;
     }
 
@@ -127,8 +121,8 @@ async fn main(_spawner: Spawner) {
         let tx_frame = Frame::new_data(unwrap!(StandardId::new(i as _)), &[i, 0, 1, 2, 3, 4, 5, 6]).unwrap();
         tx.write(&tx_frame).await;
 
-        let envelope = rx.read().await; 
-        handle_frame(envelope);
+        let env = rx.read().await; 
+        handle_frame(env, "Buf");
         i = i.wrapping_add(1);
     }
 }
