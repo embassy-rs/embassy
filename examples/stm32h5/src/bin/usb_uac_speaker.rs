@@ -237,7 +237,10 @@ fn TIM5() {
         };
 
         // Clear trigger interrupt flag.
-        timer.sr().modify(|r| r.set_tif(false));
+        timer.sr().write(|r| {
+            r.0 = 0xFFFF_FFFF;
+            r.set_tif(false);
+        });
     });
 }
 
