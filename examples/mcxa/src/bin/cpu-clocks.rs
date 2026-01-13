@@ -1,3 +1,5 @@
+//! Example exercising advanced clock control, including changing the main CPU clocks
+
 #![no_std]
 #![no_main]
 
