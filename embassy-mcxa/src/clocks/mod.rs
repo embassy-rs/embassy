@@ -88,36 +88,6 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
         vbat0: unsafe { pac::Vbat0::steal() },
     };
 
-    // TODO: If we want to support changing main CPU clock + FRO45M,
-    // there are a couple of different cases we need to handle:
-    //
-    // * User wants to use FIRC as the main_clk source, no FIRC changes (default now)
-    // * User wants to use FIRC as the main_clk source, but wants to make FIRC changes, AND:
-    //   * They have enabled some other clock, maybe specifically SIRC, we can use temporarily
-    //   * They have disabled ALL OTHER clocks, we need to temporarily use SIRC, but then turn it off
-    // * User wants to use a clock that is NOT influenced by FIRC, e.g. SPLL w/ SIRC source
-    // * User wants to use a clock that IS influenced by FIRC, e.g. SPLL w/ FIRC source
-    //
-    // I think the flow tho is:
-    //
-    // * if FIRC is !default and enabled:
-    //   * enable SIRC (early)
-    //   * switch to SIRC as main_clk
-    //   * make FIRC changes
-    //   * switch back to FIRC as main_clk
-    // * If FIRC is default and enabled:
-    //   * Pretty much just leave it?
-    // * If FIRC is disabled:
-    //   * enable SIRC (early)
-    //   * switch to SIRC as main_clk
-    //   * disable FIRC
-    //
-    // Then later in boot, we'll want to:
-    //
-    // * If SIRC should be enabled, finish setting it up
-    // * switch main_clk to the desired destination
-    // * If SIRC was weird, fix SIRC
-
     // Enable SIRC clocks FIRST, in case we need to use SIRC as main_clk for
     // a short while.
     operator.configure_sirc_clocks_early()?;
@@ -623,11 +593,6 @@ impl ClockOperator<'_> {
     /// NOTE: Currently we require this to be a fairly hardcoded value, as this clock is used
     /// as the main clock used for the CPU, AHB, APB, etc.
     fn configure_firc_clocks(&mut self) -> Result<(), ClockError> {
-        const HARDCODED_ERR: Result<(), ClockError> = Err(ClockError::BadConfig {
-            clock: "firc",
-            reason: "For now, FIRC must be enabled and in default state!",
-        });
-
         // Three options here:
         //
         // * Firc is disabled -> Switch main clock to SIRC and return
@@ -651,11 +616,12 @@ impl ClockOperator<'_> {
             while self.scg0.csr().read().scs().is_sirc() {}
         }
 
+        // Enable CSR writes
+        self.scg0.firccsr().modify(|_r, w| w.lk().write_enabled());
+
         // Did the user give us a FIRC config?
         let Some(firc) = self.config.firc.as_ref() else {
             // Nope, and we've already switched to fro_12m. Disable FIRC.
-            self.scg0.firccsr().modify(|_r, w| w.lk().write_enabled());
-
             self.scg0.firccsr().modify(|_r, w| {
                 w.fircsten().disabled_in_stop_modes();
                 w.fircerr_ie().clear_bit();
@@ -664,45 +630,66 @@ impl ClockOperator<'_> {
             });
 
             self.scg0.firccsr().modify(|_r, w| w.lk().write_disabled());
-
             return Ok(());
         };
 
-        // Is the FIRC set to 45MHz (should be reset default)
-        if !matches!(firc.frequency, FircFreqSel::Mhz45) {
-            return HARDCODED_ERR;
+        // If we are here, we WANT FIRC. If we are !default, let's disable FIRC before
+        // we mess with it. If we are !default, we have already switched to SIRC instead!
+        if !is_default {
+            // Unlock
+            self.scg0.firccsr().modify(|_r, w| w.lk().write_enabled());
+
+            // Disable FIRC
+            self.scg0.firccsr().modify(|_r, w| {
+                w.fircen().disabled();
+                w.fircsten().disabled_in_stop_modes();
+                w.fircerr_ie().clear_bit();
+                w.fircacc_ie().clear_bit();
+                w.firc_sclk_periph_en().disabled();
+                w.firc_fclk_periph_en().disabled();
+                w
+            });
         }
-        let base_freq = 45_000_000;
 
-        // Now, check if the FIRC as expected for our hardcoded value
-        let mut firc_ok = true;
-
-        // Is the hardware currently set to the default 45MHz?
+        // Set frequency (if not the default 45MHz!), re-enable FIRC, and return the base frequency
         //
         // NOTE: the SVD currently has the wrong(?) values for these:
         // 45 -> 48
         // 60 -> 64
         // 90 -> 96
         // 180 -> 192
+        //
         // Probably correct-ish, but for a different trim value?
-        firc_ok &= self.scg0.firccfg().read().freq_sel().is_firc_48mhz_192s();
+        let base_freq = match firc.frequency {
+            FircFreqSel::Mhz45 => {
+                // We are default, there's nothing to do here.
+                45_000_000
+            }
+            FircFreqSel::Mhz60 => {
+                self.scg0.firccfg().modify(|_r, w| w.freq_sel().firc_64mhz());
+                self.scg0.firccsr().modify(|_r, w| w.fircen().enabled());
+                60_000_000
+            }
+            FircFreqSel::Mhz90 => {
+                self.scg0.firccfg().modify(|_r, w| w.freq_sel().firc_96mhz());
+                self.scg0.firccsr().modify(|_r, w| w.fircen().enabled());
+                90_000_000
+            }
+            FircFreqSel::Mhz180 => {
+                self.scg0.firccfg().modify(|_r, w| w.freq_sel().firc_192mhz());
+                self.scg0.firccsr().modify(|_r, w| w.fircen().enabled());
+                180_000_000
+            }
+        };
 
-        // Check some values in the CSR
-        let csr = self.scg0.firccsr().read();
-        // Is it enabled?
-        firc_ok &= csr.fircen().is_enabled();
-        // Is it accurate?
-        firc_ok &= csr.fircacc().is_enabled_and_valid();
-        // Is there no error?
-        firc_ok &= csr.fircerr().is_error_not_detected();
-        // Is the FIRC the system clock?
-        firc_ok &= csr.fircsel().is_firc();
-        // Is it valid?
-        firc_ok &= csr.fircvld().is_enabled_and_valid();
+        // Wait for FIRC to be enabled, error-free, and accurate
+        let mut firc_ok = false;
+        while !firc_ok {
+            let csr = self.scg0.firccsr().read();
 
-        // Are we happy with the current (hardcoded) state?
-        if !firc_ok {
-            return HARDCODED_ERR;
+            firc_ok = csr.fircen().is_enabled()
+                && csr.fircacc().is_enabled_and_valid()
+                && csr.fircerr().is_error_not_detected();
         }
 
         // Note that the fro_hf_root is active
@@ -754,6 +741,9 @@ impl ClockOperator<'_> {
             w.firc_sclk_periph_en().variant(clk_45m_set);
             w
         });
+
+        // Last write to CSR, re-lock
+        self.scg0.firccsr().modify(|_r, w| w.lk().write_disabled());
 
         // Do we enable the `fro_hf_div` output?
         if let Some(d) = fro_hf_div.as_ref() {
@@ -1473,9 +1463,22 @@ impl ClockOperator<'_> {
         // The main_clk is now set to the selected input clock
         self.clocks.main_clk = Some(clk.clone());
 
-        // TODO - support ahb div
-        assert_eq!(self.config.main_clock.ahb_clk_div.into_bits(), 0);
-        self.clocks.cpu_system_clk = Some(clk.clone());
+        // Update AHB clock division, if necessary
+        let d = self.config.main_clock.ahb_clk_div;
+        if d.into_bits() != 0 {
+            // AHB has no halt/reset fields - it's different to other DIV8s!
+            self.syscon
+                .ahbclkdiv()
+                .modify(|_r, w| unsafe { w.div().bits(d.into_bits()) });
+            // Wait for clock to stabilize
+            while self.syscon.ahbclkdiv().read().unstab().is_ongoing() {}
+        }
+
+        // Store off the clock info
+        self.clocks.cpu_system_clk = Some(Clock {
+            frequency: clk.frequency / d.into_divisor(),
+            power: clk.power,
+        });
 
         Ok(())
     }

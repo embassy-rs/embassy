@@ -2,8 +2,9 @@
 #![no_main]
 
 use embassy_executor::Spawner;
+use embassy_mcxa::clkout::{ClockOut, ClockOutSel, Div4};
 use embassy_mcxa::clocks::PoweredClock;
-use embassy_mcxa::clocks::config::{MainClockSource, SoscConfig, SoscMode, SpllConfig, SpllMode, SpllSource};
+use embassy_mcxa::clocks::config::{Div8, MainClockSource, SoscConfig, SoscMode, SpllConfig, SpllMode, SpllSource};
 use embassy_time::Timer;
 use hal::gpio::{DriveStrength, Level, Output, SlewRate};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
@@ -42,7 +43,21 @@ async fn main(_spawner: Spawner) {
     });
 
     cfg.clock_cfg.main_clock.source = MainClockSource::SPll1;
+    cfg.clock_cfg.main_clock.ahb_clk_div = const { Div8::from_divisor(256).unwrap() };
     let p = hal::init(cfg);
+
+    let clkout_cfg = hal::clkout::Config {
+        sel: ClockOutSel::SlowClk, // Main system clock, /6
+        div: Div4::no_div(),
+        level: PoweredClock::NormalEnabledDeepSleepDisabled,
+    };
+
+    // SPLL                => 12.000 MHz
+    // AHB_CLK_DIV is /256 => 46.875 kHz
+    // Slow clock is /6    =>  7.812 kHz
+    let pin = p.P4_2;
+    let clkout = p.CLKOUT;
+    let _clock_out = ClockOut::new(clkout, pin, clkout_cfg).unwrap();
 
     defmt::info!("Blink example");
 
