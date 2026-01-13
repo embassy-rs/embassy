@@ -30,13 +30,14 @@ pub enum Error {
 /// Fault control configuration for different fault types.
 ///
 /// Determines what action the CDOG takes when a fault is detected.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
 pub enum FaultControl {
     /// Enable system reset on fault detection
     EnableReset = 1,
     /// Enable interrupt on fault detection
     EnableInterrupt = 2,
+    #[default]
     /// Disable both reset and interrupt
     DisableBoth = 4,
 }
@@ -44,9 +45,10 @@ pub enum FaultControl {
 /// Timer pause control during special conditions.
 ///
 /// Controls whether the instruction timer continues running or pauses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
 pub enum PauseControl {
+    #[default]
     /// Keep timer running during IRQ or debug halt
     RunTimer = 1,
     /// Pause timer during IRQ or debug halt
@@ -56,11 +58,12 @@ pub enum PauseControl {
 /// Lock control for CDOG configuration.
 ///
 /// When locked, configuration registers cannot be modified.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 #[repr(u8)]
 pub enum LockControl {
     /// Lock configuration
     Locked = 1,
+    #[default]
     /// Unlock configuration
     Unlocked = 2,
 }
@@ -69,7 +72,7 @@ pub enum LockControl {
 ///
 /// Defines the behavior of the watchdog for various fault conditions
 /// and operational modes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct Config {
     /// The timeout period after which the watchdog will trigger
     pub timeout: FaultControl,
@@ -80,24 +83,6 @@ pub struct Config {
     pub irq_pause: PauseControl,
     pub debug_halt: PauseControl,
     pub lock: LockControl,
-}
-
-impl Default for Config {
-    /// Creates a default configuration with all faults disabled.
-    ///
-    /// This is a safe starting point that won't trigger resets or interrupts.
-    fn default() -> Self {
-        Self {
-            timeout: FaultControl::DisableBoth,
-            miscompare: FaultControl::DisableBoth,
-            sequence: FaultControl::DisableBoth,
-            state: FaultControl::DisableBoth,
-            address: FaultControl::DisableBoth,
-            irq_pause: PauseControl::RunTimer,
-            debug_halt: PauseControl::RunTimer,
-            lock: LockControl::Unlocked,
-        }
-    }
 }
 
 /// Code Watchdog peripheral
