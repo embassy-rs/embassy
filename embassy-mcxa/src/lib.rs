@@ -10,6 +10,7 @@ pub mod dma;
 pub mod gpio;
 
 pub mod adc;
+pub mod cdog;
 pub mod clkout;
 pub mod config;
 pub mod crc;
