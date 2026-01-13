@@ -145,8 +145,11 @@ pub enum MainClockSource {
 
 #[derive(Copy, Clone)]
 pub struct MainClockConfig {
+    /// Selected clock source
     pub source: MainClockSource,
+    /// Power state of the main clock
     pub power: PoweredClock,
+    /// AHB Clock Divider
     pub ahb_clk_div: Div8,
 }
 
