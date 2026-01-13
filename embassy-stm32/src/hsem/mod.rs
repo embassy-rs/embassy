@@ -182,6 +182,17 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
         .await
     }
 
+    /// Locks the semaphore in blocking mode
+    /// The 2-step lock procedure consists in a write to lock the semaphore, followed by a read to
+    /// check if the lock has been successful, carried out from the HSEM_Rx register.
+    pub fn blocking_lock(&mut self, process_id: u8) -> HardwareSemaphoreMutex<'a, T> {
+        loop {
+            if let Some(lock) = self.try_lock(process_id) {
+                return lock;
+            }
+        }
+    }
+
     /// Try to lock the semaphor
     /// The 2-step lock procedure consists in a write to lock the semaphore, followed by a read to
     /// check if the lock has been successful, carried out from the HSEM_Rx register.
@@ -278,7 +289,7 @@ impl<T: Instance> HardwareSemaphore<T> {
         [
             HardwareSemaphoreChannel::new(1),
             HardwareSemaphoreChannel::new(2),
-            #[cfg(all(not(all(stm32wb, feature = "low-power")), not(all(stm32wl5x, feature = "low-power"))))]
+            #[cfg(not(all(any(stm32wb, stm32wl5x), feature = "low-power")))]
             HardwareSemaphoreChannel::new(3),
             #[cfg(not(all(stm32wb, feature = "low-power")))]
             HardwareSemaphoreChannel::new(4),
@@ -316,6 +327,17 @@ pub(crate) fn init_hsem(cs: CriticalSection) {
     unsafe {
         crate::rcc::REFCOUNT_STOP1 = 0;
         crate::rcc::REFCOUNT_STOP2 = 0;
+    }
+}
+
+#[cfg(any(all(stm32wb, feature = "low-power"), stm32wl5x))]
+pub(crate) const fn get_hsem<'a>(index: usize) -> HardwareSemaphoreChannel<'a, crate::peripherals::HSEM> {
+    match index {
+        #[cfg(any(stm32wb, stm32wl5x))]
+        3 => HardwareSemaphoreChannel::new(3),
+        #[cfg(stm32wb)]
+        4 => HardwareSemaphoreChannel::new(4),
+        _ => core::unreachable!(),
     }
 }
 

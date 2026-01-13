@@ -292,16 +292,15 @@ impl RccInfo {
             // as that would reset the configuration that the other CPU has set up.
             // we hold a hardware lock to prevent the other CPU from enabling the peripheral while we are resetting it.
             #[cfg(stm32wl5x)]
-            {
-                let lock = wait_for_lock();
-                if unsafe { !self.is_enabled_by_other_core() } {
-                    unsafe {
-                        let val = reset_ptr.read_volatile();
-                        reset_ptr.write_volatile(val | 1u32 << self.reset_bit);
-                    }
+            unsafe {
+                let _lock = crate::hsem::get_hsem(3).blocking_lock(0);
+
+                if !self.is_enabled_by_other_core() {
+                    let val = reset_ptr.read_volatile();
+                    reset_ptr.write_volatile(val | 1u32 << self.reset_bit);
+
                     trace!("rcc: reset 0x{:x}:{}", self.enable_offset, self.enable_bit);
                 }
-                drop(lock);
             }
         }
 
@@ -565,18 +564,6 @@ mod util {
             return Err(());
         }
         Ok(Some(x))
-    }
-}
-
-#[cfg(stm32wl5x)]
-pub(crate) fn wait_for_lock() -> crate::hsem::HardwareSemaphoreMutex<'static, crate::peripherals::HSEM> {
-    use crate::hsem::HardwareSemaphoreChannel;
-    use crate::peripherals::HSEM;
-    let mut sem = HardwareSemaphoreChannel::<HSEM>::new(3);
-    loop {
-        if let Some(lock) = sem.try_lock(0) {
-            return lock;
-        }
     }
 }
 
