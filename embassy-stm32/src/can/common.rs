@@ -1,5 +1,4 @@
 use embassy_sync::channel::{SendDynamicReceiver, SendDynamicSender};
-use embassy_usb_synopsys_otg::Bus;
 
 use super::enums::*;
 use super::frame::*;
