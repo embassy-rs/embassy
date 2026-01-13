@@ -112,6 +112,7 @@ impl Div8 {
 /// ```
 #[non_exhaustive]
 pub struct ClocksConfig {
+    /// Clocks that are used to drive the main clock, including the AHB and CPU core
     pub main_clock: MainClockConfig,
     /// FIRC, FRO180, 45/60/90/180M clock source
     pub firc: Option<FircConfig>,
