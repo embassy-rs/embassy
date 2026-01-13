@@ -100,14 +100,14 @@ impl Registers {
 
     fn reg_to_error(value: u8) -> Option<BusError> {
         match value {
-            0b000 => Some(BusError::NoError),
+            // 0b000 => None,
             0b001 => Some(BusError::Stuff),
             0b010 => Some(BusError::Form),
             0b011 => Some(BusError::Acknowledge),
             0b100 => Some(BusError::BitRecessive),
             0b101 => Some(BusError::BitDominant),
             0b110 => Some(BusError::Crc),
-            0b111 => Some(BusError::NoChange),
+            // 0b111 => Some(BusError::NoError),
             _ => None,
         }
     }

@@ -4,8 +4,6 @@
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum BusError {
-    /// No error occurred
-    NoError,
     /// Bit stuffing error - more than 5 equal bits
     Stuff,
     /// Form error - A fixed format part of a received message has wrong format
@@ -23,8 +21,6 @@ pub enum BusError {
     Crc,
     /// A software error occured. Exclusive to BXCAN.
     Software,
-    /// No CAN bus event was detected since the last CPU read access to the PSR. Exclusive to FDCAN.
-    NoChange,
 }
 
 /// Bus error modes.
