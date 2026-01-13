@@ -486,14 +486,14 @@ impl<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d, TX_
     }
 
     /// Async read frame from RX buffer.
-    pub async fn read(&mut self) -> Result<Envelope, BusError> {
+    pub async fn read(&mut self) -> Envelope {
         self.rx.read().await
     }
 
     /// Attempts to read a CAN frame without blocking.
     ///
     /// Returns [Err(TryReadError::Empty)] if there are no frames in the rx queue.
-    pub fn try_read(&mut self) -> Result<Envelope, TryReadError> {
+    pub fn try_read(&mut self) -> Option<Envelope> {
         self.rx.try_read()
     }
 
@@ -746,7 +746,7 @@ impl<'d> CanRx<'d> {
 }
 
 /// User supplied buffer for RX Buffering
-pub type RxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Result<Envelope, BusError>, BUF_SIZE>;
+pub type RxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Envelope, BUF_SIZE>;
 
 /// CAN driver, receive half in Buffered mode.
 pub struct BufferedCanRx<'d, const RX_BUF_SIZE: usize> {
@@ -779,27 +779,20 @@ impl<'d, const RX_BUF_SIZE: usize> BufferedCanRx<'d, RX_BUF_SIZE> {
     }
 
     /// Async read frame from RX buffer.
-    pub async fn read(&mut self) -> Result<Envelope, BusError> {
+    pub async fn read(&mut self) -> Envelope {
         self.rx_buf.receive().await
     }
 
     /// Attempts to read a CAN frame without blocking.
     ///
     /// Returns [Err(TryReadError::Empty)] if there are no frames in the rx queue.
-    pub fn try_read(&mut self) -> Result<Envelope, TryReadError> {
+    pub fn try_read(&mut self) -> Option<Envelope> {
         self.info.state.lock(|s| match &s.borrow().rx_mode {
             RxMode::Buffered(_) => {
                 if let Ok(result) = self.rx_buf.try_receive() {
-                    match result {
-                        Ok(envelope) => Ok(envelope),
-                        Err(e) => Err(TryReadError::BusError(e)),
-                    }
+                    Some(result)
                 } else {
-                    if let Some(err) = self.info.regs.curr_error() {
-                        Err(TryReadError::BusError(err))
-                    } else {
-                        Err(TryReadError::Empty)
-                    }
+                    None
                 }
             }
             _ => {
@@ -908,7 +901,7 @@ impl RxMode {
                     match Registers(T::regs()).receive_fifo(fifo) {
                         Some(envelope) => {
                             // NOTE: consensus was reached that if rx_queue is full, packets should be dropped
-                            let _ = buf.rx_sender.try_send(Ok(envelope));
+                            let _ = buf.rx_sender.try_send(envelope);
                         }
                         None => return,
                     };

@@ -160,7 +160,8 @@ impl Registers {
         self.0.ier().modify(|i| i.set_errie(true));
 
         let err = self.0.esr().read();
-         if err.lec() != Lec::NO_ERROR {
+        
+        if err.lec() != Lec::NO_ERROR {
             return Some(match err.lec() {
                 Lec::STUFF => BusError::Stuff,
                 Lec::FORM => BusError::Form,
