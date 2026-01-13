@@ -127,14 +127,8 @@ async fn main(_spawner: Spawner) {
         let tx_frame = Frame::new_data(unwrap!(StandardId::new(i as _)), &[i, 0, 1, 2, 3, 4, 5, 6]).unwrap();
         tx.write(&tx_frame).await;
 
-        match rx.read().await {
-            Ok(envelope) => {
-                handle_frame(envelope, "Buf");
-            }
-            Err(err) => {
-                defmt::println!("Error {}", err);
-            }
-        }
+        let envelope = rx.read().await; 
+        handle_frame(envelope);
         i = i.wrapping_add(1);
     }
 }
