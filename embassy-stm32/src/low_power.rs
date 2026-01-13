@@ -196,7 +196,7 @@ impl Executor {
             {
                 // stm32wl5x is dual core and we don't want BOTH cores to re-initialize RCC so we hold a lock
                 #[cfg(stm32wl5x)]
-                let lock = crate::rcc::wait_for_lock();
+                let lock = crate::hsem::get_hsem(3).blocking_lock(0);
 
                 let es = crate::pac::PWR.extscr().read();
 
@@ -317,13 +317,13 @@ impl Executor {
 
         use embassy_futures::poll_once;
 
-        use crate::hsem::HardwareSemaphoreChannel;
+        use crate::hsem::get_hsem;
         use crate::pac::rcc::vals::{Smps, Sw};
         use crate::pac::{PWR, RCC};
 
         trace!("low power: trying to get sem3");
 
-        let sem3_mutex = match poll_once(HardwareSemaphoreChannel::<crate::peripherals::HSEM>::new(3).lock(0)) {
+        let sem3_mutex = match poll_once(get_hsem(3).lock(0)) {
             Poll::Pending => None,
             Poll::Ready(mutex) => Some(mutex),
         }
@@ -331,7 +331,7 @@ impl Executor {
 
         trace!("low power: got sem3");
 
-        let sem4_mutex = HardwareSemaphoreChannel::<crate::peripherals::HSEM>::new(4).try_lock(0);
+        let sem4_mutex = get_hsem(4).try_lock(0);
         if let Some(sem4_mutex) = sem4_mutex {
             trace!("low power: got sem4");
 
