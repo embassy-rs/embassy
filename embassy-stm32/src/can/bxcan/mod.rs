@@ -486,7 +486,7 @@ impl<'d, const TX_BUF_SIZE: usize, const RX_BUF_SIZE: usize> BufferedCan<'d, TX_
     }
 
     /// Async read frame from RX buffer.
-    pub async fn read(&mut self) -> Option<Envelope> {
+    pub async fn read(&mut self) -> Result<Envelope, BusError> {
         self.rx.read().await
     }
 
@@ -746,7 +746,7 @@ impl<'d> CanRx<'d> {
 }
 
 /// User supplied buffer for RX Buffering
-pub type RxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Option<Envelope>, BUF_SIZE>;
+pub type RxBuf<const BUF_SIZE: usize> = Channel<CriticalSectionRawMutex, Result<Envelope, BusError>, BUF_SIZE>;
 
 /// CAN driver, receive half in Buffered mode.
 pub struct BufferedCanRx<'d, const RX_BUF_SIZE: usize> {
@@ -779,7 +779,7 @@ impl<'d, const RX_BUF_SIZE: usize> BufferedCanRx<'d, RX_BUF_SIZE> {
     }
 
     /// Async read frame from RX buffer.
-    pub async fn read(&mut self) -> Option<Envelope> {
+    pub async fn read(&mut self) -> Result<Envelope, BusError> {
         self.rx_buf.receive().await
     }
 
@@ -791,8 +791,8 @@ impl<'d, const RX_BUF_SIZE: usize> BufferedCanRx<'d, RX_BUF_SIZE> {
             RxMode::Buffered(_) => {
                 if let Ok(result) = self.rx_buf.try_receive() {
                     match result {
-                        Some(envelope) => Ok(envelope),
-                        None => Err(TryReadError::Empty),
+                        Ok(envelope) => Ok(envelope),
+                        Err(e) => Err(TryReadError::BusError(e)),
                     }
                 } else {
                     if let Some(err) = self.info.regs.curr_error() {
@@ -908,7 +908,7 @@ impl RxMode {
                     match Registers(T::regs()).receive_fifo(fifo) {
                         Some(envelope) => {
                             // NOTE: consensus was reached that if rx_queue is full, packets should be dropped
-                            let _ = buf.rx_sender.try_send(Some(envelope));
+                            let _ = buf.rx_sender.try_send(Ok(envelope));
                         }
                         None => return,
                     };
