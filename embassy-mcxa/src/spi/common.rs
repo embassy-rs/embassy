@@ -243,10 +243,7 @@ impl SlaveIrqState {
 // =============================================================================
 
 #[inline]
-pub(super) unsafe fn handle_slave_rx_irq<T: Instance>(
-    regs: &pac::lpspi0::RegisterBlock,
-    st: &mut SlaveIrqStateInner,
-) {
+pub(super) unsafe fn handle_slave_rx_irq<T: Instance>(regs: &pac::lpspi0::RegisterBlock, st: &mut SlaveIrqStateInner) {
     let sr = regs.sr().read();
 
     if sr.ref_().bit_is_set() {
@@ -272,10 +269,7 @@ pub(super) unsafe fn handle_slave_rx_irq<T: Instance>(
 }
 
 #[inline]
-pub(super) unsafe fn handle_slave_tx_irq<T: Instance>(
-    regs: &pac::lpspi0::RegisterBlock,
-    st: &mut SlaveIrqStateInner,
-) {
+pub(super) unsafe fn handle_slave_tx_irq<T: Instance>(regs: &pac::lpspi0::RegisterBlock, st: &mut SlaveIrqStateInner) {
     let sr = regs.sr().read();
 
     if sr.tef().bit_is_set() {
@@ -427,9 +421,7 @@ pub(super) trait SealedInstance {
 
 /// SPI Instance
 #[allow(private_bounds)]
-pub trait Instance:
-    SealedInstance + PeripheralType + 'static + Send + Gate<MrccPeriphConfig = LpspiConfig>
-{
+pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<MrccPeriphConfig = LpspiConfig> {
     /// Interrupt for this SPI instance.
     type Interrupt: interrupt::typelevel::Interrupt;
     /// Clock instance

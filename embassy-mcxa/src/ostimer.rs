@@ -1,4 +1,5 @@
 //! Time Driver.
+use core::cell::{Cell, RefCell};
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use critical_section::CriticalSection;

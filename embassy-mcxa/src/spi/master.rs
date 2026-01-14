@@ -271,9 +271,8 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         spi.cr().modify(|_, w| w.rst().not_reset());
         spi.cr().modify(|_, w| w.rtf().txfifo_rst().rrf().rxfifo_rst());
 
-        spi.cfgr1().write(|w| unsafe {
-            w.master().master_mode().pincfg().sin_in_sout_out().pcspol().bits(0)
-        });
+        spi.cfgr1()
+            .write(|w| unsafe { w.master().master_mode().pincfg().sin_in_sout_out().pcspol().bits(0) });
 
         spi.ccr().write(|w| unsafe {
             w.sckdiv()

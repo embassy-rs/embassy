@@ -54,4 +54,3 @@ impl_spi_pin!(P3_8, LPSPI1, Mux2, MosiPin); // LPSPI1_SOUT
 impl_spi_pin!(P3_9, LPSPI1, Mux2, MisoPin); // LPSPI1_SIN
 impl_spi_pin!(P3_10, LPSPI1, Mux2, SckPin); // LPSPI1_SCK
 impl_spi_pin!(P3_11, LPSPI1, Mux2, CsPin); // LPSPI1_PCS0
-
