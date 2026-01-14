@@ -903,19 +903,19 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_GetUDN() -> u32 {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_DEBUG_SIGNAL_SET() {
     trace!("LINKLAYER_DEBUG_SIGNAL_SET");
-    todo!()
+    // todo!()
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_DEBUG_SIGNAL_RESET() {
     trace!("LINKLAYER_DEBUG_SIGNAL_RESET");
-    todo!()
+    // todo!()
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn LINKLAYER_DEBUG_SIGNAL_TOGGLE() {
     trace!("LINKLAYER_DEBUG_SIGNAL_TOGGLE");
-    todo!()
+    // todo!()
 }
 
 // BLE Platform functions required by BLE stack
