@@ -21,28 +21,43 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::rng::{self, Rng};
+use embassy_stm32_wpan::Ble;
 use embassy_stm32_wpan::gap::{AdvData, AdvParams, AdvType};
 use embassy_stm32_wpan::gatt::{CharProperties, GattEventMask, GattServer, SecurityPermissions, ServiceType, Uuid};
-use embassy_stm32_wpan::{Ble, set_rng_instance};
+use embassy_stm32_wpan::rng::{RngService, RngState};
+use embassy_time::{Duration, Timer};
+use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<embassy_stm32::peripherals::RNG>;
 });
 
+#[embassy_executor::task]
+async fn run_rng(mut rng_service: RngService<'static, embassy_stm32::peripherals::RNG>) {
+    rng_service.run().await;
+}
+
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Embassy STM32WBA BLE Advertiser Example");
 
     // Initialize RNG (required by BLE stack)
-    let mut rng = Rng::new(p.RNG, Irqs);
-    set_rng_instance(&mut rng as *mut _ as *mut ());
+    static RNG_STATE: StaticCell<RngState> = StaticCell::new();
+
+    let rng = Rng::new(p.RNG, Irqs);
+    let (rng_service, receiver) = RngService::new(rng, RNG_STATE.init(RngState::new()));
+
+    spawner.spawn(run_rng(rng_service).unwrap());
     info!("RNG initialized");
+
+    // Wait for the rng to fill the channel
+    Timer::after(Duration::from_millis(500)).await;
 
     // Initialize BLE stack
     let mut ble = Ble::new();
-    ble.init().expect("BLE initialization failed");
+    ble.init(receiver).expect("BLE initialization failed");
     info!("BLE stack initialized");
 
     // Initialize GATT server

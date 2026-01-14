@@ -5,6 +5,10 @@
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+use embassy_sync::zerocopy_channel::Receiver;
+
+use crate::linklayer_plat::RNG_CHANNEL;
 use crate::wba::error::BleError;
 use crate::wba::gap::Advertiser;
 use crate::wba::hci::command::CommandSender;
@@ -72,10 +76,13 @@ impl Ble {
     ///
     /// - `Ok(())` if initialization succeeded
     /// - `Err(BleError)` if any initialization step failed
-    pub fn init(&mut self) -> Result<(), BleError> {
+    pub fn init(&mut self, rng_channel: Receiver<'static, CriticalSectionRawMutex, [u8; 8]>) -> Result<(), BleError> {
         if self.initialized.load(Ordering::Acquire) {
             return Ok(());
         }
+
+        // Setup the rng channel
+        unsafe { RNG_CHANNEL.replace(rng_channel) };
 
         // 1. Reset BLE controller
         self.cmd_sender.reset()?;
