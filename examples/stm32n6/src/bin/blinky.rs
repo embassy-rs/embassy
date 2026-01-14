@@ -15,9 +15,9 @@ bind_interrupts!(
 });
 
 #[embassy_executor::task]
-async fn button_task(mut p: ExtiInput<'static>) {
+async fn button_task(mut button: ExtiInput<'static>) {
     loop {
-        p.wait_for_any_edge().await;
+        button.wait_for_any_edge().await;
         info!("button pressed!");
     }
 }
@@ -28,7 +28,9 @@ async fn main(spawner: Spawner) {
     info!("Hello World!");
 
     let mut led = Output::new(p.PG10, Level::High, Speed::Low);
-    let button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Up, Irqs);
+    // Note: On STM32N6570-DK, the USER button (BP1) connects to 3.3V when pressed
+    // (active high), so we need Pull::Down
+    let button = ExtiInput::new(p.PC13, p.EXTI13, Pull::Down, Irqs);
 
     spawner.spawn(button_task(button).unwrap());
 
