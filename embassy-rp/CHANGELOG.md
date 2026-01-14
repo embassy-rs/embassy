@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## Unreleased - ReleaseDate
+- Add I2C async bus lockup detection and recovery
 
 ## 0.9.0 - 2025-11-27
 
