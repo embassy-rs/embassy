@@ -164,14 +164,8 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiSlaveDma<'d
         clear_nostall(spi);
         spi.cr().modify(|_, w| w.men().enabled());
 
-        spi.tcr().modify(|_, w| {
-            w.txmsk()
-                .mask()
-                .rxmsk()
-                .normal()
-                .bysw()
-                .enabled()
-        });
+        spi.tcr()
+            .modify(|_, w| w.txmsk().mask().rxmsk().normal().bysw().enabled());
 
         spin_wait_while(|| spi.fsr().read().txcount().bits() > 0)?;
 
@@ -240,14 +234,8 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiSlaveDma<'d
         clear_nostall(spi);
         spi.cr().modify(|_, w| w.men().enabled());
 
-        spi.tcr().modify(|_, w| {
-            w.txmsk()
-                .normal()
-                .rxmsk()
-                .normal()
-                .bysw()
-                .enabled()
-        });
+        spi.tcr()
+            .modify(|_, w| w.txmsk().normal().rxmsk().normal().bysw().enabled());
 
         spin_wait_while(|| spi.fsr().read().txcount().bits() > 0)?;
 
@@ -407,4 +395,3 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiSlaveDma<'d
         Ok(())
     }
 }
-

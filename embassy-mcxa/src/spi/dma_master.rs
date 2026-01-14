@@ -353,9 +353,8 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
         spi.cr().modify(|_, w| w.men().enabled());
 
         let tcr = Self::read_tcr_with_errata_workaround_internal();
-        let new_tcr = (tcr & !(TCR_CONT | TCR_CONTC | TCR_BYSW | TCR_PCS_MASK | TCR_RXMSK | TCR_TXMSK))
-            | TCR_CONT
-            | TCR_BYSW;
+        let new_tcr =
+            (tcr & !(TCR_CONT | TCR_CONTC | TCR_BYSW | TCR_PCS_MASK | TCR_RXMSK | TCR_TXMSK)) | TCR_CONT | TCR_BYSW;
         spi.tcr().write(|w| unsafe { w.bits(new_tcr) });
 
         spin_wait_while(|| spi.fsr().read().txcount().bits() > 0)?;
@@ -439,9 +438,8 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
         spi.cr().modify(|_, w| w.men().enabled());
 
         let tcr = Self::read_tcr_with_errata_workaround_internal();
-        let new_tcr = (tcr & !(TCR_CONT | TCR_CONTC | TCR_BYSW | TCR_PCS_MASK | TCR_RXMSK | TCR_TXMSK))
-            | TCR_CONT
-            | TCR_BYSW;
+        let new_tcr =
+            (tcr & !(TCR_CONT | TCR_CONTC | TCR_BYSW | TCR_PCS_MASK | TCR_RXMSK | TCR_TXMSK)) | TCR_CONT | TCR_BYSW;
         spi.tcr().write(|w| unsafe { w.bits(new_tcr) });
         let tcr_with_cont = new_tcr;
 
@@ -493,4 +491,3 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
         Ok(())
     }
 }
-

@@ -76,10 +76,8 @@ mod slave;
 pub use common::*;
 pub use dma_master::*;
 pub use dma_slave::*;
+// Re-export SPI mode constants from embedded-hal
+pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode as SpiMode, Phase, Polarity};
 pub use master::*;
 pub use pins::*;
 pub use slave::*;
-
-// Re-export SPI mode constants from embedded-hal
-pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode as SpiMode, Phase, Polarity};
-

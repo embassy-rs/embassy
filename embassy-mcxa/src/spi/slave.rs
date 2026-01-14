@@ -362,4 +362,3 @@ impl<'d, T: Instance, M: Mode> SpiSlave<'d, T, M> {
         Ok(())
     }
 }
-
