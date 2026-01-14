@@ -1,4 +1,5 @@
-#![cfg(feature = "wba")]
+use defmt::trace;
+
 // /* USER CODE BEGIN Header */
 // /**
 //   ******************************************************************************
@@ -345,6 +346,7 @@ const TASK_PRIO_LINK_LAYER: u32 = mac::CFG_SEQ_PRIO_ID_T_CFG_SEQ_PRIO_0 as u32;
  */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ll_sys_bg_process_init() {
+    trace!("ll_sys_bg_process_init");
     util_seq::UTIL_SEQ_RegTask(TASK_LINK_LAYER_MASK, UTIL_SEQ_RFU, Some(link_layer::ll_sys_bg_process));
 }
 
@@ -355,6 +357,7 @@ pub unsafe extern "C" fn ll_sys_bg_process_init() {
  */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ll_sys_schedule_bg_process() {
+    trace!("ll_sys_schedule_bg_process");
     util_seq::UTIL_SEQ_SetTask(TASK_LINK_LAYER_MASK, TASK_PRIO_LINK_LAYER);
 }
 
@@ -365,6 +368,7 @@ pub unsafe extern "C" fn ll_sys_schedule_bg_process() {
  */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ll_sys_schedule_bg_process_isr() {
+    trace!("ll_sys_schedule_bg_process_isr");
     util_seq::UTIL_SEQ_SetTask(TASK_LINK_LAYER_MASK, TASK_PRIO_LINK_LAYER);
 }
 
@@ -375,6 +379,8 @@ pub unsafe extern "C" fn ll_sys_schedule_bg_process_isr() {
  */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ll_sys_config_params() {
+    trace!("ll_sys_config_params");
+
     let allow_low_isr = mac::USE_RADIO_LOW_ISR as u8;
     let run_from_isr = mac::NEXT_EVENT_SCHEDULING_FROM_ISR as u8;
     let _ = link_layer::ll_intf_cmn_config_ll_ctx_params(allow_low_isr, run_from_isr);
@@ -390,6 +396,8 @@ pub unsafe extern "C" fn ll_sys_config_params() {
  */
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ll_sys_reset() {
+    trace!("ll_sys_reset");
+
     ll_sys_sleep_clock_source_selection();
 
     let sleep_accuracy = ll_sys_BLE_sleep_clock_accuracy_selection();
@@ -400,6 +408,8 @@ pub unsafe extern "C" fn ll_sys_reset() {
 /// Defaults to the crystal oscillator when no explicit configuration is available.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ll_sys_sleep_clock_source_selection() {
+    trace!("ll_sys_sleep_clock_source_selection");
+
     let mut frequency: u16 = 0;
     let _ = link_layer::ll_intf_cmn_le_select_slp_clk_src(
         link_layer::_SLPTMR_SRC_TYPE_E_CRYSTAL_OSCILLATOR_SLPTMR as u8,
@@ -411,6 +421,8 @@ pub unsafe extern "C" fn ll_sys_sleep_clock_source_selection() {
 /// Returns zero when board-specific calibration data is unavailable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn ll_sys_BLE_sleep_clock_accuracy_selection() -> u8 {
+    trace!("ll_sys_BLE_sleep_clock_accuracy_selection");
+
     // TODO: derive the board-specific sleep clock accuracy once calibration data is available.
     0
 }
