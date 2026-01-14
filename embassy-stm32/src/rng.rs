@@ -140,8 +140,9 @@ impl<'d, T: Instance> Rng<'d, T> {
             reg.set_rngen(true);
             reg.set_condrst(false);
         });
-        // wait for CONDRST to be reset
-        while T::regs().cr().read().condrst() {}
+        // According to reference manual: after software reset, wait for random number to be ready
+        // The next_u32() call will wait for DRDY, completing the initialization
+        let _ = self.next_u32();
     }
 
     /// Try to recover from a seed error.
