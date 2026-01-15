@@ -4,10 +4,9 @@
 //! the External Interrupt (EXTI) lines on STM32 microcontrollers.
 
 use super::{cpu_regs, exticr_regs};
+use crate::gpio::{Input, Pin as GpioPin, PinNumber};
 use crate::pac::EXTI;
 use crate::pac::exti::regs::Lines;
-
-use crate::gpio::{Input, Pin as GpioPin};
 
 /// Defines the edge triggering mode for EXTI interrupts
 ///
@@ -25,7 +24,7 @@ pub enum TriggerEdge {
 }
 
 /// Configures an EXTI line for a specific GPIO pin
-pub(super) fn configure_exti_pin(pin: u8, port: u8, trigger_edge: TriggerEdge) {
+pub(super) fn configure_exti_pin(pin: PinNumber, port: PinNumber, trigger_edge: TriggerEdge) {
     critical_section::with(|_| {
         let pin_num = pin as usize;
         // Cast needed: on N6, PinNumber is u16 (for total pin counting), but port is always 0-15.
@@ -61,7 +60,7 @@ impl From<InterruptState> for bool {
 }
 
 /// Enables the EXTI interrupt for a specific pin
-pub(super) fn set_exti_interrupt_enabled(pin: u8, state: InterruptState) {
+pub(super) fn set_exti_interrupt_enabled(pin: PinNumber, state: InterruptState) {
     critical_section::with(|_| {
         let pin = pin as usize;
         cpu_regs().imr(0).modify(|w| w.set_line(pin, state.into()));
@@ -110,7 +109,7 @@ pub(super) fn clear_exti_pending_mask(mask: u32) {
 }
 
 /// Clears the pending EXTI interrupt flag for a specific pin
-pub(super) fn clear_exti_pending(pin: u8) {
+pub(super) fn clear_exti_pending(pin: PinNumber) {
     let mask = 1u32 << pin;
 
     critical_section::with(|_| {
@@ -122,7 +121,7 @@ pub(super) fn clear_exti_pending(pin: u8) {
 ///
 /// # Returns
 /// `true` if an interrupt is pending, `false` otherwise
-pub(super) fn is_exti_pending(pin: u8) -> bool {
+pub(super) fn is_exti_pending(pin: PinNumber) -> bool {
     let pin = pin as usize;
 
     cfg_no_rpr_fpr! {
