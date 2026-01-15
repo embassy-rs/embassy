@@ -19,8 +19,11 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::bind_interrupts;
+use embassy_stm32::rcc::{
+    AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale, mux,
+};
 use embassy_stm32::rng::{self, Rng};
+use embassy_stm32::{Config, bind_interrupts};
 use embassy_stm32_wpan::gap::{AdvData, AdvParams, AdvType};
 use embassy_stm32_wpan::gatt::{CharProperties, GattEventMask, GattServer, SecurityPermissions, ServiceType, Uuid};
 use embassy_stm32_wpan::{Ble, set_rng_instance};
@@ -32,7 +35,31 @@ bind_interrupts!(struct Irqs {
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_stm32::init(Default::default());
+    let mut config = Config::default();
+
+    // Configure PLL1 (required on WBA)
+    config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
+        source: PllSource::HSI,
+        prediv: PllPreDiv::DIV1,  // PLLM = 1 → HSI / 1 = 16 MHz
+        mul: PllMul::MUL30,       // PLLN = 30 → 16 MHz * 30 = 480 MHz VCO
+        divr: Some(PllDiv::DIV5), // PLLR = 5 → 96 MHz (Sysclk)
+        divq: None,
+        divp: Some(PllDiv::DIV30), // PLLP = 30 → 16 MHz (required for SAI)
+        frac: Some(0),
+    });
+
+    config.rcc.ahb_pre = AHBPrescaler::DIV1;
+    config.rcc.apb1_pre = APBPrescaler::DIV1;
+    config.rcc.apb2_pre = APBPrescaler::DIV1;
+    config.rcc.apb7_pre = APBPrescaler::DIV1;
+    config.rcc.ahb5_pre = AHB5Prescaler::DIV4;
+    config.rcc.voltage_scale = VoltageScale::RANGE1;
+    config.rcc.sys = Sysclk::PLL1_R;
+
+    // Configure RNG clock source to HSI (required for WBA)
+    config.rcc.mux.rngsel = mux::Rngsel::HSI;
+
+    let p = embassy_stm32::init(config);
     info!("Embassy STM32WBA BLE Advertiser Example");
 
     // Initialize RNG (required by BLE stack)
