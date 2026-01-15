@@ -8,14 +8,12 @@ use crate::clocks::ClockError;
 use crate::gpio::{GpioPin, SealedPin};
 use crate::{interrupt, pac};
 
-/// Shorthand for `Result<T>`.
-pub type Result<T> = core::result::Result<T, Error>;
-
 pub mod controller;
 
 /// Error information type
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
 pub enum Error {
     /// Clock configuration error.
     ClockSetup(ClockError),
@@ -47,6 +45,8 @@ pub enum Error {
     InvalidWriteBufferLength,
     /// Invalid read buffer length.
     InvalidReadBufferLength,
+    /// User provided an invalid configuration
+    InvalidConfiguration,
     /// Other internal errors or unexpected state.
     Other,
 }
@@ -57,8 +57,6 @@ pub struct InterruptHandler;
 impl interrupt::typelevel::Handler<interrupt::typelevel::I3C0> for InterruptHandler {
     unsafe fn on_interrupt() {
         let status = info().regs().mintmasked().read();
-
-        // defmt::info!("STATUS {:08x}", status.bits());
 
         if status.nowmaster().bit_is_set()
             || status.complete().bit_is_set()
@@ -84,9 +82,9 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::I3C0> for InterruptHand
                     .txnotfull()
                     .clear_bit_by_one()
             });
-        }
 
-        info().wait_cell().wake();
+            info().wait_cell().wake();
+        }
     }
 }
 

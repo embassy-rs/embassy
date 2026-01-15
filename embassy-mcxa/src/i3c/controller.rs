@@ -5,7 +5,7 @@ use core::marker::PhantomData;
 use embassy_hal_internal::Peri;
 use embassy_hal_internal::interrupt::InterruptExt;
 
-use super::{Async, Blocking, Error, Info, InterruptHandler, Mode, Result, SclPin, SdaPin};
+use super::{Async, Blocking, Error, Info, InterruptHandler, Mode, SclPin, SdaPin};
 use crate::clocks::periph_helpers::{Div4, I3cClockSel, I3cConfig};
 use crate::clocks::{PoweredClock, enable_and_reset};
 use crate::gpio::AnyPin;
@@ -24,11 +24,15 @@ enum SendStop {
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum BusType {
+#[allow(dead_code)]
+enum BusType {
+    /// I3C SDR
     #[default]
     I3cSdr,
+    /// Legacy I2C
     I2c,
-    I3cDdr,
+    /// I3C DDR
+    I3cDdr, // Support for DDR is still missing
 }
 
 impl From<BusType> for Type {
@@ -59,6 +63,7 @@ impl From<Dir> for I3cDir {
 }
 
 /// I3C controller configuration
+#[non_exhaustive]
 pub struct Config {
     /// I3C push-pull bus frequency in Hz.
     pub push_pull_freq: u32,
@@ -95,7 +100,7 @@ impl<'d, M: Mode> I3c<'d, M> {
         scl: Peri<'d, impl SclPin<I3C0>>,
         sda: Peri<'d, impl SdaPin<I3C0>>,
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         let (power, source, div) = Self::clock_config();
 
         // Enable clocks
@@ -131,7 +136,7 @@ impl<'d, M: Mode> I3c<'d, M> {
         )
     }
 
-    fn set_configuration(&self, config: &Config) -> Result<()> {
+    fn set_configuration(&self, config: &Config) -> Result<(), Error> {
         self.clear_flags();
 
         self.info.regs().mdatactrl().modify(|_, w| {
@@ -147,7 +152,7 @@ impl<'d, M: Mode> I3c<'d, M> {
                 .not_empty()
         });
 
-        let (ppbaud, odbaud, i2cbaud) = self.calculate_baud_rate_params(config);
+        let (ppbaud, odbaud, i2cbaud) = self.calculate_baud_rate_params(config)?;
 
         self.info.regs().mconfig().write(|w| {
             unsafe {
@@ -174,12 +179,17 @@ impl<'d, M: Mode> I3c<'d, M> {
     }
 
     // REVISIT: not very readable
-    fn calculate_baud_rate_params(&self, config: &Config) -> (u32, u32, u32) {
+    fn calculate_baud_rate_params(&self, config: &Config) -> Result<(u32, u32, u32), Error> {
         const NSEC_PER_SEC: u32 = 1_000_000_000;
 
         let fclk = self.fclk;
 
         let target_pp_hz = config.push_pull_freq;
+
+        if target_pp_hz == 0 {
+            return Err(Error::InvalidConfiguration);
+        }
+
         let max_pp_hz = target_pp_hz + target_pp_hz / 10;
 
         let target_od_hz = config.open_drain_freq;
@@ -194,10 +204,7 @@ impl<'d, M: Mode> I3c<'d, M> {
 
         let mut pp_src_hz = fclk / 2;
 
-        let mut pp_div = pp_src_hz / target_pp_hz;
-        if pp_div == 0 {
-            pp_div = 1;
-        }
+        let mut pp_div = (pp_src_hz / target_pp_hz).max(1);
         if pp_src_hz / pp_div > max_pp_hz {
             pp_div += 1;
         }
@@ -216,10 +223,7 @@ impl<'d, M: Mode> I3c<'d, M> {
 
         let (od_baud, _od_src_hz) = if odhpp_enabled {
             // OD rate derived from 2×PP clock
-            let mut div = (2 * pp_src_hz) / target_od_hz;
-            if div < 2 {
-                div = 2;
-            }
+            let mut div = ((2 * pp_src_hz) / target_od_hz).max(2);
             if (2 * pp_src_hz) / div > max_od_hz {
                 div += 1;
             }
@@ -227,10 +231,7 @@ impl<'d, M: Mode> I3c<'d, M> {
             (div - 2, (2 * pp_src_hz) / div)
         } else {
             // OD rate derived directly
-            let mut div = pp_src_hz / target_od_hz;
-            if div < 1 {
-                div = 1;
-            }
+            let mut div = (pp_src_hz / target_od_hz).max(1);
             if pp_src_hz / div > max_od_hz {
                 div += 1;
             }
@@ -245,19 +246,11 @@ impl<'d, M: Mode> I3c<'d, M> {
          *    Choose even/odd divider with lowest error
          * ------------------------------------------------------------- */
 
-        let mut even_div = (fclk / target_i2c_hz) / (2 * (pp_baud + 1) * (od_baud + 1));
-        if even_div == 0 {
-            even_div = 1;
-        }
-
+        let even_div = ((fclk / target_i2c_hz) / (2 * (pp_baud + 1) * (od_baud + 1))).max(1);
         let even_rate = NSEC_PER_SEC / (2 * even_div * od_low_ns);
         let even_error = calculate_error(even_rate, target_i2c_hz);
 
-        let mut odd_div = ((fclk / target_i2c_hz) / ((pp_baud + 1) * (od_baud + 1) - 1)) / 2;
-        if odd_div == 0 {
-            odd_div = 1;
-        }
-
+        let odd_div = (((fclk / target_i2c_hz) / ((pp_baud + 1) * (od_baud + 1) - 1)) / 2).max(1);
         let odd_rate = NSEC_PER_SEC / ((2 * odd_div + 1) * od_low_ns);
         let odd_error = calculate_error(odd_rate, target_i2c_hz);
 
@@ -275,7 +268,7 @@ impl<'d, M: Mode> I3c<'d, M> {
             }
         };
 
-        (pp_baud, od_baud, i2c_baud)
+        Ok((pp_baud, od_baud, i2c_baud))
     }
 
     fn clear_flags(&self) {
@@ -309,7 +302,7 @@ impl<'d, M: Mode> I3c<'d, M> {
         while self.info.regs().mdatactrl().read().rxempty().is_empty() {}
     }
 
-    fn status(&self) -> Result<()> {
+    fn status(&self) -> Result<(), Error> {
         if self.info.regs().mstatus().read().errwarn().is_error() {
             let merrwarn = self.info.regs().merrwarn().read();
 
@@ -347,7 +340,7 @@ impl<'d, M: Mode> I3c<'d, M> {
     /// Prepares an appropriate Start condition on bus by issuing a
     /// `Start` request together with the device address, bus type
     /// (i3c sdr, i3c ddr, or i2c), and R/w bit.
-    fn blocking_start(&self, address: u8, bus_type: BusType, dir: Dir, len: u8) -> Result<()> {
+    fn blocking_start(&self, address: u8, bus_type: BusType, dir: Dir, len: u8) -> Result<(), Error> {
         self.clear_flags();
 
         self.info.regs().mctrl().write(|w| {
@@ -372,7 +365,7 @@ impl<'d, M: Mode> I3c<'d, M> {
     /// FIFO to become available, then sends the command and blocks
     /// waiting for the FIFO to become empty ensuring the command was
     /// sent.
-    fn blocking_stop(&self, bus_type: BusType) -> Result<()> {
+    fn blocking_stop(&self, bus_type: BusType) -> Result<(), Error> {
         if !self.info.regs().mstatus().read().state().is_normact() {
             Err(Error::InvalidRequest)
         } else {
@@ -403,7 +396,7 @@ impl<'d, M: Mode> I3c<'d, M> {
         read: &mut [u8],
         bus_type: BusType,
         send_stop: SendStop,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         if read.is_empty() {
             return Err(Error::InvalidReadBufferLength);
         }
@@ -424,7 +417,13 @@ impl<'d, M: Mode> I3c<'d, M> {
         Ok(())
     }
 
-    fn blocking_write_internal(&self, address: u8, write: &[u8], bus_type: BusType, send_stop: SendStop) -> Result<()> {
+    fn blocking_write_internal(
+        &self,
+        address: u8,
+        write: &[u8],
+        bus_type: BusType,
+        send_stop: SendStop,
+    ) -> Result<(), Error> {
         self.blocking_start(address, bus_type, Dir::Write, 0)?;
 
         // Usually, embassy HALs error out with an empty write,
@@ -466,33 +465,33 @@ impl<'d, M: Mode> I3c<'d, M> {
     // Public API: Blocking
 
     /// Read from address into buffer blocking caller until done.
-    pub fn blocking_read(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
+    pub fn blocking_read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Error> {
         self.blocking_read_internal(address, read, BusType::I3cSdr, SendStop::Yes)
     }
 
     /// Write to address from buffer blocking caller until done.
-    pub fn blocking_write(&mut self, address: u8, write: &[u8]) -> Result<()> {
+    pub fn blocking_write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
         self.blocking_write_internal(address, write, BusType::I3cSdr, SendStop::Yes)
     }
 
     /// Write to address from bytes and read from address into buffer blocking caller until done.
-    pub fn blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<()> {
+    pub fn blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
         self.blocking_write_internal(address, write, BusType::I3cSdr, SendStop::No)?;
         self.blocking_read_internal(address, read, BusType::I3cSdr, SendStop::Yes)
     }
 
     /// Read from address into buffer blocking caller until done.
-    pub fn i2c_blocking_read(&mut self, address: u8, read: &mut [u8]) -> Result<()> {
+    pub fn i2c_blocking_read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Error> {
         self.blocking_read_internal(address, read, BusType::I2c, SendStop::Yes)
     }
 
     /// Write to address from buffer blocking caller until done.
-    pub fn i2c_blocking_write(&mut self, address: u8, write: &[u8]) -> Result<()> {
+    pub fn i2c_blocking_write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
         self.blocking_write_internal(address, write, BusType::I2c, SendStop::Yes)
     }
 
     /// Write to address from bytes and read from address into buffer blocking caller until done.
-    pub fn i2c_blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<()> {
+    pub fn i2c_blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
         self.blocking_write_internal(address, write, BusType::I2c, SendStop::No)?;
         self.blocking_read_internal(address, read, BusType::I2c, SendStop::Yes)
     }
@@ -505,7 +504,7 @@ impl<'d> I3c<'d, Blocking> {
         scl: Peri<'d, impl SclPin<I3C0>>,
         sda: Peri<'d, impl SdaPin<I3C0>>,
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         Self::new_inner(peri, scl, sda, config)
     }
 }
@@ -518,7 +517,7 @@ impl<'d> I3c<'d, Async> {
         sda: Peri<'d, impl SdaPin<I3C0>>,
         _irq: impl typelevel::Binding<typelevel::I3C0, InterruptHandler> + 'd,
         config: Config,
-    ) -> Result<Self> {
+    ) -> Result<Self, Error> {
         let inst = Self::new_inner(peri, scl, sda, config);
 
         crate::pac::Interrupt::I3C0.unpend();
@@ -529,7 +528,7 @@ impl<'d> I3c<'d, Async> {
         inst
     }
 
-    async fn async_wait_for_ctrldone(&self) -> Result<()> {
+    async fn async_wait_for_ctrldone(&self) -> Result<(), Error> {
         self.info
             .wait_cell()
             .wait_for(|| {
@@ -540,12 +539,13 @@ impl<'d> I3c<'d, Async> {
                     .write(|w| w.mctrldone().enable().errwarn().enable());
                 // check control done status
                 self.info.regs().mstatus().read().mctrldone().is_done()
+                    || self.info.regs().mstatus().read().errwarn().is_error()
             })
             .await
             .map_err(|_| Error::Other)
     }
 
-    async fn async_wait_for_complete(&self) -> Result<()> {
+    async fn async_wait_for_complete(&self) -> Result<(), Error> {
         self.info
             .wait_cell()
             .wait_for(|| {
@@ -556,12 +556,13 @@ impl<'d> I3c<'d, Async> {
                     .write(|w| w.complete().enable().errwarn().enable());
                 // check control done status
                 self.info.regs().mstatus().read().complete().is_complete()
+                    || self.info.regs().mstatus().read().errwarn().is_error()
             })
             .await
             .map_err(|_| Error::Other)
     }
 
-    async fn async_wait_for_tx_fifo(&self) -> Result<()> {
+    async fn async_wait_for_tx_fifo(&self) -> Result<(), Error> {
         // Wait until we have space in the TX FIFO.
         self.info
             .wait_cell()
@@ -573,12 +574,13 @@ impl<'d> I3c<'d, Async> {
                     .write(|w| w.txnotfull().set_bit().errwarn().enable());
                 // if the TX FIFO isn't full, we can write bytes
                 self.info.regs().mstatus().read().txnotfull().is_notfull()
+                    || self.info.regs().mstatus().read().errwarn().is_error()
             })
             .await
             .map_err(|_| Error::Overwrite)
     }
 
-    async fn async_wait_for_rx_fifo(&self) -> Result<()> {
+    async fn async_wait_for_rx_fifo(&self) -> Result<(), Error> {
         self.info
             .wait_cell()
             .wait_for(|| {
@@ -589,6 +591,7 @@ impl<'d> I3c<'d, Async> {
                     .write(|w| w.rxpend().set_bit().errwarn().enable());
                 // if the rx FIFO is pending, we need to read bytes
                 self.info.regs().mstatus().read().rxpend().is_pending()
+                    || self.info.regs().mstatus().read().errwarn().is_error()
             })
             .await
             .map_err(|_| Error::Overread)
@@ -597,7 +600,7 @@ impl<'d> I3c<'d, Async> {
     /// Prepares an appropriate Start condition on bus by issuing a
     /// `Start` request together with the device address, bus type
     /// (i3c sdr, i3c ddr, or i2c), and R/w bit.
-    async fn async_start(&self, address: u8, bus_type: BusType, dir: Dir, len: u8) -> Result<()> {
+    async fn async_start(&self, address: u8, bus_type: BusType, dir: Dir, len: u8) -> Result<(), Error> {
         self.clear_flags();
 
         self.info.regs().mctrl().write(|w| {
@@ -622,7 +625,7 @@ impl<'d> I3c<'d, Async> {
     /// FIFO to become available, then sends the command and blocks
     /// waiting for the FIFO to become empty ensuring the command was
     /// sent.
-    async fn async_stop(&self, bus_type: BusType) -> Result<()> {
+    async fn async_stop(&self, bus_type: BusType) -> Result<(), Error> {
         if !self.info.regs().mstatus().read().state().is_normact() {
             Err(Error::InvalidRequest)
         } else {
@@ -631,18 +634,14 @@ impl<'d> I3c<'d, Async> {
             // 1".
             if bus_type == BusType::I2c {
                 self.info.regs().mconfig().modify(|_, w| w.odstop().enable());
-                self.info
-                    .regs()
-                    .mctrl()
-                    .write(|w| w.request().emitstop().type_().variant(bus_type.into()));
             } else {
                 self.info.regs().mconfig().modify(|_, w| w.odstop().disable());
-                self.info
-                    .regs()
-                    .mctrl()
-                    .write(|w| w.request().emitstop().type_().variant(bus_type.into()));
             }
 
+            self.info
+                .regs()
+                .mctrl()
+                .write(|w| w.request().emitstop().type_().variant(bus_type.into()));
             self.async_wait_for_ctrldone().await?;
             self.status()
         }
@@ -654,7 +653,7 @@ impl<'d> I3c<'d, Async> {
         read: &mut [u8],
         bus_type: BusType,
         send_stop: SendStop,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         if read.is_empty() {
             return Err(Error::InvalidReadBufferLength);
         }
@@ -682,7 +681,7 @@ impl<'d> I3c<'d, Async> {
         write: &[u8],
         bus_type: BusType,
         send_stop: SendStop,
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         self.async_start(address, bus_type, Dir::Write, 0).await?;
 
         // Usually, embassy HALs error out with an empty write,
@@ -730,7 +729,7 @@ impl<'d> I3c<'d, Async> {
         &mut self,
         address: u8,
         read: &'a mut [u8],
-    ) -> impl Future<Output = Result<()>> + use<'_, 'a, 'd> {
+    ) -> impl Future<Output = Result<(), Error>> + use<'_, 'a, 'd> {
         self.async_read_internal(address, read, BusType::I3cSdr, SendStop::Yes)
     }
 
@@ -739,12 +738,12 @@ impl<'d> I3c<'d, Async> {
         &mut self,
         address: u8,
         write: &'a [u8],
-    ) -> impl Future<Output = Result<()>> + use<'_, 'a, 'd> {
+    ) -> impl Future<Output = Result<(), Error>> + use<'_, 'a, 'd> {
         self.async_write_internal(address, write, BusType::I3cSdr, SendStop::Yes)
     }
 
     /// Write to address from bytes and read from address into buffer asynchronously.
-    pub async fn async_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<()> {
+    pub async fn async_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
         self.async_write_internal(address, write, BusType::I3cSdr, SendStop::No)
             .await?;
         self.async_read_internal(address, read, BusType::I3cSdr, SendStop::Yes)
@@ -756,7 +755,7 @@ impl<'d> I3c<'d, Async> {
         &mut self,
         address: u8,
         read: &'a mut [u8],
-    ) -> impl Future<Output = Result<()>> + use<'_, 'a, 'd> {
+    ) -> impl Future<Output = Result<(), Error>> + use<'_, 'a, 'd> {
         self.async_read_internal(address, read, BusType::I2c, SendStop::Yes)
     }
 
@@ -765,12 +764,12 @@ impl<'d> I3c<'d, Async> {
         &mut self,
         address: u8,
         write: &'a [u8],
-    ) -> impl Future<Output = Result<()>> + use<'_, 'a, 'd> {
+    ) -> impl Future<Output = Result<(), Error>> + use<'_, 'a, 'd> {
         self.async_write_internal(address, write, BusType::I2c, SendStop::Yes)
     }
 
     /// Write to address from bytes and read from address into buffer asynchronously.
-    pub async fn i2c_async_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<()> {
+    pub async fn i2c_async_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
         self.async_write_internal(address, write, BusType::I2c, SendStop::No)
             .await?;
         self.async_read_internal(address, read, BusType::I2c, SendStop::Yes)
@@ -789,7 +788,7 @@ fn calculate_error(cur_freq: u32, desired_freq: u32) -> u32 {
 impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Read for I3c<'d, M> {
     type Error = Error;
 
-    fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<()> {
+    fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
         self.blocking_read(address, buffer)
     }
 }
@@ -797,7 +796,7 @@ impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Read for I3c<'d, M> {
 impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Write for I3c<'d, M> {
     type Error = Error;
 
-    fn write(&mut self, address: u8, bytes: &[u8]) -> Result<()> {
+    fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Error> {
         self.blocking_write(address, bytes)
     }
 }
@@ -805,7 +804,7 @@ impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Write for I3c<'d, M> {
 impl<'d, M: Mode> embedded_hal_02::blocking::i2c::WriteRead for I3c<'d, M> {
     type Error = Error;
 
-    fn write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<()> {
+    fn write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Error> {
         self.blocking_write_read(address, bytes, buffer)
     }
 }
@@ -813,7 +812,11 @@ impl<'d, M: Mode> embedded_hal_02::blocking::i2c::WriteRead for I3c<'d, M> {
 impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Transactional for I3c<'d, M> {
     type Error = Error;
 
-    fn exec(&mut self, address: u8, operations: &mut [embedded_hal_02::blocking::i2c::Operation<'_>]) -> Result<()> {
+    fn exec(
+        &mut self,
+        address: u8,
+        operations: &mut [embedded_hal_02::blocking::i2c::Operation<'_>],
+    ) -> Result<(), Error> {
         if let Some((last, rest)) = operations.split_last_mut() {
             for op in rest {
                 match op {
@@ -856,7 +859,7 @@ impl<'d, M: Mode> embedded_hal_1::i2c::ErrorType for I3c<'d, M> {
 }
 
 impl<'d, M: Mode> embedded_hal_1::i2c::I2c for I3c<'d, M> {
-    fn transaction(&mut self, address: u8, operations: &mut [embedded_hal_1::i2c::Operation<'_>]) -> Result<()> {
+    fn transaction(&mut self, address: u8, operations: &mut [embedded_hal_1::i2c::Operation<'_>]) -> Result<(), Error> {
         if let Some((last, rest)) = operations.split_last_mut() {
             for op in rest {
                 match op {
@@ -888,7 +891,7 @@ impl<'d> embedded_hal_async::i2c::I2c for I3c<'d, Async> {
         &mut self,
         address: u8,
         operations: &mut [embedded_hal_async::i2c::Operation<'_>],
-    ) -> Result<()> {
+    ) -> Result<(), Error> {
         if let Some((last, rest)) = operations.split_last_mut() {
             for op in rest {
                 match op {
@@ -923,7 +926,7 @@ impl<'d, M: Mode> embassy_embedded_hal::SetConfig for I3c<'d, M> {
     type Config = Config;
     type ConfigError = Error;
 
-    fn set_config(&mut self, config: &Self::Config) -> Result<()> {
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Error> {
         self.set_configuration(config)
     }
 }

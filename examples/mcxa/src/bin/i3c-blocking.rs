@@ -13,9 +13,6 @@ use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     config.clock_cfg.sirc.fro_lf_div = Div8::from_divisor(1);
-    let mut firc = config.clock_cfg.firc.unwrap();
-    firc.fro_hf_div = Div8::from_divisor(1);
-    config.clock_cfg.firc = Some(firc);
 
     let p = hal::init(config);
 
