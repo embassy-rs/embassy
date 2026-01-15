@@ -155,7 +155,9 @@ pub enum VddDriveStrength {
 #[derive(Copy, Clone)]
 #[non_exhaustive]
 pub struct VddModeConfig {
+    /// VDD_CORE/LDO_CORE voltage level
     pub level: VddLevel,
+    /// VDD_CORE/LDO_CORE drive strength
     pub drive: VddDriveStrength,
 }
 
@@ -164,6 +166,7 @@ pub struct VddModeConfig {
 pub struct VddPowerConfig {
     /// Active power mode, used when not in Deep Sleep
     pub active_mode: VddModeConfig,
+    /// Low power mode, used when in Deep Sleep
     pub low_power_mode: VddModeConfig,
 }
 
