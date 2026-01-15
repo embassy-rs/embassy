@@ -54,7 +54,6 @@ pub mod periph_helpers;
 
 // TODO: Different for different CPUs?
 const VDD_CORE_MID_DRIVE_WAIT_STATE_LIMITS: &[(u32, u8)] = &[(22_500_000, 0b0000)];
-const VDD_CORE_MID_DRIVE_MAX_CPU_FREQ: u32 = 45_000_000;
 const VDD_CORE_MID_DRIVE_MAX_WAIT_STATES: u8 = 0b0001;
 
 const VDD_CORE_OVER_DRIVE_WAIT_STATE_LIMITS: &[(u32, u8)] = &[
@@ -63,7 +62,6 @@ const VDD_CORE_OVER_DRIVE_WAIT_STATE_LIMITS: &[(u32, u8)] = &[
     (120_000_000, 0b0010),
     (160_000_000, 0b0011),
 ];
-const VDD_CORE_OVER_DRIVE_MAX_CPU_FREQ: u32 = 180_000_000;
 const VDD_CORE_OVER_DRIVE_MAX_WAIT_STATES: u8 = 0b0100;
 
 /// The state of system core clocks.
@@ -297,6 +295,69 @@ struct ClockOperator<'a> {
     vbat0: pac::Vbat0,
     spc0: pac::Spc0,
     fmu0: pac::Fmu0,
+}
+
+// From Table 165 - Max Clock Frequencies
+struct ClockLimits {
+    fro_hf: u32,
+    fro_hf_div: u32,
+    pll1_clk: u32,
+    main_clk: u32,
+    cpu_clk: u32,
+    // The following items are LISTED in Table 165, but are not necessary
+    // to check at runtime either because they are physically fixed, the
+    // HAL exposes no way for them to exceed their limits, or they cannot
+    // exceed their limits due to some upstream clock enforcement. They
+    // are included here as documentation.
+    //
+    // clk_16k: u32,        // fixed (16.384kHz), no need to check
+    // clk_in: u32,         // Checked already in configure_sosc method, 50MHz in all modes
+    // clk_48m: u32,        // clk_48m is fixed (to 45mhz actually)
+    // fro_12m: u32,        // We don't allow modifying from 12mhz
+    // fro_12m_div: u32,    // div can never exceed 12mhz
+    // pll1_clk_div: u32,   // if pll1_clk is in range, so is pll1_clk_div
+    // clk_1m: u32,         // fro_12m / 12 can never exceed 12mhz
+    // system_clk: u32,     // cpu_clk == system_clk
+    // bus_clk: u32,        // bus_clk == (cpu_clk / 2), if cpu_clk is good so is bus_clk
+    // slow_clk: u32,       // slow_clk == (cpu_clk / 6), if cpu_clk is good so is slow_clock
+}
+
+impl ClockLimits {
+    const MID_DRIVE: Self = Self {
+        fro_hf: 90_000_000,
+        fro_hf_div: 45_000_000,
+        pll1_clk: 48_000_000,
+        main_clk: 90_000_000,
+        cpu_clk: 45_000_000,
+        // clk_16k: 16_384,
+        // clk_in: 50_000_000,
+        // clk_48m: 48_000_000,
+        // fro_12m: 24_000_000, // what?
+        // fro_12m_div: 24_000_000, // what?
+        // pll1_clk_div: 48_000_000,
+        // clk_1m: 1_000_000,
+        // system_clk: 45_000_000,
+        // bus_clk: 22_500_000,
+        // slow_clk: 7_500_000,
+    };
+
+    const OVER_DRIVE: Self = Self {
+        fro_hf: 180_000_000,
+        fro_hf_div: 180_000_000,
+        pll1_clk: 240_000_000,
+        main_clk: 180_000_000,
+        cpu_clk: 180_000_000,
+        // clk_16k: 16_384,
+        // clk_in: 50_000_000,
+        // clk_48m: 48_000_000,
+        // fro_12m: 24_000_000, // what?
+        // fro_12m_div: 24_000_000, // what?
+        // pll1_clk_div: 240_000_000,
+        // clk_1m: 1_000_000,
+        // system_clk: 180_000_000,
+        // bus_clk: 90_000_000,
+        // slow_clk: 36_000_000,
+    };
 }
 
 /// Trait describing an AHB clock gate that can be toggled through MRCC.
@@ -609,6 +670,13 @@ impl PoweredClock {
 }
 
 impl ClockOperator<'_> {
+    fn active_limits(&self) -> &ClockLimits {
+        match self.config.vdd_power.active_mode.level {
+            VddLevel::MidDriveMode => &ClockLimits::MID_DRIVE,
+            VddLevel::OverDriveMode => &ClockLimits::OVER_DRIVE,
+        }
+    }
+
     /// Configure the FIRC/FRO180M clock family
     ///
     /// NOTE: Currently we require this to be a fairly hardcoded value, as this clock is used
@@ -736,6 +804,13 @@ impl ClockOperator<'_> {
 
         // Do we enable the `fro_hf` output?
         let fro_hf_set = if *fro_hf_enabled {
+            if base_freq > self.active_limits().fro_hf {
+                return Err(ClockError::BadConfig {
+                    clock: "fro_hf",
+                    reason: "exceeds max",
+                });
+            }
+
             self.clocks.fro_hf = Some(Clock {
                 frequency: base_freq,
                 power: *power,
@@ -776,6 +851,14 @@ impl ClockOperator<'_> {
                 });
             }
 
+            let div_freq = base_freq / d.into_divisor();
+            if div_freq > self.active_limits().fro_hf_div {
+                return Err(ClockError::BadConfig {
+                    clock: "fro_hf_root",
+                    reason: "exceeds max",
+                });
+            }
+
             // Halt and reset the div; then set our desired div.
             self.syscon.frohfdiv().write(|w| {
                 w.halt().halt();
@@ -795,7 +878,7 @@ impl ClockOperator<'_> {
 
             // Store off the clock info
             self.clocks.fro_hf_div = Some(Clock {
-                frequency: base_freq / d.into_divisor(),
+                frequency: div_freq,
                 power: *power,
             });
         }
@@ -1289,10 +1372,13 @@ impl ClockOperator<'_> {
 
         // Fout: 4.3MHz to 2x Max CPU Frequency
         let fmax = match self.config.vdd_power.active_mode.level {
-            VddLevel::MidDriveMode => VDD_CORE_MID_DRIVE_MAX_CPU_FREQ,
-            VddLevel::OverDriveMode => VDD_CORE_OVER_DRIVE_MAX_CPU_FREQ,
+            VddLevel::MidDriveMode => ClockLimits::MID_DRIVE.cpu_clk,
+            VddLevel::OverDriveMode => ClockLimits::OVER_DRIVE.cpu_clk,
         };
-        if !(4_300_000..=(2 * fmax)).contains(&fout) {
+        let spll_range_bad1 = !(4_300_000..=(2 * fmax)).contains(&fout);
+        let spll_range_bad2 = fout > self.active_limits().pll1_clk;
+
+        if spll_range_bad1 || spll_range_bad2 {
             return Err(ClockError::BadConfig {
                 clock: "spll",
                 reason: "fout invalid",
@@ -1459,22 +1545,24 @@ impl ClockOperator<'_> {
             });
         }
 
-        let (levels, fmax, wsmax) = match self.config.vdd_power.active_mode.level {
+        let (levels, mclk_max, cpuclk_max, wsmax) = match self.config.vdd_power.active_mode.level {
             VddLevel::MidDriveMode => (
                 VDD_CORE_MID_DRIVE_WAIT_STATE_LIMITS,
-                VDD_CORE_MID_DRIVE_MAX_CPU_FREQ,
+                ClockLimits::MID_DRIVE.main_clk,
+                ClockLimits::MID_DRIVE.cpu_clk,
                 VDD_CORE_MID_DRIVE_MAX_WAIT_STATES,
             ),
             VddLevel::OverDriveMode => (
                 VDD_CORE_OVER_DRIVE_WAIT_STATE_LIMITS,
-                VDD_CORE_OVER_DRIVE_MAX_CPU_FREQ,
+                ClockLimits::OVER_DRIVE.main_clk,
+                ClockLimits::OVER_DRIVE.cpu_clk,
                 VDD_CORE_OVER_DRIVE_MAX_WAIT_STATES,
             ),
         };
-        if clk.frequency > fmax {
+        if clk.frequency > mclk_max {
             return Err(ClockError::BadConfig {
                 clock: name,
-                reason: "Exceeds max CPU frequency",
+                reason: "Exceeds main_clock frequency",
             });
         }
 
@@ -1513,6 +1601,14 @@ impl ClockOperator<'_> {
 
         // Update AHB clock division, if necessary
         let d = self.config.main_clock.ahb_clk_div;
+        let cpu_freq = clk.frequency / d.into_divisor();
+        if cpu_freq > cpuclk_max {
+            return Err(ClockError::BadConfig {
+                clock: name,
+                reason: "Exceeds ahb max frequency",
+            });
+        }
+
         if d.into_bits() != 0 {
             // AHB has no halt/reset fields - it's different to other DIV8s!
             self.syscon
@@ -1524,7 +1620,7 @@ impl ClockOperator<'_> {
 
         // Store off the clock info
         self.clocks.cpu_system_clk = Some(Clock {
-            frequency: clk.frequency / d.into_divisor(),
+            frequency: cpu_freq,
             power: clk.power,
         });
 
