@@ -63,6 +63,7 @@ pub mod pac {
     #[doc(no_inline)]
     pub use nrf_pac::{
         CC_HOST_RGF_S as CC_HOST_RGF,
+        CC_RNG_S as CC_RNG,
         CLOCK_S as CLOCK,
         CRYPTOCELL_S as CRYPTOCELL,
         CTRL_AP_PERI_S as CTRL_AP_PERI,
@@ -74,7 +75,7 @@ pub mod pac {
         EGU4_S as EGU4,
         EGU5_S as EGU5,
         FICR_S as FICR,
-        FPU_S as FPU,
+        FPU_NS as FPU,
         GPIOTE0_S as GPIOTE0,
         I2S_S as I2S,
         IPC_S as IPC,
@@ -239,6 +240,10 @@ embassy_hal_internal::peripherals! {
     EGU3,
     EGU4,
     EGU5,
+
+    // CryptoCell RNG
+    #[cfg(feature = "_s")]
+    CC_RNG
 }
 
 impl_uarte!(SERIAL0, UARTE0, SERIAL0);
@@ -272,6 +277,9 @@ impl_pwm!(PWM2, PWM2, PWM2);
 impl_pwm!(PWM3, PWM3, PWM3);
 
 impl_pdm!(PDM, PDM, PDM);
+
+#[cfg(feature = "_s")]
+impl_ccrng!(CC_RNG, CC_RNG, CRYPTOCELL);
 
 impl_timer!(TIMER0, TIMER0, TIMER0);
 impl_timer!(TIMER1, TIMER1, TIMER1);
