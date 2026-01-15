@@ -211,11 +211,11 @@ pub struct Clocks {
     /// the VDD Core domain, such as the OSTimer or LPUarts.
     pub clk_16k_vdd_core: Option<Clock>,
 
-    /// `main_clk` is the main clock used by the CPU, AHB, APB, IPS bus, and some
-    /// peripherals.
+    /// `main_clk` is the main clock, upstream of the cpu/system clock.
     pub main_clk: Option<Clock>,
 
-    /// `CPU_CLK` or `SYSTEM_CLK` is the output of `main_clk`, run through the `AHBCLKDIV`
+    /// `CPU_CLK` or `SYSTEM_CLK` is the output of `main_clk`, run through the `AHBCLKDIV`,
+    /// used for the CPU, AHB, APB, IPS bus, and some high speed peripherals.
     pub cpu_system_clk: Option<Clock>,
 
     /// `pll1_clk` is the output of the main system PLL, `pll1`.
@@ -1531,14 +1531,14 @@ impl ClockOperator<'_> {
             MainClockSource::RoscFro16K => (ScsW::Rosc, "fro16k", self.clocks.clk_16k_vdd_core.as_ref()),
             MainClockSource::SPll1 => (ScsW::Spll, "pll1_clk", self.clocks.pll1_clk.as_ref()),
         };
-        let Some(clk) = clk else {
+        let Some(main_clk_src) = clk else {
             return Err(ClockError::BadConfig {
                 clock: name,
                 reason: "Needed for main_clock but not enabled",
             });
         };
 
-        if !clk.power.meets_requirement_of(&self.config.main_clock.power) {
+        if !main_clk_src.power.meets_requirement_of(&self.config.main_clock.power) {
             return Err(ClockError::BadConfig {
                 clock: name,
                 reason: "Needed for main_clock but not low power",
@@ -1559,19 +1559,36 @@ impl ClockOperator<'_> {
                 VDD_CORE_OVER_DRIVE_MAX_WAIT_STATES,
             ),
         };
-        if clk.frequency > mclk_max {
+
+        // Is the main_clk source in range for main_clk?
+        if main_clk_src.frequency > mclk_max {
             return Err(ClockError::BadConfig {
                 clock: name,
                 reason: "Exceeds main_clock frequency",
             });
         }
 
+        // Calculate expected CPU frequency based on main_clk and AHB div
+        let ahb_div = self.config.main_clock.ahb_clk_div;
+        let cpu_freq = main_clk_src.frequency / ahb_div.into_divisor();
+
+        // Is the expected CPU frequency in range for cpu_clk?
+        if cpu_freq > cpuclk_max {
+            return Err(ClockError::BadConfig {
+                clock: name,
+                reason: "Exceeds ahb max frequency",
+            });
+        }
+
         // BEFORE we switch, update the flash wait states to the appropriate levels
+        //
+        // NOTE: "cpu_clk" is the same as "system_clk". Table 22 is not clear exactly
+        // WHICH source clock the limits apply to, but system/ahb/cpu is a fair bet.
         //
         // TODO: This calculation doesn't consider low power mode yet!
         let wait_states = levels
             .iter()
-            .find(|(fmax, _ws)| clk.frequency <= *fmax)
+            .find(|(fmax, _ws)| cpu_freq <= *fmax)
             .map(|t| t.1)
             .unwrap_or(wsmax);
         self.fmu0.fctrl().modify(|_r, w| unsafe { w.rwsc().bits(wait_states) });
@@ -1597,23 +1614,14 @@ impl ClockOperator<'_> {
         }
 
         // The main_clk is now set to the selected input clock
-        self.clocks.main_clk = Some(clk.clone());
+        self.clocks.main_clk = Some(main_clk_src.clone());
 
         // Update AHB clock division, if necessary
-        let d = self.config.main_clock.ahb_clk_div;
-        let cpu_freq = clk.frequency / d.into_divisor();
-        if cpu_freq > cpuclk_max {
-            return Err(ClockError::BadConfig {
-                clock: name,
-                reason: "Exceeds ahb max frequency",
-            });
-        }
-
-        if d.into_bits() != 0 {
+        if ahb_div.into_bits() != 0 {
             // AHB has no halt/reset fields - it's different to other DIV8s!
             self.syscon
                 .ahbclkdiv()
-                .modify(|_r, w| unsafe { w.div().bits(d.into_bits()) });
+                .modify(|_r, w| unsafe { w.div().bits(ahb_div.into_bits()) });
             // Wait for clock to stabilize
             while self.syscon.ahbclkdiv().read().unstab().is_ongoing() {}
         }
@@ -1621,7 +1629,7 @@ impl ClockOperator<'_> {
         // Store off the clock info
         self.clocks.cpu_system_clk = Some(Clock {
             frequency: cpu_freq,
-            power: clk.power,
+            power: main_clk_src.power,
         });
 
         Ok(())
