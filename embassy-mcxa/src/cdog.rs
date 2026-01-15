@@ -358,27 +358,29 @@ impl Handler<typelevel::CDOG0> for InterruptHandler {
     unsafe fn on_interrupt() {
         let cdog0 = unsafe { &*pac::Cdog0::ptr() };
 
-        // Read the flags register
-        let flags = cdog0.flags().read();
-
         // Print all flags at once using the Debug implementation
         #[cfg(feature = "defmt")]
-        defmt::trace!(
-            "CDOG0 flags - Timeout_flag: {},
-            Miscompare fault: {},
-            Sequence fault: {},
-            Control fault: {},
-            State fault: {},
-            Address fault: {},
-            Power-on reset: {}",
-            flags.to_flag().bit(),
-            flags.miscom_flag().bit(),
-            flags.seq_flag().bit(),
-            flags.cnt_flag().bit(),
-            flags.state_flag().bit(),
-            flags.addr_flag().bit(),
-            flags.por_flag().bit()
-        );
+        {
+            // Read the flags register
+            let flags = cdog0.flags().read();
+
+            defmt::trace!(
+                "CDOG0 flags - Timeout_flag: {},
+                Miscompare fault: {},
+                Sequence fault: {},
+                Control fault: {},
+                State fault: {},
+                Address fault: {},
+                Power-on reset: {}",
+                flags.to_flag().bit(),
+                flags.miscom_flag().bit(),
+                flags.seq_flag().bit(),
+                flags.cnt_flag().bit(),
+                flags.state_flag().bit(),
+                flags.addr_flag().bit(),
+                flags.por_flag().bit()
+            );
+        }
 
         // Stop the cdog
         cdog0.stop().write(|w| unsafe { w.stp().bits(0) });
