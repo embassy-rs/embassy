@@ -328,7 +328,9 @@ fn main() {
     let time_driver_irq_decl = if !time_driver_singleton.is_empty() {
         cfgs.enable(format!("time_driver_{}", time_driver_singleton.to_lowercase()));
 
-        let p = peripheral_map.get(time_driver_singleton).unwrap();
+        let Some(p) = peripheral_map.get(time_driver_singleton) else {
+            panic!("Tried to select {time_driver_singleton}, which is not available on this device");
+        };
         let irqs: BTreeSet<_> = p
             .interrupts
             .iter()
