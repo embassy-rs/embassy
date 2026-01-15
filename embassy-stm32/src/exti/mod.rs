@@ -13,8 +13,13 @@ use crate::gpio::{AnyPin, ExtiPin, Input, Level, Pin as GpioPin, PinNumber, Pull
 use crate::interrupt::Interrupt as InterruptEnum;
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt as InterruptType};
 use crate::pac::EXTI;
-use crate::pac::exti::regs::Lines;
 use crate::{Peri, pac};
+
+#[macro_use]
+mod low_level;
+pub use low_level::{InterruptState, TriggerEdge};
+
+pub mod blocking;
 
 const EXTI_COUNT: usize = 16;
 static EXTI_WAKERS: [AtomicWaker; EXTI_COUNT] = [const { AtomicWaker::new() }; EXTI_COUNT];
@@ -50,10 +55,12 @@ fn exticr_regs() -> pac::afio::Afio {
 }
 
 unsafe fn on_irq() {
-    #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6)))]
-    let bits = EXTI.pr(0).read().0;
-    #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6))]
-    let bits = EXTI.rpr(0).read().0 | EXTI.fpr(0).read().0;
+    cfg_no_rpr_fpr! {
+        let bits = EXTI.pr(0).read().0;
+    }
+    cfg_has_rpr_fpr! {
+        let bits = EXTI.rpr(0).read().0 | EXTI.fpr(0).read().0;
+    }
 
     // We don't handle or change any EXTI lines above 16.
     let bits = bits & 0x0000FFFF;
@@ -67,13 +74,7 @@ unsafe fn on_irq() {
     }
 
     // Clear pending
-    #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6)))]
-    EXTI.pr(0).write_value(Lines(bits));
-    #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6))]
-    {
-        EXTI.rpr(0).write_value(Lines(bits));
-        EXTI.fpr(0).write_value(Lines(bits));
-    }
+    low_level::clear_exti_pending_mask(bits);
 
     #[cfg(feature = "low-power")]
     crate::low_power::Executor::on_wakeup_irq_or_event();
@@ -145,7 +146,7 @@ impl<'d> ExtiInput<'d> {
     ///
     /// This returns immediately if the pin is already high.
     pub async fn wait_for_high(&mut self) {
-        let fut = ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, false, true);
+        let fut = ExtiInputFuture::new(&self.pin, TriggerEdge::Rising, true);
         if self.is_high() {
             return;
         }
@@ -156,7 +157,7 @@ impl<'d> ExtiInput<'d> {
     ///
     /// This returns immediately if the pin is already low.
     pub async fn wait_for_low(&mut self) {
-        let fut = ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), false, true, true);
+        let fut = ExtiInputFuture::new(&self.pin, TriggerEdge::Falling, true);
         if self.is_low() {
             return;
         }
@@ -167,40 +168,38 @@ impl<'d> ExtiInput<'d> {
     ///
     /// If the pin is already high, it will wait for it to go low then back high.
     pub async fn wait_for_rising_edge(&mut self) {
-        ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, false, true).await
+        ExtiInputFuture::new(&self.pin, TriggerEdge::Rising, true).await
     }
 
     /// Asynchronously wait until the pin sees a rising edge.
     ///
     /// If the pin is already high, it will wait for it to go low then back high.
     pub fn poll_for_rising_edge<'a>(&mut self, cx: &mut Context<'a>) {
-        let _ =
-            ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, false, false).poll_unpin(cx);
+        let _ = ExtiInputFuture::new(&self.pin, TriggerEdge::Rising, false).poll_unpin(cx);
     }
 
     /// Asynchronously wait until the pin sees a falling edge.
     ///
     /// If the pin is already low, it will wait for it to go high then back low.
     pub async fn wait_for_falling_edge(&mut self) {
-        ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), false, true, true).await
+        ExtiInputFuture::new(&self.pin, TriggerEdge::Falling, true).await
     }
 
     /// Asynchronously wait until the pin sees a falling edge.
     ///
     /// If the pin is already low, it will wait for it to go high then back low.
     pub fn poll_for_falling_edge<'a>(&mut self, cx: &mut Context<'a>) {
-        let _ =
-            ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), false, true, false).poll_unpin(cx);
+        let _ = ExtiInputFuture::new(&self.pin, TriggerEdge::Falling, false).poll_unpin(cx);
     }
 
     /// Asynchronously wait until the pin sees any edge (either rising or falling).
     pub async fn wait_for_any_edge(&mut self) {
-        ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, true, true).await
+        ExtiInputFuture::new(&self.pin, TriggerEdge::Any, true).await
     }
 
     /// Asynchronously wait until the pin sees any edge (either rising or falling).
     pub fn poll_for_any_edge<'a>(&mut self, cx: &mut Context<'a>) {
-        let _ = ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, true, false).poll_unpin(cx);
+        let _ = ExtiInputFuture::new(&self.pin, TriggerEdge::Any, false).poll_unpin(cx);
     }
 }
 
@@ -265,28 +264,11 @@ struct ExtiInputFuture<'a> {
 }
 
 impl<'a> ExtiInputFuture<'a> {
-    fn new(pin: PinNumber, port: PinNumber, rising: bool, falling: bool, drop: bool) -> Self {
-        critical_section::with(|_| {
-            let pin = pin as usize;
-            // Cast needed: on N6, PinNumber is u16 (for total pin counting), but port is always 0-15.
-            exticr_regs().exticr(pin / 4).modify(|w| w.set_exti(pin % 4, port as _));
-            EXTI.rtsr(0).modify(|w| w.set_line(pin, rising));
-            EXTI.ftsr(0).modify(|w| w.set_line(pin, falling));
-
-            // clear pending bit
-            #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6)))]
-            EXTI.pr(0).write(|w| w.set_line(pin, true));
-            #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6))]
-            {
-                EXTI.rpr(0).write(|w| w.set_line(pin, true));
-                EXTI.fpr(0).write(|w| w.set_line(pin, true));
-            }
-
-            cpu_regs().imr(0).modify(|w| w.set_line(pin, true));
-        });
+    fn new(pin: &Input, trigger_edge: TriggerEdge, drop: bool) -> Self {
+        low_level::configure_and_enable_exti(pin, trigger_edge);
 
         Self {
-            pin,
+            pin: pin.pin.pin.pin(),
             drop,
             phantom: PhantomData,
         }
