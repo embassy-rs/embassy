@@ -69,6 +69,10 @@ impl<'d, T: Instance> Rng<'d, T> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         rcc::enable_and_reset::<T>();
+
+        // Verify clock is available
+        T::frequency();
+
         let mut random = Self { _inner: inner };
         random.reset();
 
