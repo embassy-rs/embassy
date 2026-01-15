@@ -53,7 +53,18 @@ pub mod periph_helpers;
 //
 
 // TODO: Different for different CPUs?
-const CPU_MAX_FREQ: u32 = 180_000_000;
+const VDD_CORE_MID_DRIVE_WAIT_STATE_LIMITS: &[(u32, u8)] = &[(22_500_000, 0b0000)];
+const VDD_CORE_MID_DRIVE_MAX_CPU_FREQ: u32 = 45_000_000;
+const VDD_CORE_MID_DRIVE_MAX_WAIT_STATES: u8 = 0b0001;
+
+const VDD_CORE_OVER_DRIVE_WAIT_STATE_LIMITS: &[(u32, u8)] = &[
+    (40_000_000, 0b0000),
+    (80_000_000, 0b0001),
+    (120_000_000, 0b0010),
+    (160_000_000, 0b0011),
+];
+const VDD_CORE_OVER_DRIVE_MAX_CPU_FREQ: u32 = 180_000_000;
+const VDD_CORE_OVER_DRIVE_MAX_WAIT_STATES: u8 = 0b0100;
 
 /// The state of system core clocks.
 ///
@@ -89,6 +100,7 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
         syscon: unsafe { pac::Syscon::steal() },
         vbat0: unsafe { pac::Vbat0::steal() },
         spc0: unsafe { pac::Spc0::steal() },
+        fmu0: unsafe { pac::Fmu0::steal() },
     };
 
     // Before applying any requested clocks, apply the requested VDD_CORE
@@ -284,6 +296,7 @@ struct ClockOperator<'a> {
     syscon: pac::Syscon,
     vbat0: pac::Vbat0,
     spc0: pac::Spc0,
+    fmu0: pac::Fmu0,
 }
 
 /// Trait describing an AHB clock gate that can be toggled through MRCC.
@@ -1275,7 +1288,11 @@ impl ClockOperator<'_> {
         }
 
         // Fout: 4.3MHz to 2x Max CPU Frequency
-        if !(4_300_000..=(2 * CPU_MAX_FREQ)).contains(&fout) {
+        let fmax = match self.config.vdd_power.active_mode.level {
+            VddLevel::MidDriveMode => VDD_CORE_MID_DRIVE_MAX_CPU_FREQ,
+            VddLevel::OverDriveMode => VDD_CORE_OVER_DRIVE_MAX_CPU_FREQ,
+        };
+        if !(4_300_000..=(2 * fmax)).contains(&fout) {
             return Err(ClockError::BadConfig {
                 clock: "spll",
                 reason: "fout invalid",
@@ -1442,13 +1459,36 @@ impl ClockOperator<'_> {
             });
         }
 
-        if clk.frequency > CPU_MAX_FREQ {
+        let (levels, fmax, wsmax) = match self.config.vdd_power.active_mode.level {
+            VddLevel::MidDriveMode => (
+                VDD_CORE_MID_DRIVE_WAIT_STATE_LIMITS,
+                VDD_CORE_MID_DRIVE_MAX_CPU_FREQ,
+                VDD_CORE_MID_DRIVE_MAX_WAIT_STATES,
+            ),
+            VddLevel::OverDriveMode => (
+                VDD_CORE_OVER_DRIVE_WAIT_STATE_LIMITS,
+                VDD_CORE_OVER_DRIVE_MAX_CPU_FREQ,
+                VDD_CORE_OVER_DRIVE_MAX_WAIT_STATES,
+            ),
+        };
+        if clk.frequency > fmax {
             return Err(ClockError::BadConfig {
                 clock: name,
                 reason: "Exceeds max CPU frequency",
             });
         }
 
+        // BEFORE we switch, update the flash wait states to the appropriate levels
+        //
+        // TODO: This calculation doesn't consider low power mode yet!
+        let wait_states = levels
+            .iter()
+            .find(|(fmax, _ws)| clk.frequency <= *fmax)
+            .map(|t| t.1)
+            .unwrap_or(wsmax);
+        self.fmu0.fctrl().modify(|_r, w| unsafe { w.rwsc().bits(wait_states) });
+
+        // Now we can switch clock source, if necessary.
         let expected = match var {
             ScsW::Sosc => ScsR::Sosc,
             ScsW::Sirc => ScsR::Sirc,
