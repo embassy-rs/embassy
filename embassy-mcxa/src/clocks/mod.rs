@@ -37,7 +37,9 @@
 
 use core::cell::RefCell;
 
-use config::{ClocksConfig, FircConfig, FircFreqSel, Fro16KConfig, MainClockSource, SircConfig};
+use config::{
+    ClocksConfig, FircConfig, FircFreqSel, Fro16KConfig, MainClockSource, SircConfig, VddDriveStrength, VddLevel,
+};
 use mcxa_pac::scg0::firccsr::{FircFclkPeriphEn, FircSclkPeriphEn, Fircsten};
 use mcxa_pac::scg0::sirccsr::Sircsten;
 use periph_helpers::SPConfHelper;
@@ -86,7 +88,12 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
         scg0: unsafe { pac::Scg0::steal() },
         syscon: unsafe { pac::Syscon::steal() },
         vbat0: unsafe { pac::Vbat0::steal() },
+        spc0: unsafe { pac::Spc0::steal() },
     };
+
+    // Before applying any requested clocks, apply the requested VDD_CORE
+    // voltage level
+    operator.configure_voltages()?;
 
     // Enable SIRC clocks FIRST, in case we need to use SIRC as main_clk for
     // a short while.
@@ -276,6 +283,7 @@ struct ClockOperator<'a> {
     scg0: pac::Scg0,
     syscon: pac::Syscon,
     vbat0: pac::Vbat0,
+    spc0: pac::Spc0,
 }
 
 /// Trait describing an AHB clock gate that can be toggled through MRCC.
@@ -1479,6 +1487,132 @@ impl ClockOperator<'_> {
             frequency: clk.frequency / d.into_divisor(),
             power: clk.power,
         });
+
+        Ok(())
+    }
+
+    fn configure_voltages(&self) -> Result<(), ClockError> {
+        match self.config.vdd_power.active_mode.level {
+            VddLevel::MidDriveMode => {
+                // This is the default mode, I don't believe we need to do anything.
+                //
+                // "The LVDE and HVDE fields reset only with a POR.
+                // All other fields reset only with a system reset."
+            }
+            VddLevel::OverDriveMode => {
+                // You can change the core VDD levels for the LDO_CORE low power regulator only
+                // when CORELDO_VDD_DS=1.
+                //
+                // When switching CORELDO_VDD_DS from low to normal drive strength, ensure the LDO_CORE high
+                // VDD LVL setting is set to the same level that was set prior to switching to the LDO_CORE drive strength
+                // (CORELDO_VDD_DS). Otherwise, if the LVDs are enabled, an unexpected LVD can occur.
+                //
+                // Ensure drive strength is normal (BEFORE shifting level)
+                self.spc0.active_cfg().modify(|_r, w| w.coreldo_vdd_ds().normal());
+
+                // ## DS 26.3.2:
+                //
+                // When increasing voltage and frequency in Active mode, you must perform the following steps:
+                //
+                // 1. Increase voltage to a new level (ACTIVE_CFG[CORELDO_VDD_LVL]).
+                self.spc0.active_cfg().modify(|_r, w| w.coreldo_vdd_lvl().over());
+
+                // 2. Wait for voltage change to complete (SC[BUSY] = 0).
+                while self.spc0.sc().read().busy().is_busy_yes() {}
+
+                // 3. Configure flash memory to support higher voltage level and frequency (FMU_FCTRL[RWSC].
+                //
+                // NOTE: This step skipped - we will update RWSC when we later apply main cpu clock
+                // frequency changes.
+
+                // 4. Configure SRAM to support higher voltage levels (SRAMCTL[VSM]).
+                // TODO(AJM): The refman describes `0b01` as "1.0v", and `0b10` as `1.1v`, with
+                // all other patterns reserved. Is this correct for 1.2v overdrive?
+                self.spc0.sramctl().modify(|_r, w| w.vsm().vsm2());
+
+                // 5. Request SRAM voltage update (write 1 to SRAMCTL[REQ]).
+                self.spc0.sramctl().modify(|_r, w| w.req().set_bit());
+
+                // 6. Wait for SRAM voltage change to complete (SRAMCTL[ACK] = 1).
+                while self.spc0.sramctl().read().ack().is_ack_no() {}
+
+                // 7. Clear request for SRAM voltage change (write 0 to SRAMCTL[REQ]).
+                self.spc0.sramctl().modify(|_r, w| w.req().clear_bit());
+
+                // 8. Increase frequency to a new level (for example, SCG_RCCR).
+                //
+                // NOTE: This step skipped - we will update RCCR when we later apply main cpu clock
+                // frequency changes.
+
+                // 9. You can continue execution.
+                // :)
+            }
+        }
+
+        // If the CORELDO_VDD_DS fields are set to the same value in both the ACTIVE_CFG and LP_CFG registers,
+        // the CORELDO_VDD_LVL's in the ACTIVE_CFG and LP_CFG register must be set to the same voltage
+        // level settings.
+        //
+        // TODO(AJM): I don't really understand this! Enforce it literally for now I guess.
+        let ds_match = self.config.vdd_power.active_mode.drive == self.config.vdd_power.low_power_mode.drive;
+        let vdd_match = self.config.vdd_power.active_mode.level == self.config.vdd_power.low_power_mode.level;
+
+        if ds_match && !vdd_match {
+            return Err(ClockError::BadConfig {
+                clock: "vdd_power",
+                reason: "DS matches but LVL mismatches!",
+            });
+        }
+
+        // You can change the core VDD levels for the LDO_CORE low power regulator only when
+        // ACTIVE_CFG[CORELDO_VDD_DS] = 1. So, before entering any of the low-power states (DSLEEP,
+        // PDOWN, DPDOWN) with LDO_CORE low power regulator selected (LP_CFG[CORELDO_VDD_DS] = 0),
+        // you must use CORELDO_VDD_LVL to select the correct regulation level during ACTIVE run mode.
+        //
+        // NOTE(AJM): We've set drive strength to "normal" above, and do not (potentially) set it to
+        // "low" until later below.
+
+        // NOTE(AJM): The reference manual doesn't have any similar configuration requirements
+        // for low power mode. We'll just configure it, I guess?
+        //
+        // NOTE(AJM): "LP_CFG: This register resets only after a POR or LVD event."
+        let ds = match self.config.vdd_power.low_power_mode.drive {
+            VddDriveStrength::Low => pac::spc0::lp_cfg::CoreldoVddDs::Low,
+            VddDriveStrength::Normal => {
+                // "If you specify normal drive strength, you must write a value to LP[BGMODE] that enables the bandgap."
+                //
+                // Bandgap enabled, buffer disabled
+                self.spc0.lp_cfg().modify(|_r, w| w.bgmode().bgmode01());
+
+                pac::spc0::lp_cfg::CoreldoVddDs::Normal
+            }
+        };
+        let lvl = match self.config.vdd_power.low_power_mode.level {
+            VddLevel::MidDriveMode => pac::spc0::lp_cfg::CoreldoVddLvl::Mid,
+            VddLevel::OverDriveMode => pac::spc0::lp_cfg::CoreldoVddLvl::Over,
+        };
+        self.spc0.lp_cfg().modify(|_r, w| w.coreldo_vdd_ds().variant(ds));
+        self.spc0.lp_cfg().modify(|_r, w| w.coreldo_vdd_lvl().variant(lvl));
+
+        // Updating CORELDO_VDD_LVL sets the SC[BUSY] flag. That flag remains set for at least the total time
+        // delay that Active Voltage Trim Delay (ACTIVE_VDELAY) specifies.
+        //
+        // Before changing CORELDO_VDD_LVL, you must wait until the SC[BUSY] flag clears before entering the
+        // selected low-power sleep
+        //
+        // NOTE(AJM): Let's just proactively wait now so we don't have to worry about it on subsequent sleeps
+        while self.spc0.sc().read().busy().is_busy_yes() {}
+
+        // NOTE(AJM): I don't really know if this is valid! I'm guessing in most cases you would want to
+        // use the low drive strength for lp mode, and high drive strength for active mode?
+        match self.config.vdd_power.active_mode.drive {
+            VddDriveStrength::Low => {
+                self.spc0.active_cfg().modify(|_r, w| w.coreldo_vdd_ds().low());
+            }
+            VddDriveStrength::Normal => {
+                // Already set to normal above
+            }
+        }
 
         Ok(())
     }

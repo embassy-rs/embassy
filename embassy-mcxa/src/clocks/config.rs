@@ -112,6 +112,8 @@ impl Div8 {
 /// ```
 #[non_exhaustive]
 pub struct ClocksConfig {
+    /// Power states of VDD Core
+    pub vdd_power: VddPowerConfig,
     /// Clocks that are used to drive the main clock, including the AHB and CPU core
     pub main_clock: MainClockConfig,
     /// FIRC, FRO180, 45/60/90/180M clock source
@@ -125,6 +127,44 @@ pub struct ClocksConfig {
     pub sosc: Option<SoscConfig>,
     /// SPLL
     pub spll: Option<SpllConfig>,
+}
+
+// Power (which is not a clock)
+
+/// Selected VDD Power Mode
+#[derive(Copy, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum VddLevel {
+    /// Standard "mid drive" "MD" power, 1.0v VDD Core
+    MidDriveMode,
+
+    /// Overdrive "OD" power, 1.2v VDD Core
+    OverDriveMode,
+}
+
+#[derive(Copy, Clone, PartialEq)]
+#[non_exhaustive]
+pub enum VddDriveStrength {
+    /// Low drive
+    Low,
+
+    /// Normal drive
+    Normal,
+}
+
+#[derive(Copy, Clone)]
+#[non_exhaustive]
+pub struct VddModeConfig {
+    pub level: VddLevel,
+    pub drive: VddDriveStrength,
+}
+
+#[derive(Copy, Clone)]
+#[non_exhaustive]
+pub struct VddPowerConfig {
+    /// Active power mode, used when not in Deep Sleep
+    pub active_mode: VddModeConfig,
+    pub low_power_mode: VddModeConfig,
 }
 
 // Main Clock
@@ -346,6 +386,16 @@ pub struct Fro16KConfig {
 impl Default for ClocksConfig {
     fn default() -> Self {
         Self {
+            vdd_power: VddPowerConfig {
+                active_mode: VddModeConfig {
+                    level: VddLevel::MidDriveMode,
+                    drive: VddDriveStrength::Normal,
+                },
+                low_power_mode: VddModeConfig {
+                    level: VddLevel::MidDriveMode,
+                    drive: VddDriveStrength::Normal,
+                },
+            },
             main_clock: MainClockConfig {
                 source: MainClockSource::FircHfRoot,
                 power: PoweredClock::NormalEnabledDeepSleepDisabled,
