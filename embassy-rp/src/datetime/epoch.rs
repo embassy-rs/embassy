@@ -22,16 +22,16 @@ fn days_in_month(year: u16, month: u8) -> u8 {
     }
 }
 
-fn days_from_epoch_to_year(year: u16) -> u64 {
-    let mut days = 0u64;
+fn days_from_epoch_to_year(year: u16) -> u32 {
+    let mut days = 0u32;
     for y in EPOCH_YEAR..year {
         days += if is_leap_year(y) { 366 } else { 365 };
     }
     days
 }
 
-fn day_of_week_from_days(days_since_epoch: u64) -> u8 {
-    ((days_since_epoch + EPOCH_DAY_OF_WEEK as u64) % 7) as u8
+fn day_of_week_from_days(days_since_epoch: u32) -> u8 {
+    ((days_since_epoch + EPOCH_DAY_OF_WEEK as u32) % 7) as u8
 }
 
 #[cfg(not(feature = "chrono"))]
@@ -42,11 +42,12 @@ pub(crate) fn datetime_to_millis(dt: &DateTime) -> Result<u64, Error> {
 
     let mut total_days = days_from_epoch_to_year(dt.year);
     for m in 1..dt.month {
-        total_days += days_in_month(dt.year, m) as u64;
+        total_days += days_in_month(dt.year, m) as u32;
     }
-    total_days += (dt.day - 1) as u64;
+    total_days += (dt.day - 1) as u32;
 
-    let mut millis = total_days * MS_PER_DAY;
+    // Convert to u64 only for final millisecond calculation
+    let mut millis = total_days as u64 * MS_PER_DAY;
     millis += dt.hour as u64 * MS_PER_HOUR;
     millis += dt.minute as u64 * MS_PER_MINUTE;
     millis += dt.second as u64 * MS_PER_SECOND;
@@ -56,13 +57,16 @@ pub(crate) fn datetime_to_millis(dt: &DateTime) -> Result<u64, Error> {
 
 #[cfg(not(feature = "chrono"))]
 pub(crate) fn millis_to_datetime(millis: u64) -> Result<DateTime, Error> {
-    let total_days = millis / MS_PER_DAY;
-    let remaining_ms = millis % MS_PER_DAY;
+    // Use u64 for initial division, then cast to u32 for subsequent calculations
+    // Max total_days for year 4095 is ~776,000, fits in u32
+    let total_days = (millis / MS_PER_DAY) as u32;
+    // remaining_ms is at most MS_PER_DAY - 1 = 86,399,999, fits in u32
+    let remaining_ms = (millis % MS_PER_DAY) as u32;
 
-    let hour = (remaining_ms / MS_PER_HOUR) as u8;
-    let remaining_ms = remaining_ms % MS_PER_HOUR;
-    let minute = (remaining_ms / MS_PER_MINUTE) as u8;
-    let second = ((remaining_ms % MS_PER_MINUTE) / MS_PER_SECOND) as u8;
+    let hour = (remaining_ms / MS_PER_HOUR as u32) as u8;
+    let remaining_ms = remaining_ms % MS_PER_HOUR as u32;
+    let minute = (remaining_ms / MS_PER_MINUTE as u32) as u8;
+    let second = ((remaining_ms % MS_PER_MINUTE as u32) / MS_PER_SECOND as u32) as u8;
 
     let day_of_week = match day_of_week_from_days(total_days) {
         0 => DayOfWeek::Sunday,
@@ -79,7 +83,7 @@ pub(crate) fn millis_to_datetime(millis: u64) -> Result<DateTime, Error> {
     let mut days_remaining = total_days;
 
     loop {
-        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
+        let days_in_year: u32 = if is_leap_year(year) { 366 } else { 365 };
         if days_remaining < days_in_year {
             break;
         }
@@ -93,11 +97,11 @@ pub(crate) fn millis_to_datetime(millis: u64) -> Result<DateTime, Error> {
 
     let mut month = 1u8;
     while month <= 12 {
-        let days_in_this_month = days_in_month(year, month);
-        if days_remaining < days_in_this_month as u64 {
+        let days_in_this_month = days_in_month(year, month) as u32;
+        if days_remaining < days_in_this_month {
             break;
         }
-        days_remaining -= days_in_this_month as u64;
+        days_remaining -= days_in_this_month;
         month += 1;
     }
     let day = (days_remaining + 1) as u8;
