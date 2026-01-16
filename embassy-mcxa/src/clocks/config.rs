@@ -132,10 +132,11 @@ pub struct ClocksConfig {
 // Power (which is not a clock)
 
 /// Selected VDD Power Mode
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Debug, Default)]
 #[non_exhaustive]
 pub enum VddLevel {
     /// Standard "mid drive" "MD" power, 1.0v VDD Core
+    #[default]
     MidDriveMode,
 
     /// Overdrive "OD" power, 1.2v VDD Core

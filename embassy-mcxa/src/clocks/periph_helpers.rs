@@ -8,6 +8,7 @@
 //! See the docs of [`SPConfHelper`] for more details.
 
 use super::{ClockError, Clocks, PoweredClock};
+use crate::clocks::config::VddLevel;
 use crate::pac;
 
 /// Sealed Peripheral Configuration Helper
@@ -256,6 +257,19 @@ impl SPConfHelper for Lpi2cConfig {
                 return Ok(0);
             },
         };
+        let div = self.div.into_divisor();
+        let expected = freq / div;
+        // 22.3.2 peripheral clock max functional clock limits
+        let fmax = match clocks.active_power {
+            VddLevel::MidDriveMode => 25_000_000,
+            VddLevel::OverDriveMode => 60_000_000,
+        };
+        if expected > fmax {
+            return Err(ClockError::BadConfig {
+                clock: "lpi2c fclk",
+                reason: "exceeds max rating",
+            });
+        }
 
         apply_div4!(self, clksel, clkdiv, variant, freq)
     }
@@ -371,6 +385,21 @@ impl SPConfHelper for LpuartConfig {
             },
         };
 
+        // Check clock speed is reasonable
+        let div = self.div.into_divisor();
+        let expected = freq / div;
+        // 22.3.2 peripheral clock max functional clock limits
+        let fmax = match clocks.active_power {
+            VddLevel::MidDriveMode => 45_000_000,
+            VddLevel::OverDriveMode => 180_000_000,
+        };
+        if expected > fmax {
+            return Err(ClockError::BadConfig {
+                clock: "lpuart fclk",
+                reason: "exceeds max rating",
+            });
+        }
+
         // set clksel
         apply_div4!(self, clksel, clkdiv, variant, freq)
     }
@@ -402,6 +431,8 @@ pub struct OsTimerConfig {
 impl SPConfHelper for OsTimerConfig {
     fn post_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
         let mrcc0 = unsafe { pac::Mrcc0::steal() };
+        // NOTE: complies with 22.3.2 peripheral clock max functional clock limits
+        // which is 1MHz, and we can only select 1mhz/16khz.
         Ok(match self.source {
             OstimerClockSel::Clk16kVddCore => {
                 let freq = clocks.ensure_clk_16k_vdd_core_active(&self.power)?;
@@ -493,6 +524,21 @@ impl SPConfHelper for AdcConfig {
         };
         let clksel = mrcc0.mrcc_adc_clksel();
         let clkdiv = mrcc0.mrcc_adc_clkdiv();
+
+        // Check clock speed is reasonable
+        let div = self.div.into_divisor();
+        let expected = freq / div;
+        // 22.3.2 peripheral clock max functional clock limits
+        let fmax = match clocks.active_power {
+            VddLevel::MidDriveMode => 24_000_000,
+            VddLevel::OverDriveMode => 64_000_000,
+        };
+        if expected > fmax {
+            return Err(ClockError::BadConfig {
+                clock: "adc fclk",
+                reason: "exceeds max rating",
+            });
+        }
 
         apply_div4!(self, clksel, clkdiv, variant, freq)
     }

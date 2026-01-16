@@ -157,6 +157,12 @@ pub fn with_clocks<R: 'static, F: FnOnce(&Clocks) -> R>(f: F) -> Option<R> {
 #[derive(Default, Debug, Clone)]
 #[non_exhaustive]
 pub struct Clocks {
+    /// Active power config
+    pub active_power: VddLevel,
+
+    /// Low-power power config
+    pub lp_power: VddLevel,
+
     /// The `clk_in` is a clock provided by an external oscillator
     /// AKA SOSC
     pub clk_in: Option<Clock>,
@@ -1635,7 +1641,7 @@ impl ClockOperator<'_> {
         Ok(())
     }
 
-    fn configure_voltages(&self) -> Result<(), ClockError> {
+    fn configure_voltages(&mut self) -> Result<(), ClockError> {
         match self.config.vdd_power.active_mode.level {
             VddLevel::MidDriveMode => {
                 // This is the default mode, I don't believe we need to do anything.
@@ -1757,6 +1763,10 @@ impl ClockOperator<'_> {
                 // Already set to normal above
             }
         }
+
+        // Update status
+        self.clocks.active_power = self.config.vdd_power.active_mode.level;
+        self.clocks.lp_power = self.config.vdd_power.low_power_mode.level;
 
         Ok(())
     }
