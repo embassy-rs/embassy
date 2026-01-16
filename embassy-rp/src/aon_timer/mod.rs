@@ -1,6 +1,6 @@
 //! AON (Always-On) Timer driver for RP2350
 //!
-//! The AON Timer is a 64-bit counter that runs at 1 kHz (1ms resolution) and can operate during
+//! The AON Timer is a 64-bit counter that typically runs at 1 kHz (1ms resolution) and can operate during
 //! low-power modes. It's part of the POWMAN peripheral and provides:
 //!
 //! - Millisecond resolution counter
