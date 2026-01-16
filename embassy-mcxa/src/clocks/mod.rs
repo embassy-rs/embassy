@@ -861,7 +861,7 @@ impl ClockOperator<'_> {
             if div_freq > self.active_limits().fro_hf_div {
                 return Err(ClockError::BadConfig {
                     clock: "fro_hf_root",
-                    reason: "exceeds max",
+                    reason: "exceeds max frequency",
                 });
             }
 
