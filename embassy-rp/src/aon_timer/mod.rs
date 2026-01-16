@@ -386,7 +386,7 @@ impl<'d> AonTimer<'d> {
 
     /// Set the counter value in milliseconds
     ///
-    /// This allows you to initialize the counter to any value (e.g., Unix timestamp in ms,
+    /// This allows you to initialize the counter to any value (e.g., milliseconds since epoch,
     /// or 0 to start counting from boot).
     ///
     /// Note: Timer must be stopped before calling this function.
