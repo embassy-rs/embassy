@@ -11,7 +11,7 @@ fn day_of_week_from_u8(v: u8) -> Result<DayOfWeek, Error> {
         4 => DayOfWeek::Thursday,
         5 => DayOfWeek::Friday,
         6 => DayOfWeek::Saturday,
-        x => return Err(Error::InvalidDayOfWeek(x)),
+        _ => return Err(Error::InvalidDayOfWeek),
     })
 }
 
