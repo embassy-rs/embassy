@@ -51,7 +51,7 @@ pub enum Error {
     Other,
 }
 
-/// I2C interrupt handler.
+/// I3C interrupt handler.
 pub struct InterruptHandler;
 
 impl interrupt::typelevel::Handler<interrupt::typelevel::I3C0> for InterruptHandler {

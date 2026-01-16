@@ -3,6 +3,7 @@
 use core::marker::PhantomData;
 
 use embassy_hal_internal::Peri;
+use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::interrupt::InterruptExt;
 
 use super::{Async, Blocking, Error, Info, InterruptHandler, Mode, SclPin, SdaPin};
@@ -25,14 +26,14 @@ enum SendStop {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[allow(dead_code)]
-enum BusType {
+pub enum BusType {
     /// I3C SDR
     #[default]
     I3cSdr,
     /// Legacy I2C
     I2c,
     /// I3C DDR
-    I3cDdr, // Support for DDR is still missing
+    I3cDdr,
 }
 
 impl From<BusType> for Type {
@@ -83,6 +84,11 @@ impl Default for Config {
             i2c_speed: Speed::Fast,
         }
     }
+}
+
+fn calculate_error(cur_freq: u32, desired_freq: u32) -> u32 {
+    let delta = cur_freq.abs_diff(desired_freq);
+    delta * 100 / desired_freq
 }
 
 /// I3C controller driver.
@@ -271,6 +277,19 @@ impl<'d, M: Mode> I3c<'d, M> {
         Ok((pp_baud, od_baud, i2c_baud))
     }
 
+    fn blocking_remediation(&self, bus_type: BusType) {
+        // if the FIFO is not empty, drop its contents.
+        if self.info.regs().mdatactrl().read().txcount() != 0 {
+            self.info
+                .regs()
+                .mdatactrl()
+                .modify(|_, w| w.flushtb().flush().flushfb().flush());
+        }
+
+        // send a stop command
+        let _ = self.blocking_stop(bus_type);
+    }
+
     fn clear_flags(&self) {
         self.info.regs().mstatus().write(|w| {
             w.slvstart()
@@ -402,7 +421,13 @@ impl<'d, M: Mode> I3c<'d, M> {
         }
 
         for chunk in read.chunks_mut(256) {
-            self.blocking_start(address, bus_type, Dir::Read, chunk.len() as u8)?;
+            match self.blocking_start(address, bus_type, Dir::Read, chunk.len() as u8) {
+                Err(e) => {
+                    self.blocking_remediation(bus_type);
+                    return Err(e);
+                }
+                _ => {}
+            };
 
             for byte in chunk.iter_mut() {
                 self.blocking_wait_for_rx_fifo();
@@ -424,7 +449,13 @@ impl<'d, M: Mode> I3c<'d, M> {
         bus_type: BusType,
         send_stop: SendStop,
     ) -> Result<(), Error> {
-        self.blocking_start(address, bus_type, Dir::Write, 0)?;
+        match self.blocking_start(address, bus_type, Dir::Write, 0) {
+            Err(e) => {
+                self.blocking_remediation(bus_type);
+                return Err(e);
+            }
+            _ => {}
+        };
 
         // Usually, embassy HALs error out with an empty write,
         // however empty writes are useful for writing I2C scanning
@@ -465,35 +496,25 @@ impl<'d, M: Mode> I3c<'d, M> {
     // Public API: Blocking
 
     /// Read from address into buffer blocking caller until done.
-    pub fn blocking_read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Error> {
-        self.blocking_read_internal(address, read, BusType::I3cSdr, SendStop::Yes)
+    pub fn blocking_read(&mut self, address: u8, read: &mut [u8], bus_type: BusType) -> Result<(), Error> {
+        self.blocking_read_internal(address, read, bus_type, SendStop::Yes)
     }
 
     /// Write to address from buffer blocking caller until done.
-    pub fn blocking_write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
-        self.blocking_write_internal(address, write, BusType::I3cSdr, SendStop::Yes)
+    pub fn blocking_write(&mut self, address: u8, write: &[u8], bus_type: BusType) -> Result<(), Error> {
+        self.blocking_write_internal(address, write, bus_type, SendStop::Yes)
     }
 
     /// Write to address from bytes and read from address into buffer blocking caller until done.
-    pub fn blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
-        self.blocking_write_internal(address, write, BusType::I3cSdr, SendStop::No)?;
-        self.blocking_read_internal(address, read, BusType::I3cSdr, SendStop::Yes)
-    }
-
-    /// Read from address into buffer blocking caller until done.
-    pub fn i2c_blocking_read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Error> {
-        self.blocking_read_internal(address, read, BusType::I2c, SendStop::Yes)
-    }
-
-    /// Write to address from buffer blocking caller until done.
-    pub fn i2c_blocking_write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
-        self.blocking_write_internal(address, write, BusType::I2c, SendStop::Yes)
-    }
-
-    /// Write to address from bytes and read from address into buffer blocking caller until done.
-    pub fn i2c_blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
-        self.blocking_write_internal(address, write, BusType::I2c, SendStop::No)?;
-        self.blocking_read_internal(address, read, BusType::I2c, SendStop::Yes)
+    pub fn blocking_write_read(
+        &mut self,
+        address: u8,
+        write: &[u8],
+        read: &mut [u8],
+        bus_type: BusType,
+    ) -> Result<(), Error> {
+        self.blocking_write_internal(address, write, bus_type, SendStop::No)?;
+        self.blocking_read_internal(address, read, bus_type, SendStop::Yes)
     }
 }
 
@@ -658,6 +679,11 @@ impl<'d> I3c<'d, Async> {
             return Err(Error::InvalidReadBufferLength);
         }
 
+        // perform corrective action if the future is dropped
+        let on_drop = OnDrop::new(|| {
+            self.blocking_remediation(bus_type);
+        });
+
         for chunk in read.chunks_mut(256) {
             self.async_start(address, bus_type, Dir::Read, chunk.len() as u8)
                 .await?;
@@ -672,6 +698,9 @@ impl<'d> I3c<'d, Async> {
             self.async_stop(bus_type).await?;
         }
 
+        // defuse it if the future is not dropped
+        on_drop.defuse();
+
         Ok(())
     }
 
@@ -682,6 +711,11 @@ impl<'d> I3c<'d, Async> {
         bus_type: BusType,
         send_stop: SendStop,
     ) -> Result<(), Error> {
+        // perform corrective action if the future is dropped
+        let on_drop = OnDrop::new(|| {
+            self.blocking_remediation(bus_type);
+        });
+
         self.async_start(address, bus_type, Dir::Write, 0).await?;
 
         // Usually, embassy HALs error out with an empty write,
@@ -719,6 +753,9 @@ impl<'d> I3c<'d, Async> {
             self.async_stop(bus_type).await?;
         }
 
+        // defuse it if the future is not dropped
+        on_drop.defuse();
+
         Ok(())
     }
 
@@ -729,8 +766,9 @@ impl<'d> I3c<'d, Async> {
         &mut self,
         address: u8,
         read: &'a mut [u8],
+        bus_type: BusType,
     ) -> impl Future<Output = Result<(), Error>> + use<'_, 'a, 'd> {
-        self.async_read_internal(address, read, BusType::I3cSdr, SendStop::Yes)
+        self.async_read_internal(address, read, bus_type, SendStop::Yes)
     }
 
     /// Write to address from buffer asynchronously.
@@ -738,50 +776,22 @@ impl<'d> I3c<'d, Async> {
         &mut self,
         address: u8,
         write: &'a [u8],
+        bus_type: BusType,
     ) -> impl Future<Output = Result<(), Error>> + use<'_, 'a, 'd> {
-        self.async_write_internal(address, write, BusType::I3cSdr, SendStop::Yes)
+        self.async_write_internal(address, write, bus_type, SendStop::Yes)
     }
 
-    /// Write to address from bytes and read from address into buffer asynchronously.
-    pub async fn async_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
-        self.async_write_internal(address, write, BusType::I3cSdr, SendStop::No)
-            .await?;
-        self.async_read_internal(address, read, BusType::I3cSdr, SendStop::Yes)
-            .await
-    }
-
-    /// Read from address into buffer asynchronously.
-    pub fn i2c_async_read<'a>(
+    /// Write to address from bytes and then read from address into buffer asynchronously.
+    pub async fn async_write_read(
         &mut self,
         address: u8,
-        read: &'a mut [u8],
-    ) -> impl Future<Output = Result<(), Error>> + use<'_, 'a, 'd> {
-        self.async_read_internal(address, read, BusType::I2c, SendStop::Yes)
-    }
-
-    /// Write to address from buffer asynchronously.
-    pub fn i2c_async_write<'a>(
-        &mut self,
-        address: u8,
-        write: &'a [u8],
-    ) -> impl Future<Output = Result<(), Error>> + use<'_, 'a, 'd> {
-        self.async_write_internal(address, write, BusType::I2c, SendStop::Yes)
-    }
-
-    /// Write to address from bytes and read from address into buffer asynchronously.
-    pub async fn i2c_async_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
-        self.async_write_internal(address, write, BusType::I2c, SendStop::No)
+        write: &[u8],
+        read: &mut [u8],
+        bus_type: BusType,
+    ) -> Result<(), Error> {
+        self.async_write_internal(address, write, bus_type, SendStop::No)
             .await?;
-        self.async_read_internal(address, read, BusType::I2c, SendStop::Yes)
-            .await
-    }
-}
-
-fn calculate_error(cur_freq: u32, desired_freq: u32) -> u32 {
-    if cur_freq > desired_freq {
-        return (cur_freq - desired_freq) * 100 / desired_freq;
-    } else {
-        return (desired_freq - cur_freq) * 100 / desired_freq;
+        self.async_read_internal(address, read, bus_type, SendStop::Yes).await
     }
 }
 
@@ -789,7 +799,7 @@ impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Read for I3c<'d, M> {
     type Error = Error;
 
     fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
-        self.blocking_read(address, buffer)
+        self.blocking_read(address, buffer, BusType::I2c)
     }
 }
 
@@ -797,7 +807,7 @@ impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Write for I3c<'d, M> {
     type Error = Error;
 
     fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Error> {
-        self.blocking_write(address, bytes)
+        self.blocking_write(address, bytes, BusType::I2c)
     }
 }
 
@@ -805,7 +815,7 @@ impl<'d, M: Mode> embedded_hal_02::blocking::i2c::WriteRead for I3c<'d, M> {
     type Error = Error;
 
     fn write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Error> {
-        self.blocking_write_read(address, bytes, buffer)
+        self.blocking_write_read(address, bytes, buffer, BusType::I2c)
     }
 }
 
@@ -817,28 +827,28 @@ impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Transactional for I3c<'d, M> {
         address: u8,
         operations: &mut [embedded_hal_02::blocking::i2c::Operation<'_>],
     ) -> Result<(), Error> {
-        if let Some((last, rest)) = operations.split_last_mut() {
-            for op in rest {
-                match op {
-                    embedded_hal_02::blocking::i2c::Operation::Read(buf) => {
-                        self.blocking_read_internal(address, buf, BusType::I2c, SendStop::No)?
-                    }
-                    embedded_hal_02::blocking::i2c::Operation::Write(buf) => {
-                        self.blocking_write_internal(address, buf, BusType::I2c, SendStop::No)?
-                    }
-                }
-            }
+        let Some((last, rest)) = operations.split_last_mut() else {
+            return Ok(());
+        };
 
-            match last {
+        for op in rest {
+            match op {
                 embedded_hal_02::blocking::i2c::Operation::Read(buf) => {
-                    self.blocking_read_internal(address, buf, BusType::I2c, SendStop::Yes)
+                    self.blocking_read_internal(address, buf, BusType::I2c, SendStop::No)?
                 }
                 embedded_hal_02::blocking::i2c::Operation::Write(buf) => {
-                    self.blocking_write_internal(address, buf, BusType::I2c, SendStop::Yes)
+                    self.blocking_write_internal(address, buf, BusType::I2c, SendStop::No)?
                 }
             }
-        } else {
-            Ok(())
+        }
+
+        match last {
+            embedded_hal_02::blocking::i2c::Operation::Read(buf) => {
+                self.blocking_read_internal(address, buf, BusType::I2c, SendStop::Yes)
+            }
+            embedded_hal_02::blocking::i2c::Operation::Write(buf) => {
+                self.blocking_write_internal(address, buf, BusType::I2c, SendStop::Yes)
+            }
         }
     }
 }
@@ -860,28 +870,28 @@ impl<'d, M: Mode> embedded_hal_1::i2c::ErrorType for I3c<'d, M> {
 
 impl<'d, M: Mode> embedded_hal_1::i2c::I2c for I3c<'d, M> {
     fn transaction(&mut self, address: u8, operations: &mut [embedded_hal_1::i2c::Operation<'_>]) -> Result<(), Error> {
-        if let Some((last, rest)) = operations.split_last_mut() {
-            for op in rest {
-                match op {
-                    embedded_hal_1::i2c::Operation::Read(buf) => {
-                        self.blocking_read_internal(address, buf, BusType::I2c, SendStop::No)?
-                    }
-                    embedded_hal_1::i2c::Operation::Write(buf) => {
-                        self.blocking_write_internal(address, buf, BusType::I2c, SendStop::No)?
-                    }
-                }
-            }
+        let Some((last, rest)) = operations.split_last_mut() else {
+            return Ok(());
+        };
 
-            match last {
+        for op in rest {
+            match op {
                 embedded_hal_1::i2c::Operation::Read(buf) => {
-                    self.blocking_read_internal(address, buf, BusType::I2c, SendStop::Yes)
+                    self.blocking_read_internal(address, buf, BusType::I2c, SendStop::No)?
                 }
                 embedded_hal_1::i2c::Operation::Write(buf) => {
-                    self.blocking_write_internal(address, buf, BusType::I2c, SendStop::Yes)
+                    self.blocking_write_internal(address, buf, BusType::I2c, SendStop::No)?
                 }
             }
-        } else {
-            Ok(())
+        }
+
+        match last {
+            embedded_hal_1::i2c::Operation::Read(buf) => {
+                self.blocking_read_internal(address, buf, BusType::I2c, SendStop::Yes)
+            }
+            embedded_hal_1::i2c::Operation::Write(buf) => {
+                self.blocking_write_internal(address, buf, BusType::I2c, SendStop::Yes)
+            }
         }
     }
 }
@@ -892,32 +902,32 @@ impl<'d> embedded_hal_async::i2c::I2c for I3c<'d, Async> {
         address: u8,
         operations: &mut [embedded_hal_async::i2c::Operation<'_>],
     ) -> Result<(), Error> {
-        if let Some((last, rest)) = operations.split_last_mut() {
-            for op in rest {
-                match op {
-                    embedded_hal_async::i2c::Operation::Read(buf) => {
-                        self.async_read_internal(address, buf, BusType::I2c, SendStop::No)
-                            .await?
-                    }
-                    embedded_hal_async::i2c::Operation::Write(buf) => {
-                        self.async_write_internal(address, buf, BusType::I2c, SendStop::No)
-                            .await?
-                    }
-                }
-            }
+        let Some((last, rest)) = operations.split_last_mut() else {
+            return Ok(());
+        };
 
-            match last {
+        for op in rest {
+            match op {
                 embedded_hal_async::i2c::Operation::Read(buf) => {
-                    self.async_read_internal(address, buf, BusType::I2c, SendStop::Yes)
-                        .await
+                    self.async_read_internal(address, buf, BusType::I2c, SendStop::No)
+                        .await?
                 }
                 embedded_hal_async::i2c::Operation::Write(buf) => {
-                    self.async_write_internal(address, buf, BusType::I2c, SendStop::Yes)
-                        .await
+                    self.async_write_internal(address, buf, BusType::I2c, SendStop::No)
+                        .await?
                 }
             }
-        } else {
-            Ok(())
+        }
+
+        match last {
+            embedded_hal_async::i2c::Operation::Read(buf) => {
+                self.async_read_internal(address, buf, BusType::I2c, SendStop::Yes)
+                    .await
+            }
+            embedded_hal_async::i2c::Operation::Write(buf) => {
+                self.async_write_internal(address, buf, BusType::I2c, SendStop::Yes)
+                    .await
+            }
         }
     }
 }

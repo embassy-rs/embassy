@@ -196,6 +196,8 @@ pub struct I3cConfig {
 
 impl SPConfHelper for I3cConfig {
     fn post_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
+        // Always 25MHz maximum frequency.
+        const I3C_FCLK_MAX: u32 = 25_000_000;
         // check that source is suitable
         let mrcc0 = unsafe { pac::Mrcc0::steal() };
         use mcxa_pac::mrcc0::mrcc_i3c0_fclk_clksel::Mux;
@@ -226,6 +228,13 @@ impl SPConfHelper for I3cConfig {
                 return Ok(0);
             },
         };
+
+        if freq > I3C_FCLK_MAX {
+            return Err(ClockError::BadConfig {
+                clock: "i3c fclk",
+                reason: "exceeds max rating",
+            });
+        }
 
         apply_div4!(self, clksel, clkdiv, variant, freq)
     }
