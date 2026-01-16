@@ -4,7 +4,7 @@
 use embassy_executor::Spawner;
 use embassy_mcxa::adc::{ConvCommandConfig, ConvTriggerConfig};
 use embassy_time::{Duration, Ticker};
-use hal::adc::{Adc, LpadcConfig, TriggerPriorityPolicy};
+use hal::adc::{self, Adc, TriggerPriorityPolicy};
 use hal::clocks::PoweredClock;
 use hal::clocks::config::Div8;
 use hal::clocks::periph_helpers::{AdcClockSel, Div4};
@@ -26,7 +26,7 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("=== ADC polling Example ===");
 
-    let adc_config = LpadcConfig {
+    let adc_config = adc::Config {
         enable_in_doze_mode: true,
         conversion_average_mode: CalAvgs::Average128,
         enable_analog_preliminary: true,

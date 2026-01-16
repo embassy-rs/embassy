@@ -5,8 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+<!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- fix: don't put USB pins into alternate mode on chips where USB is an additional function
+
+## 0.5.0 - 2026-01-04
+- Add `receive_waveform` method in `InputCapture`, allowing asynchronous input capture with DMA.
 - fix: stm32: GPDMA driver reset ignored during channel configuration
 - fix: stm32: SPI driver SSOE and SSM manegment, add `nss_output_disable` to SPI Config
 - change: stm32: use typelevel timer type to allow dma for 32 bit timers
@@ -72,6 +77,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - low-power: update rtc api to allow reconfig
 - adc: consolidate ringbuffer
 - feat: Added RTC low-power support for STM32WLEx ([#4716](https://github.com/embassy-rs/embassy/pull/4716))
+- feat: Added low-power support for STM32WL5x ([#5108](https://github.com/embassy-rs/embassy/pull/5108))
 - fix: Correct STM32WBA VREFBUFTRIM values
 - low_power: remove stop_with rtc and initialize in init if low-power feature enabled.
 - feat: stm32/dsi support zero parameter commands in `write_cmd` ([#4847](https://github.com/embassy-rs/embassy/pull/4847))
@@ -93,6 +99,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - stm32: Add blocking_listen for blocking I2C driver
 - fix: stm32l47*/stm32l48* adc analog pin setup
 - fix: keep stm32/sai: make NODIV independent of MCKDIV
+- fix: Source system clock from MSIS before (de)configuring PLLs on STM32U5
+- feat: adc: allow DMA reads to loop through enabled channels
+- chore: update to embedded-io 0.7
 
 ## 0.4.0 - 2025-08-26
 

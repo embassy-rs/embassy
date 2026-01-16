@@ -1,8 +1,13 @@
 use crate::bindings::link_layer::{
-    _NULL as NULL, LL_SYS_STATUS_T_LL_SYS_OK, ble_buff_hdr_p, hci_dispatch_tbl, hci_get_dis_tbl, hst_cbk, ll_intf_init,
-    ll_intf_rgstr_hst_cbk, ll_intf_rgstr_hst_cbk_ll_queue_full, ll_sys_assert, ll_sys_bg_process_init,
-    ll_sys_config_params, ll_sys_dp_slp_init, ll_sys_status_t,
+    LL_SYS_STATUS_T_LL_SYS_OK, ll_sys_assert, ll_sys_bg_process_init, ll_sys_config_params, ll_sys_dp_slp_init,
+    ll_sys_status_t,
 };
+#[cfg(feature = "wba_ble")]
+use crate::bindings::link_layer::{
+    ble_buff_hdr_p, hci_dispatch_tbl, hci_get_dis_tbl, hst_cbk, ll_intf_init, ll_intf_rgstr_hst_cbk,
+    ll_intf_rgstr_hst_cbk_ll_queue_full,
+};
+#[cfg(feature = "wba_mac")]
 use crate::bindings::mac::ST_MAC_preInit;
 // /**
 //   ******************************************************************************
@@ -58,7 +63,7 @@ unsafe extern "C" fn ll_sys_event_missed_cb(_ptr_evnt_hdr: ble_buff_hdr_p) {
  */
 #[unsafe(no_mangle)]
 unsafe extern "C" fn ll_sys_ble_cntrl_init(host_callback: hst_cbk) {
-    let p_hci_dis_tbl: *const hci_dispatch_tbl = NULL as *const _;
+    let p_hci_dis_tbl: *const hci_dispatch_tbl = core::ptr::null();
 
     hci_get_dis_tbl(&p_hci_dis_tbl as *const *const _ as *mut *const _);
 

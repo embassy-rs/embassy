@@ -688,22 +688,33 @@ impl<'d> BufferedUartTx<'d> {
 
             let empty = state.tx_buf.is_empty();
 
-            let mut tx_writer = unsafe { state.tx_buf.writer() };
-            let data = tx_writer.push_slice();
-            if data.is_empty() {
-                state.tx_waker.register(cx.waker());
+            if state.tx_buf.len() < buf.len() {
+                return Poll::Ready(Err(Error::BufferTooLong));
+            }
+
+            if state.tx_buf.len() - state.tx_buf.available() < buf.len() {
                 return Poll::Pending;
             }
 
-            let n = data.len().min(buf.len());
-            data[..n].copy_from_slice(&buf[..n]);
-            tx_writer.push_done(n);
+            let mut written: usize = 0;
+            let mut tx_writer = unsafe { state.tx_buf.writer() };
+            while written != buf.len() {
+                let data = tx_writer.push_slice();
+                if data.is_empty() {
+                    state.tx_waker.register(cx.waker());
+                    return Poll::Pending;
+                }
+                let n = data.len().min(buf.len() - written);
+                data[..n].copy_from_slice(&buf[written..written + n]);
+                written = written + n;
+                tx_writer.push_done(n);
+            }
 
             if empty {
                 self.info.interrupt.pend();
             }
 
-            Poll::Ready(Ok(n))
+            Poll::Ready(Ok(written))
         })
         .await
     }
@@ -729,19 +740,23 @@ impl<'d> BufferedUartTx<'d> {
 
             let empty = state.tx_buf.is_empty();
 
+            let mut written: usize = 0;
             let mut tx_writer = unsafe { state.tx_buf.writer() };
-            let data = tx_writer.push_slice();
-            if !data.is_empty() {
-                let n = data.len().min(buf.len());
-                data[..n].copy_from_slice(&buf[..n]);
-                tx_writer.push_done(n);
-
-                if empty {
-                    self.info.interrupt.pend();
+            while written != buf.len() {
+                let data = tx_writer.push_slice();
+                if !data.is_empty() {
+                    let n = data.len().min(buf.len() - written);
+                    data[..n].copy_from_slice(&buf[written..written + n]);
+                    written = written + n;
+                    tx_writer.push_done(n);
                 }
-
-                return Ok(n);
             }
+
+            if empty {
+                self.info.interrupt.pend();
+            }
+
+            return Ok(written);
         }
     }
 

@@ -1,6 +1,6 @@
 [package]
 name = "embassy-nrf"
-version = "0.8.0"
+version = "0.9.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 description = "Embassy Hardware Abstraction Layer (HAL) for nRF series microcontrollers"
@@ -184,7 +184,7 @@ _nrf91 = []
 
 _time-driver = ["dep:embassy-time-driver", "dep:embassy-time-queue-utils", "embassy-embedded-hal/time"]
 
-_net-driver = ["dep:embassy-net-driver-channel","dep:embassy-futures"]
+_net-driver = ["dep:embassy-net-driver-channel"]
 
 # trustzone state.
 _s = []
@@ -208,25 +208,25 @@ embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver", opti
 embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils", optional = true }
 embassy-time = { version = "0.5.0", path = "../embassy-time", optional = true }
 embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
-embassy-hal-internal = { version = "0.3.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
+embassy-hal-internal = { version = "0.4.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
 embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal", default-features = false }
 embassy-usb-driver = { version = "0.2.0", path = "../embassy-usb-driver" }
 embassy-net-driver-channel = { version = "0.3.2", path = "../embassy-net-driver-channel", optional = true}
-embassy-futures = { version = "0.1.2", path = "../embassy-futures", optional = true}
+embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
-embedded-io = { version = "0.6.0" }
-embedded-io-async = { version = "0.6.1" }
+embedded-io = { version = "0.7.1" }
+embedded-io-async = { version = "0.7.0" }
 
 rand-core-06 = { package = "rand_core", version = "0.6" }
 rand-core-09 = { package = "rand_core", version = "0.9" }
 
-nrf-pac = { version = "0.1.0", git = "https://github.com/embassy-rs/nrf-pac.git", rev = "52fd51ce762a3d3a81660dea62947e6d2d1e9d91" }
+nrf-pac = { version = "0.2.0", git = "https://github.com/embassy-rs/nrf-pac.git", rev = "074935b9b24ab302fe812f91725937f57cd082cf" }
 
 defmt = { version = "1.0.1", optional = true }
-bitflags = "2.4.2"
+bitflags = "2.10.0"
 log = { version = "0.4.14", optional = true }
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"

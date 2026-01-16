@@ -6,6 +6,7 @@ use hal::bind_interrupts;
 use hal::config::Config;
 use hal::trng::{self, InterruptHandler, Trng};
 use rand_core::RngCore;
+use rand_core::block::BlockRngCore;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(
@@ -71,6 +72,12 @@ async fn main(_spawner: Spawner) {
         defmt::info!("u64: {}", trng.next_u64());
     }
 
+    defmt::info!("Generate full block");
+
+    let mut block = [0_u32; 8];
+    trng.generate(&mut block);
+    defmt::info!("Block: {}", block);
+
     drop(trng);
 
     defmt::info!("========== ASYNC ==========");
@@ -103,4 +110,10 @@ async fn main(_spawner: Spawner) {
         defmt::info!("u32: {}", trng.next_u32());
         defmt::info!("u64: {}", trng.next_u64());
     }
+
+    defmt::info!("Generate full block");
+
+    let mut block = [0_u32; 8];
+    trng.async_next_block(&mut block).await.unwrap();
+    defmt::info!("Block: {}", block);
 }

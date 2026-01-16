@@ -5,7 +5,7 @@ use core::marker::PhantomData;
 use core::sync::atomic::{Ordering, compiler_fence};
 use core::task::Poll;
 
-#[cfg(all(stm32wb, feature = "low-power"))]
+#[cfg(all(any(stm32wb, stm32wl5x), feature = "low-power"))]
 use critical_section::CriticalSection;
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
@@ -80,8 +80,11 @@ impl CoreId {
     }
 }
 
-#[cfg(not(all(stm32wb, feature = "low-power")))]
+#[cfg(all(not(all(stm32wb, feature = "low-power")), not(all(stm32wl5x, feature = "low-power"))))]
 const PUB_CHANNELS: usize = 6;
+
+#[cfg(all(stm32wl5x, feature = "low-power"))]
+const PUB_CHANNELS: usize = 5;
 
 #[cfg(all(stm32wb, feature = "low-power"))]
 const PUB_CHANNELS: usize = 4;
@@ -94,16 +97,13 @@ pub struct HardwareSemaphoreInterruptHandler<T: Instance> {
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for HardwareSemaphoreInterruptHandler<T> {
     unsafe fn on_interrupt() {
         let core_id = CoreId::current();
+        let isr = T::regs().isr(core_id.to_index()).read();
 
         for number in 0..5 {
-            if T::regs().isr(core_id.to_index()).read().isf(number as usize) {
+            if isr.isf(number as usize) {
                 T::regs()
                     .icr(core_id.to_index())
                     .write(|w| w.set_isc(number as usize, true));
-
-                T::regs()
-                    .ier(core_id.to_index())
-                    .modify(|w| w.set_ise(number as usize, false));
 
                 T::state().waker_for(number).wake();
             }
@@ -120,6 +120,18 @@ pub struct HardwareSemaphoreMutex<'a, T: Instance> {
 
 impl<'a, T: Instance> Drop for HardwareSemaphoreMutex<'a, T> {
     fn drop(&mut self) {
+        let core_id = CoreId::current();
+
+        T::regs()
+            .icr(core_id.to_index())
+            .write(|w| w.set_isc(self.index as usize, true));
+
+        critical_section::with(|_| {
+            T::regs()
+                .ier(core_id.to_index())
+                .modify(|w| w.set_ise(self.index as usize, false));
+        });
+
         HardwareSemaphoreChannel::<'a, T> {
             index: self.index,
             _lifetime: PhantomData,
@@ -148,6 +160,7 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
     /// The 2-step lock procedure consists in a write to lock the semaphore, followed by a read to
     /// check if the lock has been successful, carried out from the HSEM_Rx register.
     pub async fn lock(&mut self, process_id: u8) -> HardwareSemaphoreMutex<'a, T> {
+        let _scoped_block_stop = T::RCC_INFO.block_stop();
         let core_id = CoreId::current();
 
         poll_fn(|cx| {
@@ -155,9 +168,11 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
 
             compiler_fence(Ordering::SeqCst);
 
-            T::regs()
-                .ier(core_id.to_index())
-                .modify(|w| w.set_ise(self.index as usize, true));
+            critical_section::with(|_| {
+                T::regs()
+                    .ier(core_id.to_index())
+                    .modify(|w| w.set_ise(self.index as usize, true));
+            });
 
             match self.try_lock(process_id) {
                 Some(mutex) => Poll::Ready(mutex),
@@ -165,6 +180,17 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
             }
         })
         .await
+    }
+
+    /// Locks the semaphore in blocking mode
+    /// The 2-step lock procedure consists in a write to lock the semaphore, followed by a read to
+    /// check if the lock has been successful, carried out from the HSEM_Rx register.
+    pub fn blocking_lock(&mut self, process_id: u8) -> HardwareSemaphoreMutex<'a, T> {
+        loop {
+            if let Some(lock) = self.try_lock(process_id) {
+                return lock;
+            }
+        }
     }
 
     /// Try to lock the semaphor
@@ -241,7 +267,7 @@ impl<T: Instance> HardwareSemaphore<T> {
         _peripheral: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, HardwareSemaphoreInterruptHandler<T>> + 'd,
     ) -> Self {
-        rcc::enable_and_reset::<T>();
+        rcc::enable_and_reset_without_stop::<T>();
 
         HardwareSemaphore { _type: PhantomData }
     }
@@ -250,6 +276,8 @@ impl<T: Instance> HardwareSemaphore<T> {
     pub const fn channel_for<'a>(&'a mut self, number: u8) -> HardwareSemaphoreChannel<'a, T> {
         #[cfg(all(stm32wb, feature = "low-power"))]
         core::assert!(number != 3 && number != 4);
+        #[cfg(all(stm32wl5x, feature = "low-power"))]
+        core::assert!(number != 3);
 
         HardwareSemaphoreChannel::new(number)
     }
@@ -261,7 +289,7 @@ impl<T: Instance> HardwareSemaphore<T> {
         [
             HardwareSemaphoreChannel::new(1),
             HardwareSemaphoreChannel::new(2),
-            #[cfg(not(all(stm32wb, feature = "low-power")))]
+            #[cfg(not(all(any(stm32wb, stm32wl5x), feature = "low-power")))]
             HardwareSemaphoreChannel::new(3),
             #[cfg(not(all(stm32wb, feature = "low-power")))]
             HardwareSemaphoreChannel::new(4),
@@ -292,13 +320,24 @@ impl<T: Instance> HardwareSemaphore<T> {
     }
 }
 
-#[cfg(all(stm32wb, feature = "low-power"))]
+#[cfg(all(any(stm32wb, stm32wl5x), feature = "low-power"))]
 pub(crate) fn init_hsem(cs: CriticalSection) {
     rcc::enable_and_reset_with_cs::<crate::peripherals::HSEM>(cs);
-
+    #[cfg(stm32wb)]
     unsafe {
         crate::rcc::REFCOUNT_STOP1 = 0;
         crate::rcc::REFCOUNT_STOP2 = 0;
+    }
+}
+
+#[cfg(any(all(stm32wb, feature = "low-power"), stm32wl5x))]
+pub(crate) const fn get_hsem<'a>(index: usize) -> HardwareSemaphoreChannel<'a, crate::peripherals::HSEM> {
+    match index {
+        #[cfg(any(stm32wb, stm32wl5x))]
+        3 => HardwareSemaphoreChannel::new(3),
+        #[cfg(stm32wb)]
+        4 => HardwareSemaphoreChannel::new(4),
+        _ => core::unreachable!(),
     }
 }
 

@@ -13,7 +13,7 @@ bind_interrupts!(
         EXTI4 => exti::InterruptHandler<interrupt::typelevel::EXTI4>;
 });
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
     info!("Hello World!");

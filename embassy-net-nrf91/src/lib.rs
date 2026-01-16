@@ -311,7 +311,7 @@ struct PendingRequest {
     waker: Waker,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct NoFreeBufs;
 
@@ -1061,7 +1061,8 @@ struct ListItem {
 }
 
 #[repr(C)]
-#[derive(defmt::Format, Clone, Copy)]
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 struct Message {
     id: u32,
 

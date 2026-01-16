@@ -49,12 +49,18 @@ use self::run_queue::{RunQueue, RunQueueItem};
 use self::state::State;
 use self::util::{SyncUnsafeCell, UninitCell};
 pub use self::waker::task_from_waker;
+use self::waker::try_task_from_waker;
 use super::SpawnToken;
 use crate::{Metadata, SpawnError};
 
 #[unsafe(no_mangle)]
 extern "Rust" fn __embassy_time_queue_item_from_waker(waker: &Waker) -> &'static mut TimerQueueItem {
     unsafe { task_from_waker(waker).timer_queue_item() }
+}
+
+#[unsafe(no_mangle)]
+extern "Rust" fn __try_embassy_time_queue_item_from_waker(waker: &Waker) -> Option<&'static mut TimerQueueItem> {
+    unsafe { try_task_from_waker(waker).map(|task| task.timer_queue_item()) }
 }
 
 /// Raw task header for use in task pointers.

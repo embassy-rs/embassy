@@ -23,7 +23,7 @@ async fn run_mm_queue(mut memory_manager: mm::MemoryManager<'static>) {
     memory_manager.run_queue().await;
 }
 
-#[embassy_executor::main]
+#[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     /*
         How to make this work:

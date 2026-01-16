@@ -8,7 +8,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use super::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use super::word::{Word, WordSize};
-use super::{AnyChannel, Channel, Dir, Request, STATE};
+use super::{AnyChannel, Channel, Dir, Increment, Request, STATE};
 use crate::interrupt::typelevel::Interrupt;
 use crate::rcc::BusyPeripheral;
 use crate::{interrupt, pac};
@@ -141,6 +141,7 @@ mod dma_only {
             match raw {
                 Dir::MemoryToPeripheral => Self::MEMORY_TO_PERIPHERAL,
                 Dir::PeripheralToMemory => Self::PERIPHERAL_TO_MEMORY,
+                Dir::MemoryToMemory => Self::MEMORY_TO_MEMORY,
             }
         }
     }
@@ -236,6 +237,7 @@ mod bdma_only {
             match raw {
                 Dir::MemoryToPeripheral => Self::FROM_MEMORY,
                 Dir::PeripheralToMemory => Self::FROM_PERIPHERAL,
+                Dir::MemoryToMemory => Self::FROM_MEMORY,
             }
         }
     }
@@ -340,7 +342,7 @@ impl AnyChannel {
         peri_addr: *const u32,
         mem_addr: *mut u32,
         mem_len: usize,
-        incr_mem: bool,
+        incr_mem: Increment,
         mem_size: WordSize,
         peri_size: WordSize,
         options: TransferOptions,
@@ -410,8 +412,24 @@ impl AnyChannel {
                     w.set_msize(mem_size.into());
                     w.set_psize(peri_size.into());
                     w.set_pl(options.priority.into());
-                    w.set_minc(incr_mem);
-                    w.set_pinc(false);
+                    match incr_mem {
+                        Increment::None => {
+                            w.set_minc(false);
+                            w.set_pinc(false);
+                        }
+                        Increment::Peripheral => {
+                            w.set_minc(false);
+                            w.set_pinc(true);
+                        }
+                        Increment::Memory => {
+                            w.set_minc(true);
+                            w.set_pinc(false);
+                        }
+                        Increment::Both => {
+                            w.set_minc(true);
+                            w.set_pinc(true);
+                        }
+                    }
                     w.set_teie(true);
                     w.set_htie(options.half_transfer_ir);
                     w.set_tcie(options.complete_transfer_ir);
@@ -445,7 +463,24 @@ impl AnyChannel {
                 ch.cr().write(|w| {
                     w.set_psize(peri_size.into());
                     w.set_msize(mem_size.into());
-                    w.set_minc(incr_mem);
+                    match incr_mem {
+                        Increment::None => {
+                            w.set_minc(false);
+                            w.set_pinc(false);
+                        }
+                        Increment::Peripheral => {
+                            w.set_minc(false);
+                            w.set_pinc(true);
+                        }
+                        Increment::Memory => {
+                            w.set_minc(true);
+                            w.set_pinc(false);
+                        }
+                        Increment::Both => {
+                            w.set_minc(true);
+                            w.set_pinc(true);
+                        }
+                    }
                     w.set_dir(dir.into());
                     w.set_teie(true);
                     w.set_tcie(options.complete_transfer_ir);
@@ -607,6 +642,47 @@ pub struct Transfer<'a> {
 }
 
 impl<'a> Transfer<'a> {
+    /// Create a new memory DMA transfer (memory to memory), using raw pointers.
+    pub unsafe fn new_transfer<MW: Word, PW: Word>(
+        channel: Peri<'a, impl Channel>,
+        request: Request,
+        buf: *const [MW],
+        dest_addr: *mut PW,
+        options: TransferOptions,
+    ) -> Self {
+        Self::new_transfer_raw(
+            channel,
+            request,
+            buf as *const MW as *mut u32,
+            buf.len(),
+            dest_addr,
+            options,
+        )
+    }
+
+    /// Create a new memory DMA transfer (memory to memory), using raw pointers.
+    pub unsafe fn new_transfer_raw<MW: Word, PW: Word>(
+        channel: Peri<'a, impl Channel>,
+        request: Request,
+        src_addr: *const MW,
+        src_size: usize,
+        dest_addr: *mut PW,
+        options: TransferOptions,
+    ) -> Self {
+        Self::new_inner(
+            channel.into(),
+            request,
+            Dir::MemoryToMemory,
+            src_addr as *mut u32,
+            dest_addr as *mut u32,
+            src_size,
+            Increment::Peripheral,
+            MW::size(),
+            PW::size(),
+            options,
+        )
+    }
+
     /// Create a new read DMA transfer (peripheral to memory).
     pub unsafe fn new_read<W: Word>(
         channel: Peri<'a, impl Channel>,
@@ -633,7 +709,7 @@ impl<'a> Transfer<'a> {
             peri_addr as *const u32,
             buf as *mut MW as *mut u32,
             buf.len(),
-            true,
+            Increment::Memory,
             MW::size(),
             PW::size(),
             options,
@@ -666,7 +742,7 @@ impl<'a> Transfer<'a> {
             peri_addr as *const u32,
             buf as *const MW as *mut u32,
             buf.len(),
-            true,
+            Increment::Memory,
             MW::size(),
             PW::size(),
             options,
@@ -689,7 +765,7 @@ impl<'a> Transfer<'a> {
             peri_addr as *const u32,
             repeated as *const W as *mut u32,
             count,
-            false,
+            Increment::None,
             W::size(),
             W::size(),
             options,
@@ -703,7 +779,7 @@ impl<'a> Transfer<'a> {
         peri_addr: *const u32,
         mem_addr: *mut u32,
         mem_len: usize,
-        incr_mem: bool,
+        incr_mem: Increment,
         mem_size: WordSize,
         peri_size: WordSize,
         options: TransferOptions,
@@ -849,7 +925,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
             peri_addr as *mut u32,
             buffer_ptr as *mut u32,
             len,
-            true,
+            Increment::Memory,
             data_size,
             data_size,
             options,
@@ -1005,7 +1081,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
             peri_addr as *mut u32,
             buffer_ptr as *mut u32,
             len,
-            true,
+            Increment::Memory,
             data_size,
             data_size,
             options,

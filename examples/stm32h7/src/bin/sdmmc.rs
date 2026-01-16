@@ -24,6 +24,7 @@ async fn main(_spawner: Spawner) {
             source: PllSource::HSI,
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL50,
+            fracn: None,
             divp: Some(PllDiv::DIV2),
             divq: Some(PllDiv::DIV4), // default clock chosen by SDMMCSEL. 200 Mhz
             divr: None,
@@ -50,9 +51,6 @@ async fn main(_spawner: Spawner) {
         p.PC11,
         Default::default(),
     );
-
-    // Should print 400kHz for initialization
-    info!("Configured clock: {}", sdmmc.clock().0);
 
     let mut cmd_block = CmdBlock::new();
 

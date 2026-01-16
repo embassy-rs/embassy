@@ -11,5 +11,7 @@ async fn main(_spawner: Spawner) {
     let config = Config::default();
     let _p = hal::init(config);
 
-    defmt::info!("Reset Reason: '{}'", reset_reason());
+    for reason in reset_reason().into_iter() {
+        defmt::info!("Reset Reason: '{}'", reason);
+    }
 }

@@ -305,6 +305,9 @@ fn main() {
         Some("tim22") => "TIM22",
         Some("tim23") => "TIM23",
         Some("tim24") => "TIM24",
+        Some("lptim1") => "LPTIM1",
+        Some("lptim2") => "LPTIM2",
+        Some("lptim3") => "LPTIM3",
         Some("any") => {
             // Order of TIM candidators:
             // 1. 2CH -> 2CH_CMP -> GP16 -> GP32 -> ADV
@@ -325,11 +328,13 @@ fn main() {
     let time_driver_irq_decl = if !time_driver_singleton.is_empty() {
         cfgs.enable(format!("time_driver_{}", time_driver_singleton.to_lowercase()));
 
-        let p = peripheral_map.get(time_driver_singleton).unwrap();
+        let Some(p) = peripheral_map.get(time_driver_singleton) else {
+            panic!("Tried to select {time_driver_singleton}, which is not available on this device");
+        };
         let irqs: BTreeSet<_> = p
             .interrupts
             .iter()
-            .filter(|i| i.signal == "CC" || i.signal == "UP")
+            .filter(|i| i.signal == "CC" || i.signal == "UP" || i.signal == "GLOBAL")
             .map(|i| i.interrupt.to_ascii_uppercase())
             .collect();
 
@@ -350,8 +355,8 @@ fn main() {
     };
 
     for tim in [
-        "tim1", "tim2", "tim3", "tim4", "tim5", "tim8", "tim9", "tim12", "tim15", "tim20", "tim21", "tim22", "tim23",
-        "tim24",
+        "lptim1", "lptim2", "lptim3", "tim1", "tim2", "tim3", "tim4", "tim5", "tim8", "tim9", "tim12", "tim15",
+        "tim20", "tim21", "tim22", "tim23", "tim24",
     ] {
         cfgs.declare(format!("time_driver_{}", tim));
     }
@@ -570,7 +575,7 @@ fn main() {
             },
         );
     }
-    if chip_name.starts_with("stm32u5") {
+    if chip_name.starts_with("stm32u5") || chip_name.starts_with("stm32U3") {
         clock_gen.chained_muxes.insert(
             "ICLK",
             &PeripheralRccRegister {
@@ -942,10 +947,72 @@ fn main() {
                     let en = rcc.enable.as_ref().unwrap();
                     let en_reg = format_ident!("{}", en.register.to_ascii_lowercase());
                     let set_en_field = format_ident!("set_{}", en.field.to_ascii_lowercase());
-
                     gg.extend(quote! {
                         crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
-                    })
+                    });
+                    // enable for both cores or if the primary core goes in stop mode devices become unavailable!
+                    // particularly problematic for GPIOs and DMA
+                    if chip_name.starts_with("stm32wl5") {
+                        // second core clock enable registers start with "c2"
+                        let en_reg = format_ident!("c2{}", en.register.to_ascii_lowercase());
+                        gg.extend(quote! {
+                            crate::pac::RCC.#en_reg().modify(|w| w.#set_en_field(true));
+                        });
+                    }
+                }
+            }
+        }
+
+        if kind == "gpio" {
+            for p in METADATA.peripherals {
+                // set all GPIOs to analog mode except for PA13 and PA14 which are SWDIO and SWDCLK
+                if p.registers.is_some()
+                    && p.registers.as_ref().unwrap().kind == "gpio"
+                    && p.registers.as_ref().unwrap().version != "v1"
+                {
+                    let port = format_ident!("{}", p.name);
+                    if p.name == "GPIOA" {
+                        gg.extend(quote! {
+                            // leave PA13 and PA14 as unchanged
+                            crate::pac::#port.moder().modify(|w| {
+                                w.set_moder(0, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(1, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(2, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(3, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(4, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(5, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(6, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(7, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(8, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(9, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(10, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(11, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(12, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(15, crate::pac::gpio::vals::Moder::ANALOG);
+                            });
+                        });
+                    } else {
+                        gg.extend(quote! {
+                            crate::pac::#port.moder().modify(|w| {
+                                w.set_moder(0, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(1, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(2, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(3, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(4, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(5, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(6, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(7, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(8, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(9, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(10, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(11, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(12, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(13, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(14, crate::pac::gpio::vals::Moder::ANALOG);
+                                w.set_moder(15, crate::pac::gpio::vals::Moder::ANALOG);
+                            });
+                        });
+                    }
                 }
             }
         }
@@ -1393,6 +1460,10 @@ fn main() {
         (("dac", "OUT2"), quote!(crate::dac::DacPin<Ch2>)),
     ].into();
 
+    // On some families the USB DM/DP signals are present as alternate functions,
+    // on other as additional functions where GPIO should be left in Analog mode.
+    cfgs.declare("usb_alternate_function");
+
     for p in METADATA.peripherals {
         if let Some(regs) = &p.registers {
             let mut adc_pairs: BTreeMap<u8, (Option<Ident>, Option<Ident>)> = BTreeMap::new();
@@ -1469,6 +1540,15 @@ fn main() {
                         g.extend(quote! {
                             sel_trait_impl!(crate::xspi::NCSEither, #peri, #pin_name, 1);
                         })
+                    }
+
+                    // Many families have USB as an additional function, not an
+                    // alternate function, where the pin must be left in analog
+                    // mode and enabling AF will break USB.
+                    if p.name.starts_with("USB") && (pin.signal == "DM" || pin.signal == "DP") {
+                        if pin.af.is_some() {
+                            cfgs.enable("usb_alternate_function");
+                        }
                     }
 
                     let pin_trait_impl = if let Some(afio) = &p.afio {
@@ -1658,6 +1738,8 @@ fn main() {
         (("timer", "CH4"), quote!(crate::timer::Dma<Ch4>)),
         (("cordic", "WRITE"), quote!(crate::cordic::WriteDma)), // FIXME: stm32u5a crash on Cordic driver
         (("cordic", "READ"), quote!(crate::cordic::ReadDma)),   // FIXME: stm32u5a crash on Cordic driver
+        (("xspi", "RX"), quote!(crate::xspi::XDma)),
+        (("xspi", "RX"), quote!(crate::xspi::XDma)),
     ]
     .into();
 
@@ -1800,8 +1882,8 @@ fn main() {
             {
                 let kind = format_ident!("{}", kind);
                 let enum_name = format_ident!("{}", e.name);
-                let mut muls = Vec::new();
-                let mut divs = Vec::new();
+                let mut nums = Vec::new();
+                let mut denoms = Vec::new();
                 for v in e.variants {
                     let Ok(val) = parse_num(v.name) else {
                         panic!("could not parse mul/div. enum={} variant={}", e.name, v.name)
@@ -1810,26 +1892,23 @@ fn main() {
                     let variant = quote!(crate::pac::#kind::vals::#enum_name::#variant_name);
                     let num = val.num;
                     let denom = val.denom;
-                    muls.push(quote!(#variant => self * #num / #denom,));
-                    divs.push(quote!(#variant => self * #denom / #num,));
+                    nums.push(quote!(#variant => #num,));
+                    denoms.push(quote!(#variant => #denom,));
                 }
 
                 g.extend(quote! {
-                    impl core::ops::Div<crate::pac::#kind::vals::#enum_name> for crate::time::Hertz {
-                        type Output = crate::time::Hertz;
-                        fn div(self, rhs: crate::pac::#kind::vals::#enum_name) -> Self::Output {
-                            match rhs {
-                                #(#divs)*
+                    impl crate::time::Prescaler for crate::pac::#kind::vals::#enum_name {
+                        fn num(&self) -> u32 {
+                            match *self {
+                                #(#nums)*
                                 #[allow(unreachable_patterns)]
                                 _ => unreachable!(),
                             }
                         }
-                    }
-                    impl core::ops::Mul<crate::pac::#kind::vals::#enum_name> for crate::time::Hertz {
-                        type Output = crate::time::Hertz;
-                        fn mul(self, rhs: crate::pac::#kind::vals::#enum_name) -> Self::Output {
-                            match rhs {
-                                #(#muls)*
+
+                        fn denom(&self) -> u32 {
+                            match *self {
+                                #(#denoms)*
                                 #[allow(unreachable_patterns)]
                                 _ => unreachable!(),
                             }
@@ -2044,7 +2123,9 @@ fn main() {
             "dma" => quote!(crate::dma::DmaInfo::Dma(crate::pac::#dma)),
             "bdma" => quote!(crate::dma::DmaInfo::Bdma(crate::pac::#dma)),
             "gpdma" => quote!(crate::pac::#dma),
-            "lpdma" => quote!(unsafe { crate::pac::gpdma::Gpdma::from_ptr(crate::pac::#dma.as_ptr())}),
+            "lpdma" => {
+                quote!(unsafe { crate::pac::gpdma::Gpdma::from_ptr(crate::pac::#dma.as_ptr())})
+            }
             _ => panic!("bad dma channel kind {}", bi.kind),
         };
 

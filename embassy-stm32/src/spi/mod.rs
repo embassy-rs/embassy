@@ -381,12 +381,20 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         }
 
         #[cfg(any(spi_v1, spi_v2, spi_v3))]
-        self.info.regs.cr1().modify(|w| {
-            w.set_cpha(cpha);
-            w.set_cpol(cpol);
-            w.set_br(br);
-            w.set_lsbfirst(lsbfirst);
-        });
+        {
+            self.info.regs.cr1().modify(|w| {
+                w.set_spe(false);
+            });
+            self.info.regs.cr1().modify(|w| {
+                w.set_cpha(cpha);
+                w.set_cpol(cpol);
+                w.set_br(br);
+                w.set_lsbfirst(lsbfirst);
+            });
+            self.info.regs.cr1().modify(|w| {
+                w.set_spe(true);
+            });
+        }
 
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         {
@@ -1126,7 +1134,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Drop for Spi<'d, M, CM> {
         self.miso.as_ref().map(|x| x.set_as_disconnected());
         self.nss.as_ref().map(|x| x.set_as_disconnected());
 
-        self.info.rcc.disable();
+        self.info.rcc.disable_without_stop();
     }
 }
 

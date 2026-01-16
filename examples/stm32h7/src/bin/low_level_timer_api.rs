@@ -5,7 +5,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::{AfType, Flex, OutputType, Speed};
 use embassy_stm32::time::{Hertz, khz};
-use embassy_stm32::timer::low_level::{OutputCompareMode, Timer as LLTimer};
+use embassy_stm32::timer::low_level::{OutputCompareMode, RoundTo, Timer as LLTimer};
 use embassy_stm32::timer::{Ch1, Ch2, Ch3, Ch4, Channel, GeneralInstance32bit4Channel, TimerPin};
 use embassy_stm32::{Config, Peri};
 use embassy_time::Timer;
@@ -22,6 +22,7 @@ async fn main(_spawner: Spawner) {
             source: PllSource::HSI,
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL50,
+            fracn: None,
             divp: Some(PllDiv::DIV2),
             divq: Some(PllDiv::DIV8), // 100mhz
             divr: None,
@@ -122,7 +123,7 @@ impl<'d, T: GeneralInstance32bit4Channel> SimplePwm32<'d, T> {
     }
 
     pub fn set_frequency(&mut self, freq: Hertz) {
-        self.tim.set_frequency(freq);
+        self.tim.set_frequency(freq, RoundTo::Slower);
     }
 
     pub fn get_max_duty(&self) -> u32 {

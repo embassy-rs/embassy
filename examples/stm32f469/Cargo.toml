@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 # Specific examples only for stm32f469
-embassy-stm32 = { version = "0.4.0", path = "../../embassy-stm32", features = ["defmt", "stm32f469ni", "unstable-pac", "memory-x", "time-driver-any", "exti", "chrono"] }
+embassy-stm32 = { version = "0.5.0", path = "../../embassy-stm32", features = ["defmt", "stm32f469ni", "unstable-pac", "memory-x", "time-driver-any", "exti", "chrono"] }
 embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt"] }
 embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 

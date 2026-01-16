@@ -16,6 +16,8 @@ use crate::peripherals::DMA0;
 use crate::sealed::Sealed;
 use crate::{BitIter, interrupt, pac, peripherals};
 
+pub(crate) const MAX_CHUNK_SIZE: usize = 1024;
+
 #[cfg(feature = "rt")]
 #[interrupt]
 fn DMA0() {
@@ -69,7 +71,7 @@ pub(crate) unsafe fn init() {
 ///
 /// SAFETY: Slice must point to a valid location reachable by DMA.
 pub unsafe fn read<'a, C: Channel, W: Word>(ch: Peri<'a, C>, from: *const W, to: *mut [W]) -> Transfer<'a, C> {
-    let count = ((to.len() / W::size() as usize) - 1) as isize;
+    let count = (to.len().div_ceil(W::size() as usize) - 1) as isize;
 
     copy_inner(
         ch,
@@ -87,7 +89,7 @@ pub unsafe fn read<'a, C: Channel, W: Word>(ch: Peri<'a, C>, from: *const W, to:
 ///
 /// SAFETY: Slice must point to a valid location reachable by DMA.
 pub unsafe fn write<'a, C: Channel, W: Word>(ch: Peri<'a, C>, from: *const [W], to: *mut W) -> Transfer<'a, C> {
-    let count = ((from.len() / W::size() as usize) - 1) as isize;
+    let count = (from.len().div_ceil(W::size() as usize) - 1) as isize;
 
     copy_inner(
         ch,
@@ -109,7 +111,7 @@ pub unsafe fn copy<'a, C: Channel, W: Word>(ch: Peri<'a, C>, from: &[W], to: &mu
     let to_len = to.len();
     assert_eq!(from_len, to_len);
 
-    let count = ((from_len / W::size() as usize) - 1) as isize;
+    let count = (from_len.div_ceil(W::size() as usize) - 1) as isize;
 
     copy_inner(
         ch,

@@ -52,9 +52,6 @@ async fn main(_spawner: Spawner) {
         Default::default(),
     );
 
-    // Should print 400kHz for initialization
-    info!("Configured clock: {}", sdmmc.clock().0);
-
     let mut cmd_block = CmdBlock::new();
 
     let storage = StorageDevice::new_sd_card(&mut sdmmc, &mut cmd_block, mhz(25))

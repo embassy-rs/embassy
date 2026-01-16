@@ -12,28 +12,31 @@ pub(crate) mod fmt;
 #[cfg(feature = "bluetooth")]
 /// Bluetooth module.
 pub mod bluetooth;
-mod bus;
 mod consts;
 mod control;
 mod countries;
 mod events;
 mod ioctl;
-mod nvram;
 mod runner;
+mod sdio;
+mod spi;
 mod structs;
 mod util;
 
+use core::sync::atomic::AtomicBool;
+
+pub use aligned::{A4, Aligned};
 use embassy_net_driver_channel as ch;
 use embedded_hal_1::digital::OutputPin;
 use events::Events;
 use ioctl::IoctlState;
 
-use crate::bus::Bus;
-pub use crate::bus::SpiBusCyw43;
 pub use crate::control::{
     AddMulticastAddressError, Control, JoinAuth, JoinError, JoinOptions, ScanOptions, ScanType, Scanner,
 };
 pub use crate::runner::Runner;
+pub use crate::sdio::{SdioBus, SdioBusCyw43};
+pub use crate::spi::{SpiBus, SpiBusCyw43};
 pub use crate::structs::BssInfo;
 
 const MTU: usize = 1514;
@@ -121,6 +124,7 @@ pub struct State {
 struct NetState {
     ch: ch::State<MTU, 4, 4>,
     events: Events,
+    secure_network: AtomicBool,
 }
 
 impl State {
@@ -131,6 +135,7 @@ impl State {
             net: NetState {
                 ch: ch::State::new(),
                 events: Events::new(),
+                secure_network: AtomicBool::new(false),
             },
             #[cfg(feature = "bluetooth")]
             bt: bluetooth::BtState::new(),
@@ -235,8 +240,9 @@ pub async fn new<'a, PWR, SPI>(
     state: &'a mut State,
     pwr: PWR,
     spi: SPI,
-    firmware: &[u8],
-) -> (NetDriver<'a>, Control<'a>, Runner<'a, PWR, SPI>)
+    firmware: &Aligned<A4, [u8]>,
+    nvram: &Aligned<A4, [u8]>,
+) -> (NetDriver<'a>, Control<'a>, Runner<'a, SpiBus<PWR, SPI>>)
 where
     PWR: OutputPin,
     SPI: SpiBusCyw43,
@@ -246,15 +252,58 @@ where
 
     let mut runner = Runner::new(
         ch_runner,
-        Bus::new(pwr, spi),
+        SpiBus::new(pwr, spi),
         &state.ioctl_state,
         &state.net.events,
+        &state.net.secure_network,
         #[cfg(feature = "bluetooth")]
         None,
     );
 
-    runner.init(firmware, None).await;
-    let control = Control::new(state_ch, &state.net.events, &state.ioctl_state);
+    runner.init(firmware, nvram, None).await.unwrap();
+    let control = Control::new(
+        state_ch,
+        &state.net.events,
+        &state.ioctl_state,
+        &state.net.secure_network,
+    );
+
+    (device, control, runner)
+}
+
+/// Create a new instance of the CYW43 driver.
+///
+/// Returns a handle to the network device, control handle and a runner for driving the low level
+/// stack.
+pub async fn new_sdio<'a, SDIO>(
+    state: &'a mut State,
+    sdio: SDIO,
+    firmware: &Aligned<A4, [u8]>,
+    nvram: &Aligned<A4, [u8]>,
+) -> (NetDriver<'a>, Control<'a>, Runner<'a, SdioBus<SDIO>>)
+where
+    SDIO: SdioBusCyw43<64>,
+{
+    let (ch_runner, device) = ch::new(&mut state.net.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
+    let state_ch = ch_runner.state_runner();
+
+    let mut runner = Runner::new(
+        ch_runner,
+        SdioBus::new(sdio),
+        &state.ioctl_state,
+        &state.net.events,
+        &state.net.secure_network,
+        #[cfg(feature = "bluetooth")]
+        None,
+    );
+
+    runner.init(firmware, nvram, None).await.unwrap();
+    let control = Control::new(
+        state_ch,
+        &state.net.events,
+        &state.ioctl_state,
+        &state.net.secure_network,
+    );
 
     (device, control, runner)
 }
@@ -268,13 +317,14 @@ pub async fn new_with_bluetooth<'a, PWR, SPI>(
     state: &'a mut State,
     pwr: PWR,
     spi: SPI,
-    wifi_firmware: &[u8],
-    bluetooth_firmware: &[u8],
+    wifi_firmware: &Aligned<A4, [u8]>,
+    bluetooth_firmware: &Aligned<A4, [u8]>,
+    nvram: &Aligned<A4, [u8]>,
 ) -> (
     NetDriver<'a>,
     bluetooth::BtDriver<'a>,
     Control<'a>,
-    Runner<'a, PWR, SPI>,
+    Runner<'a, SpiBus<PWR, SPI>>,
 )
 where
     PWR: OutputPin,
@@ -286,15 +336,36 @@ where
     let (bt_runner, bt_driver) = bluetooth::new(&mut state.bt);
     let mut runner = Runner::new(
         ch_runner,
-        Bus::new(pwr, spi),
+        SpiBus::new(pwr, spi),
         &state.ioctl_state,
         &state.net.events,
+        &state.net.secure_network,
         #[cfg(feature = "bluetooth")]
         Some(bt_runner),
     );
 
-    runner.init(wifi_firmware, Some(bluetooth_firmware)).await;
-    let control = Control::new(state_ch, &state.net.events, &state.ioctl_state);
+    runner
+        .init(wifi_firmware, nvram, Some(bluetooth_firmware))
+        .await
+        .unwrap();
+    let control = Control::new(
+        state_ch,
+        &state.net.events,
+        &state.ioctl_state,
+        &state.net.secure_network,
+    );
 
     (device, bt_driver, control, runner)
+}
+
+/// Include bytes aligned to A4 in the binary
+#[macro_export]
+macro_rules! aligned_bytes {
+    ($path:expr) => {{
+        {
+            static BYTES: &cyw43::Aligned<cyw43::A4, [u8]> = &cyw43::Aligned(*include_bytes!($path));
+
+            BYTES
+        }
+    }};
 }

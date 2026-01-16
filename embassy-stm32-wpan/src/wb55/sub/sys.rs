@@ -1,3 +1,5 @@
+use core::slice;
+
 use embassy_stm32::ipcc::{IpccRxChannel, IpccTxChannel};
 
 use crate::cmd::CmdPacket;
@@ -5,11 +7,16 @@ use crate::consts::TlPacketType;
 use crate::evt::EvtBox;
 #[cfg(feature = "wb55_ble")]
 use crate::shci::ShciBleInitCmdParam;
-use crate::shci::{SchiCommandStatus, ShciOpcode};
+use crate::shci::{SchiCommandStatus, SchiFromPacket, SchiSysEventReady, ShciFusGetStateErrorCode, ShciOpcode};
 use crate::sub::mm;
 use crate::tables::{SysTable, WirelessFwInfoTable};
 use crate::unsafe_linked_list::LinkedListNode;
 use crate::wb55::{SYS_CMD_BUF, SYSTEM_EVT_QUEUE, TL_DEVICE_INFO_TABLE, TL_SYS_TABLE};
+
+const fn slice8_ref(x: &[u32]) -> &[u8] {
+    let len = x.len() * 4;
+    unsafe { slice::from_raw_parts(x.as_ptr() as *const u8, len) }
+}
 
 /// A guard that, once constructed, allows for sys commands to be sent to CPU2.
 pub struct Sys<'a> {
@@ -55,15 +62,15 @@ impl<'a> Sys<'a> {
     }
 
     /// `HW_IPCC_SYS_CmdEvtNot`
-    pub async fn write_and_get_response(
+    pub async fn write_and_get_response<T: SchiFromPacket>(
         &mut self,
         opcode: ShciOpcode,
         payload: &[u8],
-    ) -> Result<SchiCommandStatus, ()> {
+    ) -> Result<T, ()> {
         self.write(opcode, payload).await;
         self.ipcc_system_cmd_rsp_channel.flush().await;
 
-        unsafe { SchiCommandStatus::from_packet(SYS_CMD_BUF.as_ptr()) }
+        unsafe { T::from_packet(SYS_CMD_BUF.as_ptr()) }
     }
 
     #[cfg(feature = "wb55_mac")]
@@ -80,6 +87,36 @@ impl<'a> Sys<'a> {
     #[cfg(feature = "wb55_ble")]
     pub async fn shci_c2_ble_init(&mut self, param: ShciBleInitCmdParam) -> Result<SchiCommandStatus, ()> {
         self.write_and_get_response(ShciOpcode::BleInit, param.payload()).await
+    }
+
+    pub async fn shci_c2_fus_getstate(&mut self) -> Result<ShciFusGetStateErrorCode, ()> {
+        self.write_and_get_response(ShciOpcode::FusStartWirelessStack, &[])
+            .await
+    }
+
+    /// Send a request to CPU2 to start the wireless stack
+    pub async fn shci_c2_fus_startws(&mut self) -> Result<SchiCommandStatus, ()> {
+        self.write_and_get_response(ShciOpcode::FusStartWirelessStack, &[])
+            .await
+    }
+
+    /// Send a request to CPU2 to upgrade the firmware
+    pub async fn shci_c2_fus_fwupgrade(&mut self, fw_src_add: u32, fw_dst_add: u32) -> Result<SchiCommandStatus, ()> {
+        let buf = [fw_src_add, fw_dst_add];
+        let len = if fw_dst_add != 0 {
+            2
+        } else if fw_src_add != 0 {
+            1
+        } else {
+            0
+        };
+
+        self.write_and_get_response(ShciOpcode::FusFirmwareUpgrade, slice8_ref(&buf[..len]))
+            .await
+    }
+
+    pub async fn read_ready(&mut self) -> Result<SchiSysEventReady, ()> {
+        self.read().await.payload()[0].try_into()
     }
 
     /// `HW_IPCC_SYS_EvtNot`

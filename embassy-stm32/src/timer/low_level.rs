@@ -20,6 +20,7 @@ use crate::time::Hertz;
 
 /// Input capture mode.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum InputCaptureMode {
     /// Rising edge only.
     Rising,
@@ -31,6 +32,7 @@ pub enum InputCaptureMode {
 
 /// Input TI selection.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum InputTISelection {
     /// Normal
     Normal,
@@ -53,6 +55,7 @@ impl From<InputTISelection> for stm32_metapac::timer::vals::CcmrInputCcs {
 /// Timer counting mode.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum CountingMode {
     #[default]
     /// The timer counts up to the reload value and then resets back to 0.
@@ -119,6 +122,7 @@ impl From<(vals::Cms, vals::Dir)> for CountingMode {
 
 /// Output compare mode.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum OutputCompareMode {
     /// The comparison between the output compare register TIMx_CCRx and
     /// the counter TIMx_CNT has no effect on the outputs.
@@ -213,6 +217,7 @@ impl From<OutputCompareMode> for crate::pac::timer::vals::Ocm {
 
 /// Timer output pin polarity.
 #[derive(Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum OutputPolarity {
     /// Active high (higher duty value makes the pin spend more time high).
     ActiveHigh,
@@ -226,6 +231,125 @@ impl From<OutputPolarity> for bool {
             OutputPolarity::ActiveHigh => false,
             OutputPolarity::ActiveLow => true,
         }
+    }
+}
+
+/// Rounding mode for timer period/frequency configuration.
+///
+/// When configuring a timer, the exact requested period may not be achievable
+/// due to hardware limitations (prescaler and counter are integers). This enum
+/// controls how the driver rounds the configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum RoundTo {
+    /// Round towards a slower timer (higher period, lower frequency).
+    ///
+    /// The actual period will be >= the requested period.
+    Slower,
+    /// Round towards a faster timer (lower period, higher frequency).
+    ///
+    /// The actual period will be <= the requested period.
+    Faster,
+}
+
+/// Result of PSC/ARR calculation for timer configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+struct PscArrConfig {
+    /// Prescaler value (0-65535). The timer clock is divided by `psc + 1`.
+    psc: u16,
+    /// Auto-reload value. The timer counts from 0 to `arr`, then wraps.
+    arr: u64,
+    /// The actual period in clock cycles that will be achieved: `(psc + 1) * (arr + 1)`.
+    actual_period_clocks: u64,
+}
+
+/// Error returned when the requested timer period is out of range.
+///
+/// This occurs when:
+/// - For `RoundTo::Faster`: The requested period is less than 2 (minimum achievable is 2, since ARR >= 1).
+/// - For `RoundTo::Slower`: The required prescaler exceeds 16 bits.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct OutOfRangeError;
+
+/// Calculate prescaler (PSC) and auto-reload (ARR) values for a desired timer period.
+///
+/// # Arguments
+/// * `period_clocks` - The desired period in timer clock cycles
+/// * `round` - How to round when exact period is not achievable
+/// * `max_arr_bits` - Maximum bits for ARR register (16 or 32)
+///
+/// # Returns
+/// A [`PscArrConfig`] containing the calculated values, or an [`OutOfRangeError`] if the
+/// requested period cannot be achieved with the given rounding mode.
+///
+/// # Errors
+/// Returns `OutOfRangeError` when:
+/// - `RoundTo::Faster` and `period_clocks < 2`: Cannot achieve period <= 1 (minimum is 2 since ARR >= 1).
+/// - `RoundTo::Slower` and the required prescaler exceeds 16 bits.
+fn calculate_psc_arr(period_clocks: u64, round: RoundTo, max_arr_bits: usize) -> Result<PscArrConfig, OutOfRangeError> {
+    let max_arr: u64 = (1 << max_arr_bits) - 1;
+
+    // Minimum achievable period is 2 (psc=0, arr=1), since ARR=0 is not valid.
+    const MIN_PERIOD: u64 = 2;
+
+    // For Faster, we need actual_period_clocks <= period_clocks
+    // If period_clocks < MIN_PERIOD, we can't achieve this
+    if round == RoundTo::Faster && period_clocks < MIN_PERIOD {
+        return Err(OutOfRangeError);
+    }
+
+    // We need: period_clocks = (psc + 1) * (arr + 1)
+    // Calculate minimum prescaler needed: psc >= period_clocks / (max_arr + 1) - 1
+    let psc_min = period_clocks.saturating_sub(1) / (max_arr + 1);
+    let psc: u16 = match psc_min.try_into() {
+        Ok(v) => v,
+        Err(_) => {
+            // Prescaler would overflow
+            match round {
+                RoundTo::Slower => return Err(OutOfRangeError), // Can't achieve actual >= requested
+                RoundTo::Faster => u16::MAX,                    // Use max psc; we only need actual <= requested
+            }
+        }
+    };
+
+    // Calculate arr for this prescaler
+    let psc_plus_1 = u64::from(psc) + 1;
+
+    // actual_clocks = (psc + 1) * (arr + 1), so arr = actual_clocks / (psc + 1) - 1
+    // We want actual_clocks as close to period_clocks as possible, respecting rounding mode
+    let arr = match round {
+        RoundTo::Faster => {
+            // Round down: actual_clocks <= period_clocks
+            // arr + 1 <= period_clocks / (psc + 1)
+            // arr <= period_clocks / (psc + 1) - 1
+            (period_clocks / psc_plus_1).saturating_sub(1)
+        }
+        RoundTo::Slower => {
+            // Round up: actual_clocks >= period_clocks
+            // arr + 1 >= ceil(period_clocks / (psc + 1))
+            // arr >= ceil(period_clocks / (psc + 1)) - 1
+            period_clocks.div_ceil(psc_plus_1).saturating_sub(1)
+        }
+    };
+
+    // Clamp arr to valid range (min is 1, not 0)
+    let arr = arr.clamp(1, max_arr);
+    let actual_period_clocks = psc_plus_1 * (arr + 1);
+
+    Ok(PscArrConfig {
+        psc,
+        arr,
+        actual_period_clocks,
+    })
+}
+
+/// Helper to round a division according to the rounding mode.
+fn div_round(numerator: u64, denominator: u64, round: RoundTo) -> u64 {
+    match round {
+        RoundTo::Faster => numerator / denominator,
+        RoundTo::Slower => numerator.div_ceil(denominator),
     }
 }
 
@@ -309,34 +433,84 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         }
     }
 
+    /// Set the timer period in timer clock cycles.
+    ///
+    /// The timer will count for `clocks` clock cycles before wrapping.
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations; the `round` parameter controls how rounding is performed.
+    pub fn set_period_clocks(&self, clocks: u64, round: RoundTo) {
+        self.set_period_clocks_internal(clocks, round, T::Word::bits());
+    }
+
+    pub(crate) fn set_period_clocks_internal(&self, clocks: u64, round: RoundTo, max_arr_bits: usize) {
+        // TODO: we might want to propagate errors to the user instead of panicking.
+        let config = unwrap!(calculate_psc_arr(clocks, round, max_arr_bits));
+        let arr: T::Word = unwrap!(T::Word::try_from(config.arr));
+
+        let regs = self.regs_gp32_unchecked();
+        regs.psc().write_value(config.psc);
+        #[cfg(stm32l0)]
+        regs.arr().write(|r| r.set_arr(unwrap!(arr.try_into())));
+        #[cfg(not(stm32l0))]
+        regs.arr().write_value(arr.into());
+    }
+
     /// Set the frequency of how many times per second the timer counts up to the max value or down to 0.
     ///
     /// This means that in the default edge-aligned mode,
     /// the timer counter will wrap around at the same frequency as is being set.
     /// In center-aligned mode (which not all timers support), the wrap-around frequency is effectively halved
     /// because it needs to count up and down.
-    pub fn set_frequency(&self, frequency: Hertz) {
-        self.set_frequency_internal(frequency, T::Word::bits());
-    }
-
-    pub(crate) fn set_frequency_internal(&self, frequency: Hertz, max_divide_by_bits: usize) {
+    ///
+    /// The actual frequency may differ from the requested value due to hardware
+    /// limitations; the `round` parameter controls how rounding is performed.
+    pub fn set_frequency(&self, frequency: Hertz, round: RoundTo) {
         let f = frequency.0;
         assert!(f > 0);
-        let timer_f = T::frequency().0;
+        let timer_f = T::frequency().0 as u64;
+        let clocks = div_round(timer_f, f as u64, round);
+        self.set_period_clocks(clocks, round);
+    }
 
-        let pclk_ticks_per_timer_period = (timer_f / f) as u64;
-        let psc: u16 = unwrap!(((pclk_ticks_per_timer_period - 1) / (1 << max_divide_by_bits)).try_into());
-        let divide_by = pclk_ticks_per_timer_period / (u64::from(psc) + 1);
+    /// Set the timer period in milliseconds.
+    ///
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations; the `round` parameter controls how rounding is performed.
+    pub fn set_period_ms(&self, ms: u32, round: RoundTo) {
+        let timer_f = T::frequency().0 as u64;
+        let clocks = div_round(timer_f * ms as u64, 1_000, round);
+        self.set_period_clocks(clocks, round);
+    }
 
-        // the timer counts `0..=arr`, we want it to count `0..divide_by`
-        let arr: T::Word = unwrap!(T::Word::try_from(divide_by - 1));
+    /// Set the timer period in microseconds.
+    ///
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations; the `round` parameter controls how rounding is performed.
+    pub fn set_period_us(&self, us: u32, round: RoundTo) {
+        let timer_f = T::frequency().0 as u64;
+        let clocks = div_round(timer_f * us as u64, 1_000_000, round);
+        self.set_period_clocks(clocks, round);
+    }
 
-        let regs = self.regs_gp32_unchecked();
-        regs.psc().write_value(psc);
-        #[cfg(stm32l0)]
-        regs.arr().write(|r| r.set_arr(unwrap!(arr.try_into())));
-        #[cfg(not(stm32l0))]
-        regs.arr().write_value(arr.into());
+    /// Set the timer period in seconds.
+    ///
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations; the `round` parameter controls how rounding is performed.
+    pub fn set_period_secs(&self, secs: u32, round: RoundTo) {
+        let timer_f = T::frequency().0 as u64;
+        let clocks = timer_f * secs as u64;
+        self.set_period_clocks(clocks, round);
+    }
+
+    /// Set the timer period using an `embassy_time::Duration`.
+    ///
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations; the `round` parameter controls how rounding is performed.
+    #[cfg(feature = "time")]
+    pub fn set_period(&self, period: embassy_time::Duration, round: RoundTo) {
+        let timer_f = T::frequency().0 as u64;
+        let clocks = div_round(timer_f * period.as_ticks(), embassy_time::TICK_HZ, round);
+        self.set_period_clocks(clocks, round);
     }
 
     /// Set tick frequency.
@@ -976,5 +1150,195 @@ impl<'d, T: AdvancedInstance4Channel> Timer<'d, T> {
     /// Setting this bit generates a break event. This bit is automatically cleared by the hardware.
     pub fn trigger_software_break(&self, n: usize) {
         self.regs_advanced().egr().write(|r| r.set_bg(n, true));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test cases: (period_clocks, max_arr_bits, expect_fail_slower, expect_fail_faster)
+    const TEST_CASES: &[(u64, usize, bool, bool)] = &[
+        // Small periods (no prescaler needed for 16-bit)
+        // period=0,1 fail for Faster because min achievable is 2 (arr=1)
+        (0, 16, false, true),
+        (1, 16, false, true),
+        (2, 16, false, false), // Minimum achievable period
+        (100, 16, false, false),
+        (1000, 16, false, false),
+        (65535, 16, false, false),
+        (65536, 16, false, false),
+        // Periods requiring prescaler for 16-bit
+        (65537, 16, false, false),
+        (100_000, 16, false, false),
+        (1_000_000, 16, false, false),
+        (10_000_000, 16, false, false),
+        // Edge cases around boundaries
+        (131070, 16, false, false), // 2 * 65535
+        (131072, 16, false, false), // 2 * 65536
+        (196605, 16, false, false), // 3 * 65535
+        // 32-bit timer cases
+        (0, 32, false, true),
+        (1, 32, false, true),
+        (2, 32, false, false),
+        (100_000, 32, false, false),
+        (1_000_000_000, 32, false, false),
+        (4_294_967_295, 32, false, false), // u32::MAX
+        (4_294_967_296, 32, false, false), // u32::MAX + 1
+        // Very large periods that would overflow 16-bit prescaler for Slower
+        // max_arr for 16-bit is 65535, so max period with psc=65535 is 65536*65536 = 4_294_967_296
+        // Anything larger than that fails for Slower (need actual >= requested, impossible)
+        // For Faster, it still works (need actual <= requested, can always use max period)
+        (4_294_967_297, 16, true, false), // Just over 16-bit max, fails Slower only
+    ];
+
+    fn actual_clocks(psc: u16, arr: u64) -> u64 {
+        (psc as u64 + 1) * (arr + 1)
+    }
+
+    #[test]
+    fn test_calculate_psc_arr() {
+        for &(period_clocks, max_arr_bits, expect_fail_slower, expect_fail_faster) in TEST_CASES {
+            let max_arr: u64 = (1 << max_arr_bits) - 1;
+
+            for round in [RoundTo::Slower, RoundTo::Faster] {
+                let expect_fail = match round {
+                    RoundTo::Slower => expect_fail_slower,
+                    RoundTo::Faster => expect_fail_faster,
+                };
+
+                let result = calculate_psc_arr(period_clocks, round, max_arr_bits);
+
+                if expect_fail {
+                    assert!(
+                        result.is_err(),
+                        "Expected failure for period_clocks={}, round={:?}, max_arr_bits={}, but got {:?}",
+                        period_clocks,
+                        round,
+                        max_arr_bits,
+                        result
+                    );
+                    continue;
+                }
+
+                let config = result.unwrap_or_else(|_| {
+                    panic!(
+                        "Unexpected failure for period_clocks={}, round={:?}, max_arr_bits={}",
+                        period_clocks, round, max_arr_bits
+                    )
+                });
+
+                // Verify actual_period_clocks matches (psc + 1) * (arr + 1)
+                let computed_actual = actual_clocks(config.psc, config.arr);
+                assert_eq!(
+                    config.actual_period_clocks, computed_actual,
+                    "actual_period_clocks mismatch for period_clocks={}, round={:?}",
+                    period_clocks, round
+                );
+
+                // Verify arr is within bounds (min is 1)
+                assert!(
+                    config.arr >= 1 && config.arr <= max_arr,
+                    "arr {} out of bounds [1, {}] for period_clocks={}, round={:?}",
+                    config.arr,
+                    max_arr,
+                    period_clocks,
+                    round
+                );
+
+                // Check rounding constraint
+                match round {
+                    RoundTo::Slower => {
+                        assert!(
+                            config.actual_period_clocks >= period_clocks,
+                            "Slower: actual {} < requested {} for period_clocks={}, max_arr_bits={}",
+                            config.actual_period_clocks,
+                            period_clocks,
+                            period_clocks,
+                            max_arr_bits
+                        );
+                    }
+                    RoundTo::Faster => {
+                        assert!(
+                            config.actual_period_clocks <= period_clocks,
+                            "Faster: actual {} > requested {} for period_clocks={}, max_arr_bits={}",
+                            config.actual_period_clocks,
+                            period_clocks,
+                            period_clocks,
+                            max_arr_bits
+                        );
+                    }
+                }
+
+                // Test mutations: verify the solution is not obviously suboptimal.
+                // Try all combinations of psc +/- 1 and arr +/- 1
+                // This doesn't guarantee optimality. but it's enough to catch dumb off-by-one bugs.
+                // Guaranteeing optimality would require searching all divisors of `period_clocks` which is obviously too expensive.
+                let mutations: [(i32, i64); 8] = [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)];
+
+                for (psc_delta, arr_delta) in mutations {
+                    let new_psc = config.psc as i32 + psc_delta;
+                    let new_arr = config.arr as i64 + arr_delta;
+
+                    // Skip invalid mutations
+                    if new_psc < 0 || new_psc > u16::MAX as i32 {
+                        continue;
+                    }
+                    if new_arr < 1 || new_arr > max_arr as i64 {
+                        continue;
+                    }
+
+                    let new_psc = new_psc as u16;
+                    let new_arr = new_arr as u64;
+                    let new_actual = actual_clocks(new_psc, new_arr);
+
+                    // Check if mutation satisfies the rounding constraint
+                    let satisfies_constraint = match round {
+                        RoundTo::Slower => new_actual >= period_clocks,
+                        RoundTo::Faster => new_actual <= period_clocks,
+                    };
+
+                    if satisfies_constraint {
+                        // If it satisfies the constraint, it should not be better (closer) than our solution
+                        let our_distance = (config.actual_period_clocks as i64 - period_clocks as i64).abs();
+                        let new_distance = (new_actual as i64 - period_clocks as i64).abs();
+
+                        assert!(
+                            new_distance >= our_distance,
+                            "Found better solution via mutation for period_clocks={}, round={:?}, max_arr_bits={}: \
+                             original (psc={}, arr={}, actual={}, dist={}) vs \
+                             mutated (psc={}, arr={}, actual={}, dist={})",
+                            period_clocks,
+                            round,
+                            max_arr_bits,
+                            config.psc,
+                            config.arr,
+                            config.actual_period_clocks,
+                            our_distance,
+                            new_psc,
+                            new_arr,
+                            new_actual,
+                            new_distance
+                        );
+                    }
+                    // If mutation doesn't satisfy constraint, that's fine - our solution is better
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_div_round() {
+        // Faster (round down)
+        assert_eq!(div_round(10, 3, RoundTo::Faster), 3);
+        assert_eq!(div_round(9, 3, RoundTo::Faster), 3);
+        assert_eq!(div_round(11, 3, RoundTo::Faster), 3);
+        assert_eq!(div_round(12, 3, RoundTo::Faster), 4);
+
+        // Slower (round up)
+        assert_eq!(div_round(10, 3, RoundTo::Slower), 4);
+        assert_eq!(div_round(9, 3, RoundTo::Slower), 3);
+        assert_eq!(div_round(11, 3, RoundTo::Slower), 4);
+        assert_eq!(div_round(12, 3, RoundTo::Slower), 4);
     }
 }

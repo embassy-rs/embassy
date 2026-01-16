@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 use std::fmt::Write;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -31,7 +31,7 @@ fn generate_code(cfgs: &mut CfgSet) {
         PathBuf::from(env::var_os("OUT_DIR").unwrap()).display(),
     );
 
-    cfgs.declare_all(&["gpio_pb", "gpio_pc", "int_group1"]);
+    cfgs.declare_all(&["gpio_pb", "gpio_pc", "int_group1", "unicomm"]);
 
     let chip_name = match env::vars()
         .map(|(a, _)| a)
@@ -114,6 +114,10 @@ fn get_chip_cfgs(chip_name: &str) -> Vec<String> {
 
     if chip_name.starts_with("mspm0g351") {
         cfgs.push("mspm0g351x".to_string());
+    }
+
+    if chip_name.starts_with("mspm0g518") {
+        cfgs.push("mspm0g518x".to_string());
     }
 
     if chip_name.starts_with("mspm0h321") {
@@ -253,6 +257,7 @@ fn generate_adc_constants(cfgs: &mut CfgSet) -> TokenStream {
 struct Singleton {
     name: String,
 
+    /// `#[cfg]` guard which enables this singleton instance to be obtained.
     cfg: Option<TokenStream>,
 }
 
@@ -300,6 +305,15 @@ fn get_singletons(cfgs: &mut common::CfgSet) -> Vec<Singleton> {
             // by the HAL.
             "iomux" | "cpuss" => true,
 
+            // Unicomm instances get their own singletons, but we need to enable a cfg for unicomm drivers.
+            "unicomm" => {
+                cfgs.enable("unicomm");
+                false
+            }
+
+            // TODO: Remove after TIMB is fixed
+            "tim" if peripheral.name.starts_with("TIMB") => true,
+
             _ => false,
         };
 
@@ -310,26 +324,13 @@ fn get_singletons(cfgs: &mut common::CfgSet) -> Vec<Singleton> {
             });
         }
 
-        let mut signals = BTreeSet::new();
-
-        // Pick out each unique signal. There may be multiple instances of each signal due to
-        // iomux mappings.
-        for pin in peripheral.pins {
-            let signal = if peripheral.name.starts_with("GPIO")
-                || peripheral.name.starts_with("VREF")
-                || peripheral.name.starts_with("RTC")
-            {
-                pin.signal.to_string()
-            } else {
-                format!("{}_{}", peripheral.name, pin.signal)
-            };
-
-            // We need to rename some signals to become valid Rust identifiers.
-            let signal = make_valid_identifier(&signal);
-            signals.insert(signal);
+        // Generate each GPIO pin singleton
+        if peripheral.name.starts_with("GPIO") {
+            for pin in peripheral.pins {
+                let singleton = make_valid_identifier(&pin.signal);
+                singletons.push(singleton);
+            }
         }
-
-        singletons.extend(signals);
     }
 
     // DMA channels get their own singletons
@@ -423,6 +424,8 @@ fn time_driver(singletons: &mut Vec<Singleton>, cfgs: &mut CfgSet) {
     // Verify the selected timer is available
     let selected_timer = match time_driver.as_ref().map(|x| x.as_ref()) {
         None => "",
+        // TODO: Fix TIMB0
+        // Some("timb0") => "TIMB0",
         Some("timg0") => "TIMG0",
         Some("timg1") => "TIMG1",
         Some("timg2") => "TIMG2",
@@ -440,16 +443,17 @@ fn time_driver(singletons: &mut Vec<Singleton>, cfgs: &mut CfgSet) {
         Some("tima1") => "TIMA1",
         Some("any") => {
             // Order of timer candidates:
-            // 1. 16-bit, 2 channel
-            // 2. 16-bit, 2 channel with shadow registers
-            // 3. 16-bit, 4 channel
-            // 4. 16-bit with QEI
-            // 5. Advanced timers
+            // 1. Basic timers
+            // 2. 16-bit, 2 channel
+            // 3. 16-bit, 2 channel with shadow registers
+            // 4. 16-bit, 4 channel
+            // 5. 16-bit with QEI
+            // 6. Advanced timers
             //
-            // TODO: Select RTC first if available
             // TODO: 32-bit timers are not considered yet
             [
-                // 16-bit, 2 channel
+                // basic timers. No PWM pins
+                // "TIMB0", // 16-bit, 2 channel
                 "TIMG0", "TIMG1", "TIMG2", "TIMG3", // 16-bit, 2 channel with shadow registers
                 "TIMG4", "TIMG5", "TIMG6", "TIMG7",  // 16-bit, 4 channel
                 "TIMG14", // 16-bit with QEI
@@ -493,7 +497,7 @@ fn time_driver(singletons: &mut Vec<Singleton>, cfgs: &mut CfgSet) {
 }
 
 fn generate_singletons(singletons: &[Singleton]) -> TokenStream {
-    let singletons = singletons
+    let singletons_peripherals_struct = singletons
         .iter()
         .map(|s| {
             let cfg = s.cfg.clone().unwrap_or_default();
@@ -507,9 +511,20 @@ fn generate_singletons(singletons: &[Singleton]) -> TokenStream {
         })
         .collect::<Vec<_>>();
 
+    let singletons_peripherals_def = singletons
+        .iter()
+        .map(|s| {
+            let ident = format_ident!("{}", s.name);
+
+            quote! {
+                #ident
+            }
+        })
+        .collect::<Vec<_>>();
+
     quote! {
-        embassy_hal_internal::peripherals_definition!(#(#singletons),*);
-        embassy_hal_internal::peripherals_struct!(#(#singletons),*);
+        embassy_hal_internal::peripherals_definition!(#(#singletons_peripherals_def),*);
+        embassy_hal_internal::peripherals_struct!(#(#singletons_peripherals_struct),*);
     }
 }
 
@@ -519,6 +534,8 @@ fn generate_timers() -> TokenStream {
         .peripherals
         .iter()
         .filter(|p| p.name.starts_with("TIM"))
+        // TODO: Fix TIMB when used at time driver.
+        .filter(|p| !p.name.starts_with("TIMB"))
         .map(|peripheral| {
             let name = Ident::new(&peripheral.name, Span::call_site());
             let timers = &*TIMERS;
@@ -729,6 +746,24 @@ struct TimerDesc {
 /// Description of all timer instances.
 const TIMERS: LazyLock<HashMap<String, TimerDesc>> = LazyLock::new(|| {
     let mut map = HashMap::new();
+    map.insert(
+        "TIMB0".into(),
+        TimerDesc {
+            bits: 16,
+            prescaler: true,
+            repeat_counter: false,
+            ccp_channels_internal: 2,
+            ccp_channels_external: 2,
+            external_pwm_channels: 0,
+            phase_load: false,
+            shadow_load: false,
+            shadow_ccs: false,
+            deadband: false,
+            fault_handler: false,
+            qei_hall: false,
+        },
+    );
+
     map.insert(
         "TIMG0".into(),
         TimerDesc {

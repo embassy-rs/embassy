@@ -130,12 +130,8 @@ impl<'a> hci::Controller for Ble<'a> {
         self.tl_write(opcode.0, payload).await;
     }
 
-    #[allow(invalid_reference_casting)]
-    async fn controller_read_into(&self, buf: &mut [u8]) {
-        // A complete hack since I cannot update the trait
-        let s = unsafe { &mut *(self as *const _ as *mut Ble) };
-
-        let evt_box = s.tl_read().await;
+    async fn controller_read_into(&mut self, buf: &mut [u8]) {
+        let evt_box = self.tl_read().await;
         let evt_serial = evt_box.serial();
 
         buf[..evt_serial.len()].copy_from_slice(evt_serial);

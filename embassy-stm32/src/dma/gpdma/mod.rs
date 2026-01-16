@@ -264,6 +264,7 @@ impl AnyChannel {
             w.set_dreq(match dir {
                 Dir::MemoryToPeripheral => vals::Dreq::DESTINATION_PERIPHERAL,
                 Dir::PeripheralToMemory => vals::Dreq::SOURCE_PERIPHERAL,
+                Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
             });
             w.set_reqsel(request);
         });
@@ -279,6 +280,7 @@ impl AnyChannel {
                 ch.sar().write_value(peri_addr as _);
                 ch.dar().write_value(mem_addr as _);
             }
+            Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
         }
 
         ch.cr().write(|w| {
