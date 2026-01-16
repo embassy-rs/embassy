@@ -12,10 +12,7 @@ pub enum Error {
     /// The [DateTime] contains an invalid day value. Must be between `1..=31`.
     InvalidDay,
     /// The [DateTime] contains an invalid day of week. Must be between `0..=6` where 0 is Sunday.
-    InvalidDayOfWeek(
-        /// The value of the DayOfWeek that was given.
-        u8,
-    ),
+    InvalidDayOfWeek,
     /// The [DateTime] contains an invalid hour value. Must be between `0..=23`.
     InvalidHour,
     /// The [DateTime] contains an invalid minute value. Must be between `0..=59`.
@@ -33,7 +30,7 @@ pub struct DateTime {
     pub month: u8,
     /// 1..28,29,30,31 depending on month
     pub day: u8,
-    ///
+    /// 0..6, 0 is Sunday
     pub day_of_week: DayOfWeek,
     /// 0..23
     pub hour: u8,
@@ -67,7 +64,7 @@ fn day_of_week_from_u8(v: u8) -> Result<DayOfWeek, Error> {
         4 => DayOfWeek::Thursday,
         5 => DayOfWeek::Friday,
         6 => DayOfWeek::Saturday,
-        x => return Err(Error::InvalidDayOfWeek(x)),
+        _ => return Err(Error::InvalidDayOfWeek),
     })
 }
 
