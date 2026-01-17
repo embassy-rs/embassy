@@ -28,7 +28,6 @@ use embassy_stm32_wpan::gap::{
     ConnectionInitParams, GapEvent, ParsedAdvData, ScanParams, ScanType,
 };
 use embassy_stm32_wpan::hci::event::EventParams;
-use embassy_stm32_wpan::hci::types::{Address, AddressType};
 use embassy_stm32_wpan::{ble_runner, set_rng_instance, Ble};
 use {defmt_rtt as _, panic_probe as _};
 

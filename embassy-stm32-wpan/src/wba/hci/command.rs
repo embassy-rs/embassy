@@ -55,6 +55,18 @@ unsafe extern "C" {
     #[link_name = "HCI_LE_SET_SCAN_RESPONSE_DATA"]
     fn hci_le_set_scan_response_data(scan_response_data_length: u8, scan_response_data: *const u8) -> tBleStatus;
 
+    #[link_name = "HCI_LE_SET_SCAN_PARAMETERS"]
+    fn hci_le_set_scan_parameters(
+        le_scan_type: u8,
+        le_scan_interval: u16,
+        le_scan_window: u16,
+        own_address_type: u8,
+        scanning_filter_policy: u8,
+    ) -> tBleStatus;
+
+    #[link_name = "HCI_LE_SET_SCAN_ENABLE"]
+    fn hci_le_set_scan_enable(le_scan_enable: u8, filter_duplicates: u8) -> tBleStatus;
+
     #[link_name = "HCI_LE_SET_ADVERTISING_ENABLE"]
     fn hci_le_set_advertising_enable(advertising_enable: u8) -> tBleStatus;
 
@@ -306,7 +318,7 @@ impl CommandSender {
         filter_policy: u8,
     ) -> Result<(), BleError> {
         unsafe {
-            let status = ble::hci_le_set_scan_parameters(
+            let status = hci_le_set_scan_parameters(
                 scan_type,
                 scan_interval,
                 scan_window,
@@ -320,7 +332,7 @@ impl CommandSender {
     /// Enable or disable scanning
     pub fn le_set_scan_enable(&self, enable: bool, filter_duplicates: bool) -> Result<(), BleError> {
         unsafe {
-            let status = ble::hci_le_set_scan_enable(if enable { 1 } else { 0 }, if filter_duplicates { 1 } else { 0 });
+            let status = hci_le_set_scan_enable(if enable { 1 } else { 0 }, if filter_duplicates { 1 } else { 0 });
             Self::check_status(status)
         }
     }
