@@ -40,7 +40,7 @@ defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.17", optional = true }
 
 cortex-m = "0.7.6"
-heapless = "0.8"
+heapless = { version = "0.8", features = ["defmt-03"] }
 aligned = "0.4.3"
 critical-section = "1.2"
 
