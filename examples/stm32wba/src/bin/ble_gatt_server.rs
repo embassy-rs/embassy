@@ -33,12 +33,18 @@ use embassy_stm32_wpan::gatt::{
     CHAR_VALUE_HANDLE_OFFSET,
 };
 use embassy_stm32_wpan::hci::event::EventParams;
-use embassy_stm32_wpan::{set_rng_instance, Ble};
+use embassy_stm32_wpan::{ble_runner, set_rng_instance, Ble};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<embassy_stm32::peripherals::RNG>;
 });
+
+/// BLE runner task - drives the BLE stack sequencer
+#[embassy_executor::task]
+async fn ble_runner_task() {
+    ble_runner().await
+}
 
 /// Custom service UUID (use your own for production)
 const CUSTOM_SERVICE_UUID: u16 = 0xABCD;
@@ -55,7 +61,7 @@ struct AppState {
 }
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     let mut config = Config::default();
 
     // Configure PLL1 (required on WBA)
@@ -89,6 +95,9 @@ async fn main(_spawner: Spawner) {
     let mut ble = Ble::new();
     ble.init().expect("BLE initialization failed");
     info!("BLE stack initialized");
+
+    // Spawn the BLE runner task (required for proper BLE operation)
+    spawner.spawn(ble_runner_task().expect("Failed to create BLE runner task"));
 
     // Initialize GATT server
     let mut gatt = GattServer::new();

@@ -278,6 +278,8 @@ pub unsafe fn run_radio_high_isr() {
     if let Some(cb) = load_callback(&RADIO_CALLBACK) {
         cb();
     }
+    // Wake the BLE runner task to process any resulting events
+    super::runner::on_radio_interrupt();
 }
 
 pub unsafe fn run_radio_sw_low_isr() {
@@ -288,6 +290,9 @@ pub unsafe fn run_radio_sw_low_isr() {
     if RADIO_SW_LOW_ISR_RUNNING_HIGH_PRIO.swap(false, Ordering::AcqRel) {
         nvic_set_priority(RADIO_SW_LOW_INTR_NUM, pack_priority(mac::RADIO_SW_LOW_INTR_PRIO));
     }
+
+    // Wake the BLE runner task to process any resulting events
+    super::runner::on_radio_interrupt();
 }
 
 // /**
