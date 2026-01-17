@@ -74,6 +74,7 @@ micromath = "2.0.0"
 
 # mspm0-metapac = { version = "" }
 mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-e79606acd8945f4106255c19e0d48876d6a0eafe" }
+rand_core = "0.9"
 
 [build-dependencies]
 proc-macro2 = "1.0.94"
