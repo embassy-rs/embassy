@@ -6,10 +6,10 @@
 //! - Sends notifications when values change
 //! - Tracks CCCD (notification enable/disable) state
 //!
-//! Hardware: STM32WBA52 or compatible
+//! Hardware: STM32WBA65 or compatible
 //!
 //! To test:
-//! 1. Flash this example to your STM32WBA board
+//! 1. Flash this example to your STM32WBA6 board
 //! 2. Connect with nRF Connect or similar app
 //! 3. Enable notifications on the characteristic
 //! 4. Write values to the characteristic
@@ -83,7 +83,7 @@ async fn main(spawner: Spawner) {
     config.rcc.mux.rngsel = mux::Rngsel::HSI;
 
     let p = embassy_stm32::init(config);
-    info!("Embassy STM32WBA GATT Server Example");
+    info!("Embassy STM32WBA6 GATT Server Example");
 
     // Initialize RNG (required by BLE stack)
     let mut rng = Rng::new(p.RNG, Irqs);
@@ -95,7 +95,7 @@ async fn main(spawner: Spawner) {
     info!("BLE stack initialized");
 
     // Spawn the BLE runner task (required for proper BLE operation)
-    spawner.spawn(ble_runner_task().expect("Failed to create BLE runner task"));
+    spawner.spawn(ble_runner_task().unwrap());
 
     // Initialize GATT server
     let mut gatt = GattServer::new();

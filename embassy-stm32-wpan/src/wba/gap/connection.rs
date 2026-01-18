@@ -95,8 +95,8 @@ pub struct ConnectionParams {
 impl Default for ConnectionParams {
     fn default() -> Self {
         Self {
-            interval: 80,            // 100ms
-            latency: 0,              // No latency
+            interval: 80,             // 100ms
+            latency: 0,               // No latency
             supervision_timeout: 400, // 4s
         }
     }
@@ -137,14 +137,14 @@ use crate::wba::gap::types::OwnAddressType;
 impl Default for ConnectionInitParams {
     fn default() -> Self {
         Self {
-            scan_interval: 0x0010,      // 10ms
-            scan_window: 0x0010,        // 10ms
+            scan_interval: 0x0010, // 10ms
+            scan_window: 0x0010,   // 10ms
             use_filter_accept_list: false,
             peer_address_type: AddressType::Public,
             peer_address: Address::new([0; 6]),
             own_address_type: OwnAddressType::Public,
-            conn_interval_min: 0x0018,  // 30ms
-            conn_interval_max: 0x0028,  // 50ms
+            conn_interval_min: 0x0018, // 30ms
+            conn_interval_max: 0x0028, // 50ms
             max_latency: 0,
             supervision_timeout: 0x01F4, // 5s
             min_ce_length: 0x0000,
@@ -225,16 +225,8 @@ impl Connection {
         conn_latency: u16,
         supervision_timeout: u16,
     ) -> Self {
-        let local_rpa_opt = if local_rpa.0 != [0; 6] {
-            Some(local_rpa)
-        } else {
-            None
-        };
-        let peer_rpa_opt = if peer_rpa.0 != [0; 6] {
-            Some(peer_rpa)
-        } else {
-            None
-        };
+        let local_rpa_opt = if local_rpa.0 != [0; 6] { Some(local_rpa) } else { None };
+        let peer_rpa_opt = if peer_rpa.0 != [0; 6] { Some(peer_rpa) } else { None };
 
         Self {
             handle,

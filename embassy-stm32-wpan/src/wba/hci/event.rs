@@ -185,7 +185,6 @@ pub enum EventParams {
     VendorSpecific { data: heapless::Vec<u8, 255> },
 
     // ===== ACI GATT Events (parsed from Vendor Specific) =====
-
     /// GATT Attribute Modified event
     GattAttributeModified {
         conn_handle: Handle,
@@ -216,7 +215,6 @@ pub enum EventParams {
     },
 
     // ===== ACI GAP Security Events =====
-
     /// GAP Pairing Complete event
     GapPairingComplete {
         conn_handle: Handle,
@@ -234,10 +232,7 @@ pub enum EventParams {
     GapBondLost { conn_handle: Handle },
 
     /// GAP Pairing Request event
-    GapPairingRequest {
-        conn_handle: Handle,
-        is_bonded: bool,
-    },
+    GapPairingRequest { conn_handle: Handle, is_bonded: bool },
 
     /// Unknown/Unparsed event
     Unknown { data: heapless::Vec<u8, 255> },
@@ -292,7 +287,9 @@ impl defmt::Format for EventParams {
             EventParams::LeConnectionComplete { status, handle, .. } => {
                 defmt::write!(f, "LeConnectionComplete {{ handle: {}, status: {} }}", handle, status)
             }
-            EventParams::LeEnhancedConnectionComplete { status, handle, role, .. } => {
+            EventParams::LeEnhancedConnectionComplete {
+                status, handle, role, ..
+            } => {
                 defmt::write!(
                     f,
                     "LeEnhancedConnectionComplete {{ handle: {}, status: {}, role: {} }}",
@@ -475,10 +472,7 @@ impl defmt::Format for EventParams {
             EventParams::GapBondLost { conn_handle } => {
                 defmt::write!(f, "GapBondLost {{ conn: {} }}", conn_handle)
             }
-            EventParams::GapPairingRequest {
-                conn_handle,
-                is_bonded,
-            } => {
+            EventParams::GapPairingRequest { conn_handle, is_bonded } => {
                 defmt::write!(
                     f,
                     "GapPairingRequest {{ conn: {}, bonded: {} }}",
@@ -1079,10 +1073,7 @@ impl Event {
         let conn_handle = Handle::new(u16::from_le_bytes([params[0], params[1]]));
         let is_bonded = params[2] != 0;
 
-        Some(EventParams::GapPairingRequest {
-            conn_handle,
-            is_bonded,
-        })
+        Some(EventParams::GapPairingRequest { conn_handle, is_bonded })
     }
 }
 

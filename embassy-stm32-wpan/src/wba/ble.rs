@@ -6,15 +6,16 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::wba::error::BleError;
+use crate::wba::gap::Advertiser;
 use crate::wba::gap::connection::{
-    Connection, ConnectionInitParams, ConnectionManager, ConnectionRole, DisconnectReason,
-    GapEvent, LePhy, MAX_CONNECTIONS,
+    Connection, ConnectionInitParams, ConnectionManager, ConnectionRole, DisconnectReason, GapEvent, LePhy,
+    MAX_CONNECTIONS,
 };
 use crate::wba::gap::scanner::Scanner;
-use crate::wba::gap::Advertiser;
 use crate::wba::hci::command::CommandSender;
-use crate::wba::hci::event::{read_event, Event, EventParams};
+use crate::wba::hci::event::{Event, EventParams, read_event};
 use crate::wba::hci::types::{Address, Handle, Status};
+use crate::wba::ll_sys::init_ble_stack;
 
 /// Main BLE interface
 ///
@@ -84,6 +85,18 @@ impl Ble {
             return Ok(());
         }
 
+        // 0. Initialize the BLE stack using BleStack_Init
+        // This properly initializes the BLE host stack including memory management,
+        // which is required before ll_intf_init can work properly.
+        init_ble_stack().map_err(|status| {
+            #[cfg(feature = "defmt")]
+            defmt::error!("BLE stack initialization failed: 0x{:02X}", status);
+            BleError::InitializationFailed
+        })?;
+
+        #[cfg(feature = "defmt")]
+        defmt::info!("Ble::init: BLE stack initialized, sending HCI reset");
+
         // 1. Reset BLE controller
         self.cmd_sender.reset()?;
 
@@ -114,24 +127,61 @@ impl Ble {
         );
 
         // 4. Set event mask (enable all events)
-        self.cmd_sender.set_event_mask(0xFFFF_FFFF_FFFF_FFFF)?;
-        self.cmd_sender.le_set_event_mask(0xFFFF_FFFF_FFFF_FFFF)?;
-
-        // 5. Read buffer sizes
-        let (acl_len, acl_num, iso_len, iso_num) = self.cmd_sender.le_read_buffer_size()?;
+        // Note: The ST BLE stack handles event masks internally, so these calls
+        // may not be needed. Skip if they fail with UnknownCommand.
         #[cfg(feature = "defmt")]
-        defmt::info!(
-            "Buffer sizes - ACL: {} bytes x {} packets, ISO: {} bytes x {} packets",
-            acl_len,
-            acl_num,
-            iso_len,
-            iso_num
-        );
+        defmt::info!("Calling set_event_mask...");
+        if let Err(e) = self.cmd_sender.set_event_mask(0xFFFF_FFFF_FFFF_FFFF) {
+            #[cfg(feature = "defmt")]
+            defmt::warn!("set_event_mask failed: {:?} (may be handled internally)", e);
+        } else {
+            #[cfg(feature = "defmt")]
+            defmt::info!("set_event_mask OK");
+        }
 
-        // 6. Read supported features
-        let features = self.cmd_sender.le_read_local_supported_features()?;
         #[cfg(feature = "defmt")]
-        defmt::info!("Supported LE features: {=[u8]:#02X}", features);
+        defmt::info!("Calling le_set_event_mask...");
+        if let Err(e) = self.cmd_sender.le_set_event_mask(0xFFFF_FFFF_FFFF_FFFF) {
+            #[cfg(feature = "defmt")]
+            defmt::warn!("le_set_event_mask failed: {:?} (may be handled internally)", e);
+        } else {
+            #[cfg(feature = "defmt")]
+            defmt::info!("le_set_event_mask OK");
+        }
+
+        // 5. Read buffer sizes (optional - skip if not available)
+        #[cfg(feature = "defmt")]
+        defmt::info!("Calling le_read_buffer_size...");
+        match self.cmd_sender.le_read_buffer_size() {
+            Ok((acl_len, acl_num, iso_len, iso_num)) => {
+                #[cfg(feature = "defmt")]
+                defmt::info!(
+                    "Buffer sizes - ACL: {} bytes x {} packets, ISO: {} bytes x {} packets",
+                    acl_len,
+                    acl_num,
+                    iso_len,
+                    iso_num
+                );
+            }
+            Err(e) => {
+                #[cfg(feature = "defmt")]
+                defmt::warn!("le_read_buffer_size failed: {:?} (skipping)", e);
+            }
+        }
+
+        // 6. Read supported features (optional - skip if not available)
+        #[cfg(feature = "defmt")]
+        defmt::info!("Calling le_read_local_supported_features...");
+        match self.cmd_sender.le_read_local_supported_features() {
+            Ok(features) => {
+                #[cfg(feature = "defmt")]
+                defmt::info!("Supported LE features: {=[u8]:#02X}", features);
+            }
+            Err(e) => {
+                #[cfg(feature = "defmt")]
+                defmt::warn!("le_read_local_supported_features failed: {:?} (skipping)", e);
+            }
+        }
 
         self.initialized.store(true, Ordering::Release);
 

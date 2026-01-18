@@ -12,8 +12,8 @@ pub mod types;
 
 pub use advertiser::Advertiser;
 pub use connection::{
-    Connection, ConnectionInitParams, ConnectionManager, ConnectionParams, ConnectionRole,
-    DisconnectReason, GapEvent, LePhy, MAX_CONNECTIONS,
+    Connection, ConnectionInitParams, ConnectionManager, ConnectionParams, ConnectionRole, DisconnectReason, GapEvent,
+    LePhy, MAX_CONNECTIONS,
 };
 pub use scanner::{ParsedAdvData, ScanFilterPolicy, ScanParams, ScanType, Scanner};
 pub use types::{AdvData, AdvParams, AdvType, OwnAddressType};

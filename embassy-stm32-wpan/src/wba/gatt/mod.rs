@@ -8,8 +8,8 @@ pub mod server;
 pub mod types;
 
 pub use events::{
-    aci_event_code, is_cccd_handle, is_value_handle, CccdValue, GattEvent, CHAR_CCCD_HANDLE_OFFSET,
-    CHAR_VALUE_HANDLE_OFFSET,
+    CHAR_CCCD_HANDLE_OFFSET, CHAR_VALUE_HANDLE_OFFSET, CccdValue, GattEvent, aci_event_code, is_cccd_handle,
+    is_value_handle,
 };
 pub use server::GattServer;
 pub use types::{

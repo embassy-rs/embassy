@@ -6,10 +6,10 @@
 //! - Tracks active connections
 //! - Allows disconnection via button press (if available)
 //!
-//! Hardware: STM32WBA52 or compatible
+//! Hardware: STM32WBA65 or compatible
 //!
 //! To test:
-//! 1. Flash this example to your STM32WBA board
+//! 1. Flash this example to your STM32WBA6 board
 //! 2. Use a BLE scanner app (nRF Connect, LightBlue, etc.)
 //! 3. Connect to "Embassy-Peripheral"
 //! 4. Observe connection/disconnection events in logs
@@ -20,18 +20,31 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::rcc::{
-    AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale, mux,
+    AHB5Prescaler, AHBPrescaler, APBPrescaler, Hse, HsePrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk,
+    VoltageScale, mux,
 };
 use embassy_stm32::rng::{self, Rng};
-use embassy_stm32::{Config, bind_interrupts};
+use embassy_stm32::{Config, bind_interrupts, interrupt};
 use embassy_stm32_wpan::gap::{AdvData, AdvParams, AdvType, GapEvent};
 use embassy_stm32_wpan::gatt::{CharProperties, GattEventMask, GattServer, SecurityPermissions, ServiceType, Uuid};
-use embassy_stm32_wpan::{Ble, ble_runner, set_rng_instance};
+use embassy_stm32_wpan::{Ble, ble_runner, run_radio_high_isr, run_radio_sw_low_isr, set_rng_instance};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     RNG => rng::InterruptHandler<embassy_stm32::peripherals::RNG>;
 });
+
+// RADIO interrupt handler - required for BLE stack operation
+#[interrupt]
+unsafe fn RADIO() {
+    unsafe { run_radio_high_isr() };
+}
+
+// WKUP interrupt handler - used as SW low priority interrupt
+#[interrupt]
+unsafe fn WKUP() {
+    unsafe { run_radio_sw_low_isr() };
+}
 
 /// BLE runner task - drives the BLE stack sequencer
 #[embassy_executor::task]
@@ -43,14 +56,20 @@ async fn ble_runner_task() {
 async fn main(spawner: Spawner) {
     let mut config = Config::default();
 
-    // Configure PLL1 (required on WBA)
+    // Enable HSE (32MHz external crystal) - required for BLE radio timing
+    config.rcc.hse = Some(Hse {
+        prescaler: HsePrescaler::DIV1,
+    });
+
+    // Configure PLL1 from HSE for system clock
+    // HSE = 32MHz (fixed for WBA), using prescaler DIV1 gives 32MHz to PLL
     config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
-        source: PllSource::HSI,
-        prediv: PllPreDiv::DIV1,
-        mul: PllMul::MUL30,
-        divr: Some(PllDiv::DIV5),
+        source: PllSource::HSE,   // Use HSE as PLL source
+        prediv: PllPreDiv::DIV2,  // 32MHz / 2 = 16MHz to PLL input (must be 4-16MHz)
+        mul: PllMul::MUL12,       // 16MHz * 12 = 192MHz VCO
+        divr: Some(PllDiv::DIV2), // 192MHz / 2 = 96MHz system clock
         divq: None,
-        divp: Some(PllDiv::DIV30),
+        divp: Some(PllDiv::DIV12), // 192MHz / 12 = 16MHz for peripherals
         frac: Some(0),
     });
 
@@ -61,10 +80,26 @@ async fn main(spawner: Spawner) {
     config.rcc.ahb5_pre = AHB5Prescaler::DIV4;
     config.rcc.voltage_scale = VoltageScale::RANGE1;
     config.rcc.sys = Sysclk::PLL1_R;
-    config.rcc.mux.rngsel = mux::Rngsel::HSI;
+    config.rcc.mux.rngsel = mux::Rngsel::HSI; // RNG can still use HSI
 
     let p = embassy_stm32::init(config);
-    info!("Embassy STM32WBA BLE Peripheral Connection Example");
+    info!("Embassy STM32WBA6 BLE Peripheral Connection Example");
+
+    // Configure the radio sleep timer clock source (required for BLE stack)
+    // For STM32WBA65xx: RCC base = 0x4602_0C00, BDCR1 offset = 0x0F0
+    // RADIOSTSEL bits are at position 18-19
+    // Value 0b11 = HSE/1000 (32MHz / 1000 = 32kHz)
+    unsafe {
+        const RCC_BDCR1: *mut u32 = 0x4602_0CF0 as *mut u32;
+        const RADIOSTSEL_MASK: u32 = 0x000C0000; // bits 18-19
+        const RADIOSTSEL_HSE_DIV1000: u32 = 0x000C0000; // 0b11 << 18
+
+        let mut val = core::ptr::read_volatile(RCC_BDCR1);
+        val &= !RADIOSTSEL_MASK; // Clear RADIOSTSEL bits
+        val |= RADIOSTSEL_HSE_DIV1000; // Set to HSE/1000
+        core::ptr::write_volatile(RCC_BDCR1, val);
+    }
+    info!("Radio sleep timer clock configured to HSE/1000");
 
     // Initialize RNG (required by BLE stack)
     let mut rng = Rng::new(p.RNG, Irqs);
@@ -77,7 +112,7 @@ async fn main(spawner: Spawner) {
     info!("BLE stack initialized");
 
     // Spawn the BLE runner task (required for proper BLE operation)
-    spawner.spawn(ble_runner_task().expect("Failed to create BLE runner task"));
+    spawner.spawn(ble_runner_task().unwrap());
 
     // Initialize GATT server with a simple service
     let mut gatt = GattServer::new();

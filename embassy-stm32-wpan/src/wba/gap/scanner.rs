@@ -189,8 +189,7 @@ impl<'d> Scanner<'d> {
         )?;
 
         // Enable scanning
-        self.cmd
-            .le_set_scan_enable(true, params.filter_duplicates)?;
+        self.cmd.le_set_scan_enable(true, params.filter_duplicates)?;
 
         self.is_scanning = true;
         Ok(())

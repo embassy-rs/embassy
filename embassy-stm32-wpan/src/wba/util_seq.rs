@@ -191,6 +191,9 @@ fn select_next_task() -> Option<(usize, TaskFn)> {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn UTIL_SEQ_RegTask(task_mask: u32, _flags: u32, task: Option<TaskFn>) {
+    #[cfg(feature = "defmt")]
+    defmt::trace!("UTIL_SEQ_RegTask: mask=0x{:08X}, task={:?}", task_mask, task);
+
     if let Some(idx) = mask_to_index(task_mask) {
         critical(|_| unsafe {
             TASKS.set_task(idx, task, DEFAULT_PRIORITY);
@@ -210,6 +213,9 @@ pub extern "C" fn UTIL_SEQ_UnregTask(task_mask: u32) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn UTIL_SEQ_SetTask(task_mask: u32, priority: u32) {
+    #[cfg(feature = "defmt")]
+    defmt::trace!("UTIL_SEQ_SetTask: mask=0x{:08X}, prio={}", task_mask, priority);
+
     let prio = (priority & 0xFF) as u8;
 
     if let Some(idx) = mask_to_index(task_mask) {
@@ -242,6 +248,9 @@ pub extern "C" fn UTIL_SEQ_PauseTask(task_mask: u32) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn UTIL_SEQ_SetEvt(event_mask: u32) {
+    #[cfg(feature = "defmt")]
+    defmt::trace!("UTIL_SEQ_SetEvt: mask=0x{:08X}", event_mask);
+
     EVENTS.fetch_or(event_mask, Ordering::Release);
     wake_event();
 }
@@ -259,14 +268,25 @@ pub extern "C" fn UTIL_SEQ_IsEvtSet(event_mask: u32) -> u32 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn UTIL_SEQ_WaitEvt(event_mask: u32) {
+    #[cfg(feature = "defmt")]
+    defmt::trace!("UTIL_SEQ_WaitEvt: mask=0x{:08X}", event_mask);
+
     loop {
         poll_pending_tasks();
 
         let current = EVENTS.load(Ordering::Acquire);
         if (current & event_mask) == event_mask {
             EVENTS.fetch_and(!event_mask, Ordering::AcqRel);
+            #[cfg(feature = "defmt")]
+            defmt::trace!("UTIL_SEQ_WaitEvt: event received");
             break;
         }
+
+        #[cfg(feature = "defmt")]
+        defmt::trace!(
+            "UTIL_SEQ_WaitEvt: waiting (in_seq_ctx={})",
+            context::in_sequencer_context()
+        );
 
         wait_event();
     }

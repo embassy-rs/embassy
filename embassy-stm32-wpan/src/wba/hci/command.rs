@@ -89,13 +89,7 @@ unsafe extern "C" {
     fn hci_le_read_phy(connection_handle: u16, tx_phy: *mut u8, rx_phy: *mut u8) -> tBleStatus;
 
     #[link_name = "HCI_LE_SET_PHY"]
-    fn hci_le_set_phy(
-        connection_handle: u16,
-        all_phys: u8,
-        tx_phys: u8,
-        rx_phys: u8,
-        phy_options: u16,
-    ) -> tBleStatus;
+    fn hci_le_set_phy(connection_handle: u16, all_phys: u8, tx_phys: u8, rx_phys: u8, phy_options: u16) -> tBleStatus;
 
     #[link_name = "HCI_LE_CONNECTION_UPDATE"]
     fn hci_le_connection_update(
@@ -128,11 +122,7 @@ unsafe extern "C" {
     fn hci_le_create_connection_cancel() -> tBleStatus;
 
     #[link_name = "HCI_LE_SET_DATA_LENGTH"]
-    fn hci_le_set_data_length(
-        connection_handle: u16,
-        tx_octets: u16,
-        tx_time: u16,
-    ) -> tBleStatus;
+    fn hci_le_set_data_length(connection_handle: u16, tx_octets: u16, tx_time: u16) -> tBleStatus;
 }
 
 /// BLE Success status code

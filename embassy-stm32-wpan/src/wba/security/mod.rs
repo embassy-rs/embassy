@@ -48,10 +48,7 @@ unsafe extern "C" {
     fn aci_gap_pass_key_resp(connection_handle: u16, pass_key: u32) -> tBleStatus;
 
     #[link_name = "ACI_GAP_NUMERIC_COMPARISON_VALUE_CONFIRM_YESNO"]
-    fn aci_gap_numeric_comparison_value_confirm_yesno(
-        connection_handle: u16,
-        confirm_yes_no: u8,
-    ) -> tBleStatus;
+    fn aci_gap_numeric_comparison_value_confirm_yesno(connection_handle: u16, confirm_yes_no: u8) -> tBleStatus;
 
     #[link_name = "ACI_GAP_ALLOW_REBOND"]
     fn aci_gap_allow_rebond(connection_handle: u16) -> tBleStatus;
@@ -287,10 +284,7 @@ pub enum SecurityEvent {
     /// Bond lost event - need to allow rebond via allow_rebond()
     BondLost { conn_handle: u16 },
     /// Pairing request received (when using SMP mode bit 3)
-    PairingRequest {
-        conn_handle: u16,
-        is_bonded: bool,
-    },
+    PairingRequest { conn_handle: u16, is_bonded: bool },
 }
 
 /// Pairing completion status
@@ -491,11 +485,7 @@ impl SecurityManager {
     }
 
     /// Remove a specific bonded device
-    pub fn remove_bonded_device(
-        &self,
-        address_type: IdentityAddressType,
-        address: &[u8; 6],
-    ) -> Result<(), BleError> {
+    pub fn remove_bonded_device(&self, address_type: IdentityAddressType, address: &[u8; 6]) -> Result<(), BleError> {
         unsafe {
             let status = aci_gap_remove_bonded_device(address_type as u8, address.as_ptr());
 
@@ -508,11 +498,7 @@ impl SecurityManager {
     }
 
     /// Check if a device is bonded
-    pub fn is_device_bonded(
-        &self,
-        address_type: IdentityAddressType,
-        address: &[u8; 6],
-    ) -> Result<bool, BleError> {
+    pub fn is_device_bonded(&self, address_type: IdentityAddressType, address: &[u8; 6]) -> Result<bool, BleError> {
         unsafe {
             let status = aci_gap_is_device_bonded(address_type as u8, address.as_ptr());
 

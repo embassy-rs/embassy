@@ -77,6 +77,7 @@ unsafe extern "C" {
 }
 
 /// Update type for aci_gatt_update_char_value_ext
+#[allow(dead_code)]
 mod update_type {
     /// Update locally only, do not notify/indicate
     pub const LOCAL_ONLY: u8 = 0x00;

@@ -270,15 +270,9 @@ fn do_context_switch() {
 
     unsafe {
         let (save_ctx, restore_ctx) = if switching_to_sequencer {
-            (
-                SEQUENCER.runner_ctx.get(),
-                SEQUENCER.seq_ctx.get(),
-            )
+            (SEQUENCER.runner_ctx.get(), SEQUENCER.seq_ctx.get())
         } else {
-            (
-                SEQUENCER.seq_ctx.get(),
-                SEQUENCER.runner_ctx.get(),
-            )
+            (SEQUENCER.seq_ctx.get(), SEQUENCER.runner_ctx.get())
         };
 
         if switching_to_sequencer {
