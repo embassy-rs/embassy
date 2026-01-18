@@ -109,6 +109,13 @@ pub enum EventParams {
     /// Disconnection Complete event
     DisconnectionComplete { status: Status, handle: Handle, reason: u8 },
 
+    /// Encryption Change event
+    EncryptionChange {
+        status: Status,
+        handle: Handle,
+        enabled: bool,
+    },
+
     /// LE Connection Complete event
     LeConnectionComplete {
         status: Status,
@@ -116,6 +123,21 @@ pub enum EventParams {
         role: u8,
         peer_address_type: AddressType,
         peer_address: Address,
+        conn_interval: u16,
+        conn_latency: u16,
+        supervision_timeout: u16,
+        master_clock_accuracy: u8,
+    },
+
+    /// LE Enhanced Connection Complete event (includes RPA)
+    LeEnhancedConnectionComplete {
+        status: Status,
+        handle: Handle,
+        role: u8,
+        peer_address_type: AddressType,
+        peer_address: Address,
+        local_resolvable_private_address: Address,
+        peer_resolvable_private_address: Address,
         conn_interval: u16,
         conn_latency: u16,
         supervision_timeout: u16,
@@ -136,14 +158,81 @@ pub enum EventParams {
         supervision_timeout: u16,
     },
 
+    /// LE PHY Update Complete event
+    LePhyUpdateComplete {
+        status: Status,
+        handle: Handle,
+        tx_phy: u8,
+        rx_phy: u8,
+    },
+
+    /// LE Data Length Change event
+    LeDataLengthChange {
+        handle: Handle,
+        max_tx_octets: u16,
+        max_tx_time: u16,
+        max_rx_octets: u16,
+        max_rx_time: u16,
+    },
+
     /// Hardware Error event
     HardwareError { hardware_code: u8 },
 
     /// Number of Completed Packets event
     NumberOfCompletedPackets { handles: heapless::Vec<(Handle, u16), 8> },
 
-    /// Vendor Specific event
+    /// Vendor Specific event (unparsed)
     VendorSpecific { data: heapless::Vec<u8, 255> },
+
+    // ===== ACI GATT Events (parsed from Vendor Specific) =====
+    /// GATT Attribute Modified event
+    GattAttributeModified {
+        conn_handle: Handle,
+        attr_handle: u16,
+        offset: u16,
+        data: heapless::Vec<u8, 247>,
+    },
+
+    /// GATT Notification Complete event
+    GattNotificationComplete { conn_handle: Handle, attr_handle: u16 },
+
+    /// GATT Indication Complete event
+    GattIndicationComplete { conn_handle: Handle, attr_handle: u16 },
+
+    /// ATT Exchange MTU Response event
+    AttExchangeMtuResponse { conn_handle: Handle, server_mtu: u16 },
+
+    /// GATT Procedure Complete event
+    GattProcedureComplete { conn_handle: Handle, error_code: u8 },
+
+    /// GATT Procedure Timeout event
+    GattProcedureTimeout { conn_handle: Handle },
+
+    /// GATT TX Pool Available event
+    GattTxPoolAvailable {
+        conn_handle: Handle,
+        available_buffers: u16,
+    },
+
+    // ===== ACI GAP Security Events =====
+    /// GAP Pairing Complete event
+    GapPairingComplete {
+        conn_handle: Handle,
+        status: u8,
+        reason: u8,
+    },
+
+    /// GAP Passkey Request event
+    GapPasskeyRequest { conn_handle: Handle },
+
+    /// GAP Numeric Comparison Value event
+    GapNumericComparisonRequest { conn_handle: Handle, numeric_value: u32 },
+
+    /// GAP Bond Lost event
+    GapBondLost { conn_handle: Handle },
+
+    /// GAP Pairing Request event
+    GapPairingRequest { conn_handle: Handle, is_bonded: bool },
 
     /// Unknown/Unparsed event
     Unknown { data: heapless::Vec<u8, 255> },
@@ -198,6 +287,17 @@ impl defmt::Format for EventParams {
             EventParams::LeConnectionComplete { status, handle, .. } => {
                 defmt::write!(f, "LeConnectionComplete {{ handle: {}, status: {} }}", handle, status)
             }
+            EventParams::LeEnhancedConnectionComplete {
+                status, handle, role, ..
+            } => {
+                defmt::write!(
+                    f,
+                    "LeEnhancedConnectionComplete {{ handle: {}, status: {}, role: {} }}",
+                    handle,
+                    status,
+                    role
+                )
+            }
             EventParams::DisconnectionComplete { status, handle, reason } => {
                 defmt::write!(
                     f,
@@ -205,6 +305,19 @@ impl defmt::Format for EventParams {
                     handle,
                     status,
                     reason
+                )
+            }
+            EventParams::EncryptionChange {
+                status,
+                handle,
+                enabled,
+            } => {
+                defmt::write!(
+                    f,
+                    "EncryptionChange {{ handle: {}, status: {}, enabled: {} }}",
+                    handle,
+                    status,
+                    enabled
                 )
             }
             EventParams::LeAdvertisingReport { reports } => {
@@ -218,6 +331,35 @@ impl defmt::Format for EventParams {
                     status
                 )
             }
+            EventParams::LePhyUpdateComplete {
+                status,
+                handle,
+                tx_phy,
+                rx_phy,
+            } => {
+                defmt::write!(
+                    f,
+                    "LePhyUpdateComplete {{ handle: {}, status: {}, tx: {}, rx: {} }}",
+                    handle,
+                    status,
+                    tx_phy,
+                    rx_phy
+                )
+            }
+            EventParams::LeDataLengthChange {
+                handle,
+                max_tx_octets,
+                max_rx_octets,
+                ..
+            } => {
+                defmt::write!(
+                    f,
+                    "LeDataLengthChange {{ handle: {}, tx: {}, rx: {} }}",
+                    handle,
+                    max_tx_octets,
+                    max_rx_octets
+                )
+            }
             EventParams::HardwareError { hardware_code } => {
                 defmt::write!(f, "HardwareError {{ code: {} }}", hardware_code)
             }
@@ -226,6 +368,117 @@ impl defmt::Format for EventParams {
             }
             EventParams::VendorSpecific { data } => {
                 defmt::write!(f, "VendorSpecific {{ len: {} }}", data.len())
+            }
+            EventParams::GattAttributeModified {
+                conn_handle,
+                attr_handle,
+                offset,
+                data,
+            } => {
+                defmt::write!(
+                    f,
+                    "GattAttributeModified {{ conn: {}, attr: 0x{:04X}, offset: {}, len: {} }}",
+                    conn_handle,
+                    attr_handle,
+                    offset,
+                    data.len()
+                )
+            }
+            EventParams::GattNotificationComplete {
+                conn_handle,
+                attr_handle,
+            } => {
+                defmt::write!(
+                    f,
+                    "GattNotificationComplete {{ conn: {}, attr: 0x{:04X} }}",
+                    conn_handle,
+                    attr_handle
+                )
+            }
+            EventParams::GattIndicationComplete {
+                conn_handle,
+                attr_handle,
+            } => {
+                defmt::write!(
+                    f,
+                    "GattIndicationComplete {{ conn: {}, attr: 0x{:04X} }}",
+                    conn_handle,
+                    attr_handle
+                )
+            }
+            EventParams::AttExchangeMtuResponse {
+                conn_handle,
+                server_mtu,
+            } => {
+                defmt::write!(
+                    f,
+                    "AttExchangeMtuResponse {{ conn: {}, mtu: {} }}",
+                    conn_handle,
+                    server_mtu
+                )
+            }
+            EventParams::GattProcedureComplete {
+                conn_handle,
+                error_code,
+            } => {
+                defmt::write!(
+                    f,
+                    "GattProcedureComplete {{ conn: {}, error: 0x{:02X} }}",
+                    conn_handle,
+                    error_code
+                )
+            }
+            EventParams::GattProcedureTimeout { conn_handle } => {
+                defmt::write!(f, "GattProcedureTimeout {{ conn: {} }}", conn_handle)
+            }
+            EventParams::GattTxPoolAvailable {
+                conn_handle,
+                available_buffers,
+            } => {
+                defmt::write!(
+                    f,
+                    "GattTxPoolAvailable {{ conn: {}, buffers: {} }}",
+                    conn_handle,
+                    available_buffers
+                )
+            }
+            EventParams::GapPairingComplete {
+                conn_handle,
+                status,
+                reason,
+            } => {
+                defmt::write!(
+                    f,
+                    "GapPairingComplete {{ conn: {}, status: {}, reason: 0x{:02X} }}",
+                    conn_handle,
+                    status,
+                    reason
+                )
+            }
+            EventParams::GapPasskeyRequest { conn_handle } => {
+                defmt::write!(f, "GapPasskeyRequest {{ conn: {} }}", conn_handle)
+            }
+            EventParams::GapNumericComparisonRequest {
+                conn_handle,
+                numeric_value,
+            } => {
+                defmt::write!(
+                    f,
+                    "GapNumericComparisonRequest {{ conn: {}, value: {} }}",
+                    conn_handle,
+                    numeric_value
+                )
+            }
+            EventParams::GapBondLost { conn_handle } => {
+                defmt::write!(f, "GapBondLost {{ conn: {} }}", conn_handle)
+            }
+            EventParams::GapPairingRequest { conn_handle, is_bonded } => {
+                defmt::write!(
+                    f,
+                    "GapPairingRequest {{ conn: {}, bonded: {} }}",
+                    conn_handle,
+                    is_bonded
+                )
             }
             EventParams::Unknown { data } => {
                 defmt::write!(f, "Unknown {{ len: {} }}", data.len())
@@ -259,12 +512,11 @@ impl Event {
             EventCode::CommandComplete => Self::parse_command_complete(params)?,
             EventCode::CommandStatus => Self::parse_command_status(params)?,
             EventCode::DisconnectionComplete => Self::parse_disconnection_complete(params)?,
+            EventCode::EncryptionChange => Self::parse_encryption_change(params)?,
             EventCode::LeMetaEvent => Self::parse_le_meta_event(params)?,
             EventCode::HardwareError => Self::parse_hardware_error(params)?,
             EventCode::NumberOfCompletedPackets => Self::parse_number_of_completed_packets(params)?,
-            EventCode::VendorSpecific => EventParams::VendorSpecific {
-                data: heapless::Vec::from_slice(params).ok()?,
-            },
+            EventCode::VendorSpecific => Self::parse_vendor_specific(params)?,
             _ => EventParams::Unknown {
                 data: heapless::Vec::from_slice(params).ok()?,
             },
@@ -331,6 +583,23 @@ impl Event {
         Some(EventParams::DisconnectionComplete { status, handle, reason })
     }
 
+    fn parse_encryption_change(params: &[u8]) -> Option<EventParams> {
+        // Format: status(1) + handle(2) + enabled(1)
+        if params.len() < 4 {
+            return None;
+        }
+
+        let status = Status::from_u8(params[0]);
+        let handle = Handle::new(u16::from_le_bytes([params[1], params[2]]));
+        let enabled = params[3] != 0;
+
+        Some(EventParams::EncryptionChange {
+            status,
+            handle,
+            enabled,
+        })
+    }
+
     fn parse_le_meta_event(params: &[u8]) -> Option<EventParams> {
         if params.is_empty() {
             return None;
@@ -341,8 +610,11 @@ impl Event {
 
         match subevent {
             LeSubevent::ConnectionComplete => Self::parse_le_connection_complete(subevent_params),
+            LeSubevent::EnhancedConnectionComplete => Self::parse_le_enhanced_connection_complete(subevent_params),
             LeSubevent::AdvertisingReport => Self::parse_le_advertising_report(subevent_params),
             LeSubevent::ConnectionUpdateComplete => Self::parse_le_connection_update_complete(subevent_params),
+            LeSubevent::PhyUpdateComplete => Self::parse_le_phy_update_complete(subevent_params),
+            LeSubevent::DataLengthChange => Self::parse_le_data_length_change(subevent_params),
             _ => Some(EventParams::Unknown {
                 data: heapless::Vec::from_slice(params).ok()?,
             }),
@@ -457,6 +729,252 @@ impl Event {
         })
     }
 
+    fn parse_le_enhanced_connection_complete(params: &[u8]) -> Option<EventParams> {
+        // Enhanced Connection Complete has 30 bytes of parameters
+        if params.len() < 30 {
+            return None;
+        }
+
+        let status = Status::from_u8(params[0]);
+        let handle = Handle::new(u16::from_le_bytes([params[1], params[2]]));
+        let role = params[3];
+        let peer_address_type = match params[4] {
+            0 => AddressType::Public,
+            1 => AddressType::Random,
+            2 => AddressType::PublicIdentity,
+            3 => AddressType::RandomIdentity,
+            _ => return None,
+        };
+
+        let mut peer_address = [0u8; 6];
+        peer_address.copy_from_slice(&params[5..11]);
+
+        let mut local_rpa = [0u8; 6];
+        local_rpa.copy_from_slice(&params[11..17]);
+
+        let mut peer_rpa = [0u8; 6];
+        peer_rpa.copy_from_slice(&params[17..23]);
+
+        let conn_interval = u16::from_le_bytes([params[23], params[24]]);
+        let conn_latency = u16::from_le_bytes([params[25], params[26]]);
+        let supervision_timeout = u16::from_le_bytes([params[27], params[28]]);
+        let master_clock_accuracy = params[29];
+
+        Some(EventParams::LeEnhancedConnectionComplete {
+            status,
+            handle,
+            role,
+            peer_address_type,
+            peer_address: Address::new(peer_address),
+            local_resolvable_private_address: Address::new(local_rpa),
+            peer_resolvable_private_address: Address::new(peer_rpa),
+            conn_interval,
+            conn_latency,
+            supervision_timeout,
+            master_clock_accuracy,
+        })
+    }
+
+    fn parse_le_phy_update_complete(params: &[u8]) -> Option<EventParams> {
+        if params.len() < 5 {
+            return None;
+        }
+
+        let status = Status::from_u8(params[0]);
+        let handle = Handle::new(u16::from_le_bytes([params[1], params[2]]));
+        let tx_phy = params[3];
+        let rx_phy = params[4];
+
+        Some(EventParams::LePhyUpdateComplete {
+            status,
+            handle,
+            tx_phy,
+            rx_phy,
+        })
+    }
+
+    fn parse_le_data_length_change(params: &[u8]) -> Option<EventParams> {
+        if params.len() < 10 {
+            return None;
+        }
+
+        let handle = Handle::new(u16::from_le_bytes([params[0], params[1]]));
+        let max_tx_octets = u16::from_le_bytes([params[2], params[3]]);
+        let max_tx_time = u16::from_le_bytes([params[4], params[5]]);
+        let max_rx_octets = u16::from_le_bytes([params[6], params[7]]);
+        let max_rx_time = u16::from_le_bytes([params[8], params[9]]);
+
+        Some(EventParams::LeDataLengthChange {
+            handle,
+            max_tx_octets,
+            max_tx_time,
+            max_rx_octets,
+            max_rx_time,
+        })
+    }
+
+    fn parse_vendor_specific(params: &[u8]) -> Option<EventParams> {
+        // Vendor specific events have format:
+        // - Bytes 0-1: Event code (little-endian)
+        // - Bytes 2+: Event-specific data
+        if params.len() < 2 {
+            return Some(EventParams::VendorSpecific {
+                data: heapless::Vec::from_slice(params).ok()?,
+            });
+        }
+
+        let ecode = u16::from_le_bytes([params[0], params[1]]);
+        let event_data = &params[2..];
+
+        // ACI GATT event codes
+        const ACI_GATT_ATTRIBUTE_MODIFIED: u16 = 0x0C01;
+        const ACI_GATT_PROC_COMPLETE: u16 = 0x0C02;
+        const ACI_GATT_NOTIFICATION_COMPLETE: u16 = 0x0C03;
+        const ACI_GATT_INDICATION_COMPLETE: u16 = 0x0C04;
+        const ACI_ATT_EXCHANGE_MTU_RESP: u16 = 0x0802;
+        const ACI_GATT_PROC_TIMEOUT: u16 = 0x0C05;
+        const ACI_GATT_TX_POOL_AVAILABLE: u16 = 0x0C08;
+
+        // ACI GAP security event codes
+        const ACI_GAP_PAIRING_COMPLETE: u16 = 0x0401;
+        const ACI_GAP_PASS_KEY_REQ: u16 = 0x0402;
+        const ACI_GAP_BOND_LOST: u16 = 0x0405;
+        const ACI_GAP_NUMERIC_COMPARISON_VALUE: u16 = 0x0409;
+        const ACI_GAP_PAIRING_REQUEST: u16 = 0x040B;
+
+        match ecode {
+            ACI_GATT_ATTRIBUTE_MODIFIED => Self::parse_gatt_attribute_modified(event_data),
+            ACI_GATT_PROC_COMPLETE => Self::parse_gatt_proc_complete(event_data),
+            ACI_GATT_NOTIFICATION_COMPLETE => Self::parse_gatt_notification_complete(event_data),
+            ACI_GATT_INDICATION_COMPLETE => Self::parse_gatt_indication_complete(event_data),
+            ACI_ATT_EXCHANGE_MTU_RESP => Self::parse_att_exchange_mtu_resp(event_data),
+            ACI_GATT_PROC_TIMEOUT => Self::parse_gatt_proc_timeout(event_data),
+            ACI_GATT_TX_POOL_AVAILABLE => Self::parse_gatt_tx_pool_available(event_data),
+            ACI_GAP_PAIRING_COMPLETE => Self::parse_gap_pairing_complete(event_data),
+            ACI_GAP_PASS_KEY_REQ => Self::parse_gap_passkey_request(event_data),
+            ACI_GAP_BOND_LOST => Self::parse_gap_bond_lost(event_data),
+            ACI_GAP_NUMERIC_COMPARISON_VALUE => Self::parse_gap_numeric_comparison(event_data),
+            ACI_GAP_PAIRING_REQUEST => Self::parse_gap_pairing_request(event_data),
+            _ => Some(EventParams::VendorSpecific {
+                data: heapless::Vec::from_slice(params).ok()?,
+            }),
+        }
+    }
+
+    fn parse_gatt_attribute_modified(params: &[u8]) -> Option<EventParams> {
+        // Format: conn_handle(2) + attr_handle(2) + offset(2) + data_length(2) + data(N)
+        if params.len() < 8 {
+            return None;
+        }
+
+        let conn_handle = Handle::new(u16::from_le_bytes([params[0], params[1]]));
+        let attr_handle = u16::from_le_bytes([params[2], params[3]]);
+        let offset = u16::from_le_bytes([params[4], params[5]]);
+        let data_length = u16::from_le_bytes([params[6], params[7]]) as usize;
+
+        // Note: Bit 15 of offset may indicate "more data pending" - mask it off
+        let actual_offset = offset & 0x7FFF;
+
+        let data = if params.len() >= 8 + data_length {
+            heapless::Vec::from_slice(&params[8..8 + data_length]).ok()?
+        } else {
+            heapless::Vec::from_slice(&params[8..]).ok()?
+        };
+
+        Some(EventParams::GattAttributeModified {
+            conn_handle,
+            attr_handle,
+            offset: actual_offset,
+            data,
+        })
+    }
+
+    fn parse_gatt_proc_complete(params: &[u8]) -> Option<EventParams> {
+        // Format: conn_handle(2) + error_code(1)
+        if params.len() < 3 {
+            return None;
+        }
+
+        let conn_handle = Handle::new(u16::from_le_bytes([params[0], params[1]]));
+        let error_code = params[2];
+
+        Some(EventParams::GattProcedureComplete {
+            conn_handle,
+            error_code,
+        })
+    }
+
+    fn parse_gatt_notification_complete(params: &[u8]) -> Option<EventParams> {
+        // Format: conn_handle(2) + attr_handle(2)
+        if params.len() < 4 {
+            return None;
+        }
+
+        let conn_handle = Handle::new(u16::from_le_bytes([params[0], params[1]]));
+        let attr_handle = u16::from_le_bytes([params[2], params[3]]);
+
+        Some(EventParams::GattNotificationComplete {
+            conn_handle,
+            attr_handle,
+        })
+    }
+
+    fn parse_gatt_indication_complete(params: &[u8]) -> Option<EventParams> {
+        // Format: conn_handle(2) + attr_handle(2)
+        if params.len() < 4 {
+            return None;
+        }
+
+        let conn_handle = Handle::new(u16::from_le_bytes([params[0], params[1]]));
+        let attr_handle = u16::from_le_bytes([params[2], params[3]]);
+
+        Some(EventParams::GattIndicationComplete {
+            conn_handle,
+            attr_handle,
+        })
+    }
+
+    fn parse_att_exchange_mtu_resp(params: &[u8]) -> Option<EventParams> {
+        // Format: conn_handle(2) + server_mtu(2)
+        if params.len() < 4 {
+            return None;
+        }
+
+        let conn_handle = Handle::new(u16::from_le_bytes([params[0], params[1]]));
+        let server_mtu = u16::from_le_bytes([params[2], params[3]]);
+
+        Some(EventParams::AttExchangeMtuResponse {
+            conn_handle,
+            server_mtu,
+        })
+    }
+
+    fn parse_gatt_proc_timeout(params: &[u8]) -> Option<EventParams> {
+        // Format: conn_handle(2)
+        if params.len() < 2 {
+            return None;
+        }
+
+        let conn_handle = Handle::new(u16::from_le_bytes([params[0], params[1]]));
+
+        Some(EventParams::GattProcedureTimeout { conn_handle })
+    }
+
+    fn parse_gatt_tx_pool_available(params: &[u8]) -> Option<EventParams> {
+        // Format: conn_handle(2) + available_buffers(2)
+        if params.len() < 4 {
+            return None;
+        }
+
+        let conn_handle = Handle::new(u16::from_le_bytes([params[0], params[1]]));
+        let available_buffers = u16::from_le_bytes([params[2], params[3]]);
+
+        Some(EventParams::GattTxPoolAvailable {
+            conn_handle,
+            available_buffers,
+        })
+    }
+
     fn parse_hardware_error(params: &[u8]) -> Option<EventParams> {
         if params.is_empty() {
             return None;
@@ -488,6 +1006,74 @@ impl Event {
         }
 
         Some(EventParams::NumberOfCompletedPackets { handles })
+    }
+
+    // ===== Security Event Parsing =====
+
+    fn parse_gap_pairing_complete(params: &[u8]) -> Option<EventParams> {
+        // Format: conn_handle(2) + status(1) + reason(1)
+        if params.len() < 4 {
+            return None;
+        }
+
+        let conn_handle = Handle::new(u16::from_le_bytes([params[0], params[1]]));
+        let status = params[2];
+        let reason = params[3];
+
+        Some(EventParams::GapPairingComplete {
+            conn_handle,
+            status,
+            reason,
+        })
+    }
+
+    fn parse_gap_passkey_request(params: &[u8]) -> Option<EventParams> {
+        // Format: conn_handle(2)
+        if params.len() < 2 {
+            return None;
+        }
+
+        let conn_handle = Handle::new(u16::from_le_bytes([params[0], params[1]]));
+
+        Some(EventParams::GapPasskeyRequest { conn_handle })
+    }
+
+    fn parse_gap_bond_lost(params: &[u8]) -> Option<EventParams> {
+        // Format: conn_handle(2)
+        if params.len() < 2 {
+            return None;
+        }
+
+        let conn_handle = Handle::new(u16::from_le_bytes([params[0], params[1]]));
+
+        Some(EventParams::GapBondLost { conn_handle })
+    }
+
+    fn parse_gap_numeric_comparison(params: &[u8]) -> Option<EventParams> {
+        // Format: conn_handle(2) + numeric_value(4)
+        if params.len() < 6 {
+            return None;
+        }
+
+        let conn_handle = Handle::new(u16::from_le_bytes([params[0], params[1]]));
+        let numeric_value = u32::from_le_bytes([params[2], params[3], params[4], params[5]]);
+
+        Some(EventParams::GapNumericComparisonRequest {
+            conn_handle,
+            numeric_value,
+        })
+    }
+
+    fn parse_gap_pairing_request(params: &[u8]) -> Option<EventParams> {
+        // Format: conn_handle(2) + bonded(1) + ...
+        if params.len() < 3 {
+            return None;
+        }
+
+        let conn_handle = Handle::new(u16::from_le_bytes([params[0], params[1]]));
+        let is_bonded = params[2] != 0;
+
+        Some(EventParams::GapPairingRequest { conn_handle, is_bonded })
     }
 }
 

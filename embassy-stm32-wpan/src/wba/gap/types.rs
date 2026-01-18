@@ -97,6 +97,7 @@ mod ad_type {
 /// - Data (0-29 bytes): type-specific data
 ///
 /// Maximum advertising data length is 31 bytes.
+#[derive(Clone)]
 pub struct AdvData {
     data: heapless::Vec<u8, 31>,
 }

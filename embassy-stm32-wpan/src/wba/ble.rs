@@ -1,15 +1,21 @@
 //! High-level BLE API for STM32WBA
 //!
 //! This module provides the main `Ble` struct that manages the BLE stack lifecycle
-//! and provides access to GAP functionality.
+//! and provides access to GAP functionality including connection management.
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
 use crate::wba::error::BleError;
 use crate::wba::gap::Advertiser;
+use crate::wba::gap::connection::{
+    Connection, ConnectionInitParams, ConnectionManager, ConnectionRole, DisconnectReason, GapEvent, LePhy,
+    MAX_CONNECTIONS,
+};
+use crate::wba::gap::scanner::Scanner;
 use crate::wba::hci::command::CommandSender;
-use crate::wba::hci::event::{Event, read_event};
-use crate::wba::hci::types::Address;
+use crate::wba::hci::event::{Event, EventParams, read_event};
+use crate::wba::hci::types::{Address, Handle, Status};
+use crate::wba::ll_sys::init_ble_stack;
 
 /// Main BLE interface
 ///
@@ -43,6 +49,7 @@ use crate::wba::hci::types::Address;
 pub struct Ble {
     cmd_sender: CommandSender,
     initialized: AtomicBool,
+    connections: ConnectionManager<MAX_CONNECTIONS>,
 }
 
 impl Ble {
@@ -53,6 +60,7 @@ impl Ble {
         Self {
             cmd_sender: CommandSender::new(),
             initialized: AtomicBool::new(false),
+            connections: ConnectionManager::new(),
         }
     }
 
@@ -76,6 +84,18 @@ impl Ble {
         if self.initialized.load(Ordering::Acquire) {
             return Ok(());
         }
+
+        // 0. Initialize the BLE stack using BleStack_Init
+        // This properly initializes the BLE host stack including memory management,
+        // which is required before ll_intf_init can work properly.
+        init_ble_stack().map_err(|status| {
+            #[cfg(feature = "defmt")]
+            defmt::error!("BLE stack initialization failed: 0x{:02X}", status);
+            BleError::InitializationFailed
+        })?;
+
+        #[cfg(feature = "defmt")]
+        defmt::info!("Ble::init: BLE stack initialized, sending HCI reset");
 
         // 1. Reset BLE controller
         self.cmd_sender.reset()?;
@@ -107,24 +127,61 @@ impl Ble {
         );
 
         // 4. Set event mask (enable all events)
-        self.cmd_sender.set_event_mask(0xFFFF_FFFF_FFFF_FFFF)?;
-        self.cmd_sender.le_set_event_mask(0xFFFF_FFFF_FFFF_FFFF)?;
-
-        // 5. Read buffer sizes
-        let (acl_len, acl_num, iso_len, iso_num) = self.cmd_sender.le_read_buffer_size()?;
+        // Note: The ST BLE stack handles event masks internally, so these calls
+        // may not be needed. Skip if they fail with UnknownCommand.
         #[cfg(feature = "defmt")]
-        defmt::info!(
-            "Buffer sizes - ACL: {} bytes x {} packets, ISO: {} bytes x {} packets",
-            acl_len,
-            acl_num,
-            iso_len,
-            iso_num
-        );
+        defmt::info!("Calling set_event_mask...");
+        if let Err(e) = self.cmd_sender.set_event_mask(0xFFFF_FFFF_FFFF_FFFF) {
+            #[cfg(feature = "defmt")]
+            defmt::warn!("set_event_mask failed: {:?} (may be handled internally)", e);
+        } else {
+            #[cfg(feature = "defmt")]
+            defmt::info!("set_event_mask OK");
+        }
 
-        // 6. Read supported features
-        let features = self.cmd_sender.le_read_local_supported_features()?;
         #[cfg(feature = "defmt")]
-        defmt::info!("Supported LE features: {=[u8]:#02X}", features);
+        defmt::info!("Calling le_set_event_mask...");
+        if let Err(e) = self.cmd_sender.le_set_event_mask(0xFFFF_FFFF_FFFF_FFFF) {
+            #[cfg(feature = "defmt")]
+            defmt::warn!("le_set_event_mask failed: {:?} (may be handled internally)", e);
+        } else {
+            #[cfg(feature = "defmt")]
+            defmt::info!("le_set_event_mask OK");
+        }
+
+        // 5. Read buffer sizes (optional - skip if not available)
+        #[cfg(feature = "defmt")]
+        defmt::info!("Calling le_read_buffer_size...");
+        match self.cmd_sender.le_read_buffer_size() {
+            Ok((acl_len, acl_num, iso_len, iso_num)) => {
+                #[cfg(feature = "defmt")]
+                defmt::info!(
+                    "Buffer sizes - ACL: {} bytes x {} packets, ISO: {} bytes x {} packets",
+                    acl_len,
+                    acl_num,
+                    iso_len,
+                    iso_num
+                );
+            }
+            Err(e) => {
+                #[cfg(feature = "defmt")]
+                defmt::warn!("le_read_buffer_size failed: {:?} (skipping)", e);
+            }
+        }
+
+        // 6. Read supported features (optional - skip if not available)
+        #[cfg(feature = "defmt")]
+        defmt::info!("Calling le_read_local_supported_features...");
+        match self.cmd_sender.le_read_local_supported_features() {
+            Ok(features) => {
+                #[cfg(feature = "defmt")]
+                defmt::info!("Supported LE features: {=[u8]:#02X}", features);
+            }
+            Err(e) => {
+                #[cfg(feature = "defmt")]
+                defmt::warn!("le_read_local_supported_features failed: {:?} (skipping)", e);
+            }
+        }
 
         self.initialized.store(true, Ordering::Release);
 
@@ -173,6 +230,299 @@ impl Ble {
     /// The BLE stack must be initialized before creating an advertiser.
     pub fn advertiser(&self) -> Advertiser<'_> {
         Advertiser::new(&self.cmd_sender)
+    }
+
+    /// Create a scanner
+    ///
+    /// # Returns
+    ///
+    /// A `Scanner` instance that can be used to scan for nearby BLE devices.
+    ///
+    /// # Note
+    ///
+    /// The BLE stack must be initialized before creating a scanner.
+    /// Advertising reports will be received through the main event loop
+    /// as `LeAdvertisingReport` events.
+    pub fn scanner(&self) -> Scanner<'_> {
+        Scanner::new(&self.cmd_sender)
+    }
+
+    // ===== Connection Management =====
+
+    /// Get a reference to the connection manager
+    pub fn connections(&self) -> &ConnectionManager<MAX_CONNECTIONS> {
+        &self.connections
+    }
+
+    /// Get a mutable reference to the connection manager
+    pub fn connections_mut(&mut self) -> &mut ConnectionManager<MAX_CONNECTIONS> {
+        &mut self.connections
+    }
+
+    /// Get a connection by handle
+    pub fn get_connection(&self, handle: Handle) -> Option<&Connection> {
+        self.connections.get_by_handle(handle)
+    }
+
+    /// Get a mutable connection by handle
+    pub fn get_connection_mut(&mut self, handle: Handle) -> Option<&mut Connection> {
+        self.connections.get_by_handle_mut(handle)
+    }
+
+    /// Disconnect a connection
+    ///
+    /// # Parameters
+    ///
+    /// - `handle`: Connection handle to disconnect
+    /// - `reason`: Reason for disconnection
+    pub fn disconnect(&self, handle: Handle, reason: DisconnectReason) -> Result<(), BleError> {
+        if !self.initialized.load(Ordering::Acquire) {
+            return Err(BleError::NotInitialized);
+        }
+
+        self.cmd_sender.disconnect(handle.as_u16(), reason.as_u8())
+    }
+
+    /// Initiate a connection to a peripheral device (Central role)
+    ///
+    /// This starts the connection process. The connection complete event
+    /// will be received when the connection is established.
+    ///
+    /// # Parameters
+    ///
+    /// - `params`: Connection initiation parameters
+    pub fn connect(&self, params: &ConnectionInitParams) -> Result<(), BleError> {
+        if !self.initialized.load(Ordering::Acquire) {
+            return Err(BleError::NotInitialized);
+        }
+
+        self.cmd_sender.le_create_connection(
+            params.scan_interval,
+            params.scan_window,
+            params.use_filter_accept_list,
+            params.peer_address_type as u8,
+            params.peer_address.as_bytes(),
+            params.own_address_type,
+            params.conn_interval_min,
+            params.conn_interval_max,
+            params.max_latency,
+            params.supervision_timeout,
+            params.min_ce_length,
+            params.max_ce_length,
+        )
+    }
+
+    /// Cancel an ongoing connection attempt
+    pub fn cancel_connect(&self) -> Result<(), BleError> {
+        if !self.initialized.load(Ordering::Acquire) {
+            return Err(BleError::NotInitialized);
+        }
+
+        self.cmd_sender.le_create_connection_cancel()
+    }
+
+    /// Request connection parameter update
+    ///
+    /// # Parameters
+    ///
+    /// - `handle`: Connection handle
+    /// - `interval_min`: Minimum connection interval (units of 1.25ms)
+    /// - `interval_max`: Maximum connection interval (units of 1.25ms)
+    /// - `latency`: Slave latency
+    /// - `supervision_timeout`: Supervision timeout (units of 10ms)
+    pub fn update_connection_params(
+        &self,
+        handle: Handle,
+        interval_min: u16,
+        interval_max: u16,
+        latency: u16,
+        supervision_timeout: u16,
+    ) -> Result<(), BleError> {
+        if !self.initialized.load(Ordering::Acquire) {
+            return Err(BleError::NotInitialized);
+        }
+
+        self.cmd_sender.le_connection_update(
+            handle.as_u16(),
+            interval_min,
+            interval_max,
+            latency,
+            supervision_timeout,
+            0,      // min CE length
+            0xFFFF, // max CE length
+        )
+    }
+
+    /// Read the current PHY for a connection
+    ///
+    /// # Returns
+    ///
+    /// Tuple of (tx_phy, rx_phy)
+    pub fn read_phy(&self, handle: Handle) -> Result<(LePhy, LePhy), BleError> {
+        if !self.initialized.load(Ordering::Acquire) {
+            return Err(BleError::NotInitialized);
+        }
+
+        let (tx, rx) = self.cmd_sender.le_read_phy(handle.as_u16())?;
+        Ok((LePhy::from_u8(tx), LePhy::from_u8(rx)))
+    }
+
+    /// Process an HCI event and update internal state
+    ///
+    /// This method processes connection-related events and updates the
+    /// connection manager. It returns a GAP event if the event is
+    /// connection-related.
+    ///
+    /// # Returns
+    ///
+    /// - `Some(GapEvent)` if this was a connection-related event
+    /// - `None` if not a connection event
+    pub fn process_event(&mut self, event: &Event) -> Option<GapEvent> {
+        match &event.params {
+            EventParams::LeConnectionComplete {
+                status,
+                handle,
+                role,
+                peer_address_type,
+                peer_address,
+                conn_interval,
+                conn_latency,
+                supervision_timeout,
+                ..
+            } => {
+                if *status == Status::Success {
+                    let role = ConnectionRole::from_u8(*role)?;
+                    let conn = Connection::new(
+                        *handle,
+                        role,
+                        *peer_address_type,
+                        *peer_address,
+                        *conn_interval,
+                        *conn_latency,
+                        *supervision_timeout,
+                    );
+                    if let Some(stored_conn) = self.connections.allocate(conn.clone()) {
+                        // Read PHY after connection
+                        if let Ok((tx_phy, rx_phy)) = self.cmd_sender.le_read_phy(handle.as_u16()) {
+                            stored_conn.update_phy(LePhy::from_u8(tx_phy), LePhy::from_u8(rx_phy));
+                        }
+                    }
+                    Some(GapEvent::Connected(conn))
+                } else {
+                    None
+                }
+            }
+
+            EventParams::LeEnhancedConnectionComplete {
+                status,
+                handle,
+                role,
+                peer_address_type,
+                peer_address,
+                local_resolvable_private_address,
+                peer_resolvable_private_address,
+                conn_interval,
+                conn_latency,
+                supervision_timeout,
+                ..
+            } => {
+                if *status == Status::Success {
+                    let role = ConnectionRole::from_u8(*role)?;
+                    let conn = Connection::new_enhanced(
+                        *handle,
+                        role,
+                        *peer_address_type,
+                        *peer_address,
+                        *local_resolvable_private_address,
+                        *peer_resolvable_private_address,
+                        *conn_interval,
+                        *conn_latency,
+                        *supervision_timeout,
+                    );
+                    if let Some(stored_conn) = self.connections.allocate(conn.clone()) {
+                        // Read PHY after connection
+                        if let Ok((tx_phy, rx_phy)) = self.cmd_sender.le_read_phy(handle.as_u16()) {
+                            stored_conn.update_phy(LePhy::from_u8(tx_phy), LePhy::from_u8(rx_phy));
+                        }
+                    }
+                    Some(GapEvent::Connected(conn))
+                } else {
+                    None
+                }
+            }
+
+            EventParams::DisconnectionComplete { status, handle, reason } => {
+                if *status == Status::Success {
+                    self.connections.remove(*handle);
+                    Some(GapEvent::Disconnected {
+                        handle: *handle,
+                        reason: *reason,
+                    })
+                } else {
+                    None
+                }
+            }
+
+            EventParams::LeConnectionUpdateComplete {
+                status,
+                handle,
+                conn_interval,
+                conn_latency,
+                supervision_timeout,
+            } => {
+                if *status == Status::Success {
+                    if let Some(conn) = self.connections.get_by_handle_mut(*handle) {
+                        conn.update_params(*conn_interval, *conn_latency, *supervision_timeout);
+                    }
+                    Some(GapEvent::ConnectionParamsUpdated {
+                        handle: *handle,
+                        interval: *conn_interval,
+                        latency: *conn_latency,
+                        supervision_timeout: *supervision_timeout,
+                    })
+                } else {
+                    None
+                }
+            }
+
+            EventParams::LePhyUpdateComplete {
+                status,
+                handle,
+                tx_phy,
+                rx_phy,
+            } => {
+                if *status == Status::Success {
+                    let tx = LePhy::from_u8(*tx_phy);
+                    let rx = LePhy::from_u8(*rx_phy);
+                    if let Some(conn) = self.connections.get_by_handle_mut(*handle) {
+                        conn.update_phy(tx, rx);
+                    }
+                    Some(GapEvent::PhyUpdated {
+                        handle: *handle,
+                        tx_phy: tx,
+                        rx_phy: rx,
+                    })
+                } else {
+                    None
+                }
+            }
+
+            EventParams::LeDataLengthChange {
+                handle,
+                max_tx_octets,
+                max_tx_time,
+                max_rx_octets,
+                max_rx_time,
+            } => Some(GapEvent::DataLengthChanged {
+                handle: *handle,
+                max_tx_octets: *max_tx_octets,
+                max_tx_time: *max_tx_time,
+                max_rx_octets: *max_rx_octets,
+                max_rx_time: *max_rx_time,
+            }),
+
+            _ => None,
+        }
     }
 
     /// Read the next BLE event

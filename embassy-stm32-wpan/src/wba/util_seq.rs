@@ -1,9 +1,25 @@
 #![cfg(feature = "wba")]
+//! UTIL Sequencer implementation for STM32WBA BLE stack
+//!
+//! This module provides the sequencer functions required by the ST BLE stack.
+//! The sequencer manages background tasks and event waiting.
+//!
+//! # Context Switching Architecture
+//!
+//! The key insight is that `UTIL_SEQ_WaitEvt` would normally call WFE (wait for event),
+//! which blocks the entire CPU. Instead, we use context switching to yield back to
+//! the embassy executor, allowing other async tasks to run.
+//!
+//! When the sequencer has no work to do, instead of WFE, it yields to the runner task.
+//! The runner task can then yield to the embassy executor, and resume the sequencer
+//! when there's new work (signaled by interrupts).
 
 use core::cell::UnsafeCell;
 use core::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use critical_section::with as critical;
+
+use super::context;
 
 type TaskFn = unsafe extern "C" fn();
 
@@ -43,29 +59,33 @@ impl TaskTable {
 
 unsafe impl Sync for TaskTable {}
 
+/// Wake up any waiting context (sends SEV)
 #[inline(always)]
 fn wake_event() {
-    #[cfg(target_arch = "arm")]
-    {
-        cortex_m::asm::sev();
-    }
-
-    #[cfg(not(target_arch = "arm"))]
-    {
-        // No-op on architectures without SEV support.
-    }
+    // Signal the context switch mechanism
+    context::sequencer_wake();
 }
 
+/// Wait for an event
+///
+/// Instead of blocking with WFE, this yields back to the runner context
+/// so that the embassy executor can run other tasks.
 #[inline(always)]
 fn wait_event() {
-    #[cfg(target_arch = "arm")]
-    {
-        cortex_m::asm::wfe();
-    }
+    // If we're in the sequencer context, yield back to the runner
+    // If we're not (e.g., during initialization), use actual WFE
+    if context::in_sequencer_context() {
+        context::sequencer_yield();
+    } else {
+        #[cfg(target_arch = "arm")]
+        {
+            cortex_m::asm::wfe();
+        }
 
-    #[cfg(not(target_arch = "arm"))]
-    {
-        core::hint::spin_loop();
+        #[cfg(not(target_arch = "arm"))]
+        {
+            core::hint::spin_loop();
+        }
     }
 }
 
@@ -116,6 +136,16 @@ pub fn poll_pending_tasks() {
     drain_pending_tasks();
 }
 
+/// Check if there are any pending tasks
+pub fn has_pending_tasks() -> bool {
+    PENDING_TASKS.load(Ordering::Acquire) != 0
+}
+
+/// Check if there are any pending events
+pub fn has_pending_events() -> bool {
+    EVENTS.load(Ordering::Acquire) != 0
+}
+
 fn select_next_task() -> Option<(usize, TaskFn)> {
     let pending = PENDING_TASKS.load(Ordering::Acquire);
     if pending == 0 {
@@ -161,6 +191,9 @@ fn select_next_task() -> Option<(usize, TaskFn)> {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn UTIL_SEQ_RegTask(task_mask: u32, _flags: u32, task: Option<TaskFn>) {
+    #[cfg(feature = "defmt")]
+    defmt::trace!("UTIL_SEQ_RegTask: mask=0x{:08X}, task={:?}", task_mask, task);
+
     if let Some(idx) = mask_to_index(task_mask) {
         critical(|_| unsafe {
             TASKS.set_task(idx, task, DEFAULT_PRIORITY);
@@ -180,6 +213,9 @@ pub extern "C" fn UTIL_SEQ_UnregTask(task_mask: u32) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn UTIL_SEQ_SetTask(task_mask: u32, priority: u32) {
+    #[cfg(feature = "defmt")]
+    defmt::trace!("UTIL_SEQ_SetTask: mask=0x{:08X}, prio={}", task_mask, priority);
+
     let prio = (priority & 0xFF) as u8;
 
     if let Some(idx) = mask_to_index(task_mask) {
@@ -212,6 +248,9 @@ pub extern "C" fn UTIL_SEQ_PauseTask(task_mask: u32) {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn UTIL_SEQ_SetEvt(event_mask: u32) {
+    #[cfg(feature = "defmt")]
+    defmt::trace!("UTIL_SEQ_SetEvt: mask=0x{:08X}", event_mask);
+
     EVENTS.fetch_or(event_mask, Ordering::Release);
     wake_event();
 }
@@ -229,14 +268,25 @@ pub extern "C" fn UTIL_SEQ_IsEvtSet(event_mask: u32) -> u32 {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn UTIL_SEQ_WaitEvt(event_mask: u32) {
+    #[cfg(feature = "defmt")]
+    defmt::trace!("UTIL_SEQ_WaitEvt: mask=0x{:08X}", event_mask);
+
     loop {
         poll_pending_tasks();
 
         let current = EVENTS.load(Ordering::Acquire);
         if (current & event_mask) == event_mask {
             EVENTS.fetch_and(!event_mask, Ordering::AcqRel);
+            #[cfg(feature = "defmt")]
+            defmt::trace!("UTIL_SEQ_WaitEvt: event received");
             break;
         }
+
+        #[cfg(feature = "defmt")]
+        defmt::trace!(
+            "UTIL_SEQ_WaitEvt: waiting (in_seq_ctx={})",
+            context::in_sequencer_context()
+        );
 
         wait_event();
     }

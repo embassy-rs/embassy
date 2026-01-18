@@ -9,6 +9,9 @@ pub enum BleError {
     /// BLE stack not initialized
     NotInitialized,
 
+    /// BLE stack initialization failed
+    InitializationFailed,
+
     /// HCI command failed with status code
     CommandFailed(Status),
 

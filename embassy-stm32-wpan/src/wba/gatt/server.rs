@@ -49,6 +49,42 @@ unsafe extern "C" {
         char_value_length: u8,
         char_value: *const u8,
     ) -> tBleStatus;
+
+    #[link_name = "ACI_GATT_UPDATE_CHAR_VALUE_EXT"]
+    fn aci_gatt_update_char_value_ext(
+        conn_handle: u16,
+        service_handle: u16,
+        char_handle: u16,
+        update_type: u8,
+        char_length: u16,
+        value_offset: u16,
+        value_length: u8,
+        value: *const u8,
+    ) -> tBleStatus;
+
+    #[link_name = "ACI_GATT_READ_HANDLE_VALUE"]
+    fn aci_gatt_read_handle_value(
+        attr_handle: u16,
+        offset: u16,
+        value_length_requested: u16,
+        value_length: *mut u16,
+        value_offset: *mut u16,
+        value: *mut u8,
+    ) -> tBleStatus;
+
+    #[link_name = "ACI_GATT_SET_EVENT_MASK"]
+    fn aci_gatt_set_event_mask(event_mask: u32) -> tBleStatus;
+}
+
+/// Update type for aci_gatt_update_char_value_ext
+#[allow(dead_code)]
+mod update_type {
+    /// Update locally only, do not notify/indicate
+    pub const LOCAL_ONLY: u8 = 0x00;
+    /// Send notification to connected client
+    pub const NOTIFICATION: u8 = 0x01;
+    /// Send indication to connected client
+    pub const INDICATION: u8 = 0x02;
 }
 
 const BLE_STATUS_SUCCESS: u8 = 0x00;
@@ -321,6 +357,180 @@ impl GattServer {
 
         unsafe {
             let status = ble::aci_gatt_del_char(service_handle.0, char_handle.0);
+
+            if status == BLE_STATUS_SUCCESS {
+                Ok(())
+            } else {
+                Err(BleError::CommandFailed(crate::wba::hci::types::Status::from_u8(status)))
+            }
+        }
+    }
+
+    /// Send a notification to a connected client
+    ///
+    /// This sends a notification (unconfirmed) containing the characteristic value
+    /// to the specified connection. The client must have enabled notifications
+    /// via the CCCD for this characteristic.
+    ///
+    /// # Parameters
+    ///
+    /// - `conn_handle`: Connection handle to send notification to
+    /// - `service_handle`: Handle of the service
+    /// - `char_handle`: Handle of the characteristic
+    /// - `value`: Value to send in the notification
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` if the notification was queued successfully
+    /// - `Err(BleError)` if the notification failed
+    ///
+    /// # Note
+    ///
+    /// The `GattNotificationComplete` event will be generated when the notification
+    /// has been transmitted.
+    pub fn notify(
+        &self,
+        conn_handle: u16,
+        service_handle: ServiceHandle,
+        char_handle: CharacteristicHandle,
+        value: &[u8],
+    ) -> Result<(), BleError> {
+        if !self.initialized {
+            return Err(BleError::NotInitialized);
+        }
+
+        if value.len() > 251 {
+            return Err(BleError::InvalidParameter);
+        }
+
+        unsafe {
+            let status = aci_gatt_update_char_value_ext(
+                conn_handle,
+                service_handle.0,
+                char_handle.0,
+                update_type::NOTIFICATION,
+                value.len() as u16,
+                0, // offset
+                value.len() as u8,
+                value.as_ptr(),
+            );
+
+            if status == BLE_STATUS_SUCCESS {
+                Ok(())
+            } else {
+                Err(BleError::CommandFailed(crate::wba::hci::types::Status::from_u8(status)))
+            }
+        }
+    }
+
+    /// Send an indication to a connected client
+    ///
+    /// This sends an indication (confirmed) containing the characteristic value
+    /// to the specified connection. The client must have enabled indications
+    /// via the CCCD for this characteristic. The server will wait for confirmation
+    /// from the client.
+    ///
+    /// # Parameters
+    ///
+    /// - `conn_handle`: Connection handle to send indication to
+    /// - `service_handle`: Handle of the service
+    /// - `char_handle`: Handle of the characteristic
+    /// - `value`: Value to send in the indication
+    ///
+    /// # Returns
+    ///
+    /// - `Ok(())` if the indication was queued successfully
+    /// - `Err(BleError)` if the indication failed
+    ///
+    /// # Note
+    ///
+    /// The `GattIndicationComplete` event will be generated when the client
+    /// confirms receipt of the indication.
+    pub fn indicate(
+        &self,
+        conn_handle: u16,
+        service_handle: ServiceHandle,
+        char_handle: CharacteristicHandle,
+        value: &[u8],
+    ) -> Result<(), BleError> {
+        if !self.initialized {
+            return Err(BleError::NotInitialized);
+        }
+
+        if value.len() > 251 {
+            return Err(BleError::InvalidParameter);
+        }
+
+        unsafe {
+            let status = aci_gatt_update_char_value_ext(
+                conn_handle,
+                service_handle.0,
+                char_handle.0,
+                update_type::INDICATION,
+                value.len() as u16,
+                0, // offset
+                value.len() as u8,
+                value.as_ptr(),
+            );
+
+            if status == BLE_STATUS_SUCCESS {
+                Ok(())
+            } else {
+                Err(BleError::CommandFailed(crate::wba::hci::types::Status::from_u8(status)))
+            }
+        }
+    }
+
+    /// Read a characteristic value from the local GATT database
+    ///
+    /// # Parameters
+    ///
+    /// - `attr_handle`: Attribute handle to read
+    /// - `buffer`: Buffer to store the value
+    ///
+    /// # Returns
+    ///
+    /// Number of bytes read on success
+    pub fn read_value(&self, attr_handle: u16, buffer: &mut [u8]) -> Result<usize, BleError> {
+        if !self.initialized {
+            return Err(BleError::NotInitialized);
+        }
+
+        unsafe {
+            let mut value_length: u16 = 0;
+            let mut value_offset: u16 = 0;
+
+            let status = aci_gatt_read_handle_value(
+                attr_handle,
+                0,
+                buffer.len() as u16,
+                &mut value_length,
+                &mut value_offset,
+                buffer.as_mut_ptr(),
+            );
+
+            if status == BLE_STATUS_SUCCESS {
+                Ok(value_length as usize)
+            } else {
+                Err(BleError::CommandFailed(crate::wba::hci::types::Status::from_u8(status)))
+            }
+        }
+    }
+
+    /// Set the GATT event mask
+    ///
+    /// Controls which GATT events are reported to the application.
+    ///
+    /// # Parameters
+    ///
+    /// - `mask`: Bitmask of events to enable (use GattEventMaskBits constants)
+    pub fn set_event_mask(&self, mask: u32) -> Result<(), BleError> {
+        if !self.initialized {
+            return Err(BleError::NotInitialized);
+        }
+
+        unsafe {
+            let status = aci_gatt_set_event_mask(mask);
 
             if status == BLE_STATUS_SUCCESS {
                 Ok(())
