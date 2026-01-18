@@ -195,9 +195,12 @@ impl<'d, const N: usize> Saadc<'d, N> {
                 w.set_resp(cc.resistor.into());
                 #[cfg(not(feature = "_nrf54l"))]
                 w.set_resn(vals::Resn::BYPASS);
-                #[cfg(not(feature = "_nrf54l"))]
+                #[cfg(not(feature = "_nrf54lm20"))]
                 w.set_burst(!matches!(oversample, Oversample::BYPASS));
             });
+            #[cfg(feature = "_nrf54lm20")]
+            r.burst()
+                .write(|w| w.set_burst(!matches!(oversample, Oversample::BYPASS)));
         }
 
         // Disable all events interrupts

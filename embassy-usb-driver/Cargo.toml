@@ -20,7 +20,7 @@ features = ["defmt"]
 
 [dependencies]
 # TODO: remove before releasing embassy-usb-driver v0.3
-embedded-io-async = "0.6.1"
+embedded-io-async = "0.7.0"
 defmt = { version = "1", optional = true }
 
 [features]

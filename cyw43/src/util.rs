@@ -3,6 +3,7 @@
 use core::slice;
 
 use aligned::{A4, Aligned};
+use embassy_time::{Duration, Ticker};
 
 pub(crate) const fn slice8_mut(x: &mut [u32]) -> &mut [u8] {
     let len = size_of_val(x);
@@ -44,4 +45,20 @@ pub(crate) fn round_down(x: u32, a: u32) -> u32 {
 
 pub(crate) fn round_up(x: u32, a: u32) -> u32 {
     ((x + a - 1) / a) * a
+}
+
+pub(crate) async fn try_until(mut func: impl AsyncFnMut() -> bool, duration: Duration) -> bool {
+    let tick = Duration::from_millis(1);
+    let mut ticker = Ticker::every(tick);
+    let ticks = duration.as_ticks() / tick.as_ticks();
+
+    for _ in 0..ticks {
+        if func().await {
+            return true;
+        }
+
+        ticker.next().await;
+    }
+
+    false
 }

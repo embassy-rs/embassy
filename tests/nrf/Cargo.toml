@@ -14,7 +14,7 @@ embassy-executor = { version = "0.9.0", path = "../../embassy-executor", feature
 embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt",  "defmt-timestamp-uptime"] }
 embassy-nrf = { version = "0.9.0", path = "../../embassy-nrf", features = ["defmt",  "time-driver-rtc1", "gpiote", "unstable-pac"] }
 embedded-io-async = { version = "0.7.0", features = ["defmt"] }
-embassy-net = { version = "0.7.1", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", ] }
+embassy-net = { version = "0.8.0", path = "../../embassy-net", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", ] }
 embassy-net-esp-hosted = { version = "0.2.1", path = "../../embassy-net-esp-hosted", features = ["defmt"] }
 embassy-net-enc28j60 = { version = "0.2.1", path = "../../embassy-net-enc28j60", features = ["defmt"] }
 embedded-hal-async = { version = "1.0" }

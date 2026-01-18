@@ -147,7 +147,11 @@ pub fn convert_seconds_to_datetime(seconds: u32) -> RtcDateTime {
 
     let days_per_month = [
         31,
-        if year.is_multiple_of(4) { 29 } else { 28 },
+        if (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400) {
+            29
+        } else {
+            28
+        },
         31,
         30,
         31,

@@ -112,6 +112,8 @@ impl Div8 {
 /// ```
 #[non_exhaustive]
 pub struct ClocksConfig {
+    /// Clocks that are used to drive the main clock, including the AHB and CPU core
+    pub main_clock: MainClockConfig,
     /// FIRC, FRO180, 45/60/90/180M clock source
     pub firc: Option<FircConfig>,
     /// SIRC, FRO12M, clk_12m clock source
@@ -123,6 +125,33 @@ pub struct ClocksConfig {
     pub sosc: Option<SoscConfig>,
     /// SPLL
     pub spll: Option<SpllConfig>,
+}
+
+// Main Clock
+
+/// Main clock source
+#[derive(Copy, Clone)]
+pub enum MainClockSource {
+    /// Clock derived from `clk_in`, via the external oscillator (8-50MHz)
+    SoscClkIn,
+    /// Clock derived from `fro_12m`, via the internal 12MHz oscillator (12MHz)
+    SircFro12M,
+    /// Clock derived from `fro_hf_root`, via the internal 45/60/90/180M clock source (45-180MHz)
+    FircHfRoot,
+    /// Clock derived from `clk_16k` (vdd core)
+    RoscFro16K,
+    /// Clock derived from `pll1_clk`, via the internal PLL
+    SPll1,
+}
+
+#[derive(Copy, Clone)]
+pub struct MainClockConfig {
+    /// Selected clock source
+    pub source: MainClockSource,
+    /// Power state of the main clock
+    pub power: PoweredClock,
+    /// AHB Clock Divider
+    pub ahb_clk_div: Div8,
 }
 
 // SOSC
@@ -317,6 +346,11 @@ pub struct Fro16KConfig {
 impl Default for ClocksConfig {
     fn default() -> Self {
         Self {
+            main_clock: MainClockConfig {
+                source: MainClockSource::FircHfRoot,
+                power: PoweredClock::NormalEnabledDeepSleepDisabled,
+                ahb_clk_div: Div8::no_div(),
+            },
             firc: Some(FircConfig {
                 frequency: FircFreqSel::Mhz45,
                 power: PoweredClock::NormalEnabledDeepSleepDisabled,

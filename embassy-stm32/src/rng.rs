@@ -69,6 +69,10 @@ impl<'d, T: Instance> Rng<'d, T> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
     ) -> Self {
         rcc::enable_and_reset::<T>();
+
+        // Verify clock is available
+        T::frequency();
+
         let mut random = Self { _inner: inner };
         random.reset();
 
@@ -140,8 +144,9 @@ impl<'d, T: Instance> Rng<'d, T> {
             reg.set_rngen(true);
             reg.set_condrst(false);
         });
-        // wait for CONDRST to be reset
-        while T::regs().cr().read().condrst() {}
+        // According to reference manual: after software reset, wait for random number to be ready
+        // The next_u32() call will wait for DRDY, completing the initialization
+        let _ = self.next_u32();
     }
 
     /// Try to recover from a seed error.

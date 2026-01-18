@@ -6,7 +6,7 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [dependencies]
-embassy-stm32 = { version = "0.4.0", path = "../../embassy-stm32", features = [
+embassy-stm32 = { version = "0.5.0", path = "../../embassy-stm32", features = [
     "defmt",
     "stm32h742vi",
     "memory-x",
@@ -27,7 +27,7 @@ embassy-time = { version = "0.5.0", path = "../../embassy-time", features = [
     "defmt-timestamp-uptime",
     "tick-hz-32_768",
 ] }
-embassy-net = { version = "0.7.1", path = "../../embassy-net", features = [
+embassy-net = { version = "0.8.0", path = "../../embassy-net", features = [
     "defmt",
     "tcp",
     "dhcpv4",

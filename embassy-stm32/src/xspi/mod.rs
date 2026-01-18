@@ -903,7 +903,7 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
 }
 
 impl<'d, T: Instance> Xspi<'d, T, Async> {
-    /// Create new blocking XSPI driver for a single spi external chip
+    /// Create new async XSPI driver for a single spi external chip
     pub fn new_singlespi(
         peri: Peri<'d, T>,
         clk: Peri<'d, impl CLKPin<T>>,
@@ -947,7 +947,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         )
     }
 
-    /// Create new blocking XSPI driver for a dualspi external chip
+    /// Create new async XSPI driver for a dualspi external chip
     pub fn new_dualspi(
         peri: Peri<'d, T>,
         clk: Peri<'d, impl CLKPin<T>>,
@@ -991,7 +991,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         )
     }
 
-    /// Create new blocking XSPI driver for a quadspi external chip
+    /// Create new async XSPI driver for a quadspi external chip
     pub fn new_quadspi(
         peri: Peri<'d, T>,
         clk: Peri<'d, impl CLKPin<T>>,
@@ -1037,7 +1037,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         )
     }
 
-    /// Create new blocking XSPI driver for two quadspi external chips
+    /// Create new async XSPI driver for two quadspi external chips
     pub fn new_dualquadspi(
         peri: Peri<'d, T>,
         clk: Peri<'d, impl CLKPin<T>>,
@@ -1087,7 +1087,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         )
     }
 
-    /// Create new blocking XSPI driver for xspi external chips
+    /// Create new async XSPI driver for xspi external chips
     pub fn new_xspi(
         peri: Peri<'d, T>,
         clk: Peri<'d, impl CLKPin<T>>,

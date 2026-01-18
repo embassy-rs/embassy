@@ -95,12 +95,14 @@ impl LinearItem {
         tr2.set_dreq(match dir {
             Dir::MemoryToPeripheral => Dreq::DESTINATION_PERIPHERAL,
             Dir::PeripheralToMemory => Dreq::SOURCE_PERIPHERAL,
+            Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for LinearItem"),
         });
         tr2.set_reqsel(request);
 
         let (sar, dar) = match dir {
             Dir::MemoryToPeripheral => (mem_addr as _, peri_addr as _),
             Dir::PeripheralToMemory => (peri_addr as _, mem_addr as _),
+            Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for LinearItem"),
         };
 
         let llr = regs::ChLlr(0);
@@ -185,6 +187,7 @@ impl<const ITEM_COUNT: usize> Table<ITEM_COUNT> {
                 LinearItem::new_read(request, peri_addr, &mut buffer[..half_len]),
                 LinearItem::new_read(request, peri_addr, &mut buffer[half_len..]),
             ],
+            Dir::MemoryToMemory => panic!("memory-to-memory transfers are not valid for LinearItem"),
         };
 
         Table::new(items)

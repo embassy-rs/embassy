@@ -100,37 +100,29 @@ impl Registers {
 
     fn reg_to_error(value: u8) -> Option<BusError> {
         match value {
-            //0b000 => None,
+            // 0b000 => None,
             0b001 => Some(BusError::Stuff),
             0b010 => Some(BusError::Form),
             0b011 => Some(BusError::Acknowledge),
             0b100 => Some(BusError::BitRecessive),
             0b101 => Some(BusError::BitDominant),
             0b110 => Some(BusError::Crc),
-            //0b111 => Some(BusError::NoError),
+            // 0b111 => Some(BusError::NoError),
             _ => None,
         }
     }
 
     pub fn curr_error(&self) -> Option<BusError> {
         let err = { self.regs.psr().read() };
-        if err.bo() {
-            return Some(BusError::BusOff);
-        } else if err.ep() {
-            return Some(BusError::BusPassive);
-        } else if err.ew() {
-            return Some(BusError::BusWarning);
-        } else {
-            cfg_if! {
-                if #[cfg(can_fdcan_h7)] {
-                    let lec = err.lec();
-                } else {
-                    let lec = err.lec().to_bits();
-                }
+        cfg_if! {
+            if #[cfg(can_fdcan_h7)] {
+                let lec = err.lec();
+            } else {
+                let lec = err.lec().to_bits();
             }
-            if let Some(err) = Self::reg_to_error(lec) {
-                return Some(err);
-            }
+        }
+        if let Some(err) = Self::reg_to_error(lec) {
+            return Some(err);
         }
         None
     }
