@@ -685,13 +685,7 @@ impl<'d> AonTimer<'d> {
         poll_fn(|cx| {
             WAKER.register(cx.waker());
 
-            if critical_section::with(|_| {
-                let occurred = ALARM_OCCURRED.load(Ordering::SeqCst);
-                if occurred {
-                    ALARM_OCCURRED.store(false, Ordering::SeqCst);
-                }
-                occurred
-            }) {
+            if ALARM_OCCURRED.swap(false, Ordering::SeqCst) {
                 self.clear_alarm();
 
                 compiler_fence(Ordering::SeqCst);
