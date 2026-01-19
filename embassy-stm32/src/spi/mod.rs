@@ -89,7 +89,7 @@ pub struct Config {
     /// There are some ICs that require a pull-up on the MISO pin for some applications.
     /// If you  are unsure, you probably don't need this.
     pub miso_pull: Pull,
-    /// signal rise/fall speed (slew rate) - defaults to `Medium`.
+    /// signal rise/fall speed (slew rate) - defaults to `VeryHigh`.
     /// Increase for high SPI speeds. Change to `Low` to reduce ringing.
     pub gpio_speed: Speed,
     /// If True sets SSOE to zero even if SPI is in Master Mode.
