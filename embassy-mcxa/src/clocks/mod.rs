@@ -962,8 +962,6 @@ impl ClockOperator<'_> {
         // Enable (and wait for) LDO to be active
         self.ensure_ldo_active();
 
-        // TODO: something something pins? This seems to work when the pins are
-        // not enabled, even if GPIO hasn't been initialized at all yet.
         let eref = match parts.mode {
             config::SoscMode::CrystalOscillator => pac::scg0::sosccfg::Erefs::Internal,
             config::SoscMode::ActiveClock => pac::scg0::sosccfg::Erefs::External,
