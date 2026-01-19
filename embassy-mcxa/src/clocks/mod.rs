@@ -93,6 +93,7 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     operator.configure_sirc_clocks_early()?;
     operator.configure_firc_clocks()?;
     operator.configure_fro16k_clocks()?;
+    #[cfg(feature = "sosc")]
     operator.configure_sosc()?;
     operator.configure_spll()?;
 
@@ -497,6 +498,7 @@ impl Clocks {
     }
 
     /// Ensure the `clk_in` clock is active and valid at the given power state.
+    #[cfg(feature = "sosc")]
     #[inline]
     pub fn ensure_clk_in_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         self.ensure_clock_active(&self.clk_in, "clk_in", at_level)
@@ -950,6 +952,7 @@ impl ClockOperator<'_> {
     }
 
     /// Configure the SOSC/clk_in oscillator
+    #[cfg(feature = "sosc")]
     fn configure_sosc(&mut self) -> Result<(), ClockError> {
         let Some(parts) = self.config.sosc.as_ref() else {
             return Ok(());
@@ -1414,6 +1417,7 @@ impl ClockOperator<'_> {
         use pac::scg0::rccr::Scs as ScsW;
 
         let (var, name, clk) = match self.config.main_clock.source {
+            #[cfg(feature = "sosc")]
             MainClockSource::SoscClkIn => (ScsW::Sosc, "clk_in", self.clocks.clk_in.as_ref()),
             MainClockSource::SircFro12M => (ScsW::Sirc, "fro_12m", self.clocks.fro_12m.as_ref()),
             MainClockSource::FircHfRoot => (ScsW::Firc, "fro_hf_root", self.clocks.fro_hf_root.as_ref()),

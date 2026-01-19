@@ -174,18 +174,10 @@ embassy_hal_internal::peripherals!(
     P1_27,
     P1_28,
     P1_29,
-    // TODO: These pins are optionally used as the clock sources for SOSC.
-    // Ideally, we'd want to have a custom version of the `peripheral!` macro
-    // that presented these as `Option<Peri<'_, P1_30>>` instead of `Peri<'_, P1_30>`
-    // when the user DOES enable the external SOSC. For now, I'm guessing MOST designs
-    // will have an external clock sitting on these pins anyway, so we just notch them
-    // out from the `Peripherals` struct given to users.
-    //
-    // If you find this and want your extra two pins to be available: please open an
-    // embassy issue to discuss how we could do this.
-    //
-    // P1_30,
-    // P1_31,
+    #[cfg(not(feature = "sosc"))]
+    P1_30,
+    #[cfg(not(feature = "sosc"))]
+    P1_31,
 
     P2_0,
     P2_1,
@@ -437,14 +429,6 @@ embassy_hal_internal::interrupt_mod!(
     WUU0,
     WWDT0,
 );
-
-// See commented out items above to understand why we create the instances
-// here but don't give them to the user.
-pub(crate) mod internal_peripherals {
-    embassy_hal_internal::peripherals_definition!(P1_30, P1_31,);
-
-    pub(crate) use peripherals::*;
-}
 
 // Use cortex-m-rt's #[interrupt] attribute directly; PAC does not re-export it.
 
