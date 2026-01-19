@@ -3,8 +3,15 @@
 //! This module provides the main `Ble` struct that manages the BLE stack lifecycle
 //! and provides access to GAP functionality including connection management.
 
+use core::cell::RefCell;
 use core::sync::atomic::{AtomicBool, Ordering};
 
+use embassy_stm32::peripherals::RNG;
+use embassy_stm32::rng::Rng;
+use embassy_sync::blocking_mutex::Mutex;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
+
+use crate::linklayer_plat::HARDWARE_RNG;
 use crate::wba::error::BleError;
 use crate::wba::gap::Advertiser;
 use crate::wba::gap::connection::{
@@ -56,7 +63,9 @@ impl Ble {
     /// Create a new BLE instance
     ///
     /// Note: You must call `init()` before using other BLE functionality.
-    pub fn new() -> Self {
+    pub fn new(rng: &'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>) -> Self {
+        unsafe { HARDWARE_RNG.replace(rng) };
+
         Self {
             cmd_sender: CommandSender::new(),
             initialized: AtomicBool::new(false),
@@ -542,12 +551,6 @@ impl Ble {
     /// raw events (e.g., for connection management).
     pub async fn read_event(&self) -> Event {
         read_event().await
-    }
-}
-
-impl Default for Ble {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

@@ -28,7 +28,7 @@ heapless = { version = "0.8", default-features = false }
 static_cell = "2"
 
 [features]
-default = []
+default = ["ble"]
 mac = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wba_mac", "dep:embassy-net"]
 ble = ["dep:embassy-stm32-wpan", "embassy-stm32-wpan/wba_ble", "embassy-stm32-wpan/ble-stack-basic", "embassy-stm32-wpan/linklayer6-ble-basic"]
 
