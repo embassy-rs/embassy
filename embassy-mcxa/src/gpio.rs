@@ -458,9 +458,9 @@ impl_pin!(P1_26, 1, 26, Gpio1);
 impl_pin!(P1_27, 1, 27, Gpio1);
 impl_pin!(P1_28, 1, 28, Gpio1);
 impl_pin!(P1_29, 1, 29, Gpio1);
-#[cfg(not(feature = "sosc"))]
+#[cfg(feature = "sosc-as-gpio")]
 impl_pin!(P1_30, 1, 30, Gpio1);
-#[cfg(not(feature = "sosc"))]
+#[cfg(feature = "sosc-as-gpio")]
 impl_pin!(P1_31, 1, 31, Gpio1);
 
 impl_pin!(P2_0, 2, 0, Gpio2);

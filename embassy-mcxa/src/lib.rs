@@ -180,9 +180,9 @@ embassy_hal_internal::peripherals!(
     P1_27,
     P1_28,
     P1_29,
-    #[cfg(not(feature = "sosc"))]
+    #[cfg(feature = "sosc-as-gpio")]
     P1_30,
-    #[cfg(not(feature = "sosc"))]
+    #[cfg(feature = "sosc-as-gpio")]
     P1_31,
 
     P2_0,
