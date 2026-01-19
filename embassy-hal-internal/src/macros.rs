@@ -32,10 +32,34 @@ macro_rules! peripherals_definition {
     };
 }
 
+/// If option is specified, wrap the type in an `Option<$t>`.
+/// Else, do nothing.
+#[macro_export]
+macro_rules! wrap_option_type {
+    (option, $t:ty) => {
+        Option<$t>
+    };
+    (,$t:ty) => {
+        $t
+    }
+}
+
+/// If option is specified, wrap the type in a `Some($e)`.
+/// Else, do nothing.
+#[macro_export]
+macro_rules! wrap_some {
+    (option, $e:expr) => {
+        Some($e)
+    };
+    (,$e:expr) => {
+        $e
+    };
+}
+
 /// Define the peripherals struct.
 #[macro_export]
 macro_rules! peripherals_struct {
-    ($($(#[$cfg:meta])? $name:ident),*$(,)?) => {
+    ($($(#[$cfg:meta])? $(($option:tt))? $name:ident),*$(,)?) => {
         /// Struct containing all the peripheral singletons.
         ///
         /// To obtain the peripherals, you must initialize the HAL, by calling [`crate::init`].
@@ -44,7 +68,7 @@ macro_rules! peripherals_struct {
             $(
                 #[doc = concat!(stringify!($name), " peripheral")]
                 $(#[$cfg])?
-                pub $name: $crate::Peri<'static, peripherals::$name>,
+                pub $name: $crate::wrap_option_type!($($option)?, $crate::Peri<'static, peripherals::$name>),
             )*
         }
 
@@ -83,7 +107,7 @@ macro_rules! peripherals_struct {
                 Self {
                     $(
                         $(#[$cfg])?
-                        $name: peripherals::$name::steal(),
+                        $name: $crate::wrap_some!($($option)?, peripherals::$name::steal()),
                     )*
                 }
             }
@@ -94,7 +118,7 @@ macro_rules! peripherals_struct {
 /// Defining peripheral type.
 #[macro_export]
 macro_rules! peripherals {
-    ($($(#[$cfg:meta])? $name:ident),*$(,)?) => {
+    ($($(#[$cfg:meta])? $(($option:tt))? $name:ident),*$(,)?) => {
         $crate::peripherals_definition!(
             $(
                 $(#[$cfg])?
@@ -104,7 +128,7 @@ macro_rules! peripherals {
         $crate::peripherals_struct!(
             $(
                 $(#[$cfg])?
-                $name,
+                $(($option))* $name,
             )*
         );
     };
