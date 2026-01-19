@@ -392,8 +392,11 @@ macro_rules! impl_pin {
     };
 }
 
+#[cfg(feature = "swd-as-gpio")]
 impl_pin!(P0_0, 0, 0, Gpio0);
+#[cfg(feature = "swd-as-gpio")]
 impl_pin!(P0_1, 0, 1, Gpio0);
+#[cfg(feature = "swd-swo-as-gpio")]
 impl_pin!(P0_2, 0, 2, Gpio0);
 impl_pin!(P0_3, 0, 3, Gpio0);
 impl_pin!(P0_4, 0, 4, Gpio0);

@@ -53,7 +53,7 @@ rand-core-06 = { package = "rand_core", version = "0.6" }
 rand-core-09 = { package = "rand_core", version = "0.9" }
 
 [features]
-default = ["rt"]
+default = ["rt", "swd-swo-as-gpio"]
 
 # Base defmt feature enables core + panic handler
 # Use with one logger feature: defmt-rtt (preferred) or defmt-uart (fallback)
@@ -62,7 +62,28 @@ defmt = ["dep:defmt", "mcxa-pac/defmt"]
 unstable-pac = []
 
 # Enable external oscillator support
+#
+# ENABLING this allows for use of SOSC, but reserves the GPIO pins required.
+# DISABLING this means SOSC cannot be set/configured, but makes the GPIO pins available
 sosc = []
+
+# Allows for using SWDIO and SWCLK pins as normal GPIOs.
+#
+# WARNING: This WILL cause problems if you plan to use defmt over RTT,
+# or otherwise debug the system while running.
+#
+# If this feature is enabled, the relevant pin(s) will be set to floating inputs
+# in the HAL init function.
+#
+# This does NOT include the SWO pin.
+swd-as-gpio = []
+
+# Allows for using the SWD SWO pins as a normal GPIO. This is not used for
+# basic probe-rs/rtt usage, but is sometimes used with ITM.
+#
+# If this feature is enabled, the relevant pin(s) will be set to floating inputs
+# in the HAL init function.
+swd-swo-as-gpio = []
 
 # dummy feature to silence embassy-hal-internal lint
 #

@@ -845,6 +845,7 @@ impl_pin!(P2_16, ADC2, Mux0, 4);
 impl_pin!(P2_12, ADC2, Mux0, 5);
 impl_pin!(P2_20, ADC2, Mux0, 6);
 impl_pin!(P2_7, ADC2, Mux0, 7);
+#[cfg(feature = "swd-swo-as-gpio")]
 impl_pin!(P0_2, ADC2, Mux0, 8);
 // ???
 // impl_pin!(P0_4, ADC2, Mux0, 255);

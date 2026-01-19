@@ -111,8 +111,14 @@ embassy_hal_internal::peripherals!(
     OPAMP0,
     OSTIMER0,
 
+    // Normally SWDIO!
+    #[cfg(feature = "swd-as-gpio")]
     P0_0,
+    // Normally SWCLK!
+    #[cfg(feature = "swd-as-gpio")]
     P0_1,
+    // Normally SWO!
+    #[cfg(feature = "swd-swo-as-gpio")]
     P0_2,
     P0_3,
     P0_4,
@@ -441,7 +447,7 @@ pub(crate) use mcxa_pac as pac;
 /// Initialize HAL with configuration (mirrors embassy-imxrt style). Minimal: just take peripherals.
 /// Also applies configurable NVIC priority for the OSTIMER OS_EVENT interrupt (no enabling).
 pub fn init(cfg: crate::config::Config) -> Peripherals {
-    let peripherals = Peripherals::take();
+    let mut peripherals = Peripherals::take();
     crate::interrupt::RTC.set_priority(cfg.rtc_interrupt_priority);
     crate::interrupt::GPIO0.set_priority(cfg.gpio_interrupt_priority);
     crate::interrupt::GPIO1.set_priority(cfg.gpio_interrupt_priority);
@@ -480,6 +486,19 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
         _ = crate::clocks::enable_and_reset::<crate::peripherals::PORT4>(&crate::clocks::periph_helpers::NoConfig);
         _ = crate::clocks::enable_and_reset::<crate::peripherals::GPIO4>(&crate::clocks::periph_helpers::NoConfig);
     }
+
+    // If we are not using SWD pins for SWD reasons, make them floating inputs
+    #[cfg(feature = "swd-as-gpio")]
+    {
+        let _swdio = gpio::Input::new(peripherals.P0_0.reborrow(), gpio::Pull::Disabled);
+        let _swclk = gpio::Input::new(peripherals.P0_1.reborrow(), gpio::Pull::Disabled);
+    }
+    #[cfg(feature = "swd-swo-as-gpio")]
+    {
+        let _swo = gpio::Input::new(peripherals.P0_2.reborrow(), gpio::Pull::Disabled);
+    }
+    // TODO: Fixup other non-disabled-at-boot pins?
+    // P0_3 (TDI), P0_6 (ISPMODE_N)
 
     peripherals
 }
