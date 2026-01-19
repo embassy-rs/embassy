@@ -6,8 +6,8 @@ use critical_section::{CriticalSection, Mutex};
 use embassy_time_driver::Driver;
 use embassy_time_queue_utils::Queue;
 use mspm0_metapac::interrupt;
-use mspm0_metapac::tim::vals::{Cm, Cvae, CxC, EvtCfg, PwrenKey, Ratio, Repeat, ResetKey};
-use mspm0_metapac::tim::{Counterregs16, Tim};
+use mspm0_metapac::tim::Tim;
+use mspm0_metapac::tim::vals::{Cm, Cvae, CxC, EvtCfg, PwrenKey, Repeat, ResetKey};
 
 use crate::peripherals;
 use crate::timer::SealedTimer;
@@ -53,10 +53,6 @@ type T = peripherals::TIMA1;
 
 fn regs() -> Tim {
     unsafe { Tim::from_ptr(T::regs()) }
-}
-
-fn regs_counter(tim: Tim) -> Counterregs16 {
-    unsafe { Counterregs16::from_ptr(tim.counterregs(0).as_ptr()) }
 }
 
 /// Clock timekeeping works with something we call "periods", which are time intervals
@@ -118,7 +114,7 @@ impl TimxDriver {
 
         // 2. Divide by TIMCLK, we don't need to divide further for the 32kHz tick rate
         regs.clkdiv().modify(|w| {
-            w.set_ratio(Ratio::DIV_BY_1);
+            w.set_ratio(0); // + 1
         });
 
         // 3. To be generic across timer instances, we do not use the prescaler.
@@ -154,17 +150,9 @@ impl TimxDriver {
             w.set_clc(CxC::CCTL0);
         });
 
-        // Setup the period
-        let ctr = regs_counter(regs);
-
         // Middle
-        ctr.cc(0).modify(|w| {
-            w.set_ccval(0x7FFF);
-        });
-
-        ctr.load().modify(|w| {
-            w.set_ld(u16::MAX);
-        });
+        regs.counterregs(0).cc(0).write_value(0x7FFF as u32);
+        regs.counterregs(0).load().write_value(u16::MAX as u32);
 
         // Enable the period interrupts
         //
@@ -173,7 +161,7 @@ impl TimxDriver {
             w.set_evt_cfg(0, EvtCfg::SOFTWARE);
         });
 
-        regs.int_event(0).imask().modify(|w| {
+        regs.cpu_int(0).imask().modify(|w| {
             w.set_l(true);
             w.set_ccu0(true);
         });
@@ -196,7 +184,7 @@ impl TimxDriver {
         let t = (period as u64) << 15;
 
         critical_section::with(move |cs| {
-            r.int_event(0).imask().modify(move |w| {
+            r.cpu_int(0).imask().modify(move |w| {
                 let alarm = self.alarm.borrow(cs);
                 let at = alarm.get();
 
@@ -213,13 +201,13 @@ impl TimxDriver {
         let r = regs();
 
         critical_section::with(|cs| {
-            let mis = r.int_event(0).mis().read();
+            let mis = r.cpu_int(0).mis().read();
 
             // Advance to next period if overflowed
             if mis.l() {
                 self.next_period();
 
-                r.int_event(0).iclr().write(|w| {
+                r.cpu_int(0).iclr().write(|w| {
                     w.set_l(true);
                 });
             }
@@ -227,13 +215,13 @@ impl TimxDriver {
             if mis.ccu0() {
                 self.next_period();
 
-                r.int_event(0).iclr().write(|w| {
+                r.cpu_int(0).iclr().write(|w| {
                     w.set_ccu0(true);
                 });
             }
 
             if mis.ccu1() {
-                r.int_event(0).iclr().write(|w| {
+                r.cpu_int(0).iclr().write(|w| {
                     w.set_ccu1(true);
                 });
 
@@ -252,7 +240,6 @@ impl TimxDriver {
 
     fn set_alarm(&self, cs: CriticalSection, timestamp: u64) -> bool {
         let r = regs();
-        let ctr = regs_counter(r);
 
         self.alarm.borrow(cs).set(timestamp);
 
@@ -261,7 +248,7 @@ impl TimxDriver {
         if timestamp <= t {
             // If alarm timestamp has passed the alarm will not fire.
             // Disarm the alarm and return `false` to indicate that.
-            r.int_event(0).imask().modify(|w| w.set_ccu1(false));
+            r.cpu_int(0).imask().modify(|w| w.set_ccu1(false));
 
             self.alarm.borrow(cs).set(u64::MAX);
 
@@ -270,13 +257,13 @@ impl TimxDriver {
 
         // Write the CC1 value regardless of whether we're going to enable it now or not.
         // This way, when we enable it later, the right value is already set.
-        ctr.cc(1).write(|w| {
-            w.set_ccval(timestamp as u16);
-        });
+        //
+        // Cast to u16 and then u32 to clamp to 16-bit timer limits.
+        r.counterregs(0).cc(1).write_value(timestamp as u16 as u32);
 
         // Enable it if it'll happen soon. Otherwise, `next_period` will enable it.
         let diff = timestamp - t;
-        r.int_event(0).imask().modify(|w| w.set_ccu1(diff < 0xC000));
+        r.cpu_int(0).imask().modify(|w| w.set_ccu1(diff < 0xC000));
 
         // Reevaluate if the alarm timestamp is still in the future
         let t = self.now();
@@ -285,7 +272,7 @@ impl TimxDriver {
             // the alarm may or may not have fired.
             // Disarm the alarm and return `false` to indicate that.
             // It is the caller's responsibility to handle this ambiguity.
-            r.int_event(0).imask().modify(|w| w.set_ccu1(false));
+            r.cpu_int(0).imask().modify(|w| w.set_ccu1(false));
 
             self.alarm.borrow(cs).set(u64::MAX);
 
@@ -305,7 +292,7 @@ impl Driver for TimxDriver {
         // Ensure the compiler does not read the counter before the period.
         compiler_fence(Ordering::Acquire);
 
-        let counter = regs_counter(regs).ctr().read().cctr() as u16;
+        let counter = regs.counterregs(0).ctr().read() as u16;
 
         calc_now(period, counter)
     }
@@ -334,8 +321,6 @@ embassy_time_driver::time_driver_impl!(static DRIVER: TimxDriver = TimxDriver {
 pub(crate) fn init(cs: CriticalSection) {
     DRIVER.init(cs);
 }
-
-// TODO: TIMB0
 
 #[cfg(time_driver_timg0)]
 #[interrupt]
