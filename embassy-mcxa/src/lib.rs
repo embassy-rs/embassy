@@ -429,14 +429,6 @@ embassy_hal_internal::interrupt_mod!(
     WWDT0,
 );
 
-// See commented out items above to understand why we create the instances
-// here but don't give them to the user.
-pub(crate) mod internal_peripherals {
-    embassy_hal_internal::peripherals_definition!(P1_30, P1_31,);
-
-    pub(crate) use peripherals::*;
-}
-
 // Use cortex-m-rt's #[interrupt] attribute directly; PAC does not re-export it.
 
 // Re-export interrupt traits and types
