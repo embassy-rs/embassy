@@ -84,9 +84,10 @@ use cortex_m::asm::{dsb, isb};
 use cortex_m::interrupt::InterruptNumber;
 use cortex_m::peripheral::NVIC;
 use cortex_m::register::basepri;
-use critical_section::{self, Mutex};
+use critical_section;
 #[cfg(feature = "defmt")]
 use defmt::{error, trace};
+use embassy_sync::blocking_mutex::Mutex;
 #[cfg(not(feature = "defmt"))]
 macro_rules! trace {
     ($($arg:tt)*) => {{}};
@@ -96,6 +97,9 @@ macro_rules! error {
     ($($arg:tt)*) => {{}};
 }
 use embassy_stm32::NVIC_PRIO_BITS;
+use embassy_stm32::peripherals::RNG;
+use embassy_stm32::rng::Rng;
+use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_time::{Duration, block_for};
 
 use super::bindings::{link_layer, mac};
@@ -149,55 +153,10 @@ static RADIO_SLEEP_TIMER_VAL: AtomicU32 = AtomicU32::new(0);
 // Only written when the IRQ disable counter transitions 0->1, and consumed when it transitions 1->0.
 static mut CS_RESTORE_STATE: Option<critical_section::RestoreState> = None;
 
-// Wrapper for the RNG pointer that implements Send
-// Safety: The pointer is only ever accessed from interrupt-disabled critical sections,
-// ensuring single-threaded access despite the raw pointer.
-struct SendPtr(*mut ());
-unsafe impl Send for SendPtr {}
-
 // Optional hardware RNG instance for true random number generation.
 // The RNG peripheral pointer is stored here to be used by LINKLAYER_PLAT_GetRNG.
 // This must be set by the application using `set_rng_instance` before the link layer requests random numbers.
-static HARDWARE_RNG: Mutex<RefCell<Option<SendPtr>>> = Mutex::new(RefCell::new(None));
-
-/// Set the hardware RNG instance to be used by the link layer.
-///
-/// This function allows the application to provide a hardware RNG peripheral
-/// that will be used for generating random numbers instead of the software PRNG.
-///
-/// # Safety
-///
-/// The caller must ensure that:
-/// - The pointer remains valid for the lifetime of the link layer usage
-/// - The RNG peripheral is properly initialized and configured
-/// - The pointer points to a valid `embassy_stm32::rng::Rng` instance
-///
-/// # Example
-///
-/// ```no_run
-/// use embassy_stm32::rng::Rng;
-/// use embassy_stm32::peripherals;
-/// use embassy_stm32::bind_interrupts;
-///
-/// bind_interrupts!(struct Irqs {
-///     RNG => embassy_stm32::rng::InterruptHandler<peripherals::RNG>;
-/// });
-///
-/// let mut rng = Rng::new(p.RNG, Irqs);
-/// embassy_stm32_wpan::wba::linklayer_plat::set_rng_instance(&mut rng as *mut _ as *mut ());
-/// ```
-pub fn set_rng_instance(rng: *mut ()) {
-    critical_section::with(|cs| {
-        HARDWARE_RNG.borrow(cs).replace(Some(SendPtr(rng)));
-    });
-}
-
-/// Clear the hardware RNG instance, falling back to software PRNG.
-pub fn clear_rng_instance() {
-    critical_section::with(|cs| {
-        HARDWARE_RNG.borrow(cs).replace(None);
-    });
-}
+pub(crate) static mut HARDWARE_RNG: Option<&'static Mutex<CriticalSectionRawMutex, RefCell<Rng<'static, RNG>>>> = None;
 
 fn store_callback(slot: &AtomicPtr<()>, cb: Option<Callback>) {
     let ptr = cb.map_or(ptr::null_mut(), |f| f as *mut ());
@@ -514,21 +473,14 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_GetRNG(ptr_rnd: *mut u8, len: u32) {
         return;
     }
 
-    // Get the hardware RNG instance
-    let rng_ptr = critical_section::with(|cs| HARDWARE_RNG.borrow(cs).borrow().as_ref().map(|p| p.0));
-
-    let rng_ptr = rng_ptr.expect(
-        "Hardware RNG not initialized! Call embassy_stm32_wpan::wba::set_rng_instance() before using the BLE stack.",
-    );
-
-    // Cast the void pointer back to an Rng instance
-    let rng = &mut *(rng_ptr as *mut embassy_stm32::rng::Rng<'static, embassy_stm32::peripherals::RNG>);
-
-    // Create a slice from the raw pointer
-    let dest = core::slice::from_raw_parts_mut(ptr_rnd, len as usize);
-
-    // Fill the buffer with hardware random bytes
-    rng.fill_bytes(dest);
+    critical_section::with(|cs| {
+        HARDWARE_RNG
+            .as_ref()
+            .unwrap()
+            .borrow(cs)
+            .borrow_mut()
+            .fill_bytes(core::slice::from_raw_parts_mut(ptr_rnd, len as usize))
+    });
 
     trace!("LINKLAYER_PLAT_GetRNG: generated {} random bytes", len);
 }
@@ -981,24 +933,17 @@ pub unsafe extern "C" fn BLEPLAT_Init() {
 pub unsafe extern "C" fn BLEPLAT_RngGet(n: u8, val: *mut u32) {
     trace!("BLEPLAT_RngGet: n={}", n);
 
-    if val.is_null() || n == 0 || n > 4 {
+    if val.is_null() || n == 0 {
         return;
     }
 
-    // Get RNG instance from HARDWARE_RNG
     critical_section::with(|cs| {
-        let rng_cell = HARDWARE_RNG.borrow(cs).borrow();
-        if let Some(rng_ptr) = rng_cell.as_ref() {
-            let rng = &mut *(rng_ptr.0 as *mut embassy_stm32::rng::Rng<'static, embassy_stm32::peripherals::RNG>);
-
-            // Generate n random 32-bit values
-            for i in 0..n {
-                let dest = core::slice::from_raw_parts_mut(val.add(i as usize) as *mut u8, 4);
-                rng.fill_bytes(dest);
-            }
-        } else {
-            error!("BLEPLAT_RngGet: RNG not initialized");
-        }
+        HARDWARE_RNG
+            .as_ref()
+            .unwrap()
+            .borrow(cs)
+            .borrow_mut()
+            .fill_bytes(core::slice::from_raw_parts_mut(val as *mut u8, n as usize * 4));
     });
 }
 
