@@ -9,9 +9,6 @@ categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
 repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/embassy-mspm0"
 
-# TODO: Remove to publish initial version
-publish = false
-
 [package.metadata.embassy]
 build = [
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0c1104dgs20", "time-driver-any"]},
@@ -22,6 +19,7 @@ build = [
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g3105rhb", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g3507pm", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g3519pz", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g5187pm", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0h3216pt", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1306rhb", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l2228pn", "time-driver-any"]},
@@ -48,14 +46,12 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [dependencies]
 embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
-embassy-time = { version = "0.5.0", path = "../embassy-time", optional = true }
 # TODO: Support other tick rates
 embassy-time-driver = { version = "0.2.1", path = "../embassy-time-driver", optional = true, features = ["tick-hz-32_768"] }
 embassy-time-queue-utils = { version = "0.3.0", path = "../embassy-time-queue-utils", optional = true }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-hal-internal = { version = "0.4.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-2"] }
 embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal", default-features = false }
-embassy-executor = { version = "0.9.0", path = "../embassy-executor", optional = true }
 
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
 embedded-hal = { version = "1.0" }
@@ -73,7 +69,7 @@ critical-section = "1.2.0"
 micromath = "2.0.0"
 
 # mspm0-metapac = { version = "" }
-mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-a68221704ad925fa4aa326e24523aa8aaba514d2" }
+mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-d9f54366c65cec47957065f42fe04542b852a8cd" }
 rand_core = "0.9"
 
 [build-dependencies]
@@ -82,7 +78,7 @@ quote = "1.0.40"
 cfg_aliases = "0.2.1"
 
 # mspm0-metapac = { version = "", default-features = false, features = ["metadata"] }
-mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-a68221704ad925fa4aa326e24523aa8aaba514d2", default-features = false, features = ["metadata"] }
+mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-d9f54366c65cec47957065f42fe04542b852a8cd", default-features = false, features = ["metadata"] }
 
 [features]
 default = ["rt"]
@@ -96,14 +92,23 @@ defmt = [
     "embassy-sync/defmt",
     "embassy-embedded-hal/defmt",
     "embassy-hal-internal/defmt",
-    "embassy-time?/defmt",
 ]
+
+## Use log for logging
+log = ["dep:log"]
 
 ## Re-export mspm0-metapac at `mspm0::pac`.
 ## This is unstable because semver-minor (non-breaking) releases of embassy-mspm0 may major-bump (breaking) the mspm0-metapac version.
 ## If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.
 ## There are no plans to make this stable.
 unstable-pac = []
+
+## Allow using the NRST pin as a regular GPIO pin.
+## This is not applicable to all chips. In particular MSPM0C1103/4 share PA1 with NRST.
+nrst-pin-as-gpio = []
+
+## Allow using the SWD pins as regular GPIO pins.
+swd-pins-as-gpio = []
 
 #! ## Time
 
