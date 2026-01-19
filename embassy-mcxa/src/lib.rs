@@ -174,19 +174,10 @@ embassy_hal_internal::peripherals!(
     P1_27,
     P1_28,
     P1_29,
-    // TODO: These pins are optionally used as the clock sources for SOSC.
-    // Ideally, we'd want to have a custom version of the `peripheral!` macro
-    // that presented these as `Option<Peri<'_, P1_30>>` instead of `Peri<'_, P1_30>`
-    // when the user DOES enable the external SOSC. For now, I'm guessing MOST designs
-    // will have an external clock sitting on these pins anyway, so we just notch them
-    // out from the `Peripherals` struct given to users.
-    //
-    // If you find this and want your extra two pins to be available: please open an
-    // embassy issue to discuss how we could do this.
-    //
-    // P1_30,
-    // P1_31,
-
+    // Available when the SOSC/clk_in oscillator is configured with the internal crystal oscillator
+    (option)P1_30,
+    // Available when the SOSC/clk_in oscillator is configured with the internal crystal oscillator
+    (option)P1_31,
     P2_0,
     P2_1,
     P2_2,
@@ -457,7 +448,7 @@ pub(crate) use mcxa_pac as pac;
 /// Initialize HAL with configuration (mirrors embassy-imxrt style). Minimal: just take peripherals.
 /// Also applies configurable NVIC priority for the OSTIMER OS_EVENT interrupt (no enabling).
 pub fn init(cfg: crate::config::Config) -> Peripherals {
-    let peripherals = Peripherals::take();
+    let mut peripherals = Peripherals::take();
     crate::interrupt::RTC.set_priority(cfg.rtc_interrupt_priority);
     crate::interrupt::GPIO0.set_priority(cfg.gpio_interrupt_priority);
     crate::interrupt::GPIO1.set_priority(cfg.gpio_interrupt_priority);
@@ -466,7 +457,7 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
     crate::interrupt::GPIO4.set_priority(cfg.gpio_interrupt_priority);
 
     // Configure clocks
-    crate::clocks::init(cfg.clock_cfg).unwrap();
+    crate::clocks::init(cfg.clock_cfg, &mut peripherals).unwrap();
 
     // Initialize embassy-time global driver backed by OSTIMER0
     // NOTE: As early as possible, but MUST be AFTER clocks!

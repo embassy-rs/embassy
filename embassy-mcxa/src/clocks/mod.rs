@@ -42,7 +42,7 @@ use mcxa_pac::scg0::firccsr::{FircFclkPeriphEn, FircSclkPeriphEn, Fircsten};
 use mcxa_pac::scg0::sirccsr::Sircsten;
 use periph_helpers::SPConfHelper;
 
-use crate::pac;
+use crate::{Peripherals, pac};
 pub mod config;
 pub mod periph_helpers;
 
@@ -67,7 +67,7 @@ static CLOCKS: critical_section::Mutex<RefCell<Option<Clocks>>> = critical_secti
 /// This function should be called EXACTLY once at start-up, usually via a
 /// call to [`embassy_mcxa::init()`](crate::init()). Subsequent calls will
 /// return an error.
-pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
+pub fn init(settings: ClocksConfig, peripherals: &mut Peripherals) -> Result<(), ClockError> {
     critical_section::with(|cs| {
         if CLOCKS.borrow_ref(cs).is_some() {
             Err(ClockError::AlreadyInitialized)
@@ -93,7 +93,7 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     operator.configure_sirc_clocks_early()?;
     operator.configure_firc_clocks()?;
     operator.configure_fro16k_clocks()?;
-    operator.configure_sosc()?;
+    operator.configure_sosc(peripherals)?;
     operator.configure_spll()?;
 
     // Finally, setup main clock
@@ -950,7 +950,7 @@ impl ClockOperator<'_> {
     }
 
     /// Configure the SOSC/clk_in oscillator
-    fn configure_sosc(&mut self) -> Result<(), ClockError> {
+    fn configure_sosc(&mut self, peripherals: &mut Peripherals) -> Result<(), ClockError> {
         let Some(parts) = self.config.sosc.as_ref() else {
             return Ok(());
         };
@@ -962,7 +962,13 @@ impl ClockOperator<'_> {
         // not enabled, even if GPIO hasn't been initialized at all yet.
         let eref = match parts.mode {
             config::SoscMode::CrystalOscillator => pac::scg0::sosccfg::Erefs::Internal,
-            config::SoscMode::ActiveClock => pac::scg0::sosccfg::Erefs::External,
+            config::SoscMode::ActiveClock => {
+                // Take the gpio pins so the user can't use them anymore
+                peripherals.P1_30.take();
+                peripherals.P1_31.take();
+
+                pac::scg0::sosccfg::Erefs::External
+            }
         };
         let freq = parts.frequency;
 
