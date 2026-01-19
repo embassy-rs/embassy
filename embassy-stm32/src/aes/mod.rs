@@ -240,6 +240,14 @@ pub trait Cipher<'c> {
     /// Sets the cipher mode (CHMOD field).
     fn set_mode(&self, p: pac::aes::Aes);
 
+    /// Returns the data type setting for this cipher mode.
+    /// - 0 = NO_SWAP (32-bit words, no swapping) - ECB, GCM
+    /// - 1 = BYTE_SWAP (swap bytes within 32-bit words) - CBC
+    /// - 2 = BIT_SWAP (reverse bits within bytes) - CTR
+    fn datatype(&self) -> u8 {
+        0 // Default: NO_SWAP
+    }
+
     /// Performs any key preparation within the processor, if necessary.
     fn prepare_key(&self, _p: pac::aes::Aes, _dir: Direction) {}
 
@@ -326,6 +334,21 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesEcb<'c, KEY_SIZE> {
             w.set_chmod(pac::aes::vals::Chmod::from_bits(0));
         });
     }
+
+    fn prepare_key(&self, p: pac::aes::Aes, dir: Direction) {
+        // For ECB decryption, need to prepare key (RM Section 26.4.6 steps 2-7)
+        if dir == Direction::Decrypt {
+            // Step 2: Set MODE to key derivation (MODE[1:0] = 0x1)
+            p.cr().modify(|w| w.set_mode(pac::aes::vals::Mode::from_bits(1)));
+            // Step 5: Enable AES - peripheral starts key preparation
+            p.cr().modify(|w| w.set_en(true));
+            // Step 6: Wait for CCF flag
+            while !p.sr().read().ccf() {}
+            // Step 7: Clear CCF flag - AES disables automatically
+            p.icr().write(|w| w.0 = 0xFFFF_FFFF);
+            // Note: Peripheral is now disabled, caller will reconfigure and re-enable
+        }
+    }
 }
 
 impl<'c> CipherSized for AesEcb<'c, { 128 / 8 }> {}
@@ -363,16 +386,22 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesCbc<'c, KEY_SIZE> {
         });
     }
 
+    fn datatype(&self) -> u8 {
+        1 // BYTE_SWAP for CBC mode (per ST HAL and RM Figure 122/123)
+    }
+
     fn prepare_key(&self, p: pac::aes::Aes, dir: Direction) {
-        // For CBC decryption, need to prepare key
+        // For CBC/ECB decryption, need to prepare key (RM Section 26.4.6 steps 2-7)
         if dir == Direction::Decrypt {
-            // Set MODE to key preparation
+            // Step 2: Set MODE to key derivation (MODE[1:0] = 0x1)
             p.cr().modify(|w| w.set_mode(pac::aes::vals::Mode::from_bits(1)));
+            // Step 5: Enable AES - peripheral starts key preparation
             p.cr().modify(|w| w.set_en(true));
-            // Wait for completion
+            // Step 6: Wait for CCF flag
             while !p.sr().read().ccf() {}
-            // Clear by dummy write
-            p.cr().write(|w| *w);
+            // Step 7: Clear CCF flag - AES disables automatically
+            p.icr().write(|w| w.0 = 0xFFFF_FFFF);
+            // Note: Peripheral is now disabled, caller will reconfigure and re-enable
         }
     }
 }
@@ -410,6 +439,10 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesCtr<'c, KEY_SIZE> {
         p.cr().modify(|w| {
             w.set_chmod(pac::aes::vals::Chmod::from_bits(2));
         });
+    }
+
+    fn datatype(&self) -> u8 {
+        2 // BIT_SWAP for CTR mode (matches ST HAL)
     }
 }
 
@@ -718,8 +751,8 @@ impl<'d, T: Instance, M: Mode> Aes<'d, T, M> {
         // Disable the peripheral
         p.cr().modify(|w| w.set_en(false));
 
-        // Configure data type (32-bit, no swapping)
-        p.cr().modify(|w| w.set_datatype(pac::aes::vals::Datatype::from_bits(0)));
+        // Configure data type based on cipher mode (NO_SWAP, BYTE_SWAP, or BIT_SWAP)
+        p.cr().modify(|w| w.set_datatype(pac::aes::vals::Datatype::from_bits(cipher.datatype())));
 
         // Configure key size (false = 128-bit, true = 256-bit)
         let keysize = cipher.key_size();
@@ -743,19 +776,28 @@ impl<'d, T: Instance, M: Mode> Aes<'d, T, M> {
             p.cr().modify(|w| w.set_gcmph(pac::aes::vals::Gcmph::from_bits(0)));
         }
 
-        // Load IV (per RM step 3)
-        self.load_iv(cipher.iv());
+        // For encryption: write IV before key (RM 26.4.5 step 3)
+        // For decryption: write IV AFTER key preparation (RM 26.4.6 step 9)
+        let needs_key_prep = dir == Direction::Decrypt && cipher.key().len() > 0;
+        if !needs_key_prep && !cipher.iv().is_empty() {
+            self.load_iv(cipher.iv());
+        }
 
-        // Load key (per RM step 4)
+        // Load key (RM step 3 for decrypt, step 4 for encrypt)
         self.load_key(cipher.key());
 
-        // Prepare key if needed (CBC decrypt)
-        cipher.prepare_key(p, dir);
+        // Prepare key if needed for ECB/CBC decryption (RM 26.4.6 steps 2-7)
+        if needs_key_prep {
+            cipher.prepare_key(p, dir);
 
-        // After key preparation, restore proper mode
-        if dir == Direction::Decrypt {
-            p.cr()
-                .modify(|w| w.set_mode(pac::aes::vals::Mode::from_bits(dir as u8)));
+            // Step 8: Select cipher mode and decryption mode (keep other params)
+            p.cr().modify(|w| w.set_mode(pac::aes::vals::Mode::from_bits(dir as u8)));
+            cipher.set_mode(p); // Set CHMOD
+
+            // Step 9: Write IV (for CBC decryption, AFTER key preparation)
+            if !cipher.iv().is_empty() {
+                self.load_iv(cipher.iv());
+            }
         }
 
         // Perform init phase for GCM/CCM modes (RM step 6-8)

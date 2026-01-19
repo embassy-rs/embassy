@@ -261,6 +261,9 @@ impl<'d, T: Instance, M: Mode> Saes<'d, T, M> {
         // Disable the peripheral
         p.cr().modify(|w| w.set_en(false));
 
+        // Configure data type based on cipher mode (NO_SWAP, BYTE_SWAP, or BIT_SWAP)
+        p.cr().modify(|w| w.set_datatype(pac::saes::vals::Datatype::from_bits(cipher.datatype())));
+
         // Configure key size
         let keysize = cipher.key_size();
         let keysize_val = match keysize {
