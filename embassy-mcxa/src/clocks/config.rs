@@ -199,6 +199,7 @@ pub struct SpllConfig {
 /// Input clock source for the PLL1/SPLL
 pub enum SpllSource {
     /// External Oscillator (8-50MHz)
+    #[cfg(feature = "sosc")]
     Sosc,
     /// Fast Internal Oscillator (45MHz)
     // NOTE: Figure 69 says "firc_45mhz"/"clk_45m", not "fro_hf_gated",

@@ -143,6 +143,7 @@ pub fn with_clocks<R: 'static, F: FnOnce(&Clocks) -> R>(f: F) -> Option<R> {
 pub struct Clocks {
     /// The `clk_in` is a clock provided by an external oscillator
     /// AKA SOSC
+    #[cfg(feature = "sosc")]
     pub clk_in: Option<Clock>,
 
     // FRO180M stuff
@@ -1081,6 +1082,7 @@ impl ClockOperator<'_> {
 
         // match on the source, ensure it is active already
         let res = match cfg.source {
+            #[cfg(feature = "sosc")]
             config::SpllSource::Sosc => self
                 .clocks
                 .clk_in
