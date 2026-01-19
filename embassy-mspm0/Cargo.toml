@@ -96,6 +96,9 @@ defmt = [
     "embassy-hal-internal/defmt",
 ]
 
+## Use log for logging
+log = ["dep:log"]
+
 ## Re-export mspm0-metapac at `mspm0::pac`.
 ## This is unstable because semver-minor (non-breaking) releases of embassy-mspm0 may major-bump (breaking) the mspm0-metapac version.
 ## If this is an issue for you, you're encouraged to directly depend on a fixed version of the PAC.
