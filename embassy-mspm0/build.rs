@@ -57,6 +57,7 @@ fn generate_code(cfgs: &mut CfgSet) {
     let mut singletons = get_singletons(cfgs);
 
     time_driver(&mut singletons, cfgs);
+    pin_features(&mut singletons);
 
     let mut g = TokenStream::new();
 
@@ -493,6 +494,39 @@ fn time_driver(singletons: &mut Vec<Singleton>, cfgs: &mut CfgSet) {
                 singleton.cfg = Some(quote! { #[cfg(not(feature = #feature))] });
             }
         }
+    }
+}
+
+fn pin_features(singletons: &mut Vec<Singleton>) {
+    let sysctl = METADATA
+        .peripherals
+        .iter()
+        .find(|p| p.name == "SYSCTL")
+        .expect("no SYSCTL peripheral");
+
+    // Some packages make NRST share a physical pin with a GPIO.
+    if let Some(pin) = sysctl.pins.iter().find(|p| p.signal == "NRST" && p.pin != "NRST") {
+        let pin = singletons
+            .iter_mut()
+            .find(|s| s.name == pin.pin)
+            .expect("Could not find NRST pin to cfg gate");
+
+        pin.cfg = Some(quote! { #[cfg(feature = "nrst-pin-as-gpio")] });
+    }
+
+    let debugss = METADATA
+        .peripherals
+        .iter()
+        .find(|p| p.name == "DEBUGSS")
+        .expect("Could not find DEBUGSS peripheral");
+
+    for pin in debugss.pins.iter() {
+        let pin = singletons
+            .iter_mut()
+            .find(|s| s.name == pin.pin)
+            .expect("Could not find SWD pin to cfg gate");
+
+        pin.cfg = Some(quote! { #[cfg(feature = "swd-pins-as-gpio")] });
     }
 }
 
