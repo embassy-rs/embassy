@@ -160,28 +160,24 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     // ========== Streaming Multiple Calls ==========
     info!("=== AES-CTR Streaming Processing ===");
+    // Note: Intermediate chunks must be block-aligned (16 bytes).
+    // Only the final chunk (last=true) can be a partial block.
 
     let cipher = AesCtr::new(&key, &counter);
     let mut ctx = aes.start(&cipher, Direction::Encrypt);
 
     let mut ciphertext_stream = [0u8; 32];
 
-    // Encrypt first 16 bytes
+    // Encrypt first 16 bytes (block-aligned)
     match aes.payload_blocking(&mut ctx, &plaintext[..16], &mut ciphertext_stream[..16], false) {
         Ok(()) => info!("✓ Stream block 1 encrypted (16 bytes)"),
         Err(e) => error!("✗ Stream block 1 failed: {:?}", e),
     }
 
-    // Encrypt next 10 bytes (non-aligned)
-    match aes.payload_blocking(&mut ctx, &plaintext[16..26], &mut ciphertext_stream[16..26], false) {
-        Ok(()) => info!("✓ Stream block 2 encrypted (10 bytes)"),
+    // Encrypt final 16 bytes (last=true)
+    match aes.payload_blocking(&mut ctx, &plaintext[16..32], &mut ciphertext_stream[16..32], true) {
+        Ok(()) => info!("✓ Stream block 2 encrypted (16 bytes, final)"),
         Err(e) => error!("✗ Stream block 2 failed: {:?}", e),
-    }
-
-    // Encrypt final 6 bytes
-    match aes.payload_blocking(&mut ctx, &plaintext[26..32], &mut ciphertext_stream[26..32], true) {
-        Ok(()) => info!("✓ Stream block 3 encrypted (6 bytes)"),
-        Err(e) => error!("✗ Stream block 3 failed: {:?}", e),
     }
 
     aes.finish_blocking(ctx).ok();

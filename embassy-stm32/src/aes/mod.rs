@@ -904,7 +904,9 @@ impl<'d, T: Instance, M: Mode> Aes<'d, T, M> {
     }
 
     /// Process payload data in blocking mode.
-    /// Set `last` to true for the final block.
+    ///
+    /// Set `last` to true for the final block. Intermediate chunks (`last=false`)
+    /// must be block-aligned (16 bytes). Only the final chunk can be a partial block.
     pub fn payload_blocking<'c, C>(
         &mut self,
         ctx: &mut Context<'c, C>,
@@ -943,8 +945,10 @@ impl<'d, T: Instance, M: Mode> Aes<'d, T, M> {
         let block_size = C::BLOCK_SIZE;
         let mut processed = 0;
 
-        // Ensure proper block alignment for modes that require padding
-        if C::REQUIRES_PADDING && !last && input.len() % block_size != 0 {
+        // Ensure proper block alignment for intermediate chunks (all modes).
+        // Only the final chunk (last=true) can be partial. This applies to all modes
+        // including CTR, as keystream buffering is not implemented.
+        if !last && input.len() % block_size != 0 {
             return Err(Error::ConfigError);
         }
 
