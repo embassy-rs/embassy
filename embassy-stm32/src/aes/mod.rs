@@ -903,7 +903,8 @@ impl<'d, T: Instance, M: Mode> Aes<'d, T, M> {
         p.cr().modify(|w| w.set_en(false));
 
         // Configure data type based on cipher mode (NO_SWAP, BYTE_SWAP, or BIT_SWAP)
-        p.cr().modify(|w| w.set_datatype(pac::aes::vals::Datatype::from_bits(cipher.datatype())));
+        p.cr()
+            .modify(|w| w.set_datatype(pac::aes::vals::Datatype::from_bits(cipher.datatype())));
 
         // Configure key size (false = 128-bit, true = 256-bit)
         let keysize = cipher.key_size();
@@ -939,7 +940,8 @@ impl<'d, T: Instance, M: Mode> Aes<'d, T, M> {
             cipher.prepare_key(p, dir);
 
             // Step 8: Select cipher mode and decryption mode (keep other params)
-            p.cr().modify(|w| w.set_mode(pac::aes::vals::Mode::from_bits(dir as u8)));
+            p.cr()
+                .modify(|w| w.set_mode(pac::aes::vals::Mode::from_bits(dir as u8)));
             cipher.set_mode(p); // Set CHMOD
 
             // Step 9: Write IV (for CBC decryption, AFTER key preparation)
