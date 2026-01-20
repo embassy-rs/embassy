@@ -232,7 +232,7 @@ impl<'d, PIO: Instance, const SM: usize> PioOneWire<'d, PIO, SM> {
         let mut value = 0;
         let mut last_zero = 0;
 
-        // The original Dallas app note used 1-based bit numbering with 0 being a 
+        // The original Dallas app note used 1-based bit numbering with 0 being a
         // sentinel value (ie None).  This is important if you have sensors with
         // both 0 and 1 as LSB of the family code.
         for bit in 1..=64 {
