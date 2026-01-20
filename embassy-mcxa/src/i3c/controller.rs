@@ -15,6 +15,8 @@ use crate::interrupt::typelevel;
 use crate::pac::i3c0::mctrl::{Dir as I3cDir, Type};
 use crate::peripherals::I3C0;
 
+const MAX_CHUNK_SIZE: usize = 255;
+
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 enum SendStop {
@@ -420,7 +422,7 @@ impl<'d, M: Mode> I3c<'d, M> {
             return Err(Error::InvalidReadBufferLength);
         }
 
-        for chunk in read.chunks_mut(256) {
+        for chunk in read.chunks_mut(MAX_CHUNK_SIZE) {
             match self.blocking_start(address, bus_type, Dir::Read, chunk.len() as u8) {
                 Err(e) => {
                     self.blocking_remediation(bus_type);
@@ -684,7 +686,7 @@ impl<'d> I3c<'d, Async> {
             self.blocking_remediation(bus_type);
         });
 
-        for chunk in read.chunks_mut(256) {
+        for chunk in read.chunks_mut(MAX_CHUNK_SIZE) {
             self.async_start(address, bus_type, Dir::Read, chunk.len() as u8)
                 .await?;
 
