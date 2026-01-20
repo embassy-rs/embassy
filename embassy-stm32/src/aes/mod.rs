@@ -241,11 +241,13 @@ pub trait Cipher<'c> {
     fn set_mode(&self, p: pac::aes::Aes);
 
     /// Returns the data type setting for this cipher mode.
-    /// - 0 = NO_SWAP (32-bit words, no swapping) - ECB, GCM
-    /// - 1 = BYTE_SWAP (swap bytes within 32-bit words) - CBC
-    /// - 2 = BIT_SWAP (reverse bits within bytes) - CTR
+    /// - 0 = NO_SWAP (32-bit words, no swapping) - Default for all modes
+    ///
+    /// Note: The ST HAL uses different DATATYPE values (BYTE_SWAP for CBC, BIT_SWAP for CTR)
+    /// with pre-swapped test vectors. This driver uses NO_SWAP consistently with big-endian
+    /// byte conversion (from_be_bytes/to_be_bytes) for direct NIST test vector compatibility.
     fn datatype(&self) -> u8 {
-        0 // Default: NO_SWAP
+        0 // NO_SWAP for all modes - handles NIST vectors correctly with from_be_bytes/to_be_bytes
     }
 
     /// Performs any key preparation within the processor, if necessary.
@@ -386,9 +388,7 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesCbc<'c, KEY_SIZE> {
         });
     }
 
-    fn datatype(&self) -> u8 {
-        1 // BYTE_SWAP for CBC mode (per ST HAL and RM Figure 122/123)
-    }
+    // Uses default datatype() = 0 (NO_SWAP) for NIST vector compatibility
 
     fn prepare_key(&self, p: pac::aes::Aes, dir: Direction) {
         // For CBC/ECB decryption, need to prepare key (RM Section 26.4.6 steps 2-7)
@@ -441,9 +441,7 @@ impl<'c, const KEY_SIZE: usize> Cipher<'c> for AesCtr<'c, KEY_SIZE> {
         });
     }
 
-    fn datatype(&self) -> u8 {
-        2 // BIT_SWAP for CTR mode (matches ST HAL)
-    }
+    // Uses default datatype() = 0 (NO_SWAP) for NIST vector compatibility
 }
 
 impl<'c> CipherSized for AesCtr<'c, { 128 / 8 }> {}
@@ -1052,22 +1050,12 @@ impl<'d, T: Instance, M: Mode> Aes<'d, T, M> {
 
         let p = T::regs();
 
-        // IV is loaded as 32-bit words
-        // NIST vectors are in big-endian byte order
+        // IV is loaded as 32-bit words in reverse register order (per ST HAL):
+        // IVR3 = first word (bytes 0-3), IVR2 = second word, IVR1 = third, IVR0 = fourth
         let iv_words = core::cmp::min(iv.len(), 16) / 4;
         for i in 0..iv_words {
             let word = u32::from_be_bytes([iv[i * 4], iv[i * 4 + 1], iv[i * 4 + 2], iv[i * 4 + 3]]);
-            p.ivr(i).write_value(word);
-        }
-
-        // Handle partial IV words
-        let remaining = core::cmp::min(iv.len(), 16) % 4;
-        if remaining > 0 {
-            let i = iv_words * 4;
-            let mut bytes = [0u8; 4];
-            bytes[..remaining].copy_from_slice(&iv[i..i + remaining]);
-            let word = u32::from_be_bytes(bytes);
-            p.ivr(iv_words).write_value(word);
+            p.ivr(iv_words - 1 - i).write_value(word); // Reverse order like ST HAL
         }
     }
 
