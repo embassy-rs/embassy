@@ -6,7 +6,6 @@ use embassy_time::Timer;
 use hal::bind_interrupts;
 use hal::clocks::config::Div8;
 use hal::config::Config;
-use hal::gpio::{Input, Pull};
 use hal::i3c::InterruptHandler;
 use hal::i3c::controller::{self, BusType, I3c};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
@@ -25,11 +24,6 @@ async fn main(_spawner: Spawner) {
     let p = hal::init(config);
 
     defmt::info!("I3C example");
-
-    // Note: P0_2 is connected to P1_8 on the FRDM_MCXA276 via a resistor, and
-    // defaults to SWO on the debug peripheral. Explicitly make it a high-z
-    // input.
-    let _pin = Input::new(p.P0_2, Pull::Disabled);
 
     let config = controller::Config::default();
     let mut i3c = I3c::new_async(p.I3C0, p.P1_9, p.P1_8, Irqs, config).unwrap();

@@ -110,6 +110,7 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     operator.configure_sirc_clocks_early()?;
     operator.configure_firc_clocks()?;
     operator.configure_fro16k_clocks()?;
+    #[cfg(not(feature = "sosc-as-gpio"))]
     operator.configure_sosc()?;
     operator.configure_spll()?;
 
@@ -165,6 +166,7 @@ pub struct Clocks {
 
     /// The `clk_in` is a clock provided by an external oscillator
     /// AKA SOSC
+    #[cfg(not(feature = "sosc-as-gpio"))]
     pub clk_in: Option<Clock>,
 
     // FRO180M stuff
@@ -585,6 +587,7 @@ impl Clocks {
     }
 
     /// Ensure the `clk_in` clock is active and valid at the given power state.
+    #[cfg(not(feature = "sosc-as-gpio"))]
     #[inline]
     pub fn ensure_clk_in_active(&self, at_level: &PoweredClock) -> Result<u32, ClockError> {
         self.ensure_clock_active(&self.clk_in, "clk_in", at_level)
@@ -1060,6 +1063,7 @@ impl ClockOperator<'_> {
     }
 
     /// Configure the SOSC/clk_in oscillator
+    #[cfg(not(feature = "sosc-as-gpio"))]
     fn configure_sosc(&mut self) -> Result<(), ClockError> {
         let Some(parts) = self.config.sosc.as_ref() else {
             return Ok(());
@@ -1068,8 +1072,6 @@ impl ClockOperator<'_> {
         // Enable (and wait for) LDO to be active
         self.ensure_ldo_active();
 
-        // TODO: something something pins? This seems to work when the pins are
-        // not enabled, even if GPIO hasn't been initialized at all yet.
         let eref = match parts.mode {
             config::SoscMode::CrystalOscillator => pac::scg0::sosccfg::Erefs::Internal,
             config::SoscMode::ActiveClock => pac::scg0::sosccfg::Erefs::External,
@@ -1188,6 +1190,7 @@ impl ClockOperator<'_> {
 
         // match on the source, ensure it is active already
         let res = match cfg.source {
+            #[cfg(not(feature = "sosc-as-gpio"))]
             config::SpllSource::Sosc => self
                 .clocks
                 .clk_in
@@ -1531,6 +1534,7 @@ impl ClockOperator<'_> {
         use pac::scg0::rccr::Scs as ScsW;
 
         let (var, name, clk) = match self.config.main_clock.source {
+            #[cfg(not(feature = "sosc-as-gpio"))]
             MainClockSource::SoscClkIn => (ScsW::Sosc, "clk_in", self.clocks.clk_in.as_ref()),
             MainClockSource::SircFro12M => (ScsW::Sirc, "fro_12m", self.clocks.fro_12m.as_ref()),
             MainClockSource::FircHfRoot => (ScsW::Firc, "fro_hf_root", self.clocks.fro_hf_root.as_ref()),

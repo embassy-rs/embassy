@@ -178,6 +178,7 @@ pub enum I3cClockSel {
     /// "fro_hf_div"
     FroHfDiv,
     /// SOSC/XTAL/EXTAL clock source
+    #[cfg(not(feature = "sosc-as-gpio"))]
     ClkIn,
     /// clk_1m/FRO_LF divided by 12
     Clk1M,
@@ -214,6 +215,7 @@ impl SPConfHelper for I3cConfig {
                 let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
                 (freq, Mux::ClkrootFunc2)
             }
+            #[cfg(not(feature = "sosc-as-gpio"))]
             I3cClockSel::ClkIn => {
                 let freq = clocks.ensure_clk_in_active(&self.power)?;
                 (freq, Mux::ClkrootFunc3)
@@ -255,6 +257,7 @@ pub enum Lpi2cClockSel {
     /// "fro_hf_div"
     FroHfDiv,
     /// SOSC/XTAL/EXTAL clock source
+    #[cfg(not(feature = "sosc-as-gpio"))]
     ClkIn,
     /// clk_1m/FRO_LF divided by 12
     Clk1M,
@@ -315,6 +318,7 @@ impl SPConfHelper for Lpi2cConfig {
                 let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
                 (freq, Mux::ClkrootFunc2)
             }
+            #[cfg(not(feature = "sosc-as-gpio"))]
             Lpi2cClockSel::ClkIn => {
                 let freq = clocks.ensure_clk_in_active(&self.power)?;
                 (freq, Mux::ClkrootFunc3)
@@ -366,6 +370,7 @@ pub enum LpuartClockSel {
     /// "fro_hf_div"
     FroHfDiv,
     /// SOSC/XTAL/EXTAL clock source
+    #[cfg(not(feature = "sosc-as-gpio"))]
     ClkIn,
     /// FRO16K/clk_16k source
     Clk16K,
@@ -434,6 +439,7 @@ impl SPConfHelper for LpuartConfig {
                 let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
                 (freq, Mux::ClkrootFunc2)
             }
+            #[cfg(not(feature = "sosc-as-gpio"))]
             LpuartClockSel::ClkIn => {
                 let freq = clocks.ensure_clk_in_active(&self.power)?;
                 (freq, Mux::ClkrootFunc3)
@@ -542,6 +548,7 @@ pub enum AdcClockSel {
     /// Gated `fro_hf`/`FRO180M` source
     FroHf,
     /// External Clock Source
+    #[cfg(not(feature = "sosc-as-gpio"))]
     ClkIn,
     /// 1MHz clock sourced by a divided `fro_lf`/`clk_12m`
     Clk1M,
@@ -574,6 +581,7 @@ impl SPConfHelper for AdcConfig {
                 let freq = clocks.ensure_fro_hf_active(&self.power)?;
                 (freq, Mux::ClkrootFunc1)
             }
+            #[cfg(not(feature = "sosc-as-gpio"))]
             AdcClockSel::ClkIn => {
                 let freq = clocks.ensure_clk_in_active(&self.power)?;
                 (freq, Mux::ClkrootFunc3)

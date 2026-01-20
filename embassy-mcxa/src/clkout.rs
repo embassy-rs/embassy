@@ -28,6 +28,7 @@ pub enum ClockOutSel {
     /// FRO180M Internal Oscillator, via divisor
     FroHfDiv,
     /// External Oscillator
+    #[cfg(not(feature = "sosc-as-gpio"))]
     ClkIn,
     /// 16KHz oscillator
     Clk16K,
@@ -89,6 +90,7 @@ fn check_sel(sel: ClockOutSel, level: PoweredClock, divisor: u32) -> Result<(u32
         let (freq, mux) = match sel {
             ClockOutSel::Fro12M => (c.ensure_fro_hf_active(&level)?, Mux::Clkroot12m),
             ClockOutSel::FroHfDiv => (c.ensure_fro_hf_div_active(&level)?, Mux::ClkrootFircDiv),
+            #[cfg(not(feature = "sosc-as-gpio"))]
             ClockOutSel::ClkIn => (c.ensure_clk_in_active(&level)?, Mux::ClkrootSosc),
             ClockOutSel::Clk16K => (c.ensure_clk_16k_vdd_core_active(&level)?, Mux::Clkroot16k),
             ClockOutSel::Pll1Clk => (c.ensure_pll1_clk_active(&level)?, Mux::ClkrootSpll),
@@ -183,6 +185,7 @@ mod sealed {
         };
     }
 
+    #[cfg(feature = "jtag-extras-as-gpio")]
     impl_pin!(P0_6, Mux12);
     impl_pin!(P3_6, Mux1);
     impl_pin!(P3_8, Mux12);

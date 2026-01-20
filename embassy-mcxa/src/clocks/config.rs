@@ -124,6 +124,9 @@ pub struct ClocksConfig {
     /// FRO16K clock source
     pub fro16k: Option<Fro16KConfig>,
     /// SOSC, clk_in clock source
+    ///
+    /// NOTE: Requires `sosc-as-gpio` feature disabled, which also disables GPIO access to P1_30 and P1_31
+    #[cfg(not(feature = "sosc-as-gpio"))]
     pub sosc: Option<SoscConfig>,
     /// SPLL
     pub spll: Option<SpllConfig>,
@@ -177,6 +180,9 @@ pub struct VddPowerConfig {
 #[derive(Copy, Clone)]
 pub enum MainClockSource {
     /// Clock derived from `clk_in`, via the external oscillator (8-50MHz)
+    ///
+    /// NOTE: Requires `sosc-as-gpio` feature disabled, which also disables GPIO access to P1_30 and P1_31
+    #[cfg(not(feature = "sosc-as-gpio"))]
     SoscClkIn,
     /// Clock derived from `fro_12m`, via the internal 12MHz oscillator (12MHz)
     SircFro12M,
@@ -237,6 +243,7 @@ pub struct SpllConfig {
 /// Input clock source for the PLL1/SPLL
 pub enum SpllSource {
     /// External Oscillator (8-50MHz)
+    #[cfg(not(feature = "sosc-as-gpio"))]
     Sosc,
     /// Fast Internal Oscillator (45MHz)
     // NOTE: Figure 69 says "firc_45mhz"/"clk_45m", not "fro_hf_gated",
@@ -421,6 +428,7 @@ impl Default for ClocksConfig {
                 vsys_domain_active: true,
                 vdd_core_domain_active: true,
             }),
+            #[cfg(not(feature = "sosc-as-gpio"))]
             sosc: None,
             spll: None,
         }
