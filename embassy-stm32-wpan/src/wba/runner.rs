@@ -38,11 +38,12 @@
 //! }
 //! ```
 
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::future::poll_fn;
+use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
+use core::task::Poll;
 
-use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
-use embassy_sync::signal::Signal;
-use embassy_time::Duration;
+use embassy_futures::join;
+use embassy_sync::waitqueue::AtomicWaker;
 
 use super::context;
 // Note: complete_ble_link_layer_init is now called as part of init_ble_stack()
@@ -97,19 +98,8 @@ fn process_ble_stack() {
 /// Whether the link layer init has been completed
 static LL_INIT_COMPLETED: AtomicBool = AtomicBool::new(false);
 
-/// Maximum time to wait when idle before checking again (milliseconds)
-const MAX_IDLE_PERIOD_MS: u64 = 10;
-
-/// Signal used to wake the runner when there's BLE work to do
-static RUNNER_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
-
 /// Signal to trigger BleStack_Process (equivalent to Sidewalk SDK's BleHostSemaphore)
-static BLE_PROCESS_SIGNAL: Signal<CriticalSectionRawMutex, ()> = Signal::new();
-
-/// Wake the BLE process (call this after HCI commands, radio events, etc.)
-pub fn wake_ble_process() {
-    BLE_PROCESS_SIGNAL.signal(());
-}
+pub(crate) static BLE_WAKER: AtomicWaker = AtomicWaker::new();
 
 /// BLE stack runner function
 ///
@@ -155,102 +145,34 @@ pub async fn ble_runner() -> ! {
         defmt::trace!("BLE runner: sequencer context initialized");
     }
 
-    loop {
-        // Check if there's sequencer work to do
-        let has_work =
-            util_seq::has_pending_tasks() || util_seq::has_pending_events() || context::sequencer_has_pending_work();
+    join::join(
+        async {
+            loop {
+                util_seq::wait_for_event().await;
 
-        if has_work {
-            // Resume the sequencer context
-            // This will run BLE stack tasks until the sequencer yields
-            context::sequencer_resume();
-
-            // After link layer scheduling, trigger BleStack_Process
-            // Per ST docs: "BleStack_Process shall be called after Link Layer has been scheduled"
-            wake_ble_process();
-        }
-
-        // Wait for BleStack_Process signal with timeout
-        // This is equivalent to the Sidewalk SDK's osSemaphoreAcquire(BleHostSemaphore)
-        let signaled = embassy_time::with_timeout(Duration::from_millis(100), BLE_PROCESS_SIGNAL.wait()).await;
-
-        // Only process BLE host stack events when signaled, not on timeout
-        // This prevents interfering with advertising timing
-        if signaled.is_ok() {
-            // Process BLE host stack events
-            // This generates HCI events which call BLECB_Indication
-            process_ble_stack();
-        }
-
-        // Yield to embassy executor
-        embassy_futures::yield_now().await;
-    }
-}
-
-/// Signal-based BLE runner function
-///
-/// This version is more power-efficient as it waits on a signal rather than
-/// polling. The radio interrupt handlers automatically signal this runner.
-///
-/// # Example
-///
-/// ```no_run
-/// use embassy_executor::Spawner;
-/// use embassy_stm32_wpan::wba::runner::ble_runner_signaled;
-///
-/// #[embassy_executor::task]
-/// async fn ble_runner_task() {
-///     ble_runner_signaled().await
-/// }
-/// ```
-pub async fn ble_runner_signaled() -> ! {
-    #[cfg(feature = "defmt")]
-    defmt::info!("BLE signaled runner started");
-
-    loop {
-        // Wait for signal or timeout
-        let timeout = embassy_time::with_timeout(Duration::from_millis(MAX_IDLE_PERIOD_MS), RUNNER_SIGNAL.wait()).await;
-
-        // Clear the signal (reset for next time)
-        RUNNER_SIGNAL.reset();
-
-        // Check if there's work (either we were signaled or timed out)
-        let has_work =
-            util_seq::has_pending_tasks() || util_seq::has_pending_events() || context::sequencer_has_pending_work();
-
-        if has_work || timeout.is_ok() {
-            // Resume the sequencer
-            context::sequencer_resume();
-
-            // Call BleStack_Process to process BLE host stack events
-            unsafe {
-                let mut iterations = 0;
-                while BleStack_Process() == BLE_SLEEPMODE_RUNNING {
-                    iterations += 1;
-                    if iterations > 100 {
-                        break;
-                    }
-                }
+                // Resume the sequencer context
+                // This will run BLE stack tasks until the sequencer yields
+                context::sequencer_resume();
+                BLE_WAKER.wake();
             }
+        },
+        poll_fn(|cx| {
+            BLE_WAKER.register(cx.waker());
+            compiler_fence(Ordering::Release);
 
-            // Yield to let other tasks run
-            embassy_futures::yield_now().await;
-        }
-    }
-}
+            process_ble_stack();
 
-/// Wake the BLE runner
-///
-/// Call this from interrupt handlers when BLE events occur.
-/// This is automatically called by the radio interrupt handlers.
-pub fn wake_runner() {
-    RUNNER_SIGNAL.signal(());
+            Poll::<()>::Pending
+        }),
+    )
+    .await;
+
+    loop {}
 }
 
 /// Integrate with the link layer ISR to wake the runner
 ///
 /// This should be called from the radio interrupt handler.
 pub fn on_radio_interrupt() {
-    context::sequencer_wake();
-    wake_runner();
+    util_seq::seq_pend();
 }

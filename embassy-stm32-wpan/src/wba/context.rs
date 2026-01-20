@@ -30,11 +30,13 @@
 
 use core::arch::asm;
 use core::cell::UnsafeCell;
-use core::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use core::sync::atomic::{AtomicU8, Ordering};
+
+use aligned::{A8, Aligned};
 
 /// Size of the sequencer stack in bytes (8KB)
 /// This needs to be large enough for the C BLE stack's call depth
-const SEQUENCER_STACK_SIZE: usize = 8 * 1024;
+const SEQUENCER_CTX_STACK_SIZE: usize = 8 * 1024;
 
 /// Saved CPU context for context switching
 #[repr(C)]
@@ -88,10 +90,8 @@ struct SequencerContext {
     runner_ctx: UnsafeCell<SavedContext>,
     /// Current state
     state: AtomicU8,
-    /// Whether there's pending work
-    has_pending_work: AtomicBool,
     /// The sequencer's stack (must be 8-byte aligned)
-    stack: UnsafeCell<[u8; SEQUENCER_STACK_SIZE]>,
+    seq_stack: Aligned<A8, UnsafeCell<[u8; SEQUENCER_CTX_STACK_SIZE]>>,
 }
 
 unsafe impl Sync for SequencerContext {}
@@ -102,8 +102,7 @@ impl SequencerContext {
             seq_ctx: UnsafeCell::new(SavedContext::new()),
             runner_ctx: UnsafeCell::new(SavedContext::new()),
             state: AtomicU8::new(SequencerState::Uninitialized as u8),
-            has_pending_work: AtomicBool::new(false),
-            stack: UnsafeCell::new([0u8; SEQUENCER_STACK_SIZE]),
+            seq_stack: Aligned(UnsafeCell::new([0u8; SEQUENCER_CTX_STACK_SIZE])),
         }
     }
 
@@ -117,18 +116,18 @@ impl SequencerContext {
 }
 
 /// Global sequencer context
-static SEQUENCER: SequencerContext = SequencerContext::new();
+static SEQUENCER_CTX: SequencerContext = SequencerContext::new();
 
 /// Initialize the sequencer stack
 ///
 /// This must be called once before using the sequencer.
 /// Returns the initial stack pointer for the sequencer.
 fn init_sequencer_stack() -> u32 {
-    let stack = unsafe { &mut *SEQUENCER.stack.get() };
+    let stack = unsafe { &mut *SEQUENCER_CTX.seq_stack.get() };
 
     // Stack grows downward, so we start at the top
     // Ensure 8-byte alignment (ARM requirement for function calls)
-    let stack_top = stack.as_ptr() as usize + SEQUENCER_STACK_SIZE;
+    let stack_top = stack.as_ptr() as usize + SEQUENCER_CTX_STACK_SIZE;
     let aligned_top = stack_top & !0x7; // 8-byte align
 
     aligned_top as u32
@@ -141,7 +140,7 @@ fn init_sequencer_stack() -> u32 {
 extern "C" fn sequencer_entry() -> ! {
     loop {
         // Poll and execute any pending sequencer tasks
-        super::util_seq::poll_pending_tasks();
+        super::util_seq::run();
 
         // Yield back to the runner
         // This will return when the runner resumes us
@@ -158,7 +157,7 @@ extern "C" fn sequencer_entry() -> ! {
 ///
 /// Must be called from a proper task context with a valid stack.
 pub fn sequencer_resume() {
-    let state = SEQUENCER.state();
+    let state = SEQUENCER_CTX.state();
 
     match state {
         SequencerState::Uninitialized => {
@@ -169,7 +168,7 @@ pub fn sequencer_resume() {
             // We need to set up the stack so that when we "restore" to it,
             // it will start executing sequencer_entry
             unsafe {
-                let seq_ctx = &mut *SEQUENCER.seq_ctx.get();
+                let seq_ctx = &mut *SEQUENCER_CTX.seq_ctx.get();
 
                 // Set up fake saved context on sequencer stack
                 // Stack layout (growing down):
@@ -201,7 +200,7 @@ pub fn sequencer_resume() {
                 seq_ctx.initialized = true;
             }
 
-            SEQUENCER.set_state(SequencerState::Yielded);
+            SEQUENCER_CTX.set_state(SequencerState::Yielded);
 
             // Now do the actual switch
             do_context_switch();
@@ -231,32 +230,19 @@ pub fn sequencer_resume() {
 /// This is called from within the sequencer context when it has no more
 /// work to do (would otherwise WFE).
 fn sequencer_yield_inner() {
-    SEQUENCER.set_state(SequencerState::Yielded);
+    SEQUENCER_CTX.set_state(SequencerState::Yielded);
     do_context_switch();
     // When we return here, we've been resumed
-    SEQUENCER.set_state(SequencerState::Running);
+    SEQUENCER_CTX.set_state(SequencerState::Running);
 }
 
 /// Public function to yield from sequencer
 ///
 /// This should be called instead of WFE when the sequencer is idle.
 pub fn sequencer_yield() {
-    if SEQUENCER.state() == SequencerState::Running {
+    if SEQUENCER_CTX.state() == SequencerState::Running {
         sequencer_yield_inner();
     }
-}
-
-/// Signal that there's pending work for the sequencer
-pub fn sequencer_wake() {
-    SEQUENCER.has_pending_work.store(true, Ordering::Release);
-    // Send event to wake up WFE if the runner is waiting
-    #[cfg(target_arch = "arm")]
-    cortex_m::asm::sev();
-}
-
-/// Check if there's pending work for the sequencer
-pub fn sequencer_has_pending_work() -> bool {
-    SEQUENCER.has_pending_work.swap(false, Ordering::AcqRel)
 }
 
 /// Perform the actual context switch
@@ -265,18 +251,18 @@ pub fn sequencer_has_pending_work() -> bool {
 /// Works bidirectionally - runner->sequencer and sequencer->runner.
 #[inline(never)]
 fn do_context_switch() {
-    let state = SEQUENCER.state();
+    let state = SEQUENCER_CTX.state();
     let switching_to_sequencer = state == SequencerState::Yielded;
 
     unsafe {
         let (save_ctx, restore_ctx) = if switching_to_sequencer {
-            (SEQUENCER.runner_ctx.get(), SEQUENCER.seq_ctx.get())
+            (SEQUENCER_CTX.runner_ctx.get(), SEQUENCER_CTX.seq_ctx.get())
         } else {
-            (SEQUENCER.seq_ctx.get(), SEQUENCER.runner_ctx.get())
+            (SEQUENCER_CTX.seq_ctx.get(), SEQUENCER_CTX.runner_ctx.get())
         };
 
         if switching_to_sequencer {
-            SEQUENCER.set_state(SequencerState::Running);
+            SEQUENCER_CTX.set_state(SequencerState::Running);
         }
 
         context_switch(save_ctx, restore_ctx);
@@ -328,7 +314,7 @@ unsafe fn context_switch(save_ctx: *mut SavedContext, restore_ctx: *mut SavedCon
 
 /// Check if we're currently in the sequencer context
 pub fn in_sequencer_context() -> bool {
-    SEQUENCER.state() == SequencerState::Running
+    SEQUENCER_CTX.state() == SequencerState::Running
 }
 
 #[cfg(test)]

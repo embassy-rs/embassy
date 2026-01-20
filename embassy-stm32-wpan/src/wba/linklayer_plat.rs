@@ -1098,7 +1098,7 @@ pub unsafe extern "C" fn BLECB_Indication(data: *const u8, length: u16, _ext_dat
 
                 // Signal BleStack_Process to run again
                 // This is equivalent to Sidewalk SDK's osSemaphoreRelease(BleHostSemaphore)
-                super::runner::wake_ble_process();
+                super::runner::BLE_WAKER.wake();
             }
             Err(_) => {
                 #[cfg(feature = "defmt")]
