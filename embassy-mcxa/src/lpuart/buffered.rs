@@ -212,7 +212,9 @@ impl<'a> BufferedLpuart<'a> {
         Ok(())
     }
 
-    /// Create a new full duplex buffered LPUART
+    /// Create a new full duplex buffered LPUART.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new<T: Instance>(
         inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -239,7 +241,9 @@ impl<'a> BufferedLpuart<'a> {
         Ok(Self { tx, rx })
     }
 
-    /// Create a new buffered LPUART instance with RTS/CTS flow control
+    /// Create a new buffered LPUART instance with RTS/CTS flow control.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_with_rtscts<T: Instance>(
         inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -270,7 +274,9 @@ impl<'a> BufferedLpuart<'a> {
         Ok(Self { tx, rx })
     }
 
-    /// Create a new buffered LPUART with only RTS flow control (RX flow control)
+    /// Create a new buffered LPUART with only RTS flow control (RX flow control).
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_with_rts<T: Instance>(
         inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -299,7 +305,9 @@ impl<'a> BufferedLpuart<'a> {
         Ok(Self { tx, rx })
     }
 
-    /// Create a new buffered LPUART with only CTS flow control (TX flow control)
+    /// Create a new buffered LPUART with only CTS flow control (TX flow control).
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_with_cts<T: Instance>(
         inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -371,6 +379,9 @@ impl<'a> BufferedLpuartTx<'a> {
         })
     }
 
+    /// Create a new TX-only LPUART.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new<T: Instance>(
         inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -383,7 +394,9 @@ impl<'a> BufferedLpuartTx<'a> {
         Self::new_inner::<T>(inner, tx_pin.into(), None, tx_buffer, config)
     }
 
-    /// Create a new TX-only buffered LPUART with CTS flow control
+    /// Create a new TX-only buffered LPUART with CTS flow control.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_with_cts<T: Instance>(
         inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -511,7 +524,9 @@ impl<'a> BufferedLpuartRx<'a> {
         })
     }
 
-    /// Create a new RX-only buffered LPUART
+    /// Create a new RX-only buffered LPUART.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new<T: Instance>(
         inner: Peri<'a, T>,
         rx_pin: Peri<'a, impl RxPin<T>>,
@@ -524,7 +539,9 @@ impl<'a> BufferedLpuartRx<'a> {
         Self::new_inner::<T>(inner, rx_pin.into(), None, rx_buffer, config)
     }
 
-    /// Create a new RX-only buffered LPUART with RTS flow control
+    /// Create a new RX-only buffered LPUART with RTS flow control.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_with_rts<T: Instance>(
         inner: Peri<'a, T>,
         rx_pin: Peri<'a, impl RxPin<T>>,
@@ -610,6 +627,28 @@ impl<'a> BufferedLpuartRx<'a> {
         });
 
         Ok(read)
+    }
+}
+
+// ============================================================================
+// DROP TRAIT IMPLEMENTATIONS
+// ============================================================================
+
+impl<'a> Drop for BufferedLpuartTx<'a> {
+    fn drop(&mut self) {
+        self._tx_pin.set_as_disabled();
+        if let Some(cts_pin) = &self._cts_pin {
+            cts_pin.set_as_disabled();
+        }
+    }
+}
+
+impl<'a> Drop for BufferedLpuartRx<'a> {
+    fn drop(&mut self) {
+        self._rx_pin.set_as_disabled();
+        if let Some(rts_pin) = &self._rts_pin {
+            rts_pin.set_as_disabled();
+        }
     }
 }
 

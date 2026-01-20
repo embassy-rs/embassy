@@ -10,7 +10,7 @@ use mcxa_pac::lpi2c0::mtdr::Cmd;
 use super::{Async, Blocking, Error, Info, Instance, InterruptHandler, Mode, Result, SclPin, SdaPin};
 use crate::clocks::periph_helpers::{Div4, Lpi2cClockSel, Lpi2cConfig};
 use crate::clocks::{PoweredClock, enable_and_reset};
-use crate::gpio::AnyPin;
+use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel::Interrupt;
 
 /// Bus speed (nominal SCL, no clock stretching)
@@ -79,6 +79,8 @@ pub struct I2c<'d, M: Mode> {
 
 impl<'d> I2c<'d, Blocking> {
     /// Create a new blocking instance of the I2C Controller bus driver.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_blocking<T: Instance>(
         peri: Peri<'d, T>,
         scl: Peri<'d, impl SclPin<T>>,
@@ -405,6 +407,8 @@ impl<'d, M: Mode> I2c<'d, M> {
 
 impl<'d> I2c<'d, Async> {
     /// Create a new async instance of the I2C Controller bus driver.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_async<T: Instance>(
         peri: Peri<'d, T>,
         scl: Peri<'d, impl SclPin<T>>,
@@ -625,6 +629,13 @@ impl<'d> I2c<'d, Async> {
     pub async fn async_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<()> {
         self.async_write_internal(address, write, SendStop::No).await?;
         self.async_read_internal(address, read, SendStop::Yes).await
+    }
+}
+
+impl<'d, M: Mode> Drop for I2c<'d, M> {
+    fn drop(&mut self) {
+        self._scl.set_as_disabled();
+        self._sda.set_as_disabled();
     }
 }
 

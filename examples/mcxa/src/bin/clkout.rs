@@ -75,6 +75,8 @@ async fn main(_spawner: Spawner) {
         output.set_low();
         Timer::after_millis(750).await;
 
+        drop(output);
+
         for (name, conf) in configs.iter() {
             defmt::info!("Running {=str}", name);
 

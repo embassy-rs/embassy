@@ -251,6 +251,8 @@ pub(crate) trait SealedPin {
     fn set_slew_rate(&self, slew_rate: Sre);
 
     fn set_enable_input_buffer(&self);
+
+    fn set_as_disabled(&self);
 }
 
 /// GPIO pin trait.
@@ -276,22 +278,27 @@ impl SealedPin for AnyPin {
         self.port_index()
     }
 
+    #[inline(always)]
     fn gpio(&self) -> &'static crate::pac::gpio0::RegisterBlock {
         self.gpio()
     }
 
+    #[inline(always)]
     fn port_reg(&self) -> &'static crate::pac::port0::RegisterBlock {
         self.port_reg()
     }
 
+    #[inline(always)]
     fn pcr_reg(&self) -> &'static crate::pac::port0::Pcr0 {
         self.pcr_reg()
     }
 
+    #[inline(always)]
     fn set_function(&self, function: Mux) {
         self.pcr_reg().modify(|_, w| w.mux().variant(function));
     }
 
+    #[inline(always)]
     fn set_pull(&self, pull: Pull) {
         let (pull_enable, pull_select) = pull.into();
         self.pcr_reg().modify(|_, w| {
@@ -300,16 +307,25 @@ impl SealedPin for AnyPin {
         });
     }
 
+    #[inline(always)]
     fn set_drive_strength(&self, strength: Dse) {
         self.pcr_reg().modify(|_, w| w.dse().variant(strength));
     }
 
+    #[inline(always)]
     fn set_slew_rate(&self, slew_rate: Sre) {
         self.pcr_reg().modify(|_, w| w.sre().variant(slew_rate));
     }
 
+    #[inline(always)]
     fn set_enable_input_buffer(&self) {
         self.pcr_reg().modify(|_, w| w.ibe().ibe1());
+    }
+
+    #[inline(always)]
+    fn set_as_disabled(&self) {
+        self.gpio().pddr().modify(|_, w| w.pdd(self.pin()).clear_bit());
+        self.gpio().pidr().modify(|_, w| w.pid(self.pin()).set_bit());
     }
 }
 
@@ -319,26 +335,32 @@ macro_rules! impl_pin {
     ($peri:ident, $port:expr, $pin:expr, $block:ident) => {
         paste! {
             impl SealedPin for crate::peripherals::$peri {
+                #[inline(always)]
                 fn port(&self) -> u8 {
                     $port
                 }
 
+                #[inline(always)]
                 fn pin(&self) -> u8 {
                     $pin
                 }
 
+                #[inline(always)]
                 fn gpio(&self) -> &'static crate::pac::gpio0::RegisterBlock {
                     unsafe { &*crate::pac::$block::ptr() }
                 }
 
+                #[inline(always)]
                 fn port_reg(&self) -> &'static crate::pac::port0::RegisterBlock {
                     unsafe { &*crate::pac::[<Port $port>]::ptr() }
                 }
 
+                #[inline(always)]
                 fn pcr_reg(&self) -> &'static crate::pac::port0::Pcr0 {
                     self.port_reg().[<pcr $pin>]()
                 }
 
+                #[inline(always)]
                 fn set_function(&self, function: Mux) {
                     unsafe {
                         let port_reg = &*crate::pac::[<Port $port>]::ptr();
@@ -348,6 +370,7 @@ macro_rules! impl_pin {
                     }
                 }
 
+                #[inline(always)]
                 fn set_pull(&self, pull: Pull) {
                     let port_reg = unsafe {&*crate::pac::[<Port $port>]::ptr()};
                     let (pull_enable, pull_select) = pull.into();
@@ -357,19 +380,28 @@ macro_rules! impl_pin {
                     });
                 }
 
+                #[inline(always)]
                 fn set_drive_strength(&self, strength: Dse) {
                     let port_reg = unsafe {&*crate::pac::[<Port $port>]::ptr()};
                     port_reg.[<pcr $pin>]().modify(|_, w| w.dse().variant(strength));
                 }
 
+                #[inline(always)]
                 fn set_slew_rate(&self, slew_rate: Sre) {
                     let port_reg = unsafe {&*crate::pac::[<Port $port>]::ptr()};
                     port_reg.[<pcr $pin>]().modify(|_, w| w.sre().variant(slew_rate));
                 }
 
+                #[inline(always)]
                 fn set_enable_input_buffer(&self) {
                     let port_reg = unsafe {&*crate::pac::[<Port $port>]::ptr()};
                     port_reg.[<pcr $pin>]().modify(|_, w| w.ibe().ibe1());
+                }
+
+                #[inline(always)]
+                fn set_as_disabled(&self) {
+                    self.gpio().pddr().modify(|_, w| w.pdd(self.pin()).clear_bit());
+                    self.gpio().pidr().modify(|_, w| w.pid(self.pin()).set_bit());
                 }
             }
 
@@ -747,6 +779,13 @@ impl<'d> Flex<'d> {
     #[inline]
     pub fn wait_for_any_edge(&mut self) -> impl Future<Output = ()> + use<'_, 'd> {
         self.wait_for_inner(crate::pac::gpio0::icr::Irqc::Irqc11)
+    }
+}
+
+impl<'d> Drop for Flex<'d> {
+    #[inline]
+    fn drop(&mut self) {
+        self.pin.set_as_disabled();
     }
 }
 

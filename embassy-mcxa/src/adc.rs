@@ -8,7 +8,7 @@ use paste::paste;
 
 use crate::clocks::periph_helpers::{AdcClockSel, AdcConfig, Div4};
 use crate::clocks::{ClockError, Gate, PoweredClock, enable_and_reset};
-use crate::gpio::{GpioPin, SealedPin};
+use crate::gpio::{AnyPin, GpioPin, SealedPin};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
 use crate::pac::adc1::cfg::{HptExdi, Pwrsel, Refsel, Tcmdres, Tprictrl, Tres};
@@ -201,16 +201,15 @@ pub struct InterruptHandler<T: Instance> {
 /// ADC driver instance.
 pub struct Adc<'a, M: Mode> {
     _inst: PhantomData<&'a M>,
+    pin: Peri<'a, AnyPin>,
     channel_idx: u8,
     info: &'static Info,
 }
 
 impl<'a> Adc<'a, Blocking> {
     /// Create a new blocking instance of the ADC driver.
-    /// # Arguments
-    /// * `_inst` - ADC peripheral instance
-    /// * `pin` - GPIO pin to use for ADC
-    /// * `config` - ADC configuration
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_blocking<T: Instance>(
         _inst: Peri<'a, T>,
         pin: Peri<'a, impl AdcPin<T>>,
@@ -323,11 +322,7 @@ impl<'a> Adc<'a, Blocking> {
 impl<'a> Adc<'a, Async> {
     /// Initialize ADC with interrupt support.
     ///
-    /// # Arguments
-    /// * `_inst` - ADC peripheral instance
-    /// * `pin` - GPIO pin to use for ADC
-    /// * `_irq` - Interrupt binding for this ADC instance
-    /// * `config` - ADC configuration
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_async<T: Instance>(
         _inst: Peri<'a, T>,
         pin: Peri<'a, impl AdcPin<T>>,
@@ -520,6 +515,7 @@ impl<'a, M: Mode> Adc<'a, M> {
         Ok(Self {
             _inst: PhantomData,
             channel_idx: pin.channel(),
+            pin: pin.into(),
             info,
         })
     }
@@ -669,6 +665,12 @@ impl<'a, M: Mode> Adc<'a, M> {
             trigger_id_source: fifo.tsrc().bits(),
             conv_value: fifo.d().bits(),
         })
+    }
+}
+
+impl<'a, M: Mode> Drop for Adc<'a, M> {
+    fn drop(&mut self) {
+        self.pin.set_as_disabled();
     }
 }
 
