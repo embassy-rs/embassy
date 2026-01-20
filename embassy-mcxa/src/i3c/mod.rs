@@ -146,14 +146,10 @@ impl Mode for Async {}
 
 macro_rules! impl_pin {
     ($pin:ident, $fn:ident, $trait:ident) => {
-        impl_pin!(crate::peripherals, $pin, $fn, $trait);
-    };
-
-    ($perip:path, $pin:ident, $fn:ident, $trait:ident) => {
         paste! {
-            impl sealed::Sealed for $perip::$pin {}
+            impl sealed::Sealed for crate::peripherals::$pin {}
 
-            impl $trait<crate::peripherals::I3C0> for $perip::$pin {
+            impl $trait<crate::peripherals::I3C0> for crate::peripherals::$pin {
                 fn mux(&self) {
                     self.set_pull(crate::gpio::Pull::Disabled);
                     self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
@@ -172,5 +168,7 @@ impl_pin!(P0_18, Mux10, SdaPin);
 impl_pin!(P1_8, Mux10, SdaPin);
 impl_pin!(P1_9, Mux10, SclPin);
 // impl_pin!(P1_11, Mux10, PurPin); REVISIT: what is this for?
-impl_pin!(crate::internal_peripherals, P1_30, Mux10, SdaPin);
-impl_pin!(crate::internal_peripherals, P1_31, Mux10, SclPin);
+#[cfg(feature = "sosc-as-gpio")]
+impl_pin!(P1_30, Mux10, SdaPin);
+#[cfg(feature = "sosc-as-gpio")]
+impl_pin!(P1_31, Mux10, SclPin);

@@ -453,7 +453,10 @@ pub(crate) use mcxa_pac as pac;
 /// Initialize HAL with configuration (mirrors embassy-imxrt style). Minimal: just take peripherals.
 /// Also applies configurable NVIC priority for the OSTIMER OS_EVENT interrupt (no enabling).
 pub fn init(cfg: crate::config::Config) -> Peripherals {
+    // Might not need to be mutable if none of the `...-as-gpio` features are active.
+    #[allow(unused_mut)]
     let mut peripherals = Peripherals::take();
+
     crate::interrupt::RTC.set_priority(cfg.rtc_interrupt_priority);
     crate::interrupt::GPIO0.set_priority(cfg.gpio_interrupt_priority);
     crate::interrupt::GPIO1.set_priority(cfg.gpio_interrupt_priority);

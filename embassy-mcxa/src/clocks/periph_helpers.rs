@@ -177,6 +177,7 @@ pub enum I3cClockSel {
     /// "fro_hf_div"
     FroHfDiv,
     /// SOSC/XTAL/EXTAL clock source
+    #[cfg(not(feature = "sosc-as-gpio"))]
     ClkIn,
     /// clk_1m/FRO_LF divided by 12
     Clk1M,
@@ -213,6 +214,7 @@ impl SPConfHelper for I3cConfig {
                 let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
                 (freq, Mux::ClkrootFunc2)
             }
+            #[cfg(not(feature = "sosc-as-gpio"))]
             I3cClockSel::ClkIn => {
                 let freq = clocks.ensure_clk_in_active(&self.power)?;
                 (freq, Mux::ClkrootFunc3)
