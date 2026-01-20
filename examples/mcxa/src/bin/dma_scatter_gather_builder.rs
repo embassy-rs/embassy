@@ -101,7 +101,8 @@ async fn main(_spawner: Spawner) {
     // - Sets INTMAJOR on all TCDs
     // - Loads the first TCD into hardware
     // - Returns a Transfer future
-    let transfer = builder.build(&dma_ch0).expect("Failed to build scatter-gather");
+    // SAFETY: All source and destination buffers are static and remain valid for the transfer duration
+    let transfer = unsafe { builder.build(&dma_ch0).expect("Failed to build scatter-gather") };
     transfer.blocking_wait();
 
     defmt::info!("Scatter-gather transfer complete!");
