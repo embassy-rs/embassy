@@ -954,6 +954,57 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
         )
     }
 
+    /// Create new blocking XSPI driver for octo-spi with DQS pin support.
+    /// Required for high-speed DTR mode operation (>145 MHz).
+    pub fn new_blocking_xspi_dqs(
+        peri: Peri<'d, T>,
+        clk: Peri<'d, impl CLKPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        ncs: Peri<'d, impl NCSEither<T>>,
+        dqs0: Peri<'d, impl DQS0Pin<T>>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d4, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d5, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d6, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d7, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            ncs.sel(),
+            new_pin!(
+                ncs,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
+            None,
+            new_pin!(dqs0, AfType::input(Pull::None)),
+            None,
+            None,
+            config,
+            XspiWidth::OCTO,
+            false,
+        )
+    }
+
     /// Create new blocking XSPI driver for 16-bit hexadeca-spi external chips
     pub fn new_blocking_xspi_hexa(
         peri: Peri<'d, T>,
@@ -1308,6 +1359,58 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         )
     }
 
+    /// Create new async XSPI driver for octo-spi with DQS pin support.
+    /// Required for high-speed DTR mode operation (>145 MHz).
+    pub fn new_xspi_dqs(
+        peri: Peri<'d, T>,
+        clk: Peri<'d, impl CLKPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        ncs: Peri<'d, impl NCSEither<T>>,
+        dqs0: Peri<'d, impl DQS0Pin<T>>,
+        dma: Peri<'d, impl XDma<T>>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d4, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d5, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d6, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d7, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            ncs.sel(),
+            new_pin!(
+                ncs,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
+            None,
+            new_pin!(dqs0, AfType::input(Pull::None)),
+            None,
+            new_dma!(dma),
+            config,
+            XspiWidth::OCTO,
+            false,
+        )
+    }
+
     /// Create new async XSPI driver for 16-bit hexadeca-spi external chips
     pub fn new_xspi_hexa(
         peri: Peri<'d, T>,
@@ -1358,6 +1461,67 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             ),
             None,
             None,
+            None,
+            new_dma!(dma),
+            config,
+            XspiWidth::HEXA,
+            false,
+        )
+    }
+
+    /// Create new async XSPI driver for hexadeca-spi with DQS pin support.
+    /// Required for high-speed DTR mode operation (>145 MHz).
+    #[cfg(xspim_v1)]
+    pub fn new_xspi_hexa_dqs(
+        peri: Peri<'d, T>,
+        clk: Peri<'d, impl CLKPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        d8: Peri<'d, impl D8Pin<T>>,
+        d9: Peri<'d, impl D9Pin<T>>,
+        d10: Peri<'d, impl D10Pin<T>>,
+        d11: Peri<'d, impl D11Pin<T>>,
+        d12: Peri<'d, impl D12Pin<T>>,
+        d13: Peri<'d, impl D13Pin<T>>,
+        d14: Peri<'d, impl D14Pin<T>>,
+        d15: Peri<'d, impl D15Pin<T>>,
+        ncs: Peri<'d, impl NCSEither<T>>,
+        dqs0: Peri<'d, impl DQS0Pin<T>>,
+        dma: Peri<'d, impl XDma<T>>,
+        config: Config,
+    ) -> Self {
+        Self::new_inner(
+            peri,
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d4, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d5, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d6, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d7, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d8, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d9, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d10, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d11, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d12, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d13, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d14, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d15, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            ncs.sel(),
+            new_pin!(
+                ncs,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
+            None,
+            new_pin!(dqs0, AfType::input(Pull::None)),
             None,
             new_dma!(dma),
             config,
