@@ -799,7 +799,9 @@ impl_pin!(P0_20, ADC0, Mux0, 10);
 impl_pin!(P0_21, ADC0, Mux0, 11);
 impl_pin!(P0_22, ADC0, Mux0, 12);
 impl_pin!(P0_23, ADC0, Mux0, 13);
+#[cfg(feature = "jtag-extras-as-gpio")]
 impl_pin!(P0_3, ADC0, Mux0, 14);
+#[cfg(feature = "jtag-extras-as-gpio")]
 impl_pin!(P0_6, ADC0, Mux0, 15);
 impl_pin!(P1_0, ADC0, Mux0, 16);
 impl_pin!(P1_1, ADC0, Mux0, 17);

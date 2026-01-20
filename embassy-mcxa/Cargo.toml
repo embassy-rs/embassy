@@ -85,6 +85,19 @@ swd-as-gpio = []
 # in the HAL init function.
 swd-swo-as-gpio = []
 
+# Allows for using the extra JTAG pins (TDI, ISPMODE_N) as normal GPIOs. You
+# must also select `swd-as-gpio`, `swd-swo-as-gpio`, and MAYBE `dangerous-reset-as-gpio`
+# to recover all JTAG pins. These are called "extras" because they aren't also used
+# for normal SWD/SWO.
+jtag-extras-as-gpio = []
+
+# Allows for using the reset pin as a normal GPIO.
+#
+# This is NOT recommended, and we have not currently tested whether it remains
+# possible to reset the device and reflash using probe-rs after enabling this
+# feature. Use at your own risk!
+dangerous-reset-as-gpio = []
+
 # dummy feature to silence embassy-hal-internal lint
 #
 # This feature makes no change to embassy-mcxa's operation.

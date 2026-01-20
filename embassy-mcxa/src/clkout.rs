@@ -172,6 +172,7 @@ mod sealed {
         };
     }
 
+    #[cfg(feature = "jtag-extras-as-gpio")]
     impl_pin!(P0_6, Mux12);
     impl_pin!(P3_6, Mux1);
     impl_pin!(P3_8, Mux12);

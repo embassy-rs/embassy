@@ -120,9 +120,13 @@ embassy_hal_internal::peripherals!(
     // Normally SWO!
     #[cfg(feature = "swd-swo-as-gpio")]
     P0_2,
+    // Normally JTAG TDI!
+    #[cfg(feature = "jtag-extras-as-gpio")]
     P0_3,
     P0_4,
     P0_5,
+    // Normally JTAG ISPMODE_N!
+    #[cfg(feature = "jtag-extras-as-gpio")]
     P0_6,
     P0_7,
     P0_8,
@@ -179,6 +183,7 @@ embassy_hal_internal::peripherals!(
     P1_26,
     P1_27,
     P1_28,
+    #[cfg(feature = "dangerous-reset-as-gpio")]
     P1_29,
     #[cfg(feature = "sosc-as-gpio")]
     P1_30,
@@ -497,8 +502,16 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
     {
         let _swo = gpio::Input::new(peripherals.P0_2.reborrow(), gpio::Pull::Disabled);
     }
-    // TODO: Fixup other non-disabled-at-boot pins?
-    // P0_3 (TDI), P0_6 (ISPMODE_N)
+    #[cfg(feature = "jtag-extras-as-gpio")]
+    {
+        let _tdi = gpio::Input::new(peripherals.P0_3.reborrow(), gpio::Pull::Disabled);
+        let _imn = gpio::Input::new(peripherals.P0_6.reborrow(), gpio::Pull::Disabled);
+    }
+    #[cfg(feature = "dangerous-reset-as-gpio")]
+    {
+        // DANGER DANGER DANGER
+        let _rst = gpio::Input::new(peripherals.P0_29.reborrow(), gpio::Pull::Disabled);
+    }
 
     peripherals
 }
