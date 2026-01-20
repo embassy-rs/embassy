@@ -14,6 +14,7 @@ pub mod cdog;
 pub mod clkout;
 pub mod config;
 pub mod crc;
+pub mod ctimer;
 pub mod i2c;
 pub mod i3c;
 pub mod lpuart;
