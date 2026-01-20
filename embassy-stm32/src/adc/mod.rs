@@ -17,7 +17,7 @@
 #[cfg_attr(adc_c0, path = "c0.rs")]
 mod _version;
 
-#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
+#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba))]
 mod ringbuffered;
 
 use core::marker::PhantomData;
@@ -29,7 +29,7 @@ pub use _version::*;
 use embassy_hal_internal::PeripheralType;
 #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
 use embassy_sync::waitqueue::AtomicWaker;
-#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
+#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba))]
 pub use ringbuffered::RingBufferedAdc;
 
 #[cfg(adc_u5)]
@@ -170,12 +170,12 @@ pub(crate) enum ConversionMode {
     ))]
     Singular,
     // Should match the cfg on "into_ring_buffered" below
-    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
+    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba))]
     Repeated(RegularConversionMode),
 }
 
 // Should match the cfg on "into_ring_buffered" below
-#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
+#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba))]
 // Conversion mode for regular ADC channels
 #[derive(Copy, Clone)]
 pub enum RegularConversionMode {
@@ -296,7 +296,7 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().stop();
     }
 
-    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
+    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba))]
     /// Configures the ADC to use a DMA ring buffer for continuous data acquisition.
     ///
     /// Use the [`read`] method to retrieve measurements from the DMA ring buffer. The read buffer
