@@ -59,7 +59,7 @@ pub mod backup_sram;
 #[cfg(can)]
 pub mod can;
 // FIXME: Cordic driver cause stm32u5a5zj crash
-#[cfg(aes)]
+#[cfg(aes_v3b)]
 pub mod aes;
 #[cfg(all(cordic, not(any(stm32u5a5, stm32u5a9))))]
 pub mod cordic;
@@ -109,7 +109,7 @@ pub mod ltdc;
 pub mod opamp;
 #[cfg(octospi)]
 pub mod ospi;
-#[cfg(pka)]
+#[cfg(pka_v1a)]
 pub mod pka;
 #[cfg(quadspi)]
 pub mod qspi;
@@ -117,7 +117,7 @@ pub mod qspi;
 pub mod rng;
 #[cfg(all(rtc, not(rtc_v1)))]
 pub mod rtc;
-#[cfg(saes)]
+#[cfg(saes_v1a)]
 pub mod saes;
 #[cfg(sai)]
 pub mod sai;

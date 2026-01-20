@@ -174,7 +174,9 @@ pub enum KeyShareTarget {
 pub struct Saes<'d, T: Instance, M: Mode> {
     _peripheral: Peri<'d, T>,
     _phantom: PhantomData<M>,
+    #[allow(dead_code)] // Reserved for future async/DMA implementation
     dma_in: Option<ChannelAndRequest<'d>>,
+    #[allow(dead_code)] // Reserved for future async/DMA implementation
     dma_out: Option<ChannelAndRequest<'d>>,
 }
 

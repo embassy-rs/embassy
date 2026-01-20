@@ -129,6 +129,7 @@ pub enum PkaMode {
 // Derived from CMSIS headers: offset = raw_address - 0x0400
 // ============================================================================
 
+#[allow(dead_code)] // Offsets for future PKA operations
 mod offsets {
     // Montgomery parameter computation
     pub mod montgomery_param {
@@ -635,10 +636,10 @@ impl<'d, T: Instance> Pka<'d, T> {
         }
 
         self.init_pka()?;
-        self.set_mode(PkaMode::EccMul);
 
         // Write bit counts
-        let exp_nb_bits = Self::get_opt_bit_size(order_size, k[0]);
+        // ST HAL uses scalar size with MSB of prime order (not scalar MSB)
+        let exp_nb_bits = Self::get_opt_bit_size(k.len(), curve.order[0]);
         let mod_nb_bits = Self::get_opt_bit_size(modulus_size, curve.p_modulus[0]);
 
         self.write_ram_word(offsets::ecc_mul::IN_EXP_NB_BITS, exp_nb_bits);
@@ -656,6 +657,8 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.write_operand(offsets::ecc_mul::IN_INITIAL_POINT_X, point_x);
         self.write_operand(offsets::ecc_mul::IN_INITIAL_POINT_Y, point_y);
 
+        // Set mode right before start (matching ST HAL order)
+        self.set_mode(PkaMode::EccMul);
         self.start_and_wait()?;
 
         // Check for errors - 0xD60D indicates success
@@ -685,7 +688,6 @@ impl<'d, T: Instance> Pka<'d, T> {
         }
 
         self.init_pka()?;
-        self.set_mode(PkaMode::PointCheck);
 
         let mod_nb_bits = Self::get_opt_bit_size(modulus_size, curve.p_modulus[0]);
 
@@ -698,6 +700,8 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.write_operand(offsets::point_check::IN_INITIAL_POINT_X, point_x);
         self.write_operand(offsets::point_check::IN_INITIAL_POINT_Y, point_y);
 
+        // Set mode right before start (matching ST HAL order)
+        self.set_mode(PkaMode::PointCheck);
         self.start_and_wait()?;
 
         let result = self.read_ram_word(offsets::point_check::OUT_ERROR);

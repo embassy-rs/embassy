@@ -677,7 +677,9 @@ impl<'c, const KEY_SIZE: usize> CipherAuthenticated<16> for AesGmac<'c, KEY_SIZE
 pub struct AesCcm<'c, const KEY_SIZE: usize, const IV_SIZE: usize, const TAG_SIZE: usize> {
     key: &'c [u8; KEY_SIZE],
     iv: [u8; 16],
+    #[allow(dead_code)] // Stored for potential future use in verification
     aad_len: usize,
+    #[allow(dead_code)] // Stored for potential future use in verification
     payload_len: usize,
 }
 
@@ -842,7 +844,9 @@ pub struct Context<'c, C: Cipher<'c>> {
 pub struct Aes<'d, T: Instance, M: Mode> {
     _peripheral: Peri<'d, T>,
     _phantom: PhantomData<M>,
+    #[allow(dead_code)] // Reserved for future async/DMA implementation
     dma_in: Option<ChannelAndRequest<'d>>,
+    #[allow(dead_code)] // Reserved for future async/DMA implementation
     dma_out: Option<ChannelAndRequest<'d>>,
 }
 
@@ -1156,7 +1160,6 @@ impl<'d, T: Instance, M: Mode> Aes<'d, T, M> {
 
             output[processed..processed + remaining].copy_from_slice(&partial_block[..remaining]);
             ctx.payload_len += remaining as u64;
-            processed += remaining;
         }
 
         if last {
@@ -1302,19 +1305,6 @@ impl<'d, T: Instance, M: Mode> Aes<'d, T, M> {
         p.icr().write(|w| w.0 = 0xFFFF_FFFF);
 
         Ok(())
-    }
-
-    /// Check if the current cipher mode is authenticated.
-    fn is_authenticated_mode<'c, C>(ctx: &Context<'c, C>) -> Option<()>
-    where
-        C: Cipher<'c>,
-    {
-        // Check if this is GCM/CCM by looking at processed lengths
-        if ctx.header_len > 0 || ctx.header_processed {
-            Some(())
-        } else {
-            None
-        }
     }
 }
 
