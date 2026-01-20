@@ -777,7 +777,7 @@ enum TransmitResult {
 
 /// Result of attempting to receive a byte in slave receiver mode
 #[derive(Debug, PartialEq)]
-enum ReceiveResult {
+pub enum ReceiveResult {
     /// Data byte successfully received
     Data(u8),
     /// STOP condition detected - end of write transaction
@@ -1198,25 +1198,33 @@ impl<'d, M: PeriMode> I2c<'d, M, MultiMaster> {
         }
     }
 
+    fn check_receive_byte(&mut self) -> Result<Option<ReceiveResult>, Error> {
+        let sr1 = Self::read_status_and_handle_errors(self.info)?;
+
+        // Check for received data first (prioritize data over control signals)
+        if sr1.rxne() {
+            let byte = self.info.regs.dr().read().dr();
+            return Ok(Some(ReceiveResult::Data(byte)));
+        }
+
+        // Check for transaction termination
+        if sr1.addr() {
+            return Ok(Some(ReceiveResult::Restarted));
+        }
+
+        if sr1.stopf() {
+            Self::clear_stop_flag(self.info);
+            return Ok(Some(ReceiveResult::Stopped));
+        }
+
+        Ok(None)
+    }
+
     /// Receive a single byte or detect transaction termination
     fn receive_byte(&mut self, timeout: Timeout) -> Result<ReceiveResult, Error> {
         loop {
-            let sr1 = Self::read_status_and_handle_errors(self.info)?;
-
-            // Check for received data first (prioritize data over control signals)
-            if sr1.rxne() {
-                let byte = self.info.regs.dr().read().dr();
-                return Ok(ReceiveResult::Data(byte));
-            }
-
-            // Check for transaction termination
-            if sr1.addr() {
-                return Ok(ReceiveResult::Restarted);
-            }
-
-            if sr1.stopf() {
-                Self::clear_stop_flag(self.info);
-                return Ok(ReceiveResult::Stopped);
+            if let Some(receive_result) = self.check_receive_byte()? {
+                break Ok(receive_result);
             }
 
             timeout.check()?;
@@ -1415,6 +1423,45 @@ impl<'d> I2c<'d, Async, MultiMaster> {
 
         drop(on_drop);
         trace!("I2C slave: listen complete, result={:?}", result);
+        result
+    }
+
+    /// Async receive a byte or a stop or restart condition.
+    /// This function does not timeout on its own.
+    /// The future returned by this function can be dropped.
+    /// In that case, any pending data will be read by future
+    /// i2c functions that receive bytes.
+    pub async fn receive_byte_async(&mut self) -> Result<ReceiveResult, Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
+        trace!("I2C slave: starting async receive byte");
+        let state = self.state;
+        let info = self.info;
+
+        Self::enable_interrupts(info);
+
+        let on_drop = OnDrop::new(|| {
+            Self::disable_dma_and_interrupts(info);
+        });
+
+        let result = poll_fn(|cx| {
+            state.waker.register(cx.waker());
+
+            match self.check_receive_byte() {
+                Err(e) => {
+                    error!("I2C slave: error during async receive byte: {:?}", e);
+                    Poll::Ready(Err(e))
+                }
+                Ok(Some(receive_result)) => Poll::Ready(Ok(receive_result)),
+                Ok(None) => {
+                    Self::enable_interrupts(info);
+                    Poll::Pending
+                }
+            }
+        })
+        .await;
+
+        drop(on_drop);
+        trace!("I2C slave: async receive byte complete, result={:?}", result);
         result
     }
 
