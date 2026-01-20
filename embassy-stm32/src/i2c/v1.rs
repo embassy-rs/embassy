@@ -764,7 +764,7 @@ impl Duty {
 
 /// Result of attempting to send a byte in slave transmitter mode
 #[derive(Debug, PartialEq)]
-enum TransmitResult {
+pub enum TransmitResult {
     /// Byte sent and ACKed by master - continue transmission
     Acknowledged,
     /// Byte sent but NACKed by master - normal end of read transaction
@@ -1149,53 +1149,140 @@ impl<'d, M: PeriMode> I2c<'d, M, MultiMaster> {
         self.wait_for_transmit_completion(timeout)
     }
 
+    fn check_transmit_ready(&mut self) -> Result<bool, Error> {
+        let sr1 = Self::read_status_and_handle_errors(self.info)?;
+
+        // Check for early termination conditions
+        if let Some(result) = Self::check_early_termination(sr1) {
+            return Err(self.handle_early_termination(result));
+        }
+
+        if sr1.txe() {
+            return Ok(true); // Ready to transmit
+        }
+
+        Ok(false)
+    }
+
     /// Wait until transmit buffer is ready (TXE flag set)
     fn wait_for_transmit_ready(&mut self, timeout: Timeout) -> Result<(), Error> {
         loop {
-            let sr1 = Self::read_status_and_handle_errors(self.info)?;
-
-            // Check for early termination conditions
-            if let Some(result) = Self::check_early_termination(sr1) {
-                return Err(self.handle_early_termination(result));
-            }
-
-            if sr1.txe() {
-                return Ok(()); // Ready to transmit
+            if self.check_transmit_ready()? {
+                return Ok(());
             }
 
             timeout.check()?;
         }
     }
 
+    async fn wait_for_transmit_ready_async(&mut self) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
+        trace!("I2C slave: starting async transmit byte");
+        let state = self.state;
+        let info = self.info;
+
+        Self::enable_interrupts(info);
+
+        let on_drop = OnDrop::new(|| {
+            Self::disable_dma_and_interrupts(info);
+        });
+
+        let result = poll_fn(|cx| {
+            state.waker.register(cx.waker());
+
+            match self.check_transmit_ready() {
+                Err(e) => {
+                    error!("I2C slave: error during async transmit byte: {:?}", e);
+                    Poll::Ready(Err(e))
+                }
+                Ok(true) => Poll::Ready(Ok(())),
+                Ok(false) => {
+                    Self::enable_interrupts(info);
+                    Poll::Pending
+                }
+            }
+        })
+        .await;
+
+        drop(on_drop);
+        trace!("I2C slave: async transmit byte complete, result={:?}", result);
+        result
+    }
+
+    fn check_transmit_completion(&mut self) -> Result<Option<TransmitResult>, Error> {
+        let sr1 = self.info.regs.sr1().read();
+
+        // Check flags in priority order
+        if sr1.af() {
+            self.clear_acknowledge_failure();
+            return Ok(Some(TransmitResult::NotAcknowledged));
+        }
+
+        if sr1.btf() {
+            return Ok(Some(TransmitResult::Acknowledged));
+        }
+
+        if sr1.stopf() {
+            Self::clear_stop_flag(self.info);
+            return Ok(Some(TransmitResult::Stopped));
+        }
+
+        if sr1.addr() {
+            return Ok(Some(TransmitResult::Restarted));
+        }
+
+        // Check for other error conditions
+        self.check_for_hardware_errors(sr1)?;
+
+        Ok(None)
+    }
+
     /// Wait for byte transmission completion or master response
     fn wait_for_transmit_completion(&mut self, timeout: Timeout) -> Result<TransmitResult, Error> {
         loop {
-            let sr1 = self.info.regs.sr1().read();
-
-            // Check flags in priority order
-            if sr1.af() {
-                self.clear_acknowledge_failure();
-                return Ok(TransmitResult::NotAcknowledged);
+            if let Some(transmit_result) = self.check_transmit_completion()? {
+                break Ok(transmit_result);
             }
-
-            if sr1.btf() {
-                return Ok(TransmitResult::Acknowledged);
-            }
-
-            if sr1.stopf() {
-                Self::clear_stop_flag(self.info);
-                return Ok(TransmitResult::Stopped);
-            }
-
-            if sr1.addr() {
-                return Ok(TransmitResult::Restarted);
-            }
-
-            // Check for other error conditions
-            self.check_for_hardware_errors(sr1)?;
 
             timeout.check()?;
         }
+    }
+
+    async fn wait_for_transmit_completion_async(&mut self) -> Result<TransmitResult, Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
+        trace!("I2C slave: starting async wait for transmit completion");
+        let state = self.state;
+        let info = self.info;
+
+        Self::enable_interrupts(info);
+
+        let on_drop = OnDrop::new(|| {
+            Self::disable_dma_and_interrupts(info);
+        });
+
+        let result = poll_fn(|cx| {
+            state.waker.register(cx.waker());
+
+            match self.check_transmit_completion() {
+                Err(e) => {
+                    error!("I2C slave: error during async wait for transmit completion: {:?}", e);
+                    Poll::Ready(Err(e))
+                }
+                Ok(Some(transmit_result)) => Poll::Ready(Ok(transmit_result)),
+                Ok(None) => {
+                    Self::enable_interrupts(info);
+                    Poll::Pending
+                }
+            }
+        })
+        .await;
+
+        drop(on_drop);
+        trace!(
+            "I2C slave: async wait for transmit completion complete, result={:?}",
+            result
+        );
+        result
     }
 
     fn check_receive_byte(&mut self) -> Result<Option<ReceiveResult>, Error> {
@@ -1463,6 +1550,25 @@ impl<'d> I2c<'d, Async, MultiMaster> {
         drop(on_drop);
         trace!("I2C slave: async receive byte complete, result={:?}", result);
         result
+    }
+
+    /// Async transmit a byte.
+    ///
+    /// **If this function is called in response to a zero byte read
+    /// from the controller, it could cause problems.**
+    ///
+    /// This function does not timeout on its own.
+    /// The future returned by this function can be dropped.
+    /// In that case, the pending byte may or may not be transmitted
+    /// automatically by hardware.
+    pub async fn transmit_byte_async(&mut self, byte: u8) -> Result<TransmitResult, Error> {
+        // Wait for transmit buffer ready
+        self.wait_for_transmit_ready_async().await?;
+
+        // Send the byte
+        self.info.regs.dr().write(|w| w.set_dr(byte));
+
+        self.wait_for_transmit_completion_async().await
     }
 
     /// Async respond to write command using RX DMA

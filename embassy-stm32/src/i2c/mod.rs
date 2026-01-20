@@ -12,7 +12,7 @@ use core::iter;
 use core::marker::PhantomData;
 
 #[cfg(i2c_v1)]
-pub use _version::ReceiveResult;
+pub use _version::{ReceiveResult, TransmitResult};
 pub use config::*;
 use embassy_hal_internal::Peri;
 use embassy_sync::waitqueue::AtomicWaker;
