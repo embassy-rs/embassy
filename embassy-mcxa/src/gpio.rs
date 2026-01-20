@@ -232,15 +232,9 @@ impl AnyPin {
 embassy_hal_internal::impl_peripheral!(AnyPin);
 
 pub(crate) trait SealedPin {
-    fn pin_port(&self) -> u8;
+    fn port(&self) -> u8;
 
-    fn port(&self) -> u8 {
-        self.pin_port() / 32
-    }
-
-    fn pin(&self) -> u8 {
-        self.pin_port() % 32
-    }
+    fn pin(&self) -> u8;
 
     fn gpio(&self) -> &'static crate::pac::gpio0::RegisterBlock;
 
@@ -272,8 +266,14 @@ pub trait GpioPin: SealedPin + Sized + PeripheralType + Into<AnyPin> + 'static {
 }
 
 impl SealedPin for AnyPin {
-    fn pin_port(&self) -> u8 {
-        self.port * 32 + self.pin
+    #[inline(always)]
+    fn pin(&self) -> u8 {
+        self.pin_index()
+    }
+
+    #[inline(always)]
+    fn port(&self) -> u8 {
+        self.port_index()
     }
 
     fn gpio(&self) -> &'static crate::pac::gpio0::RegisterBlock {
@@ -319,8 +319,12 @@ macro_rules! impl_pin {
     ($peri:ident, $port:expr, $pin:expr, $block:ident) => {
         paste! {
             impl SealedPin for crate::peripherals::$peri {
-                fn pin_port(&self) -> u8 {
-                    $port * 32 + $pin
+                fn port(&self) -> u8 {
+                    $port
+                }
+
+                fn pin(&self) -> u8 {
+                    $pin
                 }
 
                 fn gpio(&self) -> &'static crate::pac::gpio0::RegisterBlock {
