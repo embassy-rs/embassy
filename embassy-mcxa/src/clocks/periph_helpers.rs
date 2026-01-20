@@ -164,6 +164,83 @@ impl SPConfHelper for NoConfig {
 }
 
 //
+// I3C
+//
+
+/// Selectable clocks for `I3c` peripherals
+#[derive(Debug, Clone, Copy)]
+pub enum I3cClockSel {
+    /// FRO12M/FRO_LF/SIRC clock source, passed through divider
+    /// "fro_lf_div"
+    FroLfDiv,
+    /// FRO180M/FRO_HF/FIRC clock source, passed through divider
+    /// "fro_hf_div"
+    FroHfDiv,
+    /// SOSC/XTAL/EXTAL clock source
+    ClkIn,
+    /// clk_1m/FRO_LF divided by 12
+    Clk1M,
+    /// Disabled
+    None,
+}
+
+/// Top level configuration for `I3c` instances.
+pub struct I3cConfig {
+    /// Power state required for this peripheral
+    pub power: PoweredClock,
+    /// Clock source
+    pub source: I3cClockSel,
+    /// Clock divisor
+    pub div: Div4,
+}
+
+impl SPConfHelper for I3cConfig {
+    fn post_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
+        // Always 25MHz maximum frequency.
+        const I3C_FCLK_MAX: u32 = 25_000_000;
+        // check that source is suitable
+        let mrcc0 = unsafe { pac::Mrcc0::steal() };
+        use mcxa_pac::mrcc0::mrcc_i3c0_fclk_clksel::Mux;
+
+        let (clkdiv, clksel) = (mrcc0.mrcc_i3c0_fclk_clkdiv(), mrcc0.mrcc_i3c0_fclk_clksel());
+
+        let (freq, variant) = match self.source {
+            I3cClockSel::FroLfDiv => {
+                let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
+                (freq, Mux::ClkrootFunc0)
+            }
+            I3cClockSel::FroHfDiv => {
+                let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
+                (freq, Mux::ClkrootFunc2)
+            }
+            I3cClockSel::ClkIn => {
+                let freq = clocks.ensure_clk_in_active(&self.power)?;
+                (freq, Mux::ClkrootFunc3)
+            }
+            I3cClockSel::Clk1M => {
+                let freq = clocks.ensure_clk_1m_active(&self.power)?;
+                (freq, Mux::ClkrootFunc5)
+            }
+            I3cClockSel::None => unsafe {
+                // no ClkrootFunc7, just write manually for now
+                clksel.write(|w| w.bits(0b111));
+                clkdiv.modify(|_r, w| w.reset().asserted().halt().asserted());
+                return Ok(0);
+            },
+        };
+
+        if freq > I3C_FCLK_MAX {
+            return Err(ClockError::BadConfig {
+                clock: "i3c fclk",
+                reason: "exceeds max rating",
+            });
+        }
+
+        apply_div4!(self, clksel, clkdiv, variant, freq)
+    }
+}
+
+//
 // LPI2c
 //
 

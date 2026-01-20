@@ -238,44 +238,45 @@ pub(crate) enum Security {
     WPA2_AES_PSK = WPA2_SECURITY | AES_ENABLED,
 }
 
-#[allow(non_camel_case_types)]
-#[derive(Copy, Clone, PartialEq, num_enum::FromPrimitive)]
-#[repr(u8)]
-pub enum EStatus {
-    #[num_enum(default)]
-    Unknown = 0xFF,
-    /// operation was successful
-    SUCCESS = 0,
-    /// operation failed
-    FAIL = 1,
-    /// operation timed out
-    TIMEOUT = 2,
-    /// failed due to no matching network found
-    NO_NETWORKS = 3,
-    /// operation was aborted
-    ABORT = 4,
-    /// protocol failure: packet not ack'd
-    NO_ACK = 5,
-    /// AUTH or ASSOC packet was unsolicited
-    UNSOLICITED = 6,
-    /// attempt to assoc to an auto auth configuration
-    ATTEMPT = 7,
-    /// scan results are incomplete
-    PARTIAL = 8,
-    /// scan aborted by another scan
-    NEWSCAN = 9,
-    /// scan aborted due to assoc in progress
-    NEWASSOC = 10,
-    /// 802.11h quiet period started
-    _11HQUIET = 11,
-    /// user disabled scanning (WLC_SET_SCANSUPPRESS)
-    SUPPRESS = 12,
-    /// no allowable channels to scan
-    NOCHANS = 13,
-    /// scan aborted due to CCX fast roam
-    CCXFASTRM = 14,
-    /// abort channel select
-    CS_ABORT = 15,
+crate::util::enum_from_u8! {
+    #[allow(non_camel_case_types)]
+    #[derive(Copy, Clone, PartialEq)]
+    enum EStatus {
+        #[default]
+        Unknown = 0xFF,
+        /// operation was successful
+        SUCCESS = 0,
+        /// operation failed
+        FAIL = 1,
+        /// operation timed out
+        TIMEOUT = 2,
+        /// failed due to no matching network found
+        NO_NETWORKS = 3,
+        /// operation was aborted
+        ABORT = 4,
+        /// protocol failure: packet not ack'd
+        NO_ACK = 5,
+        /// AUTH or ASSOC packet was unsolicited
+        UNSOLICITED = 6,
+        /// attempt to assoc to an auto auth configuration
+        ATTEMPT = 7,
+        /// scan results are incomplete
+        PARTIAL = 8,
+        /// scan aborted by another scan
+        NEWSCAN = 9,
+        /// scan aborted due to assoc in progress
+        NEWASSOC = 10,
+        /// 802.11h quiet period started
+        _11HQUIET = 11,
+        /// user disabled scanning (WLC_SET_SCANSUPPRESS)
+        SUPPRESS = 12,
+        /// no allowable channels to scan
+        NOCHANS = 13,
+        /// scan aborted due to CCX fast roam
+        CCXFASTRM = 14,
+        /// abort channel select
+        CS_ABORT = 15,
+    }
 }
 
 impl PartialEq<EStatus> for u32 {

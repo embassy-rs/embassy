@@ -28,6 +28,17 @@ pub enum Speed {
     UltraFast,
 }
 
+impl Into<u32> for Speed {
+    fn into(self) -> u32 {
+        match self {
+            Speed::Standard => 100_000,
+            Speed::Fast => 400_000,
+            Speed::FastPlus => 1_000_000,
+            Speed::UltraFast => 3_400_000,
+        }
+    }
+}
+
 impl From<Speed> for (u8, u8, u8, u8) {
     fn from(value: Speed) -> (u8, u8, u8, u8) {
         match value {
