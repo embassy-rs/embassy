@@ -21,10 +21,19 @@ pub struct RingBufferedAdc<'d, T: Instance> {
 
 impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     pub(crate) fn new(dma: Peri<'d, impl RxDma<T>>, dma_buf: &'d mut [u16]) -> Self {
-        //dma side setup
+        // DMA side setup - configuration differs between DMA/BDMA and GPDMA
+        // For DMA/BDMA: use circular mode via TransferOptions
+        // For GPDMA: circular mode is achieved via linked-list ping-pong
+        #[cfg(not(gpdma))]
         let opts = TransferOptions {
             half_transfer_ir: true,
             circular: true,
+            ..Default::default()
+        };
+
+        #[cfg(gpdma)]
+        let opts = TransferOptions {
+            half_transfer_ir: true,
             ..Default::default()
         };
 
