@@ -1937,6 +1937,7 @@ macro_rules! impl_cc_gate {
 pub(crate) mod gate {
     use super::periph_helpers::{AdcConfig, I3cConfig, Lpi2cConfig, LpuartConfig, NoConfig, OsTimerConfig};
     use super::*;
+    use crate::clocks::periph_helpers::CTimerConfig;
 
     // These peripherals have no additional upstream clocks or configuration required
     // other than enabling through the MRCC gate. Currently, these peripherals will
@@ -1958,7 +1959,11 @@ pub(crate) mod gate {
     impl_cc_gate!(ADC3, mrcc_glb_cc1, mrcc_glb_rst1, adc3, AdcConfig);
 
     impl_cc_gate!(I3C0, mrcc_glb_cc0, mrcc_glb_rst0, i3c0, I3cConfig);
-
+    impl_cc_gate!(CTIMER0, mrcc_glb_cc0, mrcc_glb_rst0, ctimer0, CTimerConfig);
+    impl_cc_gate!(CTIMER1, mrcc_glb_cc0, mrcc_glb_rst0, ctimer1, CTimerConfig);
+    impl_cc_gate!(CTIMER2, mrcc_glb_cc0, mrcc_glb_rst0, ctimer2, CTimerConfig);
+    impl_cc_gate!(CTIMER3, mrcc_glb_cc0, mrcc_glb_rst0, ctimer3, CTimerConfig);
+    impl_cc_gate!(CTIMER4, mrcc_glb_cc0, mrcc_glb_rst0, ctimer4, CTimerConfig);
     impl_cc_gate!(OSTIMER0, mrcc_glb_cc1, mrcc_glb_rst1, ostimer0, OsTimerConfig);
 
     // TRNG peripheral - uses NoConfig since it has no selectable clock source
