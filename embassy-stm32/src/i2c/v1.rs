@@ -1539,9 +1539,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                                 terminated_by_i2c_event = true;
                                 trace!(
                                     "I2C slave: receive terminated by {:?}, received {} bytes (remaining {})",
-                                    termination,
-                                    received,
-                                    remaining
+                                    termination, received, remaining
                                 );
                                 return Poll::Ready(Ok(received));
                             }
@@ -1709,9 +1707,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 let total_bytes = sent + padding_count;
                 trace!(
                     "I2C slave: sent {} data bytes + {} padding bytes = {} total",
-                    sent,
-                    padding_count,
-                    total_bytes
+                    sent, padding_count, total_bytes
                 );
                 return Ok(total_bytes);
             }
