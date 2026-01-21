@@ -1680,9 +1680,7 @@ impl ClockOperator<'_> {
                 // frequency changes.
 
                 // 4. Configure SRAM to support higher voltage levels (SRAMCTL[VSM]).
-                // TODO(AJM): The refman describes `0b01` as "1.0v", and `0b10` as `1.1v`, with
-                // all other patterns reserved. Is this correct for 1.2v overdrive?
-                self.spc0.sramctl().modify(|_r, w| w.vsm().vsm2());
+                self.spc0.sramctl().modify(|_r, w| w.vsm().sram1v2());
 
                 // 5. Request SRAM voltage update (write 1 to SRAMCTL[REQ]).
                 self.spc0.sramctl().modify(|_r, w| w.req().set_bit());
