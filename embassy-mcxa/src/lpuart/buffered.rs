@@ -8,6 +8,7 @@ use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use super::*;
+use crate::clocks::WakeGuard;
 use crate::interrupt;
 
 // ============================================================================
@@ -59,6 +60,7 @@ pub struct BufferedLpuartTx<'a> {
     state: &'static State,
     _tx_pin: Peri<'a, AnyPin>,
     _cts_pin: Option<Peri<'a, AnyPin>>,
+    _wg: Option<WakeGuard>,
 }
 
 /// Buffered LPUART RX driver
@@ -67,6 +69,7 @@ pub struct BufferedLpuartRx<'a> {
     state: &'static State,
     _rx_pin: Peri<'a, AnyPin>,
     _rts_pin: Option<Peri<'a, AnyPin>>,
+    _wg: Option<WakeGuard>,
 }
 
 // ============================================================================
@@ -84,7 +87,7 @@ impl<'a> BufferedLpuart<'a> {
         enable_rx: bool,
         enable_rts: bool,
         enable_cts: bool,
-    ) -> Result<&'static State> {
+    ) -> Result<(&'static State, Option<WakeGuard>)> {
         let state = T::buffered_state();
 
         if state.initialized.load(Ordering::Relaxed) {
@@ -115,19 +118,19 @@ impl<'a> BufferedLpuart<'a> {
             div: config.div,
             instance: T::CLOCK_INSTANCE,
         };
-        let clock_freq = unsafe { enable_and_reset::<T>(&conf).map_err(Error::ClockSetup)? };
+        let parts = unsafe { enable_and_reset::<T>(&conf).map_err(Error::ClockSetup)? };
 
         Self::init_hardware(
             T::info(),
             *config,
-            clock_freq,
+            parts.freq,
             enable_tx,
             enable_rx,
             enable_rts,
             enable_cts,
         )?;
 
-        Ok(state)
+        Ok((state, parts.wake_guard))
     }
 
     /// Helper for full-duplex initialization
@@ -141,7 +144,7 @@ impl<'a> BufferedLpuart<'a> {
         rx_buffer: &'a mut [u8],
         config: Config,
     ) -> Result<(BufferedLpuartTx<'a>, BufferedLpuartRx<'a>)> {
-        let state = Self::init_common::<T>(
+        let (state, wg) = Self::init_common::<T>(
             &inner,
             Some(tx_buffer),
             Some(rx_buffer),
@@ -157,6 +160,7 @@ impl<'a> BufferedLpuart<'a> {
             state,
             _tx_pin: tx_pin,
             _cts_pin: cts_pin,
+            _wg: wg.clone(),
         };
 
         let rx = BufferedLpuartRx {
@@ -164,6 +168,7 @@ impl<'a> BufferedLpuart<'a> {
             state,
             _rx_pin: rx_pin,
             _rts_pin: rts_pin,
+            _wg: wg,
         };
 
         Ok((tx, rx))
@@ -360,7 +365,7 @@ impl<'a> BufferedLpuartTx<'a> {
         tx_buffer: &'a mut [u8],
         config: Config,
     ) -> Result<BufferedLpuartTx<'a>> {
-        let state = BufferedLpuart::init_common::<T>(
+        let (state, wg) = BufferedLpuart::init_common::<T>(
             &inner,
             Some(tx_buffer),
             None,
@@ -376,6 +381,7 @@ impl<'a> BufferedLpuartTx<'a> {
             state,
             _tx_pin: tx_pin,
             _cts_pin: cts_pin,
+            _wg: wg,
         })
     }
 
@@ -505,7 +511,7 @@ impl<'a> BufferedLpuartRx<'a> {
         rx_buffer: &'a mut [u8],
         config: Config,
     ) -> Result<BufferedLpuartRx<'a>> {
-        let state = BufferedLpuart::init_common::<T>(
+        let (state, wg) = BufferedLpuart::init_common::<T>(
             &inner,
             None,
             Some(rx_buffer),
@@ -521,6 +527,7 @@ impl<'a> BufferedLpuartRx<'a> {
             state,
             _rx_pin: rx_pin,
             _rts_pin: rts_pin,
+            _wg: wg,
         })
     }
 

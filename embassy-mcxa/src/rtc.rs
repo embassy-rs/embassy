@@ -4,7 +4,7 @@ use core::marker::PhantomData;
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
 
-use crate::clocks::with_clocks;
+use crate::clocks::{WakeGuard, with_clocks};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
 use crate::pac::rtc0::cr::Um;
@@ -236,6 +236,7 @@ pub fn get_default_config() -> RtcConfig {
 pub struct Rtc<'a> {
     _inst: core::marker::PhantomData<&'a mut ()>,
     info: &'static Info,
+    _wg: Option<WakeGuard>,
 }
 
 impl<'a> Rtc<'a> {
@@ -250,11 +251,11 @@ impl<'a> Rtc<'a> {
         // The RTC is NOT gated by the MRCC, but we DO need to make sure the 16k clock
         // on the vsys domain is active
         let clocks = with_clocks(|c| c.clk_16k_vsys.clone());
-        match clocks {
+        let clk = match clocks {
             None => panic!("Clocks have not been initialized"),
             Some(None) => panic!("Clocks initialized, but clk_16k_vsys not active"),
-            Some(Some(_)) => {}
-        }
+            Some(Some(clk)) => clk,
+        };
 
         // RTC reset
         info.regs().cr().modify(|_, w| w.swr().set_bit());
@@ -277,6 +278,7 @@ impl<'a> Rtc<'a> {
         Self {
             _inst: core::marker::PhantomData,
             info,
+            _wg: WakeGuard::for_power(&clk.power),
         }
     }
 
