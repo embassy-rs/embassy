@@ -1680,8 +1680,7 @@ impl ClockOperator<'_> {
                 // frequency changes.
 
                 // 4. Configure SRAM to support higher voltage levels (SRAMCTL[VSM]).
-                // TODO(AJM): Update PAC to support this! See https://github.com/OpenDevicePartnership/mcxa-pac/pull/18
-                self.spc0.sramctl().modify(|_r, w| unsafe { w.vsm().bits(0b11) });
+                self.spc0.sramctl().modify(|_r, w| w.vsm().sram1v2());
 
                 // 5. Request SRAM voltage update (write 1 to SRAMCTL[REQ]).
                 self.spc0.sramctl().modify(|_r, w| w.req().set_bit());

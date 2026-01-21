@@ -39,7 +39,7 @@ embedded-hal-nb = { version = "1.0" }
 embedded-io = "0.7"
 embedded-io-async = { version = "0.7.0" }
 heapless = "0.8"
-mcxa-pac = { version = "0.1.0", features = ["rt", "critical-section"] }
+mcxa-pac = { version = "0.4.0", features = ["rt", "critical-section"] }
 nb = "1.1.0"
 paste = "1.0.15"
 maitake-sync = { version = "0.2.2", default-features = false, features = ["critical-section", "no-cache-pad"] }
