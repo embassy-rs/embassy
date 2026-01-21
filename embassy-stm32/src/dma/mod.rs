@@ -1,10 +1,10 @@
 //! Direct Memory Access (DMA)
 #![macro_use]
 
-#[cfg(any(bdma, dma))]
+#[cfg(any(bdma, dma, mdma))]
 mod dma_bdma;
 
-#[cfg(any(bdma, dma))]
+#[cfg(any(bdma, dma, mdma))]
 pub use dma_bdma::*;
 
 #[cfg(gpdma)]
@@ -146,6 +146,7 @@ pub(crate) unsafe fn init(
     #[cfg(bdma)] bdma_priority: interrupt::Priority,
     #[cfg(dma)] dma_priority: interrupt::Priority,
     #[cfg(gpdma)] gpdma_priority: interrupt::Priority,
+    #[cfg(mdma)] mdma_priority: interrupt::Priority,
 ) {
     #[cfg(any(dma, bdma))]
     dma_bdma::init(
@@ -154,6 +155,8 @@ pub(crate) unsafe fn init(
         dma_priority,
         #[cfg(bdma)]
         bdma_priority,
+        #[cfg(mdma)]
+        mdma_priority,
     );
     #[cfg(gpdma)]
     gpdma::init(cs, gpdma_priority);
