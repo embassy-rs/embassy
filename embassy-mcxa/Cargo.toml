@@ -32,17 +32,17 @@ defmt = { version = "1.0", optional = true }
 embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal" }
 embassy-hal-internal = { version = "0.4.0", path = "../embassy-hal-internal", features = ["cortex-m", "prio-bits-3"] }
 embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
-embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-02 = { package = "embedded-hal", version = "0.2.6", features = ["unproven"] }
+embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 embedded-hal-nb = { version = "1.0" }
 embedded-io = "0.7"
 embedded-io-async = { version = "0.7.0" }
 heapless = "0.8"
+maitake-sync = { version = "0.2.2", default-features = false, features = ["critical-section", "no-cache-pad"] }
 mcxa-pac = { version = "0.4.0", features = ["rt", "critical-section"] }
 nb = "1.1.0"
 paste = "1.0.15"
-maitake-sync = { version = "0.2.2", default-features = false, features = ["critical-section", "no-cache-pad"] }
 
 # `time` dependencies
 embassy-time = { version = "0.5.0", path = "../embassy-time" }

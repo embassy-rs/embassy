@@ -11,12 +11,14 @@ use embassy_hal_internal::Peri;
 use crate::clocks::config::VddLevel;
 pub use crate::clocks::periph_helpers::Div4;
 use crate::clocks::{ClockError, PoweredClock, with_clocks};
+use crate::gpio::{AnyPin, SealedPin};
 use crate::pac::mrcc0::mrcc_clkout_clksel::Mux;
 use crate::peripherals::CLKOUT;
 
 /// A peripheral representing the CLKOUT pseudo-peripheral
 pub struct ClockOut<'a> {
     _p: PhantomData<&'a mut CLKOUT>,
+    pin: Peri<'a, AnyPin>,
     freq: u32,
 }
 
@@ -52,6 +54,8 @@ pub struct Config {
 impl<'a> ClockOut<'a> {
     /// Create a new ClockOut pin. On success, the clock signal will begin immediately
     /// on the given pin.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new(
         _peri: Peri<'a, CLKOUT>,
         pin: Peri<'a, impl sealed::ClockOutPin>,
@@ -67,6 +71,7 @@ impl<'a> ClockOut<'a> {
 
         Ok(Self {
             _p: PhantomData,
+            pin: pin.into(),
             freq: freq / cfg.div.into_divisor(),
         })
     }
@@ -81,6 +86,7 @@ impl<'a> ClockOut<'a> {
 impl Drop for ClockOut<'_> {
     fn drop(&mut self) {
         disable_clkout();
+        self.pin.set_as_disabled();
     }
 }
 
@@ -160,10 +166,10 @@ fn disable_clkout() {
 mod sealed {
     use embassy_hal_internal::PeripheralType;
 
-    use crate::gpio::{Pull, SealedPin};
+    use crate::gpio::{GpioPin, Pull, SealedPin};
 
     /// Sealed marker trait for clockout pins
-    pub trait ClockOutPin: PeripheralType {
+    pub trait ClockOutPin: GpioPin + PeripheralType {
         /// Set the given pin to the correct muxing state
         fn mux(&self);
     }

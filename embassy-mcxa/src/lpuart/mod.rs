@@ -824,6 +824,8 @@ impl<'a, M: Mode> Lpuart<'a, M> {
 
 impl<'a> Lpuart<'a, Blocking> {
     /// Create a new blocking LPUART instance with RX/TX pins.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_blocking<T: Instance>(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -844,7 +846,9 @@ impl<'a> Lpuart<'a, Blocking> {
         })
     }
 
-    /// Create a new blocking LPUART instance with RX, TX and RTS/CTS flow control pins
+    /// Create a new blocking LPUART instance with RX, TX and RTS/CTS flow control pins.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_blocking_with_rtscts<T: Instance>(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -886,7 +890,9 @@ impl<'a, M: Mode> LpuartTx<'a, M> {
 }
 
 impl<'a> LpuartTx<'a, Blocking> {
-    /// Create a new blocking LPUART transmitter instance
+    /// Create a new blocking LPUART transmitter instance.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_blocking<T: Instance>(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -901,7 +907,9 @@ impl<'a> LpuartTx<'a, Blocking> {
         Ok(Self::new_inner(T::info(), tx_pin.into(), None))
     }
 
-    /// Create a new blocking LPUART transmitter instance with CTS flow control
+    /// Create a new blocking LPUART transmitter instance with CTS flow control.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_blocking_with_cts<T: Instance>(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -1006,7 +1014,9 @@ impl<'a, M: Mode> LpuartRx<'a, M> {
 }
 
 impl<'a> LpuartRx<'a, Blocking> {
-    /// Create a new blocking LPUART Receiver instance
+    /// Create a new blocking LPUART Receiver instance.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_blocking<T: Instance>(
         _inner: Peri<'a, T>,
         rx_pin: Peri<'a, impl RxPin<T>>,
@@ -1019,7 +1029,9 @@ impl<'a> LpuartRx<'a, Blocking> {
         Ok(Self::new_inner(T::info(), rx_pin.into(), None))
     }
 
-    /// Create a new blocking LPUART Receiver instance with RTS flow control
+    /// Create a new blocking LPUART Receiver instance with RTS flow control.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_blocking_with_rts<T: Instance>(
         _inner: Peri<'a, T>,
         rx_pin: Peri<'a, impl RxPin<T>>,
@@ -1211,6 +1223,8 @@ impl<C: DmaChannelTrait> Drop for RxDmaGuard<'_, C> {
 
 impl<'a, T: Instance, C: DmaChannelTrait> LpuartTxDma<'a, T, C> {
     /// Create a new LPUART TX driver with DMA support.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -1330,6 +1344,8 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartTxDma<'a, T, C> {
 
 impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
     /// Create a new LPUART RX driver with DMA support.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new(
         _inner: Peri<'a, T>,
         rx_pin: Peri<'a, impl RxPin<T>>,
@@ -1533,6 +1549,8 @@ impl<'peri, 'buf, T: Instance, C: DmaChannelTrait> LpuartRxRingDma<'peri, 'buf, 
 
 impl<'a, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> LpuartDma<'a, T, TxC, RxC> {
     /// Create a new LPUART driver with DMA support for both TX and RX.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -1585,6 +1603,40 @@ impl<'a, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> LpuartDma<'a, 
     /// Read data using DMA
     pub async fn read_dma(&mut self, buf: &mut [u8]) -> Result<usize> {
         self.rx.read_dma(buf).await
+    }
+}
+
+// ============================================================================
+// DROP TRAIT IMPLEMENTATIONS
+// ============================================================================
+
+impl<'a, M: Mode> Drop for LpuartTx<'a, M> {
+    fn drop(&mut self) {
+        self._tx_pin.set_as_disabled();
+        if let Some(cts_pin) = &self._cts_pin {
+            cts_pin.set_as_disabled();
+        }
+    }
+}
+
+impl<'a, M: Mode> Drop for LpuartRx<'a, M> {
+    fn drop(&mut self) {
+        self._rx_pin.set_as_disabled();
+        if let Some(rts_pin) = &self._rts_pin {
+            rts_pin.set_as_disabled();
+        }
+    }
+}
+
+impl<'a, T: Instance, C: DmaChannelTrait> Drop for LpuartTxDma<'a, T, C> {
+    fn drop(&mut self) {
+        self._tx_pin.set_as_disabled();
+    }
+}
+
+impl<'a, T: Instance, C: DmaChannelTrait> Drop for LpuartRxDma<'a, T, C> {
+    fn drop(&mut self) {
+        self._rx_pin.set_as_disabled();
     }
 }
 

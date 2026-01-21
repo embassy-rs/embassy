@@ -9,7 +9,7 @@ use embassy_hal_internal::interrupt::InterruptExt;
 use super::{Async, Blocking, Error, Info, InterruptHandler, Mode, SclPin, SdaPin};
 use crate::clocks::periph_helpers::{Div4, I3cClockSel, I3cConfig};
 use crate::clocks::{PoweredClock, enable_and_reset};
-use crate::gpio::AnyPin;
+use crate::gpio::{AnyPin, SealedPin};
 pub use crate::i2c::controller::Speed;
 use crate::interrupt::typelevel;
 use crate::pac::i3c0::mctrl::{Dir as I3cDir, Type};
@@ -522,6 +522,8 @@ impl<'d, M: Mode> I3c<'d, M> {
 
 impl<'d> I3c<'d, Blocking> {
     /// Create a new blocking instance of the I3C controller bus driver.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_blocking(
         peri: Peri<'d, I3C0>,
         scl: Peri<'d, impl SclPin<I3C0>>,
@@ -534,6 +536,8 @@ impl<'d> I3c<'d, Blocking> {
 
 impl<'d> I3c<'d, Async> {
     /// Create a new asynchronous instance of the I3C controller bus driver.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_async(
         peri: Peri<'d, I3C0>,
         scl: Peri<'d, impl SclPin<I3C0>>,
@@ -794,6 +798,13 @@ impl<'d> I3c<'d, Async> {
         self.async_write_internal(address, write, bus_type, SendStop::No)
             .await?;
         self.async_read_internal(address, read, bus_type, SendStop::Yes).await
+    }
+}
+
+impl<'d, M: Mode> Drop for I3c<'d, M> {
+    fn drop(&mut self) {
+        self._scl.set_as_disabled();
+        self._sda.set_as_disabled();
     }
 }
 
