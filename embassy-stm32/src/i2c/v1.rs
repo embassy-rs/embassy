@@ -1716,50 +1716,6 @@ impl<'d> I2c<'d, Async, MultiMaster> {
         result
     }
 
-    /// Create a future that monitors for specific slave termination conditions
-    fn create_termination_monitor(
-        state: &'static State,
-        info: &'static Info,
-        allowed_terminations: &'static [SlaveTermination],
-    ) -> impl Future<Output = Result<SlaveTermination, Error>> {
-        poll_fn(move |cx| {
-            state.waker.register(cx.waker());
-
-            match Self::check_and_clear_error_flags(info) {
-                Err(Error::Nack) if allowed_terminations.contains(&SlaveTermination::Nack) => {
-                    Poll::Ready(Ok(SlaveTermination::Nack))
-                }
-                Err(e) => Poll::Ready(Err(e)),
-                Ok(sr1) => {
-                    if let Some(termination) = Self::check_slave_termination_conditions(sr1) {
-                        if allowed_terminations.contains(&termination) {
-                            // Handle the specific termination condition
-                            match termination {
-                                SlaveTermination::Stop => Self::clear_stop_flag(info),
-                                SlaveTermination::Nack => {
-                                    info.regs.sr1().write(|reg| {
-                                        reg.0 = !0;
-                                        reg.set_af(false);
-                                    });
-                                }
-                                SlaveTermination::Restart => {
-                                    // ADDR flag will be handled by next listen() call
-                                }
-                            }
-                            Poll::Ready(Ok(termination))
-                        } else {
-                            // Unexpected termination condition
-                            Poll::Ready(Err(Error::Bus))
-                        }
-                    } else {
-                        Self::enable_interrupts(info);
-                        Poll::Pending
-                    }
-                }
-            }
-        })
-    }
-
     /// Handle excess bytes after DMA buffer is full
     ///
     /// Reads and discards bytes until transaction termination to prevent interrupt flooding
