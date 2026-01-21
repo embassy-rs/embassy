@@ -15,6 +15,7 @@ pub mod clkout;
 pub mod config;
 pub mod crc;
 pub mod i2c;
+pub mod i3c;
 pub mod lpuart;
 pub mod ostimer;
 pub mod reset_reason;
@@ -111,12 +112,22 @@ embassy_hal_internal::peripherals!(
     OPAMP0,
     OSTIMER0,
 
+    // Normally SWDIO!
+    #[cfg(feature = "swd-as-gpio")]
     P0_0,
+    // Normally SWCLK!
+    #[cfg(feature = "swd-as-gpio")]
     P0_1,
+    // Normally SWO!
+    #[cfg(feature = "swd-swo-as-gpio")]
     P0_2,
+    // Normally JTAG TDI!
+    #[cfg(feature = "jtag-extras-as-gpio")]
     P0_3,
     P0_4,
     P0_5,
+    // Normally JTAG ISPMODE_N!
+    #[cfg(feature = "jtag-extras-as-gpio")]
     P0_6,
     P0_7,
     P0_8,
@@ -173,19 +184,12 @@ embassy_hal_internal::peripherals!(
     P1_26,
     P1_27,
     P1_28,
+    #[cfg(feature = "dangerous-reset-as-gpio")]
     P1_29,
-    // TODO: These pins are optionally used as the clock sources for SOSC.
-    // Ideally, we'd want to have a custom version of the `peripheral!` macro
-    // that presented these as `Option<Peri<'_, P1_30>>` instead of `Peri<'_, P1_30>`
-    // when the user DOES enable the external SOSC. For now, I'm guessing MOST designs
-    // will have an external clock sitting on these pins anyway, so we just notch them
-    // out from the `Peripherals` struct given to users.
-    //
-    // If you find this and want your extra two pins to be available: please open an
-    // embassy issue to discuss how we could do this.
-    //
-    // P1_30,
-    // P1_31,
+    #[cfg(feature = "sosc-as-gpio")]
+    P1_30,
+    #[cfg(feature = "sosc-as-gpio")]
+    P1_31,
 
     P2_0,
     P2_1,
@@ -438,14 +442,6 @@ embassy_hal_internal::interrupt_mod!(
     WWDT0,
 );
 
-// See commented out items above to understand why we create the instances
-// here but don't give them to the user.
-pub(crate) mod internal_peripherals {
-    embassy_hal_internal::peripherals_definition!(P1_30, P1_31,);
-
-    pub(crate) use peripherals::*;
-}
-
 // Use cortex-m-rt's #[interrupt] attribute directly; PAC does not re-export it.
 
 // Re-export interrupt traits and types
@@ -457,7 +453,10 @@ pub(crate) use mcxa_pac as pac;
 /// Initialize HAL with configuration (mirrors embassy-imxrt style). Minimal: just take peripherals.
 /// Also applies configurable NVIC priority for the OSTIMER OS_EVENT interrupt (no enabling).
 pub fn init(cfg: crate::config::Config) -> Peripherals {
-    let peripherals = Peripherals::take();
+    // Might not need to be mutable if none of the `...-as-gpio` features are active.
+    #[allow(unused_mut)]
+    let mut peripherals = Peripherals::take();
+
     crate::interrupt::RTC.set_priority(cfg.rtc_interrupt_priority);
     crate::interrupt::GPIO0.set_priority(cfg.gpio_interrupt_priority);
     crate::interrupt::GPIO1.set_priority(cfg.gpio_interrupt_priority);
@@ -495,6 +494,27 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
 
         _ = crate::clocks::enable_and_reset::<crate::peripherals::PORT4>(&crate::clocks::periph_helpers::NoConfig);
         _ = crate::clocks::enable_and_reset::<crate::peripherals::GPIO4>(&crate::clocks::periph_helpers::NoConfig);
+    }
+
+    // If we are not using SWD pins for SWD reasons, make them floating inputs
+    #[cfg(feature = "swd-as-gpio")]
+    {
+        let _swdio = gpio::Input::new(peripherals.P0_0.reborrow(), gpio::Pull::Disabled);
+        let _swclk = gpio::Input::new(peripherals.P0_1.reborrow(), gpio::Pull::Disabled);
+    }
+    #[cfg(feature = "swd-swo-as-gpio")]
+    {
+        let _swo = gpio::Input::new(peripherals.P0_2.reborrow(), gpio::Pull::Disabled);
+    }
+    #[cfg(feature = "jtag-extras-as-gpio")]
+    {
+        let _tdi = gpio::Input::new(peripherals.P0_3.reborrow(), gpio::Pull::Disabled);
+        let _imn = gpio::Input::new(peripherals.P0_6.reborrow(), gpio::Pull::Disabled);
+    }
+    #[cfg(feature = "dangerous-reset-as-gpio")]
+    {
+        // DANGER DANGER DANGER
+        let _rst = gpio::Input::new(peripherals.P0_29.reborrow(), gpio::Pull::Disabled);
     }
 
     peripherals

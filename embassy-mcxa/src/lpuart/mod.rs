@@ -430,18 +430,22 @@ macro_rules! impl_rts_pin {
 }
 
 // LPUART 0
+#[cfg(feature = "jtag-extras-as-gpio")]
 impl_tx_pin!(LPUART0, P0_3, Mux2);
 impl_tx_pin!(LPUART0, P0_21, Mux3);
 impl_tx_pin!(LPUART0, P2_1, Mux2);
 
+#[cfg(feature = "swd-swo-as-gpio")]
 impl_rx_pin!(LPUART0, P0_2, Mux2);
 impl_rx_pin!(LPUART0, P0_20, Mux3);
 impl_rx_pin!(LPUART0, P2_0, Mux2);
 
+#[cfg(feature = "swd-as-gpio")]
 impl_cts_pin!(LPUART0, P0_1, Mux2);
 impl_cts_pin!(LPUART0, P0_23, Mux3);
 impl_cts_pin!(LPUART0, P2_3, Mux2);
 
+#[cfg(feature = "swd-as-gpio")]
 impl_rts_pin!(LPUART0, P0_0, Mux2);
 impl_rts_pin!(LPUART0, P0_22, Mux3);
 impl_rts_pin!(LPUART0, P2_2, Mux2);

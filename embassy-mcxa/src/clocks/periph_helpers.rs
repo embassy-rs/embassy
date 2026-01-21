@@ -8,6 +8,7 @@
 //! See the docs of [`SPConfHelper`] for more details.
 
 use super::{ClockError, Clocks, PoweredClock};
+use crate::clocks::config::VddLevel;
 use crate::pac;
 
 /// Sealed Peripheral Configuration Helper
@@ -164,6 +165,85 @@ impl SPConfHelper for NoConfig {
 }
 
 //
+// I3C
+//
+
+/// Selectable clocks for `I3c` peripherals
+#[derive(Debug, Clone, Copy)]
+pub enum I3cClockSel {
+    /// FRO12M/FRO_LF/SIRC clock source, passed through divider
+    /// "fro_lf_div"
+    FroLfDiv,
+    /// FRO180M/FRO_HF/FIRC clock source, passed through divider
+    /// "fro_hf_div"
+    FroHfDiv,
+    /// SOSC/XTAL/EXTAL clock source
+    #[cfg(not(feature = "sosc-as-gpio"))]
+    ClkIn,
+    /// clk_1m/FRO_LF divided by 12
+    Clk1M,
+    /// Disabled
+    None,
+}
+
+/// Top level configuration for `I3c` instances.
+pub struct I3cConfig {
+    /// Power state required for this peripheral
+    pub power: PoweredClock,
+    /// Clock source
+    pub source: I3cClockSel,
+    /// Clock divisor
+    pub div: Div4,
+}
+
+impl SPConfHelper for I3cConfig {
+    fn post_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
+        // Always 25MHz maximum frequency.
+        const I3C_FCLK_MAX: u32 = 25_000_000;
+        // check that source is suitable
+        let mrcc0 = unsafe { pac::Mrcc0::steal() };
+        use mcxa_pac::mrcc0::mrcc_i3c0_fclk_clksel::Mux;
+
+        let (clkdiv, clksel) = (mrcc0.mrcc_i3c0_fclk_clkdiv(), mrcc0.mrcc_i3c0_fclk_clksel());
+
+        let (freq, variant) = match self.source {
+            I3cClockSel::FroLfDiv => {
+                let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
+                (freq, Mux::ClkrootFunc0)
+            }
+            I3cClockSel::FroHfDiv => {
+                let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
+                (freq, Mux::ClkrootFunc2)
+            }
+            #[cfg(not(feature = "sosc-as-gpio"))]
+            I3cClockSel::ClkIn => {
+                let freq = clocks.ensure_clk_in_active(&self.power)?;
+                (freq, Mux::ClkrootFunc3)
+            }
+            I3cClockSel::Clk1M => {
+                let freq = clocks.ensure_clk_1m_active(&self.power)?;
+                (freq, Mux::ClkrootFunc5)
+            }
+            I3cClockSel::None => unsafe {
+                // no ClkrootFunc7, just write manually for now
+                clksel.write(|w| w.bits(0b111));
+                clkdiv.modify(|_r, w| w.reset().asserted().halt().asserted());
+                return Ok(0);
+            },
+        };
+
+        if freq > I3C_FCLK_MAX {
+            return Err(ClockError::BadConfig {
+                clock: "i3c fclk",
+                reason: "exceeds max rating",
+            });
+        }
+
+        apply_div4!(self, clksel, clkdiv, variant, freq)
+    }
+}
+
+//
 // LPI2c
 //
 
@@ -177,6 +257,7 @@ pub enum Lpi2cClockSel {
     /// "fro_hf_div"
     FroHfDiv,
     /// SOSC/XTAL/EXTAL clock source
+    #[cfg(not(feature = "sosc-as-gpio"))]
     ClkIn,
     /// clk_1m/FRO_LF divided by 12
     Clk1M,
@@ -237,6 +318,7 @@ impl SPConfHelper for Lpi2cConfig {
                 let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
                 (freq, Mux::ClkrootFunc2)
             }
+            #[cfg(not(feature = "sosc-as-gpio"))]
             Lpi2cClockSel::ClkIn => {
                 let freq = clocks.ensure_clk_in_active(&self.power)?;
                 (freq, Mux::ClkrootFunc3)
@@ -256,6 +338,19 @@ impl SPConfHelper for Lpi2cConfig {
                 return Ok(0);
             },
         };
+        let div = self.div.into_divisor();
+        let expected = freq / div;
+        // 22.3.2 peripheral clock max functional clock limits
+        let fmax = match clocks.active_power {
+            VddLevel::MidDriveMode => 25_000_000,
+            VddLevel::OverDriveMode => 60_000_000,
+        };
+        if expected > fmax {
+            return Err(ClockError::BadConfig {
+                clock: "lpi2c fclk",
+                reason: "exceeds max rating",
+            });
+        }
 
         apply_div4!(self, clksel, clkdiv, variant, freq)
     }
@@ -275,6 +370,7 @@ pub enum LpuartClockSel {
     /// "fro_hf_div"
     FroHfDiv,
     /// SOSC/XTAL/EXTAL clock source
+    #[cfg(not(feature = "sosc-as-gpio"))]
     ClkIn,
     /// FRO16K/clk_16k source
     Clk16K,
@@ -343,6 +439,7 @@ impl SPConfHelper for LpuartConfig {
                 let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
                 (freq, Mux::ClkrootFunc2)
             }
+            #[cfg(not(feature = "sosc-as-gpio"))]
             LpuartClockSel::ClkIn => {
                 let freq = clocks.ensure_clk_in_active(&self.power)?;
                 (freq, Mux::ClkrootFunc3)
@@ -370,6 +467,21 @@ impl SPConfHelper for LpuartConfig {
                 return Ok(0);
             },
         };
+
+        // Check clock speed is reasonable
+        let div = self.div.into_divisor();
+        let expected = freq / div;
+        // 22.3.2 peripheral clock max functional clock limits
+        let fmax = match clocks.active_power {
+            VddLevel::MidDriveMode => 45_000_000,
+            VddLevel::OverDriveMode => 180_000_000,
+        };
+        if expected > fmax {
+            return Err(ClockError::BadConfig {
+                clock: "lpuart fclk",
+                reason: "exceeds max rating",
+            });
+        }
 
         // set clksel
         apply_div4!(self, clksel, clkdiv, variant, freq)
@@ -402,6 +514,8 @@ pub struct OsTimerConfig {
 impl SPConfHelper for OsTimerConfig {
     fn post_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
         let mrcc0 = unsafe { pac::Mrcc0::steal() };
+        // NOTE: complies with 22.3.2 peripheral clock max functional clock limits
+        // which is 1MHz, and we can only select 1mhz/16khz.
         Ok(match self.source {
             OstimerClockSel::Clk16kVddCore => {
                 let freq = clocks.ensure_clk_16k_vdd_core_active(&self.power)?;
@@ -434,6 +548,7 @@ pub enum AdcClockSel {
     /// Gated `fro_hf`/`FRO180M` source
     FroHf,
     /// External Clock Source
+    #[cfg(not(feature = "sosc-as-gpio"))]
     ClkIn,
     /// 1MHz clock sourced by a divided `fro_lf`/`clk_12m`
     Clk1M,
@@ -466,6 +581,7 @@ impl SPConfHelper for AdcConfig {
                 let freq = clocks.ensure_fro_hf_active(&self.power)?;
                 (freq, Mux::ClkrootFunc1)
             }
+            #[cfg(not(feature = "sosc-as-gpio"))]
             AdcClockSel::ClkIn => {
                 let freq = clocks.ensure_clk_in_active(&self.power)?;
                 (freq, Mux::ClkrootFunc3)
@@ -493,6 +609,21 @@ impl SPConfHelper for AdcConfig {
         };
         let clksel = mrcc0.mrcc_adc_clksel();
         let clkdiv = mrcc0.mrcc_adc_clkdiv();
+
+        // Check clock speed is reasonable
+        let div = self.div.into_divisor();
+        let expected = freq / div;
+        // 22.3.2 peripheral clock max functional clock limits
+        let fmax = match clocks.active_power {
+            VddLevel::MidDriveMode => 24_000_000,
+            VddLevel::OverDriveMode => 64_000_000,
+        };
+        if expected > fmax {
+            return Err(ClockError::BadConfig {
+                clock: "adc fclk",
+                reason: "exceeds max rating",
+            });
+        }
 
         apply_div4!(self, clksel, clkdiv, variant, freq)
     }

@@ -53,13 +53,50 @@ rand-core-06 = { package = "rand_core", version = "0.6" }
 rand-core-09 = { package = "rand_core", version = "0.9" }
 
 [features]
-default = ["rt"]
+default = ["rt", "swd-swo-as-gpio"]
 
 # Base defmt feature enables core + panic handler
 # Use with one logger feature: defmt-rtt (preferred) or defmt-uart (fallback)
 defmt = ["dep:defmt", "mcxa-pac/defmt"]
 
 unstable-pac = []
+
+# Allows for using SOSC pins as normal GPIOs.
+#
+# DISABLING this allows for use of SOSC, but reserves the GPIO pins required.
+# ENABLING this means SOSC cannot be set/configured, but makes the GPIO pins available
+sosc-as-gpio = []
+
+# Allows for using SWDIO and SWCLK pins as normal GPIOs.
+#
+# WARNING: This WILL cause problems if you plan to use defmt over RTT,
+# or otherwise debug the system while running.
+#
+# If this feature is enabled, the relevant pin(s) will be set to floating inputs
+# in the HAL init function.
+#
+# This does NOT include the SWO pin.
+swd-as-gpio = []
+
+# Allows for using the SWD SWO pins as a normal GPIO. This is not used for
+# basic probe-rs/rtt usage, but is sometimes used with ITM.
+#
+# If this feature is enabled, the relevant pin(s) will be set to floating inputs
+# in the HAL init function.
+swd-swo-as-gpio = []
+
+# Allows for using the extra JTAG pins (TDI, ISPMODE_N) as normal GPIOs. You
+# must also select `swd-as-gpio`, `swd-swo-as-gpio`, and MAYBE `dangerous-reset-as-gpio`
+# to recover all JTAG pins. These are called "extras" because they aren't also used
+# for normal SWD/SWO.
+jtag-extras-as-gpio = []
+
+# Allows for using the reset pin as a normal GPIO.
+#
+# This is NOT recommended, and we have not currently tested whether it remains
+# possible to reset the device and reflash using probe-rs after enabling this
+# feature. Use at your own risk!
+dangerous-reset-as-gpio = []
 
 # dummy feature to silence embassy-hal-internal lint
 #

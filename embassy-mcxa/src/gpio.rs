@@ -322,12 +322,8 @@ impl GpioPin for AnyPin {}
 
 macro_rules! impl_pin {
     ($peri:ident, $port:expr, $pin:expr, $block:ident) => {
-        impl_pin!(crate::peripherals, $peri, $port, $pin, $block);
-    };
-
-    ($perip:path, $peri:ident, $port:expr, $pin:expr, $block:ident) => {
         paste! {
-            impl SealedPin for $perip::$peri {
+            impl SealedPin for crate::peripherals::$peri {
                 fn pin_port(&self) -> usize {
                     $port * 32 + $pin
                 }
@@ -378,15 +374,15 @@ macro_rules! impl_pin {
                 }
             }
 
-            impl GpioPin for $perip::$peri {}
+            impl GpioPin for crate::peripherals::$peri {}
 
-            impl From<$perip::$peri> for AnyPin {
-                fn from(value: $perip::$peri) -> Self {
+            impl From<crate::peripherals::$peri> for AnyPin {
+                fn from(value: crate::peripherals::$peri) -> Self {
                     value.degrade()
                 }
             }
 
-            impl $perip::$peri {
+            impl crate::peripherals::$peri {
                 /// Convenience helper to obtain a type-erased handle to this pin.
                 pub fn degrade(&self) -> AnyPin {
                     AnyPin::new(self.port(), self.pin(), self.gpio(), self.port_reg(), self.pcr_reg())
@@ -396,12 +392,17 @@ macro_rules! impl_pin {
     };
 }
 
+#[cfg(feature = "swd-as-gpio")]
 impl_pin!(P0_0, 0, 0, Gpio0);
+#[cfg(feature = "swd-as-gpio")]
 impl_pin!(P0_1, 0, 1, Gpio0);
+#[cfg(feature = "swd-swo-as-gpio")]
 impl_pin!(P0_2, 0, 2, Gpio0);
+#[cfg(feature = "jtag-extras-as-gpio")]
 impl_pin!(P0_3, 0, 3, Gpio0);
 impl_pin!(P0_4, 0, 4, Gpio0);
 impl_pin!(P0_5, 0, 5, Gpio0);
+#[cfg(feature = "jtag-extras-as-gpio")]
 impl_pin!(P0_6, 0, 6, Gpio0);
 impl_pin!(P0_7, 0, 7, Gpio0);
 impl_pin!(P0_8, 0, 8, Gpio0);
@@ -458,9 +459,12 @@ impl_pin!(P1_25, 1, 25, Gpio1);
 impl_pin!(P1_26, 1, 26, Gpio1);
 impl_pin!(P1_27, 1, 27, Gpio1);
 impl_pin!(P1_28, 1, 28, Gpio1);
+#[cfg(feature = "dangerous-reset-as-gpio")]
 impl_pin!(P1_29, 1, 29, Gpio1);
-impl_pin!(crate::internal_peripherals, P1_30, 1, 30, Gpio1);
-impl_pin!(crate::internal_peripherals, P1_31, 1, 31, Gpio1);
+#[cfg(feature = "sosc-as-gpio")]
+impl_pin!(P1_30, 1, 30, Gpio1);
+#[cfg(feature = "sosc-as-gpio")]
+impl_pin!(P1_31, 1, 31, Gpio1);
 
 impl_pin!(P2_0, 2, 0, Gpio2);
 impl_pin!(P2_1, 2, 1, Gpio2);

@@ -8,6 +8,7 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::Peri;
 
+use crate::clocks::config::VddLevel;
 pub use crate::clocks::periph_helpers::Div4;
 use crate::clocks::{ClockError, PoweredClock, with_clocks};
 use crate::pac::mrcc0::mrcc_clkout_clksel::Mux;
@@ -27,6 +28,7 @@ pub enum ClockOutSel {
     /// FRO180M Internal Oscillator, via divisor
     FroHfDiv,
     /// External Oscillator
+    #[cfg(not(feature = "sosc-as-gpio"))]
     ClkIn,
     /// 16KHz oscillator
     Clk16K,
@@ -56,9 +58,7 @@ impl<'a> ClockOut<'a> {
         cfg: Config,
     ) -> Result<Self, ClockError> {
         // There's no MRCC enable bit, so we check the validity of the clocks here
-        //
-        // TODO: Should we check that the frequency is suitably low?
-        let (freq, mux) = check_sel(cfg.sel, cfg.level)?;
+        let (freq, mux) = check_sel(cfg.sel, cfg.level, cfg.div.into_divisor())?;
 
         // All good! Apply requested config, starting with the pin.
         pin.mux();
@@ -85,16 +85,31 @@ impl Drop for ClockOut<'_> {
 }
 
 /// Check whether the given clock selection is valid
-fn check_sel(sel: ClockOutSel, level: PoweredClock) -> Result<(u32, Mux), ClockError> {
+fn check_sel(sel: ClockOutSel, level: PoweredClock, divisor: u32) -> Result<(u32, Mux), ClockError> {
     let res = with_clocks(|c| {
-        Ok(match sel {
+        let (freq, mux) = match sel {
             ClockOutSel::Fro12M => (c.ensure_fro_hf_active(&level)?, Mux::Clkroot12m),
             ClockOutSel::FroHfDiv => (c.ensure_fro_hf_div_active(&level)?, Mux::ClkrootFircDiv),
+            #[cfg(not(feature = "sosc-as-gpio"))]
             ClockOutSel::ClkIn => (c.ensure_clk_in_active(&level)?, Mux::ClkrootSosc),
             ClockOutSel::Clk16K => (c.ensure_clk_16k_vdd_core_active(&level)?, Mux::Clkroot16k),
             ClockOutSel::Pll1Clk => (c.ensure_pll1_clk_active(&level)?, Mux::ClkrootSpll),
             ClockOutSel::SlowClk => (c.ensure_slow_clk_active(&level)?, Mux::ClkrootSlow),
-        })
+        };
+        let expected = freq / divisor;
+        let fmax = match c.active_power {
+            VddLevel::MidDriveMode => 45_000_000,
+            VddLevel::OverDriveMode => 90_000_000,
+        };
+
+        if expected > fmax {
+            Err(ClockError::BadConfig {
+                clock: "clkout fclk",
+                reason: "exceeds fclk max",
+            })
+        } else {
+            Ok((freq, mux))
+        }
     });
     let Some(res) = res else {
         return Err(ClockError::NeverInitialized);
@@ -170,6 +185,7 @@ mod sealed {
         };
     }
 
+    #[cfg(feature = "jtag-extras-as-gpio")]
     impl_pin!(P0_6, Mux12);
     impl_pin!(P3_6, Mux1);
     impl_pin!(P3_8, Mux12);
