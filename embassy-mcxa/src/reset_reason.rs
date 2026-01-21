@@ -8,7 +8,46 @@
 /// (CMC).
 pub fn reset_reason() -> ResetReasonRaw {
     let regs = unsafe { &*crate::pac::Cmc::steal() };
-    let srs = regs.srs().read().bits();
+
+    // Read status
+    let srs = regs.ssrs().read().bits();
+
+    // Clear status
+    regs.ssrs().write(|w| {
+        w.wakeup()
+            .clear_bit_by_one()
+            .por()
+            .clear_bit_by_one()
+            .warm()
+            .clear_bit_by_one()
+            .fatal()
+            .clear_bit_by_one()
+            .pin()
+            .clear_bit_by_one()
+            .dap()
+            .clear_bit_by_one()
+            .rstack()
+            .clear_bit_by_one()
+            .lpack()
+            .clear_bit_by_one()
+            .scg()
+            .clear_bit_by_one()
+            .wwdt0()
+            .clear_bit_by_one()
+            .sw()
+            .clear_bit_by_one()
+            .lockup()
+            .clear_bit_by_one()
+            .cdog0()
+            .clear_bit_by_one()
+            .cdog1()
+            .clear_bit_by_one()
+            .jtag()
+            .clear_bit_by_one()
+            .tamper()
+            .clear_bit_by_one()
+    });
+
     ResetReasonRaw(srs)
 }
 
