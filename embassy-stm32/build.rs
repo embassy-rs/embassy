@@ -1666,6 +1666,24 @@ fn main() {
                     }
                 }
 
+                if regs.kind == "comp" {
+                    let peri = format_ident!("{}", p.name);
+                    let pin_name = format_ident!("{}", pin.pin);
+                    if pin.signal.starts_with("INP") {
+                        // Impl InputPlusPin for INP or INP0, INP1 etc.
+                        let ch: u8 = pin.signal.strip_prefix("INP").unwrap().parse().unwrap_or(0);
+                        g.extend(quote! {
+                            impl_comp_inp_pin!( #peri, #pin_name, #ch );
+                        });
+                    } else if pin.signal.starts_with("INM") {
+                        // Impl InputMinusPin for INM or INM0, INM1 etc.
+                        let ch: u8 = pin.signal.strip_prefix("INM").unwrap().parse().unwrap_or(0);
+                        g.extend(quote! {
+                            impl_comp_inm_pin!( #peri, #pin_name, #ch );
+                        });
+                    }
+                }
+
                 if regs.kind == "spdifrx" {
                     let peri = format_ident!("{}", p.name);
                     let pin_name = format_ident!("{}", pin.pin);
