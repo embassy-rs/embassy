@@ -423,7 +423,13 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         let tx_transfer = unsafe {
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::write(tx_ch, buffer, self.inner.regs().dr().as_ptr() as *mut _, T::TX_DREQ)
+            crate::dma::write(
+                tx_ch,
+                buffer,
+                self.inner.regs().dr().as_ptr() as *mut _,
+                T::TX_DREQ,
+                false,
+            )
         };
         tx_transfer.await;
 
@@ -448,7 +454,13 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         let rx_transfer = unsafe {
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::read(rx_ch, self.inner.regs().dr().as_ptr() as *const _, buffer, T::RX_DREQ)
+            crate::dma::read(
+                rx_ch,
+                self.inner.regs().dr().as_ptr() as *const _,
+                buffer,
+                T::RX_DREQ,
+                false,
+            )
         };
 
         let tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
@@ -483,7 +495,13 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         let rx_transfer = unsafe {
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::read(rx_ch, self.inner.regs().dr().as_ptr() as *const _, rx, T::RX_DREQ)
+            crate::dma::read(
+                rx_ch,
+                self.inner.regs().dr().as_ptr() as *const _,
+                rx,
+                T::RX_DREQ,
+                false,
+            )
         };
 
         let mut tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
@@ -492,7 +510,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         let tx_transfer = async {
             let p = self.inner.regs();
             unsafe {
-                crate::dma::write(tx_ch.reborrow(), tx, p.dr().as_ptr() as *mut _, T::TX_DREQ).await;
+                crate::dma::write(tx_ch.reborrow(), tx, p.dr().as_ptr() as *mut _, T::TX_DREQ, false).await;
 
                 if rx.len() > tx.len() {
                     let write_bytes_len = rx.len() - tx.len();

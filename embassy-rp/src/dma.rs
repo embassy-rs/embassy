@@ -46,6 +46,7 @@ pub unsafe fn read<'a, C: Channel, W: Word>(
     from: *const W,
     to: *mut [W],
     dreq: vals::TreqSel,
+    bswap: bool,
 ) -> Transfer<'a, C> {
     copy_inner(
         ch,
@@ -56,6 +57,7 @@ pub unsafe fn read<'a, C: Channel, W: Word>(
         false,
         true,
         dreq,
+        bswap,
     )
 }
 
@@ -67,6 +69,7 @@ pub unsafe fn write<'a, C: Channel, W: Word>(
     from: *const [W],
     to: *mut W,
     dreq: vals::TreqSel,
+    bswap: bool,
 ) -> Transfer<'a, C> {
     copy_inner(
         ch,
@@ -77,6 +80,7 @@ pub unsafe fn write<'a, C: Channel, W: Word>(
         true,
         false,
         dreq,
+        bswap,
     )
 }
 
@@ -101,6 +105,7 @@ pub unsafe fn write_repeated<'a, C: Channel, W: Word>(
         false,
         false,
         dreq,
+        false,
     )
 }
 
@@ -120,6 +125,7 @@ pub unsafe fn copy<'a, C: Channel, W: Word>(ch: Peri<'a, C>, from: &[W], to: &mu
         true,
         true,
         vals::TreqSel::PERMANENT,
+        false,
     )
 }
 
@@ -132,6 +138,7 @@ fn copy_inner<'a, C: Channel>(
     incr_read: bool,
     incr_write: bool,
     dreq: vals::TreqSel,
+    bswap: bool,
 ) -> Transfer<'a, C> {
     let p = ch.regs();
 
@@ -155,6 +162,7 @@ fn copy_inner<'a, C: Channel>(
         w.set_incr_read(incr_read);
         w.set_incr_write(incr_write);
         w.set_chain_to(ch.number());
+        w.set_bswap(bswap);
         w.set_en(true);
     });
 
