@@ -61,8 +61,22 @@ pub mod can;
 // FIXME: Cordic driver cause stm32u5a5zj crash
 #[cfg(aes_v3b)]
 pub mod aes;
+#[cfg(comp_u5)]
+pub mod comp;
 #[cfg(all(cordic, not(any(stm32u5a5, stm32u5a9))))]
 pub mod cordic;
+
+// Stub macros for COMP pin implementations when comp module is not compiled.
+// These are needed because build.rs generates macro calls for all chips with COMP,
+// but the actual macros are only defined in the comp module which is only compiled for comp_u5.
+#[cfg(all(comp, not(comp_u5)))]
+macro_rules! impl_comp_inp_pin {
+    ($inst:ident, $pin:ident, $ch:expr) => {};
+}
+#[cfg(all(comp, not(comp_u5)))]
+macro_rules! impl_comp_inm_pin {
+    ($inst:ident, $pin:ident, $ch:expr) => {};
+}
 #[cfg(crc)]
 pub mod crc;
 #[cfg(cryp)]

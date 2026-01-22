@@ -129,7 +129,6 @@ pub enum PkaMode {
 // Derived from CMSIS headers: offset = raw_address - 0x0400
 // ============================================================================
 
-#[allow(dead_code)] // Offsets for future PKA operations
 mod offsets {
     // Montgomery parameter computation
     pub mod montgomery_param {
@@ -147,7 +146,19 @@ mod offsets {
         pub const IN_EXPONENT: usize = 0xA78;
         pub const IN_MODULUS: usize = 0xC88;
         pub const OUT_RESULT: usize = 0x438;
+        #[allow(dead_code)]
         pub const OUT_ERROR: usize = 0xE98;
+    }
+
+    // Modular exponentiation protected mode
+    pub mod modular_exp_protect {
+        pub const IN_EXP_NB_BITS: usize = 0x00;
+        pub const IN_OP_NB_BITS: usize = 0x08;
+        pub const IN_EXPONENT_BASE: usize = 0x12C8; // 0x16C8 - 0x0400
+        pub const IN_EXPONENT: usize = 0x10B8; // 0x14B8 - 0x0400
+        pub const IN_MODULUS: usize = 0x438; // 0x0838 - 0x0400
+        pub const IN_PHI: usize = 0x868; // 0x0C68 - 0x0400
+        pub const OUT_RESULT: usize = 0x438;
     }
 
     // RSA CRT exponentiation
@@ -196,7 +207,9 @@ mod offsets {
         pub const OUT_ERROR: usize = 0xBE0;
         pub const OUT_SIGNATURE_R: usize = 0x330;
         pub const OUT_SIGNATURE_S: usize = 0x388;
+        #[allow(dead_code)]
         pub const OUT_FINAL_POINT_X: usize = 0x1000;
+        #[allow(dead_code)]
         pub const OUT_FINAL_POINT_Y: usize = 0x1058;
     }
 
@@ -227,6 +240,7 @@ mod offsets {
         pub const IN_MOD_GF: usize = 0x70;
         pub const IN_INITIAL_POINT_X: usize = 0x178;
         pub const IN_INITIAL_POINT_Y: usize = 0x1D0;
+        #[allow(dead_code)]
         pub const IN_MONTGOMERY_PARAM: usize = 0xC8;
         pub const OUT_ERROR: usize = 0x280;
     }
@@ -239,13 +253,72 @@ mod offsets {
         pub const OUT_RESULT: usize = 0xA78;
     }
 
-    // Generic arithmetic operations
+    // Generic arithmetic operations (add, sub, mul, comparison, modular add/sub, montgomery mul)
     pub mod arithmetic {
         pub const IN_NB_BITS: usize = 0x08;
         pub const IN_OP1: usize = 0x650;
         pub const IN_OP2: usize = 0x868;
         pub const IN_OP3_MOD: usize = 0xC88;
         pub const OUT_RESULT: usize = 0xA78;
+    }
+
+    // Modular reduction
+    pub mod modular_red {
+        pub const IN_OP_LENGTH: usize = 0x00;
+        pub const IN_MOD_LENGTH: usize = 0x08;
+        pub const IN_OPERAND: usize = 0x650;
+        pub const IN_MODULUS: usize = 0x868;
+        pub const OUT_RESULT: usize = 0xA78;
+    }
+
+    // ECC complete addition (projective coordinates)
+    pub mod ecc_complete_add {
+        pub const IN_MOD_NB_BITS: usize = 0x08;
+        pub const IN_A_COEFF_SIGN: usize = 0x10;
+        pub const IN_A_COEFF: usize = 0x18;
+        pub const IN_MOD_P: usize = 0x70;
+        pub const IN_POINT1_X: usize = 0x228;
+        pub const IN_POINT1_Y: usize = 0x280;
+        pub const IN_POINT1_Z: usize = 0x2D8;
+        pub const IN_POINT2_X: usize = 0x330;
+        pub const IN_POINT2_Y: usize = 0x388;
+        pub const IN_POINT2_Z: usize = 0x3E0;
+        pub const OUT_RESULT_X: usize = 0x960;
+        pub const OUT_RESULT_Y: usize = 0x9B8;
+        pub const OUT_RESULT_Z: usize = 0xA10;
+    }
+
+    // ECC double base ladder (k*P + m*Q)
+    pub mod double_base_ladder {
+        pub const IN_PRIME_ORDER_NB_BITS: usize = 0x00;
+        pub const IN_MOD_NB_BITS: usize = 0x08;
+        pub const IN_A_COEFF_SIGN: usize = 0x10;
+        pub const IN_A_COEFF: usize = 0x18;
+        pub const IN_MOD_P: usize = 0x70;
+        pub const IN_K: usize = 0x120;
+        pub const IN_M: usize = 0x178;
+        pub const IN_POINT1_X: usize = 0x228;
+        pub const IN_POINT1_Y: usize = 0x280;
+        pub const IN_POINT1_Z: usize = 0x2D8;
+        pub const IN_POINT2_X: usize = 0x330;
+        pub const IN_POINT2_Y: usize = 0x388;
+        pub const IN_POINT2_Z: usize = 0x3E0;
+        pub const OUT_RESULT_X: usize = 0x178;
+        pub const OUT_RESULT_Y: usize = 0x1D0;
+        pub const OUT_ERROR: usize = 0x120;
+    }
+
+    // ECC projective to affine conversion
+    pub mod projective_to_affine {
+        pub const IN_MOD_NB_BITS: usize = 0x08;
+        pub const IN_MOD_P: usize = 0x70;
+        pub const IN_POINT_X: usize = 0x960;
+        pub const IN_POINT_Y: usize = 0x9B8;
+        pub const IN_POINT_Z: usize = 0xA10;
+        pub const IN_MONTGOMERY_PARAM: usize = 0xC8;
+        pub const OUT_RESULT_X: usize = 0x178;
+        pub const OUT_RESULT_Y: usize = 0x1D0;
+        pub const OUT_ERROR: usize = 0x280;
     }
 }
 
@@ -423,6 +496,69 @@ pub struct RsaCrtParams<'a> {
     pub dq: &'a [u8],
     /// q^(-1) mod p
     pub qinv: &'a [u8],
+}
+
+/// ECC point in projective coordinates (X, Y, Z)
+///
+/// In projective coordinates, the affine point (x, y) is represented as (X, Y, Z)
+/// where x = X/Z and y = Y/Z (for standard projective) or x = X/Z² and y = Y/Z³
+/// (for Jacobian projective).
+pub struct EccProjectivePoint {
+    /// X coordinate
+    pub x: [u8; 66], // Max size for P-521
+    /// Y coordinate
+    pub y: [u8; 66],
+    /// Z coordinate
+    pub z: [u8; 66],
+    /// Actual size of coordinates in bytes
+    pub size: usize,
+}
+
+impl EccProjectivePoint {
+    /// Create a new projective point with given size
+    pub fn new(size: usize) -> Self {
+        Self {
+            x: [0u8; 66],
+            y: [0u8; 66],
+            z: [0u8; 66],
+            size,
+        }
+    }
+
+    /// Create from affine point (Z = 1)
+    pub fn from_affine(x: &[u8], y: &[u8]) -> Self {
+        let size = x.len();
+        let mut point = Self::new(size);
+        point.x[..size].copy_from_slice(x);
+        point.y[..size].copy_from_slice(y);
+        // Z = 1 in big-endian
+        point.z[size - 1] = 1;
+        point
+    }
+}
+
+/// Result of a comparison operation
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ComparisonResult {
+    /// A < B
+    Less,
+    /// A == B
+    Equal,
+    /// A > B
+    Greater,
+}
+
+/// Parameters for modular exponentiation with protection (side-channel resistant)
+pub struct ModExpProtectParams<'a> {
+    /// Base value
+    pub base: &'a [u8],
+    /// Exponent
+    pub exponent: &'a [u8],
+    /// Modulus n
+    pub modulus: &'a [u8],
+    /// Phi(n) = (p-1)(q-1) for RSA
+    pub phi: &'a [u8],
 }
 
 // ============================================================================
@@ -745,8 +881,9 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.init_pka()?;
         self.set_mode(PkaMode::ModularExp);
 
-        let exp_nb_bits = Self::get_opt_bit_size(exp_size, exponent[0]);
-        let mod_nb_bits = Self::get_opt_bit_size(mod_size, modulus[0]);
+        // HAL uses byte-aligned bit sizes for modular exponentiation
+        let exp_nb_bits = (exp_size * 8) as u32;
+        let mod_nb_bits = (mod_size * 8) as u32;
 
         self.write_ram_word(offsets::modular_exp::IN_EXP_NB_BITS, exp_nb_bits);
         self.write_ram_word(offsets::modular_exp::IN_OP_NB_BITS, mod_nb_bits);
@@ -757,16 +894,8 @@ impl<'d, T: Instance> Pka<'d, T> {
 
         self.start_and_wait()?;
 
-        // Check for errors - 0xD60D indicates success
-        let status = self.read_ram_word(offsets::modular_exp::OUT_ERROR);
-        if status != 0xD60D {
-            self.disable_pka();
-            return Err(Error::OperationError);
-        }
-
         self.read_operand(offsets::modular_exp::OUT_RESULT, &mut result[..mod_size]);
 
-        self.disable_pka();
         Ok(())
     }
 
@@ -795,8 +924,8 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.init_pka()?;
         self.set_mode(PkaMode::RsaCrtExp);
 
-        // For CRT, we use the size of the larger prime
-        let mod_nb_bits = Self::get_opt_bit_size(mod_size, ciphertext[0]);
+        // HAL uses byte-aligned bit sizes for RSA CRT
+        let mod_nb_bits = (mod_size * 8) as u32;
 
         self.write_ram_word(offsets::rsa_crt::IN_MOD_NB_BITS, mod_nb_bits);
 
@@ -811,7 +940,6 @@ impl<'d, T: Instance> Pka<'d, T> {
 
         self.read_operand(offsets::rsa_crt::OUT_RESULT, &mut result[..mod_size]);
 
-        self.disable_pka();
         Ok(())
     }
 
@@ -840,7 +968,6 @@ impl<'d, T: Instance> Pka<'d, T> {
 
         self.read_operand(offsets::modular_inv::OUT_RESULT, &mut result[..size]);
 
-        self.disable_pka();
         Ok(())
     }
 
@@ -877,7 +1004,8 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.init_pka()?;
         self.set_mode(mode);
 
-        let nb_bits = Self::get_opt_bit_size(size, a[0].max(b[0]));
+        // HAL uses byte-aligned bit sizes for arithmetic operations
+        let nb_bits = (size * 8) as u32;
         self.write_ram_word(offsets::arithmetic::IN_NB_BITS, nb_bits);
 
         self.write_operand(offsets::arithmetic::IN_OP1, a);
@@ -891,6 +1019,472 @@ impl<'d, T: Instance> Pka<'d, T> {
 
         let result_size = if mode == PkaMode::ArithmeticMul { size * 2 } else { size };
         self.read_operand(offsets::arithmetic::OUT_RESULT, &mut result[..result_size]);
+
+        Ok(())
+    }
+
+    // ========================================================================
+    // Montgomery Operations
+    // ========================================================================
+
+    /// Compute Montgomery parameter R² mod n
+    ///
+    /// This parameter is required for fast modular exponentiation and other
+    /// Montgomery-form operations. The result should be stored and reused
+    /// for multiple operations with the same modulus.
+    ///
+    /// # Arguments
+    /// * `modulus` - The modulus n
+    /// * `result` - Output buffer for R² mod n (must be same size as modulus)
+    pub fn montgomery_param(&mut self, modulus: &[u8], result: &mut [u32]) -> Result<(), Error> {
+        let size = modulus.len();
+        let word_count = (size + 3) / 4;
+
+        if result.len() < word_count {
+            return Err(Error::InvalidSize);
+        }
+
+        self.init_pka()?;
+        self.set_mode(PkaMode::MontgomeryParam);
+
+        // Skip leading zero bytes to find the actual MSB (matching HAL behavior)
+        let mut bytes_to_skip = 0;
+        while bytes_to_skip < size && modulus[bytes_to_skip] == 0 {
+            bytes_to_skip += 1;
+        }
+        let new_size = size - bytes_to_skip;
+        let first_nonzero = if bytes_to_skip < size {
+            modulus[bytes_to_skip]
+        } else {
+            0
+        };
+
+        let nb_bits = Self::get_opt_bit_size(new_size, first_nonzero);
+        self.write_ram_word(offsets::montgomery_param::IN_MOD_NB_BITS, nb_bits);
+        self.write_operand(offsets::montgomery_param::IN_MODULUS, modulus);
+
+        self.start_and_wait()?;
+
+        // Read result as u32 words (native PKA format)
+        for i in 0..word_count {
+            result[i] = self.read_ram_word(offsets::montgomery_param::OUT_PARAMETER + i * 4);
+        }
+
+        Ok(())
+    }
+
+    /// Perform modular exponentiation with pre-computed Montgomery parameter (fast mode)
+    ///
+    /// This is faster than `modular_exp` when you have the Montgomery parameter
+    /// pre-computed (via `montgomery_param`).
+    ///
+    /// # Arguments
+    /// * `base` - Base value
+    /// * `exponent` - Exponent
+    /// * `modulus` - Modulus n
+    /// * `montgomery_param` - Pre-computed Montgomery parameter R² mod n
+    /// * `result` - Output buffer (must be same size as modulus)
+    pub fn modular_exp_fast(
+        &mut self,
+        base: &[u8],
+        exponent: &[u8],
+        modulus: &[u8],
+        montgomery_param: &[u32],
+        result: &mut [u8],
+    ) -> Result<(), Error> {
+        let mod_size = modulus.len();
+        let exp_size = exponent.len();
+
+        if base.len() > mod_size || result.len() < mod_size {
+            return Err(Error::InvalidSize);
+        }
+
+        self.init_pka()?;
+        self.set_mode(PkaMode::ModularExpFast);
+
+        let exp_nb_bits = (exp_size * 8) as u32;
+        let mod_nb_bits = (mod_size * 8) as u32;
+
+        self.write_ram_word(offsets::modular_exp::IN_EXP_NB_BITS, exp_nb_bits);
+        self.write_ram_word(offsets::modular_exp::IN_OP_NB_BITS, mod_nb_bits);
+
+        // Write Montgomery parameter (u32 words)
+        for (i, &word) in montgomery_param.iter().enumerate() {
+            self.write_ram_word(offsets::modular_exp::IN_MONTGOMERY_PARAM + i * 4, word);
+        }
+
+        self.write_operand(offsets::modular_exp::IN_EXPONENT_BASE, base);
+        self.write_operand(offsets::modular_exp::IN_EXPONENT, exponent);
+        self.write_operand(offsets::modular_exp::IN_MODULUS, modulus);
+
+        self.start_and_wait()?;
+
+        // Modular exponentiation (fast mode) doesn't write to OUT_ERROR
+        // Errors are indicated by SR flags which are checked in start_and_wait()
+
+        self.read_operand(offsets::modular_exp::OUT_RESULT, &mut result[..mod_size]);
+
+        Ok(())
+    }
+
+    /// Perform modular exponentiation with side-channel protection
+    ///
+    /// This mode provides constant-time execution to protect against
+    /// timing and power analysis attacks. It requires phi(n) as input.
+    ///
+    /// # Arguments
+    /// * `params` - Protected mode parameters including phi(n)
+    /// * `result` - Output buffer (must be same size as modulus)
+    pub fn modular_exp_protect(&mut self, params: &ModExpProtectParams, result: &mut [u8]) -> Result<(), Error> {
+        let mod_size = params.modulus.len();
+        let exp_size = params.exponent.len();
+
+        if params.base.len() > mod_size || params.phi.len() != mod_size || result.len() < mod_size {
+            return Err(Error::InvalidSize);
+        }
+
+        self.init_pka()?;
+        self.set_mode(PkaMode::ModularExpProtect);
+
+        // HAL uses byte-aligned bit sizes for modular exponentiation
+        let exp_nb_bits = (exp_size * 8) as u32;
+        let mod_nb_bits = (mod_size * 8) as u32;
+
+        self.write_ram_word(offsets::modular_exp_protect::IN_EXP_NB_BITS, exp_nb_bits);
+        self.write_ram_word(offsets::modular_exp_protect::IN_OP_NB_BITS, mod_nb_bits);
+
+        self.write_operand(offsets::modular_exp_protect::IN_EXPONENT_BASE, params.base);
+        self.write_operand(offsets::modular_exp_protect::IN_EXPONENT, params.exponent);
+        self.write_operand(offsets::modular_exp_protect::IN_MODULUS, params.modulus);
+        self.write_operand(offsets::modular_exp_protect::IN_PHI, params.phi);
+
+        self.start_and_wait()?;
+
+        // Modular exponentiation (protected mode) doesn't write to OUT_ERROR
+        // Errors are indicated by SR flags which are checked in start_and_wait()
+
+        self.read_operand(offsets::modular_exp_protect::OUT_RESULT, &mut result[..mod_size]);
+
+        Ok(())
+    }
+
+    /// Perform Montgomery multiplication: result = (a * b * R^-1) mod n
+    ///
+    /// This is useful for operations in Montgomery form.
+    pub fn montgomery_mul(&mut self, a: &[u8], b: &[u8], modulus: &[u8], result: &mut [u8]) -> Result<(), Error> {
+        self.arithmetic_op(PkaMode::MontgomeryMul, a, b, Some(modulus), result)
+    }
+
+    // ========================================================================
+    // Additional Arithmetic Operations
+    // ========================================================================
+
+    /// Compute arithmetic addition: result = a + b
+    ///
+    /// Note: Result may be one word larger than inputs if there's overflow.
+    pub fn arithmetic_add(&mut self, a: &[u8], b: &[u8], result: &mut [u8]) -> Result<(), Error> {
+        let size = a.len();
+
+        if b.len() != size || result.len() < size {
+            return Err(Error::InvalidSize);
+        }
+
+        self.init_pka()?;
+        self.set_mode(PkaMode::ArithmeticAdd);
+
+        let nb_bits = Self::get_opt_bit_size(size, a[0].max(b[0]));
+        self.write_ram_word(offsets::arithmetic::IN_NB_BITS, nb_bits);
+
+        self.write_operand(offsets::arithmetic::IN_OP1, a);
+        self.write_operand(offsets::arithmetic::IN_OP2, b);
+
+        self.start_and_wait()?;
+
+        self.read_operand(offsets::arithmetic::OUT_RESULT, &mut result[..size]);
+
+        self.disable_pka();
+        Ok(())
+    }
+
+    /// Compute arithmetic subtraction: result = a - b
+    ///
+    /// Note: If a < b, the result will be the two's complement.
+    pub fn arithmetic_sub(&mut self, a: &[u8], b: &[u8], result: &mut [u8]) -> Result<(), Error> {
+        let size = a.len();
+
+        if b.len() != size || result.len() < size {
+            return Err(Error::InvalidSize);
+        }
+
+        self.init_pka()?;
+        self.set_mode(PkaMode::ArithmeticSub);
+
+        let nb_bits = Self::get_opt_bit_size(size, a[0].max(b[0]));
+        self.write_ram_word(offsets::arithmetic::IN_NB_BITS, nb_bits);
+
+        self.write_operand(offsets::arithmetic::IN_OP1, a);
+        self.write_operand(offsets::arithmetic::IN_OP2, b);
+
+        self.start_and_wait()?;
+
+        self.read_operand(offsets::arithmetic::OUT_RESULT, &mut result[..size]);
+
+        Ok(())
+    }
+
+    /// Compare two big integers
+    ///
+    /// Returns the comparison result indicating whether a < b, a == b, or a > b.
+    pub fn comparison(&mut self, a: &[u8], b: &[u8]) -> Result<ComparisonResult, Error> {
+        let size = a.len();
+
+        if b.len() != size {
+            return Err(Error::InvalidSize);
+        }
+
+        self.init_pka()?;
+        self.set_mode(PkaMode::Comparison);
+
+        // HAL uses byte-aligned bit sizes for comparison
+        let nb_bits = (size * 8) as u32;
+        self.write_ram_word(offsets::arithmetic::IN_NB_BITS, nb_bits);
+
+        self.write_operand(offsets::arithmetic::IN_OP1, a);
+        self.write_operand(offsets::arithmetic::IN_OP2, b);
+
+        self.start_and_wait()?;
+
+        let result = self.read_ram_word(offsets::arithmetic::OUT_RESULT);
+
+        // PKA comparison result encoding (from STM32WBA reference manual)
+        match result {
+            0xED2C => Ok(ComparisonResult::Equal),   // A == B
+            0x7AF8 => Ok(ComparisonResult::Greater), // A > B
+            0x916A => Ok(ComparisonResult::Less),    // A < B
+            _ => Err(Error::OperationError),
+        }
+    }
+
+    /// Compute modular reduction: result = a mod n
+    pub fn modular_red(&mut self, a: &[u8], modulus: &[u8], result: &mut [u8]) -> Result<(), Error> {
+        let op_size = a.len();
+        let mod_size = modulus.len();
+
+        if result.len() < mod_size {
+            return Err(Error::InvalidSize);
+        }
+
+        self.init_pka()?;
+        self.set_mode(PkaMode::ModularRed);
+
+        let op_nb_bits = (op_size * 8) as u32;
+        let mod_nb_bits = (mod_size * 8) as u32;
+
+        self.write_ram_word(offsets::modular_red::IN_OP_LENGTH, op_nb_bits);
+        self.write_ram_word(offsets::modular_red::IN_MOD_LENGTH, mod_nb_bits);
+
+        self.write_operand(offsets::modular_red::IN_OPERAND, a);
+        self.write_operand(offsets::modular_red::IN_MODULUS, modulus);
+
+        self.start_and_wait()?;
+
+        self.read_operand(offsets::modular_red::OUT_RESULT, &mut result[..mod_size]);
+
+        Ok(())
+    }
+
+    // ========================================================================
+    // Advanced ECC Operations
+    // ========================================================================
+
+    /// ECC complete point addition in projective coordinates: R = P + Q
+    ///
+    /// This operation adds two points in projective coordinates and handles
+    /// all edge cases (point at infinity, point doubling, etc.).
+    ///
+    /// # Arguments
+    /// * `curve` - Curve parameters
+    /// * `p` - First point in projective coordinates
+    /// * `q` - Second point in projective coordinates
+    /// * `result` - Output point in projective coordinates
+    pub fn ecc_complete_add(
+        &mut self,
+        curve: &EcdsaCurveParams,
+        p: &EccProjectivePoint,
+        q: &EccProjectivePoint,
+        result: &mut EccProjectivePoint,
+    ) -> Result<(), Error> {
+        let modulus_size = curve.p_modulus.len();
+
+        if p.size != modulus_size || q.size != modulus_size || result.size != modulus_size {
+            return Err(Error::InvalidSize);
+        }
+
+        self.init_pka()?;
+
+        let mod_nb_bits = Self::get_opt_bit_size(modulus_size, curve.p_modulus[0]);
+
+        self.write_ram_word(offsets::ecc_complete_add::IN_MOD_NB_BITS, mod_nb_bits);
+        self.write_ram_word(offsets::ecc_complete_add::IN_A_COEFF_SIGN, curve.a_coefficient_sign);
+
+        self.write_operand(offsets::ecc_complete_add::IN_A_COEFF, curve.a_coefficient);
+        self.write_operand(offsets::ecc_complete_add::IN_MOD_P, curve.p_modulus);
+
+        // Write point P
+        self.write_operand(offsets::ecc_complete_add::IN_POINT1_X, &p.x[..modulus_size]);
+        self.write_operand(offsets::ecc_complete_add::IN_POINT1_Y, &p.y[..modulus_size]);
+        self.write_operand(offsets::ecc_complete_add::IN_POINT1_Z, &p.z[..modulus_size]);
+
+        // Write point Q
+        self.write_operand(offsets::ecc_complete_add::IN_POINT2_X, &q.x[..modulus_size]);
+        self.write_operand(offsets::ecc_complete_add::IN_POINT2_Y, &q.y[..modulus_size]);
+        self.write_operand(offsets::ecc_complete_add::IN_POINT2_Z, &q.z[..modulus_size]);
+
+        self.set_mode(PkaMode::EccCompleteAdd);
+        self.start_and_wait()?;
+
+        // Read result
+        self.read_operand(offsets::ecc_complete_add::OUT_RESULT_X, &mut result.x[..modulus_size]);
+        self.read_operand(offsets::ecc_complete_add::OUT_RESULT_Y, &mut result.y[..modulus_size]);
+        self.read_operand(offsets::ecc_complete_add::OUT_RESULT_Z, &mut result.z[..modulus_size]);
+
+        self.disable_pka();
+        Ok(())
+    }
+
+    /// ECC double base ladder: result = k*P + m*Q (side-channel resistant)
+    ///
+    /// This operation computes the linear combination of two points using the
+    /// double base ladder algorithm, which provides side-channel resistance.
+    ///
+    /// # Arguments
+    /// * `curve` - Curve parameters
+    /// * `k` - Scalar for point P
+    /// * `p` - First point in projective coordinates
+    /// * `m` - Scalar for point Q
+    /// * `q` - Second point in projective coordinates
+    /// * `result` - Output point in affine coordinates
+    pub fn double_base_ladder(
+        &mut self,
+        curve: &EcdsaCurveParams,
+        k: &[u8],
+        p: &EccProjectivePoint,
+        m: &[u8],
+        q: &EccProjectivePoint,
+        result: &mut EccPoint,
+    ) -> Result<(), Error> {
+        let modulus_size = curve.p_modulus.len();
+        let order_size = curve.order.len();
+
+        if k.len() != order_size
+            || m.len() != order_size
+            || p.size != modulus_size
+            || q.size != modulus_size
+            || result.size != modulus_size
+        {
+            return Err(Error::InvalidSize);
+        }
+
+        self.init_pka()?;
+
+        let order_nb_bits = Self::get_opt_bit_size(order_size, curve.order[0]);
+        let mod_nb_bits = Self::get_opt_bit_size(modulus_size, curve.p_modulus[0]);
+
+        self.write_ram_word(offsets::double_base_ladder::IN_PRIME_ORDER_NB_BITS, order_nb_bits);
+        self.write_ram_word(offsets::double_base_ladder::IN_MOD_NB_BITS, mod_nb_bits);
+        self.write_ram_word(offsets::double_base_ladder::IN_A_COEFF_SIGN, curve.a_coefficient_sign);
+
+        self.write_operand(offsets::double_base_ladder::IN_A_COEFF, curve.a_coefficient);
+        self.write_operand(offsets::double_base_ladder::IN_MOD_P, curve.p_modulus);
+
+        // Write scalars
+        self.write_operand(offsets::double_base_ladder::IN_K, k);
+        self.write_operand(offsets::double_base_ladder::IN_M, m);
+
+        // Write point P
+        self.write_operand(offsets::double_base_ladder::IN_POINT1_X, &p.x[..modulus_size]);
+        self.write_operand(offsets::double_base_ladder::IN_POINT1_Y, &p.y[..modulus_size]);
+        self.write_operand(offsets::double_base_ladder::IN_POINT1_Z, &p.z[..modulus_size]);
+
+        // Write point Q
+        self.write_operand(offsets::double_base_ladder::IN_POINT2_X, &q.x[..modulus_size]);
+        self.write_operand(offsets::double_base_ladder::IN_POINT2_Y, &q.y[..modulus_size]);
+        self.write_operand(offsets::double_base_ladder::IN_POINT2_Z, &q.z[..modulus_size]);
+
+        self.set_mode(PkaMode::DoubleBaseLadder);
+        self.start_and_wait()?;
+
+        // Check for errors
+        let status = self.read_ram_word(offsets::double_base_ladder::OUT_ERROR);
+        if status != 0xD60D {
+            self.disable_pka();
+            return Err(Error::OperationError);
+        }
+
+        // Read result (affine coordinates)
+        self.read_operand(offsets::double_base_ladder::OUT_RESULT_X, &mut result.x[..modulus_size]);
+        self.read_operand(offsets::double_base_ladder::OUT_RESULT_Y, &mut result.y[..modulus_size]);
+
+        self.disable_pka();
+        Ok(())
+    }
+
+    /// Convert a point from projective to affine coordinates
+    ///
+    /// # Arguments
+    /// * `modulus` - The curve modulus p
+    /// * `montgomery_param` - Pre-computed Montgomery parameter R² mod p
+    /// * `point` - Point in projective coordinates
+    /// * `result` - Output point in affine coordinates
+    pub fn projective_to_affine(
+        &mut self,
+        modulus: &[u8],
+        montgomery_param: &[u32],
+        point: &EccProjectivePoint,
+        result: &mut EccPoint,
+    ) -> Result<(), Error> {
+        let modulus_size = modulus.len();
+
+        if point.size != modulus_size || result.size != modulus_size {
+            return Err(Error::InvalidSize);
+        }
+
+        self.init_pka()?;
+
+        let mod_nb_bits = Self::get_opt_bit_size(modulus_size, modulus[0]);
+
+        self.write_ram_word(offsets::projective_to_affine::IN_MOD_NB_BITS, mod_nb_bits);
+        self.write_operand(offsets::projective_to_affine::IN_MOD_P, modulus);
+
+        // Write Montgomery parameter
+        for (i, &word) in montgomery_param.iter().enumerate() {
+            self.write_ram_word(offsets::projective_to_affine::IN_MONTGOMERY_PARAM + i * 4, word);
+        }
+
+        // Write projective point
+        self.write_operand(offsets::projective_to_affine::IN_POINT_X, &point.x[..modulus_size]);
+        self.write_operand(offsets::projective_to_affine::IN_POINT_Y, &point.y[..modulus_size]);
+        self.write_operand(offsets::projective_to_affine::IN_POINT_Z, &point.z[..modulus_size]);
+
+        self.set_mode(PkaMode::EccProjectiveToAffine);
+        self.start_and_wait()?;
+
+        // Check for errors
+        let status = self.read_ram_word(offsets::projective_to_affine::OUT_ERROR);
+        if status != 0xD60D {
+            self.disable_pka();
+            return Err(Error::OperationError);
+        }
+
+        // Read affine result
+        self.read_operand(
+            offsets::projective_to_affine::OUT_RESULT_X,
+            &mut result.x[..modulus_size],
+        );
+        self.read_operand(
+            offsets::projective_to_affine::OUT_RESULT_Y,
+            &mut result.y[..modulus_size],
+        );
 
         self.disable_pka();
         Ok(())
@@ -915,11 +1509,40 @@ impl<'d, T: Instance> Pka<'d, T> {
 
         // If not enabled, enable it
         if (cr_raw & 0x01) == 0 {
-            p.cr().write(|w| w.set_en(true));
+            #[cfg(rng_wba6)]
+            {
+                // On STM32WBA6, PKA requires RNG to be running for RAM initialization
+                use crate::pac::rcc::vals::Rngsel;
 
-            // Wait for EN bit to be set
+                let rcc = crate::pac::RCC;
+                let was_rng_enabled = rcc.ahb2enr().read().rngen();
+
+                if !was_rng_enabled {
+                    // Configure RNG clock source to HSI (required for PKA)
+                    rcc.ccipr2().modify(|w| w.set_rngsel(Rngsel::HSI));
+
+                    // Enable RNG clock
+                    rcc.ahb2enr().modify(|w| w.set_rngen(true));
+
+                    // Enable RNG peripheral itself
+                    let rng = crate::pac::RNG;
+                    rng.cr().modify(|w| w.set_rngen(true));
+
+                    // Small delay for RNG to start
+                    cortex_m::asm::delay(10000); // ~100µs at 96MHz
+                }
+            }
+
+            // Enable PKA and wait for RAM erase to complete
             let mut timeout: u32 = 0;
-            while !p.cr().read().en() {
+            loop {
+                p.cr().write(|w| w.set_en(true));
+
+                // Check if EN bit is set
+                if p.cr().read().en() {
+                    break;
+                }
+
                 timeout += 1;
                 if timeout > Self::RAM_ERASE_TIMEOUT {
                     return Err(Error::Timeout);
