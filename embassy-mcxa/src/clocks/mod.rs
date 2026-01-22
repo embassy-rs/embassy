@@ -153,7 +153,9 @@ pub fn with_clocks<R: 'static, F: FnOnce(&Clocks) -> R>(f: F) -> Option<R> {
 // Structs/Enums
 //
 
-#[must_use = "Wake Guard must be kept!"]
+/// A guard that will inhibit the device from entering deep sleep while
+/// it exists.
+#[must_use = "Wake Guard must be kept in order to prevent deep sleep"]
 pub struct WakeGuard {
     _x: (),
 }
@@ -162,14 +164,14 @@ impl WakeGuard {
     /// Create a new wake guard, that increments the "live high power token" counts.
     ///
     /// This is typically used by HAL drivers (when a peripheral is clocked from an
-    /// active-mode-only source) to inihibit sleep, OR by application code to prevent
+    /// active-mode-only source) to inhibit sleep, OR by application code to prevent
     /// deep sleep as well.
     pub fn new() -> Self {
         _ = LIVE_HP_TOKENS.fetch_add(1, Ordering::AcqRel);
         Self { _x: () }
     }
 
-    /// Helper method to potentially create a guard if necessary for a clock
+    /// Helper method to potentially create a guard if necessary for a clock.
     pub fn for_power(level: &PoweredClock) -> Option<Self> {
         match level {
             PoweredClock::NormalEnabledDeepSleepDisabled => Some(Self::new()),
