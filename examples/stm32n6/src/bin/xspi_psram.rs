@@ -43,6 +43,7 @@ use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 /// APS256XX Commands
+#[allow(dead_code)]
 mod aps256_cmd {
     pub const READ: u32 = 0x00; // Synchronous Read (used by C HAL for memory-mapped)
     pub const READ_LINEAR_BURST: u32 = 0x20; // Linear Burst Read
