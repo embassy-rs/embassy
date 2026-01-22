@@ -394,25 +394,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
         data: &'a mut [W],
         bswap: bool,
     ) -> Transfer<'a> {
-        let p = ch.regs();
-        p.write_addr().write_value(data.as_ptr() as u32);
-        p.read_addr().write_value(PIO::PIO.rxf(SM).as_ptr() as u32);
-        #[cfg(feature = "rp2040")]
-        p.trans_count().write(|w| *w = data.len() as u32);
-        #[cfg(feature = "_rp235x")]
-        p.trans_count().write(|w| w.set_count(data.len() as u32));
-        compiler_fence(Ordering::SeqCst);
-        p.ctrl_trig().write(|w| {
-            w.set_treq_sel(Self::dreq());
-            w.set_data_size(W::size());
-            w.set_chain_to(ch.number());
-            w.set_incr_read(false);
-            w.set_incr_write(true);
-            w.set_bswap(bswap);
-            w.set_en(true);
-        });
-        compiler_fence(Ordering::SeqCst);
-        Transfer::new(ch.reborrow())
+        unsafe { ch.read(PIO::PIO.rxf(SM).as_ptr() as *const W, data, Self::dreq(), bswap) }
     }
 
     /// Prepare a repeated DMA transfer from RX FIFO.
@@ -517,25 +499,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
         data: &'a [W],
         bswap: bool,
     ) -> Transfer<'a> {
-        let p = ch.regs();
-        p.read_addr().write_value(data.as_ptr() as u32);
-        p.write_addr().write_value(PIO::PIO.txf(SM).as_ptr() as u32);
-        #[cfg(feature = "rp2040")]
-        p.trans_count().write(|w| *w = data.len() as u32);
-        #[cfg(feature = "_rp235x")]
-        p.trans_count().write(|w| w.set_count(data.len() as u32));
-        compiler_fence(Ordering::SeqCst);
-        p.ctrl_trig().write(|w| {
-            w.set_treq_sel(Self::dreq());
-            w.set_data_size(W::size());
-            w.set_chain_to(ch.number());
-            w.set_incr_read(true);
-            w.set_incr_write(false);
-            w.set_bswap(bswap);
-            w.set_en(true);
-        });
-        compiler_fence(Ordering::SeqCst);
-        Transfer::new(ch.reborrow())
+        unsafe { ch.write(data, PIO::PIO.txf(SM).as_ptr() as *mut W, Self::dreq(), bswap) }
     }
 
     /// Prepare a repeated DMA transfer to TX FIFO.
