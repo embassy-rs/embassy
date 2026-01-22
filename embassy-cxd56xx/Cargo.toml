@@ -1,0 +1,12 @@
+[package]
+name = "embassy-cxd56xx"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "Embassy Hardware Abstraction Layer (HAL) for Sony cxd56xx series microcontrollers"
+keywords = ["embedded", "async", "spresense", "cxd56xx", "embedded-hal"]
+categories = ["embedded", "hardware-support", "no-std", "asynchronous"]
+repository = "https://github.com/embassy-rs/embassy"
+documentation = "https://docs.embassy.dev/cxd56xx"
+
+[dependencies]
