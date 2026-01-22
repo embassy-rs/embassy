@@ -11,9 +11,6 @@ use crate::clocks::{ClockError, Gate};
 use crate::gpio::{GpioPin, SealedPin};
 use crate::{interrupt, pac};
 
-/// Shorthand for `Result<T>`.
-pub type Result<T> = core::result::Result<T, Error>;
-
 pub mod controller;
 
 /// Error information type
