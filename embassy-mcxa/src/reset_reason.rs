@@ -3,13 +3,70 @@
 //! MCXA families keep the most recent reset reason in the SRS
 //! register of the CMC block. This lets users understand why the MCU
 //! has reset and take appropriate corrective actions if required.
+//!
+//! The reset reason bits are cached for the during of this boot,
+//! allowing the user to query the reset reason as many times as
+//! necessary.
+
+use core::sync::atomic::{AtomicU32, Ordering};
+
+static RESET_REASON: AtomicU32 = AtomicU32::new(0);
 
 /// Reads the most recent reset reason from the Core Mode Controller
 /// (CMC).
 pub fn reset_reason() -> ResetReasonRaw {
     let regs = unsafe { &*crate::pac::Cmc::steal() };
-    let srs = regs.srs().read().bits();
-    ResetReasonRaw(srs)
+
+    let reason = critical_section::with(|_| {
+        let mut r = RESET_REASON.load(Ordering::Relaxed);
+
+        if r == 0 {
+            // Read status
+            r = regs.srs().read().bits();
+
+            // Clear status
+            regs.ssrs().write(|w| {
+                w.wakeup()
+                    .clear_bit_by_one()
+                    .por()
+                    .clear_bit_by_one()
+                    .warm()
+                    .clear_bit_by_one()
+                    .fatal()
+                    .clear_bit_by_one()
+                    .pin()
+                    .clear_bit_by_one()
+                    .dap()
+                    .clear_bit_by_one()
+                    .rstack()
+                    .clear_bit_by_one()
+                    .lpack()
+                    .clear_bit_by_one()
+                    .scg()
+                    .clear_bit_by_one()
+                    .wwdt0()
+                    .clear_bit_by_one()
+                    .sw()
+                    .clear_bit_by_one()
+                    .lockup()
+                    .clear_bit_by_one()
+                    .cdog0()
+                    .clear_bit_by_one()
+                    .cdog1()
+                    .clear_bit_by_one()
+                    .jtag()
+                    .clear_bit_by_one()
+                    .tamper()
+                    .clear_bit_by_one()
+            });
+
+            RESET_REASON.store(r, Ordering::Relaxed);
+        }
+
+        r
+    });
+
+    ResetReasonRaw(reason)
 }
 
 /// Raw reset reason bits. Can be queried or all reasons can be iterated over
