@@ -32,12 +32,9 @@ use embassy_stm32::{bind_interrupts, comp};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
-bind_interrupts!(struct Irqs1 {
-    COMP => comp::InterruptHandler<embassy_stm32::peripherals::COMP1>;
-});
-
-bind_interrupts!(struct Irqs2 {
-    COMP => comp::InterruptHandler<embassy_stm32::peripherals::COMP2>;
+bind_interrupts!(struct Irqs {
+    COMP => comp::InterruptHandler<embassy_stm32::peripherals::COMP1>,
+            comp::InterruptHandler<embassy_stm32::peripherals::COMP2>;
 });
 
 /// Represents the position of the signal relative to the voltage window.
@@ -117,12 +114,12 @@ async fn main(_spawner: Spawner) {
     };
 
     // Create COMP1 with its input pin (PA2)
-    let mut comp1 = Comp::new(p.COMP1, p.PA2, Irqs1, comp1_config);
+    let mut comp1 = Comp::new(p.COMP1, p.PA2, Irqs, comp1_config);
 
     // Create COMP2 - in window mode, it uses COMP1's input
     // We still need to provide a pin for the constructor, but it won't be used
     // since window mode routes COMP1's input to COMP2
-    let mut comp2 = Comp::new(p.COMP2, p.PA0, Irqs2, comp2_config);
+    let mut comp2 = Comp::new(p.COMP2, p.PA0, Irqs, comp2_config);
 
     info!("Window comparator configured:");
     info!("  - Upper threshold: 3/4 Vref (~2.48V)");

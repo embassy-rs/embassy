@@ -13,7 +13,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::rcc::RccInfo;
-use crate::{interrupt, Peri};
+use crate::{Peri, interrupt};
 
 /// Power mode for the comparator.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -586,10 +586,14 @@ macro_rules! impl_comp {
                 use crate::pac::EXTI;
                 let line = Self::exti_line() as usize;
 
-                #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6))]
+                #[cfg(any(
+                    exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6
+                ))]
                 EXTI.imr(0).modify(|w| w.set_line(line, true));
 
-                #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6)))]
+                #[cfg(not(any(
+                    exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6
+                )))]
                 EXTI.imr(0).modify(|w| w.set_line(line, true));
             }
 
@@ -609,10 +613,14 @@ macro_rules! impl_comp {
                 use crate::pac::EXTI;
                 let line = Self::exti_line() as usize;
 
-                #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6)))]
+                #[cfg(not(any(
+                    exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6
+                )))]
                 EXTI.pr(0).write(|w| w.set_line(line, true));
 
-                #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6))]
+                #[cfg(any(
+                    exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6
+                ))]
                 {
                     EXTI.rpr(0).write(|w| w.set_line(line, true));
                     EXTI.fpr(0).write(|w| w.set_line(line, true));

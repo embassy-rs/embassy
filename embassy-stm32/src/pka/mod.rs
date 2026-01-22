@@ -146,6 +146,7 @@ mod offsets {
         pub const IN_EXPONENT: usize = 0xA78;
         pub const IN_MODULUS: usize = 0xC88;
         pub const OUT_RESULT: usize = 0x438;
+        #[allow(dead_code)]
         pub const OUT_ERROR: usize = 0xE98;
     }
 
@@ -158,7 +159,6 @@ mod offsets {
         pub const IN_MODULUS: usize = 0x438; // 0x0838 - 0x0400
         pub const IN_PHI: usize = 0x868; // 0x0C68 - 0x0400
         pub const OUT_RESULT: usize = 0x438;
-        pub const OUT_ERROR: usize = 0xE98;
     }
 
     // RSA CRT exponentiation
@@ -207,7 +207,9 @@ mod offsets {
         pub const OUT_ERROR: usize = 0xBE0;
         pub const OUT_SIGNATURE_R: usize = 0x330;
         pub const OUT_SIGNATURE_S: usize = 0x388;
+        #[allow(dead_code)]
         pub const OUT_FINAL_POINT_X: usize = 0x1000;
+        #[allow(dead_code)]
         pub const OUT_FINAL_POINT_Y: usize = 0x1058;
     }
 
@@ -238,6 +240,7 @@ mod offsets {
         pub const IN_MOD_GF: usize = 0x70;
         pub const IN_INITIAL_POINT_X: usize = 0x178;
         pub const IN_INITIAL_POINT_Y: usize = 0x1D0;
+        #[allow(dead_code)]
         pub const IN_MONTGOMERY_PARAM: usize = 0xC8;
         pub const OUT_ERROR: usize = 0x280;
     }
@@ -878,8 +881,9 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.init_pka()?;
         self.set_mode(PkaMode::ModularExp);
 
-        let exp_nb_bits = Self::get_opt_bit_size(exp_size, exponent[0]);
-        let mod_nb_bits = Self::get_opt_bit_size(mod_size, modulus[0]);
+        // HAL uses byte-aligned bit sizes for modular exponentiation
+        let exp_nb_bits = (exp_size * 8) as u32;
+        let mod_nb_bits = (mod_size * 8) as u32;
 
         self.write_ram_word(offsets::modular_exp::IN_EXP_NB_BITS, exp_nb_bits);
         self.write_ram_word(offsets::modular_exp::IN_OP_NB_BITS, mod_nb_bits);
@@ -890,16 +894,8 @@ impl<'d, T: Instance> Pka<'d, T> {
 
         self.start_and_wait()?;
 
-        // Check for errors - 0xD60D indicates success
-        let status = self.read_ram_word(offsets::modular_exp::OUT_ERROR);
-        if status != 0xD60D {
-            self.disable_pka();
-            return Err(Error::OperationError);
-        }
-
         self.read_operand(offsets::modular_exp::OUT_RESULT, &mut result[..mod_size]);
 
-        self.disable_pka();
         Ok(())
     }
 
@@ -928,8 +924,8 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.init_pka()?;
         self.set_mode(PkaMode::RsaCrtExp);
 
-        // For CRT, we use the size of the larger prime
-        let mod_nb_bits = Self::get_opt_bit_size(mod_size, ciphertext[0]);
+        // HAL uses byte-aligned bit sizes for RSA CRT
+        let mod_nb_bits = (mod_size * 8) as u32;
 
         self.write_ram_word(offsets::rsa_crt::IN_MOD_NB_BITS, mod_nb_bits);
 
@@ -944,7 +940,6 @@ impl<'d, T: Instance> Pka<'d, T> {
 
         self.read_operand(offsets::rsa_crt::OUT_RESULT, &mut result[..mod_size]);
 
-        self.disable_pka();
         Ok(())
     }
 
@@ -973,7 +968,6 @@ impl<'d, T: Instance> Pka<'d, T> {
 
         self.read_operand(offsets::modular_inv::OUT_RESULT, &mut result[..size]);
 
-        self.disable_pka();
         Ok(())
     }
 
@@ -1010,7 +1004,8 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.init_pka()?;
         self.set_mode(mode);
 
-        let nb_bits = Self::get_opt_bit_size(size, a[0].max(b[0]));
+        // HAL uses byte-aligned bit sizes for arithmetic operations
+        let nb_bits = (size * 8) as u32;
         self.write_ram_word(offsets::arithmetic::IN_NB_BITS, nb_bits);
 
         self.write_operand(offsets::arithmetic::IN_OP1, a);
@@ -1025,7 +1020,6 @@ impl<'d, T: Instance> Pka<'d, T> {
         let result_size = if mode == PkaMode::ArithmeticMul { size * 2 } else { size };
         self.read_operand(offsets::arithmetic::OUT_RESULT, &mut result[..result_size]);
 
-        self.disable_pka();
         Ok(())
     }
 
@@ -1053,7 +1047,19 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.init_pka()?;
         self.set_mode(PkaMode::MontgomeryParam);
 
-        let nb_bits = Self::get_opt_bit_size(size, modulus[0]);
+        // Skip leading zero bytes to find the actual MSB (matching HAL behavior)
+        let mut bytes_to_skip = 0;
+        while bytes_to_skip < size && modulus[bytes_to_skip] == 0 {
+            bytes_to_skip += 1;
+        }
+        let new_size = size - bytes_to_skip;
+        let first_nonzero = if bytes_to_skip < size {
+            modulus[bytes_to_skip]
+        } else {
+            0
+        };
+
+        let nb_bits = Self::get_opt_bit_size(new_size, first_nonzero);
         self.write_ram_word(offsets::montgomery_param::IN_MOD_NB_BITS, nb_bits);
         self.write_operand(offsets::montgomery_param::IN_MODULUS, modulus);
 
@@ -1064,7 +1070,6 @@ impl<'d, T: Instance> Pka<'d, T> {
             result[i] = self.read_ram_word(offsets::montgomery_param::OUT_PARAMETER + i * 4);
         }
 
-        self.disable_pka();
         Ok(())
     }
 
@@ -1097,8 +1102,8 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.init_pka()?;
         self.set_mode(PkaMode::ModularExpFast);
 
-        let exp_nb_bits = Self::get_opt_bit_size(exp_size, exponent[0]);
-        let mod_nb_bits = Self::get_opt_bit_size(mod_size, modulus[0]);
+        let exp_nb_bits = (exp_size * 8) as u32;
+        let mod_nb_bits = (mod_size * 8) as u32;
 
         self.write_ram_word(offsets::modular_exp::IN_EXP_NB_BITS, exp_nb_bits);
         self.write_ram_word(offsets::modular_exp::IN_OP_NB_BITS, mod_nb_bits);
@@ -1114,15 +1119,11 @@ impl<'d, T: Instance> Pka<'d, T> {
 
         self.start_and_wait()?;
 
-        let status = self.read_ram_word(offsets::modular_exp::OUT_ERROR);
-        if status != 0xD60D {
-            self.disable_pka();
-            return Err(Error::OperationError);
-        }
+        // Modular exponentiation (fast mode) doesn't write to OUT_ERROR
+        // Errors are indicated by SR flags which are checked in start_and_wait()
 
         self.read_operand(offsets::modular_exp::OUT_RESULT, &mut result[..mod_size]);
 
-        self.disable_pka();
         Ok(())
     }
 
@@ -1145,8 +1146,9 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.init_pka()?;
         self.set_mode(PkaMode::ModularExpProtect);
 
-        let exp_nb_bits = Self::get_opt_bit_size(exp_size, params.exponent[0]);
-        let mod_nb_bits = Self::get_opt_bit_size(mod_size, params.modulus[0]);
+        // HAL uses byte-aligned bit sizes for modular exponentiation
+        let exp_nb_bits = (exp_size * 8) as u32;
+        let mod_nb_bits = (mod_size * 8) as u32;
 
         self.write_ram_word(offsets::modular_exp_protect::IN_EXP_NB_BITS, exp_nb_bits);
         self.write_ram_word(offsets::modular_exp_protect::IN_OP_NB_BITS, mod_nb_bits);
@@ -1158,15 +1160,11 @@ impl<'d, T: Instance> Pka<'d, T> {
 
         self.start_and_wait()?;
 
-        let status = self.read_ram_word(offsets::modular_exp_protect::OUT_ERROR);
-        if status != 0xD60D {
-            self.disable_pka();
-            return Err(Error::OperationError);
-        }
+        // Modular exponentiation (protected mode) doesn't write to OUT_ERROR
+        // Errors are indicated by SR flags which are checked in start_and_wait()
 
         self.read_operand(offsets::modular_exp_protect::OUT_RESULT, &mut result[..mod_size]);
 
-        self.disable_pka();
         Ok(())
     }
 
@@ -1231,7 +1229,6 @@ impl<'d, T: Instance> Pka<'d, T> {
 
         self.read_operand(offsets::arithmetic::OUT_RESULT, &mut result[..size]);
 
-        self.disable_pka();
         Ok(())
     }
 
@@ -1248,7 +1245,8 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.init_pka()?;
         self.set_mode(PkaMode::Comparison);
 
-        let nb_bits = Self::get_opt_bit_size(size, a[0].max(b[0]));
+        // HAL uses byte-aligned bit sizes for comparison
+        let nb_bits = (size * 8) as u32;
         self.write_ram_word(offsets::arithmetic::IN_NB_BITS, nb_bits);
 
         self.write_operand(offsets::arithmetic::IN_OP1, a);
@@ -1258,14 +1256,12 @@ impl<'d, T: Instance> Pka<'d, T> {
 
         let result = self.read_ram_word(offsets::arithmetic::OUT_RESULT);
 
-        self.disable_pka();
-
-        // PKA comparison result encoding
+        // PKA comparison result encoding (from STM32WBA reference manual)
         match result {
-            0x916A => Ok(ComparisonResult::Greater), // A > B
-            0xDC58 => Ok(ComparisonResult::Equal),   // A == B
-            0xF377 => Ok(ComparisonResult::Less),    // A < B (hypothetical, check actual value)
-            _ => Ok(ComparisonResult::Less),         // Default for any other value
+            0xED2C => Ok(ComparisonResult::Equal),   // A == B
+            0x7AF8 => Ok(ComparisonResult::Greater), // A > B
+            0x916A => Ok(ComparisonResult::Less),    // A < B
+            _ => Err(Error::OperationError),
         }
     }
 
@@ -1281,8 +1277,8 @@ impl<'d, T: Instance> Pka<'d, T> {
         self.init_pka()?;
         self.set_mode(PkaMode::ModularRed);
 
-        let op_nb_bits = Self::get_opt_bit_size(op_size, a[0]);
-        let mod_nb_bits = Self::get_opt_bit_size(mod_size, modulus[0]);
+        let op_nb_bits = (op_size * 8) as u32;
+        let mod_nb_bits = (mod_size * 8) as u32;
 
         self.write_ram_word(offsets::modular_red::IN_OP_LENGTH, op_nb_bits);
         self.write_ram_word(offsets::modular_red::IN_MOD_LENGTH, mod_nb_bits);
@@ -1294,7 +1290,6 @@ impl<'d, T: Instance> Pka<'d, T> {
 
         self.read_operand(offsets::modular_red::OUT_RESULT, &mut result[..mod_size]);
 
-        self.disable_pka();
         Ok(())
     }
 
@@ -1482,8 +1477,14 @@ impl<'d, T: Instance> Pka<'d, T> {
         }
 
         // Read affine result
-        self.read_operand(offsets::projective_to_affine::OUT_RESULT_X, &mut result.x[..modulus_size]);
-        self.read_operand(offsets::projective_to_affine::OUT_RESULT_Y, &mut result.y[..modulus_size]);
+        self.read_operand(
+            offsets::projective_to_affine::OUT_RESULT_X,
+            &mut result.x[..modulus_size],
+        );
+        self.read_operand(
+            offsets::projective_to_affine::OUT_RESULT_Y,
+            &mut result.y[..modulus_size],
+        );
 
         self.disable_pka();
         Ok(())
@@ -1508,11 +1509,40 @@ impl<'d, T: Instance> Pka<'d, T> {
 
         // If not enabled, enable it
         if (cr_raw & 0x01) == 0 {
-            p.cr().write(|w| w.set_en(true));
+            #[cfg(rng_wba6)]
+            {
+                // On STM32WBA6, PKA requires RNG to be running for RAM initialization
+                use crate::pac::rcc::vals::Rngsel;
 
-            // Wait for EN bit to be set
+                let rcc = crate::pac::RCC;
+                let was_rng_enabled = rcc.ahb2enr().read().rngen();
+
+                if !was_rng_enabled {
+                    // Configure RNG clock source to HSI (required for PKA)
+                    rcc.ccipr2().modify(|w| w.set_rngsel(Rngsel::HSI));
+
+                    // Enable RNG clock
+                    rcc.ahb2enr().modify(|w| w.set_rngen(true));
+
+                    // Enable RNG peripheral itself
+                    let rng = crate::pac::RNG;
+                    rng.cr().modify(|w| w.set_rngen(true));
+
+                    // Small delay for RNG to start
+                    cortex_m::asm::delay(10000); // ~100µs at 96MHz
+                }
+            }
+
+            // Enable PKA and wait for RAM erase to complete
             let mut timeout: u32 = 0;
-            while !p.cr().read().en() {
+            loop {
+                p.cr().write(|w| w.set_en(true));
+
+                // Check if EN bit is set
+                if p.cr().read().en() {
+                    break;
+                }
+
                 timeout += 1;
                 if timeout > Self::RAM_ERASE_TIMEOUT {
                     return Err(Error::Timeout);
