@@ -271,6 +271,7 @@ impl<'d> UartTx<'d, Async> {
                 buffer,
                 self.info.regs.uartdr().as_ptr() as *mut _,
                 self.info.tx_dreq.into(),
+                false,
             )
         };
         transfer.await;
@@ -455,6 +456,7 @@ impl<'d> UartRx<'d, Async> {
                 self.info.regs.uartdr().as_ptr() as *const _,
                 buffer,
                 self.info.rx_dreq.into(),
+                false,
             )
         };
 
@@ -622,6 +624,7 @@ impl<'d> UartRx<'d, Async> {
                     self.info.regs.uartdr().as_ptr() as *const _,
                     sbuffer,
                     self.info.rx_dreq.into(),
+                    false,
                 )
             };
 
