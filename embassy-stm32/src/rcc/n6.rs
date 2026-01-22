@@ -1,10 +1,14 @@
+use stm32_metapac::pwr::vals::{
+    Vddio2rdy, Vddio2sv, Vddio2vrsel, Vddio3rdy, Vddio3sv, Vddio3vrsel, Vddio4sv, Vddio5sv,
+};
 use stm32_metapac::rcc::vals::{Cpusw, Cpusws, Hseext, Hsitrim, Msifreqsel, Pllmodssdis, Syssw, Syssws, Timpre};
 pub use stm32_metapac::rcc::vals::{
     Hpre as AhbPrescaler, Hsidiv as HsiPrescaler, Hsitrim as HsiCalibration, Icint, Icsel, Plldivm, Pllpdiv, Pllsel,
     Ppre as ApbPrescaler, Xspisel as XspiClkSrc,
 };
+use stm32_metapac::syscfg::vals::{Vddio2cccrEn, Vddio3cccrEn, Vddio4cccrEn};
 
-use crate::pac::{PWR, RCC, SYSCFG};
+use crate::pac::{PWR, RCC, RISAF3, SYSCFG};
 use crate::time::Hertz;
 
 pub const HSI_FREQ: Hertz = Hertz(64_000_000);
@@ -1143,7 +1147,6 @@ pub(crate) unsafe fn init(config: Config) {
 
     // RISAF3: SRAM access for DMA
     {
-        use crate::pac::RISAF3;
         // Region 0: secure access (RW for CIDs 0-3)
         RISAF3.reg_cidcfgr(0).write(|w| {
             for i in 0..4 {
@@ -1170,7 +1173,6 @@ pub(crate) unsafe fn init(config: Config) {
             w.set_sec(false);
         });
     }
-    }
 
     debug!("setting power supply config");
 
@@ -1180,21 +1182,19 @@ pub(crate) unsafe fn init(config: Config) {
     // This must be done early in boot - set SV bits and wait for RDY
     debug!("configuring VddIO power domains");
     {
-        use crate::pac::pwr::vals::{Vddio2sv, Vddio2vrsel, Vddio3sv, Vddio3vrsel, Vddio4sv, Vddio5sv};
-
         // Enable supply valid for all VddIO domains (like ST's SystemInit)
         // PWR is always accessible on N6, no need to enable clock
 
         // SVMCR1: VddIO4
-        crate::pac::PWR.svmcr1().modify(|w| {
+        PWR.svmcr1().modify(|w| {
             w.set_vddio4sv(Vddio4sv::B_0X1);
         });
         // SVMCR2: VddIO5
-        crate::pac::PWR.svmcr2().modify(|w| {
+        PWR.svmcr2().modify(|w| {
             w.set_vddio5sv(Vddio5sv::B_0X1);
         });
         // SVMCR3: VddIO2 and VddIO3 (for XSPI1 and XSPI2)
-        crate::pac::PWR.svmcr3().modify(|w| {
+        PWR.svmcr3().modify(|w| {
             w.set_vddio2sv(Vddio2sv::B_0X1);
             w.set_vddio2vmen(true); // Enable voltage monitoring
             w.set_vddio3sv(Vddio3sv::B_0X1);
@@ -1209,12 +1209,11 @@ pub(crate) unsafe fn init(config: Config) {
         });
 
         // Wait for VddIO domains to be ready
-        use crate::pac::pwr::vals::{Vddio2rdy, Vddio3rdy};
-        while crate::pac::PWR.svmcr3().read().vddio2rdy() != Vddio2rdy::B_0X1 {}
-        while crate::pac::PWR.svmcr3().read().vddio3rdy() != Vddio3rdy::B_0X1 {}
+        while PWR.svmcr3().read().vddio2rdy() != Vddio2rdy::B_0X1 {}
+        while PWR.svmcr3().read().vddio3rdy() != Vddio3rdy::B_0X1 {}
 
         // Debug VddIO status after configuration
-        let svmcr3 = crate::pac::PWR.svmcr3().read();
+        let svmcr3 = PWR.svmcr3().read();
         debug!("VddIO2 ready: {}", svmcr3.vddio2rdy() == Vddio2rdy::B_0X1);
         debug!("VddIO3 ready: {}", svmcr3.vddio3rdy() == Vddio3rdy::B_0X1);
         debug!("SVMCR3 raw = 0x{:08x}", svmcr3.0);
@@ -1224,20 +1223,20 @@ pub(crate) unsafe fn init(config: Config) {
 
         // Set compensation cell values (0x287 = ST's recommended value)
         // ransrc=7 (bits 0-3), rapsrc=8 (bits 4-7), en=1 (bit 8)
-        crate::pac::SYSCFG.vddio2cccr().write(|w| {
+        SYSCFG.vddio2cccr().write(|w| {
             w.set_ransrc(0x7);
             w.set_rapsrc(0x8);
-            w.set_en(crate::pac::syscfg::vals::Vddio2cccrEn::B_0X1);
+            w.set_en(Vddio2cccrEn::B_0X1);
         });
-        crate::pac::SYSCFG.vddio3cccr().write(|w| {
+        SYSCFG.vddio3cccr().write(|w| {
             w.set_ransrc(0x7);
             w.set_rapsrc(0x8);
-            w.set_en(crate::pac::syscfg::vals::Vddio3cccrEn::B_0X1);
+            w.set_en(Vddio3cccrEn::B_0X1);
         });
-        crate::pac::SYSCFG.vddio4cccr().write(|w| {
+        SYSCFG.vddio4cccr().write(|w| {
             w.set_ransrc(0x7);
             w.set_rapsrc(0x8);
-            w.set_en(crate::pac::syscfg::vals::Vddio4cccrEn::B_0X1);
+            w.set_en(Vddio4cccrEn::B_0X1);
         });
     }
 
