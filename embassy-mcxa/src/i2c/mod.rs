@@ -12,6 +12,15 @@ use crate::gpio::{GpioPin, SealedPin};
 use crate::{interrupt, pac};
 
 pub mod controller;
+pub mod target;
+
+/// Error information type
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum ConfigError {
+    /// Invalid Address
+    InvalidAddress,
+}
 
 /// Error information type
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -19,8 +28,16 @@ pub mod controller;
 pub enum Error {
     /// Clock configuration error.
     ClockSetup(ClockError),
+    /// Invalid configuration.
+    InvalidConfiguration(ConfigError),
+    /// Busy Busy
+    BusBusy,
+    /// Target Busy
+    TargetBusy,
     /// FIFO Error
     FifoError,
+    /// Bit Error
+    BitError,
     /// Reading for I2C failed.
     ReadFail,
     /// Writing to I2C failed.
@@ -46,7 +63,7 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
-        if T::info().regs().mier().read().bits() != 0 {
+        if T::info().regs().mier().read().bits() != 0 || T::info().regs().sier().read().bits() != 0 {
             T::info().regs().mier().write(|w| {
                 w.tdie()
                     .disabled()
@@ -67,6 +84,33 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                     .dmie()
                     .disabled()
                     .stie()
+                    .disabled()
+            });
+
+            T::info().regs().sier().write(|w| {
+                w.tdie()
+                    .disabled()
+                    .rdie()
+                    .disabled()
+                    .avie()
+                    .disabled()
+                    .taie()
+                    .disabled()
+                    .rsie()
+                    .disabled()
+                    .sdie()
+                    .disabled()
+                    .beie()
+                    .disabled()
+                    .feie()
+                    .disabled()
+                    .am0ie()
+                    .disabled()
+                    .am1ie()
+                    .disabled()
+                    .gcie()
+                    .disabled()
+                    .sarie()
                     .disabled()
             });
 
