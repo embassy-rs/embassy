@@ -205,18 +205,12 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
         read_config: TransferConfig,
         write_config: TransferConfig,
     ) -> Result<(), XspiError> {
-        // Use configure command to set read config
-        self.configure_command(&read_config, None)?;
-
         let reg = T::REGS;
         while reg.sr().read().busy() {}
 
-        reg.ccr().modify(|r| {
-            r.set_dqse(false);
-        });
-
-        // Set wrting configurations, there are separate registers for write configurations in memory mapped mode
-        reg.wccr().modify(|w| {
+        // Configure WRITE registers first (matching C HAL order)
+        // Use write() for clean initialization instead of modify()
+        reg.wccr().write(|w| {
             w.set_imode(WccrImode::from_bits(write_config.iwidth.into()));
             w.set_idtr(write_config.idtr);
             w.set_isize(WccrIsize::from_bits(write_config.isize.into()));
@@ -225,14 +219,37 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
             w.set_addtr(write_config.addtr);
             w.set_adsize(WccrAdsize::from_bits(write_config.adsize.into()));
 
+            w.set_abmode(WccrAbmode::from_bits(write_config.abwidth.into()));
+            w.set_abdtr(write_config.abdtr);
+            w.set_absize(WccrAbsize::from_bits(write_config.absize.into()));
+
             w.set_dmode(WccrDmode::from_bits(write_config.dwidth.into()));
             w.set_ddtr(write_config.ddtr);
 
-            w.set_abmode(WccrAbmode::from_bits(write_config.abwidth.into()));
-            w.set_dqse(true);
+            w.set_dqse(write_config.dqse);
         });
 
-        reg.wtcr().modify(|w| w.set_dcyc(write_config.dummy.into()));
+        reg.wtcr().write(|w| w.set_dcyc(write_config.dummy.into()));
+
+        // Set write instruction register (WIR) for memory-mapped write operations
+        if let Some(instruction) = write_config.instruction {
+            reg.wir().write(|w| w.set_instruction(instruction));
+        }
+
+        // Set write alternate bytes register (WABR) if needed
+        if let Some(ab) = write_config.alternate_bytes {
+            reg.wabr().write(|w| w.set_alternate(ab));
+        }
+
+        // Configure READ registers
+        self.configure_command(&read_config, None)?;
+
+        while reg.sr().read().busy() {}
+
+        // Set read DQS correctly - respect read_config.dqse, don't hardcode false!
+        reg.ccr().modify(|r| {
+            r.set_dqse(read_config.dqse);
+        });
 
         // Enable memory mapped mode
         reg.cr().modify(|r| {
@@ -491,6 +508,16 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
         T::REGS.tcr().modify(|w| {
             w.set_dcyc(command.dummy.into());
         });
+
+        // STM32N6: Deactivate sample shifting when data DTR mode is enabled
+        // This is required for proper DQS-based sampling in DTR mode (matches C HAL behavior
+        // in stm32n6xx_hal_xspi.c lines 3289-3292)
+        #[cfg(stm32n6)]
+        if command.ddtr {
+            T::REGS.tcr().modify(|w| {
+                w.set_sshift(false);
+            });
+        }
 
         // Configure data
         if let Some(data_length) = data_len {
