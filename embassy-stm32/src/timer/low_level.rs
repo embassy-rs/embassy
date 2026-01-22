@@ -1059,7 +1059,6 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     pub fn set_external_clock_mode_2_enable_state(&self, val: bool) {
         self.regs_gp16().smcr().modify(|w| w.set_ece(val));
     }
-    
 }
 
 #[cfg(not(stm32l0))]
