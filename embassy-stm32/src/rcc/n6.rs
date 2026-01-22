@@ -1129,22 +1129,47 @@ pub(crate) unsafe fn init(config: Config) {
         p.SCB.cpacr.modify(|w| w | (3 << 20) | (3 << 22));
     }
 
-    // TODO: ugly workaround for DMA accesses until RIF is properly implemented
-    debug!("deactivating RIF");
-    const RISAF3_BASE_NS: *mut u32 = stm32_metapac::RNG.wrapping_byte_offset(0x8000) as _; // AHB3PERIPH_BASE_NS + 0x8000UL
-    const RISAF3_REG0_CFGR: *mut u32 = RISAF3_BASE_NS.wrapping_byte_offset(0x40);
-    const RISAF3_REG0_ENDR: *mut u32 = RISAF3_BASE_NS.wrapping_byte_offset(0x48);
-    const RISAF3_REG0_CIDCFGR: *mut u32 = RISAF3_BASE_NS.wrapping_byte_offset(0x4C);
-    const RISAF3_REG1_CFGR: *mut u32 = RISAF3_BASE_NS.wrapping_byte_offset(0x80);
-    const RISAF3_REG1_ENDR: *mut u32 = RISAF3_BASE_NS.wrapping_byte_offset(0x88);
-    const RISAF3_REG1_CIDCFGR: *mut u32 = RISAF3_BASE_NS.wrapping_byte_offset(0x8C);
-    unsafe {
-        *RISAF3_REG0_CIDCFGR = 0x000F000F; /* RW for everyone */
-        *RISAF3_REG0_ENDR = 0xFFFFFFFF; /* all-encompassing */
-        *RISAF3_REG0_CFGR = 0x00000101; /* enabled, secure, unprivileged for everyone */
-        *RISAF3_REG1_CIDCFGR = 0x00FF00FF; /* RW for everyone */
-        *RISAF3_REG1_ENDR = 0xFFFFFFFF; /* all-encompassing */
-        *RISAF3_REG1_CFGR = 0x00000001; /* enabled, non-secure, unprivileged*/
+    // Configure RIF/RISAF for memory access
+    // RISAF register offsets: REG_CFGR=0x40, REG_STARTR=0x44, REG_ENDR=0x48, REG_CIDCFGR=0x4C (stride 0x40)
+    // CRITICAL: Enable RISAF and RIFSC clocks BEFORE accessing registers
+    debug!("configuring RISAF");
+    RCC.ahb3ensr().write(|w| {
+        w.set_risafens(true); // Enable RISAF clock
+        w.set_rifscens(true); // Enable RIFSC clock
+    });
+    // Read-back delay after RCC peripheral clock enabling (matches ST HAL pattern)
+    // Must read from AHB3ENR (status) not AHB3ENSR (set) to ensure clock is stable
+    RCC.ahb3enr().read();
+
+    // RISAF3: SRAM access for DMA
+    {
+        use crate::pac::RISAF3;
+        // Region 0: secure access (RW for CIDs 0-3)
+        RISAF3.reg_cidcfgr(0).write(|w| {
+            for i in 0..4 {
+                w.set_rdenc(i, true);
+                w.set_wrenc(i, true);
+            }
+        });
+        RISAF3.reg_endr(0).write(|w| w.set_baddend(0xFFFFFFFF));
+        RISAF3.reg_cfgr(0).write(|w| {
+            w.set_bren(true);
+            w.set_sec(true);
+        });
+
+        // Region 1: non-secure access (RW for all CIDs)
+        RISAF3.reg_cidcfgr(1).write(|w| {
+            for i in 0..8 {
+                w.set_rdenc(i, true);
+                w.set_wrenc(i, true);
+            }
+        });
+        RISAF3.reg_endr(1).write(|w| w.set_baddend(0xFFFFFFFF));
+        RISAF3.reg_cfgr(1).write(|w| {
+            w.set_bren(true);
+            w.set_sec(false);
+        });
+    }
     }
 
     debug!("setting power supply config");
