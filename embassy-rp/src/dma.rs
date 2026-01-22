@@ -85,7 +85,32 @@ pub unsafe fn write<'a, C: Channel, W: Word>(
 }
 
 // static mut so that this is allocated in RAM.
-static mut DUMMY: u32 = 0;
+static mut DUMMY_DISCARD: u32 = 0;
+
+/// DMA repeated read.
+///
+/// SAFETY: Slice must point to a valid location reachable by DMA.
+pub unsafe fn read_repeated<'a, C: Channel, W: Word>(
+    ch: Peri<'a, C>,
+    from: *mut W,
+    len: usize,
+    dreq: vals::TreqSel,
+) -> Transfer<'a, C> {
+    copy_inner(
+        ch,
+        from as *mut u32,
+        core::ptr::addr_of_mut!(DUMMY_DISCARD) as *mut u32,
+        len,
+        W::size(),
+        false,
+        false,
+        dreq,
+        false,
+    )
+}
+
+// static mut so that this is allocated in RAM.
+static mut DUMMY_ZERO: u32 = 0;
 
 /// DMA repeated write.
 ///
@@ -98,7 +123,7 @@ pub unsafe fn write_repeated<'a, C: Channel, W: Word>(
 ) -> Transfer<'a, C> {
     copy_inner(
         ch,
-        core::ptr::addr_of_mut!(DUMMY) as *const u32,
+        core::ptr::addr_of_mut!(DUMMY_ZERO) as *const u32,
         to as *mut u32,
         len,
         W::size(),
