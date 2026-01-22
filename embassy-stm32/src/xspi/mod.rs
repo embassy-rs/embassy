@@ -205,18 +205,12 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
         read_config: TransferConfig,
         write_config: TransferConfig,
     ) -> Result<(), XspiError> {
-        // Use configure command to set read config
-        self.configure_command(&read_config, None)?;
-
         let reg = T::REGS;
         while reg.sr().read().busy() {}
 
-        reg.ccr().modify(|r| {
-            r.set_dqse(false);
-        });
-
-        // Set wrting configurations, there are separate registers for write configurations in memory mapped mode
-        reg.wccr().modify(|w| {
+        // Configure WRITE registers first (matching C HAL order)
+        // Use write() for clean initialization instead of modify()
+        reg.wccr().write(|w| {
             w.set_imode(WccrImode::from_bits(write_config.iwidth.into()));
             w.set_idtr(write_config.idtr);
             w.set_isize(WccrIsize::from_bits(write_config.isize.into()));
@@ -225,14 +219,37 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
             w.set_addtr(write_config.addtr);
             w.set_adsize(WccrAdsize::from_bits(write_config.adsize.into()));
 
+            w.set_abmode(WccrAbmode::from_bits(write_config.abwidth.into()));
+            w.set_abdtr(write_config.abdtr);
+            w.set_absize(WccrAbsize::from_bits(write_config.absize.into()));
+
             w.set_dmode(WccrDmode::from_bits(write_config.dwidth.into()));
             w.set_ddtr(write_config.ddtr);
 
-            w.set_abmode(WccrAbmode::from_bits(write_config.abwidth.into()));
-            w.set_dqse(true);
+            w.set_dqse(write_config.dqse);
         });
 
-        reg.wtcr().modify(|w| w.set_dcyc(write_config.dummy.into()));
+        reg.wtcr().write(|w| w.set_dcyc(write_config.dummy.into()));
+
+        // Set write instruction register (WIR) for memory-mapped write operations
+        if let Some(instruction) = write_config.instruction {
+            reg.wir().write(|w| w.set_instruction(instruction));
+        }
+
+        // Set write alternate bytes register (WABR) if needed
+        if let Some(ab) = write_config.alternate_bytes {
+            reg.wabr().write(|w| w.set_alternate(ab));
+        }
+
+        // Configure READ registers
+        self.configure_command(&read_config, None)?;
+
+        while reg.sr().read().busy() {}
+
+        // Set read DQS correctly - respect read_config.dqse, don't hardcode false!
+        reg.ccr().modify(|r| {
+            r.set_dqse(read_config.dqse);
+        });
 
         // Enable memory mapped mode
         reg.cr().modify(|r| {
@@ -491,6 +508,16 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
         T::REGS.tcr().modify(|w| {
             w.set_dcyc(command.dummy.into());
         });
+
+        // STM32N6: Deactivate sample shifting when data DTR mode is enabled
+        // This is required for proper DQS-based sampling in DTR mode (matches C HAL behavior
+        // in stm32n6xx_hal_xspi.c lines 3289-3292)
+        #[cfg(stm32n6)]
+        if command.ddtr {
+            T::REGS.tcr().modify(|w| {
+                w.set_sshift(false);
+            });
+        }
 
         // Configure data
         if let Some(data_length) = data_len {
@@ -1116,6 +1143,68 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
             None,
             new_pin!(dqs0, AfType::input(Pull::None)),
             None,
+            None,
+            config,
+            XspiWidth::HEXA,
+            false,
+        )
+    }
+
+    /// Create new blocking XSPI driver for Hexadeca-SPI with dual DQS pins
+    /// Required for APS256XX PSRAM on STM32N6570-DK which uses both DQS0 and DQS1
+    #[cfg(xspim_v1)]
+    pub fn new_blocking_xspi_hexa_dqs_dual(
+        peri: Peri<'d, T>,
+        clk: Peri<'d, impl CLKPin<T>>,
+        d0: Peri<'d, impl D0Pin<T>>,
+        d1: Peri<'d, impl D1Pin<T>>,
+        d2: Peri<'d, impl D2Pin<T>>,
+        d3: Peri<'d, impl D3Pin<T>>,
+        d4: Peri<'d, impl D4Pin<T>>,
+        d5: Peri<'d, impl D5Pin<T>>,
+        d6: Peri<'d, impl D6Pin<T>>,
+        d7: Peri<'d, impl D7Pin<T>>,
+        d8: Peri<'d, impl D8Pin<T>>,
+        d9: Peri<'d, impl D9Pin<T>>,
+        d10: Peri<'d, impl D10Pin<T>>,
+        d11: Peri<'d, impl D11Pin<T>>,
+        d12: Peri<'d, impl D12Pin<T>>,
+        d13: Peri<'d, impl D13Pin<T>>,
+        d14: Peri<'d, impl D14Pin<T>>,
+        d15: Peri<'d, impl D15Pin<T>>,
+        ncs: Peri<'d, impl NCSEither<T>>,
+        dqs0: Peri<'d, impl DQS0Pin<T>>,
+        dqs1: Peri<'d, impl DQS1Pin<T>>,
+        config: Config,
+    ) -> Self {
+        debug!("XSPI hexa_dqs_dual: starting, about to configure pins");
+        Self::new_inner(
+            peri,
+            new_pin!(d0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d1, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d2, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d3, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d4, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d5, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d6, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d7, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d8, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d9, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d10, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d11, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d12, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d13, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d14, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(d15, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            new_pin!(clk, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
+            ncs.sel(),
+            new_pin!(
+                ncs,
+                AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up)
+            ),
+            None,
+            new_pin!(dqs0, AfType::input(Pull::None)),
+            new_pin!(dqs1, AfType::input(Pull::None)),
             None,
             config,
             XspiWidth::HEXA,

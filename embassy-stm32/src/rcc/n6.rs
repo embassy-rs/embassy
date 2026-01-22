@@ -1,10 +1,14 @@
+use stm32_metapac::pwr::vals::{
+    Vddio2rdy, Vddio2sv, Vddio2vrsel, Vddio3rdy, Vddio3sv, Vddio3vrsel, Vddio4sv, Vddio5sv,
+};
 use stm32_metapac::rcc::vals::{Cpusw, Cpusws, Hseext, Hsitrim, Msifreqsel, Pllmodssdis, Syssw, Syssws, Timpre};
 pub use stm32_metapac::rcc::vals::{
     Hpre as AhbPrescaler, Hsidiv as HsiPrescaler, Hsitrim as HsiCalibration, Icint, Icsel, Plldivm, Pllpdiv, Pllsel,
     Ppre as ApbPrescaler, Xspisel as XspiClkSrc,
 };
+use stm32_metapac::syscfg::vals::{Vddio2cccrEn, Vddio3cccrEn, Vddio4cccrEn};
 
-use crate::pac::{PWR, RCC, SYSCFG};
+use crate::pac::{PWR, RCC, RISAF3, SYSCFG};
 use crate::time::Hertz;
 
 pub const HSI_FREQ: Hertz = Hertz(64_000_000);
@@ -218,6 +222,8 @@ struct ClocksInput {
     hsi: Option<Hertz>,
     msi: Option<Hertz>,
     hse: Option<Hertz>,
+    pll1: Option<Hertz>,
+    pll2: Option<Hertz>,
 }
 
 fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
@@ -378,14 +384,32 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
         CpuClk::Hsi => unwrap!(input.hsi),
         CpuClk::Msi => unwrap!(input.msi),
         CpuClk::Hse => unwrap!(input.hse),
-        CpuClk::Ic1 { .. } => todo!(),
+        CpuClk::Ic1 { source, divider } => {
+            let src_freq = match source {
+                Icsel::PLL1 => unwrap!(input.pll1),
+                Icsel::PLL2 => unwrap!(input.pll2),
+                Icsel::HSI_OSC_DIV4 => Hertz(unwrap!(input.hsi).0 / 4),
+                Icsel::HSI_OSC_DIV8 => Hertz(unwrap!(input.hsi).0 / 8),
+            };
+            let div = (divider.to_bits() as u32) + 1;
+            Hertz(src_freq.0 / div)
+        }
     };
 
     let sysclk = match config.sys {
         SysClk::Hsi => unwrap!(input.hsi),
         SysClk::Msi => unwrap!(input.msi),
         SysClk::Hse => unwrap!(input.hse),
-        SysClk::Ic2 { .. } => todo!(),
+        SysClk::Ic2 { ic2, .. } => {
+            let src_freq = match ic2.source {
+                Icsel::PLL1 => unwrap!(input.pll1),
+                Icsel::PLL2 => unwrap!(input.pll2),
+                Icsel::HSI_OSC_DIV4 => Hertz(unwrap!(input.hsi).0 / 4),
+                Icsel::HSI_OSC_DIV8 => Hertz(unwrap!(input.hsi).0 / 8),
+            };
+            let div = (ic2.divider.to_bits() as u32) + 1;
+            Hertz(src_freq.0 / div)
+        }
     };
 
     let timpre: u32 = match RCC.cfgr2().read().timpre() {
@@ -1109,22 +1133,45 @@ pub(crate) unsafe fn init(config: Config) {
         p.SCB.cpacr.modify(|w| w | (3 << 20) | (3 << 22));
     }
 
-    // TODO: ugly workaround for DMA accesses until RIF is properly implemented
-    debug!("deactivating RIF");
-    const RISAF3_BASE_NS: *mut u32 = stm32_metapac::RNG.wrapping_byte_offset(0x8000) as _; // AHB3PERIPH_BASE_NS + 0x8000UL
-    const RISAF3_REG0_CFGR: *mut u32 = RISAF3_BASE_NS.wrapping_byte_offset(0x40);
-    const RISAF3_REG0_ENDR: *mut u32 = RISAF3_BASE_NS.wrapping_byte_offset(0x48);
-    const RISAF3_REG0_CIDCFGR: *mut u32 = RISAF3_BASE_NS.wrapping_byte_offset(0x4C);
-    const RISAF3_REG1_CFGR: *mut u32 = RISAF3_BASE_NS.wrapping_byte_offset(0x80);
-    const RISAF3_REG1_ENDR: *mut u32 = RISAF3_BASE_NS.wrapping_byte_offset(0x88);
-    const RISAF3_REG1_CIDCFGR: *mut u32 = RISAF3_BASE_NS.wrapping_byte_offset(0x8C);
-    unsafe {
-        *RISAF3_REG0_CIDCFGR = 0x000F000F; /* RW for everyone */
-        *RISAF3_REG0_ENDR = 0xFFFFFFFF; /* all-encompassing */
-        *RISAF3_REG0_CFGR = 0x00000101; /* enabled, secure, unprivileged for everyone */
-        *RISAF3_REG1_CIDCFGR = 0x00FF00FF; /* RW for everyone */
-        *RISAF3_REG1_ENDR = 0xFFFFFFFF; /* all-encompassing */
-        *RISAF3_REG1_CFGR = 0x00000001; /* enabled, non-secure, unprivileged*/
+    // Configure RIF/RISAF for memory access
+    // RISAF register offsets: REG_CFGR=0x40, REG_STARTR=0x44, REG_ENDR=0x48, REG_CIDCFGR=0x4C (stride 0x40)
+    // CRITICAL: Enable RISAF and RIFSC clocks BEFORE accessing registers
+    debug!("configuring RISAF");
+    RCC.ahb3ensr().write(|w| {
+        w.set_risafens(true); // Enable RISAF clock
+        w.set_rifscens(true); // Enable RIFSC clock
+    });
+    // Read-back delay after RCC peripheral clock enabling (matches ST HAL pattern)
+    // Must read from AHB3ENR (status) not AHB3ENSR (set) to ensure clock is stable
+    RCC.ahb3enr().read();
+
+    // RISAF3: SRAM access for DMA
+    {
+        // Region 0: secure access (RW for CIDs 0-3)
+        RISAF3.reg_cidcfgr(0).write(|w| {
+            for i in 0..4 {
+                w.set_rdenc(i, true);
+                w.set_wrenc(i, true);
+            }
+        });
+        RISAF3.reg_endr(0).write(|w| w.set_baddend(0xFFFFFFFF));
+        RISAF3.reg_cfgr(0).write(|w| {
+            w.set_bren(true);
+            w.set_sec(true);
+        });
+
+        // Region 1: non-secure access (RW for all CIDs)
+        RISAF3.reg_cidcfgr(1).write(|w| {
+            for i in 0..8 {
+                w.set_rdenc(i, true);
+                w.set_wrenc(i, true);
+            }
+        });
+        RISAF3.reg_endr(1).write(|w| w.set_baddend(0xFFFFFFFF));
+        RISAF3.reg_cfgr(1).write(|w| {
+            w.set_bren(true);
+            w.set_sec(false);
+        });
     }
 
     debug!("setting power supply config");
@@ -1135,21 +1182,19 @@ pub(crate) unsafe fn init(config: Config) {
     // This must be done early in boot - set SV bits and wait for RDY
     debug!("configuring VddIO power domains");
     {
-        use crate::pac::pwr::vals::{Vddio2sv, Vddio2vrsel, Vddio3sv, Vddio3vrsel, Vddio4sv, Vddio5sv};
-
         // Enable supply valid for all VddIO domains (like ST's SystemInit)
         // PWR is always accessible on N6, no need to enable clock
 
         // SVMCR1: VddIO4
-        crate::pac::PWR.svmcr1().modify(|w| {
+        PWR.svmcr1().modify(|w| {
             w.set_vddio4sv(Vddio4sv::B_0X1);
         });
         // SVMCR2: VddIO5
-        crate::pac::PWR.svmcr2().modify(|w| {
+        PWR.svmcr2().modify(|w| {
             w.set_vddio5sv(Vddio5sv::B_0X1);
         });
         // SVMCR3: VddIO2 and VddIO3 (for XSPI1 and XSPI2)
-        crate::pac::PWR.svmcr3().modify(|w| {
+        PWR.svmcr3().modify(|w| {
             w.set_vddio2sv(Vddio2sv::B_0X1);
             w.set_vddio2vmen(true); // Enable voltage monitoring
             w.set_vddio3sv(Vddio3sv::B_0X1);
@@ -1164,12 +1209,11 @@ pub(crate) unsafe fn init(config: Config) {
         });
 
         // Wait for VddIO domains to be ready
-        use crate::pac::pwr::vals::{Vddio2rdy, Vddio3rdy};
-        while crate::pac::PWR.svmcr3().read().vddio2rdy() != Vddio2rdy::B_0X1 {}
-        while crate::pac::PWR.svmcr3().read().vddio3rdy() != Vddio3rdy::B_0X1 {}
+        while PWR.svmcr3().read().vddio2rdy() != Vddio2rdy::B_0X1 {}
+        while PWR.svmcr3().read().vddio3rdy() != Vddio3rdy::B_0X1 {}
 
         // Debug VddIO status after configuration
-        let svmcr3 = crate::pac::PWR.svmcr3().read();
+        let svmcr3 = PWR.svmcr3().read();
         debug!("VddIO2 ready: {}", svmcr3.vddio2rdy() == Vddio2rdy::B_0X1);
         debug!("VddIO3 ready: {}", svmcr3.vddio3rdy() == Vddio3rdy::B_0X1);
         debug!("SVMCR3 raw = 0x{:08x}", svmcr3.0);
@@ -1179,20 +1223,20 @@ pub(crate) unsafe fn init(config: Config) {
 
         // Set compensation cell values (0x287 = ST's recommended value)
         // ransrc=7 (bits 0-3), rapsrc=8 (bits 4-7), en=1 (bit 8)
-        crate::pac::SYSCFG.vddio2cccr().write(|w| {
+        SYSCFG.vddio2cccr().write(|w| {
             w.set_ransrc(0x7);
             w.set_rapsrc(0x8);
-            w.set_en(crate::pac::syscfg::vals::Vddio2cccrEn::B_0X1);
+            w.set_en(Vddio2cccrEn::B_0X1);
         });
-        crate::pac::SYSCFG.vddio3cccr().write(|w| {
+        SYSCFG.vddio3cccr().write(|w| {
             w.set_ransrc(0x7);
             w.set_rapsrc(0x8);
-            w.set_en(crate::pac::syscfg::vals::Vddio3cccrEn::B_0X1);
+            w.set_en(Vddio3cccrEn::B_0X1);
         });
-        crate::pac::SYSCFG.vddio4cccr().write(|w| {
+        SYSCFG.vddio4cccr().write(|w| {
             w.set_ransrc(0x7);
             w.set_rapsrc(0x8);
-            w.set_en(crate::pac::syscfg::vals::Vddio4cccrEn::B_0X1);
+            w.set_en(Vddio4cccrEn::B_0X1);
         });
     }
 
@@ -1201,6 +1245,8 @@ pub(crate) unsafe fn init(config: Config) {
         hsi: osc.hsi,
         msi: osc.msi,
         hse: osc.hse,
+        pll1: osc.pll1,
+        pll2: osc.pll2,
     };
     let clocks = init_clocks(config, &clock_inputs);
 
