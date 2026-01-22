@@ -1,4 +1,10 @@
 //! Inter-Integrated-Circuit (I2C)
+//!
+//! ## Examples
+//!
+//! - [STM32F4](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/i2c.rs)
+//! - [STM32F4 Async](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/i2c_async.rs)
+//! - [STM32F4 DMA](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/i2c_dma.rs)
 #![macro_use]
 
 #[cfg_attr(i2c_v1, path = "v1.rs")]

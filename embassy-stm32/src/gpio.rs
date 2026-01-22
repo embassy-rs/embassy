@@ -1,4 +1,8 @@
 //! General-purpose Input/Output (GPIO)
+//!
+//! ## Examples
+//!
+//! - [STM32F0 Blinky](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f0/src/bin/blinky.rs)
 
 #![macro_use]
 use core::convert::Infallible;

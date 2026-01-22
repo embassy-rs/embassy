@@ -1,4 +1,8 @@
 //! External Interrupts (EXTI)
+//!
+//! ## Examples
+//!
+//! - [STM32F4 Button EXTI](https://github.com/embassy-rs/embassy/blob/main/examples/stm32f4/src/bin/button_exti.rs)
 use core::convert::Infallible;
 use core::future::Future;
 use core::marker::PhantomData;
