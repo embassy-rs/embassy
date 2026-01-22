@@ -144,6 +144,31 @@ impl<'d> Channel<'d> {
         Transfer::new(self.reborrow())
     }
 
+    /// DMA repeated read from peripheral.
+    ///
+    /// SAFETY: `from` must point to a valid location reachable by DMA.
+    pub unsafe fn read_repeated<'a, W: Word>(
+        &'a mut self,
+        from: *mut W,
+        len: usize,
+        dreq: vals::TreqSel,
+    ) -> Transfer<'a> {
+        // static mut so that this is allocated in RAM.
+        static mut DUMMY: u32 = 0;
+
+        self.configure(
+            from as *mut u32,
+            core::ptr::addr_of_mut!(DUMMY) as *mut u32,
+            len,
+            W::size(),
+            false,
+            false,
+            dreq,
+            false,
+        );
+        Transfer::new(self.reborrow())
+    }
+
     /// DMA write from memory to a peripheral.
     ///
     /// SAFETY: Slice must point to a valid location reachable by DMA.
