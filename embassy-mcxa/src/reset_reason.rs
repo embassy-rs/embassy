@@ -17,51 +17,54 @@ static RESET_REASON: AtomicU32 = AtomicU32::new(0);
 pub fn reset_reason() -> ResetReasonRaw {
     let regs = unsafe { &*crate::pac::Cmc::steal() };
 
-    let mut reason = RESET_REASON.load(Ordering::Acquire);
+    let reason = critical_section::with(|_| {
+        let mut r = RESET_REASON.load(Ordering::Relaxed);
 
-    if reason == 0 {
-        // Read status
-        let srs = regs.srs().read().bits();
+        if r == 0 {
+            // Read status
+            r = regs.srs().read().bits();
 
-        // Clear status
-        regs.ssrs().write(|w| {
-            w.wakeup()
-                .clear_bit_by_one()
-                .por()
-                .clear_bit_by_one()
-                .warm()
-                .clear_bit_by_one()
-                .fatal()
-                .clear_bit_by_one()
-                .pin()
-                .clear_bit_by_one()
-                .dap()
-                .clear_bit_by_one()
-                .rstack()
-                .clear_bit_by_one()
-                .lpack()
-                .clear_bit_by_one()
-                .scg()
-                .clear_bit_by_one()
-                .wwdt0()
-                .clear_bit_by_one()
-                .sw()
-                .clear_bit_by_one()
-                .lockup()
-                .clear_bit_by_one()
-                .cdog0()
-                .clear_bit_by_one()
-                .cdog1()
-                .clear_bit_by_one()
-                .jtag()
-                .clear_bit_by_one()
-                .tamper()
-                .clear_bit_by_one()
-        });
+            // Clear status
+            regs.ssrs().write(|w| {
+                w.wakeup()
+                    .clear_bit_by_one()
+                    .por()
+                    .clear_bit_by_one()
+                    .warm()
+                    .clear_bit_by_one()
+                    .fatal()
+                    .clear_bit_by_one()
+                    .pin()
+                    .clear_bit_by_one()
+                    .dap()
+                    .clear_bit_by_one()
+                    .rstack()
+                    .clear_bit_by_one()
+                    .lpack()
+                    .clear_bit_by_one()
+                    .scg()
+                    .clear_bit_by_one()
+                    .wwdt0()
+                    .clear_bit_by_one()
+                    .sw()
+                    .clear_bit_by_one()
+                    .lockup()
+                    .clear_bit_by_one()
+                    .cdog0()
+                    .clear_bit_by_one()
+                    .cdog1()
+                    .clear_bit_by_one()
+                    .jtag()
+                    .clear_bit_by_one()
+                    .tamper()
+                    .clear_bit_by_one()
+            });
 
-        reason = srs;
-        RESET_REASON.store(srs, Ordering::Release);
-    }
+            RESET_REASON.store(r, Ordering::Relaxed);
+        }
+
+        r
+    });
 
     ResetReasonRaw(reason)
 }
