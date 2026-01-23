@@ -111,7 +111,7 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
         config: Config,
         fsel: FlashSelection,
     ) -> Self {
-        rcc::enable_and_reset::<T>();
+        rcc::enable_and_reset_without_stop::<T>();
 
         while T::REGS.sr().read().busy() {}
 
@@ -403,6 +403,7 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
 
     /// Async read data, using DMA.
     pub async fn read_dma(&mut self, buf: &mut [u8], transaction: TransferConfig) {
+        let _scoped_block_stop = T::RCC_INFO.block_stop();
         let transfer = self.start_read_transfer(transaction, buf);
         transfer.await;
     }
@@ -443,6 +444,7 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
 
     /// Async write data, using DMA.
     pub async fn write_dma(&mut self, buf: &[u8], transaction: TransferConfig) {
+        let _scoped_block_stop = T::RCC_INFO.block_stop();
         let transfer = self.start_write_transfer(transaction, buf);
         transfer.await;
     }

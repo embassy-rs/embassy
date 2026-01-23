@@ -38,7 +38,7 @@ Rust's [async/await](https://rust-lang.github.io/async-book/) allows for unprece
 
 - **Bluetooth**
     - The [trouble](https://github.com/embassy-rs/trouble) crate provides a Bluetooth Low Energy 4.x and 5.x Host that runs on any microcontroller implementing the [bt-hci](https://github.com/embassy-rs/bt-hci) traits (currently
-      `nRF52`, `rp2040`, `rp23xx` and `esp32` and `serial` controllers are supported).
+      `nRF52`, `nrf54`, `rp2040`, `rp23xx` and `esp32` and `serial` controllers are supported).
     - The [nrf-softdevice](https://github.com/embassy-rs/nrf-softdevice) crate provides Bluetooth Low Energy 4.x and 5.x support for nRF52 microcontrollers.
     - The [embassy-stm32-wpan](https://github.com/embassy-rs/embassy/tree/main/embassy-stm32-wpan) crate provides Bluetooth Low Energy 5.x support for stm32wb microcontrollers.
 

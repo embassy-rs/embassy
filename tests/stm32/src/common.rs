@@ -259,6 +259,7 @@ define_peris!(
 define_peris!(
     UART = LPUART1, UART_TX = PB5, UART_RX = PA10, UART_TX_DMA = GPDMA1_CH0, UART_RX_DMA = GPDMA1_CH1,
     SPI = SPI1, SPI_SCK = PB4, SPI_MOSI = PA15, SPI_MISO = PB3, SPI_TX_DMA = GPDMA1_CH0, SPI_RX_DMA = GPDMA1_CH1,
+    ADC = ADC4, DAC_PIN = PA0,
     @irq UART = {LPUART1 => embassy_stm32::usart::InterruptHandler<embassy_stm32::peripherals::LPUART1>;},
 );
 #[cfg(feature = "stm32h7s3l8")]
@@ -468,6 +469,8 @@ pub fn config() -> Config {
         config.rcc.apb3_pre = APBPrescaler::DIV1;
         config.rcc.sys = Sysclk::PLL1_P;
         config.rcc.voltage_scale = VoltageScale::Scale0;
+
+        config.rtc._disable_rtc = true;
     }
 
     #[cfg(feature = "stm32h503rb")]

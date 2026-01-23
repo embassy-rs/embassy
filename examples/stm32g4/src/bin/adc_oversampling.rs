@@ -9,7 +9,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::Config;
 use embassy_stm32::adc::vals::{Rovsm, Trovs};
-use embassy_stm32::adc::{Adc, SampleTime};
+use embassy_stm32::adc::{Adc, AdcConfig, SampleTime};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -32,8 +32,8 @@ async fn main(_spawner: Spawner) {
     }
     let mut p = embassy_stm32::init(config);
 
-    let mut adc = Adc::new(p.ADC1);
-    adc.set_sample_time(SampleTime::CYCLES6_5);
+    let mut config = AdcConfig::default();
+
     // From https://www.st.com/resource/en/reference_manual/rm0440-stm32g4-series-advanced-armbased-32bit-mcus-stmicroelectronics.pdf
     // page652 Oversampler
     // Table 172. Maximum output results vs N and M. Grayed values indicates truncation
@@ -45,12 +45,14 @@ async fn main(_spawner: Spawner) {
     // 0x05 oversampling ratio X64
     // 0x06 oversampling ratio X128
     // 0x07 oversampling ratio X256
-    adc.set_oversampling_ratio(0x03); // ratio X3
-    adc.set_oversampling_shift(0b0000); // no shift
-    adc.enable_regular_oversampling_mode(Rovsm::RESUMED, Trovs::AUTOMATIC, true);
+    config.oversampling_ratio = Some(0x03); // ratio X3
+    config.oversampling_shift = Some(0b0000); // no shift
+    config.oversampling_mode = Some((Rovsm::RESUMED, Trovs::AUTOMATIC, true));
+
+    let mut adc = Adc::new(p.ADC1, config);
 
     loop {
-        let measured = adc.blocking_read(&mut p.PA0);
+        let measured = adc.blocking_read(&mut p.PA0, SampleTime::CYCLES6_5);
         info!("data: 0x{:X}", measured); //max 0xFFF0 -> 65520
         Timer::after_millis(500).await;
     }

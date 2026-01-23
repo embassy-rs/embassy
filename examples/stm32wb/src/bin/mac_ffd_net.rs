@@ -1,35 +1,47 @@
 #![no_std]
 #![no_main]
 
+use core::net::Ipv6Addr;
+
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_net::udp::{PacketMetadata, UdpSocket};
+use embassy_net::{Ipv6Cidr, StackResources, StaticConfigV6};
 use embassy_stm32::bind_interrupts;
 use embassy_stm32::ipcc::{Config, ReceiveInterruptHandler, TransmitInterruptHandler};
+use embassy_stm32::peripherals::RNG;
 use embassy_stm32::rcc::WPAN_DEFAULT;
+use embassy_stm32::rng::InterruptHandler as RngInterruptHandler;
 use embassy_stm32_wpan::TlMbox;
-use embassy_stm32_wpan::mac::commands::{ResetRequest, SetRequest, StartRequest};
-use embassy_stm32_wpan::mac::typedefs::{MacChannel, PanId, PibId};
-use embassy_stm32_wpan::mac::{self, Runner};
+use embassy_stm32_wpan::mac::{Driver, DriverState, Runner};
 use embassy_stm32_wpan::sub::mm;
+use embassy_time::{Duration, Timer};
+use heapless::Vec;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
     IPCC_C1_RX => ReceiveInterruptHandler;
     IPCC_C1_TX => TransmitInterruptHandler;
+    RNG => RngInterruptHandler<RNG>;
 });
 
 #[embassy_executor::task]
-async fn run_mm_queue(memory_manager: mm::MemoryManager) {
-    memory_manager.run_queue().await;
+async fn run_mm_queue(mut memory_manager: mm::MemoryManager<'static>) -> ! {
+    memory_manager.run_queue().await
 }
 
 #[embassy_executor::task]
-async fn run_mac(runner: &'static Runner<'static>) {
-    runner.run().await;
+async fn run_mac(runner: &'static Runner<'static>) -> ! {
+    runner.run().await
 }
 
-#[embassy_executor::main]
+#[embassy_executor::task]
+async fn run_net(mut runner: embassy_net::Runner<'static, Driver<'static>>) -> ! {
+    runner.run().await
+}
+
+#[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]
 async fn main(spawner: Spawner) {
     /*
         How to make this work:
@@ -60,118 +72,76 @@ async fn main(spawner: Spawner) {
     info!("Hello World!");
 
     let config = Config::default();
-    let mbox = TlMbox::init(p.IPCC, Irqs, config);
+    let mut mbox = TlMbox::init(p.IPCC, Irqs, config).await;
 
     spawner.spawn(run_mm_queue(mbox.mm_subsystem).unwrap());
-
-    let sys_event = mbox.sys_subsystem.read().await;
-    info!("sys event: {}", sys_event.payload());
-
-    core::mem::drop(sys_event);
 
     let result = mbox.sys_subsystem.shci_c2_mac_802_15_4_init().await;
     info!("initialized mac: {}", result);
 
-    info!("resetting");
-    mbox.mac_subsystem
-        .send_command(&ResetRequest {
-            set_default_pib: true,
-            ..Default::default()
-        })
-        .await
-        .unwrap();
-    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
-
-    info!("setting extended address");
-    let extended_address: u64 = 0xACDE480000000001;
-    mbox.mac_subsystem
-        .send_command(&SetRequest {
-            pib_attribute_ptr: &extended_address as *const _ as *const u8,
-            pib_attribute: PibId::ExtendedAddress,
-        })
-        .await
-        .unwrap();
-    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
-
-    info!("setting short address");
-    let short_address: u16 = 0x1122;
-    mbox.mac_subsystem
-        .send_command(&SetRequest {
-            pib_attribute_ptr: &short_address as *const _ as *const u8,
-            pib_attribute: PibId::ShortAddress,
-        })
-        .await
-        .unwrap();
-    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
-
-    info!("setting association permit");
-    let association_permit: bool = true;
-    mbox.mac_subsystem
-        .send_command(&SetRequest {
-            pib_attribute_ptr: &association_permit as *const _ as *const u8,
-            pib_attribute: PibId::AssociationPermit,
-        })
-        .await
-        .unwrap();
-    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
-
-    info!("setting TX power");
-    let transmit_power: i8 = 2;
-    mbox.mac_subsystem
-        .send_command(&SetRequest {
-            pib_attribute_ptr: &transmit_power as *const _ as *const u8,
-            pib_attribute: PibId::TransmitPower,
-        })
-        .await
-        .unwrap();
-    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
-
-    info!("starting FFD device");
-    mbox.mac_subsystem
-        .send_command(&StartRequest {
-            pan_id: PanId([0x1A, 0xAA]),
-            channel_number: MacChannel::Channel16,
-            beacon_order: 0x0F,
-            superframe_order: 0x0F,
-            pan_coordinator: true,
-            battery_life_extension: false,
-            ..Default::default()
-        })
-        .await
-        .unwrap();
-    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
-
-    info!("setting RX on when idle");
-    let rx_on_while_idle: bool = true;
-    mbox.mac_subsystem
-        .send_command(&SetRequest {
-            pib_attribute_ptr: &rx_on_while_idle as *const _ as *const u8,
-            pib_attribute: PibId::RxOnWhenIdle,
-        })
-        .await
-        .unwrap();
-    defmt::info!("{:#x}", mbox.mac_subsystem.read().await.unwrap());
-
-    static TX1: StaticCell<[u8; 127]> = StaticCell::new();
-    static TX2: StaticCell<[u8; 127]> = StaticCell::new();
-    static TX3: StaticCell<[u8; 127]> = StaticCell::new();
-    static TX4: StaticCell<[u8; 127]> = StaticCell::new();
-    static TX5: StaticCell<[u8; 127]> = StaticCell::new();
-    let tx_queue = [
-        TX1.init([0u8; 127]),
-        TX2.init([0u8; 127]),
-        TX3.init([0u8; 127]),
-        TX4.init([0u8; 127]),
-        TX5.init([0u8; 127]),
-    ];
-
+    static DRIVER_STATE: StaticCell<DriverState> = StaticCell::new();
     static RUNNER: StaticCell<Runner> = StaticCell::new();
-    let runner = RUNNER.init(Runner::new(mbox.mac_subsystem, tx_queue));
+    static RESOURCES: StaticCell<StackResources<3>> = StaticCell::new();
 
-    spawner.spawn(run_mac(runner).unwrap());
+    let driver_state = DRIVER_STATE.init(DriverState::new(mbox.mac_subsystem));
 
-    let (driver, control) = mac::new(runner).await;
+    let (driver, mac_runner, mut control) = Driver::new(
+        driver_state,
+        0x1122u16.to_be_bytes().try_into().unwrap(),
+        0xACDE480000000001u64.to_be_bytes().try_into().unwrap(),
+    );
 
-    let _ = driver;
-    let _ = control;
+    // TODO: rng does not work for some reason
+    // Generate random seed.
+    // let mut rng = Rng::new(p.RNG, Irqs);
+    let seed = [0; 8];
+    // let _ = rng.async_fill_bytes(&mut seed).await;
+    let seed = u64::from_le_bytes(seed);
+
+    info!("seed generated");
+
+    // Init network stack
+    let ipv6_addr = Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0xc00a, 0x2ff);
+
+    let config = embassy_net::Config::ipv6_static(StaticConfigV6 {
+        address: Ipv6Cidr::new(ipv6_addr, 104),
+        gateway: None,
+        dns_servers: Vec::new(),
+    });
+
+    let (stack, eth_runner) = embassy_net::new(driver, config, RESOURCES.init(StackResources::new()), seed);
+
+    // wpan runner
+    spawner.spawn(run_mac(RUNNER.init(mac_runner)).unwrap());
+
+    // Launch network task
+    spawner.spawn(unwrap!(run_net(eth_runner)));
+
+    info!("Network task initialized");
+
+    control.init_link([0x1A, 0xAA]).await;
+
+    // Ensure DHCP configuration is up before trying connect
+    stack.wait_config_up().await;
+
+    info!("Network up");
+
+    // Then we can use it!
+    let mut rx_meta = [PacketMetadata::EMPTY];
+    let mut rx_buffer = [0; 4096];
+    let mut tx_meta = [PacketMetadata::EMPTY];
+    let mut tx_buffer = [0; 4096];
+
+    let mut socket = UdpSocket::new(stack, &mut rx_meta, &mut rx_buffer, &mut tx_meta, &mut tx_buffer);
+
+    let remote_endpoint = (Ipv6Addr::new(0, 0, 0, 0, 0, 0xffff, 0xc00a, 0x2fb), 8000);
+
+    let send_buf = [0u8; 20];
+
+    socket.bind((ipv6_addr, 8000)).unwrap();
+    socket.send_to(&send_buf, remote_endpoint).await.unwrap();
+
+    Timer::after(Duration::from_secs(2)).await;
+
+    cortex_m::asm::bkpt();
 }

@@ -16,7 +16,7 @@ Switch to a proper script when https://github.com/YuhanLiin/micropb/issues/30 is
     // Special config for things that need to be larger
     g.configure(
         ".CtrlMsg_Req_OTAWrite.ota_data",
-        micropb_gen::Config::new().max_bytes(1024),
+        micropb_gen::Config::new().max_bytes(256),
     );
     g.configure(
         ".CtrlMsg_Event_ESPInit.init_data",
@@ -4296,28 +4296,28 @@ impl ::micropb::MessageEncode for CtrlMsg_Resp_OTABegin {
 #[derive(Debug, Default, PartialEq, Clone)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct CtrlMsg_Req_OTAWrite {
-    pub r#ota_data: ::micropb::heapless::Vec<u8, 1024>,
+    pub r#ota_data: ::micropb::heapless::Vec<u8, 256>,
 }
 impl CtrlMsg_Req_OTAWrite {
     ///Return a reference to `ota_data`
     #[inline]
-    pub fn r#ota_data(&self) -> &::micropb::heapless::Vec<u8, 1024> {
+    pub fn r#ota_data(&self) -> &::micropb::heapless::Vec<u8, 256> {
         &self.r#ota_data
     }
     ///Return a mutable reference to `ota_data`
     #[inline]
-    pub fn mut_ota_data(&mut self) -> &mut ::micropb::heapless::Vec<u8, 1024> {
+    pub fn mut_ota_data(&mut self) -> &mut ::micropb::heapless::Vec<u8, 256> {
         &mut self.r#ota_data
     }
     ///Set the value of `ota_data`
     #[inline]
-    pub fn set_ota_data(&mut self, value: ::micropb::heapless::Vec<u8, 1024>) -> &mut Self {
+    pub fn set_ota_data(&mut self, value: ::micropb::heapless::Vec<u8, 256>) -> &mut Self {
         self.r#ota_data = value.into();
         self
     }
     ///Builder method that sets the value of `ota_data`. Useful for initializing the message.
     #[inline]
-    pub fn init_ota_data(mut self, value: ::micropb::heapless::Vec<u8, 1024>) -> Self {
+    pub fn init_ota_data(mut self, value: ::micropb::heapless::Vec<u8, 256>) -> Self {
         self.r#ota_data = value.into();
         self
     }

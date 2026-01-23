@@ -1,0 +1,19 @@
+# Rust
+/target/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Embedded
+*.bin
+*.hex
+*.elf
+*.map
+
+# Debug
+*.log

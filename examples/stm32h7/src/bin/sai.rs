@@ -28,6 +28,7 @@ async fn main(_spawner: Spawner) {
         source: PllSource::HSE,
         prediv: PllPreDiv::DIV4,
         mul: PllMul::MUL200,
+        fracn: None,
         divp: Some(PllDiv::DIV2),
         divq: Some(PllDiv::DIV5),
         divr: Some(PllDiv::DIV2),
@@ -36,6 +37,7 @@ async fn main(_spawner: Spawner) {
         source: PllSource::HSE,
         prediv: PllPreDiv::DIV6,
         mul: PllMul::MUL295,
+        fracn: None,
         divp: Some(PllDiv::DIV16),
         divq: Some(PllDiv::DIV4),
         divr: Some(PllDiv::DIV32),
@@ -63,7 +65,7 @@ async fn main(_spawner: Spawner) {
     tx_config.tx_rx = TxRx::Transmitter;
     tx_config.sync_output = true;
     tx_config.clock_strobe = ClockStrobe::Falling;
-    tx_config.master_clock_divider = Some(mclk_div);
+    tx_config.master_clock_divider = mclk_div;
     tx_config.stereo_mono = StereoMono::Stereo;
     tx_config.data_size = DataSize::Data24;
     tx_config.bit_order = BitOrder::MsbFirst;

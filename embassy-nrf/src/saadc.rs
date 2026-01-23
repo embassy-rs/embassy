@@ -195,8 +195,12 @@ impl<'d, const N: usize> Saadc<'d, N> {
                 w.set_resp(cc.resistor.into());
                 #[cfg(not(feature = "_nrf54l"))]
                 w.set_resn(vals::Resn::BYPASS);
+                #[cfg(not(feature = "_nrf54lm20"))]
                 w.set_burst(!matches!(oversample, Oversample::BYPASS));
             });
+            #[cfg(feature = "_nrf54lm20")]
+            r.burst()
+                .write(|w| w.set_burst(!matches!(oversample, Oversample::BYPASS)));
         }
 
         // Disable all events interrupts
@@ -771,7 +775,7 @@ pub(crate) trait SealedInput {
     fn port(&self) -> u8;
 
     #[cfg(feature = "_nrf54l")]
-    fn internal(&self) -> vals::Internal;
+    fn internal(&self) -> vals::PselpInternal;
 
     #[cfg(feature = "_nrf54l")]
     fn connect(&self) -> vals::PselpConnect;
@@ -832,7 +836,7 @@ pub struct AnyInput<'a> {
 pub struct AnyInput<'a> {
     pin: u8,
     port: u8,
-    internal: vals::Internal,
+    internal: vals::PselpInternal,
     connect: vals::PselpConnect,
     _phantom: PhantomData<&'a ()>,
 }
@@ -881,7 +885,7 @@ impl SealedInput for AnyInput<'_> {
     }
 
     #[cfg(feature = "_nrf54l")]
-    fn internal(&self) -> vals::Internal {
+    fn internal(&self) -> vals::PselpInternal {
         self.internal
     }
 
@@ -923,8 +927,8 @@ macro_rules! impl_saadc_input {
                 $port
             }
 
-            fn internal(&self) -> crate::pac::saadc::vals::Internal {
-                crate::pac::saadc::vals::Internal::$internal
+            fn internal(&self) -> crate::pac::saadc::vals::PselpInternal {
+                crate::pac::saadc::vals::PselpInternal::$internal
             }
 
             fn connect(&self) -> crate::pac::saadc::vals::PselpConnect {

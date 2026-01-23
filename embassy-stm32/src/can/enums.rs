@@ -19,14 +19,8 @@ pub enum BusError {
     /// The CRC check sum of a received message was incorrect. The CRC of an
     /// incoming message does not match with the CRC calculated from the received data.
     Crc,
-    /// A software error occured
+    /// A software error occured. Exclusive to BXCAN.
     Software,
-    ///  The FDCAN is in Bus_Off state.
-    BusOff,
-    ///  The FDCAN is in the Error_Passive state.
-    BusPassive,
-    ///  At least one of error counter has reached the Error_Warning limit of 96.
-    BusWarning,
 }
 
 /// Bus error modes.
@@ -81,4 +75,41 @@ pub enum RefCountOp {
     NotifySenderCreated,
     /// Notify sender destroyed
     NotifySenderDestroyed,
+}
+
+/// Error returned when calculating the can timing fails
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum TimingCalcError {
+    /// Bitrate is lower than 1000
+    BitrateTooLow {
+        /// The set bitrate
+        bitrate: u32,
+    },
+    /// No solution possible
+    NoSolution {
+        /// The sum of BS1 and BS2
+        bs1_bs2_sum: u8,
+    },
+    /// Prescaler is not 1 < prescaler < 1024
+    InvalidPrescaler {
+        /// The calculated prescaler value
+        prescaler: u32,
+    },
+    /// BS1 or BS2 are not in the range 0 < BSx < BSx_MAX
+    BSNotInRange {
+        /// The value of BS1
+        bs1: u8,
+        /// The value of BS2
+        bs2: u8,
+    },
+    /// Final bitrate doesn't match the requested bitrate
+    NoMatch {
+        /// The requested bitrate
+        requested: u32,
+        /// The calculated bitrate
+        final_calculated: u32,
+    },
+    /// core::num::NonZeroUxx::new error
+    CoreNumNew,
 }

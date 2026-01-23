@@ -20,6 +20,16 @@ impl<'d> ChannelAndRequest<'d> {
         Transfer::new_read(self.channel.reborrow(), self.request, peri_addr, buf, options)
     }
 
+    #[allow(dead_code)]
+    pub unsafe fn read_unchecked<'a, W: Word>(
+        &'a self,
+        peri_addr: *mut W,
+        buf: &'a mut [W],
+        options: TransferOptions,
+    ) -> Transfer<'a> {
+        Transfer::new_read(self.channel.clone_unchecked(), self.request, peri_addr, buf, options)
+    }
+
     pub unsafe fn read_raw<'a, MW: Word, PW: Word>(
         &'a mut self,
         peri_addr: *mut PW,
@@ -29,6 +39,16 @@ impl<'d> ChannelAndRequest<'d> {
         Transfer::new_read_raw(self.channel.reborrow(), self.request, peri_addr, buf, options)
     }
 
+    #[allow(dead_code)]
+    pub unsafe fn read_raw_unchecked<'a, MW: Word, PW: Word>(
+        &'a self,
+        peri_addr: *mut PW,
+        buf: *mut [MW],
+        options: TransferOptions,
+    ) -> Transfer<'a> {
+        Transfer::new_read_raw(self.channel.clone_unchecked(), self.request, peri_addr, buf, options)
+    }
+
     pub unsafe fn write<'a, W: Word>(
         &'a mut self,
         buf: &'a [W],
@@ -36,6 +56,16 @@ impl<'d> ChannelAndRequest<'d> {
         options: TransferOptions,
     ) -> Transfer<'a> {
         Transfer::new_write(self.channel.reborrow(), self.request, buf, peri_addr, options)
+    }
+
+    #[allow(dead_code)]
+    pub unsafe fn write_unchecked<'a, W: Word>(
+        &'a self,
+        buf: &'a [W],
+        peri_addr: *mut W,
+        options: TransferOptions,
+    ) -> Transfer<'a> {
+        Transfer::new_write(self.channel.clone_unchecked(), self.request, buf, peri_addr, options)
     }
 
     pub unsafe fn write_raw<'a, MW: Word, PW: Word>(
@@ -48,6 +78,16 @@ impl<'d> ChannelAndRequest<'d> {
     }
 
     #[allow(dead_code)]
+    pub unsafe fn write_raw_unchecked<'a, MW: Word, PW: Word>(
+        &'a self,
+        buf: *const [MW],
+        peri_addr: *mut PW,
+        options: TransferOptions,
+    ) -> Transfer<'a> {
+        Transfer::new_write_raw(self.channel.clone_unchecked(), self.request, buf, peri_addr, options)
+    }
+
+    #[allow(dead_code)]
     pub unsafe fn write_repeated<'a, W: Word>(
         &'a mut self,
         repeated: &'a W,
@@ -57,6 +97,24 @@ impl<'d> ChannelAndRequest<'d> {
     ) -> Transfer<'a> {
         Transfer::new_write_repeated(
             self.channel.reborrow(),
+            self.request,
+            repeated,
+            count,
+            peri_addr,
+            options,
+        )
+    }
+
+    #[allow(dead_code)]
+    pub unsafe fn write_repeated_unchecked<'a, W: Word>(
+        &'a self,
+        repeated: &'a W,
+        count: usize,
+        peri_addr: *mut W,
+        options: TransferOptions,
+    ) -> Transfer<'a> {
+        Transfer::new_write_repeated(
+            self.channel.clone_unchecked(),
             self.request,
             repeated,
             count,

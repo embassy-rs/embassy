@@ -199,7 +199,7 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
     fn new_inner(&mut self, freq: Hertz, pulse_end: u32, counting_mode: CountingMode) {
         self.inner.set_counting_mode(counting_mode);
         self.inner.set_tick_freq(freq);
-        self.inner.set_max_compare_value(pulse_end);
+        self.inner.set_max_compare_value(unwrap!(pulse_end.try_into()));
         self.inner.regs_core().cr1().modify(|r| r.set_opm(true));
         // Required for advanced timers, see GeneralInstance4Channel for details
         self.inner.enable_outputs();
@@ -211,14 +211,14 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
 
     /// Get the end of the pulse in ticks from the trigger.
     pub fn pulse_end(&self) -> u32 {
-        let max = self.inner.get_max_compare_value();
+        let max: u32 = self.inner.get_max_compare_value().into();
         assert!(max < u32::MAX);
         max + 1
     }
 
     /// Set the end of the pulse in ticks from the trigger.
     pub fn set_pulse_end(&mut self, ticks: u32) {
-        self.inner.set_max_compare_value(ticks)
+        self.inner.set_max_compare_value(unwrap!(ticks.try_into()))
     }
 
     /// Reset the timer on each trigger
@@ -327,7 +327,7 @@ pub struct OnePulseChannel<'d, T: GeneralInstance4Channel> {
 impl<'d, T: GeneralInstance4Channel> OnePulseChannel<'d, T> {
     /// Get the end of the pulse in ticks from the trigger.
     pub fn pulse_end(&self) -> u32 {
-        let max = self.inner.get_max_compare_value();
+        let max: u32 = self.inner.get_max_compare_value().into();
         assert!(max < u32::MAX);
         max + 1
     }
@@ -339,13 +339,13 @@ impl<'d, T: GeneralInstance4Channel> OnePulseChannel<'d, T> {
 
     /// Get the start of the pulse in ticks from the trigger.
     pub fn pulse_delay(&mut self) -> u32 {
-        self.inner.get_compare_value(self.channel)
+        self.inner.get_compare_value(self.channel).into()
     }
 
     /// Set the start of the pulse in ticks from the trigger.
     pub fn set_pulse_delay(&mut self, delay: u32) {
         assert!(delay <= self.pulse_end());
-        self.inner.set_compare_value(self.channel, delay);
+        self.inner.set_compare_value(self.channel, unwrap!(delay.try_into()));
     }
 
     /// Set the pulse width in ticks.

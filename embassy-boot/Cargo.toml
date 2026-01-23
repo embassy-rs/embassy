@@ -26,6 +26,7 @@ features = ["defmt"]
 [dependencies]
 defmt = { version = "1.0.1", optional = true }
 digest = "0.10"
+document-features = "0.2.7"
 log = { version = "0.4", optional = true }
 ed25519-dalek = { version = "2", default-features = false, features = ["digest"], optional = true }
 embassy-embedded-hal = { version = "0.5.0", path = "../embassy-embedded-hal" }
@@ -45,11 +46,22 @@ critical-section = { version = "1.1.1", features = ["std"] }
 ed25519-dalek = { version = "2", default-features = false, features = ["std", "rand_core", "digest"]  }
 
 [features]
+## Use [`defmt`](https://docs.rs/defmt/latest/defmt/) for logging
 defmt = ["dep:defmt"]
+## Use log for logging
 log = ["dep:log"]
-ed25519-dalek = ["dep:ed25519-dalek", "_verify"]
-ed25519-salty = ["dep:salty", "_verify"]
+
+## Enable for devices that set erased flash bytes to `0x00` instead of the usual `0xFF`
 flash-erase-zero = []
+
+#! ## Firmware Signing
+#! Enable one of these features to allow verification of DFU signatures with
+#! `FirmwareUpdater::verify_and_mark_updated`.
+
+## Use the `ed25519-dalek` package to verify DFU signatures.
+ed25519-dalek = ["dep:ed25519-dalek", "_verify"]
+## Use the `salty` package to verify DFU signatures.
+ed25519-salty = ["dep:salty", "_verify"]
 
 #Internal features
 _verify = []

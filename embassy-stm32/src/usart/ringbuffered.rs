@@ -117,6 +117,8 @@ impl<'d> UartRx<'d, Async> {
         let rx = unsafe { self.rx.as_ref().map(|x| x.clone_unchecked()) };
         let rts = unsafe { self.rts.as_ref().map(|x| x.clone_unchecked()) };
 
+        info.rcc.increment_stop_refcount();
+
         // Don't disable the clock
         mem::forget(self);
 
@@ -324,6 +326,7 @@ impl<'d> RingBufferedUartRx<'d> {
 
 impl Drop for RingBufferedUartRx<'_> {
     fn drop(&mut self) {
+        self.info.rcc.decrement_stop_refcount();
         self.stop_uart();
         self.rx.as_ref().map(|x| x.set_as_disconnected());
         self.rts.as_ref().map(|x| x.set_as_disconnected());

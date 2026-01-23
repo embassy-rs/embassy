@@ -102,7 +102,13 @@ pub(super) unsafe fn blocking_write(
     }
 
     let mut address = base + offset;
-    trace!("Writing {} bytes at 0x{:x}", bytes.len(), address);
+    trace!(
+        "Writing {} bytes at 0x{:x} (base=0x{:x}, offset=0x{:x})",
+        bytes.len(),
+        address,
+        base,
+        offset
+    );
 
     for chunk in bytes.chunks(WRITE_SIZE) {
         write_chunk(address, chunk)?;

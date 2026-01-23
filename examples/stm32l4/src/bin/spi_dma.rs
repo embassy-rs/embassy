@@ -34,8 +34,8 @@ async fn main(_spawner: Spawner) {
         info!("waiting for ready");
     }
 
-    let write = [0x0A; 10];
-    let mut read = [0; 10];
+    let write = [0x0Au8; 10];
+    let mut read = [0u8; 10];
     cs.set_low();
     spi.transfer(&mut read, &write).await.ok();
     cs.set_high();

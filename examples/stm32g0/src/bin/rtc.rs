@@ -17,12 +17,12 @@ async fn main(_spawner: Spawner) {
 
     let now = DateTime::from(2023, 6, 14, DayOfWeek::Friday, 15, 59, 10, 0);
 
-    let mut rtc = Rtc::new(p.RTC, RtcConfig::default());
+    let (mut rtc, time_provider) = Rtc::new(p.RTC, RtcConfig::default());
 
     rtc.set_datetime(now.unwrap()).expect("datetime not set");
 
     loop {
-        let now: DateTime = rtc.now().unwrap().into();
+        let now: DateTime = time_provider.now().unwrap().into();
 
         info!("{}:{}:{}", now.hour(), now.minute(), now.second());
 

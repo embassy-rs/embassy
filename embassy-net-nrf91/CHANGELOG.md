@@ -8,8 +8,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
-- changed: updated to nrf-pac with nrf52/nrf53/nrf91 register layout more similar to nrf54
+## 0.1.0 - 2025-12-15
 
-## 0.1.1 - 2025-08-14
-
-- First release with changelog.
+- Initial release

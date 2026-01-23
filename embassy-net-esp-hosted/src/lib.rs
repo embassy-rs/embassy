@@ -234,6 +234,11 @@ where
                     tx_buf[..PayloadHeader::SIZE].fill(0);
                 }
                 Either4::Fourth(()) => {
+                    // Extend the deadline if initializing
+                    if let ioctl::ControlState::Reboot = self.shared.state() {
+                        self.heartbeat_deadline = Instant::now() + HEARTBEAT_MAX_GAP;
+                        continue;
+                    }
                     panic!("heartbeat from esp32 stopped")
                 }
             }

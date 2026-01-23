@@ -25,6 +25,11 @@
     feature = "nrf5340-net",
     feature = "nrf54l15-app-s",
     feature = "nrf54l15-app-ns",
+    feature = "nrf54l10-app-s",
+    feature = "nrf54l10-app-ns",
+    feature = "nrf54l05-app-s",
+    feature = "nrf54l05-app-ns",
+    feature = "nrf54lm20-app-s",
     feature = "nrf9160-s",
     feature = "nrf9160-ns",
     feature = "nrf9120-s",
@@ -49,6 +54,11 @@ compile_error!(
     nrf5340-net,
     nrf54l15-app-s,
     nrf54l15-app-ns,
+    nrf54l10-app-s,
+    nrf54l10-app-ns,
+    nrf54l05-app-s,
+    nrf54l05-app-ns,
+    nrf54lm20-app-s,
     nrf9160-s,
     nrf9160-ns,
     nrf9120-s,
@@ -99,9 +109,9 @@ pub mod ipc;
 pub mod nfct;
 #[cfg(not(feature = "_nrf54l"))]
 pub mod nvmc;
-#[cfg(feature = "nrf54l15-app-s")]
+#[cfg(all(feature = "_nrf54l", feature = "_s"))]
 pub mod rramc;
-#[cfg(feature = "nrf54l15-app-s")]
+#[cfg(all(feature = "_nrf54l", feature = "_s"))]
 pub use rramc as nvmc;
 #[cfg(not(feature = "_nrf54l"))] // TODO
 #[cfg(any(
@@ -153,6 +163,15 @@ pub mod reset;
 #[cfg(not(feature = "_nrf54l"))]
 #[cfg(not(any(feature = "_nrf5340-app", feature = "_nrf91")))]
 pub mod rng;
+
+// Currently supported chips
+#[cfg(any(
+    feature = "nrf52840",
+    all(any(feature = "_nrf91", feature = "_nrf5340-app"), feature = "_s"),
+))]
+pub mod cryptocell_rng;
+
+#[cfg(not(feature = "_nrf54l"))]
 pub mod rtc;
 #[cfg(not(any(feature = "_nrf51", feature = "nrf52820", feature = "_nrf5340-net")))]
 pub mod saadc;
@@ -191,6 +210,9 @@ pub mod wdt;
 #[cfg_attr(feature = "_nrf5340-app", path = "chips/nrf5340_app.rs")]
 #[cfg_attr(feature = "_nrf5340-net", path = "chips/nrf5340_net.rs")]
 #[cfg_attr(feature = "_nrf54l15-app", path = "chips/nrf54l15_app.rs")]
+#[cfg_attr(feature = "_nrf54l10-app", path = "chips/nrf54l10_app.rs")]
+#[cfg_attr(feature = "_nrf54l05-app", path = "chips/nrf54l05_app.rs")]
+#[cfg_attr(feature = "_nrf54lm20-app", path = "chips/nrf54lm20_app.rs")]
 #[cfg_attr(feature = "_nrf9160", path = "chips/nrf9160.rs")]
 #[cfg_attr(feature = "_nrf9120", path = "chips/nrf9120.rs")]
 mod chip;
@@ -656,10 +678,11 @@ mod consts {
     pub const APPROTECT_DISABLED: u32 = 0x0000_005a;
 }
 
+/// Result from writing UICR.
 #[cfg(not(any(feature = "_nrf51", feature = "_nrf54l")))]
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
-enum WriteResult {
+pub enum WriteResult {
     /// Word was written successfully, needs reset.
     Written,
     /// Word was already set to the value we wanted to write, nothing was done.
@@ -668,13 +691,21 @@ enum WriteResult {
     Failed,
 }
 
+/// Write the UICR value at the provided address, ensuring that flash
+/// settings are correctly apply to persist the value.
+///
+/// Safety: the address must be a valid UICR register.
 #[cfg(not(any(feature = "_nrf51", feature = "_nrf54l")))]
-unsafe fn uicr_write(address: *mut u32, value: u32) -> WriteResult {
+pub unsafe fn uicr_write(address: *mut u32, value: u32) -> WriteResult {
     uicr_write_masked(address, value, 0xFFFF_FFFF)
 }
 
 #[cfg(not(any(feature = "_nrf51", feature = "_nrf54l")))]
-unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> WriteResult {
+/// Write the UICR value at the provided address, ensuring that flash
+/// settings are correctly apply to persist the value.
+///
+/// Safety: the address must be a valid UICR register.
+pub unsafe fn uicr_write_masked(address: *mut u32, value: u32, mask: u32) -> WriteResult {
     let curr_val = address.read_volatile();
     if curr_val & mask == value & mask {
         return WriteResult::Noop;
@@ -776,6 +807,30 @@ pub fn init(config: config::Config) -> Peripherals {
         }
     }
 
+    // Workaround for anomaly 66
+    #[cfg(feature = "_nrf52")]
+    {
+        let ficr = pac::FICR;
+        let temp = pac::TEMP;
+        temp.a(0).write_value(ficr.temp().a0().read().0);
+        temp.a(1).write_value(ficr.temp().a1().read().0);
+        temp.a(2).write_value(ficr.temp().a2().read().0);
+        temp.a(3).write_value(ficr.temp().a3().read().0);
+        temp.a(4).write_value(ficr.temp().a4().read().0);
+        temp.a(5).write_value(ficr.temp().a5().read().0);
+        temp.b(0).write_value(ficr.temp().b0().read().0);
+        temp.b(1).write_value(ficr.temp().b1().read().0);
+        temp.b(2).write_value(ficr.temp().b2().read().0);
+        temp.b(3).write_value(ficr.temp().b3().read().0);
+        temp.b(4).write_value(ficr.temp().b4().read().0);
+        temp.b(5).write_value(ficr.temp().b5().read().0);
+        temp.t(0).write_value(ficr.temp().t0().read().0);
+        temp.t(1).write_value(ficr.temp().t1().read().0);
+        temp.t(2).write_value(ficr.temp().t2().read().0);
+        temp.t(3).write_value(ficr.temp().t3().read().0);
+        temp.t(4).write_value(ficr.temp().t4().read().0);
+    }
+
     // GLITCHDET is only accessible for secure code
     #[cfg(all(feature = "_nrf54l", feature = "_s"))]
     {
@@ -798,9 +853,9 @@ pub fn init(config: config::Config) -> Peripherals {
                     // Chips with a certain chip type-specific build code or higher have an
                     // improved APPROTECT ("hardware and software controlled access port protection")
                     // which needs explicit action by the firmware to keep it unlocked
-                    // See https://devzone.nordicsemi.com/nordic/nordic-blog/b/blog/posts/working-with-the-nrf52-series-improved-approtect
+                    // See https://docs.nordicsemi.com/bundle/ps_nrf52840/page/dif.html#d402e184
 
-                    // UICR.APPROTECT = SwDisabled
+                    // UICR.APPROTECT = HwDisabled
                     let res = uicr_write(consts::UICR_APPROTECT, consts::APPROTECT_DISABLED);
                     needs_reset |= res == WriteResult::Written;
                     // APPROTECT.DISABLE = SwDisabled

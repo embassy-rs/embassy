@@ -4,7 +4,7 @@ use core::sync::atomic::{Ordering, compiler_fence};
 #[allow(unused_imports)]
 use embassy_hal_internal::Peri;
 
-use crate::adc::Adc;
+use super::AdcRegs;
 #[allow(unused_imports)]
 use crate::adc::{Instance, RxDma};
 #[allow(unused_imports)]
@@ -21,18 +21,26 @@ pub struct RingBufferedAdc<'d, T: Instance> {
 
 impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     pub(crate) fn new(dma: Peri<'d, impl RxDma<T>>, dma_buf: &'d mut [u16]) -> Self {
-        //dma side setup
+        // DMA side setup - configuration differs between DMA/BDMA and GPDMA
+        // For DMA/BDMA: use circular mode via TransferOptions
+        // For GPDMA: circular mode is achieved via linked-list ping-pong
+        #[cfg(not(gpdma))]
         let opts = TransferOptions {
             half_transfer_ir: true,
             circular: true,
             ..Default::default()
         };
 
+        #[cfg(gpdma)]
+        let opts = TransferOptions {
+            half_transfer_ir: true,
+            ..Default::default()
+        };
+
         // Safety: we forget the struct before this function returns.
         let request = dma.request();
 
-        let ring_buf =
-            unsafe { ReadableRingBuffer::new(dma, request, T::regs().dr().as_ptr() as *mut u16, dma_buf, opts) };
+        let ring_buf = unsafe { ReadableRingBuffer::new(dma, request, T::regs().data(), dma_buf, opts) };
 
         Self {
             _phantom: PhantomData,
@@ -45,12 +53,10 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
         compiler_fence(Ordering::SeqCst);
         self.ring_buf.start();
 
-        Adc::<T>::start();
+        T::regs().start();
     }
 
     pub fn stop(&mut self) {
-        Adc::<T>::stop();
-
         self.ring_buf.request_pause();
 
         compiler_fence(Ordering::SeqCst);
@@ -63,14 +69,17 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     /// Reads measurements from the DMA ring buffer.
     ///
     /// This method fills the provided `measurements` array with ADC readings from the DMA buffer.
-    /// The length of the `measurements` array should be exactly half of the DMA buffer length. Because interrupts are only generated if half or full DMA transfer completes.
+    /// The length of the `measurements` array should be exactly half of the DMA buffer length.
+    /// Because interrupts are only generated if half or full DMA transfer completes.
     ///
-    /// Each call to `read` will populate the `measurements` array in the same order as the channels defined with `sequence`.
-    /// There will be many sequences worth of measurements in this array because it only returns if at least half of the DMA buffer is filled.
-    /// For example if 2 channels are sampled `measurements` contain: `[sq0 sq1 sq0 sq1 sq0 sq1 ..]`.
+    /// Each call to `read` will populate the `measurements` array in the same order as the channels
+    /// defined with `sequence`. There will be many sequences worth of measurements in this array
+    /// because it only returns if at least half of the DMA buffer is filled. For example if 2
+    /// channels are sampled `measurements` contain: `[sq0 sq1 sq0 sq1 sq0 sq1 ..]`.
     ///
-    /// Note that the ADC Datarate can be very fast, it is suggested to use DMA mode inside tightly running tasks
-    /// Otherwise, you'll see constant Overrun errors occuring, this means that you're sampling too quickly for the task to handle, and you may need to increase the buffer size.
+    /// Note that the ADC Datarate can be very fast, it is suggested to use DMA mode inside tightly
+    /// running tasks. Otherwise, you'll see constant Overrun errors occurring, this means that
+    /// you're sampling too quickly for the task to handle, and you may need to increase the buffer size.
     /// Example:
     /// ```rust,ignore
     /// const DMA_BUF_LEN: usize = 120;
@@ -116,15 +125,15 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
             self.start();
         }
 
-        #[cfg(adc_v2)]
-        {
-            // Clear overrun flag if set.
-            if T::regs().sr().read().ovr() {
-                self.stop();
-
-                return Err(OverrunError);
-            }
-        }
+        //        #[cfg(adc_v2)]
+        //        {
+        //            // Clear overrun flag if set.
+        //            if T::regs().sr().read().ovr() {
+        //                self.stop();
+        //
+        //                return Err(OverrunError);
+        //            }
+        //        }
 
         self.ring_buf.read_exact(measurements).await.map_err(|_| OverrunError)
     }
@@ -142,15 +151,16 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
             self.start();
         }
 
-        #[cfg(adc_v2)]
-        {
-            // Clear overrun flag if set.
-            if T::regs().sr().read().ovr() {
-                self.stop();
+        //        #[cfg(adc_v2)]
+        //        {
+        //            // Clear overrun flag if set.
+        //            if T::regs().sr().read().ovr() {
+        //                self.stop();
+        //
+        //                return Err(OverrunError);
+        //            }
+        //        }
 
-                return Err(OverrunError);
-            }
-        }
         loop {
             match self.ring_buf.read(buf) {
                 Ok((0, _)) => {}
@@ -158,7 +168,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
                     return Ok(len);
                 }
                 Err(_) => {
-                    self.stop();
+                    self.ring_buf.request_pause();
 
                     return Err(OverrunError);
                 }
@@ -169,7 +179,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
 
 impl<T: Instance> Drop for RingBufferedAdc<'_, T> {
     fn drop(&mut self) {
-        Adc::<T>::teardown_adc();
+        T::regs().stop();
 
         compiler_fence(Ordering::SeqCst);
 

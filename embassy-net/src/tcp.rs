@@ -373,6 +373,20 @@ impl<'a> TcpSocket<'a> {
         self.io.with_mut(|s, _| s.set_hop_limit(hop_limit))
     }
 
+    /// Enable or disable Nagles's algorithm.
+    ///
+    /// By default, Nagle's algorithm is enabled.
+    /// When enabled, Nagle’s Algorithm prevents sending segments smaller
+    /// than MSS if there is data in flight (sent but not acknowledged).
+    /// In other words, it ensures at most only one segment smaller than
+    /// MSS is in flight at a time.
+    /// It ensures better network utilization by preventing sending many
+    /// very small packets, at the cost of increased latency in some
+    /// situations, particularly when the remote peer has ACK delay enabled.
+    pub fn set_nagle_enabled(&mut self, enabled: bool) {
+        self.io.with_mut(|s, _| s.set_nagle_enabled(enabled))
+    }
+
     /// Get the local endpoint of the socket.
     ///
     /// Returns `None` if the socket is not bound (listening) or not connected.
@@ -656,6 +670,13 @@ impl<'d> TcpIo<'d> {
 mod embedded_io_impls {
     use super::*;
 
+    impl core::fmt::Display for ConnectError {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            f.write_str("ConnectError")
+        }
+    }
+    impl core::error::Error for ConnectError {}
+
     impl embedded_io_async::Error for ConnectError {
         fn kind(&self) -> embedded_io_async::ErrorKind {
             match self {
@@ -666,6 +687,15 @@ mod embedded_io_impls {
             }
         }
     }
+
+    impl core::fmt::Display for Error {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            match self {
+                Self::ConnectionReset => f.write_str("ConnectionReset"),
+            }
+        }
+    }
+    impl core::error::Error for Error {}
 
     impl embedded_io_async::Error for Error {
         fn kind(&self) -> embedded_io_async::ErrorKind {

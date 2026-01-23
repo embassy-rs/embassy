@@ -24,13 +24,15 @@ use embassy_futures::yield_now;
 use embassy_net::tcp::TcpSocket;
 use embassy_net::{Ipv4Address, Ipv4Cidr, Stack, StackResources, StaticConfigV4};
 use embassy_net_adin1110::{ADIN1110, Device, Runner};
+use embassy_stm32::exti::ExtiInput;
 use embassy_stm32::gpio::{Input, Level, Output, Pull, Speed};
 use embassy_stm32::i2c::{self, Config as I2C_Config, I2c};
 use embassy_stm32::mode::Async;
 use embassy_stm32::rng::{self, Rng};
+use embassy_stm32::spi::mode::Master;
 use embassy_stm32::spi::{Config as SPI_Config, Spi};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{bind_interrupts, exti, pac, peripherals};
+use embassy_stm32::{bind_interrupts, exti, interrupt, pac, peripherals};
 use embassy_time::{Delay, Duration, Ticker, Timer};
 use embedded_hal_async::i2c::I2c as I2cBus;
 use embedded_hal_bus::spi::ExclusiveDevice;
@@ -44,6 +46,7 @@ bind_interrupts!(struct Irqs {
     I2C3_EV => i2c::EventInterruptHandler<peripherals::I2C3>;
     I2C3_ER => i2c::ErrorInterruptHandler<peripherals::I2C3>;
     RNG => rng::InterruptHandler<peripherals::RNG>;
+    EXTI15_10 => exti::InterruptHandler<interrupt::typelevel::EXTI15_10>;
 });
 
 // Basic settings
@@ -54,7 +57,7 @@ const IP_ADDRESS: Ipv4Cidr = Ipv4Cidr::new(Ipv4Address::new(192, 168, 1, 5), 24)
 // Listen port for the webserver
 const HTTP_LISTEN_PORT: u16 = 80;
 
-pub type SpeSpi = Spi<'static, Async>;
+pub type SpeSpi = Spi<'static, Async, Master>;
 pub type SpeSpiCs = ExclusiveDevice<SpeSpi, Output<'static>, Delay>;
 pub type SpeInt = exti::ExtiInput<'static>;
 pub type SpeRst = Output<'static>;
@@ -124,7 +127,7 @@ async fn main(spawner: Spawner) {
     let spe_cfg1 = Input::new(dp.PC9, Pull::None);
     let _spe_ts_capt = Output::new(dp.PC6, Level::Low, Speed::Low);
 
-    let spe_int = exti::ExtiInput::new(dp.PB11, dp.EXTI11, Pull::None);
+    let spe_int = ExtiInput::new(dp.PB11, dp.EXTI11, Pull::None, Irqs);
 
     let spe_spi_cs_n = Output::new(dp.PB12, Level::High, Speed::High);
     let spe_spi_sclk = dp.PB13;

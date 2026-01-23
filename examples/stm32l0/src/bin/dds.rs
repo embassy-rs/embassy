@@ -80,7 +80,7 @@ async fn main(_spawner: Spawner) {
     timer.set_counting_mode(CountingMode::EdgeAlignedUp);
 
     // set pwm sample frequency
-    timer.set_frequency(hz(15625));
+    timer.set_frequency(hz(15625), RoundTo::Slower);
 
     // enable outputs
     timer.enable_outputs();

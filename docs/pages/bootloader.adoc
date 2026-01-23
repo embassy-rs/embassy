@@ -43,14 +43,14 @@ Partition Size~dfu~= Partition Size~active~+ Page Size~active~
 +
 All values are specified in bytes.
 
-* BOOTLOADER STATE - Where the bootloader stores the current state describing if the active and dfu partitions need to be swapped. When the new firmware has been written to the DFU partition, a magic field is written to instruct the bootloader that the partitions should be swapped. This partition must be able to store a magic field as well as the partition swap progress. The partition size given by:
+* BOOTLOADER STATE - Where the bootloader stores the current state describing if the active and dfu partitions need to be swapped. When the new firmware has been written to the DFU partition, a magic field is written to instruct the bootloader that the partitions should be swapped. This partition must be able to store a magic field as well as the partition swap progress. The partition size is given by:
 +
-Partition Size~state~ = Write Size~state~ + (2 × Partition Size~active~ / Page Size~active~)
+Partition Size~state~ = (2 × Write Size~state~) + (4 × Write Size~state~ × Partition Size~active~ / Page Size~active~)
 +
 All values are specified in bytes.
 
 The partitions for ACTIVE (+BOOTLOADER), DFU and BOOTLOADER_STATE may be placed in separate flash. The page size used by the bootloader is determined by the lowest common multiple of the ACTIVE and DFU page sizes.
-The BOOTLOADER_STATE partition must be big enough to store one word per page in the ACTIVE and DFU partitions combined.
+The BOOTLOADER_STATE partition must be big enough to store two words, plus four words per page in the ACTIVE partition.
 
 The bootloader has a platform-agnostic part, which implements the power fail safe swapping algorithm given the boundaries set by the partitions. The platform-specific part is a minimal shim that provides additional functionality such as watchdogs or supporting the nRF52 softdevice.
 

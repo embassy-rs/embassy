@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+use core::sync::atomic::{AtomicU8, Ordering};
+
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_futures::join::join;
@@ -8,7 +10,9 @@ use embassy_stm32::usb::Driver;
 use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_time::Timer;
 use embassy_usb::Builder;
-use embassy_usb::class::hid::{HidWriter, ReportId, RequestHandler, State};
+use embassy_usb::class::hid::{
+    HidBootProtocol, HidProtocolMode, HidSubclass, HidWriter, ReportId, RequestHandler, State,
+};
 use embassy_usb::control::OutResponse;
 use usbd_hid::descriptor::{MouseReport, SerializedDescriptor};
 use {defmt_rtt as _, panic_probe as _};
@@ -16,6 +20,8 @@ use {defmt_rtt as _, panic_probe as _};
 bind_interrupts!(struct Irqs {
     USB_FS => usb::InterruptHandler<peripherals::USB>;
 });
+
+static HID_PROTOCOL_MODE: AtomicU8 = AtomicU8::new(HidProtocolMode::Boot as u8);
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -48,6 +54,10 @@ async fn main(_spawner: Spawner) {
     config.serial_number = Some("12345678");
     config.max_power = 100;
     config.max_packet_size_0 = 64;
+    config.composite_with_iads = false;
+    config.device_class = 0;
+    config.device_sub_class = 0;
+    config.device_protocol = 0;
 
     // Create embassy-usb DeviceBuilder using the driver and config.
     // It needs some buffers for building the descriptors.
@@ -73,6 +83,8 @@ async fn main(_spawner: Spawner) {
         request_handler: Some(&mut request_handler),
         poll_ms: 60,
         max_packet_size: 8,
+        hid_subclass: HidSubclass::Boot,
+        hid_boot_protocol: HidBootProtocol::Mouse,
     };
 
     let mut writer = HidWriter::<_, 5>::new(&mut builder, &mut state, config);
@@ -90,16 +102,26 @@ async fn main(_spawner: Spawner) {
             Timer::after_millis(500).await;
 
             y = -y;
-            let report = MouseReport {
-                buttons: 0,
-                x: 0,
-                y,
-                wheel: 0,
-                pan: 0,
-            };
-            match writer.write_serialize(&report).await {
-                Ok(()) => {}
-                Err(e) => warn!("Failed to send report: {:?}", e),
+
+            if HID_PROTOCOL_MODE.load(Ordering::Relaxed) == HidProtocolMode::Boot as u8 {
+                let buttons = 0u8;
+                let x = 0i8;
+                match writer.write(&[buttons, x as u8, y as u8]).await {
+                    Ok(()) => {}
+                    Err(e) => warn!("Failed to send boot report: {:?}", e),
+                }
+            } else {
+                let report = MouseReport {
+                    buttons: 0,
+                    x: 0,
+                    y,
+                    wheel: 0,
+                    pan: 0,
+                };
+                match writer.write_serialize(&report).await {
+                    Ok(()) => {}
+                    Err(e) => warn!("Failed to send report: {:?}", e),
+                }
             }
         }
     };
@@ -119,6 +141,18 @@ impl RequestHandler for MyRequestHandler {
 
     fn set_report(&mut self, id: ReportId, data: &[u8]) -> OutResponse {
         info!("Set report for {:?}: {=[u8]}", id, data);
+        OutResponse::Accepted
+    }
+
+    fn get_protocol(&self) -> HidProtocolMode {
+        let protocol = HidProtocolMode::from(HID_PROTOCOL_MODE.load(Ordering::Relaxed));
+        info!("The current HID protocol mode is: {}", protocol);
+        protocol
+    }
+
+    fn set_protocol(&mut self, protocol: HidProtocolMode) -> OutResponse {
+        info!("Switching to HID protocol mode: {}", protocol);
+        HID_PROTOCOL_MODE.store(protocol as u8, Ordering::Relaxed);
         OutResponse::Accepted
     }
 

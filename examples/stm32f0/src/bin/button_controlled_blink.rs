@@ -7,13 +7,18 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_stm32::Peri;
-use embassy_stm32::exti::ExtiInput;
+use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::{AnyPin, Level, Output, Pull, Speed};
+use embassy_stm32::{Peri, bind_interrupts, interrupt};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 static BLINK_MS: AtomicU32 = AtomicU32::new(0);
+
+bind_interrupts!(
+    pub struct Irqs{
+        EXTI4_15 => exti::InterruptHandler<interrupt::typelevel::EXTI4_15>;
+});
 
 #[embassy_executor::task]
 async fn led_task(led: Peri<'static, AnyPin>) {
@@ -37,7 +42,7 @@ async fn main(spawner: Spawner) {
 
     // Configure the button pin and obtain handler.
     // On the Nucleo F091RC there is a button connected to pin PC13.
-    let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::None);
+    let mut button = ExtiInput::new(p.PC13, p.EXTI13, Pull::None, Irqs);
 
     // Create and initialize a delay variable to manage delay loop
     let mut del_var = 2000;

@@ -38,8 +38,8 @@ async fn main(spawner: Spawner) {
         p.PIO0_27,
         p.PIO1_24,
         Irqs,
-        p.DMA_CH11,
-        p.DMA_CH10,
+        p.DMA0_CH11,
+        p.DMA0_CH10,
         Config::default(),
     );
     let led = Output::new(p.PIO1_6, Level::Low);

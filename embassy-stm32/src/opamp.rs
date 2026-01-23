@@ -4,18 +4,11 @@
 use embassy_hal_internal::PeripheralType;
 
 use crate::Peri;
+#[cfg(opamp_v5)]
+use crate::block_for_us;
 use crate::pac::opamp::vals::*;
 #[cfg(not(any(stm32g4, stm32f3)))]
 use crate::rcc::RccInfo;
-
-/// Performs a busy-wait delay for a specified number of microseconds.
-#[cfg(opamp_v5)]
-fn blocking_delay_ms(ms: u32) {
-    #[cfg(feature = "time")]
-    embassy_time::block_for(embassy_time::Duration::from_millis(ms as u64));
-    #[cfg(not(feature = "time"))]
-    cortex_m::asm::delay(unsafe { crate::rcc::get_freqs() }.sys.to_hertz().unwrap().0 / 1_000 * ms);
-}
 
 /// Gain
 #[allow(missing_docs)]
@@ -439,7 +432,7 @@ impl<'d, T: Instance> OpAmp<'d, T> {
 
             // The closer the trimming value is to the optimum trimming value, the longer it takes to stabilize
             // (with a maximum stabilization time remaining below 2 ms in any case) -- RM0440 25.3.7
-            blocking_delay_ms(2);
+            block_for_us(2_000);
 
             if !T::regs().csr().read().calout() {
                 if mid == 0 {

@@ -27,6 +27,7 @@ defmt = [
 softdevice = [
     "embassy-boot-nrf/softdevice",
 ]
+nrf54 = []
 
 [profile.dev]
 debug = 2
@@ -65,5 +66,6 @@ build = [
   { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9160-ns"] },
   { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9120-ns"] },
   { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9151-ns"] },
-  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9161-ns"] }
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf9161-ns"] },
+  { target = "thumbv8m.main-none-eabihf", features = ["embassy-nrf/nrf54l15-app-s", "nrf54"] }
 ]

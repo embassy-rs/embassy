@@ -1,9 +1,9 @@
 //! UART driver.
 use core::future::poll_fn;
 use core::marker::PhantomData;
+use core::sync::atomic::{AtomicU16, Ordering};
 use core::task::Poll;
 
-use atomic_polyfill::{AtomicU16, Ordering};
 use embassy_futures::select::{Either, select};
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
@@ -117,6 +117,14 @@ pub enum Error {
     /// Triggered when the received character didn't have a valid stop bit.
     Framing,
 }
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Debug::fmt(self, f)
+    }
+}
+
+impl core::error::Error for Error {}
 
 /// Read To Break error
 #[derive(Debug, Eq, PartialEq, Copy, Clone)]
@@ -456,7 +464,12 @@ impl<'d> UartRx<'d, Async> {
             transfer,
             poll_fn(|cx| {
                 self.dma_state.rx_err_waker.register(cx.waker());
-                match self.dma_state.rx_errs.swap(0, Ordering::Relaxed) {
+                let rx_errs = critical_section::with(|_| {
+                    let val = self.dma_state.rx_errs.load(Ordering::Relaxed);
+                    self.dma_state.rx_errs.store(0, Ordering::Relaxed);
+                    val
+                });
+                match rx_errs {
                     0 => Poll::Pending,
                     e => Poll::Ready(Uartris(e as u32)),
                 }
@@ -468,7 +481,11 @@ impl<'d> UartRx<'d, Async> {
             Either::First(()) => {
                 // We're here because the DMA finished, BUT if an error occurred on the LAST
                 // byte, then we may still need to grab the error state!
-                Uartris(self.dma_state.rx_errs.swap(0, Ordering::Relaxed) as u32)
+                Uartris(critical_section::with(|_| {
+                    let val = self.dma_state.rx_errs.load(Ordering::Relaxed);
+                    self.dma_state.rx_errs.store(0, Ordering::Relaxed);
+                    val
+                }) as u32)
             }
             Either::Second(e) => {
                 // We're here because we errored, which means this is the error that
@@ -616,7 +633,12 @@ impl<'d> UartRx<'d, Async> {
                 transfer,
                 poll_fn(|cx| {
                     self.dma_state.rx_err_waker.register(cx.waker());
-                    match self.dma_state.rx_errs.swap(0, Ordering::Relaxed) {
+                    let rx_errs = critical_section::with(|_| {
+                        let val = self.dma_state.rx_errs.load(Ordering::Relaxed);
+                        self.dma_state.rx_errs.store(0, Ordering::Relaxed);
+                        val
+                    });
+                    match rx_errs {
                         0 => Poll::Pending,
                         e => Poll::Ready(Uartris(e as u32)),
                     }
@@ -629,7 +651,11 @@ impl<'d> UartRx<'d, Async> {
                 Either::First(()) => {
                     // We're here because the DMA finished, BUT if an error occurred on the LAST
                     // byte, then we may still need to grab the error state!
-                    Uartris(self.dma_state.rx_errs.swap(0, Ordering::Relaxed) as u32)
+                    Uartris(critical_section::with(|_| {
+                        let val = self.dma_state.rx_errs.load(Ordering::Relaxed);
+                        self.dma_state.rx_errs.store(0, Ordering::Relaxed);
+                        val
+                    }) as u32)
                 }
                 Either::Second(e) => {
                     // We're here because we errored, which means this is the error that
