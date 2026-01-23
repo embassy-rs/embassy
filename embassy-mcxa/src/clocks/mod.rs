@@ -429,7 +429,7 @@ pub trait Gate {
 #[inline]
 pub unsafe fn enable_and_reset<G: Gate>(cfg: &G::MrccPeriphConfig) -> Result<u32, ClockError> {
     unsafe {
-        let freq = enable::<G>(cfg).inspect_err(|_| disable::<G>())?;
+        let freq = enable::<G>(cfg)?;
         pulse_reset::<G>();
         Ok(freq)
     }
@@ -440,25 +440,28 @@ pub unsafe fn enable_and_reset<G: Gate>(cfg: &G::MrccPeriphConfig) -> Result<u32
 /// Prefer [`enable_and_reset`] unless you are specifically avoiding a pulse of the reset, or need
 /// to control the duration of the pulse more directly.
 ///
+/// If an `Err` is returned, the given clock is guaranteed to be disabled.
+///
 /// # SAFETY
 ///
 /// This peripheral must not yet be in use prior to calling `enable`.
 #[inline]
 pub unsafe fn enable<G: Gate>(cfg: &G::MrccPeriphConfig) -> Result<u32, ClockError> {
     unsafe {
-        G::enable_clock();
-        while !G::is_clock_enabled() {}
-        core::arch::asm!("dsb sy; isb sy", options(nomem, nostack, preserves_flags));
+        // Instead of checking, just disable the clock if it is currently enabled.
+        G::disable_clock();
 
         let freq = critical_section::with(|cs| {
             let clocks = CLOCKS.borrow_ref(cs);
             let clocks = clocks.as_ref().ok_or(ClockError::NeverInitialized)?;
-            cfg.post_enable_config(clocks)
-        });
+            cfg.pre_enable_config(clocks)
+        })?;
 
-        freq.inspect_err(|_e| {
-            G::disable_clock();
-        })
+        G::enable_clock();
+        while !G::is_clock_enabled() {}
+        core::arch::asm!("dsb sy; isb sy", options(nomem, nostack, preserves_flags));
+
+        Ok(freq)
     }
 }
 
