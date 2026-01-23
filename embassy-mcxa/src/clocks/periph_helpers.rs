@@ -23,15 +23,15 @@ use crate::pac;
 /// provide the methods that will be called by the higher level operations like
 /// `embassy_mcxa::clocks::enable_and_reset()`.
 pub trait SPConfHelper {
-    /// This method is called AFTER a given MRCC peripheral has been enabled (e.g. un-gated),
-    /// but BEFORE the peripheral reset line is reset.
+    /// This method is called AFTER a given MRCC peripheral has been disabled, and BEFORE
+    /// the peripheral is to be enabled.
+    ///
+    /// This function SHOULD NOT make any changes to the system clock configuration, even
+    /// unsafely, as this should remain static for the duration of the program.
     ///
     /// This function should check that any relevant upstream clocks are enabled, are in a
     /// reasonable power state, and that the requested configuration can be made. If any of
     /// these checks fail, an `Err(ClockError)` should be returned, likely `ClockError::BadConfig`.
-    ///
-    /// This function SHOULD NOT make any changes to the system clock configuration, even
-    /// unsafely, as this should remain static for the duration of the program.
     ///
     /// This function WILL be called in a critical section, care should be taken not to delay
     /// for an unreasonable amount of time.
@@ -39,7 +39,7 @@ pub trait SPConfHelper {
     /// On success, this function MUST return an `Ok(freq)`, where `freq` is the frequency
     /// fed into the peripheral, taking into account the selected source clock, as well as
     /// any pre-divisors.
-    fn post_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError>;
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError>;
 }
 
 /// Copy and paste macro that:
@@ -148,7 +148,7 @@ impl Div4 {
 pub struct UnimplementedConfig;
 
 impl SPConfHelper for UnimplementedConfig {
-    fn post_enable_config(&self, _clocks: &Clocks) -> Result<u32, ClockError> {
+    fn pre_enable_config(&self, _clocks: &Clocks) -> Result<u32, ClockError> {
         Err(ClockError::UnimplementedConfig)
     }
 }
@@ -159,7 +159,7 @@ impl SPConfHelper for UnimplementedConfig {
 /// peripherals, which have no selectable/configurable source clock.
 pub struct NoConfig;
 impl SPConfHelper for NoConfig {
-    fn post_enable_config(&self, _clocks: &Clocks) -> Result<u32, ClockError> {
+    fn pre_enable_config(&self, _clocks: &Clocks) -> Result<u32, ClockError> {
         Ok(0)
     }
 }
@@ -197,7 +197,7 @@ pub struct I3cConfig {
 }
 
 impl SPConfHelper for I3cConfig {
-    fn post_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
         // Always 25MHz maximum frequency.
         const I3C_FCLK_MAX: u32 = 25_000_000;
         // check that source is suitable
@@ -297,7 +297,7 @@ pub struct Lpi2cConfig {
 }
 
 impl SPConfHelper for Lpi2cConfig {
-    fn post_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
         // check that source is suitable
         let mrcc0 = unsafe { pac::Mrcc0::steal() };
         use mcxa_pac::mrcc0::mrcc_lpi2c0_clksel::Mux;
@@ -416,7 +416,7 @@ pub struct LpuartConfig {
 }
 
 impl SPConfHelper for LpuartConfig {
-    fn post_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
         // check that source is suitable
         let mrcc0 = unsafe { pac::Mrcc0::steal() };
         use mcxa_pac::mrcc0::mrcc_lpuart0_clksel::Mux;
@@ -512,7 +512,7 @@ pub struct OsTimerConfig {
 }
 
 impl SPConfHelper for OsTimerConfig {
-    fn post_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
         let mrcc0 = unsafe { pac::Mrcc0::steal() };
         // NOTE: complies with 22.3.2 peripheral clock max functional clock limits
         // which is 1MHz, and we can only select 1mhz/16khz.
@@ -569,7 +569,7 @@ pub struct AdcConfig {
 }
 
 impl SPConfHelper for AdcConfig {
-    fn post_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
         use mcxa_pac::mrcc0::mrcc_adc_clksel::Mux;
         let mrcc0 = unsafe { pac::Mrcc0::steal() };
         let (freq, variant) = match self.source {
