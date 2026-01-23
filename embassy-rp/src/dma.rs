@@ -202,7 +202,7 @@ pub struct Transfer<'a, C: Channel> {
 }
 
 impl<'a, C: Channel> Transfer<'a, C> {
-    pub(crate) fn new(channel: Peri<'a, C>) -> Self {
+    fn new(channel: Peri<'a, C>) -> Self {
         Self { channel }
     }
 }
