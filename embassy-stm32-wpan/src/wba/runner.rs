@@ -45,7 +45,6 @@ use core::task::Poll;
 use embassy_futures::join;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use super::context;
 // Note: complete_ble_link_layer_init is now called as part of init_ble_stack()
 // in Ble::init(), so we no longer need to call it from the runner.
 use super::util_seq;
@@ -137,7 +136,7 @@ pub async fn ble_runner() -> ! {
         defmt::trace!("BLE runner: first run, initializing sequencer context");
 
         // Do one context switch to initialize the sequencer
-        context::sequencer_resume();
+        util_seq::seq_resume();
 
         LL_INIT_COMPLETED.store(true, Ordering::Release);
 
@@ -152,7 +151,7 @@ pub async fn ble_runner() -> ! {
 
                 // Resume the sequencer context
                 // This will run BLE stack tasks until the sequencer yields
-                context::sequencer_resume();
+                util_seq::seq_resume();
                 BLE_WAKER.wake();
             }
         },

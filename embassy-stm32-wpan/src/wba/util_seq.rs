@@ -21,7 +21,7 @@ use core::task::Poll;
 
 use embassy_sync::waitqueue::AtomicWaker;
 
-use super::context;
+use crate::context::ContextManager;
 
 type TaskFn = unsafe extern "C" fn();
 
@@ -66,6 +66,7 @@ impl TaskTable {
 unsafe impl Sync for TaskTable {}
 
 struct Sequencer {
+    context: ContextManager,
     tasks: TaskTable,
     pending_tasks: AtomicU32,
     events: AtomicU32,
@@ -73,6 +74,7 @@ struct Sequencer {
 }
 
 static SEQUENCER: Sequencer = Sequencer {
+    context: ContextManager::new(task_entry),
     tasks: TaskTable::new(),
     pending_tasks: AtomicU32::new(0),
     events: AtomicU32::new(0),
@@ -87,16 +89,31 @@ fn mask_to_index(mask: u32) -> Option<usize> {
     if idx < MAX_TASKS { Some(idx) } else { None }
 }
 
-pub fn run() {
-    SEQUENCER.run();
-}
-
 pub fn seq_pend() {
     SEQUENCER.seq_pend();
 }
 
+pub fn seq_resume() {
+    SEQUENCER.seq_resume();
+}
+
 pub async fn wait_for_event() {
     SEQUENCER.wait_for_event().await
+}
+
+/// Entry point for the sequencer context
+///
+/// This function runs in the sequencer's stack context and repeatedly
+/// polls for pending tasks, yielding when there's nothing to do.
+extern "C" fn task_entry() -> ! {
+    loop {
+        // Poll and execute any pending sequencer tasks
+        SEQUENCER.run();
+
+        // Yield back to the runner
+        // This will return when the runner resumes us
+        SEQUENCER.context.task_yield();
+    }
 }
 
 impl Sequencer {
@@ -115,8 +132,13 @@ impl Sequencer {
         .await;
     }
 
+    pub fn seq_resume(&'static self) {
+        self.context.task_resume();
+    }
+
     fn seq_pend(&self) {
         self.waker.wake();
+        // TODO: does the waker fire the pender automatically ? We may not need this.
         unsafe { __pender(u32::MAX as *mut _) };
     }
 
@@ -125,11 +147,11 @@ impl Sequencer {
     /// Instead of blocking with WFE, this yields back to the runner context
     /// so that the embassy executor can run other tasks.
     #[inline(always)]
-    fn seq_yield(&self) {
+    fn seq_yield(&'static self) {
         // If we're in the sequencer context, yield back to the runner
         // If we're not (e.g., during initialization), use actual WFE
-        if context::in_sequencer_context() {
-            context::sequencer_yield();
+        if self.context.in_task_context() {
+            self.context.task_yield();
         } else {
             #[cfg(target_arch = "arm")]
             {
@@ -201,6 +223,7 @@ impl Sequencer {
                     Some((idx, task)) => unsafe {
                         task();
                         // Force a fresh read of the pending bitmask after each task completion.
+                        // TODO: this appears to do nothing (will be optimized away)
                         let _ = idx;
                     },
                     None => break,
@@ -312,7 +335,7 @@ pub extern "C" fn UTIL_SEQ_WaitEvt(event_mask: u32) {
         #[cfg(feature = "defmt")]
         defmt::trace!(
             "UTIL_SEQ_WaitEvt: waiting (in_seq_ctx={})",
-            context::in_sequencer_context()
+            SEQUENCER.context.in_task_context()
         );
 
         SEQUENCER.seq_yield();
