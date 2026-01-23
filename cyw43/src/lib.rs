@@ -38,8 +38,12 @@ pub use crate::runner::Runner;
 pub use crate::sdio::{SdioBus, SdioBusCyw43};
 pub use crate::spi::{SpiBus, SpiBusCyw43};
 pub use crate::structs::BssInfo;
+use crate::structs::{BdcHeader, SdpcmHeader};
 
-const MTU: usize = 1514;
+const PADDING_SIZE: usize = 2;
+const RX_HEADER: usize = 64;
+const TX_HEADER: usize = SdpcmHeader::SIZE + PADDING_SIZE + BdcHeader::SIZE;
+const MTU: usize = RX_HEADER + 1514;
 
 #[allow(unused)]
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -247,7 +251,11 @@ where
     PWR: OutputPin,
     SPI: SpiBusCyw43,
 {
-    let (ch_runner, device) = ch::new(&mut state.net.ch, ch::driver::HardwareAddress::Ethernet([0; 6]));
+    let (ch_runner, device) = ch::new_with_header(
+        &mut state.net.ch,
+        ch::driver::HardwareAddress::Ethernet([0; 6]),
+        TX_HEADER,
+    );
     let state_ch = ch_runner.state_runner();
 
     let mut runner = Runner::new(

@@ -1,3 +1,4 @@
+use core::slice;
 use core::sync::atomic::AtomicBool;
 use core::sync::atomic::Ordering::Relaxed;
 
@@ -13,7 +14,9 @@ use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
 pub use crate::spi::SpiBusCyw43;
 use crate::structs::*;
-use crate::util::{aligned_mut, aligned_ref, slice8_mut, slice16_mut, try_until};
+use crate::util::{
+    aligned_mut, aligned_ref, as_aligned, as_aligned_mut, slice8_mut, slice16_mut, slice32_mut, try_until,
+};
 use crate::{CHIP, Core, MTU, events};
 
 #[cfg(feature = "firmware-logs")]
@@ -492,8 +495,6 @@ where
                     Either4::Second(packet) => {
                         trace!("tx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
 
-                        let buf8 = slice8_mut(&mut buf);
-
                         // There MUST be 2 bytes of padding between the SDPCM and BDC headers.
                         // And ONLY for data packets!
                         // No idea why, but the firmware will append two zero bytes to the tx'd packets
@@ -503,7 +504,7 @@ where
                         // and adds it to the header size her https://github.com/Infineon/wifi-host-driver/blob/c04fcbb6b0d049304f376cf483fd7b1b570c8cd5/WiFi_Host_Driver/src/whd_sdpcm.c#L597
                         // ¯\_(ツ)_/¯
                         const PADDING_SIZE: usize = 2;
-                        let total_len = SdpcmHeader::SIZE + PADDING_SIZE + BdcHeader::SIZE + packet.len();
+                        let total_len = packet.len();
 
                         let seq = self.sdpcm_seq;
                         self.sdpcm_seq = self.sdpcm_seq.wrapping_add(1);
@@ -529,17 +530,15 @@ where
                         trace!("tx {:?}", sdpcm_header);
                         trace!("    {:?}", bdc_header);
 
-                        buf8[0..SdpcmHeader::SIZE].copy_from_slice(&sdpcm_header.to_bytes());
-                        buf8[SdpcmHeader::SIZE + PADDING_SIZE..][..BdcHeader::SIZE]
+                        packet[0..SdpcmHeader::SIZE].copy_from_slice(&sdpcm_header.to_bytes());
+                        packet[SdpcmHeader::SIZE + PADDING_SIZE..][..BdcHeader::SIZE]
                             .copy_from_slice(&bdc_header.to_bytes());
-                        buf8[SdpcmHeader::SIZE + PADDING_SIZE + BdcHeader::SIZE..][..packet.len()]
-                            .copy_from_slice(packet);
 
                         let total_len = (total_len + 3) & !3; // round up to 4byte
 
-                        trace!("    {:02x}", Bytes(&buf8[..total_len.min(48)]));
+                        trace!("    {:02x}", Bytes(&packet[..total_len.min(48)]));
 
-                        self.bus.wlan_write(&aligned_ref(&buf)[..total_len]).await;
+                        self.bus.wlan_write(&as_aligned(packet)[..total_len]).await;
                         self.ch.tx_done();
                         self.check_status(&mut buf).await;
                     }
@@ -637,6 +636,17 @@ where
     /// Handle F2 events while status register is set
     async fn check_status(&mut self, buf: &mut [u32; 512]) {
         loop {
+            let (buf, is_pkt) = match self.ch.try_rx_buf() {
+                Some(buf) => (
+                    slice32_mut(as_aligned_mut(unsafe {
+                        // strip the lifetime from the buffer
+                        slice::from_raw_parts_mut(buf.as_mut_ptr(), buf.len())
+                    })),
+                    true,
+                ),
+                None => (&mut buf[..], false),
+            };
+
             match BUS::TYPE {
                 BusType::Spi => {
                     let status = self.bus.read32(FUNC_BUS, SPI_STATUS_REGISTER).await;
@@ -646,7 +656,7 @@ where
                         let len = (status & STATUS_F2_PKT_LEN_MASK) >> STATUS_F2_PKT_LEN_SHIFT;
                         self.bus.wlan_read(&mut aligned_mut(buf)[..len as usize]).await;
                         trace!("rx {:02x}", Bytes(&slice8_mut(buf)[..(len as usize).min(48)]));
-                        self.rx(&mut slice8_mut(buf)[..len as usize]);
+                        self.rx(&mut slice8_mut(buf)[..len as usize], is_pkt);
                     } else {
                         break;
                     }
@@ -685,14 +695,15 @@ where
                         self.update_credit(&sdpcm_header);
                     } else if len > SdpcmHeader::SIZE {
                         trace!("rx {:02x}", Bytes(&slice8_mut(buf)[..len.min(48)]));
-                        self.rx(&mut slice8_mut(buf)[..len]);
+                        self.rx(&mut slice8_mut(buf)[..len], is_pkt);
                     }
                 }
             }
         }
     }
 
-    fn rx(&mut self, packet: &mut [u8]) {
+    fn rx(&mut self, packet: &mut [u8], is_pkt: bool) {
+        let pkt_ptr = packet.as_ptr() as usize;
         let Some((sdpcm_header, payload)) = SdpcmHeader::parse(packet) else {
             return;
         };
@@ -873,12 +884,11 @@ where
                 };
                 trace!("rx pkt {:02x}", Bytes(&packet[..packet.len().min(48)]));
 
-                match self.ch.try_rx_buf() {
-                    Some(buf) => {
-                        buf[..packet.len()].copy_from_slice(packet);
-                        self.ch.rx_done(packet.len())
-                    }
-                    None => warn!("failed to push rxd packet to the channel."),
+                if is_pkt {
+                    self.ch
+                        .rx_done_with_header(packet.len(), packet.as_ptr() as usize - pkt_ptr);
+                } else {
+                    warn!("failed to push rxd packet to the channel.")
                 }
             }
             _ => {}
