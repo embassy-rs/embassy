@@ -394,6 +394,15 @@ pub struct Fro16KConfig {
     pub vdd_core_domain_active: bool,
 }
 
+impl Default for Fro16KConfig {
+    fn default() -> Self {
+        Self {
+            vsys_domain_active: true,
+            vdd_core_domain_active: true,
+        }
+    }
+}
+
 impl Default for ClocksConfig {
     fn default() -> Self {
         Self {

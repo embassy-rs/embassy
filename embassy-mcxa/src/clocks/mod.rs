@@ -99,6 +99,7 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
         vbat0: unsafe { pac::Vbat0::steal() },
         spc0: unsafe { pac::Spc0::steal() },
         fmu0: unsafe { pac::Fmu0::steal() },
+        cmc: unsafe { pac::Cmc::steal() },
     };
 
     // Before applying any requested clocks, apply the requested VDD_CORE
@@ -303,6 +304,7 @@ struct ClockOperator<'a> {
     vbat0: pac::Vbat0,
     spc0: pac::Spc0,
     fmu0: pac::Fmu0,
+    cmc: pac::Cmc,
 }
 
 // From Table 165 - Max Clock Frequencies
@@ -1765,6 +1767,25 @@ impl ClockOperator<'_> {
                 // Already set to normal above
             }
         }
+
+        // HACK: More core power stuff
+        // CMC->CKCTRL->CKMODE
+
+        // Allow the core to be gated - this WILL kill the debugging session!
+        let scb = unsafe { &mut *cortex_m::peripheral::SCB::PTR.cast_mut() };
+        unsafe { scb.scr.modify(|w| w | (0x1 << 2)); }
+
+        // Allow automatic gating of the core when in LIGHT sleep
+        self.cmc.ckctrl().modify(|_r, w| w.ckmode().ckmode0001());
+
+        // Allow automatic gating of the flash memory
+        self.cmc.flashcr().modify(|_r, w| {
+            w.flashdoze().enabled();
+            // TODO: is this necessary to guarantee DMA from flash works in sleep?
+            // Or does it even help with that?
+            // w.flashwake().enabled();
+            w
+        });
 
         // Update status
         self.clocks.active_power = self.config.vdd_power.active_mode.level;
