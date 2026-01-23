@@ -245,7 +245,7 @@ pub struct Transfer<'a> {
 }
 
 impl<'a> Transfer<'a> {
-    pub(crate) fn new(channel: Channel<'a>) -> Self {
+    fn new(channel: Channel<'a>) -> Self {
         Self { channel }
     }
 }
