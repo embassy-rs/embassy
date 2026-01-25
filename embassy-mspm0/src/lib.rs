@@ -179,7 +179,7 @@ impl Default for Config {
 /// Read the PLL startup calibration values from the FACTORY region,
 /// given an expected f_loopin frequency.
 /// Returns SYSPLLPARAM0, SYSPLLPARAM1.
-#[cfg(sysctl_syspll)]
+#[cfg(all(sysctl_syspll, canfd))]
 fn load_pll_values(f_loopin: u32) -> Option<(u32, u32)> {
     // TODO: should these be found via the PAC instead of hard-coded?
     // From looking at the G series TRM, these addresses are constant,
@@ -206,7 +206,7 @@ fn load_pll_values(f_loopin: u32) -> Option<(u32, u32)> {
 /// to run at 32MHz (matching MCLK), sources from SYSCLK
 /// This can then be used to feed the CANFD peripheral
 /// it's functional clock (fclk <= mclk).
-#[cfg(sysctl_syspll)]
+#[cfg(all(sysctl_syspll, canfd))]
 fn enable_pll() {
     if !pac::SYSCTL.clkstatus().read().sysplloff() {
         pac::SYSCTL.hsclken().modify(|w| {

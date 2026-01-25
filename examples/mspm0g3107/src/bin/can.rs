@@ -3,12 +3,10 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_mspm0::Config;
-use embassy_mspm0::can;
 use embassy_mspm0::gpio::Output;
+use embassy_mspm0::{Config, can};
 use embassy_time::Instant;
-use embedded_can::Frame;
-use embedded_can::{Id, StandardId};
+use embedded_can::{Frame, Id, StandardId};
 use {defmt_rtt as _, panic_probe as _};
 
 // To run this example, connect a CAN transiever to the TX and RX pins.
@@ -26,7 +24,7 @@ async fn main(_spawner: Spawner) -> ! {
 
     // Note: You may need to set the STANDBY pin or similar on your CAN transciver.
     // Uncomment and change these lines as needed.
-    //let mut _canstb = Output::new(p.PA0, embassy_mspm0::gpio::Level::Low);
+    let mut _canstb = Output::new(p.PA0, embassy_mspm0::gpio::Level::Low);
 
     // Configure CANFD for a 100kbit/s bitrate.
     let mut candriver = can::Can::new_blocking(p.CANFD0, p.PA27, p.PA26, can::Config::default()).unwrap();
