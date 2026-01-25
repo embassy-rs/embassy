@@ -89,7 +89,7 @@ impl<'a> Ble<'a> {
             },
             BleRx {
                 ipcc_ble_event_channel: self.ipcc_ble_event_channel,
-            }
+            },
         )
     }
 
@@ -162,7 +162,6 @@ impl<'a> hci::Controller for Ble<'a> {
     }
 }
 
-
 impl<'a> BleTx<'a> {
     /// `TL_BLE_SendCmd`
     pub async fn tl_write(&mut self, opcode: u16, payload: &[u8]) {
@@ -227,7 +226,7 @@ impl<'a> hci::Controller for BleTx<'a> {
     }
 
     async fn controller_read_into(&mut self, _buf: &mut [u8]) {
-        panic!("BleTx cannot read!"); 
+        panic!("BleTx cannot read!");
     }
 }
 
