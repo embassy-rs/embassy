@@ -1,5 +1,7 @@
 /// Speed Grade 6
 pub mod is42s32800g_6 {
+    #![allow(unused)]
+
     use crate::{
         fmc::sdram::{
             CasLatency, ColumnBits, InternalBanks, MemoryDataWidth, ReadPipeDelayCycles, RowBits, SdramChip,

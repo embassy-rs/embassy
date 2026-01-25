@@ -56,7 +56,6 @@ impl FmcBank {
             FmcBank::Bank1 => 0x6000_0000u32,
             FmcBank::Bank2 => 0x7000_0000u32,
             FmcBank::Bank3 => 0x8000_0000u32,
-
             // Bank 4 is not used.
             FmcBank::Bank5 => 0xC000_0000u32,
             FmcBank::Bank6 => 0xD000_0000u32,

@@ -7,6 +7,10 @@
 //! so make sure to check the datasheet and reference manual to ensure that the memory
 //! configuration you're trying to use is compatible!
 
+// Convenience SDRAM chip definitions with pre-populated
+// config values and timing parameters.
+pub mod devices;
+
 use embedded_hal_async::delay::DelayNs;
 
 use core::cmp;
@@ -18,8 +22,6 @@ use crate::{
 
 // Shadow the metapac values to make them more convenient to access.
 pub use crate::pac::fmc::vals;
-
-pub mod devices;
 
 /// Specifies how many cycles to delay for reading.
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -455,14 +457,22 @@ impl SdramCommand {
             SdramCommand::PowerDown => (1, 0),
         };
 
+        #[cfg(fmc_v4)]
+        T::regs().sdram().sdcmr().modify(|reg| {
+            reg.set_mrd(mode_reg);
+            reg.set_nrfs(number_refresh);
+            reg.set_ctb(0, target == FmcSdramBank::Bank1);
+            reg.set_ctb(1, target == FmcSdramBank::Bank2);
+            reg.set_mode(self.mode())
+        });
+
+        #[cfg(any(fmc_v1x3, fmc_v2x1, fmc_v3x1))]
         T::regs().sdcmr().modify(|reg| {
             reg.set_mrd(mode_reg);
             reg.set_nrfs(number_refresh);
             reg.set_ctb1(target == FmcSdramBank::Bank1);
             reg.set_ctb2(target == FmcSdramBank::Bank2);
-            reg.set_mode(self.mode());
-
-            *reg
+            reg.set_mode(self.mode())
         });
     }
 }
@@ -540,15 +550,20 @@ impl<'a, 'd, T: fmc::Instance> Sdram<'a, 'd, T> {
             )
         };
 
+        #[cfg(any(fmc_v1x3, fmc_v2x1, fmc_v3x1))]
+        let regs = T::regs();
+        #[cfg(fmc_v4)]
+        let regs = T::regs().sdram();
+
         // Configure settings shared by both SDRAM banks.
-        T::regs().sdcr(0).modify(|reg| {
+        regs.sdcr(0).modify(|reg| {
             reg.set_rpipe(config.read_pipe_delay_cycles.into());
             reg.set_rburst(config.read_burst);
             reg.set_sdclk(sd_clock_divide)
         });
 
         // Configure timing parameters shared by both SDRAM banks.
-        T::regs().sdtr(0).modify(|reg| {
+        regs.sdtr(0).modify(|reg| {
             reg.set_trc(timing.row_cycle - 1);
             reg.set_trp(timing.row_precharge_cycles - 1)
         });
@@ -562,9 +577,7 @@ impl<'a, 'd, T: fmc::Instance> Sdram<'a, 'd, T> {
             "Impossible configuration for H7 FMC Controller"
         );
 
-        T::regs()
-            .sdrtr()
-            .modify(|reg| reg.set_count(refresh_counter_top as u16));
+        regs.sdrtr().modify(|reg| reg.set_count(refresh_counter_top as u16));
 
         Self {
             fmc,
@@ -818,20 +831,24 @@ impl<'a, 'd, T: fmc::Instance> SdramBank<'a, 'd, T> {
     ///
     /// For example, see RM0433 rev 7 Section 22.9.3
     unsafe fn set_features_timings(&mut self, config: SdramConfiguration, timing: SdramTiming) {
+        #[cfg(any(fmc_v1x3, fmc_v2x1, fmc_v3x1))]
+        let regs = T::regs();
+        #[cfg(fmc_v4)]
+        let regs = T::regs().sdram();
+
         // Set the configuration values for the bank.
-        T::regs()
-            .sdcr(match self.bank {
-                FmcSdramBank::Bank1 => 0,
-                FmcSdramBank::Bank2 => 1,
-            })
-            .modify(|reg| {
-                reg.set_wp(config.write_protection);
-                reg.set_cas(config.cas_latency.into());
-                reg.set_nb(config.internal_banks.into());
-                reg.set_mwid(config.memory_data_width.into());
-                reg.set_nr(config.row_bits.into());
-                reg.set_nc(config.column_bits.into())
-            });
+        regs.sdcr(match self.bank {
+            FmcSdramBank::Bank1 => 0,
+            FmcSdramBank::Bank2 => 1,
+        })
+        .modify(|reg| {
+            reg.set_wp(config.write_protection);
+            reg.set_cas(config.cas_latency.into());
+            reg.set_nb(config.internal_banks.into());
+            reg.set_mwid(config.memory_data_width.into());
+            reg.set_nr(config.row_bits.into());
+            reg.set_nc(config.column_bits.into())
+        });
 
         // Self refresh >= ACTIVE to PRECHARGE
         let minimum_self_refresh = timing.active_to_precharge_cycles;
@@ -843,18 +860,17 @@ impl<'a, 'd, T: fmc::Instance> SdramBank<'a, 'd, T> {
         let write_recovery = cmp::max(write_recovery_self_refresh, write_recovery_row_cycle);
 
         // Set the timing parameters for the bank.
-        T::regs()
-            .sdtr(match self.bank {
-                FmcSdramBank::Bank1 => 0,
-                FmcSdramBank::Bank2 => 1,
-            })
-            .modify(|reg| {
-                reg.set_trcd(timing.row_to_column_cycles - 1);
-                reg.set_twr(write_recovery - 1);
-                reg.set_tras(minimum_self_refresh - 1);
-                reg.set_txsr(timing.exit_self_refresh_cycles - 1);
-                reg.set_tmrd(timing.mode_register_to_active_cycles - 1)
-            });
+        regs.sdtr(match self.bank {
+            FmcSdramBank::Bank1 => 0,
+            FmcSdramBank::Bank2 => 1,
+        })
+        .modify(|reg| {
+            reg.set_trcd(timing.row_to_column_cycles - 1);
+            reg.set_twr(write_recovery - 1);
+            reg.set_tras(minimum_self_refresh - 1);
+            reg.set_txsr(timing.exit_self_refresh_cycles - 1);
+            reg.set_tmrd(timing.mode_register_to_active_cycles - 1)
+        });
     }
 
     /// Send a command to the SDRAM bank being driven by this driver instance.
