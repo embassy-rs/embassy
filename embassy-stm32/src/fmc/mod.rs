@@ -100,6 +100,7 @@ impl FmcSdramBank {
 
 /// FMC driver
 pub struct Fmc<'d, T: Instance> {
+    #[allow(unused)]
     peri: Peri<'d, T>,
 
     // Specifies the bank mapping in used by the FMC.

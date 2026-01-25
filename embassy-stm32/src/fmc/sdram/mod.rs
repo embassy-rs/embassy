@@ -492,12 +492,6 @@ pub struct Sdram<'a, 'd, T: fmc::Instance> {
     ///
     /// They're persisted here to validate them against individual bank timings.
     timing: SdramGlobalTiming,
-
-    // Placeholder used to ensure that only one SDRAM controller
-    // can be created for a specific bank at a time by moving them
-    // out of the Fmc instance when consumed.
-    sdram1: u16,
-    sdram2: u16,
 }
 
 impl<'a, 'd, T: fmc::Instance> Sdram<'a, 'd, T> {
@@ -583,8 +577,6 @@ impl<'a, 'd, T: fmc::Instance> Sdram<'a, 'd, T> {
             fmc,
             config,
             timing,
-            sdram1: 0,
-            sdram2: 0,
         }
     }
 
@@ -735,10 +727,6 @@ impl<'a, 'd, T: fmc::Instance> Sdram<'a, 'd, T> {
 /// Internal type to allow for clearly operating on a specific bank to initialize it.
 #[allow(missing_debug_implementations)]
 pub struct SdramBank<'a, 'd, T: fmc::Instance> {
-    // Placeholder moved out of the Fmc driver instance to ensure
-    // that the same bank cannot be initialized multiple times.
-    bank_ref: u16,
-
     /// Reference to the Fmc driver that was used to initialize the SDRAM.
     fmc: &'a mut Fmc<'d, T>,
 
@@ -763,13 +751,12 @@ impl<'a, 'd, T: fmc::Instance> SdramBank<'a, 'd, T> {
 
         // We move a value out of the FMC handle to make sure that multiple
         // SDRAM instances using the same bank can't be created.
-        let bank_handle = match bank {
+        let _bank_handle = match bank {
             FmcSdramBank::Bank1 => fmc.sdram1,
             FmcSdramBank::Bank2 => fmc.sdram2,
         };
 
         Self {
-            bank_ref: bank_handle,
             fmc,
             bank,
             config,
