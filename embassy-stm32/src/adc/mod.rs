@@ -41,6 +41,7 @@ use crate::pac::adc::vals::SampleTime as Adc4SampleTime;
 #[path = "adc4.rs"]
 pub mod adc4;
 
+use crate::adc::vals::Exten;
 #[allow(unused)]
 pub(self) use crate::block_for_us as blocking_delay_us;
 pub use crate::pac::adc::vals;
@@ -174,6 +175,17 @@ pub(crate) enum ConversionMode {
     Repeated(RegularConversionMode),
 }
 
+// TODO: Documentation was not adjusted to work with adc_v2 and adc_g4
+
+// Trigger source for ADC conversions¨
+#[derive(Copy, Clone)]
+pub struct ConversionTrigger {
+    // See Table 166 and 167 in RM0440 Rev 9 for ADC1/2 External triggers
+    // Note that Injected and Regular channels uses different mappings
+    pub channel: u8,
+    pub edge: Exten,
+}
+
 // Should match the cfg on "into_ring_buffered" below
 #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba))]
 // Conversion mode for regular ADC channels
@@ -181,7 +193,7 @@ pub(crate) enum ConversionMode {
 pub enum RegularConversionMode {
     // Samples as fast as possible
     Continuous,
-    #[cfg(adc_g4)]
+    #[cfg(any(adc_g4, adc_v2))]
     // Sample at rate determined by external trigger
     Triggered(ConversionTrigger),
 }
