@@ -963,7 +963,7 @@ fn main() {
             }
         }
 
-        if kind == "gpio" {
+        if cfg!(feature = "gpio-init-analog") && kind == "gpio" {
             for p in METADATA.peripherals {
                 // set all GPIOs to analog mode except for PA13 and PA14 which are SWDIO and SWDCLK
                 if p.registers.is_some()

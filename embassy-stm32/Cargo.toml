@@ -220,7 +220,7 @@ proptest-state-machine = "0.3.0"
 
 
 [features]
-default = ["rt"]
+default = ["rt", "gpio-init-analog"]
 
 ## Enable `stm32-metapac`'s `rt` feature
 rt = ["stm32-metapac/rt"]
@@ -328,6 +328,9 @@ split-pc3 = ["_split-pins-enabled"]
 
 dual-bank = []
 single-bank = []
+
+# Set all GPIO pins (except SWD) to analog in init()
+gpio-init-analog = []
 
 ## internal use only
 _split-pins-enabled = []
