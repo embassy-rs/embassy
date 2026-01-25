@@ -109,7 +109,9 @@ pub struct Fmc<'d, T: Instance> {
     // Placeholder used to ensure that only one SDRAM controller
     // can be created for a specific bank at a time by moving them
     // out of the Fmc instance when consumed.
+    #[allow(dead_code)]
     sdram1: u16,
+    #[allow(dead_code)]
     sdram2: u16,
 }
 
