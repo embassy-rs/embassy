@@ -1,6 +1,4 @@
 //! Flexible Memory Controller (FMC) / Flexible Static Memory Controller (FSMC)
-use core::marker::PhantomData;
-
 use embassy_hal_internal::PeripheralType;
 
 use crate::gpio::{AfType, OutputType, Pull, Speed};
@@ -17,6 +15,7 @@ pub mod sdram;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[allow(unused)]
 pub enum FmcBankMapping {
+    /// Default FMC bank mapping.
     Default = 0b00,
     /// Swaps SDRAM 1 into `0x6000_0000``, SDRAM 2 into `0x7000_0000`,
     /// and NOR/PSRAM into `0xC000_0000`.

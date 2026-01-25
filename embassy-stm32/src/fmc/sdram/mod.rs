@@ -25,8 +25,11 @@ pub mod devices;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ReadPipeDelayCycles {
+    /// No delay on reading.
     NoDelay,
+    /// One clock cycle delay on reading.
     OneCycle,
+    /// Two clock cycles delay on reading.
     TwoCycles,
 }
 
@@ -44,8 +47,11 @@ impl Into<vals::Rpipe> for ReadPipeDelayCycles {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum MemoryDataWidth {
+    /// 8-bit wide data bus.
     Bits8,
+    /// 16-bit wide data bus.
     Bits16,
+    /// 32-bit wide data bus.
     Bits32,
 }
 
@@ -130,9 +136,13 @@ pub struct SdramGlobalTiming {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum ColumnBits {
+    /// 8 column address bits.
     Bits8 = 0x0,
+    /// 9 column address bits.
     Bits9 = 0x01,
+    /// 10 column address bits.
     Bits10 = 0x02,
+    /// 11 column address bits.
     Bits11 = 0x03,
 }
 
@@ -151,8 +161,11 @@ impl Into<vals::Nc> for ColumnBits {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum RowBits {
+    /// 11 row address bits.
     Bits11 = 0x0,
+    /// 12 row address bits.
     Bits12 = 0x01,
+    /// 13 row address bits.
     Bits13 = 0x02,
 }
 
@@ -170,8 +183,11 @@ impl Into<vals::Nr> for RowBits {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CasLatency {
+    /// 1 clock cycle latency.
     Cycle1 = 0x01,
+    /// 2 clock cycle latency.
     Cycle2 = 0x02,
+    /// 3 clock cycle latency.
     Cycle3 = 0x03,
 }
 
@@ -189,7 +205,9 @@ impl Into<vals::Cas> for CasLatency {
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum InternalBanks {
+    /// Two internal banks.
     TwoBanks = 0x0,
+    /// Four internal banks.
     FourBanks = 0x01,
 }
 
@@ -799,7 +817,7 @@ impl<'a, 'd, T: fmc::Instance> SdramBank<'a, 'd, T> {
     /// unsafe.
     ///
     /// For example, see RM0433 rev 7 Section 22.9.3
-    async unsafe fn set_features_timings(&mut self, config: SdramConfiguration, timing: SdramTiming) {
+    unsafe fn set_features_timings(&mut self, config: SdramConfiguration, timing: SdramTiming) {
         // Set the configuration values for the bank.
         T::regs()
             .sdcr(match self.bank {
