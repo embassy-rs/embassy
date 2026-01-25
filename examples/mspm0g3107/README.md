@@ -11,7 +11,9 @@ cargo run --bin can
 
 ## Checklist before running examples
 
-The MSPM0G3107 does not have a Launchpad or official development board, so you likely need to modify examples to update pin numbers or peripherals to match the specific MCU or board you are using.
+The MSPM0G3107 does not have a Launchpad or official development board, so you likely need to modify examples to update pin numbers or peripherals to match the specific MCU or board you are using. Note that MSPM0G3507 has a very similar peripheral set and the examples here will likely be able to run on that platform with only small changes.
+
+For a custom board with MSPM0G3107:
 
 * [ ] Update Cargo.toml to have the correct `embassy-mspm0` feature reflecting the packaging option. Look in the `Cargo.toml` file of the `embassy-mspm0` project to find the correct feature flag for your chip.
 * [ ] If your board has a special clock or power configuration, make sure that it is set up appropriately.
