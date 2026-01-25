@@ -33,7 +33,7 @@ pub struct Channel<'p>(Source<'p>);
 
 impl<'p> Channel<'p> {
     /// Create a new ADC channel from pin with the provided [Pull] configuration.
-    pub fn new_pin(pin: Peri<'p, impl AdcPin + 'p>, pull: Pull) -> Self {
+    pub fn new_pin(_adc: &Adc<'_, impl Mode>, pin: Peri<'p, impl AdcPin + 'p>, pull: Pull) -> Self {
         pin.pad_ctrl().modify(|w| {
             #[cfg(feature = "_rp235x")]
             w.set_iso(false);
@@ -51,7 +51,7 @@ impl<'p> Channel<'p> {
     }
 
     /// Create a new ADC channel for the internal temperature sensor.
-    pub fn new_temp_sensor(s: Peri<'p, ADC_TEMP_SENSOR>) -> Self {
+    pub fn new_temp_sensor(_adc: &Adc<'_, impl Mode>, s: Peri<'p, ADC_TEMP_SENSOR>) -> Self {
         let r = pac::ADC;
         r.cs().write_set(|w| w.set_ts_en(true));
         Self(Source::TempSensor(s))

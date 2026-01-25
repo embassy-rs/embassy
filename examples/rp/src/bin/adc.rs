@@ -24,10 +24,10 @@ async fn main(_spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
     let mut adc = Adc::new(p.ADC, Irqs, Config::default());
 
-    let mut p26 = Channel::new_pin(p.PIN_26, Pull::None);
-    let mut p27 = Channel::new_pin(p.PIN_27, Pull::None);
-    let mut p28 = Channel::new_pin(p.PIN_28, Pull::None);
-    let mut ts = Channel::new_temp_sensor(p.ADC_TEMP_SENSOR);
+    let mut p26 = Channel::new_pin(&adc, p.PIN_26, Pull::None);
+    let mut p27 = Channel::new_pin(&adc, p.PIN_27, Pull::None);
+    let mut p28 = Channel::new_pin(&adc, p.PIN_28, Pull::None);
+    let mut ts = Channel::new_temp_sensor(&adc, p.ADC_TEMP_SENSOR);
 
     loop {
         let level = adc.read(&mut p26).await.unwrap();
