@@ -4,7 +4,8 @@
 use cortex_m::prelude::_embedded_hal_blocking_delay_DelayUs;
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::adc::{vals::Exten, Adc, AdcChannel, ConversionTrigger, RegularConversionMode, SampleTime, Temperature, VrefInt};
+use embassy_stm32::adc::vals::Exten;
+use embassy_stm32::adc::{Adc, AdcChannel, ConversionTrigger, RegularConversionMode, SampleTime, Temperature, VrefInt};
 use embassy_time::{Delay, Timer};
 use {defmt_rtt as _, panic_probe as _};
 

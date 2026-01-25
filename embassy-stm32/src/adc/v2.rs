@@ -1,8 +1,7 @@
 use core::sync::atomic::{Ordering, compiler_fence};
 
 use super::{ConversionMode, Temperature, Vbat, VrefInt, blocking_delay_us};
-use crate::adc::RegularConversionMode;
-use crate::adc::{Adc, AdcRegs, Instance, Resolution, SampleTime};
+use crate::adc::{Adc, AdcRegs, Instance, RegularConversionMode, Resolution, SampleTime};
 use crate::pac::adc::vals;
 pub use crate::pac::adccommon::vals::Adcpre;
 use crate::time::Hertz;
