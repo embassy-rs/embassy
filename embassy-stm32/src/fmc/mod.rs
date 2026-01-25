@@ -8,6 +8,9 @@ use crate::{Peri, rcc};
 pub use crate::pac::fmc::vals;
 
 // Implements the SDRAM functionality.
+//
+// SDRAM registers are not supported by FSMC peripherals, only FMC.
+#[cfg(any(fmc_v1x3, fmc_v2x1, fmc_v3x1, fmc_v4))]
 pub mod sdram;
 
 /// Defines how the FMC banks are mapped using the BMAP register.
