@@ -197,6 +197,10 @@ impl<'s, 'd, W: Word> Writer<'s, 'd, W> {
     /// Reset the ring buffer to its initial state.
     /// Can be used to recover from overrun.
     /// The ringbuffer will always auto-reset on Overrun in any case.
+    ///
+    /// NOTE: This only clears the DMA buffer and is not synchronized to WS/LR clock, so the order
+    /// of channels may or may not be swapped after this. A full restart is required to ensure
+    /// buffer contents and I2S transmissions are in sync.
     pub fn reset(&mut self) {
         self.0.clear();
     }
@@ -217,6 +221,10 @@ impl<'s, 'd, W: Word> Reader<'s, 'd, W> {
     /// Reset the ring buffer to its initial state.
     /// Can be used to prevent overrun.
     /// The ringbuffer will always auto-reset on Overrun in any case.
+    ///
+    /// NOTE: This only clears the DMA buffer and is not synchronized to WS/LR clock, so the order
+    /// of channels may or may not be swapped after this. A full restart is required to ensure
+    /// buffer contents and I2S transmissions are in sync.
     pub fn reset(&mut self) {
         self.0.clear();
     }
@@ -371,6 +379,10 @@ impl<'d, W: Word> I2S<'d, W> {
 
     /// Reset the ring buffer to its initial state.
     /// Can be used to recover from overrun.
+    ///
+    /// NOTE: This only clears the DMA buffer and is not synchronized to WS/LR clock, so the order
+    /// of channels may or may not be swapped after this. A full restart is required to ensure
+    /// buffer contents and I2S transmissions are in sync.
     pub fn clear(&mut self) {
         if let Some(rx_ring_buffer) = &mut self.rx_ring_buffer {
             rx_ring_buffer.clear();
