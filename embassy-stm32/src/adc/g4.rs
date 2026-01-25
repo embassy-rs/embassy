@@ -9,8 +9,8 @@ use pac::adc::vals::{Adcaldif, Difsel, Exten};
 pub use pac::adccommon::vals::{Dual, Presc};
 
 use super::{
-    Adc, AnyAdcChannel, ConversionMode, Instance, RegularConversionMode, Resolution, RxDma, SampleTime,
-    blocking_delay_us,
+    Adc, AnyAdcChannel, ConversionMode, ConversionTrigger, Instance, RegularConversionMode, Resolution, RxDma,
+    SampleTime, blocking_delay_us,
 };
 use crate::adc::{AdcRegs, BasicAdcRegs, SealedAdcChannel};
 use crate::pac::adc::regs::{Smpr, Smpr2, Sqr1, Sqr2, Sqr3, Sqr4};
@@ -58,15 +58,6 @@ pub struct AdcConfig {
     pub oversampling_ratio: Option<u8>,
     #[cfg(stm32g4)]
     pub oversampling_mode: Option<(Rovsm, Trovs, bool)>,
-}
-
-// Trigger source for ADC conversions¨
-#[derive(Copy, Clone)]
-pub struct ConversionTrigger {
-    // See Table 166 and 167 in RM0440 Rev 9 for ADC1/2 External triggers
-    // Note that Injected and Regular channels uses different mappings
-    pub channel: u8,
-    pub edge: Exten,
 }
 
 impl super::AdcRegs for crate::pac::adc::Adc {
