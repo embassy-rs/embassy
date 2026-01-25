@@ -47,6 +47,7 @@ pub use crate::pac::adc::vals;
 #[cfg(not(any(adc_f1, adc_f3v3)))]
 pub use crate::pac::adc::vals::Res as Resolution;
 pub use crate::pac::adc::vals::SampleTime;
+#[cfg(any(adc_v2, adc_g4))]
 pub use crate::pac::adc::vals::Exten;
 use crate::peripherals;
 
