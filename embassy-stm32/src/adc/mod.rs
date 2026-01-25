@@ -44,11 +44,11 @@ pub mod adc4;
 #[allow(unused)]
 pub(self) use crate::block_for_us as blocking_delay_us;
 pub use crate::pac::adc::vals;
+#[cfg(any(adc_v2, adc_g4))]
+pub use crate::pac::adc::vals::Exten;
 #[cfg(not(any(adc_f1, adc_f3v3)))]
 pub use crate::pac::adc::vals::Res as Resolution;
 pub use crate::pac::adc::vals::SampleTime;
-#[cfg(any(adc_v2, adc_g4))]
-pub use crate::pac::adc::vals::Exten;
 use crate::peripherals;
 
 dma_trait!(RxDma, Instance);
@@ -177,6 +177,7 @@ pub(crate) enum ConversionMode {
 }
 
 // Trigger source for ADC conversions¨
+#[cfg(any(adc_v2, adc_g4))]
 #[derive(Copy, Clone)]
 pub struct ConversionTrigger {
     // Note that Injected and Regular channels uses different mappings
