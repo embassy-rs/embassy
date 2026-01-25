@@ -41,13 +41,13 @@ use crate::pac::adc::vals::SampleTime as Adc4SampleTime;
 #[path = "adc4.rs"]
 pub mod adc4;
 
-use crate::adc::vals::Exten;
 #[allow(unused)]
 pub(self) use crate::block_for_us as blocking_delay_us;
 pub use crate::pac::adc::vals;
 #[cfg(not(any(adc_f1, adc_f3v3)))]
 pub use crate::pac::adc::vals::Res as Resolution;
 pub use crate::pac::adc::vals::SampleTime;
+pub use crate::pac::adc::vals::Exten;
 use crate::peripherals;
 
 dma_trait!(RxDma, Instance);
