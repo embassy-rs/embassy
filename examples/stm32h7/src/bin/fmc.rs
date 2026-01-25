@@ -3,8 +3,10 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::Config;
-use embassy_stm32::fmc::Fmc;
+use embassy_stm32::fmc::sdram::SdramBank;
+use embassy_stm32::fmc::sdram::devices::is42s32800g_6;
+use embassy_stm32::{Config, fmc::sdram::Sdram};
+use embassy_stm32::fmc::{Fmc, FmcSdramBank};
 use embassy_time::{Delay, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -118,6 +120,9 @@ async fn main(_spawner: Spawner) {
         }
     }
 
+    // Create an instance of the FMC driver.
+    let mut fmc = Fmc::new(p.FMC);
+
     let mut sdram = Fmc::sdram_a12bits_d32bits_4banks_bank2(
         p.FMC,
         // A0-A11
@@ -187,7 +192,7 @@ async fn main(_spawner: Spawner) {
 
     let ram_slice = unsafe {
         // Initialise controller and SDRAM
-        let ram_ptr: *mut u32 = sdram.init(&mut delay) as *mut _;
+        let ram_ptr: *mut u32 = Sdram::init_bank_for_chip(&mut fmc, FmcSdramBank::Bank2, &is42s32800g_6::Is42s32800g {}, &mut delay).await as *mut _;
 
         // Convert raw pointer to slice
         core::slice::from_raw_parts_mut(ram_ptr, sdram_size / core::mem::size_of::<u32>())

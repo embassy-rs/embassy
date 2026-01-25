@@ -6,9 +6,109 @@ use embassy_hal_internal::PeripheralType;
 use crate::gpio::{AfType, OutputType, Pull, Speed};
 use crate::{Peri, rcc};
 
+// Shadow the metapac values to make them more convenient to access.
+pub use crate::pac::fmc::vals;
+
+// Implements the SDRAM functionality.
+pub mod sdram;
+
+/// Defines how the FMC banks are mapped using the BMAP register.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[allow(unused)]
+pub enum FmcBankMapping {
+    Default = 0b00,
+    /// Swaps SDRAM 1 into `0x6000_0000``, SDRAM 2 into `0x7000_0000`,
+    /// and NOR/PSRAM into `0xC000_0000`.
+    NorSdramSwapped = 0b01,
+    /// Swaps SDRAM bank 2 into 0x7000 0000 instead of SDRAM bank 1.
+    Sdram2Swapped = 0b10,
+}
+
+/// The possible FMC banks for memory mapping with FMC controllers.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[allow(unused)]
+pub enum FmcBank {
+    /// Bank1: NOR/PSRAM/SRAM
+    Bank1,
+
+    /// Bank2: Remapped SDRAM 1 or 2 depending on BMAP register configuration.
+    Bank2,
+
+    /// Bank3: NAND Flash
+    Bank3,
+
+    // NOTE: Bank 4 is not normally used by the FMC. Need
+    //  to double check if this is exposed on some other chips.
+    /// Bank5: SDRAM 1
+    Bank5,
+    /// Bank6: SDRAM 2
+    Bank6,
+}
+
+impl FmcBank {
+    /// Return a pointer to the base address of the FMC bank.
+    pub fn ptr(self) -> *mut u32 {
+        (match self {
+            FmcBank::Bank1 => 0x6000_0000u32,
+            FmcBank::Bank2 => 0x7000_0000u32,
+            FmcBank::Bank3 => 0x8000_0000u32,
+
+            // Bank 4 is not used.
+            FmcBank::Bank5 => 0xC000_0000u32,
+            FmcBank::Bank6 => 0xD000_0000u32,
+        }) as *mut u32
+    }
+}
+
+/// Target bank for SDRAM commands.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[allow(unused)]
+pub enum FmcSdramBank {
+    /// Targets the 1st SDRAM bank.
+    Bank1,
+    /// Targets the 2nd SDRAM bank
+    Bank2,
+}
+
+impl FmcSdramBank {
+    /// Return a pointer to the base address of the SDRAM bank.
+    ///
+    /// This takes into account if the memory banks have been re-mapped.
+    pub fn ptr(self, mapping: FmcBankMapping) -> *mut u32 {
+        (match mapping {
+            FmcBankMapping::Default => match self {
+                // Note Bank 1 is mapped to 0x7000_0000 and 0xC000_0000.
+                FmcSdramBank::Bank1 => FmcBank::Bank5.ptr(), // 0xC000_0000
+                FmcSdramBank::Bank2 => FmcBank::Bank6.ptr(), // 0xD000_0000
+            },
+            FmcBankMapping::NorSdramSwapped => match self {
+                FmcSdramBank::Bank1 => FmcBank::Bank1.ptr(), // 0x6000_0000
+                FmcSdramBank::Bank2 => FmcBank::Bank6.ptr(), // 0xD000_0000
+            },
+            FmcBankMapping::Sdram2Swapped => match self {
+                FmcSdramBank::Bank1 => FmcBank::Bank5.ptr(), // 0xC000_0000
+                // Note Bank 1 is mapped to 0x7000_0000 and 0xD000_0000.
+                FmcSdramBank::Bank2 => FmcBank::Bank6.ptr(), // 0xD000_0000
+            },
+        } as *mut u32)
+    }
+}
+
 /// FMC driver
 pub struct Fmc<'d, T: Instance> {
-    peri: PhantomData<&'d mut T>,
+    peri: Peri<'d, T>,
+
+    // Specifies the bank mapping in used by the FMC.
+    mapping: FmcBankMapping,
+
+    // Placeholder used to ensure that only one SDRAM controller
+    // can be created for a specific bank at a time by moving them
+    // out of the Fmc instance when consumed.
+    sdram1: u16,
+    sdram2: u16,
 }
 
 unsafe impl<'d, T> Send for Fmc<'d, T> where T: Instance {}
@@ -17,12 +117,22 @@ impl<'d, T> Fmc<'d, T>
 where
     T: Instance,
 {
-    /// Create a raw FMC instance.
+    /// Create an FMC instance.
+    pub fn new(peri: Peri<'d, T>) -> Self {
+        Self {
+            peri,
+            mapping: FmcBankMapping::Default,
+            sdram1: 0,
+            sdram2: 0,
+        }
+    }
+
+    /// Returns the bank mapping in use by the FMC.
     ///
-    /// **Note:** This is currently used to provide access to some basic FMC functions
-    /// for manual configuration for memory types that stm32-fmc does not support.
-    pub fn new_raw(_instance: Peri<'d, T>) -> Self {
-        Self { peri: PhantomData }
+    /// This can be used to derrive the correct mapped
+    /// memory addresses of the various banks.
+    pub fn mapping(&self) -> FmcBankMapping {
+        self.mapping
     }
 
     /// Enable the FMC peripheral and reset it.
@@ -36,9 +146,9 @@ where
         // fsmc v1, v2 and v3 does not have the fmcen bit
         // This is a "not" because it is expected that all future versions have this bit
         #[cfg(not(any(fmc_v1x3, fmc_v2x1, fsmc_v1x0, fsmc_v1x3, fmc_v4, fmc_n6)))]
-        T::REGS.bcr1().modify(|r| r.set_fmcen(true));
+        T::regs().bcr1().modify(|r| r.set_fmcen(true));
         #[cfg(any(fmc_v4, fmc_n6))]
-        T::REGS.nor_psram().bcr1().modify(|r| r.set_fmcen(true));
+        T::regs().nor_psram().bcr1().modify(|r| r.set_fmcen(true));
     }
 
     /// Get the kernel clock currently in use for this FMC instance.
@@ -62,9 +172,9 @@ where
         // fsmc v1, v2 and v3 does not have the fmcen bit
         // This is a "not" because it is expected that all future versions have this bit
         #[cfg(not(any(fmc_v1x3, fmc_v2x1, fsmc_v1x0, fsmc_v1x3, fmc_v4, fmc_n6)))]
-        T::REGS.bcr1().modify(|r| r.set_fmcen(true));
+        T::regs().bcr1().modify(|r| r.set_fmcen(true));
         #[cfg(any(fmc_v4, fmc_n6))]
-        T::REGS.nor_psram().bcr1().modify(|r| r.set_fmcen(true));
+        T::regs().nor_psram().bcr1().modify(|r| r.set_fmcen(true));
     }
 
     fn source_clock_hz(&self) -> u32 {
@@ -91,7 +201,7 @@ macro_rules! fmc_sdram_constructor {
     )) => {
         /// Create a new FMC instance.
         pub fn $name<CHIP: stm32_fmc::SdramChip>(
-            _instance: Peri<'d, T>,
+            instance: Peri<'d, T>,
             $($addr_pin_name: Peri<'d, impl $addr_signal<T>>),*,
             $($ba_pin_name: Peri<'d, impl $ba_signal<T>>),*,
             $($d_pin_name: Peri<'d, impl $d_signal<T>>),*,
@@ -110,7 +220,7 @@ macro_rules! fmc_sdram_constructor {
             );
         });
 
-            let fmc = Self { peri: PhantomData };
+            let fmc = Fmc::new(instance);
             stm32_fmc::Sdram::new_unchecked(
                 fmc,
                 $bank,
@@ -276,6 +386,8 @@ impl<'d, T: Instance> Fmc<'d, T> {
 
 trait SealedInstance: crate::rcc::RccPeripheral {
     const REGS: crate::pac::fmc::Fmc;
+
+    fn regs() -> crate::pac::fmc::Fmc;
 }
 
 /// FMC instance trait.
@@ -286,6 +398,10 @@ foreach_peripheral!(
     (fmc, $inst:ident) => {
         impl crate::fmc::SealedInstance for crate::peripherals::$inst {
             const REGS: crate::pac::fmc::Fmc = crate::pac::$inst;
+
+            fn regs() -> crate::pac::fmc::Fmc {
+                crate::pac::$inst
+            }
         }
         impl crate::fmc::Instance for crate::peripherals::$inst {}
     };
