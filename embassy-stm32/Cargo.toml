@@ -220,7 +220,7 @@ proptest-state-machine = "0.3.0"
 
 
 [features]
-default = ["rt", "gpio-init-analog"]
+default = ["rt"]
 
 ## Enable `stm32-metapac`'s `rt` feature
 rt = ["stm32-metapac/rt"]
