@@ -77,6 +77,8 @@ macro_rules! impl_comp_inp_pin {
 macro_rules! impl_comp_inm_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {};
 }
+#[cfg(any(ipcc, hsem))]
+pub mod cpu;
 #[cfg(crc)]
 pub mod crc;
 #[cfg(cryp)]
