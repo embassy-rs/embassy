@@ -15,50 +15,17 @@ static RESET_REASON: AtomicU32 = AtomicU32::new(0);
 /// Reads the most recent reset reason from the Core Mode Controller
 /// (CMC).
 pub fn reset_reason() -> ResetReasonRaw {
-    let regs = unsafe { &*crate::pac::Cmc::steal() };
+    let regs = crate::pac::CMC;
 
     let reason = critical_section::with(|_| {
         let mut r = RESET_REASON.load(Ordering::Relaxed);
 
         if r == 0 {
             // Read status
-            r = regs.srs().read().bits();
+            r = regs.srs().read().0;
 
             // Clear status
-            regs.ssrs().write(|w| {
-                w.wakeup()
-                    .clear_bit_by_one()
-                    .por()
-                    .clear_bit_by_one()
-                    .warm()
-                    .clear_bit_by_one()
-                    .fatal()
-                    .clear_bit_by_one()
-                    .pin()
-                    .clear_bit_by_one()
-                    .dap()
-                    .clear_bit_by_one()
-                    .rstack()
-                    .clear_bit_by_one()
-                    .lpack()
-                    .clear_bit_by_one()
-                    .scg()
-                    .clear_bit_by_one()
-                    .wwdt0()
-                    .clear_bit_by_one()
-                    .sw()
-                    .clear_bit_by_one()
-                    .lockup()
-                    .clear_bit_by_one()
-                    .cdog0()
-                    .clear_bit_by_one()
-                    .cdog1()
-                    .clear_bit_by_one()
-                    .jtag()
-                    .clear_bit_by_one()
-                    .tamper()
-                    .clear_bit_by_one()
-            });
+            regs.ssrs().modify(|w| w.0 = r);
 
             RESET_REASON.store(r, Ordering::Relaxed);
         }

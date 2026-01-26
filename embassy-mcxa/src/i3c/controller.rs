@@ -5,6 +5,7 @@ use core::marker::PhantomData;
 use embassy_hal_internal::Peri;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::interrupt::InterruptExt;
+use nxp_pac::i3c0::vals::Hkeep;
 
 use super::{Async, Blocking, Error, Info, InterruptHandler, Mode, SclPin, SdaPin};
 use crate::clocks::periph_helpers::{Div4, I3cClockSel, I3cConfig};
@@ -12,7 +13,9 @@ use crate::clocks::{PoweredClock, WakeGuard, enable_and_reset};
 use crate::gpio::{AnyPin, SealedPin};
 pub use crate::i2c::controller::Speed;
 use crate::interrupt::typelevel;
-use crate::pac::i3c0::mctrl::{Dir as I3cDir, Type};
+use crate::pac::i3c0::vals::{
+    Disto, Ibiresp, MctrlDir as I3cDir, MdatactrlRxtrig, MdatactrlTxtrig, Mstena, Request, State, Type,
+};
 use crate::peripherals::I3C0;
 
 const MAX_CHUNK_SIZE: usize = 255;
@@ -41,9 +44,9 @@ pub enum BusType {
 impl From<BusType> for Type {
     fn from(value: BusType) -> Self {
         match value {
-            BusType::I3cSdr => Self::I3c,
-            BusType::I2c => Self::I2c,
-            BusType::I3cDdr => Self::Ddr,
+            BusType::I3cSdr => Self::I3C,
+            BusType::I2c => Self::I2C,
+            BusType::I3cDdr => Self::DDR,
         }
     }
 }
@@ -59,8 +62,8 @@ enum Dir {
 impl From<Dir> for I3cDir {
     fn from(value: Dir) -> Self {
         match value {
-            Dir::Write => Self::Dirwrite,
-            Dir::Read => Self::Dirread,
+            Dir::Write => Self::DIRWRITE,
+            Dir::Read => Self::DIRREAD,
         }
     }
 }
@@ -149,40 +152,25 @@ impl<'d, M: Mode> I3c<'d, M> {
     fn set_configuration(&self, config: &Config) -> Result<(), Error> {
         self.clear_flags();
 
-        self.info.regs().mdatactrl().modify(|_, w| {
-            w.flushtb()
-                .flush()
-                .flushfb()
-                .flush()
-                .unlock()
-                .set_bit()
-                .txtrig()
-                .full_or_less()
-                .rxtrig()
-                .not_empty()
+        self.info.regs().mdatactrl().modify(|w| {
+            w.set_flushtb(true);
+            w.set_flushfb(true);
+            w.set_unlock(true);
+            w.set_txtrig(MdatactrlTxtrig::FULL_OR_LESS);
+            w.set_rxtrig(MdatactrlRxtrig::NOT_EMPTY);
         });
 
         let (ppbaud, odbaud, i2cbaud) = self.calculate_baud_rate_params(config)?;
 
         self.info.regs().mconfig().write(|w| {
-            unsafe {
-                w.ppbaud()
-                    .bits(ppbaud as u8)
-                    .odbaud()
-                    .bits(odbaud as u8)
-                    .i2cbaud()
-                    .bits(i2cbaud as u8)
-            }
-            .mstena()
-            .master_on()
-            .disto()
-            .clear_bit()
-            .hkeep()
-            .none()
-            .odstop()
-            .disable()
-            .odhpp()
-            .enable()
+            w.set_ppbaud(ppbaud as u8);
+            w.set_odbaud(odbaud as u8);
+            w.set_i2cbaud(i2cbaud as u8);
+            w.set_mstena(Mstena::MASTER_ON);
+            w.set_disto(Disto::ENABLE);
+            w.set_hkeep(Hkeep::NONE);
+            w.set_odstop(false);
+            w.set_odhpp(true);
         });
 
         Ok(())
@@ -229,7 +217,7 @@ impl<'d, M: Mode> I3c<'d, M> {
          *    Depends on ODHPP mode
          * ------------------------------------------------------------- */
 
-        let odhpp_enabled = self.info.regs().mconfig().read().odhpp().bit_is_set();
+        let odhpp_enabled = self.info.regs().mconfig().read().odhpp();
 
         let (od_baud, _od_src_hz) = if odhpp_enabled {
             // OD rate derived from 2×PP clock
@@ -270,12 +258,10 @@ impl<'d, M: Mode> I3c<'d, M> {
             } else {
                 (odd_div - 1) * 2 + 1
             }
+        } else if pp_src_hz / even_div < target_i2c_hz {
+            (even_div - 1) * 2
         } else {
-            if pp_src_hz / even_div < target_i2c_hz {
-                (even_div - 1) * 2
-            } else {
-                even_div * 2
-            }
+            even_div * 2
         };
 
         Ok((pp_baud, od_baud, i2c_baud))
@@ -284,10 +270,10 @@ impl<'d, M: Mode> I3c<'d, M> {
     fn blocking_remediation(&self, bus_type: BusType) {
         // if the FIFO is not empty, drop its contents.
         if self.info.regs().mdatactrl().read().txcount() != 0 {
-            self.info
-                .regs()
-                .mdatactrl()
-                .modify(|_, w| w.flushtb().flush().flushfb().flush());
+            self.info.regs().mdatactrl().modify(|w| {
+                w.set_flushtb(true);
+                w.set_flushfb(true);
+            });
         }
 
         // send a stop command
@@ -296,60 +282,55 @@ impl<'d, M: Mode> I3c<'d, M> {
 
     fn clear_flags(&self) {
         self.info.regs().mstatus().write(|w| {
-            w.slvstart()
-                .clear_bit_by_one()
-                .mctrldone()
-                .clear_bit_by_one()
-                .complete()
-                .clear_bit_by_one()
-                .ibiwon()
-                .clear_bit_by_one()
-                .nowmaster()
-                .clear_bit_by_one()
+            w.set_slvstart(true);
+            w.set_mctrldone(true);
+            w.set_complete(true);
+            w.set_ibiwon(true);
+            w.set_nowmaster(true);
         });
     }
 
     fn blocking_wait_for_ctrldone(&self) {
-        while self.info.regs().mstatus().read().mctrldone().is_not_done() {}
+        while !self.info.regs().mstatus().read().mctrldone() {}
     }
 
     fn blocking_wait_for_complete(&self) {
-        while self.info.regs().mstatus().read().complete().is_not_complete() {}
+        while !self.info.regs().mstatus().read().complete() {}
     }
 
     fn blocking_wait_for_tx_fifo(&self) {
-        while self.info.regs().mdatactrl().read().txfull().is_full() {}
+        while self.info.regs().mdatactrl().read().txfull() {}
     }
 
     fn blocking_wait_for_rx_fifo(&self) {
-        while self.info.regs().mdatactrl().read().rxempty().is_empty() {}
+        while self.info.regs().mdatactrl().read().rxempty() {}
     }
 
     fn status(&self) -> Result<(), Error> {
-        if self.info.regs().mstatus().read().errwarn().is_error() {
+        if self.info.regs().mstatus().read().errwarn() {
             let merrwarn = self.info.regs().merrwarn().read();
 
-            if merrwarn.urun().is_error() {
+            if merrwarn.urun() {
                 Err(Error::Underrun)
-            } else if merrwarn.nack().is_error() {
+            } else if merrwarn.nack() {
                 Err(Error::Nack)
-            } else if merrwarn.wrabt().is_error() {
+            } else if merrwarn.wrabt() {
                 Err(Error::WriteAbort)
-            } else if merrwarn.term().is_error() {
+            } else if merrwarn.term() {
                 Err(Error::Terminate)
-            } else if merrwarn.hpar().is_error() {
+            } else if merrwarn.hpar() {
                 Err(Error::HighDataRateParity)
-            } else if merrwarn.hcrc().is_error() {
+            } else if merrwarn.hcrc() {
                 Err(Error::HighDataRateCrc)
-            } else if merrwarn.oread().is_error() {
+            } else if merrwarn.oread() {
                 Err(Error::Overread)
-            } else if merrwarn.owrite().is_error() {
+            } else if merrwarn.owrite() {
                 Err(Error::Overwrite)
-            } else if merrwarn.msgerr().is_error() {
+            } else if merrwarn.msgerr() {
                 Err(Error::Message)
-            } else if merrwarn.invreq().is_error() {
+            } else if merrwarn.invreq() {
                 Err(Error::InvalidRequest)
-            } else if merrwarn.timeout().is_error() {
+            } else if merrwarn.timeout() {
                 Err(Error::Timeout)
             } else {
                 // should never happen
@@ -367,15 +348,12 @@ impl<'d, M: Mode> I3c<'d, M> {
         self.clear_flags();
 
         self.info.regs().mctrl().write(|w| {
-            unsafe { w.addr().bits(address).rdterm().bits(len) }
-                .type_()
-                .variant(bus_type.into())
-                .request()
-                .emitstartaddr()
-                .dir()
-                .variant(dir.into())
-                .ibiresp()
-                .ack()
+            w.set_addr(address);
+            w.set_rdterm(len);
+            w.set_type_(bus_type.into());
+            w.set_request(Request::EMITSTARTADDR);
+            w.set_dir(dir.into());
+            w.set_ibiresp(Ibiresp::ACK);
         });
 
         self.blocking_wait_for_ctrldone();
@@ -389,25 +367,20 @@ impl<'d, M: Mode> I3c<'d, M> {
     /// waiting for the FIFO to become empty ensuring the command was
     /// sent.
     fn blocking_stop(&self, bus_type: BusType) -> Result<(), Error> {
-        if !self.info.regs().mstatus().read().state().is_normact() {
+        if self.info.regs().mstatus().read().state() != State::NORMACT {
             Err(Error::InvalidRequest)
         } else {
             // NOTE: Section 41.3.2.1 states that "when sending STOP
             // in I2C mode, MCONFIG[ODSTOP] and MCTRL[TYPE] must be
             // 1".
-            if bus_type == BusType::I2c {
-                self.info.regs().mconfig().modify(|_, w| w.odstop().enable());
-                self.info
-                    .regs()
-                    .mctrl()
-                    .write(|w| w.request().emitstop().type_().variant(bus_type.into()));
-            } else {
-                self.info.regs().mconfig().modify(|_, w| w.odstop().disable());
-                self.info
-                    .regs()
-                    .mctrl()
-                    .write(|w| w.request().emitstop().type_().variant(bus_type.into()));
-            }
+            self.info
+                .regs()
+                .mconfig()
+                .modify(|w| w.set_odstop(bus_type == BusType::I2c));
+            self.info.regs().mctrl().write(|w| {
+                w.set_request(Request::EMITSTOP);
+                w.set_type_(bus_type.into())
+            });
             self.blocking_wait_for_ctrldone();
             self.status()
         }
@@ -425,17 +398,14 @@ impl<'d, M: Mode> I3c<'d, M> {
         }
 
         for chunk in read.chunks_mut(MAX_CHUNK_SIZE) {
-            match self.blocking_start(address, bus_type, Dir::Read, chunk.len() as u8) {
-                Err(e) => {
-                    self.blocking_remediation(bus_type);
-                    return Err(e);
-                }
-                _ => {}
+            if let Err(e) = self.blocking_start(address, bus_type, Dir::Read, chunk.len() as u8) {
+                self.blocking_remediation(bus_type);
+                return Err(e);
             };
 
             for byte in chunk.iter_mut() {
                 self.blocking_wait_for_rx_fifo();
-                *byte = self.info.regs().mrdatab().read().value().bits();
+                *byte = self.info.regs().mrdatab().read().value();
             }
         }
 
@@ -453,12 +423,9 @@ impl<'d, M: Mode> I3c<'d, M> {
         bus_type: BusType,
         send_stop: SendStop,
     ) -> Result<(), Error> {
-        match self.blocking_start(address, bus_type, Dir::Write, 0) {
-            Err(e) => {
-                self.blocking_remediation(bus_type);
-                return Err(e);
-            }
-            _ => {}
+        if let Err(e) = self.blocking_start(address, bus_type, Dir::Write, 0) {
+            self.blocking_remediation(bus_type);
+            return Err(e);
         };
 
         // Usually, embassy HALs error out with an empty write,
@@ -483,11 +450,11 @@ impl<'d, M: Mode> I3c<'d, M> {
         for byte in rest {
             // Wait until we have space in the TX FIFO.
             self.blocking_wait_for_tx_fifo();
-            self.info.regs().mwdatab().write(|w| unsafe { w.value().bits(*byte) });
+            self.info.regs().mwdatab().write(|w| w.set_value(*byte));
         }
 
         self.blocking_wait_for_tx_fifo();
-        self.info.regs().mwdatabe().write(|w| unsafe { w.value().bits(*last) });
+        self.info.regs().mwdatabe().write(|w| w.set_value(*last));
         self.blocking_wait_for_complete();
 
         if send_stop == SendStop::Yes {
@@ -562,13 +529,12 @@ impl<'d> I3c<'d, Async> {
             .wait_cell()
             .wait_for(|| {
                 // enable control done interrupt
-                self.info
-                    .regs()
-                    .mintset()
-                    .write(|w| w.mctrldone().enable().errwarn().enable());
+                self.info.regs().mintset().write(|w| {
+                    w.set_mctrldone(true);
+                    w.set_errwarn(true);
+                });
                 // check control done status
-                self.info.regs().mstatus().read().mctrldone().is_done()
-                    || self.info.regs().mstatus().read().errwarn().is_error()
+                self.info.regs().mstatus().read().mctrldone() || self.info.regs().mstatus().read().errwarn()
             })
             .await
             .map_err(|_| Error::Other)
@@ -579,13 +545,12 @@ impl<'d> I3c<'d, Async> {
             .wait_cell()
             .wait_for(|| {
                 // enable control done interrupt
-                self.info
-                    .regs()
-                    .mintset()
-                    .write(|w| w.complete().enable().errwarn().enable());
+                self.info.regs().mintset().write(|w| {
+                    w.set_complete(true);
+                    w.set_errwarn(true);
+                });
                 // check control done status
-                self.info.regs().mstatus().read().complete().is_complete()
-                    || self.info.regs().mstatus().read().errwarn().is_error()
+                self.info.regs().mstatus().read().complete() || self.info.regs().mstatus().read().errwarn()
             })
             .await
             .map_err(|_| Error::Other)
@@ -597,13 +562,12 @@ impl<'d> I3c<'d, Async> {
             .wait_cell()
             .wait_for(|| {
                 // enable TXNOTFULL interrupt
-                self.info
-                    .regs()
-                    .mintset()
-                    .write(|w| w.txnotfull().set_bit().errwarn().enable());
+                self.info.regs().mintset().write(|w| {
+                    w.set_txnotfull(true);
+                    w.set_errwarn(true);
+                });
                 // if the TX FIFO isn't full, we can write bytes
-                self.info.regs().mstatus().read().txnotfull().is_notfull()
-                    || self.info.regs().mstatus().read().errwarn().is_error()
+                self.info.regs().mstatus().read().txnotfull() || self.info.regs().mstatus().read().errwarn()
             })
             .await
             .map_err(|_| Error::Overwrite)
@@ -614,13 +578,12 @@ impl<'d> I3c<'d, Async> {
             .wait_cell()
             .wait_for(|| {
                 // enable RXPEND interrupt
-                self.info
-                    .regs()
-                    .mintset()
-                    .write(|w| w.rxpend().set_bit().errwarn().enable());
+                self.info.regs().mintset().write(|w| {
+                    w.set_rxpend(true);
+                    w.set_errwarn(true);
+                });
                 // if the rx FIFO is pending, we need to read bytes
-                self.info.regs().mstatus().read().rxpend().is_pending()
-                    || self.info.regs().mstatus().read().errwarn().is_error()
+                self.info.regs().mstatus().read().rxpend() || self.info.regs().mstatus().read().errwarn()
             })
             .await
             .map_err(|_| Error::Overread)
@@ -633,15 +596,12 @@ impl<'d> I3c<'d, Async> {
         self.clear_flags();
 
         self.info.regs().mctrl().write(|w| {
-            unsafe { w.addr().bits(address).rdterm().bits(len) }
-                .type_()
-                .variant(bus_type.into())
-                .request()
-                .emitstartaddr()
-                .dir()
-                .variant(dir.into())
-                .ibiresp()
-                .ack()
+            w.set_addr(address);
+            w.set_rdterm(len);
+            w.set_type_(bus_type.into());
+            w.set_request(Request::EMITSTARTADDR);
+            w.set_dir(dir.into());
+            w.set_ibiresp(Ibiresp::ACK);
         });
 
         self.async_wait_for_ctrldone().await?;
@@ -655,22 +615,21 @@ impl<'d> I3c<'d, Async> {
     /// waiting for the FIFO to become empty ensuring the command was
     /// sent.
     async fn async_stop(&self, bus_type: BusType) -> Result<(), Error> {
-        if !self.info.regs().mstatus().read().state().is_normact() {
+        if self.info.regs().mstatus().read().state() != State::NORMACT {
             Err(Error::InvalidRequest)
         } else {
             // NOTE: Section 41.3.2.1 states that "when sending STOP
             // in I2C mode, MCONFIG[ODSTOP] and MCTRL[TYPE] must be
             // 1".
-            if bus_type == BusType::I2c {
-                self.info.regs().mconfig().modify(|_, w| w.odstop().enable());
-            } else {
-                self.info.regs().mconfig().modify(|_, w| w.odstop().disable());
-            }
-
             self.info
                 .regs()
-                .mctrl()
-                .write(|w| w.request().emitstop().type_().variant(bus_type.into()));
+                .mconfig()
+                .modify(|w| w.set_odstop(bus_type == BusType::I2c));
+
+            self.info.regs().mctrl().write(|w| {
+                w.set_request(Request::EMITSTOP);
+                w.set_type_(bus_type.into());
+            });
             self.async_wait_for_ctrldone().await?;
             self.status()
         }
@@ -698,7 +657,7 @@ impl<'d> I3c<'d, Async> {
 
             for byte in chunk.iter_mut() {
                 self.async_wait_for_rx_fifo().await?;
-                *byte = self.info.regs().mrdatab().read().value().bits();
+                *byte = self.info.regs().mrdatab().read().value();
             }
         }
 
@@ -747,12 +706,12 @@ impl<'d> I3c<'d, Async> {
 
         for byte in rest {
             self.async_wait_for_tx_fifo().await?;
-            self.info.regs().mwdatab().write(|w| unsafe { w.value().bits(*byte) });
+            self.info.regs().mwdatab().write(|w| w.set_value(*byte));
         }
 
         // Wait until we have space in the TX FIFO.
         self.async_wait_for_tx_fifo().await?;
-        self.info.regs().mwdatabe().write(|w| unsafe { w.value().bits(*last) });
+        self.info.regs().mwdatabe().write(|w| w.set_value(*last));
 
         // Wait for complete
         self.async_wait_for_complete().await?;

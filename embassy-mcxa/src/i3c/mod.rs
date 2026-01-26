@@ -58,29 +58,22 @@ impl interrupt::typelevel::Handler<interrupt::typelevel::I3C0> for InterruptHand
     unsafe fn on_interrupt() {
         let status = info().regs().mintmasked().read();
 
-        if status.nowmaster().bit_is_set()
-            || status.complete().bit_is_set()
-            || status.mctrldone().bit_is_set()
-            || status.slvstart().bit_is_set()
-            || status.errwarn().bit_is_set()
-            || status.rxpend().bit_is_set()
-            || status.txnotfull().bit_is_set()
+        if status.nowmaster()
+            || status.complete()
+            || status.mctrldone()
+            || status.slvstart()
+            || status.errwarn()
+            || status.rxpend()
+            || status.txnotfull()
         {
             info().regs().mintclr().write(|w| {
-                w.nowmaster()
-                    .clear_bit_by_one()
-                    .complete()
-                    .clear_bit_by_one()
-                    .mctrldone()
-                    .clear_bit_by_one()
-                    .slvstart()
-                    .clear_bit_by_one()
-                    .errwarn()
-                    .clear_bit_by_one()
-                    .rxpend()
-                    .clear_bit_by_one()
-                    .txnotfull()
-                    .clear_bit_by_one()
+                w.set_nowmaster(true);
+                w.set_complete(true);
+                w.set_mctrldone(true);
+                w.set_slvstart(true);
+                w.set_errwarn(true);
+                w.set_rxpend(true);
+                w.set_txnotfull(true);
             });
 
             info().wait_cell().wake();
@@ -94,7 +87,7 @@ mod sealed {
 }
 
 struct Info {
-    regs: *const pac::i3c0::RegisterBlock,
+    regs: pac::i3c0::I3c0,
     wait_cell: WaitCell,
 }
 
@@ -102,8 +95,8 @@ unsafe impl Sync for Info {}
 
 impl Info {
     #[inline(always)]
-    fn regs(&self) -> &'static pac::i3c0::RegisterBlock {
-        unsafe { &*self.regs }
+    fn regs(&self) -> pac::i3c0::I3c0 {
+        self.regs
     }
 
     #[inline(always)]
@@ -114,7 +107,7 @@ impl Info {
 
 fn info() -> &'static Info {
     static INFO: Info = Info {
-        regs: pac::I3c0::ptr(),
+        regs: pac::I3C0,
         wait_cell: WaitCell::new(),
     };
     &INFO
@@ -154,7 +147,7 @@ macro_rules! impl_pin {
                     self.set_pull(crate::gpio::Pull::Disabled);
                     self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
                     self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
-                    self.set_function(crate::pac::port0::pcr0::Mux::$fn);
+                    self.set_function(crate::pac::port::vals::Mux::$fn);
                     self.set_enable_input_buffer();
                 }
             }
@@ -162,13 +155,13 @@ macro_rules! impl_pin {
     };
 }
 
-// impl_pin!(P0_2, Mux10, PurPin); REVISIT: what is this for?
-impl_pin!(P0_17, Mux10, SclPin);
-impl_pin!(P0_18, Mux10, SdaPin);
-impl_pin!(P1_8, Mux10, SdaPin);
-impl_pin!(P1_9, Mux10, SclPin);
-// impl_pin!(P1_11, Mux10, PurPin); REVISIT: what is this for?
+// impl_pin!(P0_2, MUX10, PurPin); REVISIT: what is this for?
+impl_pin!(P0_17, MUX10, SclPin);
+impl_pin!(P0_18, MUX10, SdaPin);
+impl_pin!(P1_8, MUX10, SdaPin);
+impl_pin!(P1_9, MUX10, SclPin);
+// impl_pin!(P1_11, MUX10, PurPin); REVISIT: what is this for?
 #[cfg(feature = "sosc-as-gpio")]
-impl_pin!(P1_30, Mux10, SdaPin);
+impl_pin!(P1_30, MUX10, SdaPin);
 #[cfg(feature = "sosc-as-gpio")]
-impl_pin!(P1_31, Mux10, SclPin);
+impl_pin!(P1_31, MUX10, SclPin);
