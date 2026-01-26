@@ -8,7 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
-- fix: stm32/i2c v1 slave: async `respond_to_write` and `respond_to_read` now return actual bytes transferred instead of buffer size
+- fix: stm32/i2c v1: `write_read` was losing last write byte before RESTART due to not waiting for BTF
+- fix: stm32/i2c v1: slave: async `respond_to_write` and `respond_to_read` now return actual bytes transferred instead of buffer size
 - fix: don't put USB pins into alternate mode on chips where USB is an additional function
 - feat: add i2s to STM32G4 except G414
 
