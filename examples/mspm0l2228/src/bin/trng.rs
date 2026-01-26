@@ -14,9 +14,12 @@ use {defmt_rtt as _, panic_halt as _};
 async fn main(_spawner: Spawner) -> ! {
     let p = embassy_mspm0::init(Config::default());
 
-    let mut trng = Trng::new_secure(p.TRNG, CryptoDecimRate::Decim6).expect("Failed to initialize RNG");
+    let mut trng = expect!(
+        Trng::new_secure(p.TRNG, CryptoDecimRate::Decim6),
+        "Failed to initialize RNG"
+    );
     // Alternatively, use the default crypto-secure decimation rate (Decim4).
-    // let mut trng = Trng::new(p.TRNG).expect("Failed to initialize RNG");
+    // let mut trng = expect!(Trng::new(p.TRNG), "Failed to initialize RNG");
 
     // A buffer to collect random bytes in.
     let mut randomness = [0u8; 16];
@@ -25,11 +28,11 @@ async fn main(_spawner: Spawner) -> ! {
     led1.set_inversion(true);
 
     loop {
-        trng.try_fill_bytes(&mut randomness[..8]).unwrap();
-        trng.async_read_bytes(&mut randomness[8..]).await.unwrap();
+        unwrap!(trng.try_fill_bytes(&mut randomness[..8]));
+        unwrap!(trng.async_read_bytes(&mut randomness[8..]).await);
         info!("Random bytes {}", &randomness);
-        let random_u32 = trng.try_next_u32().unwrap();
-        let random_u64 = trng.try_next_u64().unwrap();
+        let random_u32 = unwrap!(trng.try_next_u32());
+        let random_u64 = unwrap!(trng.try_next_u64());
         info!("Random u32 {} u64 {}", random_u32, random_u64);
         // Random number of blinks between 0 and 31
         let blinks = random_u32 % 32;
