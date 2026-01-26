@@ -196,6 +196,14 @@ impl<'d, M: PeriMode, IM: MasterMode> I2c<'d, M, IM> {
             self.send_byte(*c, timeout)?;
         }
 
+        // Wait for the last byte to finish transmitting. This is essential even when not sending
+        // STOP - if we're about to send a repeated START (for write_read), we must wait for the
+        // last byte to finish transmitting, otherwise the repeated START will interrupt the
+        // ongoing byte transmission and corrupt the transfer.
+        while !Self::check_and_clear_error_flags(self.info)?.btf() {
+            timeout.check()?;
+        }
+
         if frame.send_stop() {
             // Send a STOP condition
             self.info.regs.cr1().modify(|reg| reg.set_stop(true));
@@ -493,29 +501,32 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
             w.set_dmaen(false);
         });
 
-        if frame.send_stop() {
-            // The I2C transfer itself will take longer than the DMA transfer, so wait for that to finish too.
+        // The I2C transfer itself will take longer than the DMA transfer, so wait for that to finish too.
+        // This is essential even when not sending STOP - if we're about to send a repeated START
+        // (for write_read), we must wait for the last byte to finish transmitting, otherwise the
+        // repeated START will interrupt the ongoing byte transmission and corrupt the transfer.
+        //
+        // 18.3.8 "Master transmitter: In the interrupt routine after the EOT interrupt, disable DMA
+        // requests then wait for a BTF event before programming the Stop condition."
+        poll_fn(|cx| {
+            self.state.waker.register(cx.waker());
 
-            // 18.3.8 “Master transmitter: In the interrupt routine after the EOT interrupt, disable DMA
-            // requests then wait for a BTF event before programming the Stop condition.”
-            poll_fn(|cx| {
-                self.state.waker.register(cx.waker());
-
-                match Self::check_and_clear_error_flags(self.info) {
-                    Err(e) => Poll::Ready(Err(e)),
-                    Ok(sr1) => {
-                        if sr1.btf() {
-                            Poll::Ready(Ok(()))
-                        } else {
-                            // When pending, (re-)enable interrupts to wake us up.
-                            Self::enable_interrupts(self.info);
-                            Poll::Pending
-                        }
+            match Self::check_and_clear_error_flags(self.info) {
+                Err(e) => Poll::Ready(Err(e)),
+                Ok(sr1) => {
+                    if sr1.btf() {
+                        Poll::Ready(Ok(()))
+                    } else {
+                        // When pending, (re-)enable interrupts to wake us up.
+                        Self::enable_interrupts(self.info);
+                        Poll::Pending
                     }
                 }
-            })
-            .await?;
+            }
+        })
+        .await?;
 
+        if frame.send_stop() {
             self.info.regs.cr1().modify(|w| {
                 w.set_stop(true);
             });
@@ -1508,7 +1519,8 @@ impl<'d> I2c<'d, Async, MultiMaster> {
         let mut terminated_by_i2c_event = false;
 
         // Use poll_fn to monitor both DMA and I2C events, allowing us to get the
-        // remaining DMA transfer count when STOP/RESTART is detected
+        // remaining DMA transfer count when STOP/RESTART is detected.
+        // Returns Ok(remaining) where remaining is the DMA NDTR value when termination was detected.
         let result = poll_fn(|cx| {
             state.waker.register(cx.waker());
 
@@ -1523,9 +1535,8 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                     if let Some(termination) = Self::check_slave_termination_conditions(sr1) {
                         match termination {
                             SlaveTermination::Stop | SlaveTermination::Restart => {
-                                // Get the actual bytes received from DMA before it's stopped
+                                // Get DMA remaining count
                                 let remaining = dma_transfer.get_remaining_transfers() as usize;
-                                let received = total_len.saturating_sub(remaining);
 
                                 // Clear the termination flag
                                 match termination {
@@ -1539,9 +1550,11 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                                 terminated_by_i2c_event = true;
                                 trace!(
                                     "I2C slave: receive terminated by {:?}, received {} bytes (remaining {})",
-                                    termination, received, remaining
+                                    termination,
+                                    total_len.saturating_sub(remaining),
+                                    remaining
                                 );
-                                return Poll::Ready(Ok(received));
+                                return Poll::Ready(Ok(remaining));
                             }
                             SlaveTermination::Nack => {
                                 // Unexpected NACK during receive
@@ -1553,7 +1566,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                     // Check if DMA transfer completed (buffer full)
                     if !dma_transfer.is_running() {
                         trace!("I2C slave: DMA receive completed (buffer full)");
-                        return Poll::Ready(Ok(total_len));
+                        return Poll::Ready(Ok(0_usize)); // remaining = 0
                     }
 
                     // Neither condition met, enable interrupts and wait
@@ -1564,9 +1577,19 @@ impl<'d> I2c<'d, Async, MultiMaster> {
         })
         .await;
 
-        // Stop the DMA transfer
+        // Stop the DMA transfer - this releases the borrow on buffer
         drop(dma_transfer);
         Self::disable_dma_and_interrupts(info);
+
+        // Calculate actual bytes received
+        let result = match result {
+            Ok(remaining) => {
+                let received = total_len.saturating_sub(remaining);
+                trace!("I2C slave: receive complete, received {} bytes", received);
+                Ok(received)
+            }
+            Err(e) => Err(e),
+        };
 
         // Only handle excess bytes if DMA completed (buffer full) AND transfer was NOT
         // terminated by STOP/RESTART. If STOP/RESTART occurred, there are no more bytes coming.
