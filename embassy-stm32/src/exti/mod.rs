@@ -12,6 +12,7 @@ use futures_util::FutureExt;
 use crate::gpio::{AnyPin, ExtiPin, Input, Level, Pin as GpioPin, PinNumber, Pull};
 use crate::interrupt::Interrupt as InterruptEnum;
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt as InterruptType};
+use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::EXTI;
 use crate::{Peri, pac};
 
@@ -103,13 +104,31 @@ impl Iterator for BitIter {
 /// EXTI channel, which is a limited resource.
 ///
 /// Pins PA5, PB5, PC5... all use EXTI channel 5, so you can't use EXTI on, say, PA5 and PC5 at the same time.
-pub struct ExtiInput<'d> {
+pub struct ExtiInput<'d, Mode: PeriMode> {
     pin: Input<'d>,
+    _kind: PhantomData<Mode>,
 }
 
-impl<'d> Unpin for ExtiInput<'d> {}
+impl<'d, Mode: PeriMode> Unpin for ExtiInput<'d, Mode> {}
 
-impl<'d> ExtiInput<'d> {
+impl<'d, Mode: PeriMode> ExtiInput<'d, Mode> {
+    /// Get whether the pin is high.
+    pub fn is_high(&self) -> bool {
+        self.pin.is_high()
+    }
+
+    /// Get whether the pin is low.
+    pub fn is_low(&self) -> bool {
+        self.pin.is_low()
+    }
+
+    /// Get the pin level.
+    pub fn get_level(&self) -> Level {
+        self.pin.get_level()
+    }
+}
+
+impl<'d> ExtiInput<'d, Async> {
     /// Create an EXTI input.
     ///
     /// The Binding must bind the Channel's IRQ to [InterruptHandler].
@@ -124,22 +143,8 @@ impl<'d> ExtiInput<'d> {
     ) -> Self {
         Self {
             pin: Input::new(pin, pull),
+            _kind: PhantomData,
         }
-    }
-
-    /// Get whether the pin is high.
-    pub fn is_high(&self) -> bool {
-        self.pin.is_high()
-    }
-
-    /// Get whether the pin is low.
-    pub fn is_low(&self) -> bool {
-        self.pin.is_low()
-    }
-
-    /// Get the pin level.
-    pub fn get_level(&self) -> Level {
-        self.pin.get_level()
     }
 
     /// Asynchronously wait until the pin is high.
@@ -203,7 +208,91 @@ impl<'d> ExtiInput<'d> {
     }
 }
 
-impl<'d> embedded_hal_02::digital::v2::InputPin for ExtiInput<'d> {
+impl<'d> ExtiInput<'d, Blocking> {
+    /// Creates a new EXTI input for use with manual interrupt handling.
+    ///
+    /// This configures and enables the EXTI interrupt for the pin, but does not
+    /// provide async methods for waiting on events. You must provide your own
+    /// interrupt handler to service EXTI events and clear pending flags.
+    ///
+    /// For async/await integration with Embassy's executor, use `ExtiInput<Async>` instead.
+    ///
+    /// # Arguments
+    /// * `pin` - The GPIO pin to use
+    /// * `ch` - The EXTI channel corresponding to the pin (consumed for ownership tracking)
+    /// * `pull` - The pull configuration for the pin
+    /// * `trigger_edge` - The edge triggering mode (falling, rising, or any)
+    ///
+    /// # Returns
+    /// A new `ExtiInput` instance with interrupts enabled
+    pub fn new<T: GpioPin + ExtiPin>(
+        pin: Peri<'d, T>,
+        _ch: Peri<'d, T::ExtiChannel>, // Consumed for ownership tracking
+        pull: Pull,
+        trigger_edge: TriggerEdge,
+    ) -> Self {
+        let pin = Input::new(pin, pull);
+
+        low_level::configure_and_enable_exti(&pin, trigger_edge);
+
+        Self {
+            pin,
+            _kind: PhantomData,
+        }
+    }
+
+    /// Reconfigures the edge detection mode for this pin's EXTI line
+    ///
+    /// This method updates which edges (rising, falling, or any) will trigger
+    /// interrupts for this pin.
+    /// Note that reconfiguring the edge detection will clear any pending
+    /// interrupt flag for this pin.
+    pub fn set_edge_detection(&mut self, trigger_edge: TriggerEdge) {
+        let pin_num = self.pin.pin.pin.pin();
+        let port_num = self.pin.pin.pin.port();
+        low_level::configure_exti_pin(pin_num, port_num, trigger_edge);
+    }
+
+    /// Enables the EXTI interrupt for this pin
+    pub fn enable_interrupt(&mut self) {
+        let pin_num = self.pin.pin.pin.pin();
+        low_level::set_exti_interrupt_enabled(pin_num, InterruptState::Enabled);
+    }
+
+    /// Disables the EXTI interrupt for this pin
+    pub fn disable_interrupt(&mut self) {
+        let pin_num = self.pin.pin.pin.pin();
+        low_level::set_exti_interrupt_enabled(pin_num, InterruptState::Disabled);
+    }
+
+    /// Clears any pending interrupt for this pin
+    ///
+    /// This method clears the pending interrupt flag for the EXTI line
+    /// associated with this pin. This should typically be called from
+    /// the interrupt handler after processing an interrupt.
+    pub fn clear_pending(&mut self) {
+        let pin_num = self.pin.pin.pin.pin();
+        low_level::clear_exti_pending(pin_num);
+    }
+
+    /// Checks if an interrupt is pending for the current pin
+    ///
+    /// This method checks if there is a pending interrupt on the EXTI line
+    /// associated with this pin.
+    ///
+    /// # Returns
+    /// `true` if an interrupt is pending, `false` otherwise
+    pub fn is_pending(&self) -> bool {
+        let pin_num = self.pin.pin.pin.pin();
+        low_level::is_exti_pending(pin_num)
+    }
+
+    fn pin_mask(&self) -> u32 {
+        1 << self.pin.pin.pin.pin()
+    }
+}
+
+impl<'d, Mode: PeriMode> embedded_hal_02::digital::v2::InputPin for ExtiInput<'d, Mode> {
     type Error = Infallible;
 
     fn is_high(&self) -> Result<bool, Self::Error> {
@@ -215,11 +304,11 @@ impl<'d> embedded_hal_02::digital::v2::InputPin for ExtiInput<'d> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::ErrorType for ExtiInput<'d> {
+impl<'d, Mode: PeriMode> embedded_hal_1::digital::ErrorType for ExtiInput<'d, Mode> {
     type Error = Infallible;
 }
 
-impl<'d> embedded_hal_1::digital::InputPin for ExtiInput<'d> {
+impl<'d, Mode: PeriMode> embedded_hal_1::digital::InputPin for ExtiInput<'d, Mode> {
     fn is_high(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_high())
     }
@@ -229,7 +318,7 @@ impl<'d> embedded_hal_1::digital::InputPin for ExtiInput<'d> {
     }
 }
 
-impl<'d> embedded_hal_async::digital::Wait for ExtiInput<'d> {
+impl<'d> embedded_hal_async::digital::Wait for ExtiInput<'d, Async> {
     async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
         self.wait_for_high().await;
         Ok(())

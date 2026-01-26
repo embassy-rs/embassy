@@ -59,7 +59,7 @@ const HTTP_LISTEN_PORT: u16 = 80;
 
 pub type SpeSpi = Spi<'static, Async, Master>;
 pub type SpeSpiCs = ExclusiveDevice<SpeSpi, Output<'static>, Delay>;
-pub type SpeInt = exti::ExtiInput<'static>;
+pub type SpeInt = exti::ExtiInput<'static, Async>;
 pub type SpeRst = Output<'static>;
 pub type Adin1110T = ADIN1110<SpeSpiCs>;
 pub type TempSensI2c = I2c<'static, Async, i2c::Master>;
@@ -127,7 +127,7 @@ async fn main(spawner: Spawner) {
     let spe_cfg1 = Input::new(dp.PC9, Pull::None);
     let _spe_ts_capt = Output::new(dp.PC6, Level::Low, Speed::Low);
 
-    let spe_int = ExtiInput::new(dp.PB11, dp.EXTI11, Pull::None, Irqs);
+    let spe_int = ExtiInput::<Async>::new(dp.PB11, dp.EXTI11, Pull::None, Irqs);
 
     let spe_spi_cs_n = Output::new(dp.PB12, Level::High, Speed::High);
     let spe_spi_sclk = dp.PB13;

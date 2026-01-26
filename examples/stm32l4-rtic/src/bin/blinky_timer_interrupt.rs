@@ -10,7 +10,7 @@ mod app {
     use embassy_stm32::pac;
     use embassy_stm32::peripherals::TIM2;
     use embassy_stm32::time::Hertz;
-    use embassy_stm32::timer::low_level::Timer;
+    use embassy_stm32::timer::low_level::{RoundTo, Timer};
 
     #[shared]
     struct Shared {}
@@ -31,7 +31,8 @@ mod app {
 
         // setup hw timer interrupt using the low_level timer API
         let timer = Timer::new(stm32_peripherals.TIM2);
-        timer.set_frequency(Hertz(10)); // 10Hz = 10 times per second = every 100ms
+        // 10Hz = 10 times per second = every 100ms
+        timer.set_frequency(Hertz(10), RoundTo::Slower);
         timer.enable_update_interrupt(true);
         timer.set_autoreload_preload(true);
         timer.start();

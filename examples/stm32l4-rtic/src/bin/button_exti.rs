@@ -7,9 +7,10 @@ use {defmt_rtt as _, panic_probe as _};
 #[rtic::app(device = embassy_stm32, peripherals = true)]
 mod app {
     use defmt::info;
-    use embassy_stm32::exti::TriggerEdge;
-    use embassy_stm32::exti::blocking::{ExtiGroupMask, ExtiInput};
+    use embassy_stm32::exti::blocking::ExtiGroupMask;
+    use embassy_stm32::exti::{ExtiInput, TriggerEdge};
     use embassy_stm32::gpio::{Level, Output, Pull, Speed};
+    use embassy_stm32::mode::Blocking;
 
     #[shared]
     struct Shared {
@@ -19,9 +20,9 @@ mod app {
 
     #[local]
     struct Local {
-        button1: ExtiInput<'static>,
-        button2: ExtiInput<'static>,
-        button3: ExtiInput<'static>,
+        button1: ExtiInput<'static, Blocking>,
+        button2: ExtiInput<'static, Blocking>,
+        button3: ExtiInput<'static, Blocking>,
         exti_pending_mask_15_10: ExtiGroupMask, // Pre-computed mask for bulk clearing
     }
 
@@ -35,7 +36,7 @@ mod app {
         let led2 = Output::new(stm32_peripherals.PB7, Level::Low, Speed::Low);
 
         // setting up the user-button on the nucleo board (shared exti irq line 10-15)
-        let button1 = ExtiInput::new(
+        let button1 = ExtiInput::<Blocking>::new(
             stm32_peripherals.PC13,
             stm32_peripherals.EXTI13,
             Pull::Down,
@@ -43,7 +44,7 @@ mod app {
         );
 
         // setting up an external button connected to the nucleo board (shared exti irq line 10-15)
-        let button2 = ExtiInput::new(
+        let button2 = ExtiInput::<Blocking>::new(
             stm32_peripherals.PB10,
             stm32_peripherals.EXTI10,
             Pull::Up,
@@ -54,11 +55,11 @@ mod app {
         let exti_pending_mask_15_10 = ExtiGroupMask::new(&[&button1, &button2]);
 
         // setting up an external button connected to the nucleo board (shared exti irq line 5-9)
-        let button3 = ExtiInput::new(
+        let button3 = ExtiInput::<Blocking>::new(
             stm32_peripherals.PC8,
             stm32_peripherals.EXTI8,
             Pull::Up,
-            TriggerEdge::Falling,
+            TriggerEdge::Any,
         );
 
         (
@@ -90,9 +91,12 @@ mod app {
     // Setting up `hardware task` to handle interrupts in the exti group 9-5
     #[task(binds = EXTI9_5, local = [button3], shared = [led2])]
     fn button3_exti_handler(mut ctx: button3_exti_handler::Context) {
-        info!("button3 triggered");
+        let button = ctx.local.button3;
         // clear the interrupt flag
-        ctx.local.button3.clear_pending();
+        button.clear_pending();
+
+        let l = button.get_level();
+        info!("button3 triggered, {}", l);
 
         ctx.shared.led2.lock(|led| led.toggle());
     }

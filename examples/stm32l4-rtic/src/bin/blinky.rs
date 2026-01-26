@@ -5,9 +5,11 @@
 use rtic_monotonics::stm32::prelude::*;
 use {defmt_rtt as _, panic_probe as _};
 
+// Define rtic-monotick type as `Mono` using macro from rtic_monotonics, using the TIM2 clock and
+// with a tick rate of 1MHz
 stm32_tim2_monotonic!(Mono, 1_000_000);
 
-// setting up the RTIC application with a `software task` using the SPI HW interrupt
+// setting up the RTIC application with a `software task` using the SPI1 HW interrupt
 #[rtic::app(device = embassy_stm32, peripherals = true, dispatchers = [SPI1])]
 mod app {
     use defmt::info;
@@ -29,7 +31,7 @@ mod app {
         let timer2_frequency = embassy_stm32::rcc::frequency::<embassy_stm32::peripherals::TIM2>();
         info!("Timer2 clock frequency: {} Hz", timer2_frequency);
 
-        // Initialize the systick interrupt & obtain the token to prove that we did
+        // start the monotick timer
         Mono::start(timer2_frequency.0);
 
         let led = Output::new(stm32_peripherals.PB14, Level::High, Speed::Low);
