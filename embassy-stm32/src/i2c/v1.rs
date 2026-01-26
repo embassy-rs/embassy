@@ -1500,9 +1500,6 @@ impl<'d> I2c<'d, Async, MultiMaster> {
     // === Private Transfer Execution Methods ===
 
     /// Execute complete slave receive transfer with excess byte handling
-    ///
-    /// Note: At lower frequencies (e.g., 100 kHz), the last byte before RESTART may be lost
-    /// due to a timing race condition. See [`respond_to_write`](Self::respond_to_write) for details.
     async fn execute_slave_receive_transfer(
         &mut self,
         buffer: &mut [u8],
