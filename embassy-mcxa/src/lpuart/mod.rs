@@ -5,7 +5,7 @@ use embassy_hal_internal::{Peri, PeripheralType};
 use paste::paste;
 
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel, LpuartConfig};
-use crate::clocks::{ClockError, Gate, PoweredClock, enable_and_reset};
+use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::pac::lpuart0::baud::Sbns as StopBits;
 use crate::pac::lpuart0::ctrl::{Idlecfg as IdleConfig, Ilt as IdleType, M as DataBits, Pt as Parity};
@@ -719,6 +719,7 @@ pub struct LpuartTx<'a, M: Mode> {
     _tx_pin: Peri<'a, AnyPin>,
     _cts_pin: Option<Peri<'a, AnyPin>>,
     mode: PhantomData<(&'a (), M)>,
+    _wg: Option<WakeGuard>,
 }
 
 /// Lpuart Rx driver.
@@ -727,6 +728,7 @@ pub struct LpuartRx<'a, M: Mode> {
     _rx_pin: Peri<'a, AnyPin>,
     _rts_pin: Option<Peri<'a, AnyPin>>,
     mode: PhantomData<(&'a (), M)>,
+    _wg: Option<WakeGuard>,
 }
 
 /// Lpuart TX driver with DMA support.
@@ -735,6 +737,7 @@ pub struct LpuartTxDma<'a, T: Instance, C: DmaChannelTrait> {
     _tx_pin: Peri<'a, AnyPin>,
     tx_dma: DmaChannel<C>,
     _instance: core::marker::PhantomData<T>,
+    _wg: Option<WakeGuard>,
 }
 
 /// Lpuart RX driver with DMA support.
@@ -743,6 +746,7 @@ pub struct LpuartRxDma<'a, T: Instance, C: DmaChannelTrait> {
     _rx_pin: Peri<'a, AnyPin>,
     rx_dma: DmaChannel<C>,
     _instance: core::marker::PhantomData<T>,
+    _wg: Option<WakeGuard>,
 }
 
 /// Lpuart driver with DMA support for both TX and RX.
@@ -768,7 +772,7 @@ impl<'a, M: Mode> Lpuart<'a, M> {
         enable_tx_cts: bool,
         enable_rx_rts: bool,
         config: Config,
-    ) -> Result<()> {
+    ) -> Result<Option<WakeGuard>> {
         // Enable clocks
         let conf = LpuartConfig {
             power: config.power,
@@ -776,12 +780,12 @@ impl<'a, M: Mode> Lpuart<'a, M> {
             div: config.div,
             instance: T::CLOCK_INSTANCE,
         };
-        let clock_freq = unsafe { enable_and_reset::<T>(&conf).map_err(Error::ClockSetup)? };
+        let parts = unsafe { enable_and_reset::<T>(&conf).map_err(Error::ClockSetup)? };
 
         // Perform initialization sequence
         perform_software_reset(T::info());
         disable_transceiver(T::info());
-        configure_baudrate(T::info(), config.baudrate_bps, clock_freq)?;
+        configure_baudrate(T::info(), config.baudrate_bps, parts.freq)?;
         configure_frame_format(T::info(), &config);
         configure_control_settings(T::info(), &config);
         configure_fifo(T::info(), &config);
@@ -790,7 +794,7 @@ impl<'a, M: Mode> Lpuart<'a, M> {
         configure_bit_order(T::info(), config.msb_first);
         enable_transceiver(T::info(), enable_rx, enable_tx);
 
-        Ok(())
+        Ok(parts.wake_guard)
     }
 
     /// Deinitialize the LPUART peripheral
@@ -837,12 +841,12 @@ impl<'a> Lpuart<'a, Blocking> {
         rx_pin.as_rx();
 
         // Initialize the peripheral
-        Self::init::<T>(true, true, false, false, config)?;
+        let _wg = Self::init::<T>(true, true, false, false, config)?;
 
         Ok(Self {
             info: T::info(),
-            tx: LpuartTx::new_inner(T::info(), tx_pin.into(), None),
-            rx: LpuartRx::new_inner(T::info(), rx_pin.into(), None),
+            tx: LpuartTx::new_inner(T::info(), tx_pin.into(), None, _wg.clone()),
+            rx: LpuartRx::new_inner(T::info(), rx_pin.into(), None, _wg),
         })
     }
 
@@ -864,12 +868,12 @@ impl<'a> Lpuart<'a, Blocking> {
         cts_pin.as_cts();
 
         // Initialize the peripheral with flow control
-        Self::init::<T>(true, true, true, true, config)?;
+        let _wg = Self::init::<T>(true, true, true, true, config)?;
 
         Ok(Self {
             info: T::info(),
-            rx: LpuartRx::new_inner(T::info(), rx_pin.into(), Some(rts_pin.into())),
-            tx: LpuartTx::new_inner(T::info(), tx_pin.into(), Some(cts_pin.into())),
+            rx: LpuartRx::new_inner(T::info(), rx_pin.into(), Some(rts_pin.into()), _wg.clone()),
+            tx: LpuartTx::new_inner(T::info(), tx_pin.into(), Some(cts_pin.into()), _wg),
         })
     }
 }
@@ -879,12 +883,18 @@ impl<'a> Lpuart<'a, Blocking> {
 // ----------------------------------------------------------------------------
 
 impl<'a, M: Mode> LpuartTx<'a, M> {
-    fn new_inner(info: &'static Info, tx_pin: Peri<'a, AnyPin>, cts_pin: Option<Peri<'a, AnyPin>>) -> Self {
+    fn new_inner(
+        info: &'static Info,
+        tx_pin: Peri<'a, AnyPin>,
+        cts_pin: Option<Peri<'a, AnyPin>>,
+        _wg: Option<WakeGuard>,
+    ) -> Self {
         Self {
             info,
             _tx_pin: tx_pin,
             _cts_pin: cts_pin,
             mode: PhantomData,
+            _wg,
         }
     }
 }
@@ -902,9 +912,9 @@ impl<'a> LpuartTx<'a, Blocking> {
         tx_pin.as_tx();
 
         // Initialize the peripheral
-        Lpuart::<Blocking>::init::<T>(true, false, false, false, config)?;
+        let _wg = Lpuart::<Blocking>::init::<T>(true, false, false, false, config)?;
 
-        Ok(Self::new_inner(T::info(), tx_pin.into(), None))
+        Ok(Self::new_inner(T::info(), tx_pin.into(), None, _wg))
     }
 
     /// Create a new blocking LPUART transmitter instance with CTS flow control.
@@ -919,9 +929,9 @@ impl<'a> LpuartTx<'a, Blocking> {
         tx_pin.as_tx();
         cts_pin.as_cts();
 
-        Lpuart::<Blocking>::init::<T>(true, false, true, false, config)?;
+        let _wg = Lpuart::<Blocking>::init::<T>(true, false, true, false, config)?;
 
-        Ok(Self::new_inner(T::info(), tx_pin.into(), Some(cts_pin.into())))
+        Ok(Self::new_inner(T::info(), tx_pin.into(), Some(cts_pin.into()), _wg))
     }
 
     fn write_byte_internal(&mut self, byte: u8) -> Result<()> {
@@ -1003,12 +1013,18 @@ impl<'a> LpuartTx<'a, Blocking> {
 // ----------------------------------------------------------------------------
 
 impl<'a, M: Mode> LpuartRx<'a, M> {
-    fn new_inner(info: &'static Info, rx_pin: Peri<'a, AnyPin>, rts_pin: Option<Peri<'a, AnyPin>>) -> Self {
+    fn new_inner(
+        info: &'static Info,
+        rx_pin: Peri<'a, AnyPin>,
+        rts_pin: Option<Peri<'a, AnyPin>>,
+        _wg: Option<WakeGuard>,
+    ) -> Self {
         Self {
             info,
             _rx_pin: rx_pin,
             _rts_pin: rts_pin,
             mode: PhantomData,
+            _wg,
         }
     }
 }
@@ -1024,9 +1040,9 @@ impl<'a> LpuartRx<'a, Blocking> {
     ) -> Result<Self> {
         rx_pin.as_rx();
 
-        Lpuart::<Blocking>::init::<T>(false, true, false, false, config)?;
+        let _wg = Lpuart::<Blocking>::init::<T>(false, true, false, false, config)?;
 
-        Ok(Self::new_inner(T::info(), rx_pin.into(), None))
+        Ok(Self::new_inner(T::info(), rx_pin.into(), None, _wg))
     }
 
     /// Create a new blocking LPUART Receiver instance with RTS flow control.
@@ -1041,9 +1057,9 @@ impl<'a> LpuartRx<'a, Blocking> {
         rx_pin.as_rx();
         rts_pin.as_rts();
 
-        Lpuart::<Blocking>::init::<T>(false, true, false, true, config)?;
+        let _wg = Lpuart::<Blocking>::init::<T>(false, true, false, true, config)?;
 
-        Ok(Self::new_inner(T::info(), rx_pin.into(), Some(rts_pin.into())))
+        Ok(Self::new_inner(T::info(), rx_pin.into(), Some(rts_pin.into()), _wg))
     }
 
     fn read_byte_internal(&mut self) -> Result<u8> {
@@ -1235,7 +1251,7 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartTxDma<'a, T, C> {
         let tx_pin: Peri<'a, AnyPin> = tx_pin.into();
 
         // Initialize LPUART with TX enabled, RX disabled, no flow control
-        Lpuart::<Async>::init::<T>(true, false, false, false, config)?;
+        let _wg = Lpuart::<Async>::init::<T>(true, false, false, false, config)?;
 
         // Enable interrupt
         let tx_dma = DmaChannel::new(tx_dma_ch);
@@ -1246,6 +1262,7 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartTxDma<'a, T, C> {
             _tx_pin: tx_pin,
             tx_dma,
             _instance: core::marker::PhantomData,
+            _wg,
         })
     }
 
@@ -1356,7 +1373,7 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
         let rx_pin: Peri<'a, AnyPin> = rx_pin.into();
 
         // Initialize LPUART with TX disabled, RX enabled, no flow control
-        Lpuart::<Async>::init::<T>(false, true, false, false, config)?;
+        let _wg = Lpuart::<Async>::init::<T>(false, true, false, false, config)?;
 
         // Enable dma interrupt
         let rx_dma = DmaChannel::new(rx_dma_ch);
@@ -1367,6 +1384,7 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
             _rx_pin: rx_pin,
             rx_dma,
             _instance: core::marker::PhantomData,
+            _wg,
         })
     }
 
@@ -1566,7 +1584,7 @@ impl<'a, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> LpuartDma<'a, 
         let rx_pin: Peri<'a, AnyPin> = rx_pin.into();
 
         // Initialize LPUART with both TX and RX enabled, no flow control
-        Lpuart::<Async>::init::<T>(true, true, false, false, config)?;
+        let _wg = Lpuart::<Async>::init::<T>(true, true, false, false, config)?;
 
         // Enable DMA interrupts
         let tx_dma = DmaChannel::new(tx_dma_ch);
@@ -1580,12 +1598,14 @@ impl<'a, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> LpuartDma<'a, 
                 _tx_pin: tx_pin,
                 tx_dma,
                 _instance: core::marker::PhantomData,
+                _wg: _wg.clone(),
             },
             rx: LpuartRxDma {
                 info: T::info(),
                 _rx_pin: rx_pin,
                 rx_dma,
                 _instance: core::marker::PhantomData,
+                _wg,
             },
         })
     }

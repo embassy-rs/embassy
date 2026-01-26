@@ -7,7 +7,7 @@ use maitake_sync::WaitCell;
 use paste::paste;
 
 use crate::clocks::periph_helpers::{AdcClockSel, AdcConfig, Div4};
-use crate::clocks::{ClockError, Gate, PoweredClock, enable_and_reset};
+use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset};
 use crate::gpio::{AnyPin, GpioPin, SealedPin};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
@@ -204,6 +204,7 @@ pub struct Adc<'a, M: Mode> {
     pin: Peri<'a, AnyPin>,
     channel_idx: u8,
     info: &'static Info,
+    _wg: Option<WakeGuard>,
 }
 
 impl<'a> Adc<'a, Blocking> {
@@ -429,7 +430,7 @@ impl<'a, M: Mode> Adc<'a, M> {
         let info = T::info();
         let adc = info.regs();
 
-        _ = unsafe {
+        let parts = unsafe {
             enable_and_reset::<T>(&AdcConfig {
                 power: config.power,
                 source: config.source,
@@ -517,6 +518,7 @@ impl<'a, M: Mode> Adc<'a, M> {
             channel_idx: pin.channel(),
             pin: pin.into(),
             info,
+            _wg: parts.wake_guard,
         })
     }
 

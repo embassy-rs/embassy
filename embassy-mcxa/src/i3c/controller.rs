@@ -8,7 +8,7 @@ use embassy_hal_internal::interrupt::InterruptExt;
 
 use super::{Async, Blocking, Error, Info, InterruptHandler, Mode, SclPin, SdaPin};
 use crate::clocks::periph_helpers::{Div4, I3cClockSel, I3cConfig};
-use crate::clocks::{PoweredClock, enable_and_reset};
+use crate::clocks::{PoweredClock, WakeGuard, enable_and_reset};
 use crate::gpio::{AnyPin, SealedPin};
 pub use crate::i2c::controller::Speed;
 use crate::interrupt::typelevel;
@@ -99,6 +99,7 @@ pub struct I3c<'d, M: Mode> {
     _scl: Peri<'d, AnyPin>,
     _sda: Peri<'d, AnyPin>,
     fclk: u32,
+    _wg: Option<WakeGuard>,
     _phantom: PhantomData<M>,
 }
 
@@ -114,7 +115,7 @@ impl<'d, M: Mode> I3c<'d, M> {
         // Enable clocks
         let conf = I3cConfig { power, source, div };
 
-        let fclk = unsafe { enable_and_reset::<I3C0>(&conf).map_err(Error::ClockSetup)? };
+        let parts = unsafe { enable_and_reset::<I3C0>(&conf).map_err(Error::ClockSetup)? };
 
         scl.mux();
         sda.mux();
@@ -126,7 +127,8 @@ impl<'d, M: Mode> I3c<'d, M> {
             info: super::info(),
             _scl,
             _sda,
-            fclk,
+            fclk: parts.freq,
+            _wg: parts.wake_guard,
             _phantom: PhantomData,
         };
 

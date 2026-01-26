@@ -9,7 +9,7 @@ use mcxa_pac::lpi2c0::mtdr::Cmd;
 
 use super::{Async, Blocking, Error, Info, Instance, InterruptHandler, Mode, Result, SclPin, SdaPin};
 use crate::clocks::periph_helpers::{Div4, Lpi2cClockSel, Lpi2cConfig};
-use crate::clocks::{PoweredClock, enable_and_reset};
+use crate::clocks::{PoweredClock, WakeGuard, enable_and_reset};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel::Interrupt;
 
@@ -75,6 +75,7 @@ pub struct I2c<'d, M: Mode> {
     _sda: Peri<'d, AnyPin>,
     _phantom: PhantomData<M>,
     is_hs: bool,
+    _wg: Option<WakeGuard>,
 }
 
 impl<'d> I2c<'d, Blocking> {
@@ -108,7 +109,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             instance: T::CLOCK_INSTANCE,
         };
 
-        _ = unsafe { enable_and_reset::<T>(&conf).map_err(Error::ClockSetup)? };
+        let parts = unsafe { enable_and_reset::<T>(&conf).map_err(Error::ClockSetup)? };
 
         scl.mux();
         sda.mux();
@@ -122,6 +123,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             _sda,
             _phantom: PhantomData,
             is_hs: config.speed == Speed::UltraFast,
+            _wg: parts.wake_guard,
         };
 
         inst.set_configuration(&config)?;

@@ -36,13 +36,14 @@
 //!    necessary input clocks are reasonable
 
 use core::cell::RefCell;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use config::{
     ClocksConfig, FircConfig, FircFreqSel, Fro16KConfig, MainClockSource, SircConfig, VddDriveStrength, VddLevel,
 };
 use mcxa_pac::scg0::firccsr::{FircFclkPeriphEn, FircSclkPeriphEn, Fircsten};
 use mcxa_pac::scg0::sirccsr::Sircsten;
-use periph_helpers::SPConfHelper;
+use periph_helpers::{PreEnableParts, SPConfHelper};
 
 use crate::pac;
 pub mod config;
@@ -68,6 +69,7 @@ const VDD_CORE_OVER_DRIVE_MAX_WAIT_STATES: u8 = 0b0100;
 ///
 /// Initialized by [`init()`], and then unchanged for the remainder of the program.
 static CLOCKS: critical_section::Mutex<RefCell<Option<Clocks>>> = critical_section::Mutex::new(RefCell::new(None));
+static LIVE_HP_TOKENS: AtomicUsize = AtomicUsize::new(0);
 
 //
 // Free functions
@@ -150,6 +152,55 @@ pub fn with_clocks<R: 'static, F: FnOnce(&Clocks) -> R>(f: F) -> Option<R> {
 //
 // Structs/Enums
 //
+
+/// A guard that will inhibit the device from entering deep sleep while
+/// it exists.
+#[must_use = "Wake Guard must be kept in order to prevent deep sleep"]
+pub struct WakeGuard {
+    _x: (),
+}
+
+impl WakeGuard {
+    /// Create a new wake guard, that increments the "live high power token" counts.
+    ///
+    /// This is typically used by HAL drivers (when a peripheral is clocked from an
+    /// active-mode-only source) to inhibit sleep, OR by application code to prevent
+    /// deep sleep as well.
+    pub fn new() -> Self {
+        _ = LIVE_HP_TOKENS.fetch_add(1, Ordering::AcqRel);
+        Self { _x: () }
+    }
+
+    /// Helper method to potentially create a guard if necessary for a clock.
+    pub fn for_power(level: &PoweredClock) -> Option<Self> {
+        match level {
+            PoweredClock::NormalEnabledDeepSleepDisabled => Some(Self::new()),
+            PoweredClock::AlwaysEnabled => None,
+        }
+    }
+}
+
+impl Clone for WakeGuard {
+    fn clone(&self) -> Self {
+        // NOTE: Call load-bearing-new to clone, DO NOT just use the derive to
+        // copy the ZST!
+        Self::new()
+    }
+}
+
+impl Default for WakeGuard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for WakeGuard {
+    fn drop(&mut self) {
+        let old = LIVE_HP_TOKENS.fetch_sub(1, Ordering::AcqRel);
+        // Ensure we didn't just underflow.
+        assert!(old != 0);
+    }
+}
 
 /// The `Clocks` structure contains the initialized state of the core system clocks
 ///
@@ -427,7 +478,7 @@ pub trait Gate {
 ///
 /// This peripheral must not yet be in use prior to calling `enable_and_reset`.
 #[inline]
-pub unsafe fn enable_and_reset<G: Gate>(cfg: &G::MrccPeriphConfig) -> Result<u32, ClockError> {
+pub unsafe fn enable_and_reset<G: Gate>(cfg: &G::MrccPeriphConfig) -> Result<PreEnableParts, ClockError> {
     unsafe {
         let freq = enable::<G>(cfg)?;
         pulse_reset::<G>();
@@ -446,7 +497,7 @@ pub unsafe fn enable_and_reset<G: Gate>(cfg: &G::MrccPeriphConfig) -> Result<u32
 ///
 /// This peripheral must not yet be in use prior to calling `enable`.
 #[inline]
-pub unsafe fn enable<G: Gate>(cfg: &G::MrccPeriphConfig) -> Result<u32, ClockError> {
+pub unsafe fn enable<G: Gate>(cfg: &G::MrccPeriphConfig) -> Result<PreEnableParts, ClockError> {
     unsafe {
         // Instead of checking, just disable the clock if it is currently enabled.
         G::disable_clock();

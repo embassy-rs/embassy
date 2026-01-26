@@ -7,9 +7,27 @@
 //!
 //! See the docs of [`SPConfHelper`] for more details.
 
-use super::{ClockError, Clocks, PoweredClock};
+use super::{ClockError, Clocks, PoweredClock, WakeGuard};
 use crate::clocks::config::VddLevel;
 use crate::pac;
+
+#[must_use]
+pub struct PreEnableParts {
+    /// The frequency fed into the peripheral, taking into account the selected
+    /// source clock, as well as any pre-divisors.
+    pub freq: u32,
+    /// The wake guard, if necessary for the selected clock source
+    pub wake_guard: Option<WakeGuard>,
+}
+
+impl PreEnableParts {
+    pub fn empty() -> Self {
+        Self {
+            freq: 0,
+            wake_guard: None,
+        }
+    }
+}
 
 /// Sealed Peripheral Configuration Helper
 ///
@@ -36,10 +54,8 @@ pub trait SPConfHelper {
     /// This function WILL be called in a critical section, care should be taken not to delay
     /// for an unreasonable amount of time.
     ///
-    /// On success, this function MUST return an `Ok(freq)`, where `freq` is the frequency
-    /// fed into the peripheral, taking into account the selected source clock, as well as
-    /// any pre-divisors.
-    fn pre_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError>;
+    /// On success, this function MUST return an `Ok(parts)`.
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError>;
 }
 
 /// Copy and paste macro that:
@@ -52,8 +68,9 @@ pub trait SPConfHelper {
 ///
 /// Assumes:
 ///
-/// * self is a configuration struct that has a field called `div`, which
-///   is a `Div4`
+/// * self is a configuration struct that has fields called:
+///   * `div`, which is a `Div4`
+///   * `power`, which is a `PoweredClock`
 ///
 /// usage:
 ///
@@ -82,7 +99,10 @@ macro_rules! apply_div4 {
 
         while $divreg.read().unstab().is_unstable() {}
 
-        Ok($freq / $conf.div.into_divisor())
+        Ok(PreEnableParts {
+            freq: $freq / $conf.div.into_divisor(),
+            wake_guard: WakeGuard::for_power(&$conf.power),
+        })
     }};
 }
 
@@ -148,19 +168,19 @@ impl Div4 {
 pub struct UnimplementedConfig;
 
 impl SPConfHelper for UnimplementedConfig {
-    fn pre_enable_config(&self, _clocks: &Clocks) -> Result<u32, ClockError> {
+    fn pre_enable_config(&self, _clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
         Err(ClockError::UnimplementedConfig)
     }
 }
 
-/// A basic type that always returns `Ok(0)` when `post_enable_config` is called.
+/// A basic type that always returns `Ok` when `PreEnableParts` is called.
 ///
 /// This should only be used for peripherals that are "ambiently" clocked, like `PORTn`
 /// peripherals, which have no selectable/configurable source clock.
 pub struct NoConfig;
 impl SPConfHelper for NoConfig {
-    fn pre_enable_config(&self, _clocks: &Clocks) -> Result<u32, ClockError> {
-        Ok(0)
+    fn pre_enable_config(&self, _clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
+        Ok(PreEnableParts::empty())
     }
 }
 
@@ -197,7 +217,7 @@ pub struct I3cConfig {
 }
 
 impl SPConfHelper for I3cConfig {
-    fn pre_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
         // Always 25MHz maximum frequency.
         const I3C_FCLK_MAX: u32 = 25_000_000;
         // check that source is suitable
@@ -228,7 +248,7 @@ impl SPConfHelper for I3cConfig {
                 // no ClkrootFunc7, just write manually for now
                 clksel.write(|w| w.bits(0b111));
                 clkdiv.modify(|_r, w| w.reset().asserted().halt().asserted());
-                return Ok(0);
+                return Ok(PreEnableParts::empty());
             },
         };
 
@@ -297,7 +317,7 @@ pub struct Lpi2cConfig {
 }
 
 impl SPConfHelper for Lpi2cConfig {
-    fn pre_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
         // check that source is suitable
         let mrcc0 = unsafe { pac::Mrcc0::steal() };
         use mcxa_pac::mrcc0::mrcc_lpi2c0_clksel::Mux;
@@ -335,7 +355,7 @@ impl SPConfHelper for Lpi2cConfig {
                 // no ClkrootFunc7, just write manually for now
                 clksel.write(|w| w.bits(0b111));
                 clkdiv.modify(|_r, w| w.reset().asserted().halt().asserted());
-                return Ok(0);
+                return Ok(PreEnableParts::empty());
             },
         };
         let div = self.div.into_divisor();
@@ -416,7 +436,7 @@ pub struct LpuartConfig {
 }
 
 impl SPConfHelper for LpuartConfig {
-    fn pre_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
         // check that source is suitable
         let mrcc0 = unsafe { pac::Mrcc0::steal() };
         use mcxa_pac::mrcc0::mrcc_lpuart0_clksel::Mux;
@@ -464,7 +484,7 @@ impl SPConfHelper for LpuartConfig {
                     w.halt().asserted();
                     w
                 });
-                return Ok(0);
+                return Ok(PreEnableParts::empty());
             },
         };
 
@@ -512,7 +532,7 @@ pub struct OsTimerConfig {
 }
 
 impl SPConfHelper for OsTimerConfig {
-    fn pre_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
         let mrcc0 = unsafe { pac::Mrcc0::steal() };
         // NOTE: complies with 22.3.2 peripheral clock max functional clock limits
         // which is 1MHz, and we can only select 1mhz/16khz.
@@ -520,16 +540,22 @@ impl SPConfHelper for OsTimerConfig {
             OstimerClockSel::Clk16kVddCore => {
                 let freq = clocks.ensure_clk_16k_vdd_core_active(&self.power)?;
                 mrcc0.mrcc_ostimer0_clksel().write(|w| w.mux().clkroot_16k());
-                freq
+                PreEnableParts {
+                    freq,
+                    wake_guard: WakeGuard::for_power(&self.power),
+                }
             }
             OstimerClockSel::Clk1M => {
                 let freq = clocks.ensure_clk_1m_active(&self.power)?;
                 mrcc0.mrcc_ostimer0_clksel().write(|w| w.mux().clkroot_1m());
-                freq
+                PreEnableParts {
+                    freq,
+                    wake_guard: WakeGuard::for_power(&self.power),
+                }
             }
             OstimerClockSel::None => {
                 mrcc0.mrcc_ostimer0_clksel().write(|w| unsafe { w.mux().bits(0b11) });
-                0
+                PreEnableParts::empty()
             }
         })
     }
@@ -569,7 +595,7 @@ pub struct AdcConfig {
 }
 
 impl SPConfHelper for AdcConfig {
-    fn pre_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
         use mcxa_pac::mrcc0::mrcc_adc_clksel::Mux;
         let mrcc0 = unsafe { pac::Mrcc0::steal() };
         let (freq, variant) = match self.source {
@@ -604,7 +630,7 @@ impl SPConfHelper for AdcConfig {
                     w.halt().asserted();
                     w
                 });
-                return Ok(0);
+                return Ok(PreEnableParts::empty());
             }
         };
         let clksel = mrcc0.mrcc_adc_clksel();

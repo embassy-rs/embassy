@@ -10,7 +10,7 @@ use embassy_hal_internal::Peri;
 
 use crate::clocks::config::VddLevel;
 pub use crate::clocks::periph_helpers::Div4;
-use crate::clocks::{ClockError, PoweredClock, with_clocks};
+use crate::clocks::{ClockError, PoweredClock, WakeGuard, with_clocks};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::pac::mrcc0::mrcc_clkout_clksel::Mux;
 use crate::peripherals::CLKOUT;
@@ -20,6 +20,7 @@ pub struct ClockOut<'a> {
     _p: PhantomData<&'a mut CLKOUT>,
     pin: Peri<'a, AnyPin>,
     freq: u32,
+    _wg: Option<WakeGuard>,
 }
 
 /// Selected clock source to output
@@ -62,7 +63,7 @@ impl<'a> ClockOut<'a> {
         cfg: Config,
     ) -> Result<Self, ClockError> {
         // There's no MRCC enable bit, so we check the validity of the clocks here
-        let (freq, mux) = check_sel(cfg.sel, cfg.level, cfg.div.into_divisor())?;
+        let (freq, mux, _wg) = check_sel(cfg.sel, cfg.level, cfg.div.into_divisor())?;
 
         // All good! Apply requested config, starting with the pin.
         pin.mux();
@@ -73,6 +74,7 @@ impl<'a> ClockOut<'a> {
             _p: PhantomData,
             pin: pin.into(),
             freq: freq / cfg.div.into_divisor(),
+            _wg,
         })
     }
 
@@ -91,7 +93,7 @@ impl Drop for ClockOut<'_> {
 }
 
 /// Check whether the given clock selection is valid
-fn check_sel(sel: ClockOutSel, level: PoweredClock, divisor: u32) -> Result<(u32, Mux), ClockError> {
+fn check_sel(sel: ClockOutSel, level: PoweredClock, divisor: u32) -> Result<(u32, Mux, Option<WakeGuard>), ClockError> {
     let res = with_clocks(|c| {
         let (freq, mux) = match sel {
             ClockOutSel::Fro12M => (c.ensure_fro_hf_active(&level)?, Mux::Clkroot12m),
@@ -114,7 +116,8 @@ fn check_sel(sel: ClockOutSel, level: PoweredClock, divisor: u32) -> Result<(u32
                 reason: "exceeds fclk max",
             })
         } else {
-            Ok((freq, mux))
+            let wg = WakeGuard::for_power(&level);
+            Ok((freq, mux, wg))
         }
     });
     let Some(res) = res else {

@@ -42,6 +42,7 @@ pub struct Trng<'d, M: Mode> {
 
 impl<'d, M: Mode> Trng<'d, M> {
     fn new_inner(_peri: Peri<'d, TRNG0>, config: Config) -> Self {
+        // No clock: No WakeGuard!
         _ = unsafe { enable_and_reset::<TRNG0>(&NoConfig) };
 
         Self::configure(config);
