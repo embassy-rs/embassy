@@ -11,9 +11,9 @@
 use embassy_hal_internal::Peri;
 use embassy_hal_internal::interrupt::InterruptExt;
 
-use crate::interrupt::typelevel;
-use crate::interrupt::typelevel::Handler;
-use crate::pac;
+use crate::interrupt::typelevel::{self, Handler};
+use crate::pac::cdog::vals::{Ctrl, DebugHaltCtrl, IrqPause, LockCtrl};
+use crate::pac::{self};
 use crate::peripherals::CDOG0;
 
 /// Shorthand for `Result<T>`.
@@ -40,6 +40,16 @@ pub enum FaultControl {
     #[default]
     /// Disable both reset and interrupt
     DisableBoth = 4,
+}
+
+impl From<FaultControl> for Ctrl {
+    fn from(val: FaultControl) -> Self {
+        match val {
+            FaultControl::EnableReset => Ctrl::ENABLE_RESET,
+            FaultControl::EnableInterrupt => Ctrl::ENABLE_INTERRUPT,
+            FaultControl::DisableBoth => Ctrl::DISABLE_BOTH,
+        }
+    }
 }
 
 /// Timer pause control during special conditions.
@@ -89,7 +99,7 @@ pub struct Config {
 pub struct Watchdog<'d> {
     _peri: Peri<'d, CDOG0>,
     // The register block of the CDOG instance
-    info: &'static pac::cdog0::RegisterBlock,
+    info: pac::cdog::Cdog,
     /// Software-tracked secure counter value
     secure_counter: u32,
 }
@@ -110,7 +120,7 @@ impl<'d> Watchdog<'d> {
         _irq: impl crate::interrupt::typelevel::Binding<typelevel::CDOG0, InterruptHandler> + 'd,
         config: Config,
     ) -> Result<Self> {
-        let info = unsafe { &*pac::Cdog0::ptr() };
+        let info = pac::CDOG0;
 
         // Ensure that CDOG is in IDLE mode otherwise writing to CONTROL register will trigger a fault.
         if info.status().read().curst() == 0xA {
@@ -121,97 +131,42 @@ impl<'d> Watchdog<'d> {
         // The clearing method depends on whether the module is locked:
         // - Unlocked (LOCK_CTRL = 10b): Write flag values directly
         // - Locked (LOCK_CTRL = 01b): Write '1' to clear individual flags
-        if info.control().read().lock_ctrl().is_locked() {
-            // Locked mode: write '1' to clear each flag
-            info.flags().write(|w| {
-                w.to_flag()
-                    .flag()
-                    .miscom_flag()
-                    .flag()
-                    .seq_flag()
-                    .flag()
-                    .cnt_flag()
-                    .flag()
-                    .state_flag()
-                    .flag()
-                    .addr_flag()
-                    .flag()
-                    .por_flag()
-                    .flag()
-            });
-        } else {
-            info.flags().write(|w| {
-                // Locked mode: write '0' to clear each flag
-                w.to_flag()
-                    .no_flag()
-                    .miscom_flag()
-                    .no_flag()
-                    .seq_flag()
-                    .no_flag()
-                    .cnt_flag()
-                    .no_flag()
-                    .state_flag()
-                    .no_flag()
-                    .addr_flag()
-                    .no_flag()
-                    .por_flag()
-                    .no_flag()
-            });
-        }
+        let b = info.control().read().lock_ctrl() == LockCtrl::LOCKED;
+        // Locked mode: write '1' to clear each flag
+        info.flags().write(|w| {
+            w.set_to_flag(b);
+            w.set_miscom_flag(b);
+            w.set_seq_flag(b);
+            w.set_cnt_flag(b);
+            w.set_state_flag(b);
+            w.set_addr_flag(b);
+            w.set_por_flag(b);
+        });
 
         // Configure CONTROL register with the provided config
         info.control().write(|w| {
-            // Timeout control
-            match config.timeout {
-                FaultControl::EnableReset => w.timeout_ctrl().enable_reset(),
-                FaultControl::EnableInterrupt => w.timeout_ctrl().enable_interrupt(),
-                FaultControl::DisableBoth => w.timeout_ctrl().disable_both(),
-            };
-
-            // Miscompare control
-            match config.miscompare {
-                FaultControl::EnableReset => w.miscompare_ctrl().enable_reset(),
-                FaultControl::EnableInterrupt => w.miscompare_ctrl().enable_interrupt(),
-                FaultControl::DisableBoth => w.miscompare_ctrl().disable_both(),
-            };
-
-            // Sequence control
-            match config.sequence {
-                FaultControl::EnableReset => w.sequence_ctrl().enable_reset(),
-                FaultControl::EnableInterrupt => w.sequence_ctrl().enable_interrupt(),
-                FaultControl::DisableBoth => w.sequence_ctrl().disable_both(),
-            };
-
-            // State control
-            match config.state {
-                FaultControl::EnableReset => w.state_ctrl().enable_reset(),
-                FaultControl::EnableInterrupt => w.state_ctrl().enable_interrupt(),
-                FaultControl::DisableBoth => w.state_ctrl().disable_both(),
-            };
-
-            // Address control
-            match config.address {
-                FaultControl::EnableReset => w.address_ctrl().enable_reset(),
-                FaultControl::EnableInterrupt => w.address_ctrl().enable_interrupt(),
-                FaultControl::DisableBoth => w.address_ctrl().disable_both(),
-            };
+            w.set_timeout_ctrl(config.timeout.into());
+            w.set_miscompare_ctrl(config.miscompare.into());
+            w.set_sequence_ctrl(config.sequence.into());
+            w.set_state_ctrl(config.state.into());
+            w.set_address_ctrl(config.address.into());
 
             // IRQ pause control
             match config.irq_pause {
-                PauseControl::RunTimer => w.irq_pause().run_timer(),
-                PauseControl::PauseTimer => w.irq_pause().pause_timer(),
+                PauseControl::RunTimer => w.set_irq_pause(IrqPause::RUN_TIMER),
+                PauseControl::PauseTimer => w.set_irq_pause(IrqPause::PAUSE_TIMER),
             };
 
             // Debug halt control
             match config.debug_halt {
-                PauseControl::RunTimer => w.debug_halt_ctrl().run_timer(),
-                PauseControl::PauseTimer => w.debug_halt_ctrl().pause_timer(),
+                PauseControl::RunTimer => w.set_debug_halt_ctrl(DebugHaltCtrl::RUN_TIMER),
+                PauseControl::PauseTimer => w.set_debug_halt_ctrl(DebugHaltCtrl::PAUSE_TIMER),
             };
 
             // Lock control
             match config.lock {
-                LockControl::Locked => w.lock_ctrl().locked(),
-                LockControl::Unlocked => w.lock_ctrl().unlocked(),
+                LockControl::Locked => w.set_lock_ctrl(LockCtrl::LOCKED),
+                LockControl::Unlocked => w.set_lock_ctrl(LockCtrl::UNLOCKED),
             }
         });
 
@@ -221,8 +176,8 @@ impl<'d> Watchdog<'d> {
         unsafe { crate::pac::Interrupt::CDOG0.enable() };
 
         Ok(Self {
-            _peri: _peri,
-            info: info,
+            _peri,
+            info,
             secure_counter: 0,
         })
     }
@@ -246,13 +201,9 @@ impl<'d> Watchdog<'d> {
         self.secure_counter = secure_counter_value;
 
         // Set the instruction timer reload value (timeout period)
-        self.info
-            .reload()
-            .write(|w| unsafe { w.rload().bits(instruction_timer_value) });
+        self.info.reload().write(|w| w.set_rload(instruction_timer_value));
         // Start the watchdog with initial secure counter value
-        self.info
-            .start()
-            .write(|w| unsafe { w.strt().bits(secure_counter_value) });
+        self.info.start().write(|w| w.set_strt(secure_counter_value));
     }
 
     /// Adds a value to the secure counter.
@@ -261,7 +212,7 @@ impl<'d> Watchdog<'d> {
     /// * `add` - Value to add to the secure counter
     pub fn add(&mut self, add: u32) {
         self.secure_counter = self.secure_counter.wrapping_add(add);
-        self.info.add().write(|w| unsafe { w.ad().bits(add) });
+        self.info.add().write(|w| w.set_ad(add));
     }
 
     // Subtracts a value from the secure counter.
@@ -270,7 +221,7 @@ impl<'d> Watchdog<'d> {
     /// * `sub` - Value to subtract from the secure counter
     pub fn sub(&mut self, sub: u32) {
         self.secure_counter = self.secure_counter.wrapping_sub(sub);
-        self.info.sub().write(|w| unsafe { w.sb().bits(sub) });
+        self.info.sub().write(|w| w.set_sb(sub));
     }
 
     /// Checks the secure counter value and restarts the watchdog.
@@ -286,12 +237,10 @@ impl<'d> Watchdog<'d> {
     /// depending on configuration.
     pub fn check(&mut self, check: u32) {
         self.secure_counter = check;
-        self.info.stop().write(|w| unsafe { w.stp().bits(self.secure_counter) });
-        let reload = self.info.reload().read().rload().bits();
-        self.info.reload().write(|w| unsafe { w.rload().bits(reload) });
-        self.info
-            .start()
-            .write(|w| unsafe { w.strt().bits(self.secure_counter) });
+        self.info.stop().write(|w| w.set_stp(self.secure_counter));
+        let reload = self.info.reload().read().rload();
+        self.info.reload().write(|w| w.set_rload(reload));
+        self.info.start().write(|w| w.set_strt(self.secure_counter));
     }
 
     /// Stops the watchdog timer.
@@ -300,7 +249,7 @@ impl<'d> Watchdog<'d> {
     /// This is a private method. The watchdog is stopped by writing the
     /// current secure counter value to the STOP register.
     fn stop(&mut self) {
-        self.info.stop().write(|w| unsafe { w.stp().bits(self.secure_counter) });
+        self.info.stop().write(|w| w.set_stp(self.secure_counter));
     }
 
     /// Reads the current instruction timer value.
@@ -308,7 +257,7 @@ impl<'d> Watchdog<'d> {
     /// # Returns
     /// Current countdown value of the instruction timer.
     pub fn get_instruction_timer(&self) -> u32 {
-        self.info.instruction_timer().read().instim().bits()
+        self.info.instruction_timer().read().instim()
     }
 
     // Gets the current secure counter value.
@@ -324,9 +273,7 @@ impl<'d> Watchdog<'d> {
     /// # Arguments
     /// * `instruction_timer_value` - New timeout period in clock cycles
     pub fn update_instruction_timer(&mut self, instruction_timer_value: u32) {
-        self.info
-            .reload()
-            .write(|w| unsafe { w.rload().bits(instruction_timer_value) });
+        self.info.reload().write(|w| w.set_rload(instruction_timer_value));
     }
 
     /// Sets a persistent value in the CDOG peripheral.
@@ -336,7 +283,7 @@ impl<'d> Watchdog<'d> {
     /// # Arguments
     /// * `value` - The 32-bit value to store in the persistent register
     pub fn set_persistent_value(&mut self, value: u32) {
-        self.info.persistent().write(|w| unsafe { w.persis().bits(value) });
+        self.info.persistent().write(|w| w.set_persis(value));
     }
 
     /// Gets the persistent value from the CDOG peripheral.
@@ -344,7 +291,7 @@ impl<'d> Watchdog<'d> {
     /// # Returns
     /// The 32-bit value stored in the persistent register
     pub fn get_persistent_value(&self) -> u32 {
-        self.info.persistent().read().persis().bits()
+        self.info.persistent().read().persis()
     }
 }
 
@@ -357,36 +304,16 @@ pub struct InterruptHandler;
 impl Handler<typelevel::CDOG0> for InterruptHandler {
     unsafe fn on_interrupt() {
         crate::perf_counters::incr_interrupt_cdog0();
-        let cdog0 = unsafe { &*pac::Cdog0::ptr() };
+        let cdog0 = pac::CDOG0;
 
         // Print all flags at once using the Debug implementation
         #[cfg(feature = "defmt")]
-        {
-            // Read the flags register
-            let flags = cdog0.flags().read();
-
-            defmt::trace!(
-                "CDOG0 flags - Timeout_flag: {},
-                Miscompare fault: {},
-                Sequence fault: {},
-                Control fault: {},
-                State fault: {},
-                Address fault: {},
-                Power-on reset: {}",
-                flags.to_flag().bit(),
-                flags.miscom_flag().bit(),
-                flags.seq_flag().bit(),
-                flags.cnt_flag().bit(),
-                flags.state_flag().bit(),
-                flags.addr_flag().bit(),
-                flags.por_flag().bit()
-            );
-        }
+        defmt::trace!("CDOG0 flags {}", cdog0.flags().read());
 
         // Stop the cdog
-        cdog0.stop().write(|w| unsafe { w.stp().bits(0) });
+        cdog0.stop().write(|w| w.set_stp(0));
 
-        //Clear all flags by writing 0
-        unsafe { cdog0.flags().write_with_zero(|w| w) };
+        // Clear all flags by writing 0
+        cdog0.flags().write(|w| w.0 = 0);
     }
 }

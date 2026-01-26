@@ -4,8 +4,6 @@ use core::marker::PhantomData;
 use core::ops::Range;
 
 use embassy_hal_internal::Peri;
-use mcxa_pac::lpi2c0::scfgr1::Addrcfg;
-use mcxa_pac::lpi2c0::sier::{Gcie, Sarie};
 
 use super::{Async, Blocking, Info, Instance, Mode, SclPin, SdaPin};
 pub use crate::clocks::PoweredClock;
@@ -14,6 +12,7 @@ use crate::clocks::{ClockError, WakeGuard, enable_and_reset};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
+use crate::pac::lpi2c::vals::{Addrcfg, Filtdz, ScrRrf, ScrRtf};
 
 /// Errors exclusive to hardware Initialization
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -53,32 +52,20 @@ pub struct InterruptHandler<T: Instance> {
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         T::PERF_INT_INCR();
-        if T::info().regs().sier().read().bits() != 0 {
+        if T::info().regs().sier().read().0 != 0 {
             T::info().regs().sier().write(|w| {
-                w.tdie()
-                    .disabled()
-                    .rdie()
-                    .disabled()
-                    .avie()
-                    .disabled()
-                    .taie()
-                    .disabled()
-                    .rsie()
-                    .disabled()
-                    .sdie()
-                    .disabled()
-                    .beie()
-                    .disabled()
-                    .feie()
-                    .disabled()
-                    .am0ie()
-                    .disabled()
-                    .am1ie()
-                    .disabled()
-                    .gcie()
-                    .disabled()
-                    .sarie()
-                    .disabled()
+                w.set_tdie(false);
+                w.set_rdie(false);
+                w.set_avie(false);
+                w.set_taie(false);
+                w.set_rsie(false);
+                w.set_sdie(false);
+                w.set_beie(false);
+                w.set_feie(false);
+                w.set_am0ie(false);
+                w.set_am1ie(false);
+                w.set_gcie(false);
+                w.set_sarie(false);
             });
 
             T::PERF_INT_WAKE_INCR();
@@ -112,20 +99,11 @@ pub enum Status {
     Enabled,
 }
 
-impl From<Status> for Sarie {
+impl From<Status> for bool {
     fn from(value: Status) -> Self {
         match value {
-            Status::Disabled => Self::Disabled,
-            Status::Enabled => Self::Enabled,
-        }
-    }
-}
-
-impl From<Status> for Gcie {
-    fn from(value: Status) -> Self {
-        match value {
-            Status::Disabled => Self::Disabled,
-            Status::Enabled => Self::Enabled,
+            Status::Disabled => false,
+            Status::Enabled => true,
         }
     }
 }
@@ -257,35 +235,35 @@ impl<'d, M: Mode> I2c<'d, M> {
     fn set_configuration(&self, config: &Config) -> Result<(), SetupError> {
         critical_section::with(|_| {
             // Disable the target.
-            self.info.regs().scr().modify(|_, w| w.sen().disabled());
+            self.info.regs().scr().modify(|w| w.set_sen(false));
 
             // Soft-reset the target, read and write FIFOs.
             self.reset_fifos();
-            self.info.regs().scr().modify(|_, w| w.rst().reset());
+            self.info.regs().scr().modify(|w| w.set_rst(true));
             // According to Reference Manual section 40.7.1.4, "There
             // is no minimum delay required before clearing the
             // software reset", therefore we clear it immediately.
-            self.info.regs().scr().modify(|_, w| w.rst().not_reset());
+            self.info.regs().scr().modify(|w| w.set_rst(false));
 
-            self.info
-                .regs()
-                .scr()
-                .modify(|_, w| w.filtdz().filter_disabled().filten().disable());
+            self.info.regs().scr().modify(|w| {
+                w.set_filtdz(Filtdz::FILTER_DISABLED);
+                w.set_filten(false);
+            });
 
-            self.info
-                .regs()
-                .scfgr1()
-                .modify(|_, w| w.rxstall().enabled().txdstall().enabled());
+            self.info.regs().scfgr1().modify(|w| {
+                w.set_rxstall(true);
+                w.set_txdstall(true);
+            });
 
             // Configure address matching
             match config.address {
                 Address::Single(addr) => {
-                    self.info.regs().samr().write(|w| unsafe { w.addr0().bits(addr) });
-                    self.info.regs().scfgr1().modify(|_, w| {
-                        w.addrcfg().variant(if (0x00..=0x7f).contains(&addr) {
-                            Addrcfg::AddressMatch0_7Bit
+                    self.info.regs().samr().write(|w| w.set_addr0(addr));
+                    self.info.regs().scfgr1().modify(|w| {
+                        w.set_addrcfg(if (0x00..=0x7f).contains(&addr) {
+                            Addrcfg::ADDRESS_MATCH0_7_BIT
                         } else {
-                            Addrcfg::AddressMatch0_10Bit
+                            Addrcfg::ADDRESS_MATCH0_10_BIT
                         })
                     });
                 }
@@ -298,15 +276,15 @@ impl<'d, M: Mode> I2c<'d, M> {
                         return Err(SetupError::InvalidAddress);
                     }
 
-                    self.info
-                        .regs()
-                        .samr()
-                        .write(|w| unsafe { w.addr0().bits(addr0).addr1().bits(addr1) });
-                    self.info.regs().scfgr1().modify(|_, w| {
-                        w.addrcfg().variant(if (0x00..=0x7f).contains(&addr0) {
-                            Addrcfg::AddressMatch0_7BitOrAddressMatch1_7Bit
+                    self.info.regs().samr().write(|w| {
+                        w.set_addr0(addr0);
+                        w.set_addr1(addr1);
+                    });
+                    self.info.regs().scfgr1().modify(|w| {
+                        w.set_addrcfg(if (0x00..=0x7f).contains(&addr0) {
+                            Addrcfg::ADDRESS_MATCH0_7_BIT_OR_ADDRESS_MATCH1_7_BIT
                         } else {
-                            Addrcfg::AddressMatch0_10BitOrAddressMatch1_10Bit
+                            Addrcfg::ADDRESS_MATCH0_10_BIT_OR_ADDRESS_MATCH1_10_BIT
                         })
                     });
                 }
@@ -318,33 +296,29 @@ impl<'d, M: Mode> I2c<'d, M> {
                         return Err(SetupError::InvalidAddress);
                     }
 
-                    self.info
-                        .regs()
-                        .samr()
-                        .write(|w| unsafe { w.addr0().bits(start).addr1().bits(end) });
-                    self.info.regs().scfgr1().modify(|_, w| {
-                        w.addrcfg().variant(if (0x00..=0x7f).contains(&start) {
-                            Addrcfg::FromAddressMatch0_7BitToAddressMatch1_7Bit
+                    self.info.regs().samr().write(|w| {
+                        w.set_addr0(start);
+                        w.set_addr1(end);
+                    });
+                    self.info.regs().scfgr1().modify(|w| {
+                        w.set_addrcfg(if (0x00..=0x7f).contains(&start) {
+                            Addrcfg::ADDRESS_MATCH0_7_BIT_OR_ADDRESS_MATCH1_7_BIT
                         } else {
-                            Addrcfg::FromAddressMatch0_10BitToAddressMatch1_10Bit
+                            Addrcfg::ADDRESS_MATCH0_10_BIT_OR_ADDRESS_MATCH1_10_BIT
                         })
                     });
                 }
             }
 
             // Enable the target.
-            self.info.regs().scr().modify(|_, w| w.sen().enabled());
+            self.info.regs().scr().modify(|w| w.set_sen(true));
 
             // Clear all flags
             self.info.regs().ssr().write(|w| {
-                w.rsf()
-                    .clear_bit_by_one()
-                    .sdf()
-                    .clear_bit_by_one()
-                    .bef()
-                    .clear_bit_by_one()
-                    .fef()
-                    .clear_bit_by_one()
+                w.set_rsf(true);
+                w.set_sdf(true);
+                w.set_bef(true);
+                w.set_fef(true);
             });
 
             Ok(())
@@ -357,23 +331,19 @@ impl<'d, M: Mode> I2c<'d, M> {
         // modifying SCR while we're in the middle of our
         // read-modify-write operation.
         critical_section::with(|_| {
-            self.info
-                .regs()
-                .scr()
-                .modify(|_, w| w.rtf().now_empty().rrf().now_empty());
+            self.info.regs().scr().modify(|w| {
+                w.set_rtf(ScrRtf::NOW_EMPTY);
+                w.set_rrf(ScrRrf::NOW_EMPTY);
+            });
         });
     }
 
     fn clear_status(&self) {
         self.info.regs().ssr().write(|w| {
-            w.rsf()
-                .clear_bit_by_one()
-                .sdf()
-                .clear_bit_by_one()
-                .bef()
-                .clear_bit_by_one()
-                .fef()
-                .clear_bit_by_one()
+            w.set_rsf(true);
+            w.set_sdf(true);
+            w.set_bef(true);
+            w.set_fef(true);
         });
     }
 
@@ -383,27 +353,27 @@ impl<'d, M: Mode> I2c<'d, M> {
         let ssr = self.info.regs().ssr().read();
         self.clear_status();
 
-        if ssr.avf().bit_is_set() {
+        if ssr.avf() {
             let sasr = self.info.regs().sasr().read();
-            let addr = sasr.raddr().bits();
+            let addr = sasr.raddr();
             Ok(Event::AddressValid(addr))
-        } else if ssr.taf().bit_is_set() {
+        } else if ssr.taf() {
             Ok(Event::TransmitAck)
-        } else if ssr.rsf().bit_is_set() {
+        } else if ssr.rsf() {
             let sasr = self.info.regs().sasr().read();
-            let addr = sasr.raddr().bits();
+            let addr = sasr.raddr();
             Ok(Event::RepeatedStart(addr))
-        } else if ssr.sdf().bit_is_set() {
+        } else if ssr.sdf() {
             let sasr = self.info.regs().sasr().read();
-            let addr = sasr.raddr().bits();
+            let addr = sasr.raddr();
             Ok(Event::Stop(addr))
-        } else if ssr.bef().bit_is_set() {
+        } else if ssr.bef() {
             Err(IOError::BitError)
-        } else if ssr.fef().bit_is_set() {
+        } else if ssr.fef() {
             Err(IOError::FifoError)
-        } else if ssr.gcf().bit_is_set() {
+        } else if ssr.gcf() {
             Ok(Event::GeneralCall)
-        } else if ssr.sarf().bit_is_set() {
+        } else if ssr.sarf() {
             Ok(Event::SmbusAlert)
         } else {
             Err(IOError::Other)
@@ -419,9 +389,9 @@ impl<'d, M: Mode> I2c<'d, M> {
         // Wait for Address Valid
         loop {
             let ssr = self.info.regs().ssr().read();
-            let avr = ssr.avf().bit_is_set();
-            let sarf = ssr.sarf().bit_is_set();
-            let gcf = ssr.gcf().bit_is_set();
+            let avr = ssr.avf();
+            let sarf = ssr.sarf();
+            let gcf = ssr.gcf();
 
             if avr || sarf || gcf {
                 break;
@@ -458,9 +428,9 @@ impl<'d, M: Mode> I2c<'d, M> {
             // Wait until we can send data
             let ssr = loop {
                 let ssr = self.info.regs().ssr().read();
-                let tdf = ssr.tdf().bit_is_set();
-                let sdf = ssr.sdf().bit_is_set();
-                let rsf = ssr.rsf().bit_is_set();
+                let tdf = ssr.tdf();
+                let sdf = ssr.sdf();
+                let rsf = ssr.rsf();
 
                 if tdf || sdf || rsf {
                     break ssr;
@@ -468,12 +438,12 @@ impl<'d, M: Mode> I2c<'d, M> {
             };
 
             // If we see a STOP or REPEATED START, break out
-            if ssr.sdf().bit_is_set() || ssr.rsf().bit_is_set() {
+            if ssr.sdf() || ssr.rsf() {
                 #[cfg(feature = "defmt")]
                 defmt::trace!("Early stop of Target Send routine. STOP or Repeated-start received");
                 break;
             } else {
-                self.info.regs().stdr().write(|w| unsafe { w.data().bits(*byte) });
+                self.info.regs().stdr().write(|w| w.set_data(*byte));
                 count += 1;
             }
         }
@@ -495,9 +465,9 @@ impl<'d, M: Mode> I2c<'d, M> {
             // Wait until we have data to read
             let ssr = loop {
                 let ssr = self.info.regs().ssr().read();
-                let rdf = ssr.rdf().bit_is_set();
-                let sdf = ssr.sdf().bit_is_set();
-                let rsf = ssr.rsf().bit_is_set();
+                let rdf = ssr.rdf();
+                let sdf = ssr.sdf();
+                let rsf = ssr.rsf();
 
                 if rdf || sdf || rsf {
                     break ssr;
@@ -505,12 +475,12 @@ impl<'d, M: Mode> I2c<'d, M> {
             };
 
             // If we see a STOP or REPEATED START, break out
-            if ssr.sdf().bit_is_set() || ssr.rsf().bit_is_set() {
+            if ssr.sdf() || ssr.rsf() {
                 #[cfg(feature = "defmt")]
                 defmt::trace!("Early stop of Target Receive routine. STOP or Repeated-start received");
                 break;
             } else {
-                *byte = self.info.regs().srdr().read().data().bits();
+                *byte = self.info.regs().srdr().read().data();
                 count += 1;
             }
         }
@@ -554,30 +524,18 @@ impl<'d> I2c<'d, Async> {
 
     fn enable_ints(&self) {
         self.info.regs().sier().write(|w| {
-            w.sarie()
-                .variant(self.smbus_alert.clone().into())
-                .gcie()
-                .variant(self.general_call.clone().into())
-                .am1ie()
-                .enabled()
-                .am0ie()
-                .enabled()
-                .feie()
-                .enabled()
-                .beie()
-                .enabled()
-                .sdie()
-                .enabled()
-                .rsie()
-                .enabled()
-                .taie()
-                .enabled()
-                .avie()
-                .enabled()
-                .rdie()
-                .enabled()
-                .tdie()
-                .enabled()
+            w.set_sarie(self.smbus_alert.clone().into());
+            w.set_gcie(self.general_call.clone().into());
+            w.set_am1ie(true);
+            w.set_am0ie(true);
+            w.set_feie(true);
+            w.set_beie(true);
+            w.set_sdie(true);
+            w.set_rsie(true);
+            w.set_taie(true);
+            w.set_avie(true);
+            w.set_rdie(true);
+            w.set_tdie(true);
         });
     }
 
@@ -591,9 +549,9 @@ impl<'d> I2c<'d, Async> {
             .wait_cell()
             .wait_for(|| {
                 self.enable_ints();
-                self.info.regs().ssr().read().avf().bit_is_set()
-                    || self.info.regs().ssr().read().sarf().bit_is_set()
-                    || self.info.regs().ssr().read().gcf().bit_is_set()
+                self.info.regs().ssr().read().avf()
+                    || self.info.regs().ssr().read().sarf()
+                    || self.info.regs().ssr().read().gcf()
             })
             .await
             .map_err(|_| IOError::Other)?;
@@ -632,20 +590,20 @@ impl<'d> I2c<'d, Async> {
                 .wait_for(|| {
                     self.enable_ints();
                     let ssr = self.info.regs().ssr().read();
-                    ssr.tdf().bit_is_set() || ssr.sdf().bit_is_set() || ssr.rsf().bit_is_set()
+                    ssr.tdf() || ssr.sdf() || ssr.rsf()
                 })
                 .await
                 .map_err(|_| IOError::Other)?;
 
             // If we see a STOP or REPEATED START, break out
             let ssr = self.info.regs().ssr().read();
-            if ssr.sdf().bit_is_set() || ssr.rsf().bit_is_set() {
+            if ssr.sdf() || ssr.rsf() {
                 #[cfg(feature = "defmt")]
                 defmt::trace!("Early stop of Target Send routine. STOP or Repeated-start received");
                 self.reset_fifos();
                 break;
             } else {
-                self.info.regs().stdr().write(|w| unsafe { w.data().bits(*byte) });
+                self.info.regs().stdr().write(|w| w.set_data(*byte));
                 count += 1;
             }
         }
@@ -670,20 +628,20 @@ impl<'d> I2c<'d, Async> {
                 .wait_for(|| {
                     self.enable_ints();
                     let ssr = self.info.regs().ssr().read();
-                    ssr.rdf().bit_is_set() || ssr.sdf().bit_is_set() || ssr.rsf().bit_is_set()
+                    ssr.rdf() || ssr.sdf() || ssr.rsf()
                 })
                 .await
                 .map_err(|_| IOError::Other)?;
 
             // If we see a STOP or REPEATED START, break out
             let ssr = self.info.regs().ssr().read();
-            if ssr.sdf().bit_is_set() || ssr.rsf().bit_is_set() {
+            if ssr.sdf() || ssr.rsf() {
                 #[cfg(feature = "defmt")]
                 defmt::trace!("Early stop of Target Receive routine. STOP or Repeated-start received");
                 self.reset_fifos();
                 break;
             } else {
-                *byte = self.info.regs().srdr().read().data().bits();
+                *byte = self.info.regs().srdr().read().data();
                 count += 1;
             }
         }

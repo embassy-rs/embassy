@@ -5,12 +5,12 @@ use core::marker::PhantomData;
 use embassy_hal_internal::Peri;
 use embassy_hal_internal::interrupt::InterruptExt;
 use maitake_sync::WaitCell;
-use mcxa_pac::trng0::osc2_ctl::TrngEntCtl;
 
 use crate::clocks::enable_and_reset;
 use crate::clocks::periph_helpers::NoConfig;
 use crate::interrupt::typelevel;
 use crate::interrupt::typelevel::Handler;
+use crate::pac::trng::vals::TrngEntCtl;
 use crate::peripherals::TRNG0;
 
 static WAIT_CELL: WaitCell = WaitCell::new();
@@ -53,116 +53,88 @@ impl<'d, M: Mode> Trng<'d, M> {
     }
 
     fn configure(config: Config) {
-        regs()
-            .mctl()
-            .modify(|_, w| w.rst_def().set_bit().prgm().enable().err().clear_bit_by_one());
-
-        regs().scml().write(|w| unsafe {
-            w.mono_max()
-                .bits(config.monobit_limit_max)
-                .mono_rng()
-                .bits(config.monobit_limit_range)
+        regs().mctl().modify(|w| {
+            w.set_rst_def(true);
+            w.set_prgm(true);
+            w.set_err(true)
         });
 
-        regs().scr1l().write(|w| unsafe {
-            w.run1_max()
-                .bits(config.run_length1_limit_max)
-                .run1_rng()
-                .bits(config.run_length1_limit_range)
+        regs().scml().write(|w| {
+            w.set_mono_max(config.monobit_limit_max);
+            w.set_mono_rng(config.monobit_limit_range);
         });
 
-        regs().scr2l().write(|w| unsafe {
-            w.run2_max()
-                .bits(config.run_length2_limit_max)
-                .run2_rng()
-                .bits(config.run_length2_limit_range)
+        regs().scr1l().write(|w| {
+            w.set_run1_max(config.run_length1_limit_max);
+            w.set_run1_rng(config.run_length1_limit_range);
         });
 
-        regs().scr3l().write(|w| unsafe {
-            w.run3_max()
-                .bits(config.run_length3_limit_max)
-                .run3_rng()
-                .bits(config.run_length3_limit_range)
+        regs().scr2l().write(|w| {
+            w.set_run2_max(config.run_length2_limit_max);
+            w.set_run2_rng(config.run_length2_limit_range);
         });
 
-        regs().scr4l().write(|w| unsafe {
-            w.run4_max()
-                .bits(config.run_length4_limit_max)
-                .run4_rng()
-                .bits(config.run_length4_limit_range)
+        regs().scr3l().write(|w| {
+            w.set_run3_max(config.run_length3_limit_max);
+            w.set_run3_rng(config.run_length3_limit_range);
         });
 
-        regs().scr5l().write(|w| unsafe {
-            w.run5_max()
-                .bits(config.run_length5_limit_max)
-                .run5_rng()
-                .bits(config.run_length5_limit_range)
+        regs().scr4l().write(|w| {
+            w.set_run4_max(config.run_length4_limit_max);
+            w.set_run4_rng(config.run_length4_limit_range);
         });
 
-        regs().scr6pl().write(|w| unsafe {
-            w.run6p_max()
-                .bits(config.run_length6_limit_max)
-                .run6p_rng()
-                .bits(config.run_length6_limit_range)
+        regs().scr5l().write(|w| {
+            w.set_run5_max(config.run_length5_limit_max);
+            w.set_run5_rng(config.run_length5_limit_range);
         });
 
-        regs()
-            .pkrmax()
-            .write(|w| unsafe { w.pkr_max().bits(config.poker_limit_max) });
-
-        regs()
-            .frqmax()
-            .write(|w| unsafe { w.frq_max().bits(config.freq_counter_max) });
-
-        regs()
-            .frqmin()
-            .write(|w| unsafe { w.frq_min().bits(config.freq_counter_min) });
-
-        regs()
-            .sblim()
-            .write(|w| unsafe { w.sb_lim().bits(config.sparse_bit_limit) });
-
-        regs().scmisc().write(|w| unsafe {
-            w.lrun_max()
-                .bits(config.long_run_limit_max)
-                .rty_ct()
-                .bits(config.retry_count)
+        regs().scr6pl().write(|w| {
+            w.set_run6p_max(config.run_length6_limit_max);
+            w.set_run6p_rng(config.run_length6_limit_range);
         });
 
-        regs()
-            .mctl()
-            .modify(|_, w| w.dis_slf_tst().variant(config.self_test.into()));
+        regs().pkrmax().write(|w| w.set_pkr_max(config.poker_limit_max));
 
-        regs().sdctl().write(|w| unsafe {
-            w.samp_size()
-                .bits(config.sample_size)
-                .ent_dly()
-                .bits(config.entropy_delay)
+        regs().frqmax().write(|w| w.set_frq_max(config.freq_counter_max));
+
+        regs().frqmin().write(|w| w.set_frq_min(config.freq_counter_min));
+
+        regs().sblim().write(|w| w.set_sb_lim(config.sparse_bit_limit));
+
+        regs().scmisc().write(|w| {
+            w.set_lrun_max(config.long_run_limit_max);
+            w.set_rty_ct(config.retry_count);
         });
 
-        regs()
-            .osc2_ctl()
-            .modify(|_, w| w.trng_ent_ctl().variant(config.osc_mode.into()));
+        regs().mctl().modify(|w| w.set_dis_slf_tst(config.self_test.into()));
 
-        regs().mctl().modify(|_, w| w.prgm().disable());
+        regs().sdctl().write(|w| {
+            w.set_samp_size(config.sample_size);
+            w.set_ent_dly(config.entropy_delay);
+        });
 
-        let _ = regs().ent(7).read().bits();
+        regs().osc2_ctl().modify(|w| w.set_trng_ent_ctl(config.osc_mode.into()));
+
+        regs().mctl().modify(|w| w.set_prgm(false));
+
+        let _ = regs().ent(7).read();
 
         Self::start();
     }
 
     fn start() {
-        regs().mctl().modify(|_, w| w.trng_acc().set_bit());
+        regs().mctl().modify(|w| w.set_trng_acc(true));
     }
 
     fn stop() {
-        regs().mctl().modify(|_, w| w.trng_acc().clear_bit());
+        regs().mctl().modify(|w| w.set_trng_acc(false));
     }
 
     fn blocking_wait_for_generation() {
-        while regs().mctl().read().ent_val().bit_is_clear() {
-            if regs().mctl().read().err().bit_is_set() {
-                regs().mctl().modify(|_, w| w.err().clear_bit_by_one());
+        while !regs().mctl().read().ent_val() {
+            if regs().mctl().read().err() {
+                regs().mctl().modify(|w| w.set_err(true));
             }
         }
     }
@@ -171,7 +143,7 @@ impl<'d, M: Mode> Trng<'d, M> {
         let mut entropy = [0u32; 8];
 
         for (i, item) in entropy.iter_mut().enumerate() {
-            *item = regs().ent(i).read().bits();
+            *item = regs().ent(i).read().ent();
         }
 
         let entropy: [u8; 32] = unsafe { core::mem::transmute(entropy) };
@@ -197,16 +169,16 @@ impl<'d, M: Mode> Trng<'d, M> {
     pub fn blocking_next_u32(&mut self) -> u32 {
         Self::blocking_wait_for_generation();
         // New random bytes are generated only after reading ENT7
-        regs().ent(7).read().bits()
+        regs().ent(7).read().ent()
     }
 
     /// Return a random u64, blocking version.
     pub fn blocking_next_u64(&mut self) -> u64 {
         Self::blocking_wait_for_generation();
 
-        let mut result = u64::from(regs().ent(6).read().bits()) << 32;
+        let mut result = u64::from(regs().ent(6).read().ent()) << 32;
         // New random bytes are generated only after reading ENT7
-        result |= u64::from(regs().ent(7).read().bits());
+        result |= u64::from(regs().ent(7).read().ent());
         result
     }
 
@@ -214,8 +186,8 @@ impl<'d, M: Mode> Trng<'d, M> {
     /// blocking version.
     pub fn blocking_next_block(&mut self, block: &mut [u32; BLOCK_SIZE]) {
         Self::blocking_wait_for_generation();
-        for (reg, result) in regs().ent_iter().zip(block.iter_mut()) {
-            *result = reg.read().bits();
+        for (reg, result) in (0..8).map(|i| regs().ent(i)).zip(block.iter_mut()) {
+            *result = reg.read().ent();
         }
     }
 }
@@ -370,14 +342,10 @@ impl<'d> Trng<'d, Async> {
 
     fn enable_ints() {
         regs().int_mask().write(|w| {
-            w.hw_err()
-                .set_bit()
-                .ent_val()
-                .set_bit()
-                .frq_ct_fail()
-                .set_bit()
-                .intg_flt()
-                .set_bit()
+            w.set_hw_err(true);
+            w.set_ent_val(true);
+            w.set_frq_ct_fail(true);
+            w.set_intg_flt(true);
         });
     }
 
@@ -385,7 +353,7 @@ impl<'d> Trng<'d, Async> {
         WAIT_CELL
             .wait_for(|| {
                 Self::enable_ints();
-                regs().mctl().read().ent_val().bit_is_set()
+                regs().mctl().read().ent_val()
             })
             .await
             .map_err(|_| Error::ErrorStatus)
@@ -411,16 +379,16 @@ impl<'d> Trng<'d, Async> {
     pub async fn async_next_u32(&mut self) -> Result<u32, Error> {
         Self::wait_for_generation().await?;
         // New random bytes are generated only after reading ENT7
-        Ok(regs().ent(7).read().bits())
+        Ok(regs().ent(7).read().ent())
     }
 
     /// Return a random u64, async version.
     pub async fn async_next_u64(&mut self) -> Result<u64, Error> {
         Self::wait_for_generation().await?;
 
-        let mut result = u64::from(regs().ent(6).read().bits()) << 32;
+        let mut result = u64::from(regs().ent(6).read().ent()) << 32;
         // New random bytes are generated only after reading ENT7
-        result |= u64::from(regs().ent(7).read().bits());
+        result |= u64::from(regs().ent(7).read().ent());
 
         Ok(result)
     }
@@ -430,8 +398,8 @@ impl<'d> Trng<'d, Async> {
     pub async fn async_next_block(&mut self, block: &mut [u32; BLOCK_SIZE]) -> Result<(), Error> {
         Self::wait_for_generation().await?;
 
-        for (reg, result) in regs().ent_iter().zip(block.iter_mut()) {
-            *result = reg.read().bits();
+        for (reg, result) in (0..8).map(|i| regs().ent(i)).zip(block.iter_mut()) {
+            *result = reg.read().ent();
         }
 
         Ok(())
@@ -441,16 +409,16 @@ impl<'d> Trng<'d, Async> {
 impl<M: Mode> Drop for Trng<'_, M> {
     fn drop(&mut self) {
         // wait until allowed to stop
-        while regs().mctl().read().tstop_ok().bit_is_clear() {}
+        while !regs().mctl().read().tstop_ok() {}
         // stop
         Self::stop();
         // reset the TRNG
-        regs().mctl().write(|w| w.rst_def().set_bit());
+        regs().mctl().write(|w| w.set_rst_def(true));
     }
 }
 
-fn regs() -> &'static crate::pac::trng0::RegisterBlock {
-    unsafe { &*crate::pac::Trng0::ptr() }
+fn regs() -> crate::pac::trng::Trng {
+    crate::pac::TRNG0
 }
 
 /// Trng errors
@@ -477,16 +445,12 @@ pub struct InterruptHandler;
 impl Handler<typelevel::TRNG0> for InterruptHandler {
     unsafe fn on_interrupt() {
         crate::perf_counters::incr_interrupt_trng();
-        if regs().int_status().read().bits() != 0 {
+        if regs().int_status().read().0 != 0 {
             regs().int_ctrl().write(|w| {
-                w.hw_err()
-                    .clear_bit()
-                    .ent_val()
-                    .clear_bit()
-                    .frq_ct_fail()
-                    .clear_bit()
-                    .intg_flt()
-                    .clear_bit()
+                w.set_hw_err(false);
+                w.set_ent_val(false);
+                w.set_frq_ct_fail(false);
+                w.set_intg_flt(false);
             });
             crate::perf_counters::incr_interrupt_trng_wake();
             WAIT_CELL.wake();
@@ -658,9 +622,9 @@ pub enum OscMode {
 impl From<OscMode> for TrngEntCtl {
     fn from(value: OscMode) -> Self {
         match value {
-            OscMode::SingleOsc1 => Self::TrngEntCtlSingleOsc1,
-            OscMode::DualOscs => Self::TrngEntCtlDualOscs,
-            OscMode::SingleOsc2 => Self::TrngEntCtlSingleOsc2,
+            OscMode::SingleOsc1 => Self::TRNG_ENT_CTL_SINGLE_OSC1,
+            OscMode::DualOscs => Self::TRNG_ENT_CTL_DUAL_OSCS,
+            OscMode::SingleOsc2 => Self::TRNG_ENT_CTL_SINGLE_OSC2,
         }
     }
 }

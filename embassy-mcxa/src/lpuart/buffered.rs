@@ -198,17 +198,12 @@ impl<'a> BufferedLpuart<'a> {
 
         // Enable interrupts for buffered operation
         cortex_m::interrupt::free(|_| {
-            info.regs().ctrl().modify(|_, w| {
-                w.rie()
-                    .enabled() // RX interrupt
-                    .orie()
-                    .enabled() // Overrun interrupt
-                    .peie()
-                    .enabled() // Parity error interrupt
-                    .feie()
-                    .enabled() // Framing error interrupt
-                    .neie()
-                    .enabled() // Noise error interrupt
+            info.regs().ctrl().modify(|w| {
+                w.set_rie(true); // RX interrupt
+                w.set_orie(true); // Overrun interrupt
+                w.set_peie(true); // Parity error interrupt
+                w.set_feie(true); // Framing error interrupt
+                w.set_neie(true); // Noise error interrupt
             });
         });
 
@@ -473,7 +468,7 @@ impl<'a> BufferedLpuartTx<'a> {
                 if writer.push_one(byte) {
                     // Enable TX interrupt to start transmission
                     cortex_m::interrupt::free(|_| {
-                        self.info.regs().ctrl().modify(|_, w| w.tie().enabled());
+                        self.info.regs().ctrl().modify(|w| w.set_tie(true));
                     });
                     Poll::Ready(Ok(()))
                 } else {
@@ -495,8 +490,8 @@ impl<'a> BufferedLpuartTx<'a> {
             self.state.tx_waker.register(cx.waker());
 
             let tx_empty = self.state.tx_buf.is_empty();
-            let fifo_empty = self.info.regs().water().read().txcount().bits() == 0;
-            let tc_complete = self.info.regs().stat().read().tc().is_complete();
+            let fifo_empty = self.info.regs().water().read().txcount() == 0;
+            let tc_complete = self.info.regs().stat().read().tc() == Tc::COMPLETE;
 
             if tx_empty && fifo_empty && tc_complete {
                 Poll::Ready(Ok(()))
@@ -504,9 +499,9 @@ impl<'a> BufferedLpuartTx<'a> {
                 // Enable appropriate interrupt
                 cortex_m::interrupt::free(|_| {
                     if !tx_empty {
-                        self.info.regs().ctrl().modify(|_, w| w.tie().enabled());
+                        self.info.regs().ctrl().modify(|w| w.set_tie(true));
                     } else {
-                        self.info.regs().ctrl().modify(|_, w| w.tcie().enabled());
+                        self.info.regs().ctrl().modify(|w| w.set_tcie(true));
                     }
                 });
                 Poll::Pending
@@ -531,7 +526,7 @@ impl<'a> BufferedLpuartTx<'a> {
         if written > 0 {
             // Enable TX interrupt to start transmission
             cortex_m::interrupt::free(|_| {
-                self.info.regs().ctrl().modify(|_, w| w.tie().enabled());
+                self.info.regs().ctrl().modify(|w| w.set_tie(true));
             });
         }
 
@@ -636,7 +631,7 @@ impl<'a> BufferedLpuartRx<'a> {
 
             // Disable RX interrupt while reading from buffer
             cortex_m::interrupt::free(|_| {
-                self.info.regs().ctrl().modify(|_, w| w.rie().disabled());
+                self.info.regs().ctrl().modify(|w| w.set_rie(false));
             });
 
             let mut reader = unsafe { self.state.rx_buf.reader() };
@@ -651,7 +646,7 @@ impl<'a> BufferedLpuartRx<'a> {
 
             // Re-enable RX interrupt
             cortex_m::interrupt::free(|_| {
-                self.info.regs().ctrl().modify(|_, w| w.rie().enabled());
+                self.info.regs().ctrl().modify(|w| w.set_rie(true));
             });
 
             if read > 0 {
@@ -673,7 +668,7 @@ impl<'a> BufferedLpuartRx<'a> {
 
         // Disable RX interrupt while reading from buffer
         cortex_m::interrupt::free(|_| {
-            self.info.regs().ctrl().modify(|_, w| w.rie().disabled());
+            self.info.regs().ctrl().modify(|w| w.set_rie(false));
         });
 
         let mut reader = unsafe { self.state.rx_buf.reader() };
@@ -687,7 +682,7 @@ impl<'a> BufferedLpuartRx<'a> {
 
         // Re-enable RX interrupt
         cortex_m::interrupt::free(|_| {
-            self.info.regs().ctrl().modify(|_, w| w.rie().enabled());
+            self.info.regs().ctrl().modify(|w| w.set_rie(true));
         });
 
         Ok(read)
@@ -739,36 +734,36 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Buffere
 
             let ctrl = regs.ctrl().read();
             let stat = regs.stat().read();
-            let has_fifo = regs.param().read().rxfifo().bits() > 0;
+            let has_fifo = regs.param().read().rxfifo() > 0;
 
             // Handle overrun error
-            if stat.or().is_overrun() {
-                regs.stat().write(|w| w.or().clear_bit_by_one());
+            if stat.or() {
+                regs.stat().write(|w| w.set_or(true));
                 T::PERF_INT_WAKE_INCR();
                 state.rx_waker.wake();
                 return;
             }
 
             // Clear other error flags
-            if stat.pf().is_parity() {
-                regs.stat().write(|w| w.pf().clear_bit_by_one());
+            if stat.pf() {
+                regs.stat().write(|w| w.set_pf(true));
             }
-            if stat.fe().is_error() {
-                regs.stat().write(|w| w.fe().clear_bit_by_one());
+            if stat.fe() {
+                regs.stat().write(|w| w.set_fe(true));
             }
-            if stat.nf().is_noise() {
-                regs.stat().write(|w| w.nf().clear_bit_by_one());
+            if stat.nf() {
+                regs.stat().write(|w| w.set_nf(true));
             }
 
             // Handle RX data
-            if ctrl.rie().is_enabled() && (has_data(T::info()) || stat.idle().is_idle()) {
+            if ctrl.rie() && (has_data(T::info()) || stat.idle()) {
                 let mut pushed_any = false;
                 let mut writer = state.rx_buf.writer();
 
                 if has_fifo {
                     // Read from FIFO
-                    while regs.water().read().rxcount().bits() > 0 {
-                        let byte = (regs.data().read().bits() & 0xFF) as u8;
+                    while regs.water().read().rxcount() > 0 {
+                        let byte = (regs.data().read().0 & 0xFF) as u8;
                         if writer.push_one(byte) {
                             pushed_any = true;
                         } else {
@@ -778,8 +773,8 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Buffere
                     }
                 } else {
                     // Read single byte
-                    if regs.stat().read().rdrf().is_rxdata() {
-                        let byte = (regs.data().read().bits() & 0xFF) as u8;
+                    if regs.stat().read().rdrf() {
+                        let byte = (regs.data().read().0 & 0xFF) as u8;
                         if writer.push_one(byte) {
                             pushed_any = true;
                         }
@@ -792,20 +787,20 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Buffere
                 }
 
                 // Clear idle flag if set
-                if stat.idle().is_idle() {
-                    regs.stat().write(|w| w.idle().clear_bit_by_one());
+                if stat.idle() {
+                    regs.stat().write(|w| w.set_idle(true));
                 }
             }
 
             // Handle TX data
-            if ctrl.tie().is_enabled() {
+            if ctrl.tie() {
                 let mut sent_any = false;
                 let mut reader = state.tx_buf.reader();
 
                 // Send data while TX buffer is ready and we have data
-                while regs.stat().read().tdre().is_no_txdata() {
+                while regs.stat().read().tdre() == Tdre::NO_TXDATA {
                     if let Some(byte) = reader.pop_one() {
-                        regs.data().write(|w| w.bits(u32::from(byte)));
+                        regs.data().write(|w| w.0 = u32::from(byte));
                         sent_any = true;
                     } else {
                         // No more data to send
@@ -821,20 +816,23 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Buffere
                 // If buffer is empty, switch to TC interrupt or disable
                 if state.tx_buf.is_empty() {
                     cortex_m::interrupt::free(|_| {
-                        regs.ctrl().modify(|_, w| w.tie().disabled().tcie().enabled());
+                        regs.ctrl().modify(|w| {
+                            w.set_tie(false);
+                            w.set_tcie(true);
+                        });
                     });
                 }
             }
 
             // Handle transmission complete
-            if ctrl.tcie().is_enabled() && regs.stat().read().tc().is_complete() {
+            if ctrl.tcie() && regs.stat().read().tc() == Tc::COMPLETE {
                 state.tx_done.store(true, Ordering::Release);
                 T::PERF_INT_WAKE_INCR();
                 state.tx_waker.wake();
 
                 // Disable TC interrupt
                 cortex_m::interrupt::free(|_| {
-                    regs.ctrl().modify(|_, w| w.tcie().disabled());
+                    regs.ctrl().modify(|w| w.set_tcie(false));
                 });
             }
         }

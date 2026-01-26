@@ -7,11 +7,12 @@ use paste::paste;
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel, LpuartConfig};
 use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset};
 use crate::gpio::{AnyPin, SealedPin};
-use crate::pac::lpuart0::baud::Sbns as StopBits;
-use crate::pac::lpuart0::ctrl::{Idlecfg as IdleConfig, Ilt as IdleType, M as DataBits, Pt as Parity};
-use crate::pac::lpuart0::modir::{Txctsc as TxCtsConfig, Txctssrc as TxCtsSource};
-use crate::pac::lpuart0::stat::Msbf as MsbFirst;
-use crate::{interrupt, pac};
+use crate::interrupt;
+use crate::pac::lpuart::vals::{
+    Idlecfg as IdleConfig, Ilt as IdleType, M as DataBits, Msbf as MsbFirst, Pt as Parity, Rst, Rxflush,
+    Sbns as StopBits, Swap, Tc, Tdre, Txctsc as TxCtsConfig, Txctssrc as TxCtsSource, Txflush,
+};
+use crate::pac::{self};
 
 pub mod buffered;
 
@@ -42,15 +43,15 @@ trait SealedInstance {
 }
 
 struct Info {
-    regs: *const crate::pac::lpuart0::RegisterBlock,
+    regs: crate::pac::lpuart::Lpuart,
 }
 
 unsafe impl Sync for Info {}
 
 impl Info {
     #[inline(always)]
-    fn regs(&self) -> &'static crate::pac::lpuart0::RegisterBlock {
-        unsafe { &*self.regs }
+    fn regs(&self) -> crate::pac::lpuart::Lpuart {
+        self.regs
     }
 }
 
@@ -74,7 +75,7 @@ macro_rules! impl_instance {
                 impl SealedInstance for crate::peripherals::[<LPUART $n>] {
                     fn info() -> &'static Info {
                         static INFO: Info = Info {
-                            regs: unsafe { &*pac::[<Lpuart $n>]::ptr() },
+                            regs: pac::[<LPUART $n>],
                         };
                         &INFO
                     }
@@ -116,13 +117,16 @@ impl_instance!(0; 1; 2; 3; 4; 5);
 /// Perform software reset on the LPUART peripheral
 fn perform_software_reset(info: &'static Info) {
     // Software reset - set and clear RST bit (Global register)
-    info.regs().global().write(|w| w.rst().reset());
-    info.regs().global().write(|w| w.rst().no_effect());
+    info.regs().global().write(|w| w.set_rst(Rst::RESET));
+    info.regs().global().write(|w| w.set_rst(Rst::NO_EFFECT));
 }
 
 /// Disable both transmitter and receiver
 fn disable_transceiver(info: &'static Info) {
-    info.regs().ctrl().modify(|_, w| w.te().disabled().re().disabled());
+    info.regs().ctrl().modify(|w| {
+        w.set_te(false);
+        w.set_re(false);
+    });
 }
 
 /// Calculate and configure baudrate settings
@@ -130,17 +134,13 @@ fn configure_baudrate(info: &'static Info, baudrate_bps: u32, clock_freq: u32) -
     let (osr, sbr) = calculate_baudrate(baudrate_bps, clock_freq)?;
 
     // Configure BAUD register
-    info.regs().baud().modify(|_, w| unsafe {
+    info.regs().baud().modify(|w| {
         // Clear and set OSR
-        w.osr().bits(osr - 1);
+        w.set_osr(osr - 1);
         // Clear and set SBR
-        w.sbr().bits(sbr);
+        w.set_sbr(sbr);
         // Set BOTHEDGE if OSR is between 4 and 7
-        if osr > 3 && osr < 8 {
-            w.bothedge().enabled()
-        } else {
-            w.bothedge().disabled()
-        }
+        w.set_bothedge(osr > 3 && osr < 8);
     });
 
     Ok(())
@@ -149,45 +149,44 @@ fn configure_baudrate(info: &'static Info, baudrate_bps: u32, clock_freq: u32) -
 /// Configure frame format (stop bits, data bits)
 fn configure_frame_format(info: &'static Info, config: &Config) {
     // Configure stop bits
-    info.regs()
-        .baud()
-        .modify(|_, w| w.sbns().variant(config.stop_bits_count));
+    info.regs().baud().modify(|w| w.set_sbns(config.stop_bits_count));
 
     // Clear M10 for now (10-bit mode)
-    info.regs().baud().modify(|_, w| w.m10().disabled());
+    info.regs().baud().modify(|w| w.set_m10(false));
 }
 
 /// Configure control settings (parity, data bits, idle config, pin swap)
 fn configure_control_settings(info: &'static Info, config: &Config) {
-    info.regs().ctrl().modify(|_, w| {
+    info.regs().ctrl().modify(|w| {
         // Parity configuration
-        let mut w = if let Some(parity) = config.parity_mode {
-            w.pe().enabled().pt().variant(parity)
+        if let Some(parity) = config.parity_mode {
+            w.set_pe(true);
+            w.set_pt(parity);
         } else {
-            w.pe().disabled()
+            w.set_pe(false);
         };
 
         // Data bits configuration
-        w = match config.data_bits_count {
-            DataBits::Data8 => {
+        match config.data_bits_count {
+            DataBits::DATA8 => {
                 if config.parity_mode.is_some() {
-                    w.m().data9() // 8 data + 1 parity = 9 bits
+                    w.set_m(DataBits::DATA9); // 8 data + 1 parity = 9 bits
                 } else {
-                    w.m().data8() // 8 data bits only
+                    w.set_m(DataBits::DATA8); // 8 data bits only
                 }
             }
-            DataBits::Data9 => w.m().data9(),
+            DataBits::DATA9 => w.set_m(DataBits::DATA9),
         };
 
         // Idle configuration
-        w = w.idlecfg().variant(config.rx_idle_config);
-        w = w.ilt().variant(config.rx_idle_type);
+        w.set_idlecfg(config.rx_idle_config);
+        w.set_ilt(config.rx_idle_type);
 
         // Swap TXD/RXD if configured
         if config.swap_txd_rxd {
-            w.swap().swap()
+            w.set_swap(Swap::SWAP);
         } else {
-            w.swap().standard()
+            w.set_swap(Swap::STANDARD);
         }
     });
 }
@@ -195,70 +194,57 @@ fn configure_control_settings(info: &'static Info, config: &Config) {
 /// Configure FIFO settings and watermarks
 fn configure_fifo(info: &'static Info, config: &Config) {
     // Configure WATER register for FIFO watermarks
-    info.regs().water().write(|w| unsafe {
-        w.rxwater()
-            .bits(config.rx_fifo_watermark)
-            .txwater()
-            .bits(config.tx_fifo_watermark)
+    info.regs().water().write(|w| {
+        w.set_rxwater(config.rx_fifo_watermark);
+        w.set_txwater(config.tx_fifo_watermark);
     });
 
     // Enable TX/RX FIFOs
-    info.regs().fifo().modify(|_, w| w.txfe().enabled().rxfe().enabled());
+    info.regs().fifo().modify(|w| {
+        w.set_txfe(true);
+        w.set_rxfe(true);
+    });
 
     // Flush FIFOs
-    info.regs()
-        .fifo()
-        .modify(|_, w| w.txflush().txfifo_rst().rxflush().rxfifo_rst());
+    info.regs().fifo().modify(|w| {
+        w.set_txflush(Txflush::TXFIFO_RST);
+        w.set_rxflush(Rxflush::RXFIFO_RST);
+    });
 }
 
 /// Clear all status flags
 fn clear_all_status_flags(info: &'static Info) {
-    info.regs().stat().reset();
+    info.regs().stat().modify(|_w| {
+        // Write back all values, clearing the W1C fields implicitly.
+    });
 }
 
 /// Configure hardware flow control if enabled
 fn configure_flow_control(info: &'static Info, enable_tx_cts: bool, enable_rx_rts: bool, config: &Config) {
     if enable_rx_rts || enable_tx_cts {
-        info.regs().modir().modify(|_, w| {
-            let mut w = w;
-
-            // Configure TX CTS
-            w = w.txctsc().variant(config.tx_cts_config);
-            w = w.txctssrc().variant(config.tx_cts_source);
-
-            if enable_rx_rts {
-                w = w.rxrtse().enabled();
-            } else {
-                w = w.rxrtse().disabled();
-            }
-
-            if enable_tx_cts {
-                w = w.txctse().enabled();
-            } else {
-                w = w.txctse().disabled();
-            }
-
-            w
+        info.regs().modir().modify(|w| {
+            w.set_txctsc(config.tx_cts_config);
+            w.set_txctssrc(config.tx_cts_source);
+            w.set_rxrtse(enable_rx_rts);
+            w.set_txctse(enable_tx_cts);
         });
     }
 }
 
 /// Configure bit order (MSB first or LSB first)
 fn configure_bit_order(info: &'static Info, msb_first: MsbFirst) {
-    info.regs().stat().modify(|_, w| w.msbf().variant(msb_first));
+    info.regs().stat().modify(|w| w.set_msbf(msb_first));
 }
 
 /// Enable transmitter and/or receiver based on configuration
 fn enable_transceiver(info: &'static Info, enable_tx: bool, enable_rx: bool) {
-    info.regs().ctrl().modify(|_, w| {
-        let mut w = w;
+    info.regs().ctrl().modify(|w| {
         if enable_tx {
-            w = w.te().enabled();
+            w.set_te(true);
         }
         if enable_rx {
-            w = w.re().enabled();
+            w.set_re(true);
         }
-        w
     });
 }
 
@@ -303,12 +289,12 @@ fn calculate_baudrate(baudrate: u32, src_clock_hz: u32) -> Result<(u8, u16)> {
 /// Wait for all transmit operations to complete
 fn wait_for_tx_complete(info: &'static Info) {
     // Wait for TX FIFO to empty
-    while info.regs().water().read().txcount().bits() != 0 {
+    while info.regs().water().read().txcount() != 0 {
         // Wait for TX FIFO to drain
     }
 
     // Wait for last character to shift out (TC = Transmission Complete)
-    while info.regs().stat().read().tc().is_active() {
+    while info.regs().stat().read().tc() == Tc::ACTIVE {
         // Wait for transmission to complete
     }
 }
@@ -318,24 +304,25 @@ fn check_and_clear_rx_errors(info: &'static Info) -> Result<()> {
     let mut status = Ok(());
 
     // Check for overrun first - other error flags are prevented when OR is set
-    if stat.or().is_overrun() {
-        info.regs().stat().write(|w| w.or().clear_bit_by_one());
+    if stat.or() {
+        info.regs().stat().write(|w| w.set_or(true));
 
         return Err(Error::Overrun);
     }
 
-    if stat.pf().is_parity() {
-        info.regs().stat().write(|w| w.pf().clear_bit_by_one());
+    // Other errors are checked and cleared, but only 'most likely' error is returned.
+    if stat.pf() {
+        info.regs().stat().write(|w| w.set_pf(true));
         status = Err(Error::Parity);
     }
 
-    if stat.fe().is_error() {
-        info.regs().stat().write(|w| w.fe().clear_bit_by_one());
+    if stat.fe() {
+        info.regs().stat().write(|w| w.set_fe(true));
         status = Err(Error::Framing);
     }
 
-    if stat.nf().is_noise() {
-        info.regs().stat().write(|w| w.nf().clear_bit_by_one());
+    if stat.nf() {
+        info.regs().stat().write(|w| w.set_nf(true));
         status = Err(Error::Noise);
     }
 
@@ -343,12 +330,12 @@ fn check_and_clear_rx_errors(info: &'static Info) -> Result<()> {
 }
 
 fn has_data(info: &'static Info) -> bool {
-    if info.regs().param().read().rxfifo().bits() > 0 {
+    if info.regs().param().read().rxfifo() > 0 {
         // FIFO is available - check RXCOUNT in WATER register
-        info.regs().water().read().rxcount().bits() > 0
+        info.regs().water().read().rxcount() > 0
     } else {
         // No FIFO - check RDRF flag in STAT register
-        info.regs().stat().read().rdrf().is_rxdata()
+        info.regs().stat().read().rdrf()
     }
 }
 
@@ -390,7 +377,7 @@ macro_rules! impl_tx_pin {
                 self.set_pull(crate::gpio::Pull::Up);
                 self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
                 self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
-                self.set_function(crate::pac::port0::pcr0::Mux::$alt);
+                self.set_function(crate::pac::port::vals::Mux::$alt);
                 self.set_enable_input_buffer(true);
             }
         }
@@ -405,7 +392,7 @@ macro_rules! impl_rx_pin {
                 self.set_pull(crate::gpio::Pull::Up);
                 self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
                 self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
-                self.set_function(crate::pac::port0::pcr0::Mux::$alt);
+                self.set_function(crate::pac::port::vals::Mux::$alt);
                 self.set_enable_input_buffer(true);
             }
         }
@@ -435,117 +422,117 @@ macro_rules! impl_rts_pin {
 
 // LPUART 0
 #[cfg(feature = "jtag-extras-as-gpio")]
-impl_tx_pin!(LPUART0, P0_3, Mux2);
-impl_tx_pin!(LPUART0, P0_21, Mux3);
-impl_tx_pin!(LPUART0, P2_1, Mux2);
+impl_tx_pin!(LPUART0, P0_3, MUX2);
+impl_tx_pin!(LPUART0, P0_21, MUX3);
+impl_tx_pin!(LPUART0, P2_1, MUX2);
 
 #[cfg(feature = "swd-swo-as-gpio")]
-impl_rx_pin!(LPUART0, P0_2, Mux2);
-impl_rx_pin!(LPUART0, P0_20, Mux3);
-impl_rx_pin!(LPUART0, P2_0, Mux2);
+impl_rx_pin!(LPUART0, P0_2, MUX2);
+impl_rx_pin!(LPUART0, P0_20, MUX3);
+impl_rx_pin!(LPUART0, P2_0, MUX2);
 
 #[cfg(feature = "swd-as-gpio")]
-impl_cts_pin!(LPUART0, P0_1, Mux2);
-impl_cts_pin!(LPUART0, P0_23, Mux3);
-impl_cts_pin!(LPUART0, P2_3, Mux2);
+impl_cts_pin!(LPUART0, P0_1, MUX2);
+impl_cts_pin!(LPUART0, P0_23, MUX3);
+impl_cts_pin!(LPUART0, P2_3, MUX2);
 
 #[cfg(feature = "swd-as-gpio")]
-impl_rts_pin!(LPUART0, P0_0, Mux2);
-impl_rts_pin!(LPUART0, P0_22, Mux3);
-impl_rts_pin!(LPUART0, P2_2, Mux2);
+impl_rts_pin!(LPUART0, P0_0, MUX2);
+impl_rts_pin!(LPUART0, P0_22, MUX3);
+impl_rts_pin!(LPUART0, P2_2, MUX2);
 
 // LPUART 1
-impl_tx_pin!(LPUART1, P1_9, Mux2);
-impl_tx_pin!(LPUART1, P2_13, Mux3);
-impl_tx_pin!(LPUART1, P3_9, Mux3);
-impl_tx_pin!(LPUART1, P3_21, Mux3);
+impl_tx_pin!(LPUART1, P1_9, MUX2);
+impl_tx_pin!(LPUART1, P2_13, MUX3);
+impl_tx_pin!(LPUART1, P3_9, MUX3);
+impl_tx_pin!(LPUART1, P3_21, MUX3);
 
-impl_rx_pin!(LPUART1, P1_8, Mux2);
-impl_rx_pin!(LPUART1, P2_12, Mux3);
-impl_rx_pin!(LPUART1, P3_8, Mux3);
-impl_rx_pin!(LPUART1, P3_20, Mux3);
+impl_rx_pin!(LPUART1, P1_8, MUX2);
+impl_rx_pin!(LPUART1, P2_12, MUX3);
+impl_rx_pin!(LPUART1, P3_8, MUX3);
+impl_rx_pin!(LPUART1, P3_20, MUX3);
 
-impl_cts_pin!(LPUART1, P1_11, Mux2);
-impl_cts_pin!(LPUART1, P2_17, Mux3);
-impl_cts_pin!(LPUART1, P3_11, Mux3);
-impl_cts_pin!(LPUART1, P3_23, Mux3);
+impl_cts_pin!(LPUART1, P1_11, MUX2);
+impl_cts_pin!(LPUART1, P2_17, MUX3);
+impl_cts_pin!(LPUART1, P3_11, MUX3);
+impl_cts_pin!(LPUART1, P3_23, MUX3);
 
-impl_rts_pin!(LPUART1, P1_10, Mux2);
-impl_rts_pin!(LPUART1, P2_15, Mux3);
-impl_rts_pin!(LPUART1, P2_16, Mux3);
-impl_rts_pin!(LPUART1, P3_10, Mux3);
+impl_rts_pin!(LPUART1, P1_10, MUX2);
+impl_rts_pin!(LPUART1, P2_15, MUX3);
+impl_rts_pin!(LPUART1, P2_16, MUX3);
+impl_rts_pin!(LPUART1, P3_10, MUX3);
 
 // LPUART 2
-impl_tx_pin!(LPUART2, P1_5, Mux3);
-impl_tx_pin!(LPUART2, P1_13, Mux3);
-impl_tx_pin!(LPUART2, P2_2, Mux3);
-impl_tx_pin!(LPUART2, P2_10, Mux3);
-impl_tx_pin!(LPUART2, P3_15, Mux2);
+impl_tx_pin!(LPUART2, P1_5, MUX3);
+impl_tx_pin!(LPUART2, P1_13, MUX3);
+impl_tx_pin!(LPUART2, P2_2, MUX3);
+impl_tx_pin!(LPUART2, P2_10, MUX3);
+impl_tx_pin!(LPUART2, P3_15, MUX2);
 
-impl_rx_pin!(LPUART2, P1_4, Mux3);
-impl_rx_pin!(LPUART2, P1_12, Mux3);
-impl_rx_pin!(LPUART2, P2_3, Mux3);
-impl_rx_pin!(LPUART2, P2_11, Mux3);
-impl_rx_pin!(LPUART2, P3_14, Mux2);
+impl_rx_pin!(LPUART2, P1_4, MUX3);
+impl_rx_pin!(LPUART2, P1_12, MUX3);
+impl_rx_pin!(LPUART2, P2_3, MUX3);
+impl_rx_pin!(LPUART2, P2_11, MUX3);
+impl_rx_pin!(LPUART2, P3_14, MUX2);
 
-impl_cts_pin!(LPUART2, P1_7, Mux3);
-impl_cts_pin!(LPUART2, P1_15, Mux3);
-impl_cts_pin!(LPUART2, P2_4, Mux3);
-impl_cts_pin!(LPUART2, P3_13, Mux2);
+impl_cts_pin!(LPUART2, P1_7, MUX3);
+impl_cts_pin!(LPUART2, P1_15, MUX3);
+impl_cts_pin!(LPUART2, P2_4, MUX3);
+impl_cts_pin!(LPUART2, P3_13, MUX2);
 
-impl_rts_pin!(LPUART2, P1_6, Mux3);
-impl_rts_pin!(LPUART2, P1_14, Mux3);
-impl_rts_pin!(LPUART2, P2_5, Mux3);
-impl_rts_pin!(LPUART2, P3_12, Mux2);
+impl_rts_pin!(LPUART2, P1_6, MUX3);
+impl_rts_pin!(LPUART2, P1_14, MUX3);
+impl_rts_pin!(LPUART2, P2_5, MUX3);
+impl_rts_pin!(LPUART2, P3_12, MUX2);
 
 // LPUART 3
-impl_tx_pin!(LPUART3, P3_1, Mux3);
-impl_tx_pin!(LPUART3, P3_12, Mux3);
-impl_tx_pin!(LPUART3, P4_5, Mux3);
+impl_tx_pin!(LPUART3, P3_1, MUX3);
+impl_tx_pin!(LPUART3, P3_12, MUX3);
+impl_tx_pin!(LPUART3, P4_5, MUX3);
 
-impl_rx_pin!(LPUART3, P3_0, Mux3);
-impl_rx_pin!(LPUART3, P3_13, Mux3);
-impl_rx_pin!(LPUART3, P4_2, Mux3);
+impl_rx_pin!(LPUART3, P3_0, MUX3);
+impl_rx_pin!(LPUART3, P3_13, MUX3);
+impl_rx_pin!(LPUART3, P4_2, MUX3);
 
-impl_cts_pin!(LPUART3, P3_7, Mux3);
-impl_cts_pin!(LPUART3, P3_14, Mux3);
-impl_cts_pin!(LPUART3, P4_6, Mux3);
+impl_cts_pin!(LPUART3, P3_7, MUX3);
+impl_cts_pin!(LPUART3, P3_14, MUX3);
+impl_cts_pin!(LPUART3, P4_6, MUX3);
 
-impl_rts_pin!(LPUART3, P3_6, Mux3);
-impl_rts_pin!(LPUART3, P3_15, Mux3);
-impl_rts_pin!(LPUART3, P4_7, Mux3);
+impl_rts_pin!(LPUART3, P3_6, MUX3);
+impl_rts_pin!(LPUART3, P3_15, MUX3);
+impl_rts_pin!(LPUART3, P4_7, MUX3);
 
 // LPUART 4
-impl_tx_pin!(LPUART4, P2_7, Mux3);
-impl_tx_pin!(LPUART4, P3_19, Mux2);
-impl_tx_pin!(LPUART4, P3_27, Mux3);
-impl_tx_pin!(LPUART4, P4_3, Mux3);
+impl_tx_pin!(LPUART4, P2_7, MUX3);
+impl_tx_pin!(LPUART4, P3_19, MUX2);
+impl_tx_pin!(LPUART4, P3_27, MUX3);
+impl_tx_pin!(LPUART4, P4_3, MUX3);
 
-impl_rx_pin!(LPUART4, P2_6, Mux3);
-impl_rx_pin!(LPUART4, P3_18, Mux2);
-impl_rx_pin!(LPUART4, P3_28, Mux3);
-impl_rx_pin!(LPUART4, P4_4, Mux3);
+impl_rx_pin!(LPUART4, P2_6, MUX3);
+impl_rx_pin!(LPUART4, P3_18, MUX2);
+impl_rx_pin!(LPUART4, P3_28, MUX3);
+impl_rx_pin!(LPUART4, P4_4, MUX3);
 
-impl_cts_pin!(LPUART4, P2_0, Mux3);
-impl_cts_pin!(LPUART4, P3_17, Mux2);
-impl_cts_pin!(LPUART4, P3_31, Mux3);
+impl_cts_pin!(LPUART4, P2_0, MUX3);
+impl_cts_pin!(LPUART4, P3_17, MUX2);
+impl_cts_pin!(LPUART4, P3_31, MUX3);
 
-impl_rts_pin!(LPUART4, P2_1, Mux3);
-impl_rts_pin!(LPUART4, P3_16, Mux2);
-impl_rts_pin!(LPUART4, P3_30, Mux3);
+impl_rts_pin!(LPUART4, P2_1, MUX3);
+impl_rts_pin!(LPUART4, P3_16, MUX2);
+impl_rts_pin!(LPUART4, P3_30, MUX3);
 
 // LPUART 5
-impl_tx_pin!(LPUART5, P1_10, Mux8);
-impl_tx_pin!(LPUART5, P1_17, Mux8);
+impl_tx_pin!(LPUART5, P1_10, MUX8);
+impl_tx_pin!(LPUART5, P1_17, MUX8);
 
-impl_rx_pin!(LPUART5, P1_11, Mux8);
-impl_rx_pin!(LPUART5, P1_16, Mux8);
+impl_rx_pin!(LPUART5, P1_11, MUX8);
+impl_rx_pin!(LPUART5, P1_16, MUX8);
 
-impl_cts_pin!(LPUART5, P1_12, Mux8);
-impl_cts_pin!(LPUART5, P1_19, Mux8);
+impl_cts_pin!(LPUART5, P1_12, MUX8);
+impl_cts_pin!(LPUART5, P1_19, MUX8);
 
-impl_rts_pin!(LPUART5, P1_13, Mux8);
-impl_rts_pin!(LPUART5, P1_18, Mux8);
+impl_rts_pin!(LPUART5, P1_13, MUX8);
+impl_rts_pin!(LPUART5, P1_18, MUX8);
 
 // ============================================================================
 // ERROR TYPES AND RESULTS
@@ -649,15 +636,15 @@ impl Default for Config {
         Self {
             baudrate_bps: 115_200u32,
             parity_mode: None,
-            data_bits_count: DataBits::Data8,
-            msb_first: MsbFirst::LsbFirst,
-            stop_bits_count: StopBits::One,
+            data_bits_count: DataBits::DATA8,
+            msb_first: MsbFirst::LSB_FIRST,
+            stop_bits_count: StopBits::ONE,
             tx_fifo_watermark: 0,
             rx_fifo_watermark: 1,
-            tx_cts_source: TxCtsSource::Cts,
-            tx_cts_config: TxCtsConfig::Start,
-            rx_idle_type: IdleType::FromStart,
-            rx_idle_config: IdleConfig::Idle1,
+            tx_cts_source: TxCtsSource::CTS,
+            tx_cts_config: TxCtsConfig::START,
+            rx_idle_type: IdleType::FROM_START,
+            rx_idle_config: IdleConfig::IDLE_1,
             swap_txd_rxd: false,
             power: PoweredClock::NormalEnabledDeepSleepDisabled,
             source: LpuartClockSel::FroLfDiv,
@@ -810,7 +797,7 @@ impl<'a, M: Mode> Lpuart<'a, M> {
         clear_all_status_flags(self.info);
 
         // Disable the module - clear all CTRL register bits
-        self.info.regs().ctrl().reset();
+        self.info.regs().ctrl().write(|w| w.0 = 0);
 
         Ok(())
     }
@@ -939,21 +926,18 @@ impl<'a> LpuartTx<'a, Blocking> {
     }
 
     fn write_byte_internal(&mut self, byte: u8) -> Result<()> {
-        self.info
-            .regs()
-            .data()
-            .modify(|_, w| unsafe { w.bits(u32::from(byte)) });
+        self.info.regs().data().modify(|w| w.0 = u32::from(byte));
 
         Ok(())
     }
 
     fn blocking_write_byte(&mut self, byte: u8) -> Result<()> {
-        while self.info.regs().stat().read().tdre().is_txdata() {}
+        while self.info.regs().stat().read().tdre() == Tdre::TXDATA {}
         self.write_byte_internal(byte)
     }
 
     fn write_byte(&mut self, byte: u8) -> Result<()> {
-        if self.info.regs().stat().read().tdre().is_txdata() {
+        if self.info.regs().stat().read().tdre() == Tdre::TXDATA {
             Err(Error::TxFifoFull)
         } else {
             self.write_byte_internal(byte)
@@ -984,12 +968,12 @@ impl<'a> LpuartTx<'a, Blocking> {
 
     /// Flush LPUART TX blocking execution until all data has been transmitted.
     pub fn blocking_flush(&mut self) -> Result<()> {
-        while self.info.regs().water().read().txcount().bits() != 0 {
+        while self.info.regs().water().read().txcount() != 0 {
             // Wait for TX FIFO to drain
         }
 
         // Wait for last character to shift out
-        while self.info.regs().stat().read().tc().is_active() {
+        while self.info.regs().stat().read().tc() == Tc::ACTIVE {
             // Wait for transmission to complete
         }
 
@@ -999,12 +983,12 @@ impl<'a> LpuartTx<'a, Blocking> {
     /// Flush LPUART TX.
     pub fn flush(&mut self) -> Result<()> {
         // Check if TX FIFO is empty
-        if self.info.regs().water().read().txcount().bits() != 0 {
+        if self.info.regs().water().read().txcount() != 0 {
             return Err(Error::TxBusy);
         }
 
         // Check if transmission is complete
-        if self.info.regs().stat().read().tc().is_active() {
+        if self.info.regs().stat().read().tc() == Tc::ACTIVE {
             return Err(Error::TxBusy);
         }
 
@@ -1067,9 +1051,7 @@ impl<'a> LpuartRx<'a, Blocking> {
     }
 
     fn read_byte_internal(&mut self) -> Result<u8> {
-        let data = self.info.regs().data().read();
-
-        Ok((data.bits() & 0xFF) as u8)
+        Ok((self.info.regs().data().read().0 & 0xFF) as u8)
     }
 
     fn read_byte(&mut self) -> Result<u8> {
@@ -1179,7 +1161,7 @@ impl<'a, C: DmaChannelTrait> TxDmaGuard<'a, C> {
     /// Complete the transfer normally (don't abort on drop).
     fn complete(self) {
         // Cleanup
-        self.info.regs().baud().modify(|_, w| w.tdmae().disabled());
+        self.info.regs().baud().modify(|w| w.set_tdmae(false));
         unsafe {
             self.dma.disable_request();
             self.dma.clear_done();
@@ -1198,7 +1180,7 @@ impl<C: DmaChannelTrait> Drop for TxDmaGuard<'_, C> {
             self.dma.clear_interrupt();
         }
         // Disable UART TX DMA request
-        self.info.regs().baud().modify(|_, w| w.tdmae().disabled());
+        self.info.regs().baud().modify(|w| w.set_tdmae(false));
     }
 }
 
@@ -1218,7 +1200,7 @@ impl<'a, C: DmaChannelTrait> RxDmaGuard<'a, C> {
         // Ensure DMA writes are visible to CPU
         cortex_m::asm::dsb();
         // Cleanup
-        self.info.regs().baud().modify(|_, w| w.rdmae().disabled());
+        self.info.regs().baud().modify(|w| w.set_rdmae(false));
         unsafe {
             self.dma.disable_request();
             self.dma.clear_done();
@@ -1237,7 +1219,7 @@ impl<C: DmaChannelTrait> Drop for RxDmaGuard<'_, C> {
             self.dma.clear_interrupt();
         }
         // Disable UART RX DMA request
-        self.info.regs().baud().modify(|_, w| w.rdmae().disabled());
+        self.info.regs().baud().modify(|w| w.set_rdmae(false));
     }
 }
 
@@ -1317,7 +1299,7 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartTxDma<'a, T, C> {
                 .setup_write_to_peripheral(buf, peri_addr, EnableInterrupt::Yes);
 
             // Enable UART TX DMA request
-            self.info.regs().baud().modify(|_, w| w.tdmae().enabled());
+            self.info.regs().baud().modify(|w| w.set_tdmae(true));
 
             // Enable DMA channel request
             self.tx_dma.enable_request();
@@ -1346,19 +1328,16 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartTxDma<'a, T, C> {
     /// Blocking write (fallback when DMA is not needed)
     pub fn blocking_write(&mut self, buf: &[u8]) -> Result<()> {
         for &byte in buf {
-            while self.info.regs().stat().read().tdre().is_txdata() {}
-            self.info
-                .regs()
-                .data()
-                .modify(|_, w| unsafe { w.bits(u32::from(byte)) });
+            while self.info.regs().stat().read().tdre() == Tdre::TXDATA {}
+            self.info.regs().data().write(|w| w.0 = byte as u32);
         }
         Ok(())
     }
 
     /// Flush TX blocking
     pub fn blocking_flush(&mut self) -> Result<()> {
-        while self.info.regs().water().read().txcount().bits() != 0 {}
-        while self.info.regs().stat().read().tc().is_active() {}
+        while self.info.regs().water().read().txcount() != 0 {}
+        while self.info.regs().stat().read().tc() == Tc::ACTIVE {}
         Ok(())
     }
 }
@@ -1439,7 +1418,7 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
                 .setup_read_from_peripheral(peri_addr, buf, EnableInterrupt::Yes);
 
             // Enable UART RX DMA request
-            self.info.regs().baud().modify(|_, w| w.rdmae().enabled());
+            self.info.regs().baud().modify(|w| w.set_rdmae(true));
 
             // Enable DMA channel request
             self.rx_dma.enable_request();
@@ -1470,7 +1449,7 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
         for byte in buf.iter_mut() {
             loop {
                 if has_data(self.info) {
-                    *byte = (self.info.regs().data().read().bits() & 0xFF) as u8;
+                    *byte = (self.info.regs().data().read().0 & 0xFF) as u8;
                     break;
                 }
                 check_and_clear_rx_errors(self.info)?;
@@ -1535,7 +1514,7 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
             self.rx_dma.set_request_source::<T::RxDmaRequest>();
 
             // Enable RX DMA request in the LPUART peripheral
-            self.info.regs().baud().modify(|_, w| w.rdmae().enabled());
+            self.info.regs().baud().modify(|w| w.set_rdmae(true));
 
             // Set up circular DMA transfer (this also enables NVIC interrupt)
             self.rx_dma.setup_circular_read(peri_addr, buf)

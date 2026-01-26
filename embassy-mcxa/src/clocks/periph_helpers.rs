@@ -9,7 +9,11 @@
 
 use super::{ClockError, Clocks, PoweredClock, WakeGuard};
 use crate::clocks::config::VddLevel;
-use crate::pac;
+use crate::pac::mrcc::vals::{
+    AdcClkselMux, ClkdivHalt, ClkdivReset, ClkdivUnstab, FclkClkselMux, Lpi2cClkselMux, LpuartClkselMux,
+    OstimerClkselMux,
+};
+use crate::pac::{self};
 
 #[must_use]
 pub struct PreEnableParts {
@@ -85,19 +89,20 @@ pub trait SPConfHelper {
 macro_rules! apply_div4 {
     ($conf:ident, $selreg:ident, $divreg:ident, $selvar:ident, $freq:ident) => {{
         // set clksel
-        $selreg.modify(|_r, w| w.mux().variant($selvar));
+        $selreg.modify(|w| w.set_mux($selvar));
 
         // Set up clkdiv
-        $divreg.modify(|_r, w| {
-            unsafe { w.div().bits($conf.div.into_bits()) }
-                .halt()
-                .asserted()
-                .reset()
-                .asserted()
+        $divreg.modify(|w| {
+            w.set_div($conf.div.into_bits());
+            w.set_halt(ClkdivHalt::OFF);
+            w.set_reset(ClkdivReset::OFF);
         });
-        $divreg.modify(|_r, w| w.halt().deasserted().reset().deasserted());
+        $divreg.modify(|w| {
+            w.set_halt(ClkdivHalt::ON);
+            w.set_reset(ClkdivReset::ON);
+        });
 
-        while $divreg.read().unstab().is_unstable() {}
+        while $divreg.read().unstab() == ClkdivUnstab::OFF {}
 
         Ok(PreEnableParts {
             freq: $freq / $conf.div.into_divisor(),
@@ -221,35 +226,37 @@ impl SPConfHelper for I3cConfig {
         // Always 25MHz maximum frequency.
         const I3C_FCLK_MAX: u32 = 25_000_000;
         // check that source is suitable
-        let mrcc0 = unsafe { pac::Mrcc0::steal() };
-        use mcxa_pac::mrcc0::mrcc_i3c0_fclk_clksel::Mux;
+        let mrcc0 = pac::MRCC0;
 
         let (clkdiv, clksel) = (mrcc0.mrcc_i3c0_fclk_clkdiv(), mrcc0.mrcc_i3c0_fclk_clksel());
 
         let (freq, variant) = match self.source {
             I3cClockSel::FroLfDiv => {
                 let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
-                (freq, Mux::ClkrootFunc0)
+                (freq, FclkClkselMux::CLKROOT_FUNC_0)
             }
             I3cClockSel::FroHfDiv => {
                 let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
-                (freq, Mux::ClkrootFunc2)
+                (freq, FclkClkselMux::CLKROOT_FUNC_2)
             }
             #[cfg(not(feature = "sosc-as-gpio"))]
             I3cClockSel::ClkIn => {
                 let freq = clocks.ensure_clk_in_active(&self.power)?;
-                (freq, Mux::ClkrootFunc3)
+                (freq, FclkClkselMux::CLKROOT_FUNC_3)
             }
             I3cClockSel::Clk1M => {
                 let freq = clocks.ensure_clk_1m_active(&self.power)?;
-                (freq, Mux::ClkrootFunc5)
+                (freq, FclkClkselMux::CLKROOT_FUNC_5)
             }
-            I3cClockSel::None => unsafe {
+            I3cClockSel::None => {
                 // no ClkrootFunc7, just write manually for now
-                clksel.write(|w| w.bits(0b111));
-                clkdiv.modify(|_r, w| w.reset().asserted().halt().asserted());
+                clksel.write(|w| w.0 = 0b111);
+                clkdiv.modify(|w| {
+                    w.set_reset(ClkdivReset::OFF);
+                    w.set_halt(ClkdivHalt::OFF);
+                });
                 return Ok(PreEnableParts::empty());
-            },
+            }
         };
 
         if freq > I3C_FCLK_MAX {
@@ -319,8 +326,7 @@ pub struct Lpi2cConfig {
 impl SPConfHelper for Lpi2cConfig {
     fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
         // check that source is suitable
-        let mrcc0 = unsafe { pac::Mrcc0::steal() };
-        use mcxa_pac::mrcc0::mrcc_lpi2c0_clksel::Mux;
+        let mrcc0 = pac::MRCC0;
 
         let (clkdiv, clksel) = match self.instance {
             Lpi2cInstance::Lpi2c0 => (mrcc0.mrcc_lpi2c0_clkdiv(), mrcc0.mrcc_lpi2c0_clksel()),
@@ -332,31 +338,34 @@ impl SPConfHelper for Lpi2cConfig {
         let (freq, variant) = match self.source {
             Lpi2cClockSel::FroLfDiv => {
                 let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
-                (freq, Mux::ClkrootFunc0)
+                (freq, Lpi2cClkselMux::CLKROOT_FUNC_0)
             }
             Lpi2cClockSel::FroHfDiv => {
                 let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
-                (freq, Mux::ClkrootFunc2)
+                (freq, Lpi2cClkselMux::CLKROOT_FUNC_2)
             }
             #[cfg(not(feature = "sosc-as-gpio"))]
             Lpi2cClockSel::ClkIn => {
                 let freq = clocks.ensure_clk_in_active(&self.power)?;
-                (freq, Mux::ClkrootFunc3)
+                (freq, Lpi2cClkselMux::CLKROOT_FUNC_3)
             }
             Lpi2cClockSel::Clk1M => {
                 let freq = clocks.ensure_clk_1m_active(&self.power)?;
-                (freq, Mux::ClkrootFunc5)
+                (freq, Lpi2cClkselMux::CLKROOT_FUNC_5)
             }
             Lpi2cClockSel::Pll1ClkDiv => {
                 let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
-                (freq, Mux::ClkrootFunc6)
+                (freq, Lpi2cClkselMux::CLKROOT_FUNC_6)
             }
-            Lpi2cClockSel::None => unsafe {
+            Lpi2cClockSel::None => {
                 // no ClkrootFunc7, just write manually for now
-                clksel.write(|w| w.bits(0b111));
-                clkdiv.modify(|_r, w| w.reset().asserted().halt().asserted());
+                clksel.write(|w| w.0 = 0b111);
+                clkdiv.modify(|w| {
+                    w.set_reset(ClkdivReset::OFF);
+                    w.set_halt(ClkdivHalt::OFF);
+                });
                 return Ok(PreEnableParts::empty());
-            },
+            }
         };
         let div = self.div.into_divisor();
         let expected = freq / div;
@@ -438,8 +447,7 @@ pub struct LpuartConfig {
 impl SPConfHelper for LpuartConfig {
     fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
         // check that source is suitable
-        let mrcc0 = unsafe { pac::Mrcc0::steal() };
-        use mcxa_pac::mrcc0::mrcc_lpuart0_clksel::Mux;
+        let mrcc0 = pac::MRCC0;
 
         let (clkdiv, clksel) = match self.instance {
             LpuartInstance::Lpuart0 => (mrcc0.mrcc_lpuart0_clkdiv(), mrcc0.mrcc_lpuart0_clksel()),
@@ -453,39 +461,38 @@ impl SPConfHelper for LpuartConfig {
         let (freq, variant) = match self.source {
             LpuartClockSel::FroLfDiv => {
                 let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
-                (freq, Mux::ClkrootFunc0)
+                (freq, LpuartClkselMux::CLKROOT_FUNC_0)
             }
             LpuartClockSel::FroHfDiv => {
                 let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
-                (freq, Mux::ClkrootFunc2)
+                (freq, LpuartClkselMux::CLKROOT_FUNC_2)
             }
             #[cfg(not(feature = "sosc-as-gpio"))]
             LpuartClockSel::ClkIn => {
                 let freq = clocks.ensure_clk_in_active(&self.power)?;
-                (freq, Mux::ClkrootFunc3)
+                (freq, LpuartClkselMux::CLKROOT_FUNC_3)
             }
             LpuartClockSel::Clk16K => {
                 let freq = clocks.ensure_clk_16k_vdd_core_active(&self.power)?;
-                (freq, Mux::ClkrootFunc4)
+                (freq, LpuartClkselMux::CLKROOT_FUNC_4)
             }
             LpuartClockSel::Clk1M => {
                 let freq = clocks.ensure_clk_1m_active(&self.power)?;
-                (freq, Mux::ClkrootFunc5)
+                (freq, LpuartClkselMux::CLKROOT_FUNC_5)
             }
             LpuartClockSel::Pll1ClkDiv => {
                 let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
-                (freq, Mux::ClkrootFunc6)
+                (freq, LpuartClkselMux::CLKROOT_FUNC_6)
             }
-            LpuartClockSel::None => unsafe {
+            LpuartClockSel::None => {
                 // no ClkrootFunc7, just write manually for now
-                clksel.write(|w| w.bits(0b111));
-                clkdiv.modify(|_r, w| {
-                    w.reset().asserted();
-                    w.halt().asserted();
-                    w
+                clksel.write(|w| w.set_mux(LpuartClkselMux::_RESERVED_7));
+                clkdiv.modify(|w| {
+                    w.set_reset(ClkdivReset::ON);
+                    w.set_halt(ClkdivHalt::ON);
                 });
                 return Ok(PreEnableParts::empty());
-            },
+            }
         };
 
         // Check clock speed is reasonable
@@ -533,13 +540,15 @@ pub struct OsTimerConfig {
 
 impl SPConfHelper for OsTimerConfig {
     fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
-        let mrcc0 = unsafe { pac::Mrcc0::steal() };
+        let mrcc0 = pac::MRCC0;
         // NOTE: complies with 22.3.2 peripheral clock max functional clock limits
         // which is 1MHz, and we can only select 1mhz/16khz.
         Ok(match self.source {
             OstimerClockSel::Clk16kVddCore => {
                 let freq = clocks.ensure_clk_16k_vdd_core_active(&self.power)?;
-                mrcc0.mrcc_ostimer0_clksel().write(|w| w.mux().clkroot_16k());
+                mrcc0
+                    .mrcc_ostimer0_clksel()
+                    .write(|w| w.set_mux(OstimerClkselMux::CLKROOT_16K));
                 PreEnableParts {
                     freq,
                     wake_guard: WakeGuard::for_power(&self.power),
@@ -547,14 +556,18 @@ impl SPConfHelper for OsTimerConfig {
             }
             OstimerClockSel::Clk1M => {
                 let freq = clocks.ensure_clk_1m_active(&self.power)?;
-                mrcc0.mrcc_ostimer0_clksel().write(|w| w.mux().clkroot_1m());
+                mrcc0
+                    .mrcc_ostimer0_clksel()
+                    .write(|w| w.set_mux(OstimerClkselMux::CLKROOT_1M));
                 PreEnableParts {
                     freq,
                     wake_guard: WakeGuard::for_power(&self.power),
                 }
             }
             OstimerClockSel::None => {
-                mrcc0.mrcc_ostimer0_clksel().write(|w| unsafe { w.mux().bits(0b11) });
+                mrcc0
+                    .mrcc_ostimer0_clksel()
+                    .write(|w| w.set_mux(OstimerClkselMux::_RESERVED_3));
                 PreEnableParts::empty()
             }
         })
@@ -596,39 +609,37 @@ pub struct AdcConfig {
 
 impl SPConfHelper for AdcConfig {
     fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
-        use mcxa_pac::mrcc0::mrcc_adc_clksel::Mux;
-        let mrcc0 = unsafe { pac::Mrcc0::steal() };
+        let mrcc0 = pac::MRCC0;
         let (freq, variant) = match self.source {
             AdcClockSel::FroLfDiv => {
                 let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
-                (freq, Mux::ClkrootFunc0)
+                (freq, AdcClkselMux::CLKROOT_FUNC_0)
             }
             AdcClockSel::FroHf => {
                 let freq = clocks.ensure_fro_hf_active(&self.power)?;
-                (freq, Mux::ClkrootFunc1)
+                (freq, AdcClkselMux::CLKROOT_FUNC_1)
             }
             #[cfg(not(feature = "sosc-as-gpio"))]
             AdcClockSel::ClkIn => {
                 let freq = clocks.ensure_clk_in_active(&self.power)?;
-                (freq, Mux::ClkrootFunc3)
+                (freq, AdcClkselMux::CLKROOT_FUNC_3)
             }
             AdcClockSel::Clk1M => {
                 let freq = clocks.ensure_clk_1m_active(&self.power)?;
-                (freq, Mux::ClkrootFunc5)
+                (freq, AdcClkselMux::CLKROOT_FUNC_5)
             }
             AdcClockSel::Pll1ClkDiv => {
                 let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
-                (freq, Mux::ClkrootFunc6)
+                (freq, AdcClkselMux::CLKROOT_FUNC_6)
             }
             AdcClockSel::None => {
-                mrcc0.mrcc_adc_clksel().write(|w| unsafe {
+                mrcc0.mrcc_adc_clksel().write(|w| {
                     // no ClkrootFunc7, just write manually for now
-                    w.mux().bits(0b111)
+                    w.set_mux(AdcClkselMux::_RESERVED_7)
                 });
-                mrcc0.mrcc_adc_clkdiv().modify(|_r, w| {
-                    w.reset().asserted();
-                    w.halt().asserted();
-                    w
+                mrcc0.mrcc_adc_clkdiv().modify(|w| {
+                    w.set_reset(ClkdivReset::ON);
+                    w.set_halt(ClkdivHalt::ON);
                 });
                 return Ok(PreEnableParts::empty());
             }

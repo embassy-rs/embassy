@@ -5,15 +5,14 @@
 // //! ## Feature flags
 // #![doc = document_features::document_features!(feature_label = r#"<span class="stab portability"><code>{feature}</code></span>"#)]
 
-pub mod clocks; // still provide clock helpers
-pub mod dma;
-pub mod gpio;
-
 pub mod adc;
 pub mod cdog;
 pub mod clkout;
+pub mod clocks; // still provide clock helpers
 pub mod config;
 pub mod crc;
+pub mod dma;
+pub mod gpio;
 pub mod i2c;
 pub mod i3c;
 pub mod lpuart;
@@ -447,9 +446,9 @@ embassy_hal_internal::interrupt_mod!(
 
 // Re-export interrupt traits and types
 #[cfg(feature = "unstable-pac")]
-pub use mcxa_pac as pac;
+pub use nxp_pac as pac;
 #[cfg(not(feature = "unstable-pac"))]
-pub(crate) use mcxa_pac as pac;
+pub(crate) use nxp_pac as pac;
 
 /// Initialize HAL with configuration (mirrors embassy-imxrt style). Minimal: just take peripherals.
 /// Also applies configurable NVIC priority for the OSTIMER OS_EVENT interrupt (no enabling).

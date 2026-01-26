@@ -13,6 +13,7 @@ use embassy_time::Duration;
 use crate::interrupt::typelevel;
 use crate::interrupt::typelevel::Handler;
 use crate::pac;
+use crate::pac::wwdt::vals::{Wden, Wdprotect, Wdreset};
 use crate::peripherals::WWDT0;
 
 /// WWDT0 Error types
@@ -45,7 +46,7 @@ impl Default for Config {
 pub struct Watchdog<'d> {
     _peri: Peri<'d, WWDT0>,
     // The register block of the WWDT instance
-    info: &'static pac::wwdt0::RegisterBlock,
+    info: pac::wwdt::Wwdt,
 }
 
 impl<'d> Watchdog<'d> {
@@ -62,7 +63,7 @@ impl<'d> Watchdog<'d> {
         _irq: impl crate::interrupt::typelevel::Binding<typelevel::WWDT0, InterruptHandler> + 'd,
         config: Config,
     ) -> Result<Self, Error> {
-        let info = unsafe { &*pac::Wwdt0::ptr() };
+        let info = pac::WWDT0;
 
         let watchdog = Self { _peri, info };
 
@@ -77,8 +78,7 @@ impl<'d> Watchdog<'d> {
 
         // Enable WATCHDOG clock by writing to mrcc register
         // Can't use enable_and_reset API here because WWDT doesn't have a reset signal.
-        let mrcc = unsafe { pac::Mrcc0::steal() };
-        mrcc.mrcc_glb_cc0().modify(|_, w| w.wwdt0().enabled());
+        pac::MRCC0.mrcc_glb_cc0().modify(|w| w.set_wwdt0(true));
 
         let timeout_cycles = (frequency as u64 * config.timeout.as_micros()) / 1_000_000;
 
@@ -135,31 +135,31 @@ impl<'d> Watchdog<'d> {
     /// the watchdog from triggering a reset or interrupt.
     pub fn feed(&self) {
         critical_section::with(|_cs| {
-            self.info.feed().write(|w| unsafe { w.feed().bits(0xAA) });
-            self.info.feed().write(|w| unsafe { w.feed().bits(0x55) });
+            self.info.feed().write(|w| w.set_feed(0xAA));
+            self.info.feed().write(|w| w.set_feed(0x55));
         });
     }
 
     /// Enable the watchdog timer.
     /// Function is blocking until the watchdog is actually started.
     fn enable(&self) {
-        self.info.mod_().modify(|_, w| w.wden().run());
+        self.info.mod_().modify(|w| w.set_wden(Wden::RUN));
         while self.info.tc().read().count() == 0xFF {}
     }
 
     /// Set the watchdog protection mode to flexible.
     fn set_flexible_mode(&self) {
-        self.info.mod_().modify(|_, w| w.wdprotect().flexible());
+        self.info.mod_().modify(|w| w.set_wdprotect(Wdprotect::FLEXIBLE));
     }
 
     /// Enable interrupt mode.
     fn enable_interrupt(&self) {
-        self.info.mod_().modify(|_, w| w.wdreset().interrupt());
+        self.info.mod_().modify(|w| w.set_wdreset(Wdreset::INTERRUPT));
     }
 
     /// Enable reset mode.
     fn enable_reset(&self) {
-        self.info.mod_().modify(|_, w| w.wdreset().reset());
+        self.info.mod_().modify(|w| w.set_wdreset(Wdreset::RESET));
     }
 
     /// Set the timeout value in clock cycles.
@@ -168,7 +168,7 @@ impl<'d> Watchdog<'d> {
     ///
     /// * `timeout` - Number of clock cycles before timeout.
     fn set_timeout_value(&self, timeout: u32) {
-        self.info.tc().write(|w| unsafe { w.count().bits(timeout) });
+        self.info.tc().write(|w| w.set_count(timeout));
     }
 
     /// Set the warning interrupt value in clock cycles.
@@ -177,12 +177,12 @@ impl<'d> Watchdog<'d> {
     ///
     /// * `warning` - Number of clock cycles before warning interrupt.
     fn set_warning_value(&self, warning: u16) {
-        self.info.warnint().write(|w| unsafe { w.warnint().bits(warning) });
+        self.info.warnint().write(|w| w.set_warnint(warning));
     }
 
     /// Lock the oscillator to prevent disabling or powering down the watchdog oscillator.
     fn lock_oscillator(&self) {
-        self.info.mod_().modify(|_, w| w.lock().lock());
+        self.info.mod_().modify(|w| w.set_lock(true));
     }
 }
 
@@ -195,20 +195,20 @@ pub struct InterruptHandler;
 impl Handler<typelevel::WWDT0> for InterruptHandler {
     unsafe fn on_interrupt() {
         crate::perf_counters::incr_interrupt_wwdt();
-        let wwdt = unsafe { &*pac::Wwdt0::ptr() };
+        let wwdt = pac::WWDT0;
 
-        if wwdt.mod_().read().wdtof().bit_is_set() {
+        if wwdt.mod_().read().wdtof() {
             #[cfg(feature = "defmt")]
             defmt::trace!("WWDT0: Timeout occurred");
 
-            wwdt.mod_().modify(|_, w| w.wdtof().set_bit());
+            wwdt.mod_().modify(|w| w.set_wdtof(true));
         }
 
-        if wwdt.mod_().read().wdint().bit_is_set() {
+        if wwdt.mod_().read().wdint() {
             #[cfg(feature = "defmt")]
             defmt::trace!("WWDT0: Warning interrupt");
 
-            wwdt.mod_().modify(|_, w| w.wdint().clear_bit_by_one());
+            wwdt.mod_().modify(|w| w.set_wdint(true));
         }
     }
 }

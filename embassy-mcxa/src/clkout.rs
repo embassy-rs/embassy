@@ -12,7 +12,7 @@ use crate::clocks::config::VddLevel;
 pub use crate::clocks::periph_helpers::Div4;
 use crate::clocks::{ClockError, PoweredClock, WakeGuard, with_clocks};
 use crate::gpio::{AnyPin, SealedPin};
-use crate::pac::mrcc0::mrcc_clkout_clksel::Mux;
+use crate::pac::mrcc::vals::{ClkdivHalt, ClkdivReset, ClkdivUnstab, ClkoutClkselMux as Mux};
 use crate::peripherals::CLKOUT;
 
 /// A peripheral representing the CLKOUT pseudo-peripheral
@@ -96,13 +96,13 @@ impl Drop for ClockOut<'_> {
 fn check_sel(sel: ClockOutSel, level: PoweredClock, divisor: u32) -> Result<(u32, Mux, Option<WakeGuard>), ClockError> {
     let res = with_clocks(|c| {
         let (freq, mux) = match sel {
-            ClockOutSel::Fro12M => (c.ensure_fro_hf_active(&level)?, Mux::Clkroot12m),
-            ClockOutSel::FroHfDiv => (c.ensure_fro_hf_div_active(&level)?, Mux::ClkrootFircDiv),
+            ClockOutSel::Fro12M => (c.ensure_fro_hf_active(&level)?, Mux::CLKROOT_12M),
+            ClockOutSel::FroHfDiv => (c.ensure_fro_hf_div_active(&level)?, Mux::CLKROOT_FIRC_DIV),
             #[cfg(not(feature = "sosc-as-gpio"))]
-            ClockOutSel::ClkIn => (c.ensure_clk_in_active(&level)?, Mux::ClkrootSosc),
-            ClockOutSel::Clk16K => (c.ensure_clk_16k_vdd_core_active(&level)?, Mux::Clkroot16k),
-            ClockOutSel::Pll1Clk => (c.ensure_pll1_clk_active(&level)?, Mux::ClkrootSpll),
-            ClockOutSel::SlowClk => (c.ensure_slow_clk_active(&level)?, Mux::ClkrootSlow),
+            ClockOutSel::ClkIn => (c.ensure_clk_in_active(&level)?, Mux::CLKROOT_SOSC),
+            ClockOutSel::Clk16K => (c.ensure_clk_16k_vdd_core_active(&level)?, Mux::CLKROOT_16K),
+            ClockOutSel::Pll1Clk => (c.ensure_pll1_clk_active(&level)?, Mux::CLKROOT_SPLL),
+            ClockOutSel::SlowClk => (c.ensure_slow_clk_active(&level)?, Mux::CLKROOT_SLOW),
         };
         let expected = freq / divisor;
         let fmax = match c.active_power {
@@ -128,42 +128,37 @@ fn check_sel(sel: ClockOutSel, level: PoweredClock, divisor: u32) -> Result<(u32
 
 /// Set up the clkout pin using the given mux and div settings
 fn setup_clkout(mux: Mux, div: Div4) {
-    let mrcc = unsafe { crate::pac::Mrcc0::steal() };
+    let mrcc = crate::pac::MRCC0;
 
-    mrcc.mrcc_clkout_clksel().write(|w| w.mux().variant(mux));
+    mrcc.mrcc_clkout_clksel().write(|w| w.set_mux(mux));
 
     // Set up clkdiv
     mrcc.mrcc_clkout_clkdiv().write(|w| {
-        w.halt().set_bit();
-        w.reset().set_bit();
-        unsafe { w.div().bits(div.into_bits()) };
-        w
+        w.set_halt(ClkdivHalt::OFF);
+        w.set_reset(ClkdivReset::OFF);
+        w.set_div(div.into_bits());
     });
     mrcc.mrcc_clkout_clkdiv().write(|w| {
-        w.halt().clear_bit();
-        w.reset().clear_bit();
-        unsafe { w.div().bits(div.into_bits()) };
-        w
+        w.set_halt(ClkdivHalt::ON);
+        w.set_reset(ClkdivReset::ON);
+        w.set_div(div.into_bits());
     });
 
-    while mrcc.mrcc_clkout_clkdiv().read().unstab().bit_is_set() {}
+    while mrcc.mrcc_clkout_clkdiv().read().unstab() == ClkdivUnstab::ON {}
 }
 
-/// Stop the clkout
+/// Stop the
 fn disable_clkout() {
     // Stop the output by selecting the "none" clock
     //
     // TODO: restore the pin to hi-z or something?
-    let mrcc = unsafe { crate::pac::Mrcc0::steal() };
+    let mrcc = crate::pac::MRCC0;
     mrcc.mrcc_clkout_clkdiv().write(|w| {
-        w.reset().set_bit();
-        w.halt().set_bit();
-        unsafe {
-            w.div().bits(0);
-        }
-        w
+        w.set_reset(ClkdivReset::OFF);
+        w.set_halt(ClkdivHalt::OFF);
+        w.set_div(0);
     });
-    mrcc.mrcc_clkout_clksel().write(|w| unsafe { w.bits(0b111) });
+    mrcc.mrcc_clkout_clksel().write(|w| w.0 = 0b111);
 }
 
 mod sealed {
@@ -181,22 +176,22 @@ mod sealed {
         ($pin:ident, $func:ident) => {
             impl ClockOutPin for crate::peripherals::$pin {
                 fn mux(&self) {
-                    self.set_function(crate::pac::port0::pcr0::Mux::$func);
+                    self.set_function(crate::pac::port::vals::Mux::$func);
                     self.set_pull(Pull::Disabled);
 
                     // TODO: we may want to expose these as options to allow the slew rate
                     // and drive strength for clocks if they are particularly high speed.
                     //
-                    // self.set_drive_strength(crate::pac::port0::pcr0::Dse::Dse1);
-                    // self.set_slew_rate(crate::pac::port0::pcr0::Sre::Sre0);
+                    // self.set_drive_strength(crate::pac::port::pcr::Dse::Dse1);
+                    // self.set_slew_rate(crate::pac::port::pcr::Sre::Sre0);
                 }
             }
         };
     }
 
     #[cfg(feature = "jtag-extras-as-gpio")]
-    impl_pin!(P0_6, Mux12);
-    impl_pin!(P3_6, Mux1);
-    impl_pin!(P3_8, Mux12);
-    impl_pin!(P4_2, Mux1);
+    impl_pin!(P0_6, MUX12);
+    impl_pin!(P3_6, MUX1);
+    impl_pin!(P3_8, MUX12);
+    impl_pin!(P4_2, MUX1);
 }

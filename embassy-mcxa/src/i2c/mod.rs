@@ -33,14 +33,14 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<Mrcc
 }
 
 struct Info {
-    regs: *const pac::lpi2c0::RegisterBlock,
+    regs: pac::lpi2c::Lpi2c,
     wait_cell: WaitCell,
 }
 
 impl Info {
     #[inline(always)]
-    fn regs(&self) -> &'static pac::lpi2c0::RegisterBlock {
-        unsafe { &*self.regs }
+    fn regs(&self) -> pac::lpi2c::Lpi2c {
+        self.regs
     }
 
     #[inline(always)]
@@ -58,8 +58,8 @@ macro_rules! impl_instance {
                 impl SealedInstance for crate::peripherals::[<LPI2C $n>] {
                     fn info() -> &'static Info {
                         static INFO: Info = Info {
-                            regs: pac::[<Lpi2c $n>]::ptr(),
-                            wait_cell:  WaitCell::new(),
+                            regs: pac::[<LPI2C $n>],
+                            wait_cell: WaitCell::new(),
                         };
                         &INFO
                     }
@@ -112,41 +112,41 @@ macro_rules! impl_pin {
                 self.set_pull(crate::gpio::Pull::Disabled);
                 self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
                 self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
-                self.set_function(crate::pac::port0::pcr0::Mux::$fn);
+                self.set_function(crate::pac::port::vals::Mux::$fn);
                 self.set_enable_input_buffer(true);
             }
         }
     };
 }
 
-impl_pin!(P0_16, LPI2C0, Mux2, SdaPin);
-impl_pin!(P0_17, LPI2C0, Mux2, SclPin);
-impl_pin!(P0_18, LPI2C0, Mux2, SclPin);
-impl_pin!(P0_19, LPI2C0, Mux2, SdaPin);
-impl_pin!(P1_0, LPI2C1, Mux3, SdaPin);
-impl_pin!(P1_1, LPI2C1, Mux3, SclPin);
-impl_pin!(P1_2, LPI2C1, Mux3, SdaPin);
-impl_pin!(P1_3, LPI2C1, Mux3, SclPin);
-impl_pin!(P1_8, LPI2C2, Mux3, SdaPin);
-impl_pin!(P1_9, LPI2C2, Mux3, SclPin);
-impl_pin!(P1_10, LPI2C2, Mux3, SdaPin);
-impl_pin!(P1_11, LPI2C2, Mux3, SclPin);
-impl_pin!(P1_12, LPI2C1, Mux2, SdaPin);
-impl_pin!(P1_13, LPI2C1, Mux2, SclPin);
-impl_pin!(P1_14, LPI2C1, Mux2, SclPin);
-impl_pin!(P1_15, LPI2C1, Mux2, SdaPin);
+impl_pin!(P0_16, LPI2C0, MUX2, SdaPin);
+impl_pin!(P0_17, LPI2C0, MUX2, SclPin);
+impl_pin!(P0_18, LPI2C0, MUX2, SclPin);
+impl_pin!(P0_19, LPI2C0, MUX2, SdaPin);
+impl_pin!(P1_0, LPI2C1, MUX3, SdaPin);
+impl_pin!(P1_1, LPI2C1, MUX3, SclPin);
+impl_pin!(P1_2, LPI2C1, MUX3, SdaPin);
+impl_pin!(P1_3, LPI2C1, MUX3, SclPin);
+impl_pin!(P1_8, LPI2C2, MUX3, SdaPin);
+impl_pin!(P1_9, LPI2C2, MUX3, SclPin);
+impl_pin!(P1_10, LPI2C2, MUX3, SdaPin);
+impl_pin!(P1_11, LPI2C2, MUX3, SclPin);
+impl_pin!(P1_12, LPI2C1, MUX2, SdaPin);
+impl_pin!(P1_13, LPI2C1, MUX2, SclPin);
+impl_pin!(P1_14, LPI2C1, MUX2, SclPin);
+impl_pin!(P1_15, LPI2C1, MUX2, SdaPin);
 // NOTE: P1_30 and P1_31 are typically used for the external oscillator
 // For now, we just don't give users these pins.
 //
-// impl_pin!(P1_30, LPI2C0, Mux3, SdaPin);
-// impl_pin!(P1_31, LPI2C0, Mux3, SclPin);
-impl_pin!(P3_27, LPI2C3, Mux2, SclPin);
-impl_pin!(P3_28, LPI2C3, Mux2, SdaPin);
-// impl_pin!(P3_29, LPI2C3, Mux2, HreqPin); What is this HREQ pin?
-impl_pin!(P3_30, LPI2C3, Mux2, SclPin);
-impl_pin!(P3_31, LPI2C3, Mux2, SdaPin);
-impl_pin!(P4_2, LPI2C2, Mux2, SdaPin);
-impl_pin!(P4_3, LPI2C0, Mux2, SclPin);
-impl_pin!(P4_4, LPI2C2, Mux2, SdaPin);
-impl_pin!(P4_5, LPI2C0, Mux2, SclPin);
-// impl_pin!(P4_6, LPI2C0, Mux2, HreqPin); What is this HREQ pin?
+// impl_pin!(P1_30, LPI2C0, MUX3, SdaPin);
+// impl_pin!(P1_31, LPI2C0, MUX3, SclPin);
+impl_pin!(P3_27, LPI2C3, MUX2, SclPin);
+impl_pin!(P3_28, LPI2C3, MUX2, SdaPin);
+// impl_pin!(P3_29, LPI2C3, MUX2, HreqPin); What is this HREQ pin?
+impl_pin!(P3_30, LPI2C3, MUX2, SclPin);
+impl_pin!(P3_31, LPI2C3, MUX2, SdaPin);
+impl_pin!(P4_2, LPI2C2, MUX2, SdaPin);
+impl_pin!(P4_3, LPI2C0, MUX2, SclPin);
+impl_pin!(P4_4, LPI2C2, MUX2, SdaPin);
+impl_pin!(P4_5, LPI2C0, MUX2, SclPin);
+// impl_pin!(P4_6, LPI2C0, MUX2, HreqPin); What is this HREQ pin?

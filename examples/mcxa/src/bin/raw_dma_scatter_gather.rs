@@ -128,8 +128,8 @@ async fn main(_spawner: Spawner) {
 
     // Wait for first half
     loop {
-        if tcd.tcd_saddr().read().bits() != src_ptr as u32 {
-            defmt::info!("saddr: {=u32}", tcd.tcd_saddr().read().bits());
+        if tcd.tcd_saddr().read().0 != src_ptr as u32 {
+            defmt::info!("saddr: {=u32}", tcd.tcd_saddr().read().0);
             defmt::info!("srptr: {=u32}", src_ptr as u32);
             break;
         }
