@@ -18,32 +18,28 @@ async fn main(_spawner: Spawner) {
 
     let mut config = target::Config::default();
     config.address = target::Address::Single(42);
-    // config.address = target::Address::Dual(42, 43);
-    // config.address = target::Address::Range(40..50);
+
+    // Other possible address configurations
+    // config.address = target::Address::Dual(0x2a, 0x31);
+    // config.address = target::Address::Range(0x20..0x30);
+
     let mut target = target::I2c::new_blocking(p.LPI2C3, p.P3_27, p.P3_28, config).unwrap();
     let mut buf = [0u8; 32];
 
     loop {
-        match target.blocking_listen() {
-            Err(e) => {
-                defmt::error!("Failed to listen for events: {}", e);
+        let request = target.blocking_listen().unwrap();
+        defmt::info!("Received event {}", request);
+        match request {
+            target::Request::Read(_addr) => {
+                buf.fill(0x55);
+                let count = target.blocking_respond_to_read(&buf).unwrap();
+                defmt::info!("T [R]: {:02x} -> {:02x}", _addr, buf[..count]);
             }
-            Ok(request) => {
-                defmt::info!("Received event {}", request);
-                match request {
-                    target::Request::Read(_addr) => {
-                        buf.fill(0x55);
-                        let count = target.blocking_respond_to_read(&buf).unwrap();
-                        defmt::info!("T [R]: {:02x} -> {:02x}", _addr, buf[..count]);
-                    }
-                    target::Request::Write(_addr) => {
-                        buf.fill(0);
-                        let count = target.blocking_respond_to_write(&mut buf).unwrap();
-                        defmt::info!("T [W]: {:02x} <- {:02x}", _addr, buf[..count]);
-                    }
-                    _ => {}
-                }
+            target::Request::Write(_addr) => {
+                let count = target.blocking_respond_to_write(&mut buf).unwrap();
+                defmt::info!("T [W]: {:02x} <- {:02x}", _addr, buf[..count]);
             }
+            _ => {}
         }
     }
 }

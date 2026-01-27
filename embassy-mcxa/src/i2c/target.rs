@@ -7,15 +7,85 @@ use embassy_hal_internal::Peri;
 use mcxa_pac::lpi2c0::scfgr1::Addrcfg;
 use mcxa_pac::lpi2c0::sier::{Gcie, Sarie};
 
-use super::{Async, Blocking, ConfigError, Error, Info, Instance, InterruptHandler, Mode, SclPin, SdaPin};
+use super::{Async, Blocking, Info, Instance, Mode, SclPin, SdaPin};
 use crate::clocks::periph_helpers::{Div4, Lpi2cClockSel, Lpi2cConfig};
-use crate::clocks::{PoweredClock, WakeGuard, enable_and_reset};
+use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
 use crate::gpio::{AnyPin, SealedPin};
+use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
+
+/// Error information type
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum ConfigError {
+    /// Invalid Address
+    InvalidAddress,
+}
+
+/// Error information type.
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum Error {
+    /// Clock configuration error.
+    ClockSetup(ClockError),
+    /// Invalid configuration.
+    InvalidConfiguration(ConfigError),
+    /// Busy Busy
+    BusBusy,
+    /// Target Busy
+    TargetBusy,
+    /// FIFO Error
+    FifoError,
+    /// Bit Error
+    BitError,
+    /// Other internal errors or unexpected state.
+    Other,
+}
+
+/// I2C interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        if T::info().regs().sier().read().bits() != 0 {
+            T::info().regs().sier().write(|w| {
+                w.tdie()
+                    .disabled()
+                    .rdie()
+                    .disabled()
+                    .avie()
+                    .disabled()
+                    .taie()
+                    .disabled()
+                    .rsie()
+                    .disabled()
+                    .sdie()
+                    .disabled()
+                    .beie()
+                    .disabled()
+                    .feie()
+                    .disabled()
+                    .am0ie()
+                    .disabled()
+                    .am1ie()
+                    .disabled()
+                    .gcie()
+                    .disabled()
+                    .sarie()
+                    .disabled()
+            });
+
+            T::info().wait_cell().wake();
+        }
+    }
+}
 
 /// I2C target addresses.
 #[derive(Clone)]
-#[non_exhaustive]
 pub enum Address {
     /// Single address
     Single(u16),
@@ -194,6 +264,7 @@ impl<'d, M: Mode> I2c<'d, M> {
                 }
 
                 Address::Dual(addr0, addr1) => {
+                    // Either both a 7-bit or both are 10-bit
                     if ((0x00..=0x7f).contains(&addr0) ^ (0x00..=0x7f).contains(&addr1))
                         || ((0x80..=0x3ff).contains(&addr0) ^ (0x80..=0x3ff).contains(&addr1))
                     {
@@ -263,7 +334,11 @@ impl<'d, M: Mode> I2c<'d, M> {
     }
 
     /// Resets both TX and RX FIFOs dropping their contents.
+
     fn reset_fifos(&self) {
+        // The critical section is needed to prevent an interrupt from
+        // modifying SCR while we're in the middle of our
+        // read-modify-write operation.
         critical_section::with(|_| {
             self.info
                 .regs()
@@ -325,10 +400,16 @@ impl<'d, M: Mode> I2c<'d, M> {
         self.clear_status();
 
         // Wait for Address Valid
-        while self.info.regs().ssr().read().avf().bit_is_clear()
-            && self.info.regs().ssr().read().sarf().bit_is_clear()
-            && self.info.regs().ssr().read().gcf().bit_is_clear()
-        {}
+        loop {
+            let ssr = self.info.regs().ssr().read();
+            let avr = ssr.avf().bit_is_set();
+            let sarf = ssr.sarf().bit_is_set();
+            let gcf = ssr.gcf().bit_is_set();
+
+            if avr || sarf || gcf {
+                break;
+            }
+        }
 
         let event = self.status()?;
 
@@ -347,7 +428,10 @@ impl<'d, M: Mode> I2c<'d, M> {
         }
     }
 
-    /// Respond to read request
+    /// Transmit the contents of `buf` to the I2C controller.
+    ///
+    /// Returns either an `Ok(usize)` containing the number of bytes
+    /// transmitted, or an `Error`.
     pub fn blocking_respond_to_read(&mut self, buf: &[u8]) -> Result<usize, Error> {
         let mut count = 0;
 
@@ -355,13 +439,19 @@ impl<'d, M: Mode> I2c<'d, M> {
 
         for byte in buf.iter() {
             // Wait until we can send data
-            while self.info.regs().ssr().read().tdf().bit_is_clear()
-                || self.info.regs().ssr().read().sdf().bit_is_set()
-                || self.info.regs().ssr().read().rsf().bit_is_set()
-            {}
+            let ssr = loop {
+                let ssr = self.info.regs().ssr().read();
+                let tdf = ssr.tdf().bit_is_set();
+                let sdf = ssr.sdf().bit_is_set();
+                let rsf = ssr.rsf().bit_is_set();
+
+                if tdf || sdf || rsf {
+                    break ssr;
+                }
+            };
 
             // If we see a STOP or REPEATED START, break out
-            if self.info.regs().ssr().read().sdf().bit_is_set() || self.info.regs().ssr().read().rsf().bit_is_set() {
+            if ssr.sdf().bit_is_set() || ssr.rsf().bit_is_set() {
                 #[cfg(feature = "defmt")]
                 defmt::trace!("Early stop of Target Send routine. STOP or Repeated-start received");
                 break;
@@ -374,7 +464,11 @@ impl<'d, M: Mode> I2c<'d, M> {
         Ok(count)
     }
 
-    /// Respond to write request
+    /// Receive data from the I2C controller into `buf`.
+    ///
+    /// Care is taken to guarantee that we receive at most `buf.len()`
+    /// bytes. On success returns `Ok(usize)` containing the number of
+    /// bytes received or an `Error`.
     pub fn blocking_respond_to_write(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         let mut count = 0;
 
@@ -382,13 +476,19 @@ impl<'d, M: Mode> I2c<'d, M> {
 
         for byte in buf.iter_mut() {
             // Wait until we have data to read
-            while self.info.regs().ssr().read().rdf().bit_is_clear()
-                || self.info.regs().ssr().read().sdf().bit_is_set()
-                || self.info.regs().ssr().read().rsf().bit_is_set()
-            {}
+            let ssr = loop {
+                let ssr = self.info.regs().ssr().read();
+                let rdf = ssr.rdf().bit_is_set();
+                let sdf = ssr.sdf().bit_is_set();
+                let rsf = ssr.rsf().bit_is_set();
+
+                if rdf || sdf || rsf {
+                    break ssr;
+                }
+            };
 
             // If we see a STOP or REPEATED START, break out
-            if self.info.regs().ssr().read().sdf().bit_is_set() || self.info.regs().ssr().read().rsf().bit_is_set() {
+            if ssr.sdf().bit_is_set() || ssr.rsf().bit_is_set() {
                 #[cfg(feature = "defmt")]
                 defmt::trace!("Early stop of Target Receive routine. STOP or Repeated-start received");
                 break;
@@ -498,7 +598,11 @@ impl<'d> I2c<'d, Async> {
         }
     }
 
-    /// Respond to read request
+    /// Asynchronously transmit the contents of `buf` to the I2C
+    /// controller.
+    ///
+    /// Returns either an `Ok(usize)` containing the number of bytes
+    /// transmitted, or an `Error`.
     pub async fn async_respond_to_read(&mut self, buf: &[u8]) -> Result<usize, Error> {
         let mut count = 0;
 
@@ -510,15 +614,15 @@ impl<'d> I2c<'d, Async> {
                 .wait_cell()
                 .wait_for(|| {
                     self.enable_ints();
-                    self.info.regs().ssr().read().tdf().bit_is_set()
-                        || self.info.regs().ssr().read().sdf().bit_is_set()
-                        || self.info.regs().ssr().read().rsf().bit_is_set()
+                    let ssr = self.info.regs().ssr().read();
+                    ssr.tdf().bit_is_set() || ssr.sdf().bit_is_set() || ssr.rsf().bit_is_set()
                 })
                 .await
                 .map_err(|_| Error::Other)?;
 
             // If we see a STOP or REPEATED START, break out
-            if self.info.regs().ssr().read().sdf().bit_is_set() || self.info.regs().ssr().read().rsf().bit_is_set() {
+            let ssr = self.info.regs().ssr().read();
+            if ssr.sdf().bit_is_set() || ssr.rsf().bit_is_set() {
                 #[cfg(feature = "defmt")]
                 defmt::trace!("Early stop of Target Send routine. STOP or Repeated-start received");
                 self.reset_fifos();
@@ -532,7 +636,12 @@ impl<'d> I2c<'d, Async> {
         Ok(count)
     }
 
-    /// Respond to write request
+    /// Asynchronously receive data from the I2C controller into
+    /// `buf`.
+    ///
+    /// Care is taken to guarantee that we receive at most `buf.len()`
+    /// bytes. On success returns `Ok(usize)` containing the number of
+    /// bytes received or an `Error`.
     pub async fn async_respond_to_write(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         let mut count = 0;
 
@@ -543,15 +652,15 @@ impl<'d> I2c<'d, Async> {
                 .wait_cell()
                 .wait_for(|| {
                     self.enable_ints();
-                    self.info.regs().ssr().read().rdf().bit_is_set()
-                        || self.info.regs().ssr().read().sdf().bit_is_set()
-                        || self.info.regs().ssr().read().rsf().bit_is_set()
+                    let ssr = self.info.regs().ssr().read();
+                    ssr.rdf().bit_is_set() || ssr.sdf().bit_is_set() || ssr.rsf().bit_is_set()
                 })
                 .await
                 .map_err(|_| Error::Other)?;
 
             // If we see a STOP or REPEATED START, break out
-            if self.info.regs().ssr().read().sdf().bit_is_set() || self.info.regs().ssr().read().rsf().bit_is_set() {
+            let ssr = self.info.regs().ssr().read();
+            if ssr.sdf().bit_is_set() || ssr.rsf().bit_is_set() {
                 #[cfg(feature = "defmt")]
                 defmt::trace!("Early stop of Target Receive routine. STOP or Repeated-start received");
                 self.reset_fifos();

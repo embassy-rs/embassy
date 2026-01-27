@@ -7,11 +7,75 @@ use embassy_hal_internal::Peri;
 use embassy_hal_internal::drop::OnDrop;
 use mcxa_pac::lpi2c0::mtdr::Cmd;
 
-use super::{Async, Blocking, Error, Info, Instance, InterruptHandler, Mode, SclPin, SdaPin};
+use super::{Async, Blocking, Info, Instance, Mode, SclPin, SdaPin};
 use crate::clocks::periph_helpers::{Div4, Lpi2cClockSel, Lpi2cConfig};
-use crate::clocks::{PoweredClock, WakeGuard, enable_and_reset};
+use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
 use crate::gpio::{AnyPin, SealedPin};
+use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
+
+/// Error information type
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum Error {
+    /// Clock configuration error.
+    ClockSetup(ClockError),
+    /// FIFO Error
+    FifoError,
+    /// Reading for I2C failed.
+    ReadFail,
+    /// Writing to I2C failed.
+    WriteFail,
+    /// I2C address NAK condition.
+    AddressNack,
+    /// Bus level arbitration loss.
+    ArbitrationLoss,
+    /// Address out of range.
+    AddressOutOfRange(u8),
+    /// Invalid write buffer length.
+    InvalidWriteBufferLength,
+    /// Invalid read buffer length.
+    InvalidReadBufferLength,
+    /// Other internal errors or unexpected state.
+    Other,
+}
+
+/// I2C interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        if T::info().regs().mier().read().bits() != 0 {
+            T::info().regs().mier().write(|w| {
+                w.tdie()
+                    .disabled()
+                    .rdie()
+                    .disabled()
+                    .epie()
+                    .disabled()
+                    .sdie()
+                    .disabled()
+                    .ndie()
+                    .disabled()
+                    .alie()
+                    .disabled()
+                    .feie()
+                    .disabled()
+                    .pltie()
+                    .disabled()
+                    .dmie()
+                    .disabled()
+                    .stie()
+                    .disabled()
+            });
+
+            T::info().wait_cell().wake();
+        }
+    }
+}
 
 /// Bus speed (nominal SCL, no clock stretching)
 #[derive(Clone, Copy, Default, PartialEq)]
