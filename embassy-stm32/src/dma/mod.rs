@@ -25,6 +25,8 @@ pub(crate) use util::*;
 pub(crate) mod ringbuffer;
 pub mod word;
 
+use core::marker::PhantomData;
+
 use embassy_hal_internal::{PeripheralType, impl_peripheral};
 
 use crate::interrupt;
@@ -76,8 +78,29 @@ pub(crate) trait ChannelInterrupt {
 #[allow(private_bounds)]
 pub trait Channel: SealedChannel + PeripheralType + Into<AnyChannel> + 'static {}
 
+/// Trait for DMA channels that have a known interrupt at compile time.
+///
+/// This is implemented for concrete DMA channel peripherals (e.g., `DMA1_CH0`)
+/// but not for `AnyChannel` which is type-erased.
+#[allow(private_bounds)]
+pub trait ChannelWithInterrupt: Channel + ChannelInterrupt {
+    /// Interrupt for this DMA channel.
+    type Interrupt: interrupt::typelevel::Interrupt;
+}
+
+/// DMA interrupt handler.
+pub struct InterruptHandler<T: ChannelWithInterrupt> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: ChannelWithInterrupt> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        T::on_irq();
+    }
+}
+
 macro_rules! dma_channel_impl {
-    ($channel_peri:ident, $index:expr, $stop_mode:ident) => {
+    ($channel_peri:ident, $index:expr, $stop_mode:ident, $irq:ty) => {
         impl crate::rcc::StoppablePeripheral for crate::peripherals::$channel_peri {
             #[cfg(feature = "low-power")]
             fn stop_mode(&self) -> crate::rcc::StopMode {
@@ -103,6 +126,10 @@ macro_rules! dma_channel_impl {
         }
 
         impl crate::dma::Channel for crate::peripherals::$channel_peri {}
+
+        impl crate::dma::ChannelWithInterrupt for crate::peripherals::$channel_peri {
+            type Interrupt = $irq;
+        }
 
         impl From<crate::peripherals::$channel_peri> for crate::dma::AnyChannel {
             fn from(val: crate::peripherals::$channel_peri) -> Self {

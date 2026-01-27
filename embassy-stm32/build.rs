@@ -2090,10 +2090,10 @@ fn main() {
         }
     }
 
-    #[cfg(feature = "_dual-core")]
+    // Build a map from DMA channel name to its interrupt name.
+    // This is used to generate the interrupt type for each DMA channel.
     let mut dma_ch_to_irq: BTreeMap<&str, Vec<String>> = BTreeMap::new();
 
-    #[cfg(feature = "_dual-core")]
     for (irq, channels) in &dma_irqs {
         for channel in channels {
             dma_ch_to_irq.entry(channel).or_default().push(irq.to_string());
@@ -2121,17 +2121,19 @@ fn main() {
 
         let name = format_ident!("{}", ch.name);
         let idx = ch_idx as u8;
-        #[cfg(feature = "_dual-core")]
-        let irq = {
-            let irq_name = if let Some(x) = &dma_ch_to_irq.get(ch.name) {
-                format_ident!("{}", x.get(0).unwrap())
-            } else {
-                panic!("failed to find dma interrupt")
-            };
-            quote!(crate::pac::Interrupt::#irq_name)
-        };
 
-        g.extend(quote!(dma_channel_impl!(#name, #idx, #stop_mode);));
+        // Get the interrupt type for this DMA channel
+        let irq_name = dma_ch_to_irq
+            .get(ch.name)
+            .and_then(|v| v.first())
+            .unwrap_or_else(|| panic!("failed to find dma interrupt for channel {}", ch.name));
+        let irq_ident = format_ident!("{}", irq_name);
+        let irq_type = quote!(crate::interrupt::typelevel::#irq_ident);
+
+        #[cfg(feature = "_dual-core")]
+        let irq_pac = quote!(crate::pac::Interrupt::#irq_ident);
+
+        g.extend(quote!(dma_channel_impl!(#name, #idx, #stop_mode, #irq_type);));
 
         let dma = format_ident!("{}", ch.dma);
         let ch_num = ch.channel as usize;
@@ -2174,35 +2176,11 @@ fn main() {
             crate::dma::ChannelInfo {
                 dma: #dma_info,
                 num: #ch_num,
-                irq: #irq,
+                irq: #irq_pac,
                 #dmamux
             },
         });
     }
-
-    // ========
-    // Generate DMA IRQs.
-
-    let dma_irqs: TokenStream = dma_irqs
-        .iter()
-        .map(|(irq, channels)| {
-            let irq = format_ident!("{}", irq);
-
-            let channels = channels.iter().map(|c| format_ident!("{}", c));
-
-            quote! {
-                #[cfg(feature = "rt")]
-                #[crate::interrupt]
-                unsafe fn #irq () {
-                    #(
-                        <crate::peripherals::#channels as crate::dma::ChannelInterrupt>::on_irq();
-                    )*
-                }
-            }
-        })
-        .collect();
-
-    g.extend(dma_irqs);
 
     g.extend(quote! {
         pub(crate) const DMA_CHANNELS: &[crate::dma::ChannelInfo] = &[#dmas];
