@@ -1,11 +1,12 @@
-//! This example shows generating audio and sending it to a connected i2s DAC using the PIO
-//! module of the RP235x.
+//! This example shows generating audio and sending to DAC with i2s with mclk
+//! generation using the PIO module of the RP2040.
 //!
 //! Connect the i2s DAC as follows:
+//!   mclk : GPIO 17
 //!   bclk : GPIO 18
 //!   lrc  : GPIO 19
 //!   din  : GPIO 20
-//! Then short GPIO 0 to GND to trigger a rising triangle waveform.
+//! Then hold down the boot select button to trigger a rising triangle waveform.
 
 #![no_std]
 #![no_main]
@@ -14,9 +15,10 @@ use core::mem;
 
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
-use embassy_rp::gpio::{Input, Pull};
+use embassy_rp::bootsel::is_bootsel_pressed;
 use embassy_rp::peripherals::PIO0;
-use embassy_rp::pio::{InterruptHandler, Pio};
+use embassy_rp::pio::{InterruptHandler, Pio, PioBatch};
+use embassy_rp::pio_programs::clk::{PioClk, PioClkProgram};
 use embassy_rp::pio_programs::i2s::{PioI2sOut, PioI2sOutProgram};
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
@@ -27,33 +29,48 @@ bind_interrupts!(struct Irqs {
 
 const SAMPLE_RATE: u32 = 48_000;
 const BIT_DEPTH: u32 = 16;
+const MASTER_CLOCK_MULTIPLIER: u32 = 8;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
-    let p = embassy_rp::init(Default::default());
+    let mut p = embassy_rp::init(Default::default());
 
     // Setup pio state machine for i2s output
-    let Pio { mut common, sm0, .. } = Pio::new(p.PIO0, Irqs);
+    let Pio {
+        mut common, sm0, sm1, ..
+    } = Pio::new(p.PIO0, Irqs);
 
+    let master_clock_pin = p.PIN_17;
     let bit_clock_pin = p.PIN_18;
     let left_right_clock_pin = p.PIN_19;
     let data_pin = p.PIN_20;
 
-    let program = PioI2sOutProgram::new(&mut common);
-    let mut i2s = PioI2sOut::new(
+    let program_clk = PioClkProgram::new(&mut common);
+    let mut mclk = PioClk::new(
         &mut common,
         sm0,
+        master_clock_pin,
+        &program_clk,
+        SAMPLE_RATE * (BIT_DEPTH * 2) * MASTER_CLOCK_MULTIPLIER,
+    );
+
+    let program_i2s = PioI2sOutProgram::new(&mut common);
+    let mut i2s = PioI2sOut::new(
+        &mut common,
+        sm1,
         p.DMA_CH0,
         data_pin,
         bit_clock_pin,
         left_right_clock_pin,
         SAMPLE_RATE,
         BIT_DEPTH,
-        &program,
+        &program_i2s,
     );
-    i2s.start();
 
-    let fade_input = Input::new(p.PIN_0, Pull::Up);
+    let mut batch = PioBatch::new();
+    mclk.start_batched(&mut batch);
+    i2s.start_batched(&mut batch);
+    batch.execute();
 
     // create two audio buffers (back and front) which will take turns being
     // filled with new audio data and being sent to the pio fifo using dma
@@ -71,8 +88,12 @@ async fn main(_spawner: Spawner) {
         // but don't await the returned future, yet
         let dma_future = i2s.write(front_buffer);
 
-        // fade in audio when GPIO 0 pin is shorted to GND
-        let fade_target = if fade_input.is_low() { i32::MAX } else { 0 };
+        // fade in audio when bootsel is pressed
+        let fade_target = if is_bootsel_pressed(p.BOOTSEL.reborrow()) {
+            i32::MAX
+        } else {
+            0
+        };
 
         // fill back buffer with fresh audio samples before awaiting the dma future
         for s in back_buffer.iter_mut() {

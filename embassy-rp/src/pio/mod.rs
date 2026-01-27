@@ -1255,23 +1255,6 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
             pio: PhantomData::default(),
         }
     }
-
-    /// Apply changes to all state machines in a batch.
-    pub fn apply_sm_batch(&mut self, f: impl FnOnce(&mut PioBatch<'d, PIO>)) {
-        let mut batch = PioBatch {
-            clkdiv_restart: 0,
-            sm_restart: 0,
-            sm_enable_mask: 0,
-            sm_enable: 0,
-            _pio: PhantomData,
-        };
-        f(&mut batch);
-        PIO::PIO.ctrl().modify(|w| {
-            w.set_clkdiv_restart(batch.clkdiv_restart);
-            w.set_sm_restart(batch.sm_restart);
-            w.set_sm_enable((w.sm_enable() & !batch.sm_enable_mask) | batch.sm_enable);
-        });
-    }
 }
 
 /// Represents multiple state machines in a single type.
@@ -1284,6 +1267,17 @@ pub struct PioBatch<'a, PIO: Instance> {
 }
 
 impl<'a, PIO: Instance> PioBatch<'a, PIO> {
+    /// Create nop PioBatch object
+    pub fn new() -> Self {
+        Self {
+            clkdiv_restart: 0,
+            sm_restart: 0,
+            sm_enable_mask: 0,
+            sm_enable: 0,
+            _pio: PhantomData,
+        }
+    }
+
     /// Restart a state machine's clock divider from an initial phase of 0.
     pub fn restart<const SM: usize>(&mut self, _sm: &mut StateMachine<'a, PIO, SM>) {
         self.clkdiv_restart |= 1 << SM;
@@ -1293,6 +1287,15 @@ impl<'a, PIO: Instance> PioBatch<'a, PIO> {
     pub fn set_enable<const SM: usize>(&mut self, _sm: &mut StateMachine<'a, PIO, SM>, enable: bool) {
         self.sm_enable_mask |= 1 << SM;
         self.sm_enable |= (enable as u8) << SM;
+    }
+
+    /// Apply changes to state machines in a batch.
+    pub fn execute(&mut self) {
+        PIO::PIO.ctrl().modify(|w| {
+            w.set_clkdiv_restart(self.clkdiv_restart);
+            w.set_sm_restart(self.sm_restart);
+            w.set_sm_enable((w.sm_enable() & !self.sm_enable_mask) | self.sm_enable);
+        });
     }
 }
 
