@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## Unreleased - ReleaseDate
+- Fix i2c_slave respond_to_read for buffers larger than one chunk
 - Add output enable inversion API (gpio, pio)
 
 ## 0.9.0 - 2025-11-27
