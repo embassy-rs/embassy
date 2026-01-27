@@ -472,7 +472,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         let tx_transfer = unsafe {
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            self.tx_dma.as_mut().unwrap().write_repeated(
+            self.tx_dma.as_mut().unwrap().write_zeros(
                 buffer.len(),
                 self.inner.regs().dr().as_ptr() as *mut u8,
                 T::TX_DREQ,
@@ -517,7 +517,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
                     // write dummy data
                     // this will disable incrementation of the buffers
                     tx_ch
-                        .write_repeated(write_bytes_len, p.dr().as_ptr() as *mut u8, T::TX_DREQ)
+                        .write_zeros(write_bytes_len, p.dr().as_ptr() as *mut u8, T::TX_DREQ)
                         .await
                 }
             }

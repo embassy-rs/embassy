@@ -479,7 +479,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
 
     /// Prepare a repeated DMA transfer to TX FIFO.
     pub fn dma_push_repeated<'a, W: Word>(&'a mut self, ch: &'a mut dma::Channel<'_>, len: usize) -> Transfer<'a> {
-        unsafe { ch.write_repeated(len, PIO::PIO.txf(SM).as_ptr() as *mut W, Self::dreq()) }
+        unsafe { ch.write_zeros(len, PIO::PIO.txf(SM).as_ptr() as *mut W, Self::dreq()) }
     }
 }
 
