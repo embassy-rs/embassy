@@ -4,11 +4,12 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::usart::{Config, Uart};
-use embassy_stm32::{bind_interrupts, peripherals, usart};
+use embassy_stm32::{bind_interrupts, peripherals, usart, dma};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     USART1 => usart::InterruptHandler<peripherals::USART1>;
+    DMA1_CHANNEL2_3 => dma::InterruptHandler<peripherals::DMA1_CH2>, dma::InterruptHandler<peripherals::DMA1_CH3>;
 });
 
 #[embassy_executor::main]

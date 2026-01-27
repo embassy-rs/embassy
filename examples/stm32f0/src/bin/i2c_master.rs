@@ -20,13 +20,14 @@ use embassy_executor::Spawner;
 use embassy_stm32::i2c::{Config, I2c, Master};
 use embassy_stm32::mode::{Async, Blocking};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{bind_interrupts, i2c, peripherals};
+use embassy_stm32::{bind_interrupts, dma, i2c, peripherals};
 use embassy_time::Timer;
 use embedded_hal_1::i2c::Operation;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     I2C1 => i2c::EventInterruptHandler<peripherals::I2C1>, i2c::ErrorInterruptHandler<peripherals::I2C1>;
+    DMA1_CH2_3_DMA2_CH1_2 => dma::InterruptHandler<peripherals::DMA1_CH2>;
 });
 
 #[embassy_executor::main]

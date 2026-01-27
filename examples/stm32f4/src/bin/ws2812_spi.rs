@@ -15,6 +15,7 @@
 
 use embassy_stm32::spi;
 use embassy_stm32::time::khz;
+use embassy_stm32::{bind_interrupts, dma, peripherals};
 use embassy_time::{Duration, Ticker, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -41,6 +42,10 @@ static DIM_WHITE: [u16; 25] = [
 ];
 
 static COLOR_LIST: &[&[u16]] = &[&TURN_OFF, &DIM_WHITE];
+
+bind_interrupts!(struct Irqs {
+    DMA2_STREAM3 => dma::InterruptHandler<peripherals::DMA2_CH3>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: embassy_executor::Spawner) {

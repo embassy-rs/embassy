@@ -14,7 +14,7 @@ use embassy_stm32::rng::Rng;
 use embassy_stm32::spi::Spi;
 use embassy_stm32::spi::mode::Master;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{Config, bind_interrupts, interrupt, peripherals, rng, spi};
+use embassy_stm32::{Config, bind_interrupts, dma, interrupt, peripherals, rng, spi};
 use embassy_time::{Delay, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use embedded_io_async::Write;
@@ -24,6 +24,8 @@ use {defmt_rtt as _, panic_probe as _};
 bind_interrupts!(struct Irqs {
     HASH_RNG => rng::InterruptHandler<peripherals::RNG>;
     EXTI0 => exti::InterruptHandler<interrupt::typelevel::EXTI0>;
+    DMA2_STREAM0 => dma::InterruptHandler<peripherals::DMA2_CH0>;
+    DMA2_STREAM3 => dma::InterruptHandler<peripherals::DMA2_CH3>;
 });
 
 type EthernetSPI = ExclusiveDevice<Spi<'static, Async, Master>, Output<'static>, Delay>;

@@ -25,7 +25,7 @@ use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::i2c::{self, I2c, SlaveAddrConfig, SlaveCommandKind};
 use embassy_stm32::time::khz;
-use embassy_stm32::{bind_interrupts, peripherals};
+use embassy_stm32::{bind_interrupts, dma, peripherals};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -36,6 +36,10 @@ bind_interrupts!(struct Irqs {
     I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
     I2C2_EV => i2c::EventInterruptHandler<peripherals::I2C2>;
     I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
+    DMA1_STREAM6 => dma::InterruptHandler<peripherals::DMA1_CH6>;
+    DMA1_STREAM0 => dma::InterruptHandler<peripherals::DMA1_CH0>;
+    DMA1_STREAM7 => dma::InterruptHandler<peripherals::DMA1_CH7>;
+    DMA1_STREAM3 => dma::InterruptHandler<peripherals::DMA1_CH3>;
 });
 
 #[embassy_executor::main]

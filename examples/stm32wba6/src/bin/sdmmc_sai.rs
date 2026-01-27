@@ -7,7 +7,7 @@ use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::sai::{self, Sai};
 use embassy_stm32::spi::{self, Spi};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{Config, peripherals};
+use embassy_stm32::{Config, peripherals, bind_interrupts, dma};
 use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
 use embedded_sdmmc::filesystem::ShortFileName;
 use embedded_sdmmc::{BlockDevice, RawFile, SdCard, TimeSource, VolumeIdx, VolumeManager};
@@ -254,6 +254,12 @@ async fn play_wav<D, T, const MAX_DIRS: usize, const MAX_FILES: usize, const MAX
         write_samples(sai_tx, &out[..count]).await;
     }
 }
+
+bind_interrupts!(struct Irqs {
+    GPDMA1_CHANNEL0 => dma::InterruptHandler<peripherals::GPDMA1_CH0>;
+    GPDMA1_CHANNEL1 => dma::InterruptHandler<peripherals::GPDMA1_CH1>;
+    GPDMA1_CHANNEL2 => dma::InterruptHandler<peripherals::GPDMA1_CH2>;
+});
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {

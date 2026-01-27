@@ -4,9 +4,14 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{Adc, AdcChannel, AnyAdcChannel, Resolution, SampleTime};
-use embassy_stm32::peripherals::ADC1;
+use embassy_stm32::peripherals::{ADC1, DMA1_CH1};
+use embassy_stm32::{bind_interrupts, dma};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    DMA1_CHANNEL1 => dma::InterruptHandler<DMA1_CH1>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

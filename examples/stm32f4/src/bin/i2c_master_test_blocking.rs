@@ -24,7 +24,7 @@ use defmt::{error, info};
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::{self, I2c};
 use embassy_stm32::time::khz;
-use embassy_stm32::{bind_interrupts, peripherals};
+use embassy_stm32::{bind_interrupts, dma, peripherals};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -33,6 +33,8 @@ const I2C_ADDR: u8 = 0x42;
 bind_interrupts!(struct Irqs {
     I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
     I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
+    DMA1_STREAM0 => dma::InterruptHandler<peripherals::DMA1_CH0>;
+    DMA1_STREAM6 => dma::InterruptHandler<peripherals::DMA1_CH6>;
 });
 
 #[embassy_executor::main]

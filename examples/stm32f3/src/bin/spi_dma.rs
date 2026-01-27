@@ -8,8 +8,17 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
+use embassy_stm32::{
+    bind_interrupts, dma,
+    peripherals::{DMA1_CH2, DMA1_CH3},
+};
 use heapless::String;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    DMA1_CHANNEL2 => dma::InterruptHandler<DMA1_CH2>;
+    DMA1_CHANNEL3 => dma::InterruptHandler<DMA1_CH3>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

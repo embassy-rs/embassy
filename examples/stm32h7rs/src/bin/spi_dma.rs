@@ -10,9 +10,15 @@ use embassy_executor::Executor;
 use embassy_stm32::mode::Async;
 use embassy_stm32::spi;
 use embassy_stm32::time::mhz;
+use embassy_stm32::{bind_interrupts, peripherals, dma};
 use heapless::String;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    GPDMA1_CHANNEL0 => dma::InterruptHandler<peripherals::GPDMA1_CH0>;
+    GPDMA1_CHANNEL1 => dma::InterruptHandler<peripherals::GPDMA1_CH1>;
+});
 
 #[embassy_executor::task]
 async fn main_task(mut spi: spi::Spi<'static, Async, spi::mode::Master>) {

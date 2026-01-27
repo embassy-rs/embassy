@@ -3,9 +3,13 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::dma::word::U5;
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
+use embassy_stm32::{
+    bind_interrupts,
+    dma::{self, word::U5},
+    peripherals,
+};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -68,6 +72,10 @@ impl Ws2812 {
         }
     }
 }
+
+bind_interrupts!(struct Irqs {
+    DMA1_CHANNEL2_3 => dma::InterruptHandler<peripherals::DMA1_CH3>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

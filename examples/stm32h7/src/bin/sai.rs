@@ -8,6 +8,7 @@ use grounded::uninit::GroundedArrayCell;
 use hal::rcc::*;
 use hal::sai::*;
 use hal::time::Hertz;
+use hal::{bind_interrupts, dma, peripherals};
 use {defmt_rtt as _, embassy_stm32 as hal, panic_probe as _};
 
 const BLOCK_LENGTH: usize = 32; // 32 samples
@@ -20,6 +21,11 @@ const SAMPLE_RATE: u32 = 48000;
 static mut TX_BUFFER: GroundedArrayCell<u32, DMA_BUFFER_LENGTH> = GroundedArrayCell::uninit();
 #[unsafe(link_section = ".sram1_bss")]
 static mut RX_BUFFER: GroundedArrayCell<u32, DMA_BUFFER_LENGTH> = GroundedArrayCell::uninit();
+
+bind_interrupts!(struct Irqs {
+    DMA1_STREAM0 => dma::InterruptHandler<peripherals::DMA1_CH0>;
+    DMA1_STREAM1 => dma::InterruptHandler<peripherals::DMA1_CH1>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

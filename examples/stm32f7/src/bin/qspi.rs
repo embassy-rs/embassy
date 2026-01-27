@@ -9,6 +9,7 @@ use embassy_stm32::mode::Async;
 use embassy_stm32::qspi::enums::{AddressSize, ChipSelectHighTime, FIFOThresholdLevel, MemorySize, *};
 use embassy_stm32::qspi::{Config as QspiCfg, Instance, Qspi, TransferConfig};
 use embassy_stm32::time::mhz;
+use embassy_stm32::{bind_interrupts, dma, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 const MEMORY_PAGE_SIZE: usize = 256;
@@ -247,6 +248,10 @@ impl<I: Instance> FlashMemory<I> {
         self.write_register(CMD_WRITE_CR, value);
     }
 }
+
+bind_interrupts!(struct Irqs {
+    DMA2_STREAM7 => dma::InterruptHandler<peripherals::DMA2_CH7>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {

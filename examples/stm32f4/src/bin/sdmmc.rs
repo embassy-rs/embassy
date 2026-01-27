@@ -6,7 +6,7 @@ use embassy_executor::Spawner;
 use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::sdmmc::sd::{CmdBlock, DataBlock, StorageDevice};
 use embassy_stm32::time::{Hertz, mhz};
-use embassy_stm32::{Config, bind_interrupts, peripherals, sdmmc};
+use embassy_stm32::{Config, bind_interrupts, dma, peripherals, sdmmc};
 use {defmt_rtt as _, panic_probe as _};
 
 /// This is a safeguard to not overwrite any data on the SD card.
@@ -15,6 +15,7 @@ const ALLOW_WRITES: bool = false;
 
 bind_interrupts!(struct Irqs {
     SDIO => sdmmc::InterruptHandler<peripherals::SDIO>;
+    DMA2_STREAM3 => dma::InterruptHandler<peripherals::DMA2_CH3>;
 });
 
 #[embassy_executor::main]

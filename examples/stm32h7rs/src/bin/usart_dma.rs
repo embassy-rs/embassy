@@ -7,13 +7,15 @@ use cortex_m_rt::entry;
 use defmt::*;
 use embassy_executor::Executor;
 use embassy_stm32::usart::{Config, Uart};
-use embassy_stm32::{bind_interrupts, peripherals, usart};
+use embassy_stm32::{bind_interrupts, peripherals, usart, dma};
 use heapless::String;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     UART7 => usart::InterruptHandler<peripherals::UART7>;
+    GPDMA1_CHANNEL0 => dma::InterruptHandler<peripherals::GPDMA1_CH0>;
+    GPDMA1_CHANNEL1 => dma::InterruptHandler<peripherals::GPDMA1_CH1>;
 });
 
 #[embassy_executor::task]

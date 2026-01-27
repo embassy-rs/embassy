@@ -14,8 +14,13 @@ use embassy_stm32::hspi::{
 };
 use embassy_stm32::mode::Async;
 use embassy_stm32::rcc;
+use embassy_stm32::{bind_interrupts, dma, peripherals};
 use embassy_stm32::time::Hertz;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    GPDMA1_CHANNEL7 => dma::InterruptHandler<peripherals::GPDMA1_CH7>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

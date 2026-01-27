@@ -32,7 +32,7 @@ use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::spi::mode::Master;
 use embassy_stm32::spi::{Config as SPI_Config, Spi};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{bind_interrupts, exti, interrupt, pac, peripherals};
+use embassy_stm32::{bind_interrupts, exti, interrupt, pac, peripherals, dma};
 use embassy_time::{Delay, Duration, Ticker, Timer};
 use embedded_hal_async::i2c::I2c as I2cBus;
 use embedded_hal_bus::spi::ExclusiveDevice;
@@ -47,6 +47,10 @@ bind_interrupts!(struct Irqs {
     I2C3_ER => i2c::ErrorInterruptHandler<peripherals::I2C3>;
     RNG => rng::InterruptHandler<peripherals::RNG>;
     EXTI15_10 => exti::InterruptHandler<interrupt::typelevel::EXTI15_10>;
+    DMA1_CHANNEL1 => dma::InterruptHandler<peripherals::DMA1_CH1>;
+    DMA1_CHANNEL2 => dma::InterruptHandler<peripherals::DMA1_CH2>;
+    DMA1_CHANNEL6 => dma::InterruptHandler<peripherals::DMA1_CH6>;
+    DMA1_CHANNEL7 => dma::InterruptHandler<peripherals::DMA1_CH7>;
 });
 
 // Basic settings

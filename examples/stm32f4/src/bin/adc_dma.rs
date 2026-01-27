@@ -5,8 +5,14 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::Peripherals;
 use embassy_stm32::adc::{Adc, AdcChannel, RegularConversionMode, RingBufferedAdc, SampleTime};
+use embassy_stm32::{bind_interrupts, dma, peripherals};
 use embassy_time::Instant;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    DMA2_STREAM0 => dma::InterruptHandler<peripherals::DMA2_CH0>;
+    DMA2_STREAM2 => dma::InterruptHandler<peripherals::DMA2_CH2>;
+});
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {

@@ -7,7 +7,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::I2c;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{bind_interrupts, i2c, peripherals};
+use embassy_stm32::{bind_interrupts, i2c, peripherals, dma};
 use embassy_time::{Duration, Timer};
 use panic_probe as _;
 use static_cell::StaticCell;
@@ -15,6 +15,8 @@ use static_cell::StaticCell;
 bind_interrupts!(struct IrqsI2C{
     I2C2_EV => i2c::EventInterruptHandler<peripherals::I2C2>;
     I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
+    DMA1_CHANNEL6 => dma::InterruptHandler<peripherals::DMA1_CH6>;
+    DMA1_CHANNEL7 => dma::InterruptHandler<peripherals::DMA1_CH7>;
 });
 
 #[embassy_executor::main(executor = "embassy_stm32::Executor", entry = "cortex_m_rt::entry")]

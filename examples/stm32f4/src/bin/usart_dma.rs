@@ -6,12 +6,14 @@ use core::fmt::Write;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::usart::{Config, Uart};
-use embassy_stm32::{bind_interrupts, peripherals, usart};
+use embassy_stm32::{bind_interrupts, dma, peripherals, usart};
 use heapless::String;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     USART3 => usart::InterruptHandler<peripherals::USART3>;
+    DMA1_STREAM1 => dma::InterruptHandler<peripherals::DMA1_CH1>;
+    DMA1_STREAM3 => dma::InterruptHandler<peripherals::DMA1_CH3>;
 });
 
 #[embassy_executor::main]

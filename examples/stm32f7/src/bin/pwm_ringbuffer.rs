@@ -7,8 +7,13 @@ use embassy_stm32::Config;
 use embassy_stm32::gpio::OutputType;
 use embassy_stm32::time::mhz;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
+use embassy_stm32::{bind_interrupts, dma, peripherals};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    DMA2_STREAM5 => dma::InterruptHandler<peripherals::DMA2_CH5>;
+});
 
 // If you are trying this and your USB device doesn't connect, the most
 // common issues are the RCC config and vbus_detection

@@ -6,6 +6,7 @@
 /// to make sure operations in this example are compatible with your device, especially registers I/O operations.
 use defmt::info;
 use embassy_stm32::mode;
+use embassy_stm32::{bind_interrupts, dma, peripherals};
 use embassy_stm32::qspi::enums::{
     AddressSize, ChipSelectHighTime, DummyCycles, FIFOThresholdLevel, MemorySize, QspiWidth, SampleShifting,
 };
@@ -241,6 +242,10 @@ impl<I: Instance> FlashMemory<I> {
 }
 
 const MEMORY_ADDR: u32 = 0x00000000 as u32;
+
+bind_interrupts!(struct Irqs {
+    DMA2_CHANNEL7 => dma::InterruptHandler<peripherals::DMA2_CH7>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

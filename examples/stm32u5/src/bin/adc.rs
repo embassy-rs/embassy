@@ -3,7 +3,13 @@
 
 use defmt::*;
 use embassy_stm32::adc::{self, Adc, AdcChannel, AdcConfig, SampleTime, adc4};
+use embassy_stm32::{bind_interrupts, dma, peripherals};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    GPDMA1_CHANNEL0 => dma::InterruptHandler<peripherals::GPDMA1_CH0>;
+    GPDMA1_CHANNEL1 => dma::InterruptHandler<peripherals::GPDMA1_CH1>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: embassy_executor::Spawner) {

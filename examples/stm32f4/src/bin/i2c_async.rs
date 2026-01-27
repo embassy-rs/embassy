@@ -7,7 +7,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::I2c;
-use embassy_stm32::{bind_interrupts, i2c, peripherals};
+use embassy_stm32::{bind_interrupts, dma, i2c, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 const ADDRESS: u8 = 96;
@@ -15,6 +15,8 @@ const ADDRESS: u8 = 96;
 bind_interrupts!(struct Irqs {
     I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
     I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
+    DMA1_STREAM0 => dma::InterruptHandler<peripherals::DMA1_CH0>;
+    DMA1_STREAM6 => dma::InterruptHandler<peripherals::DMA1_CH6>;
 });
 
 #[embassy_executor::main]

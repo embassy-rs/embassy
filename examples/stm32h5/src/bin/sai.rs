@@ -4,7 +4,12 @@
 use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::{Config, sai};
+use embassy_stm32::{bind_interrupts, dma, peripherals};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    GPDMA1_CHANNEL0 => dma::InterruptHandler<peripherals::GPDMA1_CH0>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {

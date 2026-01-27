@@ -8,7 +8,7 @@ use embassy_embedded_hal::shared_bus::blocking::i2c::I2cDevice;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::{self, I2c};
 use embassy_stm32::mode::Async;
-use embassy_stm32::{bind_interrupts, peripherals};
+use embassy_stm32::{bind_interrupts, dma, peripherals};
 use embassy_sync::blocking_mutex::NoopMutex;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_time::{Duration, Timer};
@@ -29,6 +29,8 @@ static I2C_BUS: StaticCell<NoopMutex<RefCell<I2c<'static, Async, i2c::Master>>>>
 bind_interrupts!(struct Irqs {
     I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
     I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
+    DMA1_STREAM4 => dma::InterruptHandler<peripherals::DMA1_CH4>;
+    DMA1_STREAM5 => dma::InterruptHandler<peripherals::DMA1_CH5>;
 });
 
 #[embassy_executor::task]

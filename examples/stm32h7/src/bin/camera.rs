@@ -6,7 +6,7 @@ use embassy_stm32::dcmi::{self, *};
 use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::i2c::I2c;
 use embassy_stm32::rcc::{Mco, Mco1Source, McoConfig, McoPrescaler};
-use embassy_stm32::{Config, bind_interrupts, i2c, peripherals};
+use embassy_stm32::{Config, bind_interrupts, dma, i2c, peripherals};
 use embassy_time::Timer;
 use ov7725::*;
 use {defmt_rtt as _, panic_probe as _};
@@ -20,6 +20,9 @@ bind_interrupts!(struct Irqs {
     I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
     I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
     DCMI => dcmi::InterruptHandler<peripherals::DCMI>;
+    DMA1_STREAM0 => dma::InterruptHandler<peripherals::DMA1_CH0>;
+    DMA1_STREAM1 => dma::InterruptHandler<peripherals::DMA1_CH1>;
+    DMA1_STREAM2 => dma::InterruptHandler<peripherals::DMA1_CH2>;
 });
 
 #[embassy_executor::main]
