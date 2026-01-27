@@ -1,16 +1,17 @@
 #![no_std]
 #![no_main]
 
+mod max30102;
+
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_time::Timer;
 use embassy_time::Instant;
 use {defmt_rtt as _, panic_probe as _};
 
-use embassy_stm32::i2c::{self, I2c, Master};
+use embassy_stm32::i2c::{self, I2c};
 use embassy_stm32::peripherals::I2C1;
-use embassy_stm32::{Config, bind_interrupts, time, usb};
+use embassy_stm32::{Config, bind_interrupts};
 /*
  * Board NUCLEO-F302R8 with STM32F302R8
  * I2C1_SCL: PB8
@@ -26,49 +27,15 @@ const DEVICE_ADDRESS: u8 = 0x57; // 7-bit I2C Address (Confirmed)
 const MODE_CONF_REG_ADDR: u8 = 0x09; // CORRECTED Mode Config Register Address
 const LED_CONF_REG_ADDR: u8 = 0x0A; // SpO2 Configuration Register (used to set LED pulse width/rate)
 const IR_LED_CONF_REG_ADDR: u8 = 0x0C; // IR LED Current Register
-const RED_LED_CONF_REG_ADDR: u8 = 0x0D; // Red LED Current Register
 const PART_ID_REG_ADDR: u8 = 0xFF; // Part ID Register
 const HR_ONLY_MODE: u8 = 1 << 1;
 const RESET_COMMAND: u8 = 0b0100_0000;
-// const FIFO_WR_PTR_ADDR: u8 = 0x04;
-// const FIFO_RD_PTR_ADDR: u8 = 0x06;
+const FIFO_WR_PTR_ADDR: u8 = 0x04;
+const FIFO_RD_PTR_ADDR: u8 = 0x06;
 const FIFO_DATA_ADDR: u8 = 0x07;
-const IR_SAMPLE_SIZE: usize = 6;
-
-struct HrDetector {
-    baseline: f32,
-    last_peak_time_ms: u32,
-    bpm: f32,
-}
-
-fn update_hr(
-    det: &mut HrDetector,
-    ir: u32,
-    now_ms: u32,
-) -> Option<f32> {
-    let ir = ir as f32;
-
-    // --- 1. Baseline removal (slow LPF)
-    det.baseline = 0.99 * det.baseline + 0.01 * ir;
-    let ac = ir - det.baseline;
-
-    // --- 2. Simple threshold peak detection
-    const THRESHOLD: f32 = 3000.0;     // tune (depends on LED current)
-    const REFRACTORY_MS: u32 = 450;    // max 200 BPM
-
-    if ac > THRESHOLD {
-        if now_ms - det.last_peak_time_ms > REFRACTORY_MS {
-            if det.last_peak_time_ms != 0 {
-                let dt_ms = now_ms - det.last_peak_time_ms;
-                let bpm = 60_000.0 / (dt_ms as f32);
-                det.bpm = 0.8 * det.bpm + 0.2 * bpm; // smooth BPM
-            }
-            det.last_peak_time_ms = now_ms;
-            return Some(det.bpm);
-        }
-    }
-    None
-}
+const FIFO_OVF_ADDR: u8 = 0x05; // FIFO Overflow register
+const IR_SAMPLE_SIZE: usize = 3; // Each sample is 3 bytes (18-bit)
+use max30102::*;
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -107,38 +74,156 @@ async fn main(_spawner: Spawner) {
         .await
         .ok();
 
+    let mut filter = PpgFilter::new(100.0); // 100 Hz sampling
+    let mut hr_detector = HrDetector::new();
+    let mut no_finger_count: u32 = 0; // Count consecutive low IR readings
+    let mut finger_present = false;
+    let mut no_finger_display_count: u32 = 0; // Counter for displaying BPM when no finger
 
-    let mut hr = HrDetector {
-        baseline: 0.0,
-        last_peak_time_ms: 0,
-        bpm: 0.0,
-    };
-
-    let mut raw_data_buffer = [0u8; IR_SAMPLE_SIZE];
-    loop {
-        // Read 3 bytes from the FIFO data register (0x07)
+    // Let filter stabilize (high-pass needs time to remove DC)
+    defmt::info!("Stabilizing filter...");
+    for _ in 0..100 {
+        let mut dummy_buffer = [0u8; IR_SAMPLE_SIZE];
         if i2c_bus
-            .write_read(DEVICE_ADDRESS, &[FIFO_DATA_ADDR], &mut raw_data_buffer)
+            .write_read(DEVICE_ADDRESS, &[FIFO_DATA_ADDR], &mut dummy_buffer)
             .await
             .is_ok()
         {
-            // interpret the 3 bytes as an 18-bit sample (MSB first)
-            let ir_value: u32 =
-            (((raw_data_buffer[0] as u32) & 0x03) << 16) |
-            ((raw_data_buffer[1] as u32) << 8) |
-            (raw_data_buffer[2] as u32);
-            let now_ms = Instant::now().as_millis() as u32;
-            // defmt::info!("IR Data: {}", ir_value);
-            if let Some(bpm) = update_hr(&mut hr, ir_value, now_ms) {
-                // Round to 1 decimal place using integer arithmetic (no_std compatible)
-                let rounded_bpm = ((bpm * 10.0 + 0.5) as u32) as f32 / 10.0;
-                info!("HR: {=f32} BPM", rounded_bpm);
+            let dummy_ir: u32 =
+                (((dummy_buffer[0] as u32) & 0x03) << 16) |
+                ((dummy_buffer[1] as u32) << 8) |
+                (dummy_buffer[2] as u32);
+            filter.process(dummy_ir);
+        }
+        Timer::after_millis(10).await;
+    }
+    defmt::info!("Filter stabilized, starting HR detection...");
+
+    let mut raw_data_buffer = [0u8; IR_SAMPLE_SIZE];
+    let mut sample_count: u32 = 0;
+    
+    loop {
+        // Check FIFO pointers to see how many samples are available
+        let mut wr_ptr = [0u8; 1];
+        let mut rd_ptr = [0u8; 1];
+        let mut ovf = [0u8; 1];
+        
+        // Read FIFO pointers
+        if i2c_bus.write_read(DEVICE_ADDRESS, &[FIFO_WR_PTR_ADDR], &mut wr_ptr).await.is_ok() &&
+           i2c_bus.write_read(DEVICE_ADDRESS, &[FIFO_RD_PTR_ADDR], &mut rd_ptr).await.is_ok() &&
+           i2c_bus.write_read(DEVICE_ADDRESS, &[FIFO_OVF_ADDR], &mut ovf).await.is_ok()
+        {
+            let wr = wr_ptr[0] & 0x1F; // 5-bit pointer
+            let rd = rd_ptr[0] & 0x1F;
+            let mut samples_available = if wr >= rd { (wr - rd) as u8 } else { (32 - rd + wr) as u8 };
+            
+            // Check for overflow
+            if ovf[0] != 0 {
+                defmt::warn!("FIFO overflow detected! Clearing...");
+                // Clear overflow by reading FIFO_RD_PTR
+                let _ = i2c_bus.write_read(DEVICE_ADDRESS, &[FIFO_RD_PTR_ADDR], &mut rd_ptr).await;
+            }
+            
+            // Skip reading FIFO if no finger is detected (more efficient)
+            const MIN_IR_THRESHOLD: u32 = 5000; // Adjust based on your sensor/lighting
+            const NO_FINGER_THRESHOLD_COUNT: u32 = 50; // Need 50 consecutive low readings to confirm no finger
+            
+            if !finger_present && samples_available > 0 {
+                // Finger was removed - drain FIFO once to clear stale samples, then check if finger returned
+                let mut dummy = [0u8; IR_SAMPLE_SIZE];
+                if i2c_bus.write_read(DEVICE_ADDRESS, &[FIFO_DATA_ADDR], &mut dummy).await.is_ok() {
+                    let check_ir: u32 =
+                        (((dummy[0] as u32) & 0x03) << 16) |
+                        ((dummy[1] as u32) << 8) |
+                        (dummy[2] as u32);
+                    
+                    if check_ir >= MIN_IR_THRESHOLD {
+                        // Finger returned - drain remaining stale samples once, then start processing
+                        defmt::info!("Finger detected (ir={=u32}), clearing stale samples", check_ir);
+                        let mut drained = 0;
+                        while samples_available > 1 && drained < 31 {
+                            let mut dummy2 = [0u8; IR_SAMPLE_SIZE];
+                            if i2c_bus.write_read(DEVICE_ADDRESS, &[FIFO_DATA_ADDR], &mut dummy2).await.is_ok() {
+                                drained += 1;
+                                samples_available -= 1;
+                            } else {
+                                break;
+                            }
+                        }
+                        hr_detector.reset();
+                        finger_present = true;
+                        no_finger_count = 0;
+                        no_finger_display_count = 0; // Reset counter when finger returns
+                    } else {
+                        // Still no finger - display 0 BPM periodically
+                        no_finger_display_count += 1;
+                        if no_finger_display_count % 50 == 0 {
+                            defmt::info!("HR: 0.0 BPM (no finger)");
+                        }
+                        Timer::after_millis(10).await;
+                        continue;
+                    }
+                }
+            }
+            
+            // Read one sample if available and finger is present
+            if samples_available > 0 && finger_present {
+                if i2c_bus
+                    .write_read(DEVICE_ADDRESS, &[FIFO_DATA_ADDR], &mut raw_data_buffer)
+                    .await
+                    .is_ok()
+                {
+                    // Interpret the 3 bytes as an 18-bit sample (MSB first)
+                    let ir_value: u32 =
+                        (((raw_data_buffer[0] as u32) & 0x03) << 16) |
+                        ((raw_data_buffer[1] as u32) << 8) |
+                        (raw_data_buffer[2] as u32);
+                    
+                    // Check if finger is still present
+                    if ir_value < MIN_IR_THRESHOLD {
+                        no_finger_count += 1;
+                        
+                        // Only reset after sustained low readings (debounce)
+                        if no_finger_count >= NO_FINGER_THRESHOLD_COUNT {
+                            defmt::warn!("Finger removed (ir={=u32}), resetting detector", ir_value);
+                            hr_detector.reset();
+                            finger_present = false;
+                        }
+                        
+                        // Don't process this sample - continue to next iteration
+                        Timer::after_millis(10).await;
+                        continue;
+                    } else {
+                        // Finger is present - process normally
+                        no_finger_count = 0; // Reset counter when finger is present
+                        
+                        // Process this sample normally
+                        let filtered = filter.process(ir_value);
+                        let now_ms = Instant::now().as_millis() as u32;
+                        sample_count += 1;
+                                               
+                        // Update HR detector (always process, even if no heartbeat detected)
+                        hr_detector.update(filtered, now_ms);
+                        
+                        // Always display current BPM (even if 0) - update every 50 samples (~0.5 seconds at 100Hz)
+                        if sample_count % 50 == 0 {
+                            let current_bpm = hr_detector.current_bpm();
+                            defmt::info!("HR: {=f32} BPM", current_bpm);
+                        }
+                    }
+                } else {
+                    defmt::error!("FIFO read failed.");
+                }
+            } else {
+                // No samples available, wait a bit
+                Timer::after_millis(1).await;
             }
         } else {
-            defmt::error!("FIFO read failed.");
+            defmt::error!("Failed to read FIFO pointers.");
+            Timer::after_millis(10).await;
         }
 
-        // Wait for the next sample (adjust based on your desired sample rate)
-        Timer::after_millis(10).await;
+        // Small delay to prevent tight loop
+        Timer::after_millis(1).await;
     }
 }

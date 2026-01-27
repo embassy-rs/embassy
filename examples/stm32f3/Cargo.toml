@@ -13,6 +13,8 @@ embassy-executor = { version = "0.9.0", path = "../../embassy-executor", feature
 embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 embassy-usb = { version = "0.5.1", path = "../../embassy-usb", features = ["defmt"] }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
+biquad = { version = "0.5", default-features = false }
+micromath = "2"
 
 defmt = "1.0.1"
 defmt-rtt = "1.0.0"
