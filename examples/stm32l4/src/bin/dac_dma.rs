@@ -3,15 +3,14 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::Peri;
 use embassy_stm32::dac::{DacCh1, DacCh2, ValueArray};
 use embassy_stm32::mode::Async;
 use embassy_stm32::pac::timer::vals::Mms;
-use embassy_stm32::{bind_interrupts, dma};
-use embassy_stm32::peripherals::{DAC1, TIM6, TIM7, DMA1_CH3, DMA1_CH4};
+use embassy_stm32::peripherals::{DAC1, DMA1_CH3, DMA1_CH4, TIM6, TIM7};
 use embassy_stm32::rcc::frequency;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::low_level::Timer;
+use embassy_stm32::{Peri, bind_interrupts, dma};
 use micromath::F32Ext;
 use {defmt_rtt as _, panic_probe as _};
 

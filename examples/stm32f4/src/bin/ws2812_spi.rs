@@ -13,9 +13,8 @@
 #![no_std]
 #![no_main]
 
-use embassy_stm32::spi;
 use embassy_stm32::time::khz;
-use embassy_stm32::{bind_interrupts, dma, peripherals};
+use embassy_stm32::{bind_interrupts, dma, peripherals, spi};
 use embassy_time::{Duration, Ticker, Timer};
 use {defmt_rtt as _, panic_probe as _};
 

@@ -4,7 +4,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::{Error, I2c};
-use embassy_stm32::{bind_interrupts, i2c, peripherals, dma};
+use embassy_stm32::{bind_interrupts, dma, i2c, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 const ADDRESS: u8 = 0x5F;

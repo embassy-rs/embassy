@@ -3,13 +3,11 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
+use embassy_stm32::dma::word::U5;
+use embassy_stm32::dma::{self};
 use embassy_stm32::spi::{Config, Spi};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{
-    bind_interrupts,
-    dma::{self, word::U5},
-    peripherals,
-};
+use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 

@@ -3,9 +3,8 @@
 use cortex_m::singleton;
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::Peripherals;
 use embassy_stm32::adc::{Adc, AdcChannel, RegularConversionMode, RingBufferedAdc, SampleTime};
-use embassy_stm32::{bind_interrupts, dma, peripherals};
+use embassy_stm32::{Peripherals, bind_interrupts, dma, peripherals};
 use embassy_time::Instant;
 use {defmt_rtt as _, panic_probe as _};
 

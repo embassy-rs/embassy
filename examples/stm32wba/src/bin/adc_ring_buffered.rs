@@ -17,14 +17,13 @@
 #![no_main]
 
 use defmt::*;
-use embassy_stm32::Config;
 use embassy_stm32::adc::adc4::Calibration;
 use embassy_stm32::adc::{Adc, AdcChannel, RegularConversionMode, RingBufferedAdc, adc4};
-use embassy_stm32::{bind_interrupts, dma};
 use embassy_stm32::peripherals::{ADC4, GPDMA1_CH1};
 use embassy_stm32::rcc::{
     AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale,
 };
+use embassy_stm32::{Config, bind_interrupts, dma};
 use {defmt_rtt as _, panic_probe as _};
 
 // DMA buffer size - must be large enough to prevent overruns

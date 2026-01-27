@@ -13,9 +13,8 @@ use embassy_stm32::hspi::{
     MemoryType, TransferConfig, WrapSize,
 };
 use embassy_stm32::mode::Async;
-use embassy_stm32::rcc;
-use embassy_stm32::{bind_interrupts, dma, peripherals};
 use embassy_stm32::time::Hertz;
+use embassy_stm32::{bind_interrupts, dma, peripherals, rcc};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {

@@ -3,7 +3,7 @@
 
 use defmt::*;
 use embassy_stm32::adc::{Adc, AdcChannel, SampleTime, adc4};
-use embassy_stm32::{bind_interrupts, peripherals, dma};
+use embassy_stm32::{bind_interrupts, dma, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {

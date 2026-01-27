@@ -7,7 +7,7 @@ use cortex_m_rt::entry;
 use defmt::*;
 use embassy_executor::Executor;
 use embassy_stm32::usart::{Config, Uart};
-use embassy_stm32::{bind_interrupts, peripherals, usart, dma};
+use embassy_stm32::{bind_interrupts, dma, peripherals, usart};
 use heapless::String;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};

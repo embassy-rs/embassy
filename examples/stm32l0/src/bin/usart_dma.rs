@@ -4,7 +4,7 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::usart::{Config, Uart};
-use embassy_stm32::{bind_interrupts, peripherals, usart, dma};
+use embassy_stm32::{bind_interrupts, dma, peripherals, usart};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {

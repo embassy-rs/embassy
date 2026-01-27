@@ -5,7 +5,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::mode::Async;
 use embassy_stm32::usart::{Config, Uart, UartRx};
-use embassy_stm32::{bind_interrupts, peripherals, usart, dma};
+use embassy_stm32::{bind_interrupts, dma, peripherals, usart};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::channel::Channel;
 use {defmt_rtt as _, panic_probe as _};

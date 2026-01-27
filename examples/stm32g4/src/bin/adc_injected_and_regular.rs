@@ -17,8 +17,7 @@ use embassy_stm32::peripherals::ADC1;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, Mms2};
 use embassy_stm32::timer::low_level::CountingMode;
-use embassy_stm32::{Config, interrupt};
-use embassy_stm32::{bind_interrupts, dma, peripherals};
+use embassy_stm32::{Config, bind_interrupts, dma, interrupt, peripherals};
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use {defmt_rtt as _, panic_probe as _};
 

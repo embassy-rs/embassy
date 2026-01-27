@@ -5,12 +5,11 @@
 /// If you want to test this example, please pay attention to flash pins and check flash device datasheet
 /// to make sure operations in this example are compatible with your device, especially registers I/O operations.
 use defmt::info;
-use embassy_stm32::mode;
-use embassy_stm32::{bind_interrupts, dma, peripherals};
 use embassy_stm32::qspi::enums::{
     AddressSize, ChipSelectHighTime, DummyCycles, FIFOThresholdLevel, MemorySize, QspiWidth, SampleShifting,
 };
 use embassy_stm32::qspi::{self, Instance, TransferConfig};
+use embassy_stm32::{bind_interrupts, dma, mode, peripherals};
 pub struct FlashMemory<I: Instance> {
     qspi: qspi::Qspi<'static, I, mode::Async>,
 }

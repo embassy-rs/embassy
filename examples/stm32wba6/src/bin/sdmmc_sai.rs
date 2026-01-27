@@ -7,7 +7,7 @@ use embassy_stm32::gpio::{Level, Output, Speed};
 use embassy_stm32::sai::{self, Sai};
 use embassy_stm32::spi::{self, Spi};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{Config, peripherals, bind_interrupts, dma};
+use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
 use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
 use embedded_sdmmc::filesystem::ShortFileName;
 use embedded_sdmmc::{BlockDevice, RawFile, SdCard, TimeSource, VolumeIdx, VolumeManager};

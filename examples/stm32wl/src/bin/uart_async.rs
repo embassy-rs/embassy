@@ -6,7 +6,7 @@ use core::mem::MaybeUninit;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::usart::{Config, InterruptHandler, Uart};
-use embassy_stm32::{SharedData, bind_interrupts, peripherals, dma};
+use embassy_stm32::{SharedData, bind_interrupts, dma, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{

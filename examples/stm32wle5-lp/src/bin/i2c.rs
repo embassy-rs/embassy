@@ -7,7 +7,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::I2c;
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{bind_interrupts, i2c, peripherals, dma};
+use embassy_stm32::{bind_interrupts, dma, i2c, peripherals};
 use embassy_time::{Duration, Timer};
 use panic_probe as _;
 use static_cell::StaticCell;
