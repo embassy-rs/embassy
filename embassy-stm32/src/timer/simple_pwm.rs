@@ -179,8 +179,8 @@ impl<'d, T: GeneralInstance4Channel> SimplePwmChannel<'d, T> {
     pub fn into_ring_buffered_channel<W: Word + Into<T::Word>, D: super::UpDma<T> + crate::dma::ChannelInterrupt>(
         mut self,
         tx_dma: Peri<'d, D>,
-        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         dma_buf: &'d mut [W],
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
     ) -> RingBufferedPwmChannel<'d, T, W> {
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
         crate::dma::assert_dma_binding(&*tx_dma, &_irq);

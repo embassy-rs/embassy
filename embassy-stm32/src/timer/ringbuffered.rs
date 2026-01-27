@@ -20,7 +20,7 @@ use crate::dma::word::Word;
 ///
 /// # Example
 /// ```ignore
-/// let mut channel = pwm.ch1().into_ring_buffered_channel(dma_ch, &mut buffer);
+/// let mut channel = pwm.ch1().into_ring_buffered_channel(dma_ch, &mut buffer, Irqs);
 /// channel.start(); // Start DMA transfer
 /// channel.write(&[100, 200, 300]).ok(); // Update duty cycles
 /// ```
