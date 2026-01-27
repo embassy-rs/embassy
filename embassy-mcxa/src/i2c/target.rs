@@ -8,8 +8,9 @@ use mcxa_pac::lpi2c0::scfgr1::Addrcfg;
 use mcxa_pac::lpi2c0::sier::{Gcie, Sarie};
 
 use super::{Async, Blocking, Info, Instance, Mode, SclPin, SdaPin};
-use crate::clocks::periph_helpers::{Div4, Lpi2cClockSel, Lpi2cConfig};
-use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
+pub use crate::clocks::PoweredClock;
+pub use crate::clocks::periph_helpers::{Div4, Lpi2cClockSel, Lpi2cConfig};
+use crate::clocks::{ClockError, WakeGuard, enable_and_reset};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
@@ -140,6 +141,31 @@ pub struct Config {
 
     /// Enable general call support
     pub general_call: Status,
+
+    /// Clock configuration
+    pub clock_config: ClockConfig,
+}
+
+/// I2C target clock configuration
+#[derive(Clone)]
+#[non_exhaustive]
+pub struct ClockConfig {
+    /// Powered clock configuration
+    pub power: PoweredClock,
+    /// LPI2C clock source
+    pub source: Lpi2cClockSel,
+    /// LPI2C pre-divider
+    pub div: Div4,
+}
+
+impl Default for ClockConfig {
+    fn default() -> Self {
+        Self {
+            power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            source: Lpi2cClockSel::FroLfDiv,
+            div: const { Div4::no_div() },
+        }
+    }
 }
 
 /// I2C target events
@@ -194,7 +220,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         sda: Peri<'d, impl SdaPin<T>>,
         config: Config,
     ) -> Result<Self, Error> {
-        let (power, source, div) = Self::clock_config();
+        let ClockConfig { power, source, div } = config.clock_config;
 
         // Enable clocks
         let conf = Lpi2cConfig {
@@ -324,17 +350,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         })
     }
 
-    // REVISIT: allow selection of various clock sources
-    fn clock_config() -> (PoweredClock, Lpi2cClockSel, Div4) {
-        (
-            PoweredClock::NormalEnabledDeepSleepDisabled,
-            Lpi2cClockSel::FroLfDiv,
-            const { Div4::no_div() },
-        )
-    }
-
     /// Resets both TX and RX FIFOs dropping their contents.
-
     fn reset_fifos(&self) {
         // The critical section is needed to prevent an interrupt from
         // modifying SCR while we're in the middle of our
