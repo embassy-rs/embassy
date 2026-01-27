@@ -399,7 +399,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
 
     /// Prepare a repeated DMA transfer from RX FIFO.
     pub fn dma_pull_repeated<'a, W: Word>(&'a mut self, ch: &'a mut dma::Channel<'_>, len: usize) -> Transfer<'a> {
-        unsafe { ch.read_repeated(PIO::PIO.rxf(SM).as_ptr(), len, Self::dreq()) }
+        unsafe { ch.read_discard(PIO::PIO.rxf(SM).as_ptr(), len, Self::dreq()) }
     }
 }
 
