@@ -383,8 +383,20 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
         FifoInFuture::new(self)
     }
 
-    fn dreq() -> crate::pac::dma::vals::TreqSel {
+    /// Get the Data Request value for the RX FIFO.
+    ///
+    /// This value can be used to configure DMA channel pacing.
+    pub fn dreq(&self) -> crate::pac::dma::vals::TreqSel {
         crate::pac::dma::vals::TreqSel::from(PIO::PIO_NO * 8 + SM as u8 + 4)
+    }
+
+    /// Get the address of the RX FIFO.
+    ///
+    /// This address can be used to configure DMA transfers from the FIFO.
+    /// To manually read a word from the FIFO, use [`try_pull`][`Self::try_pull`]
+    /// or [`pull`][`Self::pull`] instead.
+    pub fn fifo_address(&self) -> *const u32 {
+        PIO::PIO.rxf(SM).as_ptr()
     }
 
     /// Prepare DMA transfer from RX FIFO.
@@ -396,14 +408,14 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
     ) -> Transfer<'a, C> {
         let p = ch.regs();
         p.write_addr().write_value(data.as_ptr() as u32);
-        p.read_addr().write_value(PIO::PIO.rxf(SM).as_ptr() as u32);
+        p.read_addr().write_value(self.fifo_address() as u32);
         #[cfg(feature = "rp2040")]
         p.trans_count().write(|w| *w = data.len() as u32);
         #[cfg(feature = "_rp235x")]
         p.trans_count().write(|w| w.set_count(data.len() as u32));
         compiler_fence(Ordering::SeqCst);
         p.ctrl_trig().write(|w| {
-            w.set_treq_sel(Self::dreq());
+            w.set_treq_sel(self.dreq());
             w.set_data_size(W::size());
             w.set_chain_to(ch.number());
             w.set_incr_read(false);
@@ -425,7 +437,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
 
         let p = ch.regs();
         p.write_addr().write_value(core::ptr::addr_of_mut!(DUMMY) as u32);
-        p.read_addr().write_value(PIO::PIO.rxf(SM).as_ptr() as u32);
+        p.read_addr().write_value(self.fifo_address() as u32);
 
         #[cfg(feature = "rp2040")]
         p.trans_count().write(|w| *w = len as u32);
@@ -434,7 +446,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
 
         compiler_fence(Ordering::SeqCst);
         p.ctrl_trig().write(|w| {
-            w.set_treq_sel(Self::dreq());
+            w.set_treq_sel(self.dreq());
             w.set_data_size(W::size());
             w.set_chain_to(ch.number());
             w.set_incr_read(false);
@@ -506,8 +518,19 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
         FifoOutFuture::new(self, value)
     }
 
-    fn dreq() -> crate::pac::dma::vals::TreqSel {
+    /// Get the Data Request value for the TX FIFO.
+    ///
+    /// This value can be used to configure DMA channel pacing.
+    pub fn dreq(&self) -> crate::pac::dma::vals::TreqSel {
         crate::pac::dma::vals::TreqSel::from(PIO::PIO_NO * 8 + SM as u8)
+    }
+
+    /// Get the address of the TX FIFO.
+    ///
+    /// This address can be used to configure DMA transfers into the FIFO.
+    /// To manually write a word into the FIFO, use [`push`][`Self::push`] instead.
+    pub fn fifo_address(&self) -> *mut u32 {
+        PIO::PIO.txf(SM).as_ptr()
     }
 
     /// Prepare a DMA transfer to TX FIFO.
@@ -519,14 +542,14 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
     ) -> Transfer<'a, C> {
         let p = ch.regs();
         p.read_addr().write_value(data.as_ptr() as u32);
-        p.write_addr().write_value(PIO::PIO.txf(SM).as_ptr() as u32);
+        p.write_addr().write_value(self.fifo_address() as u32);
         #[cfg(feature = "rp2040")]
         p.trans_count().write(|w| *w = data.len() as u32);
         #[cfg(feature = "_rp235x")]
         p.trans_count().write(|w| w.set_count(data.len() as u32));
         compiler_fence(Ordering::SeqCst);
         p.ctrl_trig().write(|w| {
-            w.set_treq_sel(Self::dreq());
+            w.set_treq_sel(self.dreq());
             w.set_data_size(W::size());
             w.set_chain_to(ch.number());
             w.set_incr_read(true);
@@ -540,7 +563,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
 
     /// Prepare a repeated DMA transfer to TX FIFO.
     pub fn dma_push_repeated<'a, C: Channel, W: Word>(&'a mut self, ch: Peri<'a, C>, len: usize) -> Transfer<'a, C> {
-        unsafe { dma::write_repeated(ch, PIO::PIO.txf(SM).as_ptr(), len, Self::dreq()) }
+        unsafe { dma::write_repeated(ch, self.fifo_address(), len, self.dreq()) }
     }
 }
 
@@ -1421,6 +1444,11 @@ impl<'d, PIO: Instance> Pio<'d, PIO> {
             },
             _pio: PhantomData,
         }
+    }
+
+    /// Access the PIO registers.
+    pub fn regs(&self) -> &rp_pac::pio::Pio {
+        PIO::PIO
     }
 }
 
