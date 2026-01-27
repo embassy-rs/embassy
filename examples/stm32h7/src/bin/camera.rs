@@ -62,7 +62,7 @@ async fn main(_spawner: Spawner) {
     let mco = Mco::new(p.MCO1, p.PA8, Mco1Source::HSI, mco_config);
 
     let mut led = Output::new(p.PE3, Level::High, Speed::Low);
-    let cam_i2c = I2c::new(p.I2C1, p.PB8, p.PB9, Irqs, p.DMA1_CH1, p.DMA1_CH2, Default::default());
+    let cam_i2c = I2c::new(p.I2C1, p.PB8, p.PB9, p.DMA1_CH1, p.DMA1_CH2, Irqs, Default::default());
 
     let mut camera = Ov7725::new(cam_i2c, mco);
 

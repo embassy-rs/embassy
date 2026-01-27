@@ -57,7 +57,7 @@ async fn main(_spawner: Spawner) {
         config.frequency = i2c_frequency;
         config
     };
-    let mut i2c = I2c::new(p.I2C1, p.PB8, p.PB9, Irqs, p.DMA1_CH6, p.DMA1_CH0, i2c_config);
+    let mut i2c = I2c::new(p.I2C1, p.PB8, p.PB9, p.DMA1_CH6, p.DMA1_CH0, Irqs, i2c_config);
 
     // Give external slave time to initialize
     Timer::after_millis(500).await;

@@ -27,7 +27,7 @@ use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     I2C1 => i2c::EventInterruptHandler<peripherals::I2C1>, i2c::ErrorInterruptHandler<peripherals::I2C1>;
-    DMA1_CH2_3_DMA2_CH1_2 => dma::InterruptHandler<peripherals::DMA1_CH2>;
+    DMA1_CH2_3_DMA2_CH1_2 => dma::InterruptHandler<peripherals::DMA1_CH2>, dma::InterruptHandler<peripherals::DMA1_CH3>;
 });
 
 #[embassy_executor::main]
@@ -107,7 +107,7 @@ async fn main(_spawner: Spawner) {
         let tx_dma = p.DMA1_CH2;
         let rx_dma = p.DMA1_CH3;
 
-        let mut i2c = I2c::new(i2c_peri, scl, sda, Irqs, tx_dma, rx_dma, config);
+        let mut i2c = I2c::new(i2c_peri, scl, sda, tx_dma, rx_dma, Irqs, config);
 
         // Direct API tests (reusing same I2C instance)
         info!("=== Direct API Test 1: write() ===");

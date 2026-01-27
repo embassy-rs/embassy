@@ -38,6 +38,7 @@ async fn main(_spawner: Spawner) {
         p.PC6,
         p.DMA1_CH1,
         &mut dma_buffer,
+        Irqs,
         i2s_config,
     );
     i2s.start();

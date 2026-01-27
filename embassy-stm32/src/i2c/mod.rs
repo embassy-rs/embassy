@@ -149,23 +149,25 @@ pub struct I2c<'d, M: Mode, IM: MasterMode> {
 
 impl<'d> I2c<'d, Async, Master> {
     /// Create a new I2C driver.
-    pub fn new<T: Instance, #[cfg(afio)] A>(
+    pub fn new<T: Instance, D1: TxDma<T>, D2: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
         scl: Peri<'d, if_afio!(impl SclPin<T, A>)>,
         sda: Peri<'d, if_afio!(impl SdaPin<T, A>)>,
+        tx_dma: Peri<'d, D1>,
+        rx_dma: Peri<'d, D2>,
         _irq: impl interrupt::typelevel::Binding<T::EventInterrupt, EventInterruptHandler<T>>
         + interrupt::typelevel::Binding<T::ErrorInterrupt, ErrorInterruptHandler<T>>
+        + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
         + 'd,
-        tx_dma: Peri<'d, impl TxDma<T>>,
-        rx_dma: Peri<'d, impl RxDma<T>>,
         config: Config,
     ) -> Self {
         Self::new_inner(
             peri,
             new_pin!(scl, config.scl_af()),
             new_pin!(sda, config.sda_af()),
-            new_dma!(tx_dma),
-            new_dma!(rx_dma),
+            new_dma!(tx_dma, _irq),
+            new_dma!(rx_dma, _irq),
             config,
         )
     }

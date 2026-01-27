@@ -99,6 +99,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     let mut ring_adc: RingBufferedAdc<ADC4> = adc.into_ring_buffered(
         p.GPDMA1_CH1,
         unsafe { &mut *core::ptr::addr_of_mut!(DMA_BUF) },
+        Irqs,
         [
             (vrefint_ch, adc4::SampleTime::CYCLES12_5), // Channel 0
             (vcore_ch, adc4::SampleTime::CYCLES12_5),   // Channel 12

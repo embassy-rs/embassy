@@ -244,6 +244,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     ///
     /// adc.read(
     ///     p.DMA1_CH2.reborrow(),
+    ///     Irqs,
     ///     [
     ///         (&mut *adc_pin0, SampleTime::CYCLES160_5),
     ///         (&mut *adc_pin1, SampleTime::CYCLES160_5),
@@ -262,12 +263,14 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// in order or require the sequence to have the same sample time for all channnels, depending
     /// on the number and properties of the channels in the sequence. This method will panic if
     /// the hardware cannot deliver the requested configuration.
-    pub async fn read<'a, 'b: 'a>(
+    pub async fn read<'a, 'b: 'a, D: RxDma<T> + crate::dma::ChannelInterrupt>(
         &mut self,
-        rx_dma: embassy_hal_internal::Peri<'_, impl RxDma<T>>,
+        rx_dma: embassy_hal_internal::Peri<'a, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         readings: &mut [u16],
     ) {
+        crate::dma::assert_dma_binding(&*rx_dma, &_irq);
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
         assert!(
             readings.len() % sequence.len() == 0,
@@ -334,13 +337,16 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// in order or require the sequence to have the same sample time for all channnels, depending
     /// on the number and properties of the channels in the sequence. This method will panic if
     /// the hardware cannot deliver the requested configuration.
-    pub fn into_ring_buffered<'a, 'b>(
+    pub fn into_ring_buffered<'a, 'b, D: RxDma<T> + crate::dma::ChannelInterrupt>(
         self,
-        dma: embassy_hal_internal::Peri<'a, impl RxDma<T>>,
+        dma: embassy_hal_internal::Peri<'a, D>,
         dma_buf: &'a mut [u16],
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         mode: RegularConversionMode,
     ) -> RingBufferedAdc<'a, T> {
+        crate::dma::assert_dma_binding(&*dma, &_irq);
+
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
         assert!(

@@ -45,8 +45,8 @@ async fn main(_spawner: Spawner) {
 
     let mut sdmmc = Sdmmc::new_4bit(
         p.SDIO,
-        Irqs,
         p.DMA2_CH3,
+        Irqs,
         p.PC12,
         p.PD2,
         p.PC8,

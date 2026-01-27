@@ -26,9 +26,9 @@ async fn main(_spawner: Spawner) {
         p.I2C2,
         p.PB10,
         p.PB11,
-        Irqs,
         p.GPDMA1_CH4,
         p.GPDMA1_CH5,
+        Irqs,
         Default::default(),
     );
 

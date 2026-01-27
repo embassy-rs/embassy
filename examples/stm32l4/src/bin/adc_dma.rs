@@ -32,6 +32,7 @@ async fn main(_spawner: Spawner) {
     let mut ring_buffered_adc = adc.into_ring_buffered(
         p.DMA1_CH1,
         &mut adc_dma_buf,
+        Irqs,
         [(adc_pin0, SampleTime::CYCLES640_5), (adc_pin1, SampleTime::CYCLES640_5)].into_iter(),
         RegularConversionMode::Continuous,
     );

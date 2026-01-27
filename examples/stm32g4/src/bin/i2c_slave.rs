@@ -141,13 +141,13 @@ async fn main(spawner: Spawner) {
     let d_sda = p.PA8;
     let d_scl = p.PA9;
     let device =
-        i2c::I2c::new(p.I2C2, d_scl, d_sda, Irqs, p.DMA1_CH1, p.DMA1_CH2, config).into_slave_multimaster(d_addr_config);
+        i2c::I2c::new(p.I2C2, d_scl, d_sda, p.DMA1_CH1, p.DMA1_CH2, Irqs, config).into_slave_multimaster(d_addr_config);
 
     spawner.spawn(unwrap!(device_task(device)));
 
     let c_sda = p.PB8;
     let c_scl = p.PB7;
-    let controller = i2c::I2c::new(p.I2C1, c_sda, c_scl, Irqs, p.DMA1_CH3, p.DMA1_CH4, config);
+    let controller = i2c::I2c::new(p.I2C1, c_sda, c_scl, p.DMA1_CH3, p.DMA1_CH4, Irqs, config);
 
     spawner.spawn(unwrap!(controller_task(controller)));
 }

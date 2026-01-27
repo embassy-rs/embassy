@@ -475,10 +475,11 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     /// This function is `unsafe` because it clones the ADC peripheral handle unchecked. Both the
     /// `RingBufferedAdc` and `InjectedAdc` take ownership of the handle and drop it independently.
     /// Ensure no other code concurrently accesses the same ADC instance in a conflicting way.
-    pub fn into_ring_buffered_and_injected<'a, 'b, const N: usize>(
+    pub fn into_ring_buffered_and_injected<'a, 'b, const N: usize, D: RxDma<T> + crate::dma::ChannelInterrupt>(
         self,
-        dma: Peri<'a, impl RxDma<T>>,
+        dma: Peri<'a, D>,
         dma_buf: &'a mut [u16],
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         regular_sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         regular_conversion_mode: RegularConversionMode,
         injected_sequence: [(AnyAdcChannel<'b, T>, SampleTime); N],
@@ -490,7 +491,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
                 Self {
                     adc: self.adc.clone_unchecked(),
                 }
-                .into_ring_buffered(dma, dma_buf, regular_sequence, regular_conversion_mode),
+                .into_ring_buffered(dma, dma_buf, _irq, regular_sequence, regular_conversion_mode),
                 Self {
                     adc: self.adc.clone_unchecked(),
                 }

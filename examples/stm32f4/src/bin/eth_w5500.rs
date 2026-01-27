@@ -74,7 +74,7 @@ async fn main(spawner: Spawner) -> ! {
     let mut spi_cfg = spi::Config::default();
     spi_cfg.frequency = Hertz(50_000_000); // up to 50m works
     let (miso, mosi, clk) = (p.PA6, p.PA7, p.PA5);
-    let spi = Spi::new(p.SPI1, clk, mosi, miso, p.DMA2_CH3, p.DMA2_CH0, spi_cfg);
+    let spi = Spi::new(p.SPI1, clk, mosi, miso, p.DMA2_CH3, p.DMA2_CH0, Irqs, spi_cfg);
     let cs = Output::new(p.PA4, Level::High, Speed::VeryHigh);
     let spi = unwrap!(ExclusiveDevice::new(spi, cs, Delay));
 

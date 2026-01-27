@@ -88,6 +88,7 @@ async fn main(_spawner: Spawner) {
         p.PH9,
         p.PI2,
         p.GPDMA1_CH7,
+        Irqs,
         flash_config,
     );
 

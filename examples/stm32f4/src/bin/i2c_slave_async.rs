@@ -40,11 +40,11 @@ async fn main(spawner: Spawner) {
 
     // Initialize I2C as master first
     let i2c_master = I2c::new(
-        p.I2C1, p.PB8, // SCL
-        p.PB9, // SDA
-        Irqs, p.DMA1_CH6, // TX DMA
+        p.I2C1, p.PB8,      // SCL
+        p.PB9,      // SDA
+        p.DMA1_CH6, // TX DMA
         p.DMA1_CH0, // RX DMA
-        i2c_config,
+        Irqs, i2c_config,
     );
 
     // Convert to MultiMaster mode

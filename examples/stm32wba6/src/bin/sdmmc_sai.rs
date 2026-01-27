@@ -312,13 +312,22 @@ async fn main(spawner: Spawner) {
     sai_cfg.fifo_threshold = sai::FifoThreshold::Quarter;
     sai_cfg.master_clock_divider = sai::MasterClockDivider::DIV4;
 
-    let mut sai_tx = Sai::new_asynchronous(sai_a, p.PA7, p.PB14, p.PA8, p.GPDMA1_CH2, sai_dma_buf, sai_cfg);
+    let mut sai_tx = Sai::new_asynchronous(
+        sai_a,
+        p.PA7,
+        p.PB14,
+        p.PA8,
+        p.GPDMA1_CH2,
+        sai_dma_buf,
+        Irqs,
+        sai_cfg,
+    );
 
     let _max98357a_sd = Output::new(p.PA1, Level::High, Speed::Low);
 
     let mut spi_cfg = spi::Config::default();
     spi_cfg.frequency = Hertz(400_000);
-    let spi = Spi::new(p.SPI1, p.PB4, p.PA15, p.PB3, p.GPDMA1_CH0, p.GPDMA1_CH1, spi_cfg);
+    let spi = Spi::new(p.SPI1, p.PB4, p.PA15, p.PB3, p.GPDMA1_CH0, p.GPDMA1_CH1, Irqs, spi_cfg);
     let cs = Output::new(p.PA6, Level::High, Speed::VeryHigh);
     let spi_dev: SdSpiDev = ExclusiveDevice::new_no_delay(spi, cs).unwrap();
     let sd: SdCardDev = SdCard::new(spi_dev, embassy_time::Delay);

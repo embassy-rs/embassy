@@ -112,6 +112,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     let (mut ring_buffered_adc, injected_adc) = adc1.into_ring_buffered_and_injected(
         dma1_ch1,
         &mut readings,
+        Irqs,
         regular_sequence,
         RegularConversionMode::Triggered(regular_trigger),
         injected_sequence,

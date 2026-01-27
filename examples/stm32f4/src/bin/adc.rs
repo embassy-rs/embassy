@@ -23,6 +23,7 @@ async fn main(_spawner: Spawner) {
 
     let mut adc_ring_buffered = Adc::new(p.ADC2).into_ring_buffered(
         p.DMA2_CH2,
+        Irqs,
         &mut adc_dma_buf,
         [(p.PA0.degrade_adc(), SampleTime::CYCLES112)].into_iter(),
         RegularConversionMode::Triggered(ConversionTrigger {

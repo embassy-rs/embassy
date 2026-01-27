@@ -41,6 +41,7 @@ async fn main(_spawner: Spawner) {
         p.PF9,
         p.GPDMA1_CH0,
         &mut write_buffer,
+        Irqs,
         Default::default(),
     );
 

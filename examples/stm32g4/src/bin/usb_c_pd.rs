@@ -75,7 +75,7 @@ async fn main(_spawner: Spawner) {
         }
         CableOrientation::DebugAccessoryMode => panic!("No PD communication in DAM"),
     };
-    let (_cc_phy, mut pd_phy) = ucpd.split_pd_phy(p.DMA1_CH1, p.DMA1_CH2, cc_sel);
+    let (_cc_phy, mut pd_phy) = ucpd.split_pd_phy(p.DMA1_CH1, p.DMA1_CH2, Irqs, cc_sel);
 
     loop {
         // Enough space for the longest non-extended data message.

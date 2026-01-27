@@ -472,10 +472,12 @@ const DATA_AF: AfType = CMD_AF;
 #[cfg(sdmmc_v1)]
 impl<'d> Sdmmc<'d> {
     /// Create a new SDMMC driver, with 1 data lane.
-    pub fn new_1bit<T: Instance>(
+    pub fn new_1bit<T: Instance, D: SdmmcDma<T>>(
         sdmmc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        dma: Peri<'d, impl SdmmcDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -489,7 +491,7 @@ impl<'d> Sdmmc<'d> {
 
         Self::new_inner(
             sdmmc,
-            new_dma_nonopt!(dma),
+            new_dma_nonopt!(dma, _irq),
             clk.into(),
             cmd.into(),
             d0.into(),
@@ -505,10 +507,12 @@ impl<'d> Sdmmc<'d> {
     }
 
     /// Create a new SDMMC driver, with 4 data lanes.
-    pub fn new_4bit<T: Instance>(
+    pub fn new_4bit<T: Instance, D: SdmmcDma<T>>(
         sdmmc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        dma: Peri<'d, impl SdmmcDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -528,7 +532,7 @@ impl<'d> Sdmmc<'d> {
 
         Self::new_inner(
             sdmmc,
-            new_dma_nonopt!(dma),
+            new_dma_nonopt!(dma, _irq),
             clk.into(),
             cmd.into(),
             d0.into(),
@@ -547,10 +551,12 @@ impl<'d> Sdmmc<'d> {
 #[cfg(sdmmc_v1)]
 impl<'d> Sdmmc<'d> {
     /// Create a new SDMMC driver, with 8 data lanes.
-    pub fn new_8bit<T: Instance>(
+    pub fn new_8bit<T: Instance, D: SdmmcDma<T>>(
         sdmmc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        dma: Peri<'d, impl SdmmcDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -578,7 +584,7 @@ impl<'d> Sdmmc<'d> {
 
         Self::new_inner(
             sdmmc,
-            new_dma_nonopt!(dma),
+            new_dma_nonopt!(dma, _irq),
             clk.into(),
             cmd.into(),
             d0.into(),

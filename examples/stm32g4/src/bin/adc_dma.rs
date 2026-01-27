@@ -46,6 +46,7 @@ async fn main(_spawner: Spawner) {
     loop {
         adc.read(
             dma.reborrow(),
+            Irqs,
             [
                 (&mut vrefint_channel, SampleTime::CYCLES247_5),
                 (&mut pa0, SampleTime::CYCLES247_5),

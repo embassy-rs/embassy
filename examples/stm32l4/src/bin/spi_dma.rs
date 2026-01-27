@@ -22,7 +22,7 @@ async fn main(_spawner: Spawner) {
     let mut spi_config = Config::default();
     spi_config.frequency = Hertz(1_000_000);
 
-    let mut spi = Spi::new(p.SPI3, p.PC10, p.PC12, p.PC11, p.DMA1_CH1, p.DMA1_CH2, spi_config);
+    let mut spi = Spi::new(p.SPI3, p.PC10, p.PC12, p.PC11, p.DMA1_CH1, p.DMA1_CH2, Irqs, spi_config);
 
     // These are the pins for the Inventek eS-Wifi SPI Wifi Adapter.
 

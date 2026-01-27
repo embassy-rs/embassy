@@ -67,6 +67,7 @@ async fn main(_spawner: Spawner) {
             .async_calc_32bit(
                 dp.GPDMA1_CH0.reborrow(),
                 dp.GPDMA1_CH1.reborrow(),
+                Irqs,
                 &input_buf[..arg1.len() - 1], // limit input buf to its actual length
                 &mut output_u32,
                 true,

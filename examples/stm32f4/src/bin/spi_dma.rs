@@ -25,7 +25,7 @@ async fn main(_spawner: Spawner) {
     let mut spi_config = Config::default();
     spi_config.frequency = Hertz(1_000_000);
 
-    let mut spi = Spi::new(p.SPI1, p.PB3, p.PB5, p.PB4, p.DMA2_CH3, p.DMA2_CH2, spi_config);
+    let mut spi = Spi::new(p.SPI1, p.PB3, p.PB5, p.PB4, p.DMA2_CH3, p.DMA2_CH2, Irqs, spi_config);
 
     for n in 0u32.. {
         let mut write: String<128> = String::new();

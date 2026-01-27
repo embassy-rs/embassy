@@ -77,6 +77,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     adc1.read(
         p.GPDMA1_CH0.reborrow(),
+        Irqs,
         [
             (&mut degraded11, adc::SampleTime::CYCLES160_5),
             (&mut degraded12, adc::SampleTime::CYCLES160_5),
@@ -101,6 +102,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     // The channels must be in ascending order and can't repeat for ADC4
     adc4.read(
         p.GPDMA1_CH1.reborrow(),
+        Irqs,
         [
             (&mut degraded42, adc4::SampleTime::CYCLES1_5),
             (&mut degraded41, adc4::SampleTime::CYCLES1_5),

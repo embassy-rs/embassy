@@ -338,7 +338,7 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
 
 impl<'d, T: Instance> Qspi<'d, T, Async> {
     /// Create a new QSPI driver for bank 1.
-    pub fn new_bank1(
+    pub fn new_bank1<D: QuadDma<T>>(
         peri: Peri<'d, T>,
         d0: Peri<'d, impl BK1D0Pin<T>>,
         d1: Peri<'d, impl BK1D1Pin<T>>,
@@ -346,7 +346,8 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
         d3: Peri<'d, impl BK1D3Pin<T>>,
         sck: Peri<'d, impl SckPin<T>>,
         nss: Peri<'d, impl BK1NSSPin<T>>,
-        dma: Peri<'d, impl QuadDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -360,14 +361,14 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
                 nss,
                 AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
             ),
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             FlashSelection::Flash1,
         )
     }
 
     /// Create a new QSPI driver for bank 2.
-    pub fn new_bank2(
+    pub fn new_bank2<D: QuadDma<T>>(
         peri: Peri<'d, T>,
         d0: Peri<'d, impl BK2D0Pin<T>>,
         d1: Peri<'d, impl BK2D1Pin<T>>,
@@ -375,7 +376,8 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
         d3: Peri<'d, impl BK2D3Pin<T>>,
         sck: Peri<'d, impl SckPin<T>>,
         nss: Peri<'d, impl BK2NSSPin<T>>,
-        dma: Peri<'d, impl QuadDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -389,7 +391,7 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
                 nss,
                 AfType::output_pull(OutputType::PushPull, config.gpio_speed, Pull::Up)
             ),
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             FlashSelection::Flash2,
         )

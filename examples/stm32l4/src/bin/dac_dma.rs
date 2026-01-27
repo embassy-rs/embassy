@@ -27,7 +27,8 @@ async fn main(spawner: Spawner) {
     let p: embassy_stm32::Peripherals = embassy_stm32::init(config);
 
     // Obtain two independent channels (p.DAC1 can only be consumed once, though!)
-    let (dac_ch1, dac_ch2) = embassy_stm32::dac::Dac::new(p.DAC1, p.DMA1_CH3, p.DMA1_CH4, p.PA4, p.PA5).split();
+    let (dac_ch1, dac_ch2) =
+        embassy_stm32::dac::Dac::new(p.DAC1, p.DMA1_CH3, p.DMA1_CH4, Irqs, p.PA4, p.PA5).split();
 
     spawner.spawn(dac_task1(p.TIM6, dac_ch1).unwrap());
     spawner.spawn(dac_task2(p.TIM7, dac_ch2).unwrap());

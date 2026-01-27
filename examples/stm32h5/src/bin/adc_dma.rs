@@ -91,6 +91,7 @@ async fn adc_task<'a, T: adc::DefaultInstance>(
         // call to `Adc::read` where the ADC is sitting idle.
         adc.read(
             dma.reborrow(),
+            Irqs,
             [(&mut pin1, SampleTime::CYCLES2_5), (&mut pin2, SampleTime::CYCLES2_5)].into_iter(),
             &mut buffer[0..2],
         )

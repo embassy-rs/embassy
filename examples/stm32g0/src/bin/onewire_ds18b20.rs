@@ -29,9 +29,9 @@ fn create_onewire(p: embassy_stm32::Peripherals) -> OneWire<UartTx<'static, Asyn
     let usart = Uart::new_half_duplex(
         p.USART1,
         p.PA9,
-        Irqs,
         p.DMA1_CH1,
         p.DMA1_CH2,
+        Irqs,
         config,
         // Enable readback so we can read sensor pulling data low while transmission is in progress
         usart::HalfDuplexReadback::Readback,

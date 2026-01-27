@@ -30,6 +30,7 @@ async fn adc_task(p: Peripherals) {
 
     let mut adc: RingBufferedAdc<embassy_stm32::peripherals::ADC1> = adc.into_ring_buffered(
         p.DMA2_CH0,
+        Irqs,
         adc_data,
         [
             (p.PA0.degrade_adc(), SampleTime::CYCLES112),
@@ -40,6 +41,7 @@ async fn adc_task(p: Peripherals) {
     );
     let mut adc2: RingBufferedAdc<embassy_stm32::peripherals::ADC2> = adc2.into_ring_buffered(
         p.DMA2_CH2,
+        Irqs,
         adc_data2,
         [
             (p.PA1.degrade_adc(), SampleTime::CYCLES112),

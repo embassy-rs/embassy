@@ -119,9 +119,9 @@ async fn main(spawner: Spawner) {
         dp.I2C3,
         dp.PG7,
         dp.PG8,
-        Irqs,
         dp.DMA1_CH6,
         dp.DMA1_CH7,
+        Irqs,
         I2C_Config::default(),
     );
 
@@ -149,6 +149,7 @@ async fn main(spawner: Spawner) {
         spe_spi_miso,
         dp.DMA1_CH1,
         dp.DMA1_CH2,
+        Irqs,
         spi_config,
     );
     let spe_spi = SpeSpiCs::new(spe_spi, spe_spi_cs_n, Delay);
