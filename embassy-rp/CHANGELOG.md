@@ -7,10 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## Unreleased - ReleaseDate
+- Add AON Timer driver for RP2350 with configurable clock sources and alarm wake modes
 - Add output enable inversion API (gpio, pio)
+- Add PIO clock generator
+- Change PioBatch interface
 
 ## 0.9.0 - 2025-11-27
-
 - Add documentation for pio `get_x` about autopush.
 - Fix several minor typos in documentation
 - Add PIO SPI

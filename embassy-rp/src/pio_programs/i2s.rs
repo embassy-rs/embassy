@@ -1,18 +1,20 @@
 //! Pio backed I2S output and output drivers
 
-use fixed::traits::ToFixed;
-
 use crate::Peri;
 use crate::dma::{AnyChannel, Channel, Transfer};
 use crate::gpio::Pull;
 use crate::pio::{
-    Common, Config, Direction, FifoJoin, Instance, LoadedProgram, PioPin, ShiftConfig, ShiftDirection, StateMachine,
+    Common, Config, Direction, FifoJoin, Instance, LoadedProgram, PioBatch, PioPin, ShiftConfig, ShiftDirection,
+    StateMachine,
 };
+use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
 
 /// This struct represents an I2S receiver & controller driver program
 pub struct PioI2sInProgram<'d, PIO: Instance> {
     prg: LoadedProgram<'d, PIO>,
 }
+
+const PIO_I2S_IN_PROGRAM_CLK_MULTIPLIER: u32 = 2;
 
 impl<'d, PIO: Instance> PioI2sInProgram<'d, PIO> {
     /// Load the input program into the given pio
@@ -65,14 +67,14 @@ impl<'d, P: Instance, const S: usize> PioI2sIn<'d, P, S> {
             data_pin.set_pull(Pull::Down);
         }
         let bit_clock_pin = common.make_pio_pin(bit_clock_pin);
-        let left_right_clock_pin = common.make_pio_pin(lr_clock_pin);
+        let lr_clock_pin = common.make_pio_pin(lr_clock_pin);
 
         let cfg = {
             let mut cfg = Config::default();
-            cfg.use_program(&program.prg, &[&bit_clock_pin, &left_right_clock_pin]);
+            cfg.use_program(&program.prg, &[&bit_clock_pin, &lr_clock_pin]);
             cfg.set_in_pins(&[&data_pin]);
             let clock_frequency = sample_rate * bit_depth * channels;
-            cfg.clock_divider = (crate::clocks::clk_sys_freq() as f64 / clock_frequency as f64 / 2.).to_fixed();
+            cfg.clock_divider = calculate_pio_clock_divider(clock_frequency * PIO_I2S_IN_PROGRAM_CLK_MULTIPLIER);
             cfg.shift_in = ShiftConfig {
                 threshold: 32,
                 direction: ShiftDirection::Left,
@@ -84,10 +86,29 @@ impl<'d, P: Instance, const S: usize> PioI2sIn<'d, P, S> {
         };
         sm.set_config(&cfg);
         sm.set_pin_dirs(Direction::In, &[&data_pin]);
-        sm.set_pin_dirs(Direction::Out, &[&left_right_clock_pin, &bit_clock_pin]);
-        sm.set_enable(true);
+        sm.set_pin_dirs(Direction::Out, &[&lr_clock_pin, &bit_clock_pin]);
 
         Self { dma: dma.into(), sm }
+    }
+
+    /// Start the i2s interface
+    pub fn start(&mut self) {
+        self.sm.set_enable(true);
+    }
+
+    /// Stop the i2s interface
+    pub fn stop(&mut self) {
+        self.sm.set_enable(true);
+    }
+
+    /// Start at the the same as other drivers
+    pub fn start_batched(&mut self, b: &mut PioBatch<'d, P>) {
+        b.set_enable(&mut self.sm, true);
+    }
+
+    /// Stop at the the same as other drivers
+    pub fn stop_batched(&mut self, b: &mut PioBatch<'d, P>) {
+        b.set_enable(&mut self.sm, false);
     }
 
     /// Return an in-progress dma transfer future. Awaiting it will guarantee a complete transfer.
@@ -104,6 +125,8 @@ impl<'d, P: Instance, const S: usize> PioI2sIn<'d, P, S> {
 pub struct PioI2sOutProgram<'d, PIO: Instance> {
     prg: LoadedProgram<'d, PIO>,
 }
+
+const PIO_I2S_OUT_PROGRAM_CLK_MULTIPLIER: u32 = 2;
 
 impl<'d, PIO: Instance> PioI2sOutProgram<'d, PIO> {
     /// Load the program into the given pio
@@ -149,14 +172,15 @@ impl<'d, P: Instance, const S: usize> PioI2sOut<'d, P, S> {
     ) -> Self {
         let data_pin = common.make_pio_pin(data_pin);
         let bit_clock_pin = common.make_pio_pin(bit_clock_pin);
-        let left_right_clock_pin = common.make_pio_pin(lr_clock_pin);
+        let lr_clock_pin = common.make_pio_pin(lr_clock_pin);
+
+        let bclk_frequency: u32 = sample_rate * bit_depth * 2;
 
         let cfg = {
             let mut cfg = Config::default();
-            cfg.use_program(&program.prg, &[&bit_clock_pin, &left_right_clock_pin]);
+            cfg.use_program(&program.prg, &[&bit_clock_pin, &lr_clock_pin]);
             cfg.set_out_pins(&[&data_pin]);
-            let clock_frequency = sample_rate * bit_depth * 2;
-            cfg.clock_divider = (crate::clocks::clk_sys_freq() as f64 / clock_frequency as f64 / 2.).to_fixed();
+            cfg.clock_divider = calculate_pio_clock_divider(bclk_frequency * PIO_I2S_OUT_PROGRAM_CLK_MULTIPLIER);
             cfg.shift_out = ShiftConfig {
                 threshold: 32,
                 direction: ShiftDirection::Left,
@@ -167,16 +191,34 @@ impl<'d, P: Instance, const S: usize> PioI2sOut<'d, P, S> {
             cfg
         };
         sm.set_config(&cfg);
-        sm.set_pin_dirs(Direction::Out, &[&data_pin, &left_right_clock_pin, &bit_clock_pin]);
+        sm.set_pin_dirs(Direction::Out, &[&data_pin, &lr_clock_pin, &bit_clock_pin]);
 
         // Set the `y` register up to configure the sample depth
         // The SM counts down to 0 and uses one clock cycle to set up the counter,
         // which results in bit_depth - 2 as register value.
         unsafe { sm.set_y(bit_depth - 2) };
 
-        sm.set_enable(true);
-
         Self { dma: dma.into(), sm }
+    }
+
+    /// Start the i2s interface
+    pub fn start(&mut self) {
+        self.sm.set_enable(true);
+    }
+
+    /// Stop the i2s interface
+    pub fn stop(&mut self) {
+        self.sm.set_enable(false);
+    }
+
+    /// Start at the the same as other drivers
+    pub fn start_batched(&mut self, b: &mut PioBatch<'d, P>) {
+        b.set_enable(&mut self.sm, true);
+    }
+
+    /// Stop at the the same as other drivers
+    pub fn stop_batched(&mut self, b: &mut PioBatch<'d, P>) {
+        b.set_enable(&mut self.sm, false);
     }
 
     /// Return an in-progress dma transfer future. Awaiting it will guarantee a complete transfer.
