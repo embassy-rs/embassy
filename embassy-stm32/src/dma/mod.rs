@@ -70,6 +70,8 @@ pub(crate) trait SealedChannel: StoppablePeripheral {
 }
 
 pub(crate) trait ChannelInterrupt {
+    type Interrupt: interrupt::typelevel::Interrupt;
+
     #[cfg_attr(not(feature = "rt"), allow(unused))]
     unsafe fn on_irq();
 }
@@ -78,22 +80,13 @@ pub(crate) trait ChannelInterrupt {
 #[allow(private_bounds)]
 pub trait Channel: SealedChannel + PeripheralType + Into<AnyChannel> + 'static {}
 
-/// Trait for DMA channels that have a known interrupt at compile time.
-///
-/// This is implemented for concrete DMA channel peripherals (e.g., `DMA1_CH0`)
-/// but not for `AnyChannel` which is type-erased.
-#[allow(private_bounds)]
-pub trait ChannelWithInterrupt: Channel + ChannelInterrupt {
-    /// Interrupt for this DMA channel.
-    type Interrupt: interrupt::typelevel::Interrupt;
-}
-
 /// DMA interrupt handler.
-pub struct InterruptHandler<T: ChannelWithInterrupt> {
+#[allow(private_bounds)]
+pub struct InterruptHandler<T: ChannelInterrupt> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: ChannelWithInterrupt> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: ChannelInterrupt> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         T::on_irq();
     }
@@ -115,6 +108,8 @@ macro_rules! dma_channel_impl {
         }
 
         impl crate::dma::ChannelInterrupt for crate::peripherals::$channel_peri {
+            type Interrupt = $irq;
+
             unsafe fn on_irq() {
                 crate::dma::AnyChannel {
                     id: $index,
@@ -126,10 +121,6 @@ macro_rules! dma_channel_impl {
         }
 
         impl crate::dma::Channel for crate::peripherals::$channel_peri {}
-
-        impl crate::dma::ChannelWithInterrupt for crate::peripherals::$channel_peri {
-            type Interrupt = $irq;
-        }
 
         impl From<crate::peripherals::$channel_peri> for crate::dma::AnyChannel {
             fn from(val: crate::peripherals::$channel_peri) -> Self {
