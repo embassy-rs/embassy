@@ -346,7 +346,7 @@ impl<'d, PIO: Instance, const SM: usize> Spi<'d, PIO, SM, Async> {
         let (rx, tx) = self.sm.rx_tx();
 
         let mut rx_ch = self.rx_dma.as_mut().unwrap().reborrow();
-        let rx_transfer = rx.dma_pull_repeated::<u8>(&mut rx_ch, buffer.len());
+        let rx_transfer = rx.dma_pull_discard::<u8>(&mut rx_ch, buffer.len());
 
         let mut tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
         let tx_transfer = tx.dma_push(&mut tx_ch, buffer, false);
@@ -376,7 +376,7 @@ impl<'d, PIO: Instance, const SM: usize> Spi<'d, PIO, SM, Async> {
             if tx_buffer.len() > rx_buffer.len() {
                 let read_bytes_len = tx_buffer.len() - rx_buffer.len();
 
-                rx.dma_pull_repeated::<u8>(&mut rx_ch, read_bytes_len).await;
+                rx.dma_pull_discard::<u8>(&mut rx_ch, read_bytes_len).await;
             }
         };
 
