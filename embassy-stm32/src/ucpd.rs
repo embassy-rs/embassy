@@ -222,8 +222,8 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         rx_dma: Peri<'d, RX>,
         tx_dma: Peri<'d, TX>,
         _irq: impl interrupt::typelevel::Binding<RX::Interrupt, crate::dma::InterruptHandler<RX>>
-            + interrupt::typelevel::Binding<TX::Interrupt, crate::dma::InterruptHandler<TX>>
-            + 'd,
+        + interrupt::typelevel::Binding<TX::Interrupt, crate::dma::InterruptHandler<TX>>
+        + 'd,
         cc_sel: CcSel,
     ) -> (CcPhy<'d, T>, PdPhy<'d, T>)
     where

@@ -405,8 +405,8 @@ impl<'d, T: Instance> Hash<'d, T, Async> {
         peripheral: Peri<'d, T>,
         dma: Peri<'d, D>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-            + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
-            + 'd,
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
     ) -> Self {
         rcc::enable_and_reset::<HASH>();
         let instance = Self {

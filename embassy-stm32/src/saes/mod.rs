@@ -208,9 +208,9 @@ impl<'d, T: Instance> Saes<'d, T, Async> {
         dma_in: Peri<'d, D1>,
         dma_out: Peri<'d, D2>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-            + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
-            + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
-            + 'd,
+        + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
     ) -> Self {
         rcc::enable_and_reset::<T>();
 

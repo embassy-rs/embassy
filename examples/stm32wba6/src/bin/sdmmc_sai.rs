@@ -312,16 +312,7 @@ async fn main(spawner: Spawner) {
     sai_cfg.fifo_threshold = sai::FifoThreshold::Quarter;
     sai_cfg.master_clock_divider = sai::MasterClockDivider::DIV4;
 
-    let mut sai_tx = Sai::new_asynchronous(
-        sai_a,
-        p.PA7,
-        p.PB14,
-        p.PA8,
-        p.GPDMA1_CH2,
-        sai_dma_buf,
-        Irqs,
-        sai_cfg,
-    );
+    let mut sai_tx = Sai::new_asynchronous(sai_a, p.PA7, p.PB14, p.PA8, p.GPDMA1_CH2, sai_dma_buf, Irqs, sai_cfg);
 
     let _max98357a_sd = Output::new(p.PA1, Level::High, Speed::Low);
 
