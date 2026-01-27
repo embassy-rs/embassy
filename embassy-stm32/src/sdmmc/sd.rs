@@ -109,7 +109,8 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
         let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
         let regs = self.sdmmc.info.regs;
 
-        let _bus_width = match self.sdmmc.bus_width() {
+        // Get the bus width configured in the Sdmmc peripheral
+        let configured_bus_width = match self.sdmmc.bus_width() {
             BusWidth::Eight => return Err(Error::BusWidth),
             bus_width => bus_width,
         };
@@ -164,10 +165,11 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
         self.sdmmc.select_card(Some(self.info.get_address()))?;
         self.info.scr = self.get_scr(cmd_block).await?;
 
-        let (bus_width, acmd_arg) = if !self.info.scr.bus_width_four() {
-            (BusWidth::One, 0)
-        } else {
-            (BusWidth::Four, 2)
+        // Select bus width based on Sdmmc configuration and card capability
+        // Use 4-bit only if both the peripheral is configured for it AND the card supports it
+        let (bus_width, acmd_arg) = match configured_bus_width {
+            BusWidth::Four if self.info.scr.bus_width_four() => (BusWidth::Four, 2),
+            _ => (BusWidth::One, 0),
         };
 
         self.sdmmc.cmd(common_cmd::app_cmd(self.info.rca), true, false)?;
