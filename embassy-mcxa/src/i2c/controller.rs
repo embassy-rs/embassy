@@ -19,8 +19,48 @@ use crate::interrupt::typelevel::Interrupt;
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
 pub enum Error {
+    /// Setup errors
+    Setup(SetupError),
+    /// I/O errors
+    IO(IOError),
+    /// Other internal errors or unexpected state.
+    Other,
+}
+
+impl From<Error> for SetupError {
+    fn from(value: Error) -> Self {
+        match value {
+            Error::Setup(setup) => setup,
+            _ => Self::Other,
+        }
+    }
+}
+
+impl From<Error> for IOError {
+    fn from(value: Error) -> Self {
+        match value {
+            Error::IO(io) => io,
+            _ => Self::Other,
+        }
+    }
+}
+
+/// Errors exclusive to HW initialization
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum SetupError {
     /// Clock configuration error.
     ClockSetup(ClockError),
+    /// Other internal errors or unexpected state.
+    Other,
+}
+
+/// I/O Errors
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum IOError {
     /// FIFO Error
     FifoError,
     /// Reading for I2C failed.
@@ -151,7 +191,7 @@ impl<'d> I2c<'d, Blocking> {
         scl: Peri<'d, impl SclPin<T>>,
         sda: Peri<'d, impl SdaPin<T>>,
         config: Config,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, SetupError> {
         Self::new_inner(peri, scl, sda, config)
     }
 }
@@ -162,7 +202,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         scl: Peri<'d, impl SclPin<T>>,
         sda: Peri<'d, impl SdaPin<T>>,
         config: Config,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, SetupError> {
         let (power, source, div) = Self::clock_config(config.speed);
 
         // Enable clocks
@@ -173,7 +213,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             instance: T::CLOCK_INSTANCE,
         };
 
-        let parts = unsafe { enable_and_reset::<T>(&conf).map_err(Error::ClockSetup)? };
+        let parts = unsafe { enable_and_reset::<T>(&conf).map_err(SetupError::ClockSetup)? };
 
         scl.mux();
         sda.mux();
@@ -190,12 +230,12 @@ impl<'d, M: Mode> I2c<'d, M> {
             _wg: parts.wake_guard,
         };
 
-        inst.set_configuration(&config)?;
+        inst.set_configuration(&config);
 
         Ok(inst)
     }
 
-    fn set_configuration(&self, config: &Config) -> Result<(), Error> {
+    fn set_configuration(&self, config: &Config) {
         // Disable the controller.
         critical_section::with(|_| self.info.regs().mcr().modify(|_, w| w.men().disabled()));
 
@@ -251,8 +291,6 @@ impl<'d, M: Mode> I2c<'d, M> {
                 .stf()
                 .clear_bit_by_one()
         });
-
-        Ok(())
     }
 
     // REVISIT: turn this into a function of the speed parameter
@@ -296,7 +334,7 @@ impl<'d, M: Mode> I2c<'d, M> {
 
     /// Reads and parses the controller status producing an
     /// appropriate `Result<(), Error>` variant.
-    fn status(&self) -> Result<(), Error> {
+    fn status(&self) -> Result<(), IOError> {
         let msr = self.info.regs().msr().read();
         self.info.regs().msr().write(|w| {
             w.epf()
@@ -320,11 +358,11 @@ impl<'d, M: Mode> I2c<'d, M> {
         });
 
         if msr.ndf().bit_is_set() {
-            Err(Error::AddressNack)
+            Err(IOError::AddressNack)
         } else if msr.alf().bit_is_set() {
-            Err(Error::ArbitrationLoss)
+            Err(IOError::ArbitrationLoss)
         } else if msr.fef().bit_is_set() {
-            Err(Error::FifoError)
+            Err(IOError::FifoError)
         } else {
             Ok(())
         }
@@ -356,9 +394,9 @@ impl<'d, M: Mode> I2c<'d, M> {
     /// Blocks waiting for space in the FIFO to become available, then
     /// sends the command and blocks waiting for the FIFO to become
     /// empty ensuring the command was sent.
-    fn start(&self, address: u8, read: bool) -> Result<(), Error> {
+    fn start(&self, address: u8, read: bool) -> Result<(), IOError> {
         if address >= 0x80 {
-            return Err(Error::AddressOutOfRange(address));
+            return Err(IOError::AddressOutOfRange(address));
         }
 
         // Wait until we have space in the TxFIFO
@@ -380,7 +418,7 @@ impl<'d, M: Mode> I2c<'d, M> {
     /// FIFO to become available, then sends the command and blocks
     /// waiting for the FIFO to become empty ensuring the command was
     /// sent.
-    fn stop(&self) -> Result<(), Error> {
+    fn stop(&self) -> Result<(), IOError> {
         // Wait until we have space in the TxFIFO
         while self.is_tx_fifo_full() {}
 
@@ -392,9 +430,9 @@ impl<'d, M: Mode> I2c<'d, M> {
         self.status()
     }
 
-    fn blocking_read_internal(&self, address: u8, read: &mut [u8], send_stop: SendStop) -> Result<(), Error> {
+    fn blocking_read_internal(&self, address: u8, read: &mut [u8], send_stop: SendStop) -> Result<(), IOError> {
         if read.is_empty() {
-            return Err(Error::InvalidReadBufferLength);
+            return Err(IOError::InvalidReadBufferLength);
         }
 
         for chunk in read.chunks_mut(256) {
@@ -420,7 +458,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         Ok(())
     }
 
-    fn blocking_write_internal(&self, address: u8, write: &[u8], send_stop: SendStop) -> Result<(), Error> {
+    fn blocking_write_internal(&self, address: u8, write: &[u8], send_stop: SendStop) -> Result<(), IOError> {
         self.start(address, false)?;
 
         // Usually, embassy HALs error out with an empty write,
@@ -455,17 +493,17 @@ impl<'d, M: Mode> I2c<'d, M> {
     // Public API: Blocking
 
     /// Read from address into buffer blocking caller until done.
-    pub fn blocking_read(&mut self, address: u8, read: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_read(&mut self, address: u8, read: &mut [u8]) -> Result<(), IOError> {
         self.blocking_read_internal(address, read, SendStop::Yes)
     }
 
     /// Write to address from buffer blocking caller until done.
-    pub fn blocking_write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
+    pub fn blocking_write(&mut self, address: u8, write: &[u8]) -> Result<(), IOError> {
         self.blocking_write_internal(address, write, SendStop::Yes)
     }
 
     /// Write to address from bytes and read from address into buffer blocking caller until done.
-    pub fn blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+    pub fn blocking_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), IOError> {
         self.blocking_write_internal(address, write, SendStop::No)?;
         self.blocking_read_internal(address, read, SendStop::Yes)
     }
@@ -481,7 +519,7 @@ impl<'d> I2c<'d, Async> {
         sda: Peri<'d, impl SdaPin<T>>,
         _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, SetupError> {
         T::Interrupt::unpend();
 
         // Safety: `_irq` ensures an Interrupt Handler exists.
@@ -533,9 +571,9 @@ impl<'d> I2c<'d, Async> {
         });
     }
 
-    async fn async_start(&self, address: u8, read: bool) -> Result<(), Error> {
+    async fn async_start(&self, address: u8, read: bool) -> Result<(), IOError> {
         if address >= 0x80 {
-            return Err(Error::AddressOutOfRange(address));
+            return Err(IOError::AddressOutOfRange(address));
         }
 
         // send the start command
@@ -556,7 +594,7 @@ impl<'d> I2c<'d, Async> {
         self.status()
     }
 
-    async fn async_stop(&self) -> Result<(), Error> {
+    async fn async_stop(&self) -> Result<(), IOError> {
         // send the stop command
         self.send_cmd(Cmd::Stop, 0);
 
@@ -574,9 +612,9 @@ impl<'d> I2c<'d, Async> {
         self.status()
     }
 
-    async fn async_read_internal(&self, address: u8, read: &mut [u8], send_stop: SendStop) -> Result<(), Error> {
+    async fn async_read_internal(&self, address: u8, read: &mut [u8], send_stop: SendStop) -> Result<(), IOError> {
         if read.is_empty() {
-            return Err(Error::InvalidReadBufferLength);
+            return Err(IOError::InvalidReadBufferLength);
         }
 
         // perform corrective action if the future is dropped
@@ -609,7 +647,7 @@ impl<'d> I2c<'d, Async> {
                         !self.is_rx_fifo_empty()
                     })
                     .await
-                    .map_err(|_| Error::ReadFail)?;
+                    .map_err(|_| IOError::ReadFail)?;
 
                 *byte = self.info.regs().mrdr().read().data().bits();
             }
@@ -625,7 +663,7 @@ impl<'d> I2c<'d, Async> {
         Ok(())
     }
 
-    async fn async_write_internal(&self, address: u8, write: &[u8], send_stop: SendStop) -> Result<(), Error> {
+    async fn async_write_internal(&self, address: u8, write: &[u8], send_stop: SendStop) -> Result<(), IOError> {
         self.async_start(address, false).await?;
 
         // perform corrective action if the future is dropped
@@ -658,7 +696,7 @@ impl<'d> I2c<'d, Async> {
                     self.is_tx_fifo_empty()
                 })
                 .await
-                .map_err(|_| Error::WriteFail)?;
+                .map_err(|_| IOError::WriteFail)?;
         }
 
         if send_stop == SendStop::Yes {
@@ -678,7 +716,7 @@ impl<'d> I2c<'d, Async> {
         &mut self,
         address: u8,
         read: &'a mut [u8],
-    ) -> impl Future<Output = Result<(), Error>> + use<'_, 'a, 'd> {
+    ) -> impl Future<Output = Result<(), IOError>> + use<'_, 'a, 'd> {
         self.async_read_internal(address, read, SendStop::Yes)
     }
 
@@ -687,12 +725,12 @@ impl<'d> I2c<'d, Async> {
         &mut self,
         address: u8,
         write: &'a [u8],
-    ) -> impl Future<Output = Result<(), Error>> + use<'_, 'a, 'd> {
+    ) -> impl Future<Output = Result<(), IOError>> + use<'_, 'a, 'd> {
         self.async_write_internal(address, write, SendStop::Yes)
     }
 
     /// Write to address from bytes and read from address into buffer asynchronously.
-    pub async fn async_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+    pub async fn async_write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), IOError> {
         self.async_write_internal(address, write, SendStop::No).await?;
         self.async_read_internal(address, read, SendStop::Yes).await
     }
@@ -709,7 +747,7 @@ impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Read for I2c<'d, M> {
     type Error = Error;
 
     fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
-        self.blocking_read(address, buffer)
+        self.blocking_read(address, buffer).map_err(Error::IO)
     }
 }
 
@@ -717,7 +755,7 @@ impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Write for I2c<'d, M> {
     type Error = Error;
 
     fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Error> {
-        self.blocking_write(address, bytes)
+        self.blocking_write(address, bytes).map_err(Error::IO)
     }
 }
 
@@ -725,7 +763,7 @@ impl<'d, M: Mode> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, M> {
     type Error = Error;
 
     fn write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Error> {
-        self.blocking_write_read(address, bytes, buffer)
+        self.blocking_write_read(address, bytes, buffer).map_err(Error::IO)
     }
 }
 
@@ -740,22 +778,22 @@ impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Transactional for I2c<'d, M> {
         if let Some((last, rest)) = operations.split_last_mut() {
             for op in rest {
                 match op {
-                    embedded_hal_02::blocking::i2c::Operation::Read(buf) => {
-                        self.blocking_read_internal(address, buf, SendStop::No)?
-                    }
-                    embedded_hal_02::blocking::i2c::Operation::Write(buf) => {
-                        self.blocking_write_internal(address, buf, SendStop::No)?
-                    }
+                    embedded_hal_02::blocking::i2c::Operation::Read(buf) => self
+                        .blocking_read_internal(address, buf, SendStop::No)
+                        .map_err(Error::IO)?,
+                    embedded_hal_02::blocking::i2c::Operation::Write(buf) => self
+                        .blocking_write_internal(address, buf, SendStop::No)
+                        .map_err(Error::IO)?,
                 }
             }
 
             match last {
-                embedded_hal_02::blocking::i2c::Operation::Read(buf) => {
-                    self.blocking_read_internal(address, buf, SendStop::Yes)
-                }
-                embedded_hal_02::blocking::i2c::Operation::Write(buf) => {
-                    self.blocking_write_internal(address, buf, SendStop::Yes)
-                }
+                embedded_hal_02::blocking::i2c::Operation::Read(buf) => self
+                    .blocking_read_internal(address, buf, SendStop::Yes)
+                    .map_err(Error::IO),
+                embedded_hal_02::blocking::i2c::Operation::Write(buf) => self
+                    .blocking_write_internal(address, buf, SendStop::Yes)
+                    .map_err(Error::IO),
             }
         } else {
             Ok(())
@@ -766,8 +804,8 @@ impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Transactional for I2c<'d, M> {
 impl embedded_hal_1::i2c::Error for Error {
     fn kind(&self) -> embedded_hal_1::i2c::ErrorKind {
         match *self {
-            Self::ArbitrationLoss => embedded_hal_1::i2c::ErrorKind::ArbitrationLoss,
-            Self::AddressNack => {
+            Self::IO(IOError::ArbitrationLoss) => embedded_hal_1::i2c::ErrorKind::ArbitrationLoss,
+            Self::IO(IOError::AddressNack) => {
                 embedded_hal_1::i2c::ErrorKind::NoAcknowledge(embedded_hal_1::i2c::NoAcknowledgeSource::Address)
             }
             _ => embedded_hal_1::i2c::ErrorKind::Other,
@@ -784,18 +822,22 @@ impl<'d, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, M> {
         if let Some((last, rest)) = operations.split_last_mut() {
             for op in rest {
                 match op {
-                    embedded_hal_1::i2c::Operation::Read(buf) => {
-                        self.blocking_read_internal(address, buf, SendStop::No)?
-                    }
-                    embedded_hal_1::i2c::Operation::Write(buf) => {
-                        self.blocking_write_internal(address, buf, SendStop::No)?
-                    }
+                    embedded_hal_1::i2c::Operation::Read(buf) => self
+                        .blocking_read_internal(address, buf, SendStop::No)
+                        .map_err(Error::IO)?,
+                    embedded_hal_1::i2c::Operation::Write(buf) => self
+                        .blocking_write_internal(address, buf, SendStop::No)
+                        .map_err(Error::IO)?,
                 }
             }
 
             match last {
-                embedded_hal_1::i2c::Operation::Read(buf) => self.blocking_read_internal(address, buf, SendStop::Yes),
-                embedded_hal_1::i2c::Operation::Write(buf) => self.blocking_write_internal(address, buf, SendStop::Yes),
+                embedded_hal_1::i2c::Operation::Read(buf) => self
+                    .blocking_read_internal(address, buf, SendStop::Yes)
+                    .map_err(Error::IO),
+                embedded_hal_1::i2c::Operation::Write(buf) => self
+                    .blocking_write_internal(address, buf, SendStop::Yes)
+                    .map_err(Error::IO),
             }
         } else {
             Ok(())
@@ -812,22 +854,26 @@ impl<'d> embedded_hal_async::i2c::I2c for I2c<'d, Async> {
         if let Some((last, rest)) = operations.split_last_mut() {
             for op in rest {
                 match op {
-                    embedded_hal_async::i2c::Operation::Read(buf) => {
-                        self.async_read_internal(address, buf, SendStop::No).await?
-                    }
-                    embedded_hal_async::i2c::Operation::Write(buf) => {
-                        self.async_write_internal(address, buf, SendStop::No).await?
-                    }
+                    embedded_hal_async::i2c::Operation::Read(buf) => self
+                        .async_read_internal(address, buf, SendStop::No)
+                        .await
+                        .map_err(Error::IO)?,
+                    embedded_hal_async::i2c::Operation::Write(buf) => self
+                        .async_write_internal(address, buf, SendStop::No)
+                        .await
+                        .map_err(Error::IO)?,
                 }
             }
 
             match last {
-                embedded_hal_async::i2c::Operation::Read(buf) => {
-                    self.async_read_internal(address, buf, SendStop::Yes).await
-                }
-                embedded_hal_async::i2c::Operation::Write(buf) => {
-                    self.async_write_internal(address, buf, SendStop::Yes).await
-                }
+                embedded_hal_async::i2c::Operation::Read(buf) => self
+                    .async_read_internal(address, buf, SendStop::Yes)
+                    .await
+                    .map_err(Error::IO),
+                embedded_hal_async::i2c::Operation::Write(buf) => self
+                    .async_write_internal(address, buf, SendStop::Yes)
+                    .await
+                    .map_err(Error::IO),
             }
         } else {
             Ok(())
@@ -840,6 +886,7 @@ impl<'d, M: Mode> embassy_embedded_hal::SetConfig for I2c<'d, M> {
     type ConfigError = Error;
 
     fn set_config(&mut self, config: &Self::Config) -> Result<(), Error> {
-        self.set_configuration(config)
+        self.set_configuration(config);
+        Ok(())
     }
 }
