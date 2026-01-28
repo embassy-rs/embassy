@@ -15,6 +15,7 @@ use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     SDIO => sdmmc::InterruptHandler<peripherals::SDIO>;
+    DMA2_STREAM3 => embassy_stm32::dma::InterruptHandler<peripherals::DMA2_CH3>;
 });
 
 #[embassy_executor::main]
@@ -44,8 +45,8 @@ async fn main(_spawner: Spawner) {
         info!("initializing in 4-bit mode...");
         let mut s = Sdmmc::new_4bit(
             sdmmc.reborrow(),
-            Irqs,
             dma.reborrow(),
+            Irqs,
             clk.reborrow(),
             cmd.reborrow(),
             d0.reborrow(),

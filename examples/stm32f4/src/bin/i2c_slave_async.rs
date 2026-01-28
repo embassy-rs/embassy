@@ -11,7 +11,7 @@ use defmt::{error, info};
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::{self, Address, I2c, SlaveAddrConfig, SlaveCommand, SlaveCommandKind};
 use embassy_stm32::time::Hertz;
-use embassy_stm32::{bind_interrupts, peripherals};
+use embassy_stm32::{bind_interrupts, dma, peripherals};
 use embassy_sync::blocking_mutex::raw::ThreadModeRawMutex;
 use embassy_sync::mutex::Mutex;
 use embassy_time::{Duration, Timer};
@@ -24,6 +24,8 @@ static I2C_BUFFER: Mutex<ThreadModeRawMutex, [u8; BUFFER_SIZE]> = Mutex::new([0;
 bind_interrupts!(struct Irqs {
     I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
     I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
+    DMA1_STREAM0 => dma::InterruptHandler<peripherals::DMA1_CH0>;
+    DMA1_STREAM6 => dma::InterruptHandler<peripherals::DMA1_CH6>;
 });
 
 #[embassy_executor::main]
@@ -38,11 +40,11 @@ async fn main(spawner: Spawner) {
 
     // Initialize I2C as master first
     let i2c_master = I2c::new(
-        p.I2C1, p.PB8, // SCL
-        p.PB9, // SDA
-        Irqs, p.DMA1_CH6, // TX DMA
+        p.I2C1, p.PB8,      // SCL
+        p.PB9,      // SDA
+        p.DMA1_CH6, // TX DMA
         p.DMA1_CH0, // RX DMA
-        i2c_config,
+        Irqs, i2c_config,
     );
 
     // Convert to MultiMaster mode

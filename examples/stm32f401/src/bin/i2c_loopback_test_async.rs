@@ -25,7 +25,7 @@ use embassy_executor::Spawner;
 use embassy_futures::join::join;
 use embassy_stm32::i2c::{self, I2c, SlaveAddrConfig, SlaveCommandKind};
 use embassy_stm32::time::khz;
-use embassy_stm32::{bind_interrupts, peripherals};
+use embassy_stm32::{bind_interrupts, dma, peripherals};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -36,6 +36,10 @@ bind_interrupts!(struct Irqs {
     I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
     I2C2_EV => i2c::EventInterruptHandler<peripherals::I2C2>;
     I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
+    DMA1_STREAM6 => dma::InterruptHandler<peripherals::DMA1_CH6>;
+    DMA1_STREAM0 => dma::InterruptHandler<peripherals::DMA1_CH0>;
+    DMA1_STREAM7 => dma::InterruptHandler<peripherals::DMA1_CH7>;
+    DMA1_STREAM3 => dma::InterruptHandler<peripherals::DMA1_CH3>;
 });
 
 #[embassy_executor::main]
@@ -55,7 +59,7 @@ async fn main(_spawner: Spawner) {
         config.frequency = i2c_frequency;
         config
     };
-    let i2c_slave = I2c::new(p.I2C1, p.PB8, p.PB9, Irqs, p.DMA1_CH6, p.DMA1_CH0, i2c1_config)
+    let i2c_slave = I2c::new(p.I2C1, p.PB8, p.PB9, p.DMA1_CH6, p.DMA1_CH0, Irqs, i2c1_config)
         .into_slave_multimaster(SlaveAddrConfig::basic(I2C_ADDR));
 
     // I2C2 as master (PB10=SCL, PB3=SDA)
@@ -64,7 +68,7 @@ async fn main(_spawner: Spawner) {
         config.frequency = i2c_frequency;
         config
     };
-    let i2c_master = I2c::new(p.I2C2, p.PB10, p.PB3, Irqs, p.DMA1_CH7, p.DMA1_CH3, i2c2_config);
+    let i2c_master = I2c::new(p.I2C2, p.PB10, p.PB3, p.DMA1_CH7, p.DMA1_CH3, Irqs, i2c2_config);
 
     join(slave_task(i2c_slave), master_task(i2c_master)).await;
 }

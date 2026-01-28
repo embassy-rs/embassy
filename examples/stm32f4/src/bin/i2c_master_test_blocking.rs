@@ -24,7 +24,7 @@ use defmt::{error, info};
 use embassy_executor::Spawner;
 use embassy_stm32::i2c::{self, I2c};
 use embassy_stm32::time::khz;
-use embassy_stm32::{bind_interrupts, peripherals};
+use embassy_stm32::{bind_interrupts, dma, peripherals};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -33,6 +33,8 @@ const I2C_ADDR: u8 = 0x42;
 bind_interrupts!(struct Irqs {
     I2C1_EV => i2c::EventInterruptHandler<peripherals::I2C1>;
     I2C1_ER => i2c::ErrorInterruptHandler<peripherals::I2C1>;
+    DMA1_STREAM0 => dma::InterruptHandler<peripherals::DMA1_CH0>;
+    DMA1_STREAM6 => dma::InterruptHandler<peripherals::DMA1_CH6>;
 });
 
 #[embassy_executor::main]
@@ -55,7 +57,7 @@ async fn main(_spawner: Spawner) {
         config.frequency = i2c_frequency;
         config
     };
-    let mut i2c = I2c::new(p.I2C1, p.PB8, p.PB9, Irqs, p.DMA1_CH6, p.DMA1_CH0, i2c_config);
+    let mut i2c = I2c::new(p.I2C1, p.PB8, p.PB9, p.DMA1_CH6, p.DMA1_CH0, Irqs, i2c_config);
 
     // Give external slave time to initialize
     Timer::after_millis(500).await;

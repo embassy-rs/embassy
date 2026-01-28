@@ -3,7 +3,13 @@
 
 use defmt::*;
 use embassy_stm32::adc::{self, Adc, AdcChannel, AdcConfig, SampleTime, adc4};
+use embassy_stm32::{bind_interrupts, dma, peripherals};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    GPDMA1_CHANNEL0 => dma::InterruptHandler<peripherals::GPDMA1_CH0>;
+    GPDMA1_CHANNEL1 => dma::InterruptHandler<peripherals::GPDMA1_CH1>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: embassy_executor::Spawner) {
@@ -71,6 +77,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
 
     adc1.read(
         p.GPDMA1_CH0.reborrow(),
+        Irqs,
         [
             (&mut degraded11, adc::SampleTime::CYCLES160_5),
             (&mut degraded12, adc::SampleTime::CYCLES160_5),
@@ -95,6 +102,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     // The channels must be in ascending order and can't repeat for ADC4
     adc4.read(
         p.GPDMA1_CH1.reborrow(),
+        Irqs,
         [
             (&mut degraded42, adc4::SampleTime::CYCLES1_5),
             (&mut degraded41, adc4::SampleTime::CYCLES1_5),

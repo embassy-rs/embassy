@@ -25,6 +25,8 @@ pub(crate) use util::*;
 pub(crate) mod ringbuffer;
 pub mod word;
 
+use core::marker::PhantomData;
+
 use embassy_hal_internal::{PeripheralType, impl_peripheral};
 
 use crate::interrupt;
@@ -67,17 +69,57 @@ pub(crate) trait SealedChannel: StoppablePeripheral {
     fn id(&self) -> u8;
 }
 
-pub(crate) trait ChannelInterrupt {
+/// This trait provides the interrupt type and handler for a DMA channel.
+/// It is automatically implemented for all DMA channel peripherals.
+#[allow(private_bounds)]
+pub trait ChannelInterrupt: Into<AnyChannel> {
+    /// The interrupt type for this DMA channel.
+    type Interrupt: interrupt::typelevel::Interrupt;
+
+    #[doc(hidden)]
     #[cfg_attr(not(feature = "rt"), allow(unused))]
     unsafe fn on_irq();
+
+    /// Degrade this channel to a type-erased [`AnyChannel`], verifying interrupt binding.
+    fn degrade(self, _irq: impl interrupt::typelevel::Binding<Self::Interrupt, InterruptHandler<Self>>) -> AnyChannel {
+        self.into()
+    }
 }
 
 /// DMA channel.
 #[allow(private_bounds)]
 pub trait Channel: SealedChannel + PeripheralType + Into<AnyChannel> + 'static {}
 
+/// Asserts at compile time that a DMA channel's interrupt is bound.
+///
+/// This function is used by the `new_dma!` macro to verify interrupt bindings.
+#[inline(always)]
+pub(crate) fn assert_dma_binding<
+    T: ChannelInterrupt,
+    I: interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>,
+>(
+    _channel: &T,
+    _irq: &I,
+) {
+    // This function exists purely for compile-time verification.
+    // The `_irq` parameter must implement `Binding<T::Interrupt, InterruptHandler<T>>`,
+    // which is only possible if the interrupt was bound using `bind_interrupts!`.
+}
+
+/// DMA interrupt handler.
+#[allow(private_bounds)]
+pub struct InterruptHandler<T: ChannelInterrupt> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: ChannelInterrupt> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        T::on_irq();
+    }
+}
+
 macro_rules! dma_channel_impl {
-    ($channel_peri:ident, $index:expr, $stop_mode:ident) => {
+    ($channel_peri:ident, $index:expr, $stop_mode:ident, $irq:ty) => {
         impl crate::rcc::StoppablePeripheral for crate::peripherals::$channel_peri {
             #[cfg(feature = "low-power")]
             fn stop_mode(&self) -> crate::rcc::StopMode {
@@ -92,6 +134,8 @@ macro_rules! dma_channel_impl {
         }
 
         impl crate::dma::ChannelInterrupt for crate::peripherals::$channel_peri {
+            type Interrupt = $irq;
+
             unsafe fn on_irq() {
                 crate::dma::AnyChannel {
                     id: $index,
@@ -142,6 +186,7 @@ impl SealedChannel for AnyChannel {
         self.id
     }
 }
+
 impl Channel for AnyChannel {}
 
 const CHANNEL_COUNT: usize = crate::_generated::DMA_CHANNELS.len();

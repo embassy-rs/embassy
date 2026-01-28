@@ -125,17 +125,22 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
     }
 
     /// Create a new `Spdifrx` instance.
-    pub fn new(
+    pub fn new<D>(
         peri: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::GlobalInterrupt, GlobalInterruptHandler<T>> + 'd,
         config: Config,
         spdifrx_in: Peri<'d, impl InPin<T>>,
-        data_dma: Peri<'d, impl Channel + Dma<T>>,
+        data_dma: Peri<'d, D>,
         data_dma_buf: &'d mut [u32],
-    ) -> Self {
+        _dma_irq: impl interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+    ) -> Self
+    where
+        D: Channel + crate::dma::ChannelInterrupt + Dma<T>,
+    {
         let (spdifrx_in, input_sel) = new_spdifrx_pin!(spdifrx_in, AfType::input(Pull::None));
         Self::setup(config, input_sel);
 
+        crate::dma::assert_dma_binding(&*data_dma, &_dma_irq);
         let regs = T::info().regs;
         let dr_request = data_dma.request();
         let dr_ring_buffer =

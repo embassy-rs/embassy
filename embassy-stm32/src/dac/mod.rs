@@ -156,11 +156,16 @@ impl<'d, T: Instance, C: Channel> DacChannel<'d, T, C, Async> {
     ///
     /// By default, triggering is disabled, but it can be enabled using
     /// [`DacChannel::set_trigger()`].
-    pub fn new(peri: Peri<'d, T>, dma: Peri<'d, impl Dma<T, C>>, pin: Peri<'d, impl DacPin<T, C>>) -> Self {
+    pub fn new<D: Dma<T, C>>(
+        peri: Peri<'d, T>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        pin: Peri<'d, impl DacPin<T, C>>,
+    ) -> Self {
         pin.set_as_analog();
         Self::new_inner(
             peri,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
             Mode::NormalExternalBuffered,
         )
@@ -177,8 +182,12 @@ impl<'d, T: Instance, C: Channel> DacChannel<'d, T, C, Async> {
     /// By default, triggering is disabled, but it can be enabled using
     /// [`DacChannel::set_trigger()`].
     #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7), not(any(stm32h56x, stm32h57x))))]
-    pub fn new_internal(peri: Peri<'d, T>, dma: Peri<'d, impl Dma<T, C>>) -> Self {
-        Self::new_inner(peri, new_dma!(dma), Mode::NormalInternalUnbuffered)
+    pub fn new_internal<D: Dma<T, C>>(
+        peri: Peri<'d, T>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+    ) -> Self {
+        Self::new_inner(peri, new_dma!(dma, _irq), Mode::NormalInternalUnbuffered)
     }
 
     /// Write `data` to this channel via DMA.
@@ -432,10 +441,13 @@ impl<'d, T: Instance> Dac<'d, T, Async> {
     ///
     /// By default, triggering is disabled, but it can be enabled using the `set_trigger()`
     /// method on the underlying channels.
-    pub fn new(
+    pub fn new<D1: Dma<T, Ch1>, D2: Dma<T, Ch2>>(
         peri: Peri<'d, T>,
-        dma_ch1: Peri<'d, impl Dma<T, Ch1>>,
-        dma_ch2: Peri<'d, impl Dma<T, Ch2>>,
+        dma_ch1: Peri<'d, D1>,
+        dma_ch2: Peri<'d, D2>,
+        _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
         pin_ch1: Peri<'d, impl DacPin<T, Ch1> + crate::gpio::Pin>,
         pin_ch2: Peri<'d, impl DacPin<T, Ch2> + crate::gpio::Pin>,
     ) -> Self {
@@ -443,8 +455,8 @@ impl<'d, T: Instance> Dac<'d, T, Async> {
         pin_ch2.set_as_analog();
         Self::new_inner(
             peri,
-            new_dma!(dma_ch1),
-            new_dma!(dma_ch2),
+            new_dma!(dma_ch1, _irq),
+            new_dma!(dma_ch2, _irq),
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
             Mode::NormalExternalBuffered,
         )
@@ -466,16 +478,20 @@ impl<'d, T: Instance> Dac<'d, T, Async> {
     /// * `peri` - The DAC peripheral instance.
     /// * `dma_ch1` - The DMA channel for DAC channel 1.
     /// * `dma_ch2` - The DMA channel for DAC channel 2.
+    /// * `_irq` - The interrupt binding for DMA channels 1 and 2.
     /// * `pin_ch1` - The GPIO pin for DAC channel 1 output.
     /// * `pin_ch2` - The GPIO pin for DAC channel 2 output.
     ///
     /// # Returns
     ///
     /// A new `Dac` instance in unbuffered mode.
-    pub fn new_unbuffered(
+    pub fn new_unbuffered<D1: Dma<T, Ch1>, D2: Dma<T, Ch2>>(
         peri: Peri<'d, T>,
-        dma_ch1: Peri<'d, impl Dma<T, Ch1>>,
-        dma_ch2: Peri<'d, impl Dma<T, Ch2>>,
+        dma_ch1: Peri<'d, D1>,
+        dma_ch2: Peri<'d, D2>,
+        _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
         pin_ch1: Peri<'d, impl DacPin<T, Ch1> + crate::gpio::Pin>,
         pin_ch2: Peri<'d, impl DacPin<T, Ch2> + crate::gpio::Pin>,
     ) -> Self {
@@ -483,8 +499,8 @@ impl<'d, T: Instance> Dac<'d, T, Async> {
         pin_ch2.set_as_analog();
         Self::new_inner(
             peri,
-            new_dma!(dma_ch1),
-            new_dma!(dma_ch2),
+            new_dma!(dma_ch1, _irq),
+            new_dma!(dma_ch2, _irq),
             #[cfg(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7))]
             Mode::NormalExternalUnbuffered,
         )
@@ -505,15 +521,18 @@ impl<'d, T: Instance> Dac<'d, T, Async> {
     /// By default, triggering is disabled, but it can be enabled using the `set_trigger()`
     /// method on the underlying channels.
     #[cfg(all(any(dac_v3, dac_v4, dac_v5, dac_v6, dac_v7), not(any(stm32h56x, stm32h57x))))]
-    pub fn new_internal(
+    pub fn new_internal<D1: Dma<T, Ch1>, D2: Dma<T, Ch2>>(
         peri: Peri<'d, T>,
-        dma_ch1: Peri<'d, impl Dma<T, Ch1>>,
-        dma_ch2: Peri<'d, impl Dma<T, Ch2>>,
+        dma_ch1: Peri<'d, D1>,
+        dma_ch2: Peri<'d, D2>,
+        _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
     ) -> Self {
         Self::new_inner(
             peri,
-            new_dma!(dma_ch1),
-            new_dma!(dma_ch2),
+            new_dma!(dma_ch1, _irq),
+            new_dma!(dma_ch2, _irq),
             Mode::NormalInternalUnbuffered,
         )
     }

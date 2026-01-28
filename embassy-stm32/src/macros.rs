@@ -122,7 +122,7 @@ macro_rules! sel_trait_impl {
 macro_rules! dma_trait {
     ($signal:ident, $instance:path$(, $mode:path)?) => {
         #[doc = concat!(stringify!($signal), " DMA request trait")]
-        pub trait $signal<T: $instance $(, M: $mode)?>: crate::dma::Channel {
+        pub trait $signal<T: $instance $(, M: $mode)?>: crate::dma::Channel + crate::dma::ChannelInterrupt {
             #[doc = concat!("Get the DMA request number needed to use this channel as", stringify!($signal))]
             /// Note: in some chips, ST calls this the "channel", and calls channels "streams".
             /// `embassy-stm32` always uses the "channel" and "request number" names.
@@ -155,8 +155,10 @@ macro_rules! dma_trait_impl {
 
 #[allow(unused)]
 macro_rules! new_dma_nonopt {
-    ($name:ident) => {{
+    ($name:ident, $irqs:expr) => {{
         let dma = $name;
+        // Verify DMA interrupt binding at compile time
+        crate::dma::assert_dma_binding(&*dma, &$irqs);
         let request = dma.request();
         crate::dma::ChannelAndRequest {
             channel: dma.into(),
@@ -166,8 +168,10 @@ macro_rules! new_dma_nonopt {
 }
 
 macro_rules! new_dma {
-    ($name:ident) => {{
+    ($name:ident, $irqs:expr) => {{
         let dma = $name;
+        // Verify DMA interrupt binding at compile time
+        crate::dma::assert_dma_binding(&*dma, &$irqs);
         dma.remap();
         let request = dma.request();
         Some(crate::dma::ChannelAndRequest {

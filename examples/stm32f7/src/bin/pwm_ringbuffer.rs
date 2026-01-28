@@ -3,12 +3,16 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::Config;
 use embassy_stm32::gpio::OutputType;
 use embassy_stm32::time::mhz;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
+use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    DMA2_STREAM5 => dma::InterruptHandler<peripherals::DMA2_CH5>;
+});
 
 // If you are trying this and your USB device doesn't connect, the most
 // common issues are the RCC config and vbus_detection
@@ -83,7 +87,7 @@ async fn main(_spawner: Spawner) {
     }
 
     // Convert channel 2 to ring-buffered PWM
-    let mut ring_pwm = pwm.ch1().into_ring_buffered_channel(p.DMA2_CH5, dma_buffer);
+    let mut ring_pwm = pwm.ch1().into_ring_buffered_channel(p.DMA2_CH5, dma_buffer, Irqs);
 
     info!("Ring buffer capacity: {}", ring_pwm.capacity());
 

@@ -3,10 +3,15 @@
 use cortex_m::singleton;
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::Peripherals;
 use embassy_stm32::adc::{Adc, AdcChannel, RegularConversionMode, RingBufferedAdc, SampleTime};
+use embassy_stm32::{Peripherals, bind_interrupts, dma, peripherals};
 use embassy_time::Instant;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    DMA2_STREAM0 => dma::InterruptHandler<peripherals::DMA2_CH0>;
+    DMA2_STREAM2 => dma::InterruptHandler<peripherals::DMA2_CH2>;
+});
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -26,6 +31,7 @@ async fn adc_task(p: Peripherals) {
     let mut adc: RingBufferedAdc<embassy_stm32::peripherals::ADC1> = adc.into_ring_buffered(
         p.DMA2_CH0,
         adc_data,
+        Irqs,
         [
             (p.PA0.degrade_adc(), SampleTime::CYCLES112),
             (p.PA2.degrade_adc(), SampleTime::CYCLES112),
@@ -36,6 +42,7 @@ async fn adc_task(p: Peripherals) {
     let mut adc2: RingBufferedAdc<embassy_stm32::peripherals::ADC2> = adc2.into_ring_buffered(
         p.DMA2_CH2,
         adc_data2,
+        Irqs,
         [
             (p.PA1.degrade_adc(), SampleTime::CYCLES112),
             (p.PA3.degrade_adc(), SampleTime::CYCLES112),

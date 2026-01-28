@@ -9,10 +9,15 @@ use defmt::*;
 use embassy_executor::Executor;
 use embassy_stm32::mode::Async;
 use embassy_stm32::time::mhz;
-use embassy_stm32::{Config, spi};
+use embassy_stm32::{Config, bind_interrupts, dma, peripherals, spi};
 use heapless::String;
 use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    DMA1_STREAM3 => dma::InterruptHandler<peripherals::DMA1_CH3>;
+    DMA1_STREAM4 => dma::InterruptHandler<peripherals::DMA1_CH4>;
+});
 
 #[embassy_executor::task]
 async fn main_task(mut spi: spi::Spi<'static, Async, spi::mode::Master>) {
@@ -59,7 +64,7 @@ fn main() -> ! {
     let mut spi_config = spi::Config::default();
     spi_config.frequency = mhz(1);
 
-    let spi = spi::Spi::new(p.SPI3, p.PB3, p.PB5, p.PB4, p.DMA1_CH3, p.DMA1_CH4, spi_config);
+    let spi = spi::Spi::new(p.SPI3, p.PB3, p.PB5, p.PB4, p.DMA1_CH3, p.DMA1_CH4, Irqs, spi_config);
 
     let executor = EXECUTOR.init(Executor::new());
 

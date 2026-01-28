@@ -10,13 +10,9 @@ mod common;
 use common::*;
 use embassy_executor::Spawner;
 use embassy_stm32::cordic::utils;
-use embassy_stm32::{bind_interrupts, cordic, peripherals, rng};
+use embassy_stm32::{cordic, rng};
 use num_traits::Float;
 use {defmt_rtt as _, panic_probe as _};
-
-bind_interrupts!(struct Irqs {
-   RNG => rng::InterruptHandler<peripherals::RNG>;
-});
 
 /* input value control, can be changed */
 
@@ -31,13 +27,15 @@ const OUTPUT_LENGTH: usize = (INPUT_U32_COUNT - 1) * 2;
 async fn main(_spawner: Spawner) {
     let dp = init();
 
+    let irq = irqs!(UART);
+
     //
     // use RNG generate random Q1.31 value
     //
     // we don't generate floating-point value, since not all binary value are valid floating-point value,
     // and Q1.31 only accept a fixed range of value.
 
-    let mut rng = rng::Rng::new(dp.RNG, Irqs);
+    let mut rng = rng::Rng::new(dp.RNG, irq);
 
     let mut input_buf_u8 = [0u8; INPUT_U8_COUNT];
     defmt::unwrap!(rng.async_fill_bytes(&mut input_buf_u8).await);
@@ -84,6 +82,7 @@ async fn main(_spawner: Spawner) {
             .async_calc_32bit(
                 write_dma.reborrow(),
                 read_dma.reborrow(),
+                irq,
                 &input_q1_31[2..],
                 &mut output_q1_31[cnt0..],
                 true,

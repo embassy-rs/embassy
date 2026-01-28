@@ -5,9 +5,14 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::adc::{self, Adc, AdcChannel, RxDma, SampleTime};
 use embassy_stm32::peripherals::{ADC1, ADC2, GPDMA1_CH0, GPDMA1_CH1, PA0, PA1, PA2, PA3};
-use embassy_stm32::{Config, Peri};
+use embassy_stm32::{Config, Peri, bind_interrupts, dma, interrupt};
 use embassy_time::{Duration, Instant, Ticker};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    GPDMA1_CHANNEL0 => dma::InterruptHandler<GPDMA1_CH0>;
+    GPDMA1_CHANNEL1 => dma::InterruptHandler<GPDMA1_CH1>;
+});
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -53,7 +58,7 @@ async fn adc1_task(
     pin1: Peri<'static, PA0>,
     pin2: Peri<'static, PA2>,
 ) {
-    adc_task(adc, dma, pin1, pin2).await;
+    adc_task(adc, dma, Irqs, pin1, pin2).await;
 }
 
 #[embassy_executor::task]
@@ -63,15 +68,20 @@ async fn adc2_task(
     pin1: Peri<'static, PA1>,
     pin2: Peri<'static, PA3>,
 ) {
-    adc_task(adc, dma, pin1, pin2).await;
+    adc_task(adc, dma, Irqs, pin1, pin2).await;
 }
 
-async fn adc_task<'a, T: adc::DefaultInstance>(
+async fn adc_task<'a, T, D, I>(
     adc: Peri<'a, T>,
-    mut dma: Peri<'a, impl RxDma<T>>,
+    mut dma: Peri<'a, D>,
+    irq: I,
     pin1: impl AdcChannel<T>,
     pin2: impl AdcChannel<T>,
-) {
+) where
+    T: adc::DefaultInstance,
+    D: RxDma<T> + dma::ChannelInterrupt,
+    I: interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + Copy,
+{
     let mut adc = Adc::new(adc);
     let mut pin1 = pin1.degrade_adc();
     let mut pin2 = pin2.degrade_adc();
@@ -86,12 +96,13 @@ async fn adc_task<'a, T: adc::DefaultInstance>(
         // call to `Adc::read` where the ADC is sitting idle.
         adc.read(
             dma.reborrow(),
+            irq,
             [(&mut pin1, SampleTime::CYCLES2_5), (&mut pin2, SampleTime::CYCLES2_5)].into_iter(),
             &mut buffer[0..2],
         )
         .await;
         let toc = Instant::now();
-        info!("\n adc1: {} dt = {}", buffer[0..16], (toc - tic).as_micros());
+        info!("\n adc: {} dt = {}", buffer[0..16], (toc - tic).as_micros());
         tic = toc;
 
         ticker.next().await;
