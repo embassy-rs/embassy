@@ -4,14 +4,14 @@
 use embassy_executor::Spawner;
 use embassy_time::Timer;
 use embassy_time::Instant;
-use embassy_stm32::Config;
+use embassy_stm32::{Config, dma};
 use embassy_stm32::rcc::{
     AHBPrescaler, AHB5Prescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale,
 };
 use {defmt_rtt as _, panic_probe as _};
 
 use embassy_stm32::i2c;
-use embassy_stm32::peripherals::I2C1;
+use embassy_stm32::peripherals::{I2C1, GPDMA1_CH4, GPDMA1_CH5};
 use embassy_stm32::bind_interrupts;
 
 use max30102_driver::{Max30102, PpgFilter, HrDetector};
@@ -47,12 +47,14 @@ async fn main(_spawner: Spawner) {
     bind_interrupts!(struct Irqs {
         I2C1_EV => i2c::EventInterruptHandler<I2C1>;
         I2C1_ER => i2c::ErrorInterruptHandler<I2C1>;
+        GPDMA1_CHANNEL4 => dma::InterruptHandler<GPDMA1_CH4>;
+        GPDMA1_CHANNEL5 => dma::InterruptHandler<GPDMA1_CH5>;
     });
 
     let mut i2c_myconfig = i2c::Config::default();
     i2c_myconfig.scl_pullup = true;
     i2c_myconfig.sda_pullup = true;
-    let i2c_bus = i2c::I2c::new(p.I2C1, p.PB2, p.PB1, Irqs, p.GPDMA1_CH4, p.GPDMA1_CH5, i2c_myconfig);
+    let i2c_bus = i2c::I2c::new(p.I2C1, p.PB2, p.PB1, p.GPDMA1_CH4, p.GPDMA1_CH5, Irqs, i2c_myconfig);
     
     // Initialize MAX30102 driver
     let mut max30102 = Max30102::new(i2c_bus);
