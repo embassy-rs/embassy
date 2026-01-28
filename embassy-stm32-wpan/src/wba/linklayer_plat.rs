@@ -76,11 +76,9 @@
 #![allow(clippy::missing_safety_doc)]
 
 use core::cell::RefCell;
-use core::hint::spin_loop;
 use core::ptr;
-use core::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, AtomicU32, Ordering};
+use core::sync::atomic::{AtomicBool, AtomicI32, AtomicPtr, AtomicU32, Ordering, compiler_fence};
 
-use cortex_m::asm::{dsb, isb};
 use cortex_m::interrupt::InterruptNumber;
 use cortex_m::peripheral::NVIC;
 use cortex_m::register::basepri;
@@ -97,6 +95,7 @@ macro_rules! error {
     ($($arg:tt)*) => {{}};
 }
 use embassy_stm32::NVIC_PRIO_BITS;
+use embassy_stm32::pac::RCC;
 use embassy_stm32::peripherals::RNG;
 use embassy_stm32::rng::Rng;
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
@@ -198,20 +197,17 @@ fn counter_acquire(counter: &AtomicI32) -> bool {
 
 unsafe fn nvic_enable(irq: u32) {
     NVIC::unmask(RawInterrupt::new(irq));
-    dsb();
-    isb();
+    compiler_fence(Ordering::SeqCst);
 }
 
 unsafe fn nvic_disable(irq: u32) {
     NVIC::mask(RawInterrupt::new(irq));
-    dsb();
-    isb();
+    compiler_fence(Ordering::SeqCst);
 }
 
 unsafe fn nvic_set_pending(irq: u32) {
     NVIC::pend(RawInterrupt::new(irq));
-    dsb();
-    isb();
+    compiler_fence(Ordering::SeqCst);
 }
 
 unsafe fn nvic_get_active(irq: u32) -> bool {
@@ -223,8 +219,7 @@ unsafe fn nvic_set_priority(irq: u32, priority: u8) {
     let nvic = &*NVIC::PTR;
     nvic.ipr[irq as usize].write(priority);
 
-    dsb();
-    isb();
+    compiler_fence(Ordering::SeqCst);
 }
 
 fn set_basepri_max(value: u8) {
@@ -268,14 +263,10 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_ClockInit() {
     // Enable AHB5ENR peripheral clock (bus CLK) for the radio
     // For STM32WBA65xx: RCC base = 0x4602_0C00, AHB5ENR offset = 0x098
     // RADIOEN bit = bit 0
-    const RCC_AHB5ENR: *mut u32 = 0x4602_0C98 as *mut u32;
-    const RADIOEN_BIT: u32 = 1 << 0;
-
-    ptr::write_volatile(RCC_AHB5ENR, ptr::read_volatile(RCC_AHB5ENR) | RADIOEN_BIT);
+    RCC.ahb5enr().modify(|w| w.set_radioen(true));
 
     // Memory barrier to ensure clock is enabled before proceeding
-    dsb();
-    isb();
+    compiler_fence(Ordering::SeqCst);
 
     trace!("LINKLAYER_PLAT_ClockInit: radio clock enabled");
 }
@@ -363,9 +354,7 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_WaitHclkRdy() {
     if AHB5_SWITCHED_OFF.swap(false, Ordering::AcqRel) {
         let reference = RADIO_SLEEP_TIMER_VAL.load(Ordering::Acquire);
         trace!("LINKLAYER_PLAT_WaitHclkRdy: reference={}", reference);
-        while reference == link_layer::ll_intf_cmn_get_slptmr_value() {
-            spin_loop();
-        }
+        while reference == link_layer::ll_intf_cmn_get_slptmr_value() {}
     }
 }
 
@@ -422,39 +411,21 @@ pub unsafe extern "C" fn LINKLAYER_PLAT_AclkCtrl(enable: u8) {
     if enable != 0 {
         // Wait for HSE to be ready before enabling radio baseband clock
         // HSE (High-Speed External) oscillator is required for radio operation
-        // For STM32WBA65xx: RCC base = 0x4602_0C00, CR offset = 0x000
-        // RCC_CR register, bit 17 (HSERDY) indicates HSE ready status
-        const RCC_CR: *const u32 = 0x4602_0C00 as *const u32;
-        const HSERDY_BIT: u32 = 1 << 17;
-
-        while (ptr::read_volatile(RCC_CR) & HSERDY_BIT) == 0 {
-            spin_loop();
-        }
+        while !RCC.cr().read().hserdy() {}
 
         // Enable RADIO baseband clock (active clock)
-        // For STM32WBA65xx: RCC base = 0x4602_0C00, RADIOENR offset = 0x208
-        // RCC_RADIOENR register, bit 1 (BBCLKEN) enables the baseband clock
-        const RCC_RADIOENR: *mut u32 = 0x4602_0E08 as *mut u32;
-        const BBCLKEN_BIT: u32 = 1 << 1;
-
-        ptr::write_volatile(RCC_RADIOENR, ptr::read_volatile(RCC_RADIOENR) | BBCLKEN_BIT);
+        RCC.radioenr().modify(|w| w.set_bbclken(true));
 
         // Memory barrier to ensure clock is enabled before proceeding
-        dsb();
-        isb();
+        compiler_fence(Ordering::SeqCst);
 
         trace!("LINKLAYER_PLAT_AclkCtrl: radio baseband clock enabled");
     } else {
         // Disable RADIO baseband clock (active clock)
-        // For STM32WBA65xx: RCC base = 0x4602_0C00, RADIOENR offset = 0x208
-        const RCC_RADIOENR: *mut u32 = 0x4602_0E08 as *mut u32;
-        const BBCLKEN_BIT: u32 = 1 << 1;
-
-        ptr::write_volatile(RCC_RADIOENR, ptr::read_volatile(RCC_RADIOENR) & !BBCLKEN_BIT);
+        RCC.radioenr().modify(|w| w.set_bbclken(false));
 
         // Memory barrier
-        dsb();
-        isb();
+        compiler_fence(Ordering::SeqCst);
 
         trace!("LINKLAYER_PLAT_AclkCtrl: radio baseband clock disabled");
     }
