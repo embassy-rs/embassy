@@ -1,82 +1,16 @@
 //! I2C Support
 
-use core::marker::PhantomData;
-
 use embassy_hal_internal::PeripheralType;
 use maitake_sync::WaitCell;
 use paste::paste;
 
+use crate::clocks::Gate;
 use crate::clocks::periph_helpers::Lpi2cConfig;
-use crate::clocks::{ClockError, Gate};
 use crate::gpio::{GpioPin, SealedPin};
 use crate::{interrupt, pac};
 
-/// Shorthand for `Result<T>`.
-pub type Result<T> = core::result::Result<T, Error>;
-
 pub mod controller;
-
-/// Error information type
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-pub enum Error {
-    /// Clock configuration error.
-    ClockSetup(ClockError),
-    /// FIFO Error
-    FifoError,
-    /// Reading for I2C failed.
-    ReadFail,
-    /// Writing to I2C failed.
-    WriteFail,
-    /// I2C address NAK condition.
-    AddressNack,
-    /// Bus level arbitration loss.
-    ArbitrationLoss,
-    /// Address out of range.
-    AddressOutOfRange(u8),
-    /// Invalid write buffer length.
-    InvalidWriteBufferLength,
-    /// Invalid read buffer length.
-    InvalidReadBufferLength,
-    /// Other internal errors or unexpected state.
-    Other,
-}
-
-/// I2C interrupt handler.
-pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
-}
-
-impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
-    unsafe fn on_interrupt() {
-        if T::info().regs().mier().read().bits() != 0 {
-            T::info().regs().mier().write(|w| {
-                w.tdie()
-                    .disabled()
-                    .rdie()
-                    .disabled()
-                    .epie()
-                    .disabled()
-                    .sdie()
-                    .disabled()
-                    .ndie()
-                    .disabled()
-                    .alie()
-                    .disabled()
-                    .feie()
-                    .disabled()
-                    .pltie()
-                    .disabled()
-                    .dmie()
-                    .disabled()
-                    .stie()
-                    .disabled()
-            });
-
-            T::info().wait_cell().wake();
-        }
-    }
-}
+pub mod target;
 
 mod sealed {
     /// Seal a trait

@@ -6,8 +6,7 @@ use embassy_time::Timer;
 use hal::bind_interrupts;
 use hal::clocks::config::Div8;
 use hal::config::Config;
-use hal::i2c::InterruptHandler;
-use hal::i2c::controller::{self, I2c, Speed};
+use hal::i2c::controller::{self, I2c, InterruptHandler, Speed};
 use hal::peripherals::LPI2C3;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
