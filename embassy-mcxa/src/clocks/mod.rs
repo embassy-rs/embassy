@@ -41,11 +41,21 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 use config::{
     ClocksConfig, FircConfig, FircFreqSel, Fro16KConfig, MainClockSource, SircConfig, VddDriveStrength, VddLevel,
 };
-use mcxa_pac::scg0::firccsr::{FircFclkPeriphEn, FircSclkPeriphEn, Fircsten};
-use mcxa_pac::scg0::sirccsr::Sircsten;
+use paste::paste;
 use periph_helpers::{PreEnableParts, SPConfHelper};
 
 use crate::pac;
+use crate::pac::scg0::vals::{
+    Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, FreqSel, Range, Scs, SirccsrLk, Sircerr,
+    Sircvld, SosccsrLk, Soscerr, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
+};
+use crate::pac::spc0::vals::{
+    ActiveCfgCoreldoVddDs, ActiveCfgCoreldoVddLvl, LpCfgBgmode, LpCfgCoreldoVddDs, LpCfgCoreldoVddLvl, Vsm,
+};
+use crate::pac::syscon::vals::{
+    AhbclkdivUnstab, FrohfdivHalt, FrohfdivReset, FrohfdivUnstab, FrolfdivHalt, FrolfdivReset, FrolfdivUnstab,
+    Pll1clkdivHalt, Pll1clkdivReset, Pll1clkdivUnstab,
+};
 pub mod config;
 pub mod periph_helpers;
 
@@ -95,12 +105,12 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
         config: &settings,
         sirc_forced: false,
 
-        _mrcc0: unsafe { pac::Mrcc0::steal() },
-        scg0: unsafe { pac::Scg0::steal() },
-        syscon: unsafe { pac::Syscon::steal() },
-        vbat0: unsafe { pac::Vbat0::steal() },
-        spc0: unsafe { pac::Spc0::steal() },
-        fmu0: unsafe { pac::Fmu0::steal() },
+        _mrcc0: pac::MRCC0,
+        scg0: pac::SCG0,
+        syscon: pac::SYSCON,
+        vbat0: pac::VBAT0,
+        spc0: pac::SPC0,
+        fmu0: pac::FMU0,
     };
 
     // Before applying any requested clocks, apply the requested VDD_CORE
@@ -348,12 +358,12 @@ struct ClockOperator<'a> {
     sirc_forced: bool,
 
     // We hold on to stolen peripherals
-    _mrcc0: pac::Mrcc0,
-    scg0: pac::Scg0,
-    syscon: pac::Syscon,
-    vbat0: pac::Vbat0,
-    spc0: pac::Spc0,
-    fmu0: pac::Fmu0,
+    _mrcc0: pac::mrcc0::Mrcc0,
+    scg0: pac::scg0::Scg0,
+    syscon: pac::syscon::Syscon,
+    vbat0: pac::vbat0::Vbat0,
+    spc0: pac::spc0::Spc0,
+    fmu0: pac::fmu0::Fmu0,
 }
 
 // From Table 165 - Max Clock Frequencies
@@ -762,26 +772,25 @@ impl ClockOperator<'_> {
         // If we are not default, then we need to switch to SIRC
         if !is_default {
             // Set SIRC (fro_12m) as the source
-            self.scg0.rccr().modify(|_r, w| w.scs().sirc());
+            self.scg0.rccr().modify(|w| w.set_scs(Scs::SIRC));
 
             // Wait for the change to complete
-            while self.scg0.csr().read().scs().is_sirc() {}
+            while self.scg0.csr().read().scs() == Scs::SIRC {}
         }
 
         // Enable CSR writes
-        self.scg0.firccsr().modify(|_r, w| w.lk().write_enabled());
+        self.scg0.firccsr().modify(|w| w.set_lk(FirccsrLk::WRITE_ENABLED));
 
         // Did the user give us a FIRC config?
         let Some(firc) = self.config.firc.as_ref() else {
             // Nope, and we've already switched to fro_12m. Disable FIRC.
-            self.scg0.firccsr().modify(|_r, w| {
-                w.fircsten().disabled_in_stop_modes();
-                w.fircerr_ie().clear_bit();
-                w.fircen().disabled();
-                w
+            self.scg0.firccsr().modify(|w| {
+                w.set_fircsten(Fircsten::DISABLED_IN_STOP_MODES);
+                w.set_fircerr_ie(FircerrIe::ERROR_NOT_DETECTED);
+                w.set_fircen(false);
             });
 
-            self.scg0.firccsr().modify(|_r, w| w.lk().write_disabled());
+            self.scg0.firccsr().modify(|w| w.set_lk(FirccsrLk::WRITE_DISABLED));
             return Ok(());
         };
 
@@ -789,17 +798,16 @@ impl ClockOperator<'_> {
         // we mess with it. If we are !default, we have already switched to SIRC instead!
         if !is_default {
             // Unlock
-            self.scg0.firccsr().modify(|_r, w| w.lk().write_enabled());
+            self.scg0.firccsr().modify(|w| w.set_lk(FirccsrLk::WRITE_ENABLED));
 
             // Disable FIRC
-            self.scg0.firccsr().modify(|_r, w| {
-                w.fircen().disabled();
-                w.fircsten().disabled_in_stop_modes();
-                w.fircerr_ie().clear_bit();
-                w.fircacc_ie().clear_bit();
-                w.firc_sclk_periph_en().disabled();
-                w.firc_fclk_periph_en().disabled();
-                w
+            self.scg0.firccsr().modify(|w| {
+                w.set_fircen(false);
+                w.set_fircsten(Fircsten::DISABLED_IN_STOP_MODES);
+                w.set_fircerr_ie(FircerrIe::ERROR_NOT_DETECTED);
+                w.set_fircacc_ie(FircaccIe::FIRCACCNOT);
+                w.set_firc_sclk_periph_en(false);
+                w.set_firc_fclk_periph_en(false);
             });
         }
 
@@ -818,18 +826,18 @@ impl ClockOperator<'_> {
                 45_000_000
             }
             FircFreqSel::Mhz60 => {
-                self.scg0.firccfg().modify(|_r, w| w.freq_sel().firc_64mhz());
-                self.scg0.firccsr().modify(|_r, w| w.fircen().enabled());
+                self.scg0.firccfg().modify(|w| w.set_freq_sel(FreqSel::FIRC_64MHZ));
+                self.scg0.firccsr().modify(|w| w.set_fircen(true));
                 60_000_000
             }
             FircFreqSel::Mhz90 => {
-                self.scg0.firccfg().modify(|_r, w| w.freq_sel().firc_96mhz());
-                self.scg0.firccsr().modify(|_r, w| w.fircen().enabled());
+                self.scg0.firccfg().modify(|w| w.set_freq_sel(FreqSel::FIRC_96MHZ));
+                self.scg0.firccsr().modify(|w| w.set_fircen(true));
                 90_000_000
             }
             FircFreqSel::Mhz180 => {
-                self.scg0.firccfg().modify(|_r, w| w.freq_sel().firc_192mhz());
-                self.scg0.firccsr().modify(|_r, w| w.fircen().enabled());
+                self.scg0.firccfg().modify(|w| w.set_freq_sel(FreqSel::FIRC_192MHZ));
+                self.scg0.firccsr().modify(|w| w.set_fircen(true));
                 180_000_000
             }
         };
@@ -839,9 +847,9 @@ impl ClockOperator<'_> {
         while !firc_ok {
             let csr = self.scg0.firccsr().read();
 
-            firc_ok = csr.fircen().is_enabled()
-                && csr.fircacc().is_enabled_and_valid()
-                && csr.fircerr().is_error_not_detected();
+            firc_ok = csr.fircen()
+                && csr.fircacc() == Fircacc::ENABLED_AND_VALID
+                && csr.fircerr() == Fircerr::ERROR_NOT_DETECTED;
         }
 
         // Note that the fro_hf_root is active
@@ -861,8 +869,8 @@ impl ClockOperator<'_> {
 
         // When is the FRO enabled?
         let pow_set = match power {
-            PoweredClock::NormalEnabledDeepSleepDisabled => Fircsten::DisabledInStopModes,
-            PoweredClock::AlwaysEnabled => Fircsten::EnabledInStopModes,
+            PoweredClock::NormalEnabledDeepSleepDisabled => Fircsten::DISABLED_IN_STOP_MODES,
+            PoweredClock::AlwaysEnabled => Fircsten::ENABLED_IN_STOP_MODES,
         };
 
         // Do we enable the `fro_hf` output?
@@ -878,9 +886,9 @@ impl ClockOperator<'_> {
                 frequency: base_freq,
                 power: *power,
             });
-            FircFclkPeriphEn::Enabled
+            true
         } else {
-            FircFclkPeriphEn::Disabled
+            false
         };
 
         // Do we enable the `clk_45m` output?
@@ -889,20 +897,19 @@ impl ClockOperator<'_> {
                 frequency: 45_000_000,
                 power: *power,
             });
-            FircSclkPeriphEn::Enabled
+            true
         } else {
-            FircSclkPeriphEn::Disabled
+            false
         };
 
-        self.scg0.firccsr().modify(|_r, w| {
-            w.fircsten().variant(pow_set);
-            w.firc_fclk_periph_en().variant(fro_hf_set);
-            w.firc_sclk_periph_en().variant(clk_45m_set);
-            w
+        self.scg0.firccsr().modify(|w| {
+            w.set_fircsten(pow_set);
+            w.set_firc_fclk_periph_en(fro_hf_set);
+            w.set_firc_sclk_periph_en(clk_45m_set);
         });
 
         // Last write to CSR, re-lock
-        self.scg0.firccsr().modify(|_r, w| w.lk().write_disabled());
+        self.scg0.firccsr().modify(|w| w.set_lk(FirccsrLk::WRITE_DISABLED));
 
         // Do we enable the `fro_hf_div` output?
         if let Some(d) = fro_hf_div.as_ref() {
@@ -924,20 +931,18 @@ impl ClockOperator<'_> {
 
             // Halt and reset the div; then set our desired div.
             self.syscon.frohfdiv().write(|w| {
-                w.halt().halt();
-                w.reset().asserted();
-                unsafe { w.div().bits(d.into_bits()) };
-                w
+                w.set_halt(FrohfdivHalt::HALT);
+                w.set_reset(FrohfdivReset::ASSERTED);
+                w.set_div(d.into_bits());
             });
             // Then unhalt it, and reset it
             self.syscon.frohfdiv().write(|w| {
-                w.halt().run();
-                w.reset().released();
-                w
+                w.set_halt(FrohfdivHalt::RUN);
+                w.set_reset(FrohfdivReset::RELEASED);
             });
 
             // Wait for clock to stabilize
-            while self.syscon.frohfdiv().read().unstab().is_ongoing() {}
+            while self.syscon.frohfdiv().read().unstab() == FrohfdivUnstab::ONGOING {}
 
             // Store off the clock info
             self.clocks.fro_hf_div = Some(Clock {
@@ -959,15 +964,15 @@ impl ClockOperator<'_> {
         let base_freq = 12_000_000;
 
         // Allow writes
-        self.scg0.sirccsr().modify(|_r, w| w.lk().write_enabled());
+        self.scg0.sirccsr().modify(|w| w.set_lk(SirccsrLk::WRITE_ENABLED));
         self.clocks.fro_12m_root = Some(Clock {
             frequency: base_freq,
             power: *power,
         });
 
         let deep = match power {
-            PoweredClock::NormalEnabledDeepSleepDisabled => Sircsten::Disabled,
-            PoweredClock::AlwaysEnabled => Sircsten::Enabled,
+            PoweredClock::NormalEnabledDeepSleepDisabled => false,
+            PoweredClock::AlwaysEnabled => true,
         };
 
         // clk_1m is *before* the fro_12m clock gate
@@ -990,15 +995,14 @@ impl ClockOperator<'_> {
         };
 
         // Set sleep/peripheral usage
-        self.scg0.sirccsr().modify(|_r, w| {
-            w.sircsten().variant(deep);
+        self.scg0.sirccsr().modify(|w| {
+            w.set_sircsten(deep);
             // Always on, for now at least! Will be resolved in `configure_sirc_clocks_late`
-            w.sirc_clk_periph_en().enabled();
-            w
+            w.set_sirc_clk_periph_en(true);
         });
 
-        while self.scg0.sirccsr().read().sircvld().is_disabled_or_not_valid() {}
-        if self.scg0.sirccsr().read().sircerr().is_error_detected() {
+        while self.scg0.sirccsr().read().sircvld() == Sircvld::DISABLED_OR_NOT_VALID {}
+        if self.scg0.sirccsr().read().sircerr() == Sircerr::ERROR_DETECTED {
             return Err(ClockError::BadConfig {
                 clock: "sirc",
                 reason: "error set",
@@ -1006,7 +1010,7 @@ impl ClockOperator<'_> {
         }
 
         // reset lock
-        self.scg0.sirccsr().modify(|_r, w| w.lk().write_disabled());
+        self.scg0.sirccsr().modify(|w| w.set_lk(SirccsrLk::WRITE_DISABLED));
 
         // Do we enable the `fro_lf_div` output?
         if let Some(d) = fro_lf_div.as_ref() {
@@ -1020,20 +1024,18 @@ impl ClockOperator<'_> {
 
             // Halt and reset the div; then set our desired div.
             self.syscon.frolfdiv().write(|w| {
-                w.halt().halt();
-                w.reset().asserted();
-                unsafe { w.div().bits(d.into_bits()) };
-                w
+                w.set_halt(FrolfdivHalt::HALT);
+                w.set_reset(FrolfdivReset::ASSERTED);
+                w.set_div(d.into_bits());
             });
             // Then unhalt it, and reset it
-            self.syscon.frolfdiv().modify(|_r, w| {
-                w.halt().run();
-                w.reset().released();
-                w
+            self.syscon.frolfdiv().modify(|w| {
+                w.set_halt(FrolfdivHalt::RUN);
+                w.set_reset(FrolfdivReset::RELEASED);
             });
 
             // Wait for clock to stabilize
-            while self.syscon.frolfdiv().read().unstab().is_ongoing() {}
+            while self.syscon.frolfdiv().read().unstab() == FrolfdivUnstab::ONGOING {}
 
             // Store off the clock info
             self.clocks.fro_lf_div = Some(Clock {
@@ -1049,13 +1051,13 @@ impl ClockOperator<'_> {
         // If we forced SIRC's fro_12m to be enabled, disable it now.
         if self.sirc_forced {
             // Allow writes
-            self.scg0.sirccsr().modify(|_r, w| w.lk().write_enabled());
+            self.scg0.sirccsr().modify(|w| w.set_lk(SirccsrLk::WRITE_ENABLED));
 
             // Disable clk_12m
-            self.scg0.sirccsr().modify(|_r, w| w.sirc_clk_periph_en().disabled());
+            self.scg0.sirccsr().modify(|w| w.set_sirc_clk_periph_en(false));
 
             // reset lock
-            self.scg0.sirccsr().modify(|_r, w| w.lk().write_disabled());
+            self.scg0.sirccsr().modify(|w| w.set_lk(SirccsrLk::WRITE_DISABLED));
         }
     }
 
@@ -1065,10 +1067,10 @@ impl ClockOperator<'_> {
             return Ok(());
         };
         // Enable FRO16K oscillator
-        self.vbat0.froctla().modify(|_, w| w.fro_en().set_bit());
+        self.vbat0.froctla().modify(|w| w.set_fro_en(true));
 
         // Lock the control register
-        self.vbat0.frolcka().modify(|_, w| w.lock().set_bit());
+        self.vbat0.frolcka().modify(|w| w.set_lock(true));
 
         let Fro16KConfig {
             vsys_domain_active,
@@ -1095,7 +1097,7 @@ impl ClockOperator<'_> {
                 power: PoweredClock::AlwaysEnabled,
             });
         }
-        self.vbat0.froclke().modify(|_r, w| unsafe { w.clke().bits(bits) });
+        self.vbat0.froclke().modify(|w| w.set_clke(bits));
 
         Ok(())
     }
@@ -1108,11 +1110,11 @@ impl ClockOperator<'_> {
         // LDOEN: 0/Disabled
         let already_enabled = {
             let ldocsr = self.scg0.ldocsr().read();
-            ldocsr.ldoen().is_enabled() && ldocsr.vout_ok().is_enabled()
+            ldocsr.ldoen() && ldocsr.vout_ok()
         };
         if !already_enabled {
-            self.scg0.ldocsr().modify(|_r, w| w.ldoen().enabled());
-            while self.scg0.ldocsr().read().vout_ok().is_disabled() {}
+            self.scg0.ldocsr().modify(|w| w.set_ldoen(true));
+            while !self.scg0.ldocsr().read().vout_ok() {}
         }
     }
 
@@ -1127,8 +1129,8 @@ impl ClockOperator<'_> {
         self.ensure_ldo_active();
 
         let eref = match parts.mode {
-            config::SoscMode::CrystalOscillator => pac::scg0::sosccfg::Erefs::Internal,
-            config::SoscMode::ActiveClock => pac::scg0::sosccfg::Erefs::External,
+            config::SoscMode::CrystalOscillator => Erefs::INTERNAL,
+            config::SoscMode::ActiveClock => Erefs::EXTERNAL,
         };
         let freq = parts.frequency;
 
@@ -1149,10 +1151,10 @@ impl ClockOperator<'_> {
                     reason: "freq too low",
                 });
             }
-            8_000_000..16_000_000 => pac::scg0::sosccfg::Range::Freq16to20mhz,
-            16_000_000..25_000_000 => pac::scg0::sosccfg::Range::LowFreq,
-            25_000_000..40_000_000 => pac::scg0::sosccfg::Range::MediumFreq,
-            40_000_000..50_000_001 => pac::scg0::sosccfg::Range::HighFreq,
+            8_000_000..16_000_000 => Range::FREQ_16TO20MHZ,
+            16_000_000..25_000_000 => Range::LOW_FREQ,
+            25_000_000..40_000_000 => Range::MEDIUM_FREQ,
+            40_000_000..50_000_001 => Range::HIGH_FREQ,
             50_000_001.. => {
                 return Err(ClockError::BadConfig {
                     clock: "clk_in",
@@ -1162,14 +1164,13 @@ impl ClockOperator<'_> {
         };
 
         // Set source/erefs and range
-        self.scg0.sosccfg().modify(|_r, w| {
-            w.erefs().variant(eref);
-            w.range().variant(range);
-            w
+        self.scg0.sosccfg().modify(|w| {
+            w.set_erefs(eref);
+            w.set_range(range);
         });
 
         // Disable lock
-        self.scg0.sosccsr().modify(|_r, w| w.lk().clear_bit());
+        self.scg0.sosccsr().modify(|w| w.set_lk(SosccsrLk::WRITE_ENABLED));
 
         // TODO: We could enable the SOSC clock monitor. There are some things to
         // figure out first:
@@ -1180,27 +1181,27 @@ impl ClockOperator<'_> {
         // * We need to decide if we need an interrupt or a reset if the monitor trips
 
         // Apply remaining config
-        self.scg0.sosccsr().modify(|_r, w| {
+        self.scg0.sosccsr().modify(|w| {
             // For now, just disable the monitor. See above.
-            w.sosccm().disabled();
+            w.set_sosccm(false);
 
             // Set deep sleep mode
             match parts.power {
                 PoweredClock::NormalEnabledDeepSleepDisabled => {
-                    w.soscsten().clear_bit();
+                    w.set_soscsten(false);
                 }
                 PoweredClock::AlwaysEnabled => {
-                    w.soscsten().set_bit();
+                    w.set_soscsten(true);
                 }
             }
 
             // Enable SOSC
-            w.soscen().enabled()
+            w.set_soscen(true)
         });
 
         // Wait for SOSC to be valid, check for errors
-        while !self.scg0.sosccsr().read().soscvld().bit_is_set() {}
-        if self.scg0.sosccsr().read().soscerr().is_enabled_and_error() {
+        while !self.scg0.sosccsr().read().soscvld() {}
+        if self.scg0.sosccsr().read().soscerr() == Soscerr::ENABLED_AND_ERROR {
             return Err(ClockError::BadConfig {
                 clock: "clk_in",
                 reason: "soscerr is set",
@@ -1208,7 +1209,7 @@ impl ClockOperator<'_> {
         }
 
         // Re-lock the sosc
-        self.scg0.sosccsr().modify(|_r, w| w.lk().set_bit());
+        self.scg0.sosccsr().modify(|w| w.set_lk(SosccsrLk::WRITE_DISABLED));
 
         self.clocks.clk_in = Some(Clock {
             frequency: freq,
@@ -1249,19 +1250,19 @@ impl ClockOperator<'_> {
                 .clocks
                 .clk_in
                 .as_ref()
-                .map(|c| (c, pac::scg0::spllctrl::Source::Sosc))
+                .map(|c| (c, Source::SOSC))
                 .ok_or("sosc not active"),
             config::SpllSource::Firc => self
                 .clocks
                 .clk_45m
                 .as_ref()
-                .map(|c| (c, pac::scg0::spllctrl::Source::Firc))
+                .map(|c| (c, Source::FIRC))
                 .ok_or("firc not active"),
             config::SpllSource::Sirc => self
                 .clocks
                 .fro_12m
                 .as_ref()
-                .map(|c| (c, pac::scg0::spllctrl::Source::Sirc))
+                .map(|c| (c, Source::SIRC))
                 .ok_or("sirc not active"),
         };
         // This checks if active
@@ -1470,44 +1471,39 @@ impl ClockOperator<'_> {
         // SELR must be 0.
         let selr = 0;
 
-        self.scg0.spllctrl().modify(|_r, w| {
-            w.source().variant(variant);
-            unsafe {
-                w.selp().bits(selp as u8);
-                w.seli().bits(seli as u8);
-                w.selr().bits(selr);
-            }
-            w
+        self.scg0.spllctrl().modify(|w| {
+            w.set_source(variant);
+            w.set_selp(selp as u8);
+            w.set_seli(seli as u8);
+            w.set_selr(selr);
         });
 
         if let Some(n) = n {
-            self.scg0.spllndiv().modify(|_r, w| unsafe { w.ndiv().bits(n) });
+            self.scg0.spllndiv().modify(|w| w.set_ndiv(n));
         }
         if let Some(p) = p {
-            self.scg0.spllpdiv().modify(|_r, w| unsafe { w.pdiv().bits(p) });
+            self.scg0.spllpdiv().modify(|w| w.set_pdiv(p));
         }
-        self.scg0.spllmdiv().modify(|_r, w| unsafe { w.mdiv().bits(m) });
+        self.scg0.spllmdiv().modify(|w| w.set_mdiv(m));
 
-        self.scg0.spllctrl().modify(|_r, w| {
-            w.bypassprediv().bit(bp_pre);
-            w.bypasspostdiv().bit(bp_post);
-            w.bypasspostdiv2().bit(bp_post2);
+        self.scg0.spllctrl().modify(|w| {
+            w.set_bypassprediv(bp_pre);
+            w.set_bypasspostdiv(bp_post);
+            w.set_bypasspostdiv2(bp_post2);
 
             // TODO: support FRM?
-            w.frm().disabled();
-
-            w
+            w.set_frm(false);
         });
 
         // Unlock
-        self.scg0.spllcsr().modify(|_r, w| w.lk().write_enabled());
+        self.scg0.spllcsr().modify(|w| w.set_lk(SpllcsrLk::WRITE_ENABLED));
 
         // TODO: Support clock monitors?
-        // self.scg0.spllcsr().modify(|_r, w| w.spllcm().?);
+        // self.scg0.spllcsr().modify(|w| w.spllcm().?);
 
-        self.scg0.trim_lock().write(|w| unsafe {
-            w.trim_lock_key().bits(0x5a5a);
-            w.trim_unlock().not_locked()
+        self.scg0.trim_lock().write(|w| {
+            w.set_trim_lock_key(0x5a5a);
+            w.set_trim_unlock(TrimUnlock::NOT_LOCKED)
         });
 
         // SPLLLOCK_CNFG: The lock time programmed in this register must be
@@ -1518,24 +1514,25 @@ impl ClockOperator<'_> {
         // 500us is 1/2000th of a second, therefore Fref / 2000 is the number of cycles in 500us.
         let f_ref = if let Some(n) = n { f_in / (n as u32) } else { f_in };
         let lock_time = f_ref.div_ceil(2000) + 300;
-        self.scg0
-            .splllock_cnfg()
-            .write(|w| unsafe { w.lock_time().bits(lock_time) });
+        self.scg0.splllock_cnfg().write(|w| w.set_lock_time(lock_time));
 
         // TODO: Support Spread spectrum?
 
-        self.scg0.spllcsr().modify(|_r, w| {
-            w.spllclken().enabled();
-            w.spllpwren().enabled();
-            w.spllsten().bit(matches!(cfg.power, PoweredClock::AlwaysEnabled));
-            w
+        self.scg0.spllcsr().modify(|w| {
+            w.set_spllclken(true);
+            w.set_spllpwren(true);
+            w.set_spllsten(if matches!(cfg.power, PoweredClock::AlwaysEnabled) {
+                Spllsten::ENABLED_IN_STOP
+            } else {
+                Spllsten::DISABLED_IN_STOP
+            });
         });
 
         // Wait for SPLL to set up
         loop {
             let csr = self.scg0.spllcsr().read();
-            if csr.spll_lock().is_enabled_and_valid() {
-                if csr.spllerr().is_enabled_and_error() {
+            if csr.spll_lock() == SpllLock::ENABLED_AND_VALID {
+                if csr.spllerr() == Spllerr::ENABLED_AND_ERROR {
                     return Err(ClockError::BadConfig {
                         clock: "spll",
                         reason: "spllerr is set",
@@ -1546,7 +1543,7 @@ impl ClockOperator<'_> {
         }
 
         // Re-lock SPLL CSR
-        self.scg0.spllcsr().modify(|_r, w| w.lk().write_disabled());
+        self.scg0.spllcsr().modify(|w| w.set_lk(SpllcsrLk::WRITE_DISABLED));
 
         // Store clock state
         self.clocks.pll1_clk = Some(Clock {
@@ -1558,20 +1555,18 @@ impl ClockOperator<'_> {
         if let Some(d) = cfg.pll1_clk_div.as_ref() {
             // Halt and reset the div; then set our desired div.
             self.syscon.pll1clkdiv().write(|w| {
-                w.halt().halt();
-                w.reset().asserted();
-                unsafe { w.div().bits(d.into_bits()) };
-                w
+                w.set_halt(Pll1clkdivHalt::HALT);
+                w.set_reset(Pll1clkdivReset::ASSERTED);
+                w.set_div(d.into_bits());
             });
             // Then unhalt it, and reset it
             self.syscon.pll1clkdiv().write(|w| {
-                w.halt().run();
-                w.reset().released();
-                w
+                w.set_halt(Pll1clkdivHalt::RUN);
+                w.set_reset(Pll1clkdivReset::RELEASED);
             });
 
             // Wait for clock to stabilize
-            while self.syscon.pll1clkdiv().read().unstab().is_ongoing() {}
+            while self.syscon.pll1clkdiv().read().unstab() == Pll1clkdivUnstab::ONGOING {}
 
             // Store off the clock info
             self.clocks.pll1_clk_div = Some(Clock {
@@ -1584,16 +1579,13 @@ impl ClockOperator<'_> {
     }
 
     fn configure_main_clk(&mut self) -> Result<(), ClockError> {
-        use pac::scg0::csr::Scs as ScsR;
-        use pac::scg0::rccr::Scs as ScsW;
-
         let (var, name, clk) = match self.config.main_clock.source {
             #[cfg(not(feature = "sosc-as-gpio"))]
-            MainClockSource::SoscClkIn => (ScsW::Sosc, "clk_in", self.clocks.clk_in.as_ref()),
-            MainClockSource::SircFro12M => (ScsW::Sirc, "fro_12m", self.clocks.fro_12m.as_ref()),
-            MainClockSource::FircHfRoot => (ScsW::Firc, "fro_hf_root", self.clocks.fro_hf_root.as_ref()),
-            MainClockSource::RoscFro16K => (ScsW::Rosc, "fro16k", self.clocks.clk_16k_vdd_core.as_ref()),
-            MainClockSource::SPll1 => (ScsW::Spll, "pll1_clk", self.clocks.pll1_clk.as_ref()),
+            MainClockSource::SoscClkIn => (Scs::SOSC, "clk_in", self.clocks.clk_in.as_ref()),
+            MainClockSource::SircFro12M => (Scs::SIRC, "fro_12m", self.clocks.fro_12m.as_ref()),
+            MainClockSource::FircHfRoot => (Scs::FIRC, "fro_hf_root", self.clocks.fro_hf_root.as_ref()),
+            MainClockSource::RoscFro16K => (Scs::ROSC, "fro16k", self.clocks.clk_16k_vdd_core.as_ref()),
+            MainClockSource::SPll1 => (Scs::SPLL, "pll1_clk", self.clocks.pll1_clk.as_ref()),
         };
         let Some(main_clk_src) = clk else {
             return Err(ClockError::BadConfig {
@@ -1655,26 +1647,17 @@ impl ClockOperator<'_> {
             .find(|(fmax, _ws)| cpu_freq <= *fmax)
             .map(|t| t.1)
             .unwrap_or(wsmax);
-        self.fmu0.fctrl().modify(|_r, w| unsafe { w.rwsc().bits(wait_states) });
-
-        // Now we can switch clock source, if necessary.
-        let expected = match var {
-            ScsW::Sosc => ScsR::Sosc,
-            ScsW::Sirc => ScsR::Sirc,
-            ScsW::Firc => ScsR::Firc,
-            ScsW::Rosc => ScsR::Rosc,
-            ScsW::Spll => ScsR::Spll,
-        };
+        self.fmu0.fctrl().modify(|w| w.set_rwsc(wait_states));
 
         // TODO: (Double) check if clock is actually valid before switching?
         // Are we already on the right clock?
         let now = self.scg0.csr().read().scs();
-        if now != expected {
+        if now != var {
             // Set RCCR
-            self.scg0.rccr().modify(|_r, w| w.scs().variant(var));
+            self.scg0.rccr().modify(|w| w.set_scs(var));
 
             // Wait for match
-            while self.scg0.csr().read().scs() != expected {}
+            while self.scg0.csr().read().scs() != var {}
         }
 
         // The main_clk is now set to the selected input clock
@@ -1683,11 +1666,9 @@ impl ClockOperator<'_> {
         // Update AHB clock division, if necessary
         if ahb_div.into_bits() != 0 {
             // AHB has no halt/reset fields - it's different to other DIV8s!
-            self.syscon
-                .ahbclkdiv()
-                .modify(|_r, w| unsafe { w.div().bits(ahb_div.into_bits()) });
+            self.syscon.ahbclkdiv().modify(|w| w.set_div(ahb_div.into_bits()));
             // Wait for clock to stabilize
-            while self.syscon.ahbclkdiv().read().unstab().is_ongoing() {}
+            while self.syscon.ahbclkdiv().read().unstab() == AhbclkdivUnstab::ONGOING {}
         }
 
         // Store off the clock info
@@ -1716,17 +1697,21 @@ impl ClockOperator<'_> {
                 // (CORELDO_VDD_DS). Otherwise, if the LVDs are enabled, an unexpected LVD can occur.
                 //
                 // Ensure drive strength is normal (BEFORE shifting level)
-                self.spc0.active_cfg().modify(|_r, w| w.coreldo_vdd_ds().normal());
+                self.spc0
+                    .active_cfg()
+                    .modify(|w| w.set_coreldo_vdd_ds(ActiveCfgCoreldoVddDs::NORMAL));
 
                 // ## DS 26.3.2:
                 //
                 // When increasing voltage and frequency in Active mode, you must perform the following steps:
                 //
                 // 1. Increase voltage to a new level (ACTIVE_CFG[CORELDO_VDD_LVL]).
-                self.spc0.active_cfg().modify(|_r, w| w.coreldo_vdd_lvl().over());
+                self.spc0
+                    .active_cfg()
+                    .modify(|w| w.set_coreldo_vdd_lvl(ActiveCfgCoreldoVddLvl::OVER));
 
                 // 2. Wait for voltage change to complete (SC[BUSY] = 0).
-                while self.spc0.sc().read().busy().is_busy_yes() {}
+                while self.spc0.sc().read().busy() {}
 
                 // 3. Configure flash memory to support higher voltage level and frequency (FMU_FCTRL[RWSC].
                 //
@@ -1734,16 +1719,16 @@ impl ClockOperator<'_> {
                 // frequency changes.
 
                 // 4. Configure SRAM to support higher voltage levels (SRAMCTL[VSM]).
-                self.spc0.sramctl().modify(|_r, w| w.vsm().sram1v2());
+                self.spc0.sramctl().modify(|w| w.set_vsm(Vsm::SRAM1V2));
 
                 // 5. Request SRAM voltage update (write 1 to SRAMCTL[REQ]).
-                self.spc0.sramctl().modify(|_r, w| w.req().set_bit());
+                self.spc0.sramctl().modify(|w| w.set_req(true));
 
                 // 6. Wait for SRAM voltage change to complete (SRAMCTL[ACK] = 1).
-                while self.spc0.sramctl().read().ack().is_ack_no() {}
+                while !self.spc0.sramctl().read().ack() {}
 
                 // 7. Clear request for SRAM voltage change (write 0 to SRAMCTL[REQ]).
-                self.spc0.sramctl().modify(|_r, w| w.req().clear_bit());
+                self.spc0.sramctl().modify(|w| w.set_req(false));
 
                 // 8. Increase frequency to a new level (for example, SCG_RCCR).
                 //
@@ -1783,22 +1768,22 @@ impl ClockOperator<'_> {
         //
         // NOTE(AJM): "LP_CFG: This register resets only after a POR or LVD event."
         let ds = match self.config.vdd_power.low_power_mode.drive {
-            VddDriveStrength::Low => pac::spc0::lp_cfg::CoreldoVddDs::Low,
+            VddDriveStrength::Low => LpCfgCoreldoVddDs::LOW,
             VddDriveStrength::Normal => {
                 // "If you specify normal drive strength, you must write a value to LP[BGMODE] that enables the bandgap."
                 //
                 // Bandgap enabled, buffer disabled
-                self.spc0.lp_cfg().modify(|_r, w| w.bgmode().bgmode01());
+                self.spc0.lp_cfg().modify(|w| w.set_bgmode(LpCfgBgmode::BGMODE01));
 
-                pac::spc0::lp_cfg::CoreldoVddDs::Normal
+                LpCfgCoreldoVddDs::NORMAL
             }
         };
         let lvl = match self.config.vdd_power.low_power_mode.level {
-            VddLevel::MidDriveMode => pac::spc0::lp_cfg::CoreldoVddLvl::Mid,
-            VddLevel::OverDriveMode => pac::spc0::lp_cfg::CoreldoVddLvl::Over,
+            VddLevel::MidDriveMode => LpCfgCoreldoVddLvl::MID,
+            VddLevel::OverDriveMode => LpCfgCoreldoVddLvl::OVER,
         };
-        self.spc0.lp_cfg().modify(|_r, w| w.coreldo_vdd_ds().variant(ds));
-        self.spc0.lp_cfg().modify(|_r, w| w.coreldo_vdd_lvl().variant(lvl));
+        self.spc0.lp_cfg().modify(|w| w.set_coreldo_vdd_ds(ds));
+        self.spc0.lp_cfg().modify(|w| w.set_coreldo_vdd_lvl(lvl));
 
         // Updating CORELDO_VDD_LVL sets the SC[BUSY] flag. That flag remains set for at least the total time
         // delay that Active Voltage Trim Delay (ACTIVE_VDELAY) specifies.
@@ -1807,13 +1792,15 @@ impl ClockOperator<'_> {
         // selected low-power sleep
         //
         // NOTE(AJM): Let's just proactively wait now so we don't have to worry about it on subsequent sleeps
-        while self.spc0.sc().read().busy().is_busy_yes() {}
+        while self.spc0.sc().read().busy() {}
 
         // NOTE(AJM): I don't really know if this is valid! I'm guessing in most cases you would want to
         // use the low drive strength for lp mode, and high drive strength for active mode?
         match self.config.vdd_power.active_mode.drive {
             VddDriveStrength::Low => {
-                self.spc0.active_cfg().modify(|_r, w| w.coreldo_vdd_ds().low());
+                self.spc0
+                    .active_cfg()
+                    .modify(|w| w.set_coreldo_vdd_ds(ActiveCfgCoreldoVddDs::LOW));
             }
             VddDriveStrength::Normal => {
                 // Already set to normal above
@@ -1839,40 +1826,36 @@ macro_rules! impl_cc_gate {
         impl Gate for crate::peripherals::$name {
             type MrccPeriphConfig = $config;
 
-            #[inline]
-            unsafe fn enable_clock() {
-                let mrcc = unsafe { pac::Mrcc0::steal() };
-                mrcc.$clk_reg().modify(|_, w| w.$field().enabled());
-            }
+            paste! {
+                #[inline]
+                unsafe fn enable_clock() {
+                    pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](true));
+                }
 
-            #[inline]
-            unsafe fn disable_clock() {
-                let mrcc = unsafe { pac::Mrcc0::steal() };
-                mrcc.$clk_reg().modify(|_r, w| w.$field().disabled());
+                #[inline]
+                unsafe fn disable_clock() {
+                    pac::MRCC0.$clk_reg().modify(|w| w.[<set_ $field>](false));
+                }
+
+                #[inline]
+                unsafe fn release_reset() {
+                    pac::MRCC0.$rst_reg().modify(|w| w.[<set_ $field>](true));
+                }
+
+                #[inline]
+                unsafe fn assert_reset() {
+                    pac::MRCC0.$rst_reg().modify(|w| w.[<set_ $field>](false));
+                }
             }
 
             #[inline]
             fn is_clock_enabled() -> bool {
-                let mrcc = unsafe { pac::Mrcc0::steal() };
-                mrcc.$clk_reg().read().$field().is_enabled()
-            }
-
-            #[inline]
-            unsafe fn release_reset() {
-                let mrcc = unsafe { pac::Mrcc0::steal() };
-                mrcc.$rst_reg().modify(|_, w| w.$field().enabled());
-            }
-
-            #[inline]
-            unsafe fn assert_reset() {
-                let mrcc = unsafe { pac::Mrcc0::steal() };
-                mrcc.$rst_reg().modify(|_, w| w.$field().disabled());
+                pac::MRCC0.$clk_reg().read().$field()
             }
 
             #[inline]
             fn is_reset_released() -> bool {
-                let mrcc = unsafe { pac::Mrcc0::steal() };
-                mrcc.$rst_reg().read().$field().is_enabled()
+                pac::MRCC0.$rst_reg().read().$field()
             }
         }
     };
