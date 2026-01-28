@@ -6,14 +6,13 @@ use embassy_hal_internal::Peri;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::interrupt::InterruptExt;
 
-use super::{Async, Blocking, Error, Info, InterruptHandler, Mode, SclPin, SdaPin};
+use super::{Async, Blocking, Error, Info, Instance, InterruptHandler, Mode, SclPin, SdaPin};
 use crate::clocks::periph_helpers::{Div4, I3cClockSel, I3cConfig};
 use crate::clocks::{PoweredClock, WakeGuard, enable_and_reset};
 use crate::gpio::{AnyPin, SealedPin};
 pub use crate::i2c::controller::Speed;
 use crate::interrupt::typelevel;
 use crate::pac::i3c0::mctrl::{Dir as I3cDir, Type};
-use crate::peripherals::I3C0;
 
 const MAX_CHUNK_SIZE: usize = 255;
 
@@ -104,10 +103,10 @@ pub struct I3c<'d, M: Mode> {
 }
 
 impl<'d, M: Mode> I3c<'d, M> {
-    fn new_inner(
-        _peri: Peri<'d, I3C0>,
-        scl: Peri<'d, impl SclPin<I3C0>>,
-        sda: Peri<'d, impl SdaPin<I3C0>>,
+    fn new_inner<T: Instance>(
+        _peri: Peri<'d, T>,
+        scl: Peri<'d, impl SclPin<T>>,
+        sda: Peri<'d, impl SdaPin<T>>,
         config: Config,
     ) -> Result<Self, Error> {
         let (power, source, div) = Self::clock_config();
@@ -115,7 +114,7 @@ impl<'d, M: Mode> I3c<'d, M> {
         // Enable clocks
         let conf = I3cConfig { power, source, div };
 
-        let parts = unsafe { enable_and_reset::<I3C0>(&conf).map_err(Error::ClockSetup)? };
+        let parts = unsafe { enable_and_reset::<T>(&conf).map_err(Error::ClockSetup)? };
 
         scl.mux();
         sda.mux();
@@ -124,7 +123,7 @@ impl<'d, M: Mode> I3c<'d, M> {
         let _sda = sda.into();
 
         let inst = Self {
-            info: super::info(),
+            info: T::info(),
             _scl,
             _sda,
             fclk: parts.freq,
@@ -526,10 +525,10 @@ impl<'d> I3c<'d, Blocking> {
     /// Create a new blocking instance of the I3C controller bus driver.
     ///
     /// Any external pin will be placed into Disabled state upon Drop.
-    pub fn new_blocking(
-        peri: Peri<'d, I3C0>,
-        scl: Peri<'d, impl SclPin<I3C0>>,
-        sda: Peri<'d, impl SdaPin<I3C0>>,
+    pub fn new_blocking<T: Instance>(
+        peri: Peri<'d, T>,
+        scl: Peri<'d, impl SclPin<T>>,
+        sda: Peri<'d, impl SdaPin<T>>,
         config: Config,
     ) -> Result<Self, Error> {
         Self::new_inner(peri, scl, sda, config)
@@ -540,11 +539,11 @@ impl<'d> I3c<'d, Async> {
     /// Create a new asynchronous instance of the I3C controller bus driver.
     ///
     /// Any external pin will be placed into Disabled state upon Drop.
-    pub fn new_async(
-        peri: Peri<'d, I3C0>,
-        scl: Peri<'d, impl SclPin<I3C0>>,
-        sda: Peri<'d, impl SdaPin<I3C0>>,
-        _irq: impl typelevel::Binding<typelevel::I3C0, InterruptHandler> + 'd,
+    pub fn new_async<T: Instance>(
+        peri: Peri<'d, T>,
+        scl: Peri<'d, impl SclPin<T>>,
+        sda: Peri<'d, impl SdaPin<T>>,
+        _irq: impl typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Result<Self, Error> {
         let inst = Self::new_inner(peri, scl, sda, config);
