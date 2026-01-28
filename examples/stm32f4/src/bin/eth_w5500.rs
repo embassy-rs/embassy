@@ -30,7 +30,7 @@ bind_interrupts!(struct Irqs {
 
 type EthernetSPI = ExclusiveDevice<Spi<'static, Async, Master>, Output<'static>, Delay>;
 #[embassy_executor::task]
-async fn ethernet_task(runner: Runner<'static, W5500, EthernetSPI, ExtiInput<'static>, Output<'static>>) -> ! {
+async fn ethernet_task(runner: Runner<'static, W5500, EthernetSPI, ExtiInput<'static, Async>, Output<'static>>) -> ! {
     runner.run().await
 }
 

@@ -12,9 +12,15 @@ use futures_util::FutureExt;
 use crate::gpio::{AnyPin, ExtiPin, Input, Level, Pin as GpioPin, PinNumber, Pull};
 use crate::interrupt::Interrupt as InterruptEnum;
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt as InterruptType};
+use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::EXTI;
-use crate::pac::exti::regs::Lines;
 use crate::{Peri, pac};
+
+#[macro_use]
+mod low_level;
+pub use low_level::{InterruptState, TriggerEdge};
+
+pub mod blocking;
 
 const EXTI_COUNT: usize = 16;
 static EXTI_WAKERS: [AtomicWaker; EXTI_COUNT] = [const { AtomicWaker::new() }; EXTI_COUNT];
@@ -50,10 +56,12 @@ fn exticr_regs() -> pac::afio::Afio {
 }
 
 unsafe fn on_irq() {
-    #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6)))]
-    let bits = EXTI.pr(0).read().0;
-    #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6))]
-    let bits = EXTI.rpr(0).read().0 | EXTI.fpr(0).read().0;
+    cfg_no_rpr_fpr! {
+        let bits = EXTI.pr(0).read().0;
+    }
+    cfg_has_rpr_fpr! {
+        let bits = EXTI.rpr(0).read().0 | EXTI.fpr(0).read().0;
+    }
 
     // We don't handle or change any EXTI lines above 16.
     let bits = bits & 0x0000FFFF;
@@ -67,13 +75,7 @@ unsafe fn on_irq() {
     }
 
     // Clear pending
-    #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6)))]
-    EXTI.pr(0).write_value(Lines(bits));
-    #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6))]
-    {
-        EXTI.rpr(0).write_value(Lines(bits));
-        EXTI.fpr(0).write_value(Lines(bits));
-    }
+    low_level::clear_exti_pending_mask(bits);
 
     #[cfg(feature = "low-power")]
     crate::low_power::Executor::on_wakeup_irq_or_event();
@@ -102,30 +104,14 @@ impl Iterator for BitIter {
 /// EXTI channel, which is a limited resource.
 ///
 /// Pins PA5, PB5, PC5... all use EXTI channel 5, so you can't use EXTI on, say, PA5 and PC5 at the same time.
-pub struct ExtiInput<'d> {
+pub struct ExtiInput<'d, Mode: PeriMode> {
     pin: Input<'d>,
+    _kind: PhantomData<Mode>,
 }
 
-impl<'d> Unpin for ExtiInput<'d> {}
+impl<'d, Mode: PeriMode> Unpin for ExtiInput<'d, Mode> {}
 
-impl<'d> ExtiInput<'d> {
-    /// Create an EXTI input.
-    ///
-    /// The Binding must bind the Channel's IRQ to [InterruptHandler].
-    pub fn new<T: ExtiPin + GpioPin>(
-        pin: Peri<'d, T>,
-        _ch: Peri<'d, T::ExtiChannel>,
-        pull: Pull,
-        _irq: impl Binding<
-            <<T as ExtiPin>::ExtiChannel as Channel>::IRQ,
-            InterruptHandler<<<T as ExtiPin>::ExtiChannel as Channel>::IRQ>,
-        >,
-    ) -> Self {
-        Self {
-            pin: Input::new(pin, pull),
-        }
-    }
-
+impl<'d, Mode: PeriMode> ExtiInput<'d, Mode> {
     /// Get whether the pin is high.
     pub fn is_high(&self) -> bool {
         self.pin.is_high()
@@ -140,12 +126,32 @@ impl<'d> ExtiInput<'d> {
     pub fn get_level(&self) -> Level {
         self.pin.get_level()
     }
+}
+
+impl<'d> ExtiInput<'d, Async> {
+    /// Create an EXTI input.
+    ///
+    /// The Binding must bind the Channel's IRQ to [InterruptHandler].
+    pub fn new<T: ExtiPin + GpioPin>(
+        pin: Peri<'d, T>,
+        _ch: Peri<'d, T::ExtiChannel>,
+        pull: Pull,
+        _irq: impl Binding<
+            <<T as ExtiPin>::ExtiChannel as Channel>::IRQ,
+            InterruptHandler<<<T as ExtiPin>::ExtiChannel as Channel>::IRQ>,
+        >,
+    ) -> Self {
+        Self {
+            pin: Input::new(pin, pull),
+            _kind: PhantomData,
+        }
+    }
 
     /// Asynchronously wait until the pin is high.
     ///
     /// This returns immediately if the pin is already high.
     pub async fn wait_for_high(&mut self) {
-        let fut = ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, false, true);
+        let fut = ExtiInputFuture::new(&self.pin, TriggerEdge::Rising, true);
         if self.is_high() {
             return;
         }
@@ -156,7 +162,7 @@ impl<'d> ExtiInput<'d> {
     ///
     /// This returns immediately if the pin is already low.
     pub async fn wait_for_low(&mut self) {
-        let fut = ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), false, true, true);
+        let fut = ExtiInputFuture::new(&self.pin, TriggerEdge::Falling, true);
         if self.is_low() {
             return;
         }
@@ -167,44 +173,126 @@ impl<'d> ExtiInput<'d> {
     ///
     /// If the pin is already high, it will wait for it to go low then back high.
     pub async fn wait_for_rising_edge(&mut self) {
-        ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, false, true).await
+        ExtiInputFuture::new(&self.pin, TriggerEdge::Rising, true).await
     }
 
     /// Asynchronously wait until the pin sees a rising edge.
     ///
     /// If the pin is already high, it will wait for it to go low then back high.
     pub fn poll_for_rising_edge<'a>(&mut self, cx: &mut Context<'a>) {
-        let _ =
-            ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, false, false).poll_unpin(cx);
+        let _ = ExtiInputFuture::new(&self.pin, TriggerEdge::Rising, false).poll_unpin(cx);
     }
 
     /// Asynchronously wait until the pin sees a falling edge.
     ///
     /// If the pin is already low, it will wait for it to go high then back low.
     pub async fn wait_for_falling_edge(&mut self) {
-        ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), false, true, true).await
+        ExtiInputFuture::new(&self.pin, TriggerEdge::Falling, true).await
     }
 
     /// Asynchronously wait until the pin sees a falling edge.
     ///
     /// If the pin is already low, it will wait for it to go high then back low.
     pub fn poll_for_falling_edge<'a>(&mut self, cx: &mut Context<'a>) {
-        let _ =
-            ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), false, true, false).poll_unpin(cx);
+        let _ = ExtiInputFuture::new(&self.pin, TriggerEdge::Falling, false).poll_unpin(cx);
     }
 
     /// Asynchronously wait until the pin sees any edge (either rising or falling).
     pub async fn wait_for_any_edge(&mut self) {
-        ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, true, true).await
+        ExtiInputFuture::new(&self.pin, TriggerEdge::Any, true).await
     }
 
     /// Asynchronously wait until the pin sees any edge (either rising or falling).
     pub fn poll_for_any_edge<'a>(&mut self, cx: &mut Context<'a>) {
-        let _ = ExtiInputFuture::new(self.pin.pin.pin.pin(), self.pin.pin.pin.port(), true, true, false).poll_unpin(cx);
+        let _ = ExtiInputFuture::new(&self.pin, TriggerEdge::Any, false).poll_unpin(cx);
     }
 }
 
-impl<'d> embedded_hal_02::digital::v2::InputPin for ExtiInput<'d> {
+impl<'d> ExtiInput<'d, Blocking> {
+    /// Creates a new EXTI input for use with manual interrupt handling.
+    ///
+    /// This configures and enables the EXTI interrupt for the pin, but does not
+    /// provide async methods for waiting on events. You must provide your own
+    /// interrupt handler to service EXTI events and clear pending flags.
+    ///
+    /// For async/await integration with Embassy's executor, use `ExtiInput<Async>` instead.
+    ///
+    /// # Arguments
+    /// * `pin` - The GPIO pin to use
+    /// * `ch` - The EXTI channel corresponding to the pin (consumed for ownership tracking)
+    /// * `pull` - The pull configuration for the pin
+    /// * `trigger_edge` - The edge triggering mode (falling, rising, or any)
+    ///
+    /// # Returns
+    /// A new `ExtiInput` instance with interrupts enabled
+    pub fn new_blocking<T: GpioPin + ExtiPin>(
+        pin: Peri<'d, T>,
+        _ch: Peri<'d, T::ExtiChannel>, // Consumed for ownership tracking
+        pull: Pull,
+        trigger_edge: TriggerEdge,
+    ) -> Self {
+        let pin = Input::new(pin, pull);
+
+        low_level::configure_and_enable_exti(&pin, trigger_edge);
+
+        Self {
+            pin,
+            _kind: PhantomData,
+        }
+    }
+
+    /// Reconfigures the edge detection mode for this pin's EXTI line
+    ///
+    /// This method updates which edges (rising, falling, or any) will trigger
+    /// interrupts for this pin.
+    /// Note that reconfiguring the edge detection will clear any pending
+    /// interrupt flag for this pin.
+    pub fn set_edge_detection(&mut self, trigger_edge: TriggerEdge) {
+        let pin_num = self.pin.pin.pin.pin();
+        let port_num = self.pin.pin.pin.port();
+        low_level::configure_exti_pin(pin_num, port_num, trigger_edge);
+    }
+
+    /// Enables the EXTI interrupt for this pin
+    pub fn enable_interrupt(&mut self) {
+        let pin_num = self.pin.pin.pin.pin();
+        low_level::set_exti_interrupt_enabled(pin_num, InterruptState::Enabled);
+    }
+
+    /// Disables the EXTI interrupt for this pin
+    pub fn disable_interrupt(&mut self) {
+        let pin_num = self.pin.pin.pin.pin();
+        low_level::set_exti_interrupt_enabled(pin_num, InterruptState::Disabled);
+    }
+
+    /// Clears any pending interrupt for this pin
+    ///
+    /// This method clears the pending interrupt flag for the EXTI line
+    /// associated with this pin. This should typically be called from
+    /// the interrupt handler after processing an interrupt.
+    pub fn clear_pending(&mut self) {
+        let pin_num = self.pin.pin.pin.pin();
+        low_level::clear_exti_pending(pin_num);
+    }
+
+    /// Checks if an interrupt is pending for the current pin
+    ///
+    /// This method checks if there is a pending interrupt on the EXTI line
+    /// associated with this pin.
+    ///
+    /// # Returns
+    /// `true` if an interrupt is pending, `false` otherwise
+    pub fn is_pending(&self) -> bool {
+        let pin_num = self.pin.pin.pin.pin();
+        low_level::is_exti_pending(pin_num)
+    }
+
+    fn pin_mask(&self) -> u32 {
+        1 << self.pin.pin.pin.pin()
+    }
+}
+
+impl<'d, Mode: PeriMode> embedded_hal_02::digital::v2::InputPin for ExtiInput<'d, Mode> {
     type Error = Infallible;
 
     fn is_high(&self) -> Result<bool, Self::Error> {
@@ -216,11 +304,11 @@ impl<'d> embedded_hal_02::digital::v2::InputPin for ExtiInput<'d> {
     }
 }
 
-impl<'d> embedded_hal_1::digital::ErrorType for ExtiInput<'d> {
+impl<'d, Mode: PeriMode> embedded_hal_1::digital::ErrorType for ExtiInput<'d, Mode> {
     type Error = Infallible;
 }
 
-impl<'d> embedded_hal_1::digital::InputPin for ExtiInput<'d> {
+impl<'d, Mode: PeriMode> embedded_hal_1::digital::InputPin for ExtiInput<'d, Mode> {
     fn is_high(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_high())
     }
@@ -230,7 +318,7 @@ impl<'d> embedded_hal_1::digital::InputPin for ExtiInput<'d> {
     }
 }
 
-impl<'d> embedded_hal_async::digital::Wait for ExtiInput<'d> {
+impl<'d> embedded_hal_async::digital::Wait for ExtiInput<'d, Async> {
     async fn wait_for_high(&mut self) -> Result<(), Self::Error> {
         self.wait_for_high().await;
         Ok(())
@@ -265,28 +353,11 @@ struct ExtiInputFuture<'a> {
 }
 
 impl<'a> ExtiInputFuture<'a> {
-    fn new(pin: PinNumber, port: PinNumber, rising: bool, falling: bool, drop: bool) -> Self {
-        critical_section::with(|_| {
-            let pin = pin as usize;
-            // Cast needed: on N6, PinNumber is u16 (for total pin counting), but port is always 0-15.
-            exticr_regs().exticr(pin / 4).modify(|w| w.set_exti(pin % 4, port as _));
-            EXTI.rtsr(0).modify(|w| w.set_line(pin, rising));
-            EXTI.ftsr(0).modify(|w| w.set_line(pin, falling));
-
-            // clear pending bit
-            #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6)))]
-            EXTI.pr(0).write(|w| w.set_line(pin, true));
-            #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6))]
-            {
-                EXTI.rpr(0).write(|w| w.set_line(pin, true));
-                EXTI.fpr(0).write(|w| w.set_line(pin, true));
-            }
-
-            cpu_regs().imr(0).modify(|w| w.set_line(pin, true));
-        });
+    fn new(pin: &Input, trigger_edge: TriggerEdge, drop: bool) -> Self {
+        low_level::configure_and_enable_exti(pin, trigger_edge);
 
         Self {
-            pin,
+            pin: pin.pin.pin.pin(),
             drop,
             phantom: PhantomData,
         }
