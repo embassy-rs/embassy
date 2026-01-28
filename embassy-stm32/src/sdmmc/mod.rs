@@ -5,10 +5,10 @@ use core::default::Default;
 use core::future::poll_fn;
 use core::marker::PhantomData;
 use core::slice;
-use cortex_m::asm::dsb;
 use core::task::Poll;
 
 use aligned::{A4, Aligned};
+use cortex_m::asm::dsb;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use sdio_host::Cmd;
