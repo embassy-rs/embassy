@@ -6,7 +6,7 @@ use core::task::Poll;
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::dma::Transfer;
+use crate::dma::{ChannelAndRequest, Transfer};
 use crate::gpio::{AfType, Pull};
 use crate::interrupt::typelevel::Interrupt;
 use crate::{Peri, interrupt, rcc};
@@ -115,22 +115,21 @@ macro_rules! config_pins {
 }
 
 /// DCMI driver.
-pub struct Dcmi<'d, T: Instance, Dma: FrameDma<T>> {
+pub struct Dcmi<'d, T: Instance> {
     inner: Peri<'d, T>,
-    dma: Peri<'d, Dma>,
+    dma: ChannelAndRequest<'d>,
 }
 
-impl<'d, T, Dma> Dcmi<'d, T, Dma>
+impl<'d, T> Dcmi<'d, T>
 where
     T: Instance,
-    Dma: FrameDma<T>,
 {
     /// Create a new DCMI driver with 8 data bits.
-    pub fn new_8bit(
+    pub fn new_8bit<D: FrameDma<T>>(
         peri: Peri<'d, T>,
-        dma: Peri<'d, Dma>,
+        dma: Peri<'d, D>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<Dma::Interrupt, crate::dma::InterruptHandler<Dma>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
         + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
@@ -152,11 +151,11 @@ where
     }
 
     /// Create a new DCMI driver with 10 data bits.
-    pub fn new_10bit(
+    pub fn new_10bit<D: FrameDma<T>>(
         peri: Peri<'d, T>,
-        dma: Peri<'d, Dma>,
+        dma: Peri<'d, D>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<Dma::Interrupt, crate::dma::InterruptHandler<Dma>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
         + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
@@ -180,11 +179,11 @@ where
     }
 
     /// Create a new DCMI driver with 12 data bits.
-    pub fn new_12bit(
+    pub fn new_12bit<D: FrameDma<T>>(
         peri: Peri<'d, T>,
-        dma: Peri<'d, Dma>,
+        dma: Peri<'d, D>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<Dma::Interrupt, crate::dma::InterruptHandler<Dma>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
         + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
@@ -210,11 +209,11 @@ where
     }
 
     /// Create a new DCMI driver with 14 data bits.
-    pub fn new_14bit(
+    pub fn new_14bit<D: FrameDma<T>>(
         peri: Peri<'d, T>,
-        dma: Peri<'d, Dma>,
+        dma: Peri<'d, D>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<Dma::Interrupt, crate::dma::InterruptHandler<Dma>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
         + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
@@ -242,11 +241,11 @@ where
     }
 
     /// Create a new DCMI driver with 8 data bits, with embedded synchronization.
-    pub fn new_es_8bit(
+    pub fn new_es_8bit<D: FrameDma<T>>(
         peri: Peri<'d, T>,
-        dma: Peri<'d, Dma>,
+        dma: Peri<'d, D>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<Dma::Interrupt, crate::dma::InterruptHandler<Dma>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
         + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
@@ -266,11 +265,11 @@ where
     }
 
     /// Create a new DCMI driver with 10 data bits, with embedded synchronization.
-    pub fn new_es_10bit(
+    pub fn new_es_10bit<D: FrameDma<T>>(
         peri: Peri<'d, T>,
-        dma: Peri<'d, Dma>,
+        dma: Peri<'d, D>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<Dma::Interrupt, crate::dma::InterruptHandler<Dma>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
         + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
@@ -292,11 +291,11 @@ where
     }
 
     /// Create a new DCMI driver with 12 data bits, with embedded synchronization.
-    pub fn new_es_12bit(
+    pub fn new_es_12bit<D: FrameDma<T>>(
         peri: Peri<'d, T>,
-        dma: Peri<'d, Dma>,
+        dma: Peri<'d, D>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<Dma::Interrupt, crate::dma::InterruptHandler<Dma>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
         + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
@@ -320,11 +319,11 @@ where
     }
 
     /// Create a new DCMI driver with 14 data bits, with embedded synchronization.
-    pub fn new_es_14bit(
+    pub fn new_es_14bit<D: FrameDma<T>>(
         peri: Peri<'d, T>,
-        dma: Peri<'d, Dma>,
+        dma: Peri<'d, D>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<Dma::Interrupt, crate::dma::InterruptHandler<Dma>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
         + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
@@ -349,17 +348,16 @@ where
         Self::new_inner(peri, dma, _irq, config, true, 0b11)
     }
 
-    fn new_inner(
+    fn new_inner<D: FrameDma<T>>(
         peri: Peri<'d, T>,
-        dma: Peri<'d, Dma>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
-        + interrupt::typelevel::Binding<Dma::Interrupt, crate::dma::InterruptHandler<Dma>>
+        dma: Peri<'d, D>,
+        irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
         + 'd,
         config: Config,
         use_embedded_synchronization: bool,
         edm: u8,
     ) -> Self {
-        crate::dma::assert_dma_binding(&*dma, &_irq);
         rcc::enable_and_reset::<T>();
 
         peri.regs().cr().modify(|r| {
@@ -375,7 +373,10 @@ where
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
 
-        Self { inner: peri, dma }
+        Self {
+            inner: peri,
+            dma: new_dma!(dma, irq).unwrap(),
+        }
     }
 
     fn toggle(enable: bool) {
@@ -406,8 +407,15 @@ where
     pub async fn capture(&mut self, buffer: &mut [u32]) -> Result<(), Error> {
         let r = self.inner.regs();
         let src = r.dr().as_ptr() as *mut u32;
-        let request = self.dma.request();
-        let dma_read = unsafe { Transfer::new_read(self.dma.reborrow(), request, src, buffer, Default::default()) };
+        let dma_read = unsafe {
+            Transfer::new_read(
+                self.dma.channel.reborrow(),
+                self.dma.request,
+                src,
+                buffer,
+                Default::default(),
+            )
+        };
 
         Self::clear_interrupt_flags();
         Self::enable_irqs();

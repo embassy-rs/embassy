@@ -7,7 +7,8 @@ use embassy_hal_internal::PeripheralType;
 
 pub use crate::dma::word;
 use crate::dma::{
-    self, Channel, ChannelInterrupt, ReadableRingBuffer, Request, TransferOptions, WritableRingBuffer, ringbuffer,
+    self, AnyChannel, Channel, ReadableRingBuffer, Request, TransferOptions, TypedChannel, WritableRingBuffer,
+    dma_into, ringbuffer,
 };
 use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 pub use crate::pac::sai::vals::Mckdiv as MasterClockDivider;
@@ -474,7 +475,7 @@ fn get_af_types(mode: Mode, tx_rx: TxRx) -> (AfType, AfType) {
 }
 
 fn get_ring_buffer<'d, T: Instance, W: word::Word>(
-    dma: Peri<'d, impl Channel>,
+    dma: Peri<'d, AnyChannel>,
     dma_buf: &'d mut [W],
     request: Request,
     sub_block: WhichSubBlock,
@@ -551,7 +552,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     /// Create a new SAI driver in asynchronous mode with MCLK.
     ///
     /// You can obtain the [`SubBlock`] with [`split_subblocks`].
-    pub fn new_asynchronous_with_mclk<S: SubBlockInstance, D: Channel + ChannelInterrupt + Dma<T, S>>(
+    pub fn new_asynchronous_with_mclk<S: SubBlockInstance, D: Channel + TypedChannel + Dma<T, S>>(
         peri: SubBlock<'d, T, S>,
         sck: Peri<'d, impl SckPin<T, S>>,
         sd: Peri<'d, impl SdPin<T, S>>,
@@ -571,17 +572,16 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     /// Create a new SAI driver in asynchronous mode without MCLK.
     ///
     /// You can obtain the [`SubBlock`] with [`split_subblocks`].
-    pub fn new_asynchronous<S: SubBlockInstance, D: Channel + ChannelInterrupt + Dma<T, S>>(
+    pub fn new_asynchronous<S: SubBlockInstance, D: Dma<T, S>>(
         peri: SubBlock<'d, T, S>,
         sck: Peri<'d, impl SckPin<T, S>>,
         sd: Peri<'d, impl SdPin<T, S>>,
         fs: Peri<'d, impl FsPin<T, S>>,
         dma: Peri<'d, D>,
         dma_buf: &'d mut [W],
-        _irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
+        irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
-        crate::dma::assert_dma_binding(&*dma, &_irq);
         let peri = peri.peri;
 
         let (sd_af_type, ck_af_type) = get_af_types(config.mode, config.tx_rx);
@@ -599,7 +599,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
             None,
             Some(sd.into()),
             Some(fs.into()),
-            get_ring_buffer::<T, W>(dma, dma_buf, request, sub_block, config.tx_rx),
+            get_ring_buffer::<T, W>(dma_into(dma, &irq), dma_buf, request, sub_block, config.tx_rx),
             config,
         )
     }
@@ -607,15 +607,14 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     /// Create a new SAI driver in synchronous mode.
     ///
     /// You can obtain the [`SubBlock`] with [`split_subblocks`].
-    pub fn new_synchronous<S: SubBlockInstance, D: Channel + ChannelInterrupt + Dma<T, S>>(
+    pub fn new_synchronous<S: SubBlockInstance, D: Dma<T, S>>(
         peri: SubBlock<'d, T, S>,
         sd: Peri<'d, impl SdPin<T, S>>,
         dma: Peri<'d, D>,
         dma_buf: &'d mut [W],
-        _irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
+        irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
         mut config: Config,
     ) -> Self {
-        crate::dma::assert_dma_binding(&*dma, &_irq);
         update_synchronous_config(&mut config);
 
         let peri = peri.peri;
@@ -633,7 +632,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
             None,
             Some(sd.into()),
             None,
-            get_ring_buffer::<T, W>(dma, dma_buf, request, sub_block, config.tx_rx),
+            get_ring_buffer::<T, W>(dma_into(dma, &irq), dma_buf, request, sub_block, config.tx_rx),
             config,
         )
     }

@@ -23,7 +23,7 @@ use embassy_hal_internal::PeripheralType;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::dma::{ChannelAndRequest, TransferOptions};
+use crate::dma::{ChannelAndRequest, TransferOptions, dma_into};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk, Txmode};
 pub use crate::pac::ucpd::vals::{Phyccsel as CcSel, Rxordset, TypecVstateCc as CcVState};
@@ -221,17 +221,15 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         self,
         rx_dma: Peri<'d, RX>,
         tx_dma: Peri<'d, TX>,
-        _irq: impl interrupt::typelevel::Binding<RX::Interrupt, crate::dma::InterruptHandler<RX>>
+        irq: impl interrupt::typelevel::Binding<RX::Interrupt, crate::dma::InterruptHandler<RX>>
         + interrupt::typelevel::Binding<TX::Interrupt, crate::dma::InterruptHandler<TX>>
         + 'd,
         cc_sel: CcSel,
     ) -> (CcPhy<'d, T>, PdPhy<'d, T>)
     where
-        RX: RxDma<T> + crate::dma::ChannelInterrupt,
-        TX: TxDma<T> + crate::dma::ChannelInterrupt,
+        RX: RxDma<T> + crate::dma::TypedChannel,
+        TX: TxDma<T> + crate::dma::TypedChannel,
     {
-        crate::dma::assert_dma_binding(&*rx_dma, &_irq);
-        crate::dma::assert_dma_binding(&*tx_dma, &_irq);
         let r = T::REGS;
 
         // TODO: Currently only SOP messages are supported.
@@ -256,11 +254,11 @@ impl<'d, T: Instance> Ucpd<'d, T> {
             PdPhy {
                 _lifetime: PhantomData,
                 rx_dma: ChannelAndRequest {
-                    channel: rx_dma.into(),
+                    channel: dma_into(rx_dma, &irq),
                     request: rx_dma_req,
                 },
                 tx_dma: ChannelAndRequest {
-                    channel: tx_dma.into(),
+                    channel: dma_into(tx_dma, &irq),
                     request: tx_dma_req,
                 },
             },

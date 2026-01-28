@@ -475,7 +475,7 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc>> Adc<'d, T> {
     /// This function is `unsafe` because it clones the ADC peripheral handle unchecked. Both the
     /// `RingBufferedAdc` and `InjectedAdc` take ownership of the handle and drop it independently.
     /// Ensure no other code concurrently accesses the same ADC instance in a conflicting way.
-    pub fn into_ring_buffered_and_injected<'a, 'b, const N: usize, D: RxDma<T> + crate::dma::ChannelInterrupt>(
+    pub fn into_ring_buffered_and_injected<'a, 'b, const N: usize, D: RxDma<T> + crate::dma::TypedChannel>(
         self,
         dma: Peri<'a, D>,
         dma_buf: &'a mut [u16],

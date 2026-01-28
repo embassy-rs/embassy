@@ -79,7 +79,7 @@ async fn adc_task<'a, T, D, I>(
     pin2: impl AdcChannel<T>,
 ) where
     T: adc::DefaultInstance,
-    D: RxDma<T> + dma::ChannelInterrupt,
+    D: RxDma<T>,
     I: interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + Copy,
 {
     let mut adc = Adc::new(adc);
