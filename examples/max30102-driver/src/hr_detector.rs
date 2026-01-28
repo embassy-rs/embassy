@@ -25,10 +25,10 @@ impl HrDetector {
         self.last_sample = sample;
 
         // --- TUNABLE PARAMETERS ---
-        const THRESHOLD: f32 = 1500.0;      // depends on LED current / gain
-        const REFRACTORY_MS: u32 = 450;      // prevents double counting
-        const MIN_RR_MS: u32 = 300;          // 200 BPM max
-        const MAX_RR_MS: u32 = 2000;         // 30 BPM min
+        const THRESHOLD: f32 = 1500.0; // depends on LED current / gain
+        const REFRACTORY_MS: u32 = 450; // prevents double counting
+        const MIN_RR_MS: u32 = 300; // 200 BPM max
+        const MAX_RR_MS: u32 = 2000; // 30 BPM min
         // --------------------------
 
         // Peak = above threshold AND slope just turned negative
@@ -41,7 +41,7 @@ impl HrDetector {
                     if rr >= MIN_RR_MS && rr <= MAX_RR_MS {
                         // Simple direct calculation: BPM = 60,000 ms / RR_interval_ms
                         let new_bpm = 60_000.0 / rr as f32;
-                        
+
                         // Simple smoothing to reduce jitter (optional - can remove if you want instant updates)
                         self.bpm = 0.8 * self.bpm + 0.2 * new_bpm;
                     }

@@ -3,10 +3,9 @@
 mod filter;
 mod hr_detector;
 
+use embassy_time::Timer;
 pub use filter::PpgFilter;
 pub use hr_detector::HrDetector;
-
-use embassy_time::Timer;
 
 /// MAX30102 I2C device address (7-bit)
 pub const DEVICE_ADDRESS: u8 = 0x57;
@@ -83,9 +82,7 @@ where
             .await?;
 
         // Set LED configuration (pulse width and sample rate)
-        self.i2c
-            .write(DEVICE_ADDRESS, &[registers::LED_CONF, 0xE3])
-            .await?;
+        self.i2c.write(DEVICE_ADDRESS, &[registers::LED_CONF, 0xE3]).await?;
 
         // Set Mode to Heart Rate Only
         self.i2c
@@ -146,9 +143,7 @@ where
             .await?;
 
         // Interpret the 3 bytes as an 18-bit sample (MSB first)
-        let ir_value: u32 = (((buffer[0] as u32) & 0x03) << 16)
-            | ((buffer[1] as u32) << 8)
-            | (buffer[2] as u32);
+        let ir_value: u32 = (((buffer[0] as u32) & 0x03) << 16) | ((buffer[1] as u32) << 8) | (buffer[2] as u32);
 
         Ok(ir_value)
     }

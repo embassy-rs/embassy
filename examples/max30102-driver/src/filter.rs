@@ -1,9 +1,6 @@
-use biquad::{
-    Biquad, DirectForm1, Coefficients, Type, ToHertz, Q_BUTTERWORTH_F32,
-};
+use biquad::{Biquad, Coefficients, DirectForm1, Q_BUTTERWORTH_F32, ToHertz, Type};
 
 /// PPG signal filter
-/// 
 /// • 0.5 Hz high-pass → removes baseline drift, motion, slow pressure changes
 /// • 5 Hz low-pass → passes heart rate up to ~300 BPM
 /// • Butterworth → flat passband, no ripple
@@ -18,17 +15,19 @@ impl PpgFilter {
         let hp_coeffs = Coefficients::<f32>::from_params(
             Type::HighPass,
             sample_rate_hz.hz(),
-            0.5.hz(),              // cutoff ~0.5 Hz
+            0.5.hz(), // cutoff ~0.5 Hz
             Q_BUTTERWORTH_F32,
-        ).unwrap();
+        )
+        .unwrap();
 
         // Low-pass: remove high-frequency noise
         let lp_coeffs = Coefficients::<f32>::from_params(
             Type::LowPass,
             sample_rate_hz.hz(),
-            5.0.hz(),              // cutoff ~5 Hz
+            5.0.hz(), // cutoff ~5 Hz
             Q_BUTTERWORTH_F32,
-        ).unwrap();
+        )
+        .unwrap();
 
         Self {
             hp: DirectForm1::new(hp_coeffs),
