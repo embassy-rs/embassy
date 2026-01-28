@@ -225,7 +225,7 @@ impl<'d> ExtiInput<'d, Blocking> {
     ///
     /// # Returns
     /// A new `ExtiInput` instance with interrupts enabled
-    pub fn new<T: GpioPin + ExtiPin>(
+    pub fn new_blocking<T: GpioPin + ExtiPin>(
         pin: Peri<'d, T>,
         _ch: Peri<'d, T::ExtiChannel>, // Consumed for ownership tracking
         pull: Pull,

@@ -36,7 +36,7 @@ mod app {
         let led2 = Output::new(stm32_peripherals.PB7, Level::Low, Speed::Low);
 
         // setting up the user-button on the nucleo board (shared exti irq line 10-15)
-        let button1 = ExtiInput::<Blocking>::new(
+        let button1 = ExtiInput::new_blocking(
             stm32_peripherals.PC13,
             stm32_peripherals.EXTI13,
             Pull::Down,
@@ -44,7 +44,7 @@ mod app {
         );
 
         // setting up an external button connected to the nucleo board (shared exti irq line 10-15)
-        let button2 = ExtiInput::<Blocking>::new(
+        let button2 = ExtiInput::new_blocking(
             stm32_peripherals.PB10,
             stm32_peripherals.EXTI10,
             Pull::Up,
@@ -55,7 +55,7 @@ mod app {
         let exti_pending_mask_15_10 = ExtiGroupMask::new(&[&button1, &button2]);
 
         // setting up an external button connected to the nucleo board (shared exti irq line 5-9)
-        let button3 = ExtiInput::<Blocking>::new(
+        let button3 = ExtiInput::new_blocking(
             stm32_peripherals.PC8,
             stm32_peripherals.EXTI8,
             Pull::Up,
