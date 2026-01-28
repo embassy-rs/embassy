@@ -8,11 +8,12 @@ use hal::clocks::config::Div8;
 use hal::config::Config;
 use hal::i3c::InterruptHandler;
 use hal::i3c::controller::{self, BusType, I3c};
+use hal::peripherals::I3C0;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(
     struct Irqs {
-        I3C0 => InterruptHandler;
+        I3C0 => InterruptHandler<I3C0>;
     }
 );
 
