@@ -151,7 +151,7 @@ fn new_spdif_receiver<'d>(
     dma: Peri<'d, peripherals::DMA2_CH7>,
     buf: &'d mut [u32],
 ) -> Spdifrx<'d, peripherals::SPDIFRX1> {
-    Spdifrx::new(spdifrx, Irqs, spdifrx::Config::default(), input_pin, dma, buf, Irqs)
+    Spdifrx::new(spdifrx, Irqs, spdifrx::Config::default(), input_pin, dma, buf)
 }
 
 /// Creates a new SAI4 instance for transmitting sample data.

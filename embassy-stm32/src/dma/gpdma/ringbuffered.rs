@@ -12,7 +12,7 @@ use super::{AnyChannel, STATE, TransferOptions};
 use crate::dma::gpdma::linked_list::{RunMode, Table};
 use crate::dma::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use crate::dma::word::Word;
-use crate::dma::{Channel, Dir, Request};
+use crate::dma::{Dir, Request};
 use crate::rcc::BusyPeripheral;
 
 struct DmaCtrlImpl<'a>(Peri<'a, AnyChannel>);
@@ -61,13 +61,12 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     ///
     /// Transfer options are applied to the individual linked list items.
     pub unsafe fn new(
-        channel: Peri<'a, impl Channel>,
+        channel: Peri<'a, AnyChannel>,
         request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
         options: TransferOptions,
     ) -> Self {
-        let channel: Peri<'a, AnyChannel> = channel.into();
         let table = Table::<2>::new_ping_pong::<W>(request, peri_addr, buffer, Dir::PeripheralToMemory);
 
         Self {
@@ -201,13 +200,12 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     ///
     /// Transfer options are applied to the individual linked list items.
     pub unsafe fn new(
-        channel: Peri<'a, impl Channel>,
+        channel: Peri<'a, AnyChannel>,
         request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
         options: TransferOptions,
     ) -> Self {
-        let channel: Peri<'a, AnyChannel> = channel.into();
         let table = Table::<2>::new_ping_pong::<W>(request, peri_addr, buffer, Dir::MemoryToPeripheral);
 
         Self {

@@ -263,14 +263,13 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// in order or require the sequence to have the same sample time for all channnels, depending
     /// on the number and properties of the channels in the sequence. This method will panic if
     /// the hardware cannot deliver the requested configuration.
-    pub async fn read<'a, 'b: 'a, D: RxDma<T> + crate::dma::ChannelInterrupt>(
+    pub async fn read<'a, 'b: 'a, D: RxDma<T> + crate::dma::TypedChannel>(
         &mut self,
         rx_dma: embassy_hal_internal::Peri<'a, D>,
-        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         readings: &mut [u16],
     ) {
-        crate::dma::assert_dma_binding(&*rx_dma, &_irq);
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
         assert!(
             readings.len() % sequence.len() == 0,
@@ -298,8 +297,15 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().configure_dma(ConversionMode::Singular);
 
         let request = rx_dma.request();
-        let transfer =
-            unsafe { crate::dma::Transfer::new_read(rx_dma, request, T::regs().data(), readings, Default::default()) };
+        let transfer = unsafe {
+            crate::dma::Transfer::new_read(
+                crate::dma::dma_into(rx_dma, &irq),
+                request,
+                T::regs().data(),
+                readings,
+                Default::default(),
+            )
+        };
 
         T::regs().start();
 
@@ -337,16 +343,14 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// in order or require the sequence to have the same sample time for all channnels, depending
     /// on the number and properties of the channels in the sequence. This method will panic if
     /// the hardware cannot deliver the requested configuration.
-    pub fn into_ring_buffered<'a, 'b, D: RxDma<T> + crate::dma::ChannelInterrupt>(
+    pub fn into_ring_buffered<'a, 'b, D: RxDma<T> + crate::dma::TypedChannel>(
         self,
         dma: embassy_hal_internal::Peri<'a, D>,
         dma_buf: &'a mut [u16],
-        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         mode: RegularConversionMode,
     ) -> RingBufferedAdc<'a, T> {
-        crate::dma::assert_dma_binding(&*dma, &_irq);
-
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
         assert!(
@@ -371,7 +375,7 @@ impl<'d, T: Instance> Adc<'d, T> {
 
         core::mem::forget(self);
 
-        RingBufferedAdc::new(dma, dma_buf)
+        RingBufferedAdc::new(dma, irq, dma_buf)
     }
 }
 

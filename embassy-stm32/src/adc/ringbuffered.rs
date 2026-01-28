@@ -7,6 +7,7 @@ use embassy_hal_internal::Peri;
 use super::AdcRegs;
 #[allow(unused_imports)]
 use crate::adc::{Instance, RxDma};
+use crate::dma::dma_into;
 #[allow(unused_imports)]
 use crate::dma::{ReadableRingBuffer, TransferOptions};
 use crate::rcc;
@@ -20,7 +21,11 @@ pub struct RingBufferedAdc<'d, T: Instance> {
 }
 
 impl<'d, T: Instance> RingBufferedAdc<'d, T> {
-    pub(crate) fn new(dma: Peri<'d, impl RxDma<T>>, dma_buf: &'d mut [u16]) -> Self {
+    pub(crate) fn new<D: RxDma<T>>(
+        dma: Peri<'d, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>,
+        dma_buf: &'d mut [u16],
+    ) -> Self {
         // DMA side setup - configuration differs between DMA/BDMA and GPDMA
         // For DMA/BDMA: use circular mode via TransferOptions
         // For GPDMA: circular mode is achieved via linked-list ping-pong
@@ -40,7 +45,8 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
         // Safety: we forget the struct before this function returns.
         let request = dma.request();
 
-        let ring_buf = unsafe { ReadableRingBuffer::new(dma, request, T::regs().data(), dma_buf, opts) };
+        let ring_buf =
+            unsafe { ReadableRingBuffer::new(dma_into(dma, &irq), request, T::regs().data(), dma_buf, opts) };
 
         Self {
             _phantom: PhantomData,

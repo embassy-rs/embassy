@@ -10,7 +10,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 use linked_list::Table;
 
 use super::word::{Word, WordSize};
-use super::{AnyChannel, Channel, Dir, Request, STATE};
+use super::{AnyChannel, Dir, Request, STATE};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac;
 use crate::pac::gpdma::vals;
@@ -421,11 +421,11 @@ pub struct LinkedListTransfer<'a, const ITEM_COUNT: usize> {
 impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
     /// Create a new linked-list transfer.
     pub unsafe fn new_linked_list<const N: usize>(
-        channel: Peri<'a, impl Channel>,
+        channel: Peri<'a, AnyChannel>,
         table: Table<ITEM_COUNT>,
         options: TransferOptions,
     ) -> Self {
-        Self::new_inner_linked_list(channel.into(), table, options)
+        Self::new_inner_linked_list(channel, table, options)
     }
 
     unsafe fn new_inner_linked_list(
@@ -520,7 +520,7 @@ pub struct Transfer<'a> {
 impl<'a> Transfer<'a> {
     /// Create a new read DMA transfer (peripheral to memory).
     pub unsafe fn new_read<W: Word>(
-        channel: Peri<'a, impl Channel>,
+        channel: Peri<'a, AnyChannel>,
         request: Request,
         peri_addr: *mut W,
         buf: &'a mut [W],
@@ -531,14 +531,14 @@ impl<'a> Transfer<'a> {
 
     /// Create a new read DMA transfer (peripheral to memory), using raw pointers.
     pub unsafe fn new_read_raw<MW: Word, PW: Word>(
-        channel: Peri<'a, impl Channel>,
+        channel: Peri<'a, AnyChannel>,
         request: Request,
         peri_addr: *mut PW,
         buf: *mut [MW],
         options: TransferOptions,
     ) -> Self {
         Self::new_inner(
-            channel.into(),
+            channel,
             request,
             Dir::PeripheralToMemory,
             peri_addr as *const u32,
@@ -553,7 +553,7 @@ impl<'a> Transfer<'a> {
 
     /// Create a new write DMA transfer (memory to peripheral).
     pub unsafe fn new_write<MW: Word, PW: Word>(
-        channel: Peri<'a, impl Channel>,
+        channel: Peri<'a, AnyChannel>,
         request: Request,
         buf: &'a [MW],
         peri_addr: *mut PW,
@@ -564,14 +564,14 @@ impl<'a> Transfer<'a> {
 
     /// Create a new write DMA transfer (memory to peripheral), using raw pointers.
     pub unsafe fn new_write_raw<MW: Word, PW: Word>(
-        channel: Peri<'a, impl Channel>,
+        channel: Peri<'a, AnyChannel>,
         request: Request,
         buf: *const [MW],
         peri_addr: *mut PW,
         options: TransferOptions,
     ) -> Self {
         Self::new_inner(
-            channel.into(),
+            channel,
             request,
             Dir::MemoryToPeripheral,
             peri_addr as *const u32,
@@ -586,7 +586,7 @@ impl<'a> Transfer<'a> {
 
     /// Create a new write DMA transfer (memory to peripheral), writing the same value repeatedly.
     pub unsafe fn new_write_repeated<MW: Word, PW: Word>(
-        channel: Peri<'a, impl Channel>,
+        channel: Peri<'a, AnyChannel>,
         request: Request,
         repeated: &'a MW,
         count: usize,
@@ -594,7 +594,7 @@ impl<'a> Transfer<'a> {
         options: TransferOptions,
     ) -> Self {
         Self::new_inner(
-            channel.into(),
+            channel,
             request,
             Dir::MemoryToPeripheral,
             peri_addr as *const u32,

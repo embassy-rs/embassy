@@ -13,7 +13,7 @@ use embassy_hal_internal::Peri;
 pub use stm32_metapac::timer::vals::{FilterValue, Mms as MasterMode, Sms as SlaveMode, Ts as TriggerSource};
 
 use super::*;
-use crate::dma::{self, Transfer, WritableRingBuffer};
+use crate::dma::{self, Transfer, WritableRingBuffer, dma_into};
 use crate::pac::timer::vals;
 use crate::rcc;
 use crate::time::Hertz;
@@ -814,9 +814,10 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     }
 
     /// Setup a ring buffer for the channel
-    pub fn setup_ring_buffer<'a, W: Word + Into<T::Word>>(
+    pub fn setup_ring_buffer<'a, W: Word + Into<T::Word>, D: super::UpDma<T>>(
         &mut self,
-        dma: Peri<'a, impl super::UpDma<T>>,
+        dma: Peri<'a, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         channel: Channel,
         dma_buf: &'a mut [W],
     ) -> WritableRingBuffer<'a, W> {
@@ -837,7 +838,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
             };
 
             WritableRingBuffer::new(
-                dma,
+                dma_into(dma, &irq),
                 req,
                 self.regs_1ch().ccr(channel.index()).as_ptr() as *mut W,
                 dma_buf,
@@ -850,32 +851,35 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     ///
     /// Note:
     /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
-    pub fn setup_update_dma<'a, W: Word + Into<T::Word>>(
+    pub fn setup_update_dma<'a, W: Word + Into<T::Word>, D: super::UpDma<T>>(
         &mut self,
-        dma: Peri<'a, impl super::UpDma<T>>,
+        dma: Peri<'a, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>,
         channel: Channel,
         duty: &'a [W],
     ) -> Transfer<'a> {
-        self.setup_update_dma_inner(dma.request(), dma, channel, duty)
+        self.setup_update_dma_inner(dma.request(), dma, irq, channel, duty)
     }
 
     /// Generate a sequence of PWM waveform
     ///
     /// Note:
     /// The DMA channel provided does not need to correspond to the requested channel.
-    pub fn setup_channel_update_dma<'a, C: TimerChannel, W: Word + Into<T::Word>>(
+    pub fn setup_channel_update_dma<'a, C: TimerChannel, W: Word + Into<T::Word>, D: super::Dma<T, C>>(
         &mut self,
-        dma: Peri<'a, impl super::Dma<T, C>>,
+        dma: Peri<'a, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>,
         channel: Channel,
         duty: &'a [W],
     ) -> Transfer<'a> {
-        self.setup_update_dma_inner(dma.request(), dma, channel, duty)
+        self.setup_update_dma_inner(dma.request(), dma, irq, channel, duty)
     }
 
-    fn setup_update_dma_inner<'a, W: Word + Into<T::Word>>(
+    fn setup_update_dma_inner<'a, W: Word + Into<T::Word>, D: dma::TypedChannel>(
         &mut self,
         request: dma::Request,
-        dma: Peri<'a, impl dma::Channel>,
+        dma: Peri<'a, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>,
         channel: Channel,
         duty: &'a [W],
     ) -> Transfer<'a> {
@@ -893,7 +897,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
             };
 
             Transfer::new_write(
-                dma,
+                dma_into(dma, &irq),
                 request,
                 duty,
                 self.regs_gp16().ccr(channel.index()).as_ptr() as *mut W,
@@ -931,9 +935,10 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     /// Also be aware that embassy timers use one of timers internally. It is possible to
     /// switch this timer by using `time-driver-timX` feature.
     ///
-    pub fn setup_update_dma_burst<'a, W: Word + Into<T::Word>>(
+    pub fn setup_update_dma_burst<'a, W: Word + Into<T::Word>, D: super::UpDma<T>>(
         &mut self,
-        dma: Peri<'a, impl super::UpDma<T>>,
+        dma: Peri<'a, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>,
         starting_channel: Channel,
         ending_channel: Channel,
         duty: &'a [W],
@@ -969,7 +974,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
             };
 
             Transfer::new_write(
-                dma,
+                dma_into(dma, &irq),
                 req,
                 duty,
                 self.regs_gp16().dmar().as_ptr() as *mut W,
