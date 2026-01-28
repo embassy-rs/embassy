@@ -104,7 +104,6 @@ impl Default for Address {
 
 /// Enable or disable feature
 #[derive(Clone, Default)]
-#[non_exhaustive]
 pub enum Status {
     #[default]
     Disabled,
