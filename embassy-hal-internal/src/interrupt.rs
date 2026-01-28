@@ -6,6 +6,7 @@ use cortex_m::interrupt::InterruptNumber;
 use cortex_m::peripheral::NVIC;
 use critical_section::CriticalSection;
 
+/// Irq trait
 pub trait Interrupt {}
 
 /// Interrupt handler trait.
