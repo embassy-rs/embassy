@@ -472,6 +472,11 @@ impl<'d, Dir: EndpointDir> driver::Endpoint for Endpoint<'d, Dir> {
     async fn wait_enabled(&mut self) {
         self.wait_enabled_state(true).await
     }
+
+    fn is_enabled(&self) -> bool {
+        let ep_addr = self.info.addr.index();
+        Dir::is_enabled(T::regs(), ep_addr)
+    }
 }
 
 #[allow(private_bounds)]
