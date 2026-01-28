@@ -12,7 +12,7 @@ pub mod drop;
 mod macros;
 mod peripheral;
 pub mod ratio;
-pub use peripheral::{Peri, PeripheralType};
+pub use peripheral::{BindablePeripheralType, BoundPeri, Peri, PeripheralType};
 
 #[cfg(feature = "cortex-m")]
 pub mod interrupt;

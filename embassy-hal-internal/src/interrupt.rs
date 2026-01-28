@@ -6,6 +6,38 @@ use cortex_m::interrupt::InterruptNumber;
 use cortex_m::peripheral::NVIC;
 use critical_section::CriticalSection;
 
+pub trait Interrupt {}
+
+/// Interrupt handler trait.
+///
+/// Drivers that need to handle interrupts implement this trait.
+/// The user must ensure `on_interrupt()` is called every time the interrupt fires.
+/// Drivers must use use [`Binding`] to assert at compile time that the user has done so.
+pub trait Handler<I: Interrupt> {
+    /// Interrupt handler function.
+    ///
+    /// Must be called every time the `I` interrupt fires, synchronously from
+    /// the interrupt handler context.
+    ///
+    /// # Safety
+    ///
+    /// This function must ONLY be called from the interrupt handler for `I`.
+    unsafe fn on_interrupt();
+}
+
+/// Compile-time assertion that an interrupt has been bound to a handler.
+///
+/// For the vast majority of cases, you should use the `bind_interrupts!`
+/// macro instead of writing `unsafe impl`s of this trait.
+///
+/// # Safety
+///
+/// By implementing this trait, you are asserting that you have arranged for `H::on_interrupt()`
+/// to be called every time the `I` interrupt fires.
+///
+/// This allows drivers to check bindings at compile-time.
+pub unsafe trait Binding<I: Interrupt, H: Handler<I>> {}
+
 /// Generate a standard `mod interrupt` for a HAL.
 #[macro_export]
 macro_rules! interrupt_mod {
@@ -29,8 +61,10 @@ macro_rules! interrupt_mod {
             /// interrupts directly (pending/unpending, enabling/disabling, setting the priority, etc...)
             pub mod typelevel {
                 use super::InterruptExt;
+                use embassy_hal_internal::interrupt;
+                pub use embassy_hal_internal::interrupt::{Binding, Handler};
 
-                trait SealedInterrupt {}
+                trait SealedInterrupt: interrupt::Interrupt {}
 
                 /// Type-level interrupt.
                 ///
@@ -103,41 +137,12 @@ macro_rules! interrupt_mod {
                     #[doc=stringify!($irqs)]
                     #[doc=" typelevel interrupt."]
                     pub enum $irqs {}
+                    impl interrupt::Interrupt for $irqs{}
                     impl SealedInterrupt for $irqs{}
                     impl Interrupt for $irqs {
                         const IRQ: super::Interrupt = super::Interrupt::$irqs;
                     }
                 )*
-
-                /// Interrupt handler trait.
-                ///
-                /// Drivers that need to handle interrupts implement this trait.
-                /// The user must ensure `on_interrupt()` is called every time the interrupt fires.
-                /// Drivers must use use [`Binding`] to assert at compile time that the user has done so.
-                pub trait Handler<I: Interrupt> {
-                    /// Interrupt handler function.
-                    ///
-                    /// Must be called every time the `I` interrupt fires, synchronously from
-                    /// the interrupt handler context.
-                    ///
-                    /// # Safety
-                    ///
-                    /// This function must ONLY be called from the interrupt handler for `I`.
-                    unsafe fn on_interrupt();
-                }
-
-                /// Compile-time assertion that an interrupt has been bound to a handler.
-                ///
-                /// For the vast majority of cases, you should use the `bind_interrupts!`
-                /// macro instead of writing `unsafe impl`s of this trait.
-                ///
-                /// # Safety
-                ///
-                /// By implementing this trait, you are asserting that you have arranged for `H::on_interrupt()`
-                /// to be called every time the `I` interrupt fires.
-                ///
-                /// This allows drivers to check bindings at compile-time.
-                pub unsafe trait Binding<I: Interrupt, H: Handler<I>> {}
             }
         }
     };
