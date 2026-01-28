@@ -72,36 +72,32 @@ pub(crate) trait SealedChannel: StoppablePeripheral {
 /// This trait provides the interrupt type and handler for a DMA channel.
 /// It is automatically implemented for all DMA channel peripherals.
 #[allow(private_bounds)]
-pub trait ChannelInterrupt {
+pub trait ChannelInterrupt: Into<AnyChannel> {
     /// The interrupt type for this DMA channel.
     type Interrupt: interrupt::typelevel::Interrupt;
 
     #[doc(hidden)]
     #[cfg_attr(not(feature = "rt"), allow(unused))]
     unsafe fn on_irq();
+
+    /// Degrade this channel to a type-erased [`AnyChannel`], verifying interrupt binding.
+    fn degrade(self, _irq: impl interrupt::typelevel::Binding<Self::Interrupt, InterruptHandler<Self>>) -> AnyChannel {
+        self.into()
+    }
 }
 
 /// DMA channel.
 #[allow(private_bounds)]
 pub trait Channel: SealedChannel + PeripheralType + Into<AnyChannel> + 'static {}
 
-/// Extension trait providing `degrade()` for DMA channels with interrupt binding verification.
-pub trait ChannelExt: Channel + ChannelInterrupt {
-    /// Downgrade this channel to a type-erased [`AnyChannel`], verifying interrupt binding.
-    fn degrade(self, _irq: impl interrupt::typelevel::Binding<Self::Interrupt, InterruptHandler<Self>>) -> AnyChannel;
-}
-
-impl<T: Channel + ChannelInterrupt> ChannelExt for T {
-    fn degrade(self, _irq: impl interrupt::typelevel::Binding<Self::Interrupt, InterruptHandler<Self>>) -> AnyChannel {
-        self.into()
-    }
-}
-
 /// Asserts at compile time that a DMA channel's interrupt is bound.
 ///
 /// This function is used by the `new_dma!` macro to verify interrupt bindings.
 #[inline(always)]
-pub fn assert_dma_binding<T: ChannelInterrupt, I: interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>>(
+pub(crate) fn assert_dma_binding<
+    T: ChannelInterrupt,
+    I: interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>,
+>(
     _channel: &T,
     _irq: &I,
 ) {
