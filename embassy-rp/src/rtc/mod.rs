@@ -1,4 +1,5 @@
 //! RTC driver.
+mod conversions;
 mod filter;
 
 use core::future::poll_fn;
@@ -9,13 +10,8 @@ use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
 pub use self::filter::DateTimeFilter;
-
-#[cfg_attr(feature = "chrono", path = "datetime_chrono.rs")]
-#[cfg_attr(not(feature = "chrono"), path = "datetime_no_deps.rs")]
-mod datetime;
-
-pub use self::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
 use crate::clocks::clk_rtc_freq;
+pub use crate::datetime::{DateTime, DayOfWeek, Error as DateTimeError};
 use crate::interrupt::typelevel::Binding;
 use crate::interrupt::{self, InterruptExt};
 
@@ -97,7 +93,7 @@ impl<'d, T: Instance> Rtc<'d, T> {
     ///
     /// Will return `RtcError::InvalidDateTime` if the datetime is not a valid range.
     pub fn set_datetime(&mut self, t: DateTime) -> Result<(), RtcError> {
-        self::datetime::validate_datetime(&t).map_err(RtcError::InvalidDateTime)?;
+        conversions::validate_datetime(&t).map_err(RtcError::InvalidDateTime)?;
 
         // disable RTC while we configure it
         self.inner.regs().ctrl().modify(|w| w.set_rtc_enable(false));
@@ -106,10 +102,10 @@ impl<'d, T: Instance> Rtc<'d, T> {
         }
 
         self.inner.regs().setup_0().write(|w| {
-            self::datetime::write_setup_0(&t, w);
+            conversions::write_setup_0(&t, w);
         });
         self.inner.regs().setup_1().write(|w| {
-            self::datetime::write_setup_1(&t, w);
+            conversions::write_setup_1(&t, w);
         });
 
         // Load the new datetime and re-enable RTC
@@ -134,7 +130,7 @@ impl<'d, T: Instance> Rtc<'d, T> {
         let rtc_0 = self.inner.regs().rtc_0().read();
         let rtc_1 = self.inner.regs().rtc_1().read();
 
-        self::datetime::datetime_from_registers(rtc_0, rtc_1).map_err(RtcError::InvalidDateTime)
+        conversions::datetime_from_registers(rtc_0, rtc_1).map_err(RtcError::InvalidDateTime)
     }
 
     /// Disable the alarm that was scheduled with [`schedule_alarm`].

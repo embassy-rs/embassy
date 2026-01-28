@@ -17,6 +17,7 @@ The `embassy-nrf` HAL supports most variants of the nRF family:
 * nRF51 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf51))
 * nRF52 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf52840))
 * nRF53 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf5340))
+* nRF54 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf54l15))
 * nRF91 ([examples](https://github.com/embassy-rs/embassy/tree/main/examples/nrf9160))
 
 Most peripherals are supported, but can vary between chip families. To check what's available, make sure to pick the MCU you're targeting in the top menu in the [documentation](https://docs.embassy.dev/embassy-nrf).

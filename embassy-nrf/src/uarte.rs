@@ -1092,6 +1092,20 @@ mod eh02 {
     }
 }
 
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {
+            Self::BufferTooLong => f.write_str("BufferTooLong"),
+            Self::BufferNotInRAM => f.write_str("BufferNotInRAM"),
+            Self::Framing => f.write_str("Framing"),
+            Self::Parity => f.write_str("Parity"),
+            Self::Overrun => f.write_str("Overrun"),
+            Self::Break => f.write_str("Break"),
+        }
+    }
+}
+impl core::error::Error for Error {}
+
 mod _embedded_io {
     use super::*;
 
@@ -1121,12 +1135,18 @@ mod _embedded_io {
             self.write(buf).await?;
             Ok(buf.len())
         }
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
+        }
     }
 
     impl<'d> embedded_io_async::Write for UarteTx<'d> {
         async fn write(&mut self, buf: &[u8]) -> Result<usize, Self::Error> {
             self.write(buf).await?;
             Ok(buf.len())
+        }
+        async fn flush(&mut self) -> Result<(), Self::Error> {
+            Ok(())
         }
     }
 }

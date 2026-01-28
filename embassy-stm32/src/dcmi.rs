@@ -129,7 +129,9 @@ where
     pub fn new_8bit(
         peri: Peri<'d, T>,
         dma: Peri<'d, Dma>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<Dma::Interrupt, crate::dma::InterruptHandler<Dma>>
+        + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
@@ -146,14 +148,16 @@ where
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7);
         config_pins!(v_sync, h_sync, pixclk);
 
-        Self::new_inner(peri, dma, config, false, 0b00)
+        Self::new_inner(peri, dma, _irq, config, false, 0b00)
     }
 
     /// Create a new DCMI driver with 10 data bits.
     pub fn new_10bit(
         peri: Peri<'d, T>,
         dma: Peri<'d, Dma>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<Dma::Interrupt, crate::dma::InterruptHandler<Dma>>
+        + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
@@ -172,14 +176,16 @@ where
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9);
         config_pins!(v_sync, h_sync, pixclk);
 
-        Self::new_inner(peri, dma, config, false, 0b01)
+        Self::new_inner(peri, dma, _irq, config, false, 0b01)
     }
 
     /// Create a new DCMI driver with 12 data bits.
     pub fn new_12bit(
         peri: Peri<'d, T>,
         dma: Peri<'d, Dma>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<Dma::Interrupt, crate::dma::InterruptHandler<Dma>>
+        + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
@@ -200,14 +206,16 @@ where
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11);
         config_pins!(v_sync, h_sync, pixclk);
 
-        Self::new_inner(peri, dma, config, false, 0b10)
+        Self::new_inner(peri, dma, _irq, config, false, 0b10)
     }
 
     /// Create a new DCMI driver with 14 data bits.
     pub fn new_14bit(
         peri: Peri<'d, T>,
         dma: Peri<'d, Dma>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<Dma::Interrupt, crate::dma::InterruptHandler<Dma>>
+        + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
@@ -230,14 +238,16 @@ where
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12, d13);
         config_pins!(v_sync, h_sync, pixclk);
 
-        Self::new_inner(peri, dma, config, false, 0b11)
+        Self::new_inner(peri, dma, _irq, config, false, 0b11)
     }
 
     /// Create a new DCMI driver with 8 data bits, with embedded synchronization.
     pub fn new_es_8bit(
         peri: Peri<'d, T>,
         dma: Peri<'d, Dma>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<Dma::Interrupt, crate::dma::InterruptHandler<Dma>>
+        + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
@@ -252,14 +262,16 @@ where
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7);
         config_pins!(pixclk);
 
-        Self::new_inner(peri, dma, config, true, 0b00)
+        Self::new_inner(peri, dma, _irq, config, true, 0b00)
     }
 
     /// Create a new DCMI driver with 10 data bits, with embedded synchronization.
     pub fn new_es_10bit(
         peri: Peri<'d, T>,
         dma: Peri<'d, Dma>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<Dma::Interrupt, crate::dma::InterruptHandler<Dma>>
+        + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
@@ -276,14 +288,16 @@ where
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9);
         config_pins!(pixclk);
 
-        Self::new_inner(peri, dma, config, true, 0b01)
+        Self::new_inner(peri, dma, _irq, config, true, 0b01)
     }
 
     /// Create a new DCMI driver with 12 data bits, with embedded synchronization.
     pub fn new_es_12bit(
         peri: Peri<'d, T>,
         dma: Peri<'d, Dma>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<Dma::Interrupt, crate::dma::InterruptHandler<Dma>>
+        + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
@@ -302,14 +316,16 @@ where
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11);
         config_pins!(pixclk);
 
-        Self::new_inner(peri, dma, config, true, 0b10)
+        Self::new_inner(peri, dma, _irq, config, true, 0b10)
     }
 
     /// Create a new DCMI driver with 14 data bits, with embedded synchronization.
     pub fn new_es_14bit(
         peri: Peri<'d, T>,
         dma: Peri<'d, Dma>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<Dma::Interrupt, crate::dma::InterruptHandler<Dma>>
+        + 'd,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         d2: Peri<'d, impl D2Pin<T>>,
@@ -330,16 +346,20 @@ where
         config_pins!(d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d10, d11, d12, d13);
         config_pins!(pixclk);
 
-        Self::new_inner(peri, dma, config, true, 0b11)
+        Self::new_inner(peri, dma, _irq, config, true, 0b11)
     }
 
     fn new_inner(
         peri: Peri<'d, T>,
         dma: Peri<'d, Dma>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<Dma::Interrupt, crate::dma::InterruptHandler<Dma>>
+        + 'd,
         config: Config,
         use_embedded_synchronization: bool,
         edm: u8,
     ) -> Self {
+        crate::dma::assert_dma_binding(&*dma, &_irq);
         rcc::enable_and_reset::<T>();
 
         peri.regs().cr().modify(|r| {

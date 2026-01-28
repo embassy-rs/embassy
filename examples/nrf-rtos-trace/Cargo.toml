@@ -19,7 +19,7 @@ log = [
 embassy-sync = { version = "0.7.2", path = "../../embassy-sync" }
 embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "rtos-trace"] }
 embassy-time = { version = "0.5.0", path = "../../embassy-time" }
-embassy-nrf = { version = "0.8.0", path = "../../embassy-nrf", features = ["nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac"] }
+embassy-nrf = { version = "0.9.0", path = "../../embassy-nrf", features = ["nrf52840", "time-driver-rtc1", "gpiote", "unstable-pac"] }
 
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"

@@ -34,6 +34,8 @@ pub enum XspiWidth {
     QUAD,
     /// Eight lanes
     OCTO,
+    /// Sixteen lanes (Hexadeca-SPI)
+    HEXA,
 }
 
 impl Into<u8> for XspiWidth {
@@ -44,6 +46,7 @@ impl Into<u8> for XspiWidth {
             XspiWidth::DUAL => 0b10,
             XspiWidth::QUAD => 0b11,
             XspiWidth::OCTO => 0b100,
+            XspiWidth::HEXA => 0b101,
         }
     }
 }
@@ -83,6 +86,8 @@ pub enum MemoryType {
     MacronixRam,
     HyperBusMemory,
     HyperBusRegister,
+    APMemory16Bits, // AP Memory 16-bit (for  PSRAM in X8/X16 mode)
+    APMemory,       //The same as Standard
 }
 
 impl Into<u8> for MemoryType {
@@ -94,6 +99,8 @@ impl Into<u8> for MemoryType {
             MemoryType::MacronixRam => 0x03,
             MemoryType::HyperBusMemory => 0x04,
             MemoryType::HyperBusRegister => 0x04,
+            MemoryType::APMemory16Bits => 0x06,
+            MemoryType::APMemory => 0x02,
         }
     }
 }

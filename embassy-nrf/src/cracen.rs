@@ -18,10 +18,7 @@ pub struct Cracen<'d, M: Mode> {
 impl<'d> Cracen<'d, Blocking> {
     /// Create a new CRACEN driver.
     pub fn new_blocking(_peri: Peri<'d, peripherals::CRACEN>) -> Self {
-        let me = Self { _peri, _p: PhantomData };
-
-        me.stop();
-        me
+        Self { _peri, _p: PhantomData }
     }
 }
 
@@ -48,7 +45,14 @@ impl<'d, M: Mode> Cracen<'d, M> {
         while r.rngcontrol().status().read().state() == pac::cracencore::vals::State::STARTUP {}
     }
 
-    fn stop(&self) {
+    fn stop_rng(&self) {
+        let r = Self::core();
+        r.rngcontrol().control().write(|w| {
+            w.set_enable(false);
+        });
+
+        while r.rngcontrol().status().read().state() != pac::cracencore::vals::State::RESET {}
+
         let r = Self::regs();
         r.enable().write(|w| {
             w.set_cryptomaster(false);
@@ -69,7 +73,7 @@ impl<'d, M: Mode> Cracen<'d, M> {
             chunk[..to_copy].copy_from_slice(&word[..to_copy]);
         }
 
-        self.stop();
+        self.stop_rng();
     }
 
     /// Generate a random u32
@@ -90,19 +94,7 @@ impl<'d, M: Mode> Cracen<'d, M> {
 
 impl<'d, M: Mode> Drop for Cracen<'d, M> {
     fn drop(&mut self) {
-        let r = Self::core();
-        r.rngcontrol().control().write(|w| {
-            w.set_enable(false);
-        });
-
-        while r.rngcontrol().status().read().state() != pac::cracencore::vals::State::RESET {}
-
-        let r = Self::regs();
-        r.enable().write(|w| {
-            w.set_cryptomaster(false);
-            w.set_rng(false);
-            w.set_pkeikg(false);
-        });
+        // nothing to do here, since we stop+disable rng for each operation.
     }
 }
 

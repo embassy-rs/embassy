@@ -2,17 +2,17 @@
 
 use core::marker::PhantomData;
 
-pub use stm32_metapac::timer::vals::{Ckd, Mms2, Ossi, Ossr};
-
-use super::low_level::{CountingMode, OutputPolarity, Timer};
+use super::low_level::{CountingMode, OutputPolarity, RoundTo, Timer};
 use super::simple_pwm::PwmPin;
 use super::{AdvancedInstance4Channel, Ch1, Ch2, Ch3, Ch4, Channel, TimerComplementaryPin};
 use crate::Peri;
 use crate::dma::word::Word;
-use crate::gpio::{AnyPin, OutputType};
+use crate::gpio::{AfType, AnyPin, OutputType};
+pub use crate::pac::timer::vals::{Ccds, Ckd, Mms2, Ossi, Ossr};
 use crate::time::Hertz;
 use crate::timer::TimerChannel;
 use crate::timer::low_level::OutputCompareMode;
+use crate::timer::simple_pwm::PwmPinConfig;
 
 /// Complementary PWM pin wrapper.
 ///
@@ -28,9 +28,27 @@ impl<'d, T: AdvancedInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(
     pub fn new(pin: Peri<'d, if_afio!(impl TimerComplementaryPin<T, C, A>)>, output_type: OutputType) -> Self {
         critical_section::with(|_| {
             pin.set_low();
-            set_as_af!(
-                pin,
-                crate::gpio::AfType::output(output_type, crate::gpio::Speed::VeryHigh)
+            set_as_af!(pin, AfType::output(output_type, crate::gpio::Speed::VeryHigh));
+        });
+        ComplementaryPwmPin {
+            pin: pin.into(),
+            phantom: PhantomData,
+        }
+    }
+
+    /// Create a new PWM pin instance with config.
+    pub fn new_with_config(
+        pin: Peri<'d, if_afio!(impl TimerComplementaryPin<T, C, A>)>,
+        pin_config: PwmPinConfig,
+    ) -> Self {
+        critical_section::with(|_| {
+            pin.set_low();
+            #[cfg(gpio_v1)]
+            set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
+            #[cfg(gpio_v2)]
+            pin.set_as_af(
+                pin.af_num(),
+                AfType::output_pull(pin_config.output_type, pin_config.speed, pin_config.pull),
             );
         });
         ComplementaryPwmPin {
@@ -163,15 +181,85 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
 
     /// Set PWM frequency.
     ///
+    /// The actual frequency may differ from the requested value due to hardware
+    /// limitations. The timer will round towards a slower (longer) period.
+    ///
     /// Note: that the frequency will not be applied in the timer until an update event
     /// occurs.
     pub fn set_frequency(&mut self, freq: Hertz) {
         let multiplier = if self.inner.get_counting_mode().is_center_aligned() {
-            2u8
+            2u64
         } else {
-            1u8
+            1u64
         };
-        self.inner.set_frequency_internal(freq * multiplier, 16);
+        let timer_f = T::frequency().0 as u64;
+        let clocks = timer_f / (freq.0 as u64 * multiplier);
+        self.inner.set_period_clocks_internal(clocks, RoundTo::Slower, 16);
+    }
+
+    /// Set the PWM period in milliseconds.
+    ///
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations. The timer will round towards a slower (longer) period.
+    ///
+    /// Note: that the period will not be applied in the timer until an update event
+    /// occurs.
+    pub fn set_period_ms(&mut self, ms: u32) {
+        let timer_f = T::frequency().0 as u64;
+        let mut clocks = timer_f * ms as u64 / 1_000;
+        if self.inner.get_counting_mode().is_center_aligned() {
+            clocks = clocks / 2;
+        }
+        self.inner.set_period_clocks(clocks, RoundTo::Slower);
+    }
+
+    /// Set the PWM period in microseconds.
+    ///
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations. The timer will round towards a slower (longer) period.
+    ///
+    /// Note: that the period will not be applied in the timer until an update event
+    /// occurs.
+    pub fn set_period_us(&mut self, us: u32) {
+        let timer_f = T::frequency().0 as u64;
+        let mut clocks = timer_f * us as u64 / 1_000_000;
+        if self.inner.get_counting_mode().is_center_aligned() {
+            clocks = clocks / 2;
+        }
+        self.inner.set_period_clocks(clocks, RoundTo::Slower);
+    }
+
+    /// Set the PWM period in seconds.
+    ///
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations. The timer will round towards a slower (longer) period.
+    ///
+    /// Note: that the period will not be applied in the timer until an update event
+    /// occurs.
+    pub fn set_period_secs(&mut self, secs: u32) {
+        let timer_f = T::frequency().0 as u64;
+        let mut clocks = timer_f * secs as u64;
+        if self.inner.get_counting_mode().is_center_aligned() {
+            clocks = clocks / 2;
+        }
+        self.inner.set_period_clocks(clocks, RoundTo::Slower);
+    }
+
+    /// Set the PWM period using an `embassy_time::Duration`.
+    ///
+    /// The actual period may differ from the requested value due to hardware
+    /// limitations. The timer will round towards a slower (longer) period.
+    ///
+    /// Note: that the period will not be applied in the timer until an update event
+    /// occurs.
+    #[cfg(feature = "time")]
+    pub fn set_period(&mut self, period: embassy_time::Duration) {
+        let timer_f = T::frequency().0 as u64;
+        let mut clocks = timer_f * period.as_ticks() / embassy_time::TICK_HZ;
+        if self.inner.get_counting_mode().is_center_aligned() {
+            clocks = clocks / 2;
+        }
+        self.inner.set_period_clocks(clocks, RoundTo::Slower);
     }
 
     /// Get max duty value.
@@ -220,13 +308,40 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Generate a sequence of PWM waveform
     ///
     /// Note:
-    /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
-    pub async fn waveform_up<W: Word + Into<T::Word>>(
+    /// The DMA channel provided does not need to correspond to the requested channel.
+    pub async fn waveform<
+        C: TimerChannel,
+        W: Word + Into<T::Word>,
+        D: super::Dma<T, C> + crate::dma::ChannelInterrupt,
+    >(
         &mut self,
-        dma: Peri<'_, impl super::UpDma<T>>,
+        dma: Peri<'_, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + '_,
         channel: Channel,
         duty: &[W],
     ) {
+        crate::dma::assert_dma_binding(&*dma, &_irq);
+        self.inner.enable_channel(channel, true);
+        self.inner.enable_channel(C::CHANNEL, true);
+        self.inner.clamp_compare_value::<W>(channel);
+        self.inner.set_cc_dma_selection(Ccds::ON_UPDATE);
+        self.inner.set_cc_dma_enable_state(C::CHANNEL, true);
+        self.inner.setup_channel_update_dma(dma, channel, duty).await;
+        self.inner.set_cc_dma_enable_state(C::CHANNEL, false);
+    }
+
+    /// Generate a sequence of PWM waveform
+    ///
+    /// Note:
+    /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
+    pub async fn waveform_up<W: Word + Into<T::Word>, D: super::UpDma<T> + crate::dma::ChannelInterrupt>(
+        &mut self,
+        dma: Peri<'_, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + '_,
+        channel: Channel,
+        duty: &[W],
+    ) {
+        crate::dma::assert_dma_binding(&*dma, &_irq);
         self.inner.enable_channel(channel, true);
         self.inner.clamp_compare_value::<W>(channel);
         self.inner.enable_update_dma(true);
@@ -263,13 +378,18 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Also be aware that embassy timers use one of timers internally. It is possible to
     /// switch this timer by using `time-driver-timX` feature.
     ///
-    pub async fn waveform_up_multi_channel<W: Word + Into<T::Word>>(
+    pub async fn waveform_up_multi_channel<
+        W: Word + Into<T::Word>,
+        D: super::UpDma<T> + crate::dma::ChannelInterrupt,
+    >(
         &mut self,
-        dma: Peri<'_, impl super::UpDma<T>>,
+        dma: Peri<'_, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + '_,
         starting_channel: Channel,
         ending_channel: Channel,
         duty: &[W],
     ) {
+        crate::dma::assert_dma_binding(&*dma, &_irq);
         [Channel::Ch1, Channel::Ch2, Channel::Ch3, Channel::Ch4]
             .iter()
             .filter(|ch| ch.index() >= starting_channel.index())
@@ -326,7 +446,7 @@ impl<'d, T: AdvancedInstance4Channel> embedded_hal_02::Pwm for ComplementaryPwm<
     where
         P: Into<Self::Time>,
     {
-        self.inner.set_frequency(period.into());
+        self.inner.set_frequency(period.into(), RoundTo::Slower);
     }
 }
 

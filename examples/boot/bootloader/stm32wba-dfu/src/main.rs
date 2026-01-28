@@ -13,7 +13,7 @@ use embassy_stm32::{Config, bind_interrupts, peripherals, usb};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_usb::{Builder, msos};
 use embassy_usb_dfu::consts::DfuAttributes;
-use embassy_usb_dfu::{Control, ResetImmediate, usb_dfu};
+use embassy_usb_dfu::{ResetImmediate, new_state, usb_dfu};
 
 bind_interrupts!(struct Irqs {
     USB_OTG_HS => usb::InterruptHandler<peripherals::USB_OTG_HS>;
@@ -94,10 +94,10 @@ fn main() -> ! {
         let mut control_buf = [0; 4096];
 
         #[cfg(not(feature = "verify"))]
-        let mut state = Control::new(updater, DfuAttributes::CAN_DOWNLOAD, ResetImmediate);
+        let mut state = new_state(updater, DfuAttributes::CAN_DOWNLOAD, ResetImmediate);
 
         #[cfg(feature = "verify")]
-        let mut state = Control::new(updater, DfuAttributes::CAN_DOWNLOAD, ResetImmediate, PUBLIC_SIGNING_KEY);
+        let mut state = new_state(updater, DfuAttributes::CAN_DOWNLOAD, ResetImmediate, PUBLIC_SIGNING_KEY);
 
         let mut builder = Builder::new(
             driver,

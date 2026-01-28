@@ -17,6 +17,7 @@ defmt = "1.0.1"
 defmt-rtt = "1.0.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 panic-semihosting = "0.6.0"
+rand_core = "0.9.3"
 
 [profile.release]
 debug = 2

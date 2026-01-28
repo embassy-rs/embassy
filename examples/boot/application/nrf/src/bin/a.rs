@@ -23,9 +23,20 @@ static APP_B: &[u8] = include_bytes!("../../b.bin");
 async fn main(_spawner: Spawner) {
     let p = embassy_nrf::init(Default::default());
 
+    #[cfg(not(feature = "nrf54"))]
     let mut button = Input::new(p.P0_11, Pull::Up);
+    #[cfg(not(feature = "nrf54"))]
     let mut led = Output::new(p.P0_13, Level::Low, OutputDrive::Standard);
+    #[cfg(not(feature = "nrf54"))]
     let mut led_reverted = Output::new(p.P0_14, Level::High, OutputDrive::Standard);
+
+    // nRF54 DK
+    #[cfg(feature = "nrf54")]
+    let mut button = Input::new(p.P1_13, Pull::Up);
+    #[cfg(feature = "nrf54")]
+    let mut led = Output::new(p.P1_14, Level::Low, OutputDrive::Standard);
+    #[cfg(feature = "nrf54")]
+    let mut led_reverted = Output::new(p.P2_09, Level::High, OutputDrive::Standard);
 
     //let mut led = Output::new(p.P1_10, Level::Low, OutputDrive::Standard);
     //let mut button = Input::new(p.P1_02, Pull::Up);
@@ -40,8 +51,12 @@ async fn main(_spawner: Spawner) {
     // the watchdog will cause the device to reset as per its configured timeout in the bootloader.
     // This helps is avoid a situation where new firmware might be bad and block our executor.
     // If firmware is bad in this way then the bootloader will revert to any previous version.
-    let wdt_config = wdt::Config::try_new(&p.WDT).unwrap();
-    let (_wdt, [_wdt_handle]) = match Watchdog::try_new(p.WDT, wdt_config) {
+    #[cfg(feature = "nrf54")]
+    let wdt = p.WDT0;
+    #[cfg(not(feature = "nrf54"))]
+    let wdt = p.WDT;
+    let wdt_config = wdt::Config::try_new(&wdt).unwrap();
+    let (_wdt, [_wdt_handle]) = match Watchdog::try_new(wdt, wdt_config) {
         Ok(x) => x,
         Err(_) => {
             // Watchdog already active with the wrong number of handles, waiting for it to timeout...
@@ -51,11 +66,15 @@ async fn main(_spawner: Spawner) {
         }
     };
 
+    // RRAMC for nRF54
+    #[cfg(feature = "nrf54")]
+    let nvmc = Nvmc::new(p.RRAMC);
+    #[cfg(not(feature = "nrf54"))]
     let nvmc = Nvmc::new(p.NVMC);
     let nvmc = Mutex::new(BlockingAsync::new(nvmc));
 
     let config = FirmwareUpdaterConfig::from_linkerfile(&nvmc, &nvmc);
-    let mut magic = [0; 4];
+    let mut magic = [0; 16];
     let mut updater = FirmwareUpdater::new(config, &mut magic);
     let state = updater.get_state().await.unwrap();
     if state == State::Revert {

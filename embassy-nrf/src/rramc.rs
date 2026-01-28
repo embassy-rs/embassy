@@ -1,5 +1,6 @@
 //! Resistive Random-Access Memory Controller driver.
 
+use core::marker::PhantomData;
 use core::{ptr, slice};
 
 use embedded_storage::nor_flash::{
@@ -9,11 +10,28 @@ use embedded_storage::nor_flash::{
 use crate::peripherals::RRAMC;
 use crate::{Peri, pac};
 
+/// Unbuffered RRAMC mode.
+pub struct Unbuffered;
+
+/// Buffered RRAMC mode.
+pub struct Buffered<const BUFFER_SIZE_BYTES: usize>;
+
+trait SealedRramMode {}
+
+/// Operating modes for RRAMC
+#[allow(private_bounds)]
+pub trait RramMode: SealedRramMode {}
+
+impl SealedRramMode for Unbuffered {}
+impl RramMode for Unbuffered {}
+impl<const BUFFER_SIZE_BYTES: usize> SealedRramMode for Buffered<BUFFER_SIZE_BYTES> {}
+impl<const BUFFER_SIZE_BYTES: usize> RramMode for Buffered<BUFFER_SIZE_BYTES> {}
+
 //
 // Export Nvmc alias and page size for downstream compatibility
 //
 /// RRAM-backed `Nvmc` compatibile driver.
-pub type Nvmc<'d> = Rramc<'d>;
+pub type Nvmc<'d> = Rramc<'d, Unbuffered>;
 /// Emulated page size.  RRAM does not use pages. This exists only for downstream compatibility.
 pub const PAGE_SIZE: usize = 4096;
 
@@ -44,16 +62,27 @@ impl NorFlashError for Error {
 
 /// Resistive Random-Access Memory Controller (RRAMC) that implements the `embedded-storage`
 /// traits.
-pub struct Rramc<'d> {
+pub struct Rramc<'d, MODE: RramMode> {
     _p: Peri<'d, RRAMC>,
+    _d: PhantomData<MODE>,
 }
 
-impl<'d> Rramc<'d> {
+impl<'d> Rramc<'d, Unbuffered> {
     /// Create Rramc driver.
-    pub fn new(_p: Peri<'d, RRAMC>) -> Self {
-        Self { _p }
+    pub fn new(_p: Peri<'d, RRAMC>) -> Rramc<'d, Unbuffered> {
+        Self { _p, _d: PhantomData }
     }
+}
 
+impl<'d, const BUFFER_SIZE_BYTES: usize> Rramc<'d, Buffered<BUFFER_SIZE_BYTES>> {
+    /// Create Rramc driver.
+    pub fn new_buffered(_p: Peri<'d, RRAMC>) -> Rramc<'d, Buffered<BUFFER_SIZE_BYTES>> {
+        assert!(BUFFER_SIZE_BYTES > 0 && BUFFER_SIZE_BYTES <= 512);
+        Self { _p, _d: PhantomData }
+    }
+}
+
+impl<'d, MODE: RramMode> Rramc<'d, MODE> {
     fn regs() -> pac::rramc::Rramc {
         pac::RRAMC
     }
@@ -63,18 +92,48 @@ impl<'d> Rramc<'d> {
         while !p.ready().read().ready() {}
     }
 
+    fn enable_read(&self) {
+        Self::regs().config().write(|w| w.set_wen(false));
+    }
+
+    fn finish_write(&mut self) {
+        self.enable_read();
+        self.wait_ready();
+    }
+}
+
+impl<'d> Rramc<'d, Unbuffered> {
+    fn wait_ready_write(&mut self) {
+        let p = Self::regs();
+        while !p.readynext().read().readynext() {}
+    }
+
+    fn enable_write(&self) {
+        Self::regs().config().write(|w| {
+            w.set_wen(true);
+            w.set_writebufsize(pac::rramc::vals::Writebufsize::UNBUFFERED)
+        });
+    }
+}
+
+impl<'d, const SIZE: usize> Rramc<'d, Buffered<SIZE>> {
     fn wait_ready_write(&mut self) {
         let p = Self::regs();
         while !p.readynext().read().readynext() {}
         while !p.bufstatus().writebufempty().read().empty() {}
     }
 
-    fn enable_read(&self) {
-        Self::regs().config().write(|w| w.set_wen(false));
+    fn commit(&self) {
+        let p = Self::regs();
+        p.tasks_commitwritebuf().write_value(1);
+        while !p.bufstatus().writebufempty().read().empty() {}
     }
 
     fn enable_write(&self) {
-        Self::regs().config().write(|w| w.set_wen(true));
+        Self::regs().config().write(|w| {
+            w.set_wen(true);
+            w.set_writebufsize(pac::rramc::vals::Writebufsize::from_bits(SIZE as _))
+        });
     }
 }
 
@@ -83,13 +142,13 @@ impl<'d> Rramc<'d> {
 // implement the traits for downstream compatibility.
 //
 
-impl<'d> MultiwriteNorFlash for Rramc<'d> {}
+impl<'d> MultiwriteNorFlash for Rramc<'d, Unbuffered> {}
 
-impl<'d> ErrorType for Rramc<'d> {
+impl<'d> ErrorType for Rramc<'d, Unbuffered> {
     type Error = Error;
 }
 
-impl<'d> ReadNorFlash for Rramc<'d> {
+impl<'d> ReadNorFlash for Rramc<'d, Unbuffered> {
     const READ_SIZE: usize = 1;
 
     fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
@@ -107,7 +166,7 @@ impl<'d> ReadNorFlash for Rramc<'d> {
     }
 }
 
-impl<'d> NorFlash for Rramc<'d> {
+impl<'d> NorFlash for Rramc<'d, Unbuffered> {
     const WRITE_SIZE: usize = WRITE_LINE_SIZE;
     const ERASE_SIZE: usize = PAGE_SIZE;
 
@@ -139,9 +198,7 @@ impl<'d> NorFlash for Rramc<'d> {
                 self.wait_ready_write();
             }
         }
-
-        self.enable_read();
-        self.wait_ready();
+        self.finish_write();
         Ok(())
     }
 
@@ -169,6 +226,98 @@ impl<'d> NorFlash for Rramc<'d> {
             }
         }
 
+        self.enable_read();
+        self.wait_ready();
+        Ok(())
+    }
+}
+
+impl<'d, const BUFFER_SIZE_BYTES: usize> MultiwriteNorFlash for Rramc<'d, Buffered<BUFFER_SIZE_BYTES>> {}
+
+impl<'d, const BUFFER_SIZE_BYTES: usize> ErrorType for Rramc<'d, Buffered<BUFFER_SIZE_BYTES>> {
+    type Error = Error;
+}
+
+impl<'d, const BUFFER_SIZE_BYTES: usize> ReadNorFlash for Rramc<'d, Buffered<BUFFER_SIZE_BYTES>> {
+    const READ_SIZE: usize = 1;
+
+    fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), Self::Error> {
+        if offset as usize >= FLASH_SIZE || offset as usize + bytes.len() > FLASH_SIZE {
+            return Err(Error::OutOfBounds);
+        }
+
+        let flash_data = unsafe { slice::from_raw_parts(offset as *const u8, bytes.len()) };
+        bytes.copy_from_slice(flash_data);
+        Ok(())
+    }
+
+    fn capacity(&self) -> usize {
+        FLASH_SIZE
+    }
+}
+
+impl<'d, const BUFFER_SIZE_BYTES: usize> NorFlash for Rramc<'d, Buffered<BUFFER_SIZE_BYTES>> {
+    const WRITE_SIZE: usize = WRITE_LINE_SIZE;
+    const ERASE_SIZE: usize = PAGE_SIZE;
+
+    // RRAM can overwrite in-place, so emulate page erases by overwriting the page bytes with 0xFF.
+    fn erase(&mut self, from: u32, to: u32) -> Result<(), Self::Error> {
+        if to < from || to as usize > FLASH_SIZE {
+            return Err(Error::OutOfBounds);
+        }
+        if from as usize % Self::ERASE_SIZE != 0 || to as usize % Self::ERASE_SIZE != 0 {
+            return Err(Error::Unaligned);
+        }
+
+        self.enable_write();
+        self.wait_ready();
+
+        // Treat each emulated page separately so callers can rely on post‑erase read‑back
+        // returning 0xFF just like on real NOR flash.
+        let buf = [0xFFu8; BUFFER_SIZE_BYTES];
+        for page_addr in (from..to).step_by(Self::ERASE_SIZE) {
+            let page_end = page_addr + Self::ERASE_SIZE as u32;
+            for line_addr in (page_addr..page_end).step_by(BUFFER_SIZE_BYTES) {
+                unsafe {
+                    let src = buf.as_ptr() as *const u32;
+                    let dst = line_addr as *mut u32;
+                    for i in 0..(Self::WRITE_SIZE / 4) {
+                        core::ptr::write_volatile(dst.add(i), core::ptr::read_unaligned(src.add(i)));
+                    }
+                }
+                self.wait_ready_write();
+            }
+        }
+        self.commit();
+        self.finish_write();
+        Ok(())
+    }
+
+    fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), Self::Error> {
+        if offset as usize + bytes.len() > FLASH_SIZE {
+            return Err(Error::OutOfBounds);
+        }
+        if offset as usize % Self::WRITE_SIZE != 0 || bytes.len() % Self::WRITE_SIZE != 0 {
+            return Err(Error::Unaligned);
+        }
+
+        self.enable_write();
+        self.wait_ready();
+
+        unsafe {
+            let p_src = bytes.as_ptr() as *const u32;
+            let p_dst = offset as *mut u32;
+            let words = bytes.len() / 4;
+            for i in 0..words {
+                let w = ptr::read_unaligned(p_src.add(i));
+                ptr::write_volatile(p_dst.add(i), w);
+                if (i + 1) % (Self::WRITE_SIZE / 4) == 0 {
+                    self.wait_ready_write();
+                }
+            }
+        }
+
+        self.commit();
         self.enable_read();
         self.wait_ready();
         Ok(())

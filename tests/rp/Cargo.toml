@@ -18,7 +18,7 @@ embassy-executor = { version = "0.9.0", path = "../../embassy-executor", feature
 embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", ] }
 embassy-rp = { version = "0.9.0", path = "../../embassy-rp", features = [ "defmt", "unstable-pac", "time-driver", "critical-section-impl", "intrinsics", "rom-v2-intrinsics", "run-from-ram"]  }
 embassy-futures = { version = "0.1.2", path = "../../embassy-futures" }
-embassy-net = { version = "0.7.1", path = "../../embassy-net", features = ["defmt",  "tcp", "udp", "dhcpv4", "medium-ethernet"] }
+embassy-net = { version = "0.8.0", path = "../../embassy-net", features = ["defmt",  "tcp", "udp", "dhcpv4", "medium-ethernet"] }
 embassy-net-wiznet = { version = "0.2.1", path = "../../embassy-net-wiznet", features = ["defmt"] }
 embassy-embedded-hal = { version = "0.5.0", path = "../../embassy-embedded-hal/"}
 cyw43 = { path = "../../cyw43", features = ["defmt", "firmware-logs"] }
@@ -35,7 +35,7 @@ embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
 embedded-hal-bus = { version = "0.1", features = ["async"] }
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
-embedded-io-async = { version = "0.6.1" }
+embedded-io-async = { version = "0.7.0" }
 embedded-storage = { version = "0.3" }
 static_cell = "2"
 portable-atomic = { version = "1.5", features = ["critical-section"] }
@@ -69,6 +69,12 @@ required-features = [ "rp2040",]
 name = "rtc"
 path = "src/bin/rtc.rs"
 required-features = [ "rp2040",]
+
+# AON Timer is only available on RP2350
+[[bin]]
+name = "aon_timer"
+path = "src/bin/aon_timer.rs"
+required-features = [ "rp235xb",]
 
 [profile.dev]
 debug = 2

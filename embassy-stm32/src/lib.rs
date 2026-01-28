@@ -59,8 +59,26 @@ pub mod backup_sram;
 #[cfg(can)]
 pub mod can;
 // FIXME: Cordic driver cause stm32u5a5zj crash
+#[cfg(aes_v3b)]
+pub mod aes;
+#[cfg(comp_u5)]
+pub mod comp;
 #[cfg(all(cordic, not(any(stm32u5a5, stm32u5a9))))]
 pub mod cordic;
+
+// Stub macros for COMP pin implementations when comp module is not compiled.
+// These are needed because build.rs generates macro calls for all chips with COMP,
+// but the actual macros are only defined in the comp module which is only compiled for comp_u5.
+#[cfg(all(comp, not(comp_u5)))]
+macro_rules! impl_comp_inp_pin {
+    ($inst:ident, $pin:ident, $ch:expr) => {};
+}
+#[cfg(all(comp, not(comp_u5)))]
+macro_rules! impl_comp_inm_pin {
+    ($inst:ident, $pin:ident, $ch:expr) => {};
+}
+#[cfg(any(ipcc, hsem))]
+pub mod cpu;
 #[cfg(crc)]
 pub mod crc;
 #[cfg(cryp)]
@@ -93,7 +111,7 @@ pub mod hspi;
 pub mod i2c;
 #[cfg(any(spi_v1_i2s, spi_v2_i2s, spi_v3_i2s, spi_v4_i2s, spi_v5_i2s))]
 pub mod i2s;
-#[cfg(stm32wb)]
+#[cfg(any(stm32wb, stm32wl5x))]
 pub mod ipcc;
 #[cfg(lcd)]
 pub mod lcd;
@@ -107,12 +125,16 @@ pub mod ltdc;
 pub mod opamp;
 #[cfg(octospi)]
 pub mod ospi;
+#[cfg(pka_v1a)]
+pub mod pka;
 #[cfg(quadspi)]
 pub mod qspi;
 #[cfg(rng)]
 pub mod rng;
 #[cfg(all(rtc, not(rtc_v1)))]
 pub mod rtc;
+#[cfg(saes_v1a)]
+pub mod saes;
 #[cfg(sai)]
 pub mod sai;
 #[cfg(sdmmc)]
@@ -137,6 +159,9 @@ pub mod vrefbuf;
 pub mod wdg;
 #[cfg(xspi)]
 pub mod xspi;
+
+#[cfg(feature = "low-power")]
+pub use low_power::Executor;
 
 // This must go last, so that it sees all the impl_foo! macros defined earlier.
 pub(crate) mod _generated {
@@ -268,11 +293,11 @@ pub struct Config {
     /// which needs to be enabled before these pins can be used.
     ///
     /// May increase power consumption. Defaults to true.
-    #[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba))]
+    #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u3, stm32wba))]
     pub enable_independent_io_supply: bool,
 
     /// On the U5 series all analog peripherals are powered by a separate supply.
-    #[cfg(stm32u5)]
+    #[cfg(any(stm32u5, stm32u3))]
     pub enable_independent_analog_supply: bool,
 
     /// BDMA interrupt priority.
@@ -316,9 +341,9 @@ impl Default for Config {
             min_stop_pause: embassy_time::Duration::from_millis(250),
             #[cfg(dbgmcu)]
             enable_debug_during_sleep: true,
-            #[cfg(any(stm32l4, stm32l5, stm32u5, stm32wba))]
+            #[cfg(any(stm32l4, stm32l5, stm32u5, stm32u3, stm32wba))]
             enable_independent_io_supply: true,
-            #[cfg(stm32u5)]
+            #[cfg(any(stm32u5, stm32u3))]
             enable_independent_analog_supply: true,
             #[cfg(bdma)]
             bdma_interrupt_priority: Priority::P0,
@@ -374,6 +399,8 @@ mod dual_core {
         init_flag: AtomicUsize,
         clocks: UnsafeCell<MaybeUninit<Clocks>>,
         config: UnsafeCell<MaybeUninit<SharedConfig>>,
+        #[cfg(feature = "low-power")]
+        rcc_config: UnsafeCell<MaybeUninit<Option<rcc::Config>>>,
     }
 
     unsafe impl Sync for SharedData {}
@@ -399,6 +426,8 @@ mod dual_core {
         shared_data.init_flag.store(0, Ordering::SeqCst);
 
         rcc::set_freqs_ptr(shared_data.clocks.get());
+        #[cfg(feature = "low-power")]
+        rcc::set_rcc_config_ptr(shared_data.rcc_config.get());
         let p = init_hw(config);
 
         unsafe { *shared_data.config.get() }.write(config.into());
@@ -449,6 +478,8 @@ mod dual_core {
 
     fn init_secondary_hw(shared_data: &'static SharedData) -> Peripherals {
         rcc::set_freqs_ptr(shared_data.clocks.get());
+        #[cfg(feature = "low-power")]
+        rcc::set_rcc_config_ptr(shared_data.rcc_config.get());
 
         let config = unsafe { (*shared_data.config.get()).assume_init() };
 
@@ -533,7 +564,9 @@ fn init_hw(config: Config) -> Peripherals {
                 cr.set_stop(config.enable_debug_during_sleep);
                 cr.set_standby(config.enable_debug_during_sleep);
             }
-            #[cfg(any(dbgmcu_f0, dbgmcu_c0, dbgmcu_g0, dbgmcu_u0, dbgmcu_u5, dbgmcu_wba, dbgmcu_l5))]
+            #[cfg(any(
+                dbgmcu_f0, dbgmcu_c0, dbgmcu_g0, dbgmcu_u0, dbgmcu_u3, dbgmcu_u5, dbgmcu_wba, dbgmcu_l5
+            ))]
             {
                 cr.set_dbg_stop(config.enable_debug_during_sleep);
                 cr.set_dbg_standby(config.enable_debug_during_sleep);
@@ -586,7 +619,7 @@ fn init_hw(config: Config) -> Peripherals {
                 });
             });
         }
-        #[cfg(stm32u5)]
+        #[cfg(any(stm32u5, stm32u3))]
         {
             crate::pac::PWR.svmcr().modify(|w| {
                 w.set_io2sv(config.enable_independent_io_supply);
@@ -654,11 +687,11 @@ fn init_hw(config: Config) -> Peripherals {
 
             rcc::init_rcc(cs, config.rcc);
 
-            #[cfg(feature = "low-power")]
-            rtc::init_rtc(cs, config.rtc, config.min_stop_pause);
-
-            #[cfg(all(stm32wb, feature = "low-power"))]
+            #[cfg(all(any(stm32wb, stm32wl5x), feature = "low-power"))]
             hsem::init_hsem(cs);
+
+            #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+            rtc::init_rtc(cs, config.rtc, config.min_stop_pause);
         }
 
         p
@@ -668,13 +701,5 @@ fn init_hw(config: Config) -> Peripherals {
 /// Performs a busy-wait delay for a specified number of microseconds.
 #[allow(unused)]
 pub(crate) fn block_for_us(us: u64) {
-    cfg_if::cfg_if! {
-        // this does strange things on stm32wlx in low power mode depending on exactly when it's called
-        // as in sometimes 15 us (1 tick) would take > 20 seconds.
-        if #[cfg(all(feature = "time", all(not(feature = "low-power"), not(stm32wlex))))] {
-            embassy_time::block_for(embassy_time::Duration::from_micros(us));
-        } else {
-            cortex_m::asm::delay(unsafe { rcc::get_freqs().sys.to_hertz().unwrap().0 as u64 * us  / 1_000_000 } as u32);
-        }
-    }
+    cortex_m::asm::delay(unsafe { rcc::get_freqs().sys.to_hertz().unwrap().0 as u64 * us / 1_000_000 } as u32);
 }

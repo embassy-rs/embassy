@@ -19,14 +19,8 @@ pub enum BusError {
     /// The CRC check sum of a received message was incorrect. The CRC of an
     /// incoming message does not match with the CRC calculated from the received data.
     Crc,
-    /// A software error occured
+    /// A software error occured. Exclusive to BXCAN.
     Software,
-    ///  The FDCAN is in Bus_Off state.
-    BusOff,
-    ///  The FDCAN is in the Error_Passive state.
-    BusPassive,
-    ///  At least one of error counter has reached the Error_Warning limit of 96.
-    BusWarning,
 }
 
 /// Bus error modes.

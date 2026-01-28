@@ -3,13 +3,17 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::Config;
 use embassy_stm32::adc::{Adc, AdcChannel as _, SampleTime};
+use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 #[unsafe(link_section = ".ram_d3")]
 static mut DMA_BUF: [u16; 2] = [0; 2];
+
+bind_interrupts!(struct Irqs {
+    DMA1_STREAM1 => dma::InterruptHandler<peripherals::DMA1_CH1>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -24,6 +28,7 @@ async fn main(_spawner: Spawner) {
             source: PllSource::HSI,
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL50,
+            fracn: None,
             divp: Some(PllDiv::DIV2),
             divq: Some(PllDiv::DIV8), // SPI1 cksel defaults to pll1_q
             divr: None,
@@ -32,6 +37,7 @@ async fn main(_spawner: Spawner) {
             source: PllSource::HSI,
             prediv: PllPreDiv::DIV4,
             mul: PllMul::MUL50,
+            fracn: None,
             divp: Some(PllDiv::DIV8), // 100mhz
             divq: None,
             divr: None,
@@ -58,6 +64,7 @@ async fn main(_spawner: Spawner) {
     loop {
         adc.read(
             dma.reborrow(),
+            Irqs,
             [
                 (&mut vrefint_channel, SampleTime::CYCLES387_5),
                 (&mut pc0, SampleTime::CYCLES810_5),

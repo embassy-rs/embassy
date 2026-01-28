@@ -285,6 +285,22 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
         Ok(state)
     }
 
+    /// Read the magic state from flash
+    pub fn read_state(&mut self, aligned_buf: &mut [u8]) -> Result<State, BootError> {
+        let state_word = &mut aligned_buf[..STATE::WRITE_SIZE];
+        self.state.read(0, state_word)?;
+
+        if !state_word.iter().any(|&b| b != SWAP_MAGIC) {
+            Ok(State::Swap)
+        } else if !state_word.iter().any(|&b| b != DFU_DETACH_MAGIC) {
+            Ok(State::DfuDetach)
+        } else if !state_word.iter().any(|&b| b != REVERT_MAGIC) {
+            Ok(State::Revert)
+        } else {
+            Ok(State::Boot)
+        }
+    }
+
     fn is_swapped(&mut self, aligned_buf: &mut [u8]) -> Result<bool, BootError> {
         let page_count = self.active.capacity() / Self::PAGE_SIZE as usize;
         let progress = self.current_progress(aligned_buf)?;
@@ -403,21 +419,6 @@ impl<ACTIVE: NorFlash, DFU: NorFlash, STATE: NorFlash> BootLoader<ACTIVE, DFU, S
         }
 
         Ok(())
-    }
-
-    fn read_state(&mut self, aligned_buf: &mut [u8]) -> Result<State, BootError> {
-        let state_word = &mut aligned_buf[..STATE::WRITE_SIZE];
-        self.state.read(0, state_word)?;
-
-        if !state_word.iter().any(|&b| b != SWAP_MAGIC) {
-            Ok(State::Swap)
-        } else if !state_word.iter().any(|&b| b != DFU_DETACH_MAGIC) {
-            Ok(State::DfuDetach)
-        } else if !state_word.iter().any(|&b| b != REVERT_MAGIC) {
-            Ok(State::Revert)
-        } else {
-            Ok(State::Boot)
-        }
     }
 }
 

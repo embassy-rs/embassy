@@ -34,11 +34,13 @@ fn cpu_regs() -> pac::exti::Exti {
     EXTI
 }
 
-#[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, gpio_v1, exti_u5, exti_h5, exti_h50, exti_n6)))]
+#[cfg(not(any(
+    exti_c0, exti_g0, exti_u0, exti_l5, gpio_v1, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6
+)))]
 fn exticr_regs() -> pac::syscfg::Syscfg {
     pac::SYSCFG
 }
-#[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6))]
+#[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6))]
 fn exticr_regs() -> pac::exti::Exti {
     EXTI
 }
@@ -48,9 +50,9 @@ fn exticr_regs() -> pac::afio::Afio {
 }
 
 unsafe fn on_irq() {
-    #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6)))]
+    #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6)))]
     let bits = EXTI.pr(0).read().0;
-    #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6))]
+    #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6))]
     let bits = EXTI.rpr(0).read().0 | EXTI.fpr(0).read().0;
 
     // We don't handle or change any EXTI lines above 16.
@@ -65,16 +67,16 @@ unsafe fn on_irq() {
     }
 
     // Clear pending
-    #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6)))]
+    #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6)))]
     EXTI.pr(0).write_value(Lines(bits));
-    #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6))]
+    #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6))]
     {
         EXTI.rpr(0).write_value(Lines(bits));
         EXTI.fpr(0).write_value(Lines(bits));
     }
 
     #[cfg(feature = "low-power")]
-    crate::low_power::Executor::on_wakeup_irq();
+    crate::low_power::Executor::on_wakeup_irq_or_event();
 }
 
 struct BitIter(u32);
@@ -266,12 +268,13 @@ impl<'a> ExtiInputFuture<'a> {
     fn new(pin: PinNumber, port: PinNumber, rising: bool, falling: bool, drop: bool) -> Self {
         critical_section::with(|_| {
             let pin = pin as usize;
-            exticr_regs().exticr(pin / 4).modify(|w| w.set_exti(pin % 4, port));
+            // Cast needed: on N6, PinNumber is u16 (for total pin counting), but port is always 0-15.
+            exticr_regs().exticr(pin / 4).modify(|w| w.set_exti(pin % 4, port as _));
             EXTI.rtsr(0).modify(|w| w.set_line(pin, rising));
             EXTI.ftsr(0).modify(|w| w.set_line(pin, falling));
 
             // clear pending bit
-            #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6)))]
+            #[cfg(not(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_u3, exti_h5, exti_h50, exti_n6)))]
             EXTI.pr(0).write(|w| w.set_line(pin, true));
             #[cfg(any(exti_c0, exti_g0, exti_u0, exti_l5, exti_u5, exti_h5, exti_h50, exti_n6))]
             {

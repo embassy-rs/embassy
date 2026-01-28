@@ -68,8 +68,13 @@ impl<'d, T: Instance> Driver<'d, T> {
         ep_out_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        #[cfg(usb_alternate_function)]
+        {
+            set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+        }
+        #[cfg(not(usb_alternate_function))]
+        let _ = (dp, dm);
 
         let regs = T::regs();
 
@@ -99,17 +104,18 @@ impl<'d, T: Instance> Driver<'d, T> {
     pub fn new_hs(
         _peri: Peri<'d, T>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        _dp: Peri<'d, impl DpPin<T>>,
-        _dm: Peri<'d, impl DmPin<T>>,
+        dp: Peri<'d, impl DpPin<T>>,
+        dm: Peri<'d, impl DmPin<T>>,
         ep_out_buffer: &'d mut [u8],
         config: Config,
     ) -> Self {
-        // For STM32U5 High speed pins need to be left in analog mode
-        #[cfg(not(any(all(stm32u5, peri_usb_otg_hs), all(stm32wba, peri_usb_otg_hs))))]
+        #[cfg(usb_alternate_function)]
         {
-            set_as_af!(_dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-            set_as_af!(_dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            set_as_af!(dp, AfType::output(OutputType::PushPull, Speed::VeryHigh));
+            set_as_af!(dm, AfType::output(OutputType::PushPull, Speed::VeryHigh));
         }
+        #[cfg(not(usb_alternate_function))]
+        let _ = (dp, dm);
 
         let instance = OtgInstance {
             regs: T::regs(),

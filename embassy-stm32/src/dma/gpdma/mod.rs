@@ -137,7 +137,6 @@ pub(crate) unsafe fn init(cs: critical_section::CriticalSection, irq_priority: c
 
 impl AnyChannel {
     /// Safety: Must be called with a matching set of parameters for a valid dma channel
-    #[cfg(not(stm32n6))]
     pub(crate) unsafe fn on_irq(&self) {
         let info = self.info();
         #[cfg(feature = "_dual-core")]
@@ -238,6 +237,11 @@ impl AnyChannel {
         // "Preceding reads and writes cannot be moved past subsequent writes."
         fence(Ordering::SeqCst);
 
+        if ch.cr().read().en() {
+            ch.cr().modify(|w| w.set_susp(true));
+            while !ch.sr().read().suspf() {}
+        }
+
         ch.cr().write(|w| w.set_reset(true));
         ch.fcr().write(|w| {
             // Clear all irqs
@@ -260,6 +264,7 @@ impl AnyChannel {
             w.set_dreq(match dir {
                 Dir::MemoryToPeripheral => vals::Dreq::DESTINATION_PERIPHERAL,
                 Dir::PeripheralToMemory => vals::Dreq::SOURCE_PERIPHERAL,
+                Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
             });
             w.set_reqsel(request);
         });
@@ -275,6 +280,7 @@ impl AnyChannel {
                 ch.sar().write_value(peri_addr as _);
                 ch.dar().write_value(mem_addr as _);
             }
+            Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
         }
 
         ch.cr().write(|w| {

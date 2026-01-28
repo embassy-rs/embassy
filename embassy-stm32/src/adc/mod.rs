@@ -12,12 +12,12 @@
 #[cfg_attr(adc_l0, path = "v1.rs")]
 #[cfg_attr(adc_v2, path = "v2.rs")]
 #[cfg_attr(any(adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0), path = "v3.rs")]
-#[cfg_attr(any(adc_v4, adc_u5), path = "v4.rs")]
+#[cfg_attr(any(adc_v4, adc_u5, adc_u3), path = "v4.rs")]
 #[cfg_attr(adc_g4, path = "g4.rs")]
 #[cfg_attr(adc_c0, path = "c0.rs")]
 mod _version;
 
-#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
+#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba))]
 mod ringbuffered;
 
 use core::marker::PhantomData;
@@ -25,11 +25,17 @@ use core::marker::PhantomData;
 #[allow(unused)]
 #[cfg(not(any(adc_f3v3, adc_wba)))]
 pub use _version::*;
-use embassy_hal_internal::{PeripheralType, impl_peripheral};
+#[allow(unused)]
+use embassy_hal_internal::PeripheralType;
 #[cfg(any(adc_f1, adc_f3v1, adc_v1, adc_l0, adc_f3v2))]
 use embassy_sync::waitqueue::AtomicWaker;
-#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
+#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba))]
 pub use ringbuffered::RingBufferedAdc;
+
+#[cfg(adc_u5)]
+use crate::pac::adc::vals::Adc4SampleTime;
+#[cfg(adc_wba)]
+use crate::pac::adc::vals::SampleTime as Adc4SampleTime;
 
 #[cfg(any(adc_u5, adc_wba))]
 #[path = "adc4.rs"]
@@ -38,15 +44,17 @@ pub mod adc4;
 #[allow(unused)]
 pub(self) use crate::block_for_us as blocking_delay_us;
 pub use crate::pac::adc::vals;
+#[cfg(any(adc_v2, adc_g4))]
+pub use crate::pac::adc::vals::Exten;
 #[cfg(not(any(adc_f1, adc_f3v3)))]
 pub use crate::pac::adc::vals::Res as Resolution;
 pub use crate::pac::adc::vals::SampleTime;
 use crate::peripherals;
 
-dma_trait!(RxDma, AnyInstance);
+dma_trait!(RxDma, Instance);
 
 /// Analog to Digital driver.
-pub struct Adc<'d, T: AnyInstance> {
+pub struct Adc<'d, T: Instance> {
     #[allow(unused)]
     adc: crate::Peri<'d, T>,
 }
@@ -65,10 +73,55 @@ impl State {
     }
 }
 
-trait SealedInstance {
-    #[cfg(not(adc_wba))]
-    #[allow(unused)]
+#[cfg(any(adc_f1, adc_f3v1, adc_f3v2, adc_v1, adc_l0))]
+trait_set::trait_set! {
+    pub trait DefaultInstance = Instance;
+}
+
+#[cfg(any(
+    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_g4, adc_c0
+))]
+trait_set::trait_set! {
+    pub trait DefaultInstance = Instance<Regs = crate::pac::adc::Adc>;
+}
+
+#[cfg(adc_wba)]
+trait_set::trait_set! {
+    pub trait DefaultInstance = Instance<Regs = crate::pac::adc::Adc4>;
+}
+
+pub trait BasicAdcRegs {
+    type SampleTime;
+}
+
+#[cfg(any(
+    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0
+))]
+trait AdcRegs: BasicAdcRegs {
+    fn enable(&self);
+    fn start(&self);
+    fn stop(&self);
+    fn convert(&self);
+    fn configure_dma(&self, conversion_mode: ConversionMode);
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
+    fn data(&self) -> *mut u16;
+}
+
+#[allow(private_bounds)]
+pub trait BasicInstance {
+    #[cfg(any(
+        adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0
+    ))]
+    type Regs: AdcRegs;
+}
+
+trait SealedInstance: BasicInstance {
+    #[cfg(any(adc_f1, adc_f3v1, adc_f3v2, adc_v1, adc_l0))]
     fn regs() -> crate::pac::adc::Adc;
+    #[cfg(any(
+        adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0
+    ))]
+    fn regs() -> Self::Regs;
     #[cfg(not(any(adc_f1, adc_v1, adc_l0, adc_f3v3, adc_f3v2, adc_g0)))]
     #[allow(unused)]
     fn common_regs() -> crate::pac::adccommon::AdcCommon;
@@ -77,7 +130,7 @@ trait SealedInstance {
 }
 
 pub(crate) trait SealedAdcChannel<T> {
-    #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u5, adc_wba))]
+    #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u5, adc_u3, adc_wba))]
     fn setup(&mut self) {}
 
     #[allow(unused)]
@@ -89,57 +142,7 @@ pub(crate) trait SealedAdcChannel<T> {
     }
 }
 
-// Temporary patch for ADCs that have not implemented the standard iface yet
-#[cfg(any(adc_v1, adc_l0, adc_f1, adc_f3v1, adc_f3v2, adc_f3v3, adc_v1))]
-trait_set::trait_set! {
-    pub trait AnyInstance = Instance;
-}
-
-#[cfg(any(
-    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_g4, adc_c0
-))]
-pub trait BasicAnyInstance {
-    type SampleTime;
-}
-
-#[cfg(any(
-    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_g4, adc_c0
-))]
-pub(self) trait SealedAnyInstance: BasicAnyInstance {
-    fn enable();
-    fn start();
-    fn stop();
-    fn convert() -> u16;
-    fn configure_dma(conversion_mode: ConversionMode);
-    fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), Self::SampleTime)>);
-    #[allow(dead_code)]
-    fn dr() -> *mut u16;
-}
-
-// On chips without ADC4, AnyInstance is an Instance
-#[cfg(any(adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_g4, adc_c0))]
-#[allow(private_bounds)]
-pub trait AnyInstance: SealedAnyInstance + Instance {}
-
-// On chips with ADC4, AnyInstance is an Instance or adc4::Instance
-#[cfg(any(adc_v4, adc_u5, adc_wba))]
-#[allow(private_bounds)]
-pub trait AnyInstance: SealedAnyInstance + crate::PeripheralType + crate::rcc::RccPeripheral {}
-
-// Implement AnyInstance automatically for SealedAnyInstance
-#[cfg(any(
-    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_g4, adc_c0
-))]
-impl<T: SealedAnyInstance + Instance> BasicAnyInstance for T {
-    type SampleTime = SampleTime;
-}
-
-#[cfg(any(
-    adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_g4, adc_c0
-))]
-impl<T: SealedAnyInstance + Instance> AnyInstance for T {}
-
-#[cfg(any(adc_c0, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5))]
+#[cfg(any(adc_c0, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3))]
 /// Number of samples used for averaging.
 #[derive(Copy, Clone, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -153,64 +156,82 @@ pub enum Averaging {
     Samples64,
     Samples128,
     Samples256,
-    #[cfg(any(adc_c0, adc_v4, adc_u5))]
+    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3))]
     Samples512,
-    #[cfg(any(adc_c0, adc_v4, adc_u5))]
+    #[cfg(any(adc_c0, adc_v4, adc_u5, adc_u3))]
     Samples1024,
 }
 
 #[cfg(any(
-    adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_c0
+    adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0
 ))]
 pub(crate) enum ConversionMode {
     // Should match the cfg on "read" below
-    #[cfg(any(adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_c0))]
+    #[cfg(any(
+        adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0
+    ))]
     Singular,
     // Should match the cfg on "into_ring_buffered" below
-    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
+    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba))]
     Repeated(RegularConversionMode),
 }
 
+// Trigger source for ADC conversions¨
+#[cfg(any(adc_v2, adc_g4))]
+#[derive(Copy, Clone)]
+pub struct ConversionTrigger {
+    // Note that Injected and Regular channels uses different mappings
+    pub channel: u8,
+    pub edge: Exten,
+}
+
 // Should match the cfg on "into_ring_buffered" below
-#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
+#[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba))]
 // Conversion mode for regular ADC channels
 #[derive(Copy, Clone)]
 pub enum RegularConversionMode {
     // Samples as fast as possible
     Continuous,
-    #[cfg(adc_g4)]
+    #[cfg(any(adc_g4, adc_v2))]
     // Sample at rate determined by external trigger
     Triggered(ConversionTrigger),
 }
 
-impl<'d, T: AnyInstance> Adc<'d, T> {
+impl<'d, T: Instance> Adc<'d, T> {
     #[cfg(any(
-        adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_u5, adc_v3, adc_v4, adc_wba, adc_c0
+        adc_v2, adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_u3, adc_u5, adc_v3, adc_v4, adc_wba, adc_c0
     ))]
     /// Read an ADC pin.
-    pub fn blocking_read(&mut self, channel: &mut impl AdcChannel<T>, sample_time: T::SampleTime) -> u16 {
-        #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u5, adc_wba))]
+    pub fn blocking_read(
+        &mut self,
+        channel: &mut impl AdcChannel<T>,
+        sample_time: <T::Regs as BasicAdcRegs>::SampleTime,
+    ) -> u16 {
+        #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba))]
         channel.setup();
 
         // Ensure no conversions are ongoing
-        T::stop();
-        #[cfg(any(adc_v2, adc_v3, adc_g0, adc_h7rs, adc_u0, adc_u5, adc_wba, adc_c0))]
-        T::enable();
-        T::configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
+        T::regs().stop();
+        #[cfg(any(adc_v2, adc_v3, adc_g0, adc_h7rs, adc_u0, adc_u3, adc_u5, adc_wba))]
+        T::regs().enable();
+        T::regs().configure_sequence([((channel.channel(), channel.is_differential()), sample_time)].into_iter());
 
         // On chips with differential channels, enable after configure_sequence to allow setting differential channels
         //
         // TODO: If hardware allows, enable after configure_sequence on all chips
-        #[cfg(any(adc_g4, adc_h5))]
-        T::enable();
+        #[cfg(any(adc_g4, adc_h5, adc_c0))]
+        T::regs().enable();
+        T::regs().convert();
 
-        T::convert()
+        unsafe { core::ptr::read_volatile(T::regs().data()) }
     }
 
-    #[cfg(any(adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_c0))]
+    #[cfg(any(
+        adc_g4, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_u3, adc_wba, adc_c0
+    ))]
     /// Read one or multiple ADC regular channels using DMA.
     ///
-    /// `sequence` iterator and `readings` must have the same length.
+    /// `readings` must have a length that is a multiple of the length of the `sequence` iterator.
     ///
     /// Example
     /// ```rust,ignore
@@ -223,6 +244,7 @@ impl<'d, T: AnyInstance> Adc<'d, T> {
     ///
     /// adc.read(
     ///     p.DMA1_CH2.reborrow(),
+    ///     Irqs,
     ///     [
     ///         (&mut *adc_pin0, SampleTime::CYCLES160_5),
     ///         (&mut *adc_pin1, SampleTime::CYCLES160_5),
@@ -241,16 +263,18 @@ impl<'d, T: AnyInstance> Adc<'d, T> {
     /// in order or require the sequence to have the same sample time for all channnels, depending
     /// on the number and properties of the channels in the sequence. This method will panic if
     /// the hardware cannot deliver the requested configuration.
-    pub async fn read(
+    pub async fn read<'a, 'b: 'a, D: RxDma<T> + crate::dma::ChannelInterrupt>(
         &mut self,
-        rx_dma: embassy_hal_internal::Peri<'_, impl RxDma<T>>,
-        sequence: impl ExactSizeIterator<Item = (&mut AnyAdcChannel<T>, T::SampleTime)>,
+        rx_dma: embassy_hal_internal::Peri<'a, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
+        sequence: impl ExactSizeIterator<Item = (&'a mut AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         readings: &mut [u16],
     ) {
+        crate::dma::assert_dma_binding(&*rx_dma, &_irq);
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
         assert!(
-            sequence.len() == readings.len(),
-            "Sequence length must be equal to readings length"
+            readings.len() % sequence.len() == 0,
+            "Readings length must be a multiple of sequence length"
         );
         assert!(
             sequence.len() <= 16,
@@ -258,35 +282,35 @@ impl<'d, T: AnyInstance> Adc<'d, T> {
         );
 
         // Ensure no conversions are ongoing
-        T::stop();
-        #[cfg(any(adc_g0, adc_v3, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_c0))]
-        T::enable();
+        T::regs().stop();
+        #[cfg(any(adc_g0, adc_v3, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba))]
+        T::regs().enable();
 
-        T::configure_sequence(
+        T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
         );
 
         // On chips with differential channels, enable after configure_sequence to allow setting differential channels
         //
         // TODO: If hardware allows, enable after configure_sequence on all chips
-        #[cfg(any(adc_g4, adc_h5))]
-        T::enable();
-        T::configure_dma(ConversionMode::Singular);
+        #[cfg(any(adc_g4, adc_h5, adc_c0))]
+        T::regs().enable();
+        T::regs().configure_dma(ConversionMode::Singular);
 
         let request = rx_dma.request();
         let transfer =
-            unsafe { crate::dma::Transfer::new_read(rx_dma, request, T::dr(), readings, Default::default()) };
+            unsafe { crate::dma::Transfer::new_read(rx_dma, request, T::regs().data(), readings, Default::default()) };
 
-        T::start();
+        T::regs().start();
 
         // Wait for conversion sequence to finish.
         transfer.await;
 
         // Ensure conversions are finished.
-        T::stop();
+        T::regs().stop();
     }
 
-    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
+    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0, adc_wba))]
     /// Configures the ADC to use a DMA ring buffer for continuous data acquisition.
     ///
     /// Use the [`read`] method to retrieve measurements from the DMA ring buffer. The read buffer
@@ -313,13 +337,16 @@ impl<'d, T: AnyInstance> Adc<'d, T> {
     /// in order or require the sequence to have the same sample time for all channnels, depending
     /// on the number and properties of the channels in the sequence. This method will panic if
     /// the hardware cannot deliver the requested configuration.
-    pub fn into_ring_buffered<'a>(
+    pub fn into_ring_buffered<'a, 'b, D: RxDma<T> + crate::dma::ChannelInterrupt>(
         self,
-        dma: embassy_hal_internal::Peri<'a, impl RxDma<T>>,
+        dma: embassy_hal_internal::Peri<'a, D>,
         dma_buf: &'a mut [u16],
-        sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<T>, T::SampleTime)>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
+        sequence: impl ExactSizeIterator<Item = (AnyAdcChannel<'b, T>, <T::Regs as BasicAdcRegs>::SampleTime)>,
         mode: RegularConversionMode,
     ) -> RingBufferedAdc<'a, T> {
+        crate::dma::assert_dma_binding(&*dma, &_irq);
+
         assert!(!dma_buf.is_empty() && dma_buf.len() <= 0xFFFF);
         assert!(sequence.len() != 0, "Asynchronous read sequence cannot be empty");
         assert!(
@@ -327,11 +354,11 @@ impl<'d, T: AnyInstance> Adc<'d, T> {
             "Asynchronous read sequence cannot be more than 16 in length"
         );
         // Ensure no conversions are ongoing
-        T::stop();
+        T::regs().stop();
         #[cfg(any(adc_g0, adc_v3, adc_h7rs, adc_u0, adc_v4, adc_u5, adc_wba, adc_c0))]
-        T::enable();
+        T::regs().enable();
 
-        T::configure_sequence(
+        T::regs().configure_sequence(
             sequence.map(|(channel, sample_time)| ((channel.channel, channel.is_differential), sample_time)),
         );
 
@@ -339,8 +366,8 @@ impl<'d, T: AnyInstance> Adc<'d, T> {
         //
         // TODO: If hardware allows, enable after configure_sequence on all chips
         #[cfg(any(adc_g4, adc_h5))]
-        T::enable();
-        T::configure_dma(ConversionMode::Repeated(mode));
+        T::regs().enable();
+        T::regs().configure_dma(ConversionMode::Repeated(mode));
 
         core::mem::forget(self);
 
@@ -397,7 +424,7 @@ impl SpecialChannel for Dac {}
 /// ADC instance.
 #[cfg(not(any(
     adc_f1, adc_v1, adc_l0, adc_v2, adc_v3, adc_v4, adc_g4, adc_f3v1, adc_f3v2, adc_g0, adc_u0, adc_h5, adc_h7rs,
-    adc_u5, adc_c0, adc_wba,
+    adc_u5, adc_u3, adc_c0, adc_wba,
 )))]
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + crate::PeripheralType {
@@ -406,7 +433,7 @@ pub trait Instance: SealedInstance + crate::PeripheralType {
 /// ADC instance.
 #[cfg(any(
     adc_f1, adc_v1, adc_l0, adc_v2, adc_v3, adc_v4, adc_g4, adc_f3v1, adc_f3v2, adc_g0, adc_u0, adc_h5, adc_h7rs,
-    adc_u5, adc_c0, adc_wba,
+    adc_u5, adc_u3, adc_c0, adc_wba,
 ))]
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + crate::PeripheralType + crate::rcc::RccPeripheral {
@@ -417,8 +444,11 @@ pub trait Instance: SealedInstance + crate::PeripheralType + crate::rcc::RccPeri
 #[allow(private_bounds)]
 pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
     #[allow(unused_mut)]
-    fn degrade_adc(mut self) -> AnyAdcChannel<T> {
-        #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u5, adc_wba))]
+    fn degrade_adc<'a>(mut self) -> AnyAdcChannel<'a, T>
+    where
+        Self: 'a,
+    {
+        #[cfg(any(adc_v1, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba))]
         self.setup();
 
         AnyAdcChannel {
@@ -433,14 +463,13 @@ pub trait AdcChannel<T>: SealedAdcChannel<T> + Sized {
 ///
 /// This is useful in scenarios where you need the ADC channels to have the same type, such as
 /// storing them in an array.
-pub struct AnyAdcChannel<T> {
+pub struct AnyAdcChannel<'a, T> {
     channel: u8,
     is_differential: bool,
-    _phantom: PhantomData<T>,
+    _phantom: PhantomData<&'a mut T>,
 }
-impl_peripheral!(AnyAdcChannel<T: AnyInstance>);
-impl<T: AnyInstance> AdcChannel<T> for AnyAdcChannel<T> {}
-impl<T: AnyInstance> SealedAdcChannel<T> for AnyAdcChannel<T> {
+impl<T: Instance> AdcChannel<T> for AnyAdcChannel<'_, T> {}
+impl<T: Instance> SealedAdcChannel<T> for AnyAdcChannel<'_, T> {
     fn channel(&self) -> u8 {
         self.channel
     }
@@ -450,22 +479,41 @@ impl<T: AnyInstance> SealedAdcChannel<T> for AnyAdcChannel<T> {
     }
 }
 
-impl<T> AnyAdcChannel<T> {
+impl<T> AnyAdcChannel<'_, T> {
     #[allow(unused)]
     pub fn get_hw_channel(&self) -> u8 {
         self.channel
     }
 }
+
+#[cfg(not(adc_wba))]
+impl BasicAdcRegs for crate::pac::adc::Adc {
+    type SampleTime = SampleTime;
+}
+
+#[cfg(any(adc_wba, adc_u5))]
+impl BasicAdcRegs for crate::pac::adc::Adc4 {
+    type SampleTime = Adc4SampleTime;
+}
+
 #[cfg(adc_wba)]
 foreach_adc!(
     (ADC4, $common_inst:ident, $clock:ident) => {
-        impl crate::adc::adc4::SealedInstance for peripherals::ADC4 {
-            fn regs() -> crate::pac::adc::Adc4 {
+        impl crate::adc::BasicInstance for peripherals::ADC4 {
+            type Regs = crate::pac::adc::Adc4;
+        }
+
+        impl crate::adc::SealedInstance for peripherals::ADC4 {
+            fn regs() -> Self::Regs {
                 crate::pac::ADC4
+            }
+
+            fn common_regs() -> crate::pac::adccommon::AdcCommon {
+                return crate::pac::$common_inst
             }
         }
 
-        impl crate::adc::adc4::Instance for peripherals::ADC4 {
+        impl crate::adc::Instance for peripherals::ADC4 {
             type Interrupt = crate::_generated::peripheral_interrupts::ADC4::GLOBAL;
         }
     };
@@ -490,20 +538,32 @@ foreach_adc!(
 #[cfg(adc_u5)]
 foreach_adc!(
     (ADC4, $common_inst:ident, $clock:ident) => {
-        impl crate::adc::adc4::SealedInstance for peripherals::ADC4 {
-            fn regs() -> crate::pac::adc::Adc4 {
+        impl crate::adc::BasicInstance for peripherals::ADC4 {
+            type Regs = crate::pac::adc::Adc4;
+        }
+
+        impl crate::adc::SealedInstance for peripherals::ADC4 {
+            fn regs() -> Self::Regs {
                 crate::pac::ADC4
+            }
+
+            fn common_regs() -> crate::pac::adccommon::AdcCommon {
+                return crate::pac::$common_inst
             }
         }
 
-        impl crate::adc::adc4::Instance for peripherals::ADC4 {
+        impl crate::adc::Instance for peripherals::ADC4 {
             type Interrupt = crate::_generated::peripheral_interrupts::ADC4::GLOBAL;
         }
     };
 
     ($inst:ident, $common_inst:ident, $clock:ident) => {
+        impl crate::adc::BasicInstance for peripherals::$inst {
+            type Regs = crate::pac::adc::Adc;
+        }
+
         impl crate::adc::SealedInstance for peripherals::$inst {
-            fn regs() -> crate::pac::adc::Adc {
+            fn regs() -> Self::Regs {
                 crate::pac::$inst
             }
 
@@ -521,14 +581,23 @@ foreach_adc!(
 #[cfg(not(any(adc_u5, adc_wba)))]
 foreach_adc!(
     ($inst:ident, $common_inst:ident, $clock:ident) => {
+        impl crate::adc::BasicInstance for peripherals::$inst {
+            #[cfg(any(
+                adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0
+            ))]
+            type Regs = crate::pac::adc::Adc;
+        }
+
         impl crate::adc::SealedInstance for peripherals::$inst {
-            #[cfg(not(adc_wba))]
-            fn regs() -> crate::pac::adc::Adc {
+            #[cfg(any(
+                adc_v2, adc_v3, adc_g0, adc_h5, adc_h7rs, adc_u0, adc_v4, adc_u3, adc_u5, adc_wba, adc_g4, adc_c0
+            ))]
+            fn regs() -> Self::Regs {
                 crate::pac::$inst
             }
 
-            #[cfg(adc_wba)]
-            fn regs() -> crate::pac::adc::Adc4 {
+            #[cfg(any(adc_f1, adc_f3v1, adc_f3v2, adc_v1, adc_l0))]
+            fn regs() -> crate::pac::adc::Adc {
                 crate::pac::$inst
             }
 
@@ -554,7 +623,9 @@ macro_rules! impl_adc_pin {
     ($inst:ident, $pin:ident, $ch:expr) => {
         impl crate::adc::AdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {}
         impl crate::adc::SealedAdcChannel<peripherals::$inst> for crate::Peri<'_, crate::peripherals::$pin> {
-            #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u5, adc_wba))]
+            #[cfg(any(
+                adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba
+            ))]
             fn setup(&mut self) {
                 <crate::peripherals::$pin as crate::gpio::SealedPin>::set_as_analog(self);
             }
@@ -582,7 +653,9 @@ macro_rules! impl_adc_pair {
                 crate::Peri<'_, crate::peripherals::$npin>,
             )
         {
-            #[cfg(any(adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u5, adc_wba))]
+            #[cfg(any(
+                adc_v1, adc_c0, adc_l0, adc_v2, adc_g4, adc_v3, adc_v4, adc_u3, adc_u5, adc_wba
+            ))]
             fn setup(&mut self) {
                 <crate::peripherals::$pin as crate::gpio::SealedPin>::set_as_analog(&mut self.0);
                 <crate::peripherals::$npin as crate::gpio::SealedPin>::set_as_analog(&mut self.1);

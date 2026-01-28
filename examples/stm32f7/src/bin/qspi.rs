@@ -4,11 +4,11 @@
 
 use defmt::info;
 use embassy_executor::Spawner;
-use embassy_stm32::Config as StmCfg;
 use embassy_stm32::mode::Async;
 use embassy_stm32::qspi::enums::{AddressSize, ChipSelectHighTime, FIFOThresholdLevel, MemorySize, *};
 use embassy_stm32::qspi::{Config as QspiCfg, Instance, Qspi, TransferConfig};
 use embassy_stm32::time::mhz;
+use embassy_stm32::{Config as StmCfg, bind_interrupts, dma, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 const MEMORY_PAGE_SIZE: usize = 256;
@@ -248,6 +248,10 @@ impl<I: Instance> FlashMemory<I> {
     }
 }
 
+bind_interrupts!(struct Irqs {
+    DMA2_STREAM7 => dma::InterruptHandler<peripherals::DMA2_CH7>;
+});
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) -> ! {
     let mut config = StmCfg::default();
@@ -282,7 +286,7 @@ async fn main(_spawner: Spawner) -> ! {
     config.sample_shifting = SampleShifting::None;
 
     let driver = Qspi::new_bank1(
-        p.QUADSPI, p.PF8, p.PF9, p.PE2, p.PF6, p.PF10, p.PB10, p.DMA2_CH7, config,
+        p.QUADSPI, p.PF8, p.PF9, p.PE2, p.PF6, p.PF10, p.PB10, p.DMA2_CH7, Irqs, config,
     );
     let mut flash = FlashMemory::new(driver);
     let flash_id = flash.read_id();

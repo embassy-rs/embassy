@@ -5,7 +5,7 @@ use pac::adc::vals::{Adc4Dmacfg as Dmacfg, Adc4Exten as Exten, Adc4OversamplingR
 use pac::adc::vals::{Chselrmod, Cont, Dmacfg, Exten, OversamplingRatio, Ovss, Smpsel};
 
 use super::blocking_delay_us;
-use crate::adc::ConversionMode;
+use crate::adc::{AdcRegs, ConversionMode, Instance};
 #[cfg(stm32u5)]
 pub use crate::pac::adc::regs::Adc4Chselrmod0 as Chselr;
 #[cfg(stm32wba)]
@@ -21,26 +21,126 @@ const MAX_ADC_CLK_FREQ: Hertz = Hertz::mhz(55);
 
 /// Default VREF voltage used for sample conversion to millivolts.
 pub const VREF_DEFAULT_MV: u32 = 3300;
-/// VREF voltage used for factory calibration of VREFINTCAL register.
-pub const VREF_CALIB_MV: u32 = 3300;
+/// VREF voltage used for factory calibration of VREFINTCAL and TSCAL registers (3.0V).
+pub const VREF_CALIB_MV: u32 = 3000;
 
-impl<'d, T: Instance> super::SealedSpecialConverter<super::VrefInt> for Adc4<'d, T> {
+/// Temperature at which TS_CAL1 was measured (30°C).
+pub const TS_CAL1_TEMP_C: i32 = 30;
+/// Temperature at which TS_CAL2 was measured (130°C).
+pub const TS_CAL2_TEMP_C: i32 = 130;
+
+/// Factory calibration values read from the DESIG peripheral.
+///
+/// These values are programmed during manufacturing and can be used
+/// for accurate temperature and voltage measurements.
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Calibration {
+    /// Temperature sensor calibration value at 30°C (12-bit).
+    pub ts_cal1: u16,
+    /// Temperature sensor calibration value at 130°C (12-bit).
+    pub ts_cal2: u16,
+    /// Internal voltage reference calibration value (12-bit).
+    /// Measured at VDDA = 3.0V.
+    pub vrefint_cal: u16,
+}
+
+impl Calibration {
+    /// Read factory calibration values from the DESIG and VREFINTCAL peripherals.
+    ///
+    /// These values are unique to each chip and were measured during manufacturing
+    /// at VDDA = 3.0V.
+    #[cfg(stm32wba)]
+    pub fn read() -> Self {
+        Self {
+            ts_cal1: pac::DESIG.tscal1r().read().ts_cal1(),
+            ts_cal2: pac::DESIG.tscal2r().read().ts_cal2(),
+            vrefint_cal: pac::VREFINTCAL.data().read().vrefint_cal(),
+        }
+    }
+
+    /// Convert a temperature sensor ADC reading to temperature in millidegrees Celsius.
+    ///
+    /// This function applies VDDA compensation using the VREFINT reading to account
+    /// for differences between the actual supply voltage and the 3.0V calibration voltage.
+    ///
+    /// # Arguments
+    /// * `ts_data` - Raw ADC reading from the temperature sensor channel
+    /// * `vrefint_data` - Raw ADC reading from the VREFINT channel (for VDDA compensation)
+    ///
+    /// # Returns
+    /// Temperature in millidegrees Celsius (e.g., 25000 = 25.000°C)
+    ///
+    /// # Example
+    /// ```ignore
+    /// let cal = Calibration::read();
+    /// let temp_mc = cal.convert_to_millicelsius(temp_adc_reading, vrefint_adc_reading);
+    /// let temp_c = temp_mc / 1000;
+    /// let temp_frac = (temp_mc % 1000).unsigned_abs();
+    /// info!("Temperature: {}.{:03} C", temp_c, temp_frac);
+    /// ```
+    pub fn convert_to_millicelsius(&self, ts_data: u32, vrefint_data: u32) -> i32 {
+        // Compensate TS_DATA for actual VDDA vs calibration VDDA (3.0V)
+        // TS_DATA_compensated = TS_DATA * VREFINT_CAL / VREFINT_DATA
+        let ts_data_comp = if vrefint_data > 0 {
+            (ts_data * self.vrefint_cal as u32) / vrefint_data
+        } else {
+            ts_data
+        };
+
+        // Use i32 for signed arithmetic (temperature can be negative)
+        let ts_data_comp = ts_data_comp as i32;
+        let ts_cal1 = self.ts_cal1 as i32;
+        let ts_cal2 = self.ts_cal2 as i32;
+
+        // Calculate temperature in millidegrees
+        // Temp_mC = TS_CAL1_TEMP * 1000 + (TS_CAL2_TEMP - TS_CAL1_TEMP) * 1000 * (TS_DATA - TS_CAL1) / (TS_CAL2 - TS_CAL1)
+        let delta_temp = (TS_CAL2_TEMP_C - TS_CAL1_TEMP_C) * 1000; // 100000 millidegrees
+        let delta_cal = ts_cal2 - ts_cal1;
+
+        if delta_cal == 0 {
+            // Avoid division by zero - return raw estimate
+            return ts_data_comp * 10;
+        }
+
+        TS_CAL1_TEMP_C * 1000 + (delta_temp * (ts_data_comp - ts_cal1)) / delta_cal
+    }
+
+    /// Calculate the actual VDDA voltage in millivolts using VREFINT.
+    ///
+    /// The formula is: VDDA = 3000mV × VREFINT_CAL / VREFINT_DATA
+    ///
+    /// # Arguments
+    /// * `vrefint_data` - Raw ADC reading from the VREFINT channel
+    ///
+    /// # Returns
+    /// Actual VDDA voltage in millivolts
+    pub fn calculate_vdda_mv(&self, vrefint_data: u32) -> u32 {
+        if vrefint_data > 0 {
+            (VREF_CALIB_MV * self.vrefint_cal as u32) / vrefint_data
+        } else {
+            VREF_DEFAULT_MV
+        }
+    }
+}
+
+impl super::SealedSpecialConverter<super::VrefInt> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 0;
 }
 
-impl<'d, T: Instance> super::SealedSpecialConverter<super::Temperature> for Adc4<'d, T> {
+impl super::SealedSpecialConverter<super::Temperature> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 13;
 }
 
-impl<'d, T: Instance> super::SealedSpecialConverter<super::Vcore> for Adc4<'d, T> {
+impl super::SealedSpecialConverter<super::Vcore> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 12;
 }
 
-impl<'d, T: Instance> super::SealedSpecialConverter<super::Vbat> for Adc4<'d, T> {
+impl super::SealedSpecialConverter<super::Vbat> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 14;
 }
 
-impl<'d, T: Instance> super::SealedSpecialConverter<super::Dac> for Adc4<'d, T> {
+impl super::SealedSpecialConverter<super::Dac> for crate::peripherals::ADC4 {
     const CHANNEL: u8 = 21;
 }
 
@@ -90,148 +190,156 @@ fn from_ker_ck(frequency: Hertz) -> Presc {
     }
 }
 
-pub trait SealedInstance {
-    #[allow(unused)]
-    fn regs() -> crate::pac::adc::Adc4;
-}
+impl AdcRegs for crate::pac::adc::Adc4 {
+    fn data(&self) -> *mut u16 {
+        crate::pac::adc::Adc4::dr(*self).as_ptr() as *mut u16
+    }
 
-pub trait Instance: SealedInstance + crate::PeripheralType + crate::rcc::RccPeripheral {
-    type Interrupt: crate::interrupt::typelevel::Interrupt;
-}
+    fn enable(&self) {
+        if !self.cr().read().aden() || !self.isr().read().adrdy() {
+            self.isr().write(|w| w.set_adrdy(true));
+            self.cr().modify(|w| w.set_aden(true));
+            while !self.isr().read().adrdy() {}
+        }
+    }
 
-foreach_adc!(
-    (ADC4, $common_inst:ident, $clock:ident) => {
-        use crate::peripherals::ADC4;
+    fn start(&self) {
+        // Start conversion
+        self.cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
+    }
 
-        impl super::BasicAnyInstance for ADC4 {
-            type SampleTime = SampleTime;
+    fn stop(&self) {
+        let cr = self.cr().read();
+        if cr.adstart() {
+            self.cr().modify(|w| w.set_adstp(true));
+            while self.cr().read().adstart() {}
         }
 
-        impl super::SealedAnyInstance for ADC4 {
-            fn dr() -> *mut u16 {
-                ADC4::regs().dr().as_ptr() as *mut u16
-            }
+        if cr.aden() || cr.adstart() {
+            self.cr().modify(|w| w.set_addis(true));
+            while self.cr().read().aden() {}
+        }
 
-            fn enable() {
-                if !ADC4::regs().cr().read().aden()  || !ADC4::regs().isr().read().adrdy() {
-                    ADC4::regs().isr().write(|w| w.set_adrdy(true));
-                    ADC4::regs().cr().modify(|w| w.set_aden(true));
-                    while !ADC4::regs().isr().read().adrdy() {}
-                }
-            }
+        // Reset configuration.
+        self.cfgr1().modify(|reg| {
+            reg.set_dmaen(false);
+        });
+    }
 
-            fn start() {
-                // Start conversion
-                ADC4::regs().cr().modify(|reg| {
-                    reg.set_adstart(true);
-                });
-            }
+    fn configure_dma(&self, conversion_mode: ConversionMode) {
+        // Clear overrun and conversion flags
+        self.isr().modify(|reg| {
+            reg.set_ovr(true);
+            reg.set_eos(true);
+            reg.set_eoc(true);
+        });
 
-            fn stop() {
-                let cr = ADC4::regs().cr().read();
-                if cr.adstart() {
-                    ADC4::regs().cr().modify(|w| w.set_adstp(true));
-                    while ADC4::regs().cr().read().adstart() {}
-                }
-
-                if cr.aden() || cr.adstart() {
-                    ADC4::regs().cr().modify(|w| w.set_addis(true));
-                    while ADC4::regs().cr().read().aden() {}
-                }
-
-                // Reset configuration.
-                ADC4::regs().cfgr1().modify(|reg| {
-                    reg.set_dmaen(false);
-                });
-            }
-
-            fn configure_dma(conversion_mode: ConversionMode) {
-                match conversion_mode {
-                    ConversionMode::Singular => {
-                        ADC4::regs().isr().modify(|reg| {
-                            reg.set_ovr(true);
-                            reg.set_eos(true);
-                            reg.set_eoc(true);
-                        });
-
-                        ADC4::regs().cfgr1().modify(|reg| {
-                            reg.set_dmaen(true);
-                            reg.set_dmacfg(Dmacfg::ONE_SHOT);
-                            #[cfg(stm32u5)]
-                            reg.set_chselrmod(false);
-                            #[cfg(stm32wba)]
-                            reg.set_chselrmod(Chselrmod::ENABLE_INPUT)
-                        });
-                    }
-                    #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
-                    _ => unreachable!(),
-                }
-            }
-
-            fn configure_sequence(sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
-                let mut prev_channel: i16 = -1;
-                #[cfg(stm32wba)]
-                ADC4::regs().chselr().write_value(Chselr(0_u32));
-                #[cfg(stm32u5)]
-                ADC4::regs().chselrmod0().write_value(Chselr(0_u32));
-                for (_i, ((channel, _), sample_time)) in sequence.enumerate() {
-                    ADC4::regs().smpr().modify(|w| {
-                        w.set_smp(_i, sample_time);
-                    });
-
-                    let channel_num = channel;
-                    if channel_num as i16 <= prev_channel {
-                        return;
-                    };
-                    prev_channel = channel_num as i16;
-
-                    #[cfg(stm32wba)]
-                    ADC4::regs().chselr().modify(|w| {
-                        w.set_chsel0(channel as usize, true);
-                    });
+        match conversion_mode {
+            ConversionMode::Singular => {
+                self.cfgr1().modify(|reg| {
+                    reg.set_dmaen(true);
+                    reg.set_dmacfg(Dmacfg::ONE_SHOT);
+                    reg.set_discen(false);
                     #[cfg(stm32u5)]
-                    ADC4::regs().chselrmod0().modify(|w| {
-                        w.set_chsel(channel as usize, true);
-                    });
-                }
+                    {
+                        reg.set_cont(false);
+                        reg.set_chselrmod(false);
+                    }
+                    #[cfg(stm32wba)]
+                    {
+                        reg.set_cont(Cont::SINGLE);
+                        reg.set_chselrmod(Chselrmod::ENABLE_INPUT);
+                    }
+                });
             }
-
-            fn convert() -> u16 {
-                // Reset interrupts
-                ADC4::regs().isr().modify(|reg| {
-                    reg.set_eos(true);
-                    reg.set_eoc(true);
+            #[cfg(any(adc_v2, adc_g4, adc_v3, adc_g0, adc_u0))]
+            ConversionMode::Repeated(_) => unreachable!(),
+            #[cfg(stm32wba)]
+            ConversionMode::Repeated(_mode) => {
+                // Configure for circular DMA with continuous conversion
+                self.cfgr1().modify(|reg| {
+                    reg.set_dmaen(true);
+                    reg.set_dmacfg(Dmacfg::CIRCULAR); // Enable circular DMA mode
+                    reg.set_cont(Cont::CONTINUOUS); // Enable continuous conversion
+                    reg.set_discen(false); // Disable discontinuous mode
+                    reg.set_chselrmod(Chselrmod::ENABLE_INPUT);
                 });
-
-                // Start conversion
-                ADC4::regs().cr().modify(|reg| {
-                    reg.set_adstart(true);
-                });
-
-                while !ADC4::regs().isr().read().eos() {
-                    // spin
-                }
-
-                ADC4::regs().dr().read().0 as u16
             }
         }
+    }
 
-        impl super::AnyInstance for ADC4 {}
-    };
-);
+    fn configure_sequence(&self, sequence: impl ExactSizeIterator<Item = ((u8, bool), SampleTime)>) {
+        let mut prev_channel: i16 = -1;
+        #[cfg(stm32wba)]
+        self.chselr().write_value(Chselr(0_u32));
+        #[cfg(stm32u5)]
+        self.chselrmod0().write_value(Chselr(0_u32));
 
-pub struct Adc4<'d, T: Instance> {
-    #[allow(unused)]
-    adc: crate::Peri<'d, T>,
+        #[cfg(stm32wba)]
+        let mut first_sample_time: Option<SampleTime> = None;
+
+        for (_i, ((channel, _), sample_time)) in sequence.enumerate() {
+            // For STM32WBA: SMPR only has 2 sample time slots (SMP1, SMP2).
+            // We use SMP1 for all channels with the first channel's sample time.
+            // For STM32U5: Each channel can have its own sample time.
+            #[cfg(stm32u5)]
+            self.smpr().modify(|w| {
+                w.set_smp(_i, sample_time);
+            });
+
+            #[cfg(stm32wba)]
+            {
+                // Set SMP1 (index 0) with the first channel's sample time, use it for all channels
+                if first_sample_time.is_none() {
+                    first_sample_time = Some(sample_time);
+                    self.smpr().modify(|w| {
+                        w.set_smp(0, sample_time); // Index 0 = SMP1
+                    });
+                }
+                // Set SMPSEL for this channel to use SMP1
+                self.smpr().modify(|w| {
+                    w.set_smpsel(channel as usize, Smpsel::SMP1);
+                });
+            }
+
+            let channel_num = channel;
+            if channel_num as i16 <= prev_channel {
+                return;
+            };
+            prev_channel = channel_num as i16;
+
+            #[cfg(stm32wba)]
+            self.chselr().modify(|w| {
+                w.set_chsel0(channel as usize, true);
+            });
+            #[cfg(stm32u5)]
+            self.chselrmod0().modify(|w| {
+                w.set_chsel(channel as usize, true);
+            });
+        }
+    }
+
+    fn convert(&self) {
+        // Reset interrupts
+        self.isr().modify(|reg| {
+            reg.set_eos(true);
+            reg.set_eoc(true);
+        });
+
+        // Start conversion
+        self.cr().modify(|reg| {
+            reg.set_adstart(true);
+        });
+
+        while !self.isr().read().eos() {
+            // spin
+        }
+    }
 }
 
-#[derive(Copy, Clone, Debug)]
-pub enum Adc4Error {
-    InvalidSequence,
-    DMAError,
-}
-
-impl<'d, T: Instance + super::AnyInstance> super::Adc<'d, T> {
+impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
     /// Create a new ADC driver.
     pub fn new_adc4(adc: Peri<'d, T>) -> Self {
         rcc::enable_and_reset::<T>();
@@ -267,7 +375,7 @@ impl<'d, T: Instance + super::AnyInstance> super::Adc<'d, T> {
 
         blocking_delay_us(1);
 
-        T::enable();
+        T::regs().enable();
 
         // single conversion mode, software trigger
         T::regs().cfgr1().modify(|w| {

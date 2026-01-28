@@ -217,12 +217,21 @@ impl<'d, T: Instance> Ucpd<'d, T> {
 
     /// Splits the UCPD driver into a TypeC PHY to control and monitor CC voltage
     /// and a Power Delivery (PD) PHY with receiver and transmitter.
-    pub fn split_pd_phy(
+    pub fn split_pd_phy<RX, TX>(
         self,
-        rx_dma: Peri<'d, impl RxDma<T>>,
-        tx_dma: Peri<'d, impl TxDma<T>>,
+        rx_dma: Peri<'d, RX>,
+        tx_dma: Peri<'d, TX>,
+        _irq: impl interrupt::typelevel::Binding<RX::Interrupt, crate::dma::InterruptHandler<RX>>
+        + interrupt::typelevel::Binding<TX::Interrupt, crate::dma::InterruptHandler<TX>>
+        + 'd,
         cc_sel: CcSel,
-    ) -> (CcPhy<'d, T>, PdPhy<'d, T>) {
+    ) -> (CcPhy<'d, T>, PdPhy<'d, T>)
+    where
+        RX: RxDma<T> + crate::dma::ChannelInterrupt,
+        TX: TxDma<T> + crate::dma::ChannelInterrupt,
+    {
+        crate::dma::assert_dma_binding(&*rx_dma, &_irq);
+        crate::dma::assert_dma_binding(&*tx_dma, &_irq);
         let r = T::REGS;
 
         // TODO: Currently only SOP messages are supported.

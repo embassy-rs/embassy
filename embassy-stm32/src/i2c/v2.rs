@@ -73,7 +73,7 @@ pub(crate) unsafe fn on_interrupt<T: Instance>() {
     // restore the clocks to their last configured state as
     // much is lost in STOP modes
     #[cfg(all(feature = "low-power", stm32wlex))]
-    crate::low_power::Executor::on_wakeup_irq();
+    crate::low_power::Executor::on_wakeup_irq_or_event();
 
     let regs = T::info().regs;
     let isr = regs.isr().read();
@@ -1075,6 +1075,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
     /// Write.
     pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         let timeout = self.timeout();
         if write.is_empty() {
             self.write_internal(address.into(), write, true, timeout)
@@ -1089,6 +1090,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     ///
     /// The buffers are concatenated in a single write transaction.
     pub async fn write_vectored(&mut self, address: Address, write: &[&[u8]]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         let timeout = self.timeout();
 
         if write.is_empty() {
@@ -1120,6 +1122,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
     /// Read.
     pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         let timeout = self.timeout();
 
         if buffer.is_empty() {
@@ -1132,6 +1135,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
     /// Write, restart, read.
     pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         let timeout = self.timeout();
 
         if write.is_empty() {
@@ -1157,6 +1161,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
     pub async fn transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         if operations.is_empty() {
             return Err(Error::ZeroLengthTransfer);
         }
@@ -1675,42 +1680,50 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
 
     /// Listen for incoming I2C messages.
     ///
-    /// The listen method is an asynchronous method but it does not require DMA to be asynchronous.
-    pub async fn listen(&mut self) -> Result<SlaveCommand, Error> {
-        let state = self.state;
+    /// This method blocks until the slave address is matched by a master.
+    pub fn blocking_listen(&mut self) -> Result<SlaveCommand, Error> {
+        let timeout = self.timeout();
+
         self.info.regs.cr1().modify(|reg| {
             reg.set_addrie(true);
             trace!("Enable ADDRIE");
         });
 
-        poll_fn(|cx| {
-            state.waker.register(cx.waker());
+        loop {
             let isr = self.info.regs.isr().read();
-            if !isr.addr() {
-                Poll::Pending
-            } else {
-                trace!("ADDR triggered (address match)");
-                // we do not clear the address flag here as it will be cleared by the dma read/write
-                // if we clear it here the clock stretching will stop and the master will read in data before the slave is ready to send it
-                match isr.dir() {
-                    i2c::vals::Dir::WRITE => {
-                        trace!("DIR: write");
-                        Poll::Ready(Ok(SlaveCommand {
-                            kind: SlaveCommandKind::Write,
-                            address: self.determine_matched_address()?,
-                        }))
-                    }
-                    i2c::vals::Dir::READ => {
-                        trace!("DIR: read");
-                        Poll::Ready(Ok(SlaveCommand {
-                            kind: SlaveCommandKind::Read,
-                            address: self.determine_matched_address()?,
-                        }))
-                    }
-                }
+            if isr.addr() {
+                break;
             }
-        })
-        .await
+            timeout.check()?;
+        }
+
+        trace!("ADDR triggered (address match)");
+
+        // we do not clear the address flag here as it will be cleared by the dma read/write
+        // if we clear it here the clock stretching will stop and the master will read in data before the slave is ready to send it
+        self.slave_command()
+    }
+
+    /// Determine the received slave command.
+    fn slave_command(&self) -> Result<SlaveCommand, Error> {
+        let isr = self.info.regs.isr().read();
+
+        match isr.dir() {
+            i2c::vals::Dir::WRITE => {
+                trace!("DIR: write");
+                Ok(SlaveCommand {
+                    kind: SlaveCommandKind::Write,
+                    address: self.determine_matched_address()?,
+                })
+            }
+            i2c::vals::Dir::READ => {
+                trace!("DIR: read");
+                Ok(SlaveCommand {
+                    kind: SlaveCommandKind::Read,
+                    address: self.determine_matched_address()?,
+                })
+            }
+        }
     }
 
     /// Respond to a write command.
@@ -1729,16 +1742,44 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
 }
 
 impl<'d> I2c<'d, Async, MultiMaster> {
+    /// Listen for incoming I2C messages.
+    ///
+    /// The listen method is an asynchronous method but it does not require DMA to be asynchronous.
+    pub async fn listen(&mut self) -> Result<SlaveCommand, Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
+        let state = self.state;
+        self.info.regs.cr1().modify(|reg| {
+            reg.set_addrie(true);
+            trace!("Enable ADDRIE");
+        });
+
+        poll_fn(|cx| {
+            state.waker.register(cx.waker());
+            let isr = self.info.regs.isr().read();
+            if !isr.addr() {
+                Poll::Pending
+            } else {
+                trace!("ADDR triggered (address match)");
+                // we do not clear the address flag here as it will be cleared by the dma read/write
+                // if we clear it here the clock stretching will stop and the master will read in data before the slave is ready to send it
+                Poll::Ready(self.slave_command())
+            }
+        })
+        .await
+    }
+
     /// Respond to a write command.
     ///
     /// Returns the total number of bytes received.
     pub async fn respond_to_write(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         let timeout = self.timeout();
         timeout.with(self.read_dma_internal_slave(buffer, timeout)).await
     }
 
     /// Respond to a read request from an I2C master.
     pub async fn respond_to_read(&mut self, write: &[u8]) -> Result<SendStatus, Error> {
+        let _scoped_block_stop = self.info.rcc.block_stop();
         let timeout = self.timeout();
         timeout.with(self.write_dma_internal_slave(write, timeout)).await
     }

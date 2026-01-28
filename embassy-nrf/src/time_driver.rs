@@ -79,6 +79,10 @@ fn calc_now(period: u32, counter: u32) -> u64 {
 #[cfg(feature = "_grtc")]
 fn syscounter() -> u64 {
     let r = rtc();
+    if !r.mode().read().syscounteren() {
+        return 0;
+    }
+
     r.syscounter(0).active().write(|w| w.set_active(true));
     loop {
         let countl: u32 = r.syscounter(0).syscounterl().read();
