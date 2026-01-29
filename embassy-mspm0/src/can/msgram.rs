@@ -330,6 +330,7 @@ impl Default for TxEventElement {
 
 /// Structure to represent the data within Message RAM of the CANFD / MCAN peripheral.
 /// Note that on TI parts, this data lives at the base address of the CANFD/MCAN peripheral (this is not yet documented by TI, though.)
+/// Packing/padding between each field is irrelevant as we tell the peripheral which offset to find each array at.
 #[repr(C)]
 pub(super) struct McanMessageRAM {
     filters: [StandardFilter; 0],
@@ -379,6 +380,65 @@ impl McanMessageRAM {
 
         if core::mem::size_of::<McanMessageRAM>() > 1024 {
             core::panic!("message RAM too large!");
+        }
+
+        // Given the message ram structs represent real hardware, we need to ensure they aren't being padded.
+        // Adding the `packed` repr forces us into using raw pointers everywhere unecessarily - but the fields _are_ aligned, even when packed!
+        //
+        // This logic acts to assert that the structures are in practice constructed properly.
+        // Note: McanMessageRAM is not evaluated here as padding between fields doesn't matter - we tell the MCAN peripheral the offset of each field
+        // at configuration time. As long as all of the fields fit into RAM, we're good, and this is asserted in the SIZES const.
+
+        //StandardFilter is just a u32.
+
+        //ExtendedFilter
+        if core::mem::offset_of!(ExtendedFilter, ef1) != 0 {
+            core::panic!("ExtendedFilter -> ef1 has been padded!");
+        }
+        if core::mem::offset_of!(ExtendedFilter, ef2) != 4 {
+            core::panic!("ExtendedFilter -> ef2 has been padded!");
+        }
+        if core::mem::size_of::<ExtendedFilter>() != 8 {
+            core::panic!("ExtendedFilter has been padded!");
+        }
+
+        //TxEventElement
+        if core::mem::offset_of!(TxEventElement, hdr) != 0 {
+            core::panic!("TxEventElement -> hdr has been padded!");
+        }
+        if core::mem::offset_of!(TxEventElement, event) != 4 {
+            core::panic!("TxEventElement -> event has been padded!");
+        }
+        if core::mem::size_of::<TxEventElement>() != 8 {
+            core::panic!("TxEventElement has been padded!");
+        }
+
+        //TxBufferElement
+        if core::mem::offset_of!(TxBufferElement, hdr) != 0 {
+            core::panic!("TxBufferElement -> hdr has been padded!");
+        }
+        if core::mem::offset_of!(TxBufferElement, txhdr) != 4 {
+            core::panic!("TxBufferElement -> txhdr has been padded!");
+        }
+        if core::mem::offset_of!(TxBufferElement, data) != 8 {
+            core::panic!("TxBufferElement -> data has been padded!");
+        }
+        if core::mem::size_of::<TxBufferElement>() != 8 + MAX_DATA_LEN {
+            core::panic!("TxBufferElement has been padded!");
+        }
+
+        //RxBufferElement
+        if core::mem::offset_of!(RxBufferElement, hdr) != 0 {
+            core::panic!("RxBufferElement -> hdr has been padded!");
+        }
+        if core::mem::offset_of!(RxBufferElement, rxhdr) != 4 {
+            core::panic!("RxBufferElement -> rxhdr has been padded!");
+        }
+        if core::mem::offset_of!(RxBufferElement, data) != 8 {
+            core::panic!("RxBufferElement -> data has been padded!");
+        }
+        if core::mem::size_of::<RxBufferElement>() != 8 + MAX_DATA_LEN {
+            core::panic!("RxBufferElement has been padded!");
         }
 
         MessageRamOffsetsSizes {
