@@ -14,37 +14,6 @@ use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 
-/// Error information type
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[non_exhaustive]
-pub enum Error {
-    /// Setup errors
-    Setup(SetupError),
-    /// I/O errors
-    IO(IOError),
-    /// Other internal errors or unexpected state.
-    Other,
-}
-
-impl From<Error> for SetupError {
-    fn from(value: Error) -> Self {
-        match value {
-            Error::Setup(setup) => setup,
-            _ => Self::Other,
-        }
-    }
-}
-
-impl From<Error> for IOError {
-    fn from(value: Error) -> Self {
-        match value {
-            Error::IO(io) => io,
-            _ => Self::Other,
-        }
-    }
-}
-
 /// Errors exclusive to HW initialization
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -589,7 +558,7 @@ impl<'d> I2c<'d, Async> {
                 self.is_tx_fifo_empty()
             })
             .await
-            .map_err(|_| Error::Other)?;
+            .map_err(|_| IOError::Other)?;
 
         self.status()
     }
@@ -607,7 +576,7 @@ impl<'d> I2c<'d, Async> {
                 self.is_tx_fifo_empty()
             })
             .await
-            .map_err(|_| Error::Other)?;
+            .map_err(|_| IOError::Other)?;
 
         self.status()
     }
@@ -635,7 +604,7 @@ impl<'d> I2c<'d, Async> {
                     self.is_tx_fifo_empty()
                 })
                 .await
-                .map_err(|_| Error::Other)?;
+                .map_err(|_| IOError::Other)?;
 
             for byte in chunk.iter_mut() {
                 self.info
@@ -744,56 +713,56 @@ impl<'d, M: Mode> Drop for I2c<'d, M> {
 }
 
 impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Read for I2c<'d, M> {
-    type Error = Error;
+    type Error = IOError;
 
-    fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
-        self.blocking_read(address, buffer).map_err(Error::IO)
+    fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_read(address, buffer)
     }
 }
 
 impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Write for I2c<'d, M> {
-    type Error = Error;
+    type Error = IOError;
 
-    fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Error> {
-        self.blocking_write(address, bytes).map_err(Error::IO)
+    fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Self::Error> {
+        self.blocking_write(address, bytes)
     }
 }
 
 impl<'d, M: Mode> embedded_hal_02::blocking::i2c::WriteRead for I2c<'d, M> {
-    type Error = Error;
+    type Error = IOError;
 
-    fn write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Error> {
-        self.blocking_write_read(address, bytes, buffer).map_err(Error::IO)
+    fn write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
+        self.blocking_write_read(address, bytes, buffer)
     }
 }
 
 impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Transactional for I2c<'d, M> {
-    type Error = Error;
+    type Error = IOError;
 
     fn exec(
         &mut self,
         address: u8,
         operations: &mut [embedded_hal_02::blocking::i2c::Operation<'_>],
-    ) -> Result<(), Error> {
+    ) -> Result<(), Self::Error> {
         if let Some((last, rest)) = operations.split_last_mut() {
             for op in rest {
                 match op {
-                    embedded_hal_02::blocking::i2c::Operation::Read(buf) => self
-                        .blocking_read_internal(address, buf, SendStop::No)
-                        .map_err(Error::IO)?,
-                    embedded_hal_02::blocking::i2c::Operation::Write(buf) => self
-                        .blocking_write_internal(address, buf, SendStop::No)
-                        .map_err(Error::IO)?,
+                    embedded_hal_02::blocking::i2c::Operation::Read(buf) => {
+                        self.blocking_read_internal(address, buf, SendStop::No)?
+                    }
+                    embedded_hal_02::blocking::i2c::Operation::Write(buf) => {
+                        self.blocking_write_internal(address, buf, SendStop::No)?
+                    }
                 }
             }
 
             match last {
-                embedded_hal_02::blocking::i2c::Operation::Read(buf) => self
-                    .blocking_read_internal(address, buf, SendStop::Yes)
-                    .map_err(Error::IO),
-                embedded_hal_02::blocking::i2c::Operation::Write(buf) => self
-                    .blocking_write_internal(address, buf, SendStop::Yes)
-                    .map_err(Error::IO),
+                embedded_hal_02::blocking::i2c::Operation::Read(buf) => {
+                    self.blocking_read_internal(address, buf, SendStop::Yes)
+                }
+                embedded_hal_02::blocking::i2c::Operation::Write(buf) => {
+                    self.blocking_write_internal(address, buf, SendStop::Yes)
+                }
             }
         } else {
             Ok(())
@@ -801,11 +770,11 @@ impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Transactional for I2c<'d, M> {
     }
 }
 
-impl embedded_hal_1::i2c::Error for Error {
+impl embedded_hal_1::i2c::Error for IOError {
     fn kind(&self) -> embedded_hal_1::i2c::ErrorKind {
         match *self {
-            Self::IO(IOError::ArbitrationLoss) => embedded_hal_1::i2c::ErrorKind::ArbitrationLoss,
-            Self::IO(IOError::AddressNack) => {
+            Self::ArbitrationLoss => embedded_hal_1::i2c::ErrorKind::ArbitrationLoss,
+            Self::AddressNack => {
                 embedded_hal_1::i2c::ErrorKind::NoAcknowledge(embedded_hal_1::i2c::NoAcknowledgeSource::Address)
             }
             _ => embedded_hal_1::i2c::ErrorKind::Other,
@@ -814,30 +783,30 @@ impl embedded_hal_1::i2c::Error for Error {
 }
 
 impl<'d, M: Mode> embedded_hal_1::i2c::ErrorType for I2c<'d, M> {
-    type Error = Error;
+    type Error = IOError;
 }
 
 impl<'d, M: Mode> embedded_hal_1::i2c::I2c for I2c<'d, M> {
-    fn transaction(&mut self, address: u8, operations: &mut [embedded_hal_1::i2c::Operation<'_>]) -> Result<(), Error> {
+    fn transaction(
+        &mut self,
+        address: u8,
+        operations: &mut [embedded_hal_1::i2c::Operation<'_>],
+    ) -> Result<(), Self::Error> {
         if let Some((last, rest)) = operations.split_last_mut() {
             for op in rest {
                 match op {
-                    embedded_hal_1::i2c::Operation::Read(buf) => self
-                        .blocking_read_internal(address, buf, SendStop::No)
-                        .map_err(Error::IO)?,
-                    embedded_hal_1::i2c::Operation::Write(buf) => self
-                        .blocking_write_internal(address, buf, SendStop::No)
-                        .map_err(Error::IO)?,
+                    embedded_hal_1::i2c::Operation::Read(buf) => {
+                        self.blocking_read_internal(address, buf, SendStop::No)?
+                    }
+                    embedded_hal_1::i2c::Operation::Write(buf) => {
+                        self.blocking_write_internal(address, buf, SendStop::No)?
+                    }
                 }
             }
 
             match last {
-                embedded_hal_1::i2c::Operation::Read(buf) => self
-                    .blocking_read_internal(address, buf, SendStop::Yes)
-                    .map_err(Error::IO),
-                embedded_hal_1::i2c::Operation::Write(buf) => self
-                    .blocking_write_internal(address, buf, SendStop::Yes)
-                    .map_err(Error::IO),
+                embedded_hal_1::i2c::Operation::Read(buf) => self.blocking_read_internal(address, buf, SendStop::Yes),
+                embedded_hal_1::i2c::Operation::Write(buf) => self.blocking_write_internal(address, buf, SendStop::Yes),
             }
         } else {
             Ok(())
@@ -850,30 +819,26 @@ impl<'d> embedded_hal_async::i2c::I2c for I2c<'d, Async> {
         &mut self,
         address: u8,
         operations: &mut [embedded_hal_async::i2c::Operation<'_>],
-    ) -> Result<(), Error> {
+    ) -> Result<(), Self::Error> {
         if let Some((last, rest)) = operations.split_last_mut() {
             for op in rest {
                 match op {
-                    embedded_hal_async::i2c::Operation::Read(buf) => self
-                        .async_read_internal(address, buf, SendStop::No)
-                        .await
-                        .map_err(Error::IO)?,
-                    embedded_hal_async::i2c::Operation::Write(buf) => self
-                        .async_write_internal(address, buf, SendStop::No)
-                        .await
-                        .map_err(Error::IO)?,
+                    embedded_hal_async::i2c::Operation::Read(buf) => {
+                        self.async_read_internal(address, buf, SendStop::No).await?
+                    }
+                    embedded_hal_async::i2c::Operation::Write(buf) => {
+                        self.async_write_internal(address, buf, SendStop::No).await?
+                    }
                 }
             }
 
             match last {
-                embedded_hal_async::i2c::Operation::Read(buf) => self
-                    .async_read_internal(address, buf, SendStop::Yes)
-                    .await
-                    .map_err(Error::IO),
-                embedded_hal_async::i2c::Operation::Write(buf) => self
-                    .async_write_internal(address, buf, SendStop::Yes)
-                    .await
-                    .map_err(Error::IO),
+                embedded_hal_async::i2c::Operation::Read(buf) => {
+                    self.async_read_internal(address, buf, SendStop::Yes).await
+                }
+                embedded_hal_async::i2c::Operation::Write(buf) => {
+                    self.async_write_internal(address, buf, SendStop::Yes).await
+                }
             }
         } else {
             Ok(())
@@ -883,9 +848,9 @@ impl<'d> embedded_hal_async::i2c::I2c for I2c<'d, Async> {
 
 impl<'d, M: Mode> embassy_embedded_hal::SetConfig for I2c<'d, M> {
     type Config = Config;
-    type ConfigError = Error;
+    type ConfigError = SetupError;
 
-    fn set_config(&mut self, config: &Self::Config) -> Result<(), Error> {
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), SetupError> {
         self.set_configuration(config);
         Ok(())
     }

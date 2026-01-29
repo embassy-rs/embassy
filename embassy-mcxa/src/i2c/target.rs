@@ -15,37 +15,6 @@ use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 
-/// Error information type.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[non_exhaustive]
-pub enum Error {
-    /// Setup error
-    Setup(SetupError),
-    /// I/O Error
-    IO(IOError),
-    /// Other internal errors or unexpected state.
-    Other,
-}
-
-impl From<Error> for SetupError {
-    fn from(value: Error) -> Self {
-        match value {
-            Error::Setup(setup) => setup,
-            _ => Self::Other,
-        }
-    }
-}
-
-impl From<Error> for IOError {
-    fn from(value: Error) -> Self {
-        match value {
-            Error::IO(io) => io,
-            _ => Self::Other,
-        }
-    }
-}
-
 /// Errors exclusive to hardware Initialization
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -625,7 +594,7 @@ impl<'d> I2c<'d, Async> {
                     || self.info.regs().ssr().read().gcf().bit_is_set()
             })
             .await
-            .map_err(|_| Error::Other)?;
+            .map_err(|_| IOError::Other)?;
 
         let event = self.status()?;
 
@@ -664,7 +633,7 @@ impl<'d> I2c<'d, Async> {
                     ssr.tdf().bit_is_set() || ssr.sdf().bit_is_set() || ssr.rsf().bit_is_set()
                 })
                 .await
-                .map_err(|_| Error::Other)?;
+                .map_err(|_| IOError::Other)?;
 
             // If we see a STOP or REPEATED START, break out
             let ssr = self.info.regs().ssr().read();
@@ -702,7 +671,7 @@ impl<'d> I2c<'d, Async> {
                     ssr.rdf().bit_is_set() || ssr.sdf().bit_is_set() || ssr.rsf().bit_is_set()
                 })
                 .await
-                .map_err(|_| Error::Other)?;
+                .map_err(|_| IOError::Other)?;
 
             // If we see a STOP or REPEATED START, break out
             let ssr = self.info.regs().ssr().read();
