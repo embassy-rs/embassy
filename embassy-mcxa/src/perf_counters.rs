@@ -63,7 +63,7 @@ macro_rules! define_counters {
                     PERF_COUNTERS.$name.store(0, Ordering::Relaxed);
                 }
 
-                /// Get current perf counter snapshot and reset the perf counter to zero
+                /// Get current perf counter snapshot
                 ///
                 /// If the `perf` feature is not enabled, this always returns zero
                 #[inline(always)]
@@ -75,7 +75,7 @@ macro_rules! define_counters {
                     ret
                 }
 
-                /// Get current perf counter snapshot
+                /// Get current perf counter snapshot and reset the perf counter to zero
                 ///
                 /// If the `perf` feature is not enabled, this always returns zero
                 #[inline(always)]
