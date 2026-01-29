@@ -2,12 +2,13 @@
 
 This document is intended to assist developers of the `embassy-mcxa` crate.
 
-As of 2026-01-29, there is currently no "how to write/maintain a HAL" guide for `embassy`, so we intend to write up and explain why the embassy-mcxa crate was implemented the way it was, and to serve as a reference for people incrementally building out more features in the future. We also hope to "upstream" these docs when possible, to assist with better consistency between embassy HALs in the future.
+As of 2026-01-29, there is currently no "how to write/maintain a HAL" guide for `embassy`, so we intend to write up and explain why the embassy-mcxa crate was implemented the way it was, and to serve as a reference for people incrementally building out more features in the future. We also hope to "upstream" these docs when possible, to assist with better consistency among embassy HALs in the future.
 
 This document will be written incrementally. If you see something missing: please do one of the following:
 
-* Open an issue or ask in the embassy matrix chat why things are the way they are, or how they should be.
-* Open a PR to add the documentation you think is missing.
+* Open an issue in the embassy github
+* Ask in the embassy matrix chat
+* Open a PR to add the documentation you think is missing
 
 ## The `Cargo.toml` file
 
