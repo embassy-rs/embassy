@@ -1075,7 +1075,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
     /// Write.
     pub async fn write(&mut self, address: u8, write: &[u8]) -> Result<(), Error> {
-        let _scoped_block_stop = self.info.rcc.block_stop();
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
         let timeout = self.timeout();
         if write.is_empty() {
             self.write_internal(address.into(), write, true, timeout)
@@ -1090,7 +1090,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     ///
     /// The buffers are concatenated in a single write transaction.
     pub async fn write_vectored(&mut self, address: Address, write: &[&[u8]]) -> Result<(), Error> {
-        let _scoped_block_stop = self.info.rcc.block_stop();
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
         let timeout = self.timeout();
 
         if write.is_empty() {
@@ -1122,7 +1122,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
     /// Read.
     pub async fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
-        let _scoped_block_stop = self.info.rcc.block_stop();
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
         let timeout = self.timeout();
 
         if buffer.is_empty() {
@@ -1135,7 +1135,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
 
     /// Write, restart, read.
     pub async fn write_read(&mut self, address: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
-        let _scoped_block_stop = self.info.rcc.block_stop();
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
         let timeout = self.timeout();
 
         if write.is_empty() {
@@ -1161,7 +1161,7 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
     ///
     /// [transaction contract]: embedded_hal_1::i2c::I2c::transaction
     pub async fn transaction(&mut self, addr: u8, operations: &mut [Operation<'_>]) -> Result<(), Error> {
-        let _scoped_block_stop = self.info.rcc.block_stop();
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
         if operations.is_empty() {
             return Err(Error::ZeroLengthTransfer);
         }
@@ -1746,7 +1746,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
     ///
     /// The listen method is an asynchronous method but it does not require DMA to be asynchronous.
     pub async fn listen(&mut self) -> Result<SlaveCommand, Error> {
-        let _scoped_block_stop = self.info.rcc.block_stop();
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
         let state = self.state;
         self.info.regs.cr1().modify(|reg| {
             reg.set_addrie(true);
@@ -1772,14 +1772,14 @@ impl<'d> I2c<'d, Async, MultiMaster> {
     ///
     /// Returns the total number of bytes received.
     pub async fn respond_to_write(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
-        let _scoped_block_stop = self.info.rcc.block_stop();
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
         let timeout = self.timeout();
         timeout.with(self.read_dma_internal_slave(buffer, timeout)).await
     }
 
     /// Respond to a read request from an I2C master.
     pub async fn respond_to_read(&mut self, write: &[u8]) -> Result<SendStatus, Error> {
-        let _scoped_block_stop = self.info.rcc.block_stop();
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
         let timeout = self.timeout();
         timeout.with(self.write_dma_internal_slave(write, timeout)).await
     }

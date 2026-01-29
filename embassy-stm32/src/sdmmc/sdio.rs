@@ -97,7 +97,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
 
     /// Initializes the card into a known state (or at least tries to).
     async fn acquire(&mut self, _freq: Hertz) -> Result<(), Error> {
-        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+        let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
         let _bus_width = match self.sdmmc.bus_width() {
             BusWidth::Eight => return Err(Error::BusWidth),
@@ -140,7 +140,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
 
     /// Read in block mode using cmd53
     pub async fn cmd53_block_read(&mut self, arg: u32, blocks: &mut [DataBlock]) -> Result<(), Error> {
-        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+        let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
         // NOTE(unsafe) reinterpret buffer as &mut [u32]
         let buffer = unsafe {
@@ -161,7 +161,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
 
     /// Read in multibyte mode using cmd53
     pub async fn cmd53_byte_read(&mut self, arg: u32, buffer: &mut Aligned<A4, [u8]>) -> Result<(), Error> {
-        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+        let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
         // trace!("byte read start (len): {:#x} ({})", arg, buffer.len());
 
@@ -180,7 +180,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
 
     /// Write in block mode using cmd53
     pub async fn cmd53_block_write(&mut self, arg: u32, blocks: &[DataBlock]) -> Result<(), Error> {
-        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+        let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
         // NOTE(unsafe) reinterpret buffer as &mut [u32]
         let buffer = unsafe {
@@ -206,7 +206,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
 
     /// Write in multibyte mode using cmd53
     pub async fn cmd53_byte_write(&mut self, arg: u32, buffer: &Aligned<A4, [u8]>) -> Result<(), Error> {
-        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+        let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
         #[cfg(sdmmc_v1)]
         self.sdmmc.cmd(cmd::<R1>(53, arg), true, true)?;

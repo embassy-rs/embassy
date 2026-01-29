@@ -2133,7 +2133,7 @@ fn main() {
         #[cfg(feature = "_dual-core")]
         let irq_pac = quote!(crate::pac::Interrupt::#irq_ident);
 
-        g.extend(quote!(dma_channel_impl!(#name, #idx, #stop_mode, #irq_type);));
+        g.extend(quote!(dma_channel_impl!(#name, #idx, #irq_type);));
 
         let dma = format_ident!("{}", ch.dma);
         let ch_num = ch.channel as usize;
@@ -2168,6 +2168,8 @@ fn main() {
             crate::dma::ChannelInfo {
                 dma: #dma_info,
                 num: #ch_num,
+                #[cfg(feature = "low-power")]
+                stop_mode: crate::rcc::StopMode::#stop_mode,
                 #dmamux
             },
         });
@@ -2177,6 +2179,8 @@ fn main() {
                 dma: #dma_info,
                 num: #ch_num,
                 irq: #irq_pac,
+                #[cfg(feature = "low-power")]
+                stop_mode: crate::rcc::StopMode::#stop_mode,
                 #dmamux
             },
         });

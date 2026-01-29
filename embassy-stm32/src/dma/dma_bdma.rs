@@ -10,7 +10,7 @@ use super::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBu
 use super::word::{Word, WordSize};
 use super::{AnyChannel, Dir, Increment, Request, STATE};
 use crate::interrupt::typelevel::Interrupt;
-use crate::rcc::BusyPeripheral;
+use crate::rcc::WakeGuard;
 use crate::{interrupt, pac};
 
 pub(crate) struct ChannelInfo {
@@ -20,6 +20,17 @@ pub(crate) struct ChannelInfo {
     pub(crate) irq: pac::Interrupt,
     #[cfg(dmamux)]
     pub(crate) dmamux: super::DmamuxInfo,
+    #[cfg(feature = "low-power")]
+    pub(crate) stop_mode: crate::rcc::StopMode,
+}
+
+impl ChannelInfo {
+    fn wake_guard(&self) -> WakeGuard {
+        WakeGuard::new(
+            #[cfg(feature = "low-power")]
+            self.stop_mode,
+        )
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -638,7 +649,8 @@ impl AnyChannel {
 /// DMA transfer.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Transfer<'a> {
-    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
+    channel: Peri<'a, AnyChannel>,
+    _wake_guard: WakeGuard,
 }
 
 impl<'a> Transfer<'a> {
@@ -791,7 +803,8 @@ impl<'a> Transfer<'a> {
         );
         channel.start();
         Self {
-            channel: BusyPeripheral::new(channel),
+            _wake_guard: channel.info().wake_guard(),
+            channel,
         }
     }
 
@@ -895,7 +908,8 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
 
 /// Ringbuffer for receiving data using DMA circular mode.
 pub struct ReadableRingBuffer<'a, W: Word> {
-    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
+    channel: Peri<'a, AnyChannel>,
+    _wake_guard: WakeGuard,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
 }
 
@@ -932,7 +946,8 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         );
 
         Self {
-            channel: BusyPeripheral::new(channel),
+            _wake_guard: channel.info().wake_guard(),
+            channel,
             ringbuf: ReadableDmaRingBuffer::new(buffer),
         }
     }
@@ -1051,7 +1066,8 @@ impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
 
 /// Ringbuffer for writing data using DMA circular mode.
 pub struct WritableRingBuffer<'a, W: Word> {
-    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
+    channel: Peri<'a, AnyChannel>,
+    _wake_guard: WakeGuard,
     ringbuf: WritableDmaRingBuffer<'a, W>,
 }
 
@@ -1088,7 +1104,8 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         );
 
         Self {
-            channel: BusyPeripheral::new(channel),
+            _wake_guard: channel.info().wake_guard(),
+            channel,
             ringbuf: WritableDmaRingBuffer::new(buffer),
         }
     }

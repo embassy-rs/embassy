@@ -14,7 +14,7 @@ use super::{AnyChannel, Dir, Request, STATE};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac;
 use crate::pac::gpdma::vals;
-use crate::rcc::BusyPeripheral;
+use crate::rcc::WakeGuard;
 
 pub mod linked_list;
 pub mod ringbuffered;
@@ -24,6 +24,17 @@ pub(crate) struct ChannelInfo {
     pub(crate) num: usize,
     #[cfg(feature = "_dual-core")]
     pub(crate) irq: pac::Interrupt,
+    #[cfg(feature = "low-power")]
+    pub(crate) stop_mode: crate::rcc::StopMode,
+}
+
+impl ChannelInfo {
+    fn wake_guard(&self) -> WakeGuard {
+        WakeGuard::new(
+            #[cfg(feature = "low-power")]
+            self.stop_mode,
+        )
+    }
 }
 
 /// DMA request priority
@@ -415,7 +426,8 @@ impl AnyChannel {
 /// Linked-list DMA transfer.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct LinkedListTransfer<'a, const ITEM_COUNT: usize> {
-    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
+    channel: Peri<'a, AnyChannel>,
+    _wake_guard: WakeGuard,
 }
 
 impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
@@ -437,7 +449,8 @@ impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
         channel.start();
 
         Self {
-            channel: BusyPeripheral::new(channel),
+            _wake_guard: channel.info().wake_guard(),
+            channel,
         }
     }
 
@@ -514,7 +527,8 @@ impl<'a, const ITEM_COUNT: usize> Future for LinkedListTransfer<'a, ITEM_COUNT> 
 /// DMA transfer.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Transfer<'a> {
-    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
+    channel: Peri<'a, AnyChannel>,
+    _wake_guard: WakeGuard,
 }
 
 impl<'a> Transfer<'a> {
@@ -635,7 +649,8 @@ impl<'a> Transfer<'a> {
         channel.start();
 
         Self {
-            channel: BusyPeripheral::new(channel),
+            _wake_guard: channel.info().wake_guard(),
+            channel,
         }
     }
 

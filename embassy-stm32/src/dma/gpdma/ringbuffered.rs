@@ -13,7 +13,7 @@ use crate::dma::gpdma::linked_list::{RunMode, Table};
 use crate::dma::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use crate::dma::word::Word;
 use crate::dma::{Dir, Request};
-use crate::rcc::BusyPeripheral;
+use crate::rcc::WakeGuard;
 
 struct DmaCtrlImpl<'a>(Peri<'a, AnyChannel>);
 
@@ -50,7 +50,8 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
 
 /// Ringbuffer for receiving data using GPDMA linked-list mode.
 pub struct ReadableRingBuffer<'a, W: Word> {
-    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
+    channel: Peri<'a, AnyChannel>,
+    _wake_guard: WakeGuard,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
     table: Table<2>,
     options: TransferOptions,
@@ -70,7 +71,8 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         let table = Table::<2>::new_ping_pong::<W>(request, peri_addr, buffer, Dir::PeripheralToMemory);
 
         Self {
-            channel: BusyPeripheral::new(channel),
+            _wake_guard: channel.info().wake_guard(),
+            channel,
             ringbuf: ReadableDmaRingBuffer::new(buffer),
             table,
             options,
@@ -189,7 +191,8 @@ impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
 
 /// Ringbuffer for writing data using GPDMA linked-list mode.
 pub struct WritableRingBuffer<'a, W: Word> {
-    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
+    channel: Peri<'a, AnyChannel>,
+    _wake_guard: WakeGuard,
     ringbuf: WritableDmaRingBuffer<'a, W>,
     table: Table<2>,
     options: TransferOptions,
@@ -209,7 +212,8 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         let table = Table::<2>::new_ping_pong::<W>(request, peri_addr, buffer, Dir::MemoryToPeripheral);
 
         Self {
-            channel: BusyPeripheral::new(channel),
+            _wake_guard: channel.info().wake_guard(),
+            channel,
             ringbuf: WritableDmaRingBuffer::new(buffer),
             table,
             options,
