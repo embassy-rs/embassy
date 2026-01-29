@@ -8,7 +8,7 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::dma::ringbuffer::Error as RingbufferError;
 pub use crate::dma::word;
-use crate::dma::{Channel, ReadableRingBuffer, TransferOptions, dma_into};
+use crate::dma::{Channel, ReadableRingBuffer, TransferOptions};
 use crate::gpio::{AfType, AnyPin, Pull, SealedPin as _};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::spdifrx::Spdifrx as Regs;
@@ -136,7 +136,7 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
         data_dma_buf: &'d mut [u32],
     ) -> Self
     where
-        D: Channel + crate::dma::TypedChannel + Dma<T>,
+        D: Dma<T>,
     {
         let (spdifrx_in, input_sel) = new_spdifrx_pin!(spdifrx_in, AfType::input(Pull::None));
         Self::setup(config, input_sel);
@@ -145,7 +145,7 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
         let dr_request = data_dma.request();
         let dr_ring_buffer = unsafe {
             ReadableRingBuffer::new(
-                dma_into(data_dma, &irq),
+                Channel::new(data_dma, irq),
                 dr_request,
                 dr_address(regs),
                 data_dma_buf,

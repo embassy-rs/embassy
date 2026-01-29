@@ -23,7 +23,7 @@ use embassy_hal_internal::PeripheralType;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::dma::{ChannelAndRequest, TransferOptions, dma_into};
+use crate::dma::{ChannelAndRequest, TransferOptions};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::ucpd::vals::{Anamode, Ccenable, PscUsbpdclk, Txmode};
 pub use crate::pac::ucpd::vals::{Phyccsel as CcSel, Rxordset, TypecVstateCc as CcVState};
@@ -221,14 +221,14 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         self,
         rx_dma: Peri<'d, RX>,
         tx_dma: Peri<'d, TX>,
-        irq: impl interrupt::typelevel::Binding<RX::Interrupt, crate::dma::InterruptHandler<RX>>
+        irqs: impl interrupt::typelevel::Binding<RX::Interrupt, crate::dma::InterruptHandler<RX>>
         + interrupt::typelevel::Binding<TX::Interrupt, crate::dma::InterruptHandler<TX>>
         + 'd,
         cc_sel: CcSel,
     ) -> (CcPhy<'d, T>, PdPhy<'d, T>)
     where
-        RX: RxDma<T> + crate::dma::TypedChannel,
-        TX: TxDma<T> + crate::dma::TypedChannel,
+        RX: RxDma<T>,
+        TX: TxDma<T>,
     {
         let r = T::REGS;
 
@@ -247,20 +247,14 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         // Both parts must be dropped before the peripheral can be disabled.
         T::state().drop_not_ready.store(true, Ordering::Relaxed);
 
-        let rx_dma_req = rx_dma.request();
-        let tx_dma_req = tx_dma.request();
+        let rx_dma = new_dma_nonopt!(rx_dma, irqs);
+        let tx_dma = new_dma_nonopt!(tx_dma, irqs);
         (
             self.cc_phy,
             PdPhy {
                 _lifetime: PhantomData,
-                rx_dma: ChannelAndRequest {
-                    channel: dma_into(rx_dma, &irq),
-                    request: rx_dma_req,
-                },
-                tx_dma: ChannelAndRequest {
-                    channel: dma_into(tx_dma, &irq),
-                    request: tx_dma_req,
-                },
+                rx_dma,
+                tx_dma,
             },
         )
     }

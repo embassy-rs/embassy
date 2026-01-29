@@ -13,7 +13,7 @@ use embassy_hal_internal::Peri;
 pub use stm32_metapac::timer::vals::{FilterValue, Mms as MasterMode, Sms as SlaveMode, Ts as TriggerSource};
 
 use super::*;
-use crate::dma::{self, Transfer, WritableRingBuffer, dma_into};
+use crate::dma::{self, Transfer, WritableRingBuffer};
 use crate::pac::timer::vals;
 use crate::rcc;
 use crate::time::Hertz;
@@ -817,7 +817,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     pub fn setup_ring_buffer<'a, W: Word + Into<T::Word>, D: super::UpDma<T>>(
         &mut self,
         dma: Peri<'a, D>,
-        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         channel: Channel,
         dma_buf: &'a mut [W],
     ) -> WritableRingBuffer<'a, W> {
@@ -838,7 +838,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
             };
 
             WritableRingBuffer::new(
-                dma_into(dma, &irq),
+                dma::Channel::new(dma, irq),
                 req,
                 self.regs_1ch().ccr(channel.index()).as_ptr() as *mut W,
                 dma_buf,
@@ -854,7 +854,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     pub fn setup_update_dma<'a, W: Word + Into<T::Word>, D: super::UpDma<T>>(
         &mut self,
         dma: Peri<'a, D>,
-        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         channel: Channel,
         duty: &'a [W],
     ) -> Transfer<'a> {
@@ -868,25 +868,25 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     pub fn setup_channel_update_dma<'a, C: TimerChannel, W: Word + Into<T::Word>, D: super::Dma<T, C>>(
         &mut self,
         dma: Peri<'a, D>,
-        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         channel: Channel,
         duty: &'a [W],
     ) -> Transfer<'a> {
         self.setup_update_dma_inner(dma.request(), dma, irq, channel, duty)
     }
 
-    fn setup_update_dma_inner<'a, W: Word + Into<T::Word>, D: dma::TypedChannel>(
+    fn setup_update_dma_inner<'a, W: Word + Into<T::Word>, D: dma::ChannelInstance>(
         &mut self,
         request: dma::Request,
         dma: Peri<'a, D>,
-        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         channel: Channel,
         duty: &'a [W],
     ) -> Transfer<'a> {
         unsafe {
+            use crate::dma::TransferOptions;
             #[cfg(not(any(bdma, gpdma)))]
             use crate::dma::{Burst, FifoThreshold};
-            use crate::dma::{Transfer, TransferOptions};
 
             let dma_transfer_option = TransferOptions {
                 #[cfg(not(any(bdma, gpdma)))]
@@ -896,13 +896,15 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
                 ..Default::default()
             };
 
-            Transfer::new_write(
-                dma_into(dma, &irq),
-                request,
-                duty,
-                self.regs_gp16().ccr(channel.index()).as_ptr() as *mut W,
-                dma_transfer_option,
-            )
+            let mut dma_channel = dma::Channel::new(dma, irq);
+            dma_channel
+                .write(
+                    request,
+                    duty,
+                    self.regs_gp16().ccr(channel.index()).as_ptr() as *mut W,
+                    dma_transfer_option,
+                )
+                .unchecked_extend_lifetime()
         }
     }
 
@@ -938,7 +940,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     pub fn setup_update_dma_burst<'a, W: Word + Into<T::Word>, D: super::UpDma<T>>(
         &mut self,
         dma: Peri<'a, D>,
-        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         starting_channel: Channel,
         ending_channel: Channel,
         duty: &'a [W],
@@ -961,9 +963,9 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         let req = dma.request();
 
         unsafe {
+            use crate::dma::TransferOptions;
             #[cfg(not(any(bdma, gpdma)))]
             use crate::dma::{Burst, FifoThreshold};
-            use crate::dma::{Transfer, TransferOptions};
 
             let dma_transfer_option = TransferOptions {
                 #[cfg(not(any(bdma, gpdma)))]
@@ -973,13 +975,15 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
                 ..Default::default()
             };
 
-            Transfer::new_write(
-                dma_into(dma, &irq),
-                req,
-                duty,
-                self.regs_gp16().dmar().as_ptr() as *mut W,
-                dma_transfer_option,
-            )
+            let mut dma_channel = dma::Channel::new(dma, irq);
+            dma_channel
+                .write(
+                    req,
+                    duty,
+                    self.regs_gp16().dmar().as_ptr() as *mut W,
+                    dma_transfer_option,
+                )
+                .unchecked_extend_lifetime()
         }
     }
 

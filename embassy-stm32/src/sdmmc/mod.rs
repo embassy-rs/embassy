@@ -869,11 +869,14 @@ impl<'d> Sdmmc<'d> {
         // SAFETY: No other functions use the dma
         #[cfg(sdmmc_v1)]
         let transfer = unsafe {
-            self.dma.read_unchecked(
-                regs.fifor().as_ptr() as *mut u32,
-                slice32_mut(buffer),
-                DMA_TRANSFER_OPTIONS,
-            )
+            self.dma
+                .clone_unchecked()
+                .read(
+                    regs.fifor().as_ptr() as *mut u32,
+                    slice32_mut(buffer),
+                    DMA_TRANSFER_OPTIONS,
+                )
+                .unchecked_extend_lifetime()
         };
         #[cfg(sdmmc_v2)]
         let transfer = {
@@ -929,11 +932,14 @@ impl<'d> Sdmmc<'d> {
         // SAFETY: No other functions use the dma
         #[cfg(sdmmc_v1)]
         let transfer = unsafe {
-            self.dma.write_unchecked(
-                slice32_ref(buffer),
-                regs.fifor().as_ptr() as *mut u32,
-                DMA_TRANSFER_OPTIONS,
-            )
+            self.dma
+                .clone_unchecked()
+                .write(
+                    slice32_ref(buffer),
+                    regs.fifor().as_ptr() as *mut u32,
+                    DMA_TRANSFER_OPTIONS,
+                )
+                .unchecked_extend_lifetime()
         };
         #[cfg(sdmmc_v2)]
         let transfer = {

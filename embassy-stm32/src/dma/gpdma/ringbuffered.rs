@@ -6,16 +6,14 @@ use core::future::poll_fn;
 use core::sync::atomic::{Ordering, fence};
 use core::task::Waker;
 
-use embassy_hal_internal::Peri;
-
-use super::{AnyChannel, STATE, TransferOptions};
+use super::{Channel, STATE, TransferOptions};
 use crate::dma::gpdma::linked_list::{RunMode, Table};
 use crate::dma::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use crate::dma::word::Word;
 use crate::dma::{Dir, Request};
 use crate::rcc::WakeGuard;
 
-struct DmaCtrlImpl<'a>(Peri<'a, AnyChannel>);
+struct DmaCtrlImpl<'a>(Channel<'a>);
 
 impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
     fn get_remaining_transfers(&self) -> usize {
@@ -50,7 +48,7 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
 
 /// Ringbuffer for receiving data using GPDMA linked-list mode.
 pub struct ReadableRingBuffer<'a, W: Word> {
-    channel: Peri<'a, AnyChannel>,
+    channel: Channel<'a>,
     _wake_guard: WakeGuard,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
     table: Table<2>,
@@ -62,7 +60,7 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     ///
     /// Transfer options are applied to the individual linked list items.
     pub unsafe fn new(
-        channel: Peri<'a, AnyChannel>,
+        channel: Channel<'a>,
         request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
@@ -191,7 +189,7 @@ impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
 
 /// Ringbuffer for writing data using GPDMA linked-list mode.
 pub struct WritableRingBuffer<'a, W: Word> {
-    channel: Peri<'a, AnyChannel>,
+    channel: Channel<'a>,
     _wake_guard: WakeGuard,
     ringbuf: WritableDmaRingBuffer<'a, W>,
     table: Table<2>,
@@ -203,7 +201,7 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
     ///
     /// Transfer options are applied to the individual linked list items.
     pub unsafe fn new(
-        channel: Peri<'a, AnyChannel>,
+        channel: Channel<'a>,
         request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
