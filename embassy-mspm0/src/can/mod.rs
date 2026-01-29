@@ -153,7 +153,7 @@ impl Default for Config {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// Config Error
-pub enum InitializationError {
+pub enum ConfigError {
     /// Clock source not enabled.
     ///
     /// The clock soure is not enabled in SYSCTL.
@@ -264,7 +264,7 @@ impl<'d> Can<'d, Blocking> {
         rx: Peri<'d, impl RxPin<T>>,
         tx: Peri<'d, impl TxPin<T>>,
         config: Config,
-    ) -> Result<Self, InitializationError> {
+    ) -> Result<Self, ConfigError> {
         Self::new_inner(peri, rx, tx, config)
     }
 
@@ -397,9 +397,9 @@ impl<'d> embedded_can::nb::Can for Can<'d, Blocking> {
 }
 
 impl<'d, M: Mode> Can<'d, M> {
-    fn reset_poweron<T: Instance>(_peri: &Peri<'d, T>, config: &Config) -> Result<(), InitializationError> {
+    fn reset_poweron<T: Instance>(_peri: &Peri<'d, T>, config: &Config) -> Result<(), ConfigError> {
         #[cfg(not(sysctl_syspll))]
-        return Err(InitializationError::ClockSourceNotEnabled);
+        return Err(ConfigError::ClockSourceNotEnabled);
 
         // See e2e: https://e2e.ti.com/support/microcontrollers/arm-based-microcontrollers-group/arm-based-microcontrollers/f/arm-based-microcontrollers-forum/1605241/mspm0g3107-mcan-peripheral-does-not-complete-initialization-after-power-on-reset
         // The initialization instructions in the TRM are not accurate at this time.
@@ -456,7 +456,7 @@ impl<'d, M: Mode> Can<'d, M> {
             .reset()
         {
             if iter > 1000 {
-                return Err(InitializationError::PeripheralTimedOut);
+                return Err(ConfigError::PeripheralTimedOut);
             }
             iter += 1;
             cortex_m::asm::delay(1000);
@@ -473,7 +473,7 @@ impl<'d, M: Mode> Can<'d, M> {
             .mem_init_done()
         {
             if iter > 10000 {
-                return Err(InitializationError::PeripheralTimedOut);
+                return Err(ConfigError::PeripheralTimedOut);
             }
             iter += 1;
             cortex_m::asm::delay(10000);
@@ -482,7 +482,7 @@ impl<'d, M: Mode> Can<'d, M> {
         // Sanity check the peripheral came up correctly by reading the release version register.
         let crel = can.mcan(0).crel().read();
         if crel.0 == 0x00 {
-            return Err(InitializationError::PeripheralTimedOut);
+            return Err(ConfigError::PeripheralTimedOut);
         }
         debug!(
             "MCAN version: {}.{}.{} - {}{}{}",
@@ -504,8 +504,8 @@ impl<'d, M: Mode> Can<'d, M> {
     /// as it may be in an inconsistent state.
     fn guarded_config<T: Instance>(
         _peri: &Peri<'d, T>,
-        f: impl FnOnce(&Regs) -> Result<(), InitializationError>,
-    ) -> Result<(), InitializationError> {
+        f: impl FnOnce(&Regs) -> Result<(), ConfigError>,
+    ) -> Result<(), ConfigError> {
         let can = T::info().regs;
 
         // Put the peripheral into "initialization" mode as a first step to allow register changes.
@@ -517,7 +517,7 @@ impl<'d, M: Mode> Can<'d, M> {
         let mut iter = 0;
         while !can.mcan(0).cccr().read().init() {
             if iter > 10000 {
-                return Err(InitializationError::PeripheralTimedOut);
+                return Err(ConfigError::PeripheralTimedOut);
             }
             iter += 1;
             cortex_m::asm::delay(10);
@@ -542,7 +542,7 @@ impl<'d, M: Mode> Can<'d, M> {
             iter = 0;
             while can.mcan(0).cccr().read().init() {
                 if iter > 10000 {
-                    return Err(InitializationError::PeripheralTimedOut);
+                    return Err(ConfigError::PeripheralTimedOut);
                 }
                 iter += 1;
                 cortex_m::asm::delay(10);
@@ -557,14 +557,14 @@ impl<'d, M: Mode> Can<'d, M> {
         rx: Peri<'d, impl RxPin<T>>,
         tx: Peri<'d, impl TxPin<T>>,
         config: Config,
-    ) -> Result<Self, InitializationError> {
+    ) -> Result<Self, ConfigError> {
         let rx_inner = new_pin!(rx, PfType::input(crate::gpio::Pull::None, false));
         let tx_inner = new_pin!(tx, PfType::output(crate::gpio::Pull::None, false));
 
         // Reset and power on the CAN peripheral. Note this _is_ a falliable operation.
         Self::reset_poweron(&peri, &config)?;
 
-        Self::guarded_config(&peri, |can| -> Result<(), InitializationError> {
+        Self::guarded_config(&peri, |can| -> Result<(), ConfigError> {
             can.mcan(0).cccr().modify(|w| {
                 w.set_fdoe(false); // classic CAN, no FD.
             });
