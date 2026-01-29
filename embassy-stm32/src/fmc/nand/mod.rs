@@ -16,8 +16,9 @@ use core::array::TryFromSliceError;
 use embedded_hal_async::delay::DelayNs;
 
 use crate::fmc::{self, Fmc, FmcBank};
-
 pub use crate::pac::fmc::vals;
+
+pub mod devices;
 
 /// Specifies the data width for the Nand device.
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
