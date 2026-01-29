@@ -3,8 +3,11 @@
 
 /// Speed Grade 6
 pub mod is42s32400f_6 {
+    use crate::fmc::sdram::{
+        CasLatency, ColumnBits, InternalBanks, MemoryDataWidth, ReadPipeDelayCycles, RowBits, SdramChip,
+        SdramConfiguration, SdramTiming,
+    };
     use crate::time::Hertz;
-    use crate::fmc::sdram::{CasLatency, ColumnBits, InternalBanks, MemoryDataWidth, ReadPipeDelayCycles, RowBits, SdramChip, SdramConfiguration, SdramTiming};
 
     const BURST_LENGTH_1: u16 = 0x0000;
     const BURST_LENGTH_2: u16 = 0x0001;
@@ -24,21 +27,18 @@ pub mod is42s32400f_6 {
 
     impl SdramChip for Is42s32400f6 {
         /// Value of the mode register
-        const MODE_REGISTER: u16 = BURST_LENGTH_1
-            | BURST_TYPE_SEQUENTIAL
-            | CAS_LATENCY_3
-            | OPERATING_MODE_STANDARD
-            | WRITEBURST_MODE_SINGLE;
+        const MODE_REGISTER: u16 =
+            BURST_LENGTH_1 | BURST_TYPE_SEQUENTIAL | CAS_LATENCY_3 | OPERATING_MODE_STANDARD | WRITEBURST_MODE_SINGLE;
 
         /// Timing Parameters
         const TIMING: SdramTiming = SdramTiming {
-            startup_delay_ns: 100_000,    // 100 µs
+            startup_delay_ns: 100_000,           // 100 µs
             max_sd_clock_hz: Hertz(100_000_000), // 100 MHz
-            refresh_period_ns: 15_625,    // 64ms / (4096 rows) = 15625ns
+            refresh_period_ns: 15_625,           // 64ms / (4096 rows) = 15625ns
             mode_register_to_active_cycles: 2,   // tMRD = 2 cycles
             exit_self_refresh_cycles: 7,         // tXSR = 70ns
             active_to_precharge_cycles: 4,       // tRAS = 42ns
-            row_cycle: 6,                 // tRC = 60ns
+            row_cycle: 6,                        // tRC = 60ns
             row_precharge_cycles: 2,             // tRP = 18ns
             row_to_column_cycles: 2,             // tRCD = 18ns
         };
@@ -48,8 +48,8 @@ pub mod is42s32400f_6 {
             column_bits: ColumnBits::Bits8,
             row_bits: RowBits::Bits12,
             memory_data_width: MemoryDataWidth::Bits32, // 32-bit
-            internal_banks: InternalBanks::FourBanks,     // 4 internal banks
-            cas_latency: CasLatency::Cycle3,        // CAS latency = 3
+            internal_banks: InternalBanks::FourBanks,   // 4 internal banks
+            cas_latency: CasLatency::Cycle3,            // CAS latency = 3
             write_protection: false,
             read_burst: true,
             read_pipe_delay_cycles: ReadPipeDelayCycles::NoDelay,

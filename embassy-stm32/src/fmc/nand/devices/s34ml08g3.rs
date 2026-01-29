@@ -3,7 +3,7 @@
 
 /// SkyHigh S34ML08G3 SLC NAND Flash with 4kB pages
 pub mod s34ml08g3_4kb {
-    use crate::fmc::nand::{NandChip, NandConfiguration, NandTiming, NandDataWidth};
+    use crate::fmc::nand::{NandChip, NandConfiguration, NandDataWidth, NandTiming};
 
     /// S32ML08G3
     #[derive(Clone, Copy, Debug, PartialEq)]
