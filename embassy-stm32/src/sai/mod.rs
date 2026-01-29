@@ -6,10 +6,7 @@ use core::marker::PhantomData;
 use embassy_hal_internal::PeripheralType;
 
 pub use crate::dma::word;
-use crate::dma::{
-    self, AnyChannel, Channel, ReadableRingBuffer, Request, TransferOptions, TypedChannel, WritableRingBuffer,
-    dma_into, ringbuffer,
-};
+use crate::dma::{self, Channel, ReadableRingBuffer, Request, TransferOptions, WritableRingBuffer, ringbuffer};
 use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
 pub use crate::pac::sai::vals::Mckdiv as MasterClockDivider;
 use crate::pac::sai::{Sai as Regs, vals};
@@ -475,7 +472,7 @@ fn get_af_types(mode: Mode, tx_rx: TxRx) -> (AfType, AfType) {
 }
 
 fn get_ring_buffer<'d, T: Instance, W: word::Word>(
-    dma: Peri<'d, AnyChannel>,
+    dma: Channel<'d>,
     dma_buf: &'d mut [W],
     request: Request,
     sub_block: WhichSubBlock,
@@ -552,7 +549,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     /// Create a new SAI driver in asynchronous mode with MCLK.
     ///
     /// You can obtain the [`SubBlock`] with [`split_subblocks`].
-    pub fn new_asynchronous_with_mclk<S: SubBlockInstance, D: Channel + TypedChannel + Dma<T, S>>(
+    pub fn new_asynchronous_with_mclk<S: SubBlockInstance, D: Dma<T, S>>(
         peri: SubBlock<'d, T, S>,
         sck: Peri<'d, impl SckPin<T, S>>,
         sd: Peri<'d, impl SdPin<T, S>>,
@@ -599,7 +596,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
             None,
             Some(sd.into()),
             Some(fs.into()),
-            get_ring_buffer::<T, W>(dma_into(dma, &irq), dma_buf, request, sub_block, config.tx_rx),
+            get_ring_buffer::<T, W>(Channel::new(dma, irq), dma_buf, request, sub_block, config.tx_rx),
             config,
         )
     }
@@ -632,7 +629,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
             None,
             Some(sd.into()),
             None,
-            get_ring_buffer::<T, W>(dma_into(dma, &irq), dma_buf, request, sub_block, config.tx_rx),
+            get_ring_buffer::<T, W>(Channel::new(dma, irq), dma_buf, request, sub_block, config.tx_rx),
             config,
         )
     }

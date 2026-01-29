@@ -263,7 +263,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// in order or require the sequence to have the same sample time for all channnels, depending
     /// on the number and properties of the channels in the sequence. This method will panic if
     /// the hardware cannot deliver the requested configuration.
-    pub async fn read<'a, 'b: 'a, D: RxDma<T> + crate::dma::TypedChannel>(
+    pub async fn read<'a, 'b: 'a, D: RxDma<T>>(
         &mut self,
         rx_dma: embassy_hal_internal::Peri<'a, D>,
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
@@ -297,15 +297,8 @@ impl<'d, T: Instance> Adc<'d, T> {
         T::regs().configure_dma(ConversionMode::Singular);
 
         let request = rx_dma.request();
-        let transfer = unsafe {
-            crate::dma::Transfer::new_read(
-                crate::dma::dma_into(rx_dma, &irq),
-                request,
-                T::regs().data(),
-                readings,
-                Default::default(),
-            )
-        };
+        let mut dma_channel = crate::dma::Channel::new(rx_dma, irq);
+        let transfer = unsafe { dma_channel.read(request, T::regs().data(), readings, Default::default()) };
 
         T::regs().start();
 
@@ -343,7 +336,7 @@ impl<'d, T: Instance> Adc<'d, T> {
     /// in order or require the sequence to have the same sample time for all channnels, depending
     /// on the number and properties of the channels in the sequence. This method will panic if
     /// the hardware cannot deliver the requested configuration.
-    pub fn into_ring_buffered<'a, 'b, D: RxDma<T> + crate::dma::TypedChannel>(
+    pub fn into_ring_buffered<'a, 'b, D: RxDma<T>>(
         self,
         dma: embassy_hal_internal::Peri<'a, D>,
         dma_buf: &'a mut [u16],

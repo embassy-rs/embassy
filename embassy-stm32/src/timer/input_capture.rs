@@ -8,12 +8,11 @@ use core::task::{Context, Poll};
 use super::low_level::{CountingMode, FilterValue, InputCaptureMode, InputTISelection, Timer};
 use super::{CaptureCompareInterruptHandler, Channel, GeneralInstance4Channel, TimerPin};
 pub use super::{Ch1, Ch2, Ch3, Ch4};
-use crate::Peri;
-use crate::dma::dma_into;
 use crate::gpio::{AfType, AnyPin, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::time::Hertz;
 use crate::timer::TimerChannel;
+use crate::{Peri, dma};
 
 /// Capture pin wrapper.
 ///
@@ -186,16 +185,15 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         }
 
         unsafe {
-            use crate::dma::{Transfer, TransferOptions};
-
-            Transfer::new_read(
-                dma_into(dma, &irq),
-                req,
-                self.inner.regs_gp16().ccr(M::CHANNEL.index()).as_ptr() as *mut u16,
-                buf,
-                TransferOptions::default(),
-            )
-            .await
+            let mut dma_channel = dma::Channel::new(dma, irq);
+            dma_channel
+                .read(
+                    req,
+                    self.inner.regs_gp16().ccr(M::CHANNEL.index()).as_ptr() as *mut u16,
+                    buf,
+                    dma::TransferOptions::default(),
+                )
+                .await
         };
 
         // restore output compare state

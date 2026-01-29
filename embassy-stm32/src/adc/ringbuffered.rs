@@ -7,7 +7,7 @@ use embassy_hal_internal::Peri;
 use super::AdcRegs;
 #[allow(unused_imports)]
 use crate::adc::{Instance, RxDma};
-use crate::dma::dma_into;
+use crate::dma::Channel;
 #[allow(unused_imports)]
 use crate::dma::{ReadableRingBuffer, TransferOptions};
 use crate::rcc;
@@ -23,7 +23,7 @@ pub struct RingBufferedAdc<'d, T: Instance> {
 impl<'d, T: Instance> RingBufferedAdc<'d, T> {
     pub(crate) fn new<D: RxDma<T>>(
         dma: Peri<'d, D>,
-        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         dma_buf: &'d mut [u16],
     ) -> Self {
         // DMA side setup - configuration differs between DMA/BDMA and GPDMA
@@ -46,7 +46,7 @@ impl<'d, T: Instance> RingBufferedAdc<'d, T> {
         let request = dma.request();
 
         let ring_buf =
-            unsafe { ReadableRingBuffer::new(dma_into(dma, &irq), request, T::regs().data(), dma_buf, opts) };
+            unsafe { ReadableRingBuffer::new(Channel::new(dma, irq), request, T::regs().data(), dma_buf, opts) };
 
         Self {
             _phantom: PhantomData,

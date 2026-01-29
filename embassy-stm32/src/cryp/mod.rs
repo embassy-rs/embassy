@@ -1468,6 +1468,7 @@ impl<'d, T: Instance> Cryp<'d, T, Async> {
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
         + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + Copy
         + 'd,
     ) -> Self {
         rcc::enable_and_reset::<T>();
