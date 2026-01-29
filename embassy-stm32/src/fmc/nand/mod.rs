@@ -171,8 +171,8 @@ impl<'a, 'd, T: fmc::Instance> Nand<'a, 'd, T> {
         unsafe {
             #[cfg(fmc_v1x3)]
             let ptr = self.fmc.nand_ptr(self.bank) as *mut u8;
-            #[cfg(not(fmc_v1x3))]
-            let ptr = FmcBank::Bank3.ptr() as *mut u8;
+            #[cfg(not(fmc_v1x3))] // Bank3 is always NAND on other FMC versions
+            let ptr = crate::fmc::FmcBank::Bank3.ptr() as *mut u8;
 
             NandDevice::init(ptr, self.config.column_bits as usize)
         }
