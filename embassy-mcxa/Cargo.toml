@@ -102,3 +102,6 @@ dangerous-reset-as-gpio = []
 #
 # This feature makes no change to embassy-mcxa's operation.
 rt = []
+
+# Enable perf counters
+perf = []

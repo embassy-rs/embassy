@@ -21,6 +21,7 @@ pub struct InterruptHandler<T: Instance> {
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
         let status = T::info().regs().mintmasked().read();
+        T::PERF_INT_INCR();
 
         if status.nowmaster().bit_is_set()
             || status.complete().bit_is_set()
@@ -47,6 +48,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                     .clear_bit_by_one()
             });
 
+            T::PERF_INT_WAKE_INCR();
             T::info().wait_cell().wake();
         }
     }
@@ -66,6 +68,8 @@ trait SealedInstance {
 pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<MrccPeriphConfig = I3cConfig> {
     /// Interrupt for this I3C instance.
     type Interrupt: interrupt::typelevel::Interrupt;
+    const PERF_INT_INCR: fn();
+    const PERF_INT_WAKE_INCR: fn();
 }
 
 struct Info {
@@ -88,24 +92,28 @@ impl Info {
 }
 
 macro_rules! impl_instance {
-    ($peri:ident) => {
-        impl SealedInstance for crate::peripherals::$peri {
-            fn info() -> &'static Info {
-                static INFO: Info = Info {
-                    regs: pac::I3c0::ptr(),
-                    wait_cell: WaitCell::new(),
-                };
-                &INFO
+    ($n:literal) => {
+        paste! {
+            impl SealedInstance for crate::peripherals::[<I3C $n>] {
+                fn info() -> &'static Info {
+                    static INFO: Info = Info {
+                        regs: pac::[<I3c $n>]::ptr(),
+                        wait_cell: WaitCell::new(),
+                    };
+                    &INFO
+                }
             }
-        }
 
-        impl Instance for crate::peripherals::$peri {
-            type Interrupt = crate::interrupt::typelevel::$peri;
+            impl Instance for crate::peripherals::[<I3C $n>] {
+                type Interrupt = crate::interrupt::typelevel::[<I3C $n>];
+                const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_i3c $n>];
+                const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i3c $n _wake>];
+            }
         }
     };
 }
 
-impl_instance!(I3C0);
+impl_instance!(0);
 
 /// SCL pin trait.
 pub trait SclPin<T: Instance>: GpioPin + sealed::Sealed + PeripheralType {

@@ -63,6 +63,8 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<Mrcc
     type TxDmaRequest: DmaRequest;
     /// Type-safe DMA request source for RX
     type RxDmaRequest: DmaRequest;
+    const PERF_INT_INCR: fn();
+    const PERF_INT_WAKE_INCR: fn();
 }
 
 macro_rules! impl_instance {
@@ -89,6 +91,8 @@ macro_rules! impl_instance {
                     type Interrupt = crate::interrupt::typelevel::[<LPUART $n>];
                     type TxDmaRequest = crate::dma::[<Lpuart $n TxRequest>];
                     type RxDmaRequest = crate::dma::[<Lpuart $n RxRequest>];
+                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n>];
+                    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n _wake>];
                 }
             }
         )*

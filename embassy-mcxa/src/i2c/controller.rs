@@ -57,6 +57,7 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
+        T::PERF_INT_INCR();
         if T::info().regs().mier().read().bits() != 0 {
             T::info().regs().mier().write(|w| {
                 w.tdie()
@@ -81,6 +82,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                     .disabled()
             });
 
+            T::PERF_INT_WAKE_INCR();
             T::info().wait_cell().wake();
         }
     }
