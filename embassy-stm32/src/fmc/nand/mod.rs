@@ -141,7 +141,7 @@ impl<'a, 'd, T: fmc::Instance> Nand<'a, 'd, T> {
     ) -> Self {
         Self {
             fmc,
-            bank,
+            #[cfg(fmc_v1x3)] bank,
             config,
             timing,
         }
