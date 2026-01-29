@@ -7,6 +7,9 @@
 //! so make sure to check the datasheet and reference manual to ensure that the memory
 //! configuration you're trying to use is compatible!
 
+// Originally implemented by the `stm32-fmc` crate by Richard Meadows in 2019 under the
+// MIT license, improved and rolled into Embassy by Kat Mitchell (northernpaws).
+
 // Convenience SDRAM chip definitions with pre-populated
 // config values and timing parameters.
 pub mod devices;
@@ -573,11 +576,7 @@ impl<'a, 'd, T: fmc::Instance> Sdram<'a, 'd, T> {
 
         regs.sdrtr().modify(|reg| reg.set_count(refresh_counter_top as u16));
 
-        Self {
-            fmc,
-            config,
-            timing,
-        }
+        Self { fmc, config, timing }
     }
 
     /// Consumes the SDRAM driver to create a single bank driver for the specified chip.
@@ -770,13 +769,14 @@ impl<'a, 'd, T: fmc::Instance> SdramBank<'a, 'd, T> {
     /// Returns a raw pointer to the memory-mapped address of the SDRAM block.
     pub async fn init<Delay: DelayNs>(&mut self, delay: &mut Delay) -> *mut u32 {
         unsafe {
-            // Enable memory controller AHB register access
-            self.fmc.enable();
+            // Ensure that the FMC clock is disabled
+            // before adjusting the timing registers.
+            self.fmc.memory_controller_disable();
 
-            // Program device features and timing
-            self.set_features_timings(self.config, self.timing);
+            // Program the configured device features and timing.
+            self.set_features_timings();
 
-            // Enable memory controller
+            // Enable memory controller/FMC clock.
             self.fmc.memory_controller_enable();
 
             // Step 1: Send a clock configuration enable command
@@ -784,8 +784,7 @@ impl<'a, 'd, T: fmc::Instance> SdramBank<'a, 'd, T> {
 
             // Step 2: SDRAM powerup delay
             let startup_delay_us = (self.timing.startup_delay_ns + 999) / 1000;
-
-            delay.delay_us(startup_delay_us.try_into().unwrap()).await;
+            delay.delay_us(startup_delay_us).await;
 
             // Step 3: Send a PALL (precharge all) command
             self.send_command(SdramCommand::Pall);
@@ -817,7 +816,7 @@ impl<'a, 'd, T: fmc::Instance> SdramBank<'a, 'd, T> {
     /// unsafe.
     ///
     /// For example, see RM0433 rev 7 Section 22.9.3
-    unsafe fn set_features_timings(&mut self, config: SdramConfiguration, timing: SdramTiming) {
+    unsafe fn set_features_timings(&mut self) {
         #[cfg(any(fmc_v1x3, fmc_v2x1, fmc_v3x1))]
         let regs = T::regs();
         #[cfg(fmc_v4)]
@@ -829,21 +828,22 @@ impl<'a, 'd, T: fmc::Instance> SdramBank<'a, 'd, T> {
             FmcSdramBank::Bank2 => 1,
         })
         .modify(|reg| {
-            reg.set_wp(config.write_protection);
-            reg.set_cas(config.cas_latency.into());
-            reg.set_nb(config.internal_banks.into());
-            reg.set_mwid(config.memory_data_width.into());
-            reg.set_nr(config.row_bits.into());
-            reg.set_nc(config.column_bits.into())
+            reg.set_wp(self.config.write_protection);
+            reg.set_cas(self.config.cas_latency.into());
+            reg.set_nb(self.config.internal_banks.into());
+            reg.set_mwid(self.config.memory_data_width.into());
+            reg.set_nr(self.config.row_bits.into());
+            reg.set_nc(self.config.column_bits.into())
         });
 
         // Self refresh >= ACTIVE to PRECHARGE
-        let minimum_self_refresh = timing.active_to_precharge_cycles;
+        let minimum_self_refresh = self.timing.active_to_precharge_cycles;
 
         // Write recovery - Self refresh
-        let write_recovery_self_refresh = minimum_self_refresh - timing.row_to_column_cycles;
+        let write_recovery_self_refresh = minimum_self_refresh - self.timing.row_to_column_cycles;
         // Write recovery - WRITE command to PRECHARGE command
-        let write_recovery_row_cycle = timing.row_cycle - timing.row_to_column_cycles - timing.row_precharge_cycles;
+        let write_recovery_row_cycle =
+            self.timing.row_cycle - self.timing.row_to_column_cycles - self.timing.row_precharge_cycles;
         let write_recovery = cmp::max(write_recovery_self_refresh, write_recovery_row_cycle);
 
         // Set the timing parameters for the bank.
@@ -852,11 +852,11 @@ impl<'a, 'd, T: fmc::Instance> SdramBank<'a, 'd, T> {
             FmcSdramBank::Bank2 => 1,
         })
         .modify(|reg| {
-            reg.set_trcd(timing.row_to_column_cycles - 1);
+            reg.set_trcd(self.timing.row_to_column_cycles - 1);
             reg.set_twr(write_recovery - 1);
             reg.set_tras(minimum_self_refresh - 1);
-            reg.set_txsr(timing.exit_self_refresh_cycles - 1);
-            reg.set_tmrd(timing.mode_register_to_active_cycles - 1)
+            reg.set_txsr(self.timing.exit_self_refresh_cycles - 1);
+            reg.set_tmrd(self.timing.mode_register_to_active_cycles - 1)
         });
     }
 

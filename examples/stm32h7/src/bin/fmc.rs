@@ -123,6 +123,12 @@ async fn main(_spawner: Spawner) {
     // Create an instance of the FMC driver.
     let mut fmc = Fmc::new(p.FMC);
 
+    // Enable the FMC peripheral.
+    //
+    // This needs to be done before configuring
+    // the FMC device controller registers.
+    fmc.enable();
+
     let mut sdram = Fmc::sdram_a12bits_d32bits_4banks_bank2(
         p.FMC,
         // A0-A11

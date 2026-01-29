@@ -13,6 +13,9 @@ pub use crate::pac::fmc::vals;
 #[cfg(any(fmc_v1x3, fmc_v2x1, fmc_v3x1, fmc_v4))]
 pub mod sdram;
 
+#[cfg(any(fmc_v1x3, fmc_v2x1, fmc_v3x1, fmc_v4))]
+pub mod nand;
+
 /// Defines how the FMC banks are mapped using the BMAP register.
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -39,6 +42,8 @@ pub enum FmcBank {
     Bank2,
 
     /// Bank3: NAND Flash
+    ///
+    /// Bank3 is always used as NAND flash.
     Bank3,
 
     // NOTE: Bank 4 is not normally used by the FMC. Need
@@ -140,6 +145,8 @@ where
     }
 
     /// Enable the FMC peripheral and reset it.
+    ///
+    /// This should be called before configuring any of the FMC memory device controllers.
     pub fn enable(&mut self) {
         rcc::enable_and_reset::<T>();
     }
@@ -153,6 +160,21 @@ where
         T::regs().bcr1().modify(|r| r.set_fmcen(true));
         #[cfg(any(fmc_v4, fmc_n6))]
         T::regs().nor_psram().bcr1().modify(|r| r.set_fmcen(true));
+    }
+
+    /// Disable the memory controller on applicable chips.
+    ///
+    /// This is typically called when changes need to be made
+    /// to the FMC clock registers, which requires the FMC
+    /// to be disabled.
+    pub fn memory_controller_disable(&mut self) {
+        // fmc v1 and v2 does not have the fmcen bit
+        // fsmc v1, v2 and v3 does not have the fmcen bit
+        // This is a "not" because it is expected that all future versions have this bit
+        #[cfg(not(any(fmc_v1x3, fmc_v2x1, fsmc_v1x0, fsmc_v1x3, fmc_v4, fmc_n6)))]
+        T::regs().bcr1().modify(|r| r.set_fmcen(false));
+        #[cfg(any(fmc_v4, fmc_n6))]
+        T::regs().nor_psram().bcr1().modify(|r| r.set_fmcen(false));
     }
 
     /// Get the kernel clock currently in use for this FMC instance.
