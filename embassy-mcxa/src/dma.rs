@@ -2556,6 +2556,7 @@ pub struct ScatterGatherResult {
 /// # Safety
 /// Must be called from the correct DMA channel interrupt context.
 pub unsafe fn on_interrupt(ch_index: usize) {
+    crate::perf_counters::incr_interrupt_edma0();
     unsafe {
         let p = pac::Peripherals::steal();
         let edma = &p.edma_0_tcd0;
@@ -2573,6 +2574,7 @@ pub unsafe fn on_interrupt(ch_index: usize) {
 
             if citer <= half_point && citer > 0 {
                 // Half-transfer interrupt - wake half_waker
+                crate::perf_counters::incr_interrupt_edma0_wake();
                 half_waker(ch_index).wake();
             }
         }
@@ -2583,6 +2585,7 @@ pub unsafe fn on_interrupt(ch_index: usize) {
         // If DONE is set, this is a complete-transfer interrupt
         // Only wake the full-transfer waker when the transfer is actually complete
         if t.ch_csr().read().done().bit_is_set() {
+            crate::perf_counters::incr_interrupt_edma0_wake();
             waker(ch_index).wake();
         }
     }

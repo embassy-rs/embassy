@@ -670,6 +670,7 @@ pub struct BufferedInterruptHandler<T: Instance> {
 
 impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for BufferedInterruptHandler<T> {
     unsafe fn on_interrupt() {
+        T::PERF_INT_INCR();
         unsafe {
             let regs = T::info().regs();
             let state = T::buffered_state();
@@ -686,6 +687,7 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Buffere
             // Handle overrun error
             if stat.or().is_overrun() {
                 regs.stat().write(|w| w.or().clear_bit_by_one());
+                T::PERF_INT_WAKE_INCR();
                 state.rx_waker.wake();
                 return;
             }
@@ -728,6 +730,7 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Buffere
                 }
 
                 if pushed_any {
+                    T::PERF_INT_WAKE_INCR();
                     state.rx_waker.wake();
                 }
 
@@ -754,6 +757,7 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Buffere
                 }
 
                 if sent_any {
+                    T::PERF_INT_WAKE_INCR();
                     state.tx_waker.wake();
                 }
 
@@ -768,6 +772,7 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Buffere
             // Handle transmission complete
             if ctrl.tcie().is_enabled() && regs.stat().read().tc().is_complete() {
                 state.tx_done.store(true, Ordering::Release);
+                T::PERF_INT_WAKE_INCR();
                 state.tx_waker.wake();
 
                 // Disable TC interrupt

@@ -678,6 +678,7 @@ impl<'a, M: Mode> Drop for Adc<'a, M> {
 
 impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
+        T::PERF_INT_INCR();
         T::info().regs().ie().modify(|_r, w| w.fwmie0().clear_bit());
         T::info().wait_cell().wake();
     }
@@ -719,6 +720,7 @@ trait SealedInstance {
 pub trait Instance: SealedInstance + PeripheralType + Gate<MrccPeriphConfig = AdcConfig> {
     /// Interrupt for this ADC instance.
     type Interrupt: Interrupt;
+    const PERF_INT_INCR: fn();
 }
 
 macro_rules! impl_instance {
@@ -738,6 +740,7 @@ macro_rules! impl_instance {
 
                 impl Instance for crate::peripherals::[<ADC $n>] {
                     type Interrupt = crate::interrupt::typelevel::[<ADC $n>];
+                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_adc $n>];
                 }
             }
         )*

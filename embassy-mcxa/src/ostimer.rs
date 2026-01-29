@@ -137,10 +137,12 @@ impl OsTimer {
     }
 
     fn on_interrupt(&self) {
+        crate::perf_counters::incr_interrupt_ostimer();
         critical_section::with(|cs| {
             if os().osevent_ctrl().read().ostimer_intrflag().bit_is_set() {
                 os().osevent_ctrl()
                     .modify(|_, w| w.ostimer_intena().clear_bit().ostimer_intrflag().clear_bit_by_one());
+                crate::perf_counters::incr_interrupt_ostimer_alarm();
                 self.trigger_alarm(cs);
             }
         });
