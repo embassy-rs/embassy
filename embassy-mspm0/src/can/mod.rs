@@ -304,8 +304,6 @@ impl<'d> Can<'d, Blocking> {
             if self.get_error_counters().bus_off {
                 return Err(BusError::BusOff);
             }
-
-            cortex_m::asm::delay(100);
         }
     }
 
@@ -351,8 +349,6 @@ impl<'d> Can<'d, Blocking> {
             if self.get_error_counters().bus_off {
                 return Err(BusError::BusOff);
             }
-
-            cortex_m::asm::delay(100);
         }
     }
 }
