@@ -558,7 +558,6 @@ impl<'d, M: Mode> Can<'d, M> {
         tx: Peri<'d, impl TxPin<T>>,
         config: Config,
     ) -> Result<Self, InitializationError> {
-        // Note: use new_pin! when in tree.
         let rx_inner = new_pin!(rx, PfType::input(crate::gpio::Pull::None, false));
         let tx_inner = new_pin!(tx, PfType::output(crate::gpio::Pull::None, false));
 
