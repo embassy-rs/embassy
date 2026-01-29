@@ -169,8 +169,11 @@ impl<'a, 'd, T: fmc::Instance> Nand<'a, 'd, T> {
 
         // NOTE(unsafe): FMC controller has been initialized and enabled for this bank.
         unsafe {
-            // Create device. NAND Flash is always on Bank 3
+            #[cfg(fmc_v1x3)]
             let ptr = self.fmc.nand_ptr(self.bank) as *mut u8;
+            #[cfg(not(fmc_v1x3))]
+            let ptr = FmcBank::Bank3.ptr() as *mut u8;
+
             NandDevice::init(ptr, self.config.column_bits as usize)
         }
     }
