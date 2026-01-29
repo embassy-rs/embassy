@@ -6,15 +6,65 @@ use embassy_hal_internal::Peri;
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::interrupt::InterruptExt;
 
-use super::{Async, Blocking, Error, Info, Instance, InterruptHandler, Mode, SclPin, SdaPin};
+use super::{Async, Blocking, Info, Instance, InterruptHandler, Mode, SclPin, SdaPin};
 use crate::clocks::periph_helpers::{Div4, I3cClockSel, I3cConfig};
-use crate::clocks::{PoweredClock, WakeGuard, enable_and_reset};
+use crate::clocks::{ClockError, PoweredClock, WakeGuard, enable_and_reset};
 use crate::gpio::{AnyPin, SealedPin};
 pub use crate::i2c::controller::Speed;
 use crate::interrupt::typelevel;
 use crate::pac::i3c0::mctrl::{Dir as I3cDir, Type};
 
 const MAX_CHUNK_SIZE: usize = 255;
+
+/// Setup Errors
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum SetupError {
+    /// Clock configuration error.
+    ClockSetup(ClockError),
+    /// User provided an invalid configuration
+    InvalidConfiguration,
+    /// Other internal errors or unexpected state.
+    Other,
+}
+
+/// I/O Errors
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum IOError {
+    /// Underrun error
+    Underrun,
+    /// Not Acknowledge error
+    Nack,
+    /// Write abort error
+    WriteAbort,
+    /// Terminate error
+    Terminate,
+    /// High data rate parity flag
+    HighDataRateParity,
+    /// High data rate CRC error
+    HighDataRateCrc,
+    /// Overread error
+    Overread,
+    /// Overwrite error
+    Overwrite,
+    /// Message error
+    Message,
+    /// Invalid request error
+    InvalidRequest,
+    /// Timeout error
+    Timeout,
+    /// Address out of range.
+    AddressOutOfRange(u8),
+    /// Invalid write buffer length.
+    InvalidWriteBufferLength,
+    /// Invalid read buffer length.
+    InvalidReadBufferLength,
+    /// Other internal errors or unexpected state.
+    Other,
+}
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
@@ -108,13 +158,13 @@ impl<'d, M: Mode> I3c<'d, M> {
         scl: Peri<'d, impl SclPin<T>>,
         sda: Peri<'d, impl SdaPin<T>>,
         config: Config,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, SetupError> {
         let (power, source, div) = Self::clock_config();
 
         // Enable clocks
         let conf = I3cConfig { power, source, div };
 
-        let parts = unsafe { enable_and_reset::<T>(&conf).map_err(Error::ClockSetup)? };
+        let parts = unsafe { enable_and_reset::<T>(&conf).map_err(SetupError::ClockSetup)? };
 
         scl.mux();
         sda.mux();
@@ -145,7 +195,7 @@ impl<'d, M: Mode> I3c<'d, M> {
         )
     }
 
-    fn set_configuration(&self, config: &Config) -> Result<(), Error> {
+    fn set_configuration(&self, config: &Config) -> Result<(), SetupError> {
         self.clear_flags();
 
         self.info.regs().mdatactrl().modify(|_, w| {
@@ -188,7 +238,7 @@ impl<'d, M: Mode> I3c<'d, M> {
     }
 
     // REVISIT: not very readable
-    fn calculate_baud_rate_params(&self, config: &Config) -> Result<(u32, u32, u32), Error> {
+    fn calculate_baud_rate_params(&self, config: &Config) -> Result<(u32, u32, u32), SetupError> {
         const NSEC_PER_SEC: u32 = 1_000_000_000;
 
         let fclk = self.fclk;
@@ -196,7 +246,7 @@ impl<'d, M: Mode> I3c<'d, M> {
         let target_pp_hz = config.push_pull_freq;
 
         if target_pp_hz == 0 {
-            return Err(Error::InvalidConfiguration);
+            return Err(SetupError::InvalidConfiguration);
         }
 
         let max_pp_hz = target_pp_hz + target_pp_hz / 10;
@@ -324,35 +374,35 @@ impl<'d, M: Mode> I3c<'d, M> {
         while self.info.regs().mdatactrl().read().rxempty().is_empty() {}
     }
 
-    fn status(&self) -> Result<(), Error> {
+    fn status(&self) -> Result<(), IOError> {
         if self.info.regs().mstatus().read().errwarn().is_error() {
             let merrwarn = self.info.regs().merrwarn().read();
 
             if merrwarn.urun().is_error() {
-                Err(Error::Underrun)
+                Err(IOError::Underrun)
             } else if merrwarn.nack().is_error() {
-                Err(Error::Nack)
+                Err(IOError::Nack)
             } else if merrwarn.wrabt().is_error() {
-                Err(Error::WriteAbort)
+                Err(IOError::WriteAbort)
             } else if merrwarn.term().is_error() {
-                Err(Error::Terminate)
+                Err(IOError::Terminate)
             } else if merrwarn.hpar().is_error() {
-                Err(Error::HighDataRateParity)
+                Err(IOError::HighDataRateParity)
             } else if merrwarn.hcrc().is_error() {
-                Err(Error::HighDataRateCrc)
+                Err(IOError::HighDataRateCrc)
             } else if merrwarn.oread().is_error() {
-                Err(Error::Overread)
+                Err(IOError::Overread)
             } else if merrwarn.owrite().is_error() {
-                Err(Error::Overwrite)
+                Err(IOError::Overwrite)
             } else if merrwarn.msgerr().is_error() {
-                Err(Error::Message)
+                Err(IOError::Message)
             } else if merrwarn.invreq().is_error() {
-                Err(Error::InvalidRequest)
+                Err(IOError::InvalidRequest)
             } else if merrwarn.timeout().is_error() {
-                Err(Error::Timeout)
+                Err(IOError::Timeout)
             } else {
                 // should never happen
-                Err(Error::Other)
+                Err(IOError::Other)
             }
         } else {
             Ok(())
@@ -362,7 +412,7 @@ impl<'d, M: Mode> I3c<'d, M> {
     /// Prepares an appropriate Start condition on bus by issuing a
     /// `Start` request together with the device address, bus type
     /// (i3c sdr, i3c ddr, or i2c), and R/w bit.
-    fn blocking_start(&self, address: u8, bus_type: BusType, dir: Dir, len: u8) -> Result<(), Error> {
+    fn blocking_start(&self, address: u8, bus_type: BusType, dir: Dir, len: u8) -> Result<(), IOError> {
         self.clear_flags();
 
         self.info.regs().mctrl().write(|w| {
@@ -387,9 +437,9 @@ impl<'d, M: Mode> I3c<'d, M> {
     /// FIFO to become available, then sends the command and blocks
     /// waiting for the FIFO to become empty ensuring the command was
     /// sent.
-    fn blocking_stop(&self, bus_type: BusType) -> Result<(), Error> {
+    fn blocking_stop(&self, bus_type: BusType) -> Result<(), IOError> {
         if !self.info.regs().mstatus().read().state().is_normact() {
-            Err(Error::InvalidRequest)
+            Err(IOError::InvalidRequest)
         } else {
             // NOTE: Section 41.3.2.1 states that "when sending STOP
             // in I2C mode, MCONFIG[ODSTOP] and MCTRL[TYPE] must be
@@ -418,9 +468,9 @@ impl<'d, M: Mode> I3c<'d, M> {
         read: &mut [u8],
         bus_type: BusType,
         send_stop: SendStop,
-    ) -> Result<(), Error> {
+    ) -> Result<(), IOError> {
         if read.is_empty() {
-            return Err(Error::InvalidReadBufferLength);
+            return Err(IOError::InvalidReadBufferLength);
         }
 
         for chunk in read.chunks_mut(MAX_CHUNK_SIZE) {
@@ -451,7 +501,7 @@ impl<'d, M: Mode> I3c<'d, M> {
         write: &[u8],
         bus_type: BusType,
         send_stop: SendStop,
-    ) -> Result<(), Error> {
+    ) -> Result<(), IOError> {
         match self.blocking_start(address, bus_type, Dir::Write, 0) {
             Err(e) => {
                 self.blocking_remediation(bus_type);
@@ -476,7 +526,7 @@ impl<'d, M: Mode> I3c<'d, M> {
         }
 
         let Some((last, rest)) = write.split_last() else {
-            return Err(Error::InvalidWriteBufferLength);
+            return Err(IOError::InvalidWriteBufferLength);
         };
 
         for byte in rest {
@@ -499,12 +549,12 @@ impl<'d, M: Mode> I3c<'d, M> {
     // Public API: Blocking
 
     /// Read from address into buffer blocking caller until done.
-    pub fn blocking_read(&mut self, address: u8, read: &mut [u8], bus_type: BusType) -> Result<(), Error> {
+    pub fn blocking_read(&mut self, address: u8, read: &mut [u8], bus_type: BusType) -> Result<(), IOError> {
         self.blocking_read_internal(address, read, bus_type, SendStop::Yes)
     }
 
     /// Write to address from buffer blocking caller until done.
-    pub fn blocking_write(&mut self, address: u8, write: &[u8], bus_type: BusType) -> Result<(), Error> {
+    pub fn blocking_write(&mut self, address: u8, write: &[u8], bus_type: BusType) -> Result<(), IOError> {
         self.blocking_write_internal(address, write, bus_type, SendStop::Yes)
     }
 
@@ -515,7 +565,7 @@ impl<'d, M: Mode> I3c<'d, M> {
         write: &[u8],
         read: &mut [u8],
         bus_type: BusType,
-    ) -> Result<(), Error> {
+    ) -> Result<(), IOError> {
         self.blocking_write_internal(address, write, bus_type, SendStop::No)?;
         self.blocking_read_internal(address, read, bus_type, SendStop::Yes)
     }
@@ -530,7 +580,7 @@ impl<'d> I3c<'d, Blocking> {
         scl: Peri<'d, impl SclPin<T>>,
         sda: Peri<'d, impl SdaPin<T>>,
         config: Config,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, SetupError> {
         Self::new_inner(peri, scl, sda, config)
     }
 }
@@ -545,7 +595,7 @@ impl<'d> I3c<'d, Async> {
         sda: Peri<'d, impl SdaPin<T>>,
         _irq: impl typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, SetupError> {
         let inst = Self::new_inner(peri, scl, sda, config);
 
         crate::pac::Interrupt::I3C0.unpend();
@@ -556,7 +606,7 @@ impl<'d> I3c<'d, Async> {
         inst
     }
 
-    async fn async_wait_for_ctrldone(&self) -> Result<(), Error> {
+    async fn async_wait_for_ctrldone(&self) -> Result<(), IOError> {
         self.info
             .wait_cell()
             .wait_for(|| {
@@ -570,10 +620,10 @@ impl<'d> I3c<'d, Async> {
                     || self.info.regs().mstatus().read().errwarn().is_error()
             })
             .await
-            .map_err(|_| Error::Other)
+            .map_err(|_| IOError::Other)
     }
 
-    async fn async_wait_for_complete(&self) -> Result<(), Error> {
+    async fn async_wait_for_complete(&self) -> Result<(), IOError> {
         self.info
             .wait_cell()
             .wait_for(|| {
@@ -587,10 +637,10 @@ impl<'d> I3c<'d, Async> {
                     || self.info.regs().mstatus().read().errwarn().is_error()
             })
             .await
-            .map_err(|_| Error::Other)
+            .map_err(|_| IOError::Other)
     }
 
-    async fn async_wait_for_tx_fifo(&self) -> Result<(), Error> {
+    async fn async_wait_for_tx_fifo(&self) -> Result<(), IOError> {
         // Wait until we have space in the TX FIFO.
         self.info
             .wait_cell()
@@ -605,10 +655,10 @@ impl<'d> I3c<'d, Async> {
                     || self.info.regs().mstatus().read().errwarn().is_error()
             })
             .await
-            .map_err(|_| Error::Overwrite)
+            .map_err(|_| IOError::Overwrite)
     }
 
-    async fn async_wait_for_rx_fifo(&self) -> Result<(), Error> {
+    async fn async_wait_for_rx_fifo(&self) -> Result<(), IOError> {
         self.info
             .wait_cell()
             .wait_for(|| {
@@ -622,13 +672,13 @@ impl<'d> I3c<'d, Async> {
                     || self.info.regs().mstatus().read().errwarn().is_error()
             })
             .await
-            .map_err(|_| Error::Overread)
+            .map_err(|_| IOError::Overread)
     }
 
     /// Prepares an appropriate Start condition on bus by issuing a
     /// `Start` request together with the device address, bus type
     /// (i3c sdr, i3c ddr, or i2c), and R/w bit.
-    async fn async_start(&self, address: u8, bus_type: BusType, dir: Dir, len: u8) -> Result<(), Error> {
+    async fn async_start(&self, address: u8, bus_type: BusType, dir: Dir, len: u8) -> Result<(), IOError> {
         self.clear_flags();
 
         self.info.regs().mctrl().write(|w| {
@@ -653,9 +703,9 @@ impl<'d> I3c<'d, Async> {
     /// FIFO to become available, then sends the command and blocks
     /// waiting for the FIFO to become empty ensuring the command was
     /// sent.
-    async fn async_stop(&self, bus_type: BusType) -> Result<(), Error> {
+    async fn async_stop(&self, bus_type: BusType) -> Result<(), IOError> {
         if !self.info.regs().mstatus().read().state().is_normact() {
-            Err(Error::InvalidRequest)
+            Err(IOError::InvalidRequest)
         } else {
             // NOTE: Section 41.3.2.1 states that "when sending STOP
             // in I2C mode, MCONFIG[ODSTOP] and MCTRL[TYPE] must be
@@ -681,9 +731,9 @@ impl<'d> I3c<'d, Async> {
         read: &mut [u8],
         bus_type: BusType,
         send_stop: SendStop,
-    ) -> Result<(), Error> {
+    ) -> Result<(), IOError> {
         if read.is_empty() {
-            return Err(Error::InvalidReadBufferLength);
+            return Err(IOError::InvalidReadBufferLength);
         }
 
         // perform corrective action if the future is dropped
@@ -717,7 +767,7 @@ impl<'d> I3c<'d, Async> {
         write: &[u8],
         bus_type: BusType,
         send_stop: SendStop,
-    ) -> Result<(), Error> {
+    ) -> Result<(), IOError> {
         // perform corrective action if the future is dropped
         let on_drop = OnDrop::new(|| {
             self.blocking_remediation(bus_type);
@@ -741,7 +791,7 @@ impl<'d> I3c<'d, Async> {
         }
 
         let Some((last, rest)) = write.split_last() else {
-            return Err(Error::InvalidWriteBufferLength);
+            return Err(IOError::InvalidWriteBufferLength);
         };
 
         for byte in rest {
@@ -774,7 +824,7 @@ impl<'d> I3c<'d, Async> {
         address: u8,
         read: &'a mut [u8],
         bus_type: BusType,
-    ) -> impl Future<Output = Result<(), Error>> + use<'_, 'a, 'd> {
+    ) -> impl Future<Output = Result<(), IOError>> + use<'_, 'a, 'd> {
         self.async_read_internal(address, read, bus_type, SendStop::Yes)
     }
 
@@ -784,7 +834,7 @@ impl<'d> I3c<'d, Async> {
         address: u8,
         write: &'a [u8],
         bus_type: BusType,
-    ) -> impl Future<Output = Result<(), Error>> + use<'_, 'a, 'd> {
+    ) -> impl Future<Output = Result<(), IOError>> + use<'_, 'a, 'd> {
         self.async_write_internal(address, write, bus_type, SendStop::Yes)
     }
 
@@ -795,7 +845,7 @@ impl<'d> I3c<'d, Async> {
         write: &[u8],
         read: &mut [u8],
         bus_type: BusType,
-    ) -> Result<(), Error> {
+    ) -> Result<(), IOError> {
         self.async_write_internal(address, write, bus_type, SendStop::No)
             .await?;
         self.async_read_internal(address, read, bus_type, SendStop::Yes).await
@@ -810,37 +860,37 @@ impl<'d, M: Mode> Drop for I3c<'d, M> {
 }
 
 impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Read for I3c<'d, M> {
-    type Error = Error;
+    type Error = IOError;
 
-    fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Error> {
+    fn read(&mut self, address: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
         self.blocking_read(address, buffer, BusType::I2c)
     }
 }
 
 impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Write for I3c<'d, M> {
-    type Error = Error;
+    type Error = IOError;
 
-    fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Error> {
+    fn write(&mut self, address: u8, bytes: &[u8]) -> Result<(), Self::Error> {
         self.blocking_write(address, bytes, BusType::I2c)
     }
 }
 
 impl<'d, M: Mode> embedded_hal_02::blocking::i2c::WriteRead for I3c<'d, M> {
-    type Error = Error;
+    type Error = IOError;
 
-    fn write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Error> {
+    fn write_read(&mut self, address: u8, bytes: &[u8], buffer: &mut [u8]) -> Result<(), Self::Error> {
         self.blocking_write_read(address, bytes, buffer, BusType::I2c)
     }
 }
 
 impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Transactional for I3c<'d, M> {
-    type Error = Error;
+    type Error = IOError;
 
     fn exec(
         &mut self,
         address: u8,
         operations: &mut [embedded_hal_02::blocking::i2c::Operation<'_>],
-    ) -> Result<(), Error> {
+    ) -> Result<(), Self::Error> {
         let Some((last, rest)) = operations.split_last_mut() else {
             return Ok(());
         };
@@ -867,7 +917,7 @@ impl<'d, M: Mode> embedded_hal_02::blocking::i2c::Transactional for I3c<'d, M> {
     }
 }
 
-impl embedded_hal_1::i2c::Error for Error {
+impl embedded_hal_1::i2c::Error for IOError {
     fn kind(&self) -> embedded_hal_1::i2c::ErrorKind {
         match *self {
             Self::Nack => {
@@ -879,11 +929,15 @@ impl embedded_hal_1::i2c::Error for Error {
 }
 
 impl<'d, M: Mode> embedded_hal_1::i2c::ErrorType for I3c<'d, M> {
-    type Error = Error;
+    type Error = IOError;
 }
 
 impl<'d, M: Mode> embedded_hal_1::i2c::I2c for I3c<'d, M> {
-    fn transaction(&mut self, address: u8, operations: &mut [embedded_hal_1::i2c::Operation<'_>]) -> Result<(), Error> {
+    fn transaction(
+        &mut self,
+        address: u8,
+        operations: &mut [embedded_hal_1::i2c::Operation<'_>],
+    ) -> Result<(), Self::Error> {
         let Some((last, rest)) = operations.split_last_mut() else {
             return Ok(());
         };
@@ -915,7 +969,7 @@ impl<'d> embedded_hal_async::i2c::I2c for I3c<'d, Async> {
         &mut self,
         address: u8,
         operations: &mut [embedded_hal_async::i2c::Operation<'_>],
-    ) -> Result<(), Error> {
+    ) -> Result<(), Self::Error> {
         let Some((last, rest)) = operations.split_last_mut() else {
             return Ok(());
         };
@@ -948,9 +1002,9 @@ impl<'d> embedded_hal_async::i2c::I2c for I3c<'d, Async> {
 
 impl<'d, M: Mode> embassy_embedded_hal::SetConfig for I3c<'d, M> {
     type Config = Config;
-    type ConfigError = Error;
+    type ConfigError = SetupError;
 
-    fn set_config(&mut self, config: &Self::Config) -> Result<(), Error> {
+    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
         self.set_configuration(config)
     }
 }

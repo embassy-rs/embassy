@@ -6,53 +6,12 @@ use embassy_hal_internal::PeripheralType;
 use maitake_sync::WaitCell;
 use paste::paste;
 
+use crate::clocks::Gate;
 use crate::clocks::periph_helpers::I3cConfig;
-use crate::clocks::{ClockError, Gate};
 use crate::gpio::{GpioPin, SealedPin};
 use crate::{interrupt, pac};
 
 pub mod controller;
-
-/// Error information type
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[non_exhaustive]
-pub enum Error {
-    /// Clock configuration error.
-    ClockSetup(ClockError),
-    /// Underrun error
-    Underrun,
-    /// Not Acknowledge error
-    Nack,
-    /// Write abort error
-    WriteAbort,
-    /// Terminate error
-    Terminate,
-    /// High data rate parity flag
-    HighDataRateParity,
-    /// High data rate CRC error
-    HighDataRateCrc,
-    /// Overread error
-    Overread,
-    /// Overwrite error
-    Overwrite,
-    /// Message error
-    Message,
-    /// Invalid request error
-    InvalidRequest,
-    /// Timeout error
-    Timeout,
-    /// Address out of range.
-    AddressOutOfRange(u8),
-    /// Invalid write buffer length.
-    InvalidWriteBufferLength,
-    /// Invalid read buffer length.
-    InvalidReadBufferLength,
-    /// User provided an invalid configuration
-    InvalidConfiguration,
-    /// Other internal errors or unexpected state.
-    Other,
-}
 
 /// I3C interrupt handler.
 pub struct InterruptHandler<T: Instance> {
