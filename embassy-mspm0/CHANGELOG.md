@@ -24,3 +24,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - feat: add CPU accelerated division function (#4966)
 - feat: Add trng implementation (#5172)
 - fix: feature guard pins used for NRST and SWD (#5257)
+- feat: Add mcan implementation
