@@ -159,6 +159,7 @@ impl<'d> I2c<'d, Async, Master> {
         + interrupt::typelevel::Binding<T::ErrorInterrupt, ErrorInterruptHandler<T>>
         + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + Copy
         + 'd,
         config: Config,
     ) -> Self {

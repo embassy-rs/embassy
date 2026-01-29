@@ -733,6 +733,7 @@ impl<'d> Spi<'d, Async, Slave> {
         rx_dma: Peri<'d, D2>,
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + Copy
         + 'd,
         config: Config,
     ) -> Self {
@@ -760,6 +761,7 @@ impl<'d> Spi<'d, Async, Master> {
         rx_dma: Peri<'d, D2>,
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + Copy
         + 'd,
         config: Config,
     ) -> Self {
@@ -788,11 +790,13 @@ impl<'d> Spi<'d, Async, Master> {
         > + crate::interrupt::typelevel::Binding<
             D2::Interrupt,
             crate::dma::InterruptHandler<D2>,
-        > + 'd,
+        > + Copy
+        + 'd,
         #[cfg(any(spi_v4, spi_v5, spi_v6))] _irq: impl crate::interrupt::typelevel::Binding<
             D2::Interrupt,
             crate::dma::InterruptHandler<D2>,
-        > + 'd,
+        > + Copy
+        + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -841,6 +845,7 @@ impl<'d> Spi<'d, Async, Master> {
         rx_dma: Peri<'d, D2>,
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + Copy
         + 'd,
         config: Config,
     ) -> Self {

@@ -3,7 +3,6 @@
 use embassy_hal_internal::drop::OnDrop;
 use embassy_hal_internal::{Peri, PeripheralType};
 
-use crate::dma::dma_into;
 use crate::pac::cordic::vals;
 use crate::{dma, peripherals, rcc};
 
@@ -381,6 +380,7 @@ impl<'d, T: Instance> Cordic<'d, T> {
         mut read_dma: Peri<'a, R>,
         irq: impl crate::interrupt::typelevel::Binding<W::Interrupt, crate::dma::InterruptHandler<W>>
         + crate::interrupt::typelevel::Binding<R::Interrupt, crate::dma::InterruptHandler<R>>
+        + Copy
         + 'a,
         arg: &[u32],
         res: &mut [u32],
@@ -388,8 +388,8 @@ impl<'d, T: Instance> Cordic<'d, T> {
         res1_only: bool,
     ) -> Result<usize, CordicError>
     where
-        W: WriteDma<T> + crate::dma::TypedChannel,
-        R: ReadDma<T> + crate::dma::TypedChannel,
+        W: WriteDma<T>,
+        R: ReadDma<T>,
     {
         if arg.is_empty() {
             return Ok(0);
@@ -419,16 +419,12 @@ impl<'d, T: Instance> Cordic<'d, T> {
         });
 
         unsafe {
-            let write_transfer = dma::Transfer::new_write(
-                dma_into(write_dma.reborrow(), &irq),
-                write_req,
-                arg,
-                T::regs().wdata().as_ptr() as *mut _,
-                Default::default(),
-            );
+            let mut write_channel = dma::Channel::new(write_dma.reborrow(), irq);
+            let write_transfer =
+                write_channel.write(write_req, arg, T::regs().wdata().as_ptr() as *mut _, Default::default());
 
-            let read_transfer = dma::Transfer::new_read(
-                dma_into(read_dma.reborrow(), &irq),
+            let mut read_channel = dma::Channel::new(read_dma.reborrow(), irq);
+            let read_transfer = read_channel.read(
                 read_req,
                 T::regs().rdata().as_ptr() as *mut _,
                 active_res_buf,
@@ -527,13 +523,14 @@ impl<'d, T: Instance> Cordic<'d, T> {
         mut read_dma: Peri<'a, R>,
         irq: impl crate::interrupt::typelevel::Binding<W::Interrupt, crate::dma::InterruptHandler<W>>
         + crate::interrupt::typelevel::Binding<R::Interrupt, crate::dma::InterruptHandler<R>>
+        + Copy
         + 'a,
         arg: &[u32],
         res: &mut [u32],
     ) -> Result<usize, CordicError>
     where
-        W: WriteDma<T> + crate::dma::TypedChannel,
-        R: ReadDma<T> + crate::dma::TypedChannel,
+        W: WriteDma<T>,
+        R: ReadDma<T>,
     {
         if arg.is_empty() {
             return Ok(0);
@@ -565,16 +562,12 @@ impl<'d, T: Instance> Cordic<'d, T> {
         });
 
         unsafe {
-            let write_transfer = dma::Transfer::new_write(
-                dma_into(write_dma.reborrow(), &irq),
-                write_req,
-                arg,
-                T::regs().wdata().as_ptr() as *mut _,
-                Default::default(),
-            );
+            let mut write_channel = dma::Channel::new(write_dma.reborrow(), irq);
+            let write_transfer =
+                write_channel.write(write_req, arg, T::regs().wdata().as_ptr() as *mut _, Default::default());
 
-            let read_transfer = dma::Transfer::new_read(
-                dma_into(read_dma.reborrow(), &irq),
+            let mut read_channel = dma::Channel::new(read_dma.reborrow(), irq);
+            let read_transfer = read_channel.read(
                 read_req,
                 T::regs().rdata().as_ptr() as *mut _,
                 active_res_buf,

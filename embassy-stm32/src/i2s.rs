@@ -338,6 +338,7 @@ impl<'d, W: Word> I2S<'d, W> {
         rxdma_buf: &'d mut [W],
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + Copy
         + 'd,
         config: Config,
     ) -> Self {

@@ -447,6 +447,7 @@ impl<'d, T: Instance> Dac<'d, T, Async> {
         dma_ch2: Peri<'d, D2>,
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + Copy
         + 'd,
         pin_ch1: Peri<'d, impl DacPin<T, Ch1> + crate::gpio::Pin>,
         pin_ch2: Peri<'d, impl DacPin<T, Ch2> + crate::gpio::Pin>,
@@ -491,6 +492,7 @@ impl<'d, T: Instance> Dac<'d, T, Async> {
         dma_ch2: Peri<'d, D2>,
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + Copy
         + 'd,
         pin_ch1: Peri<'d, impl DacPin<T, Ch1> + crate::gpio::Pin>,
         pin_ch2: Peri<'d, impl DacPin<T, Ch2> + crate::gpio::Pin>,
@@ -527,6 +529,7 @@ impl<'d, T: Instance> Dac<'d, T, Async> {
         dma_ch2: Peri<'d, D2>,
         _irq: impl crate::interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
         + crate::interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + Copy
         + 'd,
     ) -> Self {
         Self::new_inner(
