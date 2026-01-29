@@ -469,7 +469,7 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
 
     // Initialize embassy-time global driver backed by OSTIMER0
     // NOTE: As early as possible, but MUST be AFTER clocks!
-    crate::ostimer::init(cfg.time_interrupt_priority);
+    // crate::ostimer::init(cfg.time_interrupt_priority);
 
     unsafe {
         crate::gpio::interrupt_init();
@@ -518,6 +518,16 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
     }
     unsafe {
         crate::clocks::disable::<crate::peripherals::PORT0>();
+        crate::clocks::disable::<crate::peripherals::PORT1>();
+        crate::clocks::disable::<crate::peripherals::PORT2>();
+        crate::clocks::disable::<crate::peripherals::PORT4>();
+        crate::clocks::disable::<crate::peripherals::GPIO0>();
+        crate::clocks::disable::<crate::peripherals::GPIO1>();
+        crate::clocks::disable::<crate::peripherals::GPIO2>();
+        crate::clocks::disable::<crate::peripherals::GPIO4>();
+
+        crate::clocks::disable::<crate::peripherals::PORT3>();
+        crate::clocks::disable::<crate::peripherals::GPIO3>();
     }
 
 

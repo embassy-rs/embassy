@@ -121,11 +121,20 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     // If we were keeping SIRC enabled, now we can release it.
     operator.configure_sirc_clocks_late();
 
+    defmt::info!("MRCC.CC0: {=u32}", operator._mrcc0.mrcc_glb_cc0().read().bits());
+    defmt::info!("MRCC.CC1: {=u32}", operator._mrcc0.mrcc_glb_cc1().read().bits());
+    defmt::info!("MRCC.CC2: {=u32}", operator._mrcc0.mrcc_glb_cc2().read().bits());
+    defmt::info!("MRCC.ACC0: {=u32}", operator._mrcc0.mrcc_glb_acc0().read().bits());
+    defmt::info!("MRCC.ACC1: {=u32}", operator._mrcc0.mrcc_glb_acc1().read().bits());
+    defmt::info!("MRCC.ACC2: {=u32}", operator._mrcc0.mrcc_glb_acc2().read().bits());
+
+
     critical_section::with(|cs| {
         let mut clks = CLOCKS.borrow_ref_mut(cs);
         assert!(clks.is_none(), "Clock setup race!");
         *clks = Some(clocks);
     });
+
 
     Ok(())
 }
@@ -1010,6 +1019,9 @@ impl ClockOperator<'_> {
     /// Configure the ROSC/FRO16K/clk_16k clock family
     fn configure_fro16k_clocks(&mut self) -> Result<(), ClockError> {
         let Some(fro16k) = self.config.fro16k.as_ref() else {
+            // HACK
+            self.vbat0.froctla().modify(|_, w| w.fro_en().clear_bit());
+            self.vbat0.frolcka().modify(|_, w| w.lock().set_bit());
             return Ok(());
         };
         // Enable FRO16K oscillator
@@ -1761,7 +1773,17 @@ impl ClockOperator<'_> {
         // use the low drive strength for lp mode, and high drive strength for active mode?
         match self.config.vdd_power.active_mode.drive {
             VddDriveStrength::Low => {
+                // HACK
+                self.spc0.active_cfg().modify(|_r, w| {
+                    w.sys_hvde().clear_bit();
+                    w.sys_lvde().clear_bit();
+                    w.core_lvde().clear_bit();
+                    w
+                });
                 self.spc0.active_cfg().modify(|_r, w| w.coreldo_vdd_ds().low());
+                self.spc0.active_cfg().modify(|_r, w| {
+                    w.bgmode().bgmode0()
+                });
             }
             VddDriveStrength::Normal => {
                 // Already set to normal above
@@ -1786,10 +1808,13 @@ impl ClockOperator<'_> {
             // w.flashwake().enabled();
             w
         });
+        self.spc0.active_cfg1().write(|w| unsafe { w.bits(0) });
+        self.cmc.dbgctl().modify(|_r, w| w.sod().set_bit());
 
         // Update status
         self.clocks.active_power = self.config.vdd_power.active_mode.level;
         self.clocks.lp_power = self.config.vdd_power.low_power_mode.level;
+
 
         Ok(())
     }
