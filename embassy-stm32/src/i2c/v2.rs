@@ -312,6 +312,47 @@ impl<'d, M: Mode, IM: MasterMode> I2c<'d, M, IM> {
         }
     }
 
+    /// Wait for TXIS or NACK. Returns Ok(true) if TXIS, Ok(false) if NACK.
+    /// Used in slave transmit mode where NACK indicates master terminated early (not an error).
+    fn wait_txis_or_nack(&self, timeout: Timeout) -> Result<bool, Error> {
+        loop {
+            let isr = self.info.regs.isr().read();
+
+            // Check for actual errors (not NACK, which is expected in slave mode)
+            if isr.berr() {
+                trace!("BERR triggered.");
+                self.info.regs.icr().modify(|reg| reg.set_berrcf(true));
+                self.flush_txdr();
+                return Err(Error::Bus);
+            }
+            if isr.arlo() {
+                trace!("ARLO triggered.");
+                self.info.regs.icr().modify(|reg| reg.set_arlocf(true));
+                self.flush_txdr();
+                return Err(Error::Arbitration);
+            }
+            if isr.ovr() {
+                trace!("OVR triggered.");
+                self.info.regs.icr().modify(|reg| reg.set_ovrcf(true));
+                self.flush_txdr();
+                return Err(Error::Overrun);
+            }
+
+            if isr.txis() {
+                trace!("TXIS");
+                return Ok(true);
+            }
+
+            if isr.nackf() {
+                trace!("NACK received (master terminated early)");
+                self.info.regs.icr().modify(|reg| reg.set_nackcf(true));
+                return Ok(false);
+            }
+
+            timeout.check()?;
+        }
+    }
+
     fn wait_stop_or_err(&self, timeout: Timeout) -> Result<(), Error> {
         loop {
             let isr = self.info.regs.isr().read();
@@ -1677,15 +1718,19 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
         Ok(received)
     }
 
-    // A blocking write operation
-    fn slave_write_internal(&mut self, write: &[u8], timeout: Timeout) -> Result<(), Error> {
-        let completed_chunks = write.len() / 255;
-        let total_chunks = if completed_chunks * 255 == write.len() {
+    // A blocking write operation for slave mode.
+    // Transmits data to the master. Returns SendStatus indicating whether all bytes were sent
+    // or if the master terminated early (sent NACK before all data was transmitted).
+    fn slave_write_internal(&mut self, write: &[u8], timeout: Timeout) -> Result<SendStatus, Error> {
+        let total_len = write.len();
+        let completed_chunks = total_len / 255;
+        let total_chunks = if completed_chunks * 255 == total_len {
             completed_chunks
         } else {
             completed_chunks + 1
         };
         let last_chunk_idx = total_chunks.saturating_sub(1);
+        let mut bytes_sent = 0;
 
         for (number, chunk) in write.chunks(255).enumerate() {
             trace!(
@@ -1705,26 +1750,48 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
                 )?;
             }
 
-            let mut index = 0;
-
-            for byte in chunk {
-                // Wait until we are allowed to send data
-                // (START has been ACKed or last byte when through)
-                self.wait_txis(timeout)?;
-
-                {
-                    trace!("Slave TX data {}: {:#04x}", index, byte);
-                    index = index + 1;
+            for (index, byte) in chunk.iter().enumerate() {
+                // Check for NACK before waiting - master may have terminated early
+                let isr = self.info.regs.isr().read();
+                if isr.nackf() {
+                    trace!("NACK received at byte {} of chunk {}", index, number);
+                    self.info.regs.icr().modify(|reg| reg.set_nackcf(true));
+                    self.flush_txdr();
+                    self.wait_stop_or_err(timeout)?;
+                    let leftover = total_len - bytes_sent;
+                    trace!("--- Slave TX transmission end (early NACK), {} bytes unsent", leftover);
+                    return Ok(SendStatus::LeftoverBytes(leftover));
                 }
-                self.info.regs.txdr().write(|w| w.set_txdata(*byte));
+
+                // Wait until we are allowed to send data
+                // (START has been ACKed or last byte went through)
+                match self.wait_txis_or_nack(timeout) {
+                    Ok(true) => {
+                        // TXIS - ready to send
+                        trace!("Slave TX data {}: {:#04x}", bytes_sent, byte);
+                        self.info.regs.txdr().write(|w| w.set_txdata(*byte));
+                        bytes_sent += 1;
+                    }
+                    Ok(false) => {
+                        // NACK - master terminated early
+                        self.flush_txdr();
+                        self.wait_stop_or_err(timeout)?;
+                        let leftover = total_len - bytes_sent;
+                        trace!("--- Slave TX transmission end (early NACK), {} bytes unsent", leftover);
+                        return Ok(SendStatus::LeftoverBytes(leftover));
+                    }
+                    Err(e) => return Err(e),
+                }
             }
         }
+
+        // All bytes sent, wait for final NACK from master
         self.wait_af(timeout)?;
         self.flush_txdr();
         self.wait_stop_or_err(timeout)?;
 
-        trace!("--- Slave TX transmission end");
-        Ok(())
+        trace!("--- Slave TX transmission end, all {} bytes sent", bytes_sent);
+        Ok(SendStatus::Done)
     }
 
     /// Listen for incoming I2C messages.
@@ -1787,8 +1854,14 @@ impl<'d, M: Mode> I2c<'d, M, MultiMaster> {
         self.slave_read_internal(buffer, timeout)
     }
 
-    /// Respond to a read command.
-    pub fn blocking_respond_to_read(&mut self, write: &[u8]) -> Result<(), Error> {
+    /// Respond to a read command by transmitting data to the master.
+    ///
+    /// Transmits the provided data to the master. The master controls how many bytes
+    /// it reads by sending a NACK after the last byte it wants.
+    ///
+    /// Returns [`SendStatus::Done`] if all bytes were sent, or [`SendStatus::LeftoverBytes`]
+    /// if the master ended the transfer early (sent NACK before all data was transmitted).
+    pub fn blocking_respond_to_read(&mut self, write: &[u8]) -> Result<SendStatus, Error> {
         let timeout = self.timeout();
         self.slave_write_internal(write, timeout)
     }
@@ -1821,9 +1894,13 @@ impl<'d> I2c<'d, Async, MultiMaster> {
         .await
     }
 
-    /// Respond to a write command.
+    /// Respond to a write command by receiving data from the master.
     ///
-    /// Returns the total number of bytes received.
+    /// Receives up to `buffer.len()` bytes from the master into the provided buffer.
+    /// If the master sends more data than the buffer can hold, excess bytes are
+    /// acknowledged but discarded.
+    ///
+    /// Returns the number of bytes actually stored in `buffer`.
     pub async fn respond_to_write(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
         let _scoped_block_stop = self.info.rcc.block_stop();
         let timeout = self.timeout();
@@ -1839,7 +1916,8 @@ impl<'d> I2c<'d, Async, MultiMaster> {
 
     // for data reception in slave mode
     //
-    // returns the total number of bytes received
+    // returns the total number of bytes received (stored in buffer)
+    // If master sends more data than buffer can hold, excess bytes are drained and discarded.
     async fn read_dma_internal_slave(&mut self, buffer: &mut [u8], timeout: Timeout) -> Result<usize, Error> {
         let total_len = buffer.len();
         let mut remaining_len = total_len;
@@ -1867,16 +1945,32 @@ impl<'d> I2c<'d, Async, MultiMaster> {
             });
         });
 
+        // Track whether STOP was received during DMA transfer 
+        let mut stop_received = false;
+
         let total_received = poll_fn(|cx| {
             state.waker.register(cx.waker());
 
             let isr = regs.isr().read();
+            // Check for STOP first - master may have finished early
+            if isr.stopf() {
+                remaining_len = remaining_len.saturating_add(dma_transfer.get_remaining_transfers() as usize);
+                regs.icr().write(|reg| reg.set_stopcf(true));
+                stop_received = true;
+                return Poll::Ready(Ok(total_len - remaining_len));
+            }
 
             if remaining_len == total_len {
                 Self::slave_start(self.info, total_len.min(255), total_len > 255);
                 remaining_len = remaining_len.saturating_sub(255);
+                // Re-enable interrupts that were disabled by the interrupt handler
+                regs.cr1().modify(|w| {
+                    w.set_tcie(true);
+                    w.set_stopie(true);
+                });
                 Poll::Pending
             } else if isr.tcr() {
+                // Transfer Complete Reload - need to set up next chunk
                 let is_last_slice = remaining_len <= 255;
                 if let Err(e) = Self::reload(
                     self.info,
@@ -1888,14 +1982,23 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                     return Poll::Ready(Err(e));
                 }
                 remaining_len = remaining_len.saturating_sub(255);
-                regs.cr1().modify(|w| w.set_tcie(true));
+                regs.cr1().modify(|w| {
+                    w.set_tcie(true);
+                    w.set_stopie(true);
+                });
                 Poll::Pending
-            } else if isr.stopf() {
-                remaining_len = remaining_len.saturating_add(dma_transfer.get_remaining_transfers() as usize);
-                regs.icr().write(|reg| reg.set_stopcf(true));
-                let poll = Poll::Ready(Ok(total_len - remaining_len));
-                poll
+            } else if isr.tc() || dma_transfer.get_remaining_transfers() == 0 {
+                // Buffer is full - either TC fired or DMA completed all transfers.
+                // Note: TC is primarily a master mode flag; in slave mode we rely on DMA completion.
+                // Master may still be sending more data; we'll drain excess after returning.
+                Poll::Ready(Ok(total_len))
             } else {
+                // No relevant flag set - re-enable interrupts in case they were
+                // disabled by the interrupt handler during a spurious wake
+                regs.cr1().modify(|w| {
+                    w.set_tcie(true);
+                    w.set_stopie(true);
+                });
                 Poll::Pending
             }
         })
@@ -1904,7 +2007,16 @@ impl<'d> I2c<'d, Async, MultiMaster> {
         dma_transfer.request_pause();
         dma_transfer.await;
 
+        // Disable DMA before potentially draining
+        regs.cr1().modify(|w| w.set_rxdmaen(false));
+
         drop(on_drop);
+
+        // If STOP wasn't received during DMA, we need to drain any excess bytes
+        // the master might be sending
+        if !stop_received {
+            self.drain_rxdr_until_stop(timeout)?;
+        }
 
         Ok(total_received)
     }
@@ -1945,6 +2057,10 @@ impl<'d> I2c<'d, Async, MultiMaster> {
             if remaining_len == total_len {
                 Self::slave_start(self.info, total_len.min(255), total_len > 255);
                 remaining_len = remaining_len.saturating_sub(255);
+                self.info.regs.cr1().modify(|w| {
+                    w.set_tcie(true);
+                    w.set_stopie(true);
+                });
                 Poll::Pending
             } else if isr.tcr() {
                 let is_last_slice = remaining_len <= 255;
@@ -1958,7 +2074,10 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                     return Poll::Ready(Err(e));
                 }
                 remaining_len = remaining_len.saturating_sub(255);
-                self.info.regs.cr1().modify(|w| w.set_tcie(true));
+                self.info.regs.cr1().modify(|w| {
+                    w.set_tcie(true);
+                    w.set_stopie(true);
+                });
                 Poll::Pending
             } else if isr.stopf() {
                 let mut leftover_bytes = dma_transfer.get_remaining_transfers();
@@ -1974,6 +2093,11 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                     Poll::Ready(Ok(SendStatus::Done))
                 }
             } else {
+                // Re-enable interrupts in case they were disabled by spurious wake
+                self.info.regs.cr1().modify(|w| {
+                    w.set_tcie(true);
+                    w.set_stopie(true);
+                });
                 Poll::Pending
             }
         })
