@@ -18,7 +18,7 @@ use static_cell::StaticCell;
 use {defmt_rtt as _, panic_probe as _};
 
 // Program metadata for `picotool info`.
-// This isn't needed, but it's recomended to have these minimal entries.
+// This isn't needed, but it's recommended to have these minimal entries.
 #[unsafe(link_section = ".bi_entries")]
 #[used]
 pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [

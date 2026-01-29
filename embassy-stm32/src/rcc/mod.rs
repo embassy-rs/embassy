@@ -4,7 +4,6 @@
 #![allow(missing_docs)] // TODO
 
 use core::mem::MaybeUninit;
-use core::ops;
 
 mod bd;
 pub use bd::*;
@@ -12,7 +11,6 @@ pub use bd::*;
 #[cfg(any(mco, mco1, mco2))]
 mod mco;
 use critical_section::CriticalSection;
-use embassy_hal_internal::{Peri, PeripheralType};
 #[cfg(any(mco, mco1, mco2))]
 pub use mco::*;
 
@@ -220,12 +218,6 @@ pub enum StopMode {
     /// Peripheral does not prevent chip from entering Stop
     Standby,
 }
-
-#[cfg(feature = "low-power")]
-type BusyRccPeripheral = BusyPeripheral<StopMode>;
-
-#[cfg(not(feature = "low-power"))]
-type BusyRccPeripheral = ();
 
 impl RccInfo {
     /// Safety:
@@ -456,9 +448,11 @@ impl RccInfo {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn block_stop(&self) -> BusyRccPeripheral {
-        #[cfg(feature = "low-power")]
-        BusyPeripheral::new(self.stop_mode)
+    pub(crate) fn wake_guard(&self) -> WakeGuard {
+        WakeGuard::new(
+            #[cfg(feature = "low-power")]
+            self.stop_mode,
+        )
     }
 
     fn reset_ptr(&self) -> Option<*mut u32> {
@@ -483,57 +477,27 @@ impl RccInfo {
     }
 }
 
-pub(crate) trait StoppablePeripheral {
+pub struct WakeGuard {
     #[cfg(feature = "low-power")]
-    #[allow(dead_code)]
-    fn stop_mode(&self) -> StopMode;
+    stop_mode: StopMode,
 }
 
-#[cfg(feature = "low-power")]
-impl StoppablePeripheral for StopMode {
-    fn stop_mode(&self) -> StopMode {
-        *self
-    }
-}
-
-impl<'a, T: StoppablePeripheral + PeripheralType> StoppablePeripheral for Peri<'a, T> {
-    #[cfg(feature = "low-power")]
-    fn stop_mode(&self) -> StopMode {
-        T::stop_mode(&self)
-    }
-}
-
-pub(crate) struct BusyPeripheral<T: StoppablePeripheral> {
-    peripheral: T,
-}
-
-impl<T: StoppablePeripheral> BusyPeripheral<T> {
-    pub fn new(peripheral: T) -> Self {
+impl WakeGuard {
+    pub fn new(#[cfg(feature = "low-power")] stop_mode: StopMode) -> Self {
         #[cfg(feature = "low-power")]
-        critical_section::with(|cs| increment_stop_refcount(cs, peripheral.stop_mode()));
+        critical_section::with(|cs| increment_stop_refcount(cs, stop_mode));
 
-        Self { peripheral }
+        Self {
+            #[cfg(feature = "low-power")]
+            stop_mode,
+        }
     }
 }
 
-impl<T: StoppablePeripheral> Drop for BusyPeripheral<T> {
+impl Drop for WakeGuard {
     fn drop(&mut self) {
         #[cfg(feature = "low-power")]
-        critical_section::with(|cs| decrement_stop_refcount(cs, self.peripheral.stop_mode()));
-    }
-}
-
-impl<T: StoppablePeripheral> ops::Deref for BusyPeripheral<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.peripheral
-    }
-}
-
-impl<T: StoppablePeripheral> ops::DerefMut for BusyPeripheral<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.peripheral
+        critical_section::with(|cs| decrement_stop_refcount(cs, self.stop_mode));
     }
 }
 

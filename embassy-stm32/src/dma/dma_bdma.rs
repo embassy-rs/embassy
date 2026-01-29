@@ -8,9 +8,9 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use super::ringbuffer::{DmaCtrl, Error, ReadableDmaRingBuffer, WritableDmaRingBuffer};
 use super::word::{Word, WordSize};
-use super::{AnyChannel, Channel, Dir, Increment, Request, STATE};
+use super::{AnyChannel, Dir, Increment, Request, STATE};
 use crate::interrupt::typelevel::Interrupt;
-use crate::rcc::BusyPeripheral;
+use crate::rcc::WakeGuard;
 use crate::{interrupt, pac};
 
 pub(crate) struct ChannelInfo {
@@ -20,6 +20,17 @@ pub(crate) struct ChannelInfo {
     pub(crate) irq: pac::Interrupt,
     #[cfg(dmamux)]
     pub(crate) dmamux: super::DmamuxInfo,
+    #[cfg(feature = "low-power")]
+    pub(crate) stop_mode: crate::rcc::StopMode,
+}
+
+impl ChannelInfo {
+    fn wake_guard(&self) -> WakeGuard {
+        WakeGuard::new(
+            #[cfg(feature = "low-power")]
+            self.stop_mode,
+        )
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -638,13 +649,14 @@ impl AnyChannel {
 /// DMA transfer.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Transfer<'a> {
-    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
+    channel: Peri<'a, AnyChannel>,
+    _wake_guard: WakeGuard,
 }
 
 impl<'a> Transfer<'a> {
     /// Create a new memory DMA transfer (memory to memory), using raw pointers.
     pub unsafe fn new_transfer<MW: Word, PW: Word>(
-        channel: Peri<'a, impl Channel>,
+        channel: Peri<'a, AnyChannel>,
         request: Request,
         buf: *const [MW],
         dest_addr: *mut PW,
@@ -662,7 +674,7 @@ impl<'a> Transfer<'a> {
 
     /// Create a new memory DMA transfer (memory to memory), using raw pointers.
     pub unsafe fn new_transfer_raw<MW: Word, PW: Word>(
-        channel: Peri<'a, impl Channel>,
+        channel: Peri<'a, AnyChannel>,
         request: Request,
         src_addr: *const MW,
         src_size: usize,
@@ -685,7 +697,7 @@ impl<'a> Transfer<'a> {
 
     /// Create a new read DMA transfer (peripheral to memory).
     pub unsafe fn new_read<W: Word>(
-        channel: Peri<'a, impl Channel>,
+        channel: Peri<'a, AnyChannel>,
         request: Request,
         peri_addr: *mut W,
         buf: &'a mut [W],
@@ -696,7 +708,7 @@ impl<'a> Transfer<'a> {
 
     /// Create a new read DMA transfer (peripheral to memory), using raw pointers.
     pub unsafe fn new_read_raw<MW: Word, PW: Word>(
-        channel: Peri<'a, impl Channel>,
+        channel: Peri<'a, AnyChannel>,
         request: Request,
         peri_addr: *mut PW,
         buf: *mut [MW],
@@ -718,7 +730,7 @@ impl<'a> Transfer<'a> {
 
     /// Create a new write DMA transfer (memory to peripheral).
     pub unsafe fn new_write<MW: Word, PW: Word>(
-        channel: Peri<'a, impl Channel>,
+        channel: Peri<'a, AnyChannel>,
         request: Request,
         buf: &'a [MW],
         peri_addr: *mut PW,
@@ -729,7 +741,7 @@ impl<'a> Transfer<'a> {
 
     /// Create a new write DMA transfer (memory to peripheral), using raw pointers.
     pub unsafe fn new_write_raw<MW: Word, PW: Word>(
-        channel: Peri<'a, impl Channel>,
+        channel: Peri<'a, AnyChannel>,
         request: Request,
         buf: *const [MW],
         peri_addr: *mut PW,
@@ -751,7 +763,7 @@ impl<'a> Transfer<'a> {
 
     /// Create a new write DMA transfer (memory to peripheral), writing the same value repeatedly.
     pub unsafe fn new_write_repeated<W: Word>(
-        channel: Peri<'a, impl Channel>,
+        channel: Peri<'a, AnyChannel>,
         request: Request,
         repeated: &'a W,
         count: usize,
@@ -791,7 +803,8 @@ impl<'a> Transfer<'a> {
         );
         channel.start();
         Self {
-            channel: BusyPeripheral::new(channel),
+            _wake_guard: channel.info().wake_guard(),
+            channel,
         }
     }
 
@@ -895,14 +908,15 @@ impl<'a> DmaCtrl for DmaCtrlImpl<'a> {
 
 /// Ringbuffer for receiving data using DMA circular mode.
 pub struct ReadableRingBuffer<'a, W: Word> {
-    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
+    channel: Peri<'a, AnyChannel>,
+    _wake_guard: WakeGuard,
     ringbuf: ReadableDmaRingBuffer<'a, W>,
 }
 
 impl<'a, W: Word> ReadableRingBuffer<'a, W> {
     /// Create a new ring buffer.
     pub unsafe fn new(
-        channel: Peri<'a, impl Channel>,
+        channel: Peri<'a, AnyChannel>,
         _request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
@@ -932,7 +946,8 @@ impl<'a, W: Word> ReadableRingBuffer<'a, W> {
         );
 
         Self {
-            channel: BusyPeripheral::new(channel),
+            _wake_guard: channel.info().wake_guard(),
+            channel,
             ringbuf: ReadableDmaRingBuffer::new(buffer),
         }
     }
@@ -1051,14 +1066,15 @@ impl<'a, W: Word> Drop for ReadableRingBuffer<'a, W> {
 
 /// Ringbuffer for writing data using DMA circular mode.
 pub struct WritableRingBuffer<'a, W: Word> {
-    channel: BusyPeripheral<Peri<'a, AnyChannel>>,
+    channel: Peri<'a, AnyChannel>,
+    _wake_guard: WakeGuard,
     ringbuf: WritableDmaRingBuffer<'a, W>,
 }
 
 impl<'a, W: Word> WritableRingBuffer<'a, W> {
     /// Create a new ring buffer.
     pub unsafe fn new(
-        channel: Peri<'a, impl Channel>,
+        channel: Peri<'a, AnyChannel>,
         _request: Request,
         peri_addr: *mut W,
         buffer: &'a mut [W],
@@ -1088,7 +1104,8 @@ impl<'a, W: Word> WritableRingBuffer<'a, W> {
         );
 
         Self {
-            channel: BusyPeripheral::new(channel),
+            _wake_guard: channel.info().wake_guard(),
+            channel,
             ringbuf: WritableDmaRingBuffer::new(buffer),
         }
     }
