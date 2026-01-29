@@ -33,7 +33,7 @@ use crate::can::frame::MCanFrame;
 use crate::can::msgram::{McanMessageRAM, MessageRAMAccess};
 use crate::gpio::{AnyPin, PfType};
 use crate::mode::{Blocking, Mode};
-use crate::pac::canfd::{Canfd as Regs, vals as CanVals};
+use crate::pac::canfd::{Canfd as Regs, vals};
 use crate::pac::{self};
 
 pub(crate) mod msgram;
@@ -411,19 +411,19 @@ impl<'d, M: Mode> Can<'d, M> {
         can.rstctl().write(|w| {
             w.set_resetstkyclr(true);
             w.set_resetassert(true);
-            w.set_key(CanVals::ResetKey::KEY);
+            w.set_key(vals::ResetKey::KEY);
         });
         cortex_m::asm::delay(16);
 
         can.pwren().write(|w| {
             w.set_enable(false);
-            w.set_key(CanVals::PwrenKey::KEY);
+            w.set_key(vals::PwrenKey::KEY);
         });
         cortex_m::asm::delay(32);
 
         can.pwren().write(|w| {
             w.set_enable(true);
-            w.set_key(CanVals::PwrenKey::KEY);
+            w.set_key(vals::PwrenKey::KEY);
         });
         cortex_m::asm::delay(10000); // TODO: this should be calculated from MCLK at some point as > 50us.
 
@@ -439,9 +439,9 @@ impl<'d, M: Mode> Can<'d, M> {
         // Set a functional clock source & divider - for now we only support SYSPLLOUT1.
         can.ti_wrapper(0).msp(0).subsys_clkdiv().write(|w| {
             w.set_ratio(match config.clock_div {
-                ClockDiv::DivBy1 => CanVals::Ratio::DIV_BY_1_,
-                ClockDiv::DivBy2 => CanVals::Ratio::DIV_BY_2_,
-                ClockDiv::DivBy4 => CanVals::Ratio::DIV_BY_4_,
+                ClockDiv::DivBy1 => vals::Ratio::DIV_BY_1_,
+                ClockDiv::DivBy2 => vals::Ratio::DIV_BY_2_,
+                ClockDiv::DivBy4 => vals::Ratio::DIV_BY_4_,
             });
         });
 
