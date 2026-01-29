@@ -46,6 +46,7 @@ pub unsafe fn read<'a, C: Channel, W: Word>(
     from: *const W,
     to: *mut [W],
     dreq: vals::TreqSel,
+    bswap: bool,
 ) -> Transfer<'a, C> {
     copy_inner(
         ch,
@@ -56,6 +57,7 @@ pub unsafe fn read<'a, C: Channel, W: Word>(
         false,
         true,
         dreq,
+        bswap,
     )
 }
 
@@ -67,6 +69,7 @@ pub unsafe fn write<'a, C: Channel, W: Word>(
     from: *const [W],
     to: *mut W,
     dreq: vals::TreqSel,
+    bswap: bool,
 ) -> Transfer<'a, C> {
     copy_inner(
         ch,
@@ -77,11 +80,37 @@ pub unsafe fn write<'a, C: Channel, W: Word>(
         true,
         false,
         dreq,
+        bswap,
     )
 }
 
 // static mut so that this is allocated in RAM.
-static mut DUMMY: u32 = 0;
+static mut DUMMY_DISCARD: u32 = 0;
+
+/// DMA repeated read.
+///
+/// SAFETY: Slice must point to a valid location reachable by DMA.
+pub unsafe fn read_repeated<'a, C: Channel, W: Word>(
+    ch: Peri<'a, C>,
+    from: *mut W,
+    len: usize,
+    dreq: vals::TreqSel,
+) -> Transfer<'a, C> {
+    copy_inner(
+        ch,
+        from as *mut u32,
+        core::ptr::addr_of_mut!(DUMMY_DISCARD) as *mut u32,
+        len,
+        W::size(),
+        false,
+        false,
+        dreq,
+        false,
+    )
+}
+
+// static mut so that this is allocated in RAM.
+static mut DUMMY_ZERO: u32 = 0;
 
 /// DMA repeated write.
 ///
@@ -94,13 +123,14 @@ pub unsafe fn write_repeated<'a, C: Channel, W: Word>(
 ) -> Transfer<'a, C> {
     copy_inner(
         ch,
-        core::ptr::addr_of_mut!(DUMMY) as *const u32,
+        core::ptr::addr_of_mut!(DUMMY_ZERO) as *const u32,
         to as *mut u32,
         len,
         W::size(),
         false,
         false,
         dreq,
+        false,
     )
 }
 
@@ -120,6 +150,7 @@ pub unsafe fn copy<'a, C: Channel, W: Word>(ch: Peri<'a, C>, from: &[W], to: &mu
         true,
         true,
         vals::TreqSel::PERMANENT,
+        false,
     )
 }
 
@@ -132,6 +163,7 @@ fn copy_inner<'a, C: Channel>(
     incr_read: bool,
     incr_write: bool,
     dreq: vals::TreqSel,
+    bswap: bool,
 ) -> Transfer<'a, C> {
     let p = ch.regs();
 
@@ -155,6 +187,7 @@ fn copy_inner<'a, C: Channel>(
         w.set_incr_read(incr_read);
         w.set_incr_write(incr_write);
         w.set_chain_to(ch.number());
+        w.set_bswap(bswap);
         w.set_en(true);
     });
 
@@ -169,7 +202,7 @@ pub struct Transfer<'a, C: Channel> {
 }
 
 impl<'a, C: Channel> Transfer<'a, C> {
-    pub(crate) fn new(channel: Peri<'a, C>) -> Self {
+    fn new(channel: Peri<'a, C>) -> Self {
         Self { channel }
     }
 }
