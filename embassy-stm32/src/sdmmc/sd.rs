@@ -106,7 +106,7 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
 
     /// Initializes the card into a known state (or at least tries to).
     async fn acquire(&mut self, cmd_block: &mut CmdBlock, freq: Hertz) -> Result<(), Error> {
-        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+        let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
         let regs = self.sdmmc.info.regs;
 
         // Get the bus width configured in the Sdmmc peripheral
@@ -317,7 +317,7 @@ impl<'a, 'b> StorageDevice<'a, 'b, Emmc> {
     }
 
     async fn acquire(&mut self, _cmd_block: &mut CmdBlock, freq: Hertz) -> Result<(), Error> {
-        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+        let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
         let regs = self.sdmmc.info.regs;
 
         let bus_width = self.sdmmc.bus_width();
@@ -415,7 +415,7 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
     /// Read a data block.
     #[inline]
     pub async fn read_block(&mut self, block_idx: u32, data_block: &mut DataBlock) -> Result<(), Error> {
-        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+        let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
         let card_capacity = self.info.get_capacity();
 
         // Always read 1 block of 512 bytes
@@ -441,7 +441,7 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
     /// Read multiple data blocks.
     #[inline]
     pub async fn read_blocks(&mut self, block_idx: u32, blocks: &mut [DataBlock]) -> Result<(), Error> {
-        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+        let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
         let card_capacity = self.info.get_capacity();
 
         // NOTE(unsafe) reinterpret buffer as &mut [u32]
@@ -480,7 +480,7 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
     where
         CardStatus<A::Ext>: From<u32>,
     {
-        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+        let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
         // Always read 1 block of 512 bytes
         //  cards are byte addressed hence the blockaddress is in multiples of 512 bytes
@@ -524,7 +524,7 @@ impl<'a, 'b, A: Addressable> StorageDevice<'a, 'b, A> {
     where
         CardStatus<A::Ext>: From<u32>,
     {
-        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+        let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
         // NOTE(unsafe) reinterpret buffer as &[u32]
         let buffer = unsafe {

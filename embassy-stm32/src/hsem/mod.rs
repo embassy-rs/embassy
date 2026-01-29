@@ -106,7 +106,7 @@ impl<'a, T: Instance> HardwareSemaphoreChannel<'a, T> {
     /// The 2-step lock procedure consists in a write to lock the semaphore, followed by a read to
     /// check if the lock has been successful, carried out from the HSEM_Rx register.
     pub async fn lock(&mut self, process_id: u8) -> HardwareSemaphoreMutex<'a, T> {
-        let _scoped_block_stop = T::RCC_INFO.block_stop();
+        let _scoped_wake_guard = T::RCC_INFO.wake_guard();
         let core_id = CoreId::current();
 
         poll_fn(|cx| {

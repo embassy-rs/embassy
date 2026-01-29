@@ -405,7 +405,7 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
 
     /// Async read data, using DMA.
     pub async fn read_dma(&mut self, buf: &mut [u8], transaction: TransferConfig) {
-        let _scoped_block_stop = T::RCC_INFO.block_stop();
+        let _scoped_wake_guard = T::RCC_INFO.wake_guard();
         let transfer = self.start_read_transfer(transaction, buf);
         transfer.await;
     }
@@ -446,7 +446,7 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
 
     /// Async write data, using DMA.
     pub async fn write_dma(&mut self, buf: &[u8], transaction: TransferConfig) {
-        let _scoped_block_stop = T::RCC_INFO.block_stop();
+        let _scoped_wake_guard = T::RCC_INFO.wake_guard();
         let transfer = self.start_write_transfer(transaction, buf);
         transfer.await;
     }

@@ -493,7 +493,7 @@ impl<'d> UartTx<'d, Async> {
 
     /// Initiate an asynchronous UART write
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        let _scoped_block_stop = self.info.rcc.block_stop();
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
 
         let r = self.info.regs;
 
@@ -512,7 +512,7 @@ impl<'d> UartTx<'d, Async> {
 
     /// Wait until transmission complete
     pub async fn flush(&mut self) -> Result<(), Error> {
-        let _scoped_block_stop = self.info.rcc.block_stop();
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
 
         flush(&self.info, &self.state).await
     }
@@ -736,7 +736,7 @@ impl<'d> UartRx<'d, Async> {
 
     /// Initiate an asynchronous UART read
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
-        let _scoped_block_stop = self.info.rcc.block_stop();
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
 
         self.inner_read(buffer, false).await?;
 
@@ -745,7 +745,7 @@ impl<'d> UartRx<'d, Async> {
 
     /// Initiate an asynchronous read with idle line detection enabled
     pub async fn read_until_idle(&mut self, buffer: &mut [u8]) -> Result<usize, Error> {
-        let _scoped_block_stop = self.info.rcc.block_stop();
+        let _scoped_wake_guard = self.info.rcc.wake_guard();
 
         self.inner_read(buffer, true).await
     }
