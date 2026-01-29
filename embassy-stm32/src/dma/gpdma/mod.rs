@@ -270,6 +270,16 @@ impl AnyChannel {
             w.set_ddw(dst_size.into());
             w.set_sinc(dir == Dir::MemoryToPeripheral && incr_mem);
             w.set_dinc(dir == Dir::PeripheralToMemory && incr_mem);
+            w.set_dap(match dir {
+                Dir::MemoryToPeripheral => vals::Ap::PORT1, // Destination is peripheral on AHB for HPDMA
+                Dir::PeripheralToMemory => vals::Ap::PORT0, // Destination is memory on AXI for HPDMA
+                Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
+            });
+            w.set_sap(match dir {
+                Dir::MemoryToPeripheral => vals::Ap::PORT0, // Source is memory on AXI for HPDMA
+                Dir::PeripheralToMemory => vals::Ap::PORT1, // Source is peripheral on AHB for HPDMA
+                Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
+            });
         });
         ch.tr2().write(|w| {
             w.set_dreq(match dir {
