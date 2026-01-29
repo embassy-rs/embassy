@@ -8,14 +8,14 @@
 // Originally implemented by the `stm32-fmc` crate by Richard Meadows in 2019 under the
 // MIT license, improved and rolled into Embassy by Kat Mitchell (northernpaws).
 
+use core::array::TryFromSliceError;
 use core::convert::TryInto;
 use core::sync::atomic::{Ordering, fence};
 use core::{cmp, fmt, ptr, str};
-use core::array::TryFromSliceError;
 
 use embedded_hal_async::delay::DelayNs;
 
-use crate::fmc::{self, Fmc, FmcBank};
+use crate::fmc::{self, Fmc};
 pub use crate::pac::fmc::vals;
 
 pub mod devices;
@@ -121,6 +121,9 @@ pub trait NandChip {
 /// Driver for the FMC NAND controller.
 #[allow(missing_debug_implementations)]
 pub struct Nand<'a, 'd, T: fmc::Instance> {
+    #[cfg(fmc_v1x3)]
+    bank: super::FmcNandBank,
+
     /// Reference to the Fmc driver that was used to initialize the SDRAM.
     fmc: &'a mut Fmc<'d, T>,
 
@@ -130,8 +133,18 @@ pub struct Nand<'a, 'd, T: fmc::Instance> {
 
 impl<'a, 'd, T: fmc::Instance> Nand<'a, 'd, T> {
     /// Creates a new NAND controller.
-    fn new(fmc: &'a mut Fmc<'d, T>, config: NandConfiguration, timing: NandTiming) -> Self {
-        Self { fmc, config, timing }
+    fn new(
+        fmc: &'a mut Fmc<'d, T>,
+        #[cfg(fmc_v1x3)] bank: super::FmcNandBank,
+        config: NandConfiguration,
+        timing: NandTiming,
+    ) -> Self {
+        Self {
+            fmc,
+            bank,
+            config,
+            timing,
+        }
     }
 
     /// Initialise the NAND driver.
@@ -157,7 +170,7 @@ impl<'a, 'd, T: fmc::Instance> Nand<'a, 'd, T> {
         // NOTE(unsafe): FMC controller has been initialized and enabled for this bank.
         unsafe {
             // Create device. NAND Flash is always on Bank 3
-            let ptr = FmcBank::Bank3.ptr() as *mut u8;
+            let ptr = self.fmc.nand_ptr(self.bank) as *mut u8;
             NandDevice::init(ptr, self.config.column_bits as usize)
         }
     }
@@ -237,19 +250,35 @@ impl<'a, 'd, T: fmc::Instance> Nand<'a, 'd, T> {
         #[cfg(fmc_v4)]
         let regs = T::regs().nand();
 
+        #[cfg(not(fmc_v1x3))]
+        let pcr = regs.pcr();
+        #[cfg(not(fmc_v1x3))]
+        let pmem = regs.pmem();
+        #[cfg(not(fmc_v1x3))]
+        let patt = regs.patt();
+
+        // fmc_v1x3 supports multiple CompactFlash and NAND
+        // banks, so the register structure is indexed.
+        #[cfg(fmc_v1x3)]
+        let pcr = regs.pcr(self.bank.into());
+        #[cfg(fmc_v1x3)]
+        let pmem = regs.pmem(self.bank.into());
+        #[cfg(fmc_v1x3)]
+        let patt = regs.patt(self.bank.into());
+
         // Set the NAND control register values.
-        regs.pcr().modify(|reg| {
+        pcr.modify(|reg| {
             reg.set_tar(tar);
             reg.set_tclr(tclr);
             reg.set_eccps(vals::Eccps::BYTES512); // 0b1: 512 bytes
             reg.set_eccen(false); // 0b0: ECC computation disabled
-            reg.set_pwid(self.config.data_width.into());
+            #[cfg(fmc_v4)]
             reg.set_ptyp(vals::Ptyp::NAND); // 0b1: NAND Flash
             reg.set_pwaiten(true) // 0b1: Wait feature enabled
         });
 
         // Set the memory timing parameters.
-        regs.pmem().modify(|reg| {
+        pmem.modify(|reg| {
             reg.set_memhiz(hiz);
             reg.set_memhold(hold);
             reg.set_memwait(wait);
@@ -257,7 +286,7 @@ impl<'a, 'd, T: fmc::Instance> Nand<'a, 'd, T> {
         });
 
         // Set the attribute memory timing parameters.
-        regs.patt().modify(|reg| {
+        patt.modify(|reg| {
             reg.set_atthiz(hiz);
             reg.set_atthold(atthold);
             reg.set_attwait(wait);
@@ -265,7 +294,7 @@ impl<'a, 'd, T: fmc::Instance> Nand<'a, 'd, T> {
         });
 
         // Enable the NAND controller.
-        regs.pcr().modify(|reg| reg.set_pbken(true));
+        pcr.modify(|reg| reg.set_pbken(true));
     }
 }
 

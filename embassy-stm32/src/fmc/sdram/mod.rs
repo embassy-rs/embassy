@@ -746,15 +746,6 @@ impl<'a, 'd, T: fmc::Instance> SdramBank<'a, 'd, T> {
         timing: SdramTiming,
         mode_register: u16,
     ) -> Self {
-        // TODO: make a call to Fmc to get the mapped bank address in the case of re-mapped bank addressing
-
-        // We move a value out of the FMC handle to make sure that multiple
-        // SDRAM instances using the same bank can't be created.
-        let _bank_handle = match bank {
-            FmcSdramBank::Bank1 => fmc.sdram1,
-            FmcSdramBank::Bank2 => fmc.sdram2,
-        };
-
         Self {
             fmc,
             bank,
@@ -803,7 +794,7 @@ impl<'a, 'd, T: fmc::Instance> SdramBank<'a, 'd, T> {
         // This takes in the FMC bank mapping configuration
         // to ensure we're calculating the correct base address
         // in the event that the SDRAM banks have been swapped.
-        self.bank.ptr(self.fmc.mapping())
+        self.fmc.sdram_ptr(self.bank)
     }
 
     /// Configure the memory device features and timings based
