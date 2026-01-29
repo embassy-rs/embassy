@@ -9,7 +9,7 @@ This document will be written incrementally. If you see something missing: pleas
 * Open an issue or ask in the embassy matrix chat why things are the way they are, or how they should be.
 * Open a PR to add the documentation you think is missing.
 
-## The `Cargo.toml`
+## The `Cargo.toml` file
 
 This section describes the notable components of the `Cargo.toml` package manifest.
 
@@ -163,3 +163,88 @@ impl<'a> I2c<'a, Blocking> {
 }
 ```
 
+#### Error types
+
+When creating `Error` types for each peripheral, consider the following high level guidance:
+
+##### Splitting up the Error types
+
+Instead of making one top-level `Error` for the entire peripheral, it it often useful to create multiple error enums. For example, instead of:
+
+```rust
+enum Error {
+    Clocks(ClockError),
+    BadConfig,
+    Timeout,
+    TransferTooLarge,
+}
+
+impl Example {
+    // Can return `Err(Clocks)` or `Err(BadConfig)`
+    pub fn new(config: Config) -> Result<Self, Error> { /* ... */ }
+
+    // Can return `Err(BadConfig)` or `Err(TransferTooLarge)`
+    pub fn send_u8s(&mut self, mode: Mode, data: &[u8]) -> Result<(), Error> { /* ... */ }
+
+    // Can return `Err(BadConfig)` or `Err(TransferTooLarge)`
+    pub fn send_u16s(&mut self, mode: Mode, data: &[u16]) -> Result<(), Error> { /* ... */ }
+
+    // Can return `Err(Timeout)` or `Err(TransferTooLarge)`
+    pub fn recv(&mut self, data: &mut [u8]) -> Result<usize, Error> { /* ... */ }
+}
+```
+
+If the same `Error` type is used, the user may need to `match` on errors that are "impossible", e.g. a `new()` function returning `Error::Timeout`.
+
+Instead, it might be worth splitting this into *three* errors:
+
+```rust
+enum CreateError {
+    Clocks(ClockError),
+    BadConfig,
+}
+
+enum SendError {
+    BadConfig,
+    TransferTooLarge,
+}
+
+enum RecvError {
+    Timeout,
+    TransferTooLarge,
+}
+
+impl Example {
+    pub fn new(config: Config) -> Result<Self, CreateError> { /* ... */ }
+    pub fn send_u8s(&mut self, mode: Mode, data: &[u8]) -> Result<(), SendError> { /* ... */ }
+    pub fn send_u16s(&mut self, mode: Mode, data: &[u16]) -> Result<(), SendError> { /* ... */ }
+    pub fn recv(&mut self, data: &mut [u8]) -> Result<usize, RecvError> { /* ... */ }
+}
+```
+
+##### Don't make a `Result` alias
+
+It *used* to be common to see module specific aliases for `Result`s, e.g.:
+
+```rust
+pub type Result<T> = Result<T, Error>;
+```
+
+However:
+
+* This can lead to confusion for users if they have multiple `Result`s in scope
+* It pushes for making "one `Error` per module", which is the opposite of what is described above
+
+##### Mark errors as `#[non_exhaustive]`
+
+Unless we are **definitely** sure that we have covered all possible kinds of errors for a HAL driver, we should mark the `Error` type(s) as `#[non_exhaustive]`, to prevent making a breaking change when adding a new error type.
+
+For example:
+
+```rust
+#[non_exhaustive]
+enum RecvError {
+    Timeout,
+    TransferTooLarge,
+}
+```
