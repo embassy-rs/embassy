@@ -1,3 +1,12 @@
+//! # Performance counters
+//!
+//! This module contains simple performance counters, intended to aid debugging
+//! for metrics like "number of interrupts served" per peripheral, etc.
+//!
+//! When the `perf` feature is active, then the performance counters are functional.
+//! When the `perf` feature is NOT active, the "increment" and "clear" interfaces are
+//! still available, but act as a no-op.
+
 #[cfg_attr(not(feature = "perf"), allow(unused_imports))]
 use core::sync::atomic::{AtomicU32, Ordering};
 
@@ -108,6 +117,18 @@ macro_rules! define_counters {
     };
 }
 
+// TODO: In the future, we may want to have more granular groupings of counters, behind
+// features like `perf-interrupt`, `perf-interrupt-wake`, `perf-sleep`, etc. In that case,
+// we might want a macro like the following, that enables a perf counter for ANY of the
+// given features:
+//
+// ```rust
+// define_counters! {
+//   (["perf-interrupt", "perf-adc"], interrupt_adc0),
+// };
+//
+// We can implement this later if we decide that "all of the perf counters" takes up too
+// much static RAM space.
 define_counters!(
     interrupt_adc0,
     interrupt_adc1,
