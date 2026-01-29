@@ -11,6 +11,7 @@
 use core::convert::TryInto;
 use core::sync::atomic::{Ordering, fence};
 use core::{cmp, fmt, ptr, str};
+use core::array::TryFromSliceError;
 
 use embedded_hal_async::delay::DelayNs;
 
@@ -511,23 +512,23 @@ impl NandDevice {
     }
 
     /// Executes the ReadParameterPage(0xEC) command from ONFI Section 5.7.
-    pub fn read_parameter_page(&mut self) -> ParameterPage {
+    pub fn read_parameter_page(&mut self) -> Result<ParameterPage, TryFromSliceError> {
         let mut page = [0u8; 115];
         self.command(Command::ReadParameterPage, 0, &mut page);
 
-        ParameterPage {
-            signature: page[0..4].try_into().unwrap(),
-            onfi_revision: u16::from_le_bytes(page[4..6].try_into().unwrap()),
-            manufacturer: page[32..44].try_into().unwrap(),
-            model: page[44..64].try_into().unwrap(),
-            date_code: u16::from_le_bytes(page[65..67].try_into().unwrap()),
-            data_bytes_per_page: u32::from_le_bytes(page[80..84].try_into().unwrap()),
-            spare_bytes_per_page: u16::from_le_bytes(page[84..86].try_into().unwrap()),
-            pages_per_block: u32::from_le_bytes(page[92..96].try_into().unwrap()),
-            blocks_per_lun: u32::from_le_bytes(page[96..100].try_into().unwrap()),
+        Ok(ParameterPage {
+            signature: page[0..4].try_into()?,
+            onfi_revision: u16::from_le_bytes(page[4..6].try_into()?),
+            manufacturer: page[32..44].try_into()?,
+            model: page[44..64].try_into()?,
+            date_code: u16::from_le_bytes(page[65..67].try_into()?),
+            data_bytes_per_page: u32::from_le_bytes(page[80..84].try_into()?),
+            spare_bytes_per_page: u16::from_le_bytes(page[84..86].try_into()?),
+            pages_per_block: u32::from_le_bytes(page[92..96].try_into()?),
+            blocks_per_lun: u32::from_le_bytes(page[96..100].try_into()?),
             lun_count: page[100],
             ecc_bits: page[112],
-        }
+        })
     }
 
     /// Executes the ReadUniqueID(0xED) command from ONFI Section 5.8.
