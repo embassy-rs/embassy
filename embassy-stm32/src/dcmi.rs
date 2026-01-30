@@ -6,7 +6,7 @@ use core::task::Poll;
 use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 
-use crate::dma::{ChannelAndRequest, Transfer};
+use crate::dma::ChannelAndRequest;
 use crate::gpio::{AfType, Pull};
 use crate::interrupt::typelevel::Interrupt;
 use crate::{Peri, interrupt, rcc};
@@ -407,15 +407,7 @@ where
     pub async fn capture(&mut self, buffer: &mut [u32]) -> Result<(), Error> {
         let r = self.inner.regs();
         let src = r.dr().as_ptr() as *mut u32;
-        let dma_read = unsafe {
-            Transfer::new_read(
-                self.dma.channel.reborrow(),
-                self.dma.request,
-                src,
-                buffer,
-                Default::default(),
-            )
-        };
+        let dma_read = unsafe { self.dma.channel.read(self.dma.request, src, buffer, Default::default()) };
 
         Self::clear_interrupt_flags();
         Self::enable_irqs();

@@ -18,6 +18,7 @@ pub mod i2c;
 pub mod i3c;
 pub mod lpuart;
 pub mod ostimer;
+pub mod perf_counters;
 pub mod reset_reason;
 pub mod rtc;
 pub mod trng;

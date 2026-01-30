@@ -15,24 +15,24 @@ use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
 
-/// Error information type
+/// Errors exclusive to hardware Initialization
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[non_exhaustive]
-pub enum ConfigError {
-    /// Invalid Address
-    InvalidAddress,
-}
-
-/// Error information type.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
-#[non_exhaustive]
-pub enum Error {
+pub enum SetupError {
     /// Clock configuration error.
     ClockSetup(ClockError),
-    /// Invalid configuration.
-    InvalidConfiguration(ConfigError),
+    /// Invalid Address
+    InvalidAddress,
+    /// Other internal errors or unexpected state.
+    Other,
+}
+
+/// Errors exclusive to I/O
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[non_exhaustive]
+pub enum IOError {
     /// Busy Busy
     BusBusy,
     /// Target Busy
@@ -52,6 +52,7 @@ pub struct InterruptHandler<T: Instance> {
 
 impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
+        T::PERF_INT_INCR();
         if T::info().regs().sier().read().bits() != 0 {
             T::info().regs().sier().write(|w| {
                 w.tdie()
@@ -80,6 +81,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
                     .disabled()
             });
 
+            T::PERF_INT_WAKE_INCR();
             T::info().wait_cell().wake();
         }
     }
@@ -218,7 +220,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         scl: Peri<'d, impl SclPin<T>>,
         sda: Peri<'d, impl SdaPin<T>>,
         config: Config,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, SetupError> {
         let ClockConfig { power, source, div } = config.clock_config;
 
         // Enable clocks
@@ -229,7 +231,7 @@ impl<'d, M: Mode> I2c<'d, M> {
             instance: T::CLOCK_INSTANCE,
         };
 
-        let parts = unsafe { enable_and_reset::<T>(&conf).map_err(Error::ClockSetup)? };
+        let parts = unsafe { enable_and_reset::<T>(&conf).map_err(SetupError::ClockSetup)? };
 
         scl.mux();
         sda.mux();
@@ -252,7 +254,7 @@ impl<'d, M: Mode> I2c<'d, M> {
         Ok(inst)
     }
 
-    fn set_configuration(&self, config: &Config) -> Result<(), Error> {
+    fn set_configuration(&self, config: &Config) -> Result<(), SetupError> {
         critical_section::with(|_| {
             // Disable the target.
             self.info.regs().scr().modify(|_, w| w.sen().disabled());
@@ -293,7 +295,7 @@ impl<'d, M: Mode> I2c<'d, M> {
                     if ((0x00..=0x7f).contains(&addr0) ^ (0x00..=0x7f).contains(&addr1))
                         || ((0x80..=0x3ff).contains(&addr0) ^ (0x80..=0x3ff).contains(&addr1))
                     {
-                        return Err(Error::InvalidConfiguration(ConfigError::InvalidAddress));
+                        return Err(SetupError::InvalidAddress);
                     }
 
                     self.info
@@ -313,7 +315,7 @@ impl<'d, M: Mode> I2c<'d, M> {
                     if ((0x00..=0x7f).contains(&start) ^ (0x00..=0x7f).contains(&end))
                         || ((0x80..=0x3ff).contains(&start) ^ (0x80..=0x3ff).contains(&end))
                     {
-                        return Err(Error::InvalidConfiguration(ConfigError::InvalidAddress));
+                        return Err(SetupError::InvalidAddress);
                     }
 
                     self.info
@@ -377,7 +379,7 @@ impl<'d, M: Mode> I2c<'d, M> {
 
     /// Reads and parses the target status producing an
     /// appropriate `Result<(), Error>` variant.
-    fn status(&self) -> Result<Event, Error> {
+    fn status(&self) -> Result<Event, IOError> {
         let ssr = self.info.regs().ssr().read();
         self.clear_status();
 
@@ -396,22 +398,22 @@ impl<'d, M: Mode> I2c<'d, M> {
             let addr = sasr.raddr().bits();
             Ok(Event::Stop(addr))
         } else if ssr.bef().bit_is_set() {
-            Err(Error::BitError)
+            Err(IOError::BitError)
         } else if ssr.fef().bit_is_set() {
-            Err(Error::FifoError)
+            Err(IOError::FifoError)
         } else if ssr.gcf().bit_is_set() {
             Ok(Event::GeneralCall)
         } else if ssr.sarf().bit_is_set() {
             Ok(Event::SmbusAlert)
         } else {
-            Err(Error::Other)
+            Err(IOError::Other)
         }
     }
 
     // Public API: Blocking
 
     /// Block waiting for new events
-    pub fn blocking_listen(&mut self) -> Result<Request, Error> {
+    pub fn blocking_listen(&mut self) -> Result<Request, IOError> {
         self.clear_status();
 
         // Wait for Address Valid
@@ -439,7 +441,7 @@ impl<'d, M: Mode> I2c<'d, M> {
                     Ok(Request::Write(addr >> 1))
                 }
             }
-            _ => Err(Error::Other),
+            _ => Err(IOError::Other),
         }
     }
 
@@ -447,7 +449,7 @@ impl<'d, M: Mode> I2c<'d, M> {
     ///
     /// Returns either an `Ok(usize)` containing the number of bytes
     /// transmitted, or an `Error`.
-    pub fn blocking_respond_to_read(&mut self, buf: &[u8]) -> Result<usize, Error> {
+    pub fn blocking_respond_to_read(&mut self, buf: &[u8]) -> Result<usize, IOError> {
         let mut count = 0;
 
         self.clear_status();
@@ -484,7 +486,7 @@ impl<'d, M: Mode> I2c<'d, M> {
     /// Care is taken to guarantee that we receive at most `buf.len()`
     /// bytes. On success returns `Ok(usize)` containing the number of
     /// bytes received or an `Error`.
-    pub fn blocking_respond_to_write(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    pub fn blocking_respond_to_write(&mut self, buf: &mut [u8]) -> Result<usize, IOError> {
         let mut count = 0;
 
         self.clear_status();
@@ -526,7 +528,7 @@ impl<'d> I2c<'d, Blocking> {
         scl: Peri<'d, impl SclPin<T>>,
         sda: Peri<'d, impl SdaPin<T>>,
         config: Config,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, SetupError> {
         Self::new_inner(peri, scl, sda, config)
     }
 }
@@ -541,7 +543,7 @@ impl<'d> I2c<'d, Async> {
         sda: Peri<'d, impl SdaPin<T>>,
         _irq: impl crate::interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
-    ) -> Result<Self, Error> {
+    ) -> Result<Self, SetupError> {
         T::Interrupt::unpend();
 
         // Safety: `_irq` ensures an Interrupt Handler exists.
@@ -582,7 +584,7 @@ impl<'d> I2c<'d, Async> {
     // Public API: Async
 
     /// Asynchronously wait for new events
-    pub async fn async_listen(&mut self) -> Result<Request, Error> {
+    pub async fn async_listen(&mut self) -> Result<Request, IOError> {
         self.clear_status();
 
         self.info
@@ -594,7 +596,7 @@ impl<'d> I2c<'d, Async> {
                     || self.info.regs().ssr().read().gcf().bit_is_set()
             })
             .await
-            .map_err(|_| Error::Other)?;
+            .map_err(|_| IOError::Other)?;
 
         let event = self.status()?;
 
@@ -609,7 +611,7 @@ impl<'d> I2c<'d, Async> {
                     Ok(Request::Write(addr >> 1))
                 }
             }
-            _ => Err(Error::Other),
+            _ => Err(IOError::Other),
         }
     }
 
@@ -618,7 +620,7 @@ impl<'d> I2c<'d, Async> {
     ///
     /// Returns either an `Ok(usize)` containing the number of bytes
     /// transmitted, or an `Error`.
-    pub async fn async_respond_to_read(&mut self, buf: &[u8]) -> Result<usize, Error> {
+    pub async fn async_respond_to_read(&mut self, buf: &[u8]) -> Result<usize, IOError> {
         let mut count = 0;
 
         self.clear_status();
@@ -633,7 +635,7 @@ impl<'d> I2c<'d, Async> {
                     ssr.tdf().bit_is_set() || ssr.sdf().bit_is_set() || ssr.rsf().bit_is_set()
                 })
                 .await
-                .map_err(|_| Error::Other)?;
+                .map_err(|_| IOError::Other)?;
 
             // If we see a STOP or REPEATED START, break out
             let ssr = self.info.regs().ssr().read();
@@ -657,7 +659,7 @@ impl<'d> I2c<'d, Async> {
     /// Care is taken to guarantee that we receive at most `buf.len()`
     /// bytes. On success returns `Ok(usize)` containing the number of
     /// bytes received or an `Error`.
-    pub async fn async_respond_to_write(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
+    pub async fn async_respond_to_write(&mut self, buf: &mut [u8]) -> Result<usize, IOError> {
         let mut count = 0;
 
         self.clear_status();
@@ -671,7 +673,7 @@ impl<'d> I2c<'d, Async> {
                     ssr.rdf().bit_is_set() || ssr.sdf().bit_is_set() || ssr.rsf().bit_is_set()
                 })
                 .await
-                .map_err(|_| Error::Other)?;
+                .map_err(|_| IOError::Other)?;
 
             // If we see a STOP or REPEATED START, break out
             let ssr = self.info.regs().ssr().read();

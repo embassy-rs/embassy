@@ -28,6 +28,8 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<Mrcc
     type Interrupt: interrupt::typelevel::Interrupt;
     /// Clock instance
     const CLOCK_INSTANCE: crate::clocks::periph_helpers::Lpi2cInstance;
+    const PERF_INT_INCR: fn();
+    const PERF_INT_WAKE_INCR: fn();
 }
 
 struct Info {
@@ -67,6 +69,8 @@ macro_rules! impl_instance {
                     type Interrupt = crate::interrupt::typelevel::[<LPI2C $n>];
                     const CLOCK_INSTANCE: crate::clocks::periph_helpers::Lpi2cInstance
                         = crate::clocks::periph_helpers::Lpi2cInstance::[<Lpi2c $n>];
+                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n>];
+                    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_i2c $n _wake>];
                 }
             }
         )*

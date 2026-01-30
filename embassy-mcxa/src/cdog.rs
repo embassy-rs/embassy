@@ -356,6 +356,7 @@ pub struct InterruptHandler;
 
 impl Handler<typelevel::CDOG0> for InterruptHandler {
     unsafe fn on_interrupt() {
+        crate::perf_counters::incr_interrupt_cdog0();
         let cdog0 = unsafe { &*pac::Cdog0::ptr() };
 
         // Print all flags at once using the Debug implementation

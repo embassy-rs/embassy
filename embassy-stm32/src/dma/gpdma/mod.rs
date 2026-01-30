@@ -5,12 +5,11 @@ use core::pin::Pin;
 use core::sync::atomic::{AtomicUsize, Ordering, fence};
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::Peri;
 use embassy_sync::waitqueue::AtomicWaker;
 use linked_list::Table;
 
 use super::word::{Word, WordSize};
-use super::{AnyChannel, Dir, Request, STATE};
+use super::{Channel, Dir, Request, STATE};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac;
 use crate::pac::gpdma::vals;
@@ -146,75 +145,78 @@ pub(crate) unsafe fn init(cs: critical_section::CriticalSection, irq_priority: c
     crate::_generated::init_gpdma();
 }
 
-impl AnyChannel {
-    /// Safety: Must be called with a matching set of parameters for a valid dma channel
-    pub(crate) unsafe fn on_irq(&self) {
-        let info = self.info();
-        #[cfg(feature = "_dual-core")]
-        {
-            use embassy_hal_internal::interrupt::InterruptExt as _;
-            info.irq.enable();
+pub(crate) unsafe fn on_irq(id: u8) {
+    let info = super::info(id);
+    #[cfg(feature = "_dual-core")]
+    {
+        use embassy_hal_internal::interrupt::InterruptExt as _;
+        info.irq.enable();
+    }
+
+    let state = &STATE[id as usize];
+
+    let ch = info.dma.ch(info.num);
+    let sr = ch.sr().read();
+
+    if sr.dtef() {
+        panic!(
+            "DMA: data transfer error on DMA@{:08x} channel {}",
+            info.dma.as_ptr() as u32,
+            info.num
+        );
+    }
+    if sr.usef() {
+        panic!(
+            "DMA: user settings error on DMA@{:08x} channel {}",
+            info.dma.as_ptr() as u32,
+            info.num
+        );
+    }
+    if sr.ulef() {
+        panic!(
+            "DMA: link transfer error on DMA@{:08x} channel {}",
+            info.dma.as_ptr() as u32,
+            info.num
+        );
+    }
+
+    if sr.htf() {
+        ch.fcr().write(|w| w.set_htf(true));
+    }
+
+    if sr.tcf() {
+        ch.fcr().write(|w| w.set_tcf(true));
+
+        let lli_count = state.lli_state.count.load(Ordering::Acquire);
+        let complete = if lli_count > 0 {
+            let next_lli_index = state.lli_state.index.load(Ordering::Acquire) + 1;
+            let complete = next_lli_index >= lli_count;
+
+            state
+                .lli_state
+                .index
+                .store(if complete { 0 } else { next_lli_index }, Ordering::Release);
+
+            complete
+        } else {
+            true
+        };
+
+        if complete {
+            state.complete_count.fetch_add(1, Ordering::Release);
         }
+    }
 
-        let state = &STATE[self.id as usize];
+    if sr.suspf() {
+        // Disable all xxIEs to prevent the irq from firing again.
+        ch.cr().write(|_| {});
+    }
+    state.waker.wake();
+}
 
-        let ch = info.dma.ch(info.num);
-        let sr = ch.sr().read();
-
-        if sr.dtef() {
-            panic!(
-                "DMA: data transfer error on DMA@{:08x} channel {}",
-                info.dma.as_ptr() as u32,
-                info.num
-            );
-        }
-        if sr.usef() {
-            panic!(
-                "DMA: user settings error on DMA@{:08x} channel {}",
-                info.dma.as_ptr() as u32,
-                info.num
-            );
-        }
-        if sr.ulef() {
-            panic!(
-                "DMA: link transfer error on DMA@{:08x} channel {}",
-                info.dma.as_ptr() as u32,
-                info.num
-            );
-        }
-
-        if sr.htf() {
-            ch.fcr().write(|w| w.set_htf(true));
-        }
-
-        if sr.tcf() {
-            ch.fcr().write(|w| w.set_tcf(true));
-
-            let lli_count = state.lli_state.count.load(Ordering::Acquire);
-            let complete = if lli_count > 0 {
-                let next_lli_index = state.lli_state.index.load(Ordering::Acquire) + 1;
-                let complete = next_lli_index >= lli_count;
-
-                state
-                    .lli_state
-                    .index
-                    .store(if complete { 0 } else { next_lli_index }, Ordering::Release);
-
-                complete
-            } else {
-                true
-            };
-
-            if complete {
-                state.complete_count.fetch_add(1, Ordering::Release);
-            }
-        }
-
-        if sr.suspf() {
-            // Disable all xxIEs to prevent the irq from firing again.
-            ch.cr().write(|_| {});
-        }
-        state.waker.wake();
+impl<'d> Channel<'d> {
+    fn info(&self) -> &'static super::ChannelInfo {
+        super::info(self.id)
     }
 
     fn get_remaining_transfers(&self) -> u16 {
@@ -270,6 +272,16 @@ impl AnyChannel {
             w.set_ddw(dst_size.into());
             w.set_sinc(dir == Dir::MemoryToPeripheral && incr_mem);
             w.set_dinc(dir == Dir::PeripheralToMemory && incr_mem);
+            w.set_dap(match dir {
+                Dir::MemoryToPeripheral => vals::Ap::PORT1, // Destination is peripheral on AHB for HPDMA
+                Dir::PeripheralToMemory => vals::Ap::PORT0, // Destination is memory on AXI for HPDMA
+                Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
+            });
+            w.set_sap(match dir {
+                Dir::MemoryToPeripheral => vals::Ap::PORT0, // Source is memory on AXI for HPDMA
+                Dir::PeripheralToMemory => vals::Ap::PORT1, // Source is peripheral on AHB for HPDMA
+                Dir::MemoryToMemory => panic!("memory-to-memory transfers not implemented for GPDMA"),
+            });
         });
         ch.tr2().write(|w| {
             w.set_dreq(match dir {
@@ -421,39 +433,143 @@ impl AnyChannel {
             Poll::Pending
         }
     }
+
+    /// Create a read DMA transfer (peripheral to memory).
+    pub unsafe fn read<'a, W: Word>(
+        &'a mut self,
+        request: Request,
+        peri_addr: *mut W,
+        buf: &'a mut [W],
+        options: TransferOptions,
+    ) -> Transfer<'a> {
+        self.read_raw(request, peri_addr, buf, options)
+    }
+
+    /// Create a read DMA transfer (peripheral to memory), using raw pointers.
+    pub unsafe fn read_raw<'a, MW: Word, PW: Word>(
+        &'a mut self,
+        request: Request,
+        peri_addr: *mut PW,
+        buf: *mut [MW],
+        options: TransferOptions,
+    ) -> Transfer<'a> {
+        let mem_len = buf.len();
+        assert!(mem_len > 0 && mem_len <= 0xFFFF);
+
+        self.configure(
+            request,
+            Dir::PeripheralToMemory,
+            peri_addr as *const u32,
+            buf as *mut MW as *mut u32,
+            mem_len,
+            true,
+            PW::size(),
+            MW::size(),
+            options,
+        );
+        self.start();
+
+        Transfer {
+            _wake_guard: self.info().wake_guard(),
+            channel: self.reborrow(),
+        }
+    }
+
+    /// Create a write DMA transfer (memory to peripheral).
+    pub unsafe fn write<'a, MW: Word, PW: Word>(
+        &'a mut self,
+        request: Request,
+        buf: &'a [MW],
+        peri_addr: *mut PW,
+        options: TransferOptions,
+    ) -> Transfer<'a> {
+        self.write_raw(request, buf, peri_addr, options)
+    }
+
+    /// Create a write DMA transfer (memory to peripheral), using raw pointers.
+    pub unsafe fn write_raw<'a, MW: Word, PW: Word>(
+        &'a mut self,
+        request: Request,
+        buf: *const [MW],
+        peri_addr: *mut PW,
+        options: TransferOptions,
+    ) -> Transfer<'a> {
+        let mem_len = buf.len();
+        assert!(mem_len > 0 && mem_len <= 0xFFFF);
+
+        self.configure(
+            request,
+            Dir::MemoryToPeripheral,
+            peri_addr as *const u32,
+            buf as *const MW as *mut u32,
+            mem_len,
+            true,
+            MW::size(),
+            PW::size(),
+            options,
+        );
+        self.start();
+
+        Transfer {
+            _wake_guard: self.info().wake_guard(),
+            channel: self.reborrow(),
+        }
+    }
+
+    /// Create a write DMA transfer (memory to peripheral), writing the same value repeatedly.
+    pub unsafe fn write_repeated<'a, MW: Word, PW: Word>(
+        &'a mut self,
+        request: Request,
+        repeated: &'a MW,
+        count: usize,
+        peri_addr: *mut PW,
+        options: TransferOptions,
+    ) -> Transfer<'a> {
+        assert!(count > 0 && count <= 0xFFFF);
+
+        self.configure(
+            request,
+            Dir::MemoryToPeripheral,
+            peri_addr as *const u32,
+            repeated as *const MW as *mut u32,
+            count,
+            false,
+            MW::size(),
+            PW::size(),
+            options,
+        );
+        self.start();
+
+        Transfer {
+            _wake_guard: self.info().wake_guard(),
+            channel: self.reborrow(),
+        }
+    }
+
+    /// Create a linked-list DMA transfer.
+    pub unsafe fn linked_list<'a, const ITEM_COUNT: usize>(
+        &'a mut self,
+        table: Table<ITEM_COUNT>,
+        options: TransferOptions,
+    ) -> LinkedListTransfer<'a, ITEM_COUNT> {
+        self.configure_linked_list(&table, options);
+        self.start();
+
+        LinkedListTransfer {
+            _wake_guard: self.info().wake_guard(),
+            channel: self.reborrow(),
+        }
+    }
 }
 
 /// Linked-list DMA transfer.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct LinkedListTransfer<'a, const ITEM_COUNT: usize> {
-    channel: Peri<'a, AnyChannel>,
+    channel: Channel<'a>,
     _wake_guard: WakeGuard,
 }
 
 impl<'a, const ITEM_COUNT: usize> LinkedListTransfer<'a, ITEM_COUNT> {
-    /// Create a new linked-list transfer.
-    pub unsafe fn new_linked_list<const N: usize>(
-        channel: Peri<'a, AnyChannel>,
-        table: Table<ITEM_COUNT>,
-        options: TransferOptions,
-    ) -> Self {
-        Self::new_inner_linked_list(channel, table, options)
-    }
-
-    unsafe fn new_inner_linked_list(
-        channel: Peri<'a, AnyChannel>,
-        table: Table<ITEM_COUNT>,
-        options: TransferOptions,
-    ) -> Self {
-        channel.configure_linked_list(&table, options);
-        channel.start();
-
-        Self {
-            _wake_guard: channel.info().wake_guard(),
-            channel,
-        }
-    }
-
     /// Request the transfer to pause, keeping the existing configuration for this channel.
     ///
     /// To resume the transfer, call [`request_resume`](Self::request_resume) again.
@@ -527,133 +643,11 @@ impl<'a, const ITEM_COUNT: usize> Future for LinkedListTransfer<'a, ITEM_COUNT> 
 /// DMA transfer.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Transfer<'a> {
-    channel: Peri<'a, AnyChannel>,
+    channel: Channel<'a>,
     _wake_guard: WakeGuard,
 }
 
 impl<'a> Transfer<'a> {
-    /// Create a new read DMA transfer (peripheral to memory).
-    pub unsafe fn new_read<W: Word>(
-        channel: Peri<'a, AnyChannel>,
-        request: Request,
-        peri_addr: *mut W,
-        buf: &'a mut [W],
-        options: TransferOptions,
-    ) -> Self {
-        Self::new_read_raw(channel, request, peri_addr, buf, options)
-    }
-
-    /// Create a new read DMA transfer (peripheral to memory), using raw pointers.
-    pub unsafe fn new_read_raw<MW: Word, PW: Word>(
-        channel: Peri<'a, AnyChannel>,
-        request: Request,
-        peri_addr: *mut PW,
-        buf: *mut [MW],
-        options: TransferOptions,
-    ) -> Self {
-        Self::new_inner(
-            channel,
-            request,
-            Dir::PeripheralToMemory,
-            peri_addr as *const u32,
-            buf as *mut MW as *mut u32,
-            buf.len(),
-            true,
-            PW::size(),
-            MW::size(),
-            options,
-        )
-    }
-
-    /// Create a new write DMA transfer (memory to peripheral).
-    pub unsafe fn new_write<MW: Word, PW: Word>(
-        channel: Peri<'a, AnyChannel>,
-        request: Request,
-        buf: &'a [MW],
-        peri_addr: *mut PW,
-        options: TransferOptions,
-    ) -> Self {
-        Self::new_write_raw(channel, request, buf, peri_addr, options)
-    }
-
-    /// Create a new write DMA transfer (memory to peripheral), using raw pointers.
-    pub unsafe fn new_write_raw<MW: Word, PW: Word>(
-        channel: Peri<'a, AnyChannel>,
-        request: Request,
-        buf: *const [MW],
-        peri_addr: *mut PW,
-        options: TransferOptions,
-    ) -> Self {
-        Self::new_inner(
-            channel,
-            request,
-            Dir::MemoryToPeripheral,
-            peri_addr as *const u32,
-            buf as *const MW as *mut u32,
-            buf.len(),
-            true,
-            MW::size(),
-            PW::size(),
-            options,
-        )
-    }
-
-    /// Create a new write DMA transfer (memory to peripheral), writing the same value repeatedly.
-    pub unsafe fn new_write_repeated<MW: Word, PW: Word>(
-        channel: Peri<'a, AnyChannel>,
-        request: Request,
-        repeated: &'a MW,
-        count: usize,
-        peri_addr: *mut PW,
-        options: TransferOptions,
-    ) -> Self {
-        Self::new_inner(
-            channel,
-            request,
-            Dir::MemoryToPeripheral,
-            peri_addr as *const u32,
-            repeated as *const MW as *mut u32,
-            count,
-            false,
-            MW::size(),
-            PW::size(),
-            options,
-        )
-    }
-
-    unsafe fn new_inner(
-        channel: Peri<'a, AnyChannel>,
-        request: Request,
-        dir: Dir,
-        peri_addr: *const u32,
-        mem_addr: *mut u32,
-        mem_len: usize,
-        incr_mem: bool,
-        data_size: WordSize,
-        peripheral_size: WordSize,
-        options: TransferOptions,
-    ) -> Self {
-        assert!(mem_len > 0 && mem_len <= 0xFFFF);
-
-        channel.configure(
-            request,
-            dir,
-            peri_addr,
-            mem_addr,
-            mem_len,
-            incr_mem,
-            data_size,
-            peripheral_size,
-            options,
-        );
-        channel.start();
-
-        Self {
-            _wake_guard: channel.info().wake_guard(),
-            channel,
-        }
-    }
-
     /// Request the transfer to pause, keeping the existing configuration for this channel.
     /// To restart the transfer, call [`start`](Self::start) again.
     ///
@@ -697,6 +691,10 @@ impl<'a> Transfer<'a> {
         fence(Ordering::SeqCst);
 
         core::mem::forget(self);
+    }
+
+    pub(crate) unsafe fn unchecked_extend_lifetime(self) -> Transfer<'static> {
+        unsafe { core::mem::transmute(self) }
     }
 }
 

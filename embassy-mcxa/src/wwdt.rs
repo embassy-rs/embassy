@@ -194,6 +194,7 @@ pub struct InterruptHandler;
 
 impl Handler<typelevel::WWDT0> for InterruptHandler {
     unsafe fn on_interrupt() {
+        crate::perf_counters::incr_interrupt_wwdt();
         let wwdt = unsafe { &*pac::Wwdt0::ptr() };
 
         if wwdt.mod_().read().wdtof().bit_is_set() {
