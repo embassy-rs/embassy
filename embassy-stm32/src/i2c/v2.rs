@@ -1929,6 +1929,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 w.set_rxdmaen(true);
                 w.set_stopie(true);
                 w.set_tcie(true);
+                w.set_addrie(true); // Enable to detect RESTART condition
             });
             let src = regs.rxdr().as_ptr() as *mut u8;
 
@@ -1942,10 +1943,11 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 w.set_rxdmaen(false);
                 w.set_stopie(false);
                 w.set_tcie(false);
+                w.set_addrie(false);
             });
         });
 
-        // Track whether STOP was received during DMA transfer 
+        // Track whether STOP was received during DMA transfer
         let mut stop_received = false;
 
         let total_received = poll_fn(|cx| {
@@ -1960,6 +1962,17 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 return Poll::Ready(Ok(total_len - remaining_len));
             }
 
+            // Check for ADDR - indicates a RESTART condition (master sending new command)
+            // This happens in write_read transactions where master writes, then RESTARTs to read
+            // Don't clear ADDR flag - let listen() handle the new command
+            if isr.addr() && remaining_len != total_len {
+                // Only treat as RESTART if we've started receiving (remaining_len != total_len)
+                trace!("RESTART detected during slave receive");
+                remaining_len = remaining_len.saturating_add(dma_transfer.get_remaining_transfers() as usize);
+                stop_received = true; // Prevent drain_rxdr_until_stop from running
+                return Poll::Ready(Ok(total_len - remaining_len));
+            }
+
             if remaining_len == total_len {
                 Self::slave_start(self.info, total_len.min(255), total_len > 255);
                 remaining_len = remaining_len.saturating_sub(255);
@@ -1967,6 +1980,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 regs.cr1().modify(|w| {
                     w.set_tcie(true);
                     w.set_stopie(true);
+                    w.set_addrie(true);
                 });
                 Poll::Pending
             } else if isr.tcr() {
@@ -1985,6 +1999,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 regs.cr1().modify(|w| {
                     w.set_tcie(true);
                     w.set_stopie(true);
+                    w.set_addrie(true);
                 });
                 Poll::Pending
             } else if isr.tc() || dma_transfer.get_remaining_transfers() == 0 {
@@ -1998,6 +2013,7 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                 regs.cr1().modify(|w| {
                     w.set_tcie(true);
                     w.set_stopie(true);
+                    w.set_addrie(true);
                 });
                 Poll::Pending
             }
@@ -2085,7 +2101,11 @@ impl<'d> I2c<'d, Async, MultiMaster> {
                     leftover_bytes = leftover_bytes.saturating_add(1);
                 }
                 remaining_len = remaining_len.saturating_add(leftover_bytes as usize);
-                self.info.regs.icr().write(|reg| reg.set_stopcf(true));
+                // Clear both STOP and NACK flags - NACK is expected when master ends read
+                self.info.regs.icr().write(|reg| {
+                    reg.set_stopcf(true);
+                    reg.set_nackcf(true);
+                });
                 if remaining_len > 0 {
                     dma_transfer.request_pause();
                     Poll::Ready(Ok(SendStatus::LeftoverBytes(remaining_len as usize)))
