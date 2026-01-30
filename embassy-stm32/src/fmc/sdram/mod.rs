@@ -1,4 +1,4 @@
-//! This module provides the FMC driver elements used for configuring the FMC's SDRAM banks.
+//! Management of external SDRAM through the STM32 FMC peripheral
 //!
 //! Most STM32 MCUs with an FMC support two SDRAM controllers,
 //! for two banks of memory-mapped external SDRAM-based memory.

@@ -16,6 +16,9 @@ pub mod sdram;
 #[cfg(any(fmc_v1x3, fmc_v2x1, fmc_v3x1, fmc_v4))]
 pub mod nand;
 
+#[cfg(any(fmc_v1x3, fmc_v2x1, fmc_v3x1, fmc_v4))]
+pub mod sram;
+
 // fmc_v1x3 has some very different structures to the later FMCs version,
 // notably how mapping is handled, and the presence of a PC/CompactFlash
 // card controller in the NAND configuration registers.
@@ -105,6 +108,17 @@ where
             FmcNandBank::Bank1 => FmcBank::Bank2.ptr(),
             FmcNandBank::Bank2 => FmcBank::Bank3.ptr(),
         }
+    }
+    /// Returns the address to the NOR/PSRAM/SRAM bank.
+    #[cfg(not(fmc_v1x3))]
+    pub fn nor_sram_addr(&self, bank: FmcSramBank) -> u32 {
+        bank.addr(self.mapping)
+    }
+
+    /// Returns the base pointer to the NOR/PSRAM/SRAM bank.
+    #[cfg(not(fmc_v1x3))]
+    pub fn nor_sram_ptr(&self, bank: FmcSramBank) -> *mut u32 {
+        self.nor_sram_addr(bank) as *mut u32
     }
 
     /// Enable the FMC peripheral and reset it.
