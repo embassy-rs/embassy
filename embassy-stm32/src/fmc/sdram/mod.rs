@@ -14,7 +14,7 @@
 // config values and timing parameters.
 pub mod devices;
 
-use embedded_hal_async::delay::DelayNs;
+use embassy_time::Timer;
 
 use core::cmp;
 
@@ -580,14 +580,9 @@ impl<'a, 'd, T: fmc::Instance> Sdram<'a, 'd, T> {
     }
 
     /// Consumes the SDRAM driver to create a single bank driver for the specified chip.
-    pub async fn init_bank_for_chip<Chip: SdramChip, Delay: DelayNs>(
-        fmc: &'a mut Fmc<'d, T>,
-        bank: FmcSdramBank,
-        chip: &Chip,
-        delay: &mut Delay,
-    ) -> *mut u32 {
+    async fn init_bank_for_chip<Chip: SdramChip>(fmc: &'a mut Fmc<'d, T>, bank: FmcSdramBank, chip: &Chip) -> *mut u32 {
         Self::new_for_chip(fmc, chip)
-            .internal_init_bank_for_chip(bank, chip, delay)
+            .internal_init_bank_for_chip(bank, chip)
             .await
     }
 
@@ -595,13 +590,12 @@ impl<'a, 'd, T: fmc::Instance> Sdram<'a, 'd, T> {
     ///
     /// Prefer using `new_bank_for_chip` to help ensure
     /// your timing and config parameters are correct.
-    pub async fn init_bank<Delay: DelayNs>(
+    async fn init_bank(
         fmc: &'a mut Fmc<'d, T>,
         bank: FmcSdramBank,
         config: SdramConfiguration,
         timing: SdramTiming,
         mode_register: u16,
-        delay: &mut Delay,
     ) -> *mut u32 {
         Self::new(
             fmc,
@@ -616,29 +610,24 @@ impl<'a, 'd, T: fmc::Instance> Sdram<'a, 'd, T> {
                 row_precharge_cycles: timing.row_precharge_cycles,
             },
         )
-        .internal_init_bank(bank, config, timing, mode_register, delay)
+        .internal_init_bank(bank, config, timing, mode_register)
         .await
     }
 
     /// Consumes the SDRAM driver to create dual SDRAM bank drivers for the specified chip.
-    pub async fn init_banks_for_chip<Chip: SdramChip, Delay: DelayNs>(
-        fmc: &'a mut Fmc<'d, T>,
-        _chip: Chip,
-        delay: &mut Delay,
-    ) -> (*mut u32, *mut u32) {
-        Self::init_banks(fmc, Chip::CONFIG, Chip::TIMING, Chip::MODE_REGISTER, delay).await
+    async fn init_banks_for_chip<Chip: SdramChip>(fmc: &'a mut Fmc<'d, T>, _chip: Chip) -> (*mut u32, *mut u32) {
+        Self::init_banks(fmc, Chip::CONFIG, Chip::TIMING, Chip::MODE_REGISTER).await
     }
 
     /// Consumes the SDRAM driver to create a dual SDRAM bank drivers.
     ///
     /// Prefer using `new_banks_for_chip` to help ensure
     /// your timing and config parameters are correct.
-    pub async fn init_banks<Delay: DelayNs>(
+    pub async fn init_banks(
         fmc: &'a mut Fmc<'d, T>,
         config: SdramConfiguration,
         timing: SdramTiming,
         mode_register: u16,
-        delay: &mut Delay,
     ) -> (*mut u32, *mut u32) {
         let mut sdram = Self::new(
             fmc,
@@ -656,36 +645,30 @@ impl<'a, 'd, T: fmc::Instance> Sdram<'a, 'd, T> {
 
         (
             sdram
-                .internal_init_bank(FmcSdramBank::Bank1, config, timing, mode_register, delay)
+                .internal_init_bank(FmcSdramBank::Bank1, config, timing, mode_register)
                 .await,
             sdram
-                .internal_init_bank(FmcSdramBank::Bank2, config, timing, mode_register, delay)
+                .internal_init_bank(FmcSdramBank::Bank2, config, timing, mode_register)
                 .await,
         )
     }
 
     /// Creates a bank using the config and timing
     /// parameters supplied by a chip implementation.
-    async fn internal_init_bank_for_chip<Chip: SdramChip, Delay: DelayNs>(
-        &mut self,
-        bank: FmcSdramBank,
-        _chip: &Chip,
-        delay: &mut Delay,
-    ) -> *mut u32 {
+    async fn internal_init_bank_for_chip<Chip: SdramChip>(&mut self, bank: FmcSdramBank, _chip: &Chip) -> *mut u32 {
         // Construct the bank driver using the config and
         // timing information from the chip implementation.
-        self.internal_init_bank(bank, Chip::CONFIG, Chip::TIMING, Chip::MODE_REGISTER, delay)
+        self.internal_init_bank(bank, Chip::CONFIG, Chip::TIMING, Chip::MODE_REGISTER)
             .await
     }
 
     /// Create a driver for the specified SDRAM bank.
-    async fn internal_init_bank<Delay: DelayNs>(
+    async fn internal_init_bank(
         &mut self,
         bank: FmcSdramBank,
         config: SdramConfiguration,
         timing: SdramTiming,
         mode_register: u16,
-        delay: &mut Delay,
     ) -> *mut u32 {
         // Compare the global config and timing to the individual bank config.
         //
@@ -718,7 +701,7 @@ impl<'a, 'd, T: fmc::Instance> Sdram<'a, 'd, T> {
         );
 
         SdramBank::new(self.fmc, bank, config, timing, mode_register)
-            .init(delay)
+            .init()
             .await
     }
 }
@@ -758,7 +741,7 @@ impl<'a, 'd, T: fmc::Instance> SdramBank<'a, 'd, T> {
     /// Initializes the FMC SDRAM controller corrosponding to the configured bank.
     ///
     /// Returns a raw pointer to the memory-mapped address of the SDRAM block.
-    pub async fn init<Delay: DelayNs>(&mut self, delay: &mut Delay) -> *mut u32 {
+    pub async fn init(&mut self) -> *mut u32 {
         unsafe {
             // Ensure that the FMC clock is disabled
             // before adjusting the timing registers.
@@ -775,7 +758,7 @@ impl<'a, 'd, T: fmc::Instance> SdramBank<'a, 'd, T> {
 
             // Step 2: SDRAM powerup delay
             let startup_delay_us = (self.timing.startup_delay_ns + 999) / 1000;
-            delay.delay_us(startup_delay_us).await;
+            Timer::after_micros(startup_delay_us as u64).await;
 
             // Step 3: Send a PALL (precharge all) command
             self.send_command(SdramCommand::Pall);
@@ -855,4 +838,215 @@ impl<'a, 'd, T: fmc::Instance> SdramBank<'a, 'd, T> {
     fn send_command(&mut self, command: SdramCommand) {
         command.send_command::<T>(self.bank);
     }
+}
+
+macro_rules! config_pins {
+    ($($pin:ident),*) => {
+                $(
+            set_as_af!($pin, AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up));
+        )*
+    };
+}
+
+macro_rules! fmc_sdram_init {
+    ($name:ident: (
+        bank: $bank:expr,
+        addr: [$(($addr_pin_name:ident: $addr_signal:ident)),*],
+        ba: [$(($ba_pin_name:ident: $ba_signal:ident)),*],
+        d: [$(($d_pin_name:ident: $d_signal:ident)),*],
+        nbl: [$(($nbl_pin_name:ident: $nbl_signal:ident)),*],
+        ctrl: [$(($ctrl_pin_name:ident: $ctrl_signal:ident)),*]
+    )) => {
+        /// Create a new FMC SDRAM driver for the specified chip and bank.
+        pub async fn $name<CHIP: SdramChip>(
+            fmc: &mut super::Fmc<'d, T>,
+            $($addr_pin_name: Peri<'d, impl $addr_signal<T>>),*,
+            $($ba_pin_name: Peri<'d, impl $ba_signal<T>>),*,
+            $($d_pin_name: Peri<'d, impl $d_signal<T>>),*,
+            $($nbl_pin_name: Peri<'d, impl $nbl_signal<T>>),*,
+            $($ctrl_pin_name: Peri<'d, impl $ctrl_signal<T>>),*,
+            chip: &CHIP,
+        ) -> *mut u32 {
+            // Ensure that the pins being used are configured
+            // in their alternate function for FMC use.
+            critical_section::with(|_| {
+                config_pins!(
+                    $($addr_pin_name),*,
+                    $($ba_pin_name),*,
+                    $($d_pin_name),*,
+                    $($nbl_pin_name),*,
+                    $($ctrl_pin_name),*
+                );
+            });
+
+            Sdram::init_bank_for_chip(fmc, $bank, chip).await
+        }
+    };
+}
+
+use super::{
+    A0Pin, A1Pin, A2Pin, A3Pin, A4Pin, A5Pin, A6Pin, A7Pin, A8Pin, A9Pin, A10Pin, A11Pin, A12Pin, A13Pin, A14Pin,
+    A15Pin, A16Pin, A17Pin, A18Pin, A19Pin, A20Pin, A21Pin, A22Pin, A23Pin, A24Pin, A25Pin, BA0Pin, BA1Pin, ClkPin,
+    D0Pin, D1Pin, D2Pin, D3Pin, D4Pin, D5Pin, D6Pin, D7Pin, D8Pin, D9Pin, D10Pin, D11Pin, D12Pin, D13Pin, D14Pin,
+    D15Pin, D16Pin, D17Pin, D18Pin, D19Pin, D20Pin, D21Pin, D22Pin, D23Pin, D24Pin, D25Pin, D26Pin, D27Pin, D28Pin,
+    D29Pin, D30Pin, D31Pin, DA0Pin, DA1Pin, DA2Pin, DA3Pin, DA4Pin, DA5Pin, DA6Pin, DA7Pin, DA8Pin, DA9Pin, DA10Pin,
+    DA11Pin, DA12Pin, DA13Pin, DA14Pin, DA15Pin, INTPin, NBL0Pin, NBL1Pin, NBL2Pin, NBL3Pin, NCEPin, NE1Pin, NE2Pin,
+    NE3Pin, NE4Pin, NLPin, NOEPin, NWEPin, NWaitPin, SDCKE0Pin, SDCKE1Pin, SDCLKPin, SDNCASPin, SDNE0Pin, SDNE1Pin,
+    SDNRASPin, SDNWEPin,
+};
+use crate::gpio::{AfType, OutputType, Pull, Speed};
+use crate::{Peri, rcc};
+
+impl<'a, 'd, T: super::Instance> Sdram<'a, 'd, T> {
+    fmc_sdram_init!(init_sdram_a12bits_d16bits_4banks_bank1: (
+        bank: FmcSdramBank::Bank1,
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin)
+        ],
+        ba: [(ba0: BA0Pin), (ba1: BA1Pin)],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin)
+        ],
+        nbl: [
+            (nbl0: NBL0Pin), (nbl1: NBL1Pin)
+        ],
+        ctrl: [
+            (sdcke: SDCKE0Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE0Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
+        ]
+    ));
+
+    fmc_sdram_init!(init_sdram_a12bits_d16bits_4banks_bank2: (
+        bank: FmcSdramBank::Bank2,
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin)
+        ],
+        ba: [(ba0: BA0Pin), (ba1: BA1Pin)],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin)
+        ],
+        nbl: [
+            (nbl0: NBL0Pin), (nbl1: NBL1Pin)
+        ],
+        ctrl: [
+            (sdcke: SDCKE1Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE1Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
+        ]
+    ));
+
+    fmc_sdram_init!(init_sdram_a12bits_d32bits_4banks_bank1: (
+        bank: FmcSdramBank::Bank1,
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin)
+        ],
+        ba: [(ba0: BA0Pin), (ba1: BA1Pin)],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin),
+            (d16: D16Pin), (d17: D17Pin), (d18: D18Pin), (d19: D19Pin), (d20: D20Pin), (d21: D21Pin), (d22: D22Pin), (d23: D23Pin),
+            (d24: D24Pin), (d25: D25Pin), (d26: D26Pin), (d27: D27Pin), (d28: D28Pin), (d29: D29Pin), (d30: D30Pin), (d31: D31Pin)
+        ],
+        nbl: [
+            (nbl0: NBL0Pin), (nbl1: NBL1Pin), (nbl2: NBL2Pin), (nbl3: NBL3Pin)
+        ],
+        ctrl: [
+            (sdcke: SDCKE0Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE0Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
+        ]
+    ));
+
+    fmc_sdram_init!(init_sdram_a12bits_d32bits_4banks_bank2: (
+        bank: FmcSdramBank::Bank2,
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin)
+        ],
+        ba: [(ba0: BA0Pin), (ba1: BA1Pin)],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin),
+            (d16: D16Pin), (d17: D17Pin), (d18: D18Pin), (d19: D19Pin), (d20: D20Pin), (d21: D21Pin), (d22: D22Pin), (d23: D23Pin),
+            (d24: D24Pin), (d25: D25Pin), (d26: D26Pin), (d27: D27Pin), (d28: D28Pin), (d29: D29Pin), (d30: D30Pin), (d31: D31Pin)
+        ],
+        nbl: [
+            (nbl0: NBL0Pin), (nbl1: NBL1Pin), (nbl2: NBL2Pin), (nbl3: NBL3Pin)
+        ],
+        ctrl: [
+            (sdcke: SDCKE1Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE1Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
+        ]
+    ));
+
+    fmc_sdram_init!(init_sdram_a13bits_d32bits_4banks_bank1: (
+        bank: FmcSdramBank::Bank1,
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin), (a12: A12Pin)
+        ],
+        ba: [(ba0: BA0Pin), (ba1: BA1Pin)],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin),
+            (d16: D16Pin), (d17: D17Pin), (d18: D18Pin), (d19: D19Pin), (d20: D20Pin), (d21: D21Pin), (d22: D22Pin), (d23: D23Pin),
+            (d24: D24Pin), (d25: D25Pin), (d26: D26Pin), (d27: D27Pin), (d28: D28Pin), (d29: D29Pin), (d30: D30Pin), (d31: D31Pin)
+        ],
+        nbl: [
+            (nbl0: NBL0Pin), (nbl1: NBL1Pin), (nbl2: NBL2Pin), (nbl3: NBL3Pin)
+        ],
+        ctrl: [
+            (sdcke: SDCKE0Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE0Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
+        ]
+    ));
+
+    fmc_sdram_init!(init_sdram_a13bits_d32bits_4banks_bank2: (
+        bank: FmcSdramBank::Bank2,
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin), (a12: A12Pin)
+        ],
+        ba: [(ba0: BA0Pin), (ba1: BA1Pin)],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin),
+            (d16: D16Pin), (d17: D17Pin), (d18: D18Pin), (d19: D19Pin), (d20: D20Pin), (d21: D21Pin), (d22: D22Pin), (d23: D23Pin),
+            (d24: D24Pin), (d25: D25Pin), (d26: D26Pin), (d27: D27Pin), (d28: D28Pin), (d29: D29Pin), (d30: D30Pin), (d31: D31Pin)
+        ],
+        nbl: [
+            (nbl0: NBL0Pin), (nbl1: NBL1Pin), (nbl2: NBL2Pin), (nbl3: NBL3Pin)
+        ],
+        ctrl: [
+            (sdcke: SDCKE1Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE1Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
+        ]
+    ));
+
+    fmc_sdram_init!(init_sdram_a13bits_d16bits_4banks_bank1: (
+        bank: FmcSdramBank::Bank1,
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin), (a12: A12Pin)
+        ],
+        ba: [(ba0: BA0Pin), (ba1: BA1Pin)],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin)
+        ],
+        nbl: [
+            (nbl0: NBL0Pin), (nbl1: NBL1Pin)
+        ],
+        ctrl: [
+            (sdcke: SDCKE0Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE0Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
+        ]
+    ));
+
+    fmc_sdram_init!(init_sdram_a13bits_d16bits_4banks_bank2: (
+        bank: FmcSdramBank::Bank2,
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin), (a12: A12Pin)
+        ],
+        ba: [(ba0: BA0Pin), (ba1: BA1Pin)],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin)
+        ],
+        nbl: [
+            (nbl0: NBL0Pin), (nbl1: NBL1Pin)
+        ],
+        ctrl: [
+            (sdcke: SDCKE1Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE1Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
+        ]
+    ));
 }
