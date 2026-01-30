@@ -7,14 +7,16 @@ pub mod enums;
 use core::marker::PhantomData;
 
 use embassy_hal_internal::PeripheralType;
+use embassy_sync::waitqueue::AtomicWaker;
 use enums::*;
 
 use crate::dma::ChannelAndRequest;
 use crate::gpio::{AfType, AnyPin, OutputType, Pull, Speed};
+use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::quadspi::Quadspi as Regs;
 use crate::rcc::{self, RccPeripheral};
-use crate::{Peri, peripherals};
+use crate::{Peri, interrupt};
 
 /// QSPI transfer configuration.
 #[derive(Clone, Copy)]
@@ -230,6 +232,74 @@ impl<'d, T: Instance, M: PeriMode> Qspi<'d, T, M> {
         });
     }
 
+    /// Automaticly poll until a desired status is received.
+    pub fn blocking_auto_poll(
+        &mut self,
+        // The transaction to send
+        transaction: TransferConfig,
+        // Polling frequency, in clock cycles
+        interval: u16,
+        // Data mask, 0 = ignore bit, 1 = match bit
+        mask: u32,
+        // Value to match
+        match_value: u32,
+        // Number of bytes to receive, 1..=4
+        data_len: usize,
+        // Matching mode
+        match_mode: MatchMode,
+        // Timeout
+        #[cfg(feature = "time")] timeout: embassy_time::Duration,
+    ) -> Result<(), Error> {
+        self.setup_auto_poll(transaction, interval, mask, match_value, data_len, match_mode);
+
+        #[cfg(feature = "time")]
+        let deadline = embassy_time::Instant::now() + timeout;
+
+        while !T::REGS.sr().read().smf() {
+            #[cfg(feature = "time")]
+            if embassy_time::Instant::now() > deadline {
+                return Err(Error::AutoPollTimeout);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn setup_auto_poll(
+        &mut self,
+        transaction: TransferConfig,
+        interval: u16,
+        mask: u32,
+        match_value: u32,
+        data_len: usize,
+        match_mode: MatchMode,
+    ) {
+        assert!(data_len >= 1);
+        assert!(data_len <= 4);
+
+        while T::REGS.sr().read().busy() {}
+
+        T::REGS.fcr().modify(|v| {
+            v.set_csmf(true);
+            v.set_ctcf(true);
+            v.set_ctef(true);
+            v.set_ctof(true);
+        });
+
+        T::REGS.cr().modify(|m| {
+            // Set Match Mode
+            m.set_pmm(match_mode.into());
+            // Stop on match
+            m.set_apms(true);
+        });
+
+        T::REGS.psmkr().write(|w| w.set_mask(mask));
+        T::REGS.psmar().write(|w| w.set_match_(match_value));
+        T::REGS.pir().write(|w| w.set_interval(interval));
+
+        self.setup_transaction(QspiMode::AutoPolling, &transaction, Some(data_len));
+    }
+
     fn setup_transaction(&mut self, fmode: QspiMode, transaction: &TransferConfig, data_len: Option<usize>) {
         match (transaction.address, transaction.awidth) {
             (Some(_), QspiWidth::NONE) => panic!("QSPI address can't be sent with an address width of NONE"),
@@ -338,7 +408,7 @@ impl<'d, T: Instance> Qspi<'d, T, Blocking> {
 
 impl<'d, T: Instance> Qspi<'d, T, Async> {
     /// Create a new QSPI driver for bank 1.
-    pub fn new_bank1<D: QuadDma<T>>(
+    pub fn new_bank1<D, I>(
         peri: Peri<'d, T>,
         d0: Peri<'d, impl BK1D0Pin<T>>,
         d1: Peri<'d, impl BK1D1Pin<T>>,
@@ -347,9 +417,16 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
         sck: Peri<'d, impl SckPin<T>>,
         nss: Peri<'d, impl BK1NSSPin<T>>,
         dma: Peri<'d, D>,
-        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        _irq: I,
         config: Config,
-    ) -> Self {
+    ) -> Self
+    where
+        D: QuadDma<T>,
+        I: Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+    {
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
         Self::new_inner(
             peri,
             new_pin!(d0, AfType::output(OutputType::PushPull, config.gpio_speed)),
@@ -368,7 +445,7 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
     }
 
     /// Create a new QSPI driver for bank 2.
-    pub fn new_bank2<D: QuadDma<T>>(
+    pub fn new_bank2<D, I>(
         peri: Peri<'d, T>,
         d0: Peri<'d, impl BK2D0Pin<T>>,
         d1: Peri<'d, impl BK2D1Pin<T>>,
@@ -377,9 +454,16 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
         sck: Peri<'d, impl SckPin<T>>,
         nss: Peri<'d, impl BK2NSSPin<T>>,
         dma: Peri<'d, D>,
-        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
+        _irq: I,
         config: Config,
-    ) -> Self {
+    ) -> Self
+    where
+        D: QuadDma<T>,
+        I: Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+    {
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+
         Self::new_inner(
             peri,
             new_pin!(d0, AfType::output(OutputType::PushPull, config.gpio_speed)),
@@ -470,6 +554,44 @@ impl<'d, T: Instance> Qspi<'d, T, Async> {
         T::REGS.cr().modify(|v| v.set_dmaen(true));
         transfer
     }
+
+    /// Automaticly poll until a desired status is received.
+    /// In case the desired status is never received, it is advised to always use `WithTimeout::with_timeout()`.
+    pub async fn auto_poll(
+        &mut self,
+        // The transaction to send
+        transaction: TransferConfig,
+        // Polling frequency, in clock cycles
+        interval: u16,
+        // Data mask, 0 = ignore bit, 1 = match bit
+        mask: u32,
+        // Value to match
+        match_value: u32,
+        // Number of bytes to receive, 1..=4
+        data_len: usize,
+        // Matching mode
+        match_mode: MatchMode,
+    ) {
+        T::REGS.cr().modify(|m| {
+            // Set Status Match Interrupt Enable
+            m.set_smie(true);
+        });
+
+        self.setup_auto_poll(transaction, interval, mask, match_value, data_len, match_mode);
+
+        AutoPollFuture {
+            _peri: self._peri.reborrow(),
+        }
+        .await
+    }
+}
+
+/// QSPI error
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Error {
+    /// Timed Out waiting for Status MAtch
+    AutoPollTimeout,
 }
 
 trait SealedInstance {
@@ -478,7 +600,10 @@ trait SealedInstance {
 
 /// QSPI instance trait.
 #[allow(private_bounds)]
-pub trait Instance: SealedInstance + PeripheralType + RccPeripheral {}
+pub trait Instance: SealedInstance + PeripheralType + RccPeripheral {
+    /// Interrupt for this instance.
+    type Interrupt: interrupt::typelevel::Interrupt;
+}
 
 pin_trait!(SckPin, Instance);
 pin_trait!(BK1D0Pin, Instance);
@@ -495,12 +620,89 @@ pin_trait!(BK2NSSPin, Instance);
 
 dma_trait!(QuadDma, Instance);
 
-foreach_peripheral!(
-    (quadspi, $inst:ident) => {
-        impl SealedInstance for peripherals::$inst {
+macro_rules! impl_peripheral {
+    ($inst:ident, $irq:ident) => {
+        impl SealedInstance for crate::peripherals::$inst {
             const REGS: Regs = crate::pac::$inst;
         }
 
-        impl Instance for peripherals::$inst {}
+        impl Instance for crate::peripherals::$inst {
+            type Interrupt = crate::interrupt::typelevel::$irq;
+        }
     };
-);
+}
+
+foreach_interrupt! {
+    ($inst:ident, quadspi, $block:ident, GLOBAL, $irq:ident) => {
+        impl_peripheral!($inst, $irq);
+    };
+}
+
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+struct AutoPollFuture<'d, T: Instance> {
+    _peri: Peri<'d, T>,
+}
+
+impl<'d, T: Instance> Unpin for AutoPollFuture<'d, T> {}
+impl<'d, T: Instance> Drop for AutoPollFuture<'d, T> {
+    fn drop(&mut self) {
+        T::REGS.cr().modify(|m| {
+            // Unset Status Match Interrupt Enable
+            m.set_smie(false);
+        });
+
+        if T::REGS.ccr().read().fmode() == QspiMode::AutoPolling.into() && T::REGS.sr().read().busy() {
+            // Abort autopolling if dropped while still running
+            T::REGS.cr().modify(|m| m.set_abort(true));
+            while T::REGS.sr().read().busy() {}
+        }
+    }
+}
+
+impl<'d, T: Instance> Future for AutoPollFuture<'d, T> {
+    type Output = ();
+
+    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut core::task::Context<'_>) -> core::task::Poll<Self::Output> {
+        AUTOPOLL_WAKER.register(cx.waker());
+
+        if T::REGS.sr().read().busy() {
+            core::task::Poll::Pending
+        } else {
+            core::task::Poll::Ready(())
+        }
+    }
+}
+
+static AUTOPOLL_WAKER: AtomicWaker = AtomicWaker::new();
+
+/// AutoPolling Match Mode
+pub enum MatchMode {
+    /// Match any masked bit
+    OR,
+    /// Match all masked bits
+    AND,
+}
+
+impl From<MatchMode> for bool {
+    fn from(mode: MatchMode) -> Self {
+        match mode {
+            MatchMode::OR => true,
+            MatchMode::AND => false,
+        }
+    }
+}
+
+/// Interrupt handler.
+pub struct InterruptHandler<T: Instance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        if T::REGS.sr().read().smf() {
+            // clear status match flag
+            T::REGS.fcr().modify(|m| m.set_csmf(true));
+            AUTOPOLL_WAKER.wake();
+        }
+    }
+}
