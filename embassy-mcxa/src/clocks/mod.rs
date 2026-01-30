@@ -38,7 +38,8 @@
 use core::cell::RefCell;
 
 use config::{
-    ClocksConfig, CoreSleep, FircConfig, FircFreqSel, Fro16KConfig, MainClockSource, SircConfig, VddDriveStrength, VddLevel
+    ClocksConfig, CoreSleep, FircConfig, FircFreqSel, Fro16KConfig, MainClockSource, SircConfig, VddDriveStrength,
+    VddLevel,
 };
 use mcxa_pac::scg0::firccsr::{FircFclkPeriphEn, FircSclkPeriphEn, Fircsten};
 use mcxa_pac::scg0::sirccsr::Sircsten;
@@ -1744,7 +1745,7 @@ impl ClockOperator<'_> {
                 });
 
                 (pac::spc0::lp_cfg::CoreldoVddDs::Low, enable_bandgap)
-            },
+            }
             VddDriveStrength::Normal => {
                 // "If you specify normal drive strength, you must write a value to LP[BGMODE] that enables the bandgap."
                 (pac::spc0::lp_cfg::CoreldoVddDs::Normal, true)
@@ -1813,7 +1814,7 @@ impl ClockOperator<'_> {
         }
 
         match self.config.vdd_power.core_sleep {
-            CoreSleep::WfeUngated => {},
+            CoreSleep::WfeUngated => {}
             CoreSleep::WfeGated => {
                 // Allow automatic gating of the core when in LIGHT sleep
                 self.cmc.ckctrl().modify(|_r, w| w.ckmode().ckmode0001());
@@ -1823,7 +1824,7 @@ impl ClockOperator<'_> {
 
                 // Allow the core to be gated - this WILL kill the debugging session!
                 scb_set_sleepdeep();
-            },
+            }
         }
 
         // Allow automatic gating of the flash memory
@@ -1918,37 +1919,41 @@ pub(crate) mod gate {
     impl_cc_gate!(PORT3, mrcc_glb_cc1, mrcc_glb_rst1, port3, NoConfig);
     impl_cc_gate!(PORT4, mrcc_glb_cc1, mrcc_glb_rst1, port4, NoConfig);
 
-    impl_cc_gate!(GPIO0, mrcc_glb_cc2, mrcc_glb_rst2, gpio0, NoConfig);
-    impl_cc_gate!(GPIO1, mrcc_glb_cc2, mrcc_glb_rst2, gpio1, NoConfig);
-    impl_cc_gate!(GPIO2, mrcc_glb_cc2, mrcc_glb_rst2, gpio2, NoConfig);
-    impl_cc_gate!(GPIO3, mrcc_glb_cc2, mrcc_glb_rst2, gpio3, NoConfig);
-    impl_cc_gate!(GPIO4, mrcc_glb_cc2, mrcc_glb_rst2, gpio4, NoConfig);
-
     impl_cc_gate!(CRC0, mrcc_glb_cc0, mrcc_glb_rst0, crc0, NoConfig);
 
     // These peripherals DO have meaningful configuration, and could fail if the system
     // clocks do not match their needs.
-    impl_cc_gate!(LPI2C0, mrcc_glb_cc0, mrcc_glb_rst0, lpi2c0, Lpi2cConfig);
-    impl_cc_gate!(LPI2C1, mrcc_glb_cc0, mrcc_glb_rst0, lpi2c1, Lpi2cConfig);
-    impl_cc_gate!(LPI2C2, mrcc_glb_cc1, mrcc_glb_rst1, lpi2c2, Lpi2cConfig);
-    impl_cc_gate!(LPI2C3, mrcc_glb_cc1, mrcc_glb_rst1, lpi2c3, Lpi2cConfig);
-
-    impl_cc_gate!(LPUART0, mrcc_glb_cc0, mrcc_glb_rst0, lpuart0, LpuartConfig);
-    impl_cc_gate!(LPUART1, mrcc_glb_cc0, mrcc_glb_rst0, lpuart1, LpuartConfig);
-    impl_cc_gate!(LPUART2, mrcc_glb_cc0, mrcc_glb_rst0, lpuart2, LpuartConfig);
-    impl_cc_gate!(LPUART3, mrcc_glb_cc0, mrcc_glb_rst0, lpuart3, LpuartConfig);
-    impl_cc_gate!(LPUART4, mrcc_glb_cc0, mrcc_glb_rst0, lpuart4, LpuartConfig);
-    impl_cc_gate!(LPUART5, mrcc_glb_cc1, mrcc_glb_rst1, lpuart5, LpuartConfig);
     impl_cc_gate!(ADC0, mrcc_glb_cc1, mrcc_glb_rst1, adc0, AdcConfig);
     impl_cc_gate!(ADC1, mrcc_glb_cc1, mrcc_glb_rst1, adc1, AdcConfig);
     impl_cc_gate!(ADC2, mrcc_glb_cc1, mrcc_glb_rst1, adc2, AdcConfig);
     impl_cc_gate!(ADC3, mrcc_glb_cc1, mrcc_glb_rst1, adc3, AdcConfig);
+
     impl_cc_gate!(I3C0, mrcc_glb_cc0, mrcc_glb_rst0, i3c0, I3cConfig);
 
     impl_cc_gate!(OSTIMER0, mrcc_glb_cc1, mrcc_glb_rst1, ostimer0, OsTimerConfig);
 
-    // DMA0 peripheral - uses NoConfig since it has no selectable clock source
-    impl_cc_gate!(DMA0, mrcc_glb_cc0, mrcc_glb_rst0, dma0, NoConfig);
     // TRNG peripheral - uses NoConfig since it has no selectable clock source
     impl_cc_gate!(TRNG0, mrcc_glb_cc1, mrcc_glb_rst1, trng0, NoConfig);
+
+    // Peripherals that use ACC instead of CC!
+    impl_cc_gate!(LPUART0, mrcc_glb_acc0, mrcc_glb_rst0, lpuart0, LpuartConfig);
+    impl_cc_gate!(LPUART1, mrcc_glb_acc0, mrcc_glb_rst0, lpuart1, LpuartConfig);
+    impl_cc_gate!(LPUART2, mrcc_glb_acc0, mrcc_glb_rst0, lpuart2, LpuartConfig);
+    impl_cc_gate!(LPUART3, mrcc_glb_acc0, mrcc_glb_rst0, lpuart3, LpuartConfig);
+    impl_cc_gate!(LPUART4, mrcc_glb_acc0, mrcc_glb_rst0, lpuart4, LpuartConfig);
+    impl_cc_gate!(LPUART5, mrcc_glb_acc1, mrcc_glb_rst1, lpuart5, LpuartConfig);
+
+    // DMA0 peripheral - uses NoConfig since it has no selectable clock source
+    impl_cc_gate!(DMA0, mrcc_glb_acc0, mrcc_glb_rst0, dma0, NoConfig);
+
+    impl_cc_gate!(GPIO0, mrcc_glb_acc2, mrcc_glb_rst2, gpio0, NoConfig);
+    impl_cc_gate!(GPIO1, mrcc_glb_acc2, mrcc_glb_rst2, gpio1, NoConfig);
+    impl_cc_gate!(GPIO2, mrcc_glb_acc2, mrcc_glb_rst2, gpio2, NoConfig);
+    impl_cc_gate!(GPIO3, mrcc_glb_acc2, mrcc_glb_rst2, gpio3, NoConfig);
+    impl_cc_gate!(GPIO4, mrcc_glb_acc2, mrcc_glb_rst2, gpio4, NoConfig);
+
+    impl_cc_gate!(LPI2C0, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c0, Lpi2cConfig);
+    impl_cc_gate!(LPI2C1, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c1, Lpi2cConfig);
+    impl_cc_gate!(LPI2C2, mrcc_glb_acc1, mrcc_glb_rst1, lpi2c2, Lpi2cConfig);
+    impl_cc_gate!(LPI2C3, mrcc_glb_acc1, mrcc_glb_rst1, lpi2c3, Lpi2cConfig);
 }

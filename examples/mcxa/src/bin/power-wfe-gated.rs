@@ -1,11 +1,26 @@
 //! This example roughly emulates the `IDD_SLEEP_MD_3` scenario from the datasheet.
+//!
+//! As written, this achieves 750-760uA average current, when the board is modified to
+//! remove the reference voltage errata, and when measured with a Nordic PPK2.
+//!
+//! With this clock configuration (SIRC), IDD as low as 700uA has been observed, though
+//! that required manually disabling the GPIO, DMA, and OsTimer initialization in the
+//! HAL init (and not running the blink loop).
+//!
+//! The datasheets states we should achieve 580uA of idle current (with all peripherals
+//! disabled) in this mode, I am not sure where the missing ~120uA are going towards, or if this
+//! is some kind of other measurement variance between the datasheet's setup and this
+//! examples setup.
 
 #![no_std]
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa::clocks::{PoweredClock, config::{CoreSleep, Div8, FlashSleep, Fro16KConfig, MainClockConfig, MainClockSource, VddDriveStrength, VddLevel}};
-use embassy_time::{Duration, Instant, Ticker};
+use embassy_mcxa::clocks::PoweredClock;
+use embassy_mcxa::clocks::config::{
+    CoreSleep, Div8, FlashSleep, Fro16KConfig, MainClockConfig, MainClockSource, VddDriveStrength, VddLevel,
+};
+use embassy_time::{Duration, Instant, Ticker, Timer};
 use hal::gpio::{DriveStrength, Level, Output, SlewRate};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
@@ -59,4 +74,12 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("Going to sleep shortly...");
     cortex_m::asm::delay(45_000_000 / 2);
+
+    let mut red = Output::new(p.P3_18, Level::High, DriveStrength::Normal, SlewRate::Slow);
+    loop {
+        Timer::after_millis(900).await;
+        red.set_low();
+        Timer::after_millis(100).await;
+        red.set_high();
+    }
 }
