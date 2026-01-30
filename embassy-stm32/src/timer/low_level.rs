@@ -536,7 +536,8 @@ impl<'d, T: CoreInstance> Timer<'d, T> {
         let regs = self.regs_core();
         let sr = regs.sr().read();
         if sr.uif() {
-            regs.sr().modify(|r| {
+            regs.sr().write(|r| {
+                r.0 = 0xFFFF_FFFF;
                 r.set_uif(false);
             });
             true
@@ -709,7 +710,10 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
 
     /// Clear input interrupt.
     pub fn clear_input_interrupt(&self, channel: Channel) {
-        self.regs_gp16().sr().modify(|r| r.set_ccif(channel.index(), false));
+        self.regs_gp16().sr().write(|r| {
+            r.0 = 0xFFFF_FFFF;
+            r.set_ccif(channel.index(), false);
+        });
     }
 
     /// Get input interrupt.
