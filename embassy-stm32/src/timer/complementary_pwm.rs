@@ -309,7 +309,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     ///
     /// Note:
     /// The DMA channel provided does not need to correspond to the requested channel.
-    pub async fn waveform<C: TimerChannel, W: Word + Into<T::Word>, D: super::Dma<T, C> + crate::dma::TypedChannel>(
+    pub async fn waveform<C: TimerChannel, W: Word + Into<T::Word>, D: super::Dma<T, C>>(
         &mut self,
         dma: Peri<'_, D>,
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + '_,
@@ -329,7 +329,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     ///
     /// Note:
     /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
-    pub async fn waveform_up<W: Word + Into<T::Word>, D: super::UpDma<T> + crate::dma::TypedChannel>(
+    pub async fn waveform_up<W: Word + Into<T::Word>, D: super::UpDma<T>>(
         &mut self,
         dma: Peri<'_, D>,
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + '_,
@@ -372,7 +372,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Also be aware that embassy timers use one of timers internally. It is possible to
     /// switch this timer by using `time-driver-timX` feature.
     ///
-    pub async fn waveform_up_multi_channel<W: Word + Into<T::Word>, D: super::UpDma<T> + crate::dma::TypedChannel>(
+    pub async fn waveform_up_multi_channel<W: Word + Into<T::Word>, D: super::UpDma<T>>(
         &mut self,
         dma: Peri<'_, D>,
         irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + '_,

@@ -209,7 +209,7 @@ impl<'a, 'b> StorageDevice<'a, 'b, Card> {
     ///
     /// SD only.
     async fn switch_signalling_mode(
-        &self,
+        &mut self,
         cmd_block: &mut CmdBlock,
         signalling: Signalling,
     ) -> Result<Signalling, Error> {
