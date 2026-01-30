@@ -90,61 +90,6 @@ impl<'d> CTimer<'d> {
 
         Ok(inst)
     }
-
-    /// Split the `CTimer` into its constituent channels.
-    ///
-    /// Consumes `self` and produces a representation of CTimer's
-    /// channels which can be used to create `Pwm`, `Capture`, or
-    /// `Timer`.
-    pub fn split(self) -> Channels<'d> {
-        Channels {
-            ch0: Channel::new(self.info, 0, self._freq, self._wg.clone()),
-            ch1: Channel::new(self.info, 1, self._freq, self._wg.clone()),
-            ch2: Channel::new(self.info, 2, self._freq, self._wg.clone()),
-            ch3: Channel::new(self.info, 3, self._freq, self._wg.clone()),
-        }
-    }
-}
-
-/// CTimer channels
-pub struct Channels<'d> {
-    pub ch0: Channel<'d>,
-    pub ch1: Channel<'d>,
-    pub ch2: Channel<'d>,
-    pub ch3: Channel<'d>,
-}
-
-impl<'d> Channels<'d> {
-    /// Split `self` into all four channels
-    pub fn split(self) -> (Channel<'d>, Channel<'d>, Channel<'d>, Channel<'d>) {
-        (self.ch0, self.ch1, self.ch2, self.ch3)
-    }
-}
-
-/// CTimer channel
-pub struct Channel<'d> {
-    info: &'static Info,
-    number: usize,
-    freq: u32,
-    _wg: Option<WakeGuard>,
-    _phantom: PhantomData<&'d mut ()>,
-}
-
-impl<'d> Channel<'d> {
-    /// Create a new channel instance.
-    ///
-    /// Private because users should not be able to create channels
-    /// directly, only by calling `split` or `split_ref` on the
-    /// `CTimer` object.
-    fn new(info: &'static Info, number: usize, freq: u32, _wg: Option<WakeGuard>) -> Self {
-        Channel {
-            info,
-            number,
-            freq,
-            _wg,
-            _phantom: PhantomData,
-        }
-    }
 }
 
 /// CTimer interrupt handler.
@@ -235,6 +180,73 @@ impl_instance!(CTIMER1, Ctimer1, CTimer1);
 impl_instance!(CTIMER2, Ctimer2, CTimer2);
 impl_instance!(CTIMER3, Ctimer3, CTimer3);
 impl_instance!(CTIMER4, Ctimer4, CTimer4);
+
+trait SealedPwmChannel<T: Instance> {
+    fn number(&self) -> usize;
+}
+
+/// CTimer channel
+#[allow(private_bounds)]
+pub trait PwmChannel<T: Instance>: SealedPwmChannel<T> + PeripheralType + Into<AnyChannel> + 'static + Send {}
+
+macro_rules! impl_channel {
+    ($ch:ident, $peri:ident, $n:literal) => {
+        impl SealedPwmChannel<crate::peripherals::$peri> for crate::peripherals::$ch {
+            #[inline(always)]
+            fn number(&self) -> usize {
+                $n
+            }
+        }
+
+        impl PwmChannel<crate::peripherals::$peri> for crate::peripherals::$ch {}
+
+        impl From<crate::peripherals::$ch> for AnyChannel {
+            fn from(value: crate::peripherals::$ch) -> Self {
+                Self {
+                    number: value.number(),
+                }
+            }
+        }
+    };
+}
+
+impl_channel!(CTIMER0_CH0, CTIMER0, 0);
+impl_channel!(CTIMER0_CH1, CTIMER0, 1);
+impl_channel!(CTIMER0_CH2, CTIMER0, 2);
+impl_channel!(CTIMER0_CH3, CTIMER0, 3);
+
+impl_channel!(CTIMER1_CH0, CTIMER1, 0);
+impl_channel!(CTIMER1_CH1, CTIMER1, 1);
+impl_channel!(CTIMER1_CH2, CTIMER1, 2);
+impl_channel!(CTIMER1_CH3, CTIMER1, 3);
+
+impl_channel!(CTIMER2_CH0, CTIMER2, 0);
+impl_channel!(CTIMER2_CH1, CTIMER2, 1);
+impl_channel!(CTIMER2_CH2, CTIMER2, 2);
+impl_channel!(CTIMER2_CH3, CTIMER2, 3);
+
+impl_channel!(CTIMER3_CH0, CTIMER3, 0);
+impl_channel!(CTIMER3_CH1, CTIMER3, 1);
+impl_channel!(CTIMER3_CH2, CTIMER3, 2);
+impl_channel!(CTIMER3_CH3, CTIMER3, 3);
+
+impl_channel!(CTIMER4_CH0, CTIMER4, 0);
+impl_channel!(CTIMER4_CH1, CTIMER4, 1);
+impl_channel!(CTIMER4_CH2, CTIMER4, 2);
+impl_channel!(CTIMER4_CH3, CTIMER4, 3);
+
+/// Type-erase CTIMER channel
+pub struct AnyChannel {
+    number: usize,
+}
+
+impl AnyChannel {
+    fn number(&self) -> usize {
+        self.number
+    }
+}
+
+embassy_hal_internal::impl_peripheral!(AnyChannel);
 
 /// Seal a trait
 trait SealedInputPin {

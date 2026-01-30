@@ -54,10 +54,39 @@ embassy_hal_internal::peripherals!(
     CRC0,
 
     CTIMER0,
+
+    CTIMER0_CH0,
+    CTIMER0_CH1,
+    CTIMER0_CH2,
+    CTIMER0_CH3,
+
     CTIMER1,
+
+    CTIMER1_CH0,
+    CTIMER1_CH1,
+    CTIMER1_CH2,
+    CTIMER1_CH3,
+
     CTIMER2,
+
+    CTIMER2_CH0,
+    CTIMER2_CH1,
+    CTIMER2_CH2,
+    CTIMER2_CH3,
+
     CTIMER3,
+
+    CTIMER3_CH0,
+    CTIMER3_CH1,
+    CTIMER3_CH2,
+    CTIMER3_CH3,
+
     CTIMER4,
+
+    CTIMER4_CH0,
+    CTIMER4_CH1,
+    CTIMER4_CH2,
+    CTIMER4_CH3,
 
     DBGMAILBOX,
     DMA0,
