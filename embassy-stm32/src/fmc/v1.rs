@@ -21,7 +21,7 @@ pub enum FmcBank {
     /// Bank3: NAND Flash
     Bank3,
 
-    // Bank4: PC Card/CompactFlash interface.
+    /// Bank4: PC Card/CompactFlash interface.
     Bank4,
 
     /// Bank5: SDRAM 1

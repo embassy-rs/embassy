@@ -26,7 +26,7 @@ pub mod devices;
 pub enum NandDataWidth {
     /// 8-bit wide data.
     Bits8,
-    // 16-bit wide data.
+    /// 16-bit wide data.
     Bits16,
 }
 
@@ -141,7 +141,8 @@ impl<'a, 'd, T: fmc::Instance> Nand<'a, 'd, T> {
     ) -> Self {
         Self {
             fmc,
-            #[cfg(fmc_v1x3)] bank,
+            #[cfg(fmc_v1x3)]
+            bank,
             config,
             timing,
         }
