@@ -1,4 +1,8 @@
-//! Flexible Memory Controller (FMC) / Flexible Static Memory Controller (FSMC)
+//! Flexible Memory Controller (FMC) types for FMC v2.1, v3.1, and v4
+//!
+//! These strongly differ from the types needed for v1.3, so they've
+//! been seperated out here into their own module to reduce complexity.
+
 use embassy_hal_internal::PeripheralType;
 
 use crate::gpio::{AfType, OutputType, Pull, Speed};
@@ -39,31 +43,17 @@ pub enum FmcBank {
 
     // NOTE: Bank 4 is not normally used by the FMC outside
     // of fmc_v1x3 for the PC Card/CompactFlash interface.
-    #[cfg(fmc_v1x3)]
-    Bank4,
-
     /// Bank5: SDRAM 1
-    #[cfg(not(fmc_v1x3))]
     Bank5,
+
     /// Bank6: SDRAM 2
-    #[cfg(not(fmc_v1x3))]
     Bank6,
 }
 
 impl FmcBank {
     /// Return a pointer to the base address of the FMC bank.
     pub fn ptr(self) -> *mut u32 {
-        // fmc_v1x3 supports 2 banks of NAND memory and a compact flash card
-        #[cfg(fmc_v1x3)]
-        return (match self {
-            FmcBank::Bank1 => 0x6000_0000u32,
-            FmcBank::Bank2 => 0x7000_0000u32,
-            FmcBank::Bank3 => 0x8000_0000u32,
-            FmcBank::Bank4 => 0x9000_0000u32,
-        }) as *mut u32;
-
-        #[cfg(not(fmc_v1x3))]
-        return (match self {
+        (match self {
             FmcBank::Bank1 => 0x6000_0000u32,
             FmcBank::Bank2 => 0x7000_0000u32,
             FmcBank::Bank3 => 0x7000_0000u32,
@@ -72,7 +62,7 @@ impl FmcBank {
             // Bank 4 is not used.
             FmcBank::Bank5 => 0xC000_0000u32,
             FmcBank::Bank6 => 0xD000_0000u32,
-        }) as *mut u32;
+        }) as *mut u32
     }
 }
 

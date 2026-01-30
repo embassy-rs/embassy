@@ -1,4 +1,11 @@
-//! Flexible Memory Controller (FMC) / Flexible Static Memory Controller (FSMC)
+//! Flexible Memory Controller (FMC) types for FMC v1.3
+//!
+//! fmc_v1x3 has some very different structures to the later FMCs version,
+//! notably how mapping is handled, and the presence of a PC/CompactFlash
+//! card controller in the NAND configuration registers. Yhe types for
+//! fmc_v1x3 have been seperated out into their own module here to reduce
+//! the complexity of the root FMC module.
+
 use embassy_hal_internal::PeripheralType;
 
 use crate::gpio::{AfType, OutputType, Pull, Speed};

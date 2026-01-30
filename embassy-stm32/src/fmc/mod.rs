@@ -1,4 +1,5 @@
-//! Flexible Memory Controller (FMC) / Flexible Static Memory Controller (FSMC)
+//! Flexible Memory Controller (FMC)
+
 use embassy_hal_internal::PeripheralType;
 
 use crate::gpio::{AfType, OutputType, Pull, Speed};
@@ -15,6 +16,12 @@ pub mod sdram;
 
 #[cfg(any(fmc_v1x3, fmc_v2x1, fmc_v3x1, fmc_v4))]
 pub mod nand;
+
+// fmc_v1x3 has some very different structures to the later FMCs version,
+// notably how mapping is handled, and the presence of a PC/CompactFlash
+// card controller in the NAND configuration registers.
+//
+// So the types for fmc_v1x3 have been
 
 #[cfg(fmc_v1x3)]
 pub mod v1;
