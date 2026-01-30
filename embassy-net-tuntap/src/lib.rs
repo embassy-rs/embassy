@@ -11,21 +11,6 @@ use async_io::Async;
 use embassy_net_driver::{Capabilities, Driver, HardwareAddress, LinkState};
 use log::*;
 
-/// Get the MTU of the given interface.
-pub const SIOCGIFMTU: libc::c_ulong = 0x8921;
-/// Get the index of the given interface.
-pub const _SIOCGIFINDEX: libc::c_ulong = 0x8933;
-/// Capture all packages.
-pub const _ETH_P_ALL: libc::c_short = 0x0003;
-/// Set the interface flags.
-pub const TUNSETIFF: libc::c_ulong = 0x400454CA;
-/// TUN device.
-pub const _IFF_TUN: libc::c_int = 0x0001;
-/// TAP device.
-pub const IFF_TAP: libc::c_int = 0x0002;
-/// No packet information.
-pub const IFF_NO_PI: libc::c_int = 0x1000;
-
 const ETHERNET_HEADER_LEN: usize = 14;
 
 #[repr(C)]
@@ -87,15 +72,15 @@ impl TunTap {
             }
 
             let mut ifreq = ifreq_for(name);
-            ifreq.ifr_data = IFF_TAP | IFF_NO_PI;
-            ifreq_ioctl(fd, &mut ifreq, TUNSETIFF)?;
+            ifreq.ifr_data = libc::IFF_TAP | libc::IFF_NO_PI;
+            ifreq_ioctl(fd, &mut ifreq, libc::TUNSETIFF)?;
 
             let socket = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, libc::IPPROTO_IP);
             if socket == -1 {
                 return Err(io::Error::last_os_error());
             }
 
-            let ip_mtu = ifreq_ioctl(socket, &mut ifreq, SIOCGIFMTU);
+            let ip_mtu = ifreq_ioctl(socket, &mut ifreq, libc::SIOCGIFMTU);
             libc::close(socket);
             let ip_mtu = ip_mtu? as usize;
 
