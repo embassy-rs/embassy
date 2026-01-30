@@ -1,0 +1,8 @@
+[target.thumbv6m-none-eabi]
+runner = 'probe-rs run --chip STM32F072RB'
+
+[build]
+target = "thumbv6m-none-eabi"
+
+[env]
+DEFMT_LOG = "trace"
