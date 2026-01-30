@@ -18,9 +18,9 @@
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::PoweredClock;
 use embassy_mcxa::clocks::config::{
-    CoreSleep, Div8, FlashSleep, Fro16KConfig, MainClockConfig, MainClockSource, VddDriveStrength, VddLevel,
+    CoreSleep, Div8, FlashSleep, MainClockConfig, MainClockSource, VddDriveStrength, VddLevel,
 };
-use embassy_time::{Duration, Instant, Ticker, Timer};
+use embassy_time::Timer;
 use hal::gpio::{DriveStrength, Level, Output, SlewRate};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
