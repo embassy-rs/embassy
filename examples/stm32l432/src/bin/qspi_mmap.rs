@@ -244,6 +244,7 @@ const MEMORY_ADDR: u32 = 0x00000000 as u32;
 
 bind_interrupts!(struct Irqs {
     DMA2_CHANNEL7 => dma::InterruptHandler<peripherals::DMA2_CH7>;
+    QUADSPI => qspi::InterruptHandler<peripherals::QUADSPI>;
 });
 
 #[embassy_executor::main]
