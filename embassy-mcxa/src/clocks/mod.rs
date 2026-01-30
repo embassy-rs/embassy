@@ -121,13 +121,6 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
     // If we were keeping SIRC enabled, now we can release it.
     operator.configure_sirc_clocks_late();
 
-    defmt::info!("MRCC.CC0: {=u32}", operator._mrcc0.mrcc_glb_cc0().read().bits());
-    defmt::info!("MRCC.CC1: {=u32}", operator._mrcc0.mrcc_glb_cc1().read().bits());
-    defmt::info!("MRCC.CC2: {=u32}", operator._mrcc0.mrcc_glb_cc2().read().bits());
-    defmt::info!("MRCC.ACC0: {=u32}", operator._mrcc0.mrcc_glb_acc0().read().bits());
-    defmt::info!("MRCC.ACC1: {=u32}", operator._mrcc0.mrcc_glb_acc1().read().bits());
-    defmt::info!("MRCC.ACC2: {=u32}", operator._mrcc0.mrcc_glb_acc2().read().bits());
-
     critical_section::with(|cs| {
         let mut clks = CLOCKS.borrow_ref_mut(cs);
         assert!(clks.is_none(), "Clock setup race!");
