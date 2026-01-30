@@ -22,10 +22,12 @@ build = [
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0g5187pm", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0h3216pt", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1306rhb", "time-driver-any"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l2228pn", "time-driver-any"]},
-    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1345dgs28", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1106dgs28", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1127pm", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1345dgs28", "time-driver-any"]},
     {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l1228pt", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l2117pm", "time-driver-any"]},
+    {target = "thumbv6m-none-eabi", features = ["defmt", "mspm0l2228pn", "time-driver-any"]},
 ]
 
 [package.metadata.embassy_docs]
@@ -69,7 +71,7 @@ critical-section = "1.2.0"
 micromath = "2.0.0"
 
 # mspm0-metapac = { version = "" }
-mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-d9f54366c65cec47957065f42fe04542b852a8cd" }
+mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-38cd5ed127f7d478e6e6863d1c3cc6c34cd91ac6" }
 rand_core = "0.9"
 
 [build-dependencies]
@@ -78,7 +80,7 @@ quote = "1.0.40"
 cfg_aliases = "0.2.1"
 
 # mspm0-metapac = { version = "", default-features = false, features = ["metadata"] }
-mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-d9f54366c65cec47957065f42fe04542b852a8cd", default-features = false, features = ["metadata"] }
+mspm0-metapac = { git = "https://github.com/mspm0-rs/mspm0-data-generated/", tag = "mspm0-data-38cd5ed127f7d478e6e6863d1c3cc6c34cd91ac6", default-features = false, features = ["metadata"] }
 
 [features]
 default = ["rt"]
@@ -159,6 +161,7 @@ time-driver-tima1 = ["_time-driver"]
 #!
 #! **Important:** Do not forget to adapt the target chip in your toolchain,
 #! e.g. in `.cargo/config.toml`.
+
 mspm0c1103dgs20 = ["mspm0-metapac/mspm0c1103dgs20"]
 mspm0c1103ruk = ["mspm0-metapac/mspm0c1103ruk"]
 mspm0c1103dyy = ["mspm0-metapac/mspm0c1103dyy"]
@@ -290,6 +293,26 @@ mspm0l1106dgs28 = ["mspm0-metapac/mspm0l1106dgs28"]
 mspm0l1106rge = ["mspm0-metapac/mspm0l1106rge"]
 mspm0l1106rtr = ["mspm0-metapac/mspm0l1106rtr"]
 mspm0l1106dyy = ["mspm0-metapac/mspm0l1106dyy"]
+mspm0l1126pm = ["mspm0-metapac/mspm0l1126pm"]
+mspm0l1126rsk = ["mspm0-metapac/mspm0l1126rsk"]
+mspm0l1126pt = ["mspm0-metapac/mspm0l1126pt"]
+mspm0l1126vfc = ["mspm0-metapac/mspm0l1126vfc"]
+mspm0l1126rgz = ["mspm0-metapac/mspm0l1126rgz"]
+mspm0l1126rge = ["mspm0-metapac/mspm0l1126rge"]
+mspm0l1126ruy = ["mspm0-metapac/mspm0l1126ruy"]
+mspm0l1126dgs32 = ["mspm0-metapac/mspm0l1126dgs32"]
+mspm0l1126rhb = ["mspm0-metapac/mspm0l1126rhb"]
+mspm0l1126dgs28 = ["mspm0-metapac/mspm0l1126dgs28"]
+mspm0l1127pm = ["mspm0-metapac/mspm0l1127pm"]
+mspm0l1127rsk = ["mspm0-metapac/mspm0l1127rsk"]
+mspm0l1127pt = ["mspm0-metapac/mspm0l1127pt"]
+mspm0l1127vfc = ["mspm0-metapac/mspm0l1127vfc"]
+mspm0l1127rgz = ["mspm0-metapac/mspm0l1127rgz"]
+mspm0l1127rge = ["mspm0-metapac/mspm0l1127rge"]
+mspm0l1127ruy = ["mspm0-metapac/mspm0l1127ruy"]
+mspm0l1127dgs32 = ["mspm0-metapac/mspm0l1127dgs32"]
+mspm0l1127rhb = ["mspm0-metapac/mspm0l1127rhb"]
+mspm0l1127dgs28 = ["mspm0-metapac/mspm0l1127dgs28"]
 mspm0l1227rhb = ["mspm0-metapac/mspm0l1227rhb"]
 mspm0l1227pn = ["mspm0-metapac/mspm0l1227pn"]
 mspm0l1227rgz = ["mspm0-metapac/mspm0l1227rgz"]
@@ -323,6 +346,26 @@ mspm0l1343dgs20 = ["mspm0-metapac/mspm0l1343dgs20"]
 mspm0l1344dgs20 = ["mspm0-metapac/mspm0l1344dgs20"]
 mspm0l1345dgs28 = ["mspm0-metapac/mspm0l1345dgs28"]
 mspm0l1346dgs28 = ["mspm0-metapac/mspm0l1346dgs28"]
+mspm0l2116pm = ["mspm0-metapac/mspm0l2116pm"]
+mspm0l2116rsk = ["mspm0-metapac/mspm0l2116rsk"]
+mspm0l2116pt = ["mspm0-metapac/mspm0l2116pt"]
+mspm0l2116vfc = ["mspm0-metapac/mspm0l2116vfc"]
+mspm0l2116rgz = ["mspm0-metapac/mspm0l2116rgz"]
+mspm0l2116rge = ["mspm0-metapac/mspm0l2116rge"]
+mspm0l2116ruy = ["mspm0-metapac/mspm0l2116ruy"]
+mspm0l2116dgs32 = ["mspm0-metapac/mspm0l2116dgs32"]
+mspm0l2116rhb = ["mspm0-metapac/mspm0l2116rhb"]
+mspm0l2116dgs28 = ["mspm0-metapac/mspm0l2116dgs28"]
+mspm0l2117pm = ["mspm0-metapac/mspm0l2117pm"]
+mspm0l2117rsk = ["mspm0-metapac/mspm0l2117rsk"]
+mspm0l2117pt = ["mspm0-metapac/mspm0l2117pt"]
+mspm0l2117vfc = ["mspm0-metapac/mspm0l2117vfc"]
+mspm0l2117rgz = ["mspm0-metapac/mspm0l2117rgz"]
+mspm0l2117rge = ["mspm0-metapac/mspm0l2117rge"]
+mspm0l2117ruy = ["mspm0-metapac/mspm0l2117ruy"]
+mspm0l2117dgs32 = ["mspm0-metapac/mspm0l2117dgs32"]
+mspm0l2117rhb = ["mspm0-metapac/mspm0l2117rhb"]
+mspm0l2117dgs28 = ["mspm0-metapac/mspm0l2117dgs28"]
 mspm0l2227rgz = ["mspm0-metapac/mspm0l2227rgz"]
 mspm0l2227pt = ["mspm0-metapac/mspm0l2227pt"]
 mspm0l2227pm = ["mspm0-metapac/mspm0l2227pm"]
