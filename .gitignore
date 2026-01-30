@@ -10,3 +10,4 @@ out/
 .neoconf.json
 *.vim
 **/.idea
+**/.nvim.lua

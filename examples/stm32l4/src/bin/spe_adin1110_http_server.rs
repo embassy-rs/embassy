@@ -63,7 +63,7 @@ const HTTP_LISTEN_PORT: u16 = 80;
 
 pub type SpeSpi = Spi<'static, Async, Master>;
 pub type SpeSpiCs = ExclusiveDevice<SpeSpi, Output<'static>, Delay>;
-pub type SpeInt = exti::ExtiInput<'static>;
+pub type SpeInt = exti::ExtiInput<'static, Async>;
 pub type SpeRst = Output<'static>;
 pub type Adin1110T = ADIN1110<SpeSpiCs>;
 pub type TempSensI2c = I2c<'static, Async, i2c::Master>;
