@@ -159,6 +159,14 @@ impl TunTapDevice {
             hardware_address: [0x02, 0x03, 0x04, 0x05, 0x06, 0x07],
         })
     }
+
+    /// Sets the MAC address of the TAP device.
+    ///
+    /// Note that this can not be completely random; for example, choosing a multicast address
+    /// (least significant bit of the first octet is 1) would cause smoltcp to crash.
+    pub fn set_hardware_address(&mut self, hardware_address: [u8; 6]) {
+        self.hardware_address = hardware_address;
+    }
 }
 
 impl Driver for TunTapDevice {
