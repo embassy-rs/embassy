@@ -28,8 +28,7 @@ async fn main(_spawner: Spawner) {
 
     let ctimer = CTimer::new(p.CTIMER2, Irqs, Default::default()).unwrap();
     let channels = ctimer.split();
-    let (ch0, _ch1, _ch2, ch3) = channels.split();
-    let mut pwm = Pwm::new_single_output(ch3, ch0, p.P3_18, Default::default()).unwrap();
+    let mut pwm = Pwm::new_single_output(channels.ch3, channels.ch0, p.P3_18, Default::default()).unwrap();
 
     let mut duty: u8 = 0;
     let mut delta: i8 = 1;

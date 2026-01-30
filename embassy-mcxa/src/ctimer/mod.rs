@@ -104,85 +104,20 @@ impl<'d> CTimer<'d> {
             ch3: Channel::new(self.info, 3, self._freq, self._wg.clone()),
         }
     }
-
-    /// Split the `CTimer` into its constituent channels by mutable
-    /// reference.
-    ///
-    /// Consumes `self` and produces a representation of CTimer's
-    /// channels which can be used to create `Pwm`, `Capture`, or
-    /// `Timer`.
-    pub fn split_ref(&mut self) -> ChannelsRef<'d> {
-        ChannelsRef {
-            ch0: Channel::new(self.info, 0, self._freq, self._wg.clone()),
-            ch1: Channel::new(self.info, 1, self._freq, self._wg.clone()),
-            ch2: Channel::new(self.info, 2, self._freq, self._wg.clone()),
-            ch3: Channel::new(self.info, 3, self._freq, self._wg.clone()),
-        }
-    }
 }
 
 /// CTimer channels
 pub struct Channels<'d> {
-    ch0: Channel<'d>,
-    ch1: Channel<'d>,
-    ch2: Channel<'d>,
-    ch3: Channel<'d>,
+    pub ch0: Channel<'d>,
+    pub ch1: Channel<'d>,
+    pub ch2: Channel<'d>,
+    pub ch3: Channel<'d>,
 }
 
 impl<'d> Channels<'d> {
-    /// Consume `self` and return Channel 0
-    pub fn ch0(self) -> Channel<'d> {
-        self.ch0
-    }
-
-    /// Consume `self` and return Channel 0
-    pub fn ch1(self) -> Channel<'d> {
-        self.ch1
-    }
-
-    /// Consume `self` and return Channel 2
-    pub fn ch2(self) -> Channel<'d> {
-        self.ch2
-    }
-
-    /// Consume `self` and return Channel 3
-    pub fn ch3(self) -> Channel<'d> {
-        self.ch3
-    }
-
     /// Split `self` into all four channels
     pub fn split(self) -> (Channel<'d>, Channel<'d>, Channel<'d>, Channel<'d>) {
         (self.ch0, self.ch1, self.ch2, self.ch3)
-    }
-}
-
-/// CTimer channels by reference
-pub struct ChannelsRef<'d> {
-    ch0: Channel<'d>,
-    ch1: Channel<'d>,
-    ch2: Channel<'d>,
-    ch3: Channel<'d>,
-}
-
-impl<'d> ChannelsRef<'d> {
-    /// Get a reference to channel 0
-    pub fn ch0(&'d mut self) -> &'d mut Channel<'d> {
-        &mut self.ch0
-    }
-
-    /// Get a reference to channel 1
-    pub fn ch1(&'d mut self) -> &'d mut Channel<'d> {
-        &mut self.ch1
-    }
-
-    /// Get a reference to channel 2
-    pub fn ch2(&'d mut self) -> &'d mut Channel<'d> {
-        &mut self.ch2
-    }
-
-    /// Get a reference to channel 3
-    pub fn ch3(&'d mut self) -> &'d mut Channel<'d> {
-        &mut self.ch3
     }
 }
 
