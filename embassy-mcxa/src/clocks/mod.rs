@@ -1737,6 +1737,8 @@ impl ClockOperator<'_> {
         // NOTE(AJM): "LP_CFG: This register resets only after a POR or LVD event."
         let (ds, bgap) = match self.config.vdd_power.low_power_mode.drive {
             VddDriveStrength::Low { enable_bandgap } => {
+                // If the bandgap is enabled, also enable the high/low voltage
+                // detectors. if it is disabled, these must also be disabled.
                 self.spc0.lp_cfg().modify(|_r, w| {
                     w.sys_hvde().bit(enable_bandgap);
                     w.sys_lvde().bit(enable_bandgap);
@@ -1780,7 +1782,8 @@ impl ClockOperator<'_> {
         // use the low drive strength for lp mode, and high drive strength for active mode?
         match self.config.vdd_power.active_mode.drive {
             VddDriveStrength::Low { enable_bandgap } => {
-                // HACK
+                // If the bandgap is enabled, also enable the high/low voltage
+                // detectors. if it is disabled, these must also be disabled.
                 self.spc0.active_cfg().modify(|_r, w| {
                     w.sys_hvde().bit(enable_bandgap);
                     w.sys_lvde().bit(enable_bandgap);
@@ -1803,16 +1806,6 @@ impl ClockOperator<'_> {
             }
         }
 
-        // TODO: is there a nicer way to "steal" the SCB peripheral? This is an emulation
-        // of `SCB::set_sleepdeep()`, but that requires `&mut SCB`, but `PTR` only gives us the
-        // `RegisterBlock`?
-        fn scb_set_sleepdeep() {
-            let scb = unsafe { &mut *cortex_m::peripheral::SCB::PTR.cast_mut() };
-            unsafe {
-                scb.scr.modify(|w| w | (0x1 << 2));
-            }
-        }
-
         match self.config.vdd_power.core_sleep {
             CoreSleep::WfeUngated => {}
             CoreSleep::WfeGated => {
@@ -1823,7 +1816,8 @@ impl ClockOperator<'_> {
                 self.cmc.dbgctl().modify(|_r, w| w.sod().set_bit());
 
                 // Allow the core to be gated - this WILL kill the debugging session!
-                scb_set_sleepdeep();
+                let mut cp = unsafe { cortex_m::Peripherals::steal() };
+                cp.SCB.set_sleepdeep();
             }
         }
 
