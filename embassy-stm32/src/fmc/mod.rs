@@ -109,6 +109,7 @@ where
             FmcNandBank::Bank2 => FmcBank::Bank3.ptr(),
         }
     }
+
     /// Returns the address to the NOR/PSRAM/SRAM bank.
     #[cfg(not(fmc_v1x3))]
     pub fn nor_sram_addr(&self, bank: FmcSramBank) -> u32 {
@@ -117,6 +118,18 @@ where
 
     /// Returns the base pointer to the NOR/PSRAM/SRAM bank.
     #[cfg(not(fmc_v1x3))]
+    pub fn nor_sram_ptr(&self, bank: FmcSramBank) -> *mut u32 {
+        self.nor_sram_addr(bank) as *mut u32
+    }
+
+    /// Returns the address to the NOR/PSRAM/SRAM bank.
+    #[cfg(fmc_v1x3)]
+    pub fn nor_sram_addr(&self, bank: FmcSramBank) -> u32 {
+        bank.addr()
+    }
+
+    /// Returns the base pointer to the NOR/PSRAM/SRAM bank.
+    #[cfg(fmc_v1x3)]
     pub fn nor_sram_ptr(&self, bank: FmcSramBank) -> *mut u32 {
         self.nor_sram_addr(bank) as *mut u32
     }

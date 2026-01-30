@@ -95,3 +95,58 @@ impl FmcSdramBank {
         } as *mut u32)
     }
 }
+
+/// Target bank for NOR/PSRAM/SRAM commands.
+#[derive(Clone, Copy, Debug, PartialEq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+#[allow(unused)]
+pub enum FmcSramBank {
+    /// Targets the 1st NOR/PSRAM/SRAM bank.
+    Bank1,
+    /// Targets the 2nd NOR/PSRAM/SRAM bank
+    Bank2,
+    /// Targets the 3nd NOR/PSRAM/SRAM bank
+    Bank3,
+    /// Targets the 4nd NOR/PSRAM/SRAM bank
+    Bank4,
+}
+
+impl FmcSramBank {
+    /// Returns the base address of the bank.
+    pub const fn base_address(&self) -> u32 {
+        // Banks start at 0x6000_0000 -> 01100000000000000000000000000000
+        // Banks end at   0x6FFF_FFFF -> 01101111111111111111111111111111
+        //
+        // ADDR[27:26] Select bank:
+        // 00 Bank 1 - NOR/PSRAM 1 0x60000000 -> 01100000000000000000000000000000
+        // 01 Bank 1 - NOR/PSRAM 2 0x64000000 -> 01100100000000000000000000000000
+        // 10 Bank 1 - NOR/PSRAM 3 0x68000000 -> 01101000000000000000000000000000
+        // 11 Bank 1 - NOR/PSRAM 4 0x6C000000 -> 01101100000000000000000000000000
+        match self {
+            FmcSramBank::Bank1 => 0x60000000,
+            FmcSramBank::Bank2 => 0x64000000,
+            FmcSramBank::Bank3 => 0x68000000,
+            FmcSramBank::Bank4 => 0x6C000000,
+        }
+    }
+
+    /// Returns the lower address bound of the NOR/PSRAM/SRAM bank.
+    pub const fn min_address(&self) -> u32 {
+        self.base_address()
+    }
+
+    /// Returns the size of the bank.
+    pub const fn size(&self) -> u32 {
+        0x3FFFFFF
+    }
+
+    /// Returns the upper address bound of the NOR/PSRAM/SRAM bank.
+    pub const fn max_address(&self) -> u32 {
+        self.min_address() + self.size()
+    }
+
+    /// Returns the address of the bank.
+    pub const fn addr(&self) -> u32 {
+        self.min_address()
+    }
+}
