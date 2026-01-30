@@ -21,7 +21,8 @@ pub mod nand;
 // notably how mapping is handled, and the presence of a PC/CompactFlash
 // card controller in the NAND configuration registers.
 //
-// So the types for fmc_v1x3 have been
+// So the types for fmc_v1x3 have been seperated out into their own module
+// to avoid having a huge amount of predicates making the code complex.
 
 #[cfg(fmc_v1x3)]
 pub mod v1;
