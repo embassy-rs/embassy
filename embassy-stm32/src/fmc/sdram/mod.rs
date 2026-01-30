@@ -884,18 +884,53 @@ macro_rules! fmc_sdram_init {
     };
 }
 
+macro_rules! fmc_sdram_init_dual {
+    ($name:ident: (
+        addr: [$(($addr_pin_name:ident: $addr_signal:ident)),*],
+        ba: [$(($ba_pin_name:ident: $ba_signal:ident)),*],
+        d: [$(($d_pin_name:ident: $d_signal:ident)),*],
+        nbl: [$(($nbl_pin_name:ident: $nbl_signal:ident)),*],
+        ctrl: [$(($ctrl_pin_name:ident: $ctrl_signal:ident)),*]
+    )) => {
+        /// Create a new FMC SDRAM driver for the specified chip and bank.
+        pub async fn $name<CHIP: SdramChip>(
+            fmc: &mut super::Fmc<'d, T>,
+            $($addr_pin_name: Peri<'d, impl $addr_signal<T>>),*,
+            $($ba_pin_name: Peri<'d, impl $ba_signal<T>>),*,
+            $($d_pin_name: Peri<'d, impl $d_signal<T>>),*,
+            $($nbl_pin_name: Peri<'d, impl $nbl_signal<T>>),*,
+            $($ctrl_pin_name: Peri<'d, impl $ctrl_signal<T>>),*,
+            chip: CHIP,
+        ) -> (*mut u32, *mut u32) {
+            // Ensure that the pins being used are configured
+            // in their alternate function for FMC use.
+            critical_section::with(|_| {
+                config_pins!(
+                    $($addr_pin_name),*,
+                    $($ba_pin_name),*,
+                    $($d_pin_name),*,
+                    $($nbl_pin_name),*,
+                    $($ctrl_pin_name),*
+                );
+            });
+
+            Sdram::init_banks_for_chip(fmc, chip).await
+        }
+    };
+}
+
 use super::{
-    A0Pin, A1Pin, A2Pin, A3Pin, A4Pin, A5Pin, A6Pin, A7Pin, A8Pin, A9Pin, A10Pin, A11Pin, A12Pin, A13Pin, A14Pin,
-    A15Pin, A16Pin, A17Pin, A18Pin, A19Pin, A20Pin, A21Pin, A22Pin, A23Pin, A24Pin, A25Pin, BA0Pin, BA1Pin, ClkPin,
+    A0Pin, A1Pin, A2Pin, A3Pin, A4Pin, A5Pin, A6Pin, A7Pin, A8Pin, A9Pin, A10Pin, A11Pin, A12Pin, BA0Pin, BA1Pin,
     D0Pin, D1Pin, D2Pin, D3Pin, D4Pin, D5Pin, D6Pin, D7Pin, D8Pin, D9Pin, D10Pin, D11Pin, D12Pin, D13Pin, D14Pin,
     D15Pin, D16Pin, D17Pin, D18Pin, D19Pin, D20Pin, D21Pin, D22Pin, D23Pin, D24Pin, D25Pin, D26Pin, D27Pin, D28Pin,
-    D29Pin, D30Pin, D31Pin, DA0Pin, DA1Pin, DA2Pin, DA3Pin, DA4Pin, DA5Pin, DA6Pin, DA7Pin, DA8Pin, DA9Pin, DA10Pin,
-    DA11Pin, DA12Pin, DA13Pin, DA14Pin, DA15Pin, INTPin, NBL0Pin, NBL1Pin, NBL2Pin, NBL3Pin, NCEPin, NE1Pin, NE2Pin,
-    NE3Pin, NE4Pin, NLPin, NOEPin, NWEPin, NWaitPin, SDCKE0Pin, SDCKE1Pin, SDCLKPin, SDNCASPin, SDNE0Pin, SDNE1Pin,
-    SDNRASPin, SDNWEPin,
+    D29Pin, D30Pin, D31Pin, NBL0Pin, NBL1Pin, NBL2Pin, NBL3Pin, SDCKE0Pin, SDCKE1Pin, SDCLKPin, SDNCASPin, SDNE0Pin,
+    SDNE1Pin, SDNRASPin, SDNWEPin,
 };
-use crate::gpio::{AfType, OutputType, Pull, Speed};
-use crate::{Peri, rcc};
+
+use crate::{
+    Peri,
+    gpio::{AfType, OutputType, Pull, Speed},
+};
 
 impl<'a, 'd, T: super::Instance> Sdram<'a, 'd, T> {
     fmc_sdram_init!(init_sdram_a12bits_d16bits_4banks_bank1: (
@@ -931,6 +966,23 @@ impl<'a, 'd, T: super::Instance> Sdram<'a, 'd, T> {
         ],
         ctrl: [
             (sdcke: SDCKE1Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE1Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
+        ]
+    ));
+
+    fmc_sdram_init_dual!(init_sdram_a12bits_d16bits_4banks_dual: (
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin)
+        ],
+        ba: [(ba0: BA0Pin), (ba1: BA1Pin)],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin)
+        ],
+        nbl: [
+            (nbl0: NBL0Pin), (nbl1: NBL1Pin)
+        ],
+        ctrl: [
+            (sdcke0: SDCKE0Pin), (sdcke1: SDCKE1Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne0: SDNE0Pin), (sdne1: SDNE1Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
         ]
     ));
 
@@ -974,6 +1026,25 @@ impl<'a, 'd, T: super::Instance> Sdram<'a, 'd, T> {
         ]
     ));
 
+    fmc_sdram_init_dual!(init_sdram_a12bits_d32bits_4banks_dual: (
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin)
+        ],
+        ba: [(ba0: BA0Pin), (ba1: BA1Pin)],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin),
+            (d16: D16Pin), (d17: D17Pin), (d18: D18Pin), (d19: D19Pin), (d20: D20Pin), (d21: D21Pin), (d22: D22Pin), (d23: D23Pin),
+            (d24: D24Pin), (d25: D25Pin), (d26: D26Pin), (d27: D27Pin), (d28: D28Pin), (d29: D29Pin), (d30: D30Pin), (d31: D31Pin)
+        ],
+        nbl: [
+            (nbl0: NBL0Pin), (nbl1: NBL1Pin), (nbl2: NBL2Pin), (nbl3: NBL3Pin)
+        ],
+        ctrl: [
+            (sdcke0: SDCKE0Pin), (sdcke1: SDCKE1Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne0: SDNE0Pin), (sdne1: SDNE1Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
+        ]
+    ));
+
     fmc_sdram_init!(init_sdram_a13bits_d32bits_4banks_bank1: (
         bank: FmcSdramBank::Bank1,
         addr: [
@@ -1014,6 +1085,25 @@ impl<'a, 'd, T: super::Instance> Sdram<'a, 'd, T> {
         ]
     ));
 
+    fmc_sdram_init_dual!(init_sdram_a13bits_d32bits_4banks_dual: (
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin), (a12: A12Pin)
+        ],
+        ba: [(ba0: BA0Pin), (ba1: BA1Pin)],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin),
+            (d16: D16Pin), (d17: D17Pin), (d18: D18Pin), (d19: D19Pin), (d20: D20Pin), (d21: D21Pin), (d22: D22Pin), (d23: D23Pin),
+            (d24: D24Pin), (d25: D25Pin), (d26: D26Pin), (d27: D27Pin), (d28: D28Pin), (d29: D29Pin), (d30: D30Pin), (d31: D31Pin)
+        ],
+        nbl: [
+            (nbl0: NBL0Pin), (nbl1: NBL1Pin), (nbl2: NBL2Pin), (nbl3: NBL3Pin)
+        ],
+        ctrl: [
+            (sdcke0: SDCKE0Pin), (sdcke1: SDCKE1Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne0: SDNE0Pin), (sdne1: SDNE1Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
+        ]
+    ));
+
     fmc_sdram_init!(init_sdram_a13bits_d16bits_4banks_bank1: (
         bank: FmcSdramBank::Bank1,
         addr: [
@@ -1047,6 +1137,23 @@ impl<'a, 'd, T: super::Instance> Sdram<'a, 'd, T> {
         ],
         ctrl: [
             (sdcke: SDCKE1Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne: SDNE1Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
+        ]
+    ));
+
+    fmc_sdram_init_dual!(init_sdram_a13bits_d16bits_4banks_dual: (
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin), (a12: A12Pin)
+        ],
+        ba: [(ba0: BA0Pin), (ba1: BA1Pin)],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin)
+        ],
+        nbl: [
+            (nbl0: NBL0Pin), (nbl1: NBL1Pin)
+        ],
+        ctrl: [
+            (sdcke0: SDCKE0Pin), (sdcke1: SDCKE1Pin), (sdclk: SDCLKPin), (sdncas: SDNCASPin), (sdne0: SDNE0Pin), (sdne1: SDNE1Pin), (sdnras: SDNRASPin), (sdnwe: SDNWEPin)
         ]
     ));
 }

@@ -3,11 +3,6 @@
 //! These strongly differ from the types needed for v1.3, so they've
 //! been seperated out here into their own module to reduce complexity.
 
-use embassy_hal_internal::PeripheralType;
-
-use crate::gpio::{AfType, OutputType, Pull, Speed};
-use crate::{Peri, rcc};
-
 // Shadow the metapac values to make them more convenient to access.
 pub use crate::pac::fmc::vals;
 
@@ -56,8 +51,6 @@ impl FmcBank {
         (match self {
             FmcBank::Bank1 => 0x6000_0000u32,
             FmcBank::Bank2 => 0x7000_0000u32,
-            FmcBank::Bank3 => 0x7000_0000u32,
-            #[cfg(not(fmc_v1x3))]
             FmcBank::Bank3 => 0x8000_0000u32,
             // Bank 4 is not used.
             FmcBank::Bank5 => 0xC000_0000u32,

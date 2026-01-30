@@ -2,7 +2,6 @@
 
 use embassy_hal_internal::PeripheralType;
 
-use crate::gpio::{AfType, OutputType, Pull, Speed};
 use crate::{Peri, rcc};
 
 // Shadow the metapac values to make them more convenient to access.
@@ -148,8 +147,6 @@ where
 }
 
 pub(crate) trait SealedInstance: crate::rcc::RccPeripheral {
-    const REGS: crate::pac::fmc::Fmc;
-
     fn regs() -> crate::pac::fmc::Fmc;
 }
 
@@ -160,8 +157,6 @@ pub trait Instance: SealedInstance + PeripheralType + 'static {}
 foreach_peripheral!(
     (fmc, $inst:ident) => {
         impl crate::fmc::SealedInstance for crate::peripherals::$inst {
-            const REGS: crate::pac::fmc::Fmc = crate::pac::$inst;
-
             fn regs() -> crate::pac::fmc::Fmc {
                 crate::pac::$inst
             }
