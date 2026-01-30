@@ -9,10 +9,10 @@ use fixed::traits::ToFixed;
 use fixed::types::extra::U8;
 
 use crate::clocks::clk_sys_freq;
-use crate::dma::{AnyChannel, Channel};
 use crate::gpio::Level;
 use crate::pio::{Common, Direction, Instance, LoadedProgram, Pin, PioPin, ShiftDirection, StateMachine};
 use crate::spi::{Async, Blocking, Config, Mode};
+use crate::{dma, interrupt};
 
 /// This struct represents an SPI program loaded into pio instruction memory.
 struct PioSpiProgram<'d, PIO: Instance> {
@@ -92,8 +92,8 @@ pub struct Spi<'d, PIO: Instance, const SM: usize, M: Mode> {
     cfg: crate::pio::Config<'d, PIO>,
     program: Option<PioSpiProgram<'d, PIO>>,
     clk_pin: Pin<'d, PIO>,
-    tx_dma: Option<Peri<'d, AnyChannel>>,
-    rx_dma: Option<Peri<'d, AnyChannel>>,
+    tx_dma: Option<dma::Channel<'d>>,
+    rx_dma: Option<dma::Channel<'d>>,
     phantom: PhantomData<M>,
 }
 
@@ -105,8 +105,8 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Spi<'d, PIO, SM, M> {
         clk_pin: Peri<'d, impl PioPin>,
         mosi_pin: Peri<'d, impl PioPin>,
         miso_pin: Peri<'d, impl PioPin>,
-        tx_dma: Option<Peri<'d, AnyChannel>>,
-        rx_dma: Option<Peri<'d, AnyChannel>>,
+        tx_dma: Option<dma::Channel<'d>>,
+        rx_dma: Option<dma::Channel<'d>>,
         config: Config,
     ) -> Self {
         let program = PioSpiProgram::new(pio, config.phase);
@@ -306,26 +306,22 @@ impl<'d, PIO: Instance, const SM: usize> Spi<'d, PIO, SM, Blocking> {
 impl<'d, PIO: Instance, const SM: usize> Spi<'d, PIO, SM, Async> {
     /// Create an SPI driver in async mode supporting DMA operations.
     #[allow(clippy::too_many_arguments)]
-    pub fn new(
+    pub fn new<TxDma: dma::ChannelInstance, RxDma: dma::ChannelInstance>(
         pio: &mut Common<'d, PIO>,
         sm: StateMachine<'d, PIO, SM>,
         clk: Peri<'d, impl PioPin>,
         mosi: Peri<'d, impl PioPin>,
         miso: Peri<'d, impl PioPin>,
-        tx_dma: Peri<'d, impl Channel>,
-        rx_dma: Peri<'d, impl Channel>,
+        tx_dma: Peri<'d, TxDma>,
+        rx_dma: Peri<'d, RxDma>,
+        irq: impl interrupt::typelevel::Binding<TxDma::Interrupt, dma::InterruptHandler<TxDma>>
+        + interrupt::typelevel::Binding<RxDma::Interrupt, dma::InterruptHandler<RxDma>>
+        + 'd,
         config: Config,
     ) -> Self {
-        Self::new_inner(
-            pio,
-            sm,
-            clk,
-            mosi,
-            miso,
-            Some(tx_dma.into()),
-            Some(rx_dma.into()),
-            config,
-        )
+        let tx_dma_ch = dma::Channel::new(tx_dma, irq);
+        let rx_dma_ch = dma::Channel::new(rx_dma, irq);
+        Self::new_inner(pio, sm, clk, mosi, miso, Some(tx_dma_ch), Some(rx_dma_ch), config)
     }
 
     /// Read data from SPI using DMA.
@@ -334,11 +330,11 @@ impl<'d, PIO: Instance, const SM: usize> Spi<'d, PIO, SM, Async> {
 
         let len = buffer.len();
 
-        let rx_ch = self.rx_dma.as_mut().unwrap().reborrow();
-        let rx_transfer = rx.dma_pull(rx_ch, buffer, false);
+        let mut rx_ch = self.rx_dma.as_mut().unwrap().reborrow();
+        let rx_transfer = rx.dma_pull(&mut rx_ch, buffer, false);
 
-        let tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
-        let tx_transfer = tx.dma_push_repeated::<_, u8>(tx_ch, len);
+        let mut tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
+        let tx_transfer = tx.dma_push_repeated::<u8>(&mut tx_ch, len);
 
         join(tx_transfer, rx_transfer).await;
 
@@ -349,11 +345,11 @@ impl<'d, PIO: Instance, const SM: usize> Spi<'d, PIO, SM, Async> {
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
         let (rx, tx) = self.sm.rx_tx();
 
-        let rx_ch = self.rx_dma.as_mut().unwrap().reborrow();
-        let rx_transfer = rx.dma_pull_repeated::<_, u8>(rx_ch, buffer.len());
+        let mut rx_ch = self.rx_dma.as_mut().unwrap().reborrow();
+        let rx_transfer = rx.dma_pull_repeated::<u8>(&mut rx_ch, buffer.len());
 
-        let tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
-        let tx_transfer = tx.dma_push(tx_ch, buffer, false);
+        let mut tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
+        let tx_transfer = tx.dma_push(&mut tx_ch, buffer, false);
 
         join(tx_transfer, rx_transfer).await;
 
@@ -375,23 +371,23 @@ impl<'d, PIO: Instance, const SM: usize> Spi<'d, PIO, SM, Async> {
 
         let mut rx_ch = self.rx_dma.as_mut().unwrap().reborrow();
         let rx_transfer = async {
-            rx.dma_pull(rx_ch.reborrow(), unsafe { &mut *rx_buffer }, false).await;
+            rx.dma_pull(&mut rx_ch, unsafe { &mut *rx_buffer }, false).await;
 
             if tx_buffer.len() > rx_buffer.len() {
                 let read_bytes_len = tx_buffer.len() - rx_buffer.len();
 
-                rx.dma_pull_repeated::<_, u8>(rx_ch, read_bytes_len).await;
+                rx.dma_pull_repeated::<u8>(&mut rx_ch, read_bytes_len).await;
             }
         };
 
         let mut tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
         let tx_transfer = async {
-            tx.dma_push(tx_ch.reborrow(), unsafe { &*tx_buffer }, false).await;
+            tx.dma_push(&mut tx_ch, unsafe { &*tx_buffer }, false).await;
 
             if rx_buffer.len() > tx_buffer.len() {
                 let write_bytes_len = rx_buffer.len() - tx_buffer.len();
 
-                tx.dma_push_repeated::<_, u8>(tx_ch, write_bytes_len).await;
+                tx.dma_push_repeated::<u8>(&mut tx_ch, write_bytes_len).await;
             }
         };
 

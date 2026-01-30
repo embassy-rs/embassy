@@ -11,7 +11,7 @@ use fixed::FixedU32;
 use fixed::types::extra::U8;
 use pio::{Program, SideSet, Wrap};
 
-use crate::dma::{self, Channel, Transfer, Word};
+use crate::dma::{self, Transfer, Word};
 use crate::gpio::{self, AnyPin, Drive, Level, Pull, SealedPin, SlewRate};
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::relocate::RelocatedProgram;
@@ -388,12 +388,12 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
     }
 
     /// Prepare DMA transfer from RX FIFO.
-    pub fn dma_pull<'a, C: Channel, W: Word>(
+    pub fn dma_pull<'a, W: Word>(
         &'a mut self,
-        ch: Peri<'a, C>,
+        ch: &'a mut dma::Channel<'_>,
         data: &'a mut [W],
         bswap: bool,
-    ) -> Transfer<'a, C> {
+    ) -> Transfer<'a> {
         let p = ch.regs();
         p.write_addr().write_value(data.as_ptr() as u32);
         p.read_addr().write_value(PIO::PIO.rxf(SM).as_ptr() as u32);
@@ -412,11 +412,11 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
             w.set_en(true);
         });
         compiler_fence(Ordering::SeqCst);
-        Transfer::new(ch)
+        Transfer::new(ch.reborrow())
     }
 
     /// Prepare a repeated DMA transfer from RX FIFO.
-    pub fn dma_pull_repeated<'a, C: Channel, W: Word>(&'a mut self, ch: Peri<'a, C>, len: usize) -> Transfer<'a, C> {
+    pub fn dma_pull_repeated<'a, W: Word>(&'a mut self, ch: &'a mut dma::Channel<'_>, len: usize) -> Transfer<'a> {
         // This is the read version of dma::write_repeated. This allows us to
         // discard reads from the RX FIFO through DMA.
 
@@ -442,7 +442,7 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
             w.set_en(true);
         });
         compiler_fence(Ordering::SeqCst);
-        Transfer::new(ch)
+        Transfer::new(ch.reborrow())
     }
 }
 
@@ -511,12 +511,12 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
     }
 
     /// Prepare a DMA transfer to TX FIFO.
-    pub fn dma_push<'a, C: Channel, W: Word>(
+    pub fn dma_push<'a, W: Word>(
         &'a mut self,
-        ch: Peri<'a, C>,
+        ch: &'a mut dma::Channel<'_>,
         data: &'a [W],
         bswap: bool,
-    ) -> Transfer<'a, C> {
+    ) -> Transfer<'a> {
         let p = ch.regs();
         p.read_addr().write_value(data.as_ptr() as u32);
         p.write_addr().write_value(PIO::PIO.txf(SM).as_ptr() as u32);
@@ -535,12 +535,12 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
             w.set_en(true);
         });
         compiler_fence(Ordering::SeqCst);
-        Transfer::new(ch)
+        Transfer::new(ch.reborrow())
     }
 
     /// Prepare a repeated DMA transfer to TX FIFO.
-    pub fn dma_push_repeated<'a, C: Channel, W: Word>(&'a mut self, ch: Peri<'a, C>, len: usize) -> Transfer<'a, C> {
-        unsafe { dma::write_repeated(ch, PIO::PIO.txf(SM).as_ptr(), len, Self::dreq()) }
+    pub fn dma_push_repeated<'a, W: Word>(&'a mut self, ch: &'a mut dma::Channel<'_>, len: usize) -> Transfer<'a> {
+        unsafe { ch.write_repeated(len, PIO::PIO.txf(SM).as_ptr() as *mut W, Self::dreq()) }
     }
 }
 

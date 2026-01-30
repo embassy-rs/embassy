@@ -242,7 +242,7 @@ impl<'d> Adc<'d, Async> {
         buf: &mut [W],
         fcs_err: bool,
         div: u16,
-        dma: Peri<'_, impl dma::Channel>,
+        dma_ch: &mut dma::Channel<'_>,
     ) -> Result<(), Error> {
         #[cfg(feature = "rp2040")]
         let mut rrobin = 0_u8;
@@ -296,7 +296,7 @@ impl<'d> Adc<'d, Async> {
         }
         let auto_reset = ResetDmaConfig;
 
-        let dma = unsafe { dma::read(dma, r.fifo().as_ptr() as *const W, buf as *mut [W], TreqSel::ADC) };
+        let dma = unsafe { dma_ch.read(r.fifo().as_ptr() as *const W, buf as *mut [W], TreqSel::ADC) };
         // start conversions and wait for dma to finish. we can't report errors early
         // because there's no interrupt to signal them, and inspecting every element
         // of the fifo is too costly to do here.
@@ -323,7 +323,7 @@ impl<'d> Adc<'d, Async> {
         ch: &mut [Channel<'_>],
         buf: &mut [S],
         div: u16,
-        dma: Peri<'_, impl dma::Channel>,
+        dma: &mut dma::Channel<'_>,
     ) -> Result<(), Error> {
         self.read_many_inner(ch.iter().map(|c| c.channel()), buf, false, div, dma)
             .await
@@ -339,7 +339,7 @@ impl<'d> Adc<'d, Async> {
         ch: &mut [Channel<'_>],
         buf: &mut [Sample],
         div: u16,
-        dma: Peri<'_, impl dma::Channel>,
+        dma: &mut dma::Channel<'_>,
     ) {
         // errors are reported in individual samples
         let _ = self
@@ -362,7 +362,7 @@ impl<'d> Adc<'d, Async> {
         ch: &mut Channel<'_>,
         buf: &mut [S],
         div: u16,
-        dma: Peri<'_, impl dma::Channel>,
+        dma: &mut dma::Channel<'_>,
     ) -> Result<(), Error> {
         self.read_many_inner([ch.channel()].into_iter(), buf, false, div, dma)
             .await
@@ -377,7 +377,7 @@ impl<'d> Adc<'d, Async> {
         ch: &mut Channel<'_>,
         buf: &mut [Sample],
         div: u16,
-        dma: Peri<'_, impl dma::Channel>,
+        dma: &mut dma::Channel<'_>,
     ) {
         // errors are reported in individual samples
         let _ = self

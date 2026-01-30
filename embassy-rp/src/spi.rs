@@ -6,9 +6,9 @@ use embassy_futures::join::join;
 use embassy_hal_internal::{Peri, PeripheralType};
 pub use embedded_hal_02::spi::{Phase, Polarity};
 
-use crate::dma::{AnyChannel, Channel};
+use crate::dma::{Channel, ChannelInstance};
 use crate::gpio::{AnyPin, Pin as GpioPin, SealedPin as _};
-use crate::{pac, peripherals};
+use crate::{dma, interrupt, pac, peripherals};
 
 /// SPI errors.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,8 +43,8 @@ impl Default for Config {
 /// SPI driver.
 pub struct Spi<'d, T: Instance, M: Mode> {
     inner: Peri<'d, T>,
-    tx_dma: Option<Peri<'d, AnyChannel>>,
-    rx_dma: Option<Peri<'d, AnyChannel>>,
+    tx_dma: Option<Channel<'d>>,
+    rx_dma: Option<Channel<'d>>,
     phantom: PhantomData<(&'d mut T, M)>,
 }
 
@@ -78,8 +78,8 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         mosi: Option<Peri<'d, AnyPin>>,
         miso: Option<Peri<'d, AnyPin>>,
         cs: Option<Peri<'d, AnyPin>>,
-        tx_dma: Option<Peri<'d, AnyChannel>>,
-        rx_dma: Option<Peri<'d, AnyChannel>>,
+        tx_dma: Option<Channel<'d>>,
+        rx_dma: Option<Channel<'d>>,
         config: Config,
     ) -> Self {
         Self::apply_config(&inner, &config);
@@ -335,42 +335,49 @@ impl<'d, T: Instance> Spi<'d, T, Blocking> {
 
 impl<'d, T: Instance> Spi<'d, T, Async> {
     /// Create an SPI driver in async mode supporting DMA operations.
-    pub fn new(
+    pub fn new<TxDma: ChannelInstance, RxDma: ChannelInstance>(
         inner: Peri<'d, T>,
         clk: Peri<'d, impl ClkPin<T> + 'd>,
         mosi: Peri<'d, impl MosiPin<T> + 'd>,
         miso: Peri<'d, impl MisoPin<T> + 'd>,
-        tx_dma: Peri<'d, impl Channel>,
-        rx_dma: Peri<'d, impl Channel>,
+        tx_dma: Peri<'d, TxDma>,
+        rx_dma: Peri<'d, RxDma>,
+        irq: impl interrupt::typelevel::Binding<TxDma::Interrupt, dma::InterruptHandler<TxDma>>
+        + interrupt::typelevel::Binding<RxDma::Interrupt, dma::InterruptHandler<RxDma>>
+        + 'd,
         config: Config,
     ) -> Self {
+        let tx_dma_ch = dma::Channel::new(tx_dma, irq);
+        let rx_dma_ch = dma::Channel::new(rx_dma, irq);
         Self::new_inner(
             inner,
             Some(clk.into()),
             Some(mosi.into()),
             Some(miso.into()),
             None,
-            Some(tx_dma.into()),
-            Some(rx_dma.into()),
+            Some(tx_dma_ch),
+            Some(rx_dma_ch),
             config,
         )
     }
 
     /// Create an SPI driver in async mode supporting DMA write operations only.
-    pub fn new_txonly(
+    pub fn new_txonly<TxDma: ChannelInstance>(
         inner: Peri<'d, T>,
         clk: Peri<'d, impl ClkPin<T> + 'd>,
         mosi: Peri<'d, impl MosiPin<T> + 'd>,
-        tx_dma: Peri<'d, impl Channel>,
+        tx_dma: Peri<'d, TxDma>,
+        irq: impl interrupt::typelevel::Binding<TxDma::Interrupt, dma::InterruptHandler<TxDma>> + 'd,
         config: Config,
     ) -> Self {
+        let tx_dma_ch = dma::Channel::new(tx_dma, irq);
         Self::new_inner(
             inner,
             Some(clk.into()),
             Some(mosi.into()),
             None,
             None,
-            Some(tx_dma.into()),
+            Some(tx_dma_ch),
             None,
             config,
         )
@@ -378,52 +385,61 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
 
     /// Create an SPI driver in async mode supporting DMA write operations only,
     /// without SCK pin.
-    pub fn new_txonly_nosck(
+    pub fn new_txonly_nosck<TxDma: ChannelInstance>(
         inner: Peri<'d, T>,
         mosi: Peri<'d, impl MosiPin<T> + 'd>,
-        tx_dma: Peri<'d, impl Channel>,
+        tx_dma: Peri<'d, TxDma>,
+        irq: impl interrupt::typelevel::Binding<TxDma::Interrupt, dma::InterruptHandler<TxDma>> + 'd,
         config: Config,
     ) -> Self {
+        let tx_dma_ch = dma::Channel::new(tx_dma, irq);
         Self::new_inner(
             inner,
             None,
             Some(mosi.into()),
             None,
             None,
-            Some(tx_dma.into()),
+            Some(tx_dma_ch),
             None,
             config,
         )
     }
 
     /// Create an SPI driver in async mode supporting DMA read operations only.
-    pub fn new_rxonly(
+    pub fn new_rxonly<TxDma: ChannelInstance, RxDma: ChannelInstance>(
         inner: Peri<'d, T>,
         clk: Peri<'d, impl ClkPin<T> + 'd>,
         miso: Peri<'d, impl MisoPin<T> + 'd>,
-        tx_dma: Peri<'d, impl Channel>,
-        rx_dma: Peri<'d, impl Channel>,
+        tx_dma: Peri<'d, TxDma>,
+        rx_dma: Peri<'d, RxDma>,
+        irq: impl interrupt::typelevel::Binding<TxDma::Interrupt, dma::InterruptHandler<TxDma>>
+        + interrupt::typelevel::Binding<RxDma::Interrupt, dma::InterruptHandler<RxDma>>
+        + 'd,
         config: Config,
     ) -> Self {
+        let tx_dma_ch = dma::Channel::new(tx_dma, irq);
+        let rx_dma_ch = dma::Channel::new(rx_dma, irq);
         Self::new_inner(
             inner,
             Some(clk.into()),
             None,
             Some(miso.into()),
             None,
-            Some(tx_dma.into()),
-            Some(rx_dma.into()),
+            Some(tx_dma_ch),
+            Some(rx_dma_ch),
             config,
         )
     }
 
     /// Write data to SPI using DMA.
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        let tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
         let tx_transfer = unsafe {
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::write(tx_ch, buffer, self.inner.regs().dr().as_ptr() as *mut _, T::TX_DREQ)
+            self.tx_dma
+                .as_mut()
+                .unwrap()
+                .write(buffer, self.inner.regs().dr().as_ptr() as *mut _, T::TX_DREQ)
         };
         tx_transfer.await;
 
@@ -444,21 +460,21 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         // Start RX first. Transfer starts when TX starts, if RX
         // is not started yet we might lose bytes.
-        let rx_ch = self.rx_dma.as_mut().unwrap().reborrow();
         let rx_transfer = unsafe {
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::read(rx_ch, self.inner.regs().dr().as_ptr() as *const _, buffer, T::RX_DREQ)
+            self.rx_dma
+                .as_mut()
+                .unwrap()
+                .read(self.inner.regs().dr().as_ptr() as *const _, buffer, T::RX_DREQ)
         };
 
-        let tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
         let tx_transfer = unsafe {
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::write_repeated(
-                tx_ch,
-                self.inner.regs().dr().as_ptr() as *mut u8,
+            self.tx_dma.as_mut().unwrap().write_repeated(
                 buffer.len(),
+                self.inner.regs().dr().as_ptr() as *mut u8,
                 T::TX_DREQ,
             )
         };
@@ -479,26 +495,30 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
     async fn transfer_inner(&mut self, rx: *mut [u8], tx: *const [u8]) -> Result<(), Error> {
         // Start RX first. Transfer starts when TX starts, if RX
         // is not started yet we might lose bytes.
-        let rx_ch = self.rx_dma.as_mut().unwrap().reborrow();
         let rx_transfer = unsafe {
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::read(rx_ch, self.inner.regs().dr().as_ptr() as *const _, rx, T::RX_DREQ)
+            self.rx_dma
+                .as_mut()
+                .unwrap()
+                .read(self.inner.regs().dr().as_ptr() as *const _, rx, T::RX_DREQ)
         };
 
-        let mut tx_ch = self.tx_dma.as_mut().unwrap().reborrow();
+        let tx_ch = self.tx_dma.as_mut().unwrap();
         // If we don't assign future to a variable, the data register pointer
         // is held across an await and makes the future non-Send.
         let tx_transfer = async {
             let p = self.inner.regs();
             unsafe {
-                crate::dma::write(tx_ch.reborrow(), tx, p.dr().as_ptr() as *mut _, T::TX_DREQ).await;
+                tx_ch.write(tx, p.dr().as_ptr() as *mut _, T::TX_DREQ).await;
 
                 if rx.len() > tx.len() {
                     let write_bytes_len = rx.len() - tx.len();
                     // write dummy data
                     // this will disable incrementation of the buffers
-                    crate::dma::write_repeated(tx_ch, p.dr().as_ptr() as *mut u8, write_bytes_len, T::TX_DREQ).await
+                    tx_ch
+                        .write_repeated(write_bytes_len, p.dr().as_ptr() as *mut u8, T::TX_DREQ)
+                        .await
                 }
             }
         };

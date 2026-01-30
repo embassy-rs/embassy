@@ -11,12 +11,12 @@ use embassy_time::{Delay, Timer};
 use pac::uart::regs::Uartris;
 
 use crate::clocks::clk_peri_freq;
-use crate::dma::{AnyChannel, Channel};
+use crate::dma::{Channel, ChannelInstance};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::interrupt::typelevel::{Binding, Interrupt as _};
 use crate::interrupt::{Interrupt, InterruptExt};
 use crate::pac::io::vals::{Inover, Outover};
-use crate::{RegExt, interrupt, pac, peripherals};
+use crate::{RegExt, dma, interrupt, pac, peripherals};
 
 mod buffered;
 pub use buffered::{BufferedInterruptHandler, BufferedUart, BufferedUartRx, BufferedUartTx};
@@ -152,7 +152,7 @@ pub struct Uart<'d, M: Mode> {
 /// UART TX driver.
 pub struct UartTx<'d, M: Mode> {
     info: &'static Info,
-    tx_dma: Option<Peri<'d, AnyChannel>>,
+    tx_dma: Option<dma::Channel<'d>>,
     phantom: PhantomData<M>,
 }
 
@@ -160,23 +160,12 @@ pub struct UartTx<'d, M: Mode> {
 pub struct UartRx<'d, M: Mode> {
     info: &'static Info,
     dma_state: &'static DmaState,
-    rx_dma: Option<Peri<'d, AnyChannel>>,
+    rx_dma: Option<dma::Channel<'d>>,
     phantom: PhantomData<M>,
 }
 
 impl<'d, M: Mode> UartTx<'d, M> {
-    /// Create a new DMA-enabled UART which can only send data
-    pub fn new<T: Instance>(
-        _uart: Peri<'d, T>,
-        tx: Peri<'d, impl TxPin<T>>,
-        tx_dma: Peri<'d, impl Channel>,
-        config: Config,
-    ) -> Self {
-        Uart::<M>::init(T::info(), Some(tx.into()), None, None, None, config);
-        Self::new_inner(T::info(), Some(tx_dma.into()))
-    }
-
-    fn new_inner(info: &'static Info, tx_dma: Option<Peri<'d, AnyChannel>>) -> Self {
+    fn new_inner(info: &'static Info, tx_dma: Option<Channel<'d>>) -> Self {
         Self {
             info,
             tx_dma,
@@ -258,17 +247,27 @@ impl<'d> UartTx<'d, Blocking> {
 }
 
 impl<'d> UartTx<'d, Async> {
+    /// Create a new DMA-enabled UART which can only send data
+    pub fn new<T: Instance, TxDma: ChannelInstance>(
+        _uart: Peri<'d, T>,
+        tx: Peri<'d, impl TxPin<T>>,
+        tx_dma: Peri<'d, TxDma>,
+        irq: impl crate::interrupt::typelevel::Binding<TxDma::Interrupt, crate::dma::InterruptHandler<TxDma>> + 'd,
+        config: Config,
+    ) -> Self {
+        Uart::<Async>::init(T::info(), Some(tx.into()), None, None, None, config);
+        Self::new_inner(T::info(), Some(Channel::new(tx_dma, irq)))
+    }
+
     /// Write to UART TX from the provided buffer using DMA.
     pub async fn write(&mut self, buffer: &[u8]) -> Result<(), Error> {
-        let ch = self.tx_dma.as_mut().unwrap().reborrow();
         let transfer = unsafe {
             self.info.regs.uartdmacr().write_set(|reg| {
                 reg.set_txdmae(true);
             });
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::write(
-                ch,
+            self.tx_dma.as_mut().unwrap().write(
                 buffer,
                 self.info.regs.uartdr().as_ptr() as *mut _,
                 self.info.tx_dreq.into(),
@@ -280,23 +279,11 @@ impl<'d> UartTx<'d, Async> {
 }
 
 impl<'d, M: Mode> UartRx<'d, M> {
-    /// Create a new DMA-enabled UART which can only receive data
-    pub fn new<T: Instance>(
-        _uart: Peri<'d, T>,
-        rx: Peri<'d, impl RxPin<T>>,
-        _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
-        rx_dma: Peri<'d, impl Channel>,
-        config: Config,
-    ) -> Self {
-        Uart::<M>::init(T::info(), None, Some(rx.into()), None, None, config);
-        Self::new_inner(T::info(), T::dma_state(), true, Some(rx_dma.into()))
-    }
-
     fn new_inner(
         info: &'static Info,
         dma_state: &'static DmaState,
         has_irq: bool,
-        rx_dma: Option<Peri<'d, AnyChannel>>,
+        rx_dma: Option<dma::Channel<'d>>,
     ) -> Self {
         debug_assert_eq!(has_irq, rx_dma.is_some());
         if has_irq {
@@ -411,6 +398,20 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
 }
 
 impl<'d> UartRx<'d, Async> {
+    /// Create a new DMA-enabled UART which can only receive data
+    pub fn new<T: Instance, RxDma: ChannelInstance>(
+        _uart: Peri<'d, T>,
+        rx: Peri<'d, impl RxPin<T>>,
+        irq: impl Binding<T::Interrupt, InterruptHandler<T>>
+        + crate::interrupt::typelevel::Binding<RxDma::Interrupt, crate::dma::InterruptHandler<RxDma>>
+        + 'd,
+        rx_dma: Peri<'d, RxDma>,
+        config: Config,
+    ) -> Self {
+        Uart::<Async>::init(T::info(), None, Some(rx.into()), None, None, config);
+        Self::new_inner(T::info(), T::dma_state(), true, Some(Channel::new(rx_dma, irq)))
+    }
+
     /// Read from UART RX into the provided buffer.
     pub async fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
         // clear error flags before we drain the fifo. errors that have accumulated
@@ -437,7 +438,6 @@ impl<'d> UartRx<'d, Async> {
         // start a dma transfer. if errors have happened in the interim some error
         // interrupt flags will have been raised, and those will be picked up immediately
         // by the interrupt handler.
-        let ch = self.rx_dma.as_mut().unwrap().reborrow();
         self.info.regs.uartimsc().write_set(|w| {
             w.set_oeim(true);
             w.set_beim(true);
@@ -451,8 +451,7 @@ impl<'d> UartRx<'d, Async> {
         let transfer = unsafe {
             // If we don't assign future to a variable, the data register pointer
             // is held across an await and makes the future non-Send.
-            crate::dma::read(
-                ch,
+            self.rx_dma.as_mut().unwrap().read(
                 self.info.regs.uartdr().as_ptr() as *const _,
                 buffer,
                 self.info.rx_dreq.into(),
@@ -604,7 +603,6 @@ impl<'d> UartRx<'d, Async> {
         // start a dma transfer. if errors have happened in the interim some error
         // interrupt flags will have been raised, and those will be picked up immediately
         // by the interrupt handler.
-        let ch = self.rx_dma.as_mut().unwrap();
         self.info.regs.uartimsc().write_set(|w| {
             w.set_oeim(true);
             w.set_beim(true);
@@ -620,8 +618,7 @@ impl<'d> UartRx<'d, Async> {
             let transfer = unsafe {
                 // If we don't assign future to a variable, the data register pointer
                 // is held across an await and makes the future non-Send.
-                crate::dma::read(
-                    ch.reborrow(),
+                self.rx_dma.as_mut().unwrap().read(
                     self.info.regs.uartdr().as_ptr() as *const _,
                     sbuffer,
                     self.info.rx_dreq.into(),
@@ -679,7 +676,7 @@ impl<'d> UartRx<'d, Async> {
                 let eval = sval + buffer.len();
 
                 // This is the address where the DMA would write to next
-                let next_addr = ch.regs().write_addr().read() as usize;
+                let next_addr = self.rx_dma.as_mut().unwrap().regs().write_addr().read() as usize;
 
                 // If we DON'T end up inside the range, something has gone really wrong.
                 // Note that it's okay that `eval` is one past the end of the slice, as
@@ -802,15 +799,20 @@ impl<'d> Uart<'d, Blocking> {
 
 impl<'d> Uart<'d, Async> {
     /// Create a new DMA enabled UART without hardware flow control
-    pub fn new<T: Instance>(
+    pub fn new<T: Instance, TxDma: ChannelInstance, RxDma: ChannelInstance>(
         uart: Peri<'d, T>,
         tx: Peri<'d, impl TxPin<T>>,
         rx: Peri<'d, impl RxPin<T>>,
-        _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
-        tx_dma: Peri<'d, impl Channel>,
-        rx_dma: Peri<'d, impl Channel>,
+        irq: impl Binding<T::Interrupt, InterruptHandler<T>>
+        + Binding<TxDma::Interrupt, dma::InterruptHandler<TxDma>>
+        + Binding<RxDma::Interrupt, dma::InterruptHandler<RxDma>>
+        + 'd,
+        tx_dma: Peri<'d, TxDma>,
+        rx_dma: Peri<'d, RxDma>,
         config: Config,
     ) -> Self {
+        let tx_dma_ch = dma::Channel::new(tx_dma, irq);
+        let rx_dma_ch = dma::Channel::new(rx_dma, irq);
         Self::new_inner(
             uart,
             tx.into(),
@@ -818,24 +820,29 @@ impl<'d> Uart<'d, Async> {
             None,
             None,
             true,
-            Some(tx_dma.into()),
-            Some(rx_dma.into()),
+            Some(tx_dma_ch),
+            Some(rx_dma_ch),
             config,
         )
     }
 
     /// Create a new DMA enabled UART with hardware flow control (RTS/CTS)
-    pub fn new_with_rtscts<T: Instance>(
+    pub fn new_with_rtscts<T: Instance, TxDma: ChannelInstance, RxDma: ChannelInstance>(
         uart: Peri<'d, T>,
         tx: Peri<'d, impl TxPin<T>>,
         rx: Peri<'d, impl RxPin<T>>,
         rts: Peri<'d, impl RtsPin<T>>,
         cts: Peri<'d, impl CtsPin<T>>,
-        _irq: impl Binding<T::Interrupt, InterruptHandler<T>>,
-        tx_dma: Peri<'d, impl Channel>,
-        rx_dma: Peri<'d, impl Channel>,
+        irq: impl Binding<T::Interrupt, InterruptHandler<T>>
+        + Binding<TxDma::Interrupt, dma::InterruptHandler<TxDma>>
+        + Binding<RxDma::Interrupt, dma::InterruptHandler<RxDma>>
+        + 'd,
+        tx_dma: Peri<'d, TxDma>,
+        rx_dma: Peri<'d, RxDma>,
         config: Config,
     ) -> Self {
+        let tx_dma_ch = dma::Channel::new(tx_dma, irq);
+        let rx_dma_ch = dma::Channel::new(rx_dma, irq);
         Self::new_inner(
             uart,
             tx.into(),
@@ -843,8 +850,8 @@ impl<'d> Uart<'d, Async> {
             Some(rts.into()),
             Some(cts.into()),
             true,
-            Some(tx_dma.into()),
-            Some(rx_dma.into()),
+            Some(tx_dma_ch),
+            Some(rx_dma_ch),
             config,
         )
     }
@@ -858,8 +865,8 @@ impl<'d, M: Mode> Uart<'d, M> {
         mut rts: Option<Peri<'d, AnyPin>>,
         mut cts: Option<Peri<'d, AnyPin>>,
         has_irq: bool,
-        tx_dma: Option<Peri<'d, AnyChannel>>,
-        rx_dma: Option<Peri<'d, AnyChannel>>,
+        tx_dma: Option<dma::Channel<'d>>,
+        rx_dma: Option<dma::Channel<'d>>,
         config: Config,
     ) -> Self {
         Self::init(
