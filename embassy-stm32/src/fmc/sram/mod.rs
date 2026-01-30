@@ -469,9 +469,9 @@ impl<'a, 'd, T: super::Instance> Sram<'a, 'd, T> {
                 bcr.set_cclken(self.config.continuous_clock_enable);
 
                 // Burst enable for PSRAM
-                #[cfg(fmc_v1x3)]
+                #[cfg(any(fmc_v1x3, fmc_v2x1))]
                 bcr.set_cburstrw(self.config.write_burst_enable);
-                #[cfg(not(fmc_v1x3))]
+                #[cfg(not(any(fmc_v1x3, fmc_v2x1)))]
                 bcr.set_cburstrw(match self.config.write_burst_enable {
                     true => vals::Cburstrw::ASYNCHRONOUS,
                     false => vals::Cburstrw::SYNCHRONOUS,
@@ -534,9 +534,9 @@ impl<'a, 'd, T: super::Instance> Sram<'a, 'd, T> {
             })
             .modify::<Result<(), InitError>>(|bcr| {
                 // Burst enable for PSRAM
-                #[cfg(fmc_v1x3)]
+                #[cfg(any(fmc_v1x3, fmc_v2x1))]
                 bcr.set_cburstrw(self.config.write_burst_enable);
-                #[cfg(not(fmc_v1x3))]
+                #[cfg(not(any(fmc_v1x3, fmc_v2x1)))]
                 bcr.set_cburstrw(match self.config.write_burst_enable {
                     true => vals::Cburstrw::ASYNCHRONOUS,
                     false => vals::Cburstrw::SYNCHRONOUS,
