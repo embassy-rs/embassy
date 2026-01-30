@@ -81,10 +81,7 @@ impl TunTap {
     /// Create a new TUN/TAP device.
     pub fn new(name: &str) -> io::Result<TunTap> {
         unsafe {
-            let fd = libc::open(
-                "/dev/net/tun\0".as_ptr() as *const libc::c_char,
-                libc::O_RDWR | libc::O_NONBLOCK,
-            );
+            let fd = libc::open(c"/dev/net/tun".as_ptr(), libc::O_RDWR | libc::O_NONBLOCK);
             if fd == -1 {
                 return Err(io::Error::last_os_error());
             }
