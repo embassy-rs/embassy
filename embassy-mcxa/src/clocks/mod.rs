@@ -39,7 +39,8 @@ use core::cell::RefCell;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use config::{
-    ClocksConfig, FircConfig, FircFreqSel, Fro16KConfig, MainClockSource, SircConfig, VddDriveStrength, VddLevel,
+    ClocksConfig, CoreSleep, FircConfig, FircFreqSel, Fro16KConfig, MainClockSource, SircConfig, VddDriveStrength,
+    VddLevel,
 };
 use mcxa_pac::scg0::firccsr::{FircFclkPeriphEn, FircSclkPeriphEn, Fircsten};
 use mcxa_pac::scg0::sirccsr::Sircsten;
@@ -101,6 +102,7 @@ pub fn init(settings: ClocksConfig) -> Result<(), ClockError> {
         vbat0: unsafe { pac::Vbat0::steal() },
         spc0: unsafe { pac::Spc0::steal() },
         fmu0: unsafe { pac::Fmu0::steal() },
+        cmc: unsafe { pac::Cmc::steal() },
     };
 
     // Before applying any requested clocks, apply the requested VDD_CORE
@@ -354,6 +356,7 @@ struct ClockOperator<'a> {
     vbat0: pac::Vbat0,
     spc0: pac::Spc0,
     fmu0: pac::Fmu0,
+    cmc: pac::Cmc,
 }
 
 // From Table 165 - Max Clock Frequencies
@@ -1061,15 +1064,19 @@ impl ClockOperator<'_> {
 
     /// Configure the ROSC/FRO16K/clk_16k clock family
     fn configure_fro16k_clocks(&mut self) -> Result<(), ClockError> {
-        let Some(fro16k) = self.config.fro16k.as_ref() else {
-            return Ok(());
-        };
-        // Enable FRO16K oscillator
-        self.vbat0.froctla().modify(|_, w| w.fro_en().set_bit());
+        // If we have a config: ensure fro16k is enabled. If not: ensure it is disabled.
+        let enable = self.config.fro16k.is_some();
+        self.vbat0.froctla().modify(|_r, w| w.fro_en().bit(enable));
 
         // Lock the control register
         self.vbat0.frolcka().modify(|_, w| w.lock().set_bit());
 
+        // If we're disabled, we're done!
+        let Some(fro16k) = self.config.fro16k.as_ref() else {
+            return Ok(());
+        };
+
+        // Enabled, now set up.
         let Fro16KConfig {
             vsys_domain_active,
             vdd_core_domain_active,
@@ -1782,15 +1789,22 @@ impl ClockOperator<'_> {
         // for low power mode. We'll just configure it, I guess?
         //
         // NOTE(AJM): "LP_CFG: This register resets only after a POR or LVD event."
-        let ds = match self.config.vdd_power.low_power_mode.drive {
-            VddDriveStrength::Low => pac::spc0::lp_cfg::CoreldoVddDs::Low,
+        let (ds, bgap) = match self.config.vdd_power.low_power_mode.drive {
+            VddDriveStrength::Low { enable_bandgap } => {
+                // If the bandgap is enabled, also enable the high/low voltage
+                // detectors. if it is disabled, these must also be disabled.
+                self.spc0.lp_cfg().modify(|_r, w| {
+                    w.sys_hvde().bit(enable_bandgap);
+                    w.sys_lvde().bit(enable_bandgap);
+                    w.core_lvde().bit(enable_bandgap);
+                    w
+                });
+
+                (pac::spc0::lp_cfg::CoreldoVddDs::Low, enable_bandgap)
+            }
             VddDriveStrength::Normal => {
                 // "If you specify normal drive strength, you must write a value to LP[BGMODE] that enables the bandgap."
-                //
-                // Bandgap enabled, buffer disabled
-                self.spc0.lp_cfg().modify(|_r, w| w.bgmode().bgmode01());
-
-                pac::spc0::lp_cfg::CoreldoVddDs::Normal
+                (pac::spc0::lp_cfg::CoreldoVddDs::Normal, true)
             }
         };
         let lvl = match self.config.vdd_power.low_power_mode.level {
@@ -1798,7 +1812,16 @@ impl ClockOperator<'_> {
             VddLevel::OverDriveMode => pac::spc0::lp_cfg::CoreldoVddLvl::Over,
         };
         self.spc0.lp_cfg().modify(|_r, w| w.coreldo_vdd_ds().variant(ds));
-        self.spc0.lp_cfg().modify(|_r, w| w.coreldo_vdd_lvl().variant(lvl));
+
+        // If we're enabling the bandgap, ensure we do it BEFORE changing the VDD level
+        // If we're disabling the bandgap, ensure we do it AFTER changing the VDD level
+        if bgap {
+            self.spc0.lp_cfg().modify(|_r, w| w.bgmode().bgmode01());
+            self.spc0.lp_cfg().modify(|_r, w| w.coreldo_vdd_lvl().variant(lvl));
+        } else {
+            self.spc0.lp_cfg().modify(|_r, w| w.coreldo_vdd_lvl().variant(lvl));
+            self.spc0.lp_cfg().modify(|_r, w| w.bgmode().bgmode0());
+        }
 
         // Updating CORELDO_VDD_LVL sets the SC[BUSY] flag. That flag remains set for at least the total time
         // delay that Active Voltage Trim Delay (ACTIVE_VDELAY) specifies.
@@ -1812,13 +1835,63 @@ impl ClockOperator<'_> {
         // NOTE(AJM): I don't really know if this is valid! I'm guessing in most cases you would want to
         // use the low drive strength for lp mode, and high drive strength for active mode?
         match self.config.vdd_power.active_mode.drive {
-            VddDriveStrength::Low => {
+            VddDriveStrength::Low { enable_bandgap } => {
+                // If the bandgap is enabled, also enable the high/low voltage
+                // detectors. if it is disabled, these must also be disabled.
+                self.spc0.active_cfg().modify(|_r, w| {
+                    w.sys_hvde().bit(enable_bandgap);
+                    w.sys_lvde().bit(enable_bandgap);
+                    w.core_lvde().bit(enable_bandgap);
+                    w
+                });
+
+                // optionally disable bandgap AFTER setting vdd strength to low
                 self.spc0.active_cfg().modify(|_r, w| w.coreldo_vdd_ds().low());
+                self.spc0.active_cfg().modify(|_r, w| {
+                    if enable_bandgap {
+                        w.bgmode().bgmode01()
+                    } else {
+                        w.bgmode().bgmode0()
+                    }
+                });
             }
             VddDriveStrength::Normal => {
                 // Already set to normal above
             }
         }
+
+        match self.config.vdd_power.core_sleep {
+            CoreSleep::WfeUngated => {}
+            CoreSleep::WfeGated => {
+                // Allow automatic gating of the core when in LIGHT sleep
+                self.cmc.ckctrl().modify(|_r, w| w.ckmode().ckmode0001());
+
+                // Debug is disabled when core sleeps
+                self.cmc.dbgctl().modify(|_r, w| w.sod().set_bit());
+
+                // Allow the core to be gated - this WILL kill the debugging session!
+                let mut cp = unsafe { cortex_m::Peripherals::steal() };
+                cp.SCB.set_sleepdeep();
+            }
+        }
+
+        // Allow automatic gating of the flash memory
+        let (wake, doze) = match self.config.vdd_power.flash_sleep {
+            config::FlashSleep::Never => (false, false),
+            config::FlashSleep::FlashDoze => (false, true),
+            config::FlashSleep::FlashDozeWithFlashWake => (true, true),
+        };
+
+        self.cmc.flashcr().modify(|_r, w| {
+            w.flashdoze().bit(doze);
+            w.flashwake().bit(wake);
+            w
+        });
+
+        // At init, disable all analog peripherals. These can be re-enabled
+        // if necessary for HAL drivers.
+        self.spc0.active_cfg1().write(|w| unsafe { w.bits(0) });
+        self.spc0.lp_cfg1().write(|w| unsafe { w.bits(0) });
 
         // Update status
         self.clocks.active_power = self.config.vdd_power.active_mode.level;
@@ -1894,37 +1967,41 @@ pub(crate) mod gate {
     impl_cc_gate!(PORT3, mrcc_glb_cc1, mrcc_glb_rst1, port3, NoConfig);
     impl_cc_gate!(PORT4, mrcc_glb_cc1, mrcc_glb_rst1, port4, NoConfig);
 
-    impl_cc_gate!(GPIO0, mrcc_glb_cc2, mrcc_glb_rst2, gpio0, NoConfig);
-    impl_cc_gate!(GPIO1, mrcc_glb_cc2, mrcc_glb_rst2, gpio1, NoConfig);
-    impl_cc_gate!(GPIO2, mrcc_glb_cc2, mrcc_glb_rst2, gpio2, NoConfig);
-    impl_cc_gate!(GPIO3, mrcc_glb_cc2, mrcc_glb_rst2, gpio3, NoConfig);
-    impl_cc_gate!(GPIO4, mrcc_glb_cc2, mrcc_glb_rst2, gpio4, NoConfig);
-
     impl_cc_gate!(CRC0, mrcc_glb_cc0, mrcc_glb_rst0, crc0, NoConfig);
 
     // These peripherals DO have meaningful configuration, and could fail if the system
     // clocks do not match their needs.
-    impl_cc_gate!(LPI2C0, mrcc_glb_cc0, mrcc_glb_rst0, lpi2c0, Lpi2cConfig);
-    impl_cc_gate!(LPI2C1, mrcc_glb_cc0, mrcc_glb_rst0, lpi2c1, Lpi2cConfig);
-    impl_cc_gate!(LPI2C2, mrcc_glb_cc1, mrcc_glb_rst1, lpi2c2, Lpi2cConfig);
-    impl_cc_gate!(LPI2C3, mrcc_glb_cc1, mrcc_glb_rst1, lpi2c3, Lpi2cConfig);
-
-    impl_cc_gate!(LPUART0, mrcc_glb_cc0, mrcc_glb_rst0, lpuart0, LpuartConfig);
-    impl_cc_gate!(LPUART1, mrcc_glb_cc0, mrcc_glb_rst0, lpuart1, LpuartConfig);
-    impl_cc_gate!(LPUART2, mrcc_glb_cc0, mrcc_glb_rst0, lpuart2, LpuartConfig);
-    impl_cc_gate!(LPUART3, mrcc_glb_cc0, mrcc_glb_rst0, lpuart3, LpuartConfig);
-    impl_cc_gate!(LPUART4, mrcc_glb_cc0, mrcc_glb_rst0, lpuart4, LpuartConfig);
-    impl_cc_gate!(LPUART5, mrcc_glb_cc1, mrcc_glb_rst1, lpuart5, LpuartConfig);
     impl_cc_gate!(ADC0, mrcc_glb_cc1, mrcc_glb_rst1, adc0, AdcConfig);
     impl_cc_gate!(ADC1, mrcc_glb_cc1, mrcc_glb_rst1, adc1, AdcConfig);
     impl_cc_gate!(ADC2, mrcc_glb_cc1, mrcc_glb_rst1, adc2, AdcConfig);
     impl_cc_gate!(ADC3, mrcc_glb_cc1, mrcc_glb_rst1, adc3, AdcConfig);
+
     impl_cc_gate!(I3C0, mrcc_glb_cc0, mrcc_glb_rst0, i3c0, I3cConfig);
 
     impl_cc_gate!(OSTIMER0, mrcc_glb_cc1, mrcc_glb_rst1, ostimer0, OsTimerConfig);
 
-    // DMA0 peripheral - uses NoConfig since it has no selectable clock source
-    impl_cc_gate!(DMA0, mrcc_glb_cc0, mrcc_glb_rst0, dma0, NoConfig);
     // TRNG peripheral - uses NoConfig since it has no selectable clock source
     impl_cc_gate!(TRNG0, mrcc_glb_cc1, mrcc_glb_rst1, trng0, NoConfig);
+
+    // Peripherals that use ACC instead of CC!
+    impl_cc_gate!(LPUART0, mrcc_glb_acc0, mrcc_glb_rst0, lpuart0, LpuartConfig);
+    impl_cc_gate!(LPUART1, mrcc_glb_acc0, mrcc_glb_rst0, lpuart1, LpuartConfig);
+    impl_cc_gate!(LPUART2, mrcc_glb_acc0, mrcc_glb_rst0, lpuart2, LpuartConfig);
+    impl_cc_gate!(LPUART3, mrcc_glb_acc0, mrcc_glb_rst0, lpuart3, LpuartConfig);
+    impl_cc_gate!(LPUART4, mrcc_glb_acc0, mrcc_glb_rst0, lpuart4, LpuartConfig);
+    impl_cc_gate!(LPUART5, mrcc_glb_acc1, mrcc_glb_rst1, lpuart5, LpuartConfig);
+
+    // DMA0 peripheral - uses NoConfig since it has no selectable clock source
+    impl_cc_gate!(DMA0, mrcc_glb_acc0, mrcc_glb_rst0, dma0, NoConfig);
+
+    impl_cc_gate!(GPIO0, mrcc_glb_acc2, mrcc_glb_rst2, gpio0, NoConfig);
+    impl_cc_gate!(GPIO1, mrcc_glb_acc2, mrcc_glb_rst2, gpio1, NoConfig);
+    impl_cc_gate!(GPIO2, mrcc_glb_acc2, mrcc_glb_rst2, gpio2, NoConfig);
+    impl_cc_gate!(GPIO3, mrcc_glb_acc2, mrcc_glb_rst2, gpio3, NoConfig);
+    impl_cc_gate!(GPIO4, mrcc_glb_acc2, mrcc_glb_rst2, gpio4, NoConfig);
+
+    impl_cc_gate!(LPI2C0, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c0, Lpi2cConfig);
+    impl_cc_gate!(LPI2C1, mrcc_glb_acc0, mrcc_glb_rst0, lpi2c1, Lpi2cConfig);
+    impl_cc_gate!(LPI2C2, mrcc_glb_acc1, mrcc_glb_rst1, lpi2c2, Lpi2cConfig);
+    impl_cc_gate!(LPI2C3, mrcc_glb_acc1, mrcc_glb_rst1, lpi2c3, Lpi2cConfig);
 }

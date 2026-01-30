@@ -497,25 +497,26 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
         _ = crate::clocks::enable_and_reset::<crate::peripherals::GPIO4>(&crate::clocks::periph_helpers::NoConfig);
     }
 
+    use crate::gpio::SealedPin;
     // If we are not using SWD pins for SWD reasons, make them floating inputs
     #[cfg(feature = "swd-as-gpio")]
     {
-        let _swdio = gpio::Input::new(peripherals.P0_0.reborrow(), gpio::Pull::Disabled);
-        let _swclk = gpio::Input::new(peripherals.P0_1.reborrow(), gpio::Pull::Disabled);
+        peripherals.P0_0.set_as_disabled();
+        peripherals.P0_1.set_as_disabled();
     }
     #[cfg(feature = "swd-swo-as-gpio")]
     {
-        let _swo = gpio::Input::new(peripherals.P0_2.reborrow(), gpio::Pull::Disabled);
+        peripherals.P0_2.set_as_disabled();
     }
     #[cfg(feature = "jtag-extras-as-gpio")]
     {
-        let _tdi = gpio::Input::new(peripherals.P0_3.reborrow(), gpio::Pull::Disabled);
-        let _imn = gpio::Input::new(peripherals.P0_6.reborrow(), gpio::Pull::Disabled);
+        peripherals.P0_3.set_as_disabled();
+        peripherals.P0_6.set_as_disabled();
     }
     #[cfg(feature = "dangerous-reset-as-gpio")]
     {
         // DANGER DANGER DANGER
-        let _rst = gpio::Input::new(peripherals.P0_29.reborrow(), gpio::Pull::Disabled);
+        peripherals.P0_29.set_as_disabled();
     }
 
     peripherals
