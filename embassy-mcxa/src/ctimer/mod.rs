@@ -32,9 +32,9 @@ pub enum Error {
 pub struct Config {
     /// Powered clock configuration
     pub power: PoweredClock,
-    /// LPI2C clock source
+    /// CTimer clock source
     pub source: CTimerClockSel,
-    /// LPI2C pre-divider
+    /// CTimer pre-divider
     pub div: Div4,
 }
 
