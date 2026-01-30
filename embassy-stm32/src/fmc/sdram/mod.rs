@@ -932,6 +932,9 @@ use crate::{
     gpio::{AfType, OutputType, Pull, Speed},
 };
 
+/// Initializers and constructors for settings pins to their required
+/// alternate functions for FMC use, and returning a pointer to the
+/// initialized SDRAM memory address.
 impl<'a, 'd, T: super::Instance> Sdram<'a, 'd, T> {
     fmc_sdram_init!(init_sdram_a12bits_d16bits_4banks_bank1: (
         bank: FmcSdramBank::Bank1,
