@@ -148,6 +148,7 @@ impl io::Write for TunTap {
 /// A TUN/TAP device, wrapped in an async interface.
 pub struct TunTapDevice {
     device: Async<TunTap>,
+    hardware_address: [u8; 6],
 }
 
 impl TunTapDevice {
@@ -155,6 +156,7 @@ impl TunTapDevice {
     pub fn new(name: &str) -> io::Result<TunTapDevice> {
         Ok(Self {
             device: Async::new(TunTap::new(name)?)?,
+            hardware_address: [0x02, 0x03, 0x04, 0x05, 0x06, 0x07],
         })
     }
 }
@@ -209,7 +211,7 @@ impl Driver for TunTapDevice {
     }
 
     fn hardware_address(&self) -> HardwareAddress {
-        HardwareAddress::Ethernet([0x02, 0x03, 0x04, 0x05, 0x06, 0x07])
+        HardwareAddress::Ethernet(self.hardware_address)
     }
 }
 
