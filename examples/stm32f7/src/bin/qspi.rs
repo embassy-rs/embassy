@@ -6,7 +6,7 @@ use defmt::info;
 use embassy_executor::Spawner;
 use embassy_stm32::mode::Async;
 use embassy_stm32::qspi::enums::{AddressSize, ChipSelectHighTime, FIFOThresholdLevel, MemorySize, *};
-use embassy_stm32::qspi::{Config as QspiCfg, Instance, Qspi, TransferConfig};
+use embassy_stm32::qspi::{self, Config as QspiCfg, Instance, Qspi, TransferConfig};
 use embassy_stm32::time::mhz;
 use embassy_stm32::{Config as StmCfg, bind_interrupts, dma, peripherals};
 use {defmt_rtt as _, panic_probe as _};
@@ -250,6 +250,7 @@ impl<I: Instance> FlashMemory<I> {
 
 bind_interrupts!(struct Irqs {
     DMA2_STREAM7 => dma::InterruptHandler<peripherals::DMA2_CH7>;
+    QUADSPI => qspi::InterruptHandler<peripherals::QUADSPI>;
 });
 
 #[embassy_executor::main]
