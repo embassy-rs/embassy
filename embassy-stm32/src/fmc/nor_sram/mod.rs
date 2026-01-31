@@ -4,6 +4,8 @@ use crate::fmc::FmcSramBank;
 // Shadow the metapac values to make them more convenient to access.
 pub use crate::pac::fmc::vals;
 
+pub mod devices;
+
 /// Specifies the type of external memory device.
 ///
 /// Register: BCR1/2/3/4[MTYP]
@@ -70,7 +72,7 @@ pub enum NorSramPageSize {
 }
 
 /// See RM0433 Rev 8 P.g. 813 for timing diagrams based on these settings.
-pub struct NorSramConfig {
+pub struct NorSramConfiguration {
     /// Specifies whether the address and data values are
     /// multiplexed on the data bus or not.
     ///
@@ -225,6 +227,25 @@ pub struct NorSramTiming {
     access_mode: NorSramAccessMode, // accmod
 }
 
+/// Provides the configuration and timing
+/// parameters for a NOR/PSRAM/SRAM device.
+pub trait NorSramChip {
+    /// NOR/PSRAM/SRAM device controller configuration.
+    const CONFIG: NorSramConfiguration;
+
+    /// NOR/PSRAM/SRAM device timing parameters.
+    const TIMING: NorSramTiming;
+}
+
+/// Provides functionality for a NOR/PSRAM/SRAM device.
+/// 
+/// This is provided for NOR/PSRAM/SRAM devices but not
+/// SDRAM or NAND because the NOR/PSRAM/SRAM device
+/// controller is frequently used on STM32 for driving
+/// devices that need a memory bus - such as 8080 parallel
+/// style buses for displays.
+pub trait NorSramDriver {}
+
 /// Describes why NOR/PSRAM/SRAM controller initialization failed.
 #[derive(Debug)]
 pub enum NorSramInitError {
@@ -262,7 +283,7 @@ pub struct NorSram<'a, 'd, T: super::Instance> {
     fmc: &'a super::Fmc<'d, T>,
     bank: FmcSramBank,
 
-    config: NorSramConfig,
+    config: NorSramConfiguration,
     timing: NorSramTiming,
 
     memory: &'a mut [u16],
@@ -271,7 +292,7 @@ pub struct NorSram<'a, 'd, T: super::Instance> {
 impl<'a, 'd, T: super::Instance> NorSram<'a, 'd, T> {
     /// Note that the total size of each NOR/SRAM bank is 64Mbytes. (RM0433 Rev 8 P.g. 808)
     /// The maximum capacity is 512 Mbits (26 address lines).  (RM0433 Rev 8 P.g. 809)
-    pub fn new(fmc: &'a super::Fmc<'d, T>, bank: FmcSramBank, config: NorSramConfig, timing: NorSramTiming) -> Self {
+    pub fn new(fmc: &'a super::Fmc<'d, T>, bank: FmcSramBank, config: NorSramConfiguration, timing: NorSramTiming) -> Self {
         let memory: &mut [u16] = unsafe {
             // Initialise controller and SDRAM
             let ram_ptr: *mut u16 = fmc.nor_sram_addr(bank) as *mut _;
