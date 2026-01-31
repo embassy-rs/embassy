@@ -319,6 +319,7 @@ impl<'d, T: Instance, const FLASH_SIZE: usize> Flash<'d, T, Async, FLASH_SIZE> {
                 XIP_AUX_BASE,
                 data,
                 pac::dma::vals::TreqSel::XIP_STREAM,
+                false,
             )
         };
 
