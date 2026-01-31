@@ -32,12 +32,11 @@ pub static PICOTOOL_ENTRIES: [embassy_rp::binary_info::EntryAddr; 4] = [
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
+    DMA_IRQ_0 => embassy_rp::dma::InterruptHandler<DMA_CH0>;
 });
 
 #[embassy_executor::task]
-async fn cyw43_task(
-    runner: cyw43::Runner<'static, cyw43::SpiBus<Output<'static>, PioSpi<'static, PIO0, 0, DMA_CH0>>>,
-) -> ! {
+async fn cyw43_task(runner: cyw43::Runner<'static, cyw43::SpiBus<Output<'static>, PioSpi<'static, PIO0, 0>>>) -> ! {
     runner.run().await
 }
 
@@ -66,7 +65,7 @@ async fn main(spawner: Spawner) {
         cs,
         p.PIN_24,
         p.PIN_29,
-        p.DMA_CH0,
+        embassy_rp::dma::Channel::new(p.DMA_CH0, Irqs),
     );
 
     static STATE: StaticCell<cyw43::State> = StaticCell::new();

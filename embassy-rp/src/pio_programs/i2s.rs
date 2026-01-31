@@ -1,13 +1,13 @@
 //! Pio backed I2S output and output drivers
 
-use crate::Peri;
-use crate::dma::{AnyChannel, Channel, Transfer};
+use crate::dma::Transfer;
 use crate::gpio::Pull;
 use crate::pio::{
     Common, Config, Direction, FifoJoin, Instance, LoadedProgram, PioBatch, PioPin, ShiftConfig, ShiftDirection,
     StateMachine,
 };
 use crate::pio_programs::clock_divider::calculate_pio_clock_divider;
+use crate::{Peri, dma, interrupt};
 
 /// This struct represents an I2S receiver & controller driver program
 pub struct PioI2sInProgram<'d, PIO: Instance> {
@@ -39,16 +39,17 @@ impl<'d, PIO: Instance> PioI2sInProgram<'d, PIO> {
 
 /// Pio backed I2S input driver
 pub struct PioI2sIn<'d, P: Instance, const S: usize> {
-    dma: Peri<'d, AnyChannel>,
+    dma: dma::Channel<'d>,
     sm: StateMachine<'d, P, S>,
 }
 
 impl<'d, P: Instance, const S: usize> PioI2sIn<'d, P, S> {
     /// Configure a state machine to act as both the controller (provider of SCK and WS) and receiver (of SD) for an I2S signal
-    pub fn new(
+    pub fn new<D: dma::ChannelInstance>(
         common: &mut Common<'d, P>,
         mut sm: StateMachine<'d, P, S>,
-        dma: Peri<'d, impl Channel>,
+        dma: Peri<'d, D>,
+        irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
         // Whether or not to use the MCU's internal pull-down resistor, as the
         // Pico 2 is known to have problems with the inbuilt pulldowns, many
         // opt to just use an external pull down resistor to meet requirements of common
@@ -88,7 +89,10 @@ impl<'d, P: Instance, const S: usize> PioI2sIn<'d, P, S> {
         sm.set_pin_dirs(Direction::In, &[&data_pin]);
         sm.set_pin_dirs(Direction::Out, &[&lr_clock_pin, &bit_clock_pin]);
 
-        Self { dma: dma.into(), sm }
+        Self {
+            dma: dma::Channel::new(dma, irq),
+            sm,
+        }
     }
 
     /// Start the i2s interface
@@ -112,8 +116,8 @@ impl<'d, P: Instance, const S: usize> PioI2sIn<'d, P, S> {
     }
 
     /// Return an in-progress dma transfer future. Awaiting it will guarantee a complete transfer.
-    pub fn read<'b>(&'b mut self, buff: &'b mut [u32]) -> Transfer<'b, AnyChannel> {
-        self.sm.rx().dma_pull(self.dma.reborrow(), buff, false)
+    pub fn read<'b>(&'b mut self, buff: &'b mut [u32]) -> Transfer<'b> {
+        self.sm.rx().dma_pull(&mut self.dma, buff, false)
     }
 }
 
@@ -153,16 +157,17 @@ impl<'d, PIO: Instance> PioI2sOutProgram<'d, PIO> {
 
 /// Pio backed I2S output driver
 pub struct PioI2sOut<'d, P: Instance, const S: usize> {
-    dma: Peri<'d, AnyChannel>,
+    dma: dma::Channel<'d>,
     sm: StateMachine<'d, P, S>,
 }
 
 impl<'d, P: Instance, const S: usize> PioI2sOut<'d, P, S> {
     /// Configure a state machine to output I2S
-    pub fn new(
+    pub fn new<D: dma::ChannelInstance>(
         common: &mut Common<'d, P>,
         mut sm: StateMachine<'d, P, S>,
-        dma: Peri<'d, impl Channel>,
+        dma: Peri<'d, D>,
+        irq: impl interrupt::typelevel::Binding<D::Interrupt, dma::InterruptHandler<D>> + 'd,
         data_pin: Peri<'d, impl PioPin>,
         bit_clock_pin: Peri<'d, impl PioPin>,
         lr_clock_pin: Peri<'d, impl PioPin>,
@@ -198,7 +203,10 @@ impl<'d, P: Instance, const S: usize> PioI2sOut<'d, P, S> {
         // which results in bit_depth - 2 as register value.
         unsafe { sm.set_y(bit_depth - 2) };
 
-        Self { dma: dma.into(), sm }
+        Self {
+            dma: dma::Channel::new(dma, irq),
+            sm,
+        }
     }
 
     /// Start the i2s interface
@@ -222,7 +230,7 @@ impl<'d, P: Instance, const S: usize> PioI2sOut<'d, P, S> {
     }
 
     /// Return an in-progress dma transfer future. Awaiting it will guarantee a complete transfer.
-    pub fn write<'b>(&'b mut self, buff: &'b [u32]) -> Transfer<'b, AnyChannel> {
-        self.sm.tx().dma_push(self.dma.reborrow(), buff, false)
+    pub fn write<'b>(&'b mut self, buff: &'b [u32]) -> Transfer<'b> {
+        self.sm.tx().dma_push(&mut self.dma, buff, false)
     }
 }

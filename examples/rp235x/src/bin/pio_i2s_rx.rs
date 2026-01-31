@@ -20,7 +20,7 @@ use core::mem;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::bind_interrupts;
-use embassy_rp::peripherals::PIO0;
+use embassy_rp::peripherals::{DMA_CH0, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::pio_programs::i2s::{PioI2sIn, PioI2sInProgram};
 use static_cell::StaticCell;
@@ -28,6 +28,7 @@ use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
+    DMA_IRQ_0 => embassy_rp::dma::InterruptHandler<DMA_CH0>;
 });
 
 const SAMPLE_RATE: u32 = 48_000;
@@ -51,6 +52,7 @@ async fn main(_spawner: Spawner) {
         &mut common,
         sm0,
         p.DMA_CH0,
+        Irqs,
         USE_ONBOARD_PULLDOWN,
         data_pin,
         bit_clock_pin,

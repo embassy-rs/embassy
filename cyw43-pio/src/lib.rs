@@ -16,11 +16,11 @@ use fixed::FixedU32;
 use fixed::types::extra::U8;
 
 /// SPI comms driven by PIO.
-pub struct PioSpi<'d, PIO: Instance, const SM: usize, DMA: Channel> {
+pub struct PioSpi<'d, PIO: Instance, const SM: usize> {
     cs: Output<'d>,
     sm: StateMachine<'d, PIO, SM>,
     irq: Irq<'d, PIO, 0>,
-    dma: Peri<'d, DMA>,
+    dma: Channel<'d>,
     wrap_target: u8,
 }
 
@@ -44,9 +44,8 @@ pub const OVERCLOCK_CLOCK_DIVIDER: FixedU32<U8> = FixedU32::from_bits(0x0100);
 /// RP2040: 133Mhz / 3 = 44.33Mhz pio clock -> 22.16Mhz GSPI clock
 pub const RM2_CLOCK_DIVIDER: FixedU32<U8> = FixedU32::from_bits(0x0300);
 
-impl<'d, PIO, const SM: usize, DMA> PioSpi<'d, PIO, SM, DMA>
+impl<'d, PIO, const SM: usize> PioSpi<'d, PIO, SM>
 where
-    DMA: Channel,
     PIO: Instance,
 {
     /// Create a new instance of PioSpi.
@@ -58,7 +57,7 @@ where
         cs: Output<'d>,
         dio: Peri<'d, impl PioPin>,
         clk: Peri<'d, impl PioPin>,
-        dma: Peri<'d, DMA>,
+        dma: Channel<'d>,
     ) -> Self {
         let effective_pio_frequency = (clk_sys_freq() as f32 / clock_divider.to_num::<f32>()) as u32;
 
@@ -216,7 +215,7 @@ where
             cs,
             sm,
             irq,
-            dma: dma,
+            dma,
             wrap_target: loaded_program.wrap.target,
         }
     }
@@ -239,12 +238,12 @@ where
 
         self.sm.set_enable(true);
 
-        self.sm.tx().dma_push(self.dma.reborrow(), write, false).await;
+        self.sm.tx().dma_push(&mut self.dma, write, false).await;
 
         let mut status = 0;
         self.sm
             .rx()
-            .dma_pull(self.dma.reborrow(), slice::from_mut(&mut status), false)
+            .dma_pull(&mut self.dma, slice::from_mut(&mut status), false)
             .await;
         status
     }
@@ -271,16 +270,13 @@ where
         // self.cs.set_low();
         self.sm.set_enable(true);
 
-        self.sm
-            .tx()
-            .dma_push(self.dma.reborrow(), slice::from_ref(&cmd), false)
-            .await;
-        self.sm.rx().dma_pull(self.dma.reborrow(), read, false).await;
+        self.sm.tx().dma_push(&mut self.dma, slice::from_ref(&cmd), false).await;
+        self.sm.rx().dma_pull(&mut self.dma, read, false).await;
 
         let mut status = 0;
         self.sm
             .rx()
-            .dma_pull(self.dma.reborrow(), slice::from_mut(&mut status), false)
+            .dma_pull(&mut self.dma, slice::from_mut(&mut status), false)
             .await;
 
         #[cfg(feature = "defmt")]
@@ -290,10 +286,9 @@ where
     }
 }
 
-impl<'d, PIO, const SM: usize, DMA> SpiBusCyw43 for PioSpi<'d, PIO, SM, DMA>
+impl<'d, PIO, const SM: usize> SpiBusCyw43 for PioSpi<'d, PIO, SM>
 where
     PIO: Instance,
-    DMA: Channel,
 {
     async fn cmd_write(&mut self, write: &[u32]) -> u32 {
         self.cs.set_low();

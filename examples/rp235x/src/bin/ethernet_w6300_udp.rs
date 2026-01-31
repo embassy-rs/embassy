@@ -12,13 +12,13 @@ use embassy_net::udp::{PacketMetadata, UdpSocket};
 use embassy_net::{Stack, StackResources};
 use embassy_net_wiznet::chip::W6300;
 use embassy_net_wiznet::*;
-use embassy_rp::bind_interrupts;
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::gpio::{Input, Level, Output, Pull};
-use embassy_rp::peripherals::PIO0;
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, PIO0};
 use embassy_rp::pio::{InterruptHandler, Pio};
 use embassy_rp::pio_programs::spi::Spi;
 use embassy_rp::spi::{Async, Config as SpiConfig};
+use embassy_rp::{bind_interrupts, dma};
 use embassy_time::Delay;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use static_cell::StaticCell;
@@ -26,6 +26,7 @@ use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     PIO0_IRQ_0 => InterruptHandler<PIO0>;
+    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>, dma::InterruptHandler<DMA_CH1>;
 });
 
 #[embassy_executor::task]
@@ -58,7 +59,7 @@ async fn main(spawner: Spawner) {
 
     let (miso, mosi, clk) = (p.PIN_19, p.PIN_18, p.PIN_17);
 
-    let spi = Spi::new(&mut common, sm0, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, spi_cfg);
+    let spi = Spi::new(&mut common, sm0, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, Irqs, spi_cfg);
 
     let cs = Output::new(p.PIN_16, Level::High);
     let w6300_int = Input::new(p.PIN_15, Pull::Up);

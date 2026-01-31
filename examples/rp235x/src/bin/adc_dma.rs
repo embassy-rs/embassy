@@ -7,13 +7,15 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::adc::{Adc, Channel, Config, InterruptHandler};
-use embassy_rp::bind_interrupts;
 use embassy_rp::gpio::Pull;
+use embassy_rp::peripherals::DMA_CH0;
+use embassy_rp::{bind_interrupts, dma};
 use embassy_time::{Duration, Ticker};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     ADC_IRQ_FIFO => InterruptHandler;
+    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>;
 });
 
 #[embassy_executor::main]
@@ -22,7 +24,7 @@ async fn main(_spawner: Spawner) {
     info!("Here we go!");
 
     let mut adc = Adc::new(p.ADC, Irqs, Config::default());
-    let mut dma = p.DMA_CH0;
+    let mut dma_ch = dma::Channel::new(p.DMA_CH0, Irqs);
     let mut pin = Channel::new_pin(p.PIN_26, Pull::Up);
     let mut pins = [
         Channel::new_pin(p.PIN_27, Pull::Down),
@@ -38,13 +40,13 @@ async fn main(_spawner: Spawner) {
         // Read 100 samples from a single channel
         let mut buf = [0_u16; BLOCK_SIZE];
         let div = 479; // 100kHz sample rate (48Mhz / 100kHz - 1)
-        adc.read_many(&mut pin, &mut buf, div, dma.reborrow()).await.unwrap();
+        adc.read_many(&mut pin, &mut buf, div, &mut dma_ch).await.unwrap();
         info!("single: {:?} ...etc", buf[..8]);
 
         // Read 100 samples from 4 channels interleaved
         let mut buf = [0_u16; { BLOCK_SIZE * NUM_CHANNELS }];
         let div = 119; // 100kHz sample rate (48Mhz / 100kHz * 4ch - 1)
-        adc.read_many_multichannel(&mut pins, &mut buf, div, dma.reborrow())
+        adc.read_many_multichannel(&mut pins, &mut buf, div, &mut dma_ch)
             .await
             .unwrap();
         info!("multi:  {:?} ...etc", buf[..NUM_CHANNELS * 2]);
