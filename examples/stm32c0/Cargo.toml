@@ -19,7 +19,7 @@ cortex-m = { version = "0.7.6", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
 embedded-hal = "0.2.6"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
-heapless = { version = "0.8", default-features = false }
+heapless = { version = "0.9", default-features = false }
 chrono = { version = "^0.4", default-features = false}
 
 [profile.release]

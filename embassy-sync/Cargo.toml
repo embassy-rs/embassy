@@ -39,7 +39,7 @@ log = { version = "0.4.14", optional = true }
 futures-sink = { version = "0.3", default-features = false, features = [] }
 futures-core = { version = "0.3.31", default-features = false }
 critical-section = "1.1"
-heapless = "0.8"
+heapless = "0.9"
 cfg-if = "1.0.0"
 embedded-io-async = { version = "0.7.0" }
 

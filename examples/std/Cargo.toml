@@ -23,7 +23,7 @@ log = "0.4.14"
 nix = "0.26.2"
 clap = { version = "3.0.0-beta.5", features = ["derive"] }
 rand_core = { version = "0.9.1", features = ["std", "os_rng"] }
-heapless = { version = "0.8", default-features = false }
+heapless = { version = "0.9", default-features = false }
 static_cell = "2"
 
 [profile.release]
