@@ -681,7 +681,7 @@ macro_rules! fmc_sram_init {
         d: [$(($d_pin_name:ident: $d_signal:ident)),*],
         ctrl: [$(($ctrl_pin_name:ident: $ctrl_signal:ident)),*]
     )) => {
-        /// Create a new FMC SDRAM driver for the specified chip and bank.
+        /// Create a new SRAM driver for the specified chip and bank.
         pub fn $name<CHIP: NorSramChip>(
             fmc: &'a mut super::Fmc<'d, T>,
             $($addr_pin_name: Peri<'d, impl $addr_signal<T>>),*,
