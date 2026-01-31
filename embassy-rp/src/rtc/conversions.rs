@@ -2,7 +2,7 @@ use crate::datetime::{DateTime, DayOfWeek, Error};
 use crate::pac::rtc::regs::{Rtc0, Rtc1, Setup0, Setup1};
 
 #[cfg(not(feature = "chrono"))]
-fn day_of_week_from_u8(v: u8) -> Result<DayOfWeek, Error> {
+pub(super) fn day_of_week_from_u8(v: u8) -> Result<DayOfWeek, Error> {
     Ok(match v {
         0 => DayOfWeek::Sunday,
         1 => DayOfWeek::Monday,
@@ -12,6 +12,20 @@ fn day_of_week_from_u8(v: u8) -> Result<DayOfWeek, Error> {
         5 => DayOfWeek::Friday,
         6 => DayOfWeek::Saturday,
         _ => return Err(Error::InvalidDayOfWeek),
+    })
+}
+
+#[cfg(feature = "chrono")]
+pub(super) fn day_of_week_from_u8(v: u8) -> Result<DayOfWeek, ()> {
+    Ok(match v {
+        0 => DayOfWeek::Sun,
+        1 => DayOfWeek::Mon,
+        2 => DayOfWeek::Tue,
+        3 => DayOfWeek::Wed,
+        4 => DayOfWeek::Thu,
+        5 => DayOfWeek::Fri,
+        6 => DayOfWeek::Sat,
+        _ => return Err(()),
     })
 }
 
@@ -75,7 +89,7 @@ pub(super) fn write_setup_0(dt: &DateTime, w: &mut Setup0) {
 pub(super) fn write_setup_1(dt: &DateTime, w: &mut Setup1) {
     #[cfg(feature = "chrono")]
     {
-        use chrono::Timelike;
+        use chrono::{Datelike, Timelike};
         w.set_dotw(dt.weekday().num_days_from_sunday() as u8);
         w.set_hour(dt.hour() as u8);
         w.set_min(dt.minute() as u8);

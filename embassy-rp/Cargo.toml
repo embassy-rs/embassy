@@ -44,7 +44,7 @@ default = [ "rt" ]
 rt = [ "rp-pac/rt" ]
 
 ## Enable [defmt support](https://docs.rs/defmt) and enables `defmt` debug-log messages and formatting in embassy drivers.
-defmt = ["dep:defmt", "embassy-usb-driver/defmt", "embassy-hal-internal/defmt"]
+defmt = ["dep:defmt", "embassy-usb-driver/defmt", "embassy-hal-internal/defmt", "chrono?/defmt"]
 ## Enable log support
 log = ["dep:log"]
 ## Enable chrono support
@@ -166,7 +166,7 @@ cfg-if = "1.0.0"
 cortex-m-rt = ">=0.6.15,<0.8"
 cortex-m = "0.7.6"
 critical-section = "1.2.0"
-chrono = { version = "0.4", default-features = false, optional = true }
+chrono = { version = "0.4.43", default-features = false, optional = true }
 embedded-io = { version = "0.7.1" }
 embedded-io-async = { version = "0.7.0" }
 embedded-storage = { version = "0.3" }
