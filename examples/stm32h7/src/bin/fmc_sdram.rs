@@ -3,9 +3,11 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::Config;
-use embassy_stm32::fmc::Fmc;
-use embassy_time::{Delay, Timer};
+use embassy_stm32::fmc::sdram::Sdram;
+use embassy_stm32::fmc::sdram::devices::is42s32800g_6;
+use embassy_stm32::{Config};
+use embassy_stm32::fmc::{Fmc, FmcSdramBank, sdram};
+use embassy_time::{Timer};
 use {defmt_rtt as _, panic_probe as _};
 
 #[embassy_executor::main]
@@ -118,76 +120,81 @@ async fn main(_spawner: Spawner) {
         }
     }
 
-    let mut sdram = Fmc::sdram_a12bits_d32bits_4banks_bank2(
-        p.FMC,
-        // A0-A11
-        p.PF0,
-        p.PF1,
-        p.PF2,
-        p.PF3,
-        p.PF4,
-        p.PF5,
-        p.PF12,
-        p.PF13,
-        p.PF14,
-        p.PF15,
-        p.PG0,
-        p.PG1,
-        // BA0-BA1
-        p.PG4,
-        p.PG5,
-        // D0-D31
-        p.PD14,
-        p.PD15,
-        p.PD0,
-        p.PD1,
-        p.PE7,
-        p.PE8,
-        p.PE9,
-        p.PE10,
-        p.PE11,
-        p.PE12,
-        p.PE13,
-        p.PE14,
-        p.PE15,
-        p.PD8,
-        p.PD9,
-        p.PD10,
-        p.PH8,
-        p.PH9,
-        p.PH10,
-        p.PH11,
-        p.PH12,
-        p.PH13,
-        p.PH14,
-        p.PH15,
-        p.PI0,
-        p.PI1,
-        p.PI2,
-        p.PI3,
-        p.PI6,
-        p.PI7,
-        p.PI9,
-        p.PI10,
-        // NBL0 - NBL3
-        p.PE0,
-        p.PE1,
-        p.PI4,
-        p.PI5,
-        p.PH7,  // SDCKE1
-        p.PG8,  // SDCLK
-        p.PG15, // SDNCAS
-        p.PH6,  // SDNE1 (!CS)
-        p.PF11, // SDRAS
-        p.PC0,  // SDNWE, change to p.PH5 for EVAL boards
-        stm32_fmc::devices::is42s32800g_6::Is42s32800g {},
-    );
+    // Create an instance of the FMC driver.
+    let mut fmc = Fmc::new(p.FMC);
 
-    let mut delay = Delay;
+    // Enable the FMC peripheral.
+    //
+    // This needs to be done before configuring
+    // the FMC device controller registers.
+    fmc.enable();
 
     let ram_slice = unsafe {
         // Initialise controller and SDRAM
-        let ram_ptr: *mut u32 = sdram.init(&mut delay) as *mut _;
+        let ram_ptr: *mut u32 = Sdram::init_sdram_a12bits_d32bits_4banks_bank2(
+            &mut fmc,
+            // A0-A11
+            p.PF0,
+            p.PF1,
+            p.PF2,
+            p.PF3,
+            p.PF4,
+            p.PF5,
+            p.PF12,
+            p.PF13,
+            p.PF14,
+            p.PF15,
+            p.PG0,
+            p.PG1,
+            // BA0-BA1
+            p.PG4,
+            p.PG5,
+            // D0-D31
+            p.PD14,
+            p.PD15,
+            p.PD0,
+            p.PD1,
+            p.PE7,
+            p.PE8,
+            p.PE9,
+            p.PE10,
+            p.PE11,
+            p.PE12,
+            p.PE13,
+            p.PE14,
+            p.PE15,
+            p.PD8,
+            p.PD9,
+            p.PD10,
+            p.PH8,
+            p.PH9,
+            p.PH10,
+            p.PH11,
+            p.PH12,
+            p.PH13,
+            p.PH14,
+            p.PH15,
+            p.PI0,
+            p.PI1,
+            p.PI2,
+            p.PI3,
+            p.PI6,
+            p.PI7,
+            p.PI9,
+            p.PI10,
+            // NBL0 - NBL3
+            p.PE0,
+            p.PE1,
+            p.PI4,
+            p.PI5,
+            p.PH7,  // SDCKE1
+            p.PG8,  // SDCLK
+            p.PG15, // SDNCAS
+            p.PH6,  // SDNE1 (!CS)
+            p.PF11, // SDRAS
+            p.PC0,  // SDNWE, change to p.PH5 for EVAL boards
+            &is42s32800g_6::Is42s32800g {},
+        ).await as *mut _;
 
         // Convert raw pointer to slice
         core::slice::from_raw_parts_mut(ram_ptr, sdram_size / core::mem::size_of::<u32>())
