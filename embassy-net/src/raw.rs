@@ -30,8 +30,8 @@ impl<'a> RawSocket<'a> {
     /// Create a new Raw socket using the provided stack and buffers.
     pub fn new<D: Driver>(
         stack: Stack<'a>,
-        ip_version: IpVersion,
-        ip_protocol: IpProtocol,
+        ip_version: Option<IpVersion>,
+        ip_protocol: Option<IpProtocol>,
         rx_meta: &'a mut [PacketMetadata],
         rx_buffer: &'a mut [u8],
         tx_meta: &'a mut [PacketMetadata],

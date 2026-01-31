@@ -26,7 +26,7 @@ embedded-io = { version = "0.7.1" }
 embedded-io-async = { version = "0.7.0" }
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 futures-util = { version = "0.3.30", default-features = false }
-heapless = { version = "0.8", default-features = false }
+heapless = { version = "0.9", default-features = false }
 critical-section = "1.1"
 nb = "1.0.0"
 embedded-storage = "0.3.1"

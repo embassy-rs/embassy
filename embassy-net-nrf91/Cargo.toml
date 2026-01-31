@@ -11,7 +11,7 @@ documentation = "https://docs.embassy.dev/embassy-net-nrf91"
 publish = true
 
 [features]
-defmt = ["dep:defmt", "heapless/defmt-03"]
+defmt = ["dep:defmt", "heapless/defmt"]
 log = ["dep:log"]
 
 [dependencies]
@@ -26,7 +26,7 @@ embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
 embassy-futures = { version = "0.1.2", path = "../embassy-futures" }
 embassy-net-driver-channel = { version = "0.3.2", path = "../embassy-net-driver-channel" }
 
-heapless = "0.8"
+heapless = "0.9"
 embedded-io = { version = "0.7.1" }
 at-commands = "0.5.4"
 

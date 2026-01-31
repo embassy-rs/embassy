@@ -10,7 +10,7 @@ repository = "https://github.com/embassy-rs/embassy"
 documentation = "https://docs.embassy.dev/cyw43"
 
 [features]
-defmt = ["dep:defmt", "heapless/defmt-03", "embassy-time/defmt", "bt-hci?/defmt", "embedded-io-async?/defmt"]
+defmt = ["dep:defmt", "heapless/defmt", "embassy-time/defmt", "bt-hci?/defmt", "embedded-io-async?/defmt"]
 log = ["dep:log", "dep:derive_more", "derive_more/display"]
 bluetooth = ["dep:bt-hci", "dep:embedded-io-async"]
 
@@ -33,7 +33,7 @@ futures = { version = "0.3.17", default-features = false, features = ["async-awa
 
 embedded-hal-1 = { package = "embedded-hal", version = "1.0" }
 embedded-hal-async = { version = "1.0" }
-heapless = "0.8.0"
+heapless = "0.9"
 aligned = "0.4.3"
 
 # Bluetooth deps
