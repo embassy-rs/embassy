@@ -9,7 +9,7 @@ pub use crate::pac::fmc::vals;
 /// Register: BCR1/2/3/4[MTYP]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum SramMemoryType {
+pub enum NorSramMemoryType {
     /// SRAM memory
     Sram,
     /// PSRAM (CRAM) memory
@@ -21,12 +21,12 @@ pub enum SramMemoryType {
 /// Specifies the external memory device width.
 ///
 /// Register: BCR1/2/3/4[MWID]
-pub enum SramMemoryDataWidth {
-    // 8 bit data.
+pub enum NorSramMemoryDataWidth {
+    /// 8 bit data.
     Bits8,
-    // 16 bit data.
+    /// 16 bit data.
     Bits16,
-    // 32 bit data.
+    /// 32 bit data.
     Bits32,
 }
 
@@ -34,7 +34,7 @@ pub enum SramMemoryDataWidth {
 /// the Flash memory in burst mode.
 ///
 /// Register: BCR1/2/3/4[WAITPOL]
-pub enum SramWaitSignalPolarity {
+pub enum NorSramWaitSignalPolarity {
     /// Active low wait signal polarity.
     ActiveLow,
     /// Active high wait signal polarity.
@@ -46,7 +46,7 @@ pub enum SramWaitSignalPolarity {
 /// valid only when accessing memories in burst mode.
 ///
 /// Register: BCR1/2/3/4[WAITCFG]
-pub enum SramWaitSignalActive {
+pub enum NorSramWaitSignalActive {
     /// Wait signal active before wait state.
     BeforeWaitState,
     /// Wait signal active during wait state.
@@ -56,7 +56,7 @@ pub enum SramWaitSignalActive {
 /// Specifies the memory page size.
 ///
 /// Register: BCR1/2/3/4[CPSIZE]
-pub enum SramPageSize {
+pub enum NorSramPageSize {
     /// No split pages.
     NoBurstSplit,
     /// 128-byte page size.
@@ -70,7 +70,7 @@ pub enum SramPageSize {
 }
 
 /// See RM0433 Rev 8 P.g. 813 for timing diagrams based on these settings.
-pub struct SramConfig {
+pub struct NorSramConfig {
     /// Specifies whether the address and data values are
     /// multiplexed on the data bus or not.
     ///
@@ -79,10 +79,10 @@ pub struct SramConfig {
 
     /// Specifies the type of external memory attached to
     /// the corresponding memory device.
-    memory_type: SramMemoryType, // MTYP
+    memory_type: NorSramMemoryType, // MTYP
 
     /// Specifies the external memory device width.
-    memory_data_width: SramMemoryDataWidth, // MWID
+    memory_data_width: NorSramMemoryDataWidth, // MWID
 
     /// Enables or disables the burst access mode for Flash memory,
     /// valid only with synchronous burst Flash memories.
@@ -92,12 +92,12 @@ pub struct SramConfig {
 
     /// Specifies the wait signal polarity, valid only when accessing
     /// the Flash memory in burst mode.
-    wait_signal_enable_polarity: SramWaitSignalPolarity, // WAITPOL
+    wait_signal_enable_polarity: NorSramWaitSignalPolarity, // WAITPOL
 
     /// Specifies if the wait signal is asserted by the memory one
     /// clock cycle before the wait state or during the wait state,
     /// valid only when accessing memories in burst mode.
-    wait_signal_enable_active: SramWaitSignalActive, // WAITCFG
+    wait_signal_enable_active: NorSramWaitSignalActive, // WAITCFG
 
     /// Enables or disables the write operation in the selected device by the FMC.
     ///
@@ -141,11 +141,11 @@ pub struct SramConfig {
     write_fifo_disable: bool, // WFDIS
 
     // Specifies the memory page size.
-    page_size: SramPageSize, // CPSIZE
+    page_size: NorSramPageSize, // CPSIZE
 }
 
 /// Specifies the access mode for the attached NOR/PSRAM/SRAM device.
-pub enum SramAccessMode {
+pub enum NorSramAccessMode {
     /// Access mode A.
     AccessModeA,
     /// Access mode B.
@@ -156,19 +156,19 @@ pub enum SramAccessMode {
     AccessModeD,
 }
 
-impl Into<vals::Accmod> for SramAccessMode {
+impl Into<vals::Accmod> for NorSramAccessMode {
     fn into(self) -> vals::Accmod {
         match self {
-            SramAccessMode::AccessModeA => vals::Accmod::A,
-            SramAccessMode::AccessModeB => vals::Accmod::B,
-            SramAccessMode::AccessModeC => vals::Accmod::C,
-            SramAccessMode::AccessModeD => vals::Accmod::D,
+            NorSramAccessMode::AccessModeA => vals::Accmod::A,
+            NorSramAccessMode::AccessModeB => vals::Accmod::B,
+            NorSramAccessMode::AccessModeC => vals::Accmod::C,
+            NorSramAccessMode::AccessModeD => vals::Accmod::D,
         }
     }
 }
 
 /// Timing parameters for communicating with the external NOR/PSRAM/SRAM device.
-pub struct SramTiming {
+pub struct NorSramTiming {
     /// Defines the number of HCLK cycles to configure
     /// the duration of the address setup time.
     /// This parameter can be a value between Min_Data = 0 and Max_Data = 15.
@@ -222,27 +222,27 @@ pub struct SramTiming {
     data_latency: u8, // datlat
 
     /// Specifies the asynchronous access mode.
-    access_mode: SramAccessMode, // accmod
+    access_mode: NorSramAccessMode, // accmod
 }
 
 /// Describes why NOR/PSRAM/SRAM controller initialization failed.
 #[derive(Debug)]
-pub enum InitError {
+pub enum NorSramInitError {
     /// Indicates that the supplied NOR/PSRAM/SRAM config was invalid.
     InvalidConfig,
     /// Indicates that the supplied NOR/PSRAM/SRAM timing parameters was invalid.
-    InvalidTiming(TimingError),
+    InvalidTiming(NorSramTimingError),
 }
 
-impl From<TimingError> for InitError {
-    fn from(value: TimingError) -> Self {
-        InitError::InvalidTiming(value)
+impl From<NorSramTimingError> for NorSramInitError {
+    fn from(value: NorSramTimingError) -> Self {
+        NorSramInitError::InvalidTiming(value)
     }
 }
 
 /// Describes the type of NOR/PSRAM/SRAM timing error.
 #[derive(Debug)]
-pub enum TimingError {
+pub enum NorSramTimingError {
     /// Indicates that the address setup time was invalid.
     InvalidAddressSetupTime,
     /// Indicates that the address hold time was invalid.
@@ -258,20 +258,20 @@ pub enum TimingError {
 }
 
 /// Wraps the FMC NOR/PSRAM/SRAM controller functionality.
-pub struct Sram<'a, 'd, T: super::Instance> {
+pub struct NorSram<'a, 'd, T: super::Instance> {
     fmc: &'a super::Fmc<'d, T>,
     bank: FmcSramBank,
 
-    config: SramConfig,
-    timing: SramTiming,
+    config: NorSramConfig,
+    timing: NorSramTiming,
 
     memory: &'a mut [u16],
 }
 
-impl<'a, 'd, T: super::Instance> Sram<'a, 'd, T> {
+impl<'a, 'd, T: super::Instance> NorSram<'a, 'd, T> {
     /// Note that the total size of each NOR/SRAM bank is 64Mbytes. (RM0433 Rev 8 P.g. 808)
     /// The maximum capacity is 512 Mbits (26 address lines).  (RM0433 Rev 8 P.g. 809)
-    pub fn new(fmc: &'a super::Fmc<'d, T>, bank: FmcSramBank, config: SramConfig, timing: SramTiming) -> Self {
+    pub fn new(fmc: &'a super::Fmc<'d, T>, bank: FmcSramBank, config: NorSramConfig, timing: NorSramTiming) -> Self {
         let memory: &mut [u16] = unsafe {
             // Initialise controller and SDRAM
             let ram_ptr: *mut u16 = fmc.nor_sram_addr(bank) as *mut _;
@@ -293,7 +293,7 @@ impl<'a, 'd, T: super::Instance> Sram<'a, 'd, T> {
     }
 
     /// Initializes the NOR/PSRAM/SRAM bank.
-    pub fn init(&mut self) -> Result<(), InitError> {
+    pub fn init(&mut self) -> Result<(), NorSramInitError> {
         // Ensure that the bank is disabled before being configured.
         self.disable_bank();
 
@@ -425,7 +425,7 @@ impl<'a, 'd, T: super::Instance> Sram<'a, 'd, T> {
     }
 
     /// Initializes the FMC configuration register corresponding to the configured bank.
-    pub fn configure_features(&mut self) -> Result<(), InitError> {
+    pub fn configure_features(&mut self) -> Result<(), NorSramInitError> {
         if self.config.continuous_clock_enable == true && self.bank != FmcSramBank::Bank1 {
             // See STM32 HAL for implementation detail.
             warn!(
@@ -449,7 +449,7 @@ impl<'a, 'd, T: super::Instance> Sram<'a, 'd, T> {
         // }
 
         let mut norsram_flash_access_enable = false;
-        if self.config.memory_type == SramMemoryType::Flash {
+        if self.config.memory_type == NorSramMemoryType::Flash {
             norsram_flash_access_enable = true;
         }
 
@@ -460,7 +460,7 @@ impl<'a, 'd, T: super::Instance> Sram<'a, 'd, T> {
 
         if self.bank == FmcSramBank::Bank1 {
             // SRAM/NOR-Flash chip-select control register
-            regs.bcr1().modify::<Result<(), InitError>>(|bcr| {
+            regs.bcr1().modify::<Result<(), NorSramInitError>>(|bcr| {
                 // Remap the address space for the entire SRAM bank.
                 // if self.bank == FmcSramBank::Bank1Remapped {
                 //     bcr.set_bmap(0b01); // NOR/PSRAM bank and SDRAM bank 1/bank2 are swapped
@@ -483,13 +483,13 @@ impl<'a, 'd, T: super::Instance> Sram<'a, 'd, T> {
                 bcr.set_waiten(self.config.wait_signal_enable); // Wait signal
                 bcr.set_wren(self.config.write_enable); // Write operation
                 bcr.set_waitcfg(match self.config.wait_signal_enable_active {
-                    SramWaitSignalActive::BeforeWaitState => vals::Waitcfg::BEFORE_WAIT_STATE,
-                    SramWaitSignalActive::DuringWaitState => vals::Waitcfg::DURING_WAIT_STATE,
+                    NorSramWaitSignalActive::BeforeWaitState => vals::Waitcfg::BEFORE_WAIT_STATE,
+                    NorSramWaitSignalActive::DuringWaitState => vals::Waitcfg::DURING_WAIT_STATE,
                 }); // Wait signal active
 
                 bcr.set_waitpol(match self.config.wait_signal_enable_polarity {
-                    SramWaitSignalPolarity::ActiveLow => vals::Waitpol::ACTIVE_LOW,
-                    SramWaitSignalPolarity::ActiveHigh => vals::Waitpol::ACTIVE_HIGH,
+                    NorSramWaitSignalPolarity::ActiveLow => vals::Waitpol::ACTIVE_LOW,
+                    NorSramWaitSignalPolarity::ActiveHigh => vals::Waitpol::ACTIVE_HIGH,
                 }); // Wait signal polarity
 
                 bcr.set_bursten(self.config.burst_access_mode_enable); // Burst access mode
@@ -497,15 +497,15 @@ impl<'a, 'd, T: super::Instance> Sram<'a, 'd, T> {
                 bcr.set_faccen(norsram_flash_access_enable); // NOR Flash memory access 
 
                 bcr.set_mwid(match self.config.memory_data_width {
-                    SramMemoryDataWidth::Bits8 => vals::Mwid::BITS8,
-                    SramMemoryDataWidth::Bits16 => vals::Mwid::BITS16,
-                    SramMemoryDataWidth::Bits32 => vals::Mwid::BITS32,
+                    NorSramMemoryDataWidth::Bits8 => vals::Mwid::BITS8,
+                    NorSramMemoryDataWidth::Bits16 => vals::Mwid::BITS16,
+                    NorSramMemoryDataWidth::Bits32 => vals::Mwid::BITS32,
                 }); // Memory data width
 
                 bcr.set_mtyp(match self.config.memory_type {
-                    SramMemoryType::Sram => vals::Mtyp::SRAM,
-                    SramMemoryType::Psram => vals::Mtyp::PSRAM,
-                    SramMemoryType::Flash => vals::Mtyp::FLASH,
+                    NorSramMemoryType::Sram => vals::Mtyp::SRAM,
+                    NorSramMemoryType::Psram => vals::Mtyp::PSRAM,
+                    NorSramMemoryType::Flash => vals::Mtyp::FLASH,
                 }); // Memory types
 
                 bcr.set_muxen(self.config.data_address_mux_enabled); // Data address mux
@@ -514,11 +514,11 @@ impl<'a, 'd, T: super::Instance> Sram<'a, 'd, T> {
                 bcr.set_wfdis(self.config.write_fifo_disable);
 
                 bcr.set_cpsize(match self.config.page_size {
-                    SramPageSize::NoBurstSplit => vals::Cpsize::NO_BURST_SPLIT,
-                    SramPageSize::Bytes128 => vals::Cpsize::BYTES128,
-                    SramPageSize::Bytes256 => vals::Cpsize::BYTES256,
-                    SramPageSize::Bytes512 => vals::Cpsize::BYTES512,
-                    SramPageSize::Bytes1024 => vals::Cpsize::BYTES1024,
+                    NorSramPageSize::NoBurstSplit => vals::Cpsize::NO_BURST_SPLIT,
+                    NorSramPageSize::Bytes128 => vals::Cpsize::BYTES128,
+                    NorSramPageSize::Bytes256 => vals::Cpsize::BYTES256,
+                    NorSramPageSize::Bytes512 => vals::Cpsize::BYTES512,
+                    NorSramPageSize::Bytes1024 => vals::Cpsize::BYTES1024,
                 });
 
                 trace!("fmc bcr: {}", bcr);
@@ -532,7 +532,7 @@ impl<'a, 'd, T: super::Instance> Sram<'a, 'd, T> {
                 FmcSramBank::Bank3 => 1,
                 FmcSramBank::Bank4 => 2,
             })
-            .modify::<Result<(), InitError>>(|bcr| {
+            .modify::<Result<(), NorSramInitError>>(|bcr| {
                 // Burst enable for PSRAM
                 #[cfg(any(fmc_v1x3, fmc_v2x1))]
                 bcr.set_cburstrw(self.config.write_burst_enable);
@@ -547,13 +547,13 @@ impl<'a, 'd, T: super::Instance> Sram<'a, 'd, T> {
                 bcr.set_waiten(self.config.wait_signal_enable); // Wait signal
                 bcr.set_wren(self.config.write_enable); // Write operation
                 bcr.set_waitcfg(match self.config.wait_signal_enable_active {
-                    SramWaitSignalActive::BeforeWaitState => vals::Waitcfg::BEFORE_WAIT_STATE,
-                    SramWaitSignalActive::DuringWaitState => vals::Waitcfg::DURING_WAIT_STATE,
+                    NorSramWaitSignalActive::BeforeWaitState => vals::Waitcfg::BEFORE_WAIT_STATE,
+                    NorSramWaitSignalActive::DuringWaitState => vals::Waitcfg::DURING_WAIT_STATE,
                 }); // Wait signal active
 
                 bcr.set_waitpol(match self.config.wait_signal_enable_polarity {
-                    SramWaitSignalPolarity::ActiveLow => vals::Waitpol::ACTIVE_LOW,
-                    SramWaitSignalPolarity::ActiveHigh => vals::Waitpol::ACTIVE_HIGH,
+                    NorSramWaitSignalPolarity::ActiveLow => vals::Waitpol::ACTIVE_LOW,
+                    NorSramWaitSignalPolarity::ActiveHigh => vals::Waitpol::ACTIVE_HIGH,
                 }); // Wait signal polarity
 
                 bcr.set_bursten(self.config.burst_access_mode_enable); // Burst access mode
@@ -561,25 +561,25 @@ impl<'a, 'd, T: super::Instance> Sram<'a, 'd, T> {
                 bcr.set_faccen(norsram_flash_access_enable); // NOR Flash memory access 
 
                 bcr.set_mwid(match self.config.memory_data_width {
-                    SramMemoryDataWidth::Bits8 => vals::Mwid::BITS8,
-                    SramMemoryDataWidth::Bits16 => vals::Mwid::BITS16,
-                    SramMemoryDataWidth::Bits32 => vals::Mwid::BITS32,
+                    NorSramMemoryDataWidth::Bits8 => vals::Mwid::BITS8,
+                    NorSramMemoryDataWidth::Bits16 => vals::Mwid::BITS16,
+                    NorSramMemoryDataWidth::Bits32 => vals::Mwid::BITS32,
                 }); // Memory data width
 
                 bcr.set_mtyp(match self.config.memory_type {
-                    SramMemoryType::Sram => vals::Mtyp::SRAM,
-                    SramMemoryType::Psram => vals::Mtyp::PSRAM,
-                    SramMemoryType::Flash => vals::Mtyp::FLASH,
+                    NorSramMemoryType::Sram => vals::Mtyp::SRAM,
+                    NorSramMemoryType::Psram => vals::Mtyp::PSRAM,
+                    NorSramMemoryType::Flash => vals::Mtyp::FLASH,
                 }); // Memory types
 
                 bcr.set_muxen(self.config.data_address_mux_enabled); // Data address mux
 
                 bcr.set_cpsize(match self.config.page_size {
-                    SramPageSize::NoBurstSplit => vals::Cpsize::NO_BURST_SPLIT,
-                    SramPageSize::Bytes128 => vals::Cpsize::BYTES128,
-                    SramPageSize::Bytes256 => vals::Cpsize::BYTES256,
-                    SramPageSize::Bytes512 => vals::Cpsize::BYTES512,
-                    SramPageSize::Bytes1024 => vals::Cpsize::BYTES1024,
+                    NorSramPageSize::NoBurstSplit => vals::Cpsize::NO_BURST_SPLIT,
+                    NorSramPageSize::Bytes128 => vals::Cpsize::BYTES128,
+                    NorSramPageSize::Bytes256 => vals::Cpsize::BYTES256,
+                    NorSramPageSize::Bytes512 => vals::Cpsize::BYTES512,
+                    NorSramPageSize::Bytes1024 => vals::Cpsize::BYTES1024,
                 });
 
                 trace!("fmc bcr: {}", bcr);
@@ -592,25 +592,25 @@ impl<'a, 'd, T: super::Instance> Sram<'a, 'd, T> {
     }
 
     /// Initializes the FMC timing register corresponding to the enabled bank.
-    pub fn configure_timing(&mut self) -> Result<(), TimingError> {
+    pub fn configure_timing(&mut self) -> Result<(), NorSramTimingError> {
         if !(self.timing.address_setup_time <= 15) {
-            return Err(TimingError::InvalidAddressSetupTime);
+            return Err(NorSramTimingError::InvalidAddressSetupTime);
         }
 
         if !(self.timing.address_hold_time > 0 && self.timing.address_hold_time <= 15) {
-            return Err(TimingError::InvalidAddressHoldTime);
+            return Err(NorSramTimingError::InvalidAddressHoldTime);
         }
 
         if !(self.timing.data_setup_time > 0) {
-            return Err(TimingError::InvalidDataSetupTime);
+            return Err(NorSramTimingError::InvalidDataSetupTime);
         }
 
         if !(self.timing.bus_turn_around_duration <= 15) {
-            return Err(TimingError::InvalidTurnaroundTime);
+            return Err(NorSramTimingError::InvalidTurnaroundTime);
         }
 
         if !(self.timing.clock_division > 1 && self.timing.clock_division <= 16) {
-            return Err(TimingError::InvalidClockDivisor);
+            return Err(NorSramTimingError::InvalidClockDivisor);
         }
 
         #[cfg(any(fmc_v1x3, fmc_v2x1, fmc_v3x1))]
@@ -633,10 +633,10 @@ impl<'a, 'd, T: super::Instance> Sram<'a, 'd, T> {
             btr.set_clkdiv(self.timing.clock_division);
             btr.set_datlat(self.timing.data_latency);
             btr.set_accmod(match self.timing.access_mode {
-                SramAccessMode::AccessModeA => vals::Accmod::A,
-                SramAccessMode::AccessModeB => vals::Accmod::B,
-                SramAccessMode::AccessModeC => vals::Accmod::C,
-                SramAccessMode::AccessModeD => vals::Accmod::D,
+                NorSramAccessMode::AccessModeA => vals::Accmod::A,
+                NorSramAccessMode::AccessModeB => vals::Accmod::B,
+                NorSramAccessMode::AccessModeC => vals::Accmod::C,
+                NorSramAccessMode::AccessModeD => vals::Accmod::D,
             });
             trace!("fmc btr: {}", btr);
         });

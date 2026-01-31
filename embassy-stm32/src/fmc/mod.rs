@@ -17,7 +17,7 @@ pub mod sdram;
 pub mod nand;
 
 #[cfg(any(fmc_v1x3, fmc_v2x1, fmc_v3x1, fmc_v4))]
-pub mod sram;
+pub mod nor_sram;
 
 // fmc_v1x3 has some very different structures to the later FMCs version,
 // notably how mapping is handled, and the presence of a PC/CompactFlash
