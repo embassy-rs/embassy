@@ -28,8 +28,8 @@
 use embassy_hal_internal::drop::OnDrop;
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::mutex::Mutex;
-use embedded_hal_1::digital::OutputPin;
 use embedded_hal_1::spi::Operation;
+use embedded_hal_async::digital::OutputPin;
 use embedded_hal_async::spi;
 
 use crate::SetConfig;
@@ -69,7 +69,7 @@ where
         }
 
         let mut bus = self.bus.lock().await;
-        self.cs.set_low().map_err(SpiDeviceError::Cs)?;
+        self.cs.set_low().await.map_err(SpiDeviceError::Cs)?;
 
         let cs_drop = OnDrop::new(|| {
             // This drop guard deasserts CS pin if the async operation is cancelled.
@@ -110,7 +110,7 @@ where
         // Now that all the async operations are done, we defuse the CS guard,
         // and manually set the CS pin low (to better handle the possible errors).
         cs_drop.defuse();
-        let cs_res = self.cs.set_high();
+        let cs_res = self.cs.set_high().await;
 
         op_res.map_err(SpiDeviceError::Spi)?;
         flush_res.map_err(SpiDeviceError::Spi)?;
@@ -166,7 +166,7 @@ where
 
         let mut bus = self.bus.lock().await;
         bus.set_config(&self.config).map_err(|_| SpiDeviceError::Config)?;
-        self.cs.set_low().map_err(SpiDeviceError::Cs)?;
+        self.cs.set_low().await.map_err(SpiDeviceError::Cs)?;
 
         let cs_drop = OnDrop::new(|| {
             // Please see comment in SpiDevice for an explanation of this drop handler.
@@ -201,7 +201,7 @@ where
         // On failure, it's important to still flush and deassert CS.
         let flush_res = bus.flush().await;
         cs_drop.defuse();
-        let cs_res = self.cs.set_high();
+        let cs_res = self.cs.set_high().await;
 
         op_res.map_err(SpiDeviceError::Spi)?;
         flush_res.map_err(SpiDeviceError::Spi)?;
