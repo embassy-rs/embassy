@@ -149,25 +149,34 @@ impl<'d, const MTU: usize> Runner<'d, MTU> {
     pub fn rx_done(&mut self, len: usize) {
         let p = self.rx_chan.try_send().unwrap();
         p.len = len;
+        p.header = 0;
+        self.rx_chan.send_done();
+    }
+
+    /// Mark packet of len bytes as pushed to the inbound channel with a header.
+    pub fn rx_done_with_header(&mut self, len: usize, header: usize) {
+        let p = self.rx_chan.try_send().unwrap();
+        p.len = len;
+        p.header = header;
         self.rx_chan.send_done();
     }
 
     /// Wait until there is space for more outbound packets and return a slice they can be copied into.
     pub async fn tx_buf(&mut self) -> &mut [u8] {
         let p = self.tx_chan.receive().await;
-        &mut p.buf[..p.len]
+        &mut p.buf[..p.len + p.header]
     }
 
     /// Check if there is space for more outbound packets right now.
     pub fn try_tx_buf(&mut self) -> Option<&mut [u8]> {
         let p = self.tx_chan.try_receive()?;
-        Some(&mut p.buf[..p.len])
+        Some(&mut p.buf[..p.len + p.header])
     }
 
     /// Polling the outbound channel if there is space for packets.
     pub fn poll_tx_buf(&mut self, cx: &mut Context) -> Poll<&mut [u8]> {
         match self.tx_chan.poll_receive(cx) {
-            Poll::Ready(p) => Poll::Ready(&mut p.buf[..p.len]),
+            Poll::Ready(p) => Poll::Ready(&mut p.buf[..p.len + p.header]),
             Poll::Pending => Poll::Pending,
         }
     }
@@ -223,6 +232,15 @@ impl<'d, const MTU: usize> RxRunner<'d, MTU> {
     pub fn rx_done(&mut self, len: usize) {
         let p = self.rx_chan.try_send().unwrap();
         p.len = len;
+        p.header = 0;
+        self.rx_chan.send_done();
+    }
+
+    /// Mark packet of len bytes as pushed to the inbound channel with a header.
+    pub fn rx_done_with_header(&mut self, len: usize, header: usize) {
+        let p = self.rx_chan.try_send().unwrap();
+        p.len = len;
+        p.header = header;
         self.rx_chan.send_done();
     }
 }
@@ -264,8 +282,26 @@ pub fn new<'d, const MTU: usize, const N_RX: usize, const N_TX: usize>(
     state: &'d mut State<MTU, N_RX, N_TX>,
     hardware_address: driver::HardwareAddress,
 ) -> (Runner<'d, MTU>, Device<'d, MTU>) {
+    new_with_header(state, hardware_address, 0)
+}
+
+/// Create a channel.
+///
+/// Returns a pair of handles for interfacing with the peripheral and the networking stack.
+///
+/// The runner is interfacing with the peripheral at the lower part of the stack.
+/// The device is interfacing with the networking stack on the layer above.
+pub fn new_with_header<'d, const MTU: usize, const N_RX: usize, const N_TX: usize>(
+    state: &'d mut State<MTU, N_RX, N_TX>,
+    hardware_address: driver::HardwareAddress,
+    header: usize,
+) -> (Runner<'d, MTU>, Device<'d, MTU>) {
     let mut caps = Capabilities::default();
     caps.max_transmission_unit = MTU;
+
+    for tx_pkt in &mut state.tx {
+        tx_pkt.header = header;
+    }
 
     // safety: this is a self-referential struct, however:
     // - it can't move while the `'d` borrow is active.
@@ -303,13 +339,18 @@ pub fn new<'d, const MTU: usize, const N_RX: usize, const N_TX: usize>(
 /// Represents a packet of size MTU.
 pub struct PacketBuf<const MTU: usize> {
     len: usize,
+    header: usize,
     buf: [u8; MTU],
 }
 
 impl<const MTU: usize> PacketBuf<MTU> {
     /// Create a new packet buffer.
     pub const fn new() -> Self {
-        Self { len: 0, buf: [0; MTU] }
+        Self {
+            len: 0,
+            header: 0,
+            buf: [0; MTU],
+        }
     }
 }
 
@@ -382,7 +423,7 @@ impl<'a, const MTU: usize> embassy_net_driver::RxToken for RxToken<'a, MTU> {
     {
         // NOTE(unwrap): we checked the queue wasn't full when creating the token.
         let pkt = unwrap!(self.rx.try_receive());
-        let r = f(&mut pkt.buf[..pkt.len]);
+        let r = f(&mut pkt.buf[pkt.header..][..pkt.len]);
         self.rx.receive_done();
         r
     }
@@ -402,7 +443,7 @@ impl<'a, const MTU: usize> embassy_net_driver::TxToken for TxToken<'a, MTU> {
     {
         // NOTE(unwrap): we checked the queue wasn't full when creating the token.
         let pkt = unwrap!(self.tx.try_send());
-        let r = f(&mut pkt.buf[..len]);
+        let r = f(&mut pkt.buf[pkt.header..][..len]);
         pkt.len = len;
         self.tx.send_done();
         r
