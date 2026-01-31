@@ -1,16 +1,8 @@
 //! Config and timings for ili9341-based displays running on parallel mode.
 
 use crate::fmc::nor_sram::{
-    NorSramAccessMode,
-    NorSramChip,
-    NorSramConfiguration,
-    NorSramDriver,
-    NorSramMemoryDataWidth,
-    NorSramMemoryType,
-    NorSramPageSize,
-    NorSramTiming,
-    NorSramWaitSignalActive,
-    NorSramWaitSignalPolarity
+    NorSramAccessMode, NorSramChip, NorSramConfiguration, NorSramDriver, NorSramMemoryDataWidth, NorSramMemoryType,
+    NorSramPageSize, NorSramTiming, NorSramWaitSignalActive, NorSramWaitSignalPolarity,
 };
 
 /// Implements a device for driving an ILI9341-based display
@@ -19,7 +11,7 @@ pub struct Ili9341 {}
 
 /// Provides the timing and configuration parameters for the device.
 impl NorSramChip for Ili9341 {
-    const CONFIG: NorSramConfiguration = NorSramConfiguration{
+    const CONFIG: NorSramConfiguration = NorSramConfiguration {
         data_address_mux_enabled: false,
         memory_type: NorSramMemoryType::Sram,
         memory_data_width: NorSramMemoryDataWidth::Bits32, // TODO: this should be configurable
@@ -38,14 +30,14 @@ impl NorSramChip for Ili9341 {
         page_size: NorSramPageSize::NoBurstSplit,
     };
 
-    const TIMING: NorSramTiming = NorSramTiming{
-        address_setup_time: 0,           // tast
-            address_hold_time: 1,        // taht - should be 0, but FMC doesn't support 1?
-            data_setup_time: 20,         // trod - can probably shorted to 10 (tdst)
-            bus_turn_around_duration: 2, // unused by sram
-            clock_division: 6,           // not used? should be a way to set clock..
-            data_latency: 0,             // unused by sram
-            access_mode: NorSramAccessMode::AccessModeA,
+    const TIMING: NorSramTiming = NorSramTiming {
+        address_setup_time: 0,       // tast
+        address_hold_time: 1,        // taht - should be 0, but FMC doesn't support 1?
+        data_setup_time: 20,         // trod - can probably shorted to 10 (tdst)
+        bus_turn_around_duration: 2, // unused by sram
+        clock_division: 6,           // not used? should be a way to set clock..
+        data_latency: 0,             // unused by sram
+        access_mode: NorSramAccessMode::AccessModeA,
     };
 }
 

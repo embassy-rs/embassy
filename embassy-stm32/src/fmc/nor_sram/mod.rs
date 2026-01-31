@@ -238,7 +238,7 @@ pub trait NorSramChip {
 }
 
 /// Provides functionality for a NOR/PSRAM/SRAM device.
-/// 
+///
 /// This is provided for NOR/PSRAM/SRAM devices but not
 /// SDRAM or NAND because the NOR/PSRAM/SRAM device
 /// controller is frequently used on STM32 for driving
@@ -292,7 +292,12 @@ pub struct NorSram<'a, 'd, T: super::Instance> {
 impl<'a, 'd, T: super::Instance> NorSram<'a, 'd, T> {
     /// Note that the total size of each NOR/SRAM bank is 64Mbytes. (RM0433 Rev 8 P.g. 808)
     /// The maximum capacity is 512 Mbits (26 address lines).  (RM0433 Rev 8 P.g. 809)
-    pub fn new(fmc: &'a super::Fmc<'d, T>, bank: FmcSramBank, config: NorSramConfiguration, timing: NorSramTiming) -> Self {
+    pub fn new(
+        fmc: &'a super::Fmc<'d, T>,
+        bank: FmcSramBank,
+        config: NorSramConfiguration,
+        timing: NorSramTiming,
+    ) -> Self {
         let memory: &mut [u16] = unsafe {
             // Initialise controller and SDRAM
             let ram_ptr: *mut u16 = fmc.nor_sram_addr(bank) as *mut _;
@@ -705,10 +710,10 @@ macro_rules! fmc_sram_init {
 }
 
 use super::{
-    A0Pin, A1Pin, A2Pin, A3Pin, A4Pin, A5Pin, A6Pin, A7Pin, A8Pin, A9Pin, A10Pin, A11Pin, A12Pin,
-    D0Pin, D1Pin, D2Pin, D3Pin, D4Pin, D5Pin, D6Pin, D7Pin, D8Pin, D9Pin, D10Pin, D11Pin, D12Pin, D13Pin, D14Pin,
-    D15Pin, D16Pin, D17Pin, D18Pin, D19Pin, D20Pin, D21Pin, D22Pin, D23Pin, D24Pin, D25Pin, D26Pin, D27Pin, D28Pin,
-    D29Pin, D30Pin, D31Pin, SDNE0Pin, NOEPin, NWEPin
+    A0Pin, A1Pin, A2Pin, A3Pin, A4Pin, A5Pin, A6Pin, A7Pin, A8Pin, A9Pin, A10Pin, A11Pin, A12Pin, D0Pin, D1Pin, D2Pin,
+    D3Pin, D4Pin, D5Pin, D6Pin, D7Pin, D8Pin, D9Pin, D10Pin, D11Pin, D12Pin, D13Pin, D14Pin, D15Pin, D16Pin, D17Pin,
+    D18Pin, D19Pin, D20Pin, D21Pin, D22Pin, D23Pin, D24Pin, D25Pin, D26Pin, D27Pin, D28Pin, D29Pin, D30Pin, D31Pin,
+    NOEPin, NWEPin, SDNE0Pin,
 };
 
 use crate::{
