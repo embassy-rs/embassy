@@ -31,7 +31,6 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<Mrcc
     const PERF_INT_INCR: fn();
     const PERF_INT_WAKE_INCR: fn();
 }
-
 struct Info {
     regs: *const pac::lpi2c0::RegisterBlock,
     wait_cell: WaitCell,
