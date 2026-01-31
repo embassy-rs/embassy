@@ -665,3 +665,118 @@ impl<'a, 'd, T: super::Instance> NorSram<'a, 'd, T> {
         Ok(())
     }
 }
+
+macro_rules! config_pins {
+    ($($pin:ident),*) => {
+                $(
+            set_as_af!($pin, AfType::output_pull(OutputType::PushPull, Speed::VeryHigh, Pull::Up));
+        )*
+    };
+}
+
+macro_rules! fmc_sram_init {
+    ($name:ident: (
+        bank: $bank:expr,
+        addr: [$(($addr_pin_name:ident: $addr_signal:ident)),*],
+        d: [$(($d_pin_name:ident: $d_signal:ident)),*],
+        ctrl: [$(($ctrl_pin_name:ident: $ctrl_signal:ident)),*]
+    )) => {
+        /// Create a new FMC SDRAM driver for the specified chip and bank.
+        pub fn $name<CHIP: NorSramChip>(
+            fmc: &'a mut super::Fmc<'d, T>,
+            $($addr_pin_name: Peri<'d, impl $addr_signal<T>>),*,
+            $($d_pin_name: Peri<'d, impl $d_signal<T>>),*,
+            $($ctrl_pin_name: Peri<'d, impl $ctrl_signal<T>>),*,
+            _chip: &CHIP,
+        ) -> NorSram<'a, 'd, T> {
+            // Ensure that the pins being used are configured
+            // in their alternate function for FMC use.
+            critical_section::with(|_| {
+                config_pins!(
+                    $($addr_pin_name),*,
+                    $($d_pin_name),*,
+                    $($ctrl_pin_name),*
+                );
+            });
+
+            NorSram::new(fmc, $bank, CHIP::CONFIG, CHIP::TIMING)
+        }
+    };
+}
+
+use super::{
+    A0Pin, A1Pin, A2Pin, A3Pin, A4Pin, A5Pin, A6Pin, A7Pin, A8Pin, A9Pin, A10Pin, A11Pin, A12Pin,
+    D0Pin, D1Pin, D2Pin, D3Pin, D4Pin, D5Pin, D6Pin, D7Pin, D8Pin, D9Pin, D10Pin, D11Pin, D12Pin, D13Pin, D14Pin,
+    D15Pin, D16Pin, D17Pin, D18Pin, D19Pin, D20Pin, D21Pin, D22Pin, D23Pin, D24Pin, D25Pin, D26Pin, D27Pin, D28Pin,
+    D29Pin, D30Pin, D31Pin, SDNE0Pin, NOEPin, NWEPin
+};
+
+use crate::{
+    Peri,
+    gpio::{AfType, OutputType, Pull, Speed},
+};
+
+/// Initializers and constructors for settings pins to their required
+/// alternate functions for FMC use, and returning a pointer to the
+/// initialized SDRAM memory address.
+impl<'a, 'd, T: super::Instance> NorSram<'a, 'd, T> {
+    fmc_sram_init!(init_sram_a12bits_d16bits_bank1: (
+        bank: FmcSramBank::Bank1,
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin)
+        ],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin)
+        ],
+        ctrl: [
+            (sdne: SDNE0Pin), (nwe: NWEPin), (noe: NOEPin)
+        ]
+    ));
+
+    fmc_sram_init!(init_sram_a12bits_d32bits_bank1: (
+        bank: FmcSramBank::Bank1,
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin)
+        ],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin),
+            (d16: D16Pin), (d17: D17Pin), (d18: D18Pin), (d19: D19Pin), (d20: D20Pin), (d21: D21Pin), (d22: D22Pin), (d23: D23Pin),
+            (d24: D24Pin), (d25: D25Pin), (d26: D26Pin), (d27: D27Pin), (d28: D28Pin), (d29: D29Pin), (d30: D30Pin), (d31: D31Pin)
+        ],
+        ctrl: [
+            (sdne: SDNE0Pin), (nwe: NWEPin), (noe: NOEPin)
+        ]
+    ));
+
+    fmc_sram_init!(init_sram_a13bits_d32bits_bank1: (
+        bank: FmcSramBank::Bank1,
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin), (a12: A12Pin)
+        ],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin),
+            (d16: D16Pin), (d17: D17Pin), (d18: D18Pin), (d19: D19Pin), (d20: D20Pin), (d21: D21Pin), (d22: D22Pin), (d23: D23Pin),
+            (d24: D24Pin), (d25: D25Pin), (d26: D26Pin), (d27: D27Pin), (d28: D28Pin), (d29: D29Pin), (d30: D30Pin), (d31: D31Pin)
+        ],
+        ctrl: [
+            (sdne: SDNE0Pin), (nwe: NWEPin), (noe: NOEPin)
+        ]
+    ));
+
+    fmc_sram_init!(init_sram_a13bits_d16bits_bank1: (
+        bank: FmcSramBank::Bank1,
+        addr: [
+            (a0: A0Pin), (a1: A1Pin), (a2: A2Pin), (a3: A3Pin), (a4: A4Pin), (a5: A5Pin), (a6: A6Pin), (a7: A7Pin), (a8: A8Pin), (a9: A9Pin), (a10: A10Pin), (a11: A11Pin), (a12: A12Pin)
+        ],
+        d: [
+            (d0: D0Pin), (d1: D1Pin), (d2: D2Pin), (d3: D3Pin), (d4: D4Pin), (d5: D5Pin), (d6: D6Pin), (d7: D7Pin),
+            (d8: D8Pin), (d9: D9Pin), (d10: D10Pin), (d11: D11Pin), (d12: D12Pin), (d13: D13Pin), (d14: D14Pin), (d15: D15Pin)
+        ],
+        ctrl: [
+            (sdne: SDNE0Pin), (nwe: NWEPin), (noe: NOEPin)
+        ]
+    ));
+}
