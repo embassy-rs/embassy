@@ -630,8 +630,9 @@ impl<'d> Channel<'d> {
             }
             #[cfg(mdma)]
             DmaInfo::Mdma(r) => {
-                use crate::_generated::{MEMORY_REGION_DTCM, MEMORY_REGION_ITCM};
                 use pac::mdma::vals::Incmode;
+
+                use crate::_generated::{MEMORY_REGION_DTCM, MEMORY_REGION_ITCM};
 
                 assert!(mem_len > 0 && mem_len <= MDMA_MAX_BLOCK * MDMA_MAX_BLOCK_COUNT);
 
