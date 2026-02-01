@@ -15,13 +15,13 @@ jobs:
           script: |
             const action = context.payload.action;
             const title = context.payload.issue.title;
-            const body = context.payload.issue.body;
+            const issueBody = context.payload.issue.body;
             const url = context.payload.issue.html_url;
 
             // Determine message prefix
             let prefix;
             let roomId;
-            if (action === 'opened' && (title + ' ' + body).toLowerCase().includes('esp32')) {
+            if (action === 'opened' && (title + ' ' + issueBody).toLowerCase().includes('esp32')) {
               // Nag danielb
               prefix = 'New Issue';
               roomId = '!oENPKPHeKwiPfIVHER:matrix.org';
