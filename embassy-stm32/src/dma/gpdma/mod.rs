@@ -90,6 +90,7 @@ impl From<WordSize> for vals::Dw {
             WordSize::OneByte => Self::BYTE,
             WordSize::TwoBytes => Self::HALF_WORD,
             WordSize::FourBytes => Self::WORD,
+            _ => panic!("Invalid word size"),
         }
     }
 }

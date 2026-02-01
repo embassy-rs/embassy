@@ -938,7 +938,7 @@ fn main() {
     // ========
     // Generate fns to enable GPIO, DMA in RCC
 
-    for kind in ["dma", "bdma", "dmamux", "gpdma", "gpio"] {
+    for kind in ["mdma", "dma", "bdma", "dmamux", "gpdma", "gpio"] {
         let mut gg = TokenStream::new();
 
         for p in METADATA.peripherals {
@@ -1742,6 +1742,7 @@ fn main() {
         // SDMMCv1 uses the same channel for both directions, so just implement for RX
         (("sdmmc", "RX"), quote!(crate::sdmmc::SdmmcDma)),
         (("quadspi", "QUADSPI"), quote!(crate::qspi::QuadDma)),
+        (("quadspi", "FIFO"), quote!(crate::qspi::QuadDma)),
         (("octospi", "OCTOSPI1"), quote!(crate::ospi::OctoDma)),
         (("hspi", "HSPI1"), quote!(crate::hspi::HspiDma)),
         (("dac", "CH1"), quote!(crate::dac::Dma<Ch1>)),
@@ -2069,23 +2070,27 @@ fn main() {
 
     for p in METADATA.peripherals {
         if let Some(r) = &p.registers {
-            if r.kind == "dma" || r.kind == "bdma" || r.kind == "gpdma" || r.kind == "lpdma" {
-                for irq in p.interrupts {
-                    let ch_name = format!("{}_{}", p.name, irq.signal);
-                    let ch = METADATA.dma_channels.iter().find(|c| c.name == ch_name);
+            match r.kind {
+                "dma" | "bdma" | "gpdma" | "lpdma" => {
+                    for irq in p.interrupts {
+                        let ch_name = format!("{}_{}", p.name, irq.signal);
+                        let ch = METADATA.dma_channels.iter().find(|c| c.name == ch_name);
 
-                    if ch.is_none() {
-                        continue;
+                        if ch.is_none() {
+                            continue;
+                        }
+
+                        dma_irqs.entry(irq.interrupt).or_default().push(ch_name);
                     }
-                    let ch = ch.unwrap();
-
-                    // Some H7 chips have BDMA1 hardcoded for DFSDM, ie no DMAMUX. It's unsupported, skip it.
-                    if has_dmamux && ch.dmamux.is_none() {
-                        continue;
-                    }
-
-                    dma_irqs.entry(irq.interrupt).or_default().push(ch_name);
                 }
+                "mdma" => {
+                    for irq in p.interrupts {
+                        for c in METADATA.dma_channels.iter().filter(|c| c.name.starts_with("MDMA")) {
+                            dma_irqs.entry(irq.interrupt).or_default().push(c.name.to_string());
+                        }
+                    }
+                }
+                _ => (),
             }
         }
     }
@@ -2101,11 +2106,6 @@ fn main() {
     }
 
     for (ch_idx, ch) in METADATA.dma_channels.iter().enumerate() {
-        // Some H7 chips have BDMA1 hardcoded for DFSDM, ie no DMAMUX. It's unsupported, skip it.
-        if has_dmamux && ch.dmamux.is_none() {
-            continue;
-        }
-
         let dma_peri = peripheral_map.get(ch.dma).unwrap();
         let stop_mode = dma_peri
             .rcc
@@ -2143,24 +2143,29 @@ fn main() {
             "dma" => quote!(crate::dma::DmaInfo::Dma(crate::pac::#dma)),
             "bdma" => quote!(crate::dma::DmaInfo::Bdma(crate::pac::#dma)),
             "gpdma" => quote!(crate::pac::#dma),
+            "mdma" => quote!(crate::dma::DmaInfo::Mdma(crate::pac::#dma)),
             "lpdma" => {
                 quote!(unsafe { crate::pac::gpdma::Gpdma::from_ptr(crate::pac::#dma.as_ptr())})
             }
             _ => panic!("bad dma channel kind {}", bi.kind),
         };
 
-        let dmamux = match &ch.dmamux {
-            Some(dmamux) => {
-                let dmamux = format_ident!("{}", dmamux);
-                let num = ch.dmamux_channel.unwrap() as usize;
-                quote! {
-                    dmamux: crate::dma::DmamuxInfo {
-                        mux: crate::pac::#dmamux,
-                        num: #num,
-                    },
+        let dmamux = if has_dmamux {
+            match &ch.dmamux {
+                Some(dmamux) => {
+                    let dmamux = format_ident!("{}", dmamux);
+                    let num = ch.dmamux_channel.unwrap() as usize;
+                    quote! {
+                        dmamux: Some(crate::dma::DmamuxInfo {
+                            mux: crate::pac::#dmamux,
+                            num: #num,
+                        }),
+                    }
                 }
+                None => quote!(dmamux: None),
             }
-            None => quote!(),
+        } else {
+            quote!()
         };
 
         #[cfg(not(feature = "_dual-core"))]
@@ -2219,6 +2224,25 @@ fn main() {
         g.extend(quote!(
             pub const BKPSRAM_BASE: usize = #bkpsram_base;
             pub const BKPSRAM_SIZE: usize = #bkpsram_size;
+        ));
+    }
+
+    // Generate constants identifying Tighly Coupled Ram regions
+    if let Some(m) = memory.iter().find(|m| m.name == "ITCM") {
+        let start = m.address;
+        let end = m.address + m.size;
+
+        g.extend(quote!(
+            pub const MEMORY_REGION_ITCM: core::ops::Range<u32> = #start..#end;
+        ));
+    }
+
+    if let Some(m) = memory.iter().find(|m| m.name == "DTCM") {
+        let start = m.address;
+        let end = m.address + m.size;
+
+        g.extend(quote!(
+            pub const MEMORY_REGION_DTCM: core::ops::Range<u32> = #start..#end;
         ));
     }
 
