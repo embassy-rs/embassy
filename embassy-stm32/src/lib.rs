@@ -502,6 +502,8 @@ mod dual_core {
                     config.dma_interrupt_priority,
                     #[cfg(gpdma)]
                     config.gpdma_interrupt_priority,
+                    #[cfg(mdma)]
+                    config.mdma_interrupt_priority,
                 )
             }
 
@@ -522,6 +524,8 @@ mod dual_core {
         dma_interrupt_priority: Priority,
         #[cfg(gpdma)]
         gpdma_interrupt_priority: Priority,
+        #[cfg(mdma)]
+        mdma_interrupt_priority: Priority,
     }
 
     impl From<Config> for SharedConfig {
@@ -533,6 +537,8 @@ mod dual_core {
                 dma_interrupt_priority,
                 #[cfg(gpdma)]
                 gpdma_interrupt_priority,
+                #[cfg(mdma)]
+                mdma_interrupt_priority,
                 ..
             } = value;
 
@@ -543,6 +549,8 @@ mod dual_core {
                 dma_interrupt_priority,
                 #[cfg(gpdma)]
                 gpdma_interrupt_priority,
+                #[cfg(mdma)]
+                mdma_interrupt_priority,
             }
         }
     }
