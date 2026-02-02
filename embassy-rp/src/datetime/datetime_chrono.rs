@@ -23,6 +23,7 @@ pub enum Error {
 ///
 /// # Errors
 /// Returns error if DateTime is before 1970-01-01.
+#[cfg(feature = "_rp235x")]
 pub fn timestamp_millis(dt: &DateTime) -> Result<u64, Error> {
     crate::datetime::epoch::datetime_to_millis(dt)
 }
@@ -31,6 +32,7 @@ pub fn timestamp_millis(dt: &DateTime) -> Result<u64, Error> {
 ///
 /// # Errors
 /// Returns error if timestamp cannot be represented as valid DateTime.
+#[cfg(feature = "_rp235x")]
 pub fn from_timestamp_millis(millis: u64) -> Result<DateTime, Error> {
     crate::datetime::epoch::millis_to_datetime(millis)
 }
