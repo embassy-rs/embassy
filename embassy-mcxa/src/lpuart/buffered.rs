@@ -9,7 +9,8 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use super::*;
 use crate::clocks::WakeGuard;
-use crate::interrupt;
+use crate::interrupt::typelevel::Interrupt;
+use crate::interrupt::{self};
 
 // ============================================================================
 // STATIC STATE MANAGEMENT
@@ -243,6 +244,12 @@ impl<'a> BufferedLpuart<'a> {
             config,
         )?;
 
+        // Enable interrupt
+        T::Interrupt::unpend();
+        unsafe {
+            T::Interrupt::enable();
+        }
+
         Ok(Self { tx, rx })
     }
 
@@ -276,6 +283,12 @@ impl<'a> BufferedLpuart<'a> {
             config,
         )?;
 
+        // Enable interrupt
+        T::Interrupt::unpend();
+        unsafe {
+            T::Interrupt::enable();
+        }
+
         Ok(Self { tx, rx })
     }
 
@@ -307,6 +320,12 @@ impl<'a> BufferedLpuart<'a> {
             config,
         )?;
 
+        // Enable interrupt
+        T::Interrupt::unpend();
+        unsafe {
+            T::Interrupt::enable();
+        }
+
         Ok(Self { tx, rx })
     }
 
@@ -337,6 +356,12 @@ impl<'a> BufferedLpuart<'a> {
             rx_buffer,
             config,
         )?;
+
+        // Enable interrupt
+        T::Interrupt::unpend();
+        unsafe {
+            T::Interrupt::enable();
+        }
 
         Ok(Self { tx, rx })
     }
@@ -397,7 +422,15 @@ impl<'a> BufferedLpuartTx<'a> {
     ) -> Result<Self> {
         tx_pin.as_tx();
 
-        Self::new_inner::<T>(inner, tx_pin.into(), None, tx_buffer, config)
+        let res = Self::new_inner::<T>(inner, tx_pin.into(), None, tx_buffer, config)?;
+
+        // Enable interrupt
+        T::Interrupt::unpend();
+        unsafe {
+            T::Interrupt::enable();
+        }
+
+        Ok(res)
     }
 
     /// Create a new TX-only buffered LPUART with CTS flow control.
@@ -414,7 +447,15 @@ impl<'a> BufferedLpuartTx<'a> {
         tx_pin.as_tx();
         cts_pin.as_cts();
 
-        Self::new_inner::<T>(inner, tx_pin.into(), Some(cts_pin.into()), tx_buffer, config)
+        let res = Self::new_inner::<T>(inner, tx_pin.into(), Some(cts_pin.into()), tx_buffer, config)?;
+
+        // Enable interrupt
+        T::Interrupt::unpend();
+        unsafe {
+            T::Interrupt::enable();
+        }
+
+        Ok(res)
     }
 }
 
@@ -543,7 +584,15 @@ impl<'a> BufferedLpuartRx<'a> {
     ) -> Result<Self> {
         rx_pin.as_rx();
 
-        Self::new_inner::<T>(inner, rx_pin.into(), None, rx_buffer, config)
+        let res = Self::new_inner::<T>(inner, rx_pin.into(), None, rx_buffer, config)?;
+
+        // Enable interrupt
+        T::Interrupt::unpend();
+        unsafe {
+            T::Interrupt::enable();
+        }
+
+        Ok(res)
     }
 
     /// Create a new RX-only buffered LPUART with RTS flow control.
@@ -560,7 +609,15 @@ impl<'a> BufferedLpuartRx<'a> {
         rx_pin.as_rx();
         rts_pin.as_rts();
 
-        Self::new_inner::<T>(inner, rx_pin.into(), Some(rts_pin.into()), rx_buffer, config)
+        let res = Self::new_inner::<T>(inner, rx_pin.into(), Some(rts_pin.into()), rx_buffer, config)?;
+
+        // Enable interrupt
+        T::Interrupt::unpend();
+        unsafe {
+            T::Interrupt::enable();
+        }
+
+        Ok(res)
     }
 }
 
