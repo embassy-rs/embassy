@@ -439,7 +439,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
             self.tx_dma
                 .as_mut()
                 .unwrap()
-                .write(buffer, self.inner.regs().dr().as_ptr() as *mut _, T::TX_DREQ)
+                .write(buffer, self.inner.regs().dr().as_ptr() as *mut _, T::TX_DREQ, false)
         };
         tx_transfer.await;
 
@@ -466,7 +466,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
             self.rx_dma
                 .as_mut()
                 .unwrap()
-                .read(self.inner.regs().dr().as_ptr() as *const _, buffer, T::RX_DREQ)
+                .read(self.inner.regs().dr().as_ptr() as *const _, buffer, T::RX_DREQ, false)
         };
 
         let tx_transfer = unsafe {
@@ -501,7 +501,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
             self.rx_dma
                 .as_mut()
                 .unwrap()
-                .read(self.inner.regs().dr().as_ptr() as *const _, rx, T::RX_DREQ)
+                .read(self.inner.regs().dr().as_ptr() as *const _, rx, T::RX_DREQ, false)
         };
 
         let tx_ch = self.tx_dma.as_mut().unwrap();
@@ -510,7 +510,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         let tx_transfer = async {
             let p = self.inner.regs();
             unsafe {
-                tx_ch.write(tx, p.dr().as_ptr() as *mut _, T::TX_DREQ).await;
+                tx_ch.write(tx, p.dr().as_ptr() as *mut _, T::TX_DREQ, false).await;
 
                 if rx.len() > tx.len() {
                     let write_bytes_len = rx.len() - tx.len();

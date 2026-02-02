@@ -296,7 +296,7 @@ impl<'d> Adc<'d, Async> {
         }
         let auto_reset = ResetDmaConfig;
 
-        let dma = unsafe { dma_ch.read(r.fifo().as_ptr() as *const W, buf as *mut [W], TreqSel::ADC) };
+        let dma = unsafe { dma_ch.read(r.fifo().as_ptr() as *const W, buf as *mut [W], TreqSel::ADC, false) };
         // start conversions and wait for dma to finish. we can't report errors early
         // because there's no interrupt to signal them, and inspecting every element
         // of the fifo is too costly to do here.
