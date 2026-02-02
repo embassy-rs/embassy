@@ -4,7 +4,7 @@ use embassy_hal_internal::Peri;
 pub use embedded_hal_1::pwm::SetDutyCycle;
 use embedded_hal_1::pwm::{Error, ErrorKind, ErrorType};
 
-use super::{AnyChannel, CTimer, Info, Instance, OutputPin, PwmChannel};
+use super::{AnyChannel, CTimer, CTimerChannel, Info, Instance, OutputPin};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::pac::ctimer::vals::{
     Mr0i, Mr0r, Mr0rl, Mr0s, Mr1i, Mr1r, Mr1rl, Mr1s, Mr2i, Mr2r, Mr2rl, Mr2s, Mr3i, Mr3r, Mr3rl, Mr3s, Pwmen0, Pwmen1,
@@ -165,10 +165,10 @@ impl<'d> SinglePwm<'d> {
     ///
     /// Upon `Drop`, the external `pin` will be placed into `Disabled`
     /// state.
-    pub fn new<T: Instance, DUTY: PwmChannel<T>, PIN: OutputPin<T>>(
+    pub fn new<T: Instance, DUTY: CTimerChannel<T>, PIN: OutputPin<T>>(
         ctimer: CTimer<'d>,
         duty_ch: Peri<'d, DUTY>,
-        period_ch: Peri<'d, impl PwmChannel<T>>,
+        period_ch: Peri<'d, impl CTimerChannel<T>>,
         pin: Peri<'d, PIN>,
         config: Config,
     ) -> Result<Self, PwmError>
@@ -258,11 +258,11 @@ impl<'d> DualPwm<'d> {
     ///
     /// Upon `Drop`, all external pins will be placed into `Disabled`
     /// state.
-    pub fn new<T: Instance, DUTY0: PwmChannel<T>, DUTY1: PwmChannel<T>, PIN0: OutputPin<T>, PIN1: OutputPin<T>>(
+    pub fn new<T: Instance, DUTY0: CTimerChannel<T>, DUTY1: CTimerChannel<T>, PIN0: OutputPin<T>, PIN1: OutputPin<T>>(
         ctimer: CTimer<'d>,
         duty_ch0: Peri<'d, DUTY0>,
         duty_ch1: Peri<'d, DUTY1>,
-        period_ch: Peri<'d, impl PwmChannel<T>>,
+        period_ch: Peri<'d, impl CTimerChannel<T>>,
         pin0: Peri<'d, PIN0>,
         pin1: Peri<'d, PIN1>,
         config: Config,
@@ -375,9 +375,9 @@ impl<'d> TriplePwm<'d> {
     /// state.
     pub fn new<
         T: Instance,
-        DUTY0: PwmChannel<T>,
-        DUTY1: PwmChannel<T>,
-        DUTY2: PwmChannel<T>,
+        DUTY0: CTimerChannel<T>,
+        DUTY1: CTimerChannel<T>,
+        DUTY2: CTimerChannel<T>,
         PIN0: OutputPin<T>,
         PIN1: OutputPin<T>,
         PIN2: OutputPin<T>,
@@ -386,7 +386,7 @@ impl<'d> TriplePwm<'d> {
         duty_ch0: Peri<'d, DUTY0>,
         duty_ch1: Peri<'d, DUTY1>,
         duty_ch2: Peri<'d, DUTY2>,
-        period_ch: Peri<'d, impl PwmChannel<T>>,
+        period_ch: Peri<'d, impl CTimerChannel<T>>,
         pin0: Peri<'d, PIN0>,
         pin1: Peri<'d, PIN1>,
         pin2: Peri<'d, PIN2>,

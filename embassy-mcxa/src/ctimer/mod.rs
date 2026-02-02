@@ -1,6 +1,7 @@
 //! CTimer driver.
 
 use core::marker::PhantomData;
+use core::sync::atomic::AtomicU32;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 use maitake_sync::WaitCell;
@@ -11,6 +12,7 @@ use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset}
 use crate::gpio::{GpioPin, SealedPin};
 use crate::{interrupt, pac};
 
+pub mod capture;
 pub mod pwm;
 
 /// Error information type
@@ -78,23 +80,10 @@ impl<'d> CTimer<'d> {
     }
 }
 
-/// CTimer interrupt handler.
-pub struct InterruptHandler<T: Instance> {
-    _phantom: PhantomData<T>,
-}
-
-impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
-    unsafe fn on_interrupt() {
-        // Clear interrupt status
-        let r = T::info().regs().ir().read().0;
-        T::info().regs().ir().write(|w| w.0 = r);
-        T::info().wait_cell().wake();
-    }
-}
-
 struct Info {
     regs: pac::ctimer::Ctimer,
     wait_cell: WaitCell,
+    timestamp: [AtomicU32; 4],
 }
 
 impl Info {
@@ -106,6 +95,11 @@ impl Info {
     #[inline(always)]
     fn wait_cell(&self) -> &WaitCell {
         &self.wait_cell
+    }
+
+    #[inline(always)]
+    fn timestamp(&self, ch: usize) -> &AtomicU32 {
+        &self.timestamp[ch]
     }
 }
 
@@ -131,6 +125,12 @@ macro_rules! impl_instance {
                 static INFO: Info = Info {
                     regs: pac::$peri,
                     wait_cell: WaitCell::new(),
+                    timestamp: [
+                        AtomicU32::new(0),
+                        AtomicU32::new(0),
+                        AtomicU32::new(0),
+                        AtomicU32::new(0),
+                    ],
                 };
                 &INFO
             }
@@ -150,24 +150,27 @@ impl_instance!(CTIMER2, CTimer2);
 impl_instance!(CTIMER3, CTimer3);
 impl_instance!(CTIMER4, CTimer4);
 
-trait SealedPwmChannel<T: Instance> {
+trait SealedCTimerChannel<T: Instance> {
     fn number(&self) -> usize;
 }
 
 /// CTimer channel
 #[allow(private_bounds)]
-pub trait PwmChannel<T: Instance>: SealedPwmChannel<T> + PeripheralType + Into<AnyChannel> + 'static + Send {}
+pub trait CTimerChannel<T: Instance>:
+    SealedCTimerChannel<T> + PeripheralType + Into<AnyChannel> + 'static + Send
+{
+}
 
 macro_rules! impl_channel {
     ($ch:ident, $peri:ident, $n:literal) => {
-        impl SealedPwmChannel<crate::peripherals::$peri> for crate::peripherals::$ch {
+        impl SealedCTimerChannel<crate::peripherals::$peri> for crate::peripherals::$ch {
             #[inline(always)]
             fn number(&self) -> usize {
                 $n
             }
         }
 
-        impl PwmChannel<crate::peripherals::$peri> for crate::peripherals::$ch {}
+        impl CTimerChannel<crate::peripherals::$peri> for crate::peripherals::$ch {}
 
         impl From<crate::peripherals::$ch> for AnyChannel {
             fn from(value: crate::peripherals::$ch) -> Self {
