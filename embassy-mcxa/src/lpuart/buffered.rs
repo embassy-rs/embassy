@@ -9,7 +9,8 @@ use embassy_sync::waitqueue::AtomicWaker;
 
 use super::*;
 use crate::clocks::WakeGuard;
-use crate::interrupt::{self, typelevel::Interrupt};
+use crate::interrupt::typelevel::Interrupt;
+use crate::interrupt::{self};
 
 // ============================================================================
 // STATIC STATE MANAGEMENT
