@@ -992,7 +992,6 @@ impl<'d> Channel<'d> {
         options: TransferOptions,
     ) -> Transfer<'a> {
         let mem_len = buf.len();
-        assert!(mem_len > 0 && mem_len <= 0xFFFF);
 
         self.configure(
             request,
@@ -1032,7 +1031,6 @@ impl<'d> Channel<'d> {
         options: TransferOptions,
     ) -> Transfer<'a> {
         let mem_len = buf.len();
-        assert!(mem_len > 0 && mem_len <= 0xFFFF);
 
         self.configure(
             request,
