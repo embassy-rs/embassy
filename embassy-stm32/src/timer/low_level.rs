@@ -1036,6 +1036,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     }
 
     /// Set Timer Etr_in Source
+    #[cfg(not(stm32l0))]
     pub fn set_etr_in_source(&self, val: u8) {
         self.regs_gp16().af1().modify(|w| w.set_etrsel(val));
     }
