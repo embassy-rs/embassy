@@ -1034,6 +1034,32 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     pub fn set_trigger_source(&self, ts: TriggerSource) {
         self.regs_gp16().smcr().modify(|r| r.set_ts(ts));
     }
+
+    /// Set Timer Etr_in Source
+    #[cfg(not(stm32l0))]
+    pub fn set_etr_in_source(&self, val: u8) {
+        self.regs_gp16().af1().modify(|w| w.set_etrsel(val));
+    }
+
+    /// Set Timer External Trigger Filter
+    pub fn set_external_trigger_filter(&self, fv: FilterValue) {
+        self.regs_gp16().smcr().modify(|w| w.set_etf(fv));
+    }
+
+    /// Set Timer External Trigger prescaler
+    pub fn set_external_trigger_prescaler(&self, etp: vals::Etps) {
+        self.regs_gp16().smcr().modify(|w| w.set_etps(etp));
+    }
+
+    /// Set Timer External Trigger Polarity
+    pub fn set_external_trigger_polarity(&self, etp: vals::Etp) {
+        self.regs_gp16().smcr().modify(|w| w.set_etp(etp));
+    }
+
+    /// Set Timer External Clock Mode 2 Enable state
+    pub fn set_external_clock_mode_2_enable_state(&self, val: bool) {
+        self.regs_gp16().smcr().modify(|w| w.set_ece(val));
+    }
 }
 
 #[cfg(not(stm32l0))]
