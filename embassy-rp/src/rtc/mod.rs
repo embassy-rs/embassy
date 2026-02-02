@@ -219,15 +219,8 @@ impl<'d, T: Instance> Rtc<'d, T> {
 
         if irq_1.dotw_ena() {
             // Convert day of week value to DayOfWeek enum
-            let day_of_week = match irq_1.dotw() {
-                0 => DayOfWeek::Sunday,
-                1 => DayOfWeek::Monday,
-                2 => DayOfWeek::Tuesday,
-                3 => DayOfWeek::Wednesday,
-                4 => DayOfWeek::Thursday,
-                5 => DayOfWeek::Friday,
-                6 => DayOfWeek::Saturday,
-                _ => return None, // Invalid day of week
+            let Ok(day_of_week) = conversions::day_of_week_from_u8(irq_1.dotw()) else {
+                return None; // Invalid day of week
             };
             filter.day_of_week = Some(day_of_week);
         }

@@ -12,5 +12,5 @@ mod datetime;
 pub(crate) mod epoch;
 
 pub use self::datetime::{DateTime, DayOfWeek, Error};
-#[cfg(feature = "chrono")]
+#[cfg(all(feature = "chrono", feature = "_rp235x"))]
 pub use self::datetime::{from_timestamp_millis, timestamp_millis};
