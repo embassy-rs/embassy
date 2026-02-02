@@ -314,6 +314,17 @@ impl<'l, PIO: Instance> Pin<'l, PIO> {
         }
     }
 
+    /// Set the pin's input sync bypass.
+    pub fn set_input_inversion(&mut self, invert: bool) {
+        self.pin.gpio().ctrl().modify(|w| {
+            w.set_inover(if invert {
+                pac::io::vals::Inover::INVERT
+            } else {
+                pac::io::vals::Inover::NORMAL
+            })
+        })
+    }
+
     /// Get the underlying pin number.
     pub fn pin(&self) -> u8 {
         self.pin._pin()
