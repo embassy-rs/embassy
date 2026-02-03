@@ -20,7 +20,7 @@ async fn main(_spawner: Spawner) {
 
     let mut config = controller::Config::default();
     config.speed = Speed::Standard;
-    let i2c = I2c::new_blocking(p.LPI2C3, p.P3_27, p.P3_28, config).unwrap();
+    let i2c = I2c::new_blocking(p.LPI2C2, p.P1_9, p.P1_8, config).unwrap();
     let mut tmp = Tmp108::new_with_a0_gnd(i2c);
 
     loop {

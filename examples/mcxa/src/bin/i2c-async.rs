@@ -7,12 +7,12 @@ use hal::bind_interrupts;
 use hal::clocks::config::Div8;
 use hal::config::Config;
 use hal::i2c::controller::{self, I2c, InterruptHandler, Speed};
-use hal::peripherals::LPI2C3;
+use hal::peripherals::LPI2C2;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 bind_interrupts!(
     struct Irqs {
-        LPI2C3 => InterruptHandler<LPI2C3>;
+        LPI2C2 => InterruptHandler<LPI2C2>;
     }
 );
 
@@ -27,7 +27,7 @@ async fn main(_spawner: Spawner) {
 
     let mut config = controller::Config::default();
     config.speed = Speed::Standard;
-    let mut i2c = I2c::new_async(p.LPI2C3, p.P3_27, p.P3_28, Irqs, config).unwrap();
+    let mut i2c = I2c::new_async(p.LPI2C2, p.P1_9, p.P1_8, Irqs, config).unwrap();
     let mut buf = [0u8; 2];
 
     loop {
