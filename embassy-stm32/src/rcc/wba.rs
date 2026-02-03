@@ -150,7 +150,6 @@ pub(crate) unsafe fn init(config: Config) {
 
     let pll_input = PllInput { hse, hsi };
 
-    let pll1 = init_pll(config.pll1, &pll_input, config.voltage_scale);
     let pll1 = config.pll1.map_or_else(
         || {
             pll_enable(false);
