@@ -1,9 +1,11 @@
 use core::ops::RangeInclusive;
 
 #[cfg(stm32h7rs)]
-use stm32_metapac::rcc::vals::{Plldivst, Xspisel};
+use stm32_metapac::rcc::vals::Xspisel;
 
 use crate::pac;
+#[cfg(stm32h7rs)]
+pub use crate::pac::rcc::vals::Plldivst as PllDivSt;
 pub use crate::pac::rcc::vals::{
     Hsidiv as HSIPrescaler, Plldiv as PllDiv, Pllm as PllPreDiv, Plln as PllMul, Pllsrc as PllSource, Sw as Sysclk,
 };
@@ -87,10 +89,10 @@ pub struct Pll {
     pub divr: Option<PllDiv>,
     #[cfg(stm32h7rs)]
     /// PLL S division factor. If None, PLL S output is disabled.
-    pub divs: Option<Plldivst>,
+    pub divs: Option<PllDivSt>,
     #[cfg(stm32h7rs)]
     /// PLL T division factor. If None, PLL T output is disabled.
-    pub divt: Option<Plldivst>,
+    pub divt: Option<PllDivSt>,
 }
 
 fn apb_div_tim(apb: &APBPrescaler, clk: Hertz, tim: TimerPrescaler) -> Hertz {
@@ -732,9 +734,9 @@ pub(crate) unsafe fn init(config: Config) {
         pll2_q: pll2.q,
         pll2_r: pll2.r,
         #[cfg(stm32h7rs)]
-        pll2_s: None, // TODO
+        pll2_s: pll2.s,
         #[cfg(stm32h7rs)]
-        pll2_t: None, // TODO
+        pll2_t: pll2.t,
         #[cfg(any(rcc_h5, stm32h7, stm32h7rs))]
         pll3_p: pll3.p,
         #[cfg(any(rcc_h5, stm32h7, stm32h7rs))]
@@ -924,8 +926,8 @@ fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
 
     #[cfg(stm32h7rs)]
     RCC.plldivr2(num).write(|w| {
-        w.set_plls(config.divs.unwrap_or(Plldivst::DIV2));
-        w.set_pllt(config.divt.unwrap_or(Plldivst::DIV2));
+        w.set_plls(config.divs.unwrap_or(PllDivSt::DIV2));
+        w.set_pllt(config.divt.unwrap_or(PllDivSt::DIV2));
     });
 
     RCC.cr().modify(|w| w.set_pllon(num, true));
