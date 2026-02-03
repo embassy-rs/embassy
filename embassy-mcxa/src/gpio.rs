@@ -1033,6 +1033,22 @@ impl embedded_hal_02::digital::v2::InputPin for Input<'_> {
     }
 }
 
+impl embedded_hal_02::digital::v2::OutputPin for Output<'_> {
+    type Error = Infallible;
+
+    #[inline]
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        self.set_high();
+        Ok(())
+    }
+
+    #[inline]
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        self.set_low();
+        Ok(())
+    }
+}
+
 impl embedded_hal_02::digital::v2::OutputPin for Flex<'_> {
     type Error = Infallible;
 
@@ -1092,6 +1108,20 @@ impl embedded_hal_1::digital::InputPin for Input<'_> {
     #[inline]
     fn is_low(&mut self) -> Result<bool, Self::Error> {
         Ok((*self).is_low())
+    }
+}
+
+impl embedded_hal_1::digital::OutputPin for Output<'_> {
+    #[inline]
+    fn set_high(&mut self) -> Result<(), Self::Error> {
+        self.set_high();
+        Ok(())
+    }
+
+    #[inline]
+    fn set_low(&mut self) -> Result<(), Self::Error> {
+        self.set_low();
+        Ok(())
     }
 }
 
