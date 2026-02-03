@@ -679,7 +679,7 @@ impl<'d> UartRx<'d, Async> {
                 let eval = sval + buffer.len();
 
                 // This is the address where the DMA would write to next
-                let next_addr = self.rx_dma.as_mut().unwrap().regs().write_addr().read() as usize;
+                let next_addr = self.rx_dma.as_mut().unwrap().write_addr() as usize;
 
                 // If we DON'T end up inside the range, something has gone really wrong.
                 // Note that it's okay that `eval` is one past the end of the slice, as
