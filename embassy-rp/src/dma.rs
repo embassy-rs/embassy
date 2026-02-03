@@ -69,8 +69,13 @@ impl<'d> Channel<'d> {
     }
 
     /// Get the channel register block.
-    pub(crate) fn regs(&self) -> pac::dma::Channel {
+    fn regs(&self) -> pac::dma::Channel {
         pac::DMA.ch(self.number as _)
+    }
+
+    /// Get next write address.
+    pub fn write_addr(&self) -> u32 {
+        self.regs().write_addr().read()
     }
 
     /// Reborrow the channel, allowing it to be used in multiple places.
