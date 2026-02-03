@@ -64,7 +64,7 @@ impl<'d> Channel<'d> {
     }
 
     /// Get the channel number.
-    pub(crate) fn number(&self) -> u8 {
+    fn number(&self) -> u8 {
         self.number
     }
 
