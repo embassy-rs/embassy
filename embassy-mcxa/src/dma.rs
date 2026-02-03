@@ -748,7 +748,7 @@ impl<C: Channel> DmaChannel<C> {
         t.ch_int().write(|w| w.int().clear_bit_by_one());
 
         // Enable the channel request
-        t.ch_csr().modify(|_, w| w.erq().enable());
+        t.ch_csr().modify(|_, w| w.erq().enable().earq().enable());
 
         Transfer::new(self.as_any())
     }
@@ -1474,7 +1474,7 @@ impl<C: Channel> DmaChannel<C> {
     /// The channel must be properly configured before enabling requests.
     pub unsafe fn enable_request(&self) {
         let t = self.tcd();
-        t.ch_csr().modify(|_, w| w.erq().enable());
+        t.ch_csr().modify(|_, w| w.erq().enable().earq().enable());
     }
 
     /// Disable hardware requests for this channel (ERQ=0).
@@ -1484,7 +1484,7 @@ impl<C: Channel> DmaChannel<C> {
     /// Disabling requests on an active transfer may leave the transfer incomplete.
     pub unsafe fn disable_request(&self) {
         let t = self.tcd();
-        t.ch_csr().modify(|_, w| w.erq().disable());
+        t.ch_csr().modify(|_, w| w.erq().disable().earq().disable());
     }
 
     /// Return true if the channel's DONE flag is set.
@@ -1831,7 +1831,7 @@ impl<'a> Transfer<'a> {
         let t = self.channel.tcd();
 
         // Disable channel requests
-        t.ch_csr().modify(|_, w| w.erq().disable());
+        t.ch_csr().modify(|_, w| w.erq().disable().earq().disable());
 
         // Clear any pending interrupt
         t.ch_int().write(|w| w.int().clear_bit_by_one());
@@ -2239,7 +2239,7 @@ impl<'a, W: Word> RingBuffer<'a, W> {
 
         // Disable the channel
         let t = self.channel.tcd();
-        t.ch_csr().modify(|_, w| w.erq().disable());
+        t.ch_csr().modify(|_, w| w.erq().disable().earq().disable());
 
         // Clear flags
         t.ch_int().write(|w| w.int().clear_bit_by_one());
@@ -2339,7 +2339,7 @@ impl<C: Channel> DmaChannel<C> {
             cortex_m::asm::dsb();
 
             // Enable the channel request
-            t.ch_csr().modify(|_, w| w.erq().enable());
+            t.ch_csr().modify(|_, w| w.erq().enable().earq().enable());
 
             // Enable NVIC interrupt for this channel so async wakeups work
             self.enable_interrupt();
