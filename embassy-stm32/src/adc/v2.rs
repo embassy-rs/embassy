@@ -1,7 +1,7 @@
 use core::sync::atomic::{Ordering, compiler_fence};
 
 use super::{ConversionMode, Temperature, Vbat, VrefInt, blocking_delay_us};
-use crate::adc::{Adc, AdcRegs, Instance, Resolution, SampleTime};
+use crate::adc::{Adc, AdcRegs, Instance, RegularConversionMode, Resolution, SampleTime};
 use crate::pac::adc::vals;
 pub use crate::pac::adccommon::vals::Adcpre;
 use crate::time::Hertz;
@@ -140,9 +140,8 @@ impl super::AdcRegs for crate::pac::adc::Adc {
 
     fn configure_dma(&self, conversion_mode: ConversionMode) {
         match conversion_mode {
-            ConversionMode::Repeated(_) => {
+            ConversionMode::Repeated(mode) => {
                 let r = self;
-
                 // Clear all interrupts
                 r.sr().modify(|regs| {
                     regs.set_eoc(false);
@@ -155,7 +154,7 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                     w.set_eocie(true);
                     // Enable interrupt for overrun
                     w.set_ovrie(true);
-                    // Scanning converisons of multiple channels
+                    // Scanning conversions of multiple channels
                     w.set_scan(true);
                     // Continuous conversion mode
                     w.set_discen(false);
@@ -164,13 +163,30 @@ impl super::AdcRegs for crate::pac::adc::Adc {
                 r.cr2().modify(|w| {
                     // Enable DMA mode
                     w.set_dma(true);
-                    // Enable continuous conversions
-                    w.set_cont(true);
                     // DMA requests are issues as long as DMA=1 and data are converted.
                     w.set_dds(vals::Dds::CONTINUOUS);
                     // EOC flag is set at the end of each conversion.
                     w.set_eocs(vals::Eocs::EACH_CONVERSION);
                 });
+
+                match mode {
+                    RegularConversionMode::Continuous => {
+                        r.cr2().modify(|w| {
+                            // Enable continuous conversions
+                            w.set_cont(true);
+                        });
+                    }
+                    RegularConversionMode::Triggered(trigger) => {
+                        r.cr2().modify(|w| {
+                            // Disable continuous conversions
+                            w.set_cont(false);
+                            // Trigger detection edge
+                            w.set_exten(trigger.edge);
+                            // Trigger channel
+                            w.set_extsel(trigger.channel);
+                        })
+                    }
+                };
             }
         }
     }

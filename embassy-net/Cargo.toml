@@ -52,7 +52,7 @@ features = ["defmt", "tcp", "udp", "raw", "dns", "icmp", "dhcpv4", "proto-ipv6",
 
 [features]
 ## Enable defmt
-defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "embassy-time/defmt", "heapless/defmt-03", "defmt?/ip_in_core"]
+defmt = ["dep:defmt", "smoltcp/defmt", "embassy-net-driver/defmt", "embassy-time/defmt", "heapless/defmt", "defmt?/ip_in_core"]
 ## Enable log
 log = ["dep:log"]
 
@@ -101,7 +101,7 @@ alloc = ["smoltcp/alloc"]
 defmt = { version = "1.0.1", optional = true }
 log = { version = "0.4.14", optional = true }
 
-smoltcp = { version = "0.12.0", default-features = false, features = [
+smoltcp = {  git = "https://github.com/smoltcp-rs/smoltcp", rev = "52b224a0f30e007826f5d95beb9449f5b5894701", default-features = false, features = [
   "socket",
   "async",
 ] }
@@ -112,6 +112,6 @@ embassy-sync = { version = "0.7.2", path = "../embassy-sync" }
 embedded-io-async = { version = "0.7.0" }
 
 managed = { version = "0.8.0", default-features = false, features = [ "map" ] }
-heapless = { version = "0.8", default-features = false }
+heapless = { version = "0.9", default-features = false }
 embedded-nal-async = "0.9.0"
 document-features = "0.2.7"

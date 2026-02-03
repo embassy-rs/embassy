@@ -14,8 +14,7 @@ use embassy_stm32::{bind_interrupts, peripherals};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_time::Duration;
 use embassy_usb::{Builder, msos};
-use embassy_usb_dfu::consts::DfuAttributes;
-use embassy_usb_dfu::{Control, ResetImmediate, usb_dfu};
+use embassy_usb_dfu::application::{DfuAttributes, DfuState, Handler, usb_dfu};
 use panic_reset as _;
 
 bind_interrupts!(struct Irqs {
@@ -26,6 +25,17 @@ bind_interrupts!(struct Irqs {
 //
 // N.B. update to a custom GUID for your own device!
 const DEVICE_INTERFACE_GUIDS: &[&str] = &["{EAA9A5DC-30BA-44BC-9232-606CDC875321}"];
+
+struct DfuHandler<'d, FLASH: embedded_storage::nor_flash::NorFlash> {
+    firmware_state: BlockingFirmwareState<'d, FLASH>,
+}
+
+impl<FLASH: embedded_storage::nor_flash::NorFlash> Handler for DfuHandler<'_, FLASH> {
+    fn enter_dfu(&mut self) {
+        self.firmware_state.mark_dfu().expect("Failed to mark DFU mode");
+        cortex_m::peripheral::SCB::sys_reset();
+    }
+}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -49,7 +59,10 @@ async fn main(_spawner: Spawner) {
     let mut config_descriptor = [0; 256];
     let mut bos_descriptor = [0; 256];
     let mut control_buf = [0; 64];
-    let mut state = Control::new(firmware_state, DfuAttributes::CAN_DOWNLOAD, ResetImmediate);
+
+    let handler = DfuHandler { firmware_state };
+    let mut state = DfuState::new(handler, DfuAttributes::CAN_DOWNLOAD, Duration::from_millis(2500));
+
     let mut builder = Builder::new(
         driver,
         config,
@@ -72,7 +85,7 @@ async fn main(_spawner: Spawner) {
         msos::PropertyData::RegMultiSz(DEVICE_INTERFACE_GUIDS),
     ));
 
-    usb_dfu(&mut builder, &mut state, Duration::from_millis(2500), |func| {
+    usb_dfu(&mut builder, &mut state, |func| {
         // You likely don't have to add these function level headers if your USB device is not composite
         // (i.e. if your device does not expose another interface in addition to DFU)
         func.msos_feature(msos::CompatibleIdFeatureDescriptor::new("WINUSB", ""));

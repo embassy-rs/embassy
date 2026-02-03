@@ -8,6 +8,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- fix: stm32/i2c v2: Fix async slave by using DMA completion instead of TC flag for buffer-full detection
+- change: stm32/i2c v2: slave `respond_to_write` and `respond_to_read` now return actual bytes transferred instead of buffer size (breaking change, matching v1 behavior)
+- fix: stm32/i2c v1: `write_read` was losing last write byte before RESTART due to not waiting for BTF
+- fix: stm32/i2c v1: slave: async `respond_to_write` and `respond_to_read` now return actual bytes transferred instead of buffer size
+- fix: don't put USB pins into alternate mode on chips where USB is an additional function
+- feat: add i2s to STM32G4 except G414
+
 ## 0.5.0 - 2026-01-04
 - Add `receive_waveform` method in `InputCapture`, allowing asynchronous input capture with DMA.
 - fix: stm32: GPDMA driver reset ignored during channel configuration
@@ -92,7 +99,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - fix: build script ensures EXTI2_TSC is listed as the IRQ of EXTI2 even if the PAC doesn't
 - feat: stm32/lcd: added implementation
 - change: add error messages to can timing calculations ([#4961](https://github.com/embassy-rs/embassy/pull/4961))
-- feat: stm32/spi bidirectional mode 
+- feat: stm32/spi bidirectional mode
 - fix: stm32/i2c v2: add stop flag on stop received
 - stm32: Add blocking_listen for blocking I2C driver
 - fix: stm32l47*/stm32l48* adc analog pin setup

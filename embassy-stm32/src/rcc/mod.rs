@@ -4,7 +4,6 @@
 #![allow(missing_docs)] // TODO
 
 use core::mem::MaybeUninit;
-use core::ops;
 
 mod bd;
 pub use bd::*;
@@ -12,7 +11,6 @@ pub use bd::*;
 #[cfg(any(mco, mco1, mco2))]
 mod mco;
 use critical_section::CriticalSection;
-use embassy_hal_internal::{Peri, PeripheralType};
 #[cfg(any(mco, mco1, mco2))]
 pub use mco::*;
 
@@ -52,8 +50,12 @@ pub(crate) static mut REFCOUNT_STOP1: u32 = 0;
 /// May be read without a critical section
 pub(crate) static mut REFCOUNT_STOP2: u32 = 0;
 
-#[cfg(feature = "low-power")]
+#[cfg(all(feature = "low-power", not(feature = "_dual-core")))]
 pub(crate) static mut RCC_CONFIG: Option<Config> = None;
+
+#[cfg(all(feature = "low-power", feature = "_dual-core"))]
+static RCC_CONFIG_PTR: core::sync::atomic::AtomicPtr<MaybeUninit<Option<Config>>> =
+    core::sync::atomic::AtomicPtr::new(core::ptr::null_mut());
 
 #[cfg(backup_sram)]
 pub(crate) static mut BKSRAM_RETAINED: bool = false;
@@ -71,6 +73,11 @@ static CLOCK_FREQS_PTR: core::sync::atomic::AtomicPtr<MaybeUninit<Clocks>> =
 #[cfg(feature = "_dual-core")]
 pub(crate) fn set_freqs_ptr(freqs: *mut MaybeUninit<Clocks>) {
     CLOCK_FREQS_PTR.store(freqs, core::sync::atomic::Ordering::SeqCst);
+}
+
+#[cfg(all(feature = "low-power", feature = "_dual-core"))]
+pub(crate) fn set_rcc_config_ptr(config: *mut MaybeUninit<Option<Config>>) {
+    RCC_CONFIG_PTR.store(config, core::sync::atomic::Ordering::SeqCst);
 }
 
 #[cfg(not(feature = "_dual-core"))]
@@ -103,6 +110,32 @@ pub(crate) unsafe fn get_freqs() -> &'static Clocks {
 /// Safety: Reads a mutable global.
 pub(crate) unsafe fn get_freqs() -> &'static Clocks {
     unwrap!(CLOCK_FREQS_PTR.load(core::sync::atomic::Ordering::SeqCst).as_ref()).assume_init_ref()
+}
+
+#[cfg(all(feature = "low-power", not(feature = "_dual-core")))]
+/// Safety: Reads a mutable global.
+pub(crate) unsafe fn get_rcc_config() -> Option<Config> {
+    RCC_CONFIG
+}
+
+#[cfg(all(feature = "low-power", feature = "_dual-core"))]
+/// Safety: Reads a mutable global.
+pub(crate) unsafe fn get_rcc_config() -> Option<Config> {
+    unwrap!(RCC_CONFIG_PTR.load(core::sync::atomic::Ordering::SeqCst).as_ref()).assume_init()
+}
+
+#[cfg(all(feature = "low-power", not(feature = "_dual-core")))]
+/// Safety: Sets a mutable global.
+pub(crate) unsafe fn set_rcc_config(config: Option<Config>) {
+    RCC_CONFIG = config;
+}
+
+#[cfg(all(feature = "low-power", feature = "_dual-core"))]
+/// Safety: Sets a mutable global.
+pub(crate) unsafe fn set_rcc_config(config: Option<Config>) {
+    RCC_CONFIG_PTR
+        .load(core::sync::atomic::Ordering::SeqCst)
+        .write(MaybeUninit::new(config));
 }
 
 /// Get the current clock configuration of the chip.
@@ -174,7 +207,8 @@ pub(crate) struct RccInfo {
 /// E.g. if `StopMode::Stop1` is selected, the peripheral prevents the chip from entering Stop1 mode.
 #[cfg(feature = "low-power")]
 #[allow(dead_code)]
-#[derive(Debug, Clone, Copy, PartialEq, Default, defmt::Format)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum StopMode {
     #[default]
     /// Peripheral prevents chip from entering Stop1 or executor will enter Stop1
@@ -184,12 +218,6 @@ pub enum StopMode {
     /// Peripheral does not prevent chip from entering Stop
     Standby,
 }
-
-#[cfg(feature = "low-power")]
-type BusyRccPeripheral = BusyPeripheral<StopMode>;
-
-#[cfg(not(feature = "low-power"))]
-type BusyRccPeripheral = ();
 
 impl RccInfo {
     /// Safety:
@@ -220,18 +248,6 @@ impl RccInfo {
             refcount_idx_or_0xff,
             #[cfg(feature = "low-power")]
             stop_mode,
-        }
-    }
-
-    #[cfg(stm32wl5x)]
-    fn wait_for_lock(&self) -> crate::hsem::HardwareSemaphoreMutex<'_, crate::peripherals::HSEM> {
-        use crate::hsem::HardwareSemaphoreChannel;
-        use crate::peripherals::HSEM;
-        let mut sem = HardwareSemaphoreChannel::<HSEM>::new(3);
-        loop {
-            if let Some(lock) = sem.try_lock(0) {
-                return lock;
-            }
         }
     }
 
@@ -268,16 +284,15 @@ impl RccInfo {
             // as that would reset the configuration that the other CPU has set up.
             // we hold a hardware lock to prevent the other CPU from enabling the peripheral while we are resetting it.
             #[cfg(stm32wl5x)]
-            {
-                let lock = self.wait_for_lock();
-                if unsafe { !self.is_enabled_by_other_core() } {
-                    unsafe {
-                        let val = reset_ptr.read_volatile();
-                        reset_ptr.write_volatile(val | 1u32 << self.reset_bit);
-                    }
+            unsafe {
+                let _lock = crate::hsem::get_hsem(3).blocking_lock(0);
+
+                if !self.is_enabled_by_other_core() {
+                    let val = reset_ptr.read_volatile();
+                    reset_ptr.write_volatile(val | 1u32 << self.reset_bit);
+
                     trace!("rcc: reset 0x{:x}:{}", self.enable_offset, self.enable_bit);
                 }
-                drop(lock);
             }
         }
 
@@ -433,9 +448,11 @@ impl RccInfo {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn block_stop(&self) -> BusyRccPeripheral {
-        #[cfg(feature = "low-power")]
-        BusyPeripheral::new(self.stop_mode)
+    pub(crate) fn wake_guard(&self) -> WakeGuard {
+        WakeGuard::new(
+            #[cfg(feature = "low-power")]
+            self.stop_mode,
+        )
     }
 
     fn reset_ptr(&self) -> Option<*mut u32> {
@@ -460,57 +477,27 @@ impl RccInfo {
     }
 }
 
-pub(crate) trait StoppablePeripheral {
+pub struct WakeGuard {
     #[cfg(feature = "low-power")]
-    #[allow(dead_code)]
-    fn stop_mode(&self) -> StopMode;
+    stop_mode: StopMode,
 }
 
-#[cfg(feature = "low-power")]
-impl StoppablePeripheral for StopMode {
-    fn stop_mode(&self) -> StopMode {
-        *self
-    }
-}
-
-impl<'a, T: StoppablePeripheral + PeripheralType> StoppablePeripheral for Peri<'a, T> {
-    #[cfg(feature = "low-power")]
-    fn stop_mode(&self) -> StopMode {
-        T::stop_mode(&self)
-    }
-}
-
-pub(crate) struct BusyPeripheral<T: StoppablePeripheral> {
-    peripheral: T,
-}
-
-impl<T: StoppablePeripheral> BusyPeripheral<T> {
-    pub fn new(peripheral: T) -> Self {
+impl WakeGuard {
+    pub fn new(#[cfg(feature = "low-power")] stop_mode: StopMode) -> Self {
         #[cfg(feature = "low-power")]
-        critical_section::with(|cs| increment_stop_refcount(cs, peripheral.stop_mode()));
+        critical_section::with(|cs| increment_stop_refcount(cs, stop_mode));
 
-        Self { peripheral }
+        Self {
+            #[cfg(feature = "low-power")]
+            stop_mode,
+        }
     }
 }
 
-impl<T: StoppablePeripheral> Drop for BusyPeripheral<T> {
+impl Drop for WakeGuard {
     fn drop(&mut self) {
         #[cfg(feature = "low-power")]
-        critical_section::with(|cs| decrement_stop_refcount(cs, self.peripheral.stop_mode()));
-    }
-}
-
-impl<T: StoppablePeripheral> ops::Deref for BusyPeripheral<T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        &self.peripheral
-    }
-}
-
-impl<T: StoppablePeripheral> ops::DerefMut for BusyPeripheral<T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.peripheral
+        critical_section::with(|cs| decrement_stop_refcount(cs, self.stop_mode));
     }
 }
 
@@ -618,6 +605,96 @@ pub fn reinit(config: Config, _rcc: &'_ mut crate::Peri<'_, crate::peripherals::
 
 pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
     unsafe {
+        // if we are using a lp timer as the time driver, we need to make sure that the clock selection is sane
+        // TODO: how to share this config from the secondary core thats using a lp timer? (right now its not detected as missing!)
+        #[cfg(feature = "_lp-time-driver")]
+        let config = {
+            use crate::pac::rcc::vals::Lptimsel;
+            let mut config = config;
+            #[cfg(time_driver_lptim1)]
+            {
+                match config.mux.lptim1sel {
+                    Lptimsel::PCLK1 => {
+                        // set it to LSI
+                        config.mux.lptim1sel = Lptimsel::LSI;
+                        config.ls.lsi = true;
+                    }
+                    Lptimsel::LSI => {
+                        // ok but insure the lsi is enabled
+                        config.ls.lsi = true;
+                    }
+                    Lptimsel::HSI => {
+                        // ok but insure the hsi is enabled
+                        config.hsi = true;
+                    }
+                    Lptimsel::LSE => {
+                        // ok but insure the lse is configured with peripherals_clocked = true!!!
+                        if let Some(mut lse_config) = config.ls.lse {
+                            lse_config.peripherals_clocked = true;
+                            config.ls.lse = Some(lse_config);
+                        } else {
+                            panic!("LSE is not not configured, but selected for time_driver!!!");
+                        }
+                    }
+                }
+            }
+            #[cfg(time_driver_lptim2)]
+            {
+                match config.mux.lptim2sel {
+                    Lptimsel::PCLK1 => {
+                        // set it to LSI
+                        config.mux.lptim2sel = Lptimsel::LSI;
+                        config.ls.lsi = true;
+                    }
+                    Lptimsel::LSI => {
+                        // ok but insure the lsi is enabled
+                        config.ls.lsi = true;
+                    }
+                    Lptimsel::HSI => {
+                        // ok but insure the hsi is enabled
+                        config.hsi = true;
+                    }
+                    Lptimsel::LSE => {
+                        // ok but insure the lse is configured with peripherals_clocked = true!!!
+                        if let Some(mut lse_config) = config.ls.lse {
+                            lse_config.peripherals_clocked = true;
+                            config.ls.lse = Some(lse_config);
+                        } else {
+                            panic!("LSE is not not configured, but selected for time_driver!!!");
+                        }
+                    }
+                }
+            }
+            #[cfg(time_driver_lptim3)]
+            {
+                match config.mux.lptim3sel {
+                    Lptimsel::PCLK1 => {
+                        // set it to LSI
+                        config.mux.lptim3sel = Lptimsel::LSI;
+                        config.ls.lsi = true;
+                    }
+                    Lptimsel::LSI => {
+                        // ok but insure the lsi is enabled
+                        config.ls.lsi = true;
+                    }
+                    Lptimsel::HSI => {
+                        // ok but insure the hsi is enabled
+                        config.hsi = true;
+                    }
+                    Lptimsel::LSE => {
+                        // ok but insure the lse is configured with peripherals_clocked = true!!!
+                        if let Some(mut lse_config) = config.ls.lse {
+                            lse_config.peripherals_clocked = true;
+                            config.ls.lse = Some(lse_config);
+                        } else {
+                            panic!("LSE is not not configured, but selected for time_driver!!!");
+                        }
+                    }
+                }
+            }
+            config
+        };
+
         init(config);
 
         // must be after rcc init
@@ -626,9 +703,12 @@ pub(crate) fn init_rcc(_cs: CriticalSection, config: Config) {
 
         #[cfg(feature = "low-power")]
         {
-            RCC_CONFIG = Some(config);
-            REFCOUNT_STOP2 = 0;
-            REFCOUNT_STOP1 = 0;
+            set_rcc_config(Some(config));
+            #[cfg(not(feature = "_lp-time-driver"))]
+            {
+                REFCOUNT_STOP2 = 0;
+                REFCOUNT_STOP1 = 0;
+            }
         }
     }
 }

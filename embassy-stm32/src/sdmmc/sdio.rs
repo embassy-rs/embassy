@@ -1,4 +1,7 @@
+use core::future::poll_fn;
 use core::ops::{Deref, DerefMut};
+use core::sync::atomic::{Ordering, compiler_fence};
+use core::task::Poll;
 
 use aligned::{A4, Aligned};
 use sdio_host::common_cmd::{R1, Resp, cmd};
@@ -94,7 +97,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
 
     /// Initializes the card into a known state (or at least tries to).
     async fn acquire(&mut self, _freq: Hertz) -> Result<(), Error> {
-        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+        let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
         let _bus_width = match self.sdmmc.bus_width() {
             BusWidth::Eight => return Err(Error::BusWidth),
@@ -106,30 +109,17 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
         self.sdmmc.init_idle()?;
 
         // Get IO OCR
-        let ocr: OCR<SD> = self.sdmmc.cmd(io_send_op_cond(false, 0x0), false, false)?.into();
+        let _ocr: OCR<SD> = self.sdmmc.cmd(io_send_op_cond(false, 0x0), false, false)?.into();
 
-        if ocr.v18_allowed() {
-            trace!("v18 allowed");
-        } else {
-            trace!("v18 not  allowed");
-        }
-
-        if ocr.is_busy() {
-            trace!("is busy");
-        } else {
-            trace!("is not busy");
-        }
-
-        trace!("sent cmd5");
+        // UDB-based SDIO does not support io volt switch sequence
 
         // Get RCA
         let rca: RCA<SD> = self.sdmmc.cmd(sd_cmd::send_relative_address(), true, false)?.into();
-        trace!("got rca");
+        trace!("sdio: got rca {}", rca.address());
 
         // Select the card with RCA
         self.sdmmc.select_card(Some(rca.address()))?;
-
-        trace!("selected card");
+        trace!("sdio: selected card {}", rca.address());
 
         Ok(())
     }
@@ -150,7 +140,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
 
     /// Read in block mode using cmd53
     pub async fn cmd53_block_read(&mut self, arg: u32, blocks: &mut [DataBlock]) -> Result<(), Error> {
-        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+        let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
         // NOTE(unsafe) reinterpret buffer as &mut [u32]
         let buffer = unsafe {
@@ -171,7 +161,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
 
     /// Read in multibyte mode using cmd53
     pub async fn cmd53_byte_read(&mut self, arg: u32, buffer: &mut Aligned<A4, [u8]>) -> Result<(), Error> {
-        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+        let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
         // trace!("byte read start (len): {:#x} ({})", arg, buffer.len());
 
@@ -190,7 +180,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
 
     /// Write in block mode using cmd53
     pub async fn cmd53_block_write(&mut self, arg: u32, blocks: &[DataBlock]) -> Result<(), Error> {
-        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+        let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
         // NOTE(unsafe) reinterpret buffer as &mut [u32]
         let buffer = unsafe {
@@ -216,7 +206,7 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
 
     /// Write in multibyte mode using cmd53
     pub async fn cmd53_byte_write(&mut self, arg: u32, buffer: &Aligned<A4, [u8]>) -> Result<(), Error> {
-        let _scoped_block_stop = self.sdmmc.info.rcc.block_stop();
+        let _scoped_wake_guard = self.sdmmc.info.rcc.wake_guard();
 
         #[cfg(sdmmc_v1)]
         self.sdmmc.cmd(cmd::<R1>(53, arg), true, true)?;
@@ -230,6 +220,37 @@ impl<'a, 'b> SerialDataInterface<'a, 'b> {
         self.sdmmc.clear_interrupt_flags();
 
         Ok(())
+    }
+
+    /// Wait for an interrupt event
+    pub async fn wait_for_event(&mut self) {
+        poll_fn(|cx| {
+            self.sdmmc.state.it_waker.register(cx.waker());
+
+            compiler_fence(Ordering::Release);
+
+            let status = self.sdmmc.info.regs.star().read();
+            let icr = self.sdmmc.info.regs.icr();
+            let maskr = self.sdmmc.info.regs.maskr();
+
+            if status.sdioit() {
+                icr.write(|w| w.set_sdioitc(true));
+
+                Poll::Ready(())
+            } else {
+                // Note maskr could be modified from irq
+                critical_section::with(|_| maskr.modify(|w| w.set_sdioitie(true)));
+
+                Poll::Pending
+            }
+        })
+        .await;
+    }
+}
+
+impl<'a, 'b> Drop for SerialDataInterface<'a, 'b> {
+    fn drop(&mut self) {
+        self.sdmmc.on_drop();
     }
 }
 
@@ -272,5 +293,9 @@ impl<'a, 'b> cyw43::SdioBusCyw43<64> for SerialDataInterface<'a, 'b> {
     /// Doc
     async fn cmd53_byte_write(&mut self, arg: u32, buffer: &Aligned<A4, [u8]>) -> Result<(), Self::Error> {
         self.cmd53_byte_write(arg, buffer).await
+    }
+
+    async fn wait_for_event(&mut self) {
+        self.wait_for_event().await
     }
 }

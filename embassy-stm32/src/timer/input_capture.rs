@@ -8,11 +8,11 @@ use core::task::{Context, Poll};
 use super::low_level::{CountingMode, FilterValue, InputCaptureMode, InputTISelection, Timer};
 use super::{CaptureCompareInterruptHandler, Channel, GeneralInstance4Channel, TimerPin};
 pub use super::{Ch1, Ch2, Ch3, Ch4};
-use crate::Peri;
 use crate::gpio::{AfType, AnyPin, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::time::Hertz;
 use crate::timer::TimerChannel;
+use crate::{Peri, dma};
 
 /// Capture pin wrapper.
 ///
@@ -158,8 +158,12 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
     }
 
     /// Capture a sequence of timer input edges into a buffer using DMA
-    pub async fn receive_waveform<M>(&mut self, dma: Peri<'_, impl super::Dma<T, M>>, buf: &mut [u16])
-    where
+    pub async fn receive_waveform<M, D: super::Dma<T, M>>(
+        &mut self,
+        dma: Peri<'_, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>,
+        buf: &mut [u16],
+    ) where
         M: TimerChannel,
     {
         #[allow(clippy::let_unit_value)] // eg. stm32f334
@@ -181,16 +185,15 @@ impl<'d, T: GeneralInstance4Channel> InputCapture<'d, T> {
         }
 
         unsafe {
-            use crate::dma::{Transfer, TransferOptions};
-
-            Transfer::new_read(
-                dma,
-                req,
-                self.inner.regs_gp16().ccr(M::CHANNEL.index()).as_ptr() as *mut u16,
-                buf,
-                TransferOptions::default(),
-            )
-            .await
+            let mut dma_channel = dma::Channel::new(dma, irq);
+            dma_channel
+                .read(
+                    req,
+                    self.inner.regs_gp16().ccr(M::CHANNEL.index()).as_ptr() as *mut u16,
+                    buf,
+                    dma::TransferOptions::default(),
+                )
+                .await
         };
 
         // restore output compare state

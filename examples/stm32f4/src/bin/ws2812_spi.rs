@@ -13,8 +13,8 @@
 #![no_std]
 #![no_main]
 
-use embassy_stm32::spi;
 use embassy_stm32::time::khz;
+use embassy_stm32::{bind_interrupts, dma, peripherals, spi};
 use embassy_time::{Duration, Ticker, Timer};
 use {defmt_rtt as _, panic_probe as _};
 
@@ -41,6 +41,10 @@ static DIM_WHITE: [u16; 25] = [
 ];
 
 static COLOR_LIST: &[&[u16]] = &[&TURN_OFF, &DIM_WHITE];
+
+bind_interrupts!(struct Irqs {
+    DMA2_STREAM3 => dma::InterruptHandler<peripherals::DMA2_CH3>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: embassy_executor::Spawner) {
@@ -78,7 +82,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     spi_config.frequency = khz(12_800);
 
     // Since we only output waveform, then the Rx and Sck and RxDma it is not considered
-    let mut ws2812_spi = spi::Spi::new_txonly_nosck(dp.SPI1, dp.PB5, dp.DMA2_CH3, spi_config);
+    let mut ws2812_spi = spi::Spi::new_txonly_nosck(dp.SPI1, dp.PB5, dp.DMA2_CH3, Irqs, spi_config);
 
     // flip color at 2 Hz
     let mut ticker = Ticker::every(Duration::from_millis(500));

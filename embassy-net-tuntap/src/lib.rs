@@ -11,21 +11,6 @@ use async_io::Async;
 use embassy_net_driver::{Capabilities, Driver, HardwareAddress, LinkState};
 use log::*;
 
-/// Get the MTU of the given interface.
-pub const SIOCGIFMTU: libc::c_ulong = 0x8921;
-/// Get the index of the given interface.
-pub const _SIOCGIFINDEX: libc::c_ulong = 0x8933;
-/// Capture all packages.
-pub const _ETH_P_ALL: libc::c_short = 0x0003;
-/// Set the interface flags.
-pub const TUNSETIFF: libc::c_ulong = 0x400454CA;
-/// TUN device.
-pub const _IFF_TUN: libc::c_int = 0x0001;
-/// TAP device.
-pub const IFF_TAP: libc::c_int = 0x0002;
-/// No packet information.
-pub const IFF_NO_PI: libc::c_int = 0x1000;
-
 const ETHERNET_HEADER_LEN: usize = 14;
 
 #[repr(C)]
@@ -81,24 +66,21 @@ impl TunTap {
     /// Create a new TUN/TAP device.
     pub fn new(name: &str) -> io::Result<TunTap> {
         unsafe {
-            let fd = libc::open(
-                "/dev/net/tun\0".as_ptr() as *const libc::c_char,
-                libc::O_RDWR | libc::O_NONBLOCK,
-            );
+            let fd = libc::open(c"/dev/net/tun".as_ptr(), libc::O_RDWR | libc::O_NONBLOCK);
             if fd == -1 {
                 return Err(io::Error::last_os_error());
             }
 
             let mut ifreq = ifreq_for(name);
-            ifreq.ifr_data = IFF_TAP | IFF_NO_PI;
-            ifreq_ioctl(fd, &mut ifreq, TUNSETIFF)?;
+            ifreq.ifr_data = libc::IFF_TAP | libc::IFF_NO_PI;
+            ifreq_ioctl(fd, &mut ifreq, libc::TUNSETIFF)?;
 
             let socket = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, libc::IPPROTO_IP);
             if socket == -1 {
                 return Err(io::Error::last_os_error());
             }
 
-            let ip_mtu = ifreq_ioctl(socket, &mut ifreq, SIOCGIFMTU);
+            let ip_mtu = ifreq_ioctl(socket, &mut ifreq, libc::SIOCGIFMTU);
             libc::close(socket);
             let ip_mtu = ip_mtu? as usize;
 
@@ -148,6 +130,7 @@ impl io::Write for TunTap {
 /// A TUN/TAP device, wrapped in an async interface.
 pub struct TunTapDevice {
     device: Async<TunTap>,
+    hardware_address: [u8; 6],
 }
 
 impl TunTapDevice {
@@ -155,7 +138,16 @@ impl TunTapDevice {
     pub fn new(name: &str) -> io::Result<TunTapDevice> {
         Ok(Self {
             device: Async::new(TunTap::new(name)?)?,
+            hardware_address: [0x02, 0x03, 0x04, 0x05, 0x06, 0x07],
         })
+    }
+
+    /// Sets the MAC address of the TAP device.
+    ///
+    /// Note that this can not be completely random; for example, choosing a multicast address
+    /// (least significant bit of the first octet is 1) would cause smoltcp to crash.
+    pub fn set_hardware_address(&mut self, hardware_address: [u8; 6]) {
+        self.hardware_address = hardware_address;
     }
 }
 
@@ -209,7 +201,7 @@ impl Driver for TunTapDevice {
     }
 
     fn hardware_address(&self) -> HardwareAddress {
-        HardwareAddress::Ethernet([0x02, 0x03, 0x04, 0x05, 0x06, 0x07])
+        HardwareAddress::Ethernet(self.hardware_address)
     }
 }
 

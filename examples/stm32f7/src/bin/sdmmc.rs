@@ -6,11 +6,12 @@ use embassy_executor::Spawner;
 use embassy_stm32::sdmmc::Sdmmc;
 use embassy_stm32::sdmmc::sd::{CmdBlock, StorageDevice};
 use embassy_stm32::time::{Hertz, mhz};
-use embassy_stm32::{Config, bind_interrupts, peripherals, sdmmc};
+use embassy_stm32::{Config, bind_interrupts, dma, peripherals, sdmmc};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     SDMMC1 => sdmmc::InterruptHandler<peripherals::SDMMC1>;
+    DMA2_STREAM3 => dma::InterruptHandler<peripherals::DMA2_CH3>;
 });
 
 #[embassy_executor::main]
@@ -41,8 +42,8 @@ async fn main(_spawner: Spawner) {
 
     let mut sdmmc = Sdmmc::new_4bit(
         p.SDMMC1,
-        Irqs,
         p.DMA2_CH3,
+        Irqs,
         p.PC12,
         p.PD2,
         p.PC8,

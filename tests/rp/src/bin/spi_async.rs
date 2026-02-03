@@ -10,8 +10,14 @@ teleprobe_meta::target!(b"pimoroni-pico-plus-2");
 
 use defmt::{assert_eq, *};
 use embassy_executor::Spawner;
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1};
 use embassy_rp::spi::{Config, Spi};
+use embassy_rp::{bind_interrupts, dma};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>, dma::InterruptHandler<DMA_CH1>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -22,7 +28,7 @@ async fn main(_spawner: Spawner) {
     let mosi = p.PIN_3;
     let miso = p.PIN_4;
 
-    let mut spi = Spi::new(p.SPI0, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, Config::default());
+    let mut spi = Spi::new(p.SPI0, clk, mosi, miso, p.DMA_CH0, p.DMA_CH1, Irqs, Config::default());
 
     // equal rx & tx buffers
     {

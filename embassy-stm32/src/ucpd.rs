@@ -217,12 +217,19 @@ impl<'d, T: Instance> Ucpd<'d, T> {
 
     /// Splits the UCPD driver into a TypeC PHY to control and monitor CC voltage
     /// and a Power Delivery (PD) PHY with receiver and transmitter.
-    pub fn split_pd_phy(
+    pub fn split_pd_phy<RX, TX>(
         self,
-        rx_dma: Peri<'d, impl RxDma<T>>,
-        tx_dma: Peri<'d, impl TxDma<T>>,
+        rx_dma: Peri<'d, RX>,
+        tx_dma: Peri<'d, TX>,
+        irqs: impl interrupt::typelevel::Binding<RX::Interrupt, crate::dma::InterruptHandler<RX>>
+        + interrupt::typelevel::Binding<TX::Interrupt, crate::dma::InterruptHandler<TX>>
+        + 'd,
         cc_sel: CcSel,
-    ) -> (CcPhy<'d, T>, PdPhy<'d, T>) {
+    ) -> (CcPhy<'d, T>, PdPhy<'d, T>)
+    where
+        RX: RxDma<T>,
+        TX: TxDma<T>,
+    {
         let r = T::REGS;
 
         // TODO: Currently only SOP messages are supported.
@@ -240,20 +247,14 @@ impl<'d, T: Instance> Ucpd<'d, T> {
         // Both parts must be dropped before the peripheral can be disabled.
         T::state().drop_not_ready.store(true, Ordering::Relaxed);
 
-        let rx_dma_req = rx_dma.request();
-        let tx_dma_req = tx_dma.request();
+        let rx_dma = new_dma_nonopt!(rx_dma, irqs);
+        let tx_dma = new_dma_nonopt!(tx_dma, irqs);
         (
             self.cc_phy,
             PdPhy {
                 _lifetime: PhantomData,
-                rx_dma: ChannelAndRequest {
-                    channel: rx_dma.into(),
-                    request: rx_dma_req,
-                },
-                tx_dma: ChannelAndRequest {
-                    channel: tx_dma.into(),
-                    request: tx_dma_req,
-                },
+                rx_dma,
+                tx_dma,
             },
         )
     }

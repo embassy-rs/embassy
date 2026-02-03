@@ -70,6 +70,12 @@ name = "rtc"
 path = "src/bin/rtc.rs"
 required-features = [ "rp2040",]
 
+# AON Timer is only available on RP2350
+[[bin]]
+name = "aon_timer"
+path = "src/bin/aon_timer.rs"
+required-features = [ "rp235xb",]
+
 [profile.dev]
 debug = 2
 debug-assertions = true

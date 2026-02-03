@@ -5,13 +5,14 @@ use embassy_hal_internal::{Peri, PeripheralType};
 use paste::paste;
 
 use crate::clocks::periph_helpers::{Div4, LpuartClockSel, LpuartConfig};
-use crate::clocks::{ClockError, Gate, PoweredClock, enable_and_reset};
+use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset};
 use crate::gpio::{AnyPin, SealedPin};
-use crate::pac::lpuart0::baud::Sbns as StopBits;
-use crate::pac::lpuart0::ctrl::{Idlecfg as IdleConfig, Ilt as IdleType, M as DataBits, Pt as Parity};
-use crate::pac::lpuart0::modir::{Txctsc as TxCtsConfig, Txctssrc as TxCtsSource};
-use crate::pac::lpuart0::stat::Msbf as MsbFirst;
-use crate::{interrupt, pac};
+use crate::interrupt;
+use crate::pac::lpuart::vals::{
+    Idlecfg as IdleConfig, Ilt as IdleType, M as DataBits, Msbf as MsbFirst, Pt as Parity, Rst, Rxflush,
+    Sbns as StopBits, Swap, Tc, Tdre, Txctsc as TxCtsConfig, Txctssrc as TxCtsSource, Txflush,
+};
+use crate::pac::{self};
 
 pub mod buffered;
 
@@ -36,16 +37,22 @@ mod sealed {
 // INSTANCE TRAIT
 // ============================================================================
 
-pub type Regs = &'static crate::pac::lpuart0::RegisterBlock;
-
-pub trait SealedInstance {
-    fn info() -> Info;
-    fn index() -> usize;
+trait SealedInstance {
+    fn info() -> &'static Info;
     fn buffered_state() -> &'static buffered::State;
 }
 
-pub struct Info {
-    pub regs: Regs,
+struct Info {
+    regs: crate::pac::lpuart::Lpuart,
+}
+
+unsafe impl Sync for Info {}
+
+impl Info {
+    #[inline(always)]
+    fn regs(&self) -> crate::pac::lpuart::Lpuart {
+        self.regs
+    }
 }
 
 /// Trait for LPUART peripheral instances
@@ -57,6 +64,8 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<Mrcc
     type TxDmaRequest: DmaRequest;
     /// Type-safe DMA request source for RX
     type RxDmaRequest: DmaRequest;
+    const PERF_INT_INCR: fn();
+    const PERF_INT_WAKE_INCR: fn();
 }
 
 macro_rules! impl_instance {
@@ -64,15 +73,11 @@ macro_rules! impl_instance {
         $(
             paste!{
                 impl SealedInstance for crate::peripherals::[<LPUART $n>] {
-                    fn info() -> Info {
-                        Info {
-                            regs: unsafe { &*pac::[<Lpuart $n>]::ptr() },
-                        }
-                    }
-
-                    #[inline]
-                    fn index() -> usize {
-                        $n
+                    fn info() -> &'static Info {
+                        static INFO: Info = Info {
+                            regs: pac::[<LPUART $n>],
+                        };
+                        &INFO
                     }
 
                     fn buffered_state() -> &'static buffered::State {
@@ -87,6 +92,8 @@ macro_rules! impl_instance {
                     type Interrupt = crate::interrupt::typelevel::[<LPUART $n>];
                     type TxDmaRequest = crate::dma::[<Lpuart $n TxRequest>];
                     type RxDmaRequest = crate::dma::[<Lpuart $n RxRequest>];
+                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n>];
+                    const PERF_INT_WAKE_INCR: fn() = crate::perf_counters::[<incr_interrupt_lpuart $n _wake>];
                 }
             }
         )*
@@ -108,152 +115,140 @@ impl_instance!(0; 1; 2; 3; 4; 5);
 // ============================================================================
 
 /// Perform software reset on the LPUART peripheral
-pub fn perform_software_reset(regs: Regs) {
+fn perform_software_reset(info: &'static Info) {
     // Software reset - set and clear RST bit (Global register)
-    regs.global().write(|w| w.rst().reset());
-    regs.global().write(|w| w.rst().no_effect());
+    info.regs().global().write(|w| w.set_rst(Rst::RESET));
+    info.regs().global().write(|w| w.set_rst(Rst::NO_EFFECT));
 }
 
 /// Disable both transmitter and receiver
-pub fn disable_transceiver(regs: Regs) {
-    regs.ctrl().modify(|_, w| w.te().disabled().re().disabled());
+fn disable_transceiver(info: &'static Info) {
+    info.regs().ctrl().modify(|w| {
+        w.set_te(false);
+        w.set_re(false);
+    });
 }
 
 /// Calculate and configure baudrate settings
-pub fn configure_baudrate(regs: Regs, baudrate_bps: u32, clock_freq: u32) -> Result<()> {
+fn configure_baudrate(info: &'static Info, baudrate_bps: u32, clock_freq: u32) -> Result<()> {
     let (osr, sbr) = calculate_baudrate(baudrate_bps, clock_freq)?;
 
     // Configure BAUD register
-    regs.baud().modify(|_, w| unsafe {
+    info.regs().baud().modify(|w| {
         // Clear and set OSR
-        w.osr().bits(osr - 1);
+        w.set_osr(osr - 1);
         // Clear and set SBR
-        w.sbr().bits(sbr);
+        w.set_sbr(sbr);
         // Set BOTHEDGE if OSR is between 4 and 7
-        if osr > 3 && osr < 8 {
-            w.bothedge().enabled()
-        } else {
-            w.bothedge().disabled()
-        }
+        w.set_bothedge(osr > 3 && osr < 8);
     });
 
     Ok(())
 }
 
 /// Configure frame format (stop bits, data bits)
-pub fn configure_frame_format(regs: Regs, config: &Config) {
+fn configure_frame_format(info: &'static Info, config: &Config) {
     // Configure stop bits
-    regs.baud().modify(|_, w| w.sbns().variant(config.stop_bits_count));
+    info.regs().baud().modify(|w| w.set_sbns(config.stop_bits_count));
 
     // Clear M10 for now (10-bit mode)
-    regs.baud().modify(|_, w| w.m10().disabled());
+    info.regs().baud().modify(|w| w.set_m10(false));
 }
 
 /// Configure control settings (parity, data bits, idle config, pin swap)
-pub fn configure_control_settings(regs: Regs, config: &Config) {
-    regs.ctrl().modify(|_, w| {
+fn configure_control_settings(info: &'static Info, config: &Config) {
+    info.regs().ctrl().modify(|w| {
         // Parity configuration
-        let mut w = if let Some(parity) = config.parity_mode {
-            w.pe().enabled().pt().variant(parity)
+        if let Some(parity) = config.parity_mode {
+            w.set_pe(true);
+            w.set_pt(parity);
         } else {
-            w.pe().disabled()
+            w.set_pe(false);
         };
 
         // Data bits configuration
-        w = match config.data_bits_count {
-            DataBits::Data8 => {
+        match config.data_bits_count {
+            DataBits::DATA8 => {
                 if config.parity_mode.is_some() {
-                    w.m().data9() // 8 data + 1 parity = 9 bits
+                    w.set_m(DataBits::DATA9); // 8 data + 1 parity = 9 bits
                 } else {
-                    w.m().data8() // 8 data bits only
+                    w.set_m(DataBits::DATA8); // 8 data bits only
                 }
             }
-            DataBits::Data9 => w.m().data9(),
+            DataBits::DATA9 => w.set_m(DataBits::DATA9),
         };
 
         // Idle configuration
-        w = w.idlecfg().variant(config.rx_idle_config);
-        w = w.ilt().variant(config.rx_idle_type);
+        w.set_idlecfg(config.rx_idle_config);
+        w.set_ilt(config.rx_idle_type);
 
         // Swap TXD/RXD if configured
         if config.swap_txd_rxd {
-            w.swap().swap()
+            w.set_swap(Swap::SWAP);
         } else {
-            w.swap().standard()
+            w.set_swap(Swap::STANDARD);
         }
     });
 }
 
 /// Configure FIFO settings and watermarks
-pub fn configure_fifo(regs: Regs, config: &Config) {
+fn configure_fifo(info: &'static Info, config: &Config) {
     // Configure WATER register for FIFO watermarks
-    regs.water().write(|w| unsafe {
-        w.rxwater()
-            .bits(config.rx_fifo_watermark)
-            .txwater()
-            .bits(config.tx_fifo_watermark)
+    info.regs().water().write(|w| {
+        w.set_rxwater(config.rx_fifo_watermark);
+        w.set_txwater(config.tx_fifo_watermark);
     });
 
     // Enable TX/RX FIFOs
-    regs.fifo().modify(|_, w| w.txfe().enabled().rxfe().enabled());
+    info.regs().fifo().modify(|w| {
+        w.set_txfe(true);
+        w.set_rxfe(true);
+    });
 
     // Flush FIFOs
-    regs.fifo()
-        .modify(|_, w| w.txflush().txfifo_rst().rxflush().rxfifo_rst());
+    info.regs().fifo().modify(|w| {
+        w.set_txflush(Txflush::TXFIFO_RST);
+        w.set_rxflush(Rxflush::RXFIFO_RST);
+    });
 }
 
 /// Clear all status flags
-pub fn clear_all_status_flags(regs: Regs) {
-    regs.stat().reset();
+fn clear_all_status_flags(info: &'static Info) {
+    info.regs().stat().modify(|_w| {
+        // Write back all values, clearing the W1C fields implicitly.
+    });
 }
 
 /// Configure hardware flow control if enabled
-pub fn configure_flow_control(regs: Regs, enable_tx_cts: bool, enable_rx_rts: bool, config: &Config) {
+fn configure_flow_control(info: &'static Info, enable_tx_cts: bool, enable_rx_rts: bool, config: &Config) {
     if enable_rx_rts || enable_tx_cts {
-        regs.modir().modify(|_, w| {
-            let mut w = w;
-
-            // Configure TX CTS
-            w = w.txctsc().variant(config.tx_cts_config);
-            w = w.txctssrc().variant(config.tx_cts_source);
-
-            if enable_rx_rts {
-                w = w.rxrtse().enabled();
-            } else {
-                w = w.rxrtse().disabled();
-            }
-
-            if enable_tx_cts {
-                w = w.txctse().enabled();
-            } else {
-                w = w.txctse().disabled();
-            }
-
-            w
+        info.regs().modir().modify(|w| {
+            w.set_txctsc(config.tx_cts_config);
+            w.set_txctssrc(config.tx_cts_source);
+            w.set_rxrtse(enable_rx_rts);
+            w.set_txctse(enable_tx_cts);
         });
     }
 }
 
 /// Configure bit order (MSB first or LSB first)
-pub fn configure_bit_order(regs: Regs, msb_first: MsbFirst) {
-    regs.stat().modify(|_, w| w.msbf().variant(msb_first));
+fn configure_bit_order(info: &'static Info, msb_first: MsbFirst) {
+    info.regs().stat().modify(|w| w.set_msbf(msb_first));
 }
 
 /// Enable transmitter and/or receiver based on configuration
-pub fn enable_transceiver(regs: Regs, enable_tx: bool, enable_rx: bool) {
-    regs.ctrl().modify(|_, w| {
-        let mut w = w;
+fn enable_transceiver(info: &'static Info, enable_tx: bool, enable_rx: bool) {
+    info.regs().ctrl().modify(|w| {
         if enable_tx {
-            w = w.te().enabled();
+            w.set_te(true);
         }
         if enable_rx {
-            w = w.re().enabled();
+            w.set_re(true);
         }
-        w
     });
 }
 
-pub fn calculate_baudrate(baudrate: u32, src_clock_hz: u32) -> Result<(u8, u16)> {
+fn calculate_baudrate(baudrate: u32, src_clock_hz: u32) -> Result<(u8, u16)> {
     let mut baud_diff = baudrate;
     let mut osr = 0u8;
     let mut sbr = 0u16;
@@ -292,54 +287,55 @@ pub fn calculate_baudrate(baudrate: u32, src_clock_hz: u32) -> Result<(u8, u16)>
 }
 
 /// Wait for all transmit operations to complete
-pub fn wait_for_tx_complete(regs: Regs) {
+fn wait_for_tx_complete(info: &'static Info) {
     // Wait for TX FIFO to empty
-    while regs.water().read().txcount().bits() != 0 {
+    while info.regs().water().read().txcount() != 0 {
         // Wait for TX FIFO to drain
     }
 
     // Wait for last character to shift out (TC = Transmission Complete)
-    while regs.stat().read().tc().is_active() {
+    while info.regs().stat().read().tc() == Tc::ACTIVE {
         // Wait for transmission to complete
     }
 }
 
-pub fn check_and_clear_rx_errors(regs: Regs) -> Result<()> {
-    let stat = regs.stat().read();
+fn check_and_clear_rx_errors(info: &'static Info) -> Result<()> {
+    let stat = info.regs().stat().read();
     let mut status = Ok(());
 
     // Check for overrun first - other error flags are prevented when OR is set
-    if stat.or().is_overrun() {
-        regs.stat().write(|w| w.or().clear_bit_by_one());
+    if stat.or() {
+        info.regs().stat().write(|w| w.set_or(true));
 
         return Err(Error::Overrun);
     }
 
-    if stat.pf().is_parity() {
-        regs.stat().write(|w| w.pf().clear_bit_by_one());
+    // Other errors are checked and cleared, but only 'most likely' error is returned.
+    if stat.pf() {
+        info.regs().stat().write(|w| w.set_pf(true));
         status = Err(Error::Parity);
     }
 
-    if stat.fe().is_error() {
-        regs.stat().write(|w| w.fe().clear_bit_by_one());
+    if stat.fe() {
+        info.regs().stat().write(|w| w.set_fe(true));
         status = Err(Error::Framing);
     }
 
-    if stat.nf().is_noise() {
-        regs.stat().write(|w| w.nf().clear_bit_by_one());
+    if stat.nf() {
+        info.regs().stat().write(|w| w.set_nf(true));
         status = Err(Error::Noise);
     }
 
     status
 }
 
-pub fn has_data(regs: Regs) -> bool {
-    if regs.param().read().rxfifo().bits() > 0 {
+fn has_data(info: &'static Info) -> bool {
+    if info.regs().param().read().rxfifo() > 0 {
         // FIFO is available - check RXCOUNT in WATER register
-        regs.water().read().rxcount().bits() > 0
+        info.regs().water().read().rxcount() > 0
     } else {
         // No FIFO - check RDRF flag in STAT register
-        regs.stat().read().rdrf().is_rxdata()
+        info.regs().stat().read().rdrf()
     }
 }
 
@@ -381,8 +377,8 @@ macro_rules! impl_tx_pin {
                 self.set_pull(crate::gpio::Pull::Up);
                 self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
                 self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
-                self.set_function(crate::pac::port0::pcr0::Mux::$alt);
-                self.set_enable_input_buffer();
+                self.set_function(crate::pac::port::vals::Mux::$alt);
+                self.set_enable_input_buffer(true);
             }
         }
     };
@@ -396,8 +392,8 @@ macro_rules! impl_rx_pin {
                 self.set_pull(crate::gpio::Pull::Up);
                 self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
                 self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
-                self.set_function(crate::pac::port0::pcr0::Mux::$alt);
-                self.set_enable_input_buffer();
+                self.set_function(crate::pac::port::vals::Mux::$alt);
+                self.set_enable_input_buffer(true);
             }
         }
     };
@@ -425,114 +421,118 @@ macro_rules! impl_rts_pin {
 }
 
 // LPUART 0
-impl_tx_pin!(LPUART0, P0_3, Mux2);
-impl_tx_pin!(LPUART0, P0_21, Mux3);
-impl_tx_pin!(LPUART0, P2_1, Mux2);
+#[cfg(feature = "jtag-extras-as-gpio")]
+impl_tx_pin!(LPUART0, P0_3, MUX2);
+impl_tx_pin!(LPUART0, P0_21, MUX3);
+impl_tx_pin!(LPUART0, P2_1, MUX2);
 
-impl_rx_pin!(LPUART0, P0_2, Mux2);
-impl_rx_pin!(LPUART0, P0_20, Mux3);
-impl_rx_pin!(LPUART0, P2_0, Mux2);
+#[cfg(feature = "swd-swo-as-gpio")]
+impl_rx_pin!(LPUART0, P0_2, MUX2);
+impl_rx_pin!(LPUART0, P0_20, MUX3);
+impl_rx_pin!(LPUART0, P2_0, MUX2);
 
-impl_cts_pin!(LPUART0, P0_1, Mux2);
-impl_cts_pin!(LPUART0, P0_23, Mux3);
-impl_cts_pin!(LPUART0, P2_3, Mux2);
+#[cfg(feature = "swd-as-gpio")]
+impl_cts_pin!(LPUART0, P0_1, MUX2);
+impl_cts_pin!(LPUART0, P0_23, MUX3);
+impl_cts_pin!(LPUART0, P2_3, MUX2);
 
-impl_rts_pin!(LPUART0, P0_0, Mux2);
-impl_rts_pin!(LPUART0, P0_22, Mux3);
-impl_rts_pin!(LPUART0, P2_2, Mux2);
+#[cfg(feature = "swd-as-gpio")]
+impl_rts_pin!(LPUART0, P0_0, MUX2);
+impl_rts_pin!(LPUART0, P0_22, MUX3);
+impl_rts_pin!(LPUART0, P2_2, MUX2);
 
 // LPUART 1
-impl_tx_pin!(LPUART1, P1_9, Mux2);
-impl_tx_pin!(LPUART1, P2_13, Mux3);
-impl_tx_pin!(LPUART1, P3_9, Mux3);
-impl_tx_pin!(LPUART1, P3_21, Mux3);
+impl_tx_pin!(LPUART1, P1_9, MUX2);
+impl_tx_pin!(LPUART1, P2_13, MUX3);
+impl_tx_pin!(LPUART1, P3_9, MUX3);
+impl_tx_pin!(LPUART1, P3_21, MUX3);
 
-impl_rx_pin!(LPUART1, P1_8, Mux2);
-impl_rx_pin!(LPUART1, P2_12, Mux3);
-impl_rx_pin!(LPUART1, P3_8, Mux3);
-impl_rx_pin!(LPUART1, P3_20, Mux3);
+impl_rx_pin!(LPUART1, P1_8, MUX2);
+impl_rx_pin!(LPUART1, P2_12, MUX3);
+impl_rx_pin!(LPUART1, P3_8, MUX3);
+impl_rx_pin!(LPUART1, P3_20, MUX3);
 
-impl_cts_pin!(LPUART1, P1_11, Mux2);
-impl_cts_pin!(LPUART1, P2_17, Mux3);
-impl_cts_pin!(LPUART1, P3_11, Mux3);
-impl_cts_pin!(LPUART1, P3_23, Mux3);
+impl_cts_pin!(LPUART1, P1_11, MUX2);
+impl_cts_pin!(LPUART1, P2_17, MUX3);
+impl_cts_pin!(LPUART1, P3_11, MUX3);
+impl_cts_pin!(LPUART1, P3_23, MUX3);
 
-impl_rts_pin!(LPUART1, P1_10, Mux2);
-impl_rts_pin!(LPUART1, P2_15, Mux3);
-impl_rts_pin!(LPUART1, P2_16, Mux3);
-impl_rts_pin!(LPUART1, P3_10, Mux3);
+impl_rts_pin!(LPUART1, P1_10, MUX2);
+impl_rts_pin!(LPUART1, P2_15, MUX3);
+impl_rts_pin!(LPUART1, P2_16, MUX3);
+impl_rts_pin!(LPUART1, P3_10, MUX3);
 
 // LPUART 2
-impl_tx_pin!(LPUART2, P1_5, Mux3);
-impl_tx_pin!(LPUART2, P1_13, Mux3);
-impl_tx_pin!(LPUART2, P2_2, Mux3);
-impl_tx_pin!(LPUART2, P2_10, Mux3);
-impl_tx_pin!(LPUART2, P3_15, Mux2);
+impl_tx_pin!(LPUART2, P1_5, MUX3);
+impl_tx_pin!(LPUART2, P1_13, MUX3);
+impl_tx_pin!(LPUART2, P2_2, MUX3);
+impl_tx_pin!(LPUART2, P2_10, MUX3);
+impl_tx_pin!(LPUART2, P3_15, MUX2);
 
-impl_rx_pin!(LPUART2, P1_4, Mux3);
-impl_rx_pin!(LPUART2, P1_12, Mux3);
-impl_rx_pin!(LPUART2, P2_3, Mux3);
-impl_rx_pin!(LPUART2, P2_11, Mux3);
-impl_rx_pin!(LPUART2, P3_14, Mux2);
+impl_rx_pin!(LPUART2, P1_4, MUX3);
+impl_rx_pin!(LPUART2, P1_12, MUX3);
+impl_rx_pin!(LPUART2, P2_3, MUX3);
+impl_rx_pin!(LPUART2, P2_11, MUX3);
+impl_rx_pin!(LPUART2, P3_14, MUX2);
 
-impl_cts_pin!(LPUART2, P1_7, Mux3);
-impl_cts_pin!(LPUART2, P1_15, Mux3);
-impl_cts_pin!(LPUART2, P2_4, Mux3);
-impl_cts_pin!(LPUART2, P3_13, Mux2);
+impl_cts_pin!(LPUART2, P1_7, MUX3);
+impl_cts_pin!(LPUART2, P1_15, MUX3);
+impl_cts_pin!(LPUART2, P2_4, MUX3);
+impl_cts_pin!(LPUART2, P3_13, MUX2);
 
-impl_rts_pin!(LPUART2, P1_6, Mux3);
-impl_rts_pin!(LPUART2, P1_14, Mux3);
-impl_rts_pin!(LPUART2, P2_5, Mux3);
-impl_rts_pin!(LPUART2, P3_12, Mux2);
+impl_rts_pin!(LPUART2, P1_6, MUX3);
+impl_rts_pin!(LPUART2, P1_14, MUX3);
+impl_rts_pin!(LPUART2, P2_5, MUX3);
+impl_rts_pin!(LPUART2, P3_12, MUX2);
 
 // LPUART 3
-impl_tx_pin!(LPUART3, P3_1, Mux3);
-impl_tx_pin!(LPUART3, P3_12, Mux3);
-impl_tx_pin!(LPUART3, P4_5, Mux3);
+impl_tx_pin!(LPUART3, P3_1, MUX3);
+impl_tx_pin!(LPUART3, P3_12, MUX3);
+impl_tx_pin!(LPUART3, P4_5, MUX3);
 
-impl_rx_pin!(LPUART3, P3_0, Mux3);
-impl_rx_pin!(LPUART3, P3_13, Mux3);
-impl_rx_pin!(LPUART3, P4_2, Mux3);
+impl_rx_pin!(LPUART3, P3_0, MUX3);
+impl_rx_pin!(LPUART3, P3_13, MUX3);
+impl_rx_pin!(LPUART3, P4_2, MUX3);
 
-impl_cts_pin!(LPUART3, P3_7, Mux3);
-impl_cts_pin!(LPUART3, P3_14, Mux3);
-impl_cts_pin!(LPUART3, P4_6, Mux3);
+impl_cts_pin!(LPUART3, P3_7, MUX3);
+impl_cts_pin!(LPUART3, P3_14, MUX3);
+impl_cts_pin!(LPUART3, P4_6, MUX3);
 
-impl_rts_pin!(LPUART3, P3_6, Mux3);
-impl_rts_pin!(LPUART3, P3_15, Mux3);
-impl_rts_pin!(LPUART3, P4_7, Mux3);
+impl_rts_pin!(LPUART3, P3_6, MUX3);
+impl_rts_pin!(LPUART3, P3_15, MUX3);
+impl_rts_pin!(LPUART3, P4_7, MUX3);
 
 // LPUART 4
-impl_tx_pin!(LPUART4, P2_7, Mux3);
-impl_tx_pin!(LPUART4, P3_19, Mux2);
-impl_tx_pin!(LPUART4, P3_27, Mux3);
-impl_tx_pin!(LPUART4, P4_3, Mux3);
+impl_tx_pin!(LPUART4, P2_7, MUX3);
+impl_tx_pin!(LPUART4, P3_19, MUX2);
+impl_tx_pin!(LPUART4, P3_27, MUX3);
+impl_tx_pin!(LPUART4, P4_3, MUX3);
 
-impl_rx_pin!(LPUART4, P2_6, Mux3);
-impl_rx_pin!(LPUART4, P3_18, Mux2);
-impl_rx_pin!(LPUART4, P3_28, Mux3);
-impl_rx_pin!(LPUART4, P4_4, Mux3);
+impl_rx_pin!(LPUART4, P2_6, MUX3);
+impl_rx_pin!(LPUART4, P3_18, MUX2);
+impl_rx_pin!(LPUART4, P3_28, MUX3);
+impl_rx_pin!(LPUART4, P4_4, MUX3);
 
-impl_cts_pin!(LPUART4, P2_0, Mux3);
-impl_cts_pin!(LPUART4, P3_17, Mux2);
-impl_cts_pin!(LPUART4, P3_31, Mux3);
+impl_cts_pin!(LPUART4, P2_0, MUX3);
+impl_cts_pin!(LPUART4, P3_17, MUX2);
+impl_cts_pin!(LPUART4, P3_31, MUX3);
 
-impl_rts_pin!(LPUART4, P2_1, Mux3);
-impl_rts_pin!(LPUART4, P3_16, Mux2);
-impl_rts_pin!(LPUART4, P3_30, Mux3);
+impl_rts_pin!(LPUART4, P2_1, MUX3);
+impl_rts_pin!(LPUART4, P3_16, MUX2);
+impl_rts_pin!(LPUART4, P3_30, MUX3);
 
 // LPUART 5
-impl_tx_pin!(LPUART5, P1_10, Mux8);
-impl_tx_pin!(LPUART5, P1_17, Mux8);
+impl_tx_pin!(LPUART5, P1_10, MUX8);
+impl_tx_pin!(LPUART5, P1_17, MUX8);
 
-impl_rx_pin!(LPUART5, P1_11, Mux8);
-impl_rx_pin!(LPUART5, P1_16, Mux8);
+impl_rx_pin!(LPUART5, P1_11, MUX8);
+impl_rx_pin!(LPUART5, P1_16, MUX8);
 
-impl_cts_pin!(LPUART5, P1_12, Mux8);
-impl_cts_pin!(LPUART5, P1_19, Mux8);
+impl_cts_pin!(LPUART5, P1_12, MUX8);
+impl_cts_pin!(LPUART5, P1_19, MUX8);
 
-impl_rts_pin!(LPUART5, P1_13, Mux8);
-impl_rts_pin!(LPUART5, P1_18, Mux8);
+impl_rts_pin!(LPUART5, P1_13, MUX8);
+impl_rts_pin!(LPUART5, P1_18, MUX8);
 
 // ============================================================================
 // ERROR TYPES AND RESULTS
@@ -636,15 +636,15 @@ impl Default for Config {
         Self {
             baudrate_bps: 115_200u32,
             parity_mode: None,
-            data_bits_count: DataBits::Data8,
-            msb_first: MsbFirst::LsbFirst,
-            stop_bits_count: StopBits::One,
+            data_bits_count: DataBits::DATA8,
+            msb_first: MsbFirst::LSB_FIRST,
+            stop_bits_count: StopBits::ONE,
             tx_fifo_watermark: 0,
             rx_fifo_watermark: 1,
-            tx_cts_source: TxCtsSource::Cts,
-            tx_cts_config: TxCtsConfig::Start,
-            rx_idle_type: IdleType::FromStart,
-            rx_idle_config: IdleConfig::Idle1,
+            tx_cts_source: TxCtsSource::CTS,
+            tx_cts_config: TxCtsConfig::START,
+            rx_idle_type: IdleType::FROM_START,
+            rx_idle_config: IdleConfig::IDLE_1,
             swap_txd_rxd: false,
             power: PoweredClock::NormalEnabledDeepSleepDisabled,
             source: LpuartClockSel::FroLfDiv,
@@ -699,41 +699,45 @@ impl Mode for Async {}
 
 /// Lpuart driver.
 pub struct Lpuart<'a, M: Mode> {
-    info: Info,
+    info: &'static Info,
     tx: LpuartTx<'a, M>,
     rx: LpuartRx<'a, M>,
 }
 
 /// Lpuart TX driver.
 pub struct LpuartTx<'a, M: Mode> {
-    info: Info,
+    info: &'static Info,
     _tx_pin: Peri<'a, AnyPin>,
     _cts_pin: Option<Peri<'a, AnyPin>>,
     mode: PhantomData<(&'a (), M)>,
+    _wg: Option<WakeGuard>,
 }
 
 /// Lpuart Rx driver.
 pub struct LpuartRx<'a, M: Mode> {
-    info: Info,
+    info: &'static Info,
     _rx_pin: Peri<'a, AnyPin>,
     _rts_pin: Option<Peri<'a, AnyPin>>,
     mode: PhantomData<(&'a (), M)>,
+    _wg: Option<WakeGuard>,
 }
 
 /// Lpuart TX driver with DMA support.
 pub struct LpuartTxDma<'a, T: Instance, C: DmaChannelTrait> {
-    info: Info,
+    info: &'static Info,
     _tx_pin: Peri<'a, AnyPin>,
     tx_dma: DmaChannel<C>,
     _instance: core::marker::PhantomData<T>,
+    _wg: Option<WakeGuard>,
 }
 
 /// Lpuart RX driver with DMA support.
 pub struct LpuartRxDma<'a, T: Instance, C: DmaChannelTrait> {
-    info: Info,
+    info: &'static Info,
     _rx_pin: Peri<'a, AnyPin>,
     rx_dma: DmaChannel<C>,
     _instance: core::marker::PhantomData<T>,
+    _wg: Option<WakeGuard>,
 }
 
 /// Lpuart driver with DMA support for both TX and RX.
@@ -759,9 +763,7 @@ impl<'a, M: Mode> Lpuart<'a, M> {
         enable_tx_cts: bool,
         enable_rx_rts: bool,
         config: Config,
-    ) -> Result<()> {
-        let regs = T::info().regs;
-
+    ) -> Result<Option<WakeGuard>> {
         // Enable clocks
         let conf = LpuartConfig {
             power: config.power,
@@ -769,35 +771,33 @@ impl<'a, M: Mode> Lpuart<'a, M> {
             div: config.div,
             instance: T::CLOCK_INSTANCE,
         };
-        let clock_freq = unsafe { enable_and_reset::<T>(&conf).map_err(Error::ClockSetup)? };
+        let parts = unsafe { enable_and_reset::<T>(&conf).map_err(Error::ClockSetup)? };
 
         // Perform initialization sequence
-        perform_software_reset(regs);
-        disable_transceiver(regs);
-        configure_baudrate(regs, config.baudrate_bps, clock_freq)?;
-        configure_frame_format(regs, &config);
-        configure_control_settings(regs, &config);
-        configure_fifo(regs, &config);
-        clear_all_status_flags(regs);
-        configure_flow_control(regs, enable_tx_cts, enable_rx_rts, &config);
-        configure_bit_order(regs, config.msb_first);
-        enable_transceiver(regs, enable_rx, enable_tx);
+        perform_software_reset(T::info());
+        disable_transceiver(T::info());
+        configure_baudrate(T::info(), config.baudrate_bps, parts.freq)?;
+        configure_frame_format(T::info(), &config);
+        configure_control_settings(T::info(), &config);
+        configure_fifo(T::info(), &config);
+        clear_all_status_flags(T::info());
+        configure_flow_control(T::info(), enable_tx_cts, enable_rx_rts, &config);
+        configure_bit_order(T::info(), config.msb_first);
+        enable_transceiver(T::info(), enable_rx, enable_tx);
 
-        Ok(())
+        Ok(parts.wake_guard)
     }
 
     /// Deinitialize the LPUART peripheral
     pub fn deinit(&self) -> Result<()> {
-        let regs = self.info.regs;
-
         // Wait for TX operations to complete
-        wait_for_tx_complete(regs);
+        wait_for_tx_complete(self.info);
 
         // Clear all status flags
-        clear_all_status_flags(regs);
+        clear_all_status_flags(self.info);
 
         // Disable the module - clear all CTRL register bits
-        regs.ctrl().reset();
+        self.info.regs().ctrl().write(|w| w.0 = 0);
 
         Ok(())
     }
@@ -819,6 +819,8 @@ impl<'a, M: Mode> Lpuart<'a, M> {
 
 impl<'a> Lpuart<'a, Blocking> {
     /// Create a new blocking LPUART instance with RX/TX pins.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_blocking<T: Instance>(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -830,16 +832,18 @@ impl<'a> Lpuart<'a, Blocking> {
         rx_pin.as_rx();
 
         // Initialize the peripheral
-        Self::init::<T>(true, true, false, false, config)?;
+        let _wg = Self::init::<T>(true, true, false, false, config)?;
 
         Ok(Self {
             info: T::info(),
-            tx: LpuartTx::new_inner(T::info(), tx_pin.into(), None),
-            rx: LpuartRx::new_inner(T::info(), rx_pin.into(), None),
+            tx: LpuartTx::new_inner(T::info(), tx_pin.into(), None, _wg.clone()),
+            rx: LpuartRx::new_inner(T::info(), rx_pin.into(), None, _wg),
         })
     }
 
-    /// Create a new blocking LPUART instance with RX, TX and RTS/CTS flow control pins
+    /// Create a new blocking LPUART instance with RX, TX and RTS/CTS flow control pins.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_blocking_with_rtscts<T: Instance>(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -855,12 +859,12 @@ impl<'a> Lpuart<'a, Blocking> {
         cts_pin.as_cts();
 
         // Initialize the peripheral with flow control
-        Self::init::<T>(true, true, true, true, config)?;
+        let _wg = Self::init::<T>(true, true, true, true, config)?;
 
         Ok(Self {
             info: T::info(),
-            rx: LpuartRx::new_inner(T::info(), rx_pin.into(), Some(rts_pin.into())),
-            tx: LpuartTx::new_inner(T::info(), tx_pin.into(), Some(cts_pin.into())),
+            rx: LpuartRx::new_inner(T::info(), rx_pin.into(), Some(rts_pin.into()), _wg.clone()),
+            tx: LpuartTx::new_inner(T::info(), tx_pin.into(), Some(cts_pin.into()), _wg),
         })
     }
 }
@@ -870,18 +874,26 @@ impl<'a> Lpuart<'a, Blocking> {
 // ----------------------------------------------------------------------------
 
 impl<'a, M: Mode> LpuartTx<'a, M> {
-    fn new_inner(info: Info, tx_pin: Peri<'a, AnyPin>, cts_pin: Option<Peri<'a, AnyPin>>) -> Self {
+    fn new_inner(
+        info: &'static Info,
+        tx_pin: Peri<'a, AnyPin>,
+        cts_pin: Option<Peri<'a, AnyPin>>,
+        _wg: Option<WakeGuard>,
+    ) -> Self {
         Self {
             info,
             _tx_pin: tx_pin,
             _cts_pin: cts_pin,
             mode: PhantomData,
+            _wg,
         }
     }
 }
 
 impl<'a> LpuartTx<'a, Blocking> {
-    /// Create a new blocking LPUART transmitter instance
+    /// Create a new blocking LPUART transmitter instance.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_blocking<T: Instance>(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -891,12 +903,14 @@ impl<'a> LpuartTx<'a, Blocking> {
         tx_pin.as_tx();
 
         // Initialize the peripheral
-        Lpuart::<Blocking>::init::<T>(true, false, false, false, config)?;
+        let _wg = Lpuart::<Blocking>::init::<T>(true, false, false, false, config)?;
 
-        Ok(Self::new_inner(T::info(), tx_pin.into(), None))
+        Ok(Self::new_inner(T::info(), tx_pin.into(), None, _wg))
     }
 
-    /// Create a new blocking LPUART transmitter instance with CTS flow control
+    /// Create a new blocking LPUART transmitter instance with CTS flow control.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_blocking_with_cts<T: Instance>(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -906,24 +920,24 @@ impl<'a> LpuartTx<'a, Blocking> {
         tx_pin.as_tx();
         cts_pin.as_cts();
 
-        Lpuart::<Blocking>::init::<T>(true, false, true, false, config)?;
+        let _wg = Lpuart::<Blocking>::init::<T>(true, false, true, false, config)?;
 
-        Ok(Self::new_inner(T::info(), tx_pin.into(), Some(cts_pin.into())))
+        Ok(Self::new_inner(T::info(), tx_pin.into(), Some(cts_pin.into()), _wg))
     }
 
     fn write_byte_internal(&mut self, byte: u8) -> Result<()> {
-        self.info.regs.data().modify(|_, w| unsafe { w.bits(u32::from(byte)) });
+        self.info.regs().data().modify(|w| w.0 = u32::from(byte));
 
         Ok(())
     }
 
     fn blocking_write_byte(&mut self, byte: u8) -> Result<()> {
-        while self.info.regs.stat().read().tdre().is_txdata() {}
+        while self.info.regs().stat().read().tdre() == Tdre::TXDATA {}
         self.write_byte_internal(byte)
     }
 
     fn write_byte(&mut self, byte: u8) -> Result<()> {
-        if self.info.regs.stat().read().tdre().is_txdata() {
+        if self.info.regs().stat().read().tdre() == Tdre::TXDATA {
             Err(Error::TxFifoFull)
         } else {
             self.write_byte_internal(byte)
@@ -954,12 +968,12 @@ impl<'a> LpuartTx<'a, Blocking> {
 
     /// Flush LPUART TX blocking execution until all data has been transmitted.
     pub fn blocking_flush(&mut self) -> Result<()> {
-        while self.info.regs.water().read().txcount().bits() != 0 {
+        while self.info.regs().water().read().txcount() != 0 {
             // Wait for TX FIFO to drain
         }
 
         // Wait for last character to shift out
-        while self.info.regs.stat().read().tc().is_active() {
+        while self.info.regs().stat().read().tc() == Tc::ACTIVE {
             // Wait for transmission to complete
         }
 
@@ -969,12 +983,12 @@ impl<'a> LpuartTx<'a, Blocking> {
     /// Flush LPUART TX.
     pub fn flush(&mut self) -> Result<()> {
         // Check if TX FIFO is empty
-        if self.info.regs.water().read().txcount().bits() != 0 {
+        if self.info.regs().water().read().txcount() != 0 {
             return Err(Error::TxBusy);
         }
 
         // Check if transmission is complete
-        if self.info.regs.stat().read().tc().is_active() {
+        if self.info.regs().stat().read().tc() == Tc::ACTIVE {
             return Err(Error::TxBusy);
         }
 
@@ -987,18 +1001,26 @@ impl<'a> LpuartTx<'a, Blocking> {
 // ----------------------------------------------------------------------------
 
 impl<'a, M: Mode> LpuartRx<'a, M> {
-    fn new_inner(info: Info, rx_pin: Peri<'a, AnyPin>, rts_pin: Option<Peri<'a, AnyPin>>) -> Self {
+    fn new_inner(
+        info: &'static Info,
+        rx_pin: Peri<'a, AnyPin>,
+        rts_pin: Option<Peri<'a, AnyPin>>,
+        _wg: Option<WakeGuard>,
+    ) -> Self {
         Self {
             info,
             _rx_pin: rx_pin,
             _rts_pin: rts_pin,
             mode: PhantomData,
+            _wg,
         }
     }
 }
 
 impl<'a> LpuartRx<'a, Blocking> {
-    /// Create a new blocking LPUART Receiver instance
+    /// Create a new blocking LPUART Receiver instance.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_blocking<T: Instance>(
         _inner: Peri<'a, T>,
         rx_pin: Peri<'a, impl RxPin<T>>,
@@ -1006,12 +1028,14 @@ impl<'a> LpuartRx<'a, Blocking> {
     ) -> Result<Self> {
         rx_pin.as_rx();
 
-        Lpuart::<Blocking>::init::<T>(false, true, false, false, config)?;
+        let _wg = Lpuart::<Blocking>::init::<T>(false, true, false, false, config)?;
 
-        Ok(Self::new_inner(T::info(), rx_pin.into(), None))
+        Ok(Self::new_inner(T::info(), rx_pin.into(), None, _wg))
     }
 
-    /// Create a new blocking LPUART Receiver instance with RTS flow control
+    /// Create a new blocking LPUART Receiver instance with RTS flow control.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new_blocking_with_rts<T: Instance>(
         _inner: Peri<'a, T>,
         rx_pin: Peri<'a, impl RxPin<T>>,
@@ -1021,21 +1045,19 @@ impl<'a> LpuartRx<'a, Blocking> {
         rx_pin.as_rx();
         rts_pin.as_rts();
 
-        Lpuart::<Blocking>::init::<T>(false, true, false, true, config)?;
+        let _wg = Lpuart::<Blocking>::init::<T>(false, true, false, true, config)?;
 
-        Ok(Self::new_inner(T::info(), rx_pin.into(), Some(rts_pin.into())))
+        Ok(Self::new_inner(T::info(), rx_pin.into(), Some(rts_pin.into()), _wg))
     }
 
     fn read_byte_internal(&mut self) -> Result<u8> {
-        let data = self.info.regs.data().read();
-
-        Ok((data.bits() & 0xFF) as u8)
+        Ok((self.info.regs().data().read().0 & 0xFF) as u8)
     }
 
     fn read_byte(&mut self) -> Result<u8> {
-        check_and_clear_rx_errors(self.info.regs)?;
+        check_and_clear_rx_errors(self.info)?;
 
-        if !has_data(self.info.regs) {
+        if !has_data(self.info) {
             return Err(Error::RxFifoEmpty);
         }
 
@@ -1044,11 +1066,11 @@ impl<'a> LpuartRx<'a, Blocking> {
 
     fn blocking_read_byte(&mut self) -> Result<u8> {
         loop {
-            if has_data(self.info.regs) {
+            if has_data(self.info) {
                 return self.read_byte_internal();
             }
 
-            check_and_clear_rx_errors(self.info.regs)?;
+            check_and_clear_rx_errors(self.info)?;
         }
     }
 
@@ -1128,18 +1150,18 @@ impl<'a> Lpuart<'a, Blocking> {
 /// use-after-free when the buffer goes out of scope.
 struct TxDmaGuard<'a, C: DmaChannelTrait> {
     dma: &'a DmaChannel<C>,
-    regs: Regs,
+    info: &'static Info,
 }
 
 impl<'a, C: DmaChannelTrait> TxDmaGuard<'a, C> {
-    fn new(dma: &'a DmaChannel<C>, regs: Regs) -> Self {
-        Self { dma, regs }
+    fn new(dma: &'a DmaChannel<C>, info: &'static Info) -> Self {
+        Self { dma, info }
     }
 
     /// Complete the transfer normally (don't abort on drop).
     fn complete(self) {
         // Cleanup
-        self.regs.baud().modify(|_, w| w.tdmae().disabled());
+        self.info.regs().baud().modify(|w| w.set_tdmae(false));
         unsafe {
             self.dma.disable_request();
             self.dma.clear_done();
@@ -1158,19 +1180,19 @@ impl<C: DmaChannelTrait> Drop for TxDmaGuard<'_, C> {
             self.dma.clear_interrupt();
         }
         // Disable UART TX DMA request
-        self.regs.baud().modify(|_, w| w.tdmae().disabled());
+        self.info.regs().baud().modify(|w| w.set_tdmae(false));
     }
 }
 
 /// Guard struct for RX DMA transfers.
 struct RxDmaGuard<'a, C: DmaChannelTrait> {
     dma: &'a DmaChannel<C>,
-    regs: Regs,
+    info: &'static Info,
 }
 
 impl<'a, C: DmaChannelTrait> RxDmaGuard<'a, C> {
-    fn new(dma: &'a DmaChannel<C>, regs: Regs) -> Self {
-        Self { dma, regs }
+    fn new(dma: &'a DmaChannel<C>, info: &'static Info) -> Self {
+        Self { dma, info }
     }
 
     /// Complete the transfer normally (don't abort on drop).
@@ -1178,7 +1200,7 @@ impl<'a, C: DmaChannelTrait> RxDmaGuard<'a, C> {
         // Ensure DMA writes are visible to CPU
         cortex_m::asm::dsb();
         // Cleanup
-        self.regs.baud().modify(|_, w| w.rdmae().disabled());
+        self.info.regs().baud().modify(|w| w.set_rdmae(false));
         unsafe {
             self.dma.disable_request();
             self.dma.clear_done();
@@ -1197,12 +1219,14 @@ impl<C: DmaChannelTrait> Drop for RxDmaGuard<'_, C> {
             self.dma.clear_interrupt();
         }
         // Disable UART RX DMA request
-        self.regs.baud().modify(|_, w| w.rdmae().disabled());
+        self.info.regs().baud().modify(|w| w.set_rdmae(false));
     }
 }
 
 impl<'a, T: Instance, C: DmaChannelTrait> LpuartTxDma<'a, T, C> {
     /// Create a new LPUART TX driver with DMA support.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -1213,7 +1237,7 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartTxDma<'a, T, C> {
         let tx_pin: Peri<'a, AnyPin> = tx_pin.into();
 
         // Initialize LPUART with TX enabled, RX disabled, no flow control
-        Lpuart::<Async>::init::<T>(true, false, false, false, config)?;
+        let _wg = Lpuart::<Async>::init::<T>(true, false, false, false, config)?;
 
         // Enable interrupt
         let tx_dma = DmaChannel::new(tx_dma_ch);
@@ -1224,6 +1248,7 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartTxDma<'a, T, C> {
             _tx_pin: tx_pin,
             tx_dma,
             _instance: core::marker::PhantomData,
+            _wg,
         })
     }
 
@@ -1258,7 +1283,7 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartTxDma<'a, T, C> {
     /// Internal helper to write a single chunk (max 0x7FFF bytes) using DMA.
     async fn write_dma_inner(&mut self, buf: &[u8]) -> Result<usize> {
         let len = buf.len();
-        let peri_addr = self.info.regs.data().as_ptr() as *mut u8;
+        let peri_addr = self.info.regs().data().as_ptr() as *mut u8;
 
         unsafe {
             // Clean up channel state
@@ -1274,14 +1299,14 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartTxDma<'a, T, C> {
                 .setup_write_to_peripheral(buf, peri_addr, EnableInterrupt::Yes);
 
             // Enable UART TX DMA request
-            self.info.regs.baud().modify(|_, w| w.tdmae().enabled());
+            self.info.regs().baud().modify(|w| w.set_tdmae(true));
 
             // Enable DMA channel request
             self.tx_dma.enable_request();
         }
 
         // Create guard that will abort DMA if this future is dropped
-        let guard = TxDmaGuard::new(&self.tx_dma, self.info.regs);
+        let guard = TxDmaGuard::new(&self.tx_dma, self.info);
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
@@ -1303,22 +1328,24 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartTxDma<'a, T, C> {
     /// Blocking write (fallback when DMA is not needed)
     pub fn blocking_write(&mut self, buf: &[u8]) -> Result<()> {
         for &byte in buf {
-            while self.info.regs.stat().read().tdre().is_txdata() {}
-            self.info.regs.data().modify(|_, w| unsafe { w.bits(u32::from(byte)) });
+            while self.info.regs().stat().read().tdre() == Tdre::TXDATA {}
+            self.info.regs().data().write(|w| w.0 = byte as u32);
         }
         Ok(())
     }
 
     /// Flush TX blocking
     pub fn blocking_flush(&mut self) -> Result<()> {
-        while self.info.regs.water().read().txcount().bits() != 0 {}
-        while self.info.regs.stat().read().tc().is_active() {}
+        while self.info.regs().water().read().txcount() != 0 {}
+        while self.info.regs().stat().read().tc() == Tc::ACTIVE {}
         Ok(())
     }
 }
 
 impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
     /// Create a new LPUART RX driver with DMA support.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new(
         _inner: Peri<'a, T>,
         rx_pin: Peri<'a, impl RxPin<T>>,
@@ -1329,7 +1356,7 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
         let rx_pin: Peri<'a, AnyPin> = rx_pin.into();
 
         // Initialize LPUART with TX disabled, RX enabled, no flow control
-        Lpuart::<Async>::init::<T>(false, true, false, false, config)?;
+        let _wg = Lpuart::<Async>::init::<T>(false, true, false, false, config)?;
 
         // Enable dma interrupt
         let rx_dma = DmaChannel::new(rx_dma_ch);
@@ -1340,6 +1367,7 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
             _rx_pin: rx_pin,
             rx_dma,
             _instance: core::marker::PhantomData,
+            _wg,
         })
     }
 
@@ -1374,7 +1402,7 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
     /// Internal helper to read a single chunk (max 0x7FFF bytes) using DMA.
     async fn read_dma_inner(&mut self, buf: &mut [u8]) -> Result<usize> {
         let len = buf.len();
-        let peri_addr = self.info.regs.data().as_ptr() as *const u8;
+        let peri_addr = self.info.regs().data().as_ptr() as *const u8;
 
         unsafe {
             // Clean up channel state
@@ -1390,14 +1418,14 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
                 .setup_read_from_peripheral(peri_addr, buf, EnableInterrupt::Yes);
 
             // Enable UART RX DMA request
-            self.info.regs.baud().modify(|_, w| w.rdmae().enabled());
+            self.info.regs().baud().modify(|w| w.set_rdmae(true));
 
             // Enable DMA channel request
             self.rx_dma.enable_request();
         }
 
         // Create guard that will abort DMA if this future is dropped
-        let guard = RxDmaGuard::new(&self.rx_dma, self.info.regs);
+        let guard = RxDmaGuard::new(&self.rx_dma, self.info);
 
         // Wait for completion asynchronously
         core::future::poll_fn(|cx| {
@@ -1420,11 +1448,11 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
     pub fn blocking_read(&mut self, buf: &mut [u8]) -> Result<()> {
         for byte in buf.iter_mut() {
             loop {
-                if has_data(self.info.regs) {
-                    *byte = (self.info.regs.data().read().bits() & 0xFF) as u8;
+                if has_data(self.info) {
+                    *byte = (self.info.regs().data().read().0 & 0xFF) as u8;
                     break;
                 }
-                check_and_clear_rx_errors(self.info.regs)?;
+                check_and_clear_rx_errors(self.info)?;
             }
         }
         Ok(())
@@ -1480,13 +1508,13 @@ impl<'a, T: Instance, C: DmaChannelTrait> LpuartRxDma<'a, T, C> {
     unsafe fn setup_ring_buffer<'b>(&self, buf: &'b mut [u8]) -> RingBuffer<'b, u8> {
         unsafe {
             // Get the peripheral data register address
-            let peri_addr = self.info.regs.data().as_ptr() as *const u8;
+            let peri_addr = self.info.regs().data().as_ptr() as *const u8;
 
             // Configure DMA request source for this LPUART instance (type-safe)
             self.rx_dma.set_request_source::<T::RxDmaRequest>();
 
             // Enable RX DMA request in the LPUART peripheral
-            self.info.regs.baud().modify(|_, w| w.rdmae().enabled());
+            self.info.regs().baud().modify(|w| w.set_rdmae(true));
 
             // Set up circular DMA transfer (this also enables NVIC interrupt)
             self.rx_dma.setup_circular_read(peri_addr, buf)
@@ -1522,6 +1550,8 @@ impl<'peri, 'buf, T: Instance, C: DmaChannelTrait> LpuartRxRingDma<'peri, 'buf, 
 
 impl<'a, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> LpuartDma<'a, T, TxC, RxC> {
     /// Create a new LPUART driver with DMA support for both TX and RX.
+    ///
+    /// Any external pin will be placed into Disabled state upon Drop.
     pub fn new(
         _inner: Peri<'a, T>,
         tx_pin: Peri<'a, impl TxPin<T>>,
@@ -1537,7 +1567,7 @@ impl<'a, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> LpuartDma<'a, 
         let rx_pin: Peri<'a, AnyPin> = rx_pin.into();
 
         // Initialize LPUART with both TX and RX enabled, no flow control
-        Lpuart::<Async>::init::<T>(true, true, false, false, config)?;
+        let _wg = Lpuart::<Async>::init::<T>(true, true, false, false, config)?;
 
         // Enable DMA interrupts
         let tx_dma = DmaChannel::new(tx_dma_ch);
@@ -1551,12 +1581,14 @@ impl<'a, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> LpuartDma<'a, 
                 _tx_pin: tx_pin,
                 tx_dma,
                 _instance: core::marker::PhantomData,
+                _wg: _wg.clone(),
             },
             rx: LpuartRxDma {
                 info: T::info(),
                 _rx_pin: rx_pin,
                 rx_dma,
                 _instance: core::marker::PhantomData,
+                _wg,
             },
         })
     }
@@ -1574,6 +1606,40 @@ impl<'a, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> LpuartDma<'a, 
     /// Read data using DMA
     pub async fn read_dma(&mut self, buf: &mut [u8]) -> Result<usize> {
         self.rx.read_dma(buf).await
+    }
+}
+
+// ============================================================================
+// DROP TRAIT IMPLEMENTATIONS
+// ============================================================================
+
+impl<'a, M: Mode> Drop for LpuartTx<'a, M> {
+    fn drop(&mut self) {
+        self._tx_pin.set_as_disabled();
+        if let Some(cts_pin) = &self._cts_pin {
+            cts_pin.set_as_disabled();
+        }
+    }
+}
+
+impl<'a, M: Mode> Drop for LpuartRx<'a, M> {
+    fn drop(&mut self) {
+        self._rx_pin.set_as_disabled();
+        if let Some(rts_pin) = &self._rts_pin {
+            rts_pin.set_as_disabled();
+        }
+    }
+}
+
+impl<'a, T: Instance, C: DmaChannelTrait> Drop for LpuartTxDma<'a, T, C> {
+    fn drop(&mut self) {
+        self._tx_pin.set_as_disabled();
+    }
+}
+
+impl<'a, T: Instance, C: DmaChannelTrait> Drop for LpuartRxDma<'a, T, C> {
+    fn drop(&mut self) {
+        self._rx_pin.set_as_disabled();
     }
 }
 

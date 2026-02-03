@@ -59,8 +59,26 @@ pub mod backup_sram;
 #[cfg(can)]
 pub mod can;
 // FIXME: Cordic driver cause stm32u5a5zj crash
+#[cfg(aes_v3b)]
+pub mod aes;
+#[cfg(comp_u5)]
+pub mod comp;
 #[cfg(all(cordic, not(any(stm32u5a5, stm32u5a9))))]
 pub mod cordic;
+
+// Stub macros for COMP pin implementations when comp module is not compiled.
+// These are needed because build.rs generates macro calls for all chips with COMP,
+// but the actual macros are only defined in the comp module which is only compiled for comp_u5.
+#[cfg(all(comp, not(comp_u5)))]
+macro_rules! impl_comp_inp_pin {
+    ($inst:ident, $pin:ident, $ch:expr) => {};
+}
+#[cfg(all(comp, not(comp_u5)))]
+macro_rules! impl_comp_inm_pin {
+    ($inst:ident, $pin:ident, $ch:expr) => {};
+}
+#[cfg(any(ipcc, hsem))]
+pub mod cpu;
 #[cfg(crc)]
 pub mod crc;
 #[cfg(cryp)]
@@ -107,12 +125,16 @@ pub mod ltdc;
 pub mod opamp;
 #[cfg(octospi)]
 pub mod ospi;
+#[cfg(pka_v1a)]
+pub mod pka;
 #[cfg(quadspi)]
 pub mod qspi;
 #[cfg(rng)]
 pub mod rng;
 #[cfg(all(rtc, not(rtc_v1)))]
 pub mod rtc;
+#[cfg(saes_v1a)]
+pub mod saes;
 #[cfg(sai)]
 pub mod sai;
 #[cfg(sdmmc)]
@@ -296,6 +318,12 @@ pub struct Config {
     #[cfg(gpdma)]
     pub gpdma_interrupt_priority: Priority,
 
+    /// MDMA interrupt priority.
+    ///
+    /// Defaults to P0 (highest).
+    #[cfg(mdma)]
+    pub mdma_interrupt_priority: Priority,
+
     /// Enables UCPD1 dead battery functionality.
     ///
     /// Defaults to false (disabled).
@@ -329,6 +357,8 @@ impl Default for Config {
             dma_interrupt_priority: Priority::P0,
             #[cfg(gpdma)]
             gpdma_interrupt_priority: Priority::P0,
+            #[cfg(mdma)]
+            mdma_interrupt_priority: Priority::P0,
             #[cfg(peri_ucpd1)]
             enable_ucpd1_dead_battery: false,
             #[cfg(peri_ucpd2)]
@@ -377,6 +407,8 @@ mod dual_core {
         init_flag: AtomicUsize,
         clocks: UnsafeCell<MaybeUninit<Clocks>>,
         config: UnsafeCell<MaybeUninit<SharedConfig>>,
+        #[cfg(feature = "low-power")]
+        rcc_config: UnsafeCell<MaybeUninit<Option<rcc::Config>>>,
     }
 
     unsafe impl Sync for SharedData {}
@@ -402,6 +434,8 @@ mod dual_core {
         shared_data.init_flag.store(0, Ordering::SeqCst);
 
         rcc::set_freqs_ptr(shared_data.clocks.get());
+        #[cfg(feature = "low-power")]
+        rcc::set_rcc_config_ptr(shared_data.rcc_config.get());
         let p = init_hw(config);
 
         unsafe { *shared_data.config.get() }.write(config.into());
@@ -452,6 +486,8 @@ mod dual_core {
 
     fn init_secondary_hw(shared_data: &'static SharedData) -> Peripherals {
         rcc::set_freqs_ptr(shared_data.clocks.get());
+        #[cfg(feature = "low-power")]
+        rcc::set_rcc_config_ptr(shared_data.rcc_config.get());
 
         let config = unsafe { (*shared_data.config.get()).assume_init() };
 
@@ -466,6 +502,8 @@ mod dual_core {
                     config.dma_interrupt_priority,
                     #[cfg(gpdma)]
                     config.gpdma_interrupt_priority,
+                    #[cfg(mdma)]
+                    config.mdma_interrupt_priority,
                 )
             }
 
@@ -486,6 +524,8 @@ mod dual_core {
         dma_interrupt_priority: Priority,
         #[cfg(gpdma)]
         gpdma_interrupt_priority: Priority,
+        #[cfg(mdma)]
+        mdma_interrupt_priority: Priority,
     }
 
     impl From<Config> for SharedConfig {
@@ -497,6 +537,8 @@ mod dual_core {
                 dma_interrupt_priority,
                 #[cfg(gpdma)]
                 gpdma_interrupt_priority,
+                #[cfg(mdma)]
+                mdma_interrupt_priority,
                 ..
             } = value;
 
@@ -507,6 +549,8 @@ mod dual_core {
                 dma_interrupt_priority,
                 #[cfg(gpdma)]
                 gpdma_interrupt_priority,
+                #[cfg(mdma)]
+                mdma_interrupt_priority,
             }
         }
     }
@@ -653,17 +697,19 @@ fn init_hw(config: Config) -> Peripherals {
                 config.dma_interrupt_priority,
                 #[cfg(gpdma)]
                 config.gpdma_interrupt_priority,
+                #[cfg(mdma)]
+                config.mdma_interrupt_priority,
             );
             #[cfg(feature = "exti")]
             exti::init(cs);
 
             rcc::init_rcc(cs, config.rcc);
 
-            #[cfg(feature = "low-power")]
-            rtc::init_rtc(cs, config.rtc, config.min_stop_pause);
-
-            #[cfg(all(stm32wb, feature = "low-power"))]
+            #[cfg(all(any(stm32wb, stm32wl5x), feature = "low-power"))]
             hsem::init_hsem(cs);
+
+            #[cfg(all(feature = "low-power", not(feature = "_lp-time-driver")))]
+            rtc::init_rtc(cs, config.rtc, config.min_stop_pause);
         }
 
         p

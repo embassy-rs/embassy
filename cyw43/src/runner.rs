@@ -11,11 +11,10 @@ use crate::consts::*;
 use crate::events::{Event, Events, Status};
 use crate::fmt::Bytes;
 use crate::ioctl::{IoctlState, IoctlType, PendingIoctl};
-use crate::nvram::NVRAM;
 pub use crate::spi::SpiBusCyw43;
 use crate::structs::*;
-use crate::util::{aligned_mut, aligned_ref, slice8_mut, slice16_mut};
-use crate::{CHIP, Core, MTU, events, try_until};
+use crate::util::{aligned_mut, aligned_ref, slice8_mut, slice16_mut, try_until};
+use crate::{CHIP, Core, MTU, events};
 
 #[cfg(feature = "firmware-logs")]
 struct LogState {
@@ -128,7 +127,12 @@ where
         }
     }
 
-    pub(crate) async fn init(&mut self, wifi_fw: &[u8], bt_fw: Option<&[u8]>) -> Result<(), ()> {
+    pub(crate) async fn init(
+        &mut self,
+        wifi_fw: &Aligned<A4, [u8]>,
+        nvram: &Aligned<A4, [u8]>,
+        bt_fw: Option<&[u8]>,
+    ) -> Result<(), ()> {
         self.bus.init(bt_fw.is_some()).await;
 
         // Init ALP (Active Low Power) clock
@@ -179,12 +183,12 @@ where
             BusType::Spi => self.bus.bp_read16(CHIPCOMMON_BASE_ADDRESS).await,
             BusType::Sdio => {
                 // Disable the extra sdio pull-ups
-                // self.bus.write8(BACKPLANE_FUNCTION, SDIO_PULL_UP, 0).await;
+                // self.bus.write8(FUNC_BACKPLANE, SDIO_PULL_UP, 0).await;
 
                 // Enable f1 and f2
                 self.bus
                     .write8(
-                        BUS_FUNCTION,
+                        FUNC_BUS,
                         SDIOD_CCCR_IOEN,
                         (SDIO_FUNC_ENABLE_1 | SDIO_FUNC_ENABLE_2) as u8,
                     )
@@ -196,7 +200,7 @@ where
                 // Note: only GPIO0 using rising edge is currently supported
                 self.bus
                     .write8(
-                        BUS_FUNCTION,
+                        FUNC_BUS,
                         SDIOD_SEP_INT_CTL,
                         (SEP_INTR_CTL_MASK | SEP_INTR_CTL_EN | SEP_INTR_CTL_POL) as u8,
                     )
@@ -205,15 +209,15 @@ where
                 // Enable f2 interrupt only
                 self.bus
                     .write8(
-                        BUS_FUNCTION,
+                        FUNC_BUS,
                         SDIOD_CCCR_INTEN,
                         (INTR_CTL_MASTER_EN | INTR_CTL_FUNC2_EN) as u8,
                     )
                     .await;
 
-                self.bus.read8(BUS_FUNCTION, SDIOD_CCCR_IORDY).await;
+                self.bus.read8(FUNC_BUS, SDIOD_CCCR_IORDY).await;
 
-                let reg = self.bus.read8(BUS_FUNCTION, SDIOD_CCCR_BRCM_CARDCAP).await;
+                let reg = self.bus.read8(FUNC_BUS, SDIOD_CCCR_BRCM_CARDCAP).await;
                 if reg & SDIOD_CCCR_BRCM_CARDCAP_SECURE_MODE as u8 != 0 {
                     debug!("chip supports bootloader handshake");
 
@@ -227,9 +231,9 @@ where
                         )
                         .await;
 
-                    let addr_low = self.bus.read8(BACKPLANE_FUNCTION, SBSDIO_FUNC1_SBADDRLOW).await as u32;
-                    let addr_mid = self.bus.read8(BACKPLANE_FUNCTION, SBSDIO_FUNC1_SBADDRMID).await as u32;
-                    let addr_high = self.bus.read8(BACKPLANE_FUNCTION, SBSDIO_FUNC1_SBADDRHIGH).await as u32;
+                    let addr_low = self.bus.read8(FUNC_BACKPLANE, SBSDIO_FUNC1_SBADDRLOW).await as u32;
+                    let addr_mid = self.bus.read8(FUNC_BACKPLANE, SBSDIO_FUNC1_SBADDRMID).await as u32;
+                    let addr_high = self.bus.read8(FUNC_BACKPLANE, SBSDIO_FUNC1_SBADDRHIGH).await as u32;
 
                     let reg_addr = ((addr_low << 8) | (addr_mid << 16) | (addr_high << 24)) + SDIO_CORE_CHIPID_REG;
 
@@ -260,9 +264,9 @@ where
 
         debug!("loading nvram");
         // Round up to 4 bytes.
-        let nvram_len = (NVRAM.len() + 3) / 4 * 4;
+        let nvram_len = (nvram.len() + 3) / 4 * 4;
         self.bus
-            .bp_write(ram_addr + CHIP.chip_ram_size - 4 - nvram_len as u32, NVRAM)
+            .bp_write(ram_addr + CHIP.chip_ram_size - 4 - nvram_len as u32, nvram)
             .await;
 
         let nvram_len_words = nvram_len as u32 / 4;
@@ -335,6 +339,21 @@ where
             return Err(());
         }
 
+        match BUS::TYPE {
+            BusType::Sdio => {
+                self.bus
+                    .write8(FUNC_BACKPLANE, SDIO_SLEEP_CSR, SBSDIO_SLPCSR_KEEP_WL_KS as u8)
+                    .await;
+
+                self.bus
+                    .write8(FUNC_BACKPLANE, SDIO_SLEEP_CSR, SBSDIO_SLPCSR_KEEP_WL_KS as u8)
+                    .await;
+
+                assert!(self.bus.read8(FUNC_BACKPLANE, SDIO_SLEEP_CSR).await & SBSDIO_SLPCSR_KEEP_WL_KS as u8 != 0);
+            }
+            BusType::Spi => {}
+        }
+
         // Some random configs related to sleep.
         // These aren't needed if we don't want to sleep the bus.
         // TODO do we need to sleep the bus to read the irq line, due to
@@ -386,8 +405,8 @@ where
         let shared_addr = self.bus.bp_read32(addr).await;
         debug!("shared_addr {:08x}", shared_addr);
 
-        let mut shared = [0; SharedMemData::SIZE];
-        self.bus.bp_read(shared_addr, &mut shared).await;
+        let mut shared: Aligned<A4, [u8; _]> = Aligned([0; SharedMemData::SIZE]);
+        self.bus.bp_read(shared_addr, &mut shared[..]).await;
         let shared = SharedMemData::from_bytes(&shared);
 
         self.log.addr = shared.console_addr + 8;
@@ -396,8 +415,8 @@ where
     #[cfg(feature = "firmware-logs")]
     async fn log_read(&mut self) {
         // Read log struct
-        let mut log = [0; SharedMemLog::SIZE];
-        self.bus.bp_read(self.log.addr, &mut log).await;
+        let mut log: Aligned<A4, [u8; _]> = Aligned([0; SharedMemLog::SIZE]);
+        self.bus.bp_read(self.log.addr, &mut log[..]).await;
         let log = SharedMemLog::from_bytes(&log);
 
         let idx = log.idx as usize;
@@ -409,8 +428,8 @@ where
 
         // Read entire buf for now. We could read only what we need, but then we
         // run into annoying alignment issues in `bp_read`.
-        let mut buf = [0; 0x400];
-        self.bus.bp_read(log.buf, &mut buf).await;
+        let mut buf: Aligned<A4, [u8; _]> = Aligned([0; 0x400]);
+        self.bus.bp_read(log.buf, &mut buf[..]).await;
 
         while self.log.last_idx != idx as usize {
             let b = buf[self.log.last_idx];
@@ -560,10 +579,13 @@ where
     async fn handle_irq(&mut self, buf: &mut [u32; 512]) {
         match BUS::TYPE {
             BusType::Sdio => {
+                // TODO: get irqs working
+                self.check_status(buf).await;
+
                 // whd_bus_sdio_packet_available_to_read
                 let irq = self.bus.bp_read32(CHIP.sdiod_core_base_address + SDIO_INT_STATUS).await;
                 if irq & I_HMB_HOST_INT == 0 {
-                    return;
+                    // return;
                 }
 
                 let hmb_data = self
@@ -581,11 +603,10 @@ where
 
                 // Clear irq must be done here to avoid a race
                 if irq & HOSTINTMASK != 0 {
+                    trace!("clear irq");
                     self.bus
                         .bp_write32(CHIP.sdiod_core_base_address + SDIO_INT_STATUS, irq & HOSTINTMASK)
                         .await;
-
-                    self.check_status(buf).await;
                 }
             }
             BusType::Spi => {
@@ -618,7 +639,7 @@ where
         loop {
             match BUS::TYPE {
                 BusType::Spi => {
-                    let status = self.bus.read32(BUS_FUNCTION, SPI_STATUS_REGISTER).await;
+                    let status = self.bus.read32(FUNC_BUS, SPI_STATUS_REGISTER).await;
                     trace!("check status{}", FormatStatus(status));
 
                     if status & STATUS_F2_PKT_AVAILABLE != 0 {

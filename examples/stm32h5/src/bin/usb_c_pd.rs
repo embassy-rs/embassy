@@ -7,12 +7,14 @@ use defmt::{Format, error, info};
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::Output;
 use embassy_stm32::ucpd::{self, CcPhy, CcPull, CcSel, CcVState, Ucpd};
-use embassy_stm32::{Config, bind_interrupts, peripherals};
+use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
 use embassy_time::{Duration, with_timeout};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     UCPD1 => ucpd::InterruptHandler<peripherals::UCPD1>;
+    GPDMA1_CHANNEL0 => dma::InterruptHandler<peripherals::GPDMA1_CH0>;
+    GPDMA1_CHANNEL1 => dma::InterruptHandler<peripherals::GPDMA1_CH1>;
 });
 
 #[derive(Debug, Format)]
@@ -80,7 +82,7 @@ async fn main(_spawner: Spawner) {
         }
         CableOrientation::DebugAccessoryMode => panic!("No PD communication in DAM"),
     };
-    let (_cc_phy, mut pd_phy) = ucpd.split_pd_phy(p.GPDMA1_CH0, p.GPDMA1_CH1, cc_sel);
+    let (_cc_phy, mut pd_phy) = ucpd.split_pd_phy(p.GPDMA1_CH0, p.GPDMA1_CH1, Irqs, cc_sel);
 
     loop {
         // Enough space for the longest non-extended data message.

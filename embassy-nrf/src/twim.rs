@@ -138,6 +138,8 @@ impl<'d> Twim<'d> {
         let r = T::regs();
 
         // Configure pins
+        sda.set_high();
+        scl.set_high();
         sda.conf().write(|w| {
             w.set_dir(gpiovals::Dir::OUTPUT);
             w.set_input(gpiovals::Input::CONNECT);

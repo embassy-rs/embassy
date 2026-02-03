@@ -3,15 +3,13 @@
 
 use embassy_executor::Spawner;
 use embassy_time::{Duration, Ticker};
-use hal::adc::{Adc, InterruptHandler, LpadcConfig, TriggerPriorityPolicy};
+use hal::adc::{self, Adc, InterruptHandler, TriggerPriorityPolicy};
 use hal::bind_interrupts;
 use hal::clocks::PoweredClock;
 use hal::clocks::config::Div8;
 use hal::clocks::periph_helpers::{AdcClockSel, Div4};
 use hal::config::Config;
-use hal::pac::adc1::cfg::{Pwrsel, Refsel};
-use hal::pac::adc1::cmdl1::Mode;
-use hal::pac::adc1::ctrl::CalAvgs;
+use hal::pac::adc::vals::{CalAvgs, Mode, Pwrsel, Refsel};
 use hal::peripherals::ADC1;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
@@ -28,13 +26,13 @@ async fn main(_spawner: Spawner) {
 
     defmt::info!("ADC interrupt Example");
 
-    let adc_config = LpadcConfig {
+    let adc_config = adc::Config {
         enable_in_doze_mode: true,
-        conversion_average_mode: CalAvgs::Average128,
+        conversion_average_mode: CalAvgs::AVERAGE_128,
         enable_analog_preliminary: true,
         power_up_delay: 0x80,
-        reference_voltage_source: Refsel::Option3,
-        power_level_mode: Pwrsel::Lowest,
+        reference_voltage_source: Refsel::OPTION_3,
+        power_level_mode: Pwrsel::LOWEST,
         trigger_priority_policy: TriggerPriorityPolicy::ConvPreemptImmediatelyNotAutoResumed,
         enable_conv_pause: false,
         conv_pause_delay: 0,
@@ -46,7 +44,7 @@ async fn main(_spawner: Spawner) {
 
     adc.do_offset_calibration();
     adc.do_auto_calibration();
-    adc.set_resolution(Mode::Data16Bits);
+    adc.set_resolution(Mode::DATA_16_BITS);
 
     defmt::info!("ADC configuration done...");
     let mut ticker = Ticker::every(Duration::from_millis(100));

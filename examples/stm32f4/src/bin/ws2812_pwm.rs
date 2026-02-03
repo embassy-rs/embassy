@@ -18,8 +18,13 @@ use embassy_stm32::time::khz;
 use embassy_stm32::timer::Channel;
 use embassy_stm32::timer::low_level::CountingMode;
 use embassy_stm32::timer::simple_pwm::{PwmPin, SimplePwm};
+use embassy_stm32::{bind_interrupts, dma, peripherals};
 use embassy_time::{Duration, Ticker, Timer};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    DMA1_STREAM2 => dma::InterruptHandler<peripherals::DMA1_CH2>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -92,7 +97,9 @@ async fn main(_spawner: Spawner) {
     loop {
         for &color in color_list {
             // with &mut, we can easily reuse same DMA channel multiple times
-            ws2812_pwm.waveform_up(dp.DMA1_CH2.reborrow(), pwm_channel, color).await;
+            ws2812_pwm
+                .waveform_up(dp.DMA1_CH2.reborrow(), Irqs, pwm_channel, color)
+                .await;
             // ws2812 need at least 50 us low level input to confirm the input data and change it's state
             Timer::after_micros(50).await;
             // wait until ticker tick

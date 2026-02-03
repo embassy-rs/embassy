@@ -7,7 +7,7 @@ use embassy_stm32::gpio::{AfType, Level, Output, OutputType, Speed};
 use embassy_stm32::i2c::{self, I2c};
 use embassy_stm32::time::mhz;
 use embassy_stm32::usb::UsbHost;
-use embassy_stm32::{Config, bind_interrupts, pac, peripherals, usb};
+use embassy_stm32::{Config, bind_interrupts, dma, pac, peripherals, usb};
 use embassy_time::Timer;
 use embassy_usb::handlers::UsbHostHandler;
 use embassy_usb::handlers::kbd::KbdHandler;
@@ -21,6 +21,8 @@ pub use crate::pac::rcc::vals::Mcosel;
 bind_interrupts!(struct Irqs {
     USB_UCPD1_2 => usb::USBHostInterruptHandler<peripherals::USB>;
     I2C1 => i2c::EventInterruptHandler<peripherals::I2C1>, i2c::ErrorInterruptHandler<peripherals::I2C1>;
+    DMA1_CHANNEL1 => dma::InterruptHandler<peripherals::DMA1_CH1>;
+    DMA1_CHANNEL2_3 => dma::InterruptHandler<peripherals::DMA1_CH2>;
 });
 
 #[embassy_executor::main]
@@ -87,7 +89,7 @@ async fn main(_spawner: Spawner) {
     // i2c
     // SCL: PB8
     // SDA: PB9
-    let mut i2c = I2c::new(p.I2C1, p.PB8, p.PB9, Irqs, p.DMA1_CH1, p.DMA1_CH2, Default::default());
+    let mut i2c = I2c::new(p.I2C1, p.PB8, p.PB9, p.DMA1_CH1, p.DMA1_CH2, Irqs, Default::default());
 
     let i2c_address: u8 = 0x68 >> 1; //0b00110_100; // 7 bits address 0110 10x
 

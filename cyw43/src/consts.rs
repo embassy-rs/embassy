@@ -76,6 +76,8 @@ pub(crate) const SDIO_FUNCTION_INT_MASK: u32 = 0x34;
 pub(crate) const SDIO_TO_SB_MAILBOX: u32 = 0x40;
 pub(crate) const SDIO_TO_SB_MAILBOX_DATA: u32 = 0x48;
 pub(crate) const SDIO_TO_HOST_MAILBOX_DATA: u32 = 0x4C;
+pub(crate) const SDIO_SLEEP_CSR: u32 = 0x1001F;
+pub(crate) const SBSDIO_SLPCSR_KEEP_WL_KS: u32 = 1 << 0;
 
 pub(crate) const SMB_DEV_INT: u32 = 1 << 3;
 pub(crate) const SMB_INT_ACK: u32 = 1 << 1;
@@ -102,6 +104,7 @@ pub(crate) const BACKPLANE_WINDOW_SIZE: usize = 0x8000;
 pub(crate) const BACKPLANE_ADDRESS_MASK: u32 = 0x7FFF;
 pub(crate) const BACKPLANE_ADDRESS_32BIT_FLAG: u32 = 0x08000;
 pub(crate) const BACKPLANE_MAX_TRANSFER_SIZE: usize = 64;
+pub(crate) const BLOCK_BUFFER_SIZE: usize = 1024;
 // Active Low Power (ALP) clock constants
 pub(crate) const BACKPLANE_ALP_AVAIL_REQ: u8 = 0x08;
 pub(crate) const BACKPLANE_ALP_AVAIL: u8 = 0x40;
@@ -196,10 +199,6 @@ pub(crate) const BTSDIO_OFFSET_HOST2BT_OUT: u32 = 0x00002004;
 pub(crate) const BTSDIO_OFFSET_BT2HOST_IN: u32 = 0x00002008;
 pub(crate) const BTSDIO_OFFSET_BT2HOST_OUT: u32 = 0x0000200C;
 
-pub(crate) const BUS_FUNCTION: u32 = 0;
-pub(crate) const BACKPLANE_FUNCTION: u32 = 1;
-pub(crate) const WLAN_FUNCTION: u32 = 2;
-
 pub(crate) const SDIOD_CCCR_IOEN: u32 = 0x02;
 pub(crate) const SDIOD_CCCR_IORDY: u32 = 0x03;
 pub(crate) const SDIOD_CCCR_INTEN: u32 = 0x04;
@@ -239,44 +238,45 @@ pub(crate) enum Security {
     WPA2_AES_PSK = WPA2_SECURITY | AES_ENABLED,
 }
 
-#[allow(non_camel_case_types)]
-#[derive(Copy, Clone, PartialEq, num_enum::FromPrimitive)]
-#[repr(u8)]
-pub enum EStatus {
-    #[num_enum(default)]
-    Unknown = 0xFF,
-    /// operation was successful
-    SUCCESS = 0,
-    /// operation failed
-    FAIL = 1,
-    /// operation timed out
-    TIMEOUT = 2,
-    /// failed due to no matching network found
-    NO_NETWORKS = 3,
-    /// operation was aborted
-    ABORT = 4,
-    /// protocol failure: packet not ack'd
-    NO_ACK = 5,
-    /// AUTH or ASSOC packet was unsolicited
-    UNSOLICITED = 6,
-    /// attempt to assoc to an auto auth configuration
-    ATTEMPT = 7,
-    /// scan results are incomplete
-    PARTIAL = 8,
-    /// scan aborted by another scan
-    NEWSCAN = 9,
-    /// scan aborted due to assoc in progress
-    NEWASSOC = 10,
-    /// 802.11h quiet period started
-    _11HQUIET = 11,
-    /// user disabled scanning (WLC_SET_SCANSUPPRESS)
-    SUPPRESS = 12,
-    /// no allowable channels to scan
-    NOCHANS = 13,
-    /// scan aborted due to CCX fast roam
-    CCXFASTRM = 14,
-    /// abort channel select
-    CS_ABORT = 15,
+crate::util::enum_from_u8! {
+    #[allow(non_camel_case_types)]
+    #[derive(Copy, Clone, PartialEq)]
+    enum EStatus {
+        #[default]
+        Unknown = 0xFF,
+        /// operation was successful
+        SUCCESS = 0,
+        /// operation failed
+        FAIL = 1,
+        /// operation timed out
+        TIMEOUT = 2,
+        /// failed due to no matching network found
+        NO_NETWORKS = 3,
+        /// operation was aborted
+        ABORT = 4,
+        /// protocol failure: packet not ack'd
+        NO_ACK = 5,
+        /// AUTH or ASSOC packet was unsolicited
+        UNSOLICITED = 6,
+        /// attempt to assoc to an auto auth configuration
+        ATTEMPT = 7,
+        /// scan results are incomplete
+        PARTIAL = 8,
+        /// scan aborted by another scan
+        NEWSCAN = 9,
+        /// scan aborted due to assoc in progress
+        NEWASSOC = 10,
+        /// 802.11h quiet period started
+        _11HQUIET = 11,
+        /// user disabled scanning (WLC_SET_SCANSUPPRESS)
+        SUPPRESS = 12,
+        /// no allowable channels to scan
+        NOCHANS = 13,
+        /// scan aborted due to CCX fast roam
+        CCXFASTRM = 14,
+        /// abort channel select
+        CS_ABORT = 15,
+    }
 }
 
 impl PartialEq<EStatus> for u32 {

@@ -21,9 +21,9 @@ use defmt::info;
 use embassy_executor::{Executor, InterruptExecutor};
 use embassy_rp::clocks::RoscRng;
 use embassy_rp::interrupt::{InterruptExt, Priority};
-use embassy_rp::peripherals::UART0;
+use embassy_rp::peripherals::{DMA_CH0, UART0};
 use embassy_rp::uart::{self, InterruptHandler, UartTx};
-use embassy_rp::{bind_interrupts, interrupt};
+use embassy_rp::{bind_interrupts, dma, interrupt};
 use embassy_sync::blocking_mutex::raw::CriticalSectionRawMutex;
 use embassy_sync::{blocking_mutex, mutex};
 use embassy_time::{Duration, Ticker};
@@ -48,6 +48,7 @@ static MUTEX_BLOCKING: blocking_mutex::Mutex<CriticalSectionRawMutex, RefCell<My
 
 bind_interrupts!(struct Irqs {
     UART0_IRQ => InterruptHandler<UART0>;
+    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>;
 });
 
 #[interrupt]
@@ -60,7 +61,7 @@ fn main() -> ! {
     let p = embassy_rp::init(Default::default());
     info!("Here we go!");
 
-    let uart = UartTx::new(p.UART0, p.PIN_0, p.DMA_CH0, uart::Config::default());
+    let uart = UartTx::new(p.UART0, p.PIN_0, p.DMA_CH0, Irqs, uart::Config::default());
     // Use the async Mutex for sharing async things (built-in interior mutability)
     static UART: StaticCell<UartAsyncMutex> = StaticCell::new();
     let uart = UART.init(mutex::Mutex::new(uart));

@@ -9,7 +9,7 @@ use defmt::*;
 use embassy_executor::Executor;
 use embassy_stm32::mode::Async;
 use embassy_stm32::time::mhz;
-use embassy_stm32::{Config, spi};
+use embassy_stm32::{Config, bind_interrupts, dma, peripherals, spi};
 use grounded::uninit::GroundedArrayCell;
 use heapless::String;
 use static_cell::StaticCell;
@@ -18,6 +18,11 @@ use {defmt_rtt as _, panic_probe as _};
 // Defined in memory.x
 #[unsafe(link_section = ".ram_d3")]
 static mut RAM_D3: GroundedArrayCell<u8, 256> = GroundedArrayCell::uninit();
+
+bind_interrupts!(struct Irqs {
+    BDMA_CHANNEL0 => dma::InterruptHandler<peripherals::BDMA_CH0>;
+    BDMA_CHANNEL1 => dma::InterruptHandler<peripherals::BDMA_CH1>;
+});
 
 #[embassy_executor::task]
 async fn main_task(mut spi: spi::Spi<'static, Async, spi::mode::Master>) {
@@ -76,7 +81,7 @@ fn main() -> ! {
     let mut spi_config = spi::Config::default();
     spi_config.frequency = mhz(1);
 
-    let spi = spi::Spi::new(p.SPI6, p.PA5, p.PA7, p.PA6, p.BDMA_CH1, p.BDMA_CH0, spi_config);
+    let spi = spi::Spi::new(p.SPI6, p.PA5, p.PA7, p.PA6, p.BDMA_CH1, p.BDMA_CH0, Irqs, spi_config);
 
     let executor = EXECUTOR.init(Executor::new());
 
