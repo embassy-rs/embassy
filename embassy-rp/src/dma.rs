@@ -144,10 +144,10 @@ impl<'d> Channel<'d> {
         Transfer::new(self.reborrow())
     }
 
-    /// DMA repeated read from peripheral.
+    /// Repetedly read from a peripheral to discard data.
     ///
     /// SAFETY: `from` must point to a valid location reachable by DMA.
-    pub unsafe fn read_repeated<'a, W: Word>(
+    pub unsafe fn read_discard<'a, W: Word>(
         &'a mut self,
         from: *mut W,
         len: usize,
@@ -192,10 +192,10 @@ impl<'d> Channel<'d> {
         Transfer::new(self.reborrow())
     }
 
-    /// DMA repeated write of the same value from memory to a peripheral.
+    /// Repetedly write 0 to peripeheral.
     ///
     /// SAFETY: `to` must point to a valid location reachable by DMA.
-    pub unsafe fn write_repeated<'a, W: Word>(
+    pub unsafe fn write_zeros<'a, W: Word>(
         &'a mut self,
         count: usize,
         to: *mut W,
