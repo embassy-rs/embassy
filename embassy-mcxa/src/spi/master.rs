@@ -7,8 +7,8 @@ use embedded_hal_02::spi::{Phase, Polarity};
 
 use super::common::*;
 use super::pins::*;
-use crate::clocks::periph_helpers::{Div4, LpspiClockSel, LpspiConfig};
-use crate::clocks::{PoweredClock, enable_and_reset};
+use crate::clocks::periph_helpers::LpspiConfig;
+use crate::clocks::enable_and_reset;
 use crate::gpio::AnyPin;
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
@@ -63,6 +63,8 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         let spi = T::regs();
         prepare_for_transfer(spi);
 
+        // Use continuous PCS (chip select held active) when transferring multiple bytes.
+        // For single-byte transfers, PCS toggles per byte which is correct behavior.
         let is_pcs_continuous = tx.len() > 1;
 
         self.apply_transfer_tcr(false, false, false);
@@ -231,9 +233,9 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         config: Config,
     ) -> Result<Self> {
         let clock_config = LpspiConfig {
-            power: PoweredClock::NormalEnabledDeepSleepDisabled,
-            source: LpspiClockSel::FroHfDiv,
-            div: Div4::no_div(),
+            power: config.clock_power,
+            source: config.clock_source,
+            div: config.clock_div,
             instance: T::CLOCK_INSTANCE,
         };
 
@@ -405,6 +407,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         self.apply_transfer_tcr(false, false, false);
         Self::wait_tx_fifo_empty()?;
 
+        // Use continuous PCS (chip select held active) when transferring multiple bytes.
         let is_pcs_continuous = len > 1;
         if is_pcs_continuous {
             self.apply_transfer_tcr(true, false, false);
@@ -545,6 +548,12 @@ impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::ErrorType for Spi<'d, T, M> 
     type Error = Error;
 }
 
+// SpiBus implementation notes:
+// LPSPI hardware always toggles the selected PCS signal on each transfer.
+// For true SpiBus semantics (shared bus with GPIO CS), users should:
+// 1. Connect the hardware PCS pin to a pull-up or leave floating
+// 2. Use `embassy-embedded-hal::SpiDevice` wrapper with a GPIO CS pin
+// See module documentation for details.
 impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::SpiBus for Spi<'d, T, M> {
     fn read(&mut self, words: &mut [u8]) -> core::result::Result<(), Self::Error> {
         self.blocking_read(words)

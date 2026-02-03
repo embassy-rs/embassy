@@ -7,8 +7,8 @@ use embedded_hal_02::spi::{Phase, Polarity};
 
 use super::common::*;
 use super::pins::*;
-use crate::clocks::periph_helpers::{Div4, LpspiClockSel, LpspiConfig};
-use crate::clocks::{PoweredClock, enable_and_reset};
+use crate::clocks::periph_helpers::LpspiConfig;
+use crate::clocks::enable_and_reset;
 use crate::gpio::AnyPin;
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
@@ -250,9 +250,9 @@ impl<'d, T: Instance, M: Mode> SpiSlave<'d, T, M> {
         config: SlaveConfig,
     ) -> Result<Self> {
         let clock_config = LpspiConfig {
-            power: PoweredClock::NormalEnabledDeepSleepDisabled,
-            source: LpspiClockSel::FroHfDiv,
-            div: Div4::no_div(),
+            power: config.clock_power,
+            source: config.clock_source,
+            div: config.clock_div,
             instance: T::CLOCK_INSTANCE,
         };
 

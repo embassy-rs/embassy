@@ -14,6 +14,10 @@ use crate::clocks::{ClockError, Gate};
 use crate::dma::DmaRequest;
 use crate::{interrupt, pac};
 
+// Re-export clock configuration types for user convenience
+pub use crate::clocks::periph_helpers::{Div4, LpspiClockSel};
+pub use crate::clocks::PoweredClock;
+
 // =============================================================================
 // REGISTER BIT CONSTANTS
 // =============================================================================
@@ -58,6 +62,13 @@ pub(super) fn clear_nostall(spi: &pac::lpspi0::RegisterBlock) {
     spi.cfgr1().modify(|_, w| w.nostall().disable());
 }
 
+/// Disable all interrupts by writing reset value (0) to IER
+#[inline]
+pub(super) fn disable_all_interrupts(spi: &pac::lpspi0::RegisterBlock) {
+    // IER reset value is 0, so writing w unchanged disables all interrupts
+    spi.ier().write(|w| w);
+}
+
 /// Read TCR with errata workaround (ERR050606)
 #[inline]
 pub(super) fn read_tcr_with_errata_workaround(spi: &pac::lpspi0::RegisterBlock) -> u32 {
@@ -78,7 +89,7 @@ pub(super) fn prepare_for_transfer(spi: &pac::lpspi0::RegisterBlock) {
     spi.cr().modify(|_, w| w.men().disabled());
     flush_fifos(spi);
     clear_status_flags(spi);
-    spi.ier().write(|w| w);
+    disable_all_interrupts(spi);
     clear_nostall(spi);
     spi.cr().modify(|_, w| w.men().enabled());
 }
@@ -144,36 +155,6 @@ pub(super) fn spin_wait_while(mut cond: impl FnMut() -> bool) -> Result<()> {
 pub(super) fn dma_start_fence() {
     compiler_fence(Ordering::Release);
     cortex_m::asm::dsb();
-}
-
-// =============================================================================
-// ASYNC STATE MANAGEMENT
-// =============================================================================
-
-/// Transfer state for interrupt-driven operations
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum TransferState {
-    /// No transfer in progress
-    Idle = 0,
-    /// Transfer in progress
-    InProgress = 1,
-    /// Transfer completed successfully
-    Complete = 2,
-    /// Transfer error occurred
-    Error = 3,
-}
-
-impl From<u8> for TransferState {
-    fn from(val: u8) -> Self {
-        match val {
-            0 => TransferState::Idle,
-            1 => TransferState::InProgress,
-            2 => TransferState::Complete,
-            3 => TransferState::Error,
-            _ => TransferState::Idle,
-        }
-    }
 }
 
 // =============================================================================
@@ -250,7 +231,7 @@ pub(super) unsafe fn handle_slave_rx_irq<T: Instance>(regs: &pac::lpspi0::Regist
         clear_status_flags(regs);
         st.error = Some(Error::RxFifoError);
         st.op = SlaveIrqOp::Idle;
-        regs.ier().write(|w| w);
+        disable_all_interrupts(regs);
         T::wait_cell().wake();
         return;
     }
@@ -263,7 +244,7 @@ pub(super) unsafe fn handle_slave_rx_irq<T: Instance>(regs: &pac::lpspi0::Regist
 
     if st.rx_pos >= st.rx_len {
         st.op = SlaveIrqOp::Idle;
-        regs.ier().write(|w| w);
+        disable_all_interrupts(regs);
         T::wait_cell().wake();
     }
 }
@@ -276,7 +257,7 @@ pub(super) unsafe fn handle_slave_tx_irq<T: Instance>(regs: &pac::lpspi0::Regist
         clear_status_flags(regs);
         st.error = Some(Error::TxFifoError);
         st.op = SlaveIrqOp::Idle;
-        regs.ier().write(|w| w);
+        disable_all_interrupts(regs);
         T::wait_cell().wake();
         return;
     }
@@ -295,7 +276,7 @@ pub(super) unsafe fn handle_slave_tx_irq<T: Instance>(regs: &pac::lpspi0::Regist
         if tx_empty && sr.fcf().is_completed() {
             regs.sr().write(|w| w.fcf().clear_bit_by_one());
             st.op = SlaveIrqOp::Idle;
-            regs.ier().write(|w| w);
+            disable_all_interrupts(regs);
             T::wait_cell().wake();
         }
     }
@@ -312,7 +293,7 @@ pub(super) unsafe fn handle_slave_transfer_irq<T: Instance>(
         clear_status_flags(regs);
         st.error = Some(Error::RxFifoError);
         st.op = SlaveIrqOp::Idle;
-        regs.ier().write(|w| w);
+        disable_all_interrupts(regs);
         T::wait_cell().wake();
         return;
     }
@@ -321,7 +302,7 @@ pub(super) unsafe fn handle_slave_transfer_irq<T: Instance>(
         clear_status_flags(regs);
         st.error = Some(Error::TxFifoError);
         st.op = SlaveIrqOp::Idle;
-        regs.ier().write(|w| w);
+        disable_all_interrupts(regs);
         T::wait_cell().wake();
         return;
     }
@@ -346,7 +327,7 @@ pub(super) unsafe fn handle_slave_transfer_irq<T: Instance>(
 
     if st.rx_pos >= st.rx_len {
         st.op = SlaveIrqOp::Idle;
-        regs.ier().write(|w| w);
+        disable_all_interrupts(regs);
         T::wait_cell().wake();
     }
 }
@@ -386,7 +367,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
         }
 
         if regs.ier().read().bits() != 0 {
-            regs.ier().write(|w| w);
+            disable_all_interrupts(regs);
             T::wait_cell().wake();
         }
     }
@@ -515,14 +496,36 @@ pub struct Config {
     pub mode: embedded_hal_02::spi::Mode,
     /// Bit order
     pub bit_order: BitOrder,
-    /// Bits per frame (1-4096, typically 8).
+    /// Bits per frame.
+    ///
+    /// Valid range: 1-4096 (register field FRAMESZ is 12 bits, value = bits_per_frame - 1).
+    /// Values outside this range are clamped during configuration.
+    /// Typical value: 8 for byte-oriented transfers.
     pub bits_per_frame: u16,
     /// Chip select to use
     pub chip_select: ChipSelect,
-    /// SCK divider (0-255). Baud = src_clk / (prescaler.divisor() * (SCKDIV + 2))
+    /// SCK divider (0-255).
+    ///
+    /// The SPI clock frequency is: `src_clk / (prescaler.divisor() * (sck_div + 2))`
+    ///
+    /// This value is also used for timing parameters DBT (delay between transfers),
+    /// PCSSCK (PCS-to-SCK delay), and SCKPCS (SCK-to-PCS delay) to maintain symmetric
+    /// timing. Adjust these separately if asymmetric timing is needed.
     pub sck_div: u8,
     /// Clock prescaler (Div1 through Div128)
     pub prescaler: Prescaler,
+    /// Clock source for the LPSPI peripheral.
+    ///
+    /// Default: `FroHfDiv` (high-frequency FRO with divider)
+    pub clock_source: LpspiClockSel,
+    /// Power state for the clock source.
+    ///
+    /// Default: `NormalEnabledDeepSleepDisabled`
+    pub clock_power: PoweredClock,
+    /// Pre-divider applied to the clock source before the LPSPI prescaler.
+    ///
+    /// Default: No division (1:1)
+    pub clock_div: Div4,
 }
 
 impl Config {
@@ -535,6 +538,9 @@ impl Config {
             chip_select: ChipSelect::Pcs0,
             sck_div: 0,
             prescaler: Prescaler::Div1,
+            clock_source: LpspiClockSel::FroHfDiv,
+            clock_power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            clock_div: Div4::no_div(),
         }
     }
 
@@ -550,7 +556,9 @@ impl Config {
         self
     }
 
-    /// Set bits per frame (valid range: 1-4096, will be clamped)
+    /// Set bits per frame.
+    ///
+    /// Valid range: 1-4096. Values outside this range are clamped during configuration.
     pub fn bits_per_frame(&mut self, bits: u16) -> &mut Self {
         self.bits_per_frame = bits;
         self
@@ -571,6 +579,24 @@ impl Config {
     /// Set clock prescaler (Div1 through Div128)
     pub fn prescaler(&mut self, prescaler: Prescaler) -> &mut Self {
         self.prescaler = prescaler;
+        self
+    }
+
+    /// Set clock source for the LPSPI peripheral.
+    pub fn clock_source(&mut self, source: LpspiClockSel) -> &mut Self {
+        self.clock_source = source;
+        self
+    }
+
+    /// Set power state for the clock source.
+    pub fn clock_power(&mut self, power: PoweredClock) -> &mut Self {
+        self.clock_power = power;
+        self
+    }
+
+    /// Set pre-divider for the clock source.
+    pub fn clock_div(&mut self, div: Div4) -> &mut Self {
+        self.clock_div = div;
         self
     }
 
@@ -689,6 +715,12 @@ pub struct SlaveConfig {
     pub bit_order: BitOrder,
     /// Bits per frame (8 for typical use)
     pub bits_per_frame: u16,
+    /// Clock source for the LPSPI peripheral.
+    pub clock_source: LpspiClockSel,
+    /// Power state for the clock source.
+    pub clock_power: PoweredClock,
+    /// Pre-divider applied to the clock source.
+    pub clock_div: Div4,
 }
 
 impl SlaveConfig {
@@ -698,6 +730,9 @@ impl SlaveConfig {
             mode: embedded_hal_02::spi::MODE_0,
             bit_order: BitOrder::MsbFirst,
             bits_per_frame: 8,
+            clock_source: LpspiClockSel::FroHfDiv,
+            clock_power: PoweredClock::NormalEnabledDeepSleepDisabled,
+            clock_div: Div4::no_div(),
         }
     }
 
@@ -716,6 +751,24 @@ impl SlaveConfig {
     /// Set bits per frame (valid range: 1-4096, will be clamped)
     pub fn bits_per_frame(&mut self, bits: u16) -> &mut Self {
         self.bits_per_frame = bits;
+        self
+    }
+
+    /// Set clock source for the LPSPI peripheral.
+    pub fn clock_source(&mut self, source: LpspiClockSel) -> &mut Self {
+        self.clock_source = source;
+        self
+    }
+
+    /// Set power state for the clock source.
+    pub fn clock_power(&mut self, power: PoweredClock) -> &mut Self {
+        self.clock_power = power;
+        self
+    }
+
+    /// Set pre-divider for the clock source.
+    pub fn clock_div(&mut self, div: Div4) -> &mut Self {
+        self.clock_div = div;
         self
     }
 }
