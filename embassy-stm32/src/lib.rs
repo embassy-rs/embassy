@@ -318,6 +318,12 @@ pub struct Config {
     #[cfg(gpdma)]
     pub gpdma_interrupt_priority: Priority,
 
+    /// MDMA interrupt priority.
+    ///
+    /// Defaults to P0 (highest).
+    #[cfg(mdma)]
+    pub mdma_interrupt_priority: Priority,
+
     /// Enables UCPD1 dead battery functionality.
     ///
     /// Defaults to false (disabled).
@@ -351,6 +357,8 @@ impl Default for Config {
             dma_interrupt_priority: Priority::P0,
             #[cfg(gpdma)]
             gpdma_interrupt_priority: Priority::P0,
+            #[cfg(mdma)]
+            mdma_interrupt_priority: Priority::P0,
             #[cfg(peri_ucpd1)]
             enable_ucpd1_dead_battery: false,
             #[cfg(peri_ucpd2)]
@@ -494,6 +502,8 @@ mod dual_core {
                     config.dma_interrupt_priority,
                     #[cfg(gpdma)]
                     config.gpdma_interrupt_priority,
+                    #[cfg(mdma)]
+                    config.mdma_interrupt_priority,
                 )
             }
 
@@ -514,6 +524,8 @@ mod dual_core {
         dma_interrupt_priority: Priority,
         #[cfg(gpdma)]
         gpdma_interrupt_priority: Priority,
+        #[cfg(mdma)]
+        mdma_interrupt_priority: Priority,
     }
 
     impl From<Config> for SharedConfig {
@@ -525,6 +537,8 @@ mod dual_core {
                 dma_interrupt_priority,
                 #[cfg(gpdma)]
                 gpdma_interrupt_priority,
+                #[cfg(mdma)]
+                mdma_interrupt_priority,
                 ..
             } = value;
 
@@ -535,6 +549,8 @@ mod dual_core {
                 dma_interrupt_priority,
                 #[cfg(gpdma)]
                 gpdma_interrupt_priority,
+                #[cfg(mdma)]
+                mdma_interrupt_priority,
             }
         }
     }
@@ -681,6 +697,8 @@ fn init_hw(config: Config) -> Peripherals {
                 config.dma_interrupt_priority,
                 #[cfg(gpdma)]
                 config.gpdma_interrupt_priority,
+                #[cfg(mdma)]
+                config.mdma_interrupt_priority,
             );
             #[cfg(feature = "exti")]
             exti::init(cs);

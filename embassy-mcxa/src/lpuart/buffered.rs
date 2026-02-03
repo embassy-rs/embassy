@@ -8,7 +8,9 @@ use embassy_hal_internal::atomic_ring_buffer::RingBuffer;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use super::*;
-use crate::interrupt;
+use crate::clocks::WakeGuard;
+use crate::interrupt::typelevel::Interrupt;
+use crate::interrupt::{self};
 
 // ============================================================================
 // STATIC STATE MANAGEMENT
@@ -59,6 +61,7 @@ pub struct BufferedLpuartTx<'a> {
     state: &'static State,
     _tx_pin: Peri<'a, AnyPin>,
     _cts_pin: Option<Peri<'a, AnyPin>>,
+    _wg: Option<WakeGuard>,
 }
 
 /// Buffered LPUART RX driver
@@ -67,6 +70,7 @@ pub struct BufferedLpuartRx<'a> {
     state: &'static State,
     _rx_pin: Peri<'a, AnyPin>,
     _rts_pin: Option<Peri<'a, AnyPin>>,
+    _wg: Option<WakeGuard>,
 }
 
 // ============================================================================
@@ -84,7 +88,7 @@ impl<'a> BufferedLpuart<'a> {
         enable_rx: bool,
         enable_rts: bool,
         enable_cts: bool,
-    ) -> Result<&'static State> {
+    ) -> Result<(&'static State, Option<WakeGuard>)> {
         let state = T::buffered_state();
 
         if state.initialized.load(Ordering::Relaxed) {
@@ -115,19 +119,19 @@ impl<'a> BufferedLpuart<'a> {
             div: config.div,
             instance: T::CLOCK_INSTANCE,
         };
-        let clock_freq = unsafe { enable_and_reset::<T>(&conf).map_err(Error::ClockSetup)? };
+        let parts = unsafe { enable_and_reset::<T>(&conf).map_err(Error::ClockSetup)? };
 
         Self::init_hardware(
             T::info(),
             *config,
-            clock_freq,
+            parts.freq,
             enable_tx,
             enable_rx,
             enable_rts,
             enable_cts,
         )?;
 
-        Ok(state)
+        Ok((state, parts.wake_guard))
     }
 
     /// Helper for full-duplex initialization
@@ -141,7 +145,7 @@ impl<'a> BufferedLpuart<'a> {
         rx_buffer: &'a mut [u8],
         config: Config,
     ) -> Result<(BufferedLpuartTx<'a>, BufferedLpuartRx<'a>)> {
-        let state = Self::init_common::<T>(
+        let (state, wg) = Self::init_common::<T>(
             &inner,
             Some(tx_buffer),
             Some(rx_buffer),
@@ -157,6 +161,7 @@ impl<'a> BufferedLpuart<'a> {
             state,
             _tx_pin: tx_pin,
             _cts_pin: cts_pin,
+            _wg: wg.clone(),
         };
 
         let rx = BufferedLpuartRx {
@@ -164,6 +169,7 @@ impl<'a> BufferedLpuart<'a> {
             state,
             _rx_pin: rx_pin,
             _rts_pin: rts_pin,
+            _wg: wg,
         };
 
         Ok((tx, rx))
@@ -238,6 +244,12 @@ impl<'a> BufferedLpuart<'a> {
             config,
         )?;
 
+        // Enable interrupt
+        T::Interrupt::unpend();
+        unsafe {
+            T::Interrupt::enable();
+        }
+
         Ok(Self { tx, rx })
     }
 
@@ -271,6 +283,12 @@ impl<'a> BufferedLpuart<'a> {
             config,
         )?;
 
+        // Enable interrupt
+        T::Interrupt::unpend();
+        unsafe {
+            T::Interrupt::enable();
+        }
+
         Ok(Self { tx, rx })
     }
 
@@ -301,6 +319,12 @@ impl<'a> BufferedLpuart<'a> {
             rx_buffer,
             config,
         )?;
+
+        // Enable interrupt
+        T::Interrupt::unpend();
+        unsafe {
+            T::Interrupt::enable();
+        }
 
         Ok(Self { tx, rx })
     }
@@ -333,6 +357,12 @@ impl<'a> BufferedLpuart<'a> {
             config,
         )?;
 
+        // Enable interrupt
+        T::Interrupt::unpend();
+        unsafe {
+            T::Interrupt::enable();
+        }
+
         Ok(Self { tx, rx })
     }
 
@@ -360,7 +390,7 @@ impl<'a> BufferedLpuartTx<'a> {
         tx_buffer: &'a mut [u8],
         config: Config,
     ) -> Result<BufferedLpuartTx<'a>> {
-        let state = BufferedLpuart::init_common::<T>(
+        let (state, wg) = BufferedLpuart::init_common::<T>(
             &inner,
             Some(tx_buffer),
             None,
@@ -376,6 +406,7 @@ impl<'a> BufferedLpuartTx<'a> {
             state,
             _tx_pin: tx_pin,
             _cts_pin: cts_pin,
+            _wg: wg,
         })
     }
 
@@ -391,7 +422,15 @@ impl<'a> BufferedLpuartTx<'a> {
     ) -> Result<Self> {
         tx_pin.as_tx();
 
-        Self::new_inner::<T>(inner, tx_pin.into(), None, tx_buffer, config)
+        let res = Self::new_inner::<T>(inner, tx_pin.into(), None, tx_buffer, config)?;
+
+        // Enable interrupt
+        T::Interrupt::unpend();
+        unsafe {
+            T::Interrupt::enable();
+        }
+
+        Ok(res)
     }
 
     /// Create a new TX-only buffered LPUART with CTS flow control.
@@ -408,7 +447,15 @@ impl<'a> BufferedLpuartTx<'a> {
         tx_pin.as_tx();
         cts_pin.as_cts();
 
-        Self::new_inner::<T>(inner, tx_pin.into(), Some(cts_pin.into()), tx_buffer, config)
+        let res = Self::new_inner::<T>(inner, tx_pin.into(), Some(cts_pin.into()), tx_buffer, config)?;
+
+        // Enable interrupt
+        T::Interrupt::unpend();
+        unsafe {
+            T::Interrupt::enable();
+        }
+
+        Ok(res)
     }
 }
 
@@ -505,7 +552,7 @@ impl<'a> BufferedLpuartRx<'a> {
         rx_buffer: &'a mut [u8],
         config: Config,
     ) -> Result<BufferedLpuartRx<'a>> {
-        let state = BufferedLpuart::init_common::<T>(
+        let (state, wg) = BufferedLpuart::init_common::<T>(
             &inner,
             None,
             Some(rx_buffer),
@@ -521,6 +568,7 @@ impl<'a> BufferedLpuartRx<'a> {
             state,
             _rx_pin: rx_pin,
             _rts_pin: rts_pin,
+            _wg: wg,
         })
     }
 
@@ -536,7 +584,15 @@ impl<'a> BufferedLpuartRx<'a> {
     ) -> Result<Self> {
         rx_pin.as_rx();
 
-        Self::new_inner::<T>(inner, rx_pin.into(), None, rx_buffer, config)
+        let res = Self::new_inner::<T>(inner, rx_pin.into(), None, rx_buffer, config)?;
+
+        // Enable interrupt
+        T::Interrupt::unpend();
+        unsafe {
+            T::Interrupt::enable();
+        }
+
+        Ok(res)
     }
 
     /// Create a new RX-only buffered LPUART with RTS flow control.
@@ -553,7 +609,15 @@ impl<'a> BufferedLpuartRx<'a> {
         rx_pin.as_rx();
         rts_pin.as_rts();
 
-        Self::new_inner::<T>(inner, rx_pin.into(), Some(rts_pin.into()), rx_buffer, config)
+        let res = Self::new_inner::<T>(inner, rx_pin.into(), Some(rts_pin.into()), rx_buffer, config)?;
+
+        // Enable interrupt
+        T::Interrupt::unpend();
+        unsafe {
+            T::Interrupt::enable();
+        }
+
+        Ok(res)
     }
 }
 
@@ -663,6 +727,7 @@ pub struct BufferedInterruptHandler<T: Instance> {
 
 impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for BufferedInterruptHandler<T> {
     unsafe fn on_interrupt() {
+        T::PERF_INT_INCR();
         unsafe {
             let regs = T::info().regs();
             let state = T::buffered_state();
@@ -679,6 +744,7 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Buffere
             // Handle overrun error
             if stat.or().is_overrun() {
                 regs.stat().write(|w| w.or().clear_bit_by_one());
+                T::PERF_INT_WAKE_INCR();
                 state.rx_waker.wake();
                 return;
             }
@@ -721,6 +787,7 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Buffere
                 }
 
                 if pushed_any {
+                    T::PERF_INT_WAKE_INCR();
                     state.rx_waker.wake();
                 }
 
@@ -747,6 +814,7 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Buffere
                 }
 
                 if sent_any {
+                    T::PERF_INT_WAKE_INCR();
                     state.tx_waker.wake();
                 }
 
@@ -761,6 +829,7 @@ impl<T: Instance> crate::interrupt::typelevel::Handler<T::Interrupt> for Buffere
             // Handle transmission complete
             if ctrl.tcie().is_enabled() && regs.stat().read().tc().is_complete() {
                 state.tx_done.store(true, Ordering::Release);
+                T::PERF_INT_WAKE_INCR();
                 state.tx_waker.wake();
 
                 // Disable TC interrupt

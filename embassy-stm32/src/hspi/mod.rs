@@ -670,13 +670,14 @@ impl<'d, T: Instance> Hspi<'d, T, Blocking> {
 
 impl<'d, T: Instance> Hspi<'d, T, Async> {
     /// Create new HSPI driver for a single spi external chip
-    pub fn new_singlespi(
+    pub fn new_singlespi<D: HspiDma<T>>(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         nss: Peri<'d, impl NSSPin<T>>,
-        dma: Peri<'d, impl HspiDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -704,7 +705,7 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
             ),
             None,
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             HspiWidth::SING,
             false,
@@ -712,7 +713,7 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
     }
 
     /// Create new HSPI driver for octospi external chip
-    pub fn new_octospi(
+    pub fn new_octospi<D: HspiDma<T>>(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -725,7 +726,8 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
         d7: Peri<'d, impl D7Pin<T>>,
         nss: Peri<'d, impl NSSPin<T>>,
         dqs0: Peri<'d, impl DQS0Pin<T>>,
-        dma: Peri<'d, impl HspiDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -753,7 +755,7 @@ impl<'d, T: Instance> Hspi<'d, T, Async> {
             ),
             new_pin!(dqs0, AfType::output(OutputType::PushPull, Speed::VeryHigh)),
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             HspiWidth::OCTO,
             false,

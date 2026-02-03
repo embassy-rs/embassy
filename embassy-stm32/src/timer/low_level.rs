@@ -814,9 +814,10 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     }
 
     /// Setup a ring buffer for the channel
-    pub fn setup_ring_buffer<'a, W: Word + Into<T::Word>>(
+    pub fn setup_ring_buffer<'a, W: Word + Into<T::Word>, D: super::UpDma<T>>(
         &mut self,
-        dma: Peri<'a, impl super::UpDma<T>>,
+        dma: Peri<'a, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         channel: Channel,
         dma_buf: &'a mut [W],
     ) -> WritableRingBuffer<'a, W> {
@@ -837,7 +838,7 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
             };
 
             WritableRingBuffer::new(
-                dma,
+                dma::Channel::new(dma, irq),
                 req,
                 self.regs_1ch().ccr(channel.index()).as_ptr() as *mut W,
                 dma_buf,
@@ -850,39 +851,42 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     ///
     /// Note:
     /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
-    pub fn setup_update_dma<'a, W: Word + Into<T::Word>>(
+    pub fn setup_update_dma<'a, W: Word + Into<T::Word>, D: super::UpDma<T>>(
         &mut self,
-        dma: Peri<'a, impl super::UpDma<T>>,
+        dma: Peri<'a, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         channel: Channel,
         duty: &'a [W],
     ) -> Transfer<'a> {
-        self.setup_update_dma_inner(dma.request(), dma, channel, duty)
+        self.setup_update_dma_inner(dma.request(), dma, irq, channel, duty)
     }
 
     /// Generate a sequence of PWM waveform
     ///
     /// Note:
     /// The DMA channel provided does not need to correspond to the requested channel.
-    pub fn setup_channel_update_dma<'a, C: TimerChannel, W: Word + Into<T::Word>>(
+    pub fn setup_channel_update_dma<'a, C: TimerChannel, W: Word + Into<T::Word>, D: super::Dma<T, C>>(
         &mut self,
-        dma: Peri<'a, impl super::Dma<T, C>>,
+        dma: Peri<'a, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         channel: Channel,
         duty: &'a [W],
     ) -> Transfer<'a> {
-        self.setup_update_dma_inner(dma.request(), dma, channel, duty)
+        self.setup_update_dma_inner(dma.request(), dma, irq, channel, duty)
     }
 
-    fn setup_update_dma_inner<'a, W: Word + Into<T::Word>>(
+    fn setup_update_dma_inner<'a, W: Word + Into<T::Word>, D: dma::ChannelInstance>(
         &mut self,
         request: dma::Request,
-        dma: Peri<'a, impl dma::Channel>,
+        dma: Peri<'a, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         channel: Channel,
         duty: &'a [W],
     ) -> Transfer<'a> {
         unsafe {
+            use crate::dma::TransferOptions;
             #[cfg(not(any(bdma, gpdma)))]
             use crate::dma::{Burst, FifoThreshold};
-            use crate::dma::{Transfer, TransferOptions};
 
             let dma_transfer_option = TransferOptions {
                 #[cfg(not(any(bdma, gpdma)))]
@@ -892,13 +896,15 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
                 ..Default::default()
             };
 
-            Transfer::new_write(
-                dma,
-                request,
-                duty,
-                self.regs_gp16().ccr(channel.index()).as_ptr() as *mut W,
-                dma_transfer_option,
-            )
+            let mut dma_channel = dma::Channel::new(dma, irq);
+            dma_channel
+                .write(
+                    request,
+                    duty,
+                    self.regs_gp16().ccr(channel.index()).as_ptr() as *mut W,
+                    dma_transfer_option,
+                )
+                .unchecked_extend_lifetime()
         }
     }
 
@@ -931,9 +937,10 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     /// Also be aware that embassy timers use one of timers internally. It is possible to
     /// switch this timer by using `time-driver-timX` feature.
     ///
-    pub fn setup_update_dma_burst<'a, W: Word + Into<T::Word>>(
+    pub fn setup_update_dma_burst<'a, W: Word + Into<T::Word>, D: super::UpDma<T>>(
         &mut self,
-        dma: Peri<'a, impl super::UpDma<T>>,
+        dma: Peri<'a, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'a,
         starting_channel: Channel,
         ending_channel: Channel,
         duty: &'a [W],
@@ -956,9 +963,9 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
         let req = dma.request();
 
         unsafe {
+            use crate::dma::TransferOptions;
             #[cfg(not(any(bdma, gpdma)))]
             use crate::dma::{Burst, FifoThreshold};
-            use crate::dma::{Transfer, TransferOptions};
 
             let dma_transfer_option = TransferOptions {
                 #[cfg(not(any(bdma, gpdma)))]
@@ -968,13 +975,15 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
                 ..Default::default()
             };
 
-            Transfer::new_write(
-                dma,
-                req,
-                duty,
-                self.regs_gp16().dmar().as_ptr() as *mut W,
-                dma_transfer_option,
-            )
+            let mut dma_channel = dma::Channel::new(dma, irq);
+            dma_channel
+                .write(
+                    req,
+                    duty,
+                    self.regs_gp16().dmar().as_ptr() as *mut W,
+                    dma_transfer_option,
+                )
+                .unchecked_extend_lifetime()
         }
     }
 
@@ -1024,6 +1033,32 @@ impl<'d, T: GeneralInstance4Channel> Timer<'d, T> {
     /// Set Timer Trigger Source
     pub fn set_trigger_source(&self, ts: TriggerSource) {
         self.regs_gp16().smcr().modify(|r| r.set_ts(ts));
+    }
+
+    /// Set Timer Etr_in Source
+    #[cfg(not(stm32l0))]
+    pub fn set_etr_in_source(&self, val: u8) {
+        self.regs_gp16().af1().modify(|w| w.set_etrsel(val));
+    }
+
+    /// Set Timer External Trigger Filter
+    pub fn set_external_trigger_filter(&self, fv: FilterValue) {
+        self.regs_gp16().smcr().modify(|w| w.set_etf(fv));
+    }
+
+    /// Set Timer External Trigger prescaler
+    pub fn set_external_trigger_prescaler(&self, etp: vals::Etps) {
+        self.regs_gp16().smcr().modify(|w| w.set_etps(etp));
+    }
+
+    /// Set Timer External Trigger Polarity
+    pub fn set_external_trigger_polarity(&self, etp: vals::Etp) {
+        self.regs_gp16().smcr().modify(|w| w.set_etp(etp));
+    }
+
+    /// Set Timer External Clock Mode 2 Enable state
+    pub fn set_external_clock_mode_2_enable_state(&self, val: bool) {
+        self.regs_gp16().smcr().modify(|w| w.set_ece(val));
     }
 }
 

@@ -5,6 +5,7 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::exti::{self, ExtiInput};
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
+use embassy_stm32::mode::Async;
 use embassy_stm32::{bind_interrupts, interrupt};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
@@ -15,7 +16,7 @@ bind_interrupts!(
 });
 
 #[embassy_executor::task]
-async fn button_task(mut button: ExtiInput<'static>) {
+async fn button_task(mut button: ExtiInput<'static, Async>) {
     loop {
         button.wait_for_any_edge().await;
         info!("button pressed!");

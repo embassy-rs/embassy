@@ -1215,13 +1215,14 @@ impl<'d, T: Instance> Xspi<'d, T, Blocking> {
 
 impl<'d, T: Instance> Xspi<'d, T, Async> {
     /// Create new async XSPI driver for a single spi external chip
-    pub fn new_singlespi(
+    pub fn new_singlespi<D: XDma<T>>(
         peri: Peri<'d, T>,
         clk: Peri<'d, impl CLKPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         ncs: Peri<'d, impl NCSEither<T>>,
-        dma: Peri<'d, impl XDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1251,7 +1252,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             None,
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             XspiWidth::SING,
             false,
@@ -1259,13 +1260,14 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
     }
 
     /// Create new async XSPI driver for a dualspi external chip
-    pub fn new_dualspi(
+    pub fn new_dualspi<D: XDma<T>>(
         peri: Peri<'d, T>,
         clk: Peri<'d, impl CLKPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
         d1: Peri<'d, impl D1Pin<T>>,
         ncs: Peri<'d, impl NCSEither<T>>,
-        dma: Peri<'d, impl XDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1295,7 +1297,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             None,
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             XspiWidth::DUAL,
             false,
@@ -1303,7 +1305,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
     }
 
     /// Create new async XSPI driver for a quadspi external chip
-    pub fn new_quadspi(
+    pub fn new_quadspi<D: XDma<T>>(
         peri: Peri<'d, T>,
         clk: Peri<'d, impl CLKPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -1311,7 +1313,8 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         d2: Peri<'d, impl D2Pin<T>>,
         d3: Peri<'d, impl D3Pin<T>>,
         ncs: Peri<'d, impl NCSEither<T>>,
-        dma: Peri<'d, impl XDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1341,7 +1344,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             None,
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             XspiWidth::QUAD,
             false,
@@ -1349,7 +1352,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
     }
 
     /// Create new async XSPI driver for two quadspi external chips
-    pub fn new_dualquadspi(
+    pub fn new_dualquadspi<D: XDma<T>>(
         peri: Peri<'d, T>,
         clk: Peri<'d, impl CLKPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -1361,7 +1364,8 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         d6: Peri<'d, impl D6Pin<T>>,
         d7: Peri<'d, impl D7Pin<T>>,
         ncs: Peri<'d, impl NCSEither<T>>,
-        dma: Peri<'d, impl XDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1391,7 +1395,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             None,
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             XspiWidth::QUAD,
             true,
@@ -1399,7 +1403,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
     }
 
     /// Create new async XSPI driver for xspi external chips
-    pub fn new_xspi(
+    pub fn new_xspi<D: XDma<T>>(
         peri: Peri<'d, T>,
         clk: Peri<'d, impl CLKPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -1411,7 +1415,8 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         d6: Peri<'d, impl D6Pin<T>>,
         d7: Peri<'d, impl D7Pin<T>>,
         ncs: Peri<'d, impl NCSEither<T>>,
-        dma: Peri<'d, impl XDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1441,7 +1446,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             None,
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             XspiWidth::OCTO,
             false,
@@ -1450,7 +1455,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
 
     /// Create new async XSPI driver for octo-spi with DQS pin support.
     /// Required for high-speed DTR mode operation (>145 MHz).
-    pub fn new_xspi_dqs(
+    pub fn new_xspi_dqs<D: XDma<T>>(
         peri: Peri<'d, T>,
         clk: Peri<'d, impl CLKPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -1463,7 +1468,8 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         d7: Peri<'d, impl D7Pin<T>>,
         ncs: Peri<'d, impl NCSEither<T>>,
         dqs0: Peri<'d, impl DQS0Pin<T>>,
-        dma: Peri<'d, impl XDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1493,7 +1499,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             new_pin!(dqs0, AfType::input(Pull::None)),
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             XspiWidth::OCTO,
             false,
@@ -1501,7 +1507,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
     }
 
     /// Create new async XSPI driver for 16-bit hexadeca-spi external chips
-    pub fn new_xspi_hexa(
+    pub fn new_xspi_hexa<D: XDma<T>>(
         peri: Peri<'d, T>,
         clk: Peri<'d, impl CLKPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -1521,7 +1527,8 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         d14: Peri<'d, impl D14Pin<T>>,
         d15: Peri<'d, impl D15Pin<T>>,
         ncs: Peri<'d, impl NCSEither<T>>,
-        dma: Peri<'d, impl XDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1551,7 +1558,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             None,
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             XspiWidth::HEXA,
             false,
@@ -1561,7 +1568,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
     /// Create new async XSPI driver for hexadeca-spi with DQS pin support.
     /// Required for high-speed DTR mode operation (>145 MHz).
     #[cfg(xspim_v1)]
-    pub fn new_xspi_hexa_dqs(
+    pub fn new_xspi_hexa_dqs<D: XDma<T>>(
         peri: Peri<'d, T>,
         clk: Peri<'d, impl CLKPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -1582,7 +1589,8 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
         d15: Peri<'d, impl D15Pin<T>>,
         ncs: Peri<'d, impl NCSEither<T>>,
         dqs0: Peri<'d, impl DQS0Pin<T>>,
-        dma: Peri<'d, impl XDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + 'd,
         config: Config,
     ) -> Self {
         Self::new_inner(
@@ -1612,7 +1620,7 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
             None,
             new_pin!(dqs0, AfType::input(Pull::None)),
             None,
-            new_dma!(dma),
+            new_dma!(dma, _irq),
             config,
             XspiWidth::HEXA,
             false,

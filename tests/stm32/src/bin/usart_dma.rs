@@ -24,7 +24,7 @@ async fn main(_spawner: Spawner) {
     let irq = irqs!(UART);
 
     let config = Config::default();
-    let usart = Uart::new(usart, rx, tx, irq, tx_dma, rx_dma, config).unwrap();
+    let usart = Uart::new(usart, rx, tx, tx_dma, rx_dma, irq, config).unwrap();
 
     const LEN: usize = 128;
     let mut tx_buf = [0; LEN];

@@ -3,11 +3,15 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_stm32::Config;
 use embassy_stm32::adc::{Adc, AdcChannel, RegularConversionMode, SampleTime};
+use embassy_stm32::{Config, bind_interrupts, dma, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 const DMA_BUF_LEN: usize = 512;
+
+bind_interrupts!(struct Irqs {
+    DMA1_CHANNEL1 => dma::InterruptHandler<peripherals::DMA1_CH1>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -28,6 +32,7 @@ async fn main(_spawner: Spawner) {
     let mut ring_buffered_adc = adc.into_ring_buffered(
         p.DMA1_CH1,
         &mut adc_dma_buf,
+        Irqs,
         [(adc_pin0, SampleTime::CYCLES640_5), (adc_pin1, SampleTime::CYCLES640_5)].into_iter(),
         RegularConversionMode::Continuous,
     );

@@ -125,21 +125,33 @@ impl<'d, T: Instance> Spdifrx<'d, T> {
     }
 
     /// Create a new `Spdifrx` instance.
-    pub fn new(
+    pub fn new<D>(
         peri: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::GlobalInterrupt, GlobalInterruptHandler<T>> + 'd,
+        irq: impl interrupt::typelevel::Binding<T::GlobalInterrupt, GlobalInterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         config: Config,
         spdifrx_in: Peri<'d, impl InPin<T>>,
-        data_dma: Peri<'d, impl Channel + Dma<T>>,
+        data_dma: Peri<'d, D>,
         data_dma_buf: &'d mut [u32],
-    ) -> Self {
+    ) -> Self
+    where
+        D: Dma<T>,
+    {
         let (spdifrx_in, input_sel) = new_spdifrx_pin!(spdifrx_in, AfType::input(Pull::None));
         Self::setup(config, input_sel);
 
         let regs = T::info().regs;
         let dr_request = data_dma.request();
-        let dr_ring_buffer =
-            unsafe { ReadableRingBuffer::new(data_dma, dr_request, dr_address(regs), data_dma_buf, Self::dma_opts()) };
+        let dr_ring_buffer = unsafe {
+            ReadableRingBuffer::new(
+                Channel::new(data_dma, irq),
+                dr_request,
+                dr_address(regs),
+                data_dma_buf,
+                Self::dma_opts(),
+            )
+        };
 
         Self {
             _peri: peri,

@@ -17,12 +17,16 @@ use embassy_stm32::peripherals::ADC1;
 use embassy_stm32::time::Hertz;
 use embassy_stm32::timer::complementary_pwm::{ComplementaryPwm, Mms2};
 use embassy_stm32::timer::low_level::CountingMode;
-use embassy_stm32::{Config, interrupt};
+use embassy_stm32::{Config, bind_interrupts, dma, interrupt, peripherals};
 use embassy_sync::blocking_mutex::CriticalSectionMutex;
 use {defmt_rtt as _, panic_probe as _};
 
 static ADC1_HANDLE: CriticalSectionMutex<RefCell<Option<InjectedAdc<ADC1, 1>>>> =
     CriticalSectionMutex::new(RefCell::new(None));
+
+bind_interrupts!(struct Irqs {
+    DMA1_CHANNEL1 => dma::InterruptHandler<peripherals::DMA1_CH1>;
+});
 
 /// This example showcases how to use both regular ADC conversions with DMA and injected ADC
 /// conversions with ADC interrupt simultaneously. Both conversion types can be configured with
@@ -108,6 +112,7 @@ async fn main(_spawner: embassy_executor::Spawner) {
     let (mut ring_buffered_adc, injected_adc) = adc1.into_ring_buffered_and_injected(
         dma1_ch1,
         &mut readings,
+        Irqs,
         regular_sequence,
         RegularConversionMode::Triggered(regular_trigger),
         injected_sequence,

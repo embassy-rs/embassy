@@ -1,0 +1,31 @@
+[package]
+edition = "2024"
+name = "stm32l4-rtic"
+version = "0.1.0"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+
+# Change stm32l4r5zi to your chip name, if necessary.
+embassy-stm32 = { version = "0.5.0", path = "../../embassy-stm32", features = [ "defmt", "unstable-pac", "stm32l4r5zi", "memory-x", "exti", "single-bank"]  }
+
+# rtic = { version = "2.1.2", features = [ "thumbv7-backend" ] }
+rtic = { version = "2.2.0", features = [ "thumbv7-backend" ] }
+# rtic-monotonics = { version = "2.0.3", features = [ "cortex-m-systick", "stm32_tim2", "stm32l4r5zi" ] }
+rtic-monotonics = { version = "2.1.0", features = [ "cortex-m-systick", "stm32_tim2", "stm32l4r5zi" ] }
+
+cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7"
+
+defmt = "1.0.1"
+defmt-rtt = "1.0.0"
+panic-probe = { version = "1.0.0", features = ["print-defmt"] }
+
+[profile.release]
+debug = 2
+
+[package.metadata.embassy]
+build = [
+  { target = "thumbv7em-none-eabi", artifact-dir = "out/examples/stm32l4-rtic" }
+]

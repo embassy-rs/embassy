@@ -157,7 +157,7 @@ impl<'a> IpccTxChannel<'a> {
 
     /// Wait for the tx channel to become clear
     pub async fn flush(&mut self) {
-        let _scoped_block_stop = IPCC::RCC_INFO.block_stop();
+        let _scoped_wake_guard = IPCC::RCC_INFO.wake_guard();
         let regs = IPCC::regs();
         let core = CoreId::current();
 
@@ -212,7 +212,7 @@ impl<'a> IpccRxChannel<'a> {
 
     /// Receive data from an IPCC channel. The closure is called to read the data when appropriate.
     pub async fn receive<R>(&mut self, mut f: impl FnMut() -> Option<R>) -> R {
-        let _scoped_block_stop = IPCC::RCC_INFO.block_stop();
+        let _scoped_wake_guard = IPCC::RCC_INFO.wake_guard();
         let regs = IPCC::regs();
         let core = CoreId::current();
 

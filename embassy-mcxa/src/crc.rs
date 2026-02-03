@@ -17,6 +17,7 @@ pub struct Crc<'d, M> {
 
 impl<'d, M: Mode> Crc<'d, M> {
     fn new_inner(_peri: Peri<'d, CRC0>) -> Self {
+        // NoConfig? No WakeGuard!
         _ = unsafe { enable_and_reset::<CRC0>(&NoConfig) };
 
         Crc {

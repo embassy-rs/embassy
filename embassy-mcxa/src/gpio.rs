@@ -40,7 +40,7 @@ static PORT_WAIT_MAPS: [WaitMap<usize, ()>; PORT_COUNT] = [
     WaitMap::new(),
 ];
 
-fn irq_handler(port_index: usize, gpio_base: *const crate::pac::gpio0::RegisterBlock) {
+fn irq_handler(port_index: usize, gpio_base: *const crate::pac::gpio0::RegisterBlock, perf_wake: fn()) {
     let gpio = unsafe { &*gpio_base };
     let isfr = gpio.isfr0().read().bits();
 
@@ -51,6 +51,7 @@ fn irq_handler(port_index: usize, gpio_base: *const crate::pac::gpio0::RegisterB
 
         // Wake the corresponding port waker
         if let Some(w) = PORT_WAIT_MAPS.get(port_index) {
+            perf_wake();
             w.wake(&pin, ());
         }
     }
@@ -58,27 +59,52 @@ fn irq_handler(port_index: usize, gpio_base: *const crate::pac::gpio0::RegisterB
 
 #[interrupt]
 fn GPIO0() {
-    irq_handler(0, crate::pac::Gpio0::ptr());
+    crate::perf_counters::incr_interrupt_gpio0();
+    irq_handler(
+        0,
+        crate::pac::Gpio0::ptr(),
+        crate::perf_counters::incr_interrupt_gpio0_wake,
+    );
 }
 
 #[interrupt]
 fn GPIO1() {
-    irq_handler(1, crate::pac::Gpio1::ptr());
+    crate::perf_counters::incr_interrupt_gpio1();
+    irq_handler(
+        1,
+        crate::pac::Gpio1::ptr(),
+        crate::perf_counters::incr_interrupt_gpio1_wake,
+    );
 }
 
 #[interrupt]
 fn GPIO2() {
-    irq_handler(2, crate::pac::Gpio2::ptr());
+    crate::perf_counters::incr_interrupt_gpio2();
+    irq_handler(
+        2,
+        crate::pac::Gpio2::ptr(),
+        crate::perf_counters::incr_interrupt_gpio2_wake,
+    );
 }
 
 #[interrupt]
 fn GPIO3() {
-    irq_handler(3, crate::pac::Gpio3::ptr());
+    crate::perf_counters::incr_interrupt_gpio3();
+    irq_handler(
+        3,
+        crate::pac::Gpio3::ptr(),
+        crate::perf_counters::incr_interrupt_gpio3_wake,
+    );
 }
 
 #[interrupt]
 fn GPIO4() {
-    irq_handler(4, crate::pac::Gpio4::ptr());
+    crate::perf_counters::incr_interrupt_gpio4();
+    irq_handler(
+        4,
+        crate::pac::Gpio4::ptr(),
+        crate::perf_counters::incr_interrupt_gpio4_wake,
+    );
 }
 
 pub(crate) unsafe fn interrupt_init() {

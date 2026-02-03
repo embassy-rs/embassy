@@ -7,7 +7,7 @@ use maitake_sync::WaitCell;
 use paste::paste;
 
 use crate::clocks::periph_helpers::{AdcClockSel, AdcConfig, Div4};
-use crate::clocks::{ClockError, Gate, PoweredClock, enable_and_reset};
+use crate::clocks::{ClockError, Gate, PoweredClock, WakeGuard, enable_and_reset};
 use crate::gpio::{AnyPin, GpioPin, SealedPin};
 use crate::interrupt::typelevel::{Handler, Interrupt};
 use crate::pac;
@@ -204,6 +204,7 @@ pub struct Adc<'a, M: Mode> {
     pin: Peri<'a, AnyPin>,
     channel_idx: u8,
     info: &'static Info,
+    _wg: Option<WakeGuard>,
 }
 
 impl<'a> Adc<'a, Blocking> {
@@ -429,7 +430,7 @@ impl<'a, M: Mode> Adc<'a, M> {
         let info = T::info();
         let adc = info.regs();
 
-        _ = unsafe {
+        let parts = unsafe {
             enable_and_reset::<T>(&AdcConfig {
                 power: config.power,
                 source: config.source,
@@ -517,6 +518,7 @@ impl<'a, M: Mode> Adc<'a, M> {
             channel_idx: pin.channel(),
             pin: pin.into(),
             info,
+            _wg: parts.wake_guard,
         })
     }
 
@@ -676,6 +678,7 @@ impl<'a, M: Mode> Drop for Adc<'a, M> {
 
 impl<T: Instance> Handler<T::Interrupt> for InterruptHandler<T> {
     unsafe fn on_interrupt() {
+        T::PERF_INT_INCR();
         T::info().regs().ie().modify(|_r, w| w.fwmie0().clear_bit());
         T::info().wait_cell().wake();
     }
@@ -717,6 +720,7 @@ trait SealedInstance {
 pub trait Instance: SealedInstance + PeripheralType + Gate<MrccPeriphConfig = AdcConfig> {
     /// Interrupt for this ADC instance.
     type Interrupt: Interrupt;
+    const PERF_INT_INCR: fn();
 }
 
 macro_rules! impl_instance {
@@ -736,6 +740,7 @@ macro_rules! impl_instance {
 
                 impl Instance for crate::peripherals::[<ADC $n>] {
                     type Interrupt = crate::interrupt::typelevel::[<ADC $n>];
+                    const PERF_INT_INCR: fn() = crate::perf_counters::[<incr_interrupt_adc $n>];
                 }
             }
         )*

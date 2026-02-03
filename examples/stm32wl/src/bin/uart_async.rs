@@ -6,12 +6,16 @@ use core::mem::MaybeUninit;
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::usart::{Config, InterruptHandler, Uart};
-use embassy_stm32::{SharedData, bind_interrupts, peripherals};
+use embassy_stm32::{SharedData, bind_interrupts, dma, peripherals};
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs{
     USART1 => InterruptHandler<peripherals::USART1>;
     LPUART1 => InterruptHandler<peripherals::LPUART1>;
+    DMA1_CHANNEL3 => dma::InterruptHandler<peripherals::DMA1_CH3>;
+    DMA1_CHANNEL4 => dma::InterruptHandler<peripherals::DMA1_CH4>;
+    DMA1_CHANNEL5 => dma::InterruptHandler<peripherals::DMA1_CH5>;
+    DMA1_CHANNEL6 => dma::InterruptHandler<peripherals::DMA1_CH6>;
 });
 
 #[unsafe(link_section = ".shared_data")]
@@ -37,10 +41,10 @@ async fn main(_spawner: Spawner) {
     config2.baudrate = 9600;
 
     //RX/TX connected to USB/UART Bridge on LoRa-E5 mini v1.0
-    let mut usart1 = Uart::new(p.USART1, p.PB7, p.PB6, Irqs, p.DMA1_CH3, p.DMA1_CH4, config1).unwrap();
+    let mut usart1 = Uart::new(p.USART1, p.PB7, p.PB6, p.DMA1_CH3, p.DMA1_CH4, Irqs, config1).unwrap();
 
     //RX1/TX1 (LPUART) on LoRa-E5 mini v1.0
-    let mut usart2 = Uart::new(p.LPUART1, p.PC0, p.PC1, Irqs, p.DMA1_CH5, p.DMA1_CH6, config2).unwrap();
+    let mut usart2 = Uart::new(p.LPUART1, p.PC0, p.PC1, p.DMA1_CH5, p.DMA1_CH6, Irqs, config2).unwrap();
 
     unwrap!(usart1.write(b"Hello Embassy World!\r\n").await);
     unwrap!(usart2.write(b"Hello Embassy World!\r\n").await);

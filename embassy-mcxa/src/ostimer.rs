@@ -78,13 +78,17 @@ impl OsTimer {
             alarm.timestamp.set(u64::MAX);
         });
 
-        let _clock_freq = unsafe {
+        let parts = unsafe {
             enable_and_reset::<OSTIMER0>(&OsTimerConfig {
                 power: PoweredClock::AlwaysEnabled,
                 source: OstimerClockSel::Clk1M,
             })
             .expect("Enabling OsTimer clock should not fail")
         };
+
+        // Currently does nothing as Clk1M is always enabled anyway, this is here
+        // to make sure that doesn't change in a refactoring.
+        core::mem::forget(parts.wake_guard);
 
         interrupt::OS_EVENT.disable();
 
@@ -133,10 +137,12 @@ impl OsTimer {
     }
 
     fn on_interrupt(&self) {
+        crate::perf_counters::incr_interrupt_ostimer();
         critical_section::with(|cs| {
             if os().osevent_ctrl().read().ostimer_intrflag().bit_is_set() {
                 os().osevent_ctrl()
                     .modify(|_, w| w.ostimer_intena().clear_bit().ostimer_intrflag().clear_bit_by_one());
+                crate::perf_counters::incr_interrupt_ostimer_alarm();
                 self.trigger_alarm(cs);
             }
         });

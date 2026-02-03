@@ -21,7 +21,8 @@ use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::peripherals::RNG;
 use embassy_stm32::rcc::{
-    AHB5Prescaler, AHBPrescaler, APBPrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk, VoltageScale, mux,
+    AHB5Prescaler, AHBPrescaler, APBPrescaler, Hse, HsePrescaler, PllDiv, PllMul, PllPreDiv, PllSource, Sysclk,
+    VoltageScale, mux,
 };
 use embassy_stm32::rng::{self, Rng};
 use embassy_stm32::{Config, bind_interrupts};
@@ -47,9 +48,13 @@ async fn ble_runner_task() {
 async fn main(spawner: Spawner) {
     let mut config = Config::default();
 
+    config.rcc.hse = Some(Hse {
+        prescaler: HsePrescaler::DIV2,
+    });
+
     // Configure PLL1 (required on WBA)
     config.rcc.pll1 = Some(embassy_stm32::rcc::Pll {
-        source: PllSource::HSI,
+        source: PllSource::HSE,
         prediv: PllPreDiv::DIV1,
         mul: PllMul::MUL30,
         divr: Some(PllDiv::DIV5),

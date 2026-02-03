@@ -2,7 +2,7 @@
 use core::future::Future;
 use core::marker::PhantomData;
 use core::pin::Pin as FuturePin;
-use core::sync::atomic::{AtomicU8, AtomicU32, Ordering, compiler_fence};
+use core::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 use core::task::{Context, Poll};
 
 use embassy_hal_internal::{Peri, PeripheralType};
@@ -11,7 +11,7 @@ use fixed::FixedU32;
 use fixed::types::extra::U8;
 use pio::{Program, SideSet, Wrap};
 
-use crate::dma::{self, Channel, Transfer, Word};
+use crate::dma::{self, Transfer, Word};
 use crate::gpio::{self, AnyPin, Drive, Level, Pull, SealedPin, SlewRate};
 use crate::interrupt::typelevel::{Binding, Handler, Interrupt};
 use crate::relocate::RelocatedProgram;
@@ -388,61 +388,18 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineRx<'d, PIO, SM> {
     }
 
     /// Prepare DMA transfer from RX FIFO.
-    pub fn dma_pull<'a, C: Channel, W: Word>(
+    pub fn dma_pull<'a, W: Word>(
         &'a mut self,
-        ch: Peri<'a, C>,
+        ch: &'a mut dma::Channel<'_>,
         data: &'a mut [W],
         bswap: bool,
-    ) -> Transfer<'a, C> {
-        let p = ch.regs();
-        p.write_addr().write_value(data.as_ptr() as u32);
-        p.read_addr().write_value(PIO::PIO.rxf(SM).as_ptr() as u32);
-        #[cfg(feature = "rp2040")]
-        p.trans_count().write(|w| *w = data.len() as u32);
-        #[cfg(feature = "_rp235x")]
-        p.trans_count().write(|w| w.set_count(data.len() as u32));
-        compiler_fence(Ordering::SeqCst);
-        p.ctrl_trig().write(|w| {
-            w.set_treq_sel(Self::dreq());
-            w.set_data_size(W::size());
-            w.set_chain_to(ch.number());
-            w.set_incr_read(false);
-            w.set_incr_write(true);
-            w.set_bswap(bswap);
-            w.set_en(true);
-        });
-        compiler_fence(Ordering::SeqCst);
-        Transfer::new(ch)
+    ) -> Transfer<'a> {
+        unsafe { ch.read(PIO::PIO.rxf(SM).as_ptr() as *const W, data, Self::dreq(), bswap) }
     }
 
     /// Prepare a repeated DMA transfer from RX FIFO.
-    pub fn dma_pull_repeated<'a, C: Channel, W: Word>(&'a mut self, ch: Peri<'a, C>, len: usize) -> Transfer<'a, C> {
-        // This is the read version of dma::write_repeated. This allows us to
-        // discard reads from the RX FIFO through DMA.
-
-        // static mut so it gets allocated in RAM
-        static mut DUMMY: u32 = 0;
-
-        let p = ch.regs();
-        p.write_addr().write_value(core::ptr::addr_of_mut!(DUMMY) as u32);
-        p.read_addr().write_value(PIO::PIO.rxf(SM).as_ptr() as u32);
-
-        #[cfg(feature = "rp2040")]
-        p.trans_count().write(|w| *w = len as u32);
-        #[cfg(feature = "_rp235x")]
-        p.trans_count().write(|w| w.set_count(len as u32));
-
-        compiler_fence(Ordering::SeqCst);
-        p.ctrl_trig().write(|w| {
-            w.set_treq_sel(Self::dreq());
-            w.set_data_size(W::size());
-            w.set_chain_to(ch.number());
-            w.set_incr_read(false);
-            w.set_incr_write(false);
-            w.set_en(true);
-        });
-        compiler_fence(Ordering::SeqCst);
-        Transfer::new(ch)
+    pub fn dma_pull_repeated<'a, W: Word>(&'a mut self, ch: &'a mut dma::Channel<'_>, len: usize) -> Transfer<'a> {
+        unsafe { ch.read_repeated(PIO::PIO.rxf(SM).as_ptr(), len, Self::dreq()) }
     }
 }
 
@@ -511,36 +468,18 @@ impl<'d, PIO: Instance, const SM: usize> StateMachineTx<'d, PIO, SM> {
     }
 
     /// Prepare a DMA transfer to TX FIFO.
-    pub fn dma_push<'a, C: Channel, W: Word>(
+    pub fn dma_push<'a, W: Word>(
         &'a mut self,
-        ch: Peri<'a, C>,
+        ch: &'a mut dma::Channel<'_>,
         data: &'a [W],
         bswap: bool,
-    ) -> Transfer<'a, C> {
-        let p = ch.regs();
-        p.read_addr().write_value(data.as_ptr() as u32);
-        p.write_addr().write_value(PIO::PIO.txf(SM).as_ptr() as u32);
-        #[cfg(feature = "rp2040")]
-        p.trans_count().write(|w| *w = data.len() as u32);
-        #[cfg(feature = "_rp235x")]
-        p.trans_count().write(|w| w.set_count(data.len() as u32));
-        compiler_fence(Ordering::SeqCst);
-        p.ctrl_trig().write(|w| {
-            w.set_treq_sel(Self::dreq());
-            w.set_data_size(W::size());
-            w.set_chain_to(ch.number());
-            w.set_incr_read(true);
-            w.set_incr_write(false);
-            w.set_bswap(bswap);
-            w.set_en(true);
-        });
-        compiler_fence(Ordering::SeqCst);
-        Transfer::new(ch)
+    ) -> Transfer<'a> {
+        unsafe { ch.write(data, PIO::PIO.txf(SM).as_ptr() as *mut W, Self::dreq(), bswap) }
     }
 
     /// Prepare a repeated DMA transfer to TX FIFO.
-    pub fn dma_push_repeated<'a, C: Channel, W: Word>(&'a mut self, ch: Peri<'a, C>, len: usize) -> Transfer<'a, C> {
-        unsafe { dma::write_repeated(ch, PIO::PIO.txf(SM).as_ptr(), len, Self::dreq()) }
+    pub fn dma_push_repeated<'a, W: Word>(&'a mut self, ch: &'a mut dma::Channel<'_>, len: usize) -> Transfer<'a> {
+        unsafe { ch.write_repeated(len, PIO::PIO.txf(SM).as_ptr() as *mut W, Self::dreq()) }
     }
 }
 
@@ -1255,23 +1194,6 @@ impl<'d, PIO: Instance> Common<'d, PIO> {
             pio: PhantomData::default(),
         }
     }
-
-    /// Apply changes to all state machines in a batch.
-    pub fn apply_sm_batch(&mut self, f: impl FnOnce(&mut PioBatch<'d, PIO>)) {
-        let mut batch = PioBatch {
-            clkdiv_restart: 0,
-            sm_restart: 0,
-            sm_enable_mask: 0,
-            sm_enable: 0,
-            _pio: PhantomData,
-        };
-        f(&mut batch);
-        PIO::PIO.ctrl().modify(|w| {
-            w.set_clkdiv_restart(batch.clkdiv_restart);
-            w.set_sm_restart(batch.sm_restart);
-            w.set_sm_enable((w.sm_enable() & !batch.sm_enable_mask) | batch.sm_enable);
-        });
-    }
 }
 
 /// Represents multiple state machines in a single type.
@@ -1284,6 +1206,17 @@ pub struct PioBatch<'a, PIO: Instance> {
 }
 
 impl<'a, PIO: Instance> PioBatch<'a, PIO> {
+    /// Create nop PioBatch object
+    pub fn new() -> Self {
+        Self {
+            clkdiv_restart: 0,
+            sm_restart: 0,
+            sm_enable_mask: 0,
+            sm_enable: 0,
+            _pio: PhantomData,
+        }
+    }
+
     /// Restart a state machine's clock divider from an initial phase of 0.
     pub fn restart<const SM: usize>(&mut self, _sm: &mut StateMachine<'a, PIO, SM>) {
         self.clkdiv_restart |= 1 << SM;
@@ -1293,6 +1226,15 @@ impl<'a, PIO: Instance> PioBatch<'a, PIO> {
     pub fn set_enable<const SM: usize>(&mut self, _sm: &mut StateMachine<'a, PIO, SM>, enable: bool) {
         self.sm_enable_mask |= 1 << SM;
         self.sm_enable |= (enable as u8) << SM;
+    }
+
+    /// Apply changes to state machines in a batch.
+    pub fn execute(&mut self) {
+        PIO::PIO.ctrl().modify(|w| {
+            w.set_clkdiv_restart(self.clkdiv_restart);
+            w.set_sm_restart(self.sm_restart);
+            w.set_sm_enable((w.sm_enable() & !self.sm_enable_mask) | self.sm_enable);
+        });
     }
 }
 
@@ -1472,8 +1414,8 @@ pub struct State {
 fn on_pio_drop<PIO: Instance>() {
     let state = PIO::state();
     let users_state = critical_section::with(|_| {
-        let val = state.users.load(Ordering::Acquire) - 1;
-        state.users.store(val, Ordering::Release);
+        let val = state.users.load(Ordering::Acquire);
+        state.users.store(val - 1, Ordering::Release);
         val
     });
     if users_state == 1 {

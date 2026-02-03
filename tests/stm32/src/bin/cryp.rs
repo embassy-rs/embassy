@@ -10,13 +10,8 @@ use aes_gcm::aead::heapless::Vec;
 use aes_gcm::aead::{AeadInPlace, KeyInit};
 use common::*;
 use embassy_executor::Spawner;
-use embassy_stm32::cryp::{self, *};
-use embassy_stm32::{bind_interrupts, peripherals};
+use embassy_stm32::cryp::*;
 use {defmt_rtt as _, panic_probe as _};
-
-bind_interrupts!(struct Irqs {
-    CRYP => cryp::InterruptHandler<peripherals::CRYP>;
-});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -29,8 +24,9 @@ async fn main(_spawner: Spawner) {
 
     let in_dma = peri!(p, CRYP_IN_DMA);
     let out_dma = peri!(p, CRYP_OUT_DMA);
+    let irq = irqs!(UART);
 
-    let mut hw_cryp = Cryp::new(p.CRYP, in_dma, out_dma, Irqs);
+    let mut hw_cryp = Cryp::new(p.CRYP, in_dma, out_dma, irq);
     let key: [u8; 16] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16];
     let mut ciphertext: [u8; PAYLOAD1.len() + PAYLOAD2.len()] = [0; PAYLOAD1.len() + PAYLOAD2.len()];
     let mut plaintext: [u8; PAYLOAD1.len() + PAYLOAD2.len()] = [0; PAYLOAD1.len() + PAYLOAD2.len()];

@@ -8,6 +8,7 @@ use core::slice;
 use core::task::Poll;
 
 use aligned::{A4, Aligned};
+use cortex_m::asm::dsb;
 use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 use sdio_host::Cmd;
@@ -472,10 +473,12 @@ const DATA_AF: AfType = CMD_AF;
 #[cfg(sdmmc_v1)]
 impl<'d> Sdmmc<'d> {
     /// Create a new SDMMC driver, with 1 data lane.
-    pub fn new_1bit<T: Instance>(
+    pub fn new_1bit<T: Instance, D: SdmmcDma<T>>(
         sdmmc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        dma: Peri<'d, impl SdmmcDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -489,7 +492,7 @@ impl<'d> Sdmmc<'d> {
 
         Self::new_inner(
             sdmmc,
-            new_dma_nonopt!(dma),
+            new_dma_nonopt!(dma, _irq),
             clk.into(),
             cmd.into(),
             d0.into(),
@@ -505,10 +508,12 @@ impl<'d> Sdmmc<'d> {
     }
 
     /// Create a new SDMMC driver, with 4 data lanes.
-    pub fn new_4bit<T: Instance>(
+    pub fn new_4bit<T: Instance, D: SdmmcDma<T>>(
         sdmmc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        dma: Peri<'d, impl SdmmcDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -528,7 +533,7 @@ impl<'d> Sdmmc<'d> {
 
         Self::new_inner(
             sdmmc,
-            new_dma_nonopt!(dma),
+            new_dma_nonopt!(dma, _irq),
             clk.into(),
             cmd.into(),
             d0.into(),
@@ -547,10 +552,12 @@ impl<'d> Sdmmc<'d> {
 #[cfg(sdmmc_v1)]
 impl<'d> Sdmmc<'d> {
     /// Create a new SDMMC driver, with 8 data lanes.
-    pub fn new_8bit<T: Instance>(
+    pub fn new_8bit<T: Instance, D: SdmmcDma<T>>(
         sdmmc: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-        dma: Peri<'d, impl SdmmcDma<T>>,
+        dma: Peri<'d, D>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>>
+        + 'd,
         clk: Peri<'d, impl CkPin<T>>,
         cmd: Peri<'d, impl CmdPin<T>>,
         d0: Peri<'d, impl D0Pin<T>>,
@@ -578,7 +585,7 @@ impl<'d> Sdmmc<'d> {
 
         Self::new_inner(
             sdmmc,
-            new_dma_nonopt!(dma),
+            new_dma_nonopt!(dma, _irq),
             clk.into(),
             cmd.into(),
             d0.into(),
@@ -856,14 +863,20 @@ impl<'d> Sdmmc<'d> {
 
         regs.dlenr().write(|w| w.set_datalength(size_of_val(buffer) as u32));
 
+        // Memory barrier before DMA setup to ensure any pending memory writes complete
+        dsb();
+
         // SAFETY: No other functions use the dma
         #[cfg(sdmmc_v1)]
         let transfer = unsafe {
-            self.dma.read_unchecked(
-                regs.fifor().as_ptr() as *mut u32,
-                slice32_mut(buffer),
-                DMA_TRANSFER_OPTIONS,
-            )
+            self.dma
+                .clone_unchecked()
+                .read(
+                    regs.fifor().as_ptr() as *mut u32,
+                    slice32_mut(buffer),
+                    DMA_TRANSFER_OPTIONS,
+                )
+                .unchecked_extend_lifetime()
         };
         #[cfg(sdmmc_v2)]
         let transfer = {
@@ -888,6 +901,9 @@ impl<'d> Sdmmc<'d> {
             }
         });
 
+        // Memory barrier after DMA setup to ensure register writes complete before command
+        dsb();
+
         self.enable_interrupts();
 
         WrappedTransfer::new(transfer, &self)
@@ -910,14 +926,20 @@ impl<'d> Sdmmc<'d> {
 
         regs.dlenr().write(|w| w.set_datalength(size_of_val(buffer) as u32));
 
+        // Memory barrier before DMA setup to ensure buffer data is visible to DMA
+        dsb();
+
         // SAFETY: No other functions use the dma
         #[cfg(sdmmc_v1)]
         let transfer = unsafe {
-            self.dma.write_unchecked(
-                slice32_ref(buffer),
-                regs.fifor().as_ptr() as *mut u32,
-                DMA_TRANSFER_OPTIONS,
-            )
+            self.dma
+                .clone_unchecked()
+                .write(
+                    slice32_ref(buffer),
+                    regs.fifor().as_ptr() as *mut u32,
+                    DMA_TRANSFER_OPTIONS,
+                )
+                .unchecked_extend_lifetime()
         };
         #[cfg(sdmmc_v2)]
         let transfer = {
@@ -941,6 +963,9 @@ impl<'d> Sdmmc<'d> {
                 w.set_dten(true);
             }
         });
+
+        // Memory barrier after DMA setup to ensure register writes complete before command
+        dsb();
 
         self.enable_interrupts();
 
@@ -1196,6 +1221,9 @@ impl<'d> Sdmmc<'d> {
             Poll::Pending
         })
         .await;
+
+        // Memory barrier after DMA completion to ensure CPU sees DMA-written data
+        dsb();
 
         self.clear_interrupt_flags();
         self.stop_datapath();

@@ -7,7 +7,12 @@
 
 use embassy_executor::Spawner;
 use embassy_stm32::i2s::{Config, Format, I2S};
+use embassy_stm32::{bind_interrupts, dma, peripherals};
 use {defmt_rtt as _, panic_probe as _};
+
+bind_interrupts!(struct Irqs {
+    DMA1_CHANNEL1 => dma::InterruptHandler<peripherals::DMA1_CH1>;
+});
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -33,6 +38,7 @@ async fn main(_spawner: Spawner) {
         p.PC6,
         p.DMA1_CH1,
         &mut dma_buffer,
+        Irqs,
         i2s_config,
     );
     i2s.start();

@@ -309,9 +309,10 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     ///
     /// Note:
     /// The DMA channel provided does not need to correspond to the requested channel.
-    pub async fn waveform<C: TimerChannel, W: Word + Into<T::Word>>(
+    pub async fn waveform<C: TimerChannel, W: Word + Into<T::Word>, D: super::Dma<T, C>>(
         &mut self,
-        dma: Peri<'_, impl super::Dma<T, C>>,
+        dma: Peri<'_, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + '_,
         channel: Channel,
         duty: &[W],
     ) {
@@ -320,7 +321,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
         self.inner.clamp_compare_value::<W>(channel);
         self.inner.set_cc_dma_selection(Ccds::ON_UPDATE);
         self.inner.set_cc_dma_enable_state(C::CHANNEL, true);
-        self.inner.setup_channel_update_dma(dma, channel, duty).await;
+        self.inner.setup_channel_update_dma(dma, irq, channel, duty).await;
         self.inner.set_cc_dma_enable_state(C::CHANNEL, false);
     }
 
@@ -328,16 +329,17 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     ///
     /// Note:
     /// you will need to provide corresponding TIMx_UP DMA channel to use this method.
-    pub async fn waveform_up<W: Word + Into<T::Word>>(
+    pub async fn waveform_up<W: Word + Into<T::Word>, D: super::UpDma<T>>(
         &mut self,
-        dma: Peri<'_, impl super::UpDma<T>>,
+        dma: Peri<'_, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + '_,
         channel: Channel,
         duty: &[W],
     ) {
         self.inner.enable_channel(channel, true);
         self.inner.clamp_compare_value::<W>(channel);
         self.inner.enable_update_dma(true);
-        self.inner.setup_update_dma(dma, channel, duty).await;
+        self.inner.setup_update_dma(dma, irq, channel, duty).await;
         self.inner.enable_update_dma(false);
     }
 
@@ -370,9 +372,10 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
     /// Also be aware that embassy timers use one of timers internally. It is possible to
     /// switch this timer by using `time-driver-timX` feature.
     ///
-    pub async fn waveform_up_multi_channel<W: Word + Into<T::Word>>(
+    pub async fn waveform_up_multi_channel<W: Word + Into<T::Word>, D: super::UpDma<T>>(
         &mut self,
-        dma: Peri<'_, impl super::UpDma<T>>,
+        dma: Peri<'_, D>,
+        irq: impl crate::interrupt::typelevel::Binding<D::Interrupt, crate::dma::InterruptHandler<D>> + '_,
         starting_channel: Channel,
         ending_channel: Channel,
         duty: &[W],
@@ -387,7 +390,7 @@ impl<'d, T: AdvancedInstance4Channel> ComplementaryPwm<'d, T> {
             });
         self.inner.enable_update_dma(true);
         self.inner
-            .setup_update_dma_burst(dma, starting_channel, ending_channel, duty)
+            .setup_update_dma_burst(dma, irq, starting_channel, ending_channel, duty)
             .await;
         self.inner.enable_update_dma(false);
     }

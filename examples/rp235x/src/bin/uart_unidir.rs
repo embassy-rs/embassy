@@ -10,21 +10,22 @@
 
 use defmt::*;
 use embassy_executor::Spawner;
-use embassy_rp::bind_interrupts;
-use embassy_rp::peripherals::UART1;
+use embassy_rp::peripherals::{DMA_CH0, DMA_CH1, UART1};
 use embassy_rp::uart::{Async, Config, InterruptHandler, UartRx, UartTx};
+use embassy_rp::{bind_interrupts, dma};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
 bind_interrupts!(struct Irqs {
     UART1_IRQ => InterruptHandler<UART1>;
+    DMA_IRQ_0 => dma::InterruptHandler<DMA_CH0>, dma::InterruptHandler<DMA_CH1>;
 });
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
     let p = embassy_rp::init(Default::default());
 
-    let mut uart_tx = UartTx::new(p.UART0, p.PIN_0, p.DMA_CH0, Config::default());
+    let mut uart_tx = UartTx::new(p.UART0, p.PIN_0, p.DMA_CH0, Irqs, Config::default());
     let uart_rx = UartRx::new(p.UART1, p.PIN_5, Irqs, p.DMA_CH1, Config::default());
 
     spawner.spawn(unwrap!(reader(uart_rx)));

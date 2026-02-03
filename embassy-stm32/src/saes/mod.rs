@@ -203,19 +203,22 @@ impl<'d, T: Instance> Saes<'d, T, Blocking> {
 
 impl<'d, T: Instance> Saes<'d, T, Async> {
     /// Instantiates, resets, and enables the SAES peripheral with DMA support.
-    pub fn new(
+    pub fn new<D1: DmaIn<T>, D2: DmaOut<T>>(
         peripheral: Peri<'d, T>,
-        dma_in: Peri<'d, impl DmaIn<T>>,
-        dma_out: Peri<'d, impl DmaOut<T>>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        dma_in: Peri<'d, D1>,
+        dma_out: Peri<'d, D2>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>>
+        + interrupt::typelevel::Binding<D1::Interrupt, crate::dma::InterruptHandler<D1>>
+        + interrupt::typelevel::Binding<D2::Interrupt, crate::dma::InterruptHandler<D2>>
+        + 'd,
     ) -> Self {
         rcc::enable_and_reset::<T>();
 
         let instance = Self {
             _peripheral: peripheral,
             _phantom: PhantomData,
-            dma_in: new_dma!(dma_in),
-            dma_out: new_dma!(dma_out),
+            dma_in: new_dma!(dma_in, _irq),
+            dma_out: new_dma!(dma_out, _irq),
         };
 
         T::Interrupt::unpend();

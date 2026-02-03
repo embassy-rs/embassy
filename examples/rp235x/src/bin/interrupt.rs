@@ -69,7 +69,7 @@ async fn main(spawner: Spawner) {
 
 #[embassy_executor::task]
 async fn processing(avg: &'static Cell<u32>) {
-    let mut buffer: heapless::HistoryBuffer<u16, 100> = Default::default();
+    let mut buffer: heapless::HistoryBuf<u16, 100> = Default::default();
     loop {
         let val = ADC_VALUES.receive().await;
         buffer.write(val);

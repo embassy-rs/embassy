@@ -42,6 +42,7 @@ pub struct Trng<'d, M: Mode> {
 
 impl<'d, M: Mode> Trng<'d, M> {
     fn new_inner(_peri: Peri<'d, TRNG0>, config: Config) -> Self {
+        // No clock: No WakeGuard!
         _ = unsafe { enable_and_reset::<TRNG0>(&NoConfig) };
 
         Self::configure(config);
@@ -475,6 +476,7 @@ pub struct InterruptHandler;
 
 impl Handler<typelevel::TRNG0> for InterruptHandler {
     unsafe fn on_interrupt() {
+        crate::perf_counters::incr_interrupt_trng();
         if regs().int_status().read().bits() != 0 {
             regs().int_ctrl().write(|w| {
                 w.hw_err()
@@ -486,6 +488,7 @@ impl Handler<typelevel::TRNG0> for InterruptHandler {
                     .intg_flt()
                     .clear_bit()
             });
+            crate::perf_counters::incr_interrupt_trng_wake();
             WAIT_CELL.wake();
         }
     }

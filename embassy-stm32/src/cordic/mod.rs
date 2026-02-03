@@ -195,8 +195,8 @@ impl Config {
 impl<'d, T: Instance> Cordic<'d, T> {
     /// Create a Cordic driver instance
     ///
-    /// Note:  
-    /// If you need a peripheral -> CORDIC -> peripheral mode,  
+    /// Note:
+    /// If you need a peripheral -> CORDIC -> peripheral mode,
     /// you may want to set Cordic into [Mode::ZeroOverhead] mode, and add extra arguments with [Self::extra_config]
     pub fn new(peri: Peri<'d, T>, config: Config) -> Self {
         rcc::enable_and_reset::<T>();
@@ -208,7 +208,7 @@ impl<'d, T: Instance> Cordic<'d, T> {
         instance
     }
 
-    /// Set a new config for Cordic driver  
+    /// Set a new config for Cordic driver
     pub fn set_config(&mut self, config: Config) {
         self.config = config;
         self.reconfigure();
@@ -263,11 +263,11 @@ impl<'d, T: Instance> Drop for Cordic<'d, T> {
 
 // q1.31 related
 impl<'d, T: Instance> Cordic<'d, T> {
-    /// Run a blocking CORDIC calculation in q1.31 format  
+    /// Run a blocking CORDIC calculation in q1.31 format
     ///
-    /// Notice:  
-    /// If you set `arg1_only` to `true`, please be sure ARG2 value has been set to desired value before.  
-    /// This function won't set ARG2 to +1 before or after each round of calculation.  
+    /// Notice:
+    /// If you set `arg1_only` to `true`, please be sure ARG2 value has been set to desired value before.
+    /// This function won't set ARG2 to +1 before or after each round of calculation.
     /// If you want to make sure ARG2 is set to +1, consider run [.reconfigure()](Self::reconfigure).
     pub fn blocking_calc_32bit(
         &mut self,
@@ -370,19 +370,26 @@ impl<'d, T: Instance> Cordic<'d, T> {
 
     /// Run a async CORDIC calculation in q.1.31 format
     ///
-    /// Notice:  
-    /// If you set `arg1_only` to `true`, please be sure ARG2 value has been set to desired value before.  
-    /// This function won't set ARG2 to +1 before or after each round of calculation.  
+    /// Notice:
+    /// If you set `arg1_only` to `true`, please be sure ARG2 value has been set to desired value before.
+    /// This function won't set ARG2 to +1 before or after each round of calculation.
     /// If you want to make sure ARG2 is set to +1, consider run [.reconfigure()](Self::reconfigure).
-    pub async fn async_calc_32bit(
+    pub async fn async_calc_32bit<'a, W, R>(
         &mut self,
-        mut write_dma: Peri<'_, impl WriteDma<T>>,
-        mut read_dma: Peri<'_, impl ReadDma<T>>,
+        mut write_dma: Peri<'a, W>,
+        mut read_dma: Peri<'a, R>,
+        irq: impl crate::interrupt::typelevel::Binding<W::Interrupt, crate::dma::InterruptHandler<W>>
+        + crate::interrupt::typelevel::Binding<R::Interrupt, crate::dma::InterruptHandler<R>>
+        + 'a,
         arg: &[u32],
         res: &mut [u32],
         arg1_only: bool,
         res1_only: bool,
-    ) -> Result<usize, CordicError> {
+    ) -> Result<usize, CordicError>
+    where
+        W: WriteDma<T>,
+        R: ReadDma<T>,
+    {
         if arg.is_empty() {
             return Ok(0);
         }
@@ -411,16 +418,12 @@ impl<'d, T: Instance> Cordic<'d, T> {
         });
 
         unsafe {
-            let write_transfer = dma::Transfer::new_write(
-                write_dma.reborrow(),
-                write_req,
-                arg,
-                T::regs().wdata().as_ptr() as *mut _,
-                Default::default(),
-            );
+            let mut write_channel = dma::Channel::new(write_dma.reborrow(), irq);
+            let write_transfer =
+                write_channel.write(write_req, arg, T::regs().wdata().as_ptr() as *mut _, Default::default());
 
-            let read_transfer = dma::Transfer::new_read(
-                read_dma.reborrow(),
+            let mut read_channel = dma::Channel::new(read_dma.reborrow(), irq);
+            let read_transfer = read_channel.read(
                 read_req,
                 T::regs().rdata().as_ptr() as *mut _,
                 active_res_buf,
@@ -463,9 +466,9 @@ impl<'d, T: Instance> Cordic<'d, T> {
 
 // q1.15 related
 impl<'d, T: Instance> Cordic<'d, T> {
-    /// Run a blocking CORDIC calculation in q1.15 format  
+    /// Run a blocking CORDIC calculation in q1.15 format
     ///
-    /// Notice::  
+    /// Notice::
     /// User will take respond to merge two u16 arguments into one u32 data, and/or split one u32 data into two u16 results.
     pub fn blocking_calc_16bit(&mut self, arg: &[u32], res: &mut [u32]) -> Result<usize, CordicError> {
         if arg.is_empty() {
@@ -509,17 +512,24 @@ impl<'d, T: Instance> Cordic<'d, T> {
         Ok(res_cnt)
     }
 
-    /// Run a async CORDIC calculation in q1.15 format  
+    /// Run a async CORDIC calculation in q1.15 format
     ///
-    /// Notice::  
+    /// Notice::
     /// User will take respond to merge two u16 arguments into one u32 data, and/or split one u32 data into two u16 results.
-    pub async fn async_calc_16bit(
+    pub async fn async_calc_16bit<'a, W, R>(
         &mut self,
-        mut write_dma: Peri<'_, impl WriteDma<T>>,
-        mut read_dma: Peri<'_, impl ReadDma<T>>,
+        mut write_dma: Peri<'a, W>,
+        mut read_dma: Peri<'a, R>,
+        irq: impl crate::interrupt::typelevel::Binding<W::Interrupt, crate::dma::InterruptHandler<W>>
+        + crate::interrupt::typelevel::Binding<R::Interrupt, crate::dma::InterruptHandler<R>>
+        + 'a,
         arg: &[u32],
         res: &mut [u32],
-    ) -> Result<usize, CordicError> {
+    ) -> Result<usize, CordicError>
+    where
+        W: WriteDma<T>,
+        R: ReadDma<T>,
+    {
         if arg.is_empty() {
             return Ok(0);
         }
@@ -550,16 +560,12 @@ impl<'d, T: Instance> Cordic<'d, T> {
         });
 
         unsafe {
-            let write_transfer = dma::Transfer::new_write(
-                write_dma.reborrow(),
-                write_req,
-                arg,
-                T::regs().wdata().as_ptr() as *mut _,
-                Default::default(),
-            );
+            let mut write_channel = dma::Channel::new(write_dma.reborrow(), irq);
+            let write_transfer =
+                write_channel.write(write_req, arg, T::regs().wdata().as_ptr() as *mut _, Default::default());
 
-            let read_transfer = dma::Transfer::new_read(
-                read_dma.reborrow(),
+            let mut read_channel = dma::Channel::new(read_dma.reborrow(), irq);
+            let read_transfer = read_channel.read(
                 read_req,
                 T::regs().rdata().as_ptr() as *mut _,
                 active_res_buf,
