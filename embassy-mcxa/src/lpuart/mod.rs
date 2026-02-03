@@ -391,7 +391,7 @@ macro_rules! impl_tx_pin {
                 self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
                 self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
                 self.set_function(crate::pac::port0::pcr0::Mux::$alt);
-                self.set_enable_input_buffer();
+                self.set_enable_input_buffer(true);
             }
         }
     };
@@ -406,7 +406,7 @@ macro_rules! impl_rx_pin {
                 self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
                 self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
                 self.set_function(crate::pac::port0::pcr0::Mux::$alt);
-                self.set_enable_input_buffer();
+                self.set_enable_input_buffer(true);
             }
         }
     };
