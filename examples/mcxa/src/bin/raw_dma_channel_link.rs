@@ -23,6 +23,8 @@ use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::dma::DmaChannel;
 use embassy_mcxa::pac;
+use embassy_mcxa::pac::dma::vals::{Cx, Hae, Halt, MpCsrEcx};
+use embassy_mcxa::pac::edma_0_tcd::vals::Size;
 use static_cell::ConstStaticCell;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
@@ -48,29 +50,27 @@ async fn main(_spawner: Spawner) {
 
     // DMA is initialized during hal::init() - no need to call ensure_init()
 
-    let pac_periphs = unsafe { pac::Peripherals::steal() };
-    let dma0 = &pac_periphs.dma0;
-    let edma = unsafe { &*pac::Edma0Tcd0::ptr() };
+    let dma0 = pac::DMA0;
+    let edma = pac::EDMA_0_TCD0;
 
     // Clear any residual state
     for i in 0..3 {
         let t = edma.tcd(i);
-        t.ch_csr().write(|w| w.erq().disable().done().clear_bit_by_one());
-        t.ch_int().write(|w| w.int().clear_bit_by_one());
-        t.ch_es().write(|w| w.err().clear_bit_by_one());
-        t.ch_mux().write(|w| unsafe { w.bits(0) });
+        t.ch_csr().write(|w| {
+            w.set_erq(false);
+            w.set_done(true);
+        });
+        t.ch_int().write(|w| w.set_int(true));
+        t.ch_es().write(|w| w.set_err(true));
+        t.ch_mux().write(|w| w.0 = 0);
     }
 
     // Clear Global Halt/Error state
-    dma0.mp_csr().modify(|_, w| {
-        w.halt()
-            .normal_operation()
-            .hae()
-            .normal_operation()
-            .ecx()
-            .normal_operation()
-            .cx()
-            .normal_operation()
+    dma0.mp_csr().modify(|w| {
+        w.set_halt(Halt::NORMAL_OPERATION);
+        w.set_hae(Hae::NORMAL_OPERATION);
+        w.set_ecx(MpCsrEcx::NORMAL_OPERATION);
+        w.set_cx(Cx::NORMAL_OPERATION);
     });
 
     defmt::info!("EDMA channel link example begin.");
@@ -99,7 +99,7 @@ async fn main(_spawner: Spawner) {
     // Parameters: channel, src, dst, width, nbytes (minor loop), count (major loop), interrupt
     #[allow(clippy::too_many_arguments)]
     unsafe fn configure_tcd(
-        edma: &embassy_mcxa::pac::edma_0_tcd0::RegisterBlock,
+        edma: embassy_mcxa::pac::edma_0_tcd::Edma0Tcd,
         ch: usize,
         src: u32,
         dst: u32,
@@ -108,65 +108,57 @@ async fn main(_spawner: Spawner) {
         count: u16,
         enable_int: bool,
     ) {
-        unsafe {
-            let t = edma.tcd(ch);
+        let t = edma.tcd(ch);
 
-            // Reset channel state
-            t.ch_csr().write(|w| {
-                w.erq()
-                    .disable()
-                    .earq()
-                    .disable()
-                    .eei()
-                    .no_error()
-                    .ebw()
-                    .disable()
-                    .done()
-                    .clear_bit_by_one()
-            });
-            t.ch_es().write(|w| w.bits(0));
-            t.ch_int().write(|w| w.int().clear_bit_by_one());
+        // Reset channel state
+        t.ch_csr().write(|w| {
+            w.set_erq(false);
+            w.set_earq(false);
+            w.set_eei(false);
+            w.set_ebw(false);
+            w.set_done(true);
+        });
+        t.ch_es().write(|w| w.0 = 0);
+        t.ch_int().write(|w| w.set_int(true));
 
-            // Source/destination addresses
-            t.tcd_saddr().write(|w| w.saddr().bits(src));
-            t.tcd_daddr().write(|w| w.daddr().bits(dst));
+        // Source/destination addresses
+        t.tcd_saddr().write(|w| w.set_saddr(src));
+        t.tcd_daddr().write(|w| w.set_daddr(dst));
 
-            // Offsets: increment by width
-            t.tcd_soff().write(|w| w.soff().bits(width as u16));
-            t.tcd_doff().write(|w| w.doff().bits(width as u16));
+        // Offsets: increment by width
+        t.tcd_soff().write(|w| w.set_soff(width as u16));
+        t.tcd_doff().write(|w| w.set_doff(width as u16));
 
-            // Attributes: size = log2(width)
-            let size = match width {
-                1 => 0,
-                2 => 1,
-                4 => 2,
-                _ => 0,
-            };
-            t.tcd_attr().write(|w| w.ssize().bits(size).dsize().bits(size));
+        // Attributes: size = log2(width)
+        let size = match width {
+            1 => Size::EIGHT_BIT,
+            2 => Size::SIXTEEN_BIT,
+            4 => Size::THIRTYTWO_BIT,
+            _ => Size::EIGHT_BIT,
+        };
+        t.tcd_attr().write(|w| {
+            w.set_ssize(size);
+            w.set_dsize(size);
+        });
 
-            // Number of bytes per minor loop
-            t.tcd_nbytes_mloffno().write(|w| w.nbytes().bits(nbytes));
+        // Number of bytes per minor loop
+        t.tcd_nbytes_mloffno().write(|w| w.set_nbytes(nbytes));
 
-            // Major loop: reset source address after major loop
-            let total_bytes = nbytes * count as u32;
-            t.tcd_slast_sda()
-                .write(|w| w.slast_sda().bits(-(total_bytes as i32) as u32));
-            t.tcd_dlast_sga()
-                .write(|w| w.dlast_sga().bits(-(total_bytes as i32) as u32));
+        // Major loop: reset source address after major loop
+        let total_bytes = nbytes * count as u32;
+        t.tcd_slast_sda()
+            .write(|w| w.set_slast_sda(-(total_bytes as i32) as u32));
+        t.tcd_dlast_sga()
+            .write(|w| w.set_dlast_sga(-(total_bytes as i32) as u32));
 
-            // Major loop count
-            t.tcd_biter_elinkno().write(|w| w.biter().bits(count));
-            t.tcd_citer_elinkno().write(|w| w.citer().bits(count));
+        // Major loop count
+        t.tcd_biter_elinkno().write(|w| w.set_biter(count));
+        t.tcd_citer_elinkno().write(|w| w.set_citer(count));
 
-            // Control/status: enable interrupt if requested
-            if enable_int {
-                t.tcd_csr().write(|w| w.intmajor().set_bit());
-            } else {
-                t.tcd_csr().write(|w| w.intmajor().clear_bit());
-            }
+        // Control/status: enable interrupt if requested
+        t.tcd_csr().write(|w| w.set_intmajor(enable_int));
 
-            cortex_m::asm::dsb();
-        }
+        cortex_m::asm::dsb();
     }
 
     unsafe {

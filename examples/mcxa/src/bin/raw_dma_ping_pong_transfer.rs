@@ -146,7 +146,7 @@ async fn main(_spawner: Spawner) {
     let tcd = dma_ch0.tcd();
     // Wait for first half
     loop {
-        if tcd.tcd_saddr().read().bits() != src.as_ptr() as u32 {
+        if tcd.tcd_saddr().read().0 != src.as_ptr() as u32 {
             break;
         }
     }
@@ -161,7 +161,7 @@ async fn main(_spawner: Spawner) {
 
     // Wait for second half
     loop {
-        if tcd.tcd_saddr().read().bits() != unsafe { src.as_ptr().add(half_len) } as u32 {
+        if tcd.tcd_saddr().read().0 != unsafe { src.as_ptr().add(half_len) } as u32 {
             break;
         }
     }

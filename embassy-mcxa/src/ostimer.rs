@@ -10,9 +10,10 @@ use embassy_time_queue_utils::Queue;
 
 use crate::clocks::periph_helpers::{OsTimerConfig, OstimerClockSel};
 use crate::clocks::{PoweredClock, enable_and_reset};
+use crate::interrupt;
 use crate::interrupt::InterruptExt;
+use crate::pac::OSTIMER0;
 use crate::peripherals::OSTIMER0;
-use crate::{interrupt, pac};
 
 struct AlarmState {
     timestamp: Cell<u64>,
@@ -26,10 +27,6 @@ impl AlarmState {
             timestamp: Cell::new(u64::MAX),
         }
     }
-}
-
-fn os() -> &'static pac::ostimer0::RegisterBlock {
-    unsafe { &*pac::Ostimer0::ptr() }
 }
 
 /// Convert gray to decimal
@@ -93,11 +90,11 @@ impl OsTimer {
         interrupt::OS_EVENT.disable();
 
         // Make sure interrupt is masked
-        os().osevent_ctrl().modify(|_, w| w.ostimer_intena().clear_bit());
+        OSTIMER0.osevent_ctrl().modify(|w| w.set_ostimer_intena(false));
 
         // Default to the end of time
-        os().match_l().write(|w| unsafe { w.bits(0xffff_ffff) });
-        os().match_h().write(|w| unsafe { w.bits(0xffff_ffff) });
+        OSTIMER0.match_l().write(|w| w.set_match_value(u32::MAX));
+        OSTIMER0.match_h().write(|w| w.set_match_value(u16::MAX));
 
         interrupt::OS_EVENT.unpend();
         interrupt::OS_EVENT.set_priority(irq_prio);
@@ -109,22 +106,24 @@ impl OsTimer {
         alarm.timestamp.set(timestamp);
 
         // Wait until we're allowed to write to MATCH_L/MATCH_H registers
-        while os().osevent_ctrl().read().match_wr_rdy().bit_is_set() {}
+        while OSTIMER0.osevent_ctrl().read().match_wr_rdy() {}
 
         let t = self.now();
         if timestamp <= t {
-            os().osevent_ctrl().modify(|_, w| w.ostimer_intena().clear_bit());
+            OSTIMER0.osevent_ctrl().modify(|w| w.set_ostimer_intena(false));
             alarm.timestamp.set(u64::MAX);
             return false;
         }
 
         let gray_timestamp = dec_to_gray(timestamp);
 
-        os().match_l()
-            .write(|w| unsafe { w.bits(gray_timestamp as u32 & 0xffff_ffff) });
-        os().match_h()
-            .write(|w| unsafe { w.bits((gray_timestamp >> 32) as u32) });
-        os().osevent_ctrl().modify(|_, w| w.ostimer_intena().set_bit());
+        OSTIMER0
+            .match_l()
+            .write(|w| w.set_match_value(gray_timestamp as u32 & 0xffff_ffff));
+        OSTIMER0
+            .match_h()
+            .write(|w| w.set_match_value((gray_timestamp >> 32) as u16));
+        OSTIMER0.osevent_ctrl().modify(|w| w.set_ostimer_intena(true));
 
         true
     }
@@ -139,9 +138,11 @@ impl OsTimer {
     fn on_interrupt(&self) {
         crate::perf_counters::incr_interrupt_ostimer();
         critical_section::with(|cs| {
-            if os().osevent_ctrl().read().ostimer_intrflag().bit_is_set() {
-                os().osevent_ctrl()
-                    .modify(|_, w| w.ostimer_intena().clear_bit().ostimer_intrflag().clear_bit_by_one());
+            if OSTIMER0.osevent_ctrl().read().ostimer_intrflag() {
+                OSTIMER0.osevent_ctrl().modify(|w| {
+                    w.set_ostimer_intena(false);
+                    w.set_ostimer_intrflag(true)
+                });
                 crate::perf_counters::incr_interrupt_ostimer_alarm();
                 self.trigger_alarm(cs);
             }
@@ -159,9 +160,9 @@ impl Driver for OsTimer {
             return 0;
         }
 
-        let mut t = os().evtimerh().read().bits() as u64;
+        let mut t = OSTIMER0.evtimerh().read().0 as u64;
         t <<= 32;
-        t |= os().evtimerl().read().bits() as u64;
+        t |= OSTIMER0.evtimerl().read().evtimer_count_value() as u64;
         gray_to_dec(t)
     }
 

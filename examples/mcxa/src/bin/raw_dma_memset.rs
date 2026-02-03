@@ -17,6 +17,7 @@
 use embassy_executor::Spawner;
 use embassy_mcxa::clocks::config::Div8;
 use embassy_mcxa::dma::DmaChannel;
+use embassy_mcxa::pac::edma_0_tcd::vals::Size;
 use static_cell::ConstStaticCell;
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
@@ -59,47 +60,45 @@ async fn main(_spawner: Spawner) {
 
         // Reset channel state
         t.ch_csr().write(|w| {
-            w.erq()
-                .disable()
-                .earq()
-                .disable()
-                .eei()
-                .no_error()
-                .ebw()
-                .disable()
-                .done()
-                .clear_bit_by_one()
+            w.set_erq(false);
+            w.set_earq(false);
+            w.set_eei(false);
+            w.set_ebw(false);
+            w.set_done(true);
         });
-        t.ch_es().write(|w| w.bits(0));
-        t.ch_int().write(|w| w.int().clear_bit_by_one());
+        t.ch_es().write(|w| w.0 = 0);
+        t.ch_int().write(|w| w.set_int(true));
 
         // Source address (pattern) - fixed
-        t.tcd_saddr().write(|w| w.saddr().bits(pat as *const _ as u32));
+        t.tcd_saddr().write(|w| w.set_saddr(pat as *const _ as u32));
         // Destination address - increments
-        t.tcd_daddr().write(|w| w.daddr().bits(dst.as_mut_ptr() as u32));
+        t.tcd_daddr().write(|w| w.set_daddr(dst.as_mut_ptr() as u32));
 
         // Source offset = 0 (stays fixed), Dest offset = 4 (increments)
-        t.tcd_soff().write(|w| w.soff().bits(0));
-        t.tcd_doff().write(|w| w.doff().bits(4));
+        t.tcd_soff().write(|w| w.set_soff(0));
+        t.tcd_doff().write(|w| w.set_doff(4));
 
         // Attributes: 32-bit transfers (size = 2)
-        t.tcd_attr().write(|w| w.ssize().bits(2).dsize().bits(2));
+        t.tcd_attr().write(|w| {
+            w.set_ssize(Size::THIRTYTWO_BIT);
+            w.set_dsize(Size::THIRTYTWO_BIT);
+        });
 
         // Transfer entire buffer in one minor loop
         let nbytes = (BUFFER_LENGTH * 4) as u32;
-        t.tcd_nbytes_mloffno().write(|w| w.nbytes().bits(nbytes));
+        t.tcd_nbytes_mloffno().write(|w| w.set_nbytes(nbytes));
 
         // Source doesn't need adjustment (stays fixed)
-        t.tcd_slast_sda().write(|w| w.slast_sda().bits(0));
+        t.tcd_slast_sda().write(|w| w.set_slast_sda(0));
         // Reset dest address after major loop
-        t.tcd_dlast_sga().write(|w| w.dlast_sga().bits(-(nbytes as i32) as u32));
+        t.tcd_dlast_sga().write(|w| w.set_dlast_sga(-(nbytes as i32) as u32));
 
         // Major loop count = 1
-        t.tcd_biter_elinkno().write(|w| w.biter().bits(1));
-        t.tcd_citer_elinkno().write(|w| w.citer().bits(1));
+        t.tcd_biter_elinkno().write(|w| w.set_biter(1));
+        t.tcd_citer_elinkno().write(|w| w.set_citer(1));
 
         // Enable interrupt on major loop completion
-        t.tcd_csr().write(|w| w.intmajor().set_bit());
+        t.tcd_csr().write(|w| w.set_intmajor(true));
 
         cortex_m::asm::dsb();
 

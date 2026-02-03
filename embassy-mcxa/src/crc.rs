@@ -3,10 +3,10 @@
 use core::marker::PhantomData;
 
 use embassy_hal_internal::Peri;
-use mcxa_pac::crc0::ctrl::{Fxor, Tcrc, Tot, Totr};
 
 use crate::clocks::enable_and_reset;
 use crate::clocks::periph_helpers::NoConfig;
+use crate::pac::crc::vals::{Fxor, Tcrc, Tot, Totr, Was};
 use crate::peripherals::CRC0;
 
 /// CRC driver.
@@ -28,28 +28,22 @@ impl<'d, M: Mode> Crc<'d, M> {
 
     // Configure the underlying peripheral according to the reference manual.
     fn configure(config: Config, width: Tcrc) {
-        Self::regs().ctrl().modify(|_, w| {
-            w.fxor()
-                .variant(config.complement_out.into())
-                .totr()
-                .variant(config.reflect_out.into())
-                .tot()
-                .variant(config.reflect_in.into())
-                .was()
-                .data()
-                .tcrc()
-                .variant(width)
+        Self::regs().ctrl().modify(|w| {
+            w.set_fxor(config.complement_out.into());
+            w.set_totr(config.reflect_out.into());
+            w.set_tot(config.reflect_in.into());
+            w.set_was(Was::DATA);
+            w.set_tcrc(width);
         });
 
-        Self::regs().gpoly32().write(|w| unsafe { w.bits(config.polynomial) });
-
-        Self::regs().ctrl().modify(|_, w| w.was().seed());
-        Self::regs().data32().write(|w| unsafe { w.bits(config.seed) });
-        Self::regs().ctrl().modify(|_, w| w.was().data());
+        Self::regs().gpoly32().write(|w| *w = config.polynomial);
+        Self::regs().ctrl().modify(|w| w.set_was(Was::SEED));
+        Self::regs().data32().write(|w| *w = config.seed);
+        Self::regs().ctrl().modify(|w| w.set_was(Was::DATA));
     }
 
-    fn regs() -> &'static crate::pac::crc0::RegisterBlock {
-        unsafe { &*crate::pac::Crc0::ptr() }
+    fn regs() -> crate::pac::crc::Crc {
+        crate::pac::CRC0
     }
 
     /// Read the computed CRC value
@@ -309,8 +303,8 @@ mod sealed {
     pub trait SealedMode {}
 
     pub trait SealedWord: Copy {
-        fn write(regs: &'static crate::pac::crc0::RegisterBlock, word: Self);
-        fn read(regs: &'static crate::pac::crc0::RegisterBlock) -> Self;
+        fn write(regs: crate::pac::crc::Crc, word: Self);
+        fn read(regs: crate::pac::crc::Crc) -> Self;
     }
 }
 
@@ -336,12 +330,12 @@ macro_rules! impl_word {
     ($t:ty, $width:literal, $write:expr, $read:expr) => {
         impl sealed::SealedWord for $t {
             #[inline]
-            fn write(regs: &'static crate::pac::crc0::RegisterBlock, word: Self) {
+            fn write(regs: crate::pac::crc::Crc, word: Self) {
                 $write(regs, word)
             }
 
             #[inline]
-            fn read(regs: &'static crate::pac::crc0::RegisterBlock) -> Self {
+            fn read(regs: crate::pac::crc::Crc) -> Self {
                 $read(regs)
             }
         }
@@ -354,35 +348,35 @@ impl_word!(u8, 8, write_u8, read_u8);
 impl_word!(u16, 16, write_u16, read_u16);
 impl_word!(u32, 32, write_u32, read_u32);
 
-fn write_u8(regs: &'static crate::pac::crc0::RegisterBlock, word: u8) {
-    regs.data8().write(|w| unsafe { w.bits(word) });
+fn write_u8(regs: crate::pac::crc::Crc, word: u8) {
+    regs.data8().write(|w| *w = word);
 }
 
-fn read_u8(regs: &'static crate::pac::crc0::RegisterBlock) -> u8 {
-    regs.data8().read().bits()
+fn read_u8(regs: crate::pac::crc::Crc) -> u8 {
+    regs.data8().read()
 }
 
-fn write_u16(regs: &'static crate::pac::crc0::RegisterBlock, word: u16) {
-    regs.data16().write(|w| unsafe { w.bits(word) });
+fn write_u16(regs: crate::pac::crc::Crc, word: u16) {
+    regs.data16().write(|w| *w = word);
 }
 
-fn read_u16(regs: &'static crate::pac::crc0::RegisterBlock) -> u16 {
+fn read_u16(regs: crate::pac::crc::Crc) -> u16 {
     let ctrl = regs.ctrl().read();
 
     // if transposition is enabled, result sits in the upper 16 bits
-    if ctrl.totr().is_byts_trnps() || ctrl.totr().is_byts_bts_trnps() {
-        (regs.data32().read().bits() >> 16) as u16
+    if matches!(ctrl.totr(), Totr::BYTS_TRNPS | Totr::BYTS_BTS_TRNPS) {
+        (regs.data32().read() >> 16) as u16
     } else {
-        regs.data16().read().bits()
+        regs.data16().read()
     }
 }
 
-fn write_u32(regs: &'static crate::pac::crc0::RegisterBlock, word: u32) {
-    regs.data32().write(|w| unsafe { w.bits(word) });
+fn write_u32(regs: crate::pac::crc::Crc, word: u32) {
+    regs.data32().write(|w| *w = word);
 }
 
-fn read_u32(regs: &'static crate::pac::crc0::RegisterBlock) -> u32 {
-    regs.data32().read().bits()
+fn read_u32(regs: crate::pac::crc::Crc) -> u32 {
+    regs.data32().read()
 }
 
 /// CRC configuration.
@@ -727,8 +721,8 @@ pub enum Reflect {
 impl From<Reflect> for Tot {
     fn from(value: Reflect) -> Tot {
         match value {
-            Reflect::No => Tot::BytsTrnps,
-            Reflect::Yes => Tot::BytsBtsTrnps,
+            Reflect::No => Tot::BYTS_TRNPS,
+            Reflect::Yes => Tot::BYTS_BTS_TRNPS,
         }
     }
 }
@@ -736,8 +730,8 @@ impl From<Reflect> for Tot {
 impl From<Reflect> for Totr {
     fn from(value: Reflect) -> Totr {
         match value {
-            Reflect::No => Totr::Notrnps,
-            Reflect::Yes => Totr::BytsBtsTrnps,
+            Reflect::No => Totr::NOTRNPS,
+            Reflect::Yes => Totr::BYTS_BTS_TRNPS,
         }
     }
 }
@@ -752,8 +746,8 @@ pub enum Complement {
 impl From<Complement> for Fxor {
     fn from(value: Complement) -> Fxor {
         match value {
-            Complement::No => Fxor::Noxor,
-            Complement::Yes => Fxor::Invert,
+            Complement::No => Fxor::NOXOR,
+            Complement::Yes => Fxor::INVERT,
         }
     }
 }

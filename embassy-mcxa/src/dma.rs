@@ -111,8 +111,10 @@ use embassy_hal_internal::PeripheralType;
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::clocks::Gate;
-use crate::pac;
-use crate::pac::Interrupt;
+use crate::pac::dma::vals::Halt;
+use crate::pac::edma_0_tcd::regs::{TcdAttr, TcdBiterElinkno, TcdCiterElinkno, TcdCsr};
+use crate::pac::edma_0_tcd::vals::{Bwc, Dreq, Esg, Size, Start};
+use crate::pac::{self, Interrupt};
 use crate::peripherals::DMA0;
 
 /// Initialize DMA controller (clock enabled, reset released, controller configured).
@@ -128,18 +130,12 @@ pub(crate) fn init() {
         DMA0::release_reset();
 
         // Configure DMA controller
-        let dma = &(*pac::Dma0::ptr());
-        dma.mp_csr().modify(|_, w| {
-            w.edbg()
-                .enable()
-                .erca()
-                .enable()
-                .halt()
-                .normal_operation()
-                .gclc()
-                .available()
-                .gmrc()
-                .available()
+        pac::DMA0.mp_csr().modify(|w| {
+            w.set_edbg(true);
+            w.set_erca(true);
+            w.set_halt(Halt::NORMAL_OPERATION);
+            w.set_gclc(true);
+            w.set_gmrc(true);
         });
     }
 }
@@ -211,11 +207,11 @@ impl WordSize {
     }
 
     /// Convert to hardware SSIZE/DSIZE field value.
-    pub const fn to_hw_size(self) -> u8 {
+    pub const fn to_hw_size(self) -> Size {
         match self {
-            WordSize::OneByte => 0,
-            WordSize::TwoBytes => 1,
-            WordSize::FourBytes => 2,
+            WordSize::OneByte => Size::EIGHT_BIT,
+            WordSize::TwoBytes => Size::SIXTEEN_BIT,
+            WordSize::FourBytes => Size::THIRTYTWO_BIT,
         }
     }
 
@@ -474,16 +470,15 @@ impl AnyChannel {
     ///
     /// This steals the eDMA pointer internally since MCXA276 has only one eDMA instance.
     #[inline]
-    fn tcd(&self) -> &'static pac::edma_0_tcd0::Tcd {
+    fn tcd(&self) -> pac::edma_0_tcd::Tcd {
         // Safety: MCXA276 has a single eDMA instance, and we're only accessing
         // the TCD for this specific channel
-        let edma = unsafe { &*pac::Edma0Tcd0::ptr() };
-        edma.tcd(self.index)
+        pac::EDMA_0_TCD0.tcd(self.index)
     }
 
     /// Check if the channel's DONE flag is set.
     pub fn is_done(&self) -> bool {
-        self.tcd().ch_csr().read().done().bit_is_set()
+        self.tcd().ch_csr().read().done()
     }
 
     /// Get the waker for this channel.
@@ -642,92 +637,93 @@ impl<C: Channel> DmaChannel<C> {
     /// This is exposed for advanced use cases that need direct TCD access.
     /// For most use cases, prefer the higher-level transfer methods.
     #[inline]
-    pub fn tcd(&self) -> &'static pac::edma_0_tcd0::Tcd {
+    pub fn tcd(&self) -> pac::edma_0_tcd::Tcd {
         // Safety: MCXA276 has a single eDMA instance
-        let edma = unsafe { &*pac::Edma0Tcd0::ptr() };
-        edma.tcd(C::INDEX)
+        pac::EDMA_0_TCD0.tcd(C::INDEX)
     }
 
-    fn clear_tcd(t: &'static pac::edma_0_tcd0::Tcd) {
+    fn clear_tcd(t: &pac::edma_0_tcd::Tcd) {
         // Full TCD reset following NXP SDK pattern (EDMA_TcdResetExt).
         // Reset ALL TCD registers to 0 to clear any stale configuration from
         // previous transfers. This is critical when reusing a channel.
-        t.tcd_saddr().write(|w| unsafe { w.saddr().bits(0) });
-        t.tcd_soff().write(|w| unsafe { w.soff().bits(0) });
-        t.tcd_attr().write(|w| unsafe { w.bits(0) });
-        t.tcd_nbytes_mloffno().write(|w| unsafe { w.nbytes().bits(0) });
-        t.tcd_slast_sda().write(|w| unsafe { w.slast_sda().bits(0) });
-        t.tcd_daddr().write(|w| unsafe { w.daddr().bits(0) });
-        t.tcd_doff().write(|w| unsafe { w.doff().bits(0) });
-        t.tcd_citer_elinkno().write(|w| unsafe { w.bits(0) });
-        t.tcd_dlast_sga().write(|w| unsafe { w.dlast_sga().bits(0) });
-        t.tcd_csr().write(|w| unsafe { w.bits(0) }); // Clear CSR completely
-        t.tcd_biter_elinkno().write(|w| unsafe { w.bits(0) });
+        t.tcd_saddr().write(|w| w.set_saddr(0));
+        t.tcd_soff().write(|w| w.set_soff(0));
+        t.tcd_attr().write(|w| *w = TcdAttr(0));
+        t.tcd_nbytes_mloffno().write(|w| w.set_nbytes(0));
+        t.tcd_slast_sda().write(|w| w.set_slast_sda(0));
+        t.tcd_daddr().write(|w| w.set_daddr(0));
+        t.tcd_doff().write(|w| w.set_doff(0));
+        t.tcd_citer_elinkno().write(|w| *w = TcdCiterElinkno(0));
+        t.tcd_dlast_sga().write(|w| w.set_dlast_sga(0));
+        t.tcd_csr().write(|w| *w = TcdCsr(0)); // Clear CSR completly
+        t.tcd_biter_elinkno().write(|w| *w = TcdBiterElinkno(0));
     }
 
     #[inline]
-    fn set_major_loop_ct_elinkno(t: &'static pac::edma_0_tcd0::Tcd, count: u16) {
-        t.tcd_biter_elinkno().write(|w| unsafe { w.biter().bits(count) });
-        t.tcd_citer_elinkno().write(|w| unsafe { w.citer().bits(count) });
+    fn set_major_loop_ct_elinkno(t: &pac::edma_0_tcd::Tcd, count: u16) {
+        t.tcd_biter_elinkno().write(|w| w.set_biter(count));
+        t.tcd_citer_elinkno().write(|w| w.set_citer(count));
     }
 
     #[inline]
-    fn set_minor_loop_ct_no_offsets(t: &'static pac::edma_0_tcd0::Tcd, count: u32) {
-        t.tcd_nbytes_mloffno().write(|w| unsafe { w.nbytes().bits(count) });
+    fn set_minor_loop_ct_no_offsets(t: &pac::edma_0_tcd::Tcd, count: u32) {
+        t.tcd_nbytes_mloffno().write(|w| w.set_nbytes(count));
     }
 
     #[inline]
-    fn set_no_final_adjustments(t: &'static pac::edma_0_tcd0::Tcd) {
+    fn set_no_final_adjustments(t: &pac::edma_0_tcd::Tcd) {
         // No source/dest adjustment after major loop
-        t.tcd_slast_sda().write(|w| unsafe { w.slast_sda().bits(0) });
-        t.tcd_dlast_sga().write(|w| unsafe { w.dlast_sga().bits(0) });
+        t.tcd_slast_sda().write(|w| w.set_slast_sda(0));
+        t.tcd_dlast_sga().write(|w| w.set_dlast_sga(0));
     }
 
     #[inline]
-    fn set_source_ptr<T>(t: &'static pac::edma_0_tcd0::Tcd, p: *const T) {
-        t.tcd_saddr().write(|w| unsafe { w.saddr().bits(p as u32) });
+    fn set_source_ptr<T>(t: &pac::edma_0_tcd::Tcd, p: *const T) {
+        t.tcd_saddr().write(|w| w.set_saddr(p as u32));
     }
 
     #[inline]
-    fn set_source_increment(t: &'static pac::edma_0_tcd0::Tcd, sz: WordSize) {
-        t.tcd_soff().write(|w| unsafe { w.soff().bits(sz.bytes() as u16) });
+    fn set_source_increment(t: &pac::edma_0_tcd::Tcd, sz: WordSize) {
+        t.tcd_soff().write(|w| w.set_soff(sz.bytes() as u16));
     }
 
     #[inline]
-    fn set_source_fixed(t: &'static pac::edma_0_tcd0::Tcd) {
-        t.tcd_soff().write(|w| unsafe { w.soff().bits(0) });
+    fn set_source_fixed(t: &pac::edma_0_tcd::Tcd) {
+        t.tcd_soff().write(|w| w.set_soff(0));
     }
 
     #[inline]
-    fn set_dest_ptr<T>(t: &'static pac::edma_0_tcd0::Tcd, p: *mut T) {
-        t.tcd_daddr().write(|w| unsafe { w.daddr().bits(p as u32) });
+    fn set_dest_ptr<T>(t: &pac::edma_0_tcd::Tcd, p: *mut T) {
+        t.tcd_daddr().write(|w| w.set_daddr(p as u32));
     }
 
     #[inline]
-    fn set_dest_increment(t: &'static pac::edma_0_tcd0::Tcd, sz: WordSize) {
-        t.tcd_doff().write(|w| unsafe { w.doff().bits(sz.bytes() as u16) });
+    fn set_dest_increment(t: &pac::edma_0_tcd::Tcd, sz: WordSize) {
+        t.tcd_doff().write(|w| w.set_doff(sz.bytes() as u16));
     }
 
     #[inline]
-    fn set_dest_fixed(t: &'static pac::edma_0_tcd0::Tcd) {
-        t.tcd_doff().write(|w| unsafe { w.doff().bits(0) });
+    fn set_dest_fixed(t: &pac::edma_0_tcd::Tcd) {
+        t.tcd_doff().write(|w| w.set_doff(0));
     }
 
     #[inline]
-    fn set_even_transfer_size(t: &'static pac::edma_0_tcd0::Tcd, sz: WordSize) {
+    fn set_even_transfer_size(t: &pac::edma_0_tcd::Tcd, sz: WordSize) {
         let hw_size = sz.to_hw_size();
-        t.tcd_attr()
-            .write(|w| unsafe { w.ssize().bits(hw_size).dsize().bits(hw_size) });
+        t.tcd_attr().write(|w| {
+            w.set_ssize(hw_size);
+            w.set_dsize(hw_size);
+        });
     }
 
     #[inline]
-    fn reset_channel_state(t: &'static pac::edma_0_tcd0::Tcd) {
+    fn reset_channel_state(t: &pac::edma_0_tcd::Tcd) {
         // CSR: Resets to all zeroes (disabled), "done" is cleared by writing 1
-        t.ch_csr().write(|w| w.done().clear_bit_by_one());
+        t.ch_csr().write(|w| w.set_done(true));
         // ES: Resets to all zeroes (disabled), "err" is cleared by writing 1
-        t.ch_es().write(|w| w.err().clear_bit_by_one());
+        t.ch_es().write(|w| w.set_err(true));
         // INT: Resets to all zeroes (disabled), "int" is cleared by writing 1
-        t.ch_int().write(|w| w.int().clear_bit_by_one());
+        t.ch_int().write(|w| w.set_int(true));
     }
 
     /// Start an async transfer.
@@ -744,11 +740,14 @@ impl<C: Channel> DmaChannel<C> {
     pub unsafe fn start_transfer(&self) -> Transfer<'_> {
         // Clear any previous DONE/INT flags
         let t = self.tcd();
-        t.ch_csr().modify(|_, w| w.done().clear_bit_by_one());
-        t.ch_int().write(|w| w.int().clear_bit_by_one());
+        t.ch_csr().modify(|w| w.set_done(true));
+        t.ch_int().write(|w| w.set_int(true));
 
         // Enable the channel request
-        t.ch_csr().modify(|_, w| w.erq().enable().earq().enable());
+        t.ch_csr().modify(|w| {
+            w.set_erq(true);
+            w.set_earq(true);
+        });
 
         Transfer::new(self.as_any())
     }
@@ -793,12 +792,12 @@ impl<C: Channel> DmaChannel<C> {
         let t = self.tcd();
 
         // Reset channel state - clear DONE, disable requests, clear errors
-        Self::reset_channel_state(t);
+        Self::reset_channel_state(&t);
 
         // Memory barrier to ensure channel state is fully reset before touching TCD
         cortex_m::asm::dsb();
 
-        Self::clear_tcd(t);
+        Self::clear_tcd(&t);
 
         // Memory barrier after TCD reset
         cortex_m::asm::dsb();
@@ -809,25 +808,25 @@ impl<C: Channel> DmaChannel<C> {
         // Now configure the new transfer
 
         // Source address and increment
-        Self::set_source_ptr(t, src.as_ptr());
-        Self::set_source_increment(t, size);
+        Self::set_source_ptr(&t, src.as_ptr());
+        Self::set_source_increment(&t, size);
 
         // Destination address and increment
-        Self::set_dest_ptr(t, dst.as_mut_ptr());
-        Self::set_dest_increment(t, size);
+        Self::set_dest_ptr(&t, dst.as_mut_ptr());
+        Self::set_dest_increment(&t, size);
 
         // Transfer attributes (size)
-        Self::set_even_transfer_size(t, size);
+        Self::set_even_transfer_size(&t, size);
 
         // Minor loop: transfer all bytes in one minor loop
-        Self::set_minor_loop_ct_no_offsets(t, byte_count);
+        Self::set_minor_loop_ct_no_offsets(&t, byte_count);
 
         // No source/dest adjustment after major loop
-        Self::set_no_final_adjustments(t);
+        Self::set_no_final_adjustments(&t);
 
         // Major loop count = 1 (single major loop)
         // Write BITER first, then CITER (CITER must match BITER at start)
-        Self::set_major_loop_ct_elinkno(t, 1);
+        Self::set_major_loop_ct_elinkno(&t, 1);
 
         // Memory barrier before setting START
         cortex_m::asm::dsb();
@@ -836,14 +835,10 @@ impl<C: Channel> DmaChannel<C> {
         // Write this last after all other TCD registers are configured
         let int_major = options.complete_transfer_interrupt;
         t.tcd_csr().write(|w| {
-            w.intmajor()
-                .bit(int_major)
-                .inthalf()
-                .bit(options.half_transfer_interrupt)
-                .dreq()
-                .set_bit() // Auto-disable request after major loop
-                .start()
-                .set_bit() // Start the channel
+            w.set_intmajor(int_major);
+            w.set_inthalf(options.half_transfer_interrupt);
+            w.set_dreq(Dreq::ERQ_FIELD_CLEAR); // Auto-disable request after major loop
+            w.set_start(Start::CHANNEL_STARTED); // Start the channel
         });
 
         Ok(Transfer::new(self.as_any()))
@@ -888,12 +883,12 @@ impl<C: Channel> DmaChannel<C> {
         let t = self.tcd();
 
         // Reset channel state - clear DONE, disable requests, clear errors
-        Self::reset_channel_state(t);
+        Self::reset_channel_state(&t);
 
         // Memory barrier to ensure channel state is fully reset before touching TCD
         cortex_m::asm::dsb();
 
-        Self::clear_tcd(t);
+        Self::clear_tcd(&t);
 
         // Memory barrier after TCD reset
         cortex_m::asm::dsb();
@@ -910,26 +905,26 @@ impl<C: Channel> DmaChannel<C> {
         // START triggers.
 
         // Source: pattern address, fixed (soff=0)
-        Self::set_source_ptr(t, pattern);
-        Self::set_source_fixed(t);
+        Self::set_source_ptr(&t, pattern);
+        Self::set_source_fixed(&t);
 
         // Destination: memory buffer, incrementing by word size
-        Self::set_dest_ptr(t, dst.as_mut_ptr());
-        Self::set_dest_increment(t, size);
+        Self::set_dest_ptr(&t, dst.as_mut_ptr());
+        Self::set_dest_increment(&t, size);
 
         // Transfer attributes - source and dest are same word size
-        Self::set_even_transfer_size(t, size);
+        Self::set_even_transfer_size(&t, size);
 
         // Minor loop: transfer ALL bytes in one minor loop (like mem_to_mem)
         // This allows the entire transfer to complete with a single START trigger
-        Self::set_minor_loop_ct_no_offsets(t, total_bytes);
+        Self::set_minor_loop_ct_no_offsets(&t, total_bytes);
 
         // No address adjustment after major loop
-        Self::set_no_final_adjustments(t);
+        Self::set_no_final_adjustments(&t);
 
         // Major loop count = 1 (single major loop, all data in minor loop)
         // Write BITER first, then CITER (CITER must match BITER at start)
-        Self::set_major_loop_ct_elinkno(t, 1);
+        Self::set_major_loop_ct_elinkno(&t, 1);
 
         // Memory barrier before setting START
         cortex_m::asm::dsb();
@@ -938,14 +933,10 @@ impl<C: Channel> DmaChannel<C> {
         // Write this last after all other TCD registers are configured
         let int_major = options.complete_transfer_interrupt;
         t.tcd_csr().write(|w| {
-            w.intmajor()
-                .bit(int_major)
-                .inthalf()
-                .bit(options.half_transfer_interrupt)
-                .dreq()
-                .set_bit() // Auto-disable request after major loop
-                .start()
-                .set_bit() // Start the channel
+            w.set_intmajor(int_major);
+            w.set_inthalf(options.half_transfer_interrupt);
+            w.set_dreq(Dreq::ERQ_FIELD_CLEAR); // Auto-disable request after major loop
+            w.set_start(Start::CHANNEL_STARTED); // Start the channel
         });
 
         Transfer::new(self.as_any())
@@ -1050,50 +1041,39 @@ impl<C: Channel> DmaChannel<C> {
         let t = self.tcd();
 
         // Reset channel state
-        Self::reset_channel_state(t);
+        Self::reset_channel_state(&t);
 
         // Addresses
-        Self::set_source_ptr(t, buf.as_ptr());
-        Self::set_dest_ptr(t, peri_addr);
+        Self::set_source_ptr(&t, buf.as_ptr());
+        Self::set_dest_ptr(&t, peri_addr);
 
         // Offsets: Source increments, Dest fixed
-        Self::set_source_increment(t, size);
-        Self::set_dest_fixed(t);
+        Self::set_source_increment(&t, size);
+        Self::set_dest_fixed(&t);
 
         // Attributes: set size and explicitly disable modulo
-        Self::set_even_transfer_size(t, size);
+        Self::set_even_transfer_size(&t, size);
 
         // Minor loop: transfer one word per request (match old: only set nbytes)
-        Self::set_minor_loop_ct_no_offsets(t, byte_size as u32);
+        Self::set_minor_loop_ct_no_offsets(&t, byte_size as u32);
 
         // No final adjustments
-        Self::set_no_final_adjustments(t);
+        Self::set_no_final_adjustments(&t);
 
         // Major loop count = number of words
         let count = buf.len() as u16;
-        Self::set_major_loop_ct_elinkno(t, count);
+        Self::set_major_loop_ct_elinkno(&t, count);
 
         // CSR: interrupt on major loop complete and auto-clear ERQ
         t.tcd_csr().write(|w| {
-            let w = if options.complete_transfer_interrupt {
-                w.intmajor().enable()
-            } else {
-                w.intmajor().disable()
-            };
-            w.inthalf()
-                .disable()
-                .dreq()
-                .erq_field_clear() // Disable request when done
-                .esg()
-                .normal_format()
-                .majorelink()
-                .disable()
-                .eeop()
-                .disable()
-                .esda()
-                .disable()
-                .bwc()
-                .no_stall()
+            w.set_intmajor(options.complete_transfer_interrupt);
+            w.set_inthalf(false);
+            w.set_dreq(Dreq::ERQ_FIELD_CLEAR); // Disable request when done
+            w.set_esg(Esg::NORMAL_FORMAT);
+            w.set_majorelink(false);
+            w.set_eeop(false);
+            w.set_esda(false);
+            w.set_bwc(Bwc::NO_STALL);
         });
 
         // Ensure all TCD writes have completed before DMA engine reads them
@@ -1202,53 +1182,39 @@ impl<C: Channel> DmaChannel<C> {
         let t = self.tcd();
 
         // Reset channel control/error/interrupt state
-        Self::reset_channel_state(t);
+        Self::reset_channel_state(&t);
 
         // Source: peripheral register, fixed
-        Self::set_source_ptr(t, peri_addr);
-        Self::set_source_fixed(t);
+        Self::set_source_ptr(&t, peri_addr);
+        Self::set_source_fixed(&t);
 
         // Destination: memory buffer, incrementing
-        Self::set_dest_ptr(t, buf.as_mut_ptr());
-        Self::set_dest_increment(t, size);
+        Self::set_dest_ptr(&t, buf.as_mut_ptr());
+        Self::set_dest_increment(&t, size);
 
         // Transfer attributes: set size and explicitly disable modulo
-        Self::set_even_transfer_size(t, size);
+        Self::set_even_transfer_size(&t, size);
 
         // Minor loop: transfer one word per request, no offsets
-        Self::set_minor_loop_ct_no_offsets(t, byte_size as u32);
+        Self::set_minor_loop_ct_no_offsets(&t, byte_size as u32);
 
         // Major loop count = number of words
         let count = buf.len() as u16;
-        Self::set_major_loop_ct_elinkno(t, count);
+        Self::set_major_loop_ct_elinkno(&t, count);
 
         // No address adjustment after major loop
-        Self::set_no_final_adjustments(t);
+        Self::set_no_final_adjustments(&t);
 
         // Control/status: interrupt on major complete, auto-clear ERQ when done
         t.tcd_csr().write(|w| {
-            let w = if options.complete_transfer_interrupt {
-                w.intmajor().enable()
-            } else {
-                w.intmajor().disable()
-            };
-            let w = if options.half_transfer_interrupt {
-                w.inthalf().enable()
-            } else {
-                w.inthalf().disable()
-            };
-            w.dreq()
-                .erq_field_clear() // Disable request when done (important for peripheral DMA)
-                .esg()
-                .normal_format()
-                .majorelink()
-                .disable()
-                .eeop()
-                .disable()
-                .esda()
-                .disable()
-                .bwc()
-                .no_stall()
+            w.set_intmajor(options.complete_transfer_interrupt);
+            w.set_inthalf(options.half_transfer_interrupt);
+            w.set_dreq(Dreq::ERQ_FIELD_CLEAR); // Disable request when done (important for peripheral DMA)
+            w.set_esg(Esg::NORMAL_FORMAT);
+            w.set_majorelink(false);
+            w.set_eeop(false);
+            w.set_esda(false);
+            w.set_bwc(Bwc::NO_STALL);
         });
 
         // Ensure all TCD writes have completed before DMA engine reads them
@@ -1294,49 +1260,39 @@ impl<C: Channel> DmaChannel<C> {
         let t = self.tcd();
 
         // Reset channel state
-        Self::reset_channel_state(t);
+        Self::reset_channel_state(&t);
 
         // Addresses
-        Self::set_source_ptr(t, buf.as_ptr());
-        Self::set_dest_ptr(t, peri_addr);
+        Self::set_source_ptr(&t, buf.as_ptr());
+        Self::set_dest_ptr(&t, peri_addr);
 
         // Offsets: Source increments, Dest fixed
-        Self::set_source_increment(t, size);
-        Self::set_dest_fixed(t);
+        Self::set_source_increment(&t, size);
+        Self::set_dest_fixed(&t);
 
         // Attributes: set size and explicitly disable modulo
-        Self::set_even_transfer_size(t, size);
+        Self::set_even_transfer_size(&t, size);
 
         // Minor loop: transfer one word per request
-        Self::set_minor_loop_ct_no_offsets(t, byte_size as u32);
+        Self::set_minor_loop_ct_no_offsets(&t, byte_size as u32);
 
         // No final adjustments
-        Self::set_no_final_adjustments(t);
+        Self::set_no_final_adjustments(&t);
 
         // Major loop count = number of words
         let count = buf.len() as u16;
-        Self::set_major_loop_ct_elinkno(t, count);
+        Self::set_major_loop_ct_elinkno(&t, count);
 
         // CSR: optional interrupt on major loop complete and auto-clear ERQ
         t.tcd_csr().write(|w| {
-            let w = match enable_interrupt {
-                EnableInterrupt::Yes => w.intmajor().enable(),
-                EnableInterrupt::No => w.intmajor().disable(),
-            };
-            w.inthalf()
-                .disable()
-                .dreq()
-                .erq_field_clear()
-                .esg()
-                .normal_format()
-                .majorelink()
-                .disable()
-                .eeop()
-                .disable()
-                .esda()
-                .disable()
-                .bwc()
-                .no_stall()
+            w.set_intmajor(matches!(enable_interrupt, EnableInterrupt::Yes));
+            w.set_inthalf(false);
+            w.set_dreq(Dreq::ERQ_FIELD_CLEAR);
+            w.set_esg(Esg::NORMAL_FORMAT);
+            w.set_majorelink(false);
+            w.set_eeop(false);
+            w.set_esda(false);
+            w.set_bwc(Bwc::NO_STALL);
         });
 
         // Ensure all TCD writes have completed before DMA engine reads them
@@ -1380,49 +1336,39 @@ impl<C: Channel> DmaChannel<C> {
         let t = self.tcd();
 
         // Reset channel control/error/interrupt state
-        Self::reset_channel_state(t);
+        Self::reset_channel_state(&t);
 
         // Source: peripheral register, fixed
-        Self::set_source_ptr(t, peri_addr);
-        Self::set_source_fixed(t);
+        Self::set_source_ptr(&t, peri_addr);
+        Self::set_source_fixed(&t);
 
         // Destination: memory buffer, incrementing
-        Self::set_dest_ptr(t, buf.as_mut_ptr());
-        Self::set_dest_increment(t, size);
+        Self::set_dest_ptr(&t, buf.as_mut_ptr());
+        Self::set_dest_increment(&t, size);
 
         // Attributes: set size and explicitly disable modulo
-        Self::set_even_transfer_size(t, size);
+        Self::set_even_transfer_size(&t, size);
 
         // Minor loop: transfer one word per request
-        Self::set_minor_loop_ct_no_offsets(t, byte_size as u32);
+        Self::set_minor_loop_ct_no_offsets(&t, byte_size as u32);
 
         // No final adjustments
-        Self::set_no_final_adjustments(t);
+        Self::set_no_final_adjustments(&t);
 
         // Major loop count = number of words
         let count = buf.len() as u16;
-        Self::set_major_loop_ct_elinkno(t, count);
+        Self::set_major_loop_ct_elinkno(&t, count);
 
         // CSR: optional interrupt on major loop complete and auto-clear ERQ
         t.tcd_csr().write(|w| {
-            let w = match enable_interrupt {
-                EnableInterrupt::Yes => w.intmajor().enable(),
-                EnableInterrupt::No => w.intmajor().disable(),
-            };
-            w.inthalf()
-                .disable()
-                .dreq()
-                .erq_field_clear()
-                .esg()
-                .normal_format()
-                .majorelink()
-                .disable()
-                .eeop()
-                .disable()
-                .esda()
-                .disable()
-                .bwc()
-                .no_stall()
+            w.set_intmajor(matches!(enable_interrupt, EnableInterrupt::Yes));
+            w.set_inthalf(false);
+            w.set_dreq(Dreq::ERQ_FIELD_CLEAR);
+            w.set_esg(Esg::NORMAL_FORMAT);
+            w.set_majorelink(false);
+            w.set_eeop(false);
+            w.set_esda(false);
+            w.set_bwc(Bwc::NO_STALL);
         });
 
         // Ensure all TCD writes have completed before DMA engine reads them
@@ -1459,12 +1405,10 @@ impl<C: Channel> DmaChannel<C> {
     /// ```
     #[inline]
     pub unsafe fn set_request_source<R: DmaRequest>(&self) {
-        unsafe {
-            // Two-step write per NXP SDK: clear to 0, then set actual source.
-            self.tcd().ch_mux().write(|w| w.src().bits(0));
-            cortex_m::asm::dsb(); // Ensure the clear completes before setting new source
-            self.tcd().ch_mux().write(|w| w.src().bits(R::REQUEST_NUMBER));
-        }
+        // Two-step write per NXP SDK: clear to 0, then set actual source.
+        self.tcd().ch_mux().write(|w| w.set_src(0));
+        cortex_m::asm::dsb(); // Ensure the clear completes before setting new source
+        self.tcd().ch_mux().write(|w| w.set_src(R::REQUEST_NUMBER));
     }
 
     /// Enable hardware requests for this channel (ERQ=1).
@@ -1474,7 +1418,10 @@ impl<C: Channel> DmaChannel<C> {
     /// The channel must be properly configured before enabling requests.
     pub unsafe fn enable_request(&self) {
         let t = self.tcd();
-        t.ch_csr().modify(|_, w| w.erq().enable().earq().enable());
+        t.ch_csr().modify(|w| {
+            w.set_erq(true);
+            w.set_earq(true);
+        });
     }
 
     /// Disable hardware requests for this channel (ERQ=0).
@@ -1484,13 +1431,16 @@ impl<C: Channel> DmaChannel<C> {
     /// Disabling requests on an active transfer may leave the transfer incomplete.
     pub unsafe fn disable_request(&self) {
         let t = self.tcd();
-        t.ch_csr().modify(|_, w| w.erq().disable().earq().disable());
+        t.ch_csr().modify(|w| {
+            w.set_erq(false);
+            w.set_earq(false);
+        });
     }
 
     /// Return true if the channel's DONE flag is set.
     pub fn is_done(&self) -> bool {
         let t = self.tcd();
-        t.ch_csr().read().done().bit_is_set()
+        t.ch_csr().read().done()
     }
 
     /// Clear the DONE flag for this channel.
@@ -1503,7 +1453,7 @@ impl<C: Channel> DmaChannel<C> {
     /// Clearing DONE while a transfer is in progress may cause undefined behavior.
     pub unsafe fn clear_done(&self) {
         let t = self.tcd();
-        t.ch_csr().modify(|_, w| w.done().clear_bit_by_one());
+        t.ch_csr().modify(|w| w.set_done(true));
     }
 
     /// Clear the channel interrupt flag (CH_INT.INT).
@@ -1513,7 +1463,7 @@ impl<C: Channel> DmaChannel<C> {
     /// Must be called from the correct interrupt context or with interrupts disabled.
     pub unsafe fn clear_interrupt(&self) {
         let t = self.tcd();
-        t.ch_int().write(|w| w.int().clear_bit_by_one());
+        t.ch_int().write(|w| w.set_int(true));
     }
 
     /// Trigger a software start for this channel.
@@ -1523,7 +1473,7 @@ impl<C: Channel> DmaChannel<C> {
     /// The channel must be properly configured with a valid TCD before triggering.
     pub unsafe fn trigger_start(&self) {
         let t = self.tcd();
-        t.tcd_csr().modify(|_, w| w.start().channel_started());
+        t.tcd_csr().modify(|w| w.set_start(Start::CHANNEL_STARTED));
     }
 
     /// Get the waker for this channel
@@ -1551,11 +1501,11 @@ impl<C: Channel> DmaChannel<C> {
     ///
     /// The channel must be properly configured before setting up linking.
     pub unsafe fn set_major_link(&self, link_ch: usize) {
-        unsafe {
-            let t = self.tcd();
-            t.tcd_csr()
-                .modify(|_, w| w.majorelink().enable().majorlinkch().bits(link_ch as u8));
-        }
+        let t = self.tcd();
+        t.tcd_csr().modify(|w| {
+            w.set_majorelink(true);
+            w.set_majorlinkch(link_ch as u8)
+        });
     }
 
     /// Disable Major Loop Linking.
@@ -1568,7 +1518,7 @@ impl<C: Channel> DmaChannel<C> {
     /// depends on the linking.
     pub unsafe fn clear_major_link(&self) {
         let t = self.tcd();
-        t.tcd_csr().modify(|_, w| w.majorelink().disable());
+        t.tcd_csr().modify(|w| w.set_majorelink(false));
     }
 
     /// Enable Minor Loop Linking.
@@ -1589,32 +1539,24 @@ impl<C: Channel> DmaChannel<C> {
     ///
     /// The channel must be properly configured before setting up linking.
     pub unsafe fn set_minor_link(&self, link_ch: usize) {
-        unsafe {
-            let t = self.tcd();
+        let t = self.tcd();
 
-            // Read current CITER (assuming ELINKNO format initially)
-            let current_citer = t.tcd_citer_elinkno().read().citer().bits();
-            let current_biter = t.tcd_biter_elinkno().read().biter().bits();
+        // Read current CITER (assuming ELINKNO format initially)
+        let current_citer = t.tcd_citer_elinkno().read().citer();
+        let current_biter = t.tcd_biter_elinkno().read().biter();
 
-            // Write back using ELINKYES format
-            t.tcd_citer_elinkyes().write(|w| {
-                w.citer()
-                    .bits(current_citer)
-                    .elink()
-                    .enable()
-                    .linkch()
-                    .bits(link_ch as u8)
-            });
+        // Write back using ELINKYES format
+        t.tcd_citer_elinkyes().write(|w| {
+            w.set_citer(current_citer);
+            w.set_elink(true);
+            w.set_linkch(link_ch as u8);
+        });
 
-            t.tcd_biter_elinkyes().write(|w| {
-                w.biter()
-                    .bits(current_biter)
-                    .elink()
-                    .enable()
-                    .linkch()
-                    .bits(link_ch as u8)
-            });
-        }
+        t.tcd_biter_elinkyes().write(|w| {
+            w.set_biter(current_biter);
+            w.set_elink(true);
+            w.set_linkch(link_ch as u8);
+        });
     }
 
     /// Disable Minor Loop Linking.
@@ -1628,22 +1570,24 @@ impl<C: Channel> DmaChannel<C> {
     /// The caller must ensure this doesn't disrupt an active transfer that
     /// depends on the linking.
     pub unsafe fn clear_minor_link(&self) {
-        unsafe {
-            let t = self.tcd();
+        let t = self.tcd();
 
-            // Read current CITER (could be in either format, but we only need the count)
-            // Note: In ELINKYES format, citer is 9 bits; in ELINKNO, it's 15 bits.
-            // We read from ELINKNO which will give us the combined value.
-            let current_citer = t.tcd_citer_elinkno().read().citer().bits();
-            let current_biter = t.tcd_biter_elinkno().read().biter().bits();
+        // Read current CITER (could be in either format, but we only need the count)
+        // Note: In ELINKYES format, citer is 9 bits; in ELINKNO, it's 15 bits.
+        // We read from ELINKNO which will give us the combined value.
+        let current_citer = t.tcd_citer_elinkno().read().citer();
+        let current_biter = t.tcd_biter_elinkno().read().biter();
 
-            // Write back using ELINKNO format (disabling link)
-            t.tcd_citer_elinkno()
-                .write(|w| w.citer().bits(current_citer).elink().disable());
+        // Write back using ELINKNO format (disabling link)
+        t.tcd_citer_elinkno().write(|w| {
+            w.set_citer(current_citer);
+            w.set_elink(false);
+        });
 
-            t.tcd_biter_elinkno()
-                .write(|w| w.biter().bits(current_biter).elink().disable());
-        }
+        t.tcd_biter_elinkno().write(|w| {
+            w.set_biter(current_biter);
+            w.set_elink(false);
+        });
     }
 
     /// Load a TCD from memory into the hardware channel registers.
@@ -1656,20 +1600,18 @@ impl<C: Channel> DmaChannel<C> {
     /// - The TCD must be properly initialized.
     /// - The caller must ensure no concurrent access to the same channel.
     pub unsafe fn load_tcd(&self, tcd: &Tcd) {
-        unsafe {
-            let t = self.tcd();
-            t.tcd_saddr().write(|w| w.saddr().bits(tcd.saddr));
-            t.tcd_soff().write(|w| w.soff().bits(tcd.soff as u16));
-            t.tcd_attr().write(|w| w.bits(tcd.attr));
-            t.tcd_nbytes_mloffno().write(|w| w.nbytes().bits(tcd.nbytes));
-            t.tcd_slast_sda().write(|w| w.slast_sda().bits(tcd.slast as u32));
-            t.tcd_daddr().write(|w| w.daddr().bits(tcd.daddr));
-            t.tcd_doff().write(|w| w.doff().bits(tcd.doff as u16));
-            t.tcd_citer_elinkno().write(|w| w.citer().bits(tcd.citer));
-            t.tcd_dlast_sga().write(|w| w.dlast_sga().bits(tcd.dlast_sga as u32));
-            t.tcd_csr().write(|w| w.bits(tcd.csr));
-            t.tcd_biter_elinkno().write(|w| w.biter().bits(tcd.biter));
-        }
+        let t = self.tcd();
+        t.tcd_saddr().write(|w| w.set_saddr(tcd.saddr));
+        t.tcd_soff().write(|w| w.set_soff(tcd.soff as u16));
+        t.tcd_attr().write(|w| w.0 = tcd.attr);
+        t.tcd_nbytes_mloffno().write(|w| w.set_nbytes(tcd.nbytes));
+        t.tcd_slast_sda().write(|w| w.set_slast_sda(tcd.slast as u32));
+        t.tcd_daddr().write(|w| w.set_daddr(tcd.daddr));
+        t.tcd_doff().write(|w| w.set_doff(tcd.doff as u16));
+        t.tcd_citer_elinkno().write(|w| w.set_citer(tcd.citer));
+        t.tcd_dlast_sga().write(|w| w.set_dlast_sga(tcd.dlast_sga as u32));
+        t.tcd_csr().write(|w| w.0 = tcd.csr);
+        t.tcd_biter_elinkno().write(|w| w.set_biter(tcd.biter));
     }
 }
 
@@ -1761,7 +1703,7 @@ impl<'a> Transfer<'a> {
     /// Get the remaining transfer count.
     pub fn remaining(&self) -> u16 {
         let t = self.channel.tcd();
-        t.tcd_citer_elinkno().read().citer().bits()
+        t.tcd_citer_elinkno().read().citer()
     }
 
     /// Block until the transfer completes.
@@ -1801,15 +1743,15 @@ impl<'a> Transfer<'a> {
             // Check if there's an error
             let t = self.channel.tcd();
             let es = t.ch_es().read();
-            if es.err().is_error() {
+            if es.err() {
                 // Currently, all error fields are in the lowest 8 bits, as-casting truncates
-                let errs = es.bits() as u8;
+                let errs = es.0 as u8;
                 return Poll::Ready(Err(TransferErrorRaw(errs)));
             }
 
             // Check if we're past the half-way point
-            let biter = t.tcd_biter_elinkno().read().biter().bits();
-            let citer = t.tcd_citer_elinkno().read().citer().bits();
+            let biter = t.tcd_biter_elinkno().read().biter();
+            let citer = t.tcd_citer_elinkno().read().citer();
             let half_point = biter / 2;
 
             if self.channel.is_done() {
@@ -1831,13 +1773,16 @@ impl<'a> Transfer<'a> {
         let t = self.channel.tcd();
 
         // Disable channel requests
-        t.ch_csr().modify(|_, w| w.erq().disable().earq().disable());
+        t.ch_csr().modify(|w| {
+            w.set_erq(false);
+            w.set_earq(false);
+        });
 
         // Clear any pending interrupt
-        t.ch_int().write(|w| w.int().clear_bit_by_one());
+        t.ch_int().write(|w| w.set_int(true));
 
         // Clear DONE flag
-        t.ch_csr().modify(|_, w| w.done().clear_bit_by_one());
+        t.ch_csr().modify(|w| w.set_done(true));
 
         fence(Ordering::SeqCst);
     }
@@ -1992,9 +1937,9 @@ impl<'a> Future for Transfer<'a> {
             fence(Ordering::SeqCst);
 
             let es = self.channel.tcd().ch_es().read();
-            if es.err().is_error() {
+            if es.err() {
                 // Currently, all error fields are in the lowest 8 bits, as-casting truncates
-                let errs = es.bits() as u8;
+                let errs = es.0 as u8;
                 Poll::Ready(Err(TransferErrorRaw(errs)))
             } else {
                 Poll::Ready(Ok(()))
@@ -2103,7 +2048,7 @@ impl<'a, W: Word> RingBuffer<'a, W> {
     /// and calculates the buffer offset.
     fn dma_write_pos(&self) -> usize {
         let t = self.channel.tcd();
-        let daddr = t.tcd_daddr().read().daddr().bits() as usize;
+        let daddr = t.tcd_daddr().read().daddr() as usize;
         let buf_start = self.buf.as_ptr() as *const W as usize;
 
         // Calculate offset from buffer start
@@ -2239,11 +2184,14 @@ impl<'a, W: Word> RingBuffer<'a, W> {
 
         // Disable the channel
         let t = self.channel.tcd();
-        t.ch_csr().modify(|_, w| w.erq().disable().earq().disable());
+        t.ch_csr().modify(|w| {
+            w.set_erq(false);
+            w.set_earq(false)
+        });
 
         // Clear flags
-        t.ch_int().write(|w| w.int().clear_bit_by_one());
-        t.ch_csr().modify(|_, w| w.done().clear_bit_by_one());
+        t.ch_int().write(|w| w.set_int(true));
+        t.ch_csr().modify(|w| w.set_done(true));
 
         fence(Ordering::SeqCst);
 
@@ -2291,55 +2239,50 @@ impl<C: Channel> DmaChannel<C> {
             let t = self.tcd();
 
             // Reset channel state
-            Self::reset_channel_state(t);
+            Self::reset_channel_state(&t);
 
             // Source: peripheral register, fixed
-            Self::set_source_ptr(t, peri_addr);
-            Self::set_source_fixed(t);
+            Self::set_source_ptr(&t, peri_addr);
+            Self::set_source_fixed(&t);
 
             // Destination: memory buffer, incrementing
-            Self::set_dest_ptr(t, buf.as_mut_ptr());
-            Self::set_dest_increment(t, size);
+            Self::set_dest_ptr(&t, buf.as_mut_ptr());
+            Self::set_dest_increment(&t, size);
 
             // Transfer attributes
-            Self::set_even_transfer_size(t, size);
+            Self::set_even_transfer_size(&t, size);
 
             // Minor loop: transfer one word per request
-            Self::set_minor_loop_ct_no_offsets(t, byte_size as u32);
+            Self::set_minor_loop_ct_no_offsets(&t, byte_size as u32);
 
             // Major loop count = buffer size
             let count = buf.len() as u16;
-            Self::set_major_loop_ct_elinkno(t, count);
+            Self::set_major_loop_ct_elinkno(&t, count);
 
             // After major loop: reset destination to buffer start (circular)
             let buf_bytes = (buf.len() * byte_size) as i32;
-            t.tcd_slast_sda().write(|w| w.slast_sda().bits(0)); // Source doesn't change
-            t.tcd_dlast_sga().write(|w| w.dlast_sga().bits((-buf_bytes) as u32));
+            t.tcd_slast_sda().write(|w| w.set_slast_sda(0)); // Source doesn't change
+            t.tcd_dlast_sga().write(|w| w.set_dlast_sga((-buf_bytes) as u32));
 
             // Control/status: enable both half and complete interrupts, NO DREQ (continuous)
             t.tcd_csr().write(|w| {
-                w.intmajor()
-                    .enable()
-                    .inthalf()
-                    .enable()
-                    .dreq()
-                    .channel_not_affected() // Don't clear ERQ on complete (circular)
-                    .esg()
-                    .normal_format()
-                    .majorelink()
-                    .disable()
-                    .eeop()
-                    .disable()
-                    .esda()
-                    .disable()
-                    .bwc()
-                    .no_stall()
+                w.set_intmajor(true);
+                w.set_inthalf(true);
+                w.set_dreq(Dreq::CHANNEL_NOT_AFFECTED); // Don't clear ERQ on complete (circular)
+                w.set_esg(Esg::NORMAL_FORMAT);
+                w.set_majorelink(false);
+                w.set_eeop(false);
+                w.set_esda(false);
+                w.set_bwc(Bwc::NO_STALL);
             });
 
             cortex_m::asm::dsb();
 
             // Enable the channel request
-            t.ch_csr().modify(|_, w| w.erq().enable().earq().enable());
+            t.ch_csr().modify(|w| {
+                w.set_erq(true);
+                w.set_earq(true);
+            });
 
             // Enable NVIC interrupt for this channel so async wakeups work
             self.enable_interrupt();
@@ -2501,7 +2444,7 @@ impl<'a, W: Word> ScatterGatherBuilder<'a, W> {
 
         // Reset channel state - clear DONE, disable requests, clear errors
         // This ensures the channel is in a clean state before loading the TCD
-        DmaChannel::<C>::reset_channel_state(t);
+        DmaChannel::<C>::reset_channel_state(&t);
 
         // Memory barrier to ensure channel state is reset before loading TCD
         cortex_m::asm::dsb();
@@ -2515,7 +2458,7 @@ impl<'a, W: Word> ScatterGatherBuilder<'a, W> {
         cortex_m::asm::dsb();
 
         // Start the transfer
-        t.tcd_csr().modify(|_, w| w.start().channel_started());
+        t.tcd_csr().modify(|w| w.set_start(Start::CHANNEL_STARTED));
 
         Ok(Transfer::new(channel.as_any()))
     }
@@ -2557,37 +2500,34 @@ pub struct ScatterGatherResult {
 /// Must be called from the correct DMA channel interrupt context.
 pub unsafe fn on_interrupt(ch_index: usize) {
     crate::perf_counters::incr_interrupt_edma0();
-    unsafe {
-        let p = pac::Peripherals::steal();
-        let edma = &p.edma_0_tcd0;
-        let t = edma.tcd(ch_index);
+    let edma = &pac::EDMA_0_TCD0;
+    let t = edma.tcd(ch_index);
 
-        // Read TCD CSR to determine interrupt source
-        let csr = t.tcd_csr().read();
+    // Read TCD CSR to determine interrupt source
+    let csr = t.tcd_csr().read();
 
-        // Check if this is a half-transfer interrupt
-        // INTHALF is set and we're at or past the half-way point
-        if csr.inthalf().bit_is_set() {
-            let biter = t.tcd_biter_elinkno().read().biter().bits();
-            let citer = t.tcd_citer_elinkno().read().citer().bits();
-            let half_point = biter / 2;
+    // Check if this is a half-transfer interrupt
+    // INTHALF is set and we're at or past the half-way point
+    if csr.inthalf() {
+        let biter = t.tcd_biter_elinkno().read().biter();
+        let citer = t.tcd_citer_elinkno().read().citer();
+        let half_point = biter / 2;
 
-            if citer <= half_point && citer > 0 {
-                // Half-transfer interrupt - wake half_waker
-                crate::perf_counters::incr_interrupt_edma0_wake();
-                half_waker(ch_index).wake();
-            }
-        }
-
-        // Clear INT flag
-        t.ch_int().write(|w| w.int().clear_bit_by_one());
-
-        // If DONE is set, this is a complete-transfer interrupt
-        // Only wake the full-transfer waker when the transfer is actually complete
-        if t.ch_csr().read().done().bit_is_set() {
+        if citer <= half_point && citer > 0 {
+            // Half-transfer interrupt - wake half_waker
             crate::perf_counters::incr_interrupt_edma0_wake();
-            waker(ch_index).wake();
+            half_waker(ch_index).wake();
         }
+    }
+
+    // Clear INT flag
+    t.ch_int().write(|w| w.set_int(true));
+
+    // If DONE is set, this is a complete-transfer interrupt
+    // Only wake the full-transfer waker when the transfer is actually complete
+    if t.ch_csr().read().done() {
+        crate::perf_counters::incr_interrupt_edma0_wake();
+        waker(ch_index).wake();
     }
 }
 
