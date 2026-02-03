@@ -276,7 +276,7 @@ pub(crate) trait SealedPin {
 
     fn set_slew_rate(&self, slew_rate: Sre);
 
-    fn set_enable_input_buffer(&self);
+    fn set_enable_input_buffer(&self, buffer_enabled: bool);
 
     fn set_as_disabled(&self);
 }
@@ -344,13 +344,19 @@ impl SealedPin for AnyPin {
     }
 
     #[inline(always)]
-    fn set_enable_input_buffer(&self) {
-        self.pcr_reg().modify(|_, w| w.ibe().ibe1());
+    fn set_enable_input_buffer(&self, buffer_enabled: bool) {
+        self.pcr_reg().modify(|_, w| w.ibe().bit(buffer_enabled));
     }
 
     #[inline(always)]
     fn set_as_disabled(&self) {
+        // Set GPIO direction as input
         self.gpio().pddr().modify(|_, w| w.pdd(self.pin()).clear_bit());
+        // Set input buffer as disabled
+        self.set_enable_input_buffer(false);
+        // Set mode as GPIO (vs other potential functions)
+        self.set_function(Mux::Mux0);
+        // Set pin as disabled
         self.gpio().pidr().modify(|_, w| w.pid(self.pin()).set_bit());
     }
 }
@@ -419,14 +425,20 @@ macro_rules! impl_pin {
                 }
 
                 #[inline(always)]
-                fn set_enable_input_buffer(&self) {
+                fn set_enable_input_buffer(&self, buffer_enabled: bool) {
                     let port_reg = unsafe {&*crate::pac::[<Port $port>]::ptr()};
-                    port_reg.[<pcr $pin>]().modify(|_, w| w.ibe().ibe1());
+                    port_reg.[<pcr $pin>]().modify(|_, w| w.ibe().bit(buffer_enabled));
                 }
 
                 #[inline(always)]
                 fn set_as_disabled(&self) {
+                    // Set GPIO direction as input
                     self.gpio().pddr().modify(|_, w| w.pdd(self.pin()).clear_bit());
+                    // Set input buffer as disabled
+                    self.set_enable_input_buffer(false);
+                    // Set mode as GPIO (vs other potential functions)
+                    self.set_function(Mux::Mux0);
+                    // Set pin as disabled
                     self.gpio().pidr().modify(|_, w| w.pid(self.pin()).set_bit());
                 }
             }
@@ -648,7 +660,7 @@ impl<'d> Flex<'d> {
 
     /// Put the pin into input mode.
     pub fn set_as_input(&mut self) {
-        self.set_enable_input_buffer();
+        self.set_enable_input_buffer(true);
         self.gpio()
             .pddr()
             .modify(|_, w| w.pdd(self.pin.pin_index()).clear_bit());
@@ -727,8 +739,8 @@ impl<'d> Flex<'d> {
     }
 
     /// Enable input buffer for the pin.
-    pub fn set_enable_input_buffer(&mut self) {
-        self.pin.set_enable_input_buffer();
+    pub fn set_enable_input_buffer(&mut self, buffer_enabled: bool) {
+        self.pin.set_enable_input_buffer(buffer_enabled);
     }
 
     /// Get pin level.

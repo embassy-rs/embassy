@@ -506,6 +506,10 @@ pub fn init(cfg: crate::config::Config) -> Peripherals {
     }
     #[cfg(feature = "swd-swo-as-gpio")]
     {
+        use gpio::Input;
+
+        let _x = Input::new(peripherals.P0_2.reborrow(), gpio::Pull::Disabled);
+        core::mem::forget(_x);
         peripherals.P0_2.set_as_disabled();
     }
     #[cfg(feature = "jtag-extras-as-gpio")]
