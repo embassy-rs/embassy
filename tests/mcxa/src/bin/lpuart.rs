@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 
-// TODO: Test doesn't work yet and is not proven to work ever
 // TODO: Also test ringbuffered uart
 // NOTE: Blocking uart is hard to test, so maybe todo?
 
@@ -19,15 +18,6 @@ use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 const MESSAGE_SIZE: usize = 69;
 const MESSAGE: [u8; MESSAGE_SIZE] = *b"You've found the HIL tests for MCXA! Hope you have a wonderful day :)";
-const MESSAGE_PLUS_1: [u8; MESSAGE_SIZE] = {
-    let mut m = MESSAGE;
-    let mut i = 0;
-    while i < m.len() {
-        m[i] = m[i].wrapping_add(1);
-        i += 1;
-    }
-    m
-};
 
 bind_interrupts!(struct Irqs {
     LPUART3 => hal::lpuart::buffered::BufferedInterruptHandler::<hal::peripherals::LPUART3>;
@@ -77,30 +67,30 @@ async fn main(spawner: Spawner) {
     .unwrap();
 
     let mut rx_buffer = [0; MESSAGE_SIZE];
-    embassy_time::Timer::after_millis(10).await;
+    embassy_time::Timer::after_millis(1).await;
 
     defmt::info!("Sending message");
     dma_uart.write_dma(&MESSAGE).await.unwrap();
     defmt::info!("Done, waiting for response");
     dma_uart.read_dma(&mut rx_buffer).await.unwrap();
-    assert_eq!(rx_buffer, MESSAGE_PLUS_1);
+    assert_eq!(rx_buffer, MESSAGE);
+    
+    defmt::info!("Test OK");
+    cortex_m::asm::bkpt();
 }
 
 #[embassy_executor::task]
 async fn echo_plus_1(mut uart: BufferedLpuart<'static>) {
-    // Echo loop
     let mut buf = [0u8; MESSAGE_SIZE];
 
-    defmt::info!("Waiting on echo task");
+    uart.read_exact(&mut buf).await.unwrap();
+    defmt::info!("Received the message");
 
-    let used = uart.read_exact(&mut buf).await.unwrap();
+    assert_eq!(buf, MESSAGE);
+    embassy_time::Timer::after_millis(1).await;
 
-    defmt::info!("Received {} bytes", used);
-    embassy_time::Timer::after_millis(100).await;
-
-    for byte in buf.iter_mut() {
-        *byte = byte.wrapping_add(1);
-    }
+    defmt::info!("Sending back");
     uart.write_all(&buf).await.unwrap();
-    defmt::warn!("Done sending");
+
+    defmt::info!("Done");
 }
