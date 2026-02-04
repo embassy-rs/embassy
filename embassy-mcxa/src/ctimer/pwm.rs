@@ -57,7 +57,7 @@ impl Default for Config {
 pub struct Pwm<'d> {
     info: &'static Info,
     period_ch: Peri<'d, AnyChannel>,
-    match_ch: Peri<'d, AnyChannel>,
+    duty_ch: Peri<'d, AnyChannel>,
     pin: Peri<'d, AnyPin>,
     source_freq: u32,
     pwm_freq: u16,
@@ -72,18 +72,18 @@ impl<'d> Pwm<'d> {
     pub fn new<T: Instance, MATCH: PwmChannel<T>, PIN: OutputPin<T>>(
         ctimer: CTimer<'d>,
         period_ch: Peri<'d, impl PwmChannel<T>>,
-        match_ch: Peri<'d, MATCH>,
+        duty_ch: Peri<'d, MATCH>,
         pin: Peri<'d, PIN>,
         config: Config,
     ) -> Result<Self, PwmError>
     where
         (T, MATCH, PIN): ValidMatchConfig,
     {
-        if period_ch.number() > 3 || match_ch.number() > 3 {
+        if period_ch.number() > 3 || duty_ch.number() > 3 {
             return Err(PwmError::InvalidChannel);
         }
 
-        if pin.number() != match_ch.number() {
+        if pin.number() != duty_ch.number() {
             return Err(PwmError::ChannelMismatch);
         }
 
@@ -92,7 +92,7 @@ impl<'d> Pwm<'d> {
         let mut inst = Self {
             info: T::info(),
             period_ch: period_ch.into(),
-            match_ch: match_ch.into(),
+            duty_ch: duty_ch.into(),
             source_freq: ctimer._freq,
             pwm_freq: config.freq,
             pin: pin.into(),
@@ -114,7 +114,7 @@ impl<'d> Pwm<'d> {
 
     fn set_configuration(&mut self, config: &Config) -> Result<(), PwmError> {
         // Enable PWM mode on the match channel
-        self.info.regs().pwmc().modify(|w| match self.match_ch.number() {
+        self.info.regs().pwmc().modify(|w| match self.duty_ch.number() {
             0 => {
                 w.set_pwmen0(Pwmen0::PWM);
             }
@@ -132,7 +132,7 @@ impl<'d> Pwm<'d> {
 
         self.info.regs().mcr().modify(|w| {
             // Clear stop, reset, and interrupt bits for the PWM channel
-            match self.match_ch.number() {
+            match self.duty_ch.number() {
                 0 => {
                     w.set_mr0i(Mr0i::MR0I_0);
                     w.set_mr0r(Mr0r::MR0R_0);
@@ -186,7 +186,7 @@ impl<'d> Pwm<'d> {
 
         self.info
             .regs()
-            .mr(self.match_ch.number())
+            .mr(self.duty_ch.number())
             .write(|w| w.set_match_(u32::from(duty_cycle)));
 
         // REVISIT: do we need interrupts?
@@ -223,7 +223,7 @@ impl<'d> SetDutyCycle for Pwm<'d> {
 
         self.info
             .regs()
-            .mr(usize::from(self.match_ch.number()))
+            .mr(usize::from(self.duty_ch.number()))
             .write(|w| w.set_match_(u32::from(duty)));
 
         Ok(())
