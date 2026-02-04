@@ -92,8 +92,8 @@ pub struct Spi<'d, PIO: Instance, const SM: usize, M: Mode> {
     cfg: crate::pio::Config<'d, PIO>,
     program: Option<PioSpiProgram<'d, PIO>>,
     clk_pin: Pin<'d, PIO>,
-    tx_dma: Option<dma::Channel<'d>>,
-    rx_dma: Option<dma::Channel<'d>>,
+    tx_dma: Option<dma::Channel<'d, dma::Auto>>,
+    rx_dma: Option<dma::Channel<'d, dma::Auto>>,
     phantom: PhantomData<M>,
 }
 
@@ -105,8 +105,8 @@ impl<'d, PIO: Instance, const SM: usize, M: Mode> Spi<'d, PIO, SM, M> {
         clk_pin: Peri<'d, impl PioPin>,
         mosi_pin: Peri<'d, impl PioPin>,
         miso_pin: Peri<'d, impl PioPin>,
-        tx_dma: Option<dma::Channel<'d>>,
-        rx_dma: Option<dma::Channel<'d>>,
+        tx_dma: Option<dma::Channel<'d, dma::Auto>>,
+        rx_dma: Option<dma::Channel<'d, dma::Auto>>,
         config: Config,
     ) -> Self {
         let program = PioSpiProgram::new(pio, config.phase);

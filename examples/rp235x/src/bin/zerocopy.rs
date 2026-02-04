@@ -32,7 +32,7 @@ static MAX: AtomicU16 = AtomicU16::new(0);
 struct AdcParts {
     adc: Adc<'static, Async>,
     pin: adc::Channel<'static>,
-    dma: dma::Channel<'static>,
+    dma: dma::Channel<'static, dma::Auto>,
 }
 
 #[embassy_executor::main]
