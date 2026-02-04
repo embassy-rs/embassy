@@ -21,7 +21,7 @@ use core::task::{Poll, Waker};
 use cortex_m::peripheral::NVIC;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_sync::pipe;
-use embassy_sync::waitqueue::{AtomicWaker, WakerRegistration};
+use embassy_sync::waitqueue::{AtomicWaker, MultiWakerRegistration, WakerRegistration};
 use heapless::Vec;
 use {embassy_net_driver_channel as ch, nrf_pac as pac};
 
@@ -116,6 +116,13 @@ async fn new_internal<'a>(
     shmem: &'a mut [MaybeUninit<u8>],
     trace_buffer: Option<&'a mut TraceBuffer>,
 ) -> (NetDriver<'a>, Control<'a>, Runner<'a>, Option<TraceReader<'a>>) {
+    // Ensure modem is off before we configure memory
+    let power = pac::POWER_S;
+    power
+        .ltemodem()
+        .startn()
+        .write(|w| w.set_startn(pac::power::vals::Startn::HOLD));
+
     let shmem_len = shmem.len();
     let shmem_ptr = shmem.as_mut_ptr() as *mut u8;
 
@@ -199,11 +206,10 @@ async fn new_internal<'a>(
 
     compiler_fence(Ordering::SeqCst);
 
-    let power = pac::POWER_S;
-    // POWER.LTEMODEM.STARTN = 0
-    // TODO: The reg is missing in the PAC??
-    let startn = unsafe { (power.as_ptr() as *mut u32).add(0x610 / 4) };
-    unsafe { startn.write_volatile(0) }
+    power
+        .ltemodem()
+        .startn()
+        .write(|w| w.set_startn(pac::power::vals::Startn::START));
 
     unsafe { NVIC::unmask(pac::Interrupt::IPC) };
 
@@ -227,7 +233,8 @@ async fn new_internal<'a>(
 
         tx_seq_no: 0,
         tx_buf_used: [false; TX_BUF_COUNT],
-        tx_waker: WakerRegistration::new(),
+        tx_buf_ip: [false; TX_BUF_COUNT],
+        tx_waker: MultiWakerRegistration::new(),
 
         trace_chans: Vec::new(),
         trace_check: PointerChecker {
@@ -336,7 +343,9 @@ struct StateInner {
 
     tx_seq_no: u16,
     tx_buf_used: [bool; TX_BUF_COUNT],
-    tx_waker: WakerRegistration,
+    /// Tracks which tx_bufs were allocated for IP sends (freed on IP response, not control free).
+    tx_buf_ip: [bool; TX_BUF_COUNT],
+    tx_waker: MultiWakerRegistration<2>,
 
     trace_chans: Vec<TraceChannelInfo, TRACE_CHANNEL_COUNT>,
     trace_check: PointerChecker,
@@ -537,11 +546,13 @@ impl StateInner {
         return None;
     }
 
-    fn send_message(&mut self, msg: &mut Message, data: &[u8]) -> Result<(), NoFreeBufs> {
+    /// Send a message, optionally with data. Returns the tx_buf index if one was allocated.
+    fn send_message(&mut self, msg: &mut Message, data: &[u8]) -> Result<Option<usize>, NoFreeBufs> {
         if data.is_empty() {
             msg.data = ptr::null_mut();
             msg.data_len = 0;
-            self.send_message_raw(msg)
+            self.send_message_raw(msg)?;
+            Ok(None)
         } else {
             assert!(data.len() <= TX_BUF_SIZE);
             let buf_idx = self.find_free_tx_buf().ok_or(NoFreeBufs)?;
@@ -557,9 +568,11 @@ impl StateInner {
                 msg.data_len = 0;
                 self.tx_buf_used[buf_idx] = false;
                 self.tx_waker.wake();
+                info!("cleanup failure");
                 Err(e)
             } else {
-                Ok(())
+                info!("send OK");
+                Ok(Some(buf_idx))
             }
         }
     }
@@ -621,7 +634,23 @@ impl StateInner {
             );
         }
         self.tx_buf_used[idx] = false;
+        self.tx_buf_ip[idx] = false;
         self.tx_waker.wake();
+    }
+
+    /// Free one tx_buf that was allocated for an IP send.
+    /// Called when the modem acknowledges an IP send via an IP response.
+    fn free_ip_tx_buf(&mut self) {
+        for i in 0..TX_BUF_COUNT {
+            if self.tx_buf_ip[i] {
+                trace!("ip tx buf free idx {}", i);
+                self.tx_buf_used[i] = false;
+                self.tx_buf_ip[i] = false;
+                self.tx_waker.wake();
+                return;
+            }
+        }
+        warn!("free_ip_tx_buf: no ip tx buf found");
     }
 
     fn handle_data(&mut self, msg: &Message, ch: &mut ch::Runner<MTU>) {
@@ -649,7 +678,15 @@ impl StateInner {
             4 => {
                 match msg.id >> 28 {
                     // IP response
-                    8 => self.handle_resp(msg),
+                    8 => {
+                        let matched = self.handle_resp(msg);
+                        if !matched {
+                            // Unmatched IP response (serial 0) = ack for a fire-and-forget IP send.
+                            // The modem doesn't send control free for these, so free the tx_buf here.
+                            self.free_ip_tx_buf();
+                        }
+                        matched
+                    }
                     // IP notification
                     9 => match (msg.id >> 16) & 0xFFF {
                         // IP receive notification
@@ -963,8 +1000,12 @@ impl<'a> Runner<'a> {
                     msg.id = 0x7006_0004; // IP send
                     msg.param_len = 12;
                     msg.param[4..8].copy_from_slice(&fd.to_le_bytes());
-                    if let Err(e) = state.send_message(&mut msg, buf) {
-                        warn!("tx failed: {:?}", e);
+                    match state.send_message(&mut msg, buf) {
+                        Err(e) => warn!("tx failed: {:?}", e),
+                        Ok(Some(buf_idx)) => {
+                            state.tx_buf_ip[buf_idx] = true;
+                        }
+                        Ok(None) => {}
                     }
                     self.ch.tx_done();
                 }
