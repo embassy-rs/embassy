@@ -383,6 +383,15 @@ impl Ticker {
         Some(Self { expires_at, duration })
     }
 
+    /// Creates a new ticker that ticks immediately then at the specified duration interval.
+    ///
+    /// This is equivalent to `Ticker::every()` plus `reset_to_now()`.
+    pub fn now_and_every(duration: impl Into<Duration>) -> Self {
+        let duration = duration.into();
+        let expires_at = Instant::now();
+        Self { expires_at, duration }
+    }
+
     /// Resets the ticker back to its original state.
     /// This causes the ticker to go back to zero, even if the current tick isn't over yet.
     ///
@@ -443,6 +452,11 @@ impl Ticker {
         let after = after.into();
         self.expires_at = Instant::now().checked_add(after)?.checked_add(self.duration)?;
         Some(())
+    }
+
+    /// Resets the ticker to fire immediately.
+    pub fn reset_to_now(&mut self) {
+        self.expires_at = Instant::now();
     }
 
     /// Waits for the next tick.
