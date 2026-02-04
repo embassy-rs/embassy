@@ -224,9 +224,7 @@ trait SealedInputPin {
 }
 
 /// Seal a trait
-trait SealedOutputPin<T: Instance> {
-    fn number(&self) -> usize;
-}
+trait SealedOutputPin<T: Instance> {}
 
 /// CTimer input pin.
 #[allow(private_bounds)]
@@ -264,12 +262,7 @@ macro_rules! impl_input_pin {
 
 macro_rules! impl_output_pin {
     ($pin:ident, $peri:ident, $fn:ident, $n:expr) => {
-        impl SealedOutputPin<crate::peripherals::$peri> for crate::peripherals::$pin {
-            #[inline(always)]
-            fn number(&self) -> usize {
-                $n
-            }
-        }
+        impl SealedOutputPin<crate::peripherals::$peri> for crate::peripherals::$pin {}
 
         impl OutputPin<crate::peripherals::$peri> for crate::peripherals::$pin {
             #[inline(always)]
