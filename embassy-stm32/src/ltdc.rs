@@ -561,23 +561,6 @@ pin_trait!(B5Pin, Instance);
 pin_trait!(B6Pin, Instance);
 pin_trait!(B7Pin, Instance);
 
-#[cfg(not(stm32n6))]
-foreach_interrupt!(
-    ($inst:ident, ltdc, LTDC, GLOBAL, $irq:ident) => {
-        impl Instance for peripherals::$inst {
-            type Interrupt = crate::interrupt::typelevel::$irq;
-        }
-
-        impl SealedInstance for peripherals::$inst {
-            fn regs() -> crate::pac::ltdc::Ltdc {
-                crate::pac::$inst
-            }
-        }
-    };
-);
-
-#[cfg(stm32n6)]
-// Special case for LTDC LO signal with both LTDC_LO and LTDC_LO_ERR IRQs
 foreach_interrupt!(
     ($inst:ident, ltdc, LTDC, LO, $irq:ident) => {
         impl Instance for peripherals::$inst {
