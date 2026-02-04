@@ -113,7 +113,7 @@ impl<'a, 'd, T: Instance, const FLASH_SIZE: usize> Drop for BackgroundRead<'a, '
 
 /// Flash driver.
 pub struct Flash<'d, T: Instance, M: Mode, const FLASH_SIZE: usize> {
-    dma: Option<dma::Channel<'d>>,
+    dma: Option<dma::Channel<'d, dma::Auto>>,
     phantom: PhantomData<(&'d mut T, M)>,
 }
 

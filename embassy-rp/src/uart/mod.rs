@@ -152,7 +152,7 @@ pub struct Uart<'d, M: Mode> {
 /// UART TX driver.
 pub struct UartTx<'d, M: Mode> {
     info: &'static Info,
-    tx_dma: Option<dma::Channel<'d>>,
+    tx_dma: Option<dma::Channel<'d, dma::Auto>>,
     phantom: PhantomData<M>,
 }
 
@@ -160,12 +160,12 @@ pub struct UartTx<'d, M: Mode> {
 pub struct UartRx<'d, M: Mode> {
     info: &'static Info,
     dma_state: &'static DmaState,
-    rx_dma: Option<dma::Channel<'d>>,
+    rx_dma: Option<dma::Channel<'d, dma::Auto>>,
     phantom: PhantomData<M>,
 }
 
 impl<'d, M: Mode> UartTx<'d, M> {
-    fn new_inner(info: &'static Info, tx_dma: Option<Channel<'d>>) -> Self {
+    fn new_inner(info: &'static Info, tx_dma: Option<Channel<'d, dma::Auto>>) -> Self {
         Self {
             info,
             tx_dma,
@@ -284,7 +284,7 @@ impl<'d, M: Mode> UartRx<'d, M> {
         info: &'static Info,
         dma_state: &'static DmaState,
         has_irq: bool,
-        rx_dma: Option<dma::Channel<'d>>,
+        rx_dma: Option<dma::Channel<'d, dma::Auto>>,
     ) -> Self {
         debug_assert_eq!(has_irq, rx_dma.is_some());
         if has_irq {
@@ -868,8 +868,8 @@ impl<'d, M: Mode> Uart<'d, M> {
         mut rts: Option<Peri<'d, AnyPin>>,
         mut cts: Option<Peri<'d, AnyPin>>,
         has_irq: bool,
-        tx_dma: Option<dma::Channel<'d>>,
-        rx_dma: Option<dma::Channel<'d>>,
+        tx_dma: Option<dma::Channel<'d, dma::Auto>>,
+        rx_dma: Option<dma::Channel<'d, dma::Auto>>,
         config: Config,
     ) -> Self {
         Self::init(

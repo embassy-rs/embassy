@@ -39,18 +39,37 @@ pub(crate) unsafe fn init() {
     interrupt::DMA_IRQ_0.set_priority(interrupt::Priority::P3);
 }
 
-/// DMA channel driver.
-pub struct Channel<'d> {
-    number: u8,
-    phantom: PhantomData<&'d ()>,
+trait SealedMode {}
+
+/// Mode.
+#[allow(private_bounds)]
+pub trait Mode: SealedMode {}
+
+macro_rules! impl_mode {
+    ($name:ident) => {
+        impl SealedMode for $name {}
+        impl Mode for $name {}
+    };
 }
 
-impl<'d> Channel<'d> {
+/// Use built-in irq handler for DMA transwer completion.
+pub struct Auto;
+/// Handle transwer completion by polling or manual irq handler.
+pub struct Manual;
+
+impl_mode!(Auto);
+impl_mode!(Manual);
+
+/// DMA channel driver.
+pub struct Channel<'d, M: Mode> {
+    number: u8,
+    phantom: PhantomData<&'d M>,
+}
+
+impl<'d> Channel<'d, Manual> {
     /// Create a new DMA channel driver.
-    pub fn new<T: ChannelInstance>(
-        _ch: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
-    ) -> Self {
+    /// SAFETY: You are responsible for pooling/irq setup
+    pub unsafe fn new_manual<T: ChannelInstance>(_ch: Peri<'d, T>) -> Self {
         let number = T::number();
 
         // Enable interrupt for this channel
@@ -62,7 +81,9 @@ impl<'d> Channel<'d> {
             phantom: PhantomData,
         }
     }
+}
 
+impl<'d, M: Mode> Channel<'d, M> {
     /// Get the channel number.
     pub fn number(&self) -> u8 {
         self.number
@@ -79,9 +100,28 @@ impl<'d> Channel<'d> {
     }
 
     /// Reborrow the channel, allowing it to be used in multiple places.
-    pub fn reborrow(&mut self) -> Channel<'_> {
-        Channel {
+    pub fn reborrow(&mut self) -> Channel<'_, M> {
+        Channel::<M> {
             number: self.number,
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<'d> Channel<'d, Auto> {
+    /// Create a new DMA channel driver.
+    pub fn new<T: ChannelInstance>(
+        _ch: Peri<'d, T>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+    ) -> Self {
+        let number = T::number();
+
+        // Enable interrupt for this channel
+        pac::DMA.inte(0).write_set(|v| *v = 1 << number);
+        unsafe { T::Interrupt::enable() };
+
+        Self {
+            number,
             phantom: PhantomData,
         }
     }
@@ -246,11 +286,11 @@ impl<'d> Channel<'d> {
 /// DMA transfer driver.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Transfer<'a> {
-    channel: Channel<'a>,
+    channel: Channel<'a, Auto>,
 }
 
 impl<'a> Transfer<'a> {
-    fn new(channel: Channel<'a>) -> Self {
+    fn new(channel: Channel<'a, Auto>) -> Self {
         Self { channel }
     }
 }

@@ -242,7 +242,7 @@ impl<'d> Adc<'d, Async> {
         buf: &mut [W],
         fcs_err: bool,
         div: u16,
-        dma_ch: &mut dma::Channel<'_>,
+        dma_ch: &mut dma::Channel<'_, dma::Auto>,
     ) -> Result<(), Error> {
         #[cfg(feature = "rp2040")]
         let mut rrobin = 0_u8;
@@ -323,7 +323,7 @@ impl<'d> Adc<'d, Async> {
         ch: &mut [Channel<'_>],
         buf: &mut [S],
         div: u16,
-        dma: &mut dma::Channel<'_>,
+        dma: &mut dma::Channel<'_, dma::Auto>,
     ) -> Result<(), Error> {
         self.read_many_inner(ch.iter().map(|c| c.channel()), buf, false, div, dma)
             .await
@@ -339,7 +339,7 @@ impl<'d> Adc<'d, Async> {
         ch: &mut [Channel<'_>],
         buf: &mut [Sample],
         div: u16,
-        dma: &mut dma::Channel<'_>,
+        dma: &mut dma::Channel<'_, dma::Auto>,
     ) {
         // errors are reported in individual samples
         let _ = self
@@ -362,7 +362,7 @@ impl<'d> Adc<'d, Async> {
         ch: &mut Channel<'_>,
         buf: &mut [S],
         div: u16,
-        dma: &mut dma::Channel<'_>,
+        dma: &mut dma::Channel<'_, dma::Auto>,
     ) -> Result<(), Error> {
         self.read_many_inner([ch.channel()].into_iter(), buf, false, div, dma)
             .await
@@ -377,7 +377,7 @@ impl<'d> Adc<'d, Async> {
         ch: &mut Channel<'_>,
         buf: &mut [Sample],
         div: u16,
-        dma: &mut dma::Channel<'_>,
+        dma: &mut dma::Channel<'_, dma::Auto>,
     ) {
         // errors are reported in individual samples
         let _ = self
