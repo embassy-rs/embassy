@@ -63,8 +63,8 @@ async fn main(_spawner: Spawner) {
     sm.set_config(&cfg);
     sm.set_enable(true);
 
-    let mut dma_out_ref = dma::Channel::new(p.DMA_CH0, Irqs);
-    let mut dma_in_ref = dma::Channel::new(p.DMA_CH1, Irqs);
+    let mut dma_out_ref = dma::Channel::new::<DMA_CH0, dma::InterruptHandler<DMA_CH0>>(p.DMA_CH0, Irqs);
+    let mut dma_in_ref = dma::Channel::new::<DMA_CH1, dma::InterruptHandler<DMA_CH1>>(p.DMA_CH1, Irqs);
     let mut dout = [0x12345678u32; 29];
     for i in 1..dout.len() {
         dout[i] = (dout[i - 1] & 0x0fff_ffff) * 13 + 7;
