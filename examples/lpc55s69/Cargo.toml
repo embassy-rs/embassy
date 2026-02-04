@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 embassy-nxp = { version = "0.1.0", path = "../../embassy-nxp", features = ["lpc55-core0", "rt", "defmt", "time-driver-rtc"] }
+nxp-pac = { version = "0.1.0", git = "https://github.com/i509VCB/nxp-pac", rev = "b736e3038254d593024aaa1a5a7b1f95a5728538", features = ["metadata"]}
 embassy-executor = { version = "0.9.0", path = "../../embassy-executor", features = ["arch-cortex-m", "executor-thread", "executor-interrupt"] }
 embassy-sync = { version = "0.7.2", path = "../../embassy-sync", features = ["defmt"] }
 embassy-time = { version = "0.5.0", path = "../../embassy-time", features = ["defmt", "tick-hz-32_768"] }
