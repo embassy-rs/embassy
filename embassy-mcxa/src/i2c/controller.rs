@@ -300,6 +300,17 @@ impl<'d, M: Mode> I2c<'d, M> {
         });
 
         if msr.ndf() == Ndf::INT_YES {
+            // According to the Reference Manual, section 40.7.1.5
+            // Controller Status (MSR), the controller will
+            // automatically send a STOP condition if
+            // `MCFGR1[AUTOSTOP]` is enabled or if the transmit FIFO
+            // is *not* empty.
+            //
+            // If neither of those conditions is true, we will send a
+            // STOP ourselves.
+            if !self.info.regs().mcfgr1().read().autostop() && self.is_tx_fifo_empty() {
+                self.stop()?;
+            }
             Err(IOError::AddressNack)
         } else if msr.alf() == Alf::INT_YES {
             Err(IOError::ArbitrationLoss)
