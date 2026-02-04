@@ -248,7 +248,7 @@ impl<'d, W: Word> I2S<'d, W> {
     /// Create a transmitter driver.
     pub fn new_txonly<T: Instance, D1: TxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        sd: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
+        sd: Peri<'d, if_afio!(impl I2sSdPin<T, A>)>,
         ws: Peri<'d, if_afio!(impl WsPin<T, A>)>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
         mck: Peri<'d, if_afio!(impl MckPin<T, A>)>,
@@ -274,7 +274,7 @@ impl<'d, W: Word> I2S<'d, W> {
     /// Create a transmitter driver without a master clock pin.
     pub fn new_txonly_nomck<T: Instance, D1: TxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        sd: Peri<'d, if_afio!(impl MosiPin<T, A>)>,
+        sd: Peri<'d, if_afio!(impl I2sSdPin<T, A>)>,
         ws: Peri<'d, if_afio!(impl WsPin<T, A>)>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
         txdma: Peri<'d, D1>,
@@ -299,7 +299,7 @@ impl<'d, W: Word> I2S<'d, W> {
     /// Create a receiver driver.
     pub fn new_rxonly<T: Instance, D1: RxDma<T>, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        sd: Peri<'d, if_afio!(impl MisoPin<T, A>)>,
+        sd: Peri<'d, if_afio!(impl I2sSdPin<T, A>)>,
         ws: Peri<'d, if_afio!(impl WsPin<T, A>)>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
         mck: Peri<'d, if_afio!(impl MckPin<T, A>)>,
