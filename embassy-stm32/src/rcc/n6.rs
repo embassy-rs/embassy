@@ -391,8 +391,8 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
                 Icsel::PLL1 => unwrap!(input.pll1),
                 Icsel::PLL2 => unwrap!(input.pll2),
                 // stm32-data needs fixing, because the reference manual says the below are PLL3 and PLL4
-                Icsel::HSI_OSC_DIV4 => unwrap!(input.pll3),
-                Icsel::HSI_OSC_DIV8 => unwrap!(input.pll4),
+                Icsel::PLL3 => unwrap!(input.pll3),
+                Icsel::PLL4 => unwrap!(input.pll4),
             };
             let div = (divider.to_bits() as u32) + 1;
             Hertz(src_freq.0 / div)
@@ -408,8 +408,8 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
                 Icsel::PLL1 => unwrap!(input.pll1),
                 Icsel::PLL2 => unwrap!(input.pll2),
                 // stm32-data needs fixing, because the reference manual says the below are PLL3 and PLL4
-                Icsel::HSI_OSC_DIV4 => unwrap!(input.pll3),
-                Icsel::HSI_OSC_DIV8 => unwrap!(input.pll4),
+                Icsel::PLL3 => unwrap!(input.pll3),
+                Icsel::PLL4 => unwrap!(input.pll4),
             };
             let div = (ic2.divider.to_bits() as u32) + 1;
             Hertz(src_freq.0 / div)
