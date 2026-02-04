@@ -217,20 +217,17 @@ async fn main(_spawner: Spawner) {
     defmt::info!("Starting transfer with half_transfer_interrupt...");
 
     // Create the transfer
-    // Returns a Result - validates that buffers are in DMA-accessible memory
-    let mut transfer = dma_ch1
-        .mem_to_mem(src2, dst2, options)
-        .expect("Buffer not in DMA-accessible memory");
+    let mut transfer = dma_ch1.mem_to_mem(src2, dst2, options).unwrap();
 
     // Wait for half-transfer (first 4 elements)
     defmt::info!("Waiting for first half...");
-    let _ = transfer.wait_half().await;
+    let _ok = transfer.wait_half().await.unwrap();
 
     defmt::info!("Half-transfer complete!");
 
     // Wait for complete transfer
     defmt::info!("Waiting for second half...");
-    let _ = transfer.await;
+    transfer.await.unwrap();
 
     defmt::info!("Transfer complete! Full DST2: {=[?]}", dst2.as_slice());
 

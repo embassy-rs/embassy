@@ -70,11 +70,8 @@ async fn main(_spawner: Spawner) {
 
     // Perform type-safe memory-to-memory transfer using Embassy-style async API
     // Using async `.await` - the executor can run other tasks while waiting!
-    // Returns a Result - validates that buffers are in DMA-accessible memory
-    let _ = dma_ch0
-        .mem_to_mem(src, dst, options)
-        .expect("Buffer not in DMA-accessible memory")
-        .await;
+    let transfer = dma_ch0.mem_to_mem(src, dst, options).unwrap();
+    transfer.await.unwrap();
 
     defmt::info!("DMA mem-to-mem transfer complete!");
     defmt::info!("Destination Buffer (after): {=[?]}", dst.as_slice());
