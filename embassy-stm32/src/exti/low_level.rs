@@ -32,7 +32,7 @@ pub(super) fn configure_exti_pin(pin: PinNumber, port: PinNumber, trigger_edge: 
         let port = {
             const STM32_PORTI: PinNumber = 0x8;
             const STM32_PORTN: PinNumber = 0xD;
-            if port >= STM32_PORTN { 
+            if port >= STM32_PORTN {
                 port - (STM32_PORTN - STM32_PORTI) // N-Q = 8-12
             } else {
                 port // A-H = 0-7
