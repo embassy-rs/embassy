@@ -15,23 +15,32 @@ use crate::interrupt::typelevel::Interrupt;
 use crate::pac::lpspi::vals::{Cpha, Cpol, Lsbf, Master, Mbf, Outcfg, Pcspol, Pincfg, Rxmsk, Txmsk};
 
 /// SPI Slave Driver.
+///
+/// The CS pin is optional. When `Some(pin)`, the hardware PCS signal is used for chip select.
+/// When `None`, users must manage chip select externally. Note: For most slave use cases,
+/// a CS pin is required to know when the slave is being addressed.
 pub struct SpiSlave<'d, T: Instance, M: Mode> {
     _peri: Peri<'d, T>,
     _sck: Peri<'d, AnyPin>,
     _mosi: Peri<'d, AnyPin>,
     _miso: Peri<'d, AnyPin>,
-    _cs: Peri<'d, AnyPin>,
+    _cs: Option<Peri<'d, AnyPin>>,
     _phantom: PhantomData<M>,
 }
 
 impl<'d, T: Instance> SpiSlave<'d, T, Blocking> {
     /// Create a new blocking instance of the SPI Slave driver.
+    ///
+    /// # Arguments
+    /// * `cs` - Optional chip select pin. When `Some(pin)`, hardware PCS is used.
+    ///   When `None`, users must manage CS externally. Note: Most slave applications
+    ///   require a CS signal.
     pub fn new_blocking(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         mosi: Peri<'d, impl MosiPin<T>>,
         miso: Peri<'d, impl MisoPin<T>>,
-        cs: Peri<'d, impl CsPin<T>>,
+        cs: Option<Peri<'d, impl CsPin<T>>>,
         config: SlaveConfig,
     ) -> Result<Self> {
         Self::new_inner(peri, sck, mosi, miso, cs, config)
@@ -40,12 +49,17 @@ impl<'d, T: Instance> SpiSlave<'d, T, Blocking> {
 
 impl<'d, T: Instance> SpiSlave<'d, T, Async> {
     /// Create a new async (interrupt-driven) instance of the SPI Slave driver.
+    ///
+    /// # Arguments
+    /// * `cs` - Optional chip select pin. When `Some(pin)`, hardware PCS is used.
+    ///   When `None`, users must manage CS externally. Note: Most slave applications
+    ///   require a CS signal.
     pub fn new_async(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         mosi: Peri<'d, impl MosiPin<T>>,
         miso: Peri<'d, impl MisoPin<T>>,
-        cs: Peri<'d, impl CsPin<T>>,
+        cs: Option<Peri<'d, impl CsPin<T>>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: SlaveConfig,
     ) -> Result<Self> {
@@ -273,7 +287,7 @@ impl<'d, T: Instance, M: Mode> SpiSlave<'d, T, M> {
         sck: Peri<'d, impl SckPin<T>>,
         mosi: Peri<'d, impl MosiPin<T>>,
         miso: Peri<'d, impl MisoPin<T>>,
-        cs: Peri<'d, impl CsPin<T>>,
+        cs: Option<Peri<'d, impl CsPin<T>>>,
         config: SlaveConfig,
     ) -> Result<Self> {
         let clock_config = LpspiConfig {
@@ -288,12 +302,14 @@ impl<'d, T: Instance, M: Mode> SpiSlave<'d, T, M> {
         sck.mux();
         mosi.mux();
         miso.mux();
-        cs.mux();
+        if let Some(ref pin) = cs {
+            pin.mux();
+        }
 
         let _sck = sck.into();
         let _mosi = mosi.into();
         let _miso = miso.into();
-        let _cs = cs.into();
+        let _cs = cs.map(|p| p.into());
 
         let spi = T::regs();
 

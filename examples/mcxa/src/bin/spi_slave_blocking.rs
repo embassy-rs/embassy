@@ -47,8 +47,8 @@ fn main() -> ! {
 
     // Create SPI slave instance with pins:
     // P3_10 = LPSPI1_SCK, P3_8 = LPSPI1_SOUT (our output to master)
-    // P3_9 = LPSPI1_SIN (our input from master), P3_11 = LPSPI1_PCS0
-    let spi = match SpiSlave::new_blocking(p.LPSPI1, p.P3_10, p.P3_8, p.P3_9, p.P3_11, spi_config) {
+    // P3_9 = LPSPI1_SIN (our input from master), P3_11 = LPSPI1_PCS0 (Some for hardware CS)
+    let spi = match SpiSlave::new_blocking(p.LPSPI1, p.P3_10, p.P3_8, p.P3_9, Some(p.P3_11), spi_config) {
         Ok(s) => {
             defmt::info!("SPI Slave initialized successfully.");
             s

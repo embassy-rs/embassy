@@ -16,25 +16,34 @@ use crate::pac;
 use crate::pac::lpspi::vals::{Cpha, Cpol, Lsbf, Master, Outcfg, Pcspol, Pincfg, Rxmsk, Txmsk};
 
 /// SPI Slave with DMA support for TX and RX.
+///
+/// The CS pin is optional. When `Some(pin)`, the hardware PCS signal is used for chip select.
+/// When `None`, users must manage chip select externally. Note: For most slave use cases,
+/// a CS pin is required to know when the slave is being addressed.
 pub struct SpiSlaveDma<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> {
     _peri: Peri<'d, T>,
     _sck: Peri<'d, AnyPin>,
     _mosi: Peri<'d, AnyPin>,
     _miso: Peri<'d, AnyPin>,
-    _cs: Peri<'d, AnyPin>,
+    _cs: Option<Peri<'d, AnyPin>>,
     tx_dma: DmaChannel<TxC>,
     rx_dma: DmaChannel<RxC>,
 }
 
 impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiSlaveDma<'d, T, TxC, RxC> {
     /// Create a new SPI Slave with DMA support.
+    ///
+    /// # Arguments
+    /// * `cs` - Optional chip select pin. When `Some(pin)`, hardware PCS is used.
+    ///   When `None`, users must manage CS externally. Note: Most slave applications
+    ///   require a CS signal.
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         _peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         mosi: Peri<'d, impl MosiPin<T>>,
         miso: Peri<'d, impl MisoPin<T>>,
-        cs: Peri<'d, impl CsPin<T>>,
+        cs: Option<Peri<'d, impl CsPin<T>>>,
         tx_dma_ch: Peri<'d, TxC>,
         rx_dma_ch: Peri<'d, RxC>,
         config: SlaveConfig,
@@ -51,12 +60,14 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiSlaveDma<'d
         sck.mux();
         mosi.mux();
         miso.mux();
-        cs.mux();
+        if let Some(ref pin) = cs {
+            pin.mux();
+        }
 
         let _sck = sck.into();
         let _mosi = mosi.into();
         let _miso = miso.into();
-        let _cs = cs.into();
+        let _cs = cs.map(|p| p.into());
 
         let spi = T::regs();
 

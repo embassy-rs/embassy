@@ -64,12 +64,16 @@ impl SpiDmaTcds {
 }
 
 /// SPI Master with DMA support for TX and RX.
+///
+/// The CS pin is optional. When `Some(pin)`, the hardware PCS signal is used for chip select.
+/// When `None`, users must manage chip select externally (e.g., via GPIO with
+/// `embassy-embedded-hal::shared_bus::SpiDevice`).
 pub struct SpiDma<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> {
     _peri: Peri<'d, T>,
     _sck: Peri<'d, AnyPin>,
     _mosi: Peri<'d, AnyPin>,
     _miso: Peri<'d, AnyPin>,
-    _cs: Peri<'d, AnyPin>,
+    _cs: Option<Peri<'d, AnyPin>>,
     tx_dma: DmaChannel<TxC>,
     rx_dma: DmaChannel<RxC>,
     #[allow(dead_code)]
@@ -79,13 +83,17 @@ pub struct SpiDma<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> {
 
 impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, TxC, RxC> {
     /// Create a new SPI Master with DMA support.
+    ///
+    /// # Arguments
+    /// * `cs` - Optional chip select pin. When `Some(pin)`, hardware PCS is used.
+    ///   When `None`, users must manage CS externally (e.g., via GPIO).
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         _peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         mosi: Peri<'d, impl MosiPin<T>>,
         miso: Peri<'d, impl MisoPin<T>>,
-        cs: Peri<'d, impl CsPin<T>>,
+        cs: Option<Peri<'d, impl CsPin<T>>>,
         tx_dma_ch: Peri<'d, TxC>,
         rx_dma_ch: Peri<'d, RxC>,
         config: Config,
@@ -102,12 +110,14 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
         sck.mux();
         mosi.mux();
         miso.mux();
-        cs.mux();
+        if let Some(ref pin) = cs {
+            pin.mux();
+        }
 
         let _sck = sck.into();
         let _mosi = mosi.into();
         let _miso = miso.into();
-        let _cs = cs.into();
+        let _cs = cs.map(|p| p.into());
 
         Spi::<'_, T, Blocking>::set_config(&config)?;
 

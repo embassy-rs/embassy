@@ -59,14 +59,15 @@ async fn main(_spawner: Spawner) {
     // SPI slave configuration (default: 8-bit, CPOL=0, CPHA=0, MSB first)
     let config = SlaveConfig::default();
 
-    // Create SPI slave with DMA using LPSPI1
+    // Create SPI slave with DMA using LPSPI1 (Some(cs) for hardware CS)
     let mut spi = match SpiSlaveDma::new(
-        p.LPSPI1, p.P3_10,   // SCK (driven by master)
-        p.P3_8,    // SDO/MosiPin (slave sends)
-        p.P3_9,    // SDI/MisoPin (slave receives)
-        p.P3_11,   // CS (PCS0 - driven by master)
-        p.DMA_CH0, // TX DMA channel
-        p.DMA_CH1, // RX DMA channel
+        p.LPSPI1,
+        p.P3_10,       // SCK (driven by master)
+        p.P3_8,        // SDO/MosiPin (slave sends)
+        p.P3_9,        // SDI/MisoPin (slave receives)
+        Some(p.P3_11), // CS (PCS0 - driven by master, hardware managed)
+        p.DMA_CH0,     // TX DMA channel
+        p.DMA_CH1,     // RX DMA channel
         config,
     ) {
         Ok(s) => {

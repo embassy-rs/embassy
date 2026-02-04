@@ -30,28 +30,55 @@
 //!
 //! # Chip Select Options
 //!
-//! The LPSPI hardware supports up to 4 hardware chip select pins (PCS0-PCS3). The
-//! [`ChipSelect`] enum selects which hardware PCS signal to use.
+//! The CS pin parameter is optional in all SPI driver constructors. This allows you to
+//! choose between hardware-managed and software-managed chip select:
 //!
-//! For GPIO-based chip select (common with `embedded-hal` drivers), you have two options:
+//! ## Hardware CS (`Some(pin)`)
 //!
-//! 1. **Don't connect the hardware PCS pin** - Leave the PCS pin unconnected or use it
-//!    for another purpose. The hardware will still toggle the selected PCS signal, but
-//!    if nothing is connected, it has no effect.
+//! When you pass `Some(cs_pin)` to the constructor, the LPSPI hardware automatically
+//! controls the PCS (Peripheral Chip Select) signal. The [`ChipSelect`] enum in the
+//! configuration selects which hardware PCS line (PCS0-PCS3) to use.
 //!
-//! 2. **Use `embassy-embedded-hal::SpiDevice`** - Wrap the SPI driver with `SpiDevice`
-//!    which manages a GPIO CS pin:
+//! **Use hardware CS when:**
+//! - You have a single SPI device on the bus
+//! - You want simpler code with automatic CS timing
+//! - You don't need to share the SPI bus between multiple devices
 //!
-//!    ```ignore
-//!    use embassy_embedded_hal::shared_bus::blocking::spi::SpiDevice;
-//!    use embassy_sync::blocking_mutex::{NoopMutex, raw::NoopRawMutex};
+//! ```ignore
+//! // Hardware CS - peripheral controls chip select automatically
+//! let spi = Spi::new_blocking(p.LPSPI1, p.P3_10, p.P3_8, p.P3_9, Some(p.P3_11), config)?;
+//! ```
 //!
-//!    let spi = Spi::new_blocking(/* ... */);
-//!    let spi_bus = NoopMutex::new(RefCell::new(spi));
-//!    let cs = Output::new(p.P1_4, Level::High);
-//!    let spi_dev = SpiDevice::new(&spi_bus, cs);
-//!    // Use spi_dev with embedded-hal drivers
-//!    ```
+//! ## Software CS (`None`)
+//!
+//! When you pass `None` for the CS pin, you must manage chip select externally using
+//! a GPIO pin. This is required for sharing the SPI bus between multiple devices.
+//!
+//! **Use software CS when:**
+//! - You have multiple devices on the same SPI bus
+//! - You need to use `embassy-embedded-hal::shared_bus::SpiDevice`
+//! - You need custom CS timing or behavior
+//!
+//! ```ignore
+//! use embassy_embedded_hal::shared_bus::blocking::spi::SpiDevice;
+//! use embassy_sync::blocking_mutex::{NoopMutex, raw::NoopRawMutex};
+//!
+//! // Create SPI without hardware CS
+//! let spi = Spi::new_blocking(p.LPSPI1, p.P3_10, p.P3_8, p.P3_9, None, config)?;
+//! let spi_bus = NoopMutex::new(RefCell::new(spi));
+//!
+//! // Create GPIO CS pins for each device
+//! let cs_a = Output::new(p.P1_4, Level::High);
+//! let cs_b = Output::new(p.P1_5, Level::High);
+//!
+//! // Wrap with SpiDevice for each peripheral
+//! let spi_dev_a = SpiDevice::new(&spi_bus, cs_a);
+//! let spi_dev_b = SpiDevice::new(&spi_bus, cs_b);
+//! ```
+//!
+//! **Note:** For SPI slave devices, a CS signal is typically required for the slave to
+//! know when it is being addressed. Using `None` for slave CS is unusual and may not
+//! work correctly for most applications.
 //!
 //! # Examples
 //!

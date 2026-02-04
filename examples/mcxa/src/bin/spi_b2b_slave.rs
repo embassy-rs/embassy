@@ -44,7 +44,7 @@ async fn main(_spawner: Spawner) {
     let mut config = SlaveConfig::new();
     config.bits_per_frame(8);
 
-    let mut spi = match SpiSlave::new_async(p.LPSPI1, p.P3_10, p.P3_8, p.P3_9, p.P3_11, Irqs, config) {
+    let mut spi = match SpiSlave::new_async(p.LPSPI1, p.P3_10, p.P3_8, p.P3_9, Some(p.P3_11), Irqs, config) {
         Ok(s) => s,
         Err(_) => {
             defmt::error!("SPI Slave init FAILED!");

@@ -50,8 +50,8 @@ async fn main(_spawner: Spawner) {
     let mut config = SlaveConfig::new();
     config.bits_per_frame(8);
 
-    // Create async SPI slave instance (NVIC is enabled automatically)
-    let mut spi = match SpiSlave::new_async(p.LPSPI1, p.P3_10, p.P3_8, p.P3_9, p.P3_11, Irqs, config) {
+    // Create async SPI slave instance (NVIC is enabled automatically, Some(cs) for hardware CS)
+    let mut spi = match SpiSlave::new_async(p.LPSPI1, p.P3_10, p.P3_8, p.P3_9, Some(p.P3_11), Irqs, config) {
         Ok(s) => {
             defmt::info!("SPI Slave (async) initialized successfully.");
             s
