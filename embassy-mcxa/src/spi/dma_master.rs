@@ -8,11 +8,12 @@ use embassy_hal_internal::Peri;
 use super::common::*;
 use super::master::Spi;
 use super::pins::*;
-use crate::clocks::periph_helpers::LpspiConfig;
 use crate::clocks::enable_and_reset;
+use crate::clocks::periph_helpers::LpspiConfig;
 use crate::dma::{Channel as DmaChannelTrait, DmaChannel, EnableInterrupt, Tcd};
 use crate::gpio::AnyPin;
 use crate::pac;
+use crate::pac::lpspi::vals::Mbf;
 
 /// Static storage for TX DMA scatter/gather TCDs.
 #[repr(C, align(32))]
@@ -78,6 +79,7 @@ pub struct SpiDma<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> {
 
 impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, TxC, RxC> {
     /// Create a new SPI Master with DMA support.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         _peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
@@ -123,7 +125,7 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
     }
 
     #[inline]
-    fn regs() -> &'static pac::lpspi0::RegisterBlock {
+    fn regs() -> pac::lpspi::Lpspi {
         T::regs()
     }
 
@@ -136,19 +138,25 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
     }
 
     fn disable_tx_dma() {
-        Self::regs().der().modify(|_, w| w.tdde().disable());
+        Self::regs().der().modify(|w| w.set_tdde(false));
     }
 
     fn disable_rx_dma() {
-        Self::regs().der().modify(|_, w| w.rdde().disable());
+        Self::regs().der().modify(|w| w.set_rdde(false));
     }
 
     fn enable_tx_rx_dma() {
-        Self::regs().der().modify(|_, w| w.tdde().enable().rdde().enable());
+        Self::regs().der().modify(|w| {
+            w.set_tdde(true);
+            w.set_rdde(true);
+        });
     }
 
     fn disable_tx_rx_dma() {
-        Self::regs().der().modify(|_, w| w.tdde().disable().rdde().disable());
+        Self::regs().der().modify(|w| {
+            w.set_tdde(false);
+            w.set_rdde(false);
+        });
     }
 
     fn flush_fifos_internal() {
@@ -200,6 +208,10 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
             tcr_tcd.doff = 0;
             tcr_tcd.citer = 1;
             tcr_tcd.dlast_sga = 0;
+            // CSR = 0x0008: DREQ=1 (auto-clear ERQ and set DONE when major loop completes)
+            // Note: When loaded via scatter/gather (ESG=1 in previous TCD), execution
+            // starts automatically - no START bit needed. INTMAJOR is not used here
+            // because we rely on RX DMA completion to signal transfer done.
             tcr_tcd.csr = 0x0008;
             tcr_tcd.biter = 1;
 
@@ -241,26 +253,26 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
         let spi = Self::regs();
         let data_len = data.len();
 
-        spi.cr().modify(|_, w| w.men().disabled());
+        spi.cr().modify(|w| w.set_men(false));
         Self::flush_fifos_internal();
         Self::clear_status();
         Self::disable_tx_dma();
         Self::disable_rx_dma();
 
         let fifo_size = Self::get_fifo_size();
-        let tx_watermark = if fifo_size >= 1 { fifo_size - 1 } else { 0 };
-        spi.fcr()
-            .write(|w| unsafe { w.txwater().bits(tx_watermark as u8).rxwater().bits(0) });
+        let tx_watermark = fifo_size.saturating_sub(1);
+        spi.fcr().write(|w| {
+            w.set_txwater(tx_watermark);
+            w.set_rxwater(0);
+        });
 
         clear_nostall(spi);
-        spi.cr().modify(|_, w| w.men().enabled());
+        spi.cr().modify(|w| w.set_men(true));
 
         let tcr = Self::read_tcr_with_errata_workaround_internal();
         let tcr_with_cont = (tcr & 0xFF000000) | 0x00600007;
-        spi.tcr().write(|w| unsafe { w.bits(tcr_with_cont) });
-        while spi.fsr().read().txcount().bits() > 0 {}
-
-        let rdr_addr = Self::rdr_addr() as u32 + 3;
+        spi.tcr().write_value(pac::lpspi::regs::Tcr(tcr_with_cont));
+        while spi.fsr().read().txcount() > 0 {}
 
         static mut DUMMY_RX_SINK: u8 = 0;
 
@@ -270,35 +282,38 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
             self.rx_dma.disable_request();
             self.rx_dma.clear_done();
             self.rx_dma.clear_interrupt();
-
+            let rdr_addr = (Self::rdr_addr() as usize + 3) as u32;
             let rx_tcd = self.rx_dma.tcd();
-            rx_tcd.tcd_saddr().write(|w| w.saddr().bits(rdr_addr));
-            rx_tcd.tcd_soff().write(|w| w.soff().bits(0));
-            rx_tcd.tcd_attr().write(|w| w.bits(0x0000));
-            rx_tcd.tcd_nbytes_mloffno().write(|w| w.nbytes().bits(1));
-            rx_tcd.tcd_slast_sda().write(|w| w.slast_sda().bits(0));
+            rx_tcd.tcd_saddr().write(|w| w.set_saddr(rdr_addr));
+            rx_tcd.tcd_soff().write(|w| w.set_soff(0));
+            rx_tcd.tcd_attr().write_value(pac::edma_0_tcd::regs::TcdAttr(0x0000));
+            rx_tcd.tcd_nbytes_mloffno().write(|w| w.set_nbytes(1));
+            rx_tcd.tcd_slast_sda().write(|w| w.set_slast_sda(0));
             rx_tcd
                 .tcd_daddr()
-                .write(|w| w.daddr().bits((&raw mut DUMMY_RX_SINK) as *mut u8 as u32));
-            rx_tcd.tcd_doff().write(|w| w.doff().bits(0));
-            rx_tcd.tcd_citer_elinkno().write(|w| w.citer().bits(data_len as u16));
-            rx_tcd.tcd_dlast_sga().write(|w| w.dlast_sga().bits(0));
-            rx_tcd.tcd_csr().write(|w| w.bits(0x000A));
-            rx_tcd.tcd_biter_elinkno().write(|w| w.biter().bits(data_len as u16));
+                .write(|w| w.set_daddr((&raw mut DUMMY_RX_SINK) as u32));
+            rx_tcd.tcd_doff().write(|w| w.set_doff(0));
+            rx_tcd.tcd_citer_elinkno().write(|w| w.set_citer(data_len as u16));
+            rx_tcd.tcd_dlast_sga().write(|w| w.set_dlast_sga(0));
+            rx_tcd.tcd_csr().write_value(pac::edma_0_tcd::regs::TcdCsr(0x000A));
+            rx_tcd.tcd_biter_elinkno().write(|w| w.set_biter(data_len as u16));
 
             self.rx_dma.set_request_source::<T::RxDmaRequest>();
-
             self.setup_tx_scatter_gather(data.as_ptr(), true, data_len, tcr_with_cont)?;
 
             dma_start_fence();
             self.tx_dma.enable_request();
             self.rx_dma.enable_request();
 
+            // Enable RX DMA interrupt - we use RX completion as the transfer-done signal
+            // because LPSPI is full-duplex and every TX byte generates an RX byte.
             self.rx_dma.enable_interrupt();
 
             Self::enable_tx_rx_dma();
         }
 
+        // Wait for RX DMA completion - this signals all bytes have been clocked through.
+        // The TX DMA uses scatter/gather and its completion is not reliable for signaling.
         poll_fn(|cx| {
             self.rx_dma.waker().register(cx.waker());
             if self.rx_dma.is_done() {
@@ -309,8 +324,9 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
         })
         .await;
 
-        spin_wait_while(|| spi.fsr().read().txcount().bits() > 0)?;
-        spin_wait_while(|| spi.sr().read().mbf().is_busy())?;
+        // Wait for TX FIFO to drain and frame to complete
+        spin_wait_while(|| spi.fsr().read().txcount() > 0)?;
+        spin_wait_while(|| spi.sr().read().mbf() == Mbf::BUSY)?;
 
         Self::disable_tx_rx_dma();
 
@@ -338,26 +354,28 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
 
         let spi = Self::regs();
 
-        spi.cr().modify(|_, w| w.men().disabled());
+        spi.cr().modify(|w| w.set_men(false));
         Self::flush_fifos_internal();
         Self::clear_status();
         Self::disable_tx_dma();
         Self::disable_rx_dma();
 
         let fifo_size = Self::get_fifo_size();
-        let tx_watermark = if fifo_size >= 1 { fifo_size - 1 } else { 0 };
-        spi.fcr()
-            .write(|w| unsafe { w.txwater().bits(tx_watermark as u8).rxwater().bits(0) });
+        let tx_watermark = fifo_size.saturating_sub(1);
+        spi.fcr().write(|w| {
+            w.set_txwater(tx_watermark);
+            w.set_rxwater(0);
+        });
 
         clear_nostall(spi);
-        spi.cr().modify(|_, w| w.men().enabled());
+        spi.cr().modify(|w| w.set_men(true));
 
         let tcr = Self::read_tcr_with_errata_workaround_internal();
         let new_tcr =
             (tcr & !(TCR_CONT | TCR_CONTC | TCR_BYSW | TCR_PCS_MASK | TCR_RXMSK | TCR_TXMSK)) | TCR_CONT | TCR_BYSW;
-        spi.tcr().write(|w| unsafe { w.bits(new_tcr) });
+        spi.tcr().write_value(pac::lpspi::regs::Tcr(new_tcr));
 
-        spin_wait_while(|| spi.fsr().read().txcount().bits() > 0)?;
+        spin_wait_while(|| spi.fsr().read().txcount() > 0)?;
 
         static DUMMY_TX: u8 = 0;
 
@@ -392,8 +410,8 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
         })
         .await;
 
-        spin_wait_while(|| spi.fsr().read().txcount().bits() > 0)?;
-        spin_wait_while(|| spi.sr().read().mbf().is_busy())?;
+        spin_wait_while(|| spi.fsr().read().txcount() > 0)?;
+        spin_wait_while(|| spi.sr().read().mbf() == Mbf::BUSY)?;
 
         Self::disable_tx_rx_dma();
 
@@ -423,27 +441,29 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
 
         let spi = Self::regs();
 
-        spi.cr().modify(|_, w| w.men().disabled());
+        spi.cr().modify(|w| w.set_men(false));
         Self::flush_fifos_internal();
         Self::clear_status();
         Self::disable_tx_dma();
         Self::disable_rx_dma();
 
         let fifo_size = Self::get_fifo_size();
-        let tx_watermark = if fifo_size >= 1 { fifo_size - 1 } else { 0 };
-        spi.fcr()
-            .write(|w| unsafe { w.txwater().bits(tx_watermark as u8).rxwater().bits(0) });
+        let tx_watermark = fifo_size.saturating_sub(1);
+        spi.fcr().write(|w| {
+            w.set_txwater(tx_watermark);
+            w.set_rxwater(0);
+        });
 
         clear_nostall(spi);
-        spi.cr().modify(|_, w| w.men().enabled());
+        spi.cr().modify(|w| w.set_men(true));
 
         let tcr = Self::read_tcr_with_errata_workaround_internal();
         let new_tcr =
             (tcr & !(TCR_CONT | TCR_CONTC | TCR_BYSW | TCR_PCS_MASK | TCR_RXMSK | TCR_TXMSK)) | TCR_CONT | TCR_BYSW;
-        spi.tcr().write(|w| unsafe { w.bits(new_tcr) });
+        spi.tcr().write_value(pac::lpspi::regs::Tcr(new_tcr));
         let tcr_with_cont = new_tcr;
 
-        while spi.fsr().read().txcount().bits() > 0 {}
+        while spi.fsr().read().txcount() > 0 {}
 
         unsafe {
             self.rx_dma.disable_request();
@@ -476,8 +496,8 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
         })
         .await;
 
-        spin_wait_while(|| spi.fsr().read().txcount().bits() > 0)?;
-        spin_wait_while(|| spi.sr().read().mbf().is_busy())?;
+        spin_wait_while(|| spi.fsr().read().txcount() > 0)?;
+        spin_wait_while(|| spi.sr().read().mbf() == Mbf::BUSY)?;
 
         Self::disable_tx_rx_dma();
 

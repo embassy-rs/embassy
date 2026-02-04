@@ -18,18 +18,10 @@
 #![no_main]
 
 use embassy_executor::Spawner;
-use embassy_mcxa::dma::{DmaCh0InterruptHandler, DmaCh1InterruptHandler};
 use embassy_time::Timer;
-use hal::bind_interrupts;
 use hal::clocks::config::Div8;
 use hal::spi::{Config, SpiDma};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
-
-// Bind DMA channel interrupts for async DMA operations.
-bind_interrupts!(struct Irqs {
-    DMA_CH0 => DmaCh0InterruptHandler;
-    DMA_CH1 => DmaCh1InterruptHandler;
-});
 
 const TRANSFER_SIZE: usize = 64;
 const TRANSFER_BAUDRATE: u32 = 500_000;

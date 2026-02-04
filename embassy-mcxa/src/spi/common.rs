@@ -9,14 +9,14 @@ use embassy_hal_internal::PeripheralType;
 use maitake_sync::WaitCell;
 use paste::paste;
 
+pub use crate::clocks::PoweredClock;
 use crate::clocks::periph_helpers::LpspiConfig;
-use crate::clocks::{ClockError, Gate};
-use crate::dma::DmaRequest;
-use crate::{interrupt, pac};
-
 // Re-export clock configuration types for user convenience
 pub use crate::clocks::periph_helpers::{Div4, LpspiClockSel};
-pub use crate::clocks::PoweredClock;
+use crate::clocks::{ClockError, Gate};
+use crate::dma::DmaRequest;
+use crate::pac::lpspi::vals::{Rrf, Rtf};
+use crate::{interrupt, pac};
 
 // =============================================================================
 // REGISTER BIT CONSTANTS
@@ -46,36 +46,39 @@ pub(super) const LPSPI_FIFO_SIZE: u8 = 4;
 
 /// Flush TX and RX FIFOs for a given LPSPI register block
 #[inline]
-pub(super) fn flush_fifos(spi: &pac::lpspi0::RegisterBlock) {
-    spi.cr().modify(|_, w| w.rtf().txfifo_rst().rrf().rxfifo_rst());
+pub(super) fn flush_fifos(spi: pac::lpspi::Lpspi) {
+    spi.cr().modify(|w| {
+        w.set_rtf(Rtf::TXFIFO_RST);
+        w.set_rrf(Rrf::RXFIFO_RST);
+    });
 }
 
 /// Clear all status flags for a given LPSPI register block
 #[inline]
-pub(super) fn clear_status_flags(spi: &pac::lpspi0::RegisterBlock) {
-    spi.sr().write(|w| unsafe { w.bits(LPSPI_ALL_STATUS_FLAGS) });
+pub(super) fn clear_status_flags(spi: pac::lpspi::Lpspi) {
+    spi.sr().write_value(pac::lpspi::regs::Sr(LPSPI_ALL_STATUS_FLAGS));
 }
 
 /// Clear NOSTALL bit in CFGR1 (disables "no stall" mode)
 #[inline]
-pub(super) fn clear_nostall(spi: &pac::lpspi0::RegisterBlock) {
-    spi.cfgr1().modify(|_, w| w.nostall().disable());
+pub(super) fn clear_nostall(spi: pac::lpspi::Lpspi) {
+    spi.cfgr1().modify(|w| w.set_nostall(false));
 }
 
 /// Disable all interrupts by writing reset value (0) to IER
 #[inline]
-pub(super) fn disable_all_interrupts(spi: &pac::lpspi0::RegisterBlock) {
-    // IER reset value is 0, so writing w unchanged disables all interrupts
-    spi.ier().write(|w| w);
+pub(super) fn disable_all_interrupts(spi: pac::lpspi::Lpspi) {
+    // IER reset value is 0, writing default clears all interrupts
+    spi.ier().write_value(Default::default());
 }
 
 /// Read TCR with errata workaround (ERR050606)
 #[inline]
-pub(super) fn read_tcr_with_errata_workaround(spi: &pac::lpspi0::RegisterBlock) -> u32 {
-    let mut last = spi.tcr().read().bits();
+pub(super) fn read_tcr_with_errata_workaround(spi: pac::lpspi::Lpspi) -> u32 {
+    let mut last = spi.tcr().read().0;
     loop {
         let _ = spi.sr().read();
-        let now = spi.tcr().read().bits();
+        let now = spi.tcr().read().0;
         if now == last {
             break now;
         }
@@ -85,23 +88,23 @@ pub(super) fn read_tcr_with_errata_workaround(spi: &pac::lpspi0::RegisterBlock) 
 
 /// Common setup sequence for async SPI transfers
 #[inline]
-pub(super) fn prepare_for_transfer(spi: &pac::lpspi0::RegisterBlock) {
-    spi.cr().modify(|_, w| w.men().disabled());
+pub(super) fn prepare_for_transfer(spi: pac::lpspi::Lpspi) {
+    spi.cr().modify(|w| w.set_men(false));
     flush_fifos(spi);
     clear_status_flags(spi);
     disable_all_interrupts(spi);
     clear_nostall(spi);
-    spi.cr().modify(|_, w| w.men().enabled());
+    spi.cr().modify(|w| w.set_men(true));
 }
 
 /// Common setup sequence for blocking SPI transfers
 #[inline]
-pub(super) fn prepare_for_blocking_transfer(spi: &pac::lpspi0::RegisterBlock) {
-    spi.cr().modify(|_, w| w.men().disabled());
+pub(super) fn prepare_for_blocking_transfer(spi: pac::lpspi::Lpspi) {
+    spi.cr().modify(|w| w.set_men(false));
     flush_fifos(spi);
     clear_status_flags(spi);
     clear_nostall(spi);
-    spi.cr().modify(|_, w| w.men().enabled());
+    spi.cr().modify(|w| w.set_men(true));
 }
 
 // =============================================================================
@@ -224,10 +227,10 @@ impl SlaveIrqState {
 // =============================================================================
 
 #[inline]
-pub(super) unsafe fn handle_slave_rx_irq<T: Instance>(regs: &pac::lpspi0::RegisterBlock, st: &mut SlaveIrqStateInner) {
+pub(super) unsafe fn handle_slave_rx_irq<T: Instance>(regs: pac::lpspi::Lpspi, st: &mut SlaveIrqStateInner) {
     let sr = regs.sr().read();
 
-    if sr.ref_().bit_is_set() {
+    if sr.ref_() {
         clear_status_flags(regs);
         st.error = Some(Error::RxFifoError);
         st.op = SlaveIrqOp::Idle;
@@ -236,8 +239,8 @@ pub(super) unsafe fn handle_slave_rx_irq<T: Instance>(regs: &pac::lpspi0::Regist
         return;
     }
 
-    while st.rx_pos < st.rx_len && regs.fsr().read().rxcount().bits() > 0 {
-        let byte = regs.rdr().read().bits() as u8;
+    while st.rx_pos < st.rx_len && regs.fsr().read().rxcount() > 0 {
+        let byte = regs.rdr().read().data() as u8;
         unsafe { *st.rx_ptr.add(st.rx_pos) = byte };
         st.rx_pos += 1;
     }
@@ -250,10 +253,10 @@ pub(super) unsafe fn handle_slave_rx_irq<T: Instance>(regs: &pac::lpspi0::Regist
 }
 
 #[inline]
-pub(super) unsafe fn handle_slave_tx_irq<T: Instance>(regs: &pac::lpspi0::RegisterBlock, st: &mut SlaveIrqStateInner) {
+pub(super) unsafe fn handle_slave_tx_irq<T: Instance>(regs: pac::lpspi::Lpspi, st: &mut SlaveIrqStateInner) {
     let sr = regs.sr().read();
 
-    if sr.tef().bit_is_set() {
+    if sr.tef() {
         clear_status_flags(regs);
         st.error = Some(Error::TxFifoError);
         st.op = SlaveIrqOp::Idle;
@@ -262,19 +265,22 @@ pub(super) unsafe fn handle_slave_tx_irq<T: Instance>(regs: &pac::lpspi0::Regist
         return;
     }
 
-    while st.tx_pos < st.tx_len && regs.fsr().read().txcount().bits() < LPSPI_FIFO_SIZE {
+    while st.tx_pos < st.tx_len && regs.fsr().read().txcount() < LPSPI_FIFO_SIZE {
         let byte = unsafe { *st.tx_ptr.add(st.tx_pos) };
-        regs.tdr().write(|w| unsafe { w.bits(byte as u32) });
+        regs.tdr().write(|w| w.set_data(byte as u32));
         st.tx_pos += 1;
     }
 
     if st.tx_pos >= st.tx_len {
-        regs.ier().write(|w| w.fcie().enable().teie().enable());
+        regs.ier().write(|w| {
+            w.set_fcie(true);
+            w.set_teie(true);
+        });
 
-        let tx_empty = regs.fsr().read().txcount().bits() == 0;
+        let tx_empty = regs.fsr().read().txcount() == 0;
         let sr = regs.sr().read();
-        if tx_empty && sr.fcf().is_completed() {
-            regs.sr().write(|w| w.fcf().clear_bit_by_one());
+        if tx_empty && sr.fcf() {
+            regs.sr().write(|w| w.set_fcf(true)); // w1c
             st.op = SlaveIrqOp::Idle;
             disable_all_interrupts(regs);
             T::wait_cell().wake();
@@ -283,13 +289,10 @@ pub(super) unsafe fn handle_slave_tx_irq<T: Instance>(regs: &pac::lpspi0::Regist
 }
 
 #[inline]
-pub(super) unsafe fn handle_slave_transfer_irq<T: Instance>(
-    regs: &pac::lpspi0::RegisterBlock,
-    st: &mut SlaveIrqStateInner,
-) {
+pub(super) unsafe fn handle_slave_transfer_irq<T: Instance>(regs: pac::lpspi::Lpspi, st: &mut SlaveIrqStateInner) {
     let sr = regs.sr().read();
 
-    if sr.ref_().bit_is_set() {
+    if sr.ref_() {
         clear_status_flags(regs);
         st.error = Some(Error::RxFifoError);
         st.op = SlaveIrqOp::Idle;
@@ -298,7 +301,7 @@ pub(super) unsafe fn handle_slave_transfer_irq<T: Instance>(
         return;
     }
 
-    if sr.tef().bit_is_set() {
+    if sr.tef() {
         clear_status_flags(regs);
         st.error = Some(Error::TxFifoError);
         st.op = SlaveIrqOp::Idle;
@@ -307,21 +310,21 @@ pub(super) unsafe fn handle_slave_transfer_irq<T: Instance>(
         return;
     }
 
-    while st.rx_pos < st.rx_len && regs.fsr().read().rxcount().bits() > 0 {
-        let byte = regs.rdr().read().bits() as u8;
+    while st.rx_pos < st.rx_len && regs.fsr().read().rxcount() > 0 {
+        let byte = regs.rdr().read().data() as u8;
         if st.rx_pos < st.rx_store_len {
             unsafe { *st.rx_ptr.add(st.rx_pos) = byte };
         }
         st.rx_pos += 1;
     }
 
-    while st.tx_pos < st.tx_len && regs.fsr().read().txcount().bits() < LPSPI_FIFO_SIZE {
+    while st.tx_pos < st.tx_len && regs.fsr().read().txcount() < LPSPI_FIFO_SIZE {
         let byte = if st.tx_pos < st.tx_source_len {
             unsafe { *st.tx_ptr.add(st.tx_pos) }
         } else {
             0
         };
-        regs.tdr().write(|w| unsafe { w.bits(byte as u32) });
+        regs.tdr().write(|w| w.set_data(byte as u32));
         st.tx_pos += 1;
     }
 
@@ -341,7 +344,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     unsafe fn on_interrupt() {
         let regs = T::regs();
 
-        if regs.ier().read().bits() == 0 {
+        if regs.ier().read().0 == 0 {
             return;
         }
 
@@ -366,7 +369,7 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
             return;
         }
 
-        if regs.ier().read().bits() != 0 {
+        if regs.ier().read().0 != 0 {
             disable_all_interrupts(regs);
             T::wait_cell().wake();
         }
@@ -395,7 +398,7 @@ impl sealed::Sealed for crate::peripherals::P3_10 {} // LPSPI1_SCK
 impl sealed::Sealed for crate::peripherals::P3_11 {} // LPSPI1_PCS0
 
 pub(super) trait SealedInstance {
-    fn regs() -> &'static pac::lpspi0::RegisterBlock;
+    fn regs() -> pac::lpspi::Lpspi;
     fn wait_cell() -> &'static WaitCell;
     fn slave_irq_state() -> &'static SlaveIrqState;
 }
@@ -418,8 +421,8 @@ macro_rules! impl_instance {
         $(
             paste!{
                 impl SealedInstance for crate::peripherals::[<LPSPI $n>] {
-                    fn regs() -> &'static pac::lpspi0::RegisterBlock {
-                        unsafe { &*pac::[<Lpspi $n>]::ptr() }
+                    fn regs() -> pac::lpspi::Lpspi {
+                        pac::[<LPSPI $n>]
                     }
 
                     fn wait_cell() -> &'static WaitCell {
@@ -665,6 +668,7 @@ impl Prescaler {
 /// Returns (prescaler, sckdiv) where:
 /// - prescaler is a Prescaler enum value
 /// - sckdiv is 0-255
+///
 /// Baud = src_hz / (prescaler.divisor() * (SCKDIV + 2))
 pub(super) fn compute_baud_params(src_hz: u32, baud_hz: u32) -> (Prescaler, u8) {
     if baud_hz == 0 {

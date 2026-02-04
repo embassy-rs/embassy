@@ -7,11 +7,12 @@ use embedded_hal_02::spi::{Phase, Polarity};
 
 use super::common::*;
 use super::pins::*;
-use crate::clocks::periph_helpers::LpspiConfig;
 use crate::clocks::enable_and_reset;
+use crate::clocks::periph_helpers::LpspiConfig;
 use crate::gpio::AnyPin;
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
+use crate::pac::lpspi::vals::{Contc, Cpha, Cpol, Lsbf, Master, Mbf, Pcs, Pcspol, Pincfg, Prescale, Rxmsk, Txmsk};
 
 /// SPI Master Driver.
 pub struct Spi<'d, T: Instance, M: Mode> {
@@ -75,21 +76,21 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
 
         let mut tx_idx = 0usize;
         while tx_idx < tx.len() && Self::get_tx_fifo_count() < Self::get_fifo_size() {
-            spi.tdr().write(|w| unsafe { w.bits(tx[tx_idx] as u32) });
+            spi.tdr().write(|w| w.set_data(tx[tx_idx] as u32));
             tx_idx += 1;
         }
 
         while tx_idx < tx.len() {
             T::wait_cell()
                 .wait_for(|| {
-                    spi.ier().modify(|_, w| w.tdie().enable());
+                    spi.ier().modify(|w| w.set_tdie(true));
                     Self::get_tx_fifo_count() < Self::get_fifo_size()
                 })
                 .await
                 .map_err(|_| Error::Timeout)?;
 
             while tx_idx < tx.len() && Self::get_tx_fifo_count() < Self::get_fifo_size() {
-                spi.tdr().write(|w| unsafe { w.bits(tx[tx_idx] as u32) });
+                spi.tdr().write(|w| w.set_data(tx[tx_idx] as u32));
                 tx_idx += 1;
             }
         }
@@ -100,7 +101,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         }
 
         Self::wait_tx_fifo_empty()?;
-        spin_wait_while(|| spi.sr().read().mbf().is_busy())?;
+        spin_wait_while(|| spi.sr().read().mbf() == Mbf::BUSY)?;
 
         Ok(())
     }
@@ -132,19 +133,19 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
                 && Self::get_tx_fifo_count() < Self::get_fifo_size()
                 && (rx.len() - rx_idx) - tx_remaining < rx_fifo_max_bytes
             {
-                spi.tdr().write(|w| unsafe { w.bits(0) });
+                spi.tdr().write(|w| w.set_data(0));
                 tx_remaining -= 1;
             }
 
             while Self::get_rx_fifo_count() > 0 && rx_idx < rx.len() {
-                rx[rx_idx] = spi.rdr().read().bits() as u8;
+                rx[rx_idx] = spi.rdr().read().data() as u8;
                 rx_idx += 1;
             }
 
             if tx_remaining > 0 || rx_idx < rx.len() {
                 T::wait_cell()
                     .wait_for(|| {
-                        spi.ier().modify(|_, w| w.rdie().enable());
+                        spi.ier().modify(|w| w.set_rdie(true));
                         Self::get_rx_fifo_count() > 0 || Self::get_tx_fifo_count() < Self::get_fifo_size()
                     })
                     .await
@@ -191,12 +192,12 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
                 && (len - rx_idx) - (len - tx_idx) < rx_fifo_max_bytes
             {
                 let byte = if tx_idx < tx_len { tx[tx_idx] } else { 0 };
-                spi.tdr().write(|w| unsafe { w.bits(byte as u32) });
+                spi.tdr().write(|w| w.set_data(byte as u32));
                 tx_idx += 1;
             }
 
             while Self::get_rx_fifo_count() > 0 && rx_idx < len {
-                let byte = spi.rdr().read().bits() as u8;
+                let byte = spi.rdr().read().data() as u8;
                 if rx_idx < rx_len {
                     rx[rx_idx] = byte;
                 }
@@ -206,7 +207,7 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
             if tx_idx < len || rx_idx < len {
                 T::wait_cell()
                     .wait_for(|| {
-                        spi.ier().modify(|_, w| w.rdie().enable());
+                        spi.ier().modify(|w| w.set_rdie(true));
                         Self::get_rx_fifo_count() > 0 || Self::get_tx_fifo_count() < Self::get_fifo_size()
                     })
                     .await
@@ -268,64 +269,68 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
     pub(super) fn set_config(config: &Config) -> Result<()> {
         let spi = T::regs();
 
-        spi.cr().write(|w| w.men().disabled());
-        spi.cr().modify(|_, w| w.rst().reset());
-        spi.cr().modify(|_, w| w.rst().not_reset());
-        spi.cr().modify(|_, w| w.rtf().txfifo_rst().rrf().rxfifo_rst());
+        spi.cr().write(|w| w.set_men(false));
+        spi.cr().modify(|w| w.set_rst(true));
+        spi.cr().modify(|w| w.set_rst(false));
+        flush_fifos(spi);
 
-        spi.cfgr1()
-            .write(|w| unsafe { w.master().master_mode().pincfg().sin_in_sout_out().pcspol().bits(0) });
-
-        spi.ccr().write(|w| unsafe {
-            w.sckdiv()
-                .bits(config.sck_div)
-                .dbt()
-                .bits(config.sck_div)
-                .pcssck()
-                .bits(config.sck_div)
-                .sckpcs()
-                .bits(config.sck_div)
+        spi.cfgr1().write(|w| {
+            w.set_master(Master::MASTER_MODE);
+            w.set_pincfg(Pincfg::SIN_IN_SOUT_OUT);
+            w.set_pcspol(Pcspol::from_bits(0));
         });
 
-        spi.fcr().write(|w| unsafe { w.txwater().bits(0).rxwater().bits(0) });
+        // sck_div is written to DBT (Delay Between Transfers), PCSSCK (PCS-to-SCK Delay),
+        // and SCKPCS (SCK-to-PCS Delay) to maintain symmetric timing around the clock signal.
+        spi.ccr().write(|w| {
+            w.set_sckdiv(config.sck_div);
+            w.set_dbt(config.sck_div);
+            w.set_pcssck(config.sck_div);
+            w.set_sckpcs(config.sck_div);
+        });
+
+        spi.fcr().write(|w| {
+            w.set_txwater(0);
+            w.set_rxwater(0);
+        });
 
         let framesz = config.bits_per_frame.saturating_sub(1).min(0xFFF);
-        spi.tcr().write(|w| unsafe {
-            w.framesz().bits(framesz);
-            match config.mode.polarity {
-                Polarity::IdleLow => w.cpol().inactive_low(),
-                Polarity::IdleHigh => w.cpol().inactive_high(),
-            };
-            match config.mode.phase {
-                Phase::CaptureOnFirstTransition => w.cpha().captured(),
-                Phase::CaptureOnSecondTransition => w.cpha().changed(),
-            };
-            match config.bit_order {
-                BitOrder::MsbFirst => w.lsbf().msb_first(),
-                BitOrder::LsbFirst => w.lsbf().lsb_first(),
-            };
-            match config.chip_select {
-                ChipSelect::Pcs0 => w.pcs().tx_pcs0(),
-                ChipSelect::Pcs1 => w.pcs().tx_pcs1(),
-                ChipSelect::Pcs2 => w.pcs().tx_pcs2(),
-                ChipSelect::Pcs3 => w.pcs().tx_pcs3(),
-            };
-            w.prescale().bits(config.prescaler as u8)
+        spi.tcr().write(|w| {
+            w.set_framesz(framesz);
+            w.set_cpol(match config.mode.polarity {
+                Polarity::IdleLow => Cpol::INACTIVE_LOW,
+                Polarity::IdleHigh => Cpol::INACTIVE_HIGH,
+            });
+            w.set_cpha(match config.mode.phase {
+                Phase::CaptureOnFirstTransition => Cpha::CAPTURED,
+                Phase::CaptureOnSecondTransition => Cpha::CHANGED,
+            });
+            w.set_lsbf(match config.bit_order {
+                BitOrder::MsbFirst => Lsbf::MSB_FIRST,
+                BitOrder::LsbFirst => Lsbf::LSB_FIRST,
+            });
+            w.set_pcs(match config.chip_select {
+                ChipSelect::Pcs0 => Pcs::TX_PCS0,
+                ChipSelect::Pcs1 => Pcs::TX_PCS1,
+                ChipSelect::Pcs2 => Pcs::TX_PCS2,
+                ChipSelect::Pcs3 => Pcs::TX_PCS3,
+            });
+            w.set_prescale(Prescale::from_bits(config.prescaler as u8));
         });
 
-        spi.cr().write(|w| w.men().enabled());
+        spi.cr().write(|w| w.set_men(true));
 
         Ok(())
     }
 
     #[inline]
     fn get_tx_fifo_count() -> u8 {
-        T::regs().fsr().read().txcount().bits()
+        T::regs().fsr().read().txcount()
     }
 
     #[inline]
     fn get_rx_fifo_count() -> u8 {
-        T::regs().fsr().read().rxcount().bits()
+        T::regs().fsr().read().rxcount()
     }
 
     #[inline]
@@ -341,7 +346,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
     /// Check if the module is busy.
     #[inline]
     pub fn is_busy(&self) -> bool {
-        T::regs().sr().read().mbf().is_busy()
+        T::regs().sr().read().mbf() == Mbf::BUSY
     }
 
     /// Wait for all transfers to complete.
@@ -352,43 +357,24 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
     #[inline]
     fn apply_transfer_tcr(&self, continuous_pcs: bool, rx_mask: bool, tx_mask: bool) {
         let spi = T::regs();
-        spi.tcr().modify(|_, w| {
-            if tx_mask {
-                w.txmsk().mask();
-            } else {
-                w.txmsk().normal();
-            }
-
-            if rx_mask {
-                w.rxmsk().mask();
-            } else {
-                w.rxmsk().normal();
-            }
+        spi.tcr().modify(|w| {
+            w.set_txmsk(if tx_mask { Txmsk::MASK } else { Txmsk::NORMAL });
+            w.set_rxmsk(if rx_mask { Rxmsk::MASK } else { Rxmsk::NORMAL });
 
             if continuous_pcs {
-                w.contc().continue_();
-                w.cont().enabled();
+                w.set_contc(Contc::CONTINUE);
+                w.set_cont(true);
             } else {
-                w.contc().start();
-                w.cont().disabled();
+                w.set_contc(Contc::START);
+                w.set_cont(false);
             }
 
-            match self.chip_select {
-                ChipSelect::Pcs0 => {
-                    w.pcs().tx_pcs0();
-                }
-                ChipSelect::Pcs1 => {
-                    w.pcs().tx_pcs1();
-                }
-                ChipSelect::Pcs2 => {
-                    w.pcs().tx_pcs2();
-                }
-                ChipSelect::Pcs3 => {
-                    w.pcs().tx_pcs3();
-                }
-            }
-
-            w
+            w.set_pcs(match self.chip_select {
+                ChipSelect::Pcs0 => Pcs::TX_PCS0,
+                ChipSelect::Pcs1 => Pcs::TX_PCS1,
+                ChipSelect::Pcs2 => Pcs::TX_PCS2,
+                ChipSelect::Pcs3 => Pcs::TX_PCS3,
+            });
         });
     }
 
@@ -425,13 +411,13 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
 
             if rx_remaining - tx_remaining < rx_fifo_max_bytes {
                 let byte = if tx_idx < tx_len { tx[tx_idx] } else { 0 };
-                spi.tdr().write(|w| unsafe { w.bits(byte as u32) });
+                spi.tdr().write(|w| w.set_data(byte as u32));
                 tx_idx += 1;
                 tx_remaining -= 1;
             }
 
             while Self::get_rx_fifo_count() > 0 && rx_remaining > 0 {
-                let byte = spi.rdr().read().bits() as u8;
+                let byte = spi.rdr().read().data() as u8;
                 if rx_idx < rx_len {
                     rx[rx_idx] = byte;
                 }
@@ -447,7 +433,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
 
         while rx_remaining > 0 {
             spin_wait_while(|| Self::get_rx_fifo_count() == 0)?;
-            let byte = spi.rdr().read().bits() as u8;
+            let byte = spi.rdr().read().data() as u8;
             if rx_idx < rx_len {
                 rx[rx_idx] = byte;
             }
@@ -476,7 +462,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
 
         for &byte in tx.iter() {
             spin_wait_while(|| Self::get_tx_fifo_count() >= fifo_size)?;
-            spi.tdr().write(|w| unsafe { w.bits(byte as u32) });
+            spi.tdr().write(|w| w.set_data(byte as u32));
         }
 
         if is_pcs_continuous {
@@ -484,7 +470,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
             self.apply_transfer_tcr(false, false, false);
         }
 
-        spin_wait_while(|| spi.sr().read().mbf().is_busy())?;
+        spin_wait_while(|| spi.sr().read().mbf() == Mbf::BUSY)?;
 
         Ok(())
     }
@@ -516,12 +502,12 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
             spin_wait_while(|| Self::get_tx_fifo_count() >= fifo_size)?;
 
             if rx_remaining - tx_remaining < rx_fifo_max_bytes {
-                spi.tdr().write(|w| unsafe { w.bits(0) });
+                spi.tdr().write(|w| w.set_data(0));
                 tx_remaining -= 1;
             }
 
             while Self::get_rx_fifo_count() > 0 && rx_remaining > 0 {
-                rx[rx_idx] = spi.rdr().read().bits() as u8;
+                rx[rx_idx] = spi.rdr().read().data() as u8;
                 rx_idx += 1;
                 rx_remaining -= 1;
             }
@@ -534,7 +520,7 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
 
         while rx_remaining > 0 {
             spin_wait_while(|| Self::get_rx_fifo_count() == 0)?;
-            rx[rx_idx] = spi.rdr().read().bits() as u8;
+            rx[rx_idx] = spi.rdr().read().data() as u8;
             rx_idx += 1;
             rx_remaining -= 1;
         }
@@ -574,9 +560,9 @@ impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::SpiBus for Spi<'d, T, M> {
         for byte in words.iter_mut() {
             let tx_byte = *byte;
             spin_wait_while(|| Self::get_tx_fifo_count() >= fifo_size)?;
-            spi.tdr().write(|w| unsafe { w.bits(tx_byte as u32) });
+            spi.tdr().write(|w| w.set_data(tx_byte as u32));
             spin_wait_while(|| Self::get_rx_fifo_count() == 0)?;
-            *byte = spi.rdr().read().bits() as u8;
+            *byte = spi.rdr().read().data() as u8;
         }
         Ok(())
     }

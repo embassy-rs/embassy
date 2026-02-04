@@ -36,21 +36,21 @@ macro_rules! impl_spi_pin {
                 self.set_pull(crate::gpio::Pull::Disabled);
                 self.set_slew_rate(crate::gpio::SlewRate::Fast.into());
                 self.set_drive_strength(crate::gpio::DriveStrength::Double.into());
-                self.set_function(crate::pac::port0::pcr0::Mux::$fn);
-                self.set_enable_input_buffer();
+                self.set_function(crate::pac::port::vals::Mux::$fn);
+                self.set_enable_input_buffer(true);
             }
         }
     };
 }
 
 // LPSPI0 pins on PORT1 (ALT2) - per reference board pin mux
-impl_spi_pin!(P1_0, LPSPI0, Mux2, MosiPin); // LPSPI0_SDO (SOUT)
-impl_spi_pin!(P1_1, LPSPI0, Mux2, SckPin); // LPSPI0_SCK
-impl_spi_pin!(P1_2, LPSPI0, Mux2, MisoPin); // LPSPI0_SDI (SIN)
-impl_spi_pin!(P1_3, LPSPI0, Mux2, CsPin); // LPSPI0_PCS0
+impl_spi_pin!(P1_0, LPSPI0, MUX2, MosiPin); // LPSPI0_SDO (SOUT)
+impl_spi_pin!(P1_1, LPSPI0, MUX2, SckPin); // LPSPI0_SCK
+impl_spi_pin!(P1_2, LPSPI0, MUX2, MisoPin); // LPSPI0_SDI (SIN)
+impl_spi_pin!(P1_3, LPSPI0, MUX2, CsPin); // LPSPI0_PCS0
 
 // LPSPI1 pins on PORT3 (ALT2)
-impl_spi_pin!(P3_8, LPSPI1, Mux2, MosiPin); // LPSPI1_SOUT
-impl_spi_pin!(P3_9, LPSPI1, Mux2, MisoPin); // LPSPI1_SIN
-impl_spi_pin!(P3_10, LPSPI1, Mux2, SckPin); // LPSPI1_SCK
-impl_spi_pin!(P3_11, LPSPI1, Mux2, CsPin); // LPSPI1_PCS0
+impl_spi_pin!(P3_8, LPSPI1, MUX2, MosiPin); // LPSPI1_SOUT
+impl_spi_pin!(P3_9, LPSPI1, MUX2, MisoPin); // LPSPI1_SIN
+impl_spi_pin!(P3_10, LPSPI1, MUX2, SckPin); // LPSPI1_SCK
+impl_spi_pin!(P3_11, LPSPI1, MUX2, CsPin); // LPSPI1_PCS0

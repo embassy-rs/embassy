@@ -7,11 +7,12 @@ use embedded_hal_02::spi::{Phase, Polarity};
 
 use super::common::*;
 use super::pins::*;
-use crate::clocks::periph_helpers::LpspiConfig;
 use crate::clocks::enable_and_reset;
+use crate::clocks::periph_helpers::LpspiConfig;
 use crate::gpio::AnyPin;
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
+use crate::pac::lpspi::vals::{Cpha, Cpol, Lsbf, Master, Mbf, Outcfg, Pcspol, Pincfg, Rxmsk, Txmsk};
 
 /// SPI Slave Driver.
 pub struct SpiSlave<'d, T: Instance, M: Mode> {
@@ -55,12 +56,12 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
 
     #[inline]
     fn get_rx_fifo_count() -> u8 {
-        T::regs().fsr().read().rxcount().bits()
+        T::regs().fsr().read().rxcount()
     }
 
     #[inline]
     fn get_tx_fifo_count() -> u8 {
-        T::regs().fsr().read().txcount().bits()
+        T::regs().fsr().read().txcount()
     }
 
     #[inline]
@@ -81,15 +82,21 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
 
         let spi = T::regs();
 
-        spi.cr().modify(|_, w| w.men().disabled());
+        spi.cr().modify(|w| w.set_men(false));
         flush_fifos(spi);
         clear_status_flags(spi);
-        spi.cfgr1().modify(|_, w| w.nostall().enable());
-        spi.fcr().write(|w| unsafe { w.txwater().bits(0).rxwater().bits(0) });
-        spi.cr().modify(|_, w| w.men().enabled());
+        spi.cfgr1().modify(|w| w.set_nostall(true));
+        spi.fcr().write(|w| {
+            w.set_txwater(0);
+            w.set_rxwater(0);
+        });
+        spi.cr().modify(|w| w.set_men(true));
 
-        spi.ier().write(|w| w);
-        spi.tcr().modify(|_, w| w.rxmsk().normal().txmsk().mask());
+        disable_all_interrupts(spi);
+        spi.tcr().modify(|w| {
+            w.set_rxmsk(Rxmsk::NORMAL);
+            w.set_txmsk(Txmsk::MASK);
+        });
 
         T::slave_irq_state().with(|st| {
             st.op = SlaveIrqOp::Rx;
@@ -99,7 +106,10 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
             st.rx_pos = 0;
         });
 
-        spi.ier().write(|w| w.rdie().enable().reie().enable());
+        spi.ier().write(|w| {
+            w.set_rdie(true);
+            w.set_reie(true);
+        });
 
         T::wait_cell()
             .wait_for(|| T::slave_irq_state().with(|st| st.op == SlaveIrqOp::Idle))
@@ -123,19 +133,25 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
         let spi = T::regs();
         let fifo_size = Self::get_fifo_size();
 
-        spi.cr().modify(|_, w| w.men().disabled());
+        spi.cr().modify(|w| w.set_men(false));
         flush_fifos(spi);
         clear_status_flags(spi);
-        spi.cfgr1().modify(|_, w| w.nostall().enable());
-        spi.fcr().write(|w| unsafe { w.txwater().bits(1).rxwater().bits(0) });
-        spi.cr().modify(|_, w| w.men().enabled());
+        spi.cfgr1().modify(|w| w.set_nostall(true));
+        spi.fcr().write(|w| {
+            w.set_txwater(1);
+            w.set_rxwater(0);
+        });
+        spi.cr().modify(|w| w.set_men(true));
 
-        spi.ier().write(|w| w);
-        spi.tcr().modify(|_, w| w.rxmsk().mask().txmsk().normal());
+        disable_all_interrupts(spi);
+        spi.tcr().modify(|w| {
+            w.set_rxmsk(Rxmsk::MASK);
+            w.set_txmsk(Txmsk::NORMAL);
+        });
 
         let mut prefill = 0usize;
         while prefill < tx.len() && Self::get_tx_fifo_count() < fifo_size {
-            spi.tdr().write(|w| unsafe { w.bits(tx[prefill] as u32) });
+            spi.tdr().write(|w| w.set_data(tx[prefill] as u32));
             prefill += 1;
         }
 
@@ -147,7 +163,11 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
             st.tx_pos = prefill;
         });
 
-        spi.ier().write(|w| w.tdie().enable().teie().enable().fcie().enable());
+        spi.ier().write(|w| {
+            w.set_tdie(true);
+            w.set_teie(true);
+            w.set_fcie(true);
+        });
 
         T::wait_cell()
             .wait_for(|| T::slave_irq_state().with(|st| st.op == SlaveIrqOp::Idle))
@@ -159,7 +179,7 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
             return Err(e);
         }
 
-        spin_wait_while(|| spi.sr().read().mbf().is_busy())?;
+        spin_wait_while(|| spi.sr().read().mbf() == Mbf::BUSY)?;
 
         Ok(())
     }
@@ -180,28 +200,31 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
             return Ok(());
         }
 
-        spi.cr().modify(|_, w| w.men().disabled());
+        spi.cr().modify(|w| w.set_men(false));
         flush_fifos(spi);
         clear_status_flags(spi);
-        spi.cfgr1().modify(|_, w| w.nostall().enable());
-        spi.fcr().write(|w| unsafe { w.txwater().bits(1).rxwater().bits(0) });
-        spi.cr().modify(|_, w| w.men().enabled());
+        spi.cfgr1().modify(|w| w.set_nostall(true));
+        spi.fcr().write(|w| {
+            w.set_txwater(1);
+            w.set_rxwater(0);
+        });
+        spi.cr().modify(|w| w.set_men(true));
 
-        spi.ier().write(|w| w);
+        disable_all_interrupts(spi);
 
         // Ensure full duplex: RX and TX unmasked.
         let tcr = Self::read_tcr_with_errata_workaround();
         let new_tcr = tcr & !(TCR_CONT | TCR_CONTC | TCR_RXMSK | TCR_TXMSK | TCR_PCS_MASK);
-        spi.tcr().write(|w| unsafe { w.bits(new_tcr) });
+        spi.tcr().write_value(crate::pac::lpspi::regs::Tcr(new_tcr));
 
         while Self::get_rx_fifo_count() > 0 {
-            let _ = spi.rdr().read().bits();
+            let _ = spi.rdr().read().data();
         }
 
         let mut prefill = 0usize;
         while prefill < total && Self::get_tx_fifo_count() < fifo_size {
             let byte = if prefill < tx_len { tx[prefill] } else { 0 };
-            spi.tdr().write(|w| unsafe { w.bits(byte as u32) });
+            spi.tdr().write(|w| w.set_data(byte as u32));
             prefill += 1;
         }
 
@@ -220,8 +243,12 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
             st.tx_source_len = tx_len;
         });
 
-        spi.ier()
-            .write(|w| w.rdie().enable().reie().enable().tdie().enable().teie().enable());
+        spi.ier().write(|w| {
+            w.set_rdie(true);
+            w.set_reie(true);
+            w.set_tdie(true);
+            w.set_teie(true);
+        });
 
         T::wait_cell()
             .wait_for(|| T::slave_irq_state().with(|st| st.op == SlaveIrqOp::Idle))
@@ -234,7 +261,7 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
         }
 
         spin_wait_while(|| Self::get_tx_fifo_count() > 0)?;
-        spin_wait_while(|| spi.sr().read().mbf().is_busy())?;
+        spin_wait_while(|| spi.sr().read().mbf() == Mbf::BUSY)?;
 
         Ok(())
     }
@@ -271,31 +298,36 @@ impl<'d, T: Instance, M: Mode> SpiSlave<'d, T, M> {
         let spi = T::regs();
 
         // Slave initialization sequence
-        spi.cr().write(|w| w.men().disabled());
-        spi.cfgr1().modify(|_, w| w.master().slave_mode());
-        spi.cfgr1().modify(|_, w| unsafe { w.pcspol().bits(0) });
-        spi.cfgr1()
-            .modify(|_, w| w.outcfg().retain_lastvalue().pincfg().sin_in_sout_out());
-        spi.fcr().write(|w| unsafe { w.txwater().bits(0).rxwater().bits(0) });
-
-        let framesz = config.bits_per_frame.saturating_sub(1).min(0xFFF);
-        spi.tcr().write(|w| unsafe {
-            w.framesz().bits(framesz);
-            match config.mode.polarity {
-                Polarity::IdleLow => w.cpol().inactive_low(),
-                Polarity::IdleHigh => w.cpol().inactive_high(),
-            };
-            match config.mode.phase {
-                Phase::CaptureOnFirstTransition => w.cpha().captured(),
-                Phase::CaptureOnSecondTransition => w.cpha().changed(),
-            };
-            match config.bit_order {
-                BitOrder::MsbFirst => w.lsbf().msb_first(),
-                BitOrder::LsbFirst => w.lsbf().lsb_first(),
-            }
+        spi.cr().write(|w| w.set_men(false));
+        spi.cfgr1().modify(|w| w.set_master(Master::SLAVE_MODE));
+        spi.cfgr1().modify(|w| w.set_pcspol(Pcspol::from_bits(0)));
+        spi.cfgr1().modify(|w| {
+            w.set_outcfg(Outcfg::RETAIN_LASTVALUE);
+            w.set_pincfg(Pincfg::SIN_IN_SOUT_OUT);
+        });
+        spi.fcr().write(|w| {
+            w.set_txwater(0);
+            w.set_rxwater(0);
         });
 
-        spi.cr().write(|w| w.men().enabled());
+        let framesz = config.bits_per_frame.saturating_sub(1).min(0xFFF);
+        spi.tcr().write(|w| {
+            w.set_framesz(framesz);
+            w.set_cpol(match config.mode.polarity {
+                Polarity::IdleLow => Cpol::INACTIVE_LOW,
+                Polarity::IdleHigh => Cpol::INACTIVE_HIGH,
+            });
+            w.set_cpha(match config.mode.phase {
+                Phase::CaptureOnFirstTransition => Cpha::CAPTURED,
+                Phase::CaptureOnSecondTransition => Cpha::CHANGED,
+            });
+            w.set_lsbf(match config.bit_order {
+                BitOrder::MsbFirst => Lsbf::MSB_FIRST,
+                BitOrder::LsbFirst => Lsbf::LSB_FIRST,
+            });
+        });
+
+        spi.cr().write(|w| w.set_men(true));
 
         Ok(Self {
             _peri,
@@ -314,16 +346,19 @@ impl<'d, T: Instance, M: Mode> SpiSlave<'d, T, M> {
         }
         let spi = T::regs();
 
-        spi.cr().modify(|_, w| w.men().disabled());
+        spi.cr().modify(|w| w.set_men(false));
         flush_fifos(spi);
         clear_status_flags(spi);
-        spi.cr().modify(|_, w| w.men().enabled());
+        spi.cr().modify(|w| w.set_men(true));
 
-        spi.tcr().modify(|_, w| w.rxmsk().normal().txmsk().mask());
+        spi.tcr().modify(|w| {
+            w.set_rxmsk(Rxmsk::NORMAL);
+            w.set_txmsk(Txmsk::MASK);
+        });
 
         for byte in rx.iter_mut() {
-            while spi.fsr().read().rxcount().bits() == 0 {}
-            *byte = spi.rdr().read().bits() as u8;
+            while spi.fsr().read().rxcount() == 0 {}
+            *byte = spi.rdr().read().data() as u8;
         }
 
         Ok(())
@@ -337,27 +372,30 @@ impl<'d, T: Instance, M: Mode> SpiSlave<'d, T, M> {
         let spi = T::regs();
         let fifo_size = LPSPI_FIFO_SIZE;
 
-        spi.cr().modify(|_, w| w.men().disabled());
+        spi.cr().modify(|w| w.set_men(false));
         flush_fifos(spi);
         clear_status_flags(spi);
-        spi.cr().modify(|_, w| w.men().enabled());
+        spi.cr().modify(|w| w.set_men(true));
 
-        spi.tcr().modify(|_, w| w.rxmsk().mask().txmsk().normal());
+        spi.tcr().modify(|w| {
+            w.set_rxmsk(Rxmsk::MASK);
+            w.set_txmsk(Txmsk::NORMAL);
+        });
 
         let mut tx_idx = 0usize;
-        while tx_idx < tx.len() && spi.fsr().read().txcount().bits() < fifo_size {
-            spi.tdr().write(|w| unsafe { w.bits(tx[tx_idx] as u32) });
+        while tx_idx < tx.len() && spi.fsr().read().txcount() < fifo_size {
+            spi.tdr().write(|w| w.set_data(tx[tx_idx] as u32));
             tx_idx += 1;
         }
 
         while tx_idx < tx.len() {
-            while spi.fsr().read().txcount().bits() >= fifo_size {}
-            spi.tdr().write(|w| unsafe { w.bits(tx[tx_idx] as u32) });
+            while spi.fsr().read().txcount() >= fifo_size {}
+            spi.tdr().write(|w| w.set_data(tx[tx_idx] as u32));
             tx_idx += 1;
         }
 
-        while spi.fsr().read().txcount().bits() != 0 {}
-        while spi.sr().read().mbf().is_busy() {}
+        while spi.fsr().read().txcount() != 0 {}
+        while spi.sr().read().mbf() == Mbf::BUSY {}
 
         Ok(())
     }

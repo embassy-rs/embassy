@@ -71,7 +71,7 @@ async fn main(_spawner: Spawner) {
     // Perform type-safe memory-to-memory transfer using Embassy-style async API
     // Using async `.await` - the executor can run other tasks while waiting!
     // Returns a Result - validates that buffers are in DMA-accessible memory
-    dma_ch0
+    let _ = dma_ch0
         .mem_to_mem(src, dst, options)
         .expect("Buffer not in DMA-accessible memory")
         .await;
@@ -104,10 +104,7 @@ async fn main(_spawner: Spawner) {
     defmt::info!("Filling with pattern 0xDEADBEEF...");
 
     // Using blocking_wait() for demonstration - also shows non-async usage
-    // Returns a Result - validates that buffer is in DMA-accessible memory
-    let transfer = dma_ch0
-        .memset(&pattern, mst, options)
-        .expect("Buffer not in DMA-accessible memory");
+    let transfer = dma_ch0.memset(&pattern, mst, options);
     transfer.blocking_wait();
 
     defmt::info!("DMA memset complete!");

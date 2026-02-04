@@ -11,7 +11,7 @@ use super::{ClockError, Clocks, PoweredClock, WakeGuard};
 use crate::clocks::config::VddLevel;
 use crate::pac::mrcc::vals::{
     AdcClkselMux, ClkdivHalt, ClkdivReset, ClkdivUnstab, CtimerClkselMux, FclkClkselMux, Lpi2cClkselMux,
-    LpuartClkselMux, OstimerClkselMux,
+    LpspiClkselMux, LpuartClkselMux, OstimerClkselMux,
 };
 use crate::pac::{self};
 
@@ -835,10 +835,9 @@ pub struct LpspiConfig {
 }
 
 impl SPConfHelper for LpspiConfig {
-    fn post_enable_config(&self, clocks: &Clocks) -> Result<u32, ClockError> {
+    fn pre_enable_config(&self, clocks: &Clocks) -> Result<PreEnableParts, ClockError> {
         // check that source is suitable
-        let mrcc0 = unsafe { pac::Mrcc0::steal() };
-        use mcxa_pac::mrcc0::mrcc_lpspi0_clksel::Mux;
+        let mrcc0 = pac::MRCC0;
 
         let (clkdiv, clksel) = match self.instance {
             LpspiInstance::Lpspi0 => (mrcc0.mrcc_lpspi0_clkdiv(), mrcc0.mrcc_lpspi0_clksel()),
@@ -848,30 +847,33 @@ impl SPConfHelper for LpspiConfig {
         let (freq, variant) = match self.source {
             LpspiClockSel::FroLfDiv => {
                 let freq = clocks.ensure_fro_lf_div_active(&self.power)?;
-                (freq, Mux::ClkrootFunc0)
+                (freq, LpspiClkselMux::CLKROOT_FUNC_0)
             }
             LpspiClockSel::FroHfDiv => {
                 let freq = clocks.ensure_fro_hf_div_active(&self.power)?;
-                (freq, Mux::ClkrootFunc2)
+                (freq, LpspiClkselMux::CLKROOT_FUNC_2)
             }
             LpspiClockSel::ClkIn => {
                 let freq = clocks.ensure_clk_in_active(&self.power)?;
-                (freq, Mux::ClkrootFunc3)
+                (freq, LpspiClkselMux::CLKROOT_FUNC_3)
             }
             LpspiClockSel::Clk1M => {
                 let freq = clocks.ensure_clk_1m_active(&self.power)?;
-                (freq, Mux::ClkrootFunc5)
+                (freq, LpspiClkselMux::CLKROOT_FUNC_5)
             }
             LpspiClockSel::Pll1ClkDiv => {
                 let freq = clocks.ensure_pll1_clk_div_active(&self.power)?;
-                (freq, Mux::ClkrootFunc6)
+                (freq, LpspiClkselMux::CLKROOT_FUNC_6)
             }
-            LpspiClockSel::None => unsafe {
+            LpspiClockSel::None => {
                 // no ClkrootFunc7, just write manually for now
-                clksel.write(|w| w.bits(0b111));
-                clkdiv.modify(|_r, w| w.reset().asserted().halt().asserted());
-                return Ok(0);
-            },
+                clksel.write(|w| w.0 = 0b111);
+                clkdiv.modify(|w| {
+                    w.set_reset(ClkdivReset::OFF);
+                    w.set_halt(ClkdivHalt::OFF);
+                });
+                return Ok(PreEnableParts::empty());
+            }
         };
 
         apply_div4!(self, clksel, clkdiv, variant, freq)
