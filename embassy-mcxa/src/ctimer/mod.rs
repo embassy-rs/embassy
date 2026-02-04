@@ -50,7 +50,6 @@ impl Default for Config {
 /// CTimer core driver.
 #[derive(Clone)]
 pub struct CTimer<'d> {
-    info: &'static Info,
     _freq: u32,
     _wg: Option<WakeGuard>,
     _phantom: PhantomData<&'d mut ()>,
@@ -70,14 +69,10 @@ impl<'d> CTimer<'d> {
         let parts = unsafe { enable_and_reset::<T>(&conf).map_err(Error::ClockSetup)? };
 
         let inst = Self {
-            info: T::info(),
             _freq: parts.freq,
             _wg: parts.wake_guard,
             _phantom: PhantomData,
         };
-
-        // Enable CTimer
-        inst.info.regs().tcr().modify(|w| w.set_cen(true));
 
         Ok(inst)
     }
