@@ -224,6 +224,8 @@ struct ClocksInput {
     hse: Option<Hertz>,
     pll1: Option<Hertz>,
     pll2: Option<Hertz>,
+    pll3: Option<Hertz>,
+    pll4: Option<Hertz>,
 }
 
 fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
@@ -386,10 +388,11 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
         CpuClk::Hse => unwrap!(input.hse),
         CpuClk::Ic1 { source, divider } => {
             let src_freq = match source {
-                Icsel::PLL1 => unwrap!(input.pll1),
-                Icsel::PLL2 => unwrap!(input.pll2),
-                Icsel::HSI_OSC_DIV4 => Hertz(unwrap!(input.hsi).0 / 4),
-                Icsel::HSI_OSC_DIV8 => Hertz(unwrap!(input.hsi).0 / 8),
+                Icsel::PLL1 => unwrap!(input.pll1) / (divider.to_bits() + 1),
+                Icsel::PLL2 => unwrap!(input.pll2) / (divider.to_bits() + 1),
+                // stm32-data needs fixing, because the reference manual says the below are PLL3 and PLL4
+                Icsel::HSI_OSC_DIV4 => unwrap!(input.pll3) / (divider.to_bits() + 1),
+                Icsel::HSI_OSC_DIV8 => unwrap!(input.pll4) / (divider.to_bits() + 1),
             };
             let div = (divider.to_bits() as u32) + 1;
             Hertz(src_freq.0 / div)
@@ -402,10 +405,11 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
         SysClk::Hse => unwrap!(input.hse),
         SysClk::Ic2 { ic2, .. } => {
             let src_freq = match ic2.source {
-                Icsel::PLL1 => unwrap!(input.pll1),
-                Icsel::PLL2 => unwrap!(input.pll2),
-                Icsel::HSI_OSC_DIV4 => Hertz(unwrap!(input.hsi).0 / 4),
-                Icsel::HSI_OSC_DIV8 => Hertz(unwrap!(input.hsi).0 / 8),
+                Icsel::PLL1 => unwrap!(input.pll1) / (divider.to_bits() + 1),
+                Icsel::PLL2 => unwrap!(input.pll2) / (divider.to_bits() + 1),
+                // stm32-data needs fixing, because the reference manual says the below are PLL3 and PLL4
+                Icsel::HSI_OSC_DIV4 => unwrap!(input.pll3) / (divider.to_bits() + 1),
+                Icsel::HSI_OSC_DIV8 => unwrap!(input.pll4) / (divider.to_bits() + 1),
             };
             let div = (ic2.divider.to_bits() as u32) + 1;
             Hertz(src_freq.0 / div)
@@ -1247,6 +1251,8 @@ pub(crate) unsafe fn init(config: Config) {
         hse: osc.hse,
         pll1: osc.pll1,
         pll2: osc.pll2,
+        pll3: osc.pll3,
+        pll4: osc.pll4,
     };
     let clocks = init_clocks(config, &clock_inputs);
 
