@@ -390,7 +390,6 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
             let src_freq = match source {
                 Icsel::PLL1 => unwrap!(input.pll1),
                 Icsel::PLL2 => unwrap!(input.pll2),
-                // stm32-data needs fixing, because the reference manual says the below are PLL3 and PLL4
                 Icsel::PLL3 => unwrap!(input.pll3),
                 Icsel::PLL4 => unwrap!(input.pll4),
             };
@@ -407,7 +406,6 @@ fn init_clocks(config: Config, input: &ClocksInput) -> ClocksOutput {
             let src_freq = match ic2.source {
                 Icsel::PLL1 => unwrap!(input.pll1),
                 Icsel::PLL2 => unwrap!(input.pll2),
-                // stm32-data needs fixing, because the reference manual says the below are PLL3 and PLL4
                 Icsel::PLL3 => unwrap!(input.pll3),
                 Icsel::PLL4 => unwrap!(input.pll4),
             };
