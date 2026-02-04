@@ -27,17 +27,6 @@ pub enum TriggerEdge {
 pub(super) fn configure_exti_pin(pin: PinNumber, port: PinNumber, trigger_edge: TriggerEdge) {
     critical_section::with(|_| {
         let pin_num = pin as usize;
-        #[cfg(exti_n6)]
-        // Ports N and above (starting index 13) use value 8 and higher, as Ports I-M are not present
-        let port = {
-            const STM32_PORTI: PinNumber = 0x8;
-            const STM32_PORTN: PinNumber = 0xD;
-            if port >= STM32_PORTN {
-                port - (STM32_PORTN - STM32_PORTI) // N-Q = 8-12
-            } else {
-                port // A-H = 0-7
-            }
-        };
         // Cast needed: on N6, PinNumber is u16 (for total pin counting), but port is always 0-15.
         exticr_regs()
             .exticr(pin_num / 4)
