@@ -421,7 +421,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         Ok(())
     }
 
-    /// Set SPI direction
+    /// Set SPI direction for bidirectional mode.
     #[cfg(any(spi_v1, spi_v2, spi_v3))]
     pub fn set_direction(&mut self, dir: Option<Direction>) {
         let (bidimode, bidioe) = match dir {
@@ -430,8 +430,14 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
             None => (vals::Bidimode::UNIDIRECTIONAL, vals::Bidioe::TRANSMIT),
         };
         self.info.regs.cr1().modify(|w| {
+            w.set_spe(false);
+        });
+        self.info.regs.cr1().modify(|w| {
             w.set_bidimode(bidimode);
             w.set_bidioe(bidioe);
+        });
+        self.info.regs.cr1().modify(|w| {
+            w.set_spe(true);
         });
     }
 
