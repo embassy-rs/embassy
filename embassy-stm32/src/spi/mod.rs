@@ -1590,6 +1590,7 @@ pin_trait!(CsPin, Instance, @A);
 pin_trait!(MckPin, Instance, @A);
 pin_trait!(CkPin, Instance, @A);
 pin_trait!(WsPin, Instance, @A);
+pin_trait!(I2sSdPin, Instance, @A);
 dma_trait!(RxDma, Instance);
 dma_trait!(TxDma, Instance);
 
