@@ -7,7 +7,8 @@ use embedded_hal_1::pwm::{Error, ErrorKind, ErrorType};
 use super::{AnyChannel, CTimer, Info, Instance, OutputPin, PwmChannel};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::pac::ctimer::vals::{
-    Mr0i, Mr0r, Mr0s, Mr1i, Mr1r, Mr1s, Mr2i, Mr2r, Mr2s, Mr3i, Mr3r, Mr3s, Pwmen0, Pwmen1, Pwmen2, Pwmen3,
+    Mr0i, Mr0r, Mr0rl, Mr0s, Mr1i, Mr1r, Mr1rl, Mr1s, Mr2i, Mr2r, Mr2rl, Mr2s, Mr3i, Mr3r, Mr3rl, Mr3s, Pwmen0, Pwmen1,
+    Pwmen2, Pwmen3,
 };
 
 /// PWM error.
@@ -171,6 +172,22 @@ impl<'d> Pwm<'d> {
                 }
                 _ => unreachable!(),
             }
+
+            match self.duty_ch.number() {
+                0 => {
+                    w.set_mr0rl(Mr0rl::MR0RL_1);
+                }
+                1 => {
+                    w.set_mr1rl(Mr1rl::MR1RL_1);
+                }
+                2 => {
+                    w.set_mr2rl(Mr2rl::MR2RL_1);
+                }
+                3 => {
+                    w.set_mr3rl(Mr3rl::MR3RL_1);
+                }
+                _ => unreachable!(),
+            }
         });
 
         // Configure PWM period
@@ -188,6 +205,10 @@ impl<'d> Pwm<'d> {
             .regs()
             .mr(self.duty_ch.number())
             .write(|w| w.set_match_(u32::from(duty_cycle)));
+        self.info
+            .regs()
+            .msr(self.duty_ch.number())
+            .write(|w| w.set_match_shadow(u32::from(duty_cycle)));
 
         // REVISIT: do we need interrupts?
 
@@ -223,8 +244,8 @@ impl<'d> SetDutyCycle for Pwm<'d> {
 
         self.info
             .regs()
-            .mr(usize::from(self.duty_ch.number()))
-            .write(|w| w.set_match_(u32::from(duty)));
+            .msr(usize::from(self.duty_ch.number()))
+            .write(|w| w.set_match_shadow(u32::from(duty)));
 
         Ok(())
     }
