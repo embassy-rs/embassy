@@ -264,6 +264,11 @@ impl Ticker {
         self.expires_at = Instant::now() + after + self.duration;
     }
 
+    /// Resets the ticker to fire immediately.
+    pub fn reset_to_now(&mut self) {
+        self.expires_at = Instant::now();
+    }
+
     /// Waits for the next tick.
     ///
     /// ## Cancel safety
