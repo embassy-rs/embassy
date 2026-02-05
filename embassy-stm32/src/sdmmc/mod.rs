@@ -20,7 +20,7 @@ use sdio_host::sd_cmd::{R6, R7};
 use crate::dma::ChannelAndRequest;
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
-use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::interrupt::typelevel::Interrupt;
 use crate::pac::sdmmc::Sdmmc as RegBlock;
 use crate::rcc::{self, RccInfo, RccPeripheral, SealedRccPeripheral};
@@ -449,16 +449,16 @@ pub struct Sdmmc<'d> {
     #[cfg(sdmmc_v1)]
     dma: ChannelAndRequest<'d>,
 
-    clk: Peri<'d, AnyPin>,
-    cmd: Peri<'d, AnyPin>,
-    d0: Peri<'d, AnyPin>,
-    d1: Option<Peri<'d, AnyPin>>,
-    d2: Option<Peri<'d, AnyPin>>,
-    d3: Option<Peri<'d, AnyPin>>,
-    d4: Option<Peri<'d, AnyPin>>,
-    d5: Option<Peri<'d, AnyPin>>,
-    d6: Option<Peri<'d, AnyPin>>,
-    d7: Option<Peri<'d, AnyPin>>,
+    _clk: Flex<'d>,
+    _cmd: Flex<'d>,
+    _d0: Flex<'d>,
+    _d1: Option<Flex<'d>>,
+    _d2: Option<Flex<'d>>,
+    d3: Option<Flex<'d>>,
+    _d4: Option<Flex<'d>>,
+    _d5: Option<Flex<'d>>,
+    _d6: Option<Flex<'d>>,
+    d7: Option<Flex<'d>>,
 
     config: Config,
 }
@@ -493,9 +493,9 @@ impl<'d> Sdmmc<'d> {
         Self::new_inner(
             sdmmc,
             new_dma_nonopt!(dma, _irq),
-            clk.into(),
-            cmd.into(),
-            d0.into(),
+            Flex::new(clk),
+            Flex::new(cmd),
+            Flex::new(d0),
             None,
             None,
             None,
@@ -534,12 +534,12 @@ impl<'d> Sdmmc<'d> {
         Self::new_inner(
             sdmmc,
             new_dma_nonopt!(dma, _irq),
-            clk.into(),
-            cmd.into(),
-            d0.into(),
-            Some(d1.into()),
-            Some(d2.into()),
-            Some(d3.into()),
+            Flex::new(clk),
+            Flex::new(cmd),
+            Flex::new(d0),
+            Some(Flex::new(d1)),
+            Some(Flex::new(d2)),
+            Some(Flex::new(d3)),
             None,
             None,
             None,
@@ -586,16 +586,16 @@ impl<'d> Sdmmc<'d> {
         Self::new_inner(
             sdmmc,
             new_dma_nonopt!(dma, _irq),
-            clk.into(),
-            cmd.into(),
-            d0.into(),
-            Some(d1.into()),
-            Some(d2.into()),
-            Some(d3.into()),
-            Some(d4.into()),
-            Some(d5.into()),
-            Some(d6.into()),
-            Some(d7.into()),
+            Flex::new(clk),
+            Flex::new(cmd),
+            Flex::new(d0),
+            Some(Flex::new(d1)),
+            Some(Flex::new(d2)),
+            Some(Flex::new(d3)),
+            Some(Flex::new(d4)),
+            Some(Flex::new(d5)),
+            Some(Flex::new(d6)),
+            Some(Flex::new(d7)),
             config,
         )
     }
@@ -620,9 +620,9 @@ impl<'d> Sdmmc<'d> {
 
         Self::new_inner(
             sdmmc,
-            clk.into(),
-            cmd.into(),
-            d0.into(),
+            Flex::new(clk),
+            Flex::new(cmd),
+            Flex::new(d0),
             None,
             None,
             None,
@@ -657,12 +657,12 @@ impl<'d> Sdmmc<'d> {
 
         Self::new_inner(
             sdmmc,
-            clk.into(),
-            cmd.into(),
-            d0.into(),
-            Some(d1.into()),
-            Some(d2.into()),
-            Some(d3.into()),
+            Flex::new(clk),
+            Flex::new(cmd),
+            Flex::new(d0),
+            Some(Flex::new(d1)),
+            Some(Flex::new(d2)),
+            Some(Flex::new(d3)),
             None,
             None,
             None,
@@ -705,16 +705,16 @@ impl<'d> Sdmmc<'d> {
 
         Self::new_inner(
             sdmmc,
-            clk.into(),
-            cmd.into(),
-            d0.into(),
-            Some(d1.into()),
-            Some(d2.into()),
-            Some(d3.into()),
-            Some(d4.into()),
-            Some(d5.into()),
-            Some(d6.into()),
-            Some(d7.into()),
+            Flex::new(clk),
+            Flex::new(cmd),
+            Flex::new(d0),
+            Some(Flex::new(d1)),
+            Some(Flex::new(d2)),
+            Some(Flex::new(d3)),
+            Some(Flex::new(d4)),
+            Some(Flex::new(d5)),
+            Some(Flex::new(d6)),
+            Some(Flex::new(d7)),
             config,
         )
     }
@@ -741,16 +741,16 @@ impl<'d> Sdmmc<'d> {
     fn new_inner<T: Instance>(
         _sdmmc: Peri<'d, T>,
         #[cfg(sdmmc_v1)] dma: ChannelAndRequest<'d>,
-        clk: Peri<'d, AnyPin>,
-        cmd: Peri<'d, AnyPin>,
-        d0: Peri<'d, AnyPin>,
-        d1: Option<Peri<'d, AnyPin>>,
-        d2: Option<Peri<'d, AnyPin>>,
-        d3: Option<Peri<'d, AnyPin>>,
-        d4: Option<Peri<'d, AnyPin>>,
-        d5: Option<Peri<'d, AnyPin>>,
-        d6: Option<Peri<'d, AnyPin>>,
-        d7: Option<Peri<'d, AnyPin>>,
+        clk: Flex<'d>,
+        cmd: Flex<'d>,
+        d0: Flex<'d>,
+        d1: Option<Flex<'d>>,
+        d2: Option<Flex<'d>>,
+        d3: Option<Flex<'d>>,
+        d4: Option<Flex<'d>>,
+        d5: Option<Flex<'d>>,
+        d6: Option<Flex<'d>>,
+        d7: Option<Flex<'d>>,
         config: Config,
     ) -> Self {
         rcc::enable_and_reset_without_stop::<T>();
@@ -788,15 +788,15 @@ impl<'d> Sdmmc<'d> {
             #[cfg(sdmmc_v1)]
             dma,
 
-            clk,
-            cmd,
-            d0,
-            d1,
-            d2,
+            _clk: clk,
+            _cmd: cmd,
+            _d0: d0,
+            _d1: d1,
+            _d2: d2,
             d3,
-            d4,
-            d5,
-            d6,
+            _d4: d4,
+            _d5: d5,
+            _d6: d6,
             d7,
 
             config,
@@ -1242,33 +1242,6 @@ impl<'d> Drop for Sdmmc<'d> {
         // T::Interrupt::disable();
         self.on_drop();
         self.info.rcc.disable_without_stop();
-
-        critical_section::with(|_| {
-            self.clk.set_as_disconnected();
-            self.cmd.set_as_disconnected();
-            self.d0.set_as_disconnected();
-            if let Some(x) = &mut self.d1 {
-                x.set_as_disconnected();
-            }
-            if let Some(x) = &mut self.d2 {
-                x.set_as_disconnected();
-            }
-            if let Some(x) = &mut self.d3 {
-                x.set_as_disconnected();
-            }
-            if let Some(x) = &mut self.d4 {
-                x.set_as_disconnected();
-            }
-            if let Some(x) = &mut self.d5 {
-                x.set_as_disconnected();
-            }
-            if let Some(x) = &mut self.d6 {
-                x.set_as_disconnected();
-            }
-            if let Some(x) = &mut self.d7 {
-                x.set_as_disconnected();
-            }
-        });
     }
 }
 

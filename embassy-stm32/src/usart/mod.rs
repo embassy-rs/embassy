@@ -15,7 +15,7 @@ use futures_util::future::{Either, select};
 
 use crate::Peri;
 use crate::dma::ChannelAndRequest;
-use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::interrupt::typelevel::Interrupt as _;
 use crate::interrupt::{self, Interrupt, InterruptExt};
 use crate::mode::{Async, Blocking, Mode};
@@ -393,9 +393,9 @@ pub struct UartTx<'d, M: Mode> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    tx: Option<Peri<'d, AnyPin>>,
-    cts: Option<Peri<'d, AnyPin>>,
-    de: Option<Peri<'d, AnyPin>>,
+    _tx: Option<Flex<'d>>,
+    cts: Option<Flex<'d>>,
+    _de: Option<Flex<'d>>,
     tx_dma: Option<ChannelAndRequest<'d>>,
     duplex: Duplex,
     _phantom: PhantomData<M>,
@@ -443,8 +443,8 @@ pub struct UartRx<'d, M: Mode> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    rx: Option<Peri<'d, AnyPin>>,
-    rts: Option<Peri<'d, AnyPin>>,
+    rx: Option<Flex<'d>>,
+    rts: Option<Flex<'d>>,
     rx_dma: Option<ChannelAndRequest<'d>>,
     detect_previous_overrun: bool,
     #[cfg(any(usart_v1, usart_v2))]
@@ -550,8 +550,8 @@ impl<'d> UartTx<'d, Blocking> {
 impl<'d, M: Mode> UartTx<'d, M> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        tx: Option<Peri<'d, AnyPin>>,
-        cts: Option<Peri<'d, AnyPin>>,
+        tx: Option<Flex<'d>>,
+        cts: Option<Flex<'d>>,
         tx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
@@ -559,9 +559,9 @@ impl<'d, M: Mode> UartTx<'d, M> {
             info: T::info(),
             state: T::state(),
             kernel_clock: T::frequency(),
-            tx,
+            _tx: tx,
             cts,
-            de: None,
+            _de: None,
             tx_dma,
             duplex: config.duplex,
             _phantom: PhantomData,
@@ -989,8 +989,8 @@ impl<'d> UartRx<'d, Blocking> {
 impl<'d, M: Mode> UartRx<'d, M> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        rx: Option<Peri<'d, AnyPin>>,
-        rts: Option<Peri<'d, AnyPin>>,
+        rx: Option<Flex<'d>>,
+        rts: Option<Flex<'d>>,
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
     ) -> Result<Self, ConfigError> {
@@ -1133,17 +1133,12 @@ impl<'d, M: Mode> UartRx<'d, M> {
 
 impl<'d, M: Mode> Drop for UartTx<'d, M> {
     fn drop(&mut self) {
-        self.tx.as_ref().map(|x| x.set_as_disconnected());
-        self.cts.as_ref().map(|x| x.set_as_disconnected());
-        self.de.as_ref().map(|x| x.set_as_disconnected());
         drop_tx_rx(self.info, self.state);
     }
 }
 
 impl<'d, M: Mode> Drop for UartRx<'d, M> {
     fn drop(&mut self) {
-        self.rx.as_ref().map(|x| x.set_as_disconnected());
-        self.rts.as_ref().map(|x| x.set_as_disconnected());
         drop_tx_rx(self.info, self.state);
     }
 }
@@ -1485,11 +1480,11 @@ impl<'d> Uart<'d, Blocking> {
 impl<'d, M: Mode> Uart<'d, M> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        rx: Option<Peri<'d, AnyPin>>,
-        tx: Option<Peri<'d, AnyPin>>,
-        rts: Option<Peri<'d, AnyPin>>,
-        cts: Option<Peri<'d, AnyPin>>,
-        de: Option<Peri<'d, AnyPin>>,
+        rx: Option<Flex<'d>>,
+        tx: Option<Flex<'d>>,
+        rts: Option<Flex<'d>>,
+        cts: Option<Flex<'d>>,
+        de: Option<Flex<'d>>,
         tx_dma: Option<ChannelAndRequest<'d>>,
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
@@ -1504,9 +1499,9 @@ impl<'d, M: Mode> Uart<'d, M> {
                 info,
                 state,
                 kernel_clock,
-                tx,
+                _tx: tx,
                 cts,
-                de,
+                _de: de,
                 tx_dma,
                 duplex: config.duplex,
             },
@@ -1541,7 +1536,7 @@ impl<'d, M: Mode> Uart<'d, M> {
             w.set_rtse(self.rx.rts.is_some());
             w.set_ctse(self.tx.cts.is_some());
             #[cfg(not(any(usart_v1, usart_v2)))]
-            w.set_dem(self.tx.de.is_some());
+            w.set_dem(self.tx._de.is_some());
         });
         configure(info, self.rx.kernel_clock, config, true, true)?;
 

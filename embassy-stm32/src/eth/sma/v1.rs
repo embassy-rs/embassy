@@ -5,7 +5,7 @@ use stm32_metapac::eth::vals::{Cr, MbProgress, Mw};
 
 use super::{Instance, StationManagement};
 use crate::eth::{MDCPin, MDIOPin};
-use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Speed};
 
 /// Station Management Agent.
 ///
@@ -14,7 +14,7 @@ use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
 pub struct Sma<'d, T: Instance> {
     _peri: Peri<'d, T>,
     clock_range: Cr,
-    pins: [Peri<'d, AnyPin>; 2],
+    _pins: [Flex<'d>; 2],
 }
 
 impl<'d, T: Instance> Sma<'d, T> {
@@ -60,7 +60,7 @@ impl<'d, T: Instance> Sma<'d, T> {
         Self {
             _peri: peri,
             clock_range,
-            pins: [mdio.into(), mdc.into()],
+            _pins: [Flex::new(mdio), Flex::new(mdc)],
         }
     }
 }
@@ -92,11 +92,5 @@ impl<T: Instance> StationManagement for Sma<'_, T> {
             w.set_mb(MbProgress::BUSY);
         });
         while macmiiar.read().mb() == MbProgress::BUSY {}
-    }
-}
-
-impl<T: Instance> Drop for Sma<'_, T> {
-    fn drop(&mut self) {
-        self.pins.iter_mut().for_each(|p| p.set_as_disconnected());
     }
 }

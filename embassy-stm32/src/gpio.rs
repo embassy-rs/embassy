@@ -30,6 +30,22 @@ impl<'d> Flex<'d> {
         Self { pin: pin.into() }
     }
 
+    /// Reborrow into a "child" Flex.
+    ///
+    /// `self` will stay borrowed until the child Peripheral is dropped.
+    pub fn reborrow(&mut self) -> Flex<'_> {
+        Flex {
+            pin: self.pin.reborrow(),
+        }
+    }
+
+    /// Unsafely clone (duplicate) a Flex.
+    pub unsafe fn clone_unchecked(&mut self) -> Flex<'d> {
+        Flex {
+            pin: self.pin.clone_unchecked(),
+        }
+    }
+
     /// Put the pin into input mode.
     ///
     /// The internal weak pull-up and pull-down resistors will be enabled according to `pull`.

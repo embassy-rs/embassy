@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 
 use embassy_hal_internal::{Peri, PeripheralType};
 
-use crate::gpio::{AfType, AnyPin, SealedPin};
+use crate::gpio::{AfType, Flex, SealedPin};
 use crate::peripherals;
 use crate::rcc::{self, RccPeripheral};
 use crate::time::Hertz;
@@ -181,7 +181,7 @@ impl<'d, T: Instance> Lcd<'d, T> {
 
         // Set the pins
         for pin in pins {
-            pin.pin.set_as_af(
+            pin.pin.pin.set_as_af(
                 pin.af_num,
                 AfType::output(crate::gpio::OutputType::PushPull, crate::gpio::Speed::VeryHigh),
             );
@@ -453,7 +453,7 @@ pub enum BlinkSelector {
 /// A type-erased pin that can be configured as an LCD pin.
 /// This is used for passing pins to the new function in the array.
 pub struct LcdPin<'d, T: Instance> {
-    pin: Peri<'d, AnyPin>,
+    pin: Flex<'d>,
     af_num: u8,
     is_seg: bool,
     _phantom: PhantomData<T>,
@@ -465,7 +465,7 @@ impl<'d, T: Instance> LcdPin<'d, T> {
         let af = pin.af_num();
 
         Self {
-            pin: pin.into(),
+            pin: Flex::new(pin),
             af_num: af,
             is_seg: true,
             _phantom: PhantomData,
@@ -477,7 +477,7 @@ impl<'d, T: Instance> LcdPin<'d, T> {
         let af = pin.af_num();
 
         Self {
-            pin: pin.into(),
+            pin: Flex::new(pin),
             af_num: af,
             is_seg: false,
             _phantom: PhantomData,

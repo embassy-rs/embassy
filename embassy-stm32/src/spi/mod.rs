@@ -10,7 +10,7 @@ pub use embedded_hal_02::spi::{MODE_0, MODE_1, MODE_2, MODE_3, Mode, Phase, Pola
 
 use crate::Peri;
 use crate::dma::{ChannelAndRequest, word};
-use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Pull, SealedPin as _, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::spi::{Spi as Regs, regs, vals};
 use crate::rcc::{RccInfo, SealedRccPeripheral};
@@ -208,10 +208,10 @@ use mode::{CommunicationMode, Master, Slave};
 pub struct Spi<'d, M: PeriMode, CM: CommunicationMode> {
     pub(crate) info: &'static Info,
     kernel_clock: Hertz,
-    sck: Option<Peri<'d, AnyPin>>,
-    mosi: Option<Peri<'d, AnyPin>>,
-    miso: Option<Peri<'d, AnyPin>>,
-    nss: Option<Peri<'d, AnyPin>>,
+    _sck: Option<Flex<'d>>,
+    _mosi: Option<Flex<'d>>,
+    miso: Option<Flex<'d>>,
+    nss: Option<Flex<'d>>,
     tx_dma: Option<ChannelAndRequest<'d>>,
     rx_dma: Option<ChannelAndRequest<'d>>,
     _phantom: PhantomData<(M, CM)>,
@@ -222,10 +222,10 @@ pub struct Spi<'d, M: PeriMode, CM: CommunicationMode> {
 impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
     fn new_inner<T: Instance>(
         _peri: Peri<'d, T>,
-        sck: Option<Peri<'d, AnyPin>>,
-        mosi: Option<Peri<'d, AnyPin>>,
-        miso: Option<Peri<'d, AnyPin>>,
-        nss: Option<Peri<'d, AnyPin>>,
+        sck: Option<Flex<'d>>,
+        mosi: Option<Flex<'d>>,
+        miso: Option<Flex<'d>>,
+        nss: Option<Flex<'d>>,
         tx_dma: Option<ChannelAndRequest<'d>>,
         rx_dma: Option<ChannelAndRequest<'d>>,
         config: Config,
@@ -233,8 +233,8 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         let mut this = Self {
             info: T::info(),
             kernel_clock: T::frequency(),
-            sck,
-            mosi,
+            _sck: sck,
+            _mosi: mosi,
             miso,
             nss,
             tx_dma,
@@ -372,11 +372,11 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
         #[cfg(gpio_v2)]
         {
             self.gpio_speed = config.gpio_speed;
-            if let Some(sck) = self.sck.as_ref() {
-                sck.set_speed(config.gpio_speed);
+            if let Some(sck) = self._sck.as_ref() {
+                sck.pin.set_speed(config.gpio_speed);
             }
-            if let Some(mosi) = self.mosi.as_ref() {
-                mosi.set_speed(config.gpio_speed);
+            if let Some(mosi) = self._mosi.as_ref() {
+                mosi.pin.set_speed(config.gpio_speed);
             }
         }
 
@@ -474,7 +474,7 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
 
         let miso_pull = match &self.miso {
             None => Pull::None,
-            Some(pin) => pin.pull(),
+            Some(pin) => pin.pin.pull(),
         };
 
         #[cfg(any(spi_v1, spi_v2, spi_v3))]
@@ -1169,11 +1169,6 @@ impl<'d, CM: CommunicationMode> Spi<'d, Async, CM> {
 
 impl<'d, M: PeriMode, CM: CommunicationMode> Drop for Spi<'d, M, CM> {
     fn drop(&mut self) {
-        self.sck.as_ref().map(|x| x.set_as_disconnected());
-        self.mosi.as_ref().map(|x| x.set_as_disconnected());
-        self.miso.as_ref().map(|x| x.set_as_disconnected());
-        self.nss.as_ref().map(|x| x.set_as_disconnected());
-
         self.info.rcc.disable_without_stop();
     }
 }

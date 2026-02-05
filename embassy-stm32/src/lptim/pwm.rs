@@ -12,7 +12,7 @@ use super::{BasicInstance, Instance};
 use super::{Channel1Pin, Channel2Pin, channel::Channel, timer::ChannelDirection};
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
-use crate::gpio::{AfType, AnyPin, OutputType, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::time::Hertz;
 
 /// Output marker type.
@@ -26,7 +26,7 @@ pub enum Ch2 {}
 ///
 /// This wraps a pin to make it usable with PWM.
 pub struct PwmPin<'d, T, C> {
-    _pin: Peri<'d, AnyPin>,
+    _pin: Flex<'d>,
     phantom: PhantomData<(T, C)>,
 }
 
@@ -53,7 +53,7 @@ macro_rules! channel_impl {
                     set_as_af!(pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
                 });
                 PwmPin {
-                    _pin: pin.into(),
+                    _pin: Flex::new(pin),
                     phantom: PhantomData,
                 }
             }
@@ -70,7 +70,7 @@ macro_rules! channel_impl {
                     );
                 });
                 PwmPin {
-                    _pin: pin.into(),
+                    _pin: Flex::new(pin),
                     phantom: PhantomData,
                 }
             }

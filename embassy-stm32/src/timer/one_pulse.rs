@@ -12,7 +12,7 @@ use super::low_level::{
 use super::{CaptureCompareInterruptHandler, Channel, ExternalTriggerPin, GeneralInstance4Channel, TimerPin};
 pub use super::{Ch1, Ch2};
 use crate::Peri;
-use crate::gpio::{AfType, AnyPin, Pull};
+use crate::gpio::{AfType, Flex, Pull};
 use crate::interrupt::typelevel::{Binding, Interrupt};
 use crate::pac::timer::vals::Etp;
 use crate::time::Hertz;
@@ -44,7 +44,7 @@ impl From<ExternalTriggerPolarity> for Etp {
 /// This wraps a pin to make it usable as a timer trigger.
 pub struct TriggerPin<'d, T, C> {
     #[allow(unused)]
-    pin: Peri<'d, AnyPin>,
+    pin: Flex<'d>,
     phantom: PhantomData<(T, C)>,
 }
 
@@ -67,7 +67,7 @@ impl<'d, T: GeneralInstance4Channel, C: TriggerSource + TimerChannel> TriggerPin
     pub fn new<#[cfg(afio)] A>(pin: Peri<'d, if_afio!(impl TimerPin<T, C, A>)>, pull: Pull) -> Self {
         set_as_af!(pin, AfType::input(pull));
         TriggerPin {
-            pin: pin.into(),
+            pin: Flex::new(pin),
             phantom: PhantomData,
         }
     }
@@ -78,7 +78,7 @@ impl<'d, T: GeneralInstance4Channel> TriggerPin<'d, T, Ext> {
     pub fn new_external<#[cfg(afio)] A>(pin: Peri<'d, if_afio!(impl ExternalTriggerPin<T, A>)>, pull: Pull) -> Self {
         set_as_af!(pin, AfType::input(pull));
         TriggerPin {
-            pin: pin.into(),
+            pin: Flex::new(pin),
             phantom: PhantomData,
         }
     }
