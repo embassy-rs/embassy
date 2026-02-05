@@ -832,6 +832,16 @@ impl<'d, PIO: Instance + 'd, const SM: usize> StateMachine<'d, PIO, SM> {
         }
     }
 
+    /// Get pointer to rx fifo
+    pub fn rx_fifo_ptr(&self) -> *mut u32 {
+        PIO::PIO.rxf(SM).as_ptr()
+    }
+
+    /// Get pointer to tx fifo
+    pub fn tx_fifo_ptr(&self) -> *mut u32 {
+        PIO::PIO.txf(SM).as_ptr()
+    }
+
     /// Read current instruction address for this state machine
     pub fn get_addr(&self) -> u8 {
         let addr = Self::this_sm().addr();
