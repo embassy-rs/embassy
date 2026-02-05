@@ -124,6 +124,9 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         }
 
         Self::wait_tx_fifo_empty()?;
+        // Spin-wait for Module Busy Flag to clear (last bits shifting out).
+        // There's no interrupt for MBF - it's a read-only status bit indicating
+        // the LPSPI is actively shifting data. This spin is very short in practice.
         spin_wait_while(|| spi.sr().read().mbf() == Mbf::BUSY)?;
 
         Ok(())
@@ -511,6 +514,9 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
             self.apply_transfer_tcr(false, false, false);
         }
 
+        // Spin-wait for Module Busy Flag to clear (last bits shifting out).
+        // There's no interrupt for MBF - it's a read-only status bit indicating
+        // the LPSPI is actively shifting data. This spin is very short in practice.
         spin_wait_while(|| spi.sr().read().mbf() == Mbf::BUSY)?;
 
         Ok(())
