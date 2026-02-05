@@ -111,7 +111,15 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         }
 
         if is_pcs_continuous {
-            spin_wait_while(|| Self::get_tx_fifo_count() >= Self::get_fifo_size())?;
+            // Wait for at least one TX FIFO slot to be available (FIFO not full)
+            // before writing the final TCR command to de-assert PCS.
+            T::wait_cell()
+                .wait_for(|| {
+                    spi.ier().modify(|w| w.set_tdie(true));
+                    Self::get_tx_fifo_count() < Self::get_fifo_size()
+                })
+                .await
+                .map_err(|_| Error::Timeout)?;
             self.apply_transfer_tcr(false, true, false);
         }
 
@@ -169,7 +177,15 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         }
 
         if is_pcs_continuous {
-            spin_wait_while(|| Self::get_tx_fifo_count() >= Self::get_fifo_size())?;
+            // Wait for at least one TX FIFO slot to be available (FIFO not full)
+            // before writing the final TCR command to de-assert PCS.
+            T::wait_cell()
+                .wait_for(|| {
+                    spi.ier().modify(|w| w.set_tdie(true));
+                    Self::get_tx_fifo_count() < Self::get_fifo_size()
+                })
+                .await
+                .map_err(|_| Error::Timeout)?;
             self.apply_transfer_tcr(false, false, false);
         }
 
@@ -231,7 +247,15 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         }
 
         if is_pcs_continuous {
-            spin_wait_while(|| Self::get_tx_fifo_count() >= Self::get_fifo_size())?;
+            // Wait for at least one TX FIFO slot to be available (FIFO not full)
+            // before writing the final TCR command to de-assert PCS.
+            T::wait_cell()
+                .wait_for(|| {
+                    spi.ier().modify(|w| w.set_tdie(true));
+                    Self::get_tx_fifo_count() < Self::get_fifo_size()
+                })
+                .await
+                .map_err(|_| Error::Timeout)?;
             self.apply_transfer_tcr(false, false, false);
         }
 
