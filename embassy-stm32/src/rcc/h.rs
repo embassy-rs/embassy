@@ -498,10 +498,28 @@ pub(crate) unsafe fn init(config: Config) {
 
     // Configure PLLs.
     let pll_input = PllInput { csi, hse, hsi };
-    let pll1 = init_pll(0, config.pll1, &pll_input);
-    let pll2 = init_pll(1, config.pll2, &pll_input);
+    let pll1 = config.pll1.map_or_else(
+        || {
+            disable_pll(0);
+            PllOutput::default()
+        },
+        |c| init_pll(0, Some(c), &pll_input),
+    );
+    let pll2 = config.pll2.map_or_else(
+        || {
+            disable_pll(1);
+            PllOutput::default()
+        },
+        |c| init_pll(1, Some(c), &pll_input),
+    );
     #[cfg(any(rcc_h5, stm32h7, stm32h7rs))]
-    let pll3 = init_pll(2, config.pll3, &pll_input);
+    let pll3 = config.pll2.map_or_else(
+        || {
+            disable_pll(2);
+            PllOutput::default()
+        },
+        |c| init_pll(2, Some(c), &pll_input),
+    );
 
     // Configure sysclk
     let sys = match config.sys {
@@ -774,6 +792,7 @@ struct PllInput {
     csi: Option<Hertz>,
 }
 
+#[derive(Default)]
 struct PllOutput {
     p: Option<Hertz>,
     #[allow(dead_code)]
@@ -788,27 +807,23 @@ struct PllOutput {
     t: Option<Hertz>,
 }
 
+fn disable_pll(num: usize) {
+    // Stop PLL
+    RCC.cr().modify(|w| w.set_pllon(num, false));
+    while RCC.cr().read().pllrdy(num) {}
+
+    // "To save power when PLL1 is not used, the value of PLL1M must be set to 0.""
+    #[cfg(any(stm32h7, stm32h7rs))]
+    RCC.pllckselr().write(|w| w.set_divm(num, PllPreDiv::from_bits(0)));
+    #[cfg(stm32h5)]
+    RCC.pllcfgr(num).write(|w| w.set_divm(PllPreDiv::from_bits(0)));
+}
+
 fn init_pll(num: usize, config: Option<Pll>, input: &PllInput) -> PllOutput {
     let Some(config) = config else {
-        // Stop PLL
-        RCC.cr().modify(|w| w.set_pllon(num, false));
-        while RCC.cr().read().pllrdy(num) {}
+        disable_pll(num);
 
-        // "To save power when PLL1 is not used, the value of PLL1M must be set to 0.""
-        #[cfg(any(stm32h7, stm32h7rs))]
-        RCC.pllckselr().write(|w| w.set_divm(num, PllPreDiv::from_bits(0)));
-        #[cfg(stm32h5)]
-        RCC.pllcfgr(num).write(|w| w.set_divm(PllPreDiv::from_bits(0)));
-
-        return PllOutput {
-            p: None,
-            q: None,
-            r: None,
-            #[cfg(stm32h7rs)]
-            s: None,
-            #[cfg(stm32h7rs)]
-            t: None,
-        };
+        return PllOutput::default();
     };
 
     let in_clk = match config.source {
