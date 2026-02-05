@@ -3,7 +3,6 @@
 use core::cell::UnsafeCell;
 use core::hint::spin_loop;
 use core::marker::PhantomData;
-use core::sync::atomic::{Ordering, compiler_fence};
 
 use embassy_hal_internal::PeripheralType;
 use maitake_sync::WaitCell;
@@ -140,12 +139,6 @@ pub(super) fn spin_wait_while(mut cond: impl FnMut() -> bool) -> Result<()> {
         spin_loop();
     }
     Err(Error::Timeout)
-}
-
-#[inline]
-pub(super) fn dma_start_fence() {
-    compiler_fence(Ordering::Release);
-    cortex_m::asm::dsb();
 }
 
 // =============================================================================

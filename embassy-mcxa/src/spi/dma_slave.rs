@@ -202,7 +202,6 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiSlaveDma<'d
             self.rx_dma
                 .setup_read_from_peripheral(peri_addr, data, EnableInterrupt::Yes);
 
-            dma_start_fence();
             self.rx_dma.enable_request();
 
             self.rx_dma.enable_interrupt();
@@ -300,7 +299,6 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiSlaveDma<'d
             rx_tcd.tcd_csr().write_value(pac::edma_0_tcd::regs::TcdCsr(0x000A));
             rx_tcd.tcd_biter_elinkno().write(|w| w.set_biter(data.len() as u16));
 
-            dma_start_fence();
             self.tx_dma.enable_request();
             self.rx_dma.enable_request();
 
@@ -393,7 +391,6 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiSlaveDma<'d
             self.rx_dma
                 .setup_read_from_peripheral(rx_peri_addr, rx_data, EnableInterrupt::Yes);
 
-            dma_start_fence();
             self.tx_dma.enable_request();
             self.rx_dma.enable_request();
 

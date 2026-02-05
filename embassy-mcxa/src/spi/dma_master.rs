@@ -244,8 +244,6 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
             self.tx_dma.set_request_source::<T::TxDmaRequest>();
             self.tx_dma.load_tcd(data_tcd);
 
-            cortex_m::asm::dsb();
-
             Ok(())
         }
     }
@@ -287,8 +285,6 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
         static mut DUMMY_RX_SINK: u8 = 0;
 
         unsafe {
-            cortex_m::asm::dsb();
-
             self.rx_dma.disable_request();
             self.rx_dma.clear_done();
             self.rx_dma.clear_interrupt();
@@ -311,7 +307,6 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
             self.rx_dma.set_request_source::<T::RxDmaRequest>();
             self.setup_tx_scatter_gather(data.as_ptr(), true, data_len, tcr_with_cont)?;
 
-            dma_start_fence();
             self.tx_dma.enable_request();
             self.rx_dma.enable_request();
 
@@ -407,7 +402,6 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
 
             self.setup_tx_scatter_gather(core::ptr::addr_of!(DUMMY_TX), false, data.len(), new_tcr)?;
 
-            dma_start_fence();
             self.tx_dma.enable_request();
             self.rx_dma.enable_request();
 
@@ -498,7 +492,6 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
 
             self.setup_tx_scatter_gather(tx_data.as_ptr(), true, tx_data.len(), tcr_with_cont)?;
 
-            dma_start_fence();
             self.tx_dma.enable_request();
             self.rx_dma.enable_request();
 
