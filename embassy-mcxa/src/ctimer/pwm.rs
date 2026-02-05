@@ -7,7 +7,8 @@ use embedded_hal_1::pwm::{Error, ErrorKind, ErrorType};
 use super::{AnyChannel, CTimer, Info, Instance, OutputPin, PwmChannel};
 use crate::gpio::{AnyPin, SealedPin};
 use crate::pac::ctimer::vals::{
-    Mr0i, Mr0r, Mr0s, Mr1i, Mr1r, Mr1s, Mr2i, Mr2r, Mr2s, Mr3i, Mr3r, Mr3s, Pwmen0, Pwmen1, Pwmen2, Pwmen3,
+    Mr0i, Mr0r, Mr0rl, Mr0s, Mr1i, Mr1r, Mr1rl, Mr1s, Mr2i, Mr2r, Mr2rl, Mr2s, Mr3i, Mr3r, Mr3rl, Mr3s, Pwmen0, Pwmen1,
+    Pwmen2, Pwmen3,
 };
 
 /// PWM error.
@@ -53,11 +54,13 @@ impl Default for Config {
     }
 }
 
-/// Pwm driver
+/// Representation of a single PWM channel.
+///
+/// This PWM representation can change duty cycle, but not frequency
+/// of the PWM.
 pub struct Pwm<'d> {
     info: &'static Info,
-    period_ch: Peri<'d, AnyChannel>,
-    match_ch: Peri<'d, AnyChannel>,
+    duty_ch: Peri<'d, AnyChannel>,
     pin: Peri<'d, AnyPin>,
     source_freq: u32,
     pwm_freq: u16,
@@ -65,45 +68,6 @@ pub struct Pwm<'d> {
 }
 
 impl<'d> Pwm<'d> {
-    /// Create Pwm driver with a single pin as output.
-    ///
-    /// Upon `Drop`, the external `pin` will be placed into `Disabled`
-    /// state.
-    pub fn new<T: Instance, MATCH: PwmChannel<T>, PIN: OutputPin<T>>(
-        ctimer: CTimer<'d>,
-        period_ch: Peri<'d, impl PwmChannel<T>>,
-        match_ch: Peri<'d, MATCH>,
-        pin: Peri<'d, PIN>,
-        config: Config,
-    ) -> Result<Self, PwmError>
-    where
-        (T, MATCH, PIN): ValidMatchConfig,
-    {
-        if period_ch.number() > 3 || match_ch.number() > 3 {
-            return Err(PwmError::InvalidChannel);
-        }
-
-        if pin.number() != match_ch.number() {
-            return Err(PwmError::ChannelMismatch);
-        }
-
-        pin.mux();
-
-        let mut inst = Self {
-            info: T::info(),
-            period_ch: period_ch.into(),
-            match_ch: match_ch.into(),
-            source_freq: ctimer._freq,
-            pwm_freq: config.freq,
-            pin: pin.into(),
-            max_period: 0,
-        };
-
-        inst.set_configuration(&config)?;
-
-        Ok(inst)
-    }
-
     fn enable(&mut self) {
         self.info.regs().tcr().modify(|w| w.set_cen(true));
     }
@@ -112,9 +76,8 @@ impl<'d> Pwm<'d> {
         self.info.regs().tcr().modify(|w| w.set_cen(false));
     }
 
-    fn set_configuration(&mut self, config: &Config) -> Result<(), PwmError> {
-        // Enable PWM mode on the match channel
-        self.info.regs().pwmc().modify(|w| match self.match_ch.number() {
+    fn set_pwm_mode(&self) {
+        self.info.regs().pwmc().modify(|w| match self.duty_ch.number() {
             0 => {
                 w.set_pwmen0(Pwmen0::PWM);
             }
@@ -129,10 +92,12 @@ impl<'d> Pwm<'d> {
             }
             _ => unreachable!(),
         });
+    }
 
+    fn clear_status(&self) {
         self.info.regs().mcr().modify(|w| {
             // Clear stop, reset, and interrupt bits for the PWM channel
-            match self.match_ch.number() {
+            match self.duty_ch.number() {
                 0 => {
                     w.set_mr0i(Mr0i::MR0I_0);
                     w.set_mr0r(Mr0r::MR0R_0);
@@ -156,43 +121,375 @@ impl<'d> Pwm<'d> {
                 _ => unreachable!(),
             }
 
-            match self.period_ch.number() {
+            match self.duty_ch.number() {
                 0 => {
-                    w.set_mr0r(Mr0r::MR0R_1);
+                    w.set_mr0rl(Mr0rl::MR0RL_1);
                 }
                 1 => {
-                    w.set_mr1r(Mr1r::MR1R_1);
+                    w.set_mr1rl(Mr1rl::MR1RL_1);
                 }
                 2 => {
-                    w.set_mr2r(Mr2r::MR2R_1);
+                    w.set_mr2rl(Mr2rl::MR2RL_1);
                 }
                 3 => {
-                    w.set_mr3r(Mr3r::MR3R_1);
+                    w.set_mr3rl(Mr3rl::MR3RL_1);
                 }
                 _ => unreachable!(),
             }
         });
+    }
+
+    fn configure_duty_cycle(&self, duty_cycle: u32) {
+        self.info
+            .regs()
+            .mr(self.duty_ch.number())
+            .write(|w| w.set_match_(duty_cycle));
+        self.info
+            .regs()
+            .msr(self.duty_ch.number())
+            .write(|w| w.set_match_shadow(duty_cycle));
+    }
+}
+
+/// Single channel PWM driver
+///
+/// A single channel is used for Duty Cycle and a single channel is
+/// used for PWM period match.
+pub struct SinglePwm<'d> {
+    pwm: Pwm<'d>,
+    period_ch: Peri<'d, AnyChannel>,
+}
+
+impl<'d> SinglePwm<'d> {
+    /// Create Pwm driver with a single pin as output.
+    ///
+    /// Upon `Drop`, the external `pin` will be placed into `Disabled`
+    /// state.
+    pub fn new<T: Instance, DUTY: PwmChannel<T>, PIN: OutputPin<T>>(
+        ctimer: CTimer<'d>,
+        duty_ch: Peri<'d, DUTY>,
+        period_ch: Peri<'d, impl PwmChannel<T>>,
+        pin: Peri<'d, PIN>,
+        config: Config,
+    ) -> Result<Self, PwmError>
+    where
+        (T, DUTY, PIN): ValidMatchConfig,
+    {
+        pin.mux();
+
+        let mut inst = Self {
+            pwm: Pwm {
+                info: T::info(),
+                duty_ch: duty_ch.into(),
+                source_freq: ctimer._freq,
+                pwm_freq: config.freq,
+                pin: pin.into(),
+                max_period: 0,
+            },
+            period_ch: period_ch.into(),
+        };
+
+        inst.set_configuration(&config)?;
+
+        Ok(inst)
+    }
+
+    /// Degrade `self` into the underlying PWM representation.
+    ///
+    /// Upon calling this method, changing frequency will be disallowed.
+    pub fn degrade(self) -> Pwm<'d> {
+        self.pwm
+    }
+
+    fn set_configuration(&mut self, config: &Config) -> Result<(), PwmError> {
+        self.pwm.disable();
+        self.pwm.set_pwm_mode();
+        self.pwm.clear_status();
+
+        self.pwm.info.regs().mcr().modify(|w| match self.period_ch.number() {
+            0 => {
+                w.set_mr0r(Mr0r::MR0R_1);
+            }
+            1 => {
+                w.set_mr1r(Mr1r::MR1R_1);
+            }
+            2 => {
+                w.set_mr2r(Mr2r::MR2R_1);
+            }
+            3 => {
+                w.set_mr3r(Mr3r::MR3R_1);
+            }
+            _ => unreachable!(),
+        });
 
         // Configure PWM period
-        let period = self.source_freq / u32::from(self.pwm_freq) - 1;
-        self.max_period = period as u16;
-        self.info
+        let period = self.pwm.source_freq / u32::from(self.pwm.pwm_freq) - 1;
+        self.pwm.max_period = period as u16;
+        self.pwm
+            .info
             .regs()
             .mr(self.period_ch.number())
             .write(|w| w.set_match_(period));
 
         // Configure PWM duty cycle
         let duty_cycle = ((period + 1) * (100 - u32::from(config.duty_cycle))) / 100;
-
-        self.info
-            .regs()
-            .mr(self.match_ch.number())
-            .write(|w| w.set_match_(u32::from(duty_cycle)));
-
-        // REVISIT: do we need interrupts?
+        self.pwm.configure_duty_cycle(duty_cycle);
 
         // Start CTimer
-        self.enable();
+        self.pwm.enable();
+
+        Ok(())
+    }
+}
+
+/// Dual channel PWM driver.
+///
+/// A single period match channel is shared for two independent PWM
+/// outputs. That is, both PWM output channels run on the same
+/// frequency, with optionally different duty cycles.
+pub struct DualPwm<'d> {
+    pub pwm0: Pwm<'d>,
+    pub pwm1: Pwm<'d>,
+    period_ch: Peri<'d, AnyChannel>,
+}
+
+impl<'d> DualPwm<'d> {
+    /// Create Pwm driver with a two pins for two PWM outputs.
+    ///
+    /// Upon `Drop`, all external pins will be placed into `Disabled`
+    /// state.
+    pub fn new<T: Instance, DUTY0: PwmChannel<T>, DUTY1: PwmChannel<T>, PIN0: OutputPin<T>, PIN1: OutputPin<T>>(
+        ctimer: CTimer<'d>,
+        duty_ch0: Peri<'d, DUTY0>,
+        duty_ch1: Peri<'d, DUTY1>,
+        period_ch: Peri<'d, impl PwmChannel<T>>,
+        pin0: Peri<'d, PIN0>,
+        pin1: Peri<'d, PIN1>,
+        config: Config,
+    ) -> Result<Self, PwmError>
+    where
+        (T, DUTY0, PIN0): ValidMatchConfig,
+        (T, DUTY1, PIN1): ValidMatchConfig,
+    {
+        pin0.mux();
+        pin1.mux();
+
+        let mut inst = Self {
+            pwm0: Pwm {
+                info: T::info(),
+                duty_ch: duty_ch0.into(),
+                source_freq: ctimer._freq,
+                pwm_freq: config.freq,
+                pin: pin0.into(),
+                max_period: 0,
+            },
+            pwm1: Pwm {
+                info: T::info(),
+                duty_ch: duty_ch1.into(),
+                source_freq: ctimer._freq,
+                pwm_freq: config.freq,
+                pin: pin1.into(),
+                max_period: 0,
+            },
+            period_ch: period_ch.into(),
+        };
+
+        inst.set_configuration(&config)?;
+
+        Ok(inst)
+    }
+
+    /// Split `self` into its underlying channels.
+    ///
+    /// Upon calling this method, changing PWM frequency will be
+    /// disallowed. Only duty cycles can be changed.
+    pub fn split(self) -> (Pwm<'d>, Pwm<'d>) {
+        (self.pwm0, self.pwm1)
+    }
+
+    fn set_configuration(&mut self, config: &Config) -> Result<(), PwmError> {
+        self.pwm0.disable();
+
+        self.pwm0.set_pwm_mode();
+        self.pwm1.set_pwm_mode();
+
+        self.pwm0.clear_status();
+        self.pwm1.clear_status();
+
+        self.pwm0.info.regs().mcr().modify(|w| match self.period_ch.number() {
+            0 => {
+                w.set_mr0r(Mr0r::MR0R_1);
+            }
+            1 => {
+                w.set_mr1r(Mr1r::MR1R_1);
+            }
+            2 => {
+                w.set_mr2r(Mr2r::MR2R_1);
+            }
+            3 => {
+                w.set_mr3r(Mr3r::MR3R_1);
+            }
+            _ => unreachable!(),
+        });
+
+        // Configure PWM period
+        let period = self.pwm0.source_freq / u32::from(self.pwm0.pwm_freq) - 1;
+
+        self.pwm0.max_period = period as u16;
+        self.pwm1.max_period = period as u16;
+
+        self.pwm0
+            .info
+            .regs()
+            .mr(self.period_ch.number())
+            .write(|w| w.set_match_(period));
+
+        // Configure PWM duty cycle
+        let duty_cycle = ((period + 1) * (100 - u32::from(config.duty_cycle))) / 100;
+        self.pwm0.configure_duty_cycle(duty_cycle);
+        self.pwm1.configure_duty_cycle(duty_cycle);
+
+        // Start CTimer
+        self.pwm0.enable();
+
+        Ok(())
+    }
+}
+
+/// Triple channel PWM driver.
+///
+/// A single period match channel is shared for three independent PWM
+/// outputs. That is, all three PWM output channels run on the same
+/// frequency, with optionally different duty cycles.
+pub struct TriplePwm<'d> {
+    pub pwm0: Pwm<'d>,
+    pub pwm1: Pwm<'d>,
+    pub pwm2: Pwm<'d>,
+    period_ch: Peri<'d, AnyChannel>,
+}
+
+impl<'d> TriplePwm<'d> {
+    /// Create Pwm driver using three pins for three PWM outputs.
+    ///
+    /// Upon `Drop`, all external pins will be placed into `Disabled`
+    /// state.
+    pub fn new<
+        T: Instance,
+        DUTY0: PwmChannel<T>,
+        DUTY1: PwmChannel<T>,
+        DUTY2: PwmChannel<T>,
+        PIN0: OutputPin<T>,
+        PIN1: OutputPin<T>,
+        PIN2: OutputPin<T>,
+    >(
+        ctimer: CTimer<'d>,
+        duty_ch0: Peri<'d, DUTY0>,
+        duty_ch1: Peri<'d, DUTY1>,
+        duty_ch2: Peri<'d, DUTY2>,
+        period_ch: Peri<'d, impl PwmChannel<T>>,
+        pin0: Peri<'d, PIN0>,
+        pin1: Peri<'d, PIN1>,
+        pin2: Peri<'d, PIN2>,
+        config: Config,
+    ) -> Result<Self, PwmError>
+    where
+        (T, DUTY0, PIN0): ValidMatchConfig,
+        (T, DUTY1, PIN1): ValidMatchConfig,
+        (T, DUTY2, PIN2): ValidMatchConfig,
+    {
+        pin0.mux();
+        pin1.mux();
+        pin2.mux();
+
+        let mut inst = Self {
+            pwm0: Pwm {
+                info: T::info(),
+                duty_ch: duty_ch0.into(),
+                source_freq: ctimer._freq,
+                pwm_freq: config.freq,
+                pin: pin0.into(),
+                max_period: 0,
+            },
+            pwm1: Pwm {
+                info: T::info(),
+                duty_ch: duty_ch1.into(),
+                source_freq: ctimer._freq,
+                pwm_freq: config.freq,
+                pin: pin1.into(),
+                max_period: 0,
+            },
+            pwm2: Pwm {
+                info: T::info(),
+                duty_ch: duty_ch2.into(),
+                source_freq: ctimer._freq,
+                pwm_freq: config.freq,
+                pin: pin2.into(),
+                max_period: 0,
+            },
+            period_ch: period_ch.into(),
+        };
+
+        inst.set_configuration(&config)?;
+
+        Ok(inst)
+    }
+
+    /// Split `self` into its underlying channels.
+    ///
+    /// Upon calling this method, changing PWM frequency will be
+    /// disallowed. Only duty cycles can be changed.
+    pub fn split(self) -> (Pwm<'d>, Pwm<'d>, Pwm<'d>) {
+        (self.pwm0, self.pwm1, self.pwm2)
+    }
+
+    fn set_configuration(&mut self, config: &Config) -> Result<(), PwmError> {
+        self.pwm0.disable();
+
+        self.pwm0.set_pwm_mode();
+        self.pwm1.set_pwm_mode();
+        self.pwm2.set_pwm_mode();
+
+        self.pwm0.clear_status();
+        self.pwm1.clear_status();
+        self.pwm2.clear_status();
+
+        self.pwm0.info.regs().mcr().modify(|w| match self.period_ch.number() {
+            0 => {
+                w.set_mr0r(Mr0r::MR0R_1);
+            }
+            1 => {
+                w.set_mr1r(Mr1r::MR1R_1);
+            }
+            2 => {
+                w.set_mr2r(Mr2r::MR2R_1);
+            }
+            3 => {
+                w.set_mr3r(Mr3r::MR3R_1);
+            }
+            _ => unreachable!(),
+        });
+
+        // Configure PWM period
+        let period = self.pwm0.source_freq / u32::from(self.pwm0.pwm_freq) - 1;
+
+        self.pwm0.max_period = period as u16;
+        self.pwm1.max_period = period as u16;
+        self.pwm2.max_period = period as u16;
+
+        self.pwm0
+            .info
+            .regs()
+            .mr(self.period_ch.number())
+            .write(|w| w.set_match_(period));
+
+        // Configure PWM duty cycle
+        let duty_cycle = ((period + 1) * (100 - u32::from(config.duty_cycle))) / 100;
+        self.pwm0.configure_duty_cycle(duty_cycle);
+        self.pwm1.configure_duty_cycle(duty_cycle);
+        self.pwm2.configure_duty_cycle(duty_cycle);
+
+        // Start CTimer
+        self.pwm0.enable();
 
         Ok(())
     }
@@ -202,6 +499,20 @@ impl<'d> Drop for Pwm<'d> {
     fn drop(&mut self) {
         self.disable();
         self.pin.set_as_disabled();
+    }
+}
+
+impl<'d> ErrorType for SinglePwm<'d> {
+    type Error = PwmError;
+}
+
+impl<'d> SetDutyCycle for SinglePwm<'d> {
+    fn max_duty_cycle(&self) -> u16 {
+        self.pwm.max_period
+    }
+
+    fn set_duty_cycle(&mut self, duty: u16) -> Result<(), Self::Error> {
+        self.pwm.set_duty_cycle(duty)
     }
 }
 
@@ -223,19 +534,10 @@ impl<'d> SetDutyCycle for Pwm<'d> {
 
         self.info
             .regs()
-            .mr(usize::from(self.match_ch.number()))
-            .write(|w| w.set_match_(u32::from(duty)));
+            .msr(usize::from(self.duty_ch.number()))
+            .write(|w| w.set_match_shadow(u32::from(duty)));
 
         Ok(())
-    }
-}
-
-impl<'d> embassy_embedded_hal::SetConfig for Pwm<'d> {
-    type Config = Config;
-    type ConfigError = PwmError;
-
-    fn set_config(&mut self, config: &Self::Config) -> Result<(), Self::ConfigError> {
-        self.set_configuration(config)
     }
 }
 

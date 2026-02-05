@@ -791,6 +791,8 @@ impl ClockOperator<'_> {
             self.scg0.firccsr().modify(|w| {
                 w.set_fircsten(Fircsten::DISABLED_IN_STOP_MODES);
                 w.set_fircerr_ie(FircerrIe::ERROR_NOT_DETECTED);
+                w.set_firc_fclk_periph_en(false);
+                w.set_firc_sclk_periph_en(false);
                 w.set_fircen(false);
             });
 
@@ -1859,6 +1861,17 @@ impl ClockOperator<'_> {
                 let mut cp = unsafe { cortex_m::Peripherals::steal() };
                 cp.SCB.set_sleepdeep();
             }
+            CoreSleep::DeepSleep => {
+                // See TODO on `CoreSleep::DeepSleep`. For now, just enable light sleep
+                self.cmc.ckctrl().modify(|w| w.set_ckmode(CkctrlCkmode::CKMODE0001));
+
+                // Debug is disabled when core sleeps
+                self.cmc.dbgctl().modify(|w| w.set_sod(true));
+
+                // Allow the core to be gated - this WILL kill the debugging session!
+                let mut cp = unsafe { cortex_m::Peripherals::steal() };
+                cp.SCB.set_sleepdeep();
+            }
         }
 
         // Allow automatic gating of the flash memory
@@ -1884,6 +1897,42 @@ impl ClockOperator<'_> {
 
         Ok(())
     }
+}
+
+/// This method ACTUALLY enables deep sleep. See `CorePower::DeepSleep` for
+/// more context
+///
+/// ## SAFETY
+///
+/// This method is ONLY sound if you are ONLY using peripherals or clocks that are
+/// marked as `PoweredClock::AlwaysEnabled` (or are disabled). We do NOT currently
+/// implement the runtime reference counting to intelligently switch between WFE
+/// sleep and deep sleep, NOR do we properly implement re-starting any clocks that
+/// became gated by entering deep sleep. This will be fixed in the future.
+///
+/// You must ALSO guarantee that the voltage level used for active and LPMODE match,
+/// as we don't currently set LPWKUP correctly
+pub unsafe fn okay_but_actually_enable_deep_sleep() {
+    let cmc = pac::CMC;
+    let spc = pac::SPC0;
+
+    // Isolate/unpower external voltage domains
+    spc.evd_cfg().write(|w| w.0 = 0);
+
+    // To configure for Deep Sleep Low-Power mode entry:
+    //
+    // Write Fh to Clock Control (CKCTRL)
+    cmc.ckctrl().modify(|w| w.set_ckmode(CkctrlCkmode::CKMODE1111));
+    // Write 1h to Power Mode Protection (PMPROT)
+    cmc.pmprot().write(|w| w.0 = 1);
+    // Write 1h to Global Power Mode Control (GPMCTRL)
+    cmc.gpmctrl().modify(|w| w.set_lpmode(0b0001));
+    // Redundant?
+    // cmc.pmctrlmain().modify(|w| w.set_lpmode(PmctrlmainLpmode::LPMODE0001));
+
+    // SPC_LPWKUP_DELAY_LPWKUP_DELAY?
+    // TODO: "When voltage levels are not the same between ACTIVE mode and Low Power mode, you must write a
+    // nonzero value to this field."
 }
 
 //

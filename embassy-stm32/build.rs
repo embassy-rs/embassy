@@ -2001,6 +2001,12 @@ fn main() {
         let port_num = (p.address as u32 - gpio_base) / gpio_stride;
         let pin_num: u32 = pin.name[2..].parse().unwrap();
 
+        let port_num = if chip_name.starts_with("stm32n6") && port_num > 7 {
+            port_num - 5 // Ports I-M are not present
+        } else {
+            port_num
+        };
+
         pins_table.push(vec![
             pin.name.to_string(),
             p.name.to_string(),
@@ -2211,8 +2217,15 @@ fn main() {
     }
 
     g.extend(quote!(
-        pub fn gpio_block(n: usize) -> crate::pac::gpio::Gpio {
-            unsafe { crate::pac::gpio::Gpio::from_ptr((#gpio_base + #gpio_stride*n) as _) }
+        pub fn gpio_block(port_num: usize) -> crate::pac::gpio::Gpio {
+            #[cfg(stm32n6)]
+            let port_num = if port_num > 7 {
+                port_num + 5 // Ports I-M are not present
+            } else {
+                port_num
+            };
+
+            unsafe { crate::pac::gpio::Gpio::from_ptr((#gpio_base + #gpio_stride*port_num) as _) }
         }
     ));
 
