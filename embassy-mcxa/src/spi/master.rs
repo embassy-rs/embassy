@@ -86,12 +86,15 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
         self.apply_transfer_tcr(is_pcs_continuous, true, false);
         Self::wait_tx_fifo_empty()?;
 
+        // Initial FIFO fill - fill as much as possible without waiting.
+        // This avoids an unnecessary wait when the FIFO is empty at the start.
         let mut tx_idx = 0usize;
         while tx_idx < tx.len() && Self::get_tx_fifo_count() < Self::get_fifo_size() {
             spi.tdr().write(|w| w.set_data(tx[tx_idx] as u32));
             tx_idx += 1;
         }
 
+        // Continue filling via interrupt-driven wait for remaining data.
         while tx_idx < tx.len() {
             T::wait_cell()
                 .wait_for(|| {
