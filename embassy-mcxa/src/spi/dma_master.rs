@@ -13,7 +13,7 @@ use crate::clocks::periph_helpers::LpspiConfig;
 use crate::dma::{Channel as DmaChannelTrait, DmaChannel, EnableInterrupt, Tcd};
 use crate::gpio::AnyPin;
 use crate::pac;
-use crate::pac::lpspi::vals::Mbf;
+use crate::pac::lpspi::vals::{Contc, Mbf, Pcs, Rxmsk, Txmsk};
 
 /// Static storage for TX DMA scatter/gather TCDs.
 #[repr(C, align(32))]
@@ -380,10 +380,16 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
         clear_nostall(spi);
         spi.cr().modify(|w| w.set_men(true));
 
-        let tcr = Self::read_tcr_with_errata_workaround_internal();
-        let new_tcr =
-            (tcr & !(TCR_CONT | TCR_CONTC | TCR_BYSW | TCR_PCS_MASK | TCR_RXMSK | TCR_TXMSK)) | TCR_CONT | TCR_BYSW;
-        spi.tcr().write_value(pac::lpspi::regs::Tcr(new_tcr));
+        // Build TCR value using PAC accessors: enable CONT and BYSW, clear other transfer bits
+        let mut tcr = pac::lpspi::regs::Tcr(Self::read_tcr_with_errata_workaround_internal());
+        tcr.set_cont(true);
+        tcr.set_contc(Contc::START);
+        tcr.set_bysw(true);
+        tcr.set_pcs(Pcs::TX_PCS0);
+        tcr.set_rxmsk(Rxmsk::NORMAL);
+        tcr.set_txmsk(Txmsk::NORMAL);
+        let new_tcr = tcr.0;
+        spi.tcr().write_value(tcr);
 
         spin_wait_while(|| spi.fsr().read().txcount() > 0)?;
 
@@ -467,11 +473,16 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
         clear_nostall(spi);
         spi.cr().modify(|w| w.set_men(true));
 
-        let tcr = Self::read_tcr_with_errata_workaround_internal();
-        let new_tcr =
-            (tcr & !(TCR_CONT | TCR_CONTC | TCR_BYSW | TCR_PCS_MASK | TCR_RXMSK | TCR_TXMSK)) | TCR_CONT | TCR_BYSW;
-        spi.tcr().write_value(pac::lpspi::regs::Tcr(new_tcr));
-        let tcr_with_cont = new_tcr;
+        // Build TCR value using PAC accessors: enable CONT and BYSW, clear other transfer bits
+        let mut tcr = pac::lpspi::regs::Tcr(Self::read_tcr_with_errata_workaround_internal());
+        tcr.set_cont(true);
+        tcr.set_contc(Contc::START);
+        tcr.set_bysw(true);
+        tcr.set_pcs(Pcs::TX_PCS0);
+        tcr.set_rxmsk(Rxmsk::NORMAL);
+        tcr.set_txmsk(Txmsk::NORMAL);
+        let tcr_with_cont = tcr.0;
+        spi.tcr().write_value(tcr);
 
         while spi.fsr().read().txcount() > 0 {}
 

@@ -12,7 +12,7 @@ use crate::clocks::periph_helpers::LpspiConfig;
 use crate::gpio::AnyPin;
 use crate::interrupt;
 use crate::interrupt::typelevel::Interrupt;
-use crate::pac::lpspi::vals::{Cpha, Cpol, Lsbf, Master, Mbf, Outcfg, Pcspol, Pincfg, Rxmsk, Txmsk};
+use crate::pac::lpspi::vals::{Contc, Cpha, Cpol, Lsbf, Master, Mbf, Outcfg, Pcs, Pcspol, Pincfg, Rxmsk, Txmsk};
 
 /// SPI Slave Driver.
 ///
@@ -226,10 +226,14 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
 
         disable_all_interrupts(spi);
 
-        // Ensure full duplex: RX and TX unmasked.
-        let tcr = Self::read_tcr_with_errata_workaround();
-        let new_tcr = tcr & !(TCR_CONT | TCR_CONTC | TCR_RXMSK | TCR_TXMSK | TCR_PCS_MASK);
-        spi.tcr().write_value(crate::pac::lpspi::regs::Tcr(new_tcr));
+        // Ensure full duplex: RX and TX unmasked, clear CONT/CONTC/PCS using PAC accessors.
+        let mut tcr = crate::pac::lpspi::regs::Tcr(Self::read_tcr_with_errata_workaround());
+        tcr.set_cont(false);
+        tcr.set_contc(Contc::START);
+        tcr.set_rxmsk(Rxmsk::NORMAL);
+        tcr.set_txmsk(Txmsk::NORMAL);
+        tcr.set_pcs(Pcs::TX_PCS0);
+        spi.tcr().write_value(tcr);
 
         while Self::get_rx_fifo_count() > 0 {
             let _ = spi.rdr().read().data();

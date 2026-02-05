@@ -21,21 +21,9 @@ use crate::{interrupt, pac};
 // =============================================================================
 // REGISTER BIT CONSTANTS
 // =============================================================================
-// NOTE: These constants are used for DMA scatter/gather operations where we need
-// to build TCR values programmatically for hardware TCD writes. The PAC provides
-// typed accessors for normal register operations (see apply_transfer_tcr), but
-// DMA TCDs require raw u32 values. These match the bit positions in LPSPI_TCR.
 
 /// All clearable status flags (TEF, REF, DMF, FCF, WCF, TCF)
 pub(super) const LPSPI_ALL_STATUS_FLAGS: u32 = 0x3F00;
-
-/// TCR register bit positions (used for DMA TCD raw value construction)
-pub(super) const TCR_CONT: u32 = 1 << 21; // Continuous transfer
-pub(super) const TCR_CONTC: u32 = 1 << 20; // Continuing command
-pub(super) const TCR_RXMSK: u32 = 1 << 19; // Receive data mask
-pub(super) const TCR_TXMSK: u32 = 1 << 18; // Transmit data mask
-pub(super) const TCR_BYSW: u32 = 1 << 22; // Byte swap
-pub(super) const TCR_PCS_MASK: u32 = 0x3 << 24; // Peripheral chip select mask
 
 /// FIFO size for MCXA276 LPSPI (4 words)
 pub(super) const LPSPI_FIFO_SIZE: u8 = 4;
