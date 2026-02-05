@@ -316,12 +316,34 @@ pub(super) unsafe fn handle_slave_transfer_irq<T: Instance>(regs: pac::lpspi::Lp
     }
 }
 
-/// Interrupt handler for SPI async operations.
-pub struct InterruptHandler<T: Instance> {
+/// Interrupt handler for SPI master (controller) async operations.
+///
+/// This handler only supports controller mode. It wakes the wait cell when
+/// interrupts are pending. Use [`SlaveInterruptHandler`] for target (slave) mode.
+pub struct MasterInterruptHandler<T: Instance> {
     _phantom: PhantomData<T>,
 }
 
-impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandler<T> {
+impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for MasterInterruptHandler<T> {
+    unsafe fn on_interrupt() {
+        let regs = T::regs();
+
+        if regs.ier().read().0 != 0 {
+            disable_all_interrupts(regs);
+            T::wait_cell().wake();
+        }
+    }
+}
+
+/// Interrupt handler for SPI slave (target) async operations.
+///
+/// This handler supports target (slave) mode. It handles slave IRQ state
+/// for RX, TX, and transfer operations.
+pub struct SlaveInterruptHandler<T: SlaveInstance> {
+    _phantom: PhantomData<T>,
+}
+
+impl<T: SlaveInstance> interrupt::typelevel::Handler<T::Interrupt> for SlaveInterruptHandler<T> {
     unsafe fn on_interrupt() {
         let regs = T::regs();
 
@@ -357,6 +379,11 @@ impl<T: Instance> interrupt::typelevel::Handler<T::Interrupt> for InterruptHandl
     }
 }
 
+/// Type alias for backward compatibility.
+/// Use [`MasterInterruptHandler`] for controller mode or [`SlaveInterruptHandler`] for target mode.
+#[deprecated(note = "Use MasterInterruptHandler for controller mode or SlaveInterruptHandler for target mode")]
+pub type InterruptHandler<T> = SlaveInterruptHandler<T>;
+
 // =============================================================================
 // SEALED TRAIT AND INSTANCE TRAIT
 // =============================================================================
@@ -378,13 +405,18 @@ impl sealed::Sealed for crate::peripherals::P3_9 {} // LPSPI1_SIN
 impl sealed::Sealed for crate::peripherals::P3_10 {} // LPSPI1_SCK
 impl sealed::Sealed for crate::peripherals::P3_11 {} // LPSPI1_PCS0
 
+/// Base sealed trait for SPI instances (used by controller/master).
 pub(super) trait SealedInstance {
     fn regs() -> pac::lpspi::Lpspi;
     fn wait_cell() -> &'static WaitCell;
+}
+
+/// Extended sealed trait for SPI slave/target instances.
+pub(super) trait SealedSlaveInstance: SealedInstance {
     fn slave_irq_state() -> &'static SlaveIrqState;
 }
 
-/// SPI Instance
+/// SPI Instance trait for controller (master) mode.
 #[allow(private_bounds)]
 pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<MrccPeriphConfig = LpspiConfig> {
     /// Interrupt for this SPI instance.
@@ -396,6 +428,10 @@ pub trait Instance: SealedInstance + PeripheralType + 'static + Send + Gate<Mrcc
     /// Type-safe DMA request source for RX
     type RxDmaRequest: DmaRequest;
 }
+
+/// SPI Instance trait for target (slave) mode.
+#[allow(private_bounds)]
+pub trait SlaveInstance: Instance + SealedSlaveInstance {}
 
 macro_rules! impl_instance {
     ($($n:expr),*) => {
@@ -410,7 +446,9 @@ macro_rules! impl_instance {
                         static WAIT_CELL: WaitCell = WaitCell::new();
                         &WAIT_CELL
                     }
+                }
 
+                impl SealedSlaveInstance for crate::peripherals::[<LPSPI $n>] {
                     fn slave_irq_state() -> &'static SlaveIrqState {
                         static SLAVE_IRQ_STATE: SlaveIrqState = SlaveIrqState::new();
                         &SLAVE_IRQ_STATE
@@ -424,6 +462,8 @@ macro_rules! impl_instance {
                     type TxDmaRequest = crate::dma::[<Lpspi $n TxRequest>];
                     type RxDmaRequest = crate::dma::[<Lpspi $n RxRequest>];
                 }
+
+                impl SlaveInstance for crate::peripherals::[<LPSPI $n>] {}
             }
         )*
     };

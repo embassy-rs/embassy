@@ -20,12 +20,12 @@
 use embassy_executor::Spawner;
 use hal::bind_interrupts;
 use hal::clocks::config::Div8;
-use hal::spi::{InterruptHandler, SlaveConfig, SpiSlave};
+use hal::spi::{SlaveConfig, SlaveInterruptHandler, SpiSlave};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 // Bind LPSPI1 interrupt for async SPI slave operations
 bind_interrupts!(struct Irqs {
-    LPSPI1 => InterruptHandler<hal::peripherals::LPSPI1>;
+    LPSPI1 => SlaveInterruptHandler<hal::peripherals::LPSPI1>;
 });
 
 /// Transfer size in bytes

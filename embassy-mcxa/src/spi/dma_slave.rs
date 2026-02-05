@@ -20,7 +20,7 @@ use crate::pac::lpspi::vals::{Cpha, Cpol, Lsbf, Master, Outcfg, Pcspol, Pincfg, 
 /// The CS pin is optional. When `Some(pin)`, the hardware PCS signal is used for chip select.
 /// When `None`, users must manage chip select externally. Note: For most slave use cases,
 /// a CS pin is required to know when the slave is being addressed.
-pub struct SpiSlaveDma<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> {
+pub struct SpiSlaveDma<'d, T: SlaveInstance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> {
     _peri: Peri<'d, T>,
     _sck: Peri<'d, AnyPin>,
     _mosi: Peri<'d, AnyPin>,
@@ -30,7 +30,7 @@ pub struct SpiSlaveDma<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTra
     rx_dma: DmaChannel<RxC>,
 }
 
-impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiSlaveDma<'d, T, TxC, RxC> {
+impl<'d, T: SlaveInstance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiSlaveDma<'d, T, TxC, RxC> {
     /// Create a new SPI Slave with DMA support.
     ///
     /// # Arguments

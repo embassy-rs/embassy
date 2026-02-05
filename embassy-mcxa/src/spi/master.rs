@@ -81,7 +81,7 @@ impl<'d, T: Instance> Spi<'d, T, Async, HardwareCs> {
         mosi: Peri<'d, impl MosiPin<T>>,
         miso: Peri<'d, impl MisoPin<T>>,
         cs: Peri<'d, impl CsPin<T>>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, MasterInterruptHandler<T>> + 'd,
         config: Config,
     ) -> Result<Self> {
         T::Interrupt::unpend();
@@ -104,7 +104,7 @@ impl<'d, T: Instance> Spi<'d, T, Async, NoCs> {
         sck: Peri<'d, impl SckPin<T>>,
         mosi: Peri<'d, impl MosiPin<T>>,
         miso: Peri<'d, impl MisoPin<T>>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, MasterInterruptHandler<T>> + 'd,
         config: Config,
     ) -> Result<Self> {
         T::Interrupt::unpend();

@@ -22,7 +22,7 @@ use embassy_executor::Spawner;
 use embassy_time::Timer;
 use hal::bind_interrupts;
 use hal::clocks::config::Div8;
-use hal::spi::{Config, InterruptHandler, Spi};
+use hal::spi::{Config, MasterInterruptHandler, Spi};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 /// Transfer size in bytes
@@ -33,7 +33,7 @@ const TRANSFER_BAUDRATE: u32 = 500_000;
 
 // Bind LPSPI1 interrupt for async SPI operations
 bind_interrupts!(struct Irqs {
-    LPSPI1 => InterruptHandler<hal::peripherals::LPSPI1>;
+    LPSPI1 => MasterInterruptHandler<hal::peripherals::LPSPI1>;
 });
 
 #[embassy_executor::main]

@@ -19,7 +19,7 @@ use crate::pac::lpspi::vals::{Contc, Cpha, Cpol, Lsbf, Master, Mbf, Outcfg, Pcs,
 /// The CS pin is optional. When `Some(pin)`, the hardware PCS signal is used for chip select.
 /// When `None`, users must manage chip select externally. Note: For most slave use cases,
 /// a CS pin is required to know when the slave is being addressed.
-pub struct SpiSlave<'d, T: Instance, M: Mode> {
+pub struct SpiSlave<'d, T: SlaveInstance, M: Mode> {
     _peri: Peri<'d, T>,
     _sck: Peri<'d, AnyPin>,
     _mosi: Peri<'d, AnyPin>,
@@ -28,7 +28,7 @@ pub struct SpiSlave<'d, T: Instance, M: Mode> {
     _phantom: PhantomData<M>,
 }
 
-impl<'d, T: Instance> SpiSlave<'d, T, Blocking> {
+impl<'d, T: SlaveInstance> SpiSlave<'d, T, Blocking> {
     /// Create a new blocking instance of the SPI Slave driver.
     ///
     /// # Arguments
@@ -47,7 +47,7 @@ impl<'d, T: Instance> SpiSlave<'d, T, Blocking> {
     }
 }
 
-impl<'d, T: Instance> SpiSlave<'d, T, Async> {
+impl<'d, T: SlaveInstance> SpiSlave<'d, T, Async> {
     /// Create a new async (interrupt-driven) instance of the SPI Slave driver.
     ///
     /// # Arguments
@@ -60,7 +60,7 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
         mosi: Peri<'d, impl MosiPin<T>>,
         miso: Peri<'d, impl MisoPin<T>>,
         cs: Option<Peri<'d, impl CsPin<T>>>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, SlaveInterruptHandler<T>> + 'd,
         config: SlaveConfig,
     ) -> Result<Self> {
         T::Interrupt::unpend();
@@ -285,7 +285,7 @@ impl<'d, T: Instance> SpiSlave<'d, T, Async> {
     }
 }
 
-impl<'d, T: Instance, M: Mode> SpiSlave<'d, T, M> {
+impl<'d, T: SlaveInstance, M: Mode> SpiSlave<'d, T, M> {
     fn new_inner(
         _peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,

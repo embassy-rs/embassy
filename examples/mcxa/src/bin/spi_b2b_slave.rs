@@ -18,13 +18,13 @@
 use embassy_executor::Spawner;
 use hal::bind_interrupts;
 use hal::clocks::config::Div8;
-use hal::spi::{InterruptHandler, SlaveConfig, SpiSlave};
+use hal::spi::{SlaveConfig, SlaveInterruptHandler, SpiSlave};
 use {defmt_rtt as _, embassy_mcxa as hal, panic_probe as _};
 
 const TRANSFER_SIZE: usize = 64;
 
 bind_interrupts!(struct Irqs {
-    LPSPI1 => InterruptHandler<hal::peripherals::LPSPI1>;
+    LPSPI1 => SlaveInterruptHandler<hal::peripherals::LPSPI1>;
 });
 
 #[embassy_executor::main]
