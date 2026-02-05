@@ -7,7 +7,7 @@ use super::simple_pwm::PwmPin;
 use super::{AdvancedInstance4Channel, Ch1, Ch2, Ch3, Ch4, Channel, TimerComplementaryPin};
 use crate::Peri;
 use crate::dma::word::Word;
-use crate::gpio::{AfType, AnyPin, OutputType};
+use crate::gpio::{AfType, Flex, OutputType};
 pub use crate::pac::timer::vals::{Ccds, Ckd, Mms2, Ossi, Ossr};
 use crate::time::Hertz;
 use crate::timer::TimerChannel;
@@ -19,7 +19,7 @@ use crate::timer::simple_pwm::PwmPinConfig;
 /// This wraps a pin to make it usable with PWM.
 pub struct ComplementaryPwmPin<'d, T, C, #[cfg(afio)] A> {
     #[allow(unused)]
-    pin: Peri<'d, AnyPin>,
+    pin: Flex<'d>,
     phantom: PhantomData<if_afio!((T, C, A))>,
 }
 
@@ -31,7 +31,7 @@ impl<'d, T: AdvancedInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(
             set_as_af!(pin, AfType::output(output_type, crate::gpio::Speed::VeryHigh));
         });
         ComplementaryPwmPin {
-            pin: pin.into(),
+            pin: Flex::new(pin),
             phantom: PhantomData,
         }
     }
@@ -52,7 +52,7 @@ impl<'d, T: AdvancedInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(
             );
         });
         ComplementaryPwmPin {
-            pin: pin.into(),
+            pin: Flex::new(pin),
             phantom: PhantomData,
         }
     }

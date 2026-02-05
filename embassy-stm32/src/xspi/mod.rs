@@ -12,7 +12,7 @@ use embassy_hal_internal::PeripheralType;
 pub use enums::*;
 
 use crate::dma::{ChannelAndRequest, word};
-use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 use crate::mode::{Async, Blocking, Mode as PeriMode};
 use crate::pac::xspi::Xspi as Regs;
 use crate::pac::xspi::vals::*;
@@ -166,31 +166,31 @@ pub enum XspiError {
 /// XSPI driver.
 pub struct Xspi<'d, T: Instance, M: PeriMode> {
     _peri: Peri<'d, T>,
-    clk: Option<Peri<'d, AnyPin>>,
-    d0: Option<Peri<'d, AnyPin>>,
-    d1: Option<Peri<'d, AnyPin>>,
-    d2: Option<Peri<'d, AnyPin>>,
-    d3: Option<Peri<'d, AnyPin>>,
-    d4: Option<Peri<'d, AnyPin>>,
-    d5: Option<Peri<'d, AnyPin>>,
-    d6: Option<Peri<'d, AnyPin>>,
-    d7: Option<Peri<'d, AnyPin>>,
-    d8: Option<Peri<'d, AnyPin>>,
-    d9: Option<Peri<'d, AnyPin>>,
-    d10: Option<Peri<'d, AnyPin>>,
-    d11: Option<Peri<'d, AnyPin>>,
-    d12: Option<Peri<'d, AnyPin>>,
-    d13: Option<Peri<'d, AnyPin>>,
-    d14: Option<Peri<'d, AnyPin>>,
-    d15: Option<Peri<'d, AnyPin>>,
-    ncs: Option<Peri<'d, AnyPin>>,
+    _clk: Option<Flex<'d>>,
+    _d0: Option<Flex<'d>>,
+    _d1: Option<Flex<'d>>,
+    _d2: Option<Flex<'d>>,
+    _d3: Option<Flex<'d>>,
+    _d4: Option<Flex<'d>>,
+    _d5: Option<Flex<'d>>,
+    _d6: Option<Flex<'d>>,
+    _d7: Option<Flex<'d>>,
+    _d8: Option<Flex<'d>>,
+    _d9: Option<Flex<'d>>,
+    _d10: Option<Flex<'d>>,
+    _d11: Option<Flex<'d>>,
+    _d12: Option<Flex<'d>>,
+    _d13: Option<Flex<'d>>,
+    _d14: Option<Flex<'d>>,
+    _d15: Option<Flex<'d>>,
+    _ncs: Option<Flex<'d>>,
     // TODO: allow switching between multiple chips
-    ncs_alt: Option<Peri<'d, AnyPin>>,
+    _ncs_alt: Option<Flex<'d>>,
     // false if ncs == NCS1, true if ncs == NCS2
     // (ncs_alt will be the opposite to ncs).
     _cssel_swap: bool,
-    dqs0: Option<Peri<'d, AnyPin>>,
-    dqs1: Option<Peri<'d, AnyPin>>,
+    _dqs0: Option<Flex<'d>>,
+    _dqs1: Option<Flex<'d>>,
     dma: Option<ChannelAndRequest<'d>>,
     _phantom: PhantomData<M>,
     config: Config,
@@ -303,28 +303,28 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
 
     fn new_inner(
         peri: Peri<'d, T>,
-        d0: Option<Peri<'d, AnyPin>>,
-        d1: Option<Peri<'d, AnyPin>>,
-        d2: Option<Peri<'d, AnyPin>>,
-        d3: Option<Peri<'d, AnyPin>>,
-        d4: Option<Peri<'d, AnyPin>>,
-        d5: Option<Peri<'d, AnyPin>>,
-        d6: Option<Peri<'d, AnyPin>>,
-        d7: Option<Peri<'d, AnyPin>>,
-        d8: Option<Peri<'d, AnyPin>>,
-        d9: Option<Peri<'d, AnyPin>>,
-        d10: Option<Peri<'d, AnyPin>>,
-        d11: Option<Peri<'d, AnyPin>>,
-        d12: Option<Peri<'d, AnyPin>>,
-        d13: Option<Peri<'d, AnyPin>>,
-        d14: Option<Peri<'d, AnyPin>>,
-        d15: Option<Peri<'d, AnyPin>>,
-        clk: Option<Peri<'d, AnyPin>>,
+        _d0: Option<Flex<'d>>,
+        _d1: Option<Flex<'d>>,
+        _d2: Option<Flex<'d>>,
+        _d3: Option<Flex<'d>>,
+        _d4: Option<Flex<'d>>,
+        _d5: Option<Flex<'d>>,
+        _d6: Option<Flex<'d>>,
+        _d7: Option<Flex<'d>>,
+        _d8: Option<Flex<'d>>,
+        _d9: Option<Flex<'d>>,
+        _d10: Option<Flex<'d>>,
+        _d11: Option<Flex<'d>>,
+        _d12: Option<Flex<'d>>,
+        _d13: Option<Flex<'d>>,
+        _d14: Option<Flex<'d>>,
+        _d15: Option<Flex<'d>>,
+        _clk: Option<Flex<'d>>,
         ncs_cssel: u8,
-        ncs: Option<Peri<'d, AnyPin>>,
-        ncs_alt: Option<Peri<'d, AnyPin>>,
-        dqs0: Option<Peri<'d, AnyPin>>,
-        dqs1: Option<Peri<'d, AnyPin>>,
+        _ncs: Option<Flex<'d>>,
+        _ncs_alt: Option<Flex<'d>>,
+        _dqs0: Option<Flex<'d>>,
+        _dqs1: Option<Flex<'d>>,
         dma: Option<ChannelAndRequest<'d>>,
         config: Config,
         width: XspiWidth,
@@ -426,7 +426,7 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
         T::REGS.cr().modify(|w| {
             w.set_dmm(dual_quad);
 
-            assert!(ncs_alt.is_none(), "ncs_alt TODO");
+            assert!(_ncs_alt.is_none(), "ncs_alt TODO");
             let cssel = if ncs_cssel == 0 { Cssel::B_0X0 } else { Cssel::B_0X1 };
             w.set_cssel(cssel);
         });
@@ -450,28 +450,28 @@ impl<'d, T: Instance, M: PeriMode> Xspi<'d, T, M> {
 
         Self {
             _peri: peri,
-            clk,
-            d0,
-            d1,
-            d2,
-            d3,
-            d4,
-            d5,
-            d6,
-            d7,
-            d8,
-            d9,
-            d10,
-            d11,
-            d12,
-            d13,
-            d14,
-            d15,
-            ncs,
-            ncs_alt,
+            _clk,
+            _d0,
+            _d1,
+            _d2,
+            _d3,
+            _d4,
+            _d5,
+            _d6,
+            _d7,
+            _d8,
+            _d9,
+            _d10,
+            _d11,
+            _d12,
+            _d13,
+            _d14,
+            _d15,
+            _ncs,
+            _ncs_alt,
             _cssel_swap: ncs_cssel == 1,
-            dqs0,
-            dqs1,
+            _dqs0,
+            _dqs1,
             dma,
             _phantom: PhantomData,
             config,
@@ -1846,28 +1846,6 @@ impl<'d, T: Instance> Xspi<'d, T, Async> {
 
 impl<'d, T: Instance, M: PeriMode> Drop for Xspi<'d, T, M> {
     fn drop(&mut self) {
-        self.clk.as_ref().map(|x| x.set_as_disconnected());
-        self.d0.as_ref().map(|x| x.set_as_disconnected());
-        self.d1.as_ref().map(|x| x.set_as_disconnected());
-        self.d2.as_ref().map(|x| x.set_as_disconnected());
-        self.d3.as_ref().map(|x| x.set_as_disconnected());
-        self.d4.as_ref().map(|x| x.set_as_disconnected());
-        self.d5.as_ref().map(|x| x.set_as_disconnected());
-        self.d6.as_ref().map(|x| x.set_as_disconnected());
-        self.d7.as_ref().map(|x| x.set_as_disconnected());
-        self.d8.as_ref().map(|x| x.set_as_disconnected());
-        self.d9.as_ref().map(|x| x.set_as_disconnected());
-        self.d10.as_ref().map(|x| x.set_as_disconnected());
-        self.d11.as_ref().map(|x| x.set_as_disconnected());
-        self.d12.as_ref().map(|x| x.set_as_disconnected());
-        self.d13.as_ref().map(|x| x.set_as_disconnected());
-        self.d14.as_ref().map(|x| x.set_as_disconnected());
-        self.d15.as_ref().map(|x| x.set_as_disconnected());
-        self.ncs.as_ref().map(|x| x.set_as_disconnected());
-        self.ncs_alt.as_ref().map(|x| x.set_as_disconnected());
-        self.dqs0.as_ref().map(|x| x.set_as_disconnected());
-        self.dqs1.as_ref().map(|x| x.set_as_disconnected());
-
         rcc::disable::<T>();
     }
 }

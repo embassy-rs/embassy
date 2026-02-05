@@ -10,7 +10,7 @@ use crate::Peri;
 use crate::dma::word::Word;
 #[cfg(gpio_v2)]
 use crate::gpio::Pull;
-use crate::gpio::{AfType, AnyPin, OutputType, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::pac::timer::vals::Ccds;
 use crate::time::Hertz;
 
@@ -19,7 +19,7 @@ use crate::time::Hertz;
 /// This wraps a pin to make it usable with PWM.
 pub struct PwmPin<'d, T, C, #[cfg(afio)] A> {
     #[allow(unused)]
-    pub(crate) pin: Peri<'d, AnyPin>,
+    pub(crate) pin: Flex<'d>,
     phantom: PhantomData<if_afio!((T, C, A))>,
 }
 
@@ -46,7 +46,7 @@ impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(P
             set_as_af!(pin, AfType::output(output_type, Speed::VeryHigh));
         });
         PwmPin {
-            pin: pin.into(),
+            pin: Flex::new(pin),
             phantom: PhantomData,
         }
     }
@@ -64,7 +64,7 @@ impl<'d, T: GeneralInstance4Channel, C: TimerChannel, #[cfg(afio)] A> if_afio!(P
             );
         });
         PwmPin {
-            pin: pin.into(),
+            pin: Flex::new(pin),
             phantom: PhantomData,
         }
     }

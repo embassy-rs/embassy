@@ -5,7 +5,7 @@ use stm32_metapac::spi::vals;
 
 use crate::Peri;
 use crate::dma::{ChannelAndRequest, ReadableRingBuffer, TransferOptions, WritableRingBuffer, ringbuffer};
-use crate::gpio::{AfType, AnyPin, OutputType, SealedPin, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::mode::Async;
 use crate::spi::mode::Master;
 use crate::spi::{Config as SpiConfig, RegsExt as _, *};
@@ -235,11 +235,11 @@ pub struct I2S<'d, W: Word> {
     #[allow(dead_code)]
     mode: Mode,
     spi: Spi<'d, Async, Master>,
-    txsd: Option<Peri<'d, AnyPin>>,
-    rxsd: Option<Peri<'d, AnyPin>>,
-    ws: Option<Peri<'d, AnyPin>>,
-    ck: Option<Peri<'d, AnyPin>>,
-    mck: Option<Peri<'d, AnyPin>>,
+    _txsd: Option<Flex<'d>>,
+    _rxsd: Option<Flex<'d>>,
+    _ws: Option<Flex<'d>>,
+    _ck: Option<Flex<'d>>,
+    _mck: Option<Flex<'d>>,
     tx_ring_buffer: Option<WritableRingBuffer<'d, W>>,
     rx_ring_buffer: Option<ReadableRingBuffer<'d, W>>,
 }
@@ -535,11 +535,11 @@ impl<'d, W: Word> I2S<'d, W> {
 
     fn new_inner<T: Instance, #[cfg(afio)] A>(
         peri: Peri<'d, T>,
-        txsd: Option<Peri<'d, AnyPin>>,
-        rxsd: Option<Peri<'d, AnyPin>>,
+        txsd: Option<Flex<'d>>,
+        rxsd: Option<Flex<'d>>,
         ws: Peri<'d, if_afio!(impl WsPin<T, A>)>,
         ck: Peri<'d, if_afio!(impl CkPin<T, A>)>,
-        mck: Option<Peri<'d, AnyPin>>,
+        mck: Option<Flex<'d>>,
         txdma: Option<(ChannelAndRequest<'d>, &'d mut [W])>,
         rxdma: Option<(ChannelAndRequest<'d>, &'d mut [W])>,
         config: Config,
@@ -646,26 +646,16 @@ impl<'d, W: Word> I2S<'d, W> {
         Self {
             mode: config.mode,
             spi,
-            txsd: txsd.map(|w| w.into()),
-            rxsd: rxsd.map(|w| w.into()),
-            ws: Some(ws.into()),
-            ck: Some(ck.into()),
-            mck: mck.map(|w| w.into()),
+            _txsd: txsd.map(|w| w.into()),
+            _rxsd: rxsd.map(|w| w.into()),
+            _ws: Some(Flex::new(ws)),
+            _ck: Some(Flex::new(ck)),
+            _mck: mck.map(|w| w.into()),
             tx_ring_buffer: txdma
                 .map(|(ch, buf)| unsafe { WritableRingBuffer::new(ch.channel, ch.request, regs.tx_ptr(), buf, opts) }),
             rx_ring_buffer: rxdma
                 .map(|(ch, buf)| unsafe { ReadableRingBuffer::new(ch.channel, ch.request, regs.rx_ptr(), buf, opts) }),
         }
-    }
-}
-
-impl<'d, W: Word> Drop for I2S<'d, W> {
-    fn drop(&mut self) {
-        self.txsd.as_ref().map(|x| x.set_as_disconnected());
-        self.rxsd.as_ref().map(|x| x.set_as_disconnected());
-        self.ws.as_ref().map(|x| x.set_as_disconnected());
-        self.ck.as_ref().map(|x| x.set_as_disconnected());
-        self.mck.as_ref().map(|x| x.set_as_disconnected());
     }
 }
 

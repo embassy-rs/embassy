@@ -7,7 +7,7 @@ use core::marker::PhantomData;
 use embassy_hal_internal::Peri;
 pub use traits::Instance;
 
-use crate::gpio::{AfType, AnyPin, OutputType, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Speed};
 use crate::rcc;
 use crate::time::Hertz;
 pub use crate::timer::simple_pwm::PwmPinConfig;
@@ -63,13 +63,13 @@ pub trait AdvancedChannel<T: Instance>: SealedAdvancedChannel<T> {}
 
 /// HRTIM PWM pin.
 pub struct PwmPin<'d, T, C> {
-    _pin: Peri<'d, AnyPin>,
+    _pin: Flex<'d>,
     phantom: PhantomData<(T, C)>,
 }
 
 /// HRTIM complementary PWM pin.
 pub struct ComplementaryPwmPin<'d, T, C> {
-    _pin: Peri<'d, AnyPin>,
+    _pin: Flex<'d>,
     phantom: PhantomData<(T, C)>,
 }
 
@@ -83,7 +83,7 @@ macro_rules! advanced_channel_impl {
                     set_as_af!(pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
                 });
                 PwmPin {
-                    _pin: pin.into(),
+                    _pin: Flex::new(pin),
                     phantom: PhantomData,
                 }
             }
@@ -98,7 +98,7 @@ macro_rules! advanced_channel_impl {
                     set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
                 });
                 PwmPin {
-                    _pin: pin.into(),
+                    _pin: Flex::new(pin),
                     phantom: PhantomData,
                 }
             }
@@ -112,7 +112,7 @@ macro_rules! advanced_channel_impl {
                     set_as_af!(pin, AfType::output(OutputType::PushPull, Speed::VeryHigh));
                 });
                 ComplementaryPwmPin {
-                    _pin: pin.into(),
+                    _pin: Flex::new(pin),
                     phantom: PhantomData,
                 }
             }
@@ -127,7 +127,7 @@ macro_rules! advanced_channel_impl {
                     set_as_af!(pin, AfType::output(pin_config.output_type, pin_config.speed));
                 });
                 ComplementaryPwmPin {
-                    _pin: pin.into(),
+                    _pin: Flex::new(pin),
                     phantom: PhantomData,
                 }
             }
