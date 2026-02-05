@@ -224,6 +224,29 @@ pub enum CoreSleep {
     /// * This mode WILL also require ISP mode recovery in order to re-flash if the core becomes
     ///   "stuck" in sleep.
     WfeGated,
+    /// The system will go to deep sleep when idle, and the CPU clock domain will be
+    /// be gated. If configured with [FlashSleep], the internal flash may be gated
+    /// as well.
+    ///
+    /// This will also move the system into the "low power" state, which will disable any
+    /// clocks not configured as `PoweredClock::AlwaysActive".
+    ///
+    /// ## TODO
+    ///
+    /// For now, this REQUIRES calling unsafe `okay_but_actually_enable_deep_sleep()`
+    /// otherwise we'd ALWAYS go to deep sleep on every WFE. We need to implement a
+    /// custom executor that does proper go-to-deepsleep and come-back-from-deepsleep
+    /// before un-chickening this. If the method isn't called, we just set to `WfeGated`
+    /// instead.
+    ///
+    /// ## WARNING
+    ///
+    /// Enabling this mode has potential danger to soft-lock the system!
+    ///
+    /// * This mode WILL detach the debugging/RTT/defmt session if active upon first sleep.
+    /// * This mode WILL also require ISP mode recovery in order to re-flash if the core becomes
+    ///   "stuck" in sleep.
+    DeepSleep,
 }
 
 /// Power control options for the VDD domain, including the CPU and flash memory

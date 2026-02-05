@@ -1,6 +1,6 @@
-//! This example roughly emulates the `IDD_SLEEP_MD_3` scenario from the datasheet.
+//! This example roughly emulates the `IDD_DEEP_SLEEP_MD_2` scenario from the datasheet.
 //!
-//! As written, this achieves 579uA average current when measured with a Nordic PPK2.
+//! As written, this achieves 153uA average current when measured with a Nordic PPK2.
 //!
 //! **NOTE: This requires rework of the board! You must remove R26 (used for the on
 //! board op-amp), remove R52, and bodge the pad of R52 that is closest to R61 to TP9
@@ -28,7 +28,7 @@ async fn main(_spawner: Spawner) {
     // in deep sleep with debugging disabled.
     defmt::info!("Pre-power delay!");
     // Experimentally: about 5-6s or so.
-    cortex_m::asm::delay(45_000_000 * 2);
+    cortex_m::asm::delay(45_000_000);
     defmt::info!("Pre-power delay complete!");
     let mut cfg = hal::config::Config::default();
 
@@ -38,6 +38,7 @@ async fn main(_spawner: Spawner) {
     // Enable 12M osc to use as core clock
     cfg.clock_cfg.sirc.fro_12m_enabled = true;
     cfg.clock_cfg.sirc.fro_lf_div = None;
+    cfg.clock_cfg.sirc.power = PoweredClock::AlwaysEnabled;
 
     // Disable 16K osc
     cfg.clock_cfg.fro16k = None;
@@ -61,16 +62,22 @@ async fn main(_spawner: Spawner) {
     cfg.clock_cfg.vdd_power.active_mode.drive = VddDriveStrength::Low { enable_bandgap: false };
     cfg.clock_cfg.vdd_power.low_power_mode.drive = VddDriveStrength::Low { enable_bandgap: false };
 
-    // Set "gated" core mode, allowing clock to the core to be gated on sleep
-    cfg.clock_cfg.vdd_power.core_sleep = CoreSleep::WfeGated;
+    // Set "deep sleep" mode
+    cfg.clock_cfg.vdd_power.core_sleep = CoreSleep::DeepSleep;
 
     // Set flash doze, allowing internal flash clocks to be gated on sleep
     cfg.clock_cfg.vdd_power.flash_sleep = FlashSleep::FlashDoze;
 
     let p = hal::init(cfg);
 
+    // SAFETY: We are only using SIRC, which is "always enabled". This is a temporary
+    // hack until we fully support deep sleep
+    unsafe {
+        hal::clocks::okay_but_actually_enable_deep_sleep();
+    }
+
     defmt::info!("Going to sleep shortly...");
-    cortex_m::asm::delay(45_000_000 / 2);
+    cortex_m::asm::delay(45_000_000 / 4);
 
     let mut red = Output::new(p.P3_18, Level::High, DriveStrength::Normal, SlewRate::Slow);
     loop {
