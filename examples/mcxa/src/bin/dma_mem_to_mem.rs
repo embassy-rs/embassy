@@ -101,7 +101,7 @@ async fn main(_spawner: Spawner) {
     defmt::info!("Filling with pattern 0xDEADBEEF...");
 
     // Using blocking_wait() for demonstration - also shows non-async usage
-    let transfer = dma_ch0.memset(&pattern, mst, options);
+    let transfer = dma_ch0.memset(&pattern, mst, options).unwrap();
     transfer.blocking_wait();
 
     defmt::info!("DMA memset complete!");
