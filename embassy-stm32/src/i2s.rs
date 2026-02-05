@@ -556,9 +556,12 @@ impl<'d, W: Word> I2S<'d, W> {
 
         let regs = T::info().regs;
 
-        #[cfg(all(rcc_f4, not(stm32f410)))]
+        #[cfg(any(all(rcc_f4, not(stm32f410)), rcc_f2, all(rcc_f7, not(any(stm32f72x, stm32f73x)))))]
         let pclk = unsafe { crate::rcc::get_freqs() }.plli2s1_r.to_hertz().unwrap();
-        #[cfg(not(all(rcc_f4, not(stm32f410))))]
+        // STM32F72x/F73x route PLLI2SQ (not PLLI2SR) to the I2S peripheral
+        #[cfg(any(stm32f72x, stm32f73x))]
+        let pclk = unsafe { crate::rcc::get_freqs() }.plli2s1_q.to_hertz().unwrap();
+        #[cfg(not(any(all(rcc_f4, not(stm32f410)), rcc_f2, rcc_f7)))]
         let pclk = T::frequency();
 
         let (odd, div) = compute_baud_rate(pclk, config.frequency, config.master_clock, config.format);
