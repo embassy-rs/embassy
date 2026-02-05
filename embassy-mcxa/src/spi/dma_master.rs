@@ -119,7 +119,7 @@ impl<'d, T: Instance, TxC: DmaChannelTrait, RxC: DmaChannelTrait> SpiDma<'d, T, 
         let _miso = miso.into();
         let _cs = cs.map(|p| p.into());
 
-        Spi::<'_, T, Blocking>::set_config(&config)?;
+        Spi::<'_, T, Blocking, HardwareCs>::set_config(&config)?;
 
         Ok(Self {
             _peri,

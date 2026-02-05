@@ -16,57 +16,104 @@ use crate::pac::lpspi::vals::{Contc, Cpha, Cpol, Lsbf, Master, Mbf, Pcs, Pcspol,
 
 /// SPI Master Driver.
 ///
-/// The CS pin is optional. When `Some(pin)`, the hardware PCS signal is used for chip select.
-/// When `None`, users must manage chip select externally (e.g., via GPIO with
-/// `embassy-embedded-hal::shared_bus::SpiDevice`).
-pub struct Spi<'d, T: Instance, M: Mode> {
+/// The type parameter `C` indicates the chip select mode:
+/// - [`HardwareCs`]: The LPSPI hardware controls the PCS signal automatically
+/// - [`NoCs`]: The user manages chip select externally via GPIO
+///
+/// Only `Spi<..., NoCs>` implements [`embedded_hal_1::spi::SpiBus`], as `SpiBus`
+/// semantics require that the bus does not manage CS. Use `NoCs` mode when you
+/// need to share the SPI bus with [`embassy_embedded_hal::shared_bus::SpiDevice`].
+pub struct Spi<'d, T: Instance, M: Mode, C: CsMode> {
     _peri: Peri<'d, T>,
     _sck: Peri<'d, AnyPin>,
     _mosi: Peri<'d, AnyPin>,
     _miso: Peri<'d, AnyPin>,
     _cs: Option<Peri<'d, AnyPin>>,
-    _phantom: PhantomData<M>,
+    _phantom: PhantomData<(M, C)>,
     chip_select: ChipSelect,
 }
 
-impl<'d, T: Instance> Spi<'d, T, Blocking> {
-    /// Create a new blocking instance of the SPI Master driver.
+impl<'d, T: Instance> Spi<'d, T, Blocking, HardwareCs> {
+    /// Create a new blocking SPI driver with hardware-managed chip select.
     ///
-    /// # Arguments
-    /// * `cs` - Optional chip select pin. When `Some(pin)`, hardware PCS is used.
-    ///   When `None`, users must manage CS externally (e.g., via GPIO).
+    /// The LPSPI hardware will automatically control the PCS (Peripheral Chip Select)
+    /// signal. Use this when you have a single device on the bus.
     pub fn new_blocking(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         mosi: Peri<'d, impl MosiPin<T>>,
         miso: Peri<'d, impl MisoPin<T>>,
-        cs: Option<Peri<'d, impl CsPin<T>>>,
+        cs: Peri<'d, impl CsPin<T>>,
         config: Config,
     ) -> Result<Self> {
-        Self::new_inner(peri, sck, mosi, miso, cs, config)
+        Self::new_inner_with_cs(peri, sck, mosi, miso, cs, config)
     }
 }
 
-impl<'d, T: Instance> Spi<'d, T, Async> {
-    /// Create a new async (interrupt-driven) instance of the SPI Master driver.
+impl<'d, T: Instance> Spi<'d, T, Blocking, NoCs> {
+    /// Create a new blocking SPI driver without hardware chip select.
     ///
-    /// # Arguments
-    /// * `cs` - Optional chip select pin. When `Some(pin)`, hardware PCS is used.
-    ///   When `None`, users must manage CS externally (e.g., via GPIO).
+    /// The user must manage chip select externally via GPIO. Use this when:
+    /// - You have multiple devices on the same SPI bus
+    /// - You need to use [`embassy_embedded_hal::shared_bus::SpiDevice`]
+    /// - You need custom CS timing or behavior
+    ///
+    /// This variant implements [`embedded_hal_1::spi::SpiBus`].
+    pub fn new_blocking_no_cs(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        mosi: Peri<'d, impl MosiPin<T>>,
+        miso: Peri<'d, impl MisoPin<T>>,
+        config: Config,
+    ) -> Result<Self> {
+        Self::new_inner_no_cs(peri, sck, mosi, miso, config)
+    }
+}
+
+impl<'d, T: Instance> Spi<'d, T, Async, HardwareCs> {
+    /// Create a new async SPI driver with hardware-managed chip select.
+    ///
+    /// The LPSPI hardware will automatically control the PCS (Peripheral Chip Select)
+    /// signal. Use this when you have a single device on the bus.
     pub fn new_async(
         peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         mosi: Peri<'d, impl MosiPin<T>>,
         miso: Peri<'d, impl MisoPin<T>>,
-        cs: Option<Peri<'d, impl CsPin<T>>>,
+        cs: Peri<'d, impl CsPin<T>>,
         _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
         config: Config,
     ) -> Result<Self> {
         T::Interrupt::unpend();
         unsafe { T::Interrupt::enable() };
-        Self::new_inner(peri, sck, mosi, miso, cs, config)
+        Self::new_inner_with_cs(peri, sck, mosi, miso, cs, config)
     }
+}
 
+impl<'d, T: Instance> Spi<'d, T, Async, NoCs> {
+    /// Create a new async SPI driver without hardware chip select.
+    ///
+    /// The user must manage chip select externally via GPIO. Use this when:
+    /// - You have multiple devices on the same SPI bus
+    /// - You need to use [`embassy_embedded_hal::shared_bus::SpiDevice`]
+    /// - You need custom CS timing or behavior
+    ///
+    /// This variant implements [`embedded_hal_1::spi::SpiBus`].
+    pub fn new_async_no_cs(
+        peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        mosi: Peri<'d, impl MosiPin<T>>,
+        miso: Peri<'d, impl MisoPin<T>>,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        config: Config,
+    ) -> Result<Self> {
+        T::Interrupt::unpend();
+        unsafe { T::Interrupt::enable() };
+        Self::new_inner_no_cs(peri, sck, mosi, miso, config)
+    }
+}
+
+impl<'d, T: Instance, C: CsMode> Spi<'d, T, Async, C> {
     /// Async write (interrupt-driven).
     pub async fn write(&mut self, tx: &[u8]) -> Result<()> {
         if tx.is_empty() {
@@ -266,13 +313,13 @@ impl<'d, T: Instance> Spi<'d, T, Async> {
     }
 }
 
-impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
-    fn new_inner(
+impl<'d, T: Instance, M: Mode> Spi<'d, T, M, HardwareCs> {
+    fn new_inner_with_cs(
         _peri: Peri<'d, T>,
         sck: Peri<'d, impl SckPin<T>>,
         mosi: Peri<'d, impl MosiPin<T>>,
         miso: Peri<'d, impl MisoPin<T>>,
-        cs: Option<Peri<'d, impl CsPin<T>>>,
+        cs: Peri<'d, impl CsPin<T>>,
         config: Config,
     ) -> Result<Self> {
         let clock_config = LpspiConfig {
@@ -287,14 +334,12 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
         sck.mux();
         mosi.mux();
         miso.mux();
-        if let Some(ref pin) = cs {
-            pin.mux();
-        }
+        cs.mux();
 
         let _sck = sck.into();
         let _mosi = mosi.into();
         let _miso = miso.into();
-        let _cs = cs.map(|p| p.into());
+        let _cs = Some(cs.into());
 
         Self::set_config(&config)?;
 
@@ -308,7 +353,48 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
             chip_select: config.chip_select,
         })
     }
+}
 
+impl<'d, T: Instance, M: Mode> Spi<'d, T, M, NoCs> {
+    fn new_inner_no_cs(
+        _peri: Peri<'d, T>,
+        sck: Peri<'d, impl SckPin<T>>,
+        mosi: Peri<'d, impl MosiPin<T>>,
+        miso: Peri<'d, impl MisoPin<T>>,
+        config: Config,
+    ) -> Result<Self> {
+        let clock_config = LpspiConfig {
+            power: config.clock_power,
+            source: config.clock_source,
+            div: config.clock_div,
+            instance: T::CLOCK_INSTANCE,
+        };
+
+        _ = unsafe { enable_and_reset::<T>(&clock_config).map_err(Error::ClockSetup)? };
+
+        sck.mux();
+        mosi.mux();
+        miso.mux();
+
+        let _sck = sck.into();
+        let _mosi = mosi.into();
+        let _miso = miso.into();
+
+        Self::set_config(&config)?;
+
+        Ok(Self {
+            _peri,
+            _sck,
+            _mosi,
+            _miso,
+            _cs: None,
+            _phantom: PhantomData,
+            chip_select: config.chip_select,
+        })
+    }
+}
+
+impl<'d, T: Instance, M: Mode, C: CsMode> Spi<'d, T, M, C> {
     /// Apply configuration to the SPI peripheral.
     pub(super) fn set_config(config: &Config) -> Result<()> {
         let spi = T::regs();
@@ -577,17 +663,19 @@ impl<'d, T: Instance, M: Mode> Spi<'d, T, M> {
 }
 
 // embedded-hal 1.0 implementations
-impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::ErrorType for Spi<'d, T, M> {
+impl<'d, T: Instance, M: Mode, C: CsMode> embedded_hal_1::spi::ErrorType for Spi<'d, T, M, C> {
     type Error = Error;
 }
 
-// SpiBus implementation notes:
-// LPSPI hardware always toggles the selected PCS signal on each transfer.
-// For true SpiBus semantics (shared bus with GPIO CS), users should:
-// 1. Connect the hardware PCS pin to a pull-up or leave floating
-// 2. Use `embassy-embedded-hal::SpiDevice` wrapper with a GPIO CS pin
-// See module documentation for details.
-impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::SpiBus for Spi<'d, T, M> {
+// SpiBus is only implemented for NoCs (externally-managed chip select).
+// This follows embedded-hal semantics where SpiBus represents exclusive bus access
+// without CS management. For hardware CS, the LPSPI toggles PCS on each transfer,
+// which doesn't match SpiBus expectations.
+//
+// To use SpiBus semantics (e.g., with embassy-embedded-hal::shared_bus::SpiDevice):
+// 1. Create the SPI driver with `new_blocking_no_cs()` or `new_async_no_cs()`
+// 2. Wrap with `SpiDevice` which manages CS via GPIO
+impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::SpiBus for Spi<'d, T, M, NoCs> {
     fn read(&mut self, words: &mut [u8]) -> core::result::Result<(), Self::Error> {
         self.blocking_read(words)
     }
@@ -619,7 +707,7 @@ impl<'d, T: Instance, M: Mode> embedded_hal_1::spi::SpiBus for Spi<'d, T, M> {
     }
 }
 
-impl<'d, T: Instance, M: Mode> embassy_embedded_hal::SetConfig for Spi<'d, T, M> {
+impl<'d, T: Instance, M: Mode, C: CsMode> embassy_embedded_hal::SetConfig for Spi<'d, T, M, C> {
     type Config = Config;
     type ConfigError = Error;
 

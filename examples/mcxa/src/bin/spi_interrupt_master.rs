@@ -59,16 +59,8 @@ async fn main(_spawner: Spawner) {
     let mut config = Config::new();
     config.for_frequency(48_000_000, TRANSFER_BAUDRATE).bits_per_frame(8);
 
-    // Create async SPI master using LPSPI1 (Some(cs) for hardware CS)
-    let mut spi = match Spi::new_async(
-        p.LPSPI1,
-        p.P3_10,       // SCK
-        p.P3_8,        // MOSI (SOUT/SDO)
-        p.P3_9,        // MISO (SIN/SDI)
-        Some(p.P3_11), // CS (PCS0) - hardware managed
-        Irqs,
-        config,
-    ) {
+    // Create async SPI master using LPSPI1 with hardware CS (PCS0)
+    let mut spi = match Spi::new_async(p.LPSPI1, p.P3_10, p.P3_8, p.P3_9, p.P3_11, Irqs, config) {
         Ok(s) => {
             defmt::info!("SPI Master initialized successfully.");
             s

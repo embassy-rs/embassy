@@ -490,6 +490,33 @@ pub struct Async;
 impl sealed::Sealed for Async {}
 impl Mode for Async {}
 
+/// Chip select mode trait.
+///
+/// This trait distinguishes between hardware-managed CS (PCS signal controlled by LPSPI)
+/// and externally-managed CS (user controls CS via GPIO).
+#[allow(private_bounds)]
+pub trait CsMode: sealed::Sealed {}
+
+/// Hardware-managed chip select mode.
+///
+/// The LPSPI peripheral controls the PCS (Peripheral Chip Select) signal.
+/// Use this when you have a single device on the bus and want automatic CS timing.
+pub struct HardwareCs;
+impl sealed::Sealed for HardwareCs {}
+impl CsMode for HardwareCs {}
+
+/// Externally-managed chip select mode.
+///
+/// The user controls chip select via GPIO. Use this when:
+/// - You have multiple devices on the same SPI bus
+/// - You need to use `embassy-embedded-hal::shared_bus::SpiDevice`
+/// - You need custom CS timing or behavior
+///
+/// Only `Spi` instances with `NoCs` implement `embedded_hal::spi::SpiBus`.
+pub struct NoCs;
+impl sealed::Sealed for NoCs {}
+impl CsMode for NoCs {}
+
 /// SPI master configuration
 #[derive(Clone, Copy)]
 #[non_exhaustive]

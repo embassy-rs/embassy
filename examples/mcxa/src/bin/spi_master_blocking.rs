@@ -49,8 +49,8 @@ fn main() -> ! {
         .chip_select(spi::ChipSelect::Pcs0)
         .for_frequency(48_000_000, 500_000);
 
-    // Create SPI master instance (Some(cs) for hardware CS)
-    let spi = match Spi::new_blocking(p.LPSPI1, p.P3_10, p.P3_8, p.P3_9, Some(p.P3_11), spi_config) {
+    // Create SPI master instance with hardware CS (PCS0)
+    let spi = match Spi::new_blocking(p.LPSPI1, p.P3_10, p.P3_8, p.P3_9, p.P3_11, spi_config) {
         Ok(s) => {
             defmt::info!("SPI Master initialized successfully.");
             s
