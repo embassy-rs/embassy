@@ -41,6 +41,11 @@ use crate::pac::adc::vals::SampleTime as Adc4SampleTime;
 #[path = "adc4.rs"]
 pub mod adc4;
 
+#[cfg(any(adc_u5, adc_wba))]
+mod watchdog_adc4;
+#[cfg(any(adc_u5, adc_wba))]
+pub use watchdog_adc4::{on_adc4_watchdog_interrupt, WatchdogChannels as Adc4WatchdogChannels};
+
 #[allow(unused)]
 pub(self) use crate::block_for_us as blocking_delay_us;
 pub use crate::pac::adc::vals;
