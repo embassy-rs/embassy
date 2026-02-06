@@ -1849,7 +1849,17 @@ impl ClockOperator<'_> {
         }
 
         match self.config.vdd_power.core_sleep {
-            CoreSleep::WfeUngated => {}
+            CoreSleep::WfeUngated => {
+                // Do not gate
+                self.cmc.ckctrl().modify(|w| w.set_ckmode(CkctrlCkmode::CKMODE0000));
+
+                // Debug is enabled when core sleeps
+                self.cmc.dbgctl().modify(|w| w.set_sod(false));
+
+                // Don't allow the core to be gated to avoid killing the debugging session
+                let mut cp = unsafe { cortex_m::Peripherals::steal() };
+                cp.SCB.clear_sleepdeep();
+            }
             CoreSleep::WfeGated => {
                 // Allow automatic gating of the core when in LIGHT sleep
                 self.cmc.ckctrl().modify(|w| w.set_ckmode(CkctrlCkmode::CKMODE0001));

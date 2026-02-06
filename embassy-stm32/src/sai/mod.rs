@@ -582,9 +582,6 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         let peri = peri.peri;
 
         let (sd_af_type, ck_af_type) = get_af_types(config.mode, config.tx_rx);
-        set_as_af!(sd, sd_af_type);
-        set_as_af!(sck, ck_af_type);
-        set_as_af!(fs, ck_af_type);
 
         let sub_block = S::WHICH;
         let request = dma.request();
@@ -592,10 +589,10 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         Self::new_inner(
             peri,
             sub_block,
-            Some(Flex::new(sck)),
+            new_pin!(sck, ck_af_type),
             None,
-            Some(Flex::new(sd)),
-            Some(Flex::new(fs)),
+            new_pin!(sd, sd_af_type),
+            new_pin!(fs, ck_af_type),
             get_ring_buffer::<T, W>(Channel::new(dma, irq), dma_buf, request, sub_block, config.tx_rx),
             config,
         )
@@ -617,7 +614,6 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         let peri = peri.peri;
 
         let (sd_af_type, _ck_af_type) = get_af_types(config.mode, config.tx_rx);
-        set_as_af!(sd, sd_af_type);
 
         let sub_block = S::WHICH;
         let request = dma.request();
@@ -627,7 +623,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
             sub_block,
             None,
             None,
-            Some(Flex::new(sd)),
+            new_pin!(sd, sd_af_type),
             None,
             get_ring_buffer::<T, W>(Channel::new(dma, irq), dma_buf, request, sub_block, config.tx_rx),
             config,

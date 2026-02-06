@@ -484,18 +484,12 @@ impl<'d> Sdmmc<'d> {
         d0: Peri<'d, impl D0Pin<T>>,
         config: Config,
     ) -> Self {
-        critical_section::with(|_| {
-            set_as_af!(clk, CLK_AF);
-            set_as_af!(cmd, CMD_AF);
-            set_as_af!(d0, DATA_AF);
-        });
-
         Self::new_inner(
             sdmmc,
             new_dma_nonopt!(dma, _irq),
-            Flex::new(clk),
-            Flex::new(cmd),
-            Flex::new(d0),
+            new_pin!(clk, CLK_AF).unwrap(),
+            new_pin!(cmd, CMD_AF).unwrap(),
+            new_pin!(d0, DATA_AF).unwrap(),
             None,
             None,
             None,
@@ -522,24 +516,15 @@ impl<'d> Sdmmc<'d> {
         d3: Peri<'d, impl D3Pin<T>>,
         config: Config,
     ) -> Self {
-        critical_section::with(|_| {
-            set_as_af!(clk, CLK_AF);
-            set_as_af!(cmd, CMD_AF);
-            set_as_af!(d0, DATA_AF);
-            set_as_af!(d1, DATA_AF);
-            set_as_af!(d2, DATA_AF);
-            set_as_af!(d3, DATA_AF);
-        });
-
         Self::new_inner(
             sdmmc,
             new_dma_nonopt!(dma, _irq),
-            Flex::new(clk),
-            Flex::new(cmd),
-            Flex::new(d0),
-            Some(Flex::new(d1)),
-            Some(Flex::new(d2)),
-            Some(Flex::new(d3)),
+            new_pin!(clk, CLK_AF).unwrap(),
+            new_pin!(cmd, CMD_AF).unwrap(),
+            new_pin!(d0, DATA_AF).unwrap(),
+            new_pin!(d1, DATA_AF),
+            new_pin!(d2, DATA_AF),
+            new_pin!(d3, DATA_AF),
             None,
             None,
             None,
@@ -570,32 +555,19 @@ impl<'d> Sdmmc<'d> {
         d7: Peri<'d, impl D7Pin<T>>,
         config: Config,
     ) -> Self {
-        critical_section::with(|_| {
-            set_as_af!(clk, CLK_AF);
-            set_as_af!(cmd, CMD_AF);
-            set_as_af!(d0, DATA_AF);
-            set_as_af!(d1, DATA_AF);
-            set_as_af!(d2, DATA_AF);
-            set_as_af!(d3, DATA_AF);
-            set_as_af!(d4, DATA_AF);
-            set_as_af!(d5, DATA_AF);
-            set_as_af!(d6, DATA_AF);
-            set_as_af!(d7, DATA_AF);
-        });
-
         Self::new_inner(
             sdmmc,
             new_dma_nonopt!(dma, _irq),
-            Flex::new(clk),
-            Flex::new(cmd),
-            Flex::new(d0),
-            Some(Flex::new(d1)),
-            Some(Flex::new(d2)),
-            Some(Flex::new(d3)),
-            Some(Flex::new(d4)),
-            Some(Flex::new(d5)),
-            Some(Flex::new(d6)),
-            Some(Flex::new(d7)),
+            new_pin!(clk, CLK_AF).unwrap(),
+            new_pin!(cmd, CMD_AF).unwrap(),
+            new_pin!(d0, DATA_AF).unwrap(),
+            new_pin!(d1, DATA_AF),
+            new_pin!(d2, DATA_AF),
+            new_pin!(d3, DATA_AF),
+            new_pin!(d4, DATA_AF),
+            new_pin!(d5, DATA_AF),
+            new_pin!(d6, DATA_AF),
+            new_pin!(d7, DATA_AF),
             config,
         )
     }
@@ -612,17 +584,11 @@ impl<'d> Sdmmc<'d> {
         d0: Peri<'d, impl D0Pin<T>>,
         config: Config,
     ) -> Self {
-        critical_section::with(|_| {
-            set_as_af!(clk, CLK_AF);
-            set_as_af!(cmd, CMD_AF);
-            set_as_af!(d0, DATA_AF);
-        });
-
         Self::new_inner(
             sdmmc,
-            Flex::new(clk),
-            Flex::new(cmd),
-            Flex::new(d0),
+            new_pin!(clk, CLK_AF).unwrap(),
+            new_pin!(cmd, CMD_AF).unwrap(),
+            new_pin!(d0, DATA_AF).unwrap(),
             None,
             None,
             None,
@@ -646,23 +612,14 @@ impl<'d> Sdmmc<'d> {
         d3: Peri<'d, impl D3Pin<T>>,
         config: Config,
     ) -> Self {
-        critical_section::with(|_| {
-            set_as_af!(clk, CLK_AF);
-            set_as_af!(cmd, CMD_AF);
-            set_as_af!(d0, DATA_AF);
-            set_as_af!(d1, DATA_AF);
-            set_as_af!(d2, DATA_AF);
-            set_as_af!(d3, DATA_AF);
-        });
-
         Self::new_inner(
             sdmmc,
-            Flex::new(clk),
-            Flex::new(cmd),
-            Flex::new(d0),
-            Some(Flex::new(d1)),
-            Some(Flex::new(d2)),
-            Some(Flex::new(d3)),
+            new_pin!(clk, CLK_AF).unwrap(),
+            new_pin!(cmd, CMD_AF).unwrap(),
+            new_pin!(d0, DATA_AF).unwrap(),
+            new_pin!(d1, DATA_AF),
+            new_pin!(d2, DATA_AF),
+            new_pin!(d3, DATA_AF),
             None,
             None,
             None,
@@ -690,31 +647,18 @@ impl<'d> Sdmmc<'d> {
         d7: Peri<'d, impl D7Pin<T>>,
         config: Config,
     ) -> Self {
-        critical_section::with(|_| {
-            set_as_af!(clk, CLK_AF);
-            set_as_af!(cmd, CMD_AF);
-            set_as_af!(d0, DATA_AF);
-            set_as_af!(d1, DATA_AF);
-            set_as_af!(d2, DATA_AF);
-            set_as_af!(d3, DATA_AF);
-            set_as_af!(d4, DATA_AF);
-            set_as_af!(d5, DATA_AF);
-            set_as_af!(d6, DATA_AF);
-            set_as_af!(d7, DATA_AF);
-        });
-
         Self::new_inner(
             sdmmc,
-            Flex::new(clk),
-            Flex::new(cmd),
-            Flex::new(d0),
-            Some(Flex::new(d1)),
-            Some(Flex::new(d2)),
-            Some(Flex::new(d3)),
-            Some(Flex::new(d4)),
-            Some(Flex::new(d5)),
-            Some(Flex::new(d6)),
-            Some(Flex::new(d7)),
+            new_pin!(clk, CLK_AF).unwrap(),
+            new_pin!(cmd, CMD_AF).unwrap(),
+            new_pin!(d0, DATA_AF).unwrap(),
+            new_pin!(d1, DATA_AF),
+            new_pin!(d2, DATA_AF),
+            new_pin!(d3, DATA_AF),
+            new_pin!(d4, DATA_AF),
+            new_pin!(d5, DATA_AF),
+            new_pin!(d6, DATA_AF),
+            new_pin!(d7, DATA_AF),
             config,
         )
     }

@@ -40,7 +40,7 @@ impl<'d> Flex<'d> {
     }
 
     /// Unsafely clone (duplicate) a Flex.
-    pub unsafe fn clone_unchecked(&mut self) -> Flex<'d> {
+    pub unsafe fn clone_unchecked(&self) -> Flex<'d> {
         Flex {
             pin: self.pin.clone_unchecked(),
         }

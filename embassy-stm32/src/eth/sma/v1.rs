@@ -24,9 +24,6 @@ impl<'d, T: Instance> Sma<'d, T> {
         mdio: Peri<'d, if_afio!(impl MDIOPin<T, A>)>,
         mdc: Peri<'d, if_afio!(impl MDCPin<T, A>)>,
     ) -> Self {
-        set_as_af!(mdio, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        set_as_af!(mdc, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-
         // Enable necessary clocks.
         critical_section::with(|_| {
             #[cfg(eth_v1a)]
@@ -60,7 +57,10 @@ impl<'d, T: Instance> Sma<'d, T> {
         Self {
             _peri: peri,
             clock_range,
-            _pins: [Flex::new(mdio), Flex::new(mdc)],
+            _pins: [
+                new_pin!(mdio, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+                new_pin!(mdc, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            ],
         }
     }
 }
