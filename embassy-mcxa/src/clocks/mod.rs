@@ -35,21 +35,23 @@
 //! 2. Implementing the [`periph_helpers::SPConfHelper`] trait, which should check that the
 //!    necessary input clocks are reasonable
 
-use core::cell::RefCell;
+use core::cell::{Ref, RefCell};
+use core::ops::Deref;
 use core::sync::atomic::{AtomicUsize, Ordering};
 
 use config::{
     ClocksConfig, CoreSleep, FircConfig, FircFreqSel, Fro16KConfig, MainClockSource, SircConfig, VddDriveStrength,
     VddLevel,
 };
+use critical_section::CriticalSection;
 use paste::paste;
 use periph_helpers::{PreEnableParts, SPConfHelper};
 
 use crate::pac;
 use crate::pac::cmc::vals::CkctrlCkmode;
 use crate::pac::scg::vals::{
-    Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, FreqSel, Range, Scs, SirccsrLk, Sircerr,
-    Sircvld, SosccsrLk, Soscerr, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
+    Erefs, Fircacc, FircaccIe, FirccsrLk, Fircerr, FircerrIe, Fircsten, Fircvld, FreqSel, Range, Scs, SirccsrLk,
+    Sircerr, Sircvld, SosccsrLk, Soscerr, Source, SpllLock, SpllcsrLk, Spllerr, Spllsten, TrimUnlock,
 };
 use crate::pac::spc::vals::{
     ActiveCfgBgmode, ActiveCfgCoreldoVddDs, ActiveCfgCoreldoVddLvl, LpCfgBgmode, LpCfgCoreldoVddLvl, Vsm,
@@ -162,6 +164,165 @@ pub fn with_clocks<R: 'static, F: FnOnce(&Clocks) -> R>(f: F) -> Option<R> {
     })
 }
 
+/// Are there active `WakeGuard`s?
+///
+/// Requires a critical section to ensure this doesn't race between getting the guard
+/// count and performing some action like setting up deep sleep
+#[inline(always)]
+pub fn active_wake_guards(_cs: &CriticalSection) -> bool {
+    // Relaxed is okay: we are in a critical section
+    LIVE_HP_TOKENS.load(Ordering::Relaxed) != 0
+}
+
+/// Attempt to go to deep sleep if possible.
+///
+/// If we successfully went and returned from deep sleep, this function returns a `true`.
+/// If we were unsuccessful due to active `WaitGuard`s, this function returns a `false`.
+///
+/// ## SAFETY
+///
+/// Care must be taken that we have ensured that the system is ready to go to deep
+/// sleep, otherwise HAL peripherals may misbehave. `crate::clocks::init()` must
+/// have been called and returned successfully, with a `CoreSleep` configuration
+/// set to DeepSleep (or lower).
+pub unsafe fn deep_sleep_if_possible(cs: &CriticalSection) -> bool {
+    let inhibit = crate::clocks::active_wake_guards(&cs);
+    if inhibit {
+        return false;
+    }
+
+    unsafe {
+        // Yep, it's time to go to deep sleep. WHILE STILL IN the CS, get ready
+        crate::clocks::setup_deep_sleep();
+
+        // Here we go!
+        //
+        // It is okay to WFE with interrupts disabled: we have enabled SEVONPEND
+        cortex_m::asm::dsb();
+        cortex_m::asm::wfe();
+
+        // Wakey wakey, eggs and bakey
+        recover_deep_sleep(&cs);
+    }
+
+    true
+}
+
+/// Prepare the system for deep sleep
+///
+/// ## SAFETY
+///
+/// Care must be taken that we have ensured that the system is ready to go to deep
+/// sleep, otherwise HAL peripherals may misbehave. `crate::clocks::init()` must
+/// have been called and returned successfully, with a `CoreSleep` configuration
+/// set to DeepSleep (or lower).
+unsafe fn setup_deep_sleep() {
+    let cmc = nxp_pac::CMC;
+    let spc = nxp_pac::SPC0;
+
+    // Isolate/unpower external voltage domains
+    spc.evd_cfg().write(|w| w.0 = 0);
+
+    // To configure for Deep Sleep Low-Power mode entry:
+    //
+    // Write Fh to Clock Control (CKCTRL)
+    cmc.ckctrl().modify(|w| w.set_ckmode(CkctrlCkmode::CKMODE1111));
+    // Write 1h to Power Mode Protection (PMPROT)
+    cmc.pmprot().write(|w| w.0 = 1);
+    // Write 1h to Global Power Mode Control (GPMCTRL)
+    cmc.gpmctrl().modify(|w| w.set_lpmode(0b0001));
+    // Redundant?
+    // cmc.pmctrlmain().modify(|w| w.set_lpmode(PmctrlmainLpmode::LPMODE0001));
+
+    // SPC_LPWKUP_DELAY_LPWKUP_DELAY?
+    // TODO: "When voltage levels are not the same between ACTIVE mode and Low Power mode, you must write a
+    // nonzero value to this field."
+    //
+    // TODO: Do we need to ensure the CPU is on some kind of clock source that
+    // is always-on, so we have a core clock source that we know is active when
+    // we come back? How does this affect any peripherals that have main_clk selected
+    // as a source?
+
+    // From the C SDK:
+    //
+    // Before executing WFI instruction read back the last register to
+    // ensure all registers writes have completed.
+    let _ = cmc.gpmctrl().read();
+}
+
+/// Start back up after deep sleep returns
+///
+/// ## SAFETY
+///
+/// Care must be taken that we have ensured that the system is ready to go to deep
+/// sleep, otherwise HAL peripherals may misbehave. `crate::clocks::init()` must
+/// have been called and returned successfully, with a `CoreSleep` configuration
+/// set to DeepSleep (or lower).
+unsafe fn recover_deep_sleep(cs: &CriticalSection) {
+    let cmc = nxp_pac::CMC;
+
+    // Restart any necessary clocks
+    unsafe {
+        restart_active_only_clocks(cs);
+    }
+
+    // Re-raise the sleep level to WFE sleep in the off chance that the
+    // user decides to call `wfe` on their own accord, and to avoid having
+    // to re-set if we chill in WFE sleep mostly
+    cmc.ckctrl().modify(|w| w.set_ckmode(CkctrlCkmode::CKMODE0001));
+}
+
+/// Perform any actions necessary to re-initialize clocks after returning to active
+/// mode after a low power (e.g. deep sleep, power-off) state.
+///
+/// ## Safety
+///
+/// This should only be called in a critical section, immediately after waking up.
+unsafe fn restart_active_only_clocks(_cs: &CriticalSection) {
+    let bref: Ref<'_, Option<Clocks>> = CLOCKS.borrow_ref(*_cs);
+    let dref: &Option<Clocks> = bref.deref();
+    let Some(clocks) = dref else {
+        return;
+    };
+    let scg = pac::SCG0;
+
+    // TODO: Restart clock monitors if necessary? Needs to be re-enabled
+    // AFTER FRO12M has been started, and probably after clocks are
+    // valid again.
+    //
+    // TODO: Timeout? Check error fields (at least for SPLL)? Clear
+    // or reset any status bits?
+
+    // Ensure FRO12M is up and running
+    if let Some(fro12m) = clocks.fro_12m_root.as_ref() {
+        if !matches!(fro12m.power, PoweredClock::AlwaysEnabled) {
+            while scg.sirccsr().read().sircvld() != Sircvld::ENABLED_AND_VALID {}
+        }
+    }
+
+    // Ensure FRO45M is up and running
+    if let Some(frohf) = clocks.fro_hf_root.as_ref() {
+        if !matches!(frohf.power, PoweredClock::AlwaysEnabled) {
+            while scg.firccsr().read().fircvld() != Fircvld::ENABLED_AND_VALID {}
+        }
+    }
+
+    // Ensure SOSC is up and running
+    #[cfg(not(feature = "sosc-as-gpio"))]
+    if let Some(clk_in) = clocks.clk_in.as_ref() {
+        if !matches!(clk_in.power, PoweredClock::AlwaysEnabled) {
+            while !scg.sosccsr().read().soscvld() {}
+        }
+    }
+
+    // Ensure SPLL is up and running
+    if let Some(spll) = clocks.pll1_clk.as_ref() {
+        if !matches!(spll.power, PoweredClock::AlwaysEnabled) {
+            while scg.spllcsr().read().spll_lock() != SpllLock::ENABLED_AND_VALID {}
+        }
+    }
+}
+
 //
 // Structs/Enums
 //
@@ -227,6 +388,9 @@ pub struct Clocks {
 
     /// Low-power power config
     pub lp_power: VddLevel,
+
+    /// Lowest sleep level
+    pub core_sleep: CoreSleep,
 
     /// The `clk_in` is a clock provided by an external oscillator
     /// AKA SOSC
@@ -1109,7 +1273,34 @@ impl ClockOperator<'_> {
         Ok(())
     }
 
-    fn ensure_ldo_active(&mut self) {
+    fn ensure_ldo_active(&mut self, for_clock: &'static str, for_power: &PoweredClock) -> Result<(), ClockError> {
+        match self.config.vdd_power.active_mode.drive {
+            VddDriveStrength::Low { enable_bandgap } => {
+                if !enable_bandgap {
+                    return Err(ClockError::BadConfig {
+                        clock: for_clock,
+                        reason: "LDO requires core active drive strength bandgap enabled",
+                    });
+                }
+            }
+            VddDriveStrength::Normal => {}
+        }
+
+        match for_power {
+            PoweredClock::NormalEnabledDeepSleepDisabled => {}
+            PoweredClock::AlwaysEnabled => match self.config.vdd_power.low_power_mode.drive {
+                VddDriveStrength::Low { enable_bandgap } => {
+                    if !enable_bandgap {
+                        return Err(ClockError::BadConfig {
+                            clock: for_clock,
+                            reason: "LDO requires core lp drive strength bandgap enabled",
+                        });
+                    }
+                }
+                VddDriveStrength::Normal => {}
+            },
+        }
+
         // TODO: Config for the LDO? For now, just enable
         // using the default settings:
         // LDOBYPASS: 0/not bypassed
@@ -1123,6 +1314,8 @@ impl ClockOperator<'_> {
             self.scg0.ldocsr().modify(|w| w.set_ldoen(true));
             while !self.scg0.ldocsr().read().vout_ok() {}
         }
+
+        Ok(())
     }
 
     /// Configure the SOSC/clk_in oscillator
@@ -1133,7 +1326,7 @@ impl ClockOperator<'_> {
         };
 
         // Enable (and wait for) LDO to be active
-        self.ensure_ldo_active();
+        self.ensure_ldo_active("sosc", &parts.power)?;
 
         let eref = match parts.mode {
             config::SoscMode::CrystalOscillator => Erefs::INTERNAL,
@@ -1248,7 +1441,7 @@ impl ClockOperator<'_> {
         };
 
         // Ensure the LDO is active
-        self.ensure_ldo_active();
+        self.ensure_ldo_active("spll", &cfg.power)?;
 
         // match on the source, ensure it is active already
         let res = match cfg.source {
@@ -1867,9 +2060,29 @@ impl ClockOperator<'_> {
                 // Allow the core to be gated - this WILL kill the debugging session!
                 let mut cp = unsafe { cortex_m::Peripherals::steal() };
                 cp.SCB.set_sleepdeep();
+                unsafe {
+                    // TODO: wait for https://github.com/rust-embedded/cortex-m/commit/1be630fdd06990bd14251eabe4cca9307bde549d
+                    // to be released, until then, manual version of SCB.set_sevonpend();
+                    cp.SCB.scr.modify(|w| w | (1 << 4));
+                }
             }
             CoreSleep::DeepSleep => {
-                // See TODO on `CoreSleep::DeepSleep`. For now, just enable light sleep
+                // We can only support deep sleep with a custom executor which properly
+                // handles going to sleep and returning
+                #[cfg(not(feature = "custom-executor"))]
+                let custom_active = false;
+                #[cfg(feature = "custom-executor")]
+                let custom_active = crate::executor::custom_executor_active();
+
+                if !custom_active {
+                    return Err(ClockError::BadConfig {
+                        clock: "core_sleep",
+                        reason: "Deep Sleep is only supported with the custom executor",
+                    });
+                }
+
+                // For now, just enable light sleep. The executor will set deep sleep when
+                // appropriate
                 self.cmc.ckctrl().modify(|w| w.set_ckmode(CkctrlCkmode::CKMODE0001));
 
                 // Debug is disabled when core sleeps
@@ -1878,8 +2091,14 @@ impl ClockOperator<'_> {
                 // Allow the core to be gated - this WILL kill the debugging session!
                 let mut cp = unsafe { cortex_m::Peripherals::steal() };
                 cp.SCB.set_sleepdeep();
+                unsafe {
+                    // TODO: wait for https://github.com/rust-embedded/cortex-m/commit/1be630fdd06990bd14251eabe4cca9307bde549d
+                    // to be released, until then, manual version of SCB.set_sevonpend();
+                    cp.SCB.scr.modify(|w| w | (1 << 4));
+                }
             }
         }
+        self.clocks.core_sleep = self.config.vdd_power.core_sleep;
 
         // Allow automatic gating of the flash memory
         let (wake, doze) = match self.config.vdd_power.flash_sleep {
@@ -1904,42 +2123,6 @@ impl ClockOperator<'_> {
 
         Ok(())
     }
-}
-
-/// This method ACTUALLY enables deep sleep. See `CorePower::DeepSleep` for
-/// more context
-///
-/// ## SAFETY
-///
-/// This method is ONLY sound if you are ONLY using peripherals or clocks that are
-/// marked as `PoweredClock::AlwaysEnabled` (or are disabled). We do NOT currently
-/// implement the runtime reference counting to intelligently switch between WFE
-/// sleep and deep sleep, NOR do we properly implement re-starting any clocks that
-/// became gated by entering deep sleep. This will be fixed in the future.
-///
-/// You must ALSO guarantee that the voltage level used for active and LPMODE match,
-/// as we don't currently set LPWKUP correctly
-pub unsafe fn okay_but_actually_enable_deep_sleep() {
-    let cmc = pac::CMC;
-    let spc = pac::SPC0;
-
-    // Isolate/unpower external voltage domains
-    spc.evd_cfg().write(|w| w.0 = 0);
-
-    // To configure for Deep Sleep Low-Power mode entry:
-    //
-    // Write Fh to Clock Control (CKCTRL)
-    cmc.ckctrl().modify(|w| w.set_ckmode(CkctrlCkmode::CKMODE1111));
-    // Write 1h to Power Mode Protection (PMPROT)
-    cmc.pmprot().write(|w| w.0 = 1);
-    // Write 1h to Global Power Mode Control (GPMCTRL)
-    cmc.gpmctrl().modify(|w| w.set_lpmode(0b0001));
-    // Redundant?
-    // cmc.pmctrlmain().modify(|w| w.set_lpmode(PmctrlmainLpmode::LPMODE0001));
-
-    // SPC_LPWKUP_DELAY_LPWKUP_DELAY?
-    // TODO: "When voltage levels are not the same between ACTIVE mode and Low Power mode, you must write a
-    // nonzero value to this field."
 }
 
 //
@@ -1967,11 +2150,15 @@ macro_rules! impl_cc_gate {
                 #[inline]
                 unsafe fn release_reset() {
                     pac::MRCC0.$rst_reg().modify(|w| w.[<set_ $field>](true));
+                    // Wait for reset to set
+                    while !pac::MRCC0.$rst_reg().read().[<$field>]() {}
                 }
 
                 #[inline]
                 unsafe fn assert_reset() {
                     pac::MRCC0.$rst_reg().modify(|w| w.[<set_ $field>](false));
+                    // Wait for reset to clear
+                    while pac::MRCC0.$rst_reg().read().[<$field>]() {}
                 }
             }
 

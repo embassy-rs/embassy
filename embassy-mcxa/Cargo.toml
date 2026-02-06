@@ -24,7 +24,7 @@ flavors = [
 ]
 
 [dependencies]
-cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
+cortex-m = { version = "0.7", features = ["critical-section-single-core", "inline-asm"] }
 # If you would like "device" to be an optional feature, please open an issue.
 cortex-m-rt = { version = "0.7", features = ["device"] }
 critical-section = "1.2.0"
@@ -43,6 +43,9 @@ maitake-sync = { version = "0.2.2", default-features = false, features = ["criti
 nxp-pac = { git = "https://github.com/embassy-rs/nxp-pac.git", rev = "560e74384e20940a3c25e0435a6fbdc66644b558", features = ["rt", "mcxa256"] }
 nb = "1.1.0"
 paste = "1.0.15"
+
+# Custom executor support
+embassy-executor = { version = "0.9.1", path = "../embassy-executor" }
 
 # `time` dependencies
 embassy-time = { version = "0.5.0", path = "../embassy-time" }
@@ -105,3 +108,8 @@ rt = []
 
 # Enable perf counters
 perf = []
+
+# Enable the custom executor, which allows for low-power modes.
+#
+# If this feature is enabled, users should NOT enable `embassy-executor/arch-cortex-m`.
+custom-executor = []
