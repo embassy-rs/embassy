@@ -50,12 +50,17 @@
 use core::mem::ManuallyDrop;
 use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
 
+use cortex_m::interrupt::InterruptNumber;
+use cortex_m::peripheral::NVIC;
+
 use crate::interrupt::InterruptExt;
 use crate::peripherals::CORE1;
 use crate::{Peri, gpio, install_stack_guard, interrupt, pac};
 
 const PAUSE_TOKEN: u32 = 0xDEADBEEF;
 const RESUME_TOKEN: u32 = !0xDEADBEEF;
+pub(crate) const PEND_IRQ_TOKEN: u32 = 0xCAFE0000;
+
 static IS_CORE1_INIT: AtomicBool = AtomicBool::new(false);
 
 /// Represents a particular CPU core (SIO_CPUID)
@@ -109,6 +114,14 @@ impl<const SIZE: usize> Stack<SIZE> {
     }
 }
 
+#[derive(Clone, Copy)]
+struct Irq(u16);
+unsafe impl InterruptNumber for Irq {
+    fn number(self) -> u16 {
+        self.0
+    }
+}
+
 #[cfg(all(feature = "rt", feature = "rp2040"))]
 #[interrupt]
 unsafe fn SIO_IRQ_PROC1() {
@@ -117,8 +130,9 @@ unsafe fn SIO_IRQ_PROC1() {
     sio.fifo().st().write(|w| w.set_wof(false));
 
     while sio.fifo().st().read().vld() {
-        // Pause CORE1 execution and disable interrupts
-        if fifo_read_wfe() == PAUSE_TOKEN {
+        let fifo_read = fifo_read_wfe();
+        if fifo_read == PAUSE_TOKEN {
+            // Pause CORE1 execution and disable interrupts
             cortex_m::interrupt::disable();
             // Signal to CORE0 that execution is paused
             fifo_write(PAUSE_TOKEN);
@@ -129,6 +143,10 @@ unsafe fn SIO_IRQ_PROC1() {
             cortex_m::interrupt::enable();
             // Signal to CORE0 that execution is resumed
             fifo_write(RESUME_TOKEN);
+        } else if fifo_read & 0xFFFF0000 == PEND_IRQ_TOKEN {
+            // Pend the IRQ to wake up interrupt executors.
+            let irq = Irq((fifo_read & 0xFFFF) as u16);
+            NVIC::pend(irq);
         }
     }
 }
@@ -141,8 +159,9 @@ unsafe fn SIO_IRQ_FIFO() {
     sio.fifo().st().write(|w| w.set_wof(false));
 
     while sio.fifo().st().read().vld() {
-        // Pause CORE1 execution and disable interrupts
-        if fifo_read_wfe() == PAUSE_TOKEN {
+        let fifo_read = fifo_read_wfe();
+        if fifo_read == PAUSE_TOKEN {
+            // Pause CORE1 execution and disable interrupts
             cortex_m::interrupt::disable();
             // Signal to CORE0 that execution is paused
             fifo_write(PAUSE_TOKEN);
@@ -153,6 +172,11 @@ unsafe fn SIO_IRQ_FIFO() {
             cortex_m::interrupt::enable();
             // Signal to CORE0 that execution is resumed
             fifo_write(RESUME_TOKEN);
+        } else if fifo_read & 0xFFFF0000 == PEND_IRQ_TOKEN {
+            // Pend the IRQ to wake up interrupt executors.
+            let irq = Irq((fifo_read & 0xFFFF) as u16);
+            let mut nvic: NVIC = core::mem::transmute(());
+            nvic.request(irq);
         }
     }
 }
@@ -307,7 +331,7 @@ pub fn resume_core1() {
 
 // Push a value to the inter-core FIFO, block until space is available
 #[inline(always)]
-fn fifo_write(value: u32) {
+pub(crate) fn fifo_write(value: u32) {
     let sio = pac::SIO;
     // Wait for the FIFO to have enough space
     while !sio.fifo().st().read().rdy() {

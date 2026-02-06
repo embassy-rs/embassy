@@ -23,6 +23,7 @@ fn __pender(context: *mut ()) {
 
         #[cfg(feature = "executor-interrupt")]
         {
+            use crate::multicore::{PEND_IRQ_TOKEN, current_core, fifo_write};
             use cortex_m::interrupt::InterruptNumber;
             use cortex_m::peripheral::NVIC;
 
@@ -34,17 +35,25 @@ fn __pender(context: *mut ()) {
                 }
             }
 
-            let irq = Irq(context as u16);
+            // The context contains the core number in the upper 16 bits.
+            let core_no = (context >> 16) as u8;
+            let context = context & 0xFFFF;
 
-            // STIR is faster, but is only available in v7 and higher.
-            #[cfg(not(armv6m))]
-            {
-                let mut nvic: NVIC = core::mem::transmute(());
-                nvic.request(irq);
+            if core_no == current_core() as u8 {
+                let irq = Irq(context as u16);
+
+                // STIR is faster, but is only available in v7 and higher.
+                #[cfg(not(armv6m))]
+                {
+                    let mut nvic: NVIC = core::mem::transmute(());
+                    nvic.request(irq);
+                }
+
+                #[cfg(armv6m)]
+                NVIC::pend(irq);
+            } else {
+                fifo_write(PEND_IRQ_TOKEN | context as u32);
             }
-
-            #[cfg(armv6m)]
-            NVIC::pend(irq);
         }
     }
 }
@@ -57,8 +66,6 @@ mod thread {
 
     use core::arch::asm;
     use core::marker::PhantomData;
-
-    use embassy_executor_macros::main_cortex_m as main;
 
     use embassy_executor::{Spawner, raw};
 
@@ -129,6 +136,8 @@ mod interrupt {
     use critical_section::Mutex;
 
     use embassy_executor::raw;
+
+    use crate::multicore::current_core;
 
     /// Interrupt mode executor.
     ///
@@ -209,9 +218,10 @@ mod interrupt {
             }
 
             unsafe {
+                let context = (irq.number() as usize | (current_core() as usize) << 16) as *mut ();
                 (&mut *self.executor.get())
                     .as_mut_ptr()
-                    .write(raw::Executor::new(irq.number() as *mut ()))
+                    .write(raw::Executor::new(context))
             }
 
             let executor = unsafe { (&*self.executor.get()).assume_init_ref() };
