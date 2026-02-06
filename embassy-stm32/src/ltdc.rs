@@ -179,7 +179,7 @@ impl PixelFormat {
         }
         #[cfg(ltdc_v1_3)]
         match self {
-            PixelFormat::ARGB8888 | PixelFormat::ABGR8888 | PixelFormat::RGBA8888 | PixelFormat::BGRA8888=> 4,
+            PixelFormat::ARGB8888 | PixelFormat::ABGR8888 | PixelFormat::RGBA8888 | PixelFormat::BGRA8888 => 4,
             PixelFormat::RGB888 => 3,
             PixelFormat::RGB565 | PixelFormat::BGR565 => 2,
             PixelFormat::FLEXIBLE => todo!("Flexable pixels are not yet implemented"),
