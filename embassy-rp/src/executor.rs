@@ -53,7 +53,7 @@ mod thread {
 
     pub use embassy_executor_macros::main_cortex_m as main;
 
-    use crate::{Spawner, raw};
+    use embassy_executor::{Spawner, raw};
 
     /// Thread mode executor, using WFE/SEV.
     ///
@@ -121,7 +121,7 @@ mod interrupt {
     use cortex_m::peripheral::NVIC;
     use critical_section::Mutex;
 
-    use crate::raw;
+    use embassy_executor::raw;
 
     /// Interrupt mode executor.
     ///
