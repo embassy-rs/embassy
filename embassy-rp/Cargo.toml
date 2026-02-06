@@ -66,6 +66,12 @@ unstable-pac = []
 ## Enable the timer for use with `embassy-time` with a 1MHz tick rate.
 time-driver = ["dep:embassy-time-driver", "embassy-time-driver?/tick-hz-1_000_000", "dep:embassy-time-queue-utils"]
 
+## Enable the thread-mode executor.
+executor-thread = []
+
+## Enable the interrupt-mode executor.
+executor-interrupt = []
+
 ## Enable ROM function cache. This will store the address of a ROM function when first used, improving performance of subsequent calls.
 rom-func-cache = []
 ## Enable implementations of some compiler intrinsics using functions in the rp2040 Mask ROM.

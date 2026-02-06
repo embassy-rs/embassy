@@ -30,6 +30,7 @@ pub mod bootsel;
 pub mod clocks;
 pub(crate) mod datetime;
 pub mod dma;
+pub mod executor;
 pub mod flash;
 #[cfg(feature = "rp2040")]
 mod float;
