@@ -230,7 +230,9 @@ impl AdcRegs for crate::pac::adc::Adc4 {
 
     fn configure_dma(&self, conversion_mode: ConversionMode) {
         // Clear overrun and conversion flags
-        self.isr().modify(|reg| {
+        // Use write (not modify) because ISR flags are W1C: a read-modify-write
+        // would inadvertently clear any other pending flags read as 1.
+        self.isr().write(|reg| {
             reg.set_ovr(true);
             reg.set_eos(true);
             reg.set_eoc(true);
@@ -305,9 +307,10 @@ impl AdcRegs for crate::pac::adc::Adc4 {
             }
 
             let channel_num = channel;
-            if channel_num as i16 <= prev_channel {
-                return;
-            };
+            assert!(
+                channel_num as i16 > prev_channel,
+                "ADC4 channels must be provided in ascending channel-number order (bitmask mode)"
+            );
             prev_channel = channel_num as i16;
 
             #[cfg(stm32wba)]
@@ -323,7 +326,8 @@ impl AdcRegs for crate::pac::adc::Adc4 {
 
     fn convert(&self) {
         // Reset interrupts
-        self.isr().modify(|reg| {
+        // Use write (not modify) because ISR flags are W1C.
+        self.isr().write(|reg| {
             reg.set_eos(true);
             reg.set_eoc(true);
         });
@@ -357,7 +361,8 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
             );
         }
 
-        T::regs().isr().modify(|w| {
+        // Use write (not modify) for ISR because flags are W1C.
+        T::regs().isr().write(|w| {
             w.set_ldordy(true);
         });
         T::regs().cr().modify(|w| {
@@ -365,13 +370,13 @@ impl<'d, T: Instance<Regs = crate::pac::adc::Adc4>> super::Adc<'d, T> {
         });
         while !T::regs().isr().read().ldordy() {}
 
-        T::regs().isr().modify(|w| {
+        T::regs().isr().write(|w| {
             w.set_ldordy(true);
         });
 
         T::regs().cr().modify(|w| w.set_adcal(true));
         while T::regs().cr().read().adcal() {}
-        T::regs().isr().modify(|w| w.set_eocal(true));
+        T::regs().isr().write(|w| w.set_eocal(true));
 
         blocking_delay_us(1);
 
