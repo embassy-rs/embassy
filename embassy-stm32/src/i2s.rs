@@ -545,9 +545,6 @@ impl<'d, W: Word> I2S<'d, W> {
         config: Config,
         function: Function,
     ) -> Self {
-        set_as_af!(ws, AfType::output(OutputType::PushPull, config.gpio_speed));
-        set_as_af!(ck, AfType::output(OutputType::PushPull, config.gpio_speed));
-
         let spi = Spi::new_internal(peri, None, None, {
             let mut spi_config = SpiConfig::default();
             spi_config.frequency = config.frequency;
@@ -648,8 +645,8 @@ impl<'d, W: Word> I2S<'d, W> {
             spi,
             _txsd: txsd.map(|w| w.into()),
             _rxsd: rxsd.map(|w| w.into()),
-            _ws: Some(Flex::new(ws)),
-            _ck: Some(Flex::new(ck)),
+            _ws: new_pin!(ws, AfType::output(OutputType::PushPull, config.gpio_speed)),
+            _ck: new_pin!(ck, AfType::output(OutputType::PushPull, config.gpio_speed)),
             _mck: mck.map(|w| w.into()),
             tx_ring_buffer: txdma
                 .map(|(ch, buf)| unsafe { WritableRingBuffer::new(ch.channel, ch.request, regs.tx_ptr(), buf, opts) }),

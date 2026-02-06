@@ -93,10 +93,7 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
         // Configure the pins to be used for the QEI peripheral.
         critical_section::with(|_| {
             ch1.set_low();
-            set_as_af!(ch1, AfType::input(config.ch1_pull));
-
             ch2.set_low();
-            set_as_af!(ch2, AfType::input(config.ch2_pull));
         });
 
         let inner = Timer::new(tim);
@@ -126,8 +123,8 @@ impl<'d, T: GeneralInstance4Channel> Qei<'d, T> {
 
         Self {
             inner,
-            _ch1: Flex::new(ch1),
-            _ch2: Flex::new(ch2),
+            _ch1: new_pin!(ch1, AfType::input(config.ch1_pull)).unwrap(),
+            _ch2: new_pin!(ch2, AfType::input(config.ch2_pull)).unwrap(),
         }
     }
 

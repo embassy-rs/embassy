@@ -19,9 +19,6 @@ pub struct Sma<'d, T: Instance> {
 impl<'d, T: Instance> Sma<'d, T> {
     /// Create a new instance of this peripheral.
     pub fn new(peri: Peri<'d, T>, mdio: Peri<'d, impl MDIOPin<T>>, mdc: Peri<'d, impl MDCPin<T>>) -> Self {
-        set_as_af!(mdio, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-        set_as_af!(mdc, AfType::output(OutputType::PushPull, Speed::VeryHigh));
-
         // Enable necessary clocks.
         critical_section::with(|_| {
             crate::pac::RCC.ahb1enr().modify(|w| {
@@ -49,7 +46,10 @@ impl<'d, T: Instance> Sma<'d, T> {
         Self {
             _peri: peri,
             clock_range,
-            _pins: [Flex::new(mdio), Flex::new(mdc)],
+            _pins: [
+                new_pin!(mdio, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+                new_pin!(mdc, AfType::output(OutputType::PushPull, Speed::VeryHigh)).unwrap(),
+            ],
         }
     }
 }

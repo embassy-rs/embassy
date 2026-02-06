@@ -113,8 +113,8 @@ impl<'d> UartRx<'d, Async> {
         let state = self.state;
         let kernel_clock = self.kernel_clock;
         let ring_buf = unsafe { ReadableRingBuffer::new(rx_dma, request, rdr(info.regs), dma_buf, opts) };
-        let rx = unsafe { self.rx.as_mut().map(|x| x.clone_unchecked()) };
-        let rts = unsafe { self.rts.as_mut().map(|x| x.clone_unchecked()) };
+        let rx = unsafe { self.rx.as_ref().map(|x| x.clone_unchecked()) };
+        let rts = unsafe { self.rts.as_ref().map(|x| x.clone_unchecked()) };
 
         info.rcc.increment_stop_refcount();
 
