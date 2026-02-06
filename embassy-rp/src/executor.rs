@@ -1,3 +1,10 @@
+//! Multicore-aware async executors.
+//!
+//! These custom executors are modified versions of the ones provided by
+//! [embassy-executor](https://crates.io/crates/embassy-executor).
+//! They can be used across both cores so that an interrupt executor
+//! on one core can be woken up by the other.
+
 #[unsafe(export_name = "__pender")]
 #[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
 fn __pender(context: *mut ()) {
@@ -143,7 +150,7 @@ mod interrupt {
     /// If this is not the case, you may use an interrupt from any unused peripheral.
     ///
     /// It is somewhat more complex to use, it's recommended to use the thread-mode
-    /// [`Executor`](crate::Executor) instead, if it works for your use case.
+    /// [`Executor`](embassy_executor::Executor) instead, if it works for your use case.
     pub struct InterruptExecutor {
         started: Mutex<Cell<bool>>,
         executor: UnsafeCell<MaybeUninit<raw::Executor>>,
@@ -179,11 +186,11 @@ mod interrupt {
         /// The executor keeps running in the background through the interrupt.
         ///
         /// This returns a [`SendSpawner`] you can use to spawn tasks on it. A [`SendSpawner`]
-        /// is returned instead of a [`Spawner`](crate::Spawner) because the executor effectively runs in a
+        /// is returned instead of a [`Spawner`](embassy_executor::Spawner) because the executor effectively runs in a
         /// different "thread" (the interrupt), so spawning tasks on it is effectively
         /// sending them.
         ///
-        /// To obtain a [`Spawner`](crate::Spawner) for this executor, use [`Spawner::for_current_executor()`](crate::Spawner::for_current_executor()) from
+        /// To obtain a [`Spawner`](embassy_executor::Spawner) for this executor, use [`Spawner::for_current_executor()`](embassy_executor::Spawner::for_current_executor()) from
         /// a task running in it.
         ///
         /// # Interrupt requirements
@@ -195,8 +202,8 @@ mod interrupt {
         /// You must set the interrupt priority before calling this method. You MUST NOT
         /// do it after.
         ///
-        /// [`SendSpawner`]: crate::SendSpawner
-        pub fn start(&'static self, irq: impl InterruptNumber) -> crate::SendSpawner {
+        /// [`SendSpawner`]: embassy_executor::SendSpawner
+        pub fn start(&'static self, irq: impl InterruptNumber) -> embassy_executor::SendSpawner {
             if critical_section::with(|cs| self.started.borrow(cs).replace(true)) {
                 panic!("InterruptExecutor::start() called multiple times on the same executor.");
             }
@@ -216,12 +223,12 @@ mod interrupt {
 
         /// Get a SendSpawner for this executor
         ///
-        /// This returns a [`SendSpawner`](crate::SendSpawner) you can use to spawn tasks on this
+        /// This returns a [`SendSpawner`](embassy_executor::SendSpawner) you can use to spawn tasks on this
         /// executor.
         ///
         /// This MUST only be called on an executor that has already been started.
         /// The function will panic otherwise.
-        pub fn spawner(&'static self) -> crate::SendSpawner {
+        pub fn spawner(&'static self) -> embassy_executor::SendSpawner {
             if !critical_section::with(|cs| self.started.borrow(cs).get()) {
                 panic!("InterruptExecutor::spawner() called on uninitialized executor.");
             }
