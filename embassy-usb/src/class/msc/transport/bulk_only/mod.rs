@@ -211,7 +211,7 @@ impl<'d, D: Driver<'d>, C: CommandSetHandler> BulkOnlyTransport<'d, D, C> {
         CommandStatusWrapper::new(cbw.tag, pipe_in.data_residue, status)
     }
 
-    pub async fn run(&mut self) {
+    pub async fn run(&mut self) -> ! {
         loop {
             let cbw = self.receive_control_block_wrapper().await;
             //trace!("received CBW: {}", cbw.data_transfer_length);
