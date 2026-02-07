@@ -8,6 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- next-header -->
 ## Unreleased - ReleaseDate
 
+- raw: Removed unnecessary Driver type parameter from `RawSocket::new`
+
 ## 0.8.0 - 2026-01-04
 
 - tcp: Add `set_nagle_enabled()` to control TcpSocket nagle algorithm.
