@@ -4,7 +4,6 @@
 // Licensed BSD-3-Clause.
 // Copyright 2020 (c) 2020 Raspberry Pi (Trading) Ltd.
 
-use embassy_time::Duration;
 use fixed::traits::ToFixed;
 
 use crate::Peri;
@@ -85,6 +84,40 @@ pub struct NecFrame {
     pub data: u8,
 }
 
+/// NEC data is sent in a 32 bit frame made from the normal and inverted address and data. This
+/// struct represents the unencoded data.
+#[derive(Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct NecExtendedFrame {
+    /// Checked NEC Address
+    pub address: u16,
+    /// Checked NEC Data
+    pub data: u8,
+}
+
+impl NecExtendedFrame {
+    /// Decode a NEC frame from a raw 32 bit number
+    pub fn decode(raw: u32) -> Result<Self, NecFrameDecodeError> {
+        let bytes = raw.to_le_bytes();
+
+        let address = u16::from_le_bytes([bytes[0], bytes[1]]);
+        let data = bytes[2];
+        let inverted_data = bytes[3];
+
+        if data == !inverted_data {
+            Ok(NecExtendedFrame { address, data })
+        } else {
+            Err(NecFrameDecodeError::DataMismatch)
+        }
+    }
+
+    /// Make the raw 32 bit value for a frame.
+    pub fn encode(&self) -> u32 {
+        let address_bytes = self.address.to_le_bytes();
+        u32::from_le_bytes([address_bytes[0], address_bytes[1], self.data, !self.data])
+    }
+}
+
 #[derive(Debug)]
 #[cfg_attr(feature = "defmt", derive(defmt::Format))]
 /// NEC frames send the address and data as normal and inverted bits. These are the errors you can
@@ -163,6 +196,11 @@ impl<'d, PIO: Instance, const SM: usize> PioIrNecRx<'d, PIO, SM> {
     /// Wait for a NEC frame
     pub async fn read(&mut self) -> Result<NecFrame, NecFrameDecodeError> {
         NecFrame::decode(self.read_raw().await)
+    }
+
+    /// Wait for a NEC frame
+    pub async fn read_extended(&mut self) -> Result<NecExtendedFrame, NecFrameDecodeError> {
+        NecExtendedFrame::decode(self.read_raw().await)
     }
 
     /// Wait for a raw 32 bit frame
@@ -346,6 +384,12 @@ impl<'d, PIO: Instance, const SM1: usize, const SM2: usize> PioIrNecTx<'d, PIO, 
 
     /// Encode and send a NEC frame
     pub async fn write(&mut self, frame: NecFrame) {
+        let word = frame.encode();
+        self.sm_control.tx().wait_push(word).await
+    }
+
+    /// Encode and send an extended NEC frame
+    pub async fn write_extended(&mut self, frame: NecExtendedFrame) {
         let word = frame.encode();
         self.sm_control.tx().wait_push(word).await
     }
