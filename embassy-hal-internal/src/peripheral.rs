@@ -14,8 +14,6 @@ use core::ops::Deref;
 ///   the driver code would be monomorphized two times. With Peri, the driver is generic
 ///   over a lifetime only. `SPI4` becomes `Peri<'static, SPI4>`, and `&mut SPI4` becomes
 ///   `Peri<'a, SPI4>`. Lifetimes don't cause monomorphization.
-#[derive(Debug)]
-#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub struct Peri<'a, T: PeripheralType> {
     inner: T,
     _lifetime: PhantomData<&'a mut T>,
@@ -83,6 +81,25 @@ impl<'a, T: PeripheralType> Deref for Peri<'a, T> {
     #[inline]
     fn deref(&self) -> &Self::Target {
         &self.inner
+    }
+}
+
+impl<'a, T: PeripheralType + core::fmt::Debug> core::fmt::Debug for Peri<'a, T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.inner.fmt(f)
+    }
+}
+
+impl<'a, T: PeripheralType + core::fmt::Display> core::fmt::Display for Peri<'a, T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        self.inner.fmt(f)
+    }
+}
+
+#[cfg(feature = "defmt")]
+impl<'a, T: PeripheralType + defmt::Format> defmt::Format for Peri<'a, T> {
+    fn format(&self, fmt: defmt::Formatter) {
+        self.inner.format(fmt);
     }
 }
 
