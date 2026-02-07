@@ -4,7 +4,6 @@ use core::future::{Future, poll_fn};
 use core::mem;
 use core::task::{Context, Poll};
 
-use embassy_net_driver::Driver;
 use smoltcp::iface::{Interface, SocketHandle};
 use smoltcp::socket::raw;
 pub use smoltcp::socket::raw::PacketMetadata;
@@ -28,7 +27,7 @@ pub struct RawSocket<'a> {
 
 impl<'a> RawSocket<'a> {
     /// Create a new Raw socket using the provided stack and buffers.
-    pub fn new<D: Driver>(
+    pub fn new(
         stack: Stack<'a>,
         ip_version: Option<IpVersion>,
         ip_protocol: Option<IpProtocol>,
