@@ -1,9 +1,14 @@
-//! Multicore-aware async executors.
+//! Multicore-ready executors.
 //!
 //! These custom executors are modified versions of the ones provided by
 //! [embassy-executor](https://crates.io/crates/embassy-executor).
 //! They can be used across both cores so that an interrupt executor
 //! on one core can be woken up by the other.
+//!
+//! When using this executors, they must be explicitely passed to the `main`
+//! macro using
+//!
+//! `#[main(executor = "embassy_rp::executor::Executor")]`
 
 #[unsafe(export_name = "__pender")]
 #[cfg(any(feature = "executor-thread", feature = "executor-interrupt"))]
