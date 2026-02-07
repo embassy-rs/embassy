@@ -87,6 +87,7 @@ impl<'d, T: GeneralInstance4Channel> TriggerPin<'d, T, Ext> {
 /// Generates a pulse after a trigger and some configurable delay.
 pub struct OnePulse<'d, T: GeneralInstance4Channel> {
     inner: Timer<'d, T>,
+    _pin: Flex<'d>,
 }
 
 impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
@@ -103,7 +104,10 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
         pulse_end: u32,
         counting_mode: CountingMode,
     ) -> Self {
-        let mut this = Self { inner: Timer::new(tim) };
+        let mut this = Self {
+            inner: Timer::new(tim),
+            _pin: pin.pin,
+        };
 
         this.inner.set_trigger_source(Ts::TI1F_ED);
         this.inner
@@ -128,7 +132,10 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
         counting_mode: CountingMode,
         capture_mode: InputCaptureMode,
     ) -> Self {
-        let mut this = Self { inner: Timer::new(tim) };
+        let mut this = Self {
+            inner: Timer::new(tim),
+            _pin: _pin.pin,
+        };
 
         this.inner.set_trigger_source(Ts::TI1FP1);
         this.inner
@@ -154,7 +161,10 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
         counting_mode: CountingMode,
         capture_mode: InputCaptureMode,
     ) -> Self {
-        let mut this = Self { inner: Timer::new(tim) };
+        let mut this = Self {
+            inner: Timer::new(tim),
+            _pin: _pin.pin,
+        };
 
         this.inner.set_trigger_source(Ts::TI2FP2);
         this.inner
@@ -179,7 +189,10 @@ impl<'d, T: GeneralInstance4Channel> OnePulse<'d, T> {
         counting_mode: CountingMode,
         polarity: ExternalTriggerPolarity,
     ) -> Self {
-        let mut this = Self { inner: Timer::new(tim) };
+        let mut this = Self {
+            inner: Timer::new(tim),
+            _pin: _pin.pin,
+        };
 
         this.inner.regs_gp16().smcr().modify(|r| {
             r.set_etp(polarity.into());
