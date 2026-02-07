@@ -755,9 +755,6 @@ impl ClockOperator<'_> {
     }
 
     /// Configure the FIRC/FRO180M clock family
-    ///
-    /// NOTE: Currently we require this to be a fairly hardcoded value, as this clock is used
-    /// as the main clock used for the CPU, AHB, APB, etc.
     fn configure_firc_clocks(&mut self) -> Result<(), ClockError> {
         // Three options here:
         //
