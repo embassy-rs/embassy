@@ -51,6 +51,7 @@ use core::mem::ManuallyDrop;
 use core::sync::atomic::{AtomicBool, Ordering, compiler_fence};
 
 use cortex_m::interrupt::InterruptNumber;
+#[cfg(any(feature = "rp2040", feature = "_rp235x"))]
 use cortex_m::peripheral::NVIC;
 
 use crate::interrupt::InterruptExt;
@@ -59,6 +60,7 @@ use crate::{Peri, gpio, install_stack_guard, interrupt, pac};
 
 const PAUSE_TOKEN: u32 = 0xDEADBEEF;
 const RESUME_TOKEN: u32 = !0xDEADBEEF;
+#[cfg(any(feature = "rp2040", feature = "_rp235x"))]
 pub(crate) const PEND_IRQ_TOKEN: u32 = 0xCAFE0000;
 
 static IS_CORE1_INIT: AtomicBool = AtomicBool::new(false);
@@ -114,8 +116,10 @@ impl<const SIZE: usize> Stack<SIZE> {
     }
 }
 
+#[cfg(any(feature = "rp2040", feature = "_rp235x"))]
 #[derive(Clone, Copy)]
 struct Irq(u16);
+#[cfg(any(feature = "rp2040", feature = "_rp235x"))]
 unsafe impl InterruptNumber for Irq {
     fn number(self) -> u16 {
         self.0
