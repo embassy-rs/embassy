@@ -249,8 +249,7 @@ impl<'d> Flex<'d> {
 impl<'d> Drop for Flex<'d> {
     #[inline]
     fn drop(&mut self) {
-        trace!("Dropping pin {} on port {}", self.pin.pin(), self.pin.port());
-
+        trace!("Dropping pin {}", self.pin);
         critical_section::with(|_| {
             self.pin.set_as_disconnected();
         });
@@ -876,6 +875,22 @@ impl AnyPin {
     #[inline]
     pub fn block(&self) -> gpio::Gpio {
         crate::_generated::gpio_block(self._port() as _)
+    }
+}
+
+impl core::fmt::Display for AnyPin {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let port = char::from(b'A' + self.port());
+        let pin = self.pin();
+        write!(f, "P{port}{pin}")
+    }
+}
+#[cfg(feature = "defmt")]
+impl defmt::Format for AnyPin {
+    fn format(&self, f: defmt::Formatter) {
+        let port = char::from(b'A' + self.port());
+        let pin = self.pin();
+        defmt::write!(f, "P{}{}", port, pin)
     }
 }
 
