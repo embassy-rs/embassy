@@ -309,6 +309,16 @@ where
 
     // Wait until the other core has copied `entry` before returning.
     fifo_read();
+
+    // Enable fifo interrupt on CORE0 for `pend irq` functionality.
+    #[cfg(all(feature = "rp2040", feature = "executor-interrupt"))]
+    unsafe {
+        interrupt::SIO_IRQ_PROC1.enable()
+    };
+    #[cfg(all(feature = "_rp235x", feature = "executor-interrupt"))]
+    unsafe {
+        interrupt::SIO_IRQ_FIFO.enable()
+    };
 }
 
 /// Pause execution on CORE1.
