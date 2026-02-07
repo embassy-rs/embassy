@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add output enable inversion API (gpio, pio)
 - Add PIO clock generator
 - Change PioBatch interface
+- Add custom multicore-ready executors
 
 ## 0.9.0 - 2025-11-27
 - Add documentation for pio `get_x` about autopush.
