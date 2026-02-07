@@ -10,7 +10,9 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_rp::peripherals::PIO0;
-use embassy_rp::pio_programs::ir_nec::{NecFrame, PioIrNecRx, PioIrNecRxProgram, PioIrNecTx, PioIrNecTxProgram};
+use embassy_rp::pio_programs::ir_nec::{
+    NEC_IR_INTIAL_BURSTS, NecFrame, PioIrNecRx, PioIrNecRxProgram, PioIrNecTx, PioIrNecTxProgram,
+};
 use embassy_rp::{bind_interrupts, pio};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
@@ -34,7 +36,7 @@ async fn main(spawner: Spawner) {
     let rx_program = PioIrNecRxProgram::new(&mut common);
     let rx = PioIrNecRx::new(&mut common, sm0, p.PIN_14, &rx_program);
 
-    let tx_program = PioIrNecTxProgram::new(&mut common, 7);
+    let tx_program = PioIrNecTxProgram::new(&mut common, 7, NEC_IR_INTIAL_BURSTS);
     let tx = PioIrNecTx::new(&mut common, sm1, sm2, p.PIN_25, &tx_program);
 
     spawner.spawn(send(tx).unwrap());
