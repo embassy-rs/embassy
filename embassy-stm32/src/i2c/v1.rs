@@ -448,7 +448,13 @@ impl<'d, IM: MasterMode> I2c<'d, Async, IM> {
                 self.state.waker.register(cx.waker());
 
                 match Self::check_and_clear_error_flags(self.info) {
-                    Err(e) => Poll::Ready(Err(e)),
+                    Err(e) => {
+                        // Send STOP condition, otherwise SCL will remain low forever.
+                        trace!("I2C master: address not acknowledged, send stop");
+                        self.info.regs.cr1().modify(|reg| reg.set_stop(true));
+
+                        Poll::Ready(Err(e))
+                    }
                     Ok(sr1) => {
                         if sr1.addr() {
                             Poll::Ready(Ok(()))
