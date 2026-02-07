@@ -67,6 +67,8 @@ mod thread {
     use core::arch::asm;
     use core::marker::PhantomData;
 
+    pub use embassy_executor_macros::main_cortex_m as main;
+
     use embassy_executor::{Spawner, raw};
 
     /// Thread mode executor, using WFE/SEV.
