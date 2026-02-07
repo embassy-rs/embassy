@@ -4,6 +4,7 @@
 // Licensed BSD-3-Clause.
 // Copyright 2020 (c) 2020 Raspberry Pi (Trading) Ltd.
 
+use embassy_time::Duration;
 use fixed::traits::ToFixed;
 
 use crate::Peri;
@@ -12,6 +13,9 @@ use crate::gpio::Level;
 use crate::pio::{
     Common, Config, Direction as PioDirection, FifoJoin, Instance, LoadedProgram, PioPin, ShiftDirection, StateMachine,
 };
+
+/// The number of bursts used to start packets in the original NEC IR protocol.
+pub const NEC_IR_INTIAL_BURSTS: u8 = 16;
 
 /// This struct represents a program for receiving NEC IR codes loaded into pio instruction memory.
 pub struct PioIrNecRxProgram<'d, PIO: Instance> {
@@ -175,9 +179,11 @@ pub struct PioIrNecTxProgram<'d, PIO: Instance> {
 
 impl<'d, PIO: Instance> PioIrNecTxProgram<'d, PIO> {
     /// Load both programs into the given PIO's instruction memory.
+    /// The initial_bursts parameter sets the length of the sync burst at the start of a packet.
+    /// In the original NEC IR protocol, that burst is 9ms long, or 16 562.5us bursts.
     /// WARNING: The irq flag used by this program must not be shared with any other PIO program,
     /// including other instances of this program.
-    pub fn new(common: &mut Common<'d, PIO>, irq_flag: u8) -> Self {
+    pub fn new(common: &mut Common<'d, PIO>, irq_flag: u8, initial_bursts: u8) -> Self {
         /*
         ; Generate bursts of carrier.
         ;
@@ -259,8 +265,6 @@ impl<'d, PIO: Instance> PioIrNecTxProgram<'d, PIO> {
         .wrap                                   ; fetch another data word from the FIFO
         */
 
-        const NUM_INITIAL_BURSTS: u8 = 16;
-
         let mut control_a: pio::Assembler<32> = pio::Assembler::new();
 
         let mut wrap_target = control_a.label();
@@ -270,7 +274,7 @@ impl<'d, PIO: Instance> PioIrNecTxProgram<'d, PIO> {
         let mut burst = control_a.label();
         control_a.bind(&mut wrap_target);
         control_a.pull(false, true);
-        control_a.set(pio::SetDestination::X, NUM_INITIAL_BURSTS - 1);
+        control_a.set(pio::SetDestination::X, initial_bursts - 1);
         control_a.bind(&mut long_burst);
         control_a.irq(false, false, irq_flag, pio::IrqIndexMode::DIRECT);
         control_a.jmp(pio::JmpCondition::XDecNonZero, &mut long_burst);
