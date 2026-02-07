@@ -25,10 +25,6 @@ use crate::context::ContextManager;
 
 type TaskFn = unsafe extern "C" fn();
 
-unsafe extern "Rust" {
-    fn __pender(context: *mut ());
-}
-
 const MAX_TASKS: usize = 32;
 const DEFAULT_PRIORITY: u8 = u8::MAX;
 
@@ -137,9 +133,9 @@ impl Sequencer {
     }
 
     fn seq_pend(&self) {
+        // waker.wake() already triggers the executor's __pender internally
+        // through Embassy's RawWaker::wake() chain, so no manual __pender call is needed.
         self.waker.wake();
-        // TODO: does the waker fire the pender automatically ? We may not need this.
-        unsafe { __pender(u32::MAX as *mut _) };
     }
 
     /// Wait for an event
