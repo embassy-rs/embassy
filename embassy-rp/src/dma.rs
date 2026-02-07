@@ -47,9 +47,9 @@ pub struct Channel<'d> {
 
 impl<'d> Channel<'d> {
     /// Create a new DMA channel driver.
-    pub fn new<T: ChannelInstance>(
+    pub fn new<T: ChannelInstance, U: interrupt::typelevel::Handler<T::Interrupt>>(
         _ch: Peri<'d, T>,
-        _irq: impl interrupt::typelevel::Binding<T::Interrupt, InterruptHandler<T>> + 'd,
+        _irq: impl interrupt::typelevel::Binding<T::Interrupt, U> + 'd,
     ) -> Self {
         let number = T::number();
 
@@ -64,7 +64,7 @@ impl<'d> Channel<'d> {
     }
 
     /// Get the channel number.
-    fn number(&self) -> u8 {
+    pub fn number(&self) -> u8 {
         self.number
     }
 

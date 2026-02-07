@@ -24,7 +24,7 @@ async fn main(_spawner: Spawner) {
     {
         let data: [u8; 2] = [0xC0, 0xDE];
         let mut buf = [0; 2];
-        let mut ch = dma::Channel::new(p.DMA_CH0, Irqs);
+        let mut ch = dma::Channel::new::<DMA_CH0, dma::InterruptHandler<DMA_CH0>>(p.DMA_CH0, Irqs);
         unsafe { ch.copy(&data, &mut buf).await };
         assert_eq!(buf, data);
     }
@@ -33,7 +33,7 @@ async fn main(_spawner: Spawner) {
     {
         let data: [u16; 2] = [0xC0BE, 0xDEAD];
         let mut buf = [0; 2];
-        let mut ch = dma::Channel::new(p.DMA_CH1, Irqs);
+        let mut ch = dma::Channel::new::<DMA_CH1, dma::InterruptHandler<DMA_CH1>>(p.DMA_CH1, Irqs);
         unsafe { ch.copy(&data, &mut buf).await };
         assert_eq!(buf, data);
     }
@@ -42,7 +42,7 @@ async fn main(_spawner: Spawner) {
     {
         let data: [u32; 2] = [0xC0BEDEAD, 0xDEADAAFF];
         let mut buf = [0; 2];
-        let mut ch = dma::Channel::new(p.DMA_CH2, Irqs);
+        let mut ch = dma::Channel::new::<DMA_CH2, dma::InterruptHandler<DMA_CH2>>(p.DMA_CH2, Irqs);
         unsafe { ch.copy(&data, &mut buf).await };
         assert_eq!(buf, data);
     }
