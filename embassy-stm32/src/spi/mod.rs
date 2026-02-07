@@ -422,6 +422,14 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
     }
 
     /// Set SPI direction for bidirectional mode.
+    ///
+    /// This properly handles the STM32 requirement that BIDIOE cannot be changed
+    /// while the SPI peripheral is enabled (SPE=1). Per the STM32 reference manual,
+    /// we must wait for TXE=1 and BSY=0 before disabling SPE to ensure any ongoing
+    /// transfer completes cleanly.
+    ///
+    /// The SPE state is preserved: if SPI was enabled before this call, it will
+    /// be re-enabled after; if it was disabled, it remains disabled.
     #[cfg(any(spi_v1, spi_v2, spi_v3))]
     pub fn set_direction(&mut self, dir: Option<Direction>) {
         let (bidimode, bidioe) = match dir {
@@ -429,6 +437,17 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
             Some(Direction::Receive) => (vals::Bidimode::BIDIRECTIONAL, vals::Bidioe::RECEIVE),
             None => (vals::Bidimode::UNIDIRECTIONAL, vals::Bidioe::TRANSMIT),
         };
+
+        let was_enabled = self.info.regs.cr1().read().spe();
+
+        // If SPE is currently enabled, wait for any ongoing transfer to complete.
+        // Per STM32 reference manual: wait for TXE=1 then BSY=0 before disabling SPE.
+        if was_enabled {
+            while !self.info.regs.sr().read().txe() {}
+            while self.info.regs.sr().read().bsy() {}
+        }
+
+        // BIDIOE cannot be changed while SPE=1, so disable first
         self.info.regs.cr1().modify(|w| {
             w.set_spe(false);
         });
@@ -436,9 +455,13 @@ impl<'d, M: PeriMode, CM: CommunicationMode> Spi<'d, M, CM> {
             w.set_bidimode(bidimode);
             w.set_bidioe(bidioe);
         });
-        self.info.regs.cr1().modify(|w| {
-            w.set_spe(true);
-        });
+
+        // Restore previous SPE state
+        if was_enabled {
+            self.info.regs.cr1().modify(|w| {
+                w.set_spe(true);
+            });
+        }
     }
 
     /// Get current SPI configuration.
