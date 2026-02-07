@@ -28,9 +28,10 @@ fn __pender(context: *mut ()) {
 
         #[cfg(feature = "executor-interrupt")]
         {
-            use crate::multicore::{PEND_IRQ_TOKEN, current_core, fifo_write};
             use cortex_m::interrupt::InterruptNumber;
             use cortex_m::peripheral::NVIC;
+
+            use crate::multicore::{PEND_IRQ_TOKEN, current_core, fifo_write};
 
             #[derive(Clone, Copy)]
             struct Irq(u16);
@@ -72,9 +73,8 @@ mod thread {
     use core::arch::asm;
     use core::marker::PhantomData;
 
-    pub use embassy_executor_macros::main_cortex_m as main;
-
     use embassy_executor::{Spawner, raw};
+    pub use embassy_executor_macros::main_cortex_m as main;
 
     /// Thread mode executor, using WFE/SEV.
     ///
@@ -141,7 +141,6 @@ mod interrupt {
     use cortex_m::interrupt::InterruptNumber;
     use cortex_m::peripheral::NVIC;
     use critical_section::Mutex;
-
     use embassy_executor::raw;
 
     use crate::multicore::current_core;
