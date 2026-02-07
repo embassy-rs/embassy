@@ -42,6 +42,7 @@ use config::{
     ClocksConfig, CoreSleep, FircConfig, FircFreqSel, Fro16KConfig, MainClockSource, SircConfig, VddDriveStrength,
     VddLevel,
 };
+use critical_section::CriticalSection;
 use paste::paste;
 use periph_helpers::{PreEnableParts, SPConfHelper};
 
@@ -86,6 +87,20 @@ static LIVE_HP_TOKENS: AtomicUsize = AtomicUsize::new(0);
 //
 // Free functions
 //
+
+/// Are there active HP tokens?
+///
+/// Requires a critical section to ensure this doesn't race between getting the token
+/// count and performing some action like setting up deep sleep
+#[inline(always)]
+pub(crate) fn active_hp_tokens(_cs: &CriticalSection) -> bool {
+    // Relaxed is okay: we are in a critical section
+    LIVE_HP_TOKENS.load(Ordering::Relaxed) == 0
+}
+
+pub(crate) fn restart_deep_sleep_clocks(_cs: &CriticalSection) {
+    todo!()
+}
 
 /// Initialize the core system clocks with the given [`ClocksConfig`].
 ///
@@ -227,6 +242,9 @@ pub struct Clocks {
 
     /// Low-power power config
     pub lp_power: VddLevel,
+
+    /// Lowest sleep level
+    pub core_sleep: CoreSleep,
 
     /// The `clk_in` is a clock provided by an external oscillator
     /// AKA SOSC
@@ -1869,7 +1887,17 @@ impl ClockOperator<'_> {
                 cp.SCB.set_sleepdeep();
             }
             CoreSleep::DeepSleep => {
-                // See TODO on `CoreSleep::DeepSleep`. For now, just enable light sleep
+                // We can only support deep sleep with a custom executor which properly
+                // handles going to sleep and returning
+                if !crate::executor::custom_executor_active() {
+                    return Err(ClockError::BadConfig {
+                        clock: "core_sleep",
+                        reason: "Deep Sleep is only supported with the custom executor",
+                    });
+                }
+
+                // For now, just enable light sleep. The executor will set deep sleep when
+                // appropriate
                 self.cmc.ckctrl().modify(|w| w.set_ckmode(CkctrlCkmode::CKMODE0001));
 
                 // Debug is disabled when core sleeps
@@ -1880,6 +1908,7 @@ impl ClockOperator<'_> {
                 cp.SCB.set_sleepdeep();
             }
         }
+        self.clocks.core_sleep = self.config.vdd_power.core_sleep;
 
         // Allow automatic gating of the flash memory
         let (wake, doze) = match self.config.vdd_power.flash_sleep {
