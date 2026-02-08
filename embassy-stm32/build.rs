@@ -1420,7 +1420,9 @@ fn main() {
 
     for p in METADATA.peripherals {
         #[cfg(not(feature = "stm32-hrtim"))]
-        if let Some(reg) = &p.registers && reg.kind == "hrtim" {
+        if let Some(reg) = &p.registers
+            && reg.kind == "hrtim"
+        {
             // Only enable the hrtim peripheral if the stm32-hrtim feature is active
             continue;
         }
