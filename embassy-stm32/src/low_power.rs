@@ -260,6 +260,16 @@ impl Executor {
                 }
             }
 
+            #[cfg(stm32l0)]
+            {
+                let csr = crate::pac::PWR.csr().read();
+                if csr.wuf() {
+                    debug!("low power: cpu has been in STOP");
+                    crate::rcc::init(unsafe { crate::rcc::get_rcc_config() }.unwrap());
+                    crate::pac::PWR.cr().modify(|w| w.set_cwuf(true));
+                }
+            }
+
             get_driver().resume_time(_cs);
 
             trace!("low power: resumed");
@@ -388,6 +398,15 @@ impl Executor {
             v.set_svos(vals::Svos::SCALE3);
         });
 
+        #[cfg(stm32l0)]
+        {
+            use crate::pac::pwr::vals::Pdds;
+            crate::pac::PWR.cr().modify(|w| {
+                w.set_pdds(Pdds::STOP_MODE);
+                w.set_cwuf(true);
+            });
+        }
+
         #[cfg(stm32wb)]
         drop(mutex);
 
@@ -422,8 +441,11 @@ impl Executor {
 
             Some(stop_mode)
         })
-        .map(|stop_mode| {
-            trace!("low power: enter stop: {}", stop_mode);
+        .map(|_stop_mode| {
+            #[cfg(stm32l0)]
+            trace!("low power: enter stop");
+            #[cfg(not(stm32l0))]
+            trace!("low power: enter stop: {}", _stop_mode);
 
             #[cfg(not(feature = "low-power-debug-with-sleep"))]
             Self::get_scb().set_sleepdeep();
