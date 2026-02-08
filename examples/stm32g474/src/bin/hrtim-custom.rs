@@ -74,7 +74,7 @@ async fn main(_spawner: Spawner) {
         .pwm_advanced((pin_a, pin_b))
         .prescaler(prescaler)
         .period(0xFFFF)
-        .push_pull_mode(true)// Set push pull mode, out1 and out2 are
+        .push_pull_mode(true) // Set push pull mode, out1 and out2 are
         // alternated every period with one being
         // inactive and the other getting to output its wave form
         // as normal
@@ -91,7 +91,6 @@ async fn main(_spawner: Spawner) {
     out1.enable();
     out2.enable();
     timer.start(&mut control.control);
-
 
     // Step frequency from 14.6kHz to about 146kHz(half of that when only looking at one pin)
     for i in 1..=10 {
