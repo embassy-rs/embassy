@@ -28,7 +28,7 @@ impl<'a, T: PeripheralType> Peri<'a, T> {
     /// on the actual peripheral types instead.
     #[inline]
     #[doc(hidden)]
-    pub unsafe fn new_unchecked(inner: T) -> Self {
+    pub const unsafe fn new_unchecked(inner: T) -> Self {
         Self {
             inner,
             _lifetime: PhantomData,
@@ -46,14 +46,14 @@ impl<'a, T: PeripheralType> Peri<'a, T> {
     /// You should strongly prefer using `reborrow()` instead. It returns a
     /// `Peri` that borrows `self`, which allows the borrow checker
     /// to enforce this at compile time.
-    pub unsafe fn clone_unchecked(&self) -> Peri<'a, T> {
+    pub const unsafe fn clone_unchecked(&self) -> Peri<'a, T> {
         Peri::new_unchecked(self.inner)
     }
 
     /// Reborrow into a "child" Peri.
     ///
     /// `self` will stay borrowed until the child Peripheral is dropped.
-    pub fn reborrow(&mut self) -> Peri<'_, T> {
+    pub const fn reborrow(&mut self) -> Peri<'_, T> {
         // safety: we're returning the clone inside a new Peripheral that borrows
         // self, so user code can't use both at the same time.
         unsafe { self.clone_unchecked() }
