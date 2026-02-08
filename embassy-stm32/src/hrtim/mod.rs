@@ -10,13 +10,17 @@ use core::mem::MaybeUninit;
 use embassy_hal_internal::Peri;
 use stm32_hrtim::control::{HrPwmControl, HrTimOngoingCalibration};
 use stm32_hrtim::output::{HrOut1, HrOut2, ToHrOut};
-use stm32_hrtim::pac::{HRTIM_TIMA, HRTIM_TIMB, HRTIM_TIMC, HRTIM_TIMD, HRTIM_TIME, HRTIM_TIMF};
+#[cfg(stm32g4)]
+use stm32_hrtim::pac::HRTIM_TIMF;
+use stm32_hrtim::pac::{HRTIM_TIMA, HRTIM_TIMB, HRTIM_TIMC, HRTIM_TIMD, HRTIM_TIME};
 pub use stm32_hrtim::{self, Pscl1, Pscl2, Pscl4, Pscl8, Pscl16, Pscl32, Pscl64, Pscl128, PsclDefault};
 use stm32_hrtim::{HrParts, HrPwmBuilder};
 use traits::Instance;
 
 use crate::gpio::{AfType, OutputType, SealedPin, Speed};
-use crate::peripherals::{PA8, PA9, PA10, PA11, PB12, PB13, PB14, PB15, PC6, PC7, PC8, PC9};
+use crate::peripherals::{PA8, PA9, PA10, PA11, PB12, PB13, PB14, PB15, PC8, PC9};
+#[cfg(stm32g4)]
+use crate::peripherals::{PC6, PC7};
 use crate::rcc;
 
 /// Uninitialized HRTIM resources as returned by [HrControltExt::hr_control]
@@ -173,6 +177,15 @@ pins! {
     HRTIM_TIMD: CH1: PB14<13>, CH2: PB15<13>,
     HRTIM_TIME: CH1: PC8<3>,   CH2: PC9<3>,
     HRTIM_TIMF: CH1: PC6<13>,  CH2: PC7<13>
+}
+
+#[cfg(stm32f3)]
+pins! {
+    HRTIM_TIMA: CH1: PA8<13>, CH2: PA9<13>,
+    HRTIM_TIMB: CH1: PA10<13>, CH2: PA11<13>,
+    HRTIM_TIMC: CH1: PB12<13>, CH2: PB13<13>,
+    HRTIM_TIMD: CH1: PB14<13>, CH2: PB15<13>,
+    HRTIM_TIME: CH1: PC8<3>, CH2: PC9<3>
 }
 
 /* // TODO: Figure out how to use these traits instead of hardcoded types
