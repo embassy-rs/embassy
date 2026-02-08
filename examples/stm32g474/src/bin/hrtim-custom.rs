@@ -4,12 +4,12 @@
 use defmt::*;
 use embassy_executor::Spawner;
 use embassy_stm32::gpio::Speed;
-use embassy_stm32::hrtim_custom::stm32_hrtim::compare_register::HrCompareRegister;
-use embassy_stm32::hrtim_custom::stm32_hrtim::output::HrOutput;
-use embassy_stm32::hrtim_custom::stm32_hrtim::timer::HrTimer;
-use embassy_stm32::hrtim_custom::stm32_hrtim::{HrParts, HrPwmAdvExt};
-use embassy_stm32::hrtim_custom::{HrControltExt, HrPwmBuilderExt, Parts};
-use embassy_stm32::{Config, hrtim_custom};
+use embassy_stm32::hrtim::stm32_hrtim::compare_register::HrCompareRegister;
+use embassy_stm32::hrtim::stm32_hrtim::output::HrOutput;
+use embassy_stm32::hrtim::stm32_hrtim::timer::HrTimer;
+use embassy_stm32::hrtim::stm32_hrtim::{HrParts, HrPwmAdvExt};
+use embassy_stm32::hrtim::{HrControltExt, HrPwmBuilderExt, Parts};
+use embassy_stm32::{Config, hrtim};
 use embassy_time::Timer;
 use {defmt_rtt as _, panic_probe as _};
 
@@ -35,18 +35,18 @@ async fn main(_spawner: Spawner) {
 
     info!("Hello World!");
 
-    let pin_a = hrtim_custom::Pin {
+    let pin_a = hrtim::Pin {
         pin: p.PA8,
         speed: Speed::Low,
     };
-    let pin_b = hrtim_custom::Pin {
+    let pin_b = hrtim::Pin {
         pin: p.PA9,
         speed: Speed::Low,
     };
 
     // ...with a prescaler of 4 this gives us a HrTimer with a tick rate of 960MHz
     // With max the max period set, this would be 960MHz/2^16 ~= 14.6kHz...
-    let prescaler = hrtim_custom::Pscl4;
+    let prescaler = hrtim::Pscl4;
 
     let Parts { control, tima, .. } = p.HRTIM1.hr_control();
     let (control, ..) = control.wait_for_calibration();
