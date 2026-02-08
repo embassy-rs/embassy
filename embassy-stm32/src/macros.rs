@@ -182,7 +182,7 @@ macro_rules! new_pin {
             pin.af_num(),
             $af_type,
         );
-        Some(pin.into())
+        Some(crate::gpio::Flex::new(pin))
     }};
 }
 

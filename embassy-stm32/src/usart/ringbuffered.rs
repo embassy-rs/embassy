@@ -10,9 +10,8 @@ use futures_util::future::{Either, select};
 use super::{
     Config, ConfigError, Error, Info, State, UartRx, clear_interrupt_flags, rdr, reconfigure, set_baudrate, sr,
 };
-use crate::Peri;
 use crate::dma::ReadableRingBuffer;
-use crate::gpio::{AnyPin, SealedPin as _};
+use crate::gpio::Flex;
 use crate::mode::Async;
 use crate::time::Hertz;
 use crate::usart::Regs;
@@ -82,8 +81,8 @@ pub struct RingBufferedUartRx<'d> {
     info: &'static Info,
     state: &'static State,
     kernel_clock: Hertz,
-    rx: Option<Peri<'d, AnyPin>>,
-    rts: Option<Peri<'d, AnyPin>>,
+    _rx: Option<Flex<'d>>,
+    _rts: Option<Flex<'d>>,
     ring_buf: ReadableRingBuffer<'d, u8>,
 }
 
@@ -126,8 +125,8 @@ impl<'d> UartRx<'d, Async> {
             info,
             state,
             kernel_clock,
-            rx,
-            rts,
+            _rx: rx,
+            _rts: rts,
             ring_buf,
         }
     }
@@ -328,8 +327,6 @@ impl Drop for RingBufferedUartRx<'_> {
     fn drop(&mut self) {
         self.info.rcc.decrement_stop_refcount();
         self.stop_uart();
-        self.rx.as_ref().map(|x| x.set_as_disconnected());
-        self.rts.as_ref().map(|x| x.set_as_disconnected());
         super::drop_tx_rx(self.info, self.state);
     }
 }

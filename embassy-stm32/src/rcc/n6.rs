@@ -687,6 +687,19 @@ struct PllOutput {
     output: Option<Hertz>,
 }
 
+fn disable_pll(pll_index: usize) {
+    let cfgr1 = RCC.pllcfgr1(pll_index);
+    let cfgr3 = RCC.pllcfgr3(pll_index);
+
+    cfgr3.modify(|w| w.set_pllpdiven(false));
+    RCC.ccr().write(|w| w.set_pllonc(pll_index, true));
+    // wait till disabled
+    while RCC.sr().read().pllrdy(pll_index) {}
+
+    // clear bypass mode
+    cfgr1.modify(|w| w.set_pllbyp(false));
+}
+
 fn init_pll(pll_config: Option<Pll>, pll_index: usize, input: &PllInput) -> PllOutput {
     let cfgr1 = RCC.pllcfgr1(pll_index);
     let cfgr2 = RCC.pllcfgr2(pll_index);
@@ -798,13 +811,7 @@ fn init_pll(pll_config: Option<Pll>, pll_index: usize, input: &PllInput) -> PllO
             }
         }
         None => {
-            cfgr3.modify(|w| w.set_pllpdiven(false));
-            RCC.ccr().write(|w| w.set_pllonc(pll_index, true));
-            // wait till disabled
-            while RCC.sr().read().pllrdy(pll_index) {}
-
-            // clear bypass mode
-            cfgr1.modify(|w| w.set_pllbyp(false));
+            disable_pll(pll_index);
 
             PllOutput::default()
         }
@@ -1039,7 +1046,13 @@ fn init_osc(config: Config) -> OscOutput {
                 panic!("PLL should not be disabled / reconfigured if used for IC2, IC6 or IC11 (sysclksrc)")
             }
 
-            *out = init_pll(pll, n, &pll_input);
+            *out = pll.map_or_else(
+                || {
+                    disable_pll(n);
+                    PllOutput::default()
+                },
+                |c| init_pll(Some(c), n, &pll_input),
+            );
         } else if pll.is_some() && !pll_ready {
             RCC.csr().write(|w| w.set_pllons(n, true));
             while !RCC.sr().read().pllrdy(n) {}

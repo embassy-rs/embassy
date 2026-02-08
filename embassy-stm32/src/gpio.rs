@@ -30,6 +30,22 @@ impl<'d> Flex<'d> {
         Self { pin: pin.into() }
     }
 
+    /// Reborrow into a "child" Flex.
+    ///
+    /// `self` will stay borrowed until the child Peripheral is dropped.
+    pub fn reborrow(&mut self) -> Flex<'_> {
+        Flex {
+            pin: self.pin.reborrow(),
+        }
+    }
+
+    /// Unsafely clone (duplicate) a Flex.
+    pub unsafe fn clone_unchecked(&self) -> Flex<'d> {
+        Flex {
+            pin: self.pin.clone_unchecked(),
+        }
+    }
+
     /// Put the pin into input mode.
     ///
     /// The internal weak pull-up and pull-down resistors will be enabled according to `pull`.
@@ -233,6 +249,7 @@ impl<'d> Flex<'d> {
 impl<'d> Drop for Flex<'d> {
     #[inline]
     fn drop(&mut self) {
+        trace!("Dropping pin {}", self.pin);
         critical_section::with(|_| {
             self.pin.set_as_disconnected();
         });
@@ -858,6 +875,22 @@ impl AnyPin {
     #[inline]
     pub fn block(&self) -> gpio::Gpio {
         crate::_generated::gpio_block(self._port() as _)
+    }
+}
+
+impl core::fmt::Display for AnyPin {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let port = char::from(b'A' + self.port());
+        let pin = self.pin();
+        write!(f, "P{port}{pin}")
+    }
+}
+#[cfg(feature = "defmt")]
+impl defmt::Format for AnyPin {
+    fn format(&self, f: defmt::Formatter) {
+        let port = char::from(b'A' + self.port());
+        let pin = self.pin();
+        defmt::write!(f, "P{}{}", port, pin)
     }
 }
 

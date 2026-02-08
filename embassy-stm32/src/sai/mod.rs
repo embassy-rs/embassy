@@ -7,7 +7,7 @@ use embassy_hal_internal::PeripheralType;
 
 pub use crate::dma::word;
 use crate::dma::{self, Channel, ReadableRingBuffer, Request, TransferOptions, WritableRingBuffer, ringbuffer};
-use crate::gpio::{AfType, AnyPin, OutputType, Pull, SealedPin as _, Speed};
+use crate::gpio::{AfType, Flex, OutputType, Pull, Speed};
 pub use crate::pac::sai::vals::Mckdiv as MasterClockDivider;
 use crate::pac::sai::{Sai as Regs, vals};
 use crate::rcc::{self, RccPeripheral};
@@ -537,10 +537,10 @@ pub fn split_subblocks<'d, T: Instance>(peri: Peri<'d, T>) -> (SubBlock<'d, T, A
 /// SAI sub-block driver.
 pub struct Sai<'d, T: Instance, W: word::Word> {
     _peri: Peri<'d, T>,
-    sd: Option<Peri<'d, AnyPin>>,
-    fs: Option<Peri<'d, AnyPin>>,
-    sck: Option<Peri<'d, AnyPin>>,
-    mclk: Option<Peri<'d, AnyPin>>,
+    _sd: Option<Flex<'d>>,
+    _fs: Option<Flex<'d>>,
+    _sck: Option<Flex<'d>>,
+    _mclk: Option<Flex<'d>>,
     ring_buffer: RingBuffer<'d, W>,
     sub_block: WhichSubBlock,
 }
@@ -582,9 +582,6 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         let peri = peri.peri;
 
         let (sd_af_type, ck_af_type) = get_af_types(config.mode, config.tx_rx);
-        set_as_af!(sd, sd_af_type);
-        set_as_af!(sck, ck_af_type);
-        set_as_af!(fs, ck_af_type);
 
         let sub_block = S::WHICH;
         let request = dma.request();
@@ -592,10 +589,10 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         Self::new_inner(
             peri,
             sub_block,
-            Some(sck.into()),
+            new_pin!(sck, ck_af_type),
             None,
-            Some(sd.into()),
-            Some(fs.into()),
+            new_pin!(sd, sd_af_type),
+            new_pin!(fs, ck_af_type),
             get_ring_buffer::<T, W>(Channel::new(dma, irq), dma_buf, request, sub_block, config.tx_rx),
             config,
         )
@@ -617,7 +614,6 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         let peri = peri.peri;
 
         let (sd_af_type, _ck_af_type) = get_af_types(config.mode, config.tx_rx);
-        set_as_af!(sd, sd_af_type);
 
         let sub_block = S::WHICH;
         let request = dma.request();
@@ -627,7 +623,7 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
             sub_block,
             None,
             None,
-            Some(sd.into()),
+            new_pin!(sd, sd_af_type),
             None,
             get_ring_buffer::<T, W>(Channel::new(dma, irq), dma_buf, request, sub_block, config.tx_rx),
             config,
@@ -637,10 +633,10 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
     fn new_inner(
         peri: Peri<'d, T>,
         sub_block: WhichSubBlock,
-        sck: Option<Peri<'d, AnyPin>>,
-        mclk: Option<Peri<'d, AnyPin>>,
-        sd: Option<Peri<'d, AnyPin>>,
-        fs: Option<Peri<'d, AnyPin>>,
+        sck: Option<Flex<'d>>,
+        mclk: Option<Flex<'d>>,
+        sd: Option<Flex<'d>>,
+        fs: Option<Flex<'d>>,
         ring_buffer: RingBuffer<'d, W>,
         config: Config,
     ) -> Self {
@@ -720,10 +716,10 @@ impl<'d, T: Instance, W: word::Word> Sai<'d, T, W> {
         Self {
             _peri: peri,
             sub_block,
-            sck,
-            mclk,
-            sd,
-            fs,
+            _sck: sck,
+            _mclk: mclk,
+            _sd: sd,
+            _fs: fs,
             ring_buffer,
         }
     }
@@ -836,10 +832,6 @@ impl<'d, T: Instance, W: word::Word> Drop for Sai<'d, T, W> {
         let ch = T::REGS.ch(self.sub_block as usize);
         ch.cr1().modify(|w| w.set_saien(false));
         ch.cr2().modify(|w| w.set_fflush(true));
-        self.fs.as_ref().map(|x| x.set_as_disconnected());
-        self.sd.as_ref().map(|x| x.set_as_disconnected());
-        self.sck.as_ref().map(|x| x.set_as_disconnected());
-        self.mclk.as_ref().map(|x| x.set_as_disconnected());
     }
 }
 
