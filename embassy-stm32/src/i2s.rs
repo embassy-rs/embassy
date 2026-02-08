@@ -639,7 +639,6 @@ impl<'d, W: Word> I2S<'d, W> {
                 #[cfg(any(spi_v4, spi_v5))]
                 (Mode::Slave, Function::FullDuplex) => I2scfg::SLAVE_FULL_DUPLEX,
             });
-
         });
 
         let mut opts = TransferOptions::default();
