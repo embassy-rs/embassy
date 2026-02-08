@@ -6,7 +6,9 @@ use core::sync::atomic::{Ordering, compiler_fence};
 
 use embassy_hal_internal::{Peri, PeripheralType};
 
-use crate::gpio::{AnyPin, DISCONNECTED, Level, OutputDrive, Pin as GpioPin, PselBits, SealedPin as _, convert_drive};
+use crate::gpio::{
+    AnyPin, DISCONNECTED, Level, Output, OutputDrive, Pin as GpioPin, PselBits, SealedPin as _, convert_drive,
+};
 use crate::pac::gpio::vals as gpiovals;
 use crate::pac::pwm::vals;
 use crate::ppi::{Event, Task};
@@ -236,27 +238,20 @@ impl<'d> SequencePwm<'d> {
 
 impl<'a> Drop for SequencePwm<'a> {
     fn drop(&mut self) {
-        if let Some(pin) = &self.ch0 {
-            pin.set_low();
-            pin.conf().write(|_| ());
-            self.r.psel().out(0).write_value(DISCONNECTED);
-        }
-        if let Some(pin) = &self.ch1 {
-            pin.set_low();
-            pin.conf().write(|_| ());
-            self.r.psel().out(1).write_value(DISCONNECTED);
-        }
-        if let Some(pin) = &self.ch2 {
-            pin.set_low();
-            pin.conf().write(|_| ());
-            self.r.psel().out(2).write_value(DISCONNECTED);
-        }
-        if let Some(pin) = &self.ch3 {
-            pin.set_low();
-            pin.conf().write(|_| ());
-            self.r.psel().out(3).write_value(DISCONNECTED);
-        }
-
+        let r = &self.r;
+        let disconnect_pin = |pin: &mut Option<Peri<'a, AnyPin>>, psel: usize| {
+            if let Some(pin) = pin {
+                r.psel().out(psel).write_value(DISCONNECTED);
+                // put the pin into high z
+                pin.conf().write(|w| {
+                    w.set_input(gpiovals::Input::DISCONNECT);
+                });
+            }
+        };
+        disconnect_pin(&mut self.ch0, 0);
+        disconnect_pin(&mut self.ch1, 1);
+        disconnect_pin(&mut self.ch2, 2);
+        disconnect_pin(&mut self.ch3, 3);
         self.r.enable().write(|w| w.set_enable(false));
     }
 }
@@ -975,26 +970,19 @@ impl<'a> Drop for SimplePwm<'a> {
 
         self.disable();
 
-        if let Some(pin) = &self.ch0 {
-            pin.set_low();
-            pin.conf().write(|_| ());
-            r.psel().out(0).write_value(DISCONNECTED);
-        }
-        if let Some(pin) = &self.ch1 {
-            pin.set_low();
-            pin.conf().write(|_| ());
-            r.psel().out(1).write_value(DISCONNECTED);
-        }
-        if let Some(pin) = &self.ch2 {
-            pin.set_low();
-            pin.conf().write(|_| ());
-            r.psel().out(2).write_value(DISCONNECTED);
-        }
-        if let Some(pin) = &self.ch3 {
-            pin.set_low();
-            pin.conf().write(|_| ());
-            r.psel().out(3).write_value(DISCONNECTED);
-        }
+        let disconnect_pin = |pin: &mut Option<Peri<'a, AnyPin>>, psel: usize| {
+            if let Some(pin) = pin {
+                r.psel().out(psel).write_value(DISCONNECTED);
+                // put the pin into high z
+                pin.conf().write(|w| {
+                    w.set_input(gpiovals::Input::DISCONNECT);
+                });
+            }
+        };
+        disconnect_pin(&mut self.ch0, 0);
+        disconnect_pin(&mut self.ch1, 1);
+        disconnect_pin(&mut self.ch2, 2);
+        disconnect_pin(&mut self.ch3, 3);
     }
 }
 
