@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- next-header -->
 ## Unreleased - ReleaseDate
+- fix: stm32/i2s: defer I2SE enable from constructor to `start()` for proper slave frame synchronization
+- fix: stm32/i2s: Use correct PLLI2S clock source for STM32F2 and STM32F7 instead of APB clock
 - fix: stm32/spi-i2s: Add dedicated I2sSdPin trait for I2S data pins to unlock previously unavailable I2S pin configurations
 - feat: stm32/i2s: add `new_rxonly_nomck` and `new_full_duplex_nomck` constructors for use without master clock (e.g. slave mode)
 - fix: stm32/i2c v2: Fix async slave by using DMA completion instead of TC flag for buffer-full detection
