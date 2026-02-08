@@ -43,7 +43,7 @@ fn main() {
 
     let chip_name = match env::vars()
         .map(|(a, _)| a)
-        .filter(|x| x.starts_with("CARGO_FEATURE_STM32"))
+        .filter(|x| x.starts_with("CARGO_FEATURE_STM32") && x != "CARGO_FEATURE_STM32_HRTIM")
         .get_one()
     {
         Ok(x) => x,
