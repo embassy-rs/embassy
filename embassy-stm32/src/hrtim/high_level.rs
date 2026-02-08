@@ -1,4 +1,5 @@
 use core::marker::PhantomData;
+
 use crate::hrtim::Instance;
 
 /// Fixed-frequency bridge converter driver.
