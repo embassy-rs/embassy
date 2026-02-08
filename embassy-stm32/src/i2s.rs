@@ -432,6 +432,10 @@ impl<'d, W: Word> I2S<'d, W> {
         self.spi.info.regs.cr1().modify(|w| {
             w.set_spe(true);
         });
+        #[cfg(any(spi_v1, spi_v2, spi_v3))]
+        self.spi.info.regs.i2scfgr().modify(|w| {
+            w.set_i2se(true);
+        });
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.spi.info.regs.cr1().modify(|w| {
             w.set_cstart(true);
@@ -553,9 +557,12 @@ impl<'d, W: Word> I2S<'d, W> {
 
         let regs = T::info().regs;
 
-        #[cfg(all(rcc_f4, not(stm32f410)))]
+        #[cfg(any(all(rcc_f4, not(stm32f410)), rcc_f2, all(rcc_f7, not(any(stm32f72x, stm32f73x)))))]
         let pclk = unsafe { crate::rcc::get_freqs() }.plli2s1_r.to_hertz().unwrap();
-        #[cfg(not(all(rcc_f4, not(stm32f410))))]
+        // STM32F72x/F73x route PLLI2SQ (not PLLI2SR) to the I2S peripheral
+        #[cfg(any(stm32f72x, stm32f73x))]
+        let pclk = unsafe { crate::rcc::get_freqs() }.plli2s1_q.to_hertz().unwrap();
+        #[cfg(not(any(all(rcc_f4, not(stm32f410)), rcc_f2, rcc_f7)))]
         let pclk = T::frequency();
 
         let (odd, div) = compute_baud_rate(pclk, config.frequency, config.master_clock, config.format);
@@ -632,9 +639,6 @@ impl<'d, W: Word> I2S<'d, W> {
                 #[cfg(any(spi_v4, spi_v5))]
                 (Mode::Slave, Function::FullDuplex) => I2scfg::SLAVE_FULL_DUPLEX,
             });
-
-            #[cfg(any(spi_v1, spi_v2, spi_v3))]
-            w.set_i2se(true);
         });
 
         let mut opts = TransferOptions::default();

@@ -895,10 +895,13 @@ fn main() {
     clock_gen.clock_names.insert("sys".to_string());
     clock_gen.clock_names.insert("rtc".to_string());
 
-    // STM32F4 SPI in I2S mode receives a clock input from the dedicated I2S PLL.
+    // STM32F2/F4/F7 SPI in I2S mode receives a clock input from the dedicated I2S PLL.
     // For this, there is an additional clock MUX, which is not present in other
     // peripherals and does not fit the current RCC structure of stm32-data.
-    if chip_name.starts_with("stm32f4") && !chip_name.starts_with("stm32f410") {
+    if (chip_name.starts_with("stm32f4") && !chip_name.starts_with("stm32f410"))
+        || chip_name.starts_with("stm32f2")
+        || chip_name.starts_with("stm32f7")
+    {
         clock_gen.clock_names.insert("plli2s1_p".to_string());
         clock_gen.clock_names.insert("plli2s1_q".to_string());
         clock_gen.clock_names.insert("plli2s1_r".to_string());
