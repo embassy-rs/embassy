@@ -1419,6 +1419,11 @@ fn main() {
     cfgs.declare("usb_alternate_function");
 
     for p in METADATA.peripherals {
+        #[cfg(not(feature = "stm32-hrtim"))]
+        if let Some(reg) = &p.registers && reg.kind == "hrtim" {
+            // Only enable the hrtim peripheral if the stm32-hrtim feature is active
+            continue;
+        }
         if let Some(regs) = &p.registers {
             let mut adc_pairs: BTreeMap<u8, (Option<Ident>, Option<Ident>)> = BTreeMap::new();
             let mut seen_lcd_seg_pins = HashSet::new();
