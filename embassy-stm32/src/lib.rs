@@ -103,6 +103,8 @@ pub mod fmc;
 pub mod hash;
 #[cfg(hrtim)]
 pub mod hrtim;
+#[cfg(hrtim)]
+pub mod hrtim_custom;
 #[cfg(hsem)]
 pub mod hsem;
 #[cfg(hspi)]
