@@ -139,3 +139,60 @@ where
 }
 
 impl<T> AsyncMultiwriteNorFlash for BlockingAsync<T> where T: MultiwriteNorFlash {}
+
+//
+// digital implementations
+//
+impl<T> embedded_hal_1::digital::ErrorType for BlockingAsync<T>
+where
+    T: embedded_hal_1::digital::ErrorType,
+{
+    type Error = T::Error;
+}
+
+impl<T> embedded_hal_async::digital::InputPin for BlockingAsync<T>
+where
+    T: embedded_hal_1::digital::InputPin,
+{
+    async fn is_high(&mut self) -> Result<bool, Self::Error> {
+        self.wrapped.is_high()
+    }
+
+    async fn is_low(&mut self) -> Result<bool, Self::Error> {
+        self.wrapped.is_low()
+    }
+}
+
+impl<T> embedded_hal_async::digital::OutputPin for BlockingAsync<T>
+where
+    T: embedded_hal_1::digital::OutputPin,
+{
+    async fn set_low(&mut self) -> Result<(), Self::Error> {
+        self.wrapped.set_low()
+    }
+
+    async fn set_high(&mut self) -> Result<(), Self::Error> {
+        self.wrapped.set_high()
+    }
+
+    async fn set_state(&mut self, state: embedded_hal_1::digital::PinState) -> Result<(), Self::Error> {
+        self.wrapped.set_state(state)
+    }
+}
+
+impl<T> embedded_hal_async::digital::StatefulOutputPin for BlockingAsync<T>
+where
+    T: embedded_hal_1::digital::StatefulOutputPin,
+{
+    async fn is_set_high(&mut self) -> Result<bool, Self::Error> {
+        self.wrapped.is_set_high()
+    }
+
+    async fn is_set_low(&mut self) -> Result<bool, Self::Error> {
+        self.wrapped.is_set_low()
+    }
+
+    async fn toggle(&mut self) -> Result<(), Self::Error> {
+        self.wrapped.toggle()
+    }
+}
