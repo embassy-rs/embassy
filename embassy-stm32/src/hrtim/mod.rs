@@ -29,19 +29,19 @@ pub struct Parts {
     /// Uninitialized TIMA, call [HRTIM_TIMA::pwm_advanced] to set it up
     pub tima: HRTIM_TIMA,
 
-    /// Uninitialized TIMB, call [HRTIM_TIMA::pwm_advanced] to set it up
+    /// Uninitialized TIMB, call [HRTIM_TIMB::pwm_advanced] to set it up
     pub timb: HRTIM_TIMB,
 
-    /// Uninitialized TIMC, call [HRTIM_TIMA::pwm_advanced] to set it up
+    /// Uninitialized TIMC, call [HRTIM_TIMC::pwm_advanced] to set it up
     pub timc: HRTIM_TIMC,
 
-    /// Uninitialized TIMD, call [HRTIM_TIMA::pwm_advanced] to set it up
+    /// Uninitialized TIMD, call [HRTIM_TIMD::pwm_advanced] to set it up
     pub timd: HRTIM_TIMD,
 
-    /// Uninitialized TIME, call [HRTIM_TIMA::pwm_advanced] to set it up
+    /// Uninitialized TIME, call [HRTIM_TIME::pwm_advanced] to set it up
     pub time: HRTIM_TIME,
 
-    /// Uninitialized TIMF, call [HRTIM_TIMA::pwm_advanced] to set it up
+    /// Uninitialized TIMF, call [HRTIM_TIMF::pwm_advanced] to set it up
     #[cfg(hrtim_v2)]
     pub timf: HRTIM_TIMF,
 }
