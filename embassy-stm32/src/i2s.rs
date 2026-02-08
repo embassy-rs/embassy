@@ -432,6 +432,10 @@ impl<'d, W: Word> I2S<'d, W> {
         self.spi.info.regs.cr1().modify(|w| {
             w.set_spe(true);
         });
+        #[cfg(any(spi_v1, spi_v2, spi_v3))]
+        self.spi.info.regs.i2scfgr().modify(|w| {
+            w.set_i2se(true);
+        });
         #[cfg(any(spi_v4, spi_v5, spi_v6))]
         self.spi.info.regs.cr1().modify(|w| {
             w.set_cstart(true);
@@ -639,8 +643,6 @@ impl<'d, W: Word> I2S<'d, W> {
                 (Mode::Slave, Function::FullDuplex) => I2scfg::SLAVE_FULL_DUPLEX,
             });
 
-            #[cfg(any(spi_v1, spi_v2, spi_v3))]
-            w.set_i2se(true);
         });
 
         let mut opts = TransferOptions::default();
