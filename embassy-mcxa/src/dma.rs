@@ -107,7 +107,7 @@ use core::ptr::NonNull;
 use core::sync::atomic::{AtomicUsize, Ordering, fence};
 use core::task::{Context, Poll};
 
-use embassy_hal_internal::PeripheralType;
+use embassy_hal_internal::{Peri, PeripheralType};
 use embassy_sync::waitqueue::AtomicWaker;
 
 use crate::clocks::Gate;
@@ -417,15 +417,8 @@ define_dma_request!(
 // ============================================================================
 
 mod sealed {
-    use crate::pac::Interrupt;
-
     /// Sealed trait for DMA channels.
-    pub trait SealedChannel {
-        /// Zero-based channel index into the TCD array.
-        fn index(&self) -> usize;
-        /// Interrupt vector for this channel.
-        fn interrupt(&self) -> Interrupt;
-    }
+    pub trait SealedChannel {}
 
     /// Sealed trait for DMA request sources.
     pub trait SealedDmaRequest {}
@@ -438,9 +431,9 @@ mod sealed {
 #[allow(private_bounds)]
 pub trait Channel: sealed::SealedChannel + PeripheralType + Into<AnyChannel> + 'static {
     /// Zero-based channel index into the TCD array.
-    const INDEX: usize;
+    fn index(&self) -> usize;
     /// Interrupt vector for this channel.
-    const INTERRUPT: Interrupt;
+    fn interrupt(&self) -> Interrupt;
 }
 
 /// Type-erased DMA channel.
@@ -453,19 +446,20 @@ pub struct AnyChannel {
     interrupt: Interrupt,
 }
 
-impl AnyChannel {
-    /// Get the channel index.
-    #[inline]
-    pub const fn index(&self) -> usize {
+impl PeripheralType for AnyChannel {}
+impl sealed::SealedChannel for AnyChannel {}
+
+impl Channel for AnyChannel {
+    fn index(&self) -> usize {
         self.index
     }
 
-    /// Get the channel interrupt.
-    #[inline]
-    pub const fn interrupt(&self) -> Interrupt {
+    fn interrupt(&self) -> Interrupt {
         self.interrupt
     }
+}
 
+impl AnyChannel {
     /// Get a reference to the TCD register block for this channel.
     ///
     /// This steals the eDMA pointer internally since MCXA276 has only one eDMA instance.
@@ -487,20 +481,12 @@ impl AnyChannel {
     }
 }
 
-impl sealed::SealedChannel for AnyChannel {
-    fn index(&self) -> usize {
-        self.index
-    }
-
-    fn interrupt(&self) -> Interrupt {
-        self.interrupt
-    }
-}
-
 /// Macro to implement Channel trait for a peripheral.
 macro_rules! impl_channel {
     ($peri:ident, $index:expr, $irq:ident) => {
-        impl sealed::SealedChannel for crate::peripherals::$peri {
+        impl sealed::SealedChannel for crate::peripherals::$peri {}
+
+        impl Channel for crate::peripherals::$peri {
             fn index(&self) -> usize {
                 $index
             }
@@ -508,11 +494,6 @@ macro_rules! impl_channel {
             fn interrupt(&self) -> Interrupt {
                 Interrupt::$irq
             }
-        }
-
-        impl Channel for crate::peripherals::$peri {
-            const INDEX: usize = $index;
-            const INTERRUPT: Interrupt = Interrupt::$irq;
         }
 
         impl From<crate::peripherals::$peri> for AnyChannel {
@@ -540,8 +521,8 @@ impl_channel!(DMA_CH7, 7, DMA_CH7);
 /// The lifetime of this value is tied to the unique peripheral token
 /// supplied by `embassy_hal_internal::peripherals!`, so safe code cannot
 /// create two `DmaChannel` instances for the same hardware channel.
-pub struct DmaChannel<C: Channel> {
-    _ch: core::marker::PhantomData<C>,
+pub struct DmaChannel<'a> {
+    channel: Peri<'a, AnyChannel>,
 }
 
 // ============================================================================
@@ -590,42 +571,26 @@ pub struct DmaChannel<C: Channel> {
 //
 // ============================================================================
 
-impl<C: Channel> DmaChannel<C> {
+impl<'a> DmaChannel<'a> {
     /// Wrap a DMA channel token (takes ownership of the Peri wrapper).
     ///
     /// Note: DMA is initialized during `hal::init()` via `dma::init()`.
     #[inline]
-    pub fn new(_ch: embassy_hal_internal::Peri<'_, C>) -> Self {
+    pub fn new<C: Channel>(channel: embassy_hal_internal::Peri<'a, C>) -> Self {
         unsafe {
-            cortex_m::peripheral::NVIC::unmask(C::INTERRUPT);
+            cortex_m::peripheral::NVIC::unmask(channel.interrupt());
         }
         Self {
-            _ch: core::marker::PhantomData,
+            channel: channel.into(),
         }
     }
+}
 
+impl DmaChannel<'_> {
     /// Channel index in the EDMA_0_TCD0 array.
     #[inline]
-    pub const fn index(&self) -> usize {
-        C::INDEX
-    }
-
-    /// Convert this typed channel into a type-erased `AnyChannel`.
-    #[inline]
-    pub fn into_any(self) -> AnyChannel {
-        AnyChannel {
-            index: C::INDEX,
-            interrupt: C::INTERRUPT,
-        }
-    }
-
-    /// Get a reference to the type-erased channel info.
-    #[inline]
-    pub fn as_any(&self) -> AnyChannel {
-        AnyChannel {
-            index: C::INDEX,
-            interrupt: C::INTERRUPT,
-        }
+    pub fn index(&self) -> usize {
+        self.channel.index()
     }
 
     /// Return a reference to the underlying TCD register block.
@@ -639,7 +604,7 @@ impl<C: Channel> DmaChannel<C> {
     #[inline]
     pub fn tcd(&self) -> pac::edma_0_tcd::Tcd {
         // Safety: MCXA276 has a single eDMA instance
-        pac::EDMA_0_TCD0.tcd(C::INDEX)
+        pac::EDMA_0_TCD0.tcd(self.channel.index())
     }
 
     fn clear_tcd(t: &pac::edma_0_tcd::Tcd) {
@@ -749,7 +714,7 @@ impl<C: Channel> DmaChannel<C> {
             w.set_earq(true);
         });
 
-        Transfer::new(self.as_any())
+        Transfer::new(&self)
     }
 
     // ========================================================================
@@ -841,7 +806,7 @@ impl<C: Channel> DmaChannel<C> {
             w.set_start(Start::CHANNEL_STARTED); // Start the channel
         });
 
-        Ok(Transfer::new(self.as_any()))
+        Ok(Transfer::new(&self))
     }
 
     /// Fill a memory buffer with a pattern value (memset).
@@ -939,7 +904,7 @@ impl<C: Channel> DmaChannel<C> {
             w.set_start(Start::CHANNEL_STARTED); // Start the channel
         });
 
-        Transfer::new(self.as_any())
+        Transfer::new(&self)
     }
 
     /// Write data from memory to a peripheral register.
@@ -1079,7 +1044,7 @@ impl<C: Channel> DmaChannel<C> {
         // Ensure all TCD writes have completed before DMA engine reads them
         cortex_m::asm::dsb();
 
-        Transfer::new(self.as_any())
+        Transfer::new(&self)
     }
 
     /// Read data from a peripheral register to memory.
@@ -1220,7 +1185,7 @@ impl<C: Channel> DmaChannel<C> {
         // Ensure all TCD writes have completed before DMA engine reads them
         cortex_m::asm::dsb();
 
-        Transfer::new(self.as_any())
+        Transfer::new(&self)
     }
 
     /// Configure a memory-to-peripheral DMA transfer without starting it.
@@ -1478,13 +1443,13 @@ impl<C: Channel> DmaChannel<C> {
 
     /// Get the waker for this channel
     pub fn waker(&self) -> &'static AtomicWaker {
-        &STATES[C::INDEX].waker
+        &STATES[self.channel.index()].waker
     }
 
     /// Enable the interrupt for this channel in the NVIC.
     pub fn enable_interrupt(&self) {
         unsafe {
-            cortex_m::peripheral::NVIC::unmask(C::INTERRUPT);
+            cortex_m::peripheral::NVIC::unmask(self.channel.interrupt());
         }
     }
 
@@ -1680,19 +1645,15 @@ pub(crate) fn half_waker(idx: usize) -> &'static AtomicWaker {
 /// transfer to complete. Dropping the transfer will abort it.
 #[must_use = "futures do nothing unless you `.await` or poll them"]
 pub struct Transfer<'a> {
-    channel: AnyChannel,
-    _phantom: core::marker::PhantomData<&'a ()>,
+    channel: &'a DmaChannel<'a>,
 }
 
 impl<'a> Transfer<'a> {
     /// Create a new transfer for the given channel.
     ///
     /// The caller must have already configured and started the DMA channel.
-    pub(crate) fn new(channel: AnyChannel) -> Self {
-        Self {
-            channel,
-            _phantom: core::marker::PhantomData,
-        }
+    pub(crate) fn new(channel: &'a DmaChannel<'a>) -> Self {
+        Self { channel }
     }
 
     /// Check if the transfer is still running.
@@ -1735,7 +1696,7 @@ impl<'a> Transfer<'a> {
         use core::future::poll_fn;
 
         poll_fn(|cx| {
-            let state = &STATES[self.channel.index];
+            let state = &STATES[self.channel.index()];
 
             // Register the half-transfer waker
             state.half_waker.register(cx.waker());
@@ -1925,7 +1886,7 @@ impl<'a> Future for Transfer<'a> {
     type Output = Result<(), TransferErrorRaw>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let state = &STATES[self.channel.index];
+        let state = &STATES[self.channel.index()];
 
         // Register waker first
         state.waker.register(cx.waker());
@@ -1996,8 +1957,8 @@ impl<'a> Drop for Transfer<'a> {
 /// let mut buf = [0u8; 16];
 /// let n = ring_buf.read(&mut buf).await?;
 /// ```
-pub struct RingBuffer<'a, W: Word> {
-    channel: AnyChannel,
+pub struct RingBuffer<'peri, 'buf, W: Word> {
+    channel: &'peri DmaChannel<'peri>,
     /// Buffer pointer. We use NonNull instead of &mut because DMA acts like
     /// a separate thread writing to this buffer, and &mut claims exclusive
     /// access which the compiler could optimize incorrectly.
@@ -2007,10 +1968,10 @@ pub struct RingBuffer<'a, W: Word> {
     /// Read position in the buffer (consumer side)
     read_pos: AtomicUsize,
     /// Phantom data to tie the lifetime to the original buffer
-    _lt: PhantomData<&'a mut [W]>,
+    _lt: PhantomData<&'buf mut [W]>,
 }
 
-impl<'a, W: Word> RingBuffer<'a, W> {
+impl<'peri, 'buf, W: Word> RingBuffer<'peri, 'buf, W> {
     /// Create a new ring buffer for the given channel and buffer.
     ///
     /// # Safety
@@ -2019,7 +1980,7 @@ impl<'a, W: Word> RingBuffer<'a, W> {
     /// - The DMA channel has been configured for circular transfer
     /// - The buffer remains valid for the lifetime of the ring buffer
     /// - Only one RingBuffer exists per DMA channel at a time
-    pub(crate) unsafe fn new(channel: AnyChannel, buf: &'a mut [W]) -> Self {
+    pub(crate) unsafe fn new(channel: &'peri DmaChannel<'peri>, buf: &'buf mut [W]) -> Self {
         let buf_len = buf.len();
         Self {
             channel,
@@ -2178,6 +2139,17 @@ impl<'a, W: Word> RingBuffer<'a, W> {
         res
     }
 
+    /// Enable the DMA channel request.
+    ///
+    /// Call this to start continuous reception.
+    /// This is separated from setup to allow for any additional configuration
+    /// before starting the transfer.
+    pub unsafe fn enable_dma_request(&self) {
+        unsafe {
+            self.channel.enable_request();
+        }
+    }
+
     /// Stop the DMA transfer. Intended to be called by `stop()` or `Drop`.
     fn teardown(&mut self) -> usize {
         let available = self.available();
@@ -2199,13 +2171,13 @@ impl<'a, W: Word> RingBuffer<'a, W> {
     }
 }
 
-impl<'a, W: Word> Drop for RingBuffer<'a, W> {
+impl<W: Word> Drop for RingBuffer<'_, '_, W> {
     fn drop(&mut self) {
         self.teardown();
     }
 }
 
-impl<C: Channel> DmaChannel<C> {
+impl<'a> DmaChannel<'a> {
     /// Set up a circular DMA transfer for continuous peripheral-to-memory reception.
     ///
     /// This configures the DMA channel for circular operation with both half-transfer
@@ -2226,7 +2198,11 @@ impl<C: Channel> DmaChannel<C> {
     /// - The buffer must remain valid for the lifetime of the returned RingBuffer.
     /// - The peripheral address must be valid for reads.
     /// - The peripheral's DMA request must be configured to trigger this channel.
-    pub unsafe fn setup_circular_read<'a, W: Word>(&self, peri_addr: *const W, buf: &'a mut [W]) -> RingBuffer<'a, W> {
+    pub unsafe fn setup_circular_read<'buf: 'a, W: Word>(
+        &'a self,
+        peri_addr: *const W,
+        buf: &'buf mut [W],
+    ) -> RingBuffer<'a, 'buf, W> {
         unsafe {
             assert!(!buf.is_empty());
             assert!(buf.len() <= 0x7fff);
@@ -2287,7 +2263,7 @@ impl<C: Channel> DmaChannel<C> {
             // Enable NVIC interrupt for this channel so async wakeups work
             self.enable_interrupt();
 
-            RingBuffer::new(self.as_any(), buf)
+            RingBuffer::new(self, buf)
         }
     }
 }
@@ -2395,7 +2371,7 @@ impl<'a, W: Word> ScatterGatherBuilder<'a, W> {
     /// # Returns
     ///
     /// A `Transfer` future that completes when the entire chain has executed.
-    pub fn build<C: Channel>(&mut self, channel: &DmaChannel<C>) -> Result<Transfer<'a>, Error> {
+    pub fn build<C: Channel>(&mut self, channel: &'a DmaChannel<'a>) -> Result<Transfer<'a>, Error> {
         if self.count == 0 {
             return Err(Error::Configuration);
         }
@@ -2444,7 +2420,7 @@ impl<'a, W: Word> ScatterGatherBuilder<'a, W> {
 
         // Reset channel state - clear DONE, disable requests, clear errors
         // This ensures the channel is in a clean state before loading the TCD
-        DmaChannel::<C>::reset_channel_state(&t);
+        DmaChannel::reset_channel_state(&t);
 
         // Memory barrier to ensure channel state is reset before loading TCD
         cortex_m::asm::dsb();
@@ -2460,7 +2436,7 @@ impl<'a, W: Word> ScatterGatherBuilder<'a, W> {
         // Start the transfer
         t.tcd_csr().modify(|w| w.set_start(Start::CHANNEL_STARTED));
 
-        Ok(Transfer::new(channel.as_any()))
+        Ok(Transfer::new(channel))
     }
 
     /// Reset the builder for reuse.
